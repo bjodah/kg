@@ -1,0 +1,13 @@
+name: isearch-ctrl-a-bol
+filename: sample.txt
+initial: |
+  abc
+  def
+  ghi
+keys:
+  - C-s
+  - ef
+  - C-a
+  - X
+oracle: emacs
+xfail: true

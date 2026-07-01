@@ -28,6 +28,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete
+PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
 
@@ -39,7 +40,9 @@ $(TARGET): $(OBJS)
 $(OBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-check: $(TESTBINS)
+check: check-unit check-pty
+
+check-unit: $(TESTBINS)
 	@pass=0; fail=0; \
 	for t in $(TESTBINS); do \
 		name=$$(basename $$t); \
@@ -61,6 +64,9 @@ check: $(TESTBINS)
 	       $$total $$pass $$fail; \
 	echo "============================================================================"; \
 	[ $$fail -eq 0 ]
+
+check-pty: $(TARGET) $(PTY_TESTS)
+	@python utils/pty_accept.py --kg $(TARGET) $(PTY_TESTS)
 
 # Per-test linker prerequisites beyond the common test_%.o + test.o.
 # The static pattern rule below pulls these in via secondary expansion.
@@ -107,4 +113,4 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check deb release install uninstall
+.PHONY: all clean distclean check check-unit check-pty deb release install uninstall

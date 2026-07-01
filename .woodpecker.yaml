@@ -7,5 +7,6 @@ when:
 steps:
   - name: build-and-test
     image: *ci_image
+    environment:
     commands:
-      - bash -lc 'source $(compgen -G "/opt-?/cpython-v3.*-apt-deb/bin/activate"); make check'
+      - bash -l .ci/run-ci-steps.sh

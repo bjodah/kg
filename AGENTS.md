@@ -9,7 +9,7 @@ kg is a small Emacs-style terminal editor written in C99. Read `README.md` first
 - `Makefile`: build, test, install, release targets
 
 ## Build and test
-- Build: `make`
+- Build: `make CC="ccache cc"`
 - Run tests: `make check`
 - Clean binaries/objects: `make clean` or `make distclean`
 - `make check` now runs two layers:

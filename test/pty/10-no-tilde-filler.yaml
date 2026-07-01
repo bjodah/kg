@@ -1,0 +1,12 @@
+name: no-tilde-filler
+filename: notilde.txt
+initial: |
+  abc
+keys: []
+expected_saved: |
+  abc
+# Default build has KG_SHOW_TILDE=0: lines past end-of-buffer are blank
+# and carry no leading "~".  The mode line shows only the basename, so a
+# "~" on screen would only come from the filler/banner renderer.
+expected_screen_not_contains:
+  - "~"

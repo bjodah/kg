@@ -37,6 +37,17 @@
 
 #define KG_VERSION "1.1.0"
 
+/* Compile-time presentation options.
+ *
+ * KG_SHOW_TILDE: prefix lines past end-of-buffer (and the welcome
+ * banner's left margin) with a leading "~", the vim/kilo convention.
+ * Off by default for an Emacs-like presentation where such lines are
+ * simply blank.  Override at build time, e.g. `make KG_SHOW_TILDE=1`.
+ * Defining it via -D on the compile line also works. */
+#ifndef KG_SHOW_TILDE
+#define KG_SHOW_TILDE 0
+#endif
+
 #if defined(__linux__) || defined(__CYGWIN__)
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L

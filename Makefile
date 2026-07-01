@@ -12,6 +12,12 @@ bindir  = $(prefix)/bin
 mandir  = $(prefix)/share/man
 man1dir = $(mandir)/man1
 
+# Show a leading "~" on lines past end-of-buffer (vim/kilo style).
+# Off by default for an Emacs-like presentation.  Override on the make
+# command line, e.g. `make KG_SHOW_TILDE=1`.
+KG_SHOW_TILDE ?= 0
+CFLAGS += -DKG_SHOW_TILDE=$(KG_SHOW_TILDE)
+
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c bufmgr.c winmgr.c cmd.c macro.c \

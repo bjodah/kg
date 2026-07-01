@@ -37,7 +37,7 @@ static void setup_rows(int n)
 
 /* ---- Tests ---- */
 
-/* Three rows joined produce "line1\nline2\nline3\n". */
+/* Three rows join with "\n" separators but no forced trailing newline. */
 static void test_rows_to_string(void)
 {
 	char *s;
@@ -50,13 +50,13 @@ static void test_rows_to_string(void)
 
 	s = editor_rows_to_string(editor.row, editor.numrows, &len);
 
-	CHECK(len == 18);   /* (5+1) * 3 */
-	CHECK(memcmp(s, "line1\nline2\nline3\n", 18) == 0);
+	CHECK(len == 17);
+	CHECK(memcmp(s, "line1\nline2\nline3", 17) == 0);
 	free(s);
 	teardown();
 }
 
-/* Single empty row produces "\n". */
+/* Single empty row produces an empty file image. */
 static void test_rows_to_string_empty_row(void)
 {
 	char *s;
@@ -67,8 +67,26 @@ static void test_rows_to_string_empty_row(void)
 
 	s = editor_rows_to_string(editor.row, editor.numrows, &len);
 
-	CHECK(len == 1);
-	CHECK(s[0] == '\n');
+	CHECK(len == 0);
+	CHECK(s[0] == '\0');
+	free(s);
+	teardown();
+}
+
+/* A trailing empty row preserves a final newline on save. */
+static void test_rows_to_string_trailing_empty_row(void)
+{
+	char *s;
+	int len;
+
+	setup();
+	editor_insert_row(0, "line1", 5);
+	editor_insert_row(1, "", 0);
+
+	s = editor_rows_to_string(editor.row, editor.numrows, &len);
+
+	CHECK(len == 6);
+	CHECK(memcmp(s, "line1\n", 6) == 0);
 	free(s);
 	teardown();
 }
@@ -396,6 +414,7 @@ int main(void)
 {
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
+	RUN(test_rows_to_string_trailing_empty_row);
 	RUN(test_row_insert_char_middle);
 	RUN(test_row_insert_char_front);
 	RUN(test_row_insert_char_end);

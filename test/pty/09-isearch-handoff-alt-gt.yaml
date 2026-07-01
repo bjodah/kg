@@ -10,4 +10,5 @@ keys:
   - X
 expected_saved: |
   abcdefghi
-  second lineX
+  second line
+  X

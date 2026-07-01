@@ -240,7 +240,9 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 
 	/* Compute count of bytes */
 	for (j = 0; j < numrows; j++)
-		totlen += rows[j].size+1; /* +1 is for "\n" at end of every row */
+		totlen += rows[j].size;
+	if (numrows > 1)
+		totlen += numrows - 1; /* "\n" between rows */
 	*buflen = totlen;
 	totlen++; /* Also make space for nulterm */
 
@@ -248,8 +250,8 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	for (j = 0; j < numrows; j++) {
 		memcpy(p, rows[j].chars, rows[j].size);
 		p += rows[j].size;
-		*p = '\n';
-		p++;
+		if (j != numrows - 1)
+			*p++ = '\n';
 	}
 	*p = '\0';
 	return buf;
@@ -307,6 +309,7 @@ void editor_insert_char(int c)
 	erow *row = (editor.rowoff + editor.cy >= editor.numrows) ? NULL : &editor.row[editor.rowoff + editor.cy];
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
+	int keep_trailing_newline = 0;
 
 	/* If the row where the cursor is currently located does not exist in our
 	 * logical representation of the file, add enough empty rows as needed. */
@@ -315,11 +318,15 @@ void editor_insert_char(int c)
 			editor_insert_row(editor.numrows, "", 0);
 	}
 	row = &editor.row[filerow];
+	keep_trailing_newline = (filerow == editor.numrows - 1 &&
+	                         row->size == 0 && filecol == 0);
 
 	/* Record undo operation */
 	undo_push(UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
 
 	editor_row_insert_char(row, filecol, c);
+	if (keep_trailing_newline)
+		editor_insert_row(editor.numrows, "", 0);
 	if (editor.cx == editor.screencols - 1)
 		editor.coloff++;
 	else

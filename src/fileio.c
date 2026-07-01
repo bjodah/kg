@@ -39,6 +39,7 @@ int editor_open(char *filename)
 	size_t linecap = 0;
 	size_t fnlen = strlen(filename) + 1;
 	char *line = NULL;
+	int ended_with_newline = 0;
 	FILE *fp;
 
 	editor.dirty = 0;
@@ -57,10 +58,15 @@ int editor_open(char *filename)
 	}
 
 	while ((linelen = getline(&line, &linecap, fp)) != -1) {
-		if (linelen && (line[linelen-1] == '\n' || line[linelen-1] == '\r'))
+		ended_with_newline = 0;
+		if (linelen && (line[linelen-1] == '\n' || line[linelen-1] == '\r')) {
 			line[--linelen] = '\0';
+			ended_with_newline = 1;
+		}
 		editor_insert_row(editor.numrows, line, linelen);
 	}
+	if (ended_with_newline)
+		editor_insert_row(editor.numrows, "", 0);
 	free(line);
 	fclose(fp);
 	editor.dirty = 0;

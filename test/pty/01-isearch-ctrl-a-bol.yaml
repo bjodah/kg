@@ -14,4 +14,3 @@ keys:
   - C-a
   - X
 oracle: emacs
-xfail: true

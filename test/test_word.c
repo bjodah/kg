@@ -241,6 +241,33 @@ static void test_comment_dwim_no_syntax(void)
 	teardown();
 }
 
+/* A region ending at column 0 on a later line excludes that final line
+ * from line-wise comment-dwim. */
+static void test_comment_dwim_region_excludes_final_bol_line(void)
+{
+	setup();
+	editor.syntax = &HLDB[0];
+	editor_insert_row(0, "a += 1;", 7);
+	editor_insert_row(1, "b += 2;", 7);
+	editor_insert_row(2, "return a + b;", 13);
+
+	editor.mark_set = 1;
+	editor.mark_row = 0;
+	editor.mark_col = 0;
+	editor.mark_highlight = 1;
+	editor.rowoff = 0;
+	editor.coloff = 0;
+	editor.cy = 2;
+	editor.cx = 0;
+
+	editor_comment_dwim();
+
+	CHECK(memcmp(editor.row[0].chars, "// a += 1;", 10) == 0);
+	CHECK(memcmp(editor.row[1].chars, "// b += 2;", 10) == 0);
+	CHECK(memcmp(editor.row[2].chars, "return a + b;", 13) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -258,5 +285,6 @@ int main(void)
 	RUN(test_comment_dwim_add);
 	RUN(test_comment_dwim_remove);
 	RUN(test_comment_dwim_no_syntax);
+	RUN(test_comment_dwim_region_excludes_final_bol_line);
 	return test_summary();
 }

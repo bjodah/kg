@@ -34,4 +34,3 @@ expected_saved_any:
           /* b += 3; */
           return a*b;
       }
-xfail: true

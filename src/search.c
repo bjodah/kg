@@ -41,6 +41,11 @@ void editor_find(int fd)
 			RESTORE_HL;
 			editor_set_status_message("");
 			return;
+		} else if (c == CTRL_A) {
+			RESTORE_HL;
+			editor_set_status_message("");
+			editor_move_cursor(HOME_KEY);
+			return;
 		} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_S) {
 			find_next = 1;
 		} else if (c == ARROW_LEFT || c == ARROW_UP || c == CTRL_R) {

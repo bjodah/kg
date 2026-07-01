@@ -4,6 +4,9 @@ import argparse
 import difflib
 import io
 import os
+import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -17,6 +20,8 @@ import yaml
 DEFAULT_TRAILER = ["C-x", "C-s", "C-x", "C-c"]
 DEFAULT_DIMENSIONS = (24, 80)
 DEFAULT_TIMEOUT = 5.0
+DEFAULT_STARTUP_DELAY = 0.5
+DEFAULT_KEY_DELAY = 0.05
 EMACS = "/opt-3/emacs-31-lucid/bin/emacs"
 
 
@@ -32,6 +37,10 @@ class Case:
 	oracle: str | None
 	xfail: bool
 	trailer_keys: list[str]
+	backend: str
+	oracle_backend: str | None
+	startup_delay: float
+	key_delay: float
 
 
 @dataclass
@@ -83,6 +92,54 @@ def token_to_bytes(token: str) -> bytes:
 	return token.encode("utf-8")
 
 
+def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
+	upper = token.upper()
+
+	if upper in ("C-SPC", "C-SPACE", "C-@"):
+		child.sendcontrol("@")
+		return
+
+	if len(token) >= 3 and token[1] == "-":
+		prefix = token[0].upper()
+		payload = token[2:]
+		if prefix == "C" and len(payload) == 1:
+			child.sendcontrol(payload)
+			return
+		if prefix == "M" and len(payload) == 1:
+			child.send("\x1b")
+			child.send(payload)
+			return
+
+	for b in token_to_bytes(token):
+		child.send(bytes([b]))
+
+
+def tmux_key_name(token: str) -> tuple[str, str]:
+	upper = token.upper()
+
+	if upper == "ESC":
+		return ("key", "Escape")
+	if upper in ("RET", "ENTER"):
+		return ("key", "Enter")
+	if upper == "TAB":
+		return ("key", "Tab")
+	if upper in ("SPC", "SPACE"):
+		return ("key", "Space")
+	if upper in ("C-SPC", "C-SPACE", "C-@"):
+		return ("key", "C-Space")
+
+	if len(token) >= 3 and token[1] == "-":
+		prefix = token[0].upper()
+		payload = token[2:]
+		if len(payload) == 1:
+			if prefix == "C":
+				return ("key", f"C-{payload}")
+			if prefix == "M":
+				return ("key", f"M-{payload}")
+
+	return ("literal", token)
+
+
 def decode_text(data: bytes) -> str:
 	return data.decode("utf-8", "replace")
 
@@ -113,6 +170,12 @@ def load_case(path: Path) -> Case:
 		    not data["expected_saved_any"] or
 		    not all(isinstance(v, str) for v in data["expected_saved_any"])):
 			raise ValueError(f"{path}: expected_saved_any must be a non-empty list of strings")
+	backend = data.get("backend", "pexpect")
+	if backend not in ("pexpect", "tmux"):
+		raise ValueError(f"{path}: backend must be pexpect or tmux")
+	oracle_backend = data.get("oracle_backend")
+	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
+		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
 
 	return Case(
 		name=data.get("name", path.stem),
@@ -125,10 +188,16 @@ def load_case(path: Path) -> Case:
 		oracle=data.get("oracle"),
 		xfail=bool(data.get("xfail", False)),
 		trailer_keys=data.get("trailer_keys", DEFAULT_TRAILER),
+		backend=backend,
+		oracle_backend=oracle_backend,
+		startup_delay=float(data.get("startup_delay", DEFAULT_STARTUP_DELAY)),
+		key_delay=float(data.get("key_delay", DEFAULT_KEY_DELAY)),
 	)
 
 
-def run_editor(argv: list[str], filename: str, initial: str, keys: list[str], trailer_keys: list[str]) -> RunResult:
+def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
+		       trailer_keys: list[str], startup_delay: float,
+		       key_delay: float) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,13 +219,14 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str], tr
 			timeout=DEFAULT_TIMEOUT,
 			dimensions=DEFAULT_DIMENSIONS,
 		)
-		child.delaybeforesend = 0.03
+		child.delaybeforesend = 0
 		child.logfile_read = log
 
 		try:
-			time.sleep(0.2)
+			time.sleep(startup_delay)
 			for token in [*keys, *trailer_keys]:
-				child.send(token_to_bytes(token))
+				send_token_pexpect(child, token)
+				time.sleep(key_delay)
 			child.expect(pexpect.EOF, timeout=DEFAULT_TIMEOUT)
 			child.close()
 		except Exception as exc:
@@ -170,15 +240,84 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str], tr
 		return RunResult(file_path.read_bytes(), exit_code, None, log.getvalue())
 
 
+def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+	return subprocess.run(["tmux", "-S", sock, *args], check=check, capture_output=True, text=True)
+
+
+def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
+		    trailer_keys: list[str], startup_delay: float,
+		    key_delay: float) -> RunResult:
+	if shutil.which("tmux") is None:
+		return RunResult(None, None, "tmux not found", b"")
+
+	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td:
+		file_path = Path(td) / filename
+		file_path.parent.mkdir(parents=True, exist_ok=True)
+		file_path.write_text(initial)
+
+		home = Path(td) / "home"
+		home.mkdir()
+		sock = str(Path(td) / "tmux.sock")
+		session = "ptyaccept"
+		pane = f"{session}:0.0"
+		cmd = "env " + \
+		      f"HOME={shlex.quote(str(home))} " + \
+		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
+		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
+		transcript = io.StringIO()
+
+		try:
+			run_tmux_cmd(sock, "new-session", "-d", "-s", session, cmd)
+			time.sleep(startup_delay)
+			for token in [*keys, *trailer_keys]:
+				mode, value = tmux_key_name(token)
+				if mode == "key":
+					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
+				else:
+					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				time.sleep(key_delay)
+			time.sleep(key_delay)
+		except Exception as exc:
+			try:
+				cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50", check=False)
+				transcript.write(cp.stdout)
+			except Exception:
+				pass
+			return RunResult(None, None, str(exc), transcript.getvalue().encode())
+		finally:
+			try:
+				cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50", check=False)
+				transcript.write(cp.stdout)
+			except Exception:
+				pass
+			run_tmux_cmd(sock, "kill-server", check=False)
+
+		return RunResult(file_path.read_bytes(), 0, None, transcript.getvalue().encode())
+
+
+def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
+	       trailer_keys: list[str], backend: str, startup_delay: float,
+	       key_delay: float) -> RunResult:
+	if backend == "tmux":
+		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
+				       startup_delay, key_delay)
+	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
+				  startup_delay, key_delay)
+
+
 def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
-	kg_run = run_editor([kg_path], case.filename, case.initial, case.keys, case.trailer_keys)
+	kg_run = run_editor([kg_path], case.filename, case.initial, case.keys,
+			    case.trailer_keys, case.backend, case.startup_delay,
+			    case.key_delay)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
 
 	if case.oracle == "emacs":
+		oracle_backend = case.oracle_backend or case.backend
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
-				       case.keys, case.trailer_keys)
+				       case.keys, case.trailer_keys, oracle_backend,
+				       case.startup_delay, case.key_delay)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved

@@ -12,6 +12,98 @@
 	} \
 } while (0)
 
+static int isearch_handoff_key(int fd, int c)
+{
+	switch (c) {
+	case CTRL_A:
+		editor_set_status_message("");
+		editor_move_cursor(HOME_KEY);
+		return 1;
+	case CTRL_B:
+		editor_set_status_message("");
+		editor_move_cursor(ARROW_LEFT);
+		return 1;
+	case CTRL_D:
+		if (editor.readonly)
+			editor_set_status_message("Buffer is read-only");
+		else {
+			editor_set_status_message("");
+			editor_del_forward_char();
+		}
+		return 1;
+	case CTRL_E:
+		editor_set_status_message("");
+		editor_move_cursor(END_KEY);
+		return 1;
+	case CTRL_F:
+		editor_set_status_message("");
+		editor_move_cursor(ARROW_RIGHT);
+		return 1;
+	case CTRL_N:
+		editor_set_status_message("");
+		editor_move_cursor(ARROW_DOWN);
+		return 1;
+	case CTRL_P:
+		editor_set_status_message("");
+		editor_move_cursor(ARROW_UP);
+		return 1;
+	case ARROW_LEFT:
+	case ARROW_RIGHT:
+	case ARROW_UP:
+	case ARROW_DOWN:
+	case HOME_KEY:
+	case END_KEY:
+		editor_set_status_message("");
+		editor_move_cursor(c);
+		return 1;
+	case CTRL_HOME:
+	case ALT_LT:
+		editor_set_status_message("");
+		editor_move_to_beginning();
+		return 1;
+	case CTRL_END:
+	case ALT_GT:
+		editor_set_status_message("");
+		editor_move_to_end();
+		return 1;
+	case ALT_B:
+	case CTRL_ARROW_LEFT:
+		editor_set_status_message("");
+		editor_move_word_backward();
+		return 1;
+	case ALT_F:
+	case CTRL_ARROW_RIGHT:
+		editor_set_status_message("");
+		editor_move_word_forward();
+		return 1;
+	case ALT_M:
+		editor_set_status_message("");
+		editor_move_to_indentation();
+		return 1;
+	case ALT_A:
+		editor_set_status_message("");
+		editor_move_sentence_backward();
+		return 1;
+	case ALT_E:
+		editor_set_status_message("");
+		editor_move_sentence_forward();
+		return 1;
+	case ALT_LBRACE:
+	case CTRL_ARROW_UP:
+		editor_set_status_message("");
+		editor_move_paragraph_backward();
+		return 1;
+	case ALT_RBRACE:
+	case CTRL_ARROW_DOWN:
+		editor_set_status_message("");
+		editor_move_paragraph_forward();
+		return 1;
+	default:
+		(void)fd;
+		return 0;
+	}
+}
+
 void editor_find(int fd)
 {
 	char query[KILO_QUERY_LEN+1] = {0};
@@ -41,11 +133,6 @@ void editor_find(int fd)
 			RESTORE_HL;
 			editor_set_status_message("");
 			return;
-		} else if (c == CTRL_A) {
-			RESTORE_HL;
-			editor_set_status_message("");
-			editor_move_cursor(HOME_KEY);
-			return;
 		} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_S) {
 			find_next = 1;
 		} else if (c == ARROW_LEFT || c == ARROW_UP || c == CTRL_R) {
@@ -56,6 +143,9 @@ void editor_find(int fd)
 				query[qlen] = '\0';
 				last_match = -1;
 			}
+		} else if (isearch_handoff_key(fd, c)) {
+			RESTORE_HL;
+			return;
 		}
 
 		/* Search occurrence. */
@@ -90,7 +180,7 @@ void editor_find(int fd)
 					memcpy(saved_hl, row->hl, row->rsize);
 					memset(row->hl+match_offset, HL_MATCH, qlen);
 				}
-				editor_reveal_position_centered(current, match_offset);
+				editor_reveal_position_centered(current, match_offset + qlen);
 			}
 		}
 	}

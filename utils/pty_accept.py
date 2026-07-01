@@ -219,7 +219,8 @@ def load_case(path: Path) -> Case:
 
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
 		       trailer_keys: list[str], startup_delay: float,
-		       key_delay: float, dimensions: tuple[int, int]) -> RunResult:
+		       key_delay: float, dimensions: tuple[int, int],
+		       timeout: float) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +239,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 			env=env,
 			encoding=None,
 			echo=False,
-			timeout=DEFAULT_TIMEOUT,
+			timeout=timeout,
 			dimensions=dimensions,
 		)
 		child.delaybeforesend = 0
@@ -249,7 +250,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 			for token in [*keys, *trailer_keys]:
 				send_token_pexpect(child, token)
 				time.sleep(key_delay)
-			child.expect(pexpect.EOF, timeout=DEFAULT_TIMEOUT)
+			child.expect(pexpect.EOF, timeout=timeout)
 			child.close()
 		except Exception as exc:
 			child.close(force=True)
@@ -268,7 +269,8 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
-		    key_delay: float, dimensions: tuple[int, int]) -> RunResult:
+		    key_delay: float, dimensions: tuple[int, int],
+		    timeout: float) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -300,7 +302,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				else:
 					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
 				time.sleep(key_delay)
-			time.sleep(key_delay)
+			time.sleep(min(key_delay, timeout))
 		except Exception as exc:
 			try:
 				cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50", check=False)
@@ -321,18 +323,19 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
-	       key_delay: float, dimensions: tuple[int, int]) -> RunResult:
+	       key_delay: float, dimensions: tuple[int, int],
+	       timeout: float) -> RunResult:
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
-				       startup_delay, key_delay, dimensions)
+				       startup_delay, key_delay, dimensions, timeout)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
-				  startup_delay, key_delay, dimensions)
+				  startup_delay, key_delay, dimensions, timeout)
 
 
-def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
-	kg_run = run_editor([kg_path], case.filename, case.initial, case.keys,
+def evaluate_case(case: Case, kg_argv: list[str], timeout: float) -> tuple[str, str | None]:
+	kg_run = run_editor(kg_argv, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, case.startup_delay,
-			    case.key_delay, case.dimensions)
+			    case.key_delay, case.dimensions, timeout)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -341,7 +344,8 @@ def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
 		oracle_backend = case.oracle_backend or case.backend
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
-				       case.startup_delay, case.key_delay, case.dimensions)
+				       case.startup_delay, case.key_delay, case.dimensions,
+				       timeout)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved
@@ -385,15 +389,19 @@ def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
 def main() -> int:
 	parser = argparse.ArgumentParser(description="Run PTY-backed acceptance tests for kg.")
 	parser.add_argument("--kg", required=True, help="Path to kg binary")
+	parser.add_argument("--kg-runner", default="", help="Optional command prefix used to run kg")
+	parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+	                    help="Per-run timeout in seconds")
 	parser.add_argument("cases", nargs="+", help="YAML case files")
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
+	kg_argv = shlex.split(args.kg_runner) + [args.kg]
 
 	counts = {k: 0 for k in ("PASS", "FAIL", "XFAIL", "XPASS", "ERROR")}
 
 	for case_path in args.cases:
 		case = load_case(Path(case_path))
-		status, details = evaluate_case(case, args.kg)
+		status, details = evaluate_case(case, kg_argv, args.timeout)
 		counts[status] += 1
 		print(f"{status}: {case.name}")
 		if details:

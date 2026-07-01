@@ -37,6 +37,10 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
+TEST_RUNNER ?=
+KG_RUNNER ?=
+PTY_ACCEPT_ARGS ?=
+PTY_TIMEOUT ?=
 
 all: $(TARGET)
 
@@ -53,7 +57,7 @@ check-unit: $(TESTBINS)
 	for t in $(TESTBINS); do \
 		name=$$(basename $$t); \
 		log=$$(mktemp); \
-		if $$t >$$log 2>&1; then \
+		if $(TEST_RUNNER) $$t >$$log 2>&1; then \
 			echo "PASS: $$name"; pass=$$((pass+1)); \
 		else \
 			echo "FAIL: $$name"; fail=$$((fail+1)); \
@@ -72,7 +76,7 @@ check-unit: $(TESTBINS)
 	[ $$fail -eq 0 ]
 
 check-pty: $(TARGET) $(PTY_TESTS)
-	@python utils/pty_accept.py --kg $(TARGET) $(PTY_TESTS)
+	@python utils/pty_accept.py $(PTY_ACCEPT_ARGS) $(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) --kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
 
 # Per-test linker prerequisites beyond the common test_%.o + test.o.
 # The static pattern rule below pulls these in via secondary expansion.

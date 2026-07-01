@@ -34,4 +34,6 @@ kg is a small Emacs-style terminal editor written in C99. Read `README.md` first
 - Always set `filename` deliberately in PTY cases; editor mode and syntax behavior depend on the extension.
 - PTY cases can choose `backend: pexpect` or `backend: tmux`; use `oracle_backend` when the Emacs oracle needs a different driver than kg.
 - `startup_delay` and `key_delay` exist for timing-sensitive interactive cases; keep them explicit and case-local.
+- `dimensions: [rows, cols]` is available for viewport-sensitive cases.
+- tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.

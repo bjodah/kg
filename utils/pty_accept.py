@@ -41,6 +41,9 @@ class Case:
 	oracle_backend: str | None
 	startup_delay: float
 	key_delay: float
+	dimensions: tuple[int, int]
+	expected_screen_contains: list[str] | None
+	expected_screen_not_contains: list[str] | None
 
 
 @dataclass
@@ -176,6 +179,22 @@ def load_case(path: Path) -> Case:
 	oracle_backend = data.get("oracle_backend")
 	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
+	dimensions = tuple(data.get("dimensions", DEFAULT_DIMENSIONS))
+	if (len(dimensions) != 2 or
+	    not all(isinstance(v, int) and v > 0 for v in dimensions)):
+		raise ValueError(f"{path}: dimensions must be [rows, cols] with positive integers")
+	screen_contains = data.get("expected_screen_contains")
+	screen_not_contains = data.get("expected_screen_not_contains")
+	if screen_contains is not None and (
+		not isinstance(screen_contains, list) or
+		not all(isinstance(v, str) for v in screen_contains)
+	):
+		raise ValueError(f"{path}: expected_screen_contains must be a list of strings")
+	if screen_not_contains is not None and (
+		not isinstance(screen_not_contains, list) or
+		not all(isinstance(v, str) for v in screen_not_contains)
+	):
+		raise ValueError(f"{path}: expected_screen_not_contains must be a list of strings")
 
 	return Case(
 		name=data.get("name", path.stem),
@@ -192,12 +211,15 @@ def load_case(path: Path) -> Case:
 		oracle_backend=oracle_backend,
 		startup_delay=float(data.get("startup_delay", DEFAULT_STARTUP_DELAY)),
 		key_delay=float(data.get("key_delay", DEFAULT_KEY_DELAY)),
+		dimensions=(dimensions[0], dimensions[1]),
+		expected_screen_contains=screen_contains,
+		expected_screen_not_contains=screen_not_contains,
 	)
 
 
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
 		       trailer_keys: list[str], startup_delay: float,
-		       key_delay: float) -> RunResult:
+		       key_delay: float, dimensions: tuple[int, int]) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,7 +239,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 			encoding=None,
 			echo=False,
 			timeout=DEFAULT_TIMEOUT,
-			dimensions=DEFAULT_DIMENSIONS,
+			dimensions=dimensions,
 		)
 		child.delaybeforesend = 0
 		child.logfile_read = log
@@ -246,7 +268,7 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
-		    key_delay: float) -> RunResult:
+		    key_delay: float, dimensions: tuple[int, int]) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -260,6 +282,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		sock = str(Path(td) / "tmux.sock")
 		session = "ptyaccept"
 		pane = f"{session}:0.0"
+		rows, cols = dimensions
 		cmd = "env " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
@@ -267,7 +290,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		transcript = io.StringIO()
 
 		try:
-			run_tmux_cmd(sock, "new-session", "-d", "-s", session, cmd)
+			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
+				     "-x", str(cols), "-y", str(rows), cmd)
 			time.sleep(startup_delay)
 			for token in [*keys, *trailer_keys]:
 				mode, value = tmux_key_name(token)
@@ -297,18 +321,18 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
-	       key_delay: float) -> RunResult:
+	       key_delay: float, dimensions: tuple[int, int]) -> RunResult:
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
-				       startup_delay, key_delay)
+				       startup_delay, key_delay, dimensions)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
-				  startup_delay, key_delay)
+				  startup_delay, key_delay, dimensions)
 
 
 def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
 	kg_run = run_editor([kg_path], case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, case.startup_delay,
-			    case.key_delay)
+			    case.key_delay, case.dimensions)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -317,7 +341,7 @@ def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
 		oracle_backend = case.oracle_backend or case.backend
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
-				       case.startup_delay, case.key_delay)
+				       case.startup_delay, case.key_delay, case.dimensions)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved
@@ -335,6 +359,23 @@ def evaluate_case(case: Case, kg_path: str) -> tuple[str, str | None]:
 		passed = kg_run.saved == expected
 		details = None if passed else diff_text(expected, kg_run.saved,
 							"expected", "actual")
+
+	if passed and (case.expected_screen_contains or case.expected_screen_not_contains):
+		screen = decode_text(kg_run.transcript)
+		missing = []
+		unexpected = []
+		if case.expected_screen_contains is not None:
+			missing = [s for s in case.expected_screen_contains if s not in screen]
+		if case.expected_screen_not_contains is not None:
+			unexpected = [s for s in case.expected_screen_not_contains if s in screen]
+		if missing or unexpected:
+			passed = 0
+			msg = []
+			if missing:
+				msg.append("missing screen text: " + ", ".join(repr(s) for s in missing))
+			if unexpected:
+				msg.append("unexpected screen text: " + ", ".join(repr(s) for s in unexpected))
+			details = "; ".join(msg)
 
 	if passed:
 		return ("XPASS", None) if case.xfail else ("PASS", None)

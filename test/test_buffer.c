@@ -23,6 +23,18 @@ static void teardown(void)
 	editor.numrows = 0;
 }
 
+static void setup_rows(int n)
+{
+	int i;
+	char buf[16];
+
+	setup();
+	for (i = 0; i < n; i++) {
+		snprintf(buf, sizeof(buf), "row%02d", i);
+		editor_insert_row(i, buf, strlen(buf));
+	}
+}
+
 /* ---- Tests ---- */
 
 /* Three rows joined produce "line1\nline2\nline3\n". */
@@ -328,6 +340,56 @@ static void test_chars_col_past_eol(void)
 	teardown();
 }
 
+/* reveal_position_centered keeps the viewport still when the target row is
+ * already visible. */
+static void test_reveal_position_visible_row_keeps_rowoff(void)
+{
+	setup_rows(30);
+	editor.screenrows = 10;
+	editor.screencols = 80;
+	editor.rowoff = 0;
+	editor.coloff = 0;
+
+	editor_reveal_position_centered(2, 0);
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 2);
+	teardown();
+}
+
+/* Off-screen targets land centered vertically, matching isearch's desired
+ * "reveal only when needed" behavior. */
+static void test_reveal_position_offscreen_row_recenters(void)
+{
+	setup_rows(30);
+	editor.screenrows = 10;
+	editor.screencols = 80;
+	editor.rowoff = 0;
+	editor.coloff = 0;
+
+	editor_reveal_position_centered(14, 0);
+
+	CHECK(editor.rowoff == 9);
+	CHECK(editor.cy == 5);
+	teardown();
+}
+
+/* Near EOF, centering clamps so the viewport does not run past the final row. */
+static void test_reveal_position_near_eof_clamps(void)
+{
+	setup_rows(30);
+	editor.screenrows = 10;
+	editor.screencols = 80;
+	editor.rowoff = 0;
+	editor.coloff = 0;
+
+	editor_reveal_position_centered(29, 0);
+
+	CHECK(editor.rowoff == 20);
+	CHECK(editor.cy == 9);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -353,5 +415,8 @@ int main(void)
 	RUN(test_chars_col_round_trip);
 	RUN(test_chars_col_inside_tab);
 	RUN(test_chars_col_past_eol);
+	RUN(test_reveal_position_visible_row_keeps_rowoff);
+	RUN(test_reveal_position_offscreen_row_recenters);
+	RUN(test_reveal_position_near_eof_clamps);
 	return test_summary();
 }

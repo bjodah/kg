@@ -102,6 +102,46 @@ void editor_cursor_goto(int row, int col)
 	}
 }
 
+/* Keep (row, col) visible, but only recenter when it is currently off-screen.
+ * Used by isearch so matches already visible in the window do not jerk the
+ * viewport forward on every character typed, while distant matches still land
+ * in a stable, centered view.  `col` is a rendered column, matching the
+ * display/search convention used by coloff and HL_MATCH placement. */
+void editor_reveal_position_centered(int row, int col)
+{
+	int max_rowoff;
+
+	if (row < 0) row = 0;
+	if (col < 0) col = 0;
+
+	if (row < editor.rowoff || row >= editor.rowoff + editor.screenrows) {
+		editor.rowoff = row - editor.screenrows / 2;
+		if (editor.rowoff < 0)
+			editor.rowoff = 0;
+		max_rowoff = editor.numrows - editor.screenrows;
+		if (max_rowoff < 0)
+			max_rowoff = 0;
+		if (editor.rowoff > max_rowoff)
+			editor.rowoff = max_rowoff;
+	}
+	editor.cy = row - editor.rowoff;
+	if (editor.cy < 0)
+		editor.cy = 0;
+	else if (editor.cy >= editor.screenrows)
+		editor.cy = editor.screenrows - 1;
+
+	if (col < editor.coloff || col >= editor.coloff + editor.screencols) {
+		editor.coloff = col - editor.screencols / 2;
+		if (editor.coloff < 0)
+			editor.coloff = 0;
+	}
+	editor.cx = col - editor.coloff;
+	if (editor.cx < 0)
+		editor.cx = 0;
+	else if (editor.cx >= editor.screencols)
+		editor.cx = editor.screencols - 1;
+}
+
 /* Update the rendered version and the syntax highlight of a row. */
 void editor_update_row(erow *row)
 {

@@ -90,16 +90,7 @@ void editor_find(int fd)
 					memcpy(saved_hl, row->hl, row->rsize);
 					memset(row->hl+match_offset, HL_MATCH, qlen);
 				}
-				editor.cy = 0;
-				editor.cx = match_offset;
-				editor.rowoff = current;
-				editor.coloff = 0;
-				/* Scroll horizontally as needed. */
-				if (editor.cx > editor.screencols) {
-					int diff = editor.cx - editor.screencols;
-					editor.cx -= diff;
-					editor.coloff += diff;
-				}
+				editor_reveal_position_centered(current, match_offset);
 			}
 		}
 	}

@@ -401,6 +401,7 @@ void editor_move_to_window_line(void);
 void editor_goto_line_direct(int line, int col);
 void editor_goto_line(int fd);
 void editor_cursor_goto(int row, int col);
+void editor_reveal_position_centered(int row, int col);
 void editor_snap_cx_to_row(void);
 int  editor_visual_col(erow *row, int chars_col);
 int  editor_chars_col_at_visual(erow *row, int target_vcol);

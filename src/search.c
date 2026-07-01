@@ -177,6 +177,12 @@ void editor_find(int fd)
 				if (row->hl) {
 					saved_hl_line = current;
 					saved_hl = malloc(row->rsize);
+					if (!saved_hl) {
+						editor_set_status_message("Out of memory");
+						running = 0;
+						RESTORE_HL;
+						return;
+					}
 					memcpy(saved_hl, row->hl, row->rsize);
 					memset(row->hl+match_offset, HL_MATCH, qlen);
 				}
@@ -231,6 +237,12 @@ void editor_query_replace(int fd)
 					rcol += (row->chars[i] == '\t') ? (8 - rcol % 8) : 1;
 				saved_hl_line = filerow;
 				saved_hl = malloc(row->rsize);
+				if (!saved_hl) {
+					editor_set_status_message("Out of memory");
+					running = 0;
+					RESTORE_HL;
+					return;
+				}
 				memcpy(saved_hl, row->hl, row->rsize);
 				if (rcol + slen <= row->rsize)
 					memset(row->hl + rcol, HL_MATCH, slen);

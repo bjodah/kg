@@ -134,19 +134,17 @@ char *editor_get_region_text(int *out_len)
 
 	/* Calculate total length needed */
 	for (row = start_row; row <= end_row && row < editor.numrows; row++) {
-		if (row == start_row && row == end_row) {
-			/* Single line region */
-			total_len += end_col - start_col;
-		} else if (row == start_row) {
-			/* First line */
-			total_len += editor.row[row].size - start_col + 1; /* +1 for newline */
-		} else if (row == end_row) {
-			/* Last line */
-			total_len += end_col;
-		} else {
-			/* Middle lines */
-			total_len += editor.row[row].size + 1; /* +1 for newline */
-		}
+		int copy_start = (row == start_row) ? start_col : 0;
+		int copy_end = (row == end_row) ? end_col : editor.row[row].size;
+
+		if (copy_end > editor.row[row].size) copy_end = editor.row[row].size;
+		if (copy_start > editor.row[row].size) copy_start = editor.row[row].size;
+		if (copy_start < 0) copy_start = 0;
+		if (copy_end < copy_start) copy_end = copy_start;
+
+		total_len += copy_end - copy_start;
+		if (row < end_row)
+			total_len++;
 	}
 
 	if (total_len == 0) return NULL;
@@ -162,6 +160,8 @@ char *editor_get_region_text(int *out_len)
 
 		if (copy_end > editor.row[row].size) copy_end = editor.row[row].size;
 		if (copy_start > editor.row[row].size) copy_start = editor.row[row].size;
+		if (copy_start < 0) copy_start = 0;
+		if (copy_end < copy_start) copy_end = copy_start;
 
 		copy_len = copy_end - copy_start;
 		if (copy_len > 0) {
@@ -174,6 +174,10 @@ char *editor_get_region_text(int *out_len)
 			text[pos++] = '\n';
 	}
 
+	if (pos > total_len) {
+		free(text);
+		return NULL;
+	}
 	text[pos] = '\0';
 	*out_len = pos;
 	return text;

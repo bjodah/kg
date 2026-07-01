@@ -4,6 +4,13 @@
 
 #define FILL_COLUMN 72
 
+static int word_nomem(void)
+{
+	editor_set_status_message("Out of memory");
+	running = 0;
+	return 0;
+}
+
 /* Non-zero when point sits at the very end of the buffer, i.e. there is
  * nothing further forward to move onto. */
 static int at_buffer_end(void)
@@ -597,11 +604,17 @@ void editor_comment_dwim(void)
 		} else {
 			/* Not commented: insert scs + space at column 0. */
 			char prefix[8];
+			char *newchars;
 
 			memcpy(prefix, scs, scslen);
 			prefix[scslen] = ' ';
 
-			row->chars = realloc(row->chars, row->size + scslen + 2);
+			newchars = realloc(row->chars, row->size + scslen + 2);
+			if (!newchars) {
+				word_nomem();
+				return;
+			}
+			row->chars = newchars;
 			memmove(row->chars + scslen + 1, row->chars, row->size + 1);
 			memcpy(row->chars, scs, scslen);
 			row->chars[scslen] = ' ';
@@ -624,15 +637,16 @@ void editor_reflow_paragraph(void)
 	int para_start, para_end, nrows, total_chars, i;
 	int fill_col, indent_len;
 	erow *row;
-	char *words, *indent, *orig_text;
+	char *words = NULL, *indent = NULL, *orig_text = NULL;
 	int words_len, orig_len;
-	char **new_lines;
-	int *new_lens;
-	int new_count, new_cap;
-	char *cur;
+	char **new_lines = NULL;
+	int *new_lens = NULL;
+	int new_count = 0, new_cap;
+	char *cur = NULL;
 	int cur_len, cur_cap;
 	const char *p, *word_start;
 	int word_len, need;
+	int ok = 0;
 
 	if (filerow >= editor.numrows || editor.row[filerow].size == 0)
 		return;
@@ -653,6 +667,10 @@ void editor_reflow_paragraph(void)
 
 	/* Save original text (lines joined with '\n') for undo */
 	orig_text = malloc(total_chars + nrows + 1);
+	if (!orig_text) {
+		word_nomem();
+		return;
+	}
 	orig_len  = 0;
 	for (i = para_start; i <= para_end; i++) {
 		row = &editor.row[i];
@@ -669,12 +687,16 @@ void editor_reflow_paragraph(void)
 	while (indent_len < row->size && isspace((unsigned char)row->chars[indent_len]))
 		indent_len++;
 	indent = malloc(indent_len + 1);
+	if (!indent)
+		goto oom;
 	if (indent_len > 0)
 		memcpy(indent, row->chars, indent_len);
 	indent[indent_len] = '\0';
 
 	/* Build word stream: strip leading/trailing whitespace per line, join with spaces */
 	words     = malloc(total_chars + nrows + 1);
+	if (!words)
+		goto oom;
 	words_len = 0;
 	for (i = para_start; i <= para_end; i++) {
 		const char *line;
@@ -699,10 +721,14 @@ void editor_reflow_paragraph(void)
 	new_cap   = 8;
 	new_lines = malloc(new_cap * sizeof(char *));
 	new_lens  = malloc(new_cap * sizeof(int));
+	if (!new_lines || !new_lens)
+		goto oom;
 	new_count = 0;
 
 	cur_cap = fill_col + indent_len + 2;
 	cur     = malloc(cur_cap);
+	if (!cur)
+		goto oom;
 	memcpy(cur, indent, indent_len);
 	cur_len = indent_len;
 
@@ -719,25 +745,48 @@ void editor_reflow_paragraph(void)
 		if (need <= fill_col || cur_len == indent_len) {
 			if (cur_len > indent_len) {
 				if (cur_len + 1 >= cur_cap) {
+					char *newcur;
 					cur_cap *= 2;
-					cur = realloc(cur, cur_cap);
+					newcur = realloc(cur, cur_cap);
+					if (!newcur)
+						goto oom;
+					cur = newcur;
 				}
 				cur[cur_len++] = ' ';
 			}
 			while (cur_len + word_len >= cur_cap) {
+				char *newcur;
 				cur_cap *= 2;
-				cur = realloc(cur, cur_cap);
+				newcur = realloc(cur, cur_cap);
+				if (!newcur)
+					goto oom;
+				cur = newcur;
 			}
 			memcpy(cur + cur_len, word_start, word_len);
 			cur_len += word_len;
 		} else {
 			char *saved = malloc(cur_len + 1);
+			char **tmp_lines;
+			int *tmp_lens;
+
+			if (!saved)
+				goto oom;
 			memcpy(saved, cur, cur_len);
 			saved[cur_len] = '\0';
 			if (new_count >= new_cap) {
 				new_cap  *= 2;
-				new_lines = realloc(new_lines, new_cap * sizeof(char *));
-				new_lens  = realloc(new_lens,  new_cap * sizeof(int));
+				tmp_lines = realloc(new_lines, new_cap * sizeof(char *));
+				if (!tmp_lines) {
+					free(saved);
+					goto oom;
+				}
+				new_lines = tmp_lines;
+				tmp_lens  = realloc(new_lens,  new_cap * sizeof(int));
+				if (!tmp_lens) {
+					free(saved);
+					goto oom;
+				}
+				new_lens  = tmp_lens;
 			}
 			new_lines[new_count] = saved;
 			new_lens[new_count]  = cur_len;
@@ -746,8 +795,12 @@ void editor_reflow_paragraph(void)
 			memcpy(cur, indent, indent_len);
 			cur_len = indent_len;
 			while (cur_len + word_len >= cur_cap) {
+				char *newcur;
 				cur_cap *= 2;
-				cur = realloc(cur, cur_cap);
+				newcur = realloc(cur, cur_cap);
+				if (!newcur)
+					goto oom;
+				cur = newcur;
 			}
 			memcpy(cur + cur_len, word_start, word_len);
 			cur_len += word_len;
@@ -755,20 +808,46 @@ void editor_reflow_paragraph(void)
 	}
 	if (cur_len > indent_len) {
 		char *saved = malloc(cur_len + 1);
+		char **tmp_lines;
+		int *tmp_lens;
+
+		if (!saved)
+			goto oom;
 		memcpy(saved, cur, cur_len);
 		saved[cur_len] = '\0';
 		if (new_count >= new_cap) {
 			new_cap  *= 2;
-			new_lines = realloc(new_lines, new_cap * sizeof(char *));
-			new_lens  = realloc(new_lens,  new_cap * sizeof(int));
+			tmp_lines = realloc(new_lines, new_cap * sizeof(char *));
+			if (!tmp_lines) {
+				free(saved);
+				goto oom;
+			}
+			new_lines = tmp_lines;
+			tmp_lens  = realloc(new_lens,  new_cap * sizeof(int));
+			if (!tmp_lens) {
+				free(saved);
+				goto oom;
+			}
+			new_lens  = tmp_lens;
 		}
 		new_lines[new_count] = saved;
 		new_lens[new_count]  = cur_len;
 		new_count++;
 	}
+	ok = 1;
+oom:
 	free(cur);
 	free(words);
 	free(indent);
+	if (!ok) {
+		word_nomem();
+		for (i = 0; i < new_count; i++)
+			free(new_lines[i]);
+		free(new_lines);
+		free(new_lens);
+		free(orig_text);
+		return;
+	}
 
 	/* Replace paragraph rows with reflowed lines */
 	suppress_undo = 1;

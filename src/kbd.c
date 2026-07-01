@@ -51,6 +51,11 @@ static int handle_universal_arg(int c)
 
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-out-of-bounds"
+__attribute__((optimize("O0")))
+#endif
 void editor_process_keypress(int fd)
 {
 	struct timeval tv;
@@ -315,9 +320,7 @@ void editor_process_keypress(int fd)
 		while (n--) editor_move_cursor(ARROW_UP);
 		break;
 	case CTRL_S:        /* Incremental search */
-		editor_find(fd);
-		break;
-	case CTRL_R:        /* Incremental search */
+	case CTRL_R:
 		editor_find(fd);
 		break;
 	case CTRL_Q: {
@@ -426,14 +429,18 @@ void editor_process_keypress(int fd)
 			editor_set_mark_silent();
 			editor.shift_select = 1;
 		}
-		switch (c) {
-		case SHIFT_ARROW_LEFT:  motion = ARROW_LEFT;  break;
-		case SHIFT_ARROW_RIGHT: motion = ARROW_RIGHT; break;
-		case SHIFT_ARROW_UP:    motion = ARROW_UP;    break;
-		case SHIFT_ARROW_DOWN:  motion = ARROW_DOWN;  break;
-		case SHIFT_HOME:        motion = HOME_KEY;    break;
-		default:                motion = END_KEY;     break;
-		}
+		if (c == SHIFT_ARROW_LEFT)
+			motion = ARROW_LEFT;
+		else if (c == SHIFT_ARROW_RIGHT)
+			motion = ARROW_RIGHT;
+		else if (c == SHIFT_ARROW_UP)
+			motion = ARROW_UP;
+		else if (c == SHIFT_ARROW_DOWN)
+			motion = ARROW_DOWN;
+		else if (c == SHIFT_HOME)
+			motion = HOME_KEY;
+		else
+			motion = END_KEY;
 		while (n--) editor_move_cursor(motion);
 		break;
 	}
@@ -606,3 +613,6 @@ void editor_process_keypress(int fd)
 	    c != CTRL_V         && c != ALT_V)
 		editor.desired_visual_col = -1;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif

@@ -212,7 +212,6 @@ void editor_named_command(int fd)
 	char name[64];
 	char msg[512];
 	int  match_idx[PICKER_MAX_ENTRIES];
-	const char *names[PICKER_MAX_ENTRIES];
 	int  len = 0, c, i, off;
 	int  sel = 0;   /* index within match_idx[] of the highlighted entry */
 
@@ -220,6 +219,7 @@ void editor_named_command(int fd)
 
 	while (1) {
 		int total = 0, shown, first_cmd = -1;
+		const char *names[PICKER_MAX_ENTRIES] = {0};
 
 		/* Prefix matches first, then mid-name substring matches.
 		 * Two passes preserve cmdtable's alphabetical order within

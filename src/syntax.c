@@ -795,13 +795,25 @@ static void makefile_syntax(erow *row)
  * to the right syntax highlight type (HL_* defines). */
 void editor_update_syntax(erow *row)
 {
+	unsigned char *newhl;
 	int in_string = 0; /* Are we inside "" or '' ? */
 	int in_comment = 0; /* Are we inside multi-line comment? */
 	int prev_sep = 1; /* Tell the parser if 'i' points to start of word. */
 	char *p = row->render;
 	int i = 0; /* Current char offset */
 
-	row->hl = realloc(row->hl, row->rsize);
+	if (row->rsize == 0) {
+		free(row->hl);
+		row->hl = NULL;
+		return;
+	}
+	newhl = realloc(row->hl, row->rsize);
+	if (!newhl) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
+	row->hl = newhl;
 	memset(row->hl, HL_NORMAL, row->rsize);
 
 	if (editor.syntax == NULL) return; /* No syntax, everything is HL_NORMAL. */
@@ -878,7 +890,7 @@ void editor_update_syntax(erow *row)
 			continue;
 		} else {
 			if (*p == '"' || *p == '\'') {
-				in_string = *p;
+				in_string = (unsigned char)*p;
 				row->hl[i] = HL_STRING;
 				p++; i++;
 				prev_sep = 0;

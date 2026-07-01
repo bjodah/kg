@@ -145,6 +145,11 @@ static void test_join_line(void)
 	/* Perform join: "hello" + " " + "world" = "hello world"
 	 * (leading whitespace stripped from row[1], space inserted at join point) */
 	newchars = realloc(editor.row[0].chars, 12);
+	if (!newchars) {
+		CHECK(0);
+		teardown();
+		return;
+	}
 	editor.row[0].chars     = newchars;
 	editor.row[0].chars[5]  = ' ';
 	memcpy(editor.row[0].chars + 6, "world", 5);

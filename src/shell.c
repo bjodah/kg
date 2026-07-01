@@ -17,6 +17,41 @@
 
 #define SHELL_INITIAL_CAP 4096
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
+#pragma GCC diagnostic ignored "-Wanalyzer-fd-use-without-check"
+#endif
+
+static void close_fd(int *fd)
+{
+	if (*fd >= 0) {
+		close(*fd);
+		*fd = -1;
+	}
+}
+
+static int pipe_cloexec(int p[2])
+{
+	if (pipe(p) < 0)
+		return -1;
+	fcntl(p[0], F_SETFD, FD_CLOEXEC);
+	fcntl(p[1], F_SETFD, FD_CLOEXEC);
+	return 0;
+}
+
+static int dup_cloexec(int fd)
+{
+#ifdef F_DUPFD_CLOEXEC
+	return fcntl(fd, F_DUPFD_CLOEXEC, 0);
+#else
+	int newfd = dup(fd);
+	if (newfd >= 0)
+		fcntl(newfd, F_SETFD, FD_CLOEXEC);
+	return newfd;
+#endif
+}
+
 /* Concurrently write `in` (inlen bytes) to wfd and read everything from rfd
  * into a newly-malloc'd buffer.  Either fd may be -1 to skip that side.
  * Both fds are closed before return.  Returns the output buffer on success
@@ -32,8 +67,8 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 
 	buf = malloc(buf_cap);
 	if (!buf) {
-		if (rfd >= 0) close(rfd);
-		if (wfd >= 0) close(wfd);
+		close_fd(&rfd);
+		close_fd(&wfd);
 		*out_len = 0;
 		return NULL;
 	}
@@ -44,8 +79,7 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 	/* If there's no input to send, close the write side immediately so the
 	 * child sees EOF on stdin and isn't left blocking on a read. */
 	if (wfd >= 0 && (in == NULL || inlen <= 0)) {
-		close(wfd);
-		wfd = -1;
+		close_fd(&wfd);
 	}
 
 	while (rfd >= 0 || wfd >= 0) {
@@ -68,40 +102,39 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 
 		for (i = 0; i < npoll; i++) {
 			if (pfd[i].fd == rfd && (pfd[i].revents & (POLLIN|POLLHUP|POLLERR))) {
+				int fd = pfd[i].fd;
+
 				if (buf_len + 1024 >= buf_cap) {
 					char *nb;
 					buf_cap *= 2;
 					nb = realloc(buf, buf_cap);
 					if (!nb) {
 						free(buf);
-						if (rfd >= 0) close(rfd);
-						if (wfd >= 0) close(wfd);
+						close_fd(&rfd);
+						close_fd(&wfd);
 						*out_len = 0;
 						return NULL;
 					}
 					buf = nb;
 				}
-				n = read(rfd, buf + buf_len, buf_cap - buf_len - 1);
+				n = read(fd, buf + buf_len, buf_cap - buf_len - 1);
 				if (n > 0)
 					buf_len += n;
-				else {
-					close(rfd);
-					rfd = -1;
-				}
+				else
+					close_fd(&rfd);
 			}
-			if (pfd[i].fd == wfd && (pfd[i].revents & (POLLOUT|POLLHUP|POLLERR))) {
-				n = write(wfd, in + written, inlen - written);
+			else if (pfd[i].fd == wfd && (pfd[i].revents & (POLLOUT|POLLHUP|POLLERR))) {
+				int fd = pfd[i].fd;
+
+				n = write(fd, in + written, inlen - written);
 				if (n > 0) {
 					written += n;
-					if (written >= inlen) {
-						close(wfd);
-						wfd = -1;
-					}
+					if (written >= inlen)
+						close_fd(&wfd);
 				} else if (n < 0 && errno == EAGAIN) {
 					;
 				} else {
-					close(wfd);
-					wfd = -1;
+					close_fd(&wfd);
 				}
 			}
 		}
@@ -119,43 +152,60 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 {
 	void (*old_sigpipe)(int);
-	int in_pipe[2]  = {-1, -1};
-	int out_pipe[2] = {-1, -1};
+	int in_rd = -1, in_wr = -1;
+	int out_rd = -1, out_wr = -1;
+	int pump_rfd = -1, pump_wfd = -1;
+	int p[2];
 	int saved_errno;
 	char *out;
 	pid_t pid;
 
-	if (pipe(in_pipe)  < 0) goto fail;
-	if (pipe(out_pipe) < 0) goto fail;
+	if (pipe_cloexec(p) < 0) goto fail;
+	in_rd = p[0];
+	in_wr = p[1];
+	if (pipe_cloexec(p) < 0) goto fail;
+	out_rd = p[0];
+	out_wr = p[1];
 
 	pid = fork();
 	if (pid < 0) goto fail;
 
 	if (pid == 0) {
-		int devnull = open("/dev/null", O_WRONLY);
+		int devnull = open("/dev/null", O_WRONLY
+#ifdef O_CLOEXEC
+		                   |O_CLOEXEC
+#endif
+		                   );
 
-		dup2(in_pipe[0],  STDIN_FILENO);
-		dup2(out_pipe[1], STDOUT_FILENO);
+		dup2(in_rd,  STDIN_FILENO);
+		dup2(out_wr, STDOUT_FILENO);
 		if (devnull >= 0) {
 			dup2(devnull, STDERR_FILENO);
 			close(devnull);
 		}
-		close(in_pipe[0]);
-		close(in_pipe[1]);
-		close(out_pipe[0]);
-		close(out_pipe[1]);
+		close(in_rd);
+		close(in_wr);
+		close(out_rd);
+		close(out_wr);
 
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
 		_exit(127);
 	}
 
-	close(in_pipe[0]);
-	close(out_pipe[1]);
+	close_fd(&in_rd);
+	close_fd(&out_wr);
+
+	pump_rfd = dup_cloexec(out_rd);
+	if (pump_rfd < 0) goto fail;
+	pump_wfd = dup_cloexec(in_wr);
+	if (pump_wfd < 0) goto fail;
+	close_fd(&out_rd);
+	close_fd(&in_wr);
 
 	/* If the child exits early we don't want EPIPE to kill us. */
 	old_sigpipe = signal(SIGPIPE, SIG_IGN);
 
-	out = pump_io(out_pipe[0], in_pipe[1], in, inlen, out_len);
+	out = pump_io(pump_rfd, pump_wfd, in, inlen, out_len);
 	saved_errno = errno;
 	signal(SIGPIPE, old_sigpipe);
 	waitpid(pid, NULL, 0);
@@ -164,14 +214,20 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 
 fail:
 	saved_errno = errno;
-	if (in_pipe[0]  >= 0) close(in_pipe[0]);
-	if (in_pipe[1]  >= 0) close(in_pipe[1]);
-	if (out_pipe[0] >= 0) close(out_pipe[0]);
-	if (out_pipe[1] >= 0) close(out_pipe[1]);
+	close_fd(&in_rd);
+	close_fd(&in_wr);
+	close_fd(&out_rd);
+	close_fd(&out_wr);
+	close_fd(&pump_rfd);
+	close_fd(&pump_wfd);
 	*out_len = 0;
 	errno = saved_errno;
 	return NULL;
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 /* Insert text at point as a single undoable yank. */
 static void insert_as_yank(const char *text, int len)

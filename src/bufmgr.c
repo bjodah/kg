@@ -440,6 +440,7 @@ static void push_open_files_back(struct path_entry *entries, int n)
 	struct path_entry tmp[PICKER_MAX_ENTRIES];
 	int i, k = 0;
 
+	memset(tmp, 0, sizeof(tmp));
 	for (i = 0; i < n; i++)
 		if (!file_open_in_buflist(entries[i].name))
 			tmp[k++] = entries[i];
@@ -530,7 +531,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 
 	buf[len] = '\0';
 	while (1) {
-		const char *names[PICKER_MAX_ENTRIES];
+		const char *names[PICKER_MAX_ENTRIES] = {0};
 		int off, i;
 
 		editor_path_split(buf, dir, sizeof(dir), file, sizeof(file));
@@ -821,7 +822,11 @@ static int write_slot(struct editor_buffer *b)
 	int len, fd;
 
 	buf = editor_rows_to_string(b->row, b->numrows, &len);
-	fd = open(b->filename, O_RDWR|O_CREAT, 0644);
+	fd = open(b->filename, O_RDWR|O_CREAT
+#ifdef O_CLOEXEC
+	          |O_CLOEXEC
+#endif
+	          , 0644);
 	if (fd == -1) { free(buf); return 1; }
 	if (ftruncate(fd, len) == -1 || write(fd, buf, len) != len) {
 		close(fd); free(buf); return 1;

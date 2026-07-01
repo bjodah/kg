@@ -8,11 +8,36 @@ make -B check CC="ccache clang" CFLAGS="-Werror -Wall -Wextra -pedantic -fsaniti
 # https://btorpey.github.io/blog/2015/04/27/static-analysis-with-clang/
 bear -- make CC="ccache clang" -B
 export COMPILE_DB=$(/bin/pwd);
-grep file compile_commands.json |
-awk '{ print $2; }' |
-sed 's/\"//g' |
+python3 - <<'PY' |
+import json
+with open("compile_commands.json", "r", encoding="utf-8") as fp:
+    for entry in json.load(fp):
+        print(entry["file"])
+PY
 while read FILE; do
   (cd $(dirname ${FILE});
-   clang-check -analyze -p ${COMPILE_DB} $(basename ${FILE})
+   OUT=$(mktemp)
+   trap 'rm -f "${OUT}"' RETURN
+   clang-check -analyze -p ${COMPILE_DB} $(basename ${FILE}) 2>&1 | tee "${OUT}"
+   if rg -q "warning:" "${OUT}"; then
+     exit 1
+   fi
   );
+done
+
+cppcheck --quiet --error-exitcode=1 --suppress=normalCheckLevelMaxBranches src/*.c
+
+python3 - <<'PY' |
+import json
+with open("compile_commands.json", "r", encoding="utf-8") as fp:
+    for entry in json.load(fp):
+        print(entry["file"])
+PY
+while read FILE; do
+  OUT=$(mktemp)
+  trap 'rm -f "${OUT}"' RETURN
+  if ! clang-tidy --quiet -p ${COMPILE_DB} ${FILE} >"${OUT}" 2>&1; then
+    cat "${OUT}"
+    exit 1
+  fi
 done

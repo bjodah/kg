@@ -15,6 +15,7 @@ kg is a small Emacs-style terminal editor written in C99. Read `README.md` first
 - `make check` now runs two layers:
   - native unit tests in `test/test_*.c`
   - PTY-backed acceptance cases from `test/pty/*.yaml` via `utils/pty_accept.py`
+- Final green light comes from running `.ci/run-ci-steps.sh` (static analysis, sanitizers, compilation warnings as errors...)
 
 ## Editing expectations
 - Keep changes small and local; this codebase values minimalism.

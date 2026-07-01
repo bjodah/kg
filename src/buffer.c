@@ -2,6 +2,12 @@
 
 #include "def.h"
 
+static void editor_nomem(void)
+{
+	editor_set_status_message("Out of memory");
+	running = 0;
+}
+
 /* Visual column at byte offset `chars_col` in `row`.  Tabs use kg's
  * own stop convention (advance until (vcol+1) % 8 == 0) — same as the
  * render in editor_update_row and the cursor-placement loop in
@@ -147,11 +153,12 @@ void editor_update_row(erow *row)
 {
 	unsigned int tabs = 0, nonprint = 0;
 	unsigned long long allocsize;
-	int j, idx;
+	int j, idx, render_cap;
 
 	/* Create a version of the row we can directly print on the screen,
 	 * respecting tabs, substituting non printable characters with '?'. */
 	free(row->render);
+	row->render = NULL;
 	for (j = 0; j < row->size; j++)
 		if (row->chars[j] == TAB) tabs++;
 
@@ -163,11 +170,28 @@ void editor_update_row(erow *row)
 	}
 
 	row->render = malloc(row->size + tabs*8 + nonprint*9 + 1);
+	if (!row->render) {
+		editor_nomem();
+		return;
+	}
+	render_cap = row->size + tabs*8 + nonprint*9 + 1;
 	idx = 0;
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
-			row->render[idx++] = ' ';
-			while ((idx+1) % 8 != 0) row->render[idx++] = ' ';
+			int spaces = 7 - (idx % 8);
+
+			if (spaces == 0)
+				spaces = 8;
+
+			if (idx + spaces >= render_cap) {
+				free(row->render);
+				row->render = NULL;
+				editor_set_status_message("Line render overflow");
+				running = 0;
+				return;
+			}
+			memset(row->render + idx, ' ', spaces);
+			idx += spaces;
 		} else {
 			row->render[idx++] = row->chars[j];
 		}
@@ -183,10 +207,26 @@ void editor_update_row(erow *row)
  * if required. */
 void editor_insert_row(int at, const char *s, size_t len)
 {
+	erow *newrows;
+	char *newchars;
+
 	if (at > editor.numrows)
 		return;
 
-	editor.row = realloc(editor.row, sizeof(erow) * (editor.numrows+1));
+	newchars = malloc(len+1);
+	if (!newchars) {
+		editor_nomem();
+		return;
+	}
+	memcpy(newchars, s, len+1);
+
+	newrows = realloc(editor.row, sizeof(erow) * (editor.numrows+1));
+	if (!newrows) {
+		free(newchars);
+		editor_nomem();
+		return;
+	}
+	editor.row = newrows;
 	if (at != editor.numrows) {
 		memmove(editor.row+at+1, editor.row+at, sizeof(editor.row[0]) * (editor.numrows-at));
 		for (int j = at+1; j <= editor.numrows; j++)
@@ -194,8 +234,7 @@ void editor_insert_row(int at, const char *s, size_t len)
 	}
 
 	editor.row[at].size = len;
-	editor.row[at].chars = malloc(len+1);
-	memcpy(editor.row[at].chars, s, len+1);
+	editor.row[at].chars = newchars;
 	editor.row[at].hl = NULL;
 	editor.row[at].hl_oc = 0;
 	editor.row[at].render = NULL;
@@ -247,6 +286,11 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	totlen++; /* Also make space for nulterm */
 
 	p = buf = malloc(totlen);
+	if (!buf) {
+		editor_nomem();
+		*buflen = 0;
+		return NULL;
+	}
 	for (j = 0; j < numrows; j++) {
 		memcpy(p, rows[j].chars, rows[j].size);
 		p += rows[j].size;
@@ -261,19 +305,35 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
  * chars on the right if needed. */
 void editor_row_insert_char(erow *row, int at, int c)
 {
+	char *newchars;
+
+	if (!row)
+		return;
+	if (at < 0)
+		return;
 	if (at > row->size) {
 		/* Pad the string with spaces if the insert location is outside the
 		 * current length by more than a single character. */
 		int padlen = at - row->size;
 		/* In the next line +2 means: new char and null term. */
-		row->chars = realloc(row->chars, row->size+padlen+2);
+		newchars = realloc(row->chars, row->size+padlen+2);
+		if (!newchars) {
+			editor_nomem();
+			return;
+		}
+		row->chars = newchars;
 		memset(row->chars+row->size, ' ', padlen);
 		row->chars[row->size+padlen+1] = '\0';
 		row->size += padlen+1;
 	} else {
 		/* If we are in the middle of the string just make space for 1 new
 		 * char plus the (already existing) null term. */
-		row->chars = realloc(row->chars, row->size+2);
+		newchars = realloc(row->chars, row->size+2);
+		if (!newchars) {
+			editor_nomem();
+			return;
+		}
+		row->chars = newchars;
 		memmove(row->chars+at+1, row->chars+at, row->size-at+1);
 		row->size++;
 	}
@@ -285,7 +345,13 @@ void editor_row_insert_char(erow *row, int at, int c)
 /* Append the string 's' at the end of a row */
 void editor_row_append_string(erow *row, char *s, size_t len)
 {
-	row->chars = realloc(row->chars, row->size+len+1);
+	char *newchars = realloc(row->chars, row->size+len+1);
+
+	if (!newchars) {
+		editor_nomem();
+		return;
+	}
+	row->chars = newchars;
 	memcpy(row->chars+row->size, s, len);
 	row->size += len;
 	row->chars[row->size] = '\0';
@@ -316,8 +382,12 @@ void editor_insert_char(int c)
 	if (!row) {
 		while (editor.numrows <= filerow)
 			editor_insert_row(editor.numrows, "", 0);
+		if (editor.numrows <= filerow)
+			return;
 	}
-	row = &editor.row[filerow];
+	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	if (!row)
+		return;
 	keep_trailing_newline = (filerow == editor.numrows - 1 &&
 	                         row->size == 0 && filecol == 0);
 
@@ -419,8 +489,9 @@ void editor_insert_newline(void)
 	}
 	/* If the cursor is over the current line size, we want to conceptually
 	 * think it's just over the last character. */
+	if (filecol < 0) filecol = 0;
 	if (filecol >= row->size) filecol = row->size;
-	if (filecol == 0) {
+	if (filecol <= 0) {
 		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
 		editor_insert_row(filerow, "", 0);
 	} else {
@@ -434,6 +505,10 @@ void editor_insert_newline(void)
 		/* Build new line: indent prefix + rest of split. */
 		rest_len = row->size - filecol;
 		new_content = malloc(indent + rest_len + 1);
+		if (!new_content) {
+			editor_nomem();
+			return;
+		}
 		memcpy(new_content, row->chars, indent);
 		memcpy(new_content + indent, row->chars + filecol, rest_len);
 		new_content[indent + rest_len] = '\0';

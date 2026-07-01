@@ -76,7 +76,10 @@ static void test_shell_run_pump_no_deadlock(void)
 	int   i;
 
 	in = malloc(inlen);
-	CHECK(in != NULL);
+	if (!in) {
+		CHECK(0);
+		return;
+	}
 	for (i = 0; i < inlen; i++) in[i] = 'A' + (i % 26);
 
 	out = shell_run("cat", in, inlen, &len);

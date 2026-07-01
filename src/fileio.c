@@ -45,6 +45,11 @@ int editor_open(char *filename)
 	editor.dirty = 0;
 	free(editor.filename);
 	editor.filename = malloc(fnlen);
+	if (!editor.filename) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return 1;
+	}
 	memcpy(editor.filename, filename, fnlen);
 
 	fp = fopen(filename, "r");
@@ -128,7 +133,11 @@ int editor_save(int fd)
 	}
 
 	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
-	filefd = open(editor.filename, O_RDWR|O_CREAT, 0644);
+	filefd = open(editor.filename, O_RDWR|O_CREAT
+#ifdef O_CLOEXEC
+	              |O_CLOEXEC
+#endif
+	              , 0644);
 	if (filefd == -1) goto writeerr;
 
 	/* Use truncate + a single write(2) call in order to make saving
@@ -182,36 +191,61 @@ void editor_insert_file(int fd)
 	char tmp[4096];
 	size_t n;
 	int filerow, filecol;
-	FILE *fp;
+	int filefd;
 
 	editor_prompt_prefill_dir(filename, sizeof(filename));
 	if (editor_read_line_path(fd, "Insert file: ", filename, sizeof(filename)) < 0 || !filename[0])
 		return;
 
-	fp = fopen(filename, "r");
-	if (!fp) {
+	filefd = open(filename, O_RDONLY
+#ifdef O_CLOEXEC
+	              |O_CLOEXEC
+#endif
+	              );
+	if (filefd < 0) {
 		editor_set_status_message("Cannot open %s: %s", filename, strerror(errno));
 		return;
 	}
 
-	while ((n = fread(tmp, 1, sizeof(tmp), fp)) > 0) {
-		if (buflen + n >= bufcap) {
-			char *newbuf;
+	for (;;) {
+		char *newbuf;
 
+		n = read(filefd, tmp, sizeof(tmp));
+		if (n == 0)
+			break;
+		if ((ssize_t)n < 0) {
+			int saved_errno = errno;
+
+			free(buf);
+			close(filefd);
+			editor_set_status_message("Error reading %s: %s", filename, strerror(saved_errno));
+			return;
+		}
+
+		if (buflen + n >= bufcap) {
 			bufcap = (buflen + n) * 2 + 1;
 			newbuf = realloc(buf, bufcap);
 			if (!newbuf) {
 				free(buf);
-				fclose(fp);
+				close(filefd);
 				editor_set_status_message("Out of memory reading %s", filename);
 				return;
 			}
 			buf = newbuf;
+		} else if (!buf) {
+			newbuf = malloc(buflen + n + 1);
+			if (!newbuf) {
+				close(filefd);
+				editor_set_status_message("Out of memory reading %s", filename);
+				return;
+			}
+			buf = newbuf;
+			bufcap = buflen + n + 1;
 		}
 		memcpy(buf + buflen, tmp, n);
 		buflen += n;
 	}
-	fclose(fp);
+	close(filefd);
 
 	if (!buflen) {
 		free(buf);

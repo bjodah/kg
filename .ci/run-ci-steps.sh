@@ -2,7 +2,7 @@
 set -euxo pipefail
 source $(compgen -G "/opt-?/cpython-v3.*-apt-deb/bin/activate")
 VALGRIND="valgrind --quiet --tool=memcheck --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,possible --error-exitcode=1"
-make -B check CC="ccache gcc -Werror -fanalyzer" TEST_RUNNER="${VALGRIND}" KG_RUNNER="${VALGRIND}" PTY_TIMEOUT=20
+make -B check CC="ccache gcc -Werror -fanalyzer" TEST_RUNNER="${VALGRIND}" KG_RUNNER="${VALGRIND}" PTY_TIMEOUT=20 PTY_STARTUP_DELAY_ADD=1.5 PTY_KEY_DELAY_ADD=0.05
 make -B check CC="ccache clang" CFLAGS="-Werror -Wall -Wextra -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -O0 -g"
 make -B check CC="ccache clang" CFLAGS="-Werror -Wall -Wextra -pedantic -fsanitize=memory -fsanitize-memory-track-origins=2 -fsanitize-memory-param-retval -fno-omit-frame-pointer -fno-optimize-sibling-calls -O0 -g"
 

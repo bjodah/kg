@@ -41,6 +41,8 @@ TEST_RUNNER ?=
 KG_RUNNER ?=
 PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?=
+PTY_STARTUP_DELAY_ADD ?=
+PTY_KEY_DELAY_ADD ?=
 
 all: $(TARGET)
 
@@ -76,7 +78,11 @@ check-unit: $(TESTBINS)
 	[ $$fail -eq 0 ]
 
 check-pty: $(TARGET) $(PTY_TESTS)
-	@python utils/pty_accept.py $(PTY_ACCEPT_ARGS) $(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) --kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
+	@python utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
+		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
+		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
+		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
+		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
 
 # Per-test linker prerequisites beyond the common test_%.o + test.o.
 # The static pattern rule below pulls these in via secondary expansion.

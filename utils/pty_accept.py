@@ -332,10 +332,13 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 				  startup_delay, key_delay, dimensions, timeout)
 
 
-def evaluate_case(case: Case, kg_argv: list[str], timeout: float) -> tuple[str, str | None]:
+def evaluate_case(case: Case, kg_argv: list[str], timeout: float,
+		  startup_delay_add: float, key_delay_add: float) -> tuple[str, str | None]:
+	startup_delay = case.startup_delay + startup_delay_add
+	key_delay = case.key_delay + key_delay_add
 	kg_run = run_editor(kg_argv, case.filename, case.initial, case.keys,
-			    case.trailer_keys, case.backend, case.startup_delay,
-			    case.key_delay, case.dimensions, timeout)
+			    case.trailer_keys, case.backend, startup_delay,
+			    key_delay, case.dimensions, timeout)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -344,7 +347,7 @@ def evaluate_case(case: Case, kg_argv: list[str], timeout: float) -> tuple[str, 
 		oracle_backend = case.oracle_backend or case.backend
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
-				       case.startup_delay, case.key_delay, case.dimensions,
+				       startup_delay, key_delay, case.dimensions,
 				       timeout)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
@@ -392,6 +395,10 @@ def main() -> int:
 	parser.add_argument("--kg-runner", default="", help="Optional command prefix used to run kg")
 	parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
 	                    help="Per-run timeout in seconds")
+	parser.add_argument("--startup-delay-add", type=float, default=0.0,
+	                    help="Additional startup delay added to every case")
+	parser.add_argument("--key-delay-add", type=float, default=0.0,
+	                    help="Additional per-key delay added to every case")
 	parser.add_argument("cases", nargs="+", help="YAML case files")
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
@@ -401,7 +408,9 @@ def main() -> int:
 
 	for case_path in args.cases:
 		case = load_case(Path(case_path))
-		status, details = evaluate_case(case, kg_argv, args.timeout)
+		status, details = evaluate_case(case, kg_argv, args.timeout,
+						args.startup_delay_add,
+						args.key_delay_add)
 		counts[status] += 1
 		print(f"{status}: {case.name}")
 		if details:

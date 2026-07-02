@@ -165,6 +165,20 @@ static void test_goto_line_empty_file(void)
 	teardown();
 }
 
+static void test_left_from_stale_row_clamps_to_eof(void)
+{
+	setup(1);
+
+	editor.cy = 8;
+	editor.cx = 0;
+	editor_move_cursor(ARROW_LEFT);
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 3);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -179,5 +193,6 @@ int main(void)
 	RUN(test_goto_col_clamp);
 	RUN(test_goto_line_centering);
 	RUN(test_goto_line_empty_file);
+	RUN(test_left_from_stale_row_clamps_to_eof);
 	return test_summary();
 }

@@ -45,6 +45,7 @@ static void reset_state(void)
 	winlist[0].w = 80;
 	kill_ring_init();
 	undo_init();
+	macro_reset();
 }
 
 static void seed_buffer(const uint8_t *data, size_t size)

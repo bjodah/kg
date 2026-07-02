@@ -319,6 +319,33 @@ static void test_just_one_space_inserts_when_none(void)
 	teardown();
 }
 
+static void test_sentence_backward_clamps_stale_row(void)
+{
+	setup();
+	editor_insert_row(0, "One. Two.", 9);
+	editor.cy = 8;
+	editor.cx = 3;
+
+	editor_move_sentence_backward();
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_word_backward_clamps_stale_column(void)
+{
+	setup();
+	editor_insert_row(0, "", 0);
+	editor.cx = 2;
+
+	editor_move_word_backward();
+
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -340,5 +367,7 @@ int main(void)
 	RUN(test_delete_horizontal_space_around_point);
 	RUN(test_just_one_space_collapses_run);
 	RUN(test_just_one_space_inserts_when_none);
+	RUN(test_sentence_backward_clamps_stale_row);
+	RUN(test_word_backward_clamps_stale_column);
 	return test_summary();
 }

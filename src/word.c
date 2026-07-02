@@ -66,6 +66,9 @@ void editor_move_word_backward(void)
 	if (!row) {
 		return;
 	}
+	filecol = filecol < 0 ? 0 : filecol;
+	filecol = filecol > row->size ? row->size : filecol;
+	editor_cursor_goto(filerow, filecol);
 	if (filecol == 0) {
 		/* Move to end of previous line */
 		if (filerow > 0) {
@@ -83,6 +86,7 @@ void editor_move_word_backward(void)
 	if (!row) {
 		return;
 	}
+	filecol = filecol > row->size ? row->size : filecol;
 
 	/* Skip whitespace */
 	while (filecol > 0 && isspace(row->chars[filecol])) {
@@ -107,9 +111,11 @@ void editor_kill_word_forward(void)
 	char *text;
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 
-	if (!row) {
+	if (!row || filecol >= row->size) {
 		return;
 	}
+	filecol = filecol < 0 ? 0 : filecol;
+	start_col = filecol;
 
 	/* Skip whitespace OR word+whitespace, within the current line only
 	 * (unlike editor_move_word_forward, M-d does not kill across lines). */
@@ -164,9 +170,14 @@ void editor_kill_word_backward(void)
 	char *text;
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 
-	if (!row || filecol == 0) {
+	if (!row) {
 		return;
 	}
+	filecol = filecol > row->size ? row->size : filecol;
+	if (filecol <= 0) {
+		return;
+	}
+	end_col = filecol;
 
 	/* Mirror editor_move_word_backward: skip whitespace then word chars */
 	while (filecol > 0 && isspace((unsigned char)row->chars[filecol - 1])) {
@@ -400,8 +411,19 @@ void editor_move_sentence_backward(void)
 {
 	int orig_r = editor.rowoff + editor.cy;
 	int orig_c = editor.coloff + editor.cx;
-	int r = orig_r, c = orig_c;
+	int r, c;
 	int target_r = 0, target_c = 0;
+
+	if (editor.numrows <= 0) {
+		goto place;
+	}
+	orig_r = orig_r < 0 ? 0 : orig_r;
+	orig_r = orig_r >= editor.numrows ? editor.numrows - 1 : orig_r;
+	orig_c = orig_c < 0 ? 0 : orig_c;
+	orig_c = orig_c > editor.row[orig_r].size ? editor.row[orig_r].size
+						  : orig_c;
+	r = orig_r;
+	c = orig_c;
 
 	if (orig_r == 0 && orig_c == 0) {
 		goto place;

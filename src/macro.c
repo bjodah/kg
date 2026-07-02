@@ -13,6 +13,14 @@ static int macro_replaying = 0;
 
 int macro_is_recording(void) { return macro_recording; }
 
+void macro_reset(void)
+{
+	macro_len = 0;
+	macro_pos = 0;
+	macro_recording = 0;
+	macro_replaying = 0;
+}
+
 /* Called by editor_read_key: append key to buffer while recording.
  * Skipped during replay so we don't corrupt the buffer with replayed keys. */
 void macro_on_key(int key)

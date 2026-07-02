@@ -42,6 +42,14 @@ void editor_move_cursor(int key)
 		break;
 	case ARROW_LEFT:
 		if (filecol == 0) {
+			if (filerow > editor.numrows) {
+				int prevrow = editor.numrows - 1;
+				prevrow = prevrow < 0 ? 0 : prevrow;
+				editor_cursor_goto(prevrow,
+				    editor.numrows ? editor.row[prevrow].size
+						   : 0);
+				break;
+			}
 			if (filerow > 0) {
 				if (editor.cy == 0) {
 					editor.rowoff--;

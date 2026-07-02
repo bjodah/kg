@@ -11,3 +11,6 @@ compile_commands.json
 coverage/
 *.plist
 .cache
+test/fuzz_keypress
+test/fuzz-artifacts/
+test/fuzz-corpus/

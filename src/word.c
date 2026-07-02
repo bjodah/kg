@@ -1,5 +1,9 @@
 /* ============================ Word movement =============================== */
 
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "def.h"
 
 #define FILL_COLUMN 72
@@ -54,11 +58,14 @@ void editor_move_word_forward(void)
 /* Move cursor backward by one word */
 void editor_move_word_backward(void)
 {
-	erow *row = (editor.rowoff + editor.cy >= editor.numrows) ? NULL : &editor.row[editor.rowoff + editor.cy];
+	erow *row = (editor.rowoff + editor.cy >= editor.numrows)
+	    ? NULL
+	    : &editor.row[editor.rowoff + editor.cy];
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 
-	if (!row) return;
+	if (!row)
+		return;
 	if (filecol == 0) {
 		/* Move to end of previous line */
 		if (filerow > 0) {
@@ -73,7 +80,8 @@ void editor_move_word_backward(void)
 	filecol = editor.coloff + editor.cx;
 	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 
-	if (!row) return;
+	if (!row)
+		return;
 
 	/* Skip whitespace */
 	while (filecol > 0 && isspace(row->chars[filecol])) {
@@ -98,25 +106,32 @@ void editor_kill_word_forward(void)
 	char *text;
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 
-	if (!row) return;
+	if (!row)
+		return;
 
 	/* Skip whitespace OR word+whitespace, within the current line only
 	 * (unlike editor_move_word_forward, M-d does not kill across lines). */
-	if (filecol < row->size && isspace((unsigned char)row->chars[filecol])) {
-		while (filecol < row->size && isspace((unsigned char)row->chars[filecol]))
+	if (filecol < row->size
+	    && isspace((unsigned char)row->chars[filecol])) {
+		while (filecol < row->size
+		    && isspace((unsigned char)row->chars[filecol]))
 			filecol++;
 	} else {
-		while (filecol < row->size && !isspace((unsigned char)row->chars[filecol]))
+		while (filecol < row->size
+		    && !isspace((unsigned char)row->chars[filecol]))
 			filecol++;
-		while (filecol < row->size && isspace((unsigned char)row->chars[filecol]))
+		while (filecol < row->size
+		    && isspace((unsigned char)row->chars[filecol]))
 			filecol++;
 	}
 
 	kill_len = filecol - start_col;
-	if (kill_len <= 0) return;
+	if (kill_len <= 0)
+		return;
 
 	text = malloc(kill_len + 1);
-	if (!text) return;
+	if (!text)
+		return;
 	memcpy(text, row->chars + start_col, kill_len);
 	text[kill_len] = '\0';
 
@@ -125,13 +140,14 @@ void editor_kill_word_forward(void)
 	free(text);
 
 	memmove(row->chars + start_col, row->chars + start_col + kill_len,
-	        row->size - start_col - kill_len + 1);
+	    row->size - start_col - kill_len + 1);
 	row->size -= kill_len;
 	editor_update_row(row);
 	editor.dirty++;
 }
 
-/* Kill from start of current word back to cursor, saving text to kill ring (M-Backspace). */
+/* Kill from start of current word back to cursor, saving text to kill ring
+ * (M-Backspace). */
 void editor_kill_word_backward(void)
 {
 	int filerow = editor.rowoff + editor.cy;
@@ -141,7 +157,8 @@ void editor_kill_word_backward(void)
 	char *text;
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 
-	if (!row || filecol == 0) return;
+	if (!row || filecol == 0)
+		return;
 
 	/* Mirror editor_move_word_backward: skip whitespace then word chars */
 	while (filecol > 0 && isspace((unsigned char)row->chars[filecol - 1]))
@@ -150,10 +167,12 @@ void editor_kill_word_backward(void)
 		filecol--;
 
 	kill_len = end_col - filecol;
-	if (kill_len <= 0) return;
+	if (kill_len <= 0)
+		return;
 
 	text = malloc(kill_len + 1);
-	if (!text) return;
+	if (!text)
+		return;
 	memcpy(text, row->chars + filecol, kill_len);
 	text[kill_len] = '\0';
 
@@ -169,7 +188,7 @@ void editor_kill_word_backward(void)
 	}
 
 	memmove(row->chars + filecol, row->chars + filecol + kill_len,
-	        row->size - filecol - kill_len + 1);
+	    row->size - filecol - kill_len + 1);
 	row->size -= kill_len;
 	editor_update_row(row);
 	editor.dirty++;
@@ -281,10 +300,7 @@ void editor_move_paragraph_forward(void)
 
 /* Sentence boundary helpers.  A sentence ends at '.', '?', or '!' that is
  * followed in the source text by whitespace (including newline / EOF). */
-static int is_sentence_end(char c)
-{
-	return c == '.' || c == '?' || c == '!';
-}
+static int is_sentence_end(char c) { return c == '.' || c == '?' || c == '!'; }
 
 /* Move past the next sentence-ending punctuation (M-e). */
 void editor_move_sentence_forward(void)
@@ -296,11 +312,13 @@ void editor_move_sentence_forward(void)
 		char c;
 		int next_is_ws;
 
-		if (filerow >= editor.numrows) return;
+		if (filerow >= editor.numrows)
+			return;
 		row = &editor.row[filerow];
 
 		if (filecol >= row->size) {
-			if (filerow + 1 >= editor.numrows) return;
+			if (filerow + 1 >= editor.numrows)
+				return;
 			editor_move_cursor(ARROW_RIGHT);
 			continue;
 		}
@@ -310,7 +328,8 @@ void editor_move_sentence_forward(void)
 			if (filecol + 1 >= row->size)
 				next_is_ws = 1;
 			else
-				next_is_ws = isspace((unsigned char)row->chars[filecol + 1]);
+				next_is_ws = isspace(
+				    (unsigned char)row->chars[filecol + 1]);
 			if (next_is_ws) {
 				editor_move_cursor(ARROW_RIGHT);
 				return;
@@ -336,26 +355,34 @@ void editor_move_sentence_backward(void)
 	int r = orig_r, c = orig_c;
 	int target_r = 0, target_c = 0;
 
-	if (orig_r == 0 && orig_c == 0) goto place;
+	if (orig_r == 0 && orig_c == 0)
+		goto place;
 
 	/* Step back once so we don't immediately re-discover the boundary we're
 	 * already standing on (when cursor is at a sentence start, we want the
 	 * previous sentence, not the current one). */
-	if (c > 0) c--;
-	else { r--; c = editor.row[r].size; }
+	if (c > 0)
+		c--;
+	else {
+		r--;
+		c = editor.row[r].size;
+	}
 
 	while (1) {
 		if (c < editor.row[r].size) {
 			char ch = editor.row[r].chars[c];
 			if (is_sentence_end(ch)) {
-				/* A sentence end is [.?!] immediately followed in source
-				 * by whitespace.  An end-of-line right after the period
-				 * counts (the implicit newline is whitespace). */
-				int is_break = (c + 1 >= editor.row[r].size) ||
-				               isspace((unsigned char)editor.row[r].chars[c + 1]);
+				/* A sentence end is [.?!] immediately followed
+				 * in source by whitespace.  An end-of-line
+				 * right after the period counts (the implicit
+				 * newline is whitespace). */
+				int is_break = (c + 1 >= editor.row[r].size)
+				    || isspace((unsigned char)editor.row[r]
+					    .chars[c + 1]);
 				if (is_break) {
-					/* Walk forward over the whitespace gap to land on the
-					 * first non-whitespace char — that is the start of the
+					/* Walk forward over the whitespace gap
+					 * to land on the first non-whitespace
+					 * char — that is the start of the
 					 * sentence we want. */
 					int tr = r, tc = c + 1;
 					while (tr < editor.numrows) {
@@ -364,14 +391,19 @@ void editor_move_sentence_backward(void)
 							tc = 0;
 							continue;
 						}
-						if (!isspace((unsigned char)editor.row[tr].chars[tc])) break;
+						if (!isspace((unsigned char)
+							    editor.row[tr]
+								.chars[tc]))
+							break;
 						tc++;
 					}
-					/* Accept the target only if it sits strictly before the
-					 * original cursor — otherwise it's the start of the
-					 * sentence we were already in, and we want the one
-					 * before that. */
-					if (tr < orig_r || (tr == orig_r && tc < orig_c)) {
+					/* Accept the target only if it sits
+					 * strictly before the original cursor —
+					 * otherwise it's the start of the
+					 * sentence we were already in, and we
+					 * want the one before that. */
+					if (tr < orig_r
+					    || (tr == orig_r && tc < orig_c)) {
 						target_r = tr;
 						target_c = tc;
 						goto place;
@@ -379,22 +411,31 @@ void editor_move_sentence_backward(void)
 				}
 			}
 		}
-		if (r == 0 && c == 0) break;
-		if (c > 0) c--;
-		else { r--; c = editor.row[r].size; }
+		if (r == 0 && c == 0)
+			break;
+		if (c > 0)
+			c--;
+		else {
+			r--;
+			c = editor.row[r].size;
+		}
 	}
 
 place:
-	if (target_r < editor.rowoff) editor.rowoff = target_r;
+	if (target_r < editor.rowoff)
+		editor.rowoff = target_r;
 	if (target_r >= editor.rowoff + editor.screenrows)
 		editor.rowoff = target_r - editor.screenrows + 1;
-	if (editor.rowoff < 0) editor.rowoff = 0;
+	if (editor.rowoff < 0)
+		editor.rowoff = 0;
 	editor.cy = target_r - editor.rowoff;
 
-	if (target_c < editor.coloff) editor.coloff = target_c;
+	if (target_c < editor.coloff)
+		editor.coloff = target_c;
 	if (target_c >= editor.coloff + editor.screencols)
 		editor.coloff = target_c - editor.screencols + 1;
-	if (editor.coloff < 0) editor.coloff = 0;
+	if (editor.coloff < 0)
+		editor.coloff = 0;
 	editor.cx = target_c - editor.coloff;
 }
 
@@ -409,28 +450,32 @@ void editor_join_line(void)
 	const char *rest;
 	int rest_len;
 
-	if (filerow == 0) return;   /* nothing above */
+	if (filerow == 0)
+		return; /* nothing above */
 
 	prev_row_idx = filerow - 1;
 	prev = &editor.row[prev_row_idx];
-	cur  = &editor.row[filerow];
+	cur = &editor.row[filerow];
 
-	rest     = cur->chars;
+	rest = cur->chars;
 	rest_len = cur->size;
 	while (rest_len > 0 && isspace((unsigned char)*rest)) {
 		rest++;
 		rest_len--;
 	}
 
-	join_col  = prev->size;
+	join_col = prev->size;
 	add_space = (join_col > 0 && rest_len > 0) ? 1 : 0;
 
-	undo_push(UNDO_JOIN_LINE, prev_row_idx, join_col, 0, cur->chars, cur->size);
+	undo_push(
+	    UNDO_JOIN_LINE, prev_row_idx, join_col, 0, cur->chars, cur->size);
 
 	{
-		char *newchars = realloc(prev->chars, join_col + add_space + rest_len + 1);
+		char *newchars
+		    = realloc(prev->chars, join_col + add_space + rest_len + 1);
 		if (!newchars) {
-			editor_set_status_message("Out of memory joining lines");
+			editor_set_status_message(
+			    "Out of memory joining lines");
 			return;
 		}
 		prev->chars = newchars;
@@ -481,16 +526,18 @@ void editor_delete_horizontal_space(void)
 	row = &editor.row[filerow];
 	if (row->size < 0 || !row->chars)
 		return;
-	if (filecol < 0) filecol = 0;
-	if (filecol > row->size) filecol = row->size;
+	if (filecol < 0)
+		filecol = 0;
+	if (filecol > row->size)
+		filecol = row->size;
 
 	start = filecol;
-	while (start > 0 &&
-	       (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
+	while (start > 0
+	    && (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
 		start--;
 	end = filecol;
-	while (end < row->size &&
-	       (row->chars[end] == ' ' || row->chars[end] == TAB))
+	while (end < row->size
+	    && (row->chars[end] == ' ' || row->chars[end] == TAB))
 		end++;
 
 	len = end - start;
@@ -530,16 +577,18 @@ void editor_just_one_space(void)
 	row = &editor.row[filerow];
 	if (row->size < 0 || !row->chars)
 		return;
-	if (filecol < 0) filecol = 0;
-	if (filecol > row->size) filecol = row->size;
+	if (filecol < 0)
+		filecol = 0;
+	if (filecol > row->size)
+		filecol = row->size;
 
 	start = filecol;
-	while (start > 0 &&
-	       (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
+	while (start > 0
+	    && (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
 		start--;
 	end = filecol;
-	while (end < row->size &&
-	       (row->chars[end] == ' ' || row->chars[end] == TAB))
+	while (end < row->size
+	    && (row->chars[end] == ' ' || row->chars[end] == TAB))
 		end++;
 
 	old_len = end - start;
@@ -609,17 +658,21 @@ void editor_zap_to_char(int fd, int count)
 	for (i = 0; i < filerow && i < editor.numrows; i++)
 		point += editor.row[i].size + 1;
 	if (filerow < editor.numrows) {
-		if (filecol < 0) filecol = 0;
+		if (filecol < 0)
+			filecol = 0;
 		if (filecol > editor.row[filerow].size)
 			filecol = editor.row[filerow].size;
 		point += filecol;
 	}
-	if (point < 0) point = 0;
-	if (point > len) point = len;
+	if (point < 0)
+		point = 0;
+	if (point > len)
+		point = len;
 
 	end = -1;
 	for (i = point; i < len; i++) {
-		if ((unsigned char)buf[i] == (unsigned char)target && ++seen == count) {
+		if ((unsigned char)buf[i] == (unsigned char)target
+		    && ++seen == count) {
 			end = i + 1;
 			break;
 		}
@@ -663,21 +716,26 @@ static void do_word_case(int mode)
 	erow *row;
 
 	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
-	if (!row) return;
+	if (!row)
+		return;
 
 	word_start = filecol;
-	while (word_start < row->size && isspace((unsigned char)row->chars[word_start]))
+	while (word_start < row->size
+	    && isspace((unsigned char)row->chars[word_start]))
 		word_start++;
 	word_end = word_start;
-	while (word_end < row->size && !isspace((unsigned char)row->chars[word_end]))
+	while (word_end < row->size
+	    && !isspace((unsigned char)row->chars[word_end]))
 		word_end++;
 
 	word_len = word_end - word_start;
-	if (word_len <= 0) return;
+	if (word_len <= 0)
+		return;
 
 	/* Save original for undo, then transform in-place */
 	orig = malloc(word_len + 1);
-	if (!orig) return;
+	if (!orig)
+		return;
 	memcpy(orig, row->chars + word_start, word_len);
 	orig[word_len] = '\0';
 
@@ -689,14 +747,17 @@ static void do_word_case(int mode)
 		else if (mode == 'l')
 			row->chars[word_start + i] = tolower(ch);
 		else /* 'c' */
-			row->chars[word_start + i] = (i == 0) ? toupper(ch) : tolower(ch);
+			row->chars[word_start + i]
+			    = (i == 0) ? toupper(ch) : tolower(ch);
 	}
 	editor_update_row(row);
 	editor.dirty++;
 
-	/* Two undo records (LIFO): first pop deletes transformed text, second re-inserts original */
+	/* Two undo records (LIFO): first pop deletes transformed text, second
+	 * re-inserts original */
 	undo_push(UNDO_KILL_TEXT, filerow, word_start, 0, orig, word_len);
-	undo_push(UNDO_YANK_TEXT, filerow, word_start, 0, row->chars + word_start, word_len);
+	undo_push(UNDO_YANK_TEXT, filerow, word_start, 0,
+	    row->chars + word_start, word_len);
 
 	free(orig);
 
@@ -711,8 +772,8 @@ static void do_word_case(int mode)
 	}
 }
 
-void editor_upcase_word(void)     { do_word_case('u'); }
-void editor_downcase_word(void)   { do_word_case('l'); }
+void editor_upcase_word(void) { do_word_case('u'); }
+void editor_downcase_word(void) { do_word_case('l'); }
 void editor_capitalize_word(void) { do_word_case('c'); }
 
 /* Toggle line comment on the current line, or on every line covered by the
@@ -733,59 +794,64 @@ void editor_comment_dwim(void)
 		return;
 	}
 
-	scs    = editor.syntax->singleline_comment_start;
+	scs = editor.syntax->singleline_comment_start;
 	scslen = strlen(scs);
 
 	row_start = editor.rowoff + editor.cy;
-	row_end   = row_start;
+	row_end = row_start;
 	if (editor.mark_set) {
 		int mark_row = editor.mark_row;
 		int mark_col = editor.mark_col;
-		int cur_row  = row_start;
-		int cur_col  = editor.coloff + editor.cx;
+		int cur_row = row_start;
+		int cur_col = editor.coloff + editor.cx;
 		int end_col;
 
-		if (mark_row < cur_row || (mark_row == cur_row && mark_col < cur_col)) {
+		if (mark_row < cur_row
+		    || (mark_row == cur_row && mark_col < cur_col)) {
 			row_start = mark_row;
-			row_end   = cur_row;
-			end_col   = cur_col;
+			row_end = cur_row;
+			end_col = cur_col;
 		} else {
 			row_start = cur_row;
-			row_end   = mark_row;
-			end_col   = mark_col;
+			row_end = mark_row;
+			end_col = mark_col;
 		}
 
-		/* For line-wise toggles, a region that ends at column 0 does not
-		 * cover that final line — e.g. mark at the start of line N,
-		 * move down to the start of line N+2, then M-; should affect only
-		 * lines N and N+1. */
+		/* For line-wise toggles, a region that ends at column 0 does
+		 * not cover that final line — e.g. mark at the start of line N,
+		 * move down to the start of line N+2, then M-; should affect
+		 * only lines N and N+1. */
 		if (row_end > row_start && end_col == 0)
 			row_end--;
 	}
 
-	if (row_start >= editor.numrows) return;
-	if (row_end   >= editor.numrows) row_end = editor.numrows - 1;
+	if (row_start >= editor.numrows)
+		return;
+	if (row_end >= editor.numrows)
+		row_end = editor.numrows - 1;
 
 	for (r = row_start; r <= row_end; r++) {
 		erow *row = &editor.row[r];
-		int   i   = 0;
+		int i = 0;
 
 		/* Find first non-whitespace character. */
 		while (i < row->size && isspace((unsigned char)row->chars[i]))
 			i++;
 
-		if (row->size - i >= scslen &&
-		    strncmp(row->chars + i, scs, scslen) == 0) {
-			/* Already commented: remove scs and an optional following space. */
+		if (row->size - i >= scslen
+		    && strncmp(row->chars + i, scs, scslen) == 0) {
+			/* Already commented: remove scs and an optional
+			 * following space. */
 			char removed[8];
-			int  rlen = scslen;
+			int rlen = scslen;
 
-			if (i + scslen < row->size && row->chars[i + scslen] == ' ')
+			if (i + scslen < row->size
+			    && row->chars[i + scslen] == ' ')
 				rlen++;
 
 			memcpy(removed, row->chars + i, rlen);
 			memmove(row->chars + i, row->chars + i + rlen,
-			        row->size - i - rlen + 1);
+			    row->size - i - rlen + 1);
 			row->size -= rlen;
 			editor_update_row(row);
 
@@ -804,7 +870,8 @@ void editor_comment_dwim(void)
 				return;
 			}
 			row->chars = newchars;
-			memmove(row->chars + scslen + 1, row->chars, row->size + 1);
+			memmove(
+			    row->chars + scslen + 1, row->chars, row->size + 1);
 			memcpy(row->chars, scs, scslen);
 			row->chars[scslen] = ' ';
 			row->size += scslen + 1;
@@ -845,14 +912,17 @@ void editor_reflow_paragraph(void)
 	while (para_start > 0 && editor.row[para_start - 1].size > 0)
 		para_start--;
 	para_end = filerow;
-	while (para_end < editor.numrows - 1 && editor.row[para_end + 1].size > 0)
+	while (
+	    para_end < editor.numrows - 1 && editor.row[para_end + 1].size > 0)
 		para_end++;
 	nrows = para_end - para_start + 1;
 	total_chars = 0;
 	for (i = para_start; i <= para_end; i++)
 		total_chars += editor.row[i].size;
 
-	fill_col = (FILL_COLUMN < editor.screencols - 1) ? FILL_COLUMN : editor.screencols - 1;
+	fill_col = (FILL_COLUMN < editor.screencols - 1)
+	    ? FILL_COLUMN
+	    : editor.screencols - 1;
 
 	/* Save original text (lines joined with '\n') for undo */
 	orig_text = malloc(total_chars + nrows + 1);
@@ -860,7 +930,7 @@ void editor_reflow_paragraph(void)
 		word_nomem();
 		return;
 	}
-	orig_len  = 0;
+	orig_len = 0;
 	for (i = para_start; i <= para_end; i++) {
 		row = &editor.row[i];
 		if (i > para_start)
@@ -873,7 +943,8 @@ void editor_reflow_paragraph(void)
 	/* Detect leading whitespace indent from first paragraph line */
 	row = &editor.row[para_start];
 	indent_len = 0;
-	while (indent_len < row->size && isspace((unsigned char)row->chars[indent_len]))
+	while (indent_len < row->size
+	    && isspace((unsigned char)row->chars[indent_len]))
 		indent_len++;
 	indent = malloc(indent_len + 1);
 	if (!indent)
@@ -882,8 +953,9 @@ void editor_reflow_paragraph(void)
 		memcpy(indent, row->chars, indent_len);
 	indent[indent_len] = '\0';
 
-	/* Build word stream: strip leading/trailing whitespace per line, join with spaces */
-	words     = malloc(total_chars + nrows + 1);
+	/* Build word stream: strip leading/trailing whitespace per line, join
+	 * with spaces */
+	words = malloc(total_chars + nrows + 1);
 	if (!words)
 		goto oom;
 	words_len = 0;
@@ -891,13 +963,18 @@ void editor_reflow_paragraph(void)
 		const char *line;
 		int len;
 
-		row  = &editor.row[i];
+		row = &editor.row[i];
 		line = row->chars;
-		len  = row->size;
+		len = row->size;
 
-		while (len > 0 && isspace((unsigned char)*line))       { line++; len--; }
-		while (len > 0 && isspace((unsigned char)line[len-1])) len--;
-		if (len == 0) continue;
+		while (len > 0 && isspace((unsigned char)*line)) {
+			line++;
+			len--;
+		}
+		while (len > 0 && isspace((unsigned char)line[len - 1]))
+			len--;
+		if (len == 0)
+			continue;
 
 		if (words_len > 0)
 			words[words_len++] = ' ';
@@ -906,16 +983,17 @@ void editor_reflow_paragraph(void)
 	}
 	words[words_len] = '\0';
 
-	/* Word-wrap into new_lines, tracking lengths to avoid strlen on insert */
-	new_cap   = 8;
+	/* Word-wrap into new_lines, tracking lengths to avoid strlen on insert
+	 */
+	new_cap = 8;
 	new_lines = malloc(new_cap * sizeof(char *));
-	new_lens  = malloc(new_cap * sizeof(int));
+	new_lens = malloc(new_cap * sizeof(int));
 	if (!new_lines || !new_lens)
 		goto oom;
 	new_count = 0;
 
 	cur_cap = fill_col + indent_len + 2;
-	cur     = malloc(cur_cap);
+	cur = malloc(cur_cap);
 	if (!cur)
 		goto oom;
 	memcpy(cur, indent, indent_len);
@@ -923,11 +1001,14 @@ void editor_reflow_paragraph(void)
 
 	p = words;
 	while (*p) {
-		while (*p == ' ') p++;
-		if (!*p) break;
+		while (*p == ' ')
+			p++;
+		if (!*p)
+			break;
 
 		word_start = p;
-		while (*p && *p != ' ') p++;
+		while (*p && *p != ' ')
+			p++;
 		word_len = p - word_start;
 
 		need = cur_len + (cur_len > indent_len ? 1 : 0) + word_len;
@@ -963,22 +1044,24 @@ void editor_reflow_paragraph(void)
 			memcpy(saved, cur, cur_len);
 			saved[cur_len] = '\0';
 			if (new_count >= new_cap) {
-				new_cap  *= 2;
-				tmp_lines = realloc(new_lines, new_cap * sizeof(char *));
+				new_cap *= 2;
+				tmp_lines = realloc(
+				    new_lines, new_cap * sizeof(char *));
 				if (!tmp_lines) {
 					free(saved);
 					goto oom;
 				}
 				new_lines = tmp_lines;
-				tmp_lens  = realloc(new_lens,  new_cap * sizeof(int));
+				tmp_lens
+				    = realloc(new_lens, new_cap * sizeof(int));
 				if (!tmp_lens) {
 					free(saved);
 					goto oom;
 				}
-				new_lens  = tmp_lens;
+				new_lens = tmp_lens;
 			}
 			new_lines[new_count] = saved;
-			new_lens[new_count]  = cur_len;
+			new_lens[new_count] = cur_len;
 			new_count++;
 
 			memcpy(cur, indent, indent_len);
@@ -1005,22 +1088,23 @@ void editor_reflow_paragraph(void)
 		memcpy(saved, cur, cur_len);
 		saved[cur_len] = '\0';
 		if (new_count >= new_cap) {
-			new_cap  *= 2;
-			tmp_lines = realloc(new_lines, new_cap * sizeof(char *));
+			new_cap *= 2;
+			tmp_lines
+			    = realloc(new_lines, new_cap * sizeof(char *));
 			if (!tmp_lines) {
 				free(saved);
 				goto oom;
 			}
 			new_lines = tmp_lines;
-			tmp_lens  = realloc(new_lens,  new_cap * sizeof(int));
+			tmp_lens = realloc(new_lens, new_cap * sizeof(int));
 			if (!tmp_lens) {
 				free(saved);
 				goto oom;
 			}
-			new_lens  = tmp_lens;
+			new_lens = tmp_lens;
 		}
 		new_lines[new_count] = saved;
-		new_lens[new_count]  = cur_len;
+		new_lens[new_count] = cur_len;
 		new_count++;
 	}
 	ok = 1;
@@ -1046,11 +1130,14 @@ oom:
 		editor_insert_row(para_start + i, new_lines[i], new_lens[i]);
 	suppress_undo = 0;
 
-	/* col = new_count: the undo handler uses it to know how many rows to delete */
-	undo_push(UNDO_REFLOW_PARA, para_start, new_count, 0, orig_text, orig_len);
+	/* col = new_count: the undo handler uses it to know how many rows to
+	 * delete */
+	undo_push(
+	    UNDO_REFLOW_PARA, para_start, new_count, 0, orig_text, orig_len);
 
 	free(orig_text);
-	for (i = 0; i < new_count; i++) free(new_lines[i]);
+	for (i = 0; i < new_count; i++)
+		free(new_lines[i]);
 	free(new_lines);
 	free(new_lens);
 
@@ -1063,7 +1150,7 @@ oom:
 	} else {
 		editor.cy = para_start - editor.rowoff;
 	}
-	editor.cx     = indent_len;
+	editor.cx = indent_len;
 	editor.coloff = 0;
 	editor_set_status_message("Paragraph reflowed");
 }

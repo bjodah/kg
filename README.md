@@ -86,6 +86,32 @@ To uninstall:
 sudo make uninstall
 ```
 
+## Development
+
+Before submitting changes, format the C sources and tests:
+
+```bash
+make format
+make format-check
+```
+
+The formatter is `clang-format` with the repository's WebKit-based
+`.clang-format` profile.  CI runs `make format-check`, so formatting-only
+drift is caught there as well.
+
+Useful local quality checks:
+
+```bash
+make check
+make complexity-check
+make coverage
+make compile-db
+make iwyu
+```
+
+`make iwyu` runs Include What You Use from the compilation database, so
+refresh `compile_commands.json` with `make compile-db` first.
+
 ## Origin & References
 
 kg is based on [kilo][0] by Salvatore Sanfilippo (antirez), the original

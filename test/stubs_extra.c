@@ -4,5 +4,9 @@
 #include "../src/def.h"
 
 void editor_move_cursor(int key) { (void)key; }
-void editor_refresh_screen(void) {}
-int editor_read_raw_byte(int fd) { (void)fd; return 0; }
+void editor_refresh_screen(void) { }
+int editor_read_raw_byte(int fd)
+{
+	(void)fd;
+	return 0;
+}

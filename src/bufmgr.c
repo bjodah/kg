@@ -1,14 +1,22 @@
 /* ========================= Buffer management ============================== */
 
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
 #include "def.h"
 
 /* Synthetic syntax records for special modes. */
-static struct editor_syntax ibuffer_syntax = {
-	"IBuffer", NULL, NULL, "", "", "", 0
-};
-static struct editor_syntax text_syntax = {
-	"Text", NULL, NULL, "", "", "", 0
-};
+static struct editor_syntax ibuffer_syntax
+    = { "IBuffer", NULL, NULL, "", "", "", 0 };
+static struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0 };
 
 /* Column offset of the filename field in a *Buffer List* data row.
  * Format: " %c  %-24s  %6d  %-14s  %s"
@@ -19,7 +27,7 @@ static struct editor_syntax text_syntax = {
 
 struct editor_buffer buflist[MAX_BUFFERS];
 int buf_current = 0;
-int buf_count   = 0;
+int buf_count = 0;
 
 #define AUTOREVERT_POLL_INTERVAL_SEC 2
 
@@ -30,19 +38,23 @@ static void buf_save_to_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
 
-	b->cx = editor.cx;           b->cy = editor.cy;
-	b->rowoff = editor.rowoff;   b->coloff = editor.coloff;
+	b->cx = editor.cx;
+	b->cy = editor.cy;
+	b->rowoff = editor.rowoff;
+	b->coloff = editor.coloff;
 	b->numrows = editor.numrows;
 	b->row = editor.row;
 	b->dirty = editor.dirty;
 	b->filename = editor.filename;
 	b->syntax = editor.syntax;
 	b->mark_set = editor.mark_set;
-	b->mark_row = editor.mark_row;   b->mark_col = editor.mark_col;
+	b->mark_row = editor.mark_row;
+	b->mark_col = editor.mark_col;
 	b->mark_highlight = editor.mark_highlight;
 	b->shift_select = editor.shift_select;
 	b->rect_mode = editor.rect_mode;
-	b->undostack = undostack;   /* struct copy — pointer ownership moves here */
+	b->undostack
+	    = undostack; /* struct copy — pointer ownership moves here */
 	b->readonly = editor.readonly;
 	b->disk_mtime = editor.disk_mtime;
 	b->disk_size = editor.disk_size;
@@ -56,19 +68,22 @@ static void buf_restore_from_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
 
-	editor.cx = b->cx;           editor.cy = b->cy;
-	editor.rowoff = b->rowoff;   editor.coloff = b->coloff;
+	editor.cx = b->cx;
+	editor.cy = b->cy;
+	editor.rowoff = b->rowoff;
+	editor.coloff = b->coloff;
 	editor.numrows = b->numrows;
 	editor.row = b->row;
 	editor.dirty = b->dirty;
 	editor.filename = b->filename;
 	editor.syntax = b->syntax;
 	editor.mark_set = b->mark_set;
-	editor.mark_row = b->mark_row;   editor.mark_col = b->mark_col;
+	editor.mark_row = b->mark_row;
+	editor.mark_col = b->mark_col;
 	editor.mark_highlight = b->mark_highlight;
 	editor.shift_select = b->shift_select;
 	editor.rect_mode = b->rect_mode;
-	undostack = b->undostack;   /* struct copy */
+	undostack = b->undostack; /* struct copy */
 	editor.readonly = b->readonly;
 	editor.disk_mtime = b->disk_mtime;
 	editor.disk_size = b->disk_size;
@@ -82,8 +97,8 @@ static void buf_restore_from_slot(int idx)
 	/* If this buffer was flagged stale while it sat in its slot, reload
 	 * it now — but only when the user has opted in and there are no
 	 * unsaved edits to lose. */
-	if (editor.disk_changed && !editor.dirty &&
-	    (editor.auto_revert || global_auto_revert))
+	if (editor.disk_changed && !editor.dirty
+	    && (editor.auto_revert || global_auto_revert))
 		silent_revert_current();
 }
 
@@ -109,23 +124,31 @@ static void clamp_cursor_to_buffer(void)
 
 	filerow = editor.rowoff + editor.cy;
 	filecol = editor.coloff + editor.cx;
-	if (filerow >= editor.numrows) filerow = editor.numrows - 1;
-	if (filerow < 0) filerow = 0;
+	if (filerow >= editor.numrows)
+		filerow = editor.numrows - 1;
+	if (filerow < 0)
+		filerow = 0;
 
 	rowsize = editor.row[filerow].size;
-	if (filecol > rowsize) filecol = rowsize;
-	if (filecol < 0) filecol = 0;
+	if (filecol > rowsize)
+		filecol = rowsize;
+	if (filecol < 0)
+		filecol = 0;
 
-	if (editor.rowoff > filerow) editor.rowoff = filerow;
+	if (editor.rowoff > filerow)
+		editor.rowoff = filerow;
 	if (editor.rowoff + editor.screenrows <= filerow)
 		editor.rowoff = filerow - editor.screenrows + 1;
-	if (editor.rowoff < 0) editor.rowoff = 0;
+	if (editor.rowoff < 0)
+		editor.rowoff = 0;
 	editor.cy = filerow - editor.rowoff;
 
-	if (editor.coloff > filecol) editor.coloff = filecol;
+	if (editor.coloff > filecol)
+		editor.coloff = filecol;
 	if (editor.coloff + editor.screencols <= filecol)
 		editor.coloff = filecol - editor.screencols + 1;
-	if (editor.coloff < 0) editor.coloff = 0;
+	if (editor.coloff < 0)
+		editor.coloff = 0;
 	editor.cx = filecol - editor.coloff;
 }
 
@@ -153,7 +176,8 @@ void buf_reload_from_disk(void)
 	editor.rect_mode = 0;
 
 	fname = strdup(editor.filename);
-	if (!fname) return;
+	if (!fname)
+		return;
 
 	suppress_undo = 1;
 	editor_open(fname);
@@ -186,8 +210,8 @@ static void silent_revert_current(void)
 	clamp_cursor_to_buffer();
 	buf_save_to_slot(buf_current);
 
-	editor_set_status_message("Reverted %s from disk",
-	                          buf_basename(editor.filename));
+	editor_set_status_message(
+	    "Reverted %s from disk", buf_basename(editor.filename));
 }
 
 /* Walk every active buffer, stat its underlying file, and update the
@@ -205,7 +229,8 @@ int autorevert_poll(void)
 	int refresh_needed = 0;
 	int i;
 
-	if (now - last_poll < AUTOREVERT_POLL_INTERVAL_SEC) return 0;
+	if (now - last_poll < AUTOREVERT_POLL_INTERVAL_SEC)
+		return 0;
 	last_poll = now;
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -216,19 +241,21 @@ int autorevert_poll(void)
 		off_t snap_size;
 		int new_changed;
 
-		if (!b->active) continue;
+		if (!b->active)
+			continue;
 
 		fname = (i == buf_current) ? editor.filename : b->filename;
-		if (is_special_buffer(fname)) continue;
+		if (is_special_buffer(fname))
+			continue;
 
 		if (i == buf_current) {
-			flag       = &editor.disk_changed;
+			flag = &editor.disk_changed;
 			snap_mtime = editor.disk_mtime;
-			snap_size  = editor.disk_size;
+			snap_size = editor.disk_size;
 		} else {
-			flag       = &b->disk_changed;
+			flag = &b->disk_changed;
 			snap_mtime = b->disk_mtime;
-			snap_size  = b->disk_size;
+			snap_size = b->disk_size;
 		}
 
 		new_changed = file_state_differs(fname, snap_mtime, snap_size);
@@ -236,8 +263,8 @@ int autorevert_poll(void)
 			*flag = new_changed;
 			refresh_needed = 1;
 		}
-		if (i == buf_current && new_changed && !editor.dirty &&
-		    (editor.auto_revert || global_auto_revert)) {
+		if (i == buf_current && new_changed && !editor.dirty
+		    && (editor.auto_revert || global_auto_revert)) {
 			silent_revert_current();
 			refresh_needed = 1;
 		}
@@ -289,9 +316,11 @@ void buf_display_name(int idx, char *out, size_t outsize)
 
 	if (path) {
 		for (i = 0; i < MAX_BUFFERS; i++) {
-			if (i == idx || !buflist[i].active || !buflist[i].filename)
+			if (i == idx || !buflist[i].active
+			    || !buflist[i].filename)
 				continue;
-			if (strcmp(buf_basename(buflist[i].filename), base) == 0) {
+			if (strcmp(buf_basename(buflist[i].filename), base)
+			    == 0) {
 				dup = 1;
 				break;
 			}
@@ -326,7 +355,8 @@ static int prompt_done(int rc)
 }
 
 /* Park the cursor at the typed position on the echo area and refresh. */
-static void prompt_refresh(const char *prompt, int plen, const char *buf, int len)
+static void prompt_refresh(
+    const char *prompt, int plen, const char *buf, int len)
 {
 	editor_set_status_message("%s%s", prompt, buf);
 	editor.echo_cursor_col = plen + len + 1;
@@ -348,17 +378,21 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	int dir_len, home_len;
 
 	buf[0] = '\0';
-	if (!fn || is_special_buffer(fn)) return;
+	if (!fn || is_special_buffer(fn))
+		return;
 	abs = realpath(fn, NULL);
-	path = abs ? abs : fn;   /* fall back to as-recorded path */
+	path = abs ? abs : fn; /* fall back to as-recorded path */
 	slash = strrchr(path, '/');
-	if (!slash) { free(abs); return; }
+	if (!slash) {
+		free(abs);
+		return;
+	}
 	dir_len = (int)(slash - path) + 1;
 
 	home = getenv("HOME");
 	home_len = home ? (int)strlen(home) : 0;
-	if (home_len > 0 && dir_len > home_len &&
-	    strncmp(path, home, home_len) == 0 && path[home_len] == '/') {
+	if (home_len > 0 && dir_len > home_len
+	    && strncmp(path, home, home_len) == 0 && path[home_len] == '/') {
 		int rest = dir_len - home_len;
 		if (rest + 2 <= bufsize) {
 			buf[0] = '~';
@@ -385,7 +419,8 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 		prompt_refresh(prompt, plen, buf, len);
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0) buf[--len] = '\0';
+			if (len > 0)
+				buf[--len] = '\0';
 		} else if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
@@ -405,13 +440,19 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 	int n;
 	int avail = size - *off;
 
-	if (avail <= 1) { msg[size - 1] = '\0'; *off = size - 1; return; }
+	if (avail <= 1) {
+		msg[size - 1] = '\0';
+		*off = size - 1;
+		return;
+	}
 	va_start(ap, fmt);
 	n = vsnprintf(msg + *off, (size_t)avail, fmt, ap);
 	va_end(ap);
-	if (n < 0) return;
+	if (n < 0)
+		return;
 	*off += n;
-	if (*off > size - 1) *off = size - 1;
+	if (*off > size - 1)
+		*off = size - 1;
 }
 
 /* Is `name` the basename of any currently-open buffer's filename?
@@ -424,8 +465,8 @@ static int file_open_in_buflist(const char *name)
 	int i;
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (buflist[i].active && buflist[i].filename &&
-		    strcmp(buf_basename(buflist[i].filename), name) == 0)
+		if (buflist[i].active && buflist[i].filename
+		    && strcmp(buf_basename(buflist[i].filename), name) == 0)
 			return 1;
 	}
 	return 0;
@@ -462,7 +503,7 @@ static void push_open_files_back(struct path_entry *entries, int n)
  * even when the full list overflows the terminal width; trimmed sides
  * get "… | " / " | …" markers. */
 void editor_picker_render(char *msg, int msg_size, int *off,
-                          const char *const *names, int n, int n_total, int sel)
+    const char *const *names, int n, int n_total, int sel)
 {
 	int budget, used, win_start, win_end, i;
 
@@ -470,36 +511,43 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 		editor_msg_appendf(msg, msg_size, off, "[no match]");
 		return;
 	}
-	if (sel < 0)     sel = 0;
-	if (sel >= n)    sel = n - 1;
+	if (sel < 0)
+		sel = 0;
+	if (sel >= n)
+		sel = n - 1;
 
 	/* Leave room for the framing markers: "{" + "}" + worst-case
 	 * "… | " (4 cols) + " | …" (4 cols) = 10. */
 	budget = win_total_cols - *off - 10;
-	if (budget < 0) budget = 0;
-	used      = 0;
+	if (budget < 0)
+		budget = 0;
+	used = 0;
 	win_start = sel;
-	win_end   = sel;
+	win_end = sel;
 	for (i = sel; i < n; i++) {
-		int w = (int)strlen(names[i]) + (i > sel ? 3 : 0);   /* " | " */
-		if (i > sel && used + w > budget) break;
-		used   += w;
+		int w = (int)strlen(names[i]) + (i > sel ? 3 : 0); /* " | " */
+		if (i > sel && used + w > budget)
+			break;
+		used += w;
 		win_end = i + 1;
 	}
 	for (i = sel - 1; i >= 0; i--) {
 		int w = (int)strlen(names[i]) + 3;
-		if (used + w > budget) break;
+		if (used + w > budget)
+			break;
 		win_start = i;
-		used     += w;
+		used += w;
 	}
 
 	editor_msg_appendf(msg, msg_size, off, "{");
 	if (win_start > 0)
 		editor_msg_appendf(msg, msg_size, off, "… | ");
 	for (i = win_start; i < win_end; i++) {
-		if (i > win_start) editor_msg_appendf(msg, msg_size, off, " | ");
+		if (i > win_start)
+			editor_msg_appendf(msg, msg_size, off, " | ");
 		if (i == sel)
-			editor_msg_appendf(msg, msg_size, off, "\x1b[1m%s\x1b[22m", names[i]);
+			editor_msg_appendf(
+			    msg, msg_size, off, "\x1b[1m%s\x1b[22m", names[i]);
 		else
 			editor_msg_appendf(msg, msg_size, off, "%s", names[i]);
 	}
@@ -507,7 +555,8 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 		editor_msg_appendf(msg, msg_size, off, " | …");
 	editor_msg_appendf(msg, msg_size, off, "}");
 	if (n_total > n)
-		editor_msg_appendf(msg, msg_size, off, "  (+%d more)", n_total - n);
+		editor_msg_appendf(
+		    msg, msg_size, off, "  (+%d more)", n_total - n);
 }
 
 /* Prompt for a path with ido-style completion.  Matching directory
@@ -531,25 +580,28 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 
 	buf[len] = '\0';
 	while (1) {
-		const char *names[PICKER_MAX_ENTRIES] = {0};
+		const char *names[PICKER_MAX_ENTRIES] = { 0 };
 		int off, i;
 
 		editor_path_split(buf, dir, sizeof(dir), file, sizeof(file));
 		flen = (int)strlen(file);
-		total = editor_path_complete_entries(dir, file, entries,
-		                                     PICKER_MAX_ENTRIES,
-		                                     lcp, sizeof(lcp));
-		matches = total > PICKER_MAX_ENTRIES
-		            ? PICKER_MAX_ENTRIES : (total < 0 ? 0 : total);
-		if (sel >= matches) sel = matches > 0 ? matches - 1 : 0;
+		total = editor_path_complete_entries(
+		    dir, file, entries, PICKER_MAX_ENTRIES, lcp, sizeof(lcp));
+		matches = total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES
+						     : (total < 0 ? 0 : total);
+		if (sel >= matches)
+			sel = matches > 0 ? matches - 1 : 0;
 
 		push_open_files_back(entries, matches);
 
-		for (i = 0; i < matches; i++) names[i] = entries[i].name;
+		for (i = 0; i < matches; i++)
+			names[i] = entries[i].name;
 
 		off = 0;
-		editor_msg_appendf(msg, sizeof(msg), &off, "%s%s ", prompt, buf);
-		editor_picker_render(msg, sizeof(msg), &off, names, matches, total, sel);
+		editor_msg_appendf(
+		    msg, sizeof(msg), &off, "%s%s ", prompt, buf);
+		editor_picker_render(
+		    msg, sizeof(msg), &off, names, matches, total, sel);
 
 		editor_set_status_message("%s", msg);
 		editor.echo_cursor_col = plen + len + 1;
@@ -557,10 +609,11 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0 && buf[len-1] == '/') {
-				/* At a directory boundary: walk up one component. */
+			if (len > 0 && buf[len - 1] == '/') {
+				/* At a directory boundary: walk up one
+				 * component. */
 				buf[--len] = '\0';
-				while (len > 0 && buf[len-1] != '/')
+				while (len > 0 && buf[len - 1] != '/')
 					buf[--len] = '\0';
 			} else if (len > 0) {
 				buf[--len] = '\0';
@@ -576,22 +629,26 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 				sel = (sel + 1) % matches;
 		} else if (c == ENTER) {
 			if (matches > 0) {
-				/* Replace the typed file part with the selected name. */
+				/* Replace the typed file part with the selected
+				 * name. */
 				const struct path_entry *pe = &entries[sel];
 				int new_name_len = (int)strlen(pe->name);
-				int add_slash    = pe->is_dir ? 1 : 0;
-				if (len - flen + new_name_len + add_slash + 1 > bufsize) {
-					editor_set_status_message("Path too long");
+				int add_slash = pe->is_dir ? 1 : 0;
+				if (len - flen + new_name_len + add_slash + 1
+				    > bufsize) {
+					editor_set_status_message(
+					    "Path too long");
 					return prompt_done(-1);
 				}
 				len -= flen;
 				memcpy(buf + len, pe->name, new_name_len);
 				len += new_name_len;
-				if (add_slash) buf[len++] = '/';
+				if (add_slash)
+					buf[len++] = '/';
 				buf[len] = '\0';
 				if (pe->is_dir) {
 					sel = 0;
-					continue;   /* descend, re-loop */
+					continue; /* descend, re-loop */
 				}
 			}
 			editor_path_expand_tilde(buf, bufsize);
@@ -605,16 +662,16 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 					len += extend;
 					buf[len] = '\0';
 				}
-			} else if (matches == 1 && entries[0].is_dir &&
-			           len < bufsize - 1 &&
-			           (len == 0 || buf[len-1] != '/')) {
+			} else if (matches == 1 && entries[0].is_dir
+			    && len < bufsize - 1
+			    && (len == 0 || buf[len - 1] != '/')) {
 				buf[len++] = '/';
-				buf[len]   = '\0';
+				buf[len] = '\0';
 			}
 			sel = 0;
 		} else if (isprint(c) && len < bufsize - 1) {
 			buf[len++] = c;
-			buf[len]   = '\0';
+			buf[len] = '\0';
 			sel = 0;
 		}
 	}
@@ -647,8 +704,10 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 	for (i = 0; i < nfiles && slot < MAX_BUFFERS; i++) {
 		if (filenames[i][0] == '+') {
 			/* Position specifier: +LINE or +LINE:COL */
-			pending_line = 0; pending_col = 1;
-			sscanf(filenames[i] + 1, "%d:%d", &pending_line, &pending_col);
+			pending_line = 0;
+			pending_col = 1;
+			sscanf(filenames[i] + 1, "%d:%d", &pending_line,
+			    &pending_col);
 			continue;
 		}
 		buf_reset();
@@ -657,7 +716,8 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 		editor_open(filenames[i]);
 		if (pending_line > 0) {
 			editor_goto_line_direct(pending_line, pending_col);
-			pending_line = 0; pending_col = 1;
+			pending_line = 0;
+			pending_col = 1;
 		}
 		buf_save_to_slot(slot);
 		buflist[slot].active = 1;
@@ -675,7 +735,7 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 void buf_select_interactive(int fd)
 {
 	const char prompt[] = "Buffer: ";
-	const int  plen     = sizeof(prompt) - 1;
+	const int plen = sizeof(prompt) - 1;
 	int order[MAX_BUFFERS], n = 0;
 	char query[64];
 	int qlen = 0, sel = 0;
@@ -685,10 +745,12 @@ void buf_select_interactive(int fd)
 
 	query[0] = '\0';
 
-	/* Build ring starting from the buffer after current (most natural default). */
+	/* Build ring starting from the buffer after current (most natural
+	 * default). */
 	for (i = 1; i <= MAX_BUFFERS; i++) {
 		int idx = (buf_current + i) % MAX_BUFFERS;
-		if (buflist[idx].active) order[n++] = idx;
+		if (buflist[idx].active)
+			order[n++] = idx;
 	}
 	if (n == 0) {
 		editor_set_status_message("No other buffers.");
@@ -704,44 +766,54 @@ void buf_select_interactive(int fd)
 			int matches = 0;
 
 			/* Cache every candidate's display name once per redraw,
-			 * then build the filtered view as prefix matches followed
-			 * by mid-name matches. */
+			 * then build the filtered view as prefix matches
+			 * followed by mid-name matches. */
 			for (i = 0; i < n; i++)
-				buf_display_name(order[i], namebuf[i], sizeof(namebuf[i]));
+				buf_display_name(
+				    order[i], namebuf[i], sizeof(namebuf[i]));
 
 			for (i = 0; i < n; i++) {
-				if (editor_picker_match_rank(namebuf[i], query) != 0)
+				if (editor_picker_match_rank(namebuf[i], query)
+				    != 0)
 					continue;
-				names[matches]     = namebuf[i];
+				names[matches] = namebuf[i];
 				match_idx[matches] = order[i];
 				matches++;
 			}
 			if (qlen > 0) {
 				for (i = 0; i < n; i++) {
-					if (editor_picker_match_rank(namebuf[i], query) != 1)
+					if (editor_picker_match_rank(
+						namebuf[i], query)
+					    != 1)
 						continue;
-					names[matches]     = namebuf[i];
+					names[matches] = namebuf[i];
 					match_idx[matches] = order[i];
 					matches++;
 				}
 			}
-			if (sel >= matches) sel = matches > 0 ? matches - 1 : 0;
+			if (sel >= matches)
+				sel = matches > 0 ? matches - 1 : 0;
 
 			off = 0;
-			editor_msg_appendf(msg, sizeof(msg), &off, "%s%s ", prompt, query);
-			editor_picker_render(msg, sizeof(msg), &off, names, matches, matches, sel);
+			editor_msg_appendf(
+			    msg, sizeof(msg), &off, "%s%s ", prompt, query);
+			editor_picker_render(msg, sizeof(msg), &off, names,
+			    matches, matches, sel);
 			editor_set_status_message("%s", msg);
 			editor.echo_cursor_col = plen + qlen + 1;
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
 			if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-				if (qlen > 0) query[--qlen] = '\0';
+				if (qlen > 0)
+					query[--qlen] = '\0';
 				sel = 0;
 			} else if (c == ARROW_RIGHT || c == CTRL_F) {
-				if (matches > 0) sel = (sel + 1) % matches;
+				if (matches > 0)
+					sel = (sel + 1) % matches;
 			} else if (c == ARROW_LEFT || c == CTRL_B) {
-				if (matches > 0) sel = (sel - 1 + matches) % matches;
+				if (matches > 0)
+					sel = (sel - 1 + matches) % matches;
 			} else if (c == ENTER) {
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
@@ -754,9 +826,10 @@ void buf_select_interactive(int fd)
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				return;
-			} else if (isprint(c) && qlen < (int)sizeof(query) - 1) {
+			} else if (isprint(c)
+			    && qlen < (int)sizeof(query) - 1) {
 				query[qlen++] = c;
-				query[qlen]   = '\0';
+				query[qlen] = '\0';
 				sel = 0;
 			}
 		}
@@ -773,13 +846,14 @@ static void buf_open_file_ro(int fd, int readonly)
 	const char *prompt = readonly ? "Open file read-only: " : "Open file: ";
 
 	editor_prompt_prefill_dir(query, sizeof(query));
-	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0 || query[0] == '\0')
+	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0
+	    || query[0] == '\0')
 		return;
 
 	/* Switch to existing buffer if the file is already open. */
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (buflist[i].active && buflist[i].filename &&
-		    strcmp(buflist[i].filename, query) == 0) {
+		if (buflist[i].active && buflist[i].filename
+		    && strcmp(buflist[i].filename, query) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);
 			editor_set_status_message("%s", editor.filename);
@@ -788,16 +862,21 @@ static void buf_open_file_ro(int fd, int readonly)
 	}
 
 	if (buf_count >= MAX_BUFFERS) {
-		editor_set_status_message("Too many open buffers (%d max).", MAX_BUFFERS);
+		editor_set_status_message(
+		    "Too many open buffers (%d max).", MAX_BUFFERS);
 		return;
 	}
 
 	/* Find a free slot. */
 	slot = -1;
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active) { slot = i; break; }
+		if (!buflist[i].active) {
+			slot = i;
+			break;
+		}
 	}
-	if (slot < 0) return; /* should not happen given buf_count check above */
+	if (slot < 0)
+		return; /* should not happen given buf_count check above */
 
 	buf_save_current_state();
 	buf_reset();
@@ -807,11 +886,12 @@ static void buf_open_file_ro(int fd, int readonly)
 	buf_save_to_slot(slot);
 	buf_restore_from_slot(slot);
 	buf_count++;
-	editor_set_status_message("%s%s", editor.filename ? editor.filename : "[new]",
-		readonly ? " [read-only]" : "");
+	editor_set_status_message("%s%s",
+	    editor.filename ? editor.filename : "[new]",
+	    readonly ? " [read-only]" : "");
 }
 
-void buf_open_file(int fd)     { buf_open_file_ro(fd, 0); }
+void buf_open_file(int fd) { buf_open_file_ro(fd, 0); }
 void buf_open_file_read_only(int fd) { buf_open_file_ro(fd, 1); }
 
 /* Write a buffer slot's rows directly to its file without switching to it.
@@ -822,14 +902,21 @@ static int write_slot(struct editor_buffer *b)
 	int len, fd;
 
 	buf = editor_rows_to_string(b->row, b->numrows, &len);
-	fd = open(b->filename, O_RDWR|O_CREAT
+	fd = open(b->filename,
+	    O_RDWR | O_CREAT
 #ifdef O_CLOEXEC
-	          |O_CLOEXEC
+		| O_CLOEXEC
 #endif
-	          , 0644);
-	if (fd == -1) { free(buf); return 1; }
+	    ,
+	    0644);
+	if (fd == -1) {
+		free(buf);
+		return 1;
+	}
 	if (ftruncate(fd, len) == -1 || write(fd, buf, len) != len) {
-		close(fd); free(buf); return 1;
+		close(fd);
+		free(buf);
+		return 1;
 	}
 	close(fd);
 	free(buf);
@@ -847,13 +934,16 @@ void buf_save_all(int fd)
 		struct editor_buffer *b = &buflist[i];
 		int answer;
 
-		if (!b->active || !b->dirty) continue;
-		if (is_special_buffer(b->filename)) continue;
+		if (!b->active || !b->dirty)
+			continue;
+		if (is_special_buffer(b->filename))
+			continue;
 
 		editor_set_status_message("Save %s? (y/n) ", b->filename);
 		editor_refresh_screen();
 		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') continue;
+		if (answer != 'y' && answer != 'Y')
+			continue;
 
 		if (write_slot(b) == 0) {
 			b->dirty = 0;
@@ -864,7 +954,7 @@ void buf_save_all(int fd)
 			editor_set_status_message("Wrote %s", b->filename);
 		} else {
 			editor_set_status_message("Error writing %s: %s",
-				b->filename, strerror(errno));
+			    b->filename, strerror(errno));
 		}
 	}
 }
@@ -876,7 +966,8 @@ void buf_kill(int fd)
 
 	if (editor.dirty) {
 		int answer;
-		editor_set_status_message("Buffer modified, really kill? (y/n) ");
+		editor_set_status_message(
+		    "Buffer modified, really kill? (y/n) ");
 		editor_refresh_screen();
 		answer = editor_read_key(fd);
 		if (answer != 'y' && answer != 'Y') {
@@ -904,9 +995,13 @@ void buf_kill(int fd)
 
 	/* Switch to the nearest remaining buffer. */
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (buflist[i].active) { buf_restore_from_slot(i); break; }
+		if (buflist[i].active) {
+			buf_restore_from_slot(i);
+			break;
+		}
 	}
-	editor_set_status_message("%s", editor.filename ? editor.filename : "[new]");
+	editor_set_status_message(
+	    "%s", editor.filename ? editor.filename : "[new]");
 }
 
 /* Set up the special buffer named `name`: save the outgoing state,
@@ -914,7 +1009,7 @@ void buf_kill(int fd)
  * to fill rows, then mark the buffer read-only, attach `syn`, and
  * post `status`.  Shared by buf_open_list and buf_open_help. */
 static void buf_open_special(const char *name, struct editor_syntax *syn,
-                             void (*populate)(void), const char *status)
+    void (*populate)(void), const char *status)
 {
 	int i, slot = -1, existing = -1;
 
@@ -922,28 +1017,33 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (!buflist[i].active) {
-			if (slot < 0) slot = i;
+			if (slot < 0)
+				slot = i;
 			continue;
 		}
-		if (buflist[i].filename &&
-		    strcmp(buflist[i].filename, name) == 0)
+		if (buflist[i].filename
+		    && strcmp(buflist[i].filename, name) == 0)
 			existing = i;
 	}
 
 	if (existing >= 0) {
 		buf_restore_from_slot(existing);
-		undo_init(); /* content is rebuilt from scratch; don't keep stale ops */
+		undo_init(); /* content is rebuilt from scratch; don't keep
+				stale ops */
 	} else {
 		if (buf_count >= MAX_BUFFERS) {
-			editor_set_status_message("Too many open buffers (%d max).", MAX_BUFFERS);
+			editor_set_status_message(
+			    "Too many open buffers (%d max).", MAX_BUFFERS);
 			return;
 		}
-		if (slot < 0) return;
+		if (slot < 0)
+			return;
 		buf_reset();
 		editor.filename = strdup(name);
 	}
 
-	for (i = 0; i < editor.numrows; i++) editor_free_row(&editor.row[i]);
+	for (i = 0; i < editor.numrows; i++)
+		editor_free_row(&editor.row[i]);
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
@@ -974,25 +1074,25 @@ static void buf_list_populate(void)
 	const char *modename;
 
 	len = snprintf(line, sizeof(line), " M  %-24s  %6s  %-14s  %s",
-		"Buffer", "Size", "Mode", "File");
+	    "Buffer", "Size", "Mode", "File");
 	editor_insert_row(editor.numrows, line, len);
 	len = snprintf(line, sizeof(line), " -  %-24s  %6s  %-14s  %s",
-		"------", "------", "----", "----");
+	    "------", "------", "----", "----");
 	editor_insert_row(editor.numrows, line, len);
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
-		if (!b->active) continue;
+		if (!b->active)
+			continue;
 
 		modename = b->syntax ? b->syntax->name : "Fundamental";
 		size = 0;
-		for (j = 0; j < b->numrows; j++) size += b->row[j].size;
+		for (j = 0; j < b->numrows; j++)
+			size += b->row[j].size;
 
 		len = snprintf(line, sizeof(line), " %c  %-24s  %6d  %-14s  %s",
-			b->dirty ? '*' : ' ',
-			buf_basename(b->filename),
-			size, modename,
-			b->filename ? b->filename : "");
+		    b->dirty ? '*' : ' ', buf_basename(b->filename), size,
+		    modename, b->filename ? b->filename : "");
 		editor_insert_row(editor.numrows, line, len);
 	}
 }
@@ -1003,7 +1103,7 @@ static void buf_list_populate(void)
 void buf_open_list(void)
 {
 	buf_open_special(IBUF_NAME, &ibuffer_syntax, buf_list_populate,
-	                 "Buffer list — RET to open, q or C-x k to close.");
+	    "Buffer list — RET to open, q or C-x k to close.");
 }
 
 /* Populate the *help* buffer rows from the static key-binding table. */
@@ -1012,8 +1112,8 @@ static void buf_help_populate(void)
 	int i;
 
 	for (i = 0; kg_help_lines[i]; i++)
-		editor_insert_row(editor.numrows, kg_help_lines[i],
-		                  strlen(kg_help_lines[i]));
+		editor_insert_row(
+		    editor.numrows, kg_help_lines[i], strlen(kg_help_lines[i]));
 }
 
 /* Open (or refresh) the *help* buffer in the current window (C-h).
@@ -1022,7 +1122,7 @@ static void buf_help_populate(void)
 void buf_open_help(void)
 {
 	buf_open_special(HELP_NAME, &text_syntax, buf_help_populate,
-	                 "Press q to exit help.");
+	    "Press q to exit help.");
 }
 
 /* Open the buffer named on the current IBuffer line.
@@ -1034,20 +1134,27 @@ void buf_ibuffer_select(void)
 	const char *filename;
 	int i;
 
-	if (editor.syntax != &ibuffer_syntax) return; /* only valid in IBuffer mode */
-	if (filerow < 2 || filerow >= editor.numrows) return; /* skip header rows */
-	if (editor.row[filerow].size <= IBUF_FILENAME_OFFSET) return;
+	if (editor.syntax != &ibuffer_syntax)
+		return; /* only valid in IBuffer mode */
+	if (filerow < 2 || filerow >= editor.numrows)
+		return; /* skip header rows */
+	if (editor.row[filerow].size <= IBUF_FILENAME_OFFSET)
+		return;
 
 	filename = editor.row[filerow].chars + IBUF_FILENAME_OFFSET;
-	if (!filename[0]) return;
-	if (strcmp(filename, IBUF_NAME) == 0) return; /* don't recurse */
+	if (!filename[0])
+		return;
+	if (strcmp(filename, IBUF_NAME) == 0)
+		return; /* don't recurse */
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active || !buflist[i].filename) continue;
+		if (!buflist[i].active || !buflist[i].filename)
+			continue;
 		if (strcmp(buflist[i].filename, filename) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);
-			editor_set_status_message("%s", editor.filename ? editor.filename : "[new]");
+			editor_set_status_message(
+			    "%s", editor.filename ? editor.filename : "[new]");
 			return;
 		}
 	}

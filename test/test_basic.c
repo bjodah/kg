@@ -1,10 +1,10 @@
 /* test_basic.c — regression tests for editor_goto_line_direct */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* ---- Helpers ---- */
 
@@ -20,7 +20,9 @@ static void setup(int n)
 	editor.screencols = 80;
 
 	for (i = 0; i < n; i++) {
-		buf[0] = 'r'; buf[1] = '0' + i / 10; buf[2] = '0' + i % 10;
+		buf[0] = 'r';
+		buf[1] = '0' + i / 10;
+		buf[2] = '0' + i % 10;
 		buf[3] = '\0';
 		editor_insert_row(i, buf, 3);
 	}
@@ -29,7 +31,7 @@ static void setup(int n)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 }
 
@@ -43,8 +45,8 @@ static void test_goto_line_1(void)
 	editor_goto_line_direct(1, 0);
 
 	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy     == 0);
-	CHECK(editor.cx     == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 0);
 	CHECK(editor.coloff == 0);
 	teardown();
 }
@@ -58,8 +60,8 @@ static void test_goto_line_5(void)
 
 	/* filerow=4, rowoff=max(0,4-12)=0, cy=4 */
 	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy     == 4);
-	CHECK(editor.cx     == 0);
+	CHECK(editor.cy == 4);
+	CHECK(editor.cx == 0);
 	teardown();
 }
 
@@ -72,7 +74,7 @@ static void test_goto_last_line(void)
 
 	/* filerow=9, rowoff=max(0,9-12)=0, cy=9 */
 	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy     == 9);
+	CHECK(editor.cy == 9);
 	teardown();
 }
 
@@ -117,7 +119,7 @@ static void test_goto_col_one_is_zero(void)
 /* col=3 (1-based) lands at cx=2. */
 static void test_goto_col_explicit(void)
 {
-	setup(5);   /* each row is "rNN" — 3 chars */
+	setup(5); /* each row is "rNN" — 3 chars */
 
 	editor_goto_line_direct(1, 3);
 
@@ -129,7 +131,7 @@ static void test_goto_col_explicit(void)
 /* col beyond row size is clamped to row size. */
 static void test_goto_col_clamp(void)
 {
-	setup(5);   /* rows have 3 chars */
+	setup(5); /* rows have 3 chars */
 
 	editor_goto_line_direct(1, 99);
 
@@ -148,7 +150,7 @@ static void test_goto_line_centering(void)
 	editor_goto_line_direct(20, 0);
 
 	CHECK(editor.rowoff == 7);
-	CHECK(editor.cy     == 12);
+	CHECK(editor.cy == 12);
 	teardown();
 }
 
@@ -157,7 +159,7 @@ static void test_goto_line_empty_file(void)
 {
 	setup(0);
 
-	editor_goto_line_direct(1, 0);   /* must not crash */
+	editor_goto_line_direct(1, 0); /* must not crash */
 
 	CHECK(editor.numrows == 0);
 	teardown();

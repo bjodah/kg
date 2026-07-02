@@ -1,10 +1,13 @@
 *~
 *.o
+*.gcda
+*.gcno
 .#*
 \#*#
 foo*
 kg
 src/kg
 compile_commands.json
+coverage/
 *.plist
 .cache

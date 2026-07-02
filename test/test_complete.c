@@ -4,16 +4,18 @@
  * exercises completion against various prefixes and verifies match counts,
  * longest-common-prefix output, and the is-directory flag for sole matches. */
 
-#define _DEFAULT_SOURCE   /* for mkdtemp under -std=c99 */
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE /* for mkdtemp under -std=c99 */
+#endif
 
+#include "../src/def.h"
+#include "test.h"
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <dirent.h>
-#include "test.h"
-#include "../src/def.h"
 
 static char scratch[256];
 
@@ -24,7 +26,8 @@ static void touch(const char *name)
 
 	snprintf(path, sizeof(path), "%s/%s", scratch, name);
 	fp = fopen(path, "w");
-	if (fp) fclose(fp);
+	if (fp)
+		fclose(fp);
 }
 
 static void mkscratchdir(const char *name)
@@ -58,9 +61,11 @@ static void rmtree(const char *path)
 	DIR *dp = opendir(path);
 	char child[512];
 
-	if (!dp) return;
+	if (!dp)
+		return;
 	while ((de = readdir(dp)) != NULL) {
-		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+			continue;
 		snprintf(child, sizeof(child), "%s/%s", path, de->d_name);
 		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode))
 			rmtree(child);
@@ -71,10 +76,7 @@ static void rmtree(const char *path)
 	rmdir(path);
 }
 
-static void teardown(void)
-{
-	rmtree(scratch);
-}
+static void teardown(void) { rmtree(scratch); }
 
 /* Two files match "foob": LCP collapses to "fooba". */
 static void test_multiple_matches_lcp(void)
@@ -84,10 +86,12 @@ static void test_multiple_matches_lcp(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "foob", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "foob", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 2);
 	CHECK(strcmp(lcp, "fooba") == 0);
-	CHECK(strcmp(entries[0].name, "foobar") == 0);   /* sorted alphabetically */
+	CHECK(
+	    strcmp(entries[0].name, "foobar") == 0); /* sorted alphabetically */
 	CHECK(strcmp(entries[1].name, "foobaz") == 0);
 	teardown();
 }
@@ -100,10 +104,11 @@ static void test_three_matches_lcp_two_chars(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "fo", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "fo", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 3);
 	CHECK(strcmp(lcp, "fo") == 0);
-	CHECK(strcmp(entries[0].name, "foe") == 0);      /* sorted */
+	CHECK(strcmp(entries[0].name, "foe") == 0); /* sorted */
 	CHECK(strcmp(entries[1].name, "foobar") == 0);
 	CHECK(strcmp(entries[2].name, "foobaz") == 0);
 	teardown();
@@ -117,7 +122,8 @@ static void test_single_file_match(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "REA", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "REA", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 1);
 	CHECK(strcmp(lcp, "README") == 0);
 	CHECK(strcmp(entries[0].name, "README") == 0);
@@ -132,7 +138,8 @@ static void test_single_dir_match(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "subd", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "subd", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 1);
 	CHECK(strcmp(lcp, "subdir") == 0);
 	CHECK(strcmp(entries[0].name, "subdir") == 0);
@@ -148,7 +155,8 @@ static void test_no_match(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "xyzzy", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "xyzzy", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 0);
 	CHECK(lcp[0] == '\0');
 	teardown();
@@ -161,8 +169,8 @@ static void test_opendir_failure(void)
 	char lcp[256];
 	int n;
 
-	n = editor_path_complete_entries("/no/such/dir/exists-12345/", "x",
-	                                  entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    "/no/such/dir/exists-12345/", "x", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == -1);
 }
 
@@ -175,8 +183,9 @@ static void test_empty_prefix(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "", entries, 8, lcp, sizeof(lcp));
-	CHECK(n == 5);            /* foobar, foobaz, foe, README, subdir */
+	n = editor_path_complete_entries(
+	    scratch, "", entries, 8, lcp, sizeof(lcp));
+	CHECK(n == 5); /* foobar, foobaz, foe, README, subdir */
 	CHECK(lcp[0] == '\0');
 	teardown();
 }
@@ -189,7 +198,8 @@ static void test_dot_prefix_shows_hidden(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, ".h", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, ".h", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 1);
 	CHECK(strcmp(lcp, ".hidden") == 0);
 	CHECK(strcmp(entries[0].name, ".hidden") == 0);
@@ -207,7 +217,8 @@ static void test_max_clamp(void)
 	int n;
 
 	setup();
-	n = editor_path_complete_entries(scratch, "fo", entries, 2, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "fo", entries, 2, lcp, sizeof(lcp));
 	CHECK(n == 3);
 	CHECK(strncmp(entries[0].name, "fo", 2) == 0);
 	CHECK(strncmp(entries[1].name, "fo", 2) == 0);
@@ -249,11 +260,13 @@ static void test_substring_matching(void)
 	int n;
 
 	setup();
-	touch("aaabuf");      /* prefix-of-mid? no — needle is "buf", "aaabuf" has buf mid-name */
-	touch("buffile");     /* prefix match */
-	touch("zbufz");       /* mid-name match */
+	touch("aaabuf"); /* prefix-of-mid? no — needle is "buf", "aaabuf" has
+			    buf mid-name */
+	touch("buffile"); /* prefix match */
+	touch("zbufz"); /* mid-name match */
 
-	n = editor_path_complete_entries(scratch, "buf", entries, 8, lcp, sizeof(lcp));
+	n = editor_path_complete_entries(
+	    scratch, "buf", entries, 8, lcp, sizeof(lcp));
 	CHECK(n == 3);
 
 	/* "buffile" should sort first (prefix match), then the mid-name

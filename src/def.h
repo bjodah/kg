@@ -57,24 +57,24 @@
 #endif
 #endif
 
-#include <termios.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <errno.h>
-#include <string.h>
 #include <ctype.h>
-#include <time.h>
-#include <sys/types.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <limits.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <time.h>
 #include <unistd.h>
-#include <stdarg.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <signal.h>
 
 /* Write escape sequences to stdout; silently discard errors (best-effort). */
 static inline void tty_write(const void *buf, size_t n)
@@ -86,50 +86,50 @@ static inline void tty_write(const void *buf, size_t n)
 /* Syntax highlight types */
 #define HL_NORMAL 0
 #define HL_NONPRINT 1
-#define HL_COMMENT 2   /* Single line comment. */
+#define HL_COMMENT 2 /* Single line comment. */
 #define HL_MLCOMMENT 3 /* Multi-line comment. */
 #define HL_KEYWORD1 4
 #define HL_KEYWORD2 5
 #define HL_STRING 6
 #define HL_NUMBER 7
-#define HL_MATCH 8      /* Search match. */
+#define HL_MATCH 8 /* Search match. */
 
-#define HL_HIGHLIGHT_STRINGS (1<<0)
-#define HL_HIGHLIGHT_NUMBERS (1<<1)
-#define SHL_MARKDOWN         (1<<2) /* Use markdown-specific highlighter. */
-#define SHL_MAKEFILE         (1<<3) /* Use makefile-specific highlighter. */
+#define HL_HIGHLIGHT_STRINGS (1 << 0)
+#define HL_HIGHLIGHT_NUMBERS (1 << 1)
+#define SHL_MARKDOWN (1 << 2) /* Use markdown-specific highlighter. */
+#define SHL_MAKEFILE (1 << 3) /* Use makefile-specific highlighter. */
 
 /* Key action codes */
 enum KEY_ACTION {
-	KEY_NULL = 0,       /* NULL */
-	CTRL_A = 1,         /* Ctrl-a */
-	CTRL_B = 2,         /* Ctrl-b */
-	CTRL_C = 3,         /* Ctrl-c */
-	CTRL_D = 4,         /* Ctrl-d */
-	CTRL_E = 5,         /* Ctrl-e */
-	CTRL_F = 6,         /* Ctrl-f */
-	CTRL_G = 7,         /* Ctrl-g */
-	CTRL_H = 8,         /* Ctrl-h */
-	TAB = 9,            /* Tab */
-	CTRL_K = 11,        /* Ctrl-k */
-	CTRL_L = 12,        /* Ctrl+l */
-	ENTER = 13,         /* Enter */
-	CTRL_N = 14,        /* Ctrl-n */
-	CTRL_O = 15,        /* Ctrl-o */
-	CTRL_P = 16,        /* Ctrl-p */
-	CTRL_Q = 17,        /* Ctrl-q */
-	CTRL_R = 18,        /* Ctrl-r */
-	CTRL_S = 19,        /* Ctrl-s */
-	CTRL_T = 20,        /* Ctrl-t */
-	CTRL_U = 21,        /* Ctrl-u */
-	CTRL_V = 22,        /* Ctrl-v */
-	CTRL_W = 23,        /* Ctrl-w */
-	CTRL_X = 24,        /* Ctrl-x */
-	CTRL_Y = 25,        /* Ctrl-y */
-	CTRL_Z = 26,        /* Ctrl-z */
-	ESC = 27,           /* Escape */
+	KEY_NULL = 0, /* NULL */
+	CTRL_A = 1, /* Ctrl-a */
+	CTRL_B = 2, /* Ctrl-b */
+	CTRL_C = 3, /* Ctrl-c */
+	CTRL_D = 4, /* Ctrl-d */
+	CTRL_E = 5, /* Ctrl-e */
+	CTRL_F = 6, /* Ctrl-f */
+	CTRL_G = 7, /* Ctrl-g */
+	CTRL_H = 8, /* Ctrl-h */
+	TAB = 9, /* Tab */
+	CTRL_K = 11, /* Ctrl-k */
+	CTRL_L = 12, /* Ctrl+l */
+	ENTER = 13, /* Enter */
+	CTRL_N = 14, /* Ctrl-n */
+	CTRL_O = 15, /* Ctrl-o */
+	CTRL_P = 16, /* Ctrl-p */
+	CTRL_Q = 17, /* Ctrl-q */
+	CTRL_R = 18, /* Ctrl-r */
+	CTRL_S = 19, /* Ctrl-s */
+	CTRL_T = 20, /* Ctrl-t */
+	CTRL_U = 21, /* Ctrl-u */
+	CTRL_V = 22, /* Ctrl-v */
+	CTRL_W = 23, /* Ctrl-w */
+	CTRL_X = 24, /* Ctrl-x */
+	CTRL_Y = 25, /* Ctrl-y */
+	CTRL_Z = 26, /* Ctrl-z */
+	ESC = 27, /* Escape */
 	CTRL_UNDERSCORE = 31, /* Ctrl-_ or Ctrl-/ (undo) */
-	BACKSPACE =  127,   /* Backspace */
+	BACKSPACE = 127, /* Backspace */
 	/* The following are just soft codes, not really reported by the
 	 * terminal directly. */
 	ARROW_LEFT = 1000,
@@ -153,9 +153,9 @@ enum KEY_ACTION {
 	SHIFT_ARROW_DOWN,
 	SHIFT_HOME,
 	SHIFT_END,
-	SHIFT_INSERT,    /* CUA paste */
-	SHIFT_DELETE,    /* CUA cut */
-	CTRL_INSERT,     /* CUA copy */
+	SHIFT_INSERT, /* CUA paste */
+	SHIFT_DELETE, /* CUA cut */
+	CTRL_INSERT, /* CUA copy */
 	ALT_F,
 	ALT_B,
 	ALT_D,
@@ -164,27 +164,27 @@ enum KEY_ACTION {
 	ALT_W,
 	ALT_Q,
 	ALT_BACKSPACE,
-	ALT_PCT,       /* M-% query-replace */
+	ALT_PCT, /* M-% query-replace */
 	ALT_SEMICOLON, /* M-; comment-dwim */
-	ALT_X,         /* M-x named command */
-	ALT_CARET,     /* M-^ join-line */
-	ALT_U,         /* M-u upcase-word */
-	ALT_L,         /* M-l downcase-word */
-	ALT_C,         /* M-c capitalize-word */
-	ALT_BANG,      /* M-! shell-command */
-	ALT_PIPE,      /* M-| shell-command-on-region */
-	ALT_LT,        /* M-< beginning-of-buffer */
-	ALT_GT,        /* M-> end-of-buffer */
-	ALT_LBRACE,    /* M-{ backward paragraph */
-	ALT_RBRACE,    /* M-} forward paragraph */
-	ALT_M,         /* M-m back-to-indentation */
-	ALT_A,         /* M-a backward sentence */
-	ALT_E,         /* M-e forward sentence */
-	ALT_R,         /* M-r move-to-window-line */
+	ALT_X, /* M-x named command */
+	ALT_CARET, /* M-^ join-line */
+	ALT_U, /* M-u upcase-word */
+	ALT_L, /* M-l downcase-word */
+	ALT_C, /* M-c capitalize-word */
+	ALT_BANG, /* M-! shell-command */
+	ALT_PIPE, /* M-| shell-command-on-region */
+	ALT_LT, /* M-< beginning-of-buffer */
+	ALT_GT, /* M-> end-of-buffer */
+	ALT_LBRACE, /* M-{ backward paragraph */
+	ALT_RBRACE, /* M-} forward paragraph */
+	ALT_M, /* M-m back-to-indentation */
+	ALT_A, /* M-a backward sentence */
+	ALT_E, /* M-e forward sentence */
+	ALT_R, /* M-r move-to-window-line */
 	ALT_BACKSLASH, /* M-\ delete-horizontal-space */
-	ALT_SPACE,     /* M-SPC just-one-space */
-	ALT_Z,         /* M-z zap-to-char */
-	ALT_0,         /* M-0 numeric argument */
+	ALT_SPACE, /* M-SPC just-one-space */
+	ALT_Z, /* M-z zap-to-char */
+	ALT_0, /* M-0 numeric argument */
 	ALT_1,
 	ALT_2,
 	ALT_3,
@@ -194,13 +194,13 @@ enum KEY_ACTION {
 	ALT_7,
 	ALT_8,
 	ALT_9,
-	KEY_F3,        /* F3: start keyboard macro */
-	KEY_F4         /* F4: stop or replay keyboard macro */
+	KEY_F3, /* F3: start keyboard macro */
+	KEY_F4 /* F4: stop or replay keyboard macro */
 };
 
 /* Syntax highlight definition */
 struct editor_syntax {
-	char *name;         /* Display name shown in mode line, e.g. "C", "Python" */
+	char *name; /* Display name shown in mode line, e.g. "C", "Python" */
 	char **filematch;
 	char **keywords;
 	char singleline_comment_start[5];
@@ -211,14 +211,15 @@ struct editor_syntax {
 
 /* This structure represents a single line of the file we are editing. */
 typedef struct erow {
-	int idx;            /* Row index in the file, zero-based. */
-	int size;           /* Size of the row, excluding the null term. */
-	int rsize;          /* Size of the rendered row. */
-	char *chars;        /* Row content. */
-	char *render;       /* Row content "rendered" for screen (for TABs). */
-	unsigned char *hl;  /* Syntax highlight type for each character in render.*/
-	int hl_oc;          /* Row had open comment at end in last syntax highlight
-	                       check. */
+	int idx; /* Row index in the file, zero-based. */
+	int size; /* Size of the row, excluding the null term. */
+	int rsize; /* Size of the rendered row. */
+	char *chars; /* Row content. */
+	char *render; /* Row content "rendered" for screen (for TABs). */
+	unsigned char
+	    *hl; /* Syntax highlight type for each character in render.*/
+	int hl_oc; /* Row had open comment at end in last syntax highlight
+		      check. */
 } erow;
 
 /* Highlight color */
@@ -228,43 +229,52 @@ typedef struct hl_color {
 
 /* Editor configuration state */
 struct editor_config {
-	int cx, cy;         /* Cursor x and y position in characters */
-	int rowoff;         /* Offset of row displayed. */
-	int coloff;         /* Offset of column displayed. */
-	int screenrows;     /* Number of rows that we can show */
-	int screencols;     /* Number of cols that we can show */
-	int numrows;        /* Number of rows */
-	int rawmode;        /* Is terminal raw mode enabled? */
-	erow *row;          /* Rows */
-	int dirty;          /* File modified but not saved. */
-	char *filename;     /* Currently open filename */
+	int cx, cy; /* Cursor x and y position in characters */
+	int rowoff; /* Offset of row displayed. */
+	int coloff; /* Offset of column displayed. */
+	int screenrows; /* Number of rows that we can show */
+	int screencols; /* Number of cols that we can show */
+	int numrows; /* Number of rows */
+	int rawmode; /* Is terminal raw mode enabled? */
+	erow *row; /* Rows */
+	int dirty; /* File modified but not saved. */
+	char *filename; /* Currently open filename */
 	char statusmsg[512];
 	time_t statusmsg_time;
-	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom row
-	                      * where the cursor should rest (for minibuffer prompts). */
-	struct editor_syntax *syntax;    /* Current syntax highlight, or NULL. */
-	int cx_prefix;      /* Set to 1 when C-x was pressed, waiting for next key. */
+	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
+			      * row where the cursor should rest (for minibuffer
+			      * prompts). */
+	struct editor_syntax *syntax; /* Current syntax highlight, or NULL. */
+	int cx_prefix; /* Set to 1 when C-x was pressed, waiting for next key.
+			*/
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
-	int prefix_arg;     /* The numeric argument under construction. */
-	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit replaces 4. */
-	int paste_mode;     /* If 1, we're in paste mode - disable autocomplete */
-	struct timeval last_char_time; /* Time of last character for paste detection */
-	int mark_set;       /* Is mark set for region selection? */
-	int mark_row;       /* Mark row position */
-	int mark_col;       /* Mark column position */
-	int mark_highlight; /* 1 when the region should render with reverse video. */
-	int shift_select;   /* 1 when the active region was started by shift+motion. */
-	int rect_mode;      /* 1 when the region should render as a rectangle. */
-	int rect_prefix;    /* 1 after C-x r, waiting for the rectangle op key. */
-	int desired_visual_col; /* goal column across vertical motion; -1 = unset. */
-	int readonly;       /* If 1, buffer is read-only (editing is blocked). */
-	int last_key;       /* Last key processed, for command repetition logic. */
-	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom. */
-	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle, 2=bottom. */
-	time_t disk_mtime;  /* mtime of `filename` when we last read/wrote it. */
-	off_t disk_size;    /* size of `filename` when we last read/wrote it. */
-	int disk_changed;   /* Set by the auto-revert poll when disk differs. */
-	int auto_revert;    /* Per-buffer auto-revert toggle. */
+	int prefix_arg; /* The numeric argument under construction. */
+	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit
+				 replaces 4. */
+	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */
+	struct timeval
+	    last_char_time; /* Time of last character for paste detection */
+	int mark_set; /* Is mark set for region selection? */
+	int mark_row; /* Mark row position */
+	int mark_col; /* Mark column position */
+	int mark_highlight; /* 1 when the region should render with reverse
+			       video. */
+	int shift_select; /* 1 when the active region was started by
+			     shift+motion. */
+	int rect_mode; /* 1 when the region should render as a rectangle. */
+	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
+	int desired_visual_col; /* goal column across vertical motion; -1 =
+				   unset. */
+	int readonly; /* If 1, buffer is read-only (editing is blocked). */
+	int last_key; /* Last key processed, for command repetition logic. */
+	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom.
+			     */
+	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle,
+				  2=bottom. */
+	time_t disk_mtime; /* mtime of `filename` when we last read/wrote it. */
+	off_t disk_size; /* size of `filename` when we last read/wrote it. */
+	int disk_changed; /* Set by the auto-revert poll when disk differs. */
+	int auto_revert; /* Per-buffer auto-revert toggle. */
 };
 
 /* Append buffer for efficient screen rendering */
@@ -275,8 +285,8 @@ struct abuf {
 
 /* Kill ring (yank buffer) for copy/paste operations */
 struct kill_ring {
-	char *text;         /* Killed/copied text */
-	int len;            /* Length of text */
+	char *text; /* Killed/copied text */
+	int len; /* Length of text */
 };
 
 /* Undo operation types */
@@ -287,21 +297,21 @@ enum undo_type {
 	UNDO_DELETE_LINE,
 	UNDO_SPLIT_LINE,
 	UNDO_JOIN_LINE,
-	UNDO_KILL_TEXT,   /* Kill line or region */
-	UNDO_YANK_TEXT,   /* Yank (paste) */
+	UNDO_KILL_TEXT, /* Kill line or region */
+	UNDO_YANK_TEXT, /* Yank (paste) */
 	UNDO_REPLACE_TEXT, /* Replace span at row/col; c = replacement length */
 	UNDO_REFLOW_PARA, /* M-q paragraph reflow */
-	UNDO_RECT_OVERWRITE  /* Rectangle kill/delete/clear/yank: restore rows */
+	UNDO_RECT_OVERWRITE /* Rectangle kill/delete/clear/yank: restore rows */
 };
 
 /* Single undo operation */
 struct undo_op {
 	enum undo_type type;
-	int row;            /* Row where operation occurred */
-	int col;            /* Column where operation occurred */
-	int c;              /* Character (for char operations) */
-	char *text;         /* Line text (for line operations) */
-	int len;            /* Length of text */
+	int row; /* Row where operation occurred */
+	int col; /* Column where operation occurred */
+	int c; /* Character (for char operations) */
+	char *text; /* Line text (for line operations) */
+	int len; /* Length of text */
 	struct undo_op *next;
 };
 
@@ -310,20 +320,20 @@ struct undo_stack {
 	struct undo_op *head;
 	int size;
 	int max_size;
-	int clean_size;  /* Stack size at last save (-1 if never saved clean) */
+	int clean_size; /* Stack size at last save (-1 if never saved clean) */
 };
 
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
-	int bufidx;         /* Which buffer this window shows */
-	int cx, cy;         /* Cursor position within window */
+	int bufidx; /* Which buffer this window shows */
+	int cx, cy; /* Cursor position within window */
 	int rowoff, coloff; /* Scroll offsets */
-	int y, x;           /* Top-left corner on terminal (1-based) */
-	int h, w;           /* Height (text rows) and width (cols) of this window */
-	int active;         /* 1 if this slot is in use */
-	int col_group;      /* Column group: windows with same value stack vertically;
-	                       different values sit side-by-side */
+	int y, x; /* Top-left corner on terminal (1-based) */
+	int h, w; /* Height (text rows) and width (cols) of this window */
+	int active; /* 1 if this slot is in use */
+	int col_group; /* Column group: windows with same value stack
+			  vertically; different values sit side-by-side */
 };
 
 /* Per-buffer state saved when switching away from a buffer. */
@@ -342,8 +352,8 @@ struct editor_buffer {
 	int shift_select;
 	int rect_mode;
 	struct undo_stack undostack; /* per-buffer undo chain */
-	int active;                 /* 1 if this slot is in use */
-	int readonly;               /* 1 if buffer is read-only */
+	int active; /* 1 if this slot is in use */
+	int readonly; /* 1 if buffer is read-only */
 	time_t disk_mtime;
 	off_t disk_size;
 	int disk_changed;
@@ -358,40 +368,40 @@ extern struct kill_ring killring;
 extern struct undo_stack undostack;
 extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
-extern int buf_count;   /* number of active buffers */
+extern int buf_count; /* number of active buffers */
 extern int global_auto_revert; /* Default auto-revert flag for all buffers. */
 
 extern struct editor_window winlist[MAX_WINDOWS];
-extern int win_current;     /* index into winlist[] of the active window */
-extern int win_count;       /* number of active windows */
-extern int win_total_rows;  /* terminal rows (set by update_window_size) */
-extern int win_total_cols;  /* terminal cols (set by update_window_size) */
+extern int win_current; /* index into winlist[] of the active window */
+extern int win_count; /* number of active windows */
+extern int win_total_rows; /* terminal rows (set by update_window_size) */
+extern int win_total_cols; /* terminal cols (set by update_window_size) */
 
 /* bufmgr.c */
 void buf_save_current_state(void);
-int  editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
-int  editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
+int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
+int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 void editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
 void editor_picker_render(char *msg, int msg_size, int *off,
-                          const char *const *names, int n, int n_total, int sel);
+    const char *const *names, int n, int n_total, int sel);
 void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
-	__attribute__((format(printf, 4, 5)));
-int  autorevert_poll(void);
+    __attribute__((format(printf, 4, 5)));
+int autorevert_poll(void);
 void buf_reload_from_disk(void);
 
 /* path.c */
-#define PATH_ENTRY_NAME_MAX 256              /* fits POSIX NAME_MAX (255) + NUL */
+#define PATH_ENTRY_NAME_MAX 256 /* fits POSIX NAME_MAX (255) + NUL */
 struct path_entry {
 	char name[PATH_ENTRY_NAME_MAX];
-	int  is_dir;
+	int is_dir;
 };
-void editor_path_split(const char *path, char *dir, int dsize, char *file, int fsize);
-int  editor_path_complete_entries(const char *dir, const char *prefix,
-                                  struct path_entry *entries, int max,
-                                  char *lcp, int lcp_size);
-int  editor_picker_match_rank(const char *haystack, const char *needle);
+void editor_path_split(
+    const char *path, char *dir, int dsize, char *file, int fsize);
+int editor_path_complete_entries(const char *dir, const char *prefix,
+    struct path_entry *entries, int max, char *lcp, int lcp_size);
+int editor_picker_match_rank(const char *haystack, const char *needle);
 void buf_load_args(int nfiles, char **filenames, int readonly);
 void buf_select_interactive(int fd);
 void buf_open_file(int fd);
@@ -429,8 +439,8 @@ void editor_goto_line(int fd);
 void editor_cursor_goto(int row, int col);
 void editor_reveal_position_centered(int row, int col);
 void editor_snap_cx_to_row(void);
-int  editor_visual_col(erow *row, int chars_col);
-int  editor_chars_col_at_visual(erow *row, int target_vcol);
+int editor_visual_col(erow *row, int chars_col);
+int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
 void editor_update_row(erow *row);
@@ -451,7 +461,8 @@ void editor_del_forward_char(void);
 void editor_transpose_chars(void);
 void editor_kill_line(void);
 
-/* Returns 1 if filename belongs to a special/system buffer (NULL or starts with '*'). */
+/* Returns 1 if filename belongs to a special/system buffer (NULL or starts with
+ * '*'). */
 static inline int is_special_buffer(const char *filename)
 {
 	return !filename || filename[0] == '*';
@@ -459,23 +470,21 @@ static inline int is_special_buffer(const char *filename)
 
 /* True for UTF-8 continuation bytes (0x80–0xBF).  Useful when iterating
  * a raw byte stream and needing to skip past or land on glyph boundaries. */
-static inline int utf8_is_cont(unsigned char b)
-{
-	return (b & 0xC0) == 0x80;
-}
+static inline int utf8_is_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
 
 /* Return the basename of a filename (part after last '/'), or the whole
  * string if no '/' is present.  Falls back to "[new]" for NULL. */
 static inline const char *buf_basename(const char *filename)
 {
 	const char *base;
-	if (!filename) return "[new]";
+	if (!filename)
+		return "[new]";
 	base = strrchr(filename, '/');
-	return base ? base+1 : filename;
+	return base ? base + 1 : filename;
 }
 
 /* help.c */
-extern const char *kg_help_lines[];   /* NULL-terminated, loaded into *help* */
+extern const char *kg_help_lines[]; /* NULL-terminated, loaded into *help* */
 
 /* display.c */
 void ab_append(struct abuf *ab, const char *s, int len);
@@ -489,7 +498,7 @@ int editor_save(int fd);
 void editor_write_file(int fd);
 void editor_insert_file(int fd);
 void editor_snapshot_disk(void);
-int  file_state_differs(const char *path, time_t mtime, off_t size);
+int file_state_differs(const char *path, time_t mtime, off_t size);
 
 /* kbd.c */
 void editor_process_keypress(int fd);
@@ -498,9 +507,9 @@ void editor_process_keypress(int fd);
 void editor_named_command(int fd);
 
 /* macro.c */
-int  macro_is_recording(void);
+int macro_is_recording(void);
 void macro_on_key(int key);
-int  macro_next_key(void);
+int macro_next_key(void);
 void macro_start(void);
 void macro_stop(int trim);
 void macro_replay(int fd);
@@ -583,7 +592,8 @@ void editor_yank(void);
 /* undo.c */
 void undo_init(void);
 void undo_free(void);
-void undo_push(enum undo_type type, int row, int col, int c, char *text, int len);
+void undo_push(
+    enum undo_type type, int row, int col, int c, char *text, int len);
 void editor_undo(void);
 void undo_mark_clean(void);
 

@@ -1,20 +1,20 @@
 /* test_autocomplete.c — regression tests for autopair lookup */
 
-#include <stdio.h>
-#include "test.h"
 #include "../src/def.h"
+#include "test.h"
+#include <stdio.h>
 
 /* ---- Tests ---- */
 
 static void test_find_close_char_all_pairs(void)
 {
-	CHECK(editor_find_close_char('{')  == '}');
-	CHECK(editor_find_close_char('[')  == ']');
-	CHECK(editor_find_close_char('(')  == ')');
-	CHECK(editor_find_close_char('"')  == '"');
+	CHECK(editor_find_close_char('{') == '}');
+	CHECK(editor_find_close_char('[') == ']');
+	CHECK(editor_find_close_char('(') == ')');
+	CHECK(editor_find_close_char('"') == '"');
 	CHECK(editor_find_close_char('\'') == '\'');
-	CHECK(editor_find_close_char('`')  == '`');
-	CHECK(editor_find_close_char('<')  == '>');
+	CHECK(editor_find_close_char('`') == '`');
+	CHECK(editor_find_close_char('<') == '>');
 }
 
 /* Closing characters are not opening characters themselves. */
@@ -33,7 +33,7 @@ static void test_find_close_char_unknown(void)
 	CHECK(editor_find_close_char('0') == 0);
 	CHECK(editor_find_close_char('!') == 0);
 	CHECK(editor_find_close_char(' ') == 0);
-	CHECK(editor_find_close_char(0)   == 0);
+	CHECK(editor_find_close_char(0) == 0);
 }
 
 /* ---- Main ---- */

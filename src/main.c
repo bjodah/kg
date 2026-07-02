@@ -32,6 +32,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <signal.h>
+#include <stdio.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include "def.h"
 
 struct editor_config editor;
@@ -80,12 +85,13 @@ void init_editor(void)
 
 static int usage(FILE *fp, int rc)
 {
-	fprintf(fp, "Usage: kg [-RVh] [file ...]\n"
-	            "\n"
-	            "Options:\n"
-	            "  -R  Open file(s) read-only\n"
-	            "  -V  Print version and exit\n"
-	            "  -h  Print this help and exit\n");
+	fprintf(fp,
+	    "Usage: kg [-RVh] [file ...]\n"
+	    "\n"
+	    "Options:\n"
+	    "  -R  Open file(s) read-only\n"
+	    "  -V  Print version and exit\n"
+	    "  -h  Print this help and exit\n");
 	return rc;
 }
 

@@ -1,16 +1,23 @@
-/* ============================ Find / Replace =============================== */
+/* ============================ Find / Replace ===============================
+ */
+
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "def.h"
 
 #define KILO_QUERY_LEN 256
 
-#define RESTORE_HL do { \
-	if (saved_hl) { \
-		memcpy(editor.row[saved_hl_line].hl, saved_hl, editor.row[saved_hl_line].rsize); \
-		free(saved_hl); \
-		saved_hl = NULL; \
-	} \
-} while (0)
+#define RESTORE_HL                                                             \
+	do {                                                                   \
+		if (saved_hl) {                                                \
+			memcpy(editor.row[saved_hl_line].hl, saved_hl,         \
+			    editor.row[saved_hl_line].rsize);                  \
+			free(saved_hl);                                        \
+			saved_hl = NULL;                                       \
+		}                                                              \
+	} while (0)
 
 static char *isearch_find_last_before(char *s, char *query, int limit, int qlen)
 {
@@ -27,7 +34,7 @@ static char *isearch_find_last_before(char *s, char *query, int limit, int qlen)
 }
 
 static int isearch_find_match(int start_row, int start_col, int direction,
-			      char *query, int qlen, int *match_row, int *match_col)
+    char *query, int qlen, int *match_row, int *match_col)
 {
 	int current, i;
 
@@ -42,7 +49,8 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 	current = start_row;
 	for (i = 0; i < editor.numrows; i++) {
 		erow *row = &editor.row[current];
-		int col = (i == 0) ? start_col : (direction > 0 ? 0 : row->rsize);
+		int col
+		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->rsize);
 		char *match;
 
 		if (col < 0)
@@ -53,7 +61,8 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 		if (direction > 0)
 			match = strstr(row->render + col, query);
 		else
-			match = isearch_find_last_before(row->render, query, col, qlen);
+			match = isearch_find_last_before(
+			    row->render, query, col, qlen);
 
 		if (match) {
 			*match_row = current;
@@ -164,20 +173,21 @@ static int isearch_handoff_key(int fd, int c)
 
 void editor_find(int fd, int direction)
 {
-	char query[KILO_QUERY_LEN+1] = {0};
+	char query[KILO_QUERY_LEN + 1] = { 0 };
 	int saved_cx = editor.cx, saved_cy = editor.cy;
 	int saved_coloff = editor.coloff, saved_rowoff = editor.rowoff;
 	int start_row = editor.rowoff + editor.cy;
 	int start_col = 0;
 	int last_match_row = -1;
 	int last_match_col = -1;
-	int saved_hl_line = -1;  /* No saved HL */
+	int saved_hl_line = -1; /* No saved HL */
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
 	char *saved_hl = NULL;
 	int qlen = 0;
 
 	if (start_row >= 0 && start_row < editor.numrows)
-		start_col = editor_visual_col(&editor.row[start_row], editor.coloff + editor.cx);
+		start_col = editor_visual_col(
+		    &editor.row[start_row], editor.coloff + editor.cx);
 
 	while (1) {
 		int c;
@@ -187,14 +197,17 @@ void editor_find(int fd, int direction)
 
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (qlen != 0) query[--qlen] = '\0';
+			if (qlen != 0)
+				query[--qlen] = '\0';
 			last_match_row = -1;
 			last_match_col = -1;
 			find_next = direction;
 		} else if (c == ESC || c == ENTER || c == CTRL_G) {
 			if (c == ESC) {
-				editor.cx = saved_cx; editor.cy = saved_cy;
-				editor.coloff = saved_coloff; editor.rowoff = saved_rowoff;
+				editor.cx = saved_cx;
+				editor.cy = saved_cy;
+				editor.coloff = saved_coloff;
+				editor.rowoff = saved_rowoff;
 			}
 			RESTORE_HL;
 			editor_set_status_message("");
@@ -231,7 +244,7 @@ void editor_find(int fd, int direction)
 				col = last_match_col + (search_dir > 0 ? 1 : 0);
 			}
 			match = isearch_find_match(current, col, search_dir,
-						   query, qlen, &match_row, &match_col);
+			    query, qlen, &match_row, &match_col);
 			find_next = 0;
 
 			/* Highlight */
@@ -245,16 +258,20 @@ void editor_find(int fd, int direction)
 					saved_hl_line = match_row;
 					saved_hl = malloc(row->rsize);
 					if (!saved_hl) {
-						editor_set_status_message("Out of memory");
+						editor_set_status_message(
+						    "Out of memory");
 						running = 0;
 						RESTORE_HL;
 						return;
 					}
 					memcpy(saved_hl, row->hl, row->rsize);
-					memset(row->hl+match_col, HL_MATCH, qlen);
+					memset(row->hl + match_col, HL_MATCH,
+					    qlen);
 				}
-				point_col = match_col + (search_dir > 0 ? qlen : 0);
-				editor_reveal_position_centered(match_row, point_col);
+				point_col
+				    = match_col + (search_dir > 0 ? qlen : 0);
+				editor_reveal_position_centered(
+				    match_row, point_col);
 			}
 		}
 	}
@@ -262,26 +279,29 @@ void editor_find(int fd, int direction)
 
 void editor_query_replace(int fd)
 {
-	char search[KILO_QUERY_LEN+1] = {0};
-	char replace[KILO_QUERY_LEN+1] = {0};
+	char search[KILO_QUERY_LEN + 1] = { 0 };
+	char replace[KILO_QUERY_LEN + 1] = { 0 };
 	char *saved_hl = NULL;
 	int saved_hl_line = -1;
 	int slen, rlen;
 	int filerow, match_col;
 	int count = 0, replace_all = 0;
 
-	if (editor_read_line(fd, "Query replace: ", search, sizeof(search)) < 0 || !search[0])
+	if (editor_read_line(fd, "Query replace: ", search, sizeof(search)) < 0
+	    || !search[0])
 		return;
-	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace)) < 0)
+	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
+	    < 0)
 		return;
 
 	slen = strlen(search);
 	rlen = strlen(replace);
-	filerow   = editor.rowoff + editor.cy;
+	filerow = editor.rowoff + editor.cy;
 	match_col = editor.coloff + editor.cx;
 
 	while (filerow < editor.numrows) {
-		char *match = strstr(editor.row[filerow].chars + match_col, search);
+		char *match
+		    = strstr(editor.row[filerow].chars + match_col, search);
 		int c;
 
 		if (!match) {
@@ -294,19 +314,22 @@ void editor_query_replace(int fd)
 		editor_goto_line_direct(filerow + 1, match_col + 1);
 
 		/* Highlight the match.  Convert the chars offset to a render
-		 * offset so the highlight lands correctly even when tabs precede
-		 * the match on the line. */
+		 * offset so the highlight lands correctly even when tabs
+		 * precede the match on the line. */
 		RESTORE_HL;
 		{
 			erow *row = &editor.row[filerow];
 			if (row->hl) {
 				int i, rcol = 0;
 				for (i = 0; i < match_col; i++)
-					rcol += (row->chars[i] == '\t') ? (8 - rcol % 8) : 1;
+					rcol += (row->chars[i] == '\t')
+					    ? (8 - rcol % 8)
+					    : 1;
 				saved_hl_line = filerow;
 				saved_hl = malloc(row->rsize);
 				if (!saved_hl) {
-					editor_set_status_message("Out of memory");
+					editor_set_status_message(
+					    "Out of memory");
 					running = 0;
 					RESTORE_HL;
 					return;
@@ -319,7 +342,8 @@ void editor_query_replace(int fd)
 
 		if (!replace_all) {
 			editor_set_status_message(
-				"Replace \"%s\" with \"%s\"? (y/n/!/q)", search, replace);
+			    "Replace \"%s\" with \"%s\"? (y/n/!/q)", search,
+			    replace);
 			editor_refresh_screen();
 			c = editor_read_key(fd);
 		} else {
@@ -337,17 +361,21 @@ void editor_query_replace(int fd)
 			erow *row = &editor.row[filerow];
 			int i;
 
-			/* Push two undo entries so C-_ fully reverses the replacement:
-			 * YANK_TEXT is popped first and deletes the inserted replacement;
-			 * KILL_TEXT is popped second and reinserts the original search text. */
-			undo_push(UNDO_KILL_TEXT, filerow, match_col, 0, search, slen);
-			undo_push(UNDO_YANK_TEXT, filerow, match_col, 0, replace, rlen);
+			/* Push two undo entries so C-_ fully reverses the
+			 * replacement: YANK_TEXT is popped first and deletes
+			 * the inserted replacement; KILL_TEXT is popped second
+			 * and reinserts the original search text. */
+			undo_push(UNDO_KILL_TEXT, filerow, match_col, 0, search,
+			    slen);
+			undo_push(UNDO_YANK_TEXT, filerow, match_col, 0,
+			    replace, rlen);
 
 			suppress_undo = 1;
 			for (i = 0; i < slen; i++)
 				editor_row_del_char(row, match_col);
 			for (i = 0; i < rlen; i++)
-				editor_row_insert_char(row, match_col + i, (unsigned char)replace[i]);
+				editor_row_insert_char(row, match_col + i,
+				    (unsigned char)replace[i]);
 			suppress_undo = 0;
 
 			match_col += rlen;
@@ -358,6 +386,7 @@ void editor_query_replace(int fd)
 	}
 
 	RESTORE_HL;
-	editor_set_status_message(count ? "Replaced %d occurrence%s." : "No replacements made.",
-				  count, count == 1 ? "" : "s");
+	editor_set_status_message(
+	    count ? "Replaced %d occurrence%s." : "No replacements made.",
+	    count, count == 1 ? "" : "s");
 }

@@ -1,11 +1,16 @@
 /* ========================= Editor events handling  ======================== */
 
+#include <ctype.h>
+#include <stdio.h>
+
 #include "def.h"
 
 /* Handle cursor position change because arrow keys were pressed. */
 void editor_move_cursor(int key)
 {
-	erow *row = (editor.rowoff + editor.cy >= editor.numrows) ? NULL : &editor.row[editor.rowoff + editor.cy];
+	erow *row = (editor.rowoff + editor.cy >= editor.numrows)
+	    ? NULL
+	    : &editor.row[editor.rowoff + editor.cy];
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 	int is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
@@ -25,7 +30,8 @@ void editor_move_cursor(int key)
 	case END_KEY:
 		if (row) {
 			if (row->size > editor.screencols - 1) {
-				editor.coloff = row->size - editor.screencols + 1;
+				editor.coloff
+				    = row->size - editor.screencols + 1;
 				editor.cx = editor.screencols - 1;
 			} else {
 				editor.cx = row->size;
@@ -37,16 +43,19 @@ void editor_move_cursor(int key)
 		if (filecol == 0) {
 			if (filerow > 0) {
 				editor.cy--;
-				editor.cx = editor.row[filerow-1].size;
+				editor.cx = editor.row[filerow - 1].size;
 				if (editor.cx > editor.screencols - 1) {
-					editor.coloff = editor.cx - editor.screencols + 1;
+					editor.coloff
+					    = editor.cx - editor.screencols + 1;
 					editor.cx = editor.screencols - 1;
 				}
 			}
 		} else if (row && filecol > row->size) {
-			/* Virtual space past EOL (rect mark mode): plain step. */
+			/* Virtual space past EOL (rect mark mode): plain step.
+			 */
 			if (editor.cx == 0) {
-				if (editor.coloff) editor.coloff--;
+				if (editor.coloff)
+					editor.coloff--;
 			} else {
 				editor.cx -= 1;
 			}
@@ -55,15 +64,17 @@ void editor_move_cursor(int key)
 			 * UTF-8 multi-byte) by counting continuation bytes
 			 * trailing the previous start byte. */
 			int n = 1, pos = filecol - 1;
-			while (pos > 0 && row &&
-			       utf8_is_cont((unsigned char)row->chars[pos])) {
+			while (pos > 0 && row
+			    && utf8_is_cont((unsigned char)row->chars[pos])) {
 				n++;
 				pos--;
 			}
 			while (n--) {
 				if (editor.cx == 0) {
-					if (editor.coloff) editor.coloff--;
-					else break;
+					if (editor.coloff)
+						editor.coloff--;
+					else
+						break;
 				} else {
 					editor.cx -= 1;
 				}
@@ -75,8 +86,9 @@ void editor_move_cursor(int key)
 			/* Step forward a whole glyph: 1 + however many
 			 * continuation bytes follow the current start byte. */
 			int n = 1;
-			while (filecol + n < row->size &&
-			       utf8_is_cont((unsigned char)row->chars[filecol + n]))
+			while (filecol + n < row->size
+			    && utf8_is_cont(
+				(unsigned char)row->chars[filecol + n]))
 				n++;
 			while (n--) {
 				if (editor.cx == editor.screencols - 1)
@@ -104,7 +116,8 @@ void editor_move_cursor(int key)
 		break;
 	case ARROW_UP:
 		if (editor.cy == 0) {
-			if (editor.rowoff) editor.rowoff--;
+			if (editor.rowoff)
+				editor.rowoff--;
 		} else {
 			editor.cy -= 1;
 		}
@@ -126,7 +139,8 @@ void editor_move_cursor(int key)
 	filerow = editor.rowoff + editor.cy;
 	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 	if (is_vertical && row && editor.desired_visual_col >= 0) {
-		int target = editor_chars_col_at_visual(row, editor.desired_visual_col);
+		int target = editor_chars_col_at_visual(
+		    row, editor.desired_visual_col);
 		editor.cx = target - editor.coloff;
 		if (editor.cx < 0) {
 			editor.coloff = target;
@@ -169,7 +183,8 @@ void editor_move_to_indentation(void)
 	erow *row;
 	int col;
 
-	if (editor.rowoff + editor.cy >= editor.numrows) return;
+	if (editor.rowoff + editor.cy >= editor.numrows)
+		return;
 
 	editor_move_cursor(HOME_KEY);
 
@@ -191,15 +206,24 @@ void editor_move_to_window_line(void)
 	int last_visible_row;
 
 	switch (editor.window_line_state) {
-	case 0:  target = 0; break;
-	case 1:  target = editor.screenrows / 2; break;
-	default: target = editor.screenrows - 1; break;
+	case 0:
+		target = 0;
+		break;
+	case 1:
+		target = editor.screenrows / 2;
+		break;
+	default:
+		target = editor.screenrows - 1;
+		break;
 	}
 
 	last_visible_row = editor.numrows - editor.rowoff - 1;
-	if (last_visible_row < 0) last_visible_row = 0;
-	if (target > last_visible_row) target = last_visible_row;
-	if (target < 0) target = 0;
+	if (last_visible_row < 0)
+		last_visible_row = 0;
+	if (target > last_visible_row)
+		target = last_visible_row;
+	if (target < 0)
+		target = 0;
 
 	editor.cy = target;
 	editor.cx = 0;
@@ -213,18 +237,23 @@ void editor_goto_line_direct(int line, int col)
 	int filerow, filecol;
 	erow *row;
 
-	if (editor.numrows == 0) return;
-	if (line < 1) line = 1;
-	if (line > editor.numrows) line = editor.numrows;
+	if (editor.numrows == 0)
+		return;
+	if (line < 1)
+		line = 1;
+	if (line > editor.numrows)
+		line = editor.numrows;
 
 	filerow = line - 1;
 	filecol = (col > 1) ? col - 1 : 0;
 	row = &editor.row[filerow];
-	if (filecol > row->size) filecol = row->size;
+	if (filecol > row->size)
+		filecol = row->size;
 
 	/* Centre the target line vertically. */
 	editor.rowoff = filerow - editor.screenrows / 2;
-	if (editor.rowoff < 0) editor.rowoff = 0;
+	if (editor.rowoff < 0)
+		editor.rowoff = 0;
 	editor.cy = filerow - editor.rowoff;
 
 	if (filecol > editor.screencols - 1) {
@@ -242,11 +271,14 @@ void editor_goto_line(int fd)
 	char buf[16];
 	int line = 0, col = 1, n;
 
-	if (editor_read_line(fd, "Goto line: ", buf, sizeof(buf)) < 0 || !buf[0])
+	if (editor_read_line(fd, "Goto line: ", buf, sizeof(buf)) < 0
+	    || !buf[0])
 		return;
 	n = sscanf(buf, "%d:%d", &line, &col);
-	if (n < 1) return;
-	if (n < 2) col = 1;
+	if (n < 1)
+		return;
+	if (n < 2)
+		col = 1;
 	editor_goto_line_direct(line, col);
 }
 
@@ -256,7 +288,8 @@ void editor_move_to_end(void)
 	erow *row;
 	int filerow;
 
-	if (editor.numrows == 0) return;
+	if (editor.numrows == 0)
+		return;
 
 	filerow = editor.numrows - 1;
 	row = &editor.row[filerow];

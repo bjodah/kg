@@ -1,10 +1,10 @@
 /* test_undo.c — regression tests for the undo stack */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* ---- Helpers ---- */
 
@@ -14,7 +14,7 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	suppress_undo     = 0;
+	suppress_undo = 0;
 
 	undo_free();
 	undo_init();
@@ -23,7 +23,7 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 	undo_free();
 }
@@ -35,8 +35,8 @@ static void test_insert_char(void)
 {
 	setup();
 	editor_insert_row(0, "hllo", 4);
-	editor.cx = 1;                         /* cursor after 'h'  */
-	editor_insert_char('e');               /* "hllo" → "hello"  */
+	editor.cx = 1; /* cursor after 'h'  */
+	editor_insert_char('e'); /* "hllo" → "hello"  */
 
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
@@ -53,8 +53,8 @@ static void test_delete_char(void)
 {
 	setup();
 	editor_insert_row(0, "hello", 5);
-	editor.cx = 1;                         /* cursor after 'h'  */
-	editor_del_char();                     /* "hello" → "ello"  */
+	editor.cx = 1; /* cursor after 'h'  */
+	editor_del_char(); /* "hello" → "ello"  */
 
 	CHECK(editor.row[0].size == 4);
 	CHECK(memcmp(editor.row[0].chars, "ello", 4) == 0);
@@ -72,7 +72,7 @@ static void test_forward_delete_char(void)
 	setup();
 	editor_insert_row(0, "hello", 5);
 	editor.cx = 0;
-	editor_del_forward_char();             /* "hello" → "ello"  */
+	editor_del_forward_char(); /* "hello" → "ello"  */
 
 	CHECK(editor.row[0].size == 4);
 	CHECK(memcmp(editor.row[0].chars, "ello", 4) == 0);
@@ -91,7 +91,7 @@ static void test_insert_line(void)
 	editor_insert_row(0, "hello", 5);
 	editor.cx = 0;
 	editor.cy = 0;
-	editor_insert_newline();               /* inserts empty row before "hello" */
+	editor_insert_newline(); /* inserts empty row before "hello" */
 
 	CHECK(editor.numrows == 2);
 	CHECK(editor.row[0].size == 0);
@@ -109,8 +109,8 @@ static void test_split_line(void)
 {
 	setup();
 	editor_insert_row(0, "hello", 5);
-	editor.cx = 2;                         /* cursor after "he"  */
-	editor_insert_newline();               /* "hello" → "he" / "llo" */
+	editor.cx = 2; /* cursor after "he"  */
+	editor_insert_newline(); /* "hello" → "he" / "llo" */
 
 	CHECK(editor.numrows == 2);
 	CHECK(editor.row[0].size == 2);
@@ -143,17 +143,18 @@ static void test_join_line(void)
 	undo_push(UNDO_JOIN_LINE, 0, 5, 0, "  world", 7);
 
 	/* Perform join: "hello" + " " + "world" = "hello world"
-	 * (leading whitespace stripped from row[1], space inserted at join point) */
+	 * (leading whitespace stripped from row[1], space inserted at join
+	 * point) */
 	newchars = realloc(editor.row[0].chars, 12);
 	if (!newchars) {
 		CHECK(0);
 		teardown();
 		return;
 	}
-	editor.row[0].chars     = newchars;
-	editor.row[0].chars[5]  = ' ';
+	editor.row[0].chars = newchars;
+	editor.row[0].chars[5] = ' ';
 	memcpy(editor.row[0].chars + 6, "world", 5);
-	editor.row[0].size      = 11;
+	editor.row[0].size = 11;
 	editor.row[0].chars[11] = '\0';
 	editor_update_row(&editor.row[0]);
 	suppress_undo = 1;
@@ -179,8 +180,8 @@ static void test_kill_line(void)
 {
 	setup();
 	editor_insert_row(0, "hello", 5);
-	editor.cx = 2;                         /* cursor after "he"  */
-	editor_kill_line();                    /* "hello" → "he"     */
+	editor.cx = 2; /* cursor after "he"  */
+	editor_kill_line(); /* "hello" → "he"     */
 
 	CHECK(editor.row[0].size == 2);
 	CHECK(memcmp(editor.row[0].chars, "he", 2) == 0);
@@ -199,12 +200,12 @@ static void test_yank_text(void)
 {
 	setup();
 	editor_insert_row(0, "abhellocd", 9);
-	editor.cx = 2;                         /* cursor before 'h'  */
+	editor.cx = 2; /* cursor before 'h'  */
 
 	/* Record simulates what editor_yank / insert_text_raw would push */
 	undo_push(UNDO_YANK_TEXT, 0, 2, 0, "hello", 5);
 
-	editor_undo();                         /* del 5 chars from col 2 */
+	editor_undo(); /* del 5 chars from col 2 */
 
 	CHECK(editor.row[0].size == 4);
 	CHECK(memcmp(editor.row[0].chars, "abcd", 4) == 0);
@@ -216,7 +217,8 @@ static void test_yank_text(void)
 static void test_reflow_para(void)
 {
 	setup();
-	/* One reflowed line standing in for what editor_reflow_paragraph produced */
+	/* One reflowed line standing in for what editor_reflow_paragraph
+	 * produced */
 	editor_insert_row(0, "hello world", 11);
 
 	/* Record as editor_reflow_paragraph would push it:
@@ -241,14 +243,14 @@ static void test_dirty_tracking(void)
 	editor_insert_row(0, "hi", 2);
 	editor.dirty = 0;
 
-	editor_insert_char('!');      /* undostack.size = 1 */
-	undo_mark_clean();            /* clean_size = 1     */
-	editor_insert_char('?');      /* undostack.size = 2 */
+	editor_insert_char('!'); /* undostack.size = 1 */
+	undo_mark_clean(); /* clean_size = 1     */
+	editor_insert_char('?'); /* undostack.size = 2 */
 
 	/* Undo '?': size drops to 1 == clean_size → dirty cleared */
 	editor_undo();
 	CHECK(editor.dirty == 0);
-	CHECK(editor.row[0].size == 3);   /* "hi!" */
+	CHECK(editor.row[0].size == 3); /* "hi!" */
 
 	/* Make dirty again, undo back to clean again */
 	editor_insert_char('@');
@@ -263,7 +265,7 @@ static void test_nothing_to_undo(void)
 	setup();
 	editor_insert_row(0, "test", 4);
 
-	editor_undo();   /* empty stack — must not crash */
+	editor_undo(); /* empty stack — must not crash */
 
 	CHECK(undostack.size == 0);
 	CHECK(editor.numrows == 1);
@@ -284,8 +286,8 @@ static void test_word_case_two_records(void)
 	editor.dirty = 1;
 
 	/* Records as do_word_case pushes them */
-	undo_push(UNDO_KILL_TEXT, 0, 0, 0, "hello", 5);   /* original  */
-	undo_push(UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5);   /* transformed */
+	undo_push(UNDO_KILL_TEXT, 0, 0, 0, "hello", 5); /* original  */
+	undo_push(UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5); /* transformed */
 
 	/* First undo (YANK_TEXT): deletes "HELLO" leaving an empty row */
 	editor_undo();

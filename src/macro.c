@@ -1,12 +1,13 @@
-/* ========================= Keyboard macros ================================= */
+/* ========================= Keyboard macros =================================
+ */
 
 #include "def.h"
 
 #define MACRO_MAX 1024
 
 static int macro_keys[MACRO_MAX];
-static int macro_len       = 0;
-static int macro_pos       = 0;
+static int macro_len = 0;
+static int macro_pos = 0;
 static int macro_recording = 0;
 static int macro_replaying = 0;
 
@@ -36,7 +37,7 @@ void macro_start(void)
 		editor_set_status_message("Can't define macro while replaying");
 		return;
 	}
-	macro_len       = 0;
+	macro_len = 0;
 	macro_recording = 1;
 	editor_set_status_message("Defining macro...");
 }
@@ -52,9 +53,10 @@ void macro_stop(int trim)
 	}
 	macro_recording = 0;
 	macro_len -= trim;
-	if (macro_len < 0) macro_len = 0;
-	editor_set_status_message("Macro defined (%d key%s)",
-	                          macro_len, macro_len == 1 ? "" : "s");
+	if (macro_len < 0)
+		macro_len = 0;
+	editor_set_status_message(
+	    "Macro defined (%d key%s)", macro_len, macro_len == 1 ? "" : "s");
 }
 
 /* C-x e or F4 (when not recording): replay the last recorded macro. */
@@ -65,17 +67,17 @@ void macro_replay(int fd)
 		return;
 	}
 	if (macro_replaying)
-		return;    /* no recursion */
+		return; /* no recursion */
 	if (macro_len == 0) {
 		editor_set_status_message("No macro defined");
 		return;
 	}
 	macro_replaying = 1;
-	macro_pos       = 0;
+	macro_pos = 0;
 	while (macro_pos < macro_len && running)
 		editor_process_keypress(fd);
 	macro_replaying = 0;
 	if (running)
 		editor_set_status_message("Macro replayed (%d key%s)",
-		                          macro_len, macro_len == 1 ? "" : "s");
+		    macro_len, macro_len == 1 ? "" : "s");
 }

@@ -1,12 +1,12 @@
 /* test_word.c — regression tests for word-case, join-line, and comment-dwim */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
-extern struct editor_syntax HLDB[];   /* defined in syntax.c */
+extern struct editor_syntax HLDB[]; /* defined in syntax.c */
 
 /* ---- Helpers ---- */
 
@@ -16,7 +16,7 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	suppress_undo     = 0;
+	suppress_undo = 0;
 	undo_free();
 	undo_init();
 }
@@ -24,7 +24,7 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 	undo_free();
 }
@@ -86,7 +86,7 @@ static void test_upcase_word_skips_leading_space(void)
 {
 	setup();
 	editor_insert_row(0, " hello", 6);
-	cursor_home();   /* cursor before the space */
+	cursor_home(); /* cursor before the space */
 
 	editor_upcase_word();
 
@@ -102,9 +102,9 @@ static void test_upcase_two_words(void)
 	editor_insert_row(0, "hello world", 11);
 	cursor_home();
 
-	editor_upcase_word();   /* "HELLO world", cx=5 */
+	editor_upcase_word(); /* "HELLO world", cx=5 */
 	/* cursor is now at col 5 (the space); upcase again moves to "world" */
-	editor_upcase_word();   /* "HELLO WORLD", cx=11 */
+	editor_upcase_word(); /* "HELLO WORLD", cx=11 */
 
 	CHECK(memcmp(editor.row[0].chars, "HELLO WORLD", 11) == 0);
 	teardown();
@@ -199,7 +199,7 @@ static void test_join_line_cursor_at_join(void)
 static void test_comment_dwim_add(void)
 {
 	setup();
-	editor.syntax = &HLDB[0];   /* C syntax: scs = "//" */
+	editor.syntax = &HLDB[0]; /* C syntax: scs = "//" */
 	editor_insert_row(0, "int x;", 6);
 	cursor_home();
 	editor.mark_set = 0;
@@ -235,7 +235,7 @@ static void test_comment_dwim_no_syntax(void)
 	editor_insert_row(0, "hello", 5);
 	cursor_home();
 
-	editor_comment_dwim();   /* must not crash */
+	editor_comment_dwim(); /* must not crash */
 
 	CHECK(editor.row[0].size == 5);
 	teardown();

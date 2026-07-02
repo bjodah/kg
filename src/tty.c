@@ -1,5 +1,14 @@
 /* tty.c - Low level terminal handling */
 
+#include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
+
 #include "def.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
@@ -17,8 +26,8 @@ void disable_raw_mode(int fd)
 void editor_at_exit(void)
 {
 	/* Clear screen and reset cursor position before exiting. */
-	tty_write("\x1b[2J", 4);  /* Clear entire screen */
-	tty_write("\x1b[H", 3);   /* Move cursor to top-left */
+	tty_write("\x1b[2J", 4); /* Clear entire screen */
+	tty_write("\x1b[H", 3); /* Move cursor to top-left */
 
 	disable_raw_mode(STDIN_FILENO);
 }
@@ -28,12 +37,15 @@ int enable_raw_mode(int fd)
 {
 	struct termios raw;
 
-	if (editor.rawmode) return 0; /* Already enabled. */
-	if (!isatty(STDIN_FILENO)) goto fatal;
+	if (editor.rawmode)
+		return 0; /* Already enabled. */
+	if (!isatty(STDIN_FILENO))
+		goto fatal;
 	atexit(editor_at_exit);
-	if (tcgetattr(fd, &orig_termios) == -1) goto fatal;
+	if (tcgetattr(fd, &orig_termios) == -1)
+		goto fatal;
 
-	raw = orig_termios;  /* modify the original mode */
+	raw = orig_termios; /* modify the original mode */
 	/* input modes: no break, no CR to NL, no parity check, no strip char,
 	 * no start/stop output control. */
 	raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
@@ -44,12 +56,14 @@ int enable_raw_mode(int fd)
 	/* local modes - choing off, canonical off, no extended functions,
 	 * no signal chars (^Z,^C) */
 	raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-	/* control chars - set return condition: min number of bytes and timer. */
+	/* control chars - set return condition: min number of bytes and timer.
+	 */
 	raw.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
 	raw.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
 
 	/* put terminal in raw mode after flushing */
-	if (tcsetattr(fd, TCSAFLUSH, &raw) < 0) goto fatal;
+	if (tcsetattr(fd, TCSAFLUSH, &raw) < 0)
+		goto fatal;
 	editor.rawmode = 1;
 	return 0;
 
@@ -63,106 +77,174 @@ static int parse_escape(int fd)
 {
 	char seq[6];
 
-	if (read(fd, seq, 1) == 0) return ESC;   /* bare ESC */
+	if (read(fd, seq, 1) == 0)
+		return ESC; /* bare ESC */
 
 	/* Alt+key: ESC followed by a single character */
-	if (seq[0] == 'f') return ALT_F;
-	if (seq[0] == 'b') return ALT_B;
-	if (seq[0] == 'd') return ALT_D;
-	if (seq[0] == 'g') return ALT_G;
-	if (seq[0] == 'v') return ALT_V;
-	if (seq[0] == 'w') return ALT_W;
-	if (seq[0] == 'q') return ALT_Q;
-	if (seq[0] == '\x7f' || seq[0] == '\b') return ALT_BACKSPACE;
-	if (seq[0] == '%') return ALT_PCT;
-	if (seq[0] == ';') return ALT_SEMICOLON;
-	if (seq[0] == 'x') return ALT_X;
-	if (seq[0] == '^') return ALT_CARET;
-	if (seq[0] == 'u') return ALT_U;
-	if (seq[0] == 'l') return ALT_L;
-	if (seq[0] == 'c') return ALT_C;
-	if (seq[0] == '!') return ALT_BANG;
-	if (seq[0] == '|') return ALT_PIPE;
-	if (seq[0] == '<') return ALT_LT;
-	if (seq[0] == '>') return ALT_GT;
-	if (seq[0] == '{') return ALT_LBRACE;
-	if (seq[0] == '}') return ALT_RBRACE;
-	if (seq[0] == 'm') return ALT_M;
-	if (seq[0] == 'a') return ALT_A;
-	if (seq[0] == 'e') return ALT_E;
-	if (seq[0] == 'r') return ALT_R;
-	if (seq[0] == '\\') return ALT_BACKSLASH;
-	if (seq[0] == ' ') return ALT_SPACE;
-	if (seq[0] == 'z') return ALT_Z;
-	if (seq[0] >= '0' && seq[0] <= '9') return ALT_0 + (seq[0] - '0');
+	if (seq[0] == 'f')
+		return ALT_F;
+	if (seq[0] == 'b')
+		return ALT_B;
+	if (seq[0] == 'd')
+		return ALT_D;
+	if (seq[0] == 'g')
+		return ALT_G;
+	if (seq[0] == 'v')
+		return ALT_V;
+	if (seq[0] == 'w')
+		return ALT_W;
+	if (seq[0] == 'q')
+		return ALT_Q;
+	if (seq[0] == '\x7f' || seq[0] == '\b')
+		return ALT_BACKSPACE;
+	if (seq[0] == '%')
+		return ALT_PCT;
+	if (seq[0] == ';')
+		return ALT_SEMICOLON;
+	if (seq[0] == 'x')
+		return ALT_X;
+	if (seq[0] == '^')
+		return ALT_CARET;
+	if (seq[0] == 'u')
+		return ALT_U;
+	if (seq[0] == 'l')
+		return ALT_L;
+	if (seq[0] == 'c')
+		return ALT_C;
+	if (seq[0] == '!')
+		return ALT_BANG;
+	if (seq[0] == '|')
+		return ALT_PIPE;
+	if (seq[0] == '<')
+		return ALT_LT;
+	if (seq[0] == '>')
+		return ALT_GT;
+	if (seq[0] == '{')
+		return ALT_LBRACE;
+	if (seq[0] == '}')
+		return ALT_RBRACE;
+	if (seq[0] == 'm')
+		return ALT_M;
+	if (seq[0] == 'a')
+		return ALT_A;
+	if (seq[0] == 'e')
+		return ALT_E;
+	if (seq[0] == 'r')
+		return ALT_R;
+	if (seq[0] == '\\')
+		return ALT_BACKSLASH;
+	if (seq[0] == ' ')
+		return ALT_SPACE;
+	if (seq[0] == 'z')
+		return ALT_Z;
+	if (seq[0] >= '0' && seq[0] <= '9')
+		return ALT_0 + (seq[0] - '0');
 
-	if (read(fd, seq+1, 1) == 0) return ESC;
+	if (read(fd, seq + 1, 1) == 0)
+		return ESC;
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
 		if (seq[1] >= '0' && seq[1] <= '9') {
-			if (read(fd, seq+2, 1) == 0) return ESC;
+			if (read(fd, seq + 2, 1) == 0)
+				return ESC;
 			if (seq[2] == '~') {
 				switch (seq[1]) {
-				case '3': return DEL_KEY;
-				case '5': return PAGE_UP;
-				case '6': return PAGE_DOWN;
+				case '3':
+					return DEL_KEY;
+				case '5':
+					return PAGE_UP;
+				case '6':
+					return PAGE_DOWN;
 				}
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
-				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~, F4=ESC[14~) */
-				if (read(fd, seq+3, 1) == 0) return ESC;
+				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
+				 * F4=ESC[14~) */
+				if (read(fd, seq + 3, 1) == 0)
+					return ESC;
 				if (seq[3] == '~' && seq[1] == '1') {
 					switch (seq[2]) {
-					case '3': return KEY_F3;
-					case '4': return KEY_F4;
+					case '3':
+						return KEY_F3;
+					case '4':
+						return KEY_F4;
 					}
 				}
 			} else if (seq[2] == ';') {
-				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5 Ctrl */
-				if (read(fd, seq+3, 1) == 0) return ESC;
-				if (read(fd, seq+4, 1) == 0) return ESC;
+				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
+				 * Ctrl */
+				if (read(fd, seq + 3, 1) == 0)
+					return ESC;
+				if (read(fd, seq + 4, 1) == 0)
+					return ESC;
 				if (seq[1] == '1' && seq[3] == '5') {
 					switch (seq[4]) {
-					case 'A': return CTRL_ARROW_UP;
-					case 'B': return CTRL_ARROW_DOWN;
-					case 'C': return CTRL_ARROW_RIGHT;
-					case 'D': return CTRL_ARROW_LEFT;
-					case 'H': return CTRL_HOME;
-					case 'F': return CTRL_END;
+					case 'A':
+						return CTRL_ARROW_UP;
+					case 'B':
+						return CTRL_ARROW_DOWN;
+					case 'C':
+						return CTRL_ARROW_RIGHT;
+					case 'D':
+						return CTRL_ARROW_LEFT;
+					case 'H':
+						return CTRL_HOME;
+					case 'F':
+						return CTRL_END;
 					}
 				} else if (seq[1] == '1' && seq[3] == '2') {
 					switch (seq[4]) {
-					case 'A': return SHIFT_ARROW_UP;
-					case 'B': return SHIFT_ARROW_DOWN;
-					case 'C': return SHIFT_ARROW_RIGHT;
-					case 'D': return SHIFT_ARROW_LEFT;
-					case 'H': return SHIFT_HOME;
-					case 'F': return SHIFT_END;
+					case 'A':
+						return SHIFT_ARROW_UP;
+					case 'B':
+						return SHIFT_ARROW_DOWN;
+					case 'C':
+						return SHIFT_ARROW_RIGHT;
+					case 'D':
+						return SHIFT_ARROW_LEFT;
+					case 'H':
+						return SHIFT_HOME;
+					case 'F':
+						return SHIFT_END;
 					}
 				} else if (seq[4] == '~') {
-					/* ESC [ N ; M ~  modified Insert/Delete (CUA clipboard) */
-					if (seq[1] == '2' && seq[3] == '2') return SHIFT_INSERT;
-					if (seq[1] == '2' && seq[3] == '5') return CTRL_INSERT;
-					if (seq[1] == '3' && seq[3] == '2') return SHIFT_DELETE;
+					/* ESC [ N ; M ~  modified Insert/Delete
+					 * (CUA clipboard) */
+					if (seq[1] == '2' && seq[3] == '2')
+						return SHIFT_INSERT;
+					if (seq[1] == '2' && seq[3] == '5')
+						return CTRL_INSERT;
+					if (seq[1] == '3' && seq[3] == '2')
+						return SHIFT_DELETE;
 				}
 			}
 		} else {
 			switch (seq[1]) {
-			case 'A': return ARROW_UP;
-			case 'B': return ARROW_DOWN;
-			case 'C': return ARROW_RIGHT;
-			case 'D': return ARROW_LEFT;
-			case 'H': return HOME_KEY;
-			case 'F': return END_KEY;
+			case 'A':
+				return ARROW_UP;
+			case 'B':
+				return ARROW_DOWN;
+			case 'C':
+				return ARROW_RIGHT;
+			case 'D':
+				return ARROW_LEFT;
+			case 'H':
+				return HOME_KEY;
+			case 'F':
+				return END_KEY;
 			}
 		}
-	/* ESC O sequences */
+		/* ESC O sequences */
 	} else if (seq[0] == 'O') {
 		switch (seq[1]) {
-		case 'H': return HOME_KEY;
-		case 'F': return END_KEY;
-		case 'R': return KEY_F3;
-		case 'S': return KEY_F4;
+		case 'H':
+			return HOME_KEY;
+		case 'F':
+			return END_KEY;
+		case 'R':
+			return KEY_F3;
+		case 'S':
+			return KEY_F4;
 		}
 	}
 	return ESC;
@@ -182,7 +264,8 @@ int editor_read_key(int fd)
 	if (key >= 0)
 		return key;
 
-	while ((nread = read(fd, &c, 1)) == 0);
+	while ((nread = read(fd, &c, 1)) == 0)
+		;
 	if (nread == -1) {
 		running = 0;
 		return 0;
@@ -207,7 +290,8 @@ int editor_read_raw_byte(int fd)
 	if (key >= 0)
 		return key;
 
-	while ((nread = read(fd, &c, 1)) == 0);
+	while ((nread = read(fd, &c, 1)) == 0)
+		;
 	if (nread == -1) {
 		running = 0;
 		return 0;
@@ -256,19 +340,24 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 	char buf[32];
 
 	/* Report cursor location */
-	if (write(ofd, "\x1b[6n", 4) != 4) return -1;
+	if (write(ofd, "\x1b[6n", 4) != 4)
+		return -1;
 
 	/* Read the response: ESC [ rows ; cols R */
-	while (i < sizeof(buf)-1) {
-		if (read(ifd, buf+i, 1) != 1) break;
-		if (buf[i] == 'R') break;
+	while (i < sizeof(buf) - 1) {
+		if (read(ifd, buf + i, 1) != 1)
+			break;
+		if (buf[i] == 'R')
+			break;
 		i++;
 	}
 	buf[i] = '\0';
 
 	/* Parse it. */
-	if (buf[0] != ESC || buf[1] != '[') return -1;
-	if (sscanf(buf+2, "%d;%d", rows, cols) != 2) return -1;
+	if (buf[0] != ESC || buf[1] != '[')
+		return -1;
+	if (sscanf(buf + 2, "%d;%d", rows, cols) != 2)
+		return -1;
 
 	return 0;
 }
@@ -286,12 +375,15 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 
 		/* Get the initial position so we can restore it later. */
 		retval = get_cursor_position(ifd, ofd, &orig_row, &orig_col);
-		if (retval == -1) goto failed;
+		if (retval == -1)
+			goto failed;
 
 		/* Go to right/bottom margin and get position. */
-		if (write(ofd, "\x1b[999C\x1b[999B", 12) != 12) goto failed;
+		if (write(ofd, "\x1b[999C\x1b[999B", 12) != 12)
+			goto failed;
 		retval = get_cursor_position(ifd, ofd, rows, cols);
-		if (retval == -1) goto failed;
+		if (retval == -1)
+			goto failed;
 
 		/* Restore position. */
 		char seq[32];
@@ -319,13 +411,17 @@ void probe_window_size(void)
 	int new_rows, new_cols, orig_row, orig_col;
 	char seq[32];
 
-	if (get_cursor_position(STDIN_FILENO, STDOUT_FILENO, &orig_row, &orig_col) == -1)
+	if (get_cursor_position(
+		STDIN_FILENO, STDOUT_FILENO, &orig_row, &orig_col)
+	    == -1)
 		return;
 
 	/* Drive cursor to the bottom-right corner, then read back position. */
 	if (write(STDOUT_FILENO, "\x1b[999B\x1b[999C", 12) != 12)
 		goto restore;
-	if (get_cursor_position(STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols) == -1)
+	if (get_cursor_position(
+		STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols)
+	    == -1)
 		goto restore;
 
 	if (new_rows != win_total_rows || new_cols != win_total_cols) {
@@ -352,13 +448,16 @@ void update_window_size(void)
 
 	/* Try to get window size with retry logic */
 	while (attempts < max_attempts) {
-		if (get_window_size(STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols) == 0) {
+		if (get_window_size(
+			STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols)
+		    == 0) {
 			win_total_rows = new_rows;
 			win_total_cols = new_cols;
 			if (win_count > 0)
 				win_reflow();
 			else {
-				/* win_init() not yet called; set a sensible default. */
+				/* win_init() not yet called; set a sensible
+				 * default. */
 				editor.screenrows = new_rows - 2;
 				editor.screencols = new_cols;
 			}

@@ -16,7 +16,11 @@ man1dir = $(mandir)/man1
 # Off by default for an Emacs-like presentation.  Override on the make
 # command line, e.g. `make KG_SHOW_TILDE=1`.
 KG_SHOW_TILDE ?= 0
-CFLAGS += -DKG_SHOW_TILDE=$(KG_SHOW_TILDE)
+override CFLAGS += -DKG_SHOW_TILDE=$(KG_SHOW_TILDE)
+
+# Required for POSIX/GNU interfaces when source files include system headers
+# directly, as enforced by Include What You Use.
+override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
@@ -43,6 +47,26 @@ PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?=
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
+
+# Project metrics
+SCC ?= scc
+SCC_PATHS ?= src test
+SCC_COMPLEXITY_PATHS ?= src
+SCC_COMPLEXITY_MAX ?= 2144
+SCC_FILE_COMPLEXITY_MAX ?= 300
+COVERAGE_DIR ?= coverage
+COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c99 -O0 -g --coverage
+COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
+COVERAGE_GENHTML_ARGS ?= --quiet
+CLANG_FORMAT ?= clang-format
+FORMAT_FILES = $(wildcard $(OBJDIR)/*.[ch] $(TESTDIR)/*.[ch])
+BEAR ?= bear
+CLANG_CC ?= clang
+COMPILE_DB_FILE ?= compile_commands.json
+IWYU ?= /opt-3/iwyu-21/bin/include-what-you-use
+IWYU_TOOL ?= /opt-3/iwyu-21/bin/iwyu_tool.py
+IWYU_ARGS ?= -Xiwyu --error=1
+IWYU_FILES = $(addprefix $(CURDIR)/$(OBJDIR)/,$(SRCS))
 
 all: $(TARGET)
 
@@ -83,6 +107,55 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
 		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
+
+complexity:
+	$(SCC) --ci --by-file --sort complexity $(SCC_PATHS)
+
+complexity-check:
+	$(SCC) --ci --by-file --format json $(SCC_COMPLEXITY_PATHS) | \
+		python3 utils/check_scc_complexity.py \
+			--max-total $(SCC_COMPLEXITY_MAX) \
+			--max-file $(SCC_FILE_COMPLEXITY_MAX)
+
+coverage: coverage-clean
+	$(MAKE) clean
+	mkdir -p $(COVERAGE_DIR)
+	$(MAKE) $(TARGET) $(TESTBINS) CFLAGS="$(COVERAGE_CFLAGS)"
+	lcov $(COVERAGE_LCOV_ARGS) --capture --initial --directory . \
+		--output-file $(COVERAGE_DIR)/base.info
+	$(MAKE) check CFLAGS="$(COVERAGE_CFLAGS)"
+	lcov $(COVERAGE_LCOV_ARGS) --capture --directory . \
+		--output-file $(COVERAGE_DIR)/run.info
+	lcov $(COVERAGE_LCOV_ARGS) \
+		--add-tracefile $(COVERAGE_DIR)/base.info \
+		--add-tracefile $(COVERAGE_DIR)/run.info \
+		--output-file $(COVERAGE_DIR)/kg.info
+	lcov $(COVERAGE_LCOV_ARGS) --extract $(COVERAGE_DIR)/kg.info \
+		'$(CURDIR)/src/*.c' --output-file $(COVERAGE_DIR)/src.info
+	genhtml $(COVERAGE_GENHTML_ARGS) $(COVERAGE_DIR)/src.info \
+		--output-directory $(COVERAGE_DIR)/html
+	lcov --summary $(COVERAGE_DIR)/src.info
+
+coverage-clean:
+	rm -rf $(COVERAGE_DIR)
+	find $(OBJDIR) $(TESTDIR) \( -name '*.gcda' -o -name '*.gcno' \) -delete
+
+format:
+	$(CLANG_FORMAT) -i $(FORMAT_FILES)
+
+format-check:
+	$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
+
+compile-db:
+	$(BEAR) -- $(MAKE) CC="$(CLANG_CC)" -B
+
+iwyu:
+	@test -f $(COMPILE_DB_FILE) || { \
+		echo "$(COMPILE_DB_FILE) missing; run 'make compile-db' first"; \
+		exit 2; \
+	}
+	PATH="$$(dirname "$(IWYU)"):$${PATH}" \
+		$(IWYU_TOOL) -p . $(IWYU_FILES) -- $(IWYU_ARGS)
 
 # Per-test linker prerequisites beyond the common test_%.o + test.o.
 # The static pattern rule below pulls these in via secondary expansion.
@@ -129,4 +202,6 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check check-unit check-pty deb release install uninstall
+.PHONY: all clean distclean check check-unit check-pty complexity complexity-check \
+	coverage coverage-clean format format-check compile-db iwyu deb release \
+	install uninstall

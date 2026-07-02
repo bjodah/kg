@@ -1,10 +1,10 @@
 /* test_region.c — regression tests for region copy and kill */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* ---- Helpers ---- */
 
@@ -14,7 +14,7 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	suppress_undo     = 0;
+	suppress_undo = 0;
 	undo_free();
 	undo_init();
 	kill_ring_free();
@@ -23,7 +23,7 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 	undo_free();
 	kill_ring_free();
@@ -35,10 +35,10 @@ static void set_region(int mark_row, int mark_col, int cur_row, int cur_col)
 	editor.mark_set = 1;
 	editor.mark_row = mark_row;
 	editor.mark_col = mark_col;
-	editor.rowoff   = 0;
-	editor.coloff   = 0;
-	editor.cy       = cur_row;
-	editor.cx       = cur_col;
+	editor.rowoff = 0;
+	editor.coloff = 0;
+	editor.cy = cur_row;
+	editor.cx = cur_col;
 }
 
 /* ---- Tests ---- */
@@ -48,7 +48,7 @@ static void test_copy_region_single_line(void)
 {
 	setup();
 	editor_insert_row(0, "hello world", 11);
-	set_region(0, 0, 0, 5);   /* mark=col0, cursor=col5 → "hello" */
+	set_region(0, 0, 0, 5); /* mark=col0, cursor=col5 → "hello" */
 
 	editor_copy_region();
 
@@ -68,7 +68,7 @@ static void test_copy_region_two_lines(void)
 	setup();
 	editor_insert_row(0, "hello", 5);
 	editor_insert_row(1, "world", 5);
-	set_region(0, 0, 1, 5);   /* mark=row0col0, cursor=row1col5 */
+	set_region(0, 0, 1, 5); /* mark=row0col0, cursor=row1col5 */
 
 	editor_copy_region();
 
@@ -82,7 +82,7 @@ static void test_copy_region_reversed(void)
 {
 	setup();
 	editor_insert_row(0, "hello world", 11);
-	set_region(0, 5, 0, 0);   /* mark=col5, cursor=col0 → same "hello" */
+	set_region(0, 5, 0, 0); /* mark=col5, cursor=col0 → same "hello" */
 
 	editor_copy_region();
 
@@ -96,7 +96,7 @@ static void test_copy_region_empty(void)
 {
 	setup();
 	editor_insert_row(0, "hello", 5);
-	set_region(0, 3, 0, 3);   /* mark == cursor */
+	set_region(0, 3, 0, 3); /* mark == cursor */
 
 	editor_copy_region();
 
@@ -118,12 +118,13 @@ static void test_copy_region_no_mark(void)
 	teardown();
 }
 
-/* Killing a region saves the text to the kill ring and removes it from the row. */
+/* Killing a region saves the text to the kill ring and removes it from the row.
+ */
 static void test_kill_region_single_line(void)
 {
 	setup();
 	editor_insert_row(0, "hello world", 11);
-	set_region(0, 0, 0, 5);   /* mark=col0, cursor=col5 → kill "hello" */
+	set_region(0, 0, 0, 5); /* mark=col0, cursor=col5 → kill "hello" */
 
 	editor_kill_region();
 
@@ -141,7 +142,7 @@ static void test_kill_region_tail(void)
 {
 	setup();
 	editor_insert_row(0, "hello world", 11);
-	set_region(0, 6, 0, 11);   /* mark=col6, cursor=col11 → kill "world" */
+	set_region(0, 6, 0, 11); /* mark=col6, cursor=col11 → kill "world" */
 
 	editor_kill_region();
 

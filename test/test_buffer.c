@@ -1,10 +1,10 @@
 /* test_buffer.c — regression tests for row-level buffer operations */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* ---- Helpers ---- */
 
@@ -22,7 +22,7 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 	undo_free();
 }
@@ -168,7 +168,7 @@ static void test_row_del_char_middle(void)
 	setup();
 	editor_insert_row(0, "hxello", 6);
 
-	editor_row_del_char(&editor.row[0], 1);   /* remove 'x' */
+	editor_row_del_char(&editor.row[0], 1); /* remove 'x' */
 
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
@@ -194,8 +194,8 @@ static void test_row_del_char_oob(void)
 	setup();
 	editor_insert_row(0, "hello", 5);
 
-	editor_row_del_char(&editor.row[0], 5);    /* at size — no-op */
-	editor_row_del_char(&editor.row[0], 99);   /* way out — no-op */
+	editor_row_del_char(&editor.row[0], 5); /* at size — no-op */
+	editor_row_del_char(&editor.row[0], 99); /* way out — no-op */
 
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
@@ -298,9 +298,9 @@ static void test_visual_col_tab(void)
 	editor_insert_row(0, "\tabc", 4);
 
 	CHECK(editor_visual_col(&editor.row[0], 0) == 0);
-	CHECK(editor_visual_col(&editor.row[0], 1) == 7);   /* past tab */
-	CHECK(editor_visual_col(&editor.row[0], 2) == 8);   /* +'a' */
-	CHECK(editor_visual_col(&editor.row[0], 4) == 10);  /* past 'abc' */
+	CHECK(editor_visual_col(&editor.row[0], 1) == 7); /* past tab */
+	CHECK(editor_visual_col(&editor.row[0], 2) == 8); /* +'a' */
+	CHECK(editor_visual_col(&editor.row[0], 4) == 10); /* past 'abc' */
 	teardown();
 }
 
@@ -309,12 +309,15 @@ static void test_visual_col_utf8(void)
 {
 	setup();
 	/* "a…b" — 'a' + 3-byte ellipsis + 'b' = 5 bytes, 3 visual cols. */
-	editor_insert_row(0, "a\xe2\x80\xa6""b", 5);
+	editor_insert_row(0,
+	    "a\xe2\x80\xa6"
+	    "b",
+	    5);
 
 	CHECK(editor_visual_col(&editor.row[0], 0) == 0);
-	CHECK(editor_visual_col(&editor.row[0], 1) == 1);   /* past 'a' */
-	CHECK(editor_visual_col(&editor.row[0], 4) == 2);   /* past '…' */
-	CHECK(editor_visual_col(&editor.row[0], 5) == 3);   /* past 'b' */
+	CHECK(editor_visual_col(&editor.row[0], 1) == 1); /* past 'a' */
+	CHECK(editor_visual_col(&editor.row[0], 4) == 2); /* past '…' */
+	CHECK(editor_visual_col(&editor.row[0], 5) == 3); /* past 'b' */
 	teardown();
 }
 
@@ -324,7 +327,7 @@ static void test_visual_col_past_eol(void)
 	setup();
 	editor_insert_row(0, "abc", 3);
 
-	CHECK(editor_visual_col(&editor.row[0], 5) == 5);   /* 3 + 2 virtual */
+	CHECK(editor_visual_col(&editor.row[0], 5) == 5); /* 3 + 2 virtual */
 	CHECK(editor_visual_col(&editor.row[0], 10) == 10);
 	teardown();
 }
@@ -351,12 +354,14 @@ static void test_chars_col_round_trip(void)
 static void test_chars_col_inside_tab(void)
 {
 	setup();
-	editor_insert_row(0, "\tabc", 4);   /* tab fills vcols 0..6, 'a' at 7 */
+	editor_insert_row(0, "\tabc", 4); /* tab fills vcols 0..6, 'a' at 7 */
 
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 0) == 0);   /* tab start */
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 3) == 0);   /* mid-tab → start */
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 7) == 1);   /* 'a' */
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 8) == 2);   /* 'b' */
+	CHECK(
+	    editor_chars_col_at_visual(&editor.row[0], 0) == 0); /* tab start */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 3)
+	    == 0); /* mid-tab → start */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 7) == 1); /* 'a' */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 8) == 2); /* 'b' */
 	teardown();
 }
 
@@ -369,7 +374,8 @@ static void test_chars_col_past_eol(void)
 	editor_insert_row(0, "abc", 3);
 
 	CHECK(editor_chars_col_at_visual(&editor.row[0], 3) == 3);
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 5) == 5);   /* +2 virtual */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 5)
+	    == 5); /* +2 virtual */
 	CHECK(editor_chars_col_at_visual(&editor.row[0], 10) == 10);
 	teardown();
 }
@@ -408,7 +414,8 @@ static void test_reveal_position_offscreen_row_recenters(void)
 	teardown();
 }
 
-/* Near EOF, centering clamps so the viewport does not run past the final row. */
+/* Near EOF, centering clamps so the viewport does not run past the final row.
+ */
 static void test_reveal_position_near_eof_clamps(void)
 {
 	setup_rows(30);
@@ -481,7 +488,11 @@ static void test_transpose_chars_utf8(void)
 	editor_transpose_chars();
 
 	CHECK(editor.row[0].size == 3);
-	CHECK(memcmp(editor.row[0].chars, "\xc3\xa9""a", 3) == 0);
+	CHECK(memcmp(editor.row[0].chars,
+		  "\xc3\xa9"
+		  "a",
+		  3)
+	    == 0);
 	CHECK(editor.cx == 3);
 	teardown();
 }

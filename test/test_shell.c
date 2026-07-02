@@ -5,18 +5,20 @@
  * (editor_shell_command / editor_shell_command_on_region) need a PTY
  * and are exercised by hand. */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* The test exercises shell_run() only; the editor wrappers it calls below
  * are linked in via the full object set, so we stub the one symbol the
  * shared no-yank stubs file does not provide. */
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 {
-	(void)fd; (void)prompt; (void)bufsize;
+	(void)fd;
+	(void)prompt;
+	(void)bufsize;
 	buf[0] = '\0';
 	return -1;
 }
@@ -25,7 +27,7 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 static void test_shell_run_no_input(void)
 {
 	char *out;
-	int   len = -1;
+	int len = -1;
 
 	out = shell_run("printf 'hello\\n'", NULL, 0, &len);
 	CHECK(out != NULL);
@@ -39,7 +41,7 @@ static void test_shell_run_pipe_through_cat(void)
 {
 	const char *in = "line1\nline2\nline3\n";
 	char *out;
-	int   len = -1;
+	int len = -1;
 
 	out = shell_run("cat", in, (int)strlen(in), &len);
 	CHECK(out != NULL);
@@ -52,7 +54,7 @@ static void test_shell_run_pipe_through_cat(void)
 static void test_shell_run_large_output(void)
 {
 	char *out;
-	int   len = -1;
+	int len = -1;
 
 	/* 200 lines of "x" → 400 bytes; well above the initial 4 KiB buffer
 	 * we still want to make sure realloc growth keeps the buffer NUL-
@@ -71,16 +73,17 @@ static void test_shell_run_pump_no_deadlock(void)
 {
 	char *in;
 	char *out;
-	int   inlen = 65536;
-	int   len = -1;
-	int   i;
+	int inlen = 65536;
+	int len = -1;
+	int i;
 
 	in = malloc(inlen);
 	if (!in) {
 		CHECK(0);
 		return;
 	}
-	for (i = 0; i < inlen; i++) in[i] = 'A' + (i % 26);
+	for (i = 0; i < inlen; i++)
+		in[i] = 'A' + (i % 26);
 
 	out = shell_run("cat", in, inlen, &len);
 	CHECK(out != NULL);
@@ -91,14 +94,15 @@ static void test_shell_run_pump_no_deadlock(void)
 }
 
 /* Bogus command: /bin/sh -c returns 127, but shell_run still completes;
- * we should get back a (possibly empty) malloc'd buffer, not NULL or a crash. */
+ * we should get back a (possibly empty) malloc'd buffer, not NULL or a crash.
+ */
 static void test_shell_run_command_not_found(void)
 {
 	char *out;
-	int   len = -1;
+	int len = -1;
 
 	out = shell_run("nope-does-not-exist-12345", NULL, 0, &len);
-	CHECK(out != NULL);  /* successful pipe setup; stdout was empty */
+	CHECK(out != NULL); /* successful pipe setup; stdout was empty */
 	CHECK(len == 0);
 	free(out);
 }

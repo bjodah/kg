@@ -1,10 +1,10 @@
 /* test_syntax.c — regression tests for syntax highlighting */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* HLDB is defined in syntax.c; not declared in def.h since it is an
  * implementation detail, but tests need direct access to pick a language. */
@@ -18,13 +18,13 @@ static void setup(struct editor_syntax *syn)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	editor.syntax     = syn;
+	editor.syntax = syn;
 }
 
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row     = NULL;
+	editor.row = NULL;
 	editor.numrows = 0;
 }
 
@@ -37,10 +37,7 @@ static void test_is_separator_whitespace(void)
 	CHECK(is_separator('\n'));
 }
 
-static void test_is_separator_nul(void)
-{
-	CHECK(is_separator('\0'));
-}
+static void test_is_separator_nul(void) { CHECK(is_separator('\0')); }
 
 static void test_is_separator_punct(void)
 {
@@ -66,14 +63,14 @@ static void test_is_separator_alnum_false(void)
 
 static void test_syntax_to_color(void)
 {
-	CHECK(editor_syntax_to_color(HL_COMMENT)   == 36);
+	CHECK(editor_syntax_to_color(HL_COMMENT) == 36);
 	CHECK(editor_syntax_to_color(HL_MLCOMMENT) == 36);
-	CHECK(editor_syntax_to_color(HL_KEYWORD1)  == 33);
-	CHECK(editor_syntax_to_color(HL_KEYWORD2)  == 32);
-	CHECK(editor_syntax_to_color(HL_STRING)    == 35);
-	CHECK(editor_syntax_to_color(HL_NUMBER)    == 31);
-	CHECK(editor_syntax_to_color(HL_MATCH)     == 34);
-	CHECK(editor_syntax_to_color(HL_NORMAL)    == 37);
+	CHECK(editor_syntax_to_color(HL_KEYWORD1) == 33);
+	CHECK(editor_syntax_to_color(HL_KEYWORD2) == 32);
+	CHECK(editor_syntax_to_color(HL_STRING) == 35);
+	CHECK(editor_syntax_to_color(HL_NUMBER) == 31);
+	CHECK(editor_syntax_to_color(HL_MATCH) == 34);
+	CHECK(editor_syntax_to_color(HL_NORMAL) == 37);
 }
 
 /* ---- C syntax tests (HLDB[0]) ---- */
@@ -87,7 +84,7 @@ static void test_c_type_keyword(void)
 	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
 	CHECK(editor.row[0].hl[1] == HL_KEYWORD2);
 	CHECK(editor.row[0].hl[2] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[3] == HL_NORMAL);   /* space after keyword */
+	CHECK(editor.row[0].hl[3] == HL_NORMAL); /* space after keyword */
 	teardown();
 }
 
@@ -99,8 +96,8 @@ static void test_c_ctrl_keyword(void)
 
 	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
 	CHECK(editor.row[0].hl[5] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[6] == HL_NORMAL);   /* space */
-	CHECK(editor.row[0].hl[7] == HL_NUMBER);   /* 0 */
+	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* space */
+	CHECK(editor.row[0].hl[7] == HL_NUMBER); /* 0 */
 	teardown();
 }
 
@@ -171,7 +168,7 @@ static void test_c_binary(void)
 static void test_c_no_partial_keyword(void)
 {
 	setup(&HLDB[0]);
-	editor_insert_row(0, "returning", 9);   /* not "return" */
+	editor_insert_row(0, "returning", 9); /* not "return" */
 
 	CHECK(editor.row[0].hl[0] == HL_NORMAL);
 	teardown();
@@ -183,13 +180,13 @@ static void test_c_no_partial_keyword(void)
 static void test_make_target(void)
 {
 	setup(&HLDB[18]);
-	CHECK(strcmp(HLDB[18].name, "Makefile") == 0);   /* guard: index drift */
+	CHECK(strcmp(HLDB[18].name, "Makefile") == 0); /* guard: index drift */
 	editor_insert_row(0, "all: src", 8);
 
 	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
 	CHECK(editor.row[0].hl[1] == HL_KEYWORD1);
 	CHECK(editor.row[0].hl[2] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[3] == HL_NORMAL);   /* ':' not highlighted */
+	CHECK(editor.row[0].hl[3] == HL_NORMAL); /* ':' not highlighted */
 	teardown();
 }
 
@@ -201,7 +198,7 @@ static void test_make_simple_assignment(void)
 
 	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
 	CHECK(editor.row[0].hl[1] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[2] == HL_NORMAL);   /* space */
+	CHECK(editor.row[0].hl[2] == HL_NORMAL); /* space */
 	CHECK(editor.row[0].hl[3] == HL_KEYWORD1); /* '=' */
 	teardown();
 }
@@ -212,10 +209,10 @@ static void test_make_compound_assignment(void)
 	setup(&HLDB[18]);
 	editor_insert_row(0, "CFLAGS := -Wall", 15);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);   /* C */
-	CHECK(editor.row[0].hl[6] == HL_NORMAL);     /* space */
-	CHECK(editor.row[0].hl[7] == HL_KEYWORD1);   /* ':' of ':=' */
-	CHECK(editor.row[0].hl[8] == HL_KEYWORD1);   /* '=' of ':=' */
+	CHECK(editor.row[0].hl[0] == HL_KEYWORD2); /* C */
+	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* space */
+	CHECK(editor.row[0].hl[7] == HL_KEYWORD1); /* ':' of ':=' */
+	CHECK(editor.row[0].hl[8] == HL_KEYWORD1); /* '=' of ':=' */
 	teardown();
 }
 
@@ -240,7 +237,7 @@ static void test_md_atx_heading(void)
 	int i;
 
 	setup(&HLDB[19]);
-	CHECK(strcmp(HLDB[19].name, "Markdown") == 0);   /* guard: index drift */
+	CHECK(strcmp(HLDB[19].name, "Markdown") == 0); /* guard: index drift */
 	editor_insert_row(0, "# Heading", 9);
 
 	for (i = 0; i < 9; i++)

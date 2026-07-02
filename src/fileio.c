@@ -1,5 +1,14 @@
 /* =============================== File I/O ================================= */
 
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include "def.h"
 
 /* Refresh the on-disk metadata snapshot for the active buffer.  Called after
@@ -13,10 +22,10 @@ void editor_snapshot_disk(void)
 	editor.disk_changed = 0;
 	if (editor.filename && stat(editor.filename, &st) == 0) {
 		editor.disk_mtime = st.st_mtime;
-		editor.disk_size  = st.st_size;
+		editor.disk_size = st.st_size;
 	} else {
 		editor.disk_mtime = 0;
-		editor.disk_size  = 0;
+		editor.disk_size = 0;
 	}
 }
 
@@ -27,7 +36,8 @@ int file_state_differs(const char *path, time_t mtime, off_t size)
 {
 	struct stat st;
 
-	if (stat(path, &st) != 0) return 0;
+	if (stat(path, &st) != 0)
+		return 0;
 	return st.st_mtime != mtime || st.st_size != size;
 }
 
@@ -64,7 +74,9 @@ int editor_open(char *filename)
 
 	while ((linelen = getline(&line, &linecap, fp)) != -1) {
 		ended_with_newline = 0;
-		if (linelen && (line[linelen-1] == '\n' || line[linelen-1] == '\r')) {
+		if (linelen
+		    && (line[linelen - 1] == '\n'
+			|| line[linelen - 1] == '\r')) {
 			line[--linelen] = '\0';
 			ended_with_newline = 1;
 		}
@@ -75,7 +87,7 @@ int editor_open(char *filename)
 	free(line);
 	fclose(fp);
 	editor.dirty = 0;
-	undo_mark_clean();  /* Mark initial file state as clean */
+	undo_mark_clean(); /* Mark initial file state as clean */
 	editor_snapshot_disk();
 	return 0;
 }
@@ -95,15 +107,18 @@ int editor_save(int fd)
 		char newname[256];
 
 		editor_prompt_prefill_dir(newname, sizeof(newname));
-		if (editor_read_line_path(fd, "Write file: ", newname, sizeof(newname)) < 0
+		if (editor_read_line_path(
+			fd, "Write file: ", newname, sizeof(newname))
+			< 0
 		    || !newname[0])
 			return 1;
 
-		/* If the entered path already exists, warn before clobbering — and
-		 * do it *before* mutating the buffer's filename or syntax so that
-		 * a "no" answer leaves the buffer untouched. */
+		/* If the entered path already exists, warn before clobbering —
+		 * and do it *before* mutating the buffer's filename or syntax
+		 * so that a "no" answer leaves the buffer untouched. */
 		if (stat(newname, &st) == 0) {
-			editor_set_status_message("File %s exists.  Overwrite? (y/n) ", newname);
+			editor_set_status_message(
+			    "File %s exists.  Overwrite? (y/n) ", newname);
 			editor_refresh_screen();
 			answer = editor_read_key(fd);
 			if (answer != 'y' && answer != 'Y') {
@@ -120,10 +135,11 @@ int editor_save(int fd)
 		free(editor.filename);
 		editor.filename = newfilename;
 		editor_select_syntax_highlight(editor.filename);
-	} else if (file_state_differs(editor.filename,
-	                              editor.disk_mtime, editor.disk_size)) {
-		editor_set_status_message("File %s changed on disk.  Save anyway? (y/n) ",
-		                          editor.filename);
+	} else if (file_state_differs(
+		       editor.filename, editor.disk_mtime, editor.disk_size)) {
+		editor_set_status_message(
+		    "File %s changed on disk.  Save anyway? (y/n) ",
+		    editor.filename);
 		editor_refresh_screen();
 		answer = editor_read_key(fd);
 		if (answer != 'y' && answer != 'Y') {
@@ -133,22 +149,27 @@ int editor_save(int fd)
 	}
 
 	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
-	filefd = open(editor.filename, O_RDWR|O_CREAT
+	filefd = open(editor.filename,
+	    O_RDWR | O_CREAT
 #ifdef O_CLOEXEC
-	              |O_CLOEXEC
+		| O_CLOEXEC
 #endif
-	              , 0644);
-	if (filefd == -1) goto writeerr;
+	    ,
+	    0644);
+	if (filefd == -1)
+		goto writeerr;
 
 	/* Use truncate + a single write(2) call in order to make saving
 	 * a bit safer, under the limits of what we can do in a small editor. */
-	if (ftruncate(filefd, len) == -1) goto writeerr;
-	if (write(filefd, buf, len) != len) goto writeerr;
+	if (ftruncate(filefd, len) == -1)
+		goto writeerr;
+	if (write(filefd, buf, len) != len)
+		goto writeerr;
 
 	close(filefd);
 	free(buf);
 	editor.dirty = 0;
-	undo_mark_clean();  /* Mark this state as clean for undo tracking */
+	undo_mark_clean(); /* Mark this state as clean for undo tracking */
 	editor_snapshot_disk();
 	editor_set_status_message("Wrote %s (%d bytes)", editor.filename, len);
 	return 0;
@@ -158,7 +179,8 @@ writeerr:
 	if (filefd != -1)
 		close(filefd);
 
-	editor_set_status_message("Error writing %s: %s", editor.filename, strerror(errno));
+	editor_set_status_message(
+	    "Error writing %s: %s", editor.filename, strerror(errno));
 	return 1;
 }
 
@@ -170,7 +192,9 @@ void editor_write_file(int fd)
 	char *newfilename;
 
 	editor_prompt_prefill_dir(newname, sizeof(newname));
-	if (editor_read_line_path(fd, "Write file: ", newname, sizeof(newname)) < 0 || !newname[0])
+	if (editor_read_line_path(fd, "Write file: ", newname, sizeof(newname))
+		< 0
+	    || !newname[0])
 		return;
 	newfilename = strdup(newname);
 	if (!newfilename)
@@ -194,16 +218,21 @@ void editor_insert_file(int fd)
 	int filefd;
 
 	editor_prompt_prefill_dir(filename, sizeof(filename));
-	if (editor_read_line_path(fd, "Insert file: ", filename, sizeof(filename)) < 0 || !filename[0])
+	if (editor_read_line_path(
+		fd, "Insert file: ", filename, sizeof(filename))
+		< 0
+	    || !filename[0])
 		return;
 
-	filefd = open(filename, O_RDONLY
+	filefd = open(filename,
+	    O_RDONLY
 #ifdef O_CLOEXEC
-	              |O_CLOEXEC
+		| O_CLOEXEC
 #endif
-	              );
+	);
 	if (filefd < 0) {
-		editor_set_status_message("Cannot open %s: %s", filename, strerror(errno));
+		editor_set_status_message(
+		    "Cannot open %s: %s", filename, strerror(errno));
 		return;
 	}
 
@@ -218,7 +247,8 @@ void editor_insert_file(int fd)
 
 			free(buf);
 			close(filefd);
-			editor_set_status_message("Error reading %s: %s", filename, strerror(saved_errno));
+			editor_set_status_message("Error reading %s: %s",
+			    filename, strerror(saved_errno));
 			return;
 		}
 
@@ -228,7 +258,8 @@ void editor_insert_file(int fd)
 			if (!newbuf) {
 				free(buf);
 				close(filefd);
-				editor_set_status_message("Out of memory reading %s", filename);
+				editor_set_status_message(
+				    "Out of memory reading %s", filename);
 				return;
 			}
 			buf = newbuf;
@@ -236,7 +267,8 @@ void editor_insert_file(int fd)
 			newbuf = malloc(buflen + n + 1);
 			if (!newbuf) {
 				close(filefd);
-				editor_set_status_message("Out of memory reading %s", filename);
+				editor_set_status_message(
+				    "Out of memory reading %s", filename);
 				return;
 			}
 			buf = newbuf;

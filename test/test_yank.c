@@ -1,14 +1,14 @@
 /* test_yank.c — regression tests for the kill ring */
 
+#include "../src/def.h"
+#include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "test.h"
-#include "../src/def.h"
 
 /* ---- Helpers ---- */
 
-static void setup(void)    { kill_ring_init(); }
+static void setup(void) { kill_ring_init(); }
 static void teardown(void) { kill_ring_free(); }
 
 /* ---- Tests ---- */
@@ -108,7 +108,7 @@ static void test_free_idempotent(void)
 	setup();
 	kill_ring_set("hello", 5);
 	kill_ring_free();
-	kill_ring_free();   /* must not crash */
+	kill_ring_free(); /* must not crash */
 	CHECK(kill_ring_get() == NULL);
 	teardown();
 }

@@ -85,6 +85,67 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 	return 0;
 }
 
+static void query_replace_newline_at(int rowidx, char *replace, int rlen)
+{
+	erow *row = &editor.row[rowidx];
+	int join_col = row->size;
+	int i;
+
+	undo_push(UNDO_KILL_TEXT, rowidx, join_col, 0, "\n", 1);
+	undo_push(UNDO_YANK_TEXT, rowidx, join_col, 0, replace, rlen);
+
+	suppress_undo = 1;
+	for (i = 0; i < rlen; i++) {
+		editor_row_insert_char(
+		    row, join_col + i, (unsigned char)replace[i]);
+	}
+	editor_row_append_string(
+	    row, editor.row[rowidx + 1].chars, editor.row[rowidx + 1].size);
+	editor_del_row(rowidx + 1);
+	suppress_undo = 0;
+	editor_update_row(row);
+	editor.dirty++;
+}
+
+static void editor_query_replace_newline(int fd, char *replace, int rlen)
+{
+	int filerow = editor.rowoff + editor.cy;
+	int count = 0, replace_all = 0;
+
+	while (filerow < editor.numrows - 1) {
+		int c;
+
+		editor_cursor_goto(filerow, editor.row[filerow].size);
+		if (!replace_all) {
+			editor_set_status_message(
+			    "Replace \"^J\" with \"%s\"? (y/n/!/q)", replace);
+			editor_refresh_screen();
+			c = editor_read_key(fd);
+		} else {
+			c = 'y';
+		}
+
+		if (c == ESC || c == CTRL_G || c == 'q') {
+			break;
+		}
+		if (c == '!') {
+			replace_all = 1;
+			c = 'y';
+		}
+
+		if (c == 'y' || c == ENTER || c == ' ') {
+			query_replace_newline_at(filerow, replace, rlen);
+			count++;
+		} else {
+			filerow++;
+		}
+	}
+
+	editor_set_status_message(
+	    count ? "Replaced %d occurrence%s." : "No replacements made.",
+	    count, count == 1 ? "" : "s");
+}
+
 static int isearch_handoff_key(int fd, int c)
 {
 	switch (c) {
@@ -309,6 +370,10 @@ void editor_query_replace(int fd)
 
 	slen = strlen(search);
 	rlen = strlen(replace);
+	if (slen == 1 && search[0] == '\n') {
+		editor_query_replace_newline(fd, replace, rlen);
+		return;
+	}
 	filerow = editor.rowoff + editor.cy;
 	match_col = editor.coloff + editor.cx;
 

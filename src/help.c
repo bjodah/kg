@@ -36,7 +36,7 @@ const char *kg_help_lines[]
 	      "write file     │",
 	      "│ M-d/M-BS kill word ±    │ C-q      quoted insert  │ C-x i    "
 	      "insert file    │",
-	      "│ C-up/dn  paragraph      │ C-t      transpose char │ C-x b    "
+	      "│ C-up/dn  paragraph      │ M-h      mark paragraph │ C-x b    "
 	      "sel buffer     │",
 	      "│ M-</M->  beg/end buf    │ M-u/M-l  up/down word   │ C-x C-b  "
 	      "list bufs      │",

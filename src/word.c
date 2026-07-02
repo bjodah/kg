@@ -313,6 +313,36 @@ void editor_move_paragraph_forward(void)
 	editor.coloff = 0;
 }
 
+/* Mark the current paragraph (M-h): point moves to the paragraph start and
+ * mark lands at the paragraph end.  Paragraphs are separated by blank lines. */
+void editor_mark_paragraph(void)
+{
+	int filerow = editor.rowoff + editor.cy;
+	int para_start, para_end, end_col;
+
+	if (editor.numrows == 0 || filerow >= editor.numrows) {
+		return;
+	}
+
+	para_start = filerow;
+	while (para_start > 0 && editor.row[para_start - 1].size > 0) {
+		para_start--;
+	}
+	para_end = filerow;
+	while (para_end < editor.numrows - 1
+	    && editor.row[para_end + 1].size > 0) {
+		para_end++;
+	}
+
+	end_col = editor.row[para_end].size;
+	editor_cursor_goto(para_start, 0);
+	editor.mark_set = 1;
+	editor.mark_row = para_end;
+	editor.mark_col = end_col;
+	editor.mark_highlight = 1;
+	editor_set_status_message("Mark set");
+}
+
 /* Sentence boundary helpers.  A sentence ends at '.', '?', or '!' that is
  * followed in the source text by whitespace (including newline / EOF). */
 static int is_sentence_end(char c) { return c == '.' || c == '?' || c == '!'; }

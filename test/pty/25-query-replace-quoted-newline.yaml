@@ -1,0 +1,17 @@
+name: query-replace-quoted-newline
+filename: query-newline.txt
+initial: ""
+keys:
+  - home
+  - RET
+  - town
+  - M-h
+  - ESC
+  - "%"
+  - C-q
+  - C-j
+  - RET
+  - SPC
+  - RET
+  - "!"
+expected_saved: "home town"

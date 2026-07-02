@@ -599,6 +599,9 @@ void editor_process_keypress(int fd)
 	case ALT_G: /* Goto line */
 		editor_goto_line(fd);
 		break;
+	case ALT_H: /* Mark paragraph */
+		editor_mark_paragraph();
+		break;
 	case CTRL_ARROW_LEFT:
 	case ALT_B:
 		while (n--) {

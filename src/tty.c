@@ -23,6 +23,7 @@ static const struct key_map alt_keys[] = {
 	{ 'b', ALT_B },
 	{ 'd', ALT_D },
 	{ 'g', ALT_G },
+	{ 'h', ALT_H },
 	{ 'v', ALT_V },
 	{ 'w', ALT_W },
 	{ 'q', ALT_Q },

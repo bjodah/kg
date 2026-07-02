@@ -160,6 +160,7 @@ enum KEY_ACTION {
 	ALT_B,
 	ALT_D,
 	ALT_G,
+	ALT_H,
 	ALT_V,
 	ALT_W,
 	ALT_Q,
@@ -550,6 +551,7 @@ void editor_move_word_forward(void);
 void editor_move_word_backward(void);
 void editor_move_paragraph_forward(void);
 void editor_move_paragraph_backward(void);
+void editor_mark_paragraph(void);
 void editor_move_sentence_forward(void);
 void editor_move_sentence_backward(void);
 void editor_kill_word_forward(void);

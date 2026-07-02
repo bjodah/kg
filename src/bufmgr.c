@@ -447,6 +447,15 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 			return prompt_done(-1);
 		} else if (c == ENTER) {
 			return prompt_done(0);
+		} else if (c == CTRL_Q) {
+			c = editor_read_raw_byte(fd);
+			if (!running) {
+				return prompt_done(-1);
+			}
+			if (len < bufsize - 1) {
+				buf[len++] = c;
+				buf[len] = '\0';
+			}
 		} else if (isprint(c) && len < bufsize - 1) {
 			buf[len++] = c;
 			buf[len] = '\0';

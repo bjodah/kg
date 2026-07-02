@@ -13,6 +13,55 @@
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 
+struct key_map {
+	char byte;
+	int key;
+};
+
+static const struct key_map alt_keys[] = {
+	{ 'f', ALT_F },
+	{ 'b', ALT_B },
+	{ 'd', ALT_D },
+	{ 'g', ALT_G },
+	{ 'v', ALT_V },
+	{ 'w', ALT_W },
+	{ 'q', ALT_Q },
+	{ '\x7f', ALT_BACKSPACE },
+	{ '\b', ALT_BACKSPACE },
+	{ '%', ALT_PCT },
+	{ ';', ALT_SEMICOLON },
+	{ 'x', ALT_X },
+	{ '^', ALT_CARET },
+	{ 'u', ALT_U },
+	{ 'l', ALT_L },
+	{ 'c', ALT_C },
+	{ '!', ALT_BANG },
+	{ '|', ALT_PIPE },
+	{ '<', ALT_LT },
+	{ '>', ALT_GT },
+	{ '{', ALT_LBRACE },
+	{ '}', ALT_RBRACE },
+	{ 'm', ALT_M },
+	{ 'a', ALT_A },
+	{ 'e', ALT_E },
+	{ 'r', ALT_R },
+	{ '\\', ALT_BACKSLASH },
+	{ ' ', ALT_SPACE },
+	{ 'z', ALT_Z },
+};
+
+static int lookup_alt_key(char byte)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(alt_keys) / sizeof(alt_keys[0]); i++) {
+		if (alt_keys[i].byte == byte) {
+			return alt_keys[i].key;
+		}
+	}
+	return 0;
+}
+
 void disable_raw_mode(int fd)
 {
 	/* Don't even check the return value as it's too late. */
@@ -80,95 +129,16 @@ fatal:
 static int parse_escape(int fd)
 {
 	char seq[6];
+	int key;
 
 	if (read(fd, seq, 1) == 0) {
 		return ESC; /* bare ESC */
 	}
 
 	/* Alt+key: ESC followed by a single character */
-	if (seq[0] == 'f') {
-		return ALT_F;
-	}
-	if (seq[0] == 'b') {
-		return ALT_B;
-	}
-	if (seq[0] == 'd') {
-		return ALT_D;
-	}
-	if (seq[0] == 'g') {
-		return ALT_G;
-	}
-	if (seq[0] == 'v') {
-		return ALT_V;
-	}
-	if (seq[0] == 'w') {
-		return ALT_W;
-	}
-	if (seq[0] == 'q') {
-		return ALT_Q;
-	}
-	if (seq[0] == '\x7f' || seq[0] == '\b') {
-		return ALT_BACKSPACE;
-	}
-	if (seq[0] == '%') {
-		return ALT_PCT;
-	}
-	if (seq[0] == ';') {
-		return ALT_SEMICOLON;
-	}
-	if (seq[0] == 'x') {
-		return ALT_X;
-	}
-	if (seq[0] == '^') {
-		return ALT_CARET;
-	}
-	if (seq[0] == 'u') {
-		return ALT_U;
-	}
-	if (seq[0] == 'l') {
-		return ALT_L;
-	}
-	if (seq[0] == 'c') {
-		return ALT_C;
-	}
-	if (seq[0] == '!') {
-		return ALT_BANG;
-	}
-	if (seq[0] == '|') {
-		return ALT_PIPE;
-	}
-	if (seq[0] == '<') {
-		return ALT_LT;
-	}
-	if (seq[0] == '>') {
-		return ALT_GT;
-	}
-	if (seq[0] == '{') {
-		return ALT_LBRACE;
-	}
-	if (seq[0] == '}') {
-		return ALT_RBRACE;
-	}
-	if (seq[0] == 'm') {
-		return ALT_M;
-	}
-	if (seq[0] == 'a') {
-		return ALT_A;
-	}
-	if (seq[0] == 'e') {
-		return ALT_E;
-	}
-	if (seq[0] == 'r') {
-		return ALT_R;
-	}
-	if (seq[0] == '\\') {
-		return ALT_BACKSLASH;
-	}
-	if (seq[0] == ' ') {
-		return ALT_SPACE;
-	}
-	if (seq[0] == 'z') {
-		return ALT_Z;
+	key = lookup_alt_key(seq[0]);
+	if (key) {
+		return key;
 	}
 	if (seq[0] >= '0' && seq[0] <= '9') {
 		return ALT_0 + (seq[0] - '0');

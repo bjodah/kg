@@ -6,6 +6,41 @@
 
 #include "def.h"
 
+static const int readonly_blocked_keys[] = {
+	BACKSPACE,
+	DEL_KEY,
+	CTRL_D,
+	CTRL_K,
+	CTRL_W,
+	CTRL_Y,
+	CTRL_Q,
+	CTRL_T,
+	SHIFT_DELETE,
+	SHIFT_INSERT,
+	CTRL_UNDERSCORE,
+	ALT_BACKSLASH,
+	ALT_SPACE,
+	ALT_Z,
+	TAB,
+};
+
+static int key_would_edit_readonly_buffer(int c)
+{
+	size_t i;
+
+	if (c >= 32 && c < 127) {
+		return 1;
+	}
+	for (i = 0; i
+	    < sizeof(readonly_blocked_keys) / sizeof(readonly_blocked_keys[0]);
+	    i++) {
+		if (readonly_blocked_keys[i] == c) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /* C-u universal-argument: accumulate a numeric prefix.  Returns 1 if `c`
  * was part of the in-progress prefix (digit, another C-u, or C-g cancel)
  * and the caller should stop processing this key.  Returns 0 if `c` is a
@@ -284,12 +319,7 @@ void editor_process_keypress(int fd)
 			buf_ibuffer_select();
 			return;
 		}
-		if (c == BACKSPACE || c == DEL_KEY || c == CTRL_D || c == CTRL_K
-		    || c == CTRL_W || c == CTRL_Y || c == CTRL_Q || c == CTRL_T
-		    || c == SHIFT_DELETE || c == SHIFT_INSERT
-		    || c == CTRL_UNDERSCORE || c == ALT_BACKSLASH
-		    || c == ALT_SPACE || c == ALT_Z || c == TAB
-		    || (c >= 32 && c < 127)) {
+		if (key_would_edit_readonly_buffer(c)) {
 			editor_set_status_message("Buffer is read-only");
 			return;
 		}

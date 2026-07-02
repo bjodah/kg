@@ -103,6 +103,7 @@ Useful local quality checks:
 
 ```bash
 make check
+make fuzz-keypress
 make complexity-check
 make coverage
 make compile-db
@@ -111,6 +112,8 @@ make iwyu
 
 `make iwyu` runs Include What You Use from the compilation database, so
 refresh `compile_commands.json` with `make compile-db` first.
+
+For crash triage and fuzzing notes, see [doc/FUZZING.md](doc/FUZZING.md).
 
 ## Origin & References
 

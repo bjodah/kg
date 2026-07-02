@@ -40,6 +40,11 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete
+FUZZBIN = $(TESTDIR)/fuzz_keypress
+FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
+	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
+	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
+	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
@@ -49,6 +54,8 @@ PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?=
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
+FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c99 -O1 -g \
+	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
 
 # Project metrics
 SCC ?= scc
@@ -61,6 +68,7 @@ COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c99 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
 COVERAGE_GENHTML_ARGS ?= --quiet
 CLANG_FORMAT ?= clang-format
+FUZZ_CC ?= clang
 FORMAT_FILES = $(wildcard $(OBJDIR)/*.[ch] $(TESTDIR)/*.[ch])
 BEAR ?= bear
 CLANG_CC ?= clang
@@ -109,6 +117,12 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
 		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
+
+fuzz-keypress: $(FUZZBIN)
+
+fuzz-keypress-smoke: $(FUZZBIN)
+	mkdir -p $(TESTDIR)/fuzz-corpus/keypress
+	./$(FUZZBIN) -runs=1000 $(TESTDIR)/fuzz-corpus/keypress
 
 complexity:
 	$(SCC) --ci --by-file --sort complexity $(SCC_PATHS)
@@ -179,6 +193,9 @@ $(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
+$(FUZZBIN): $(FUZZ_SRCS) $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ $(FUZZ_SRCS)
+
 clean:
 	rm -f $(OBJS) $(TESTDIR)/*.o
 
@@ -205,5 +222,5 @@ uninstall:
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
 .PHONY: all clean distclean check check-unit check-pty complexity complexity-check \
-	coverage coverage-clean format format-check compile-db iwyu deb release \
-	install uninstall
+	coverage coverage-clean format format-check compile-db iwyu \
+	fuzz-keypress fuzz-keypress-smoke deb release install uninstall

@@ -1,0 +1,9 @@
+name: transpose-chars
+filename: transpose.txt
+initial: |
+  abc
+keys:
+  - C-f
+  - C-t
+expected_saved: |
+  bac

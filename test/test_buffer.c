@@ -14,6 +14,9 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
+	suppress_undo = 0;
+	undo_free();
+	undo_init();
 }
 
 static void teardown(void)
@@ -21,6 +24,7 @@ static void teardown(void)
 	free_all_rows();
 	editor.row     = NULL;
 	editor.numrows = 0;
+	undo_free();
 }
 
 static void setup_rows(int n)
@@ -88,6 +92,18 @@ static void test_rows_to_string_trailing_empty_row(void)
 	CHECK(len == 6);
 	CHECK(memcmp(s, "line1\n", 6) == 0);
 	free(s);
+	teardown();
+}
+
+static void test_insert_char_empty_file_does_not_add_sentinel_row(void)
+{
+	setup();
+
+	editor_insert_char('x');
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 1);
+	CHECK(editor.row[0].chars[0] == 'x');
 	teardown();
 }
 
@@ -408,6 +424,82 @@ static void test_reveal_position_near_eof_clamps(void)
 	teardown();
 }
 
+static void test_transpose_chars_ascii_middle(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.cx = 1;
+
+	editor_transpose_chars();
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "bac", 3) == 0);
+	CHECK(editor.cx == 2);
+	teardown();
+}
+
+static void test_transpose_chars_eol(void)
+{
+	setup();
+	editor_insert_row(0, "ab", 2);
+	editor.cx = 2;
+
+	editor_transpose_chars();
+
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "ba", 2) == 0);
+	CHECK(editor.cx == 2);
+	teardown();
+}
+
+static void test_transpose_chars_bol_swaps_newline(void)
+{
+	setup();
+	editor_insert_row(0, "ab", 2);
+	editor_insert_row(1, "cd", 2);
+	editor.cy = 1;
+	editor.cx = 0;
+
+	editor_transpose_chars();
+
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	CHECK(editor.row[1].size == 1);
+	CHECK(memcmp(editor.row[1].chars, "d", 1) == 0);
+	CHECK(editor.cy == 1);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_transpose_chars_utf8(void)
+{
+	setup();
+	editor_insert_row(0, "a\xc3\xa9", 3);
+	editor.cx = 1;
+
+	editor_transpose_chars();
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "\xc3\xa9""a", 3) == 0);
+	CHECK(editor.cx == 3);
+	teardown();
+}
+
+static void test_transpose_chars_undo_one_step(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.cx = 1;
+
+	editor_transpose_chars();
+	editor_undo();
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -415,6 +507,7 @@ int main(void)
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
 	RUN(test_rows_to_string_trailing_empty_row);
+	RUN(test_insert_char_empty_file_does_not_add_sentinel_row);
 	RUN(test_row_insert_char_middle);
 	RUN(test_row_insert_char_front);
 	RUN(test_row_insert_char_end);
@@ -437,5 +530,10 @@ int main(void)
 	RUN(test_reveal_position_visible_row_keeps_rowoff);
 	RUN(test_reveal_position_offscreen_row_recenters);
 	RUN(test_reveal_position_near_eof_clamps);
+	RUN(test_transpose_chars_ascii_middle);
+	RUN(test_transpose_chars_eol);
+	RUN(test_transpose_chars_bol_swaps_newline);
+	RUN(test_transpose_chars_utf8);
+	RUN(test_transpose_chars_undo_one_step);
 	return test_summary();
 }

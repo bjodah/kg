@@ -1,0 +1,14 @@
+name: delete-horizontal-space-meta
+filename: space.txt
+initial: ""
+keys:
+  - "alpha    beta"
+  - C-a
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - 'M-\'
+expected_saved: |-
+  alphabeta

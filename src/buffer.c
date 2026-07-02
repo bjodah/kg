@@ -301,6 +301,85 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	return buf;
 }
 
+static int editor_current_flat_offset(void)
+{
+	int filerow = editor.rowoff + editor.cy;
+	int filecol = editor.coloff + editor.cx;
+	int off = 0;
+	int r;
+
+	for (r = 0; r < filerow && r < editor.numrows; r++)
+		off += editor.row[r].size + 1;
+	if (filerow < editor.numrows) {
+		if (filecol < 0) filecol = 0;
+		if (filecol > editor.row[filerow].size)
+			filecol = editor.row[filerow].size;
+		off += filecol;
+	}
+	return off;
+}
+
+static void editor_flat_offset_to_row_col(const char *buf, int len, int off,
+                                          int *row, int *col)
+{
+	int r = 0, c = 0, i;
+
+	if (off < 0) off = 0;
+	if (off > len) off = len;
+	for (i = 0; i < off; i++) {
+		if (buf[i] == '\n') {
+			r++;
+			c = 0;
+		} else {
+			c++;
+		}
+	}
+	*row = r;
+	*col = c;
+}
+
+static int utf8_next_glyph_len(const char *buf, int len, int start)
+{
+	int n = 1;
+
+	while (start + n < len && utf8_is_cont((unsigned char)buf[start + n]))
+		n++;
+	return n;
+}
+
+static int utf8_prev_glyph_start(const char *buf, int pos)
+{
+	int start;
+
+	if (pos <= 0)
+		return -1;
+	start = pos - 1;
+	while (start > 0 && utf8_is_cont((unsigned char)buf[start]))
+		start--;
+	return start;
+}
+
+static void editor_replace_rows_from_text(const char *text, int len)
+{
+	int start = 0;
+	int i;
+
+	for (i = 0; i < editor.numrows; i++)
+		editor_free_row(&editor.row[i]);
+	free(editor.row);
+	editor.row = NULL;
+	editor.numrows = 0;
+
+	for (i = 0; i < len; i++) {
+		if (text[i] == '\n') {
+			editor_insert_row(editor.numrows, text + start, i - start);
+			start = i + 1;
+		}
+	}
+	if (start <= len)
+		editor_insert_row(editor.numrows, text + start, len - start);
+}
+
 /* Insert a character at the specified position in a row, moving the remaining
  * chars on the right if needed. */
 void editor_row_insert_char(erow *row, int at, int c)
@@ -375,7 +454,6 @@ void editor_insert_char(int c)
 	erow *row = (editor.rowoff + editor.cy >= editor.numrows) ? NULL : &editor.row[editor.rowoff + editor.cy];
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
-	int keep_trailing_newline = 0;
 
 	/* If the row where the cursor is currently located does not exist in our
 	 * logical representation of the file, add enough empty rows as needed. */
@@ -388,15 +466,11 @@ void editor_insert_char(int c)
 	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 	if (!row)
 		return;
-	keep_trailing_newline = (filerow == editor.numrows - 1 &&
-	                         row->size == 0 && filecol == 0);
 
 	/* Record undo operation */
 	undo_push(UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
 
 	editor_row_insert_char(row, filecol, c);
-	if (keep_trailing_newline)
-		editor_insert_row(editor.numrows, "", 0);
 	if (editor.cx == editor.screencols - 1)
 		editor.coloff++;
 	else
@@ -450,8 +524,22 @@ void editor_insert_text_raw(const char *text, int len)
 	for (i = 0; i < len; i++) {
 		if (text[i] == '\n')
 			editor_insert_newline_raw();
-		else
-			editor_insert_char(text[i]);
+		else {
+			erow *row;
+			int filerow = editor.rowoff + editor.cy;
+			int filecol = editor.coloff + editor.cx;
+
+			while (editor.numrows <= filerow)
+				editor_insert_row(editor.numrows, "", 0);
+			row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+			if (!row)
+				break;
+			editor_row_insert_char(row, filecol, (unsigned char)text[i]);
+			if (editor.cx == editor.screencols - 1)
+				editor.coloff++;
+			else
+				editor.cx++;
+		}
 	}
 	suppress_undo = saved;
 }
@@ -654,4 +742,82 @@ void editor_kill_line(void)
 		editor_update_row(row);
 		editor.dirty++;
 	}
+}
+
+/* Transpose characters around point (C-t), following Emacs' newline and
+ * end-of-line cases.  kg stores rows as bytes, so this swaps UTF-8 codepoint
+ * byte spans rather than single bytes. */
+void editor_transpose_chars(void)
+{
+	char *buf, *newbuf, *orig, *repl;
+	int len, point, a_start, b_start, a_len, b_len, b_end, span_len;
+	int row, col;
+
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+
+	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
+	if (!buf)
+		return;
+	if (len < 2)
+		goto done;
+
+	point = editor_current_flat_offset();
+	if (point < 0)
+		point = 0;
+	if (point > len)
+		point = len;
+	while (point > 0 && point < len && utf8_is_cont((unsigned char)buf[point]))
+		point--;
+
+	if (point >= len || buf[point] == '\n') {
+		b_start = utf8_prev_glyph_start(buf, point);
+		if (b_start < 0)
+			goto done;
+		a_start = utf8_prev_glyph_start(buf, b_start);
+		if (a_start < 0)
+			goto done;
+		b_len = point - b_start;
+	} else {
+		b_start = point;
+		a_start = utf8_prev_glyph_start(buf, b_start);
+		if (a_start < 0)
+			goto done;
+		b_len = utf8_next_glyph_len(buf, len, b_start);
+	}
+	a_len = b_start - a_start;
+	b_end = b_start + b_len;
+	span_len = b_end - a_start;
+
+	orig = malloc(span_len);
+	repl = malloc(span_len);
+	newbuf = malloc(len + 1);
+	if (!orig || !repl || !newbuf) {
+		free(orig);
+		free(repl);
+		free(newbuf);
+		editor_nomem();
+		goto done;
+	}
+
+	memcpy(orig, buf + a_start, span_len);
+	memcpy(repl, buf + b_start, b_len);
+	memcpy(repl + b_len, buf + a_start, a_len);
+	memcpy(newbuf, buf, len + 1);
+	memcpy(newbuf + a_start, repl, span_len);
+
+	editor_flat_offset_to_row_col(buf, len, a_start, &row, &col);
+	undo_push(UNDO_REPLACE_TEXT, row, col, span_len, orig, span_len);
+	editor_replace_rows_from_text(newbuf, len);
+	editor_flat_offset_to_row_col(newbuf, len, b_end, &row, &col);
+	editor_cursor_goto(row, col);
+	editor.dirty++;
+
+	free(orig);
+	free(repl);
+	free(newbuf);
+done:
+	free(buf);
 }

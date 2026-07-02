@@ -38,9 +38,11 @@ escape sequences.
 - Shell commands (M-!) and pipe-region-through-command (M-|)
 - Comment-dwim (M-;)
 - Word-case bindings (M-u / M-l / M-c)
+- Transpose chars (C-t)
+- Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)
 - Open line (C-o) and join-line (M-^)
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes
-- Universal-argument (C-u) for repeated commands
+- Universal-argument (C-u / M-0..M-9) for repeated commands
 - Auto-indent and bracket autocomplete
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)

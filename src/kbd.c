@@ -9,12 +9,21 @@
  * is committed in editor.prefix_arg, waiting to be picked up. */
 static int handle_universal_arg(int c)
 {
+	int meta_digit = (c >= ALT_0 && c <= ALT_9) ? c - ALT_0 : -1;
+
 	if (!editor.prefix_pending) {
 		if (c == CTRL_U) {
 			editor.prefix_pending   = 1;
 			editor.prefix_arg       = 4;
 			editor.prefix_no_digits = 1;
 			editor_set_status_message("C-u");
+			return 1;
+		}
+		if (meta_digit >= 0) {
+			editor.prefix_pending   = 1;
+			editor.prefix_arg       = meta_digit;
+			editor.prefix_no_digits = 0;
+			editor_set_status_message("M-%d", editor.prefix_arg);
 			return 1;
 		}
 		return 0;
@@ -34,6 +43,16 @@ static int handle_universal_arg(int c)
 			editor.prefix_arg = editor.prefix_arg * 10 + digit;
 		}
 		editor_set_status_message("C-u %d", editor.prefix_arg);
+		return 1;
+	}
+	if (meta_digit >= 0) {
+		if (editor.prefix_no_digits) {
+			editor.prefix_arg       = meta_digit;
+			editor.prefix_no_digits = 0;
+		} else {
+			editor.prefix_arg = editor.prefix_arg * 10 + meta_digit;
+		}
+		editor_set_status_message("M-%d", editor.prefix_arg);
 		return 1;
 	}
 	if (c == CTRL_G) {
@@ -234,9 +253,10 @@ void editor_process_keypress(int fd)
 		}
 		if (c == BACKSPACE   || c == DEL_KEY     || c == CTRL_D ||
 		    c == CTRL_K      || c == CTRL_W      || c == CTRL_Y ||
-		    c == CTRL_Q      ||
+		    c == CTRL_Q      || c == CTRL_T      ||
 		    c == SHIFT_DELETE|| c == SHIFT_INSERT||
-		    c == CTRL_UNDERSCORE || c == TAB ||
+		    c == CTRL_UNDERSCORE || c == ALT_BACKSLASH ||
+		    c == ALT_SPACE  || c == ALT_Z || c == TAB ||
 		    (c >= 32 && c < 127)) {
 			editor_set_status_message("Buffer is read-only");
 			return;
@@ -328,6 +348,9 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_S:        /* Incremental search */
 		editor_find(fd, 1);
+		break;
+	case CTRL_T:        /* Transpose chars */
+		while (n--) editor_transpose_chars();
 		break;
 	case CTRL_R:
 		editor_find(fd, -1);
@@ -488,6 +511,15 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_M:         /* M-m: back-to-indentation */
 		editor_move_to_indentation();
+		break;
+	case ALT_BACKSLASH: /* Delete horizontal space */
+		editor_delete_horizontal_space();
+		break;
+	case ALT_SPACE:     /* Just one space */
+		editor_just_one_space();
+		break;
+	case ALT_Z:         /* Zap to char */
+		editor_zap_to_char(fd, n);
 		break;
 	case ALT_A:         /* M-a: backward sentence */
 		while (n--) editor_move_sentence_backward();

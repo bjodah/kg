@@ -120,6 +120,7 @@ enum KEY_ACTION {
 	CTRL_Q = 17,        /* Ctrl-q */
 	CTRL_R = 18,        /* Ctrl-r */
 	CTRL_S = 19,        /* Ctrl-s */
+	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl-u */
 	CTRL_V = 22,        /* Ctrl-v */
 	CTRL_W = 23,        /* Ctrl-w */
@@ -180,6 +181,19 @@ enum KEY_ACTION {
 	ALT_A,         /* M-a backward sentence */
 	ALT_E,         /* M-e forward sentence */
 	ALT_R,         /* M-r move-to-window-line */
+	ALT_BACKSLASH, /* M-\ delete-horizontal-space */
+	ALT_SPACE,     /* M-SPC just-one-space */
+	ALT_Z,         /* M-z zap-to-char */
+	ALT_0,         /* M-0 numeric argument */
+	ALT_1,
+	ALT_2,
+	ALT_3,
+	ALT_4,
+	ALT_5,
+	ALT_6,
+	ALT_7,
+	ALT_8,
+	ALT_9,
 	KEY_F3,        /* F3: start keyboard macro */
 	KEY_F4         /* F4: stop or replay keyboard macro */
 };
@@ -275,6 +289,7 @@ enum undo_type {
 	UNDO_JOIN_LINE,
 	UNDO_KILL_TEXT,   /* Kill line or region */
 	UNDO_YANK_TEXT,   /* Yank (paste) */
+	UNDO_REPLACE_TEXT, /* Replace span at row/col; c = replacement length */
 	UNDO_REFLOW_PARA, /* M-q paragraph reflow */
 	UNDO_RECT_OVERWRITE  /* Rectangle kill/delete/clear/yank: restore rows */
 };
@@ -433,6 +448,7 @@ void editor_insert_newline(void);
 void editor_open_line(void);
 void editor_del_char(void);
 void editor_del_forward_char(void);
+void editor_transpose_chars(void);
 void editor_kill_line(void);
 
 /* Returns 1 if filename belongs to a special/system buffer (NULL or starts with '*'). */
@@ -529,6 +545,9 @@ void editor_move_sentence_backward(void);
 void editor_kill_word_forward(void);
 void editor_kill_word_backward(void);
 void editor_join_line(void);
+void editor_delete_horizontal_space(void);
+void editor_just_one_space(void);
+void editor_zap_to_char(int fd, int count);
 void editor_upcase_word(void);
 void editor_downcase_word(void);
 void editor_capitalize_word(void);

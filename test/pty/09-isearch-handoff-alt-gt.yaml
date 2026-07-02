@@ -8,7 +8,7 @@ keys:
   - def
   - M->
   - X
-expected_saved: |
+expected_saved: |-
   abcdefghi
   second line
   X

@@ -1,0 +1,10 @@
+name: shell-command-meta-digit
+filename: shell.txt
+initial: ""
+keys:
+  - M-1
+  - M-!
+  - "printf tmp"
+  - RET
+expected_saved: |-
+  tmp

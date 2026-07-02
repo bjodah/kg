@@ -103,6 +103,31 @@ static void cmd_join_line(int fd)
 	editor_join_line();
 }
 
+/* Transpose characters around point. */
+static void cmd_transpose_chars(int fd)
+{
+	(void)fd;
+	editor_transpose_chars();
+}
+
+/* Delete spaces and tabs around point on the current line. */
+static void cmd_delete_horizontal_space(int fd)
+{
+	(void)fd;
+	editor_delete_horizontal_space();
+}
+
+static void cmd_just_one_space(int fd)
+{
+	(void)fd;
+	editor_just_one_space();
+}
+
+static void cmd_zap_to_char(int fd)
+{
+	editor_zap_to_char(fd, 1);
+}
+
 /* Upcase, downcase, capitalize word forward from point. */
 static void cmd_upcase_word(int fd)    { (void)fd; editor_upcase_word();     }
 static void cmd_downcase_word(int fd)  { (void)fd; editor_downcase_word();   }
@@ -186,21 +211,25 @@ struct named_cmd {
 static const struct named_cmd cmdtable[] = {
 	{ "auto-revert-mode",         cmd_auto_revert_mode         },
 	{ "capitalize-word",          cmd_capitalize_word          },
+	{ "delete-horizontal-space",  cmd_delete_horizontal_space  },
 	{ "delete-trailing-space",    cmd_delete_trailing_space    },
 	{ "downcase-word",            cmd_downcase_word            },
 	{ "global-auto-revert-mode",  cmd_global_auto_revert_mode  },
 	{ "goto-line",                cmd_goto_line                },
 	{ "join-line",                cmd_join_line                },
+	{ "just-one-space",           cmd_just_one_space           },
 	{ "not-modified",             cmd_not_modified             },
 	{ "revert-buffer",            cmd_revert_buffer            },
 	{ "save-buffer",              cmd_save_buffer              },
 	{ "shell-command",            cmd_shell_command            },
 	{ "shell-command-on-region",  cmd_shell_command_on_region  },
 	{ "toggle-read-only",         cmd_toggle_read_only         },
+	{ "transpose-chars",          cmd_transpose_chars          },
 	{ "upcase-word",              cmd_upcase_word              },
 	{ "version",                  cmd_version                  },
 	{ "what-cursor-position",     cmd_what_cursor_position     },
 	{ "whitespace-cleanup",       cmd_whitespace_cleanup       },
+	{ "zap-to-char",              cmd_zap_to_char              },
 	{ NULL, NULL }
 };
 

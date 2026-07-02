@@ -268,6 +268,57 @@ static void test_comment_dwim_region_excludes_final_bol_line(void)
 	teardown();
 }
 
+static void test_delete_horizontal_space_around_point(void)
+{
+	setup();
+	editor_insert_row(0, "alpha \t  beta", 13);
+	editor.cx = 8;
+
+	editor_delete_horizontal_space();
+
+	CHECK(editor.row[0].size == 9);
+	CHECK(memcmp(editor.row[0].chars, "alphabeta", 9) == 0);
+	CHECK(editor.cx == 5);
+	editor_undo();
+	CHECK(editor.row[0].size == 13);
+	CHECK(memcmp(editor.row[0].chars, "alpha \t  beta", 13) == 0);
+	teardown();
+}
+
+static void test_just_one_space_collapses_run(void)
+{
+	setup();
+	editor_insert_row(0, "alpha \t  beta", 13);
+	editor.cx = 8;
+
+	editor_just_one_space();
+
+	CHECK(editor.row[0].size == 10);
+	CHECK(memcmp(editor.row[0].chars, "alpha beta", 10) == 0);
+	CHECK(editor.cx == 6);
+	editor_undo();
+	CHECK(editor.row[0].size == 13);
+	CHECK(memcmp(editor.row[0].chars, "alpha \t  beta", 13) == 0);
+	teardown();
+}
+
+static void test_just_one_space_inserts_when_none(void)
+{
+	setup();
+	editor_insert_row(0, "alphabeta", 9);
+	editor.cx = 5;
+
+	editor_just_one_space();
+
+	CHECK(editor.row[0].size == 10);
+	CHECK(memcmp(editor.row[0].chars, "alpha beta", 10) == 0);
+	CHECK(editor.cx == 6);
+	editor_undo();
+	CHECK(editor.row[0].size == 9);
+	CHECK(memcmp(editor.row[0].chars, "alphabeta", 9) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -286,5 +337,8 @@ int main(void)
 	RUN(test_comment_dwim_remove);
 	RUN(test_comment_dwim_no_syntax);
 	RUN(test_comment_dwim_region_excludes_final_bol_line);
+	RUN(test_delete_horizontal_space_around_point);
+	RUN(test_just_one_space_collapses_run);
+	RUN(test_just_one_space_inserts_when_none);
 	return test_summary();
 }

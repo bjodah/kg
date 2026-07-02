@@ -1,0 +1,22 @@
+name: copy-bol-region-yank
+filename: city.txt
+initial: ""
+keys:
+  - c
+  - i
+  - t
+  - y
+  - RET
+  - C-SPC
+  - C-p
+  - M-w
+  - M->
+  - C-y
+  - C-y
+  - "42"
+expected_saved: |-
+  city
+  city
+  city
+  42
+backend: pexpect

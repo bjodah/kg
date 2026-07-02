@@ -69,6 +69,11 @@ or follow
 .Ic C-u
 with digits to set an explicit count
 .Pq Sq C-u 8 No \(rA 8 , Sq C-u 1 0 0 No \(rA 100 .
+.Ic M-0
+through
+.Ic M-9
+also start or extend a numeric prefix directly
+.Pq Sq M-1 M-\&! .
 .Ic C-g
 cancels an in-progress prefix.
 The accumulated count is shown in the echo area while it is being built.
@@ -104,6 +109,10 @@ will be mis-detected as sentence ends.
 .It C-k Ta Kill from point to end of line
 .It C-o Ta Open line (insert newline, keep cursor)
 .It C-q Ta Quoted-insert: insert the next byte literally
+.It C-t Ta Transpose characters around point
+.It M-\e Ta Delete horizontal space around point
+.It M-Space Ta Collapse horizontal space around point to one space
+.It M-z Ta Kill through a prompted character
 .It M-^ Ta Join current line with the previous one
 .It M-u Ta Upcase word forward from point
 .It M-l Ta Downcase word forward from point
@@ -450,6 +459,12 @@ unsaved edits is never silently overwritten.
 Capitalize the word forward from point (first letter upper, rest lower).
 Equivalent to
 .Ic M-c .
+.It delete-horizontal-space
+Delete spaces and tabs around point on the current line.
+Equivalent to
+.Ic M-\e .
+Reversible with
+.Ic C-_ .
 .It delete-trailing-space
 Remove trailing whitespace from the current line only.
 Reversible with
@@ -472,6 +487,12 @@ Join the current line with the previous one, stripping leading whitespace
 from the current line and inserting a space at the join point.
 Equivalent to
 .Ic M-^ .
+.It just-one-space
+Collapse spaces and tabs around point to a single space.
+Equivalent to
+.Ic M-Space .
+Reversible with
+.Ic C-_ .
 .It not-modified
 Clear the modified flag without saving.
 .It revert-buffer
@@ -494,6 +515,10 @@ Equivalent to
 Toggle read-only mode on the current buffer.
 Equivalent to
 .Ic C-x C-q .
+.It transpose-chars
+Transpose characters around point.
+Equivalent to
+.Ic C-t .
 .It upcase-word
 Convert the word forward from point to upper case.
 Equivalent to
@@ -506,6 +531,11 @@ Show current line, column, and percentage through the buffer.
 Remove trailing whitespace from every line in the buffer.
 Each modified line is independently reversible with
 .Ic C-_ .
+.It zap-to-char
+Prompt for a character, then kill from point through the next occurrence
+of that character.
+Equivalent to
+.Ic M-z .
 .El
 .Sh BUFFERS
 .Nm

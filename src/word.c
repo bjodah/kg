@@ -463,6 +463,195 @@ void editor_join_line(void)
 	editor.dirty++;
 }
 
+/* Delete spaces and tabs around point on the current line (M-\). */
+void editor_delete_horizontal_space(void)
+{
+	int filerow = editor.rowoff + editor.cy;
+	int filecol = editor.coloff + editor.cx;
+	int start, end, len;
+	erow *row;
+
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (filerow >= editor.numrows)
+		return;
+
+	row = &editor.row[filerow];
+	if (row->size < 0 || !row->chars)
+		return;
+	if (filecol < 0) filecol = 0;
+	if (filecol > row->size) filecol = row->size;
+
+	start = filecol;
+	while (start > 0 &&
+	       (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
+		start--;
+	end = filecol;
+	while (end < row->size &&
+	       (row->chars[end] == ' ' || row->chars[end] == TAB))
+		end++;
+
+	len = end - start;
+	if (len <= 0) {
+		editor_set_status_message("No horizontal space to delete");
+		return;
+	}
+
+	undo_push(UNDO_KILL_TEXT, filerow, start, 0, row->chars + start, len);
+	memmove(row->chars + start, row->chars + end, row->size - end + 1);
+	row->size -= len;
+	editor_update_row(row);
+	editor_cursor_goto(filerow, start);
+	editor.dirty++;
+	editor_set_status_message("Deleted horizontal space");
+}
+
+/* Collapse spaces and tabs around point to one space (M-SPC). */
+void editor_just_one_space(void)
+{
+	int filerow = editor.rowoff + editor.cy;
+	int filecol = editor.coloff + editor.cx;
+	int start, end, old_len, new_size;
+	char *orig = NULL;
+	char *newchars;
+	erow *row;
+
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (filerow >= editor.numrows) {
+		editor_insert_char(' ');
+		return;
+	}
+
+	row = &editor.row[filerow];
+	if (row->size < 0 || !row->chars)
+		return;
+	if (filecol < 0) filecol = 0;
+	if (filecol > row->size) filecol = row->size;
+
+	start = filecol;
+	while (start > 0 &&
+	       (row->chars[start - 1] == ' ' || row->chars[start - 1] == TAB))
+		start--;
+	end = filecol;
+	while (end < row->size &&
+	       (row->chars[end] == ' ' || row->chars[end] == TAB))
+		end++;
+
+	old_len = end - start;
+	if (old_len > 0) {
+		orig = malloc(old_len);
+		if (!orig) {
+			word_nomem();
+			return;
+		}
+		memcpy(orig, row->chars + start, old_len);
+	}
+
+	new_size = row->size - old_len + 1;
+	if (old_len == 0) {
+		newchars = realloc(row->chars, new_size + 1);
+		if (!newchars) {
+			free(orig);
+			word_nomem();
+			return;
+		}
+		row->chars = newchars;
+	}
+	undo_push(UNDO_REPLACE_TEXT, filerow, start, 1, orig, old_len);
+	free(orig);
+
+	memmove(row->chars + start + 1, row->chars + end, row->size - end + 1);
+	row->chars[start] = ' ';
+	row->size = new_size;
+	if (old_len > 1) {
+		newchars = realloc(row->chars, new_size + 1);
+		if (newchars)
+			row->chars = newchars;
+	}
+	editor_update_row(row);
+	editor_cursor_goto(filerow, start + 1);
+	editor.dirty++;
+	editor_set_status_message("Just one space");
+}
+
+/* Kill from point through the next occurrence of a prompted byte (M-z). */
+void editor_zap_to_char(int fd, int count)
+{
+	char *buf, *text;
+	int len, point = 0, end, target, seen = 0;
+	int filerow = editor.rowoff + editor.cy;
+	int filecol = editor.coloff + editor.cx;
+	int i;
+
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (count <= 0)
+		count = 1;
+
+	editor_set_status_message("Zap to char: ");
+	editor_refresh_screen();
+	target = editor_read_raw_byte(fd);
+	if (!running)
+		return;
+	if (target == '\r')
+		target = '\n';
+
+	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
+	if (!buf)
+		return;
+	for (i = 0; i < filerow && i < editor.numrows; i++)
+		point += editor.row[i].size + 1;
+	if (filerow < editor.numrows) {
+		if (filecol < 0) filecol = 0;
+		if (filecol > editor.row[filerow].size)
+			filecol = editor.row[filerow].size;
+		point += filecol;
+	}
+	if (point < 0) point = 0;
+	if (point > len) point = len;
+
+	end = -1;
+	for (i = point; i < len; i++) {
+		if ((unsigned char)buf[i] == (unsigned char)target && ++seen == count) {
+			end = i + 1;
+			break;
+		}
+	}
+	if (end < 0) {
+		free(buf);
+		editor_set_status_message("Not found");
+		return;
+	}
+
+	text = malloc(end - point + 1);
+	if (!text) {
+		free(buf);
+		word_nomem();
+		return;
+	}
+	memcpy(text, buf + point, end - point);
+	text[end - point] = '\0';
+	free(buf);
+
+	editor_cursor_goto(filerow, filecol);
+	kill_ring_set(text, end - point);
+	undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, text, end - point);
+	suppress_undo = 1;
+	for (i = 0; i < end - point; i++)
+		editor_del_forward_char();
+	suppress_undo = 0;
+	free(text);
+	editor.dirty++;
+	editor_set_status_message("Zapped");
+}
+
 /* Apply a case transformation to the word forward from point.
  * mode: 'u' = upcase, 'l' = downcase, 'c' = capitalize. */
 static void do_word_case(int mode)

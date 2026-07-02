@@ -1,0 +1,10 @@
+name: zap-to-char
+filename: zap.txt
+initial: ""
+keys:
+  - "alpha beta gamma"
+  - C-a
+  - M-z
+  - b
+expected_saved: |-
+  eta gamma

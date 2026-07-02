@@ -199,6 +199,20 @@ void editor_undo(void)
 		}
 		break;
 
+	case UNDO_REPLACE_TEXT:
+		/* Reverse: delete the replacement span, then restore the original
+		 * bytes saved in op->text.  op->c is the replacement byte length. */
+		if (op->c > 0) {
+			int i, saved = suppress_undo;
+			suppress_undo = 1;
+			for (i = 0; i < op->c; i++)
+				editor_del_forward_char();
+			suppress_undo = saved;
+		}
+		if (op->text && op->len > 0)
+			editor_insert_text_raw(op->text, op->len);
+		break;
+
 	case UNDO_RECT_OVERWRITE: {
 		/* op->row = first row affected
 		 * op->c   = numrows before the operation

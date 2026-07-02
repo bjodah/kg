@@ -23,13 +23,16 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 {
 	size_t nlen;
 
-	if (!needle || !*needle)
+	if (!needle || !*needle) {
 		return 0;
+	}
 	nlen = strlen(needle);
-	if (strncmp(haystack, needle, nlen) == 0)
+	if (strncmp(haystack, needle, nlen) == 0) {
 		return 0;
-	if (strstr(haystack, needle))
+	}
+	if (strstr(haystack, needle)) {
 		return 1;
+	}
 	return -1;
 }
 
@@ -46,8 +49,9 @@ static int path_entry_cmp(const void *a, const void *b)
 	if (path_cmp_needle && *path_cmp_needle) {
 		int ra = editor_picker_match_rank(pa->name, path_cmp_needle);
 		int rb = editor_picker_match_rank(pb->name, path_cmp_needle);
-		if (ra != rb)
+		if (ra != rb) {
 			return ra - rb;
+		}
 	}
 	return strcmp(pa->name, pb->name);
 }
@@ -59,17 +63,21 @@ void editor_path_expand_tilde(char *buf, int bufsize)
 	const char *home;
 	int home_len, rest_len;
 
-	if (buf[0] != '~')
+	if (buf[0] != '~') {
 		return;
-	if (buf[1] != '/' && buf[1] != '\0')
+	}
+	if (buf[1] != '/' && buf[1] != '\0') {
 		return;
+	}
 	home = getenv("HOME");
-	if (!home || !home[0])
+	if (!home || !home[0]) {
 		return;
+	}
 	home_len = (int)strlen(home);
 	rest_len = (int)strlen(buf + 1);
-	if (home_len + rest_len + 1 > bufsize)
+	if (home_len + rest_len + 1 > bufsize) {
 		return;
+	}
 	memmove(buf + home_len, buf + 1, rest_len + 1);
 	memcpy(buf, home, home_len);
 }
@@ -90,8 +98,9 @@ void editor_path_split(
 		return;
 	}
 	dlen = (int)(slash - path) + 1;
-	if (dlen >= dsize)
+	if (dlen >= dsize) {
 		dlen = dsize - 1;
+	}
 	memcpy(dir, path, dlen);
 	dir[dlen] = '\0';
 	editor_path_expand_tilde(dir, dsize);
@@ -117,22 +126,26 @@ int editor_path_complete_entries(const char *dir, const char *prefix,
 	int lcp_len = 0;
 	int i;
 
-	if (lcp)
+	if (lcp) {
 		lcp[0] = '\0';
+	}
 
 	dp = opendir(dir[0] ? dir : ".");
-	if (!dp)
+	if (!dp) {
 		return -1;
+	}
 
 	while ((de = readdir(dp)) != NULL) {
 		const char *name = de->d_name;
 		int rank;
 
-		if (name[0] == '.' && (name[1] == '\0' || prefix[0] != '.'))
+		if (name[0] == '.' && (name[1] == '\0' || prefix[0] != '.')) {
 			continue;
+		}
 		rank = editor_picker_match_rank(name, prefix);
-		if (rank < 0)
+		if (rank < 0) {
 			continue;
+		}
 
 		matches++;
 
@@ -154,8 +167,9 @@ int editor_path_complete_entries(const char *dir, const char *prefix,
 		if (entries && filled < max) {
 			struct path_entry *e = &entries[filled++];
 			size_t nlen = strlen(name);
-			if (nlen >= sizeof(e->name))
+			if (nlen >= sizeof(e->name)) {
 				nlen = sizeof(e->name) - 1;
+			}
 			memcpy(e->name, name, nlen);
 			e->name[nlen] = '\0';
 			e->is_dir = (de->d_type == DT_DIR);
@@ -167,8 +181,9 @@ int editor_path_complete_entries(const char *dir, const char *prefix,
 				    dir[0] ? dir : "./", name);
 				if (n < (int)sizeof(full)
 				    && stat(full, &st) == 0
-				    && S_ISDIR(st.st_mode))
+				    && S_ISDIR(st.st_mode)) {
 					e->is_dir = 1;
+				}
 			}
 		}
 	}

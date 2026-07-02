@@ -41,8 +41,9 @@ static void close_fd(int *fd)
 
 static int pipe_cloexec(int p[2])
 {
-	if (pipe(p) < 0)
+	if (pipe(p) < 0) {
 		return -1;
+	}
 	fcntl(p[0], F_SETFD, FD_CLOEXEC);
 	fcntl(p[1], F_SETFD, FD_CLOEXEC);
 	return 0;
@@ -54,8 +55,9 @@ static int dup_cloexec(int fd)
 	return fcntl(fd, F_DUPFD_CLOEXEC, 0);
 #else
 	int newfd = dup(fd);
-	if (newfd >= 0)
+	if (newfd >= 0) {
 		fcntl(newfd, F_SETFD, FD_CLOEXEC);
+	}
 	return newfd;
 #endif
 }
@@ -81,10 +83,12 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 		return NULL;
 	}
 
-	if (rfd >= 0)
+	if (rfd >= 0) {
 		fcntl(rfd, F_SETFL, O_NONBLOCK);
-	if (wfd >= 0)
+	}
+	if (wfd >= 0) {
 		fcntl(wfd, F_SETFL, O_NONBLOCK);
+	}
 
 	/* If there's no input to send, close the write side immediately so the
 	 * child sees EOF on stdin and isn't left blocking on a read. */
@@ -106,8 +110,9 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 		}
 
 		if (poll(pfd, npoll, -1) < 0) {
-			if (errno == EINTR)
+			if (errno == EINTR) {
 				continue;
+			}
 			break;
 		}
 
@@ -132,10 +137,11 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 				}
 				n = read(
 				    fd, buf + buf_len, buf_cap - buf_len - 1);
-				if (n > 0)
+				if (n > 0) {
 					buf_len += n;
-				else
+				} else {
 					close_fd(&rfd);
+				}
 			} else if (pfd[i].fd == wfd
 			    && (pfd[i].revents
 				& (POLLOUT | POLLHUP | POLLERR))) {
@@ -144,8 +150,9 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 				n = write(fd, in + written, inlen - written);
 				if (n > 0) {
 					written += n;
-					if (written >= inlen)
+					if (written >= inlen) {
 						close_fd(&wfd);
+					}
 				} else if (n < 0 && errno == EAGAIN) {
 					;
 				} else {
@@ -175,18 +182,21 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 	char *out;
 	pid_t pid;
 
-	if (pipe_cloexec(p) < 0)
+	if (pipe_cloexec(p) < 0) {
 		goto fail;
+	}
 	in_rd = p[0];
 	in_wr = p[1];
-	if (pipe_cloexec(p) < 0)
+	if (pipe_cloexec(p) < 0) {
 		goto fail;
+	}
 	out_rd = p[0];
 	out_wr = p[1];
 
 	pid = fork();
-	if (pid < 0)
+	if (pid < 0) {
 		goto fail;
+	}
 
 	if (pid == 0) {
 		int devnull = open("/dev/null",
@@ -215,11 +225,13 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 	close_fd(&out_wr);
 
 	pump_rfd = dup_cloexec(out_rd);
-	if (pump_rfd < 0)
+	if (pump_rfd < 0) {
 		goto fail;
+	}
 	pump_wfd = dup_cloexec(in_wr);
-	if (pump_wfd < 0)
+	if (pump_wfd < 0) {
 		goto fail;
+	}
 	close_fd(&out_rd);
 	close_fd(&in_wr);
 
@@ -256,8 +268,9 @@ static void insert_as_yank(const char *text, int len)
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 
-	if (len <= 0)
+	if (len <= 0) {
 		return;
+	}
 
 	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, (char *)text, len);
 	editor_insert_text_raw(text, len);
@@ -275,8 +288,9 @@ void editor_shell_command(int fd)
 		return;
 	}
 	if (editor_read_line(fd, "Shell command: ", cmd, sizeof(cmd)) < 0
-	    || !cmd[0])
+	    || !cmd[0]) {
 		return;
+	}
 
 	out = shell_run(cmd, NULL, 0, &out_len);
 	if (!out) {

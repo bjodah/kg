@@ -242,8 +242,9 @@ static void test_update_row_tab_at_col0(void)
 	/* The code inserts one space then keeps adding spaces while
 	 * (idx+1)%8 != 0, stopping at idx=7, so rsize == 7. */
 	CHECK(editor.row[0].rsize == 7);
-	for (i = 0; i < 7; i++)
+	for (i = 0; i < 7; i++) {
 		CHECK(editor.row[0].render[i] == ' ');
+	}
 	teardown();
 }
 

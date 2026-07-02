@@ -37,13 +37,16 @@ int enable_raw_mode(int fd)
 {
 	struct termios raw;
 
-	if (editor.rawmode)
+	if (editor.rawmode) {
 		return 0; /* Already enabled. */
-	if (!isatty(STDIN_FILENO))
+	}
+	if (!isatty(STDIN_FILENO)) {
 		goto fatal;
+	}
 	atexit(editor_at_exit);
-	if (tcgetattr(fd, &orig_termios) == -1)
+	if (tcgetattr(fd, &orig_termios) == -1) {
 		goto fatal;
+	}
 
 	raw = orig_termios; /* modify the original mode */
 	/* input modes: no break, no CR to NL, no parity check, no strip char,
@@ -62,8 +65,9 @@ int enable_raw_mode(int fd)
 	raw.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
 
 	/* put terminal in raw mode after flushing */
-	if (tcsetattr(fd, TCSAFLUSH, &raw) < 0)
+	if (tcsetattr(fd, TCSAFLUSH, &raw) < 0) {
 		goto fatal;
+	}
 	editor.rawmode = 1;
 	return 0;
 
@@ -77,77 +81,109 @@ static int parse_escape(int fd)
 {
 	char seq[6];
 
-	if (read(fd, seq, 1) == 0)
+	if (read(fd, seq, 1) == 0) {
 		return ESC; /* bare ESC */
+	}
 
 	/* Alt+key: ESC followed by a single character */
-	if (seq[0] == 'f')
+	if (seq[0] == 'f') {
 		return ALT_F;
-	if (seq[0] == 'b')
+	}
+	if (seq[0] == 'b') {
 		return ALT_B;
-	if (seq[0] == 'd')
+	}
+	if (seq[0] == 'd') {
 		return ALT_D;
-	if (seq[0] == 'g')
+	}
+	if (seq[0] == 'g') {
 		return ALT_G;
-	if (seq[0] == 'v')
+	}
+	if (seq[0] == 'v') {
 		return ALT_V;
-	if (seq[0] == 'w')
+	}
+	if (seq[0] == 'w') {
 		return ALT_W;
-	if (seq[0] == 'q')
+	}
+	if (seq[0] == 'q') {
 		return ALT_Q;
-	if (seq[0] == '\x7f' || seq[0] == '\b')
+	}
+	if (seq[0] == '\x7f' || seq[0] == '\b') {
 		return ALT_BACKSPACE;
-	if (seq[0] == '%')
+	}
+	if (seq[0] == '%') {
 		return ALT_PCT;
-	if (seq[0] == ';')
+	}
+	if (seq[0] == ';') {
 		return ALT_SEMICOLON;
-	if (seq[0] == 'x')
+	}
+	if (seq[0] == 'x') {
 		return ALT_X;
-	if (seq[0] == '^')
+	}
+	if (seq[0] == '^') {
 		return ALT_CARET;
-	if (seq[0] == 'u')
+	}
+	if (seq[0] == 'u') {
 		return ALT_U;
-	if (seq[0] == 'l')
+	}
+	if (seq[0] == 'l') {
 		return ALT_L;
-	if (seq[0] == 'c')
+	}
+	if (seq[0] == 'c') {
 		return ALT_C;
-	if (seq[0] == '!')
+	}
+	if (seq[0] == '!') {
 		return ALT_BANG;
-	if (seq[0] == '|')
+	}
+	if (seq[0] == '|') {
 		return ALT_PIPE;
-	if (seq[0] == '<')
+	}
+	if (seq[0] == '<') {
 		return ALT_LT;
-	if (seq[0] == '>')
+	}
+	if (seq[0] == '>') {
 		return ALT_GT;
-	if (seq[0] == '{')
+	}
+	if (seq[0] == '{') {
 		return ALT_LBRACE;
-	if (seq[0] == '}')
+	}
+	if (seq[0] == '}') {
 		return ALT_RBRACE;
-	if (seq[0] == 'm')
+	}
+	if (seq[0] == 'm') {
 		return ALT_M;
-	if (seq[0] == 'a')
+	}
+	if (seq[0] == 'a') {
 		return ALT_A;
-	if (seq[0] == 'e')
+	}
+	if (seq[0] == 'e') {
 		return ALT_E;
-	if (seq[0] == 'r')
+	}
+	if (seq[0] == 'r') {
 		return ALT_R;
-	if (seq[0] == '\\')
+	}
+	if (seq[0] == '\\') {
 		return ALT_BACKSLASH;
-	if (seq[0] == ' ')
+	}
+	if (seq[0] == ' ') {
 		return ALT_SPACE;
-	if (seq[0] == 'z')
+	}
+	if (seq[0] == 'z') {
 		return ALT_Z;
-	if (seq[0] >= '0' && seq[0] <= '9')
+	}
+	if (seq[0] >= '0' && seq[0] <= '9') {
 		return ALT_0 + (seq[0] - '0');
+	}
 
-	if (read(fd, seq + 1, 1) == 0)
+	if (read(fd, seq + 1, 1) == 0) {
 		return ESC;
+	}
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
 		if (seq[1] >= '0' && seq[1] <= '9') {
-			if (read(fd, seq + 2, 1) == 0)
+			if (read(fd, seq + 2, 1) == 0) {
 				return ESC;
+			}
 			if (seq[2] == '~') {
 				switch (seq[1]) {
 				case '3':
@@ -160,8 +196,9 @@ static int parse_escape(int fd)
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
 				 * F4=ESC[14~) */
-				if (read(fd, seq + 3, 1) == 0)
+				if (read(fd, seq + 3, 1) == 0) {
 					return ESC;
+				}
 				if (seq[3] == '~' && seq[1] == '1') {
 					switch (seq[2]) {
 					case '3':
@@ -173,10 +210,12 @@ static int parse_escape(int fd)
 			} else if (seq[2] == ';') {
 				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
 				 * Ctrl */
-				if (read(fd, seq + 3, 1) == 0)
+				if (read(fd, seq + 3, 1) == 0) {
 					return ESC;
-				if (read(fd, seq + 4, 1) == 0)
+				}
+				if (read(fd, seq + 4, 1) == 0) {
 					return ESC;
+				}
 				if (seq[1] == '1' && seq[3] == '5') {
 					switch (seq[4]) {
 					case 'A':
@@ -210,12 +249,15 @@ static int parse_escape(int fd)
 				} else if (seq[4] == '~') {
 					/* ESC [ N ; M ~  modified Insert/Delete
 					 * (CUA clipboard) */
-					if (seq[1] == '2' && seq[3] == '2')
+					if (seq[1] == '2' && seq[3] == '2') {
 						return SHIFT_INSERT;
-					if (seq[1] == '2' && seq[3] == '5')
+					}
+					if (seq[1] == '2' && seq[3] == '5') {
 						return CTRL_INSERT;
-					if (seq[1] == '3' && seq[3] == '2')
+					}
+					if (seq[1] == '3' && seq[3] == '2') {
 						return SHIFT_DELETE;
+					}
 				}
 			}
 		} else {
@@ -261,8 +303,9 @@ int editor_read_key(int fd)
 	int key;
 
 	key = macro_next_key();
-	if (key >= 0)
+	if (key >= 0) {
 		return key;
+	}
 
 	while ((nread = read(fd, &c, 1)) == 0)
 		;
@@ -287,8 +330,9 @@ int editor_read_raw_byte(int fd)
 	int key;
 
 	key = macro_next_key();
-	if (key >= 0)
+	if (key >= 0) {
 		return key;
+	}
 
 	while ((nread = read(fd, &c, 1)) == 0)
 		;
@@ -314,12 +358,14 @@ int editor_read_key_idle(int fd)
 	int key;
 
 	key = macro_next_key();
-	if (key >= 0)
+	if (key >= 0) {
 		return key;
+	}
 
 	while ((nread = read(fd, &c, 1)) == 0) {
-		if (autorevert_poll())
+		if (autorevert_poll()) {
 			editor_refresh_screen();
+		}
 	}
 	if (nread == -1) {
 		running = 0;
@@ -340,24 +386,29 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 	char buf[32];
 
 	/* Report cursor location */
-	if (write(ofd, "\x1b[6n", 4) != 4)
+	if (write(ofd, "\x1b[6n", 4) != 4) {
 		return -1;
+	}
 
 	/* Read the response: ESC [ rows ; cols R */
 	while (i < sizeof(buf) - 1) {
-		if (read(ifd, buf + i, 1) != 1)
+		if (read(ifd, buf + i, 1) != 1) {
 			break;
-		if (buf[i] == 'R')
+		}
+		if (buf[i] == 'R') {
 			break;
+		}
 		i++;
 	}
 	buf[i] = '\0';
 
 	/* Parse it. */
-	if (buf[0] != ESC || buf[1] != '[')
+	if (buf[0] != ESC || buf[1] != '[') {
 		return -1;
-	if (sscanf(buf + 2, "%d;%d", rows, cols) != 2)
+	}
+	if (sscanf(buf + 2, "%d;%d", rows, cols) != 2) {
 		return -1;
+	}
 
 	return 0;
 }
@@ -375,15 +426,18 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 
 		/* Get the initial position so we can restore it later. */
 		retval = get_cursor_position(ifd, ofd, &orig_row, &orig_col);
-		if (retval == -1)
+		if (retval == -1) {
 			goto failed;
+		}
 
 		/* Go to right/bottom margin and get position. */
-		if (write(ofd, "\x1b[999C\x1b[999B", 12) != 12)
+		if (write(ofd, "\x1b[999C\x1b[999B", 12) != 12) {
 			goto failed;
+		}
 		retval = get_cursor_position(ifd, ofd, rows, cols);
-		if (retval == -1)
+		if (retval == -1) {
 			goto failed;
+		}
 
 		/* Restore position. */
 		char seq[32];
@@ -413,23 +467,26 @@ void probe_window_size(void)
 
 	if (get_cursor_position(
 		STDIN_FILENO, STDOUT_FILENO, &orig_row, &orig_col)
-	    == -1)
+	    == -1) {
 		return;
+	}
 
 	/* Drive cursor to the bottom-right corner, then read back position. */
-	if (write(STDOUT_FILENO, "\x1b[999B\x1b[999C", 12) != 12)
+	if (write(STDOUT_FILENO, "\x1b[999B\x1b[999C", 12) != 12) {
 		goto restore;
+	}
 	if (get_cursor_position(
 		STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols)
-	    == -1)
+	    == -1) {
 		goto restore;
+	}
 
 	if (new_rows != win_total_rows || new_cols != win_total_cols) {
 		win_total_rows = new_rows;
 		win_total_cols = new_cols;
-		if (win_count > 0)
+		if (win_count > 0) {
 			win_reflow();
-		else {
+		} else {
 			editor.screenrows = new_rows - 2;
 			editor.screencols = new_cols;
 		}
@@ -453,9 +510,9 @@ void update_window_size(void)
 		    == 0) {
 			win_total_rows = new_rows;
 			win_total_cols = new_cols;
-			if (win_count > 0)
+			if (win_count > 0) {
 				win_reflow();
-			else {
+			} else {
 				/* win_init() not yet called; set a sensible
 				 * default. */
 				editor.screenrows = new_rows - 2;

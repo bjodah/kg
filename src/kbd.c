@@ -95,8 +95,9 @@ void editor_process_keypress(int fd)
 	gettimeofday(&tv, NULL);
 	if (tv.tv_sec == editor.last_char_time.tv_sec) {
 		elapsed = (tv.tv_usec - editor.last_char_time.tv_usec);
-		if (elapsed < 30000)
+		if (elapsed < 30000) {
 			editor.paste_mode = 1; /* 30ms threshold */
+		}
 	} else if (tv.tv_sec - editor.last_char_time.tv_sec > 0) {
 		editor.paste_mode = 0;
 	}
@@ -145,15 +146,20 @@ void editor_process_keypress(int fd)
 			int i, ndirty = 0;
 			/* Count modified real-file buffers (exclude *special*
 			 * ones). */
-			if (editor.dirty && !is_special_buffer(editor.filename))
+			if (editor.dirty
+			    && !is_special_buffer(editor.filename)) {
 				ndirty++;
+			}
 			for (i = 0; i < MAX_BUFFERS; i++) {
-				if (!buflist[i].active || i == buf_current)
+				if (!buflist[i].active || i == buf_current) {
 					continue;
-				if (!buflist[i].dirty)
+				}
+				if (!buflist[i].dirty) {
 					continue;
-				if (is_special_buffer(buflist[i].filename))
+				}
+				if (is_special_buffer(buflist[i].filename)) {
 					continue;
+				}
 				ndirty++;
 			}
 			if (ndirty) {
@@ -250,8 +256,9 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	if (handle_universal_arg(c))
+	if (handle_universal_arg(c)) {
 		return;
+	}
 
 	/* Consume the pending C-u count now, before any of the early-return
 	 * filters below have a chance to drop the key.  Whichever branch ends
@@ -289,45 +296,52 @@ void editor_process_keypress(int fd)
 	}
 
 	/* Reset cycle states if the previous key wasn't the cycling command. */
-	if (editor.last_key != CTRL_L)
+	if (editor.last_key != CTRL_L) {
 		editor.recenter_state = 0;
-	if (editor.last_key != ALT_R)
+	}
+	if (editor.last_key != ALT_R) {
 		editor.window_line_state = 0;
+	}
 	editor.last_key = c;
 
 	/* Regular key processing */
 	switch (c) {
 	case ESC:
 		c = editor_read_key(fd);
-		if (c == '%' || c == ALT_PCT)
+		if (c == '%' || c == ALT_PCT) {
 			editor_query_replace(fd);
-		else if (c != CTRL_G)
+		} else if (c != CTRL_G) {
 			editor_set_status_message("ESC %c is undefined", c);
+		}
 		break;
 	case KEY_NULL: /* Ctrl+Space - set mark */
 		editor_set_mark();
 		break;
 	case ENTER: /* Enter */
-		while (n--)
+		while (n--) {
 			editor_insert_newline();
+		}
 		break;
 	case CTRL_A: /* Beginning of line */
 		editor_move_cursor(HOME_KEY);
 		break;
 	case CTRL_B: /* Backward char */
-		while (n--)
+		while (n--) {
 			editor_move_cursor(ARROW_LEFT);
+		}
 		break;
 	case CTRL_D: /* Delete char forward */
-		while (n--)
+		while (n--) {
 			editor_del_forward_char();
+		}
 		break;
 	case CTRL_E: /* End of line */
 		editor_move_cursor(END_KEY);
 		break;
 	case CTRL_F: /* Forward char */
-		while (n--)
+		while (n--) {
 			editor_move_cursor(ARROW_RIGHT);
+		}
 		break;
 	case CTRL_G: /* Keyboard quit / cancel */
 		editor.mark_highlight = 0;
@@ -353,56 +367,66 @@ void editor_process_keypress(int fd)
 				int before_numrows = editor.numrows;
 				int before_ring_len = killring.len;
 				editor_kill_line();
-				if (killring.len == before_ring_len)
+				if (killring.len == before_ring_len) {
 					break;
-				if (editor.numrows < before_numrows)
+				}
+				if (editor.numrows < before_numrows) {
 					newlines_left--;
+				}
 			}
 			suppress_undo = 0;
 			killed_len = killring.len - prev_kill_len;
-			if (killed_len > 0)
+			if (killed_len > 0) {
 				undo_push(UNDO_KILL_TEXT, start_row, start_col,
 				    0, killring.text + prev_kill_len,
 				    killed_len);
+			}
 		} else {
 			editor_kill_line();
 		}
 		break;
 	case CTRL_O: /* Open line */
-		while (n--)
+		while (n--) {
 			editor_open_line();
+		}
 		break;
 	case CTRL_N: /* Next line */
-		while (n--)
+		while (n--) {
 			editor_move_cursor(ARROW_DOWN);
+		}
 		break;
 	case CTRL_P: /* Previous line */
-		while (n--)
+		while (n--) {
 			editor_move_cursor(ARROW_UP);
+		}
 		break;
 	case CTRL_S: /* Incremental search */
 		editor_find(fd, 1);
 		break;
 	case CTRL_T: /* Transpose chars */
-		while (n--)
+		while (n--) {
 			editor_transpose_chars();
+		}
 		break;
 	case CTRL_R:
 		editor_find(fd, -1);
 		break;
 	case CTRL_Q: {
 		int key = editor_read_raw_byte(fd);
-		if (running)
+		if (running) {
 			editor_insert_char(key);
+		}
 		break;
 	}
 	case CTRL_V: /* Page down */
-		if (editor.cy != editor.screenrows - 1)
+		if (editor.cy != editor.screenrows - 1) {
 			editor.cy = editor.screenrows - 1;
+		}
 		{
 			int times = editor.screenrows;
-			while (times--)
+			while (times--) {
 				editor_move_cursor(ARROW_DOWN);
+			}
 		}
 		break;
 	case CTRL_W: /* Kill region (cut) */
@@ -426,27 +450,31 @@ void editor_process_keypress(int fd)
 			char *combined = malloc(total_len);
 			if (combined) {
 				int i;
-				for (i = 0; i < n; i++)
+				for (i = 0; i < n; i++) {
 					memcpy(combined + i * killring.len,
 					    killring.text, killring.len);
+				}
 				undo_push(UNDO_YANK_TEXT, start_row, start_col,
 				    0, combined, total_len);
 				free(combined);
 				suppress_undo = 1;
-				while (n--)
+				while (n--) {
 					editor_yank();
+				}
 				suppress_undo = 0;
 			} else {
-				while (n--)
+				while (n--) {
 					editor_yank();
+				}
 			}
 		} else {
 			editor_yank();
 		}
 		break;
 	case CTRL_UNDERSCORE: /* Undo (C-_ or C-/) */
-		while (n--)
+		while (n--) {
 			editor_undo();
+		}
 		break;
 	case CTRL_H: /* Help */
 		buf_open_help();
@@ -455,27 +483,33 @@ void editor_process_keypress(int fd)
 		editor_suspend();
 		break;
 	case BACKSPACE: /* Backspace */
-		while (n--)
+		while (n--) {
 			editor_del_char();
+		}
 		break;
 	case DEL_KEY: /* Forward delete; consumes an active region first. */
-		if (editor.mark_set && editor.mark_highlight)
+		if (editor.mark_set && editor.mark_highlight) {
 			editor_delete_region_or_char();
-		else
-			while (n--)
+		} else {
+			while (n--) {
 				editor_del_forward_char();
+			}
+		}
 		break;
 	case PAGE_UP:
 	case PAGE_DOWN:
-		if (c == PAGE_UP && editor.cy != 0)
+		if (c == PAGE_UP && editor.cy != 0) {
 			editor.cy = 0;
-		else if (c == PAGE_DOWN && editor.cy != editor.screenrows - 1)
+		} else if (c == PAGE_DOWN
+		    && editor.cy != editor.screenrows - 1) {
 			editor.cy = editor.screenrows - 1;
+		}
 		{
 			int times = editor.screenrows;
-			while (times--)
+			while (times--) {
 				editor_move_cursor(
 				    c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+			}
 		}
 		break;
 
@@ -483,8 +517,9 @@ void editor_process_keypress(int fd)
 	case ARROW_DOWN:
 	case ARROW_LEFT:
 	case ARROW_RIGHT:
-		while (n--)
+		while (n--) {
 			editor_move_cursor(c);
+		}
 		break;
 	case HOME_KEY:
 	case END_KEY:
@@ -505,20 +540,22 @@ void editor_process_keypress(int fd)
 			editor_set_mark_silent();
 			editor.shift_select = 1;
 		}
-		if (c == SHIFT_ARROW_LEFT)
+		if (c == SHIFT_ARROW_LEFT) {
 			motion = ARROW_LEFT;
-		else if (c == SHIFT_ARROW_RIGHT)
+		} else if (c == SHIFT_ARROW_RIGHT) {
 			motion = ARROW_RIGHT;
-		else if (c == SHIFT_ARROW_UP)
+		} else if (c == SHIFT_ARROW_UP) {
 			motion = ARROW_UP;
-		else if (c == SHIFT_ARROW_DOWN)
+		} else if (c == SHIFT_ARROW_DOWN) {
 			motion = ARROW_DOWN;
-		else if (c == SHIFT_HOME)
+		} else if (c == SHIFT_HOME) {
 			motion = HOME_KEY;
-		else
+		} else {
 			motion = END_KEY;
-		while (n--)
+		}
+		while (n--) {
 			editor_move_cursor(motion);
+		}
 		break;
 	}
 	case CTRL_HOME:
@@ -534,31 +571,37 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_ARROW_LEFT:
 	case ALT_B:
-		while (n--)
+		while (n--) {
 			editor_move_word_backward();
+		}
 		break;
 	case CTRL_ARROW_RIGHT:
 	case ALT_F:
-		while (n--)
+		while (n--) {
 			editor_move_word_forward();
+		}
 		break;
 	case ALT_D: /* Kill word forward */
-		while (n--)
+		while (n--) {
 			editor_kill_word_forward();
+		}
 		break;
 	case ALT_BACKSPACE: /* Kill word backward */
-		while (n--)
+		while (n--) {
 			editor_kill_word_backward();
+		}
 		break;
 	case CTRL_ARROW_UP:
 	case ALT_LBRACE:
-		while (n--)
+		while (n--) {
 			editor_move_paragraph_backward();
+		}
 		break;
 	case CTRL_ARROW_DOWN:
 	case ALT_RBRACE:
-		while (n--)
+		while (n--) {
 			editor_move_paragraph_forward();
+		}
 		break;
 	case ALT_M: /* M-m: back-to-indentation */
 		editor_move_to_indentation();
@@ -573,23 +616,27 @@ void editor_process_keypress(int fd)
 		editor_zap_to_char(fd, n);
 		break;
 	case ALT_A: /* M-a: backward sentence */
-		while (n--)
+		while (n--) {
 			editor_move_sentence_backward();
+		}
 		break;
 	case ALT_E: /* M-e: forward sentence */
-		while (n--)
+		while (n--) {
 			editor_move_sentence_forward();
+		}
 		break;
 	case ALT_R: /* M-r: top/middle/bottom of window cycle */
 		editor_move_to_window_line();
 		break;
 	case ALT_V: /* Page up */
-		if (editor.cy != 0)
+		if (editor.cy != 0) {
 			editor.cy = 0;
+		}
 		{
 			int times = editor.screenrows;
-			while (times--)
+			while (times--) {
 				editor_move_cursor(ARROW_UP);
+			}
 		}
 		break;
 	case ALT_W: /* Copy region */
@@ -609,20 +656,24 @@ void editor_process_keypress(int fd)
 		editor_named_command(fd);
 		break;
 	case ALT_CARET: /* Join current line with previous */
-		while (n--)
+		while (n--) {
 			editor_join_line();
+		}
 		break;
 	case ALT_U: /* Upcase word forward */
-		while (n--)
+		while (n--) {
 			editor_upcase_word();
+		}
 		break;
 	case ALT_L: /* Downcase word forward */
-		while (n--)
+		while (n--) {
 			editor_downcase_word();
+		}
 		break;
 	case ALT_C: /* Capitalize word forward */
-		while (n--)
+		while (n--) {
 			editor_capitalize_word();
+		}
 		break;
 	case ALT_BANG: /* Shell command */
 		editor_shell_command(fd);
@@ -634,10 +685,11 @@ void editor_process_keypress(int fd)
 		macro_start();
 		break;
 	case KEY_F4: /* F4: Stop if recording, else execute */
-		if (macro_is_recording())
+		if (macro_is_recording()) {
 			macro_stop(1);
-		else
+		} else {
 			macro_replay(fd);
+		}
 		break;
 	case CTRL_L: { /* Recenter: cycle center → top → bottom */
 		int filerow = editor.rowoff + editor.cy;
@@ -652,8 +704,9 @@ void editor_process_keypress(int fd)
 			editor.rowoff = filerow - (editor.screenrows - 1);
 			break;
 		}
-		if (editor.rowoff < 0)
+		if (editor.rowoff < 0) {
 			editor.rowoff = 0;
+		}
 		editor.cy = filerow - editor.rowoff;
 		editor.recenter_state = (editor.recenter_state + 1) % 3;
 		probe_window_size();
@@ -666,9 +719,11 @@ void editor_process_keypress(int fd)
 		 * Only allow printable ASCII (32-126) and TAB.  (ENTER is
 		 * handled as its own case above and would never reach here.)
 		 * Repeats N times when a C-u prefix preceded the key. */
-		if (c == TAB || (c >= 32 && c < 127))
-			while (n--)
+		if (c == TAB || (c >= 32 && c < 127)) {
+			while (n--) {
 				editor_insert_char_auto_complete(c);
+			}
+		}
 		/* Silently ignore all other control/non-printable characters */
 		break;
 	}
@@ -704,8 +759,9 @@ void editor_process_keypress(int fd)
 	 * eventually routes through editor_move_cursor(ARROW_UP/DOWN). */
 	if (c != ARROW_UP && c != ARROW_DOWN && c != SHIFT_ARROW_UP
 	    && c != SHIFT_ARROW_DOWN && c != PAGE_UP && c != PAGE_DOWN
-	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V)
+	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V) {
 		editor.desired_visual_col = -1;
+	}
 }
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop

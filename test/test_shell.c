@@ -82,8 +82,9 @@ static void test_shell_run_pump_no_deadlock(void)
 		CHECK(0);
 		return;
 	}
-	for (i = 0; i < inlen; i++)
+	for (i = 0; i < inlen; i++) {
 		in[i] = 'A' + (i % 26);
+	}
 
 	out = shell_run("cat", in, inlen, &len);
 	CHECK(out != NULL);

@@ -56,11 +56,13 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 	int newsize = row->size;
 	int removed;
 
-	while (newsize > 0 && isspace((unsigned char)row->chars[newsize - 1]))
+	while (newsize > 0 && isspace((unsigned char)row->chars[newsize - 1])) {
 		newsize--;
+	}
 
-	if (newsize == row->size)
+	if (newsize == row->size) {
 		return 0;
+	}
 
 	removed = row->size - newsize;
 	/* Each removed span is a separate undo record so C-_ restores line by
@@ -179,12 +181,14 @@ static void cmd_whitespace_cleanup(int fd)
 	(void)fd;
 
 	for (r = 0; r < editor.numrows; r++) {
-		if (strip_trailing_whitespace(&editor.row[r], r))
+		if (strip_trailing_whitespace(&editor.row[r], r)) {
 			changed++;
+		}
 	}
 
-	if (changed)
+	if (changed) {
 		editor.dirty = 1;
+	}
 	editor_set_status_message(changed
 		? "Removed trailing whitespace from %d line%s."
 		: "No trailing whitespace found.",
@@ -199,8 +203,9 @@ static void cmd_delete_trailing_space(int fd)
 
 	(void)fd;
 
-	if (filerow >= editor.numrows)
+	if (filerow >= editor.numrows) {
 		return;
+	}
 
 	removed = strip_trailing_whitespace(&editor.row[filerow], filerow);
 	if (!removed) {
@@ -268,10 +273,12 @@ void editor_named_command(int fd)
 		 * prefix worth extending to). */
 		for (i = 0; cmdtable[i].name; i++) {
 			if (editor_picker_match_rank(cmdtable[i].name, name)
-			    != 0)
+			    != 0) {
 				continue;
-			if (first_cmd < 0)
+			}
+			if (first_cmd < 0) {
 				first_cmd = i;
+			}
 			if (total < PICKER_MAX_ENTRIES) {
 				match_idx[total] = i;
 				names[total] = cmdtable[i].name;
@@ -285,8 +292,9 @@ void editor_named_command(int fd)
 			for (i = 0; cmdtable[i].name; i++) {
 				if (editor_picker_match_rank(
 					cmdtable[i].name, name)
-				    != 1)
+				    != 1) {
 					continue;
+				}
 				if (total < PICKER_MAX_ENTRIES) {
 					match_idx[total] = i;
 					names[total] = cmdtable[i].name;
@@ -295,8 +303,9 @@ void editor_named_command(int fd)
 			}
 		}
 		shown = total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES : total;
-		if (sel >= shown)
+		if (sel >= shown) {
 			sel = shown > 0 ? shown - 1 : 0;
+		}
 
 		off = 0;
 		editor_msg_appendf(
@@ -311,8 +320,9 @@ void editor_named_command(int fd)
 		c = editor_read_key(fd);
 
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0)
+			if (len > 0) {
 				name[--len] = '\0';
+			}
 			sel = 0;
 		} else if (c == ESC || c == CTRL_G) {
 			editor.echo_cursor_col = 0;
@@ -321,11 +331,12 @@ void editor_named_command(int fd)
 		} else if (c == ENTER) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
-			if (shown > 0 && sel >= 0 && sel < shown)
+			if (shown > 0 && sel >= 0 && sel < shown) {
 				cmdtable[match_idx[sel]].fn(fd);
-			else
+			} else {
 				editor_set_status_message(
 				    "No command: %s", name);
+			}
 			return;
 		} else if (c == TAB) {
 			/* Complete to the longest common prefix of the prefix-
@@ -342,14 +353,17 @@ void editor_named_command(int fd)
 					    i++) {
 						if (editor_picker_match_rank(
 							cmdtable[i].name, name)
-						    != 0)
+						    != 0) {
 							continue;
+						}
 						if (cmdtable[i].name[clen]
-						    != ref[clen])
+						    != ref[clen]) {
 							ok = 0;
+						}
 					}
-					if (!ok)
+					if (!ok) {
 						break;
+					}
 				}
 				if (clen > len
 				    && clen < (int)sizeof(name) - 1) {
@@ -360,11 +374,13 @@ void editor_named_command(int fd)
 			}
 			sel = 0;
 		} else if (c == ARROW_RIGHT || c == CTRL_F) {
-			if (shown > 0)
+			if (shown > 0) {
 				sel = (sel + 1) % shown;
+			}
 		} else if (c == ARROW_LEFT || c == CTRL_B) {
-			if (shown > 0)
+			if (shown > 0) {
 				sel = (sel - 1 + shown) % shown;
+			}
 		} else if (isprint(c) && len < (int)sizeof(name) - 1) {
 			name[len++] = c;
 			name[len] = '\0';

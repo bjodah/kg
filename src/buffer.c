@@ -27,14 +27,16 @@ int editor_visual_col(erow *row, int chars_col)
 	for (j = 0; j < limit; j++) {
 		if (row->chars[j] == TAB) {
 			vcol++;
-			while ((vcol + 1) % 8 != 0)
+			while ((vcol + 1) % 8 != 0) {
 				vcol++;
+			}
 		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
 			vcol++;
 		}
 	}
-	if (chars_col > row->size)
+	if (chars_col > row->size) {
 		vcol += chars_col - row->size;
+	}
 	return vcol;
 }
 
@@ -52,21 +54,24 @@ int editor_chars_col_at_visual(erow *row, int target_vcol)
 		int next_vcol = vcol;
 		if (row->chars[j] == TAB) {
 			next_vcol = vcol + 1;
-			while ((next_vcol + 1) % 8 != 0)
+			while ((next_vcol + 1) % 8 != 0) {
 				next_vcol++;
+			}
 		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
 			next_vcol = vcol + 1;
 		}
-		if (next_vcol > target_vcol)
+		if (next_vcol > target_vcol) {
 			break;
+		}
 		vcol = next_vcol;
 		j++;
 	}
 	/* Past-EOL only fires when we walked the whole row without hitting
 	 * target_vcol.  Breaking early means we hit a glyph (typically a
 	 * tab) whose expansion would overshoot — round down to j. */
-	if (j >= row->size && vcol < target_vcol)
+	if (j >= row->size && vcol < target_vcol) {
 		return row->size + (target_vcol - vcol);
+	}
 	return j;
 }
 
@@ -79,8 +84,9 @@ void editor_snap_cx_to_row(void)
 	int filecol = editor.coloff + editor.cx;
 	int rowlen;
 
-	if (filerow >= editor.numrows)
+	if (filerow >= editor.numrows) {
 		return;
+	}
 	rowlen = editor.row[filerow].size;
 	if (filecol > rowlen) {
 		editor.cx -= filecol - rowlen;
@@ -125,37 +131,45 @@ void editor_reveal_position_centered(int row, int col)
 {
 	int max_rowoff;
 
-	if (row < 0)
+	if (row < 0) {
 		row = 0;
-	if (col < 0)
+	}
+	if (col < 0) {
 		col = 0;
+	}
 
 	if (row < editor.rowoff || row >= editor.rowoff + editor.screenrows) {
 		editor.rowoff = row - editor.screenrows / 2;
-		if (editor.rowoff < 0)
+		if (editor.rowoff < 0) {
 			editor.rowoff = 0;
+		}
 		max_rowoff = editor.numrows - editor.screenrows;
-		if (max_rowoff < 0)
+		if (max_rowoff < 0) {
 			max_rowoff = 0;
-		if (editor.rowoff > max_rowoff)
+		}
+		if (editor.rowoff > max_rowoff) {
 			editor.rowoff = max_rowoff;
+		}
 	}
 	editor.cy = row - editor.rowoff;
-	if (editor.cy < 0)
+	if (editor.cy < 0) {
 		editor.cy = 0;
-	else if (editor.cy >= editor.screenrows)
+	} else if (editor.cy >= editor.screenrows) {
 		editor.cy = editor.screenrows - 1;
+	}
 
 	if (col < editor.coloff || col >= editor.coloff + editor.screencols) {
 		editor.coloff = col - editor.screencols / 2;
-		if (editor.coloff < 0)
+		if (editor.coloff < 0) {
 			editor.coloff = 0;
+		}
 	}
 	editor.cx = col - editor.coloff;
-	if (editor.cx < 0)
+	if (editor.cx < 0) {
 		editor.cx = 0;
-	else if (editor.cx >= editor.screencols)
+	} else if (editor.cx >= editor.screencols) {
 		editor.cx = editor.screencols - 1;
+	}
 }
 
 /* Update the rendered version and the syntax highlight of a row. */
@@ -169,9 +183,11 @@ void editor_update_row(erow *row)
 	 * respecting tabs, substituting non printable characters with '?'. */
 	free(row->render);
 	row->render = NULL;
-	for (j = 0; j < row->size; j++)
-		if (row->chars[j] == TAB)
+	for (j = 0; j < row->size; j++) {
+		if (row->chars[j] == TAB) {
 			tabs++;
+		}
+	}
 
 	allocsize = (unsigned long long)row->size + tabs * 8 + nonprint * 9 + 1;
 	if (allocsize > UINT32_MAX) {
@@ -191,8 +207,9 @@ void editor_update_row(erow *row)
 		if (row->chars[j] == TAB) {
 			int spaces = 7 - (idx % 8);
 
-			if (spaces == 0)
+			if (spaces == 0) {
 				spaces = 8;
+			}
 
 			if (idx + spaces >= render_cap) {
 				free(row->render);
@@ -222,8 +239,9 @@ void editor_insert_row(int at, const char *s, size_t len)
 	erow *newrows;
 	char *newchars;
 
-	if (at > editor.numrows)
+	if (at > editor.numrows) {
 		return;
+	}
 
 	newchars = malloc(len + 1);
 	if (!newchars) {
@@ -242,8 +260,9 @@ void editor_insert_row(int at, const char *s, size_t len)
 	if (at != editor.numrows) {
 		memmove(editor.row + at + 1, editor.row + at,
 		    sizeof(editor.row[0]) * (editor.numrows - at));
-		for (int j = at + 1; j <= editor.numrows; j++)
+		for (int j = at + 1; j <= editor.numrows; j++) {
 			editor.row[j].idx++;
+		}
 	}
 
 	editor.row[at].size = len;
@@ -272,14 +291,16 @@ void editor_del_row(int at)
 {
 	erow *row;
 
-	if (at >= editor.numrows)
+	if (at >= editor.numrows) {
 		return;
+	}
 	row = editor.row + at;
 	editor_free_row(row);
 	memmove(editor.row + at, editor.row + at + 1,
 	    sizeof(editor.row[0]) * (editor.numrows - at - 1));
-	for (int j = at; j < editor.numrows - 1; j++)
+	for (int j = at; j < editor.numrows - 1; j++) {
 		editor.row[j].idx--;
+	}
 	editor.numrows--;
 	editor.dirty++;
 }
@@ -295,10 +316,12 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	int j;
 
 	/* Compute count of bytes */
-	for (j = 0; j < numrows; j++)
+	for (j = 0; j < numrows; j++) {
 		totlen += rows[j].size;
-	if (numrows > 1)
+	}
+	if (numrows > 1) {
 		totlen += numrows - 1; /* "\n" between rows */
+	}
 	*buflen = totlen;
 	totlen++; /* Also make space for nulterm */
 
@@ -311,8 +334,9 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	for (j = 0; j < numrows; j++) {
 		memcpy(p, rows[j].chars, rows[j].size);
 		p += rows[j].size;
-		if (j != numrows - 1)
+		if (j != numrows - 1) {
 			*p++ = '\n';
+		}
 	}
 	*p = '\0';
 	return buf;
@@ -325,13 +349,16 @@ static int editor_current_flat_offset(void)
 	int off = 0;
 	int r;
 
-	for (r = 0; r < filerow && r < editor.numrows; r++)
+	for (r = 0; r < filerow && r < editor.numrows; r++) {
 		off += editor.row[r].size + 1;
+	}
 	if (filerow < editor.numrows) {
-		if (filecol < 0)
+		if (filecol < 0) {
 			filecol = 0;
-		if (filecol > editor.row[filerow].size)
+		}
+		if (filecol > editor.row[filerow].size) {
 			filecol = editor.row[filerow].size;
+		}
 		off += filecol;
 	}
 	return off;
@@ -342,10 +369,12 @@ static void editor_flat_offset_to_row_col(
 {
 	int r = 0, c = 0, i;
 
-	if (off < 0)
+	if (off < 0) {
 		off = 0;
-	if (off > len)
+	}
+	if (off > len) {
 		off = len;
+	}
 	for (i = 0; i < off; i++) {
 		if (buf[i] == '\n') {
 			r++;
@@ -362,8 +391,9 @@ static int utf8_next_glyph_len(const char *buf, int len, int start)
 {
 	int n = 1;
 
-	while (start + n < len && utf8_is_cont((unsigned char)buf[start + n]))
+	while (start + n < len && utf8_is_cont((unsigned char)buf[start + n])) {
 		n++;
+	}
 	return n;
 }
 
@@ -371,11 +401,13 @@ static int utf8_prev_glyph_start(const char *buf, int pos)
 {
 	int start;
 
-	if (pos <= 0)
+	if (pos <= 0) {
 		return -1;
+	}
 	start = pos - 1;
-	while (start > 0 && utf8_is_cont((unsigned char)buf[start]))
+	while (start > 0 && utf8_is_cont((unsigned char)buf[start])) {
 		start--;
+	}
 	return start;
 }
 
@@ -384,8 +416,9 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	int start = 0;
 	int i;
 
-	for (i = 0; i < editor.numrows; i++)
+	for (i = 0; i < editor.numrows; i++) {
 		editor_free_row(&editor.row[i]);
+	}
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
@@ -397,8 +430,9 @@ static void editor_replace_rows_from_text(const char *text, int len)
 			start = i + 1;
 		}
 	}
-	if (start <= len)
+	if (start <= len) {
 		editor_insert_row(editor.numrows, text + start, len - start);
+	}
 }
 
 /* Insert a character at the specified position in a row, moving the remaining
@@ -407,10 +441,12 @@ void editor_row_insert_char(erow *row, int at, int c)
 {
 	char *newchars;
 
-	if (!row)
+	if (!row) {
 		return;
-	if (at < 0)
+	}
+	if (at < 0) {
 		return;
+	}
 	if (at > row->size) {
 		/* Pad the string with spaces if the insert location is outside
 		 * the current length by more than a single character. */
@@ -463,8 +499,9 @@ void editor_row_append_string(erow *row, char *s, size_t len)
 /* Delete the character at offset 'at' from the specified row. */
 void editor_row_del_char(erow *row, int at)
 {
-	if (row->size <= at)
+	if (row->size <= at) {
 		return;
+	}
 	memmove(row->chars + at, row->chars + at + 1, row->size - at);
 	editor_update_row(row);
 	row->size--;
@@ -484,23 +521,27 @@ void editor_insert_char(int c)
 	 * our logical representation of the file, add enough empty rows as
 	 * needed. */
 	if (!row) {
-		while (editor.numrows <= filerow)
+		while (editor.numrows <= filerow) {
 			editor_insert_row(editor.numrows, "", 0);
-		if (editor.numrows <= filerow)
+		}
+		if (editor.numrows <= filerow) {
 			return;
+		}
 	}
 	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
-	if (!row)
+	if (!row) {
 		return;
+	}
 
 	/* Record undo operation */
 	undo_push(UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
 
 	editor_row_insert_char(row, filecol, c);
-	if (editor.cx == editor.screencols - 1)
+	if (editor.cx == editor.screencols - 1) {
 		editor.coloff++;
-	else
+	} else {
 		editor.cx++;
+	}
 	editor.dirty++;
 }
 
@@ -523,8 +564,9 @@ void editor_insert_newline_raw(void)
 		editor_insert_row(filerow, "", 0);
 	} else {
 		row = &editor.row[filerow];
-		if (filecol > row->size)
+		if (filecol > row->size) {
 			filecol = row->size;
+		}
 		rest_len = row->size - filecol;
 		undo_push(UNDO_SPLIT_LINE, filerow, filecol, 0,
 		    row->chars + filecol, rest_len);
@@ -534,10 +576,11 @@ void editor_insert_newline_raw(void)
 		row->size = filecol;
 		editor_update_row(row);
 	}
-	if (editor.cy == editor.screenrows - 1)
+	if (editor.cy == editor.screenrows - 1) {
 		editor.rowoff++;
-	else
+	} else {
 		editor.cy++;
+	}
 	editor.cx = 0;
 	editor.coloff = 0;
 }
@@ -551,26 +594,29 @@ void editor_insert_text_raw(const char *text, int len)
 
 	suppress_undo = 1;
 	for (i = 0; i < len; i++) {
-		if (text[i] == '\n')
+		if (text[i] == '\n') {
 			editor_insert_newline_raw();
-		else {
+		} else {
 			erow *row;
 			int filerow = editor.rowoff + editor.cy;
 			int filecol = editor.coloff + editor.cx;
 
-			while (editor.numrows <= filerow)
+			while (editor.numrows <= filerow) {
 				editor_insert_row(editor.numrows, "", 0);
+			}
 			row = (filerow >= editor.numrows)
 			    ? NULL
 			    : &editor.row[filerow];
-			if (!row)
+			if (!row) {
 				break;
+			}
 			editor_row_insert_char(
 			    row, filecol, (unsigned char)text[i]);
-			if (editor.cx == editor.screencols - 1)
+			if (editor.cx == editor.screencols - 1) {
 				editor.coloff++;
-			else
+			} else {
 				editor.cx++;
+			}
 		}
 	}
 	suppress_undo = saved;
@@ -610,10 +656,12 @@ void editor_insert_newline(void)
 	}
 	/* If the cursor is over the current line size, we want to conceptually
 	 * think it's just over the last character. */
-	if (filecol < 0)
+	if (filecol < 0) {
 		filecol = 0;
-	if (filecol >= row->size)
+	}
+	if (filecol >= row->size) {
 		filecol = row->size;
+	}
 	if (filecol <= 0) {
 		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
 		editor_insert_row(filerow, "", 0);
@@ -621,11 +669,14 @@ void editor_insert_newline(void)
 		/* Compute leading whitespace of the current line for
 		 * auto-indent. */
 		while (indent < row->size
-		    && (row->chars[indent] == ' ' || row->chars[indent] == TAB))
+		    && (row->chars[indent] == ' '
+			|| row->chars[indent] == TAB)) {
 			indent++;
+		}
 		/* Don't indent past the split point. */
-		if (indent > filecol)
+		if (indent > filecol) {
 			indent = filecol;
+		}
 
 		/* Build new line: indent prefix + rest of split. */
 		rest_len = row->size - filecol;
@@ -689,8 +740,9 @@ void editor_del_char(void)
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 
-	if (!row || (filecol == 0 && filerow == 0))
+	if (!row || (filecol == 0 && filerow == 0)) {
 		return;
+	}
 	if (filecol == 0) {
 		/* Handle the case of column 0, we need to move the current line
 		 * on the right of the previous one. */
@@ -702,10 +754,11 @@ void editor_del_char(void)
 		    &editor.row[filerow - 1], row->chars, row->size);
 		editor_del_row(filerow);
 		row = NULL;
-		if (editor.cy == 0)
+		if (editor.cy == 0) {
 			editor.rowoff--;
-		else
+		} else {
 			editor.cy--;
+		}
 		editor.cx = filecol;
 		if (editor.cx >= editor.screencols) {
 			int shift = (editor.screencols - editor.cx) + 1;
@@ -717,13 +770,15 @@ void editor_del_char(void)
 		undo_push(UNDO_DELETE_CHAR, filerow, filecol - 1,
 		    row->chars[filecol - 1], NULL, 0);
 		editor_row_del_char(row, filecol - 1);
-		if (editor.cx == 0 && editor.coloff)
+		if (editor.cx == 0 && editor.coloff) {
 			editor.coloff--;
-		else
+		} else {
 			editor.cx--;
+		}
 	}
-	if (row)
+	if (row) {
 		editor_update_row(row);
+	}
 	editor.dirty++;
 }
 
@@ -737,12 +792,14 @@ void editor_del_forward_char(void)
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 
-	if (!row)
+	if (!row) {
 		return;
+	}
 
 	if (filecol == row->size) {
-		if (filerow + 1 >= editor.numrows)
+		if (filerow + 1 >= editor.numrows) {
 			return;
+		}
 		undo_push(UNDO_JOIN_LINE, filerow, filecol, 0,
 		    editor.row[filerow + 1].chars,
 		    editor.row[filerow + 1].size);
@@ -771,8 +828,9 @@ void editor_kill_line(void)
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
 
-	if (!row)
+	if (!row) {
 		return;
+	}
 
 	if (filecol >= row->size) {
 		/* At end of line, join with next line like C-k in Emacs. */
@@ -819,33 +877,41 @@ void editor_transpose_chars(void)
 	}
 
 	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
-	if (!buf)
+	if (!buf) {
 		return;
-	if (len < 2)
+	}
+	if (len < 2) {
 		goto done;
+	}
 
 	point = editor_current_flat_offset();
-	if (point < 0)
+	if (point < 0) {
 		point = 0;
-	if (point > len)
+	}
+	if (point > len) {
 		point = len;
-	while (
-	    point > 0 && point < len && utf8_is_cont((unsigned char)buf[point]))
+	}
+	while (point > 0 && point < len
+	    && utf8_is_cont((unsigned char)buf[point])) {
 		point--;
+	}
 
 	if (point >= len || buf[point] == '\n') {
 		b_start = utf8_prev_glyph_start(buf, point);
-		if (b_start < 0)
+		if (b_start < 0) {
 			goto done;
+		}
 		a_start = utf8_prev_glyph_start(buf, b_start);
-		if (a_start < 0)
+		if (a_start < 0) {
 			goto done;
+		}
 		b_len = point - b_start;
 	} else {
 		b_start = point;
 		a_start = utf8_prev_glyph_start(buf, b_start);
-		if (a_start < 0)
+		if (a_start < 0) {
 			goto done;
+		}
 		b_len = utf8_next_glyph_len(buf, len, b_start);
 	}
 	a_len = b_start - a_start;

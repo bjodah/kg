@@ -26,8 +26,9 @@ static void touch(const char *name)
 
 	snprintf(path, sizeof(path), "%s/%s", scratch, name);
 	fp = fopen(path, "w");
-	if (fp)
+	if (fp) {
 		fclose(fp);
+	}
 }
 
 static void mkscratchdir(const char *name)
@@ -61,16 +62,19 @@ static void rmtree(const char *path)
 	DIR *dp = opendir(path);
 	char child[512];
 
-	if (!dp)
+	if (!dp) {
 		return;
+	}
 	while ((de = readdir(dp)) != NULL) {
-		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 			continue;
+		}
 		snprintf(child, sizeof(child), "%s/%s", path, de->d_name);
-		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode))
+		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
 			rmtree(child);
-		else
+		} else {
 			unlink(child);
+		}
 	}
 	closedir(dp);
 	rmdir(path);

@@ -26,8 +26,9 @@ void undo_free(void)
 
 	while (op) {
 		struct undo_op *next = op->next;
-		if (op->text)
+		if (op->text) {
 			free(op->text);
+		}
 		free(op);
 		op = next;
 	}
@@ -42,13 +43,15 @@ void undo_push(
 	struct undo_op *op;
 
 	/* Skip if undo recording is suppressed */
-	if (suppress_undo)
+	if (suppress_undo) {
 		return;
+	}
 
 	/* Create new undo operation */
 	op = malloc(sizeof(struct undo_op));
-	if (!op)
+	if (!op) {
 		return;
+	}
 
 	op->type = type;
 	op->row = row;
@@ -90,8 +93,9 @@ void undo_push(
 			prev->next = NULL;
 			while (curr) {
 				struct undo_op *next = curr->next;
-				if (curr->text)
+				if (curr->text) {
 					free(curr->text);
+				}
 				free(curr);
 				curr = next;
 				undostack.size--;
@@ -164,13 +168,15 @@ void editor_undo(void)
 			erow *row = &editor.row[op->row];
 			row->size = op->col;
 			row->chars[op->col] = '\0';
-			if (op->text && op->len > 0)
+			if (op->text && op->len > 0) {
 				editor_row_append_string(
 				    row, op->text, op->len);
-			else
+			} else {
 				editor_update_row(row);
-			if (op->row + 1 < editor.numrows)
+			}
+			if (op->row + 1 < editor.numrows) {
 				editor_del_row(op->row + 1);
+			}
 			editor.dirty++;
 		}
 		break;
@@ -193,8 +199,9 @@ void editor_undo(void)
 	case UNDO_KILL_TEXT:
 		/* Reverse: re-insert the killed text at the original position.
 		 * Cursor is already set to (op->row, op->col) above. */
-		if (op->text && op->len > 0)
+		if (op->text && op->len > 0) {
 			editor_insert_text_raw(op->text, op->len);
+		}
 		break;
 
 	case UNDO_YANK_TEXT:
@@ -204,8 +211,9 @@ void editor_undo(void)
 		if (op->text && op->len > 0) {
 			int i;
 			suppress_undo = 1;
-			for (i = 0; i < op->len; i++)
+			for (i = 0; i < op->len; i++) {
 				editor_del_forward_char();
+			}
 			suppress_undo = 0;
 		}
 		break;
@@ -217,12 +225,14 @@ void editor_undo(void)
 		if (op->c > 0) {
 			int i, saved = suppress_undo;
 			suppress_undo = 1;
-			for (i = 0; i < op->c; i++)
+			for (i = 0; i < op->c; i++) {
 				editor_del_forward_char();
+			}
 			suppress_undo = saved;
 		}
-		if (op->text && op->len > 0)
+		if (op->text && op->len > 0) {
 			editor_insert_text_raw(op->text, op->len);
+		}
 		break;
 
 	case UNDO_RECT_OVERWRITE: {
@@ -238,8 +248,9 @@ void editor_undo(void)
 		int i = 0;
 
 		suppress_undo = 1;
-		while (editor.numrows > orig_numrows)
+		while (editor.numrows > orig_numrows) {
 			editor_del_row(editor.numrows - 1);
+		}
 		if (op->text && op->len > 0) {
 			while (p <= end) {
 				char *nl = (p < end) ? memchr(p, '\n', end - p)
@@ -247,11 +258,13 @@ void editor_undo(void)
 				int line_len = nl ? (nl - p) : (end - p);
 				int target = op->row + i;
 
-				if (target < editor.numrows)
+				if (target < editor.numrows) {
 					editor_del_row(target);
+				}
 				editor_insert_row(target, p, line_len);
-				if (!nl)
+				if (!nl) {
 					break;
+				}
 				p = nl + 1;
 				i++;
 			}
@@ -270,8 +283,9 @@ void editor_undo(void)
 
 		suppress_undo = 1;
 		for (r = 0; r < op->col; r++) {
-			if (op->row < editor.numrows)
+			if (op->row < editor.numrows) {
 				editor_del_row(op->row);
+			}
 		}
 		if (op->text) {
 			r = op->row;
@@ -297,12 +311,14 @@ void editor_undo(void)
 	}
 
 	/* Check if we've undone back to the saved state */
-	if (undostack.size == undostack.clean_size)
+	if (undostack.size == undostack.clean_size) {
 		editor.dirty = 0;
+	}
 
 	/* Free the operation */
-	if (op->text)
+	if (op->text) {
 		free(op->text);
+	}
 	free(op);
 
 	editor_set_status_message("Undo");

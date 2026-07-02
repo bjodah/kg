@@ -24,10 +24,12 @@ static void rect_kill_ring_set(char *text, int len, int nrows)
 {
 	rect_kill_ring_free();
 	rect_killed = malloc(len + 1);
-	if (!rect_killed)
+	if (!rect_killed) {
 		return;
-	if (len > 0)
+	}
+	if (len > 0) {
 		memcpy(rect_killed, text, len);
+	}
 	rect_killed[len] = '\0';
 	rect_killed_len = len;
 	rect_killed_nrows = nrows;
@@ -72,10 +74,12 @@ static void rect_row_byte_range(
 {
 	int lo = editor_chars_col_at_visual(row, s_vcol);
 	int hi = editor_chars_col_at_visual(row, e_vcol);
-	if (lo > row->size)
+	if (lo > row->size) {
 		lo = row->size;
-	if (hi > row->size)
+	}
+	if (hi > row->size) {
 		hi = row->size;
+	}
 	*byte_lo = lo;
 	*byte_hi = hi;
 }
@@ -89,10 +93,12 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	int r;
 	char *buf, *p;
 
-	if (start_row < 0)
+	if (start_row < 0) {
 		start_row = 0;
-	if (end_row > editor.numrows)
+	}
+	if (end_row > editor.numrows) {
 		end_row = editor.numrows;
+	}
 	if (end_row <= start_row) {
 		*out_len = 0;
 		return NULL;
@@ -100,8 +106,9 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 
 	for (r = start_row; r < end_row; r++) {
 		total += editor.row[r].size;
-		if (r < end_row - 1)
+		if (r < end_row - 1) {
 			total++; /* '\n' separator */
+		}
 	}
 
 	buf = malloc(total + 1);
@@ -113,8 +120,9 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	for (r = start_row; r < end_row; r++) {
 		memcpy(p, editor.row[r].chars, editor.row[r].size);
 		p += editor.row[r].size;
-		if (r < end_row - 1)
+		if (r < end_row - 1) {
 			*p++ = '\n';
+		}
 	}
 	*p = '\0';
 	*out_len = total;
@@ -144,8 +152,9 @@ static void rect_kill_or_delete(int save_to_ring)
 	int snap_len;
 	int r;
 
-	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol))
+	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
 		return;
+	}
 	if (s_row == e_row && s_vcol == e_vcol) {
 		editor_set_status_message("Empty rectangle");
 		return;
@@ -166,8 +175,9 @@ static void rect_kill_or_delete(int save_to_ring)
 			rect_row_byte_range(
 			    &editor.row[r], s_vcol, e_vcol, &lo, &hi);
 			killed_total += hi - lo;
-			if (r < e_row)
+			if (r < e_row) {
 				killed_total++;
+			}
 		}
 		killed_text = malloc(killed_total + 1);
 		if (killed_text) {
@@ -181,8 +191,9 @@ static void rect_kill_or_delete(int save_to_ring)
 					memcpy(p, row->chars + lo, hi - lo);
 					p += hi - lo;
 				}
-				if (r < e_row)
+				if (r < e_row) {
 					*p++ = '\n';
+				}
 			}
 			*p = '\0';
 			rect_kill_ring_set(
@@ -211,8 +222,9 @@ static void rect_kill_or_delete(int save_to_ring)
 		int lo, hi, i;
 
 		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
-		for (i = hi - 1; i >= lo; i--)
+		for (i = hi - 1; i >= lo; i--) {
 			editor_row_del_char(row, i);
+		}
 	}
 	suppress_undo = 0;
 
@@ -239,8 +251,9 @@ void editor_clear_rect(void)
 	int snap_len;
 	int r;
 
-	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol))
+	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
 		return;
+	}
 	if (s_row == e_row && s_vcol == e_vcol) {
 		editor_set_status_message("Empty rectangle");
 		return;
@@ -267,8 +280,9 @@ void editor_clear_rect(void)
 		int lo, hi, i;
 
 		/* Pad with spaces until row's visual width reaches s_vcol. */
-		while (editor_visual_col(row, row->size) < s_vcol)
+		while (editor_visual_col(row, row->size) < s_vcol) {
 			editor_row_insert_char(row, row->size, ' ');
+		}
 
 		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
 		for (i = lo; i < hi; i++) {
@@ -277,8 +291,9 @@ void editor_clear_rect(void)
 		}
 
 		/* Extend with spaces if the rect runs past row's visual end. */
-		while (editor_visual_col(row, row->size) < e_vcol)
+		while (editor_visual_col(row, row->size) < e_vcol) {
 			editor_row_insert_char(row, row->size, ' ');
+		}
 	}
 	suppress_undo = 0;
 
@@ -310,10 +325,12 @@ void editor_yank_rect(void)
 	orig_numrows = editor.numrows;
 
 	rows_to_snap = rect_killed_nrows;
-	if (cur_row + rows_to_snap > editor.numrows)
+	if (cur_row + rows_to_snap > editor.numrows) {
 		rows_to_snap = editor.numrows - cur_row;
-	if (rows_to_snap < 0)
+	}
+	if (rows_to_snap < 0) {
 		rows_to_snap = 0;
+	}
 	snap = rect_snapshot_rows(cur_row, cur_row + rows_to_snap, &snap_len);
 
 	undo_push(UNDO_RECT_OVERWRITE, cur_row, cur_col, orig_numrows,
@@ -331,16 +348,20 @@ void editor_yank_rect(void)
 		erow *r;
 		int j;
 
-		while (target >= editor.numrows)
+		while (target >= editor.numrows) {
 			editor_insert_row(editor.numrows, "", 0);
+		}
 		r = &editor.row[target];
-		while (r->size < cur_col)
+		while (r->size < cur_col) {
 			editor_row_insert_char(r, r->size, ' ');
-		for (j = 0; j < line_len; j++)
+		}
+		for (j = 0; j < line_len; j++) {
 			editor_row_insert_char(r, cur_col + j, p[j]);
+		}
 
-		if (!nl)
+		if (!nl) {
 			break;
+		}
 		p = nl + 1;
 		i++;
 	}

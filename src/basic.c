@@ -19,8 +19,9 @@ void editor_move_cursor(int key)
 	/* Capture the visual goal column on the first vertical move so a
 	 * run of C-n/C-p stays at the same visible column across rows of
 	 * mixed UTF-8/tab content. */
-	if (is_vertical && editor.desired_visual_col < 0 && row)
+	if (is_vertical && editor.desired_visual_col < 0 && row) {
 		editor.desired_visual_col = editor_visual_col(row, filecol);
+	}
 
 	switch (key) {
 	case HOME_KEY:
@@ -54,8 +55,9 @@ void editor_move_cursor(int key)
 			/* Virtual space past EOL (rect mark mode): plain step.
 			 */
 			if (editor.cx == 0) {
-				if (editor.coloff)
+				if (editor.coloff) {
 					editor.coloff--;
+				}
 			} else {
 				editor.cx -= 1;
 			}
@@ -71,10 +73,11 @@ void editor_move_cursor(int key)
 			}
 			while (n--) {
 				if (editor.cx == 0) {
-					if (editor.coloff)
+					if (editor.coloff) {
 						editor.coloff--;
-					else
+					} else {
 						break;
+					}
 				} else {
 					editor.cx -= 1;
 				}
@@ -88,22 +91,25 @@ void editor_move_cursor(int key)
 			int n = 1;
 			while (filecol + n < row->size
 			    && utf8_is_cont(
-				(unsigned char)row->chars[filecol + n]))
+				(unsigned char)row->chars[filecol + n])) {
 				n++;
+			}
 			while (n--) {
-				if (editor.cx == editor.screencols - 1)
+				if (editor.cx == editor.screencols - 1) {
 					editor.coloff++;
-				else
+				} else {
 					editor.cx += 1;
+				}
 			}
 		} else if (row && editor.rect_mode) {
 			/* In rect mark mode, extend the cursor into virtual
 			 * space past EOL so a rectangle can span columns that
 			 * some rows don't reach. */
-			if (editor.cx == editor.screencols - 1)
+			if (editor.cx == editor.screencols - 1) {
 				editor.coloff++;
-			else
+			} else {
 				editor.cx += 1;
+			}
 		} else if (row && filecol == row->size) {
 			editor.cx = 0;
 			editor.coloff = 0;
@@ -116,8 +122,9 @@ void editor_move_cursor(int key)
 		break;
 	case ARROW_UP:
 		if (editor.cy == 0) {
-			if (editor.rowoff)
+			if (editor.rowoff) {
 				editor.rowoff--;
+			}
 		} else {
 			editor.cy -= 1;
 		}
@@ -183,8 +190,9 @@ void editor_move_to_indentation(void)
 	erow *row;
 	int col;
 
-	if (editor.rowoff + editor.cy >= editor.numrows)
+	if (editor.rowoff + editor.cy >= editor.numrows) {
 		return;
+	}
 
 	editor_move_cursor(HOME_KEY);
 
@@ -218,12 +226,15 @@ void editor_move_to_window_line(void)
 	}
 
 	last_visible_row = editor.numrows - editor.rowoff - 1;
-	if (last_visible_row < 0)
+	if (last_visible_row < 0) {
 		last_visible_row = 0;
-	if (target > last_visible_row)
+	}
+	if (target > last_visible_row) {
 		target = last_visible_row;
-	if (target < 0)
+	}
+	if (target < 0) {
 		target = 0;
+	}
 
 	editor.cy = target;
 	editor.cx = 0;
@@ -237,23 +248,28 @@ void editor_goto_line_direct(int line, int col)
 	int filerow, filecol;
 	erow *row;
 
-	if (editor.numrows == 0)
+	if (editor.numrows == 0) {
 		return;
-	if (line < 1)
+	}
+	if (line < 1) {
 		line = 1;
-	if (line > editor.numrows)
+	}
+	if (line > editor.numrows) {
 		line = editor.numrows;
+	}
 
 	filerow = line - 1;
 	filecol = (col > 1) ? col - 1 : 0;
 	row = &editor.row[filerow];
-	if (filecol > row->size)
+	if (filecol > row->size) {
 		filecol = row->size;
+	}
 
 	/* Centre the target line vertically. */
 	editor.rowoff = filerow - editor.screenrows / 2;
-	if (editor.rowoff < 0)
+	if (editor.rowoff < 0) {
 		editor.rowoff = 0;
+	}
 	editor.cy = filerow - editor.rowoff;
 
 	if (filecol > editor.screencols - 1) {
@@ -272,13 +288,16 @@ void editor_goto_line(int fd)
 	int line = 0, col = 1, n;
 
 	if (editor_read_line(fd, "Goto line: ", buf, sizeof(buf)) < 0
-	    || !buf[0])
+	    || !buf[0]) {
 		return;
+	}
 	n = sscanf(buf, "%d:%d", &line, &col);
-	if (n < 1)
+	if (n < 1) {
 		return;
-	if (n < 2)
+	}
+	if (n < 2) {
 		col = 1;
+	}
 	editor_goto_line_direct(line, col);
 }
 
@@ -288,8 +307,9 @@ void editor_move_to_end(void)
 	erow *row;
 	int filerow;
 
-	if (editor.numrows == 0)
+	if (editor.numrows == 0) {
 		return;
+	}
 
 	filerow = editor.numrows - 1;
 	row = &editor.row[filerow];

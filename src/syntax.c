@@ -617,15 +617,19 @@ static int is_setext_line(const char *p, int len)
 {
 	int all_eq = 1, all_dash = 1, i;
 
-	if (len == 0)
+	if (len == 0) {
 		return 0;
+	}
 	for (i = 0; i < len; i++) {
-		if (p[i] != '=')
+		if (p[i] != '=') {
 			all_eq = 0;
-		if (p[i] != '-')
+		}
+		if (p[i] != '-') {
 			all_dash = 0;
-		if (!all_eq && !all_dash)
+		}
+		if (!all_eq && !all_dash) {
 			return 0;
+		}
 	}
 	return 1;
 }
@@ -643,8 +647,9 @@ int editor_row_has_open_comment(erow *row)
 	if (row->hl && row->rsize && row->hl[row->rsize - 1] == HL_MLCOMMENT
 	    && (row->rsize < 2
 		|| (row->render[row->rsize - 2] != '*'
-		    || row->render[row->rsize - 1] != '/')))
+		    || row->render[row->rsize - 1] != '/'))) {
 		return 1;
+	}
 	return 0;
 }
 
@@ -676,8 +681,9 @@ static void markdown_syntax(erow *row)
 	 * Re-trigger the row above so it gets heading colour too. */
 	if (is_setext_line(p, len)) {
 		memset(row->hl, HL_KEYWORD1, len);
-		if (row->idx > 0)
+		if (row->idx > 0) {
 			editor_update_syntax(&editor.row[row->idx - 1]);
+		}
 		goto done;
 	}
 
@@ -703,8 +709,7 @@ static void markdown_syntax(erow *row)
 	/* Inline: inline code (`...`), bold (**...**), link text ([...]). */
 	for (i = 0; i < len; i++) {
 		if (p[i] == '`') {
-			for (j = i + 1; j < len && p[j] != '`'; j++)
-				;
+			for (j = i + 1; j < len && p[j] != '`'; j++) { }
 			if (j < len) {
 				memset(row->hl + i, HL_STRING, j - i + 1);
 				i = j;
@@ -719,8 +724,7 @@ static void markdown_syntax(erow *row)
 				i = j + 1;
 			}
 		} else if (p[i] == '[') {
-			for (j = i + 1; j < len && p[j] != ']'; j++)
-				;
+			for (j = i + 1; j < len && p[j] != ']'; j++) { }
 			if (j < len) {
 				memset(row->hl + i, HL_KEYWORD2, j - i + 1);
 				i = j;
@@ -729,8 +733,9 @@ static void markdown_syntax(erow *row)
 	}
 
 done:
-	if (row->hl_oc != oc && row->idx + 1 < editor.numrows)
+	if (row->hl_oc != oc && row->idx + 1 < editor.numrows) {
 		editor_update_syntax(&editor.row[row->idx + 1]);
+	}
 	row->hl_oc = oc;
 }
 
@@ -752,15 +757,18 @@ static void make_var_and_comment(erow *row, int start)
 		}
 		if (p[i] == '$') {
 			row->hl[i] = HL_STRING;
-			if (i + 1 >= len)
+			if (i + 1 >= len) {
 				continue;
+			}
 			i++;
 			if (p[i] == '(' || p[i] == '{') {
 				close = (p[i] == '(') ? ')' : '}';
-				for (j = i; j < len && p[j] != close; j++)
+				for (j = i; j < len && p[j] != close; j++) {
 					row->hl[j] = HL_STRING;
-				if (j < len)
+				}
+				if (j < len) {
 					row->hl[j] = HL_STRING;
+				}
 				i = (j < len) ? j : j - 1;
 			} else {
 				row->hl[i] = HL_STRING; /* $@, $<, $^, etc. */
@@ -796,10 +804,12 @@ static void makefile_syntax(erow *row)
 
 	/* Skip leading spaces */
 	i = 0;
-	while (i < len && p[i] == ' ')
+	while (i < len && p[i] == ' ') {
 		i++;
-	if (i >= len)
+	}
+	if (i >= len) {
 		return;
+	}
 
 	/* Comment line */
 	if (p[i] == '#') {
@@ -823,8 +833,9 @@ static void makefile_syntax(erow *row)
 	colon = -1;
 	eq = -1;
 	for (j = i; j < len; j++) {
-		if (p[j] == '#')
+		if (p[j] == '#') {
 			break;
+		}
 		if (p[j] == ':' && (j + 1 >= len || p[j + 1] != '=')) {
 			colon = j;
 			break;
@@ -834,8 +845,9 @@ static void makefile_syntax(erow *row)
 			/* Back up over compound operators := ?= += != */
 			if (j > i
 			    && (p[j - 1] == ':' || p[j - 1] == '?'
-				|| p[j - 1] == '+' || p[j - 1] == '!'))
+				|| p[j - 1] == '+' || p[j - 1] == '!')) {
 				eq = j - 1;
+			}
 			break;
 		}
 	}
@@ -843,10 +855,12 @@ static void makefile_syntax(erow *row)
 	if (colon > i) {
 		/* Rule: highlight target (before ':') as KEYWORD1 */
 		tend = colon;
-		while (tend > i && p[tend - 1] == ' ')
+		while (tend > i && p[tend - 1] == ' ') {
 			tend--;
-		if (tend > i)
+		}
+		if (tend > i) {
 			memset(row->hl + i, HL_KEYWORD1, tend - i);
+		}
 		make_var_and_comment(row, colon + 1);
 		return;
 	}
@@ -855,10 +869,12 @@ static void makefile_syntax(erow *row)
 		/* Assignment: variable name as KEYWORD2, operator as KEYWORD1
 		 */
 		name_end = eq;
-		while (name_end > i && p[name_end - 1] == ' ')
+		while (name_end > i && p[name_end - 1] == ' ') {
 			name_end--;
-		if (name_end > i)
+		}
+		if (name_end > i) {
 			memset(row->hl + i, HL_KEYWORD2, name_end - i);
+		}
 		op_start = eq;
 		op_len = (p[op_start] == '=') ? 1 : 2;
 		memset(row->hl + op_start, HL_KEYWORD1, op_len);
@@ -895,8 +911,9 @@ void editor_update_syntax(erow *row)
 	row->hl = newhl;
 	memset(row->hl, HL_NORMAL, row->rsize);
 
-	if (editor.syntax == NULL)
+	if (editor.syntax == NULL) {
 		return; /* No syntax, everything is HL_NORMAL. */
+	}
 
 	if (editor.syntax->flags & SHL_MARKDOWN) {
 		markdown_syntax(row);
@@ -922,8 +939,9 @@ void editor_update_syntax(erow *row)
 	/* If the previous line has an open comment, this line starts
 	 * with an open comment state. */
 	if (row->idx > 0
-	    && editor_row_has_open_comment(&editor.row[row->idx - 1]))
+	    && editor_row_has_open_comment(&editor.row[row->idx - 1])) {
 		in_comment = 1;
+	}
 
 	while (*p) {
 		/* Handle single-line comments (1- or 2-char starter). */
@@ -970,8 +988,9 @@ void editor_update_syntax(erow *row)
 				prev_sep = 0;
 				continue;
 			}
-			if (*p == in_string)
+			if (*p == in_string) {
 				in_string = 0;
+			}
 			p++;
 			i++;
 			continue;
@@ -1074,13 +1093,15 @@ void editor_update_syntax(erow *row)
 			for (j = 0; keywords[j]; j++) {
 				int klen = strlen(keywords[j]);
 				int kw2 = keywords[j][klen - 1] == '|';
-				if (kw2)
+				if (kw2) {
 					klen--;
+				}
 
 				/* Skip keywords that would read past
 				 * render[rsize]. */
-				if (i + klen > row->rsize)
+				if (i + klen > row->rsize) {
 					continue;
+				}
 
 				if (!memcmp(p, keywords[j], klen)
 				    && is_separator(*(p + klen))) {
@@ -1109,8 +1130,9 @@ void editor_update_syntax(erow *row)
 	 * state changed. This may recursively affect all the following rows
 	 * in the file. */
 	int oc = editor_row_has_open_comment(row);
-	if (row->hl_oc != oc && row->idx + 1 < editor.numrows)
+	if (row->hl_oc != oc && row->idx + 1 < editor.numrows) {
 		editor_update_syntax(&editor.row[row->idx + 1]);
+	}
 	row->hl_oc = oc;
 }
 
@@ -1168,8 +1190,9 @@ static const char *shebang_interp_to_ext(const char *interp)
 		if (strncmp(interp, table[i].name, len) == 0
 		    && (interp[len] == '\0'
 			|| isdigit((unsigned char)interp[len])
-			|| interp[len] == '.'))
+			|| interp[len] == '.')) {
 			return table[i].ext;
+		}
 	}
 	return NULL;
 }
@@ -1185,48 +1208,56 @@ static void select_syntax_by_shebang(const char *filename)
 	FILE *fp;
 
 	fp = fopen(filename, "r");
-	if (!fp)
+	if (!fp) {
 		return;
+	}
 	if (!fgets(line, sizeof(line), fp)) {
 		fclose(fp);
 		return;
 	}
 	fclose(fp);
 
-	if (line[0] != '#' || line[1] != '!')
+	if (line[0] != '#' || line[1] != '!') {
 		return;
+	}
 
 	/* Strip leading spaces after #! */
 	interp = line + 2;
-	while (*interp == ' ')
+	while (*interp == ' ') {
 		interp++;
+	}
 
 	/* Take the last path component: "/usr/bin/bash" → "bash" */
 	slash = strrchr(interp, '/');
-	if (slash)
+	if (slash) {
 		interp = slash + 1;
+	}
 
 	/* If the component is "env", the real interpreter is the next word.
 	 * Handles "#!/usr/bin/env python3" and "#!env bash". */
 	if (strncmp(interp, "env", 3) == 0
 	    && (interp[3] == '\0' || isspace((unsigned char)interp[3]))) {
 		interp += 3;
-		while (*interp == ' ')
+		while (*interp == ' ') {
 			interp++;
+		}
 	}
 
 	/* Trim at whitespace (strips newline and any arguments) */
 	end = interp;
-	while (*end && !isspace((unsigned char)*end))
+	while (*end && !isspace((unsigned char)*end)) {
 		end++;
+	}
 	*end = '\0';
 
-	if (*interp == '\0')
+	if (*interp == '\0') {
 		return;
+	}
 
 	ext = shebang_interp_to_ext(interp);
-	if (!ext)
+	if (!ext) {
 		return;
+	}
 
 	for (j = 0; j < HLDB_ENTRIES; j++) {
 		struct editor_syntax *s = HLDB + j;

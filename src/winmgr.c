@@ -84,26 +84,30 @@ void win_reflow(void)
 	int usable, col_w, col_rem, col_x;
 	int i, j;
 
-	if (win_count == 0)
+	if (win_count == 0) {
 		return;
+	}
 
 	/* Collect distinct col_group values in appearance order. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		int found = 0;
-		if (!winlist[i].active)
+		if (!winlist[i].active) {
 			continue;
+		}
 		for (j = 0; j < num_col_groups; j++) {
 			if (col_groups[j] == winlist[i].col_group) {
 				found = 1;
 				break;
 			}
 		}
-		if (!found)
+		if (!found) {
 			col_groups[num_col_groups++] = winlist[i].col_group;
+		}
 	}
 
-	if (num_col_groups == 0)
+	if (num_col_groups == 0) {
 		return;
+	}
 
 	usable
 	    = win_total_rows - 1; /* reserve 1 row for the global echo area */
@@ -118,9 +122,11 @@ void win_reflow(void)
 		int n = 0; /* windows in this col_group */
 		int row_h, row_rem, row_y, win_idx;
 
-		for (i = 0; i < MAX_WINDOWS; i++)
-			if (winlist[i].active && winlist[i].col_group == cg)
+		for (i = 0; i < MAX_WINDOWS; i++) {
+			if (winlist[i].active && winlist[i].col_group == cg) {
 				n++;
+			}
+		}
 
 		row_h = usable / n;
 		row_rem = usable % n;
@@ -129,8 +135,9 @@ void win_reflow(void)
 
 		for (i = 0; i < MAX_WINDOWS; i++) {
 			int band_h;
-			if (!winlist[i].active || winlist[i].col_group != cg)
+			if (!winlist[i].active || winlist[i].col_group != cg) {
 				continue;
+			}
 
 			band_h = row_h + (win_idx < row_rem ? 1 : 0);
 			winlist[i].y = row_y;
@@ -150,14 +157,18 @@ void win_reflow(void)
 	editor.screencols = winlist[win_current].w;
 
 	/* Clamp cursor to new bounds. */
-	if (editor.cy >= editor.screenrows)
+	if (editor.cy >= editor.screenrows) {
 		editor.cy = editor.screenrows - 1;
-	if (editor.cx >= editor.screencols)
+	}
+	if (editor.cx >= editor.screencols) {
 		editor.cx = editor.screencols - 1;
-	if (editor.cy < 0)
+	}
+	if (editor.cy < 0) {
 		editor.cy = 0;
-	if (editor.cx < 0)
+	}
+	if (editor.cx < 0) {
 		editor.cx = 0;
+	}
 }
 
 /* Initialise the window list with a single window covering the whole screen.
@@ -200,8 +211,9 @@ void win_split_horizontal(void)
 			break;
 		}
 	}
-	if (slot < 0)
+	if (slot < 0) {
 		return;
+	}
 
 	buf_save_current_state();
 
@@ -232,15 +244,18 @@ void win_split_vertical(void)
 
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		if (!winlist[i].active) {
-			if (slot < 0)
+			if (slot < 0) {
 				slot = i;
+			}
 			continue;
 		}
-		if (winlist[i].col_group > max_cg)
+		if (winlist[i].col_group > max_cg) {
 			max_cg = winlist[i].col_group;
+		}
 	}
-	if (slot < 0)
+	if (slot < 0) {
 		return;
+	}
 
 	buf_save_current_state();
 
@@ -310,8 +325,9 @@ void win_delete_others(void)
 	int i;
 
 	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (i != win_current)
+		if (i != win_current) {
 			winlist[i].active = 0;
+		}
 	}
 	win_count = 1;
 	win_reflow();

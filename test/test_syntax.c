@@ -109,8 +109,9 @@ static void test_c_string(void)
 	setup(&HLDB[0]);
 	editor_insert_row(0, "\"hello\"", 7);
 
-	for (i = 0; i < 7; i++)
+	for (i = 0; i < 7; i++) {
 		CHECK(editor.row[0].hl[i] == HL_STRING);
+	}
 	teardown();
 }
 
@@ -122,8 +123,9 @@ static void test_c_line_comment(void)
 	setup(&HLDB[0]);
 	editor_insert_row(0, "// comment", 10);
 
-	for (i = 0; i < 10; i++)
+	for (i = 0; i < 10; i++) {
 		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
 	teardown();
 }
 
@@ -146,8 +148,9 @@ static void test_c_hex(void)
 	setup(&HLDB[0]);
 	editor_insert_row(0, "0xff", 4);
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 4; i++) {
 		CHECK(editor.row[0].hl[i] == HL_NUMBER);
+	}
 	teardown();
 }
 
@@ -159,8 +162,9 @@ static void test_c_binary(void)
 	setup(&HLDB[0]);
 	editor_insert_row(0, "0b101", 5);
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 5; i++) {
 		CHECK(editor.row[0].hl[i] == HL_NUMBER);
+	}
 	teardown();
 }
 
@@ -224,8 +228,9 @@ static void test_make_comment(void)
 	setup(&HLDB[18]);
 	editor_insert_row(0, "# comment", 9);
 
-	for (i = 0; i < 9; i++)
+	for (i = 0; i < 9; i++) {
 		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
 	teardown();
 }
 
@@ -240,8 +245,9 @@ static void test_md_atx_heading(void)
 	CHECK(strcmp(HLDB[19].name, "Markdown") == 0); /* guard: index drift */
 	editor_insert_row(0, "# Heading", 9);
 
-	for (i = 0; i < 9; i++)
+	for (i = 0; i < 9; i++) {
 		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+	}
 	teardown();
 }
 
@@ -253,8 +259,9 @@ static void test_md_blockquote(void)
 	setup(&HLDB[19]);
 	editor_insert_row(0, "> quote", 7);
 
-	for (i = 0; i < 7; i++)
+	for (i = 0; i < 7; i++) {
 		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
 	teardown();
 }
 
@@ -266,8 +273,9 @@ static void test_md_fenced_code_fence(void)
 	setup(&HLDB[19]);
 	editor_insert_row(0, "```", 3);
 
-	for (i = 0; i < 3; i++)
+	for (i = 0; i < 3; i++) {
 		CHECK(editor.row[0].hl[i] == HL_STRING);
+	}
 	teardown();
 }
 
@@ -288,12 +296,14 @@ static void test_md_setext_underline(void)
 	editor_update_row(&editor.row[0]);
 
 	/* The underline row itself is HL_KEYWORD1. */
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 5; i++) {
 		CHECK(editor.row[1].hl[i] == HL_KEYWORD1);
+	}
 
 	/* The heading text row is re-highlighted as HL_KEYWORD1 too. */
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 5; i++) {
 		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+	}
 	teardown();
 }
 
@@ -307,8 +317,9 @@ static void test_md_unmatched_bold(void)
 	setup(&HLDB[19]);
 	editor_insert_row(0, "stray '**' marker", 17);
 
-	for (i = 0; i < 17; i++)
+	for (i = 0; i < 17; i++) {
 		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+	}
 	teardown();
 }
 

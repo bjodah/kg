@@ -31,8 +31,9 @@ int editor_find_close_char(int open_char)
 	size_t i;
 
 	for (i = 0; i < AUTOPAIR_COUNT; i++) {
-		if (autopairs[i].open_char == open_char)
+		if (autopairs[i].open_char == open_char) {
 			return autopairs[i].close_char;
+		}
 	}
 	return 0;
 }
@@ -63,8 +64,9 @@ void editor_insert_char_auto_complete(int c)
 	editor_insert_char(c);
 
 	/* Skip autocompletion during paste operations */
-	if (editor.paste_mode)
+	if (editor.paste_mode) {
 		return;
+	}
 
 	/* If this is a bracket/quote and we're either at end of line or
 	 * next character is whitespace/symbol, insert the closing character */

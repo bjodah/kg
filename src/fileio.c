@@ -36,8 +36,9 @@ int file_state_differs(const char *path, time_t mtime, off_t size)
 {
 	struct stat st;
 
-	if (stat(path, &st) != 0)
+	if (stat(path, &st) != 0) {
 		return 0;
+	}
 	return st.st_mtime != mtime || st.st_size != size;
 }
 
@@ -82,8 +83,9 @@ int editor_open(char *filename)
 		}
 		editor_insert_row(editor.numrows, line, linelen);
 	}
-	if (ended_with_newline)
+	if (ended_with_newline) {
 		editor_insert_row(editor.numrows, "", 0);
+	}
 	free(line);
 	fclose(fp);
 	editor.dirty = 0;
@@ -110,8 +112,9 @@ int editor_save(int fd)
 		if (editor_read_line_path(
 			fd, "Write file: ", newname, sizeof(newname))
 			< 0
-		    || !newname[0])
+		    || !newname[0]) {
 			return 1;
+		}
 
 		/* If the entered path already exists, warn before clobbering —
 		 * and do it *before* mutating the buffer's filename or syntax
@@ -156,15 +159,18 @@ int editor_save(int fd)
 #endif
 	    ,
 	    0644);
-	if (filefd == -1)
+	if (filefd == -1) {
 		goto writeerr;
+	}
 
 	/* Use truncate + a single write(2) call in order to make saving
 	 * a bit safer, under the limits of what we can do in a small editor. */
-	if (ftruncate(filefd, len) == -1)
+	if (ftruncate(filefd, len) == -1) {
 		goto writeerr;
-	if (write(filefd, buf, len) != len)
+	}
+	if (write(filefd, buf, len) != len) {
 		goto writeerr;
+	}
 
 	close(filefd);
 	free(buf);
@@ -176,8 +182,9 @@ int editor_save(int fd)
 
 writeerr:
 	free(buf);
-	if (filefd != -1)
+	if (filefd != -1) {
 		close(filefd);
+	}
 
 	editor_set_status_message(
 	    "Error writing %s: %s", editor.filename, strerror(errno));
@@ -194,11 +201,13 @@ void editor_write_file(int fd)
 	editor_prompt_prefill_dir(newname, sizeof(newname));
 	if (editor_read_line_path(fd, "Write file: ", newname, sizeof(newname))
 		< 0
-	    || !newname[0])
+	    || !newname[0]) {
 		return;
+	}
 	newfilename = strdup(newname);
-	if (!newfilename)
+	if (!newfilename) {
 		return;
+	}
 	free(editor.filename);
 	editor.filename = newfilename;
 	editor_select_syntax_highlight(editor.filename);
@@ -221,8 +230,9 @@ void editor_insert_file(int fd)
 	if (editor_read_line_path(
 		fd, "Insert file: ", filename, sizeof(filename))
 		< 0
-	    || !filename[0])
+	    || !filename[0]) {
 		return;
+	}
 
 	filefd = open(filename,
 	    O_RDONLY
@@ -240,8 +250,9 @@ void editor_insert_file(int fd)
 		char *newbuf;
 
 		n = read(filefd, tmp, sizeof(tmp));
-		if (n == 0)
+		if (n == 0) {
 			break;
+		}
 		if ((ssize_t)n < 0) {
 			int saved_errno = errno;
 
@@ -287,8 +298,9 @@ void editor_insert_file(int fd)
 
 	/* Strip a single trailing newline to avoid inserting a spurious blank
 	 * line — most text files end with \n but we're inserting mid-buffer. */
-	if (buf[buflen - 1] == '\n')
+	if (buf[buflen - 1] == '\n') {
 		buflen--;
+	}
 
 	filerow = editor.rowoff + editor.cy;
 	filecol = editor.coloff + editor.cx;

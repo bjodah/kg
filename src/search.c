@@ -25,8 +25,9 @@ static char *isearch_find_last_before(char *s, char *query, int limit, int qlen)
 	char *match = s;
 
 	while ((match = strstr(match, query)) != NULL) {
-		if (match - s + qlen > limit)
+		if (match - s + qlen > limit) {
 			break;
+		}
 		best = match;
 		match++;
 	}
@@ -38,13 +39,15 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 {
 	int current, i;
 
-	if (editor.numrows == 0 || qlen == 0)
+	if (editor.numrows == 0 || qlen == 0) {
 		return 0;
+	}
 
-	if (start_row < 0)
+	if (start_row < 0) {
 		start_row = 0;
-	else if (start_row >= editor.numrows)
+	} else if (start_row >= editor.numrows) {
 		start_row = editor.numrows - 1;
+	}
 
 	current = start_row;
 	for (i = 0; i < editor.numrows; i++) {
@@ -53,16 +56,18 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->rsize);
 		char *match;
 
-		if (col < 0)
+		if (col < 0) {
 			col = 0;
-		else if (col > row->rsize)
+		} else if (col > row->rsize) {
 			col = row->rsize;
+		}
 
-		if (direction > 0)
+		if (direction > 0) {
 			match = strstr(row->render + col, query);
-		else
+		} else {
 			match = isearch_find_last_before(
 			    row->render, query, col, qlen);
+		}
 
 		if (match) {
 			*match_row = current;
@@ -71,10 +76,11 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 		}
 
 		current += direction;
-		if (current < 0)
+		if (current < 0) {
 			current = editor.numrows - 1;
-		else if (current == editor.numrows)
+		} else if (current == editor.numrows) {
 			current = 0;
+		}
 	}
 	return 0;
 }
@@ -91,9 +97,9 @@ static int isearch_handoff_key(int fd, int c)
 		editor_move_cursor(ARROW_LEFT);
 		return 1;
 	case CTRL_D:
-		if (editor.readonly)
+		if (editor.readonly) {
 			editor_set_status_message("Buffer is read-only");
-		else {
+		} else {
 			editor_set_status_message("");
 			editor_del_forward_char();
 		}
@@ -185,9 +191,10 @@ void editor_find(int fd, int direction)
 	char *saved_hl = NULL;
 	int qlen = 0;
 
-	if (start_row >= 0 && start_row < editor.numrows)
+	if (start_row >= 0 && start_row < editor.numrows) {
 		start_col = editor_visual_col(
 		    &editor.row[start_row], editor.coloff + editor.cx);
+	}
 
 	while (1) {
 		int c;
@@ -197,8 +204,9 @@ void editor_find(int fd, int direction)
 
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (qlen != 0)
+			if (qlen != 0) {
 				query[--qlen] = '\0';
+			}
 			last_match_row = -1;
 			last_match_col = -1;
 			find_next = direction;
@@ -288,11 +296,13 @@ void editor_query_replace(int fd)
 	int count = 0, replace_all = 0;
 
 	if (editor_read_line(fd, "Query replace: ", search, sizeof(search)) < 0
-	    || !search[0])
+	    || !search[0]) {
 		return;
+	}
 	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
-	    < 0)
+	    < 0) {
 		return;
+	}
 
 	slen = strlen(search);
 	rlen = strlen(replace);
@@ -321,10 +331,11 @@ void editor_query_replace(int fd)
 			erow *row = &editor.row[filerow];
 			if (row->hl) {
 				int i, rcol = 0;
-				for (i = 0; i < match_col; i++)
+				for (i = 0; i < match_col; i++) {
 					rcol += (row->chars[i] == '\t')
 					    ? (8 - rcol % 8)
 					    : 1;
+				}
 				saved_hl_line = filerow;
 				saved_hl = malloc(row->rsize);
 				if (!saved_hl) {
@@ -335,8 +346,9 @@ void editor_query_replace(int fd)
 					return;
 				}
 				memcpy(saved_hl, row->hl, row->rsize);
-				if (rcol + slen <= row->rsize)
+				if (rcol + slen <= row->rsize) {
 					memset(row->hl + rcol, HL_MATCH, slen);
+				}
 			}
 		}
 
@@ -350,8 +362,9 @@ void editor_query_replace(int fd)
 			c = 'y';
 		}
 
-		if (c == ESC || c == CTRL_G || c == 'q')
+		if (c == ESC || c == CTRL_G || c == 'q') {
 			break;
+		}
 		if (c == '!') {
 			replace_all = 1;
 			c = 'y';
@@ -371,11 +384,13 @@ void editor_query_replace(int fd)
 			    replace, rlen);
 
 			suppress_undo = 1;
-			for (i = 0; i < slen; i++)
+			for (i = 0; i < slen; i++) {
 				editor_row_del_char(row, match_col);
-			for (i = 0; i < rlen; i++)
+			}
+			for (i = 0; i < rlen; i++) {
 				editor_row_insert_char(row, match_col + i,
 				    (unsigned char)replace[i]);
+			}
 			suppress_undo = 0;
 
 			match_col += rlen;

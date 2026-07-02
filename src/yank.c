@@ -28,13 +28,15 @@ void kill_ring_free(void)
 /* Set the kill ring to new text (replaces existing content) */
 void kill_ring_set(char *text, int len)
 {
-	if (len <= 0)
+	if (len <= 0) {
 		return;
+	}
 
 	kill_ring_free();
 	killring.text = malloc(len + 1);
-	if (!killring.text)
+	if (!killring.text) {
 		return;
+	}
 
 	memcpy(killring.text, text, len);
 	killring.text[len] = '\0';
@@ -46,8 +48,9 @@ void kill_ring_append(char *text, int len)
 {
 	char *new_text;
 
-	if (len <= 0)
+	if (len <= 0) {
 		return;
+	}
 
 	if (!killring.text) {
 		kill_ring_set(text, len);
@@ -55,8 +58,9 @@ void kill_ring_append(char *text, int len)
 	}
 
 	new_text = realloc(killring.text, killring.len + len + 1);
-	if (!new_text)
+	if (!new_text) {
 		return;
+	}
 
 	memcpy(new_text + killring.len, text, len);
 	new_text[killring.len + len] = '\0';
@@ -121,8 +125,9 @@ char *editor_get_region_text(int *out_len)
 	int pos = 0;
 	int row;
 
-	if (!editor.mark_set)
+	if (!editor.mark_set) {
 		return NULL;
+	}
 
 	/* Determine which position comes first */
 	if (editor.mark_row < cur_row
@@ -144,27 +149,34 @@ char *editor_get_region_text(int *out_len)
 		int copy_end
 		    = (row == end_row) ? end_col : editor.row[row].size;
 
-		if (copy_end > editor.row[row].size)
+		if (copy_end > editor.row[row].size) {
 			copy_end = editor.row[row].size;
-		if (copy_start > editor.row[row].size)
+		}
+		if (copy_start > editor.row[row].size) {
 			copy_start = editor.row[row].size;
-		if (copy_start < 0)
+		}
+		if (copy_start < 0) {
 			copy_start = 0;
-		if (copy_end < copy_start)
+		}
+		if (copy_end < copy_start) {
 			copy_end = copy_start;
+		}
 
 		total_len += copy_end - copy_start;
-		if (row < end_row)
+		if (row < end_row) {
 			total_len++;
+		}
 	}
 
-	if (total_len == 0)
+	if (total_len == 0) {
 		return NULL;
+	}
 
 	/* Allocate and copy text */
 	text = malloc(total_len + 1);
-	if (!text)
+	if (!text) {
 		return NULL;
+	}
 
 	for (row = start_row; row <= end_row && row < editor.numrows; row++) {
 		int copy_start = (row == start_row) ? start_col : 0;
@@ -172,14 +184,18 @@ char *editor_get_region_text(int *out_len)
 		    = (row == end_row) ? end_col : editor.row[row].size;
 		int copy_len;
 
-		if (copy_end > editor.row[row].size)
+		if (copy_end > editor.row[row].size) {
 			copy_end = editor.row[row].size;
-		if (copy_start > editor.row[row].size)
+		}
+		if (copy_start > editor.row[row].size) {
 			copy_start = editor.row[row].size;
-		if (copy_start < 0)
+		}
+		if (copy_start < 0) {
 			copy_start = 0;
-		if (copy_end < copy_start)
+		}
+		if (copy_end < copy_start) {
 			copy_end = copy_start;
+		}
 
 		copy_len = copy_end - copy_start;
 		if (copy_len > 0) {
@@ -189,8 +205,9 @@ char *editor_get_region_text(int *out_len)
 		}
 
 		/* Add newline except for last line */
-		if (row < end_row)
+		if (row < end_row) {
 			text[pos++] = '\n';
+		}
 	}
 
 	if (pos > total_len) {
@@ -223,8 +240,9 @@ static void region_kill_or_delete(int save)
 		return;
 	}
 
-	if (save)
+	if (save) {
 		kill_ring_set(text, len);
+	}
 
 	if (editor.mark_row < cur_row
 	    || (editor.mark_row == cur_row && editor.mark_col < cur_col)) {
@@ -242,8 +260,9 @@ static void region_kill_or_delete(int save)
 	undo_push(UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
 
 	suppress_undo = 1;
-	for (i = 0; i < len; i++)
+	for (i = 0; i < len; i++) {
 		editor_del_forward_char();
+	}
 	suppress_undo = 0;
 
 	/* Drop the highlight and any transient-region machinery, but keep
@@ -291,10 +310,11 @@ void editor_copy_region(void)
 void editor_delete_region_or_char(void)
 {
 	if (editor.mark_set && editor.mark_highlight) {
-		if (editor.rect_mode)
+		if (editor.rect_mode) {
 			editor_delete_rect();
-		else
+		} else {
 			editor_delete_region();
+		}
 		return;
 	}
 	editor_del_forward_char();

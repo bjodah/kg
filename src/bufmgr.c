@@ -91,15 +91,17 @@ static void buf_restore_from_slot(int idx)
 	editor.auto_revert = b->auto_revert;
 	buf_current = idx;
 	/* Keep the active window pointing at the newly-restored buffer. */
-	if (win_count > 0)
+	if (win_count > 0) {
 		winlist[win_current].bufidx = idx;
+	}
 
 	/* If this buffer was flagged stale while it sat in its slot, reload
 	 * it now — but only when the user has opted in and there are no
 	 * unsaved edits to lose. */
 	if (editor.disk_changed && !editor.dirty
-	    && (editor.auto_revert || global_auto_revert))
+	    && (editor.auto_revert || global_auto_revert)) {
 		silent_revert_current();
+	}
 }
 
 /* Save current window view and buffer state before switching away. */
@@ -124,31 +126,41 @@ static void clamp_cursor_to_buffer(void)
 
 	filerow = editor.rowoff + editor.cy;
 	filecol = editor.coloff + editor.cx;
-	if (filerow >= editor.numrows)
+	if (filerow >= editor.numrows) {
 		filerow = editor.numrows - 1;
-	if (filerow < 0)
+	}
+	if (filerow < 0) {
 		filerow = 0;
+	}
 
 	rowsize = editor.row[filerow].size;
-	if (filecol > rowsize)
+	if (filecol > rowsize) {
 		filecol = rowsize;
-	if (filecol < 0)
+	}
+	if (filecol < 0) {
 		filecol = 0;
+	}
 
-	if (editor.rowoff > filerow)
+	if (editor.rowoff > filerow) {
 		editor.rowoff = filerow;
-	if (editor.rowoff + editor.screenrows <= filerow)
+	}
+	if (editor.rowoff + editor.screenrows <= filerow) {
 		editor.rowoff = filerow - editor.screenrows + 1;
-	if (editor.rowoff < 0)
+	}
+	if (editor.rowoff < 0) {
 		editor.rowoff = 0;
+	}
 	editor.cy = filerow - editor.rowoff;
 
-	if (editor.coloff > filecol)
+	if (editor.coloff > filecol) {
 		editor.coloff = filecol;
-	if (editor.coloff + editor.screencols <= filecol)
+	}
+	if (editor.coloff + editor.screencols <= filecol) {
 		editor.coloff = filecol - editor.screencols + 1;
-	if (editor.coloff < 0)
+	}
+	if (editor.coloff < 0) {
 		editor.coloff = 0;
+	}
 	editor.cx = filecol - editor.coloff;
 }
 
@@ -165,8 +177,9 @@ void buf_reload_from_disk(void)
 	char *fname;
 	int i;
 
-	for (i = 0; i < editor.numrows; i++)
+	for (i = 0; i < editor.numrows; i++) {
 		editor_free_row(&editor.row[i]);
+	}
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
@@ -176,8 +189,9 @@ void buf_reload_from_disk(void)
 	editor.rect_mode = 0;
 
 	fname = strdup(editor.filename);
-	if (!fname)
+	if (!fname) {
 		return;
+	}
 
 	suppress_undo = 1;
 	editor_open(fname);
@@ -229,8 +243,9 @@ int autorevert_poll(void)
 	int refresh_needed = 0;
 	int i;
 
-	if (now - last_poll < AUTOREVERT_POLL_INTERVAL_SEC)
+	if (now - last_poll < AUTOREVERT_POLL_INTERVAL_SEC) {
 		return 0;
+	}
 	last_poll = now;
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -241,12 +256,14 @@ int autorevert_poll(void)
 		off_t snap_size;
 		int new_changed;
 
-		if (!b->active)
+		if (!b->active) {
 			continue;
+		}
 
 		fname = (i == buf_current) ? editor.filename : b->filename;
-		if (is_special_buffer(fname))
+		if (is_special_buffer(fname)) {
 			continue;
+		}
 
 		if (i == buf_current) {
 			flag = &editor.disk_changed;
@@ -317,8 +334,9 @@ void buf_display_name(int idx, char *out, size_t outsize)
 	if (path) {
 		for (i = 0; i < MAX_BUFFERS; i++) {
 			if (i == idx || !buflist[i].active
-			    || !buflist[i].filename)
+			    || !buflist[i].filename) {
 				continue;
+			}
 			if (strcmp(buf_basename(buflist[i].filename), base)
 			    == 0) {
 				dup = 1;
@@ -338,8 +356,9 @@ void buf_display_name(int idx, char *out, size_t outsize)
 		return;
 	}
 	parent_start = parent_end - 1;
-	while (parent_start > path && parent_start[-1] != '/')
+	while (parent_start > path && parent_start[-1] != '/') {
 		parent_start--;
+	}
 	parent_len = parent_end - parent_start;
 	snprintf(out, outsize, "%.*s/%s", parent_len, parent_start, base);
 }
@@ -349,8 +368,9 @@ void buf_display_name(int idx, char *out, size_t outsize)
 static int prompt_done(int rc)
 {
 	editor.echo_cursor_col = 0;
-	if (rc < 0)
+	if (rc < 0) {
 		editor_set_status_message("");
+	}
 	return rc;
 }
 
@@ -378,8 +398,9 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	int dir_len, home_len;
 
 	buf[0] = '\0';
-	if (!fn || is_special_buffer(fn))
+	if (!fn || is_special_buffer(fn)) {
 		return;
+	}
 	abs = realpath(fn, NULL);
 	path = abs ? abs : fn; /* fall back to as-recorded path */
 	slash = strrchr(path, '/');
@@ -419,8 +440,9 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 		prompt_refresh(prompt, plen, buf, len);
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0)
+			if (len > 0) {
 				buf[--len] = '\0';
+			}
 		} else if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
@@ -448,11 +470,13 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 	va_start(ap, fmt);
 	n = vsnprintf(msg + *off, (size_t)avail, fmt, ap);
 	va_end(ap);
-	if (n < 0)
+	if (n < 0) {
 		return;
+	}
 	*off += n;
-	if (*off > size - 1)
+	if (*off > size - 1) {
 		*off = size - 1;
+	}
 }
 
 /* Is `name` the basename of any currently-open buffer's filename?
@@ -466,8 +490,9 @@ static int file_open_in_buflist(const char *name)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (buflist[i].active && buflist[i].filename
-		    && strcmp(buf_basename(buflist[i].filename), name) == 0)
+		    && strcmp(buf_basename(buflist[i].filename), name) == 0) {
 			return 1;
+		}
 	}
 	return 0;
 }
@@ -482,12 +507,16 @@ static void push_open_files_back(struct path_entry *entries, int n)
 	int i, k = 0;
 
 	memset(tmp, 0, sizeof(tmp));
-	for (i = 0; i < n; i++)
-		if (!file_open_in_buflist(entries[i].name))
+	for (i = 0; i < n; i++) {
+		if (!file_open_in_buflist(entries[i].name)) {
 			tmp[k++] = entries[i];
-	for (i = 0; i < n; i++)
-		if (file_open_in_buflist(entries[i].name))
+		}
+	}
+	for (i = 0; i < n; i++) {
+		if (file_open_in_buflist(entries[i].name)) {
 			tmp[k++] = entries[i];
+		}
+	}
 	memcpy(entries, tmp, n * sizeof(*entries));
 }
 
@@ -511,52 +540,62 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 		editor_msg_appendf(msg, msg_size, off, "[no match]");
 		return;
 	}
-	if (sel < 0)
+	if (sel < 0) {
 		sel = 0;
-	if (sel >= n)
+	}
+	if (sel >= n) {
 		sel = n - 1;
+	}
 
 	/* Leave room for the framing markers: "{" + "}" + worst-case
 	 * "… | " (4 cols) + " | …" (4 cols) = 10. */
 	budget = win_total_cols - *off - 10;
-	if (budget < 0)
+	if (budget < 0) {
 		budget = 0;
+	}
 	used = 0;
 	win_start = sel;
 	win_end = sel;
 	for (i = sel; i < n; i++) {
 		int w = (int)strlen(names[i]) + (i > sel ? 3 : 0); /* " | " */
-		if (i > sel && used + w > budget)
+		if (i > sel && used + w > budget) {
 			break;
+		}
 		used += w;
 		win_end = i + 1;
 	}
 	for (i = sel - 1; i >= 0; i--) {
 		int w = (int)strlen(names[i]) + 3;
-		if (used + w > budget)
+		if (used + w > budget) {
 			break;
+		}
 		win_start = i;
 		used += w;
 	}
 
 	editor_msg_appendf(msg, msg_size, off, "{");
-	if (win_start > 0)
+	if (win_start > 0) {
 		editor_msg_appendf(msg, msg_size, off, "… | ");
+	}
 	for (i = win_start; i < win_end; i++) {
-		if (i > win_start)
+		if (i > win_start) {
 			editor_msg_appendf(msg, msg_size, off, " | ");
-		if (i == sel)
+		}
+		if (i == sel) {
 			editor_msg_appendf(
 			    msg, msg_size, off, "\x1b[1m%s\x1b[22m", names[i]);
-		else
+		} else {
 			editor_msg_appendf(msg, msg_size, off, "%s", names[i]);
+		}
 	}
-	if (win_end < n)
+	if (win_end < n) {
 		editor_msg_appendf(msg, msg_size, off, " | …");
+	}
 	editor_msg_appendf(msg, msg_size, off, "}");
-	if (n_total > n)
+	if (n_total > n) {
 		editor_msg_appendf(
 		    msg, msg_size, off, "  (+%d more)", n_total - n);
+	}
 }
 
 /* Prompt for a path with ido-style completion.  Matching directory
@@ -589,13 +628,15 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		    dir, file, entries, PICKER_MAX_ENTRIES, lcp, sizeof(lcp));
 		matches = total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES
 						     : (total < 0 ? 0 : total);
-		if (sel >= matches)
+		if (sel >= matches) {
 			sel = matches > 0 ? matches - 1 : 0;
+		}
 
 		push_open_files_back(entries, matches);
 
-		for (i = 0; i < matches; i++)
+		for (i = 0; i < matches; i++) {
 			names[i] = entries[i].name;
+		}
 
 		off = 0;
 		editor_msg_appendf(
@@ -613,8 +654,9 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 				/* At a directory boundary: walk up one
 				 * component. */
 				buf[--len] = '\0';
-				while (len > 0 && buf[len - 1] != '/')
+				while (len > 0 && buf[len - 1] != '/') {
 					buf[--len] = '\0';
+				}
 			} else if (len > 0) {
 				buf[--len] = '\0';
 			}
@@ -622,11 +664,13 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		} else if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ARROW_LEFT || c == CTRL_B) {
-			if (matches > 0)
+			if (matches > 0) {
 				sel = (sel - 1 + matches) % matches;
+			}
 		} else if (c == ARROW_RIGHT || c == CTRL_F) {
-			if (matches > 0)
+			if (matches > 0) {
 				sel = (sel + 1) % matches;
+			}
 		} else if (c == ENTER) {
 			if (matches > 0) {
 				/* Replace the typed file part with the selected
@@ -643,8 +687,9 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 				len -= flen;
 				memcpy(buf + len, pe->name, new_name_len);
 				len += new_name_len;
-				if (add_slash)
+				if (add_slash) {
 					buf[len++] = '/';
+				}
 				buf[len] = '\0';
 				if (pe->is_dir) {
 					sel = 0;
@@ -749,8 +794,9 @@ void buf_select_interactive(int fd)
 	 * default). */
 	for (i = 1; i <= MAX_BUFFERS; i++) {
 		int idx = (buf_current + i) % MAX_BUFFERS;
-		if (buflist[idx].active)
+		if (buflist[idx].active) {
 			order[n++] = idx;
+		}
 	}
 	if (n == 0) {
 		editor_set_status_message("No other buffers.");
@@ -768,14 +814,16 @@ void buf_select_interactive(int fd)
 			/* Cache every candidate's display name once per redraw,
 			 * then build the filtered view as prefix matches
 			 * followed by mid-name matches. */
-			for (i = 0; i < n; i++)
+			for (i = 0; i < n; i++) {
 				buf_display_name(
 				    order[i], namebuf[i], sizeof(namebuf[i]));
+			}
 
 			for (i = 0; i < n; i++) {
 				if (editor_picker_match_rank(namebuf[i], query)
-				    != 0)
+				    != 0) {
 					continue;
+				}
 				names[matches] = namebuf[i];
 				match_idx[matches] = order[i];
 				matches++;
@@ -784,15 +832,17 @@ void buf_select_interactive(int fd)
 				for (i = 0; i < n; i++) {
 					if (editor_picker_match_rank(
 						namebuf[i], query)
-					    != 1)
+					    != 1) {
 						continue;
+					}
 					names[matches] = namebuf[i];
 					match_idx[matches] = order[i];
 					matches++;
 				}
 			}
-			if (sel >= matches)
+			if (sel >= matches) {
 				sel = matches > 0 ? matches - 1 : 0;
+			}
 
 			off = 0;
 			editor_msg_appendf(
@@ -805,15 +855,18 @@ void buf_select_interactive(int fd)
 
 			c = editor_read_key(fd);
 			if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-				if (qlen > 0)
+				if (qlen > 0) {
 					query[--qlen] = '\0';
+				}
 				sel = 0;
 			} else if (c == ARROW_RIGHT || c == CTRL_F) {
-				if (matches > 0)
+				if (matches > 0) {
 					sel = (sel + 1) % matches;
+				}
 			} else if (c == ARROW_LEFT || c == CTRL_B) {
-				if (matches > 0)
+				if (matches > 0) {
 					sel = (sel - 1 + matches) % matches;
+				}
 			} else if (c == ENTER) {
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
@@ -847,8 +900,9 @@ static void buf_open_file_ro(int fd, int readonly)
 
 	editor_prompt_prefill_dir(query, sizeof(query));
 	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0
-	    || query[0] == '\0')
+	    || query[0] == '\0') {
 		return;
+	}
 
 	/* Switch to existing buffer if the file is already open. */
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -875,8 +929,9 @@ static void buf_open_file_ro(int fd, int readonly)
 			break;
 		}
 	}
-	if (slot < 0)
+	if (slot < 0) {
 		return; /* should not happen given buf_count check above */
+	}
 
 	buf_save_current_state();
 	buf_reset();
@@ -934,16 +989,19 @@ void buf_save_all(int fd)
 		struct editor_buffer *b = &buflist[i];
 		int answer;
 
-		if (!b->active || !b->dirty)
+		if (!b->active || !b->dirty) {
 			continue;
-		if (is_special_buffer(b->filename))
+		}
+		if (is_special_buffer(b->filename)) {
 			continue;
+		}
 
 		editor_set_status_message("Save %s? (y/n) ", b->filename);
 		editor_refresh_screen();
 		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y')
+		if (answer != 'y' && answer != 'Y') {
 			continue;
+		}
 
 		if (write_slot(b) == 0) {
 			b->dirty = 0;
@@ -977,8 +1035,9 @@ void buf_kill(int fd)
 	}
 
 	/* Free current buffer's memory. */
-	for (i = 0; i < editor.numrows; i++)
+	for (i = 0; i < editor.numrows; i++) {
 		editor_free_row(&editor.row[i]);
+	}
 	free(editor.row);
 	free(editor.filename);
 	undo_free();
@@ -1017,13 +1076,15 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (!buflist[i].active) {
-			if (slot < 0)
+			if (slot < 0) {
 				slot = i;
+			}
 			continue;
 		}
 		if (buflist[i].filename
-		    && strcmp(buflist[i].filename, name) == 0)
+		    && strcmp(buflist[i].filename, name) == 0) {
 			existing = i;
+		}
 	}
 
 	if (existing >= 0) {
@@ -1036,14 +1097,16 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 			    "Too many open buffers (%d max).", MAX_BUFFERS);
 			return;
 		}
-		if (slot < 0)
+		if (slot < 0) {
 			return;
+		}
 		buf_reset();
 		editor.filename = strdup(name);
 	}
 
-	for (i = 0; i < editor.numrows; i++)
+	for (i = 0; i < editor.numrows; i++) {
 		editor_free_row(&editor.row[i]);
+	}
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
@@ -1082,13 +1145,15 @@ static void buf_list_populate(void)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
-		if (!b->active)
+		if (!b->active) {
 			continue;
+		}
 
 		modename = b->syntax ? b->syntax->name : "Fundamental";
 		size = 0;
-		for (j = 0; j < b->numrows; j++)
+		for (j = 0; j < b->numrows; j++) {
 			size += b->row[j].size;
+		}
 
 		len = snprintf(line, sizeof(line), " %c  %-24s  %6d  %-14s  %s",
 		    b->dirty ? '*' : ' ', buf_basename(b->filename), size,
@@ -1111,9 +1176,10 @@ static void buf_help_populate(void)
 {
 	int i;
 
-	for (i = 0; kg_help_lines[i]; i++)
+	for (i = 0; kg_help_lines[i]; i++) {
 		editor_insert_row(
 		    editor.numrows, kg_help_lines[i], strlen(kg_help_lines[i]));
+	}
 }
 
 /* Open (or refresh) the *help* buffer in the current window (C-h).
@@ -1134,22 +1200,28 @@ void buf_ibuffer_select(void)
 	const char *filename;
 	int i;
 
-	if (editor.syntax != &ibuffer_syntax)
+	if (editor.syntax != &ibuffer_syntax) {
 		return; /* only valid in IBuffer mode */
-	if (filerow < 2 || filerow >= editor.numrows)
+	}
+	if (filerow < 2 || filerow >= editor.numrows) {
 		return; /* skip header rows */
-	if (editor.row[filerow].size <= IBUF_FILENAME_OFFSET)
+	}
+	if (editor.row[filerow].size <= IBUF_FILENAME_OFFSET) {
 		return;
+	}
 
 	filename = editor.row[filerow].chars + IBUF_FILENAME_OFFSET;
-	if (!filename[0])
+	if (!filename[0]) {
 		return;
-	if (strcmp(filename, IBUF_NAME) == 0)
+	}
+	if (strcmp(filename, IBUF_NAME) == 0) {
 		return; /* don't recurse */
+	}
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active || !buflist[i].filename)
+		if (!buflist[i].active || !buflist[i].filename) {
 			continue;
+		}
 		if (strcmp(buflist[i].filename, filename) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);

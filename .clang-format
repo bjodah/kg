@@ -4,3 +4,6 @@ IndentWidth: 8
 PointerAlignment: Right
 TabWidth: 8
 UseTab: Always
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+InsertBraces: true

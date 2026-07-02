@@ -477,8 +477,9 @@ static inline int utf8_is_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
 static inline const char *buf_basename(const char *filename)
 {
 	const char *base;
-	if (!filename)
+	if (!filename) {
 		return "[new]";
+	}
 	base = strrchr(filename, '/');
 	return base ? base + 1 : filename;
 }

@@ -17,16 +17,18 @@ int macro_is_recording(void) { return macro_recording; }
  * Skipped during replay so we don't corrupt the buffer with replayed keys. */
 void macro_on_key(int key)
 {
-	if (macro_recording && !macro_replaying && macro_len < MACRO_MAX)
+	if (macro_recording && !macro_replaying && macro_len < MACRO_MAX) {
 		macro_keys[macro_len++] = key;
+	}
 }
 
 /* Called by editor_read_key: return next pre-recorded key during replay,
  * or -1 when the buffer is exhausted (fall back to terminal). */
 int macro_next_key(void)
 {
-	if (macro_replaying && macro_pos < macro_len)
+	if (macro_replaying && macro_pos < macro_len) {
 		return macro_keys[macro_pos++];
+	}
 	return -1;
 }
 
@@ -53,8 +55,9 @@ void macro_stop(int trim)
 	}
 	macro_recording = 0;
 	macro_len -= trim;
-	if (macro_len < 0)
+	if (macro_len < 0) {
 		macro_len = 0;
+	}
 	editor_set_status_message(
 	    "Macro defined (%d key%s)", macro_len, macro_len == 1 ? "" : "s");
 }
@@ -66,18 +69,21 @@ void macro_replay(int fd)
 		editor_set_status_message("Can't replay while defining macro");
 		return;
 	}
-	if (macro_replaying)
+	if (macro_replaying) {
 		return; /* no recursion */
+	}
 	if (macro_len == 0) {
 		editor_set_status_message("No macro defined");
 		return;
 	}
 	macro_replaying = 1;
 	macro_pos = 0;
-	while (macro_pos < macro_len && running)
+	while (macro_pos < macro_len && running) {
 		editor_process_keypress(fd);
+	}
 	macro_replaying = 0;
-	if (running)
+	if (running) {
 		editor_set_status_message("Macro replayed (%d key%s)",
 		    macro_len, macro_len == 1 ? "" : "s");
+	}
 }

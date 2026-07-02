@@ -33,8 +33,9 @@ void ab_append(struct abuf *ab, const char *s, int len)
 {
 	char *new = realloc(ab->b, ab->len + len);
 
-	if (new == NULL)
+	if (new == NULL) {
 		return;
+	}
 	memcpy(new + ab->len, s, len);
 	ab->b = new;
 	ab->len += len;
@@ -71,13 +72,15 @@ static int chars_to_render_col(erow *row, int chars_col)
 {
 	int j, idx = 0;
 
-	if (chars_col > row->size)
+	if (chars_col > row->size) {
 		chars_col = row->size;
+	}
 	for (j = 0; j < chars_col; j++) {
 		if (row->chars[j] == TAB) {
 			idx++;
-			while ((idx + 1) % 8 != 0)
+			while ((idx + 1) % 8 != 0) {
 				idx++;
+			}
 		} else {
 			idx++;
 		}
@@ -161,8 +164,9 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					int budget;
 					int k = 0, vcols = 0;
 
-					if (padding < 0)
+					if (padding < 0) {
 						padding = 0;
+					}
 					if (padding > 0) {
 						ab_append(ab,
 						    KG_SHOW_TILDE ? "~" : " ",
@@ -179,14 +183,16 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					 * don't overflow the window's right
 					 * edge into the next pane. */
 					budget = win_w - filled;
-					if (budget < 0)
+					if (budget < 0) {
 						budget = 0;
+					}
 					while (str[k]) {
 						unsigned char b
 						    = (unsigned char)str[k];
 						if (!utf8_is_cont(b)) {
-							if (vcols >= budget)
+							if (vcols >= budget) {
 								break;
+							}
 							vcols++;
 						}
 						k++;
@@ -199,10 +205,11 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 				ab_append(ab, "~", 1);
 				filled = 1;
 			}
-			if (is_full_width)
+			if (is_full_width) {
 				ab_append(ab, "\x1b[0K", 4);
-			else
+			} else {
 				ab_append_spaces(ab, win_w - filled);
+			}
 			continue;
 		}
 
@@ -223,8 +230,9 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					    = (unsigned char)
 						  r->render[coloff + len];
 					if (!utf8_is_cont(b)) {
-						if (vcol_used >= win_w)
+						if (vcol_used >= win_w) {
 							break;
+						}
 						vcol_used++;
 					}
 					len++;
@@ -243,10 +251,12 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					int byte_hi
 					    = editor_chars_col_at_visual(
 						r, region_e_col);
-					if (byte_lo > r->size)
+					if (byte_lo > r->size) {
 						byte_lo = r->size;
-					if (byte_hi > r->size)
+					}
+					if (byte_hi > r->size) {
 						byte_hi = r->size;
+					}
 					hi_lo = chars_to_render_col(r, byte_lo);
 					hi_hi = chars_to_render_col(r, byte_hi);
 				} else {
@@ -271,10 +281,11 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 				 * will catch up. */
 				if (want_rev != current_reverse
 				    && !utf8_is_cont(c[j])) {
-					if (want_rev)
+					if (want_rev) {
 						ab_append(ab, "\x1b[7m", 4);
-					else
+					} else {
 						ab_append(ab, "\x1b[27m", 5);
+					}
 					current_reverse = want_rev;
 				}
 				if (hl[j] == HL_NONPRINT) {
@@ -344,8 +355,9 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					}
 				}
 			}
-			if (current_reverse)
+			if (current_reverse) {
 				ab_append(ab, "\x1b[27m", 5);
+			}
 		}
 		ab_append(ab, "\x1b[39m", 5);
 		if (is_full_width) {
@@ -378,18 +390,20 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	 * prepends the parent directory when another open buffer shares the
 	 * basename, so foo and dir/foo can be told apart. */
 	buf_display_name(bufidx, bname, sizeof(bname));
-	if (is_current ? editor.disk_changed : b->disk_changed)
+	if (is_current ? editor.disk_changed : b->disk_changed) {
 		changed = " (changed)";
+	}
 
 	/* Emacs-style position indicator. */
-	if (total_rows <= win_h)
+	if (total_rows <= win_h) {
 		snprintf(pos, sizeof(pos), "All");
-	else if (rowoff == 0)
+	} else if (rowoff == 0) {
 		snprintf(pos, sizeof(pos), "Top");
-	else if (rowoff + win_h >= total_rows)
+	} else if (rowoff + win_h >= total_rows) {
 		snprintf(pos, sizeof(pos), "Bot");
-	else
+	} else {
 		snprintf(pos, sizeof(pos), "%d%%", rowoff * 100 / total_rows);
+	}
 
 	ab_move_to(ab, ml_row, win_x);
 	ab_append(ab, is_active ? "\x1b[7m" : "\x1b[2m",
@@ -399,8 +413,9 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	    dirty ? "-**-" : "----", bname, changed, pos, cur_row, cur_col,
 	    modename);
 
-	if (len > win_w)
+	if (len > win_w) {
 		len = win_w;
+	}
 	ab_append(ab, status, len);
 	ab_append_spaces(ab, win_w - len);
 	ab_append(ab, "\x1b[0m", 4);
@@ -425,8 +440,9 @@ void editor_refresh_screen(void)
 		int ml_row;
 		struct editor_buffer *b;
 
-		if (!w->active)
+		if (!w->active) {
 			continue;
+		}
 
 		bidx = w->bufidx;
 		b = &buflist[bidx];
@@ -499,10 +515,13 @@ void editor_refresh_screen(void)
 					p++;
 					while (p < msglen
 					    && (editor.statusmsg[p] < 0x40
-						|| editor.statusmsg[p] > 0x7e))
+						|| editor.statusmsg[p]
+						    > 0x7e)) {
 						p++;
-					if (p < msglen)
+					}
+					if (p < msglen) {
 						p++; /* the final letter */
+					}
 				}
 				continue;
 			}
@@ -518,8 +537,9 @@ void editor_refresh_screen(void)
 		/* Minibuffer prompt active: park the cursor on the echo area so
 		 * the user can see what they're typing. */
 		int col = editor.echo_cursor_col;
-		if (col > win_total_cols)
+		if (col > win_total_cols) {
 			col = win_total_cols;
+		}
 		ab_move_to(&ab, win_total_rows, col);
 	} else {
 		struct editor_window *w = &winlist[win_current];
@@ -537,16 +557,20 @@ void editor_refresh_screen(void)
 
 			for (j = editor.coloff; j < target && j < row->size;
 			    j++) {
-				if (row->chars[j] == TAB)
+				if (row->chars[j] == TAB) {
 					cx += 7 - ((cx) % 8);
-				if (!utf8_is_cont((unsigned char)row->chars[j]))
+				}
+				if (!utf8_is_cont(
+					(unsigned char)row->chars[j])) {
 					cx++;
+				}
 			}
 			/* Past EOL — rect mode allows the cursor to live in
 			 * virtual space; each virtual byte renders as one extra
 			 * column. */
-			if (target > row->size)
+			if (target > row->size) {
 				cx += target - row->size;
+			}
 		}
 		ab_move_to(&ab, w->y + editor.cy, w->x + cx - 1);
 	}

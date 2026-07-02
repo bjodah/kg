@@ -41,19 +41,15 @@ static int point_on_word(void)
 	return !isspace((unsigned char)row->chars[filecol]);
 }
 
-/* Move cursor forward by one word (to start of next word).  Whitespace runs,
- * including line breaks, are crossed so that M-f / Ctrl-Right continue onto
- * the following line just as M-b does onto the previous one. */
+/* Move cursor forward by one word.  Whitespace runs, including line breaks,
+ * are crossed first; then point lands after the following word, matching
+ * Emacs forward-word. */
 void editor_move_word_forward(void)
 {
-	/* If standing inside a word, step past the rest of it first. */
-	while (!at_buffer_end() && point_on_word()) {
+	while (!at_buffer_end() && !point_on_word()) {
 		editor_move_cursor(ARROW_RIGHT);
 	}
-
-	/* Then skip the whitespace gap — newlines included — to land at the
-	 * start of the next word. */
-	while (!at_buffer_end() && !point_on_word()) {
+	while (!at_buffer_end() && point_on_word()) {
 		editor_move_cursor(ARROW_RIGHT);
 	}
 }

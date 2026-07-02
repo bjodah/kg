@@ -88,6 +88,9 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 static int isearch_handoff_key(int fd, int c)
 {
 	switch (c) {
+	case KEY_NULL:
+		editor_set_mark();
+		return 1;
 	case CTRL_A:
 		editor_set_status_message("");
 		editor_move_cursor(HOME_KEY);

@@ -39,9 +39,10 @@ run_clang_tidy() {
 }
 
 export -f run_clang_check run_clang_tidy
+export CC="ccache clang"
 
 # https://btorpey.github.io/blog/2015/04/27/static-analysis-with-clang/
-bear -- "${MAKE_PARALLEL[@]}" CC="ccache clang" -B
+bear -- "${MAKE_PARALLEL[@]}" -B
 export COMPILE_DB=$(/bin/pwd)
 make iwyu
 

@@ -1,7 +1,9 @@
 # Makefile for kg editor
 
+ifeq ($(origin CC),default)
 CC      = gcc
-CFLAGS  = -Wall -W -pedantic -std=c99 -Os
+endif
+CFLAGS  ?= -Wall -W -pedantic -std=c99 -Os
 PROG    = kg
 OBJDIR  = src
 TARGET  = $(OBJDIR)/$(PROG)

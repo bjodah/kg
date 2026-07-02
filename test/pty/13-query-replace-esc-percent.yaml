@@ -1,0 +1,17 @@
+name: query-replace-esc-percent
+filename: replace.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  foo
+keys:
+  - ESC
+  - "%"
+  - foo
+  - ENTER
+  - bar
+  - ENTER
+  - "!"
+oracle: emacs

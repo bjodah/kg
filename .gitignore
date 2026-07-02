@@ -7,3 +7,4 @@ kg
 src/kg
 compile_commands.json
 *.plist
+.cache

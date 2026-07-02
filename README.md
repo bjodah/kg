@@ -28,7 +28,7 @@ escape sequences.
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c})
-- Incremental search and query-replace (M-%)
+- Incremental search and query-replace (M-% / ESC %)
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e)

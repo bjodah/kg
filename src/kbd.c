@@ -252,6 +252,13 @@ void editor_process_keypress(int fd)
 
 	/* Regular key processing */
 	switch (c) {
+	case ESC:
+		c = editor_read_key(fd);
+		if (c == '%' || c == ALT_PCT)
+			editor_query_replace(fd);
+		else if (c != CTRL_G)
+			editor_set_status_message("ESC %c is undefined", c);
+		break;
 	case KEY_NULL:      /* Ctrl+Space - set mark */
 		editor_set_mark();
 		break;
@@ -320,8 +327,10 @@ void editor_process_keypress(int fd)
 		while (n--) editor_move_cursor(ARROW_UP);
 		break;
 	case CTRL_S:        /* Incremental search */
+		editor_find(fd, 1);
+		break;
 	case CTRL_R:
-		editor_find(fd);
+		editor_find(fd, -1);
 		break;
 	case CTRL_Q: {
 		int key = editor_read_raw_byte(fd);
@@ -562,9 +571,6 @@ void editor_process_keypress(int fd)
 		editor_refresh_screen();
 		break;
 	}
-	case ESC:
-		/* Nothing to do for ESC in this mode. */
-		break;
 	default:
 		/* Filter out control characters and non-printable characters.
 		 * Only allow printable ASCII (32-126) and TAB.  (ENTER is handled

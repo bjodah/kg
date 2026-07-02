@@ -235,7 +235,7 @@ appends.
 .It Sy Key Ta Sy Action
 .It C-s Ta Incremental search forward
 .It C-r Ta Incremental search backward
-.It M-% Ta Query replace
+.It M-% / Esc % Ta Query replace
 .El
 .Pp
 While searching:
@@ -260,10 +260,14 @@ cancels and returns to the original position;
 removes the last character from the query.
 .Pp
 .Ic M-%
+or
+.Ic Esc %
 prompts for a search string and a replacement string, then steps through
 every match from the current position to the end of the buffer.
 At each match:
 .Ic y
+or
+.Ic Space
 or
 .Ic Enter
 replaces the match and moves to the next;

@@ -1,0 +1,16 @@
+name: query-replace-space-accepts
+filename: replace.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: |
+  foo
+keys:
+  - M-%
+  - foo
+  - ENTER
+  - bar
+  - ENTER
+  - SPC
+oracle: emacs

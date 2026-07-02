@@ -490,7 +490,7 @@ void macro_stop(int trim);
 void macro_replay(int fd);
 
 /* search.c */
-void editor_find(int fd);
+void editor_find(int fd, int direction);
 void editor_query_replace(int fd);
 
 /* shell.c */

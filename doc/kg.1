@@ -77,7 +77,8 @@ also start or extend a numeric prefix directly
 .Pq Sq M-1 M-\&! .
 .Ic C-g
 cancels an in-progress prefix.
-The accumulated count is shown in the echo area while it is being built.
+The accumulated count is shown in the echo area while it is being built,
+and is capped at 1000 repeats.
 .Pp
 Cursor motion, character and word deletion, word-case commands, opening
 lines, inserting newlines and inserting plain characters all honour the

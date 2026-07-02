@@ -24,6 +24,8 @@ static const int readonly_blocked_keys[] = {
 	TAB,
 };
 
+#define PREFIX_ARG_MAX 1000
+
 static int key_would_edit_readonly_buffer(int c)
 {
 	size_t i;
@@ -39,6 +41,28 @@ static int key_would_edit_readonly_buffer(int c)
 		}
 	}
 	return 0;
+}
+
+static int bottom_buffer_screen_row(void)
+{
+	int bottom = editor.screenrows > 0 ? editor.screenrows - 1 : 0;
+	int last = editor.numrows - editor.rowoff - 1;
+
+	if (last < 0) {
+		last = 0;
+	}
+	if (last > bottom) {
+		last = bottom;
+	}
+	return last;
+}
+
+static int prefix_arg_mul_add(int value, int mul, int add)
+{
+	if (value > (PREFIX_ARG_MAX - add) / mul) {
+		return PREFIX_ARG_MAX;
+	}
+	return value * mul + add;
 }
 
 /* C-u universal-argument: accumulate a numeric prefix.  Returns 1 if `c`
@@ -69,7 +93,7 @@ static int handle_universal_arg(int c)
 	}
 
 	if (c == CTRL_U) {
-		editor.prefix_arg *= 4;
+		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
 		editor_set_status_message("C-u %d", editor.prefix_arg);
 		return 1;
 	}
@@ -79,7 +103,8 @@ static int handle_universal_arg(int c)
 			editor.prefix_arg = digit;
 			editor.prefix_no_digits = 0;
 		} else {
-			editor.prefix_arg = editor.prefix_arg * 10 + digit;
+			editor.prefix_arg
+			    = prefix_arg_mul_add(editor.prefix_arg, 10, digit);
 		}
 		editor_set_status_message("C-u %d", editor.prefix_arg);
 		return 1;
@@ -89,7 +114,8 @@ static int handle_universal_arg(int c)
 			editor.prefix_arg = meta_digit;
 			editor.prefix_no_digits = 0;
 		} else {
-			editor.prefix_arg = editor.prefix_arg * 10 + meta_digit;
+			editor.prefix_arg = prefix_arg_mul_add(
+			    editor.prefix_arg, 10, meta_digit);
 		}
 		editor_set_status_message("M-%d", editor.prefix_arg);
 		return 1;
@@ -449,9 +475,7 @@ void editor_process_keypress(int fd)
 		break;
 	}
 	case CTRL_V: /* Page down */
-		if (editor.cy != editor.screenrows - 1) {
-			editor.cy = editor.screenrows - 1;
-		}
+		editor.cy = bottom_buffer_screen_row();
 		{
 			int times = editor.screenrows;
 			while (times--) {
@@ -530,9 +554,8 @@ void editor_process_keypress(int fd)
 	case PAGE_DOWN:
 		if (c == PAGE_UP && editor.cy != 0) {
 			editor.cy = 0;
-		} else if (c == PAGE_DOWN
-		    && editor.cy != editor.screenrows - 1) {
-			editor.cy = editor.screenrows - 1;
+		} else if (c == PAGE_DOWN) {
+			editor.cy = bottom_buffer_screen_row();
 		}
 		{
 			int times = editor.screenrows;

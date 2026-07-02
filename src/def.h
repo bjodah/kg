@@ -79,8 +79,13 @@
 /* Write escape sequences to stdout; silently discard errors (best-effort). */
 static inline void tty_write(const void *buf, size_t n)
 {
+#ifdef KG_FUZZ
+	(void)buf;
+	(void)n;
+#else
 	ssize_t r = write(STDOUT_FILENO, buf, n);
 	(void)r;
+#endif
 }
 
 /* Syntax highlight types */

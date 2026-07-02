@@ -102,8 +102,6 @@ void editor_path_expand_tilde(char *buf, int bufsize)
 void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
 
 void editor_refresh_screen(void) { }
-void probe_window_size(void) { }
-void editor_suspend(void) { }
 
 void buf_save_current_state(void) { }
 void buf_save_all(int fd) { (void)fd; }

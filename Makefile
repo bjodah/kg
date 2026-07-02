@@ -56,7 +56,7 @@ PTY_TIMEOUT ?=
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c99 -O1 -g \
-	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DKG_FUZZ=1 \
 	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
 
 # Project metrics

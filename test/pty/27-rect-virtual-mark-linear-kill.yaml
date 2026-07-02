@@ -1,0 +1,14 @@
+name: rect-virtual-mark-linear-kill
+filename: rect-virtual-mark.txt
+initial: "\ndef\n"
+keys:
+  - C-x
+  - SPC
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-g
+  - C-n
+  - C-w
+expected_saved: "def\n"

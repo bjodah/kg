@@ -42,7 +42,8 @@ escape sequences.
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)
 - Open line (C-o) and join-line (M-^)
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes
-- Universal-argument (C-u / M-0..M-9) for repeated commands
+- Universal-argument (C-u / M-0..M-9) for repeated commands, capped at
+  1000
 - Auto-indent and bracket autocomplete
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)

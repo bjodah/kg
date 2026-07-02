@@ -35,13 +35,13 @@ static void reset_state(void)
 	win_count = 1;
 	win_total_rows = 24;
 	win_total_cols = 80;
-	editor.screenrows = 24;
+	editor.screenrows = 22;
 	editor.screencols = 80;
 	editor.desired_visual_col = -1;
 	editor.filename = strdup("fuzz.txt");
 	winlist[0].active = 1;
 	winlist[0].bufidx = 0;
-	winlist[0].h = 24;
+	winlist[0].h = 22;
 	winlist[0].w = 80;
 	kill_ring_init();
 	undo_init();
@@ -75,6 +75,16 @@ static void seed_buffer(const uint8_t *data, size_t size)
 	}
 	editor.dirty = 0;
 	undo_mark_clean();
+	buflist[0].active = 1;
+	buflist[0].cx = editor.cx;
+	buflist[0].cy = editor.cy;
+	buflist[0].rowoff = editor.rowoff;
+	buflist[0].coloff = editor.coloff;
+	buflist[0].numrows = editor.numrows;
+	buflist[0].row = editor.row;
+	buflist[0].dirty = editor.dirty;
+	buflist[0].filename = editor.filename;
+	buflist[0].syntax = editor.syntax;
 }
 
 static void teardown_state(void)

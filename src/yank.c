@@ -253,9 +253,15 @@ static void region_kill_or_delete(int save)
 		start_col = cur_col;
 	}
 
+	if (start_row >= 0 && start_row < editor.numrows) {
+		if (start_col < 0) {
+			start_col = 0;
+		}
+		if (start_col > editor.row[start_row].size) {
+			start_col = editor.row[start_row].size;
+		}
+	}
 	editor_cursor_goto(start_row, start_col);
-	editor.coloff = 0;
-	editor.cx = start_col;
 
 	undo_push(UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
 

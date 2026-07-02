@@ -65,6 +65,11 @@ static int lookup_alt_key(char byte)
 
 void disable_raw_mode(int fd)
 {
+#ifdef KG_FUZZ
+	(void)fd;
+	editor.rawmode = 0;
+	return;
+#endif
 	/* Don't even check the return value as it's too late. */
 	if (editor.rawmode) {
 		tcsetattr(fd, TCSAFLUSH, &orig_termios);
@@ -75,6 +80,9 @@ void disable_raw_mode(int fd)
 /* Called at exit to avoid remaining in raw mode. */
 void editor_at_exit(void)
 {
+#ifdef KG_FUZZ
+	return;
+#endif
 	/* Clear screen and reset cursor position before exiting. */
 	tty_write("\x1b[2J", 4); /* Clear entire screen */
 	tty_write("\x1b[H", 3); /* Move cursor to top-left */
@@ -85,6 +93,11 @@ void editor_at_exit(void)
 /* Raw mode: 1960 magic shit. */
 int enable_raw_mode(int fd)
 {
+#ifdef KG_FUZZ
+	(void)fd;
+	editor.rawmode = 1;
+	return 0;
+#else
 	struct termios raw;
 
 	if (editor.rawmode) {
@@ -124,6 +137,7 @@ int enable_raw_mode(int fd)
 fatal:
 	errno = ENOTTY;
 	return -1;
+#endif
 }
 
 /* Decode an escape sequence (ESC byte already consumed) into a key code. */
@@ -132,7 +146,7 @@ static int parse_escape(int fd)
 	char seq[6];
 	int key;
 
-	if (read(fd, seq, 1) == 0) {
+	if (read(fd, seq, 1) != 1) {
 		return ESC; /* bare ESC */
 	}
 
@@ -145,14 +159,14 @@ static int parse_escape(int fd)
 		return ALT_0 + (seq[0] - '0');
 	}
 
-	if (read(fd, seq + 1, 1) == 0) {
+	if (read(fd, seq + 1, 1) != 1) {
 		return ESC;
 	}
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
 		if (seq[1] >= '0' && seq[1] <= '9') {
-			if (read(fd, seq + 2, 1) == 0) {
+			if (read(fd, seq + 2, 1) != 1) {
 				return ESC;
 			}
 			if (seq[2] == '~') {
@@ -167,7 +181,7 @@ static int parse_escape(int fd)
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
 				 * F4=ESC[14~) */
-				if (read(fd, seq + 3, 1) == 0) {
+				if (read(fd, seq + 3, 1) != 1) {
 					return ESC;
 				}
 				if (seq[3] == '~' && seq[1] == '1') {
@@ -181,10 +195,10 @@ static int parse_escape(int fd)
 			} else if (seq[2] == ';') {
 				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
 				 * Ctrl */
-				if (read(fd, seq + 3, 1) == 0) {
+				if (read(fd, seq + 3, 1) != 1) {
 					return ESC;
 				}
-				if (read(fd, seq + 4, 1) == 0) {
+				if (read(fd, seq + 4, 1) != 1) {
 					return ESC;
 				}
 				if (seq[1] == '1' && seq[3] == '5') {
@@ -353,6 +367,13 @@ int editor_read_key_idle(int fd)
  * cursor is stored at *rows and *cols and 0 is returned. */
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 {
+#ifdef KG_FUZZ
+	(void)ifd;
+	(void)ofd;
+	*rows = win_total_rows ? win_total_rows : 24;
+	*cols = win_total_cols ? win_total_cols : 80;
+	return 0;
+#else
 	unsigned int i = 0;
 	char buf[32];
 
@@ -382,6 +403,7 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 	}
 
 	return 0;
+#endif
 }
 
 /* Try to get the number of columns in the current terminal. If the ioctl()
@@ -389,6 +411,13 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
  * Returns 0 on success, -1 on error. */
 int get_window_size(int ifd, int ofd, int *rows, int *cols)
 {
+#ifdef KG_FUZZ
+	(void)ifd;
+	(void)ofd;
+	*rows = 24;
+	*cols = 80;
+	return 0;
+#else
 	struct winsize ws;
 
 	if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
@@ -425,6 +454,7 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 
 failed:
 	return -1;
+#endif
 }
 
 /* Probe terminal dimensions using ANSI escape sequences, bypassing ioctl.
@@ -433,6 +463,13 @@ failed:
  * Saves and restores cursor position around the probe. */
 void probe_window_size(void)
 {
+#ifdef KG_FUZZ
+	win_total_rows = 24;
+	win_total_cols = 80;
+	editor.screenrows = 22;
+	editor.screencols = 80;
+	return;
+#else
 	int new_rows, new_cols, orig_row, orig_col;
 	char seq[32];
 
@@ -466,10 +503,22 @@ void probe_window_size(void)
 restore:
 	snprintf(seq, sizeof(seq), "\x1b[%d;%dH", orig_row, orig_col);
 	tty_write(seq, strlen(seq));
+#endif
 }
 
 void update_window_size(void)
 {
+#ifdef KG_FUZZ
+	win_total_rows = 24;
+	win_total_cols = 80;
+	if (win_count > 0) {
+		win_reflow();
+	} else {
+		editor.screenrows = 22;
+		editor.screencols = 80;
+	}
+	return;
+#else
 	const int max_attempts = 3;
 	int new_rows, new_cols;
 	int attempts = 0;
@@ -501,18 +550,28 @@ void update_window_size(void)
 
 	/* If all attempts failed, keep current dimensions and warn user */
 	editor_set_status_message("Warning: failed updating window size");
+#endif
 }
 
 void handle_sig_winch(int unused __attribute__((unused)))
 {
+#ifdef KG_FUZZ
+	(void)unused;
+	update_window_size();
+	return;
+#else
 	update_window_size(); /* calls win_reflow() which clamps cursors */
 	editor_refresh_screen();
+#endif
 }
 
 /* Suspend the editor (C-z): restore terminal, stop the process, then
  * re-enable raw mode and redraw when resumed with fg. */
 void editor_suspend(void)
 {
+#ifdef KG_FUZZ
+	return;
+#else
 	disable_raw_mode(STDIN_FILENO);
 	tty_write("\x1b[2J\x1b[H", 7); /* clear screen, cursor home */
 	raise(SIGTSTP);
@@ -520,4 +579,5 @@ void editor_suspend(void)
 	enable_raw_mode(STDIN_FILENO);
 	update_window_size();
 	editor_refresh_screen();
+#endif
 }

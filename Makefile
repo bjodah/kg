@@ -44,7 +44,8 @@ FUZZBIN = $(TESTDIR)/fuzz_keypress
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
-	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c
+	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
+	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
@@ -55,6 +56,7 @@ PTY_TIMEOUT ?=
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c99 -O1 -g \
+	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
 	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
 
 # Project metrics

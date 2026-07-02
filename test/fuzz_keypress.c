@@ -5,9 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern const unsigned char *fuzz_input;
-extern size_t fuzz_input_len;
-extern size_t fuzz_input_pos;
+void fuzz_set_input(const unsigned char *data, size_t len);
+int fuzz_input_fd(void);
+void fuzz_clear_input(void);
 
 static void free_rows(void)
 {
@@ -79,6 +79,7 @@ static void seed_buffer(const uint8_t *data, size_t size)
 
 static void teardown_state(void)
 {
+	fuzz_clear_input();
 	undo_free();
 	rect_kill_ring_free();
 	kill_ring_free();
@@ -90,17 +91,16 @@ static void teardown_state(void)
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	size_t seed_len;
+	int fd;
 
 	reset_state();
 	seed_len = size > 32 ? size / 4 : size;
 	seed_buffer(data, seed_len);
+	fuzz_set_input(data + seed_len, size - seed_len);
+	fd = fuzz_input_fd();
 
-	fuzz_input = data + seed_len;
-	fuzz_input_len = size - seed_len;
-	fuzz_input_pos = 0;
-
-	while (running && fuzz_input_pos < fuzz_input_len) {
-		editor_process_keypress(-1);
+	while (running) {
+		editor_process_keypress(fd);
 	}
 
 	teardown_state();

@@ -36,7 +36,8 @@ mode expects a TTY.
 
 `make fuzz-keypress` builds a libFuzzer target around
 `editor_process_keypress()`.  It exercises the real editing code paths while
-stubbing out prompt-driven escape hatches such as:
+feeding raw byte streams through `tty.c`'s real key decoder.  The harness
+still stubs out prompt-driven escape hatches such as:
 
 - `M-!` and `M-|`
 - `C-x C-w` and `C-x i`
@@ -45,6 +46,18 @@ stubbing out prompt-driven escape hatches such as:
 
 That makes the target safe to run on a normal workstation: the fuzzer never
 executes shell commands and never writes outside the in-memory test state.
+
+The current harness is intentionally conservative about what fuzz findings
+mean:
+
+- a crash found only by `test/fuzz_keypress` is a triage candidate
+- a crash that also reproduces under `utils/pty_accept.py`, `script`,
+  `tmux`, `gdb --args ./src/kg ...`, or `rr record ./src/kg ...` is an
+  actionable editor bug
+
+Do not check in a speculative fix or regression test for a fuzz-only crash
+unless a real TTY/PTY reproducer exists.  The native fuzzer is for coverage
+and candidate discovery; the PTY layer is the confirmation bar.
 
 Build and smoke-test it with:
 
@@ -66,6 +79,13 @@ that input directly:
 ```bash
 ./test/fuzz_keypress crash-*
 ```
+
+When triaging a crash file:
+
+1. Replay it against the current `test/fuzz_keypress` binary.
+2. Check whether the same failure reproduces against `src/kg` in a PTY.
+3. If it does not, keep it as a harness artifact or a future investigation,
+   not as a user-facing regression.
 
 ## PTY-level fuzzing
 

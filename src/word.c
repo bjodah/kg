@@ -507,7 +507,7 @@ void editor_join_line(void)
 	const char *rest;
 	int rest_len;
 
-	if (filerow == 0) {
+	if (filerow <= 0 || filerow >= editor.numrows) {
 		return; /* nothing above */
 	}
 
@@ -1191,7 +1191,7 @@ void editor_reflow_paragraph(void)
 			cur_len += word_len;
 		}
 	}
-	if (cur_len > indent_len) {
+	if (cur_len > 0) {
 		char *saved = malloc(cur_len + 1);
 		char **tmp_lines;
 		int *tmp_lens;

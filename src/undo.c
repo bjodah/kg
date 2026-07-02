@@ -166,8 +166,15 @@ void editor_undo(void)
 		 * not part of the original text. */
 		if (op->row < editor.numrows) {
 			erow *row = &editor.row[op->row];
-			row->size = op->col;
-			row->chars[op->col] = '\0';
+			int split_col = op->col;
+			if (split_col < 0) {
+				split_col = 0;
+			}
+			if (split_col > row->size) {
+				split_col = row->size;
+			}
+			row->size = split_col;
+			row->chars[split_col] = '\0';
 			if (op->text && op->len > 0) {
 				editor_row_append_string(
 				    row, op->text, op->len);
@@ -185,12 +192,20 @@ void editor_undo(void)
 		/* Reverse: split the line */
 		if (op->row < editor.numrows && op->text) {
 			erow *row;
+			int split_col;
 			/* Insert new line after current; this realloc's
 			 * editor.row, so fetch the row pointer afterwards. */
 			editor_insert_row(op->row + 1, op->text, op->len);
 			row = &editor.row[op->row];
-			row->size = op->col;
-			row->chars[op->col] = '\0';
+			split_col = op->col;
+			if (split_col < 0) {
+				split_col = 0;
+			}
+			if (split_col > row->size) {
+				split_col = row->size;
+			}
+			row->size = split_col;
+			row->chars[split_col] = '\0';
 			editor_update_row(row);
 			editor.dirty++;
 		}

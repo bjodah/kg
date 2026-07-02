@@ -8,11 +8,11 @@
 /* Handle cursor position change because arrow keys were pressed. */
 void editor_move_cursor(int key)
 {
-	erow *row = (editor.rowoff + editor.cy >= editor.numrows)
-	    ? NULL
-	    : &editor.row[editor.rowoff + editor.cy];
 	int filerow = editor.rowoff + editor.cy;
 	int filecol = editor.coloff + editor.cx;
+	erow *row = (filerow < 0 || filerow >= editor.numrows)
+	    ? NULL
+	    : &editor.row[filerow];
 	int is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
 	int rowlen;
 
@@ -43,7 +43,11 @@ void editor_move_cursor(int key)
 	case ARROW_LEFT:
 		if (filecol == 0) {
 			if (filerow > 0) {
-				editor.cy--;
+				if (editor.cy == 0) {
+					editor.rowoff--;
+				} else {
+					editor.cy--;
+				}
 				editor.cx = editor.row[filerow - 1].size;
 				if (editor.cx > editor.screencols - 1) {
 					editor.coloff
@@ -122,7 +126,8 @@ void editor_move_cursor(int key)
 		}
 		break;
 	case ARROW_UP:
-		if (editor.cy == 0) {
+		if (editor.cy <= 0) {
+			editor.cy = 0;
 			if (editor.rowoff) {
 				editor.rowoff--;
 			}
@@ -144,8 +149,15 @@ void editor_move_cursor(int key)
 	 * at the saved goal column on the new row.  In rect mode the
 	 * cursor is allowed to stay past EOL; the trailing clamp below
 	 * only fires for non-rect-mode. */
+	if (editor.rowoff < 0) {
+		editor.rowoff = 0;
+	}
+	if (editor.cy < 0) {
+		editor.cy = 0;
+	}
 	filerow = editor.rowoff + editor.cy;
-	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	row = (filerow < 0 || filerow >= editor.numrows) ? NULL
+							 : &editor.row[filerow];
 	if (is_vertical && row && editor.desired_visual_col >= 0) {
 		int target = editor_chars_col_at_visual(
 		    row, editor.desired_visual_col);

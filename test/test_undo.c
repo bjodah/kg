@@ -126,6 +126,23 @@ static void test_split_line(void)
 	teardown();
 }
 
+/* A stale split-line undo record must not write past a row that has since
+ * become shorter than the original split column. */
+static void test_split_line_short_row(void)
+{
+	setup();
+	editor_insert_row(0, "", 0);
+	editor_insert_row(1, "", 0);
+	undo_push(UNDO_SPLIT_LINE, 0, 3, 0, "tail", 4);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "tail", 4) == 0);
+	teardown();
+}
+
 /* Joining two lines (M-^) is undone by splitting them back.
  * The undo record stores the original content of the deleted row,
  * including its leading whitespace, so the split is exact. */
@@ -309,6 +326,7 @@ int main(void)
 	RUN(test_forward_delete_char);
 	RUN(test_insert_line);
 	RUN(test_split_line);
+	RUN(test_split_line_short_row);
 	RUN(test_join_line);
 	RUN(test_kill_line);
 	RUN(test_yank_text);

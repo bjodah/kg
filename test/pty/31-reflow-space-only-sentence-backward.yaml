@@ -1,0 +1,8 @@
+name: reflow-space-only-sentence-backward
+filename: reflow-space-only.txt
+initial: " "
+keys:
+  - M-q
+  - M-a
+  - Z
+expected_saved: "Z "

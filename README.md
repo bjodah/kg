@@ -69,6 +69,9 @@ binding reference.
 
 ## Building and Installing
 
+kg is written in C23; building requires GCC 14+ or Clang 19+ (any
+compiler accepting `-std=c23`).
+
 ```bash
 make
 sudo make install          # installs to /usr/local/bin and /usr/local/share/man/man1

@@ -152,8 +152,8 @@ ordered by value vs implementation effort.
 - [ ] **Toggle line numbers**: `M-x linum-mode` or similar.  Frequent
       ask, low cost.
 
-- [ ] **Minimal config file**: `~/.kgrc` (flat `key=value`, no Lisp)
-      for things like `tab-width`, `indent-tabs-mode`, `make-backup-files`,
+- [ ] **Minimal config file**: `~/.config/kg/init.fe` (lisp source file for
+ 	setting things like `tab-width`, `indent-tabs-mode`, `make-backup-files`,
       `auto-fill-column`, etc.
 
 ## Important (DONE)

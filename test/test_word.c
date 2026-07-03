@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -346,6 +347,98 @@ static void test_word_backward_clamps_stale_column(void)
 	teardown();
 }
 
+static void test_word_forward_clamps_stale_row_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor_insert_row(1, "def", 3);
+	editor.rowoff = INT_MAX - 5;
+	editor.cy = 79;
+
+	editor_move_word_forward();
+
+	CHECK(editor.rowoff == 1);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 3);
+	teardown();
+}
+
+static void test_paragraph_backward_clamps_stale_row(void)
+{
+	setup();
+	editor_insert_row(0, "alpha", 5);
+	editor_insert_row(1, "", 0);
+	editor_insert_row(2, "beta", 4);
+	editor.cy = 8;
+
+	editor_move_paragraph_backward();
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_paragraph_forward_clamps_stale_row(void)
+{
+	setup();
+	editor_insert_row(0, "alpha", 5);
+	editor.cy = 8;
+
+	editor_move_paragraph_forward();
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.cx == 5);
+	teardown();
+}
+
+static void test_sentence_forward_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "Hi.", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_move_sentence_forward();
+
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 0);
+	CHECK(editor.coloff == 3);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_kill_word_forward_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc def", 7);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_kill_word_forward();
+
+	CHECK(editor.row[0].size == 7);
+	CHECK(memcmp(editor.row[0].chars, "abc def", 7) == 0);
+	teardown();
+}
+
+static void test_kill_word_backward_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc def", 7);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_kill_word_backward();
+
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "abc ", 4) == 0);
+	CHECK(editor.coloff == 4);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -369,5 +462,11 @@ int main(void)
 	RUN(test_just_one_space_inserts_when_none);
 	RUN(test_sentence_backward_clamps_stale_row);
 	RUN(test_word_backward_clamps_stale_column);
+	RUN(test_word_forward_clamps_stale_row_offset);
+	RUN(test_paragraph_backward_clamps_stale_row);
+	RUN(test_paragraph_forward_clamps_stale_row);
+	RUN(test_sentence_forward_clamps_huge_column_offset);
+	RUN(test_kill_word_forward_clamps_huge_column_offset);
+	RUN(test_kill_word_backward_clamps_huge_column_offset);
 	return test_summary();
 }

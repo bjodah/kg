@@ -1,10 +1,13 @@
 /* ======================== Keyboard event handling ========================= */
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 
 #include "def.h"
+
+#define YANK_BATCH_MAX (8 * 1024 * 1024)
 
 static const int readonly_blocked_keys[] = {
 	BACKSPACE,
@@ -413,8 +416,8 @@ void editor_process_keypress(int fd)
 			 * count *newlines* removed (numrows dropped) rather
 			 * than iterations.  A stalled kill_ring tells us we hit
 			 * EOF and should stop. */
-			int start_row = editor.rowoff + editor.cy;
-			int start_col = editor.coloff + editor.cx;
+			int start_row = editor_current_filerow_or_eof();
+			int start_col = editor_current_filecol();
 			int prev_kill_len = killring.len;
 			int newlines_left = n;
 			int killed_len;
@@ -495,31 +498,37 @@ void editor_process_keypress(int fd)
 	case SHIFT_INSERT: /* CUA paste */
 		if (n > 1 && killring.text && killring.len > 0) {
 			/* Batch N yanks under one undo: UNDO_YANK_TEXT reverses
-			 * by deleting len chars forward, so the record must
-			 * carry the full N-copy payload size for the reversal
-			 * to be complete. */
-			int start_row = editor.rowoff + editor.cy;
-			int start_col = editor.coloff + editor.cx;
-			int total_len = n * killring.len;
-			char *combined = malloc(total_len);
-			if (combined) {
+			 * by deleting len chars forward, so the record only
+			 * needs the full N-copy byte count. */
+			int start_row = editor_current_filerow_or_eof();
+			int start_col = editor_current_filecol();
+			if (killring.len <= INT_MAX / n) {
+				int total_len = n * killring.len;
+				char *combined;
 				int i;
+
+				if (total_len > YANK_BATCH_MAX) {
+					editor_set_status_message(
+					    "Yank too large");
+					break;
+				}
+				combined = malloc(total_len);
+				if (!combined) {
+					editor_set_status_message(
+					    "Out of memory");
+					break;
+				}
 				for (i = 0; i < n; i++) {
 					memcpy(combined + i * killring.len,
 					    killring.text, killring.len);
 				}
 				undo_push(UNDO_YANK_TEXT, start_row, start_col,
-				    0, combined, total_len);
+				    0, NULL, total_len);
+				editor_insert_text_raw(combined, total_len);
 				free(combined);
-				suppress_undo = 1;
-				while (n--) {
-					editor_yank();
-				}
-				suppress_undo = 0;
+				editor_set_status_message("Yanked");
 			} else {
-				while (n--) {
-					editor_yank();
-				}
+				editor_set_status_message("Yank too large");
 			}
 		} else {
 			editor_yank();
@@ -748,7 +757,7 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case CTRL_L: { /* Recenter: cycle center → top → bottom */
-		int filerow = editor.rowoff + editor.cy;
+		int filerow = editor_current_filerow_or_eof();
 		switch (editor.recenter_state) {
 		case 0: /* center */
 			editor.rowoff = filerow - editor.screenrows / 2;

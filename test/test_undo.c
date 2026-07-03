@@ -229,6 +229,21 @@ static void test_yank_text(void)
 	teardown();
 }
 
+static void test_yank_text_len_only(void)
+{
+	setup();
+	editor_insert_row(0, "abhellocd", 9);
+	editor.cx = 2;
+
+	undo_push(UNDO_YANK_TEXT, 0, 2, 0, NULL, 5);
+
+	editor_undo();
+
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "abcd", 4) == 0);
+	teardown();
+}
+
 /* Paragraph reflow is undone by deleting the reflowed rows and restoring
  * the original lines from the '\n'-delimited text saved in the record. */
 static void test_reflow_para(void)
@@ -330,6 +345,7 @@ int main(void)
 	RUN(test_join_line);
 	RUN(test_kill_line);
 	RUN(test_yank_text);
+	RUN(test_yank_text_len_only);
 	RUN(test_reflow_para);
 	RUN(test_dirty_tracking);
 	RUN(test_nothing_to_undo);

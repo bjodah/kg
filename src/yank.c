@@ -71,14 +71,75 @@ void kill_ring_append(char *text, int len)
 /* Get the kill ring text (returns NULL if empty) */
 char *kill_ring_get(void) { return killring.text; }
 
+static int yank_current_row(void) { return editor_current_filerow_or_eof(); }
+
+static int yank_current_col(void) { return editor_current_filecol(); }
+
+static int region_point_before(int row, int col, int other_row, int other_col)
+{
+	if (row != other_row) {
+		return row < other_row;
+	}
+	return col < other_col;
+}
+
+static int region_bounds(
+    int *start_row, int *start_col, int *end_row, int *end_col)
+{
+	int cur_row = yank_current_row();
+	int cur_col = yank_current_col();
+
+	if (!editor.mark_set || editor.numrows <= 0) {
+		return 0;
+	}
+	if (region_point_before(
+		editor.mark_row, editor.mark_col, cur_row, cur_col)) {
+		*start_row = editor.mark_row;
+		*start_col = editor.mark_col;
+		*end_row = cur_row;
+		*end_col = cur_col;
+	} else {
+		*start_row = cur_row;
+		*start_col = cur_col;
+		*end_row = editor.mark_row;
+		*end_col = editor.mark_col;
+	}
+
+	if (*end_row < 0 || *start_row >= editor.numrows) {
+		return 0;
+	}
+	if (*start_row < 0) {
+		*start_row = 0;
+		*start_col = 0;
+	}
+	if (*end_row >= editor.numrows) {
+		*end_row = editor.numrows - 1;
+		*end_col = editor.row[*end_row].size;
+	}
+	if (*start_col < 0) {
+		*start_col = 0;
+	}
+	if (*start_col > editor.row[*start_row].size) {
+		*start_col = editor.row[*start_row].size;
+	}
+	if (*end_col < 0) {
+		*end_col = 0;
+	}
+	if (*end_col > editor.row[*end_row].size) {
+		*end_col = editor.row[*end_row].size;
+	}
+	return *start_row < *end_row
+	    || (*start_row == *end_row && *start_col < *end_col);
+}
+
 /* Set mark at current cursor position without echoing to the minibuffer.
  * Used by shift-select and rectangle commands where a status message
  * would be noisy. */
 void editor_set_mark_silent(void)
 {
 	editor.mark_set = 1;
-	editor.mark_row = editor.rowoff + editor.cy;
-	editor.mark_col = editor.coloff + editor.cx;
+	editor.mark_row = yank_current_row();
+	editor.mark_col = yank_current_col();
 	editor.mark_highlight = 1;
 }
 
@@ -101,8 +162,8 @@ void editor_exchange_point_and_mark(void)
 		return;
 	}
 
-	cur_row = editor.rowoff + editor.cy;
-	cur_col = editor.coloff + editor.cx;
+	cur_row = yank_current_row();
+	cur_col = yank_current_col();
 	mark_row = editor.mark_row;
 	mark_col = editor.mark_col;
 
@@ -118,29 +179,13 @@ void editor_exchange_point_and_mark(void)
 char *editor_get_region_text(int *out_len)
 {
 	int start_row, start_col, end_row, end_col;
-	int cur_row = editor.rowoff + editor.cy;
-	int cur_col = editor.coloff + editor.cx;
 	int total_len = 0;
 	char *text;
 	int pos = 0;
 	int row;
 
-	if (!editor.mark_set) {
+	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
 		return NULL;
-	}
-
-	/* Determine which position comes first */
-	if (editor.mark_row < cur_row
-	    || (editor.mark_row == cur_row && editor.mark_col < cur_col)) {
-		start_row = editor.mark_row;
-		start_col = editor.mark_col;
-		end_row = cur_row;
-		end_col = cur_col;
-	} else {
-		start_row = cur_row;
-		start_col = cur_col;
-		end_row = editor.mark_row;
-		end_col = editor.mark_col;
 	}
 
 	/* Calculate total length needed */
@@ -219,18 +264,63 @@ char *editor_get_region_text(int *out_len)
 	return text;
 }
 
+static void editor_delete_region_range(
+    int start_row, int start_col, int end_row, int end_col)
+{
+	erow *first;
+	erow *last;
+	char *newchars;
+	int suffix_len;
+	int new_size;
+	int row;
+
+	if (start_row == end_row) {
+		erow *r = &editor.row[start_row];
+		memmove(r->chars + start_col, r->chars + end_col,
+		    r->size - end_col + 1);
+		r->size -= end_col - start_col;
+		editor_update_row(r);
+		editor.dirty++;
+		return;
+	}
+
+	first = &editor.row[start_row];
+	last = &editor.row[end_row];
+	suffix_len = last->size - end_col;
+	new_size = start_col + suffix_len;
+	newchars = realloc(first->chars, new_size + 1);
+	if (!newchars) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
+	first->chars = newchars;
+	memcpy(first->chars + start_col, last->chars + end_col, suffix_len);
+	first->chars[new_size] = '\0';
+	first->size = new_size;
+	editor_update_row(first);
+
+	for (row = end_row; row > start_row; row--) {
+		editor_del_row(row);
+	}
+	editor.dirty++;
+}
+
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at
  * the start of the region; undo restores it as a single step. */
 static void region_kill_or_delete(int save)
 {
 	int start_row, start_col;
-	int cur_row = editor.rowoff + editor.cy;
-	int cur_col = editor.coloff + editor.cx;
+	int end_row, end_col;
 	char *text;
-	int len, i;
+	int len;
 
 	if (!editor.mark_set) {
 		editor_set_status_message("No mark set");
+		return;
+	}
+	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
+		editor_set_status_message("Empty region");
 		return;
 	}
 
@@ -244,31 +334,12 @@ static void region_kill_or_delete(int save)
 		kill_ring_set(text, len);
 	}
 
-	if (editor.mark_row < cur_row
-	    || (editor.mark_row == cur_row && editor.mark_col < cur_col)) {
-		start_row = editor.mark_row;
-		start_col = editor.mark_col;
-	} else {
-		start_row = cur_row;
-		start_col = cur_col;
-	}
-
-	if (start_row >= 0 && start_row < editor.numrows) {
-		if (start_col < 0) {
-			start_col = 0;
-		}
-		if (start_col > editor.row[start_row].size) {
-			start_col = editor.row[start_row].size;
-		}
-	}
 	editor_cursor_goto(start_row, start_col);
 
 	undo_push(UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
 
 	suppress_undo = 1;
-	for (i = 0; i < len; i++) {
-		editor_del_forward_char();
-	}
+	editor_delete_region_range(start_row, start_col, end_row, end_col);
 	suppress_undo = 0;
 
 	/* Drop the highlight and any transient-region machinery, but keep
@@ -329,8 +400,8 @@ void editor_delete_region_or_char(void)
 /* Yank (paste) from kill ring */
 void editor_yank(void)
 {
-	int filerow = editor.rowoff + editor.cy;
-	int filecol = editor.coloff + editor.cx;
+	int filerow = editor_current_filerow_or_eof();
+	int filecol = editor_current_filecol();
 	char *text = kill_ring_get();
 
 	if (!text) {

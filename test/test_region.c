@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,6 +119,39 @@ static void test_copy_region_no_mark(void)
 	teardown();
 }
 
+static void test_set_mark_saturates_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_set_mark_silent();
+
+	CHECK(editor.mark_set == 1);
+	CHECK(editor.mark_row == 0);
+	CHECK(editor.mark_col == INT_MAX);
+	CHECK(editor.mark_highlight == 1);
+	teardown();
+}
+
+static void test_exchange_point_and_mark_saturates_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.mark_set = 1;
+	editor.mark_row = 0;
+	editor.mark_col = 0;
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_exchange_point_and_mark();
+
+	CHECK(editor.mark_row == 0);
+	CHECK(editor.mark_col == INT_MAX);
+	teardown();
+}
+
 /* Killing a region saves the text to the kill ring and removes it from the row.
  */
 static void test_kill_region_single_line(void)
@@ -180,6 +214,8 @@ int main(void)
 	RUN(test_copy_region_reversed);
 	RUN(test_copy_region_empty);
 	RUN(test_copy_region_no_mark);
+	RUN(test_set_mark_saturates_huge_column_offset);
+	RUN(test_exchange_point_and_mark_saturates_huge_column_offset);
 	RUN(test_kill_region_single_line);
 	RUN(test_kill_region_tail);
 	RUN(test_kill_region_two_lines);

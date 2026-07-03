@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -179,6 +180,33 @@ static void test_left_from_stale_row_clamps_to_eof(void)
 	teardown();
 }
 
+static void test_move_cursor_clamps_huge_column_offset(void)
+{
+	setup(1);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_move_cursor(ARROW_RIGHT);
+
+	CHECK(editor.coloff == 3);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_rect_right_saturates_huge_column_offset(void)
+{
+	setup(1);
+	editor.rect_mode = 1;
+	editor.coloff = INT_MAX;
+	editor.cx = 79;
+
+	editor_move_cursor(ARROW_RIGHT);
+
+	CHECK(editor.coloff == INT_MAX);
+	CHECK(editor.cx == 79);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -194,5 +222,7 @@ int main(void)
 	RUN(test_goto_line_centering);
 	RUN(test_goto_line_empty_file);
 	RUN(test_left_from_stale_row_clamps_to_eof);
+	RUN(test_move_cursor_clamps_huge_column_offset);
+	RUN(test_rect_right_saturates_huge_column_offset);
 	return test_summary();
 }

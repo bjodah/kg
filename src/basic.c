@@ -1,18 +1,28 @@
 /* ========================= Editor events handling  ======================== */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 
 #include "def.h"
 
+static void cursor_advance_screen_col(void)
+{
+	if (editor.cx == editor.screencols - 1) {
+		if (editor.coloff < INT_MAX) {
+			editor.coloff++;
+		}
+	} else if (editor.cx < INT_MAX) {
+		editor.cx++;
+	}
+}
+
 /* Handle cursor position change because arrow keys were pressed. */
 void editor_move_cursor(int key)
 {
-	int filerow = editor.rowoff + editor.cy;
-	int filecol = editor.coloff + editor.cx;
-	erow *row = (filerow < 0 || filerow >= editor.numrows)
-	    ? NULL
-	    : &editor.row[filerow];
+	int filerow = editor_current_filerow_or_eof();
+	erow *row = filerow >= editor.numrows ? NULL : &editor.row[filerow];
+	int filecol = editor_current_filecol();
 	int is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
 	int rowlen;
 
@@ -42,7 +52,7 @@ void editor_move_cursor(int key)
 		break;
 	case ARROW_LEFT:
 		if (filecol == 0) {
-			if (filerow > editor.numrows) {
+			if (filerow >= editor.numrows) {
 				int prevrow = editor.numrows - 1;
 				prevrow = prevrow < 0 ? 0 : prevrow;
 				editor_cursor_goto(prevrow,
@@ -107,21 +117,13 @@ void editor_move_cursor(int key)
 				n++;
 			}
 			while (n--) {
-				if (editor.cx == editor.screencols - 1) {
-					editor.coloff++;
-				} else {
-					editor.cx += 1;
-				}
+				cursor_advance_screen_col();
 			}
 		} else if (row && editor.rect_mode) {
 			/* In rect mark mode, extend the cursor into virtual
 			 * space past EOL so a rectangle can span columns that
 			 * some rows don't reach. */
-			if (editor.cx == editor.screencols - 1) {
-				editor.coloff++;
-			} else {
-				editor.cx += 1;
-			}
+			cursor_advance_screen_col();
 		} else if (row && filecol == row->size
 		    && filerow < editor.numrows - 1) {
 			editor.cx = 0;
@@ -157,15 +159,8 @@ void editor_move_cursor(int key)
 	 * at the saved goal column on the new row.  In rect mode the
 	 * cursor is allowed to stay past EOL; the trailing clamp below
 	 * only fires for non-rect-mode. */
-	if (editor.rowoff < 0) {
-		editor.rowoff = 0;
-	}
-	if (editor.cy < 0) {
-		editor.cy = 0;
-	}
-	filerow = editor.rowoff + editor.cy;
-	row = (filerow < 0 || filerow >= editor.numrows) ? NULL
-							 : &editor.row[filerow];
+	filerow = editor_current_filerow_or_eof();
+	row = filerow >= editor.numrows ? NULL : &editor.row[filerow];
 	if (is_vertical && row && editor.desired_visual_col >= 0) {
 		int target = editor_chars_col_at_visual(
 		    row, editor.desired_visual_col);
@@ -183,14 +178,12 @@ void editor_move_cursor(int key)
 	 * mode the cursor is allowed to stay past EOL so the user can
 	 * extend a rectangle whose right edge crosses shorter lines —
 	 * editor_snap_cx_to_row() snaps it back when rect mode ends. */
-	filecol = editor.coloff + editor.cx;
 	rowlen = row ? row->size : 0;
-	if (filecol > rowlen && !editor.rect_mode) {
-		editor.cx -= filecol - rowlen;
-		if (editor.cx < 0) {
-			editor.coloff += editor.cx;
-			editor.cx = 0;
-		}
+	if (!editor.rect_mode && editor.coloff > rowlen) {
+		editor.coloff = rowlen;
+		editor.cx = 0;
+	} else if (!editor.rect_mode && editor.cx > rowlen - editor.coloff) {
+		editor.cx = rowlen - editor.coloff;
 	}
 }
 
@@ -211,17 +204,17 @@ void editor_move_to_indentation(void)
 	erow *row;
 	int col;
 
-	if (editor.rowoff + editor.cy >= editor.numrows) {
+	if (editor_current_filerow_or_eof() >= editor.numrows) {
 		return;
 	}
 
 	editor_move_cursor(HOME_KEY);
 
-	row = &editor.row[editor.rowoff + editor.cy];
-	col = editor.coloff + editor.cx;
+	row = &editor.row[editor_current_filerow()];
+	col = editor_current_filecol();
 	while (col < row->size && isspace((unsigned char)row->chars[col])) {
 		editor_move_cursor(ARROW_RIGHT);
-		col = editor.coloff + editor.cx;
+		col = editor_current_filecol();
 	}
 }
 

@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -333,6 +334,15 @@ static void test_visual_col_past_eol(void)
 	teardown();
 }
 
+static void test_visual_col_huge_past_eol_saturates(void)
+{
+	setup();
+	editor_insert_row(0, "\t", 1);
+
+	CHECK(editor_visual_col(&editor.row[0], INT_MAX) == INT_MAX);
+	teardown();
+}
+
 /* chars_col_at_visual round-trips with visual_col on glyph boundaries. */
 static void test_chars_col_round_trip(void)
 {
@@ -512,6 +522,115 @@ static void test_transpose_chars_undo_one_step(void)
 	teardown();
 }
 
+static void test_insert_char_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_insert_char('x');
+
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "abcx", 4) == 0);
+	CHECK(editor.coloff == 3);
+	CHECK(editor.cx == 1);
+	teardown();
+}
+
+static void test_insert_char_rejects_huge_rect_virtual_gap(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.rect_mode = 1;
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+	running = 1;
+
+	editor_insert_char('x');
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	CHECK(running == 0);
+	teardown();
+}
+
+static void test_snap_cx_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_snap_cx_to_row();
+
+	CHECK(editor.coloff == 3);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_backspace_ignores_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_del_char();
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	teardown();
+}
+
+static void test_insert_newline_raw_clamps_huge_column_offset(void)
+{
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor.coloff = INT_MAX - 5;
+	editor.cx = 79;
+
+	editor_insert_newline_raw();
+
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	CHECK(editor.row[1].size == 0);
+	CHECK(editor.rowoff == 0);
+	CHECK(editor.cy == 1);
+	CHECK(editor.cx == 0);
+	teardown();
+}
+
+static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
+{
+	enum { prev_len = 96 };
+	char prev[prev_len + 1];
+
+	setup();
+	memset(prev, 'a', prev_len);
+	prev[prev_len] = '\0';
+	editor_insert_row(0, prev, prev_len);
+	editor_insert_row(1, "b", 1);
+	editor.cy = 1;
+	editor.cx = 0;
+
+	editor_del_char();
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.coloff == prev_len - editor.screencols + 1);
+	CHECK(editor.cx == editor.screencols - 1);
+	CHECK(editor.coloff + editor.cx == prev_len);
+
+	editor_del_char();
+
+	CHECK(editor.coloff >= 0);
+	CHECK(editor.coloff + editor.cx == prev_len - 1);
+	CHECK(editor.row[0].size == prev_len);
+	CHECK(editor.row[0].chars[editor.row[0].size - 1] == 'b');
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -536,6 +655,7 @@ int main(void)
 	RUN(test_visual_col_tab);
 	RUN(test_visual_col_utf8);
 	RUN(test_visual_col_past_eol);
+	RUN(test_visual_col_huge_past_eol_saturates);
 	RUN(test_chars_col_round_trip);
 	RUN(test_chars_col_inside_tab);
 	RUN(test_chars_col_past_eol);
@@ -547,5 +667,11 @@ int main(void)
 	RUN(test_transpose_chars_bol_swaps_newline);
 	RUN(test_transpose_chars_utf8);
 	RUN(test_transpose_chars_undo_one_step);
+	RUN(test_insert_char_clamps_huge_column_offset);
+	RUN(test_insert_char_rejects_huge_rect_virtual_gap);
+	RUN(test_snap_cx_clamps_huge_column_offset);
+	RUN(test_backspace_ignores_huge_column_offset);
+	RUN(test_insert_newline_raw_clamps_huge_column_offset);
+	RUN(test_backspace_join_long_previous_row_keeps_scroll_nonnegative);
 	return test_summary();
 }

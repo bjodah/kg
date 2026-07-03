@@ -43,13 +43,18 @@ int editor_find_close_char(int open_char)
  * when appropriate. */
 void editor_insert_char_auto_complete(int c)
 {
-	erow *row = (editor.rowoff + editor.cy >= editor.numrows)
-	    ? NULL
-	    : &editor.row[editor.rowoff + editor.cy];
-	int filecol = editor.coloff + editor.cx;
+	erow *row = NULL;
+	int filerow;
+	int filecol;
 	int next_char_space;
 	int close_char;
 	int at_end;
+
+	filerow = editor_current_filerow_or_eof();
+	if (filerow < editor.numrows) {
+		row = &editor.row[filerow];
+	}
+	filecol = editor_current_filecol();
 
 	/* Check if we're at end of line or the next character is
 	 * whitespace/symbol */

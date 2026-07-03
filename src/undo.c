@@ -58,7 +58,7 @@ void undo_push(
 	op->col = col;
 	op->c = c;
 	op->text = NULL;
-	op->len = 0;
+	op->len = len > 0 ? len : 0;
 
 	/* Copy text if provided */
 	if (text && len > 0) {
@@ -66,7 +66,6 @@ void undo_push(
 		if (op->text) {
 			memcpy(op->text, text, len);
 			op->text[len] = '\0';
-			op->len = len;
 		}
 	}
 
@@ -223,7 +222,7 @@ void editor_undo(void)
 		/* Reverse: delete the yanked text forward from (op->row,
 		 * op->col). Cursor is already set to (op->row, op->col) above.
 		 */
-		if (op->text && op->len > 0) {
+		if (op->len > 0) {
 			int i;
 			suppress_undo = 1;
 			for (i = 0; i < op->len; i++) {

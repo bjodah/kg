@@ -28,6 +28,7 @@ static void teardown(void)
 	editor.numrows = 0;
 	undo_free();
 	kill_ring_free();
+	rect_kill_ring_free();
 }
 
 /* Set mark at (row, col) and cursor at (cur_row, cur_col). */
@@ -205,6 +206,24 @@ static void test_kill_region_two_lines(void)
 	teardown();
 }
 
+static void test_clear_rect_pads_short_rows_in_batches(void)
+{
+	setup();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "abcdef", 6);
+	set_region(0, 4, 1, 6);
+
+	editor_clear_rect();
+
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "a     ", 6) == 0);
+	CHECK(editor.row[1].size == 6);
+	CHECK(memcmp(editor.row[1].chars, "abcd  ", 6) == 0);
+	CHECK(editor.mark_set == 0);
+	CHECK(editor.rect_mode == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -219,5 +238,6 @@ int main(void)
 	RUN(test_kill_region_single_line);
 	RUN(test_kill_region_tail);
 	RUN(test_kill_region_two_lines);
+	RUN(test_clear_rect_pads_short_rows_in_batches);
 	return test_summary();
 }

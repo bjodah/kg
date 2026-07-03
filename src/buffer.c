@@ -528,6 +528,52 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	editor.numrows++;
 }
 
+static int editor_insert_text_raw_bulk(const char *text, int insert_len)
+{
+	char *buf, *newbuf;
+	int len, new_len, point, row, col;
+
+	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
+	if (!buf) {
+		return 0;
+	}
+	if (len > INT_MAX - insert_len - 1) {
+		free(buf);
+		editor_nomem();
+		return 0;
+	}
+
+	point = editor_current_flat_offset();
+	if (point < 0) {
+		point = 0;
+	}
+	if (point > len) {
+		point = len;
+	}
+
+	new_len = len + insert_len;
+	newbuf = malloc(new_len + 1);
+	if (!newbuf) {
+		free(buf);
+		editor_nomem();
+		return 0;
+	}
+	memcpy(newbuf, buf, point);
+	memcpy(newbuf + point, text, insert_len);
+	memcpy(newbuf + point + insert_len, buf + point, len - point);
+	newbuf[new_len] = '\0';
+
+	editor_replace_rows_from_text(newbuf, new_len);
+	editor_flat_offset_to_row_col(
+	    newbuf, new_len, point + insert_len, &row, &col);
+	editor_cursor_goto(row, col);
+	editor.dirty++;
+
+	free(newbuf);
+	free(buf);
+	return 1;
+}
+
 /* Insert a character at the specified position in a row, moving the remaining
  * chars on the right if needed. */
 void editor_row_insert_char(erow *row, int at, int c)
@@ -580,13 +626,16 @@ void editor_row_insert_char(erow *row, int at, int c)
 	editor.dirty++;
 }
 
-static void editor_row_insert_string(erow *row, int at, const char *s, int len)
+void editor_row_insert_string(erow *row, int at, const char *s, int len)
 {
 	char *newchars;
 	int padlen = 0;
 	int old_size;
 	int new_size;
 
+	if (!row || at < 0 || len <= 0) {
+		return;
+	}
 	if (editor_virtual_insert_gap_too_large(row, at)) {
 		editor_nomem();
 		return;
@@ -621,6 +670,23 @@ static void editor_row_insert_string(erow *row, int at, const char *s, int len)
 	row->chars[new_size] = '\0';
 	editor_update_row(row);
 	editor.dirty++;
+}
+
+void editor_row_insert_spaces(erow *row, int at, int len)
+{
+	char *spaces;
+
+	if (len <= 0) {
+		return;
+	}
+	spaces = malloc(len);
+	if (!spaces) {
+		editor_nomem();
+		return;
+	}
+	memset(spaces, ' ', len);
+	editor_row_insert_string(row, at, spaces, len);
+	free(spaces);
 }
 
 /* Append the string 's' at the end of a row */
@@ -748,7 +814,15 @@ void editor_insert_text_raw(const char *text, int len)
 	int saved = suppress_undo;
 	int i = 0;
 
+	if (len <= 0) {
+		return;
+	}
 	suppress_undo = 1;
+	if (!editor.rect_mode && memchr(text, '\n', len)) {
+		editor_insert_text_raw_bulk(text, len);
+		suppress_undo = saved;
+		return;
+	}
 	while (i < len) {
 		if (text[i] == '\n') {
 			editor_insert_newline_raw();

@@ -459,6 +459,8 @@ void editor_free_row(erow *row);
 void editor_del_row(int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
+void editor_row_insert_string(erow *row, int at, const char *s, int len);
+void editor_row_insert_spaces(erow *row, int at, int len);
 void editor_row_append_string(erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
 void editor_insert_char(int c);

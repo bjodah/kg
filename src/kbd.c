@@ -68,6 +68,33 @@ static int prefix_arg_mul_add(int value, int mul, int add)
 	return value * mul + add;
 }
 
+static int key_can_batch_literal_insert(int c)
+{
+	return c == TAB || ((c >= 32 && c < 127) && !editor_find_close_char(c));
+}
+
+static void editor_insert_repeated_literal(int c, int n)
+{
+	char text[PREFIX_ARG_MAX];
+	int start_row, start_col;
+	int dirty_before;
+	int i;
+
+	memset(text, c, n);
+
+	start_row = editor_current_filerow_or_eof();
+	start_col = editor_current_filecol();
+	dirty_before = editor.dirty;
+	editor_insert_text_raw(text, n);
+	if (editor.dirty != dirty_before) {
+		for (i = 0; i < n; i++) {
+			int col
+			    = start_col > INT_MAX - i ? INT_MAX : start_col + i;
+			undo_push(UNDO_INSERT_CHAR, start_row, col, c, NULL, 0);
+		}
+	}
+}
+
 /* C-u universal-argument: accumulate a numeric prefix.  Returns 1 if `c`
  * was part of the in-progress prefix (digit, another C-u, or C-g cancel)
  * and the caller should stop processing this key.  Returns 0 if `c` is a
@@ -785,8 +812,12 @@ void editor_process_keypress(int fd)
 		 * handled as its own case above and would never reach here.)
 		 * Repeats N times when a C-u prefix preceded the key. */
 		if (c == TAB || (c >= 32 && c < 127)) {
-			while (n--) {
-				editor_insert_char_auto_complete(c);
+			if (n > 1 && key_can_batch_literal_insert(c)) {
+				editor_insert_repeated_literal(c, n);
+			} else {
+				while (n--) {
+					editor_insert_char_auto_complete(c);
+				}
 			}
 		}
 		/* Silently ignore all other control/non-printable characters */

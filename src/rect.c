@@ -84,6 +84,26 @@ static void rect_row_byte_range(
 	*byte_hi = hi;
 }
 
+static void rect_row_pad_to_visual(erow *row, int target_vcol)
+{
+	int end_vcol = editor_visual_col(row, row->size);
+
+	if (end_vcol < target_vcol) {
+		editor_row_insert_spaces(
+		    row, row->size, target_vcol - end_vcol);
+	}
+}
+
+static void rect_row_replace_with_spaces(erow *row, int lo, int hi)
+{
+	if (hi <= lo) {
+		return;
+	}
+	memset(row->chars + lo, ' ', hi - lo);
+	editor_update_row(row);
+	editor.dirty++;
+}
+
 /* Snapshot rows [start_row, end_row) joined with '\n' for undo storage.
  * Caller frees the returned buffer.  Returns NULL when there is nothing
  * to snapshot, with *out_len = 0. */
@@ -277,23 +297,16 @@ void editor_clear_rect(void)
 	suppress_undo = 1;
 	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
 		erow *row = &editor.row[r];
-		int lo, hi, i;
+		int lo, hi;
 
 		/* Pad with spaces until row's visual width reaches s_vcol. */
-		while (editor_visual_col(row, row->size) < s_vcol) {
-			editor_row_insert_char(row, row->size, ' ');
-		}
+		rect_row_pad_to_visual(row, s_vcol);
 
 		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
-		for (i = lo; i < hi; i++) {
-			editor_row_del_char(row, i);
-			editor_row_insert_char(row, i, ' ');
-		}
+		rect_row_replace_with_spaces(row, lo, hi);
 
 		/* Extend with spaces if the rect runs past row's visual end. */
-		while (editor_visual_col(row, row->size) < e_vcol) {
-			editor_row_insert_char(row, row->size, ' ');
-		}
+		rect_row_pad_to_visual(row, e_vcol);
 	}
 	suppress_undo = 0;
 
@@ -346,17 +359,16 @@ void editor_yank_rect(void)
 		int line_len = nl ? (nl - p) : (end - p);
 		int target = cur_row + i;
 		erow *r;
-		int j;
 
 		while (target >= editor.numrows) {
 			editor_insert_row(editor.numrows, "", 0);
 		}
 		r = &editor.row[target];
-		while (r->size < cur_col) {
-			editor_row_insert_char(r, r->size, ' ');
+		if (r->size < cur_col) {
+			editor_row_insert_spaces(r, r->size, cur_col - r->size);
 		}
-		for (j = 0; j < line_len; j++) {
-			editor_row_insert_char(r, cur_col + j, p[j]);
+		if (line_len > 0) {
+			editor_row_insert_string(r, cur_col, p, line_len);
 		}
 
 		if (!nl) {

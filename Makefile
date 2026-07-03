@@ -63,7 +63,7 @@ FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c99 -O1 -g \
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2144
+SCC_COMPLEXITY_MAX ?= 2166
 SCC_FILE_COMPLEXITY_MAX ?= 300
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c99 -O0 -g --coverage

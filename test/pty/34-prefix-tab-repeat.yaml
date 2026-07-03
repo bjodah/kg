@@ -1,0 +1,9 @@
+name: prefix-tab-repeat
+filename: prefix-tab-repeat.txt
+initial: ""
+keys:
+  - C-u
+  - "2"
+  - "0"
+  - TAB
+expected_saved: "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t"

@@ -602,6 +602,33 @@ static void test_insert_newline_raw_clamps_huge_column_offset(void)
 	teardown();
 }
 
+static void test_insert_text_raw_multiline_preserves_split_suffix(void)
+{
+	char *s;
+	int len;
+
+	setup();
+	editor_insert_row(0, "ab cd", 5);
+	editor_insert_row(1, "tail", 4);
+	editor_cursor_goto(0, 2);
+
+	editor_insert_text_raw("X\nY\nZ", 5);
+
+	CHECK(editor.numrows == 4);
+	CHECK(memcmp(editor.row[0].chars, "abX", 3) == 0);
+	CHECK(memcmp(editor.row[1].chars, "Y", 1) == 0);
+	CHECK(memcmp(editor.row[2].chars, "Z cd", 4) == 0);
+	CHECK(memcmp(editor.row[3].chars, "tail", 4) == 0);
+	CHECK(editor.cy == 2);
+	CHECK(editor.cx == 1);
+
+	s = editor_rows_to_string(editor.row, editor.numrows, &len);
+	CHECK(len == 15);
+	CHECK(memcmp(s, "abX\nY\nZ cd\ntail", 15) == 0);
+	free(s);
+	teardown();
+}
+
 static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
 {
 	enum { prev_len = 96 };
@@ -672,6 +699,7 @@ int main(void)
 	RUN(test_snap_cx_clamps_huge_column_offset);
 	RUN(test_backspace_ignores_huge_column_offset);
 	RUN(test_insert_newline_raw_clamps_huge_column_offset);
+	RUN(test_insert_text_raw_multiline_preserves_split_suffix);
 	RUN(test_backspace_join_long_previous_row_keeps_scroll_nonnegative);
 	return test_summary();
 }

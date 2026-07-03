@@ -65,6 +65,9 @@ SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
 SCC_COMPLEXITY_MAX ?= 2166
 SCC_FILE_COMPLEXITY_MAX ?= 300
+PMCCABE ?= pmccabe
+PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
+PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 119
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c99 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
@@ -134,6 +137,14 @@ complexity-check:
 		python3 utils/check_scc_complexity.py \
 			--max-total $(SCC_COMPLEXITY_MAX) \
 			--max-file $(SCC_FILE_COMPLEXITY_MAX)
+
+pmccabe:
+	$(PMCCABE) $(PMCCABE_PATHS) | sort -nr
+
+pmccabe-check:
+	$(PMCCABE) $(PMCCABE_PATHS) | \
+		python3 utils/check_pmccabe_complexity.py \
+			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX)
 
 coverage: coverage-clean
 	$(MAKE) clean
@@ -224,5 +235,5 @@ uninstall:
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
 .PHONY: all clean distclean check check-unit check-pty complexity complexity-check \
-	coverage coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check coverage coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-smoke deb release install uninstall

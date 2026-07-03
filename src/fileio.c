@@ -42,6 +42,55 @@ int file_state_differs(const char *path, time_t mtime, off_t size)
 	return st.st_mtime != mtime || st.st_size != size;
 }
 
+/* Write row storage directly to filename.  Returns 0 on success, 1 on error
+ * with errno set. */
+int editor_write_rows_to_file(
+    const char *filename, erow *rows, int numrows, int *out_len)
+{
+	char *buf;
+	int len;
+	int filefd;
+
+	if (out_len) {
+		*out_len = 0;
+	}
+	buf = editor_rows_to_string(rows, numrows, &len);
+	if (!buf) {
+		errno = ENOMEM;
+		return 1;
+	}
+
+	filefd = open(filename,
+	    O_RDWR | O_CREAT
+#ifdef O_CLOEXEC
+		| O_CLOEXEC
+#endif
+	    ,
+	    0644);
+	if (filefd == -1) {
+		free(buf);
+		return 1;
+	}
+
+	/* Use truncate + a single write(2) call in order to make saving
+	 * a bit safer, under the limits of what we can do in a small editor. */
+	if (ftruncate(filefd, len) == -1 || write(filefd, buf, len) != len) {
+		int saved_errno = errno ? errno : EIO;
+
+		close(filefd);
+		free(buf);
+		errno = saved_errno;
+		return 1;
+	}
+
+	close(filefd);
+	free(buf);
+	if (out_len) {
+		*out_len = len;
+	}
+	return 0;
+}
+
 /* Load the specified program in the editor memory and returns 0 on success
  * or 1 on error. */
 int editor_open(char *filename)
@@ -100,9 +149,7 @@ int editor_save(int fd)
 {
 	struct stat st;
 	char *newfilename;
-	char *buf;
-	int len;
-	int filefd;
+	int len = 0;
 	int answer;
 
 	if (is_special_buffer(editor.filename)) {
@@ -151,29 +198,11 @@ int editor_save(int fd)
 		}
 	}
 
-	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
-	filefd = open(editor.filename,
-	    O_RDWR | O_CREAT
-#ifdef O_CLOEXEC
-		| O_CLOEXEC
-#endif
-	    ,
-	    0644);
-	if (filefd == -1) {
+	if (editor_write_rows_to_file(
+		editor.filename, editor.row, editor.numrows, &len)) {
 		goto writeerr;
 	}
 
-	/* Use truncate + a single write(2) call in order to make saving
-	 * a bit safer, under the limits of what we can do in a small editor. */
-	if (ftruncate(filefd, len) == -1) {
-		goto writeerr;
-	}
-	if (write(filefd, buf, len) != len) {
-		goto writeerr;
-	}
-
-	close(filefd);
-	free(buf);
 	editor.dirty = 0;
 	undo_mark_clean(); /* Mark this state as clean for undo tracking */
 	editor_snapshot_disk();
@@ -181,11 +210,6 @@ int editor_save(int fd)
 	return 0;
 
 writeerr:
-	free(buf);
-	if (filefd != -1) {
-		close(filefd);
-	}
-
 	editor_set_status_message(
 	    "Error writing %s: %s", editor.filename, strerror(errno));
 	return 1;

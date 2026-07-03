@@ -9,4 +9,5 @@ steps:
     image: *ci_image
     environment:
     commands:
+      - apt-get install pmccabe
       - bash -l .ci/run-ci-steps.sh

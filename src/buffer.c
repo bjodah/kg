@@ -713,8 +713,8 @@ void editor_row_del_char(erow *row, int at)
 		return;
 	}
 	memmove(row->chars + at, row->chars + at + 1, row->size - at);
-	editor_update_row(row);
 	row->size--;
+	editor_update_row(row);
 	editor.dirty++;
 }
 

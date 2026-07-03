@@ -106,6 +106,7 @@ Useful local quality checks:
 make check
 make fuzz-keypress
 make complexity-check
+make pmccabe-check
 make coverage
 make compile-db
 make iwyu

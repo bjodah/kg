@@ -508,6 +508,8 @@ void editor_set_status_message(const char *fmt, ...);
 /* fileio.c */
 int editor_open(char *filename);
 int editor_save(int fd);
+int editor_write_rows_to_file(
+    const char *filename, erow *rows, int numrows, int *out_len);
 void editor_write_file(int fd);
 void editor_insert_file(int fd);
 void editor_snapshot_disk(void);

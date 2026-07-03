@@ -173,6 +173,8 @@ static void test_row_del_char_middle(void)
 
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
+	CHECK(editor.row[0].rsize == 5);
+	CHECK(memcmp(editor.row[0].render, "hello", 5) == 0);
 	teardown();
 }
 

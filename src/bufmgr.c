@@ -2,14 +2,12 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
 
 #include "def.h"
 
@@ -962,29 +960,7 @@ void buf_open_file_read_only(int fd) { buf_open_file_ro(fd, 1); }
  * Returns 0 on success, 1 on error (errno set). */
 static int write_slot(struct editor_buffer *b)
 {
-	char *buf;
-	int len, fd;
-
-	buf = editor_rows_to_string(b->row, b->numrows, &len);
-	fd = open(b->filename,
-	    O_RDWR | O_CREAT
-#ifdef O_CLOEXEC
-		| O_CLOEXEC
-#endif
-	    ,
-	    0644);
-	if (fd == -1) {
-		free(buf);
-		return 1;
-	}
-	if (ftruncate(fd, len) == -1 || write(fd, buf, len) != len) {
-		close(fd);
-		free(buf);
-		return 1;
-	}
-	close(fd);
-	free(buf);
-	return 0;
+	return editor_write_rows_to_file(b->filename, b->row, b->numrows, NULL);
 }
 
 /* Save all modified non-special buffers, prompting for each (C-x s). */

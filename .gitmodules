@@ -1,0 +1,4 @@
+[submodule "fe"]
+	path = fe
+	url = github.com:bjodah/fe
+	branch = analyzers-etc

@@ -1,230 +1,419 @@
-Integrating the `fe` Lisp interpreter into the `kg` text editor is an excellent project! It will transform `kg` from a static editor into a customizable, programmable one, much like Emacs. 
+# Plan: embed Fe Lisp in kg
 
-Here is a detailed, step-by-step implementation plan tailored for a junior engineer.
+## Objective
 
----
+Embed Fe as kg's optional extension language without weakening kg's stability,
+terminal safety, or dependency-free distribution model. Lisp support is a
+compile-time feature, enabled by default, that packagers and users can switch
+off; a lisp-less build must behave exactly like today's kg. The first useful
+release should provide safe expression evaluation, a startup file, explicit
+package loading via `(kg-load ...)`, and a small editor bridge. Lisp-defined
+interactive commands and key bindings follow only after the execution and
+rooting APIs are proven.
 
-## Architecture Overview
-*   **The Interpreter (`fe`)**: Will live inside the editor as an embedded subsystem. It requires a fixed block of memory (an "arena") and a context (`FeContext`).
-*   **The Editor (`kg`)**: Will own the `FeContext`, initializing it on startup and shutting it down on exit.
-*   **The Bridge**: We will write C functions (`FeNativeFn`) that expose `kg`'s internals (inserting text, moving the cursor, setting the status) to the Lisp environment.
+This is an integration plan, not an instruction to start wiring Fe in
+immediately. Complete the blocking items in Fe's
+`.meta-docs/plans/01-PRE-KG-EMBEDDING-API.md` first, then pin the resulting Fe
+commit in the `fe/` submodule.
 
----
+## Decisions
 
-## Phase 1: Build System & File Integration
+- Move kg from C99 to strict C23 before importing Fe. Do not use `gnu11` as an
+  intermediate compatibility mode.
+- Consume Fe through the existing `fe/` git submodule pinned to an exact
+  commit of `bjodah/fe`; do not copy a `vendor/fe/` snapshot. Release tarballs
+  must embed the pinned Fe sources so a tarball build needs neither git nor
+  network access.
+- Lisp support is compile-time optional and enabled by default: `make
+  WITH_LISP=0` must produce today's editor with no Fe objects linked. Guard
+  integration points with one macro (`KG_USE_LISP`) and keep conditional code
+  confined to `src/lisp.c`, command registration, and `main`.
+- Extension packages load explicitly: `init.fe` is the only automatically
+  evaluated file, and it pulls in packages with `(kg-load "name")` resolved
+  against `$XDG_CONFIG_HOME/kg/lisp/`. No autoload directory scanning in the
+  first release.
+- Do not compile Fe's I/O, process, regex, math, or time extensions initially.
+  In particular, do not accidentally expose filesystem or process execution
+  through Fe's standard extensions.
+- Treat init files and interactively evaluated expressions as trusted code, not
+  as a sandbox. Resource bounds still protect the editor from accidental
+  infinite loops and runaway allocation.
+- Keep interpreter ownership behind `src/lisp.c`; do not spread `FeContext*`,
+  `jmp_buf`, or GC-stack management through editor modules.
+- Use kg's existing command and buffer operations rather than duplicating
+  editing logic in Lisp wrappers.
 
-First, we need to bring the `fe` source files into the `kg` project and get them to compile together.
+## Non-goals for the first release
 
-1.  **Copy Files**: Copy `fe.c` and `fe.h` from the `fe` repository into `kg/src/`.
-    *   *(Optional)*: You can also copy the `fex_*.c/h` files if you want regular expressions and math built-in, but starting with just `fe.c/h` keeps things simpler.
-2.  **Update `Makefile`**:
-    *   Add `fe.c` to the `SRCS` variable.
-    *   Add `$(OBJDIR)/fe.o` to the `OBJS` variable (it will be handled automatically if you add it to `SRCS`).
-3.  **Adjust the C Standard**: 
-    *   `kg` is currently built with `-std=c99`, but `fe` uses some modern C features (`-std=c2x`). 
-    *   In the `Makefile`, change `CFLAGS ?= -Wall -W -pedantic -std=c99 -Os` to use **`-std=gnu11`** or **`-std=c2x`**. (Try `gnu11` first, as it balances compatibility well).
+- A complete Emacs Lisp compatibility layer
+- Async or multithreaded evaluation
+- Loading arbitrary native modules
+- Exposing raw `struct editor_config`, rows, windows, or buffer arrays to Lisp
+- Making every C command automatically callable from Lisp
+- Automatic package discovery, dependency resolution, or `require`/`provide`
+  semantics; `(kg-load ...)` from `init.fe` is the entire loading story
+- Persisting or serializing Fe heap state across kg processes
 
----
+## Milestone 0: migrate kg to C23
 
-## Phase 2: Lisp State Initialization
+Change every language-mode flag in `Makefile` (normal, fuzz, and coverage
+builds) to `-std=c23`, or temporarily to the compiler's current spelling
+(`-std=c2x`), while retaining the POSIX feature-test defines. Pin minimum GCC
+and Clang versions in CI and document the supported compiler floor. Do this as
+an isolated change before adding Fe.
 
-We need to give the editor a Lisp context and manage its memory lifecycle.
+Required verification:
 
-1.  **Update `src/def.h`**:
-    *   Include the `fe` header near the top: `#include "fe.h"`
-    *   Add the Lisp context to the global state. Inside `struct editor_config`, add:
-        ```c
-        void *lisp_arena;
-        FeContext *lisp_ctx;
-        ```
-2.  **Initialize Lisp in `src/main.c`**:
-    *   Locate `init_editor(void)`.
-    *   Allocate memory for Lisp (e.g., 2 Megabytes) and open the context:
-        ```c
-        editor.lisp_arena = malloc(2 * 1024 * 1024);
-        editor.lisp_ctx = FeOpenContext(editor.lisp_arena, 2 * 1024 * 1024);
-        ```
-3.  **Clean up Lisp in `src/tty.c`**:
-    *   Locate `editor_at_exit(void)`.
-    *   Add cleanup code to prevent memory leaks:
-        ```c
-        if (editor.lisp_ctx) {
-            FeCloseContext(editor.lisp_ctx);
-            free(editor.lisp_arena);
-        }
-        ```
+- GCC and Clang warning-clean builds with warnings as errors
+- `make check`, including all unit and PTY tests
+- ASan/UBSan, MSan, GCC analyzer, Valgrind, IWYU, cppcheck, and clang-tidy stages
+- `make fuzz-keypress-smoke`
 
----
+Do not mix unrelated C23 modernization into this milestone. Its purpose is to
+prove that the existing editor behaves identically under the new language
+mode.
 
-## Phase 3: Safe Evaluation & Error Handling
+### C23 hardening opportunities after the mode switch
 
-By default, if `fe` encounters a Lisp error, it prints to `stderr` and calls `exit(1)`. This is unacceptable for a text editora typo in a Lisp script shouldn't crash the editor! We need to catch errors using C's `setjmp`/`longjmp`.
+Treat these as small, reviewed follow-ups rather than prerequisites for linking
+Fe. Prefer changes that let the compiler prove an invariant or remove custom
+overflow logic; do not adopt new syntax merely because it is available.
 
-1.  **Create `src/lisp.c` (and `src/lisp.h`)**:
-    *   Add `lisp.c` to your `Makefile` `SRCS`.
-2.  **Implement the Error Handler (`src/lisp.c`)**:
-    ```c
-    #include "def.h"
-    #include <setjmp.h>
+- Use `<stdckdint.h>` checked arithmetic (`ckd_add`, `ckd_mul`) for sizes built
+  before `malloc`, `calloc`, and `realloc`. Audit buffer growth in `buffer.c`,
+  `display.c`, `fileio.c`, `shell.c`, `word.c`, and `yank.c` first. A failed
+  size calculation must follow the same recoverable OOM path as allocation
+  failure, never wrap to a smaller allocation.
+- Replace suitable preprocessor constants with typed `constexpr` objects and
+  use `static_assert` for relationships such as table counts, fixed capacities,
+  key-code ranges, and assumptions shared by arrays and enums. Keep `#define`
+  where conditional compilation genuinely requires it.
+- Add standard attributes selectively: `[[nodiscard]]` on helpers whose error,
+  allocation, or lookup result must be checked; `[[fallthrough]]` on deliberate
+  switch fallthrough; `[[maybe_unused]]` in configuration-dependent code; and
+  `[[noreturn]]` on fatal exits. Attributes should clarify an existing contract,
+  not suppress a warning.
+- Consider fixed-underlying-type enums for key codes, syntax classes, and undo
+  tags where storage width or signedness is an actual invariant. Add range
+  assertions at input boundaries; do not rely on a narrower enum as runtime
+  validation.
+- Use C23 `bool`, `true`, and `false` directly and `nullptr` for pointer nulls
+  when the supported compiler floor implements them consistently. This makes
+  intent and variadic/generic type checking clearer, but should be a mechanical
+  change with no mixed-style churn.
+- Use `typeof_unqual` and `_Generic` only for small, type-safe utility macros
+  where they eliminate double evaluation or enforce an API contract. Prefer an
+  ordinary inline function whenever it expresses the operation cleanly.
 
-    static jmp_buf lisp_err_jmp;
+Do not depend initially on unevenly implemented C23 facilities such as
+`#embed`, `_BitInt`, or the new library additions merely to reduce a few lines
+of code. Add a compile probe and CI coverage before using any C23 feature whose
+availability depends on the compiler or C library rather than the language
+mode alone.
 
-    static void lisp_error_handler(FeContext* ctx, const char* err, FeObject* cl) {
-        /* Tell kg to show the error in the status bar */
-        editor_set_status_message("Lisp error: %s", err);
-        /* Jump back to safety instead of crashing */
-        longjmp(lisp_err_jmp, 1);
-    }
-    ```
-3.  **Implement a Safe `eval` Function (`src/lisp.c`)**:
-    ```c
-    void lisp_init_handlers(void) {
-        FeGetHandlers(editor.lisp_ctx)->error = lisp_error_handler;
-    }
+New code written for this plan is exempt from the "follow-up" framing: write
+`src/lisp.c`, the bridge, and the package loader in C23 idiom from the start —
+`bool`/`nullptr`, `[[nodiscard]]` on the eval and load entry points,
+`constexpr` for the arena size, budget defaults, and load-depth limit, and
+`<stdckdint.h>` for arena and buffer size math. Only retrofitting existing
+editor code is deferred.
 
-    void lisp_eval_string(const char *code) {
-        FeContext *ctx = editor.lisp_ctx;
-        size_t gc_save = FeSaveGC(ctx);
-        
-        /* If longjmp is called, execution returns here and setjmp returns 1 */
-        if (setjmp(lisp_err_jmp) == 0) {
-            /* Try to read and evaluate the string */
-            FeObject *obj = FeRead(ctx, /* implement a string reader fn here, or use FeEvalute directly on lists */ ...); 
-            // Note: Since FeRead requires a callback, a simple helper to read from a string is needed.
-            // Alternatively, write a temporary file or implement a memory reader callback.
-            
-            // Assuming you parse `code` into `obj`:
-            FeObject *result = FeEvaluate(ctx, obj);
-            
-            // Print result to status bar
-            char buf[128];
-            FeToString(ctx, result, buf, sizeof(buf));
-            editor_set_status_message("=> %s", buf);
-        }
-        
-        /* Clean up garbage collector stack */
-        FeRestoreGC(ctx, gc_save);
-    }
-    ```
-    *Call `lisp_init_handlers()` right after `FeOpenContext` in `main.c`.*
+## Milestone 1: pin the Fe submodule and wire the optional build
 
----
+Fe is already present as the `fe/` submodule; make it a reliable, pinned,
+optional dependency:
 
-## Phase 4: Connecting the Editor to Lisp (The Bridge)
+- Fix the submodule URL. `.gitmodules` currently says `github.com:bjodah/fe`,
+  which resolves only for users with a matching SSH host alias. Use
+  `https://github.com/bjodah/fe.git`; keep SSH pushing as a local
+  `url.<base>.insteadOf` remap.
+- Pin the exact Fe commit that completes the blocking phases of Fe's embedding
+  plan. Record commit, tracked branch, license/attribution, and the update
+  procedure (bump submodule, review diff, rerun kg CI) in `doc/fe-upstream.md`
+  or a README section.
+- Compile only `fe/fe.c` — not `fex*.c`, `auto.c`, or `main.c` — from kg's
+  Makefile with dedicated `FE_CFLAGS`, placing the object with kg's own. Do
+  not glob the submodule. Keep `fe.h` out of `src/def.h`; only `src/lisp.c`
+  and a narrow test module include it.
+- Introduce `WITH_LISP` (default `1`). With `WITH_LISP=0`: no Fe objects, no
+  `KG_USE_LISP` define, and a binary behaviorally identical to pre-Fe kg.
+- With `WITH_LISP=1` and `fe/fe.c` absent (submodule not initialized), fail
+  with an actionable message naming `git submodule update --init` and
+  `WITH_LISP=0`, not a cryptic missing-file error.
+- Teach `dist` to embed the pinned Fe sources and license so tarball builds
+  work offline in both configurations; `clean`/`distclean` must not touch
+  submodule-tracked files.
+- Make `kg -V` report the feature (for example `+lisp`/`-lisp`) so tests,
+  packagers, and bug reports can tell configurations apart.
 
-Now, we give Lisp the power to control the editor. We do this by writing C functions that conform to `FeNativeFn` and binding them to Lisp symbols.
+Acceptance criteria:
 
-1.  **Write Native Wrappers (`src/lisp.c`)**:
-    Let's expose `editor_set_status_message` and `editor_insert_text_raw`.
-    ```c
-    static FeObject* lisp_kg_message(FeContext* ctx, FeObject* arg) {
-        char msg[256];
-        /* Get first argument */
-        FeObject *val = FeGetNextArgument(ctx, &arg);
-        FeToString(ctx, val, msg, sizeof(msg));
-        
-        editor_set_status_message("%s", msg);
-        return &nil; /* Return Lisp 'nil' */
-    }
+- both configurations build warning-clean under GCC and Clang
+- with Fe linked but not initialized, kg behaves identically
+- a fresh clone without submodule init builds with `WITH_LISP=0` and produces
+  the actionable error with `WITH_LISP=1`
+- a dist tarball builds offline in both configurations
+- license review is complete (MIT; rxi, Chris Palmer, and the fork)
+- a submodule bump produces a reviewable diff
 
-    static FeObject* lisp_kg_insert(FeContext* ctx, FeObject* arg) {
-        char text[1024];
-        FeObject *val = FeGetNextArgument(ctx, &arg);
-        
-        if (FeGetType(val) != FeTString) {
-            FeHandleError(ctx, "kg-insert expects a string");
-        }
-        
-        size_t len = FeToString(ctx, val, text, sizeof(text));
-        editor_insert_text_raw(text, len);
-        return &nil;
-    }
-    ```
-2.  **Register Native Functions (`src/lisp.c`)**:
-    ```c
-    void lisp_register_api(void) {
-        FeContext *ctx = editor.lisp_ctx;
-        size_t gc_save = FeSaveGC(ctx);
+## Milestone 2: isolate interpreter lifecycle
 
-        FeSet(ctx, FeMakeSymbol(ctx, "kg-message"), FeMakeNativeFn(ctx, lisp_kg_message));
-        FeSet(ctx, FeMakeSymbol(ctx, "kg-insert"), FeMakeNativeFn(ctx, lisp_kg_insert));
+Add `src/lisp.c` and a small `src/lisp.h` interface. The header should expose
+kg-level operations, not Fe internals. A reasonable initial surface is:
 
-        FeRestoreGC(ctx, gc_save);
-    }
-    ```
-    *Call `lisp_register_api()` in `main.c` during initialization.*
+```c
+int kg_lisp_init(void);
+void kg_lisp_shutdown(void);
+int kg_lisp_eval_string(const char *source, size_t length,
+    char *result, size_t result_size);
+int kg_lisp_load_file(const char *path);
+```
 
----
+Decide the disabled-build shape here: with `WITH_LISP=0`, either compile a
+stub `lisp.c` whose entry points report "not compiled in", or exclude the file
+and guard its few call sites. Prefer whichever keeps `KG_USE_LISP` out of
+editor modules; `main` and the command table should not accumulate scattered
+conditionals. The `result` buffer of `kg_lisp_eval_string` is display-oriented
+(status line): truncating the printed representation for display is
+acceptable, but truncation must never affect evaluation itself or data passed
+back into editor operations.
 
-## Phase 5: Executing Lisp from the UI
+Keep a private state object in `lisp.c` containing the arena, context, host
+userdata, active evaluation frame, cancellation state, and last error text.
+Allocate the arena with a named, configurable default rather than an unexplained
+2 MiB literal. Check allocation and `FeOpenContext` failures.
 
-We want to let users type Lisp commands directly in the editor using `M-x eval-expression`.
+Initialize the interpreter explicitly from `main`, after base editor state is
+valid. Shut it down on every normal exit path. If an `atexit` fallback is kept,
+make shutdown idempotent; do not put Lisp ownership in `editor_at_exit`, whose
+responsibility is terminal restoration.
 
-1.  **Add to Command Table (`src/cmd.c`)**:
-    *   Write a new command function:
-        ```c
-        static void cmd_eval_expression(int fd) {
-            char expr[256];
-            if (editor_read_line(fd, "Eval: ", expr, sizeof(expr)) < 0 || !expr[0]) {
-                return;
-            }
-            lisp_eval_string(expr);
-        }
-        ```
-    *   Add it to `cmdtable`:
-        ```c
-        { "eval-expression", cmd_eval_expression },
-        ```
-    *   Now you can press `M-x`, type `eval-expression`, and evaluate `(kg-insert "Hello from Lisp!")`.
+Acceptance criteria:
 
----
+- repeated init/shutdown is either supported or rejected deterministically
+- startup allocation failure reports an editor error instead of exiting inside
+  Fe
+- Valgrind reports no interpreter lifecycle leaks
+- noninteractive `kg -h` and `kg -V` do not initialize Fe
 
-## Phase 6: Loading the `init.fe` Config File
+## Milestone 3: safe evaluation boundary
 
-To truly make it customizable, the editor should run a script on startup.
+Use Fe's context-userdata and handler setter APIs. Do not use a process-global
+`jmp_buf`. Each kg evaluation creates a private frame containing:
 
-1.  **Load Init File (`src/lisp.c`)**:
-    ```c
-    void lisp_load_init_file(void) {
-        char path[512];
-        snprintf(path, sizeof(path), "%s/.config/kg/init.fe", getenv("HOME"));
-        
-        FILE *fp = fopen(path, "rb");
-        if (!fp) return; /* No init file, that's fine */
+- saved Fe GC-stack index
+- `jmp_buf`
+- pointer to the previous frame, if nested evaluation is supported
+- source label and error destination
+- evaluation budget/cancellation data
 
-        FeContext *ctx = editor.lisp_ctx;
-        size_t gc_save = FeSaveGC(ctx);
+The Fe error callback retrieves kg's Lisp state from the context, copies the
+error message without allocating Fe objects, and jumps only to the active
+frame. Cleanup after `setjmp` must restore the GC stack and close host resources
+such as files. Define and test whether nested evaluation from a native callback
+is supported; otherwise reject it explicitly.
 
-        if (setjmp(lisp_err_jmp) == 0) {
-            while (1) {
-                FeObject *obj = FeReadFile(ctx, fp);
-                if (!obj) break; /* EOF */
-                FeEvaluate(ctx, obj);
-                FeRestoreGC(ctx, gc_save); /* prevent GC stack overflow during loop */
-            }
-        } else {
-            /* Error occurred loading init.fe */
-            /* Message is already set by lisp_error_handler */
-        }
-        
-        fclose(fp);
-    }
-    ```
-2.  **Call it at startup**: Add `lisp_load_init_file();` at the end of `init_editor()` in `main.c`.
+Use Fe's length-aware multi-form evaluation helper for strings and files. Do
+not create temporary files or maintain a second ad hoc reader in kg. Return the
+last value as display text for interactive evaluation, but avoid showing every
+value while loading configuration.
 
----
+Every top-level evaluation must have a finite step budget and an interrupt
+hook. Startup configuration gets a conservative budget. Interactive evaluation
+should also allow `C-g` cancellation without waiting for the expression to
+finish. A Lisp `(while t)` must not hang the editor.
 
-## Junior Engineer Tips & Gotchas
-*   **Garbage Collection (GC)**: Notice the `FeSaveGC` and `FeRestoreGC` patterns? `fe` expects you to manually mark where you started creating objects in C, and "restore" that state so temporary objects can be freed. **Always** wrap Lisp API calls in this pattern.
-*   **String Reader**: `FeRead` in `fe` takes a callback `FeReadFn`. To parse a `char *` from memory in `lisp_eval_string` (Phase 3), you'll need a tiny state struct and a callback that returns one character at a time until `\0`.
-    ```c
-    struct str_reader { const char *str; size_t pos; };
-    static char string_read_fn(FeContext* ctx, void* udata) {
-        struct str_reader *r = udata;
-        return r->str[r->pos++];
-    }
-    // usage:
-    struct str_reader r = { code, 0 };
-    FeObject *obj = FeRead(ctx, string_read_fn, &r);
-    ```
-*   **Compiler Errors**: If `gcc` complains about `static_assert` or `bool` in `fe.h`, ensure your Makefile's `CFLAGS` allows modern C features and that `<stdbool.h>` and `<assert.h>` are included.
+Acceptance criteria:
+
+- syntax, type, OOM, and budget errors return control to kg
+- a second valid expression succeeds after each error class
+- repeated multi-form evaluation does not grow the GC protection stack
+- embedded NUL and truncated input behavior is defined and tested
+- evaluation cannot leave raw mode or terminal state corrupted
+
+## Milestone 4: define a narrow editor bridge
+
+Start with value-oriented operations that have clear ownership and undo
+semantics:
+
+- `(kg-message string)`
+- `(kg-insert string)`
+- `(kg-buffer-name)`
+- `(kg-point)` and `(kg-goto row column)`
+- `(kg-command string)` for an explicit allow-list of named commands
+
+Use Fe's native binding helper, exact-arity checks, and length-aware string
+extraction. Never silently truncate a Lisp string into a fixed local buffer.
+Return Fe's public nil accessor rather than referencing a global `nil` object.
+
+Before implementing `kg-command`, refactor `src/cmd.c` so M-x and Lisp share a
+single command lookup/execution API. Preserve the existing picker ordering and
+keep command descriptors private to the command module. Commands that prompt,
+run a shell, save files, or exit require explicit policy; do not expose the
+entire static table by default.
+
+All mutating wrappers must enforce read-only mode and use existing editor
+operations so cursor normalization, dirty flags, syntax refresh, and undo are
+preserved. Decide whether one Lisp call or one top-level expression is one undo
+unit and add tests for that decision.
+
+Acceptance criteria:
+
+- wrong type, missing argument, and extra argument errors are deterministic
+- large inserted strings are complete or rejected, never truncated
+- read-only buffers cannot be modified through Lisp
+- one bridge failure does not poison later evaluation
+- bridge functions do not expose pointers into rows that reallocations can
+  invalidate
+
+## Milestone 5: user-facing evaluation commands
+
+Add `eval-expression` to the existing named-command table. Reuse the minibuffer
+input machinery, but select a deliberate expression-size limit and report
+overflow rather than evaluating a truncated expression. Display the last
+result in the status area and preserve a useful, source-labelled error.
+
+After that path is stable, add `eval-buffer` or `eval-region`. Region extraction
+must use the established region API and preserve embedded-byte policy. Do not
+make a direct key binding mandatory in the first release; M-x is sufficient.
+
+Add PTY tests for:
+
+- evaluating an insertion and saving the resulting buffer
+- displaying a scalar result
+- syntax and type errors followed by successful editing
+- cancellation or budget exhaustion
+- read-only rejection
+
+## Milestone 6: startup configuration and package loading
+
+Resolve the init file in this order:
+
+1. an explicit command-line override, if added
+2. `$XDG_CONFIG_HOME/kg/init.fe`
+3. `$HOME/.config/kg/init.fe`
+
+Missing files are normal. Add `-Q`/`--no-init-file` before enabling automatic
+loading so users can recover from a broken configuration. Reject unsafe path
+construction when environment variables are unset or too long.
+
+Load the file only after a current buffer and the bridge are available. Do not
+overwrite a load error immediately with the generic "Press Ctrl-h for help"
+message. Define partial-application behavior: forms evaluated before an error
+remain applied unless a real transactional mechanism is implemented.
+
+### Package loading
+
+Add a `(kg-load NAME)` native as the explicit extension-package mechanism:
+
+- A bare name resolves to `<config>/lisp/NAME.fe` using the same XDG-then-HOME
+  fallback as the init file; a name containing `/` is treated as a literal
+  path. Apply the same unsafe-path rejection rules as for the init file.
+- Loading re-enters the evaluator. Nested evaluation inherits the ambient
+  budget and cancellation state (Fe's evaluation-control semantics), so a
+  package cannot reset the limits its caller established.
+- Errors must name the failing file through Fe's source labels; "error in
+  init.fe" is not acceptable when the failure is three loads deep.
+- Guard against load cycles with an explicit depth limit and a clear error.
+  Packages loading packages is supported; unbounded recursion is not.
+- No `require`/`provide` in the first release: loading a file twice evaluates
+  it twice. Document this; users structure `init.fe` to load each package
+  once.
+- Because `init.fe` is the only automatic entry point, `-Q` also disables all
+  package loading. `kg-load` remains callable from `eval-expression` for
+  interactive testing.
+
+Tests must run with a temporary HOME/XDG directory and cover missing, valid,
+invalid, over-budget, and bypassed init files, plus package loading: a package
+defining state that `init.fe` then uses, a missing package whose error names
+the package, and the load-cycle guard. The PTY runner must never read a
+developer's real configuration.
+
+## Milestone 7: Lisp-defined commands and bindings
+
+This milestone delivers actual editor customization rather than only an eval
+console.
+
+Refactor the command registry to support both static C commands and dynamic
+Lisp commands through one lookup/list/execute interface. A Lisp command must be
+rooted for its registration lifetime and released when redefined or removed.
+Use Fe's call/root APIs rather than constructing or retaining internal pairs in
+kg.
+
+Candidate Lisp API:
+
+- `(kg-define-command "name" function)`
+- `(kg-remove-command "name")`
+- `(kg-bind-key "C-c x" "name")`
+- `(kg-unbind-key "C-c x")`
+
+Do not implement key parsing twice. Introduce one canonical key-sequence parser
+used by configuration, help display, and dispatch. Dynamic commands must appear
+in M-x completion and must obey the same evaluation budget and error recovery
+as `eval-expression`.
+
+Acceptance criteria:
+
+- redefine/remove operations release old roots
+- M-x lists and executes Lisp commands
+- a bound key invokes the same command object as M-x
+- errors in a Lisp command return to the editor event loop
+- invalid or conflicting key sequences produce clear errors
+- a package loaded with `(kg-load ...)` from `init.fe` can define and bind a
+  command that then works identically from M-x and from its key — this is the
+  end-to-end proof of the extension-package story
+
+## Milestone 8: test, fuzz, and documentation closure
+
+Add a native `test/test_lisp` with editor stubs for lifecycle, bridge, error,
+budget, rooting, and repeated-evaluation tests. Use PTY cases for minibuffer,
+screen message, key binding, init-file, and saved-buffer behavior.
+
+Extend fuzzing in two layers:
+
+- replay Fe's raw reader and bounded evaluator fuzz targets against the pinned
+  submodule commit
+- extend kg's keypress harness only after eval prompts and dynamic commands can
+  be exercised without filesystem or shell side effects
+
+Every gate must cover both build configurations. Keep the default pipeline on
+`WITH_LISP=1`, add at least one full build plus `make check` with
+`WITH_LISP=0`, and teach the PTY harness to skip Lisp cases when the binary
+reports `-lisp` (via `kg -V`) instead of failing them. Sanitizer and fuzz
+stages target the default configuration only.
+
+Update `README.md`, the man page, built-in help, `AGENTS.md`, and packaging
+metadata. Document that Lisp is trusted code, list resource limits, explain
+`-Q`, the `WITH_LISP` build option, `(kg-load ...)`, and the
+`$XDG_CONFIG_HOME/kg/lisp/` package directory, and provide a minimal recovery
+procedure.
+
+Final release gate:
+
+- `make check`
+- Fe parser/evaluator fuzz smoke
+- kg keypress fuzz smoke
+- complete `.ci/run-ci-steps.sh`
+- a clean install/dist build
+- manual smoke test over a real PTY
+
+## Risks to track
+
+- **Editor hangs:** mitigated by mandatory evaluator budgets and interrupt
+  polling.
+- **Stale Fe pointers:** mitigated by root handles and no raw object storage in
+  editor structures.
+- **Longjmp leaks:** mitigated by evaluation frames and host cleanup outside the
+  jump region.
+- **Undo fragmentation:** requires an explicit transaction policy before broad
+  mutation APIs.
+- **Broken startup:** mitigated by `-Q`, isolated config paths in tests, and
+  nonfatal load errors.
+- **Upstream drift:** mitigated by a pinned submodule commit and a documented
+  bump-review-CI refresh procedure.
+- **Uninitialized submodule:** mitigated by an actionable Makefile error, the
+  `WITH_LISP=0` escape hatch, and dist tarballs that embed the Fe sources.
+- **Configuration drift between builds:** mitigated by CI building and testing
+  both `WITH_LISP` settings and by `kg -V` reporting the feature.
+- **False sandbox expectations:** mitigated by excluding Fe's external-effect
+  extensions initially and documenting that kg's Lisp remains trusted code.

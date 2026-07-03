@@ -1,6 +1,6 @@
 # kg agent notes
 
-kg is a small Emacs-style terminal editor written in C99. Read `README.md` first for project goals and user-facing behavior.
+kg is a small Emacs-style terminal editor written in C23. Read `README.md` first for project goals and user-facing behavior.
 
 ## Repo shape
 - `src/`: editor implementation
@@ -26,7 +26,7 @@ kg is a small Emacs-style terminal editor written in C99. Read `README.md` first
 
 ## Editing expectations
 - Keep changes small and local; this codebase values minimalism.
-- Match existing C style: C99, tabs, short helper functions, Linux-kernel-like brace/layout conventions.
+- Match existing C style: C23, tabs, short helper functions, Linux-kernel-like brace/layout conventions.
 - Avoid new dependencies unless explicitly requested.
 - When behavior changes, add or update a focused test under `test/`.
 - Prefer the existing C harness for pure logic and `test/pty/*.yaml` for interactive editor behavior.

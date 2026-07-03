@@ -3,7 +3,7 @@
 ifeq ($(origin CC),default)
 CC      = gcc
 endif
-CFLAGS  ?= -Wall -W -pedantic -std=c99 -Os
+CFLAGS  ?= -Wall -W -pedantic -std=c23 -Os
 PROG    = kg
 OBJDIR  = src
 TARGET  = $(OBJDIR)/$(PROG)
@@ -55,7 +55,7 @@ PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?=
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
-FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c99 -O1 -g \
+FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c23 -O1 -g \
 	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DKG_FUZZ=1 \
 	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
 
@@ -69,7 +69,7 @@ PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 119
 COVERAGE_DIR ?= coverage
-COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c99 -O0 -g --coverage
+COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
 COVERAGE_GENHTML_ARGS ?= --quiet
 CLANG_FORMAT ?= clang-format

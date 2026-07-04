@@ -113,6 +113,11 @@ void buf_open_list(void) { }
 void buf_ibuffer_select(void) { }
 void buf_open_help(void) { }
 int autorevert_poll(void) { return 0; }
+void buf_display_name(int idx, char *out, size_t outsize)
+{
+	(void)idx;
+	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
+}
 
 void win_split_horizontal(void) { }
 void win_split_vertical(void) { }
@@ -130,6 +135,12 @@ void editor_find(int fd, int dir)
 
 void editor_query_replace(int fd) { (void)fd; }
 void editor_named_command(int fd) { (void)fd; }
+int cmd_execute_named(const char *name, int fd)
+{
+	(void)name;
+	(void)fd;
+	return 1;
+}
 void editor_shell_command(int fd) { (void)fd; }
 void editor_shell_command_on_region(int fd) { (void)fd; }
 int editor_save(int fd)

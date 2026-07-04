@@ -520,6 +520,7 @@ void editor_process_keypress(int fd);
 
 /* cmd.c */
 void editor_named_command(int fd);
+[[nodiscard]] int cmd_execute_named(const char *name, int fd);
 
 /* macro.c */
 int macro_is_recording(void);
@@ -554,6 +555,7 @@ void editor_suspend(void);
 int editor_read_key(int fd);
 int editor_read_key_idle(int fd);
 int editor_read_raw_byte(int fd);
+int editor_check_quit_pending(void);
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols);
 int get_window_size(int ifd, int ofd, int *rows, int *cols);
 void update_window_size(void);

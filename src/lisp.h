@@ -8,6 +8,8 @@ void kg_lisp_shutdown(void);
 [[nodiscard]] int kg_lisp_eval_string(
     const char *source, size_t length, char *result, size_t result_size);
 [[nodiscard]] int kg_lisp_load_file(const char *path);
+[[nodiscard]] const char *kg_lisp_last_error(void);
+void kg_lisp_set_interrupt_check(int (*check)(void));
 /* Reports compile-time availability without initializing the interpreter. */
 [[nodiscard]] int kg_lisp_active(void);
 

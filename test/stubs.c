@@ -3,6 +3,10 @@
 #include "../src/def.h"
 #include <stdarg.h>
 
+char test_status_message[512];
+char test_command_name[128];
+int test_command_calls;
+
 /* Globals normally defined in main.c */
 struct editor_config editor;
 int running = 1;
@@ -24,8 +28,29 @@ int win_total_cols = 80;
 /* Globals normally defined in yank.c */
 struct kill_ring killring;
 
-/* No-op stubs for display and kill-ring functions not under test */
-void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
+/* Display and command stubs are observable by the Lisp bridge tests. */
+void editor_set_status_message(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)vsnprintf(
+	    test_status_message, sizeof(test_status_message), fmt, ap);
+	va_end(ap);
+}
+int cmd_execute_named(const char *name, int fd)
+{
+	(void)fd;
+	test_command_calls++;
+	(void)snprintf(test_command_name, sizeof(test_command_name), "%s",
+	    name ? name : "");
+	return name ? 0 : 1;
+}
+void buf_display_name(int idx, char *out, size_t outsize)
+{
+	(void)idx;
+	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
+}
 void kill_ring_set(char *text, int len)
 {
 	(void)text;

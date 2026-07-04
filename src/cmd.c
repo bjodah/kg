@@ -248,6 +248,22 @@ static const struct named_cmd cmdtable[]
 	      { "whitespace-cleanup", cmd_whitespace_cleanup },
 	      { "zap-to-char", cmd_zap_to_char }, { NULL, NULL } };
 
+int cmd_execute_named(const char *name, int fd)
+{
+	int i;
+
+	if (name == NULL) {
+		return 1;
+	}
+	for (i = 0; cmdtable[i].name; i++) {
+		if (strcmp(cmdtable[i].name, name) == 0) {
+			cmdtable[i].fn(fd);
+			return 0;
+		}
+	}
+	return 1;
+}
+
 /* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
  * execute. */
 void editor_named_command(int fd)
@@ -332,7 +348,8 @@ void editor_named_command(int fd)
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			if (shown > 0 && sel >= 0 && sel < shown) {
-				cmdtable[match_idx[sel]].fn(fd);
+				(void)cmd_execute_named(
+				    cmdtable[match_idx[sel]].name, fd);
 			} else {
 				editor_set_status_message(
 				    "No command: %s", name);

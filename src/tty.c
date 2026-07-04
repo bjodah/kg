@@ -1,7 +1,9 @@
 /* tty.c - Low level terminal handling */
 
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +14,10 @@
 #include "def.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
+static unsigned char *pending_input;
+static size_t pending_input_len;
+static size_t pending_input_off;
+static size_t pending_input_cap;
 
 struct key_map {
 	char byte;
@@ -65,6 +71,11 @@ static int lookup_alt_key(char byte)
 
 void disable_raw_mode(int fd)
 {
+	free(pending_input);
+	pending_input = NULL;
+	pending_input_len = 0;
+	pending_input_off = 0;
+	pending_input_cap = 0;
 #ifdef KG_FUZZ
 	(void)fd;
 	editor.rawmode = 0;
@@ -75,6 +86,86 @@ void disable_raw_mode(int fd)
 		tcsetattr(fd, TCSAFLUSH, &orig_termios);
 		editor.rawmode = 0;
 	}
+}
+
+#ifndef KG_FUZZ
+static int reserve_pending_input(void)
+{
+	unsigned char *new_input;
+	size_t new_cap;
+
+	if (pending_input_len < pending_input_cap) {
+		return 1;
+	}
+	if (pending_input_off > 0) {
+		memmove(pending_input, pending_input + pending_input_off,
+		    pending_input_len - pending_input_off);
+		pending_input_len -= pending_input_off;
+		pending_input_off = 0;
+		if (pending_input_len < pending_input_cap) {
+			return 1;
+		}
+	}
+	if (pending_input_cap > SIZE_MAX / 2) {
+		return 0;
+	}
+	new_cap = pending_input_cap ? pending_input_cap * 2 : 64;
+	new_input = realloc(pending_input, new_cap);
+	if (!new_input) {
+		return 0;
+	}
+	pending_input = new_input;
+	pending_input_cap = new_cap;
+	return 1;
+}
+#endif
+
+static int read_input_byte(int fd, unsigned char *byte)
+{
+	int nread;
+
+	if (fd == STDIN_FILENO && pending_input_off < pending_input_len) {
+		*byte = pending_input[pending_input_off++];
+		if (pending_input_off == pending_input_len) {
+			free(pending_input);
+			pending_input = NULL;
+			pending_input_len = 0;
+			pending_input_off = 0;
+			pending_input_cap = 0;
+		}
+		return 1;
+	}
+	nread = read(fd, byte, 1);
+	return nread;
+}
+
+/* Poll for C-g while Fe is evaluating.  Other raw bytes are retained and
+ * replayed through the ordinary key decoder after evaluation returns. */
+int editor_check_quit_pending(void)
+{
+#ifdef KG_FUZZ
+	return 0;
+#else
+	struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+	unsigned char byte;
+	int checked = 0;
+
+	while (
+	    checked++ < 64 && poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+		if (!reserve_pending_input()) {
+			return 0;
+		}
+		if (read(STDIN_FILENO, &byte, 1) != 1) {
+			return 0;
+		}
+		if (byte == CTRL_G) {
+			return 1;
+		}
+		pending_input[pending_input_len++] = byte;
+		pfd.revents = 0;
+	}
+	return 0;
+#endif
 }
 
 /* Called at exit to avoid remaining in raw mode. */
@@ -143,10 +234,10 @@ fatal:
 /* Decode an escape sequence (ESC byte already consumed) into a key code. */
 static int parse_escape(int fd)
 {
-	char seq[6];
+	unsigned char seq[6];
 	int key;
 
-	if (read(fd, seq, 1) != 1) {
+	if (read_input_byte(fd, seq) != 1) {
 		return ESC; /* bare ESC */
 	}
 
@@ -159,14 +250,14 @@ static int parse_escape(int fd)
 		return ALT_0 + (seq[0] - '0');
 	}
 
-	if (read(fd, seq + 1, 1) != 1) {
+	if (read_input_byte(fd, seq + 1) != 1) {
 		return ESC;
 	}
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
 		if (seq[1] >= '0' && seq[1] <= '9') {
-			if (read(fd, seq + 2, 1) != 1) {
+			if (read_input_byte(fd, seq + 2) != 1) {
 				return ESC;
 			}
 			if (seq[2] == '~') {
@@ -181,7 +272,7 @@ static int parse_escape(int fd)
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
 				 * F4=ESC[14~) */
-				if (read(fd, seq + 3, 1) != 1) {
+				if (read_input_byte(fd, seq + 3) != 1) {
 					return ESC;
 				}
 				if (seq[3] == '~' && seq[1] == '1') {
@@ -195,10 +286,10 @@ static int parse_escape(int fd)
 			} else if (seq[2] == ';') {
 				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
 				 * Ctrl */
-				if (read(fd, seq + 3, 1) != 1) {
+				if (read_input_byte(fd, seq + 3) != 1) {
 					return ESC;
 				}
-				if (read(fd, seq + 4, 1) != 1) {
+				if (read_input_byte(fd, seq + 4) != 1) {
 					return ESC;
 				}
 				if (seq[1] == '1' && seq[3] == '5') {
@@ -283,7 +374,7 @@ static int parse_escape(int fd)
  * captured in one place. */
 int editor_read_key(int fd)
 {
-	char c;
+	unsigned char c;
 	int nread;
 	int key;
 
@@ -292,7 +383,7 @@ int editor_read_key(int fd)
 		return key;
 	}
 
-	while ((nread = read(fd, &c, 1)) == 0)
+	while ((nread = read_input_byte(fd, &c)) == 0)
 		;
 	if (nread == -1) {
 		running = 0;
@@ -310,7 +401,7 @@ int editor_read_key(int fd)
  * itself rather than being interpreted as the start of a meta key. */
 int editor_read_raw_byte(int fd)
 {
-	char c;
+	unsigned char c;
 	int nread;
 	int key;
 
@@ -319,7 +410,7 @@ int editor_read_raw_byte(int fd)
 		return key;
 	}
 
-	while ((nread = read(fd, &c, 1)) == 0)
+	while ((nread = read_input_byte(fd, &c)) == 0)
 		;
 	if (nread == -1) {
 		running = 0;
@@ -338,7 +429,7 @@ int editor_read_raw_byte(int fd)
  * instead so they aren't redrawn (or silently reverted) under the user. */
 int editor_read_key_idle(int fd)
 {
-	char c;
+	unsigned char c;
 	int nread;
 	int key;
 
@@ -347,7 +438,7 @@ int editor_read_key_idle(int fd)
 		return key;
 	}
 
-	while ((nread = read(fd, &c, 1)) == 0) {
+	while ((nread = read_input_byte(fd, &c)) == 0) {
 		if (autorevert_poll()) {
 			editor_refresh_screen();
 		}

@@ -121,6 +121,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "kg: cannot initialize Lisp\n");
 		return 1;
 	}
+	kg_lisp_set_interrupt_check(editor_check_quit_pending);
 	buf_load_args(argc - optind, argv + optind, readonly);
 	enable_raw_mode(STDIN_FILENO);
 	editor_set_status_message("Press Ctrl-h for help");

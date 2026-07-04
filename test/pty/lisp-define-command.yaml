@@ -1,0 +1,14 @@
+name: lisp-define-command
+filename: lisp-defcmd.txt
+requires_feature: lisp
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (kg-define-command "insert-hi" (fn () (kg-insert "hi")))
+  - RET
+  - M-x
+  - insert-hi
+  - RET
+expected_saved: hi

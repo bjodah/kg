@@ -141,6 +141,11 @@ int cmd_execute_named(const char *name, int fd)
 	(void)fd;
 	return 1;
 }
+int cmd_static_exists(const char *name)
+{
+	(void)name;
+	return 0;
+}
 void editor_shell_command(int fd) { (void)fd; }
 void editor_shell_command_on_region(int fd) { (void)fd; }
 int editor_save(int fd)

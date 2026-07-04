@@ -46,6 +46,10 @@ int cmd_execute_named(const char *name, int fd)
 	    name ? name : "");
 	return name ? 0 : 1;
 }
+int cmd_static_exists(const char *name)
+{
+	return name && strcmp(name, "version") == 0;
+}
 void buf_display_name(int idx, char *out, size_t outsize)
 {
 	(void)idx;

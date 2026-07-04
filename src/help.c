@@ -81,4 +81,6 @@ const char *kg_help_lines[]
 	      "└─────────────────────────┴─────────────────────────┴───────────"
 	      "──────────────┘",
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",
+	      "     C-c <key> runs user Lisp bindings; see kg-bind-key in "
+	      "kg(1)",
 	      NULL };

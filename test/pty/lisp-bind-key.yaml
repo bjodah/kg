@@ -1,0 +1,18 @@
+# End-to-end extension-package proof: init.fe loads a package that
+# defines a command and binds it; the bound key and M-x both run it.
+name: lisp-bind-key
+filename: lisp-bindkey.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: '(kg-load "hi-pkg")'
+  .config/kg/lisp/hi-pkg.fe: |
+    (kg-define-command "insert-hi" (fn () (kg-insert "hi")))
+    (kg-bind-key "C-c i" "insert-hi")
+initial: ""
+keys:
+  - C-c
+  - i
+  - M-x
+  - insert-hi
+  - RET
+expected_saved: hihi

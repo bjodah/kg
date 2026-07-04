@@ -253,6 +253,8 @@ struct editor_config {
 	struct editor_syntax *syntax; /* Current syntax highlight, or NULL. */
 	int cx_prefix; /* Set to 1 when C-x was pressed, waiting for next key.
 			*/
+	int cc_prefix; /* Set to 1 when C-c was pressed, waiting for the
+			  user-bound key. */
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
 	int prefix_arg; /* The numeric argument under construction. */
 	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit
@@ -521,6 +523,13 @@ void editor_process_keypress(int fd);
 /* cmd.c */
 void editor_named_command(int fd);
 [[nodiscard]] int cmd_execute_named(const char *name, int fd);
+[[nodiscard]] int cmd_static_exists(const char *name);
+
+/* keybind.c */
+[[nodiscard]] int keybind_parse(const char *sequence, int *key);
+[[nodiscard]] int keybind_bind(const char *sequence, const char *command);
+[[nodiscard]] int keybind_unbind(const char *sequence);
+[[nodiscard]] const char *keybind_lookup(int key);
 
 /* macro.c */
 int macro_is_recording(void);

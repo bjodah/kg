@@ -66,7 +66,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c bufmgr.c winmgr.c cmd.c macro.c \
-       shell.c path.c rect.c lisp.c
+       shell.c path.c rect.c lisp.c keybind.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -85,7 +85,8 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
-	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c
+	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c \
+	    $(OBJDIR)/keybind.c
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
@@ -108,7 +109,7 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2298
+SCC_COMPLEXITY_MAX ?= 2409
 SCC_FILE_COMPLEXITY_MAX ?= 300
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -257,7 +258,7 @@ EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(TEST_SRCS_
 EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
 EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/buffer.o $(OBJDIR)/undo.o $(OBJDIR)/syntax.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
-EXTRA_lisp         := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(FE_OBJ)
+EXTRA_lisp         := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(OBJDIR)/keybind.o $(FE_OBJ)
 
 .SECONDEXPANSION:
 $(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

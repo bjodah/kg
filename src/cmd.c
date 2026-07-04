@@ -303,6 +303,21 @@ static const struct named_cmd cmdtable[]
 	      { "whitespace-cleanup", cmd_whitespace_cleanup },
 	      { "zap-to-char", cmd_zap_to_char }, { NULL, NULL } };
 
+int cmd_static_exists(const char *name)
+{
+	int i;
+
+	if (name == NULL) {
+		return 0;
+	}
+	for (i = 0; cmdtable[i].name; i++) {
+		if (strcmp(cmdtable[i].name, name) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int cmd_execute_named(const char *name, int fd)
 {
 	int i;
@@ -316,7 +331,26 @@ int cmd_execute_named(const char *name, int fd)
 			return 0;
 		}
 	}
-	return 1;
+	return kg_lisp_run_command(name, fd);
+}
+
+/* All command names visible to the M-x picker: the static table in its
+ * alphabetical order, then Lisp-defined commands. */
+static const char *command_name_at(int idx)
+{
+	static int nstatic = -1;
+	int i;
+
+	if (nstatic < 0) {
+		for (i = 0; cmdtable[i].name; i++) {
+			;
+		}
+		nstatic = i;
+	}
+	if (idx < nstatic) {
+		return cmdtable[idx].name;
+	}
+	return kg_lisp_command_name(idx - nstatic);
 }
 
 /* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
@@ -327,32 +361,32 @@ void editor_named_command(int fd)
 	const int plen = sizeof(prompt) - 1;
 	char name[64];
 	char msg[512];
-	int match_idx[PICKER_MAX_ENTRIES];
 	int len = 0, c, i, off;
 	int sel = 0; /* index within match_idx[] of the highlighted entry */
 
 	name[0] = '\0';
 
 	while (1) {
-		int total = 0, shown, first_cmd = -1;
+		int total = 0, shown;
+		const char *first_name = NULL;
+		const char *entry;
 		const char *names[PICKER_MAX_ENTRIES] = { 0 };
 
 		/* Prefix matches first, then mid-name substring matches.
 		 * Two passes preserve cmdtable's alphabetical order within
-		 * each rank, and keep TAB-completion's longest-common-prefix
-		 * over the prefix group only (substring matches share no
-		 * prefix worth extending to). */
-		for (i = 0; cmdtable[i].name; i++) {
-			if (editor_picker_match_rank(cmdtable[i].name, name)
-			    != 0) {
+		 * each rank (Lisp commands follow the static table), and
+		 * keep TAB-completion's longest-common-prefix over the
+		 * prefix group only (substring matches share no prefix
+		 * worth extending to). */
+		for (i = 0; (entry = command_name_at(i)); i++) {
+			if (editor_picker_match_rank(entry, name) != 0) {
 				continue;
 			}
-			if (first_cmd < 0) {
-				first_cmd = i;
+			if (!first_name) {
+				first_name = entry;
 			}
 			if (total < PICKER_MAX_ENTRIES) {
-				match_idx[total] = i;
-				names[total] = cmdtable[i].name;
+				names[total] = entry;
 			}
 			total++;
 		}
@@ -360,15 +394,13 @@ void editor_named_command(int fd)
 		 * already ranked as a prefix match above, so a second scan
 		 * looking for rank==1 would just walk the table for nothing. */
 		if (len > 0) {
-			for (i = 0; cmdtable[i].name; i++) {
-				if (editor_picker_match_rank(
-					cmdtable[i].name, name)
+			for (i = 0; (entry = command_name_at(i)); i++) {
+				if (editor_picker_match_rank(entry, name)
 				    != 1) {
 					continue;
 				}
 				if (total < PICKER_MAX_ENTRIES) {
-					match_idx[total] = i;
-					names[total] = cmdtable[i].name;
+					names[total] = entry;
 				}
 				total++;
 			}
@@ -403,8 +435,7 @@ void editor_named_command(int fd)
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			if (shown > 0 && sel >= 0 && sel < shown) {
-				(void)cmd_execute_named(
-				    cmdtable[match_idx[sel]].name, fd);
+				(void)cmd_execute_named(names[sel], fd);
 			} else {
 				editor_set_status_message(
 				    "No command: %s", name);
@@ -414,22 +445,22 @@ void editor_named_command(int fd)
 			/* Complete to the longest common prefix of the prefix-
 			 * matched group only — substring matches share no
 			 * leading text worth extending typed input to. */
-			if (first_cmd >= 0) {
-				const char *ref = cmdtable[first_cmd].name;
+			if (first_name) {
+				const char *ref = first_name;
 				int clen;
 
 				for (clen = len; ref[clen]; clen++) {
 					int ok = 1;
 
-					for (i = 0; cmdtable[i].name && ok;
+					for (i = 0;
+					    (entry = command_name_at(i)) && ok;
 					    i++) {
 						if (editor_picker_match_rank(
-							cmdtable[i].name, name)
+							entry, name)
 						    != 0) {
 							continue;
 						}
-						if (cmdtable[i].name[clen]
-						    != ref[clen]) {
+						if (entry[clen] != ref[clen]) {
 							ok = 0;
 						}
 					}

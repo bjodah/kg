@@ -60,6 +60,19 @@ which resolves a bare name to
 and treats names containing a slash as literal paths.
 Loading a file twice evaluates it twice.
 .Pp
+Lisp code can define interactive commands with
+.Li (kg-define-command "name" (fn () ...))
+and bind them with
+.Li (kg-bind-key "C-c <key>" "name") .
+Defined commands appear in M-x completion and run under the normal
+evaluation budget;
+.Li kg-remove-command
+and
+.Li kg-unbind-key
+undo the registrations.
+Only two-key sequences starting with C-c are bindable:
+C-c is reserved for user bindings and is otherwise undefined.
+.Pp
 If no files are given,
 .Nm
 opens a scratch buffer.

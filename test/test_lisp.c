@@ -441,6 +441,104 @@ static void test_command_allow_list(void)
 	teardown_editor();
 }
 
+static int eval_ok(const char *source)
+{
+	char result[256] = "";
+
+	return kg_lisp_eval_string(
+		   source, strlen(source), result, sizeof(result))
+	    == 0;
+}
+
+static int eval_error_contains(const char *source, const char *fragment)
+{
+	char result[256] = "";
+
+	if (kg_lisp_eval_string(source, strlen(source), result, sizeof(result))
+	    == 0) {
+		return 0;
+	}
+	return strstr(result, fragment) != nullptr;
+}
+
+static void test_define_and_run_command(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(kg_lisp_run_command("greet", 0) != 0);
+	CHECK(eval_ok(
+	    "(kg-define-command \"greet\" (fn () (kg-message \"hello\")))"));
+	CHECK(kg_lisp_command_name(0) != nullptr);
+	CHECK(strcmp(kg_lisp_command_name(0), "greet") == 0);
+	CHECK(kg_lisp_command_name(1) == nullptr);
+	CHECK(kg_lisp_run_command("greet", 0) == 0);
+	CHECK(strcmp(test_status_message, "hello") == 0);
+
+	/* Redefinition replaces the function (and releases the old root). */
+	CHECK(eval_ok(
+	    "(kg-define-command \"greet\" (fn () (kg-message \"again\")))"));
+	CHECK(kg_lisp_run_command("greet", 0) == 0);
+	CHECK(strcmp(test_status_message, "again") == 0);
+	CHECK(kg_lisp_command_name(1) == nullptr);
+
+	/* Errors inside a command return to the caller with a message. */
+	CHECK(eval_ok("(kg-define-command \"boom\" (fn () (car 1)))"));
+	CHECK(kg_lisp_run_command("boom", 0) == 0);
+	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
+	CHECK(kg_lisp_run_command("greet", 0) == 0);
+	CHECK(strcmp(test_status_message, "again") == 0);
+
+	/* A runaway command hits the step budget and recovers. */
+	CHECK(eval_ok("(kg-define-command \"spin\" (fn () (while t 1)))"));
+	CHECK(kg_lisp_run_command("spin", 0) == 0);
+	CHECK(strstr(test_status_message, "step limit") != nullptr);
+	CHECK(eval_ok("(+ 1 2)"));
+
+	CHECK(eval_ok("(kg-remove-command \"boom\")"));
+	CHECK(kg_lisp_run_command("boom", 0) != 0);
+	CHECK(eval_error_contains(
+	    "(kg-remove-command \"boom\")", "no such Lisp command"));
+
+	CHECK(eval_error_contains(
+	    "(kg-define-command \"version\" (fn () 1))", "built-in"));
+	CHECK(eval_error_contains(
+	    "(kg-define-command \"x\" 1)", "requires a function"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_key_bindings(void)
+{
+	int key;
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(keybind_parse("C-c i", &key) == 0 && key == 'i');
+	CHECK(keybind_parse("C-c C-y", &key) == 0 && key == ('y' & 0x1f));
+	CHECK(keybind_parse("C-x i", &key) != 0);
+	CHECK(keybind_parse("C-c", &key) != 0);
+	CHECK(keybind_parse("C-c  i", &key) != 0);
+	CHECK(keybind_parse("C-c ii", &key) != 0);
+	CHECK(keybind_parse("C-c C-g", &key) != 0);
+
+	CHECK(eval_ok(
+	    "(kg-define-command \"greet\" (fn () (kg-message \"hey\")))"));
+	CHECK(eval_ok("(kg-bind-key \"C-c i\" \"greet\")"));
+	CHECK(keybind_lookup('i') != nullptr);
+	CHECK(strcmp(keybind_lookup('i'), "greet") == 0);
+	CHECK(eval_error_contains(
+	    "(kg-bind-key \"C-x i\" \"greet\")", "invalid key sequence"));
+	CHECK(eval_ok("(kg-unbind-key \"C-c i\")"));
+	CHECK(keybind_lookup('i') == nullptr);
+	CHECK(eval_error_contains("(kg-unbind-key \"C-c i\")", "not bound"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 int main(void)
 {
 	if (!kg_lisp_active()) {
@@ -461,5 +559,7 @@ int main(void)
 	RUN(test_command_allow_list);
 	RUN(test_init_file);
 	RUN(test_kg_load);
+	RUN(test_define_and_run_command);
+	RUN(test_key_bindings);
 	return test_summary();
 }

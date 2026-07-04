@@ -163,6 +163,65 @@ static int handle_universal_arg(int c)
 	return 0;
 }
 
+/* Quit confirmation for C-x C-c: prompt when modified real-file buffers
+ * exist.  Returns 1 when quitting may proceed. */
+static int editor_confirm_quit(int fd)
+{
+	int i, ndirty = 0;
+
+	/* Count modified real-file buffers (exclude *special* ones). */
+	if (editor.dirty && !is_special_buffer(editor.filename)) {
+		ndirty++;
+	}
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active || i == buf_current) {
+			continue;
+		}
+		if (!buflist[i].dirty) {
+			continue;
+		}
+		if (is_special_buffer(buflist[i].filename)) {
+			continue;
+		}
+		ndirty++;
+	}
+	if (ndirty) {
+		int answer;
+		editor_set_status_message(ndirty == 1
+			? "Modified buffer, really quit? (y/n) "
+			: "%d modified buffers, really quit? "
+			  "(y/n) ",
+		    ndirty);
+		editor_refresh_screen();
+		answer = editor_read_key(fd);
+		if (answer != 'y' && answer != 'Y') {
+			editor_set_status_message("");
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* Run the command bound to C-c <key>, or report an undefined key.  The
+ * binding table maps the second key to a named command, so a bound key
+ * runs exactly what M-x would. */
+static void handle_user_binding(int c, int fd)
+{
+	const char *bound = keybind_lookup(c);
+
+	if (bound) {
+		(void)cmd_execute_named(bound, fd);
+	} else if (c == CTRL_G) {
+		editor_set_status_message("");
+	} else if (c >= 32 && c < 127) {
+		editor_set_status_message("C-c %c is undefined", c);
+	} else if (c > 0 && c < 27) {
+		editor_set_status_message("C-c C-%c is undefined", 'a' + c - 1);
+	} else {
+		editor_set_status_message("C-c key is undefined");
+	}
+}
+
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
 #if defined(__GNUC__) && !defined(__clang__)
@@ -229,47 +288,23 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
+	/* Handle C-c <key>: user bindings installed with (kg-bind-key ...). */
+	if (editor.cc_prefix) {
+		editor.cc_prefix = 0;
+		handle_user_binding(c, fd);
+		return;
+	}
+
 	/* Handle C-x prefix commands */
 	if (editor.cx_prefix) {
 		editor.cx_prefix = 0;
 		switch (c) {
-		case CTRL_C: { /* C-x C-c: Quit */
-			int i, ndirty = 0;
-			/* Count modified real-file buffers (exclude *special*
-			 * ones). */
-			if (editor.dirty
-			    && !is_special_buffer(editor.filename)) {
-				ndirty++;
-			}
-			for (i = 0; i < MAX_BUFFERS; i++) {
-				if (!buflist[i].active || i == buf_current) {
-					continue;
-				}
-				if (!buflist[i].dirty) {
-					continue;
-				}
-				if (is_special_buffer(buflist[i].filename)) {
-					continue;
-				}
-				ndirty++;
-			}
-			if (ndirty) {
-				int answer;
-				editor_set_status_message(ndirty == 1
-					? "Modified buffer, really quit? (y/n) "
-					: "%d modified buffers, really quit? "
-					  "(y/n) ",
-				    ndirty);
-				editor_refresh_screen();
-				answer = editor_read_key(fd);
-				if (answer != 'y' && answer != 'Y') {
-					editor_set_status_message("");
-					return;
-				}
+		case CTRL_C: /* C-x C-c: Quit */
+			if (!editor_confirm_quit(fd)) {
+				return;
 			}
 			running = 0;
 			break;
-		}
 		case CTRL_S: /* C-x C-s: Save */
 			editor_save(fd);
 			break;
@@ -520,6 +555,10 @@ void editor_process_keypress(int fd)
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
 		editor_set_status_message("C-x-");
+		return;
+	case CTRL_C: /* C-c prefix: user-defined bindings */
+		editor.cc_prefix = 1;
+		editor_set_status_message("C-c-");
 		return;
 	case CTRL_Y: /* Yank (paste) */
 	case SHIFT_INSERT: /* CUA paste */

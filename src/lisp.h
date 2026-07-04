@@ -11,6 +11,12 @@ void kg_lisp_shutdown(void);
 /* Loads the resolved init file; missing files are normal and succeed. */
 [[nodiscard]] int kg_lisp_load_init(void);
 [[nodiscard]] const char *kg_lisp_last_error(void);
+/* Runs a Lisp-defined command: 0 when the name is known (errors are
+ * shown in the status area), nonzero when no such command exists. */
+[[nodiscard]] int kg_lisp_run_command(const char *name, int fd);
+/* Iterates Lisp-defined command names for M-x completion; nullptr past
+ * the end. */
+[[nodiscard]] const char *kg_lisp_command_name(int index);
 void kg_lisp_set_interrupt_check(int (*check)(void));
 /* Reports compile-time availability without initializing the interpreter. */
 [[nodiscard]] int kg_lisp_active(void);

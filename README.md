@@ -116,6 +116,19 @@ evaluates it twice (there is no require/provide). Init files and packages are
 trusted code with the full privileges of the editor process, bounded only by
 the evaluation step budget and `C-g` cancellation.
 
+Packages can define interactive commands and bind them to keys:
+
+```lisp
+(kg-define-command "insert-date" (fn () (kg-insert "2026-07-04")))
+(kg-bind-key "C-c d" "insert-date")
+```
+
+Lisp-defined commands appear in `M-x` completion and run under the same
+step budget and error recovery as `eval-expression`; `kg-remove-command`
+and `kg-unbind-key` undo the registrations. Only `C-c <key>` sequences
+are bindable — `C-c` is reserved for user bindings, so they can never
+shadow built-in keys.
+
 ## Development
 
 Before submitting changes, format the C sources and tests:

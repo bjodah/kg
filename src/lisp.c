@@ -40,6 +40,16 @@ static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
 static constexpr size_t lisp_max_load_depth = 8;
+static constexpr size_t lisp_max_commands = 32;
+static constexpr size_t lisp_command_name_max = 64;
+
+/* A Lisp-defined command: the function object stays alive through its
+ * root for the registration lifetime and is released on redefinition or
+ * removal. */
+struct lisp_command {
+	char name[lisp_command_name_max]; /* empty marks a free slot */
+	struct FeRoot *root;
+};
 
 struct lisp_frame {
 	jmp_buf error_jump;
@@ -56,6 +66,9 @@ struct lisp_state {
 	 * longjmp past the natives, so frame recovery frees the leftovers. */
 	char *load_buffers[lisp_max_load_depth];
 	size_t load_depth;
+	struct lisp_command commands[lisp_max_commands];
+	/* Command function about to be invoked by the kg--run trampoline. */
+	FeObject *pending_command;
 	bool frame_active;
 	bool initialized;
 };
@@ -412,6 +425,171 @@ static FeObject *native_load(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
+static struct lisp_command *find_lisp_command(const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < lisp_max_commands; i++) {
+		if (state.commands[i].name[0]
+		    && strcmp(state.commands[i].name, name) == 0) {
+			return &state.commands[i];
+		}
+	}
+	return nullptr;
+}
+
+static void release_lisp_commands(void)
+{
+	size_t i;
+
+	for (i = 0; i < lisp_max_commands; i++) {
+		if (state.commands[i].name[0]) {
+			FeReleaseRoot(state.context, state.commands[i].root);
+			state.commands[i].name[0] = '\0';
+			state.commands[i].root = nullptr;
+		}
+	}
+}
+
+/* Copy a command-name argument into a bounded stack buffer so no heap
+ * allocation is live when a later step raises a Fe error. */
+static void copy_command_name(
+    FeContext *context, FeObject *object, char *out, size_t outsize)
+{
+	char *name;
+	size_t length;
+
+	name = copy_fe_string(context, object, &length);
+	if (length == 0 || length >= outsize) {
+		free(name);
+		FeHandleError(context, "invalid command name");
+	}
+	memcpy(out, name, length + 1);
+	free(name);
+}
+
+/* (kg-define-command NAME FN): registers FN as an interactive command
+ * visible to M-x and key bindings.  Redefinition releases the previous
+ * function's root. */
+static FeObject *native_define_command(FeContext *context, FeObject *arguments)
+{
+	FeObject *name_object = FeGetNextArgument(context, &arguments);
+	FeObject *fn = FeGetNextArgument(context, &arguments);
+	struct lisp_command *cmd;
+	char name[lisp_command_name_max];
+	FeRoot *root;
+	size_t i;
+
+	FeRequireNoArguments(context, arguments);
+	if (FeGetType(fn) != FeTFn && FeGetType(fn) != FeTNativeFn) {
+		FeHandleError(context, "kg-define-command requires a function");
+	}
+	copy_command_name(context, name_object, name, sizeof(name));
+	if (cmd_static_exists(name)) {
+		command_error(
+		    context, "cannot redefine built-in command", name);
+	}
+	cmd = find_lisp_command(name);
+	if (!cmd) {
+		for (i = 0; i < lisp_max_commands; i++) {
+			if (!state.commands[i].name[0]) {
+				cmd = &state.commands[i];
+				break;
+			}
+		}
+	}
+	if (!cmd) {
+		FeHandleError(context, "too many Lisp commands");
+	}
+	/* Create the new root before releasing the old one so a failed
+	 * creation leaves the previous definition intact. */
+	root = FeCreateRoot(context, fn);
+	if (cmd->name[0]) {
+		FeReleaseRoot(context, cmd->root);
+	}
+	strcpy(cmd->name, name);
+	cmd->root = root;
+	return FeNil(context);
+}
+
+/* (kg-remove-command NAME) */
+static FeObject *native_remove_command(FeContext *context, FeObject *arguments)
+{
+	FeObject *name_object = FeGetNextArgument(context, &arguments);
+	struct lisp_command *cmd;
+	char name[lisp_command_name_max];
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, name_object, name, sizeof(name));
+	cmd = find_lisp_command(name);
+	if (!cmd) {
+		command_error(context, "no such Lisp command", name);
+	}
+	FeReleaseRoot(context, cmd->root);
+	cmd->name[0] = '\0';
+	cmd->root = nullptr;
+	return FeNil(context);
+}
+
+/* (kg-bind-key SEQUENCE NAME): SEQUENCE must be "C-c <key>"; the name
+ * may refer to a static or Lisp command and is resolved at dispatch. */
+static FeObject *native_bind_key(FeContext *context, FeObject *arguments)
+{
+	FeObject *seq_object = FeGetNextArgument(context, &arguments);
+	FeObject *name_object = FeGetNextArgument(context, &arguments);
+	char sequence[64];
+	char name[lisp_command_name_max];
+	int rc;
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, seq_object, sequence, sizeof(sequence));
+	copy_command_name(context, name_object, name, sizeof(name));
+	rc = keybind_bind(sequence, name);
+	if (rc == 1) {
+		command_error(context,
+		    "invalid key sequence (only \"C-c <key>\" is bindable)",
+		    sequence);
+	}
+	if (rc != 0) {
+		FeHandleError(context, "key binding table is full");
+	}
+	return FeNil(context);
+}
+
+/* (kg-unbind-key SEQUENCE) */
+static FeObject *native_unbind_key(FeContext *context, FeObject *arguments)
+{
+	FeObject *seq_object = FeGetNextArgument(context, &arguments);
+	char sequence[64];
+	int rc;
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, seq_object, sequence, sizeof(sequence));
+	rc = keybind_unbind(sequence);
+	if (rc == 1) {
+		command_error(context,
+		    "invalid key sequence (only \"C-c <key>\" is bindable)",
+		    sequence);
+	}
+	if (rc != 0) {
+		command_error(context, "key is not bound", sequence);
+	}
+	return FeNil(context);
+}
+
+/* Internal trampoline: kg_lisp_run_command evaluates "(kg--run)" under
+ * the normal step budget, so the FeCall below inherits that budget.
+ * Calling kg--run directly from user code just runs the pending
+ * command again and is harmless. */
+static FeObject *native_run_pending(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	if (!state.pending_command) {
+		FeHandleError(context, "no pending command");
+	}
+	return FeCall(context, state.pending_command, nullptr, 0);
+}
+
 static void register_natives(FeContext *context)
 {
 	FeDefineNative(context, "kg-message", native_message);
@@ -421,6 +599,11 @@ static void register_natives(FeContext *context)
 	FeDefineNative(context, "kg-goto", native_goto);
 	FeDefineNative(context, "kg-command", native_command);
 	FeDefineNative(context, "kg-load", native_load);
+	FeDefineNative(context, "kg-define-command", native_define_command);
+	FeDefineNative(context, "kg-remove-command", native_remove_command);
+	FeDefineNative(context, "kg-bind-key", native_bind_key);
+	FeDefineNative(context, "kg-unbind-key", native_unbind_key);
+	FeDefineNative(context, "kg--run", native_run_pending);
 }
 
 int kg_lisp_init(void)
@@ -486,6 +669,7 @@ void kg_lisp_shutdown(void)
 		return;
 	}
 
+	release_lisp_commands();
 	FeCloseContext(state.context);
 	free(state.arena);
 	memset(&state, 0, sizeof(state));
@@ -600,6 +784,67 @@ int kg_lisp_load_init(void)
 
 const char *kg_lisp_last_error(void) { return state.error; }
 
+int kg_lisp_run_command(const char *name, int fd)
+{
+	static const char trampoline[] = "(kg--run)";
+	struct lisp_command *cmd;
+
+	(void)fd;
+	if (!state.initialized || name == nullptr) {
+		return 1;
+	}
+	cmd = find_lisp_command(name);
+	if (!cmd) {
+		return 1;
+	}
+	if (state.frame_active) {
+		editor_set_status_message("Lisp is busy");
+		return 0;
+	}
+
+	state.error[0] = '\0';
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		release_load_buffers();
+		state.pending_command = nullptr;
+		editor_set_status_message("Lisp error: %s", state.error);
+		return 0;
+	}
+
+	/* Evaluate the trampoline so the command's FeCall runs under the
+	 * normal step budget and interrupt polling. */
+	state.pending_command = FeGetRoot(cmd->root);
+	(void)FeEvaluateStringWithOptions(state.context, name, trampoline,
+	    sizeof(trampoline) - 1, &eval_options);
+	state.pending_command = nullptr;
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+	return 0;
+}
+
+const char *kg_lisp_command_name(int index)
+{
+	size_t i;
+	int seen = 0;
+
+	if (index < 0) {
+		return nullptr;
+	}
+	for (i = 0; i < lisp_max_commands; i++) {
+		if (!state.commands[i].name[0]) {
+			continue;
+		}
+		if (seen == index) {
+			return state.commands[i].name;
+		}
+		seen++;
+	}
+	return nullptr;
+}
+
 void kg_lisp_set_interrupt_check(int (*check)(void))
 {
 	state.interrupt_check = check;
@@ -642,6 +887,19 @@ int kg_lisp_load_file(const char *path)
 int kg_lisp_load_init(void) { return 0; }
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
+
+int kg_lisp_run_command(const char *name, int fd)
+{
+	(void)name;
+	(void)fd;
+	return 1;
+}
+
+const char *kg_lisp_command_name(int index)
+{
+	(void)index;
+	return nullptr;
+}
 
 void kg_lisp_set_interrupt_check(int (*check)(void)) { (void)check; }
 

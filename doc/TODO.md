@@ -152,9 +152,17 @@ ordered by value vs implementation effort.
 - [ ] **Toggle line numbers**: `M-x linum-mode` or similar.  Frequent
       ask, low cost.
 
-- [ ] **Minimal config file**: `~/.config/kg/init.fe` (lisp source file for
- 	setting things like `tab-width`, `indent-tabs-mode`, `make-backup-files`,
-      `auto-fill-column`, etc.
+- [x] **Minimal config file**: `~/.config/kg/init.fe` — done; see the Lisp
+      section in README.md (init files, `(kg-load ...)`, `kg-define-command`,
+      `kg-bind-key`). Remaining Lisp follow-ups:
+      - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
+        to Lisp; currently only commands/bindings and the editing bridge exist
+      - grow the `kg-command` allow-list deliberately (policy per command)
+      - extend the keypress fuzz harness to drive `eval-expression` once it
+        can run without filesystem side effects
+      - upstream Fe: `FeCallWithOptions` so hosts can budget a bare `FeCall`
+        without the kg--run trampoline; Fe plan phase 8 (per-context custom
+        types) remains deferred
 
 ## Important (DONE)
 

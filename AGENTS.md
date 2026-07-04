@@ -62,3 +62,21 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Generated analysis artifacts such as `compile_commands.json`, `coverage/`,
   `*.plist`, object files, and `src/kg` are ignored; do not include them in
   reviews or commits.
+
+## Lisp layer
+
+- Fe (the embedded Lisp) lives in the `fe/` git submodule, pinned per
+  `doc/fe-upstream.md`. kg compiles only `fe/fe.c`; only `src/lisp.c` may
+  include `fe.h`. Editor modules use `src/lisp.h` and stay free of
+  `KG_USE_LISP` conditionals.
+- `WITH_LISP=1` is the default build; `make WITH_LISP=0` must reproduce the
+  pre-Lisp editor. CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
+  configuration; keep both configurations green.
+- Lisp is trusted code: init files and packages run with full editor
+  privileges, bounded by a step budget and C-g cancellation. Do not present
+  it as a sandbox.
+- PTY YAML supports `requires_feature: lisp` (skipped when `kg -V` reports
+  `-lisp`) and `config_files:` mapping HOME-relative paths to contents for
+  planting `init.fe`/packages inside the isolated case HOME.
+- User key bindings go through `src/keybind.c`, the single canonical
+  key-sequence parser; only "C-c <key>" sequences are bindable.

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern char test_status_message[512];
@@ -44,6 +45,7 @@ static void test_disabled(void)
 	CHECK(strstr(result, "not compiled in") != nullptr);
 	CHECK(kg_lisp_load_file("unused.fe") != 0);
 	CHECK(strstr(kg_lisp_last_error(), "not compiled in") != nullptr);
+	CHECK(kg_lisp_load_init() == 0);
 	kg_lisp_set_interrupt_check(nullptr);
 	kg_lisp_shutdown();
 	kg_lisp_shutdown();
@@ -266,6 +268,158 @@ static void test_point_goto_and_buffer_name(void)
 	teardown_editor();
 }
 
+static int write_text_file(const char *path, const char *content)
+{
+	FILE *file = fopen(path, "w");
+
+	if (!file) {
+		return 1;
+	}
+	if (fputs(content, file) == EOF) {
+		(void)fclose(file);
+		return 1;
+	}
+	return fclose(file) != 0;
+}
+
+/* Create <root>/kg and <root>/kg/lisp under a fresh temp dir and point
+ * XDG_CONFIG_HOME at it. */
+static int setup_config_root(char *root, size_t rootsize)
+{
+	char path[512];
+
+	(void)snprintf(root, rootsize, "/tmp/kg-lisp-cfg-XXXXXX");
+	if (!mkdtemp(root)) {
+		return 1;
+	}
+	(void)snprintf(path, sizeof(path), "%s/kg", root);
+	if (mkdir(path, 0700) != 0) {
+		return 1;
+	}
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp", root);
+	if (mkdir(path, 0700) != 0) {
+		return 1;
+	}
+	return setenv("XDG_CONFIG_HOME", root, 1) != 0;
+}
+
+static void remove_config_root(const char *root)
+{
+	static const char *const entries[] = {
+		"%s/kg/init.fe",
+		"%s/kg/lisp/pkg.fe",
+		"%s/kg/lisp/pkg-a.fe",
+		"%s/kg/lisp/pkg-b.fe",
+		"%s/kg/lisp/pkg-x.fe",
+		"%s/direct.fe",
+		"%s/kg/lisp",
+		"%s/kg",
+		"%s",
+	};
+	char path[512];
+	size_t i;
+
+	for (i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
+		(void)snprintf(path, sizeof(path), entries[i], root);
+		(void)remove(path);
+	}
+	(void)unsetenv("XDG_CONFIG_HOME");
+}
+
+static void test_init_file(void)
+{
+	char root[64], path[512], result[128] = "";
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	/* Missing init file is normal. */
+	CHECK(kg_lisp_load_init() == 0);
+
+	(void)snprintf(path, sizeof(path), "%s/kg/init.fe", root);
+	CHECK(write_text_file(path, "(= init-loaded 42)\n") == 0);
+	CHECK(kg_lisp_load_init() == 0);
+	CHECK(kg_lisp_eval_string("init-loaded", 11, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "42") == 0);
+
+	/* A broken init file reports its labelled error; forms evaluated
+	 * before the failure remain applied. */
+	CHECK(write_text_file(path, "(= init-partial 1)\n(car 1)\n") == 0);
+	CHECK(kg_lisp_load_init() != 0);
+	CHECK(strstr(kg_lisp_last_error(), "init.fe") != nullptr);
+	CHECK(kg_lisp_eval_string("init-partial", 12, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "1") == 0);
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+}
+
+static void test_kg_load(void)
+{
+	char root[64], path[512], source[600], result[128] = "";
+	int length;
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	/* Bare names resolve to <config>/kg/lisp/NAME.fe. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg.fe", root);
+	CHECK(write_text_file(path, "(= pkg-value 7)\n") == 0);
+	CHECK(
+	    kg_lisp_eval_string("(kg-load \"pkg\")", 15, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("pkg-value", 9, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "7") == 0);
+
+	/* Missing packages raise an error naming the resolved path. */
+	CHECK(kg_lisp_eval_string(
+		  "(kg-load \"absent\")", 18, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "absent.fe") != nullptr);
+	CHECK(kg_lisp_eval_string("(+ 1 1)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "2") == 0);
+
+	/* Packages may load packages. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
+	CHECK(
+	    write_text_file(path, "(kg-load \"pkg-b\")\n(= a-after b-value)\n")
+	    == 0);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
+	CHECK(write_text_file(path, "(= b-value 5)\n") == 0);
+	CHECK(kg_lisp_eval_string(
+		  "(kg-load \"pkg-a\")", 17, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("a-after", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "5") == 0);
+
+	/* Load cycles hit the depth limit and recover. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-x.fe", root);
+	CHECK(write_text_file(path, "(kg-load \"pkg-x\")\n") == 0);
+	CHECK(kg_lisp_eval_string(
+		  "(kg-load \"pkg-x\")", 17, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "depth limit") != nullptr);
+	CHECK(kg_lisp_eval_string("(+ 2 2)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "4") == 0);
+
+	/* Names containing '/' are literal paths. */
+	(void)snprintf(path, sizeof(path), "%s/direct.fe", root);
+	CHECK(write_text_file(path, "(= direct-value 3)\n") == 0);
+	length = snprintf(source, sizeof(source), "(kg-load \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(
+	    kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("direct-value", 12, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "3") == 0);
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+}
+
 static void test_command_allow_list(void)
 {
 	char result[128] = "";
@@ -305,5 +459,7 @@ int main(void)
 	RUN(test_insert_read_only_recovery);
 	RUN(test_point_goto_and_buffer_name);
 	RUN(test_command_allow_list);
+	RUN(test_init_file);
+	RUN(test_kg_load);
 	return test_summary();
 }

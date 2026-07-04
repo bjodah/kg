@@ -1,0 +1,10 @@
+name: lisp-init-bypass
+filename: lisp-init-bypass.txt
+requires_feature: lisp
+args:
+  - -Q
+config_files:
+  .config/kg/init.fe: '(kg-insert "boot")'
+initial: ""
+keys: []
+expected_saved: ""

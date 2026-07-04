@@ -87,9 +87,10 @@ void init_editor(void)
 static int usage(FILE *fp, int rc)
 {
 	fprintf(fp,
-	    "Usage: kg [-RVh] [file ...]\n"
+	    "Usage: kg [-QRVh] [file ...]\n"
 	    "\n"
 	    "Options:\n"
+	    "  -Q  Do not load the Lisp init file\n"
 	    "  -R  Open file(s) read-only\n"
 	    "  -V  Print version and exit\n"
 	    "  -h  Print this help and exit\n");
@@ -98,10 +99,13 @@ static int usage(FILE *fp, int rc)
 
 int main(int argc, char **argv)
 {
-	int opt, readonly = 0;
+	int opt, readonly = 0, no_init = 0;
 
-	while ((opt = getopt(argc, argv, "RVh")) != -1) {
+	while ((opt = getopt(argc, argv, "QRVh")) != -1) {
 		switch (opt) {
+		case 'Q':
+			no_init = 1;
+			break;
 		case 'R':
 			readonly = 1;
 			break;
@@ -124,7 +128,13 @@ int main(int argc, char **argv)
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);
 	buf_load_args(argc - optind, argv + optind, readonly);
 	enable_raw_mode(STDIN_FILENO);
+	/* The greeting is set before init-file loading so a load error is
+	 * not overwritten by it. */
 	editor_set_status_message("Press Ctrl-h for help");
+	if (!no_init && kg_lisp_load_init() != 0) {
+		editor_set_status_message(
+		    "Init file error: %s", kg_lisp_last_error());
+	}
 	while (running) {
 		autorevert_poll();
 		editor_refresh_screen();

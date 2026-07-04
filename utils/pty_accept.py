@@ -34,6 +34,7 @@ class Case:
 	initial: str
 	keys: list[str]
 	requires_feature: str | None
+	config_files: dict[str, str]
 	expected_saved: str | None
 	expected_saved_any: list[str] | None
 	oracle: str | None
@@ -173,6 +174,13 @@ def load_case(path: Path) -> Case:
 		not isinstance(requires_feature, str) or not requires_feature
 	):
 		raise ValueError(f"{path}: requires_feature must be a non-empty string")
+	config_files = data.get("config_files", {})
+	if (not isinstance(config_files, dict) or
+	    not all(isinstance(k, str) and isinstance(v, str) and k and
+	            not k.startswith("/") and ".." not in k
+	            for k, v in config_files.items())):
+		raise ValueError(
+			f"{path}: config_files must map relative paths to contents")
 	modes = sum(1 for key in ("expected_saved", "expected_saved_any", "oracle") if key in data)
 	if modes != 1:
 		raise ValueError(f"{path}: specify exactly one of expected_saved, expected_saved_any, or oracle")
@@ -214,6 +222,7 @@ def load_case(path: Path) -> Case:
 		initial=data["initial"],
 		keys=data["keys"],
 		requires_feature=requires_feature,
+		config_files=config_files,
 		expected_saved=data.get("expected_saved"),
 		expected_saved_any=data.get("expected_saved_any"),
 		oracle=data.get("oracle"),
@@ -229,17 +238,26 @@ def load_case(path: Path) -> Case:
 	)
 
 
+def write_config_files(home: Path, config_files: dict[str, str]) -> None:
+	for relpath, content in config_files.items():
+		target = home / relpath
+		target.parent.mkdir(parents=True, exist_ok=True)
+		target.write_text(content)
+
+
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
 		       trailer_keys: list[str], startup_delay: float,
 		       key_delay: float, dimensions: tuple[int, int],
-		       timeout: float) -> RunResult:
+		       timeout: float, config_files: dict[str, str]) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 		file_path.write_text(initial)
+		write_config_files(Path(td), config_files)
 
 		env = os.environ.copy()
 		env["HOME"] = td
+		env.pop("XDG_CONFIG_HOME", None)
 		env["TERM"] = env.get("TERM", "xterm-256color")
 		env.setdefault("LC_ALL", "C.UTF-8")
 
@@ -282,7 +300,7 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
-		    timeout: float) -> RunResult:
+		    timeout: float, config_files: dict[str, str]) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -293,11 +311,12 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 
 		home = Path(td) / "home"
 		home.mkdir()
+		write_config_files(home, config_files)
 		sock = str(Path(td) / "tmux.sock")
 		session = "ptyaccept"
 		pane = f"{session}:0.0"
 		rows, cols = dimensions
-		cmd = "env " + \
+		cmd = "env -u XDG_CONFIG_HOME " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
 		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
@@ -346,12 +365,14 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
 	       key_delay: float, dimensions: tuple[int, int],
-	       timeout: float) -> RunResult:
+	       timeout: float, config_files: dict[str, str]) -> RunResult:
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
-				       startup_delay, key_delay, dimensions, timeout)
+				       startup_delay, key_delay, dimensions,
+				       timeout, config_files)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
-				  startup_delay, key_delay, dimensions, timeout)
+				  startup_delay, key_delay, dimensions,
+				  timeout, config_files)
 
 
 def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: float,
@@ -362,7 +383,8 @@ def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: f
 	key_delay = case.key_delay + key_delay_add
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, startup_delay,
-			    key_delay, case.dimensions, timeout)
+			    key_delay, case.dimensions, timeout,
+			    case.config_files)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -372,7 +394,7 @@ def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: f
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
 				       startup_delay, key_delay, case.dimensions,
-				       timeout)
+				       timeout, {})
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved

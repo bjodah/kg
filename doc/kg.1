@@ -6,10 +6,13 @@
 .Nd a small text editor with Emacs keybindings
 .Sh SYNOPSIS
 .Nm
-.Op Fl RVh
+.Op Fl QRVh
 .Op Ar file ...
 .Sh OPTIONS
 .Bl -tag -width Ds
+.It Fl Q
+Do not load the Lisp init file.
+Use this to recover from a broken configuration.
 .It Fl R
 Open all files given on the command line in read-only mode.
 .It Fl V
@@ -35,6 +38,27 @@ A build configured with
 .Li WITH_LISP=0
 reports
 .Sq -lisp .
+.Pp
+On startup
+.Nm
+loads the Lisp init file
+.Pa $XDG_CONFIG_HOME/kg/init.fe ,
+falling back to
+.Pa ~/.config/kg/init.fe ,
+unless
+.Fl Q
+is given.
+A missing init file is normal.
+On a load error the labelled diagnostic is shown in the status area and
+forms evaluated before the error remain applied.
+Init files and packages are trusted code: they run with the full
+privileges of the editor process.
+Packages load explicitly with
+.Li (kg-load "name") ,
+which resolves a bare name to
+.Pa <config>/kg/lisp/name.fe
+and treats names containing a slash as literal paths.
+Loading a file twice evaluates it twice.
 .Pp
 If no files are given,
 .Nm
@@ -662,6 +686,15 @@ are handled gracefully.
 .Bl -tag -width Ds
 .It Pa /dev/tty
 Terminal device used for raw-mode I/O.
+.It Pa $XDG_CONFIG_HOME/kg/init.fe
+Lisp init file, loaded at startup unless
+.Fl Q
+is given.
+Falls back to
+.Pa ~/.config/kg/init.fe .
+.It Pa $XDG_CONFIG_HOME/kg/lisp/
+Package directory searched by
+.Li (kg-load "name") .
 .El
 .Sh SEE ALSO
 .Xr mg 1 ,

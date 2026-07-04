@@ -54,11 +54,12 @@ standard VT100 escape sequences.
 ## Usage
 
 ```
-kg [-RVh] [file ...]
+kg [-QRVh] [file ...]
 ```
 
 | Option | Description                  |
 |--------|------------------------------|
+| `-Q`   | Do not load the Lisp init file |
 | `-R`   | Open file(s) read-only       |
 | `-V`   | Print version and exit       |
 | `-h`   | Print this help and exit     |
@@ -82,13 +83,6 @@ Lisp support is compiled in by default. Use `make WITH_LISP=0` to build the
 editor without initializing the Fe submodule. `kg -V` reports `+lisp` or
 `-lisp` for the selected configuration.
 
-## Lisp
-
-Use `M-x eval-expression` to evaluate Lisp entered in the minibuffer, or
-`M-x eval-buffer` to evaluate the current buffer. Results and labelled errors
-are shown in the status area. A build made with `WITH_LISP=0` keeps both
-commands available and reports that Lisp was not compiled in.
-
 Override the prefix or use DESTDIR for staged installs:
 
 ```bash
@@ -101,6 +95,26 @@ To uninstall:
 ```bash
 sudo make uninstall
 ```
+
+## Lisp
+
+Use `M-x eval-expression` to evaluate Lisp entered in the minibuffer, or
+`M-x eval-buffer` to evaluate the current buffer. Results and labelled errors
+are shown in the status area. A build made with `WITH_LISP=0` keeps both
+commands available and reports that Lisp was not compiled in.
+
+On startup kg loads `$XDG_CONFIG_HOME/kg/init.fe` (falling back to
+`~/.config/kg/init.fe`); a missing file is normal, and `-Q` skips loading
+entirely so a broken configuration can be repaired. Load errors show the
+labelled diagnostic in the status area; forms evaluated before the error
+remain applied.
+
+Extension packages load explicitly with `(kg-load "name")`, which resolves a
+bare name to `<config>/kg/lisp/name.fe` and treats names containing `/` as
+literal paths. Packages may load other packages; loading a file twice
+evaluates it twice (there is no require/provide). Init files and packages are
+trusted code with the full privileges of the editor process, bounded only by
+the evaluation step budget and `C-g` cancellation.
 
 ## Development
 

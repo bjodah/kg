@@ -1,0 +1,9 @@
+name: lisp-init-load-pkg
+filename: lisp-init-pkg.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: '(kg-load "pkg")'
+  .config/kg/lisp/pkg.fe: '(kg-insert "frompkg")'
+initial: ""
+keys: []
+expected_saved: frompkg

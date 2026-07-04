@@ -108,7 +108,7 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2268
+SCC_COMPLEXITY_MAX ?= 2298
 SCC_FILE_COMPLEXITY_MAX ?= 300
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -276,7 +276,8 @@ $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(OBJDIR)/fe.o $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o
+	rm -f $(OBJS) $(OBJDIR)/fe.o $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
+	      $(TESTBINS) $(FUZZBIN)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)

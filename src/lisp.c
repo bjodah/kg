@@ -39,6 +39,7 @@ static_assert(FE_API_VERSION == 1);
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
+static constexpr size_t lisp_max_load_depth = 8;
 
 struct lisp_frame {
 	jmp_buf error_jump;
@@ -51,6 +52,10 @@ struct lisp_state {
 	struct lisp_frame frame;
 	char error[1024];
 	int (*interrupt_check)(void);
+	/* Source buffers owned by in-flight (kg-load ...) calls.  Fe errors
+	 * longjmp past the natives, so frame recovery frees the leftovers. */
+	char *load_buffers[lisp_max_load_depth];
+	size_t load_depth;
 	bool frame_active;
 	bool initialized;
 };
@@ -73,6 +78,15 @@ static void reset_state(void)
 	copy_result(error, sizeof(error), state.error);
 	memset(&state, 0, sizeof(state));
 	copy_result(state.error, sizeof(state.error), error);
+}
+
+static void release_load_buffers(void)
+{
+	while (state.load_depth > 0) {
+		state.load_depth--;
+		free(state.load_buffers[state.load_depth]);
+		state.load_buffers[state.load_depth] = nullptr;
+	}
 }
 
 [[noreturn]] static void handle_error(
@@ -288,6 +302,116 @@ static FeObject *native_command(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
+/* Resolve <config>/kg/<stem> using $XDG_CONFIG_HOME, falling back to
+ * $HOME/.config.  Returns nonzero when no base is set or the path would
+ * not fit. */
+static int lisp_config_path(char *out, size_t outsize, const char *stem)
+{
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home;
+	int n;
+
+	if (xdg && xdg[0]) {
+		n = snprintf(out, outsize, "%s/kg/%s", xdg, stem);
+	} else {
+		home = getenv("HOME");
+		if (!home || !home[0]) {
+			return 1;
+		}
+		n = snprintf(out, outsize, "%s/.config/kg/%s", home, stem);
+	}
+	return n < 0 || (size_t)n >= outsize;
+}
+
+/* Read the entire file into a malloc'd buffer.  Returns nullptr and sets
+ * state.error on failure. */
+static char *read_whole_file(const char *path, size_t *size)
+{
+	FILE *file;
+	char *buffer;
+	long file_size;
+
+	file = fopen(path, "rb");
+	if (!file) {
+		set_error("cannot open %s: %s", path, strerror(errno));
+		return nullptr;
+	}
+	if (fseek(file, 0, SEEK_END) != 0 || (file_size = ftell(file)) < 0) {
+		set_error("cannot read %s: %s", path, strerror(errno));
+		(void)fclose(file);
+		return nullptr;
+	}
+	rewind(file);
+	buffer = malloc(file_size > 0 ? (size_t)file_size : 1);
+	if (!buffer) {
+		set_error("cannot load %s: out of memory", path);
+		(void)fclose(file);
+		return nullptr;
+	}
+	*size = fread(buffer, 1, (size_t)file_size, file);
+	if (*size != (size_t)file_size && ferror(file)) {
+		set_error("cannot read %s: %s", path, strerror(errno));
+		free(buffer);
+		(void)fclose(file);
+		return nullptr;
+	}
+	(void)fclose(file);
+	return buffer;
+}
+
+/* (kg-load NAME): a name containing '/' is a literal path; a bare name
+ * resolves to <config>/kg/lisp/NAME.fe.  Runs nested inside the caller's
+ * evaluation, inheriting its step budget.  Loading twice evaluates twice;
+ * there is no require/provide. */
+static FeObject *native_load(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	char path[PATH_MAX];
+	char stem[PATH_MAX];
+	char *name, *buffer;
+	size_t length, size, slot;
+	int bad;
+
+	FeRequireNoArguments(context, arguments);
+	name = copy_fe_string(context, object, &length);
+	if (state.load_depth >= lisp_max_load_depth) {
+		free(name);
+		FeHandleError(context, "kg-load depth limit exceeded");
+	}
+	if (strchr(name, '/')) {
+		bad = snprintf(path, sizeof(path), "%s", name) < 0
+		    || strlen(name) >= sizeof(path);
+	} else {
+		bad = snprintf(stem, sizeof(stem), "lisp/%s.fe", name) < 0
+		    || length + sizeof("lisp/.fe") > sizeof(stem)
+		    || lisp_config_path(path, sizeof(path), stem);
+	}
+	if (bad) {
+		char rejected[512];
+
+		(void)snprintf(rejected, sizeof(rejected), "%s", name);
+		free(name);
+		command_error(context, "cannot resolve package path", rejected);
+	}
+	free(name);
+
+	buffer = read_whole_file(path, &size);
+	if (!buffer) {
+		char message[sizeof(state.error)];
+
+		copy_result(message, sizeof(message), state.error);
+		FeHandleError(context, message);
+	}
+	slot = state.load_depth;
+	state.load_buffers[slot] = buffer;
+	state.load_depth++;
+	(void)FeEvaluateString(context, path, buffer, size);
+	state.load_depth--;
+	state.load_buffers[slot] = nullptr;
+	free(buffer);
+	return FeNil(context);
+}
+
 static void register_natives(FeContext *context)
 {
 	FeDefineNative(context, "kg-message", native_message);
@@ -296,6 +420,7 @@ static void register_natives(FeContext *context)
 	FeDefineNative(context, "kg-point", native_point);
 	FeDefineNative(context, "kg-goto", native_goto);
 	FeDefineNative(context, "kg-command", native_command);
+	FeDefineNative(context, "kg-load", native_load);
 }
 
 int kg_lisp_init(void)
@@ -388,6 +513,7 @@ int kg_lisp_eval_string(
 	if (setjmp(state.frame.error_jump) != 0) {
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
+		release_load_buffers();
 		copy_result(result, result_size, state.error);
 		return 1;
 	}
@@ -435,6 +561,7 @@ int kg_lisp_load_file(const char *path)
 	if (setjmp(state.frame.error_jump) != 0) {
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
+		release_load_buffers();
 		(void)fclose(file);
 		return 1;
 	}
@@ -449,6 +576,26 @@ int kg_lisp_load_file(const char *path)
 		return 1;
 	}
 	return 0;
+}
+
+/* Load the init file if one exists.  A missing or unresolvable file is
+ * normal and reports success; any other failure is reported so the caller
+ * can display kg_lisp_last_error().  Partially applied init files stand:
+ * forms evaluated before an error remain in effect. */
+int kg_lisp_load_init(void)
+{
+	char path[PATH_MAX];
+
+	if (!state.initialized) {
+		return 0;
+	}
+	if (lisp_config_path(path, sizeof(path), "init.fe")) {
+		return 0;
+	}
+	if (access(path, F_OK) != 0) {
+		return 0;
+	}
+	return kg_lisp_load_file(path);
 }
 
 const char *kg_lisp_last_error(void) { return state.error; }
@@ -491,6 +638,8 @@ int kg_lisp_load_file(const char *path)
 	    disabled_error, sizeof(disabled_error), "lisp not compiled in");
 	return 1;
 }
+
+int kg_lisp_load_init(void) { return 0; }
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
 

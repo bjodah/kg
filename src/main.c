@@ -38,6 +38,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "lisp.h"
 
 struct editor_config editor;
 int running = 1;
@@ -105,7 +106,8 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s\n", KG_VERSION);
+			printf("kg %s %s\n", KG_VERSION,
+			    kg_lisp_active() ? "+lisp" : "-lisp");
 			return 0;
 		case 'h':
 			return usage(stdout, 0);
@@ -115,6 +117,10 @@ int main(int argc, char **argv)
 	}
 
 	init_editor();
+	if (kg_lisp_active() && kg_lisp_init() != 0) {
+		fprintf(stderr, "kg: cannot initialize Lisp\n");
+		return 1;
+	}
 	buf_load_args(argc - optind, argv + optind, readonly);
 	enable_raw_mode(STDIN_FILENO);
 	editor_set_status_message("Press Ctrl-h for help");
@@ -123,5 +129,6 @@ int main(int argc, char **argv)
 		editor_refresh_screen();
 		editor_process_keypress(STDIN_FILENO);
 	}
+	kg_lisp_shutdown();
 	return 0;
 }

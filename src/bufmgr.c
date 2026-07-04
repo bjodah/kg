@@ -475,6 +475,7 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 		return;
 	}
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	n = vsnprintf(msg + *off, (size_t)avail, fmt, ap);
 	va_end(ap);
 	if (n < 0) {

@@ -585,6 +585,7 @@ void editor_set_status_message(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(editor.statusmsg, sizeof(editor.statusmsg), fmt, ap);
 	va_end(ap);
 	editor.statusmsg_time = time(NULL);

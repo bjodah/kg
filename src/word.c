@@ -644,6 +644,9 @@ void editor_just_one_space(void)
 		return;
 	}
 	filecol = word_cursor_filecol(row);
+	if (filecol < 0 || filecol > row->size) {
+		return;
+	}
 
 	start = filecol;
 	while (start > 0

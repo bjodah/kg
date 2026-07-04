@@ -24,6 +24,9 @@ static int editor_saturating_add(int a, int b)
 
 static int editor_virtual_insert_gap_too_large(erow *row, int at)
 {
+	if (!row) {
+		return 1;
+	}
 	return at > row->size && at - row->size > KG_MAX_VIRTUAL_INSERT_GAP;
 }
 
@@ -611,6 +614,10 @@ void editor_row_insert_char(erow *row, int at, int c)
 	} else {
 		/* If we are in the middle of the string just make space for 1
 		 * new char plus the (already existing) null term. */
+		if (row->size > INT_MAX - 2) {
+			editor_nomem();
+			return;
+		}
 		newchars = realloc(row->chars, row->size + 2);
 		if (!newchars) {
 			editor_nomem();
@@ -733,6 +740,10 @@ void editor_insert_char(int c)
 	 * our logical representation of the file, add enough empty rows as
 	 * needed. */
 	if (!row) {
+		if (!editor.row && editor.numrows > 0) {
+			editor_nomem();
+			return;
+		}
 		while (editor.numrows <= filerow) {
 			editor_insert_row(editor.numrows, "", 0);
 		}

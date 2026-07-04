@@ -3,11 +3,50 @@
 ifeq ($(origin CC),default)
 CC      = gcc
 endif
-CFLAGS  ?= -Wall -W -pedantic -std=c23 -Os
+CFLAGS_ORIGIN := $(origin CFLAGS)
+CFLAGS  ?= -Wall -W -pedantic -Os
+FE_CFLAGS ?= -Wall -Wextra -pedantic -Os
+
+# Sanitizer and analyzer jobs override CFLAGS as a complete flag set.  Unless
+# FE_CFLAGS was also overridden, instrument Fe with that same set.
+ifneq ($(filter command line environment override,$(CFLAGS_ORIGIN)),)
+ifeq ($(origin FE_CFLAGS),file)
+FE_CFLAGS := $(CFLAGS)
+endif
+endif
+
+override CFLAGS += -std=c23
+override FE_CFLAGS += -std=c23
 PROG    = kg
 OBJDIR  = src
 TARGET  = $(OBJDIR)/$(PROG)
 MAN1    = doc/kg.1
+WITH_LISP ?= 1
+
+ifneq ($(WITH_LISP),0)
+ifneq ($(WITH_LISP),1)
+$(error WITH_LISP must be 0 or 1)
+endif
+endif
+
+ifeq ($(WITH_LISP),1)
+ifeq ($(wildcard fe/fe.c),)
+ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
+ifneq ($(MAKECMDGOALS),)
+SKIP_FE_CHECK = 1
+endif
+endif
+ifneq ($(SKIP_FE_CHECK),1)
+$(error fe/fe.c is missing; run 'git submodule update --init' or build with 'WITH_LISP=0')
+endif
+endif
+override CFLAGS += -DKG_USE_LISP=1
+override LDLIBS += -lm
+FE_OBJ = $(OBJDIR)/fe.o
+FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o
+endif
+
+LISP_CONFIG = $(OBJDIR)/.with-lisp-$(WITH_LISP)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -27,7 +66,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c bufmgr.c winmgr.c cmd.c macro.c \
-       shell.c path.c rect.c
+       shell.c path.c rect.c lisp.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -39,13 +78,14 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_syntax $(TESTDIR)/test_yank \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
-           $(TESTDIR)/test_shell $(TESTDIR)/test_complete
+           $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
+           $(TESTDIR)/test_lisp
 FUZZBIN = $(TESTDIR)/fuzz_keypress
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
-	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c
+	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
@@ -58,12 +98,17 @@ PTY_KEY_DELAY_ADD ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c23 -O1 -g \
 	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DKG_FUZZ=1 \
 	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
+FE_FUZZ_CFLAGS ?= $(FUZZ_CFLAGS)
+
+ifeq ($(WITH_LISP),1)
+override FUZZ_CFLAGS += -DKG_USE_LISP=1
+endif
 
 # Project metrics
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2166
+SCC_COMPLEXITY_MAX ?= 2208
 SCC_FILE_COMPLEXITY_MAX ?= 300
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -85,11 +130,23 @@ IWYU_FILES = $(addprefix $(CURDIR)/$(OBJDIR)/,$(SRCS))
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+$(LISP_CONFIG):
+	rm -f $(OBJDIR)/.with-lisp-0 $(OBJDIR)/.with-lisp-1
+	touch $@
+
+$(OBJS): $(LISP_CONFIG)
+
+$(TARGET): $(OBJS) $(FE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/lisp.o: $(OBJDIR)/lisp.c $(OBJDIR)/lisp.h
+$(OBJDIR)/main.o: $(OBJDIR)/lisp.h
+
+$(OBJDIR)/fe.o: fe/fe.c fe/fe.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 check: check-unit check-pty
 
@@ -149,10 +206,12 @@ pmccabe-check:
 coverage: coverage-clean
 	$(MAKE) clean
 	mkdir -p $(COVERAGE_DIR)
-	$(MAKE) $(TARGET) $(TESTBINS) CFLAGS="$(COVERAGE_CFLAGS)"
+	$(MAKE) $(TARGET) $(TESTBINS) CFLAGS="$(COVERAGE_CFLAGS)" \
+		FE_CFLAGS="$(COVERAGE_CFLAGS)"
 	lcov $(COVERAGE_LCOV_ARGS) --capture --initial --directory . \
 		--output-file $(COVERAGE_DIR)/base.info
-	$(MAKE) check CFLAGS="$(COVERAGE_CFLAGS)"
+	$(MAKE) check CFLAGS="$(COVERAGE_CFLAGS)" \
+		FE_CFLAGS="$(COVERAGE_CFLAGS)"
 	lcov $(COVERAGE_LCOV_ARGS) --capture --directory . \
 		--output-file $(COVERAGE_DIR)/run.info
 	lcov $(COVERAGE_LCOV_ARGS) \
@@ -198,19 +257,26 @@ EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(TEST_SRCS_
 EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
 EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/buffer.o $(OBJDIR)/undo.o $(OBJDIR)/syntax.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
+EXTRA_lisp         := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(FE_OBJ)
 
 .SECONDEXPANSION:
 $(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
-$(FUZZBIN): $(FUZZ_SRCS) $(HDRS)
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ $(FUZZ_SRCS)
+$(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
+
+$(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(LISP_CONFIG)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ $(FUZZ_SRCS) \
+		$(FUZZ_FE_OBJ) $(LDLIBS)
+
+$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
+	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(TESTDIR)/*.o
+	rm -f $(OBJS) $(OBJDIR)/fe.o $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)

@@ -1,5 +1,6 @@
 /* yank.c - Kill ring (yank buffer) for copy/paste operations */
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -207,8 +208,14 @@ char *editor_get_region_text(int *out_len)
 			copy_end = copy_start;
 		}
 
+		if (copy_end - copy_start > INT_MAX - total_len) {
+			return NULL;
+		}
 		total_len += copy_end - copy_start;
 		if (row < end_row) {
+			if (total_len == INT_MAX) {
+				return NULL;
+			}
 			total_len++;
 		}
 	}
@@ -218,7 +225,7 @@ char *editor_get_region_text(int *out_len)
 	}
 
 	/* Allocate and copy text */
-	text = malloc(total_len + 1);
+	text = malloc((size_t)total_len + 1);
 	if (!text) {
 		return NULL;
 	}
@@ -244,6 +251,10 @@ char *editor_get_region_text(int *out_len)
 
 		copy_len = copy_end - copy_start;
 		if (copy_len > 0) {
+			if (copy_len > total_len - pos) {
+				free(text);
+				return NULL;
+			}
 			memcpy(text + pos, editor.row[row].chars + copy_start,
 			    copy_len);
 			pos += copy_len;
@@ -251,6 +262,10 @@ char *editor_get_region_text(int *out_len)
 
 		/* Add newline except for last line */
 		if (row < end_row) {
+			if (pos >= total_len) {
+				free(text);
+				return NULL;
+			}
 			text[pos++] = '\n';
 		}
 	}

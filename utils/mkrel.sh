@@ -113,7 +113,14 @@ make check
 
 name=kg-v${relver}
 mkdir -p artifacts
-git archive --format=tar.gz --prefix=${name}/ HEAD -o artifacts/${name}.tar.gz
+archive=$(mktemp)
+fe_archive=$(mktemp)
+trap 'rm -f "$archive" "$fe_archive"' EXIT
+git archive --format=tar --prefix=${name}/ HEAD -o "$archive"
+git -C fe archive --format=tar --prefix=${name}/fe/ -o "$fe_archive" HEAD \
+    fe.c fe.h LICENSE
+tar --concatenate --file="$archive" "$fe_archive"
+gzip -c "$archive" > artifacts/${name}.tar.gz
 echo "Created artifacts/${name}.tar.gz"
 
 make deb

@@ -1,4 +1,4 @@
-.Dd May 26, 2026
+.Dd July 4, 2026
 .Dt KG 1
 .Os
 .Sh NAME
@@ -13,7 +13,7 @@
 .It Fl R
 Open all files given on the command line in read-only mode.
 .It Fl V
-Print version and exit.
+Print version, compiled Lisp feature status, and exit.
 .It Fl h
 Print a short usage message and exit.
 .El
@@ -26,6 +26,15 @@ and undo/redo.
 .Pp
 .Nm
 does not depend on curses; it uses VT100 escape sequences directly.
+.Pp
+Lisp support is compiled in by default and is reported as
+.Sq +lisp
+by
+.Fl V .
+A build configured with
+.Li WITH_LISP=0
+reports
+.Sq -lisp .
 .Pp
 If no files are given,
 .Nm

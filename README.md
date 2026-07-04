@@ -12,8 +12,8 @@ a full GUI editor is not available.
 
 With syntax highlighting for many languages, multiple buffers, split
 windows, incremental search, and multi-level undo, kg punches above its
-weight while staying dependency-free — no curses, just standard VT100
-escape sequences.
+weight while requiring no external runtime libraries — no curses, just
+standard VT100 escape sequences.
 
 ## Features
 
@@ -73,9 +73,14 @@ kg is written in C23; building requires GCC 14+ or Clang 19+ (any
 compiler accepting `-std=c23`).
 
 ```bash
+git submodule update --init # required for the default Lisp-enabled build
 make
 sudo make install          # installs to /usr/local/bin and /usr/local/share/man/man1
 ```
+
+Lisp support is compiled in by default. Use `make WITH_LISP=0` to build the
+editor without initializing the Fe submodule. `kg -V` reports `+lisp` or
+`-lisp` for the selected configuration.
 
 Override the prefix or use DESTDIR for staged installs:
 

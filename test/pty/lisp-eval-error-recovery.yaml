@@ -1,0 +1,14 @@
+name: lisp-eval-error-recovery
+filename: lisp-error.txt
+requires_feature: lisp
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (car 1)
+  - RET
+  - recovered
+expected_saved: recovered
+expected_screen_contains:
+  - expected pair

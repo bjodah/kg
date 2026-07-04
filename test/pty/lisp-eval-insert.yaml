@@ -1,0 +1,11 @@
+name: lisp-eval-insert
+filename: lisp-insert.txt
+requires_feature: lisp
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (kg-insert "hi")
+  - RET
+expected_saved: hi

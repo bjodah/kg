@@ -1,0 +1,14 @@
+name: lisp-eval-budget
+filename: lisp-budget.txt
+requires_feature: lisp
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (while t 1)
+  - RET
+  - survived
+expected_saved: survived
+expected_screen_contains:
+  - step limit

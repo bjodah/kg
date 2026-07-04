@@ -82,6 +82,13 @@ Lisp support is compiled in by default. Use `make WITH_LISP=0` to build the
 editor without initializing the Fe submodule. `kg -V` reports `+lisp` or
 `-lisp` for the selected configuration.
 
+## Lisp
+
+Use `M-x eval-expression` to evaluate Lisp entered in the minibuffer, or
+`M-x eval-buffer` to evaluate the current buffer. Results and labelled errors
+are shown in the status area. A build made with `WITH_LISP=0` keeps both
+commands available and reports that Lisp was not compiled in.
+
 Override the prefix or use DESTDIR for staged installs:
 
 ```bash

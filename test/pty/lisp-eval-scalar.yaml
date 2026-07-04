@@ -1,0 +1,14 @@
+name: lisp-eval-scalar
+filename: lisp-scalar.txt
+requires_feature: lisp
+backend: tmux
+initial: unchanged
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (+ 1 2)
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - "3"

@@ -2,9 +2,14 @@
  */
 
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "def.h"
+#include "lisp.h"
+
+static constexpr int lisp_expression_max = 512;
+static constexpr int lisp_result_size = 512;
 
 /* ---- Individual commands ---- */
 
@@ -48,6 +53,54 @@ static void cmd_goto_line(int fd) { editor_goto_line(fd); }
 
 /* Save current buffer to its file. */
 static void cmd_save_buffer(int fd) { editor_save(fd); }
+
+static void display_lisp_result(int error, const char *result)
+{
+	if (error) {
+		editor_set_status_message("Lisp error: %s", result);
+	} else {
+		editor_set_status_message("%s", result);
+	}
+}
+
+static void cmd_eval_expression(int fd)
+{
+	char expression[lisp_expression_max + 1];
+	char result[lisp_result_size];
+	int rc;
+
+	rc = editor_read_line(fd, "Eval: ", expression, sizeof(expression));
+	if (rc < 0) {
+		return;
+	}
+	if (rc > 0) {
+		editor_set_status_message("expression too long");
+		return;
+	}
+	if (!expression[0]) {
+		editor_set_status_message("");
+		return;
+	}
+	rc = kg_lisp_eval_string(
+	    expression, strlen(expression), result, sizeof(result));
+	display_lisp_result(rc, result);
+}
+
+static void cmd_eval_buffer(int fd)
+{
+	char result[lisp_result_size];
+	char *source;
+	int length, rc;
+
+	(void)fd;
+	source = editor_rows_to_string(editor.row, editor.numrows, &length);
+	if (!source) {
+		return;
+	}
+	rc = kg_lisp_eval_string(source, length, result, sizeof(result));
+	free(source);
+	display_lisp_result(rc, result);
+}
 
 /* Strip trailing whitespace from row, push one undo record, return bytes
  * removed. */
@@ -233,6 +286,8 @@ static const struct named_cmd cmdtable[]
 	      { "delete-horizontal-space", cmd_delete_horizontal_space },
 	      { "delete-trailing-space", cmd_delete_trailing_space },
 	      { "downcase-word", cmd_downcase_word },
+	      { "eval-buffer", cmd_eval_buffer },
+	      { "eval-expression", cmd_eval_expression },
 	      { "global-auto-revert-mode", cmd_global_auto_revert_mode },
 	      { "goto-line", cmd_goto_line }, { "join-line", cmd_join_line },
 	      { "just-one-space", cmd_just_one_space },

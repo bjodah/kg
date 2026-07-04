@@ -1,0 +1,12 @@
+name: lisp-eval-buffer
+filename: lisp-buffer.fe
+requires_feature: lisp
+backend: tmux
+initial: (+ 4 5)
+keys:
+  - M-x
+  - eval-buffer
+  - RET
+expected_saved: (+ 4 5)
+expected_screen_contains:
+  - "9"

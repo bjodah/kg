@@ -484,6 +484,12 @@ Reversible with
 Convert the word forward from point to lower case.
 Equivalent to
 .Ic M-l .
+.It eval-buffer
+Evaluate the entire current buffer as Lisp and show the final value or error
+in the status area.
+.It eval-expression
+Prompt for a Lisp expression, evaluate it, and show the value or error in the
+status area.
 .It global-auto-revert-mode
 Toggle automatic re-reading for every buffer at once.
 Equivalent to enabling

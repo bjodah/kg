@@ -426,25 +426,27 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 }
 
 /* Prompt the user for a line of text in the status bar.  Returns 0 on
- * confirmation (Enter) or -1 if cancelled (ESC / C-g).  buf is always
- * NUL-terminated on return. */
+ * confirmation (Enter), 1 if unaccepted input exceeded the buffer, or -1 if
+ * cancelled (ESC / C-g).  buf is always NUL-terminated on return. */
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 {
 	int plen = (int)strlen(prompt);
-	int len = 0, c;
+	int len = 0, overflow = 0, c;
 
 	buf[0] = '\0';
 	while (1) {
 		prompt_refresh(prompt, plen, buf, len);
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0) {
+			if (overflow > 0) {
+				overflow--;
+			} else if (len > 0) {
 				buf[--len] = '\0';
 			}
 		} else if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
-			return prompt_done(0);
+			return prompt_done(overflow > 0);
 		} else if (c == CTRL_Q) {
 			c = editor_read_raw_byte(fd);
 			if (!running) {
@@ -453,10 +455,16 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 			if (len < bufsize - 1) {
 				buf[len++] = c;
 				buf[len] = '\0';
+			} else {
+				overflow++;
 			}
-		} else if (isprint(c) && len < bufsize - 1) {
-			buf[len++] = c;
-			buf[len] = '\0';
+		} else if (isprint(c)) {
+			if (len < bufsize - 1) {
+				buf[len++] = c;
+				buf[len] = '\0';
+			} else {
+				overflow++;
+			}
 		}
 	}
 }

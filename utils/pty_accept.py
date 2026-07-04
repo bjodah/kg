@@ -30,8 +30,10 @@ class Case:
 	name: str
 	path: Path
 	filename: str
+	editor_args: list[str]
 	initial: str
 	keys: list[str]
+	requires_feature: str | None
 	expected_saved: str | None
 	expected_saved_any: list[str] | None
 	oracle: str | None
@@ -163,6 +165,14 @@ def load_case(path: Path) -> Case:
 		raise ValueError(f"{path}: YAML root must be a mapping")
 	if "filename" not in data or "initial" not in data or "keys" not in data:
 		raise ValueError(f"{path}: required keys are filename, initial, keys")
+	editor_args = data.get("args", [])
+	if not isinstance(editor_args, list) or not all(isinstance(v, str) for v in editor_args):
+		raise ValueError(f"{path}: args must be a list of strings")
+	requires_feature = data.get("requires_feature")
+	if requires_feature is not None and (
+		not isinstance(requires_feature, str) or not requires_feature
+	):
+		raise ValueError(f"{path}: requires_feature must be a non-empty string")
 	modes = sum(1 for key in ("expected_saved", "expected_saved_any", "oracle") if key in data)
 	if modes != 1:
 		raise ValueError(f"{path}: specify exactly one of expected_saved, expected_saved_any, or oracle")
@@ -200,8 +210,10 @@ def load_case(path: Path) -> Case:
 		name=data.get("name", path.stem),
 		path=path,
 		filename=data["filename"],
+		editor_args=editor_args,
 		initial=data["initial"],
 		keys=data["keys"],
+		requires_feature=requires_feature,
 		expected_saved=data.get("expected_saved"),
 		expected_saved_any=data.get("expected_saved_any"),
 		oracle=data.get("oracle"),
@@ -295,7 +307,17 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
 				     "-x", str(cols), "-y", str(rows), cmd)
 			time.sleep(startup_delay)
-			for token in [*keys, *trailer_keys]:
+			for token in keys:
+				mode, value = tmux_key_name(token)
+				if mode == "key":
+					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
+				else:
+					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				time.sleep(key_delay)
+			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50",
+					  check=False)
+			transcript.write(cp.stdout)
+			for token in trailer_keys:
 				mode, value = tmux_key_name(token)
 				if mode == "key":
 					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
@@ -332,11 +354,13 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 				  startup_delay, key_delay, dimensions, timeout)
 
 
-def evaluate_case(case: Case, kg_argv: list[str], timeout: float,
+def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: float,
 		  startup_delay_add: float, key_delay_add: float) -> tuple[str, str | None]:
+	if case.requires_feature is not None and case.requires_feature not in features:
+		return ("SKIP", None)
 	startup_delay = case.startup_delay + startup_delay_add
 	key_delay = case.key_delay + key_delay_add
-	kg_run = run_editor(kg_argv, case.filename, case.initial, case.keys,
+	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, startup_delay,
 			    key_delay, case.dimensions, timeout)
 	if kg_run.error:
@@ -403,12 +427,14 @@ def main() -> int:
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
 	kg_argv = shlex.split(args.kg_runner) + [args.kg]
+	version = subprocess.run(kg_argv + ["-V"], check=True, capture_output=True, text=True)
+	features = {word[1:] for word in version.stdout.split() if word.startswith("+")}
 
-	counts = {k: 0 for k in ("PASS", "FAIL", "XFAIL", "XPASS", "ERROR")}
+	counts = {k: 0 for k in ("PASS", "SKIP", "FAIL", "XFAIL", "XPASS", "ERROR")}
 
 	for case_path in args.cases:
 		case = load_case(Path(case_path))
-		status, details = evaluate_case(case, kg_argv, args.timeout,
+		status, details = evaluate_case(case, kg_argv, features, args.timeout,
 						args.startup_delay_add,
 						args.key_delay_add)
 		counts[status] += 1
@@ -423,7 +449,7 @@ def main() -> int:
 	print("============================================================================")
 	print(f"# TOTAL: {total}")
 	print(f"# PASS:  {counts['PASS']}")
-	print("# SKIP:  0")
+	print(f"# SKIP:  {counts['SKIP']}")
 	print(f"# XFAIL: {counts['XFAIL']}")
 	print(f"# FAIL:  {counts['FAIL']}")
 	print(f"# XPASS: {counts['XPASS']}")

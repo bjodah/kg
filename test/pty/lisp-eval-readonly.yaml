@@ -1,0 +1,16 @@
+name: lisp-eval-readonly
+filename: lisp-readonly.txt
+args:
+  - -R
+requires_feature: lisp
+backend: tmux
+initial: unchanged
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (kg-insert "x")
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - read-only

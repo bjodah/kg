@@ -37,6 +37,7 @@ static const struct key_map alt_keys[] = {
 	{ '\b', ALT_BACKSPACE },
 	{ '%', ALT_PCT },
 	{ ';', ALT_SEMICOLON },
+	{ ':', ALT_COLON },
 	{ 'x', ALT_X },
 	{ '^', ALT_CARET },
 	{ 'u', ALT_U },

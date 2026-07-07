@@ -1,0 +1,11 @@
+name: visual-line-mode-wraps-utf8-and-tabs-by-display-column
+filename: line.txt
+initial: "αβ\tXYZ"
+dimensions: [10, 8]
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - C-n
+  - Q
+expected_saved: "αβ\tXQYZ"

@@ -50,7 +50,9 @@ const char *kg_help_lines[]
 	      "              │",
 	      "│                         │ M-z      zap to char    │           "
 	      "              │",
-	      "│                         │ M-x      named command  │           "
+	      "│                         │ M-x      named command  │ M-:       "
+	      "eval expr     │",
+	      "│                         │ C-j      eval sexp/nl   │           "
 	      "              │",
 	      "├─────────────────────────┼─────────────────────────┼───────────"
 	      "──────────────┤",

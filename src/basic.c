@@ -33,6 +33,62 @@ void editor_move_cursor(int key)
 		editor.desired_visual_col = editor_visual_col(row, filecol);
 	}
 
+	if (editor.visual_line_mode) {
+		struct editor_window *w = &winlist[win_current];
+		int win_w = w->w > 0 ? w->w : 1;
+		switch (key) {
+		case HOME_KEY: {
+			if (row) {
+				int rcol = visual_line_cursor_col(
+				    row, filecol, win_w);
+				int target_rcol = (rcol / win_w) * win_w;
+				int char_idx
+				    = render_col_to_chars(row, target_rcol);
+				editor_cursor_goto(filerow, char_idx);
+			}
+			return;
+		}
+		case END_KEY: {
+			if (row) {
+				int rcol = visual_line_cursor_col(
+				    row, filecol, win_w);
+				int max_rcol
+				    = editor_visual_col(row, row->size);
+				int target_rcol = filecol == row->size
+				    ? max_rcol
+				    : ((rcol / win_w) + 1) * win_w - 1;
+				if (target_rcol > max_rcol) {
+					target_rcol = max_rcol;
+				}
+				int char_idx
+				    = render_col_to_chars(row, target_rcol);
+				editor_cursor_goto(filerow, char_idx);
+			}
+			return;
+		}
+		case ARROW_UP: {
+			int rcol = row
+			    ? visual_line_cursor_col(row, filecol, win_w)
+			    : 0;
+			int cur_vrow = get_visual_row(editor.row,
+			    editor.numrows, win_w, filerow, filecol);
+			if (cur_vrow > 0) {
+				goto_visual_row_col(cur_vrow - 1, rcol % win_w);
+			}
+			return;
+		}
+		case ARROW_DOWN: {
+			int rcol = row
+			    ? visual_line_cursor_col(row, filecol, win_w)
+			    : 0;
+			int cur_vrow = get_visual_row(editor.row,
+			    editor.numrows, win_w, filerow, filecol);
+			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
+			return;
+		}
+		}
+	}
+
 	switch (key) {
 	case HOME_KEY:
 		editor.cx = 0;
@@ -298,7 +354,7 @@ void editor_goto_line_direct(int line, int col)
 /* Prompt for a line number (optionally "LINE:COL") and jump to it. */
 void editor_goto_line(int fd)
 {
-	char buf[16];
+	char buf[16] = { 0 };
 	int line = 0, col = 1, n;
 
 	if (editor_read_line(fd, "Goto line: ", buf, sizeof(buf)) < 0

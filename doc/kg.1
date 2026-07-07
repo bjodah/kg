@@ -150,6 +150,7 @@ will be mis-detected as sentence ends.
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
 .It Enter Ta Insert newline with auto-indent
+.It C-j Ta Same as Enter; in Lisp Interaction/Lisp mode evaluates the sexp before point and inserts the result
 .It Tab Ta Insert tab (with bracket autocomplete)
 .It Backspace Ta Delete character before point
 .It Delete Ta Delete character at point
@@ -390,6 +391,11 @@ selection lands on something not yet open.
 Handy when walking a directory to open several files in turn.
 .Pp
 Left/Right arrows cycle the selection;
+.Ic C-b
+and
+.Ic C-f
+move the minibuffer cursor (including at the end of the typed path), so
+editing and completion selection remain distinct;
 .Ic Enter
 on a directory descends into it;
 .Ic Enter
@@ -449,6 +455,7 @@ The macro buffer holds up to 1024 keystrokes.
 .It C-l Ta Recenter: cycle current line to center, top, then bottom of window
 .It C-h Ta Open *help* buffer (q closes)
 .It M-x Ta Execute named command
+.It M-: Ta Evaluate Lisp expression
 .It M-\&! Ta Run shell command, insert output at point
 .It M-\&| Ta Pipe region through shell command, replace it with the output
 .El
@@ -527,6 +534,17 @@ in the status area.
 .It eval-expression
 Prompt for a Lisp expression, evaluate it, and show the value or error in the
 status area.
+Equivalent to
+.Ic M-: .
+.It eval-last-sexp
+Evaluate the s-expression before point and show the result in the status area.
+.It eval-print-last-sexp
+Evaluate the s-expression before point and insert the result on the next line.
+Bound to
+.Ic C-j
+in
+.Pa *scratch*
+and Lisp Interaction buffers.
 .It global-auto-revert-mode
 Toggle automatic re-reading for every buffer at once.
 Equivalent to enabling
@@ -547,6 +565,13 @@ Equivalent to
 .Ic M-Space .
 Reversible with
 .Ic C-_ .
+.It lisp-interaction-mode
+Enable Lisp Interaction mode in the current buffer.
+In this mode
+.Ic C-j
+evaluates the s-expression before point and inserts the result.
+.Pa *scratch*
+buffers are created in this mode by default.
 .It not-modified
 Clear the modified flag without saving.
 .It revert-buffer

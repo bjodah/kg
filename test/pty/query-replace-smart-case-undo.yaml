@@ -1,0 +1,12 @@
+name: query-replace-smart-case-undo-is-atomic
+filename: sample.txt
+initial: "MixedCaseText"
+keys:
+  - M-%
+  - mixed
+  - RET
+  - changed
+  - RET
+  - y
+  - C-_
+expected_saved: "MixedCaseText"

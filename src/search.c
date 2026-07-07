@@ -19,12 +19,48 @@
 		}                                                              \
 	} while (0)
 
-static char *isearch_find_last_before(char *s, char *query, int limit, int qlen)
+static int query_has_upper(const char *q, int qlen)
+{
+	int i;
+	for (i = 0; i < qlen; i++) {
+		if (isupper((unsigned char)q[i])) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static char *case_strstr(const char *hay, const char *needle, int fold)
+{
+	if (!fold) {
+		return strstr(hay, needle);
+	}
+	if (!*needle) {
+		return (char *)hay;
+	}
+	for (; *hay; hay++) {
+		const char *h = hay;
+		const char *n = needle;
+		while (*h && *n
+		    && tolower((unsigned char)*h)
+			== tolower((unsigned char)*n)) {
+			h++;
+			n++;
+		}
+		if (!*n) {
+			return (char *)hay;
+		}
+	}
+	return NULL;
+}
+
+static char *isearch_find_last_before(
+    char *s, char *query, int limit, int qlen, int fold)
 {
 	char *best = NULL;
 	char *match = s;
 
-	while ((match = strstr(match, query)) != NULL) {
+	while ((match = case_strstr(match, query, fold)) != NULL) {
 		if (match - s + qlen > limit) {
 			break;
 		}
@@ -35,7 +71,7 @@ static char *isearch_find_last_before(char *s, char *query, int limit, int qlen)
 }
 
 static int isearch_find_match(int start_row, int start_col, int direction,
-    char *query, int qlen, int *match_row, int *match_col)
+    char *query, int qlen, int fold, int *match_row, int *match_col)
 {
 	int current, i;
 
@@ -63,10 +99,10 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 		}
 
 		if (direction > 0) {
-			match = strstr(row->render + col, query);
+			match = case_strstr(row->render + col, query, fold);
 		} else {
 			match = isearch_find_last_before(
-			    row->render, query, col, qlen);
+			    row->render, query, col, qlen, fold);
 		}
 
 		if (match) {
@@ -262,8 +298,10 @@ void editor_find(int fd, int direction)
 
 	while (1) {
 		int c;
+		int fold = !query_has_upper(query, qlen);
 
-		editor_set_status_message("I-search: %s", query);
+		editor_set_status_message(
+		    "I-search %s: %s", fold ? "[fold]" : "[case]", query);
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
@@ -311,12 +349,17 @@ void editor_find(int fd, int direction)
 			int point_col;
 			int search_dir = find_next;
 
+			/* The key above may have changed the query.  Smart-case
+			 * must follow the updated query on this same search
+			 * iteration. */
+			fold = !query_has_upper(query, qlen);
+
 			if (last_match_row != -1) {
 				current = last_match_row;
 				col = last_match_col + (search_dir > 0 ? 1 : 0);
 			}
 			match = isearch_find_match(current, col, search_dir,
-			    query, qlen, &match_row, &match_col);
+			    query, qlen, fold, &match_row, &match_col);
 			find_next = 0;
 
 			/* Highlight */
@@ -363,6 +406,8 @@ void editor_query_replace(int fd)
 	    || !search[0]) {
 		return;
 	}
+	int fold;
+
 	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
 	    < 0) {
 		return;
@@ -376,10 +421,11 @@ void editor_query_replace(int fd)
 	}
 	filerow = editor.rowoff + editor.cy;
 	match_col = editor.coloff + editor.cx;
+	fold = !query_has_upper(search, slen);
 
 	while (filerow < editor.numrows) {
-		char *match
-		    = strstr(editor.row[filerow].chars + match_col, search);
+		char *match = case_strstr(
+		    editor.row[filerow].chars + match_col, search, fold);
 		int c;
 
 		if (!match) {
@@ -398,12 +444,7 @@ void editor_query_replace(int fd)
 		{
 			erow *row = &editor.row[filerow];
 			if (row->hl) {
-				int i, rcol = 0;
-				for (i = 0; i < match_col; i++) {
-					rcol += (row->chars[i] == '\t')
-					    ? (8 - rcol % 8)
-					    : 1;
-				}
+				int rcol = chars_to_render_col(row, match_col);
 				saved_hl_line = filerow;
 				saved_hl = malloc(row->rsize);
 				if (!saved_hl) {
@@ -422,8 +463,8 @@ void editor_query_replace(int fd)
 
 		if (!replace_all) {
 			editor_set_status_message(
-			    "Replace \"%s\" with \"%s\"? (y/n/!/q)", search,
-			    replace);
+			    "Query replace %s \"%s\" with \"%s\"? (y/n/!/q)",
+			    fold ? "[fold]" : "[case]", search, replace);
 			editor_refresh_screen();
 			c = editor_read_key(fd);
 		} else {
@@ -442,14 +483,17 @@ void editor_query_replace(int fd)
 			erow *row = &editor.row[filerow];
 			int i;
 
-			/* Push two undo entries so C-_ fully reverses the
-			 * replacement: YANK_TEXT is popped first and deletes
-			 * the inserted replacement; KILL_TEXT is popped second
-			 * and reinserts the original search text. */
-			undo_push(UNDO_KILL_TEXT, filerow, match_col, 0, search,
-			    slen);
-			undo_push(UNDO_YANK_TEXT, filerow, match_col, 0,
-			    replace, rlen);
+			/* Restore the snapshot while it still matches this
+			 * row's render size.  A length-changing replacement
+			 * regenerates hl, so restoring later would use the old
+			 * allocation with the new rsize. */
+			RESTORE_HL;
+
+			/* A replacement is one user operation: one C-_ removes
+			 * the replacement span and restores the original match.
+			 */
+			undo_push(UNDO_REPLACE_TEXT, filerow, match_col, rlen,
+			    row->chars + match_col, slen);
 
 			suppress_undo = 1;
 			for (i = 0; i < slen; i++) {

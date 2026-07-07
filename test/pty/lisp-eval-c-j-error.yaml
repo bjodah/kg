@@ -1,0 +1,12 @@
+name: lisp-eval-c-j-error
+filename: error.fe
+requires_feature: lisp
+backend: tmux
+initial: (car 1)
+keys:
+  - M->
+  - C-e
+  - C-j
+expected_saved: (car 1)
+expected_screen_contains:
+  - "Lisp error:"

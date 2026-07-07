@@ -1,0 +1,12 @@
+name: lisp-eval-colon
+filename: lisp-colon.txt
+requires_feature: lisp
+backend: tmux
+initial: unchanged
+keys:
+  - "M-:"
+  - (+ 2 3)
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - "5"

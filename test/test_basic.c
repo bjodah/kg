@@ -207,6 +207,46 @@ static void test_rect_right_saturates_huge_column_offset(void)
 	teardown();
 }
 
+static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
+{
+	int logical_row, render_offset;
+
+	setup(0);
+	editor_insert_row(0, "a\xe2\x80\xa6\tb", 6); /* a…<tab>b */
+
+	CHECK(editor_visual_col(&editor.row[0], 4) == 2);
+	CHECK(editor_visual_col(&editor.row[0], 5) == 7);
+	CHECK(editor_visual_col(&editor.row[0], 6) == 8);
+	CHECK(chars_to_render_col(&editor.row[0], 4) == 4);
+	CHECK(chars_to_render_col(&editor.row[0], 5) == 9);
+	CHECK(get_total_visual_rows(editor.row, editor.numrows, 4) == 2);
+	find_visual_row(
+	    editor.row, editor.numrows, 4, 0, 1, &logical_row, &render_offset);
+	CHECK(logical_row == 0);
+	CHECK(render_offset == 6);
+	CHECK(render_col_to_chars(&editor.row[0], 4) == 4);
+	teardown();
+}
+
+static void test_visual_rows_guard_zero_width(void)
+{
+	setup(1);
+	CHECK(get_visual_row(editor.row, editor.numrows, 0, 0, 2) == 2);
+	CHECK(get_total_visual_rows(editor.row, editor.numrows, 0) == 3);
+	teardown();
+}
+
+static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
+{
+	setup(0);
+	editor_insert_row(0, "12345678", 8);
+
+	CHECK(get_total_visual_rows(editor.row, editor.numrows, 8) == 1);
+	CHECK(get_visual_row(editor.row, editor.numrows, 8, 0, 8) == 0);
+	CHECK(visual_line_cursor_col(&editor.row[0], 8, 8) == 7);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -224,5 +264,8 @@ int main(void)
 	RUN(test_left_from_stale_row_clamps_to_eof);
 	RUN(test_move_cursor_clamps_huge_column_offset);
 	RUN(test_rect_right_saturates_huge_column_offset);
+	RUN(test_visual_rows_use_glyph_columns_and_tab_stops);
+	RUN(test_visual_rows_guard_zero_width);
+	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	return test_summary();
 }

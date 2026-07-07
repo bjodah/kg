@@ -1,0 +1,12 @@
+name: lisp-eval-c-j-incomplete
+filename: incomplete.fe
+requires_feature: lisp
+backend: tmux
+initial: (+ 1 2
+keys:
+  - M->
+  - C-e
+  - C-j
+expected_saved: (+ 1 2
+expected_screen_contains:
+  - "Lisp error: incomplete expression"

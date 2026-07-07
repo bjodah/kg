@@ -6,6 +6,7 @@
 #include <sys/time.h>
 
 #include "def.h"
+#include "lisp.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 
@@ -18,6 +19,7 @@ static const int readonly_blocked_keys[] = {
 	CTRL_Y,
 	CTRL_Q,
 	CTRL_T,
+	CTRL_J,
 	SHIFT_DELETE,
 	SHIFT_INSERT,
 	CTRL_UNDERSCORE,
@@ -443,6 +445,18 @@ void editor_process_keypress(int fd)
 			editor_insert_newline();
 		}
 		break;
+	case CTRL_J: /* Ctrl-j: eval sexp in Lisp/Scratch if Lisp active, else
+			newline */
+		if (kg_lisp_active() && editor.syntax
+		    && (strcmp(editor.syntax->name, "Lisp Interaction") == 0
+			|| strcmp(editor.syntax->name, "Lisp") == 0)) {
+			cmd_eval_print_last_sexp();
+		} else {
+			while (n--) {
+				editor_insert_newline();
+			}
+		}
+		break;
 	case CTRL_A: /* Beginning of line */
 		editor_move_cursor(HOME_KEY);
 		break;
@@ -782,6 +796,9 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_SEMICOLON: /* Toggle line comment */
 		editor_comment_dwim();
+		break;
+	case ALT_COLON: /* Eval expression */
+		(void)cmd_execute_named("eval-expression", fd);
 		break;
 	case ALT_X: /* Named command */
 		editor_named_command(fd);

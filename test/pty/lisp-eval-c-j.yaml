@@ -1,0 +1,44 @@
+name: lisp-eval-c-j
+filename: scratch.fe
+requires_feature: lisp
+initial: ""
+keys:
+  - C-q
+  - "("
+  - "+"
+  - SPC
+  - "3"
+  - SPC
+  - "2"
+  - ")"
+  - C-e
+  - C-j
+  - RET
+  - C-q
+  - "("
+  - "cons"
+  - SPC
+  - "1"
+  - SPC
+  - C-q
+  - "("
+  - "list"
+  - SPC
+  - "2"
+  - SPC
+  - "3"
+  - ")"
+  - ")"
+  - C-e
+  - C-j
+  - RET
+  - "4"
+  - "2"
+  - C-j
+expected_saved: |-
+  (+ 3 2)
+  5
+  (cons 1 (list 2 3))
+  (1 2 3)
+  42
+  42

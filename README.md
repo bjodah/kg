@@ -28,7 +28,7 @@ standard VT100 escape sequences.
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c})
-- Incremental search and query-replace (M-% / ESC %)
+- Smart-case incremental search and query-replace (M-% / ESC %)
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e)
@@ -98,10 +98,12 @@ sudo make uninstall
 
 ## Lisp
 
-Use `M-x eval-expression` to evaluate Lisp entered in the minibuffer, or
-`M-x eval-buffer` to evaluate the current buffer. Results and labelled errors
-are shown in the status area. A build made with `WITH_LISP=0` keeps both
-commands available and reports that Lisp was not compiled in.
+Use `M-x eval-expression` (bound to `M-:`) to evaluate Lisp entered in the minibuffer,
+`M-x eval-buffer` to evaluate the current buffer, or `C-j` to evaluate the
+s-expression before point (in `*scratch*` and Lisp Interaction/Lisp buffers
+`C-j` inserts the result; elsewhere it behaves as a plain newline). Results and
+labelled errors are shown in the status area. A build made with `WITH_LISP=0`
+keeps all commands available and reports that Lisp was not compiled in.
 
 On startup kg loads `$XDG_CONFIG_HOME/kg/init.fe` (falling back to
 `~/.config/kg/init.fe`); a missing file is normal, and `-Q` skips loading

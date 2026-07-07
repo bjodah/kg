@@ -10,6 +10,7 @@
 
 static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;
+static constexpr size_t lisp_last_sexp_max = 64 * 1024;
 
 /* ---- Individual commands ---- */
 
@@ -65,7 +66,7 @@ static void display_lisp_result(int error, const char *result)
 
 static void cmd_eval_expression(int fd)
 {
-	char expression[lisp_expression_max + 1];
+	char expression[lisp_expression_max + 1] = { 0 };
 	char result[lisp_result_size];
 	int rc;
 
@@ -271,6 +272,296 @@ static void cmd_delete_trailing_space(int fd)
 	    "Removed %d trailing space%s", removed, removed == 1 ? "" : "s");
 }
 
+static void cmd_visual_line_mode(int fd)
+{
+	int filecol = editor.coloff + editor.cx;
+	int filerow = editor.rowoff + editor.cy;
+
+	(void)fd;
+	editor.visual_line_mode = !editor.visual_line_mode;
+	if (editor.visual_line_mode) {
+		struct editor_window *w = &winlist[win_current];
+
+		/* Soft wrapping has no horizontal viewport.  Preserve point by
+		 * converting the old screen-relative position to its absolute
+		 * byte offset before clearing coloff. */
+		editor.coloff = 0;
+		editor.cx = filecol;
+		editor.rowoff_visual = get_visual_row(
+		    editor.row, editor.numrows, w->w, filerow, filecol);
+	} else {
+		editor.rowoff = filerow > 10 ? filerow - 10 : 0;
+		editor.cy = filerow - editor.rowoff;
+	}
+	editor_set_status_message("visual-line-mode %s",
+	    editor.visual_line_mode ? "enabled" : "disabled");
+}
+
+enum sexp_kind {
+	SEXP_NONE,
+	SEXP_ATOM,
+	SEXP_LIST,
+	SEXP_STRING,
+};
+
+struct sexp_scan {
+	size_t pos;
+	size_t start;
+	size_t last_start;
+	size_t last_end;
+	size_t depth;
+	enum sexp_kind kind;
+	bool comment;
+	bool escape;
+	bool quoted;
+};
+
+static bool sexp_space(int c)
+{
+	return c == ' ' || c == '\n' || c == '\t' || c == '\r';
+}
+
+static void sexp_complete(struct sexp_scan *scan, size_t end)
+{
+	scan->last_start = scan->start;
+	scan->last_end = end;
+	scan->start = 0;
+	scan->kind = SEXP_NONE;
+	scan->quoted = false;
+}
+
+/* Feed one byte of the buffer prefix into a small Fe-reader-compatible
+ * lexer.  Scanning forward is important: whether a paren is syntax can only
+ * be known after accounting for strings, escapes, and semicolon comments. */
+static void sexp_scan_byte(struct sexp_scan *scan, int c)
+{
+	bool again = true;
+
+	while (again) {
+		again = false;
+		if (scan->comment) {
+			if (c == '\n') {
+				scan->comment = false;
+			}
+			break;
+		}
+		if (scan->kind == SEXP_LIST) {
+			if (scan->escape) {
+				scan->escape = false;
+			} else if (scan->quoted) {
+				if (c == '\\') {
+					scan->escape = true;
+				} else if (c == '"') {
+					scan->quoted = false;
+				}
+			} else if (c == ';') {
+				scan->comment = true;
+			} else if (c == '"') {
+				scan->quoted = true;
+			} else if (c == '(') {
+				scan->depth++;
+			} else if (c == ')' && --scan->depth == 0) {
+				sexp_complete(scan, scan->pos + 1);
+			}
+			break;
+		}
+		if (scan->kind == SEXP_STRING) {
+			if (scan->escape) {
+				scan->escape = false;
+			} else if (c == '\\') {
+				scan->escape = true;
+			} else if (c == '"') {
+				sexp_complete(scan, scan->pos + 1);
+			}
+			break;
+		}
+		if (scan->kind == SEXP_ATOM) {
+			if (sexp_space(c) || c == '(' || c == ')' || c == ';') {
+				sexp_complete(scan, scan->pos);
+				again = true;
+				continue;
+			}
+			break;
+		}
+
+		if (sexp_space(c)) {
+			break;
+		}
+		if (c == ';') {
+			scan->comment = true;
+			break;
+		}
+		if (c == '\'') {
+			if (!scan->quoted) {
+				scan->start = scan->pos;
+			}
+			scan->quoted = true;
+			break;
+		}
+		if (!scan->quoted) {
+			scan->start = scan->pos;
+		}
+		if (c == '(') {
+			scan->kind = SEXP_LIST;
+			scan->depth = 1;
+			scan->quoted = false;
+		} else if (c == '"') {
+			scan->kind = SEXP_STRING;
+			scan->escape = false;
+			scan->quoted = false;
+		} else if (c == ')') {
+			/* Let Fe produce the useful diagnostic for a stray
+			 * close. */
+			sexp_complete(scan, scan->pos + 1);
+		} else {
+			scan->kind = SEXP_ATOM;
+			scan->quoted = false;
+		}
+	}
+	scan->pos++;
+}
+
+static void scan_to_point(struct sexp_scan *scan)
+{
+	int point_row = editor_current_filerow_or_eof();
+	int point_col = editor_current_filecol();
+	int r, c;
+
+	memset(scan, 0, sizeof(*scan));
+	for (r = 0; r < editor.numrows && r <= point_row; r++) {
+		int limit = editor.row[r].size;
+
+		if (r == point_row && point_col < limit) {
+			limit = point_col;
+		}
+		for (c = 0; c < limit; c++) {
+			sexp_scan_byte(
+			    scan, (unsigned char)editor.row[r].chars[c]);
+		}
+		if (r < point_row && r + 1 < editor.numrows) {
+			sexp_scan_byte(scan, '\n');
+		}
+	}
+	if (scan->kind == SEXP_ATOM) {
+		sexp_complete(scan, scan->pos);
+	}
+}
+
+static char *copy_sexp_text(size_t start, size_t end)
+{
+	char *text;
+	size_t off = 0, copied = 0;
+	int r, c;
+
+	text = malloc(end - start + 1);
+	if (!text) {
+		return NULL;
+	}
+	for (r = 0; r < editor.numrows && off < end; r++) {
+		for (c = 0; c < editor.row[r].size && off < end; c++, off++) {
+			if (off >= start) {
+				text[copied++] = editor.row[r].chars[c];
+			}
+		}
+		if (r + 1 < editor.numrows && off < end) {
+			if (off++ >= start) {
+				text[copied++] = '\n';
+			}
+		}
+	}
+	text[copied] = '\0';
+	return text;
+}
+
+static void do_eval_last_sexp(int print_to_buffer)
+{
+	struct sexp_scan scan;
+	char result[lisp_result_size];
+	char *expr;
+	int rc;
+
+	if (print_to_buffer && editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	scan_to_point(&scan);
+	if ((scan.kind != SEXP_NONE || scan.quoted)
+	    && scan.pos - scan.start > lisp_last_sexp_max) {
+		editor_set_status_message(
+		    "Lisp error: expression before point is too long");
+		return;
+	}
+	if (scan.kind != SEXP_NONE || scan.quoted) {
+		editor_set_status_message(
+		    "Lisp error: incomplete expression before point");
+		return;
+	}
+	if (scan.last_end == 0) {
+		editor_set_status_message(
+		    "Lisp error: no expression before point");
+		return;
+	}
+	if (scan.last_end - scan.last_start > lisp_last_sexp_max) {
+		editor_set_status_message(
+		    "Lisp error: expression before point is too long");
+		return;
+	}
+	expr = copy_sexp_text(scan.last_start, scan.last_end);
+	if (!expr) {
+		editor_set_status_message("Lisp error: out of memory");
+		return;
+	}
+	rc = kg_lisp_eval_string(
+	    expr, scan.last_end - scan.last_start, result, sizeof(result));
+	free(expr);
+	if (rc != 0) {
+		editor_set_status_message("Lisp error: %s", result);
+	} else {
+		if (print_to_buffer) {
+			int start_row = editor_current_filerow_or_eof();
+			int start_col = editor_current_filecol();
+			int res_len = (int)strlen(result);
+			char *to_insert = malloc(res_len + 2);
+			if (to_insert) {
+				to_insert[0] = '\n';
+				memcpy(to_insert + 1, result, res_len);
+				to_insert[res_len + 1] = '\0';
+
+				undo_push(UNDO_YANK_TEXT, start_row, start_col,
+				    0, to_insert, res_len + 1);
+				editor_insert_text_raw(to_insert, res_len + 1);
+				free(to_insert);
+			} else {
+				editor_set_status_message(
+				    "Lisp error: out of memory");
+			}
+		} else {
+			editor_set_status_message("%s", result);
+		}
+	}
+}
+
+void cmd_eval_print_last_sexp(void) { do_eval_last_sexp(1); }
+
+static void cmd_eval_print_last_sexp_cmd(int fd)
+{
+	(void)fd;
+	cmd_eval_print_last_sexp();
+}
+
+static void cmd_eval_last_sexp_cmd(int fd)
+{
+	(void)fd;
+	do_eval_last_sexp(0);
+}
+
+static void cmd_lisp_interaction_mode(int fd)
+{
+	(void)fd;
+	editor.syntax = &lisp_interaction_syntax;
+	editor_set_status_message("Lisp Interaction mode enabled");
+}
+
 /* ---- Command table ---- */
 
 typedef void (*cmdfn)(int fd);
@@ -288,9 +579,12 @@ static const struct named_cmd cmdtable[]
 	      { "downcase-word", cmd_downcase_word },
 	      { "eval-buffer", cmd_eval_buffer },
 	      { "eval-expression", cmd_eval_expression },
+	      { "eval-last-sexp", cmd_eval_last_sexp_cmd },
+	      { "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd },
 	      { "global-auto-revert-mode", cmd_global_auto_revert_mode },
 	      { "goto-line", cmd_goto_line }, { "join-line", cmd_join_line },
 	      { "just-one-space", cmd_just_one_space },
+	      { "lisp-interaction-mode", cmd_lisp_interaction_mode },
 	      { "not-modified", cmd_not_modified },
 	      { "revert-buffer", cmd_revert_buffer },
 	      { "save-buffer", cmd_save_buffer },
@@ -299,6 +593,7 @@ static const struct named_cmd cmdtable[]
 	      { "toggle-read-only", cmd_toggle_read_only },
 	      { "transpose-chars", cmd_transpose_chars },
 	      { "upcase-word", cmd_upcase_word }, { "version", cmd_version },
+	      { "visual-line-mode", cmd_visual_line_mode },
 	      { "what-cursor-position", cmd_what_cursor_position },
 	      { "whitespace-cleanup", cmd_whitespace_cleanup },
 	      { "zap-to-char", cmd_zap_to_char }, { NULL, NULL } };

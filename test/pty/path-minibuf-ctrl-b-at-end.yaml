@@ -1,0 +1,14 @@
+name: path-minibuf-ctrl-b-at-end-edits-input
+filename: original.txt
+initial: "unchanged"
+backend: tmux
+keys:
+  - C-x
+  - C-f
+  - abc
+  - C-b
+  - X
+  - RET
+expected_saved: "unchanged"
+expected_screen_contains:
+  - abXc

@@ -279,7 +279,7 @@ static void insert_as_yank(const char *text, int len)
 /* M-! shell-command: prompt, run, insert stdout at point. */
 void editor_shell_command(int fd)
 {
-	char cmd[256];
+	char cmd[256] = { 0 };
 	char *out;
 	int out_len = 0;
 
@@ -309,7 +309,7 @@ void editor_shell_command(int fd)
  */
 void editor_shell_command_on_region(int fd)
 {
-	char cmd[256];
+	char cmd[256] = { 0 };
 	char *region, *out;
 	int region_len = 0, out_len = 0;
 

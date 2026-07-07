@@ -116,6 +116,7 @@ enum KEY_ACTION {
 	CTRL_G = 7, /* Ctrl-g */
 	CTRL_H = 8, /* Ctrl-h */
 	TAB = 9, /* Tab */
+	CTRL_J = 10, /* Ctrl-j */
 	CTRL_K = 11, /* Ctrl-k */
 	CTRL_L = 12, /* Ctrl+l */
 	ENTER = 13, /* Enter */
@@ -172,6 +173,7 @@ enum KEY_ACTION {
 	ALT_BACKSPACE,
 	ALT_PCT, /* M-% query-replace */
 	ALT_SEMICOLON, /* M-; comment-dwim */
+	ALT_COLON, /* M-: eval-expression */
 	ALT_X, /* M-x named command */
 	ALT_CARET, /* M-^ join-line */
 	ALT_U, /* M-u upcase-word */
@@ -283,6 +285,8 @@ struct editor_config {
 	off_t disk_size; /* size of `filename` when we last read/wrote it. */
 	int disk_changed; /* Set by the auto-revert poll when disk differs. */
 	int auto_revert; /* Per-buffer auto-revert toggle. */
+	int visual_line_mode; /* 1 if visual-line-mode is enabled */
+	int rowoff_visual; /* Visual row offset for visual-line-mode */
 };
 
 /* Append buffer for efficient screen rendering */
@@ -342,6 +346,7 @@ struct editor_window {
 	int active; /* 1 if this slot is in use */
 	int col_group; /* Column group: windows with same value stack
 			  vertically; different values sit side-by-side */
+	int rowoff_visual; /* Visual row offset for visual-line-mode */
 };
 
 /* Per-buffer state saved when switching away from a buffer. */
@@ -366,6 +371,8 @@ struct editor_buffer {
 	off_t disk_size;
 	int disk_changed;
 	int auto_revert;
+	int visual_line_mode;
+	int rowoff_visual;
 };
 
 /* Global editor state */
@@ -386,6 +393,7 @@ extern int win_total_rows; /* terminal rows (set by update_window_size) */
 extern int win_total_cols; /* terminal cols (set by update_window_size) */
 
 /* bufmgr.c */
+extern struct editor_syntax lisp_interaction_syntax;
 void buf_save_current_state(void);
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
@@ -524,6 +532,7 @@ void editor_process_keypress(int fd);
 void editor_named_command(int fd);
 [[nodiscard]] int cmd_execute_named(const char *name, int fd);
 [[nodiscard]] int cmd_static_exists(const char *name);
+void cmd_eval_print_last_sexp(void);
 
 /* keybind.c */
 [[nodiscard]] int keybind_parse(const char *sequence, int *key);
@@ -624,6 +633,16 @@ void undo_push(
     enum undo_type type, int row, int col, int c, char *text, int len);
 void editor_undo(void);
 void undo_mark_clean(void);
+
+/* mode.c */
+int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);
+int visual_line_cursor_col(erow *row, int chars_col, int win_w);
+void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
+    int target_y, int *logical_row, int *char_offset);
+int render_col_to_chars(erow *row, int target_rcol);
+void goto_visual_row_col(int target_vrow, int target_rcol_in_segment);
+int chars_to_render_col(erow *row, int chars_col);
+int get_total_visual_rows(erow *rows, int numrows, int win_w);
 
 /* main.c */
 void init_editor(void);

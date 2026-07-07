@@ -20,6 +20,7 @@ void win_save_active_view(void)
 	w->cy = editor.cy;
 	w->rowoff = editor.rowoff;
 	w->coloff = editor.coloff;
+	w->rowoff_visual = editor.rowoff_visual;
 
 	/* Keep buflist in sync so a buffer switch restores correctly. */
 	if (w->bufidx < MAX_BUFFERS && buflist[w->bufidx].active) {
@@ -27,6 +28,7 @@ void win_save_active_view(void)
 		buflist[w->bufidx].cy = editor.cy;
 		buflist[w->bufidx].rowoff = editor.rowoff;
 		buflist[w->bufidx].coloff = editor.coloff;
+		buflist[w->bufidx].rowoff_visual = editor.rowoff_visual;
 	}
 }
 
@@ -45,6 +47,7 @@ static void win_activate_window(void)
 	editor.mark_set = b->mark_set;
 	editor.mark_row = b->mark_row;
 	editor.mark_col = b->mark_col;
+	editor.visual_line_mode = b->visual_line_mode;
 	undostack = b->undostack;
 	win_restore_active_view();
 }
@@ -60,6 +63,7 @@ void win_restore_active_view(void)
 	editor.cy = w->cy;
 	editor.rowoff = w->rowoff;
 	editor.coloff = w->coloff;
+	editor.rowoff_visual = w->rowoff_visual;
 	editor.screenrows = w->h;
 	editor.screencols = w->w;
 }

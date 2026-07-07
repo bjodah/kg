@@ -65,29 +65,6 @@ static void ab_fill(struct abuf *ab, char c, int n)
 
 static void ab_append_spaces(struct abuf *ab, int n) { ab_fill(ab, ' ', n); }
 
-/* Convert a `chars`-column index to its rendered (post-tab-expansion)
- * column on the same row, matching editor_update_row's expansion rule
- * (each TAB widens to the next 8-column stop). */
-static int chars_to_render_col(erow *row, int chars_col)
-{
-	int j, idx = 0;
-
-	if (chars_col > row->size) {
-		chars_col = row->size;
-	}
-	for (j = 0; j < chars_col; j++) {
-		if (row->chars[j] == TAB) {
-			idx++;
-			while ((idx + 1) % 8 != 0) {
-				idx++;
-			}
-		} else {
-			idx++;
-		}
-	}
-	return idx;
-}
-
 /* Render the text rows of one window into ab.
  * win_y, win_x, win_h, win_w describe the window's position/size.
  * rowoff/coloff/numrows/rows describe the buffer viewport.
@@ -98,7 +75,7 @@ static int chars_to_render_col(erow *row, int chars_col)
  * within the window's column range. */
 static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
     int win_w, int rowoff, int coloff, int numrows, erow *rows, int is_active,
-    int is_full_width)
+    int is_full_width, int visual_line_mode)
 {
 	int y, j;
 	int region_active = 0;
@@ -142,7 +119,15 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 	}
 
 	for (y = 0; y < win_h; y++) {
-		int fr = rowoff + y;
+		int fr;
+		int offset;
+		if (visual_line_mode) {
+			find_visual_row(
+			    rows, numrows, win_w, rowoff, y, &fr, &offset);
+		} else {
+			fr = rowoff + y;
+			offset = coloff;
+		}
 		int current_color = -1;
 		int current_reverse = 0;
 		int hi_lo = -1,
@@ -218,17 +203,17 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			char *c;
 			unsigned char *hl;
 
-			/* Walk render bytes from coloff to compute len bounded
+			/* Walk render bytes from offset to compute len bounded
 			 * by win_w VISIBLE columns, keeping UTF-8 glyphs whole.
 			 * Counting non-continuation bytes as one column each
 			 * lets a 79-visual-col line (200+ bytes of box drawing)
 			 * render correctly on an 80-col terminal. */
 			len = 0;
-			if (coloff < r->rsize) {
-				while (coloff + len < r->rsize) {
+			if (offset < r->rsize) {
+				while (offset + len < r->rsize) {
 					unsigned char b
 					    = (unsigned char)
-						  r->render[coloff + len];
+						  r->render[offset + len];
 					if (!utf8_is_cont(b)) {
 						if (vcol_used >= win_w) {
 							break;
@@ -239,8 +224,8 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 				}
 			}
 
-			c = r->render + coloff;
-			hl = r->hl + coloff;
+			c = r->render + offset;
+			hl = r->hl + offset;
 
 			if (region_active && fr >= region_s_row
 			    && fr <= region_e_row) {
@@ -272,7 +257,7 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			}
 
 			for (j = 0; j < len; j++) {
-				int render_col = coloff + j;
+				int render_col = offset + j;
 				int want_rev = (render_col >= hi_lo
 				    && render_col < hi_hi);
 				/* Defer the reverse-video toggle on UTF-8
@@ -409,9 +394,18 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	ab_append(ab, is_active ? "\x1b[7m" : "\x1b[2m",
 	    4); /* active: reverse; inactive: dim */
 
+	char mode_buf[128];
+	int vline = (bufidx == buf_current) ? editor.visual_line_mode
+					    : b->visual_line_mode;
+	if (vline) {
+		snprintf(mode_buf, sizeof(mode_buf), "%s VLine", modename);
+	} else {
+		snprintf(mode_buf, sizeof(mode_buf), "%s", modename);
+	}
+
 	len = snprintf(status, sizeof(status), "%s  %s%s  %s (%d,%d)  (%s)",
 	    dirty ? "-**-" : "----", bname, changed, pos, cur_row, cur_col,
-	    modename);
+	    mode_buf);
 
 	if (len > win_w) {
 		len = win_w;
@@ -427,6 +421,21 @@ void editor_refresh_screen(void)
 	struct abuf ab = ABUF_INIT;
 	int i, cx, j;
 	int msglen;
+
+	if (editor.visual_line_mode) {
+		struct editor_window *w_act = &winlist[win_current];
+		int filerow = editor.rowoff + editor.cy;
+		int filecol = editor.coloff + editor.cx;
+		int cursor_vrow = get_visual_row(
+		    editor.row, editor.numrows, w_act->w, filerow, filecol);
+		if (cursor_vrow < editor.rowoff_visual) {
+			editor.rowoff_visual = cursor_vrow;
+		} else if (cursor_vrow >= editor.rowoff_visual + w_act->h) {
+			editor.rowoff_visual = cursor_vrow - w_act->h + 1;
+		}
+		editor.cx += editor.coloff;
+		editor.coloff = 0;
+	}
 
 	ab_append(&ab, "\x1b[?25l", 6); /* Hide cursor. */
 
@@ -447,10 +456,12 @@ void editor_refresh_screen(void)
 		bidx = w->bufidx;
 		b = &buflist[bidx];
 
+		int vline = (bidx == buf_current) ? editor.visual_line_mode
+						  : b->visual_line_mode;
 		if (is_active) {
 			numrows = editor.numrows;
 			rows = editor.row;
-			rowoff = editor.rowoff;
+			rowoff = vline ? editor.rowoff_visual : editor.rowoff;
 			coloff = editor.coloff;
 		} else {
 			/* Row data: if this window shares the active buffer,
@@ -462,23 +473,42 @@ void editor_refresh_screen(void)
 			/* Always use the window's own scroll offsets, not the
 			 * buffer slot's (which tracks the last-active window's
 			 * scroll). */
-			rowoff = w->rowoff;
+			rowoff = vline ? w->rowoff_visual : w->rowoff;
 			coloff = w->coloff;
 		}
 
 		draw_window_rows(&ab, w->y, w->x, w->h, w->w, rowoff, coloff,
-		    numrows, rows, is_active, is_full_width);
+		    numrows, rows, is_active, is_full_width, vline);
 
 		ml_row = w->y + w->h;
 		{
-			int wrowoff = is_active ? editor.rowoff : w->rowoff;
-			int cur_row = is_active
-			    ? (editor.rowoff + editor.cy + 1)
-			    : (w->rowoff + w->cy + 1);
+			int wrowoff = is_active
+			    ? (vline ? editor.rowoff_visual : editor.rowoff)
+			    : (vline ? w->rowoff_visual : w->rowoff);
+			int cur_row;
+			if (vline) {
+				int filerow = is_active
+				    ? (editor.rowoff + editor.cy)
+				    : (w->rowoff + w->cy);
+				int filecol = is_active
+				    ? (editor.coloff + editor.cx)
+				    : (w->coloff + w->cx);
+				cur_row = get_visual_row(rows, numrows, w->w,
+					      filerow, filecol)
+				    + 1;
+			} else {
+				cur_row = is_active
+				    ? (editor.rowoff + editor.cy + 1)
+				    : (w->rowoff + w->cy + 1);
+			}
 			int cur_col = is_active ? (editor.cx + 1) : (w->cx + 1);
 			int total_rows = (is_active || bidx == buf_current)
-			    ? editor.numrows
-			    : b->numrows;
+			    ? (vline ? get_total_visual_rows(
+					   editor.row, editor.numrows, w->w)
+				     : editor.numrows)
+			    : (vline ? get_total_visual_rows(
+					   b->row, b->numrows, w->w)
+				     : b->numrows);
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
 			    cur_row, cur_col, total_rows, wrowoff, w->h);
 		}
@@ -572,7 +602,21 @@ void editor_refresh_screen(void)
 				cx += target - row->size;
 			}
 		}
-		ab_move_to(&ab, w->y + editor.cy, w->x + cx - 1);
+		if (editor.visual_line_mode) {
+			int filerow = editor.rowoff + editor.cy;
+			int filecol = editor.coloff + editor.cx;
+			int win_w = w->w > 0 ? w->w : 1;
+			int rcol = row
+			    ? visual_line_cursor_col(row, filecol, win_w)
+			    : 0;
+			int cursor_vrow = get_visual_row(editor.row,
+			    editor.numrows, win_w, filerow, filecol);
+			int screen_y = cursor_vrow - editor.rowoff_visual;
+			cx = (rcol % win_w) + 1;
+			ab_move_to(&ab, w->y + screen_y, w->x + cx - 1);
+		} else {
+			ab_move_to(&ab, w->y + editor.cy, w->x + cx - 1);
+		}
 	}
 
 	ab_append(&ab, "\x1b[?25h", 6); /* Show cursor. */

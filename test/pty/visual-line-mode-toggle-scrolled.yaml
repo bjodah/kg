@@ -1,0 +1,11 @@
+name: visual-line-mode-toggle-preserves-scrolled-point
+filename: line.txt
+initial: "123456789012345678901234567890"
+dimensions: [10, 10]
+keys:
+  - C-e
+  - M-x
+  - visual-line-mode
+  - RET
+  - X
+expected_saved: "123456789012345678901234567890X"

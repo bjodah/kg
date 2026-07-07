@@ -243,7 +243,7 @@ void editor_update_row(erow *row)
 {
 	unsigned int tabs = 0, nonprint = 0;
 	unsigned long long allocsize;
-	int j, idx, render_cap;
+	int j, idx, render_cap, vcol;
 
 	/* Create a version of the row we can directly print on the screen,
 	 * respecting tabs, substituting non printable characters with '?'. */
@@ -269,9 +269,10 @@ void editor_update_row(erow *row)
 	}
 	render_cap = row->size + tabs * 8 + nonprint * 9 + 1;
 	idx = 0;
+	vcol = 0;
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = 7 - (idx % 8);
+			int spaces = 7 - (vcol % 8);
 
 			if (spaces == 0) {
 				spaces = 8;
@@ -287,8 +288,12 @@ void editor_update_row(erow *row)
 			}
 			memset(row->render + idx, ' ', spaces);
 			idx += spaces;
+			vcol += spaces;
 		} else {
 			row->render[idx++] = row->chars[j];
+			if (!utf8_is_cont((unsigned char)row->chars[j])) {
+				vcol++;
+			}
 		}
 	}
 	row->rsize = idx;

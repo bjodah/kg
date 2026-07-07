@@ -563,6 +563,11 @@ char *MAKE_HL_extensions[]
 char *MD_HL_extensions[] = { ".md", ".markdown", ".mkd", NULL };
 char *MD_HL_keywords[] = { NULL };
 
+/* Lisp */
+char *LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp", NULL };
+char *LISP_HL_keywords[] = { "if", "while", "quote", "and", "or", "set", "fn",
+	"mac", "define", "lambda", "let", "cond", "nil", "t", NULL };
+
 /* Here we define an array of syntax highlights by extensions, keywords,
  * comments delimiters and flags. */
 struct editor_syntax HLDB[] = {
@@ -605,6 +610,8 @@ struct editor_syntax HLDB[] = {
 	{ "Makefile", MAKE_HL_extensions, NULL, "", "", "", SHL_MAKEFILE },
 	{ "Markdown", MD_HL_extensions, MD_HL_keywords, "", "", "",
 	    SHL_MARKDOWN },
+	{ "Lisp", LISP_HL_extensions, LISP_HL_keywords, ";", "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
 };
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))

@@ -1,0 +1,10 @@
+name: lisp-eval-c-j-undo
+filename: undo.fe
+requires_feature: lisp
+initial: (+ 3 2)
+keys:
+  - M->
+  - C-e
+  - C-j
+  - C-_
+expected_saved: (+ 3 2)

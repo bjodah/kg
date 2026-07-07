@@ -73,6 +73,8 @@ void init_editor(void)
 	editor.disk_size = 0;
 	editor.disk_changed = 0;
 	editor.auto_revert = 0;
+	editor.visual_line_mode = 0;
+	editor.rowoff_visual = 0;
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;
 	editor.prefix_no_digits = 0;

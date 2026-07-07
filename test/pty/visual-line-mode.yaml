@@ -1,0 +1,18 @@
+name: visual-line-mode
+filename: line.txt
+initial: "123456789012345678901234567890"
+dimensions: [10, 10]
+keys:
+  - M-x
+  - "visual-line-mode"
+  - RET
+  - C-n
+  - a
+  - C-n
+  - b
+  - C-a
+  - c
+  - C-e
+  - d
+expected_saved: |-
+  1234567890a123456789c0b123456d7890

@@ -1,0 +1,22 @@
+name: visual-line-mode-does-not-leak-to-inactive-buffer-window
+filename: original.txt
+initial: "AAAAAAAAAAAAAABBBBBBBBBBBBBB"
+backend: tmux
+dimensions: [10, 31]
+config_files:
+  .config/kg/other.txt: "short"
+keys:
+  - C-x
+  - "3"
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/.config/kg/other.txt"
+  - RET
+  - M-x
+  - visual-line-mode
+  - RET
+expected_saved: "AAAAAAAAAAAAAABBBBBBBBBBBBBB"
+expected_screen_not_contains:
+  - BBBBBBBBBB

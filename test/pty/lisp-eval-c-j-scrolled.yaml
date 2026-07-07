@@ -1,0 +1,29 @@
+name: lisp-eval-c-j-scrolled
+filename: test.fe
+requires_feature: lisp
+dimensions: [5, 40]
+initial: |-
+  ;; filler line 1
+  ;; filler line 2
+  ;; filler line 3
+  ;; filler line 4
+  ;; filler line 5
+  ;; filler line 6
+  ;; filler line 7
+  ;; filler line 8
+  (+ 3 2)
+keys:
+  - M->
+  - C-e
+  - C-j
+expected_saved: |-
+  ;; filler line 1
+  ;; filler line 2
+  ;; filler line 3
+  ;; filler line 4
+  ;; filler line 5
+  ;; filler line 6
+  ;; filler line 7
+  ;; filler line 8
+  (+ 3 2)
+  5

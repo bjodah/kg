@@ -1,0 +1,34 @@
+name: minibuf-editing
+filename: shell.txt
+initial: ""
+keys:
+  - M-!
+  - "printf \"first second third\""
+  - C-a
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - ESC
+  - d
+  - C-e
+  - C-b
+  - ESC
+  - C-?
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - Y
+  - RET
+expected_saved_any:
+  - "Y second "
+  - "Y second \n"

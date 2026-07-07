@@ -1,0 +1,16 @@
+name: lisp-eval-c-j-lexing
+filename: forms.fe
+requires_feature: lisp
+initial: |-
+  (do "a\")("                  ; ignored ) ( " \
+      (+ 1
+         (+ 2 2)))
+keys:
+  - M->
+  - C-e
+  - C-j
+expected_saved: |-
+  (do "a\")("                  ; ignored ) ( " \
+      (+ 1
+         (+ 2 2)))
+  5

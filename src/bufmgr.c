@@ -15,6 +15,8 @@
 static struct editor_syntax ibuffer_syntax
     = { "IBuffer", NULL, NULL, "", "", "", 0 };
 static struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0 };
+struct editor_syntax lisp_interaction_syntax = { "Lisp Interaction", NULL, NULL,
+	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS };
 
 /* Column offset of the filename field in a *Buffer List* data row.
  * Format: " %c  %-24s  %6d  %-14s  %s"
@@ -58,6 +60,8 @@ static void buf_save_to_slot(int idx)
 	b->disk_size = editor.disk_size;
 	b->disk_changed = editor.disk_changed;
 	b->auto_revert = editor.auto_revert;
+	b->visual_line_mode = editor.visual_line_mode;
+	b->rowoff_visual = editor.rowoff_visual;
 	b->active = 1;
 }
 
@@ -87,6 +91,8 @@ static void buf_restore_from_slot(int idx)
 	editor.disk_size = b->disk_size;
 	editor.disk_changed = b->disk_changed;
 	editor.auto_revert = b->auto_revert;
+	editor.visual_line_mode = b->visual_line_mode;
+	editor.rowoff_visual = b->rowoff_visual;
 	buf_current = idx;
 	/* Keep the active window pointing at the newly-restored buffer. */
 	if (win_count > 0) {
@@ -312,6 +318,8 @@ static void buf_reset(void)
 	editor.disk_size = 0;
 	editor.disk_changed = 0;
 	editor.auto_revert = 0;
+	editor.visual_line_mode = 0;
+	editor.rowoff_visual = 0;
 	undo_init();
 }
 
@@ -374,10 +382,10 @@ static int prompt_done(int rc)
 
 /* Park the cursor at the typed position on the echo area and refresh. */
 static void prompt_refresh(
-    const char *prompt, int plen, const char *buf, int len)
+    const char *prompt, int plen, const char *buf, int cursor)
 {
 	editor_set_status_message("%s%s", prompt, buf);
-	editor.echo_cursor_col = plen + len + 1;
+	editor.echo_cursor_col = plen + cursor + 1;
 	editor_refresh_screen();
 }
 
@@ -425,46 +433,187 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	free(abs);
 }
 
+static char minibuf_kill[1024];
+
+static int minibuf_edit_key(
+    int fd, int c, char *buf, int bufsize, int *cursor, int *len, int *overflow)
+{
+	if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+		if (*overflow > 0) {
+			(*overflow)--;
+		} else if (*cursor > 0) {
+			memmove(buf + *cursor - 1, buf + *cursor,
+			    *len - *cursor + 1);
+			(*cursor)--;
+			(*len)--;
+		}
+		return 1;
+	}
+	if (c == CTRL_D) {
+		if (*cursor < *len) {
+			memmove(
+			    buf + *cursor, buf + *cursor + 1, *len - *cursor);
+			(*len)--;
+		}
+		return 1;
+	}
+	if (c == CTRL_F || c == ARROW_RIGHT) {
+		if (*cursor < *len) {
+			(*cursor)++;
+		}
+		return 1;
+	}
+	if (c == CTRL_B || c == ARROW_LEFT) {
+		if (*cursor > 0) {
+			(*cursor)--;
+		}
+		return 1;
+	}
+	if (c == CTRL_A || c == HOME_KEY) {
+		*cursor = 0;
+		return 1;
+	}
+	if (c == CTRL_E || c == END_KEY) {
+		*cursor = *len;
+		return 1;
+	}
+	if (c == CTRL_K) {
+		int kill_len = *len - *cursor;
+		if (kill_len > 0) {
+			if (kill_len >= (int)sizeof(minibuf_kill)) {
+				kill_len = sizeof(minibuf_kill) - 1;
+			}
+			memcpy(minibuf_kill, buf + *cursor, kill_len);
+			minibuf_kill[kill_len] = '\0';
+			buf[*cursor] = '\0';
+			*len = *cursor;
+		}
+		return 1;
+	}
+	if (c == CTRL_Y) {
+		int yank_len = (int)strlen(minibuf_kill);
+		if (yank_len > 0 && *len + yank_len < bufsize) {
+			memmove(buf + *cursor + yank_len, buf + *cursor,
+			    *len - *cursor + 1);
+			memcpy(buf + *cursor, minibuf_kill, yank_len);
+			*cursor += yank_len;
+			*len += yank_len;
+		}
+		return 1;
+	}
+	if (c == ALT_F) {
+		while (*cursor < *len && isspace((unsigned char)buf[*cursor])) {
+			(*cursor)++;
+		}
+		while (
+		    *cursor < *len && !isspace((unsigned char)buf[*cursor])) {
+			(*cursor)++;
+		}
+		return 1;
+	}
+	if (c == ALT_B) {
+		while (
+		    *cursor > 0 && isspace((unsigned char)buf[*cursor - 1])) {
+			(*cursor)--;
+		}
+		while (
+		    *cursor > 0 && !isspace((unsigned char)buf[*cursor - 1])) {
+			(*cursor)--;
+		}
+		return 1;
+	}
+	if (c == ALT_D) {
+		int end = *cursor;
+		while (end < *len && isspace((unsigned char)buf[end])) {
+			end++;
+		}
+		while (end < *len && !isspace((unsigned char)buf[end])) {
+			end++;
+		}
+		int kill_len = end - *cursor;
+		if (kill_len > 0) {
+			if (kill_len >= (int)sizeof(minibuf_kill)) {
+				kill_len = sizeof(minibuf_kill) - 1;
+			}
+			memcpy(minibuf_kill, buf + *cursor, kill_len);
+			minibuf_kill[kill_len] = '\0';
+			memmove(buf + *cursor, buf + end, *len - end + 1);
+			*len -= kill_len;
+		}
+		return 1;
+	}
+	if (c == ALT_BACKSPACE) {
+		int start = *cursor;
+		while (start > 0 && isspace((unsigned char)buf[start - 1])) {
+			start--;
+		}
+		while (start > 0 && !isspace((unsigned char)buf[start - 1])) {
+			start--;
+		}
+		int kill_len = *cursor - start;
+		if (kill_len > 0) {
+			if (kill_len >= (int)sizeof(minibuf_kill)) {
+				kill_len = sizeof(minibuf_kill) - 1;
+			}
+			memcpy(minibuf_kill, buf + start, kill_len);
+			minibuf_kill[kill_len] = '\0';
+			memmove(buf + start, buf + *cursor, *len - *cursor + 1);
+			*cursor = start;
+			*len -= kill_len;
+		}
+		return 1;
+	}
+	if (c == CTRL_Q) {
+		c = editor_read_raw_byte(fd);
+		if (!running) {
+			return 1;
+		}
+		if (*len < bufsize - 1) {
+			memmove(buf + *cursor + 1, buf + *cursor,
+			    *len - *cursor + 1);
+			buf[(*cursor)++] = c;
+			(*len)++;
+		} else {
+			(*overflow)++;
+		}
+		return 1;
+	}
+	if (isprint(c)) {
+		if (*len < bufsize - 1) {
+			memmove(buf + *cursor + 1, buf + *cursor,
+			    *len - *cursor + 1);
+			buf[(*cursor)++] = c;
+			(*len)++;
+		} else {
+			(*overflow)++;
+		}
+		return 1;
+	}
+	return 0;
+}
+
 /* Prompt the user for a line of text in the status bar.  Returns 0 on
  * confirmation (Enter), 1 if unaccepted input exceeded the buffer, or -1 if
  * cancelled (ESC / C-g).  buf is always NUL-terminated on return. */
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 {
 	int plen = (int)strlen(prompt);
-	int len = 0, overflow = 0, c;
+	int len = (int)strnlen(buf, bufsize - 1);
+	int cursor = len;
+	int overflow = 0, c;
 
-	buf[0] = '\0';
+	buf[len] = '\0';
 	while (1) {
-		prompt_refresh(prompt, plen, buf, len);
+		prompt_refresh(prompt, plen, buf, cursor);
 		c = editor_read_key(fd);
-		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (overflow > 0) {
-				overflow--;
-			} else if (len > 0) {
-				buf[--len] = '\0';
-			}
-		} else if (c == ESC || c == CTRL_G) {
+		if (minibuf_edit_key(
+			fd, c, buf, bufsize, &cursor, &len, &overflow)) {
+			continue;
+		}
+		if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
 			return prompt_done(overflow > 0);
-		} else if (c == CTRL_Q) {
-			c = editor_read_raw_byte(fd);
-			if (!running) {
-				return prompt_done(-1);
-			}
-			if (len < bufsize - 1) {
-				buf[len++] = c;
-				buf[len] = '\0';
-			} else {
-				overflow++;
-			}
-		} else if (isprint(c)) {
-			if (len < bufsize - 1) {
-				buf[len++] = c;
-				buf[len] = '\0';
-			} else {
-				overflow++;
-			}
 		}
 	}
 }
@@ -630,6 +779,8 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	/* Honour any pre-populated content (callers may seed the prompt
 	 * with the current buffer's directory, à la Emacs). */
 	int len = (int)strnlen(buf, bufsize - 1);
+	int cursor = len;
+	int overflow = 0;
 	int c, sel = 0;
 	int matches = 0, total = 0, flen = 0;
 
@@ -661,34 +812,60 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		    msg, sizeof(msg), &off, names, matches, total, sel);
 
 		editor_set_status_message("%s", msg);
-		editor.echo_cursor_col = plen + len + 1;
+		editor.echo_cursor_col = plen + cursor + 1;
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
-			if (len > 0 && buf[len - 1] == '/') {
-				/* At a directory boundary: walk up one
-				 * component. */
-				buf[--len] = '\0';
-				while (len > 0 && buf[len - 1] != '/') {
+			if (cursor < len) {
+				minibuf_edit_key(fd, c, buf, bufsize, &cursor,
+				    &len, &overflow);
+			} else {
+				if (len > 0 && buf[len - 1] == '/') {
+					/* At a directory boundary: walk up one
+					 * component. */
+					buf[--len] = '\0';
+					while (len > 0 && buf[len - 1] != '/') {
+						buf[--len] = '\0';
+					}
+				} else if (len > 0) {
 					buf[--len] = '\0';
 				}
-			} else if (len > 0) {
-				buf[--len] = '\0';
+				cursor = len;
 			}
 			sel = 0;
 		} else if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
-		} else if (c == ARROW_LEFT || c == CTRL_B) {
+		} else if (c == CTRL_B) {
+			if (cursor > 0) {
+				cursor--;
+			}
+		} else if (c == CTRL_F) {
+			if (cursor < len) {
+				cursor++;
+			}
+			/* C-b/C-f always edit the minibuffer, including at EOL.
+			 * Keep the path picker's selection cycling on the arrow
+			 * keys so the two operations do not silently steal each
+			 * other's bindings. */
+		} else if (c == ARROW_LEFT) {
 			if (matches > 0) {
 				sel = (sel - 1 + matches) % matches;
 			}
-		} else if (c == ARROW_RIGHT || c == CTRL_F) {
+		} else if (c == ARROW_RIGHT) {
+			if (matches > 0) {
+				sel = (sel + 1) % matches;
+			}
+		} else if (c == ARROW_UP) {
+			if (matches > 0) {
+				sel = (sel - 1 + matches) % matches;
+			}
+		} else if (c == ARROW_DOWN) {
 			if (matches > 0) {
 				sel = (sel + 1) % matches;
 			}
 		} else if (c == ENTER) {
-			if (matches > 0) {
+			if (matches > 0 && cursor == len) {
 				/* Replace the typed file part with the selected
 				 * name. */
 				const struct path_entry *pe = &entries[sel];
@@ -707,6 +884,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 					buf[len++] = '/';
 				}
 				buf[len] = '\0';
+				cursor = len;
 				if (pe->is_dir) {
 					sel = 0;
 					continue; /* descend, re-loop */
@@ -714,7 +892,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			}
 			editor_path_expand_tilde(buf, bufsize);
 			return prompt_done(0);
-		} else if (c == TAB && matches > 0) {
+		} else if (c == TAB && matches > 0 && cursor == len) {
 			int llen = (int)strlen(lcp);
 			if (llen > flen) {
 				int extend = llen - flen;
@@ -722,18 +900,22 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 					memcpy(buf + len, lcp + flen, extend);
 					len += extend;
 					buf[len] = '\0';
+					cursor = len;
 				}
 			} else if (matches == 1 && entries[0].is_dir
 			    && len < bufsize - 1
 			    && (len == 0 || buf[len - 1] != '/')) {
 				buf[len++] = '/';
 				buf[len] = '\0';
+				cursor = len;
 			}
 			sel = 0;
-		} else if (isprint(c) && len < bufsize - 1) {
-			buf[len++] = c;
-			buf[len] = '\0';
-			sel = 0;
+		} else {
+			if (minibuf_edit_key(fd, c, buf, bufsize, &cursor, &len,
+				&overflow)) {
+				sel = 0;
+				continue;
+			}
 		}
 	}
 }
@@ -754,7 +936,7 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 		/* No files given: open an empty *scratch* buffer. */
 		buf_reset();
 		editor.filename = strdup("*scratch*");
-		editor.syntax = &text_syntax;
+		editor.syntax = &lisp_interaction_syntax;
 		buf_save_to_slot(0);
 		buflist[0].active = 1;
 		buf_count = 1;

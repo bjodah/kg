@@ -6,8 +6,8 @@
 
 ## Implementation status
 
-W1 through W6 are implemented and verified by the full CI runner. W7 remains
-future work.
+W1 through W6 and W7 Option B (git commit mode) are implemented and verified
+by the full CI runner. W7 Option A (dired-mode) remains future work.
 
 - W1 uses `M-:` because terminal input cannot reliably distinguish `C-:`.
 - W3 required no kg-side code change: kg uses the modern Fe embedding API and
@@ -18,6 +18,16 @@ future work.
   UTF-8, tabs, horizontal scrolling, and split windows.
 - W6 evaluates the complete Fe form before point with a bounded lexical scan;
   `C-j` inserts the result in Lisp buffers and remains newline elsewhere.
+- W7 Option B (git commit mode) rides on the existing syntax-highlight
+  machinery instead of a new mode.c framework: a `SHL_GITCOMMIT` flag on a
+  `HLDB` entry drives detection (`editor.syntax->flags & SHL_GITCOMMIT`),
+  highlighting, and reflow policy. `C-c C-c` / `C-c C-k` are built-in
+  interceptions in `kbd.c`, gated on that flag, rather than Lisp bindings —
+  no `git-commit.fe` package was written, matching the "no Lisp package"
+  scope cut in
+  [w7b-git-commit-mode.md](file:///work/.meta-docs/plans/w7b-git-commit-mode.md).
+  A new `kg_exit_status` global lets `C-c C-k` and `C-x #` report a non-zero
+  or zero exit status to git without calling `exit()` directly.
 
 ---
 
@@ -403,6 +413,12 @@ A read-only directory listing buffer with basic navigation.
 | 9 | test/ | PTY case with `config_files:` installing dired.fe, open dired, navigate, open a file. |
 
 ### Option B — Git commit mode (per TODO.md)
+
+**Implemented.** See
+[w7b-git-commit-mode.md](file:///work/.meta-docs/plans/w7b-git-commit-mode.md)
+for the detailed phase-by-phase plan that was executed; the steps below are
+the original (pre-implementation) sketch and no longer describe the final
+design in every detail (no `mode.c` framework, no `git-commit.fe` package).
 
 Already partially designed in
 [doc/TODO.md L98-L109](file:///work/doc/TODO.md#L98-L109).

@@ -323,6 +323,96 @@ static void test_md_unmatched_bold(void)
 	teardown();
 }
 
+/* ---- Git commit syntax tests (HLDB[21]) ---- */
+
+/* "# comment line" -> every byte HL_COMMENT. */
+static void test_gitcommit_comment_line(void)
+{
+	int i;
+
+	setup(&HLDB[21]);
+	CHECK(
+	    strcmp(HLDB[21].name, "Git commit") == 0); /* guard: index drift */
+	editor_insert_row(0, "# comment line", 14);
+
+	for (i = 0; i < 14; i++) {
+		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
+	teardown();
+}
+
+/* A 60-char subject on row 0: bytes 0-49 HL_NORMAL, 50-59 HL_WARNING.
+ * Deliberately a single insert with no re-trigger: this is a regression
+ * test for a freshly opened file (editor_open() inserts each row once,
+ * in order), which must show the warning without requiring an edit. */
+static void test_gitcommit_subject_overflow(void)
+{
+	char subject[61];
+	int i;
+
+	setup(&HLDB[21]);
+	memset(subject, 'x', 60);
+	editor_insert_row(0, subject, 60);
+
+	for (i = 0; i < 50; i++) {
+		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+	}
+	for (i = 50; i < 60; i++) {
+		CHECK(editor.row[0].hl[i] == HL_WARNING);
+	}
+	teardown();
+}
+
+/* Comment on row 0, text on row 1: row 1 is the subject, not row 0.
+ * Also a single sequential insert with no re-trigger. */
+static void test_gitcommit_subject_skips_comment(void)
+{
+	setup(&HLDB[21]);
+	editor_insert_row(0, "# leading comment", 17);
+	editor_insert_row(1, "the subject", 11);
+
+	CHECK(syntax_git_commit_subject() == 1);
+	CHECK(editor.row[1].hl[0] == HL_NORMAL);
+	teardown();
+}
+
+/* Subject row 0, blank row 1, 60-char body row 2: body has no HL_WARNING. */
+static void test_gitcommit_body_not_warned(void)
+{
+	char body[61];
+	int i;
+
+	setup(&HLDB[21]);
+	memset(body, 'y', 60);
+	editor_insert_row(0, "short subject", 13);
+	editor_insert_row(1, "", 0);
+	editor_insert_row(2, body, 60);
+
+	for (i = 0; i < 60; i++) {
+		CHECK(editor.row[2].hl[i] == HL_NORMAL);
+	}
+	teardown();
+}
+
+/* A buffer of only comments has no subject and no warning anywhere. */
+static void test_gitcommit_no_subject(void)
+{
+	int i;
+
+	setup(&HLDB[21]);
+	editor_insert_row(0, "# only a comment", 16);
+	editor_insert_row(1, "# another comment", 17);
+
+	CHECK(syntax_git_commit_subject() == -1);
+	for (i = 0; i < 16; i++) {
+		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
+	for (i = 0; i < 17; i++) {
+		CHECK(editor.row[1].hl[i] == HL_COMMENT);
+	}
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -349,5 +439,10 @@ int main(void)
 	RUN(test_md_fenced_code_fence);
 	RUN(test_md_setext_underline);
 	RUN(test_md_unmatched_bold);
+	RUN(test_gitcommit_comment_line);
+	RUN(test_gitcommit_subject_overflow);
+	RUN(test_gitcommit_subject_skips_comment);
+	RUN(test_gitcommit_body_not_warned);
+	RUN(test_gitcommit_no_subject);
 	return test_summary();
 }

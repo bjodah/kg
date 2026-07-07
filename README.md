@@ -37,6 +37,9 @@ standard VT100 escape sequences.
 - Detects external changes to open files; optional auto-revert
 - Shell commands (M-!) and pipe-region-through-command (M-|)
 - Comment-dwim (M-;)
+- Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
+  column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to
+  abort; `C-x #` finishes any `$EDITOR` session
 - Word-case bindings (M-u / M-l / M-c)
 - Transpose chars (C-t)
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)

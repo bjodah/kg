@@ -1018,6 +1018,23 @@ void editor_reflow_paragraph(void)
 		total_chars += editor.row[i].size;
 	}
 
+	/* Git commit buffers: never reflow the subject line or comment
+	 * paragraphs; the body reflows at FILL_COLUMN (72) as usual. */
+	if (syntax_is_git_commit()) {
+		int subject = syntax_git_commit_subject();
+
+		if (editor.row[para_start].chars[0] == '#') {
+			editor_set_status_message(
+			    "Not reflowing commit comments");
+			return;
+		}
+		if (subject >= para_start && subject <= para_end) {
+			editor_set_status_message(
+			    "Not reflowing the commit subject");
+			return;
+		}
+	}
+
 	fill_col = (FILL_COLUMN < editor.screencols - 1)
 	    ? FILL_COLUMN
 	    : editor.screencols - 1;

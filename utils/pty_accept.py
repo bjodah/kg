@@ -38,6 +38,7 @@ class Case:
 	expected_saved: str | None
 	expected_saved_any: list[str] | None
 	oracle: str | None
+	expected_exit_code: int | None
 	xfail: bool
 	trailer_keys: list[str]
 	backend: str
@@ -191,9 +192,15 @@ def load_case(path: Path) -> Case:
 		    not data["expected_saved_any"] or
 		    not all(isinstance(v, str) for v in data["expected_saved_any"])):
 			raise ValueError(f"{path}: expected_saved_any must be a non-empty list of strings")
+	expected_exit_code = data.get("expected_exit_code")
+	if expected_exit_code is not None and not isinstance(expected_exit_code, int):
+		raise ValueError(f"{path}: expected_exit_code must be an int")
 	backend = data.get("backend", "pexpect")
 	if backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: backend must be pexpect or tmux")
+	if expected_exit_code is not None and backend == "tmux":
+		raise ValueError(f"{path}: expected_exit_code is not supported with backend: tmux "
+				 "(the tmux runner hardcodes exit code 0 since the process runs detached)")
 	oracle_backend = data.get("oracle_backend")
 	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
@@ -226,6 +233,7 @@ def load_case(path: Path) -> Case:
 		expected_saved=data.get("expected_saved"),
 		expected_saved_any=data.get("expected_saved_any"),
 		oracle=data.get("oracle"),
+		expected_exit_code=expected_exit_code,
 		xfail=bool(data.get("xfail", False)),
 		trailer_keys=data.get("trailer_keys", DEFAULT_TRAILER),
 		backend=backend,
@@ -429,6 +437,12 @@ def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: f
 			if unexpected:
 				msg.append("unexpected screen text: " + ", ".join(repr(s) for s in unexpected))
 			details = "; ".join(msg)
+
+	if passed and case.expected_exit_code is not None:
+		if kg_run.exit_code != case.expected_exit_code:
+			passed = 0
+			details = (f"exit code {kg_run.exit_code}, "
+				   f"expected {case.expected_exit_code}")
 
 	if passed:
 		return ("XPASS", None) if case.xfail else ("PASS", None)

@@ -1,0 +1,10 @@
+name: git-commit-modeline
+filename: COMMIT_EDITMSG
+backend: tmux
+initial: |
+  subject
+keys: []
+expected_saved: |
+  subject
+expected_screen_contains:
+  - Git commit

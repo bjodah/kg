@@ -1,0 +1,12 @@
+name: server-edit-done
+filename: note.txt
+initial: |
+  hello
+keys:
+  - X
+  - C-x
+  - "#"
+trailer_keys: []
+expected_saved: |
+  Xhello
+expected_exit_code: 0

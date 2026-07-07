@@ -1,0 +1,15 @@
+name: git-commit-finalize
+filename: COMMIT_EDITMSG
+initial: |
+  Add the frobnicator
+
+  # Please enter the commit message for your changes.
+keys:
+  - C-c
+  - C-c
+trailer_keys: []
+expected_saved: |
+  Add the frobnicator
+
+  # Please enter the commit message for your changes.
+expected_exit_code: 0

@@ -98,11 +98,13 @@ static inline void tty_write(const void *buf, size_t n)
 #define HL_STRING 6
 #define HL_NUMBER 7
 #define HL_MATCH 8 /* Search match. */
+#define HL_WARNING 9 /* Overlong commit subject, etc. */
 
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
 #define HL_HIGHLIGHT_NUMBERS (1 << 1)
 #define SHL_MARKDOWN (1 << 2) /* Use markdown-specific highlighter. */
 #define SHL_MAKEFILE (1 << 3) /* Use makefile-specific highlighter. */
+#define SHL_GITCOMMIT (1 << 4) /* Git commit message highlighter. */
 
 /* Key action codes */
 enum KEY_ACTION {
@@ -378,6 +380,7 @@ struct editor_buffer {
 /* Global editor state */
 extern struct editor_config editor;
 extern int running;
+extern int kg_exit_status; /* Process exit status returned by main(). */
 extern int suppress_undo;
 extern struct kill_ring killring;
 extern struct undo_stack undostack;
@@ -564,6 +567,8 @@ int editor_row_has_open_comment(erow *row);
 void editor_update_syntax(erow *row);
 int editor_syntax_to_color(int hl);
 void editor_select_syntax_highlight(char *filename);
+[[nodiscard]] int syntax_is_git_commit(void);
+[[nodiscard]] int syntax_git_commit_subject(void);
 
 /* tty.c */
 void disable_raw_mode(int fd);

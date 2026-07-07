@@ -1,0 +1,13 @@
+name: git-commit-abort
+filename: COMMIT_EDITMSG
+initial: |
+  # Please enter the commit message for your changes.
+keys:
+  - garbage
+  - C-c
+  - C-k
+  - y
+trailer_keys: []
+expected_saved: |
+  # Please enter the commit message for your changes.
+expected_exit_code: 1

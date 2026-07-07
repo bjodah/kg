@@ -42,6 +42,7 @@
 
 struct editor_config editor;
 int running = 1;
+int kg_exit_status = 0;
 int suppress_undo = 0;
 int global_auto_revert = 0;
 
@@ -144,5 +145,5 @@ int main(int argc, char **argv)
 		editor_process_keypress(STDIN_FILENO);
 	}
 	kg_lisp_shutdown();
-	return 0;
+	return kg_exit_status;
 }

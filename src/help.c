@@ -52,8 +52,8 @@ const char *kg_help_lines[]
 	      "              │",
 	      "│                         │ M-x      named command  │ M-:       "
 	      "eval expr     │",
-	      "│                         │ C-j      eval sexp/nl   │           "
-	      "              │",
+	      "│                         │ C-j      eval sexp/nl   │ C-x #    "
+	      "save+exit      │",
 	      "├─────────────────────────┼─────────────────────────┼───────────"
 	      "──────────────┤",
 	      "│ REGION & SELECTION      │ RECTANGLES              │ WINDOWS · "
@@ -85,4 +85,6 @@ const char *kg_help_lines[]
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",
 	      "     C-c <key> runs user Lisp bindings; see kg-bind-key in "
 	      "kg(1)",
+	      "  Git commit files: C-c C-c commit (save, exit 0) · C-c C-k "
+	      "abort (exit 1)",
 	      NULL };

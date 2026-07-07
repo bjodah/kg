@@ -364,6 +364,7 @@ The buffer is marked unmodified when undo returns to the last-saved state.
 .It C-x k Ta Kill (close) current buffer
 .It C-x C-b Ta Open buffer list
 .It C-x C-c Ta Quit
+.It C-x # Ta Save and exit with status 0 (EDITOR-server done)
 .El
 .Pp
 The filename prompts for
@@ -695,6 +696,51 @@ are used as a fallback when the extension is not recognised.
 .It Makefile Ta Makefile .mk .mak
 .It Markdown Ta .md .markdown .mkd
 .El
+.Ss Git Commit Mode
+.Nm
+recognizes
+.Pa COMMIT_EDITMSG ,
+.Pa MERGE_MSG ,
+.Pa SQUASH_MSG ,
+.Pa TAG_EDITMSG ,
+.Pa NOTES_EDITMSG
+and
+.Pa EDIT_DESCRIPTION
+by filename (matched anywhere in the path, so
+.Pa .git/COMMIT_EDITMSG
+works) and switches into a dedicated mode, shown as
+.Dq Git commit
+in the mode line.
+Lines starting with
+.Sq #
+are dimmed as comments, and characters past column 50 on the subject
+line (the first non-blank, non-comment line) are shown in red as a
+length warning.
+.Pp
+.Ic C-c C-c
+saves the buffer and exits
+.Nm
+with status 0, letting git proceed with the commit.
+.Ic C-c C-k
+prompts for confirmation, then exits without saving and with a
+non-zero status, so git cancels the commit.
+These two bindings are built in and only active in commit buffers; they
+take priority over any user Lisp binding for the same keys.
+.Ic M-q
+leaves the subject line and comment paragraphs untouched; body
+paragraphs still reflow to column 72 as usual.
+.Pp
+.Ic C-x #
+saves the current buffer and exits with status 0 in
+.Em any
+buffer, not just commit buffers.
+It serves the broader
+.Ev EDITOR Ns / Ns Ev GIT_EDITOR
+server flow shared by
+.Xr crontab 1 ,
+.Xr sudoedit 8 ,
+.Xr hg 1
+and similar tools.
 .Sh AUTOCOMPLETE
 .Nm
 automatically inserts matching closing brackets when an opening bracket is

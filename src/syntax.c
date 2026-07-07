@@ -568,6 +568,11 @@ char *LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp", NULL };
 char *LISP_HL_keywords[] = { "if", "while", "quote", "and", "or", "set", "fn",
 	"mac", "define", "lambda", "let", "cond", "nil", "t", NULL };
 
+/* Git message files: matched as substrings anywhere in the path, so
+ * .git/COMMIT_EDITMSG works (see the filematch rule at the top). */
+char *GITCOMMIT_HL_extensions[] = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG",
+	"TAG_EDITMSG", "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
+
 /* Here we define an array of syntax highlights by extensions, keywords,
  * comments delimiters and flags. */
 struct editor_syntax HLDB[] = {
@@ -612,6 +617,8 @@ struct editor_syntax HLDB[] = {
 	    SHL_MARKDOWN },
 	{ "Lisp", LISP_HL_extensions, LISP_HL_keywords, ";", "", "",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	{ "Git commit", GITCOMMIT_HL_extensions, NULL, "", "", "",
+	    SHL_GITCOMMIT },
 };
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -893,6 +900,93 @@ static void makefile_syntax(erow *row)
 	make_var_and_comment(row, i);
 }
 
+#define GITCOMMIT_SUBJECT_LIMIT 50
+
+/* True when the current buffer is a git commit/merge/tag message. */
+int syntax_is_git_commit(void)
+{
+	return editor.syntax && (editor.syntax->flags & SHL_GITCOMMIT);
+}
+
+/* Row index of the commit subject: the first non-blank row that is not
+ * a '#' comment.  Returns -1 when the buffer has no subject yet. */
+int syntax_git_commit_subject(void)
+{
+	int j;
+
+	for (j = 0; j < editor.numrows; j++) {
+		erow *r = &editor.row[j];
+
+		if (r->rsize == 0 || r->render[0] == '#') {
+			continue;
+		}
+		return j;
+	}
+	return -1;
+}
+
+/* True if `row` is the subject line: itself non-blank/non-comment, and
+ * every already-existing earlier row (0..row->idx-1) is blank or a '#'
+ * comment.  Deliberately does not consult editor.numrows: buffer.c's
+ * editor_insert_row() calls editor_update_row() (and thus this
+ * highlighter) *before* incrementing numrows, so a numrows-bounded scan
+ * could never match a row against itself on first insertion, and a
+ * freshly opened commit file would never show the subject warning until
+ * the user edited that line.  Walking only the rows that are already in
+ * the array sidesteps that ordering entirely. */
+static int gitcommit_row_is_subject(erow *row)
+{
+	int j;
+
+	if (row->rsize == 0 || row->render[0] == '#') {
+		return 0;
+	}
+	for (j = 0; j < row->idx; j++) {
+		erow *r = &editor.row[j];
+
+		if (r->rsize > 0 && r->render[0] != '#') {
+			return 0; /* an earlier row already claims the subject
+				   */
+		}
+	}
+	return 1;
+}
+
+/* Git commit message highlighter.  Dims '#' comment lines and warns in
+ * red past column 50 on the subject line.  hl_oc stores "this row is
+ * the subject" so edits that move the subject re-trigger neighbours,
+ * mirroring the markdown fence idiom. */
+static void gitcommit_syntax(erow *row)
+{
+	int oc = 0;
+
+	if (row->render[0] == '#') {
+		memset(row->hl, HL_COMMENT, row->rsize);
+	} else if (gitcommit_row_is_subject(row)) {
+		oc = 1;
+		if (row->rsize > GITCOMMIT_SUBJECT_LIMIT) {
+			memset(row->hl + GITCOMMIT_SUBJECT_LIMIT, HL_WARNING,
+			    row->rsize - GITCOMMIT_SUBJECT_LIMIT);
+		}
+	}
+
+	/* If this row gained or lost subject status, re-highlight the
+	 * next non-empty row so the warning follows the subject.  Blank
+	 * rows are skipped: editor_update_syntax() returns early for
+	 * them and never updates their hl_oc. */
+	if (row->hl_oc != oc) {
+		int j;
+
+		for (j = row->idx + 1; j < editor.numrows; j++) {
+			if (editor.row[j].rsize > 0) {
+				editor_update_syntax(&editor.row[j]);
+				break;
+			}
+		}
+	}
+	row->hl_oc = oc;
+}
+
 /* Set every byte of row->hl (that corresponds to every character in the line)
  * to the right syntax highlight type (HL_* defines). */
 void editor_update_syntax(erow *row)
@@ -929,6 +1023,11 @@ void editor_update_syntax(erow *row)
 
 	if (editor.syntax->flags & SHL_MAKEFILE) {
 		makefile_syntax(row);
+		return;
+	}
+
+	if (editor.syntax->flags & SHL_GITCOMMIT) {
+		gitcommit_syntax(row);
 		return;
 	}
 
@@ -1160,6 +1259,8 @@ int editor_syntax_to_color(int hl)
 		return 31; /* red */
 	case HL_MATCH:
 		return 34; /* blue */
+	case HL_WARNING:
+		return 31; /* red */
 	default:
 		return 37; /* white */
 	}

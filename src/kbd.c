@@ -204,6 +204,37 @@ static int editor_confirm_quit(int fd)
 	return 1;
 }
 
+/* Finish an EDITOR-server session (C-c C-c in git-commit buffers,
+ * C-x # anywhere): save the current buffer, then quit with status 0.
+ * A failed or cancelled save keeps the session running. */
+static void editor_server_done(int fd)
+{
+	if (editor_save(fd) != 0) {
+		return;
+	}
+	if (!editor_confirm_quit(fd)) {
+		return;
+	}
+	running = 0;
+}
+
+/* Abort a git commit (C-c C-k): quit without saving and with a
+ * non-zero exit status so git discards the commit. */
+static void editor_commit_abort(int fd)
+{
+	int answer;
+
+	editor_set_status_message("Abort commit? (y/n) ");
+	editor_refresh_screen();
+	answer = editor_read_key(fd);
+	if (answer != 'y' && answer != 'Y') {
+		editor_set_status_message("");
+		return;
+	}
+	kg_exit_status = 1;
+	running = 0;
+}
+
 /* Run the command bound to C-c <key>, or report an undefined key.  The
  * binding table maps the second key to a named command, so a bound key
  * runs exactly what M-x would. */
@@ -290,10 +321,19 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	/* Handle C-c <key>: user bindings installed with (kg-bind-key ...). */
+	/* Handle C-c <key>: built-in commit-mode keys first, then user
+	 * bindings installed with (kg-bind-key ...).  C-c C-c is never
+	 * user-bindable (see keybind_parse), and in commit buffers the
+	 * built-in C-c C-k shadows any user binding. */
 	if (editor.cc_prefix) {
 		editor.cc_prefix = 0;
-		handle_user_binding(c, fd);
+		if (syntax_is_git_commit() && c == CTRL_C) {
+			editor_server_done(fd);
+		} else if (syntax_is_git_commit() && c == CTRL_K) {
+			editor_commit_abort(fd);
+		} else {
+			handle_user_binding(c, fd);
+		}
 		return;
 	}
 
@@ -376,6 +416,9 @@ void editor_process_keypress(int fd)
 			break;
 		case CTRL_G: /* C-x C-g: Cancel C-x prefix */
 			editor_set_status_message("");
+			break;
+		case '#': /* C-x #: save and exit 0 (EDITOR-server done) */
+			editor_server_done(fd);
 			break;
 		default:
 			editor_set_status_message("C-x %c is undefined", c);

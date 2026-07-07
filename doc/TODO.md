@@ -95,7 +95,7 @@ ordered by value vs implementation effort.
       add tolower/toupper passes.  Also add `upcase-word`, `downcase-word`,
       and `capitalize-word` as M-x commands.
 
-- [ ] **Git commit mode (and the wider EDITOR-server crowd)**: When kg
+- [x] **Git commit mode (and the wider EDITOR-server crowd)**: When kg
       runs as `GIT_EDITOR` — filename matches `COMMIT_EDITMSG`,
       `MERGE_MSG`, `TAG_EDITMSG`, etc. — enter a small dedicated mode
       with Emacs-style `C-c C-c` to finalize (save and exit 0) and
@@ -107,6 +107,9 @@ ordered by value vs implementation effort.
       subject, and a `M-q` that respects column 72 in the body but
       leaves the subject alone.  Lands kg in the "what's your
       $EDITOR" conversation alongside `emacs -nw` and `vim`.
+      Implemented as a syntax-flag-detected mode (`SHL_GITCOMMIT`), no
+      Lisp package; see
+      [w7b-git-commit-mode.md](file:///work/.meta-docs/plans/w7b-git-commit-mode.md).
 
 ### Lower priority / larger scope
 

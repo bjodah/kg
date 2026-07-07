@@ -1,0 +1,16 @@
+name: git-commit-reflow
+filename: COMMIT_EDITMSG
+initial: |
+  This subject line is deliberately much longer than fifty characters total
+
+  word word word word word word word word word word word word word word word word word word word word
+keys:
+  - M-q
+  - C-n
+  - C-n
+  - M-q
+expected_saved: |
+  This subject line is deliberately much longer than fifty characters total
+
+  word word word word word word word word word word word word word word
+  word word word word word word

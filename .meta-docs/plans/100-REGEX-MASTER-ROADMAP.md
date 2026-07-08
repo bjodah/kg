@@ -369,3 +369,135 @@ tiny-regex-c Phase 1
 * Syntax-table-aware word/symbol classes.
 * Replacing kg search by Lisp evaluation.
 * Moving `tiny-regex-c` out of the `fe` submodule tree.
+
+
+## ADDENDUM TO THIS MASTER PLAN
+
+An external reviewer of this plan, and its subplans made the following verdict:
+<external_reviewer_verdict>
+4. Add explicit compile-size / storage-resize semantics to tiny-regex-c
+The tiny plan introduces re_compile_checked(pattern, storage, storage_size, out) and RE_STATUS_BUFFER_TOO_SMALL, which is the right direction.
+But it should say what happens to *storage_size on failure:
+
+Does it return required size?
+
+Does it return bytes consumed before failure?
+
+Should callers use a fixed RE_MAX_COMPILED_BYTES instead?
+
+Can Fe retry with a larger allocation?
+
+I’d add a small subsection:
+
+```
+On RE_STATUS_BUFFER_TOO_SMALL, *storage_size is updated to the required size when knowable. If the required size is not knowable without a second parse, expose a re_compiled_size(pattern, flags, &size) helper or define a conservative RE_MAX_COMPILED_BYTES.
+```
+
+This matters for Fe because the plan says the compiled regex object should own heap storage.
+5. Decide whether status lives in return value or result struct
+The tiny plan currently has both:
+
+```C
+re_status re_exec(..., re_match_result *out);
+```
+
+and:
+
+```C
+typedef struct {
+    re_status status;
+    ...
+} re_match_result;
+```
+
+That duplicates status state.
+I’d recommend: return re_status; keep re_match_result only for spans. If you keep both, explicitly say they must match.
+6. Add flags to the initial checked compile API
+The plan introduces RE_FLAG_ICASE later in Phase 4.
+Since kg smart-case needs this and Fe tests mention case-insensitive matching later, I’d make the first new API flag-ready:
+
+```C
+re_status re_compile_checked(
+    const char *pattern,
+    re_flags flags,
+    unsigned char *storage,
+    unsigned *storage_size,
+    re_t *out);
+```
+
+That avoids immediately revising the API after Phase 1.
+7. Add Fe build-system details
+The Fe plan correctly says to replace <regex.h> with tiny-regex-c.
+But it should explicitly include Makefile tasks:
+
+compile tiny-regex-c/re.c;
+
+add include path -Itiny-regex-c;
+
+link regex object into fe, tests, example host, fuzz targets if needed;
+
+clean regex object;
+
+ensure submodule-init failure has a useful message.
+
+Right now the Fe plan focuses on object model and Lisp API, but not the concrete build integration.
+8. Add “no fixed Fe string buffers” to Fe plan
+The old plan had an important concern about avoiding fixed stack buffers. The new Fe plan should explicitly say: use FeStringByteLength + FeCopyStringBytes or equivalent malloc-backed copying for patterns/text, not fixed FeToString buffers.
+That matters because regex over editor/user strings should not silently truncate.
+kg-specific improvements
+9. Add nested-submodule checks for WITH_LISP=0
+The kg plan says regex is independent of WITH_LISP and that kg will still need the fe submodule solely for tiny-regex-c when WITH_LISP=0.
+Add an explicit build check like:
+
+```
+Makefileifeq ($(wildcard fe/tiny-regex-c/re.c),)
+$(error fe/tiny-regex-c/re.c is missing; run 'git submodule update --init --recursive')
+endif
+```
+
+This avoids a confusing “No rule to make target” failure.
+10. Split engine object and wrapper object names
+The kg plan uses REGEX_OBJ = $(OBJDIR)/re.o, but also plans src/regex.c / src/regex.h.
+I’d name them separately:
+
+```
+MakefileREGEX_ENGINE_OBJ = $(OBJDIR)/tiny_regex.o
+REGEX_WRAPPER_OBJ = $(OBJDIR)/regex.o
+REGEX_OBJS = $(REGEX_ENGINE_OBJ) $(REGEX_WRAPPER_OBJ)
+```
+
+This avoids confusion between re.o from the submodule and kg’s wrapper.
+11. Clarify row render vs chars
+Current kg literal isearch and query replace are not identical domains: isearch is visual/render-oriented, while replacement must operate on actual row bytes. The kg plan says spans are byte offsets into the row string, but it should explicitly say which row string:
+
+isearch may search row->render, requiring highlight/cursor mapping;
+
+query replace must search row->chars, because edits apply to real buffer text.
+
+The plan already calls out row-local matching and highlighting, but this render/chars distinction is worth making explicit before implementation.
+12. Make backward-match semantics exact
+The kg plan says backward search should “find last match whose start/end is before or at the requested boundary.”
+I’d specify:
+
+```
+Backward search returns the last match with match.end <= before. For zero-length matches, require match.start < before after the first visit to avoid rediscovery.
+```
+
+That matches the existing literal backward-search spirit better.
+Verdict
+The plans are in order conceptually. I would not rework the overall direction. The important changes are:
+
+move the master roadmap under kg/.meta-docs/plans/;
+
+fix escaped C identifiers in kg markdown;
+
+make kg command exposure depend on the Emacs-like dialect phase;
+
+tighten tiny-regex-c API details around flags, status, and compile-storage sizing;
+
+add concrete Fe build steps and no-fixed-buffer guidance.
+
+After those, I’d consider the plan set ready to implement.
+
+</external_reviewer_verdict>
+Make of this what you like.

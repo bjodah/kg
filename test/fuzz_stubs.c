@@ -11,6 +11,7 @@ struct editor_config editor;
 int running = 1;
 int suppress_undo = 0;
 int global_auto_revert = 0;
+int kg_exit_status = 0;
 
 struct editor_buffer buflist[MAX_BUFFERS];
 int buf_current = 0;
@@ -131,6 +132,45 @@ void editor_find(int fd, int dir)
 {
 	(void)fd;
 	(void)dir;
+}
+
+void editor_find_regexp(int fd, int direction)
+{
+	(void)fd;
+	(void)direction;
+}
+
+void cmd_eval_print_last_sexp(void) { }
+
+int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx)
+{
+	(void)rows;
+	(void)numrows;
+	(void)win_w;
+	(void)cy;
+	(void)cx;
+	return cy;
+}
+
+int visual_line_cursor_col(erow *row, int chars_col, int win_w)
+{
+	(void)row;
+	(void)chars_col;
+	(void)win_w;
+	return chars_col;
+}
+
+int render_col_to_chars(erow *row, int target_rcol)
+{
+	(void)row;
+	(void)target_rcol;
+	return target_rcol;
+}
+
+void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
+{
+	(void)target_vrow;
+	(void)target_rcol_in_segment;
 }
 
 void editor_query_replace(int fd) { (void)fd; }

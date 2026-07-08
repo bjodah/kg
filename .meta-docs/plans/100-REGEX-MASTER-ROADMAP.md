@@ -345,19 +345,17 @@ Terminal encodings for control-meta keys vary, so treat keybindings as a later c
 ```text
 tiny-regex-c Phase 1
     |
-    +--> kg Phase 4
-    |       |
-    |       +--> kg Phase 5
-    |
     +--> tiny-regex-c Phase 2
+            |
+            +--> kg Phase 4
+            |       |
+            |       +--> kg Phase 5
             |
             +--> fe Phase 3
             |
             +--> tiny-regex-c Phase 6
                     |
                     +--> kg Phase 7
-                            |
-                            +--> Phase 8
 ```
 
 ---

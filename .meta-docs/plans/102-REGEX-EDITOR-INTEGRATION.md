@@ -85,46 +85,46 @@ If `WITH_LISP=0`, kg will still need the `fe` submodule present solely for `tiny
 Names are provisional.
 
 ```C
-enum kg\_regex\_status {
-    KG\_REGEX\_OK = 0,
-    KG\_REGEX\_NO\_MATCH,
-    KG\_REGEX\_BAD\_PATTERN,
-    KG\_REGEX\_TOO\_COMPLEX,
-    KG\_REGEX\_INTERNAL\_ERROR
+enum kg_regex_status {
+    KG_REGEX_OK = 0,
+    KG_REGEX_NO_MATCH,
+    KG_REGEX_BAD_PATTERN,
+    KG_REGEX_TOO_COMPLEX,
+    KG_REGEX_INTERNAL_ERROR
 };
 
-struct kg\_regex\_span {
+struct kg_regex_span {
     int start;
     int end;
 };
 
-struct kg\_regex\_match {
+struct kg_regex_match {
     int nspans;
-    struct kg\_regex\_span spans[KG\_REGEX\_MAX\_SPANS];
+    struct kg_regex_span spans[KG_REGEX_MAX_SPANS];
 };
 
-struct kg\_regex {
-    unsigned char storage[KG\_REGEX\_STORAGE\_SIZE];
-    unsigned storage\_size;
-    re\_t compiled;
+struct kg_regex {
+    unsigned char storage[KG_REGEX_STORAGE_SIZE];
+    unsigned storage_size;
+    re_t compiled;
 };
 ```
 
 Functions:
 
 ```C
-int kg\_regex\_compile(struct kg\_regex \*rx, const char \*pattern, int flags);
-int kg\_regex\_match\_forward(
-    const struct kg\_regex \*rx,
-    const char \*text,
+int kg_regex_compile(struct kg_regex *rx, const char *pattern, int flags);
+int kg_regex_match_forward(
+    const struct kg_regex *rx,
+    const char *text,
     int start,
-    struct kg\_regex\_match \*out);
+    struct kg_regex_match *out);
 
-int kg\_regex\_match\_backward(
-    const struct kg\_regex \*rx,
-    const char \*text,
+int kg_regex_match_backward(
+    const struct kg_regex *rx,
+    const char *text,
     int before,
-    struct kg\_regex\_match \*out);
+    struct kg_regex_match *out);
 ```
 
 ### Semantics
@@ -162,22 +162,22 @@ Current kg has literal incremental search. Refactor it to share UI with regexp s
 Sketch:
 
 ```C
-enum search\_kind {
-    SEARCH\_LITERAL,
-    SEARCH\_REGEXP,
+enum search_kind {
+    SEARCH_LITERAL,
+    SEARCH_REGEXP,
 };
 
-static int isearch\_find\_match(
-    enum search\_kind kind,
-    int start\_row,
-    int start\_col,
+static int isearch_find_match(
+    enum search_kind kind,
+    int start_row,
+    int start_col,
     int direction,
-    char \*query,
+    char *query,
     int qlen,
     int fold,
-    int \*match\_row,
-    int \*match\_col,
-    int \*match\_len);
+    int *match_row,
+    int *match_col,
+    int *match_len);
 ```
 
 Literal search keeps existing behavior.
@@ -208,14 +208,14 @@ isearch-backward-regexp
 Implementation:
 
 ```C
-static void cmd\_isearch\_forward\_regexp(int fd)
+static void cmd_isearch_forward_regexp(int fd)
 {
-    editor\_find\_regexp(fd, 1);
+    editor_find_regexp(fd, 1);
 }
 
-static void cmd\_isearch\_backward\_regexp(int fd)
+static void cmd_isearch_backward_regexp(int fd)
 {
-    editor\_find\_regexp(fd, -1);
+    editor_find_regexp(fd, -1);
 }
 ```
 

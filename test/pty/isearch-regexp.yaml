@@ -1,0 +1,24 @@
+name: isearch-regexp
+filename: sample.txt
+backend: tmux
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  MixedCaseText
+  lowercaseonly
+keys:
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - "[a-z]+only"
+  - C-a
+  - X
+  - M-x
+  - isearch-backward-regexp
+  - RET
+  - "[A-Z][a-z]+"
+  - C-a
+  - Y
+expected_saved: |
+  YMixedCaseText
+  Xlowercaseonly

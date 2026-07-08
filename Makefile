@@ -15,8 +15,8 @@ FE_CFLAGS := $(CFLAGS)
 endif
 endif
 
-override CFLAGS += -std=c23
-override FE_CFLAGS += -std=c23
+override CFLAGS += -std=c23 -Ife/tiny-regex-c
+override FE_CFLAGS += -std=c23 -Ife/tiny-regex-c
 PROG    = kg
 OBJDIR  = src
 TARGET  = $(OBJDIR)/$(PROG)
@@ -37,13 +37,24 @@ SKIP_FE_CHECK = 1
 endif
 endif
 ifneq ($(SKIP_FE_CHECK),1)
-$(error fe/fe.c is missing; run 'git submodule update --init' or build with 'WITH_LISP=0')
+$(error fe/fe.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
 endif
 endif
 override CFLAGS += -DKG_USE_LISP=1
 override LDLIBS += -lm
 FE_OBJ = $(OBJDIR)/fe.o
 FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o
+endif
+
+ifeq ($(wildcard fe/tiny-regex-c/re.c),)
+ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
+ifneq ($(MAKECMDGOALS),)
+SKIP_REGEX_CHECK = 1
+endif
+endif
+ifneq ($(SKIP_REGEX_CHECK),1)
+$(error fe/tiny-regex-c/re.c is missing; run 'git submodule update --init --recursive')
+endif
 endif
 
 LISP_CONFIG = $(OBJDIR)/.with-lisp-$(WITH_LISP)
@@ -70,6 +81,9 @@ SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
+REGEX_ENGINE_OBJ = $(OBJDIR)/tiny_regex.o
+REGEX_WRAPPER_OBJ = $(OBJDIR)/regex.o
+REGEX_OBJS = $(REGEX_ENGINE_OBJ) $(REGEX_WRAPPER_OBJ)
 HDRS = $(OBJDIR)/def.h
 
 # Test infrastructure
@@ -79,7 +93,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
-           $(TESTDIR)/test_lisp
+           $(TESTDIR)/test_lisp $(TESTDIR)/test_regex
 FUZZBIN = $(TESTDIR)/fuzz_keypress
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
@@ -93,7 +107,7 @@ TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
 PTY_ACCEPT_ARGS ?=
-PTY_TIMEOUT ?=
+PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c23 -O1 -g \
@@ -109,7 +123,7 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2680
+SCC_COMPLEXITY_MAX ?= 2800
 SCC_FILE_COMPLEXITY_MAX ?= 375
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -137,10 +151,16 @@ $(LISP_CONFIG):
 
 $(OBJS): $(LISP_CONFIG)
 
-$(TARGET): $(OBJS) $(FE_OBJ)
+$(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/tiny_regex.o: fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
+
+$(OBJDIR)/regex.o: src/regex.c src/regex.h fe/tiny-regex-c/re.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/lisp.o: $(OBJDIR)/lisp.c $(OBJDIR)/lisp.h
@@ -259,6 +279,7 @@ EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rec
 EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/buffer.o $(OBJDIR)/undo.o $(OBJDIR)/syntax.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
 EXTRA_lisp         := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(OBJDIR)/keybind.o $(FE_OBJ)
+EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 
 .SECONDEXPANSION:
 $(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
@@ -277,7 +298,7 @@ $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(OBJDIR)/fe.o $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
+	rm -f $(OBJS) $(OBJDIR)/fe.o $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(FUZZBIN)
 
 distclean: clean

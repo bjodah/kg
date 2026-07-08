@@ -293,6 +293,8 @@ appends.
 .It Sy Key Ta Sy Action
 .It C-s Ta Incremental search forward
 .It C-r Ta Incremental search backward
+.It M-C-s Ta Incremental regexp search forward
+.It M-C-r Ta Incremental regexp search backward
 .It M-% / Esc % Ta Query replace
 .El
 .Pp
@@ -340,6 +342,78 @@ or
 stops the search.
 Each replacement is independently reversible with
 .Ic C-_ .
+.Pp
+.Ic M-C-s
+or
+.Ic M-C-r
+runs incremental regexp search.
+Supported Emacs-like regular expression dialect:
+.Bl -bullet -compact
+.It
+.Ic .
+matches any character except newline.
+.It
+.Ic ^
+and
+.Ic $
+anchor to line boundaries.
+.It
+.Ic * ,
+.Ic + ,
+and
+.Ic ?
+quantifiers.
+.It
+.Ic \e(...\e)
+for grouping.
+.It
+.Ic \e|
+for alternation.
+.It
+.Ic \e{n\e} ,
+.Ic \e{n,\e} ,
+and
+.Ic \e{n,m\e}
+for intervals.
+.It
+Bare
+.Ic ( ,
+.Ic ) ,
+.Ic | ,
+.Ic { ,
+and
+.Ic }
+are treated as literal characters.
+.It
+Character classes
+.Ic [...] ,
+.Ic [^...] ,
+ranges, and POSIX bracket classes (e.g.
+.Ic [:digit:] ,
+.Ic [:alpha:] ,
+.Ic [:space:] ,
+.Ic [:lower:] ,
+.Ic [:upper:] ).
+.It
+Smart-case matching (case-insensitive unless an uppercase character is present).
+.El
+.Pp
+.Ic M-x query-replace-regexp
+prompts for a regular expression and a replacement template.
+The replacement template supports:
+.Bl -bullet -compact
+.It
+.Ic \e&
+for the whole match.
+.It
+.Ic \e1
+through
+.Ic \e9
+for capture groups.
+.It
+.Ic \e\e
+for a literal backslash.
+.El
 .Ss Undo
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
@@ -555,6 +629,14 @@ in every buffer.
 Go to a specific line (prompts for line or line:col).
 Equivalent to
 .Ic M-g .
+.It isearch-backward-regexp
+Incremental regexp search backward.
+Equivalent to
+.Ic M-C-r .
+.It isearch-forward-regexp
+Incremental regexp search forward.
+Equivalent to
+.Ic M-C-s .
 .It join-line
 Join the current line with the previous one, stripping leading whitespace
 from the current line and inserting a space at the join point.
@@ -575,6 +657,9 @@ evaluates the s-expression before point and inserts the result.
 buffers are created in this mode by default.
 .It not-modified
 Clear the modified flag without saving.
+.It query-replace-regexp
+Prompted query replace with regexp matching.
+Supports \e&, \e1..\e9, \e\e expansions.
 .It revert-buffer
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.

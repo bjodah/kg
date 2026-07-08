@@ -70,11 +70,13 @@ const char *kg_help_lines[]
 	      "search fwd/bk  │",
 	      "│ M-w/C-Ins  copy         │ C-x r c  clear rect     │ M-%      "
 	      "query replace  │",
-	      "│ C-y/S-Ins  paste        │                         │ C-l      "
-	      "recenter       │",
+	      "│ C-y/S-Ins  paste        │                         │ M-C-s/r  "
+	      "regexp search  │",
 	      "│ DEL        del region   │ MACROS                  │ C-g      "
 	      "cancel         │",
-	      "│ M-!/M-|    shell cmd ±  │ C-x (/F3 begin macro    │ C-h      "
+	      "│ M-!/M-|    shell cmd ±  │ C-x (/F3 begin macro    │ C-l      "
+	      "recenter       │",
+	      "│                         │                         │ C-h      "
 	      "help           │",
 	      "│                         │ C-x )/F4 end macro      │ C-z      "
 	      "suspend        │",

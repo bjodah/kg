@@ -28,7 +28,7 @@ standard VT100 escape sequences.
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c})
-- Smart-case incremental search and query-replace (M-% / ESC %)
+- Smart-case literal and regexp search; query-replace (M-% / ESC %)
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e)
@@ -77,14 +77,15 @@ kg is written in C23; building requires GCC 14+ or Clang 19+ (any
 compiler accepting `-std=c23`).
 
 ```bash
-git submodule update --init # required for the default Lisp-enabled build
+git submodule update --init --recursive # required for Fe and tiny-regex-c
 make
 sudo make install          # installs to /usr/local/bin and /usr/local/share/man/man1
 ```
 
-Lisp support is compiled in by default. Use `make WITH_LISP=0` to build the
-editor without initializing the Fe submodule. `kg -V` reports `+lisp` or
-`-lisp` for the selected configuration.
+Lisp support is compiled in by default. Use `make WITH_LISP=0` to build without
+the Fe Lisp interpreter; the nested `fe/tiny-regex-c` submodule is still needed
+for editor regexp search. `kg -V` reports `+lisp` or `-lisp` for the selected
+configuration.
 
 Override the prefix or use DESTDIR for staged installs:
 

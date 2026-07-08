@@ -846,6 +846,12 @@ void editor_process_keypress(int fd)
 	case ALT_X: /* Named command */
 		editor_named_command(fd);
 		break;
+	case ALT_CTRL_S:
+		editor_find_regexp(fd, 1);
+		break;
+	case ALT_CTRL_R:
+		editor_find_regexp(fd, -1);
+		break;
 	case ALT_CARET: /* Join current line with previous */
 		while (n--) {
 			editor_join_line();

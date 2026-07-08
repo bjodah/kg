@@ -2,10 +2,12 @@
  */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "def.h"
+#include "regex.h"
 
 #define KILO_QUERY_LEN 256
 
@@ -71,7 +73,8 @@ static char *isearch_find_last_before(
 }
 
 static int isearch_find_match(int start_row, int start_col, int direction,
-    char *query, int qlen, int fold, int *match_row, int *match_col)
+    enum search_kind kind, const struct kg_regex *rx, char *query, int qlen,
+    int fold, int *match_row, int *match_col, int *match_len)
 {
 	int current, i;
 
@@ -90,7 +93,6 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 		erow *row = &editor.row[current];
 		int col
 		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->rsize);
-		char *match;
 
 		if (col < 0) {
 			col = 0;
@@ -98,17 +100,39 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 			col = row->rsize;
 		}
 
-		if (direction > 0) {
-			match = case_strstr(row->render + col, query, fold);
+		if (kind == SEARCH_REGEXP) {
+			struct kg_match match_res;
+			int status;
+			if (direction > 0) {
+				status = kg_regex_match_forward(
+				    rx, row->render, col, &match_res);
+			} else {
+				status = kg_regex_match_backward(
+				    rx, row->render, col, &match_res);
+			}
+			if (status == KG_REGEX_OK) {
+				*match_row = current;
+				*match_col = match_res.spans[0].start;
+				*match_len = match_res.spans[0].end
+				    - match_res.spans[0].start;
+				return 1;
+			}
 		} else {
-			match = isearch_find_last_before(
-			    row->render, query, col, qlen, fold);
-		}
+			char *match;
+			if (direction > 0) {
+				match = case_strstr(
+				    row->render + col, query, fold);
+			} else {
+				match = isearch_find_last_before(
+				    row->render, query, col, qlen, fold);
+			}
 
-		if (match) {
-			*match_row = current;
-			*match_col = match - row->render;
-			return 1;
+			if (match) {
+				*match_row = current;
+				*match_col = match - row->render;
+				*match_len = qlen;
+				return 1;
+			}
 		}
 
 		current += direction;
@@ -277,7 +301,7 @@ static int isearch_handoff_key(int fd, int c)
 	}
 }
 
-void editor_find(int fd, int direction)
+static void do_isearch(int fd, int direction, enum search_kind kind)
 {
 	char query[KILO_QUERY_LEN + 1] = { 0 };
 	int saved_cx = editor.cx, saved_cy = editor.cy;
@@ -299,9 +323,29 @@ void editor_find(int fd, int direction)
 	while (1) {
 		int c;
 		int fold = !query_has_upper(query, qlen);
+		int rx_valid = 1;
+		if (kind == SEARCH_REGEXP && qlen > 0) {
+			struct kg_regex rx;
+			int rx_flags = fold ? KG_REGEX_ICASE : 0;
+			if (kg_regex_compile(&rx, query, rx_flags)
+			    != KG_REGEX_OK) {
+				rx_valid = 0;
+			}
+		}
 
-		editor_set_status_message(
-		    "I-search %s: %s", fold ? "[fold]" : "[case]", query);
+		if (kind == SEARCH_REGEXP) {
+			if (!rx_valid) {
+				editor_set_status_message(
+				    "Regexp I-search [bad regexp]: %s", query);
+			} else {
+				editor_set_status_message(
+				    "Regexp I-search %s: %s",
+				    fold ? "[fold]" : "[case]", query);
+			}
+		} else {
+			editor_set_status_message("I-search %s: %s",
+			    fold ? "[fold]" : "[case]", query);
+		}
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
@@ -341,55 +385,85 @@ void editor_find(int fd, int direction)
 
 		/* Search occurrence. */
 		if (find_next) {
-			int match = 0;
-			int current = start_row;
-			int col = start_col;
-			int match_row = -1;
-			int match_col = -1;
-			int point_col;
-			int search_dir = find_next;
-
-			/* The key above may have changed the query.  Smart-case
-			 * must follow the updated query on this same search
-			 * iteration. */
-			fold = !query_has_upper(query, qlen);
-
-			if (last_match_row != -1) {
-				current = last_match_row;
-				col = last_match_col + (search_dir > 0 ? 1 : 0);
-			}
-			match = isearch_find_match(current, col, search_dir,
-			    query, qlen, fold, &match_row, &match_col);
-			find_next = 0;
-
-			/* Highlight */
-			RESTORE_HL;
-
-			if (match) {
-				erow *row = &editor.row[match_row];
-				last_match_row = match_row;
-				last_match_col = match_col;
-				if (row->hl) {
-					saved_hl_line = match_row;
-					saved_hl = malloc(row->rsize);
-					if (!saved_hl) {
-						editor_set_status_message(
-						    "Out of memory");
-						running = 0;
-						RESTORE_HL;
-						return;
-					}
-					memcpy(saved_hl, row->hl, row->rsize);
-					memset(row->hl + match_col, HL_MATCH,
-					    qlen);
+			struct kg_regex rx = { 0 };
+			if (kind == SEARCH_REGEXP) {
+				if (qlen == 0) {
+					find_next = 0;
+					continue;
 				}
-				point_col
-				    = match_col + (search_dir > 0 ? qlen : 0);
-				editor_reveal_position_centered(
-				    match_row, point_col);
+				fold = !query_has_upper(query, qlen);
+				if (kg_regex_compile(
+					&rx, query, fold ? KG_REGEX_ICASE : 0)
+				    != KG_REGEX_OK) {
+					editor_set_status_message(
+					    "Regexp I-search [bad regexp]: %s",
+					    query);
+					find_next = 0;
+					continue;
+				}
+			}
+			{
+				int match = 0;
+				int current = start_row;
+				int col = start_col;
+				int match_row = -1;
+				int match_col = -1;
+				int match_len = 0;
+				int point_col;
+				int search_dir = find_next;
+
+				fold = !query_has_upper(query, qlen);
+
+				if (last_match_row != -1) {
+					current = last_match_row;
+					col = last_match_col
+					    + (search_dir > 0 ? 1 : 0);
+				}
+				match = isearch_find_match(current, col,
+				    search_dir, kind, &rx, query, qlen, fold,
+				    &match_row, &match_col, &match_len);
+				find_next = 0;
+
+				/* Highlight */
+				RESTORE_HL;
+
+				if (match) {
+					erow *row = &editor.row[match_row];
+					last_match_row = match_row;
+					last_match_col = match_col;
+					if (row->hl) {
+						saved_hl_line = match_row;
+						saved_hl = malloc(row->rsize);
+						if (!saved_hl) {
+							editor_set_status_message(
+							    "Out of memory");
+							running = 0;
+							RESTORE_HL;
+							return;
+						}
+						memcpy(saved_hl, row->hl,
+						    row->rsize);
+						memset(row->hl + match_col,
+						    HL_MATCH, match_len);
+					}
+					point_col = match_col
+					    + (search_dir > 0 ? match_len : 0);
+					editor_reveal_position_centered(
+					    match_row, point_col);
+				}
 			}
 		}
 	}
+}
+
+void editor_find(int fd, int direction)
+{
+	do_isearch(fd, direction, SEARCH_LITERAL);
+}
+
+void editor_find_regexp(int fd, int direction)
+{
+	do_isearch(fd, direction, SEARCH_REGEXP);
 }
 
 void editor_query_replace(int fd)
@@ -510,6 +584,238 @@ void editor_query_replace(int fd)
 		} else {
 			match_col++;
 		}
+	}
+
+	RESTORE_HL;
+	editor_set_status_message(
+	    count ? "Replaced %d occurrence%s." : "No replacements made.",
+	    count, count == 1 ? "" : "s");
+}
+
+static int replacement_span_len(const struct kg_match *match, int span)
+{
+	int start, end;
+
+	if (span >= match->nspans) {
+		return 0;
+	}
+	start = match->spans[span].start;
+	end = match->spans[span].end;
+	if (start < 0 || end < start) {
+		return 0;
+	}
+	return end - start;
+}
+
+static int replacement_length(
+    const char *replace, const struct kg_match *match, int *out_len)
+{
+	size_t len = 0;
+	int i = 0;
+
+	while (replace[i] != '\0') {
+		if (replace[i] == '\\') {
+			char next = replace[i + 1];
+			if (next == '\0') {
+				len++;
+				break;
+			}
+			if (next == '&') {
+				len += replacement_span_len(match, 0);
+				i += 2;
+			} else if (next >= '1' && next <= '9') {
+				len += replacement_span_len(match, next - '0');
+				i += 2;
+			} else {
+				len += 1 + (next != '\\');
+				i += 2;
+			}
+		} else {
+			len++;
+			i++;
+		}
+		if (len > INT_MAX) {
+			return 0;
+		}
+	}
+	*out_len = (int)len;
+	return 1;
+}
+
+static char *expand_replacement(const char *replace,
+    const struct kg_match *match, const char *chars, int *out_len)
+{
+	char *out;
+	int i = 0;
+	int len = 0;
+
+	if (!replacement_length(replace, match, out_len)) {
+		return NULL;
+	}
+	out = malloc((size_t)*out_len + 1);
+	if (!out) {
+		return NULL;
+	}
+	while (replace[i] != '\0') {
+		if (replace[i] == '\\') {
+			char next = replace[i + 1];
+			if (next == '\0') {
+				out[len++] = '\\';
+				break;
+			}
+			if (next == '&' || (next >= '1' && next <= '9')) {
+				int span = next == '&' ? 0 : next - '0';
+				int span_len
+				    = replacement_span_len(match, span);
+				if (span_len > 0) {
+					memcpy(out + len,
+					    chars + match->spans[span].start,
+					    span_len);
+					len += span_len;
+				}
+				i += 2;
+			} else {
+				out[len] = '\\';
+				len += next != '\\';
+				out[len++] = next;
+				i += 2;
+			}
+		} else {
+			out[len++] = replace[i++];
+		}
+	}
+	out[len] = '\0';
+	return out;
+}
+
+void editor_query_replace_regexp(int fd)
+{
+	char search[KILO_QUERY_LEN + 1] = { 0 };
+	char replace[KILO_QUERY_LEN + 1] = { 0 };
+	char *saved_hl = NULL;
+	int saved_hl_line = -1;
+	int filerow, match_col;
+	int count = 0, replace_all = 0;
+
+	if (editor_read_line(
+		fd, "Query replace regexp: ", search, sizeof(search))
+		< 0
+	    || !search[0]) {
+		return;
+	}
+	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
+	    < 0) {
+		return;
+	}
+
+	int fold = !query_has_upper(search, strlen(search));
+	struct kg_regex rx;
+	int rx_flags = fold ? KG_REGEX_ICASE : 0;
+	if (kg_regex_compile(&rx, search, rx_flags) != KG_REGEX_OK) {
+		editor_set_status_message("Invalid regular expression");
+		return;
+	}
+
+	filerow = editor.rowoff + editor.cy;
+	match_col = editor.coloff + editor.cx;
+
+	while (filerow < editor.numrows) {
+		erow *row = &editor.row[filerow];
+		struct kg_match match_res;
+		int status = kg_regex_match_forward(
+		    &rx, row->chars, match_col, &match_res);
+		int c;
+
+		if (status != KG_REGEX_OK) {
+			filerow++;
+			match_col = 0;
+			continue;
+		}
+
+		int match_start = match_res.spans[0].start;
+		int match_end = match_res.spans[0].end;
+		int match_len = match_end - match_start;
+
+		editor_goto_line_direct(filerow + 1, match_start + 1);
+
+		RESTORE_HL;
+		{
+			if (row->hl) {
+				int rcol_start
+				    = chars_to_render_col(row, match_start);
+				int rcol_end
+				    = chars_to_render_col(row, match_end);
+				int rcol_len = rcol_end - rcol_start;
+				saved_hl_line = filerow;
+				saved_hl = malloc(row->rsize);
+				if (!saved_hl) {
+					editor_set_status_message(
+					    "Out of memory");
+					running = 0;
+					RESTORE_HL;
+					return;
+				}
+				memcpy(saved_hl, row->hl, row->rsize);
+				if (rcol_start + rcol_len <= row->rsize) {
+					memset(row->hl + rcol_start, HL_MATCH,
+					    rcol_len);
+				}
+			}
+		}
+
+		int expanded_len = 0;
+		char *expanded = expand_replacement(
+		    replace, &match_res, row->chars, &expanded_len);
+		if (!expanded) {
+			editor_set_status_message("Out of memory");
+			running = 0;
+			RESTORE_HL;
+			return;
+		}
+
+		if (!replace_all) {
+			editor_set_status_message(
+			    "Query replace regexp %s \"%s\" with \"%s\"? "
+			    "(y/n/!/q)",
+			    fold ? "[fold]" : "[case]", search, expanded);
+			editor_refresh_screen();
+			c = editor_read_key(fd);
+		} else {
+			c = 'y';
+		}
+
+		if (c == ESC || c == CTRL_G || c == 'q') {
+			free(expanded);
+			break;
+		}
+		if (c == '!') {
+			replace_all = 1;
+			c = 'y';
+		}
+
+		if (c == 'y' || c == ENTER || c == ' ') {
+			RESTORE_HL;
+			undo_push(UNDO_REPLACE_TEXT, filerow, match_start,
+			    expanded_len, row->chars + match_start, match_len);
+
+			suppress_undo = 1;
+			for (int i = 0; i < match_len; i++) {
+				editor_row_del_char(row, match_start);
+			}
+			for (int i = 0; i < expanded_len; i++) {
+				editor_row_insert_char(row, match_start + i,
+				    (unsigned char)expanded[i]);
+			}
+			suppress_undo = 0;
+
+			match_col = match_start + expanded_len
+			    + (match_len == 0 ? 1 : 0);
+			count++;
+		} else {
+			match_col
+			    = match_start + (match_len == 0 ? 1 : match_len);
+		}
+		free(expanded);
 	}
 
 	RESTORE_HL;

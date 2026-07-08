@@ -555,6 +555,15 @@ static void cmd_eval_last_sexp_cmd(int fd)
 	do_eval_last_sexp(0);
 }
 
+static void cmd_isearch_backward_regexp(int fd) { editor_find_regexp(fd, -1); }
+
+static void cmd_isearch_forward_regexp(int fd) { editor_find_regexp(fd, 1); }
+
+static void cmd_query_replace_regexp(int fd)
+{
+	editor_query_replace_regexp(fd);
+}
+
 static void cmd_lisp_interaction_mode(int fd)
 {
 	(void)fd;
@@ -582,10 +591,14 @@ static const struct named_cmd cmdtable[]
 	      { "eval-last-sexp", cmd_eval_last_sexp_cmd },
 	      { "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd },
 	      { "global-auto-revert-mode", cmd_global_auto_revert_mode },
-	      { "goto-line", cmd_goto_line }, { "join-line", cmd_join_line },
+	      { "goto-line", cmd_goto_line },
+	      { "isearch-backward-regexp", cmd_isearch_backward_regexp },
+	      { "isearch-forward-regexp", cmd_isearch_forward_regexp },
+	      { "join-line", cmd_join_line },
 	      { "just-one-space", cmd_just_one_space },
 	      { "lisp-interaction-mode", cmd_lisp_interaction_mode },
 	      { "not-modified", cmd_not_modified },
+	      { "query-replace-regexp", cmd_query_replace_regexp },
 	      { "revert-buffer", cmd_revert_buffer },
 	      { "save-buffer", cmd_save_buffer },
 	      { "shell-command", cmd_shell_command },

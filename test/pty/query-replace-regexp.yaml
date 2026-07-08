@@ -1,0 +1,18 @@
+name: query-replace-regexp
+filename: replace_regexp.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  foo
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'f\(oo\)'
+  - ENTER
+  - 'b\1r'
+  - ENTER
+  - '!'
+expected_saved: |
+  boor

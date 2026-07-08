@@ -204,6 +204,8 @@ enum KEY_ACTION {
 	ALT_7,
 	ALT_8,
 	ALT_9,
+	ALT_CTRL_S, /* ESC C-s */
+	ALT_CTRL_R, /* ESC C-r */
 	KEY_F3, /* F3: start keyboard macro */
 	KEY_F4 /* F4: stop or replay keyboard macro */
 };
@@ -553,8 +555,11 @@ void macro_stop(int trim);
 void macro_replay(int fd);
 
 /* search.c */
+enum search_kind { SEARCH_LITERAL, SEARCH_REGEXP };
 void editor_find(int fd, int direction);
+void editor_find_regexp(int fd, int direction);
 void editor_query_replace(int fd);
+void editor_query_replace_regexp(int fd);
 
 /* shell.c */
 void editor_shell_command(int fd);

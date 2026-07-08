@@ -56,6 +56,8 @@ static const struct key_map alt_keys[] = {
 	{ '\\', ALT_BACKSLASH },
 	{ ' ', ALT_SPACE },
 	{ 'z', ALT_Z },
+	{ '\x13', ALT_CTRL_S },
+	{ '\x12', ALT_CTRL_R },
 };
 
 static int lookup_alt_key(char byte)

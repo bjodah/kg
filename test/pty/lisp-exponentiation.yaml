@@ -1,0 +1,11 @@
+name: lisp-exponentiation
+filename: demo-expt.fe
+initial: |
+  (expt 2 8)
+keys:
+  - C-e
+  - M-1
+  - C-x
+  - C-e
+expected_saved: |
+  (expt 2 8)256

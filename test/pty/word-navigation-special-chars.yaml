@@ -1,0 +1,23 @@
+name: word-navigation-special-chars
+filename: helloworld.c
+initial: |
+  int main(int argc, char *argv[]) {
+      printf("Hello world!");
+      return 0;
+  }
+keys:
+  - C-e
+  - M-b
+  - M-d
+  - C-a
+  - C-n
+  - M-f
+  - C-f
+  - C-f
+  - M-z
+  - "!"
+expected_saved: |
+  int main(int argc, char *[]) {
+      printf("");
+      return 0;
+  }

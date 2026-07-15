@@ -32,11 +32,15 @@ Press \\[kg-pty-recorder-next-phase] to transition phases."
 (defvar-local kg-pty-recorder--phase 0)
 (defvar-local kg-pty-recorder--initial-content "")
 (defvar-local kg-pty-recorder--recorded-events nil)
+(defvar-local kg-pty-recorder--start-recent-keys-len 0)
 
 ;;;###autoload
 (defun kg-pty-test-record ()
   "Start the kg PTY recorder wizard."
   (interactive)
+  (when (fboundp 'lossage-size)
+    (when (< (lossage-size) 10000)
+      (lossage-size 10000)))
   (let ((buf (get-buffer-create "*kg-pty-recorder*")))
     (switch-to-buffer buf)
     (kill-all-local-variables)
@@ -56,23 +60,25 @@ Press \\[kg-pty-recorder-next-phase] to transition phases."
     (setq kg-pty-recorder--initial-content (buffer-string))
     (setq kg-pty-recorder--phase 2)
     (goto-char (point-min))
+    (setq kg-pty-recorder--start-recent-keys-len (length (recent-keys)))
     (setq header-line-format "kg PTY Recorder [Phase 2: Recording Keys] -> Edit the buffer, press C-c C-c to finish")
-    (add-hook 'post-command-hook #'kg-pty-recorder--post-command nil t)
     (message "Recording started. Press C-c C-c to finish."))
    ((= kg-pty-recorder--phase 2)
     ;; Finish recording
-    (remove-hook 'post-command-hook #'kg-pty-recorder--post-command t)
+    (let* ((keys (recent-keys))
+           (len (length keys))
+           (start kg-pty-recorder--start-recent-keys-len)
+           (recorded (if (>= len start)
+                         (substring keys start len)
+                       keys))
+           (cmd-keys-len (length (this-command-keys-vector))))
+      (when (>= (length recorded) cmd-keys-len)
+        (setq recorded (substring recorded 0 (- (length recorded) cmd-keys-len))))
+      (setq kg-pty-recorder--recorded-events (list recorded)))
     (setq kg-pty-recorder--phase 0)
     (setq header-line-format nil)
     (kg-pty-recorder-mode -1)
     (kg-pty-recorder-finish))))
-
-(defun kg-pty-recorder--post-command ()
-  "Record the keys that invoked the last command."
-  (let ((vec (this-command-keys-vector)))
-    (unless (or (= (length vec) 0)
-                (string= (key-description vec) "C-c C-c"))
-      (push vec kg-pty-recorder--recorded-events))))
 
 (defun kg-pty-recorder--events-to-tokens (event-vectors)
   "Convert Emacs event vectors to kg YAML tokens."
@@ -105,7 +111,8 @@ Press \\[kg-pty-recorder-next-phase] to transition phases."
 
 (defun kg-pty-recorder-finish ()
   "Finish recording and prompt to save the YAML file."
-  (let* ((final-content (buffer-string))
+  (let* ((initial-content kg-pty-recorder--initial-content)
+         (final-content (buffer-string))
          (tokens (kg-pty-recorder--events-to-tokens (reverse kg-pty-recorder--recorded-events)))
          (test-name (read-string "Test name (e.g. transpose-chars): "))
          (filename (read-string "Mock filename (e.g. test.txt): " "test.txt"))
@@ -116,7 +123,7 @@ Press \\[kg-pty-recorder-next-phase] to transition phases."
       (insert (format "name: %s\n" test-name))
       (insert (format "filename: %s\n" filename))
       (insert "initial: |\n")
-      (kg-pty-recorder--insert-indented kg-pty-recorder--initial-content)
+      (kg-pty-recorder--insert-indented initial-content)
       (insert "keys:\n")
       (dolist (tok tokens)
         (if (string-match-p "^[A-Za-z][A-Za-z0-9_-]*$" tok)

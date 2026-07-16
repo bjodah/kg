@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "compile.h"
 #include "def.h"
 #include "lisp.h"
 
@@ -598,6 +599,7 @@ struct named_cmd {
 static const struct named_cmd cmdtable[] = {
 	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE },
 	{ "capitalize-word", cmd_capitalize_word, CMD_EDITS_BUFFER },
+	{ "compile", editor_compile, CMD_NONE },
 	{ "delete-horizontal-space", cmd_delete_horizontal_space,
 	    CMD_EDITS_BUFFER },
 	{ "delete-trailing-space", cmd_delete_trailing_space,
@@ -617,6 +619,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "not-modified", cmd_not_modified, CMD_NONE },
 	{ "query-replace-regexp", cmd_query_replace_regexp, CMD_EDITS_BUFFER },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE },
+	{ "recompile", editor_recompile, CMD_NONE },
 	{ "revert-buffer", cmd_revert_buffer, CMD_NONE },
 	{ "save-buffer", cmd_save_buffer, CMD_NONE },
 	{ "shell-command", cmd_shell_command, CMD_EDITS_BUFFER },

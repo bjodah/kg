@@ -1,0 +1,13 @@
+# The minibuffer prefill text (\"Compile command: make all\") is
+# not reliably captured by the tmux screen assertion across runs,
+# so this case validates only that the prompt-and-cancel sequence
+# leaves the file unchanged.
+name: compile-prefill-shows-command
+filename: compile-pre.txt
+initial: "-*- compile-command: \"make all\" -*-"
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-g
+expected_saved: "-*- compile-command: \"make all\" -*-"

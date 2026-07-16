@@ -1,0 +1,13 @@
+# C-p on a single-line buffer moves to beginning of line.
+# C-f advances to mid-line, then C-p goes to BOL where C-w kills the region.
+name: ctrl-p-single-line-file
+filename: single-line-p.txt
+initial: |
+  foo
+keys:
+  - C-f
+  - C-f
+  - C-SPC
+  - C-p
+  - C-w
+expected_saved: "o\n"

@@ -1,0 +1,65 @@
+name: lisp-math-functions
+filename: demo-math.fe
+requires_feature: lisp
+initial: |
+  (sin 0)
+  (cos 0)
+  (expt 2 8)
+  (sqrt 16)
+  (atan 1 1)
+  (log (exp 1))
+  (floor 7.5 2)
+  (ceiling -7 2)
+  (round 2.5)
+  (truncate -7.5 2)
+keys:
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+  - C-n
+  - C-e
+  - C-j
+expected_saved: |
+  (sin 0)
+  0
+  (cos 0)
+  1
+  (expt 2 8)
+  256
+  (sqrt 16)
+  4
+  (atan 1 1)
+  0.7853982
+  (log (exp 1))
+  1
+  (floor 7.5 2)
+  3
+  (ceiling -7 2)
+  -3
+  (round 2.5)
+  2
+  (truncate -7.5 2)
+  -3

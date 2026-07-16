@@ -539,6 +539,38 @@ static void test_key_bindings(void)
 	teardown_editor();
 }
 
+static int eval_eq(const char *source, const char *expected)
+{
+	char result[256] = "";
+
+	if (kg_lisp_eval_string(source, strlen(source), result, sizeof(result)) != 0)
+		return 0;
+	return strcmp(result, expected) == 0;
+}
+
+static void test_math_natives(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(expt 2 8)"));
+	CHECK(eval_ok("(expt 2 10)"));
+	CHECK(eval_ok("(sin 0)"));
+	CHECK(eval_ok("(cos 0)"));
+	CHECK(eval_ok("(sqrt 16)"));
+	CHECK(eval_ok("(log (exp 1))"));
+	CHECK(eval_ok("(atan 1 1)"));
+
+	CHECK(eval_ok("(floor 7 2)"));
+	CHECK(eval_ok("(ceiling -7 2)"));
+	CHECK(eval_ok("(truncate -7.5 2)"));
+
+	CHECK(eval_eq("(round 2.5)", "2"));
+	CHECK(eval_eq("(round -2.5)", "-2"));
+	CHECK(eval_eq("(floor -7 2)", "-4"));
+
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
 	if (!kg_lisp_active()) {
@@ -561,5 +593,6 @@ int main(void)
 	RUN(test_kg_load);
 	RUN(test_define_and_run_command);
 	RUN(test_key_bindings);
+	RUN(test_math_natives);
 	return test_summary();
 }

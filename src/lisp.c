@@ -17,7 +17,6 @@ static void copy_result(char *result, size_t result_size, const char *text)
 #ifdef KG_USE_LISP
 
 #include <limits.h>
-#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
@@ -151,17 +150,6 @@ static char *copy_fe_string(
 	}
 	text[*length] = '\0';
 	return text;
-}
-
-static FeObject *native_expt(FeContext *context, FeObject *arguments)
-{
-	FeDouble base
-	    = FeToDouble(context, FeGetNextArgument(context, &arguments));
-	FeDouble exp
-	    = FeToDouble(context, FeGetNextArgument(context, &arguments));
-
-	FeRequireNoArguments(context, arguments);
-	return FeMakeDouble(context, pow(base, exp));
 }
 
 static FeObject *native_message(FeContext *context, FeObject *arguments)
@@ -604,7 +592,6 @@ static FeObject *native_run_pending(FeContext *context, FeObject *arguments)
 
 static void register_natives(FeContext *context)
 {
-	FeDefineNative(context, "expt", native_expt);
 	FeDefineNative(context, "kg-message", native_message);
 	FeDefineNative(context, "kg-insert", native_insert);
 	FeDefineNative(context, "kg-buffer-name", native_buffer_name);

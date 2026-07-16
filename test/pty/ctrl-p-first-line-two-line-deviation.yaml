@@ -1,0 +1,17 @@
+# KNOWN INTENTIONAL DEVIATION from Emacs: on a multi-line buffer,
+# C-p on the first row moves to beginning of line (kg simplifies by
+# always going to BOL).  Emacs leaves point in place on first-line
+# C-p of a multi-line buffer.
+name: ctrl-p-first-line-two-line-deviation
+filename: two-line-p.txt
+initial: |
+  foo
+  bar
+keys:
+  - Home
+  - C-f
+  - C-f
+  - C-SPC
+  - C-p
+  - C-w
+expected_saved: "o\nbar\n"

@@ -1,0 +1,10 @@
+# C-n on a single-line buffer moves to end of line.
+# C-SPC marks at BOL, C-n goes to EOL, C-w kills the whole line.
+name: ctrl-n-single-line-file
+filename: single-line.txt
+initial: "foo"
+keys:
+  - C-SPC
+  - C-n
+  - C-w
+expected_saved: ""

@@ -192,13 +192,14 @@ void editor_move_cursor(int key)
 		}
 		break;
 	case ARROW_UP:
-		if (editor.cy <= 0) {
-			editor.cy = 0;
-			if (editor.rowoff) {
-				editor.rowoff--;
-			}
-		} else {
+		if (editor.cy > 0) {
 			editor.cy -= 1;
+		} else if (editor.rowoff) {
+			editor.rowoff--;
+		} else {
+			editor.desired_visual_col = -1;
+			editor.cx = 0;
+			editor.coloff = 0;
 		}
 		break;
 	case ARROW_DOWN:
@@ -208,6 +209,16 @@ void editor_move_cursor(int key)
 			} else {
 				editor.cy += 1;
 			}
+		} else if (row) {
+			if (row->size > editor.screencols - 1) {
+				editor.coloff
+				    = row->size - editor.screencols + 1;
+				editor.cx = editor.screencols - 1;
+			} else {
+				editor.cx = row->size;
+				editor.coloff = 0;
+			}
+			editor.desired_visual_col = -1;
 		}
 		break;
 	}

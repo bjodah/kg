@@ -17,3 +17,5 @@ test/fuzz_keypress
 test/fuzz-artifacts/
 test/fuzz-corpus/
 *.elc
+repomix-output.*
+.repomixignore

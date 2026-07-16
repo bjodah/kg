@@ -543,8 +543,10 @@ static int eval_eq(const char *source, const char *expected)
 {
 	char result[256] = "";
 
-	if (kg_lisp_eval_string(source, strlen(source), result, sizeof(result)) != 0)
+	if (kg_lisp_eval_string(source, strlen(source), result, sizeof(result))
+	    != 0) {
 		return 0;
+	}
 	return strcmp(result, expected) == 0;
 }
 

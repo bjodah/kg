@@ -584,42 +584,54 @@ static void cmd_lisp_interaction_mode(int fd)
 
 typedef void (*cmdfn)(int fd);
 
+enum command_flags {
+	CMD_NONE = 0,
+	CMD_EDITS_BUFFER = 1 << 0,
+};
+
 struct named_cmd {
 	const char *name;
 	cmdfn fn;
+	unsigned flags;
 };
 
-static const struct named_cmd cmdtable[]
-    = { { "auto-revert-mode", cmd_auto_revert_mode },
-	      { "capitalize-word", cmd_capitalize_word },
-	      { "delete-horizontal-space", cmd_delete_horizontal_space },
-	      { "delete-trailing-space", cmd_delete_trailing_space },
-	      { "downcase-word", cmd_downcase_word },
-	      { "eval-buffer", cmd_eval_buffer },
-	      { "eval-expression", cmd_eval_expression },
-	      { "eval-last-sexp", cmd_eval_last_sexp_cmd },
-	      { "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd },
-	      { "global-auto-revert-mode", cmd_global_auto_revert_mode },
-	      { "goto-line", cmd_goto_line },
-	      { "isearch-backward-regexp", cmd_isearch_backward_regexp },
-	      { "isearch-forward-regexp", cmd_isearch_forward_regexp },
-	      { "join-line", cmd_join_line },
-	      { "just-one-space", cmd_just_one_space },
-	      { "lisp-interaction-mode", cmd_lisp_interaction_mode },
-	      { "not-modified", cmd_not_modified },
-	      { "query-replace-regexp", cmd_query_replace_regexp },
-	      { "read-only-mode", cmd_read_only_mode },
-	      { "revert-buffer", cmd_revert_buffer },
-	      { "save-buffer", cmd_save_buffer },
-	      { "shell-command", cmd_shell_command },
-	      { "shell-command-on-region", cmd_shell_command_on_region },
-	      { "toggle-read-only", cmd_read_only_mode },
-	      { "transpose-chars", cmd_transpose_chars },
-	      { "upcase-word", cmd_upcase_word }, { "version", cmd_version },
-	      { "visual-line-mode", cmd_visual_line_mode },
-	      { "what-cursor-position", cmd_what_cursor_position },
-	      { "whitespace-cleanup", cmd_whitespace_cleanup },
-	      { "zap-to-char", cmd_zap_to_char }, { NULL, NULL } };
+static const struct named_cmd cmdtable[] = {
+	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE },
+	{ "capitalize-word", cmd_capitalize_word, CMD_EDITS_BUFFER },
+	{ "delete-horizontal-space", cmd_delete_horizontal_space,
+	    CMD_EDITS_BUFFER },
+	{ "delete-trailing-space", cmd_delete_trailing_space,
+	    CMD_EDITS_BUFFER },
+	{ "downcase-word", cmd_downcase_word, CMD_EDITS_BUFFER },
+	{ "eval-buffer", cmd_eval_buffer, CMD_NONE },
+	{ "eval-expression", cmd_eval_expression, CMD_NONE },
+	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE },
+	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE },
+	{ "global-auto-revert-mode", cmd_global_auto_revert_mode, CMD_NONE },
+	{ "goto-line", cmd_goto_line, CMD_NONE },
+	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE },
+	{ "isearch-forward-regexp", cmd_isearch_forward_regexp, CMD_NONE },
+	{ "join-line", cmd_join_line, CMD_EDITS_BUFFER },
+	{ "just-one-space", cmd_just_one_space, CMD_EDITS_BUFFER },
+	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE },
+	{ "not-modified", cmd_not_modified, CMD_NONE },
+	{ "query-replace-regexp", cmd_query_replace_regexp, CMD_EDITS_BUFFER },
+	{ "read-only-mode", cmd_read_only_mode, CMD_NONE },
+	{ "revert-buffer", cmd_revert_buffer, CMD_NONE },
+	{ "save-buffer", cmd_save_buffer, CMD_NONE },
+	{ "shell-command", cmd_shell_command, CMD_EDITS_BUFFER },
+	{ "shell-command-on-region", cmd_shell_command_on_region,
+	    CMD_EDITS_BUFFER },
+	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE },
+	{ "transpose-chars", cmd_transpose_chars, CMD_EDITS_BUFFER },
+	{ "upcase-word", cmd_upcase_word, CMD_EDITS_BUFFER },
+	{ "version", cmd_version, CMD_NONE },
+	{ "visual-line-mode", cmd_visual_line_mode, CMD_NONE },
+	{ "what-cursor-position", cmd_what_cursor_position, CMD_NONE },
+	{ "whitespace-cleanup", cmd_whitespace_cleanup, CMD_EDITS_BUFFER },
+	{ "zap-to-char", cmd_zap_to_char, CMD_EDITS_BUFFER },
+	{ NULL, NULL, CMD_NONE },
+};
 
 int cmd_static_exists(const char *name)
 {
@@ -645,6 +657,12 @@ int cmd_execute_named(const char *name, int fd)
 	}
 	for (i = 0; cmdtable[i].name; i++) {
 		if (strcmp(cmdtable[i].name, name) == 0) {
+			if ((cmdtable[i].flags & CMD_EDITS_BUFFER)
+			    && editor.readonly) {
+				editor_set_status_message(
+				    "Buffer is read-only");
+				return 0;
+			}
 			cmdtable[i].fn(fd);
 			return 0;
 		}

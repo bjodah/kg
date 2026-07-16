@@ -1,8 +1,16 @@
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
 #include "../src/def.h"
 #include "../src/localvars.h"
 #include "test.h"
+#include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static struct local_settings make_settings(void)
 {
@@ -517,6 +525,334 @@ static void test_footer_invalid_ro_value(void)
 	CHECK(s.malformed_entries >= 1);
 }
 
+/* ---- .dir-locals.el parse tests ---- */
+
+static void test_dl_read_only_t(void)
+{
+	const char *src = "((nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+	CHECK(s.compile_command_set == false);
+}
+
+static void test_dl_compile_command(void)
+{
+	const char *src = "((nil . ((compile-command . \"make test\"))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.compile_command_set == true);
+	CHECK(strcmp(s.compile_command, "make test") == 0);
+}
+
+static void test_dl_both_vars(void)
+{
+	const char *src = "((nil . ((compile-command . \"make all\") "
+			  "(buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.compile_command_set == true);
+	CHECK(strcmp(s.compile_command, "make all") == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_cmode_skipped(void)
+{
+	const char *src = "((c-mode . ((indent . 4))) "
+			  "(nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_nil_not_first(void)
+{
+	const char *src = "((c-mode . ((x . 1))) "
+			  "(nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_unknown_var(void)
+{
+	const char *src = "((nil . ((unknown-var . 5) "
+			  "(buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+	CHECK(s.ignored_entries >= 1);
+}
+
+static void test_dl_eval_skipped(void)
+{
+	const char *src = "((nil . ((eval . (shell-command \"bad\")) "
+			  "(buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+	CHECK(s.ignored_entries >= 1);
+}
+
+static void test_dl_semicolon_comment(void)
+{
+	const char *src = "((nil . ((buffer-read-only . t)))) ; a comment";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_leading_quote(void)
+{
+	const char *src = "'((nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_malformed_alist_not_list(void)
+{
+	const char *src = "((nil . buffer-read-only))";
+	struct local_settings s;
+
+	dirlocals_parse(src, strlen(src), &s);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_UNSET);
+}
+
+static void test_dl_missing_close_paren(void)
+{
+	const char *src = "((nil . ((buffer-read-only . t)))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) != 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_UNSET);
+}
+
+static void test_dl_excessive_nesting(void)
+{
+	char buf[512];
+	int i;
+	struct local_settings s;
+
+	if (sizeof(buf) < 130) {
+		return;
+	}
+	i = 0;
+	while (i < 95 && i + 1 < (int)sizeof(buf)) {
+		buf[i++] = '(';
+	}
+	while (i < 190 && i + 1 < (int)sizeof(buf)) {
+		buf[i++] = ')';
+	}
+	buf[i] = '\0';
+
+	CHECK(dirlocals_parse(buf, strlen(buf), &s) != 0);
+}
+
+static void test_dl_oversized_input(void)
+{
+	struct local_settings s;
+	char *huge;
+	size_t sz;
+
+	sz = 66000;
+	huge = malloc(sz);
+	if (!huge) {
+		return;
+	}
+	memset(huge, 'x', sz);
+	huge[0] = '(';
+	huge[1] = ')';
+	huge[sz - 1] = '\0';
+
+	CHECK(dirlocals_parse(huge, sz - 1, &s) != 0);
+	free(huge);
+}
+
+static void test_dl_oversized_command_string(void)
+{
+	struct local_settings s;
+	char buf[KG_COMPILE_COMMAND_MAX + 512];
+	char payload[KG_COMPILE_COMMAND_MAX + 256];
+	int i, n;
+
+	for (i = 0; i < KG_COMPILE_COMMAND_MAX + 200; i++) {
+		payload[i] = 'A';
+	}
+	payload[i] = '\0';
+
+	n = snprintf(buf, sizeof(buf), "((nil . ((compile-command . \"%s\"))))",
+	    payload);
+
+	CHECK(dirlocals_parse(buf, (size_t)n, &s) == 0);
+	CHECK(s.compile_command_set == false);
+	CHECK(s.malformed_entries >= 1);
+}
+
+static void test_dl_ro_nil(void)
+{
+	const char *src = "((nil . ((buffer-read-only . nil))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_FALSE);
+}
+
+static void test_dl_duplicate_last_wins_dl(void)
+{
+	const char *src = "((nil . ((buffer-read-only . t) "
+			  "(buffer-read-only . nil))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_FALSE);
+}
+
+/* ---- .dir-locals.el directory traversal tests ---- */
+
+static void rmtree_dl(const char *path)
+{
+	struct dirent *de;
+	struct stat st;
+	DIR *dp = opendir(path);
+	char child[512];
+
+	if (!dp) {
+		return;
+	}
+	while ((de = readdir(dp)) != NULL) {
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
+			continue;
+		}
+		snprintf(child, sizeof(child), "%s/%s", path, de->d_name);
+		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
+			rmtree_dl(child);
+		} else {
+			unlink(child);
+		}
+	}
+	closedir(dp);
+	rmdir(path);
+}
+
+static void test_dl_find_root_level(void)
+{
+	char tmpl[] = "/tmp/kg-dl-XXXXXX";
+	char *root = mkdtemp(tmpl);
+	char scratch[256];
+	char src_path[512];
+	char dl_path[512];
+	char found[PATH_MAX];
+
+	CHECK(root != NULL);
+	snprintf(scratch, sizeof(scratch), "%s/", root);
+
+	snprintf(dl_path, sizeof(dl_path), "%s/.dir-locals.el", root);
+	{
+		FILE *fp = fopen(dl_path, "w");
+
+		CHECK(fp != NULL);
+		fprintf(fp, "((nil . ((buffer-read-only . t))))\n");
+		fclose(fp);
+	}
+
+	snprintf(src_path, sizeof(src_path), "%s/src", root);
+	mkdir(src_path, 0700);
+	{
+		char fpath[512];
+
+		snprintf(fpath, sizeof(fpath), "%s/file.c", src_path);
+		FILE *fp = fopen(fpath, "w");
+
+		if (fp) {
+			fclose(fp);
+		}
+	}
+
+	CHECK(dirlocals_find(src_path, found, sizeof(found)) == 0);
+	CHECK(strcmp(found, dl_path) == 0);
+
+	rmtree_dl(scratch);
+}
+
+static void test_dl_find_nearest_wins(void)
+{
+	char tmpl[] = "/tmp/kg-dl-XXXXXX";
+	char *root = mkdtemp(tmpl);
+	char scratch[256];
+	char src_path[512];
+	char root_dl[512];
+	char src_dl[512];
+	char found[PATH_MAX];
+	char content[1024];
+	struct local_settings s;
+	FILE *fp;
+	long fsz;
+
+	CHECK(root != NULL);
+	snprintf(scratch, sizeof(scratch), "%s/", root);
+
+	snprintf(root_dl, sizeof(root_dl), "%s/.dir-locals.el", root);
+	fp = fopen(root_dl, "w");
+	CHECK(fp != NULL);
+	fprintf(fp, "((nil . ((buffer-read-only . t))))\n");
+	fclose(fp);
+
+	snprintf(src_path, sizeof(src_path), "%s/src", root);
+	mkdir(src_path, 0700);
+	snprintf(src_dl, sizeof(src_dl), "%s/.dir-locals.el", src_path);
+	fp = fopen(src_dl, "w");
+	CHECK(fp != NULL);
+	fprintf(fp, "((nil . ((buffer-read-only . nil))))\n");
+	fclose(fp);
+
+	{
+		char fpath[512];
+
+		snprintf(fpath, sizeof(fpath), "%s/file.c", src_path);
+		fp = fopen(fpath, "w");
+		if (fp) {
+			fclose(fp);
+		}
+	}
+
+	CHECK(dirlocals_find(src_path, found, sizeof(found)) == 0);
+	CHECK(strcmp(found, src_dl) == 0);
+
+	fp = fopen(found, "r");
+	CHECK(fp != NULL);
+	fsz = (long)fread(content, 1, sizeof(content) - 1, fp);
+	fclose(fp);
+	if (fsz > 0) {
+		content[fsz] = '\0';
+		local_settings_init(&s);
+		CHECK(dirlocals_parse(content, (size_t)fsz, &s) == 0);
+		CHECK(s.buffer_read_only == LOCAL_BOOL_FALSE);
+	}
+
+	rmtree_dl(scratch);
+}
+
+static void test_dl_find_nonexistent(void)
+{
+	char found[PATH_MAX];
+
+	CHECK(dirlocals_find(
+		  "/tmp/kg-dl-no-such-file-xyzzy-99999.c", found, sizeof(found))
+	    == -1);
+	CHECK(dirlocals_find("", found, sizeof(found)) == -1);
+	CHECK(dirlocals_find(NULL, found, sizeof(found)) == -1);
+}
+
 int main(void)
 {
 	RUN(test_compile_command_only);
@@ -546,5 +882,24 @@ int main(void)
 	RUN(test_footer_continued_compile_command);
 	RUN(test_footer_override_modeline);
 	RUN(test_footer_invalid_ro_value);
+	RUN(test_dl_read_only_t);
+	RUN(test_dl_compile_command);
+	RUN(test_dl_both_vars);
+	RUN(test_dl_cmode_skipped);
+	RUN(test_dl_nil_not_first);
+	RUN(test_dl_unknown_var);
+	RUN(test_dl_eval_skipped);
+	RUN(test_dl_semicolon_comment);
+	RUN(test_dl_leading_quote);
+	RUN(test_dl_malformed_alist_not_list);
+	RUN(test_dl_missing_close_paren);
+	RUN(test_dl_excessive_nesting);
+	RUN(test_dl_oversized_input);
+	RUN(test_dl_oversized_command_string);
+	RUN(test_dl_ro_nil);
+	RUN(test_dl_duplicate_last_wins_dl);
+	RUN(test_dl_find_root_level);
+	RUN(test_dl_find_nearest_wins);
+	RUN(test_dl_find_nonexistent);
 	return test_summary();
 }

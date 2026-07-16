@@ -336,6 +336,659 @@ static int footer_body_ends_unescaped_bslash(const char *body, int len)
 	return (n & 1) != 0;
 }
 
+/* ---- .dir-locals.el directory search ---- */
+
+int dirlocals_find(
+    const char *visited_filename, char *result, size_t result_size)
+{
+	char dir[PATH_MAX];
+	char resolved[PATH_MAX];
+	const char *last_slash;
+	char *rpath;
+	struct stat st;
+	size_t dlen;
+	int is_dir;
+
+	if (!visited_filename || !visited_filename[0] || !result
+	    || result_size < 2) {
+		return -1;
+	}
+
+	rpath = realpath(visited_filename, resolved);
+	if (rpath) {
+		is_dir = (stat(resolved, &st) == 0 && S_ISDIR(st.st_mode));
+		if (is_dir) {
+			dlen = strlen(resolved);
+			if (dlen >= sizeof(dir)) {
+				return -1;
+			}
+			memcpy(dir, resolved, dlen + 1);
+		} else {
+			last_slash = strrchr(resolved, '/');
+			if (last_slash) {
+				if (last_slash == resolved) {
+					dir[0] = '/';
+					dir[1] = '\0';
+				} else {
+					dlen = (size_t)(last_slash - resolved);
+					if (dlen >= sizeof(dir)) {
+						return -1;
+					}
+					memcpy(dir, resolved, dlen);
+					dir[dlen] = '\0';
+				}
+			} else {
+				if (!getcwd(dir, sizeof(dir))) {
+					return -1;
+				}
+			}
+		}
+	} else {
+		last_slash = strrchr(visited_filename, '/');
+		if (last_slash) {
+			if (last_slash == visited_filename) {
+				dir[0] = '/';
+				dir[1] = '\0';
+			} else {
+				char canon[PATH_MAX];
+				char cwd[PATH_MAX];
+
+				dlen = (size_t)(last_slash - visited_filename);
+				if (dlen >= sizeof(dir)) {
+					return -1;
+				}
+				memcpy(dir, visited_filename, dlen);
+				dir[dlen] = '\0';
+
+				if (dir[0] != '/') {
+					size_t cwdlen;
+
+					if (!getcwd(cwd, sizeof(cwd))) {
+						return -1;
+					}
+					cwdlen = strlen(cwd);
+					if (cwdlen + 1 + dlen >= PATH_MAX) {
+						return -1;
+					}
+					memmove(
+					    dir + cwdlen + 1, dir, dlen + 1);
+					memcpy(dir, cwd, cwdlen);
+					dir[cwdlen] = '/';
+				}
+
+				if (realpath(dir, canon)) {
+					dlen = strlen(canon);
+					if (dlen >= sizeof(dir)) {
+						return -1;
+					}
+					memcpy(dir, canon, dlen + 1);
+				} else {
+					return -1;
+				}
+			}
+		} else {
+			if (!getcwd(dir, sizeof(dir))) {
+				return -1;
+			}
+		}
+	}
+
+	for (;;) {
+		char path[PATH_MAX];
+
+		dlen = strlen(dir);
+		if (dlen + sizeof("/.dir-locals.el") > PATH_MAX) {
+			return -1;
+		}
+		snprintf(path, sizeof(path), "%s/.dir-locals.el", dir);
+
+		if (access(path, R_OK) == 0) {
+			size_t plen = strlen(path);
+
+			if (plen >= result_size) {
+				return -1;
+			}
+			memcpy(result, path, plen + 1);
+			return 0;
+		}
+
+		if (strcmp(dir, "/") == 0) {
+			break;
+		}
+
+		{
+			char parent[PATH_MAX];
+
+			if (dlen + 4 > PATH_MAX) {
+				return -1;
+			}
+			snprintf(parent, sizeof(parent), "%s/..", dir);
+			if (!realpath(parent, dir)) {
+				return -1;
+			}
+		}
+	}
+
+	return -1;
+}
+
+/* ---- safe .dir-locals.el S-expression parser ---- */
+
+enum {
+	DL_MAX_FILESIZE = 65536,
+	DL_MAX_NESTING = 64,
+	DL_MAX_TOKENS = 4096,
+};
+
+struct dlr {
+	const char *src;
+	size_t len;
+	size_t pos;
+	int depth;
+	int tokcount;
+};
+
+static void dlr_skip_ws(struct dlr *r)
+{
+	for (;;) {
+		while (r->pos < r->len) {
+			char c = r->src[r->pos];
+
+			if (c == ' ' || c == '\t' || c == '\n' || c == '\r'
+			    || c == '\f') {
+				r->pos++;
+				continue;
+			}
+			break;
+		}
+		if (r->pos < r->len && r->src[r->pos] == ';') {
+			while (r->pos < r->len && r->src[r->pos] != '\n') {
+				r->pos++;
+			}
+			continue;
+		}
+		break;
+	}
+}
+
+static int dlr_read_sym(struct dlr *r, char *buf, size_t bufsz)
+{
+	const char *delim = "() \t\n\r;'\"";
+	size_t start;
+
+	dlr_skip_ws(r);
+	if (r->pos >= r->len) {
+		return -1;
+	}
+	start = r->pos;
+	while (r->pos < r->len && !strchr(delim, r->src[r->pos])) {
+		r->pos++;
+	}
+	{
+		size_t slen = r->pos - start;
+
+		if (slen == 0 || slen >= bufsz) {
+			return -1;
+		}
+		memcpy(buf, r->src + start, slen);
+		buf[slen] = '\0';
+		return (int)slen;
+	}
+}
+
+static int dlr_read_str(struct dlr *r, char *buf, size_t bufsz)
+{
+	dlr_skip_ws(r);
+	if (r->pos >= r->len || r->src[r->pos] != '"') {
+		return -1;
+	}
+	r->pos++;
+
+	{
+		size_t n = 0;
+
+		while (r->pos < r->len) {
+			char c = r->src[r->pos];
+
+			if (c == '"') {
+				r->pos++;
+				buf[n] = '\0';
+				return (int)n;
+			}
+			if (c == '\\') {
+				char decoded, ec;
+
+				r->pos++;
+				if (r->pos >= r->len) {
+					return -3;
+				}
+				ec = r->src[r->pos];
+				switch (ec) {
+				case 'n':
+					decoded = '\n';
+					break;
+				case 't':
+					decoded = '\t';
+					break;
+				case 'r':
+					decoded = '\r';
+					break;
+				case '\\':
+					decoded = '\\';
+					break;
+				case '"':
+					decoded = '"';
+					break;
+				default:
+					decoded = ec;
+					break;
+				}
+				if (n >= bufsz - 1) {
+					return -2;
+				}
+				buf[n++] = decoded;
+				r->pos++;
+			} else {
+				if (n >= bufsz - 1) {
+					return -2;
+				}
+				buf[n++] = c;
+				r->pos++;
+			}
+		}
+		return -3;
+	}
+}
+
+static int dlr_skip_sexp(struct dlr *r)
+{
+	dlr_skip_ws(r);
+	if (r->pos >= r->len) {
+		return -1;
+	}
+	r->tokcount++;
+	if (r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	{
+		char c = r->src[r->pos];
+
+		if (c == '(') {
+			int pdepth = 1;
+
+			r->pos++;
+			r->depth++;
+			if (r->depth > DL_MAX_NESTING) {
+				return -1;
+			}
+			while (pdepth > 0 && r->pos < r->len) {
+				dlr_skip_ws(r);
+				if (r->pos >= r->len) {
+					break;
+				}
+				c = r->src[r->pos];
+				if (c == '(') {
+					r->depth++;
+					if (r->depth > DL_MAX_NESTING) {
+						return -1;
+					}
+					pdepth++;
+					r->pos++;
+					r->tokcount++;
+					if (r->tokcount > DL_MAX_TOKENS) {
+						return -1;
+					}
+				} else if (c == ')') {
+					r->depth--;
+					pdepth--;
+					r->pos++;
+				} else if (c == '"') {
+					r->pos++;
+					while (r->pos < r->len) {
+						if (r->src[r->pos] == '\\') {
+							r->pos++;
+							if (r->pos < r->len) {
+								r->pos++;
+							}
+							continue;
+						}
+						if (r->src[r->pos] == '"') {
+							r->pos++;
+							break;
+						}
+						r->pos++;
+					}
+				} else if (c == '\'') {
+					r->pos++;
+					r->tokcount++;
+				} else {
+					const char *delim = "() \t\n\r;'\"";
+
+					while (r->pos < r->len
+					    && !strchr(delim, r->src[r->pos])) {
+						r->pos++;
+					}
+					r->tokcount++;
+				}
+			}
+			return (pdepth == 0) ? 0 : -1;
+		}
+		if (c == ')') {
+			return 0;
+		}
+		if (c == '"') {
+			r->pos++;
+			while (r->pos < r->len) {
+				if (r->src[r->pos] == '\\') {
+					r->pos++;
+					if (r->pos < r->len) {
+						r->pos++;
+					}
+					continue;
+				}
+				if (r->src[r->pos] == '"') {
+					r->pos++;
+					return 0;
+				}
+				r->pos++;
+			}
+			return -1;
+		}
+		if (c == '\'') {
+			r->pos++;
+			return dlr_skip_sexp(r);
+		}
+		{
+			const char *delim = "() \t\n\r;'\"";
+
+			while (
+			    r->pos < r->len && !strchr(delim, r->src[r->pos])) {
+				r->pos++;
+			}
+		}
+	}
+	return 0;
+}
+
+static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
+{
+	char varname[128];
+	int vlen;
+
+	dlr_skip_ws(r);
+	if (r->pos >= r->len || r->src[r->pos] != '(') {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+		out->malformed_entries++;
+		return 0;
+	}
+	r->pos++;
+	r->depth++;
+	r->tokcount++;
+	if (r->depth > DL_MAX_NESTING || r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	vlen = dlr_read_sym(r, varname, sizeof(varname));
+	if (vlen < 0) {
+		dlr_skip_ws(r);
+		if (r->pos < r->len && r->src[r->pos] == ')') {
+			r->pos++;
+			r->depth--;
+		}
+		out->malformed_entries++;
+		return 0;
+	}
+	r->tokcount++;
+	if (r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos >= r->len || r->src[r->pos] != '.') {
+		dlr_skip_ws(r);
+		if (r->pos < r->len && r->src[r->pos] == ')') {
+			r->pos++;
+			r->depth--;
+		}
+		out->malformed_entries++;
+		return 0;
+	}
+	r->pos++;
+	r->tokcount++;
+	if (r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos >= r->len) {
+		out->malformed_entries++;
+		if (r->depth > 0) {
+			r->depth--;
+		}
+		return 0;
+	}
+
+	if (strcmp(varname, "eval") == 0) {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+		out->ignored_entries++;
+	} else if (strcmp(varname, "compile-command") == 0) {
+		if (r->src[r->pos] == '"') {
+			char buf[KG_COMPILE_COMMAND_MAX];
+			int slen = dlr_read_str(r, buf, sizeof(buf));
+
+			if (slen < 0 || slen >= KG_COMPILE_COMMAND_MAX) {
+				if (slen == -2) {
+					while (r->pos < r->len
+					    && r->src[r->pos] != '"') {
+						r->pos++;
+					}
+					if (r->pos < r->len) {
+						r->pos++;
+					}
+				}
+				out->malformed_entries++;
+			} else {
+				out->compile_command_set = true;
+				memcpy(out->compile_command, buf,
+				    (size_t)slen + 1);
+			}
+		} else {
+			if (dlr_skip_sexp(r) != 0) {
+				return -1;
+			}
+			out->malformed_entries++;
+		}
+	} else if (strcmp(varname, "buffer-read-only") == 0) {
+		if (r->src[r->pos] == '"' || r->src[r->pos] == '('
+		    || r->src[r->pos] == ')') {
+			if (dlr_skip_sexp(r) != 0) {
+				return -1;
+			}
+			out->malformed_entries++;
+		} else {
+			char symval[12];
+			int svlen = dlr_read_sym(r, symval, sizeof(symval));
+
+			if (svlen < 0) {
+				out->malformed_entries++;
+			} else {
+				int i;
+
+				for (i = 0; i < svlen; i++) {
+					symval[i] = (char)tolower(
+					    (unsigned char)symval[i]);
+				}
+				symval[svlen] = '\0';
+				if (strcmp(symval, "t") == 0) {
+					out->buffer_read_only = LOCAL_BOOL_TRUE;
+				} else if (strcmp(symval, "nil") == 0) {
+					out->buffer_read_only
+					    = LOCAL_BOOL_FALSE;
+				} else {
+					out->malformed_entries++;
+				}
+			}
+		}
+	} else {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+		out->ignored_entries++;
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos < r->len && r->src[r->pos] == ')') {
+		r->pos++;
+		r->depth--;
+	}
+	return 0;
+}
+
+int dirlocals_parse(
+    const char *source, size_t source_len, struct local_settings *out)
+{
+	struct dlr r;
+	struct local_settings tmp;
+
+	local_settings_init(out);
+	local_settings_init(&tmp);
+
+	if (source_len > DL_MAX_FILESIZE) {
+		return -1;
+	}
+
+	r.src = source;
+	r.len = source_len;
+	r.pos = 0;
+	r.depth = 0;
+	r.tokcount = 0;
+
+	dlr_skip_ws(&r);
+	if (r.pos >= r.len) {
+		return 0;
+	}
+
+	if (r.src[r.pos] == '\'') {
+		r.pos++;
+		r.tokcount++;
+		dlr_skip_ws(&r);
+	}
+
+	if (r.pos >= r.len || r.src[r.pos] != '(') {
+		return -1;
+	}
+	r.pos++;
+	r.depth++;
+	r.tokcount++;
+	if (r.depth > DL_MAX_NESTING || r.tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	for (;;) {
+		dlr_skip_ws(&r);
+		if (r.pos >= r.len) {
+			return -1;
+		}
+
+		if (r.src[r.pos] == ')') {
+			r.pos++;
+			r.depth--;
+			break;
+		}
+
+		if (r.src[r.pos] != '(') {
+			return -1;
+		}
+		r.pos++;
+		r.depth++;
+		r.tokcount++;
+		if (r.depth > DL_MAX_NESTING || r.tokcount > DL_MAX_TOKENS) {
+			return -1;
+		}
+
+		{
+			char selector[128];
+			int slen = dlr_read_sym(&r, selector, sizeof(selector));
+
+			if (slen < 0) {
+				return -1;
+			}
+			r.tokcount++;
+			if (r.tokcount > DL_MAX_TOKENS) {
+				return -1;
+			}
+
+			dlr_skip_ws(&r);
+			if (r.pos >= r.len || r.src[r.pos] != '.') {
+				if (dlr_skip_sexp(&r) != 0) {
+					return -1;
+				}
+				goto close_entry;
+			}
+			r.pos++;
+			r.tokcount++;
+			if (r.tokcount > DL_MAX_TOKENS) {
+				return -1;
+			}
+
+			if (strcmp(selector, "nil") == 0) {
+				dlr_skip_ws(&r);
+				if (r.pos >= r.len || r.src[r.pos] != '(') {
+					tmp.malformed_entries++;
+					if (dlr_skip_sexp(&r) != 0) {
+						return -1;
+					}
+					goto close_entry;
+				}
+				r.pos++;
+				r.depth++;
+				r.tokcount++;
+				if (r.depth > DL_MAX_NESTING
+				    || r.tokcount > DL_MAX_TOKENS) {
+					return -1;
+				}
+
+				for (;;) {
+					dlr_skip_ws(&r);
+					if (r.pos >= r.len) {
+						return -1;
+					}
+					if (r.src[r.pos] == ')') {
+						r.pos++;
+						r.depth--;
+						break;
+					}
+					if (dlr_apply_pair(&r, &tmp) != 0) {
+						return -1;
+					}
+				}
+			} else {
+				if (dlr_skip_sexp(&r) != 0) {
+					return -1;
+				}
+			}
+		}
+
+	close_entry:
+		dlr_skip_ws(&r);
+		if (r.pos < r.len && r.src[r.pos] == ')') {
+			r.pos++;
+			r.depth--;
+		} else {
+			return -1;
+		}
+	}
+
+	dlr_skip_ws(&r);
+	local_settings_merge(out, &tmp);
+	return 0;
+}
+
 int localvars_parse_footer(
     const erow *rows, int row_count, struct local_settings *out)
 {

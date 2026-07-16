@@ -32,4 +32,10 @@ int localvars_parse_modeline(
 int localvars_parse_footer(
     const erow *rows, int row_count, struct local_settings *out);
 
+int dirlocals_find(
+    const char *visited_filename, char *result, size_t result_size);
+
+int dirlocals_parse(
+    const char *source, size_t source_len, struct local_settings *out);
+
 #endif

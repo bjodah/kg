@@ -392,10 +392,8 @@ void editor_process_keypress(int fd)
 		case 'i': /* C-x i: Insert file at point */
 			editor_insert_file(fd);
 			break;
-		case CTRL_Q: /* C-x C-q: Toggle read-only */
-			editor.readonly = !editor.readonly;
-			editor_set_status_message(
-			    editor.readonly ? "Read-only" : "Writable");
+		case CTRL_Q: /* C-x C-q: read-only-mode */
+			(void)cmd_execute_named("read-only-mode", fd);
 			break;
 		case '(': /* C-x (: Start keyboard macro */
 			macro_start();

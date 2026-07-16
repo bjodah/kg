@@ -395,10 +395,15 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	    4); /* active: reverse; inactive: dim */
 
 	char mode_buf[128];
+	int readonly = is_current ? editor.readonly : b->readonly;
 	int vline = (bufidx == buf_current) ? editor.visual_line_mode
 					    : b->visual_line_mode;
-	if (vline) {
+	if (vline && readonly) {
+		snprintf(mode_buf, sizeof(mode_buf), "%s VLine RO", modename);
+	} else if (vline) {
 		snprintf(mode_buf, sizeof(mode_buf), "%s VLine", modename);
+	} else if (readonly) {
+		snprintf(mode_buf, sizeof(mode_buf), "%s RO", modename);
 	} else {
 		snprintf(mode_buf, sizeof(mode_buf), "%s", modename);
 	}

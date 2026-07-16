@@ -1064,6 +1064,12 @@ void editor_del_forward_char(void)
 	editor.dirty++;
 }
 
+void editor_toggle_read_only_mode(void)
+{
+	editor.readonly = !editor.readonly;
+	editor_set_status_message(editor.readonly ? "Read-only" : "Writable");
+}
+
 /* Kill (delete) from cursor to end of line (C-k).
  *
  * Invariant relied on by the C-u-batched kill in kbd.c: every byte removed

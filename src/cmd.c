@@ -22,11 +22,10 @@ static void cmd_version(int fd)
 }
 
 /* Toggle read-only mode on the current buffer. */
-static void cmd_toggle_read_only(int fd)
+static void cmd_read_only_mode(int fd)
 {
 	(void)fd;
-	editor.readonly = !editor.readonly;
-	editor_set_status_message(editor.readonly ? "Read-only" : "Writable");
+	editor_toggle_read_only_mode();
 }
 
 /* Clear the modified flag without saving. */
@@ -609,11 +608,12 @@ static const struct named_cmd cmdtable[]
 	      { "lisp-interaction-mode", cmd_lisp_interaction_mode },
 	      { "not-modified", cmd_not_modified },
 	      { "query-replace-regexp", cmd_query_replace_regexp },
+	      { "read-only-mode", cmd_read_only_mode },
 	      { "revert-buffer", cmd_revert_buffer },
 	      { "save-buffer", cmd_save_buffer },
 	      { "shell-command", cmd_shell_command },
 	      { "shell-command-on-region", cmd_shell_command_on_region },
-	      { "toggle-read-only", cmd_toggle_read_only },
+	      { "toggle-read-only", cmd_read_only_mode },
 	      { "transpose-chars", cmd_transpose_chars },
 	      { "upcase-word", cmd_upcase_word }, { "version", cmd_version },
 	      { "visual-line-mode", cmd_visual_line_mode },

@@ -1,0 +1,9 @@
+name: toggle-read-only-alias
+filename: ro-alias.txt
+initial: xyz
+keys:
+  - M-x
+  - toggle-read-only
+  - RET
+  - "Q"
+expected_saved: xyz

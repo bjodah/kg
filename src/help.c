@@ -43,7 +43,7 @@ const char *kg_help_lines[]
 	      "│ M-m      to indent      │ M-c      cap word       │ C-x k    "
 	      "kill buffer    │",
 	      "│ M-a/M-e  sentence ±     │ M-q      reflow para    │ C-x C-q  "
-	      "read-only      │",
+	      "read-only mode │",
 	      "│ M-r      window line    │ M-;      comment line   │ C-x C-c  "
 	      "quit           │",
 	      "│ M-g      goto line      │ M-\\/SPC  space cleanup │           "

@@ -488,6 +488,7 @@ void editor_del_char(void);
 void editor_del_forward_char(void);
 void editor_transpose_chars(void);
 void editor_kill_line(void);
+void editor_toggle_read_only_mode(void);
 
 /* Returns 1 if filename belongs to a special/system buffer (NULL or starts with
  * '*'). */

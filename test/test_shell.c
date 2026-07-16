@@ -1,3 +1,7 @@
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
 /* test_shell.c — regression tests for the shell-command runner.
  *
  * These exercise shell_run() directly: fork/exec/pipe plumbing and the
@@ -7,9 +11,14 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <dirent.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* The test exercises shell_run() only; the editor wrappers it calls below
  * are linked in via the full object set, so we stub the one symbol the
@@ -108,6 +117,166 @@ static void test_shell_run_command_not_found(void)
 	free(out);
 }
 
+static void rmtree(const char *path)
+{
+	struct dirent *de;
+	struct stat st;
+	DIR *dp = opendir(path);
+	char child[512];
+
+	if (!dp) {
+		return;
+	}
+	while ((de = readdir(dp)) != NULL) {
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
+			continue;
+		}
+		snprintf(child, sizeof(child), "%s/%s", path, de->d_name);
+		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
+			rmtree(child);
+		} else {
+			unlink(child);
+		}
+	}
+	closedir(dp);
+	rmdir(path);
+}
+
+static void test_capture_stdout(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("printf 'hello\\n'", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(r.output_length == 6);
+	CHECK(strcmp(r.output, "hello\n") == 0);
+	CHECK(!r.truncated);
+	free(r.output);
+}
+
+static void test_capture_stderr(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("printf 'err\\n' 1>&2", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(strstr(r.output, "err\n") != NULL);
+	free(r.output);
+}
+
+static void test_capture_both(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("printf 'out\\n'; printf 'err\\n' 1>&2", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.output != NULL);
+	CHECK(strstr(r.output, "out\n") != NULL);
+	CHECK(strstr(r.output, "err\n") != NULL);
+	free(r.output);
+}
+
+static void test_capture_exit_zero(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("true", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(r.output[0] == '\0');
+	CHECK(r.output_length == 0);
+	free(r.output);
+}
+
+static void test_capture_exit_nonzero(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("sh -c 'exit 7'", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 7);
+	free(r.output);
+}
+
+static void test_capture_signal(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("kill -TERM $$", NULL, 0, &r);
+	CHECK(!r.exited);
+	CHECK(r.signal_number == SIGTERM);
+	free(r.output);
+}
+
+static void test_capture_working_dir(void)
+{
+	struct shell_capture_result r;
+	char tmpl[] = "/tmp/kg-shell-capture-XXXXXX";
+	const char *dir = mkdtemp(tmpl);
+
+	CHECK(dir != NULL);
+	shell_run_capture("pwd", dir, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(strstr(r.output, dir) != NULL);
+	free(r.output);
+	rmtree(dir);
+}
+
+static void test_capture_command_not_found(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("kg-definitely-not-a-real-cmd-xyz", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 127);
+	free(r.output);
+}
+
+static void test_capture_truncate(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("seq 1 100000", NULL, 1024, &r);
+	CHECK(r.exited);
+	CHECK(r.truncated);
+	CHECK(r.output_length <= 1024);
+	CHECK(r.output != NULL);
+	free(r.output);
+}
+
+static void test_capture_empty_output(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("true", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(r.output_length == 0);
+	CHECK(r.output[0] == '\0');
+	free(r.output);
+}
+
+static void test_capture_closed_stdin(void)
+{
+	struct shell_capture_result r;
+
+	shell_run_capture("cat", NULL, 0, &r);
+	CHECK(r.exited);
+	CHECK(r.exit_code == 0);
+	CHECK(r.output != NULL);
+	CHECK(r.output_length == 0);
+	CHECK(r.output[0] == '\0');
+	free(r.output);
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -117,5 +286,16 @@ int main(void)
 	RUN(test_shell_run_large_output);
 	RUN(test_shell_run_pump_no_deadlock);
 	RUN(test_shell_run_command_not_found);
+	RUN(test_capture_stdout);
+	RUN(test_capture_stderr);
+	RUN(test_capture_both);
+	RUN(test_capture_exit_zero);
+	RUN(test_capture_exit_nonzero);
+	RUN(test_capture_signal);
+	RUN(test_capture_working_dir);
+	RUN(test_capture_command_not_found);
+	RUN(test_capture_truncate);
+	RUN(test_capture_empty_output);
+	RUN(test_capture_closed_stdin);
 	return test_summary();
 }

@@ -258,6 +258,184 @@ fail:
 	return NULL;
 }
 
+#define CAP_DEFAULT (8UL * 1024 * 1024)
+
+int shell_run_capture(const char *command, const char *directory,
+    size_t maximum_output, struct shell_capture_result *result)
+{
+	void (*old_sigpipe)(int);
+	int out_rd = -1, out_wr = -1;
+	int p[2];
+	int saved_errno;
+	size_t max, buf_len, buf_cap;
+	char *buf;
+	bool truncated;
+	pid_t pid = -1;
+	int status;
+	char drain[4096];
+
+	memset(result, 0, sizeof(*result));
+
+	max = maximum_output > 0 ? maximum_output : CAP_DEFAULT;
+	buf_cap = SHELL_INITIAL_CAP;
+	if (buf_cap > max) {
+		buf_cap = max;
+	}
+	buf = malloc(buf_cap);
+	if (!buf) {
+		return -1;
+	}
+	buf_len = 0;
+	truncated = false;
+
+	if (pipe_cloexec(p) < 0) {
+		saved_errno = errno;
+		free(buf);
+		errno = saved_errno;
+		return -1;
+	}
+	out_rd = p[0];
+	out_wr = p[1];
+
+	pid = fork();
+	if (pid < 0) {
+		saved_errno = errno;
+		close_fd(&out_rd);
+		close_fd(&out_wr);
+		free(buf);
+		errno = saved_errno;
+		return -1;
+	}
+
+	if (pid == 0) {
+		int dn;
+
+		if (directory && chdir(directory) < 0) {
+			_exit(127);
+		}
+
+		dn = open("/dev/null",
+		    O_RDONLY
+#ifdef O_CLOEXEC
+			| O_CLOEXEC
+#endif
+		);
+		if (dn >= 0) {
+			dup2(dn, STDIN_FILENO);
+			close(dn);
+		}
+
+		dup2(out_wr, STDOUT_FILENO);
+		dup2(out_wr, STDERR_FILENO);
+		close(out_rd);
+		close(out_wr);
+
+		execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+		_exit(127);
+	}
+
+	close_fd(&out_wr);
+	fcntl(out_rd, F_SETFL, O_NONBLOCK);
+
+	old_sigpipe = signal(SIGPIPE, SIG_IGN);
+
+	while (out_rd >= 0) {
+		struct pollfd pfd = { .fd = out_rd, .events = POLLIN };
+		int r = poll(&pfd, 1, -1);
+		ssize_t n;
+		size_t avail;
+
+		if (r < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			break;
+		}
+		if (!(pfd.revents & (POLLIN | POLLHUP | POLLERR))) {
+			continue;
+		}
+
+		if (truncated) {
+			n = read(out_rd, drain, sizeof(drain));
+			if (n <= 0) {
+				close_fd(&out_rd);
+			}
+			continue;
+		}
+
+		if (buf_len + 1024 >= buf_cap && buf_cap < max) {
+			size_t new_cap = buf_cap * 2;
+			char *nb;
+
+			if (new_cap > max) {
+				new_cap = max;
+			}
+			nb = realloc(buf, new_cap);
+			if (!nb) {
+				free(buf);
+				buf = NULL;
+				close_fd(&out_rd);
+				break;
+			}
+			buf = nb;
+			buf_cap = new_cap;
+		}
+
+		avail = buf_cap - buf_len - 1;
+		if (avail == 0) {
+			truncated = true;
+			n = read(out_rd, drain, sizeof(drain));
+			if (n <= 0) {
+				close_fd(&out_rd);
+			}
+			continue;
+		}
+		n = read(out_rd, buf + buf_len, avail);
+		if (n > 0) {
+			buf_len += n;
+		} else if (n == 0) {
+			close_fd(&out_rd);
+		} else {
+			if (errno != EAGAIN && errno != EINTR) {
+				close_fd(&out_rd);
+			}
+		}
+	}
+
+	signal(SIGPIPE, old_sigpipe);
+	saved_errno = errno;
+
+	close_fd(&out_rd);
+
+	if (pid > 0) {
+		waitpid(pid, &status, 0);
+		if (WIFEXITED(status)) {
+			result->exited = true;
+			result->exit_code = WEXITSTATUS(status);
+		} else if (WIFSIGNALED(status)) {
+			result->signal_number = WTERMSIG(status);
+		}
+	}
+
+	if (buf) {
+		buf[buf_len] = '\0';
+		result->output = buf;
+		result->output_length = buf_len;
+		result->truncated = truncated;
+		errno = saved_errno;
+		return 0;
+	}
+
+	result->output = malloc(1);
+	if (result->output) {
+		result->output[0] = '\0';
+	}
+	errno = saved_errno;
+	return -1;
+}
+
+#undef CAP_DEFAULT
+
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif

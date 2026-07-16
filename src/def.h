@@ -587,6 +587,18 @@ void editor_shell_command(int fd);
 void editor_shell_command_on_region(int fd);
 char *shell_run(const char *cmd, const char *in, int inlen, int *out_len);
 
+struct shell_capture_result {
+	char *output;
+	size_t output_length;
+	bool exited;
+	int exit_code;
+	int signal_number;
+	bool truncated;
+};
+
+int shell_run_capture(const char *command, const char *directory,
+    size_t maximum_output, struct shell_capture_result *result);
+
 /* syntax.c */
 int is_separator(int c);
 int editor_row_has_open_comment(erow *row);

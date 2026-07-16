@@ -197,6 +197,11 @@ void editor_compile(int fd)
 
 	transcript = compilation_format_transcript(
 	    prompt, dir, (size_t)(8 * 1024 * 1024), &cap);
+	if (!transcript) {
+		free(cap.output);
+		editor_set_status_message("Compilation failed: out of memory");
+		return;
+	}
 	{
 		int cidx = buf_replace_special_text("*compilation*",
 		    &compilation_syntax, transcript, strlen(transcript), 1);
@@ -220,6 +225,7 @@ void editor_compile(int fd)
 void editor_recompile(int fd)
 {
 	char dir[PATH_MAX];
+	char cmd_buf[KG_COMPILE_COMMAND_MAX];
 	const char *command;
 	struct shell_capture_result cap;
 	char *transcript;
@@ -235,7 +241,9 @@ void editor_recompile(int fd)
 			editor_set_status_message("No compile command");
 			return;
 		}
-		command = g_compilation.last_command;
+		strncpy(cmd_buf, g_compilation.last_command, sizeof(cmd_buf));
+		cmd_buf[sizeof(cmd_buf) - 1] = '\0';
+		command = cmd_buf;
 		strncpy(dir, g_compilation.last_directory, sizeof(dir));
 		dir[sizeof(dir) - 1] = '\0';
 	} else {
@@ -280,6 +288,11 @@ void editor_recompile(int fd)
 
 	transcript = compilation_format_transcript(
 	    command, dir, (size_t)(8 * 1024 * 1024), &cap);
+	if (!transcript) {
+		free(cap.output);
+		editor_set_status_message("Compilation failed: out of memory");
+		return;
+	}
 	{
 		int cidx = buf_replace_special_text("*compilation*",
 		    &compilation_syntax, transcript, strlen(transcript), 1);

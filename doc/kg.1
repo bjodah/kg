@@ -433,7 +433,7 @@ The buffer is marked unmodified when undo returns to the last-saved state.
 .It C-x i Ta Insert file contents at point
 .It C-x C-f Ta Open file in new buffer
 .It C-x C-r Ta Open file read-only in new buffer
-.It C-x C-q Ta Toggle read-only mode on current buffer
+.It C-x C-q Ta Toggle read-only mode on current buffer (read-only-mode)
 .It C-x b Ta Switch to buffer (interactive)
 .It C-x k Ta Kill (close) current buffer
 .It C-x C-b Ta Open buffer list
@@ -590,6 +590,19 @@ unsaved edits is never silently overwritten.
 Capitalize the word forward from point (first letter upper, rest lower).
 Equivalent to
 .Ic M-c .
+.It compile
+Prompt for a compile command (prefilled with the current buffer's
+.Va compile-command ) ,
+run it via
+.Ic /bin/sh -c
+in the source file's directory, show combined stdout and stderr in a
+read-only
+.Pa *compilation*
+buffer, and store the confirmed command back into the buffer.
+An empty confirmed command reports
+.Do
+No compile command
+.Dc .
 .It delete-horizontal-space
 Delete spaces and tabs around point on the current line.
 Equivalent to
@@ -661,6 +674,23 @@ Clear the modified flag without saving.
 .It query-replace-regexp
 Prompted query replace with regexp matching.
 Supports \e&, \e1..\e9, \e\e expansions.
+.It read-only-mode
+Toggle the current buffer between read-only and writable.
+Bound to
+.Ic C-x C-q .
+.Ic M-x toggle-read-only
+is a compatibility alias.
+.It recompile
+Re-run the last compile command without prompting.
+From an ordinary buffer uses that buffer's
+.Va compile-command ;
+from
+.Pa *compilation*
+reuses the last command and directory.
+No command reports
+.Do
+No compile command
+.Dc .
 .It revert-buffer
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.
@@ -678,7 +708,8 @@ standard output.
 Equivalent to
 .Ic M-\&| .
 .It toggle-read-only
-Toggle read-only mode on the current buffer.
+Alias for
+.Ic read-only-mode .
 Equivalent to
 .Ic C-x C-q .
 .It transpose-chars
@@ -719,6 +750,175 @@ when another buffer is available to switch to.
 .Pp
 The kill ring is global and shared across all buffers, so text killed in
 one buffer can be yanked in another.
+.Sh COMPILATION
+.Ic M-x compile
+prompts for a command line, prefilled with the current buffer's
+.Va compile-command
+.Pq default Ql make -k ,
+and runs it with
+.Ic /bin/sh -c
+in the directory containing the source file.
+For unsaved or special buffers the working directory is the current
+directory
+.Pq Fn getcwd .
+.Pp
+The confirmed command is stored back into the buffer's
+.Va compile-command
+so
+.Ic M-x recompile
+can repeat it without prompting.
+An empty confirmed command reports
+.Do
+No compile command
+.Dc .
+.Pp
+.Ic M-x recompile
+re-runs the last compile command.
+From an ordinary buffer it uses that buffer's
+.Va compile-command ;
+from
+.Pa *compilation*
+it reuses the last executed command and working directory.
+.Pp
+Output is captured synchronously
+.Pq first version \&; unlike Emacs, compilation is not asynchronous ,
+with combined stdout and stderr.
+Results are shown in a read-only
+.Pa *compilation*
+buffer, rebuilt on each run.
+Output is capped at 8\~MiB; truncated output is noted in the buffer.
+.Pp
+Compilation is permitted while the source buffer is read-only.
+.Sh READ-ONLY MODE
+.Ic M-x read-only-mode
+.Pq bound to Ic C-x C-q
+toggles the current buffer between read-only and writable.
+.Ic M-x toggle-read-only
+is a compatibility alias.
+.Pp
+The read-only state is buffer-local and survives buffer and window
+switches.
+A read-only buffer rejects editing keys and mutating
+.Ic M-x
+commands, showing
+.Do
+Buffer is read-only
+.Dc
+in the status area.
+.Pp
+Opening a file with
+.Fl R
+or
+.Ic C-x C-r
+initially opens it read-only;
+.Ic C-x C-q
+can subsequently make such a buffer writable.
+.Pp
+The mode line shows an
+.Do
+RO
+.Dc
+indicator when the buffer is read-only.
+.Sh LOCAL VARIABLES
+.Nm
+supports a limited subset of Emacs file-local variables, parsed
+without evaluation.
+Two variables are recognized:
+.Bl -tag -width "compile-command"
+.It Va compile-command
+A quoted string such as
+.Ql "make all && ./a.out" .
+.It Va buffer-read-only
+Either
+.Ql t
+or
+.Ql nil .
+.El
+.Pp
+Variables are set through two mechanisms:
+.Bl -enum
+.It
+First-line
+.Fl *- ... No -*- Sy modeline
+.Pq or second-line after a Li #! shebang line .
+Example:
+.Bd -literal -offset indent
+/* -*- compile-command: "make all && ./a.out"; -*- */
+.Ed
+.It
+End-of-file
+.Sy "Local Variables:"
+\&...
+.Sy End:
+block, searched within the final 3000 bytes of the file
+.Po honoring a final form feed Pc .
+The comment prefix and suffix are derived from the
+.Sy "Local Variables:"
+line.
+Example:
+.Bd -literal -offset indent
+# Local Variables:
+# compile-command: "make test"
+# buffer-read-only: t
+# End:
+.Ed
+.El
+.Pp
+String values may span multiple lines with backslash-newline continuation:
+.Bd -literal -offset indent
+# Local Variables:
+# compile-command: "cc foo.c \e
+#   -o foo"
+# End:
+.Ed
+.Pp
+Precedence: footer overrides modeline; file-local overrides
+directory-local.
+.Pp
+.Ar eval
+is ignored; unknown variables are ignored; merely visiting a file
+never runs
+.Va compile-command .
+Execution happens only through an explicit
+.Ic M-x compile
+or
+.Ic M-x recompile .
+.Sh DIRECTORY-LOCAL VARIABLES
+.Nm
+implements a safe, deliberately limited subset of
+.Pa .dir-locals.el .
+A file named
+.Pa .dir-locals.el
+is searched for upward from the visited file's directory to the
+filesystem root; the nearest match wins.
+.Pp
+Only the generic
+.Ql nil
+selector is applied.
+Supported variables are
+.Va compile-command
+and
+.Va buffer-read-only ;
+all other entries
+.Pq including Ql eval , Ql mode , Ql subdirs ,
+.Ql auto-mode-alist , mode-specific selectors, vectors, and backquote
+are ignored without evaluation.
+The optional leading
+.Sq '
+quote is accepted.
+.Pp
+Example:
+.Bd -literal -offset indent
+((nil . ((compile-command . "make all")
+         (buffer-read-only . t))))
+.Ed
+.Pp
+Defensive limits: 64\~KiB file, 64-deep nesting, 4096 tokens.
+File-local variables override directory-local.
+.Pp
+.Em No Emacs Lisp is evaluated
+from
+.Pa .dir-locals.el .
 .Sh EXTERNAL CHANGES
 .Nm
 keeps track of each open file's modification time and size as last seen.

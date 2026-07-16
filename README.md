@@ -50,9 +50,20 @@ standard VT100 escape sequences.
 - Auto-indent and bracket autocomplete
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)
+- Compilation: `M-x compile` / `M-x recompile` running the buffer's
+  `compile-command` in `/bin/sh -c`, output in a read-only
+  `*compilation*` buffer (synchronous; combined stdout/stderr)
+- File-local and directory-local variables (limited, non-evaluating
+  `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
+  `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`
+- `read-only-mode` (`C-x C-q`) with buffer-local state and an `RO`
+  mode-line indicator
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
 - Graceful terminal resize handling
+- Local-variable and `.dir-locals.el` parsing is non-evaluating and
+  works in `WITH_LISP=0` builds; see [kg(1)][7] for the exact
+  supported subset
 
 ## Usage
 

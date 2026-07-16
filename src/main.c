@@ -58,6 +58,7 @@ void init_editor(void)
 	editor.filename = NULL;
 	editor.syntax = NULL;
 	editor.cx_prefix = 0;
+	editor.cx_prefix_arg = 0;
 	editor.cc_prefix = 0;
 	editor.paste_mode = 0;
 	editor.mark_set = 0;

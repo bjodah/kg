@@ -88,6 +88,19 @@ def token_to_bytes(token: str) -> bytes:
 	if upper in ("C-SPC", "C-SPACE", "C-@"):
 		return b"\x00"
 
+	if upper == "HOME":
+		return b"\x1b[1~"
+	if upper == "END":
+		return b"\x1b[4~"
+	if upper == "C-HOME":
+		return b"\x1b[1;5H"
+	if upper == "C-END":
+		return b"\x1b[1;5F"
+	if upper == "S-HOME":
+		return b"\x1b[1;2H"
+	if upper == "S-END":
+		return b"\x1b[1;2F"
+
 	if len(token) >= 3 and token[1] == "-":
 		prefix = token[0].upper()
 		payload = token[2:]
@@ -104,6 +117,25 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 
 	if upper in ("C-SPC", "C-SPACE", "C-@"):
 		child.sendcontrol("@")
+		return
+
+	if upper == "HOME":
+		child.send("\x1b[1~")
+		return
+	if upper == "END":
+		child.send("\x1b[4~")
+		return
+	if upper == "C-HOME":
+		child.send("\x1b[1;5H")
+		return
+	if upper == "C-END":
+		child.send("\x1b[1;5F")
+		return
+	if upper == "S-HOME":
+		child.send("\x1b[1;2H")
+		return
+	if upper == "S-END":
+		child.send("\x1b[1;2F")
 		return
 
 	if len(token) >= 3 and token[1] == "-":
@@ -134,6 +166,19 @@ def tmux_key_name(token: str) -> tuple[str, str]:
 		return ("key", "Space")
 	if upper in ("C-SPC", "C-SPACE", "C-@"):
 		return ("key", "C-Space")
+
+	if upper == "HOME":
+		return ("key", "Home")
+	if upper == "END":
+		return ("key", "End")
+	if upper == "C-HOME":
+		return ("key", "C-Home")
+	if upper == "C-END":
+		return ("key", "C-End")
+	if upper == "S-HOME":
+		return ("key", "S-Home")
+	if upper == "S-END":
+		return ("key", "S-End")
 
 	if len(token) >= 3 and token[1] == "-":
 		prefix = token[0].upper()

@@ -2,7 +2,10 @@ name: query-replace-quoted-newline
 filename: query-newline.txt
 initial: ""
 keys:
-  - home
+  - h
+  - o
+  - m
+  - e
   - RET
   - town
   - M-h

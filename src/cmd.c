@@ -473,7 +473,7 @@ static char *copy_sexp_text(size_t start, size_t end)
 	return text;
 }
 
-static void do_eval_last_sexp(int print_to_buffer)
+static void do_eval_last_sexp(int print_to_buffer, int insert_newline_before)
 {
 	struct sexp_scan scan;
 	char result[lisp_result_size];
@@ -521,15 +521,20 @@ static void do_eval_last_sexp(int print_to_buffer)
 			int start_row = editor_current_filerow_or_eof();
 			int start_col = editor_current_filecol();
 			int res_len = (int)strlen(result);
-			char *to_insert = malloc(res_len + 2);
+			int prefix = insert_newline_before ? 1 : 0;
+			int total = res_len + prefix;
+			char *to_insert = malloc(total + 1);
+
 			if (to_insert) {
-				to_insert[0] = '\n';
-				memcpy(to_insert + 1, result, res_len);
-				to_insert[res_len + 1] = '\0';
+				if (insert_newline_before) {
+					to_insert[0] = '\n';
+				}
+				memcpy(to_insert + prefix, result, res_len);
+				to_insert[total] = '\0';
 
 				undo_push(UNDO_YANK_TEXT, start_row, start_col,
-				    0, to_insert, res_len + 1);
-				editor_insert_text_raw(to_insert, res_len + 1);
+				    0, to_insert, total);
+				editor_insert_text_raw(to_insert, total);
 				free(to_insert);
 			} else {
 				editor_set_status_message(
@@ -541,7 +546,12 @@ static void do_eval_last_sexp(int print_to_buffer)
 	}
 }
 
-void cmd_eval_print_last_sexp(void) { do_eval_last_sexp(1); }
+void cmd_eval_print_last_sexp(void) { do_eval_last_sexp(1, 1); }
+
+void cmd_eval_last_sexp(int print_to_buffer)
+{
+	do_eval_last_sexp(print_to_buffer, 0);
+}
 
 static void cmd_eval_print_last_sexp_cmd(int fd)
 {
@@ -552,7 +562,7 @@ static void cmd_eval_print_last_sexp_cmd(int fd)
 static void cmd_eval_last_sexp_cmd(int fd)
 {
 	(void)fd;
-	do_eval_last_sexp(0);
+	do_eval_last_sexp(0, 0);
 }
 
 static void cmd_isearch_backward_regexp(int fd) { editor_find_regexp(fd, -1); }

@@ -8,6 +8,8 @@
 
 #define FILL_COLUMN 72
 
+static int is_word_char(int c) { return isalnum((unsigned char)c) || c == '_'; }
+
 static int word_nomem(void)
 {
 	editor_set_status_message("Out of memory");
@@ -49,7 +51,7 @@ void editor_move_word_forward(void)
 			filecol = 0;
 			continue;
 		}
-		if (!isspace((unsigned char)row->chars[filecol])) {
+		if (is_word_char(row->chars[filecol])) {
 			break;
 		}
 		filecol++;
@@ -58,7 +60,7 @@ void editor_move_word_forward(void)
 	while (filerow < editor.numrows) {
 		row = &editor.row[filerow];
 		if (filecol >= row->size
-		    || isspace((unsigned char)row->chars[filecol])) {
+		    || !is_word_char(row->chars[filecol])) {
 			break;
 		}
 		filecol++;
@@ -94,14 +96,12 @@ void editor_move_word_backward(void)
 	row = &editor.row[filerow];
 	filecol = word_cursor_filecol(row);
 
-	/* Skip whitespace */
-	while (filecol > 0 && isspace(row->chars[filecol])) {
+	while (filecol > 0 && !is_word_char(row->chars[filecol])) {
 		editor_move_cursor(ARROW_LEFT);
 		filecol = word_cursor_filecol(row);
 	}
 
-	/* Skip word characters */
-	while (filecol > 0 && !isspace(row->chars[filecol - 1])) {
+	while (filecol > 0 && is_word_char(row->chars[filecol - 1])) {
 		editor_move_cursor(ARROW_LEFT);
 		filecol = word_cursor_filecol(row);
 	}
@@ -130,19 +130,18 @@ void editor_kill_word_forward(void)
 
 	/* Skip whitespace OR word+whitespace, within the current line only
 	 * (unlike editor_move_word_forward, M-d does not kill across lines). */
-	if (filecol < row->size
-	    && isspace((unsigned char)row->chars[filecol])) {
-		while (filecol < row->size
-		    && isspace((unsigned char)row->chars[filecol])) {
+	if (filecol < row->size && !is_word_char(row->chars[filecol])) {
+		while (
+		    filecol < row->size && !is_word_char(row->chars[filecol])) {
+			filecol++;
+		}
+		while (
+		    filecol < row->size && is_word_char(row->chars[filecol])) {
 			filecol++;
 		}
 	} else {
-		while (filecol < row->size
-		    && !isspace((unsigned char)row->chars[filecol])) {
-			filecol++;
-		}
-		while (filecol < row->size
-		    && isspace((unsigned char)row->chars[filecol])) {
+		while (
+		    filecol < row->size && is_word_char(row->chars[filecol])) {
 			filecol++;
 		}
 	}
@@ -193,11 +192,12 @@ void editor_kill_word_backward(void)
 	end_col = filecol;
 
 	/* Mirror editor_move_word_backward: skip whitespace then word chars */
-	while (filecol > 0 && isspace((unsigned char)row->chars[filecol - 1])) {
+	while (filecol > 0
+	    && !is_word_char((unsigned char)row->chars[filecol - 1])) {
 		filecol--;
 	}
-	while (
-	    filecol > 0 && !isspace((unsigned char)row->chars[filecol - 1])) {
+	while (filecol > 0
+	    && is_word_char((unsigned char)row->chars[filecol - 1])) {
 		filecol--;
 	}
 
@@ -807,12 +807,12 @@ static void do_word_case(int mode)
 
 	word_start = filecol;
 	while (word_start < row->size
-	    && isspace((unsigned char)row->chars[word_start])) {
+	    && !is_word_char((unsigned char)row->chars[word_start])) {
 		word_start++;
 	}
 	word_end = word_start;
 	while (word_end < row->size
-	    && !isspace((unsigned char)row->chars[word_end])) {
+	    && is_word_char((unsigned char)row->chars[word_end])) {
 		word_end++;
 	}
 

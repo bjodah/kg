@@ -407,6 +407,13 @@ void editor_process_keypress(int fd)
 		case 'e': /* C-x e: Execute keyboard macro */
 			macro_replay(fd);
 			break;
+		case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
+			if (kg_lisp_active()) {
+				cmd_eval_last_sexp(editor.cx_prefix_arg > 0);
+			} else {
+				editor_set_status_message("Lisp not available");
+			}
+			break;
 		case ' ': /* C-x SPC: rectangle-mark-mode */
 			editor_rect_mode_toggle();
 			break;
@@ -435,10 +442,11 @@ void editor_process_keypress(int fd)
 	 * filters below have a chance to drop the key.  Whichever branch ends
 	 * up handling this keystroke either uses `n` or implicitly discards
 	 * it; either way the next keypress starts fresh. */
-	if (editor.prefix_arg > 0) {
-		n = editor.prefix_arg;
+	int prefix = editor.prefix_arg;
+	if (prefix > 0) {
 		editor.prefix_arg = 0;
 		editor_set_status_message("");
+		n = prefix;
 	} else {
 		n = 1;
 	}
@@ -611,6 +619,7 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
+		editor.cx_prefix_arg = prefix;
 		editor_set_status_message("C-x-");
 		return;
 	case CTRL_C: /* C-c prefix: user-defined bindings */

@@ -15,6 +15,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `make check` now runs two layers:
   - native unit tests in `test/test_*.c`
   - PTY-backed acceptance cases from `test/pty/*.yaml` via `utils/pty_accept.py`
+- Run a single PTY case (useful while iterating) with:
+  `python3 utils/pty_accept.py --kg src/kg <case.yaml>` (add
+  `--timeout`, `--startup-delay-add`, `--key-delay-add` for flaky cases). A
+  failing case prints a unified diff of the expected vs actual saved file.
+- To iterate on one CI gate, run its script directly, e.g.
+  `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
@@ -52,7 +58,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
   actual space key, `RET` for Enter, `C-?` for Backspace, and `C-q`
-  followed by the next token for quoted input.
+  followed by the next token for quoted input. `Home`, `End`,
+  `C-Home`, `C-End`, `S-Home`, and `S-End` are named tokens (sent as
+  xterm tilde / modified tilde sequences). Arrow/PageUp/PageDown
+  have no named tokens; emit their escape bytes via `M-[` plus the
+  letter/digit/`~` (e.g. `M-[`, `H` for Home on terminals that send
+  `ESC[H`).
 - When using `oracle: emacs` outside `make check`, set a real terminal,
   e.g. `TERM=xterm-256color`, or Emacs may refuse to start under
   `TERM=dumb`.

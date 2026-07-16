@@ -265,12 +265,20 @@ static int parse_escape(int fd)
 			}
 			if (seq[2] == '~') {
 				switch (seq[1]) {
+				case '1':
+					return HOME_KEY;
 				case '3':
 					return DEL_KEY;
+				case '4':
+					return END_KEY;
 				case '5':
 					return PAGE_UP;
 				case '6':
 					return PAGE_DOWN;
+				case '7':
+					return HOME_KEY; /* rxvt Home */
+				case '8':
+					return END_KEY; /* rxvt End */
 				}
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,

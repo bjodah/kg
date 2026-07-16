@@ -1,5 +1,6 @@
 name: lisp-exponentiation
 filename: demo-expt.fe
+requires_feature: lisp
 initial: |
   (expt 2 8)
 keys:

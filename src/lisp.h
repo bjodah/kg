@@ -21,4 +21,6 @@ void kg_lisp_set_interrupt_check(int (*check)(void));
 /* Reports compile-time availability without initializing the interpreter. */
 [[nodiscard]] int kg_lisp_active(void);
 
+void cmd_eval_last_sexp(int print_to_buffer);
+
 #endif /* KG_LISP_H */

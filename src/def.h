@@ -414,6 +414,9 @@ extern int win_total_cols; /* terminal cols (set by update_window_size) */
 
 /* bufmgr.c */
 extern struct editor_syntax lisp_interaction_syntax;
+extern struct editor_syntax compilation_syntax;
+int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
+    const char *text, size_t text_length, int readonly);
 void buf_save_current_state(void);
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
@@ -461,6 +464,7 @@ void win_split_vertical(void);
 void win_cycle_next(void);
 void win_delete_current(void);
 void win_delete_others(void);
+void win_display_buffer_other_window(int buffer_index);
 
 /* autocomplete.c */
 int editor_find_close_char(int open_char);

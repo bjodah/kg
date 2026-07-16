@@ -1,0 +1,25 @@
+name: editable-compile-prompt
+filename: editcompile.txt
+backend: tmux
+dimensions: [24, 80]
+initial: '-*- compile-command: "printf OLD" -*-'
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-e
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - SPC
+  - N
+  - E
+  - W
+  - RET
+  - M-x
+  - recompile
+  - RET
+expected_saved: '-*- compile-command: "printf OLD" -*-'
+expected_screen_contains:
+  - NEW

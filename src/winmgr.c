@@ -325,3 +325,53 @@ void win_delete_others(void)
 	win_count = 1;
 	win_reflow();
 }
+
+void win_display_buffer_other_window(int buffer_index)
+{
+	int i, j;
+
+	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS) {
+		return;
+	}
+	if (!buflist[buffer_index].active) {
+		return;
+	}
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active && winlist[i].bufidx == buffer_index) {
+			return;
+		}
+	}
+
+	if (win_count == 1 && winlist[win_current].h >= 6) {
+		win_split_horizontal();
+		for (j = 0; j < MAX_WINDOWS; j++) {
+			if (winlist[j].active && j != win_current) {
+				winlist[j].bufidx = buffer_index;
+				winlist[j].cx = winlist[j].cy = 0;
+				winlist[j].rowoff = winlist[j].coloff = 0;
+				winlist[j].rowoff_visual = 0;
+				break;
+			}
+		}
+		return;
+	}
+
+	if (win_count >= 2) {
+		j = (win_current + 1) % MAX_WINDOWS;
+		while (j != win_current) {
+			if (winlist[j].active) {
+				buf_save_current_state();
+				winlist[j].bufidx = buffer_index;
+				winlist[j].cx = winlist[j].cy = 0;
+				winlist[j].rowoff = winlist[j].coloff = 0;
+				winlist[j].rowoff_visual = 0;
+				return;
+			}
+			j = (j + 1) % MAX_WINDOWS;
+		}
+	}
+
+	winlist[win_current].bufidx = buffer_index;
+	buf_restore_from_slot(buffer_index);
+}

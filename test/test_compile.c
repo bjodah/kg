@@ -32,6 +32,23 @@ int shell_run_capture(
 	return -1;
 }
 
+struct editor_syntax compilation_syntax
+    = { "Compilation", NULL, NULL, "", "", "", 0 };
+
+int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
+    const char *text, size_t text_length, int readonly)
+{
+	(void)name;
+	(void)syntax;
+	(void)text;
+	(void)text_length;
+	(void)readonly;
+	return -1;
+}
+
+void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
+void buf_restore_from_slot(int idx) { (void)idx; }
+
 static void test_transcript_command_and_directory(void)
 {
 	struct shell_capture_result cap;

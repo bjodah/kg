@@ -17,6 +17,8 @@ static struct editor_syntax ibuffer_syntax
 static struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0 };
 struct editor_syntax lisp_interaction_syntax = { "Lisp Interaction", NULL, NULL,
 	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS };
+struct editor_syntax compilation_syntax
+    = { "Compilation", NULL, NULL, "", "", "", 0 };
 
 /* Column offset of the filename field in a *Buffer List* data row.
  * Format: " %c  %-24s  %6d  %-14s  %s"
@@ -1404,6 +1406,86 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 	}
 
 	editor_set_status_message("%s", status);
+}
+
+int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
+    const char *text, size_t text_length, int readonly)
+{
+	int i, slot = -1, existing = -1;
+	const char *p, *end;
+	int ended_with_newline = 0;
+
+	buf_save_current_state();
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active) {
+			if (slot < 0) {
+				slot = i;
+			}
+			continue;
+		}
+		if (buflist[i].filename
+		    && strcmp(buflist[i].filename, name) == 0) {
+			existing = i;
+		}
+	}
+
+	if (existing >= 0) {
+		buf_restore_from_slot(existing);
+		for (i = 0; i < editor.numrows; i++) {
+			editor_free_row(&editor.row[i]);
+		}
+		free(editor.row);
+		editor.row = NULL;
+		editor.numrows = 0;
+		undo_init();
+	} else {
+		if (buf_count >= MAX_BUFFERS) {
+			editor_set_status_message(
+			    "Too many open buffers (%d max).", MAX_BUFFERS);
+			return -1;
+		}
+		if (slot < 0) {
+			return -1;
+		}
+		buf_reset();
+		editor.filename = strdup(name);
+	}
+
+	p = text;
+	end = text + text_length;
+	while (p < end) {
+		const char *nl = memchr(p, '\n', (size_t)(end - p));
+		if (!nl) {
+			editor_insert_row(editor.numrows, p, (size_t)(end - p));
+			p = end;
+			ended_with_newline = 0;
+		} else {
+			editor_insert_row(editor.numrows, p, (size_t)(nl - p));
+			p = nl + 1;
+			ended_with_newline = 1;
+		}
+	}
+	if (ended_with_newline) {
+		editor_insert_row(editor.numrows, "", 0);
+	}
+
+	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	editor.dirty = 0;
+	editor.readonly_override = readonly ? 1 : -1;
+	editor.readonly_local = 0;
+	editor_refresh_readonly_state();
+	editor.syntax = syntax;
+
+	if (existing >= 0) {
+		buf_save_to_slot(existing);
+	} else {
+		buf_save_to_slot(slot);
+		buf_restore_from_slot(slot);
+		buf_count++;
+		existing = slot;
+	}
+	return existing;
 }
 
 /* Populate the *Buffer List* rows from the buflist[] snapshot. */

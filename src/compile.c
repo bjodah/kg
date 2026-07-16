@@ -139,6 +139,7 @@ void editor_compile(int fd)
 	int rc;
 	struct shell_capture_result cap;
 	char *transcript;
+	int source_slot;
 	int exited;
 	int exit_code;
 	int signal_number;
@@ -163,6 +164,7 @@ void editor_compile(int fd)
 	editor.compile_command[sizeof(editor.compile_command) - 1] = '\0';
 	editor.compile_command_user_override = 1;
 	buf_save_current_state();
+	source_slot = buf_current;
 
 	if (compilation_resolve_directory(editor.filename, dir, sizeof(dir))
 	    != 0) {
@@ -180,7 +182,7 @@ void editor_compile(int fd)
 	    sizeof(g_compilation.last_directory));
 	g_compilation.last_directory[sizeof(g_compilation.last_directory) - 1]
 	    = '\0';
-	g_compilation.source_buffer = buf_current;
+	g_compilation.source_buffer = source_slot;
 
 	memset(&cap, 0, sizeof(cap));
 	if (shell_run_capture(prompt, dir, 0, &cap) != 0) {
@@ -195,8 +197,16 @@ void editor_compile(int fd)
 
 	transcript = compilation_format_transcript(
 	    prompt, dir, (size_t)(8 * 1024 * 1024), &cap);
-	free(cap.output);
+	{
+		int cidx = buf_replace_special_text("*compilation*",
+		    &compilation_syntax, transcript, strlen(transcript), 1);
+		if (cidx >= 0) {
+			buf_restore_from_slot(source_slot);
+			win_display_buffer_other_window(cidx);
+		}
+	}
 	free(transcript);
+	free(cap.output);
 
 	if (exited) {
 		editor_set_status_message(
@@ -213,6 +223,7 @@ void editor_recompile(int fd)
 	const char *command;
 	struct shell_capture_result cap;
 	char *transcript;
+	int source_slot;
 	int exited;
 	int exit_code;
 	int signal_number;
@@ -242,6 +253,9 @@ void editor_recompile(int fd)
 		}
 	}
 
+	buf_save_current_state();
+	source_slot = buf_current;
+
 	g_compilation.have_last_command = true;
 	strncpy(g_compilation.last_command, command,
 	    sizeof(g_compilation.last_command));
@@ -251,7 +265,7 @@ void editor_recompile(int fd)
 	    sizeof(g_compilation.last_directory));
 	g_compilation.last_directory[sizeof(g_compilation.last_directory) - 1]
 	    = '\0';
-	g_compilation.source_buffer = buf_current;
+	g_compilation.source_buffer = source_slot;
 
 	memset(&cap, 0, sizeof(cap));
 	if (shell_run_capture(command, dir, 0, &cap) != 0) {
@@ -266,8 +280,16 @@ void editor_recompile(int fd)
 
 	transcript = compilation_format_transcript(
 	    command, dir, (size_t)(8 * 1024 * 1024), &cap);
-	free(cap.output);
+	{
+		int cidx = buf_replace_special_text("*compilation*",
+		    &compilation_syntax, transcript, strlen(transcript), 1);
+		if (cidx >= 0) {
+			buf_restore_from_slot(source_slot);
+			win_display_buffer_other_window(cidx);
+		}
+	}
 	free(transcript);
+	free(cap.output);
 
 	if (exited) {
 		editor_set_status_message(

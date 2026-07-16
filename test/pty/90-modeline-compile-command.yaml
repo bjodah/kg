@@ -1,0 +1,13 @@
+name: modeline-compile-command
+filename: mcompile.txt
+backend: tmux
+dimensions: [24, 80]
+initial: '-*- compile-command: "printf LOCAL-COMPILE" -*-'
+keys:
+  - M-x
+  - compile
+  - RET
+  - RET
+expected_saved: '-*- compile-command: "printf LOCAL-COMPILE" -*-'
+expected_screen_contains:
+  - LOCAL-COMPILE

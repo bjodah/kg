@@ -1,0 +1,14 @@
+name: compile-from-readonly-source
+filename: rocompile.txt
+backend: tmux
+dimensions: [24, 80]
+initial: '-*- buffer-read-only: t; compile-command: "printf ROCC" -*-'
+keys:
+  - Z
+  - M-x
+  - compile
+  - RET
+  - RET
+expected_saved: '-*- buffer-read-only: t; compile-command: "printf ROCC" -*-'
+expected_screen_contains:
+  - ROCC

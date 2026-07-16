@@ -1,0 +1,18 @@
+# Uses pexpect backend so .dir-locals.el lands in the same temp directory
+# as the visited file (HOME=td).  The pexpect transcript includes visible
+# text from the compilation buffer, so expected_screen_contains still works.
+name: dir-locals-compile-command
+filename: dircompile.txt
+backend: pexpect
+dimensions: [24, 80]
+config_files:
+  .dir-locals.el: ((nil . ((compile-command . "printf DIRLOCAL"))))
+initial: hello
+keys:
+  - M-x
+  - compile
+  - RET
+  - RET
+expected_saved: hello
+expected_screen_contains:
+  - DIRLOCAL

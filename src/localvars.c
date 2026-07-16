@@ -315,3 +315,425 @@ int localvars_parse_modeline(
 
 	return 0;
 }
+
+enum {
+	FOOTER_TAIL_BYTES = 3000,
+	FOOTER_WIN_EXTRA = 32,
+	FOOTER_MAX_LINES = 512
+};
+
+static int footer_body_ends_unescaped_bslash(const char *body, int len)
+{
+	int n;
+
+	if (len <= 0 || body[len - 1] != '\\') {
+		return 0;
+	}
+	n = 0;
+	for (int i = len - 1; i >= 0 && body[i] == '\\'; i--) {
+		n++;
+	}
+	return (n & 1) != 0;
+}
+
+int localvars_parse_footer(
+    const erow *rows, int row_count, struct local_settings *out)
+{
+	char window[FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA];
+	const char *lines[FOOTER_MAX_LINES];
+	int line_lens[FOOTER_MAX_LINES];
+	int nlines, wpos, total, cut, sofar, eff_start, eff_len;
+	int start_line, end_line, prefix_len, suffix_len;
+	const char *prefix, *suffix;
+
+	local_settings_init(out);
+	if (row_count <= 0 || rows == NULL) {
+		return -1;
+	}
+
+	total = 0;
+	for (int i = 0; i < row_count; i++) {
+		total += rows[i].size;
+		if (i < row_count - 1) {
+			total++;
+		}
+	}
+
+	cut = total > FOOTER_TAIL_BYTES ? total - FOOTER_TAIL_BYTES : 0;
+	wpos = 0;
+	sofar = 0;
+
+	for (int i = 0;
+	    i < row_count && wpos < FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1;
+	    i++) {
+		int row_start = sofar;
+		int row_end = sofar + rows[i].size;
+
+		if (row_end > cut) {
+			int skip = row_start < cut ? cut - row_start : 0;
+			int copy = row_end - (row_start + skip);
+			int room
+			    = FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1 - wpos;
+
+			if (copy > room) {
+				copy = room;
+			}
+			memcpy(window + wpos, rows[i].chars + skip, copy);
+			wpos += copy;
+		}
+		sofar = row_end;
+
+		if (i < row_count - 1 && sofar >= cut
+		    && wpos < FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1) {
+			window[wpos++] = '\n';
+		}
+		sofar += (i < row_count - 1) ? 1 : 0;
+	}
+	window[wpos] = '\0';
+
+	eff_start = 0;
+	for (int j = wpos - 1; j >= 0; j--) {
+		if (window[j] == '\f') {
+			eff_start = j + 1;
+			break;
+		}
+	}
+	eff_len = wpos - eff_start;
+
+	nlines = 0;
+	{
+		const char *p = window + eff_start;
+		const char *end = p + eff_len;
+		const char *ls = p;
+
+		while (p < end && nlines < FOOTER_MAX_LINES) {
+			if (*p == '\n') {
+				lines[nlines] = ls;
+				line_lens[nlines] = (int)(p - ls);
+				nlines++;
+				ls = p + 1;
+			}
+			p++;
+		}
+		if (ls < end && nlines < FOOTER_MAX_LINES) {
+			lines[nlines] = ls;
+			line_lens[nlines] = (int)(end - ls);
+			nlines++;
+		}
+	}
+
+	start_line = -1;
+	prefix = NULL;
+	prefix_len = 0;
+	suffix = NULL;
+	suffix_len = 0;
+
+	{
+		const char marker[] = "Local Variables:";
+		const int marker_len = (int)(sizeof(marker) - 1);
+
+		for (int li = 0; li < nlines; li++) {
+			const char *ln = lines[li];
+			int ll = line_lens[li];
+
+			for (int p = 0; p <= ll - marker_len; p++) {
+				int match = 1;
+				for (int k = 0; k < marker_len; k++) {
+					if (tolower((unsigned char)ln[p + k])
+					    != tolower(
+						(unsigned char)marker[k])) {
+						match = 0;
+						break;
+					}
+				}
+				if (match) {
+					start_line = li;
+					prefix = ln;
+					prefix_len = p;
+					suffix = ln + p + marker_len;
+					suffix_len = ll - p - marker_len;
+					break;
+				}
+			}
+			if (start_line >= 0) {
+				break;
+			}
+		}
+	}
+
+	if (start_line < 0) {
+		return -1;
+	}
+
+	end_line = -1;
+	for (int li = start_line + 1; li < nlines; li++) {
+		const char *ln = lines[li];
+		int ll = line_lens[li];
+		const char *body;
+		int body_len;
+
+		if (ll < prefix_len) {
+			continue;
+		}
+		if (prefix_len > 0 && memcmp(ln, prefix, prefix_len) != 0) {
+			continue;
+		}
+		if (suffix_len > 0
+		    && (ll < suffix_len
+			|| memcmp(ln + ll - suffix_len, suffix, suffix_len)
+			    != 0)) {
+			continue;
+		}
+
+		body = ln + prefix_len;
+		body_len = ll - prefix_len - suffix_len;
+
+		while (body_len > 0 && (body[0] == ' ' || body[0] == '\t')) {
+			body++;
+			body_len--;
+		}
+		while (body_len > 0
+		    && (body[body_len - 1] == ' '
+			|| body[body_len - 1] == '\t')) {
+			body_len--;
+		}
+
+		if (body_len == 4 && tolower((unsigned char)body[0]) == 'e'
+		    && tolower((unsigned char)body[1]) == 'n'
+		    && tolower((unsigned char)body[2]) == 'd'
+		    && body[3] == ':') {
+			end_line = li;
+			break;
+		}
+	}
+
+	if (end_line < 0) {
+		return -1;
+	}
+
+	for (int li = start_line + 1; li < end_line;) {
+		const char *ln = lines[li];
+		int ll = line_lens[li];
+		const char *body;
+		int body_len;
+		const char *colon;
+		const char *name_start;
+		int name_len;
+		int nl_copy;
+		char name[64];
+		const char *val;
+		int val_len;
+		int in_q, esc;
+
+		if (ll < prefix_len) {
+			goto skip_line;
+		}
+		if (prefix_len > 0 && memcmp(ln, prefix, prefix_len) != 0) {
+			goto skip_line;
+		}
+		if (suffix_len > 0
+		    && (ll < suffix_len
+			|| memcmp(ln + ll - suffix_len, suffix, suffix_len)
+			    != 0)) {
+			goto skip_line;
+		}
+
+		body = ln + prefix_len;
+		body_len = ll - prefix_len - suffix_len;
+
+		while (body_len > 0 && (body[0] == ' ' || body[0] == '\t')) {
+			body++;
+			body_len--;
+		}
+		while (body_len > 0
+		    && (body[body_len - 1] == ' '
+			|| body[body_len - 1] == '\t')) {
+			body_len--;
+		}
+
+		if (body_len <= 0) {
+			goto skip_line;
+		}
+
+		in_q = 0;
+		esc = 0;
+		colon = NULL;
+		for (int i = 0; i < body_len; i++) {
+			if (esc) {
+				esc = 0;
+				continue;
+			}
+			if (body[i] == '\\') {
+				esc = 1;
+				continue;
+			}
+			if (body[i] == '"') {
+				in_q = !in_q;
+				continue;
+			}
+			if (!in_q && body[i] == ':') {
+				colon = body + i;
+				break;
+			}
+		}
+
+		if (!colon) {
+			out->malformed_entries++;
+			goto skip_line;
+		}
+
+		name_start = body;
+		name_len = (int)(colon - body);
+		while (name_len > 0
+		    && (name_start[name_len - 1] == ' '
+			|| name_start[name_len - 1] == '\t')) {
+			name_len--;
+		}
+		if (name_len <= 0) {
+			out->malformed_entries++;
+			goto skip_line;
+		}
+
+		nl_copy = name_len < 63 ? name_len : 63;
+		for (int i = 0; i < nl_copy; i++) {
+			name[i] = (char)tolower((unsigned char)name_start[i]);
+		}
+		name[nl_copy] = '\0';
+
+		val = colon + 1;
+		while (val < body + body_len && (*val == ' ' || *val == '\t')) {
+			val++;
+		}
+		val_len = body_len - (int)(val - body);
+
+		if (strcmp(name, "compile-command") == 0) {
+			char acc[KG_COMPILE_COMMAND_MAX];
+			int acc_len, cli;
+
+			if (val_len >= KG_COMPILE_COMMAND_MAX) {
+				out->malformed_entries++;
+				goto next_li;
+			}
+			acc_len = val_len;
+			memcpy(acc, val, val_len);
+
+			cli = li;
+			for (;;) {
+				char decoded[KG_COMPILE_COMMAND_MAX];
+				int rc;
+
+				acc[acc_len] = '\0';
+				rc = parse_quoted_string(
+				    acc, decoded, sizeof(decoded));
+				if (rc >= 0) {
+					out->compile_command_set = true;
+					memcpy(out->compile_command, decoded,
+					    (size_t)rc + 1);
+					break;
+				}
+				if (rc != -3) {
+					out->malformed_entries++;
+					break;
+				}
+
+				{
+					const char *cl = lines[cli];
+					int cll = line_lens[cli];
+					const char *cb = cl + prefix_len;
+					int cbl = cll - prefix_len - suffix_len;
+
+					if (!footer_body_ends_unescaped_bslash(
+						cb, cbl)) {
+						out->malformed_entries++;
+						break;
+					}
+					acc_len--;
+
+					cli++;
+					if (cli >= end_line) {
+						out->malformed_entries++;
+						break;
+					}
+
+					{
+						const char *nl = lines[cli];
+						int nll = line_lens[cli];
+
+						if (nll < prefix_len
+						    || (prefix_len > 0
+							&& memcmp(nl, prefix,
+							       prefix_len)
+							    != 0)
+						    || (suffix_len > 0
+							&& (nll < suffix_len
+							    || memcmp(nl + nll
+								       - suffix_len,
+								   suffix,
+								   suffix_len)
+								!= 0))) {
+							out->malformed_entries++;
+							break;
+						}
+
+						{
+							const char *nb
+							    = nl + prefix_len;
+							int nbl = nll
+							    - prefix_len
+							    - suffix_len;
+							int room
+							    = KG_COMPILE_COMMAND_MAX
+							    - acc_len;
+
+							if (nbl >= room) {
+								out->malformed_entries++;
+								break;
+							}
+							memcpy(acc + acc_len,
+							    nb, nbl);
+							acc_len += nbl;
+						}
+					}
+				}
+			}
+			li = cli + 1;
+			continue;
+		}
+
+		if (strcmp(name, "buffer-read-only") == 0) {
+			const char *bv = val;
+			int bv_len = val_len;
+			char bname[12];
+			int bnl;
+
+			while (bv_len > 0
+			    && (bv[bv_len - 1] == ' '
+				|| bv[bv_len - 1] == '\t')) {
+				bv_len--;
+			}
+			bnl = bv_len < 11 ? bv_len : 11;
+			for (int i = 0; i < bnl; i++) {
+				bname[i] = (char)tolower((unsigned char)bv[i]);
+			}
+			bname[bnl] = '\0';
+			if (strcmp(bname, "t") == 0) {
+				out->buffer_read_only = LOCAL_BOOL_TRUE;
+			} else if (strcmp(bname, "nil") == 0) {
+				out->buffer_read_only = LOCAL_BOOL_FALSE;
+			} else {
+				out->malformed_entries++;
+			}
+			goto next_li;
+		}
+
+		out->ignored_entries++;
+
+	next_li:
+		li++;
+		continue;
+	skip_line:
+		li++;
+	}
+
+	return 0;
+}

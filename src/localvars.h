@@ -29,4 +29,7 @@ void local_settings_merge(
 int localvars_parse_modeline(
     const erow *rows, int row_count, struct local_settings *out);
 
+int localvars_parse_footer(
+    const erow *rows, int row_count, struct local_settings *out);
+
 #endif

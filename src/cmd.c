@@ -207,6 +207,12 @@ static void cmd_shell_command_on_region(int fd)
 	editor_shell_command_on_region(fd);
 }
 
+static void cmd_sort_lines(int fd)
+{
+	(void)fd;
+	editor_sort_lines();
+}
+
 /* Toggle auto-revert on the current buffer.  When on (or when the global
  * setting below is on), a clean buffer whose underlying file has changed on
  * disk is silently reloaded by the next poll. */
@@ -625,6 +631,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "shell-command", cmd_shell_command, CMD_EDITS_BUFFER },
 	{ "shell-command-on-region", cmd_shell_command_on_region,
 	    CMD_EDITS_BUFFER },
+	{ "sort-lines", cmd_sort_lines, CMD_EDITS_BUFFER },
 	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE },
 	{ "transpose-chars", cmd_transpose_chars, CMD_EDITS_BUFFER },
 	{ "upcase-word", cmd_upcase_word, CMD_EDITS_BUFFER },

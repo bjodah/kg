@@ -707,6 +707,12 @@ Pipe the region through a shell command and replace it with the command's
 standard output.
 Equivalent to
 .Ic M-\&| .
+.It sort-lines
+Sort the lines of the region in ascending (case-sensitive) order.
+If the region end is at column 0 of a line, that final line is excluded
+from the sort.
+The entire sort is reversible in one step with
+.Ic C-_ .
 .It toggle-read-only
 Alias for
 .Ic read-only-mode .

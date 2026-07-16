@@ -43,6 +43,7 @@ standard VT100 escape sequences.
 - Word-case bindings (M-u / M-l / M-c)
 - Transpose chars (C-t)
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)
+- Sort lines in the region (M-x sort-lines, single-step undo)
 - Open line (C-o) and join-line (M-^)
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes
 - Universal-argument (C-u / M-0..M-9) for repeated commands, capped at

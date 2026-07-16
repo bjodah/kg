@@ -672,6 +672,7 @@ void editor_kill_region(void);
 void editor_copy_region(void);
 char *editor_get_region_text(int *out_len);
 void editor_yank(void);
+void editor_sort_lines(void);
 
 /* undo.c */
 void undo_init(void);

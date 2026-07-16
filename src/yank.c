@@ -431,3 +431,71 @@ void editor_yank(void)
 
 	editor_set_status_message("Yanked");
 }
+
+static int sort_lines_cmp(const void *a, const void *b)
+{
+	const erow *ra = (const erow *)a;
+	const erow *rb = (const erow *)b;
+
+	return strcmp(ra->chars, rb->chars);
+}
+
+void editor_sort_lines(void)
+{
+	int start_row, start_col, end_row, end_col;
+	int nlines, orig_len, i;
+	char *orig_text;
+	erow *temp;
+
+	if (!editor.mark_set) {
+		editor_set_status_message("No mark set");
+		return;
+	}
+	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
+		editor_set_status_message("Empty region");
+		return;
+	}
+
+	if (end_col == 0 && end_row > start_row) {
+		end_row--;
+	}
+
+	nlines = end_row - start_row + 1;
+	if (nlines < 2) {
+		return;
+	}
+
+	orig_text
+	    = editor_rows_to_string(&editor.row[start_row], nlines, &orig_len);
+	if (!orig_text) {
+		return;
+	}
+
+	temp = malloc(nlines * sizeof(erow));
+	if (!temp) {
+		free(orig_text);
+		editor_set_status_message("Out of memory");
+		return;
+	}
+	memcpy(temp, &editor.row[start_row], nlines * sizeof(erow));
+
+	qsort(temp, nlines, sizeof(erow), sort_lines_cmp);
+
+	for (i = 0; i < nlines; i++) {
+		editor.row[start_row + i] = temp[i];
+		editor.row[start_row + i].idx = start_row + i;
+	}
+
+	free(temp);
+
+	undo_push(
+	    UNDO_REPLACE_TEXT, start_row, 0, orig_len, orig_text, orig_len);
+	free(orig_text);
+
+	editor.mark_highlight = 0;
+	editor.rect_mode = 0;
+	editor.shift_select = 0;
+	editor_snap_cx_to_row();
+	editor.dirty = 1;
+	editor_set_status_message("Sorted %d lines", nlines);
+}

@@ -70,6 +70,10 @@ void init_editor(void)
 	editor.rect_prefix = 0;
 	editor.desired_visual_col = -1;
 	editor.readonly = 0;
+	editor.readonly_local = 0;
+	editor.readonly_override = -1;
+	editor.compile_command[0] = '\0';
+	editor.compile_command_user_override = 0;
 	editor.echo_cursor_col = 0;
 	editor.disk_mtime = 0;
 	editor.disk_size = 0;

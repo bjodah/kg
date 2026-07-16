@@ -1,4 +1,5 @@
 #include "localvars.h"
+#include "def.h"
 #include <ctype.h>
 #include <string.h>
 
@@ -434,10 +435,10 @@ int dirlocals_find(
 	}
 
 	for (;;) {
-		char path[PATH_MAX];
+		char path[PATH_MAX + 16];
 
 		dlen = strlen(dir);
-		if (dlen + sizeof("/.dir-locals.el") > PATH_MAX) {
+		if (dlen + sizeof("/.dir-locals.el") > sizeof(path)) {
 			return -1;
 		}
 		snprintf(path, sizeof(path), "%s/.dir-locals.el", dir);
@@ -457,9 +458,9 @@ int dirlocals_find(
 		}
 
 		{
-			char parent[PATH_MAX];
+			char parent[PATH_MAX + 16];
 
-			if (dlen + 4 > PATH_MAX) {
+			if (dlen + 4 > sizeof(parent)) {
 				return -1;
 			}
 			snprintf(parent, sizeof(parent), "%s/..", dir);

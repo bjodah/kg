@@ -1,0 +1,17 @@
+# File-local modeline (nil) overrides dir-locals (t), so editing succeeds.
+# Uses pexpect so .dir-locals.el is a sibling of the visited file.
+name: file-local-override-dir-locals
+filename: override-dl.txt
+backend: pexpect
+config_files:
+  .dir-locals.el: ((nil . ((buffer-read-only . t))))
+initial: |
+  -*- buffer-read-only: nil -*-
+  abc
+keys:
+  - C-n
+  - C-e
+  - "Y"
+expected_saved: |
+  -*- buffer-read-only: nil -*-
+  abcY

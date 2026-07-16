@@ -1,9 +1,14 @@
 #ifndef KG_LOCALVARS_H
 #define KG_LOCALVARS_H
 
-#include "def.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 #define KG_COMPILE_COMMAND_MAX 1024
+
+/* Forward declaration; the full struct is defined in def.h.  localvars.c
+ * includes def.h to reach its members. */
+typedef struct erow erow;
 
 enum local_bool_value {
 	LOCAL_BOOL_UNSET = -1,

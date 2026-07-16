@@ -36,19 +36,8 @@ void win_save_active_view(void)
  * restore the window's cursor/scroll.  Called after win_current changes. */
 static void win_activate_window(void)
 {
-	struct editor_buffer *b;
 	buf_current = winlist[win_current].bufidx;
-	b = &buflist[buf_current];
-	editor.numrows = b->numrows;
-	editor.row = b->row;
-	editor.dirty = b->dirty;
-	editor.filename = b->filename;
-	editor.syntax = b->syntax;
-	editor.mark_set = b->mark_set;
-	editor.mark_row = b->mark_row;
-	editor.mark_col = b->mark_col;
-	editor.visual_line_mode = b->visual_line_mode;
-	undostack = b->undostack;
+	buf_restore_from_slot(buf_current);
 	win_restore_active_view();
 }
 

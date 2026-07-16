@@ -1064,9 +1064,29 @@ void editor_del_forward_char(void)
 	editor.dirty++;
 }
 
+void editor_refresh_readonly_state(void)
+{
+	editor.readonly = (editor.readonly_override >= 0)
+	    ? editor.readonly_override
+	    : editor.readonly_local;
+}
+
+void editor_set_local_readonly(int enabled)
+{
+	editor.readonly_local = enabled ? 1 : 0;
+	editor_refresh_readonly_state();
+}
+
+void editor_set_readonly_override(int enabled)
+{
+	editor.readonly_override = enabled ? 1 : 0;
+	editor_refresh_readonly_state();
+}
+
 void editor_toggle_read_only_mode(void)
 {
-	editor.readonly = !editor.readonly;
+	editor.readonly_override = !editor.readonly;
+	editor_refresh_readonly_state();
 	editor_set_status_message(editor.readonly ? "Read-only" : "Writable");
 }
 

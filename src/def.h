@@ -234,6 +234,8 @@ typedef struct erow {
 		      check. */
 } erow;
 
+#include "localvars.h"
+
 /* Highlight color */
 typedef struct hl_color {
 	int r, g, b;
@@ -281,6 +283,12 @@ struct editor_config {
 	int desired_visual_col; /* goal column across vertical motion; -1 =
 				   unset. */
 	int readonly; /* If 1, buffer is read-only (editing is blocked). */
+	int readonly_local; /* 0/1, set by local variables */
+	int readonly_override; /* -1 none, 0 explicit writable, 1 explicit
+				  read-only */
+	char compile_command[KG_COMPILE_COMMAND_MAX];
+	int compile_command_user_override; /* 1 once the user edited
+					      compile-command */
 	int last_key; /* Last key processed, for command repetition logic. */
 	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom.
 			     */
@@ -372,6 +380,12 @@ struct editor_buffer {
 	struct undo_stack undostack; /* per-buffer undo chain */
 	int active; /* 1 if this slot is in use */
 	int readonly; /* 1 if buffer is read-only */
+	int readonly_local; /* 0/1, set by local variables */
+	int readonly_override; /* -1 none, 0 explicit writable, 1 explicit
+				  read-only */
+	char compile_command[KG_COMPILE_COMMAND_MAX];
+	int compile_command_user_override; /* 1 once the user edited
+					      compile-command */
 	time_t disk_mtime;
 	off_t disk_size;
 	int disk_changed;
@@ -412,6 +426,8 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
     __attribute__((format(printf, 4, 5)));
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
+void buf_restore_from_slot(int idx);
+void buf_visit_file(const char *filename, int explicit_readonly);
 
 /* path.c */
 #define PATH_ENTRY_NAME_MAX 256 /* fits POSIX NAME_MAX (255) + NUL */
@@ -489,6 +505,9 @@ void editor_del_forward_char(void);
 void editor_transpose_chars(void);
 void editor_kill_line(void);
 void editor_toggle_read_only_mode(void);
+void editor_refresh_readonly_state(void);
+void editor_set_local_readonly(int enabled);
+void editor_set_readonly_override(int enabled);
 
 /* Returns 1 if filename belongs to a special/system buffer (NULL or starts with
  * '*'). */

@@ -32,6 +32,7 @@ int buf_count = 0;
 #define AUTOREVERT_POLL_INTERVAL_SEC 2
 
 static void silent_revert_current(void);
+static void buf_apply_local_settings(void);
 
 /* Save live editor state (and global undostack) into buflist[idx]. */
 static void buf_save_to_slot(int idx)
@@ -56,6 +57,11 @@ static void buf_save_to_slot(int idx)
 	b->undostack
 	    = undostack; /* struct copy — pointer ownership moves here */
 	b->readonly = editor.readonly;
+	b->readonly_local = editor.readonly_local;
+	b->readonly_override = editor.readonly_override;
+	memcpy(b->compile_command, editor.compile_command,
+	    sizeof(b->compile_command));
+	b->compile_command_user_override = editor.compile_command_user_override;
 	b->disk_mtime = editor.disk_mtime;
 	b->disk_size = editor.disk_size;
 	b->disk_changed = editor.disk_changed;
@@ -66,7 +72,7 @@ static void buf_save_to_slot(int idx)
 }
 
 /* Restore buflist[idx] into live editor state (and global undostack). */
-static void buf_restore_from_slot(int idx)
+void buf_restore_from_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
 
@@ -86,7 +92,12 @@ static void buf_restore_from_slot(int idx)
 	editor.shift_select = b->shift_select;
 	editor.rect_mode = b->rect_mode;
 	undostack = b->undostack; /* struct copy */
-	editor.readonly = b->readonly;
+	editor.readonly_local = b->readonly_local;
+	editor.readonly_override = b->readonly_override;
+	memcpy(editor.compile_command, b->compile_command,
+	    sizeof(editor.compile_command));
+	editor.compile_command_user_override = b->compile_command_user_override;
+	editor_refresh_readonly_state();
 	editor.disk_mtime = b->disk_mtime;
 	editor.disk_size = b->disk_size;
 	editor.disk_changed = b->disk_changed;
@@ -202,6 +213,8 @@ void buf_reload_from_disk(void)
 	suppress_undo = 0;
 	free(fname);
 
+	buf_apply_local_settings();
+
 	undo_free();
 	undo_init();
 	undo_mark_clean();
@@ -314,6 +327,10 @@ static void buf_reset(void)
 	editor.prefix_no_digits = 0;
 	editor.paste_mode = 0;
 	editor.readonly = 0;
+	editor.readonly_local = 0;
+	editor.readonly_override = -1;
+	editor.compile_command[0] = '\0';
+	editor.compile_command_user_override = 0;
 	editor.disk_mtime = 0;
 	editor.disk_size = 0;
 	editor.disk_changed = 0;
@@ -920,6 +937,90 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	}
 }
 
+/* Parse and apply dir-locals, modeline, and footer local settings for the
+ * current buffer.  Nonfatal on parse errors.  Preserves readonly_override
+ * and (when compile_command_user_override is set) compile_command. */
+static void buf_apply_local_settings(void)
+{
+	struct local_settings dir, modeline, footer, merged;
+	char dirfile[PATH_MAX];
+	int fd;
+	ssize_t n;
+	char *data = NULL;
+
+	if (is_special_buffer(editor.filename)) {
+		return;
+	}
+
+	local_settings_init(&dir);
+	local_settings_init(&modeline);
+	local_settings_init(&footer);
+
+	if (dirlocals_find(editor.filename, dirfile, sizeof(dirfile)) == 0) {
+		fd = open(dirfile, O_RDONLY);
+		if (fd >= 0) {
+			off_t sz = lseek(fd, 0, SEEK_END);
+			if (sz > 0 && sz <= 65536) {
+				lseek(fd, 0, SEEK_SET);
+				data = malloc((size_t)sz);
+				if (data) {
+					n = read(fd, data, (size_t)sz);
+					if (n > 0) {
+						dirlocals_parse(
+						    data, (size_t)n, &dir);
+					}
+				}
+			}
+			close(fd);
+		}
+	}
+
+	localvars_parse_modeline(editor.row, editor.numrows, &modeline);
+	localvars_parse_footer(editor.row, editor.numrows, &footer);
+
+	merged = dir;
+	local_settings_merge(&merged, &modeline);
+	local_settings_merge(&merged, &footer);
+
+	if (merged.compile_command_set
+	    && !editor.compile_command_user_override) {
+		memcpy(editor.compile_command, merged.compile_command,
+		    sizeof(editor.compile_command));
+	}
+
+	if (merged.buffer_read_only != LOCAL_BOOL_UNSET) {
+		editor.readonly_local
+		    = (merged.buffer_read_only == LOCAL_BOOL_TRUE) ? 1 : 0;
+	}
+	editor_refresh_readonly_state();
+
+	free(data);
+}
+
+/* Canonical file visit: reset, load, apply local settings.
+ * Caller handles slot allocation and save/restore. */
+void buf_visit_file(const char *filename, int explicit_readonly)
+{
+	buf_reset();
+
+	snprintf(
+	    editor.compile_command, sizeof(editor.compile_command), "make -k");
+	editor.compile_command_user_override = 0;
+
+	editor_select_syntax_highlight((char *)filename);
+	editor_open((char *)filename);
+
+	buf_apply_local_settings();
+
+	if (explicit_readonly) {
+		editor.readonly_override = 1;
+		editor_refresh_readonly_state();
+	}
+
+	editor.dirty = 0;
+	undo_mark_clean();
+}
+
 /* Load all command-line files into the buffer list, then start in buffer 0.
  * Called once from main() after init_editor().
  * Arguments of the form +LINE or +LINE:COL position the next file. */
@@ -953,10 +1054,7 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 			    &pending_col);
 			continue;
 		}
-		buf_reset();
-		editor.readonly = readonly;
-		editor_select_syntax_highlight(filenames[i]);
-		editor_open(filenames[i]);
+		buf_visit_file(filenames[i], readonly);
 		if (pending_line > 0) {
 			editor_goto_line_direct(pending_line, pending_col);
 			pending_line = 0;
@@ -1108,6 +1206,11 @@ static void buf_open_file_ro(int fd, int readonly)
 		    && strcmp(buflist[i].filename, query) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);
+			if (readonly) {
+				editor.readonly_override = 1;
+				editor_refresh_readonly_state();
+				buf_save_to_slot(i);
+			}
 			editor_set_status_message("%s", editor.filename);
 			return;
 		}
@@ -1132,10 +1235,7 @@ static void buf_open_file_ro(int fd, int readonly)
 	}
 
 	buf_save_current_state();
-	buf_reset();
-	editor.readonly = readonly;
-	editor_select_syntax_highlight(query);
-	editor_open(query);
+	buf_visit_file(query, readonly);
 	buf_save_to_slot(slot);
 	buf_restore_from_slot(slot);
 	buf_count++;
@@ -1291,7 +1391,8 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 	editor.dirty = 0;
-	editor.readonly = 1;
+	editor.readonly_override = 1;
+	editor_refresh_readonly_state();
 	editor.syntax = syn;
 
 	if (existing >= 0) {

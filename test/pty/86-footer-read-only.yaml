@@ -1,0 +1,16 @@
+name: footer-read-only
+filename: footer-ro.txt
+initial: |
+  unchanged
+
+  # Local Variables:
+  # buffer-read-only: t
+  # End:
+keys:
+  - "X"
+expected_saved: |
+  unchanged
+
+  # Local Variables:
+  # buffer-read-only: t
+  # End:

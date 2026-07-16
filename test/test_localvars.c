@@ -750,7 +750,7 @@ static void test_dl_find_root_level(void)
 	char *root = mkdtemp(tmpl);
 	char scratch[256];
 	char src_path[512];
-	char dl_path[512];
+	char dl_path[1024];
 	char found[PATH_MAX];
 
 	CHECK(root != NULL);
@@ -768,7 +768,7 @@ static void test_dl_find_root_level(void)
 	snprintf(src_path, sizeof(src_path), "%s/src", root);
 	mkdir(src_path, 0700);
 	{
-		char fpath[512];
+		char fpath[1024];
 
 		snprintf(fpath, sizeof(fpath), "%s/file.c", src_path);
 		FILE *fp = fopen(fpath, "w");
@@ -790,8 +790,8 @@ static void test_dl_find_nearest_wins(void)
 	char *root = mkdtemp(tmpl);
 	char scratch[256];
 	char src_path[512];
-	char root_dl[512];
-	char src_dl[512];
+	char root_dl[1024];
+	char src_dl[1024];
 	char found[PATH_MAX];
 	char content[1024];
 	struct local_settings s;
@@ -816,7 +816,7 @@ static void test_dl_find_nearest_wins(void)
 	fclose(fp);
 
 	{
-		char fpath[512];
+		char fpath[1024];
 
 		snprintf(fpath, sizeof(fpath), "%s/file.c", src_path);
 		fp = fopen(fpath, "w");

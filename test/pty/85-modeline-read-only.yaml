@@ -1,0 +1,10 @@
+name: modeline-read-only
+filename: modeline-ro.txt
+initial: |
+  -*- buffer-read-only: t -*-
+  body text
+keys:
+  - "X"
+expected_saved: |
+  -*- buffer-read-only: t -*-
+  body text

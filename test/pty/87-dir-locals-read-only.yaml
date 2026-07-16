@@ -1,0 +1,11 @@
+# dir-locals.el lands in the same temp dir as the visited file because
+# both config_files and the visited file share the pexpect tmp dir root.
+name: dir-locals-read-only
+filename: dl-ro.txt
+backend: pexpect
+config_files:
+  .dir-locals.el: ((nil . ((buffer-read-only . t))))
+initial: hello
+keys:
+  - "X"
+expected_saved: hello

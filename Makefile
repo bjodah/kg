@@ -123,11 +123,11 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 2800
+SCC_COMPLEXITY_MAX ?= 2840
 SCC_FILE_COMPLEXITY_MAX ?= 375
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
-PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 119
+PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 125
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov

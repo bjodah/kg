@@ -21,6 +21,12 @@ jobs:
       CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Verify submodules
+        run: |
+          test -f fe/fe.c
+          test -f fe/tiny-regex-c/re.c
       - name: Build
         run: make
       - name: Run tests

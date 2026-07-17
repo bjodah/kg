@@ -15,6 +15,11 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          submodules: recursive
+      - name: Verify submodules
+        run: |
+          test -f fe/fe.c
+          test -f fe/tiny-regex-c/re.c
       - name: Set release variables
         id: vars
         run: |

@@ -761,7 +761,9 @@ static void test_dl_find_root_level(void)
 		FILE *fp = fopen(dl_path, "w");
 
 		CHECK(fp != NULL);
-		if (!fp) return;
+		if (!fp) {
+			return;
+		}
 		fprintf(fp, "((nil . ((buffer-read-only . t))))\n");
 		fclose(fp);
 	}
@@ -805,7 +807,9 @@ static void test_dl_find_nearest_wins(void)
 	snprintf(root_dl, sizeof(root_dl), "%s/.dir-locals.el", root);
 	fp = fopen(root_dl, "w");
 	CHECK(fp != NULL);
-	if (!fp) return;
+	if (!fp) {
+		return;
+	}
 	fprintf(fp, "((nil . ((buffer-read-only . t))))\n");
 	fclose(fp);
 
@@ -814,7 +818,9 @@ static void test_dl_find_nearest_wins(void)
 	snprintf(src_dl, sizeof(src_dl), "%s/.dir-locals.el", src_path);
 	fp = fopen(src_dl, "w");
 	CHECK(fp != NULL);
-	if (!fp) return;
+	if (!fp) {
+		return;
+	}
 	fprintf(fp, "((nil . ((buffer-read-only . nil))))\n");
 	fclose(fp);
 
@@ -833,7 +839,9 @@ static void test_dl_find_nearest_wins(void)
 
 	fp = fopen(found, "r");
 	CHECK(fp != NULL);
-	if (!fp) return;
+	if (!fp) {
+		return;
+	}
 	fsz = (long)fread(content, 1, sizeof(content) - 1, fp);
 	fclose(fp);
 	if (fsz > 0) {

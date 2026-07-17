@@ -56,7 +56,9 @@ static void test_transcript_command_and_directory(void)
 
 	memset(&cap, 0, sizeof(cap));
 	cap.output = strdup("out\n");
-	if (!cap.output) return;
+	if (!cap.output) {
+		return;
+	}
 	cap.output_length = strlen(cap.output);
 	cap.exited = true;
 	cap.exit_code = 0;
@@ -76,7 +78,9 @@ static void test_transcript_exit_code(void)
 
 	memset(&cap, 0, sizeof(cap));
 	cap.output = strdup("err\n");
-	if (!cap.output) return;
+	if (!cap.output) {
+		return;
+	}
 	cap.output_length = strlen(cap.output);
 	cap.exited = true;
 	cap.exit_code = 7;
@@ -95,7 +99,9 @@ static void test_transcript_signal(void)
 
 	memset(&cap, 0, sizeof(cap));
 	cap.output = strdup("killed\n");
-	if (!cap.output) return;
+	if (!cap.output) {
+		return;
+	}
 	cap.output_length = strlen(cap.output);
 	cap.exited = false;
 	cap.signal_number = 15;
@@ -114,7 +120,9 @@ static void test_transcript_truncation(void)
 
 	memset(&cap, 0, sizeof(cap));
 	cap.output = strdup("x");
-	if (!cap.output) return;
+	if (!cap.output) {
+		return;
+	}
 	cap.output_length = 1;
 	cap.exited = true;
 	cap.exit_code = 0;
@@ -135,7 +143,9 @@ static void test_transcript_output_no_newline(void)
 
 	memset(&cap, 0, sizeof(cap));
 	cap.output = strdup("noeol");
-	if (!cap.output) return;
+	if (!cap.output) {
+		return;
+	}
 	cap.output_length = strlen(cap.output);
 	cap.exited = true;
 	cap.exit_code = 0;
@@ -192,7 +202,9 @@ static void test_resolve_absolute(void)
 	{
 		FILE *fp = fopen(fname, "w");
 		CHECK(fp != NULL);
-		if (!fp) return;
+		if (!fp) {
+			return;
+		}
 		fclose(fp);
 	}
 	CHECK(compilation_resolve_directory(fname, dir, sizeof(dir)) == 0);

@@ -7,6 +7,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Stub functions required by display.c */
+void editor_at_exit(void) { }
+
+#define editor_set_status_message unused_editor_set_status_message
+#define editor_refresh_screen unused_editor_refresh_screen
+#include "../src/display.c"
+#undef editor_set_status_message
+#undef editor_refresh_screen
+
 /* ---- Helpers ---- */
 
 /* Build a file with `n` rows, each containing "lineNN" (6 chars). */
@@ -247,6 +256,26 @@ static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 	teardown();
 }
 
+static void test_ab_append_oom(void)
+{
+	struct abuf ab = ABUF_INIT;
+
+	CHECK(ab_append(&ab, "hello", 5) == 1);
+	CHECK(ab.len == 5);
+	CHECK(ab.oom == 0);
+	CHECK(ab.b != NULL && memcmp(ab.b, "hello", 5) == 0);
+
+	CHECK(ab_append(&ab, "world", INT_MAX) == 0);
+	CHECK(ab.oom == 1);
+	CHECK(ab.len == 5);
+
+	CHECK(ab_append(&ab, "world", 5) == 0);
+	CHECK(ab.len == 5);
+	CHECK(ab.b != NULL && memcmp(ab.b, "hello", 5) == 0);
+
+	ab_free(&ab);
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -267,5 +296,6 @@ int main(void)
 	RUN(test_visual_rows_use_glyph_columns_and_tab_stops);
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
+	RUN(test_ab_append_oom);
 	return test_summary();
 }

@@ -10,7 +10,9 @@
 #include "def.h"
 #include "localvars.h"
 
-#define ABUF_INIT { NULL, 0 }
+#ifndef ABUF_INIT
+#define ABUF_INIT { NULL, 0, 0 }
+#endif
 
 /* Welcome banner shown on an empty buffer.  An apothecary's cylindrical
  * brass knob weight stamped with a lower-case "kg", drawn with Unicode
@@ -31,19 +33,28 @@ static const char *kg_logo[] = {
 #define KG_LOGO_LINES ((int)(sizeof(kg_logo) / sizeof(kg_logo[0])))
 #define KG_LOGO_COLS 32
 
-void ab_append(struct abuf *ab, const char *s, int len)
+int ab_append(struct abuf *ab, const char *s, int len)
 {
-	if (len < 0 || ab->len > INT_MAX - len) {
-		return;
+	if (ab->oom) {
+		return 0;
+	}
+	if (len <= 0) {
+		return 1;
+	}
+	if (ab->len > INT_MAX - len) {
+		ab->oom = 1;
+		return 0;
 	}
 	char *new = realloc(ab->b, ab->len + len);
 
 	if (new == NULL) {
-		return;
+		ab->oom = 1;
+		return 0;
 	}
 	memcpy(new + ab->len, s, len);
 	ab->b = new;
 	ab->len += len;
+	return 1;
 }
 
 void ab_free(struct abuf *ab) { free(ab->b); }
@@ -630,6 +641,12 @@ void editor_refresh_screen(void)
 	}
 
 	ab_append(&ab, "\x1b[?25h", 6); /* Show cursor. */
+	if (ab.oom) {
+		ab_free(&ab);
+		editor_at_exit();
+		fprintf(stderr, "Out of memory\n");
+		exit(1);
+	}
 	tty_write(ab.b, ab.len);
 	ab_free(&ab);
 }

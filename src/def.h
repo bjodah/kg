@@ -306,7 +306,9 @@ struct editor_config {
 struct abuf {
 	char *b;
 	int len;
+	int oom;
 };
+#define ABUF_INIT { NULL, 0, 0 }
 
 /* Kill ring (yank buffer) for copy/paste operations */
 struct kill_ring {
@@ -573,7 +575,7 @@ static inline const char *buf_basename(const char *filename)
 extern const char *kg_help_lines[]; /* NULL-terminated, loaded into *help* */
 
 /* display.c */
-void ab_append(struct abuf *ab, const char *s, int len);
+int ab_append(struct abuf *ab, const char *s, int len);
 void ab_free(struct abuf *ab);
 void editor_refresh_screen(void);
 void editor_set_status_message(const char *fmt, ...);

@@ -593,6 +593,8 @@ void free_load_result(struct temp_load_result *res);
 
 int editor_open(char *filename);
 int editor_save(int fd);
+ssize_t write_all(int fd, const char *buf, size_t len);
+extern ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count);
 int editor_write_rows_to_file(
     const char *filename, erow *rows, int numrows, int *out_len);
 void editor_write_file(int fd);

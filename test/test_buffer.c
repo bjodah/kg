@@ -766,10 +766,219 @@ static void test_transactional_open_reload(void)
 	teardown();
 }
 
+static int mock_write_eintr_count = 0;
+static int mock_write_short_count = 0;
+
+static ssize_t mock_write_test_helper(int fd, const void *buf, size_t count)
+{
+	(void)fd;
+	(void)buf;
+	if (mock_write_eintr_count > 0) {
+		mock_write_eintr_count--;
+		errno = EINTR;
+		return -1;
+	}
+	if (mock_write_short_count > 0) {
+		mock_write_short_count--;
+		if (count > 2) {
+			return 2;
+		}
+	}
+	return count;
+}
+
+static ssize_t mock_write_error(int fd, const void *buf, size_t count)
+{
+	(void)fd;
+	(void)buf;
+	(void)count;
+	errno = EACCES;
+	return -1;
+}
+
+static ssize_t mock_write_zero(int fd, const void *buf, size_t count)
+{
+	(void)fd;
+	(void)buf;
+	(void)count;
+	return 0;
+}
+
+static void test_write_all(void)
+{
+	/* Redirect write to our mock helper */
+	editor_write_fn = mock_write_test_helper;
+
+	/* Test success case with EINTR and short write */
+	mock_write_eintr_count = 3;
+	mock_write_short_count = 2;
+	ssize_t res = write_all(999, "hello world", 11);
+	CHECK(res == 11);
+	CHECK(mock_write_eintr_count == 0);
+	CHECK(mock_write_short_count == 0);
+
+	/* Test write returning error other than EINTR */
+	editor_write_fn = mock_write_error;
+	res = write_all(999, "hello world", 11);
+	CHECK(res == -1);
+	CHECK(errno == EACCES);
+
+	/* Test write returning 0 (treated as EIO) */
+	editor_write_fn = mock_write_zero;
+	res = write_all(999, "hello world", 11);
+	CHECK(res == -1);
+	CHECK(errno == EIO);
+
+	/* Restore default */
+	editor_write_fn = write;
+}
+
+#include <dirent.h>
+#include <sys/stat.h>
+
+static int count_files_in_dir(const char *path)
+{
+	DIR *d = opendir(path);
+	if (!d) {
+		return -1;
+	}
+	struct dirent *de;
+	int count = 0;
+	while ((de = readdir(d)) != NULL) {
+		if (strcmp(de->d_name, ".") == 0
+		    || strcmp(de->d_name, "..") == 0) {
+			continue;
+		}
+		count++;
+	}
+	closedir(d);
+	return count;
+}
+
+static void test_atomic_save_transactions(void)
+{
+	char tmp_dir_template[] = "test_atomic_XXXXXX";
+	char *tmp_dir = mkdtemp(tmp_dir_template);
+	CHECK(tmp_dir != NULL);
+	if (tmp_dir == NULL) {
+		return;
+	}
+
+	char target_path[PATH_MAX];
+	char link_path[PATH_MAX];
+	snprintf(target_path, sizeof(target_path), "%s/target.txt", tmp_dir);
+	snprintf(link_path, sizeof(link_path), "%s/link.txt", tmp_dir);
+
+	/* Write initial target file content */
+	FILE *f = fopen(target_path, "w");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		fprintf(f, "original content");
+		fclose(f);
+	}
+
+	/* 1. Permission mode bits of the target file are preserved. */
+	CHECK(chmod(target_path, 0600) == 0);
+
+	setup();
+	editor_insert_row(0, "new content", 11);
+
+	int out_len = 0;
+	int save_res = editor_write_rows_to_file(
+	    target_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 0);
+	CHECK(out_len == 11);
+
+	/* Verify file content was updated */
+	char file_buf[128] = { 0 };
+	f = fopen(target_path, "r");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		size_t read_bytes = fread(file_buf, 1, sizeof(file_buf) - 1, f);
+		file_buf[read_bytes] = '\0';
+		fclose(f);
+	}
+	CHECK(strcmp(file_buf, "new content") == 0);
+
+	/* Verify permissions were preserved */
+	struct stat st;
+	CHECK(stat(target_path, &st) == 0);
+	CHECK((st.st_mode & 0777) == 0600);
+
+	/* 2. Saving through a symlink preserves the symlink itself and updates
+	 * the target. */
+	CHECK(symlink("target.txt", link_path) == 0);
+
+	setup();
+	editor_insert_row(0, "updated through link", 20);
+
+	save_res = editor_write_rows_to_file(
+	    link_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 0);
+	CHECK(out_len == 20);
+
+	/* Verify link.txt is still a symlink */
+	CHECK(lstat(link_path, &st) == 0);
+	CHECK(S_ISLNK(st.st_mode));
+
+	/* Verify target.txt was updated */
+	file_buf[0] = '\0';
+	f = fopen(target_path, "r");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		size_t read_bytes = fread(file_buf, 1, sizeof(file_buf) - 1, f);
+		file_buf[read_bytes] = '\0';
+		fclose(f);
+	}
+	CHECK(strcmp(file_buf, "updated through link") == 0);
+
+	/* 3. Pre-rename failures do not truncate or modify the original target,
+	 * and clean up temp files. */
+	f = fopen(target_path, "w");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		fprintf(f, "original content");
+		fclose(f);
+	}
+
+	editor_write_fn = mock_write_error;
+	setup();
+	editor_insert_row(0, "failed save attempt", 19);
+
+	save_res = editor_write_rows_to_file(
+	    target_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 1);
+
+	/* Verify original content is unmodified */
+	file_buf[0] = '\0';
+	f = fopen(target_path, "r");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		size_t read_bytes = fread(file_buf, 1, sizeof(file_buf) - 1, f);
+		file_buf[read_bytes] = '\0';
+		fclose(f);
+	}
+	CHECK(strcmp(file_buf, "original content") == 0);
+
+	/* Verify no temp files are left in tmp_dir (only target.txt and
+	 * link.txt should exist) */
+	int file_count = count_files_in_dir(tmp_dir);
+	CHECK(file_count == 2);
+
+	/* Clean up everything */
+	editor_write_fn = write;
+	unlink(link_path);
+	unlink(target_path);
+	rmdir(tmp_dir);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
 {
+	RUN(test_write_all);
+	RUN(test_atomic_save_transactions);
 	RUN(test_transactional_open_reload);
 	RUN(test_checked_helpers);
 	RUN(test_editor_rows_to_string_overflow);

@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,14 +44,45 @@ int file_state_differs(const char *path, time_t mtime, off_t size)
 	return st.st_mtime != mtime || st.st_size != size;
 }
 
-/* Write row storage directly to filename.  Returns 0 on success, 1 on error
+/* Function pointer for write syscall, allows mocking in unit tests. */
+ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count) = write;
+
+/* Loop until all bytes are written, retrying on EINTR and handling short
+ * writes. */
+ssize_t write_all(int fd, const char *buf, size_t len)
+{
+	size_t total = 0;
+	while (total < len) {
+		ssize_t n = editor_write_fn(fd, buf + total, len - total);
+		if (n == -1) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return -1;
+		}
+		if (n == 0) {
+			errno = EIO;
+			return -1;
+		}
+		total += n;
+	}
+	return (ssize_t)total;
+}
+
+/* Write row storage atomically to filename.  Returns 0 on success, 1 on error
  * with errno set. */
 int editor_write_rows_to_file(
     const char *filename, erow *rows, int numrows, int *out_len)
 {
-	char *buf;
-	int len;
-	int filefd;
+	char *buf = NULL;
+	int len = 0;
+	char resolved_path[PATH_MAX];
+	const char *target_path = filename;
+	char *dir = NULL;
+	char temp_template[PATH_MAX + 32];
+	int temp_fd = -1;
+	int temp_opened = 0;
+	struct stat st;
 
 	if (out_len) {
 		*out_len = 0;
@@ -61,35 +93,101 @@ int editor_write_rows_to_file(
 		return 1;
 	}
 
-	filefd = open(filename,
-	    O_RDWR | O_CREAT
-#ifdef O_CLOEXEC
-		| O_CLOEXEC
-#endif
-	    ,
-	    0644);
-	if (filefd == -1) {
-		free(buf);
-		return 1;
+	/* Check if filename is a symlink using lstat() */
+	if (lstat(filename, &st) == 0 && S_ISLNK(st.st_mode)) {
+		if (realpath(filename, resolved_path) != NULL) {
+			target_path = resolved_path;
+		}
 	}
 
-	/* Use truncate + a single write(2) call in order to make saving
-	 * a bit safer, under the limits of what we can do in a small editor. */
-	if (ftruncate(filefd, len) == -1 || write(filefd, buf, len) != len) {
-		int saved_errno = errno ? errno : EIO;
-
-		close(filefd);
-		free(buf);
-		errno = saved_errno;
-		return 1;
+	/* Derive the directory of target_path */
+	const char *last_slash = strrchr(target_path, '/');
+	if (last_slash == NULL) {
+		dir = strdup(".");
+	} else if (last_slash == target_path) {
+		dir = strdup("/");
+	} else {
+		size_t dir_len = last_slash - target_path;
+		dir = malloc(dir_len + 1);
+		if (dir) {
+			memcpy(dir, target_path, dir_len);
+			dir[dir_len] = '\0';
+		}
+	}
+	if (!dir) {
+		errno = ENOMEM;
+		goto err_cleanup;
 	}
 
-	close(filefd);
+	/* Create temp file template */
+	int snprintf_res = snprintf(
+	    temp_template, sizeof(temp_template), "%s/.kgtempXXXXXX", dir);
+	if (snprintf_res < 0 || (size_t)snprintf_res >= sizeof(temp_template)) {
+		errno = ENAMETOOLONG;
+		goto err_cleanup;
+	}
+
+	/* Call mkstemp() to open the temp file */
+	temp_fd = mkstemp(temp_template);
+	if (temp_fd == -1) {
+		goto err_cleanup;
+	}
+	temp_opened = 1;
+
+	/* Get permission bits of target file if it exists, otherwise use 0644
+	 */
+	mode_t mode = 0644;
+	struct stat target_st;
+	if (stat(target_path, &target_st) == 0) {
+		mode = target_st.st_mode & 07777;
+	}
+
+	/* Apply permissions using fchmod() */
+	if (fchmod(temp_fd, mode) == -1) {
+		goto err_cleanup;
+	}
+
+	/* Write entire content to temp file */
+	if (write_all(temp_fd, buf, len) == -1) {
+		goto err_cleanup;
+	}
+
+	/* Flush file data using fsync() */
+	if (fsync(temp_fd) == -1) {
+		goto err_cleanup;
+	}
+
+	/* Close the temp file */
+	temp_opened = 0;
+	if (close(temp_fd) == -1) {
+		goto err_cleanup;
+	}
+
+	/* Rename temp file over target_path */
+	if (rename(temp_template, target_path) == -1) {
+		goto err_cleanup;
+	}
+
+	free(dir);
 	free(buf);
 	if (out_len) {
 		*out_len = len;
 	}
 	return 0;
+
+err_cleanup: {
+	int saved_errno = errno;
+	if (temp_opened) {
+		close(temp_fd);
+	}
+	if (temp_fd != -1) {
+		unlink(temp_template);
+	}
+	free(dir);
+	free(buf);
+	errno = saved_errno;
+	return 1;
+}
 }
 
 int load_file_transactional(const char *filename, struct temp_load_result *res)
@@ -330,6 +428,9 @@ int editor_save(int fd)
 	char *newfilename;
 	int len = 0;
 	int answer;
+	char *old_filename = NULL;
+	struct editor_syntax *old_syntax = NULL;
+	int name_changed = 0;
 
 	if (is_special_buffer(editor.filename)) {
 		char newname[256];
@@ -361,7 +462,11 @@ int editor_save(int fd)
 			editor_set_status_message("Out of memory");
 			return 1;
 		}
-		free(editor.filename);
+
+		old_filename = editor.filename;
+		old_syntax = editor.syntax;
+		name_changed = 1;
+
 		editor.filename = newfilename;
 		editor_select_syntax_highlight(editor.filename);
 	} else if (file_state_differs(
@@ -379,7 +484,19 @@ int editor_save(int fd)
 
 	if (editor_write_rows_to_file(
 		editor.filename, editor.row, editor.numrows, &len)) {
+		if (name_changed) {
+			free(editor.filename);
+			editor.filename = old_filename;
+			editor.syntax = old_syntax;
+		}
 		goto writeerr;
+	}
+
+	if (name_changed) {
+		free(old_filename);
+		for (int i = 0; i < editor.numrows; i++) {
+			editor_update_syntax(&editor.row[i]);
+		}
 	}
 
 	editor.dirty = 0;
@@ -409,12 +526,29 @@ void editor_write_file(int fd)
 	}
 	newfilename = strdup(newname);
 	if (!newfilename) {
+		editor_set_status_message("Out of memory");
 		return;
 	}
-	free(editor.filename);
+
+	char *old_filename = editor.filename;
+	struct editor_syntax *old_syntax = editor.syntax;
+
 	editor.filename = newfilename;
 	editor_select_syntax_highlight(editor.filename);
-	editor_save(fd);
+
+	if (editor_save(fd) != 0) {
+		/* Save failed: restore previous filename and syntax */
+		free(editor.filename);
+		editor.filename = old_filename;
+		editor.syntax = old_syntax;
+	} else {
+		/* Save succeeded: free the old filename and update syntax of
+		 * rows */
+		free(old_filename);
+		for (int i = 0; i < editor.numrows; i++) {
+			editor_update_syntax(&editor.row[i]);
+		}
+	}
 }
 
 /* Prompt for a filename and insert its contents at point.

@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <errno.h>
 #include <signal.h>
 
 /* Stubs for tty.c dependencies */
@@ -20,7 +21,11 @@ static void test_sigwinch_handling(void)
 	/* First, ensure calling it without signal returns 0 */
 	CHECK(editor_process_pending_signals() == 0);
 
-	/* Call the signal handler */
+	/* Coalesced signals still request one resize, and the handler does not
+	 * disturb errno in the interrupted code. */
+	errno = EBUSY;
+	handle_sig_winch(SIGWINCH);
+	CHECK(errno == EBUSY);
 	handle_sig_winch(SIGWINCH);
 
 	/* editor_process_pending_signals() should now detect it and return 1 */

@@ -387,6 +387,32 @@ static void test_delete_text_range_newline(void)
 	teardown();
 }
 
+static void test_delete_text_range_overrun(void)
+{
+	setup();
+	editor_insert_row(0, "hello", 5);
+	editor_insert_row(1, "world", 5);
+
+	CHECK(editor_delete_text_range_raw(0, 5, 7) == 0);
+	CHECK(editor.numrows == 2);
+	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
+	CHECK(memcmp(editor.row[1].chars, "world", 5) == 0);
+	teardown();
+}
+
+static void test_delete_text_range_full_first_row(void)
+{
+	setup();
+	editor_insert_row(0, "hello", 5);
+	editor_insert_row(1, "world", 5);
+
+	CHECK(editor_delete_text_range_raw(0, 0, 6) == 1);
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "world", 5) == 0);
+	teardown();
+}
+
 static void test_delete_text_range_large(void)
 {
 	setup();
@@ -444,9 +470,7 @@ static void test_undo_replace_text(void)
 static void test_undo_replace_text_multi_row(void)
 {
 	setup();
-	editor_insert_row(0, "hey", 3);
-	editor_insert_row(1, "buddy", 5);
-	editor.numrows = 2;
+	editor_insert_row(0, "heZZZZZZZZZ", 11);
 
 	undo_push(UNDO_REPLACE_TEXT, 0, 2, 9, "llo\nworld", 9);
 
@@ -481,6 +505,8 @@ int main(void)
 	RUN(test_delete_text_range_single_row);
 	RUN(test_delete_text_range_multi_row);
 	RUN(test_delete_text_range_newline);
+	RUN(test_delete_text_range_overrun);
+	RUN(test_delete_text_range_full_first_row);
 	RUN(test_delete_text_range_large);
 	RUN(test_undo_yank_multi_row);
 	RUN(test_undo_replace_text);

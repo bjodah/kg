@@ -525,6 +525,15 @@ static inline int checked_add_size_t(size_t *result, size_t a, size_t b)
 	return 1;
 }
 
+static inline int checked_mul_size_t(size_t *result, size_t a, size_t b)
+{
+	if (a != 0 && b > SIZE_MAX / a) {
+		return 0;
+	}
+	*result = a * b;
+	return 1;
+}
+
 static inline int checked_add_int_size(int *result, int a, size_t b)
 {
 	if (a < 0) {
@@ -598,6 +607,9 @@ int editor_open(char *filename);
 int editor_save(int fd);
 ssize_t write_all(int fd, const char *buf, size_t len);
 extern ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count);
+extern int (*editor_fsync_fn)(int fd);
+extern int (*editor_close_fn)(int fd);
+extern int (*editor_rename_fn)(const char *oldpath, const char *newpath);
 int editor_write_rows_to_file(
     const char *filename, erow *rows, int numrows, int *out_len);
 void editor_write_file(int fd);
@@ -729,7 +741,7 @@ void editor_sort_lines(void);
 /* undo.c */
 void undo_init(void);
 void undo_free(void);
-void undo_push(
+int undo_push(
     enum undo_type type, int row, int col, int c, char *text, int len);
 void editor_undo(void);
 void undo_mark_clean(void);

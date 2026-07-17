@@ -38,20 +38,20 @@ void undo_free(void)
 }
 
 /* Push an undo operation onto the stack */
-void undo_push(
-    enum undo_type type, int row, int col, int c, char *text, int len)
+int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 {
 	struct undo_op *op;
+	int alloc_sz;
 
 	/* Skip if undo recording is suppressed */
 	if (suppress_undo) {
-		return;
+		return 1;
 	}
 
 	/* Create new undo operation */
 	op = malloc(sizeof(struct undo_op));
 	if (!op) {
-		return;
+		return 0;
 	}
 
 	op->type = type;
@@ -63,11 +63,17 @@ void undo_push(
 
 	/* Copy text if provided */
 	if (text && len > 0) {
-		op->text = malloc(len + 1);
-		if (op->text) {
-			memcpy(op->text, text, len);
-			op->text[len] = '\0';
+		if (!checked_add_int_size(&alloc_sz, len, 1)) {
+			free(op);
+			return 0;
 		}
+		op->text = malloc(alloc_sz);
+		if (!op->text) {
+			free(op);
+			return 0;
+		}
+		memcpy(op->text, text, len);
+		op->text[len] = '\0';
 	}
 
 	/* Add to front of stack */
@@ -102,6 +108,7 @@ void undo_push(
 			}
 		}
 	}
+	return 1;
 }
 
 /* Perform undo operation */
@@ -232,8 +239,9 @@ void editor_undo(void)
 		/* Reverse: delete the replacement span, then restore the
 		 * original bytes saved in op->text.  op->c is the replacement
 		 * byte length. */
-		if (op->c > 0) {
-			editor_delete_text_range_raw(op->row, op->col, op->c);
+		if (op->c > 0
+		    && !editor_delete_text_range_raw(op->row, op->col, op->c)) {
+			break;
 		}
 		if (op->text && op->len > 0) {
 			editor_insert_text_raw(op->text, op->len);

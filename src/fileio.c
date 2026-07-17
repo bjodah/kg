@@ -46,6 +46,9 @@ int file_state_differs(const char *path, time_t mtime, off_t size)
 
 /* Function pointer for write syscall, allows mocking in unit tests. */
 ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count) = write;
+int (*editor_fsync_fn)(int fd) = fsync;
+int (*editor_close_fn)(int fd) = close;
+int (*editor_rename_fn)(const char *oldpath, const char *newpath) = rename;
 
 /* Loop until all bytes are written, retrying on EINTR and handling short
  * writes. */
@@ -82,6 +85,7 @@ int editor_write_rows_to_file(
 	char temp_template[PATH_MAX + 32];
 	int temp_fd = -1;
 	int temp_opened = 0;
+	int temp_created = 0;
 	struct stat st;
 
 	if (out_len) {
@@ -119,7 +123,8 @@ int editor_write_rows_to_file(
 		goto err_cleanup;
 	}
 
-	/* Create temp file template */
+	/* "/.kgtempXXXXXX" needs 14 bytes including its NUL; the extra 32
+	 * leaves room beyond PATH_MAX for the generated template. */
 	int snprintf_res = snprintf(
 	    temp_template, sizeof(temp_template), "%s/.kgtempXXXXXX", dir);
 	if (snprintf_res < 0 || (size_t)snprintf_res >= sizeof(temp_template)) {
@@ -133,13 +138,21 @@ int editor_write_rows_to_file(
 		goto err_cleanup;
 	}
 	temp_opened = 1;
+	temp_created = 1;
 
-	/* Get permission bits of target file if it exists, otherwise use 0644
+	/* Replacements retain ordinary permissions only.  Atomic rename creates
+	 * a new inode, so ownership, ACLs, xattrs, hard links, and special mode
+	 * bits are not preserved.  A new file follows the process umask like
+	 * open(2).
 	 */
-	mode_t mode = 0644;
+	mode_t mode;
 	struct stat target_st;
 	if (stat(target_path, &target_st) == 0) {
-		mode = target_st.st_mode & 07777;
+		mode = target_st.st_mode & 0777;
+	} else {
+		mode_t mask = umask(0);
+		umask(mask);
+		mode = 0666 & ~mask;
 	}
 
 	/* Apply permissions using fchmod() */
@@ -152,19 +165,27 @@ int editor_write_rows_to_file(
 		goto err_cleanup;
 	}
 
-	/* Flush file data using fsync() */
-	if (fsync(temp_fd) == -1) {
+	/* Flush file data before rename.  We intentionally do not sync the
+	 * containing directory, so a successful save is not full crash
+	 * durability. Filesystems that reject fsync() still report save
+	 * failure. */
+	if (editor_fsync_fn(temp_fd) == -1) {
 		goto err_cleanup;
 	}
 
 	/* Close the temp file */
+	/* Do not retry close after an error: the descriptor may already be
+	 * closed. The pathname is still unlinked by the common failure cleanup.
+	 */
+	int close_fd = temp_fd;
+	temp_fd = -1;
 	temp_opened = 0;
-	if (close(temp_fd) == -1) {
+	if (editor_close_fn(close_fd) == -1) {
 		goto err_cleanup;
 	}
 
 	/* Rename temp file over target_path */
-	if (rename(temp_template, target_path) == -1) {
+	if (editor_rename_fn(temp_template, target_path) == -1) {
 		goto err_cleanup;
 	}
 
@@ -180,7 +201,7 @@ err_cleanup: {
 	if (temp_opened) {
 		close(temp_fd);
 	}
-	if (temp_fd != -1) {
+	if (temp_created) {
 		unlink(temp_template);
 	}
 	free(dir);
@@ -188,6 +209,74 @@ err_cleanup: {
 	errno = saved_errno;
 	return 1;
 }
+}
+
+static int load_append_row(
+    struct temp_load_result *res, const char *line, size_t linelen)
+{
+	int at;
+	int new_numrows;
+	int saved_running;
+	size_t chars_size;
+	size_t rows_size;
+	erow *new_rows;
+	char *newchars;
+	erow *saved_row;
+	int saved_numrows;
+	struct editor_syntax *saved_syntax;
+
+	if (!checked_size_to_int(&at, linelen)
+	    || !checked_add_int_size(&new_numrows, res->numrows, 1)
+	    || !checked_mul_size_t(
+		&rows_size, (size_t)new_numrows, sizeof(*res->row))
+	    || !checked_add_size_t(&chars_size, linelen, 1)) {
+		errno = EOVERFLOW;
+		return -1;
+	}
+
+	newchars = malloc(chars_size);
+	if (!newchars) {
+		errno = ENOMEM;
+		return -1;
+	}
+	memcpy(newchars, line, chars_size);
+
+	new_rows = realloc(res->row, rows_size);
+	if (!new_rows) {
+		free(newchars);
+		errno = ENOMEM;
+		return -1;
+	}
+	res->row = new_rows;
+	at = res->numrows;
+	res->row[at] = (erow) {
+		.idx = at,
+		.size = (int)linelen,
+		.chars = newchars,
+	};
+	res->numrows = new_numrows;
+
+	/* Rendering and syntax highlighting are shared editor machinery.  It is
+	 * safe here because the staged rows are installed as a complete prefix;
+	 * restore all live state before reporting a staged allocation failure.
+	 */
+	saved_row = editor.row;
+	saved_numrows = editor.numrows;
+	saved_syntax = editor.syntax;
+	saved_running = running;
+	editor.row = res->row;
+	editor.numrows = res->numrows;
+	editor_select_syntax_highlight(res->filename);
+	editor_update_row(&res->row[at]);
+	editor.row = saved_row;
+	editor.numrows = saved_numrows;
+	editor.syntax = saved_syntax;
+	if (!res->row[at].render || running != saved_running) {
+		running = saved_running;
+		errno = ENOMEM;
+		return -1;
+	}
+	return 0;
 }
 
 int load_file_transactional(const char *filename, struct temp_load_result *res)
@@ -232,112 +321,14 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 			ended_with_newline = 1;
 		}
 
-		erow *new_rows
-		    = realloc(res->row, sizeof(erow) * (res->numrows + 1));
-		if (!new_rows) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
-		}
-		res->row = new_rows;
-
-		char *newchars = malloc(linelen + 1);
-		if (!newchars) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
-		}
-		memcpy(newchars, line, linelen + 1);
-
-		int at = res->numrows;
-		res->row[at].idx = at;
-		res->row[at].size = linelen;
-		res->row[at].chars = newchars;
-		res->row[at].hl = NULL;
-		res->row[at].hl_oc = 0;
-		res->row[at].render = NULL;
-		res->row[at].rsize = 0;
-		res->numrows++;
-
-		erow *saved_row = editor.row;
-		int saved_numrows = editor.numrows;
-		struct editor_syntax *saved_syntax = editor.syntax;
-
-		editor.row = res->row;
-		editor.numrows = res->numrows;
-		editor_select_syntax_highlight(res->filename);
-
-		editor_update_row(&res->row[at]);
-
-		editor.row = saved_row;
-		editor.numrows = saved_numrows;
-		editor.syntax = saved_syntax;
-
-		if (!res->row[at].render) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
+		if (load_append_row(res, line, (size_t)linelen) != 0) {
+			goto load_error;
 		}
 	}
 
 	if (ended_with_newline) {
-		erow *new_rows
-		    = realloc(res->row, sizeof(erow) * (res->numrows + 1));
-		if (!new_rows) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
-		}
-		res->row = new_rows;
-
-		char *newchars = malloc(1);
-		if (!newchars) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
-		}
-		newchars[0] = '\0';
-
-		int at = res->numrows;
-		res->row[at].idx = at;
-		res->row[at].size = 0;
-		res->row[at].chars = newchars;
-		res->row[at].hl = NULL;
-		res->row[at].hl_oc = 0;
-		res->row[at].render = NULL;
-		res->row[at].rsize = 0;
-		res->numrows++;
-
-		erow *saved_row = editor.row;
-		int saved_numrows = editor.numrows;
-		struct editor_syntax *saved_syntax = editor.syntax;
-
-		editor.row = res->row;
-		editor.numrows = res->numrows;
-		editor_select_syntax_highlight(res->filename);
-
-		editor_update_row(&res->row[at]);
-
-		editor.row = saved_row;
-		editor.numrows = saved_numrows;
-		editor.syntax = saved_syntax;
-
-		if (!res->row[at].render) {
-			free(line);
-			fclose(fp);
-			free_load_result(res);
-			errno = ENOMEM;
-			return -1;
+		if (load_append_row(res, "", 0) != 0) {
+			goto load_error;
 		}
 	}
 
@@ -357,6 +348,15 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 	}
 
 	return 0;
+
+load_error: {
+	int saved_errno = errno;
+	free(line);
+	fclose(fp);
+	free_load_result(res);
+	errno = saved_errno;
+	return -1;
+}
 }
 
 void commit_load_result(struct temp_load_result *res)
@@ -373,6 +373,7 @@ void commit_load_result(struct temp_load_result *res)
 	editor.numrows = res->numrows;
 	editor.disk_mtime = res->disk_mtime;
 	editor.disk_size = res->disk_size;
+	editor.disk_changed = 0;
 	editor.dirty = 0;
 
 	editor_select_syntax_highlight(editor.filename);

@@ -2,10 +2,13 @@
 
 #include "../src/def.h"
 #include "test.h"
+#include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* ---- Helpers ---- */
 
@@ -671,6 +674,9 @@ static void test_checked_helpers(void)
 	CHECK(checked_add_size_t(&res_sz, SIZE_MAX - 5, 6) == 0);
 	CHECK(checked_add_size_t(&res_sz, SIZE_MAX - 5, 5) == 1);
 	CHECK(res_sz == SIZE_MAX);
+	CHECK(checked_mul_size_t(&res_sz, 8, 4) == 1);
+	CHECK(res_sz == 32);
+	CHECK(checked_mul_size_t(&res_sz, SIZE_MAX, 2) == 0);
 
 	/* test checked_add_int_size */
 	int res_i;
@@ -729,6 +735,8 @@ static void test_kill_ring_append_overflow(void)
 
 static void test_transactional_open_reload(void)
 {
+	char path[] = "test_load_XXXXXX";
+	int fd;
 	/* Sets up a buffer with some rows and a filename (e.g. "test.txt"). */
 	setup();
 	editor_insert_row(0, "line1", 5);
@@ -738,6 +746,27 @@ static void test_transactional_open_reload(void)
 	CHECK(editor.numrows == 2);
 	CHECK(strcmp(editor.row[0].chars, "line1") == 0);
 	CHECK(strcmp(editor.row[1].chars, "line2") == 0);
+
+	/* A successful commit clears the stale-on-disk marker along with the
+	 * fresh metadata snapshot. */
+	fd = mkstemp(path);
+	CHECK(fd != -1);
+	if (fd != -1) {
+		CHECK(write(fd, "fresh", 5) == 5);
+		CHECK(close(fd) == 0);
+		editor.disk_changed = 1;
+		CHECK(editor_open(path) == 0);
+		CHECK(editor.disk_changed == 0);
+		unlink(path);
+	}
+
+	free_all_rows();
+	editor.row = NULL;
+	editor.numrows = 0;
+	free(editor.filename);
+	editor.filename = strdup("test.txt");
+	editor_insert_row(0, "line1", 5);
+	editor_insert_row(1, "line2", 5);
 
 	/* Tries to open a directory (e.g. `/` or `.`) which will fail... */
 	int open_res = editor_open(".");
@@ -804,6 +833,30 @@ static ssize_t mock_write_zero(int fd, const void *buf, size_t count)
 	return 0;
 }
 
+static int mock_fsync_error(int fd)
+{
+	(void)fd;
+	errno = EIO;
+	return -1;
+}
+
+static int mock_close_error(int fd)
+{
+	if (close(fd) == -1) {
+		return -1;
+	}
+	errno = EIO;
+	return -1;
+}
+
+static int mock_rename_error(const char *oldpath, const char *newpath)
+{
+	(void)oldpath;
+	(void)newpath;
+	errno = EIO;
+	return -1;
+}
+
 static void test_write_all(void)
 {
 	/* Redirect write to our mock helper */
@@ -832,9 +885,6 @@ static void test_write_all(void)
 	/* Restore default */
 	editor_write_fn = write;
 }
-
-#include <dirent.h>
-#include <sys/stat.h>
 
 static int count_files_in_dir(const char *path)
 {
@@ -866,8 +916,10 @@ static void test_atomic_save_transactions(void)
 
 	char target_path[PATH_MAX];
 	char link_path[PATH_MAX];
+	char new_path[PATH_MAX];
 	snprintf(target_path, sizeof(target_path), "%s/target.txt", tmp_dir);
 	snprintf(link_path, sizeof(link_path), "%s/link.txt", tmp_dir);
+	snprintf(new_path, sizeof(new_path), "%s/new.txt", tmp_dir);
 
 	/* Write initial target file content */
 	FILE *f = fopen(target_path, "w");
@@ -903,6 +955,15 @@ static void test_atomic_save_transactions(void)
 	/* Verify permissions were preserved */
 	struct stat st;
 	CHECK(stat(target_path, &st) == 0);
+	CHECK((st.st_mode & 0777) == 0600);
+
+	/* A new file honours the process umask rather than forcing 0644. */
+	mode_t old_umask = umask(0077);
+	save_res = editor_write_rows_to_file(
+	    new_path, editor.row, editor.numrows, &out_len);
+	umask(old_umask);
+	CHECK(save_res == 0);
+	CHECK(stat(new_path, &st) == 0);
 	CHECK((st.st_mode & 0777) == 0600);
 
 	/* 2. Saving through a symlink preserves the symlink itself and updates
@@ -960,15 +1021,57 @@ static void test_atomic_save_transactions(void)
 	}
 	CHECK(strcmp(file_buf, "original content") == 0);
 
-	/* Verify no temp files are left in tmp_dir (only target.txt and
-	 * link.txt should exist) */
+	/* Verify no temp files are left in tmp_dir. */
 	int file_count = count_files_in_dir(tmp_dir);
-	CHECK(file_count == 2);
+	CHECK(file_count == 3);
+
+	/* The other pre-rename failure points leave the target and directory
+	 * equally intact. */
+	f = fopen(target_path, "w");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		fprintf(f, "original content");
+		fclose(f);
+	}
+	editor_write_fn = write;
+	editor_fsync_fn = mock_fsync_error;
+	save_res = editor_write_rows_to_file(
+	    target_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 1);
+	CHECK(count_files_in_dir(tmp_dir) == 3);
+
+	editor_fsync_fn = fsync;
+	editor_close_fn = mock_close_error;
+	save_res = editor_write_rows_to_file(
+	    target_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 1);
+	CHECK(count_files_in_dir(tmp_dir) == 3);
+
+	editor_close_fn = close;
+	editor_rename_fn = mock_rename_error;
+	save_res = editor_write_rows_to_file(
+	    target_path, editor.row, editor.numrows, &out_len);
+	CHECK(save_res == 1);
+	CHECK(count_files_in_dir(tmp_dir) == 3);
+
+	file_buf[0] = '\0';
+	f = fopen(target_path, "r");
+	CHECK(f != NULL);
+	if (f != NULL) {
+		size_t read_bytes = fread(file_buf, 1, sizeof(file_buf) - 1, f);
+		file_buf[read_bytes] = '\0';
+		fclose(f);
+	}
+	CHECK(strcmp(file_buf, "original content") == 0);
 
 	/* Clean up everything */
 	editor_write_fn = write;
+	editor_fsync_fn = fsync;
+	editor_close_fn = close;
+	editor_rename_fn = rename;
 	unlink(link_path);
 	unlink(target_path);
+	unlink(new_path);
 	rmdir(tmp_dir);
 	teardown();
 }

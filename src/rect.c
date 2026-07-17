@@ -23,15 +23,22 @@ void rect_kill_ring_free(void)
 
 static void rect_kill_ring_set(char *text, int len, int nrows)
 {
-	rect_kill_ring_free();
-	rect_killed = malloc(len + 1);
-	if (!rect_killed) {
+	int alloc_sz;
+	char *new_killed;
+
+	if (!checked_add_int_size(&alloc_sz, len, 1)) {
+		return;
+	}
+	new_killed = malloc(alloc_sz);
+	if (!new_killed) {
 		return;
 	}
 	if (len > 0) {
-		memcpy(rect_killed, text, len);
+		memcpy(new_killed, text, len);
 	}
-	rect_killed[len] = '\0';
+	new_killed[len] = '\0';
+	rect_kill_ring_free();
+	rect_killed = new_killed;
 	rect_killed_len = len;
 	rect_killed_nrows = nrows;
 }
@@ -126,13 +133,24 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	}
 
 	for (r = start_row; r < end_row; r++) {
-		total += editor.row[r].size;
+		if (!checked_add_int_size(&total, total, editor.row[r].size)) {
+			*out_len = 0;
+			return NULL;
+		}
 		if (r < end_row - 1) {
-			total++; /* '\n' separator */
+			if (!checked_add_int_size(&total, total, 1)) {
+				*out_len = 0;
+				return NULL;
+			}
 		}
 	}
 
-	buf = malloc(total + 1);
+	int alloc_sz;
+	if (!checked_add_int_size(&alloc_sz, total, 1)) {
+		*out_len = 0;
+		return NULL;
+	}
+	buf = malloc(alloc_sz);
 	if (!buf) {
 		*out_len = 0;
 		return NULL;
@@ -190,17 +208,32 @@ static void rect_kill_or_delete(int save_to_ring)
 		int killed_total = 0;
 		int killed_nrows = e_row - s_row + 1;
 		char *killed_text;
+		int killed_ok = 1;
 
 		for (r = s_row; r <= e_row && r < editor.numrows; r++) {
 			int lo, hi;
 			rect_row_byte_range(
 			    &editor.row[r], s_vcol, e_vcol, &lo, &hi);
-			killed_total += hi - lo;
+			if (!checked_add_int_size(
+				&killed_total, killed_total, hi - lo)) {
+				killed_ok = 0;
+				break;
+			}
 			if (r < e_row) {
-				killed_total++;
+				if (!checked_add_int_size(
+					&killed_total, killed_total, 1)) {
+					killed_ok = 0;
+					break;
+				}
 			}
 		}
-		killed_text = malloc(killed_total + 1);
+		int killed_alloc;
+		if (!killed_ok
+		    || !checked_add_int_size(&killed_alloc, killed_total, 1)) {
+			killed_text = NULL;
+		} else {
+			killed_text = malloc(killed_alloc);
+		}
 		if (killed_text) {
 			char *p = killed_text;
 			for (r = s_row; r <= e_row && r < editor.numrows; r++) {

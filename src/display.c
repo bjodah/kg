@@ -643,8 +643,10 @@ void editor_refresh_screen(void)
 	ab_append(&ab, "\x1b[?25h", 6); /* Show cursor. */
 	if (ab.oom) {
 		ab_free(&ab);
-		editor_at_exit();
 		fprintf(stderr, "Out of memory\n");
+		/* editor_at_exit() is already registered by enable_raw_mode();
+		 * exit() runs it before editor_cleanup() because atexit
+		 * handlers are LIFO. */
 		exit(1);
 	}
 	tty_write(ab.b, ab.len);

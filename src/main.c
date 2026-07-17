@@ -96,7 +96,11 @@ void init_editor(void)
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = handle_sig_winch;
-	sigaction(SIGWINCH, &sa, NULL);
+	if (sigemptyset(&sa.sa_mask) == -1
+	    || sigaction(SIGWINCH, &sa, NULL) == -1) {
+		perror("sigaction SIGWINCH");
+		exit(1);
+	}
 }
 
 static int usage(FILE *fp, int rc)

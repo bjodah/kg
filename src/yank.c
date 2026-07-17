@@ -39,14 +39,15 @@ void kill_ring_set(char *text, int len)
 		return;
 	}
 
-	kill_ring_free();
-	killring.text = malloc(alloc_sz);
-	if (!killring.text) {
+	char *new_text = malloc(alloc_sz);
+	if (!new_text) {
 		return;
 	}
 
-	memcpy(killring.text, text, len);
-	killring.text[len] = '\0';
+	memcpy(new_text, text, len);
+	new_text[len] = '\0';
+	kill_ring_free();
+	killring.text = new_text;
 	killring.len = len;
 }
 
@@ -292,7 +293,7 @@ char *editor_get_region_text(int *out_len)
 	return text;
 }
 
-static void editor_delete_region_range(
+static int editor_delete_region_range(
     int start_row, int start_col, int end_row, int end_col)
 {
 	erow *first;
@@ -301,6 +302,7 @@ static void editor_delete_region_range(
 	int suffix_len;
 	int new_size;
 	int row;
+	int removed;
 
 	if (start_row == end_row) {
 		erow *r = &editor.row[start_row];
@@ -309,18 +311,20 @@ static void editor_delete_region_range(
 		r->size -= end_col - start_col;
 		editor_update_row(r);
 		editor.dirty++;
-		return;
+		return 1;
 	}
 
 	first = &editor.row[start_row];
 	last = &editor.row[end_row];
 	suffix_len = last->size - end_col;
-	new_size = start_col + suffix_len;
-	newchars = realloc(first->chars, new_size + 1);
+	if (!checked_add_int_size(
+		&new_size, start_col, (size_t)suffix_len + 1)) {
+		return 0;
+	}
+	new_size--;
+	newchars = realloc(first->chars, (size_t)new_size + 1);
 	if (!newchars) {
-		editor_set_status_message("Out of memory");
-		running = 0;
-		return;
+		return 0;
 	}
 	first->chars = newchars;
 	memcpy(first->chars + start_col, last->chars + end_col, suffix_len);
@@ -328,10 +332,18 @@ static void editor_delete_region_range(
 	first->size = new_size;
 	editor_update_row(first);
 
-	for (row = end_row; row > start_row; row--) {
-		editor_del_row(row);
+	for (row = start_row + 1; row <= end_row; row++) {
+		editor_free_row(&editor.row[row]);
+	}
+	removed = end_row - start_row;
+	memmove(editor.row + start_row + 1, editor.row + end_row + 1,
+	    (size_t)(editor.numrows - end_row - 1) * sizeof(*editor.row));
+	editor.numrows -= removed;
+	for (row = start_row + 1; row < editor.numrows; row++) {
+		editor.row[row].idx = row;
 	}
 	editor.dirty++;
+	return 1;
 }
 
 int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
@@ -351,14 +363,14 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	int rem = byte_len;
 
 	while (rem > 0) {
-		if (row >= editor.numrows) {
-			break;
-		}
 		int row_len = editor.row[row].size;
 		if (rem <= row_len - col) {
 			col += rem;
 			rem = 0;
 		} else {
+			if (row + 1 >= editor.numrows) {
+				return 0;
+			}
 			rem -= (row_len - col + 1);
 			row++;
 			col = 0;
@@ -368,24 +380,17 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	int end_row = row;
 	int end_col = col;
 
-	if (end_row >= editor.numrows) {
-		end_row = editor.numrows - 1;
-		if (end_row < 0) {
-			return 0;
-		}
-		end_col = editor.row[end_row].size;
-	}
-
 	if (start_row == end_row && start_col == end_col) {
 		return 0;
 	}
 
 	int saved_suppress = suppress_undo;
 	suppress_undo = 1;
-	editor_delete_region_range(start_row, start_col, end_row, end_col);
+	int deleted = editor_delete_region_range(
+	    start_row, start_col, end_row, end_col);
 	suppress_undo = saved_suppress;
 
-	return 1;
+	return deleted;
 }
 
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at

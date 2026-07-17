@@ -1597,6 +1597,12 @@ void buf_ibuffer_select(void)
 
 void editor_cleanup(void)
 {
+	static int cleaned_up;
+
+	if (cleaned_up) {
+		return;
+	}
+	cleaned_up = 1;
 	buf_save_to_slot(buf_current);
 	undostack.head = NULL;
 	undostack.size = 0;
@@ -1629,6 +1635,6 @@ void editor_cleanup(void)
 	editor.numrows = 0;
 	editor.filename = NULL;
 	kill_ring_free();
-	undo_free();
+	rect_kill_ring_free();
 	kg_lisp_shutdown();
 }

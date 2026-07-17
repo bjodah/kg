@@ -18,6 +18,7 @@ static unsigned char *pending_input;
 static size_t pending_input_len;
 static size_t pending_input_off;
 static size_t pending_input_cap;
+static volatile sig_atomic_t pending_resize;
 
 struct key_map {
 	char byte;
@@ -394,11 +395,22 @@ int editor_read_key(int fd)
 		return key;
 	}
 
-	while ((nread = read_input_byte(fd, &c)) == 0)
-		;
-	if (nread == -1) {
-		running = 0;
-		return 0;
+	while (1) {
+		nread = read_input_byte(fd, &c);
+		if (nread == 0) {
+			continue;
+		}
+		if (nread == -1) {
+			if (errno == EINTR) {
+				if (editor_process_pending_signals() == 1) {
+					editor_refresh_screen();
+				}
+				continue;
+			}
+			running = 0;
+			return 0;
+		}
+		break;
 	}
 
 	key = (c == ESC) ? parse_escape(fd) : (unsigned char)c;
@@ -421,11 +433,22 @@ int editor_read_raw_byte(int fd)
 		return key;
 	}
 
-	while ((nread = read_input_byte(fd, &c)) == 0)
-		;
-	if (nread == -1) {
-		running = 0;
-		return 0;
+	while (1) {
+		nread = read_input_byte(fd, &c);
+		if (nread == 0) {
+			continue;
+		}
+		if (nread == -1) {
+			if (errno == EINTR) {
+				if (editor_process_pending_signals() == 1) {
+					editor_refresh_screen();
+				}
+				continue;
+			}
+			running = 0;
+			return 0;
+		}
+		break;
 	}
 
 	key = (unsigned char)c;
@@ -449,14 +472,25 @@ int editor_read_key_idle(int fd)
 		return key;
 	}
 
-	while ((nread = read_input_byte(fd, &c)) == 0) {
-		if (autorevert_poll()) {
-			editor_refresh_screen();
+	while (1) {
+		nread = read_input_byte(fd, &c);
+		if (nread == 0) {
+			if (autorevert_poll()) {
+				editor_refresh_screen();
+			}
+			continue;
 		}
-	}
-	if (nread == -1) {
-		running = 0;
-		return 0;
+		if (nread == -1) {
+			if (errno == EINTR) {
+				if (editor_process_pending_signals() == 1) {
+					editor_refresh_screen();
+				}
+				continue;
+			}
+			running = 0;
+			return 0;
+		}
+		break;
 	}
 
 	key = (c == ESC) ? parse_escape(fd) : (unsigned char)c;
@@ -479,6 +513,10 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 	unsigned int i = 0;
 	char buf[32];
 
+	if (!isatty(ifd) || !isatty(ofd)) {
+		return -1;
+	}
+
 	/* Report cursor location */
 	if (write(ofd, "\x1b[6n", 4) != 4) {
 		return -1;
@@ -486,7 +524,17 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 
 	/* Read the response: ESC [ rows ; cols R */
 	while (i < sizeof(buf) - 1) {
-		if (read(ifd, buf + i, 1) != 1) {
+		ssize_t nread = read(ifd, buf + i, 1);
+		if (nread == -1) {
+			if (errno == EINTR) {
+				if (editor_process_pending_signals() == 1) {
+					editor_refresh_screen();
+				}
+				continue;
+			}
+			break;
+		}
+		if (nread == 0) {
 			break;
 		}
 		if (buf[i] == 'R') {
@@ -662,9 +710,20 @@ void handle_sig_winch(int unused __attribute__((unused)))
 	update_window_size();
 	return;
 #else
-	update_window_size(); /* calls win_reflow() which clamps cursors */
-	editor_refresh_screen();
+	int saved_errno = errno;
+	pending_resize = 1;
+	errno = saved_errno;
 #endif
+}
+
+int editor_process_pending_signals(void)
+{
+	if (pending_resize) {
+		pending_resize = 0;
+		update_window_size();
+		return 1;
+	}
+	return 0;
 }
 
 /* Suspend the editor (C-z): restore terminal, stop the process, then

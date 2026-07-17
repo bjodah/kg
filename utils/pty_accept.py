@@ -113,6 +113,11 @@ def token_to_bytes(token: str) -> bytes:
 
 
 def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
+	if token.startswith("RESIZE="):
+		r, c = map(int, token.split("=")[1].split(","))
+		child.setwinsize(r, c)
+		return
+
 	upper = token.upper()
 
 	if upper in ("C-SPC", "C-SPACE", "C-@"):
@@ -380,6 +385,11 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				     "-x", str(cols), "-y", str(rows), cmd)
 			time.sleep(startup_delay)
 			for token in keys:
+				if token.startswith("RESIZE="):
+					r, c = map(int, token.split("=")[1].split(","))
+					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
+					time.sleep(key_delay)
+					continue
 				mode, value = tmux_key_name(token)
 				if mode == "key":
 					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
@@ -390,6 +400,11 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					  check=False)
 			transcript.write(cp.stdout)
 			for token in trailer_keys:
+				if token.startswith("RESIZE="):
+					r, c = map(int, token.split("=")[1].split(","))
+					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
+					time.sleep(key_delay)
+					continue
 				mode, value = tmux_key_name(token)
 				if mode == "key":
 					run_tmux_cmd(sock, "send-keys", "-t", pane, value)

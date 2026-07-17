@@ -94,7 +94,8 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
-           $(TESTDIR)/test_localvars $(TESTDIR)/test_compile
+           $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
+           $(TESTDIR)/test_tty
 FUZZBIN = $(TESTDIR)/fuzz_keypress
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
@@ -283,6 +284,7 @@ EXTRA_lisp         := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mo
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o
+EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

@@ -90,7 +90,10 @@ void init_editor(void)
 	undo_init();
 	update_window_size();
 	win_init();
-	signal(SIGWINCH, handle_sig_winch);
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = handle_sig_winch;
+	sigaction(SIGWINCH, &sa, NULL);
 }
 
 static int usage(FILE *fp, int rc)
@@ -145,6 +148,7 @@ int main(int argc, char **argv)
 		    "Init file error: %s", kg_lisp_last_error());
 	}
 	while (running) {
+		editor_process_pending_signals();
 		autorevert_poll();
 		editor_refresh_screen();
 		editor_process_keypress(STDIN_FILENO);

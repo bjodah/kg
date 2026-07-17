@@ -9,6 +9,7 @@ test_regex
 test_region
 test_shell
 test_syntax
+test_tty
 test_undo
 test_word
 test_yank

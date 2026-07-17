@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 #define KG_MAX_VIRTUAL_INSERT_GAP (64 * 1024)
 

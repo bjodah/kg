@@ -1,7 +1,6 @@
 #ifndef KG_LOCALVARS_H
 #define KG_LOCALVARS_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 #define KG_COMPILE_COMMAND_MAX 1024

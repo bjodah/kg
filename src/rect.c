@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 /* Rectangle kill ring.  Holds the last killed/copied rectangle as a
  * '\n'-joined string of per-row content, plus the row count so yank

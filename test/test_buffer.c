@@ -727,10 +727,50 @@ static void test_kill_ring_append_overflow(void)
 	teardown();
 }
 
+static void test_transactional_open_reload(void)
+{
+	/* Sets up a buffer with some rows and a filename (e.g. "test.txt"). */
+	setup();
+	editor_insert_row(0, "line1", 5);
+	editor_insert_row(1, "line2", 5);
+	editor.filename = strdup("test.txt");
+	CHECK(editor.filename != NULL);
+	CHECK(editor.numrows == 2);
+	CHECK(strcmp(editor.row[0].chars, "line1") == 0);
+	CHECK(strcmp(editor.row[1].chars, "line2") == 0);
+
+	/* Tries to open a directory (e.g. `/` or `.`) which will fail... */
+	int open_res = editor_open(".");
+	/* and asserts that the buffer rows and filename are preserved intact.
+	 */
+	CHECK(open_res == 1);
+	CHECK(editor.filename != NULL);
+	CHECK(strcmp(editor.filename, "test.txt") == 0);
+	CHECK(editor.numrows == 2);
+	CHECK(strcmp(editor.row[0].chars, "line1") == 0);
+	CHECK(strcmp(editor.row[1].chars, "line2") == 0);
+
+	/* Tries to reload using a directory name (e.g. set filename to `.` and
+	 * reload) */
+	free(editor.filename);
+	editor.filename = strdup(".");
+	buf_reload_from_disk();
+	/* asserts reload fails and preserves the previous rows. */
+	CHECK(editor.numrows == 2);
+	CHECK(strcmp(editor.row[0].chars, "line1") == 0);
+	CHECK(strcmp(editor.row[1].chars, "line2") == 0);
+	CHECK(strcmp(editor.filename, ".") == 0);
+
+	free(editor.filename);
+	editor.filename = NULL;
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
 {
+	RUN(test_transactional_open_reload);
 	RUN(test_checked_helpers);
 	RUN(test_editor_rows_to_string_overflow);
 	RUN(test_kill_ring_append_overflow);

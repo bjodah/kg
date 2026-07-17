@@ -579,6 +579,18 @@ void editor_refresh_screen(void);
 void editor_set_status_message(const char *fmt, ...);
 
 /* fileio.c */
+struct temp_load_result {
+	char *filename;
+	erow *row;
+	int numrows;
+	time_t disk_mtime;
+	off_t disk_size;
+};
+
+int load_file_transactional(const char *filename, struct temp_load_result *res);
+void commit_load_result(struct temp_load_result *res);
+void free_load_result(struct temp_load_result *res);
+
 int editor_open(char *filename);
 int editor_save(int fd);
 int editor_write_rows_to_file(

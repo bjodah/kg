@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 /* Define pairs of characters that should be autocompleted */
 struct autopair {

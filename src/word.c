@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 #define FILL_COLUMN 72
 

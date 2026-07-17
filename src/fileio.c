@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "localvars.h"
 
 /* Refresh the on-disk metadata snapshot for the active buffer.  Called after
  * a successful open or save so the auto-revert poll has a baseline to
@@ -91,55 +92,233 @@ int editor_write_rows_to_file(
 	return 0;
 }
 
-/* Load the specified program in the editor memory and returns 0 on success
- * or 1 on error. */
-int editor_open(char *filename)
+int load_file_transactional(const char *filename, struct temp_load_result *res)
 {
-	ssize_t linelen;
-	size_t linecap = 0;
-	size_t fnlen = strlen(filename) + 1;
-	char *line = NULL;
-	int ended_with_newline = 0;
-	FILE *fp;
-
-	editor.dirty = 0;
-	free(editor.filename);
-	editor.filename = malloc(fnlen);
-	if (!editor.filename) {
-		editor_set_status_message("Out of memory");
-		running = 0;
-		return 1;
+	memset(res, 0, sizeof(*res));
+	res->filename = strdup(filename);
+	if (!res->filename) {
+		errno = ENOMEM;
+		return -1;
 	}
-	memcpy(editor.filename, filename, fnlen);
 
-	fp = fopen(filename, "r");
+	FILE *fp = fopen(filename, "r");
 	if (!fp) {
-		if (errno != ENOENT) {
-			perror("Opening file");
-			exit(1);
+		if (errno == ENOENT) {
+			return 0;
 		}
-		editor_snapshot_disk();
-		return 1;
+		free(res->filename);
+		res->filename = NULL;
+		return -1;
 	}
+
+	struct stat st;
+	if (fstat(fileno(fp), &st) == 0) {
+		res->disk_mtime = st.st_mtime;
+		res->disk_size = st.st_size;
+	} else {
+		res->disk_mtime = 0;
+		res->disk_size = 0;
+	}
+
+	char *line = NULL;
+	size_t linecap = 0;
+	ssize_t linelen;
+	int ended_with_newline = 0;
 
 	while ((linelen = getline(&line, &linecap, fp)) != -1) {
 		ended_with_newline = 0;
-		if (linelen
+		if (linelen > 0
 		    && (line[linelen - 1] == '\n'
 			|| line[linelen - 1] == '\r')) {
 			line[--linelen] = '\0';
 			ended_with_newline = 1;
 		}
-		editor_insert_row(editor.numrows, line, linelen);
+
+		erow *new_rows
+		    = realloc(res->row, sizeof(erow) * (res->numrows + 1));
+		if (!new_rows) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
+		res->row = new_rows;
+
+		char *newchars = malloc(linelen + 1);
+		if (!newchars) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
+		memcpy(newchars, line, linelen + 1);
+
+		int at = res->numrows;
+		res->row[at].idx = at;
+		res->row[at].size = linelen;
+		res->row[at].chars = newchars;
+		res->row[at].hl = NULL;
+		res->row[at].hl_oc = 0;
+		res->row[at].render = NULL;
+		res->row[at].rsize = 0;
+		res->numrows++;
+
+		erow *saved_row = editor.row;
+		int saved_numrows = editor.numrows;
+		struct editor_syntax *saved_syntax = editor.syntax;
+
+		editor.row = res->row;
+		editor.numrows = res->numrows;
+		editor_select_syntax_highlight(res->filename);
+
+		editor_update_row(&res->row[at]);
+
+		editor.row = saved_row;
+		editor.numrows = saved_numrows;
+		editor.syntax = saved_syntax;
+
+		if (!res->row[at].render) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
 	}
+
 	if (ended_with_newline) {
-		editor_insert_row(editor.numrows, "", 0);
+		erow *new_rows
+		    = realloc(res->row, sizeof(erow) * (res->numrows + 1));
+		if (!new_rows) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
+		res->row = new_rows;
+
+		char *newchars = malloc(1);
+		if (!newchars) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
+		newchars[0] = '\0';
+
+		int at = res->numrows;
+		res->row[at].idx = at;
+		res->row[at].size = 0;
+		res->row[at].chars = newchars;
+		res->row[at].hl = NULL;
+		res->row[at].hl_oc = 0;
+		res->row[at].render = NULL;
+		res->row[at].rsize = 0;
+		res->numrows++;
+
+		erow *saved_row = editor.row;
+		int saved_numrows = editor.numrows;
+		struct editor_syntax *saved_syntax = editor.syntax;
+
+		editor.row = res->row;
+		editor.numrows = res->numrows;
+		editor_select_syntax_highlight(res->filename);
+
+		editor_update_row(&res->row[at]);
+
+		editor.row = saved_row;
+		editor.numrows = saved_numrows;
+		editor.syntax = saved_syntax;
+
+		if (!res->row[at].render) {
+			free(line);
+			fclose(fp);
+			free_load_result(res);
+			errno = ENOMEM;
+			return -1;
+		}
 	}
+
 	free(line);
-	fclose(fp);
+
+	if (ferror(fp)) {
+		int saved_errno = errno ? errno : EIO;
+		fclose(fp);
+		free_load_result(res);
+		errno = saved_errno;
+		return -1;
+	}
+
+	if (fclose(fp) != 0) {
+		free_load_result(res);
+		return -1;
+	}
+
+	return 0;
+}
+
+void commit_load_result(struct temp_load_result *res)
+{
+	int i;
+	for (i = 0; i < editor.numrows; i++) {
+		editor_free_row(&editor.row[i]);
+	}
+	free(editor.row);
+	free(editor.filename);
+
+	editor.filename = res->filename;
+	editor.row = res->row;
+	editor.numrows = res->numrows;
+	editor.disk_mtime = res->disk_mtime;
+	editor.disk_size = res->disk_size;
 	editor.dirty = 0;
+
+	editor_select_syntax_highlight(editor.filename);
+	for (i = 0; i < editor.numrows; i++) {
+		editor_update_syntax(&editor.row[i]);
+	}
+
+	res->filename = NULL;
+	res->row = NULL;
+	res->numrows = 0;
+}
+
+void free_load_result(struct temp_load_result *res)
+{
+	if (!res) {
+		return;
+	}
+	free(res->filename);
+	res->filename = NULL;
+	if (res->row) {
+		int i;
+		for (i = 0; i < res->numrows; i++) {
+			editor_free_row(&res->row[i]);
+		}
+		free(res->row);
+		res->row = NULL;
+	}
+	res->numrows = 0;
+}
+
+/* Load the specified program in the editor memory and returns 0 on success
+ * or 1 on error. */
+int editor_open(char *filename)
+{
+	struct temp_load_result res;
+	if (load_file_transactional(filename, &res) != 0) {
+		editor_set_status_message(
+		    "Error opening %s: %s", filename, strerror(errno));
+		free_load_result(&res);
+		return 1;
+	}
+	commit_load_result(&res);
+	free_load_result(&res);
 	undo_mark_clean(); /* Mark initial file state as clean */
-	editor_snapshot_disk();
 	return 0;
 }
 

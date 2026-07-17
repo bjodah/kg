@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 #define MAX_UNDO_SIZE 1000
 

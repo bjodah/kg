@@ -1,7 +1,12 @@
 #include "localvars.h"
 #include "def.h"
 #include <ctype.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 void local_settings_init(struct local_settings *settings)
 {

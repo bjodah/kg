@@ -10,6 +10,10 @@
 #include <time.h>
 
 #include "def.h"
+#include "localvars.h"
+#include <fcntl.h>
+#include <limits.h>
+#include <unistd.h>
 
 /* Synthetic syntax records for special modes. */
 static struct editor_syntax ibuffer_syntax
@@ -191,29 +195,27 @@ static void clamp_cursor_to_buffer(void)
  * after editor_open's realloc. */
 void buf_reload_from_disk(void)
 {
-	char *fname;
-	int i;
-
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
+	if (!editor.filename) {
+		return;
 	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
+
+	struct temp_load_result res;
+	if (load_file_transactional(editor.filename, &res) != 0) {
+		editor_set_status_message("Reload failed: %s", strerror(errno));
+		free_load_result(&res);
+		return;
+	}
+
 	editor.mark_set = 0;
 	editor.mark_highlight = 0;
 	editor.shift_select = 0;
 	editor.rect_mode = 0;
 
-	fname = strdup(editor.filename);
-	if (!fname) {
-		return;
-	}
-
 	suppress_undo = 1;
-	editor_open(fname);
+	commit_load_result(&res);
 	suppress_undo = 0;
-	free(fname);
+
+	free_load_result(&res);
 
 	buf_apply_local_settings();
 

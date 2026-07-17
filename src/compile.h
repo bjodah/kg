@@ -1,7 +1,10 @@
 #ifndef KG_COMPILE_H
 #define KG_COMPILE_H
 
-#include "def.h"
+#include "localvars.h"
+#include <limits.h>
+#include <stddef.h>
+struct shell_capture_result;
 
 struct compilation_state {
 	bool have_last_command;

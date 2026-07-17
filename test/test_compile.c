@@ -3,6 +3,8 @@
 #endif
 
 #include "../src/compile.h"
+#include "../src/def.h"
+#include "../src/localvars.h"
 #include "test.h"
 #include <stdlib.h>
 #include <string.h>

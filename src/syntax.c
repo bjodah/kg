@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 /* C / C++ */
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", ".hpp", ".cc", NULL };

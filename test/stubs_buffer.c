@@ -1,0 +1,116 @@
+/* stubs_buffer.c — globals and stubs for test_buffer that links fileio.o and
+ * bufmgr.o. */
+
+#include "../src/def.h"
+#include <stdarg.h>
+
+/* Globals normally defined in main.c */
+struct editor_config editor;
+int running = 1;
+int suppress_undo = 0;
+
+/* Globals normally defined in winmgr.c */
+struct editor_window winlist[MAX_WINDOWS];
+int win_current = 0;
+int win_count = 0;
+int win_total_rows = 24;
+int win_total_cols = 80;
+
+/* Global from help.c */
+const char *kg_help_lines[] = { NULL };
+
+/* Global normally defined in bufmgr.c but used globally */
+int global_auto_revert = 0;
+
+/* No-op stubs */
+void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
+void editor_refresh_screen(void) { }
+int editor_read_key(int fd)
+{
+	(void)fd;
+	return 0;
+}
+int editor_read_raw_byte(int fd)
+{
+	(void)fd;
+	return 0;
+}
+
+void win_save_active_view(void) { }
+
+void local_settings_init(struct local_settings *settings) { (void)settings; }
+int dirlocals_find(
+    const char *visited_filename, char *result, size_t result_size)
+{
+	(void)visited_filename;
+	(void)result;
+	(void)result_size;
+	return 0;
+}
+int dirlocals_parse(
+    const char *source, size_t source_len, struct local_settings *out)
+{
+	(void)source;
+	(void)source_len;
+	(void)out;
+	return 0;
+}
+int localvars_parse_modeline(
+    const erow *rows, int row_count, struct local_settings *out)
+{
+	(void)rows;
+	(void)row_count;
+	(void)out;
+	return 0;
+}
+int localvars_parse_footer(
+    const erow *rows, int row_count, struct local_settings *out)
+{
+	(void)rows;
+	(void)row_count;
+	(void)out;
+	return 0;
+}
+void local_settings_merge(
+    struct local_settings *dest, const struct local_settings *src)
+{
+	(void)dest;
+	(void)src;
+}
+
+void editor_path_split(
+    const char *path, char *dir, int dsize, char *file, int fsize)
+{
+	(void)path;
+	(void)dir;
+	(void)dsize;
+	(void)file;
+	(void)fsize;
+}
+int editor_path_complete_entries(const char *dir, const char *prefix,
+    struct path_entry *entries, int max, char *lcp, int lcp_size)
+{
+	(void)dir;
+	(void)prefix;
+	(void)entries;
+	(void)max;
+	(void)lcp;
+	(void)lcp_size;
+	return 0;
+}
+void editor_path_expand_tilde(char *buf, int bufsize)
+{
+	(void)buf;
+	(void)bufsize;
+}
+void editor_goto_line_direct(int line, int col)
+{
+	(void)line;
+	(void)col;
+}
+int editor_picker_match_rank(const char *haystack, const char *needle)
+{
+	(void)haystack;
+	(void)needle;
+	return 0;
+}

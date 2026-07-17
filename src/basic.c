@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "def.h"
+#include "localvars.h"
 
 static void cursor_advance_screen_col(void)
 {

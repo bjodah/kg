@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "def.h"
+#include "lisp.h"
 #include "localvars.h"
 #include <fcntl.h>
 #include <limits.h>
@@ -1592,4 +1593,42 @@ void buf_ibuffer_select(void)
 		}
 	}
 	editor_set_status_message("Buffer not found: %s", filename);
+}
+
+void editor_cleanup(void)
+{
+	buf_save_to_slot(buf_current);
+	undostack.head = NULL;
+	undostack.size = 0;
+
+	for (int i = 0; i < MAX_BUFFERS; i++) {
+		struct editor_buffer *b = &buflist[i];
+		if (!b->active) {
+			continue;
+		}
+		for (int j = 0; j < b->numrows; j++) {
+			editor_free_row(&b->row[j]);
+		}
+		free(b->row);
+		b->row = NULL;
+		free(b->filename);
+		b->filename = NULL;
+
+		struct undo_op *op = b->undostack.head;
+		while (op) {
+			struct undo_op *next = op->next;
+			free(op->text);
+			free(op);
+			op = next;
+		}
+		b->undostack.head = NULL;
+		b->undostack.size = 0;
+		b->active = 0;
+	}
+	editor.row = NULL;
+	editor.numrows = 0;
+	editor.filename = NULL;
+	kill_ring_free();
+	undo_free();
+	kg_lisp_shutdown();
 }

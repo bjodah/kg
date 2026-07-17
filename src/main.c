@@ -34,6 +34,7 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -91,6 +92,7 @@ void init_editor(void)
 	undo_init();
 	update_window_size();
 	win_init();
+	atexit(editor_cleanup);
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = handle_sig_winch;
@@ -154,6 +156,5 @@ int main(int argc, char **argv)
 		editor_refresh_screen();
 		editor_process_keypress(STDIN_FILENO);
 	}
-	kg_lisp_shutdown();
 	return kg_exit_status;
 }

@@ -81,3 +81,5 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	(void)byte_len;
 	return 0;
 }
+
+void editor_cleanup(void) { }

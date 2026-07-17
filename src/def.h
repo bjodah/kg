@@ -455,6 +455,7 @@ void buf_open_list(void);
 void buf_open_help(void);
 void buf_ibuffer_select(void);
 void buf_display_name(int idx, char *out, size_t outsize);
+void editor_cleanup(void);
 
 /* winmgr.c */
 void win_init(void);

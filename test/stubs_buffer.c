@@ -114,3 +114,6 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 	(void)needle;
 	return 0;
 }
+
+void __attribute__((weak)) editor_cleanup(void) { }
+void kg_lisp_shutdown(void) { }

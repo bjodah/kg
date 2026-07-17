@@ -61,3 +61,5 @@ int __attribute__((weak)) editor_read_line(
 	buf[0] = '\0';
 	return 0;
 }
+
+void editor_cleanup(void) { }

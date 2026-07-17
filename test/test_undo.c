@@ -332,6 +332,134 @@ static void test_word_case_two_records(void)
 	teardown();
 }
 
+static void test_delete_text_range_single_row(void)
+{
+	setup();
+	editor_insert_row(0, "abcdefghij", 10);
+	editor.numrows = 1;
+
+	int res = editor_delete_text_range_raw(0, 2, 5);
+	CHECK(res == 1);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "abhij", 5) == 0);
+	teardown();
+}
+
+static void test_delete_text_range_multi_row(void)
+{
+	setup();
+	editor_insert_row(0, "lineone", 7);
+	editor_insert_row(1, "linetwo", 7);
+	editor_insert_row(2, "linethree", 9);
+	editor.numrows = 3;
+
+	int res = editor_delete_text_range_raw(0, 4, 16);
+	CHECK(res == 1);
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 9);
+	CHECK(memcmp(editor.row[0].chars, "linethree", 9) == 0);
+	teardown();
+}
+
+static void test_delete_text_range_newline(void)
+{
+	setup();
+	editor_insert_row(0, "hello", 5);
+	editor_insert_row(1, "world", 5);
+	editor.numrows = 2;
+
+	int res = editor_delete_text_range_raw(0, 5, 3);
+	CHECK(res == 1);
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 8);
+	CHECK(memcmp(editor.row[0].chars, "hellorld", 8) == 0);
+
+	setup();
+	editor_insert_row(0, "hello", 5);
+	editor_insert_row(1, "world", 5);
+	editor.numrows = 2;
+	res = editor_delete_text_range_raw(0, 2, 4);
+	CHECK(res == 1);
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 7);
+	CHECK(memcmp(editor.row[0].chars, "heworld", 7) == 0);
+	teardown();
+}
+
+static void test_delete_text_range_large(void)
+{
+	setup();
+	char buf[50];
+	for (int i = 0; i < 100; i++) {
+		snprintf(buf, sizeof(buf),
+		    "row%03d-some-longer-text-here-to-make-it-large", i);
+		editor_insert_row(i, buf, strlen(buf));
+	}
+	editor.numrows = 100;
+
+	int res = editor_delete_text_range_raw(10, 5, 1380);
+	CHECK(res == 1);
+
+	CHECK(editor.numrows == 70);
+	CHECK(editor.row[10].size == 45);
+	CHECK(memcmp(editor.row[10].chars,
+		  "row010-some-longer-text-here-to-make-it-large", 45)
+	    == 0);
+	teardown();
+}
+
+static void test_undo_yank_multi_row(void)
+{
+	setup();
+	editor_insert_row(0, "abhello", 7);
+	editor_insert_row(1, "worldcd", 7);
+	editor.numrows = 2;
+
+	undo_push(UNDO_YANK_TEXT, 0, 2, 0, "hello\nworld", 11);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "abcd", 4) == 0);
+	teardown();
+}
+
+static void test_undo_replace_text(void)
+{
+	setup();
+	editor_insert_row(0, "hey", 3);
+	editor.numrows = 1;
+
+	undo_push(UNDO_REPLACE_TEXT, 0, 2, 1, "llo", 3);
+
+	editor_undo();
+
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
+	teardown();
+}
+
+static void test_undo_replace_text_multi_row(void)
+{
+	setup();
+	editor_insert_row(0, "hey", 3);
+	editor_insert_row(1, "buddy", 5);
+	editor.numrows = 2;
+
+	undo_push(UNDO_REPLACE_TEXT, 0, 2, 9, "llo\nworld", 9);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
+	CHECK(editor.row[1].size == 5);
+	CHECK(memcmp(editor.row[1].chars, "world", 5) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -350,5 +478,12 @@ int main(void)
 	RUN(test_dirty_tracking);
 	RUN(test_nothing_to_undo);
 	RUN(test_word_case_two_records);
+	RUN(test_delete_text_range_single_row);
+	RUN(test_delete_text_range_multi_row);
+	RUN(test_delete_text_range_newline);
+	RUN(test_delete_text_range_large);
+	RUN(test_undo_yank_multi_row);
+	RUN(test_undo_replace_text);
+	RUN(test_undo_replace_text_multi_row);
 	return test_summary();
 }

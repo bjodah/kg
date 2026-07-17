@@ -224,12 +224,7 @@ void editor_undo(void)
 		 * op->col). Cursor is already set to (op->row, op->col) above.
 		 */
 		if (op->len > 0) {
-			int i;
-			suppress_undo = 1;
-			for (i = 0; i < op->len; i++) {
-				editor_del_forward_char();
-			}
-			suppress_undo = 0;
+			editor_delete_text_range_raw(op->row, op->col, op->len);
 		}
 		break;
 
@@ -238,12 +233,7 @@ void editor_undo(void)
 		 * original bytes saved in op->text.  op->c is the replacement
 		 * byte length. */
 		if (op->c > 0) {
-			int i, saved = suppress_undo;
-			suppress_undo = 1;
-			for (i = 0; i < op->c; i++) {
-				editor_del_forward_char();
-			}
-			suppress_undo = saved;
+			editor_delete_text_range_raw(op->row, op->col, op->c);
 		}
 		if (op->text && op->len > 0) {
 			editor_insert_text_raw(op->text, op->len);

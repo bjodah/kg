@@ -334,6 +334,60 @@ static void editor_delete_region_range(
 	editor.dirty++;
 }
 
+int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
+{
+	if (byte_len <= 0) {
+		return 0;
+	}
+	if (start_row < 0 || start_row >= editor.numrows) {
+		return 0;
+	}
+	if (start_col < 0 || start_col > editor.row[start_row].size) {
+		return 0;
+	}
+
+	int row = start_row;
+	int col = start_col;
+	int rem = byte_len;
+
+	while (rem > 0) {
+		if (row >= editor.numrows) {
+			break;
+		}
+		int row_len = editor.row[row].size;
+		if (rem <= row_len - col) {
+			col += rem;
+			rem = 0;
+		} else {
+			rem -= (row_len - col + 1);
+			row++;
+			col = 0;
+		}
+	}
+
+	int end_row = row;
+	int end_col = col;
+
+	if (end_row >= editor.numrows) {
+		end_row = editor.numrows - 1;
+		if (end_row < 0) {
+			return 0;
+		}
+		end_col = editor.row[end_row].size;
+	}
+
+	if (start_row == end_row && start_col == end_col) {
+		return 0;
+	}
+
+	int saved_suppress = suppress_undo;
+	suppress_undo = 1;
+	editor_delete_region_range(start_row, start_col, end_row, end_col);
+	suppress_undo = saved_suppress;
+
+	return 1;
+}
+
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at
  * the start of the region; undo restores it as a single step. */
 static void region_kill_or_delete(int save)

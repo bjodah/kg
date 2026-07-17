@@ -22,5 +22,42 @@ int win_count = 0;
 int win_total_rows = 24;
 int win_total_cols = 80;
 
-/* No-op stub for display function not under test */
-void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
+char test_status_message[512];
+char test_command_name[128];
+int test_command_calls;
+
+void editor_set_status_message(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)vsnprintf(
+	    test_status_message, sizeof(test_status_message), fmt, ap);
+	va_end(ap);
+}
+int cmd_execute_named(const char *name, int fd)
+{
+	(void)fd;
+	test_command_calls++;
+	(void)snprintf(test_command_name, sizeof(test_command_name), "%s",
+	    name ? name : "");
+	return name ? 0 : 1;
+}
+int cmd_static_exists(const char *name)
+{
+	return name && strcmp(name, "version") == 0;
+}
+void buf_display_name(int idx, char *out, size_t outsize)
+{
+	(void)idx;
+	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
+}
+int __attribute__((weak)) editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize)
+{
+	(void)fd;
+	(void)prompt;
+	(void)bufsize;
+	buf[0] = '\0';
+	return 0;
+}

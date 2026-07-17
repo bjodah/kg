@@ -708,6 +708,7 @@ void editor_exchange_point_and_mark(void);
 /* Generic region delete-without-save (Delete key).  Falls through to
  * editor_del_forward_char when no region is active. */
 void editor_delete_region_or_char(void);
+int editor_delete_text_range_raw(int start_row, int start_col, int byte_len);
 
 /* Rectangle operations (src/rect.c) */
 void editor_rect_mode_toggle(void);

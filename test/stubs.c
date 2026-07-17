@@ -74,3 +74,10 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 	buf[0] = '\0';
 	return 0;
 }
+int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
+{
+	(void)start_row;
+	(void)start_col;
+	(void)byte_len;
+	return 0;
+}

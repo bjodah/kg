@@ -660,10 +660,80 @@ static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
 	teardown();
 }
 
+static void test_checked_helpers(void)
+{
+	/* test checked_add_size_t */
+	size_t res_sz;
+	CHECK(checked_add_size_t(&res_sz, 5, 10) == 1);
+	CHECK(res_sz == 15);
+
+	CHECK(checked_add_size_t(&res_sz, SIZE_MAX, 1) == 0);
+	CHECK(checked_add_size_t(&res_sz, SIZE_MAX - 5, 6) == 0);
+	CHECK(checked_add_size_t(&res_sz, SIZE_MAX - 5, 5) == 1);
+	CHECK(res_sz == SIZE_MAX);
+
+	/* test checked_add_int_size */
+	int res_i;
+	CHECK(checked_add_int_size(&res_i, 5, 10) == 1);
+	CHECK(res_i == 15);
+
+	CHECK(checked_add_int_size(&res_i, -1, 10) == 0);
+	CHECK(checked_add_int_size(&res_i, INT_MAX, 1) == 0);
+	CHECK(checked_add_int_size(&res_i, INT_MAX - 5, 6) == 0);
+	CHECK(checked_add_int_size(&res_i, 5, (size_t)INT_MAX + 1) == 0);
+	CHECK(checked_add_int_size(&res_i, INT_MAX - 5, 5) == 1);
+	CHECK(res_i == INT_MAX);
+
+	/* test checked_size_to_int */
+	CHECK(checked_size_to_int(&res_i, 5) == 1);
+	CHECK(res_i == 5);
+
+	CHECK(checked_size_to_int(&res_i, (size_t)INT_MAX + 1) == 0);
+	CHECK(checked_size_to_int(&res_i, (size_t)INT_MAX) == 1);
+	CHECK(res_i == INT_MAX);
+}
+
+static void test_editor_rows_to_string_overflow(void)
+{
+	setup();
+	erow dummy_rows[2];
+	dummy_rows[0].size = INT_MAX - 10;
+	dummy_rows[0].chars = NULL;
+	dummy_rows[1].size = 20;
+	dummy_rows[1].chars = NULL;
+
+	int buflen = -1;
+	char *res = editor_rows_to_string(dummy_rows, 2, &buflen);
+	CHECK(res == NULL);
+	CHECK(buflen == 0);
+	teardown();
+}
+
+static void test_kill_ring_append_overflow(void)
+{
+	setup();
+	kill_ring_init();
+	kill_ring_set("hello", 5);
+
+	/* Try to append with a length that would overflow INT_MAX */
+	kill_ring_append("world", INT_MAX);
+
+	/* Verify the original kill ring contents and length remain unchanged */
+	CHECK(killring.len == 5);
+	CHECK(killring.text != NULL);
+	CHECK(strcmp(killring.text, "hello") == 0);
+
+	kill_ring_free();
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
 {
+	RUN(test_checked_helpers);
+	RUN(test_editor_rows_to_string_overflow);
+	RUN(test_kill_ring_append_overflow);
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
 	RUN(test_rows_to_string_trailing_empty_row);

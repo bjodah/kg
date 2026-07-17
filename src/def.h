@@ -513,6 +513,39 @@ void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
 void editor_set_readonly_override(int enabled);
 
+static inline int checked_add_size_t(size_t *result, size_t a, size_t b)
+{
+	if (a > SIZE_MAX - b) {
+		return 0;
+	}
+	*result = a + b;
+	return 1;
+}
+
+static inline int checked_add_int_size(int *result, int a, size_t b)
+{
+	if (a < 0) {
+		return 0;
+	}
+	if (b > (size_t)INT_MAX) {
+		return 0;
+	}
+	if ((size_t)a > (size_t)INT_MAX - b) {
+		return 0;
+	}
+	*result = a + (int)b;
+	return 1;
+}
+
+static inline int checked_size_to_int(int *result, size_t val)
+{
+	if (val > (size_t)INT_MAX) {
+		return 0;
+	}
+	*result = (int)val;
+	return 1;
+}
+
 /* Returns 1 if filename belongs to a special/system buffer (NULL or starts with
  * '*'). */
 static inline int is_special_buffer(const char *filename)

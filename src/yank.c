@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 
 /* Global kill ring */
 struct kill_ring killring = { NULL, 0 };
@@ -29,12 +30,17 @@ void kill_ring_free(void)
 /* Set the kill ring to new text (replaces existing content) */
 void kill_ring_set(char *text, int len)
 {
+	int alloc_sz;
+
 	if (len <= 0) {
+		return;
+	}
+	if (!checked_add_int_size(&alloc_sz, len, 1)) {
 		return;
 	}
 
 	kill_ring_free();
-	killring.text = malloc(len + 1);
+	killring.text = malloc(alloc_sz);
 	if (!killring.text) {
 		return;
 	}
@@ -48,6 +54,8 @@ void kill_ring_set(char *text, int len)
 void kill_ring_append(char *text, int len)
 {
 	char *new_text;
+	int new_len;
+	int alloc_sz;
 
 	if (len <= 0) {
 		return;
@@ -58,15 +66,20 @@ void kill_ring_append(char *text, int len)
 		return;
 	}
 
-	new_text = realloc(killring.text, killring.len + len + 1);
+	if (!checked_add_int_size(&new_len, killring.len, len)
+	    || !checked_add_int_size(&alloc_sz, new_len, 1)) {
+		return;
+	}
+
+	new_text = realloc(killring.text, alloc_sz);
 	if (!new_text) {
 		return;
 	}
 
 	memcpy(new_text + killring.len, text, len);
-	new_text[killring.len + len] = '\0';
+	new_text[new_len] = '\0';
 	killring.text = new_text;
-	killring.len += len;
+	killring.len = new_len;
 }
 
 /* Get the kill ring text (returns NULL if empty) */

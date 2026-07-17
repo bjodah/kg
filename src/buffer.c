@@ -383,25 +383,48 @@ void editor_del_row(int at)
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 {
 	char *buf = NULL, *p;
-	int totlen = 0;
+	size_t totlen_sz = 0;
 	int j;
 
 	/* Compute count of bytes */
 	for (j = 0; j < numrows; j++) {
-		totlen += rows[j].size;
+		if (rows[j].size < 0) {
+			*buflen = 0;
+			return NULL;
+		}
+		if (!checked_add_size_t(
+			&totlen_sz, totlen_sz, (size_t)rows[j].size)) {
+			*buflen = 0;
+			return NULL;
+		}
 	}
 	if (numrows > 1) {
-		totlen += numrows - 1; /* "\n" between rows */
+		if (!checked_add_size_t(
+			&totlen_sz, totlen_sz, (size_t)(numrows - 1))) {
+			*buflen = 0;
+			return NULL;
+		}
 	}
-	*buflen = totlen;
-	totlen++; /* Also make space for nulterm */
 
-	p = buf = malloc(totlen);
+	int totlen;
+	if (!checked_size_to_int(&totlen, totlen_sz)) {
+		*buflen = 0;
+		return NULL;
+	}
+
+	size_t alloc_sz;
+	if (!checked_add_size_t(&alloc_sz, totlen_sz, 1)) {
+		*buflen = 0;
+		return NULL;
+	}
+
+	p = buf = malloc(alloc_sz);
 	if (!buf) {
 		editor_nomem();
 		*buflen = 0;
 		return NULL;
 	}
+	*buflen = totlen;
 	for (j = 0; j < numrows; j++) {
 		memcpy(p, rows[j].chars, rows[j].size);
 		p += rows[j].size;
@@ -704,7 +727,16 @@ void editor_row_insert_spaces(erow *row, int at, int len)
 /* Append the string 's' at the end of a row */
 void editor_row_append_string(erow *row, char *s, size_t len)
 {
-	char *newchars = realloc(row->chars, row->size + len + 1);
+	size_t len_plus_1;
+	int alloc_sz;
+
+	if (!checked_add_size_t(&len_plus_1, len, 1)
+	    || !checked_add_int_size(&alloc_sz, row->size, len_plus_1)) {
+		editor_nomem();
+		return;
+	}
+
+	char *newchars = realloc(row->chars, alloc_sz);
 
 	if (!newchars) {
 		editor_nomem();
@@ -712,7 +744,7 @@ void editor_row_append_string(erow *row, char *s, size_t len)
 	}
 	row->chars = newchars;
 	memcpy(row->chars + row->size, s, len);
-	row->size += len;
+	row->size += (int)len;
 	row->chars[row->size] = '\0';
 	editor_update_row(row);
 	editor.dirty++;

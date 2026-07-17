@@ -1,5 +1,6 @@
 /* ============================= Terminal update ============================ */
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +8,7 @@
 #include <time.h>
 
 #include "def.h"
+#include "localvars.h"
 
 #define ABUF_INIT { NULL, 0 }
 
@@ -31,6 +33,9 @@ static const char *kg_logo[] = {
 
 void ab_append(struct abuf *ab, const char *s, int len)
 {
+	if (len < 0 || ab->len > INT_MAX - len) {
+		return;
+	}
 	char *new = realloc(ab->b, ab->len + len);
 
 	if (new == NULL) {

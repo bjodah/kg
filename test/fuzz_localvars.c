@@ -45,8 +45,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	/* Split input into rows at NUL bytes.  Each row gets chars/size
 	 * pointing into a mutable copy (the parsers don't modify them). */
 	char *copy = malloc(size + 1);
-	if (!copy)
+	if (!copy) {
 		return 0;
+	}
 	memcpy(copy, data, size);
 	copy[size] = '\0';
 
@@ -58,8 +59,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 		while (p < end && nrows < MAX_FUZZ_ROWS) {
 			const char *nl = memchr(p, '\0', (size_t)(end - p));
-			if (!nl)
+			if (!nl) {
 				nl = end;
+			}
 			rows[nrows].idx = nrows;
 			rows[nrows].chars = (char *)p;
 			rows[nrows].size = (int)(nl - p);

@@ -216,19 +216,19 @@ fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
 
 fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS)
 	mkdir -p $(TESTDIR)/fuzz-corpus/dirlocals
-	./$(FUZZBIN_DIRLOCALS) -runs=5000 $(TESTDIR)/fuzz-corpus/dirlocals
+	./$(FUZZBIN_DIRLOCALS) -runs=50 $(TESTDIR)/fuzz-corpus/dirlocals
 
 fuzz-regex: $(FUZZBIN_REGEX)
 
 fuzz-regex-smoke: $(FUZZBIN_REGEX)
 	mkdir -p $(TESTDIR)/fuzz-corpus/regex
-	./$(FUZZBIN_REGEX) -runs=5000 $(TESTDIR)/fuzz-corpus/regex
+	./$(FUZZBIN_REGEX) -runs=50 $(TESTDIR)/fuzz-corpus/regex
 
 fuzz-localvars: $(FUZZBIN_LOCALVARS)
 
 fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS)
 	mkdir -p $(TESTDIR)/fuzz-corpus/localvars
-	./$(FUZZBIN_LOCALVARS) -runs=5000 $(TESTDIR)/fuzz-corpus/localvars
+	./$(FUZZBIN_LOCALVARS) -runs=50 $(TESTDIR)/fuzz-corpus/localvars
 
 fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
 

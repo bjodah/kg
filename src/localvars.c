@@ -491,7 +491,7 @@ struct dlr {
 	size_t len;
 	size_t pos;
 	int depth;
-	int tokcount;
+	size_t tokcount;
 };
 
 static void dlr_skip_ws(struct dlr *r)

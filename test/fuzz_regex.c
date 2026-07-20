@@ -19,29 +19,34 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	char text[512];
 	size_t pat_len, txt_len;
 
-	if (size < 2)
+	if (size < 2) {
 		return 0;
+	}
 
 	/* First byte selects the pattern/text split point and flags. */
 	int flags = (data[0] & 1) ? KG_REGEX_ICASE : 0;
 	size_t split = 1 + (data[0] >> 1) % (size - 1);
-	if (split > size)
+	if (split > size) {
 		split = size;
+	}
 
 	pat_len = split - 1;
-	if (pat_len >= sizeof(pattern))
+	if (pat_len >= sizeof(pattern)) {
 		pat_len = sizeof(pattern) - 1;
+	}
 	memcpy(pattern, data + 1, pat_len);
 	pattern[pat_len] = '\0';
 
 	txt_len = size - split;
-	if (txt_len >= sizeof(text))
+	if (txt_len >= sizeof(text)) {
 		txt_len = sizeof(text) - 1;
+	}
 	memcpy(text, data + split, txt_len);
 	text[txt_len] = '\0';
 
-	if (kg_regex_compile(&rx, pattern, flags) != KG_REGEX_OK)
+	if (kg_regex_compile(&rx, pattern, flags) != KG_REGEX_OK) {
 		return 0;
+	}
 
 	kg_regex_match_forward(&rx, text, 0, &match);
 	kg_regex_match_backward(&rx, text, (int)txt_len, &match);

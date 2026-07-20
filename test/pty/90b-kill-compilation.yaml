@@ -1,0 +1,23 @@
+name: kill-compilation
+filename: killcomp.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.1
+initial: "source"
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "sleep 10"
+  - RET
+  - C-x
+  - o
+  - C-c
+  - C-k
+  - C-l
+expected_saved: "source"
+expected_screen_contains:
+  - "Compilation terminated by signal 2"

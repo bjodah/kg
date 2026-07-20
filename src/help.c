@@ -87,5 +87,6 @@ const char *kg_help_lines[]
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",
 	      "     C-c <key> runs user Lisp bindings; see kg-bind-key in "
 	      "kg(1)",
-	      "  Git commit: C-c C-c commit · C-c C-k abort  ·  Compile: C-c C-k kill",
+	      "  Git commit: C-c C-c commit · C-c C-k abort  ·  Compile: C-c "
+	      "C-k kill",
 	      NULL };

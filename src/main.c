@@ -39,9 +39,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include "compile.h"
 #include "def.h"
 #include "lisp.h"
-#include "compile.h"
 
 struct editor_config editor;
 int running = 1;

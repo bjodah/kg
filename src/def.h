@@ -431,10 +431,10 @@ extern struct editor_syntax lisp_interaction_syntax;
 extern struct editor_syntax compilation_syntax;
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly);
-int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
-    int readonly);
-int buf_append_special_text(int buffer_index, const char *text,
-    size_t text_length);
+int buf_prepare_special_text(
+    const char *name, struct editor_syntax *syntax, int readonly);
+int buf_append_special_text(
+    int buffer_index, const char *text, size_t text_length);
 void buf_clear_special_text(int buffer_index);
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_save_current_state(void);

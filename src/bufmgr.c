@@ -9,10 +9,10 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "compile.h"
 #include "def.h"
 #include "lisp.h"
 #include "localvars.h"
-#include "compile.h"
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -1315,7 +1315,8 @@ void buf_kill(int fd)
 {
 	int i;
 
-	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0 && compilation_is_running()) {
+	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0
+	    && compilation_is_running()) {
 		int answer;
 		editor_set_status_message(
 		    "Compilation is still running; kill it? (y/n) ");
@@ -1533,8 +1534,8 @@ static void editor_row_append_raw(erow *row, const char *s, size_t len)
 	editor_update_row(row);
 }
 
-int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
-    int readonly)
+int buf_prepare_special_text(
+    const char *name, struct editor_syntax *syntax, int readonly)
 {
 	int i, slot = -1, existing = -1;
 
@@ -1576,8 +1577,8 @@ int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
 	return target_slot;
 }
 
-int buf_append_special_text(int buffer_index, const char *text,
-    size_t text_length)
+int buf_append_special_text(
+    int buffer_index, const char *text, size_t text_length)
 {
 	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS
 	    || !buflist[buffer_index].active) {
@@ -1601,7 +1602,8 @@ int buf_append_special_text(int buffer_index, const char *text,
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && w->bufidx == buffer_index) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? editor.rowoff : w->rowoff;
+			int rowoff = (w_idx == win_current) ? editor.rowoff
+							    : w->rowoff;
 			int cursor_row = (w_idx == win_current)
 			    ? (editor.rowoff + editor.cy)
 			    : (w->rowoff + w->cy);
@@ -1623,12 +1625,12 @@ int buf_append_special_text(int buffer_index, const char *text,
 	while (p < end) {
 		const char *nl = memchr(p, '\n', (size_t)(end - p));
 		if (!nl) {
-			editor_row_append_raw(
-			    &editor.row[editor.numrows - 1], p, (size_t)(end - p));
+			editor_row_append_raw(&editor.row[editor.numrows - 1],
+			    p, (size_t)(end - p));
 			p = end;
 		} else {
-			editor_row_append_raw(
-			    &editor.row[editor.numrows - 1], p, (size_t)(nl - p));
+			editor_row_append_raw(&editor.row[editor.numrows - 1],
+			    p, (size_t)(nl - p));
 			editor_insert_row(editor.numrows, "", 0);
 			p = nl + 1;
 		}
@@ -1641,13 +1643,15 @@ int buf_append_special_text(int buffer_index, const char *text,
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && w->bufidx == buffer_index) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? editor.rowoff : w->rowoff;
+			int rowoff = (w_idx == win_current) ? editor.rowoff
+							    : w->rowoff;
 			int cursor_row = (w_idx == win_current)
 			    ? (editor.rowoff + editor.cy)
 			    : (w->rowoff + w->cy);
 
 			if (follow_viewport[w_idx]) {
-				rowoff = (new_numrows > h) ? (new_numrows - h) : 0;
+				rowoff
+				    = (new_numrows > h) ? (new_numrows - h) : 0;
 			} else {
 				if (rowoff > new_numrows - h) {
 					rowoff = new_numrows - h;
@@ -1658,7 +1662,8 @@ int buf_append_special_text(int buffer_index, const char *text,
 			}
 
 			if (follow_cursor[w_idx]) {
-				cursor_row = (new_numrows > 0) ? (new_numrows - 1) : 0;
+				cursor_row
+				    = (new_numrows > 0) ? (new_numrows - 1) : 0;
 			} else {
 				if (cursor_row >= new_numrows) {
 					cursor_row = new_numrows - 1;

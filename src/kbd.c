@@ -5,9 +5,9 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include "compile.h"
 #include "def.h"
 #include "lisp.h"
-#include "compile.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 
@@ -335,7 +335,9 @@ void editor_process_keypress(int fd)
 			editor_server_done(fd);
 		} else if (syntax_is_git_commit() && c == CTRL_K) {
 			editor_commit_abort(fd);
-		} else if (editor.filename && strcmp(editor.filename, "*compilation*") == 0 && c == CTRL_K) {
+		} else if (editor.filename
+		    && strcmp(editor.filename, "*compilation*") == 0
+		    && c == CTRL_K) {
 			editor_kill_compilation(fd);
 		} else {
 			handle_user_binding(c, fd);

@@ -1,14 +1,14 @@
 #include "compile.h"
 #include "def.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <signal.h>
-#include <fcntl.h>
+#include <unistd.h>
 
 #define COMPILATION_READ_CHUNK 4096
 #define COMPILATION_TICK_BUDGET (64 * 1024)
@@ -142,11 +142,8 @@ char *compilation_format_transcript(const char *command, const char *directory,
 	return buf;
 }
 
-static int compilation_spawn(
-    const char *command,
-    const char *directory,
-    pid_t *pid_out,
-    int *output_fd_out)
+static int compilation_spawn(const char *command, const char *directory,
+    pid_t *pid_out, int *output_fd_out)
 {
 	int p[2];
 	if (pipe(p) < 0) {
@@ -198,13 +195,13 @@ static int compilation_spawn(
 }
 
 static void compilation_start(
-    const char *command,
-    const char *directory,
-    int source_buffer)
+    const char *command, const char *directory, int source_buffer)
 {
-	int cidx = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	int cidx
+	    = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
 	if (cidx < 0) {
-		editor_set_status_message("Failed to prepare compilation buffer");
+		editor_set_status_message(
+		    "Failed to prepare compilation buffer");
 		return;
 	}
 
@@ -231,7 +228,8 @@ static void compilation_start(
 	pid_t pid;
 	int out_fd;
 	if (compilation_spawn(command, directory, &pid, &out_fd) != 0) {
-		editor_set_status_message("Cannot start compilation: %s", strerror(errno));
+		editor_set_status_message(
+		    "Cannot start compilation: %s", strerror(errno));
 		g_compilation.phase = COMPILATION_IDLE;
 		return;
 	}
@@ -306,13 +304,21 @@ void editor_compile(int fd)
 		}
 		g_compilation.phase = COMPILATION_TERMINATING;
 		g_compilation.restart_pending = true;
-		strncpy(g_compilation.pending_command, prompt, sizeof(g_compilation.pending_command));
-		g_compilation.pending_command[sizeof(g_compilation.pending_command) - 1] = '\0';
-		strncpy(g_compilation.pending_directory, dir, sizeof(g_compilation.pending_directory));
-		g_compilation.pending_directory[sizeof(g_compilation.pending_directory) - 1] = '\0';
+		strncpy(g_compilation.pending_command, prompt,
+		    sizeof(g_compilation.pending_command));
+		g_compilation
+		    .pending_command[sizeof(g_compilation.pending_command) - 1]
+		    = '\0';
+		strncpy(g_compilation.pending_directory, dir,
+		    sizeof(g_compilation.pending_directory));
+		g_compilation
+		    .pending_directory[sizeof(g_compilation.pending_directory)
+			- 1]
+		    = '\0';
 		g_compilation.pending_source_buffer = source_slot;
 
-		editor_set_status_message("Sent SIGINT to active compilation, restart pending...");
+		editor_set_status_message(
+		    "Sent SIGINT to active compilation, restart pending...");
 		return;
 	}
 
@@ -382,13 +388,21 @@ void editor_recompile(int fd)
 		}
 		g_compilation.phase = COMPILATION_TERMINATING;
 		g_compilation.restart_pending = true;
-		strncpy(g_compilation.pending_command, command, sizeof(g_compilation.pending_command));
-		g_compilation.pending_command[sizeof(g_compilation.pending_command) - 1] = '\0';
-		strncpy(g_compilation.pending_directory, dir, sizeof(g_compilation.pending_directory));
-		g_compilation.pending_directory[sizeof(g_compilation.pending_directory) - 1] = '\0';
+		strncpy(g_compilation.pending_command, command,
+		    sizeof(g_compilation.pending_command));
+		g_compilation
+		    .pending_command[sizeof(g_compilation.pending_command) - 1]
+		    = '\0';
+		strncpy(g_compilation.pending_directory, dir,
+		    sizeof(g_compilation.pending_directory));
+		g_compilation
+		    .pending_directory[sizeof(g_compilation.pending_directory)
+			- 1]
+		    = '\0';
 		g_compilation.pending_source_buffer = source_slot;
 
-		editor_set_status_message("Sent SIGINT to active compilation, restart pending...");
+		editor_set_status_message(
+		    "Sent SIGINT to active compilation, restart pending...");
 		return;
 	}
 
@@ -409,7 +423,8 @@ void editor_recompile(int fd)
 static void compilation_append_char(struct compilation_state *s, char c)
 {
 	if (s->pending_line_length + 1 >= s->pending_line_cap) {
-		size_t new_cap = s->pending_line_cap == 0 ? 128 : s->pending_line_cap * 2;
+		size_t new_cap
+		    = s->pending_line_cap == 0 ? 128 : s->pending_line_cap * 2;
 		char *new_buf = realloc(s->pending_line, new_cap);
 		if (!new_buf) {
 			return;
@@ -421,7 +436,8 @@ static void compilation_append_char(struct compilation_state *s, char c)
 	s->pending_line[s->pending_line_length] = '\0';
 }
 
-static void compilation_flush_pending(struct compilation_state *s, bool add_newline)
+static void compilation_flush_pending(
+    struct compilation_state *s, bool add_newline)
 {
 	if (s->pending_line_length > 0 || add_newline) {
 		if (add_newline) {
@@ -434,7 +450,8 @@ static void compilation_flush_pending(struct compilation_state *s, bool add_newl
 				to_add = rem;
 				s->truncated = true;
 			}
-			buf_append_special_text(s->compilation_buffer, s->pending_line, to_add);
+			buf_append_special_text(
+			    s->compilation_buffer, s->pending_line, to_add);
 			s->stored_output += to_add;
 		} else {
 			s->truncated = true;
@@ -446,7 +463,8 @@ static void compilation_flush_pending(struct compilation_state *s, bool add_newl
 	}
 }
 
-static void compilation_process_bytes(struct compilation_state *s, const char *bytes, size_t len)
+static void compilation_process_bytes(
+    struct compilation_state *s, const char *bytes, size_t len)
 {
 	if (len == 0) {
 		return;
@@ -473,7 +491,8 @@ static void compilation_process_bytes(struct compilation_state *s, const char *b
 				}
 				if (s->pending_line_length > 0) {
 					s->pending_line_length--;
-					s->pending_line[s->pending_line_length] = '\0';
+					s->pending_line[s->pending_line_length]
+					    = '\0';
 				}
 			} else {
 				if (s->pending_cr) {
@@ -528,7 +547,8 @@ static void compilation_process_bytes(struct compilation_state *s, const char *b
 				to_add = rem;
 				s->truncated = true;
 			}
-			buf_append_special_text(s->compilation_buffer, s->pending_line, to_add);
+			buf_append_special_text(
+			    s->compilation_buffer, s->pending_line, to_add);
 			s->stored_output += to_add;
 		} else {
 			s->truncated = true;
@@ -548,9 +568,11 @@ int compilation_poll(void)
 		char buf[COMPILATION_READ_CHUNK];
 		size_t read_total = 0;
 		while (read_total < COMPILATION_TICK_BUDGET) {
-			ssize_t n = read(g_compilation.output_fd, buf, sizeof(buf));
+			ssize_t n
+			    = read(g_compilation.output_fd, buf, sizeof(buf));
 			if (n > 0) {
-				compilation_process_bytes(&g_compilation, buf, n);
+				compilation_process_bytes(
+				    &g_compilation, buf, n);
 				read_total += n;
 				state_changed = 1;
 			} else if (n < 0) {
@@ -592,29 +614,39 @@ int compilation_poll(void)
 
 		char msg[128];
 		int msg_len;
-		if (g_compilation.truncated && !g_compilation.truncation_marker_written) {
+		if (g_compilation.truncated
+		    && !g_compilation.truncation_marker_written) {
 			msg_len = snprintf(msg, sizeof(msg),
-			    "[kg: compilation output truncated after %zu bytes]\n",
+			    "[kg: compilation output truncated after %zu "
+			    "bytes]\n",
 			    g_compilation.maximum_output);
-			buf_append_special_text(g_compilation.compilation_buffer, msg, msg_len);
+			buf_append_special_text(
+			    g_compilation.compilation_buffer, msg, msg_len);
 			g_compilation.truncation_marker_written = true;
 		}
 
-		buf_append_special_text(g_compilation.compilation_buffer, "\n", 1);
+		buf_append_special_text(
+		    g_compilation.compilation_buffer, "\n", 1);
 
 		if (WIFEXITED(g_compilation.wait_status)) {
 			int code = WEXITSTATUS(g_compilation.wait_status);
-			msg_len = snprintf(msg, sizeof(msg), "Compilation finished with exit code %d\n", code);
-			editor_set_status_message("Compilation finished with exit code %d", code);
+			msg_len = snprintf(msg, sizeof(msg),
+			    "Compilation finished with exit code %d\n", code);
+			editor_set_status_message(
+			    "Compilation finished with exit code %d", code);
 		} else if (WIFSIGNALED(g_compilation.wait_status)) {
 			int sig = WTERMSIG(g_compilation.wait_status);
-			msg_len = snprintf(msg, sizeof(msg), "Compilation terminated by signal %d\n", sig);
-			editor_set_status_message("Compilation terminated by signal %d", sig);
+			msg_len = snprintf(msg, sizeof(msg),
+			    "Compilation terminated by signal %d\n", sig);
+			editor_set_status_message(
+			    "Compilation terminated by signal %d", sig);
 		} else {
-			msg_len = snprintf(msg, sizeof(msg), "Compilation finished\n");
+			msg_len = snprintf(
+			    msg, sizeof(msg), "Compilation finished\n");
 			editor_set_status_message("Compilation finished");
 		}
-		buf_append_special_text(g_compilation.compilation_buffer, msg, msg_len);
+		buf_append_special_text(
+		    g_compilation.compilation_buffer, msg, msg_len);
 
 		if (g_compilation.output_fd >= 0) {
 			close(g_compilation.output_fd);
@@ -658,7 +690,8 @@ void editor_kill_compilation(int fd)
 	if (g_compilation.phase == COMPILATION_TERMINATING) {
 		if (g_compilation.process_group > 0) {
 			kill(-g_compilation.process_group, SIGKILL);
-			editor_set_status_message("Sent SIGKILL to compilation process group");
+			editor_set_status_message(
+			    "Sent SIGKILL to compilation process group");
 		}
 		return;
 	}
@@ -666,7 +699,8 @@ void editor_kill_compilation(int fd)
 	if (g_compilation.process_group > 0) {
 		kill(-g_compilation.process_group, SIGINT);
 		g_compilation.phase = COMPILATION_TERMINATING;
-		editor_set_status_message("Sent SIGINT to compilation process group (repeat to SIGKILL)");
+		editor_set_status_message("Sent SIGINT to compilation process "
+					  "group (repeat to SIGKILL)");
 	}
 }
 
@@ -681,8 +715,10 @@ void compilation_shutdown(void)
 			kill(-g_compilation.process_group, SIGKILL);
 			int status;
 			for (int i = 0; i < 100; i++) {
-				pid_t wpid = waitpid(g_compilation.pid, &status, WNOHANG);
-				if (wpid == g_compilation.pid || (wpid < 0 && errno == ECHILD)) {
+				pid_t wpid = waitpid(
+				    g_compilation.pid, &status, WNOHANG);
+				if (wpid == g_compilation.pid
+				    || (wpid < 0 && errno == ECHILD)) {
 					break;
 				}
 				usleep(1000);

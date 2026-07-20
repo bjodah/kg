@@ -12,8 +12,8 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include "def.h"
 #include "compile.h"
+#include "def.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static unsigned char *pending_input;

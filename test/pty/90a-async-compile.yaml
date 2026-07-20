@@ -1,0 +1,18 @@
+name: async-compile
+filename: async.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.1
+initial: "hello"
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "sleep 10"
+  - RET
+  - C-e
+  - " world"
+expected_saved: "hello world"

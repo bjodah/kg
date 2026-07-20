@@ -59,8 +59,8 @@ void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }
 void buf_restore_from_slot(int idx) { (void)idx; }
 
-int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
-    int readonly)
+int buf_prepare_special_text(
+    const char *name, struct editor_syntax *syntax, int readonly)
 {
 	(void)name;
 	(void)syntax;
@@ -68,8 +68,8 @@ int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
 	return 0;
 }
 
-int buf_append_special_text(int buffer_index, const char *text,
-    size_t text_length)
+int buf_append_special_text(
+    int buffer_index, const char *text, size_t text_length)
 {
 	(void)buffer_index;
 	(void)text;
@@ -77,10 +77,7 @@ int buf_append_special_text(int buffer_index, const char *text,
 	return 0;
 }
 
-void buf_clear_special_text(int buffer_index)
-{
-	(void)buffer_index;
-}
+void buf_clear_special_text(int buffer_index) { (void)buffer_index; }
 
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 {

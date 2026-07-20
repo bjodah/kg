@@ -102,6 +102,10 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c \
 	    $(OBJDIR)/keybind.c
+FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
+FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
+FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS)
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o
@@ -208,6 +212,26 @@ fuzz-keypress-smoke: $(FUZZBIN)
 	mkdir -p $(TESTDIR)/fuzz-corpus/keypress
 	./$(FUZZBIN) -runs=1000 $(TESTDIR)/fuzz-corpus/keypress
 
+fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
+
+fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS)
+	mkdir -p $(TESTDIR)/fuzz-corpus/dirlocals
+	./$(FUZZBIN_DIRLOCALS) -runs=5000 $(TESTDIR)/fuzz-corpus/dirlocals
+
+fuzz-regex: $(FUZZBIN_REGEX)
+
+fuzz-regex-smoke: $(FUZZBIN_REGEX)
+	mkdir -p $(TESTDIR)/fuzz-corpus/regex
+	./$(FUZZBIN_REGEX) -runs=5000 $(TESTDIR)/fuzz-corpus/regex
+
+fuzz-localvars: $(FUZZBIN_LOCALVARS)
+
+fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS)
+	mkdir -p $(TESTDIR)/fuzz-corpus/localvars
+	./$(FUZZBIN_LOCALVARS) -runs=5000 $(TESTDIR)/fuzz-corpus/localvars
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
+
 complexity:
 	$(SCC) --ci --by-file --sort complexity $(SCC_PATHS)
 
@@ -298,12 +322,24 @@ $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(LISP_CONFIG)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ $(FUZZ_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
 
+$(FUZZBIN_DIRLOCALS): $(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c
+
+$(FUZZBIN_REGEX): $(TESTDIR)/fuzz_regex.c $(OBJDIR)/regex.c $(OBJDIR)/regex.h fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ \
+		$(TESTDIR)/fuzz_regex.c $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
+
+$(FUZZBIN_LOCALVARS): $(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c
+
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJS) $(OBJDIR)/fe.o $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
-	      $(TESTBINS) $(FUZZBIN)
+	      $(TESTBINS) $(FUZZBINS)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)

@@ -13,3 +13,6 @@ test_tty
 test_undo
 test_word
 test_yank
+fuzz_dirlocals
+fuzz_localvars
+fuzz_regex

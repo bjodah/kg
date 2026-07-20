@@ -5,4 +5,4 @@ cd "$(dirname "$0")/.."
 source .ci/ci-env.sh
 
 make clean
-make fuzz-keypress-smoke
+make fuzz-smoke

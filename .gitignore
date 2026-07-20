@@ -19,3 +19,4 @@ test/fuzz-corpus/
 *.elc
 repomix-output.*
 .repomixignore
+timeout-*

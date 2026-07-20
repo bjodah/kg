@@ -375,3 +375,29 @@ void win_display_buffer_other_window(int buffer_index)
 	winlist[win_current].bufidx = buffer_index;
 	buf_restore_from_slot(buffer_index);
 }
+
+void win_position_at_end(int buffer_index)
+{
+	int i;
+	struct editor_buffer *b = &buflist[buffer_index];
+	int numrows = (buffer_index == buf_current) ? editor.numrows : b->numrows;
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		struct editor_window *w = &winlist[i];
+		if (w->active && w->bufidx == buffer_index) {
+			int h = w->h;
+			int rowoff = (numrows > h) ? (numrows - h) : 0;
+			int cy = (numrows > 0) ? (numrows - 1 - rowoff) : 0;
+			int cx = 0;
+			if (i == win_current) {
+				editor.rowoff = rowoff;
+				editor.cy = cy;
+				editor.cx = cx;
+			} else {
+				w->rowoff = rowoff;
+				w->cy = cy;
+				w->cx = cx;
+			}
+		}
+	}
+}
+

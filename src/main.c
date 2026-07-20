@@ -41,6 +41,7 @@
 
 #include "def.h"
 #include "lisp.h"
+#include "compile.h"
 
 struct editor_config editor;
 int running = 1;
@@ -157,6 +158,7 @@ int main(int argc, char **argv)
 	}
 	while (running) {
 		editor_process_pending_signals();
+		compilation_poll();
 		autorevert_poll();
 		/* Skip the redraw while a paste floods stdin, so it costs
 		 * a handful of refreshes instead of one per pasted byte. */

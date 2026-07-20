@@ -12,6 +12,7 @@
 #include "def.h"
 #include "lisp.h"
 #include "localvars.h"
+#include "compile.h"
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -1314,6 +1315,19 @@ void buf_kill(int fd)
 {
 	int i;
 
+	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0 && compilation_is_running()) {
+		int answer;
+		editor_set_status_message(
+		    "Compilation is still running; kill it? (y/n) ");
+		editor_refresh_screen();
+		answer = editor_read_key(fd);
+		if (answer != 'y' && answer != 'Y') {
+			editor_set_status_message("Buffer not killed");
+			return;
+		}
+		compilation_shutdown();
+	}
+
 	if (editor.dirty) {
 		int answer;
 		editor_set_status_message(
@@ -1420,6 +1434,307 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 	}
 
 	editor_set_status_message("%s", status);
+}
+
+struct editor_buffer_swap {
+	erow *row;
+	int numrows;
+	int dirty;
+	struct editor_syntax *syntax;
+	char *filename;
+	int readonly_override;
+	int readonly_local;
+	int readonly;
+	struct undo_stack undostack;
+	int swapped;
+};
+
+static void buf_temp_swap_in(int idx, struct editor_buffer_swap *saved)
+{
+	if (idx == buf_current) {
+		saved->swapped = 0;
+		return;
+	}
+	saved->swapped = 1;
+
+	saved->row = editor.row;
+	saved->numrows = editor.numrows;
+	saved->dirty = editor.dirty;
+	saved->syntax = editor.syntax;
+	saved->filename = editor.filename;
+	saved->readonly_override = editor.readonly_override;
+	saved->readonly_local = editor.readonly_local;
+	saved->readonly = editor.readonly;
+	saved->undostack = undostack;
+
+	editor.row = buflist[idx].row;
+	editor.numrows = buflist[idx].numrows;
+	editor.dirty = buflist[idx].dirty;
+	editor.syntax = buflist[idx].syntax;
+	editor.filename = buflist[idx].filename;
+	editor.readonly_override = buflist[idx].readonly_override;
+	editor.readonly_local = buflist[idx].readonly_local;
+	editor.readonly = buflist[idx].readonly;
+	undostack = buflist[idx].undostack;
+}
+
+static void buf_temp_swap_out(int idx, struct editor_buffer_swap *saved)
+{
+	if (!saved->swapped) {
+		return;
+	}
+
+	buflist[idx].row = editor.row;
+	buflist[idx].numrows = editor.numrows;
+	buflist[idx].dirty = editor.dirty;
+	buflist[idx].syntax = editor.syntax;
+	buflist[idx].filename = editor.filename;
+	buflist[idx].readonly_override = editor.readonly_override;
+	buflist[idx].readonly_local = editor.readonly_local;
+	buflist[idx].readonly = editor.readonly;
+	buflist[idx].undostack = undostack;
+
+	editor.row = saved->row;
+	editor.numrows = saved->numrows;
+	editor.dirty = saved->dirty;
+	editor.syntax = saved->syntax;
+	editor.filename = saved->filename;
+	editor.readonly_override = saved->readonly_override;
+	editor.readonly_local = saved->readonly_local;
+	editor.readonly = saved->readonly;
+	undostack = saved->undostack;
+}
+
+static void buf_reset_slot(int slot)
+{
+	struct editor_buffer *b = &buflist[slot];
+	memset(b, 0, sizeof(*b));
+	b->readonly_override = -1;
+	b->undostack.max_size = MAX_UNDO_SIZE;
+	b->undostack.clean_size = 0;
+	b->active = 1;
+}
+
+static void editor_row_append_raw(erow *row, const char *s, size_t len)
+{
+	if (len == 0) {
+		return;
+	}
+	char *newchars = realloc(row->chars, row->size + len + 1);
+	if (!newchars) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
+	row->chars = newchars;
+	memcpy(row->chars + row->size, s, len);
+	row->size += len;
+	row->chars[row->size] = '\0';
+	editor_update_row(row);
+}
+
+int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
+    int readonly)
+{
+	int i, slot = -1, existing = -1;
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active) {
+			if (slot < 0) {
+				slot = i;
+			}
+			continue;
+		}
+		if (buflist[i].filename
+		    && strcmp(buflist[i].filename, name) == 0) {
+			existing = i;
+		}
+	}
+
+	int target_slot = existing;
+	if (existing >= 0) {
+		buf_clear_special_text(existing);
+	} else {
+		if (buf_count >= MAX_BUFFERS) {
+			editor_set_status_message(
+			    "Too many open buffers (%d max).", MAX_BUFFERS);
+			return -1;
+		}
+		if (slot < 0) {
+			return -1;
+		}
+		buf_reset_slot(slot);
+		buflist[slot].filename = strdup(name);
+		buf_count++;
+		target_slot = slot;
+	}
+
+	buflist[target_slot].syntax = syntax;
+	buflist[target_slot].readonly_override = readonly ? 1 : -1;
+	buflist[target_slot].readonly = readonly;
+
+	return target_slot;
+}
+
+int buf_append_special_text(int buffer_index, const char *text,
+    size_t text_length)
+{
+	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS
+	    || !buflist[buffer_index].active) {
+		return -1;
+	}
+	if (text_length == 0) {
+		return 0;
+	}
+
+	struct editor_buffer_swap saved;
+	buf_temp_swap_in(buffer_index, &saved);
+
+	int saved_suppress = suppress_undo;
+	suppress_undo = 1;
+
+	bool follow_viewport[MAX_WINDOWS] = { false };
+	bool follow_cursor[MAX_WINDOWS] = { false };
+	int old_numrows = editor.numrows;
+
+	for (int w_idx = 0; w_idx < MAX_WINDOWS; w_idx++) {
+		struct editor_window *w = &winlist[w_idx];
+		if (w->active && w->bufidx == buffer_index) {
+			int h = w->h;
+			int rowoff = (w_idx == win_current) ? editor.rowoff : w->rowoff;
+			int cursor_row = (w_idx == win_current)
+			    ? (editor.rowoff + editor.cy)
+			    : (w->rowoff + w->cy);
+			if (old_numrows <= 0 || rowoff + h >= old_numrows) {
+				follow_viewport[w_idx] = true;
+			}
+			if (old_numrows <= 0 || cursor_row >= old_numrows - 1) {
+				follow_cursor[w_idx] = true;
+			}
+		}
+	}
+
+	if (editor.numrows == 0) {
+		editor_insert_row(0, "", 0);
+	}
+
+	const char *p = text;
+	const char *end = text + text_length;
+	while (p < end) {
+		const char *nl = memchr(p, '\n', (size_t)(end - p));
+		if (!nl) {
+			editor_row_append_raw(
+			    &editor.row[editor.numrows - 1], p, (size_t)(end - p));
+			p = end;
+		} else {
+			editor_row_append_raw(
+			    &editor.row[editor.numrows - 1], p, (size_t)(nl - p));
+			editor_insert_row(editor.numrows, "", 0);
+			p = nl + 1;
+		}
+	}
+
+	editor.dirty = 0;
+
+	int new_numrows = editor.numrows;
+	for (int w_idx = 0; w_idx < MAX_WINDOWS; w_idx++) {
+		struct editor_window *w = &winlist[w_idx];
+		if (w->active && w->bufidx == buffer_index) {
+			int h = w->h;
+			int rowoff = (w_idx == win_current) ? editor.rowoff : w->rowoff;
+			int cursor_row = (w_idx == win_current)
+			    ? (editor.rowoff + editor.cy)
+			    : (w->rowoff + w->cy);
+
+			if (follow_viewport[w_idx]) {
+				rowoff = (new_numrows > h) ? (new_numrows - h) : 0;
+			} else {
+				if (rowoff > new_numrows - h) {
+					rowoff = new_numrows - h;
+				}
+				if (rowoff < 0) {
+					rowoff = 0;
+				}
+			}
+
+			if (follow_cursor[w_idx]) {
+				cursor_row = (new_numrows > 0) ? (new_numrows - 1) : 0;
+			} else {
+				if (cursor_row >= new_numrows) {
+					cursor_row = new_numrows - 1;
+				}
+				if (cursor_row < 0) {
+					cursor_row = 0;
+				}
+			}
+
+			int cy = cursor_row - rowoff;
+			int cx = 0;
+
+			if (w_idx == win_current) {
+				editor.rowoff = rowoff;
+				editor.cy = cy;
+				editor.cx = cx;
+			} else {
+				w->rowoff = rowoff;
+				w->cy = cy;
+				w->cx = cx;
+			}
+		}
+	}
+
+	suppress_undo = saved_suppress;
+	buf_temp_swap_out(buffer_index, &saved);
+	return 0;
+}
+
+void buf_clear_special_text(int buffer_index)
+{
+	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS
+	    || !buflist[buffer_index].active) {
+		return;
+	}
+
+	struct editor_buffer_swap saved;
+	buf_temp_swap_in(buffer_index, &saved);
+
+	for (int i = 0; i < editor.numrows; i++) {
+		editor_free_row(&editor.row[i]);
+	}
+	free(editor.row);
+	editor.row = NULL;
+	editor.numrows = 0;
+	editor.dirty = 0;
+
+	undo_free();
+	undo_init();
+
+	buf_temp_swap_out(buffer_index, &saved);
+}
+
+void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
+{
+	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS
+	    || !buflist[buffer_index].active) {
+		return;
+	}
+	if (len_to_remove == 0) {
+		return;
+	}
+
+	struct editor_buffer_swap saved;
+	buf_temp_swap_in(buffer_index, &saved);
+
+	if (editor.numrows > 0) {
+		erow *row = &editor.row[editor.numrows - 1];
+		if (len_to_remove <= (size_t)row->size) {
+			row->size -= len_to_remove;
+			row->chars[row->size] = '\0';
+			editor_update_row(row);
+		}
+	}
+
+	buf_temp_swap_out(buffer_index, &saved);
 }
 
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
@@ -1614,6 +1929,7 @@ void editor_cleanup(void)
 		return;
 	}
 	cleaned_up = 1;
+	compilation_shutdown();
 	buf_save_to_slot(buf_current);
 	undostack.head = NULL;
 	undostack.size = 0;

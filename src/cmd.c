@@ -631,6 +631,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "isearch-forward-regexp", cmd_isearch_forward_regexp, CMD_NONE },
 	{ "join-line", cmd_join_line, CMD_EDITS_BUFFER },
 	{ "just-one-space", cmd_just_one_space, CMD_EDITS_BUFFER },
+	{ "kill-compilation", editor_kill_compilation, CMD_NONE },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE },
 	{ "not-modified", cmd_not_modified, CMD_NONE },
 	{ "query-replace-regexp", cmd_query_replace_regexp, CMD_EDITS_BUFFER },

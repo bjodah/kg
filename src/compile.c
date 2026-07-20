@@ -5,6 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <fcntl.h>
+
+#define COMPILATION_READ_CHUNK 4096
+#define COMPILATION_TICK_BUDGET (64 * 1024)
 
 static struct compilation_state g_compilation;
 
@@ -135,17 +142,123 @@ char *compilation_format_transcript(const char *command, const char *directory,
 	return buf;
 }
 
+static int compilation_spawn(
+    const char *command,
+    const char *directory,
+    pid_t *pid_out,
+    int *output_fd_out)
+{
+	int p[2];
+	if (pipe(p) < 0) {
+		return -1;
+	}
+
+	fcntl(p[0], F_SETFD, FD_CLOEXEC);
+	fcntl(p[1], F_SETFD, FD_CLOEXEC);
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		int saved_errno = errno;
+		close(p[0]);
+		close(p[1]);
+		errno = saved_errno;
+		return -1;
+	}
+
+	if (pid == 0) {
+		setpgid(0, 0);
+
+		if (directory && chdir(directory) < 0) {
+			_exit(127);
+		}
+
+		int dn = open("/dev/null", O_RDONLY);
+		if (dn >= 0) {
+			dup2(dn, STDIN_FILENO);
+			close(dn);
+		}
+
+		dup2(p[1], STDOUT_FILENO);
+		dup2(p[1], STDERR_FILENO);
+
+		close(p[0]);
+		close(p[1]);
+
+		execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+		_exit(127);
+	}
+
+	close(p[1]);
+	fcntl(p[0], F_SETFL, O_NONBLOCK);
+	setpgid(pid, pid);
+
+	*pid_out = pid;
+	*output_fd_out = p[0];
+	return 0;
+}
+
+static void compilation_start(
+    const char *command,
+    const char *directory,
+    int source_buffer)
+{
+	int cidx = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	if (cidx < 0) {
+		editor_set_status_message("Failed to prepare compilation buffer");
+		return;
+	}
+
+	g_compilation.phase = COMPILATION_RUNNING;
+	g_compilation.source_buffer = source_buffer;
+	g_compilation.compilation_buffer = cidx;
+	g_compilation.stored_output = 0;
+	g_compilation.maximum_output = 8 * 1024 * 1024;
+	g_compilation.truncated = false;
+	g_compilation.truncation_marker_written = false;
+	g_compilation.pipe_eof = false;
+	g_compilation.child_reaped = false;
+	g_compilation.wait_status = 0;
+	g_compilation.ansi_state = 0;
+	g_compilation.pending_cr = false;
+
+	if (g_compilation.pending_line) {
+		free(g_compilation.pending_line);
+	}
+	g_compilation.pending_line = NULL;
+	g_compilation.pending_line_length = 0;
+	g_compilation.pending_line_cap = 0;
+
+	pid_t pid;
+	int out_fd;
+	if (compilation_spawn(command, directory, &pid, &out_fd) != 0) {
+		editor_set_status_message("Cannot start compilation: %s", strerror(errno));
+		g_compilation.phase = COMPILATION_IDLE;
+		return;
+	}
+
+	g_compilation.pid = pid;
+	g_compilation.process_group = pid;
+	g_compilation.output_fd = out_fd;
+
+	char header[PATH_MAX + KG_COMPILE_COMMAND_MAX + 128];
+	int header_len = snprintf(header, sizeof(header),
+	    "Compilation started in %s\n\n$ %s\n\n", directory, command);
+	buf_append_special_text(cidx, header, header_len);
+
+	buf_save_current_state();
+	buf_restore_from_slot(source_buffer);
+	win_display_buffer_other_window(cidx);
+	win_position_at_end(cidx);
+
+	editor_set_status_message("Compilation started: %s", command);
+}
+
 void editor_compile(int fd)
 {
 	char prompt[KG_COMPILE_COMMAND_MAX];
 	char dir[PATH_MAX];
 	int rc;
-	struct shell_capture_result cap;
-	char *transcript;
 	int source_slot;
-	int exited;
-	int exit_code;
-	int signal_number;
 
 	strncpy(prompt, editor.compile_command, sizeof(prompt));
 	prompt[sizeof(prompt) - 1] = '\0';
@@ -176,6 +289,33 @@ void editor_compile(int fd)
 		}
 	}
 
+	if (compilation_is_running()) {
+		char check_prompt[256];
+		snprintf(check_prompt, sizeof(check_prompt),
+		    "A compilation process is running; kill it? (y/n) ");
+		editor_set_status_message("%s", check_prompt);
+		editor_refresh_screen();
+		int ans = editor_read_key(fd);
+		if (ans != 'y' && ans != 'Y') {
+			editor_set_status_message("Compilation not started");
+			return;
+		}
+
+		if (g_compilation.process_group > 0) {
+			kill(-g_compilation.process_group, SIGINT);
+		}
+		g_compilation.phase = COMPILATION_TERMINATING;
+		g_compilation.restart_pending = true;
+		strncpy(g_compilation.pending_command, prompt, sizeof(g_compilation.pending_command));
+		g_compilation.pending_command[sizeof(g_compilation.pending_command) - 1] = '\0';
+		strncpy(g_compilation.pending_directory, dir, sizeof(g_compilation.pending_directory));
+		g_compilation.pending_directory[sizeof(g_compilation.pending_directory) - 1] = '\0';
+		g_compilation.pending_source_buffer = source_slot;
+
+		editor_set_status_message("Sent SIGINT to active compilation, restart pending...");
+		return;
+	}
+
 	g_compilation.have_last_command = true;
 	strncpy(g_compilation.last_command, prompt,
 	    sizeof(g_compilation.last_command));
@@ -187,42 +327,7 @@ void editor_compile(int fd)
 	    = '\0';
 	g_compilation.source_buffer = source_slot;
 
-	memset(&cap, 0, sizeof(cap));
-	if (shell_run_capture(prompt, dir, 0, &cap) != 0) {
-		editor_set_status_message(
-		    "Cannot start compilation: %s", strerror(errno));
-		return;
-	}
-
-	exited = (int)cap.exited;
-	exit_code = cap.exit_code;
-	signal_number = cap.signal_number;
-
-	transcript = compilation_format_transcript(
-	    prompt, dir, (size_t)(8 * 1024 * 1024), &cap);
-	if (!transcript) {
-		free(cap.output);
-		editor_set_status_message("Compilation failed: out of memory");
-		return;
-	}
-	{
-		int cidx = buf_replace_special_text("*compilation*",
-		    &compilation_syntax, transcript, strlen(transcript), 1);
-		if (cidx >= 0) {
-			buf_restore_from_slot(source_slot);
-			win_display_buffer_other_window(cidx);
-		}
-	}
-	free(transcript);
-	free(cap.output);
-
-	if (exited) {
-		editor_set_status_message(
-		    "Compilation finished with exit code %d", exit_code);
-	} else {
-		editor_set_status_message(
-		    "Compilation terminated by signal %d", signal_number);
-	}
+	compilation_start(prompt, dir, source_slot);
 }
 
 void editor_recompile(int fd)
@@ -230,14 +335,7 @@ void editor_recompile(int fd)
 	char dir[PATH_MAX];
 	char cmd_buf[KG_COMPILE_COMMAND_MAX];
 	const char *command;
-	struct shell_capture_result cap;
-	char *transcript;
 	int source_slot;
-	int exited;
-	int exit_code;
-	int signal_number;
-
-	(void)fd;
 
 	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0) {
 		if (!g_compilation.have_last_command) {
@@ -267,6 +365,33 @@ void editor_recompile(int fd)
 	buf_save_current_state();
 	source_slot = buf_current;
 
+	if (compilation_is_running()) {
+		char check_prompt[256];
+		snprintf(check_prompt, sizeof(check_prompt),
+		    "A compilation process is running; kill it? (y/n) ");
+		editor_set_status_message("%s", check_prompt);
+		editor_refresh_screen();
+		int ans = editor_read_key(fd);
+		if (ans != 'y' && ans != 'Y') {
+			editor_set_status_message("Compilation not started");
+			return;
+		}
+
+		if (g_compilation.process_group > 0) {
+			kill(-g_compilation.process_group, SIGINT);
+		}
+		g_compilation.phase = COMPILATION_TERMINATING;
+		g_compilation.restart_pending = true;
+		strncpy(g_compilation.pending_command, command, sizeof(g_compilation.pending_command));
+		g_compilation.pending_command[sizeof(g_compilation.pending_command) - 1] = '\0';
+		strncpy(g_compilation.pending_directory, dir, sizeof(g_compilation.pending_directory));
+		g_compilation.pending_directory[sizeof(g_compilation.pending_directory) - 1] = '\0';
+		g_compilation.pending_source_buffer = source_slot;
+
+		editor_set_status_message("Sent SIGINT to active compilation, restart pending...");
+		return;
+	}
+
 	g_compilation.have_last_command = true;
 	strncpy(g_compilation.last_command, command,
 	    sizeof(g_compilation.last_command));
@@ -278,40 +403,298 @@ void editor_recompile(int fd)
 	    = '\0';
 	g_compilation.source_buffer = source_slot;
 
-	memset(&cap, 0, sizeof(cap));
-	if (shell_run_capture(command, dir, 0, &cap) != 0) {
-		editor_set_status_message(
-		    "Cannot start compilation: %s", strerror(errno));
-		return;
-	}
+	compilation_start(command, dir, source_slot);
+}
 
-	exited = (int)cap.exited;
-	exit_code = cap.exit_code;
-	signal_number = cap.signal_number;
-
-	transcript = compilation_format_transcript(
-	    command, dir, (size_t)(8 * 1024 * 1024), &cap);
-	if (!transcript) {
-		free(cap.output);
-		editor_set_status_message("Compilation failed: out of memory");
-		return;
+static void compilation_append_char(struct compilation_state *s, char c)
+{
+	if (s->pending_line_length + 1 >= s->pending_line_cap) {
+		size_t new_cap = s->pending_line_cap == 0 ? 128 : s->pending_line_cap * 2;
+		char *new_buf = realloc(s->pending_line, new_cap);
+		if (!new_buf) {
+			return;
+		}
+		s->pending_line = new_buf;
+		s->pending_line_cap = new_cap;
 	}
-	{
-		int cidx = buf_replace_special_text("*compilation*",
-		    &compilation_syntax, transcript, strlen(transcript), 1);
-		if (cidx >= 0) {
-			buf_restore_from_slot(source_slot);
-			win_display_buffer_other_window(cidx);
+	s->pending_line[s->pending_line_length++] = c;
+	s->pending_line[s->pending_line_length] = '\0';
+}
+
+static void compilation_flush_pending(struct compilation_state *s, bool add_newline)
+{
+	if (s->pending_line_length > 0 || add_newline) {
+		if (add_newline) {
+			compilation_append_char(s, '\n');
+		}
+		if (s->stored_output < s->maximum_output) {
+			size_t rem = s->maximum_output - s->stored_output;
+			size_t to_add = s->pending_line_length;
+			if (to_add > rem) {
+				to_add = rem;
+				s->truncated = true;
+			}
+			buf_append_special_text(s->compilation_buffer, s->pending_line, to_add);
+			s->stored_output += to_add;
+		} else {
+			s->truncated = true;
+		}
+		s->pending_line_length = 0;
+		if (s->pending_line) {
+			s->pending_line[0] = '\0';
 		}
 	}
-	free(transcript);
-	free(cap.output);
+}
 
-	if (exited) {
-		editor_set_status_message(
-		    "Compilation finished with exit code %d", exit_code);
-	} else {
-		editor_set_status_message(
-		    "Compilation terminated by signal %d", signal_number);
+static void compilation_process_bytes(struct compilation_state *s, const char *bytes, size_t len)
+{
+	if (len == 0) {
+		return;
+	}
+
+	buf_truncate_last_row(s->compilation_buffer, s->pending_line_length);
+
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = bytes[i];
+
+		switch (s->ansi_state) {
+		case 0:
+			if (c == 27) {
+				s->ansi_state = 1;
+			} else if (c == '\r') {
+				s->pending_cr = true;
+			} else if (c == '\n') {
+				s->pending_cr = false;
+				compilation_flush_pending(s, true);
+			} else if (c == '\b') {
+				if (s->pending_cr) {
+					s->pending_line_length = 0;
+					s->pending_cr = false;
+				}
+				if (s->pending_line_length > 0) {
+					s->pending_line_length--;
+					s->pending_line[s->pending_line_length] = '\0';
+				}
+			} else {
+				if (s->pending_cr) {
+					s->pending_line_length = 0;
+					s->pending_cr = false;
+				}
+				if (c == '\t' || c >= 32) {
+					compilation_append_char(s, c);
+				}
+			}
+			break;
+
+		case 1:
+			if (c == '[') {
+				s->ansi_state = 2;
+			} else if (c == ']') {
+				s->ansi_state = 3;
+			} else {
+				s->ansi_state = 0;
+			}
+			break;
+
+		case 2:
+			if (c >= 0x40 && c <= 0x7E) {
+				s->ansi_state = 0;
+			}
+			break;
+
+		case 3:
+			if (c == 0x07) {
+				s->ansi_state = 0;
+			} else if (c == 27) {
+				s->ansi_state = 4;
+			}
+			break;
+
+		case 4:
+			if (c == '\\') {
+				s->ansi_state = 0;
+			} else {
+				s->ansi_state = 3;
+			}
+			break;
+		}
+	}
+
+	if (s->pending_line_length > 0) {
+		if (s->stored_output < s->maximum_output) {
+			size_t rem = s->maximum_output - s->stored_output;
+			size_t to_add = s->pending_line_length;
+			if (to_add > rem) {
+				to_add = rem;
+				s->truncated = true;
+			}
+			buf_append_special_text(s->compilation_buffer, s->pending_line, to_add);
+			s->stored_output += to_add;
+		} else {
+			s->truncated = true;
+		}
+	}
+}
+
+int compilation_poll(void)
+{
+	if (g_compilation.phase == COMPILATION_IDLE) {
+		return 0;
+	}
+
+	int state_changed = 0;
+
+	if (!g_compilation.pipe_eof && g_compilation.output_fd >= 0) {
+		char buf[COMPILATION_READ_CHUNK];
+		size_t read_total = 0;
+		while (read_total < COMPILATION_TICK_BUDGET) {
+			ssize_t n = read(g_compilation.output_fd, buf, sizeof(buf));
+			if (n > 0) {
+				compilation_process_bytes(&g_compilation, buf, n);
+				read_total += n;
+				state_changed = 1;
+			} else if (n < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					break;
+				}
+				if (errno == EINTR) {
+					continue;
+				}
+				g_compilation.pipe_eof = true;
+				break;
+			} else {
+				g_compilation.pipe_eof = true;
+				break;
+			}
+		}
+	}
+
+	if (!g_compilation.child_reaped && g_compilation.pid > 0) {
+		int status;
+		pid_t wpid = waitpid(g_compilation.pid, &status, WNOHANG);
+		if (wpid == g_compilation.pid) {
+			g_compilation.child_reaped = true;
+			g_compilation.wait_status = status;
+		} else if (wpid < 0 && errno == ECHILD) {
+			g_compilation.child_reaped = true;
+			g_compilation.wait_status = 0;
+		}
+	}
+
+	if (g_compilation.pipe_eof && g_compilation.child_reaped) {
+		if (g_compilation.pending_cr) {
+			g_compilation.pending_line_length = 0;
+			g_compilation.pending_cr = false;
+		}
+		if (g_compilation.pending_line_length > 0) {
+			compilation_flush_pending(&g_compilation, true);
+		}
+
+		char msg[128];
+		int msg_len;
+		if (g_compilation.truncated && !g_compilation.truncation_marker_written) {
+			msg_len = snprintf(msg, sizeof(msg),
+			    "[kg: compilation output truncated after %zu bytes]\n",
+			    g_compilation.maximum_output);
+			buf_append_special_text(g_compilation.compilation_buffer, msg, msg_len);
+			g_compilation.truncation_marker_written = true;
+		}
+
+		buf_append_special_text(g_compilation.compilation_buffer, "\n", 1);
+
+		if (WIFEXITED(g_compilation.wait_status)) {
+			int code = WEXITSTATUS(g_compilation.wait_status);
+			msg_len = snprintf(msg, sizeof(msg), "Compilation finished with exit code %d\n", code);
+			editor_set_status_message("Compilation finished with exit code %d", code);
+		} else if (WIFSIGNALED(g_compilation.wait_status)) {
+			int sig = WTERMSIG(g_compilation.wait_status);
+			msg_len = snprintf(msg, sizeof(msg), "Compilation terminated by signal %d\n", sig);
+			editor_set_status_message("Compilation terminated by signal %d", sig);
+		} else {
+			msg_len = snprintf(msg, sizeof(msg), "Compilation finished\n");
+			editor_set_status_message("Compilation finished");
+		}
+		buf_append_special_text(g_compilation.compilation_buffer, msg, msg_len);
+
+		if (g_compilation.output_fd >= 0) {
+			close(g_compilation.output_fd);
+			g_compilation.output_fd = -1;
+		}
+
+		if (g_compilation.pending_line) {
+			free(g_compilation.pending_line);
+			g_compilation.pending_line = NULL;
+		}
+		g_compilation.pending_line_length = 0;
+		g_compilation.pending_line_cap = 0;
+
+		g_compilation.phase = COMPILATION_IDLE;
+		state_changed = 1;
+
+		if (g_compilation.restart_pending) {
+			g_compilation.restart_pending = false;
+			compilation_start(g_compilation.pending_command,
+			    g_compilation.pending_directory,
+			    g_compilation.pending_source_buffer);
+		}
+	}
+
+	return state_changed;
+}
+
+int compilation_is_running(void)
+{
+	return g_compilation.phase != COMPILATION_IDLE;
+}
+
+void editor_kill_compilation(int fd)
+{
+	(void)fd;
+	if (g_compilation.phase == COMPILATION_IDLE) {
+		editor_set_status_message("No active compilation process");
+		return;
+	}
+
+	if (g_compilation.phase == COMPILATION_TERMINATING) {
+		if (g_compilation.process_group > 0) {
+			kill(-g_compilation.process_group, SIGKILL);
+			editor_set_status_message("Sent SIGKILL to compilation process group");
+		}
+		return;
+	}
+
+	if (g_compilation.process_group > 0) {
+		kill(-g_compilation.process_group, SIGINT);
+		g_compilation.phase = COMPILATION_TERMINATING;
+		editor_set_status_message("Sent SIGINT to compilation process group (repeat to SIGKILL)");
+	}
+}
+
+void compilation_shutdown(void)
+{
+	if (g_compilation.phase != COMPILATION_IDLE) {
+		if (g_compilation.output_fd >= 0) {
+			close(g_compilation.output_fd);
+			g_compilation.output_fd = -1;
+		}
+		if (g_compilation.process_group > 0) {
+			kill(-g_compilation.process_group, SIGKILL);
+			int status;
+			for (int i = 0; i < 100; i++) {
+				pid_t wpid = waitpid(g_compilation.pid, &status, WNOHANG);
+				if (wpid == g_compilation.pid || (wpid < 0 && errno == ECHILD)) {
+					break;
+				}
+				usleep(1000);
+			}
+		}
+		if (g_compilation.pending_line) {
+			free(g_compilation.pending_line);
+			g_compilation.pending_line = NULL;
+		}
+		g_compilation.pending_line_length = 0;
+		g_compilation.pending_line_cap = 0;
+		g_compilation.phase = COMPILATION_IDLE;
+		g_compilation.restart_pending = false;
 	}
 }

@@ -6,8 +6,6 @@
 #include "def.h"
 #include "localvars.h"
 
-#define MAX_UNDO_SIZE 1000
-
 /* Global undo stack */
 struct undo_stack undostack = { NULL, 0, MAX_UNDO_SIZE, -1 };
 

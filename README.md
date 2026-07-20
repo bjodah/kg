@@ -55,8 +55,8 @@ standard VT100 escape sequences.
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)
 - Compilation: `M-x compile` / `M-x recompile` running the buffer's
-  `compile-command` in `/bin/sh -c`, output in a read-only
-  `*compilation*` buffer (synchronous; combined stdout/stderr)
+  `compile-command` in `/bin/sh -c` asynchronously, output streaming into a read-only
+  `*compilation*` buffer; cancel with `M-x kill-compilation` or `C-c C-k` inside `*compilation*`
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
   `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`

@@ -348,6 +348,8 @@ struct undo_op {
 	struct undo_op *next;
 };
 
+#define MAX_UNDO_SIZE 1000
+
 /* Undo stack */
 struct undo_stack {
 	struct undo_op *head;
@@ -429,6 +431,12 @@ extern struct editor_syntax lisp_interaction_syntax;
 extern struct editor_syntax compilation_syntax;
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly);
+int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
+    int readonly);
+int buf_append_special_text(int buffer_index, const char *text,
+    size_t text_length);
+void buf_clear_special_text(int buffer_index);
+void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_save_current_state(void);
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
@@ -478,6 +486,7 @@ void win_cycle_next(void);
 void win_delete_current(void);
 void win_delete_others(void);
 void win_display_buffer_other_window(int buffer_index);
+void win_position_at_end(int buffer_index);
 
 /* autocomplete.c */
 int editor_find_close_char(int open_char);

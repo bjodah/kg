@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "compile.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static unsigned char *pending_input;
@@ -422,6 +423,7 @@ int editor_read_key(int fd)
 	while (1) {
 		nread = read_input_byte(fd, &c);
 		if (nread == 0) {
+			compilation_poll();
 			continue;
 		}
 		if (nread == -1) {
@@ -460,6 +462,7 @@ int editor_read_raw_byte(int fd)
 	while (1) {
 		nread = read_input_byte(fd, &c);
 		if (nread == 0) {
+			compilation_poll();
 			continue;
 		}
 		if (nread == -1) {
@@ -499,7 +502,10 @@ int editor_read_key_idle(int fd)
 	while (1) {
 		nread = read_input_byte(fd, &c);
 		if (nread == 0) {
-			if (autorevert_poll()) {
+			int changed = 0;
+			changed |= autorevert_poll();
+			changed |= compilation_poll();
+			if (changed) {
 				editor_refresh_screen();
 			}
 			continue;

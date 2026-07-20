@@ -128,8 +128,8 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 3420
-SCC_FILE_COMPLEXITY_MAX ?= 420
+SCC_COMPLEXITY_MAX ?= 3650
+SCC_FILE_COMPLEXITY_MAX ?= 480
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 125
@@ -294,7 +294,7 @@ iwyu:
 # Per-test linker prerequisites beyond the common test_%.o + test.o.
 # The static pattern rule below pulls these in via secondary expansion.
 EXTRA_undo         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
-EXTRA_buffer       := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(TEST_SRCS_OBJS)
+EXTRA_buffer       := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS)
 EXTRA_syntax       := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS)
 EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)

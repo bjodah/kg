@@ -117,3 +117,5 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 
 void __attribute__((weak)) editor_cleanup(void) { }
 void kg_lisp_shutdown(void) { }
+void win_display_buffer_other_window(int idx) { (void)idx; }
+void win_position_at_end(int idx) { (void)idx; }

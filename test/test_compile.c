@@ -19,6 +19,13 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 	return -1;
 }
 
+void editor_refresh_screen(void) { }
+int editor_read_key(int fd)
+{
+	(void)fd;
+	return 0;
+}
+
 void buf_save_current_state(void) { }
 
 void editor_free_row(erow *row) { (void)row; }
@@ -49,7 +56,37 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 }
 
 void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
+void win_position_at_end(int buffer_index) { (void)buffer_index; }
 void buf_restore_from_slot(int idx) { (void)idx; }
+
+int buf_prepare_special_text(const char *name, struct editor_syntax *syntax,
+    int readonly)
+{
+	(void)name;
+	(void)syntax;
+	(void)readonly;
+	return 0;
+}
+
+int buf_append_special_text(int buffer_index, const char *text,
+    size_t text_length)
+{
+	(void)buffer_index;
+	(void)text;
+	(void)text_length;
+	return 0;
+}
+
+void buf_clear_special_text(int buffer_index)
+{
+	(void)buffer_index;
+}
+
+void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
+{
+	(void)buffer_index;
+	(void)len_to_remove;
+}
 
 static void test_transcript_command_and_directory(void)
 {

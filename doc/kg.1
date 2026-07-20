@@ -686,6 +686,14 @@ Equivalent to
 .Ic M-Space .
 Reversible with
 .Ic C-_ .
+.It kill-compilation
+Send SIGINT to the active compilation process group to terminate it.
+If already terminating, a second call sends SIGKILL.
+Equivalent to
+.Ic C-c C-k
+inside the
+.Pa *compilation*
+buffer.
 .It lisp-interaction-mode
 Enable Lisp Interaction mode in the current buffer.
 In this mode
@@ -810,12 +818,17 @@ from
 .Pa *compilation*
 it reuses the last executed command and working directory.
 .Pp
-Output is captured synchronously
-.Pq first version \&; unlike Emacs, compilation is not asynchronous ,
-with combined stdout and stderr.
-Results are shown in a read-only
+Output is captured asynchronously and streams incrementally into the
 .Pa *compilation*
-buffer, rebuilt on each run.
+buffer, with combined stdout and stderr.
+While compilation is running, editing and window management remain responsive.
+The active compilation process can be terminated with
+.Ic M-x kill-compilation
+or
+.Ic C-c C-k
+inside the
+.Pa *compilation*
+buffer.
 Output is capped at 8\~MiB; truncated output is noted in the buffer.
 .Pp
 Compilation is permitted while the source buffer is read-only.

@@ -143,6 +143,7 @@ void editor_find_regexp(int fd, int direction)
 }
 
 void cmd_eval_print_last_sexp(void) { }
+void cmd_eval_last_sexp(int print_to_buffer) { (void)print_to_buffer; }
 
 int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx)
 {

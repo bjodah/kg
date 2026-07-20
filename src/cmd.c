@@ -592,8 +592,17 @@ static void cmd_query_replace_regexp(int fd)
 static void cmd_lisp_interaction_mode(int fd)
 {
 	(void)fd;
-	editor.syntax = &lisp_interaction_syntax;
+	editor_set_syntax(&lisp_interaction_syntax);
 	editor_set_status_message("Lisp Interaction mode enabled");
+}
+
+/* Manually enable YAML syntax highlighting, e.g. for an extensionless
+ * file. ".yaml"/".yml" files select it automatically. */
+static void cmd_yaml_mode(int fd)
+{
+	(void)fd;
+	editor_set_syntax(syntax_find_by_name("YAML"));
+	editor_set_status_message("YAML mode enabled");
 }
 
 /* ---- Command table ---- */
@@ -650,6 +659,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "visual-line-mode", cmd_visual_line_mode, CMD_NONE },
 	{ "what-cursor-position", cmd_what_cursor_position, CMD_NONE },
 	{ "whitespace-cleanup", cmd_whitespace_cleanup, CMD_EDITS_BUFFER },
+	{ "yaml-mode", cmd_yaml_mode, CMD_NONE },
 	{ "zap-to-char", cmd_zap_to_char, CMD_EDITS_BUFFER },
 	{ NULL, NULL, CMD_NONE },
 };

@@ -564,6 +564,9 @@ char *MAKE_HL_extensions[]
 char *MD_HL_extensions[] = { ".md", ".markdown", ".mkd", NULL };
 char *MD_HL_keywords[] = { NULL };
 
+/* YAML */
+char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
+
 /* Lisp */
 char *LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp", NULL };
 char *LISP_HL_keywords[] = { "if", "while", "quote", "and", "or", "set", "fn",
@@ -574,52 +577,58 @@ char *LISP_HL_keywords[] = { "if", "while", "quote", "and", "or", "set", "fn",
 char *GITCOMMIT_HL_extensions[] = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG",
 	"TAG_EDITMSG", "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
 
-/* Here we define an array of syntax highlights by extensions, keywords,
- * comments delimiters and flags. */
+static void markdown_syntax(erow *row);
+static void makefile_syntax(erow *row);
+static void gitcommit_syntax(erow *row);
+static void yaml_syntax(erow *row);
+static void editor_update_syntax_row_only(erow *row);
+
 struct editor_syntax HLDB[] = {
 	{ "C", C_HL_extensions, C_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Python", PYTHON_HL_extensions, PYTHON_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Shell", SHELL_HL_extensions, SHELL_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "JavaScript", JS_HL_extensions, JS_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Rust", RUST_HL_extensions, RUST_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Java", JAVA_HL_extensions, JAVA_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "TypeScript", TS_HL_extensions, TS_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "C#", CSHARP_HL_extensions, CSHARP_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "PHP", PHP_HL_extensions, PHP_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Ruby", RUBY_HL_extensions, RUBY_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Swift", SWIFT_HL_extensions, SWIFT_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "SQL", SQL_HL_extensions, SQL_HL_keywords, "--", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Dart", DART_HL_extensions, DART_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "HTML", HTML_HL_extensions, HTML_HL_keywords, "<!--", "", "-->",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "React", REACT_HL_extensions, REACT_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Vue", VUE_HL_extensions, VUE_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Angular", ANGULAR_HL_extensions, ANGULAR_HL_keywords, "//", "/*",
-	    "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
+	    "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Svelte", SVELTE_HL_extensions, SVELTE_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
-	{ "Makefile", MAKE_HL_extensions, NULL, "", "", "", SHL_MAKEFILE },
-	{ "Markdown", MD_HL_extensions, MD_HL_keywords, "", "", "",
-	    SHL_MARKDOWN },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ "Makefile", MAKE_HL_extensions, NULL, "", "", "", 0,
+	    makefile_syntax },
+	{ "Markdown", MD_HL_extensions, MD_HL_keywords, "", "", "", 0,
+	    markdown_syntax },
 	{ "Lisp", LISP_HL_extensions, LISP_HL_keywords, ";", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS },
-	{ "Git commit", GITCOMMIT_HL_extensions, NULL, "", "", "",
-	    SHL_GITCOMMIT },
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ "Git commit", GITCOMMIT_HL_extensions, NULL, "", "", "", 0,
+	    gitcommit_syntax },
+	{ "YAML", YAML_HL_extensions, NULL, "#", "", "", 0, yaml_syntax },
 };
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -685,7 +694,9 @@ static void markdown_syntax(erow *row)
 
 	/* Body of a fenced code block. */
 	if (in_block) {
-		memset(row->hl, HL_STRING, len);
+		if (len > 0) {
+			memset(row->hl, HL_STRING, len);
+		}
 		oc = 1;
 		goto done;
 	}
@@ -697,7 +708,8 @@ static void markdown_syntax(erow *row)
 	if (is_setext_line(p, len)) {
 		memset(row->hl, HL_KEYWORD1, len);
 		if (row->idx > 0) {
-			editor_update_syntax(&editor.row[row->idx - 1]);
+			editor_update_syntax_row_only(
+			    &editor.row[row->idx - 1]);
 		}
 		goto done;
 	}
@@ -710,13 +722,13 @@ static void markdown_syntax(erow *row)
 		goto done;
 	}
 
-	if (p[0] == '#') {
+	if (len > 0 && p[0] == '#') {
 		memset(row->hl, HL_KEYWORD1, len);
 		goto done;
 	}
 
 	/* Blockquote: line starts with '>'. */
-	if (p[0] == '>') {
+	if (len > 0 && p[0] == '>') {
 		memset(row->hl, HL_COMMENT, len);
 		goto done;
 	}
@@ -748,9 +760,6 @@ static void markdown_syntax(erow *row)
 	}
 
 done:
-	if (row->hl_oc != oc && row->idx + 1 < editor.numrows) {
-		editor_update_syntax(&editor.row[row->idx + 1]);
-	}
 	row->hl_oc = oc;
 }
 
@@ -906,7 +915,7 @@ static void makefile_syntax(erow *row)
 /* True when the current buffer is a git commit/merge/tag message. */
 int syntax_is_git_commit(void)
 {
-	return editor.syntax && (editor.syntax->flags & SHL_GITCOMMIT);
+	return editor.syntax && (editor.syntax->highlight == gitcommit_syntax);
 }
 
 /* Row index of the commit subject: the first non-blank row that is not
@@ -935,35 +944,15 @@ int syntax_git_commit_subject(void)
  * freshly opened commit file would never show the subject warning until
  * the user edited that line.  Walking only the rows that are already in
  * the array sidesteps that ordering entirely. */
-static int gitcommit_row_is_subject(erow *row)
-{
-	int j;
-
-	if (row->rsize == 0 || row->render[0] == '#') {
-		return 0;
-	}
-	for (j = 0; j < row->idx; j++) {
-		erow *r = &editor.row[j];
-
-		if (r->rsize > 0 && r->render[0] != '#') {
-			return 0; /* an earlier row already claims the subject
-				   */
-		}
-	}
-	return 1;
-}
-
-/* Git commit message highlighter.  Dims '#' comment lines and warns in
- * red past column 50 on the subject line.  hl_oc stores "this row is
- * the subject" so edits that move the subject re-trigger neighbours,
- * mirroring the markdown fence idiom. */
 static void gitcommit_syntax(erow *row)
 {
-	int oc = 0;
+	int has_subject_above
+	    = (row->idx > 0 && editor.row[row->idx - 1].hl_oc);
+	int oc = has_subject_above;
 
-	if (row->render[0] == '#') {
+	if (row->rsize > 0 && row->render[0] == '#') {
 		memset(row->hl, HL_COMMENT, row->rsize);
-	} else if (gitcommit_row_is_subject(row)) {
+	} else if (row->rsize > 0 && !has_subject_above) {
 		oc = 1;
 		if (row->rsize > GITCOMMIT_SUBJECT_LIMIT) {
 			memset(row->hl + GITCOMMIT_SUBJECT_LIMIT, HL_WARNING,
@@ -971,67 +960,423 @@ static void gitcommit_syntax(erow *row)
 		}
 	}
 
-	/* If this row gained or lost subject status, re-highlight the
-	 * next non-empty row so the warning follows the subject.  Blank
-	 * rows are skipped: editor_update_syntax() returns early for
-	 * them and never updates their hl_oc. */
-	if (row->hl_oc != oc) {
-		int j;
-
-		for (j = row->idx + 1; j < editor.numrows; j++) {
-			if (editor.row[j].rsize > 0) {
-				editor_update_syntax(&editor.row[j]);
-				break;
-			}
-		}
-	}
 	row->hl_oc = oc;
 }
 
-/* Set every byte of row->hl (that corresponds to every character in the line)
- * to the right syntax highlight type (HL_* defines). */
-void editor_update_syntax(erow *row)
+/* YAML syntax highlighter.
+ *
+ * This is a lexical highlighter, not a YAML parser: it does not validate
+ * documents, infer schemas, or track flow-collection nesting depth. It
+ * highlights mapping keys, comments, quoted and block scalars, core-schema
+ * values (booleans/null), numbers, and structural markers (document
+ * markers, sequence markers, anchors/aliases/tags, directives).
+ *
+ * hl_oc packs the cross-row block-scalar state: a "kind" byte plus the
+ * indentation level the block is anchored to.  YAML_STATE_BLOCK_PENDING
+ * means a '|' or '>' was seen but the content indentation has not been
+ * inferred yet; YAML_STATE_BLOCK_CONTENT means it has, and rows at or
+ * beyond that indentation are scalar body. */
+#define YAML_STATE_KIND_MASK 0xff000000
+#define YAML_STATE_INDENT_MASK 0x00ffffff
+#define YAML_STATE_BLOCK_PENDING 0x01000000
+#define YAML_STATE_BLOCK_CONTENT 0x02000000
+
+/* Number of leading space characters (YAML indentation; a leading tab is
+ * not valid YAML indentation, so it does not count). */
+static int yaml_indent(const erow *row)
 {
-	unsigned char *newhl;
+	int i = 0;
+	while (i < row->rsize && row->render[i] == ' ') {
+		i++;
+	}
+	return i;
+}
+
+/* True if a '#' at p[pos] starts a comment: outside quotes, and either at
+ * the first column or preceded by whitespace. */
+static int yaml_is_comment_start(const char *p, int pos)
+{
+	return pos == 0 || isspace((unsigned char)p[pos - 1]);
+}
+
+/* True if the ':' at p[pos] acts as a YAML mapping separator: followed by
+ * whitespace, end of line, or one of ",}]". */
+static int yaml_colon_is_separator(const char *p, int pos, int len)
+{
+	int next = pos + 1;
+	if (next >= len) {
+		return 1;
+	}
+	return isspace((unsigned char)p[next]) || p[next] == ','
+	    || p[next] == '}' || p[next] == ']';
+}
+
+/* Index just past the matching close quote for a quoted scalar starting
+ * at p[start] (p[start] is '"' or '\''); len when unterminated.  '' is an
+ * embedded quote in single-quoted scalars; \\ escapes the next byte in
+ * double-quoted scalars. */
+static int yaml_quote_span_end(const char *p, int start, int len)
+{
+	char q = p[start];
+	int i = start + 1;
+
+	while (i < len) {
+		if (p[i] == q) {
+			if (q == '\'' && i + 1 < len && p[i + 1] == '\'') {
+				i += 2;
+				continue;
+			}
+			return i + 1;
+		}
+		if (q == '"' && p[i] == '\\' && i + 1 < len) {
+			i += 2;
+			continue;
+		}
+		i++;
+	}
+	return len;
+}
+
+static int yaml_scan_quoted(erow *row, int start)
+{
+	int end = yaml_quote_span_end(row->render, start, row->rsize);
+	memset(row->hl + start, HL_STRING, end - start);
+	return end;
+}
+
+static int yaml_is_flow_punct(char c)
+{
+	return c == '{' || c == '}' || c == '[' || c == ']' || c == ',';
+}
+
+/* Anchor (&name), alias (*name) or tag (!tag, !!str) starting at
+ * p[start]: consumes up to whitespace or flow punctuation. */
+static int yaml_scan_anchor_or_tag(erow *row, int start)
+{
+	char *p = row->render;
+	int len = row->rsize;
+	int i = start + 1;
+
+	while (i < len && !isspace((unsigned char)p[i])
+	    && !yaml_is_flow_punct(p[i]) && p[i] != ':') {
+		i++;
+	}
+	memset(row->hl + start, HL_KEYWORD2, i - start);
+	return i;
+}
+
+/* Index just past a plain scalar token starting at p[start]: consumes up
+ * to whitespace, flow punctuation, a comment start, or a mapping-colon. */
+static int yaml_scalar_token_end(const char *p, int start, int len)
+{
+	int i = start;
+
+	while (i < len) {
+		char c = p[i];
+		if (isspace((unsigned char)c) || yaml_is_flow_punct(c)) {
+			break;
+		}
+		if (c == '#' && yaml_is_comment_start(p, i)) {
+			break;
+		}
+		if (c == ':' && yaml_colon_is_separator(p, i, len)) {
+			break;
+		}
+		i++;
+	}
+	return i;
+}
+
+/* True/false/null spellings and '~' recognised by the YAML 1.2 core
+ * schema.  Deliberately excludes the YAML 1.1 yes/no/on/off spellings. */
+static int yaml_is_core_scalar_keyword(const char *tok, int toklen)
+{
+	static const char *words[] = { "true", "True", "TRUE", "false", "False",
+		"FALSE", "null", "Null", "NULL", "~", NULL };
+	int i;
+
+	for (i = 0; words[i]; i++) {
+		if ((int)strlen(words[i]) == toklen
+		    && !memcmp(tok, words[i], toklen)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* True if tok[0..toklen) is a complete YAML core-schema number: a decimal
+ * int/float with an optional exponent, a 0x/0o prefixed literal, or
+ * (+/-).inf / .nan. */
+static int yaml_is_number_token(const char *tok, int toklen)
+{
+	int i = 0, has_digit = 0;
+
+	if (toklen == 0) {
+		return 0;
+	}
+	if (tok[i] == '+' || tok[i] == '-') {
+		i++;
+	}
+	if (i >= toklen) {
+		return 0;
+	}
+
+	if (tok[i] == '.' && toklen - i == 4
+	    && (!memcmp(tok + i, ".inf", 4) || !memcmp(tok + i, ".nan", 4))) {
+		return 1;
+	}
+
+	if (tok[i] == '0' && i + 1 < toklen
+	    && (tok[i + 1] == 'x' || tok[i + 1] == 'o')) {
+		int is_hex = tok[i + 1] == 'x';
+		i += 2;
+		if (i >= toklen) {
+			return 0;
+		}
+		for (; i < toklen; i++) {
+			if (is_hex ? !isxdigit((unsigned char)tok[i])
+				   : (tok[i] < '0' || tok[i] > '7')) {
+				return 0;
+			}
+		}
+		return 1;
+	}
+
+	for (; i < toklen; i++) {
+		char c = tok[i];
+		if (isdigit((unsigned char)c)) {
+			has_digit = 1;
+			continue;
+		}
+		if (c == '.') {
+			continue;
+		}
+		if ((c == 'e' || c == 'E') && has_digit) {
+			i++;
+			if (i < toklen && (tok[i] == '+' || tok[i] == '-')) {
+				i++;
+			}
+			if (i >= toklen || !isdigit((unsigned char)tok[i])) {
+				return 0;
+			}
+			for (; i < toklen; i++) {
+				if (!isdigit((unsigned char)tok[i])) {
+					return 0;
+				}
+			}
+			return 1;
+		}
+		return 0;
+	}
+	return has_digit;
+}
+
+/* Block scalar indicator ('|' or '>') at p[start]: an optional chomping
+ * modifier (-/+) and an optional explicit indentation digit, in either
+ * order.  Returns the index just past the indicator when it is followed
+ * by whitespace, a comment, or end of line (a valid indicator); returns
+ * start otherwise.  *explicit_indent is set to the indentation digit, or
+ * 0 when none was given. */
+static int yaml_block_indicator(
+    const char *p, int start, int len, int *explicit_indent)
+{
+	int i = start + 1;
+
+	*explicit_indent = 0;
+	if (i < len && (p[i] == '-' || p[i] == '+')) {
+		i++;
+	}
+	if (i < len && p[i] >= '1' && p[i] <= '9') {
+		*explicit_indent = p[i] - '0';
+		i++;
+		if (i < len && (p[i] == '-' || p[i] == '+')) {
+			i++;
+		}
+	}
+	if (i < len && !isspace((unsigned char)p[i]) && p[i] != '#') {
+		return start;
+	}
+	return i;
+}
+
+/* Scan p[start..rsize) as YAML "value" content: quoted/block scalars,
+ * anchors/aliases/tags, core-schema keywords, numbers, and a trailing
+ * comment.  Sets row->hl_oc when a block scalar indicator is found. */
+static void yaml_scan_value(erow *row, int start)
+{
+	char *p = row->render;
+	int len = row->rsize;
+	int i = start;
+
+	while (i < len) {
+		if (isspace((unsigned char)p[i])) {
+			i++;
+			continue;
+		}
+		if (p[i] == '#' && yaml_is_comment_start(p, i)) {
+			memset(row->hl + i, HL_COMMENT, len - i);
+			return;
+		}
+		if (p[i] == '"' || p[i] == '\'') {
+			i = yaml_scan_quoted(row, i);
+			continue;
+		}
+		if (p[i] == '&' || p[i] == '*' || p[i] == '!') {
+			i = yaml_scan_anchor_or_tag(row, i);
+			continue;
+		}
+		if (p[i] == '|' || p[i] == '>') {
+			int explicit_indent;
+			int end
+			    = yaml_block_indicator(p, i, len, &explicit_indent);
+			if (end > i) {
+				memset(row->hl + i, HL_KEYWORD2, end - i);
+				int header_indent = yaml_indent(row);
+				row->hl_oc = explicit_indent > 0
+				    ? (YAML_STATE_BLOCK_CONTENT
+					  | (header_indent + explicit_indent))
+				    : (YAML_STATE_BLOCK_PENDING
+					  | header_indent);
+				i = end;
+				continue;
+			}
+		}
+
+		int end = yaml_scalar_token_end(p, i, len);
+		if (end == i) {
+			i++; /* lone flow punctuation; leave HL_NORMAL */
+			continue;
+		}
+		if (yaml_is_core_scalar_keyword(p + i, end - i)) {
+			memset(row->hl + i, HL_KEYWORD2, end - i);
+		} else if (yaml_is_number_token(p + i, end - i)) {
+			memset(row->hl + i, HL_NUMBER, end - i);
+		}
+		i = end;
+	}
+}
+
+/* Mapping key at p[start..len): a plain, single- or double-quoted key, or
+ * "<<", followed by a mapping colon.  Returns the colon index, or -1 when
+ * no mapping key is present at this position. */
+static int yaml_find_mapping_colon(const char *p, int start, int len)
+{
+	int i = start;
+
+	if (i < len && (p[i] == '"' || p[i] == '\'')) {
+		i = yaml_quote_span_end(p, i, len);
+	} else {
+		while (i < len && p[i] != ':' && p[i] != '#') {
+			i++;
+		}
+	}
+	while (i < len && p[i] == ' ') {
+		i++;
+	}
+	if (i < len && p[i] == ':' && yaml_colon_is_separator(p, i, len)) {
+		return i;
+	}
+	return -1;
+}
+
+/* Top-level per-row entry point.  Handles cross-row block-scalar state
+ * first (inherited via the previous row's hl_oc), then parses the row as
+ * ordinary YAML: directives, document markers, sequence markers, a
+ * mapping key, and finally the value via yaml_scan_value(). */
+static void yaml_syntax(erow *row)
+{
+	char *p = row->render;
+	int len = row->rsize;
+	int prev_oc = (row->idx > 0) ? editor.row[row->idx - 1].hl_oc : 0;
+	int kind = prev_oc & YAML_STATE_KIND_MASK;
+	int state_indent = prev_oc & YAML_STATE_INDENT_MASK;
+	int cur_indent = yaml_indent(row);
+	int blank = (cur_indent == len);
+	int i, colon;
+
+	if (kind == YAML_STATE_BLOCK_PENDING) {
+		if (blank) {
+			row->hl_oc = prev_oc;
+			return;
+		}
+		if (cur_indent > state_indent) {
+			memset(
+			    row->hl + cur_indent, HL_STRING, len - cur_indent);
+			row->hl_oc = YAML_STATE_BLOCK_CONTENT | cur_indent;
+			return;
+		}
+		/* Never got content deep enough: block never started.  Fall
+		 * through and parse this row as ordinary YAML. */
+	} else if (kind == YAML_STATE_BLOCK_CONTENT) {
+		if (blank) {
+			row->hl_oc = prev_oc;
+			return;
+		}
+		if (cur_indent >= state_indent) {
+			memset(
+			    row->hl + cur_indent, HL_STRING, len - cur_indent);
+			row->hl_oc = prev_oc;
+			return;
+		}
+		/* Dedent: block ends.  Fall through. */
+	}
+
+	if (blank) {
+		return;
+	}
+
+	i = cur_indent;
+
+	/* Directive: '%YAML', '%TAG', ... */
+	if (p[i] == '%') {
+		int end = yaml_scalar_token_end(p, i, len);
+		memset(row->hl + i, HL_KEYWORD1, end - i);
+		return;
+	}
+
+	/* Document markers only count at the first non-indentation column. */
+	if (i + 3 <= len
+	    && (!memcmp(p + i, "---", 3) || !memcmp(p + i, "...", 3))
+	    && (i + 3 == len || isspace((unsigned char)p[i + 3]))) {
+		memset(row->hl + i, HL_KEYWORD2, 3);
+		yaml_scan_value(row, i + 3);
+		return;
+	}
+
+	/* Sequence markers, repeatable for nested "- - value". */
+	while (i < len && p[i] == '-'
+	    && (i + 1 >= len || isspace((unsigned char)p[i + 1]))) {
+		row->hl[i] = HL_KEYWORD2;
+		i++;
+		if (i < len && p[i] == ' ') {
+			i++;
+		}
+	}
+	if (i >= len) {
+		return;
+	}
+
+	colon = yaml_find_mapping_colon(p, i, len);
+	if (colon >= 0) {
+		if (p[i] == '"' || p[i] == '\'') {
+			yaml_scan_quoted(row, i);
+		} else {
+			memset(row->hl + i, HL_KEYWORD1, colon - i);
+		}
+		yaml_scan_value(row, colon + 1);
+		return;
+	}
+
+	yaml_scan_value(row, i);
+}
+
+static void generic_keyword_scan(erow *row)
+{
 	int in_string = 0; /* Are we inside "" or '' ? */
 	int in_comment = 0; /* Are we inside multi-line comment? */
 	int prev_sep = 1; /* Tell the parser if 'i' points to start of word. */
 	char *p = row->render;
 	int i = 0; /* Current char offset */
-
-	if (row->rsize == 0) {
-		free(row->hl);
-		row->hl = NULL;
-		return;
-	}
-	newhl = realloc(row->hl, row->rsize);
-	if (!newhl) {
-		editor_set_status_message("Out of memory");
-		running = 0;
-		return;
-	}
-	row->hl = newhl;
-	memset(row->hl, HL_NORMAL, row->rsize);
-
-	if (editor.syntax == NULL) {
-		return; /* No syntax, everything is HL_NORMAL. */
-	}
-
-	if (editor.syntax->flags & SHL_MARKDOWN) {
-		markdown_syntax(row);
-		return;
-	}
-
-	if (editor.syntax->flags & SHL_MAKEFILE) {
-		makefile_syntax(row);
-		return;
-	}
-
-	if (editor.syntax->flags & SHL_GITCOMMIT) {
-		gitcommit_syntax(row);
-		return;
-	}
-
 	char **keywords = editor.syntax->keywords;
 	char *mcs = editor.syntax->multiline_comment_start;
 	char *mce = editor.syntax->multiline_comment_end;
@@ -1045,8 +1390,7 @@ void editor_update_syntax(erow *row)
 
 	/* If the previous line has an open comment, this line starts
 	 * with an open comment state. */
-	if (row->idx > 0
-	    && editor_row_has_open_comment(&editor.row[row->idx - 1])) {
+	if (row->idx > 0 && editor.row[row->idx - 1].hl_oc) {
 		in_comment = 1;
 	}
 
@@ -1056,7 +1400,7 @@ void editor_update_syntax(erow *row)
 		    && (!scs[1] || *(p + 1) == scs[1])) {
 			/* From here to end is a comment */
 			memset(row->hl + i, HL_COMMENT, row->size - i);
-			return;
+			goto done;
 		}
 
 		/* Handle multi line comments. */
@@ -1233,14 +1577,108 @@ void editor_update_syntax(erow *row)
 		i++;
 	}
 
-	/* Propagate syntax change to the next row if the open comment
-	 * state changed. This may recursively affect all the following rows
-	 * in the file. */
+done:;
 	int oc = editor_row_has_open_comment(row);
-	if (row->hl_oc != oc && row->idx + 1 < editor.numrows) {
-		editor_update_syntax(&editor.row[row->idx + 1]);
-	}
 	row->hl_oc = oc;
+}
+
+static void editor_update_syntax_row_only(erow *row)
+{
+	unsigned char *newhl;
+
+	if (row->rsize == 0) {
+		free(row->hl);
+		row->hl = NULL;
+		row->hl_oc = 0;
+		if (editor.syntax && editor.syntax->highlight) {
+			editor.syntax->highlight(
+			    row); /* state propagation only */
+		} else {
+			row->hl_oc = (row->idx > 0)
+			    ? editor.row[row->idx - 1].hl_oc
+			    : 0;
+		}
+		return;
+	}
+
+	newhl = realloc(row->hl, row->rsize);
+	if (!newhl) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
+	row->hl = newhl;
+	memset(row->hl, HL_NORMAL, row->rsize);
+
+	if (editor.syntax == NULL) {
+		return; /* No syntax, everything is HL_NORMAL. */
+	}
+
+	if (editor.syntax->highlight) {
+		row->hl_oc = 0;
+		editor.syntax->highlight(row);
+	} else {
+		generic_keyword_scan(row);
+	}
+}
+
+static void syntax_propagate_downstream(erow *row, int old_oc)
+{
+	int idx = row->idx;
+	while (row->hl_oc != old_oc && idx + 1 < editor.numrows) {
+		idx++;
+		row = &editor.row[idx];
+		old_oc = row->hl_oc;
+		editor_update_syntax_row_only(row);
+	}
+}
+
+/* Set every byte of row->hl (that corresponds to every character in the line)
+ * to the right syntax highlight type (HL_* defines). */
+void editor_update_syntax(erow *row)
+{
+	int old_oc = row->hl_oc;
+	editor_update_syntax_row_only(row);
+	syntax_propagate_downstream(row, old_oc);
+}
+
+void editor_rehighlight_from(int start_idx)
+{
+	if (start_idx < 0 || start_idx >= editor.numrows) {
+		return;
+	}
+	editor_update_syntax(&editor.row[start_idx]);
+}
+
+struct editor_syntax *syntax_find_by_name(const char *name)
+{
+	int j;
+	for (j = 0; j < (int)HLDB_ENTRIES; j++) {
+		if (strcmp(HLDB[j].name, name) == 0) {
+			return &HLDB[j];
+		}
+	}
+	return NULL;
+}
+
+void editor_rehighlight_all(void)
+{
+	int j;
+	for (j = 0; j < editor.numrows; j++) {
+		editor.row[j].hl_oc = 0;
+	}
+	for (j = 0; j < editor.numrows; j++) {
+		editor_update_syntax_row_only(&editor.row[j]);
+	}
+}
+
+void editor_set_syntax(struct editor_syntax *syntax)
+{
+	editor.syntax = syntax;
+	if (buf_current >= 0 && buf_current < MAX_BUFFERS) {
+		buflist[buf_current].syntax = syntax;
+	}
+	editor_rehighlight_all();
 }
 
 /* Maps syntax highlight token types to terminal colors. */

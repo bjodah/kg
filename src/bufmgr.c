@@ -19,12 +19,13 @@
 
 /* Synthetic syntax records for special modes. */
 static struct editor_syntax ibuffer_syntax
-    = { "IBuffer", NULL, NULL, "", "", "", 0 };
-static struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0 };
+    = { "IBuffer", NULL, NULL, "", "", "", 0, NULL };
+static struct editor_syntax text_syntax
+    = { "Text", NULL, NULL, "", "", "", 0, NULL };
 struct editor_syntax lisp_interaction_syntax = { "Lisp Interaction", NULL, NULL,
-	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS };
+	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL };
 struct editor_syntax compilation_syntax
-    = { "Compilation", NULL, NULL, "", "", "", 0 };
+    = { "Compilation", NULL, NULL, "", "", "", 0, NULL };
 
 /* Column offset of the filename field in a *Buffer List* data row.
  * Format: " %c  %-24s  %6d  %-14s  %s"

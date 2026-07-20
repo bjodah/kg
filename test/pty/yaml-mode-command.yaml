@@ -1,0 +1,13 @@
+name: yaml-mode-command
+filename: notes.txt
+backend: tmux
+initial: |
+  key: value
+keys:
+  - M-x
+  - yaml-mode
+  - RET
+expected_saved: |
+  key: value
+expected_screen_contains:
+  - YAML

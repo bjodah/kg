@@ -344,8 +344,8 @@ void editor_insert_row(int at, const char *s, size_t len)
 	editor.row[at].render = NULL;
 	editor.row[at].rsize = 0;
 	editor.row[at].idx = at;
-	editor_update_row(editor.row + at);
 	editor.numrows++;
+	editor_update_row(editor.row + at);
 	editor.dirty++;
 }
 
@@ -375,6 +375,7 @@ void editor_del_row(int at)
 	}
 	editor.numrows--;
 	editor.dirty++;
+	editor_rehighlight_from(at);
 }
 
 /* Turn the editor rows into a single heap-allocated string.

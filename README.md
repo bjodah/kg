@@ -42,6 +42,9 @@ standard VT100 escape sequences.
 - Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
   column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to
   abort; `C-x #` finishes any `$EDITOR` session
+- YAML mode: `.yaml`/`.yml` files highlight keys, comments, quoted and
+  block scalars (`|`/`>`), booleans/null, numbers, and structural
+  markers; `M-x yaml-mode` enables it manually
 - Word-case bindings (M-u / M-l / M-c)
 - Transpose chars (C-t)
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)

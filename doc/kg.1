@@ -1024,6 +1024,7 @@ are used as a fallback when the extension is not recognised.
 .It Svelte Ta .svelte
 .It Makefile Ta Makefile .mk .mak
 .It Markdown Ta .md .markdown .mkd
+.It YAML Ta .yaml .yml
 .El
 .Ss Git Commit Mode
 .Nm
@@ -1070,6 +1071,27 @@ server flow shared by
 .Xr sudoedit 8 ,
 .Xr hg 1
 and similar tools.
+.Ss YAML Mode
+Files ending in
+.Pa .yaml
+or
+.Pa .yml
+use YAML syntax highlighting automatically;
+.Ic M-x yaml-mode
+enables it manually for the current buffer, e.g. for an extensionless
+file.
+Highlighting is lexical and does not validate YAML: it colors mapping
+keys, comments, quoted scalars, block scalars
+.Pq Sq \&|
+and
+.Pq Sq >
+(including across blank lines, tracking the block's indentation),
+booleans/null, numbers, and structural markers such as
+.Sq --- ,
+.Sq ... ,
+and
+.Sq - ,
+plus anchors, aliases and tags.
 .Sh AUTOCOMPLETE
 When electric pairing is enabled,
 .Nm

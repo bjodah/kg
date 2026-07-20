@@ -332,16 +332,13 @@ void editor_compile(int fd)
 			g_compilation.restart_pending = true;
 			strncpy(g_compilation.pending_command, prompt,
 			    sizeof(g_compilation.pending_command));
-			g_compilation.pending_command[sizeof(
-						g_compilation.pending_command)
-			    - 1]
+			g_compilation.pending_command
+			    [sizeof(g_compilation.pending_command) - 1]
 			    = '\0';
 			strncpy(g_compilation.pending_directory, dir,
 			    sizeof(g_compilation.pending_directory));
-			g_compilation.pending_directory[sizeof(
-						g_compilation
-						    .pending_directory)
-			    - 1]
+			g_compilation.pending_directory
+			    [sizeof(g_compilation.pending_directory) - 1]
 			    = '\0';
 			g_compilation.pending_source_buffer = source_slot;
 
@@ -403,7 +400,8 @@ void editor_recompile(int fd)
 		}
 
 		/* See editor_compile(): the compilation may have finished while
-		 * editor_read_key() polled it, so re-check before signalling. */
+		 * editor_read_key() polled it, so re-check before signalling.
+		 */
 		if (compilation_is_running()) {
 			if (g_compilation.process_group > 0) {
 				kill(-g_compilation.process_group, SIGINT);
@@ -412,16 +410,13 @@ void editor_recompile(int fd)
 			g_compilation.restart_pending = true;
 			strncpy(g_compilation.pending_command, command,
 			    sizeof(g_compilation.pending_command));
-			g_compilation.pending_command[sizeof(
-						g_compilation.pending_command)
-			    - 1]
+			g_compilation.pending_command
+			    [sizeof(g_compilation.pending_command) - 1]
 			    = '\0';
 			strncpy(g_compilation.pending_directory, dir,
 			    sizeof(g_compilation.pending_directory));
-			g_compilation.pending_directory[sizeof(
-						g_compilation
-						    .pending_directory)
-			    - 1]
+			g_compilation.pending_directory
+			    [sizeof(g_compilation.pending_directory) - 1]
 			    = '\0';
 			g_compilation.pending_source_buffer = source_slot;
 

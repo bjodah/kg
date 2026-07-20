@@ -102,9 +102,6 @@ static inline void tty_write(const void *buf, size_t n)
 
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
 #define HL_HIGHLIGHT_NUMBERS (1 << 1)
-#define SHL_MARKDOWN (1 << 2) /* Use markdown-specific highlighter. */
-#define SHL_MAKEFILE (1 << 3) /* Use makefile-specific highlighter. */
-#define SHL_GITCOMMIT (1 << 4) /* Git commit message highlighter. */
 
 /* Key action codes */
 enum KEY_ACTION {
@@ -211,6 +208,7 @@ enum KEY_ACTION {
 };
 
 /* Syntax highlight definition */
+struct erow;
 struct editor_syntax {
 	char *name; /* Display name shown in mode line, e.g. "C", "Python" */
 	char **filematch;
@@ -219,6 +217,8 @@ struct editor_syntax {
 	char multiline_comment_start[5];
 	char multiline_comment_end[5];
 	int flags;
+	void (*highlight)(
+	    struct erow *row); /* NULL => generic keyword scanner */
 };
 
 /* This structure represents a single line of the file we are editing. */
@@ -688,6 +688,10 @@ int shell_run_capture(const char *command, const char *directory,
 int is_separator(int c);
 int editor_row_has_open_comment(erow *row);
 void editor_update_syntax(erow *row);
+void editor_rehighlight_from(int start_idx);
+struct editor_syntax *syntax_find_by_name(const char *name);
+void editor_set_syntax(struct editor_syntax *syntax);
+void editor_rehighlight_all(void);
 int editor_syntax_to_color(int hl);
 void editor_select_syntax_highlight(char *filename);
 [[nodiscard]] int syntax_is_git_commit(void);

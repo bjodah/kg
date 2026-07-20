@@ -44,7 +44,7 @@ int shell_run_capture(
 }
 
 struct editor_syntax compilation_syntax
-    = { "Compilation", NULL, NULL, "", "", "", 0 };
+    = { "Compilation", NULL, NULL, "", "", "", 0, NULL };
 
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly)

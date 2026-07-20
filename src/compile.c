@@ -194,8 +194,15 @@ static int compilation_spawn(const char *command, const char *directory,
 	return 0;
 }
 
-static void compilation_start(
-    const char *command, const char *directory, int source_buffer)
+/* Start a compilation of COMMAND in DIRECTORY. compilation_start is the
+ * single place that records the command/directory that actually started, so
+ * an ordinary start and a deferred restart both leave last_command and
+ * last_directory consistent for a later recompile. When from_user is true the
+ * caller has just switched into source_buffer, so focus is returned there;
+ * for a deferred restart (launched from the top-level loop) we keep whatever
+ * buffer the user currently occupies and only show output in another window. */
+static void compilation_start(const char *command, const char *directory,
+    int source_buffer, bool from_user)
 {
 	int cidx
 	    = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
@@ -204,6 +211,16 @@ static void compilation_start(
 		    "Failed to prepare compilation buffer");
 		return;
 	}
+
+	g_compilation.have_last_command = true;
+	strncpy(g_compilation.last_command, command,
+	    sizeof(g_compilation.last_command));
+	g_compilation.last_command[sizeof(g_compilation.last_command) - 1]
+	    = '\0';
+	strncpy(g_compilation.last_directory, directory,
+	    sizeof(g_compilation.last_directory));
+	g_compilation.last_directory[sizeof(g_compilation.last_directory) - 1]
+	    = '\0';
 
 	g_compilation.phase = COMPILATION_RUNNING;
 	g_compilation.source_buffer = source_buffer;
@@ -224,6 +241,7 @@ static void compilation_start(
 	g_compilation.pending_line = NULL;
 	g_compilation.pending_line_length = 0;
 	g_compilation.pending_line_cap = 0;
+	g_compilation.displayed_pending_length = 0;
 
 	pid_t pid;
 	int out_fd;
@@ -243,8 +261,10 @@ static void compilation_start(
 	    "Compilation started in %s\n\n$ %s\n\n", directory, command);
 	buf_append_special_text(cidx, header, header_len);
 
-	buf_save_current_state();
-	buf_restore_from_slot(source_buffer);
+	if (from_user) {
+		buf_save_current_state();
+		buf_restore_from_slot(source_buffer);
+	}
 	win_display_buffer_other_window(cidx);
 	win_position_at_end(cidx);
 
@@ -299,41 +319,40 @@ void editor_compile(int fd)
 			return;
 		}
 
-		if (g_compilation.process_group > 0) {
-			kill(-g_compilation.process_group, SIGINT);
-		}
-		g_compilation.phase = COMPILATION_TERMINATING;
-		g_compilation.restart_pending = true;
-		strncpy(g_compilation.pending_command, prompt,
-		    sizeof(g_compilation.pending_command));
-		g_compilation
-		    .pending_command[sizeof(g_compilation.pending_command) - 1]
-		    = '\0';
-		strncpy(g_compilation.pending_directory, dir,
-		    sizeof(g_compilation.pending_directory));
-		g_compilation
-		    .pending_directory[sizeof(g_compilation.pending_directory)
-			- 1]
-		    = '\0';
-		g_compilation.pending_source_buffer = source_slot;
+		/* editor_read_key() polls the compilation while it waits for
+		 * the answer, so it may have finished and gone idle meanwhile.
+		 * Only signal/defer if it is genuinely still running; otherwise
+		 * start the new command directly to avoid signalling a stale
+		 * (possibly reused) process group. */
+		if (compilation_is_running()) {
+			if (g_compilation.process_group > 0) {
+				kill(-g_compilation.process_group, SIGINT);
+			}
+			g_compilation.phase = COMPILATION_TERMINATING;
+			g_compilation.restart_pending = true;
+			strncpy(g_compilation.pending_command, prompt,
+			    sizeof(g_compilation.pending_command));
+			g_compilation.pending_command[sizeof(
+						g_compilation.pending_command)
+			    - 1]
+			    = '\0';
+			strncpy(g_compilation.pending_directory, dir,
+			    sizeof(g_compilation.pending_directory));
+			g_compilation.pending_directory[sizeof(
+						g_compilation
+						    .pending_directory)
+			    - 1]
+			    = '\0';
+			g_compilation.pending_source_buffer = source_slot;
 
-		editor_set_status_message(
-		    "Sent SIGINT to active compilation, restart pending...");
-		return;
+			editor_set_status_message("Sent SIGINT to active "
+						  "compilation, restart "
+						  "pending...");
+			return;
+		}
 	}
 
-	g_compilation.have_last_command = true;
-	strncpy(g_compilation.last_command, prompt,
-	    sizeof(g_compilation.last_command));
-	g_compilation.last_command[sizeof(g_compilation.last_command) - 1]
-	    = '\0';
-	strncpy(g_compilation.last_directory, dir,
-	    sizeof(g_compilation.last_directory));
-	g_compilation.last_directory[sizeof(g_compilation.last_directory) - 1]
-	    = '\0';
-	g_compilation.source_buffer = source_slot;
-
-	compilation_start(prompt, dir, source_slot);
+	compilation_start(prompt, dir, source_slot, true);
 }
 
 void editor_recompile(int fd)
@@ -383,41 +402,37 @@ void editor_recompile(int fd)
 			return;
 		}
 
-		if (g_compilation.process_group > 0) {
-			kill(-g_compilation.process_group, SIGINT);
-		}
-		g_compilation.phase = COMPILATION_TERMINATING;
-		g_compilation.restart_pending = true;
-		strncpy(g_compilation.pending_command, command,
-		    sizeof(g_compilation.pending_command));
-		g_compilation
-		    .pending_command[sizeof(g_compilation.pending_command) - 1]
-		    = '\0';
-		strncpy(g_compilation.pending_directory, dir,
-		    sizeof(g_compilation.pending_directory));
-		g_compilation
-		    .pending_directory[sizeof(g_compilation.pending_directory)
-			- 1]
-		    = '\0';
-		g_compilation.pending_source_buffer = source_slot;
+		/* See editor_compile(): the compilation may have finished while
+		 * editor_read_key() polled it, so re-check before signalling. */
+		if (compilation_is_running()) {
+			if (g_compilation.process_group > 0) {
+				kill(-g_compilation.process_group, SIGINT);
+			}
+			g_compilation.phase = COMPILATION_TERMINATING;
+			g_compilation.restart_pending = true;
+			strncpy(g_compilation.pending_command, command,
+			    sizeof(g_compilation.pending_command));
+			g_compilation.pending_command[sizeof(
+						g_compilation.pending_command)
+			    - 1]
+			    = '\0';
+			strncpy(g_compilation.pending_directory, dir,
+			    sizeof(g_compilation.pending_directory));
+			g_compilation.pending_directory[sizeof(
+						g_compilation
+						    .pending_directory)
+			    - 1]
+			    = '\0';
+			g_compilation.pending_source_buffer = source_slot;
 
-		editor_set_status_message(
-		    "Sent SIGINT to active compilation, restart pending...");
-		return;
+			editor_set_status_message("Sent SIGINT to active "
+						  "compilation, restart "
+						  "pending...");
+			return;
+		}
 	}
 
-	g_compilation.have_last_command = true;
-	strncpy(g_compilation.last_command, command,
-	    sizeof(g_compilation.last_command));
-	g_compilation.last_command[sizeof(g_compilation.last_command) - 1]
-	    = '\0';
-	strncpy(g_compilation.last_directory, dir,
-	    sizeof(g_compilation.last_directory));
-	g_compilation.last_directory[sizeof(g_compilation.last_directory) - 1]
-	    = '\0';
-	g_compilation.source_buffer = source_slot;
-
-	compilation_start(command, dir, source_slot);
+	compilation_start(command, dir, source_slot, true);
 }
 
 static void compilation_append_char(struct compilation_state *s, char c)
@@ -436,31 +451,53 @@ static void compilation_append_char(struct compilation_state *s, char c)
 	s->pending_line[s->pending_line_length] = '\0';
 }
 
-static void compilation_flush_pending(
-    struct compilation_state *s, bool add_newline)
+/* Commit the completed pending line (plus its terminating newline) to the
+ * buffer as permanent output and reset the pending line. Only committed bytes
+ * are charged against the output cap, and each real byte is charged exactly
+ * once here, so a line split across several reads is never double-counted.
+ * The caller must have already removed any mirrored copy of the pending line
+ * from the buffer's last row (see displayed_pending_length). */
+static void compilation_commit_line(struct compilation_state *s)
 {
-	if (s->pending_line_length > 0 || add_newline) {
-		if (add_newline) {
-			compilation_append_char(s, '\n');
-		}
-		if (s->stored_output < s->maximum_output) {
-			size_t rem = s->maximum_output - s->stored_output;
-			size_t to_add = s->pending_line_length;
-			if (to_add > rem) {
-				to_add = rem;
-				s->truncated = true;
-			}
-			buf_append_special_text(
-			    s->compilation_buffer, s->pending_line, to_add);
-			s->stored_output += to_add;
-		} else {
+	if (s->stored_output < s->maximum_output) {
+		size_t rem = s->maximum_output - s->stored_output;
+		size_t to_add = s->pending_line_length;
+		if (to_add > rem) {
+			to_add = rem;
 			s->truncated = true;
 		}
-		s->pending_line_length = 0;
-		if (s->pending_line) {
-			s->pending_line[0] = '\0';
+		if (to_add > 0) {
+			buf_append_special_text(
+			    s->compilation_buffer, s->pending_line, to_add);
+		}
+		buf_append_special_text(s->compilation_buffer, "\n", 1);
+		s->stored_output += to_add;
+	} else if (s->pending_line_length > 0) {
+		s->truncated = true;
+	}
+	s->pending_line_length = 0;
+	if (s->pending_line) {
+		s->pending_line[0] = '\0';
+	}
+}
+
+/* Mirror the still-incomplete pending line into the buffer's last row so the
+ * user sees partial progress. These bytes are transient: they are removed
+ * (via displayed_pending_length) before the next chunk is processed and are
+ * not charged against the cap until the line is actually committed. */
+static void compilation_mirror_pending(struct compilation_state *s)
+{
+	size_t to_show = 0;
+	if (s->stored_output < s->maximum_output) {
+		size_t rem = s->maximum_output - s->stored_output;
+		to_show = s->pending_line_length < rem ? s->pending_line_length
+						       : rem;
+		if (to_show > 0) {
+			buf_append_special_text(
+			    s->compilation_buffer, s->pending_line, to_show);
 		}
 	}
+	s->displayed_pending_length = to_show;
 }
 
 static void compilation_process_bytes(
@@ -470,7 +507,9 @@ static void compilation_process_bytes(
 		return;
 	}
 
-	buf_truncate_last_row(s->compilation_buffer, s->pending_line_length);
+	buf_truncate_last_row(
+	    s->compilation_buffer, s->displayed_pending_length);
+	s->displayed_pending_length = 0;
 
 	for (size_t i = 0; i < len; i++) {
 		unsigned char c = bytes[i];
@@ -483,7 +522,7 @@ static void compilation_process_bytes(
 				s->pending_cr = true;
 			} else if (c == '\n') {
 				s->pending_cr = false;
-				compilation_flush_pending(s, true);
+				compilation_commit_line(s);
 			} else if (c == '\b') {
 				if (s->pending_cr) {
 					s->pending_line_length = 0;
@@ -539,21 +578,7 @@ static void compilation_process_bytes(
 		}
 	}
 
-	if (s->pending_line_length > 0) {
-		if (s->stored_output < s->maximum_output) {
-			size_t rem = s->maximum_output - s->stored_output;
-			size_t to_add = s->pending_line_length;
-			if (to_add > rem) {
-				to_add = rem;
-				s->truncated = true;
-			}
-			buf_append_special_text(
-			    s->compilation_buffer, s->pending_line, to_add);
-			s->stored_output += to_add;
-		} else {
-			s->truncated = true;
-		}
-	}
+	compilation_mirror_pending(s);
 }
 
 int compilation_poll(void)
@@ -604,12 +629,18 @@ int compilation_poll(void)
 	}
 
 	if (g_compilation.pipe_eof && g_compilation.child_reaped) {
+		/* Remove the mirrored copy of the pending line before
+		 * committing it for real, otherwise the final unterminated
+		 * line would appear twice. */
+		buf_truncate_last_row(g_compilation.compilation_buffer,
+		    g_compilation.displayed_pending_length);
+		g_compilation.displayed_pending_length = 0;
 		if (g_compilation.pending_cr) {
 			g_compilation.pending_line_length = 0;
 			g_compilation.pending_cr = false;
 		}
 		if (g_compilation.pending_line_length > 0) {
-			compilation_flush_pending(&g_compilation, true);
+			compilation_commit_line(&g_compilation);
 		}
 
 		char msg[128];
@@ -659,19 +690,41 @@ int compilation_poll(void)
 		}
 		g_compilation.pending_line_length = 0;
 		g_compilation.pending_line_cap = 0;
+		g_compilation.displayed_pending_length = 0;
+
+		/* Clear process/lifecycle identity so a stale confirmation
+		 * path cannot resurrect or re-finalize this run, or signal a
+		 * since-reused process group. */
+		g_compilation.pid = 0;
+		g_compilation.process_group = 0;
+		g_compilation.pipe_eof = false;
+		g_compilation.child_reaped = false;
 
 		g_compilation.phase = COMPILATION_IDLE;
 		state_changed = 1;
 
-		if (g_compilation.restart_pending) {
-			g_compilation.restart_pending = false;
-			compilation_start(g_compilation.pending_command,
-			    g_compilation.pending_directory,
-			    g_compilation.pending_source_buffer);
-		}
+		/* A queued restart is only launched from the top-level loop
+		 * (see compilation_start_pending_restart), never from here:
+		 * compilation_poll runs during minibuffer prompts, and starting
+		 * a compilation switches buffers/windows, which must not happen
+		 * underneath an unrelated prompt. */
 	}
 
 	return state_changed;
+}
+
+/* Launch a restart that a previous compile/recompile deferred until the
+ * running child exited. Called only from top-level input loops, where
+ * changing the displayed buffer/window is safe. */
+void compilation_start_pending_restart(void)
+{
+	if (g_compilation.restart_pending
+	    && g_compilation.phase == COMPILATION_IDLE) {
+		g_compilation.restart_pending = false;
+		compilation_start(g_compilation.pending_command,
+		    g_compilation.pending_directory,
+		    g_compilation.pending_source_buffer, false);
+	}
 }
 
 int compilation_is_running(void)

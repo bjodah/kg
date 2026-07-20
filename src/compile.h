@@ -40,6 +40,7 @@ struct compilation_state {
 	char *pending_line;
 	size_t pending_line_length;
 	size_t pending_line_cap;
+	size_t displayed_pending_length;
 	int ansi_state;
 	bool pending_cr;
 
@@ -59,6 +60,7 @@ void editor_compile(int fd);
 void editor_recompile(int fd);
 
 int compilation_poll(void);
+void compilation_start_pending_restart(void);
 int compilation_is_running(void);
 void compilation_shutdown(void);
 void editor_kill_compilation(int fd);

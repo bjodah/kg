@@ -1,0 +1,17 @@
+name: compile-no-final-newline
+filename: mcompile-noeol.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.3
+initial: '-*- compile-command: "printf UNIQUEEOL" -*-'
+keys:
+  - M-x
+  - compile
+  - RET
+  - RET
+expected_saved: '-*- compile-command: "printf UNIQUEEOL" -*-'
+expected_screen_contains:
+  - UNIQUEEOL
+  - Compilation finished with exit code 0
+expected_screen_not_contains:
+  - UNIQUEEOLUNIQUEEOL

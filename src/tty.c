@@ -505,6 +505,7 @@ int editor_read_key_idle(int fd)
 			int changed = 0;
 			changed |= autorevert_poll();
 			changed |= compilation_poll();
+			compilation_start_pending_restart();
 			if (changed) {
 				editor_refresh_screen();
 			}

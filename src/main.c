@@ -159,6 +159,7 @@ int main(int argc, char **argv)
 	while (running) {
 		editor_process_pending_signals();
 		compilation_poll();
+		compilation_start_pending_restart();
 		autorevert_poll();
 		/* Skip the redraw while a paste floods stdin, so it costs
 		 * a handful of refreshes instead of one per pasted byte. */

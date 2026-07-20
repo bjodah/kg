@@ -10,13 +10,15 @@
 #include <string.h>
 #include <unistd.h>
 
+static char g_next_command[256] = "";
+
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;
-	(void)bufsize;
-	buf[0] = '\0';
-	return -1;
+	strncpy(buf, g_next_command, bufsize);
+	buf[bufsize - 1] = '\0';
+	return 0;
 }
 
 void editor_refresh_screen(void) { }
@@ -59,12 +61,22 @@ void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }
 void buf_restore_from_slot(int idx) { (void)idx; }
 
+/* A minimal flat model of the compilation buffer so streaming tests can
+ * observe exactly what the byte-processing state machine appended. Rows are
+ * newline-separated in g_model; buf_truncate_last_row removes bytes from the
+ * end of the final row only, matching the real helper's no-op-when-too-long
+ * behavior. */
+static char g_model[1 << 16];
+static size_t g_model_len;
+
 int buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)
 {
 	(void)name;
 	(void)syntax;
 	(void)readonly;
+	g_model_len = 0;
+	g_model[0] = '\0';
 	return 0;
 }
 
@@ -72,17 +84,36 @@ int buf_append_special_text(
     int buffer_index, const char *text, size_t text_length)
 {
 	(void)buffer_index;
-	(void)text;
-	(void)text_length;
+	if (g_model_len + text_length < sizeof(g_model)) {
+		memcpy(g_model + g_model_len, text, text_length);
+		g_model_len += text_length;
+		g_model[g_model_len] = '\0';
+	}
 	return 0;
 }
 
-void buf_clear_special_text(int buffer_index) { (void)buffer_index; }
+void buf_clear_special_text(int buffer_index)
+{
+	(void)buffer_index;
+	g_model_len = 0;
+	g_model[0] = '\0';
+}
 
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 {
 	(void)buffer_index;
-	(void)len_to_remove;
+	if (len_to_remove == 0) {
+		return;
+	}
+	size_t last_row_len = 0;
+	while (last_row_len < g_model_len
+	    && g_model[g_model_len - 1 - last_row_len] != '\n') {
+		last_row_len++;
+	}
+	if (len_to_remove <= last_row_len) {
+		g_model_len -= len_to_remove;
+		g_model[g_model_len] = '\0';
+	}
 }
 
 static void test_transcript_command_and_directory(void)
@@ -257,8 +288,33 @@ static void test_resolve_absolute(void)
 	rmdir(tmpdir);
 }
 
+/* Regression for the streaming path: a final line with no trailing newline
+ * must be committed exactly once (it was previously mirrored and then flushed
+ * again, duplicating it). The output token is produced via octal escapes so
+ * it cannot appear in the echoed command header, isolating the output. */
+static void test_streaming_no_final_newline(void)
+{
+	strcpy(g_next_command, "printf '\\132\\132\\132'");
+	editor_compile(0);
+
+	for (int i = 0; i < 2000 && compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+
+	CHECK(!compilation_is_running());
+
+	const char *first = strstr(g_model, "ZZZ");
+	CHECK(first != NULL);
+	if (first) {
+		CHECK(strstr(first + 1, "ZZZ") == NULL);
+	}
+	CHECK(strstr(g_model, "Compilation finished with exit code 0") != NULL);
+}
+
 int main(void)
 {
+	RUN(test_streaming_no_final_newline);
 	RUN(test_transcript_command_and_directory);
 	RUN(test_transcript_exit_code);
 	RUN(test_transcript_signal);

@@ -85,3 +85,4 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 
 void editor_cleanup(void) { }
 int compilation_poll(void) { return 0; }
+void compilation_start_pending_restart(void) { }

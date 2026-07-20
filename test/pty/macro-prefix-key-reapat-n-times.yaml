@@ -1,0 +1,21 @@
+name: macro-prefix-key-reapat-n-times
+filename: test.txt
+initial: |
+  alpha
+  beta
+  gamma
+keys:
+  - C-x
+  - "("
+  - M-c
+  - C-f
+  - C-x
+  - ")"
+  - C-u
+  - "2"
+  - C-x
+  - e
+expected_saved: |
+  Alpha
+  Beta
+  Gamma

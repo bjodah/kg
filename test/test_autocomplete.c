@@ -60,9 +60,25 @@ static void test_find_close_char_unknown(void)
 	CHECK(editor_find_close_char(0) == 0);
 }
 
+/* With electric pairing disabled (the default) an opener inserts only
+ * itself. */
+static void test_auto_complete_off_by_default(void)
+{
+	setup();
+	electric_pairs = 0;
+	editor_insert_row(0, "", 0);
+
+	editor_insert_char_auto_complete('(');
+
+	CHECK(editor.row[0].size == 1);
+	CHECK(editor.row[0].chars[0] == '(');
+	teardown();
+}
+
 static void test_auto_complete_clamps_huge_column_offset(void)
 {
 	setup();
+	electric_pairs = 1;
 	editor_insert_row(0, "abc", 3);
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
@@ -87,6 +103,7 @@ int main(void)
 	RUN(test_find_close_char_all_pairs);
 	RUN(test_find_close_char_not_for_closers);
 	RUN(test_find_close_char_unknown);
+	RUN(test_auto_complete_off_by_default);
 	RUN(test_auto_complete_clamps_huge_column_offset);
 	return test_summary();
 }

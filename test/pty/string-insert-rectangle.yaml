@@ -1,0 +1,20 @@
+name: string-insert-rectangle
+filename: test.txt
+initial: |
+  foo
+  bar
+  baz
+keys:
+  - C-f
+  - C-SPC
+  - C-n
+  - C-n
+  - C-x
+  - r
+  - t
+  - "-"
+  - RET
+expected_saved: |
+  f-oo
+  b-ar
+  b-az

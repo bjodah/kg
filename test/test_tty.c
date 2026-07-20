@@ -4,6 +4,8 @@
 #include "test.h"
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
+#include <unistd.h>
 
 /* Stubs for tty.c dependencies */
 void win_reflow(void) { }
@@ -35,8 +37,33 @@ static void test_sigwinch_handling(void)
 	CHECK(editor_process_pending_signals() == 0);
 }
 
+/* The main loop skips redraws while editor_input_flood() reports a
+ * paste-sized input queue, so a large paste costs a handful of
+ * refreshes instead of one per byte.  A lone queued byte (ordinary
+ * typing) must not suppress the redraw. */
+static void test_input_flood_detects_paste_sized_queue(void)
+{
+	int fds[2];
+	char burst[128];
+	char byte = 'x';
+
+	memset(burst, 'x', sizeof(burst));
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
+	CHECK(editor_input_flood(fds[0]) == 0);
+	CHECK(write(fds[1], &byte, 1) == 1);
+	CHECK(editor_input_flood(fds[0]) == 0);
+	CHECK(write(fds[1], burst, sizeof(burst)) == sizeof(burst));
+	CHECK(editor_input_flood(fds[0]) == 1);
+	close(fds[0]);
+	close(fds[1]);
+}
+
 int main(void)
 {
 	RUN(test_sigwinch_handling);
+	RUN(test_input_flood_detects_paste_sized_queue);
 	return test_summary();
 }

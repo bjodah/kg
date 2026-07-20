@@ -1,0 +1,42 @@
+name: no-electric-paren-by-default
+filename: simple-prog.c
+initial: |
+  int main
+keys:
+  - C-e
+  - "("
+  - ")"
+  - SPC
+  - "{"
+  - RET
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - r
+  - e
+  - t
+  - u
+  - r
+  - n
+  - SPC
+  - "0"
+  - ";"
+  - RET
+  - "}"
+  - C-b
+  - C-SPC
+  - C-w
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-f
+  - C-g
+  - C-w
+  - C-f
+expected_saved: |
+  int main() {
+      return 0;
+  }

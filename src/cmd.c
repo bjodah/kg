@@ -224,6 +224,15 @@ static void cmd_auto_revert_mode(int fd)
 	    buf_basename(editor.filename), editor.auto_revert ? "on" : "off");
 }
 
+/* Toggle automatic insertion of closing brackets and quotes. */
+static void cmd_electric_pair_mode(int fd)
+{
+	(void)fd;
+	electric_pairs = !electric_pairs;
+	editor_set_status_message(
+	    "Electric pair mode %s", electric_pairs ? "enabled" : "disabled");
+}
+
 /* Toggle auto-revert for every buffer at once. */
 static void cmd_global_auto_revert_mode(int fd)
 {
@@ -611,6 +620,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "delete-trailing-space", cmd_delete_trailing_space,
 	    CMD_EDITS_BUFFER },
 	{ "downcase-word", cmd_downcase_word, CMD_EDITS_BUFFER },
+	{ "electric-pair-mode", cmd_electric_pair_mode, CMD_NONE },
 	{ "eval-buffer", cmd_eval_buffer, CMD_NONE },
 	{ "eval-expression", cmd_eval_expression, CMD_NONE },
 	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE },

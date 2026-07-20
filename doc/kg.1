@@ -196,6 +196,7 @@ when removing one, the prefix and the optional following space are deleted.
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
 .It C-Space Ta Set mark at point
+.It C-u C-Space Ta Jump to mark, popping the mark ring
 .It C-w Ta Kill region (cut to kill ring)
 .It M-w Ta Copy region (copy to kill ring)
 .It C-y Ta Yank from kill ring (paste)
@@ -223,6 +224,18 @@ has consumed it.
 The mark itself stays set for the next
 .Ic C-x C-x .
 The kill ring is shared across all buffers.
+.Pp
+Each buffer also keeps a mark ring of former marks.
+Setting a mark pushes the previous one onto the ring, and
+.Ic C-y ,
+.Ic M-<
+and
+.Ic M->
+push a mark at point before moving, as in Emacs.
+.Ic C-u C-Space
+jumps to the mark and rotates the ring, so repeating it walks back
+through earlier positions.
+The ring holds 16 entries per buffer.
 .Ss Shift Selection and CUA Clipboard
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
@@ -266,6 +279,7 @@ to see them.
 .It C-x r y Ta Yank rectangle (paste at point)
 .It C-x r d Ta Delete rectangle (no save)
 .It C-x r c Ta Clear rectangle (spaces)
+.It C-x r t Ta Replace rectangle with a string
 .El
 .Pp
 .Ic C-x Space
@@ -284,6 +298,10 @@ overwrites every char in the rectangle with a space, padding short
 rows out to the right edge so the rectangle
 .Dq exists
 everywhere it should.
+.Ic C-x r t
+prompts for a string and replaces each row's span of the rectangle
+with it; with a zero-width rectangle this inserts the string in the
+same column on every row.
 Each rectangle command is one undo step;
 .Ic C-_
 restores the entire affected range, including any padding or row
@@ -519,7 +537,8 @@ When not recording,
 .Ic F4
 (or
 .Ic C-x e )
-replays it.
+replays it; a numeric argument replays it that many times, e.g.
+.Ic C-u 2 C-x e .
 Every keystroke during recording is captured, including characters typed into
 prompts (search strings, goto-line numbers, etc.), so the macro replays
 the full interaction faithfully.
@@ -617,6 +636,11 @@ Reversible with
 Convert the word forward from point to lower case.
 Equivalent to
 .Ic M-l .
+.It electric-pair-mode
+Toggle automatic insertion of closing brackets and quotes (see
+.Sx AUTOCOMPLETE ) .
+Off by default; may be enabled from the init file with
+.Ql (kg-command \(dqelectric-pair-mode\(dq) .
 .It eval-buffer
 Evaluate the entire current buffer as Lisp and show the final value or error
 in the status area.
@@ -1034,6 +1058,7 @@ server flow shared by
 .Xr hg 1
 and similar tools.
 .Sh AUTOCOMPLETE
+When electric pairing is enabled,
 .Nm
 automatically inserts matching closing brackets when an opening bracket is
 typed, provided the cursor is at the end of a line.
@@ -1044,6 +1069,14 @@ and
 .Sq {} .
 Autocomplete is suppressed when text arrives quickly, such as during a paste
 operation.
+.Pp
+Electric pairing is off by default.
+Toggle it with
+.Ic M-x electric-pair-mode ,
+or enable it at startup by adding
+.Ql (kg-command \(dqelectric-pair-mode\(dq)
+to the Lisp init file (see
+.Sx FILES ) .
 .Sh GOTO LINE
 .Ic M-g
 prompts for a line number, optionally followed by a colon and a column

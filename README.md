@@ -25,13 +25,15 @@ standard VT100 escape sequences.
 - Multiple buffers with shared kill ring
 - Split-window support
 - Visual mark mode: the region renders in reverse video as you move
+- Per-buffer mark ring: C-u C-SPC jumps to the mark and pops older
+  marks; C-y, M-< and M-> push a mark like in Emacs
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
-- Rectangle commands (C-x SPC, C-x r {k,y,d,c})
+- Rectangle commands (C-x SPC, C-x r {k,y,d,c,t})
 - Smart-case literal and regexp search; query-replace (M-% / ESC %)
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
-- Keyboard macros (C-x ( / C-x ) / C-x e)
+- Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
 - M-x, C-x C-f, and C-x b all share an ido-style picker: substring
   matching, already-open files pushed to the back of the file picker
 - Detects external changes to open files; optional auto-revert
@@ -48,7 +50,8 @@ standard VT100 escape sequences.
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes
 - Universal-argument (C-u / M-0..M-9) for repeated commands, capped at
   1000
-- Auto-indent and bracket autocomplete
+- Auto-indent; electric bracket pairing via `M-x electric-pair-mode`
+  (off by default, can be enabled from the init file)
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)
 - Compilation: `M-x compile` / `M-x recompile` running the buffer's
@@ -133,6 +136,13 @@ literal paths. Packages may load other packages; loading a file twice
 evaluates it twice (there is no require/provide). Init files and packages are
 trusted code with the full privileges of the editor process, bounded only by
 the evaluation step budget and `C-g` cancellation.
+
+The init file can also toggle editor options by running named commands,
+e.g. enabling electric bracket pairing (off by default):
+
+```lisp
+(kg-command "electric-pair-mode")
+```
 
 Packages can define interactive commands and bind them to keys:
 

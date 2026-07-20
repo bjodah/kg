@@ -59,6 +59,11 @@ static void buf_save_to_slot(int idx)
 	b->mark_row = editor.mark_row;
 	b->mark_col = editor.mark_col;
 	b->mark_highlight = editor.mark_highlight;
+	memcpy(
+	    b->mark_ring_row, editor.mark_ring_row, sizeof(b->mark_ring_row));
+	memcpy(
+	    b->mark_ring_col, editor.mark_ring_col, sizeof(b->mark_ring_col));
+	b->mark_ring_len = editor.mark_ring_len;
 	b->shift_select = editor.shift_select;
 	b->rect_mode = editor.rect_mode;
 	b->undostack
@@ -96,6 +101,11 @@ void buf_restore_from_slot(int idx)
 	editor.mark_row = b->mark_row;
 	editor.mark_col = b->mark_col;
 	editor.mark_highlight = b->mark_highlight;
+	memcpy(editor.mark_ring_row, b->mark_ring_row,
+	    sizeof(editor.mark_ring_row));
+	memcpy(editor.mark_ring_col, b->mark_ring_col,
+	    sizeof(editor.mark_ring_col));
+	editor.mark_ring_len = b->mark_ring_len;
 	editor.shift_select = b->shift_select;
 	editor.rect_mode = b->rect_mode;
 	undostack = b->undostack; /* struct copy */
@@ -324,6 +334,7 @@ static void buf_reset(void)
 	editor.syntax = NULL;
 	editor.mark_set = editor.mark_row = editor.mark_col = 0;
 	editor.mark_highlight = 0;
+	editor.mark_ring_len = 0;
 	editor.shift_select = 0;
 	editor.rect_mode = 0;
 	editor.cx_prefix = 0;

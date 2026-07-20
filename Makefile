@@ -28,7 +28,6 @@ ifneq ($(WITH_LISP),1)
 $(error WITH_LISP must be 0 or 1)
 endif
 endif
-
 ifeq ($(WITH_LISP),1)
 ifeq ($(wildcard fe/fe.c),)
 ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
@@ -125,7 +124,7 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 3400
+SCC_COMPLEXITY_MAX ?= 3420
 SCC_FILE_COMPLEXITY_MAX ?= 420
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

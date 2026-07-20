@@ -241,6 +241,9 @@ typedef struct hl_color {
 	int r, g, b;
 } hl_color;
 
+/* Former marks remembered per buffer, popped with C-u C-SPC. */
+#define MARK_RING_MAX 16
+
 /* Editor configuration state */
 struct editor_config {
 	int cx, cy; /* Cursor x and y position in characters */
@@ -276,6 +279,9 @@ struct editor_config {
 	int mark_col; /* Mark column position */
 	int mark_highlight; /* 1 when the region should render with reverse
 			       video. */
+	int mark_ring_row[MARK_RING_MAX]; /* Previous marks, newest first. */
+	int mark_ring_col[MARK_RING_MAX];
+	int mark_ring_len; /* Number of live entries in the mark ring. */
 	int shift_select; /* 1 when the active region was started by
 			     shift+motion. */
 	int rect_mode; /* 1 when the region should render as a rectangle. */
@@ -377,6 +383,9 @@ struct editor_buffer {
 	int mark_set;
 	int mark_row, mark_col;
 	int mark_highlight;
+	int mark_ring_row[MARK_RING_MAX];
+	int mark_ring_col[MARK_RING_MAX];
+	int mark_ring_len;
 	int shift_select;
 	int rect_mode;
 	struct undo_stack undostack; /* per-buffer undo chain */
@@ -407,6 +416,7 @@ extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
 extern int buf_count; /* number of active buffers */
 extern int global_auto_revert; /* Default auto-revert flag for all buffers. */
+extern int electric_pairs; /* 1 when typing an opener inserts its closer. */
 
 extern struct editor_window winlist[MAX_WINDOWS];
 extern int win_current; /* index into winlist[] of the active window */
@@ -639,7 +649,7 @@ int macro_next_key(void);
 void macro_reset(void);
 void macro_start(void);
 void macro_stop(int trim);
-void macro_replay(int fd);
+void macro_replay(int fd, int count);
 
 /* search.c */
 enum search_kind { SEARCH_LITERAL, SEARCH_REGEXP };
@@ -681,6 +691,7 @@ int enable_raw_mode(int fd);
 void editor_suspend(void);
 int editor_read_key(int fd);
 int editor_read_key_idle(int fd);
+int editor_input_flood(int fd);
 int editor_read_raw_byte(int fd);
 int editor_check_quit_pending(void);
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols);
@@ -718,6 +729,8 @@ void kill_ring_append(char *text, int len);
 char *kill_ring_get(void);
 void editor_set_mark(void);
 void editor_set_mark_silent(void);
+void editor_push_mark(void);
+void editor_pop_to_mark(void);
 void editor_exchange_point_and_mark(void);
 
 /* Generic region delete-without-save (Delete key).  Falls through to
@@ -731,6 +744,7 @@ void editor_kill_rect(void);
 void editor_delete_rect(void);
 void editor_clear_rect(void);
 void editor_yank_rect(void);
+void editor_string_rect(int fd);
 void rect_kill_ring_free(void);
 void editor_kill_region(void);
 void editor_copy_region(void);

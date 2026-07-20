@@ -259,6 +259,7 @@ static const struct allowed_command allowed_commands[] = {
 	{ "delete-horizontal-space", true },
 	{ "delete-trailing-space", true },
 	{ "downcase-word", true },
+	{ "electric-pair-mode", false },
 	{ "join-line", true },
 	{ "just-one-space", true },
 	{ "transpose-chars", true },

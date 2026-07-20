@@ -70,8 +70,9 @@ void macro_stop(int trim)
 	    "Macro defined (%d key%s)", macro_len, macro_len == 1 ? "" : "s");
 }
 
-/* C-x e or F4 (when not recording): replay the last recorded macro. */
-void macro_replay(int fd)
+/* C-x e or F4 (when not recording): replay the last recorded macro.
+ * count > 1 (from a C-u numeric argument) repeats the whole macro. */
+void macro_replay(int fd, int count)
 {
 	if (macro_recording) {
 		editor_set_status_message("Can't replay while defining macro");
@@ -85,9 +86,11 @@ void macro_replay(int fd)
 		return;
 	}
 	macro_replaying = 1;
-	macro_pos = 0;
-	while (macro_pos < macro_len && running) {
-		editor_process_keypress(fd);
+	while (count-- > 0 && running) {
+		macro_pos = 0;
+		while (macro_pos < macro_len && running) {
+			editor_process_keypress(fd);
+		}
 	}
 	macro_replaying = 0;
 	if (running) {

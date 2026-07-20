@@ -47,6 +47,7 @@ int running = 1;
 int kg_exit_status = 0;
 int suppress_undo = 0;
 int global_auto_revert = 0;
+int electric_pairs = 0;
 
 void init_editor(void)
 {
@@ -157,7 +158,11 @@ int main(int argc, char **argv)
 	while (running) {
 		editor_process_pending_signals();
 		autorevert_poll();
-		editor_refresh_screen();
+		/* Skip the redraw while a paste floods stdin, so it costs
+		 * a handful of refreshes instead of one per pasted byte. */
+		if (!editor_input_flood(STDIN_FILENO)) {
+			editor_refresh_screen();
+		}
 		editor_process_keypress(STDIN_FILENO);
 	}
 	return kg_exit_status;

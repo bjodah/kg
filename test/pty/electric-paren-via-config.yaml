@@ -1,0 +1,12 @@
+name: electric-paren-via-config
+filename: prog.c
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: '(kg-command "electric-pair-mode")'
+initial: |
+  int main
+keys:
+  - C-e
+  - "("
+expected_saved: |
+  int main()

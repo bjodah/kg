@@ -1,0 +1,43 @@
+name: ctrl-u-space
+filename: alpha-golf.txt
+initial: |
+  alpha
+  bravo
+  charlie
+  delta
+  echo
+  foxtrot
+  golf
+keys:
+  - C-n
+  - C-SPC
+  - C-e
+  - C-b
+  - C-w
+  - C-n
+  - C-n
+  - C-e
+  - "-"
+  - C-y
+  - C-u
+  - C-SPC
+  - C-u
+  - C-SPC
+  - "!"
+  - "!"
+  - "M->"
+  - C-b
+  - C-b
+  - M-c
+  - C-u
+  - C-SPC
+  - C-f
+  - "+"
+expected_saved: |
+  alpha
+  !!o+
+  charlie
+  delta-brav
+  echo
+  foxtrot
+  golF

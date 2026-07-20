@@ -1,0 +1,19 @@
+name: replace-newlines
+filename: once-upon-a-time.txt
+initial: |
+  once
+  upon
+  a
+  time
+keys:
+  - M-h
+  - "M-%"
+  - C-q
+  - C-j
+  - RET
+  - SPC
+  - RET
+  - "!"
+# The buffer's final newline is replaced too, so the saved file ends
+# with a space and no newline — byte-identical to emacs -q.
+expected_saved: "once upon a time "

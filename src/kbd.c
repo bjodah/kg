@@ -311,6 +311,9 @@ void editor_process_keypress(int fd)
 		case CTRL_Y:
 			editor_yank_rect();
 			break;
+		case 't':
+			editor_string_rect(fd);
+			break;
 		case CTRL_G:
 			editor_set_status_message("");
 			break;
@@ -402,8 +405,10 @@ void editor_process_keypress(int fd)
 			     buffer) */
 			macro_stop(2);
 			break;
-		case 'e': /* C-x e: Execute keyboard macro */
-			macro_replay(fd);
+		case 'e': /* C-x e: Execute keyboard macro; C-u N repeats */
+			macro_replay(fd,
+			    editor.cx_prefix_arg > 0 ? editor.cx_prefix_arg
+						     : 1);
 			break;
 		case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
 			if (kg_lisp_active()) {
@@ -486,8 +491,12 @@ void editor_process_keypress(int fd)
 			editor_set_status_message("ESC %c is undefined", c);
 		}
 		break;
-	case KEY_NULL: /* Ctrl+Space - set mark */
-		editor_set_mark();
+	case KEY_NULL: /* Ctrl+Space: set mark; with C-u, pop the mark ring */
+		if (prefix > 0) {
+			editor_pop_to_mark();
+		} else {
+			editor_set_mark();
+		}
 		break;
 	case ENTER: /* Enter */
 		while (n--) {
@@ -632,6 +641,7 @@ void editor_process_keypress(int fd)
 			 * needs the full N-copy byte count. */
 			int start_row = editor_current_filerow_or_eof();
 			int start_col = editor_current_filecol();
+			editor_push_mark();
 			if (killring.len <= INT_MAX / n) {
 				int total_len = n * killring.len;
 				char *combined;
@@ -752,10 +762,12 @@ void editor_process_keypress(int fd)
 	}
 	case CTRL_HOME:
 	case ALT_LT:
+		editor_push_mark();
 		editor_move_to_beginning();
 		break;
 	case CTRL_END:
 	case ALT_GT:
+		editor_push_mark();
 		editor_move_to_end();
 		break;
 	case ALT_G: /* Goto line */
@@ -888,11 +900,11 @@ void editor_process_keypress(int fd)
 	case KEY_F3: /* F3: Start keyboard macro */
 		macro_start();
 		break;
-	case KEY_F4: /* F4: Stop if recording, else execute */
+	case KEY_F4: /* F4: Stop if recording, else execute; C-u N repeats */
 		if (macro_is_recording()) {
 			macro_stop(1);
 		} else {
-			macro_replay(fd);
+			macro_replay(fd, n);
 		}
 		break;
 	case CTRL_L: { /* Recenter: cycle center → top → bottom */

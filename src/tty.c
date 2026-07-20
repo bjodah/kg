@@ -144,6 +144,29 @@ static int read_input_byte(int fd, unsigned char *byte)
 	return nread;
 }
 
+/* More queued input than a burst of keystrokes could produce — i.e. a
+ * paste is in flight.  Escape sequences and type-ahead stay well below
+ * this, so ordinary typing still gets a redraw per key. */
+#define INPUT_FLOOD_THRESHOLD 64
+
+/* Is a paste flooding stdin?  The main loop skips the screen refresh
+ * while this holds so a large paste is consumed at insert speed: a full
+ * redraw per pasted byte writes megabytes of frames nobody sees, and can
+ * block forever against a paster that only starts reading our output
+ * after it has finished writing the paste. */
+int editor_input_flood(int fd)
+{
+	int queued = 0;
+
+	if (ioctl(fd, FIONREAD, &queued) == -1) {
+		queued = 0;
+	}
+	if (fd == STDIN_FILENO) {
+		queued += (int)(pending_input_len - pending_input_off);
+	}
+	return queued > INPUT_FLOOD_THRESHOLD;
+}
+
 /* Poll for C-g while Fe is evaluating.  Other raw bytes are retained and
  * replayed through the ordinary key decoder after evaluation returns. */
 int editor_check_quit_pending(void)

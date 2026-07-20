@@ -147,15 +147,86 @@ static int region_bounds(
 	    || (*start_row == *end_row && *start_col < *end_col);
 }
 
+/* Remember the current mark (if any) on the mark ring, newest first.
+ * The oldest entry falls off when the ring is full. */
+static void mark_ring_push_current(void)
+{
+	if (!editor.mark_set) {
+		return;
+	}
+	memmove(&editor.mark_ring_row[1], &editor.mark_ring_row[0],
+	    (MARK_RING_MAX - 1) * sizeof(editor.mark_ring_row[0]));
+	memmove(&editor.mark_ring_col[1], &editor.mark_ring_col[0],
+	    (MARK_RING_MAX - 1) * sizeof(editor.mark_ring_col[0]));
+	editor.mark_ring_row[0] = editor.mark_row;
+	editor.mark_ring_col[0] = editor.mark_col;
+	if (editor.mark_ring_len < MARK_RING_MAX) {
+		editor.mark_ring_len++;
+	}
+}
+
 /* Set mark at current cursor position without echoing to the minibuffer.
  * Used by shift-select and rectangle commands where a status message
  * would be noisy. */
 void editor_set_mark_silent(void)
 {
+	mark_ring_push_current();
 	editor.mark_set = 1;
 	editor.mark_row = yank_current_row();
 	editor.mark_col = yank_current_col();
 	editor.mark_highlight = 1;
+}
+
+/* Set mark at point and remember the old one on the ring, without
+ * activating the region highlight.  Motion commands that jump far
+ * (M-<, M->) and yank use this, matching Emacs' push-mark. */
+void editor_push_mark(void)
+{
+	mark_ring_push_current();
+	editor.mark_set = 1;
+	editor.mark_row = yank_current_row();
+	editor.mark_col = yank_current_col();
+}
+
+/* C-u C-SPC: jump to mark, then rotate the mark ring so repeated pops
+ * walk older and older marks (Emacs' pop-to-mark-command).  Positions
+ * are clamped since edits after the push may have shrunk the buffer. */
+void editor_pop_to_mark(void)
+{
+	int row, col;
+
+	if (!editor.mark_set) {
+		editor_set_status_message("No mark set");
+		return;
+	}
+
+	/* Edits since the push may have shrunk the buffer; clamp the row
+	 * here and let editor_snap_cx_to_row settle an overlong column. */
+	row = editor.mark_row;
+	col = editor.mark_col;
+	if (row >= editor.numrows) {
+		row = editor.numrows > 0 ? editor.numrows - 1 : 0;
+		col = 0;
+	}
+	editor_cursor_goto(row, col);
+	editor_snap_cx_to_row();
+
+	if (editor.mark_ring_len > 0) {
+		int last = editor.mark_ring_len - 1;
+		int old_row = editor.mark_row;
+		int old_col = editor.mark_col;
+
+		editor.mark_row = editor.mark_ring_row[0];
+		editor.mark_col = editor.mark_ring_col[0];
+		memmove(&editor.mark_ring_row[0], &editor.mark_ring_row[1],
+		    last * sizeof(editor.mark_ring_row[0]));
+		memmove(&editor.mark_ring_col[0], &editor.mark_ring_col[1],
+		    last * sizeof(editor.mark_ring_col[0]));
+		editor.mark_ring_row[last] = old_row;
+		editor.mark_ring_col[last] = old_col;
+	}
+	editor.mark_highlight = 0;
+	editor_set_status_message("Mark popped");
 }
 
 /* Set mark at current cursor position (C-Space, explicit set-mark). */
@@ -495,6 +566,9 @@ void editor_yank(void)
 		editor_set_status_message("Kill ring is empty");
 		return;
 	}
+
+	/* Mark the start of the yanked text, as Emacs does. */
+	editor_push_mark();
 
 	/* Record single undo operation for entire yank */
 	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, text, killring.len);

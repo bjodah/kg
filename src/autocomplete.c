@@ -51,6 +51,11 @@ void editor_insert_char_auto_complete(int c)
 	int close_char;
 	int at_end;
 
+	if (!electric_pairs) {
+		editor_insert_char(c);
+		return;
+	}
+
 	filerow = editor_current_filerow_or_eof();
 	if (filerow < editor.numrows) {
 		row = &editor.row[filerow];

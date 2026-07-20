@@ -1,4 +1,4 @@
-/* rect.c - Rectangle operations (C-x SPC, C-x r {k,y,d,c}) */
+/* rect.c - Rectangle operations (C-x SPC, C-x r {k,y,d,c,t}) */
 
 #include <stdlib.h>
 #include <string.h>
@@ -168,6 +168,27 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	return buf;
 }
 
+/* Snapshot rows [s_row, e_row] and push a single UNDO_RECT_OVERWRITE
+ * step anchored at the rect's left edge on the start row.  Returns the
+ * anchor's byte column so callers can land the cursor on it.  Must run
+ * before the rows are modified. */
+static int rect_push_overwrite_undo(int s_row, int s_vcol, int e_row)
+{
+	int byte_lo = 0;
+	int snap_len;
+	char *snap = rect_snapshot_rows(s_row, e_row + 1, &snap_len);
+
+	if (s_row < editor.numrows) {
+		int hi_unused;
+		rect_row_byte_range(
+		    &editor.row[s_row], s_vcol, s_vcol, &byte_lo, &hi_unused);
+	}
+	undo_push(UNDO_RECT_OVERWRITE, s_row, byte_lo, editor.numrows,
+	    snap ? snap : (char *)"", snap_len);
+	free(snap);
+	return byte_lo;
+}
+
 /* Common tear-down after a rectangle command. */
 static void rect_deactivate(void)
 {
@@ -185,10 +206,7 @@ static void rect_deactivate(void)
 static void rect_kill_or_delete(int save_to_ring)
 {
 	int s_row, s_vcol, e_row, e_vcol;
-	int orig_numrows;
 	int s_row_byte_lo;
-	char *snap;
-	int snap_len;
 	int r;
 
 	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
@@ -198,9 +216,6 @@ static void rect_kill_or_delete(int save_to_ring)
 		editor_set_status_message("Empty rectangle");
 		return;
 	}
-
-	orig_numrows = editor.numrows;
-	snap = rect_snapshot_rows(s_row, e_row + 1, &snap_len);
 
 	/* Build the rectangle text for the kill ring (each row's chars
 	 * intersected with the per-row byte range, joined with '\n'). */
@@ -256,19 +271,8 @@ static void rect_kill_or_delete(int save_to_ring)
 		}
 	}
 
-	/* Cursor lands at the rect's left edge on the start row — convert
-	 * s_vcol to that row's byte for the goto, and for the undo anchor. */
-	if (s_row < editor.numrows) {
-		int hi_unused;
-		rect_row_byte_range(&editor.row[s_row], s_vcol, s_vcol,
-		    &s_row_byte_lo, &hi_unused);
-	} else {
-		s_row_byte_lo = 0;
-	}
-
-	undo_push(UNDO_RECT_OVERWRITE, s_row, s_row_byte_lo, orig_numrows,
-	    snap ? snap : (char *)"", snap_len);
-	free(snap);
+	/* Cursor lands at the rect's left edge on the start row. */
+	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 
 	suppress_undo = 1;
 	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
@@ -299,10 +303,7 @@ void editor_delete_rect(void) { rect_kill_or_delete(0); }
 void editor_clear_rect(void)
 {
 	int s_row, s_vcol, e_row, e_vcol;
-	int orig_numrows;
 	int s_row_byte_lo;
-	char *snap;
-	int snap_len;
 	int r;
 
 	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
@@ -313,20 +314,7 @@ void editor_clear_rect(void)
 		return;
 	}
 
-	orig_numrows = editor.numrows;
-	snap = rect_snapshot_rows(s_row, e_row + 1, &snap_len);
-
-	if (s_row < editor.numrows) {
-		int hi_unused;
-		rect_row_byte_range(&editor.row[s_row], s_vcol, s_vcol,
-		    &s_row_byte_lo, &hi_unused);
-	} else {
-		s_row_byte_lo = 0;
-	}
-
-	undo_push(UNDO_RECT_OVERWRITE, s_row, s_row_byte_lo, orig_numrows,
-	    snap ? snap : (char *)"", snap_len);
-	free(snap);
+	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 
 	suppress_undo = 1;
 	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
@@ -416,6 +404,53 @@ void editor_yank_rect(void)
 	rect_deactivate();
 	editor.dirty++;
 	editor_set_status_message("Rectangle yanked");
+}
+
+/* C-x r t: replace each row's chars in the visual [s_vcol, e_vcol) span
+ * with a string read from the minibuffer.  A zero-width rectangle makes
+ * this a per-row column insert.  Rows shorter than the left edge are
+ * padded with spaces first, like editor_clear_rect. */
+void editor_string_rect(int fd)
+{
+	int s_row, s_vcol, e_row, e_vcol;
+	int s_row_byte_lo;
+	char input[256];
+	int input_len;
+	int r;
+
+	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
+		return;
+	}
+	input[0] = '\0';
+	if (editor_read_line(fd, "String rectangle: ", input, sizeof(input))
+	    < 0) {
+		editor_set_status_message("");
+		return;
+	}
+	input_len = strlen(input);
+
+	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
+
+	suppress_undo = 1;
+	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
+		erow *row = &editor.row[r];
+		int lo, hi, i;
+
+		rect_row_pad_to_visual(row, s_vcol);
+		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
+		for (i = hi - 1; i >= lo; i--) {
+			editor_row_del_char(row, i);
+		}
+		if (input_len > 0) {
+			editor_row_insert_string(row, lo, input, input_len);
+		}
+	}
+	suppress_undo = 0;
+
+	editor_cursor_goto(s_row, s_row_byte_lo);
+	rect_deactivate();
+	editor.dirty++;
+	editor_set_status_message("Rectangle replaced");
 }
 
 /* C-x SPC: start a rectangular region at point, or cancel an active one. */

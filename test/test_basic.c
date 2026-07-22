@@ -297,6 +297,44 @@ static void test_overwrite_mode_toggle_and_replace(void)
 	teardown();
 }
 
+static void test_overwrite_multibyte_glyph(void)
+{
+	setup(0);
+	editor_insert_row(0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
+	editor.cx = 1;
+	editor.cy = 0;
+
+	editor_overwrite_char('X');
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "aXzz", 4) == 0);
+	teardown();
+}
+
+/* A malformed run of continuation bytes must never be treated as one
+ * oversized glyph: overwriting at a continuation byte replaces exactly
+ * that one byte, matching Emacs-like best-effort recovery and avoiding
+ * the stack over-read this test would have caught before the fix. */
+static void test_overwrite_malformed_utf8_treated_as_one_byte(void)
+{
+	char row[23];
+
+	setup(0);
+	row[0] = 'a';
+	memset(row + 1, '\x80', 20);
+	row[21] = 'b';
+	editor_insert_row(0, row, 22);
+	editor.cx = 1;
+	editor.cy = 0;
+
+	editor_overwrite_char('X');
+	CHECK(editor.row[0].size == 22);
+	CHECK(editor.row[0].chars[0] == 'a');
+	CHECK(editor.row[0].chars[1] == 'X');
+	CHECK((unsigned char)editor.row[0].chars[2] == 0x80);
+	CHECK(editor.row[0].chars[21] == 'b');
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -319,5 +357,7 @@ int main(void)
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);
 	RUN(test_overwrite_mode_toggle_and_replace);
+	RUN(test_overwrite_multibyte_glyph);
+	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);
 	return test_summary();
 }

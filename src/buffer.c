@@ -1138,17 +1138,19 @@ void editor_overwrite_char(int c)
 	int filecol = editor_current_filecol();
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 	int old_len;
-	char orig[8] = { 0 };
 
 	if (!row || filecol >= row->size) {
 		editor_insert_char(c);
 		return;
 	}
 
-	old_len = utf8_next_glyph_len(row->chars, row->size, filecol);
-	memcpy(orig, row->chars + filecol, old_len < 8 ? old_len : 7);
+	old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
 
-	undo_push(UNDO_REPLACE_TEXT, filerow, filecol, 1, orig, old_len);
+	if (!undo_push(UNDO_REPLACE_TEXT, filerow, filecol, 1,
+		row->chars + filecol, old_len)) {
+		editor_nomem();
+		return;
+	}
 
 	row->chars[filecol] = (char)c;
 	if (old_len > 1) {

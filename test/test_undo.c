@@ -484,6 +484,51 @@ static void test_undo_replace_text_multi_row(void)
 	teardown();
 }
 
+/* editor_overwrite_char() on a multi-byte glyph must undo back to the
+ * exact original bytes, not just restore the byte count. */
+static void test_undo_overwrite_multibyte_glyph(void)
+{
+	setup();
+	editor_insert_row(0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
+	editor.cx = 1;
+	editor.cy = 0;
+
+	editor_overwrite_char('X');
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "aXzz", 4) == 0);
+
+	editor_undo();
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9zz", 5) == 0);
+	teardown();
+}
+
+/* Overwriting at a malformed (undecodable) UTF-8 position replaces exactly
+ * one byte, and undo restores that one byte exactly. */
+static void test_undo_overwrite_malformed_utf8(void)
+{
+	char row[23];
+
+	setup();
+	row[0] = 'a';
+	memset(row + 1, '\x80', 20);
+	row[21] = 'b';
+	editor_insert_row(0, row, 22);
+	editor.cx = 1;
+	editor.cy = 0;
+
+	editor_overwrite_char('X');
+	CHECK(editor.row[0].size == 22);
+	CHECK(editor.row[0].chars[1] == 'X');
+
+	editor_undo();
+	CHECK(editor.row[0].size == 22);
+	CHECK((unsigned char)editor.row[0].chars[1] == 0x80);
+	CHECK(editor.row[0].chars[0] == 'a');
+	CHECK(editor.row[0].chars[21] == 'b');
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -511,5 +556,7 @@ int main(void)
 	RUN(test_undo_yank_multi_row);
 	RUN(test_undo_replace_text);
 	RUN(test_undo_replace_text_multi_row);
+	RUN(test_undo_overwrite_multibyte_glyph);
+	RUN(test_undo_overwrite_malformed_utf8);
 	return test_summary();
 }

@@ -441,6 +441,7 @@ extern int win_total_cols; /* terminal cols (set by update_window_size) */
 /* bufmgr.c */
 extern struct editor_syntax lisp_interaction_syntax;
 extern struct editor_syntax compilation_syntax;
+extern struct editor_syntax text_syntax;
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly);
 int buf_prepare_special_text(
@@ -463,6 +464,7 @@ int autorevert_poll(void);
 void buf_reload_from_disk(void);
 void buf_restore_from_slot(int idx);
 void buf_visit_file(const char *filename, int explicit_readonly);
+void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 
 /* path.c */
 #define PATH_ENTRY_NAME_MAX 256 /* fits POSIX NAME_MAX (255) + NUL */
@@ -483,8 +485,6 @@ void buf_kill(int fd);
 void buf_save_all(int fd);
 void buf_open_list(void);
 void buf_open_help(void);
-void buf_show_special_text(
-    const char *name, const char *text, const char *status);
 void buf_ibuffer_select(void);
 void buf_display_name(int idx, char *out, size_t outsize);
 void editor_cleanup(void);
@@ -605,6 +605,39 @@ static inline int is_special_buffer(const char *filename)
  * a raw byte stream and needing to skip past or land on glyph boundaries. */
 static inline int utf8_is_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
 
+/* Byte length of the glyph starting at buf[start], validating the lead byte
+ * and every required continuation byte against buf[0..len).  Returns 1 for
+ * ASCII, malformed lead bytes, or a start position on a continuation byte,
+ * so callers never treat a corrupt sequence as one oversized glyph. */
+static inline int utf8_glyph_span_at(const char *buf, int len, int start)
+{
+	unsigned char lead;
+	int need, i;
+
+	if (start < 0 || start >= len) {
+		return 1;
+	}
+	lead = (unsigned char)buf[start];
+	if (lead < 0x80 || utf8_is_cont(lead)) {
+		return 1;
+	} else if (lead >= 0xC2 && lead <= 0xDF) {
+		need = 1;
+	} else if (lead >= 0xE0 && lead <= 0xEF) {
+		need = 2;
+	} else if (lead >= 0xF0 && lead <= 0xF4) {
+		need = 3;
+	} else {
+		return 1;
+	}
+	for (i = 1; i <= need; i++) {
+		if (start + i >= len
+		    || !utf8_is_cont((unsigned char)buf[start + i])) {
+			return 1;
+		}
+	}
+	return need + 1;
+}
+
 /* Return the basename of a filename (part after last '/'), or the whole
  * string if no '/' is present.  Falls back to "[new]" for NULL. */
 static inline const char *buf_basename(const char *filename)
@@ -700,6 +733,8 @@ struct shell_capture_result {
 
 int shell_run_capture(const char *command, const char *directory,
     size_t maximum_output, struct shell_capture_result *result);
+bool shell_output_fits_echo(
+    const char *out, int out_len, int available_columns);
 
 /* syntax.c */
 int is_separator(int c);

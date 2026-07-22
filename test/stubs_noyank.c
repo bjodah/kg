@@ -64,10 +64,16 @@ int __attribute__((weak)) editor_read_line(
 
 void editor_cleanup(void) { }
 
-void __attribute__((weak)) buf_show_special_text(
-    const char *name, const char *text, const char *status)
+struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0, NULL };
+
+int __attribute__((weak)) buf_replace_special_text(const char *name,
+    struct editor_syntax *syntax, const char *text, size_t text_length,
+    int readonly)
 {
 	(void)name;
+	(void)syntax;
 	(void)text;
-	(void)status;
+	(void)text_length;
+	(void)readonly;
+	return 0;
 }

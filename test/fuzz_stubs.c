@@ -115,13 +115,6 @@ void buf_kill(int fd) { (void)fd; }
 void buf_open_list(void) { }
 void buf_ibuffer_select(void) { }
 void buf_open_help(void) { }
-void buf_show_special_text(
-    const char *name, const char *text, const char *status)
-{
-	(void)name;
-	(void)text;
-	(void)status;
-}
 int autorevert_poll(void) { return 0; }
 void buf_display_name(int idx, char *out, size_t outsize)
 {

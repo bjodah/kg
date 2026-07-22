@@ -454,6 +454,47 @@ static void insert_as_yank(const char *text, int len)
 	editor_insert_text_raw(text, len);
 }
 
+/* True if `out` (out_len bytes, one optional trailing newline) can go
+ * straight into the echo area: exactly one logical line, valid UTF-8, no
+ * control bytes (the renderer in display.c passes ESC sequences through
+ * verbatim so the completion picker can highlight entries, which would
+ * otherwise let shell output inject terminal escapes), and short enough
+ * to fit both the screen width and statusmsg's fixed capacity. */
+bool shell_output_fits_echo(const char *out, int out_len, int available_columns)
+{
+	int stop = out_len;
+	int i;
+
+	if (out_len <= 0) {
+		return false;
+	}
+	if (out[out_len - 1] == '\n') {
+		stop = out_len - 1;
+	}
+	if (stop <= 0 || stop >= (int)sizeof(editor.statusmsg)
+	    || stop > available_columns) {
+		return false;
+	}
+	for (i = 0; i < stop;) {
+		unsigned char ch = (unsigned char)out[i];
+		int span;
+
+		if (ch == '\n' || ch == '\x1b' || (ch < 0x20) || ch == 0x7f) {
+			return false;
+		}
+		if (ch < 0x80) {
+			i++;
+			continue;
+		}
+		span = utf8_glyph_span_at(out, stop, i);
+		if (span == 1) {
+			return false; /* malformed UTF-8 */
+		}
+		i += span;
+	}
+	return true;
+}
+
 static void display_shell_output(const char *out, int out_len)
 {
 	if (!out || out_len <= 0) {
@@ -462,15 +503,13 @@ static void display_shell_output(const char *out, int out_len)
 		return;
 	}
 
-	const char *first_nl = strchr(out, '\n');
-	if (!first_nl || first_nl == out + out_len - 1) {
-		int len = (out_len > 0 && out[out_len - 1] == '\n')
-		    ? out_len - 1
-		    : out_len;
+	if (shell_output_fits_echo(out, out_len, win_total_cols)) {
+		int len = (out[out_len - 1] == '\n') ? out_len - 1 : out_len;
 		editor_set_status_message("%.*s", len, out);
-	} else {
-		buf_show_special_text(
-		    "*Shell Command Output*", out, "Shell command finished");
+	} else if (buf_replace_special_text("*Shell Command Output*",
+		       &text_syntax, out, (size_t)out_len, 1)
+	    >= 0) {
+		editor_set_status_message("Shell command finished");
 	}
 }
 

@@ -20,8 +20,7 @@
 /* Synthetic syntax records for special modes. */
 static struct editor_syntax ibuffer_syntax
     = { "IBuffer", NULL, NULL, "", "", "", 0, NULL };
-static struct editor_syntax text_syntax
-    = { "Text", NULL, NULL, "", "", "", 0, NULL };
+struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0, NULL };
 struct editor_syntax lisp_interaction_syntax = { "Lisp Interaction", NULL, NULL,
 	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL };
 struct editor_syntax compilation_syntax
@@ -473,28 +472,27 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 
 static char minibuf_kill[1024];
 
+void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow)
+{
+	if (*overflow > 0) {
+		(*overflow)--;
+	} else if (*cursor > 0) {
+		memmove(buf + *cursor - 1, buf + *cursor, *len - *cursor + 1);
+		(*cursor)--;
+		(*len)--;
+	}
+}
+
 static int minibuf_edit_key(
     int fd, int c, char *buf, int bufsize, int *cursor, int *len, int *overflow)
 {
 	if (c == DEL_KEY || c == BACKSPACE) {
-		if (*overflow > 0) {
-			(*overflow)--;
-		} else if (*cursor > 0) {
-			memmove(buf + *cursor - 1, buf + *cursor,
-			    *len - *cursor + 1);
-			(*cursor)--;
-			(*len)--;
-		}
+		minibuf_delete_backward(buf, cursor, len, overflow);
 		return 1;
 	}
 	switch (c) {
 	case CTRL_H:
-		if (*cursor > 0) {
-			memmove(buf + *cursor - 1, buf + *cursor,
-			    *len - *cursor + 1);
-			(*cursor)--;
-			(*len)--;
-		}
+		minibuf_delete_backward(buf, cursor, len, overflow);
 		return 1;
 	case CTRL_D:
 		if (*cursor < *len) {
@@ -1408,8 +1406,10 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	if (existing >= 0) {
 		buf_restore_from_slot(existing);
-		undo_init(); /* content is rebuilt from scratch; don't keep
-				stale ops */
+		/* Content is rebuilt from scratch; drop stale ops, freeing
+		 * their text first so repeated refreshes don't leak. */
+		undo_free();
+		undo_init();
 	} else {
 		if (buf_count >= MAX_BUFFERS) {
 			editor_set_status_message(
@@ -1784,6 +1784,9 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 		free(editor.row);
 		editor.row = NULL;
 		editor.numrows = 0;
+		/* Content is rebuilt from scratch; drop stale ops, freeing
+		 * their text first so repeated refreshes don't leak. */
+		undo_free();
 		undo_init();
 	} else {
 		if (buf_count >= MAX_BUFFERS) {
@@ -1894,34 +1897,6 @@ void buf_open_help(void)
 {
 	buf_open_special(HELP_NAME, &text_syntax, buf_help_populate,
 	    "Press q to exit help.");
-}
-
-static const char *special_text_to_populate = NULL;
-
-static void buf_special_text_populate(void)
-{
-	if (!special_text_to_populate) {
-		return;
-	}
-	const char *p = special_text_to_populate;
-	while (*p) {
-		const char *next = strchr(p, '\n');
-		int len = next ? (int)(next - p) : (int)strlen(p);
-		editor_insert_row(editor.numrows, p, len);
-		if (!next) {
-			break;
-		}
-		p = next + 1;
-	}
-}
-
-void buf_show_special_text(
-    const char *name, const char *text, const char *status)
-{
-	special_text_to_populate = text;
-	buf_open_special(name, &text_syntax, buf_special_text_populate,
-	    status ? status : "");
-	special_text_to_populate = NULL;
 }
 
 /* Open the buffer named on the current IBuffer line.

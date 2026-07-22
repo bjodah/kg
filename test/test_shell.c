@@ -277,6 +277,75 @@ static void test_capture_closed_stdin(void)
 	free(r.output);
 }
 
+/* ---- shell_output_fits_echo() ---- */
+
+static void test_echo_fits_short_single_line(void)
+{
+	const char out[] = "12345678901234567890"; /* 20 bytes */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_fits_trailing_newline(void)
+{
+	const char out[] = "hello\n";
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_fits_exact_width(void)
+{
+	const char out[] = "12345"; /* 5 bytes */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 5));
+}
+
+static void test_echo_rejects_one_column_too_wide(void)
+{
+	const char out[] = "123456"; /* 6 bytes */
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 5));
+}
+
+static void test_echo_rejects_over_statusmsg_capacity(void)
+{
+	static char out[600];
+	memset(out, 'x', sizeof(out));
+	CHECK(!shell_output_fits_echo(out, (int)sizeof(out), 4096));
+}
+
+static void test_echo_rejects_multiline(void)
+{
+	const char out[] = "first\nsecond";
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_rejects_tab(void)
+{
+	const char out[] = "a\tb";
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_rejects_escape(void)
+{
+	const char out[] = "a\x1b[31mb";
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_rejects_invalid_utf8(void)
+{
+	const char out[] = "a\x80\x80"
+			   "b"; /* stray continuation bytes, no lead byte */
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_fits_valid_multibyte_utf8(void)
+{
+	const char out[] = "a\xC3\xA9z"; /* 'a', two-byte glyph, 'z' */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+}
+
+static void test_echo_rejects_empty_output(void)
+{
+	CHECK(!shell_output_fits_echo("", 0, 80));
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -297,5 +366,16 @@ int main(void)
 	RUN(test_capture_truncate);
 	RUN(test_capture_empty_output);
 	RUN(test_capture_closed_stdin);
+	RUN(test_echo_fits_short_single_line);
+	RUN(test_echo_fits_trailing_newline);
+	RUN(test_echo_fits_exact_width);
+	RUN(test_echo_rejects_one_column_too_wide);
+	RUN(test_echo_rejects_over_statusmsg_capacity);
+	RUN(test_echo_rejects_multiline);
+	RUN(test_echo_rejects_tab);
+	RUN(test_echo_rejects_escape);
+	RUN(test_echo_rejects_invalid_utf8);
+	RUN(test_echo_fits_valid_multibyte_utf8);
+	RUN(test_echo_rejects_empty_output);
 	return test_summary();
 }

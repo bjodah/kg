@@ -1076,6 +1076,28 @@ static void test_atomic_save_transactions(void)
 	teardown();
 }
 
+/* Backspace, Delete, and C-h must all drain a pending overflow count before
+ * touching stored characters, so correcting an overlong entry with any of
+ * them clears the eventual "input too long" report. Uses a deliberately
+ * tiny buffer to make the overflow easy to force. */
+static void test_minibuf_delete_backward_drains_overflow(void)
+{
+	char buf[4] = "ab";
+	int cursor = 2, len = 2, overflow = 1;
+
+	minibuf_delete_backward(buf, &cursor, &len, &overflow);
+	CHECK(overflow == 0);
+	CHECK(len == 2);
+	CHECK(cursor == 2);
+	CHECK(memcmp(buf, "ab", 2) == 0);
+
+	minibuf_delete_backward(buf, &cursor, &len, &overflow);
+	CHECK(overflow == 0);
+	CHECK(len == 1);
+	CHECK(cursor == 1);
+	CHECK(buf[0] == 'a');
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -1086,6 +1108,7 @@ int main(void)
 	RUN(test_checked_helpers);
 	RUN(test_editor_rows_to_string_overflow);
 	RUN(test_kill_ring_append_overflow);
+	RUN(test_minibuf_delete_backward_drains_overflow);
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
 	RUN(test_rows_to_string_trailing_empty_row);

@@ -1,0 +1,16 @@
+name: shell-command-output-does-not-steal-window
+filename: shell-no-steal.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: "hello\n"
+keys:
+  - End
+  - "!"        # dirty the buffer first
+  - "M-!"      # unprefixed: display-only, multiline output routes elsewhere
+  - "printf 'line1\\nline2\\n'"
+  - RET
+  - "?"        # typed right after M-!: must land in the original buffer,
+               # not a read-only *Shell Command Output* buffer
+  - C-x
+  - C-s        # must save the original file, not the special buffer
+expected_saved: "hello!?\n"

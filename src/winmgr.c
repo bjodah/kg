@@ -376,6 +376,35 @@ void win_display_buffer_other_window(int buffer_index)
 	buf_restore_from_slot(buffer_index);
 }
 
+/* True if win_display_buffer_other_window(buffer_index) can show the buffer
+ * without stealing the current window: it's already visible somewhere, a
+ * split is possible, or a second window already exists to reuse.  Lets a
+ * caller that must not steal the current window (e.g. shell output) decide
+ * whether to call win_display_buffer_other_window() at all. */
+int win_can_display_buffer_other_window(int buffer_index)
+{
+	int i;
+
+	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS) {
+		return 0;
+	}
+	if (!buflist[buffer_index].active) {
+		return 0;
+	}
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active && winlist[i].bufidx == buffer_index) {
+			return 1;
+		}
+	}
+
+	if (win_count == 1 && winlist[win_current].h >= 6) {
+		return 1;
+	}
+
+	return win_count >= 2;
+}
+
 void win_position_at_end(int buffer_index)
 {
 	int i;

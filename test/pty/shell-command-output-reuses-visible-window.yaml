@@ -1,0 +1,22 @@
+name: shell-command-output-reuses-visible-window
+filename: shell-reuse-window.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: "hello\n"
+keys:
+  - End
+  - "!"
+  - "M-!"
+  - "printf 'line1\\nline2\\n'"
+  - RET  # first multiline output: splits a window for *Shell Command Output*
+  - "?"  # must land back in the original buffer, not the output window
+  - "M-!"
+  - "printf 'second-run-output\\n'"
+  - RET  # second multiline output: buffer already visible, must reuse that
+         # window rather than splitting again or stealing the current one
+expected_saved: "hello!?\n"
+expected_screen_contains:
+  - "second-run-output"
+  - "hello!?"

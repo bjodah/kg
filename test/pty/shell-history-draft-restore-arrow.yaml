@@ -1,0 +1,19 @@
+name: shell-history-draft-restore-arrow
+filename: shell-history-draft-arrow.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf one"
+  - RET  # buffer becomes "one"
+  - M-1
+  - "M-!"
+  - "printf tw"  # draft, not yet submitted
+  - Up           # recall "printf one", replacing the draft
+  - Down         # back past the newest entry: restores the draft "printf tw"
+  - o            # complete the draft to "printf two"
+  - RET
+expected_saved: |-
+  twoone

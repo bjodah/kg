@@ -1,0 +1,14 @@
+name: shell-command-exit-status-short-output
+filename: shell-exit-status-short.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - "M-!"
+  - "sh -c 'printf failure; exit 3'"
+  - RET  # output fits the echo area: the nonzero exit status must still show
+expected_saved: ""
+expected_screen_contains:
+  - "failure (exit 3)"

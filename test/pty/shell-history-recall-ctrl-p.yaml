@@ -1,0 +1,16 @@
+name: shell-history-recall-ctrl-p
+filename: shell-history-ctrlp.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf one"
+  - RET  # prefix: insert output at point, buffer becomes "one"
+  - M-1
+  - "M-!"
+  - C-p  # C-p is the standard Emacs equivalent of M-p for history recall
+  - RET
+expected_saved: |-
+  oneone

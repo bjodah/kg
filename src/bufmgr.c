@@ -639,49 +639,66 @@ static int minibuf_edit_key(
 /* Prompt the user for a line of text in the status bar.  Returns 0 on
  * confirmation (Enter), 1 if unaccepted input exceeded the buffer, or -1 if
  * cancelled (ESC / C-g).  buf is always NUL-terminated on return. */
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	return editor_read_line_with_history(fd, prompt, buf, bufsize, NULL);
 }
 
+/* Explicit init for callers that don't get zero-initialization for free
+ * (e.g. a stack-allocated struct minibuf_history).  Equivalent to the
+ * all-zero state static/global storage already starts in. */
+void minibuf_history_init(struct minibuf_history *hist)
+{
+	if (!hist) {
+		return;
+	}
+	memset(hist, 0, sizeof(*hist));
+}
+
 /* Record `text` as the newest history entry, deduplicating an immediate
- * repeat of the last entry.  Oldest entry is dropped once the ring fills. */
+ * repeat of the last entry.  Oldest entry is overwritten once the ring
+ * fills. */
 void minibuf_history_add(struct minibuf_history *hist, const char *text)
 {
-	int i;
-
 	if (!hist || !text || !text[0]) {
 		return;
 	}
-	if (hist->count > 0 && strcmp(hist->entries[0], text) == 0) {
+	if (hist->count > 0 && strcmp(hist->entries[hist->head], text) == 0) {
 		return;
 	}
+	hist->head
+	    = hist->count == 0 ? 0 : (hist->head + 1) % MINIBUF_HISTORY_MAX;
+	snprintf(
+	    hist->entries[hist->head], MINIBUF_HISTORY_ENTRY_MAX, "%s", text);
 	if (hist->count < MINIBUF_HISTORY_MAX) {
 		hist->count++;
 	}
-	for (i = hist->count - 1; i > 0; i--) {
-		snprintf(hist->entries[i], MINIBUF_HISTORY_ENTRY_MAX, "%s",
-		    hist->entries[i - 1]);
-	}
-	snprintf(hist->entries[0], MINIBUF_HISTORY_ENTRY_MAX, "%s", text);
 }
 
 /* index 0 is the newest entry; returns NULL when out of range. */
 const char *minibuf_history_get(const struct minibuf_history *hist, int index)
 {
+	int phys;
+
 	if (!hist || index < 0 || index >= hist->count) {
 		return NULL;
 	}
-	return hist->entries[index];
+	phys = hist->head - index;
+	if (phys < 0) {
+		phys += MINIBUF_HISTORY_MAX;
+	}
+	return hist->entries[phys];
 }
 
-/* Like editor_read_line(), but M-p/M-n walk `hist` (newest first).  The
- * in-progress typed text is preserved as a "draft" and restored once M-n
+/* Like editor_read_line(), but M-p/M-n (also Up/Down and C-p/C-n) walk
+ * `hist` (newest first).  The in-progress typed text, cursor position, and
+ * overflow count are preserved as a "draft" and restored once navigation
  * walks back past the newest entry.  hist may be NULL to disable history
  * navigation (equivalent to editor_read_line()).  Accepted input (Enter) is
  * pushed onto hist as the newest entry. */
-int editor_read_line_with_history(int fd, const char *prompt, char *buf,
-    int bufsize, struct minibuf_history *hist)
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist)
 {
 	int plen = (int)strlen(prompt);
 	int len = (int)strnlen(buf, bufsize - 1);
@@ -689,22 +706,32 @@ int editor_read_line_with_history(int fd, const char *prompt, char *buf,
 	int overflow = 0, c;
 	int hist_index = -1; /* -1 == editing the draft, not a history entry */
 	char draft[bufsize];
+	int draft_cursor = cursor;
+	int draft_overflow = 0;
 
 	buf[len] = '\0';
 	while (1) {
 		prompt_refresh(prompt, plen, buf, cursor);
 		c = editor_read_key(fd);
-		if (hist && (c == ALT_P || c == ALT_N)) {
+		if (hist
+		    && (c == ALT_P || c == ALT_N || c == ARROW_UP
+			|| c == ARROW_DOWN || c == CTRL_P || c == CTRL_N)) {
+			int history_previous
+			    = c == ALT_P || c == ARROW_UP || c == CTRL_P;
+			int history_next
+			    = c == ALT_N || c == ARROW_DOWN || c == CTRL_N;
 			const char *entry = NULL;
 
-			if (c == ALT_P && hist_index + 1 < hist->count) {
+			if (history_previous && hist_index + 1 < hist->count) {
 				if (hist_index < 0) {
 					snprintf(draft, bufsize, "%s", buf);
+					draft_cursor = cursor;
+					draft_overflow = overflow;
 				}
 				entry = minibuf_history_get(hist, ++hist_index);
-			} else if (c == ALT_N && hist_index > 0) {
+			} else if (history_next && hist_index > 0) {
 				entry = minibuf_history_get(hist, --hist_index);
-			} else if (c == ALT_N && hist_index == 0) {
+			} else if (history_next && hist_index == 0) {
 				hist_index = -1;
 				entry = draft;
 			}
@@ -712,7 +739,13 @@ int editor_read_line_with_history(int fd, const char *prompt, char *buf,
 				len = (int)strnlen(entry, bufsize - 1);
 				memmove(buf, entry, len);
 				buf[len] = '\0';
-				cursor = len;
+				if (hist_index < 0) {
+					cursor = draft_cursor;
+					overflow = draft_overflow;
+				} else {
+					cursor = len;
+					overflow = 0;
+				}
 			}
 			continue;
 		}

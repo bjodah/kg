@@ -74,14 +74,15 @@ void fuzz_clear_input(void)
 	}
 }
 
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;
 	if (bufsize > 0) {
 		buf[0] = '\0';
 	}
-	return -1;
+	return MINIBUF_CANCELLED;
 }
 
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)

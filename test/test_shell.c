@@ -23,15 +23,15 @@
 /* The test exercises shell_run() only; the editor wrappers it calls below
  * are linked in via the full object set, so we stub the one symbol the
  * shared no-yank stubs file does not provide. */
-int editor_read_line_with_history(int fd, const char *prompt, char *buf,
-    int bufsize, struct minibuf_history *hist)
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist)
 {
 	(void)fd;
 	(void)prompt;
 	(void)bufsize;
 	(void)hist;
 	buf[0] = '\0';
-	return -1;
+	return MINIBUF_CANCELLED;
 }
 
 /* Capture a child's stdout from a simple command with no stdin. */
@@ -45,6 +45,7 @@ static void test_shell_run_no_input(void)
 	CHECK(out != NULL);
 	CHECK(len == 6);
 	CHECK(strcmp(out, "hello\n") == 0);
+	CHECK(status.known);
 	CHECK(status.exited);
 	CHECK(status.exit_code == 0);
 	free(out);
@@ -120,6 +121,7 @@ static void test_shell_run_command_not_found(void)
 	out = shell_run("nope-does-not-exist-12345", NULL, 0, &len, &status);
 	CHECK(out != NULL); /* successful pipe setup; stdout was empty */
 	CHECK(len == 0);
+	CHECK(status.known);
 	CHECK(status.exited);
 	CHECK(status.exit_code == 127);
 	free(out);
@@ -137,6 +139,7 @@ static void test_shell_run_exit_nonzero(void)
 	out = shell_run("sh -c 'exit 3'", NULL, 0, &len, &status);
 	CHECK(out != NULL);
 	CHECK(len == 0);
+	CHECK(status.known);
 	CHECK(status.exited);
 	CHECK(status.exit_code == 3);
 	CHECK(status.signal_number == 0);
@@ -153,9 +156,80 @@ static void test_shell_run_killed_by_signal(void)
 
 	out = shell_run("kill -TERM $$", NULL, 0, &len, &status);
 	CHECK(out != NULL);
+	CHECK(status.known);
 	CHECK(!status.exited);
 	CHECK(status.signal_number == SIGTERM);
 	free(out);
+}
+
+/* ---- shell_waitpid_fn injection: EINTR retry / permanent failure ---- */
+
+static int g_fake_waitpid_eintr_countdown;
+
+static pid_t fake_waitpid_eintr_then_real(pid_t pid, int *status, int options)
+{
+	if (g_fake_waitpid_eintr_countdown > 0) {
+		g_fake_waitpid_eintr_countdown--;
+		errno = EINTR;
+		return -1;
+	}
+	return waitpid(pid, status, options);
+}
+
+/* wait_for_child() must retry across EINTR rather than reporting the child's
+ * status as unknown after the first interrupted waitpid() call. */
+static void test_shell_run_waitpid_retries_eintr(void)
+{
+	char *out;
+	int len = -1;
+	struct shell_run_status status;
+
+	g_fake_waitpid_eintr_countdown = 3;
+	shell_waitpid_fn = fake_waitpid_eintr_then_real;
+	out = shell_run("true", NULL, 0, &len, &status);
+	shell_waitpid_fn = waitpid;
+
+	CHECK(g_fake_waitpid_eintr_countdown == 0);
+	CHECK(out != NULL);
+	CHECK(status.known);
+	CHECK(status.exited);
+	CHECK(status.exit_code == 0);
+	free(out);
+}
+
+static pid_t fake_waitpid_always_fails(pid_t pid, int *status, int options)
+{
+	(void)pid;
+	(void)status;
+	(void)options;
+	errno = ECHILD;
+	return -1;
+}
+
+/* When the child cannot be reaped at all, shell_run() must not report a
+ * fabricated "succeeded" status: known stays false and exited/signal_number
+ * stay at their zeroed defaults, even though pump_io() still completed. */
+static void test_shell_run_waitpid_permanent_failure(void)
+{
+	char *out;
+	int len = -1;
+	struct shell_run_status status;
+
+	shell_waitpid_fn = fake_waitpid_always_fails;
+	out = shell_run("true", NULL, 0, &len, &status);
+	shell_waitpid_fn = waitpid;
+
+	CHECK(out != NULL);
+	CHECK(!status.known);
+	CHECK(!status.exited);
+	CHECK(status.exit_code == 0);
+	CHECK(status.signal_number == 0);
+	free(out);
+
+	/* The real child was never reaped above (the fake hook always
+	 * failed); sweep it up so it doesn't linger as a zombie for the
+	 * rest of the test binary's run. */
+	while (waitpid(-1, NULL, WNOHANG) > 0) { }
 }
 
 static void rmtree(const char *path)
@@ -323,68 +397,136 @@ static void test_capture_closed_stdin(void)
 static void test_echo_fits_short_single_line(void)
 {
 	const char out[] = "12345678901234567890"; /* 20 bytes */
-	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_fits_trailing_newline(void)
 {
 	const char out[] = "hello\n";
-	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_fits_exact_width(void)
 {
 	const char out[] = "12345"; /* 5 bytes */
-	CHECK(shell_output_fits_echo(out, (int)strlen(out), 5));
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 5, 0));
 }
 
 static void test_echo_rejects_one_column_too_wide(void)
 {
 	const char out[] = "123456"; /* 6 bytes */
-	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 5));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 5, 0));
 }
 
 static void test_echo_rejects_over_statusmsg_capacity(void)
 {
 	static char out[600];
 	memset(out, 'x', sizeof(out));
-	CHECK(!shell_output_fits_echo(out, (int)sizeof(out), 4096));
+	CHECK(!shell_output_fits_echo(out, (int)sizeof(out), 4096, 0));
 }
 
 static void test_echo_rejects_multiline(void)
 {
 	const char out[] = "first\nsecond";
-	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_rejects_tab(void)
 {
 	const char out[] = "a\tb";
-	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_rejects_escape(void)
 {
 	const char out[] = "a\x1b[31mb";
-	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_rejects_invalid_utf8(void)
 {
 	const char out[] = "a\x80\x80"
 			   "b"; /* stray continuation bytes, no lead byte */
-	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 80, 0));
 }
 
 static void test_echo_fits_valid_multibyte_utf8(void)
 {
 	const char out[] = "a\xC3\xA9z"; /* 'a', two-byte glyph, 'z' */
-	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80));
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 80, 0));
+}
+
+/* "a", a two-byte glyph, "z": 4 bytes but 3 display columns.  Byte-counting
+ * would wrongly reject a 3-column budget; column-counting must accept it. */
+static void test_echo_width_counts_columns_not_bytes(void)
+{
+	const char out[] = "a\xC3\xA9z"; /* 4 bytes, 3 columns */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 3, 0));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 2, 0));
+}
+
+/* A three-byte glyph counts as exactly one column. */
+static void test_echo_width_three_byte_glyph_one_column(void)
+{
+	const char out[] = "\xE2\x82\xAC"; /* U+20AC EURO SIGN, 3 bytes */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 1, 0));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 0, 0));
+}
+
+/* A four-byte glyph counts as exactly one column. */
+static void test_echo_width_four_byte_glyph_one_column(void)
+{
+	const char out[] = "\xF0\x9F\x98\x80"; /* U+1F600, 4 bytes */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 1, 0));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 0, 0));
+}
+
+/* reserved_columns carves room out of available_columns for a suffix the
+ * caller will append after the returned text. */
+static void test_echo_reserved_columns_narrows_budget(void)
+{
+	const char out[] = "12345"; /* 5 bytes/columns */
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 5, 0));
+	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 5, 1));
+	CHECK(shell_output_fits_echo(out, (int)strlen(out), 6, 1));
+}
+
+static void test_echo_rejects_overlong_three_byte(void)
+{
+	const char out[]
+	    = "\xE0\x80\x80"; /* overlong: second byte must be A0-BF */
+	CHECK(!shell_output_fits_echo(out, 3, 80, 0));
+}
+
+static void test_echo_rejects_utf16_surrogate(void)
+{
+	const char out[]
+	    = "\xED\xA0\x80"; /* U+D800 surrogate, ED requires 80-9F */
+	CHECK(!shell_output_fits_echo(out, 3, 80, 0));
+}
+
+static void test_echo_rejects_overlong_four_byte(void)
+{
+	const char out[] = "\xF0\x80\x80\x80"; /* overlong: F0 requires 90-BF */
+	CHECK(!shell_output_fits_echo(out, 4, 80, 0));
+}
+
+static void test_echo_rejects_above_max_codepoint(void)
+{
+	const char out[]
+	    = "\xF4\x90\x80\x80"; /* > U+10FFFF: F4 requires 80-8F */
+	CHECK(!shell_output_fits_echo(out, 4, 80, 0));
+}
+
+static void test_echo_fits_max_codepoint_boundary(void)
+{
+	const char out[] = "\xF4\x8F\xBF\xBF"; /* exactly U+10FFFF: valid */
+	CHECK(shell_output_fits_echo(out, 4, 80, 0));
 }
 
 static void test_echo_rejects_empty_output(void)
 {
-	CHECK(!shell_output_fits_echo("", 0, 80));
+	CHECK(!shell_output_fits_echo("", 0, 80, 0));
 }
 
 /* ---- Main ---- */
@@ -398,6 +540,8 @@ int main(void)
 	RUN(test_shell_run_command_not_found);
 	RUN(test_shell_run_exit_nonzero);
 	RUN(test_shell_run_killed_by_signal);
+	RUN(test_shell_run_waitpid_retries_eintr);
+	RUN(test_shell_run_waitpid_permanent_failure);
 	RUN(test_capture_stdout);
 	RUN(test_capture_stderr);
 	RUN(test_capture_both);
@@ -419,6 +563,15 @@ int main(void)
 	RUN(test_echo_rejects_escape);
 	RUN(test_echo_rejects_invalid_utf8);
 	RUN(test_echo_fits_valid_multibyte_utf8);
+	RUN(test_echo_width_counts_columns_not_bytes);
+	RUN(test_echo_width_three_byte_glyph_one_column);
+	RUN(test_echo_width_four_byte_glyph_one_column);
+	RUN(test_echo_reserved_columns_narrows_budget);
+	RUN(test_echo_rejects_overlong_three_byte);
+	RUN(test_echo_rejects_utf16_surrogate);
+	RUN(test_echo_rejects_overlong_four_byte);
+	RUN(test_echo_rejects_above_max_codepoint);
+	RUN(test_echo_fits_max_codepoint_boundary);
 	RUN(test_echo_rejects_empty_output);
 	return test_summary();
 }

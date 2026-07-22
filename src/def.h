@@ -453,23 +453,40 @@ int buf_append_special_text(
 void buf_clear_special_text(int buffer_index);
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_save_current_state(void);
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
+
+/* Result of a minibuffer prompt.  ACCEPTED is the only outcome that should
+ * ever be acted on by callers that execute the typed text (e.g. as a shell
+ * command): OVERFLOW means the accepted buffer is a silently truncated
+ * prefix of what the user typed, which is unsafe to run verbatim. */
+enum minibuf_result {
+	MINIBUF_CANCELLED = -1,
+	MINIBUF_ACCEPTED = 0,
+	MINIBUF_OVERFLOW = 1,
+};
+
+enum minibuf_result editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
 
 #define MINIBUF_HISTORY_MAX 32
 #define MINIBUF_HISTORY_ENTRY_MAX 256
 
-/* A most-recent-first ring of past minibuffer entries (e.g. shell
- * commands), navigable with M-p / M-n. entries[0] is the newest. */
+/* A circular ring of past minibuffer entries (e.g. shell commands),
+ * navigable with M-p / M-n.  `head` is the physical slot of the newest
+ * entry; meaningless when count==0.  Zero-initialization (static/global
+ * storage) is equivalent to minibuf_history_init(): the first insertion
+ * always lands at slot 0 regardless of head's initial value. */
 struct minibuf_history {
 	char entries[MINIBUF_HISTORY_MAX][MINIBUF_HISTORY_ENTRY_MAX];
+	int head;
 	int count;
 };
 
+void minibuf_history_init(struct minibuf_history *hist);
 void minibuf_history_add(struct minibuf_history *hist, const char *text);
 const char *minibuf_history_get(const struct minibuf_history *hist, int index);
-int editor_read_line_with_history(int fd, const char *prompt, char *buf,
-    int bufsize, struct minibuf_history *hist);
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist);
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 void editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
@@ -517,6 +534,7 @@ void win_cycle_next(void);
 void win_delete_current(void);
 void win_delete_others(void);
 void win_display_buffer_other_window(int buffer_index);
+int win_can_display_buffer_other_window(int buffer_index);
 void win_position_at_end(int buffer_index);
 
 /* autocomplete.c */
@@ -741,6 +759,9 @@ void editor_shell_command(int fd, int insert_output);
 void editor_shell_command_on_region(int fd, int insert_output);
 
 struct shell_run_status {
+	bool known; /* false if the child could not be reaped (waitpid
+		       failure): exited/exit_code/signal_number are then
+		       meaningless and must not be reported as success. */
 	bool exited;
 	int exit_code;
 	int signal_number;
@@ -749,6 +770,9 @@ struct shell_run_status {
 /* status may be NULL when the caller doesn't need exit-status detail. */
 char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
     struct shell_run_status *status);
+
+/* Overridable by tests; defaults to waitpid(). */
+extern pid_t (*shell_waitpid_fn)(pid_t pid, int *status, int options);
 
 struct shell_capture_result {
 	char *output;
@@ -762,7 +786,7 @@ struct shell_capture_result {
 int shell_run_capture(const char *command, const char *directory,
     size_t maximum_output, struct shell_capture_result *result);
 bool shell_output_fits_echo(
-    const char *out, int out_len, int available_columns);
+    const char *out, int out_len, int available_columns, int reserved_columns);
 
 /* syntax.c */
 int is_separator(int c);

@@ -94,6 +94,10 @@ def token_to_bytes(token: str) -> bytes:
 		return b"\x1b[1~"
 	if upper == "END":
 		return b"\x1b[4~"
+	if upper == "UP":
+		return b"\x1b[A"
+	if upper == "DOWN":
+		return b"\x1b[B"
 	if upper == "C-HOME":
 		return b"\x1b[1;5H"
 	if upper == "C-END":
@@ -134,6 +138,12 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 		return
 	if upper == "END":
 		child.send("\x1b[4~")
+		return
+	if upper == "UP":
+		child.send("\x1b[A")
+		return
+	if upper == "DOWN":
+		child.send("\x1b[B")
 		return
 	if upper == "C-HOME":
 		child.send("\x1b[1;5H")
@@ -183,6 +193,10 @@ def tmux_key_name(token: str) -> tuple[str, str]:
 		return ("key", "Home")
 	if upper == "END":
 		return ("key", "End")
+	if upper == "UP":
+		return ("key", "Up")
+	if upper == "DOWN":
+		return ("key", "Down")
 	if upper == "C-HOME":
 		return ("key", "C-Home")
 	if upper == "C-END":

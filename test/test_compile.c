@@ -12,13 +12,14 @@
 
 static char g_next_command[256] = "";
 
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;
 	strncpy(buf, g_next_command, bufsize);
 	buf[bufsize - 1] = '\0';
-	return 0;
+	return MINIBUF_ACCEPTED;
 }
 
 void editor_refresh_screen(void) { }

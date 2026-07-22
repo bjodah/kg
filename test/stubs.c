@@ -67,13 +67,14 @@ void kill_ring_append(char *text, int len)
 	(void)len;
 }
 char *kill_ring_get(void) { return NULL; }
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;
 	(void)bufsize;
 	buf[0] = '\0';
-	return 0;
+	return MINIBUF_ACCEPTED;
 }
 int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 {

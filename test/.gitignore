@@ -5,6 +5,7 @@ test_compile
 test_complete
 test_lisp
 test_localvars
+test_minibuf
 test_regex
 test_region
 test_shell

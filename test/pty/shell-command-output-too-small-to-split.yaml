@@ -1,0 +1,15 @@
+name: shell-command-output-too-small-to-split
+filename: shell-too-small.txt
+backend: tmux
+dimensions: [6, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: "hello\n"
+keys:
+  - End
+  - "M-!"
+  - "printf 'line1\\nline2\\n'"
+  - RET  # window too small to split: must not steal the current window
+expected_saved: "hello\n"
+expected_screen_contains:
+  - "Shell command output is in *Shell Command Output*"

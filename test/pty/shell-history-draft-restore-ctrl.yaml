@@ -1,0 +1,19 @@
+name: shell-history-draft-restore-ctrl
+filename: shell-history-draft-ctrl.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf one"
+  - RET  # buffer becomes "one"
+  - M-1
+  - "M-!"
+  - "printf tw"  # draft, not yet submitted
+  - C-p          # recall "printf one", replacing the draft
+  - C-n          # back past the newest entry: restores the draft "printf tw"
+  - o            # complete the draft to "printf two"
+  - RET
+expected_saved: |-
+  twoone

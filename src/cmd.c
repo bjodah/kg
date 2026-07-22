@@ -2,6 +2,7 @@
  */
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -772,6 +773,12 @@ void editor_named_command(int fd)
 	char msg[512];
 	int len = 0, c, i, off;
 	int sel = 0; /* index within match_idx[] of the highlighted entry */
+	/* Set once the user explicitly moves `sel` with Left/Right (or
+	 * C-f/C-b) so an empty Enter repeats the *highlighted* command
+	 * rather than silently falling back to last_extended_command.
+	 * Typing, Backspace, and Tab all return the picker to its default
+	 * state and re-arm the fallback. */
+	int explicit_selection = 0;
 
 	name[0] = '\0';
 
@@ -820,7 +827,8 @@ void editor_named_command(int fd)
 		}
 
 		off = 0;
-		if (len == 0 && last_extended_command[0]) {
+		if (len == 0 && !explicit_selection
+		    && last_extended_command[0]) {
 			editor_msg_appendf(msg, sizeof(msg), &off,
 			    "%s%s (default %s) ", prompt, name,
 			    last_extended_command);
@@ -842,6 +850,7 @@ void editor_named_command(int fd)
 				name[--len] = '\0';
 			}
 			sel = 0;
+			explicit_selection = 0;
 		} else if (c == ESC || c == CTRL_G) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
@@ -849,20 +858,20 @@ void editor_named_command(int fd)
 		} else if (c == ENTER) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
-			if (len == 0) {
-				if (last_extended_command[0]) {
-					(void)cmd_execute_named_with_prefix(
-					    last_extended_command, fd, prefix);
-				} else {
-					editor_set_status_message(
-					    "No previous M-x command");
-				}
-			} else if (shown > 0 && sel >= 0 && sel < shown) {
+			if (len == 0 && !explicit_selection
+			    && last_extended_command[0]) {
+				(void)cmd_execute_named_with_prefix(
+				    last_extended_command, fd, prefix);
+			} else if ((len > 0 || explicit_selection) && shown > 0
+			    && sel >= 0 && sel < shown) {
 				snprintf(last_extended_command,
 				    sizeof(last_extended_command), "%s",
 				    names[sel]);
 				(void)cmd_execute_named_with_prefix(
 				    names[sel], fd, prefix);
+			} else if (len == 0) {
+				editor_set_status_message(
+				    "No previous M-x command");
 			} else {
 				editor_set_status_message(
 				    "No command: %s", name);
@@ -903,18 +912,22 @@ void editor_named_command(int fd)
 				}
 			}
 			sel = 0;
+			explicit_selection = 0;
 		} else if (c == ARROW_RIGHT || c == CTRL_F) {
 			if (shown > 0) {
 				sel = (sel + 1) % shown;
+				explicit_selection = 1;
 			}
 		} else if (c == ARROW_LEFT || c == CTRL_B) {
 			if (shown > 0) {
 				sel = (sel - 1 + shown) % shown;
+				explicit_selection = 1;
 			}
 		} else if (isprint(c) && len < (int)sizeof(name) - 1) {
 			name[len++] = c;
 			name[len] = '\0';
 			sel = 0;
+			explicit_selection = 0;
 		}
 	}
 }

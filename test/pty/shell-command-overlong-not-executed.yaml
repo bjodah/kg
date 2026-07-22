@@ -1,0 +1,11 @@
+name: shell-command-overlong-not-executed
+filename: shell-overlong.txt
+startup_delay: 0.5
+key_delay: 0.02
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf hellozzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"  # 262 chars: exceeds the 255-char shell prompt buffer
+  - RET  # must be rejected outright, not run as a silently truncated command
+expected_saved: ""

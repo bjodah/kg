@@ -1,9 +1,16 @@
 /* ============================ Shell commands ==============================
  *
- * M-!  shell-command            Run a shell command, insert stdout at point.
- * M-|  shell-command-on-region  Pipe the region through a shell command and
- *                               replace it with stdout.  The original region
- *                               is left in the kill ring as a safety net.
+ * M-!  shell-command            Run a shell command.  Without a prefix
+ *                               argument, display the output (echo area for
+ *                               a short single line, otherwise a nonselecting
+ *                               *Shell Command Output* window).  With a
+ *                               prefix argument, insert stdout at point.
+ * M-|  shell-command-on-region  Pipe the region through a shell command.
+ *                               Without a prefix argument, display the
+ *                               output and leave the region untouched.  With
+ *                               a prefix argument, replace the region with
+ *                               stdout; the original region is left in the
+ *                               kill ring as a safety net.
  *
  * The child is spawned via /bin/sh -c so the user can use pipes, redirects,
  * and shell builtins.  Stdin/stdout are connected to pipes; stderr goes to
@@ -15,6 +22,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -60,6 +68,23 @@ static int dup_cloexec(int fd)
 	}
 	return newfd;
 #endif
+}
+
+/* Overridable by tests to inject EINTR sequences and permanent failures
+ * without needing to race a real child process. */
+pid_t (*shell_waitpid_fn)(pid_t pid, int *status, int options) = waitpid;
+
+/* waitpid(), retried across EINTR.  Returns 0 with *status filled in on
+ * success, -1 (status left untouched) if the child could not be reaped. */
+static int wait_for_child(pid_t pid, int *status)
+{
+	pid_t result;
+
+	do {
+		result = shell_waitpid_fn(pid, status, 0);
+	} while (result < 0 && errno == EINTR);
+
+	return result == pid ? 0 : -1;
 }
 
 /* Concurrently write `in` (inlen bytes) to wfd and read everything from rfd
@@ -182,7 +207,7 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 	int saved_errno;
 	int wstatus;
 	char *out;
-	pid_t pid;
+	pid_t pid = -1; /* -1 sentinel: no child spawned yet, nothing to reap */
 
 	if (status) {
 		memset(status, 0, sizeof(*status));
@@ -247,8 +272,8 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 	out = pump_io(pump_rfd, pump_wfd, in, inlen, out_len);
 	saved_errno = errno;
 	signal(SIGPIPE, old_sigpipe);
-	waitpid(pid, &wstatus, 0);
-	if (status) {
+	if (wait_for_child(pid, &wstatus) == 0 && status) {
+		status->known = true;
 		if (WIFEXITED(wstatus)) {
 			status->exited = true;
 			status->exit_code = WEXITSTATUS(wstatus);
@@ -267,6 +292,13 @@ fail:
 	close_fd(&out_wr);
 	close_fd(&pump_rfd);
 	close_fd(&pump_wfd);
+	if (pid > 0) {
+		/* fork() succeeded before a later setup step failed: the
+		 * child is alive and detached from our pipes, so reap it
+		 * here rather than leaving a zombie. */
+		int discard;
+		(void)wait_for_child(pid, &discard);
+	}
 	*out_len = 0;
 	errno = saved_errno;
 	return NULL;
@@ -421,8 +453,7 @@ int shell_run_capture(const char *command, const char *directory,
 
 	close_fd(&out_rd);
 
-	if (pid > 0) {
-		waitpid(pid, &status, 0);
+	if (pid > 0 && wait_for_child(pid, &status) == 0) {
 		if (WIFEXITED(status)) {
 			result->exited = true;
 			result->exit_code = WEXITSTATUS(status);
@@ -468,15 +499,44 @@ static void insert_as_yank(const char *text, int len)
 	editor_insert_text_raw(text, len);
 }
 
+/* Reject scalar values utf8_glyph_span_at() lets through as structurally
+ * plausible (right lead byte, right continuation-byte count) but that are
+ * not valid Unicode: overlong encodings for E0/F0, UTF-16 surrogates for
+ * ED, and values above U+10FFFF for F4.  Only called for a span > 1 glyph,
+ * so buf[start+1] is known to exist. */
+static bool utf8_scalar_is_valid(const char *buf, int start)
+{
+	unsigned char lead = (unsigned char)buf[start];
+	unsigned char second = (unsigned char)buf[start + 1];
+
+	switch (lead) {
+	case 0xE0:
+		return second >= 0xA0 && second <= 0xBF;
+	case 0xED:
+		return second >= 0x80 && second <= 0x9F;
+	case 0xF0:
+		return second >= 0x90 && second <= 0xBF;
+	case 0xF4:
+		return second >= 0x80 && second <= 0x8F;
+	default:
+		return true;
+	}
+}
+
 /* True if `out` (out_len bytes, one optional trailing newline) can go
  * straight into the echo area: exactly one logical line, valid UTF-8, no
  * control bytes (the renderer in display.c passes ESC sequences through
  * verbatim so the completion picker can highlight entries, which would
- * otherwise let shell output inject terminal escapes), and short enough
- * to fit both the screen width and statusmsg's fixed capacity. */
-bool shell_output_fits_echo(const char *out, int out_len, int available_columns)
+ * otherwise let shell output inject terminal escapes), and short enough in
+ * display columns (not bytes) to leave `reserved_columns` free for a
+ * suffix the caller will append, while also fitting statusmsg's fixed byte
+ * capacity. */
+bool shell_output_fits_echo(
+    const char *out, int out_len, int available_columns, int reserved_columns)
 {
 	int stop = out_len;
+	int columns = 0;
+	int budget = available_columns - reserved_columns;
 	int i;
 
 	if (out_len <= 0) {
@@ -485,9 +545,11 @@ bool shell_output_fits_echo(const char *out, int out_len, int available_columns)
 	if (out[out_len - 1] == '\n') {
 		stop = out_len - 1;
 	}
-	if (stop <= 0 || stop >= (int)sizeof(editor.statusmsg)
-	    || stop > available_columns) {
+	if (stop <= 0 || stop >= (int)sizeof(editor.statusmsg)) {
 		return false;
+	}
+	if (budget < 0) {
+		budget = 0;
 	}
 	for (i = 0; i < stop;) {
 		unsigned char ch = (unsigned char)out[i];
@@ -497,12 +559,18 @@ bool shell_output_fits_echo(const char *out, int out_len, int available_columns)
 			return false;
 		}
 		if (ch < 0x80) {
+			if (++columns > budget) {
+				return false;
+			}
 			i++;
 			continue;
 		}
 		span = utf8_glyph_span_at(out, stop, i);
-		if (span == 1) {
-			return false; /* malformed UTF-8 */
+		if (span == 1 || !utf8_scalar_is_valid(out, i)) {
+			return false; /* malformed or invalid UTF-8 */
+		}
+		if (++columns > budget) {
+			return false;
 		}
 		i += span;
 	}
@@ -519,7 +587,9 @@ static void shell_status_suffix(
 	if (!status) {
 		return;
 	}
-	if (status->exited && status->exit_code != 0) {
+	if (!status->known) {
+		snprintf(buf, bufsize, " (exit status unavailable)");
+	} else if (status->exited && status->exit_code != 0) {
 		snprintf(buf, bufsize, " (exit %d)", status->exit_code);
 	} else if (!status->exited && status->signal_number != 0) {
 		snprintf(buf, bufsize, " (signal %d)", status->signal_number);
@@ -544,13 +614,32 @@ static void display_shell_output(
 		return;
 	}
 
-	if (shell_output_fits_echo(out, out_len, win_total_cols)) {
+	if (shell_output_fits_echo(
+		out, out_len, win_total_cols, (int)strlen(suffix))) {
 		int len = (out[out_len - 1] == '\n') ? out_len - 1 : out_len;
-		editor_set_status_message("%.*s", len, out);
-	} else if (buf_replace_special_text("*Shell Command Output*",
-		       &text_syntax, out, (size_t)out_len, 1)
-	    >= 0) {
+		editor_set_status_message("%.*s%s", len, out, suffix);
+		return;
+	}
+
+	int index = buf_prepare_special_text(
+	    "*Shell Command Output*", &text_syntax, 1);
+	if (index < 0
+	    || buf_append_special_text(index, out, (size_t)out_len) != 0) {
+		return;
+	}
+
+	/* Never steal the current editing window to show shell output: only
+	 * route to another window when one can be found or split without
+	 * disturbing the buffer the user is actively editing.  The output
+	 * stays reachable through the special buffer either way. */
+	if (win_can_display_buffer_other_window(index)) {
+		win_display_buffer_other_window(index);
+		win_position_at_end(index);
 		editor_set_status_message("Shell command finished%s", suffix);
+	} else {
+		editor_set_status_message(
+		    "Shell command output is in *Shell Command Output*%s",
+		    suffix);
 	}
 }
 
@@ -598,15 +687,15 @@ void editor_shell_command(int fd, int insert_output)
 	char *out;
 	int out_len = 0;
 	struct shell_run_status status;
+	enum minibuf_result result;
 
 	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
-	if (editor_read_line_with_history(
-		fd, "Shell command: ", cmd, sizeof(cmd), &shell_command_history)
-		< 0
-	    || !cmd[0]) {
+	result = editor_read_line_with_history(
+	    fd, "Shell command: ", cmd, sizeof(cmd), &shell_command_history);
+	if (result != MINIBUF_ACCEPTED || !cmd[0]) {
 		return;
 	}
 
@@ -624,6 +713,7 @@ void editor_shell_command_on_region(int fd, int insert_output)
 	char *region, *out;
 	int region_len = 0, out_len = 0;
 	struct shell_run_status status;
+	enum minibuf_result result;
 
 	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
@@ -640,10 +730,10 @@ void editor_shell_command_on_region(int fd, int insert_output)
 		return;
 	}
 
-	if (editor_read_line_with_history(fd, "Shell command on region: ", cmd,
-		sizeof(cmd), &shell_command_history)
-		>= 0
-	    && cmd[0]) {
+	result = editor_read_line_with_history(fd,
+	    "Shell command on region: ", cmd, sizeof(cmd),
+	    &shell_command_history);
+	if (result == MINIBUF_ACCEPTED && cmd[0]) {
 		out = shell_run(cmd, region, region_len, &out_len, &status);
 		handle_shell_result(out, out_len, insert_output, 1, &status);
 		free(out);

@@ -551,20 +551,38 @@ The macro buffer holds up to 1024 keystrokes.
 .It C-h Ta Open *help* buffer (q closes)
 .It M-x Ta Execute named command
 .It M-: Ta Evaluate Lisp expression
-.It M-\&! Ta Run shell command, insert output at point
-.It M-\&| Ta Pipe region through shell command, replace it with the output
+.It M-\&! Ta Run shell command; C-u prefix inserts output at point
+.It M-\&| Ta Pipe region through shell command; C-u prefix replaces it with the output
 .El
 .Pp
 .Ic M-\&!
-prompts for a shell command line, runs it with
-.Ql /bin/sh -c ,
-and inserts the command's standard output at the cursor position.
+prompts for a shell command line and runs it with
+.Ql /bin/sh -c .
+Without a prefix argument the command's output is shown: a single short
+line goes straight to the echo area (with the exit status appended if it
+was nonzero or the command died from a signal); anything longer goes to a
+read-only
+.Pa *Shell Command Output*
+buffer, displayed in another window without disturbing the buffer or
+window you were editing.
+With a prefix argument
+.Po
+.Ic C-u M-\&!
+.Pc
+the command's standard output is inserted at the cursor position instead.
 The command's standard error is discarded so it cannot disturb the editor.
 .Pp
 .Ic M-\&|
-extracts the active region, prompts for a shell command, runs it with the
-region piped to standard input, and replaces the region with the command's
-standard output.
+extracts the active region and prompts for a shell command.
+Without a prefix argument the command runs with the region piped to
+standard input and its output is displayed as with plain
+.Ic M-\&! ;
+the region is left untouched.
+With a prefix argument
+.Po
+.Ic C-u M-\&|
+.Pc
+the region is instead replaced with the command's standard output.
 The original region text is left in the kill ring so
 .Ic C-y
 recovers it if the result was not what was wanted.
@@ -581,8 +599,10 @@ interactive programs that require a terminal will not work.
 Both commands share one command-line history: at either shell-command
 prompt,
 .Ic M-p
+.Pq or Ic Up No or Ic C-p
 recalls the previous entry and
 .Ic M-n
+.Pq or Ic Down No or Ic C-n
 returns toward the entry being typed before recall started.
 .Pp
 .Ic C-h

@@ -38,8 +38,10 @@ standard VT100 escape sequences.
   matching, already-open files pushed to the back of the file picker;
   M-x RET with nothing typed repeats the last M-x command
 - Detects external changes to open files; optional auto-revert
-- Shell commands (M-!) and pipe-region-through-command (M-|); M-p/M-n
-  recall previous shell commands from a shared history
+- Shell commands (M-!) and pipe-region-through-command (M-|); a prefix
+  argument inserts/replaces with the output instead of just displaying it;
+  M-p/M-n (also Up/Down, C-p/C-n) recall previous shell commands from a
+  shared history
 - Comment-dwim (M-;)
 - Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
   column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to

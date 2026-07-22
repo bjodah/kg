@@ -1,0 +1,17 @@
+name: shell-history-overflow-cleared-on-recall
+filename: shell-history-overflow.txt
+startup_delay: 0.5
+key_delay: 0.05
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf one"
+  - RET  # buffer becomes "one"; "printf one" recorded in history
+  - M-1
+  - "M-!"
+  - "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"  # overlong draft, never submitted
+  - M-p  # recall "printf one" from history: must also clear the draft's overflow
+  - RET  # must execute the recalled command, not be rejected as overflowed
+expected_saved: |-
+  oneone

@@ -1,0 +1,10 @@
+name: mx-repeat-explicit-selection-no-previous
+filename: mx-explicit-sel-no-prev.txt
+initial: "foo bar\n"
+keys:
+  - M-x
+  - C-f  # move the picker selection off the default (auto-revert-mode ->
+         # capitalize-word) without typing anything
+  - RET  # must run the highlighted command, not report "No previous
+         # M-x command"
+expected_saved: "Foo bar\n"

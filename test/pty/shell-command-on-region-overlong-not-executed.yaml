@@ -1,0 +1,13 @@
+name: shell-command-on-region-overlong-not-executed
+filename: shell-region-overlong.txt
+startup_delay: 0.5
+key_delay: 0.02
+initial: "REGION_UNCHANGED\n"
+keys:
+  - C-SPC
+  - "M->"
+  - M-1
+  - "M-|"
+  - "catzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"  # 260 chars: overlong
+  - RET  # must be rejected outright: region left untouched, nothing executed
+expected_saved: "REGION_UNCHANGED\n"

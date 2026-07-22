@@ -1,0 +1,11 @@
+name: mx-repeat-explicit-selection-overrides-previous
+filename: mx-explicit-sel-overrides.txt
+initial: "foo bar\n"
+keys:
+  - M-x
+  - upcase-word
+  - RET  # buffer becomes "FOO bar", last M-x command remembered: upcase-word
+  - M-x
+  - C-f  # explicitly move the picker selection to capitalize-word
+  - RET  # must run the highlighted capitalize-word, not repeat upcase-word
+expected_saved: "FOO Bar\n"

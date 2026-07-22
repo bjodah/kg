@@ -1,0 +1,14 @@
+name: shell-command-exit-status-short-output-signal
+filename: shell-exit-status-short-signal.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - "M-!"
+  - "printf partial; kill -TERM $$"
+  - RET  # short output followed by death-by-signal must still show the signal
+expected_saved: ""
+expected_screen_contains:
+  - "partial (signal 15)"

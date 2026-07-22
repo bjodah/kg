@@ -58,14 +58,14 @@ void buf_display_name(int idx, char *out, size_t outsize)
 	(void)idx;
 	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
 }
-int __attribute__((weak)) editor_read_line(
+enum minibuf_result __attribute__((weak)) editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;
 	(void)bufsize;
 	buf[0] = '\0';
-	return 0;
+	return MINIBUF_ACCEPTED;
 }
 
 void editor_cleanup(void) { }
@@ -82,4 +82,34 @@ int __attribute__((weak)) buf_replace_special_text(const char *name,
 	(void)text_length;
 	(void)readonly;
 	return 0;
+}
+
+int __attribute__((weak)) buf_prepare_special_text(
+    const char *name, struct editor_syntax *syntax, int readonly)
+{
+	(void)name;
+	(void)syntax;
+	(void)readonly;
+	return 0;
+}
+int __attribute__((weak)) buf_append_special_text(
+    int buffer_index, const char *text, size_t text_length)
+{
+	(void)buffer_index;
+	(void)text;
+	(void)text_length;
+	return 0;
+}
+void __attribute__((weak)) win_display_buffer_other_window(int buffer_index)
+{
+	(void)buffer_index;
+}
+int __attribute__((weak)) win_can_display_buffer_other_window(int buffer_index)
+{
+	(void)buffer_index;
+	return 1;
+}
+void __attribute__((weak)) win_position_at_end(int buffer_index)
+{
+	(void)buffer_index;
 }

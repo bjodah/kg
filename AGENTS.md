@@ -59,11 +59,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
   actual space key, `RET` for Enter, `C-?` for Backspace, and `C-q`
   followed by the next token for quoted input. `Home`, `End`,
-  `C-Home`, `C-End`, `S-Home`, and `S-End` are named tokens (sent as
-  xterm tilde / modified tilde sequences). Arrow/PageUp/PageDown
-  have no named tokens; emit their escape bytes via `M-[` plus the
-  letter/digit/`~` (e.g. `M-[`, `H` for Home on terminals that send
-  `ESC[H`).
+  `C-Home`, `C-End`, `S-Home`, `S-End`, `Up`, and `Down` are named
+  tokens (sent as xterm tilde / modified tilde / cursor sequences).
+  PageUp/PageDown have no named tokens; emit their escape bytes via
+  `M-[` plus the letter/digit/`~` (e.g. `M-[`, `H` for Home on
+  terminals that send `ESC[H`).
 - When using `oracle: emacs` outside `make check`, set a real terminal,
   e.g. `TERM=xterm-256color`, or Emacs may refuse to start under
   `TERM=dumb`.

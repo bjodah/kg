@@ -196,8 +196,16 @@ int cmd_static_exists(const char *name)
 	(void)name;
 	return 0;
 }
-void editor_shell_command(int fd) { (void)fd; }
-void editor_shell_command_on_region(int fd) { (void)fd; }
+void editor_shell_command(int fd, int insert_output)
+{
+	(void)fd;
+	(void)insert_output;
+}
+void editor_shell_command_on_region(int fd, int insert_output)
+{
+	(void)fd;
+	(void)insert_output;
+}
 int editor_save(int fd)
 {
 	(void)fd;

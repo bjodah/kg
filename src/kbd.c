@@ -110,6 +110,7 @@ static int handle_universal_arg(int c)
 	if (!editor.prefix_pending) {
 		if (c == CTRL_U) {
 			editor.prefix_pending = 1;
+			editor.prefix_supplied = 1;
 			editor.prefix_arg = 4;
 			editor.prefix_no_digits = 1;
 			editor_set_status_message("C-u");
@@ -117,6 +118,7 @@ static int handle_universal_arg(int c)
 		}
 		if (meta_digit >= 0) {
 			editor.prefix_pending = 1;
+			editor.prefix_supplied = 1;
 			editor.prefix_arg = meta_digit;
 			editor.prefix_no_digits = 0;
 			editor_set_status_message("M-%d", editor.prefix_arg);
@@ -155,6 +157,7 @@ static int handle_universal_arg(int c)
 	}
 	if (c == CTRL_G) {
 		editor.prefix_pending = 0;
+		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
 		editor.prefix_no_digits = 0;
 		editor_set_status_message("");
@@ -450,11 +453,17 @@ void editor_process_keypress(int fd)
 	 * filters below have a chance to drop the key.  Whichever branch ends
 	 * up handling this keystroke either uses `n` or implicitly discards
 	 * it; either way the next keypress starts fresh. */
-	int prefix = editor.prefix_arg;
-	if (prefix > 0) {
+	struct command_prefix prefix;
+	prefix.supplied = editor.prefix_supplied;
+	prefix.value = editor.prefix_arg;
+	editor.current_prefix = prefix;
+
+	if (prefix.supplied) {
+		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
+		editor.prefix_pending = 0;
 		editor_set_status_message("");
-		n = prefix;
+		n = prefix.value;
 	} else {
 		n = 1;
 	}
@@ -497,7 +506,7 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case KEY_NULL: /* Ctrl+Space: set mark; with C-u, pop the mark ring */
-		if (prefix > 0) {
+		if (prefix.supplied) {
 			editor_pop_to_mark();
 		} else {
 			editor_set_mark();
@@ -631,7 +640,7 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
-		editor.cx_prefix_arg = prefix;
+		editor.cx_prefix_arg = prefix.supplied ? prefix.value : 0;
 		editor_set_status_message("C-x-");
 		return;
 	case CTRL_C: /* C-c prefix: user-defined bindings */
@@ -703,6 +712,9 @@ void editor_process_keypress(int fd)
 				editor_del_forward_char();
 			}
 		}
+		break;
+	case INSERT_KEY:
+		editor_toggle_overwrite_mode();
 		break;
 	case PAGE_UP:
 	case PAGE_DOWN:
@@ -897,10 +909,10 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case ALT_BANG: /* Shell command */
-		editor_shell_command(fd);
+		editor_shell_command(fd, prefix.supplied);
 		break;
 	case ALT_PIPE: /* Shell command on region */
-		editor_shell_command_on_region(fd);
+		editor_shell_command_on_region(fd, prefix.supplied);
 		break;
 	case KEY_F3: /* F3: Start keyboard macro */
 		macro_start();
@@ -941,11 +953,12 @@ void editor_process_keypress(int fd)
 		 * handled as its own case above and would never reach here.)
 		 * Repeats N times when a C-u prefix preceded the key. */
 		if (c == TAB || (c >= 32 && c < 127)) {
-			if (n > 1 && key_can_batch_literal_insert(c)) {
+			if (n > 1 && key_can_batch_literal_insert(c)
+			    && !editor.overwrite_mode) {
 				editor_insert_repeated_literal(c, n);
 			} else {
 				while (n--) {
-					editor_insert_char_auto_complete(c);
+					editor_self_insert_char(c);
 				}
 			}
 		}

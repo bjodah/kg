@@ -412,17 +412,12 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 
 	char mode_buf[128];
 	int readonly = is_current ? editor.readonly : b->readonly;
-	int vline = (bufidx == buf_current) ? editor.visual_line_mode
-					    : b->visual_line_mode;
-	if (vline && readonly) {
-		snprintf(mode_buf, sizeof(mode_buf), "%s VLine RO", modename);
-	} else if (vline) {
-		snprintf(mode_buf, sizeof(mode_buf), "%s VLine", modename);
-	} else if (readonly) {
-		snprintf(mode_buf, sizeof(mode_buf), "%s RO", modename);
-	} else {
-		snprintf(mode_buf, sizeof(mode_buf), "%s", modename);
-	}
+	int vline = is_current ? editor.visual_line_mode : b->visual_line_mode;
+	int ovwrt = is_current ? editor.overwrite_mode : b->overwrite_mode;
+
+	snprintf(mode_buf, sizeof(mode_buf), "%s%s%s%s", modename,
+	    vline ? " VLine" : "", ovwrt ? " Ovwrt" : "",
+	    readonly ? " RO" : "");
 
 	len = snprintf(status, sizeof(status), "%s  %s%s  %s (%d,%d)  (%s)",
 	    dirty ? "-**-" : "----", bname, changed, pos, cur_row, cur_col,

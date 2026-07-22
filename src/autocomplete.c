@@ -88,3 +88,12 @@ void editor_insert_char_auto_complete(int c)
 		editor_move_cursor(ARROW_LEFT);
 	}
 }
+
+void editor_self_insert_char(int c)
+{
+	if (editor.overwrite_mode) {
+		editor_overwrite_char(c);
+	} else {
+		editor_insert_char_auto_complete(c);
+	}
+}

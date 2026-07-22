@@ -723,6 +723,8 @@ No command reports
 .Do
 No compile command
 .Dc .
+.It overwrite-mode
+Toggle overwrite mode in the current buffer.
 .It revert-buffer
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.
@@ -731,12 +733,15 @@ Save the current buffer to its file.
 Equivalent to
 .Ic C-x C-s .
 .It shell-command
-Run a shell command and insert its standard output at point.
+Run a shell command.
+Without a numeric prefix, displays output in the echo area or output buffer.
+With a prefix, inserts stdout at point.
 Equivalent to
 .Ic M-\&! .
 .It shell-command-on-region
-Pipe the region through a shell command and replace it with the command's
-standard output.
+Pipe the region through a shell command.
+Without a numeric prefix, displays output.
+With a prefix, replaces the region with stdout.
 Equivalent to
 .Ic M-\&| .
 .It sort-lines

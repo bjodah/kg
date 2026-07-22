@@ -201,10 +201,19 @@ static void cmd_capitalize_word(int fd)
 }
 
 /* Shell command (M-!) and shell-command-on-region (M-|). */
-static void cmd_shell_command(int fd) { editor_shell_command(fd); }
+static void cmd_shell_command(int fd)
+{
+	editor_shell_command(fd, editor.current_prefix.supplied);
+}
 static void cmd_shell_command_on_region(int fd)
 {
-	editor_shell_command_on_region(fd);
+	editor_shell_command_on_region(fd, editor.current_prefix.supplied);
+}
+
+static void cmd_overwrite_mode(int fd)
+{
+	(void)fd;
+	editor_toggle_overwrite_mode();
 }
 
 static void cmd_sort_lines(int fd)
@@ -643,14 +652,14 @@ static const struct named_cmd cmdtable[] = {
 	{ "kill-compilation", editor_kill_compilation, CMD_NONE },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE },
 	{ "not-modified", cmd_not_modified, CMD_NONE },
+	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE },
 	{ "query-replace-regexp", cmd_query_replace_regexp, CMD_EDITS_BUFFER },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE },
 	{ "recompile", editor_recompile, CMD_NONE },
 	{ "revert-buffer", cmd_revert_buffer, CMD_NONE },
 	{ "save-buffer", cmd_save_buffer, CMD_NONE },
-	{ "shell-command", cmd_shell_command, CMD_EDITS_BUFFER },
-	{ "shell-command-on-region", cmd_shell_command_on_region,
-	    CMD_EDITS_BUFFER },
+	{ "shell-command", cmd_shell_command, CMD_NONE },
+	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE },
 	{ "sort-lines", cmd_sort_lines, CMD_EDITS_BUFFER },
 	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE },
 	{ "transpose-chars", cmd_transpose_chars, CMD_EDITS_BUFFER },

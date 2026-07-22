@@ -454,14 +454,64 @@ static void insert_as_yank(const char *text, int len)
 	editor_insert_text_raw(text, len);
 }
 
-/* M-! shell-command: prompt, run, insert stdout at point. */
-void editor_shell_command(int fd)
+static void display_shell_output(const char *out, int out_len)
+{
+	if (!out || out_len <= 0) {
+		editor_set_status_message(
+		    "Shell command succeeded with no output");
+		return;
+	}
+
+	const char *first_nl = strchr(out, '\n');
+	if (!first_nl || first_nl == out + out_len - 1) {
+		int len = (out_len > 0 && out[out_len - 1] == '\n')
+		    ? out_len - 1
+		    : out_len;
+		editor_set_status_message("%.*s", len, out);
+	} else {
+		buf_show_special_text(
+		    "*Shell Command Output*", out, "Shell command finished");
+	}
+}
+
+static void handle_shell_result(
+    const char *out, int out_len, int insert_output, int is_region)
+{
+	if (!out) {
+		editor_set_status_message(
+		    "Shell command failed: %s", strerror(errno));
+		return;
+	}
+	if (!insert_output) {
+		display_shell_output(out, out_len);
+		return;
+	}
+	if (is_region) {
+		editor_kill_region();
+		insert_as_yank(out, out_len);
+		editor_set_status_message("Replaced region (%d byte%s out)",
+		    out_len, out_len == 1 ? "" : "s");
+	} else {
+		int start_row = editor_current_filerow_or_eof();
+		int start_col = editor_current_filecol();
+		insert_as_yank(out, out_len);
+		editor.mark_set = 1;
+		editor.mark_row = editor_current_filerow_or_eof();
+		editor.mark_col = editor_current_filecol();
+		editor_cursor_goto(start_row, start_col);
+		editor_set_status_message(
+		    "Inserted %d byte%s", out_len, out_len == 1 ? "" : "s");
+	}
+}
+
+/* M-! shell-command: prompt, run, display or insert stdout at point. */
+void editor_shell_command(int fd, int insert_output)
 {
 	char cmd[256] = { 0 };
 	char *out;
 	int out_len = 0;
 
-	if (editor.readonly) {
+	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -471,27 +521,20 @@ void editor_shell_command(int fd)
 	}
 
 	out = shell_run(cmd, NULL, 0, &out_len);
-	if (!out) {
-		editor_set_status_message(
-		    "Shell command failed: %s", strerror(errno));
-		return;
-	}
-
-	insert_as_yank(out, out_len);
+	handle_shell_result(out, out_len, insert_output, 0);
 	free(out);
-	editor_set_status_message(
-	    "Inserted %d byte%s", out_len, out_len == 1 ? "" : "s");
 }
 
-/* M-| shell-command-on-region: pipe region through cmd, replace it with stdout.
+/* M-| shell-command-on-region: pipe region through cmd, display or replace with
+ * stdout.
  */
-void editor_shell_command_on_region(int fd)
+void editor_shell_command_on_region(int fd, int insert_output)
 {
 	char cmd[256] = { 0 };
 	char *region, *out;
 	int region_len = 0, out_len = 0;
 
-	if (editor.readonly) {
+	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -507,25 +550,11 @@ void editor_shell_command_on_region(int fd)
 	}
 
 	if (editor_read_line(fd, "Shell command on region: ", cmd, sizeof(cmd))
-		< 0
-	    || !cmd[0]) {
-		free(region);
-		return;
+		>= 0
+	    && cmd[0]) {
+		out = shell_run(cmd, region, region_len, &out_len);
+		handle_shell_result(out, out_len, insert_output, 1);
+		free(out);
 	}
-
-	out = shell_run(cmd, region, region_len, &out_len);
 	free(region);
-	if (!out) {
-		editor_set_status_message(
-		    "Shell command failed: %s", strerror(errno));
-		return;
-	}
-
-	/* Delete the region (cursor lands at the start, region goes to kill
-	 * ring). */
-	editor_kill_region();
-	insert_as_yank(out, out_len);
-	free(out);
-	editor_set_status_message("Replaced region (%d byte%s out)", out_len,
-	    out_len == 1 ? "" : "s");
 }

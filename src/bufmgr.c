@@ -82,6 +82,7 @@ static void buf_save_to_slot(int idx)
 	b->auto_revert = editor.auto_revert;
 	b->visual_line_mode = editor.visual_line_mode;
 	b->rowoff_visual = editor.rowoff_visual;
+	b->overwrite_mode = editor.overwrite_mode;
 	b->active = 1;
 }
 
@@ -123,6 +124,7 @@ void buf_restore_from_slot(int idx)
 	editor.auto_revert = b->auto_revert;
 	editor.visual_line_mode = b->visual_line_mode;
 	editor.rowoff_visual = b->rowoff_visual;
+	editor.overwrite_mode = b->overwrite_mode;
 	buf_current = idx;
 	/* Keep the active window pointing at the newly-restored buffer. */
 	if (win_count > 0) {
@@ -355,6 +357,7 @@ static void buf_reset(void)
 	editor.auto_revert = 0;
 	editor.visual_line_mode = 0;
 	editor.rowoff_visual = 0;
+	editor.overwrite_mode = 0;
 	undo_init();
 }
 
@@ -473,7 +476,7 @@ static char minibuf_kill[1024];
 static int minibuf_edit_key(
     int fd, int c, char *buf, int bufsize, int *cursor, int *len, int *overflow)
 {
-	if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+	if (c == DEL_KEY || c == BACKSPACE) {
 		if (*overflow > 0) {
 			(*overflow)--;
 		} else if (*cursor > 0) {
@@ -484,35 +487,43 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	if (c == CTRL_D) {
+	switch (c) {
+	case CTRL_H:
+		if (*cursor > 0) {
+			memmove(buf + *cursor - 1, buf + *cursor,
+			    *len - *cursor + 1);
+			(*cursor)--;
+			(*len)--;
+		}
+		return 1;
+	case CTRL_D:
 		if (*cursor < *len) {
 			memmove(
 			    buf + *cursor, buf + *cursor + 1, *len - *cursor);
 			(*len)--;
 		}
 		return 1;
-	}
-	if (c == CTRL_F || c == ARROW_RIGHT) {
+	case CTRL_F:
+	case ARROW_RIGHT:
 		if (*cursor < *len) {
 			(*cursor)++;
 		}
 		return 1;
-	}
-	if (c == CTRL_B || c == ARROW_LEFT) {
+	case CTRL_B:
+	case ARROW_LEFT:
 		if (*cursor > 0) {
 			(*cursor)--;
 		}
 		return 1;
-	}
-	if (c == CTRL_A || c == HOME_KEY) {
+	case CTRL_A:
+	case HOME_KEY:
 		*cursor = 0;
 		return 1;
-	}
-	if (c == CTRL_E || c == END_KEY) {
+	case CTRL_E:
+	case END_KEY:
 		*cursor = *len;
 		return 1;
-	}
-	if (c == CTRL_K) {
+	case CTRL_K: {
 		int kill_len = *len - *cursor;
 		if (kill_len > 0) {
 			if (kill_len >= (int)sizeof(minibuf_kill)) {
@@ -525,7 +536,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	if (c == CTRL_Y) {
+	case CTRL_Y: {
 		int yank_len = (int)strlen(minibuf_kill);
 		if (yank_len > 0 && *len + yank_len < bufsize) {
 			memmove(buf + *cursor + yank_len, buf + *cursor,
@@ -536,7 +547,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	if (c == ALT_F) {
+	case ALT_F:
 		while (*cursor < *len && isspace((unsigned char)buf[*cursor])) {
 			(*cursor)++;
 		}
@@ -545,8 +556,7 @@ static int minibuf_edit_key(
 			(*cursor)++;
 		}
 		return 1;
-	}
-	if (c == ALT_B) {
+	case ALT_B:
 		while (
 		    *cursor > 0 && isspace((unsigned char)buf[*cursor - 1])) {
 			(*cursor)--;
@@ -556,8 +566,7 @@ static int minibuf_edit_key(
 			(*cursor)--;
 		}
 		return 1;
-	}
-	if (c == ALT_D) {
+	case ALT_D: {
 		int end = *cursor;
 		while (end < *len && isspace((unsigned char)buf[end])) {
 			end++;
@@ -577,7 +586,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	if (c == ALT_BACKSPACE) {
+	case ALT_BACKSPACE: {
 		int start = *cursor;
 		while (start > 0 && isspace((unsigned char)buf[start - 1])) {
 			start--;
@@ -598,7 +607,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	if (c == CTRL_Q) {
+	case CTRL_Q:
 		c = editor_read_raw_byte(fd);
 		if (!running) {
 			return 1;
@@ -612,7 +621,9 @@ static int minibuf_edit_key(
 			(*overflow)++;
 		}
 		return 1;
-	}
+	default:
+		break;
+	};
 	if (isprint(c)) {
 		if (*len < bufsize - 1) {
 			memmove(buf + *cursor + 1, buf + *cursor,
@@ -1883,6 +1894,34 @@ void buf_open_help(void)
 {
 	buf_open_special(HELP_NAME, &text_syntax, buf_help_populate,
 	    "Press q to exit help.");
+}
+
+static const char *special_text_to_populate = NULL;
+
+static void buf_special_text_populate(void)
+{
+	if (!special_text_to_populate) {
+		return;
+	}
+	const char *p = special_text_to_populate;
+	while (*p) {
+		const char *next = strchr(p, '\n');
+		int len = next ? (int)(next - p) : (int)strlen(p);
+		editor_insert_row(editor.numrows, p, len);
+		if (!next) {
+			break;
+		}
+		p = next + 1;
+	}
+}
+
+void buf_show_special_text(
+    const char *name, const char *text, const char *status)
+{
+	special_text_to_populate = text;
+	buf_open_special(name, &text_syntax, buf_special_text_populate,
+	    status ? status : "");
+	special_text_to_populate = NULL;
 }
 
 /* Open the buffer named on the current IBuffer line.

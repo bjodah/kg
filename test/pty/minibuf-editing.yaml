@@ -2,6 +2,7 @@ name: minibuf-editing
 filename: shell.txt
 initial: ""
 keys:
+  - M-1
   - M-!
   - "printf \"first second third\""
   - C-a

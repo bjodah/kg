@@ -63,3 +63,11 @@ int __attribute__((weak)) editor_read_line(
 }
 
 void editor_cleanup(void) { }
+
+void __attribute__((weak)) buf_show_special_text(
+    const char *name, const char *text, const char *status)
+{
+	(void)name;
+	(void)text;
+	(void)status;
+}

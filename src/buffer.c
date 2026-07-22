@@ -1124,6 +1124,50 @@ void editor_toggle_read_only_mode(void)
 	editor_set_status_message(editor.readonly ? "Read-only" : "Writable");
 }
 
+void editor_toggle_overwrite_mode(void)
+{
+	editor.overwrite_mode = !editor.overwrite_mode;
+	editor_set_status_message(editor.overwrite_mode
+		? "Overwrite mode enabled"
+		: "Overwrite mode disabled");
+}
+
+void editor_overwrite_char(int c)
+{
+	int filerow = editor_current_filerow_or_eof();
+	int filecol = editor_current_filecol();
+	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	int old_len;
+	char orig[8] = { 0 };
+
+	if (!row || filecol >= row->size) {
+		editor_insert_char(c);
+		return;
+	}
+
+	old_len = utf8_next_glyph_len(row->chars, row->size, filecol);
+	memcpy(orig, row->chars + filecol, old_len < 8 ? old_len : 7);
+
+	undo_push(UNDO_REPLACE_TEXT, filerow, filecol, 1, orig, old_len);
+
+	row->chars[filecol] = (char)c;
+	if (old_len > 1) {
+		memmove(row->chars + filecol + 1,
+		    row->chars + filecol + old_len,
+		    row->size - filecol - old_len + 1);
+		row->size -= (old_len - 1);
+	}
+
+	editor_update_row(row);
+	editor.dirty++;
+
+	if (editor.cx == editor.screencols - 1) {
+		editor.coloff++;
+	} else {
+		editor.cx++;
+	}
+}
+
 /* Kill (delete) from cursor to end of line (C-k).
  *
  * Invariant relied on by the C-u-batched kill in kbd.c: every byte removed

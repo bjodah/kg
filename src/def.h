@@ -158,6 +158,7 @@ enum KEY_ACTION {
 	SHIFT_ARROW_DOWN,
 	SHIFT_HOME,
 	SHIFT_END,
+	INSERT_KEY,
 	SHIFT_INSERT, /* CUA paste */
 	SHIFT_DELETE, /* CUA cut */
 	CTRL_INSERT, /* CUA copy */
@@ -244,6 +245,12 @@ typedef struct hl_color {
 /* Former marks remembered per buffer, popped with C-u C-SPC. */
 #define MARK_RING_MAX 16
 
+/* Prefix argument context for commands */
+struct command_prefix {
+	int supplied;
+	int value;
+};
+
 /* Editor configuration state */
 struct editor_config {
 	int cx, cy; /* Cursor x and y position in characters */
@@ -269,8 +276,11 @@ struct editor_config {
 			  user-bound key. */
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
 	int prefix_arg; /* The numeric argument under construction. */
+	int prefix_supplied; /* 1 if a numeric argument sequence was typed. */
 	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit
 				 replaces 4. */
+	struct command_prefix
+	    current_prefix; /* Prefix arg of the active command. */
 	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */
 	struct timeval
 	    last_char_time; /* Time of last character for paste detection */
@@ -306,6 +316,7 @@ struct editor_config {
 	int auto_revert; /* Per-buffer auto-revert toggle. */
 	int visual_line_mode; /* 1 if visual-line-mode is enabled */
 	int rowoff_visual; /* Visual row offset for visual-line-mode */
+	int overwrite_mode; /* 1 if overwrite-mode is enabled */
 };
 
 /* Append buffer for efficient screen rendering */
@@ -405,6 +416,7 @@ struct editor_buffer {
 	int auto_revert;
 	int visual_line_mode;
 	int rowoff_visual;
+	int overwrite_mode;
 };
 
 /* Global editor state */
@@ -471,6 +483,8 @@ void buf_kill(int fd);
 void buf_save_all(int fd);
 void buf_open_list(void);
 void buf_open_help(void);
+void buf_show_special_text(
+    const char *name, const char *text, const char *status);
 void buf_ibuffer_select(void);
 void buf_display_name(int idx, char *out, size_t outsize);
 void editor_cleanup(void);
@@ -531,6 +545,9 @@ void editor_del_forward_char(void);
 void editor_transpose_chars(void);
 void editor_kill_line(void);
 void editor_toggle_read_only_mode(void);
+void editor_toggle_overwrite_mode(void);
+void editor_overwrite_char(int c);
+void editor_self_insert_char(int c);
 void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
 void editor_set_readonly_override(int enabled);
@@ -668,8 +685,8 @@ void editor_query_replace(int fd);
 void editor_query_replace_regexp(int fd);
 
 /* shell.c */
-void editor_shell_command(int fd);
-void editor_shell_command_on_region(int fd);
+void editor_shell_command(int fd, int insert_output);
+void editor_shell_command_on_region(int fd, int insert_output);
 char *shell_run(const char *cmd, const char *in, int inlen, int *out_len);
 
 struct shell_capture_result {

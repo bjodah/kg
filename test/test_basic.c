@@ -276,6 +276,27 @@ static void test_ab_append_oom(void)
 	ab_free(&ab);
 }
 
+static void test_overwrite_mode_toggle_and_replace(void)
+{
+	setup(0);
+	editor_insert_row(0, "abcde", 5);
+	editor.cx = 1;
+	editor.cy = 0;
+
+	CHECK(editor.overwrite_mode == 0);
+	editor_toggle_overwrite_mode();
+	CHECK(editor.overwrite_mode == 1);
+
+	editor_overwrite_char('X');
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "aXcde", 5) == 0);
+	CHECK(editor.cx == 2);
+
+	editor_toggle_overwrite_mode();
+	CHECK(editor.overwrite_mode == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -297,5 +318,6 @@ int main(void)
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);
+	RUN(test_overwrite_mode_toggle_and_replace);
 	return test_summary();
 }

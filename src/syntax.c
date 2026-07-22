@@ -1758,11 +1758,11 @@ static void select_syntax_by_shebang(const char *filename)
 	if (!fp) {
 		return;
 	}
-	if (!fgets(line, sizeof(line), fp)) {
-		fclose(fp);
+	char *got = fgets(line, sizeof(line), fp);
+	fclose(fp);
+	if (!got) {
 		return;
 	}
-	fclose(fp);
 
 	if (line[0] != '#' || line[1] != '!') {
 		return;
@@ -1828,13 +1828,12 @@ void editor_select_syntax_highlight(char *filename)
 		unsigned int i = 0;
 		while (s->filematch[i]) {
 			int patlen = strlen(s->filematch[i]);
-			char *p;
-			if ((p = strstr(filename, s->filematch[i])) != NULL) {
-				if (s->filematch[i][0] != '.'
-				    || p[patlen] == '\0') {
-					editor.syntax = s;
-					return;
-				}
+			char *p = strstr(filename, s->filematch[i]);
+			if (p
+			    && (s->filematch[i][0] != '.'
+				|| p[patlen] == '\0')) {
+				editor.syntax = s;
+				return;
 			}
 			i++;
 		}

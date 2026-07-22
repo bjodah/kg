@@ -1,0 +1,10 @@
+name: mx-repeat-basic
+filename: mx-repeat.txt
+initial: "foo bar\n"
+keys:
+  - M-x
+  - upcase-word
+  - RET
+  - M-x
+  - RET  # empty input repeats upcase-word on the next word
+expected_saved: "FOO BAR\n"

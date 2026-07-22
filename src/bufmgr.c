@@ -641,15 +641,81 @@ static int minibuf_edit_key(
  * cancelled (ESC / C-g).  buf is always NUL-terminated on return. */
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 {
+	return editor_read_line_with_history(fd, prompt, buf, bufsize, NULL);
+}
+
+/* Record `text` as the newest history entry, deduplicating an immediate
+ * repeat of the last entry.  Oldest entry is dropped once the ring fills. */
+void minibuf_history_add(struct minibuf_history *hist, const char *text)
+{
+	int i;
+
+	if (!hist || !text || !text[0]) {
+		return;
+	}
+	if (hist->count > 0 && strcmp(hist->entries[0], text) == 0) {
+		return;
+	}
+	if (hist->count < MINIBUF_HISTORY_MAX) {
+		hist->count++;
+	}
+	for (i = hist->count - 1; i > 0; i--) {
+		snprintf(hist->entries[i], MINIBUF_HISTORY_ENTRY_MAX, "%s",
+		    hist->entries[i - 1]);
+	}
+	snprintf(hist->entries[0], MINIBUF_HISTORY_ENTRY_MAX, "%s", text);
+}
+
+/* index 0 is the newest entry; returns NULL when out of range. */
+const char *minibuf_history_get(const struct minibuf_history *hist, int index)
+{
+	if (!hist || index < 0 || index >= hist->count) {
+		return NULL;
+	}
+	return hist->entries[index];
+}
+
+/* Like editor_read_line(), but M-p/M-n walk `hist` (newest first).  The
+ * in-progress typed text is preserved as a "draft" and restored once M-n
+ * walks back past the newest entry.  hist may be NULL to disable history
+ * navigation (equivalent to editor_read_line()).  Accepted input (Enter) is
+ * pushed onto hist as the newest entry. */
+int editor_read_line_with_history(int fd, const char *prompt, char *buf,
+    int bufsize, struct minibuf_history *hist)
+{
 	int plen = (int)strlen(prompt);
 	int len = (int)strnlen(buf, bufsize - 1);
 	int cursor = len;
 	int overflow = 0, c;
+	int hist_index = -1; /* -1 == editing the draft, not a history entry */
+	char draft[bufsize];
 
 	buf[len] = '\0';
 	while (1) {
 		prompt_refresh(prompt, plen, buf, cursor);
 		c = editor_read_key(fd);
+		if (hist && (c == ALT_P || c == ALT_N)) {
+			const char *entry = NULL;
+
+			if (c == ALT_P && hist_index + 1 < hist->count) {
+				if (hist_index < 0) {
+					snprintf(draft, bufsize, "%s", buf);
+				}
+				entry = minibuf_history_get(hist, ++hist_index);
+			} else if (c == ALT_N && hist_index > 0) {
+				entry = minibuf_history_get(hist, --hist_index);
+			} else if (c == ALT_N && hist_index == 0) {
+				hist_index = -1;
+				entry = draft;
+			}
+			if (entry) {
+				len = (int)strnlen(entry, bufsize - 1);
+				memmove(buf, entry, len);
+				buf[len] = '\0';
+				cursor = len;
+			}
+			continue;
+		}
 		if (minibuf_edit_key(
 			fd, c, buf, bufsize, &cursor, &len, &overflow)) {
 			continue;
@@ -657,6 +723,9 @@ int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
 		if (c == ESC || c == CTRL_G) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
+			if (overflow == 0) {
+				minibuf_history_add(hist, buf);
+			}
 			return prompt_done(overflow > 0);
 		}
 	}

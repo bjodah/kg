@@ -184,6 +184,12 @@ int cmd_execute_named(const char *name, int fd)
 	(void)fd;
 	return 1;
 }
+int cmd_execute_named_with_prefix(
+    const char *name, int fd, struct command_prefix prefix)
+{
+	(void)prefix;
+	return cmd_execute_named(name, fd);
+}
 int cmd_static_exists(const char *name)
 {
 	(void)name;

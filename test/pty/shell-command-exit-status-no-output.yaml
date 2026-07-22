@@ -1,0 +1,16 @@
+name: shell-command-exit-status-no-output
+filename: shell-exit-status.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - "M-!"
+  - "sh -c 'exit 3'"
+  - RET
+expected_saved: ""
+expected_screen_contains:
+  - "produced no output (exit 3)"
+expected_screen_not_contains:
+  - "succeeded with no output"

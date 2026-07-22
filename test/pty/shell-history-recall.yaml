@@ -1,0 +1,16 @@
+name: shell-history-recall
+filename: shell-history.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - M-1
+  - "M-!"
+  - "printf one"
+  - RET  # prefix: insert output at point, buffer becomes "one"
+  - M-1
+  - "M-!"
+  - M-p   # recall "printf one" from history instead of retyping it
+  - RET
+expected_saved: |-
+  oneone

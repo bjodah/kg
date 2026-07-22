@@ -1,0 +1,15 @@
+name: mx-repeat-cancel-unchanged
+filename: mx-repeat-cancel.txt
+startup_delay: 0.5
+key_delay: 0.15
+initial: "ab"
+keys:
+  - M-x
+  - version
+  - RET  # last_extended_command = "version" (no buffer effect)
+  - M-x
+  - transpose-chars
+  - ESC  # cancelled: must NOT become the repeat target
+  - M-x
+  - RET  # repeats "version" again, not the cancelled transpose-chars
+expected_saved: "ab"

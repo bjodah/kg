@@ -59,6 +59,8 @@ static const struct key_map alt_keys[] = {
 	{ '\\', ALT_BACKSLASH },
 	{ ' ', ALT_SPACE },
 	{ 'z', ALT_Z },
+	{ 'p', ALT_P },
+	{ 'n', ALT_N },
 	{ '\x13', ALT_CTRL_S },
 	{ '\x12', ALT_CTRL_R },
 };

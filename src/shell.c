@@ -171,7 +171,8 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
  * On success returns a malloc'd buffer of the child's stdout and sets *out_len.
  * Returns NULL on fork/pipe failure.  Exposed (rather than static) so the
  * test suite can exercise it without driving the editor through a PTY. */
-char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
+char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
+    struct shell_run_status *status)
 {
 	void (*old_sigpipe)(int);
 	int in_rd = -1, in_wr = -1;
@@ -179,8 +180,13 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 	int pump_rfd = -1, pump_wfd = -1;
 	int p[2];
 	int saved_errno;
+	int wstatus;
 	char *out;
 	pid_t pid;
+
+	if (status) {
+		memset(status, 0, sizeof(*status));
+	}
 
 	if (pipe_cloexec(p) < 0) {
 		goto fail;
@@ -241,7 +247,15 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len)
 	out = pump_io(pump_rfd, pump_wfd, in, inlen, out_len);
 	saved_errno = errno;
 	signal(SIGPIPE, old_sigpipe);
-	waitpid(pid, NULL, 0);
+	waitpid(pid, &wstatus, 0);
+	if (status) {
+		if (WIFEXITED(wstatus)) {
+			status->exited = true;
+			status->exit_code = WEXITSTATUS(wstatus);
+		} else if (WIFSIGNALED(wstatus)) {
+			status->signal_number = WTERMSIG(wstatus);
+		}
+	}
 	errno = saved_errno;
 	return out;
 
@@ -495,11 +509,38 @@ bool shell_output_fits_echo(const char *out, int out_len, int available_columns)
 	return true;
 }
 
-static void display_shell_output(const char *out, int out_len)
+/* Small note appended to completion messages when the command's exit
+ * status is available and indicates something the base wording alone
+ * wouldn't convey (nonzero exit code, or death by signal). */
+static void shell_status_suffix(
+    const struct shell_run_status *status, char *buf, size_t bufsize)
 {
+	buf[0] = '\0';
+	if (!status) {
+		return;
+	}
+	if (status->exited && status->exit_code != 0) {
+		snprintf(buf, bufsize, " (exit %d)", status->exit_code);
+	} else if (!status->exited && status->signal_number != 0) {
+		snprintf(buf, bufsize, " (signal %d)", status->signal_number);
+	}
+}
+
+static void display_shell_output(
+    const char *out, int out_len, const struct shell_run_status *status)
+{
+	char suffix[32];
+
+	shell_status_suffix(status, suffix, sizeof(suffix));
+
 	if (!out || out_len <= 0) {
-		editor_set_status_message(
-		    "Shell command succeeded with no output");
+		if (suffix[0]) {
+			editor_set_status_message(
+			    "Shell command produced no output%s", suffix);
+		} else {
+			editor_set_status_message(
+			    "Shell command succeeded with no output");
+		}
 		return;
 	}
 
@@ -509,27 +550,30 @@ static void display_shell_output(const char *out, int out_len)
 	} else if (buf_replace_special_text("*Shell Command Output*",
 		       &text_syntax, out, (size_t)out_len, 1)
 	    >= 0) {
-		editor_set_status_message("Shell command finished");
+		editor_set_status_message("Shell command finished%s", suffix);
 	}
 }
 
-static void handle_shell_result(
-    const char *out, int out_len, int insert_output, int is_region)
+static void handle_shell_result(const char *out, int out_len, int insert_output,
+    int is_region, const struct shell_run_status *status)
 {
+	char suffix[32];
+
 	if (!out) {
 		editor_set_status_message(
 		    "Shell command failed: %s", strerror(errno));
 		return;
 	}
 	if (!insert_output) {
-		display_shell_output(out, out_len);
+		display_shell_output(out, out_len, status);
 		return;
 	}
+	shell_status_suffix(status, suffix, sizeof(suffix));
 	if (is_region) {
 		editor_kill_region();
 		insert_as_yank(out, out_len);
-		editor_set_status_message("Replaced region (%d byte%s out)",
-		    out_len, out_len == 1 ? "" : "s");
+		editor_set_status_message("Replaced region (%d byte%s out)%s",
+		    out_len, out_len == 1 ? "" : "s", suffix);
 	} else {
 		int start_row = editor_current_filerow_or_eof();
 		int start_col = editor_current_filecol();
@@ -538,10 +582,14 @@ static void handle_shell_result(
 		editor.mark_row = editor_current_filerow_or_eof();
 		editor.mark_col = editor_current_filecol();
 		editor_cursor_goto(start_row, start_col);
-		editor_set_status_message(
-		    "Inserted %d byte%s", out_len, out_len == 1 ? "" : "s");
+		editor_set_status_message("Inserted %d byte%s%s", out_len,
+		    out_len == 1 ? "" : "s", suffix);
 	}
 }
+
+/* Shared by editor_shell_command() and editor_shell_command_on_region() so
+ * M-p/M-n recall commands run from either entry point. */
+static struct minibuf_history shell_command_history;
 
 /* M-! shell-command: prompt, run, display or insert stdout at point. */
 void editor_shell_command(int fd, int insert_output)
@@ -549,18 +597,21 @@ void editor_shell_command(int fd, int insert_output)
 	char cmd[256] = { 0 };
 	char *out;
 	int out_len = 0;
+	struct shell_run_status status;
 
 	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
-	if (editor_read_line(fd, "Shell command: ", cmd, sizeof(cmd)) < 0
+	if (editor_read_line_with_history(
+		fd, "Shell command: ", cmd, sizeof(cmd), &shell_command_history)
+		< 0
 	    || !cmd[0]) {
 		return;
 	}
 
-	out = shell_run(cmd, NULL, 0, &out_len);
-	handle_shell_result(out, out_len, insert_output, 0);
+	out = shell_run(cmd, NULL, 0, &out_len, &status);
+	handle_shell_result(out, out_len, insert_output, 0, &status);
 	free(out);
 }
 
@@ -572,6 +623,7 @@ void editor_shell_command_on_region(int fd, int insert_output)
 	char cmd[256] = { 0 };
 	char *region, *out;
 	int region_len = 0, out_len = 0;
+	struct shell_run_status status;
 
 	if (insert_output && editor.readonly) {
 		editor_set_status_message("Buffer is read-only");
@@ -588,11 +640,12 @@ void editor_shell_command_on_region(int fd, int insert_output)
 		return;
 	}
 
-	if (editor_read_line(fd, "Shell command on region: ", cmd, sizeof(cmd))
+	if (editor_read_line_with_history(fd, "Shell command on region: ", cmd,
+		sizeof(cmd), &shell_command_history)
 		>= 0
 	    && cmd[0]) {
-		out = shell_run(cmd, region, region_len, &out_len);
-		handle_shell_result(out, out_len, insert_output, 1);
+		out = shell_run(cmd, region, region_len, &out_len, &status);
+		handle_shell_result(out, out_len, insert_output, 1, &status);
 		free(out);
 	}
 	free(region);

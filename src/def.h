@@ -192,6 +192,8 @@ enum KEY_ACTION {
 	ALT_BACKSLASH, /* M-\ delete-horizontal-space */
 	ALT_SPACE, /* M-SPC just-one-space */
 	ALT_Z, /* M-z zap-to-char */
+	ALT_P, /* M-p minibuffer history: previous */
+	ALT_N, /* M-n minibuffer history: next */
 	ALT_0, /* M-0 numeric argument */
 	ALT_1,
 	ALT_2,
@@ -453,6 +455,21 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_save_current_state(void);
 int editor_read_line(int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
+
+#define MINIBUF_HISTORY_MAX 32
+#define MINIBUF_HISTORY_ENTRY_MAX 256
+
+/* A most-recent-first ring of past minibuffer entries (e.g. shell
+ * commands), navigable with M-p / M-n. entries[0] is the newest. */
+struct minibuf_history {
+	char entries[MINIBUF_HISTORY_MAX][MINIBUF_HISTORY_ENTRY_MAX];
+	int count;
+};
+
+void minibuf_history_add(struct minibuf_history *hist, const char *text);
+const char *minibuf_history_get(const struct minibuf_history *hist, int index);
+int editor_read_line_with_history(int fd, const char *prompt, char *buf,
+    int bufsize, struct minibuf_history *hist);
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 void editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
@@ -692,6 +709,8 @@ void editor_process_keypress(int fd);
 /* cmd.c */
 void editor_named_command(int fd);
 [[nodiscard]] int cmd_execute_named(const char *name, int fd);
+[[nodiscard]] int cmd_execute_named_with_prefix(
+    const char *name, int fd, struct command_prefix prefix);
 [[nodiscard]] int cmd_static_exists(const char *name);
 void cmd_eval_print_last_sexp(void);
 
@@ -720,7 +739,16 @@ void editor_query_replace_regexp(int fd);
 /* shell.c */
 void editor_shell_command(int fd, int insert_output);
 void editor_shell_command_on_region(int fd, int insert_output);
-char *shell_run(const char *cmd, const char *in, int inlen, int *out_len);
+
+struct shell_run_status {
+	bool exited;
+	int exit_code;
+	int signal_number;
+};
+
+/* status may be NULL when the caller doesn't need exit-status detail. */
+char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
+    struct shell_run_status *status);
 
 struct shell_capture_result {
 	char *output;

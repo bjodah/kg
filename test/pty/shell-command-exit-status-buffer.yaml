@@ -1,0 +1,14 @@
+name: shell-command-exit-status-buffer
+filename: shell-exit-status-buf.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: ""
+keys:
+  - "M-!"
+  - "sh -c 'echo line1; echo line2; exit 5'"
+  - RET  # multiline output routes to *Shell Command Output*, not the echo area
+expected_saved: ""
+expected_screen_contains:
+  - "Shell command finished (exit 5)"

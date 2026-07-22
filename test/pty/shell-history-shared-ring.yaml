@@ -1,0 +1,19 @@
+name: shell-history-shared-ring
+filename: shell-history-shared.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.15
+initial: "hello\n"
+keys:
+  - "M-!"
+  - "printf recalled-from-shared-ring"
+  - RET  # no prefix: displays only, but records the command in history
+  - C-SPC
+  - "M->"
+  - "M-|"
+  - M-p   # shell-command-on-region recalls the same shared history ring
+  - RET
+expected_saved: "hello\n"
+expected_screen_contains:
+  - "recalled-from-shared-ring"

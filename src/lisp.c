@@ -305,7 +305,13 @@ static FeObject *native_command(FeContext *context, FeObject *arguments)
 		free(name);
 		FeHandleError(context, "buffer is read-only");
 	}
-	if (cmd_execute_named(name, STDIN_FILENO) != 0) {
+	/* Explicit empty prefix: a Lisp-invoked command has no keystroke of
+	 * its own, so it must not inherit whatever prefix arg was left over
+	 * from the keystroke that triggered this Lisp call (or none at all,
+	 * e.g. init.fe running at startup). */
+	if (cmd_execute_named_with_prefix(
+		name, STDIN_FILENO, (struct command_prefix) { 0, 0 })
+	    != 0) {
 		char unknown[512];
 
 		(void)snprintf(unknown, sizeof(unknown), "%s", name);

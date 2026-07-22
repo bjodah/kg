@@ -35,9 +35,11 @@ standard VT100 escape sequences.
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
 - M-x, C-x C-f, and C-x b all share an ido-style picker: substring
-  matching, already-open files pushed to the back of the file picker
+  matching, already-open files pushed to the back of the file picker;
+  M-x RET with nothing typed repeats the last M-x command
 - Detects external changes to open files; optional auto-revert
-- Shell commands (M-!) and pipe-region-through-command (M-|)
+- Shell commands (M-!) and pipe-region-through-command (M-|); M-p/M-n
+  recall previous shell commands from a shared history
 - Comment-dwim (M-;)
 - Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
   column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to

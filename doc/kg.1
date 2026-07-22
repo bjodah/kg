@@ -578,6 +578,13 @@ or
 .Xr sed 1 ;
 interactive programs that require a terminal will not work.
 .Pp
+Both commands share one command-line history: at either shell-command
+prompt,
+.Ic M-p
+recalls the previous entry and
+.Ic M-n
+returns toward the entry being typed before recall started.
+.Pp
 .Ic C-h
 opens a special
 .Pa *help*
@@ -598,6 +605,15 @@ The completion prompt is the same ido-style picker as
 substring matching, Left/Right to cycle,
 .Ic Tab
 to extend to the longest common prefix.
+Pressing
+.Ic RET
+with nothing typed re-runs the last command executed via
+.Ic M-x ,
+shown as a
+.Ql (default ...)
+hint in the prompt; a prefix argument given to this
+.Ic M-x
+invocation applies to the repeated command.
 Available commands:
 .Bl -tag -width "what-cursor-position"
 .It auto-revert-mode

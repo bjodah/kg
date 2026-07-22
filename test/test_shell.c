@@ -23,11 +23,13 @@
 /* The test exercises shell_run() only; the editor wrappers it calls below
  * are linked in via the full object set, so we stub the one symbol the
  * shared no-yank stubs file does not provide. */
-int editor_read_line(int fd, const char *prompt, char *buf, int bufsize)
+int editor_read_line_with_history(int fd, const char *prompt, char *buf,
+    int bufsize, struct minibuf_history *hist)
 {
 	(void)fd;
 	(void)prompt;
 	(void)bufsize;
+	(void)hist;
 	buf[0] = '\0';
 	return -1;
 }
@@ -37,11 +39,14 @@ static void test_shell_run_no_input(void)
 {
 	char *out;
 	int len = -1;
+	struct shell_run_status status;
 
-	out = shell_run("printf 'hello\\n'", NULL, 0, &len);
+	out = shell_run("printf 'hello\\n'", NULL, 0, &len, &status);
 	CHECK(out != NULL);
 	CHECK(len == 6);
 	CHECK(strcmp(out, "hello\n") == 0);
+	CHECK(status.exited);
+	CHECK(status.exit_code == 0);
 	free(out);
 }
 
@@ -52,7 +57,7 @@ static void test_shell_run_pipe_through_cat(void)
 	char *out;
 	int len = -1;
 
-	out = shell_run("cat", in, (int)strlen(in), &len);
+	out = shell_run("cat", in, (int)strlen(in), &len, NULL);
 	CHECK(out != NULL);
 	CHECK(len == (int)strlen(in));
 	CHECK(memcmp(out, in, len) == 0);
@@ -68,7 +73,7 @@ static void test_shell_run_large_output(void)
 	/* 200 lines of "x" → 400 bytes; well above the initial 4 KiB buffer
 	 * we still want to make sure realloc growth keeps the buffer NUL-
 	 * terminated and the count accurate. */
-	out = shell_run("yes x | head -n 200", NULL, 0, &len);
+	out = shell_run("yes x | head -n 200", NULL, 0, &len, NULL);
 	CHECK(out != NULL);
 	CHECK(len == 400);
 	CHECK(out[len] == '\0');
@@ -95,7 +100,7 @@ static void test_shell_run_pump_no_deadlock(void)
 		in[i] = 'A' + (i % 26);
 	}
 
-	out = shell_run("cat", in, inlen, &len);
+	out = shell_run("cat", in, inlen, &len, NULL);
 	CHECK(out != NULL);
 	CHECK(len == inlen);
 	CHECK(memcmp(out, in, inlen) == 0);
@@ -110,10 +115,46 @@ static void test_shell_run_command_not_found(void)
 {
 	char *out;
 	int len = -1;
+	struct shell_run_status status;
 
-	out = shell_run("nope-does-not-exist-12345", NULL, 0, &len);
+	out = shell_run("nope-does-not-exist-12345", NULL, 0, &len, &status);
 	CHECK(out != NULL); /* successful pipe setup; stdout was empty */
 	CHECK(len == 0);
+	CHECK(status.exited);
+	CHECK(status.exit_code == 127);
+	free(out);
+}
+
+/* A command that exits nonzero with no output must be distinguishable from
+ * a genuinely successful, silent command — this is what editor_shell_command
+ * relies on to avoid reporting "succeeded" for a failing command. */
+static void test_shell_run_exit_nonzero(void)
+{
+	char *out;
+	int len = -1;
+	struct shell_run_status status;
+
+	out = shell_run("sh -c 'exit 3'", NULL, 0, &len, &status);
+	CHECK(out != NULL);
+	CHECK(len == 0);
+	CHECK(status.exited);
+	CHECK(status.exit_code == 3);
+	CHECK(status.signal_number == 0);
+	free(out);
+}
+
+/* A command killed by a signal reports exited==false and the signal number,
+ * mirroring shell_run_capture()'s equivalent case. */
+static void test_shell_run_killed_by_signal(void)
+{
+	char *out;
+	int len = -1;
+	struct shell_run_status status;
+
+	out = shell_run("kill -TERM $$", NULL, 0, &len, &status);
+	CHECK(out != NULL);
+	CHECK(!status.exited);
+	CHECK(status.signal_number == SIGTERM);
 	free(out);
 }
 
@@ -355,6 +396,8 @@ int main(void)
 	RUN(test_shell_run_large_output);
 	RUN(test_shell_run_pump_no_deadlock);
 	RUN(test_shell_run_command_not_found);
+	RUN(test_shell_run_exit_nonzero);
+	RUN(test_shell_run_killed_by_signal);
 	RUN(test_capture_stdout);
 	RUN(test_capture_stderr);
 	RUN(test_capture_both);

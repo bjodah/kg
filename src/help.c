@@ -46,8 +46,8 @@ const char *kg_help_lines[]
 	      "read-only mode │",
 	      "│ M-r      window line    │ M-;      comment line   │ C-x C-c  "
 	      "quit           │",
-	      "│ M-g      goto line      │ M-\\/SPC  space cleanup │           "
-	      "              │",
+	      "│ M-g      goto line      │ M-\\/SPC  space cleanup │ M-p/M-n  s"
+	      "hell hist ±   │",
 	      "│                         │ M-z      zap to char    │           "
 	      "              │",
 	      "│                         │ M-x      named command  │ M-:       "

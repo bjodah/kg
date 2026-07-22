@@ -710,6 +710,27 @@ int cmd_execute_named(const char *name, int fd)
 	return kg_lisp_run_command(name, fd);
 }
 
+/* Run `name` with an explicit prefix argument rather than whatever
+ * editor.current_prefix happens to hold.  Named-command execution sites
+ * outside the per-keystroke dispatch in kbd.c (Lisp's (command ...), the
+ * M-x picker) don't have a keystroke of their own setting current_prefix
+ * for them, so reading it ambiently there can leak a stale prefix left
+ * over from an unrelated earlier keystroke. Save/restore keeps the ambient
+ * global correct for the handful of commands (shell-command and
+ * shell-command-on-region) that still read it, without threading an
+ * explicit prefix parameter through every entry in cmdtable. */
+int cmd_execute_named_with_prefix(
+    const char *name, int fd, struct command_prefix prefix)
+{
+	struct command_prefix saved = editor.current_prefix;
+	int rc;
+
+	editor.current_prefix = prefix;
+	rc = cmd_execute_named(name, fd);
+	editor.current_prefix = saved;
+	return rc;
+}
+
 /* All command names visible to the M-x picker: the static table in its
  * alphabetical order, then Lisp-defined commands. */
 static const char *command_name_at(int idx)
@@ -729,12 +750,24 @@ static const char *command_name_at(int idx)
 	return kg_lisp_command_name(idx - nstatic);
 }
 
+/* Name of the last command run to completion via the M-x picker (typed or
+ * repeated); empty until the first successful M-x invocation.  Enter on an
+ * empty M-x prompt re-runs it, mirroring Emacs' extended-command history
+ * default. */
+static char last_extended_command[64];
+
 /* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
  * execute. */
 void editor_named_command(int fd)
 {
 	const char prompt[] = "M-x ";
 	const int plen = sizeof(prompt) - 1;
+	/* Snapshot now rather than reading editor.current_prefix at Enter
+	 * time: this is the prefix supplied to the M-x invocation itself
+	 * (e.g. C-u 5 M-x), and stays fixed for the picker's whole session
+	 * regardless of what the ambient global holds by the time Enter is
+	 * pressed. */
+	struct command_prefix prefix = editor.current_prefix;
 	char name[64];
 	char msg[512];
 	int len = 0, c, i, off;
@@ -787,8 +820,14 @@ void editor_named_command(int fd)
 		}
 
 		off = 0;
-		editor_msg_appendf(
-		    msg, sizeof(msg), &off, "%s%s ", prompt, name);
+		if (len == 0 && last_extended_command[0]) {
+			editor_msg_appendf(msg, sizeof(msg), &off,
+			    "%s%s (default %s) ", prompt, name,
+			    last_extended_command);
+		} else {
+			editor_msg_appendf(
+			    msg, sizeof(msg), &off, "%s%s ", prompt, name);
+		}
 		editor_picker_render(
 		    msg, sizeof(msg), &off, names, shown, total, sel);
 
@@ -810,8 +849,20 @@ void editor_named_command(int fd)
 		} else if (c == ENTER) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
-			if (shown > 0 && sel >= 0 && sel < shown) {
-				(void)cmd_execute_named(names[sel], fd);
+			if (len == 0) {
+				if (last_extended_command[0]) {
+					(void)cmd_execute_named_with_prefix(
+					    last_extended_command, fd, prefix);
+				} else {
+					editor_set_status_message(
+					    "No previous M-x command");
+				}
+			} else if (shown > 0 && sel >= 0 && sel < shown) {
+				snprintf(last_extended_command,
+				    sizeof(last_extended_command), "%s",
+				    names[sel]);
+				(void)cmd_execute_named_with_prefix(
+				    names[sel], fd, prefix);
 			} else {
 				editor_set_status_message(
 				    "No command: %s", name);

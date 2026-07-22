@@ -1,0 +1,16 @@
+name: mx-repeat-prefix-passthrough
+filename: mx-repeat-prefix.txt
+initial: ""
+keys:
+  - M-x
+  - shell-command
+  - RET
+  - "printf nope"
+  - RET  # no prefix: displays only, buffer untouched
+  - M-1
+  - M-x
+  - RET  # prefix on this M-x applies to the repeated shell-command
+  - "printf yes"
+  - RET  # prefix supplied: insert output at point
+expected_saved: |-
+  yes

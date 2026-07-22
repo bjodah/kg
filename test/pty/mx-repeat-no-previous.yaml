@@ -1,0 +1,15 @@
+name: mx-repeat-no-previous
+filename: mx-repeat-empty.txt
+backend: tmux
+dimensions: [24, 80]
+startup_delay: 0.5
+key_delay: 0.1
+initial: ""
+keys:
+  - M-x
+  - RET  # nothing run yet this session: must not execute the first
+         # alphabetical command, and must say so rather than silently
+         # doing nothing
+expected_saved: ""
+expected_screen_contains:
+  - "No previous M-x command"

@@ -1,0 +1,26 @@
+name: run-command-with-and-without-prefix
+filename: empty.txt
+initial: |
+  
+keys:
+  - "M-!"
+  - d
+  - a
+  - t
+  - e
+  - RET  # this should only print the date to the echo area
+  - M-1
+  - "M-!"
+  - e
+  - c
+  - h
+  - o
+  - SPC
+  - h
+  - e
+  - l
+  - l
+  - o
+  - RET
+expected_saved: |
+  hello

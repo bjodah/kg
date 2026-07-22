@@ -1,0 +1,25 @@
+name: insert-overwrite
+filename: tasks.md
+initial: |
+  - [ ] 14
+keys:
+  - C-s
+  - "]"
+  - C-b
+  - C-b
+  - "M-["  # These 3 lines
+  - "2"    # was me pressing
+  - "~"    # "insert" key. (maybe kg-pty-recorder artifact?)
+  - x
+  - C-f
+  - C-f
+  - "M-["  # Again
+  - "2"    # insert
+  - "~"    # key.
+  - T
+  - a
+  - s
+  - k
+  - SPC
+expected_saved: |
+  - [x] Task 14

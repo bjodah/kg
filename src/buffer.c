@@ -504,6 +504,117 @@ static int utf8_prev_glyph_start(const char *buf, int pos)
 	return start;
 }
 
+/* ---- Codepoint offset conversions ------------------------------------
+ * kg stores positions as (row, byte column); Emacs-shaped APIs address the
+ * buffer by a single codepoint offset where every row separator counts as
+ * one character.  These helpers convert between the two on demand; nothing
+ * here caches, so callers pay a walk of the rows they cross. */
+
+/* Codepoints before `byte_index` in `row`.  A byte index inside a glyph
+ * rounds down to that glyph's start, so the result never names a fractional
+ * position.  Out-of-range indices clamp to the row. */
+int editor_row_byte_to_char(erow *row, int byte_index)
+{
+	int i, n = 0;
+
+	if (!row || byte_index <= 0) {
+		return 0;
+	}
+	if (byte_index > row->size) {
+		byte_index = row->size;
+	}
+	while (byte_index > 0 && byte_index < row->size
+	    && utf8_is_cont((unsigned char)row->chars[byte_index])) {
+		byte_index--;
+	}
+	for (i = 0; i < byte_index; i++) {
+		if (!utf8_is_cont((unsigned char)row->chars[i])) {
+			n++;
+		}
+	}
+	return n;
+}
+
+/* Inverse of editor_row_byte_to_char(): byte index of the `char_index`'th
+ * codepoint in `row`.  Char indices past the row's end clamp to row->size. */
+int editor_row_char_to_byte(erow *row, int char_index)
+{
+	int i = 0, n = 0;
+
+	if (!row || char_index <= 0) {
+		return 0;
+	}
+	while (i < row->size) {
+		if (!utf8_is_cont((unsigned char)row->chars[i])) {
+			if (n == char_index) {
+				break;
+			}
+			n++;
+		}
+		i++;
+	}
+	return i;
+}
+
+/* Codepoint offset from buffer start for (row, byte column).  A row past the
+ * last one clamps to end of buffer; a negative row clamps to offset 0. */
+long editor_char_offset(int row, int col)
+{
+	long off = 0;
+	int i;
+
+	if (editor.numrows <= 0 || row < 0) {
+		return 0;
+	}
+	if (row >= editor.numrows) {
+		row = editor.numrows - 1;
+		col = editor.row[row].size;
+	}
+	for (i = 0; i < row; i++) {
+		off += editor_row_byte_to_char(
+			   &editor.row[i], editor.row[i].size)
+		    + 1;
+	}
+	return off + editor_row_byte_to_char(&editor.row[row], col);
+}
+
+/* Inverse of editor_char_offset().  `*col` comes back as a byte index so it
+ * can be handed straight to editor_cursor_goto(). */
+void editor_offset_to_rowcol(long offset, int *row, int *col)
+{
+	int i;
+
+	*row = 0;
+	*col = 0;
+	if (editor.numrows <= 0 || offset <= 0) {
+		return;
+	}
+	for (i = 0; i < editor.numrows; i++) {
+		long len = editor_row_byte_to_char(
+		    &editor.row[i], editor.row[i].size);
+		if (offset <= len || i == editor.numrows - 1) {
+			if (offset > len) {
+				offset = len;
+			}
+			*row = i;
+			*col = editor_row_char_to_byte(
+			    &editor.row[i], (int)offset);
+			return;
+		}
+		offset -= len + 1;
+	}
+}
+
+/* Total codepoints in the buffer, counting the '\n' separators — i.e. the
+ * offset of the end of buffer. */
+long editor_buffer_char_length(void)
+{
+	if (editor.numrows <= 0) {
+		return 0;
+	}
+	return editor_char_offset(editor.numrows - 1, INT_MAX);
+}
+
 static int editor_init_row(erow *row, int idx, const char *s, int len)
 {
 	row->idx = idx;

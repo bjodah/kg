@@ -587,6 +587,11 @@ void editor_self_insert_char(int c);
 void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
 void editor_set_readonly_override(int enabled);
+int editor_row_byte_to_char(erow *row, int byte_index);
+int editor_row_char_to_byte(erow *row, int char_index);
+long editor_char_offset(int row, int col);
+void editor_offset_to_rowcol(long offset, int *row, int *col);
+long editor_buffer_char_length(void);
 
 static inline int checked_add_size_t(size_t *result, size_t a, size_t b)
 {

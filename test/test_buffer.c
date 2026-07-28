@@ -396,6 +396,188 @@ static void test_chars_col_past_eol(void)
 	teardown();
 }
 
+/* ---- Codepoint offset conversions ---- */
+
+/* Within an ASCII row byte index and char index are the same number, and
+ * out-of-range values clamp to the row. */
+static void test_row_byte_char_ascii(void)
+{
+	setup();
+	editor_insert_row(0, "abcd", 4);
+
+	CHECK(editor_row_byte_to_char(&editor.row[0], 0) == 0);
+	CHECK(editor_row_byte_to_char(&editor.row[0], 3) == 3);
+	CHECK(editor_row_byte_to_char(&editor.row[0], 4) == 4);
+	CHECK(editor_row_byte_to_char(&editor.row[0], 99) == 4);
+	CHECK(editor_row_byte_to_char(&editor.row[0], -5) == 0);
+
+	CHECK(editor_row_char_to_byte(&editor.row[0], 0) == 0);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 3) == 3);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 4) == 4);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 99) == 4);
+	CHECK(editor_row_char_to_byte(&editor.row[0], -5) == 0);
+	teardown();
+}
+
+/* "aé漢b": 1 + 2 + 3 + 1 = 7 bytes but 4 codepoints.  Byte indices that
+ * land inside a glyph round down to that glyph's start. */
+static void test_row_byte_char_multibyte(void)
+{
+	setup();
+	editor_insert_row(0,
+	    "a\xc3\xa9\xe6\xbc\xa2"
+	    "b",
+	    7);
+
+	CHECK(editor_row_byte_to_char(&editor.row[0], 0) == 0);
+	CHECK(editor_row_byte_to_char(&editor.row[0], 1) == 1); /* 'é' start */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 2) == 1); /* mid 'é' */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 3) == 2); /* '漢' start */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 4) == 2); /* mid '漢' */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 5) == 2); /* mid '漢' */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 6) == 3); /* 'b' start */
+	CHECK(editor_row_byte_to_char(&editor.row[0], 7) == 4); /* end of row */
+
+	CHECK(editor_row_char_to_byte(&editor.row[0], 0) == 0);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 1) == 1);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 2) == 3);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 3) == 6);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 4) == 7);
+	CHECK(editor_row_char_to_byte(&editor.row[0], 5) == 7);
+	teardown();
+}
+
+/* Every offset in an ASCII buffer round-trips offset → (row, col) →
+ * offset, including across the empty row and at end of buffer. */
+static void test_char_offset_ascii_round_trip(void)
+{
+	long off, len;
+
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor_insert_row(1, "de", 2);
+	editor_insert_row(2, "", 0);
+	editor_insert_row(3, "fghi", 4);
+
+	len = editor_buffer_char_length();
+	CHECK(len == 12); /* 3 + 2 + 0 + 4 chars + 3 separators */
+	for (off = 0; off <= len; off++) {
+		int row = -1, col = -1;
+		editor_offset_to_rowcol(off, &row, &col);
+		CHECK(editor_char_offset(row, col) == off);
+	}
+	/* Row starts land just past the preceding separator. */
+	CHECK(editor_char_offset(1, 0) == 4);
+	CHECK(editor_char_offset(2, 0) == 7);
+	CHECK(editor_char_offset(3, 0) == 8);
+	teardown();
+}
+
+/* Multi-byte rows: offsets count codepoints, columns stay byte indices. */
+static void test_char_offset_multibyte(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	editor_insert_row(0, "a\xc3\xa9", 3); /* "aé"  — 2 chars */
+	editor_insert_row(1, "\xe6\xbc\xa2y", 4); /* "漢y" — 2 chars */
+
+	CHECK(editor_buffer_char_length() == 5);
+	CHECK(editor_char_offset(0, 0) == 0);
+	CHECK(editor_char_offset(0, 1) == 1);
+	CHECK(editor_char_offset(0, 3) == 2);
+	CHECK(editor_char_offset(1, 0) == 3);
+	CHECK(editor_char_offset(1, 3) == 4);
+	CHECK(editor_char_offset(1, 4) == 5);
+
+	editor_offset_to_rowcol(3, &row, &col);
+	CHECK(row == 1 && col == 0);
+	editor_offset_to_rowcol(4, &row, &col);
+	CHECK(row == 1 && col == 3);
+	editor_offset_to_rowcol(5, &row, &col);
+	CHECK(row == 1 && col == 4);
+	teardown();
+}
+
+/* A byte column inside a glyph never yields a fractional offset: it names
+ * the offset of the glyph it sits in. */
+static void test_char_offset_mid_glyph_rounds_down(void)
+{
+	setup();
+	editor_insert_row(0, "x\xc3\xa9", 3);
+	editor_insert_row(1, "\xe6\xbc\xa2z", 4);
+
+	CHECK(editor_char_offset(0, 2) == 1); /* mid 'é' → 'é' start */
+	CHECK(editor_char_offset(1, 1) == 3); /* mid '漢' → '漢' start */
+	CHECK(editor_char_offset(1, 2) == 3);
+	teardown();
+}
+
+/* Out-of-range rows and columns clamp instead of reading past the rows. */
+static void test_char_offset_clamps(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	editor_insert_row(0, "ab", 2);
+	editor_insert_row(1, "cde", 3);
+
+	CHECK(editor_char_offset(-1, 0) == 0);
+	CHECK(editor_char_offset(-1, 99) == 0);
+	CHECK(editor_char_offset(0, -7) == 0);
+	CHECK(editor_char_offset(0, 99) == 2); /* clamps to end of row 0 */
+	CHECK(editor_char_offset(9, 0) == 6); /* clamps to end of buffer */
+	CHECK(editor_char_offset(9, 99) == 6);
+
+	editor_offset_to_rowcol(-3, &row, &col);
+	CHECK(row == 0 && col == 0);
+	editor_offset_to_rowcol(99, &row, &col);
+	CHECK(row == 1 && col == 3);
+	teardown();
+}
+
+/* An empty buffer has no positions at all: everything is offset 0. */
+static void test_char_offset_empty_buffer(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+
+	CHECK(editor.numrows == 0);
+	CHECK(editor_buffer_char_length() == 0);
+	CHECK(editor_char_offset(0, 0) == 0);
+	CHECK(editor_char_offset(4, 9) == 0);
+	editor_offset_to_rowcol(0, &row, &col);
+	CHECK(row == 0 && col == 0);
+	editor_offset_to_rowcol(17, &row, &col);
+	CHECK(row == 0 && col == 0);
+	teardown();
+}
+
+/* Separators count as one character each, so a trailing empty row (what a
+ * file's final newline becomes) adds exactly one to the length. */
+static void test_buffer_char_length_trailing_empty_row(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	editor_insert_row(0, "abc", 3);
+	editor_insert_row(1, "def", 3);
+	CHECK(editor_buffer_char_length() == 7);
+
+	editor_insert_row(2, "", 0);
+	CHECK(editor_buffer_char_length() == 8);
+	editor_offset_to_rowcol(editor_buffer_char_length(), &row, &col);
+	CHECK(row == 2 && col == 0);
+	teardown();
+
+	setup();
+	editor_insert_row(0, "", 0);
+	CHECK(editor_buffer_char_length() == 0);
+	CHECK(editor_char_offset(0, 0) == 0);
+	teardown();
+}
+
 /* reveal_position_centered keeps the viewport still when the target row is
  * already visible. */
 static void test_reveal_position_visible_row_keeps_rowoff(void)
@@ -1133,6 +1315,14 @@ int main(void)
 	RUN(test_chars_col_round_trip);
 	RUN(test_chars_col_inside_tab);
 	RUN(test_chars_col_past_eol);
+	RUN(test_row_byte_char_ascii);
+	RUN(test_row_byte_char_multibyte);
+	RUN(test_char_offset_ascii_round_trip);
+	RUN(test_char_offset_multibyte);
+	RUN(test_char_offset_mid_glyph_rounds_down);
+	RUN(test_char_offset_clamps);
+	RUN(test_char_offset_empty_buffer);
+	RUN(test_buffer_char_length_trailing_empty_row);
 	RUN(test_reveal_position_visible_row_keeps_rowoff);
 	RUN(test_reveal_position_offscreen_row_recenters);
 	RUN(test_reveal_position_near_eof_clamps);

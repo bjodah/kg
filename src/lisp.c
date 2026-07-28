@@ -17,7 +17,9 @@ static void copy_result(char *result, size_t result_size, const char *text)
 #ifdef KG_USE_LISP
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
@@ -118,6 +120,12 @@ static void release_frame_buffers(void)
 	state.scratch = nullptr;
 }
 
+static void release_scratch(void)
+{
+	free(state.scratch);
+	state.scratch = nullptr;
+}
+
 [[noreturn]] static void handle_error(
     FeContext *context, const char *message, FeObject *call_trace)
 {
@@ -168,17 +176,169 @@ static char *copy_fe_string(
 	return text;
 }
 
-static FeObject *native_message(FeContext *context, FeObject *arguments)
+/* ---- Formatting ------------------------------------------------------
+ * `format` walks the format string a byte at a time and appends to a
+ * growing output buffer.  Both live in one allocation, the copy of the
+ * format string first and the output after it, so a single pointer in
+ * state.scratch frees everything if Fe unwinds mid-conversion; `string=`
+ * pairs its two copies for the same reason. */
+
+struct format_buffer {
+	char *text; /* format string, NUL, then the output bytes */
+	size_t start; /* offset of the first output byte */
+	size_t length; /* output bytes written so far */
+	size_t capacity; /* bytes allocated */
+};
+
+static void format_grow(FeContext *context, struct format_buffer *out)
+{
+	size_t capacity;
+	char *text;
+
+	if (ckd_mul(&capacity, out->capacity, 2)
+	    || ckd_add(&capacity, capacity, 64)) {
+		FeHandleError(context, "string is too large");
+	}
+	text = realloc(out->text, capacity);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = out->text = text;
+	out->capacity = capacity;
+}
+
+/* An FeWriteFn, so fe's own printer can write straight into the output. */
+static void format_put(FeContext *context, void *userdata, char chr)
+{
+	struct format_buffer *out = userdata;
+
+	if (out->start + out->length >= out->capacity) {
+		format_grow(context, out);
+	}
+	out->text[out->start + out->length] = chr;
+	out->length++;
+}
+
+static void format_puts(
+    FeContext *context, struct format_buffer *out, const char *text)
+{
+	while (*text) {
+		format_put(context, out, *text++);
+	}
+}
+
+/* %d, on an interpreter whose only number is a double: truncate toward
+ * zero and print the exact integer.  Casting a double outside int64 range
+ * to int64_t is undefined, so the fast path uses the guard fe's own
+ * printer uses and "%.0f" prints the rest, which is exact because a double
+ * that large is already an integer.  That matches Emacs, which prints
+ * every finite value in full via bignums.  NaN and the infinities have no
+ * integer to print, so they raise instead. */
+static void format_integer(
+    FeContext *context, struct format_buffer *out, FeObject *object)
+{
+	/* DBL_MAX is 309 digits, plus a sign and the terminator. */
+	char digits[320];
+	FeDouble value;
+
+	if (FeGetType(object) != FeTDouble) {
+		FeHandleError(context,
+		    "format specifier %d does not match argument type");
+	}
+	value = trunc(FeToDouble(context, object));
+	if (!isfinite(value)) {
+		FeHandleError(
+		    context, "format specifier %d needs a finite number");
+	}
+	if (value >= -0x1p63 && value < 0x1p63) {
+		(void)snprintf(
+		    digits, sizeof(digits), "%" PRId64, (int64_t)value);
+	} else {
+		(void)snprintf(digits, sizeof(digits), "%.0f", value);
+	}
+	format_puts(context, out, digits);
+}
+
+/* Convert one argument.  %s and %S are fe's writer with its quoting flag
+ * flipped, so every type prints the way the interpreter prints it. */
+static void format_argument(FeContext *context, struct format_buffer *out,
+    char spec, FeObject **arguments)
+{
+	char message[64];
+	FeObject *object;
+
+	if (spec != 's' && spec != 'S' && spec != 'd') {
+		(void)snprintf(message, sizeof(message),
+		    "invalid format operation %%%c", spec);
+		FeHandleError(context, message);
+	}
+	if (FeIsNil(*arguments)) {
+		FeHandleError(
+		    context, "not enough arguments for format string");
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (spec == 'd') {
+		format_integer(context, out, object);
+		return;
+	}
+	FeWrite(context, object, format_put, out, spec == 'S');
+}
+
+/* Walk the format string.  Arguments left over are ignored, as in Emacs. */
+static void format_walk(FeContext *context, struct format_buffer *out,
+    size_t length, FeObject *arguments)
+{
+	size_t i;
+
+	for (i = 0; i < length; i++) {
+		if (out->text[i] != '%') {
+			format_put(context, out, out->text[i]);
+			continue;
+		}
+		i++;
+		if (i == length) {
+			FeHandleError(context,
+			    "format string ends in middle of format specifier");
+		}
+		if (out->text[i] == '%') {
+			format_put(context, out, '%');
+			continue;
+		}
+		format_argument(context, out, out->text[i], &arguments);
+	}
+}
+
+/* (format FORMAT &rest ARGS) without the string object: the result stays
+ * in state.scratch so `message` can hand it straight to the editor.  The
+ * caller releases the scratch. */
+static char *lisp_format_text(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct format_buffer out = { 0 };
 	size_t length;
-	char *message;
 
-	FeRequireNoArguments(context, arguments);
-	message = copy_fe_string(context, object, &length);
-	(void)length;
-	editor_set_status_message("%s", message);
-	free(message);
+	out.text = copy_fe_string(context, object, &length);
+	state.scratch = out.text;
+	out.start = length + 1;
+	out.capacity = length + 1;
+	format_walk(context, &out, length, arguments);
+	format_put(context, &out, '\0');
+	return out.text + out.start;
+}
+
+static FeObject *native_format(FeContext *context, FeObject *arguments)
+{
+	FeObject *result
+	    = FeMakeString(context, lisp_format_text(context, arguments));
+
+	release_scratch();
+	return result;
+}
+
+static FeObject *native_message(FeContext *context, FeObject *arguments)
+{
+	editor_set_status_message("%s", lisp_format_text(context, arguments));
+	release_scratch();
 	return FeNil(context);
 }
 
@@ -705,12 +865,6 @@ static FeObject *native_bounds_of_thing(FeContext *context, FeObject *arguments)
 /* ---- Strings ---------------------------------------------------------
  * Fe has no string operations of its own.  These natives index by
  * codepoint, like the position API, so no result can be cut mid-glyph. */
-
-static void release_scratch(void)
-{
-	free(state.scratch);
-	state.scratch = nullptr;
-}
 
 /* Copy a string argument and park it in state.scratch, so a later Fe error
  * frees it.  Only one such copy is live at a time. */
@@ -1418,6 +1572,7 @@ static const struct native_binding native_bindings[] = {
 	{ "string-length", native_string_length },
 	{ "substring", native_substring },
 	{ "concat", native_concat },
+	{ "format", native_format },
 	{ "string=", native_string_equal },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },

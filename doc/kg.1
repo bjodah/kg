@@ -194,9 +194,10 @@ The string API is
 .Li (substring S FROM &optional TO) ,
 .Li (concat A B ...) ,
 .Li (string= A B) ,
-.Li (char-to-string N)
+.Li (char-to-string N) ,
+.Li (string-to-char S)
 and
-.Li (string-to-char S) .
+.Li (format FORMAT ARG ...) .
 Indices count codepoints rather than bytes, so no result is cut
 mid-glyph.
 .Li substring
@@ -213,6 +214,28 @@ which returns a number; it rejects 0, surrogates and values above
 U+10FFFF.
 .Li string-to-char
 returns nil for the empty string.
+.Pp
+.Li format
+substitutes the four specifiers Emacs Lisp reaches for most:
+.Li %s
+prints an object the way the interpreter prints it, so a string prints
+bare and a list prints as a list;
+.Li %S
+is the same with strings quoted;
+.Li %d
+truncates a number toward zero; and
+.Li %%
+is a literal per cent.
+There are no field widths, precisions or flags, and no other specifiers.
+Extra arguments are ignored, as in Emacs, while a missing argument, an
+unknown specifier and a format string that ends inside one all raise an
+error.
+Every number is a double, so
+.Li %d
+prints the exact integer value of one, matching what Emacs prints from a
+bignum; NaN and the infinities have no integer to print, so
+.Li %d
+refuses them where Emacs writes nan and inf.
 .Pp
 The prelude is available before any init file is loaded.
 It defines the definition forms
@@ -328,6 +351,11 @@ The editor bridge uses the Emacs names
 .Li global-set-key
 and
 .Li global-unset-key .
+.Li message
+formats, taking the same specifiers as
+.Li format ,
+so a literal per cent in a message has to be written
+.Li %% .
 Built-in editor commands run with
 .Li (command-execute \(aqname) ,
 which takes a quoted symbol as in Emacs or equivalently a string, never

@@ -206,11 +206,24 @@ lists the few changes that did have to be made there, and why.
 | `(string= A B)` | `t` when the strings are equal, else `nil` |
 | `(char-to-string N)` | One-character string for codepoint `N` |
 | `(string-to-char S)` | First codepoint of `S` as a number, `nil` for `""` |
+| `(format FORMAT ARG ...)` | Substitutes `%s`, `%S` and `%d`; `%%` is a literal per cent |
 
 `substring` clamps out-of-range indices instead of signalling, and a `TO`
 before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values
 above `U+10FFFF` so the result is always well-formed text; it is the inverse
 of `char-after`, which returns a number.
+
+`format` takes the four specifiers Emacs Lisp reaches for most. `%s` prints
+an object the way the interpreter prints it — a string bare, a list as a
+list, `nil` as `nil` — and `%S` is the same with strings quoted; `%d`
+truncates a number toward zero. There are no field widths, precisions or
+flags, and no `%c`, `%x`, `%o`, `%e` or `%f`. Extra arguments are ignored,
+as in Emacs, while a missing argument, an unknown specifier and a format
+string ending inside one are all errors. Every number is a double, so `%d`
+prints the exact integer value of one, which for `1e19` is the same
+`10000000000000000000` Emacs prints from a bignum; NaN and the infinities
+have no integer to print, so `%d` refuses them where Emacs writes `nan` and
+`inf`.
 
 kg also evaluates a prelude at startup, written in Fe, so the Emacs Lisp
 surface is available before any init file runs. It is what makes an `init.fe`
@@ -260,7 +273,10 @@ first surprise:
   a macro whose expansion depends on run-time state gives a stale answer.
 
 The editor bridge uses the Emacs names throughout: `insert`, `message`,
-`buffer-name`, `load`, `global-set-key` and `global-unset-key`.
+`buffer-name`, `load`, `global-set-key` and `global-unset-key`. `message`
+formats, so `(message "%s at %d" name (point))` reaches the status area with
+its arguments substituted, and a literal per cent in a message has to be
+written `%%`.
 
 The init file can also toggle editor options by running named commands,
 e.g. enabling electric bracket pairing (off by default):

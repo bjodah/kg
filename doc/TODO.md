@@ -166,7 +166,9 @@ ordered by value vs implementation effort.
         `bounds-of-thing-at-point`), addressing the buffer by 1-based
         codepoint offsets
       - string natives (`string-length`, `substring`, `concat`, `string=`,
-        `char-to-string`, `string-to-char`), which upstream fe lacks
+        `char-to-string`, `string-to-char`, `format`), which upstream fe
+        lacks; `format` covers `%s`, `%S`, `%d` and `%%`, and `message`
+        is a format function like its Emacs namesake
       - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
         `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
         lists, `setq`, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
@@ -191,6 +193,10 @@ ordered by value vs implementation effort.
         it numeric is a one-line prelude change but silently changes the
         meaning of any stale `(= x v)`, so it wants its own release
       - no docstring registry / `documentation`; docstrings are inert
+      - no `error`, so Lisp cannot signal with a message of its own.
+        Now that `format` exists it is a handful of lines, but it lands
+        on the error path (`FeHandleError` longjmps out of the native),
+        so it wants its own change
       - no dotted unquote (`` `(a . ,b) ``) and no nested quasiquote
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist

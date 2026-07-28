@@ -1,0 +1,22 @@
+# message is a format function, so it reaches the status line with its
+# arguments substituted; the buffer itself is left alone.
+name: lisp-message-format
+filename: lisp-message-format.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun say-where ()
+      "Report point and the buffer name in the status area."
+      (interactive)
+      (message "%s: point %d of %d" (buffer-name) (point) (point-max)))
+    (global-set-key "C-c p" "say-where")
+initial: |
+  hello world
+keys:
+  - C-e
+  - C-c
+  - p
+expected_saved: |
+  hello world
+expected_screen_contains:
+  - "lisp-message-format.txt: point 12 of 13"

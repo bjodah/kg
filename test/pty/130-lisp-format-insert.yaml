@@ -1,0 +1,20 @@
+# format builds the text that insert puts in the buffer: %s prints a
+# string bare and a list the way the interpreter prints it, %S quotes the
+# string, %d truncates a double toward zero, and %% is a literal per cent.
+name: lisp-format-insert
+filename: lisp-format.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun report ()
+      "Append a formatted report line."
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "\n%s scored %d%% on %S %s"
+                      "héllo" 87.6 "day 1" (list 'a 2))))
+    (global-set-key "C-c r" "report")
+initial: "start"
+keys:
+  - C-c
+  - r
+expected_saved: "start\nhéllo scored 87% on \"day 1\" (a 2)"

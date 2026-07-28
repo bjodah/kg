@@ -183,10 +183,6 @@ static void test_message_arity(void)
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_eval_string("(message)", 9, result, sizeof(result)) != 0);
 	CHECK(strstr(result, "too few arguments") != nullptr);
-	CHECK(kg_lisp_eval_string(
-		  "(message \"a\" \"b\")", 17, result, sizeof(result))
-	    != 0);
-	CHECK(strstr(result, "too many arguments") != nullptr);
 	CHECK(kg_lisp_eval_string("(message 1)", 11, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "expected string") != nullptr);
@@ -194,6 +190,8 @@ static void test_message_arity(void)
 		  "(message \"ready\")", 17, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(test_status_message, "ready") == 0);
+	/* message formats its argument, so a second one is no longer an
+	 * arity error; test_format_natives covers what it does with it. */
 	kg_lisp_shutdown();
 	teardown_editor();
 }
@@ -875,6 +873,74 @@ static void test_string_concat_and_equal(void)
 	kg_lisp_shutdown();
 }
 
+/* Every expectation here was measured against Emacs 31, except the two
+ * noted places where kg has no bignums and no Emacs behaviour to copy. */
+static void test_format_natives(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(format \"\")", ""));
+	CHECK(eval_eq("(format \"plain\")", "plain"));
+	CHECK(eval_eq("(format \"100%%\")", "100%"));
+
+	/* %s and %S are fe's printer with the quoting flag flipped. */
+	CHECK(eval_eq("(format \"%s\" 42)", "42"));
+	CHECK(eval_eq("(format \"%s\" 42.5)", "42.5"));
+	CHECK(eval_eq("(format \"%s\" \"hi\")", "hi"));
+	CHECK(eval_eq("(format \"%S\" \"hi\")", "\"hi\""));
+	CHECK(eval_eq("(format \"%s\" 'foo)", "foo"));
+	CHECK(eval_eq("(format \"%s\" nil)", "nil"));
+	CHECK(eval_eq("(format \"%s\" (list 1 2))", "(1 2)"));
+	CHECK(eval_eq("(format \"%S\" (list 1 \"a\"))", "(1 \"a\")"));
+	CHECK(eval_eq("(format \"%s=%S\" 'a \"b\")", "a=\"b\""));
+	CHECK(eval_eq("(format \"h\xc3\xa9llo %s\" \"w\xc3\xb6rld\")",
+	    "h\xc3\xa9llo w\xc3\xb6rld"));
+
+	/* %d truncates toward zero. */
+	CHECK(eval_eq("(format \"%d\" 42)", "42"));
+	CHECK(eval_eq("(format \"%d\" 42.9)", "42"));
+	CHECK(eval_eq("(format \"%d\" -3.7)", "-3"));
+	CHECK(eval_eq("(format \"%d\" -0.5)", "0"));
+	/* Either side of the int64 fast path, whose guard keeps the cast
+	 * defined; the wide values are exact, as they are in Emacs. */
+	CHECK(eval_eq("(format \"%d\" 9007199254740993)", "9007199254740992"));
+	CHECK(eval_eq("(format \"%d\" 1e19)", "10000000000000000000"));
+	CHECK(eval_eq("(format \"%d\" -1e19)", "-10000000000000000000"));
+	CHECK(eval_eq("(string-length (format \"%d\" 1e300))", "301"));
+	CHECK(eval_eq("(substring (format \"%d\" 1e300) 0 4)", "1000"));
+	/* kg has no bignums to print NaN or an infinity into, so unlike
+	 * Emacs, which writes "nan" and "inf", %d refuses them. */
+	CHECK(eval_error_contains("(format \"%d\" (/ 1 0))", "finite"));
+	CHECK(eval_error_contains(
+	    "(format \"%d\" (- (/ 1 0) (/ 1 0)))", "finite"));
+	CHECK(eval_eq("(format \"%s\" (/ 1 0))", "inf"));
+
+	/* Extra arguments are ignored; missing ones are an error. */
+	CHECK(eval_eq("(format \"%s\" 1 2)", "1"));
+	CHECK(eval_error_contains("(format \"%s %s\" 1)", "not enough"));
+	CHECK(eval_error_contains("(format \"%s\")", "not enough"));
+	CHECK(eval_error_contains("(format \"%d\" \"x\")", "argument type"));
+	CHECK(eval_error_contains(
+	    "(format \"%q\" 1)", "invalid format operation %q"));
+	CHECK(eval_error_contains("(format \"50%\")", "middle of format"));
+	CHECK(eval_error_contains("(format 1)", "expected string"));
+	/* Recovery after any of those leaves the interpreter usable. */
+	CHECK(eval_eq("(format \"%s\" 'ok)", "ok"));
+
+	/* message is format plus the status line. */
+	CHECK(eval_ok("(message \"%s of %d\" \"one\" 3)"));
+	CHECK(strcmp(test_status_message, "one of 3") == 0);
+	CHECK(eval_ok("(message \"50%%\")"));
+	CHECK(strcmp(test_status_message, "50%") == 0);
+	CHECK(eval_error_contains("(message \"50%\")", "middle of format"));
+	CHECK(eval_ok("(message \"a\" \"b\")"));
+	CHECK(strcmp(test_status_message, "a") == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_char_string_round_trip(void)
 {
 	setup_utf8_buffer();
@@ -1384,6 +1450,7 @@ int main(void)
 	RUN(test_editor_bridge);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
+	RUN(test_format_natives);
 	RUN(test_char_string_round_trip);
 	RUN(test_thing_at_point);
 	RUN(test_prelude_forms);

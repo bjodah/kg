@@ -274,19 +274,24 @@ void editor_process_keypress(int fd)
 	int dirty_before = editor.dirty;
 	int was_shift_select = editor.shift_select;
 	long elapsed;
+	long seconds;
 	int n;
 
-	/* Paste mode detection: if characters arrive very quickly (< 30ms
-	 * apart), we're likely in a paste operation, so disable autocompletion
-	 */
+	/* Paste mode detection: characters arriving less than 30ms apart are
+	 * a paste rather than typing, and auto-indent and autocompletion are
+	 * suppressed while it lasts.  The gap has to be measured across the
+	 * whole timeval: comparing tv_usec only when tv_sec matches misreads
+	 * every gap that straddles a second boundary, which during a paste is
+	 * one line in every second, and leaves the flag stuck on for slow
+	 * keystrokes that happen to share a second with a fast one. */
 	gettimeofday(&tv, NULL);
-	if (tv.tv_sec == editor.last_char_time.tv_sec) {
-		elapsed = (tv.tv_usec - editor.last_char_time.tv_usec);
-		if (elapsed < 30000) {
-			editor.paste_mode = 1; /* 30ms threshold */
-		}
-	} else if (tv.tv_sec - editor.last_char_time.tv_sec > 0) {
+	seconds = (long)(tv.tv_sec - editor.last_char_time.tv_sec);
+	if (seconds > 1) {
 		editor.paste_mode = 0;
+	} else {
+		elapsed = seconds * 1000000L
+		    + (long)(tv.tv_usec - editor.last_char_time.tv_usec);
+		editor.paste_mode = elapsed < 30000;
 	}
 	editor.last_char_time = tv;
 

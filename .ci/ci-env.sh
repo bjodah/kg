@@ -22,14 +22,24 @@ fi
 if [ "${CI_PARALLEL}" = 1 ]; then
 	JOBS=${JOBS:-$((CI_NPROC / CI_PARALLEL_LANES > 0 ? CI_NPROC / CI_PARALLEL_LANES : 1))}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-40}
-	PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.6}
-	PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.02}
 else
 	JOBS=${JOBS:-${CI_NPROC}}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-20}
-	PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.3}
-	PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.01}
 fi
+
+# The delay adds do not vary by mode, measurement having killed the
+# reasons to.  kg's startup is polled rather than slept, so the startup add
+# now only pads the Emacs oracle; and the key add cannot buy safety under
+# load, because contention only ever makes a sleep longer, never shorter,
+# so it cannot push an inter-key gap below the 30 ms paste threshold in
+# kbd.c.  PTY_TIMEOUT still doubles under --parallel, as failure headroom.
+PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.3}
+PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.01}
+
+# PTY cases are independent and spend their time waiting on a child editor,
+# so pooling them scales past the core count.  8 is half the 16 measured
+# safe at 6-way lane concurrency (96 concurrent cases held 13 of 32 cores).
+PTY_JOBS=${PTY_JOBS:-8}
 
 # Where run-ci-steps.sh keeps its lock, per-step state and per-step logs.  It
 # has to stay in the real tree: a lane runs in a throwaway copy of it.

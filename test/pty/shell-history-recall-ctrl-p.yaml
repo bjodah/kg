@@ -1,6 +1,5 @@
 name: shell-history-recall-ctrl-p
 filename: shell-history-ctrlp.txt
-startup_delay: 0.5
 key_delay: 0.15
 initial: ""
 keys:

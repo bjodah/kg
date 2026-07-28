@@ -2,7 +2,6 @@ name: shell-command-exit-status-success
 filename: shell-exit-status-ok.txt
 backend: tmux
 dimensions: [24, 80]
-startup_delay: 0.5
 key_delay: 0.15
 initial: ""
 keys:

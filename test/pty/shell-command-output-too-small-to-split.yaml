@@ -2,7 +2,6 @@ name: shell-command-output-too-small-to-split
 filename: shell-too-small.txt
 backend: tmux
 dimensions: [6, 80]
-startup_delay: 0.5
 key_delay: 0.15
 initial: "hello\n"
 keys:

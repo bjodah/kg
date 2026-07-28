@@ -1,7 +1,5 @@
 name: shell-history-overflow-cleared-on-recall
 filename: shell-history-overflow.txt
-startup_delay: 0.5
-key_delay: 0.05
 initial: ""
 keys:
   - M-1

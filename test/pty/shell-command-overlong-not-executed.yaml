@@ -1,6 +1,5 @@
 name: shell-command-overlong-not-executed
 filename: shell-overlong.txt
-startup_delay: 0.5
 key_delay: 0.02
 initial: ""
 keys:

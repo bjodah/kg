@@ -117,6 +117,7 @@ PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
+PTY_JOBS ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c23 -O1 -g \
 	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DKG_FUZZ=1 \
 	       -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
@@ -214,6 +215,7 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
+		$(if $(PTY_JOBS),--jobs $(PTY_JOBS),) \
 		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
 
 fuzz-keypress: $(FUZZBIN)

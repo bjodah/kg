@@ -1,6 +1,5 @@
 name: mx-repeat-cancel-unchanged
 filename: mx-repeat-cancel.txt
-startup_delay: 0.5
 key_delay: 0.15
 initial: "ab"
 keys:

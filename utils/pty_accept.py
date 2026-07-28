@@ -2,14 +2,18 @@
 
 import argparse
 import difflib
+import functools
 import io
+import multiprocessing
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,8 +24,35 @@ import yaml
 DEFAULT_TRAILER = ["C-x", "C-s", "C-x", "C-c"]
 DEFAULT_DIMENSIONS = (24, 80)
 DEFAULT_TIMEOUT = 5.0
+# kg's own runs no longer pay this: they wait for the first painted frame
+# (see wait_ready_pexpect) and charge each runner what it actually costs,
+# from ~3 ms on a plain build to ~0.33 s under valgrind.  It is still the
+# sleep the Emacs oracle takes, so it stays generous enough for emacs -nw.
 DEFAULT_STARTUP_DELAY = 0.5
+# Keys are buffered by the pty, so this is not "time for kg to keep up":
+# kg needs well under a millisecond per key on a plain build, and
+# multi-character tokens are already sent with no delay between bytes.  The
+# binding constraint is semantic.  kg treats keys arriving less than 30 ms
+# apart as a paste (editor.paste_mode in src/kbd.c), which suppresses
+# auto-indent and autocompletion, so anything at or below 0.03 silently
+# changes what the editor does.  kg also gives an escape sequence 100 ms to
+# arrive, which is why the handful of cases that need a bare ESC to stay
+# separate from the next key override this upward.
 DEFAULT_KEY_DELAY = 0.05
+DEFAULT_JOBS = 8
+# kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).
+KG_READY_PATTERN = r"(?:----|-\*\*-)  "
+KG_READY = re.compile(KG_READY_PATTERN)
+KG_READY_BYTES = re.compile(KG_READY_PATTERN.encode())
+READY_POLL = 0.005
+# Only reached when the mode line never shows up, so it can be generous:
+# polling normally returns in a few milliseconds on a plain build and about
+# 0.35 s under valgrind.
+READY_DEADLINE = 2.0
+# A frame can be painted from inside init-file evaluation, so the mode line
+# alone does not mean kg has reached its input loop.  Wait for output to
+# stop as well.
+READY_SETTLE = 0.05
 EMACS = "/opt-3/emacs-31-lucid/bin/emacs"
 
 
@@ -324,10 +355,40 @@ def write_config_files(home: Path, config_files: dict[str, str]) -> None:
 		target.write_text(content)
 
 
+def wait_ready_pexpect(child: pexpect.spawn, ready: bool, budget: float) -> None:
+	"""Wait for the editor's first painted frame, or sleep the budget.
+
+	`budget` is a deadline rather than a cost: a plain build is ready in a
+	few milliseconds where the same binary under valgrind needs ~0.3 s, and
+	polling charges each runner only what it actually takes.  When the
+	pattern never shows up (unknown editor, immediate exit) this degrades
+	to the fixed sleep it replaced.
+	"""
+	if not ready:
+		time.sleep(budget)
+		return
+	budget = max(budget, READY_DEADLINE)
+	deadline = time.monotonic() + budget
+	try:
+		child.expect(KG_READY_BYTES, timeout=budget)
+		last = time.monotonic()
+		while time.monotonic() < deadline:
+			try:
+				if child.read_nonblocking(4096, READY_POLL):
+					last = time.monotonic()
+			except pexpect.TIMEOUT:
+				pass
+			if time.monotonic() - last >= READY_SETTLE:
+				return
+	except (pexpect.TIMEOUT, pexpect.EOF):
+		pass
+
+
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
 		       trailer_keys: list[str], startup_delay: float,
 		       key_delay: float, dimensions: tuple[int, int],
-		       timeout: float, config_files: dict[str, str]) -> RunResult:
+		       timeout: float, config_files: dict[str, str],
+		       ready: bool) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -355,7 +416,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		child.logfile_read = log
 
 		try:
-			time.sleep(startup_delay)
+			wait_ready_pexpect(child, ready, startup_delay)
 			for token in [*keys, *trailer_keys]:
 				send_token_pexpect(child, token)
 				time.sleep(key_delay)
@@ -376,10 +437,71 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 	return subprocess.run(["tmux", "-S", sock, *args], check=check, capture_output=True, text=True)
 
 
+def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
+	"""tmux counterpart of wait_ready_pexpect; see that docstring."""
+	if not ready:
+		time.sleep(budget)
+		return
+	budget = max(budget, READY_DEADLINE)
+	deadline = time.monotonic() + budget
+	prev = None
+	last = time.monotonic()
+	while time.monotonic() < deadline:
+		cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", check=False)
+		now = time.monotonic()
+		if cp.stdout != prev:
+			prev = cp.stdout
+			last = now
+		elif KG_READY.search(cp.stdout) and now - last >= READY_SETTLE:
+			return
+		time.sleep(READY_POLL)
+
+
+def settle_tmux(sock: str, pane: str, budget: float) -> None:
+	"""Let the pane stop changing before a screen assertion reads it.
+
+	Keys are queued in the pty, so at a small key_delay the capture can
+	otherwise race ahead of a slow runner's redraw.
+	"""
+	deadline = time.monotonic() + budget
+	prev = None
+	quiet_since = time.monotonic()
+	while time.monotonic() < deadline:
+		cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", check=False)
+		now = time.monotonic()
+		if cp.stdout != prev:
+			prev = cp.stdout
+			quiet_since = now
+		elif now - quiet_since >= READY_SETTLE:
+			return
+		time.sleep(READY_POLL)
+
+
+def wait_exit_tmux(sock: str, session: str, budget: float) -> None:
+	"""Wait for the trailer's C-x C-c to actually land.
+
+	The keys are only queued when send-keys returns, so the saved file is
+	not on disk yet.  tmux tears the session down when the pane's command
+	exits, which makes "session gone" the signal that the save completed.
+
+	Some cases deliberately leave kg alive at the end (a running
+	compilation prompts before quitting), so this must not be given the
+	per-run timeout as its budget: the save has already happened by then
+	and waiting the full timeout would make those cases the critical path.
+	"""
+	deadline = time.monotonic() + budget
+	while time.monotonic() < deadline:
+		cp = run_tmux_cmd(sock, "has-session", "-t", session, check=False)
+		if cp.returncode != 0:
+			return
+		time.sleep(READY_POLL)
+
+
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
-		    timeout: float, config_files: dict[str, str]) -> RunResult:
+		    timeout: float, config_files: dict[str, str],
+		    ready: bool) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -404,7 +526,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		try:
 			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
 				     "-x", str(cols), "-y", str(rows), cmd)
-			time.sleep(startup_delay)
+			wait_ready_tmux(sock, pane, ready, startup_delay)
 			for token in keys:
 				if token.startswith("RESIZE="):
 					r, c = map(int, token.split("=")[1].split(","))
@@ -417,6 +539,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				else:
 					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
 				time.sleep(key_delay)
+			settle_tmux(sock, pane, startup_delay)
 			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50",
 					  check=False)
 			transcript.write(cp.stdout)
@@ -432,7 +555,11 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				else:
 					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
 				time.sleep(key_delay)
-			time.sleep(min(key_delay, timeout))
+			if trailer_keys:
+				wait_exit_tmux(sock, session,
+					       min(timeout, READY_DEADLINE))
+			else:
+				time.sleep(min(key_delay, timeout))
 		except Exception as exc:
 			try:
 				cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50", check=False)
@@ -454,14 +581,15 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
 	       key_delay: float, dimensions: tuple[int, int],
-	       timeout: float, config_files: dict[str, str]) -> RunResult:
+	       timeout: float, config_files: dict[str, str],
+	       ready: bool = True) -> RunResult:
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
-				       timeout, config_files)
+				       timeout, config_files, ready)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
-				  timeout, config_files)
+				  timeout, config_files, ready)
 
 
 def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: float,
@@ -480,10 +608,12 @@ def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: f
 
 	if case.oracle == "emacs":
 		oracle_backend = case.oracle_backend or case.backend
+		# The oracle keeps the fixed startup sleep: KG_READY describes
+		# kg's mode line, not Emacs's.
 		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
 				       startup_delay, key_delay, case.dimensions,
-				       timeout, {})
+				       timeout, {}, ready=False)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved
@@ -540,6 +670,9 @@ def main() -> int:
 	                    help="Additional startup delay added to every case")
 	parser.add_argument("--key-delay-add", type=float, default=0.0,
 	                    help="Additional per-key delay added to every case")
+	parser.add_argument("--jobs", "-j", type=int, default=0,
+	                    help="Cases to run concurrently (0 picks a default, "
+	                         "1 runs them in this process)")
 	parser.add_argument("cases", nargs="+", help="YAML case files")
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
@@ -549,15 +682,44 @@ def main() -> int:
 
 	counts = {k: 0 for k in ("PASS", "SKIP", "FAIL", "XFAIL", "XPASS", "ERROR")}
 
-	for case_path in args.cases:
-		case = load_case(Path(case_path))
-		status, details = evaluate_case(case, kg_argv, features, args.timeout,
-						args.startup_delay_add,
-						args.key_delay_add)
-		counts[status] += 1
-		print(f"{status}: {case.name}")
-		if details:
-			print(details.rstrip())
+	cases = [load_case(Path(p)) for p in args.cases]
+	jobs = args.jobs if args.jobs > 0 else min(DEFAULT_JOBS, os.cpu_count() or 1)
+	jobs = max(1, min(jobs, len(cases)))
+
+	run_one = functools.partial(evaluate_case, kg_argv=kg_argv,
+				    features=features, timeout=args.timeout,
+				    startup_delay_add=args.startup_delay_add,
+				    key_delay_add=args.key_delay_add)
+
+	def report(results) -> None:
+		for case, (status, details) in zip(cases, results):
+			counts[status] += 1
+			print(f"{status}: {case.name}")
+			if details:
+				print(details.rstrip())
+
+	# The suite is dominated by waiting on a child editor, so running cases
+	# side by side is close to a linear speedup.  Cases are independent:
+	# each gets its own temporary HOME and its own tmux socket.
+	#
+	# Processes rather than threads, and forkserver rather than plain fork,
+	# because pexpect runs a good deal of Python (setsid, ioctls, fd
+	# juggling) between fork() and execv().  Forking that from a
+	# multi-threaded process can deadlock the child on a lock held by a
+	# thread that does not exist in it -- a rare, unreproducible hang, and
+	# the worst failure mode a test harness can have.  Each worker here is
+	# single-threaded, so pexpect always forks from a single-threaded
+	# process.  map() keeps the report in case order regardless of
+	# completion order, so CI logs stay diffable.
+	if jobs == 1:
+		# Stay in-process so a debugging run keeps its tracebacks and
+		# its C-c.
+		report(map(run_one, cases))
+	else:
+		with ProcessPoolExecutor(max_workers=jobs,
+					 mp_context=multiprocessing.get_context(
+						 "forkserver")) as pool:
+			report(pool.map(run_one, cases))
 
 	total = sum(counts.values())
 	print()

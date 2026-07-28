@@ -2,7 +2,6 @@ name: shell-command-output-reuses-visible-window
 filename: shell-reuse-window.txt
 backend: tmux
 dimensions: [24, 80]
-startup_delay: 0.5
 key_delay: 0.15
 initial: "hello\n"
 keys:

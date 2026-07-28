@@ -252,7 +252,7 @@ trap 'exit 143' TERM
 source $(compgen -G "/opt-?/cpython-v3.*-apt-deb/bin/activate")
 
 export JOBS PARALLEL VALGRIND
-export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD
+export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_JOBS
 
 rm -f "${CI_RUN_DIR}"/*.state "${CI_RUN_DIR}"/*.state.tmp
 rm -rf "${CI_RUN_DIR}/logs"

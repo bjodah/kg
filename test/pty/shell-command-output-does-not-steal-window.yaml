@@ -1,6 +1,5 @@
 name: shell-command-output-does-not-steal-window
 filename: shell-no-steal.txt
-startup_delay: 0.5
 key_delay: 0.15
 initial: "hello\n"
 keys:

@@ -1,6 +1,5 @@
 name: shell-history-draft-restore-arrow
 filename: shell-history-draft-arrow.txt
-startup_delay: 0.5
 key_delay: 0.15
 initial: ""
 keys:

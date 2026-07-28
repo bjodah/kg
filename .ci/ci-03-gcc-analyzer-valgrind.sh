@@ -7,6 +7,6 @@ source .ci/ci-env.sh
 export CC="ccache gcc -Werror -fanalyzer"
 export TEST_RUNNER="${VALGRIND}"
 export KG_RUNNER="${VALGRIND}"
-export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD
+export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_JOBS
 
 "${MAKE_PARALLEL[@]}" -B check

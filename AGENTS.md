@@ -19,6 +19,9 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `python3 utils/pty_accept.py --kg src/kg <case.yaml>` (add
   `--timeout`, `--startup-delay-add`, `--key-delay-add` for flaky cases). A
   failing case prints a unified diff of the expected vs actual saved file.
+- PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`, CI default 8)
+  sets how many. Use `--jobs 1` when debugging a case so its output is not
+  interleaved with other work on the box.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
@@ -72,6 +75,15 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Always set `filename` deliberately in PTY cases; editor mode and syntax behavior depend on the extension.
 - PTY cases can choose `backend: pexpect` or `backend: tmux`; use `oracle_backend` when the Emacs oracle needs a different driver than kg.
 - `startup_delay` and `key_delay` exist for timing-sensitive interactive cases; keep them explicit and case-local.
+- kg's runs no longer sleep `startup_delay`: the harness polls until kg has
+  painted its first frame and gone quiet, so a plain build waits ~3 ms and
+  the same binary under valgrind waits ~0.33 s. `startup_delay` is now the
+  fallback deadline, and the sleep the Emacs oracle still takes.
+- `key_delay` is not "time for kg to keep up" -- keys queue in the pty. It
+  is bounded below by kg semantics: under 30 ms between keys kg decides it
+  is seeing a paste (`editor.paste_mode`) and drops auto-indent and
+  autocompletion, and a bare `ESC` merges with the next key unless they are
+  more than 100 ms apart. Do not take the default below 0.05.
 - `dimensions: [rows, cols]` is available for viewport-sensitive cases.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.

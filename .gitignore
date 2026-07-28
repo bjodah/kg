@@ -12,6 +12,7 @@ compile_commands.json
 coverage/
 *.plist
 .cache
+.ci/.run/
 __pycache__/
 test/fuzz_keypress
 test/fuzz-artifacts/

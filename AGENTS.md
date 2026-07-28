@@ -24,11 +24,30 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-07-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-09-*.sh`;
   run one directly when iterating on a specific phase.
 - CI parallelism is controlled with `JOBS` (default: `nproc`), e.g.
   `JOBS=8 .ci/run-ci-steps.sh`. Shared CI defaults live in
   `.ci/ci-env.sh`.
+- `.ci/run-ci-steps.sh --parallel` runs the steps concurrently. Every step
+  that builds gets a throwaway copy of the working tree (uncommitted
+  changes included, build artifacts left behind), because the steps
+  otherwise fight over `src/*.o` and `make clean`. Each step writes its own
+  log under `.ci/.run/logs/`; the terminal only gets a PASS/FAIL summary
+  and a replay of the failing logs, and the exit status is non-zero when
+  any step failed. `CI_PARALLEL_LANES` caps concurrency, defaulting to
+  `nproc / 4` clamped to 2..6; each lane then builds with `nproc / lanes`
+  jobs and the PTY suite gets a longer timeout, since several sanitizer
+  lanes driving PTYs at once otherwise manufacture flaky timeouts. Six
+  lanes is enough to start every slow step at once: five of the nine steps
+  are ~99% PTY suite, which waits on terminal timing rather than cores.
+- `.ci/run-ci-steps.sh --status` reports what the runner in this tree is
+  doing, or last did: per-step `PENDING`/`RUNNING`/`PASS`/`FAIL` with
+  timings and log paths. It never blocks and starts nothing, so poll that
+  instead of guessing from the process table.
+- Both run modes take a lock in `.ci/.run`; a second run in the same tree
+  is refused (it would corrupt the first one's objects), and a lock left
+  behind by a process that is gone is reported as stale and taken over.
 
 ## Editing expectations
 - Keep changes small and local; this codebase values minimalism.

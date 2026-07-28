@@ -130,11 +130,12 @@ char *compilation_format_transcript(const char *command, const char *directory,
 
 	*pos++ = '\n';
 
+	/* Last write into the buffer: no pos advance, nothing reads it. */
 	if (cap->exited) {
-		pos += snprintf(pos, sz + 1 - (size_t)(pos - buf),
+		(void)snprintf(pos, sz + 1 - (size_t)(pos - buf),
 		    "Compilation finished with exit code %d\n", cap->exit_code);
 	} else {
-		pos += snprintf(pos, sz + 1 - (size_t)(pos - buf),
+		(void)snprintf(pos, sz + 1 - (size_t)(pos - buf),
 		    "Compilation terminated by signal %d\n",
 		    cap->signal_number);
 	}

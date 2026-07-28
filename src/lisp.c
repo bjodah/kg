@@ -361,7 +361,13 @@ static char *read_whole_file(const char *path, size_t *size)
 		(void)fclose(file);
 		return nullptr;
 	}
-	rewind(file);
+	/* fseek rather than rewind: rewind reports failure only through errno,
+	 * which the next allocation is free to clobber. */
+	if (fseek(file, 0, SEEK_SET) != 0) {
+		set_error("cannot read %s: %s", path, strerror(errno));
+		(void)fclose(file);
+		return nullptr;
+	}
 	buffer = malloc(file_size > 0 ? (size_t)file_size : 1);
 	if (!buffer) {
 		set_error("cannot load %s: out of memory", path);

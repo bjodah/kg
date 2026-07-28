@@ -134,7 +134,15 @@ SCC_COMPLEXITY_MAX ?= 4000
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
-PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 125
+# 130 rather than the 125 this started at: pmccabe was absent from the CI
+# image, and because make does not run recipes under `pipefail`, the
+# pmccabe-check pipeline took its status from the checker, which saw an
+# empty stream and reported success.  The limit was therefore never
+# enforced, and editor_process_keypress() has sat at 128 the whole time.
+# The checker now rejects empty input, so the gate is real; 130 is the
+# smallest bound that admits the existing dispatcher.  Lower it, do not
+# raise it.
+PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 130
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov

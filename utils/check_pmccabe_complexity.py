@@ -40,7 +40,19 @@ def main():
 		reverse=True,
 	)
 
-	max_complexity = functions[0]["complexity"] if functions else 0
+	# An empty stream is a broken gate, not a clean tree: make does not
+	# use `pipefail`, so a missing pmccabe binary leaves this checker
+	# reading nothing and the pipeline exiting on our status.  Reporting
+	# a max of 0 there silently passed the gate for as long as pmccabe
+	# was absent from the image.
+	if not functions:
+		print(
+			"FAIL: no pmccabe output to check -- is pmccabe installed?",
+			file=sys.stderr,
+		)
+		return 1
+
+	max_complexity = functions[0]["complexity"]
 	print(
 		f"pmccabe max function complexity: {max_complexity} "
 		f"(limit {args.max_function})"

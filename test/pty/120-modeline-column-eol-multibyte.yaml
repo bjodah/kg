@@ -1,0 +1,16 @@
+# End of a line holding two two-byte characters: 11 display columns, 13
+# bytes.  Real Emacs shows (2,11); kg used to show (2,14) — one for the
+# 1-based origin and two for the UTF-8 continuation bytes.
+name: modeline-column-eol-multibyte
+filename: col-eol.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "\tabc\nhéllo wörld\n"
+keys:
+  - C-n
+  - C-e
+expected_saved: "\tabc\nhéllo wörld\n"
+expected_screen_contains:
+  - "col-eol.txt  All (2,11)"
+expected_screen_not_contains:
+  - "(2,14)"

@@ -42,7 +42,10 @@ static void cmd_not_modified(int fd)
 static void cmd_what_cursor_position(int fd)
 {
 	int line = editor.rowoff + editor.cy + 1;
-	int col = editor.coloff + editor.cx + 1;
+	/* Zero-based display column, as Emacs' C-x = reports and as the
+	 * mode line shows, so the two never disagree. */
+	int col = editor_display_col(
+	    editor.row, editor.numrows, line - 1, editor.coloff + editor.cx);
 	int pct = editor.numrows ? (line * 100) / editor.numrows : 100;
 
 	(void)fd;

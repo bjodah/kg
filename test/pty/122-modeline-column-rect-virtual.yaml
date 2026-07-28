@@ -1,0 +1,18 @@
+# Rectangle mark mode (C-x SPC) lets point sit past end of line, which
+# Emacs' point cannot do: Emacs reports (2,2) here because it clamps point
+# to end of line and tracks the rectangle's right edge separately.  kg's
+# cursor really is drawn in virtual space at display column 10, and the
+# mode line reports where the cursor is, so (2,10) is deliberate.
+name: modeline-column-rect-virtual
+filename: col-rect.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "0123456789\nab\n"
+keys:
+  - C-x
+  - SPC
+  - C-e
+  - C-n
+expected_saved: "0123456789\nab\n"
+expected_screen_contains:
+  - "col-rect.txt  All (2,10)"

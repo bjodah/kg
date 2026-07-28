@@ -558,6 +558,7 @@ int editor_current_filecol(void);
 int editor_current_filecol_in_row(erow *row);
 void editor_snap_cx_to_row(void);
 int editor_visual_col(erow *row, int chars_col);
+int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
 int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */

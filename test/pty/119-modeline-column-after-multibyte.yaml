@@ -1,0 +1,17 @@
+# "héllo wörld" is 11 characters in 13 bytes.  Moving over "h" and then
+# over the two-byte "é" leaves point at display column 2, as real Emacs
+# shows; kg used to count bytes and show (2,4).
+name: modeline-column-after-multibyte
+filename: col-utf8.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "\tabc\nhéllo wörld\n"
+keys:
+  - C-n
+  - C-f
+  - C-f
+expected_saved: "\tabc\nhéllo wörld\n"
+expected_screen_contains:
+  - "col-utf8.txt  All (2,2)"
+expected_screen_not_contains:
+  - "(2,4)"

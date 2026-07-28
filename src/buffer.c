@@ -99,6 +99,23 @@ int editor_visual_col(erow *row, int chars_col)
 	return vcol > INT_MAX ? INT_MAX : (int)vcol;
 }
 
+/* Zero-based display column reported to the user for a cursor at
+ * (filerow, filecol) in `rows`, matching Emacs' column-number-mode and
+ * what-cursor-position: tabs advance to the next tab stop and a
+ * multi-byte character counts once.  With no row to measure (empty
+ * buffer, cursor past the last row) each byte counts as one column, the
+ * same rule editor_visual_col() uses for virtual space. */
+int editor_display_col(erow *rows, int numrows, int filerow, int filecol)
+{
+	if (filecol < 0) {
+		filecol = 0;
+	}
+	if (!rows || filerow < 0 || filerow >= numrows) {
+		return filecol;
+	}
+	return editor_visual_col(&rows[filerow], filecol);
+}
+
 /* Inverse of editor_visual_col(): byte offset into row->chars whose
  * visual position lands at or just before `target_vcol`.  A target
  * that falls inside a tab's expansion snaps to the tab's start byte

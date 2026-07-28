@@ -1,0 +1,19 @@
+# M-x what-cursor-position reports the same zero-based display column the
+# mode line does, so the two never disagree about where point is.  Emacs'
+# C-x = prints "column=8" after C-f over the leading TAB; kg used to say
+# col 2 here because it counted bytes from 1.
+name: what-cursor-position-column
+filename: wcp-tab.txt
+backend: tmux
+dimensions: [12, 60]
+initial: "\tabc\nhéllo wörld\n"
+keys:
+  - C-f
+  - M-x
+  - what-cursor-position
+  - RET
+expected_saved: "\tabc\nhéllo wörld\n"
+expected_screen_contains:
+  - "col 8"
+expected_screen_not_contains:
+  - "col 2"

@@ -1,0 +1,16 @@
+# Emacs' column-number-mode counts display columns from zero, so point at
+# the beginning of a line reads column 0, not 1.  Measured against
+# emacs -q -nw --eval '(column-number-mode 1)' on this exact file: (1,0).
+# Not an oracle case: oracle: emacs compares saved files, and this is a
+# mode-line assertion.
+name: modeline-column-bol
+filename: col-bol.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "\tabc\nhéllo wörld\n"
+keys: []
+expected_saved: "\tabc\nhéllo wörld\n"
+expected_screen_contains:
+  - "col-bol.txt  All (1,0)"
+expected_screen_not_contains:
+  - "(1,1)"

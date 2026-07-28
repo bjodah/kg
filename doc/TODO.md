@@ -250,6 +250,17 @@ ordered by value vs implementation effort.
       treat each byte as one column.  A real fix means walking by
       `mblen()` / a small UTF-8 decoder everywhere we step through chars.
 
+- [ ] **Double-width characters count as one column**.
+      `editor_visual_col()` (and therefore the mode-line column, the
+      cursor-placement loop, rectangle bounds and Lisp
+      `(current-column)`) gives every non-continuation byte a width of
+      one, but the terminal draws CJK and other East-Asian-Wide glyphs
+      two cells wide.  On the line `漢字x` kg's mode line says column 3
+      at end of line where Emacs says 5, and the cursor is drawn two
+      cells left of the glyph it points at.  A fix needs a
+      `wcwidth()`-style width table used consistently by the renderer
+      and by `editor_visual_col()`.
+
 - [ ] **Horizontal-scroll + tab units mismatch in display.c**.
       `editor.coloff` is used both as a chars-byte offset
       (`editor.coloff + editor.cx == filecol`) and as a render-byte

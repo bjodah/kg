@@ -501,23 +501,22 @@ void editor_refresh_screen(void)
 			int wrowoff = is_active
 			    ? (vline ? editor.rowoff_visual : editor.rowoff)
 			    : (vline ? w->rowoff_visual : w->rowoff);
+			/* cx/coloff: cx is relative to the horizontal scroll
+			 * offset, so the file column is their sum. */
+			int filerow = is_active ? (editor.rowoff + editor.cy)
+						: (w->rowoff + w->cy);
+			int filecol = is_active ? (editor.coloff + editor.cx)
+						: (w->coloff + w->cx);
 			int cur_row;
 			if (vline) {
-				int filerow = is_active
-				    ? (editor.rowoff + editor.cy)
-				    : (w->rowoff + w->cy);
-				int filecol = is_active
-				    ? (editor.coloff + editor.cx)
-				    : (w->coloff + w->cx);
 				cur_row = get_visual_row(rows, numrows, w->w,
 					      filerow, filecol)
 				    + 1;
 			} else {
-				cur_row = is_active
-				    ? (editor.rowoff + editor.cy + 1)
-				    : (w->rowoff + w->cy + 1);
+				cur_row = filerow + 1;
 			}
-			int cur_col = is_active ? (editor.cx + 1) : (w->cx + 1);
+			int cur_col = editor_display_col(
+			    rows, numrows, filerow, filecol);
 			int total_rows = (is_active || bidx == buf_current)
 			    ? (vline ? get_total_visual_rows(
 					   editor.row, editor.numrows, w->w)

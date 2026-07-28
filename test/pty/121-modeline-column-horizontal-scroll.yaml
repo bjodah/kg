@@ -1,0 +1,17 @@
+# editor.cx is relative to the horizontal scroll offset, so the mode line
+# has to add editor.coloff back in.  In a 40-column window C-e on this
+# 120-character line scrolls the view; real Emacs reports (1,120) for the
+# same file and window width, while kg used to report the on-screen
+# column (1,40).
+name: modeline-column-horizontal-scroll
+filename: col-scroll.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\nx\n"
+keys:
+  - C-e
+expected_saved: "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\nx\n"
+expected_screen_contains:
+  - "All (1,120)"
+expected_screen_not_contains:
+  - "(1,40)"

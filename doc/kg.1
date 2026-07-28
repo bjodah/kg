@@ -216,14 +216,18 @@ U+10FFFF.
 returns nil for the empty string.
 .Pp
 .Li format
-substitutes the four specifiers Emacs Lisp reaches for most:
+substitutes the specifiers Emacs Lisp reaches for most:
 .Li %s
 prints an object the way the interpreter prints it, so a string prints
 bare and a list prints as a list;
 .Li %S
 is the same with strings quoted;
 .Li %d
-truncates a number toward zero; and
+truncates a number toward zero;
+.Li %e , %f
+and
+.Li %g
+are the C floating-point conversions, as they are in Emacs; and
 .Li %%
 is a literal per cent.
 There are no field widths, precisions or flags, and no other specifiers.
@@ -235,7 +239,11 @@ Every number is a double, so
 prints the exact integer value of one, matching what Emacs prints from a
 bignum; NaN and the infinities have no integer to print, so
 .Li %d
-refuses them where Emacs writes nan and inf.
+refuses them, where
+.Li %e , %f
+and
+.Li %g
+print them as the C library spells them.
 .Pp
 The prelude is available before any init file is loaded.
 It defines the definition forms

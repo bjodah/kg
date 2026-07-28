@@ -259,6 +259,41 @@ static void format_integer(
 	format_puts(context, out, digits);
 }
 
+/* %e, %f and %g hand the double straight to snprintf, which is what Emacs
+ * does too — its float conversions are C's, right down to spelling the
+ * exceptional values "nan", "-nan" and "inf".  Unlike %d these have a
+ * perfectly good floating-point rendering, so they print rather than
+ * raise.  The spec is switched on rather than pasted into the format
+ * string, to keep the conversion a literal. */
+static void format_float(
+    FeContext *context, struct format_buffer *out, char spec, FeObject *object)
+{
+	/* "%f" of DBL_MAX is 309 integer digits, a point, six decimals and
+	 * a sign. */
+	char digits[512];
+	char message[64];
+	FeDouble value;
+
+	if (FeGetType(object) != FeTDouble) {
+		(void)snprintf(message, sizeof(message),
+		    "format specifier %%%c does not match argument type", spec);
+		FeHandleError(context, message);
+	}
+	value = FeToDouble(context, object);
+	switch (spec) {
+	case 'e':
+		(void)snprintf(digits, sizeof(digits), "%e", (double)value);
+		break;
+	case 'f':
+		(void)snprintf(digits, sizeof(digits), "%f", (double)value);
+		break;
+	default:
+		(void)snprintf(digits, sizeof(digits), "%g", (double)value);
+		break;
+	}
+	format_puts(context, out, digits);
+}
+
 /* Convert one argument.  %s and %S are fe's writer with its quoting flag
  * flipped, so every type prints the way the interpreter prints it. */
 static void format_argument(FeContext *context, struct format_buffer *out,
@@ -267,7 +302,8 @@ static void format_argument(FeContext *context, struct format_buffer *out,
 	char message[64];
 	FeObject *object;
 
-	if (spec != 's' && spec != 'S' && spec != 'd') {
+	if (spec != 's' && spec != 'S' && spec != 'd' && spec != 'e'
+	    && spec != 'f' && spec != 'g') {
 		(void)snprintf(message, sizeof(message),
 		    "invalid format operation %%%c", spec);
 		FeHandleError(context, message);
@@ -279,6 +315,10 @@ static void format_argument(FeContext *context, struct format_buffer *out,
 	object = FeGetNextArgument(context, arguments);
 	if (spec == 'd') {
 		format_integer(context, out, object);
+		return;
+	}
+	if (spec == 'e' || spec == 'f' || spec == 'g') {
+		format_float(context, out, spec, object);
 		return;
 	}
 	FeWrite(context, object, format_put, out, spec == 'S');

@@ -916,6 +916,25 @@ static void test_format_natives(void)
 	    "(format \"%d\" (- (/ 1 0) (/ 1 0)))", "finite"));
 	CHECK(eval_eq("(format \"%s\" (/ 1 0))", "inf"));
 
+	/* %e, %f and %g are C's conversions, which is exactly what Emacs
+	 * uses; every one of these was checked against Emacs 31. */
+	CHECK(eval_eq("(format \"%e\" 1.5)", "1.500000e+00"));
+	CHECK(eval_eq("(format \"%e\" 42)", "4.200000e+01"));
+	CHECK(eval_eq("(format \"%e\" 1e300)", "1.000000e+300"));
+	CHECK(eval_eq("(format \"%f\" 1.5)", "1.500000"));
+	CHECK(eval_eq("(format \"%f\" -2.25)", "-2.250000"));
+	CHECK(eval_eq("(format \"%g\" 1.5)", "1.5"));
+	CHECK(eval_eq("(format \"%g\" 0)", "0"));
+	CHECK(eval_eq("(format \"%g\" 1e300)", "1e+300"));
+	/* Unlike %d, the float conversions have a rendering for the
+	 * exceptional values, so they print them instead of raising. */
+	CHECK(eval_eq("(format \"%e\" (/ 1 0))", "inf"));
+	CHECK(eval_eq("(format \"%f\" (- 0 (/ 1 0)))", "-inf"));
+	CHECK(eval_eq("(format \"%g\" (/ 1 0))", "inf"));
+	CHECK(eval_error_contains("(format \"%f\" \"x\")", "argument type"));
+	/* %f of DBL_MAX is the longest thing the buffer must hold. */
+	CHECK(eval_eq("(string-length (format \"%f\" 1e300))", "308"));
+
 	/* Extra arguments are ignored; missing ones are an error. */
 	CHECK(eval_eq("(format \"%s\" 1 2)", "1"));
 	CHECK(eval_error_contains("(format \"%s %s\" 1)", "not enough"));

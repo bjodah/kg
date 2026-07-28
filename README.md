@@ -206,7 +206,7 @@ lists the few changes that did have to be made there, and why.
 | `(string= A B)` | `t` when the strings are equal, else `nil` |
 | `(char-to-string N)` | One-character string for codepoint `N` |
 | `(string-to-char S)` | First codepoint of `S` as a number, `nil` for `""` |
-| `(format FORMAT ARG ...)` | Substitutes `%s`, `%S` and `%d`; `%%` is a literal per cent |
+| `(format FORMAT ARG ...)` | Substitutes `%s`, `%S`, `%d`, `%e`, `%f` and `%g`; `%%` is a literal per cent |
 
 `substring` clamps out-of-range indices instead of signalling, and a `TO`
 before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values

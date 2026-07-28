@@ -245,6 +245,28 @@ and
 .Li %g
 print them as the C library spells them.
 .Pp
+.Li %s
+and
+.Li %S
+spell those two the C way as well, as
+.Li -nan
+and
+.Li inf ,
+rather than the
+.Li -0.0e+NaN
+and
+.Li 1.0e+INF
+Emacs writes.
+That is a deliberate divergence: those Emacs spellings are its readable
+float syntax, but fe has only one number type, so kg already prints 42.0
+as
+.Li 42
+rather than
+.Li 42.0 .
+Adopting Emacs float syntax for the exceptional values alone, in an
+interpreter that prints every other number in integer syntax, would be
+inconsistent rather than more faithful.
+.Pp
 The prelude is available before any init file is loaded.
 It defines the definition forms
 .Li defun ,

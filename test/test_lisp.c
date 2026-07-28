@@ -914,7 +914,13 @@ static void test_format_natives(void)
 	CHECK(eval_error_contains("(format \"%d\" (/ 1 0))", "finite"));
 	CHECK(eval_error_contains(
 	    "(format \"%d\" (- (/ 1 0) (/ 1 0)))", "finite"));
+	/* %s and %S spell these the C way, not as Emacs' readable float
+	 * syntax "-0.0e+NaN" and "1.0e+INF".  Deliberate: fe has one number
+	 * type, so kg prints 42.0 as "42" already, and float syntax for the
+	 * exceptional values alone would be the odd case out. */
 	CHECK(eval_eq("(format \"%s\" (/ 1 0))", "inf"));
+	CHECK(eval_eq("(format \"%S\" (/ 1 0))", "inf"));
+	CHECK(eval_eq("(format \"%s\" (- 0 (/ 1 0)))", "-inf"));
 
 	/* %e, %f and %g are C's conversions, which is exactly what Emacs
 	 * uses; every one of these was checked against Emacs 31. */

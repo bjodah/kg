@@ -838,6 +838,11 @@ void probe_window_size(void);
 void handle_sig_winch(int unused);
 int editor_process_pending_signals(void);
 
+/* width.c */
+int kg_codepoint_width(uint32_t cp);
+uint32_t utf8_codepoint_at(const char *buf, int len, int start, int *span);
+int utf8_width_at(const char *buf, int len, int start);
+
 /* word.c */
 void editor_move_word_forward(void);
 void editor_move_word_backward(void);
@@ -905,7 +910,8 @@ int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);
 int visual_line_cursor_col(erow *row, int chars_col, int win_w);
 void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
     int target_y, int *logical_row, int *char_offset);
-int render_col_to_chars(erow *row, int target_rcol);
+int render_col_to_chars(erow *row, int target_rcol, int win_w);
+int visual_line_width(erow *row, int win_w);
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment);
 int chars_to_render_col(erow *row, int chars_col);
 int get_total_visual_rows(erow *rows, int numrows, int win_w);

@@ -473,12 +473,25 @@ static void test_echo_width_three_byte_glyph_one_column(void)
 	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 0, 0));
 }
 
-/* A four-byte glyph counts as exactly one column. */
+/* A four-byte glyph of ordinary width counts as exactly one column. */
 static void test_echo_width_four_byte_glyph_one_column(void)
 {
-	const char out[] = "\xF0\x9F\x98\x80"; /* U+1F600, 4 bytes */
+	const char out[] = "\xF0\x90\x90\x80"; /* U+10400 DESERET, 4 bytes */
 	CHECK(shell_output_fits_echo(out, (int)strlen(out), 1, 0));
 	CHECK(!shell_output_fits_echo(out, (int)strlen(out), 0, 0));
+}
+
+/* East-Asian-Wide glyphs are drawn two cells wide, so the echo-area
+ * budget has to charge them two columns however many bytes they take. */
+static void test_echo_width_wide_glyph_two_columns(void)
+{
+	const char emoji[] = "\xF0\x9F\x98\x80"; /* U+1F600, EAW=W */
+	const char cjk[] = "\xE6\xBC\xA2\xE5\xAD\x97"; /* 漢字, EAW=W */
+
+	CHECK(shell_output_fits_echo(emoji, (int)strlen(emoji), 2, 0));
+	CHECK(!shell_output_fits_echo(emoji, (int)strlen(emoji), 1, 0));
+	CHECK(shell_output_fits_echo(cjk, (int)strlen(cjk), 4, 0));
+	CHECK(!shell_output_fits_echo(cjk, (int)strlen(cjk), 3, 0));
 }
 
 /* reserved_columns carves room out of available_columns for a suffix the
@@ -566,6 +579,7 @@ int main(void)
 	RUN(test_echo_width_counts_columns_not_bytes);
 	RUN(test_echo_width_three_byte_glyph_one_column);
 	RUN(test_echo_width_four_byte_glyph_one_column);
+	RUN(test_echo_width_wide_glyph_two_columns);
 	RUN(test_echo_reserved_columns_narrows_budget);
 	RUN(test_echo_rejects_overlong_three_byte);
 	RUN(test_echo_rejects_utf16_surrogate);

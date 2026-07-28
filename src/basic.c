@@ -43,8 +43,8 @@ void editor_move_cursor(int key)
 				int rcol = visual_line_cursor_col(
 				    row, filecol, win_w);
 				int target_rcol = (rcol / win_w) * win_w;
-				int char_idx
-				    = render_col_to_chars(row, target_rcol);
+				int char_idx = render_col_to_chars(
+				    row, target_rcol, win_w);
 				editor_cursor_goto(filerow, char_idx);
 			}
 			return;
@@ -53,16 +53,15 @@ void editor_move_cursor(int key)
 			if (row) {
 				int rcol = visual_line_cursor_col(
 				    row, filecol, win_w);
-				int max_rcol
-				    = editor_visual_col(row, row->size);
+				int max_rcol = visual_line_width(row, win_w);
 				int target_rcol = filecol == row->size
 				    ? max_rcol
 				    : ((rcol / win_w) + 1) * win_w - 1;
 				if (target_rcol > max_rcol) {
 					target_rcol = max_rcol;
 				}
-				int char_idx
-				    = render_col_to_chars(row, target_rcol);
+				int char_idx = render_col_to_chars(
+				    row, target_rcol, win_w);
 				editor_cursor_goto(filerow, char_idx);
 			}
 			return;

@@ -164,11 +164,17 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	return chars_col;
 }
 
-int render_col_to_chars(erow *row, int target_rcol)
+int render_col_to_chars(erow *row, int target_rcol, int win_w)
 {
 	(void)row;
-	(void)target_rcol;
+	(void)win_w;
 	return target_rcol;
+}
+
+int visual_line_width(erow *row, int win_w)
+{
+	(void)win_w;
+	return row ? row->size : 0;
 }
 
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)

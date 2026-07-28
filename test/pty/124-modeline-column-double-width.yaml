@@ -1,0 +1,18 @@
+# East-Asian-Wide glyphs are drawn two terminal cells wide, so the display
+# column advances by two per glyph.  Measured against
+# emacs -q -nw --eval '(column-number-mode 1)' on this exact file: C-e
+# reports (1,5) for 漢字x.  kg said (1,3) before it had a width table.
+# Not an oracle case: oracle: emacs compares saved files, and this is a
+# mode-line assertion.
+name: modeline-column-double-width
+filename: col-cjk.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "漢字x\n"
+keys:
+  - C-e
+expected_saved: "漢字x\n"
+expected_screen_contains:
+  - "col-cjk.txt  All (1,5)"
+expected_screen_not_contains:
+  - "(1,3)"

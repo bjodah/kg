@@ -16,24 +16,96 @@ int chars_to_render_col(erow *row, int chars_col)
 			visual_col += spaces;
 		} else {
 			render_col++;
-			if (!utf8_is_cont((unsigned char)row->chars[j])) {
-				visual_col++;
-			}
+			visual_col += utf8_width_at(row->chars, row->size, j);
 		}
 	}
 	return render_col;
 }
 
-static int visual_width(erow *row) { return editor_visual_col(row, row->size); }
+/* A double-width glyph cannot be split across a wrap, so Emacs moves it
+ * whole to the next display row and leaves the edge cell blank.  Returns
+ * the blank cells to charge before laying a `width`-cell glyph out at
+ * display column `vcol`. */
+static int wrap_pad(int vcol, int width, int win_w)
+{
+	/* A one-column window can never hold a wide glyph; don't pad
+	 * forever, and never divide by a zero width. */
+	if (width != 2 || win_w <= 1) {
+		return 0;
+	}
+	return (vcol % win_w == win_w - 1) ? 1 : 0;
+}
+
+/* Display column of byte offset `chars_col` once `row` is wrapped every
+ * win_w cells.  Same as editor_visual_col() except for rows where a
+ * double-width glyph lands on a wrap boundary; those gain one blank
+ * column per bumped glyph so this model matches what the terminal draws.
+ * Callers pass win_w > 0. */
+static int wrapped_visual_col(erow *row, int chars_col, int win_w)
+{
+	int j, vcol = 0;
+	int limit = chars_col < row->size ? chars_col : row->size;
+
+	for (j = 0; j < limit; j++) {
+		if (row->chars[j] == TAB) {
+			vcol += tab_stop_advance(vcol);
+		} else {
+			int w = utf8_width_at(row->chars, row->size, j);
+
+			vcol += wrap_pad(vcol, w, win_w) + w;
+		}
+	}
+	if (chars_col > row->size) {
+		vcol += chars_col - row->size;
+	}
+	return vcol;
+}
+
+/* Inverse of wrapped_visual_col(): byte offset whose wrapped display
+ * column lands at or just before `target_vcol`.  Targets past the row's
+ * end clamp to row->size; callers clamp beforehand anyway. */
+static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
+{
+	int j = 0, vcol = 0;
+
+	while (j < row->size) {
+		int next;
+
+		if (row->chars[j] == TAB) {
+			next = vcol + tab_stop_advance(vcol);
+		} else {
+			int w = utf8_width_at(row->chars, row->size, j);
+
+			next = vcol + wrap_pad(vcol, w, win_w) + w;
+		}
+		if (next > target_vcol) {
+			break;
+		}
+		vcol = next;
+		j++;
+	}
+	return j;
+}
+
+/* Total display columns `row` occupies when wrapped every win_w cells,
+ * including any blank cells left by glyphs bumped off a wrap boundary. */
+int visual_line_width(erow *row, int win_w)
+{
+	if (win_w <= 0) {
+		win_w = 1;
+	}
+	return wrapped_visual_col(row, row->size, win_w);
+}
 
 int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 {
-	int rcol = editor_visual_col(row, chars_col);
-	int width = visual_width(row);
+	int rcol, width;
 
 	if (win_w <= 0) {
 		win_w = 1;
 	}
+	rcol = wrapped_visual_col(row, chars_col, win_w);
+	width = visual_line_width(row, win_w);
 	/* Point at EOL on an exact-width line remains on the final display
 	 * row.  Treat its screen cell as the last cell of that segment. */
 	if (rcol > 0 && rcol == width && rcol % win_w == 0) {
@@ -49,28 +121,29 @@ static int visual_segments(erow *row, int win_w)
 	if (win_w <= 0) {
 		win_w = 1;
 	}
-	width = visual_width(row);
+	width = visual_line_width(row, win_w);
 	return width > 0 ? 1 + (width - 1) / win_w : 1;
 }
 
-/* Map a display column to a byte offset in row->render.  Consume a whole
- * UTF-8 glyph when crossing its one-column display cell so wrapping never
- * begins on a continuation byte. */
-static int render_offset_at_visual(erow *row, int target_vcol)
+/* Byte offset in row->render where the display column `target_vcol`
+ * begins.  Advances a whole glyph at a time so a wrap never starts on a
+ * continuation byte, and a double-width glyph pushed off the edge by
+ * wrap_pad() starts the following display row rather than being split.
+ * Zero-width glyphs stay with the base character they decorate. */
+static int render_offset_at_visual(erow *row, int target_vcol, int win_w)
 {
 	int off = 0;
 	int vcol = 0;
 
-	if (target_vcol <= 0) {
-		return 0;
-	}
-	while (off < row->rsize && vcol < target_vcol) {
-		off++;
-		while (off < row->rsize
-		    && utf8_is_cont((unsigned char)row->render[off])) {
-			off++;
+	while (off < row->rsize) {
+		int w = utf8_width_at(row->render, row->rsize, off);
+		int start = vcol + wrap_pad(vcol, w, win_w);
+
+		if (w > 0 && start >= target_vcol) {
+			break;
 		}
-		vcol++;
+		vcol = start + w;
+		off += utf8_glyph_span_at(row->render, row->rsize, off);
 	}
 	return off;
 }
@@ -110,7 +183,7 @@ void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
 
 			*logical_row = r;
 			*char_offset = render_offset_at_visual(
-			    &rows[r], segment * win_w);
+			    &rows[r], segment * win_w, win_w);
 			return;
 		}
 		visual_row_count += segments;
@@ -119,12 +192,21 @@ void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
 	*char_offset = 0;
 }
 
-int render_col_to_chars(erow *row, int target_rcol)
+int render_col_to_chars(erow *row, int target_rcol, int win_w)
 {
-	if (target_rcol > visual_width(row)) {
-		target_rcol = visual_width(row);
+	int width;
+
+	if (win_w <= 0) {
+		win_w = 1;
 	}
-	return editor_chars_col_at_visual(row, target_rcol);
+	width = visual_line_width(row, win_w);
+	if (target_rcol > width) {
+		target_rcol = width;
+	}
+	if (target_rcol < 0) {
+		target_rcol = 0;
+	}
+	return wrapped_chars_col(row, target_rcol, win_w);
 }
 
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
@@ -140,7 +222,7 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 		target_vrow = 0;
 	}
 	for (r = 0; r < editor.numrows; r++) {
-		int width = visual_width(&editor.row[r]);
+		int width = visual_line_width(&editor.row[r], win_w);
 		int segments = visual_segments(&editor.row[r], win_w);
 		if (visual_row_count + segments > target_vrow) {
 			int segment_idx = target_vrow - visual_row_count;
@@ -149,8 +231,8 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 			if (target_rcol > width) {
 				target_rcol = width;
 			}
-			int char_idx
-			    = render_col_to_chars(&editor.row[r], target_rcol);
+			int char_idx = render_col_to_chars(
+			    &editor.row[r], target_rcol, win_w);
 			editor_cursor_goto(r, char_idx);
 			return;
 		}

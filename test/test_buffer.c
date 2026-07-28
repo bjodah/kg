@@ -396,6 +396,178 @@ static void test_chars_col_past_eol(void)
 	teardown();
 }
 
+/* ---- Character display width ---- */
+
+/* The width table classifies East-Asian-Wide/Fullwidth as two cells,
+ * combining marks and invisible format controls as none, everything
+ * else as one.  Values checked against Unicode 15.1 EastAsianWidth. */
+static void test_codepoint_width_classes(void)
+{
+	/* One cell: ASCII, Latin-1, Greek, box drawing, Ambiguous. */
+	CHECK(kg_codepoint_width('a') == 1);
+	CHECK(kg_codepoint_width(0x00E9) == 1); /* é */
+	CHECK(kg_codepoint_width(0x2026) == 1); /* … */
+	CHECK(kg_codepoint_width(0x2502) == 1); /* │ */
+	CHECK(kg_codepoint_width(0x20AC) == 1); /* € (EAW Ambiguous) */
+	CHECK(kg_codepoint_width(0x10400) == 1); /* Deseret, EAW Neutral */
+
+	/* Two cells: CJK, kana, Hangul, fullwidth forms, wide emoji. */
+	CHECK(kg_codepoint_width(0x6F22) == 2); /* 漢 */
+	CHECK(kg_codepoint_width(0x3042) == 2); /* あ */
+	CHECK(kg_codepoint_width(0xAC00) == 2); /* 가 */
+	CHECK(kg_codepoint_width(0xFF21) == 2); /* Ａ fullwidth */
+	CHECK(kg_codepoint_width(0x3000) == 2); /* ideographic space */
+	CHECK(kg_codepoint_width(0x1F600) == 2); /* 😀 */
+	CHECK(kg_codepoint_width(0x20000) == 2); /* SIP ideograph */
+
+	/* No cell: combining marks and invisible format controls. */
+	CHECK(kg_codepoint_width(0x0301) == 0); /* combining acute */
+	CHECK(kg_codepoint_width(0x0654) == 0); /* Arabic hamza above */
+	CHECK(kg_codepoint_width(0x200B) == 0); /* zero width space */
+	CHECK(kg_codepoint_width(0xFE0F) == 0); /* variation selector-16 */
+	CHECK(kg_codepoint_width(0x309A) == 0); /* combining, though EAW=W */
+	CHECK(kg_codepoint_width(0xE0101) == 0); /* variation selector supp. */
+
+	/* Control bytes stay one cell: the renderer substitutes one symbol. */
+	CHECK(kg_codepoint_width(0x00) == 1);
+	CHECK(kg_codepoint_width(0x1B) == 1);
+}
+
+/* utf8_width_at() charges the whole glyph to its lead byte so that a
+ * plain per-byte loop measures a run in display columns. */
+static void test_utf8_width_at_charges_lead_byte(void)
+{
+	const char s[] = "a\xE6\xBC\xA2\xCC\x81"; /* 'a', 漢, U+0301 */
+	int len = (int)sizeof(s) - 1;
+	int i, total = 0;
+
+	CHECK(utf8_width_at(s, len, 0) == 1); /* 'a' */
+	CHECK(utf8_width_at(s, len, 1) == 2); /* 漢 lead */
+	CHECK(utf8_width_at(s, len, 2) == 0); /* continuation */
+	CHECK(utf8_width_at(s, len, 3) == 0); /* continuation */
+	CHECK(utf8_width_at(s, len, 4) == 0); /* combining acute lead */
+	CHECK(utf8_width_at(s, len, 5) == 0); /* continuation */
+	CHECK(utf8_width_at(s, len, len) == 0); /* out of range */
+	CHECK(utf8_width_at(s, len, -1) == 0);
+
+	for (i = 0; i < len; i++) {
+		total += utf8_width_at(s, len, i);
+	}
+	CHECK(total == 3);
+
+	/* A truncated sequence decodes to its raw lead byte and keeps the
+	 * one-column-per-byte fallback, never a wide glyph. */
+	CHECK(utf8_width_at("\xE6\xBC", 2, 0) == 1);
+}
+
+static void test_utf8_codepoint_at_decodes_all_lengths(void)
+{
+	int span = 0;
+
+	CHECK(utf8_codepoint_at("A", 1, 0, &span) == 0x41 && span == 1);
+	CHECK(utf8_codepoint_at("\xC3\xA9", 2, 0, &span) == 0xE9 && span == 2);
+	CHECK(utf8_codepoint_at("\xE6\xBC\xA2", 3, 0, &span) == 0x6F22
+	    && span == 3);
+	CHECK(utf8_codepoint_at("\xF0\x9F\x98\x80", 4, 0, &span) == 0x1F600
+	    && span == 4);
+	/* Continuation byte as start: raw byte, span 1. */
+	CHECK(utf8_codepoint_at("\xE6\xBC\xA2", 3, 1, &span) == 0xBC
+	    && span == 1);
+}
+
+/* A CJK glyph is two columns wide, so the mode line, the cursor and the
+ * renderer all have to advance by two — this is what Emacs reports as
+ * column 5 at the end of "漢字x". */
+static void test_visual_col_double_width(void)
+{
+	setup();
+	editor_insert_row(0, "\xE6\xBC\xA2\xE5\xAD\x97x", 7); /* 漢字x */
+
+	CHECK(editor_visual_col(&editor.row[0], 0) == 0);
+	CHECK(editor_visual_col(&editor.row[0], 3) == 2); /* past 漢 */
+	CHECK(editor_visual_col(&editor.row[0], 6) == 4); /* past 字 */
+	CHECK(editor_visual_col(&editor.row[0], 7) == 5); /* past 'x' */
+	teardown();
+}
+
+/* A TAB after a double-width glyph reaches the tab stop the terminal
+ * reaches, so tab geometry stays in step with the width table. */
+static void test_visual_col_tab_after_double_width(void)
+{
+	setup();
+	editor_insert_row(0, "\xE6\xBC\xA2\tx", 5); /* 漢<tab>x */
+
+	CHECK(editor_visual_col(&editor.row[0], 3) == 2); /* past 漢 */
+	CHECK(editor_visual_col(&editor.row[0], 4) == 8); /* tab stop */
+	CHECK(editor_visual_col(&editor.row[0], 5) == 9);
+	/* The render expands the tab to 6 spaces, not 7. */
+	CHECK(editor.row[0].rsize == 3 + 6 + 1);
+	teardown();
+}
+
+/* Combining marks and zero-width characters take no column, matching the
+ * terminal drawing them on top of the preceding glyph. */
+static void test_visual_col_combining_mark(void)
+{
+	setup();
+	editor_insert_row(0, "e\xCC\x81z", 4); /* e + U+0301 + z */
+
+	CHECK(editor_visual_col(&editor.row[0], 1) == 1);
+	CHECK(editor_visual_col(&editor.row[0], 3) == 1); /* mark adds none */
+	CHECK(editor_visual_col(&editor.row[0], 4) == 2);
+	teardown();
+}
+
+/* editor_chars_col_at_visual() stays a true inverse across mixed
+ * tab/ASCII/wide/zero-width content: every byte boundary that starts a
+ * glyph round-trips through its visual column. */
+static void test_chars_col_round_trip_wide(void)
+{
+	/* <tab> 漢 a 字 e U+0301 b */
+	const char row[] = "\t\xE6\xBC\xA2"
+			   "a\xE5\xAD\x97"
+			   "e\xCC\x81"
+			   "b";
+	int glyph_starts[] = { 0, 1, 4, 5, 8, 9, 11, 12 };
+	unsigned i;
+
+	setup();
+	editor_insert_row(0, row, sizeof(row) - 1);
+
+	for (i = 0; i < sizeof(glyph_starts) / sizeof(*glyph_starts); i++) {
+		int byte = glyph_starts[i];
+		int vcol = editor_visual_col(&editor.row[0], byte);
+
+		/* Zero-width glyphs share a column with their base, so the
+		 * inverse lands on the last byte offset holding that column. */
+		if (byte == 9) {
+			continue;
+		}
+		CHECK(editor_chars_col_at_visual(&editor.row[0], vcol) == byte);
+	}
+	/* tab→8, 漢→10, a→11, 字→13, e→14, mark→14, b→15. */
+	CHECK(editor_visual_col(&editor.row[0], (int)sizeof(row) - 1) == 15);
+	teardown();
+}
+
+/* A target column naming the SECOND cell of a wide glyph snaps to that
+ * glyph's start byte — the same rule already used inside a TAB. */
+static void test_chars_col_inside_double_width(void)
+{
+	setup();
+	editor_insert_row(0, "\xE6\xBC\xA2\xE5\xAD\x97x", 7); /* 漢字x */
+
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 0) == 0);
+	CHECK(
+	    editor_chars_col_at_visual(&editor.row[0], 1) == 0); /* 漢 cell 2 */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 2) == 3);
+	CHECK(
+	    editor_chars_col_at_visual(&editor.row[0], 3) == 3); /* 字 cell 2 */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 4) == 6);
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 5) == 7);
+	teardown();
+}
+
 /* ---- Codepoint offset conversions ---- */
 
 /* Within an ASCII row byte index and char index are the same number, and
@@ -1315,6 +1487,14 @@ int main(void)
 	RUN(test_chars_col_round_trip);
 	RUN(test_chars_col_inside_tab);
 	RUN(test_chars_col_past_eol);
+	RUN(test_codepoint_width_classes);
+	RUN(test_utf8_width_at_charges_lead_byte);
+	RUN(test_utf8_codepoint_at_decodes_all_lengths);
+	RUN(test_visual_col_double_width);
+	RUN(test_visual_col_tab_after_double_width);
+	RUN(test_visual_col_combining_mark);
+	RUN(test_chars_col_round_trip_wide);
+	RUN(test_chars_col_inside_double_width);
 	RUN(test_row_byte_char_ascii);
 	RUN(test_row_byte_char_multibyte);
 	RUN(test_char_offset_ascii_round_trip);

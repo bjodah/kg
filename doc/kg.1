@@ -38,6 +38,22 @@ default,
 and the terminal itself; a tab therefore advances point to the next
 multiple of eight.
 .Pp
+Display columns are counted the way the terminal draws them.
+East-Asian-Wide and Fullwidth characters (CJK, Hangul, kana, fullwidth
+forms and most emoji) occupy two columns, combining marks and
+zero-width format characters occupy none, and everything else occupies
+one.
+The mode line,
+.Ic what-cursor-position ,
+the goal column kept by
+.Ic C-n
+and
+.Ic C-p ,
+rectangle edges and line wrapping all use that same measure, so the
+cursor is drawn under the glyph it reports.
+The width table follows Unicode 15.1; the combining-mark half of it is
+partial and does not cover the Brahmic scripts.
+.Pp
 Lisp support is compiled in by default and is reported as
 .Sq +lisp
 by
@@ -113,7 +129,7 @@ The position and mark API is
 .Li (point-max) ,
 .Li (line-number-at-pos) ,
 .Li (current-column)
-(a display column, so tabs expand),
+(a display column, so tabs expand and wide characters count two),
 .Li (mark) ,
 .Li (set-mark N) ,
 .Li (deactivate-mark) ,

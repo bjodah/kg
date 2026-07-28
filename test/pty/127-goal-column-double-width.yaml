@@ -1,0 +1,14 @@
+# The C-n goal column is a display column, so moving down off the end of a
+# CJK line lands under the glyph the cursor was drawn under.  Emacs writes
+# "abcdefZghij" for this key sequence (point at display column 6); kg wrote
+# "abcdZefghij" while 漢 and 字 each counted as one column.
+name: goal-column-double-width
+filename: goal-cjk.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "漢字xy\nabcdefghij\n"
+keys:
+  - C-e
+  - C-n
+  - Z
+expected_saved: "漢字xy\nabcdefZghij\n"

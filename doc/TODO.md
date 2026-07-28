@@ -243,23 +243,27 @@ ordered by value vs implementation effort.
       indices, so the cursor can sit inside a multi-byte glyph and
       Right/Left advances one byte at a time through box-drawing or
       accented characters.  The visual-mark renderer now defers its
-      reverse-video toggle to glyph boundaries (display-time fix), but
-      the cursor, region extraction, word motion, and syntax classifier
+      reverse-video toggle to glyph boundaries (display-time fix), and
+      display columns now go through the width table in `src/width.c`,
+      but region extraction, word motion, and the syntax classifier
       (`syntax.c`, where `!isprint()` on high-bit bytes tags every byte
-      of a UTF-8 glyph as `HL_NONPRINT` and substitutes `?`) all still
-      treat each byte as one column.  A real fix means walking by
-      `mblen()` / a small UTF-8 decoder everywhere we step through chars.
+      of a UTF-8 glyph as `HL_NONPRINT` and substitutes `?`, so CJK in a
+      file with a syntax renders as a row of `?`) still treat each byte
+      on its own.  A real fix means walking by `utf8_glyph_span_at()`
+      everywhere we step through chars.
 
-- [ ] **Double-width characters count as one column**.
-      `editor_visual_col()` (and therefore the mode-line column, the
-      cursor-placement loop, rectangle bounds and Lisp
-      `(current-column)`) gives every non-continuation byte a width of
-      one, but the terminal draws CJK and other East-Asian-Wide glyphs
-      two cells wide.  On the line `漢字x` kg's mode line says column 3
-      at end of line where Emacs says 5, and the cursor is drawn two
-      cells left of the glyph it points at.  A fix needs a
-      `wcwidth()`-style width table used consistently by the renderer
-      and by `editor_visual_col()`.
+- [ ] **Partial combining-mark coverage in the width table**.
+      `src/width.c` encodes the full Unicode 15.1 East_Asian_Width W/F
+      set but only a curated slice of the nonspacing marks: the generic
+      combining blocks plus Hebrew, Arabic, Syriac, Thaana, NKo,
+      Samaritan, Mandaic, Thai, Lao, conjoining Hangul jamo, Mongolian
+      and the variation selectors.  The Brahmic scripts (Devanagari and
+      the rest of the Indic blocks, Tibetan, Myanmar, Khmer, Balinese)
+      and the musical/mathematical marks above U+FE2F still measure one
+      column each.  Grapheme clustering is also out of scope: an emoji
+      ZWJ sequence or a regional-indicator flag pair measures as the sum
+      of its parts, so a flag reports four columns where the terminal
+      draws two.
 
 - [ ] **Horizontal-scroll + tab units mismatch in display.c**.
       `editor.coloff` is used both as a chars-byte offset

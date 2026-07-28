@@ -162,6 +162,7 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					const char *str = kg_logo[line];
 					int padding
 					    = (win_w - KG_LOGO_COLS) / 2;
+					int slen = (int)strlen(str);
 					int budget;
 					int k = 0, vcols = 0;
 
@@ -187,15 +188,15 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					if (budget < 0) {
 						budget = 0;
 					}
-					while (str[k]) {
-						unsigned char b
-						    = (unsigned char)str[k];
-						if (!utf8_is_cont(b)) {
-							if (vcols >= budget) {
-								break;
-							}
-							vcols++;
+					while (k < slen) {
+						int w = utf8_width_at(
+						    str, slen, k);
+
+						if (w > 0
+						    && vcols + w > budget) {
+							break;
 						}
+						vcols += w;
 						k++;
 					}
 					ab_append(ab, str, k);
@@ -221,21 +222,23 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 
 			/* Walk render bytes from offset to compute len bounded
 			 * by win_w VISIBLE columns, keeping UTF-8 glyphs whole.
-			 * Counting non-continuation bytes as one column each
-			 * lets a 79-visual-col line (200+ bytes of box drawing)
-			 * render correctly on an 80-col terminal. */
+			 * Charging each glyph its display width lets a
+			 * 79-visual-col line (200+ bytes of box drawing) render
+			 * correctly on an 80-col terminal, and stops before a
+			 * double-width glyph that would straddle the right
+			 * edge — the padding below leaves that cell blank
+			 * rather than letting half a glyph bleed into the next
+			 * pane. */
 			len = 0;
 			if (offset < r->rsize) {
 				while (offset + len < r->rsize) {
-					unsigned char b
-					    = (unsigned char)
-						  r->render[offset + len];
-					if (!utf8_is_cont(b)) {
-						if (vcol_used >= win_w) {
-							break;
-						}
-						vcol_used++;
+					int w = utf8_width_at(
+					    r->render, r->rsize, offset + len);
+
+					if (w > 0 && vcol_used + w > win_w) {
+						break;
 					}
+					vcol_used += w;
 					len++;
 				}
 			}
@@ -550,10 +553,15 @@ void editor_refresh_screen(void)
 	if (msglen && time(NULL) - editor.statusmsg_time < 5) {
 		/* Cap by display width, not byte count, so embedded ANSI
 		 * escapes (e.g. reverse video around a selected completion)
-		 * pass through intact and aren't sliced mid-sequence. */
+		 * pass through intact and aren't sliced mid-sequence, and a
+		 * multi-byte or double-width glyph is either whole or absent
+		 * — the same budget shell_output_fits_echo() measures against.
+		 */
 		int p = 0, visible = 0;
 
-		while (p < msglen && visible < win_total_cols) {
+		while (p < msglen) {
+			int w, span;
+
 			if (editor.statusmsg[p] == '\x1b') {
 				p++;
 				if (p < msglen && editor.statusmsg[p] == '[') {
@@ -570,8 +578,13 @@ void editor_refresh_screen(void)
 				}
 				continue;
 			}
-			p++;
-			visible++;
+			w = utf8_width_at(editor.statusmsg, msglen, p);
+			span = utf8_glyph_span_at(editor.statusmsg, msglen, p);
+			if (w > 0 && visible + w > win_total_cols) {
+				break;
+			}
+			visible += w;
+			p += span;
 		}
 		ab_append(&ab, editor.statusmsg, p);
 		ab_append(&ab, "\x1b[0m", 4); /* close any open attribute */
@@ -596,20 +609,19 @@ void editor_refresh_screen(void)
 		if (row) {
 			/* editor.cx is a byte offset into row->chars, but the
 			 * cursor must be placed at the visible column.  Tabs
-			 * widen to the next tab stop; UTF-8 continuation bytes
-			 * carry no width. */
+			 * widen to the next tab stop; every other glyph is
+			 * worth its display width, so this stays in step with
+			 * editor_visual_col() and the row render above. */
 			int target = editor.cx + editor.coloff;
 
 			for (j = editor.coloff; j < target && j < row->size;
 			    j++) {
 				if (row->chars[j] == TAB) {
-					/* cx is 1-based; the cx++ below
-					 * covers the tab's own column. */
-					cx += tab_stop_advance(cx - 1) - 1;
-				}
-				if (!utf8_is_cont(
-					(unsigned char)row->chars[j])) {
-					cx++;
+					/* cx is 1-based. */
+					cx += tab_stop_advance(cx - 1);
+				} else {
+					cx += utf8_width_at(
+					    row->chars, row->size, j);
 				}
 			}
 			/* Past EOL — rect mode allows the cursor to live in

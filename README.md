@@ -75,6 +75,9 @@ standard VT100 escape sequences.
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
 - Tab stops every 8 columns, like Emacs' default `tab-width`
+- Display columns measured the way the terminal draws them: East-Asian-Wide
+  and Fullwidth characters take two columns, combining marks none (Unicode
+  15.1 width table, no libc locale required)
 - Graceful terminal resize handling
 - Local-variable and `.dir-locals.el` parsing is non-evaluating and
   works in `WITH_LISP=0` builds; see [kg(1)][7] for the exact
@@ -160,7 +163,7 @@ bytes, so multi-byte text addresses the same way it reads.
 | `(goto-char N)` | Move point to `N`, clamped to the buffer |
 | `(goto-line N)` | Move point to the beginning of line `N`, clamped to the buffer |
 | `(line-number-at-pos)` | 1-based line of point |
-| `(current-column)` | Display column of point (tabs expand) |
+| `(current-column)` | Display column of point (tabs expand, wide characters count two) |
 | `(mark)` | Position of the mark, or `nil` |
 | `(set-mark N)` | Set the mark at `N` and activate the region |
 | `(deactivate-mark)` | Drop the region highlight, keep the mark |

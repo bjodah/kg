@@ -1,0 +1,31 @@
+# A double-width glyph cannot be split across a wrap.  Emacs moves it whole
+# to the next display row and leaves the edge cell blank (it puts its "\"
+# continuation marker there); kg has no marker, so the cell just stays
+# blank.  With an 11-column window the line 漢漢漢漢漢漢x lays out as
+# 漢漢漢漢漢 | 漢x — verified against emacs -q -nw at 12 columns, whose
+# text area is 11 wide once the continuation column is reserved.
+#
+# M-> then C-p therefore moves from x (display column 13, screen column 2
+# of the second display row) up to screen column 2 of the first row, which
+# is 漢2.  Before the width table kg thought the whole line was 7 columns
+# wide, so it fitted on one display row, C-p did nothing and the last two
+# glyphs were never drawn at all.
+name: visual-line-wrap-double-width
+filename: vlwrap-cjk.txt
+backend: tmux
+dimensions: [10, 11]
+initial: "漢漢漢漢漢漢x"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - M->
+  - C-p
+  - Q
+expected_saved: "漢Q漢漢漢漢漢x"
+# After the insert the row is 漢Q漢漢漢漢漢x: the first six glyphs fill all
+# 11 columns exactly, so the seventh starts the next display row.
+expected_screen_contains:
+  - "漢Q漢漢漢漢\n漢x"
+expected_screen_not_contains:
+  - "漢Q漢漢漢漢漢"

@@ -338,8 +338,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	char *saved_hl = NULL;
 	int qlen = 0;
 
+	/* isearch_find_match() indexes row->render, so the starting point
+	 * has to be a render BYTE offset — not a display column.  The two
+	 * only coincide on rows made of single-byte, single-width glyphs. */
 	if (start_row >= 0 && start_row < editor.numrows) {
-		start_col = editor_visual_col(
+		start_col = chars_to_render_col(
 		    &editor.row[start_row], editor.coloff + editor.cx);
 	}
 

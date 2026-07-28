@@ -72,10 +72,12 @@ int editor_current_filecol_in_row(erow *row)
 /* Visual column at byte offset `chars_col` in `row`.  Tabs advance to
  * the next tab stop (tab_stop_advance()) — same as the render in
  * editor_update_row and the cursor-placement loop in
- * editor_refresh_screen, so the two metrics agree.  UTF-8 continuation
- * bytes contribute zero width.  `chars_col` past row's end maps to
- * (row's visual width) plus the virtual offset, so cursors that sit
- * in virtual space (rect mode) get a well-defined visual column too. */
+ * editor_refresh_screen, so the two metrics agree.  Each glyph is worth
+ * utf8_width_at() cells, so East-Asian-Wide characters count two and
+ * combining marks (like UTF-8 continuation bytes) count zero.
+ * `chars_col` past row's end maps to (row's visual width) plus the
+ * virtual offset, so cursors that sit in virtual space (rect mode) get
+ * a well-defined visual column too. */
 int editor_visual_col(erow *row, int chars_col)
 {
 	int j;
@@ -89,8 +91,8 @@ int editor_visual_col(erow *row, int chars_col)
 	for (j = 0; j < limit; j++) {
 		if (row->chars[j] == TAB) {
 			vcol += tab_stop_advance((int)(vcol % KG_TAB_WIDTH));
-		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
-			vcol++;
+		} else {
+			vcol += utf8_width_at(row->chars, row->size, j);
 		}
 	}
 	if (chars_col > row->size) {
@@ -119,9 +121,11 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol)
 /* Inverse of editor_visual_col(): byte offset into row->chars whose
  * visual position lands at or just before `target_vcol`.  A target
  * that falls inside a tab's expansion snaps to the tab's start byte
- * (closest representable position when cx is a byte offset).  When
- * target is past the row's visual end, returns row->size plus the
- * matching virtual offset (the cursor lives in virtual space). */
+ * (closest representable position when cx is a byte offset); a target
+ * that names the second cell of a double-width glyph snaps to that
+ * glyph's start byte by the same rule.  When target is past the row's
+ * visual end, returns row->size plus the matching virtual offset (the
+ * cursor lives in virtual space). */
 int editor_chars_col_at_visual(erow *row, int target_vcol)
 {
 	int j = 0, vcol = 0;
@@ -130,11 +134,12 @@ int editor_chars_col_at_visual(erow *row, int target_vcol)
 		return 0;
 	}
 	while (j < row->size) {
-		int next_vcol = vcol;
+		int next_vcol;
 		if (row->chars[j] == TAB) {
 			next_vcol = vcol + tab_stop_advance(vcol);
-		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
-			next_vcol = vcol + 1;
+		} else {
+			next_vcol
+			    = vcol + utf8_width_at(row->chars, row->size, j);
 		}
 		if (next_vcol > target_vcol) {
 			break;
@@ -302,9 +307,10 @@ void editor_update_row(erow *row)
 			vcol += spaces;
 		} else {
 			row->render[idx++] = row->chars[j];
-			if (!utf8_is_cont((unsigned char)row->chars[j])) {
-				vcol++;
-			}
+			/* Display width, not byte count: a TAB after a CJK
+			 * glyph must reach the same tab stop the terminal
+			 * does. */
+			vcol += utf8_width_at(row->chars, row->size, j);
 		}
 	}
 	row->rsize = idx;

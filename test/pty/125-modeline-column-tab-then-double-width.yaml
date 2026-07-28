@@ -1,0 +1,15 @@
+# Tab stops are measured in display columns, so a TAB followed by two CJK
+# glyphs ends at column 8 + 2 + 2 = 12.  Emacs reports (1,12) at C-e on
+# this file; kg said (1,10) while every glyph counted as one column.
+name: modeline-column-tab-then-double-width
+filename: col-tab-cjk.txt
+backend: tmux
+dimensions: [12, 44]
+initial: "\t漢字\n"
+keys:
+  - C-e
+expected_saved: "\t漢字\n"
+expected_screen_contains:
+  - "col-tab-cjk.txt  All (1,12)"
+expected_screen_not_contains:
+  - "(1,10)"

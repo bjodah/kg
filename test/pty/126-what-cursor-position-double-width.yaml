@@ -1,0 +1,19 @@
+# M-x what-cursor-position reports the same display column the mode line
+# does.  Emacs' C-x = prints "column=4" after two C-f over 漢字; kg used
+# to say col 2 because a wide glyph counted as one column.
+name: what-cursor-position-double-width
+filename: wcp-cjk.txt
+backend: tmux
+dimensions: [12, 60]
+initial: "漢字x\n"
+keys:
+  - C-f
+  - C-f
+  - M-x
+  - what-cursor-position
+  - RET
+expected_saved: "漢字x\n"
+expected_screen_contains:
+  - "col 4"
+expected_screen_not_contains:
+  - "col 2"

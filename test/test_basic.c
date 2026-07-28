@@ -233,7 +233,7 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	    editor.row, editor.numrows, 4, 0, 1, &logical_row, &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 6);
-	CHECK(render_col_to_chars(&editor.row[0], 4) == 4);
+	CHECK(render_col_to_chars(&editor.row[0], 4, 4) == 4);
 	teardown();
 }
 

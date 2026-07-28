@@ -569,7 +569,8 @@ bool shell_output_fits_echo(
 		if (span == 1 || !utf8_scalar_is_valid(out, i)) {
 			return false; /* malformed or invalid UTF-8 */
 		}
-		if (++columns > budget) {
+		columns += utf8_width_at(out, stop, i);
+		if (columns > budget) {
 			return false;
 		}
 		i += span;

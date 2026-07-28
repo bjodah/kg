@@ -4,10 +4,10 @@ name: lisp-bind-key
 filename: lisp-bindkey.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: '(kg-load "hi-pkg")'
+  .config/kg/init.fe: '(load "hi-pkg")'
   .config/kg/lisp/hi-pkg.fe: |
-    (kg-define-command "insert-hi" (fn () (kg-insert "hi")))
-    (kg-bind-key "C-c i" "insert-hi")
+    (define-command "insert-hi" (fn () (insert "hi")))
+    (global-set-key "C-c i" "insert-hi")
 initial: ""
 keys:
   - C-c

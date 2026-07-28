@@ -6,7 +6,7 @@ filename: lisp-gotochar.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (kg-define-command "brace-line"
+    (define-command "brace-line"
       (fn ()
         (goto-char 3)
         (insert "-")

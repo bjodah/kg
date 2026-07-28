@@ -170,7 +170,12 @@ static int compilation_spawn(const char *command, const char *directory,
 			_exit(127);
 		}
 
-		int dn = open("/dev/null", O_RDONLY);
+		int dn = open("/dev/null",
+		    O_RDONLY
+#ifdef O_CLOEXEC
+			| O_CLOEXEC
+#endif
+		);
 		if (dn >= 0) {
 			dup2(dn, STDIN_FILENO);
 			close(dn);

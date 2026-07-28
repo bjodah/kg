@@ -9,7 +9,7 @@ filename: lisp-strings.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (kg-define-command "describe-word"
+    (define-command "describe-word"
       (fn ()
         (goto-char (point-min))
         (set-mark (point))

@@ -9,7 +9,7 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (kg-insert "x")
+  - (insert "x")
   - RET
 expected_saved: unchanged
 expected_screen_contains:

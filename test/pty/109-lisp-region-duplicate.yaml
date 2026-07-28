@@ -6,7 +6,7 @@ filename: lisp-region.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (kg-define-command "dup-word"
+    (define-command "dup-word"
       (fn ()
         (goto-char (point-min))
         (set-mark (point))

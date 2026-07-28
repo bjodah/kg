@@ -181,18 +181,17 @@ static void test_message_arity(void)
 
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
-	CHECK(kg_lisp_eval_string("(kg-message)", 12, result, sizeof(result))
-	    != 0);
+	CHECK(kg_lisp_eval_string("(message)", 9, result, sizeof(result)) != 0);
 	CHECK(strstr(result, "too few arguments") != nullptr);
 	CHECK(kg_lisp_eval_string(
-		  "(kg-message \"a\" \"b\")", 20, result, sizeof(result))
+		  "(message \"a\" \"b\")", 17, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "too many arguments") != nullptr);
-	CHECK(kg_lisp_eval_string("(kg-message 1)", 14, result, sizeof(result))
+	CHECK(kg_lisp_eval_string("(message 1)", 11, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "expected string") != nullptr);
 	CHECK(kg_lisp_eval_string(
-		  "(kg-message \"ready\")", 20, result, sizeof(result))
+		  "(message \"ready\")", 17, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(test_status_message, "ready") == 0);
 	kg_lisp_shutdown();
@@ -202,7 +201,7 @@ static void test_message_arity(void)
 static void test_insert_and_undo(void)
 {
 	static constexpr size_t payload_len = 2048;
-	static const char prefix[] = "(kg-insert \"";
+	static const char prefix[] = "(insert \"";
 	static const char suffix[] = "\")";
 	char result[128] = "";
 	char *source;
@@ -246,7 +245,7 @@ static void test_insert_read_only_recovery(void)
 	editor.readonly = 1;
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_eval_string(
-		  "(kg-insert \"changed\")", 21, result, sizeof(result))
+		  "(insert \"changed\")", 18, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "buffer is read-only") != nullptr);
 	CHECK(editor.row[0].size == 8);
@@ -257,7 +256,7 @@ static void test_insert_read_only_recovery(void)
 	teardown_editor();
 }
 
-static void test_point_goto_and_buffer_name(void)
+static void test_goto_line_and_buffer_name(void)
 {
 	char result[128] = "";
 
@@ -266,13 +265,33 @@ static void test_point_goto_and_buffer_name(void)
 	editor_insert_row(1, "second", 6);
 	editor_insert_row(2, "third", 5);
 	CHECK(kg_lisp_init() == 0);
-	CHECK(kg_lisp_eval_string("(kg-goto 2 3)", 13, result, sizeof(result))
+	/* Lines count from 1 and point lands at the beginning of the line, so
+	 * line 2 of "zero\nsecond\nthird" is position 6. */
+	CHECK(kg_lisp_eval_string("(goto-line 2)", 13, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("(point)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "6") == 0);
+	/* A column is reached by moving on from there. */
+	CHECK(kg_lisp_eval_string(
+		  "(goto-char (+ (point) 2))", 25, result, sizeof(result))
 	    == 0);
 	CHECK(
-	    kg_lisp_eval_string("(kg-point)", 10, result, sizeof(result)) == 0);
-	CHECK(strcmp(result, "(2 3)") == 0);
+	    kg_lisp_eval_string("(current-column)", 16, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "2") == 0);
+	/* Out-of-range lines clamp to the buffer. */
 	CHECK(
-	    kg_lisp_eval_string("(kg-buffer-name)", 16, result, sizeof(result))
+	    kg_lisp_eval_string("(goto-line 9999)", 16, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string(
+		  "(line-number-at-pos)", 20, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "3") == 0);
+	CHECK(kg_lisp_eval_string("(goto-line -9)", 14, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("(point)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "1") == 0);
+	CHECK(kg_lisp_eval_string("(buffer-name)", 13, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(result, "bridge.txt") == 0);
 	kg_lisp_shutdown();
@@ -367,7 +386,7 @@ static void test_init_file(void)
 	remove_config_root(root);
 }
 
-static void test_kg_load(void)
+static void test_load_package(void)
 {
 	char root[64], path[512], source[600], result[128] = "";
 	int length;
@@ -378,15 +397,14 @@ static void test_kg_load(void)
 	/* Bare names resolve to <config>/kg/lisp/NAME.fe. */
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg.fe", root);
 	CHECK(write_text_file(path, "(= pkg-value 7)\n") == 0);
-	CHECK(
-	    kg_lisp_eval_string("(kg-load \"pkg\")", 15, result, sizeof(result))
+	CHECK(kg_lisp_eval_string("(load \"pkg\")", 12, result, sizeof(result))
 	    == 0);
 	CHECK(kg_lisp_eval_string("pkg-value", 9, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "7") == 0);
 
 	/* Missing packages raise an error naming the resolved path. */
-	CHECK(kg_lisp_eval_string(
-		  "(kg-load \"absent\")", 18, result, sizeof(result))
+	CHECK(
+	    kg_lisp_eval_string("(load \"absent\")", 15, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "absent.fe") != nullptr);
 	CHECK(kg_lisp_eval_string("(+ 1 1)", 7, result, sizeof(result)) == 0);
@@ -394,22 +412,21 @@ static void test_kg_load(void)
 
 	/* Packages may load packages. */
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
-	CHECK(
-	    write_text_file(path, "(kg-load \"pkg-b\")\n(= a-after b-value)\n")
+	CHECK(write_text_file(path, "(load \"pkg-b\")\n(= a-after b-value)\n")
 	    == 0);
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
 	CHECK(write_text_file(path, "(= b-value 5)\n") == 0);
-	CHECK(kg_lisp_eval_string(
-		  "(kg-load \"pkg-a\")", 17, result, sizeof(result))
+	CHECK(
+	    kg_lisp_eval_string("(load \"pkg-a\")", 14, result, sizeof(result))
 	    == 0);
 	CHECK(kg_lisp_eval_string("a-after", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "5") == 0);
 
 	/* Load cycles hit the depth limit and recover. */
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-x.fe", root);
-	CHECK(write_text_file(path, "(kg-load \"pkg-x\")\n") == 0);
-	CHECK(kg_lisp_eval_string(
-		  "(kg-load \"pkg-x\")", 17, result, sizeof(result))
+	CHECK(write_text_file(path, "(load \"pkg-x\")\n") == 0);
+	CHECK(
+	    kg_lisp_eval_string("(load \"pkg-x\")", 14, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "depth limit") != nullptr);
 	CHECK(kg_lisp_eval_string("(+ 2 2)", 7, result, sizeof(result)) == 0);
@@ -418,7 +435,7 @@ static void test_kg_load(void)
 	/* Names containing '/' are literal paths. */
 	(void)snprintf(path, sizeof(path), "%s/direct.fe", root);
 	CHECK(write_text_file(path, "(= direct-value 3)\n") == 0);
-	length = snprintf(source, sizeof(source), "(kg-load \"%s\")", path);
+	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
 	CHECK(length > 0 && (size_t)length < sizeof(source));
 	CHECK(
 	    kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))
@@ -437,16 +454,22 @@ static void test_command_allow_list(void)
 
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
-	CHECK(kg_lisp_eval_string(
-		  "(kg-command \"shell-command\")", 28, result, sizeof(result))
+	CHECK(kg_lisp_eval_string("(command-execute \"shell-command\")", 33,
+		  result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "not allowed") != nullptr);
 	CHECK(strstr(result, "shell-command") != nullptr);
 	CHECK(test_command_calls == 0);
 	CHECK(kg_lisp_eval_string(
-		  "(kg-command \"version\")", 22, result, sizeof(result))
+		  "(command-execute \"version\")", 27, result, sizeof(result))
 	    == 0);
 	CHECK(test_command_calls == 1);
+	CHECK(strcmp(test_command_name, "version") == 0);
+	/* A quoted symbol names the command as it does in Emacs. */
+	CHECK(kg_lisp_eval_string(
+		  "(command-execute 'version)", 26, result, sizeof(result))
+	    == 0);
+	CHECK(test_command_calls == 2);
 	CHECK(strcmp(test_command_name, "version") == 0);
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -478,8 +501,8 @@ static void test_define_and_run_command(void)
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(kg_lisp_run_command("greet", 0) != 0);
-	CHECK(eval_ok(
-	    "(kg-define-command \"greet\" (fn () (kg-message \"hello\")))"));
+	CHECK(
+	    eval_ok("(define-command \"greet\" (fn () (message \"hello\")))"));
 	CHECK(kg_lisp_command_name(0) != nullptr);
 	CHECK(strcmp(kg_lisp_command_name(0), "greet") == 0);
 	CHECK(kg_lisp_command_name(1) == nullptr);
@@ -487,34 +510,34 @@ static void test_define_and_run_command(void)
 	CHECK(strcmp(test_status_message, "hello") == 0);
 
 	/* Redefinition replaces the function (and releases the old root). */
-	CHECK(eval_ok(
-	    "(kg-define-command \"greet\" (fn () (kg-message \"again\")))"));
+	CHECK(
+	    eval_ok("(define-command \"greet\" (fn () (message \"again\")))"));
 	CHECK(kg_lisp_run_command("greet", 0) == 0);
 	CHECK(strcmp(test_status_message, "again") == 0);
 	CHECK(kg_lisp_command_name(1) == nullptr);
 
 	/* Errors inside a command return to the caller with a message. */
-	CHECK(eval_ok("(kg-define-command \"boom\" (fn () (car 1)))"));
+	CHECK(eval_ok("(define-command \"boom\" (fn () (car 1)))"));
 	CHECK(kg_lisp_run_command("boom", 0) == 0);
 	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
 	CHECK(kg_lisp_run_command("greet", 0) == 0);
 	CHECK(strcmp(test_status_message, "again") == 0);
 
 	/* A runaway command hits the step budget and recovers. */
-	CHECK(eval_ok("(kg-define-command \"spin\" (fn () (while t 1)))"));
+	CHECK(eval_ok("(define-command \"spin\" (fn () (while t 1)))"));
 	CHECK(kg_lisp_run_command("spin", 0) == 0);
 	CHECK(strstr(test_status_message, "step limit") != nullptr);
 	CHECK(eval_ok("(+ 1 2)"));
 
-	CHECK(eval_ok("(kg-remove-command \"boom\")"));
+	CHECK(eval_ok("(remove-command \"boom\")"));
 	CHECK(kg_lisp_run_command("boom", 0) != 0);
 	CHECK(eval_error_contains(
-	    "(kg-remove-command \"boom\")", "no such Lisp command"));
+	    "(remove-command \"boom\")", "no such Lisp command"));
 
 	CHECK(eval_error_contains(
-	    "(kg-define-command \"version\" (fn () 1))", "built-in"));
+	    "(define-command \"version\" (fn () 1))", "built-in"));
 	CHECK(eval_error_contains(
-	    "(kg-define-command \"x\" 1)", "requires a function"));
+	    "(define-command \"x\" 1)", "requires a function"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -535,16 +558,15 @@ static void test_key_bindings(void)
 	CHECK(keybind_parse("C-c ii", &key) != 0);
 	CHECK(keybind_parse("C-c C-g", &key) != 0);
 
-	CHECK(eval_ok(
-	    "(kg-define-command \"greet\" (fn () (kg-message \"hey\")))"));
-	CHECK(eval_ok("(kg-bind-key \"C-c i\" \"greet\")"));
+	CHECK(eval_ok("(define-command \"greet\" (fn () (message \"hey\")))"));
+	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
 	CHECK(keybind_lookup('i') != nullptr);
 	CHECK(strcmp(keybind_lookup('i'), "greet") == 0);
 	CHECK(eval_error_contains(
-	    "(kg-bind-key \"C-x i\" \"greet\")", "invalid key sequence"));
-	CHECK(eval_ok("(kg-unbind-key \"C-c i\")"));
+	    "(global-set-key \"C-x i\" \"greet\")", "invalid key sequence"));
+	CHECK(eval_ok("(global-unset-key \"C-c i\")"));
 	CHECK(keybind_lookup('i') == nullptr);
-	CHECK(eval_error_contains("(kg-unbind-key \"C-c i\")", "not bound"));
+	CHECK(eval_error_contains("(global-unset-key \"C-c i\")", "not bound"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -614,15 +636,16 @@ static void test_point_offsets(void)
 	CHECK(eval_eq("(point-min)", "1"));
 	CHECK(eval_eq("(point-max)", "13"));
 
-	/* Every position round-trips, and offsets count codepoints while the
-	 * stored column stays a byte index. */
+	/* Every position round-trips, and offsets count codepoints even though
+	 * the stored column is a byte index. */
 	for (n = 1; n <= 13; n++) {
 		(void)snprintf(source, sizeof(source), "(goto-char %d)", n);
 		CHECK(eval_ok(source));
 		CHECK(eval_eq_int("(point)", n));
 	}
+	/* Position 7 is the first "l" of "héllo", which the editor stores at
+	 * byte column 3 of row 2. */
 	CHECK(eval_ok("(goto-char 7)"));
-	CHECK(eval_eq("(kg-point)", "(2 4)"));
 	CHECK(eval_eq("(line-number-at-pos)", "2"));
 	CHECK(eval_eq("(current-column)", "2"));
 	CHECK(eval_ok("(goto-char 11)"));
@@ -644,10 +667,11 @@ static void test_current_column_tab(void)
 	editor_insert_row(0, "\tx", 2);
 	CHECK(kg_lisp_init() == 0);
 
-	/* Display column, so the tab expands to kg's next stop. */
+	/* Display column, so the tab expands to the next tab stop (8),
+	 * matching Emacs' current-column. */
 	CHECK(eval_eq("(do (goto-char 1) (current-column))", "0"));
-	CHECK(eval_eq("(do (goto-char 2) (current-column))", "7"));
-	CHECK(eval_eq("(do (goto-char 3) (current-column))", "8"));
+	CHECK(eval_eq("(do (goto-char 2) (current-column))", "8"));
+	CHECK(eval_eq("(do (goto-char 3) (current-column))", "9"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -761,25 +785,24 @@ static void test_word_motion(void)
 	teardown_editor();
 }
 
-static void test_emacs_aliases(void)
+static void test_editor_bridge(void)
 {
 	setup_editor();
 	editor_insert_row(0, "abc", 3);
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(eval_ok("(message \"aliased\")"));
-	CHECK(strcmp(test_status_message, "aliased") == 0);
+	CHECK(eval_ok("(message \"bridged\")"));
+	CHECK(strcmp(test_status_message, "bridged") == 0);
 	CHECK(eval_eq("(buffer-name)", "bridge.txt"));
 	CHECK(eval_ok("(do (goto-char 1) (insert \"z\"))"));
 	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", "zabc"));
-	CHECK(
-	    eval_ok("(kg-define-command \"greet\" (fn () (message \"hey\")))"));
+	CHECK(eval_ok("(define-command \"greet\" (fn () (message \"hey\")))"));
 	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
 	CHECK(keybind_lookup('i') != nullptr);
 	CHECK(eval_ok("(global-unset-key \"C-c i\")"));
 	CHECK(keybind_lookup('i') == nullptr);
-	CHECK(eval_error_contains(
-	    "(load \"kg-absent-package\")", "kg-absent-package"));
+	CHECK(
+	    eval_error_contains("(load \"absent-package\")", "absent-package"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -1045,10 +1068,10 @@ int main(void)
 	RUN(test_message_arity);
 	RUN(test_insert_and_undo);
 	RUN(test_insert_read_only_recovery);
-	RUN(test_point_goto_and_buffer_name);
+	RUN(test_goto_line_and_buffer_name);
 	RUN(test_command_allow_list);
 	RUN(test_init_file);
-	RUN(test_kg_load);
+	RUN(test_load_package);
 	RUN(test_define_and_run_command);
 	RUN(test_key_bindings);
 	RUN(test_math_natives);
@@ -1058,7 +1081,7 @@ int main(void)
 	RUN(test_buffer_substring);
 	RUN(test_mark_and_region);
 	RUN(test_word_motion);
-	RUN(test_emacs_aliases);
+	RUN(test_editor_bridge);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_char_string_round_trip);

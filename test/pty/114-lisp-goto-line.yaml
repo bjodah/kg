@@ -1,0 +1,30 @@
+# goto-line addresses lines the way Emacs does: it counts from 1, lands at
+# the beginning of the line and takes no column, so a column is reached by
+# moving on with goto-char.  Lines past the end clamp to the last line,
+# which is "gamma" here because the buffer has no final newline.
+name: lisp-goto-line
+filename: lisp-gotoline.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (define-command "mark-lines"
+      (fn ()
+        (goto-line 2)
+        (insert "<")
+        (goto-line 3)
+        (goto-char (+ (point) 2))
+        (insert "|")
+        (goto-line 9999)
+        (insert "!")))
+    (global-set-key "C-c g" "mark-lines")
+initial: |-
+  alpha
+  beta
+  gamma
+keys:
+  - C-c
+  - g
+expected_saved: |-
+  alpha
+  <beta
+  !ga|mma

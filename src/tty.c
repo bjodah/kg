@@ -408,25 +408,30 @@ static int parse_escape(int fd)
 	return ESC;
 }
 
-/* Read a key from the terminal in raw mode, decoding escape sequences.
- * During macro replay returns pre-recorded keys; during recording saves
- * every key so the full sequence (including sub-prompt characters) is
- * captured in one place. */
-int editor_read_key(int fd)
+/* Block until one input byte arrives, servicing signals and the idle
+ * polls meanwhile.  `idle` selects the main-loop poll set (auto-revert
+ * plus pending compilation restarts) over the plain one used by
+ * minibuffer prompts.  Returns the byte, or -1 once the input stream is
+ * gone and the editor is shutting down. */
+static int read_key_byte(int fd, int idle)
 {
 	unsigned char c;
 	int nread;
-	int key;
-
-	key = macro_next_key();
-	if (key >= 0) {
-		return key;
-	}
 
 	while (1) {
 		nread = read_input_byte(fd, &c);
 		if (nread == 0) {
-			compilation_poll();
+			if (idle) {
+				int changed = 0;
+				changed |= autorevert_poll();
+				changed |= compilation_poll();
+				compilation_start_pending_restart();
+				if (changed) {
+					editor_refresh_screen();
+				}
+			} else {
+				compilation_poll();
+			}
 			continue;
 		}
 		if (nread == -1) {
@@ -437,100 +442,52 @@ int editor_read_key(int fd)
 				continue;
 			}
 			running = 0;
-			return 0;
+			return -1;
 		}
-		break;
+		return c;
+	}
+}
+
+/* Body shared by the three readers below: replay macro keys, read one
+ * byte, optionally decode an escape sequence, and record the result for
+ * a macro in progress. */
+static int read_key_common(int fd, int idle, int decode_escapes)
+{
+	int key = macro_next_key();
+	int c;
+
+	if (key >= 0) {
+		return key;
 	}
 
-	key = (c == ESC) ? parse_escape(fd) : (unsigned char)c;
+	c = read_key_byte(fd, idle);
+	if (c < 0) {
+		return 0;
+	}
+
+	key = (decode_escapes && c == ESC) ? parse_escape(fd) : c;
 	macro_on_key(key);
 	return key;
 }
+
+/* Read a key from the terminal in raw mode, decoding escape sequences.
+ * During macro replay returns pre-recorded keys; during recording saves
+ * every key so the full sequence (including sub-prompt characters) is
+ * captured in one place. */
+int editor_read_key(int fd) { return read_key_common(fd, 0, 1); }
 
 /* Read a single byte from the terminal without decoding escape sequences.
  * Used by quoted-insert so that an ESC, an arrow-key prefix, or any other
  * byte the user is trying to embed literally ends up in the buffer as
  * itself rather than being interpreted as the start of a meta key. */
-int editor_read_raw_byte(int fd)
-{
-	unsigned char c;
-	int nread;
-	int key;
-
-	key = macro_next_key();
-	if (key >= 0) {
-		return key;
-	}
-
-	while (1) {
-		nread = read_input_byte(fd, &c);
-		if (nread == 0) {
-			compilation_poll();
-			continue;
-		}
-		if (nread == -1) {
-			if (errno == EINTR) {
-				if (editor_process_pending_signals() == 1) {
-					editor_refresh_screen();
-				}
-				continue;
-			}
-			running = 0;
-			return 0;
-		}
-		break;
-	}
-
-	key = (unsigned char)c;
-	macro_on_key(key);
-	return key;
-}
+int editor_read_raw_byte(int fd) { return read_key_common(fd, 0, 0); }
 
 /* Top-level main-loop variant of editor_read_key: while waiting for the
  * next key, run the auto-revert poll on every 100 ms read timeout so
  * external file changes are noticed without requiring a keystroke.
  * Minibuffer prompts and y/n confirmations call the plain editor_read_key
  * instead so they aren't redrawn (or silently reverted) under the user. */
-int editor_read_key_idle(int fd)
-{
-	unsigned char c;
-	int nread;
-	int key;
-
-	key = macro_next_key();
-	if (key >= 0) {
-		return key;
-	}
-
-	while (1) {
-		nread = read_input_byte(fd, &c);
-		if (nread == 0) {
-			int changed = 0;
-			changed |= autorevert_poll();
-			changed |= compilation_poll();
-			compilation_start_pending_restart();
-			if (changed) {
-				editor_refresh_screen();
-			}
-			continue;
-		}
-		if (nread == -1) {
-			if (errno == EINTR) {
-				if (editor_process_pending_signals() == 1) {
-					editor_refresh_screen();
-				}
-				continue;
-			}
-			running = 0;
-			return 0;
-		}
-		break;
-	}
-
-	key = (c == ESC) ? parse_escape(fd) : (unsigned char)c;
-	macro_on_key(key);
-	return key;
-}
+int editor_read_key_idle(int fd) { return read_key_common(fd, 1, 1); }
 
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the

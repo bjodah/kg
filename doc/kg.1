@@ -30,6 +30,14 @@ and undo/redo.
 .Nm
 does not depend on curses; it uses VT100 escape sequences directly.
 .Pp
+Tabs are displayed with tab stops every eight columns, the same
+convention as Emacs'
+.Li tab-width
+default,
+.Xr cat 1
+and the terminal itself; a tab therefore advances point to the next
+multiple of eight.
+.Pp
 Lisp support is compiled in by default and is reported as
 .Sq +lisp
 by
@@ -61,12 +69,12 @@ and treats names containing a slash as literal paths.
 Loading a file twice evaluates it twice.
 .Pp
 Lisp code can define interactive commands with
-.Li (kg-define-command "name" (fn () ...))
+.Li (define-command "name" (fn () ...))
 and bind them with
 .Li (global-set-key "C-c <key>" "name") .
 Defined commands appear in M-x completion and run under the normal
 evaluation budget;
-.Li kg-remove-command
+.Li remove-command
 and
 .Li global-unset-key
 undo the registrations.
@@ -84,6 +92,7 @@ Offsets count characters rather than bytes.
 The position and mark API is
 .Li (point) ,
 .Li (goto-char N) ,
+.Li (goto-line N) ,
 .Li (point-min) ,
 .Li (point-max) ,
 .Li (line-number-at-pos) ,
@@ -109,6 +118,10 @@ and
 signal an error when no mark is set.
 .Li set-mark
 also activates the region, so there is no separate activate-mark.
+.Li goto-line
+moves point to the beginning of the line and takes no column, as in Emacs;
+reach a column from there with
+.Li (goto-char (+ (point) N)) .
 .Pp
 .Li bounds-of-thing-at-point
 supports
@@ -189,19 +202,22 @@ The editor bridge uses the Emacs names
 .Li global-set-key
 and
 .Li global-unset-key .
-The older
-.Li kg-
-names
-.Pq kg-insert , kg-message , kg-buffer-name , kg-load , kg-bind-key , kg-unbind-key
-remain registered as aliases.
-.Li kg-point
+Built-in editor commands run with
+.Li (command-execute \(aqname) ,
+which takes a quoted symbol as in Emacs or equivalently a string, never
+passes a prefix argument, and is limited to the commands
+.Nm
+allows Lisp to call.
+.Li define-command
 and
-.Li kg-goto
-keep their (row col) shape and have no Emacs-named equivalent; use
-.Li point
-and
-.Li goto-char
-for offsets.
+.Li remove-command
+have no Emacs equivalent, since Emacs defines commands with
+.Li defun
+plus
+.Li (interactive)
+while
+.Nm
+keeps a name-to-function registry.
 .Pp
 If no files are given,
 .Nm
@@ -815,7 +831,7 @@ Equivalent to
 Toggle automatic insertion of closing brackets and quotes (see
 .Sx AUTOCOMPLETE ) .
 Off by default; may be enabled from the init file with
-.Ql (kg-command \(dqelectric-pair-mode\(dq) .
+.Ql (command-execute \(aqelectric-pair-mode) .
 .It eval-buffer
 Evaluate the entire current buffer as Lisp and show the final value or error
 in the status area.
@@ -1289,7 +1305,7 @@ Electric pairing is off by default.
 Toggle it with
 .Ic M-x electric-pair-mode ,
 or enable it at startup by adding
-.Ql (kg-command \(dqelectric-pair-mode\(dq)
+.Ql (command-execute \(aqelectric-pair-mode)
 to the Lisp init file (see
 .Sx FILES ) .
 .Sh GOTO LINE
@@ -1318,7 +1334,7 @@ Falls back to
 .Pa ~/.config/kg/init.fe .
 .It Pa $XDG_CONFIG_HOME/kg/lisp/
 Package directory searched by
-.Li (kg-load "name") .
+.Li (load "name") .
 .El
 .Sh SEE ALSO
 .Xr mg 1 ,

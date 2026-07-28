@@ -564,6 +564,7 @@ int editor_chars_col_at_visual(erow *row, int target_vcol);
 void editor_update_row(erow *row);
 void editor_insert_row(int at, const char *s, size_t len);
 void editor_free_row(erow *row);
+void editor_free_all_rows(void);
 void editor_del_row(int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
@@ -645,6 +646,18 @@ static inline int is_special_buffer(const char *filename)
 /* True for UTF-8 continuation bytes (0x80–0xBF).  Useful when iterating
  * a raw byte stream and needing to skip past or land on glyph boundaries. */
 static inline int utf8_is_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
+
+/* Tab stops sit every KG_TAB_WIDTH display columns, matching Emacs'
+ * default tab-width, cat(1) and the terminal itself. */
+#define KG_TAB_WIDTH 8
+
+/* Columns a TAB occupies when it starts at visual column `vcol`: enough
+ * to reach the next tab stop, i.e. 1..KG_TAB_WIDTH columns.  Every
+ * module that models tab geometry must go through this. */
+static inline int tab_stop_advance(int vcol)
+{
+	return KG_TAB_WIDTH - (vcol % KG_TAB_WIDTH);
+}
 
 /* Byte length of the glyph starting at buf[start], validating the lead byte
  * and every required continuation byte against buf[0..len).  Returns 1 for

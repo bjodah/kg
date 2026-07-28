@@ -360,6 +360,30 @@ static void buf_reset(void)
 	undo_init();
 }
 
+/* Slot holding the open buffer called `name`, or -1 when it is not
+ * open. */
+static int buf_find_by_name(const char *name)
+{
+	for (int i = 0; i < MAX_BUFFERS; i++) {
+		if (buflist[i].active && buflist[i].filename
+		    && strcmp(buflist[i].filename, name) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+/* Lowest unused buffer slot, or -1 when the table is full. */
+static int buf_first_free_slot(void)
+{
+	for (int i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 /* Render a unique display name for buflist[idx] into `out`.  If no other
  * active buffer shares its basename the bare basename is used; otherwise
  * the immediate parent directory is prepended ("dir/foo"), matching
@@ -472,6 +496,43 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 
 static char minibuf_kill[1024];
 
+/* Store `kill_len` bytes from `src` as the minibuffer kill ring content,
+ * truncated to what the fixed buffer holds. */
+static void minibuf_set_kill(const char *src, int kill_len)
+{
+	if (kill_len >= (int)sizeof(minibuf_kill)) {
+		kill_len = (int)sizeof(minibuf_kill) - 1;
+	}
+	memcpy(minibuf_kill, src, (size_t)kill_len);
+	minibuf_kill[kill_len] = '\0';
+}
+
+/* Offset just past the whitespace run and the word that follow `pos`,
+ * i.e. where M-f lands. */
+static int minibuf_word_end(const char *buf, int len, int pos)
+{
+	while (pos < len && isspace((unsigned char)buf[pos])) {
+		pos++;
+	}
+	while (pos < len && !isspace((unsigned char)buf[pos])) {
+		pos++;
+	}
+	return pos;
+}
+
+/* Offset at the start of the word preceding `pos`, i.e. where M-b
+ * lands. */
+static int minibuf_word_start(const char *buf, int pos)
+{
+	while (pos > 0 && isspace((unsigned char)buf[pos - 1])) {
+		pos--;
+	}
+	while (pos > 0 && !isspace((unsigned char)buf[pos - 1])) {
+		pos--;
+	}
+	return pos;
+}
+
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow)
 {
 	if (*overflow > 0) {
@@ -524,11 +585,7 @@ static int minibuf_edit_key(
 	case CTRL_K: {
 		int kill_len = *len - *cursor;
 		if (kill_len > 0) {
-			if (kill_len >= (int)sizeof(minibuf_kill)) {
-				kill_len = sizeof(minibuf_kill) - 1;
-			}
-			memcpy(minibuf_kill, buf + *cursor, kill_len);
-			minibuf_kill[kill_len] = '\0';
+			minibuf_set_kill(buf + *cursor, kill_len);
 			buf[*cursor] = '\0';
 			*len = *cursor;
 		}
@@ -546,59 +603,26 @@ static int minibuf_edit_key(
 		return 1;
 	}
 	case ALT_F:
-		while (*cursor < *len && isspace((unsigned char)buf[*cursor])) {
-			(*cursor)++;
-		}
-		while (
-		    *cursor < *len && !isspace((unsigned char)buf[*cursor])) {
-			(*cursor)++;
-		}
+		*cursor = minibuf_word_end(buf, *len, *cursor);
 		return 1;
 	case ALT_B:
-		while (
-		    *cursor > 0 && isspace((unsigned char)buf[*cursor - 1])) {
-			(*cursor)--;
-		}
-		while (
-		    *cursor > 0 && !isspace((unsigned char)buf[*cursor - 1])) {
-			(*cursor)--;
-		}
+		*cursor = minibuf_word_start(buf, *cursor);
 		return 1;
 	case ALT_D: {
-		int end = *cursor;
-		while (end < *len && isspace((unsigned char)buf[end])) {
-			end++;
-		}
-		while (end < *len && !isspace((unsigned char)buf[end])) {
-			end++;
-		}
+		int end = minibuf_word_end(buf, *len, *cursor);
 		int kill_len = end - *cursor;
 		if (kill_len > 0) {
-			if (kill_len >= (int)sizeof(minibuf_kill)) {
-				kill_len = sizeof(minibuf_kill) - 1;
-			}
-			memcpy(minibuf_kill, buf + *cursor, kill_len);
-			minibuf_kill[kill_len] = '\0';
+			minibuf_set_kill(buf + *cursor, kill_len);
 			memmove(buf + *cursor, buf + end, *len - end + 1);
 			*len -= kill_len;
 		}
 		return 1;
 	}
 	case ALT_BACKSPACE: {
-		int start = *cursor;
-		while (start > 0 && isspace((unsigned char)buf[start - 1])) {
-			start--;
-		}
-		while (start > 0 && !isspace((unsigned char)buf[start - 1])) {
-			start--;
-		}
+		int start = minibuf_word_start(buf, *cursor);
 		int kill_len = *cursor - start;
 		if (kill_len > 0) {
-			if (kill_len >= (int)sizeof(minibuf_kill)) {
-				kill_len = sizeof(minibuf_kill) - 1;
-			}
-			memcpy(minibuf_kill, buf + start, kill_len);
-			minibuf_kill[kill_len] = '\0';
+			minibuf_set_kill(buf + start, kill_len);
 			memmove(buf + start, buf + *cursor, *len - *cursor + 1);
 			*cursor = start;
 			*len -= kill_len;
@@ -994,19 +1018,11 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			 * Keep the path picker's selection cycling on the arrow
 			 * keys so the two operations do not silently steal each
 			 * other's bindings. */
-		} else if (c == ARROW_LEFT) {
+		} else if (c == ARROW_LEFT || c == ARROW_UP) {
 			if (matches > 0) {
 				sel = (sel - 1 + matches) % matches;
 			}
-		} else if (c == ARROW_RIGHT) {
-			if (matches > 0) {
-				sel = (sel + 1) % matches;
-			}
-		} else if (c == ARROW_UP) {
-			if (matches > 0) {
-				sel = (sel - 1 + matches) % matches;
-			}
-		} else if (c == ARROW_DOWN) {
+		} else if (c == ARROW_RIGHT || c == ARROW_DOWN) {
 			if (matches > 0) {
 				sel = (sel + 1) % matches;
 			}
@@ -1086,7 +1102,12 @@ static void buf_apply_local_settings(void)
 	local_settings_init(&footer);
 
 	if (dirlocals_find(editor.filename, dirfile, sizeof(dirfile)) == 0) {
-		fd = open(dirfile, O_RDONLY);
+		fd = open(dirfile,
+		    O_RDONLY
+#ifdef O_CLOEXEC
+			| O_CLOEXEC
+#endif
+		);
 		if (fd >= 0) {
 			off_t sz = lseek(fd, 0, SEEK_END);
 			if (sz > 0 && sz <= 65536) {
@@ -1489,22 +1510,12 @@ void buf_kill(int fd)
 static void buf_open_special(const char *name, struct editor_syntax *syn,
     void (*populate)(void), const char *status)
 {
-	int i, slot = -1, existing = -1;
+	int slot, existing;
 
 	buf_save_current_state();
 
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active) {
-			if (slot < 0) {
-				slot = i;
-			}
-			continue;
-		}
-		if (buflist[i].filename
-		    && strcmp(buflist[i].filename, name) == 0) {
-			existing = i;
-		}
-	}
+	existing = buf_find_by_name(name);
+	slot = buf_first_free_slot();
 
 	if (existing >= 0) {
 		buf_restore_from_slot(existing);
@@ -1525,12 +1536,7 @@ static void buf_open_special(const char *name, struct editor_syntax *syn,
 		editor.filename = strdup(name);
 	}
 
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
-	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
+	editor_free_all_rows();
 
 	populate();
 
@@ -1651,25 +1657,13 @@ static void editor_row_append_raw(erow *row, const char *s, size_t len)
 int buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)
 {
-	int i, slot = -1, existing = -1;
+	int target_slot = buf_find_by_name(name);
 
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active) {
-			if (slot < 0) {
-				slot = i;
-			}
-			continue;
-		}
-		if (buflist[i].filename
-		    && strcmp(buflist[i].filename, name) == 0) {
-			existing = i;
-		}
-	}
-
-	int target_slot = existing;
-	if (existing >= 0) {
-		buf_clear_special_text(existing);
+	if (target_slot >= 0) {
+		buf_clear_special_text(target_slot);
 	} else {
+		int slot = buf_first_free_slot();
+
 		if (buf_count >= MAX_BUFFERS) {
 			editor_set_status_message(
 			    "Too many open buffers (%d max).", MAX_BUFFERS);
@@ -1682,6 +1676,11 @@ int buf_prepare_special_text(
 		buflist[slot].filename = strdup(name);
 		buf_count++;
 		target_slot = slot;
+	}
+	if (target_slot >= MAX_BUFFERS) {
+		/* Both sources are in-range slots; restate the bound so the
+		 * indexing below stands on its own. */
+		return -1;
 	}
 
 	buflist[target_slot].syntax = syntax;
@@ -1817,12 +1816,7 @@ void buf_clear_special_text(int buffer_index)
 	struct editor_buffer_swap saved;
 	buf_temp_swap_in(buffer_index, &saved);
 
-	for (int i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
-	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
+	editor_free_all_rows();
 	editor.dirty = 0;
 
 	undo_free();
@@ -1859,33 +1853,18 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly)
 {
-	int i, slot = -1, existing = -1;
+	int slot, existing;
 	const char *p, *end;
 	int ended_with_newline = 0;
 
 	buf_save_current_state();
 
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active) {
-			if (slot < 0) {
-				slot = i;
-			}
-			continue;
-		}
-		if (buflist[i].filename
-		    && strcmp(buflist[i].filename, name) == 0) {
-			existing = i;
-		}
-	}
+	existing = buf_find_by_name(name);
+	slot = buf_first_free_slot();
 
 	if (existing >= 0) {
 		buf_restore_from_slot(existing);
-		for (i = 0; i < editor.numrows; i++) {
-			editor_free_row(&editor.row[i]);
-		}
-		free(editor.row);
-		editor.row = NULL;
-		editor.numrows = 0;
+		editor_free_all_rows();
 		/* Content is rebuilt from scratch; drop stale ops, freeing
 		 * their text first so repeated refreshes don't leak. */
 		undo_free();

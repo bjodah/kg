@@ -156,11 +156,12 @@ ordered by value vs implementation effort.
       ask, low cost.
 
 - [x] **Minimal config file**: `~/.config/kg/init.fe` — done; see the Lisp
-      section in README.md (init files, `(load ...)`, `kg-define-command`,
+      section in README.md (init files, `(load ...)`, `define-command`,
       `global-set-key`). What exists now:
       - an Emacs-shaped position and mark API (`point`, `goto-char`,
-        `point-min`/`point-max`, `line-number-at-pos`, `current-column`,
-        `mark`, `set-mark`, `deactivate-mark`, `region-beginning`/`region-end`,
+        `goto-line`, `point-min`/`point-max`, `line-number-at-pos`,
+        `current-column`, `mark`, `set-mark`, `deactivate-mark`,
+        `region-beginning`/`region-end`,
         `buffer-substring`, `char-after`, `forward-word`/`backward-word`,
         `bounds-of-thing-at-point`), addressing the buffer by 1-based
         codepoint offsets
@@ -168,15 +169,17 @@ ordered by value vs implementation effort.
         `char-to-string`, `string-to-char`), which upstream fe lacks
       - a small Fe prelude evaluated at startup: `cond`, `when`, `unless`,
         `dolist`, `string-empty-p`, `thing-at-point`
-      - Emacs names for the editor bridge (`insert`, `message`,
-        `buffer-name`, `load`, `global-set-key`, `global-unset-key`), with
-        the older `kg-*` names kept as aliases
+      - Emacs names throughout the editor bridge (`insert`, `message`,
+        `buffer-name`, `load`, `global-set-key`, `global-unset-key`,
+        `command-execute`); the only invented names are `define-command`
+        and `remove-command`, which Emacs has no analogue for
 
       Remaining Lisp follow-ups:
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist
-      - grow the `kg-command` allow-list deliberately (policy per command).
-        It is still the eleven entries in `allowed_commands` in `src/lisp.c`
+      - grow the `command-execute` allow-list deliberately (policy per
+        command).  It is still the eleven entries in `allowed_commands`
+        in `src/lisp.c`
       - **word constituents disagree between the two layers**: the global
         `is_word_char()` in `src/word.c` is ASCII-only (`isalnum() || '_'`),
         so `M-f`, `M-b`, `M-@`, `M-d` and the Lisp `forward-word` /
@@ -188,7 +191,7 @@ ordered by value vs implementation effort.
       - extend the keypress fuzz harness to drive `eval-expression` once it
         can run without filesystem side effects
       - upstream Fe: `FeCallWithOptions` so hosts can budget a bare `FeCall`
-        without the kg--run trampoline; Fe plan phase 8 (per-context custom
+        without the run trampoline; Fe plan phase 8 (per-context custom
         types) remains deferred
 
 ## Important (DONE)

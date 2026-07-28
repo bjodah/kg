@@ -74,6 +74,7 @@ standard VT100 escape sequences.
   mode-line indicator
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
+- Tab stops every 8 columns, like Emacs' default `tab-width`
 - Graceful terminal resize handling
 - Local-variable and `.dir-locals.el` parsing is non-evaluating and
   works in `WITH_LISP=0` builds; see [kg(1)][7] for the exact
@@ -157,6 +158,7 @@ bytes, so multi-byte text addresses the same way it reads.
 | `(point)` | Position of point |
 | `(point-min)` / `(point-max)` | Buffer bounds |
 | `(goto-char N)` | Move point to `N`, clamped to the buffer |
+| `(goto-line N)` | Move point to the beginning of line `N`, clamped to the buffer |
 | `(line-number-at-pos)` | 1-based line of point |
 | `(current-column)` | Display column of point (tabs expand) |
 | `(mark)` | Position of the mark, or `nil` |
@@ -168,6 +170,10 @@ bytes, so multi-byte text addresses the same way it reads.
 | `(forward-word)` / `(forward-word N)` | Move point over `N` words |
 | `(backward-word)` / `(backward-word N)` | Move point back over `N` words |
 | `(bounds-of-thing-at-point THING)` | Cons `(START . END)` for `'word` or `'line`, or `nil` |
+
+`goto-line` counts lines from 1 and, like its Emacs namesake, takes no
+column: reach one by moving on from the beginning of the line with
+`(goto-char (+ (point) N))`.
 
 `bounds-of-thing-at-point` returns a cons cell, so `car` and `cdr` read the
 two positions just as they do in Emacs, and both things are bounded the way
@@ -214,23 +220,26 @@ part of upstream fe, so these forms are available before any init file runs:
     (insert (concat (substring word 0 1) ". "))))
 ```
 
-`insert`, `message`, `buffer-name`, `load`, `global-set-key` and
-`global-unset-key` are the Emacs names for the editor bridge; the older
-`kg-insert`, `kg-message`, `kg-buffer-name`, `kg-load`, `kg-bind-key` and
-`kg-unbind-key` names remain registered as aliases. `kg-point` and `kg-goto`
-keep their `(row col)` shape — use `point` and `goto-char` for offsets.
+The editor bridge uses the Emacs names throughout: `insert`, `message`,
+`buffer-name`, `load`, `global-set-key` and `global-unset-key`.
 
 The init file can also toggle editor options by running named commands,
 e.g. enabling electric bracket pairing (off by default):
 
 ```lisp
-(kg-command "electric-pair-mode")
+(command-execute 'electric-pair-mode)
 ```
 
-Packages can define interactive commands and bind them to keys:
+`command-execute` runs one of the built-in editor commands kg allows Lisp to
+call, named by a quoted symbol as in Emacs or equivalently by a string, and
+always without a prefix argument.
+
+Packages can define interactive commands and bind them to keys. Emacs would
+use `defun` plus `(interactive)`; kg keeps a name-to-function registry
+instead, so it has `define-command`:
 
 ```lisp
-(kg-define-command "insert-date" (fn () (insert "2026-07-04")))
+(define-command "insert-date" (fn () (insert "2026-07-04")))
 (global-set-key "C-c d" "insert-date")
 ```
 
@@ -238,7 +247,7 @@ A worked `init.fe` — select the word under the cursor, the way you would
 write it in Emacs:
 
 ```lisp
-(kg-define-command "select-current-word"
+(define-command "select-current-word"
   (fn ()
     (let bounds (bounds-of-thing-at-point 'word))
     (if bounds
@@ -255,7 +264,7 @@ and `C-x C-x` bounces between its ends. Two details differ from Emacs:
 (`(let NAME VALUE)`) rather than taking elisp's binding list.
 
 Lisp-defined commands appear in `M-x` completion and run under the same
-step budget and error recovery as `eval-expression`; `kg-remove-command`
+step budget and error recovery as `eval-expression`; `remove-command`
 and `global-unset-key` undo the registrations. Only `C-c <key>` sequences
 are bindable — `C-c` is reserved for user bindings, so they can never
 shadow built-in keys.

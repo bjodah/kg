@@ -10,11 +10,8 @@ int chars_to_render_col(erow *row, int chars_col)
 	}
 	for (j = 0; j < chars_col; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = 7 - visual_col % 8;
+			int spaces = tab_stop_advance(visual_col);
 
-			if (spaces == 0) {
-				spaces = 8;
-			}
 			render_col += spaces;
 			visual_col += spaces;
 		} else {

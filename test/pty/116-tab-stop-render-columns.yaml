@@ -1,0 +1,15 @@
+# The rendered TAB fills columns 0..7 so the following glyph is drawn at
+# screen column 8, lining up with the '8' of the ruler line below it.
+# The negative assertion rules out a 9-column expansion; together with
+# the positive one it pins the tab stop at exactly 8 columns.
+name: tab-stop-render-columns
+filename: tab-render.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "\tX\n01234567X\n"
+keys: []
+expected_saved: "\tX\n01234567X\n"
+expected_screen_contains:
+  - "        X"
+expected_screen_not_contains:
+  - "         X"

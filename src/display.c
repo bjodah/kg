@@ -597,14 +597,16 @@ void editor_refresh_screen(void)
 		if (row) {
 			/* editor.cx is a byte offset into row->chars, but the
 			 * cursor must be placed at the visible column.  Tabs
-			 * widen to the next 8-stop; UTF-8 continuation bytes
+			 * widen to the next tab stop; UTF-8 continuation bytes
 			 * carry no width. */
 			int target = editor.cx + editor.coloff;
 
 			for (j = editor.coloff; j < target && j < row->size;
 			    j++) {
 				if (row->chars[j] == TAB) {
-					cx += 7 - ((cx) % 8);
+					/* cx is 1-based; the cx++ below
+					 * covers the tab's own column. */
+					cx += tab_stop_advance(cx - 1) - 1;
 				}
 				if (!utf8_is_cont(
 					(unsigned char)row->chars[j])) {

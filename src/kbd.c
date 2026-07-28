@@ -329,7 +329,7 @@ void editor_process_keypress(int fd)
 	}
 
 	/* Handle C-c <key>: built-in commit-mode keys first, then user
-	 * bindings installed with (kg-bind-key ...).  C-c C-c is never
+	 * bindings installed with (global-set-key ...).  C-c C-c is never
 	 * user-bindable (see keybind_parse), and in commit buffers the
 	 * built-in C-c C-k shadows any user binding. */
 	if (editor.cc_prefix) {

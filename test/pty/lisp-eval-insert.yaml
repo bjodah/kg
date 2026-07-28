@@ -6,6 +6,6 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (kg-insert "hi")
+  - (insert "hi")
   - RET
 expected_saved: hi

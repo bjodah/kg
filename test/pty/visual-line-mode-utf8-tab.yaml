@@ -8,4 +8,6 @@ keys:
   - RET
   - C-n
   - Q
-expected_saved: "αβ\tXQYZ"
+# Display columns: α=0, β=1, TAB fills 2..7, X=8, Y=9, Z=10.  The 8-column
+# window wraps after column 7, so C-n from column 0 lands on X.
+expected_saved: "αβ\tQXYZ"

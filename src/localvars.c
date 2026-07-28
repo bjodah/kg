@@ -777,12 +777,7 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 		return 0;
 	}
 
-	if (strcmp(varname, "eval") == 0) {
-		if (dlr_skip_sexp(r) != 0) {
-			return -1;
-		}
-		out->ignored_entries++;
-	} else if (strcmp(varname, "compile-command") == 0) {
+	if (strcmp(varname, "compile-command") == 0) {
 		if (r->src[r->pos] == '"') {
 			char buf[KG_COMPILE_COMMAND_MAX];
 			int slen = dlr_read_str(r, buf, sizeof(buf));
@@ -841,6 +836,8 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 			}
 		}
 	} else {
+		/* "eval" and every other variable: consumed but not
+		 * applied. */
 		if (dlr_skip_sexp(r) != 0) {
 			return -1;
 		}

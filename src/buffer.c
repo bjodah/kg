@@ -69,9 +69,9 @@ int editor_current_filecol_in_row(erow *row)
 	return col > row->size ? row->size : col;
 }
 
-/* Visual column at byte offset `chars_col` in `row`.  Tabs use kg's
- * own stop convention (advance until (vcol+1) % 8 == 0) — same as the
- * render in editor_update_row and the cursor-placement loop in
+/* Visual column at byte offset `chars_col` in `row`.  Tabs advance to
+ * the next tab stop (tab_stop_advance()) — same as the render in
+ * editor_update_row and the cursor-placement loop in
  * editor_refresh_screen, so the two metrics agree.  UTF-8 continuation
  * bytes contribute zero width.  `chars_col` past row's end maps to
  * (row's visual width) plus the virtual offset, so cursors that sit
@@ -88,10 +88,7 @@ int editor_visual_col(erow *row, int chars_col)
 	}
 	for (j = 0; j < limit; j++) {
 		if (row->chars[j] == TAB) {
-			vcol++;
-			while ((vcol + 1) % 8 != 0) {
-				vcol++;
-			}
+			vcol += tab_stop_advance((int)(vcol % KG_TAB_WIDTH));
 		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
 			vcol++;
 		}
@@ -118,10 +115,7 @@ int editor_chars_col_at_visual(erow *row, int target_vcol)
 	while (j < row->size) {
 		int next_vcol = vcol;
 		if (row->chars[j] == TAB) {
-			next_vcol = vcol + 1;
-			while ((next_vcol + 1) % 8 != 0) {
-				next_vcol++;
-			}
+			next_vcol = vcol + tab_stop_advance(vcol);
 		} else if (!utf8_is_cont((unsigned char)row->chars[j])) {
 			next_vcol = vcol + 1;
 		}
@@ -242,12 +236,12 @@ void editor_reveal_position_centered(int row, int col)
 /* Update the rendered version and the syntax highlight of a row. */
 void editor_update_row(erow *row)
 {
-	unsigned int tabs = 0, nonprint = 0;
+	unsigned int tabs = 0;
 	unsigned long long allocsize;
 	int j, idx, render_cap, vcol;
 
 	/* Create a version of the row we can directly print on the screen,
-	 * respecting tabs, substituting non printable characters with '?'. */
+	 * respecting tabs. */
 	free(row->render);
 	row->render = NULL;
 	for (j = 0; j < row->size; j++) {
@@ -256,28 +250,27 @@ void editor_update_row(erow *row)
 		}
 	}
 
-	allocsize = (unsigned long long)row->size + tabs * 8 + nonprint * 9 + 1;
-	if (allocsize > UINT32_MAX) {
+	/* Worst case a TAB widens to KG_TAB_WIDTH columns, the last byte
+	 * being the terminator. */
+	allocsize = (unsigned long long)row->size
+	    + (unsigned long long)tabs * KG_TAB_WIDTH + 1;
+	if (allocsize > INT_MAX) {
 		editor_set_status_message("Line too long for editor");
 		running = 0;
 		return;
 	}
 
-	row->render = malloc(row->size + tabs * 8 + nonprint * 9 + 1);
+	row->render = malloc((size_t)allocsize);
 	if (!row->render) {
 		editor_nomem();
 		return;
 	}
-	render_cap = row->size + tabs * 8 + nonprint * 9 + 1;
+	render_cap = (int)allocsize;
 	idx = 0;
 	vcol = 0;
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = 7 - (vcol % 8);
-
-			if (spaces == 0) {
-				spaces = 8;
-			}
+			int spaces = tab_stop_advance(vcol);
 
 			if (idx + spaces >= render_cap) {
 				free(row->render);
@@ -355,6 +348,20 @@ void editor_free_row(erow *row)
 	free(row->render);
 	free(row->chars);
 	free(row->hl);
+}
+
+/* Free every row of the current buffer and leave it empty.  Used whenever
+ * a buffer's contents are rebuilt from scratch. */
+void editor_free_all_rows(void)
+{
+	int i;
+
+	for (i = 0; i < editor.numrows; i++) {
+		editor_free_row(&editor.row[i]);
+	}
+	free(editor.row);
+	editor.row = NULL;
+	editor.numrows = 0;
 }
 
 /* Remove the row at the specified position, shifting the remaining on the top.
@@ -636,12 +643,7 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	int i;
 	int row_count = 1;
 
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
-	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
+	editor_free_all_rows();
 
 	for (i = 0; i < len; i++) {
 		if (text[i] == '\n') {
@@ -1125,6 +1127,19 @@ void editor_open_line(void)
 	editor.coloff = coloff;
 }
 
+/* Fetch point's row and column for the editing commands.  Returns 0 when
+ * point sits past the last row, where there is nothing to edit. */
+static int editor_point_row(int *filerow, erow **row, int *filecol)
+{
+	if (editor_current_filerow_or_eof() >= editor.numrows) {
+		return 0;
+	}
+	*filerow = editor_current_filerow();
+	*row = &editor.row[*filerow];
+	*filecol = editor_current_filecol();
+	return 1;
+}
+
 /* Delete the char at the current prompt position. */
 void editor_del_char(void)
 {
@@ -1132,12 +1147,9 @@ void editor_del_char(void)
 	int filerow;
 	int filecol;
 
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (!editor_point_row(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = editor_current_filerow();
-	row = &editor.row[filerow];
-	filecol = editor_current_filecol();
 	if (!row || (filecol == 0 && filerow == 0)) {
 		return;
 	}
@@ -1181,12 +1193,9 @@ void editor_del_forward_char(void)
 	int filerow;
 	int filecol;
 
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (!editor_point_row(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = editor_current_filerow();
-	row = &editor.row[filerow];
-	filecol = editor_current_filecol();
 
 	if (filecol > row->size) {
 		return;
@@ -1293,12 +1302,9 @@ void editor_kill_line(void)
 	int filerow;
 	int filecol;
 
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (!editor_point_row(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = editor_current_filerow();
-	row = &editor.row[filerow];
-	filecol = editor_current_filecol();
 
 	if (filecol > row->size) {
 		return;

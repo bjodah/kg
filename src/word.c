@@ -25,6 +25,19 @@ static int word_cursor_filecol(erow *row)
 	return editor_current_filecol_in_row(row);
 }
 
+/* Fetch point's row and column for the word commands.  Returns 0 on an
+ * empty buffer, where there is nothing to move over or edit. */
+static int word_point(int *filerow, erow **row, int *filecol)
+{
+	if (editor.numrows <= 0) {
+		return 0;
+	}
+	*filerow = word_cursor_filerow();
+	*row = &editor.row[*filerow];
+	*filecol = word_cursor_filecol(*row);
+	return 1;
+}
+
 /* Move cursor forward by one word.  Whitespace runs, including line breaks,
  * are crossed first; then point lands after the following word, matching
  * Emacs forward-word. */
@@ -34,12 +47,9 @@ void editor_move_word_forward(void)
 	int filecol;
 	erow *row;
 
-	if (editor.numrows <= 0) {
+	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = word_cursor_filerow();
-	row = &editor.row[filerow];
-	filecol = word_cursor_filecol(row);
 
 	while (filerow < editor.numrows) {
 		row = &editor.row[filerow];
@@ -76,12 +86,9 @@ void editor_move_word_backward(void)
 	int filerow;
 	int filecol;
 
-	if (editor.numrows <= 0) {
+	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = word_cursor_filerow();
-	row = &editor.row[filerow];
-	filecol = word_cursor_filecol(row);
 	editor_cursor_goto(filerow, filecol);
 	if (filecol == 0) {
 		/* Move to end of previous line */
@@ -118,12 +125,9 @@ void editor_kill_word_forward(void)
 	char *text;
 	erow *row;
 
-	if (editor.numrows <= 0) {
+	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = word_cursor_filerow();
-	row = &editor.row[filerow];
-	filecol = word_cursor_filecol(row);
 	start_col = filecol;
 	if (filecol >= row->size) {
 		return;
@@ -181,12 +185,9 @@ void editor_kill_word_backward(void)
 	char *text;
 	erow *row;
 
-	if (editor.numrows <= 0) {
+	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = word_cursor_filerow();
-	row = &editor.row[filerow];
-	filecol = word_cursor_filecol(row);
 	if (filecol <= 0) {
 		return;
 	}
@@ -886,12 +887,9 @@ static void do_word_case(int mode)
 	char *orig;
 	erow *row;
 
-	if (editor.numrows <= 0) {
+	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-	filerow = word_cursor_filerow();
-	row = &editor.row[filerow];
-	filecol = word_cursor_filecol(row);
 
 	word_start = filecol;
 	while (word_start < row->size

@@ -234,7 +234,7 @@ static void test_row_append_string_to_empty(void)
 	teardown();
 }
 
-/* A tab at column 0 expands to 7 spaces (fills to the 8-column tab stop). */
+/* A tab at column 0 expands to 8 spaces (fills to the next tab stop). */
 static void test_update_row_tab_at_col0(void)
 {
 	char buf[2];
@@ -245,16 +245,16 @@ static void test_update_row_tab_at_col0(void)
 	buf[1] = '\0';
 	editor_insert_row(0, buf, 1);
 
-	/* The code inserts one space then keeps adding spaces while
-	 * (idx+1)%8 != 0, stopping at idx=7, so rsize == 7. */
-	CHECK(editor.row[0].rsize == 7);
-	for (i = 0; i < 7; i++) {
+	/* Tab stops are every 8 columns, so a tab at column 0 reaches
+	 * column 8 and rsize == 8 (same as Emacs, cat(1) and the tty). */
+	CHECK(editor.row[0].rsize == 8);
+	for (i = 0; i < 8; i++) {
 		CHECK(editor.row[0].render[i] == ' ');
 	}
 	teardown();
 }
 
-/* "a<TAB>b" — tab after 'a' expands to fill up to the tab stop at render[7]. */
+/* "a<TAB>b" — tab after 'a' expands to fill up to the tab stop at render[8]. */
 static void test_update_row_tab_mid(void)
 {
 	char buf[4];
@@ -266,10 +266,10 @@ static void test_update_row_tab_mid(void)
 	buf[3] = '\0';
 	editor_insert_row(0, buf, 3);
 
-	/* 'a' at render[0]; tab fills render[1..6]; 'b' at render[7]. */
-	CHECK(editor.row[0].rsize == 8);
+	/* 'a' at render[0]; tab fills render[1..7]; 'b' at render[8]. */
+	CHECK(editor.row[0].rsize == 9);
 	CHECK(editor.row[0].render[0] == 'a');
-	CHECK(editor.row[0].render[7] == 'b');
+	CHECK(editor.row[0].render[8] == 'b');
 	teardown();
 }
 
@@ -298,16 +298,16 @@ static void test_visual_col_ascii(void)
 	teardown();
 }
 
-/* Tab at col 0 advances vcol to 7 (kg's "next 8-stop minus 1"). */
+/* Tab at col 0 advances vcol to the next tab stop, 8. */
 static void test_visual_col_tab(void)
 {
 	setup();
 	editor_insert_row(0, "\tabc", 4);
 
 	CHECK(editor_visual_col(&editor.row[0], 0) == 0);
-	CHECK(editor_visual_col(&editor.row[0], 1) == 7); /* past tab */
-	CHECK(editor_visual_col(&editor.row[0], 2) == 8); /* +'a' */
-	CHECK(editor_visual_col(&editor.row[0], 4) == 10); /* past 'abc' */
+	CHECK(editor_visual_col(&editor.row[0], 1) == 8); /* past tab */
+	CHECK(editor_visual_col(&editor.row[0], 2) == 9); /* +'a' */
+	CHECK(editor_visual_col(&editor.row[0], 4) == 11); /* past 'abc' */
 	teardown();
 }
 
@@ -370,14 +370,14 @@ static void test_chars_col_round_trip(void)
 static void test_chars_col_inside_tab(void)
 {
 	setup();
-	editor_insert_row(0, "\tabc", 4); /* tab fills vcols 0..6, 'a' at 7 */
+	editor_insert_row(0, "\tabc", 4); /* tab fills vcols 0..7, 'a' at 8 */
 
 	CHECK(
 	    editor_chars_col_at_visual(&editor.row[0], 0) == 0); /* tab start */
 	CHECK(editor_chars_col_at_visual(&editor.row[0], 3)
 	    == 0); /* mid-tab → start */
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 7) == 1); /* 'a' */
-	CHECK(editor_chars_col_at_visual(&editor.row[0], 8) == 2); /* 'b' */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 8) == 1); /* 'a' */
+	CHECK(editor_chars_col_at_visual(&editor.row[0], 9) == 2); /* 'b' */
 	teardown();
 }
 

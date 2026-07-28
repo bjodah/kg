@@ -6,7 +6,7 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (kg-define-command "insert-hi" (fn () (kg-insert "hi")))
+  - (define-command "insert-hi" (fn () (insert "hi")))
   - RET
   - M-x
   - insert-hi

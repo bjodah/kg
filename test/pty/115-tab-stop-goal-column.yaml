@@ -1,0 +1,13 @@
+# A TAB advances point to the next tab stop, i.e. column 8, not 7.
+# C-f steps over the leading TAB so point sits at display column 8;
+# C-n keeps that goal column, so Q is inserted after "01234567".
+# With the old "tab ends at column 7" geometry Q landed after
+# "0123456" instead.  Compared against real Emacs.
+name: tab-stop-goal-column
+filename: tab-goal-column.txt
+oracle: emacs
+initial: "\tX\n0123456789abcdef\n"
+keys:
+  - C-f
+  - C-n
+  - Q

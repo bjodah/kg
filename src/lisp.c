@@ -64,7 +64,7 @@ struct lisp_state {
 	struct lisp_frame frame;
 	char error[1024];
 	int (*interrupt_check)(void);
-	/* Source buffers owned by in-flight (kg-load ...) calls.  Fe errors
+	/* Source buffers owned by in-flight (load ...) calls.  Fe errors
 	 * longjmp past the natives, so frame recovery frees the leftovers. */
 	char *load_buffers[lisp_max_load_depth];
 	size_t load_depth;
@@ -72,7 +72,7 @@ struct lisp_state {
 	 * yet; freed by frame recovery for the same reason. */
 	char *scratch;
 	struct lisp_command commands[lisp_max_commands];
-	/* Command function about to be invoked by the kg--run trampoline. */
+	/* Command function about to be invoked by the run trampoline. */
 	FeObject *pending_command;
 	bool frame_active;
 	bool initialized;
@@ -85,6 +85,11 @@ static void set_error(const char *format, ...)
 	va_list ap;
 
 	va_start(ap, format);
+	/* C23 expands va_start to __builtin_c23_va_start, which clang's
+	 * valist checker does not model, so it reports `ap` as
+	 * uninitialized here.  Same suppression as the other va_start
+	 * sites in the editor. */
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	(void)vsnprintf(state.error, sizeof(state.error), format, ap);
 	va_end(ap);
 }
@@ -191,7 +196,7 @@ static FeObject *native_insert(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "string is too large to insert");
 	}
 
-	/* Match yank/paste: one kg-insert call creates one UNDO_YANK_TEXT
+	/* Match yank/paste: one insert call creates one UNDO_YANK_TEXT
 	 * record, while the raw bulk insertion suppresses its internal records.
 	 */
 	if (length != 0) {
@@ -211,49 +216,6 @@ static FeObject *native_buffer_name(FeContext *context, FeObject *arguments)
 	FeRequireNoArguments(context, arguments);
 	buf_display_name(buf_current, name, sizeof(name));
 	return FeMakeString(context, name);
-}
-
-static FeObject *native_point(FeContext *context, FeObject *arguments)
-{
-	FeObject *position[2];
-	int row, col;
-
-	FeRequireNoArguments(context, arguments);
-	/* Lisp positions are 1-based for both row and column. */
-	row = editor_current_filerow_or_eof();
-	col = editor_current_filecol();
-	position[0] = FeMakeDouble(context, (FeDouble)row + 1);
-	position[1] = FeMakeDouble(context, (FeDouble)col + 1);
-	return FeMakeList(context, position, 2);
-}
-
-static int fe_number_to_int(FeContext *context, FeObject *object)
-{
-	FeDouble value = FeToDouble(context, object);
-
-	if (value != value) {
-		FeHandleError(context, "row and column must not be NaN");
-	}
-	if (value > INT_MAX) {
-		return INT_MAX;
-	}
-	if (value < INT_MIN) {
-		return INT_MIN;
-	}
-	return (int)value;
-}
-
-static FeObject *native_goto(FeContext *context, FeObject *arguments)
-{
-	FeObject *row_object = FeGetNextArgument(context, &arguments);
-	FeObject *col_object = FeGetNextArgument(context, &arguments);
-	int row, col;
-
-	FeRequireNoArguments(context, arguments);
-	row = fe_number_to_int(context, row_object);
-	col = fe_number_to_int(context, col_object);
-	editor_goto_line_direct(row, col);
-	return FeNil(context);
 }
 
 /* ---- Emacs-shaped buffer positions -----------------------------------
@@ -369,6 +331,29 @@ static FeObject *native_goto_char(FeContext *context, FeObject *arguments)
 	/* editor_cursor_goto scrolls just enough to reveal the target, so the
 	 * viewport follows point. */
 	editor_cursor_goto(row, col);
+	return FeNil(context);
+}
+
+/* (goto-line LINE): point to the beginning of LINE, counting from 1 and
+ * clamped to the buffer.  Emacs' goto-line takes no column; reach one with
+ * (goto-char (+ (point) N)) afterwards.  The view is centred on the target,
+ * as for the interactive M-g. */
+static FeObject *native_goto_line(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeDouble value;
+	int line;
+
+	FeRequireNoArguments(context, arguments);
+	value = lisp_finite(context, object);
+	if (value > (FeDouble)INT_MAX) {
+		line = INT_MAX;
+	} else if (value < (FeDouble)INT_MIN) {
+		line = INT_MIN;
+	} else {
+		line = (int)value;
+	}
+	editor_goto_line_direct(line, 1);
 	return FeNil(context);
 }
 
@@ -999,6 +984,9 @@ static const struct allowed_command allowed_commands[] = {
 	FeHandleError(context, message);
 }
 
+/* (command-execute COMMAND): COMMAND names a built-in editor command, as a
+ * symbol like Emacs or equivalently as a string, since fe reads the text of
+ * either.  Only allowed_commands above can be run this way. */
 static FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
@@ -1107,7 +1095,7 @@ static char *read_whole_file(const char *path, size_t *size)
 	return buffer;
 }
 
-/* (kg-load NAME): a name containing '/' is a literal path; a bare name
+/* (load NAME): a name containing '/' is a literal path; a bare name
  * resolves to <config>/kg/lisp/NAME.fe.  Runs nested inside the caller's
  * evaluation, inheriting its step budget.  Loading twice evaluates twice;
  * there is no require/provide. */
@@ -1124,7 +1112,7 @@ static FeObject *native_load(FeContext *context, FeObject *arguments)
 	name = copy_fe_string(context, object, &length);
 	if (state.load_depth >= lisp_max_load_depth) {
 		free(name);
-		FeHandleError(context, "kg-load depth limit exceeded");
+		FeHandleError(context, "load depth limit exceeded");
 	}
 	if (strchr(name, '/')) {
 		bad = snprintf(path, sizeof(path), "%s", name) < 0
@@ -1203,7 +1191,7 @@ static void copy_command_name(
 	free(name);
 }
 
-/* (kg-define-command NAME FN): registers FN as an interactive command
+/* (define-command NAME FN): registers FN as an interactive command
  * visible to M-x and key bindings.  Redefinition releases the previous
  * function's root. */
 static FeObject *native_define_command(FeContext *context, FeObject *arguments)
@@ -1217,7 +1205,7 @@ static FeObject *native_define_command(FeContext *context, FeObject *arguments)
 
 	FeRequireNoArguments(context, arguments);
 	if (FeGetType(fn) != FeTFn && FeGetType(fn) != FeTNativeFn) {
-		FeHandleError(context, "kg-define-command requires a function");
+		FeHandleError(context, "define-command requires a function");
 	}
 	copy_command_name(context, name_object, name, sizeof(name));
 	if (cmd_static_exists(name)) {
@@ -1247,7 +1235,7 @@ static FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* (kg-remove-command NAME) */
+/* (remove-command NAME) */
 static FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *name_object = FeGetNextArgument(context, &arguments);
@@ -1266,7 +1254,7 @@ static FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* (kg-bind-key SEQUENCE NAME): SEQUENCE must be "C-c <key>"; the name
+/* (global-set-key SEQUENCE NAME): SEQUENCE must be "C-c <key>"; the name
  * may refer to a static or Lisp command and is resolved at dispatch. */
 static FeObject *native_bind_key(FeContext *context, FeObject *arguments)
 {
@@ -1291,7 +1279,7 @@ static FeObject *native_bind_key(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* (kg-unbind-key SEQUENCE) */
+/* (global-unset-key SEQUENCE) */
 static FeObject *native_unbind_key(FeContext *context, FeObject *arguments)
 {
 	FeObject *seq_object = FeGetNextArgument(context, &arguments);
@@ -1312,10 +1300,10 @@ static FeObject *native_unbind_key(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* Internal trampoline: kg_lisp_run_command evaluates "(kg--run)" under
- * the normal step budget, so the FeCall below inherits that budget.
- * Calling kg--run directly from user code just runs the pending
- * command again and is harmless. */
+/* Internal trampoline: kg_lisp_run_command evaluates
+ * "(internal--run-pending-command)" under the normal step budget, so the
+ * FeCall below inherits that budget.  Calling it directly from user code
+ * just runs the pending command again and is harmless. */
 static FeObject *native_run_pending(FeContext *context, FeObject *arguments)
 {
 	FeRequireNoArguments(context, arguments);
@@ -1330,25 +1318,20 @@ struct native_binding {
 	FeNativeFn *fn;
 };
 
-/* Emacs names are the primary API; the kg-* names stay registered as
- * aliases so existing init files and packages keep working. */
+/* Every name is the Emacs one wherever Emacs has a matching form; the
+ * rest are unprefixed and descriptive. */
 static const struct native_binding native_bindings[] = {
 	{ "message", native_message },
-	{ "kg-message", native_message },
 	{ "insert", native_insert },
-	{ "kg-insert", native_insert },
 	{ "buffer-name", native_buffer_name },
-	{ "kg-buffer-name", native_buffer_name },
 	{ "load", native_load },
-	{ "kg-load", native_load },
 	{ "global-set-key", native_bind_key },
-	{ "kg-bind-key", native_bind_key },
 	{ "global-unset-key", native_unbind_key },
-	{ "kg-unbind-key", native_unbind_key },
 	{ "point", native_point_offset },
 	{ "point-min", native_point_min },
 	{ "point-max", native_point_max },
 	{ "goto-char", native_goto_char },
+	{ "goto-line", native_goto_line },
 	{ "line-number-at-pos", native_line_number },
 	{ "current-column", native_current_column },
 	{ "mark", native_mark },
@@ -1367,14 +1350,12 @@ static const struct native_binding native_bindings[] = {
 	{ "string=", native_string_equal },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },
-	/* No clean Emacs analogue: (row col) point/goto and the command and
-	 * package registry keep their kg- names. */
-	{ "kg-point", native_point },
-	{ "kg-goto", native_goto },
-	{ "kg-command", native_command },
-	{ "kg-define-command", native_define_command },
-	{ "kg-remove-command", native_remove_command },
-	{ "kg--run", native_run_pending },
+	{ "command-execute", native_command },
+	/* Emacs defines commands with defun plus (interactive); kg keeps a
+	 * name -> function registry, so these two have no Emacs analogue. */
+	{ "define-command", native_define_command },
+	{ "remove-command", native_remove_command },
+	{ "internal--run-pending-command", native_run_pending },
 };
 
 static void register_natives(FeContext *context)
@@ -1406,12 +1387,12 @@ static const char lisp_prelude[] =
     "  (list 'if test (cons 'do body))))"
     "(= unless (macro (test . body)"
     "  (list 'if test nil (cons 'do body))))"
-    "(= kg--dolist (fn (items body)"
+    "(= internal--dolist (fn (items body)"
     "  (while items"
     "    (body (car items))"
     "    (= items (cdr items)))))"
     "(= dolist (macro (spec . body)"
-    "  (list 'kg--dolist (car (cdr spec))"
+    "  (list 'internal--dolist (car (cdr spec))"
     "    (cons 'fn (cons (list (car spec)) body)))))"
     "(= string-empty-p (fn (s) (string= s \"\")))"
     "(= thing-at-point (fn (thing)"
@@ -1616,7 +1597,7 @@ const char *kg_lisp_last_error(void) { return state.error; }
 
 int kg_lisp_run_command(const char *name, int fd)
 {
-	static const char trampoline[] = "(kg--run)";
+	static const char trampoline[] = "(internal--run-pending-command)";
 	struct lisp_command *cmd;
 
 	(void)fd;

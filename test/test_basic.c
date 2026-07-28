@@ -224,11 +224,11 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	editor_insert_row(0, "a\xe2\x80\xa6\tb", 6); /* a…<tab>b */
 
 	CHECK(editor_visual_col(&editor.row[0], 4) == 2);
-	CHECK(editor_visual_col(&editor.row[0], 5) == 7);
-	CHECK(editor_visual_col(&editor.row[0], 6) == 8);
+	CHECK(editor_visual_col(&editor.row[0], 5) == 8);
+	CHECK(editor_visual_col(&editor.row[0], 6) == 9);
 	CHECK(chars_to_render_col(&editor.row[0], 4) == 4);
-	CHECK(chars_to_render_col(&editor.row[0], 5) == 9);
-	CHECK(get_total_visual_rows(editor.row, editor.numrows, 4) == 2);
+	CHECK(chars_to_render_col(&editor.row[0], 5) == 10);
+	CHECK(get_total_visual_rows(editor.row, editor.numrows, 4) == 3);
 	find_visual_row(
 	    editor.row, editor.numrows, 4, 0, 1, &logical_row, &render_offset);
 	CHECK(logical_row == 0);

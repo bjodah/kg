@@ -1,7 +1,7 @@
 /* keybind.c - User key bindings on the C-c prefix.
  *
  * The single canonical key-sequence parser lives here; configuration
- * (kg-bind-key), dispatch (kbd.c), and any future help display must all
+ * (global-set-key), dispatch (kbd.c), and any future help display must all
  * go through it.  Only two-key sequences starting with C-c are
  * bindable: C-c followed by a printable character or a control letter.
  * C-c is reserved for users, matching the Emacs convention, so user
@@ -37,7 +37,7 @@ int keybind_parse(const char *sequence, int *key)
 	}
 	p += 4;
 	if (p[0] == 'C' && p[1] == '-' && p[2] != '\0' && p[3] == '\0') {
-		c = p[2];
+		c = (unsigned char)p[2];
 		if (c < 'a' || c > 'z') {
 			return 1;
 		}

@@ -8,7 +8,7 @@ filename: lisp-thing-none.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (kg-define-command "select-current-word"
+    (define-command "select-current-word"
       (fn ()
         (let bounds (bounds-of-thing-at-point 'word))
         (if bounds

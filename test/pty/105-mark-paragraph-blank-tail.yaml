@@ -1,0 +1,14 @@
+name: mark-paragraph-blank-tail
+filename: mark-paragraph-tail.txt
+initial: |
+  aaa
+
+
+# Nothing but blank lines follow point, so Emacs' forward-paragraph runs to
+# the end of the buffer and backward-paragraph walks back over the paragraph
+# above: the whole buffer is marked.
+keys:
+  - C-n
+  - M-h
+  - C-w
+oracle: emacs

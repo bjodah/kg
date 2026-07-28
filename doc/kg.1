@@ -95,7 +95,7 @@ Multiple files each open in their own buffer.
 .It M-a Ta Move backward one sentence
 .It C-\(ua / M-\&{ Ta Move to previous paragraph
 .It C-\(da / M-\&} Ta Move to next paragraph
-.It M-h Ta Mark current paragraph
+.It M-h Ta Mark current paragraph (with its blank separator line)
 .It C-Home / M-\&< Ta Move to beginning of buffer
 .It C-End / M-\&> Ta Move to end of buffer
 .It M-m Ta Back to indentation on current line
@@ -197,6 +197,7 @@ when removing one, the prefix and the optional following space are deleted.
 .It Sy Key Ta Sy Action
 .It C-Space Ta Set mark at point
 .It C-u C-Space Ta Jump to mark, popping the mark ring
+.It M-@ Ta Mark the next word, leaving point where it is
 .It C-w Ta Kill region (cut to kill ring)
 .It M-w Ta Copy region (copy to kill ring)
 .It C-y Ta Yank from kill ring (paste)
@@ -224,6 +225,13 @@ has consumed it.
 The mark itself stays set for the next
 .Ic C-x C-x .
 The kill ring is shared across all buffers.
+.Pp
+.Ic M-@
+marks the word after point without moving point.
+Repeating it, or using it while a region is live, pushes the mark another
+word along, so the region grows a word at a time;
+.Ic C-u N M-@
+takes N words at once.
 .Pp
 Each buffer also keeps a mark ring of former marks.
 Setting a mark pushes the previous one onto the ring, and
@@ -342,6 +350,7 @@ or
 .Ic Esc %
 prompts for a search string and a replacement string, then steps through
 every match from the current position to the end of the buffer.
+When a region is active the search is confined to that region instead.
 At each match:
 .Ic y
 or

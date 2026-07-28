@@ -1,0 +1,13 @@
+name: mark-paragraph-from-blank-line
+filename: mark-paragraph-blank.txt
+initial: |
+  aaa
+
+  ccc
+# Point sits on the blank separator: Emacs marks the paragraph that follows
+# (keeping the separator itself in the region), not the one above.
+keys:
+  - C-n
+  - M-h
+  - C-w
+oracle: emacs

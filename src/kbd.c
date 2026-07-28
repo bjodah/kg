@@ -501,6 +501,8 @@ void editor_process_keypress(int fd)
 		c = editor_read_key(fd);
 		if (c == '%' || c == ALT_PCT) {
 			editor_query_replace(fd);
+		} else if (c == '@' || c == ALT_AT) {
+			editor_mark_word(n);
 		} else if (c != CTRL_G) {
 			editor_set_status_message("ESC %c is undefined", c);
 		}
@@ -792,6 +794,9 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_H: /* Mark paragraph */
 		editor_mark_paragraph();
+		break;
+	case ALT_AT: /* Mark word */
+		editor_mark_word(n);
 		break;
 	case CTRL_ARROW_LEFT:
 	case ALT_B:

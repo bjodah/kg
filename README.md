@@ -27,10 +27,13 @@ standard VT100 escape sequences.
 - Visual mark mode: the region renders in reverse video as you move
 - Per-buffer mark ring: C-u C-SPC jumps to the mark and pops older
   marks; C-y, M-< and M-> push a mark like in Emacs
+- M-@ marks the next word without moving point; repeat it (or add C-u N)
+  to grow the region a word at a time
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c,t})
-- Smart-case literal and regexp search; query-replace (M-% / ESC %)
+- Smart-case literal and regexp search; query-replace (M-% / ESC %),
+  confined to the region when one is active
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)

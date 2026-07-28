@@ -98,7 +98,9 @@ static int region_point_before(int row, int col, int other_row, int other_col)
 	return col < other_col;
 }
 
-static int region_bounds(
+/* Normalized point/mark bounds, clamped to the buffer.  Returns 0 when no
+ * mark is set or the region does not overlap any row. */
+int editor_region_bounds(
     int *start_row, int *start_col, int *end_row, int *end_col)
 {
 	int cur_row = yank_current_row();
@@ -270,7 +272,7 @@ char *editor_get_region_text(int *out_len)
 	int pos = 0;
 	int row;
 
-	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
+	if (!editor_region_bounds(&start_row, &start_col, &end_row, &end_col)) {
 		return NULL;
 	}
 
@@ -477,7 +479,7 @@ static void region_kill_or_delete(int save)
 		editor_set_status_message("No mark set");
 		return;
 	}
-	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
+	if (!editor_region_bounds(&start_row, &start_col, &end_row, &end_col)) {
 		editor_set_status_message("Empty region");
 		return;
 	}
@@ -597,7 +599,7 @@ void editor_sort_lines(void)
 		editor_set_status_message("No mark set");
 		return;
 	}
-	if (!region_bounds(&start_row, &start_col, &end_row, &end_col)) {
+	if (!editor_region_bounds(&start_row, &start_col, &end_row, &end_col)) {
 		editor_set_status_message("Empty region");
 		return;
 	}

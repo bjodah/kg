@@ -14,6 +14,8 @@ keys:
   - SPC
   - RET
   - "!"
-# The buffer's final newline is replaced too, so the saved file ends
-# with a space and no newline — byte-identical to emacs -q.
+# M-h marks past the paragraph's closing newline, so that newline is
+# replaced too and the saved file ends with a space.  emacs -q saves the
+# same text plus its own final newline (newline policy, not the behavior
+# under test).
 expected_saved: "once upon a time "

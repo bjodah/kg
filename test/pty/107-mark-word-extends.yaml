@@ -1,0 +1,13 @@
+name: mark-word-extends
+filename: mark-word-extends.txt
+initial: |
+  alpha beta gamma
+# Terminals send M-@ as ESC then "@"; a second one extends the mark by
+# another word, so C-w takes "alpha beta".
+keys:
+  - ESC
+  - "@"
+  - ESC
+  - "@"
+  - C-w
+oracle: emacs

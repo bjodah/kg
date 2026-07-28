@@ -78,7 +78,7 @@ const char *kg_help_lines[]
 	      "recenter       │",
 	      "│ C-u C-SPC  pop mark     │                         │ C-h      "
 	      "help           │",
-	      "│                         │ C-x )/F4 end macro      │ C-z      "
+	      "│ M-@        mark word    │ C-x )/F4 end macro      │ C-z      "
 	      "suspend        │",
 	      "│                         │ C-x e/F4 exec macro     │ C-u      "
 	      "numeric arg    │",

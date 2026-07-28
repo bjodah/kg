@@ -1,0 +1,11 @@
+name: mark-word-prefix-arg
+filename: mark-word-prefix.txt
+initial: |
+  a b c d e f g
+# C-u 2 M-@ marks two words at once.
+keys:
+  - C-u
+  - "2"
+  - "M-@"
+  - C-w
+oracle: emacs

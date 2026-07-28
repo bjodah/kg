@@ -1,0 +1,23 @@
+name: query-replace-quoted-newline-in-region
+filename: query-newline.txt
+initial: |
+  tic
+  tac
+  toe
+keys:
+  - C-SPC
+  - M->
+  - ESC
+  - "%"
+  - C-q
+  - C-j
+  - RET
+  - SPC
+  - RET
+  - "!"
+# The region covers the whole buffer, including the final newline, so that
+# newline is replaced too and the saved file ends with a space.  emacs -q
+# saves the same text plus its own final newline, which is a newline-policy
+# difference rather than the behavior under test, so this is not an oracle
+# case.
+expected_saved: "tic tac toe "

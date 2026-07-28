@@ -1,0 +1,18 @@
+name: mark-paragraph-second-paragraph
+filename: mark-paragraph-second.txt
+initial: |
+  aaa
+  bbb
+
+  ccc
+  ddd
+# From inside the second paragraph, Emacs' backward-paragraph stops on the
+# blank separator line above it, so C-w takes that line as well and only the
+# first paragraph is left.
+keys:
+  - C-n
+  - C-n
+  - C-n
+  - M-h
+  - C-w
+oracle: emacs

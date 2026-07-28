@@ -332,34 +332,121 @@ void editor_move_paragraph_forward(void)
 	editor_cursor_goto(filerow, 0);
 }
 
-/* Mark the current paragraph (M-h): point moves to the paragraph start and
- * mark lands at the paragraph end.  Paragraphs are separated by blank lines. */
+/* Find the row the paragraph body starts on: from a blank separator Emacs
+ * marks the paragraph that follows, so skip ahead to it.  Returns -1 when
+ * only blank lines remain. */
+static int paragraph_body_row(int filerow)
+{
+	int row = filerow;
+
+	while (row < editor.numrows && editor.row[row].size == 0) {
+		row++;
+	}
+	return row < editor.numrows ? row : -1;
+}
+
+/* First row of the paragraph holding the given body row, including the blank
+ * separator line that opens it — backward-paragraph stops on that line. */
+static int paragraph_start_row(int row)
+{
+	while (row > 0 && editor.row[row - 1].size > 0) {
+		row--;
+	}
+	if (row > 0 && editor.row[row - 1].size == 0) {
+		row--;
+	}
+	return row;
+}
+
+/* Mark the current paragraph (M-h).  Emacs' mark-paragraph runs
+ * forward-paragraph then backward-paragraph, so the region spans the blank
+ * separator line above the paragraph through the paragraph's closing
+ * newline; C-w after M-h then takes the whole thing.  Paragraphs are
+ * separated by blank lines. */
 void editor_mark_paragraph(void)
 {
 	int filerow;
-	int para_start, para_end, end_col;
+	int para_start, para_end, end_row, end_col;
 
 	if (editor.numrows == 0) {
 		return;
 	}
-	filerow = word_cursor_filerow();
+	filerow = paragraph_body_row(word_cursor_filerow());
 
-	para_start = filerow;
-	while (para_start > 0 && editor.row[para_start - 1].size > 0) {
-		para_start--;
-	}
-	para_end = filerow;
-	while (para_end < editor.numrows - 1
-	    && editor.row[para_end + 1].size > 0) {
-		para_end++;
+	if (filerow < 0) {
+		/* Only blank lines below point: forward-paragraph runs to the
+		 * end of the buffer and backward-paragraph walks back over the
+		 * blank tail and the paragraph above it. */
+		int row = word_cursor_filerow();
+
+		while (row > 0 && editor.row[row].size == 0) {
+			row--;
+		}
+		para_start = paragraph_start_row(row);
+		para_end = editor.numrows - 1;
+	} else {
+		para_start = paragraph_start_row(filerow);
+		para_end = filerow;
+		while (para_end < editor.numrows - 1
+		    && editor.row[para_end + 1].size > 0) {
+			para_end++;
+		}
 	}
 
-	end_col = editor.row[para_end].size;
+	if (para_end < editor.numrows - 1) {
+		end_row = para_end + 1;
+		end_col = 0;
+	} else {
+		end_row = para_end;
+		end_col = editor.row[para_end].size;
+	}
 	editor_cursor_goto(para_start, 0);
 	editor.mark_set = 1;
-	editor.mark_row = para_end;
+	editor.mark_row = end_row;
 	editor.mark_col = end_col;
 	editor.mark_highlight = 1;
+	editor_set_status_message("Mark set");
+}
+
+/* Mark the next count words (M-@): point stays put and the mark lands where
+ * M-f would leave it.  With a live region the mark is pushed one more word
+ * along instead, so repeating M-@ grows the region — a region built
+ * backwards grows backwards, as in Emacs' mark-word. */
+void editor_mark_word(int count)
+{
+	int saved_cx = editor.cx, saved_cy = editor.cy;
+	int saved_coloff = editor.coloff, saved_rowoff = editor.rowoff;
+	int point_row = word_cursor_filerow();
+	int point_col = word_cursor_filecol(&editor.row[point_row]);
+	int backward = 0;
+	int i;
+
+	if (editor.numrows <= 0) {
+		return;
+	}
+	if (editor.mark_set && editor.mark_highlight) {
+		backward = editor.mark_row < point_row
+		    || (editor.mark_row == point_row
+			&& editor.mark_col < point_col);
+		editor_cursor_goto(editor.mark_row, editor.mark_col);
+	}
+	for (i = 0; i < count; i++) {
+		if (backward) {
+			editor_move_word_backward();
+		} else {
+			editor_move_word_forward();
+		}
+	}
+
+	editor.mark_set = 1;
+	editor.mark_row = word_cursor_filerow();
+	editor.mark_col = word_cursor_filecol(&editor.row[editor.mark_row]);
+	editor.mark_highlight = 1;
+
+	editor.cx = saved_cx;
+	editor.cy = saved_cy;
+	editor.coloff = saved_coloff;
+	editor.rowoff = saved_rowoff;
 	editor_set_status_message("Mark set");
 }
 

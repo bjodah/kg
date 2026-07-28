@@ -1,0 +1,13 @@
+name: mark-paragraph-includes-newline
+filename: mark-paragraph.txt
+initial: |
+  once
+  upon
+
+  tail
+# M-h marks past the paragraph's closing newline, so C-w takes the line
+# break with it and leaves the blank separator line behind.
+keys:
+  - M-h
+  - C-w
+oracle: emacs

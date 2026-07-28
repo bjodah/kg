@@ -39,6 +39,7 @@ static const struct key_map alt_keys[] = {
 	{ '\x7f', ALT_BACKSPACE },
 	{ '\b', ALT_BACKSPACE },
 	{ '%', ALT_PCT },
+	{ '@', ALT_AT },
 	{ ';', ALT_SEMICOLON },
 	{ ':', ALT_COLON },
 	{ 'x', ALT_X },

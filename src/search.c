@@ -168,12 +168,31 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 	editor.dirty++;
 }
 
-static void editor_query_replace_newline(int fd, char *replace, int rlen)
+/* Emacs restricts query-replace to the region when one is active; otherwise
+ * it runs from point to the end of the buffer.  The bounds are returned as
+ * an inclusive row range with a column on each end. */
+static void query_replace_bounds(
+    int *start_row, int *start_col, int *end_row, int *end_col)
 {
-	int filerow = editor.rowoff + editor.cy;
+	if (editor.mark_set && editor.mark_highlight
+	    && editor_region_bounds(start_row, start_col, end_row, end_col)) {
+		return;
+	}
+	*start_row = editor.rowoff + editor.cy;
+	*start_col = editor.coloff + editor.cx;
+	*end_row = editor.numrows > 0 ? editor.numrows - 1 : 0;
+	*end_col = editor.numrows > 0 ? editor.row[*end_row].size : 0;
+}
+
+static void editor_query_replace_newline(
+    int fd, char *replace, int rlen, int start_row, int end_row)
+{
+	int filerow = start_row;
 	int count = 0, replace_all = 0;
 
-	while (filerow < editor.numrows - 1) {
+	/* The newline ending row R is inside the region only while R is above
+	 * the last region row. */
+	while (filerow < end_row && filerow < editor.numrows - 1) {
 		int c;
 
 		editor_cursor_goto(filerow, editor.row[filerow].size);
@@ -196,6 +215,9 @@ static void editor_query_replace_newline(int fd, char *replace, int rlen)
 
 		if (c == 'y' || c == ENTER || c == ' ') {
 			query_replace_newline_at(filerow, replace, rlen);
+			/* The join pulled the next row up, so the last region
+			 * row moved with it. */
+			end_row--;
 			count++;
 		} else {
 			filerow++;
@@ -475,7 +497,10 @@ void editor_query_replace(int fd)
 	int saved_hl_line = -1;
 	int slen, rlen;
 	int filerow, match_col;
+	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0;
+
+	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
 	if (editor_read_line(fd, "Query replace: ", search, sizeof(search)) < 0
 	    || !search[0]) {
@@ -491,14 +516,15 @@ void editor_query_replace(int fd)
 	slen = strlen(search);
 	rlen = strlen(replace);
 	if (slen == 1 && search[0] == '\n') {
-		editor_query_replace_newline(fd, replace, rlen);
+		editor_query_replace_newline(
+		    fd, replace, rlen, start_row, end_row);
 		return;
 	}
-	filerow = editor.rowoff + editor.cy;
-	match_col = editor.coloff + editor.cx;
+	filerow = start_row;
+	match_col = start_col;
 	fold = !query_has_upper(search, slen);
 
-	while (filerow < editor.numrows) {
+	while (filerow <= end_row && filerow < editor.numrows) {
 		char *match = case_strstr(
 		    editor.row[filerow].chars + match_col, search, fold);
 		int c;
@@ -509,6 +535,11 @@ void editor_query_replace(int fd)
 			continue;
 		}
 		match_col = match - editor.row[filerow].chars;
+		/* A match straddling the region end is outside it, and so is
+		 * every later match on this row. */
+		if (filerow == end_row && match_col + slen > end_col) {
+			break;
+		}
 
 		editor_goto_line_direct(filerow + 1, match_col + 1);
 
@@ -580,6 +611,9 @@ void editor_query_replace(int fd)
 			}
 			suppress_undo = 0;
 
+			if (filerow == end_row) {
+				end_col += rlen - slen;
+			}
 			match_col += rlen;
 			count++;
 		} else {
@@ -696,7 +730,10 @@ void editor_query_replace_regexp(int fd)
 	char *saved_hl = NULL;
 	int saved_hl_line = -1;
 	int filerow, match_col;
+	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0;
+
+	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
 	if (editor_read_line(
 		fd, "Query replace regexp: ", search, sizeof(search))
@@ -717,10 +754,10 @@ void editor_query_replace_regexp(int fd)
 		return;
 	}
 
-	filerow = editor.rowoff + editor.cy;
-	match_col = editor.coloff + editor.cx;
+	filerow = start_row;
+	match_col = start_col;
 
-	while (filerow < editor.numrows) {
+	while (filerow <= end_row && filerow < editor.numrows) {
 		erow *row = &editor.row[filerow];
 		struct kg_match match_res;
 		int status = kg_regex_match_forward(
@@ -736,6 +773,12 @@ void editor_query_replace_regexp(int fd)
 		int match_start = match_res.spans[0].start;
 		int match_end = match_res.spans[0].end;
 		int match_len = match_end - match_start;
+
+		/* A match straddling the region end is outside it, and so is
+		 * every later match on this row. */
+		if (filerow == end_row && match_end > end_col) {
+			break;
+		}
 
 		editor_goto_line_direct(filerow + 1, match_start + 1);
 
@@ -809,6 +852,9 @@ void editor_query_replace_regexp(int fd)
 			}
 			suppress_undo = 0;
 
+			if (filerow == end_row) {
+				end_col += expanded_len - match_len;
+			}
 			match_col = match_start + expanded_len
 			    + (match_len == 0 ? 1 : 0);
 			count++;

@@ -172,6 +172,7 @@ enum KEY_ACTION {
 	ALT_Q,
 	ALT_BACKSPACE,
 	ALT_PCT, /* M-% query-replace */
+	ALT_AT, /* M-@ mark-word */
 	ALT_SEMICOLON, /* M-; comment-dwim */
 	ALT_COLON, /* M-: eval-expression */
 	ALT_X, /* M-x named command */
@@ -824,6 +825,7 @@ void editor_move_word_backward(void);
 void editor_move_paragraph_forward(void);
 void editor_move_paragraph_backward(void);
 void editor_mark_paragraph(void);
+void editor_mark_word(int count);
 void editor_move_sentence_forward(void);
 void editor_move_sentence_backward(void);
 void editor_kill_word_forward(void);
@@ -866,6 +868,8 @@ void rect_kill_ring_free(void);
 void editor_kill_region(void);
 void editor_copy_region(void);
 char *editor_get_region_text(int *out_len);
+int editor_region_bounds(
+    int *start_row, int *start_col, int *end_row, int *end_col);
 void editor_yank(void);
 void editor_sort_lines(void);
 

@@ -1,0 +1,10 @@
+name: mark-word
+filename: mark-word.txt
+initial: |
+  alpha beta gamma
+# M-@ marks the word after point without moving point, so C-w takes just
+# "alpha".
+keys:
+  - "M-@"
+  - C-w
+oracle: emacs

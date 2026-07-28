@@ -1,0 +1,21 @@
+name: query-replace-region-bounded
+filename: region-bounded.txt
+initial: |
+  abcabc
+  abc
+# The region covers "abca" only, so the second "bc" — which straddles the
+# region end — and the whole second line are left alone.
+keys:
+  - C-SPC
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - "M-%"
+  - b
+  - c
+  - RET
+  - X
+  - RET
+  - "!"
+oracle: emacs

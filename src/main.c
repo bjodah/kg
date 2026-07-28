@@ -143,7 +143,8 @@ int main(int argc, char **argv)
 
 	init_editor();
 	if (kg_lisp_active() && kg_lisp_init() != 0) {
-		fprintf(stderr, "kg: cannot initialize Lisp\n");
+		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
+		    kg_lisp_last_error());
 		return 1;
 	}
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);

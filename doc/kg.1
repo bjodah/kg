@@ -54,7 +54,7 @@ forms evaluated before the error remain applied.
 Init files and packages are trusted code: they run with the full
 privileges of the editor process.
 Packages load explicitly with
-.Li (kg-load "name") ,
+.Li (load "name") ,
 which resolves a bare name to
 .Pa <config>/kg/lisp/name.fe
 and treats names containing a slash as literal paths.
@@ -63,15 +63,145 @@ Loading a file twice evaluates it twice.
 Lisp code can define interactive commands with
 .Li (kg-define-command "name" (fn () ...))
 and bind them with
-.Li (kg-bind-key "C-c <key>" "name") .
+.Li (global-set-key "C-c <key>" "name") .
 Defined commands appear in M-x completion and run under the normal
 evaluation budget;
 .Li kg-remove-command
 and
-.Li kg-unbind-key
+.Li global-unset-key
 undo the registrations.
 Only two-key sequences starting with C-c are bindable:
 C-c is reserved for user bindings and is otherwise undefined.
+.Pp
+Buffer positions follow Emacs: a position is a 1-based codepoint offset,
+so
+.Li (point-min)
+is 1,
+.Li (point-max)
+is one past the last character, and each line break counts as one
+character.
+Offsets count characters rather than bytes.
+The position and mark API is
+.Li (point) ,
+.Li (goto-char N) ,
+.Li (point-min) ,
+.Li (point-max) ,
+.Li (line-number-at-pos) ,
+.Li (current-column)
+(a display column, so tabs expand),
+.Li (mark) ,
+.Li (set-mark N) ,
+.Li (deactivate-mark) ,
+.Li (region-beginning) ,
+.Li (region-end) ,
+.Li (buffer-substring BEG END) ,
+.Li (char-after &optional POS) ,
+.Li (forward-word &optional N) ,
+.Li (backward-word &optional N)
+and
+.Li (bounds-of-thing-at-point THING) .
+Out-of-range positions clamp to the buffer;
+.Li buffer-substring
+accepts its bounds in either order; and
+.Li region-beginning
+and
+.Li region-end
+signal an error when no mark is set.
+.Li set-mark
+also activates the region, so there is no separate activate-mark.
+.Pp
+.Li bounds-of-thing-at-point
+supports
+.Li 'word
+and
+.Li 'line
+and returns a cons
+.Li "(START . END)"
+of positions, or nil when point is not on such a thing; any other symbol
+raises an error.
+Both things are bounded as Emacs bounds them.
+Point just after a word still belongs to that word and point between words
+belongs to none;
+.Li 'line
+runs from the start of the line to the start of the next one, so it
+includes the line break, and on the last line it ends at
+.Li (point-max) .
+Every codepoint from U+0080 up counts as a word constituent there, so
+accented and CJK words come back whole.
+The interactive word commands
+.Pq M-f , M-b , M-@ , M-d
+and the Lisp
+.Li forward-word
+and
+.Li backward-word ,
+which drive them, remain ASCII-only.
+.Pp
+Upstream fe has no string operations; the string natives are provided by
+.Nm
+itself, as is a small prelude written in Fe and evaluated at startup, so
+the pinned
+.Pa fe
+submodule stays unpatched.
+The string API is
+.Li (string-length S) ,
+.Li (substring S FROM &optional TO) ,
+.Li (concat A B ...) ,
+.Li (string= A B) ,
+.Li (char-to-string N)
+and
+.Li (string-to-char S) .
+Indices count codepoints rather than bytes, so no result is cut
+mid-glyph.
+.Li substring
+takes 0-based indices, counts negative ones from the end, clamps
+out-of-range ones, and yields the empty string when TO precedes FROM.
+.Li concat
+accepts any number of arguments and
+.Li (concat)
+is the empty string.
+.Li char-to-string
+is the inverse of
+.Li char-after ,
+which returns a number; it rejects 0, surrogates and values above
+U+10FFFF.
+.Li string-to-char
+returns nil for the empty string.
+.Pp
+The prelude defines
+.Li (cond (TEST BODY ...) ...) ,
+.Li (when COND BODY ...) ,
+.Li (unless COND BODY ...) ,
+.Li (dolist (VAR LIST) BODY ...) ,
+.Li (string-empty-p S)
+and
+.Li (thing-at-point THING) ,
+which are available before any init file is loaded.
+.Li thing-at-point
+returns the text of
+.Li bounds-of-thing-at-point ,
+or nil when there are no bounds.
+.Pp
+The editor bridge uses the Emacs names
+.Li insert ,
+.Li message ,
+.Li buffer-name ,
+.Li load ,
+.Li global-set-key
+and
+.Li global-unset-key .
+The older
+.Li kg-
+names
+.Pq kg-insert , kg-message , kg-buffer-name , kg-load , kg-bind-key , kg-unbind-key
+remain registered as aliases.
+.Li kg-point
+and
+.Li kg-goto
+keep their (row col) shape and have no Emacs-named equivalent; use
+.Li point
+and
+.Li goto-char
+for offsets.
 .Pp
 If no files are given,
 .Nm

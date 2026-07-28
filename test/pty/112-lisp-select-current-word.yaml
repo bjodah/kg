@@ -1,0 +1,34 @@
+# The motivating example, end to end: bounds-of-thing-at-point drives
+# goto-char and set-mark, so C-c w selects the word under point and the
+# following C-w kills precisely that word and nothing else.
+name: lisp-select-current-word
+filename: lisp-thing.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (kg-define-command "select-current-word"
+      (fn ()
+        (let bounds (bounds-of-thing-at-point 'word))
+        (if bounds
+            (do (goto-char (car bounds))
+                (set-mark (cdr bounds)))
+          (message "No word found at point."))))
+    (global-set-key "C-c w" "select-current-word")
+initial: |
+  hello brave world
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-c
+  - w
+  - C-w
+expected_saved: |
+  hello  world
+expected_screen_contains:
+  - Region killed

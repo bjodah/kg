@@ -1,0 +1,22 @@
+# The Emacs-named position API end to end: point/set-mark select the first
+# word, region-beginning/region-end bound it, and buffer-substring + insert
+# duplicate it.
+name: lisp-region-duplicate
+filename: lisp-region.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (kg-define-command "dup-word"
+      (fn ()
+        (goto-char (point-min))
+        (set-mark (point))
+        (forward-word)
+        (insert (buffer-substring (region-beginning) (region-end)))))
+    (global-set-key "C-c d" "dup-word")
+initial: |
+  hello world
+keys:
+  - C-c
+  - d
+expected_saved: |
+  hellohello world

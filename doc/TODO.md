@@ -156,11 +156,35 @@ ordered by value vs implementation effort.
       ask, low cost.
 
 - [x] **Minimal config file**: `~/.config/kg/init.fe` — done; see the Lisp
-      section in README.md (init files, `(kg-load ...)`, `kg-define-command`,
-      `kg-bind-key`). Remaining Lisp follow-ups:
+      section in README.md (init files, `(load ...)`, `kg-define-command`,
+      `global-set-key`). What exists now:
+      - an Emacs-shaped position and mark API (`point`, `goto-char`,
+        `point-min`/`point-max`, `line-number-at-pos`, `current-column`,
+        `mark`, `set-mark`, `deactivate-mark`, `region-beginning`/`region-end`,
+        `buffer-substring`, `char-after`, `forward-word`/`backward-word`,
+        `bounds-of-thing-at-point`), addressing the buffer by 1-based
+        codepoint offsets
+      - string natives (`string-length`, `substring`, `concat`, `string=`,
+        `char-to-string`, `string-to-char`), which upstream fe lacks
+      - a small Fe prelude evaluated at startup: `cond`, `when`, `unless`,
+        `dolist`, `string-empty-p`, `thing-at-point`
+      - Emacs names for the editor bridge (`insert`, `message`,
+        `buffer-name`, `load`, `global-set-key`, `global-unset-key`), with
+        the older `kg-*` names kept as aliases
+
+      Remaining Lisp follow-ups:
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
-        to Lisp; currently only commands/bindings and the editing bridge exist
-      - grow the `kg-command` allow-list deliberately (policy per command)
+        to Lisp; still only commands/bindings and the editing bridge exist
+      - grow the `kg-command` allow-list deliberately (policy per command).
+        It is still the eleven entries in `allowed_commands` in `src/lisp.c`
+      - **word constituents disagree between the two layers**: the global
+        `is_word_char()` in `src/word.c` is ASCII-only (`isalnum() || '_'`),
+        so `M-f`, `M-b`, `M-@`, `M-d` and the Lisp `forward-word` /
+        `backward-word` that drive them stop inside "héllo", while the Lisp
+        `bounds-of-thing-at-point` treats every codepoint from U+0080 up as
+        a word constituent and returns the whole word. Deliberate for now —
+        making interactive word motion codepoint-aware is part of the
+        "Proper UTF-8 handling" item below, not a Lisp change
       - extend the keypress fuzz harness to drive `eval-expression` once it
         can run without filesystem side effects
       - upstream Fe: `FeCallWithOptions` so hosts can budget a bare `FeCall`

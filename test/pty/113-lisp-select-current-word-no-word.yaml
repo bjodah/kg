@@ -1,0 +1,38 @@
+# The other half of the motivating example: with point between two words
+# bounds-of-thing-at-point returns nil, so no region is set and the message
+# branch runs.  The C-w in the middle proves the region really is unset —
+# it kills nothing, leaving the saved file untouched — and the second
+# C-c w puts the message back on screen after C-w overwrote it.
+name: lisp-select-current-word-no-word
+filename: lisp-thing-none.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (kg-define-command "select-current-word"
+      (fn ()
+        (let bounds (bounds-of-thing-at-point 'word))
+        (if bounds
+            (do (goto-char (car bounds))
+                (set-mark (cdr bounds)))
+          (message "No word found at point."))))
+    (global-set-key "C-c w" "select-current-word")
+initial: |
+  hello  brave world
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-c
+  - w
+  - C-w
+  - C-c
+  - w
+expected_saved: |
+  hello  brave world
+expected_screen_contains:
+  - No word found at point
+expected_screen_not_contains:
+  - Region killed

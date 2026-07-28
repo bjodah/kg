@@ -16,6 +16,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 
 #ifdef KG_USE_LISP
 
+#include <ctype.h>
 #include <limits.h>
 #include <setjmp.h>
 #include <stdarg.h>
@@ -25,6 +26,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 
 #include "../fe/fe.h"
 #include "def.h"
+#include "localvars.h"
 
 static_assert(FE_API_VERSION == 1);
 
@@ -66,6 +68,9 @@ struct lisp_state {
 	 * longjmp past the natives, so frame recovery frees the leftovers. */
 	char *load_buffers[lisp_max_load_depth];
 	size_t load_depth;
+	/* Buffer text extracted by a native that has not handed it to Fe
+	 * yet; freed by frame recovery for the same reason. */
+	char *scratch;
 	struct lisp_command commands[lisp_max_commands];
 	/* Command function about to be invoked by the kg--run trampoline. */
 	FeObject *pending_command;
@@ -93,13 +98,15 @@ static void reset_state(void)
 	copy_result(state.error, sizeof(state.error), error);
 }
 
-static void release_load_buffers(void)
+static void release_frame_buffers(void)
 {
 	while (state.load_depth > 0) {
 		state.load_depth--;
 		free(state.load_buffers[state.load_depth]);
 		state.load_buffers[state.load_depth] = nullptr;
 	}
+	free(state.scratch);
+	state.scratch = nullptr;
 }
 
 [[noreturn]] static void handle_error(
@@ -247,6 +254,721 @@ static FeObject *native_goto(FeContext *context, FeObject *arguments)
 	col = fe_number_to_int(context, col_object);
 	editor_goto_line_direct(row, col);
 	return FeNil(context);
+}
+
+/* ---- Emacs-shaped buffer positions -----------------------------------
+ * The editor stores (row, byte column); the Emacs-named natives address
+ * the buffer with a single 1-based codepoint offset, so (point-min) is 1
+ * and (point-max) is one past the last character.  Conversion happens
+ * here and nowhere else. */
+
+static long lisp_point_max(void) { return editor_buffer_char_length() + 1; }
+
+/* 0-based codepoint offset of point. */
+static long lisp_point(void)
+{
+	return editor_char_offset(
+	    editor_current_filerow(), editor_current_filecol());
+}
+
+static FeDouble lisp_finite(FeContext *context, FeObject *object)
+{
+	FeDouble value = FeToDouble(context, object);
+
+	if (value != value) {
+		FeHandleError(context, "argument must not be NaN");
+	}
+	return value;
+}
+
+/* Clamp a 1-based position argument to [point-min, point-max] and return
+ * the 0-based offset the buffer helpers expect. */
+static long lisp_offset_argument(FeContext *context, FeObject *object)
+{
+	FeDouble value = lisp_finite(context, object);
+	long max = lisp_point_max();
+
+	if (value < 1) {
+		return 0;
+	}
+	if (value > (FeDouble)max) {
+		return max - 1;
+	}
+	return (long)value - 1;
+}
+
+/* An omitted or nil position argument means point, as in Emacs. */
+static long lisp_optional_offset(FeContext *context, FeObject **arguments)
+{
+	FeObject *object;
+
+	if (FeIsNil(*arguments)) {
+		return lisp_point();
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (FeIsNil(object)) {
+		return lisp_point();
+	}
+	return lisp_offset_argument(context, object);
+}
+
+/* An omitted or nil repeat count means 1. */
+static long lisp_optional_count(FeContext *context, FeObject **arguments)
+{
+	FeObject *object;
+	FeDouble value;
+
+	if (FeIsNil(*arguments)) {
+		return 1;
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (FeIsNil(object)) {
+		return 1;
+	}
+	value = lisp_finite(context, object);
+	if (value > (FeDouble)INT_MAX) {
+		return INT_MAX;
+	}
+	if (value < -(FeDouble)INT_MAX) {
+		return -(long)INT_MAX;
+	}
+	return (long)value;
+}
+
+static FeObject *lisp_position(FeContext *context, long offset)
+{
+	return FeMakeDouble(context, (FeDouble)offset + 1);
+}
+
+static FeObject *native_point_offset(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	return lisp_position(context, lisp_point());
+}
+
+static FeObject *native_point_min(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	return lisp_position(context, 0);
+}
+
+static FeObject *native_point_max(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	return lisp_position(context, lisp_point_max() - 1);
+}
+
+static FeObject *native_goto_char(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	int row, col;
+
+	FeRequireNoArguments(context, arguments);
+	editor_offset_to_rowcol(
+	    lisp_offset_argument(context, object), &row, &col);
+	/* editor_cursor_goto scrolls just enough to reveal the target, so the
+	 * viewport follows point. */
+	editor_cursor_goto(row, col);
+	return FeNil(context);
+}
+
+static FeObject *native_line_number(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	return FeMakeDouble(context, (FeDouble)editor_current_filerow() + 1);
+}
+
+/* Emacs' current-column is a display column, so tabs expand. */
+static FeObject *native_current_column(FeContext *context, FeObject *arguments)
+{
+	erow *row;
+	int col = 0;
+
+	FeRequireNoArguments(context, arguments);
+	if (editor.numrows > 0) {
+		row = &editor.row[editor_current_filerow()];
+		col = editor_visual_col(
+		    row, editor_current_filecol_in_row(row));
+	}
+	return FeMakeDouble(context, (FeDouble)col);
+}
+
+static FeObject *native_mark(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	if (!editor.mark_set) {
+		return FeNil(context);
+	}
+	return lisp_position(
+	    context, editor_char_offset(editor.mark_row, editor.mark_col));
+}
+
+static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	int row, col;
+
+	FeRequireNoArguments(context, arguments);
+	editor_offset_to_rowcol(
+	    lisp_offset_argument(context, object), &row, &col);
+	editor.mark_set = 1;
+	editor.mark_row = row;
+	editor.mark_col = col;
+	editor.mark_highlight = 1;
+	return FeNil(context);
+}
+
+/* Drop the region highlight but keep the mark, as C-g does. */
+static FeObject *native_deactivate_mark(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	editor.mark_highlight = 0;
+	return FeNil(context);
+}
+
+/* Emacs signals when there is no region; kg's bounds helper also rejects a
+ * mark left outside a buffer that shrank under it. */
+static void lisp_region(FeContext *context, int *rows, int *cols)
+{
+	if (!editor_region_bounds(&rows[0], &cols[0], &rows[1], &cols[1])) {
+		FeHandleError(context, "no region: the mark is not set");
+	}
+}
+
+static FeObject *native_region_beginning(
+    FeContext *context, FeObject *arguments)
+{
+	int rows[2], cols[2];
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region(context, rows, cols);
+	return lisp_position(context, editor_char_offset(rows[0], cols[0]));
+}
+
+static FeObject *native_region_end(FeContext *context, FeObject *arguments)
+{
+	int rows[2], cols[2];
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region(context, rows, cols);
+	return lisp_position(context, editor_char_offset(rows[1], cols[1]));
+}
+
+/* Bytes spanned by [(r0,c0), (r1,c1)), counting one byte per row break.
+ * Both columns are valid byte indices in their rows. */
+static size_t lisp_span_bytes(const int *rows, const int *cols)
+{
+	size_t bytes = 0;
+	int r, from, to;
+
+	for (r = rows[0]; r <= rows[1]; r++) {
+		from = (r == rows[0]) ? cols[0] : 0;
+		to = (r == rows[1]) ? cols[1] : editor.row[r].size;
+		bytes += (size_t)(to - from);
+		if (r < rows[1]) {
+			bytes++;
+		}
+	}
+	return bytes;
+}
+
+/* Buffer text between two (row, byte column) pairs, rows joined by '\n'.
+ * Parked in state.scratch so frame recovery frees it if Fe raises before
+ * the string object exists. */
+static char *lisp_copy_span(
+    FeContext *context, const int *rows, const int *cols)
+{
+	size_t size = lisp_span_bytes(rows, cols);
+	size_t pos = 0;
+	char *text = malloc(size + 1);
+	int r, from, to;
+
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	for (r = rows[0]; r <= rows[1]; r++) {
+		from = (r == rows[0]) ? cols[0] : 0;
+		to = (r == rows[1]) ? cols[1] : editor.row[r].size;
+		memcpy(text + pos, editor.row[r].chars + from,
+		    (size_t)(to - from));
+		pos += (size_t)(to - from);
+		if (r < rows[1]) {
+			text[pos++] = '\n';
+		}
+	}
+	text[size] = '\0';
+	state.scratch = text;
+	return text;
+}
+
+/* (buffer-substring BEG END): order-insensitive and clamped, like Emacs. */
+static FeObject *native_buffer_substring(
+    FeContext *context, FeObject *arguments)
+{
+	FeObject *beg_object = FeGetNextArgument(context, &arguments);
+	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	long beg, end, swap;
+	int rows[2], cols[2];
+	FeObject *result;
+
+	FeRequireNoArguments(context, arguments);
+	beg = lisp_offset_argument(context, beg_object);
+	end = lisp_offset_argument(context, end_object);
+	if (beg > end) {
+		swap = beg;
+		beg = end;
+		end = swap;
+	}
+	if (editor.numrows <= 0) {
+		return FeMakeString(context, "");
+	}
+	editor_offset_to_rowcol(beg, &rows[0], &cols[0]);
+	editor_offset_to_rowcol(end, &rows[1], &cols[1]);
+	result = FeMakeString(context, lisp_copy_span(context, rows, cols));
+	free(state.scratch);
+	state.scratch = nullptr;
+	return result;
+}
+
+/* Codepoint at byte offset `col` of `text`.  Malformed bytes come back as
+ * their raw value, so decoding never fails. */
+static long lisp_decode_char(const char *text, int length, int col)
+{
+	int span = utf8_glyph_span_at(text, length, col);
+	long codepoint;
+	int i;
+
+	if (span <= 1) {
+		return (unsigned char)text[col];
+	}
+	codepoint = (unsigned char)text[col] & (0xFF >> (span + 1));
+	for (i = 1; i < span; i++) {
+		codepoint
+		    = (codepoint << 6) | ((unsigned char)text[col + i] & 0x3F);
+	}
+	return codepoint;
+}
+
+/* Codepoint at (row, byte column); one past a row's last byte is the row
+ * separator. */
+static long lisp_char_at(int row, int col)
+{
+	erow *r = &editor.row[row];
+
+	if (col >= r->size) {
+		return '\n';
+	}
+	return lisp_decode_char(r->chars, r->size, col);
+}
+
+/* (char-after &optional POS): the codepoint as a number, nil at the end of
+ * the buffer.  Fe has no character type, so a number is the closest fit. */
+static FeObject *native_char_after(FeContext *context, FeObject *arguments)
+{
+	long offset = lisp_optional_offset(context, &arguments);
+	int row, col;
+
+	FeRequireNoArguments(context, arguments);
+	if (editor.numrows <= 0 || offset >= editor_buffer_char_length()) {
+		return FeNil(context);
+	}
+	editor_offset_to_rowcol(offset, &row, &col);
+	return FeMakeDouble(context, (FeDouble)lisp_char_at(row, col));
+}
+
+/* Move point by COUNT words; negative counts move backward.  The loop
+ * stops as soon as point stops moving so a huge count cannot spin at the
+ * edge of the buffer. */
+static void lisp_move_words(long count)
+{
+	int row, col;
+
+	while (count != 0) {
+		row = editor_current_filerow();
+		col = editor_current_filecol();
+		if (count > 0) {
+			editor_move_word_forward();
+			count--;
+		} else {
+			editor_move_word_backward();
+			count++;
+		}
+		if (row == editor_current_filerow()
+		    && col == editor_current_filecol()) {
+			return;
+		}
+	}
+}
+
+static FeObject *native_forward_word(FeContext *context, FeObject *arguments)
+{
+	long count = lisp_optional_count(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	lisp_move_words(count);
+	return FeNil(context);
+}
+
+static FeObject *native_backward_word(FeContext *context, FeObject *arguments)
+{
+	long count = lisp_optional_count(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	lisp_move_words(-count);
+	return FeNil(context);
+}
+
+/* ---- Things at point -------------------------------------------------
+ * kg's interactive word motion uses the ASCII-only is_word_char() in
+ * word.c, so M-f treats "héllo" as two words.  The Lisp thing API cannot
+ * afford that: it hands positions to buffer-substring, which counts
+ * codepoints.  Every byte at or above 0x80 is therefore a word
+ * constituent here — lead and continuation bytes alike, so a byte scan can
+ * never stop inside a glyph. */
+
+static bool lisp_is_word_byte(unsigned char byte)
+{
+	return isalnum(byte) || byte == '_' || byte >= 0x80;
+}
+
+/* Byte columns of the word at `col` in `row`.  Point sitting just after a
+ * word belongs to that word, as in Emacs; point between words belongs to
+ * none and returns false. */
+static bool lisp_word_bounds(int row, int col, int *from, int *to)
+{
+	erow *r = &editor.row[row];
+	int start = col, end = col;
+
+	if (col < r->size && lisp_is_word_byte((unsigned char)r->chars[col])) {
+		while (end < r->size
+		    && lisp_is_word_byte((unsigned char)r->chars[end])) {
+			end++;
+		}
+	} else if (col <= 0
+	    || !lisp_is_word_byte((unsigned char)r->chars[col - 1])) {
+		return false;
+	}
+	while (start > 0
+	    && lisp_is_word_byte((unsigned char)r->chars[start - 1])) {
+		start--;
+	}
+	*from = start;
+	*to = end;
+	return true;
+}
+
+/* Recognise THING: true for 'word, false for 'line.  Anything else raises,
+ * so a typo cannot masquerade as "no thing here". */
+static bool lisp_thing_is_word(FeContext *context, FeObject *object)
+{
+	char thing[64];
+	char message[128];
+
+	if (FeGetType(object) != FeTSymbol) {
+		FeHandleError(context,
+		    "bounds-of-thing-at-point needs a symbol: 'word or 'line");
+	}
+	(void)FeToString(context, object, thing, sizeof(thing));
+	if (strcmp(thing, "word") == 0) {
+		return true;
+	}
+	if (strcmp(thing, "line") == 0) {
+		return false;
+	}
+	(void)snprintf(message, sizeof(message),
+	    "unsupported thing: %s (only 'word and 'line)", thing);
+	FeHandleError(context, message);
+}
+
+/* (bounds-of-thing-at-point THING): a cons (START . END) of 1-based
+ * positions, or nil when point is not on such a thing. */
+static FeObject *native_bounds_of_thing(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	bool want_word;
+	long from, to;
+	int row, col, start, end;
+
+	FeRequireNoArguments(context, arguments);
+	want_word = lisp_thing_is_word(context, object);
+	if (editor.numrows <= 0) {
+		return FeNil(context);
+	}
+	row = editor_current_filerow();
+	col = editor_current_filecol_in_row(&editor.row[row]);
+	start = 0;
+	end = editor.row[row].size;
+	if (want_word && !lisp_word_bounds(row, col, &start, &end)) {
+		return FeNil(context);
+	}
+	from = editor_char_offset(row, start);
+	to = editor_char_offset(row, end);
+	/* A word stops at the line break; a line takes it in, as in Emacs, so
+	 * END is the start of the next row.  The last row has no next row and
+	 * ends at end of buffer. */
+	if (!want_word && row < editor.numrows - 1) {
+		to++;
+	}
+	return FeCons(
+	    context, lisp_position(context, from), lisp_position(context, to));
+}
+
+/* ---- Strings ---------------------------------------------------------
+ * Fe has no string operations of its own.  These natives index by
+ * codepoint, like the position API, so no result can be cut mid-glyph. */
+
+static void release_scratch(void)
+{
+	free(state.scratch);
+	state.scratch = nullptr;
+}
+
+/* Copy a string argument and park it in state.scratch, so a later Fe error
+ * frees it.  Only one such copy is live at a time. */
+static char *lisp_string_argument(
+    FeContext *context, FeObject *object, int *length)
+{
+	size_t bytes;
+	char *text = copy_fe_string(context, object, &bytes);
+
+	if (bytes > INT_MAX) {
+		free(text);
+		FeHandleError(context, "string is too large");
+	}
+	state.scratch = text;
+	*length = (int)bytes;
+	return text;
+}
+
+static int lisp_utf8_length(const char *text, int length)
+{
+	int byte = 0, chars = 0;
+
+	while (byte < length) {
+		byte += utf8_glyph_span_at(text, length, byte);
+		chars++;
+	}
+	return chars;
+}
+
+/* Byte offset of the `chars`'th codepoint, clamped to the end of `text`. */
+static int lisp_utf8_byte(const char *text, int length, int chars)
+{
+	int byte = 0, n;
+
+	for (n = 0; n < chars && byte < length; n++) {
+		byte += utf8_glyph_span_at(text, length, byte);
+	}
+	return byte;
+}
+
+static FeObject *native_string_length(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	int length, chars;
+	char *text;
+
+	FeRequireNoArguments(context, arguments);
+	text = lisp_string_argument(context, object, &length);
+	chars = lisp_utf8_length(text, length);
+	release_scratch();
+	return FeMakeDouble(context, (FeDouble)chars);
+}
+
+/* An Emacs substring index: 0-based in codepoints, negative counts back
+ * from the end, out of range clamps, and nil means `fallback`. */
+static int lisp_string_index(
+    FeContext *context, FeObject *object, int chars, int fallback)
+{
+	FeDouble value;
+
+	if (FeIsNil(object)) {
+		return fallback;
+	}
+	value = lisp_finite(context, object);
+	if (value < 0) {
+		value += (FeDouble)chars;
+	}
+	if (value < 0) {
+		return 0;
+	}
+	if (value > (FeDouble)chars) {
+		return chars;
+	}
+	return (int)value;
+}
+
+/* (substring S FROM &optional TO): TO before FROM yields "" rather than
+ * signalling, matching the clamping the rest of this API does. */
+static FeObject *native_substring(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeObject *from_object = FeGetNextArgument(context, &arguments);
+	FeObject *to_object = FeNil(context);
+	int length, chars, from, to;
+	char *text;
+	FeObject *result;
+
+	if (!FeIsNil(arguments)) {
+		to_object = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	text = lisp_string_argument(context, object, &length);
+	chars = lisp_utf8_length(text, length);
+	from = lisp_string_index(context, from_object, chars, 0);
+	to = lisp_string_index(context, to_object, chars, chars);
+	if (to < from) {
+		to = from;
+	}
+	from = lisp_utf8_byte(text, length, from);
+	to = lisp_utf8_byte(text, length, to);
+	text[to] = '\0';
+	result = FeMakeString(context, text + from);
+	release_scratch();
+	return result;
+}
+
+/* Total byte length of a list of string arguments. */
+static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
+{
+	size_t total = 0;
+
+	while (!FeIsNil(arguments)) {
+		FeObject *object = FeGetNextArgument(context, &arguments);
+
+		if (ckd_add(
+			&total, total, FeStringByteLength(context, object))) {
+			FeHandleError(context, "string is too large");
+		}
+	}
+	return total;
+}
+
+/* (concat A B ...): variadic; (concat) is the empty string. */
+static FeObject *native_concat(FeContext *context, FeObject *arguments)
+{
+	FeObject *rest = arguments;
+	size_t total = lisp_concat_bytes(context, arguments);
+	size_t position = 0, allocation;
+	FeObject *result;
+	char *text;
+
+	if (ckd_add(&allocation, total, 1)) {
+		FeHandleError(context, "string is too large");
+	}
+	text = malloc(allocation);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = text;
+	while (!FeIsNil(rest)) {
+		FeObject *object = FeGetNextArgument(context, &rest);
+		size_t bytes = FeStringByteLength(context, object);
+
+		(void)FeCopyStringBytes(
+		    context, object, text + position, bytes);
+		position += bytes;
+	}
+	text[total] = '\0';
+	result = FeMakeString(context, text);
+	release_scratch();
+	return result;
+}
+
+/* (string= A B): byte equality, so it is also codepoint equality for the
+ * well-formed UTF-8 the editor produces. */
+static FeObject *native_string_equal(FeContext *context, FeObject *arguments)
+{
+	FeObject *a = FeGetNextArgument(context, &arguments);
+	FeObject *b = FeGetNextArgument(context, &arguments);
+	size_t length, allocation;
+	char *text;
+	bool equal;
+
+	FeRequireNoArguments(context, arguments);
+	length = FeStringByteLength(context, a);
+	if (length != FeStringByteLength(context, b)) {
+		return FeMakeBool(context, false);
+	}
+	/* One allocation holding both copies keeps a single pointer live. */
+	if (ckd_mul(&allocation, length, 2)
+	    || ckd_add(&allocation, allocation, 2)) {
+		FeHandleError(context, "string is too large");
+	}
+	text = malloc(allocation);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = text;
+	(void)FeCopyStringBytes(context, a, text, length);
+	(void)FeCopyStringBytes(context, b, text + length, length);
+	equal = memcmp(text, text + length, length) == 0;
+	release_scratch();
+	return FeMakeBool(context, equal);
+}
+
+static int lisp_encode_char(long codepoint, char *out)
+{
+	if (codepoint < 0x80) {
+		out[0] = (char)codepoint;
+		return 1;
+	}
+	if (codepoint < 0x800) {
+		out[0] = (char)(0xC0 | (codepoint >> 6));
+		out[1] = (char)(0x80 | (codepoint & 0x3F));
+		return 2;
+	}
+	if (codepoint < 0x10000) {
+		out[0] = (char)(0xE0 | (codepoint >> 12));
+		out[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+		out[2] = (char)(0x80 | (codepoint & 0x3F));
+		return 3;
+	}
+	out[0] = (char)(0xF0 | (codepoint >> 18));
+	out[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+	out[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+	out[3] = (char)(0x80 | (codepoint & 0x3F));
+	return 4;
+}
+
+/* (char-to-string N): the inverse of (char-after).  NUL and surrogates are
+ * rejected so the result is always a well-formed one-character string. */
+static FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeDouble value;
+	char text[5];
+	long codepoint;
+
+	FeRequireNoArguments(context, arguments);
+	value = lisp_finite(context, object);
+	if (value < 1 || value > 0x10FFFF) {
+		FeHandleError(context, "character code is out of range");
+	}
+	codepoint = (long)value;
+	if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+		FeHandleError(context, "character code is a surrogate");
+	}
+	text[lisp_encode_char(codepoint, text)] = '\0';
+	return FeMakeString(context, text);
+}
+
+/* (string-to-char S): first codepoint as a number, nil for "". */
+static FeObject *native_string_to_char(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	long codepoint;
+	int length;
+	char *text;
+
+	FeRequireNoArguments(context, arguments);
+	text = lisp_string_argument(context, object, &length);
+	codepoint = length > 0 ? lisp_decode_char(text, length, 0) : -1;
+	release_scratch();
+	if (codepoint < 0) {
+		return FeNil(context);
+	}
+	return FeMakeDouble(context, (FeDouble)codepoint);
 }
 
 struct allowed_command {
@@ -603,20 +1325,105 @@ static FeObject *native_run_pending(FeContext *context, FeObject *arguments)
 	return FeCall(context, state.pending_command, nullptr, 0);
 }
 
+struct native_binding {
+	const char *name;
+	FeNativeFn *fn;
+};
+
+/* Emacs names are the primary API; the kg-* names stay registered as
+ * aliases so existing init files and packages keep working. */
+static const struct native_binding native_bindings[] = {
+	{ "message", native_message },
+	{ "kg-message", native_message },
+	{ "insert", native_insert },
+	{ "kg-insert", native_insert },
+	{ "buffer-name", native_buffer_name },
+	{ "kg-buffer-name", native_buffer_name },
+	{ "load", native_load },
+	{ "kg-load", native_load },
+	{ "global-set-key", native_bind_key },
+	{ "kg-bind-key", native_bind_key },
+	{ "global-unset-key", native_unbind_key },
+	{ "kg-unbind-key", native_unbind_key },
+	{ "point", native_point_offset },
+	{ "point-min", native_point_min },
+	{ "point-max", native_point_max },
+	{ "goto-char", native_goto_char },
+	{ "line-number-at-pos", native_line_number },
+	{ "current-column", native_current_column },
+	{ "mark", native_mark },
+	{ "set-mark", native_set_mark },
+	{ "deactivate-mark", native_deactivate_mark },
+	{ "region-beginning", native_region_beginning },
+	{ "region-end", native_region_end },
+	{ "buffer-substring", native_buffer_substring },
+	{ "char-after", native_char_after },
+	{ "forward-word", native_forward_word },
+	{ "backward-word", native_backward_word },
+	{ "bounds-of-thing-at-point", native_bounds_of_thing },
+	{ "string-length", native_string_length },
+	{ "substring", native_substring },
+	{ "concat", native_concat },
+	{ "string=", native_string_equal },
+	{ "char-to-string", native_char_to_string },
+	{ "string-to-char", native_string_to_char },
+	/* No clean Emacs analogue: (row col) point/goto and the command and
+	 * package registry keep their kg- names. */
+	{ "kg-point", native_point },
+	{ "kg-goto", native_goto },
+	{ "kg-command", native_command },
+	{ "kg-define-command", native_define_command },
+	{ "kg-remove-command", native_remove_command },
+	{ "kg--run", native_run_pending },
+};
+
 static void register_natives(FeContext *context)
 {
-	FeDefineNative(context, "kg-message", native_message);
-	FeDefineNative(context, "kg-insert", native_insert);
-	FeDefineNative(context, "kg-buffer-name", native_buffer_name);
-	FeDefineNative(context, "kg-point", native_point);
-	FeDefineNative(context, "kg-goto", native_goto);
-	FeDefineNative(context, "kg-command", native_command);
-	FeDefineNative(context, "kg-load", native_load);
-	FeDefineNative(context, "kg-define-command", native_define_command);
-	FeDefineNative(context, "kg-remove-command", native_remove_command);
-	FeDefineNative(context, "kg-bind-key", native_bind_key);
-	FeDefineNative(context, "kg-unbind-key", native_unbind_key);
-	FeDefineNative(context, "kg--run", native_run_pending);
+	size_t i;
+
+	for (i = 0; i < sizeof(native_bindings) / sizeof(native_bindings[0]);
+	    i++) {
+		FeDefineNative(
+		    context, native_bindings[i].name, native_bindings[i].fn);
+	}
+}
+
+/* Forms kg provides that upstream fe does not.  Evaluated at startup so
+ * they are available before any init file runs, and written in Fe so the
+ * pinned fe submodule stays unpatched.  Keep it small: editor-specific
+ * helpers belong in packages, not here. */
+static const char lisp_prelude[] =
+    /* A macro that expanded to bare nil would leave a copy of the nil
+     * object at the call site, and fe's nil test is pointer equality, so
+     * the exhausted cond expands to (quote nil) instead. */
+    "(= cond (macro clauses"
+    "  (if clauses"
+    "    (list 'if (car (car clauses))"
+    "      (cons 'do (cdr (car clauses)))"
+    "      (cons 'cond (cdr clauses)))"
+    "    (list 'quote nil))))"
+    "(= when (macro (test . body)"
+    "  (list 'if test (cons 'do body))))"
+    "(= unless (macro (test . body)"
+    "  (list 'if test nil (cons 'do body))))"
+    "(= kg--dolist (fn (items body)"
+    "  (while items"
+    "    (body (car items))"
+    "    (= items (cdr items)))))"
+    "(= dolist (macro (spec . body)"
+    "  (list 'kg--dolist (car (cdr spec))"
+    "    (cons 'fn (cons (list (car spec)) body)))))"
+    "(= string-empty-p (fn (s) (string= s \"\")))"
+    "(= thing-at-point (fn (thing)"
+    "  (let bounds (bounds-of-thing-at-point thing))"
+    "  (if bounds (buffer-substring (car bounds) (cdr bounds)))))";
+
+/* The prelude gets its own evaluation, so it neither consumes nor shares
+ * the budget of later user evaluations. */
+static void evaluate_prelude(FeContext *context)
+{
+	(void)FeEvaluateStringWithOptions(context, "prelude", lisp_prelude,
+	    sizeof(lisp_prelude) - 1, &eval_options);
 }
 
 int kg_lisp_init(void)
@@ -624,6 +1431,7 @@ int kg_lisp_init(void)
 	size_t alignment, arena_size, padding;
 	void *arena;
 	FeContext *context;
+	volatile bool in_prelude = false;
 
 	if (state.initialized) {
 		return 0;
@@ -663,14 +1471,23 @@ int kg_lisp_init(void)
 	state.frame.gc_checkpoint = FeSaveGC(context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
+		char detail[sizeof(state.error)];
+
+		copy_result(detail, sizeof(detail), state.error);
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		FeCloseContext(state.context);
 		free(state.arena);
 		reset_state();
+		set_error("%s: %s",
+		    in_prelude ? "cannot evaluate Lisp prelude"
+			       : "cannot register Lisp natives",
+		    detail);
 		return 1;
 	}
 	register_natives(context);
+	in_prelude = true;
+	evaluate_prelude(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	return 0;
@@ -710,7 +1527,7 @@ int kg_lisp_eval_string(
 	if (setjmp(state.frame.error_jump) != 0) {
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
-		release_load_buffers();
+		release_frame_buffers();
 		copy_result(result, result_size, state.error);
 		return 1;
 	}
@@ -758,7 +1575,7 @@ int kg_lisp_load_file(const char *path)
 	if (setjmp(state.frame.error_jump) != 0) {
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
-		release_load_buffers();
+		release_frame_buffers();
 		(void)fclose(file);
 		return 1;
 	}
@@ -821,7 +1638,7 @@ int kg_lisp_run_command(const char *name, int fd)
 	if (setjmp(state.frame.error_jump) != 0) {
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
-		release_load_buffers();
+		release_frame_buffers();
 		state.pending_command = nullptr;
 		editor_set_status_message("Lisp error: %s", state.error);
 		return 0;

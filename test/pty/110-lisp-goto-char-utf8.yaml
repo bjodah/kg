@@ -1,0 +1,22 @@
+# Positions are codepoint offsets, not byte offsets: (goto-char 3) lands
+# before the "l" of "héllo" (byte 3 would sit inside the "é"), and
+# out-of-range positions clamp to point-max / point-min.
+name: lisp-goto-char-utf8
+filename: lisp-gotochar.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (kg-define-command "brace-line"
+      (fn ()
+        (goto-char 3)
+        (insert "-")
+        (goto-char 9999)
+        (insert "|")
+        (goto-char -5)
+        (insert "|")))
+    (global-set-key "C-c b" "brace-line")
+initial: "héllo"
+keys:
+  - C-c
+  - b
+expected_saved: "|hé-llo|"

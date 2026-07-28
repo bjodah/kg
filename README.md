@@ -140,12 +140,85 @@ entirely so a broken configuration can be repaired. Load errors show the
 labelled diagnostic in the status area; forms evaluated before the error
 remain applied.
 
-Extension packages load explicitly with `(kg-load "name")`, which resolves a
+Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.fe` and treats names containing `/` as
 literal paths. Packages may load other packages; loading a file twice
 evaluates it twice (there is no require/provide). Init files and packages are
 trusted code with the full privileges of the editor process, bounded only by
 the evaluation step budget and `C-g` cancellation.
+
+Buffer positions use Emacs' convention: a position is a 1-based codepoint
+offset, so `(point-min)` is 1, `(point-max)` is one past the last character,
+and every line break counts as one character. Offsets count characters, not
+bytes, so multi-byte text addresses the same way it reads.
+
+| Form | Result |
+| ---- | ------ |
+| `(point)` | Position of point |
+| `(point-min)` / `(point-max)` | Buffer bounds |
+| `(goto-char N)` | Move point to `N`, clamped to the buffer |
+| `(line-number-at-pos)` | 1-based line of point |
+| `(current-column)` | Display column of point (tabs expand) |
+| `(mark)` | Position of the mark, or `nil` |
+| `(set-mark N)` | Set the mark at `N` and activate the region |
+| `(deactivate-mark)` | Drop the region highlight, keep the mark |
+| `(region-beginning)` / `(region-end)` | Region bounds; an error with no mark |
+| `(buffer-substring BEG END)` | Text between two positions, in either order |
+| `(char-after)` / `(char-after N)` | Codepoint as a number, `nil` at end of buffer |
+| `(forward-word)` / `(forward-word N)` | Move point over `N` words |
+| `(backward-word)` / `(backward-word N)` | Move point back over `N` words |
+| `(bounds-of-thing-at-point THING)` | Cons `(START . END)` for `'word` or `'line`, or `nil` |
+
+`bounds-of-thing-at-point` returns a cons cell, so `car` and `cdr` read the
+two positions just as they do in Emacs, and both things are bounded the way
+Emacs bounds them. `'word` names the word containing point: point immediately
+after a word still belongs to that word, and point between two words yields
+`nil`. `'line` runs from the start of the line to the start of the next one,
+so it includes the line break; on the last line it ends at `(point-max)`.
+Any other symbol is an error rather than a silent `nil`.
+
+Its word constituents include every codepoint from U+0080 up, so `héllo` and
+`漢字` come back whole. This is the one place that is true: the interactive
+word commands (`M-f`, `M-b`, `M-@`, `M-d`) are ASCII-only and stop at the
+first accented character, and so are the Lisp `forward-word` and
+`backward-word`, which drive the same editor primitives.
+
+Upstream fe has no string operations, so kg registers its own. They index by
+codepoint like the position API, so no result is ever cut mid-glyph, and the
+`fe/` submodule stays unpatched.
+
+| Form | Result |
+| ---- | ------ |
+| `(string-length S)` | Length of `S` in characters, not bytes |
+| `(substring S FROM)` / `(substring S FROM TO)` | 0-based character indices; negative counts from the end |
+| `(concat A B ...)` | Joins any number of strings; `(concat)` is `""` |
+| `(string= A B)` | `t` when the strings are equal, else `nil` |
+| `(char-to-string N)` | One-character string for codepoint `N` |
+| `(string-to-char S)` | First codepoint of `S` as a number, `nil` for `""` |
+
+`substring` clamps out-of-range indices instead of signalling, and a `TO`
+before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values
+above `U+10FFFF` so the result is always well-formed text; it is the inverse
+of `char-after`, which returns a number.
+
+kg also evaluates a small prelude at startup, written in Fe and likewise not
+part of upstream fe, so these forms are available before any init file runs:
+`(cond (TEST BODY...) ...)`, `(when COND BODY...)`, `(unless COND BODY...)`,
+`(dolist (VAR LIST) BODY...)`, `(string-empty-p S)` and
+`(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or
+`nil` when there are no bounds.
+
+```lisp
+(dolist (word (list "alpha" "beta"))
+  (unless (string-empty-p word)
+    (insert (concat (substring word 0 1) ". "))))
+```
+
+`insert`, `message`, `buffer-name`, `load`, `global-set-key` and
+`global-unset-key` are the Emacs names for the editor bridge; the older
+`kg-insert`, `kg-message`, `kg-buffer-name`, `kg-load`, `kg-bind-key` and
+`kg-unbind-key` names remain registered as aliases. `kg-point` and `kg-goto`
+keep their `(row col)` shape — use `point` and `goto-char` for offsets.
 
 The init file can also toggle editor options by running named commands,
 e.g. enabling electric bracket pairing (off by default):
@@ -157,13 +230,33 @@ e.g. enabling electric bracket pairing (off by default):
 Packages can define interactive commands and bind them to keys:
 
 ```lisp
-(kg-define-command "insert-date" (fn () (kg-insert "2026-07-04")))
-(kg-bind-key "C-c d" "insert-date")
+(kg-define-command "insert-date" (fn () (insert "2026-07-04")))
+(global-set-key "C-c d" "insert-date")
 ```
+
+A worked `init.fe` — select the word under the cursor, the way you would
+write it in Emacs:
+
+```lisp
+(kg-define-command "select-current-word"
+  (fn ()
+    (let bounds (bounds-of-thing-at-point 'word))
+    (if bounds
+        (do (goto-char (car bounds))
+            (set-mark (cdr bounds)))
+      (message "No word found at point."))))
+(global-set-key "C-c w" "select-current-word")
+```
+
+`C-c w` now selects the word under point, so `C-w` kills it, `M-w` copies it
+and `C-x C-x` bounces between its ends. Two details differ from Emacs:
+`set-mark` already activates the region, so there is no separate
+`activate-mark` to call; and Fe's `let` binds one variable at a time
+(`(let NAME VALUE)`) rather than taking elisp's binding list.
 
 Lisp-defined commands appear in `M-x` completion and run under the same
 step budget and error recovery as `eval-expression`; `kg-remove-command`
-and `kg-unbind-key` undo the registrations. Only `C-c <key>` sequences
+and `global-unset-key` undo the registrations. Only `C-c <key>` sequences
 are bindable — `C-c` is reserved for user bindings, so they can never
 shadow built-in keys.
 

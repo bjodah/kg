@@ -1,0 +1,38 @@
+# The string natives and the prelude forms driving the position API: the
+# first word is read with buffer-substring, taken apart with substring /
+# string-length / string-to-char (all counting codepoints, so the multi-byte
+# text is never cut mid-glyph), reassembled with concat, and appended.
+# The scan uses char-after rather than forward-word because kg's word motion
+# is ASCII-only, so "héllo" is not one word to it.
+name: lisp-string-natives
+filename: lisp-strings.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (kg-define-command "describe-word"
+      (fn ()
+        (goto-char (point-min))
+        (set-mark (point))
+        (while (and (char-after) (not (is (char-after) 32)))
+          (goto-char (+ (point) 1)))
+        (let word (buffer-substring (region-beginning) (region-end)))
+        (let size (cond ((is (string-length word) 4) "four")
+                        ((is (string-length word) 5) "five")
+                        (t "other")))
+        (let out (concat word ":" size))
+        (dolist (part (list (substring word 0 1)
+                            (substring word 1 2)
+                            (substring word -2)))
+          (= out (concat out ":" part)))
+        (when (string= (char-to-string (string-to-char word)) "h")
+          (= out (concat out ":h")))
+        (unless (string-empty-p out)
+          (goto-char (point-max))
+          (insert (char-to-string 10))
+          (insert out))))
+    (global-set-key "C-c s" "describe-word")
+initial: "héllo wörld"
+keys:
+  - C-c
+  - s
+expected_saved: "héllo wörld\nhéllo:five:h:é:lo:h"

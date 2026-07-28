@@ -190,8 +190,10 @@ first accented character, and so are the Lisp `forward-word` and
 `backward-word`, which drive the same editor primitives.
 
 Upstream fe has no string operations, so kg registers its own. They index by
-codepoint like the position API, so no result is ever cut mid-glyph, and the
-`fe/` submodule stays unpatched.
+codepoint like the position API, so no result is ever cut mid-glyph. Almost
+all of the Emacs Lisp surface is bought this way — as kg natives and as the
+prelude below — rather than in the `fe/` submodule; `doc/fe-upstream.md`
+lists the few changes that did have to be made there, and why.
 
 | Form | Result |
 | ---- | ------ |
@@ -207,18 +209,52 @@ before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values
 above `U+10FFFF` so the result is always well-formed text; it is the inverse
 of `char-after`, which returns a number.
 
-kg also evaluates a small prelude at startup, written in Fe and likewise not
-part of upstream fe, so these forms are available before any init file runs:
-`(cond (TEST BODY...) ...)`, `(when COND BODY...)`, `(unless COND BODY...)`,
-`(dolist (VAR LIST) BODY...)`, `(string-empty-p S)` and
-`(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or
-`nil` when there are no bounds.
+kg also evaluates a prelude at startup, written in Fe, so the Emacs Lisp
+surface is available before any init file runs. It is what makes an `init.fe`
+read like an `init.el`.
+
+| Group | Forms |
+| ---- | ------ |
+| Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
+| Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `progn` |
+| Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
+| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
+| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` |
+| Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is plain `f` |
+| Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
+
+Argument lists take `&optional` and `&rest`; a missing argument is `nil`.
+`length` also counts the codepoints of a string. `equal` is structural on
+lists, where Fe's `is` compares pairs by identity.
 
 ```lisp
-(dolist (word (list "alpha" "beta"))
-  (unless (string-empty-p word)
-    (insert (concat (substring word 0 1) ". "))))
+(defun initialise (words)
+  "Insert the initial of every non-empty word in WORDS."
+  (dolist (word words)
+    (unless (string-empty-p word)
+      (insert (concat (substring word 0 1) ". ")))))
+
+(initialise (list "alpha" "beta"))
 ```
+
+Where it differs from Emacs Lisp, and these are worth knowing before the
+first surprise:
+
+- `=` is assignment, not numeric comparison — use `setq` to assign and `eq`
+  or `is` to compare.
+- `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
+  Emacs says `nil`. Only pairs are compared by identity.
+- Every number is a double, and there is no character type: write
+  `(string-to-char "a")` rather than `?a`.
+- `defvar` cannot tell an unbound variable from one holding `nil`, so it
+  re-initialises a variable whose value is `nil`.
+- `t` is an ordinary assignable global.
+- There is no `unwind-protect` or `condition-case`, no dynamic binding, no
+  vectors or hash tables.
+- Recursion is bounded at roughly 450 frames by the interpreter's
+  garbage-collector stack, so walk long lists with `while`, not recursion.
+- A macro expands once per call site and the expansion replaces the call, so
+  a macro whose expansion depends on run-time state gives a stale answer.
 
 The editor bridge uses the Emacs names throughout: `insert`, `message`,
 `buffer-name`, `load`, `global-set-key` and `global-unset-key`.
@@ -234,34 +270,41 @@ e.g. enabling electric bracket pairing (off by default):
 call, named by a quoted symbol as in Emacs or equivalently by a string, and
 always without a prefix argument.
 
-Packages can define interactive commands and bind them to keys. Emacs would
-use `defun` plus `(interactive)`; kg keeps a name-to-function registry
-instead, so it has `define-command`:
+Packages define interactive commands the way Emacs does, with `defun` plus
+`(interactive)`, and bind them by name:
 
 ```lisp
-(define-command "insert-date" (fn () (insert "2026-07-04")))
+(defun insert-date ()
+  "Insert today's date."
+  (interactive)
+  (insert "2026-07-04"))
 (global-set-key "C-c d" "insert-date")
 ```
+
+An `(interactive)` body form is stripped from the function and registers it
+under its own symbol. The registry underneath is reachable directly as
+`(define-command NAME FUNCTION)`, which takes a symbol or a string, and
+`remove-command` undoes it.
 
 A worked `init.fe` — select the word under the cursor, the way you would
 write it in Emacs:
 
 ```lisp
-(define-command "select-current-word"
-  (fn ()
-    (let bounds (bounds-of-thing-at-point 'word))
+(defun select-current-word ()
+  "Select the word under point, or say there is none."
+  (interactive)
+  (let ((bounds (bounds-of-thing-at-point 'word)))
     (if bounds
-        (do (goto-char (car bounds))
-            (set-mark (cdr bounds)))
+        (progn (goto-char (car bounds))
+               (set-mark (cdr bounds)))
       (message "No word found at point."))))
 (global-set-key "C-c w" "select-current-word")
 ```
 
 `C-c w` now selects the word under point, so `C-w` kills it, `M-w` copies it
-and `C-x C-x` bounces between its ends. Two details differ from Emacs:
+and `C-x C-x` bounces between its ends. One detail differs from Emacs:
 `set-mark` already activates the region, so there is no separate
-`activate-mark` to call; and Fe's `let` binds one variable at a time
-(`(let NAME VALUE)`) rather than taking elisp's binding list.
+`activate-mark` to call.
 
 Lisp-defined commands appear in `M-x` completion and run under the same
 step budget and error recovery as `eval-expression`; `remove-command`

@@ -68,10 +68,26 @@ which resolves a bare name to
 and treats names containing a slash as literal paths.
 Loading a file twice evaluates it twice.
 .Pp
-Lisp code can define interactive commands with
-.Li (define-command "name" (fn () ...))
-and bind them with
-.Li (global-set-key "C-c <key>" "name") .
+Lisp code defines interactive commands the way Emacs does, with
+.Li defun
+plus
+.Li (interactive) ,
+and binds them with
+.Li (global-set-key "C-c <key>" "name") :
+.Bd -literal -offset indent
+(defun insert-date ()
+  "Insert today's date."
+  (interactive)
+  (insert "2026-07-04"))
+(global-set-key "C-c d" "insert-date")
+.Ed
+.Pp
+A body form
+.Li (interactive)
+is stripped from the function and registers it under its own symbol.
+The underlying registry is also reachable directly as
+.Li (define-command NAME FUNCTION) ,
+which takes a symbol or a string.
 Defined commands appear in M-x completion and run under the normal
 evaluation budget;
 .Li remove-command
@@ -151,10 +167,12 @@ which drive them, remain ASCII-only.
 .Pp
 Upstream fe has no string operations; the string natives are provided by
 .Nm
-itself, as is a small prelude written in Fe and evaluated at startup, so
-the pinned
+itself, as is the prelude written in Fe and evaluated at startup.
+The prelude is where the Emacs Lisp surface lives; see
+.Pa doc/fe-upstream.md
+for the short list of changes that had to be made in the
 .Pa fe
-submodule stays unpatched.
+submodule itself.
 The string API is
 .Li (string-length S) ,
 .Li (substring S FROM &optional TO) ,
@@ -180,19 +198,111 @@ U+10FFFF.
 .Li string-to-char
 returns nil for the empty string.
 .Pp
-The prelude defines
+The prelude is available before any init file is loaded.
+It defines the definition forms
+.Li defun ,
+.Li defmacro ,
+.Li defvar ,
+.Li defconst
+and
+.Li interactive ;
+the binding and assignment forms
+.Li (let ((VAR VALUE) ...) BODY ...) ,
+.Li let* ,
+.Li (setq VAR VALUE ...)
+and
+.Li progn ;
+the control forms
 .Li (cond (TEST BODY ...) ...) ,
 .Li (when COND BODY ...) ,
 .Li (unless COND BODY ...) ,
-.Li (dolist (VAR LIST) BODY ...) ,
+.Li prog1 ,
+.Li (dolist (VAR LIST &optional RESULT) BODY ...)
+and
+.Li (dotimes (VAR COUNT &optional RESULT) BODY ...) ;
+the list library
+.Li length ,
+.Li nth ,
+.Li nthcdr ,
+.Li last ,
+.Li reverse ,
+.Li append ,
+.Li mapcar ,
+.Li assoc ,
+.Li member ,
+.Li memq ,
+.Li push ,
+.Li pop ,
+.Li caar ,
+.Li cadr ,
+.Li cddr ,
+.Li 1+
+and
+.Li 1- ;
+the predicates and comparisons
+.Li null ,
+.Li eq ,
+.Li equal
+and
+.Li listp ;
+.Li quasiquote ,
+which the reader writes as a backquote; and
 .Li (string-empty-p S)
 and
-.Li (thing-at-point THING) ,
-which are available before any init file is loaded.
+.Li (thing-at-point THING) .
 .Li thing-at-point
 returns the text of
 .Li bounds-of-thing-at-point ,
 or nil when there are no bounds.
+.Li length
+also accepts a string, in which case it counts codepoints.
+Argument lists accept
+.Li &optional
+and
+.Li &rest ;
+a missing argument is nil.
+.Pp
+.Li type-of
+returns the type as a symbol, one of
+.Li pair , nil , double , symbol , string , lambda , macro , primitive
+or
+.Li native-fn ,
+and
+.Li stringp ,
+.Li symbolp ,
+.Li numberp ,
+.Li consp
+and
+.Li functionp
+are the corresponding predicates.
+.Pp
+kg's Lisp differs from Emacs Lisp in ways worth knowing:
+.Li =
+is assignment, not numeric comparison, so use
+.Li is
+or
+.Li eq
+to compare;
+.Li eq
+compares numbers and strings by value, and only pairs by identity;
+every number is a double;
+.Li defvar
+cannot tell an unbound variable from one holding nil, so it re-initialises
+a nil variable;
+.Li t
+is an ordinary assignable global;
+character literals such as
+.Li ?a
+are not read, so use
+.Li (string-to-char "a") ;
+there is no
+.Li unwind-protect
+or
+.Li condition-case ;
+and recursion is bounded at roughly 450 frames by the interpreter's
+garbage-collector stack.
+A macro expands once per call site and the expansion replaces the call, so
+a macro whose expansion depends on run-time state gives a stale answer.
 .Pp
 The editor bridge uses the Emacs names
 .Li insert ,
@@ -211,13 +321,13 @@ allows Lisp to call.
 .Li define-command
 and
 .Li remove-command
-have no Emacs equivalent, since Emacs defines commands with
-.Li defun
-plus
-.Li (interactive)
-while
+have no Emacs equivalent: they are the name-to-function registry that
 .Nm
-keeps a name-to-function registry.
+keeps, and that
+.Li (interactive)
+inside a
+.Li defun
+writes to.
 .Pp
 If no files are given,
 .Nm

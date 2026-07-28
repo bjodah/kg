@@ -6,14 +6,14 @@ filename: lisp-gotochar.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (define-command "brace-line"
-      (fn ()
-        (goto-char 3)
-        (insert "-")
-        (goto-char 9999)
-        (insert "|")
-        (goto-char -5)
-        (insert "|")))
+    (defun brace-line ()
+      (interactive)
+      (goto-char 3)
+      (insert "-")
+      (goto-char 9999)
+      (insert "|")
+      (goto-char -5)
+      (insert "|"))
     (global-set-key "C-c b" "brace-line")
 initial: "héllo"
 keys:

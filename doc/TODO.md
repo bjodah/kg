@@ -167,14 +167,31 @@ ordered by value vs implementation effort.
         codepoint offsets
       - string natives (`string-length`, `substring`, `concat`, `string=`,
         `char-to-string`, `string-to-char`), which upstream fe lacks
-      - a small Fe prelude evaluated at startup: `cond`, `when`, `unless`,
-        `dolist`, `string-empty-p`, `thing-at-point`
+      - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
+        `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
+        lists, `setq`, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
+        `dotimes`, `quasiquote`, the list library (`length`, `nth`,
+        `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `assoc`, `member`,
+        `memq`, `push`, `pop`), `equal`, `string-empty-p`,
+        `thing-at-point`; `&optional` and `&rest` in argument lists
+      - type natives `type-of`, `stringp`, `symbolp`, `numberp`, `consp`,
+        `functionp`
       - Emacs names throughout the editor bridge (`insert`, `message`,
         `buffer-name`, `load`, `global-set-key`, `global-unset-key`,
         `command-execute`); the only invented names are `define-command`
-        and `remove-command`, which Emacs has no analogue for
+        and `remove-command`, which Emacs has no analogue for — and
+        `(interactive)` inside a `defun` writes to that registry, so they
+        rarely need to be typed
+      - the fe submodule carries elisp `if`, `lambda` as the primitive's
+        name, the `` ` ``/`,`/`,@`/`#'` reader macros, `void-function`
+        errors and a 4096-slot GC stack; see `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
+      - `=` still means assignment rather than numeric comparison.  Making
+        it numeric is a one-line prelude change but silently changes the
+        meaning of any stale `(= x v)`, so it wants its own release
+      - no docstring registry / `documentation`; docstrings are inert
+      - no dotted unquote (`` `(a . ,b) ``) and no nested quasiquote
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist
       - grow the `command-execute` allow-list deliberately (policy per

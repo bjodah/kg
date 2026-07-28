@@ -1,12 +1,13 @@
 # End-to-end extension-package proof: init.fe loads a package that
-# defines a command and binds it; the bound key and M-x both run it.
+# defines an interactive command and binds it; the bound key and M-x both
+# run it.
 name: lisp-bind-key
 filename: lisp-bindkey.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: '(load "hi-pkg")'
   .config/kg/lisp/hi-pkg.fe: |
-    (define-command "insert-hi" (fn () (insert "hi")))
+    (defun insert-hi () (interactive) (insert "hi"))
     (global-set-key "C-c i" "insert-hi")
 initial: ""
 keys:

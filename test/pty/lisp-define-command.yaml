@@ -6,7 +6,7 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (define-command "insert-hi" (fn () (insert "hi")))
+  - (define-command "insert-hi" (lambda () (insert "hi")))
   - RET
   - M-x
   - insert-hi

@@ -2,7 +2,7 @@ name: lisp-eval-c-j-lexing
 filename: forms.fe
 requires_feature: lisp
 initial: |-
-  (do "a\")("                  ; ignored ) ( " \
+  (progn "a\")("                  ; ignored ) ( " \
       (+ 1
          (+ 2 2)))
 keys:
@@ -10,7 +10,7 @@ keys:
   - C-e
   - C-j
 expected_saved: |-
-  (do "a\")("                  ; ignored ) ( " \
+  (progn "a\")("                  ; ignored ) ( " \
       (+ 1
          (+ 2 2)))
   5

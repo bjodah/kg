@@ -1,0 +1,16 @@
+# kg's `if` is Emacs Lisp's, not Fe's historical elif chain: every form
+# after THEN is an implicit progn, so both else forms run and the value is
+# the last one.  Under the old semantics the third form would have been
+# evaluated as a *condition* and the fourth never reached, leaving probe at
+# 2 rather than 3.
+name: lisp-elisp-if
+filename: elisp-if.fe
+requires_feature: lisp
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (progn (setq probe 0) (if nil 1 (setq probe 2) (setq probe 3)) (insert (concat "probe=" (char-to-string (+ 48 probe)))))
+  - RET
+expected_saved: probe=3

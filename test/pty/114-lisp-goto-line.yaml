@@ -7,15 +7,15 @@ filename: lisp-gotoline.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (define-command "mark-lines"
-      (fn ()
-        (goto-line 2)
-        (insert "<")
-        (goto-line 3)
-        (goto-char (+ (point) 2))
-        (insert "|")
-        (goto-line 9999)
-        (insert "!")))
+    (defun mark-lines ()
+      (interactive)
+      (goto-line 2)
+      (insert "<")
+      (goto-line 3)
+      (goto-char (+ (point) 2))
+      (insert "|")
+      (goto-line 9999)
+      (insert "!"))
     (global-set-key "C-c g" "mark-lines")
 initial: |-
   alpha

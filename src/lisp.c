@@ -38,6 +38,10 @@ static_assert(FE_API_VERSION == 1);
 #define KG_LISP_STEP_LIMIT (1U << 20)
 #endif
 
+/* The arena holds the whole Fe context, whose 4096-slot GC stack alone is
+ * about 36 KiB, and the prelude then costs about 33 KiB of objects.  An
+ * override below ~68 KiB therefore fails to start; the default leaves ~93%
+ * of the arena for user code. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
@@ -956,6 +960,73 @@ static FeObject *native_string_to_char(FeContext *context, FeObject *arguments)
 	return FeMakeDouble(context, (FeDouble)codepoint);
 }
 
+/* ---- Types -----------------------------------------------------------
+ * Fe's own `atom` only splits pairs from everything else, so the Emacs
+ * predicates need the real type tag.  `type_names` and `FeGetType` are
+ * both public, so this stays kg-side. */
+
+/* (type-of OBJECT): the type as a symbol, spelled the way Fe's printer
+ * spells it: pair, nil, double, symbol, string, lambda, macro, primitive
+ * or native-fn. */
+static FeObject *native_type_of(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	const char *name;
+
+	FeRequireNoArguments(context, arguments);
+	name = type_names[FeGetType(object)];
+	return FeMakeSymbol(context, name != nullptr ? name : "unknown");
+}
+
+static FeObject *lisp_type_is(
+    FeContext *context, FeObject *arguments, FeType type)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	return FeMakeBool(context, FeGetType(object) == type);
+}
+
+static FeObject *native_stringp(FeContext *context, FeObject *arguments)
+{
+	return lisp_type_is(context, arguments, FeTString);
+}
+
+/* Every number is a double, so this is also Emacs' numberp. */
+static FeObject *native_numberp(FeContext *context, FeObject *arguments)
+{
+	return lisp_type_is(context, arguments, FeTDouble);
+}
+
+static FeObject *native_consp(FeContext *context, FeObject *arguments)
+{
+	return lisp_type_is(context, arguments, FeTPair);
+}
+
+/* nil is its own type in Fe, but Emacs calls it a symbol and so does this. */
+static FeObject *native_symbolp(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeType type;
+
+	FeRequireNoArguments(context, arguments);
+	type = FeGetType(object);
+	return FeMakeBool(context, type == FeTSymbol || type == FeTNil);
+}
+
+/* True for closures, natives and primitives alike; a macro is not a
+ * function, as in Emacs. */
+static FeObject *native_functionp(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeType type;
+
+	FeRequireNoArguments(context, arguments);
+	type = FeGetType(object);
+	return FeMakeBool(context,
+	    type == FeTFn || type == FeTNativeFn || type == FeTPrimitive);
+}
+
 struct allowed_command {
 	const char *name;
 	bool mutates;
@@ -1350,6 +1421,12 @@ static const struct native_binding native_bindings[] = {
 	{ "string=", native_string_equal },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },
+	{ "type-of", native_type_of },
+	{ "stringp", native_stringp },
+	{ "symbolp", native_symbolp },
+	{ "numberp", native_numberp },
+	{ "consp", native_consp },
+	{ "functionp", native_functionp },
 	{ "command-execute", native_command },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a
 	 * name -> function registry, so these two have no Emacs analogue. */
@@ -1369,42 +1446,283 @@ static void register_natives(FeContext *context)
 	}
 }
 
-/* Forms kg provides that upstream fe does not.  Evaluated at startup so
- * they are available before any init file runs, and written in Fe so the
- * pinned fe submodule stays unpatched.  Keep it small: editor-specific
- * helpers belong in packages, not here. */
-static const char lisp_prelude[] =
-    /* A macro that expanded to bare nil would leave a copy of the nil
-     * object at the call site, and fe's nil test is pointer equality, so
-     * the exhausted cond expands to (quote nil) instead. */
-    "(= cond (macro clauses"
-    "  (if clauses"
-    "    (list 'if (car (car clauses))"
-    "      (cons 'do (cdr (car clauses)))"
-    "      (cons 'cond (cdr clauses)))"
-    "    (list 'quote nil))))"
-    "(= when (macro (test . body)"
-    "  (list 'if test (cons 'do body))))"
-    "(= unless (macro (test . body)"
-    "  (list 'if test nil (cons 'do body))))"
-    "(= internal--dolist (fn (items body)"
-    "  (while items"
-    "    (body (car items))"
-    "    (= items (cdr items)))))"
-    "(= dolist (macro (spec . body)"
-    "  (list 'internal--dolist (car (cdr spec))"
-    "    (cons 'fn (cons (list (car spec)) body)))))"
-    "(= string-empty-p (fn (s) (string= s \"\")))"
-    "(= thing-at-point (fn (thing)"
-    "  (let bounds (bounds-of-thing-at-point thing))"
-    "  (if bounds (buffer-substring (car bounds) (cdr bounds)))))";
+/* Forms kg provides that upstream fe does not: the Emacs Lisp surface,
+ * written in Fe and evaluated at startup so it is available before any
+ * init file runs.
+ *
+ * Three rules hold everywhere below.
+ *
+ * 1. Ordering is load-bearing.  An alias of a primitive must be taken
+ *    before anything shadows that name (only `let` is shadowed), and a
+ *    macro must not expand into a name that shadows what it meant.
+ * 2. No macro may expand to bare nil.  Fe splices the expansion over the
+ *    caller's cons cell, and its nil test is pointer equality, so the copy
+ *    would be a nil-shaped truthy object.  Expand to (quote nil) instead.
+ * 3. Nothing here recurses over a list spine.  Fe's GC stack caps
+ *    recursion at a few hundred frames, so list walks are `while` loops.
+ *
+ * Macros also expand exactly once per call site, so every macro here is a
+ * pure function of its unevaluated argument forms.
+ *
+ * The prelude bootstraps itself with the primitives it is about to wrap:
+ * definitions use `=` rather than the `setq` and `defun` defined further
+ * down, so nothing here depends on an expansion happening first.
+ *
+ * The parts are separate string literals only to stay inside the 4095-byte
+ * literal C guarantees; they are evaluated in order and the split points
+ * carry no meaning beyond the section comments. */
+static const char *const lisp_prelude[] = {
+	/* Emacs spellings for Fe primitives.  `internal--let` keeps Fe's
+	 * one-binding `let` reachable after the Emacs `let` shadows it; the
+	 * function bodies below use it. */
+	"(= internal--let let)\n"
+	"(= progn do)\n"
+	"(= null not)\n"
+	"(= eq is)\n"
+	"(= function (lambda (f) f))\n"
+	/* (setq A 1 B 2 ...): Fe's `=` silently drops the extra pairs, and it
+	 * returns nil where Emacs returns the value just assigned. */
+	"(= setq (macro pairs\n"
+	"  (if (null pairs)\n"
+	"      (list 'quote nil)\n"
+	"    (if (null (cdr (cdr pairs)))\n"
+	"        (list 'do (list '= (car pairs) (car (cdr pairs)))\n"
+	"          (car pairs))\n"
+	"      (list 'do (list '= (car pairs) (car (cdr pairs)))\n"
+	"        (cons 'setq (cdr (cdr pairs))))))))\n"
+	"(= 1+ (lambda (n) (+ n 1)))\n"
+	"(= 1- (lambda (n) (- n 1)))\n"
+	"(= caar (lambda (x) (car (car x))))\n"
+	"(= cadr (lambda (x) (car (cdr x))))\n"
+	"(= cddr (lambda (x) (cdr (cdr x))))\n"
+	"(= listp (lambda (x) (if (null x) t (consp x))))\n"
+	/* --- list library, all iterative --- */
+	"(= reverse (lambda (lst)\n"
+	"  (internal--let res nil)\n"
+	"  (while lst\n"
+	"    (setq res (cons (car lst) res))\n"
+	"    (setq lst (cdr lst)))\n"
+	"  res))\n"
+	"(= internal--append2 (lambda (a b)\n"
+	"  (internal--let res b)\n"
+	"  (internal--let r (reverse a))\n"
+	"  (while r\n"
+	"    (setq res (cons (car r) res))\n"
+	"    (setq r (cdr r)))\n"
+	"  res))\n"
+	"(= append (lambda lists\n"
+	"  (internal--let r (reverse lists))\n"
+	"  (internal--let res (car r))\n"
+	"  (setq r (cdr r))\n"
+	"  (while r\n"
+	"    (setq res (internal--append2 (car r) res))\n"
+	"    (setq r (cdr r)))\n"
+	"  res))\n"
+	"(= length (lambda (x)\n"
+	"  (if (stringp x)\n"
+	"      (string-length x)\n"
+	"    (internal--let n 0)\n"
+	"    (while x\n"
+	"      (setq n (+ n 1))\n"
+	"      (setq x (cdr x)))\n"
+	"    n)))\n"
+	"(= nthcdr (lambda (n lst)\n"
+	"  (while (and (< 0 n) lst)\n"
+	"    (setq n (- n 1))\n"
+	"    (setq lst (cdr lst)))\n"
+	"  lst))\n"
+	"(= nth (lambda (n lst) (car (nthcdr n lst))))\n"
+	"(= last (lambda (lst)\n"
+	"  (while (cdr lst) (setq lst (cdr lst)))\n"
+	"  lst))\n"
+	/* Structural on lists; Fe's `is` compares pairs by identity.  Only the
+	 * car descends, so the spine cost is a loop, not a frame. */
+	"(= equal (lambda (a b)\n"
+	"  (internal--let same t)\n"
+	"  (while (and same (consp a) (consp b))\n"
+	"    (if (equal (car a) (car b)) nil (setq same nil))\n"
+	"    (setq a (cdr a))\n"
+	"    (setq b (cdr b)))\n"
+	"  (and same (not (consp a)) (not (consp b)) (is a b))))\n"
+	"(= mapcar (lambda (f lst)\n"
+	"  (internal--let res nil)\n"
+	"  (while lst\n"
+	"    (setq res (cons (f (car lst)) res))\n"
+	"    (setq lst (cdr lst)))\n"
+	"  (reverse res)))\n"
+	"(= member (lambda (elt lst)\n"
+	"  (while (and lst (not (equal elt (car lst))))\n"
+	"    (setq lst (cdr lst)))\n"
+	"  lst))\n"
+	"(= memq (lambda (elt lst)\n"
+	"  (while (and lst (not (eq elt (car lst))))\n"
+	"    (setq lst (cdr lst)))\n"
+	"  lst))\n"
+	"(= assoc (lambda (key alist)\n"
+	"  (internal--let hit nil)\n"
+	"  (while (and alist (null hit))\n"
+	"    (if (equal key (car (car alist))) (setq hit (car alist)))\n"
+	"    (setq alist (cdr alist)))\n"
+	"  hit))\n",
+	/* --- control macros --- */
+	"(= cond (macro clauses\n"
+	"  (if clauses\n"
+	"      (list 'if (car (car clauses))\n"
+	"        (cons 'progn (cdr (car clauses)))\n"
+	"        (cons 'cond (cdr clauses)))\n"
+	"    (list 'quote nil))))\n"
+	"(= when (macro (test . body)\n"
+	"  (list 'if test (cons 'progn body))))\n"
+	"(= unless (macro (test . body)\n"
+	"  (cons 'if (cons test (cons nil body)))))\n"
+	"(= internal--first (lambda args (car args)))\n"
+	"(= prog1 (macro (first . body)\n"
+	"  (cons 'internal--first (cons first body))))\n"
+	/* --- binding forms --- */
+	"(= internal--bind-name (lambda (b) (if (atom b) b (car b))))\n"
+	"(= internal--bind-value (lambda (b)\n"
+	"  (if (atom b) nil (car (cdr b)))))\n"
+	/* Parallel, via immediate application: the value forms are evaluated
+	 * as arguments, in the environment outside the new bindings. */
+	"(= let (macro (bindings . body)\n"
+	"  (cons (cons 'lambda\n"
+	"          (cons (mapcar internal--bind-name bindings) body))\n"
+	"    (mapcar internal--bind-value bindings))))\n"
+	"(= let* (macro (bindings . body)\n"
+	"  (internal--let forms nil)\n"
+	"  (while bindings\n"
+	"    (setq forms (cons (list 'internal--let\n"
+	"                        (internal--bind-name (car bindings))\n"
+	"                        (internal--bind-value (car bindings)))\n"
+	"                  forms))\n"
+	"    (setq bindings (cdr bindings)))\n"
+	"  (cons 'progn (internal--append2 (reverse forms) body))))\n"
+	/* --- iteration macros --- */
+	"(= internal--dolist (lambda (items body)\n"
+	"  (while items\n"
+	"    (body (car items))\n"
+	"    (setq items (cdr items)))))\n"
+	"(= dolist (macro (spec . body)\n"
+	"  (list 'progn\n"
+	"    (list 'internal--dolist (car (cdr spec))\n"
+	"      (cons 'lambda (cons (list (car spec)) body)))\n"
+	"    (car (cdr (cdr spec))))))\n"
+	"(= internal--dotimes (lambda (count body)\n"
+	"  (internal--let i 0)\n"
+	"  (while (< i count)\n"
+	"    (body i)\n"
+	"    (setq i (+ i 1)))))\n"
+	"(= dotimes (macro (spec . body)\n"
+	"  (list 'progn\n"
+	"    (list 'internal--dotimes (car (cdr spec))\n"
+	"      (cons 'lambda (cons (list (car spec)) body)))\n"
+	"    (car (cdr (cdr spec))))))\n"
+	"(= push (macro (item place)\n"
+	"  (list 'setq place (list 'cons item place))))\n"
+	"(= pop (macro (place)\n"
+	"  (list 'prog1 (list 'car place)\n"
+	"    (list 'setq place (list 'cdr place)))))\n"
+	/* --- quasiquote: `x , ,@ read as (quasiquote x) etc. --- */
+	"(= internal--qq (lambda (form)\n"
+	"  (if (atom form)\n"
+	"      (list 'quote form)\n"
+	"    (if (eq (car form) 'unquote)\n"
+	"        (car (cdr form))\n"
+	"      (internal--qq-list form)))))\n"
+	"(= internal--qq-list (lambda (form)\n"
+	"  (internal--let segs nil)\n"
+	"  (while (consp form)\n"
+	"    (internal--let e (car form))\n"
+	"    (if (and (consp e) (eq (car e) 'unquote-splicing))\n"
+	"        (setq segs (cons (car (cdr e)) segs))\n"
+	"      (setq segs (cons (list 'list (internal--qq e)) segs)))\n"
+	"    (setq form (cdr form)))\n"
+	"  (if form (setq segs (cons (internal--qq form) segs)))\n"
+	"  (cons 'append (reverse segs))))\n"
+	"(= quasiquote (macro (form) (internal--qq form)))\n",
+	/* --- definition forms --- */
+	/* (a &optional b &rest r) -> (a b . r); missing arguments already bind
+	 * to nil and extra ones are already dropped.  Fe's own dotted and bare
+	 * symbol parameter lists pass through unchanged. */
+	"(= internal--arglist (lambda (params)\n"
+	"  (internal--let out nil)\n"
+	"  (internal--let tail nil)\n"
+	"  (while (consp params)\n"
+	"    (internal--let p (car params))\n"
+	"    (if (eq p '&optional)\n"
+	"        nil\n"
+	"      (if (eq p '&rest)\n"
+	"          (progn (setq tail (car (cdr params)))\n"
+	"                 (setq params (list nil)))\n"
+	"        (setq out (cons p out))))\n"
+	"    (setq params (cdr params)))\n"
+	"  (if (and params (not (consp params))) (setq tail params))\n"
+	"  (setq out (reverse out))\n"
+	"  (if (null tail)\n"
+	"      out\n"
+	"    (if (null out)\n"
+	"        tail\n"
+	"      (setcdr (last out) tail)\n"
+	"      out))))\n"
+	"(= internal--interactive-p (lambda (form)\n"
+	"  (if (atom form) nil (eq (car form) 'interactive))))\n"
+	"(= internal--has-interactive (lambda (body)\n"
+	"  (internal--let hit nil)\n"
+	"  (while body\n"
+	"    (if (internal--interactive-p (car body)) (setq hit t))\n"
+	"    (setq body (cdr body)))\n"
+	"  hit))\n"
+	"(= internal--strip-interactive (lambda (body)\n"
+	"  (internal--let out nil)\n"
+	"  (while body\n"
+	"    (if (internal--interactive-p (car body))\n"
+	"        nil\n"
+	"      (setq out (cons (car body) out)))\n"
+	"    (setq body (cdr body)))\n"
+	"  (reverse out)))\n"
+	/* A body form (interactive) registers the function as a command, the
+	 * way Emacs makes a defun interactive; define-command takes the
+	 * symbol.  defun returns the name, as Emacs does. */
+	"(= defun (macro (name params . body)\n"
+	"  (internal--let f (cons 'lambda (cons (internal--arglist params)\n"
+	"                     (internal--strip-interactive body))))\n"
+	"  (if (internal--has-interactive body)\n"
+	"      (list 'progn (list 'setq name f)\n"
+	"        (list 'define-command (list 'quote name) name)\n"
+	"        (list 'quote name))\n"
+	"    (list 'progn (list 'setq name f) (list 'quote name)))))\n"
+	"(= defmacro (macro (name params . body)\n"
+	"  (list 'progn\n"
+	"    (list 'setq name\n"
+	"      (cons 'macro (cons (internal--arglist params) body)))\n"
+	"    (list 'quote name))))\n"
+	/* Fe cannot tell an unbound variable from one holding nil, so defvar
+	 * re-initialises a variable whose value is nil. */
+	"(= defvar (macro (name . rest)\n"
+	"  (list 'progn\n"
+	"    (list 'if name (list 'quote nil) (list 'setq name (car rest)))\n"
+	"    (list 'quote name))))\n"
+	"(= defconst (macro (name . rest)\n"
+	"  (list 'progn (list 'setq name (car rest)) (list 'quote name))))\n"
+	/* Inert outside defun: a stray top-level (interactive) is harmless. */
+	"(= interactive (macro args (list 'quote nil)))\n"
+	/* --- editor helpers --- */
+	"(= string-empty-p (lambda (s) (string= s \"\")))\n"
+	"(= thing-at-point (lambda (thing)\n"
+	"  (internal--let bounds (bounds-of-thing-at-point thing))\n"
+	"  (if bounds (buffer-substring (car bounds) (cdr bounds)))))\n",
+};
 
 /* The prelude gets its own evaluation, so it neither consumes nor shares
  * the budget of later user evaluations. */
 static void evaluate_prelude(FeContext *context)
 {
-	(void)FeEvaluateStringWithOptions(context, "prelude", lisp_prelude,
-	    sizeof(lisp_prelude) - 1, &eval_options);
+	size_t i;
+
+	for (i = 0; i < sizeof(lisp_prelude) / sizeof(lisp_prelude[0]); i++) {
+		(void)FeEvaluateStringWithOptions(context, "prelude",
+		    lisp_prelude[i], strlen(lisp_prelude[i]), &eval_options);
+	}
 }
 
 int kg_lisp_init(void)

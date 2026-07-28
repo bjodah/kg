@@ -6,12 +6,12 @@ filename: lisp-region.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (define-command "dup-word"
-      (fn ()
-        (goto-char (point-min))
-        (set-mark (point))
-        (forward-word)
-        (insert (buffer-substring (region-beginning) (region-end)))))
+    (defun dup-word ()
+      (interactive)
+      (goto-char (point-min))
+      (set-mark (point))
+      (forward-word)
+      (insert (buffer-substring (region-beginning) (region-end))))
     (global-set-key "C-c d" "dup-word")
 initial: |
   hello world

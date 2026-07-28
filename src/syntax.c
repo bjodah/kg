@@ -569,8 +569,12 @@ char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
 
 /* Lisp */
 char *LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp", NULL };
-char *LISP_HL_keywords[] = { "if", "while", "quote", "and", "or", "set", "fn",
-	"mac", "define", "lambda", "let", "cond", "nil", "t", NULL };
+/* kg's Lisp, which is Emacs-shaped; "let*" precedes "let" because the
+ * first match wins. */
+char *LISP_HL_keywords[] = { "defun", "defmacro", "defvar", "defconst",
+	"interactive", "lambda", "fn", "macro", "let*", "let", "setq", "progn",
+	"if", "cond", "when", "unless", "while", "dolist", "dotimes", "quote",
+	"and", "or", "not", "nil", "t", NULL };
 
 /* Git message files: matched as substrings anywhere in the path, so
  * .git/COMMIT_EDITMSG works (see the filematch rule at the top). */

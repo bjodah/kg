@@ -1,0 +1,28 @@
+# defun plus (interactive) is all it takes to get an M-x command and a
+# bindable name, the way Emacs does it: the prelude's defun strips the
+# (interactive) form and registers the function under its own symbol, so
+# define-command never has to be written by hand.  &optional, the list
+# library and a backquoted macro all run inside the command.
+name: lisp-defun-interactive
+filename: lisp-defun.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defmacro insert-all (&rest parts)
+      `(dolist (part (list ,@parts)) (insert part)))
+    (defun greet (&optional who)
+      "Insert a greeting for WHO, or for the world."
+      (interactive)
+      (let* ((name (if who who "world"))
+             (parts (mapcar (lambda (s) (concat s " ")) (list "hello" name))))
+        (insert-all (nth 0 parts) (nth 1 parts))
+        (insert (concat "(" (char-to-string (+ 48 (length parts))) ")"))))
+    (global-set-key "C-c g" "greet")
+initial: ""
+keys:
+  - C-c
+  - g
+  - M-x
+  - greet
+  - RET
+expected_saved: "hello world (2)hello world (2)"

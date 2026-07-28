@@ -8,12 +8,13 @@ filename: lisp-thing-none.txt
 requires_feature: lisp
 config_files:
   .config/kg/init.fe: |
-    (define-command "select-current-word"
-      (fn ()
-        (let bounds (bounds-of-thing-at-point 'word))
+    (defun select-current-word ()
+      "Select the word under point, or say there is none."
+      (interactive)
+      (let ((bounds (bounds-of-thing-at-point 'word)))
         (if bounds
-            (do (goto-char (car bounds))
-                (set-mark (cdr bounds)))
+            (progn (goto-char (car bounds))
+                   (set-mark (cdr bounds)))
           (message "No word found at point."))))
     (global-set-key "C-c w" "select-current-word")
 initial: |

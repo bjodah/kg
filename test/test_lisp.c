@@ -115,7 +115,7 @@ static void test_load_file(void)
 {
 	char path[] = "/tmp/kg-lisp-XXXXXX";
 	char result[128] = "";
-	static const char source[] = "(= loaded-value 41)\n"
+	static const char source[] = "(setq loaded-value 41)\n"
 				     "(+ loaded-value 1)\n";
 	int fd;
 	FILE *file;
@@ -367,7 +367,7 @@ static void test_init_file(void)
 	CHECK(kg_lisp_load_init() == 0);
 
 	(void)snprintf(path, sizeof(path), "%s/kg/init.fe", root);
-	CHECK(write_text_file(path, "(= init-loaded 42)\n") == 0);
+	CHECK(write_text_file(path, "(setq init-loaded 42)\n") == 0);
 	CHECK(kg_lisp_load_init() == 0);
 	CHECK(kg_lisp_eval_string("init-loaded", 11, result, sizeof(result))
 	    == 0);
@@ -375,7 +375,7 @@ static void test_init_file(void)
 
 	/* A broken init file reports its labelled error; forms evaluated
 	 * before the failure remain applied. */
-	CHECK(write_text_file(path, "(= init-partial 1)\n(car 1)\n") == 0);
+	CHECK(write_text_file(path, "(setq init-partial 1)\n(car 1)\n") == 0);
 	CHECK(kg_lisp_load_init() != 0);
 	CHECK(strstr(kg_lisp_last_error(), "init.fe") != nullptr);
 	CHECK(kg_lisp_eval_string("init-partial", 12, result, sizeof(result))
@@ -396,7 +396,7 @@ static void test_load_package(void)
 
 	/* Bare names resolve to <config>/kg/lisp/NAME.fe. */
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg.fe", root);
-	CHECK(write_text_file(path, "(= pkg-value 7)\n") == 0);
+	CHECK(write_text_file(path, "(setq pkg-value 7)\n") == 0);
 	CHECK(kg_lisp_eval_string("(load \"pkg\")", 12, result, sizeof(result))
 	    == 0);
 	CHECK(kg_lisp_eval_string("pkg-value", 9, result, sizeof(result)) == 0);
@@ -412,10 +412,11 @@ static void test_load_package(void)
 
 	/* Packages may load packages. */
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
-	CHECK(write_text_file(path, "(load \"pkg-b\")\n(= a-after b-value)\n")
+	CHECK(
+	    write_text_file(path, "(load \"pkg-b\")\n(setq a-after b-value)\n")
 	    == 0);
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
-	CHECK(write_text_file(path, "(= b-value 5)\n") == 0);
+	CHECK(write_text_file(path, "(setq b-value 5)\n") == 0);
 	CHECK(
 	    kg_lisp_eval_string("(load \"pkg-a\")", 14, result, sizeof(result))
 	    == 0);
@@ -434,7 +435,7 @@ static void test_load_package(void)
 
 	/* Names containing '/' are literal paths. */
 	(void)snprintf(path, sizeof(path), "%s/direct.fe", root);
-	CHECK(write_text_file(path, "(= direct-value 3)\n") == 0);
+	CHECK(write_text_file(path, "(setq direct-value 3)\n") == 0);
 	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
 	CHECK(length > 0 && (size_t)length < sizeof(source));
 	CHECK(
@@ -501,8 +502,8 @@ static void test_define_and_run_command(void)
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(kg_lisp_run_command("greet", 0) != 0);
-	CHECK(
-	    eval_ok("(define-command \"greet\" (fn () (message \"hello\")))"));
+	CHECK(eval_ok(
+	    "(define-command \"greet\" (lambda () (message \"hello\")))"));
 	CHECK(kg_lisp_command_name(0) != nullptr);
 	CHECK(strcmp(kg_lisp_command_name(0), "greet") == 0);
 	CHECK(kg_lisp_command_name(1) == nullptr);
@@ -510,21 +511,21 @@ static void test_define_and_run_command(void)
 	CHECK(strcmp(test_status_message, "hello") == 0);
 
 	/* Redefinition replaces the function (and releases the old root). */
-	CHECK(
-	    eval_ok("(define-command \"greet\" (fn () (message \"again\")))"));
+	CHECK(eval_ok(
+	    "(define-command \"greet\" (lambda () (message \"again\")))"));
 	CHECK(kg_lisp_run_command("greet", 0) == 0);
 	CHECK(strcmp(test_status_message, "again") == 0);
 	CHECK(kg_lisp_command_name(1) == nullptr);
 
 	/* Errors inside a command return to the caller with a message. */
-	CHECK(eval_ok("(define-command \"boom\" (fn () (car 1)))"));
+	CHECK(eval_ok("(define-command \"boom\" (lambda () (car 1)))"));
 	CHECK(kg_lisp_run_command("boom", 0) == 0);
 	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
 	CHECK(kg_lisp_run_command("greet", 0) == 0);
 	CHECK(strcmp(test_status_message, "again") == 0);
 
 	/* A runaway command hits the step budget and recovers. */
-	CHECK(eval_ok("(define-command \"spin\" (fn () (while t 1)))"));
+	CHECK(eval_ok("(define-command \"spin\" (lambda () (while t 1)))"));
 	CHECK(kg_lisp_run_command("spin", 0) == 0);
 	CHECK(strstr(test_status_message, "step limit") != nullptr);
 	CHECK(eval_ok("(+ 1 2)"));
@@ -535,7 +536,7 @@ static void test_define_and_run_command(void)
 	    "(remove-command \"boom\")", "no such Lisp command"));
 
 	CHECK(eval_error_contains(
-	    "(define-command \"version\" (fn () 1))", "built-in"));
+	    "(define-command \"version\" (lambda () 1))", "built-in"));
 	CHECK(eval_error_contains(
 	    "(define-command \"x\" 1)", "requires a function"));
 
@@ -558,7 +559,8 @@ static void test_key_bindings(void)
 	CHECK(keybind_parse("C-c ii", &key) != 0);
 	CHECK(keybind_parse("C-c C-g", &key) != 0);
 
-	CHECK(eval_ok("(define-command \"greet\" (fn () (message \"hey\")))"));
+	CHECK(eval_ok(
+	    "(define-command \"greet\" (lambda () (message \"hey\")))"));
 	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
 	CHECK(keybind_lookup('i') != nullptr);
 	CHECK(strcmp(keybind_lookup('i'), "greet") == 0);
@@ -653,9 +655,9 @@ static void test_point_offsets(void)
 	CHECK(eval_eq("(current-column)", "0"));
 
 	/* Out-of-range positions clamp at both ends. */
-	CHECK(eval_eq("(do (goto-char -400) (point))", "1"));
-	CHECK(eval_eq("(do (goto-char 0) (point))", "1"));
-	CHECK(eval_eq("(do (goto-char 9999) (point))", "13"));
+	CHECK(eval_eq("(progn (goto-char -400) (point))", "1"));
+	CHECK(eval_eq("(progn (goto-char 0) (point))", "1"));
+	CHECK(eval_eq("(progn (goto-char 9999) (point))", "13"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -669,9 +671,9 @@ static void test_current_column_tab(void)
 
 	/* Display column, so the tab expands to the next tab stop (8),
 	 * matching Emacs' current-column. */
-	CHECK(eval_eq("(do (goto-char 1) (current-column))", "0"));
-	CHECK(eval_eq("(do (goto-char 2) (current-column))", "8"));
-	CHECK(eval_eq("(do (goto-char 3) (current-column))", "9"));
+	CHECK(eval_eq("(progn (goto-char 1) (current-column))", "0"));
+	CHECK(eval_eq("(progn (goto-char 2) (current-column))", "8"));
+	CHECK(eval_eq("(progn (goto-char 3) (current-column))", "9"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -690,9 +692,9 @@ static void test_char_after(void)
 	CHECK(eval_eq("(char-after 13)", "nil")); /* end of buffer */
 	CHECK(eval_eq("(char-after 9999)", "nil"));
 	CHECK(eval_eq("(char-after 0)", "97"));
-	CHECK(eval_eq("(do (goto-char 6) (char-after))", "233"));
-	CHECK(eval_eq("(do (goto-char 6) (char-after nil))", "233"));
-	CHECK(eval_eq("(do (goto-char (point-max)) (char-after))", "nil"));
+	CHECK(eval_eq("(progn (goto-char 6) (char-after))", "233"));
+	CHECK(eval_eq("(progn (goto-char 6) (char-after nil))", "233"));
+	CHECK(eval_eq("(progn (goto-char (point-max)) (char-after))", "nil"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -735,13 +737,13 @@ static void test_mark_and_region(void)
 	CHECK(editor.mark_set == 1);
 	CHECK(editor.mark_highlight == 1);
 	CHECK(eval_eq("(mark)", "5"));
-	CHECK(eval_eq("(do (goto-char 9) (region-beginning))", "5"));
+	CHECK(eval_eq("(progn (goto-char 9) (region-beginning))", "5"));
 	CHECK(eval_eq("(region-end)", "9"));
 	CHECK(eval_eq("(buffer-substring (region-beginning) (region-end))",
 	    "h\xc3\xa9ll"));
 
 	/* Mark after point still yields an ordered region. */
-	CHECK(eval_ok("(do (set-mark 9) (goto-char 5))"));
+	CHECK(eval_ok("(progn (set-mark 9) (goto-char 5))"));
 	CHECK(eval_eq("(region-beginning)", "5"));
 	CHECK(eval_eq("(region-end)", "9"));
 
@@ -768,18 +770,20 @@ static void test_word_motion(void)
 	editor_insert_row(0, "one two three", 13);
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(eval_eq("(do (goto-char 1) (forward-word) (point))", "4"));
-	CHECK(eval_eq("(do (goto-char 1) (forward-word 2) (point))", "8"));
+	CHECK(eval_eq("(progn (goto-char 1) (forward-word) (point))", "4"));
+	CHECK(eval_eq("(progn (goto-char 1) (forward-word 2) (point))", "8"));
 	/* A huge count stops at the edge instead of spinning. */
-	CHECK(eval_eq("(do (goto-char 1) (forward-word 9999) (point))", "14"));
+	CHECK(
+	    eval_eq("(progn (goto-char 1) (forward-word 9999) (point))", "14"));
 	CHECK(eval_eq(
-	    "(do (goto-char (point-max)) (backward-word) (point))", "9"));
+	    "(progn (goto-char (point-max)) (backward-word) (point))", "9"));
 	CHECK(eval_eq(
-	    "(do (goto-char (point-max)) (backward-word 9999) (point))", "1"));
+	    "(progn (goto-char (point-max)) (backward-word 9999) (point))",
+	    "1"));
 	/* Negative counts reverse direction, as in Emacs. */
-	CHECK(eval_eq("(do (goto-char 1) (backward-word -1) (point))", "4"));
+	CHECK(eval_eq("(progn (goto-char 1) (backward-word -1) (point))", "4"));
 	CHECK(eval_eq(
-	    "(do (goto-char (point-max)) (forward-word -1) (point))", "9"));
+	    "(progn (goto-char (point-max)) (forward-word -1) (point))", "9"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -794,9 +798,10 @@ static void test_editor_bridge(void)
 	CHECK(eval_ok("(message \"bridged\")"));
 	CHECK(strcmp(test_status_message, "bridged") == 0);
 	CHECK(eval_eq("(buffer-name)", "bridge.txt"));
-	CHECK(eval_ok("(do (goto-char 1) (insert \"z\"))"));
+	CHECK(eval_ok("(progn (goto-char 1) (insert \"z\"))"));
 	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", "zabc"));
-	CHECK(eval_ok("(define-command \"greet\" (fn () (message \"hey\")))"));
+	CHECK(eval_ok(
+	    "(define-command \"greet\" (lambda () (message \"hey\")))"));
 	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
 	CHECK(keybind_lookup('i') != nullptr);
 	CHECK(eval_ok("(global-unset-key \"C-c i\")"));
@@ -935,69 +940,69 @@ static void test_thing_at_point(void)
 	CHECK(kg_lisp_init() == 0);
 
 	/* Start, middle and end of a word all name the same word. */
-	CHECK(eval_eq(
-	    "(do (goto-char 1) (bounds-of-thing-at-point 'word))", "(1 . 4)"));
-	CHECK(eval_eq(
-	    "(do (goto-char 2) (bounds-of-thing-at-point 'word))", "(1 . 4)"));
-	CHECK(eval_eq(
-	    "(do (goto-char 4) (bounds-of-thing-at-point 'word))", "(1 . 4)"));
-	CHECK(eval_eq(
-	    "(do (goto-char 6) (bounds-of-thing-at-point 'word))", "(6 . 9)"));
-	CHECK(eval_eq(
-	    "(do (goto-char 9) (bounds-of-thing-at-point 'word))", "(6 . 9)"));
+	CHECK(eval_eq("(progn (goto-char 1) (bounds-of-thing-at-point 'word))",
+	    "(1 . 4)"));
+	CHECK(eval_eq("(progn (goto-char 2) (bounds-of-thing-at-point 'word))",
+	    "(1 . 4)"));
+	CHECK(eval_eq("(progn (goto-char 4) (bounds-of-thing-at-point 'word))",
+	    "(1 . 4)"));
+	CHECK(eval_eq("(progn (goto-char 6) (bounds-of-thing-at-point 'word))",
+	    "(6 . 9)"));
+	CHECK(eval_eq("(progn (goto-char 9) (bounds-of-thing-at-point 'word))",
+	    "(6 . 9)"));
 	/* Between two words, and on an empty line: no word. */
 	CHECK(eval_eq(
-	    "(do (goto-char 5) (bounds-of-thing-at-point 'word))", "nil"));
+	    "(progn (goto-char 5) (bounds-of-thing-at-point 'word))", "nil"));
 	CHECK(eval_eq(
-	    "(do (goto-char 10) (bounds-of-thing-at-point 'word))", "nil"));
+	    "(progn (goto-char 10) (bounds-of-thing-at-point 'word))", "nil"));
 
 	/* Codepoints at or above U+0080 are word constituents here, unlike
 	 * kg's ASCII-only interactive word motion. */
-	CHECK(eval_eq("(do (goto-char 11) (bounds-of-thing-at-point 'word))",
+	CHECK(eval_eq("(progn (goto-char 11) (bounds-of-thing-at-point 'word))",
 	    "(11 . 16)"));
-	CHECK(eval_eq("(do (goto-char 12) (bounds-of-thing-at-point 'word))",
+	CHECK(eval_eq("(progn (goto-char 12) (bounds-of-thing-at-point 'word))",
 	    "(11 . 16)"));
-	CHECK(eval_eq("(do (goto-char 18) (bounds-of-thing-at-point 'word))",
+	CHECK(eval_eq("(progn (goto-char 18) (bounds-of-thing-at-point 'word))",
 	    "(17 . 22)"));
-	CHECK(eval_eq("(do (goto-char 23) (bounds-of-thing-at-point 'word))",
+	CHECK(eval_eq("(progn (goto-char 23) (bounds-of-thing-at-point 'word))",
 	    "(23 . 25)"));
-	CHECK(eval_eq("(do (goto-char 24) (bounds-of-thing-at-point 'word))",
+	CHECK(eval_eq("(progn (goto-char 24) (bounds-of-thing-at-point 'word))",
 	    "(23 . 25)"));
 
 	/* 'line takes in its line break, as in Emacs, so END is the start of
 	 * the next row.  emacs -Q --batch on the same text returns (1 . 10),
 	 * (10 . 11), (11 . 23) and (23 . 25). */
-	CHECK(eval_eq(
-	    "(do (goto-char 5) (bounds-of-thing-at-point 'line))", "(1 . 10)"));
-	CHECK(eval_eq("(do (goto-char 10) (bounds-of-thing-at-point 'line))",
+	CHECK(eval_eq("(progn (goto-char 5) (bounds-of-thing-at-point 'line))",
+	    "(1 . 10)"));
+	CHECK(eval_eq("(progn (goto-char 10) (bounds-of-thing-at-point 'line))",
 	    "(10 . 11)"));
-	CHECK(eval_eq("(do (goto-char 15) (bounds-of-thing-at-point 'line))",
+	CHECK(eval_eq("(progn (goto-char 15) (bounds-of-thing-at-point 'line))",
 	    "(11 . 23)"));
 	/* The last row has no next row, so its bounds stop at point-max. */
-	CHECK(eval_eq("(do (goto-char 23) (bounds-of-thing-at-point 'line))",
+	CHECK(eval_eq("(progn (goto-char 23) (bounds-of-thing-at-point 'line))",
 	    "(23 . 25)"));
-	CHECK(eval_eq("(do (goto-char 25) (bounds-of-thing-at-point 'line))",
+	CHECK(eval_eq("(progn (goto-char 25) (bounds-of-thing-at-point 'line))",
 	    "(23 . 25)"));
 
 	/* car/cdr work on the result, as with any Emacs bounds pair. */
 	CHECK(eval_eq(
-	    "(car (do (goto-char 12) (bounds-of-thing-at-point 'word)))",
+	    "(car (progn (goto-char 12) (bounds-of-thing-at-point 'word)))",
 	    "11"));
 	CHECK(eval_eq(
-	    "(cdr (do (goto-char 12) (bounds-of-thing-at-point 'word)))",
+	    "(cdr (progn (goto-char 12) (bounds-of-thing-at-point 'word)))",
 	    "16"));
 
 	/* The prelude's thing-at-point is the text of those bounds. */
 	CHECK(eval_eq(
-	    "(do (goto-char 12) (thing-at-point 'word))", "h\xc3\xa9llo"));
-	CHECK(eval_eq("(do (goto-char 23) (thing-at-point 'word))",
+	    "(progn (goto-char 12) (thing-at-point 'word))", "h\xc3\xa9llo"));
+	CHECK(eval_eq("(progn (goto-char 23) (thing-at-point 'word))",
 	    "\xe6\xbc\xa2\xe5\xad\x97"));
-	CHECK(eval_eq("(do (goto-char 5) (thing-at-point 'word))", "nil"));
+	CHECK(eval_eq("(progn (goto-char 5) (thing-at-point 'word))", "nil"));
 	/* The line break is part of the text, so it is part of the string. */
-	CHECK(
-	    eval_eq("(do (goto-char 5) (thing-at-point 'line))", "one  two\n"));
-	CHECK(eval_eq("(do (goto-char 10) (thing-at-point 'line))", "\n"));
-	CHECK(eval_eq("(do (goto-char 23) (thing-at-point 'line))",
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (thing-at-point 'line))", "one  two\n"));
+	CHECK(eval_eq("(progn (goto-char 10) (thing-at-point 'line))", "\n"));
+	CHECK(eval_eq("(progn (goto-char 23) (thing-at-point 'line))",
 	    "\xe6\xbc\xa2\xe5\xad\x97"));
 
 	kg_lisp_shutdown();
@@ -1019,35 +1024,330 @@ static void test_prelude_forms(void)
 	CHECK(eval_eq("(if (cond (nil 1)) \"yes\" \"no\")", "no"));
 	CHECK(eval_eq("(not (cond (nil 1)))", "t"));
 	/* Clause bodies are implicit progns and only the taken one runs. */
-	CHECK(eval_eq(
-	    "(do (= seen 0) (cond (t (= seen 1) 2) (t (= seen 9))) seen)",
+	CHECK(eval_eq("(progn (setq seen 0) (cond (t (setq seen 1) 2) (t (setq "
+		      "seen 9))) seen)",
 	    "1"));
 
 	CHECK(eval_eq("(when t 1 2)", "2"));
 	CHECK(eval_eq("(when nil 1)", "nil"));
-	CHECK(eval_eq("(do (= n 0) (when t (= n 5)) n)", "5"));
-	CHECK(eval_eq("(do (= n 0) (when nil (= n 5)) n)", "0"));
+	CHECK(eval_eq("(progn (setq n 0) (when t (setq n 5)) n)", "5"));
+	CHECK(eval_eq("(progn (setq n 0) (when nil (setq n 5)) n)", "0"));
 	CHECK(eval_eq("(unless nil 1 2)", "2"));
 	CHECK(eval_eq("(unless t 1)", "nil"));
-	CHECK(eval_eq("(do (= n 0) (unless nil (= n 7)) n)", "7"));
-	CHECK(eval_eq("(do (= n 0) (unless t (= n 7)) n)", "0"));
+	CHECK(eval_eq("(progn (setq n 0) (unless nil (setq n 7)) n)", "7"));
+	CHECK(eval_eq("(progn (setq n 0) (unless t (setq n 7)) n)", "0"));
 
 	/* dolist accumulates and leaves the loop variable local. */
-	CHECK(eval_eq("(do (= acc \"\") (dolist (x (list \"a\" \"b\" \"c\"))"
-		      " (= acc (concat acc x))) acc)",
+	CHECK(eval_eq(
+	    "(progn (setq acc \"\") (dolist (x (list \"a\" \"b\" \"c\"))"
+	    " (setq acc (concat acc x))) acc)",
 	    "abc"));
 	CHECK(eval_eq(
-	    "(do (= n 0) (dolist (x (list 1 2 3)) (= n (+ n x))) n)", "6"));
-	CHECK(eval_eq("(do (= n 0) (dolist (x nil) (= n 1)) n)", "0"));
+	    "(progn (setq n 0) (dolist (x (list 1 2 3)) (setq n (+ n x))) n)",
+	    "6"));
+	CHECK(eval_eq("(progn (setq n 0) (dolist (x nil) (setq n 1)) n)", "0"));
 	/* Nested loops do not capture each other's variable. */
-	CHECK(eval_eq("(do (= acc \"\") (dolist (a (list \"1\" \"2\"))"
+	CHECK(eval_eq("(progn (setq acc \"\") (dolist (a (list \"1\" \"2\"))"
 		      " (dolist (b (list \"x\" \"y\"))"
-		      "  (= acc (concat acc a b)))) acc)",
+		      "  (setq acc (concat acc a b)))) acc)",
 	    "1x1y2x2y"));
 
 	CHECK(eval_eq("(string-empty-p \"\")", "t"));
 	CHECK(eval_eq("(string-empty-p \"a\")", "nil"));
 	CHECK(eval_eq("(string-empty-p (substring \"abc\" 1 1))", "t"));
+
+	kg_lisp_shutdown();
+}
+
+/* Fe's `if` used to be an elif chain, so a four-armed `if` silently ran
+ * the third form as a condition and never reached the fourth. */
+static void test_elisp_if(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(if t 1 2)", "1"));
+	CHECK(eval_eq("(if nil 1 2)", "2"));
+	CHECK(eval_eq("(if nil 1)", "nil"));
+	CHECK(eval_eq("(if t 1)", "1"));
+	/* The ELSE forms are an implicit progn: every one of them runs and the
+	 * last one is the value. */
+	CHECK(eval_eq(
+	    "(progn (setq probe 0) (if nil 1 (setq probe 2) (setq probe 3))"
+	    " probe)",
+	    "3"));
+	CHECK(eval_eq("(if nil 1 2 3)", "3"));
+	/* A false `if` with no ELSE is really nil, not a nil-shaped object. */
+	CHECK(eval_eq("(not (if nil 1))", "t"));
+	CHECK(eval_eq("(is (if nil 1) nil)", "t"));
+	/* Only the taken branch runs. */
+	CHECK(eval_eq(
+	    "(progn (setq probe 0) (if t 1 (setq probe 9)) probe)", "0"));
+	CHECK(eval_eq(
+	    "(progn (setq probe 0) (if nil (setq probe 9) 1) probe)", "0"));
+	/* A `let` in the ELSE forms binds, because they are a do-list. */
+	CHECK(eval_eq("(if nil 1 (internal--let q 5) q)", "5"));
+
+	kg_lisp_shutdown();
+}
+
+static void test_list_library(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(reverse (list 1 2 3))", "(3 2 1)"));
+	CHECK(eval_eq("(reverse nil)", "nil"));
+	CHECK(eval_eq("(length (list 1 2 3))", "3"));
+	CHECK(eval_eq("(length nil)", "0"));
+	/* length is polymorphic over strings, as in Emacs. */
+	CHECK(eval_eq("(length \"h\xc3\xa9llo\")", "5"));
+	CHECK(eval_eq("(nth 0 (list 'a 'b))", "a"));
+	CHECK(eval_eq("(nth 1 (list 'a 'b))", "b"));
+	CHECK(eval_eq("(nth 9 (list 'a))", "nil"));
+	CHECK(eval_eq("(nthcdr 2 (list 1 2 3 4))", "(3 4)"));
+	CHECK(eval_eq("(nthcdr 9 (list 1))", "nil"));
+	CHECK(eval_eq("(last (list 1 2 3))", "(3)"));
+	CHECK(eval_eq("(last nil)", "nil"));
+	CHECK(eval_eq("(append (list 1 2) (list 3) (list 4))", "(1 2 3 4)"));
+	CHECK(eval_eq("(append)", "nil"));
+	CHECK(eval_eq("(append nil (list 1))", "(1)"));
+	CHECK(eval_eq("(append (list 1) nil)", "(1)"));
+	CHECK(eval_eq("(mapcar (lambda (x) (* x 2)) (list 1 2 3))", "(2 4 6)"));
+	CHECK(eval_eq("(mapcar (lambda (x) x) nil)", "nil"));
+	CHECK(eval_eq("(member 3 (list 1 2 3 4))", "(3 4)"));
+	CHECK(eval_eq("(member 9 (list 1))", "nil"));
+	CHECK(eval_eq("(memq 'c (list 'a 'b 'c))", "(c)"));
+	CHECK(eval_eq("(assoc 'b (list (cons 'a 1) (cons 'b 2)))", "(b . 2)"));
+	CHECK(eval_eq("(assoc 'z (list (cons 'a 1)))", "nil"));
+	CHECK(eval_eq("(assoc 'a nil)", "nil"));
+	/* equal is structural on lists, where Fe's `is` compares identity. */
+	CHECK(eval_eq("(equal (list 1 (list 2)) (list 1 (list 2)))", "t"));
+	CHECK(eval_eq("(equal (list 1) (list 1 2))", "nil"));
+	CHECK(eval_eq("(equal (list 1) 1)", "nil"));
+	CHECK(eval_eq("(equal \"ab\" \"ab\")", "t"));
+	CHECK(eval_eq("(equal nil nil)", "t"));
+	CHECK(eval_eq("(eq 'a 'a)", "t"));
+	CHECK(eval_eq("(null nil)", "t"));
+	CHECK(eval_eq("(1+ 1)", "2"));
+	CHECK(eval_eq("(1- 1)", "0"));
+	CHECK(eval_eq("(cadr (list 1 2 3))", "2"));
+	CHECK(eval_eq("(cddr (list 1 2 3))", "(3)"));
+	CHECK(eval_eq("(caar (list (list 1)))", "1"));
+
+	/* The list functions are iterative: a long list must not blow the GC
+	 * stack the way a recursive implementation would. */
+	CHECK(eval_eq("(progn (setq big nil) (setq i 0)"
+		      " (while (< i 500) (setq big (cons i big))"
+		      "  (setq i (+ i 1)))"
+		      " (length (append (reverse big)"
+		      "  (mapcar (lambda (x) x) big))))",
+	    "1000"));
+
+	kg_lisp_shutdown();
+}
+
+static void test_type_predicates(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(type-of \"a\")", "string"));
+	CHECK(eval_eq("(type-of 'a)", "symbol"));
+	CHECK(eval_eq("(type-of 1)", "double"));
+	CHECK(eval_eq("(type-of (cons 1 2))", "pair"));
+	CHECK(eval_eq("(type-of nil)", "nil"));
+	CHECK(eval_eq("(type-of car)", "primitive"));
+	CHECK(eval_eq("(type-of insert)", "native-fn"));
+	CHECK(eval_eq("(type-of (lambda (x) x))", "lambda"));
+	CHECK(eval_eq("(type-of cond)", "macro"));
+
+	CHECK(eval_eq("(stringp \"a\")", "t"));
+	CHECK(eval_eq("(stringp 'a)", "nil"));
+	CHECK(eval_eq("(numberp 1)", "t"));
+	CHECK(eval_eq("(numberp \"1\")", "nil"));
+	CHECK(eval_eq("(consp (cons 1 2))", "t"));
+	CHECK(eval_eq("(consp nil)", "nil"));
+	/* nil and t are symbols in Emacs, and here too. */
+	CHECK(eval_eq("(symbolp 'a)", "t"));
+	CHECK(eval_eq("(symbolp nil)", "t"));
+	CHECK(eval_eq("(symbolp \"a\")", "nil"));
+	CHECK(eval_eq("(functionp (lambda (x) x))", "t"));
+	CHECK(eval_eq("(functionp car)", "t"));
+	CHECK(eval_eq("(functionp insert)", "t"));
+	CHECK(eval_eq("(functionp cond)", "nil"));
+	CHECK(eval_eq("(functionp 1)", "nil"));
+	CHECK(eval_eq("(listp nil)", "t"));
+	CHECK(eval_eq("(listp (cons 1 2))", "t"));
+	CHECK(eval_eq("(listp 1)", "nil"));
+	CHECK(eval_error_contains("(stringp)", "too few arguments"));
+	CHECK(eval_error_contains("(type-of 1 2)", "too many arguments"));
+
+	kg_lisp_shutdown();
+}
+
+static void test_binding_forms(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* let is parallel: the value forms see the outer bindings. */
+	CHECK(eval_eq("(progn (setq y 100) (let ((y 1) (z y)) z))", "100"));
+	CHECK(eval_eq("(progn (setq y 100) (let* ((y 1) (z y)) z))", "1"));
+	CHECK(eval_eq("(let ((a 1) (b 2)) (+ a b))", "3"));
+	CHECK(eval_eq(
+	    "(let* ((p 1) (q (+ p 1)) (r (+ q 1))) (list p q r))", "(1 2 3)"));
+	/* Bare symbols and value-less bindings are nil. */
+	CHECK(eval_eq("(let ((a 1) b (c)) (list a b c))", "(1 nil nil)"));
+	CHECK(eval_eq("(let () 42)", "42"));
+	CHECK(eval_eq("(let* () 42)", "42"));
+	/* Nested lets shadow. */
+	CHECK(eval_eq("(let ((a 1)) (let ((a 2) (b a)) (list a b)))", "(2 1)"));
+	/* A while loop with setq inside a let body. */
+	CHECK(eval_eq("(let ((acc 0) (k 0))"
+		      " (while (< k 5) (setq acc (+ acc k)) (setq k (+ k 1)))"
+		      " acc)",
+	    "10"));
+	/* setq inside a let reaches an outer variable. */
+	CHECK(eval_eq(
+	    "(progn (setq outer 0) (let ((q 1)) (setq outer 7)) outer)", "7"));
+	/* Closures capture the let bindings. */
+	CHECK(eval_eq("(progn (setq mk (let ((n 10)) (lambda (x) (+ x n))))"
+		      " (mk 5))",
+	    "15"));
+
+	/* setq takes any number of pairs and returns the last value. */
+	CHECK(eval_eq("(progn (setq a 1 b 2 c 3) (list a b c))", "(1 2 3)"));
+	CHECK(eval_eq("(setq a 5)", "5"));
+	CHECK(eval_eq("(setq a 1 b 2)", "2"));
+	CHECK(eval_eq("(setq)", "nil"));
+
+	CHECK(eval_eq("(prog1 1 2 3)", "1"));
+	CHECK(eval_eq(
+	    "(progn (setq l (list 1 2 3)) (list (pop l) l))", "(1 (2 3))"));
+	CHECK(eval_eq("(progn (setq l (list 2)) (push 1 l) l)", "(1 2)"));
+	CHECK(eval_eq(
+	    "(progn (setq n 0) (dotimes (i 4) (setq n (+ n i))) n)", "6"));
+	CHECK(eval_eq("(dotimes (i 2) i)", "nil"));
+	CHECK(eval_eq("(dotimes (i 2 'done) i)", "done"));
+	CHECK(eval_eq("(dolist (x (list 1 2) 'done) x)", "done"));
+
+	kg_lisp_shutdown();
+}
+
+static void test_definition_forms(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* defun returns the symbol, as Emacs does. */
+	CHECK(eval_eq("(defun square (x) (* x x))", "square"));
+	CHECK(eval_eq("(square 7)", "49"));
+	/* Argument-list rewriting in isolation. */
+	CHECK(eval_eq(
+	    "(internal--arglist '(a &optional b &rest r))", "(a b . r)"));
+	CHECK(eval_eq("(internal--arglist '(a b))", "(a b)"));
+	CHECK(eval_eq("(internal--arglist '(&rest r))", "r"));
+	CHECK(eval_eq("(internal--arglist '(a . r))", "(a . r)"));
+	CHECK(eval_eq("(internal--arglist 'args)", "args"));
+	CHECK(eval_eq("(internal--arglist nil)", "nil"));
+
+	CHECK(eval_ok("(defun opt (a &optional b) (list a b))"));
+	CHECK(eval_eq("(opt 1)", "(1 nil)"));
+	CHECK(eval_eq("(opt 1 2)", "(1 2)"));
+	CHECK(eval_ok("(defun rst (a &rest r) (list a r))"));
+	CHECK(eval_eq("(rst 1)", "(1 nil)"));
+	CHECK(eval_eq("(rst 1 2 3)", "(1 (2 3))"));
+
+	/* A docstring is inert when a body follows it and is the value when it
+	 * is the whole body, exactly as in Emacs. */
+	CHECK(eval_ok("(defun documented (x) \"Doc.\" (+ x 1))"));
+	CHECK(eval_eq("(documented 1)", "2"));
+	CHECK(eval_ok("(defun onlydoc (x) \"Just a doc.\")"));
+	CHECK(eval_eq("(onlydoc 1)", "Just a doc."));
+
+	CHECK(eval_eq(
+	    "(defmacro twice (form) (list 'progn form form))", "twice"));
+	CHECK(eval_eq("(progn (setq n 0) (twice (setq n (+ n 1))) n)", "2"));
+	CHECK(eval_ok("(defmacro my-list (&rest body) (cons 'list body))"));
+	CHECK(eval_eq("(my-list 1 2)", "(1 2)"));
+
+	/* defvar initialises only while the variable is nil; defconst always
+	 * assigns. */
+	CHECK(eval_eq("(defvar dv 5)", "dv"));
+	CHECK(eval_ok("(defvar dv 9)"));
+	CHECK(eval_eq("dv", "5"));
+	CHECK(eval_eq("(defconst dc 5)", "dc"));
+	CHECK(eval_ok("(defconst dc 9)"));
+	CHECK(eval_eq("dc", "9"));
+
+	/* A stray top-level (interactive) is inert and really nil. */
+	CHECK(eval_eq("(interactive)", "nil"));
+	CHECK(eval_eq("(not (interactive))", "t"));
+
+	/* (interactive) in a defun registers the command under its symbol and
+	 * is stripped from the body. */
+	setup_editor();
+	CHECK(eval_ok("(defun greet-lisp () (interactive) (message \"hi\"))"));
+	CHECK(kg_lisp_command_name(0) != nullptr);
+	CHECK(strcmp(kg_lisp_command_name(0), "greet-lisp") == 0);
+	CHECK(kg_lisp_run_command("greet-lisp", 0) == 0);
+	CHECK(strcmp(test_status_message, "hi") == 0);
+	/* A defun without (interactive) registers nothing. */
+	CHECK(eval_ok("(defun quiet-lisp () (message \"no\"))"));
+	CHECK(kg_lisp_command_name(1) == nullptr);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_quasiquote(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("'`(a ,b ,@c)",
+	    "(quasiquote (a (unquote b) (unquote-splicing c)))"));
+	CHECK(eval_eq("(progn (setq b 42) `(a ,b c))", "(a 42 c)"));
+	CHECK(eval_eq("(progn (setq l (list 7 8)) `(a ,@l c))", "(a 7 8 c)"));
+	CHECK(eval_eq("`(a b)", "(a b)"));
+	CHECK(eval_eq(
+	    "(progn (setq b 42) `(nested (deep ,b)))", "(nested (deep 42))"));
+	CHECK(eval_eq("(progn (setq b 42) `,b)", "42"));
+	/* An empty backquote is a real nil, not a nil-shaped object. */
+	CHECK(eval_eq("`()", "nil"));
+	CHECK(eval_eq("(not `())", "t"));
+	/* Backticks and commas inside strings stay inert. */
+	CHECK(eval_eq("\"a, b `c` ,@d\"", "a, b `c` ,@d"));
+	/* #'x is plain x, since Fe has one namespace. */
+	CHECK(eval_eq("(mapcar #'car (list (list 1 2) (list 3 4)))", "(1 3)"));
+	CHECK(eval_eq("(function car)", "[primitive]"));
+
+	/* A macro written with backquote. */
+	CHECK(eval_ok("(defmacro unless2 (test . body)"
+		      " `(if ,test nil (progn ,@body)))"));
+	CHECK(eval_eq("(progn (setq n 0) (unless2 nil (setq n 5)) n)", "5"));
+	CHECK(eval_eq("(progn (setq n 0) (unless2 t (setq n 5)) n)", "0"));
+
+	kg_lisp_shutdown();
+}
+
+/* The improved diagnostic for calling something that is not a function. */
+static void test_void_function(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_error_contains(
+	    "(no-such-function 1)", "void-function no-such-function"));
+	CHECK(eval_error_contains("(1 2)", "non-callable"));
+	CHECK(eval_ok("(+ 1 2)"));
+
+	kg_lisp_shutdown();
+}
+
+/* Fe's GC stack is what bounds recursion, not the C stack. */
+static void test_recursion_depth(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(defun deep (n) (if (<= n 0) 0 (+ 1 (deep (- n 1)))))"));
+	CHECK(eval_eq("(deep 200)", "200"));
+	CHECK(eval_error_contains("(deep 5000)", "GC stack overflow"));
+	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();
 }
@@ -1087,5 +1387,13 @@ int main(void)
 	RUN(test_char_string_round_trip);
 	RUN(test_thing_at_point);
 	RUN(test_prelude_forms);
+	RUN(test_elisp_if);
+	RUN(test_list_library);
+	RUN(test_type_predicates);
+	RUN(test_binding_forms);
+	RUN(test_definition_forms);
+	RUN(test_quasiquote);
+	RUN(test_void_function);
+	RUN(test_recursion_depth);
 	return test_summary();
 }

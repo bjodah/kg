@@ -454,6 +454,8 @@ int buf_append_special_text(
 void buf_clear_special_text(int buffer_index);
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_save_current_state(void);
+void buf_open_special(const char *name, struct editor_syntax *syn,
+    void (*populate)(void), const char *status);
 
 /* Result of a minibuffer prompt.  ACCEPTED is the only outcome that should
  * ever be acted on by callers that execute the typed text (e.g. as a shell
@@ -861,6 +863,12 @@ void editor_select_syntax_highlight(char *filename);
 int syntax_git_rebase_pick_span(
     const char *line, int len, int *start, int *wlen);
 int syntax_git_rebase_flags_end(const char *line, int len, int from);
+
+/* dired.c — syntax_is_dired() lives here rather than in syntax.c because
+ * the Dired syntax record carries no highlighter to compare against. */
+[[nodiscard]] int syntax_is_dired(void);
+int dired_open(const char *dir);
+int dired_dir_of(const char *bufname, char *out, int size);
 
 /* tty.c */
 void disable_raw_mode(int fd);

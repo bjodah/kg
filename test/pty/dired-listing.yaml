@@ -1,0 +1,35 @@
+# The case's HOME is a fresh temporary directory, so config_files plants
+# the tree that "~" names.  The header line's absolute path is not
+# predictable, only its tail.
+#
+# "~/a.txt" rather than "~" as the answer: the path picker completes onto
+# files, and answering it on a directory descends into that directory
+# instead of returning it, so naming a file inside the target is the
+# deterministic way to ask for the target itself (cmd_dired reduces a
+# non-directory answer to the directory containing it).
+name: dired-listing
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  with space.txt: spaced
+  sub/keep.txt: kept
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+# q leaves dired for notes.txt before the trailer saves; saving from the
+# read-only dired buffer would prompt for a filename instead.
+trailer_keys: [q, C-x, C-s, C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "/home:"
+  - "  a.txt"
+  - "  sub/"
+  - "  with space.txt"
+  - "3 entries"

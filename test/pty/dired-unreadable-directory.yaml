@@ -1,0 +1,21 @@
+# A directory that cannot be read reports errno and leaves the current
+# buffer alone: no dired buffer is created, because dired_open() reads the
+# whole listing before it touches the buffer table.
+name: dired-unreadable-directory
+filename: notes.txt
+backend: tmux
+initial: |
+  notes
+keys:
+  - M-x
+  - dired
+  - RET
+  - /no/such/dir
+  - RET
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "Dired /no/such/dir: No such file or directory"
+  - notes
+expected_screen_not_contains:
+  - "(Dired RO)"

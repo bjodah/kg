@@ -1584,8 +1584,8 @@ void buf_kill(int fd)
 /* Set up the special buffer named `name`: save the outgoing state,
  * find or allocate its slot, clear any prior content, run `populate`
  * to fill rows, then mark the buffer read-only, attach `syn`, and
- * post `status`.  Shared by buf_open_list and buf_open_help. */
-static void buf_open_special(const char *name, struct editor_syntax *syn,
+ * post `status`.  Shared by buf_open_list, buf_open_help and dired. */
+void buf_open_special(const char *name, struct editor_syntax *syn,
     void (*populate)(void), const char *status)
 {
 	int slot, existing;

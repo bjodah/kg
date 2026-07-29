@@ -3,6 +3,7 @@ test_basic
 test_buffer
 test_compile
 test_complete
+test_dired
 test_lisp
 test_localvars
 test_minibuf

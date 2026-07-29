@@ -423,6 +423,9 @@ void editor_process_keypress(int fd)
 		case CTRL_B: /* C-x C-b: Open buffer list */
 			buf_open_list();
 			break;
+		case 'd': /* C-x d: Dired */
+			(void)cmd_execute_named("dired", fd);
+			break;
 		case '2': /* C-x 2: Split window horizontally */
 			win_split_horizontal();
 			break;

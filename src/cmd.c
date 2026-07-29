@@ -2,9 +2,11 @@
  */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "compile.h"
 #include "def.h"
@@ -663,6 +665,41 @@ static void cmd_rebase_move_down(int fd)
 	editor_rebase_move_line(1);
 }
 
+/* Prompt for a directory and list it (M-x dired, C-x d).  The path
+ * picker completes onto files as well as directories, and answering it
+ * on a directory descends into it rather than returning it, so the
+ * directory *containing* the answer is what a non-directory answer
+ * means.  An answer that names nothing is passed through untouched so
+ * the error names what was typed. */
+static void cmd_dired(int fd)
+{
+	char path[PATH_MAX];
+	struct stat st;
+	char *slash;
+
+	path[0] = '\0';
+	if (editor_read_line_path(fd, "Dired (directory): ", path, sizeof(path))
+	    < 0) {
+		return;
+	}
+	if (!path[0]) {
+		editor_prompt_prefill_dir(path, sizeof(path));
+		editor_path_expand_tilde(path, sizeof(path));
+	}
+	if (!path[0]) {
+		snprintf(path, sizeof(path), ".");
+	}
+	if (stat(path, &st) == 0 && !S_ISDIR(st.st_mode)) {
+		slash = strrchr(path, '/');
+		if (slash) {
+			slash[slash == path ? 1 : 0] = '\0';
+		} else {
+			snprintf(path, sizeof(path), ".");
+		}
+	}
+	(void)dired_open(path);
+}
+
 /* Manually enable YAML syntax highlighting, e.g. for an extensionless
  * file. ".yaml"/".yml" files select it automatically. */
 static void cmd_yaml_mode(int fd)
@@ -695,6 +732,10 @@ static const struct named_cmd cmdtable[] = {
 	    CMD_EDITS_BUFFER },
 	{ "delete-trailing-space", cmd_delete_trailing_space,
 	    CMD_EDITS_BUFFER },
+	/* Dired buffers are read-only by design, and CMD_EDITS_BUFFER is
+	 * exactly the flag that refuses a command in a read-only buffer;
+	 * dired's commands guard themselves on the syntax pointer instead. */
+	{ "dired", cmd_dired, CMD_NONE },
 	{ "downcase-word", cmd_downcase_word, CMD_EDITS_BUFFER },
 	{ "electric-pair-mode", cmd_electric_pair_mode, CMD_NONE },
 	{ "eval-buffer", cmd_eval_buffer, CMD_NONE },

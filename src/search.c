@@ -192,6 +192,32 @@ static void query_replace_bounds(
 	*end_col = editor.numrows > 0 ? editor.row[*end_row].size : 0;
 }
 
+/* Snapshot the highlight of row `filerow` into *saved_hl, then paint the
+ * match spanning render columns [rcol, rcol + rlen) as HL_MATCH so the
+ * y/n question is asked about a visibly marked match.  Returns 0, or -1
+ * when the snapshot could not be allocated; a row carrying no highlight
+ * array needs neither and reports success.  RESTORE_HL puts the snapshot
+ * back, so it stays with the caller that owns those two variables. */
+static int query_replace_mark_match(
+    int filerow, int rcol, int rlen, char **saved_hl, int *saved_hl_line)
+{
+	erow *row = &editor.row[filerow];
+
+	if (!row->hl) {
+		return 0;
+	}
+	*saved_hl = malloc(row->rsize);
+	if (!*saved_hl) {
+		return -1;
+	}
+	*saved_hl_line = filerow;
+	memcpy(*saved_hl, row->hl, row->rsize);
+	if (rcol + rlen <= row->rsize) {
+		memset(row->hl + rcol, HL_MATCH, rlen);
+	}
+	return 0;
+}
+
 static void editor_query_replace_newline(
     int fd, char *replace, int rlen, int start_row, int end_row)
 {
@@ -634,24 +660,13 @@ void editor_query_replace(int fd)
 		 * offset so the highlight lands correctly even when tabs
 		 * precede the match on the line. */
 		RESTORE_HL;
-		{
-			erow *row = &editor.row[filerow];
-			if (row->hl) {
-				int rcol = chars_to_render_col(row, match_col);
-				saved_hl_line = filerow;
-				saved_hl = malloc(row->rsize);
-				if (!saved_hl) {
-					editor_set_status_message(
-					    "Out of memory");
-					running = 0;
-					RESTORE_HL;
-					return;
-				}
-				memcpy(saved_hl, row->hl, row->rsize);
-				if (rcol + slen <= row->rsize) {
-					memset(row->hl + rcol, HL_MATCH, slen);
-				}
-			}
+		if (query_replace_mark_match(filerow,
+			chars_to_render_col(&editor.row[filerow], match_col),
+			slen, &saved_hl, &saved_hl_line)
+		    != 0) {
+			editor_set_status_message("Out of memory");
+			running = 0;
+			return;
 		}
 
 		if (!replace_all) {
@@ -870,29 +885,16 @@ void editor_query_replace_regexp(int fd)
 
 		editor_goto_line_direct(filerow + 1, match_start + 1);
 
+		int rcol_start = chars_to_render_col(row, match_start);
+
 		RESTORE_HL;
-		{
-			if (row->hl) {
-				int rcol_start
-				    = chars_to_render_col(row, match_start);
-				int rcol_end
-				    = chars_to_render_col(row, match_end);
-				int rcol_len = rcol_end - rcol_start;
-				saved_hl_line = filerow;
-				saved_hl = malloc(row->rsize);
-				if (!saved_hl) {
-					editor_set_status_message(
-					    "Out of memory");
-					running = 0;
-					RESTORE_HL;
-					return;
-				}
-				memcpy(saved_hl, row->hl, row->rsize);
-				if (rcol_start + rcol_len <= row->rsize) {
-					memset(row->hl + rcol_start, HL_MATCH,
-					    rcol_len);
-				}
-			}
+		if (query_replace_mark_match(filerow, rcol_start,
+			chars_to_render_col(row, match_end) - rcol_start,
+			&saved_hl, &saved_hl_line)
+		    != 0) {
+			editor_set_status_message("Out of memory");
+			running = 0;
+			return;
 		}
 
 		int expanded_len = 0;

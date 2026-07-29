@@ -1,6 +1,8 @@
 /* ======================== Keyboard event handling ========================= */
 
 #include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -198,15 +200,12 @@ static int editor_confirm_quit(int fd)
 		ndirty++;
 	}
 	if (ndirty) {
-		int answer;
-		editor_set_status_message(ndirty == 1
-			? "Modified buffer, really quit? (y/n) "
-			: "%d modified buffers, really quit? "
-			  "(y/n) ",
-		    ndirty);
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
+		int ok = ndirty == 1
+		    ? editor_confirm_yn(
+			  fd, "Modified buffer, really quit? (y/n) ")
+		    : editor_confirm_yn(fd,
+			  "%d modified buffers, really quit? (y/n) ", ndirty);
+		if (!ok) {
 			editor_set_status_message("");
 			return 0;
 		}
@@ -228,14 +227,22 @@ static void editor_server_done(int fd)
 	running = 0;
 }
 
-/* Ask `prompt` in the echo area and read one key.  Returns 1 only for a
- * literal yes; anything else, C-g included, is a no.  The screen is
- * refreshed first because the question has to be visible before the key
- * that answers it is read. */
-int editor_confirm_yn(int fd, const char *prompt)
+/* Ask `fmt` (printf-style, as for the status line) in the echo area and
+ * read one key.  Returns 1 only for a literal yes; anything else, C-g
+ * included, is a no.  The screen is refreshed first because the question
+ * has to be visible before the key that answers it is read.  Every y/n
+ * question in the editor goes through here, so they all agree on what a
+ * yes is and on when the question is on screen. */
+int editor_confirm_yn(int fd, const char *fmt, ...)
 {
+	char prompt[sizeof(editor.statusmsg)];
+	va_list ap;
 	int answer;
 
+	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
+	vsnprintf(prompt, sizeof(prompt), fmt, ap);
+	va_end(ap);
 	editor_set_status_message("%s", prompt);
 	editor_refresh_screen();
 	answer = editor_read_key(fd);
@@ -321,6 +328,138 @@ static void handle_cc_prefix_key(int c, int fd)
 	}
 }
 
+/* Handle the key after a C-x r prefix (rectangle operations).  Every op
+ * here mutates the buffer, so a read-only buffer rejects them outright;
+ * only C-g (cancel) still has any business reaching the switch. */
+static void handle_rect_prefix_key(int c, int fd)
+{
+	if (editor.readonly && c != CTRL_G) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	switch (c) {
+	case 'k':
+	case CTRL_K:
+		editor_kill_rect();
+		break;
+	case 'd':
+		editor_delete_rect();
+		break;
+	case 'c':
+		editor_clear_rect();
+		break;
+	case 'y':
+	case CTRL_Y:
+		editor_yank_rect();
+		break;
+	case 't':
+		editor_string_rect(fd);
+		break;
+	case CTRL_G:
+		editor_set_status_message("");
+		break;
+	default:
+		editor_set_status_message("C-x r %c is undefined", c);
+		break;
+	}
+}
+
+/* Handle the key after a C-x prefix. */
+static void handle_cx_prefix_key(int c, int fd)
+{
+	switch (c) {
+	case CTRL_C: /* C-x C-c: Quit */
+		if (editor_confirm_quit(fd)) {
+			running = 0;
+		}
+		break;
+	case CTRL_S: /* C-x C-s: Save */
+		editor_save(fd);
+		break;
+	case 's': /* C-x s: Save all modified buffers */
+		buf_save_all(fd);
+		break;
+	case CTRL_F: /* C-x C-f: Open file in new buffer */
+		buf_open_file(fd);
+		break;
+	case CTRL_R: /* C-x C-r: Open file read-only */
+		buf_open_file_read_only(fd);
+		break;
+	case 'b': /* C-x b: Interactive buffer select */
+		buf_select_interactive(fd);
+		break;
+	case 'k': /* C-x k: Kill current buffer */
+		buf_kill(fd);
+		break;
+	case CTRL_B: /* C-x C-b: Open buffer list */
+		buf_open_list();
+		break;
+	case 'd': /* C-x d: Dired */
+		(void)cmd_execute_named("dired", fd);
+		break;
+	case '2': /* C-x 2: Split window horizontally */
+		win_split_horizontal();
+		break;
+	case '3': /* C-x 3: Split window vertically */
+		win_split_vertical();
+		break;
+	case 'o': /* C-x o: Other window */
+		win_cycle_next();
+		break;
+	case '0': /* C-x 0: Delete current window */
+		win_delete_current();
+		break;
+	case '1': /* C-x 1: Delete other windows */
+		win_delete_others();
+		break;
+	case CTRL_X: /* C-x C-x: Exchange point and mark */
+		editor_exchange_point_and_mark();
+		break;
+	case CTRL_W: /* C-x C-w: Write file (save as) */
+		editor_write_file(fd);
+		break;
+	case 'i': /* C-x i: Insert file at point */
+		editor_insert_file(fd);
+		break;
+	case CTRL_Q: /* C-x C-q: read-only-mode */
+		(void)cmd_execute_named("read-only-mode", fd);
+		break;
+	case '(': /* C-x (: Start keyboard macro */
+		macro_start();
+		break;
+	case ')': /* C-x ): Stop keyboard macro (trim C-x + ')' from buffer) */
+		macro_stop(2);
+		break;
+	case 'e': /* C-x e: Execute keyboard macro; C-u N repeats */
+		macro_replay(
+		    fd, editor.cx_prefix_arg > 0 ? editor.cx_prefix_arg : 1);
+		break;
+	case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
+		if (kg_lisp_active()) {
+			cmd_eval_last_sexp(editor.cx_prefix_arg > 0);
+		} else {
+			editor_set_status_message("Lisp not available");
+		}
+		break;
+	case ' ': /* C-x SPC: rectangle-mark-mode */
+		editor_rect_mode_toggle();
+		break;
+	case 'r': /* C-x r-: rectangle operation prefix */
+		editor.rect_prefix = 1;
+		editor_set_status_message("C-x r-");
+		break;
+	case CTRL_G: /* C-x C-g: Cancel C-x prefix */
+		editor_set_status_message("");
+		break;
+	case '#': /* C-x #: save and exit 0 (EDITOR-server done) */
+		editor_server_done(fd);
+		break;
+	default:
+		editor_set_status_message("C-x %c is undefined", c);
+		break;
+	}
+}
+
 /* Bare keys in a directory listing.  User Lisp bindings are C-c-only by
  * design, so dired's Emacs keys are built in, like the commit and rebase
  * C-c keys; each one runs the command M-x would. */
@@ -395,41 +534,11 @@ void editor_process_keypress(int fd)
 	}
 	editor.last_char_time = tv;
 
-	/* Handle C-x r rectangle ops (second key after C-x r).  Every op
-	 * here mutates the buffer, so a read-only buffer rejects them
-	 * outright; only C-g (cancel) still has any business reaching
-	 * the inner switch. */
+	/* The three prefixes take the whole keystroke: C-x r (rectangle ops),
+	 * C-c (mode and user bindings), C-x. */
 	if (editor.rect_prefix) {
 		editor.rect_prefix = 0;
-		if (editor.readonly && c != CTRL_G) {
-			editor_set_status_message("Buffer is read-only");
-			return;
-		}
-		switch (c) {
-		case 'k':
-		case CTRL_K:
-			editor_kill_rect();
-			break;
-		case 'd':
-			editor_delete_rect();
-			break;
-		case 'c':
-			editor_clear_rect();
-			break;
-		case 'y':
-		case CTRL_Y:
-			editor_yank_rect();
-			break;
-		case 't':
-			editor_string_rect(fd);
-			break;
-		case CTRL_G:
-			editor_set_status_message("");
-			break;
-		default:
-			editor_set_status_message("C-x r %c is undefined", c);
-			break;
-		}
+		handle_rect_prefix_key(c, fd);
 		return;
 	}
 
@@ -439,103 +548,9 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	/* Handle C-x prefix commands */
 	if (editor.cx_prefix) {
 		editor.cx_prefix = 0;
-		switch (c) {
-		case CTRL_C: /* C-x C-c: Quit */
-			if (!editor_confirm_quit(fd)) {
-				return;
-			}
-			running = 0;
-			break;
-		case CTRL_S: /* C-x C-s: Save */
-			editor_save(fd);
-			break;
-		case 's': /* C-x s: Save all modified buffers */
-			buf_save_all(fd);
-			break;
-		case CTRL_F: /* C-x C-f: Open file in new buffer */
-			buf_open_file(fd);
-			break;
-		case CTRL_R: /* C-x C-r: Open file read-only */
-			buf_open_file_read_only(fd);
-			break;
-		case 'b': /* C-x b: Interactive buffer select */
-			buf_select_interactive(fd);
-			break;
-		case 'k': /* C-x k: Kill current buffer */
-			buf_kill(fd);
-			break;
-		case CTRL_B: /* C-x C-b: Open buffer list */
-			buf_open_list();
-			break;
-		case 'd': /* C-x d: Dired */
-			(void)cmd_execute_named("dired", fd);
-			break;
-		case '2': /* C-x 2: Split window horizontally */
-			win_split_horizontal();
-			break;
-		case '3': /* C-x 3: Split window vertically */
-			win_split_vertical();
-			break;
-		case 'o': /* C-x o: Other window */
-			win_cycle_next();
-			break;
-		case '0': /* C-x 0: Delete current window */
-			win_delete_current();
-			break;
-		case '1': /* C-x 1: Delete other windows */
-			win_delete_others();
-			break;
-		case CTRL_X: /* C-x C-x: Exchange point and mark */
-			editor_exchange_point_and_mark();
-			break;
-		case CTRL_W: /* C-x C-w: Write file (save as) */
-			editor_write_file(fd);
-			break;
-		case 'i': /* C-x i: Insert file at point */
-			editor_insert_file(fd);
-			break;
-		case CTRL_Q: /* C-x C-q: read-only-mode */
-			(void)cmd_execute_named("read-only-mode", fd);
-			break;
-		case '(': /* C-x (: Start keyboard macro */
-			macro_start();
-			break;
-		case ')': /* C-x ): Stop keyboard macro (trim C-x + ')' from
-			     buffer) */
-			macro_stop(2);
-			break;
-		case 'e': /* C-x e: Execute keyboard macro; C-u N repeats */
-			macro_replay(fd,
-			    editor.cx_prefix_arg > 0 ? editor.cx_prefix_arg
-						     : 1);
-			break;
-		case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
-			if (kg_lisp_active()) {
-				cmd_eval_last_sexp(editor.cx_prefix_arg > 0);
-			} else {
-				editor_set_status_message("Lisp not available");
-			}
-			break;
-		case ' ': /* C-x SPC: rectangle-mark-mode */
-			editor_rect_mode_toggle();
-			break;
-		case 'r': /* C-x r-: rectangle operation prefix */
-			editor.rect_prefix = 1;
-			editor_set_status_message("C-x r-");
-			break;
-		case CTRL_G: /* C-x C-g: Cancel C-x prefix */
-			editor_set_status_message("");
-			break;
-		case '#': /* C-x #: save and exit 0 (EDITOR-server done) */
-			editor_server_done(fd);
-			break;
-		default:
-			editor_set_status_message("C-x %c is undefined", c);
-			break;
-		}
+		handle_cx_prefix_key(c, fd);
 		return;
 	}
 

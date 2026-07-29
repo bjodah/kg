@@ -285,6 +285,60 @@ static void test_substring_matching(void)
 	teardown();
 }
 
+/* The parent-directory truncation shared by M-x dired, dired's ^ and the
+ * .dir-locals.el search. */
+static void test_path_parent_dir(void)
+{
+	char path[256];
+
+	snprintf(path, sizeof(path), "%s", "/home/user/file.c");
+	CHECK(path_parent_dir(path) == 0);
+	CHECK(strcmp(path, "/home/user") == 0);
+
+	/* A trailing slash names the directory itself, so its parent is one
+	 * level up from there. */
+	snprintf(path, sizeof(path), "%s", "/home/user/");
+	CHECK(path_parent_dir(path) == 0);
+	CHECK(strcmp(path, "/home/user") == 0);
+
+	/* The parent of a top-level entry, and of "/" itself, is "/". */
+	snprintf(path, sizeof(path), "%s", "/tmp");
+	CHECK(path_parent_dir(path) == 0);
+	CHECK(strcmp(path, "/") == 0);
+
+	snprintf(path, sizeof(path), "%s", "/");
+	CHECK(path_parent_dir(path) == 0);
+	CHECK(strcmp(path, "/") == 0);
+
+	/* A bare name has no parent to truncate to. */
+	snprintf(path, sizeof(path), "%s", "file.c");
+	CHECK(path_parent_dir(path) == -1);
+	CHECK(strcmp(path, "file.c") == 0);
+
+	snprintf(path, sizeof(path), "%s", "");
+	CHECK(path_parent_dir(path) == -1);
+}
+
+/* path_is_dir() answers for the scratch directory it is handed, and says
+ * no for a plain file and for a name that does not exist. */
+static void test_path_is_dir(void)
+{
+	char path[512];
+
+	setup();
+	mkscratchdir("adir");
+	touch("afile");
+
+	CHECK(path_is_dir(scratch) == 1);
+	snprintf(path, sizeof(path), "%s/adir", scratch);
+	CHECK(path_is_dir(path) == 1);
+	snprintf(path, sizeof(path), "%s/afile", scratch);
+	CHECK(path_is_dir(path) == 0);
+	snprintf(path, sizeof(path), "%s/nope", scratch);
+	CHECK(path_is_dir(path) == 0);
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_multiple_matches_lcp);
@@ -298,5 +352,7 @@ int main(void)
 	RUN(test_max_clamp);
 	RUN(test_picker_match_rank);
 	RUN(test_substring_matching);
+	RUN(test_path_parent_dir);
+	RUN(test_path_is_dir);
 	return test_summary();
 }

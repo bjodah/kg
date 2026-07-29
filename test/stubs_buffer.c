@@ -46,10 +46,10 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
 /* Reached from dired.o (test_dired), which links no terminal or cursor
  * code: its unit tests exercise the pure row/name parsers only. */
 void editor_move_cursor(int key) { (void)key; }
-int editor_confirm_yn(int fd, const char *prompt)
+int editor_confirm_yn(int fd, const char *fmt, ...)
 {
 	(void)fd;
-	(void)prompt;
+	(void)fmt;
 	return 0;
 }
 

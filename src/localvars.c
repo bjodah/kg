@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 void local_settings_init(struct local_settings *settings)
@@ -351,9 +350,7 @@ int dirlocals_find(
 	char resolved[PATH_MAX];
 	const char *last_slash;
 	char *rpath;
-	struct stat st;
 	size_t dlen;
-	int is_dir;
 
 	if (!visited_filename || !visited_filename[0] || !result
 	    || result_size < 2) {
@@ -362,32 +359,18 @@ int dirlocals_find(
 
 	rpath = realpath(visited_filename, resolved);
 	if (rpath) {
-		is_dir = (stat(resolved, &st) == 0 && S_ISDIR(st.st_mode));
-		if (is_dir) {
-			dlen = strlen(resolved);
-			if (dlen >= sizeof(dir)) {
-				return -1;
-			}
-			memcpy(dir, resolved, dlen + 1);
-		} else {
-			last_slash = strrchr(resolved, '/');
-			if (last_slash) {
-				if (last_slash == resolved) {
-					dir[0] = '/';
-					dir[1] = '\0';
-				} else {
-					dlen = (size_t)(last_slash - resolved);
-					if (dlen >= sizeof(dir)) {
-						return -1;
-					}
-					memcpy(dir, resolved, dlen);
-					dir[dlen] = '\0';
-				}
-			} else {
-				if (!getcwd(dir, sizeof(dir))) {
-					return -1;
-				}
-			}
+		dlen = strlen(resolved);
+		if (dlen >= sizeof(dir)) {
+			return -1;
+		}
+		memcpy(dir, resolved, dlen + 1);
+		/* The search starts at the resolved path when it is itself a
+		 * directory, and at its parent otherwise.  realpath() always
+		 * returns an absolute path, so the working-directory fallback
+		 * is unreachable here; it mirrors the branch below. */
+		if (!path_is_dir(dir) && path_parent_dir(dir) != 0
+		    && !getcwd(dir, sizeof(dir))) {
+			return -1;
 		}
 	} else {
 		last_slash = strrchr(visited_filename, '/');

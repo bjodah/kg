@@ -18,6 +18,20 @@ static void cursor_advance_screen_col(void)
 	}
 }
 
+/* Put byte column `col` of the current row on screen: at that column when
+ * it fits, otherwise against the window's right edge with coloff scrolled
+ * to match.  Every "jump to a column" motion lands here. */
+static void cursor_place_col(int col)
+{
+	if (col > editor.screencols - 1) {
+		editor.coloff = col - editor.screencols + 1;
+		editor.cx = editor.screencols - 1;
+	} else {
+		editor.cx = col;
+		editor.coloff = 0;
+	}
+}
+
 /* Handle cursor position change because arrow keys were pressed. */
 void editor_move_cursor(int key)
 {
@@ -96,14 +110,7 @@ void editor_move_cursor(int key)
 		break;
 	case END_KEY:
 		if (row) {
-			if (row->size > editor.screencols - 1) {
-				editor.coloff
-				    = row->size - editor.screencols + 1;
-				editor.cx = editor.screencols - 1;
-			} else {
-				editor.cx = row->size;
-				editor.coloff = 0;
-			}
+			cursor_place_col(row->size);
 		}
 		break;
 	case ARROW_LEFT:
@@ -210,14 +217,7 @@ void editor_move_cursor(int key)
 				editor.cy += 1;
 			}
 		} else if (row) {
-			if (row->size > editor.screencols - 1) {
-				editor.coloff
-				    = row->size - editor.screencols + 1;
-				editor.cx = editor.screencols - 1;
-			} else {
-				editor.cx = row->size;
-				editor.coloff = 0;
-			}
+			cursor_place_col(row->size);
 			editor.desired_visual_col = -1;
 		}
 		break;
@@ -353,13 +353,7 @@ void editor_goto_line_direct(int line, int col)
 	}
 	editor.cy = filerow - editor.rowoff;
 
-	if (filecol > editor.screencols - 1) {
-		editor.coloff = filecol - editor.screencols + 1;
-		editor.cx = editor.screencols - 1;
-	} else {
-		editor.coloff = 0;
-		editor.cx = filecol;
-	}
+	cursor_place_col(filecol);
 }
 
 /* Emacs' goto-line-history. */
@@ -409,11 +403,5 @@ void editor_move_to_end(void)
 	}
 
 	/* Move to end of last line */
-	if (row->size > editor.screencols - 1) {
-		editor.coloff = row->size - editor.screencols + 1;
-		editor.cx = editor.screencols - 1;
-	} else {
-		editor.cx = row->size;
-		editor.coloff = 0;
-	}
+	cursor_place_col(row->size);
 }

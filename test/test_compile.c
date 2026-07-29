@@ -31,6 +31,14 @@ int editor_read_key(int fd)
 	(void)fd;
 	return 0;
 }
+/* Same answer the editor_read_key() above used to give the hand-rolled
+ * prompt this replaced: not a yes. */
+int editor_confirm_yn(int fd, const char *fmt, ...)
+{
+	(void)fd;
+	(void)fmt;
+	return 0;
+}
 
 void buf_save_current_state(void) { }
 

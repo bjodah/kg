@@ -195,7 +195,6 @@ static int dired_read(const char *dir, struct dired_entry **out)
 	}
 	while ((de = readdir(d)) != NULL) {
 		char full[PATH_MAX];
-		struct stat st;
 
 		if (strcmp(de->d_name, ".") == 0
 		    || strcmp(de->d_name, "..") == 0) {
@@ -211,7 +210,7 @@ static int dired_read(const char *dir, struct dired_entry **out)
 		}
 		ents[n].is_dir
 		    = dired_join(dir, de->d_name, full, sizeof(full)) == 0
-		    && stat(full, &st) == 0 && S_ISDIR(st.st_mode);
+		    && path_is_dir(full);
 		n++;
 	}
 	closedir(d);
@@ -415,12 +414,11 @@ static int dired_path_at_point(char *out, int size)
 void dired_find_file(void)
 {
 	char path[PATH_MAX];
-	struct stat st;
 
 	if (!dired_active() || dired_path_at_point(path, sizeof(path)) != 0) {
 		return;
 	}
-	if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+	if (path_is_dir(path)) {
 		(void)dired_open(path);
 		return;
 	}
@@ -432,17 +430,14 @@ void dired_find_file(void)
 void dired_up_directory(void)
 {
 	char dir[PATH_MAX];
-	char *slash;
 
 	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
 		return;
 	}
-	slash = strrchr(dir, '/');
-	if (!slash) {
+	if (path_parent_dir(dir) != 0) {
 		editor_set_status_message("Dired: %s has no parent", dir);
 		return;
 	}
-	slash[slash == dir ? 1 : 0] = '\0';
 	(void)dired_open(dir);
 }
 
@@ -562,9 +557,8 @@ void dired_do_flagged_delete(int fd)
 		editor_set_status_message("No files flagged for deletion");
 		return;
 	}
-	snprintf(msg, sizeof(msg), "Delete %d flagged %s? (y/n) ", flagged,
-	    flagged == 1 ? "entry" : "entries");
-	if (!editor_confirm_yn(fd, msg)) {
+	if (!editor_confirm_yn(fd, "Delete %d flagged %s? (y/n) ", flagged,
+		flagged == 1 ? "entry" : "entries")) {
 		editor_set_status_message("Deletion cancelled");
 		return;
 	}

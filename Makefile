@@ -137,22 +137,19 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-# Ratcheted 4116 -> 4260 for dired mode (src/dired.c: directory listing,
-# navigation, marks and flagged deletion); kept snug so the next growth
+# Ratcheted 4260 -> 4199 by the deduplication pass (shared y/n prompt,
+# path helpers, prefix-key extraction); kept snug so the next growth
 # gets reviewed too.
-SCC_COMPLEXITY_MAX ?= 4260
+SCC_COMPLEXITY_MAX ?= 4199
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
-# 130 rather than the 125 this started at: pmccabe was absent from the CI
-# image, and because make does not run recipes under `pipefail`, the
-# pmccabe-check pipeline took its status from the checker, which saw an
-# empty stream and reported success.  The limit was therefore never
-# enforced, and editor_process_keypress() has sat at 128 the whole time.
-# The checker now rejects empty input, so the gate is real; 130 is the
-# smallest bound that admits the existing dispatcher.  Lower it, do not
-# raise it.
-PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 130
+# Lowered 130 -> 120 after the deduplication pass extracted the C-x and
+# C-x r prefix dispatch out of editor_process_keypress(); 120 admits the
+# current worst function exactly.  Lower it, do not raise it.  (History:
+# 130 dates from when a missing pmccabe binary silently disabled this
+# gate; the checker now rejects empty input.)
+PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 120
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov

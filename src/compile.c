@@ -277,6 +277,54 @@ static void compilation_start(const char *command, const char *directory,
 	editor_set_status_message("Compilation started: %s", command);
 }
 
+/* Run `command` in `dir` on behalf of buffer slot `source_slot`, dealing
+ * first with a compilation that is already running: ask before killing it,
+ * and on a yes signal it and queue this command to start once it dies.
+ * Shared by M-x compile and M-x recompile, which differ only in where the
+ * command and the directory come from. */
+static void compilation_start_or_defer(
+    int fd, const char *command, const char *dir, int source_slot)
+{
+	if (compilation_is_running()) {
+		if (!editor_confirm_yn(fd,
+			"A compilation process is running; kill it? (y/n) ")) {
+			editor_set_status_message("Compilation not started");
+			return;
+		}
+
+		/* editor_read_key() polls the compilation while it waits for
+		 * the answer, so it may have finished and gone idle meanwhile.
+		 * Only signal/defer if it is genuinely still running; otherwise
+		 * start the new command directly to avoid signalling a stale
+		 * (possibly reused) process group. */
+		if (compilation_is_running()) {
+			if (g_compilation.process_group > 0) {
+				kill(-g_compilation.process_group, SIGINT);
+			}
+			g_compilation.phase = COMPILATION_TERMINATING;
+			g_compilation.restart_pending = true;
+			strncpy(g_compilation.pending_command, command,
+			    sizeof(g_compilation.pending_command));
+			g_compilation.pending_command
+			    [sizeof(g_compilation.pending_command) - 1]
+			    = '\0';
+			strncpy(g_compilation.pending_directory, dir,
+			    sizeof(g_compilation.pending_directory));
+			g_compilation.pending_directory
+			    [sizeof(g_compilation.pending_directory) - 1]
+			    = '\0';
+			g_compilation.pending_source_buffer = source_slot;
+
+			editor_set_status_message("Sent SIGINT to active "
+						  "compilation, restart "
+						  "pending...");
+			return;
+		}
+	}
+
+	compilation_start(command, dir, source_slot, true);
+}
+
 /* Emacs' compile-history: separate from every other prompt's ring. */
 static struct minibuf_history compile_history;
 
@@ -317,49 +365,7 @@ void editor_compile(int fd)
 		}
 	}
 
-	if (compilation_is_running()) {
-		char check_prompt[256];
-		snprintf(check_prompt, sizeof(check_prompt),
-		    "A compilation process is running; kill it? (y/n) ");
-		editor_set_status_message("%s", check_prompt);
-		editor_refresh_screen();
-		int ans = editor_read_key(fd);
-		if (ans != 'y' && ans != 'Y') {
-			editor_set_status_message("Compilation not started");
-			return;
-		}
-
-		/* editor_read_key() polls the compilation while it waits for
-		 * the answer, so it may have finished and gone idle meanwhile.
-		 * Only signal/defer if it is genuinely still running; otherwise
-		 * start the new command directly to avoid signalling a stale
-		 * (possibly reused) process group. */
-		if (compilation_is_running()) {
-			if (g_compilation.process_group > 0) {
-				kill(-g_compilation.process_group, SIGINT);
-			}
-			g_compilation.phase = COMPILATION_TERMINATING;
-			g_compilation.restart_pending = true;
-			strncpy(g_compilation.pending_command, prompt,
-			    sizeof(g_compilation.pending_command));
-			g_compilation.pending_command
-			    [sizeof(g_compilation.pending_command) - 1]
-			    = '\0';
-			strncpy(g_compilation.pending_directory, dir,
-			    sizeof(g_compilation.pending_directory));
-			g_compilation.pending_directory
-			    [sizeof(g_compilation.pending_directory) - 1]
-			    = '\0';
-			g_compilation.pending_source_buffer = source_slot;
-
-			editor_set_status_message("Sent SIGINT to active "
-						  "compilation, restart "
-						  "pending...");
-			return;
-		}
-	}
-
-	compilation_start(prompt, dir, source_slot, true);
+	compilation_start_or_defer(fd, prompt, dir, source_slot);
 }
 
 void editor_recompile(int fd)
@@ -397,47 +403,7 @@ void editor_recompile(int fd)
 	buf_save_current_state();
 	source_slot = buf_current;
 
-	if (compilation_is_running()) {
-		char check_prompt[256];
-		snprintf(check_prompt, sizeof(check_prompt),
-		    "A compilation process is running; kill it? (y/n) ");
-		editor_set_status_message("%s", check_prompt);
-		editor_refresh_screen();
-		int ans = editor_read_key(fd);
-		if (ans != 'y' && ans != 'Y') {
-			editor_set_status_message("Compilation not started");
-			return;
-		}
-
-		/* See editor_compile(): the compilation may have finished while
-		 * editor_read_key() polled it, so re-check before signalling.
-		 */
-		if (compilation_is_running()) {
-			if (g_compilation.process_group > 0) {
-				kill(-g_compilation.process_group, SIGINT);
-			}
-			g_compilation.phase = COMPILATION_TERMINATING;
-			g_compilation.restart_pending = true;
-			strncpy(g_compilation.pending_command, command,
-			    sizeof(g_compilation.pending_command));
-			g_compilation.pending_command
-			    [sizeof(g_compilation.pending_command) - 1]
-			    = '\0';
-			strncpy(g_compilation.pending_directory, dir,
-			    sizeof(g_compilation.pending_directory));
-			g_compilation.pending_directory
-			    [sizeof(g_compilation.pending_directory) - 1]
-			    = '\0';
-			g_compilation.pending_source_buffer = source_slot;
-
-			editor_set_status_message("Sent SIGINT to active "
-						  "compilation, restart "
-						  "pending...");
-			return;
-		}
-	}
-
-	compilation_start(command, dir, source_slot, true);
+	compilation_start_or_defer(fd, command, dir, source_slot);
 }
 
 static void compilation_append_char(struct compilation_state *s, char c)

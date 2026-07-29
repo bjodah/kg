@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -1420,13 +1419,12 @@ void buf_select_interactive(int fd)
  * readonly: if 1, mark the buffer read-only after loading. */
 void buf_open_path(const char *path, int readonly)
 {
-	struct stat st;
 	int i, slot;
 
 	/* A directory lists.  dired_open() finds or allocates the listing's
 	 * own slot — the same one M-x dired would reuse — so it must not be
 	 * run inside the slot dance below. */
-	if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+	if (path_is_dir(path)) {
 		(void)dired_open(path);
 		return;
 	}
@@ -1508,7 +1506,6 @@ void buf_save_all(int fd)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
-		int answer;
 
 		if (!b->active || !b->dirty) {
 			continue;
@@ -1517,10 +1514,7 @@ void buf_save_all(int fd)
 			continue;
 		}
 
-		editor_set_status_message("Save %s? (y/n) ", b->filename);
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
+		if (!editor_confirm_yn(fd, "Save %s? (y/n) ", b->filename)) {
 			continue;
 		}
 
@@ -1545,28 +1539,18 @@ void buf_kill(int fd)
 
 	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0
 	    && compilation_is_running()) {
-		int answer;
-		editor_set_status_message(
-		    "Compilation is still running; kill it? (y/n) ");
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
+		if (!editor_confirm_yn(
+			fd, "Compilation is still running; kill it? (y/n) ")) {
 			editor_set_status_message("Buffer not killed");
 			return;
 		}
 		compilation_shutdown();
 	}
 
-	if (editor.dirty) {
-		int answer;
-		editor_set_status_message(
-		    "Buffer modified, really kill? (y/n) ");
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
-			editor_set_status_message("");
-			return;
-		}
+	if (editor.dirty
+	    && !editor_confirm_yn(fd, "Buffer modified, really kill? (y/n) ")) {
+		editor_set_status_message("");
+		return;
 	}
 
 	/* Free current buffer's memory. */
@@ -1598,37 +1582,65 @@ void buf_kill(int fd)
 	    "%s", editor.filename ? editor.filename : "[new]");
 }
 
-/* Set up the special buffer named `name`: save the outgoing state,
- * find or allocate its slot, clear any prior content, run `populate`
- * to fill rows, then mark the buffer read-only, attach `syn`, and
- * post `status`.  Shared by buf_open_list, buf_open_help and dired. */
-void buf_open_special(const char *name, struct editor_syntax *syn,
-    void (*populate)(void), const char *status)
+/* Make the special buffer named `name` current so its content can be
+ * rebuilt: the outgoing state is saved, and the buffer's own slot is
+ * reused when it is already open, a free one taken otherwise.  Returns
+ * that slot, or -1 after posting a message.  `*existing` reports whether
+ * the buffer was already open, which buf_commit_special() needs.  The
+ * rows are the caller's to clear; everything else is reset here. */
+static int buf_enter_special(const char *name, int *existing)
 {
-	int slot, existing;
+	int slot;
 
 	buf_save_current_state();
 
-	existing = buf_find_by_name(name);
+	*existing = buf_find_by_name(name);
 	slot = buf_first_free_slot();
 
-	if (existing >= 0) {
-		buf_restore_from_slot(existing);
+	if (*existing >= 0) {
+		buf_restore_from_slot(*existing);
 		/* Content is rebuilt from scratch; drop stale ops, freeing
 		 * their text first so repeated refreshes don't leak. */
 		undo_free();
 		undo_init();
-	} else {
-		if (buf_count >= MAX_BUFFERS) {
-			editor_set_status_message(
-			    "Too many open buffers (%d max).", MAX_BUFFERS);
-			return;
-		}
-		if (slot < 0) {
-			return;
-		}
-		buf_reset();
-		editor.filename = strdup(name);
+		return *existing;
+	}
+	if (buf_count >= MAX_BUFFERS) {
+		editor_set_status_message(
+		    "Too many open buffers (%d max).", MAX_BUFFERS);
+		return -1;
+	}
+	if (slot < 0) {
+		return -1;
+	}
+	buf_reset();
+	editor.filename = strdup(name);
+	return slot;
+}
+
+/* Land the rebuilt special buffer in the slot buf_enter_special() picked,
+ * counting it as newly opened when it was not already there. */
+static void buf_commit_special(int slot, int existing)
+{
+	buf_save_to_slot(slot);
+	if (existing < 0) {
+		buf_restore_from_slot(slot);
+		buf_count++;
+	}
+}
+
+/* Set up the special buffer named `name`: take its slot, clear any prior
+ * content, run `populate` to fill rows, then mark the buffer read-only,
+ * attach `syn`, and post `status`.  Shared by buf_open_list, buf_open_help
+ * and dired. */
+void buf_open_special(const char *name, struct editor_syntax *syn,
+    void (*populate)(void), const char *status)
+{
+	int existing;
+	int slot = buf_enter_special(name, &existing);
+
+	if (slot < 0) {
+		return;
 	}
 
 	editor_free_all_rows();
@@ -1641,13 +1653,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 	editor_refresh_readonly_state();
 	editor.syntax = syn;
 
-	if (existing >= 0) {
-		buf_save_to_slot(existing);
-	} else {
-		buf_save_to_slot(slot);
-		buf_restore_from_slot(slot);
-		buf_count++;
-	}
+	buf_commit_special(slot, existing);
 
 	editor_set_status_message("%s", status);
 }
@@ -1948,34 +1954,16 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
     const char *text, size_t text_length, int readonly)
 {
-	int slot, existing;
 	const char *p, *end;
 	int ended_with_newline = 0;
+	int existing;
+	int slot = buf_enter_special(name, &existing);
 
-	buf_save_current_state();
-
-	existing = buf_find_by_name(name);
-	slot = buf_first_free_slot();
-
-	if (existing >= 0) {
-		buf_restore_from_slot(existing);
-		editor_free_all_rows();
-		/* Content is rebuilt from scratch; drop stale ops, freeing
-		 * their text first so repeated refreshes don't leak. */
-		undo_free();
-		undo_init();
-	} else {
-		if (buf_count >= MAX_BUFFERS) {
-			editor_set_status_message(
-			    "Too many open buffers (%d max).", MAX_BUFFERS);
-			return -1;
-		}
-		if (slot < 0) {
-			return -1;
-		}
-		buf_reset();
-		editor.filename = strdup(name);
+	if (slot < 0) {
+		return -1;
 	}
+
+	editor_free_all_rows();
 
 	p = text;
 	end = text + text_length;
@@ -2002,15 +1990,8 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 	editor_refresh_readonly_state();
 	editor.syntax = syntax;
 
-	if (existing >= 0) {
-		buf_save_to_slot(existing);
-	} else {
-		buf_save_to_slot(slot);
-		buf_restore_from_slot(slot);
-		buf_count++;
-		existing = slot;
-	}
-	return existing;
+	buf_commit_special(slot, existing);
+	return slot;
 }
 
 /* Populate the *Buffer List* rows from the buflist[] snapshot. */

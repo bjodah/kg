@@ -1368,6 +1368,30 @@ oom:
 	editor_set_status_message("Paragraph reflowed");
 }
 
+/* Shared entry check for the git-rebase-todo editing commands: the row
+ * point is on, or -1 after posting a message.  `noline` is the message
+ * for a buffer with no row under point (empty, or point past the last
+ * row); NULL keeps that case silent, as M-p / M-n want it. */
+static int rebase_edit_row(const char *noline)
+{
+	if (!syntax_is_git_rebase()) {
+		editor_set_status_message("Not a git-rebase-todo buffer");
+		return -1;
+	}
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return -1;
+	}
+	if (editor.numrows <= 0
+	    || editor_current_filerow_or_eof() >= editor.numrows) {
+		if (noline) {
+			editor_set_status_message("%s", noline);
+		}
+		return -1;
+	}
+	return word_cursor_filerow();
+}
+
 /* Rewrite the action word of the current git-rebase-todo line (the C-c
  * C-p/C-r/C-e/C-s/C-f/C-d keys and their M-x commands).  Only lines
  * whose first word is a commit-taking action (pick/reword/edit/squash/
@@ -1381,20 +1405,10 @@ void editor_rebase_set_action(const char *action)
 	char *orig, *newchars;
 	erow *row;
 
-	if (!syntax_is_git_rebase()) {
-		editor_set_status_message("Not a git-rebase-todo buffer");
+	filerow = rebase_edit_row("Not on a rebase action line");
+	if (filerow < 0) {
 		return;
 	}
-	if (editor.readonly) {
-		editor_set_status_message("Buffer is read-only");
-		return;
-	}
-	if (editor.numrows <= 0
-	    || editor_current_filerow_or_eof() >= editor.numrows) {
-		editor_set_status_message("Not on a rebase action line");
-		return;
-	}
-	filerow = word_cursor_filerow();
 	row = &editor.row[filerow];
 	if (!syntax_git_rebase_pick_span(
 		row->chars, row->size, &start, &wlen)) {
@@ -1464,19 +1478,10 @@ void editor_rebase_move_line(int dir)
 	char *orig;
 	erow tmp;
 
-	if (!syntax_is_git_rebase()) {
-		editor_set_status_message("Not a git-rebase-todo buffer");
+	filerow = rebase_edit_row(NULL);
+	if (filerow < 0) {
 		return;
 	}
-	if (editor.readonly) {
-		editor_set_status_message("Buffer is read-only");
-		return;
-	}
-	if (editor.numrows <= 0
-	    || editor_current_filerow_or_eof() >= editor.numrows) {
-		return;
-	}
-	filerow = word_cursor_filerow();
 	other = filerow + dir;
 	if (other < 0 || other >= editor.numrows) {
 		editor_set_status_message(

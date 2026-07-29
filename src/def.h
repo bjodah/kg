@@ -745,6 +745,29 @@ static inline const char *buf_basename(const char *filename)
 	return base ? base + 1 : filename;
 }
 
+/* True when `path` names a directory.  A path that cannot be stat()ed --
+ * missing, or behind an unreadable parent -- is not one. */
+static inline int path_is_dir(const char *path)
+{
+	struct stat st;
+
+	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* Truncate `path` in place to the directory containing it.  Returns 0, or
+ * -1 when `path` holds no '/' and so names no parent.  The parent of "/"
+ * is "/", so an absolute path stays absolute. */
+static inline int path_parent_dir(char *path)
+{
+	char *slash = strrchr(path, '/');
+
+	if (!slash) {
+		return -1;
+	}
+	slash[slash == path ? 1 : 0] = '\0';
+	return 0;
+}
+
 /* help.c */
 extern const char *kg_help_lines[]; /* NULL-terminated, loaded into *help* */
 
@@ -783,7 +806,7 @@ int file_state_differs(const char *path, time_t mtime, off_t size);
 
 /* kbd.c */
 void editor_process_keypress(int fd);
-[[nodiscard]] int editor_confirm_yn(int fd, const char *prompt);
+[[nodiscard]] int editor_confirm_yn(int fd, const char *fmt, ...);
 
 /* cmd.c */
 void editor_named_command(int fd);

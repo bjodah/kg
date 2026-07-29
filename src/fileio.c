@@ -409,12 +409,11 @@ void free_load_result(struct temp_load_result *res)
 int editor_open(char *filename)
 {
 	struct temp_load_result res;
-	struct stat st;
 
 	/* A directory is not an error: it lists, as in Emacs.  The listing
 	 * replaces the current buffer's contents without touching the buffer
 	 * table, so every caller keeps owning the slot it loads into. */
-	if (stat(filename, &st) == 0 && S_ISDIR(st.st_mode)) {
+	if (path_is_dir(filename)) {
 		return dired_fill_current(filename);
 	}
 
@@ -437,7 +436,6 @@ int editor_save(int fd)
 	struct stat st;
 	char *newfilename;
 	int len = 0;
-	int answer;
 	char *old_filename = NULL;
 	struct editor_syntax *old_syntax = NULL;
 	int name_changed = 0;
@@ -456,15 +454,11 @@ int editor_save(int fd)
 		/* If the entered path already exists, warn before clobbering —
 		 * and do it *before* mutating the buffer's filename or syntax
 		 * so that a "no" answer leaves the buffer untouched. */
-		if (stat(newname, &st) == 0) {
-			editor_set_status_message(
-			    "File %s exists.  Overwrite? (y/n) ", newname);
-			editor_refresh_screen();
-			answer = editor_read_key(fd);
-			if (answer != 'y' && answer != 'Y') {
-				editor_set_status_message("Save aborted");
-				return 1;
-			}
+		if (stat(newname, &st) == 0
+		    && !editor_confirm_yn(
+			fd, "File %s exists.  Overwrite? (y/n) ", newname)) {
+			editor_set_status_message("Save aborted");
+			return 1;
 		}
 
 		newfilename = strdup(newname);
@@ -481,12 +475,9 @@ int editor_save(int fd)
 		editor_select_syntax_highlight(editor.filename);
 	} else if (file_state_differs(
 		       editor.filename, editor.disk_mtime, editor.disk_size)) {
-		editor_set_status_message(
-		    "File %s changed on disk.  Save anyway? (y/n) ",
-		    editor.filename);
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
+		if (!editor_confirm_yn(fd,
+			"File %s changed on disk.  Save anyway? (y/n) ",
+			editor.filename)) {
 			editor_set_status_message("Save aborted");
 			return 1;
 		}

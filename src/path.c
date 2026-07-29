@@ -9,7 +9,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include "def.h"
 
@@ -176,12 +175,10 @@ int editor_path_complete_entries(const char *dir, const char *prefix,
 			/* DT_UNKNOWN: fall back to stat(). */
 			if (de->d_type == DT_UNKNOWN) {
 				char full[PATH_MAX];
-				struct stat st;
 				int n = snprintf(full, sizeof(full), "%s%s",
 				    dir[0] ? dir : "./", name);
 				if (n < (int)sizeof(full)
-				    && stat(full, &st) == 0
-				    && S_ISDIR(st.st_mode)) {
+				    && path_is_dir(full)) {
 					e->is_dir = 1;
 				}
 			}

@@ -142,21 +142,15 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 /* Re-read the current file from disk, discarding all unsaved changes. */
 static void cmd_revert_buffer(int fd)
 {
-	int answer;
-
 	if (is_special_buffer(editor.filename)) {
 		editor_set_status_message("Cannot revert a special buffer");
 		return;
 	}
-	if (editor.dirty) {
-		editor_set_status_message(
-		    "Buffer modified.  Revert from disk? (y/n) ");
-		editor_refresh_screen();
-		answer = editor_read_key(fd);
-		if (answer != 'y' && answer != 'Y') {
-			editor_set_status_message("");
-			return;
-		}
+	if (editor.dirty
+	    && !editor_confirm_yn(
+		fd, "Buffer modified.  Revert from disk? (y/n) ")) {
+		editor_set_status_message("");
+		return;
 	}
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
@@ -675,7 +669,6 @@ static void cmd_dired(int fd)
 {
 	char path[PATH_MAX];
 	struct stat st;
-	char *slash;
 
 	path[0] = '\0';
 	if (editor_read_line_path(fd, "Dired (directory): ", path, sizeof(path))
@@ -689,13 +682,9 @@ static void cmd_dired(int fd)
 	if (!path[0]) {
 		snprintf(path, sizeof(path), ".");
 	}
-	if (stat(path, &st) == 0 && !S_ISDIR(st.st_mode)) {
-		slash = strrchr(path, '/');
-		if (slash) {
-			slash[slash == path ? 1 : 0] = '\0';
-		} else {
-			snprintf(path, sizeof(path), ".");
-		}
+	if (stat(path, &st) == 0 && !S_ISDIR(st.st_mode)
+	    && path_parent_dir(path) != 0) {
+		snprintf(path, sizeof(path), ".");
 	}
 	(void)dired_open(path);
 }

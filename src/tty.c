@@ -626,6 +626,21 @@ failed:
 #endif
 }
 
+/* Adopt a new terminal size: the windows reflow to it, or, when
+ * win_init() has not run yet, the single viewport takes it directly
+ * (two rows go to the status and echo lines). */
+static void apply_window_size(int rows, int cols)
+{
+	win_total_rows = rows;
+	win_total_cols = cols;
+	if (win_count > 0) {
+		win_reflow();
+	} else {
+		editor.screenrows = rows - 2;
+		editor.screencols = cols;
+	}
+}
+
 /* Probe terminal dimensions using ANSI escape sequences, bypassing ioctl.
  * Necessary on serial consoles where SIGWINCH is never delivered and
  * TIOCGWINSZ may return stale host-side values.
@@ -659,14 +674,7 @@ void probe_window_size(void)
 	}
 
 	if (new_rows != win_total_rows || new_cols != win_total_cols) {
-		win_total_rows = new_rows;
-		win_total_cols = new_cols;
-		if (win_count > 0) {
-			win_reflow();
-		} else {
-			editor.screenrows = new_rows - 2;
-			editor.screencols = new_cols;
-		}
+		apply_window_size(new_rows, new_cols);
 	}
 
 restore:
@@ -678,14 +686,7 @@ restore:
 void update_window_size(void)
 {
 #ifdef KG_FUZZ
-	win_total_rows = 24;
-	win_total_cols = 80;
-	if (win_count > 0) {
-		win_reflow();
-	} else {
-		editor.screenrows = 22;
-		editor.screencols = 80;
-	}
+	apply_window_size(24, 80);
 	return;
 #else
 	const int max_attempts = 3;
@@ -697,16 +698,7 @@ void update_window_size(void)
 		if (get_window_size(
 			STDIN_FILENO, STDOUT_FILENO, &new_rows, &new_cols)
 		    == 0) {
-			win_total_rows = new_rows;
-			win_total_cols = new_cols;
-			if (win_count > 0) {
-				win_reflow();
-			} else {
-				/* win_init() not yet called; set a sensible
-				 * default. */
-				editor.screenrows = new_rows - 2;
-				editor.screencols = new_cols;
-			}
+			apply_window_size(new_rows, new_cols);
 			return;
 		}
 

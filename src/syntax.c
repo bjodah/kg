@@ -2026,12 +2026,11 @@ static void select_syntax_by_shebang(const char *filename)
 void editor_select_syntax_highlight(char *filename)
 {
 	unsigned int j;
-	const char *base = strrchr(filename, '/');
-
 	/* The git modes are matched on the exact basename only: they bind
 	 * keys that quit the editor, so a file whose name merely contains
 	 * one of these strings must not select them. */
-	base = base ? base + 1 : filename;
+	const char *base = buf_basename(filename);
+
 	if (strcmp(base, "git-rebase-todo") == 0) {
 		editor.syntax = syntax_find_by_name("Git rebase");
 		return;

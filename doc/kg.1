@@ -675,6 +675,30 @@ cancels and returns to the original position;
 .Ic Backspace
 removes the last character from the query.
 .Pp
+Searches have a history.
+Accepting a search with
+.Ic Enter ,
+or ending it on its match with one of the movement keys above, records
+the query;
+.Ic Esc
+and
+.Ic C-g
+do not.
+While searching,
+.Ic M-p
+recalls the previous search string and searches for it again,
+.Ic M-n
+walks back toward the query that was being typed before the first
+.Ic M-p ,
+and
+.Ic C-s
+or
+.Ic C-r
+with an empty query repeats the last search, so
+.Ic C-s C-s
+finds the next occurrence of it.
+Literal and regexp searches keep separate rings, as in Emacs.
+.Pp
 .Ic M-%
 or
 .Ic Esc %
@@ -935,14 +959,23 @@ or
 .Xr sed 1 ;
 interactive programs that require a terminal will not work.
 .Pp
-Both commands share one command-line history: at either shell-command
-prompt,
+Both commands share one command-line history.
+.Pp
+Minibuffer prompts keep a history of what has been entered at them:
 .Ic M-p
 .Pq or Ic Up No or Ic C-p
 recalls the previous entry and
 .Ic M-n
 .Pq or Ic Down No or Ic C-n
 returns toward the entry being typed before recall started.
+The shell-command, compile, Eval, goto-line and string-rectangle prompts
+each have a ring of their own; the search-string and replacement prompts
+of both
+.Ic query-replace
+and
+.Ic query-replace-regexp
+share a single one, as in Emacs.
+Nothing is written to disk: the rings live only for the session.
 .Pp
 .Ic C-h
 opens a special

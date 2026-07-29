@@ -1,0 +1,20 @@
+# M-p inside isearch recalls the previous search string, replacing the
+# empty query and searching for it again, as Emacs' isearch-ring-retreat
+# does.  Landing on the second "target" is proved by the C-d that follows.
+name: isearch-history-recall
+filename: isearch_history_recall.txt
+key_delay: 0.05
+initial: |
+  one target X
+  two target Y
+keys:
+  - C-s
+  - target
+  - RET  # accepting the search records "target" in the search ring
+  - C-s
+  - M-p  # recall "target" and search on from point
+  - RET
+  - C-d  # deletes the space after the second "target"
+expected_saved: |
+  one target X
+  two targetY

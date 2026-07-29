@@ -406,6 +406,9 @@ void editor_yank_rect(void)
 	editor_set_status_message("Rectangle yanked");
 }
 
+/* Emacs' string-rectangle prompt has a history of its own. */
+static struct minibuf_history string_rectangle_history;
+
 /* C-x r t: replace each row's chars in the visual [s_vcol, e_vcol) span
  * with a string read from the minibuffer.  A zero-width rectangle makes
  * this a per-row column insert.  Rows shorter than the left edge are
@@ -422,7 +425,8 @@ void editor_string_rect(int fd)
 		return;
 	}
 	input[0] = '\0';
-	if (editor_read_line(fd, "String rectangle: ", input, sizeof(input))
+	if (editor_read_line_with_history(fd, "String rectangle: ", input,
+		sizeof(input), &string_rectangle_history)
 	    < 0) {
 		editor_set_status_message("");
 		return;

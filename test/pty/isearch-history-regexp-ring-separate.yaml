@@ -1,0 +1,32 @@
+# Emacs keeps search-ring and regexp-search-ring apart.  The literal
+# search here must not leak into the regexp ring: the first M-p recalls
+# nothing, so the regexp typed after it is the whole query.  The second
+# M-p then proves the regexp ring works on its own.
+name: isearch-history-regexp-ring-separate
+filename: isearch_history_rings.txt
+backend: tmux
+key_delay: 0.05
+initial: |
+  needle one
+  needle two
+  needle three
+keys:
+  - C-s
+  - needle
+  - RET  # goes into the literal ring only
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - M-p  # regexp ring is still empty: nothing is recalled
+  - 'ne+dle'
+  - RET  # matches on row 2, and records the regexp in its own ring
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - M-p  # recalls "ne+dle": row 3
+  - RET
+  - C-d  # deletes the space after the third "needle"
+expected_saved: |
+  needle one
+  needle two
+  needlethree

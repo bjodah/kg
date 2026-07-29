@@ -1,0 +1,28 @@
+# query-replace-regexp reads from the same ring as query-replace, so the
+# literal search string typed a moment ago is recallable at its prompt.
+name: query-replace-regexp-shares-history
+filename: query_replace_regexp_history.txt
+backend: tmux
+key_delay: 0.05
+initial: |
+  a+ one
+  aaa two
+keys:
+  - "M-%"
+  - 'a+'  # literal: only matches the "a+" on the first row
+  - RET
+  - Q
+  - RET
+  - "!"
+  - M-x
+  - query-replace-regexp
+  - RET
+  - M-p  # "Q", the replacement string
+  - M-p  # "a+", now used as a regexp
+  - RET
+  - Z
+  - RET
+  - "!"
+expected_saved: |
+  Q one
+  Z two

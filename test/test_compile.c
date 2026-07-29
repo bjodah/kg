@@ -12,11 +12,14 @@
 
 static char g_next_command[256] = "";
 
-enum minibuf_result editor_read_line(
-    int fd, const char *prompt, char *buf, int bufsize)
+/* editor_compile() prompts with history; the ring itself is exercised in
+ * test_minibuf, so this only has to hand back the queued command. */
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist)
 {
 	(void)fd;
 	(void)prompt;
+	(void)hist;
 	strncpy(buf, g_next_command, bufsize);
 	buf[bufsize - 1] = '\0';
 	return MINIBUF_ACCEPTED;

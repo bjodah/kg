@@ -486,6 +486,8 @@ struct minibuf_history {
 void minibuf_history_init(struct minibuf_history *hist);
 void minibuf_history_add(struct minibuf_history *hist, const char *text);
 const char *minibuf_history_get(const struct minibuf_history *hist, int index);
+const char *minibuf_history_walk(
+    const struct minibuf_history *hist, int dir, int *index, const char *draft);
 enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
     char *buf, int bufsize, struct minibuf_history *hist);
 void editor_prompt_prefill_dir(char *buf, int bufsize);

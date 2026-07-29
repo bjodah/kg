@@ -1,0 +1,19 @@
+# Emacs' C-s with an empty search string repeats the previous search, so
+# a bare C-s C-s finds the next occurrence of the last query.
+name: isearch-history-repeat-last-search
+filename: isearch_history_repeat.txt
+key_delay: 0.05
+initial: |
+  one target X
+  two target Y
+keys:
+  - C-s
+  - target
+  - RET
+  - C-s
+  - C-s  # empty query: reuse "target" from the ring and search for it
+  - RET
+  - C-d
+expected_saved: |
+  one target X
+  two targetY

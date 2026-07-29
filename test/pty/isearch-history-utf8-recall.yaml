@@ -1,0 +1,21 @@
+# History entries are stored as bytes, so a multi-byte query has to come
+# back out of the ring intact and search for the same characters.
+name: isearch-history-utf8-recall
+filename: isearch_history_utf8.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åäö one
+  åäö two
+keys:
+  - C-s
+  - 'åäö'
+  - RET
+  - C-s
+  - M-p
+  - RET
+  - C-d
+expected_saved: |
+  åäö one
+  åäötwo

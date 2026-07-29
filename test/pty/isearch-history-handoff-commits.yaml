@@ -1,0 +1,20 @@
+# A handoff key ends the search on its match, which commits the query to
+# the ring just like Enter does; the later M-p can only recall "target"
+# if the C-f exit recorded it.
+name: isearch-history-handoff-commits
+filename: isearch_history_handoff.txt
+key_delay: 0.05
+initial: |
+  one target X
+  two target Y
+keys:
+  - C-s
+  - target
+  - C-f  # handoff: leaves isearch one character past the match
+  - C-s
+  - M-p
+  - RET
+  - C-d
+expected_saved: |
+  one target X
+  two targetY

@@ -76,6 +76,12 @@ enum minibuf_result editor_read_line(
 	buf[0] = '\0';
 	return MINIBUF_ACCEPTED;
 }
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist)
+{
+	(void)hist;
+	return editor_read_line(fd, prompt, buf, bufsize);
+}
 int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 {
 	(void)start_row;

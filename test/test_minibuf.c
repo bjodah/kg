@@ -121,19 +121,91 @@ static void test_exact_max_length_entry_preserved(void)
 	    == MINIBUF_HISTORY_ENTRY_MAX - 1);
 }
 
-static void test_overlong_entry_is_safely_truncated(void)
+/* Prompts with buffers larger than a history slot (the compile command,
+ * an Eval expression) can hand over text that does not fit.  Recalling a
+ * truncated prefix would run something the user never typed, so the entry
+ * is dropped instead — and the ring it did not fit into is untouched. */
+static void test_overlong_entry_is_not_recorded(void)
 {
 	struct minibuf_history hist;
 	char overlong[MINIBUF_HISTORY_ENTRY_MAX + 64];
 
 	minibuf_history_init(&hist);
+	minibuf_history_add(&hist, "make check");
 	memset(overlong, 'y', sizeof(overlong) - 1);
 	overlong[sizeof(overlong) - 1] = '\0';
 
 	minibuf_history_add(&hist, overlong);
 
-	CHECK(strlen(minibuf_history_get(&hist, 0))
-	    == MINIBUF_HISTORY_ENTRY_MAX - 1);
+	CHECK(strcmp(minibuf_history_get(&hist, 0), "make check") == 0);
+	CHECK(minibuf_history_get(&hist, 1) == NULL);
+}
+
+/* History is stored as bytes, so a multi-byte entry has to come back
+ * exactly as it went in: the isearch ring recalls one into a live query. */
+static void test_multibyte_entry_round_trips(void)
+{
+	struct minibuf_history hist;
+	const char *text = "grep åäö 漢字 🙂";
+
+	minibuf_history_init(&hist);
+	minibuf_history_add(&hist, text);
+
+	CHECK(strcmp(minibuf_history_get(&hist, 0), text) == 0);
+	CHECK(strlen(minibuf_history_get(&hist, 0)) == strlen(text));
+}
+
+/* ---- Walking the ring (M-p / M-n) ---- */
+
+static void test_walk_older_then_back_to_draft(void)
+{
+	struct minibuf_history hist;
+	int index = -1;
+
+	minibuf_history_init(&hist);
+	minibuf_history_add(&hist, "older");
+	minibuf_history_add(&hist, "newest");
+
+	CHECK(strcmp(minibuf_history_walk(&hist, 1, &index, "draft"), "newest")
+	    == 0);
+	CHECK(index == 0);
+	CHECK(strcmp(minibuf_history_walk(&hist, 1, &index, "draft"), "older")
+	    == 0);
+	CHECK(index == 1);
+	/* Past the oldest entry nothing moves. */
+	CHECK(minibuf_history_walk(&hist, 1, &index, "draft") == NULL);
+	CHECK(index == 1);
+
+	CHECK(strcmp(minibuf_history_walk(&hist, -1, &index, "draft"), "newest")
+	    == 0);
+	CHECK(index == 0);
+	CHECK(strcmp(minibuf_history_walk(&hist, -1, &index, "draft"), "draft")
+	    == 0);
+	CHECK(index == -1);
+}
+
+static void test_walk_newer_from_draft_is_a_no_op(void)
+{
+	struct minibuf_history hist;
+	int index = -1;
+
+	minibuf_history_init(&hist);
+	minibuf_history_add(&hist, "entry");
+
+	CHECK(minibuf_history_walk(&hist, -1, &index, "draft") == NULL);
+	CHECK(index == -1);
+}
+
+static void test_walk_empty_history_stays_on_the_draft(void)
+{
+	struct minibuf_history hist;
+	int index = -1;
+
+	minibuf_history_init(&hist);
+
+	CHECK(minibuf_history_walk(&hist, 1, &index, "draft") == NULL);
+	CHECK(minibuf_history_walk(NULL, 1, &index, "draft") == NULL);
+	CHECK(index == -1);
 }
 
 /* ---- Multi-byte editing ---- */
@@ -258,7 +330,11 @@ int main(void)
 	RUN(test_empty_and_null_text_ignored);
 	RUN(test_capacity_evicts_oldest);
 	RUN(test_exact_max_length_entry_preserved);
-	RUN(test_overlong_entry_is_safely_truncated);
+	RUN(test_overlong_entry_is_not_recorded);
+	RUN(test_multibyte_entry_round_trips);
+	RUN(test_walk_older_then_back_to_draft);
+	RUN(test_walk_newer_from_draft_is_a_no_op);
+	RUN(test_walk_empty_history_stays_on_the_draft);
 	RUN(test_backspace_deletes_whole_multibyte_glyph);
 	RUN(test_backspace_deletes_four_byte_glyph);
 	RUN(test_backspace_keeps_ascii_byte_at_a_time);

@@ -1,0 +1,28 @@
+# Both query-replace prompts share one ring (Emacs' query-replace-history),
+# so the from-string of the previous run is two M-p away: the newest entry
+# is the replacement string typed after it.
+name: query-replace-history-recall
+filename: query_replace_history.txt
+backend: tmux
+key_delay: 0.05
+initial: |
+  aaa 1
+  aaa 2
+keys:
+  - "M-%"
+  - aaa
+  - RET
+  - zzz
+  - RET
+  - y  # replace the first match only
+  - q  # ... then stop, leaving the second one alone
+  - "M-%"
+  - M-p  # "zzz", the replacement string
+  - M-p  # "aaa", the previous search string
+  - RET
+  - www
+  - RET
+  - "!"
+expected_saved: |
+  zzz 1
+  www 2

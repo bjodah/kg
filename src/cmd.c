@@ -68,13 +68,17 @@ static void display_lisp_result(int error, const char *result)
 	}
 }
 
+/* Emacs' read-expression-history. */
+static struct minibuf_history eval_expression_history;
+
 static void cmd_eval_expression(int fd)
 {
 	char expression[lisp_expression_max + 1] = { 0 };
 	char result[lisp_result_size];
 	int rc;
 
-	rc = editor_read_line(fd, "Eval: ", expression, sizeof(expression));
+	rc = editor_read_line_with_history(fd, "Eval: ", expression,
+	    sizeof(expression), &eval_expression_history);
 	if (rc < 0) {
 		return;
 	}

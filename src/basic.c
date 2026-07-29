@@ -362,13 +362,18 @@ void editor_goto_line_direct(int line, int col)
 	}
 }
 
+/* Emacs' goto-line-history. */
+static struct minibuf_history goto_line_history;
+
 /* Prompt for a line number (optionally "LINE:COL") and jump to it. */
 void editor_goto_line(int fd)
 {
 	char buf[16] = { 0 };
 	int line = 0, col = 1, n;
 
-	if (editor_read_line(fd, "Goto line: ", buf, sizeof(buf)) < 0
+	if (editor_read_line_with_history(
+		fd, "Goto line: ", buf, sizeof(buf), &goto_line_history)
+		< 0
 	    || !buf[0]) {
 		return;
 	}

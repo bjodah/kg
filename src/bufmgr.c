@@ -716,11 +716,14 @@ void minibuf_history_init(struct minibuf_history *hist)
 }
 
 /* Record `text` as the newest history entry, deduplicating an immediate
- * repeat of the last entry.  Oldest entry is overwritten once the ring
- * fills. */
+ * repeat of the last entry.  Text too long for a slot is dropped rather
+ * than stored truncated: a recalled prefix of a compile command or a Lisp
+ * expression is not what the user ran.  Oldest entry is overwritten once
+ * the ring fills. */
 void minibuf_history_add(struct minibuf_history *hist, const char *text)
 {
-	if (!hist || !text || !text[0]) {
+	if (!hist || !text || !text[0]
+	    || strlen(text) >= MINIBUF_HISTORY_ENTRY_MAX) {
 		return;
 	}
 	if (hist->count > 0 && strcmp(hist->entries[hist->head], text) == 0) {
@@ -750,6 +753,32 @@ const char *minibuf_history_get(const struct minibuf_history *hist, int index)
 	return hist->entries[phys];
 }
 
+/* Step `*index` (-1 while the caller's own draft is being edited, 0 at the
+ * newest entry) one place in `dir`: +1 walks toward older entries (M-p),
+ * -1 back toward newer ones (M-n).  Returns the text to show — `draft`
+ * once the walk comes back past the newest entry — or NULL when the walk
+ * runs off an end, in which case `*index` is left alone. */
+const char *minibuf_history_walk(
+    const struct minibuf_history *hist, int dir, int *index, const char *draft)
+{
+	if (!hist) {
+		return NULL;
+	}
+	if (dir > 0) {
+		return *index + 1 < hist->count
+		    ? minibuf_history_get(hist, ++*index)
+		    : NULL;
+	}
+	if (*index > 0) {
+		return minibuf_history_get(hist, --*index);
+	}
+	if (*index == 0) {
+		*index = -1;
+		return draft;
+	}
+	return NULL;
+}
+
 /* Like editor_read_line(), but M-p/M-n (also Up/Down and C-p/C-n) walk
  * `hist` (newest first).  The in-progress typed text, cursor position, and
  * overflow count are preserved as a "draft" and restored once navigation
@@ -775,25 +804,18 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 		if (hist
 		    && (c == ALT_P || c == ALT_N || c == ARROW_UP
 			|| c == ARROW_DOWN || c == CTRL_P || c == CTRL_N)) {
-			int history_previous
-			    = c == ALT_P || c == ARROW_UP || c == CTRL_P;
-			int history_next
-			    = c == ALT_N || c == ARROW_DOWN || c == CTRL_N;
-			const char *entry = NULL;
+			int dir = (c == ALT_P || c == ARROW_UP || c == CTRL_P)
+			    ? 1
+			    : -1;
+			const char *entry;
 
-			if (history_previous && hist_index + 1 < hist->count) {
-				if (hist_index < 0) {
-					snprintf(draft, bufsize, "%s", buf);
-					draft_cursor = cursor;
-					draft_overflow = overflow;
-				}
-				entry = minibuf_history_get(hist, ++hist_index);
-			} else if (history_next && hist_index > 0) {
-				entry = minibuf_history_get(hist, --hist_index);
-			} else if (history_next && hist_index == 0) {
-				hist_index = -1;
-				entry = draft;
+			if (dir > 0 && hist_index < 0) {
+				snprintf(draft, bufsize, "%s", buf);
+				draft_cursor = cursor;
+				draft_overflow = overflow;
 			}
+			entry = minibuf_history_walk(
+			    hist, dir, &hist_index, draft);
 			if (entry) {
 				len = (int)strnlen(entry, bufsize - 1);
 				memmove(buf, entry, len);

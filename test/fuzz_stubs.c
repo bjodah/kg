@@ -90,6 +90,13 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	return editor_read_line(fd, prompt, buf, bufsize);
 }
 
+enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
+    char *buf, int bufsize, struct minibuf_history *hist)
+{
+	(void)hist;
+	return editor_read_line(fd, prompt, buf, bufsize);
+}
+
 void editor_prompt_prefill_dir(char *buf, int bufsize)
 {
 	if (bufsize > 0) {

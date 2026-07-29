@@ -12,6 +12,14 @@
 
 #define KILO_QUERY_LEN 256
 
+/* Emacs keeps literal and regexp searches in separate rings (search-ring
+ * and regexp-search-ring) and runs every query-replace prompt — both
+ * strings, both the literal and the regexp command — off one shared
+ * query-replace-history.  These do the same. */
+static struct minibuf_history search_history;
+static struct minibuf_history regexp_search_history;
+static struct minibuf_history query_replace_history;
+
 #define RESTORE_HL                                                             \
 	do {                                                                   \
 		if (saved_hl) {                                                \
@@ -324,9 +332,38 @@ static int isearch_handoff_key(int fd, int c)
 	}
 }
 
+/* Install `entry` as the in-progress isearch query.  Ring entries are
+ * literal text, so the caller re-searches with it exactly as if it had
+ * been typed — smart case included. */
+static void isearch_set_query(char *query, int *qlen, const char *entry)
+{
+	int len = (int)strnlen(entry, KILO_QUERY_LEN);
+
+	memcpy(query, entry, (size_t)len);
+	query[len] = '\0';
+	*qlen = len;
+}
+
+/* Emacs' C-s with an empty search string reuses the last search, so a bare
+ * C-s C-s repeats the previous one.  No-op once anything has been typed. */
+static void isearch_recall_last(
+    struct minibuf_history *hist, char *query, int *qlen, int *hist_index)
+{
+	const char *entry = *qlen == 0 ? minibuf_history_get(hist, 0) : NULL;
+
+	if (entry) {
+		isearch_set_query(query, qlen, entry);
+		*hist_index = 0;
+	}
+}
+
 static void do_isearch(int fd, int direction, enum search_kind kind)
 {
 	char query[KILO_QUERY_LEN + 1] = { 0 };
+	char draft[KILO_QUERY_LEN + 1] = { 0 };
+	struct minibuf_history *hist
+	    = kind == SEARCH_REGEXP ? &regexp_search_history : &search_history;
+	int hist_index = -1; /* -1 == the query being typed, not a recall */
 	int saved_cx = editor.cx, saved_cy = editor.cy;
 	int saved_coloff = editor.coloff, saved_rowoff = editor.rowoff;
 	int start_row = editor.rowoff + editor.cy;
@@ -394,13 +431,35 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				editor.coloff = saved_coloff;
 				editor.rowoff = saved_rowoff;
 			}
+			/* Emacs records the query when the search is
+			 * accepted, never when it is abandoned. */
+			if (c == ENTER) {
+				minibuf_history_add(hist, query);
+			}
 			RESTORE_HL;
 			editor_set_status_message("");
 			return;
 		} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_S) {
+			isearch_recall_last(hist, query, &qlen, &hist_index);
 			find_next = 1;
 		} else if (c == ARROW_LEFT || c == ARROW_UP || c == CTRL_R) {
+			isearch_recall_last(hist, query, &qlen, &hist_index);
 			find_next = -1;
+		} else if (c == ALT_P || c == ALT_N) {
+			int dir = c == ALT_P ? 1 : -1;
+			const char *entry;
+
+			if (dir > 0 && hist_index < 0) {
+				memcpy(draft, query, (size_t)qlen + 1);
+			}
+			entry = minibuf_history_walk(
+			    hist, dir, &hist_index, draft);
+			if (entry) {
+				isearch_set_query(query, &qlen, entry);
+				last_match_row = -1;
+				last_match_col = -1;
+				find_next = direction;
+			}
 		} else if (isprint(c)) {
 			if (qlen < KILO_QUERY_LEN) {
 				query[qlen++] = c;
@@ -424,6 +483,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				find_next = direction;
 			}
 		} else if (isearch_handoff_key(fd, c)) {
+			/* A handoff ends the search on its match, which in
+			 * Emacs commits the query just like Enter does. */
+			minibuf_history_add(hist, query);
 			RESTORE_HL;
 			return;
 		}
@@ -524,13 +586,16 @@ void editor_query_replace(int fd)
 
 	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
-	if (editor_read_line(fd, "Query replace: ", search, sizeof(search)) < 0
+	if (editor_read_line_with_history(fd, "Query replace: ", search,
+		sizeof(search), &query_replace_history)
+		< 0
 	    || !search[0]) {
 		return;
 	}
 	int fold;
 
-	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
+	if (editor_read_line_with_history(fd, "Replace with: ", replace,
+		sizeof(replace), &query_replace_history)
 	    < 0) {
 		return;
 	}
@@ -757,13 +822,14 @@ void editor_query_replace_regexp(int fd)
 
 	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
-	if (editor_read_line(
-		fd, "Query replace regexp: ", search, sizeof(search))
+	if (editor_read_line_with_history(fd, "Query replace regexp: ", search,
+		sizeof(search), &query_replace_history)
 		< 0
 	    || !search[0]) {
 		return;
 	}
-	if (editor_read_line(fd, "Replace with: ", replace, sizeof(replace))
+	if (editor_read_line_with_history(fd, "Replace with: ", replace,
+		sizeof(replace), &query_replace_history)
 	    < 0) {
 		return;
 	}

@@ -34,6 +34,13 @@ standard VT100 escape sequences.
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c,t})
 - Smart-case literal and regexp search; query-replace (M-% / ESC %),
   confined to the region when one is active
+- Search history: M-p/M-n inside an incremental search recall earlier
+  search strings, and C-s (or C-r) with an empty query repeats the last
+  search; literal and regexp searches keep separate rings, like Emacs
+- Minibuffer history: M-p/M-n (also Up/Down, C-p/C-n) recall earlier
+  input at the shell-command, query-replace, compile, Eval, goto-line and
+  string-rectangle prompts.  Each prompt has its own ring, except the four
+  query-replace prompts, which share one
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
@@ -43,8 +50,7 @@ standard VT100 escape sequences.
 - Detects external changes to open files; optional auto-revert
 - Shell commands (M-!) and pipe-region-through-command (M-|); a prefix
   argument inserts/replaces with the output instead of just displaying it;
-  M-p/M-n (also Up/Down, C-p/C-n) recall previous shell commands from a
-  shared history
+  both entry points recall previous commands from one shared history
 - Comment-dwim (M-;)
 - Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
   column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to

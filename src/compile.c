@@ -277,6 +277,9 @@ static void compilation_start(const char *command, const char *directory,
 	editor_set_status_message("Compilation started: %s", command);
 }
 
+/* Emacs' compile-history: separate from every other prompt's ring. */
+static struct minibuf_history compile_history;
+
 void editor_compile(int fd)
 {
 	char prompt[KG_COMPILE_COMMAND_MAX];
@@ -287,7 +290,8 @@ void editor_compile(int fd)
 	strncpy(prompt, editor.compile_command, sizeof(prompt));
 	prompt[sizeof(prompt) - 1] = '\0';
 
-	rc = editor_read_line(fd, "Compile command: ", prompt, sizeof(prompt));
+	rc = editor_read_line_with_history(
+	    fd, "Compile command: ", prompt, sizeof(prompt), &compile_history);
 	if (rc < 0) {
 		return;
 	}

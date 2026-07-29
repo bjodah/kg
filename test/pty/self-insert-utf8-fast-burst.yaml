@@ -1,0 +1,12 @@
+# All six bytes are sent back-to-back (one YAML token is written without
+# inter-byte delay), which is what kg reads as a paste: the <30 ms
+# heuristic must see only the lead bytes as keys, and the continuation
+# bytes must not be reordered or re-dispatched on their own.
+name: self-insert-utf8-fast-burst
+filename: self-insert-utf8-burst.txt
+initial: |
+  bc
+keys:
+  - 'åäö'
+expected_saved: |
+  åäöbc

@@ -39,6 +39,12 @@ static int key_would_edit_readonly_buffer(int c)
 	if (c >= 32 && c < 127) {
 		return 1;
 	}
+	/* The lead byte of a typed multi-byte character self-inserts too;
+	 * its continuation bytes then arrive as keys of their own and are
+	 * refused by the same test. */
+	if (c >= 0x80 && c <= 0xFF) {
+		return 1;
+	}
 	for (i = 0; i
 	    < sizeof(readonly_blocked_keys) / sizeof(readonly_blocked_keys[0]);
 	    i++) {
@@ -969,6 +975,21 @@ void editor_process_keypress(int fd)
 			} else {
 				while (n--) {
 					editor_self_insert_char(c);
+				}
+			}
+		} else if (c >= 0x80 && c <= 0xFF) {
+			/* A byte above ASCII is the lead of a multi-byte
+			 * character the terminal sends one byte at a time.
+			 * Pull in the continuation bytes and insert the whole
+			 * glyph as one unit; a malformed sequence (or a stray
+			 * continuation byte) is dropped rather than half
+			 * inserted, the same policy the minibuffer uses. */
+			char seq[4];
+			int seqlen = editor_read_utf8_seq(fd, c, seq);
+
+			if (seqlen > 0) {
+				while (n--) {
+					editor_self_insert_glyph(seq, seqlen);
 				}
 			}
 		}

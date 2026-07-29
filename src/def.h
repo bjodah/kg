@@ -586,6 +586,7 @@ void editor_toggle_read_only_mode(void);
 void editor_toggle_overwrite_mode(void);
 void editor_overwrite_char(int c);
 void editor_self_insert_char(int c);
+void editor_self_insert_glyph(const char *seq, int len);
 void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
 void editor_set_readonly_override(int enabled);

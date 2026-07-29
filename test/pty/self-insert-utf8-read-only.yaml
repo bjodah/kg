@@ -1,0 +1,18 @@
+# A typed multi-byte character is an edit like any other, so a read-only
+# buffer refuses it: without the lead byte in
+# key_would_edit_readonly_buffer() the glyph would slip past the guard
+# and the file would come back as "åxabc".  The stray continuation byte
+# is refused by the same test rather than blocking on a read.
+name: self-insert-utf8-read-only
+filename: self-insert-utf8-readonly.txt
+initial: |
+  abc
+keys:
+  - C-x
+  - C-q
+  - 'å'
+  - C-x
+  - C-q
+  - 'x'
+expected_saved: |
+  xabc

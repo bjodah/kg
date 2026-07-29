@@ -529,6 +529,49 @@ static void test_undo_overwrite_malformed_utf8(void)
 	teardown();
 }
 
+/* A typed multi-byte character is one undo step: the whole glyph goes
+ * away, leaving valid UTF-8 rather than a stray lead byte.  Point ends
+ * up past the glyph, one byte per byte inserted, which is where C-f
+ * over it lands. */
+static void test_undo_self_insert_glyph(void)
+{
+	setup();
+	editor_insert_row(0, "ac", 2);
+	editor.cx = 1;
+	editor.cy = 0;
+
+	editor_self_insert_glyph("\xC3\xA5", 2); /* "ac" -> "aåc" */
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "a\303\245c", 4) == 0);
+	CHECK(editor.cx == 3);
+
+	editor_undo();
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "ac", 2) == 0);
+	teardown();
+}
+
+/* The same in overwrite mode: the glyph under point is replaced whole,
+ * even when the replacement is longer, and one undo restores it. */
+static void test_undo_self_insert_glyph_overwrite(void)
+{
+	setup();
+	editor_insert_row(0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
+	editor.cx = 1;
+	editor.cy = 0;
+	editor.overwrite_mode = 1;
+
+	editor_self_insert_glyph("\xE2\x82\xAC", 3); /* "aézz" -> "a€zz" */
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "a\342\202\254zz", 6) == 0);
+	CHECK(editor.cx == 4);
+
+	editor_undo();
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9zz", 5) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -558,5 +601,7 @@ int main(void)
 	RUN(test_undo_replace_text_multi_row);
 	RUN(test_undo_overwrite_multibyte_glyph);
 	RUN(test_undo_overwrite_malformed_utf8);
+	RUN(test_undo_self_insert_glyph);
+	RUN(test_undo_self_insert_glyph_overwrite);
 	return test_summary();
 }

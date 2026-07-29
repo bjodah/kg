@@ -1,0 +1,12 @@
+# A C-u count repeats the whole glyph, not its lead byte: the sequence
+# is collected once and inserted N times.
+name: self-insert-utf8-repeat-prefix
+filename: self-insert-utf8-repeat.txt
+initial: |
+  bc
+keys:
+  - C-u
+  - '3'
+  - 'å'
+expected_saved: |
+  åååbc

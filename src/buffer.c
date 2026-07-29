@@ -1313,6 +1313,52 @@ void editor_overwrite_char(int c)
 	}
 }
 
+/* Self-insert one whole multi-byte character, the `seq` bytes collected
+ * by editor_read_utf8_seq() for a single keystroke.  The byte-at-a-time
+ * path (editor_self_insert_char) cannot serve here: it would push one
+ * UNDO_INSERT_CHAR per byte, so undo would peel a glyph apart and leave
+ * the buffer holding invalid UTF-8.
+ *
+ * Undo granularity therefore follows yank, which is the other command
+ * that inserts multi-byte text: one UNDO_YANK_TEXT record whose reverse
+ * deletes `len` bytes forward from the insertion point, so a single
+ * undo removes the whole character.  Insertion goes through
+ * editor_insert_text_raw(), which suppresses the per-byte records and
+ * leaves point `len` bytes further along — exactly where C-f over the
+ * glyph lands, since editor.cx is a byte offset into row->chars.
+ *
+ * No autopair is multi-byte, so unlike editor_self_insert_char() there
+ * is nothing for editor_insert_char_auto_complete() to do; overwrite
+ * mode is honoured with the same UNDO_REPLACE_TEXT record
+ * editor_overwrite_char() uses, only with a replacement longer than one
+ * byte. */
+void editor_self_insert_glyph(const char *seq, int len)
+{
+	int filerow = editor_current_filerow_or_eof();
+	int filecol = editor_current_filecol();
+	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	int old_len = 0;
+
+	if (len <= 0) {
+		return;
+	}
+	if (editor.overwrite_mode && row && filecol < row->size) {
+		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
+	}
+	if (old_len > 0) {
+		if (!undo_push(UNDO_REPLACE_TEXT, filerow, filecol, len,
+			row->chars + filecol, old_len)) {
+			editor_nomem();
+			return;
+		}
+		editor_delete_text_range_raw(filerow, filecol, old_len);
+	} else if (!undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, NULL, len)) {
+		editor_nomem();
+		return;
+	}
+	editor_insert_text_raw(seq, len);
+}
+
 /* Kill (delete) from cursor to end of line (C-k).
  *
  * Invariant relied on by the C-u-batched kill in kbd.c: every byte removed

@@ -1,0 +1,17 @@
+# One undo removes the whole typed character and nothing more, as in
+# Emacs.  Per-byte UNDO_INSERT_CHAR records would take only the trailing
+# byte off and save the broken sequence "abX\xc3c"; dropping the typed
+# character altogether (the old self-insert filter) would undo the "X"
+# instead and save "abc".
+name: self-insert-utf8-undo
+filename: self-insert-utf8-undo.txt
+initial: |
+  abc
+keys:
+  - C-f
+  - C-f
+  - 'X'
+  - 'å'
+  - C-_
+expected_saved: |
+  abXc

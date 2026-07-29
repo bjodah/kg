@@ -1,0 +1,12 @@
+# Typing a two-byte character into the buffer inserts it whole.  The
+# self-insert arm used to admit only TAB and 32..126, so both bytes of
+# "å" were dropped and the file came back unchanged.
+name: self-insert-utf8-two-byte
+filename: self-insert-utf8.txt
+initial: |
+  ac
+keys:
+  - C-f
+  - 'å'
+expected_saved: |
+  aåc

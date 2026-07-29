@@ -1,0 +1,13 @@
+# Three-byte (€, U+20AC) and four-byte (𝛼, U+1D6FC) characters take the
+# other utf8_lead_extra() branches: every continuation byte has to be
+# collected before the glyph is inserted.
+name: self-insert-utf8-wide-glyphs
+filename: self-insert-utf8-wide.txt
+initial: |
+  ab
+keys:
+  - C-f
+  - '€'
+  - '𝛼'
+expected_saved: |
+  a€𝛼b

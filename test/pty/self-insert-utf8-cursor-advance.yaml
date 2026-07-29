@@ -1,0 +1,13 @@
+# Point ends up after the whole glyph, where C-f over it would land, so
+# the next typed key goes after it.  Advancing a single byte instead
+# would splice the "x" between the two bytes of "å" and save
+# "\xc3x\xa5bc".
+name: self-insert-utf8-cursor-advance
+filename: self-insert-utf8-cursor.txt
+initial: |
+  bc
+keys:
+  - 'å'
+  - 'x'
+expected_saved: |
+  åxbc

@@ -293,15 +293,23 @@ ordered by value vs implementation effort.
       backspace, C-d, C-b/C-f and the echo-area cursor column all work
       in glyphs and display cells instead of bytes.
 
-- [ ] **Typing a multi-byte character into the buffer still does
-      nothing**.  The sibling of the minibuffer defect above, found
-      while fixing it: `editor_process_keypress`'s self-insert arm
-      accepts only TAB and 32..126, so the two bytes of a typed `å` are
-      dropped before they reach `editor_self_insert_char`.  Multi-byte
-      text still arrives fine by yank, from a file, or from Lisp (and
-      byte-at-a-time through `C-q`).  Fixing it needs a decision about undo granularity
-      (`UNDO_INSERT_CHAR` records one byte) and about how `editor.cx`
-      advances over a glyph, so it was left out of the minibuffer fix.
+- [x] **Typing a multi-byte character into the buffer still does
+      nothing**.  Fixed: the self-insert arm accepted only TAB and
+      32..126, so both bytes of a typed `å` were dropped before they
+      reached `editor_self_insert_char`.  A byte above ASCII now
+      collects its continuation bytes (`editor_read_utf8_seq`, so
+      keyboard macros still replay) and inserts the glyph as one unit
+      through `editor_self_insert_glyph`; a malformed sequence is
+      dropped rather than half inserted, and read-only buffers refuse
+      the lead byte like any other editing key.  The two open decisions
+      resolved as: **undo** follows yank, the other command that
+      inserts multi-byte text — one `UNDO_YANK_TEXT` record whose
+      reverse deletes the glyph's bytes forward, so `C-_` removes the
+      whole character and leaves valid UTF-8 (overwrite mode reuses
+      `editor_overwrite_char`'s `UNDO_REPLACE_TEXT` record, now with a
+      replacement longer than one byte); **`editor.cx`** stays a byte
+      offset into `row->chars` and advances by the glyph's byte length,
+      which is exactly where `C-f` over the same glyph lands.
 
 - [ ] **Regex follow-ups from the Emacs-fidelity work** (see
       `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).

@@ -176,7 +176,7 @@ $(OBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS)
 $(OBJDIR)/tiny_regex.o: fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-$(OBJDIR)/regex.o: src/regex.c src/regex.h fe/tiny-regex-c/re.h
+$(OBJDIR)/regex.o: src/regex.c src/regex.h $(HDRS) fe/tiny-regex-c/re.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/lisp.o: $(OBJDIR)/lisp.c $(OBJDIR)/lisp.h

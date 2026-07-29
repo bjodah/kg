@@ -1,0 +1,22 @@
+# The regex engine matches bytes, so "." matches the lead byte of "å"
+# alone.  The wrapper snaps match spans out to glyph boundaries, so the
+# replacement must consume both bytes instead of leaving a stray 0xa5
+# continuation byte behind in the saved file.
+name: query-replace-regexp-utf8
+filename: replace_regexp_utf8.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - '.'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  XXX

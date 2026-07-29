@@ -1,0 +1,26 @@
+name: query-replace-regexp-caret-anchor
+# "^" anchors at the start of the line, not at the column the search
+# resumes from.  With point one column into "ba", the only "^a" in the
+# buffer is on the second line: GNU Emacs replaces that one and leaves
+# the first line alone.  kg used to anchor wherever the scan started and
+# rewrote the "a" under point as well, yielding "bX".
+filename: caret_anchor.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  ba
+  ab
+keys:
+  - C-f
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - '^a'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  ba
+  Xb

@@ -277,6 +277,130 @@ static void test_groups_and_intervals_backtrack(void)
 	CHECK(kg_regex_match_forward(&rx, "aa", 0, &match) == KG_REGEX_NOMATCH);
 }
 
+/* Intervals Emacs accepts must work, and the ones it rejects must be
+ * reported as bad patterns.  Both used to be read as the literal
+ * characters of the interval's own spelling, so "x\{0,1\}" searched for
+ * the seven-character string "x\{0,1}". */
+static void test_intervals(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "x\\{0,1\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "x", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 1);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+
+	/* the literal spelling is no longer what it looks for */
+	CHECK(kg_regex_match_forward(&rx, "x\\{0,1}", 0, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+
+	/* a zero bound and equal bounds are both Emacs-valid */
+	CHECK(kg_regex_compile(&rx, "a\\{0\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aaa", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 0);
+
+	CHECK(kg_regex_compile(&rx, "a\\{2,2\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aaa", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+
+	/* what Emacs signals an error for, kg refuses to compile */
+	CHECK(kg_regex_compile(&rx, "a\\{2,1\\}", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a\\{65536\\}", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a\\{x\\}", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a\\{1", 0) == KG_REGEX_BADPAT);
+}
+
+/* A POSIX class name kg does not implement is a bad pattern.  It used to
+ * become a set of the characters spelling it, so "[[:blank:]]" matched
+ * the letter 'a'. */
+static void test_posix_class_names(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "[[:blank:]]", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "a\tb", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 2);
+
+	CHECK(kg_regex_compile(&rx, "[[:foo:]]", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "[[:multibyte:]]", 0) == KG_REGEX_BADPAT);
+}
+
+/* "^" anchors at the start of the row, not at the offset the scan
+ * resumes from.  kg hands the whole row to the engine and uses the
+ * offset only to advance within it. */
+static void test_caret_anchors_at_line_start(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "^b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "ab", 1, &match) == KG_REGEX_NOMATCH);
+
+	CHECK(kg_regex_compile(&rx, "^a", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aba", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+	CHECK(kg_regex_match_forward(&rx, "aba", 1, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* the backward scan re-runs the search from rising offsets; it must
+	 * still find the anchored match at 0, and still terminate */
+	CHECK(kg_regex_match_backward(&rx, "aba", 3, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+	CHECK(kg_regex_match_backward(&rx, "aba", 0, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* "$" is unchanged: it holds at the end of the row */
+	CHECK(kg_regex_compile(&rx, "a$", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aba", 1, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 2);
+	CHECK(match.spans[0].end == 3);
+}
+
+/* "?" is greedy, as it is in Emacs. */
+static void test_question_mark_is_greedy(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "a?", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+
+	CHECK(kg_regex_compile(&rx, "\\(a\\)?", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 1);
+
+	/* greedy, but it still gives the character back when what follows
+	 * needs it */
+	CHECK(kg_regex_compile(&rx, "x?x", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "x", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 1);
+
+	CHECK(kg_regex_compile(&rx, "c[^a]?", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "bc1cacc.", 0, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 3);
+}
+
 static void test_utf8_glyph_boundaries(void)
 {
 	struct kg_regex rx;
@@ -322,6 +446,10 @@ int main(void)
 	RUN(test_overshoot_repros_now_exact);
 	RUN(test_alternation_binds_concatenations);
 	RUN(test_groups_and_intervals_backtrack);
+	RUN(test_intervals);
+	RUN(test_posix_class_names);
+	RUN(test_caret_anchors_at_line_start);
+	RUN(test_question_mark_is_greedy);
 	RUN(test_utf8_glyph_boundaries);
 	return test_summary();
 }

@@ -287,6 +287,31 @@ static void handle_user_binding(int c, int fd)
 	}
 }
 
+/* Handle the key after a C-c prefix: built-in commit/rebase-mode keys
+ * first, then user bindings installed with (global-set-key ...).
+ * C-c C-c is never user-bindable (see keybind_parse), and in commit
+ * and rebase buffers the other built-ins shadow any user binding. */
+static void handle_cc_prefix_key(int c, int fd)
+{
+	const char *rebase_action
+	    = syntax_is_git_rebase() ? rebase_action_for_key(c) : NULL;
+
+	if ((syntax_is_git_commit() || syntax_is_git_rebase()) && c == CTRL_C) {
+		editor_server_done(fd);
+	} else if (syntax_is_git_commit() && c == CTRL_K) {
+		editor_git_abort(fd, "Abort commit? (y/n) ");
+	} else if (syntax_is_git_rebase() && c == CTRL_K) {
+		editor_git_abort(fd, "Abort rebase? (y/n) ");
+	} else if (rebase_action) {
+		editor_rebase_set_action(rebase_action);
+	} else if (editor.filename
+	    && strcmp(editor.filename, "*compilation*") == 0 && c == CTRL_K) {
+		editor_kill_compilation(fd);
+	} else {
+		handle_user_binding(c, fd);
+	}
+}
+
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
 #if defined(__GNUC__) && !defined(__clang__)
@@ -361,29 +386,9 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	/* Handle C-c <key>: built-in commit/rebase-mode keys first, then
-	 * user bindings installed with (global-set-key ...).  C-c C-c is
-	 * never user-bindable (see keybind_parse), and in commit and
-	 * rebase buffers the other built-ins shadow any user binding. */
 	if (editor.cc_prefix) {
 		editor.cc_prefix = 0;
-		if ((syntax_is_git_commit() || syntax_is_git_rebase())
-		    && c == CTRL_C) {
-			editor_server_done(fd);
-		} else if (syntax_is_git_commit() && c == CTRL_K) {
-			editor_git_abort(fd, "Abort commit? (y/n) ");
-		} else if (syntax_is_git_rebase() && c == CTRL_K) {
-			editor_git_abort(fd, "Abort rebase? (y/n) ");
-		} else if (syntax_is_git_rebase()
-		    && rebase_action_for_key(c)) {
-			editor_rebase_set_action(rebase_action_for_key(c));
-		} else if (editor.filename
-		    && strcmp(editor.filename, "*compilation*") == 0
-		    && c == CTRL_K) {
-			editor_kill_compilation(fd);
-		} else {
-			handle_user_binding(c, fd);
-		}
+		handle_cc_prefix_key(c, fd);
 		return;
 	}
 

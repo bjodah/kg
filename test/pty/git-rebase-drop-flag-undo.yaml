@@ -1,0 +1,12 @@
+# The widened replacement span (action word plus dropped flag) must
+# come back as one undo step.
+name: git-rebase-drop-flag-undo
+filename: git-rebase-todo
+initial: |
+  fixup -C 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-p
+  - C-_
+expected_saved: |
+  fixup -C 1a2b3c4 Only commit

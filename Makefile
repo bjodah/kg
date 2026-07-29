@@ -136,9 +136,9 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-# Ratcheted 4000 -> 4025 for typed multi-byte input (minibuffer prompts
-# and buffer self-insert); kept snug so the next growth gets reviewed too.
-SCC_COMPLEXITY_MAX ?= 4025
+# Ratcheted 4025 -> 4116 for the git-rebase-todo mode (highlighter,
+# action keys, line moving); kept snug so the next growth gets reviewed too.
+SCC_COMPLEXITY_MAX ?= 4116
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

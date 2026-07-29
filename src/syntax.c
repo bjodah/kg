@@ -576,10 +576,15 @@ char *LISP_HL_keywords[] = { "defun", "defmacro", "defvar", "defconst",
 	"if", "cond", "when", "unless", "while", "dolist", "dotimes", "quote",
 	"and", "or", "not", "nil", "t", NULL };
 
-/* Git message files: matched as substrings anywhere in the path, so
- * .git/COMMIT_EDITMSG works (see the filematch rule at the top). */
-char *GITCOMMIT_HL_extensions[] = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG",
-	"TAG_EDITMSG", "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
+/* Git message files (.git/COMMIT_EDITMSG and friends).  Like the
+ * rebase todo below, matched on the exact basename only in
+ * editor_select_syntax_highlight(): the mode carries quit-the-editor
+ * keys (C-c C-c / C-c C-k), so a name merely containing one of these
+ * strings must not select it. */
+static const char *gitcommit_basenames[]
+    = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG", "TAG_EDITMSG",
+	      "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
+char *GITCOMMIT_HL_extensions[] = { NULL };
 
 /* Git interactive-rebase todo (.git/rebase-merge/git-rebase-todo).  No
  * filematch patterns: the mode carries quit-the-editor keys (C-c C-c /
@@ -1001,7 +1006,7 @@ static const struct gitrebase_action gitrebase_actions[] = {
 	{ "noop", 0, 0 },
 };
 
-#define GITREBASE_NACTIONS \
+#define GITREBASE_NACTIONS                                                     \
 	((int)(sizeof(gitrebase_actions) / sizeof(gitrebase_actions[0])))
 
 /* True when the current buffer is a git-rebase-todo. */
@@ -1029,22 +1034,35 @@ static int gitrebase_lookup(const char *p, int len)
 	return -1;
 }
 
+/* Index of the first byte at or after `i` that is not a space or tab. */
+static int gitrebase_skip_ws(const char *p, int len, int i)
+{
+	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
+		i++;
+	}
+	return i;
+}
+
+/* Index just past the word starting at `i`. */
+static int gitrebase_skip_word(const char *p, int len, int i)
+{
+	while (i < len && p[i] != ' ' && p[i] != '\t') {
+		i++;
+	}
+	return i;
+}
+
 /* If the first word of line[0..len) is a commit-taking rebase action
  * (pick/reword/edit/squash/fixup/drop, long or abbreviated), store the
- * word's span in *start/*wlen and return 1; otherwise return 0.  Used
- * by the C-c action keys to decide which lines they may rewrite. */
+ * word's span in *start and *wlen and return 1; otherwise return 0.
+ * Used by the C-c action keys to decide which lines they may rewrite. */
 int syntax_git_rebase_pick_span(
     const char *line, int len, int *start, int *wlen)
 {
-	int i = 0, w, a;
+	int i, w, a;
 
-	while (i < len && (line[i] == ' ' || line[i] == '\t')) {
-		i++;
-	}
-	w = i;
-	while (w < len && line[w] != ' ' && line[w] != '\t') {
-		w++;
-	}
+	i = gitrebase_skip_ws(line, len, 0);
+	w = gitrebase_skip_word(line, len, i);
 	if (w == i || line[i] == '#') {
 		return 0;
 	}
@@ -1055,6 +1073,24 @@ int syntax_git_rebase_pick_span(
 	*start = i;
 	*wlen = w - i;
 	return 1;
+}
+
+/* End of the option words (-C/-c and the like) following position
+ * `from` in line[0..len): the index just past the last such word, or
+ * `from` when none follow.  Lets the action keys drop flags that the
+ * new action cannot take. */
+int syntax_git_rebase_flags_end(const char *line, int len, int from)
+{
+	int i = from, end = from;
+
+	for (;;) {
+		i = gitrebase_skip_ws(line, len, i);
+		if (i >= len || line[i] != '-') {
+			return end;
+		}
+		i = gitrebase_skip_word(line, len, i);
+		end = i;
+	}
 }
 
 /* True if p[0..len) looks like an abbreviated commit hash. */
@@ -1074,14 +1110,15 @@ static int gitrebase_is_hash(const char *p, int len)
 }
 
 /* Git rebase todo highlighter.  Row-local: '#' comments dimmed, known
- * action words as keywords, the hash after a commit-taking action as
- * KEYWORD2, an exec command body as string, and an unknown first word
- * as a warning (a typoed action would make git fail the whole rebase). */
+ * action words as keywords, the hash after a commit-taking action (or
+ * merge's -C) as KEYWORD2, an exec command body as string, and an
+ * unknown first word or an option flag the action cannot take as a
+ * warning (either typo would make git fail the whole rebase). */
 static void gitrebase_syntax(erow *row)
 {
 	char *p = row->render;
 	int len = row->rsize;
-	int i = 0, w, a;
+	int i = 0, w, a, flags_ok;
 
 	if (len == 0) {
 		return;
@@ -1090,13 +1127,8 @@ static void gitrebase_syntax(erow *row)
 		memset(row->hl, HL_COMMENT, len);
 		return;
 	}
-	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
-		i++;
-	}
-	w = i;
-	while (w < len && p[w] != ' ' && p[w] != '\t') {
-		w++;
-	}
+	i = gitrebase_skip_ws(p, len, 0);
+	w = gitrebase_skip_word(p, len, i);
 	if (w == i) {
 		return;
 	}
@@ -1107,32 +1139,29 @@ static void gitrebase_syntax(erow *row)
 	}
 	memset(row->hl + i, HL_KEYWORD1, w - i);
 
-	i = w;
-	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
-		i++;
-	}
+	i = gitrebase_skip_ws(p, len, w);
 	if (strcmp(gitrebase_actions[a].name, "exec") == 0) {
 		if (i < len) {
 			memset(row->hl + i, HL_STRING, len - i);
 		}
 		return;
 	}
-	if (!gitrebase_actions[a].takes_commit) {
+	flags_ok = strcmp(gitrebase_actions[a].name, "fixup") == 0
+	    || strcmp(gitrebase_actions[a].name, "merge") == 0;
+	if (!gitrebase_actions[a].takes_commit && !flags_ok) {
 		return;
 	}
-	/* Skip option words such as fixup's -C/-c before the hash. */
+	/* Option words before the hash: only fixup and merge take -C/-c,
+	 * so any other flag would make git reject the whole todo -- warn. */
 	while (i < len && p[i] == '-') {
-		while (i < len && p[i] != ' ' && p[i] != '\t') {
-			i++;
+		w = gitrebase_skip_word(p, len, i);
+		if (!flags_ok || w - i != 2
+		    || (p[i + 1] != 'C' && p[i + 1] != 'c')) {
+			memset(row->hl + i, HL_WARNING, w - i);
 		}
-		while (i < len && (p[i] == ' ' || p[i] == '\t')) {
-			i++;
-		}
+		i = gitrebase_skip_ws(p, len, w);
 	}
-	w = i;
-	while (w < len && p[w] != ' ' && p[w] != '\t') {
-		w++;
-	}
+	w = gitrebase_skip_word(p, len, i);
 	if (gitrebase_is_hash(p + i, w - i)) {
 		memset(row->hl + i, HL_KEYWORD2, w - i);
 	}
@@ -1999,13 +2028,19 @@ void editor_select_syntax_highlight(char *filename)
 	unsigned int j;
 	const char *base = strrchr(filename, '/');
 
-	/* git-rebase-todo is matched on the exact basename only: the mode
-	 * binds keys that quit the editor, so a file whose name merely
-	 * contains the string must not select it. */
+	/* The git modes are matched on the exact basename only: they bind
+	 * keys that quit the editor, so a file whose name merely contains
+	 * one of these strings must not select them. */
 	base = base ? base + 1 : filename;
 	if (strcmp(base, "git-rebase-todo") == 0) {
 		editor.syntax = syntax_find_by_name("Git rebase");
 		return;
+	}
+	for (j = 0; gitcommit_basenames[j]; j++) {
+		if (strcmp(base, gitcommit_basenames[j]) == 0) {
+			editor.syntax = syntax_find_by_name("Git commit");
+			return;
+		}
 	}
 
 	for (j = 0; j < HLDB_ENTRIES; j++) {

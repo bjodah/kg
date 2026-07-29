@@ -1449,11 +1449,13 @@ recognizes
 .Pa NOTES_EDITMSG
 and
 .Pa EDIT_DESCRIPTION
-by filename (matched anywhere in the path, so
-.Pa .git/COMMIT_EDITMSG
-works) and switches into a dedicated mode, shown as
+by filename and switches into a dedicated mode, shown as
 .Dq Git commit
 in the mode line.
+As with the rebase todo, the match is on the exact basename only, so
+.Pa .git/COMMIT_EDITMSG
+switches the mode while a file whose name merely contains the string
+does not; the mode binds keys that quit the editor.
 Lines starting with
 .Sq #
 are dimmed as comments, and characters past column 50 on the subject
@@ -1503,7 +1505,15 @@ commit hash after them as a constant, an
 .Ic exec
 command body as a string, and comment lines are dimmed.
 An unrecognized action word is shown in warning color, since a typo
-there makes git fail the whole rebase.
+there makes git fail the whole rebase; so is an option flag the action
+cannot take, since only
+.Ic fixup
+and
+.Ic merge
+accept
+.Fl C
+or
+.Fl c .
 .Pp
 .Ic C-c C-p ,
 .Ic C-c C-r ,
@@ -1519,6 +1529,15 @@ or
 respectively; they refuse to touch comment,
 .Ic exec
 and other non-commit lines.
+Rewriting a
+.Ic fixup
+line that carries a
+.Fl C
+or
+.Fl c
+flag to any other action also deletes the flag, which only
+.Ic fixup
+accepts.
 .Ic M-p
 and
 .Ic M-n

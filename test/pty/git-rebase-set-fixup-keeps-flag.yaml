@@ -1,0 +1,11 @@
+# Expanding the abbreviation to fixup keeps the -C flag, which fixup
+# does accept.
+name: git-rebase-set-fixup-keeps-flag
+filename: git-rebase-todo
+initial: |
+  f -C 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-f
+expected_saved: |
+  fixup -C 1a2b3c4 Only commit

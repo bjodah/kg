@@ -1,0 +1,14 @@
+# A filename that merely contains "COMMIT_EDITMSG" must not select the
+# commit mode: C-c C-k stays undefined (no abort prompt), so the typed
+# "y" self-inserts instead of answering a prompt.
+name: git-commit-not-detected-by-substring
+filename: my-COMMIT_EDITMSG-notes
+initial: |
+  Some notes
+keys:
+  - C-c
+  - C-k
+  - y
+expected_saved: |
+  ySome notes
+expected_exit_code: 0

@@ -533,6 +533,87 @@ static void test_gitrebase_detect_basename_only(void)
 	teardown();
 }
 
+/* A flag on an action that cannot take one is warned; the hash after
+ * it is still recognized. */
+static void test_gitrebase_invalid_flag_warns(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "pick -C 1a2b3c4 x", 17);
+
+	CHECK(editor.row[0].hl[5] == HL_WARNING);
+	CHECK(editor.row[0].hl[6] == HL_WARNING);
+	for (i = 8; i < 15; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+	}
+	teardown();
+}
+
+/* fixup takes only -C/-c: any other flag is warned. */
+static void test_gitrebase_fixup_bad_flag_warns(void)
+{
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "fixup -X 1a2b3c4", 16);
+
+	CHECK(editor.row[0].hl[6] == HL_WARNING);
+	CHECK(editor.row[0].hl[7] == HL_WARNING);
+	CHECK(editor.row[0].hl[9] == HL_KEYWORD2);
+	teardown();
+}
+
+/* merge -C <commit> <label>: the flag is valid and the hash after it
+ * is highlighted, while the label stays normal. */
+static void test_gitrebase_merge_hash(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "merge -C 1a2b3c4 topic", 22);
+
+	for (i = 0; i < 5; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+	}
+	CHECK(editor.row[0].hl[6] == HL_NORMAL);
+	CHECK(editor.row[0].hl[7] == HL_NORMAL);
+	for (i = 9; i < 16; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+	}
+	for (i = 17; i < 22; i++) {
+		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+	}
+	teardown();
+}
+
+/* syntax_git_rebase_flags_end: end of the option words after `from`,
+ * or `from` itself when none follow. */
+static void test_gitrebase_flags_end(void)
+{
+	CHECK(syntax_git_rebase_flags_end("fixup -C 1a2b", 13, 5) == 8);
+	CHECK(syntax_git_rebase_flags_end("pick 1a2b", 9, 4) == 4);
+	CHECK(syntax_git_rebase_flags_end("f -C -c x", 9, 1) == 7);
+	CHECK(syntax_git_rebase_flags_end("fixup -C", 8, 5) == 8);
+	CHECK(syntax_git_rebase_flags_end("fixup   ", 8, 5) == 5);
+}
+
+/* Commit-mode selection: exact basename only, like the rebase todo (the
+ * mode's keys quit the editor). */
+static void test_gitcommit_detect_basename_only(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(".git/COMMIT_EDITMSG");
+	CHECK(editor.syntax == syntax_find_by_name("Git commit"));
+
+	editor.syntax = NULL;
+	editor_select_syntax_highlight("MERGE_MSG");
+	CHECK(editor.syntax == syntax_find_by_name("Git commit"));
+
+	editor.syntax = NULL;
+	editor_select_syntax_highlight("my-COMMIT_EDITMSG-notes");
+	CHECK(editor.syntax != syntax_find_by_name("Git commit"));
+	teardown();
+}
+
 /* Markdown blank line inside a fence regression test */
 static void test_md_blank_line_in_fence(void)
 {
@@ -1174,6 +1255,11 @@ int main(void)
 	RUN(test_gitrebase_abbrev_and_flag);
 	RUN(test_gitrebase_pick_span);
 	RUN(test_gitrebase_detect_basename_only);
+	RUN(test_gitrebase_invalid_flag_warns);
+	RUN(test_gitrebase_fixup_bad_flag_warns);
+	RUN(test_gitrebase_merge_hash);
+	RUN(test_gitrebase_flags_end);
+	RUN(test_gitcommit_detect_basename_only);
 	RUN(test_md_blank_line_in_fence);
 	RUN(test_custom_highlighter_pointer);
 	RUN(test_editor_set_syntax_rebuilds);

@@ -860,6 +860,7 @@ void editor_select_syntax_highlight(char *filename);
 [[nodiscard]] int syntax_is_git_rebase(void);
 int syntax_git_rebase_pick_span(
     const char *line, int len, int *start, int *wlen);
+int syntax_git_rebase_flags_end(const char *line, int len, int from);
 
 /* tty.c */
 void disable_raw_mode(int fd);

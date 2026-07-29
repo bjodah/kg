@@ -1372,7 +1372,9 @@ oom:
  * C-p/C-r/C-e/C-s/C-f/C-d keys and their M-x commands).  Only lines
  * whose first word is a commit-taking action (pick/reword/edit/squash/
  * fixup/drop, long or abbreviated) are rewritten; comments, exec lines
- * and the like are refused so a stray key cannot corrupt the todo. */
+ * and the like are refused so a stray key cannot corrupt the todo.
+ * Option flags after the word (fixup's -C/-c) go with it unless the new
+ * action is fixup, since no other settable action accepts them. */
 void editor_rebase_set_action(const char *action)
 {
 	int filerow, filecol, start, wlen, nlen, wend, col;
@@ -1399,8 +1401,18 @@ void editor_rebase_set_action(const char *action)
 		editor_set_status_message("Not on a rebase action line");
 		return;
 	}
+	/* A -C/-c flag is only valid on fixup: when rewriting to any other
+	 * action, widen the span so the flag is dropped with the word. */
+	if (strcmp(action, "fixup") != 0) {
+		int fend = syntax_git_rebase_flags_end(
+		    row->chars, row->size, start + wlen);
+		if (fend > start + wlen) {
+			wlen = fend - start;
+		}
+	}
 	nlen = (int)strlen(action);
 	if (wlen == nlen && strncmp(row->chars + start, action, wlen) == 0) {
+		editor_set_status_message("%s", action);
 		return;
 	}
 	filecol = word_cursor_filecol(row);
@@ -1424,8 +1436,8 @@ void editor_rebase_set_action(const char *action)
 	free(orig);
 
 	wend = start + wlen;
-	memmove(row->chars + start + nlen, row->chars + wend,
-	    row->size - wend + 1);
+	memmove(
+	    row->chars + start + nlen, row->chars + wend, row->size - wend + 1);
 	memcpy(row->chars + start, action, nlen);
 	row->size += nlen - wlen;
 	editor_update_row(row);

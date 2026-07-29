@@ -1,0 +1,11 @@
+# Rewriting a fixup -C line to pick must drop the flag: only fixup
+# accepts -C/-c, and git rejects "pick -C".
+name: git-rebase-set-action-drops-flag
+filename: git-rebase-todo
+initial: |
+  fixup -C 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-p
+expected_saved: |
+  pick 1a2b3c4 Only commit

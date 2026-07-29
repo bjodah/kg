@@ -1,11 +1,15 @@
-/* test_dired.c — regression tests for dired_dir_of(), the helper that
- * recovers a dired buffer's directory from its buffer name.  The name is
- * the mode's only state, so this parser is where a truncated or foreign
- * name has to be refused rather than silently accepted. */
+/* test_dired.c — regression tests for the dired row parsers (dired_dir_of()
+ * recovers a listing's directory from its buffer name, which is the mode's
+ * only state), for the listing editor_open() builds when it is handed a
+ * directory, and for the row highlighter over it. */
 
 #include "../src/def.h"
 #include "test.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static void test_round_trips_an_absolute_path(void)
 {
@@ -114,6 +118,153 @@ static void test_rejects_rows_without_a_name(void)
 	CHECK(strcmp(out, "abcdefg") == 0);
 }
 
+/* ---- Listing buffers ---- */
+
+/* A directory holding one file and one subdirectory, in a fresh temporary
+ * directory so the listing is exactly what the test planted. */
+static int make_tree(char *dir, size_t size)
+{
+	char path[256];
+	FILE *fp;
+
+	snprintf(dir, size, "/tmp/kg-dired-XXXXXX");
+	if (!mkdtemp(dir)) {
+		return -1;
+	}
+	snprintf(path, sizeof(path), "%s/a.txt", dir);
+	fp = fopen(path, "w");
+	if (!fp) {
+		return -1;
+	}
+	fclose(fp);
+	snprintf(path, sizeof(path), "%s/sub", dir);
+	return mkdir(path, 0700);
+}
+
+static void drop_tree(const char *dir)
+{
+	char path[256];
+
+	snprintf(path, sizeof(path), "%s/a.txt", dir);
+	unlink(path);
+	snprintf(path, sizeof(path), "%s/sub", dir);
+	rmdir(path);
+	rmdir(dir);
+}
+
+static void setup(void)
+{
+	free_all_rows();
+	memset(&editor, 0, sizeof(editor));
+	editor.screenrows = 24;
+	editor.screencols = 80;
+}
+
+static void teardown(void)
+{
+	free_all_rows();
+	editor.row = NULL;
+	editor.numrows = 0;
+	free(editor.filename);
+	editor.filename = NULL;
+}
+
+/* editor_open() on a directory is not an error: it turns the current
+ * buffer into a read-only listing, in place, without allocating a buffer
+ * slot of its own. */
+static void test_open_directory_lists_it(void)
+{
+	char dir[64];
+
+	if (make_tree(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	setup();
+	CHECK(editor_open(dir) == 0);
+	CHECK(syntax_is_dired());
+	CHECK(editor.readonly == 1);
+	CHECK(editor.dirty == 0);
+	CHECK(editor.filename != NULL
+	    && strncmp(editor.filename, "*Dired: ", 8) == 0);
+	CHECK(editor.numrows == 3);
+	if (editor.numrows == 3) {
+		CHECK(strcmp(editor.row[1].chars, "  a.txt") == 0);
+		CHECK(strcmp(editor.row[2].chars, "  sub/") == 0);
+	}
+	teardown();
+	drop_tree(dir);
+}
+
+/* The header row is a comment, a directory's name is a keyword, and a
+ * plain file's row is left alone. */
+static void test_highlights_header_and_directories(void)
+{
+	char dir[64];
+	int i;
+
+	if (make_tree(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	setup();
+	CHECK(dired_fill_current(dir) == 0);
+	CHECK(editor.numrows == 3);
+	if (editor.numrows != 3) {
+		teardown();
+		drop_tree(dir);
+		return;
+	}
+	for (i = 0; i < editor.row[0].rsize; i++) {
+		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
+	for (i = 0; i < editor.row[1].rsize; i++) {
+		CHECK(editor.row[1].hl[i] == HL_NORMAL);
+	}
+	CHECK(editor.row[2].hl[0] == HL_NORMAL);
+	CHECK(editor.row[2].hl[1] == HL_NORMAL);
+	for (i = 2; i < editor.row[2].rsize; i++) {
+		CHECK(editor.row[2].hl[i] == HL_KEYWORD1);
+	}
+	teardown();
+	drop_tree(dir);
+}
+
+/* A marker in column 0 colours that byte only: the flagged file's name
+ * stays plain, and a marked directory keeps its keyword name. */
+static void test_highlights_markers(void)
+{
+	char dir[64];
+	int i;
+
+	if (make_tree(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	setup();
+	CHECK(dired_fill_current(dir) == 0);
+	CHECK(editor.numrows == 3);
+	if (editor.numrows != 3) {
+		teardown();
+		drop_tree(dir);
+		return;
+	}
+
+	editor.row[1].chars[0] = 'D';
+	editor_update_row(&editor.row[1]);
+	CHECK(editor.row[1].hl[0] == HL_WARNING);
+	for (i = 1; i < editor.row[1].rsize; i++) {
+		CHECK(editor.row[1].hl[i] == HL_NORMAL);
+	}
+
+	editor.row[2].chars[0] = '*';
+	editor_update_row(&editor.row[2]);
+	CHECK(editor.row[2].hl[0] == HL_KEYWORD2);
+	CHECK(editor.row[2].hl[1] == HL_NORMAL);
+	for (i = 2; i < editor.row[2].rsize; i++) {
+		CHECK(editor.row[2].hl[i] == HL_KEYWORD1);
+	}
+	teardown();
+	drop_tree(dir);
+}
+
 int main(void)
 {
 	RUN(test_round_trips_an_absolute_path);
@@ -125,5 +276,8 @@ int main(void)
 	RUN(test_drops_one_directory_suffix);
 	RUN(test_keeps_awkward_names_whole);
 	RUN(test_rejects_rows_without_a_name);
+	RUN(test_open_directory_lists_it);
+	RUN(test_highlights_header_and_directories);
+	RUN(test_highlights_markers);
 	return test_summary();
 }

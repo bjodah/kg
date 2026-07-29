@@ -1,0 +1,23 @@
+# `kg somedir` lists the directory, as Emacs does, rather than failing with
+# "Is a directory".  The listing is the buffer kg starts in, so the first
+# keys land in dired: n steps onto the one entry, RET visits it, and the X
+# typed there is what proves it — in a plain buffer those same keys would
+# have inserted "n" and a newline of their own.
+#
+# args puts the directory ahead of the case's file on the command line, and
+# the pexpect backend runs kg with the case directory as its cwd, so "."
+# names a directory holding exactly notes.txt.
+name: dired-command-line-directory
+filename: notes.txt
+args: ["."]
+initial: |
+  notes
+keys:
+  - n
+  - RET
+  - X
+expected_saved: |
+  Xnotes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "  notes.txt"

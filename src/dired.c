@@ -11,12 +11,14 @@
 
 #include "def.h"
 
+static void dired_highlight(erow *row);
+
 /* Synthetic syntax record, deliberately outside HLDB: a dired buffer is
- * never selected by filename.  Its highlighter is still NULL, so
- * syntax_is_dired() compares this record's address where the other
- * syntax_is_* helpers compare highlighter pointers. */
+ * never selected by filename.  syntax_is_dired() compares this record's
+ * address where the other syntax_is_* helpers compare highlighter
+ * pointers, so attaching a highlighter changes nothing elsewhere. */
 static struct editor_syntax dired_syntax
-    = { "Dired", NULL, NULL, "", "", "", 0, NULL };
+    = { "Dired", NULL, NULL, "", "", "", 0, dired_highlight };
 
 /* A dired buffer is named DIRED_PREFIX, the absolute directory, then '*'.
  * The name is the mode's only state: dired_dir_of() reads the directory
@@ -92,6 +94,35 @@ int dired_row_name(const char *line, int len, char *out, int size)
 	memcpy(out, line, (size_t)n);
 	out[n] = '\0';
 	return 0;
+}
+
+/* Row-local listing highlighter.  It lives here rather than in syntax.c
+ * because everything it reads is the row layout dired_populate() writes:
+ * row 0 is the header, columns 0-1 are the mark gutter, and a directory
+ * carries the '/' suffix.  Only the marker byte is coloured for a marked
+ * row — a flagged directory keeps its name highlighted, which is what
+ * Emacs' default dired faces do.  Indexed over render, like every other
+ * highlighter; a listing row holds no tabs, so it equals chars. */
+static void dired_highlight(erow *row)
+{
+	int len = row->rsize;
+
+	if (len == 0) {
+		return;
+	}
+	if (row->idx == 0) {
+		memset(row->hl, HL_COMMENT, (size_t)len);
+		return;
+	}
+	if (len > DIRED_GUTTER_LEN && row->render[len - 1] == '/') {
+		memset(row->hl + DIRED_GUTTER_LEN, HL_KEYWORD1,
+		    (size_t)(len - DIRED_GUTTER_LEN));
+	}
+	if (row->render[0] == 'D') {
+		row->hl[0] = HL_WARNING;
+	} else if (row->render[0] == '*') {
+		row->hl[0] = HL_KEYWORD2;
+	}
 }
 
 /* Join `dir` and `name`.  Returns -1 rather than a truncated path. */
@@ -210,6 +241,11 @@ static void dired_populate(void)
 	char line[PATH_MAX + 8];
 	int i;
 
+	/* Attached before any row exists, because editor_insert_row()
+	 * highlights each row as it is appended and both callers of this
+	 * populate step attach the syntax only after it returns. */
+	editor.syntax = &dired_syntax;
+
 	if (dired_dir_of(editor.filename, dir, sizeof(dir)) != 0) {
 		/* Unreachable: dired_open() built the name this reads back.
 		 * Leave the buffer empty rather than write a header naming
@@ -226,14 +262,18 @@ static void dired_populate(void)
 	}
 }
 
-/* Open (or refresh) the read-only dired buffer for `dir`.  Returns 0, or
- * 1 after posting an error.  The whole listing is read before any buffer
- * is touched, so a failure leaves the current buffer intact. */
-int dired_open(const char *dir)
-{
-	char path[PATH_MAX];
+struct dired_listing {
 	char name[PATH_MAX + sizeof(DIRED_PREFIX) + 1];
 	char status[PATH_MAX + 64];
+};
+
+/* Read `dir` into the staging area dired_populate() lays out, and derive
+ * the buffer name and status line that go with it.  Returns 0, or 1 after
+ * posting an error: the listing is complete before any buffer is touched,
+ * so a failure leaves the current buffer intact. */
+static int dired_stage(const char *dir, struct dired_listing *l)
+{
+	char path[PATH_MAX];
 	int n;
 
 	if (!realpath(dir, path)) {
@@ -247,18 +287,61 @@ int dired_open(const char *dir)
 		return 1;
 	}
 	dired_list_count = n;
-
-	snprintf(name, sizeof(name), DIRED_PREFIX "%s*", path);
-	snprintf(status, sizeof(status), "Dired %s — %d %s", path, n,
+	snprintf(l->name, sizeof(l->name), DIRED_PREFIX "%s*", path);
+	snprintf(l->status, sizeof(l->status), "Dired %s — %d %s", path, n,
 	    n == 1 ? "entry" : "entries");
-	buf_open_special(name, &dired_syntax, dired_populate, status);
+	return 0;
+}
 
+static void dired_unstage(void)
+{
 	dired_free(dired_list, dired_list_count);
 	dired_list = NULL;
 	dired_list_count = 0;
+}
+
+/* Open (or refresh) the read-only dired buffer for `dir`.  Returns 0, or
+ * 1 after posting an error. */
+int dired_open(const char *dir)
+{
+	struct dired_listing l;
+
+	if (dired_stage(dir, &l) != 0) {
+		return 1;
+	}
+	buf_open_special(l.name, &dired_syntax, dired_populate, l.status);
+	dired_unstage();
 	/* buf_open_special() attaches the syntax last, so this also reports
 	 * the buffer-table failures it declines with a message of its own. */
 	return syntax_is_dired() ? 0 : 1;
+}
+
+/* Turn the *current* buffer into a listing of `dir`, leaving the buffer
+ * table alone.  This is what editor_open() uses: its callers allocate the
+ * slot the loaded buffer lands in themselves, and a buf_open_special()
+ * nested inside that save/restore dance would write the half-reset state
+ * over the outgoing buffer's slot.  Returns 0, or 1 after posting an
+ * error. */
+int dired_fill_current(const char *dir)
+{
+	struct dired_listing l;
+
+	if (dired_stage(dir, &l) != 0) {
+		return 1;
+	}
+	editor_free_all_rows();
+	free(editor.filename);
+	editor.filename = strdup(l.name);
+	dired_populate();
+	dired_unstage();
+
+	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	editor.dirty = 0;
+	editor.readonly_override = 1;
+	editor_refresh_readonly_state();
+	editor.syntax = &dired_syntax;
+	editor_set_status_message("%s", l.status);
+	return 0;
 }
 
 /* Every dired command is reachable from M-x in any buffer, so each one

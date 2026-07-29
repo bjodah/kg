@@ -1419,7 +1419,16 @@ void buf_select_interactive(int fd)
  * readonly: if 1, mark the buffer read-only after loading. */
 void buf_open_path(const char *path, int readonly)
 {
+	struct stat st;
 	int i, slot;
+
+	/* A directory lists.  dired_open() finds or allocates the listing's
+	 * own slot — the same one M-x dired would reuse — so it must not be
+	 * run inside the slot dance below. */
+	if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+		(void)dired_open(path);
+		return;
+	}
 
 	/* Switch to existing buffer if the file is already open. */
 	for (i = 0; i < MAX_BUFFERS; i++) {

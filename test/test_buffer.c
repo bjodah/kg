@@ -1122,8 +1122,20 @@ static void test_transactional_open_reload(void)
 	editor_insert_row(0, "line1", 5);
 	editor_insert_row(1, "line2", 5);
 
-	/* Tries to open a directory (e.g. `/` or `.`) which will fail... */
-	int open_res = editor_open(".");
+	/* Tries to open a path that is neither a file nor a directory (a
+	 * name under a regular file, so open fails with ENOTDIR)...  A
+	 * directory itself is no longer an error: it opens a listing, which
+	 * test_dired.c covers. */
+	char under[] = "test_notdir_XXXXXX";
+	char notdir[64];
+	int open_res;
+
+	fd = mkstemp(under);
+	CHECK(fd != -1);
+	CHECK(close(fd) == 0);
+	snprintf(notdir, sizeof(notdir), "%s/nope", under);
+	open_res = editor_open(notdir);
+	unlink(under);
 	/* and asserts that the buffer rows and filename are preserved intact.
 	 */
 	CHECK(open_res == 1);

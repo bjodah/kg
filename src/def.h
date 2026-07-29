@@ -867,9 +867,11 @@ int syntax_git_rebase_pick_span(
 int syntax_git_rebase_flags_end(const char *line, int len, int from);
 
 /* dired.c — syntax_is_dired() lives here rather than in syntax.c because
- * the Dired syntax record carries no highlighter to compare against. */
+ * the Dired syntax record is identified by its address, not by the
+ * highlighter pointer the other syntax_is_* helpers compare. */
 [[nodiscard]] int syntax_is_dired(void);
 int dired_open(const char *dir);
+int dired_fill_current(const char *dir);
 int dired_dir_of(const char *bufname, char *out, int size);
 int dired_row_name(const char *line, int len, char *out, int size);
 void dired_find_file(void);

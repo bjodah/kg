@@ -409,6 +409,15 @@ void free_load_result(struct temp_load_result *res)
 int editor_open(char *filename)
 {
 	struct temp_load_result res;
+	struct stat st;
+
+	/* A directory is not an error: it lists, as in Emacs.  The listing
+	 * replaces the current buffer's contents without touching the buffer
+	 * table, so every caller keeps owning the slot it loads into. */
+	if (stat(filename, &st) == 0 && S_ISDIR(st.st_mode)) {
+		return dired_fill_current(filename);
+	}
+
 	if (load_file_transactional(filename, &res) != 0) {
 		editor_set_status_message(
 		    "Error opening %s: %s", filename, strerror(errno));

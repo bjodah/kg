@@ -519,8 +519,8 @@ static void test_empty_repetition_capture_register(void)
 	CHECK(match.spans[1].end == 1);
 
 	/* "\\{n,m\\}" behaves the same while the minimum is being filled */
-	CHECK(kg_regex_compile(&rx, "\\(x*\\|a\\)\\{2,3\\}b", 0)
-	    == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_compile(&rx, "\\(x*\\|a\\)\\{2,3\\}b", 0) == KG_REGEX_OK);
 	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[1].start == 0);
 	CHECK(match.spans[1].end == 1);

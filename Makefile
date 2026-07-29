@@ -136,7 +136,9 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-SCC_COMPLEXITY_MAX ?= 4000
+# Ratcheted 4000 -> 4025 for typed multi-byte input (minibuffer prompts
+# and buffer self-insert); kept snug so the next growth gets reviewed too.
+SCC_COMPLEXITY_MAX ?= 4025
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

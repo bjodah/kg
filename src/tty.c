@@ -492,12 +492,12 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
 {
 	int need, i;
 
-	if (lead < 0x80 || lead > 0xFF) {
-		return 0; /* ASCII, or one of the >0xFF soft key codes */
+	if (lead > 0xFF) {
+		return 0; /* one of the >0xFF soft key codes */
 	}
 	need = utf8_lead_extra((unsigned char)lead);
 	if (need == 0) {
-		return 0;
+		return 0; /* ASCII, or a byte no sequence starts with */
 	}
 	seq[0] = (char)lead;
 	for (i = 1; i <= need; i++) {

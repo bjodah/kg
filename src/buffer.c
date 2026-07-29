@@ -1313,8 +1313,9 @@ void editor_overwrite_char(int c)
 	}
 }
 
-/* Self-insert one whole multi-byte character, the `seq` bytes collected
- * by editor_read_utf8_seq() for a single keystroke.  The byte-at-a-time
+/* Self-insert one whole multi-byte character, the `seq` bytes (`len` of
+ * them, at least one — callers check) collected by
+ * editor_read_utf8_seq() for a single keystroke.  The byte-at-a-time
  * path (editor_self_insert_char) cannot serve here: it would push one
  * UNDO_INSERT_CHAR per byte, so undo would peel a glyph apart and leave
  * the buffer holding invalid UTF-8.
@@ -1339,9 +1340,6 @@ void editor_self_insert_glyph(const char *seq, int len)
 	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
 	int old_len = 0;
 
-	if (len <= 0) {
-		return;
-	}
 	if (editor.overwrite_mode && row && filecol < row->size) {
 		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
 	}

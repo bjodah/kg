@@ -499,6 +499,40 @@ static void test_utf8_engine_counts_characters(void)
 	CHECK(match.spans[0].end == 3);
 }
 
+/* The capture register a repeated group leaves behind when its body can
+ * match the empty string.  An empty repetition only ends the loop once the
+ * minimum count is behind us, so "\\(x*\\|a\\)\\{2\\}b" spends repetition 1
+ * on the empty branch and repetition 2 on "a": group 1 is [0, 1), not the
+ * empty [1, 1) this used to report.  The whole-match span was never
+ * affected, so only "\\1"-style references saw it. */
+static void test_empty_repetition_capture_register(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "\\(x*\\|a\\)\\{2\\}b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 1);
+
+	/* "\\{n,m\\}" behaves the same while the minimum is being filled */
+	CHECK(kg_regex_compile(&rx, "\\(x*\\|a\\)\\{2,3\\}b", 0)
+	    == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 1);
+
+	/* past the minimum an empty repetition still ends the loop, so a
+	 * plain "*" keeps reporting the empty last repetition */
+	CHECK(kg_regex_compile(&rx, "\\(x*\\|a\\)*b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[1].start == 1);
+	CHECK(match.spans[1].end == 1);
+}
+
 int main(void)
 {
 	RUN(test_compile_valid);
@@ -519,5 +553,6 @@ int main(void)
 	RUN(test_question_mark_is_greedy);
 	RUN(test_utf8_glyph_boundaries);
 	RUN(test_utf8_engine_counts_characters);
+	RUN(test_empty_repetition_capture_register);
 	return test_summary();
 }

@@ -16,11 +16,13 @@ The grammar deliberately stays out of the places where kg is known to
 differ from Emacs on purpose; each exclusion is commented where it is made.
 Anything else that diverges is a finding, not something to tune away.
 
-One such finding is open and NOT excluded here: the capture register after
-an empty final iteration of an interval-quantified group (`\\(x*\\|a\\)\\{2\\}b`
-against `ab`).  It is written up in doc/TODO.md.  At roughly 4 cases per
-million it is out of reach of the default budget, but raising --cases will
-eventually reach it; that is the tool working, not a regression.
+Its first find beyond the ones the plan already knew about was the capture
+register left by an empty repetition of a quantified group
+(`\\(x*\\|a\\)\\{2\\}b` against `ab`), at roughly 4 cases per million -- out of
+reach of the default budget, which is the argument for raising --cases when
+hunting.  That one is fixed; see doc/TODO.md and match_rep() in
+fe/tiny-regex-c/re.c.  `--cases 200000` is clean on seeds 12 (the seed that
+found it), 13, 14, 15 and 20260729.
 """
 
 import argparse

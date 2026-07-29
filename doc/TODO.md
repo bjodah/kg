@@ -311,7 +311,7 @@ ordered by value vs implementation effort.
       offset into `row->chars` and advances by the glyph's byte length,
       which is exactly where `C-f` over the same glyph lands.
 
-- [ ] **Regex follow-ups from the Emacs-fidelity work** (see
+- [x] **Regex follow-ups from the Emacs-fidelity work** (see
       `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).
       Both infrastructure halves are done: the differential fuzzer
       against the Emacs oracle is now `make check-regex-differential`
@@ -319,22 +319,29 @@ ordered by value vs implementation effort.
       `test/regex_differential.c`), run in CI by
       `.ci/ci-10-regex-differential.sh`; and the regex fuzz corpus has
       a tracked home in `test/fuzz-seeds/regex`, copied into the
-      gitignored working corpus by `make fuzz-regex-seed`.  What is
-      left is the behaviour below.
+      gitignored working corpus by `make fuzz-regex-seed`.  The one
+      non-deliberate divergence they turned up is fixed too, below.
       Known deliberate divergences that remain: `\w` `\d` `\s`, case
       folding and the POSIX classes are ASCII-only (Emacs' `\w`
       matches `å`); a quantifier on a quantifier (`a\{2\}\{2\}`) is
       valid in Emacs but never matches here.
-      One further divergence, found by the new differential target and
-      *not* deliberate: **the capture register after an empty final
-      iteration of an interval-quantified group**.  `\(x*\|a\)\{2\}b`
-      against `ab` gives group 1 as `1 1` here and `0 1` in Emacs — kg
-      records the empty last iteration, Emacs keeps the last iteration
-      that consumed anything.  Span 0 always agrees, so search and
-      whole-match replace are unaffected; only `\1`-style references
-      after a fixed-count repeat differ.  Needs the empty-matching
-      branch to come first (`\(a\|x*\)\{2\}b` agrees), and `*` and
-      `\{1,3\}` agree too, so it is specific to the mandatory
-      repetitions of `\{n\}`.  It surfaces at roughly 4 cases per
-      million, so the differential target's default budget does not
-      hit it; `--cases 200000 --seed 12` does.
+      **Fixed: the capture register after an empty repetition of a
+      quantified group.**  `\(x*\|a\)\{2\}b` against `ab` used to give
+      group 1 as `1 1` where Emacs gives `0 1`.  The first write-up
+      here read it as "Emacs keeps the last iteration that consumed
+      anything", and scoped it to `\{n\}`; probing the oracle over the
+      whole `\{n,m\}` grid said otherwise on both counts.  Emacs
+      compiles a repeat with a non-zero minimum as a counted loop with
+      *no* empty-match check, so an empty repetition does not end the
+      loop until the minimum is behind it — repetition 1 of
+      `\(x*\|a\)\{2\}` matches the empty branch at 0 and repetition 2
+      then matches `a`.  Past the minimum the check is back, which is
+      why `*`, `\{0,m\}` and `\{n,\}` always agreed, and why enough
+      slack over the minimum (`\{2,4\}b` on `ab`) reaches the trailing
+      empty repetition again.  `\{n,n+1\}` diverged too and was never
+      in the original scope.  `match_rep()` in `fe/tiny-regex-c/re.c`
+      now repeats while `done <= min` even on an empty body; kg and
+      Emacs agree over 32k hand-built cases spanning the grid, and
+      `--cases 200000` agrees on seeds 12 (which used to fail), 13, 14,
+      15 and 20260729.  Span 0 was never affected, so only `\1`-style
+      references saw it.

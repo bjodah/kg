@@ -238,5 +238,6 @@ every pattern above belongs in it as a regression case.
 `.ci/ci-10-regex-differential.sh`; every pattern above is a tracked seed
 in `test/fuzz-seeds/regex`, which `make fuzz-regex-seed` copies into the
 gitignored working corpus. Its first new find — the capture register
-after an empty final iteration of `\{n\}` — is written up in
-`doc/TODO.md`.
+left by an empty repetition of a quantified group, which turned out to
+span `\{n,m\}` and not just `\{n\}` — is fixed in `match_rep()` and
+written up in `doc/TODO.md`.

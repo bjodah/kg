@@ -815,6 +815,7 @@ The buffer is marked unmodified when undo returns to the last-saved state.
 .It C-x C-f Ta Open file in new buffer
 .It C-x C-r Ta Open file read-only in new buffer
 .It C-x C-q Ta Toggle read-only mode on current buffer (read-only-mode)
+.It C-x d Ta List a directory (dired)
 .It C-x b Ta Switch to buffer (interactive)
 .It C-x k Ta Kill (close) current buffer
 .It C-x C-b Ta Open buffer list
@@ -1557,6 +1558,121 @@ prompts for confirmation, then exits without saving and with a non-zero
 status, making git abort the rebase.
 All these bindings are built in, only active in rebase buffers, and
 take priority over user Lisp bindings for the same keys.
+.Ss Dired Mode
+.Ic M-x dired
+and
+.Ic C-x d
+prompt for a directory and list it in a read-only buffer, shown as
+.Dq Dired
+in the mode line.
+The prompt is the ordinary path picker, where
+.Ic Enter
+on a directory descends into it rather than submitting it, so the way
+to name a directory is to answer with something inside it: a
+non-directory answer means the directory containing it, and an empty
+answer means the directory of the current buffer.
+.Ic C-x C-f
+on a directory lists it as well, reusing the listing buffer for that
+directory if one is already open, and so does naming a directory on the
+command line
+.Pq Ic kg src .
+.Pp
+The listing buffer is named
+.Pa *Dired: /abs/path* ,
+and that name is the mode's only state: two directories listed at once
+are simply two buffers.
+Row 0 is a header naming the directory; every row after it is one entry
+behind a two-column mark gutter, with directories suffixed
+.Sq / .
+Entries are sorted with
+.Xr strcoll 3 ,
+hidden files are listed, and
+.Sq \&.
+and
+.Sq \&..
+are omitted, the header line and
+.Ic ^
+covering them.
+The header is dimmed, directory names are colored as keywords, and a
+mark or flag in the gutter is colored where it stands.
+.Pp
+.Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
+.It Sy Key Ta Sy Action
+.It Enter Ta Visit the entry at point (dired-find-file)
+.It ^ Ta List the parent directory (dired-up-directory)
+.It g Ta Re-read the directory (dired-revert)
+.It n / p Ta Move to the next / previous line
+.It m Ta Mark the entry with * (dired-mark)
+.It d Ta Flag the entry with D (dired-flag-file-deletion)
+.It u Ta Clear the mark or flag (dired-unmark)
+.It x Ta Delete the flagged entries (dired-do-flagged-delete)
+.It q Ta Close the listing
+.El
+.Pp
+.Ic Enter
+on a directory lists it in place of the current listing; on anything
+else it opens the entry exactly as
+.Ic C-x C-f
+would, so an entry removed behind
+.Nm Ns 's
+back reports the usual open error and
+.Ic g
+recovers.
+A symbolic link to a directory is descended into; a broken one lists,
+and opens, as a plain file.
+.Ic m ,
+.Ic d
+and
+.Ic u
+write their marker into column 0 and step down one line, so a run of
+entries takes one keystroke each, and
+.Ic u
+clears either marker.
+The mark and the flag are distinct, as in Emacs:
+.Ic x
+acts on the
+.Sq D
+flags only, after a single
+.Dq Delete N flagged entries? (y/n)
+confirmation.
+Deletion is never recursive and never follows a symbolic link:
+directories go through
+.Xr rmdir 2 ,
+so a non-empty one fails and says so, and everything else through
+.Xr unlink 2 .
+A failure does not stop the rest; the count that failed is reported
+with the first error seen, and the listing is re-read afterwards.
+.Pp
+Marks are the buffer's own text rather than editor state, so they take
+no undo record, never make the buffer modified, and are dropped by
+.Ic g
+along with the listing that carried them.
+In this version the
+.Sq *
+mark is inert: the commands that would consume it (copy, rename,
+deleting the marked entries) are not implemented yet, and only the
+.Sq D
+flag has an action.
+Copy, rename, mkdir and unmark-all are missing for the same reason,
+along with
+.Xr ls 1 Ns -style
+size and permission columns.
+.Pp
+Every listing key is an
+.Ic M-x
+command as well:
+.Ic M-x dired , dired-find-file , dired-up-directory , dired-revert ,
+.Ic dired-mark , dired-flag-file-deletion , dired-unmark
+and
+.Ic dired-do-flagged-delete ;
+all but the first refuse politely outside a listing.
+The listing keys are built in rather than Lisp bindings, since user
+bindings are
+.Ic C-c
+sequences by design, so nothing can shadow them and the mode is
+identical in a
+.Li WITH_LISP=0
+build.
 .Ss YAML Mode
 Files ending in
 .Pa .yaml

@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "localvars.h"
 
 static void dired_highlight(erow *row);
 
@@ -214,7 +215,9 @@ static int dired_read(const char *dir, struct dired_entry **out)
 		n++;
 	}
 	closedir(d);
-	qsort(ents, (size_t)n, sizeof(*ents), dired_entry_cmp);
+	if (n > 0) {
+		qsort(ents, (size_t)n, sizeof(*ents), dired_entry_cmp);
+	}
 	*out = ents;
 	return n;
 fail:
@@ -239,7 +242,7 @@ static void dired_populate(void)
 {
 	char dir[PATH_MAX];
 	char line[PATH_MAX + 8];
-	int i;
+	int i, len;
 
 	/* Attached before any row exists, because editor_insert_row()
 	 * highlights each row as it is appended and both callers of this
@@ -252,13 +255,13 @@ static void dired_populate(void)
 		 * the wrong directory. */
 		return;
 	}
-	dired_add_row(
-	    line, snprintf(line, sizeof(line), DIRED_GUTTER "%s:", dir));
+	len = snprintf(line, sizeof(line), DIRED_GUTTER "%s:", dir);
+	dired_add_row(line, len);
 
 	for (i = 0; i < dired_list_count; i++) {
-		dired_add_row(line,
-		    snprintf(line, sizeof(line), DIRED_GUTTER "%s%s",
-			dired_list[i].name, dired_list[i].is_dir ? "/" : ""));
+		len = snprintf(line, sizeof(line), DIRED_GUTTER "%s%s",
+		    dired_list[i].name, dired_list[i].is_dir ? "/" : "");
+		dired_add_row(line, len);
 	}
 }
 

@@ -91,4 +91,6 @@ const char *kg_help_lines[]
 	      "C-k kill",
 	      "  Git rebase: C-c C-p/r/e/s/f/d set action · M-p/M-n move "
 	      "line · C-c C-c go",
+	      "  Dired: RET open · ^ up · m mark · d flag · u unmark · x "
+	      "delete · g revert",
 	      NULL };

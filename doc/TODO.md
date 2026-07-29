@@ -217,6 +217,21 @@ ordered by value vs implementation effort.
         without the run trampoline; Fe plan phase 8 (per-context custom
         types) remains deferred
 
+- [ ] **Dired follow-ups**: dired mode shipped as a C mode (`src/dired.c`,
+      see [dired-mode-c-core.md](file:///work/.meta-docs/plans/dired-mode-c-core.md))
+      with listing, `RET`/`^`/`g`/`n`/`p`, the `*`/`D` markers and `x`
+      delete-flagged.  Deliberately left out of that first version:
+      - `C` copy and `R` rename the entry (or the marked entries) at point
+      - `+` mkdir in the listed directory
+      - `U` unmark all, and capital `D` (`dired-do-delete`) acting on the
+        `*` marks, which are inert until something consumes them
+      - mark-preserving revert: `g` rebuilds the buffer and the markers are
+        buffer text, so they are dropped today
+      - `ls -l`-style detail columns (size, mode, mtime) and the sort
+        toggles that go with them
+      Recursive deletion stays out on purpose: `rmdir` failing on a
+      non-empty directory is the safety property, not a limitation.
+
 ## Important (DONE)
 
 - [x] Refactor code to Linux style, variable decl. at top of context sorted

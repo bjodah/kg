@@ -62,6 +62,11 @@ standard VT100 escape sequences.
   `C-c C-p/C-r/C-e/C-s/C-f/C-d` set pick/reword/edit/squash/fixup/drop
   on the current line, `M-p`/`M-n` move it up/down, `C-c C-c` continues
   the rebase and `C-c C-k` aborts it
+- Dired mode: `M-x dired`, `C-x d`, or opening a directory (`C-x C-f`,
+  or `kg somedir`) lists it in a read-only buffer; `RET` visits the
+  entry at point, `^` goes up, `g` re-reads, `n`/`p` move, `m` marks
+  with `*`, `d` flags with `D`, `u` clears either, and `x` deletes the
+  flagged entries after one confirmation (never recursively)
 - YAML mode: `.yaml`/`.yml` files highlight keys, comments, quoted and
   block scalars (`|`/`>`), booleans/null, numbers, and structural
   markers; `M-x yaml-mode` enables it manually

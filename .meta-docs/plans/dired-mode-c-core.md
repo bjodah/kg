@@ -12,6 +12,21 @@
 > `src/dired.c`), scc ratchet roughly +170–240, six phases that each
 > leave `make check` green.  Roughly 1.5–2x the git-rebase-todo mode.
 
+## Implementation status
+
+Phases 1–6 shipped; the plan is history now, kept for the design rationale.
+
+- Phase 1 (listing and entry): `0a03fc1`
+- Phases 2–3 (navigation, marks, flagged deletion): `d6eaf22`
+- Phases 4–5 (`C-x C-f` on a directory, highlighting): `88d6ccd`
+- Phase 6 (docs, help, `SCC_COMPLEXITY_MAX` 4116 → 4260): this change
+
+Two details differ from the sketch below: the buffer name carries no
+trailing slash (`*Dired: /abs/path*`, since it is a `realpath()`), and the
+`x` confirmation was factored into `editor_confirm_yn()`, which the git
+commit and rebase aborts now share.  The v1 scope cuts are recorded as
+follow-ups in `doc/TODO.md`.
+
 ## What you are building
 
 `M-x dired` (and `C-x d`, and `C-x C-f` on a directory) opens a

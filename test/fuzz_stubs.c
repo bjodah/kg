@@ -122,6 +122,8 @@ void buf_select_interactive(int fd) { (void)fd; }
 void buf_kill(int fd) { (void)fd; }
 void buf_open_list(void) { }
 void buf_ibuffer_select(void) { }
+/* The fuzzer links kbd.c without dired.c: never in a listing. */
+int syntax_is_dired(void) { return 0; }
 void buf_open_help(void) { }
 int autorevert_poll(void) { return 0; }
 void buf_display_name(int idx, char *out, size_t outsize)

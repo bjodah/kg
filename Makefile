@@ -137,9 +137,10 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-# Ratcheted 4025 -> 4116 for the git-rebase-todo mode (highlighter,
-# action keys, line moving); kept snug so the next growth gets reviewed too.
-SCC_COMPLEXITY_MAX ?= 4116
+# Ratcheted 4116 -> 4260 for dired mode (src/dired.c: directory listing,
+# navigation, marks and flagged deletion); kept snug so the next growth
+# gets reviewed too.
+SCC_COMPLEXITY_MAX ?= 4260
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

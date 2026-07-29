@@ -1,0 +1,35 @@
+# x deletes every D-flagged entry after one y/n confirmation and then
+# re-reads the listing, so the listing on screen afterwards is what is
+# really on disk: the two flagged files are gone from it, the third is
+# not, and the entry count agrees.
+#
+# The prompt answer names the surviving file, so the names asserted
+# absent were never typed into the minibuffer either.
+name: dired-flagged-delete
+filename: notes.txt
+backend: tmux
+config_files:
+  alpha.txt: one
+  beta.txt: two
+  gamma.txt: three
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/gamma.txt"
+  - RET
+  - n
+  - d
+  - d
+  - x
+  - "y"
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "  gamma.txt"
+  - "Deleted 2"
+expected_screen_not_contains:
+  - "alpha.txt"
+  - "beta.txt"

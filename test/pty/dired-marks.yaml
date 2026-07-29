@@ -1,0 +1,35 @@
+# m writes a '*' mark and d a 'D' deletion flag into column 0, then each
+# steps down a line so a run of entries is marked with one key per entry.
+# Marks are buffer text but not an edit: the buffer stays clean, so the
+# trailing C-x C-c quits without a "Modified buffer" question.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-marks
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  sub/keep.txt: kept
+  with space.txt: spaced
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - m
+  - d
+  - m
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "* a.txt"
+  - "D sub/"
+  - "* with space.txt"
+expected_screen_not_contains:
+  - "Modified buffer"
+  - "Buffer is read-only"

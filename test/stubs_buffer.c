@@ -43,6 +43,16 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
 	return 0;
 }
 
+/* Reached from dired.o (test_dired), which links no terminal or cursor
+ * code: its unit tests exercise the pure row/name parsers only. */
+void editor_move_cursor(int key) { (void)key; }
+int editor_confirm_yn(int fd, const char *prompt)
+{
+	(void)fd;
+	(void)prompt;
+	return 0;
+}
+
 void win_save_active_view(void) { }
 
 void local_settings_init(struct local_settings *settings) { (void)settings; }

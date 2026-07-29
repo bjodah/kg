@@ -1,0 +1,30 @@
+# Directories are removed with rmdir(), never recursively, so a flagged
+# non-empty directory fails loudly: the failure count and errno are
+# reported and the directory is still listed after the revert.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-flagged-delete-failure
+filename: notes.txt
+backend: tmux
+config_files:
+  keep/inside.txt: kept
+  solo.txt: alone
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/solo.txt"
+  - RET
+  - n
+  - d
+  - x
+  - "y"
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "  keep/"
+  - "  solo.txt"
+  - "Deleted 0, failed 1 (first: Directory not empty)"

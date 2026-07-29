@@ -1,0 +1,33 @@
+# RET on a directory descends into it; RET on a file visits it in an
+# ordinary buffer.  Both are covered here: n moves to "sub/", RET lists
+# it, n moves to the one entry inside, RET opens it and its text shows.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-find-file
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  sub/keep.txt: kept
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - n
+  - RET
+  - n
+  - RET
+# The visited file is untouched, so quitting neither prompts nor saves.
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "keep.txt"
+  - "kept"
+expected_screen_not_contains:
+  - "(Dired RO)"

@@ -1,0 +1,35 @@
+# u clears either marker, the '*' of m and the 'D' of d, and n/p move by
+# line so point can be walked back over what was just marked.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-unmark
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  sub/keep.txt: kept
+  z.txt: zulu
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - m
+  - d
+  - p
+  - p
+  - u
+  - u
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "  a.txt"
+  - "  sub/"
+expected_screen_not_contains:
+  - "* a.txt"
+  - "D sub/"

@@ -520,6 +520,7 @@ void buf_load_args(int nfiles, char **filenames, int readonly);
 void buf_select_interactive(int fd);
 void buf_open_file(int fd);
 void buf_open_file_read_only(int fd);
+void buf_open_path(const char *path, int readonly);
 void buf_kill(int fd);
 void buf_save_all(int fd);
 void buf_open_list(void);
@@ -782,6 +783,7 @@ int file_state_differs(const char *path, time_t mtime, off_t size);
 
 /* kbd.c */
 void editor_process_keypress(int fd);
+[[nodiscard]] int editor_confirm_yn(int fd, const char *prompt);
 
 /* cmd.c */
 void editor_named_command(int fd);
@@ -869,6 +871,12 @@ int syntax_git_rebase_flags_end(const char *line, int len, int from);
 [[nodiscard]] int syntax_is_dired(void);
 int dired_open(const char *dir);
 int dired_dir_of(const char *bufname, char *out, int size);
+int dired_row_name(const char *line, int len, char *out, int size);
+void dired_find_file(void);
+void dired_up_directory(void);
+void dired_revert(void);
+void dired_set_mark(char mark);
+void dired_do_flagged_delete(int fd);
 
 /* tty.c */
 void disable_raw_mode(int fd);

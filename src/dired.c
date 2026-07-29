@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "def.h"
 
@@ -26,6 +27,7 @@ static struct editor_syntax dired_syntax
  * start at column 2 and commands parse the gutter positionally, so a
  * filename that is itself "D" or starts with '/' cannot be misread. */
 #define DIRED_GUTTER "  "
+#define DIRED_GUTTER_LEN ((int)sizeof(DIRED_GUTTER) - 1)
 
 struct dired_entry {
 	char *name;
@@ -63,6 +65,32 @@ int dired_dir_of(const char *bufname, char *out, int size)
 	}
 	memcpy(out, bufname, (size_t)len);
 	out[len] = '\0';
+	return 0;
+}
+
+/* Copy the entry name a listing row carries into `out`.  Returns 0, or -1
+ * when the row carries none: too short to hold a name, blank, or longer
+ * than `out`.  Parsing is positional — everything past the gutter is the
+ * name, minus the single '/' dired_populate appends to directories — so
+ * names containing spaces or slashes survive intact.  The header row has
+ * a name-shaped tail of its own, so callers refuse row 0 by index. */
+int dired_row_name(const char *line, int len, char *out, int size)
+{
+	int n;
+
+	if (!line || len <= DIRED_GUTTER_LEN) {
+		return -1;
+	}
+	line += DIRED_GUTTER_LEN;
+	n = len - DIRED_GUTTER_LEN;
+	if (line[n - 1] == '/') {
+		n--;
+	}
+	if (n <= 0 || n >= size) {
+		return -1;
+	}
+	memcpy(out, line, (size_t)n);
+	out[n] = '\0';
 	return 0;
 }
 
@@ -231,4 +259,237 @@ int dired_open(const char *dir)
 	/* buf_open_special() attaches the syntax last, so this also reports
 	 * the buffer-table failures it declines with a message of its own. */
 	return syntax_is_dired() ? 0 : 1;
+}
+
+/* Every dired command is reachable from M-x in any buffer, so each one
+ * starts here.  Returns 1 when the current buffer is a listing. */
+static int dired_active(void)
+{
+	if (!syntax_is_dired()) {
+		editor_set_status_message("Not a dired buffer");
+		return 0;
+	}
+	return 1;
+}
+
+/* Directory of the current listing, or -1 after posting a message.
+ * Unreachable in practice: dired_open() built the name this reads back,
+ * and it refuses a name it cannot round-trip. */
+static int dired_current_dir(char *out, int size)
+{
+	if (dired_dir_of(editor.filename, out, size) != 0) {
+		editor_set_status_message(
+		    "Dired: no directory for this buffer");
+		return -1;
+	}
+	return 0;
+}
+
+/* Row point is on, or -1 when that row carries no entry: row 0 is the
+ * header, and dired_populate() can leave a buffer with no rows at all. */
+static int dired_entry_row(void)
+{
+	int filerow = editor_current_filerow_or_eof();
+
+	if (editor.numrows <= 0 || filerow <= 0 || filerow >= editor.numrows) {
+		return -1;
+	}
+	return filerow;
+}
+
+/* Entry name at point joined onto the listing's directory.  Returns 0, or
+ * -1 after posting a message. */
+static int dired_path_at_point(char *out, int size)
+{
+	char dir[PATH_MAX];
+	char name[PATH_MAX];
+	int filerow = dired_entry_row();
+
+	if (filerow < 0
+	    || dired_row_name(editor.row[filerow].chars,
+		   editor.row[filerow].size, name, sizeof(name))
+		!= 0) {
+		editor_set_status_message("No file on this line");
+		return -1;
+	}
+	if (dired_current_dir(dir, sizeof(dir)) != 0) {
+		return -1;
+	}
+	if (dired_join(dir, name, out, size) != 0) {
+		editor_set_status_message("Dired: %s: path too long", name);
+		return -1;
+	}
+	return 0;
+}
+
+/* Visit the entry at point: a directory is listed, anything else is
+ * opened as a buffer.  A stat() failure (an entry removed behind kg's
+ * back, a broken symlink) falls through to the file path so the normal
+ * open error names it. */
+void dired_find_file(void)
+{
+	char path[PATH_MAX];
+	struct stat st;
+
+	if (!dired_active() || dired_path_at_point(path, sizeof(path)) != 0) {
+		return;
+	}
+	if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+		(void)dired_open(path);
+		return;
+	}
+	buf_open_path(path, 0);
+}
+
+/* List the parent directory.  The path is a realpath(), so truncating at
+ * the last '/' is the parent; the parent of "/" is "/". */
+void dired_up_directory(void)
+{
+	char dir[PATH_MAX];
+	char *slash;
+
+	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	slash = strrchr(dir, '/');
+	if (!slash) {
+		editor_set_status_message("Dired: %s has no parent", dir);
+		return;
+	}
+	slash[slash == dir ? 1 : 0] = '\0';
+	(void)dired_open(dir);
+}
+
+/* Re-read the current directory.  Marks and flags are buffer text, so a
+ * revert drops them; that is deliberate, as in Emacs' non-preserving
+ * `g` before dired learned to remember them. */
+void dired_revert(void)
+{
+	char dir[PATH_MAX];
+
+	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	(void)dired_open(dir);
+}
+
+/* Write `mark` into column 0 of the row at point, then step down the way
+ * Emacs' m/d/u do so a run of entries marks with one key per line.  The
+ * gutter is view state rather than an edit: the row is mutated in place
+ * with no undo record (buf_open_special() reset undo when the listing was
+ * built) and editor.dirty is deliberately left alone, so quitting a
+ * marked-up listing never prompts. */
+void dired_set_mark(char mark)
+{
+	erow *row;
+	int filerow;
+
+	if (!dired_active()) {
+		return;
+	}
+	filerow = dired_entry_row();
+	if (filerow < 0 || editor.row[filerow].size <= DIRED_GUTTER_LEN) {
+		editor_set_status_message("No file on this line");
+		return;
+	}
+	row = &editor.row[filerow];
+	row->chars[0] = mark;
+	editor_update_row(row);
+	editor_move_cursor(ARROW_DOWN);
+}
+
+static int dired_flagged_count(void)
+{
+	int i, n = 0;
+
+	for (i = 1; i < editor.numrows; i++) {
+		if (editor.row[i].size > 0 && editor.row[i].chars[0] == 'D') {
+			n++;
+		}
+	}
+	return n;
+}
+
+/* Remove one entry.  lstat(), not stat(): a symlink is unlinked rather
+ * than followed, and rmdir() refuses a non-empty directory, which is how
+ * dired stays non-recursive. */
+static int dired_remove(const char *path)
+{
+	struct stat st;
+
+	if (lstat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+		return rmdir(path);
+	}
+	return unlink(path);
+}
+
+/* Delete every flagged entry in `dir`, continuing past failures so one
+ * unreadable entry does not strand the rest.  Returns the number deleted
+ * and reports how many failed, with the first errno seen. */
+static int dired_delete_flagged(const char *dir, int *failed, int *first_err)
+{
+	char name[PATH_MAX];
+	char path[PATH_MAX];
+	int i, done = 0;
+
+	*failed = 0;
+	*first_err = 0;
+	for (i = 1; i < editor.numrows; i++) {
+		erow *row = &editor.row[i];
+		int err = 0;
+
+		if (row->size <= 0 || row->chars[0] != 'D') {
+			continue;
+		}
+		if (dired_row_name(row->chars, row->size, name, sizeof(name))
+			!= 0
+		    || dired_join(dir, name, path, sizeof(path)) != 0) {
+			err = ENAMETOOLONG;
+		} else if (dired_remove(path) != 0) {
+			err = errno;
+		}
+		if (err) {
+			(*failed)++;
+			if (!*first_err) {
+				*first_err = err;
+			}
+		} else {
+			done++;
+		}
+	}
+	return done;
+}
+
+/* Delete the D-flagged entries after one confirmation, then re-read the
+ * listing — which drops any flags that survived, since flags are text. */
+void dired_do_flagged_delete(int fd)
+{
+	char dir[PATH_MAX];
+	char msg[128];
+	int flagged, done, failed, first_err;
+
+	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	flagged = dired_flagged_count();
+	if (flagged == 0) {
+		editor_set_status_message("No files flagged for deletion");
+		return;
+	}
+	snprintf(msg, sizeof(msg), "Delete %d flagged %s? (y/n) ", flagged,
+	    flagged == 1 ? "entry" : "entries");
+	if (!editor_confirm_yn(fd, msg)) {
+		editor_set_status_message("Deletion cancelled");
+		return;
+	}
+	done = dired_delete_flagged(dir, &failed, &first_err);
+	if (failed) {
+		snprintf(msg, sizeof(msg), "Deleted %d, failed %d (first: %s)",
+		    done, failed, strerror(first_err));
+	} else {
+		snprintf(msg, sizeof(msg), "Deleted %d", done);
+	}
+	/* After the revert: dired_open() posts an entry count of its own. */
+	(void)dired_open(dir);
+	editor_set_status_message("%s", msg);
 }

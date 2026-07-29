@@ -700,6 +700,46 @@ static void cmd_dired(int fd)
 	(void)dired_open(path);
 }
 
+/* Dired commands; the bare keys in a listing run the same functions
+ * (see kbd.c).  Each one self-guards on the dired syntax pointer, so
+ * M-x reaching them from any other buffer is harmless. */
+static void cmd_dired_find_file(int fd)
+{
+	(void)fd;
+	dired_find_file();
+}
+
+static void cmd_dired_up_directory(int fd)
+{
+	(void)fd;
+	dired_up_directory();
+}
+
+static void cmd_dired_revert(int fd)
+{
+	(void)fd;
+	dired_revert();
+}
+
+static void cmd_dired_mark(int fd)
+{
+	(void)fd;
+	dired_set_mark('*');
+}
+
+static void cmd_dired_flag_file_deletion(int fd)
+{
+	(void)fd;
+	dired_set_mark('D');
+}
+
+/* One space clears either marker: Emacs' u undoes both m and d. */
+static void cmd_dired_unmark(int fd)
+{
+	(void)fd;
+	dired_set_mark(' ');
+}
+
 /* Manually enable YAML syntax highlighting, e.g. for an extensionless
  * file. ".yaml"/".yml" files select it automatically. */
 static void cmd_yaml_mode(int fd)
@@ -736,6 +776,13 @@ static const struct named_cmd cmdtable[] = {
 	 * exactly the flag that refuses a command in a read-only buffer;
 	 * dired's commands guard themselves on the syntax pointer instead. */
 	{ "dired", cmd_dired, CMD_NONE },
+	{ "dired-do-flagged-delete", dired_do_flagged_delete, CMD_NONE },
+	{ "dired-find-file", cmd_dired_find_file, CMD_NONE },
+	{ "dired-flag-file-deletion", cmd_dired_flag_file_deletion, CMD_NONE },
+	{ "dired-mark", cmd_dired_mark, CMD_NONE },
+	{ "dired-revert", cmd_dired_revert, CMD_NONE },
+	{ "dired-unmark", cmd_dired_unmark, CMD_NONE },
+	{ "dired-up-directory", cmd_dired_up_directory, CMD_NONE },
 	{ "downcase-word", cmd_downcase_word, CMD_EDITS_BUFFER },
 	{ "electric-pair-mode", cmd_electric_pair_mode, CMD_NONE },
 	{ "eval-buffer", cmd_eval_buffer, CMD_NONE },

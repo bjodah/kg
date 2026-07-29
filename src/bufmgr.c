@@ -1413,25 +1413,18 @@ void buf_select_interactive(int fd)
 	}
 }
 
-/* Open a file in a new buffer, prompting for the filename.  If the file is
- * already open in an existing buffer, switch to it instead.
+/* Open `path` in a new buffer, or switch to the buffer already visiting
+ * it.  This is C-x C-f minus the prompt, so anything that names a file
+ * some other way (dired's RET) lands in exactly the same state.
  * readonly: if 1, mark the buffer read-only after loading. */
-static void buf_open_file_ro(int fd, int readonly)
+void buf_open_path(const char *path, int readonly)
 {
-	char query[256];
 	int i, slot;
-	const char *prompt = readonly ? "Open file read-only: " : "Open file: ";
-
-	editor_prompt_prefill_dir(query, sizeof(query));
-	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0
-	    || query[0] == '\0') {
-		return;
-	}
 
 	/* Switch to existing buffer if the file is already open. */
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (buflist[i].active && buflist[i].filename
-		    && strcmp(buflist[i].filename, query) == 0) {
+		    && strcmp(buflist[i].filename, path) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);
 			if (readonly) {
@@ -1463,13 +1456,27 @@ static void buf_open_file_ro(int fd, int readonly)
 	}
 
 	buf_save_current_state();
-	buf_visit_file(query, readonly);
+	buf_visit_file(path, readonly);
 	buf_save_to_slot(slot);
 	buf_restore_from_slot(slot);
 	buf_count++;
 	editor_set_status_message("%s%s",
 	    editor.filename ? editor.filename : "[new]",
 	    readonly ? " [read-only]" : "");
+}
+
+/* Prompt for a filename and open it (C-x C-f, C-x C-r). */
+static void buf_open_file_ro(int fd, int readonly)
+{
+	char query[256];
+	const char *prompt = readonly ? "Open file read-only: " : "Open file: ";
+
+	editor_prompt_prefill_dir(query, sizeof(query));
+	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0
+	    || query[0] == '\0') {
+		return;
+	}
+	buf_open_path(query, readonly);
 }
 
 void buf_open_file(int fd) { buf_open_file_ro(fd, 0); }

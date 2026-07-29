@@ -1,0 +1,33 @@
+# ^ lists the parent of the directory at hand, so RET into "sub/" and ^
+# compose back to the listing that was on screen before.  Paths are
+# realpath()ed at open time, so no ".." accumulates in the buffer name.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-up-directory
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  sub/keep.txt: kept
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - n
+  - RET
+  - "^"
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "  a.txt"
+  - "  sub/"
+  - "2 entries"
+expected_screen_not_contains:
+  - "keep.txt"

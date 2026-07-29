@@ -59,6 +59,61 @@ static void test_refuses_to_truncate(void)
 	CHECK(strcmp(out, "/a/bcde") == 0);
 }
 
+/* The row parser is positional: everything past the two-column gutter is
+ * the name, so a mark in column 0 changes nothing about what is read. */
+static void test_reads_the_name_past_the_gutter(void)
+{
+	char out[64];
+
+	CHECK(dired_row_name("  a.txt", 7, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "a.txt") == 0);
+	CHECK(dired_row_name("* a.txt", 7, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "a.txt") == 0);
+	CHECK(dired_row_name("D a.txt", 7, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "a.txt") == 0);
+}
+
+/* Directories are listed with a '/' suffix that is not part of the name;
+ * only that one trailing slash is dropped. */
+static void test_drops_one_directory_suffix(void)
+{
+	char out[64];
+
+	CHECK(dired_row_name("  sub/", 6, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "sub") == 0);
+	CHECK(dired_row_name("  sub//", 7, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "sub/") == 0);
+}
+
+/* No shell is involved, so spaces and a name that looks like a flag or a
+ * path are ordinary names. */
+static void test_keeps_awkward_names_whole(void)
+{
+	char out[64];
+
+	CHECK(dired_row_name("  with space.txt", 16, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "with space.txt") == 0);
+	CHECK(dired_row_name("  D", 3, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "D") == 0);
+	CHECK(dired_row_name("  -rf", 5, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "-rf") == 0);
+}
+
+/* Rows that carry no name at all, and a name that would not fit, are
+ * refused rather than guessed at. */
+static void test_rejects_rows_without_a_name(void)
+{
+	char out[8];
+
+	CHECK(dired_row_name(NULL, 7, out, sizeof(out)) == -1);
+	CHECK(dired_row_name("", 0, out, sizeof(out)) == -1);
+	CHECK(dired_row_name("  ", 2, out, sizeof(out)) == -1);
+	CHECK(dired_row_name("  /", 3, out, sizeof(out)) == -1);
+	CHECK(dired_row_name("  abcdefgh", 10, out, sizeof(out)) == -1);
+	CHECK(dired_row_name("  abcdefg", 9, out, sizeof(out)) == 0);
+	CHECK(strcmp(out, "abcdefg") == 0);
+}
+
 int main(void)
 {
 	RUN(test_round_trips_an_absolute_path);
@@ -66,5 +121,9 @@ int main(void)
 	RUN(test_keeps_a_star_inside_the_path);
 	RUN(test_rejects_other_buffer_names);
 	RUN(test_refuses_to_truncate);
+	RUN(test_reads_the_name_past_the_gutter);
+	RUN(test_drops_one_directory_suffix);
+	RUN(test_keeps_awkward_names_whole);
+	RUN(test_rejects_rows_without_a_name);
 	return test_summary();
 }

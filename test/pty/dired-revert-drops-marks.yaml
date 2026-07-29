@@ -1,0 +1,32 @@
+# g re-reads the directory.  Marks are buffer text, so rebuilding the
+# rows drops them; that is deliberate and documented.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-revert-drops-marks
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  b.txt: bravo
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - m
+  - m
+  - g
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "  a.txt"
+  - "  b.txt"
+  - "2 entries"
+expected_screen_not_contains:
+  - "* a.txt"
+  - "* b.txt"

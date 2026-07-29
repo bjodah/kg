@@ -228,16 +228,25 @@ static void editor_server_done(int fd)
 	running = 0;
 }
 
-/* Abort a git commit or rebase (C-c C-k): quit without saving and with
- * a non-zero exit status so git discards the message / todo list. */
-static void editor_git_abort(int fd, const char *prompt)
+/* Ask `prompt` in the echo area and read one key.  Returns 1 only for a
+ * literal yes; anything else, C-g included, is a no.  The screen is
+ * refreshed first because the question has to be visible before the key
+ * that answers it is read. */
+int editor_confirm_yn(int fd, const char *prompt)
 {
 	int answer;
 
 	editor_set_status_message("%s", prompt);
 	editor_refresh_screen();
 	answer = editor_read_key(fd);
-	if (answer != 'y' && answer != 'Y') {
+	return answer == 'y' || answer == 'Y';
+}
+
+/* Abort a git commit or rebase (C-c C-k): quit without saving and with
+ * a non-zero exit status so git discards the message / todo list. */
+static void editor_git_abort(int fd, const char *prompt)
+{
+	if (!editor_confirm_yn(fd, prompt)) {
 		editor_set_status_message("");
 		return;
 	}
@@ -310,6 +319,44 @@ static void handle_cc_prefix_key(int c, int fd)
 	} else {
 		handle_user_binding(c, fd);
 	}
+}
+
+/* Bare keys in a directory listing.  User Lisp bindings are C-c-only by
+ * design, so dired's Emacs keys are built in, like the commit and rebase
+ * C-c keys; each one runs the command M-x would. */
+static const struct {
+	int key;
+	const char *cmd;
+} dired_keys[] = {
+	{ ENTER, "dired-find-file" },
+	{ '^', "dired-up-directory" },
+	{ 'g', "dired-revert" },
+	{ 'm', "dired-mark" },
+	{ 'd', "dired-flag-file-deletion" },
+	{ 'u', "dired-unmark" },
+	{ 'x', "dired-do-flagged-delete" },
+};
+
+/* Handle `c` as a dired key.  Returns 1 when it was one, so the caller
+ * stops before the read-only buffer's other bare keys. */
+static int handle_dired_key(int c, int fd)
+{
+	size_t i;
+
+	if (!syntax_is_dired()) {
+		return 0;
+	}
+	if (c == 'n' || c == 'p') {
+		editor_move_cursor(c == 'n' ? ARROW_DOWN : ARROW_UP);
+		return 1;
+	}
+	for (i = 0; i < sizeof(dired_keys) / sizeof(dired_keys[0]); i++) {
+		if (dired_keys[i].key == c) {
+			(void)cmd_execute_named(dired_keys[i].cmd, fd);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* Process events arriving from the standard input, which is, the user
@@ -523,6 +570,12 @@ void editor_process_keypress(int fd)
 
 	/* Read-only mode: Enter opens the item at point; editing is blocked. */
 	if (editor.readonly) {
+		/* Dired's bare keys come first: dired and the buffer list are
+		 * mutually exclusive by syntax pointer, so the ENTER below is
+		 * ibuffer's only when this declines the key. */
+		if (handle_dired_key(c, fd)) {
+			return;
+		}
 		if (c == ENTER) {
 			buf_ibuffer_select();
 			return;

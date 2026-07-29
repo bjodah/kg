@@ -1,0 +1,30 @@
+# Row 0 names the directory rather than an entry: RET on it opens
+# nothing and m marks nothing, both refusing with a message instead of
+# writing a gutter mark over the header.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-header-row
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - RET
+  - m
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "No file on this line"
+  - "  a.txt"
+expected_screen_not_contains:
+  - "* /"
+  - "alpha"

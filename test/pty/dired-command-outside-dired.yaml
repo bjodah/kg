@@ -1,0 +1,17 @@
+# Every dired command is an ordinary named command, so M-x reaches them
+# from any buffer.  Each one self-guards on the syntax pointer instead of
+# on CMD_EDITS_BUFFER (a listing is read-only by design), so running one
+# in a normal buffer says so and changes nothing.
+name: dired-command-outside-dired
+filename: notes.txt
+backend: tmux
+initial: |
+  notes
+keys:
+  - M-x
+  - dired-mark
+  - RET
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "Not a dired buffer"

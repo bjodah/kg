@@ -1,0 +1,30 @@
+# With nothing flagged, x says so and asks nothing: no confirmation
+# prompt is posted, so no stray key is waiting to be read as an answer.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: dired-flagged-delete-none
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  b.txt: bravo
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/a.txt"
+  - RET
+  - n
+  - m
+  - x
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "No files flagged for deletion"
+  - "* a.txt"
+  - "  b.txt"
+expected_screen_not_contains:
+  - "(y/n)"

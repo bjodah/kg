@@ -1,5 +1,12 @@
 # W7-A Implementation Plan — Dired mode
 
+> **SUPERSEDED (2026-07-29)** by
+> [dired-mode-c-core.md](file:///work/.meta-docs/plans/dired-mode-c-core.md).
+> This draft predates the kg- prefix removal, the Emacs-shaped Lisp API
+> rework, and the C-built-in precedent set by the git commit and git
+> rebase modes; its primitive names and detection pattern are stale.
+> Kept for the bare-key analysis, which still holds.
+
 > Target audience: a junior developer new to this codebase, ideally one who
 > has already read
 > [w7b-git-commit-mode.md](file:///work/.meta-docs/plans/w7b-git-commit-mode.md)

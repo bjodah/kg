@@ -149,8 +149,10 @@ static void check_spans_in_bounds(const struct kg_match *m, const char *text)
 
 static void test_span_never_overshoots(void)
 {
-	/* The engine reports [0,3) and [0,5) here, past the end of a
-	 * 2- and 3-byte subject; the wrapper must not pass that on. */
+	/* The engine used to report [0,3) and [0,5) here, past the end of
+	 * a 2- and 3-byte subject.  It no longer does (see
+	 * test_overshoot_repros_now_exact), but the wrapper must keep
+	 * refusing such a span whatever the engine says. */
 	static const char *const cases[][2] = {
 		{ "a*.c+", "ac" },
 		{ "\\(.*.a\\{2\\}\\)", "baa" },
@@ -173,6 +175,106 @@ static void test_span_never_overshoots(void)
 			check_spans_in_bounds(&match, text);
 		}
 	}
+}
+
+/* The engine used to report a match ending past the end of the subject,
+ * so the wrapper's clamp was the only thing keeping those spans out of
+ * the buffer.  These are the two reported repros; the spans below are
+ * GNU Emacs'. */
+static void test_overshoot_repros_now_exact(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "a*.c+", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ac", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 1);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	check_spans_in_bounds(&match, "ac");
+
+	CHECK(kg_regex_compile(&rx, "\\(.*.a\\{2\\}\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "baa", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 3);
+	check_spans_in_bounds(&match, "baa");
+}
+
+/* "\\|" separates whole alternatives, not just the atom before it. */
+static void test_alternation_binds_concatenations(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "foo\\|bar", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "bar", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+
+	CHECK(kg_regex_compile(&rx, "ab\\|cd", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "cd", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	CHECK(kg_regex_match_forward(&rx, "ac", 0, &match) == KG_REGEX_NOMATCH);
+
+	/* the dangerous shape: both engines matched, at different offsets */
+	CHECK(kg_regex_compile(&rx, "za\\|b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "zb", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 2);
+
+	/* a group bounds the alternatives it contains */
+	CHECK(kg_regex_compile(&rx, "x\\(ab\\|cd\\)y", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "xcdy", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 4);
+	CHECK(match.spans[1].start == 1);
+	CHECK(match.spans[1].end == 3);
+}
+
+/* Quantified groups and intervals give consumed input back so that what
+ * follows them can match. */
+static void test_groups_and_intervals_backtrack(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	/* the canonical query-replace-regexp field swap */
+	CHECK(kg_regex_compile(&rx, "^\\(.*\\),\\(.*\\)$", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a,b", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 3);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 1);
+	CHECK(match.spans[2].start == 2);
+	CHECK(match.spans[2].end == 3);
+
+	CHECK(kg_regex_compile(&rx, ".\\{2,3\\}c", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "abc", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+
+	CHECK(kg_regex_compile(&rx, "\\(a*\\)a", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aa", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 1);
+
+	CHECK(kg_regex_compile(&rx, "\\(a\\{2\\}\\)a", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "aaa", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	CHECK(match.spans[1].start == 0);
+	CHECK(match.spans[1].end == 2);
+	CHECK(kg_regex_match_forward(&rx, "aa", 0, &match) == KG_REGEX_NOMATCH);
 }
 
 static void test_utf8_glyph_boundaries(void)
@@ -217,6 +319,9 @@ int main(void)
 	RUN(test_dot_excludes_newline);
 	RUN(test_interval_after_prefix);
 	RUN(test_span_never_overshoots);
+	RUN(test_overshoot_repros_now_exact);
+	RUN(test_alternation_binds_concatenations);
+	RUN(test_groups_and_intervals_backtrack);
 	RUN(test_utf8_glyph_boundaries);
 	return test_summary();
 }

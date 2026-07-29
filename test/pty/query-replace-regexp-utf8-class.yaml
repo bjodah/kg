@@ -3,8 +3,9 @@
 # the two bytes of the å alone and left the ä behind; glyph snapping in
 # the wrapper could widen that span but never lengthen it to the second
 # character.  Checked against GNU Emacs rather than a hand-written
-# result.  (The pattern is spelled in ASCII on purpose: typing a
-# multi-byte character into the minibuffer is a separate, unrelated gap.)
+# result.  (The pattern is spelled in ASCII on purpose: what is under
+# test is the class, not minibuffer input -- see minibuf-utf8-*.yaml for
+# typed multi-byte patterns.)
 name: query-replace-regexp-utf8-class
 filename: replace_regexp_utf8_class.txt
 backend: pexpect

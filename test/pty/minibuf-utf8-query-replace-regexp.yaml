@@ -1,0 +1,21 @@
+# A typed multi-byte character reaches the now character-aware regex
+# engine intact: "å+" takes both å's as one match, so the whole run is
+# replaced rather than one character (or one byte) of it.
+name: minibuf-utf8-query-replace-regexp
+filename: minibuf_utf8_replace_regexp.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  aååb
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'å+'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  aXb

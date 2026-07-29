@@ -1,0 +1,22 @@
+# Backspace in the minibuffer removes a whole character.  Deleting only
+# the trailing byte of "é" would leave the pattern as "å\xc3", which
+# matches nothing and would save the buffer unchanged.
+name: minibuf-utf8-backspace
+filename: minibuf_utf8_backspace.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace
+  - ENTER
+  - 'åé'
+  - C-?
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  Xbc

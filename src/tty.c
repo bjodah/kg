@@ -482,6 +482,34 @@ int editor_read_key(int fd) { return read_key_common(fd, 0, 1); }
  * itself rather than being interpreted as the start of a meta key. */
 int editor_read_raw_byte(int fd) { return read_key_common(fd, 0, 0); }
 
+/* Collect the UTF-8 sequence a terminal sends for one multi-byte
+ * character: `lead` is the byte already read, the continuation bytes are
+ * read here.  `seq` must hold 4 bytes.  Returns the sequence length, or 0
+ * when `lead` starts nothing (ASCII or a byte no sequence begins with) or
+ * the promised continuation bytes never arrived — callers drop the input
+ * rather than store half a character. */
+int editor_read_utf8_seq(int fd, int lead, char *seq)
+{
+	int need, i;
+
+	if (lead < 0x80 || lead > 0xFF) {
+		return 0; /* ASCII, or one of the >0xFF soft key codes */
+	}
+	need = utf8_lead_extra((unsigned char)lead);
+	if (need == 0) {
+		return 0;
+	}
+	seq[0] = (char)lead;
+	for (i = 1; i <= need; i++) {
+		int b = editor_read_raw_byte(fd);
+		if (!running || !utf8_is_cont((unsigned char)b)) {
+			return 0;
+		}
+		seq[i] = (char)b;
+	}
+	return need + 1;
+}
+
 /* Top-level main-loop variant of editor_read_key: while waiting for the
  * next key, run the auto-revert poll on every 100 ms read timeout so
  * external file changes are noticed without requiring a keystroke.

@@ -376,8 +376,13 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 
 		c = editor_read_key(fd);
 		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+			/* Drop a whole character, so backspacing over a
+			 * multi-byte glyph never leaves half of it in the
+			 * search string. */
 			if (qlen != 0) {
-				query[--qlen] = '\0';
+				qlen = utf8_glyph_start_before(
+				    query, qlen, qlen);
+				query[qlen] = '\0';
 			}
 			last_match_row = -1;
 			last_match_col = -1;
@@ -399,6 +404,20 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		} else if (isprint(c)) {
 			if (qlen < KILO_QUERY_LEN) {
 				query[qlen++] = c;
+				query[qlen] = '\0';
+				last_match_row = -1;
+				last_match_col = -1;
+				find_next = direction;
+			}
+		} else if (c >= 0x80 && c <= 0xFF) {
+			/* Lead byte of a multi-byte character: read the rest
+			 * of the sequence so it joins the query whole. */
+			char seq[4];
+			int n = editor_read_utf8_seq(fd, c, seq);
+
+			if (n > 0 && qlen + n <= KILO_QUERY_LEN) {
+				memcpy(query + qlen, seq, (size_t)n);
+				qlen += n;
 				query[qlen] = '\0';
 				last_match_row = -1;
 				last_match_col = -1;

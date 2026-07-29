@@ -1,0 +1,24 @@
+# C-b in the minibuffer steps over a whole character, so the next typed
+# key lands in front of the "å" and not between its two bytes: the
+# pattern becomes "bcå" and matches.  Byte-wise motion would build
+# "b\xc3c\xa5" instead and match nothing.
+name: minibuf-utf8-cursor-motion
+filename: minibuf_utf8_motion.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  abcåd
+keys:
+  - M-x
+  - query-replace
+  - ENTER
+  - 'bå'
+  - C-b
+  - 'c'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  aXd

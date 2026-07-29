@@ -285,12 +285,23 @@ ordered by value vs implementation effort.
       `Mr.\&` and `e.g.\&`).  Cosmetic; mdoc convention says each
       sentence should begin on its own line.
 
-- [ ] **Multi-byte input in the minibuffer is broken**.  Typing `å`
-      into a `query-replace` prompt mangles the input and subsequent
-      keys self-insert.  Found while writing PTY cases for the regex
-      work, reproduced with plain literal query-replace, so it is a
-      kbd/minibuffer defect, not a regex one.  Until it is fixed,
-      multi-byte search patterns can only arrive via yank or Lisp.
+- [x] **Multi-byte input in the minibuffer is broken**.  Fixed: the
+      prompt reader dropped every byte above ASCII (`isprint()` rejects
+      them), so the search string stayed empty and the following keys
+      fell through to the buffer.  Prompts now pull in the rest of the
+      UTF-8 sequence (`editor_read_utf8_seq`) and insert it whole, and
+      backspace, C-d, C-b/C-f and the echo-area cursor column all work
+      in glyphs and display cells instead of bytes.
+
+- [ ] **Typing a multi-byte character into the buffer still does
+      nothing**.  The sibling of the minibuffer defect above, found
+      while fixing it: `editor_process_keypress`'s self-insert arm
+      accepts only TAB and 32..126, so the two bytes of a typed `å` are
+      dropped before they reach `editor_self_insert_char`.  Multi-byte
+      text still arrives fine by yank, from a file, or from Lisp (and
+      byte-at-a-time through `C-q`).  Fixing it needs a decision about undo granularity
+      (`UNDO_INSERT_CHAR` records one byte) and about how `editor.cx`
+      advances over a glyph, so it was left out of the minibuffer fix.
 
 - [ ] **Regex follow-ups from the Emacs-fidelity work** (see
       `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).

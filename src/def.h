@@ -660,6 +660,23 @@ static inline int tab_stop_advance(int vcol)
 	return KG_TAB_WIDTH - (vcol % KG_TAB_WIDTH);
 }
 
+/* Continuation bytes that must follow the UTF-8 lead byte `lead`, or 0
+ * when `lead` is ASCII, a continuation byte, or one of the values no
+ * well-formed sequence starts with (0xC0/0xC1 and 0xF5-0xFF). */
+static inline int utf8_lead_extra(unsigned char lead)
+{
+	if (lead >= 0xC2 && lead <= 0xDF) {
+		return 1;
+	}
+	if (lead >= 0xE0 && lead <= 0xEF) {
+		return 2;
+	}
+	if (lead >= 0xF0 && lead <= 0xF4) {
+		return 3;
+	}
+	return 0;
+}
+
 /* Byte length of the glyph starting at buf[start], validating the lead byte
  * and every required continuation byte against buf[0..len).  Returns 1 for
  * ASCII, malformed lead bytes, or a start position on a continuation byte,
@@ -675,13 +692,9 @@ static inline int utf8_glyph_span_at(const char *buf, int len, int start)
 	lead = (unsigned char)buf[start];
 	if (lead < 0x80 || utf8_is_cont(lead)) {
 		return 1;
-	} else if (lead >= 0xC2 && lead <= 0xDF) {
-		need = 1;
-	} else if (lead >= 0xE0 && lead <= 0xEF) {
-		need = 2;
-	} else if (lead >= 0xF0 && lead <= 0xF4) {
-		need = 3;
-	} else {
+	}
+	need = utf8_lead_extra(lead);
+	if (need == 0) {
 		return 1;
 	}
 	for (i = 1; i <= need; i++) {
@@ -691,6 +704,27 @@ static inline int utf8_glyph_span_at(const char *buf, int len, int start)
 		}
 	}
 	return need + 1;
+}
+
+/* Byte offset where the glyph ending at `pos` begins, i.e. how far back a
+ * backspace at `pos` has to reach to remove one whole character.  Falls
+ * back to `pos - 1` when the bytes before `pos` are not a well-formed
+ * sequence, so a corrupt byte can always be deleted. */
+static inline int utf8_glyph_start_before(const char *buf, int len, int pos)
+{
+	int start;
+
+	if (pos <= 0) {
+		return 0;
+	}
+	start = pos - 1;
+	while (start > 0 && utf8_is_cont((unsigned char)buf[start])) {
+		start--;
+	}
+	if (utf8_glyph_span_at(buf, len, start) != pos - start) {
+		return pos - 1;
+	}
+	return start;
 }
 
 /* Return the basename of a filename (part after last '/'), or the whole
@@ -830,6 +864,7 @@ int editor_read_key(int fd);
 int editor_read_key_idle(int fd);
 int editor_input_flood(int fd);
 int editor_read_raw_byte(int fd);
+int editor_read_utf8_seq(int fd, int lead, char *seq);
 int editor_check_quit_pending(void);
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols);
 int get_window_size(int ifd, int ofd, int *rows, int *cols);
@@ -842,6 +877,7 @@ int editor_process_pending_signals(void);
 int kg_codepoint_width(uint32_t cp);
 uint32_t utf8_codepoint_at(const char *buf, int len, int start, int *span);
 int utf8_width_at(const char *buf, int len, int start);
+int utf8_display_width(const char *buf, int len);
 
 /* word.c */
 void editor_move_word_forward(void);

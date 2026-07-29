@@ -1,0 +1,22 @@
+# Typing a multi-byte character into a minibuffer prompt.  kg used to
+# drop every byte above ASCII (isprint() rejects them), so the search
+# string came out empty, query-replace bailed out, and the rest of the
+# keys landed in the buffer as self-inserted text.
+name: minibuf-utf8-query-replace
+filename: minibuf_utf8_replace.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace
+  - ENTER
+  - 'å'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: |
+  Xbc

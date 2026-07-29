@@ -295,3 +295,16 @@ int utf8_width_at(const char *buf, int len, int start)
 	}
 	return kg_codepoint_width(utf8_codepoint_at(buf, len, start, NULL));
 }
+
+/* Cells occupied by the first `len` bytes of `buf`.  Continuation bytes
+ * measure zero, so this is the display column just past those bytes —
+ * what the echo area needs to park the cursor after typed text. */
+int utf8_display_width(const char *buf, int len)
+{
+	int i, width = 0;
+
+	for (i = 0; i < len; i++) {
+		width += utf8_width_at(buf, len, i);
+	}
+	return width;
+}

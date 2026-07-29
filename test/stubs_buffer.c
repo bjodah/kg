@@ -35,6 +35,13 @@ int editor_read_raw_byte(int fd)
 	(void)fd;
 	return 0;
 }
+int editor_read_utf8_seq(int fd, int lead, char *seq)
+{
+	(void)fd;
+	(void)lead;
+	(void)seq;
+	return 0;
+}
 
 void win_save_active_view(void) { }
 

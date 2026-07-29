@@ -1,0 +1,17 @@
+# Isearch has its own key loop, so it needs the same multi-byte input
+# handling as the shared minibuffer editor: C-s å leaves point just
+# after the å, and the typed X lands there.
+name: minibuf-utf8-isearch
+filename: minibuf_utf8_isearch.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  abåcd
+keys:
+  - C-s
+  - 'å'
+  - ENTER
+  - 'X'
+expected_saved: |
+  abåXcd

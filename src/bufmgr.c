@@ -441,12 +441,22 @@ static int prompt_done(int rc)
 	return rc;
 }
 
+/* 1-based echo-area column for a cursor sitting `cursor` bytes into
+ * `buf` behind `prompt`.  Measured in display cells, so a multi-byte
+ * character moves the cursor one column, not one column per byte. */
+static int prompt_cursor_col(
+    const char *prompt, int plen, const char *buf, int cursor)
+{
+	return utf8_display_width(prompt, plen)
+	    + utf8_display_width(buf, cursor) + 1;
+}
+
 /* Park the cursor at the typed position on the echo area and refresh. */
 static void prompt_refresh(
     const char *prompt, int plen, const char *buf, int cursor)
 {
 	editor_set_status_message("%s%s", prompt, buf);
-	editor.echo_cursor_col = plen + cursor + 1;
+	editor.echo_cursor_col = prompt_cursor_col(prompt, plen, buf, cursor);
 	editor_refresh_screen();
 }
 
@@ -533,20 +543,48 @@ static int minibuf_word_start(const char *buf, int pos)
 	return pos;
 }
 
+/* Delete the whole character before the cursor, not just its last byte:
+ * a multi-byte glyph would otherwise leave a stray continuation byte
+ * behind and corrupt everything typed after it. */
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow)
 {
+	int start;
+
 	if (*overflow > 0) {
 		(*overflow)--;
-	} else if (*cursor > 0) {
-		memmove(buf + *cursor - 1, buf + *cursor, *len - *cursor + 1);
-		(*cursor)--;
-		(*len)--;
+		return;
 	}
+	if (*cursor <= 0) {
+		return;
+	}
+	start = utf8_glyph_start_before(buf, *len, *cursor);
+	memmove(buf + start, buf + *cursor, *len - *cursor + 1);
+	*len -= *cursor - start;
+	*cursor = start;
+}
+
+/* Splice `n` bytes at the cursor, counting an overflow when the prompt
+ * buffer is full.  Insertion is all-or-nothing so a multi-byte sequence
+ * is never cut in half by the buffer limit. */
+static void minibuf_insert(char *buf, int bufsize, int *cursor, int *len,
+    int *overflow, const char *bytes, int n)
+{
+	if (*len + n >= bufsize) {
+		(*overflow)++;
+		return;
+	}
+	memmove(buf + *cursor + n, buf + *cursor, *len - *cursor + 1);
+	memcpy(buf + *cursor, bytes, (size_t)n);
+	*cursor += n;
+	*len += n;
 }
 
 static int minibuf_edit_key(
     int fd, int c, char *buf, int bufsize, int *cursor, int *len, int *overflow)
 {
+	char seq[4];
+	int n;
+
 	if (c == DEL_KEY || c == BACKSPACE) {
 		minibuf_delete_backward(buf, cursor, len, overflow);
 		return 1;
@@ -557,21 +595,22 @@ static int minibuf_edit_key(
 		return 1;
 	case CTRL_D:
 		if (*cursor < *len) {
-			memmove(
-			    buf + *cursor, buf + *cursor + 1, *len - *cursor);
-			(*len)--;
+			int span = utf8_glyph_span_at(buf, *len, *cursor);
+			memmove(buf + *cursor, buf + *cursor + span,
+			    *len - *cursor - span + 1);
+			*len -= span;
 		}
 		return 1;
 	case CTRL_F:
 	case ARROW_RIGHT:
 		if (*cursor < *len) {
-			(*cursor)++;
+			*cursor += utf8_glyph_span_at(buf, *len, *cursor);
 		}
 		return 1;
 	case CTRL_B:
 	case ARROW_LEFT:
 		if (*cursor > 0) {
-			(*cursor)--;
+			*cursor = utf8_glyph_start_before(buf, *len, *cursor);
 		}
 		return 1;
 	case CTRL_A:
@@ -594,11 +633,8 @@ static int minibuf_edit_key(
 	case CTRL_Y: {
 		int yank_len = (int)strlen(minibuf_kill);
 		if (yank_len > 0 && *len + yank_len < bufsize) {
-			memmove(buf + *cursor + yank_len, buf + *cursor,
-			    *len - *cursor + 1);
-			memcpy(buf + *cursor, minibuf_kill, yank_len);
-			*cursor += yank_len;
-			*len += yank_len;
+			minibuf_insert(buf, bufsize, cursor, len, overflow,
+			    minibuf_kill, yank_len);
 		}
 		return 1;
 	}
@@ -634,28 +670,27 @@ static int minibuf_edit_key(
 		if (!running) {
 			return 1;
 		}
-		if (*len < bufsize - 1) {
-			memmove(buf + *cursor + 1, buf + *cursor,
-			    *len - *cursor + 1);
-			buf[(*cursor)++] = c;
-			(*len)++;
-		} else {
-			(*overflow)++;
-		}
+		seq[0] = (char)c;
+		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, 1);
 		return 1;
 	default:
 		break;
 	};
 	if (isprint(c)) {
-		if (*len < bufsize - 1) {
-			memmove(buf + *cursor + 1, buf + *cursor,
-			    *len - *cursor + 1);
-			buf[(*cursor)++] = c;
-			(*len)++;
-		} else {
-			(*overflow)++;
-		}
+		seq[0] = (char)c;
+		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, 1);
 		return 1;
+	}
+	/* A byte above ASCII is the lead of a multi-byte character the
+	 * terminal is sending one byte at a time; pull in the rest so the
+	 * whole glyph enters the prompt together. */
+	n = editor_read_utf8_seq(fd, c, seq);
+	if (n > 0) {
+		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, n);
+		return 1;
+	}
+	if (c >= 0x80 && c <= 0xFF) {
+		return 1; /* malformed sequence: swallow the stray byte */
 	}
 	return 0;
 }
@@ -982,7 +1017,8 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		    msg, sizeof(msg), &off, names, matches, total, sel);
 
 		editor_set_status_message("%s", msg);
-		editor.echo_cursor_col = plen + cursor + 1;
+		editor.echo_cursor_col
+		    = prompt_cursor_col(prompt, plen, buf, cursor);
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
@@ -999,7 +1035,9 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 						buf[--len] = '\0';
 					}
 				} else if (len > 0) {
-					buf[--len] = '\0';
+					len = utf8_glyph_start_before(
+					    buf, len, len);
+					buf[len] = '\0';
 				}
 				cursor = len;
 			}
@@ -1008,11 +1046,12 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			return prompt_done(-1);
 		} else if (c == CTRL_B) {
 			if (cursor > 0) {
-				cursor--;
+				cursor
+				    = utf8_glyph_start_before(buf, len, cursor);
 			}
 		} else if (c == CTRL_F) {
 			if (cursor < len) {
-				cursor++;
+				cursor += utf8_glyph_span_at(buf, len, cursor);
 			}
 			/* C-b/C-f always edit the minibuffer, including at EOL.
 			 * Keep the path picker's selection cycling on the arrow
@@ -1296,13 +1335,16 @@ void buf_select_interactive(int fd)
 			editor_picker_render(msg, sizeof(msg), &off, names,
 			    matches, matches, sel);
 			editor_set_status_message("%s", msg);
-			editor.echo_cursor_col = plen + qlen + 1;
+			editor.echo_cursor_col
+			    = prompt_cursor_col(prompt, plen, query, qlen);
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
 			if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
 				if (qlen > 0) {
-					query[--qlen] = '\0';
+					qlen = utf8_glyph_start_before(
+					    query, qlen, qlen);
+					query[qlen] = '\0';
 				}
 				sel = 0;
 			} else if (c == ARROW_RIGHT || c == CTRL_F) {
@@ -1330,6 +1372,20 @@ void buf_select_interactive(int fd)
 				query[qlen++] = c;
 				query[qlen] = '\0';
 				sel = 0;
+			} else if (c >= 0x80 && c <= 0xFF) {
+				/* Multi-byte character: take the whole
+				 * sequence so buffer names with non-ASCII
+				 * text can be typed at. */
+				char seq[4];
+				int n = editor_read_utf8_seq(fd, c, seq);
+
+				if (n > 0
+				    && qlen + n < (int)sizeof(query) - 1) {
+					memcpy(query + qlen, seq, (size_t)n);
+					qlen += n;
+					query[qlen] = '\0';
+					sel = 0;
+				}
 			}
 		}
 	}

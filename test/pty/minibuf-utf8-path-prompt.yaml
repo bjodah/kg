@@ -1,0 +1,19 @@
+# The C-x C-f path prompt shares the minibuffer line editor, so a typed
+# multi-byte character has to survive there too -- and C-b has to step
+# over the whole "å" rather than between its two bytes, which would put
+# the X inside the character and show mojibake in the mode line.
+name: minibuf-utf8-path-prompt
+filename: original.txt
+initial: "unchanged"
+backend: tmux
+keys:
+  - C-x
+  - C-f
+  - 'aåc'
+  - C-b
+  - C-b
+  - X
+  - RET
+expected_saved: "unchanged"
+expected_screen_contains:
+  - aXåc

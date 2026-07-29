@@ -1,0 +1,14 @@
+# A filename that merely contains "git-rebase-todo" must not select the
+# rebase mode: C-c C-k stays undefined (no abort prompt), so the typed
+# "y" self-inserts instead of answering a prompt.
+name: git-rebase-not-detected-by-substring
+filename: my-git-rebase-todo-notes
+initial: |
+  pick 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-k
+  - y
+expected_saved: |
+  ypick 1a2b3c4 Only commit
+expected_exit_code: 0

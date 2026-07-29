@@ -1,0 +1,15 @@
+name: git-rebase-finalize
+filename: git-rebase-todo
+initial: |
+  pick 1a2b3c4 Only commit
+
+  # Rebase comment
+keys:
+  - C-c
+  - C-c
+trailer_keys: []
+expected_saved: |
+  pick 1a2b3c4 Only commit
+
+  # Rebase comment
+expected_exit_code: 0

@@ -1367,3 +1367,131 @@ oom:
 	editor_cursor_goto(para_start, indent_len);
 	editor_set_status_message("Paragraph reflowed");
 }
+
+/* Rewrite the action word of the current git-rebase-todo line (the C-c
+ * C-p/C-r/C-e/C-s/C-f/C-d keys and their M-x commands).  Only lines
+ * whose first word is a commit-taking action (pick/reword/edit/squash/
+ * fixup/drop, long or abbreviated) are rewritten; comments, exec lines
+ * and the like are refused so a stray key cannot corrupt the todo. */
+void editor_rebase_set_action(const char *action)
+{
+	int filerow, filecol, start, wlen, nlen, wend, col;
+	char *orig, *newchars;
+	erow *row;
+
+	if (!syntax_is_git_rebase()) {
+		editor_set_status_message("Not a git-rebase-todo buffer");
+		return;
+	}
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (editor.numrows <= 0
+	    || editor_current_filerow_or_eof() >= editor.numrows) {
+		editor_set_status_message("Not on a rebase action line");
+		return;
+	}
+	filerow = word_cursor_filerow();
+	row = &editor.row[filerow];
+	if (!syntax_git_rebase_pick_span(
+		row->chars, row->size, &start, &wlen)) {
+		editor_set_status_message("Not on a rebase action line");
+		return;
+	}
+	nlen = (int)strlen(action);
+	if (wlen == nlen && strncmp(row->chars + start, action, wlen) == 0) {
+		return;
+	}
+	filecol = word_cursor_filecol(row);
+
+	orig = malloc(wlen);
+	if (!orig) {
+		word_nomem();
+		return;
+	}
+	memcpy(orig, row->chars + start, wlen);
+	if (nlen > wlen) {
+		newchars = realloc(row->chars, row->size - wlen + nlen + 1);
+		if (!newchars) {
+			free(orig);
+			word_nomem();
+			return;
+		}
+		row->chars = newchars;
+	}
+	undo_push(UNDO_REPLACE_TEXT, filerow, start, nlen, orig, wlen);
+	free(orig);
+
+	wend = start + wlen;
+	memmove(row->chars + start + nlen, row->chars + wend,
+	    row->size - wend + 1);
+	memcpy(row->chars + start, action, nlen);
+	row->size += nlen - wlen;
+	editor_update_row(row);
+
+	/* Keep point on the same spot: shifted with the tail, clamped to
+	 * the new word when it sat inside the old one. */
+	col = filecol;
+	if (col >= wend) {
+		col += nlen - wlen;
+	} else if (col > start + nlen) {
+		col = start + nlen;
+	}
+	editor_cursor_goto(filerow, col);
+	editor.dirty++;
+	editor_set_status_message("%s", action);
+}
+
+/* Swap the current line with its neighbour above (dir < 0) or below
+ * (dir > 0), keeping point on the moved line.  M-p / M-n in rebase
+ * buffers, for reordering commits in a git-rebase-todo. */
+void editor_rebase_move_line(int dir)
+{
+	int filerow, other, top, filecol, orig_len;
+	char *orig;
+	erow tmp;
+
+	if (!syntax_is_git_rebase()) {
+		editor_set_status_message("Not a git-rebase-todo buffer");
+		return;
+	}
+	if (editor.readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (editor.numrows <= 0
+	    || editor_current_filerow_or_eof() >= editor.numrows) {
+		return;
+	}
+	filerow = word_cursor_filerow();
+	other = filerow + dir;
+	if (other < 0 || other >= editor.numrows) {
+		editor_set_status_message(
+		    dir < 0 ? "Beginning of buffer" : "End of buffer");
+		return;
+	}
+	filecol = word_cursor_filecol(&editor.row[filerow]);
+	top = dir < 0 ? other : filerow;
+
+	orig = editor_rows_to_string(&editor.row[top], 2, &orig_len);
+	if (!orig) {
+		word_nomem();
+		return;
+	}
+	/* Same trick as editor_sort_lines(): swapping equal-length text,
+	 * so one REPLACE_TEXT record with c == len restores both rows. */
+	undo_push(UNDO_REPLACE_TEXT, top, 0, orig_len, orig, orig_len);
+	free(orig);
+
+	tmp = editor.row[filerow];
+	editor.row[filerow] = editor.row[other];
+	editor.row[other] = tmp;
+	editor.row[filerow].idx = filerow;
+	editor.row[other].idx = other;
+	editor_update_syntax(&editor.row[top]);
+	editor_update_syntax(&editor.row[top + 1]);
+
+	editor_cursor_goto(other, filecol);
+	editor.dirty++;
+}

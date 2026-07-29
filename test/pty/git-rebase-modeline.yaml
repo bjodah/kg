@@ -1,0 +1,10 @@
+name: git-rebase-modeline
+filename: git-rebase-todo
+backend: tmux
+initial: |
+  pick 1a2b3c4 Only commit
+keys: []
+expected_saved: |
+  pick 1a2b3c4 Only commit
+expected_screen_contains:
+  - Git rebase

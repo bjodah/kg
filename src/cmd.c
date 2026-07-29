@@ -613,6 +613,56 @@ static void cmd_lisp_interaction_mode(int fd)
 	editor_set_status_message("Lisp Interaction mode enabled");
 }
 
+/* Git-rebase-todo commands; the C-c C-<letter> and M-p/M-n keys in
+ * rebase buffers run the same functions (see kbd.c). */
+static void cmd_rebase_pick(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("pick");
+}
+
+static void cmd_rebase_reword(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("reword");
+}
+
+static void cmd_rebase_edit(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("edit");
+}
+
+static void cmd_rebase_squash(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("squash");
+}
+
+static void cmd_rebase_fixup(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("fixup");
+}
+
+static void cmd_rebase_drop(int fd)
+{
+	(void)fd;
+	editor_rebase_set_action("drop");
+}
+
+static void cmd_rebase_move_up(int fd)
+{
+	(void)fd;
+	editor_rebase_move_line(-1);
+}
+
+static void cmd_rebase_move_down(int fd)
+{
+	(void)fd;
+	editor_rebase_move_line(1);
+}
+
 /* Manually enable YAML syntax highlighting, e.g. for an extensionless
  * file. ".yaml"/".yml" files select it automatically. */
 static void cmd_yaml_mode(int fd)
@@ -651,6 +701,15 @@ static const struct named_cmd cmdtable[] = {
 	{ "eval-expression", cmd_eval_expression, CMD_NONE },
 	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE },
 	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE },
+	{ "git-rebase-drop", cmd_rebase_drop, CMD_EDITS_BUFFER },
+	{ "git-rebase-edit", cmd_rebase_edit, CMD_EDITS_BUFFER },
+	{ "git-rebase-fixup", cmd_rebase_fixup, CMD_EDITS_BUFFER },
+	{ "git-rebase-move-line-down", cmd_rebase_move_down,
+	    CMD_EDITS_BUFFER },
+	{ "git-rebase-move-line-up", cmd_rebase_move_up, CMD_EDITS_BUFFER },
+	{ "git-rebase-pick", cmd_rebase_pick, CMD_EDITS_BUFFER },
+	{ "git-rebase-reword", cmd_rebase_reword, CMD_EDITS_BUFFER },
+	{ "git-rebase-squash", cmd_rebase_squash, CMD_EDITS_BUFFER },
 	{ "global-auto-revert-mode", cmd_global_auto_revert_mode, CMD_NONE },
 	{ "goto-line", cmd_goto_line, CMD_NONE },
 	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE },

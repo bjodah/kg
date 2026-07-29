@@ -409,6 +409,130 @@ static void test_gitcommit_no_subject(void)
 	teardown();
 }
 
+/* ---- Git rebase todo syntax tests ---- */
+
+/* "# comment" -> every byte HL_COMMENT. */
+static void test_gitrebase_comment_line(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "# Rebase abc..def onto abc", 26);
+
+	for (i = 0; i < 26; i++) {
+		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	}
+	teardown();
+}
+
+/* "pick 1a2b3c4 Subject": action KEYWORD1, hash KEYWORD2, rest NORMAL.
+ * The subject word "decade" is all hex letters but must stay NORMAL:
+ * only the first word after the action is hash-checked. */
+static void test_gitrebase_pick_line(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "pick 1a2b3c4 decade", 19);
+
+	for (i = 0; i < 4; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+	}
+	CHECK(editor.row[0].hl[4] == HL_NORMAL);
+	for (i = 5; i < 12; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+	}
+	for (i = 12; i < 19; i++) {
+		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+	}
+	teardown();
+}
+
+/* A typoed action word gets HL_WARNING. */
+static void test_gitrebase_unknown_action_warns(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "puck 1a2b3c4 oops", 17);
+
+	for (i = 0; i < 4; i++) {
+		CHECK(editor.row[0].hl[i] == HL_WARNING);
+	}
+	teardown();
+}
+
+/* "exec make check": the command body is a string. */
+static void test_gitrebase_exec_body_string(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "exec make check", 15);
+
+	for (i = 0; i < 4; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+	}
+	for (i = 5; i < 15; i++) {
+		CHECK(editor.row[0].hl[i] == HL_STRING);
+	}
+	teardown();
+}
+
+/* Abbreviated action, and fixup's -C flag before the hash. */
+static void test_gitrebase_abbrev_and_flag(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("Git rebase"));
+	editor_insert_row(0, "f -C 1a2b3c4 subj", 17);
+
+	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
+	CHECK(editor.row[0].hl[2] == HL_NORMAL);
+	CHECK(editor.row[0].hl[3] == HL_NORMAL);
+	for (i = 5; i < 12; i++) {
+		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+	}
+	teardown();
+}
+
+/* syntax_git_rebase_pick_span: accepts commit-taking actions (long or
+ * abbreviated, indented), refuses everything else. */
+static void test_gitrebase_pick_span(void)
+{
+	int start, wlen;
+
+	CHECK(syntax_git_rebase_pick_span("pick 1a2b3c4 x", 14, &start, &wlen)
+	    && start == 0 && wlen == 4);
+	CHECK(syntax_git_rebase_pick_span("  r 1a2b3c4 x", 13, &start, &wlen)
+	    && start == 2 && wlen == 1);
+	CHECK(syntax_git_rebase_pick_span("drop 1a2b3c4", 12, &start, &wlen)
+	    && start == 0 && wlen == 4);
+	CHECK(!syntax_git_rebase_pick_span("exec make", 9, &start, &wlen));
+	CHECK(!syntax_git_rebase_pick_span("label onto", 10, &start, &wlen));
+	CHECK(!syntax_git_rebase_pick_span("# pick x", 8, &start, &wlen));
+	CHECK(!syntax_git_rebase_pick_span("", 0, &start, &wlen));
+	CHECK(!syntax_git_rebase_pick_span("picked 1a2b", 11, &start, &wlen));
+}
+
+/* Mode selection: exact basename only.  A path merely containing the
+ * string must not select the rebase mode (its keys quit the editor). */
+static void test_gitrebase_detect_basename_only(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(".git/rebase-merge/git-rebase-todo");
+	CHECK(editor.syntax == syntax_find_by_name("Git rebase"));
+
+	editor.syntax = NULL;
+	editor_select_syntax_highlight("git-rebase-todo");
+	CHECK(editor.syntax == syntax_find_by_name("Git rebase"));
+
+	editor.syntax = NULL;
+	editor_select_syntax_highlight("notes-on-git-rebase-todo-things");
+	CHECK(editor.syntax != syntax_find_by_name("Git rebase"));
+	teardown();
+}
+
 /* Markdown blank line inside a fence regression test */
 static void test_md_blank_line_in_fence(void)
 {
@@ -1043,6 +1167,13 @@ int main(void)
 	RUN(test_gitcommit_subject_skips_comment);
 	RUN(test_gitcommit_body_not_warned);
 	RUN(test_gitcommit_no_subject);
+	RUN(test_gitrebase_comment_line);
+	RUN(test_gitrebase_pick_line);
+	RUN(test_gitrebase_unknown_action_warns);
+	RUN(test_gitrebase_exec_body_string);
+	RUN(test_gitrebase_abbrev_and_flag);
+	RUN(test_gitrebase_pick_span);
+	RUN(test_gitrebase_detect_basename_only);
 	RUN(test_md_blank_line_in_fence);
 	RUN(test_custom_highlighter_pointer);
 	RUN(test_editor_set_syntax_rebuilds);

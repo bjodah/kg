@@ -857,6 +857,9 @@ int editor_syntax_to_color(int hl);
 void editor_select_syntax_highlight(char *filename);
 [[nodiscard]] int syntax_is_git_commit(void);
 [[nodiscard]] int syntax_git_commit_subject(void);
+[[nodiscard]] int syntax_is_git_rebase(void);
+int syntax_git_rebase_pick_span(
+    const char *line, int len, int *start, int *wlen);
 
 /* tty.c */
 void disable_raw_mode(int fd);
@@ -897,6 +900,8 @@ void editor_join_line(void);
 void editor_delete_horizontal_space(void);
 void editor_just_one_space(void);
 void editor_zap_to_char(int fd, int count);
+void editor_rebase_set_action(const char *action);
+void editor_rebase_move_line(int dir);
 void editor_upcase_word(void);
 void editor_downcase_word(void);
 void editor_capitalize_word(void);

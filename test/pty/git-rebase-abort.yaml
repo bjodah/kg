@@ -1,0 +1,13 @@
+name: git-rebase-abort
+filename: git-rebase-todo
+initial: |
+  pick 1a2b3c4 Only commit
+keys:
+  - garbage
+  - C-c
+  - C-k
+  - y
+trailer_keys: []
+expected_saved: |
+  pick 1a2b3c4 Only commit
+expected_exit_code: 1

@@ -1,0 +1,11 @@
+name: git-rebase-action-refused-on-comment
+filename: git-rebase-todo
+initial: |
+  # Rebase comment
+  pick 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-p
+expected_saved: |
+  # Rebase comment
+  pick 1a2b3c4 Only commit

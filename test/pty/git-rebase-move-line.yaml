@@ -1,0 +1,15 @@
+name: git-rebase-move-line
+filename: git-rebase-todo
+initial: |
+  pick 1a2b3c4 First commit
+  pick 5d6e7f8 Second commit
+  pick 9a8b7c6 Third commit
+keys:
+  - M-p
+  - M-n
+  - M-n
+  - M-p
+expected_saved: |
+  pick 5d6e7f8 Second commit
+  pick 1a2b3c4 First commit
+  pick 9a8b7c6 Third commit

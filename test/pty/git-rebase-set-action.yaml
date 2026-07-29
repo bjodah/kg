@@ -1,0 +1,23 @@
+name: git-rebase-set-action
+filename: git-rebase-todo
+initial: |
+  pick 1a2b3c4 First commit
+  pick 5d6e7f8 Second commit
+  pick 9a8b7c6 Third commit
+
+  # Rebase 1a2b3c4..9a8b7c6 onto 0f0f0f0 (3 commands)
+keys:
+  - C-c
+  - C-s
+  - Down
+  - C-c
+  - C-r
+  - Down
+  - C-c
+  - C-d
+expected_saved: |
+  squash 1a2b3c4 First commit
+  reword 5d6e7f8 Second commit
+  drop 9a8b7c6 Third commit
+
+  # Rebase 1a2b3c4..9a8b7c6 onto 0f0f0f0 (3 commands)

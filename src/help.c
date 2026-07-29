@@ -89,4 +89,6 @@ const char *kg_help_lines[]
 	      "kg(1)",
 	      "  Git commit: C-c C-c commit · C-c C-k abort  ·  Compile: C-c "
 	      "C-k kill",
+	      "  Git rebase: C-c C-p/r/e/s/f/d set action · M-p/M-n move "
+	      "line · C-c C-c go",
 	      NULL };

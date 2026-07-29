@@ -581,9 +581,16 @@ char *LISP_HL_keywords[] = { "defun", "defmacro", "defvar", "defconst",
 char *GITCOMMIT_HL_extensions[] = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG",
 	"TAG_EDITMSG", "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
 
+/* Git interactive-rebase todo (.git/rebase-merge/git-rebase-todo).  No
+ * filematch patterns: the mode carries quit-the-editor keys (C-c C-c /
+ * C-c C-k), so it is selected only on an exact basename match in
+ * editor_select_syntax_highlight(), never on a substring hit. */
+char *GITREBASE_HL_extensions[] = { NULL };
+
 static void markdown_syntax(erow *row);
 static void makefile_syntax(erow *row);
 static void gitcommit_syntax(erow *row);
+static void gitrebase_syntax(erow *row);
 static void yaml_syntax(erow *row);
 static void editor_update_syntax_row_only(erow *row);
 
@@ -632,6 +639,8 @@ struct editor_syntax HLDB[] = {
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ "Git commit", GITCOMMIT_HL_extensions, NULL, "", "", "", 0,
 	    gitcommit_syntax },
+	{ "Git rebase", GITREBASE_HL_extensions, NULL, "", "", "", 0,
+	    gitrebase_syntax },
 	{ "YAML", YAML_HL_extensions, NULL, "#", "", "", 0, yaml_syntax },
 };
 
@@ -965,6 +974,168 @@ static void gitcommit_syntax(erow *row)
 	}
 
 	row->hl_oc = oc;
+}
+
+/* One entry per git-rebase-todo command: long name, single-letter
+ * abbreviation, and whether a commit hash follows the command word
+ * (those are the lines C-c C-p and friends may rewrite). */
+struct gitrebase_action {
+	const char *name;
+	char abbrev;
+	int takes_commit;
+};
+
+static const struct gitrebase_action gitrebase_actions[] = {
+	{ "pick", 'p', 1 },
+	{ "reword", 'r', 1 },
+	{ "edit", 'e', 1 },
+	{ "squash", 's', 1 },
+	{ "fixup", 'f', 1 },
+	{ "drop", 'd', 1 },
+	{ "exec", 'x', 0 },
+	{ "break", 'b', 0 },
+	{ "label", 'l', 0 },
+	{ "reset", 't', 0 },
+	{ "merge", 'm', 0 },
+	{ "update-ref", 'u', 0 },
+	{ "noop", 0, 0 },
+};
+
+#define GITREBASE_NACTIONS \
+	((int)(sizeof(gitrebase_actions) / sizeof(gitrebase_actions[0])))
+
+/* True when the current buffer is a git-rebase-todo. */
+int syntax_is_git_rebase(void)
+{
+	return editor.syntax && (editor.syntax->highlight == gitrebase_syntax);
+}
+
+/* Index into gitrebase_actions for the word at p[0..len), or -1. */
+static int gitrebase_lookup(const char *p, int len)
+{
+	int i;
+
+	for (i = 0; i < GITREBASE_NACTIONS; i++) {
+		const struct gitrebase_action *a = &gitrebase_actions[i];
+
+		if ((int)strlen(a->name) == len
+		    && strncmp(a->name, p, len) == 0) {
+			return i;
+		}
+		if (len == 1 && a->abbrev && p[0] == a->abbrev) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+/* If the first word of line[0..len) is a commit-taking rebase action
+ * (pick/reword/edit/squash/fixup/drop, long or abbreviated), store the
+ * word's span in *start/*wlen and return 1; otherwise return 0.  Used
+ * by the C-c action keys to decide which lines they may rewrite. */
+int syntax_git_rebase_pick_span(
+    const char *line, int len, int *start, int *wlen)
+{
+	int i = 0, w, a;
+
+	while (i < len && (line[i] == ' ' || line[i] == '\t')) {
+		i++;
+	}
+	w = i;
+	while (w < len && line[w] != ' ' && line[w] != '\t') {
+		w++;
+	}
+	if (w == i || line[i] == '#') {
+		return 0;
+	}
+	a = gitrebase_lookup(line + i, w - i);
+	if (a < 0 || !gitrebase_actions[a].takes_commit) {
+		return 0;
+	}
+	*start = i;
+	*wlen = w - i;
+	return 1;
+}
+
+/* True if p[0..len) looks like an abbreviated commit hash. */
+static int gitrebase_is_hash(const char *p, int len)
+{
+	int i;
+
+	if (len < 4) {
+		return 0;
+	}
+	for (i = 0; i < len; i++) {
+		if (!isxdigit((unsigned char)p[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* Git rebase todo highlighter.  Row-local: '#' comments dimmed, known
+ * action words as keywords, the hash after a commit-taking action as
+ * KEYWORD2, an exec command body as string, and an unknown first word
+ * as a warning (a typoed action would make git fail the whole rebase). */
+static void gitrebase_syntax(erow *row)
+{
+	char *p = row->render;
+	int len = row->rsize;
+	int i = 0, w, a;
+
+	if (len == 0) {
+		return;
+	}
+	if (p[0] == '#') {
+		memset(row->hl, HL_COMMENT, len);
+		return;
+	}
+	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
+		i++;
+	}
+	w = i;
+	while (w < len && p[w] != ' ' && p[w] != '\t') {
+		w++;
+	}
+	if (w == i) {
+		return;
+	}
+	a = gitrebase_lookup(p + i, w - i);
+	if (a < 0) {
+		memset(row->hl + i, HL_WARNING, w - i);
+		return;
+	}
+	memset(row->hl + i, HL_KEYWORD1, w - i);
+
+	i = w;
+	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
+		i++;
+	}
+	if (strcmp(gitrebase_actions[a].name, "exec") == 0) {
+		if (i < len) {
+			memset(row->hl + i, HL_STRING, len - i);
+		}
+		return;
+	}
+	if (!gitrebase_actions[a].takes_commit) {
+		return;
+	}
+	/* Skip option words such as fixup's -C/-c before the hash. */
+	while (i < len && p[i] == '-') {
+		while (i < len && p[i] != ' ' && p[i] != '\t') {
+			i++;
+		}
+		while (i < len && (p[i] == ' ' || p[i] == '\t')) {
+			i++;
+		}
+	}
+	w = i;
+	while (w < len && p[w] != ' ' && p[w] != '\t') {
+		w++;
+	}
+	if (gitrebase_is_hash(p + i, w - i)) {
+		memset(row->hl + i, HL_KEYWORD2, w - i);
+	}
 }
 
 /* YAML syntax highlighter.
@@ -1826,6 +1997,16 @@ static void select_syntax_by_shebang(const char *filename)
 void editor_select_syntax_highlight(char *filename)
 {
 	unsigned int j;
+	const char *base = strrchr(filename, '/');
+
+	/* git-rebase-todo is matched on the exact basename only: the mode
+	 * binds keys that quit the editor, so a file whose name merely
+	 * contains the string must not select it. */
+	base = base ? base + 1 : filename;
+	if (strcmp(base, "git-rebase-todo") == 0) {
+		editor.syntax = syntax_find_by_name("Git rebase");
+		return;
+	}
 
 	for (j = 0; j < HLDB_ENTRIES; j++) {
 		struct editor_syntax *s = HLDB + j;

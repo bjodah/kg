@@ -228,13 +228,13 @@ static void editor_server_done(int fd)
 	running = 0;
 }
 
-/* Abort a git commit (C-c C-k): quit without saving and with a
- * non-zero exit status so git discards the commit. */
-static void editor_commit_abort(int fd)
+/* Abort a git commit or rebase (C-c C-k): quit without saving and with
+ * a non-zero exit status so git discards the message / todo list. */
+static void editor_git_abort(int fd, const char *prompt)
 {
 	int answer;
 
-	editor_set_status_message("Abort commit? (y/n) ");
+	editor_set_status_message("%s", prompt);
 	editor_refresh_screen();
 	answer = editor_read_key(fd);
 	if (answer != 'y' && answer != 'Y') {
@@ -243,6 +243,28 @@ static void editor_commit_abort(int fd)
 	}
 	kg_exit_status = 1;
 	running = 0;
+}
+
+/* Action rewritten by a built-in C-c C-<letter> key in git-rebase-todo
+ * buffers, mirroring the letters of Emacs' git-rebase-mode. */
+static const char *rebase_action_for_key(int c)
+{
+	switch (c) {
+	case CTRL_P:
+		return "pick";
+	case CTRL_R:
+		return "reword";
+	case CTRL_E:
+		return "edit";
+	case CTRL_S:
+		return "squash";
+	case CTRL_F:
+		return "fixup";
+	case CTRL_D:
+		return "drop";
+	default:
+		return NULL;
+	}
 }
 
 /* Run the command bound to C-c <key>, or report an undefined key.  The
@@ -339,16 +361,22 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	/* Handle C-c <key>: built-in commit-mode keys first, then user
-	 * bindings installed with (global-set-key ...).  C-c C-c is never
-	 * user-bindable (see keybind_parse), and in commit buffers the
-	 * built-in C-c C-k shadows any user binding. */
+	/* Handle C-c <key>: built-in commit/rebase-mode keys first, then
+	 * user bindings installed with (global-set-key ...).  C-c C-c is
+	 * never user-bindable (see keybind_parse), and in commit and
+	 * rebase buffers the other built-ins shadow any user binding. */
 	if (editor.cc_prefix) {
 		editor.cc_prefix = 0;
-		if (syntax_is_git_commit() && c == CTRL_C) {
+		if ((syntax_is_git_commit() || syntax_is_git_rebase())
+		    && c == CTRL_C) {
 			editor_server_done(fd);
 		} else if (syntax_is_git_commit() && c == CTRL_K) {
-			editor_commit_abort(fd);
+			editor_git_abort(fd, "Abort commit? (y/n) ");
+		} else if (syntax_is_git_rebase() && c == CTRL_K) {
+			editor_git_abort(fd, "Abort rebase? (y/n) ");
+		} else if (syntax_is_git_rebase()
+		    && rebase_action_for_key(c)) {
+			editor_rebase_set_action(rebase_action_for_key(c));
 		} else if (editor.filename
 		    && strcmp(editor.filename, "*compilation*") == 0
 		    && c == CTRL_K) {
@@ -897,6 +925,14 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_X: /* Named command */
 		editor_named_command(fd);
+		break;
+	case ALT_P: /* M-p / M-n: reorder git-rebase-todo lines */
+	case ALT_N:
+		if (syntax_is_git_rebase()) {
+			while (n--) {
+				editor_rebase_move_line(c == ALT_P ? -1 : 1);
+			}
+		}
 		break;
 	case ALT_CTRL_S:
 		editor_find_regexp(fd, 1);

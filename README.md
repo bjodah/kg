@@ -55,6 +55,12 @@ standard VT100 escape sequences.
 - Git commit mode: `COMMIT_EDITMSG` buffers get comment dimming, a
   column-50 subject warning, `C-c C-c` to commit and `C-c C-k` to
   abort; `C-x #` finishes any `$EDITOR` session
+- Git rebase mode: `git-rebase-todo` buffers (matched on the exact
+  basename) highlight actions, commit hashes, `exec` bodies and
+  comments, with typoed actions in warning color; `C-c C-p/C-r/C-e/C-s/
+  C-f/C-d` set pick/reword/edit/squash/fixup/drop on the current line,
+  `M-p`/`M-n` move it up/down, `C-c C-c` continues the rebase and
+  `C-c C-k` aborts it
 - YAML mode: `.yaml`/`.yml` files highlight keys, comments, quoted and
   block scalars (`|`/`>`), booleans/null, numbers, and structural
   markers; `M-x yaml-mode` enables it manually

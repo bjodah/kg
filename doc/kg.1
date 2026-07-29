@@ -1484,6 +1484,60 @@ server flow shared by
 .Xr sudoedit 8 ,
 .Xr hg 1
 and similar tools.
+.Ss Git Rebase Mode
+A file named exactly
+.Pa git-rebase-todo
+(the todo list of
+.Ic git rebase -i ,
+found at
+.Pa .git/rebase-merge/git-rebase-todo )
+switches into a dedicated mode, shown as
+.Dq Git rebase
+in the mode line.
+The match is on the exact basename only, so files that merely contain
+the string in their name are unaffected.
+Action words
+.Pq Ic pick , reword , edit , squash , fixup , drop , exec , break , label , reset , merge , update-ref
+and their single-letter abbreviations are highlighted as keywords, the
+commit hash after them as a constant, an
+.Ic exec
+command body as a string, and comment lines are dimmed.
+An unrecognized action word is shown in warning color, since a typo
+there makes git fail the whole rebase.
+.Pp
+.Ic C-c C-p ,
+.Ic C-c C-r ,
+.Ic C-c C-e ,
+.Ic C-c C-s ,
+.Ic C-c C-f
+and
+.Ic C-c C-d
+rewrite the action of the current line to
+.Ic pick , reword , edit , squash , fixup
+or
+.Ic drop
+respectively; they refuse to touch comment,
+.Ic exec
+and other non-commit lines.
+.Ic M-p
+and
+.Ic M-n
+move the current line up and down, for reordering commits.
+The same commands are available as
+.Ic M-x git-rebase-pick , git-rebase-reword , git-rebase-edit ,
+.Ic git-rebase-squash , git-rebase-fixup , git-rebase-drop ,
+.Ic git-rebase-move-line-up
+and
+.Ic git-rebase-move-line-down .
+.Pp
+As in commit buffers,
+.Ic C-c C-c
+saves the todo list and exits with status 0 so the rebase proceeds, and
+.Ic C-c C-k
+prompts for confirmation, then exits without saving and with a non-zero
+status, making git abort the rebase.
+All these bindings are built in, only active in rebase buffers, and
+take priority over user Lisp bindings for the same keys.
 .Ss YAML Mode
 Files ending in
 .Pa .yaml

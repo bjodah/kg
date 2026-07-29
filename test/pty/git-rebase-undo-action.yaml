@@ -1,0 +1,10 @@
+name: git-rebase-undo-action
+filename: git-rebase-todo
+initial: |
+  p 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-f
+  - C-_
+expected_saved: |
+  p 1a2b3c4 Only commit

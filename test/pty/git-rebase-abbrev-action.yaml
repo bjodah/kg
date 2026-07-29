@@ -1,0 +1,9 @@
+name: git-rebase-abbrev-action
+filename: git-rebase-todo
+initial: |
+  p 1a2b3c4 Only commit
+keys:
+  - C-c
+  - C-r
+expected_saved: |
+  reword 1a2b3c4 Only commit

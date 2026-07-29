@@ -33,7 +33,11 @@ static int utf8_glyph_end(const char *text, int len, int pos)
 /* Reject a span the engine got wrong, then widen the surviving one to
  * whole glyphs so no boundary lands inside a UTF-8 sequence.  Empty
  * spans stay empty and only move to the start of their glyph.  Returns 0
- * when the span is out of bounds for `text`. */
+ * when the span is out of bounds for `text`.
+ *
+ * The engine steps by glyph itself now, so a well-formed match already
+ * arrives on glyph boundaries; this stays as defence in depth, and it
+ * still does real work when `start_offset` lands mid-glyph. */
 static int kg_span_snap(struct kg_span *sp, const char *text, int len)
 {
 	int start, end;

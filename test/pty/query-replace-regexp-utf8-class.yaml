@@ -1,0 +1,24 @@
+# A bracket expression matches characters, so "[^[:ascii:]]\{2\}" takes
+# the å and the ä together -- four bytes.  The byte-oriented engine took
+# the two bytes of the å alone and left the ä behind; glyph snapping in
+# the wrapper could widen that span but never lengthen it to the second
+# character.  Checked against GNU Emacs rather than a hand-written
+# result.  (The pattern is spelled in ASCII on purpose: typing a
+# multi-byte character into the minibuffer is a separate, unrelated gap.)
+name: query-replace-regexp-utf8-class
+filename: replace_regexp_utf8_class.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  aåäb
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - '[^[:ascii:]]\{2\}'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+oracle: emacs

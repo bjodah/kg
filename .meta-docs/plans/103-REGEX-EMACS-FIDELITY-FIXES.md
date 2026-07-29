@@ -143,6 +143,16 @@ Worth doing regardless of whether full character-awareness is ever
 attempted, and it is now the only part of kg that still reasons in bytes
 where the rest reasons in glyphs.
 
+**Status: both halves are done.** The snapping landed as described, and
+full character-awareness turned out to be affordable after the matcher
+rewrite: the engine now steps by glyph, `.` consumes a character,
+multi-byte literals are single atoms, quantifiers and intervals count
+characters, and bracket expressions hold characters with codepoint
+ranges. Spans stay byte offsets and the wrapper's snapping stays as
+defence in depth. ASCII-only semantics were kept for case folding, `\w`
+`\d` `\s` and the POSIX classes, so `\w` still does not match `å` where
+Emacs' does — the one deliberate remaining divergence in this area.
+
 ---
 
 ## P2-1 — Invalid intervals become literal text

@@ -1,0 +1,22 @@
+# The matcher counts characters, so ".\{2\}" takes "å" and "b" -- five
+# bytes of subject, three of them consumed here.  A byte-oriented engine
+# matched the two bytes of "å" alone and left "bc" behind, and no amount
+# of glyph snapping in the wrapper could have turned that into the right
+# answer.  Checked against GNU Emacs rather than a hand-written result.
+name: query-replace-regexp-utf8-interval
+filename: replace_regexp_utf8_interval.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - '.\{2\}'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+oracle: emacs

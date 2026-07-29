@@ -293,8 +293,8 @@ static void test_intervals(void)
 	CHECK(match.spans[0].end == 1);
 
 	/* the literal spelling is no longer what it looks for */
-	CHECK(kg_regex_match_forward(&rx, "x\\{0,1}", 0, &match)
-	    == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "x\\{0,1}", 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 0);
 	CHECK(match.spans[0].end == 1);
 
@@ -350,16 +350,16 @@ static void test_caret_anchors_at_line_start(void)
 	CHECK(kg_regex_match_forward(&rx, "aba", 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 0);
 	CHECK(match.spans[0].end == 1);
-	CHECK(kg_regex_match_forward(&rx, "aba", 1, &match)
-	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_forward(&rx, "aba", 1, &match) == KG_REGEX_NOMATCH);
 
 	/* the backward scan re-runs the search from rising offsets; it must
 	 * still find the anchored match at 0, and still terminate */
 	CHECK(kg_regex_match_backward(&rx, "aba", 3, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 0);
 	CHECK(match.spans[0].end == 1);
-	CHECK(kg_regex_match_backward(&rx, "aba", 0, &match)
-	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_backward(&rx, "aba", 0, &match) == KG_REGEX_NOMATCH);
 
 	/* "$" is unchanged: it holds at the end of the row */
 	CHECK(kg_regex_compile(&rx, "a$", 0) == KG_REGEX_OK);
@@ -395,8 +395,8 @@ static void test_question_mark_is_greedy(void)
 	CHECK(match.spans[0].end == 1);
 
 	CHECK(kg_regex_compile(&rx, "c[^a]?", 0) == KG_REGEX_OK);
-	CHECK(kg_regex_match_forward(&rx, "bc1cacc.", 0, &match)
-	    == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "bc1cacc.", 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 1);
 	CHECK(match.spans[0].end == 3);
 }
@@ -411,7 +411,8 @@ static void test_utf8_glyph_boundaries(void)
 
 	CHECK(kg_regex_compile(&rx, ".", 0) == KG_REGEX_OK);
 
-	/* "." matches the lead byte of å; the span covers the whole glyph */
+	/* "." consumes the whole å; the wrapper's snapping is now defence
+	 * in depth rather than the thing that produces this span */
 	CHECK(kg_regex_match_forward(&rx, text, 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 0);
 	CHECK(match.spans[0].end == 2);
@@ -430,6 +431,72 @@ static void test_utf8_glyph_boundaries(void)
 	CHECK(kg_regex_match_backward(&rx, tail, 4, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 2);
 	CHECK(match.spans[0].end == 4);
+}
+
+/* Spans the engine itself must produce, snapping or no snapping: the
+ * matcher steps by character now.  Every expectation below was taken
+ * from "emacs -Q --batch" first, converting its character offsets to the
+ * byte offsets kg works in. */
+static void test_utf8_engine_counts_characters(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+	const char *abc = "\xc3\xa5"
+			  "bc"; /* åbc */
+
+	/* "." is one whole character, not one byte */
+	CHECK(kg_regex_compile(&rx, ".", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, abc, 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+
+	/* an interval counts characters: "å" plus "b" */
+	CHECK(kg_regex_compile(&rx, ".\\{2\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, abc, 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+
+	/* a multi-byte literal is a single atom */
+	CHECK(kg_regex_compile(&rx, "\xc3\xa5+", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx,
+		  "\xc3\xa5\xc3\xa5"
+		  "b",
+		  0, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 4);
+
+	/* a class holds characters: "ä" is a member, the 0xc3 lead byte it
+	 * shares with "ö" is not */
+	CHECK(kg_regex_compile(&rx, "[\xc3\xa5\xc3\xa4]", 0) == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "\xc3\xa4", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	CHECK(kg_regex_match_forward(&rx, "\xc3\xb6", 0, &match)
+	    == KG_REGEX_NOMATCH);
+	/* ... and in "öä" the match is the ä, not the ö's lead byte */
+	CHECK(kg_regex_match_forward(&rx, "\xc3\xb6\xc3\xa4", 0, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 2);
+	CHECK(match.spans[0].end == 4);
+
+	/* a range with a multi-byte endpoint compares codepoints: "[à-é]"
+	 * holds ç but not ê */
+	CHECK(kg_regex_compile(&rx, "[\xc3\xa0-\xc3\xa9]", 0) == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "\xc3\xa7", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 2);
+	CHECK(kg_regex_match_forward(&rx, "\xc3\xaa", 0, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* "[:nonascii:]" now means the character, not the byte */
+	CHECK(kg_regex_compile(&rx, "[[:nonascii:]]", 0) == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "a\xc3\xa5", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 3);
 }
 
 int main(void)
@@ -451,5 +518,6 @@ int main(void)
 	RUN(test_caret_anchors_at_line_start);
 	RUN(test_question_mark_is_greedy);
 	RUN(test_utf8_glyph_boundaries);
+	RUN(test_utf8_engine_counts_characters);
 	return test_summary();
 }

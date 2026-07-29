@@ -195,6 +195,7 @@ enum KEY_ACTION {
 	ALT_Z, /* M-z zap-to-char */
 	ALT_P, /* M-p minibuffer history: previous */
 	ALT_N, /* M-n minibuffer history: next */
+	ALT_ENTER, /* M-RET path prompt: accept the text literally */
 	ALT_0, /* M-0 numeric argument */
 	ALT_1,
 	ALT_2,

@@ -137,10 +137,10 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-# Ratcheted 4260 -> 4199 by the deduplication pass (shared y/n prompt,
-# path helpers, prefix-key extraction); kept snug so the next growth
-# gets reviewed too.
-SCC_COMPLEXITY_MAX ?= 4199
+# Ratcheted 4199 -> 4208 for the path picker's literal-accept answers
+# (M-RET, and RET on a "."/".." component); kept snug so the next
+# growth gets reviewed too.
+SCC_COMPLEXITY_MAX ?= 4208
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

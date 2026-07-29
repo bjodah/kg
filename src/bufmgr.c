@@ -990,12 +990,25 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 	}
 }
 
+/* Does the typed path end in a "." or ".." component?  Emacs answers such
+ * a path with the directory it names rather than completing onto anything
+ * inside it, which is what makes "C-x C-f . RET" open the prompt's own
+ * directory; realpath() in dired_open() folds the component away. */
+static int path_ends_in_dot_component(const char *buf)
+{
+	const char *base = buf_basename(buf);
+
+	return strcmp(base, ".") == 0 || strcmp(base, "..") == 0;
+}
+
 /* Prompt for a path with ido-style completion.  Matching directory
  * entries are rendered as a "{name1 | name2 | …}" pick-list to the
  * right of the typed text, with the selected entry shown in bold.
  * Left/Right cycle the selection.  Enter on a directory descends into
- * it; Enter on a file completes the path and returns.  Tab still
- * extends to the longest common prefix.  Backspace at the trailing
+ * it; Enter on a file completes the path and returns.  M-RET (and Enter
+ * on a path ending in "." or "..") accepts the typed text as it stands,
+ * which is how a directory is named without descending into it.  Tab
+ * still extends to the longest common prefix.  Backspace at the trailing
  * '/' deletes the whole last path component, so one keystroke walks
  * you up one level. */
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
@@ -1087,6 +1100,14 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			if (matches > 0) {
 				sel = (sel + 1) % matches;
 			}
+		} else if (c == ALT_ENTER
+		    || (c == ENTER && path_ends_in_dot_component(buf))) {
+			/* Accept the text exactly as typed: no completion
+			 * applied, no descend.  M-RET is a deliberate
+			 * deviation from Emacs; the "." form is Emacs'
+			 * own. */
+			editor_path_expand_tilde(buf, bufsize);
+			return prompt_done(0);
 		} else if (c == ENTER) {
 			if (matches > 0 && cursor == len) {
 				/* Replace the typed file part with the selected

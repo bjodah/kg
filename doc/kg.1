@@ -858,6 +858,18 @@ editing and completion selection remain distinct;
 on a directory descends into it;
 .Ic Enter
 on a file completes the typed path and submits.
+.Ic M-Enter
+submits the typed text literally, applying no completion and descending
+into nothing, which is how a directory is named without descending into
+it; this binding is a deliberate deviation from Emacs, which has none.
+.Ic Enter
+does the same when the last component of the typed text is
+.Sq \&.
+or
+.Sq \&.. ,
+which is Emacs' own behavior and makes
+.Ic C-x C-f \&. Enter
+list the prompt's directory.
 .Ic Backspace
 at a trailing
 .Sq /
@@ -1567,10 +1579,18 @@ prompt for a directory and list it in a read-only buffer, shown as
 in the mode line.
 The prompt is the ordinary path picker, where
 .Ic Enter
-on a directory descends into it rather than submitting it, so the way
-to name a directory is to answer with something inside it: a
-non-directory answer means the directory containing it, and an empty
-answer means the directory of the current buffer.
+on a directory descends into it rather than submitting it.
+There are three ways to name a directory rather than descend into it:
+.Ic M-Enter
+submits the typed text literally (a deliberate deviation from Emacs),
+appending
+.Sq /\&.
+and pressing
+.Ic Enter
+does the same and is what Emacs itself does, and answering with
+something inside the directory works too, since a non-directory answer
+means the directory containing it.
+An empty answer means the directory of the current buffer.
 .Ic C-x C-f
 on a directory lists it as well, reusing the listing buffer for that
 directory if one is already open, and so does naming a directory on the

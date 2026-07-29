@@ -1,0 +1,29 @@
+# "." as the answer to C-x C-f lists the prompt's own directory, exactly
+# as in Emacs: the prompt comes prefilled with the current file's
+# directory, "." appends a component that names that directory again, and
+# Enter on a path whose last component is "." accepts the text as typed
+# instead of completing onto (and descending into) an entry.
+#
+# The case's temporary directory holds notes.txt and the "home" directory
+# the harness makes $HOME, so those two entries are the listing.  The
+# header line's absolute path is not predictable, and neither is the
+# entry count: the tmux backend keeps its socket in that directory too.
+name: dired-open-dot-answer
+filename: notes.txt
+backend: tmux
+initial: |
+  notes
+keys:
+  - C-x
+  - C-f
+  - "."
+  - RET
+# q leaves dired for notes.txt before the trailer saves; saving from the
+# read-only dired buffer would prompt for a filename instead.
+trailer_keys: [q, C-x, C-s, C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "  home/"
+  - "  notes.txt"

@@ -7,9 +7,12 @@
 #
 # C-b before RET is what makes the answer a directory: with point at the
 # end of the line RET takes the picker's selection and descends into it
-# instead of returning it, so leaving point short of the end is the only
-# deterministic way to answer with a directory (dired-listing.yaml names a
-# file inside the target instead, which only M-x dired accepts).
+# instead of returning it, so leaving point short of the end submits the
+# typed directory.  That is the behavior this case pins down; M-RET and an
+# answer ending in "/." are the two direct ways to submit a directory
+# (dired-open-meta-ret-prefill.yaml and dired-open-dot-answer.yaml), and
+# dired-listing.yaml names a file inside the target instead, which only
+# M-x dired accepts.
 name: dired-open-file-directory
 filename: notes.txt
 backend: tmux

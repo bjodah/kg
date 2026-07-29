@@ -104,10 +104,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
-  actual space key, `RET` for Enter, `C-?` for Backspace, and `C-q`
-  followed by the next token for quoted input. `Home`, `End`,
-  `C-Home`, `C-End`, `S-Home`, `S-End`, `Up`, and `Down` are named
-  tokens (sent as xterm tilde / modified tilde / cursor sequences).
+  actual space key, `RET` for Enter, `M-RET` for Meta-Enter (sent as
+  one ESC+CR token so the pair lands inside kg's escape window),
+  `C-?` for Backspace, and `C-q` followed by the next token for quoted
+  input. `Home`, `End`, `C-Home`, `C-End`, `S-Home`, `S-End`, `Up`,
+  and `Down` are named tokens (sent as xterm tilde / modified tilde /
+  cursor sequences).
   PageUp/PageDown have no named tokens; emit their escape bytes via
   `M-[` plus the letter/digit/`~` (e.g. `M-[`, `H` for Home on
   terminals that send `ESC[H`).

@@ -112,6 +112,10 @@ def token_to_bytes(token: str) -> bytes:
 		return b"\x1b"
 	if upper in ("RET", "ENTER"):
 		return b"\r"
+	# Sent as one token so the two bytes arrive together: kg gives an
+	# escape sequence 100 ms to complete, and a lone ESC cancels a prompt.
+	if upper in ("M-RET", "M-ENTER"):
+		return b"\x1b\r"
 	if upper == "TAB":
 		return b"\t"
 	if upper in ("SPC", "SPACE"):
@@ -211,6 +215,8 @@ def tmux_key_name(token: str) -> tuple[str, str]:
 		return ("key", "Escape")
 	if upper in ("RET", "ENTER"):
 		return ("key", "Enter")
+	if upper in ("M-RET", "M-ENTER"):
+		return ("key", "M-Enter")
 	if upper == "TAB":
 		return ("key", "Tab")
 	if upper in ("SPC", "SPACE"):

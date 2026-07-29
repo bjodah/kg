@@ -62,6 +62,8 @@ static const struct key_map alt_keys[] = {
 	{ 'z', ALT_Z },
 	{ 'p', ALT_P },
 	{ 'n', ALT_N },
+	{ '\r', ALT_ENTER },
+	{ '\n', ALT_ENTER },
 	{ '\x13', ALT_CTRL_S },
 	{ '\x12', ALT_CTRL_R },
 };

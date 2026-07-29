@@ -660,11 +660,12 @@ static void cmd_rebase_move_down(int fd)
 }
 
 /* Prompt for a directory and list it (M-x dired, C-x d).  The path
- * picker completes onto files as well as directories, and answering it
- * on a directory descends into it rather than returning it, so the
- * directory *containing* the answer is what a non-directory answer
- * means.  An answer that names nothing is passed through untouched so
- * the error names what was typed. */
+ * picker completes onto files as well as directories, and plain Enter on
+ * a directory descends into it rather than returning it (M-RET, or a
+ * trailing "." component, returns the text as typed), so the directory
+ * *containing* the answer is what a non-directory answer means.  An
+ * answer that names nothing is passed through untouched so the error
+ * names what was typed. */
 static void cmd_dired(int fd)
 {
 	char path[PATH_MAX];

@@ -1,0 +1,26 @@
+# M-RET is literal: it does not apply the completion the picker offers.
+# "note" is a strict prefix of the case's own notes.txt, so plain Enter
+# would complete onto notes.txt and switch back to the buffer already
+# visiting it; M-RET visits the new, empty file "note" instead.
+#
+# The mode line proves which one was opened: "note" with no ".txt", in
+# Fundamental mode (notes.txt would be Text), and empty, so the position
+# reads "All (1,0)".  notes.txt is never edited, so the saved file still
+# holds the initial text.
+name: path-prompt-meta-ret-literal
+filename: notes.txt
+backend: tmux
+initial: |
+  notes
+keys:
+  - C-x
+  - C-f
+  - "note"
+  - M-RET
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "----  note  All (1,0)  (Fundamental)"
+expected_screen_not_contains:
+  - "notes.txt  All"

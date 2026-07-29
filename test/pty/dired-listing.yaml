@@ -3,10 +3,13 @@
 # predictable, only its tail.
 #
 # "~/a.txt" rather than "~" as the answer: the path picker completes onto
-# files, and answering it on a directory descends into that directory
-# instead of returning it, so naming a file inside the target is the
-# deterministic way to ask for the target itself (cmd_dired reduces a
-# non-directory answer to the directory containing it).
+# files, and plain Enter on a directory descends into that directory
+# instead of returning it, so this names a file inside the target to ask
+# for the target itself (cmd_dired reduces a non-directory answer to the
+# directory containing it), which is the path this case pins down.
+# M-RET, and an answer ending in "/.", return the text as typed instead;
+# dired-open-meta-ret-prefill.yaml and dired-open-dot-answer.yaml cover
+# those.
 name: dired-listing
 filename: notes.txt
 backend: tmux

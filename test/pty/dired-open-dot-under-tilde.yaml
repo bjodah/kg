@@ -1,0 +1,35 @@
+# The "." is resolved against the directory the prompt names, not against
+# kg's working directory: C-a C-k clears the prefilled path, "~/sub/." is
+# tilde-expanded on the way out of the prompt, and the listing is $HOME/sub
+# rather than "." in the directory kg was started from.
+#
+# The case's HOME is a fresh temporary directory, so config_files plants
+# the tree that "~" names.  The header line's absolute path is not
+# predictable, only its tail.
+name: dired-open-dot-under-tilde
+filename: notes.txt
+backend: tmux
+config_files:
+  a.txt: alpha
+  sub/keep.txt: kept
+initial: |
+  notes
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/sub/."
+  - RET
+# q leaves dired for notes.txt before the trailer saves; saving from the
+# read-only dired buffer would prompt for a filename instead.
+trailer_keys: [q, C-x, C-s, C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "(Dired RO)"
+  - "/home/sub:"
+  - "  keep.txt"
+  - "1 entry"
+expected_screen_not_contains:
+  - "  a.txt"

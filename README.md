@@ -46,7 +46,11 @@ standard VT100 escape sequences.
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
 - M-x, C-x C-f, and C-x b all share an ido-style picker: substring
   matching, already-open files pushed to the back of the file picker;
-  M-x RET with nothing typed repeats the last M-x command
+  M-x RET with nothing typed repeats the last M-x command.  In the path
+  picker, `M-RET` submits the typed text literally instead of applying
+  the completion (an intentional deviation from Emacs), and so does
+  `RET` when the last component is `.` or `..`, so `C-x C-f . RET`
+  opens the prompt's directory in dired the way Emacs does
 - Detects external changes to open files; optional auto-revert
 - Shell commands (M-!) and pipe-region-through-command (M-|); a prefix
   argument inserts/replaces with the output instead of just displaying it;

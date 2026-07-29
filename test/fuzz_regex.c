@@ -4,6 +4,13 @@
  * Strategy: split the fuzz input into a pattern and a text, compile the
  * pattern, then match forward and backward against the text.  Regex
  * engines are historically rich bug-hunting ground.
+ *
+ * Tracked seed inputs live in test/fuzz-seeds/regex and are copied into
+ * the (gitignored) working corpus by `make fuzz-regex-seed`.  To hand-write
+ * one, note how the split below is derived: a first byte of 2*strlen(pattern)
+ * puts the split exactly at the pattern/text boundary with ICASE off, and
+ * 2*strlen(pattern)+1 does the same with ICASE on.  The text must not be
+ * empty, or the modulo folds the split back to zero.
  */
 #include "../src/regex.h"
 

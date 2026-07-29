@@ -16,7 +16,9 @@ coverage/
 __pycache__/
 test/fuzz_keypress
 test/fuzz-artifacts/
+# The working corpus is generated; the tracked seeds live in test/fuzz-seeds.
 test/fuzz-corpus/
+test/regex_differential
 *.elc
 repomix-output.*
 .repomixignore

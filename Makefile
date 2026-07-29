@@ -107,6 +107,11 @@ FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS)
+FUZZ_SEEDS_REGEX = $(TESTDIR)/fuzz-seeds/regex
+REGEX_DIFF_BIN = $(TESTDIR)/regex_differential
+REGEX_DIFF_CASES ?= 2000
+REGEX_DIFF_SEED ?= 20260729
+EMACS ?= emacs
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
@@ -232,9 +237,19 @@ fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS)
 
 fuzz-regex: $(FUZZBIN_REGEX)
 
-fuzz-regex-smoke: $(FUZZBIN_REGEX)
+# test/fuzz-corpus is gitignored, so a fresh checkout starts from nothing
+# unless the tracked seeds are copied in first.
+fuzz-regex-seed:
 	mkdir -p $(TESTDIR)/fuzz-corpus/regex
+	cp -f $(FUZZ_SEEDS_REGEX)/* $(TESTDIR)/fuzz-corpus/regex/
+
+fuzz-regex-smoke: $(FUZZBIN_REGEX) fuzz-regex-seed
 	./$(FUZZBIN_REGEX) -runs=50 $(TESTDIR)/fuzz-corpus/regex
+
+# Replay every tracked seed once, without mutation: a fast check that the
+# checked-in regression inputs still compile, run and stay clean.
+fuzz-regex-seed-replay: $(FUZZBIN_REGEX)
+	./$(FUZZBIN_REGEX) -runs=0 $(FUZZ_SEEDS_REGEX)/*
 
 fuzz-localvars: $(FUZZBIN_LOCALVARS)
 
@@ -243,6 +258,14 @@ fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS)
 	./$(FUZZBIN_LOCALVARS) -runs=50 $(TESTDIR)/fuzz-corpus/localvars
 
 fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
+
+# Randomised differential test against Emacs' own matcher.  Not part of
+# `check`: it needs emacs on PATH, and skips itself with a message when it
+# is missing.  Bump REGEX_DIFF_CASES to hunt, keep the default quick.
+check-regex-differential: $(REGEX_DIFF_BIN)
+	@python3 utils/regex_differential.py --driver $(REGEX_DIFF_BIN) \
+		--emacs $(EMACS) --cases $(REGEX_DIFF_CASES) \
+		--seed $(REGEX_DIFF_SEED)
 
 complexity:
 	$(SCC) --ci --by-file --sort complexity $(SCC_PATHS)
@@ -343,6 +366,11 @@ $(FUZZBIN_REGEX): $(TESTDIR)/fuzz_regex.c $(OBJDIR)/regex.c $(OBJDIR)/regex.h fe
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ \
 		$(TESTDIR)/fuzz_regex.c $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
 
+$(REGEX_DIFF_BIN): $(TESTDIR)/regex_differential.c $(OBJDIR)/regex.c $(OBJDIR)/regex.h fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
+	$(CC) $(CFLAGS) $(LDFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/regex_differential.c $(OBJDIR)/regex.c \
+		fe/tiny-regex-c/re.c
+
 $(FUZZBIN_LOCALVARS): $(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c
@@ -352,7 +380,7 @@ $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 
 clean:
 	rm -f $(OBJS) $(OBJDIR)/fe.o $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
-	      $(TESTBINS) $(FUZZBINS)
+	      $(TESTBINS) $(FUZZBINS) $(REGEX_DIFF_BIN)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)
@@ -376,6 +404,8 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check check-unit check-pty complexity complexity-check \
+.PHONY: all clean distclean check check-unit check-pty check-regex-differential \
+	complexity complexity-check \
 	pmccabe pmccabe-check coverage coverage-clean format format-check compile-db iwyu \
-	fuzz-keypress fuzz-keypress-smoke deb release install uninstall
+	fuzz-keypress fuzz-keypress-smoke fuzz-regex-seed fuzz-regex-seed-replay \
+	deb release install uninstall

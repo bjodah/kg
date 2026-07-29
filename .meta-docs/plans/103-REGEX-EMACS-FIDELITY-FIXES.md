@@ -231,3 +231,12 @@ Institutionalise the differential fuzzer rather than discarding it. It
 found P0-1 at a 0.37% hit rate, which no hand-written case would have
 reached. `test/fuzz_regex.c` already exists as a home for a corpus, and
 every pattern above belongs in it as a regression case.
+
+**Status: done.** The fuzzer is `make check-regex-differential`
+(`utils/regex_differential.py` generating cases for
+`test/regex_differential.c` and `utils/regex_oracle.el`), run in CI by
+`.ci/ci-10-regex-differential.sh`; every pattern above is a tracked seed
+in `test/fuzz-seeds/regex`, which `make fuzz-regex-seed` copies into the
+gitignored working corpus. Its first new find — the capture register
+after an empty final iteration of `\{n\}` — is written up in
+`doc/TODO.md`.

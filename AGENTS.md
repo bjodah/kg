@@ -22,13 +22,29 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`, CI default 8)
   sets how many. Use `--jobs 1` when debugging a case so its output is not
   interleaved with other work on the box.
+- `make check-regex-differential` compares kg's regex engine against
+  Emacs' own matcher on randomly generated patterns and subjects
+  (`utils/regex_differential.py` drives `test/regex_differential.c` and
+  `utils/regex_oracle.el`). Seeded, so a failure reproduces: it prints the
+  seed, and the offending pattern, subject and spans. `REGEX_DIFF_CASES`
+  (default 2000, ~0.2 s) and `REGEX_DIFF_SEED` are the knobs for hunting;
+  the target skips itself with a message when `emacs` is not on PATH. It
+  is not part of `make check`; CI runs it as `.ci/ci-10-*.sh`. Both sides
+  report BYTE offsets — Emacs reports character offsets natively and the
+  oracle converts, so do not remove that conversion.
+- Seed inputs for the regex fuzzer are tracked in `test/fuzz-seeds/regex`
+  and copied into the gitignored working corpus by `make fuzz-regex-seed`,
+  which `make fuzz-regex-smoke` depends on. `make fuzz-regex-seed-replay`
+  runs every tracked seed once without mutation. The input encoding is in
+  the header comment of `test/fuzz_regex.c`.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-09-*.sh`;
-  run one directly when iterating on a specific phase.
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-10-*.sh`;
+  run one directly when iterating on a specific phase. The step list is a
+  glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
 - CI parallelism is controlled with `JOBS` (default: `nproc`), e.g.
   `JOBS=8 .ci/run-ci-steps.sh`. Shared CI defaults live in
   `.ci/ci-env.sh`.
@@ -42,7 +58,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `nproc / 4` clamped to 2..6; each lane then builds with `nproc / lanes`
   jobs and the PTY suite gets a longer timeout, since several sanitizer
   lanes driving PTYs at once otherwise manufacture flaky timeouts. Six
-  lanes is enough to start every slow step at once: five of the nine steps
+  lanes is enough to start every slow step at once: five of the ten steps
   are ~99% PTY suite, which waits on terminal timing rather than cores.
 - `.ci/run-ci-steps.sh --status` reports what the runner in this tree is
   doing, or last did: per-step `PENDING`/`RUNNING`/`PASS`/`FAIL` with

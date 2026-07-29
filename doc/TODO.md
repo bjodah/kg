@@ -294,12 +294,28 @@ ordered by value vs implementation effort.
 
 - [ ] **Regex follow-ups from the Emacs-fidelity work** (see
       `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).
-      Institutionalise the differential fuzzer against the Emacs
-      oracle — it found the P0 span-overshoot at a 0.37% hit rate that
-      no hand-written case would have reached — and give the regex
-      fuzz corpus a tracked home (`test/fuzz-corpus/` is gitignored,
-      so seed inputs currently live only on the box that wrote them).
+      Both infrastructure halves are done: the differential fuzzer
+      against the Emacs oracle is now `make check-regex-differential`
+      (`utils/regex_differential.py`, `utils/regex_oracle.el`,
+      `test/regex_differential.c`), run in CI by
+      `.ci/ci-10-regex-differential.sh`; and the regex fuzz corpus has
+      a tracked home in `test/fuzz-seeds/regex`, copied into the
+      gitignored working corpus by `make fuzz-regex-seed`.  What is
+      left is the behaviour below.
       Known deliberate divergences that remain: `\w` `\d` `\s`, case
       folding and the POSIX classes are ASCII-only (Emacs' `\w`
       matches `å`); a quantifier on a quantifier (`a\{2\}\{2\}`) is
       valid in Emacs but never matches here.
+      One further divergence, found by the new differential target and
+      *not* deliberate: **the capture register after an empty final
+      iteration of an interval-quantified group**.  `\(x*\|a\)\{2\}b`
+      against `ab` gives group 1 as `1 1` here and `0 1` in Emacs — kg
+      records the empty last iteration, Emacs keeps the last iteration
+      that consumed anything.  Span 0 always agrees, so search and
+      whole-match replace are unaffected; only `\1`-style references
+      after a fixed-count repeat differ.  Needs the empty-matching
+      branch to come first (`\(a\|x*\)\{2\}b` agrees), and `*` and
+      `\{1,3\}` agree too, so it is specific to the mandatory
+      repetitions of `\{n\}`.  It surfaces at roughly 4 cases per
+      million, so the differential target's default budget does not
+      hit it; `--cases 200000 --seed 12` does.

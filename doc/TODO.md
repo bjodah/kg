@@ -284,3 +284,22 @@ ordered by value vs implementation effort.
       "new sentence, new line" warnings (e.g. around `M-a/M-e`'s
       `Mr.\&` and `e.g.\&`).  Cosmetic; mdoc convention says each
       sentence should begin on its own line.
+
+- [ ] **Multi-byte input in the minibuffer is broken**.  Typing `å`
+      into a `query-replace` prompt mangles the input and subsequent
+      keys self-insert.  Found while writing PTY cases for the regex
+      work, reproduced with plain literal query-replace, so it is a
+      kbd/minibuffer defect, not a regex one.  Until it is fixed,
+      multi-byte search patterns can only arrive via yank or Lisp.
+
+- [ ] **Regex follow-ups from the Emacs-fidelity work** (see
+      `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).
+      Institutionalise the differential fuzzer against the Emacs
+      oracle — it found the P0 span-overshoot at a 0.37% hit rate that
+      no hand-written case would have reached — and give the regex
+      fuzz corpus a tracked home (`test/fuzz-corpus/` is gitignored,
+      so seed inputs currently live only on the box that wrote them).
+      Known deliberate divergences that remain: `\w` `\d` `\s`, case
+      folding and the POSIX classes are ASCII-only (Emacs' `\w`
+      matches `å`); a quantifier on a quantifier (`a\{2\}\{2\}`) is
+      valid in Emacs but never matches here.

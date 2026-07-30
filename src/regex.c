@@ -34,42 +34,31 @@ int kg_utf8_forward_boundary(const char *text, int len, int requested)
 {
 	int start;
 
-	if (len < 0) {
-		len = 0;
-	}
-	if (!text || requested <= 0) {
+	if (requested <= 0) {
 		return 0;
 	}
 	if (requested >= len) {
 		return len;
 	}
 	start = utf8_glyph_start(text, len, requested);
-	if (start == requested) {
-		return requested;
-	}
 	/* utf8_glyph_start() only moves back for a glyph that really
 	 * covers `requested`, so its end is strictly past it. */
-	return start + utf8_glyph_span_at(text, len, start);
+	return start == requested
+	    ? requested
+	    : start + utf8_glyph_span_at(text, len, start);
 }
 
 int kg_regex_next_offset(const char *text, int len, const struct kg_span *match)
 {
-	int start, end;
+	int start = match->start;
+	int end = match->end;
 
-	if (!text || !match || len < 0) {
-		return -1;
-	}
-	start = match->start;
-	end = match->end;
-	if (start < 0 || end < start) {
-		return -1;
-	}
 	if (end > start) {
 		return end > len ? len : end;
 	}
 	/* An empty match consumed nothing, so the scan has to step over a
 	 * whole glyph itself; at the end of the subject there is none. */
-	if (start >= len) {
+	if (start < 0 || start >= len) {
 		return -1;
 	}
 	return start + utf8_glyph_span_at(text, len, start);

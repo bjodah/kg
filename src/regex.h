@@ -49,7 +49,8 @@ struct kg_regex {
 
 /* First glyph boundary at or after `requested`, clamped to [0, len].  A
  * stray continuation byte is a one-byte glyph, as in utf8_glyph_span_at().
- * Monotone, idempotent, and never below its argument. */
+ * Monotone, idempotent, and never below its argument.  `text` holds at
+ * least `len` bytes; `requested` may be anything. */
 int kg_utf8_forward_boundary(const char *text, int len, int requested);
 
 /* Offset at which to resume scanning after `match`: its end when it

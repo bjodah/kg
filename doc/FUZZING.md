@@ -66,6 +66,30 @@ make fuzz-keypress
 make fuzz-keypress-smoke
 ```
 
+### Seeding it with hostile terminal input
+
+The keypress fuzzer feeds raw bytes through the real key decoder, so it is
+also the cheapest way to attack the terminal trust boundary.  Two families
+are worth having in the corpus, because neither is reachable by typing:
+
+- **Sequences kg must never echo.**  A buffer or a prompt that ends up
+  holding `ESC [ 2J`, `ESC ] 0 ; x BEL`, OSC 52 (clipboard), a
+  string-terminator-framed OSC, or a raw C1 introducer (`0x9B` for CSI,
+  `0x9D` for OSC, `0x90` for DCS).  Nothing kg draws may contain these
+  bytes: everything untrusted goes through `display_glyph_at()`, which
+  spells them `^[`, `^G` and `\xnn`.  A frame containing a raw ESC that
+  the renderer did not emit itself is the bug.
+- **Byte sequences that are not characters.**  Truncated leads (`E2`
+  alone, `F0 9F`), overlong forms (`C0 80`), leads no sequence starts with
+  (`C0`, `C1`, `F5`..`FF`), stray continuation bytes, and a malformed lead
+  immediately followed by an ordinary key — that last one is what
+  `editor_read_utf8_seq()` used to swallow.
+
+`test/pty/terminal-escape-*.yaml` and
+`test/pty/malformed-utf8-keeps-next-key.yaml` are the confirmation-bar
+versions of both families; a PTY case can send one raw byte with the
+`BYTE=e2` key token.
+
 Run a longer campaign with a corpus directory:
 
 ```bash

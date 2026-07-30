@@ -161,6 +161,31 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 	return 0;
 }
 
+/* What one answer to the "(y/n/!/q)" question means.  Emacs takes y,
+ * Space and Enter as yes, "!" as yes to this match and every one after
+ * it, q, Esc and C-g as stop, and anything else -- n included -- as skip
+ * this one. */
+enum replace_answer {
+	REPLACE_SKIP,
+	REPLACE_DO,
+	REPLACE_ALL,
+	REPLACE_STOP,
+};
+
+static enum replace_answer query_replace_answer(int c)
+{
+	if (c == ESC || c == CTRL_G || c == 'q') {
+		return REPLACE_STOP;
+	}
+	if (c == '!') {
+		return REPLACE_ALL;
+	}
+	if (c == 'y' || c == ENTER || c == ' ') {
+		return REPLACE_DO;
+	}
+	return REPLACE_SKIP;
+}
+
 static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 {
 	erow *row = &editor.row[rowidx];
@@ -234,27 +259,24 @@ static void editor_query_replace_newline(
 	/* The newline ending row R is inside the region only while R is above
 	 * the last region row. */
 	while (filerow < end_row && filerow < editor.numrows - 1) {
-		int c;
+		enum replace_answer answer = REPLACE_DO;
 
 		editor_cursor_goto(filerow, editor.row[filerow].size);
 		if (!replace_all) {
 			editor_set_status_message(
 			    "Replace \"^J\" with \"%s\"? (y/n/!/q)", replace);
 			editor_refresh_screen();
-			c = editor_read_key(fd);
-		} else {
-			c = 'y';
+			answer = query_replace_answer(editor_read_key(fd));
 		}
 
-		if (c == ESC || c == CTRL_G || c == 'q') {
+		if (answer == REPLACE_STOP) {
 			break;
 		}
-		if (c == '!') {
+		if (answer == REPLACE_ALL) {
 			replace_all = 1;
-			c = 'y';
 		}
 
-		if (c == 'y' || c == ENTER || c == ' ') {
+		if (answer != REPLACE_SKIP) {
 			query_replace_newline_at(filerow, replace, rlen);
 			/* The join pulled the next row up, so the last region
 			 * row moved with it. */
@@ -661,7 +683,7 @@ void editor_query_replace(int fd)
 	while (filerow <= end_row && filerow < editor.numrows) {
 		char *match = case_strstr(
 		    editor.row[filerow].chars + match_col, search, fold);
-		int c;
+		enum replace_answer answer = REPLACE_DO;
 
 		if (!match) {
 			filerow++;
@@ -695,20 +717,17 @@ void editor_query_replace(int fd)
 			    "Query replace %s \"%s\" with \"%s\"? (y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, replace);
 			editor_refresh_screen();
-			c = editor_read_key(fd);
-		} else {
-			c = 'y';
+			answer = query_replace_answer(editor_read_key(fd));
 		}
 
-		if (c == ESC || c == CTRL_G || c == 'q') {
+		if (answer == REPLACE_STOP) {
 			break;
 		}
-		if (c == '!') {
+		if (answer == REPLACE_ALL) {
 			replace_all = 1;
-			c = 'y';
 		}
 
-		if (c == 'y' || c == ENTER || c == ' ') {
+		if (answer != REPLACE_SKIP) {
 			/* Restore the snapshot while it still matches this
 			 * row's render size.  A length-changing replacement
 			 * regenerates hl, so restoring later would use the old
@@ -874,9 +893,9 @@ void editor_query_replace_regexp(int fd)
 	while (filerow <= end_row && filerow < editor.numrows && running) {
 		erow *row = &editor.row[filerow];
 		struct kg_match match_res;
+		enum replace_answer answer = REPLACE_DO;
 		int left = row->size - match_col;
 		int status;
-		int c;
 
 		/* Emacs' replace loop ends as soon as point reaches the end of
 		 * the region -- the end of the buffer when there is none -- so
@@ -959,30 +978,26 @@ void editor_query_replace_regexp(int fd)
 			    "(y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, expanded);
 			editor_refresh_screen();
-			c = editor_read_key(fd);
-		} else {
+			answer = query_replace_answer(editor_read_key(fd));
+		} else if (++since_poll >= 256) {
 			/* "!" answers for the user, so nothing here ever reads
 			 * a key: poll for C-g now and then, or a replacement
 			 * over a large region cannot be stopped. */
-			c = 'y';
-			if (++since_poll >= 256) {
-				since_poll = 0;
-				if (editor_check_quit_pending()) {
-					c = CTRL_G;
-				}
+			since_poll = 0;
+			if (editor_check_quit_pending()) {
+				answer = REPLACE_STOP;
 			}
 		}
 
-		if (c == ESC || c == CTRL_G || c == 'q') {
+		if (answer == REPLACE_STOP) {
 			free(expanded);
 			break;
 		}
-		if (c == '!') {
+		if (answer == REPLACE_ALL) {
 			replace_all = 1;
-			c = 'y';
 		}
 
-		if (c == 'y' || c == ENTER || c == ' ') {
+		if (answer != REPLACE_SKIP) {
 			RESTORE_HL;
 			if (!editor_row_replace_range(filerow, match_start,
 				match_len, expanded, expanded_len)) {

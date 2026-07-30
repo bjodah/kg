@@ -1028,6 +1028,7 @@ void editor_yank(void);
 void editor_sort_lines(void);
 
 /* undo.c */
+void undo_stack_init(struct undo_stack *st);
 void undo_init(void);
 void undo_free(void);
 int undo_push(

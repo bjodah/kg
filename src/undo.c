@@ -7,16 +7,23 @@
 #include "localvars.h"
 
 /* Global undo stack */
-struct undo_stack undostack = { NULL, 0, MAX_UNDO_SIZE, -1 };
+struct undo_stack undostack = { NULL, 0, MAX_UNDO_SIZE, 0 };
 
-/* Initialize the undo stack */
-void undo_init(void)
+/* Initialize an undo stack.  clean_size starts at 0, not -1: a stack is
+ * only ever initialized for a buffer that is at its saved state (freshly
+ * loaded, freshly created, or rebuilt from scratch), so popping back to
+ * zero records is popping back to that state.  Both the global stack and
+ * the per-buffer ones in buflist[] go through here so they cannot
+ * disagree about what an empty history means. */
+void undo_stack_init(struct undo_stack *st)
 {
-	undostack.head = NULL;
-	undostack.size = 0;
-	undostack.max_size = MAX_UNDO_SIZE;
-	undostack.clean_size = -1; /* -1 means never saved clean */
+	st->head = NULL;
+	st->size = 0;
+	st->max_size = MAX_UNDO_SIZE;
+	st->clean_size = 0;
 }
+
+void undo_init(void) { undo_stack_init(&undostack); }
 
 /* Free the entire undo stack */
 void undo_free(void)
@@ -33,6 +40,9 @@ void undo_free(void)
 	}
 	undostack.head = NULL;
 	undostack.size = 0;
+	/* The records that led back to the saved state are gone, so no
+	 * amount of undoing reaches it; -1 is "unreachable". */
+	undostack.clean_size = -1;
 }
 
 /* Push an undo operation onto the stack */
@@ -95,6 +105,13 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 		/* Free the rest */
 		if (prev) {
 			prev->next = NULL;
+			/* clean_size counts records down to the saved
+			 * state, so it only means anything while the
+			 * bottom-most ones are still here.  Eviction takes
+			 * them from exactly that end, and only ever after a
+			 * later edit was pushed, so the checkpoint is now
+			 * unreachable rather than merely renumbered. */
+			undostack.clean_size = -1;
 			while (curr) {
 				struct undo_op *next = curr->next;
 				if (curr->text) {

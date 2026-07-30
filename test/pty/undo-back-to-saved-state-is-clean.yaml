@@ -1,0 +1,20 @@
+# A buffer is modified only while its text differs from the saved state,
+# so undoing the one edit made since the file was read puts the mode
+# line's "-**-" back to "----".  This is what makes C-x C-c quit without
+# a prompt, and it is the property the undo stack's clean checkpoint
+# exists to answer.
+name: undo-back-to-saved-state-is-clean
+filename: undo-clean.txt
+backend: tmux
+dimensions: [12, 40]
+initial: |
+  abc
+keys:
+  - 'X'
+  - C-_
+expected_saved: |
+  abc
+expected_screen_contains:
+  - "----  undo-clean.txt"
+expected_screen_not_contains:
+  - "-**-"

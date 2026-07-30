@@ -401,6 +401,81 @@ static void test_dirty_tracking(void)
 	teardown();
 }
 
+/* A fresh stack says "the state you are in is the saved one", so undoing
+ * the only edit made since makes the buffer unmodified again — the same
+ * answer Emacs gives, and the same one buf_reset_slot() gives a new
+ * buffer slot. */
+static void test_undo_stack_init_starts_clean(void)
+{
+	struct undo_stack st;
+
+	memset(&st, 0xFF, sizeof(st));
+	undo_stack_init(&st);
+	CHECK(st.head == NULL);
+	CHECK(st.size == 0);
+	CHECK(st.max_size == MAX_UNDO_SIZE);
+	CHECK(st.clean_size == 0);
+
+	setup();
+	CHECK(undostack.clean_size == 0);
+	teardown();
+}
+
+static void test_undo_back_to_load_state_is_clean(void)
+{
+	setup();
+	editor_insert_row(0, "hi", 2);
+	editor.dirty = 0;
+
+	editor_insert_char('!');
+	CHECK(editor.dirty != 0);
+
+	editor_undo();
+	CHECK(editor.dirty == 0);
+	teardown();
+}
+
+/* Evicting the oldest record breaks the only thing clean_size means —
+ * "pop down to this many records and you are at the saved state" — so the
+ * checkpoint has to go with it. */
+static void test_undo_eviction_invalidates_clean_checkpoint(void)
+{
+	setup();
+	undostack.max_size = 4;
+	editor_insert_row(0, "", 0);
+	editor.dirty = 0;
+
+	editor_insert_char('A');
+	undo_mark_clean(); /* clean_size = 1: the file holds "A" */
+	editor_insert_char('B');
+	editor_insert_char('C');
+	editor_insert_char('D');
+	editor_insert_char('E'); /* pushes the 'A' record off the tail */
+	CHECK(undostack.size < 5);
+	CHECK(editor.row[0].size == 5);
+
+	editor_undo();
+	editor_undo(); /* back to "ABC", which was never saved */
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "ABC", 3) == 0);
+	CHECK(editor.dirty != 0);
+	teardown();
+}
+
+/* Dropping the history drops the checkpoint: nothing on the stack can
+ * take the buffer back to the saved state any more. */
+static void test_undo_free_clears_clean_checkpoint(void)
+{
+	setup();
+	editor_insert_row(0, "hi", 2);
+	editor_insert_char('!');
+	undo_mark_clean();
+
+	undo_free();
+	CHECK(undostack.clean_size == -1);
+	teardown();
+}
+
 /* Undoing on an empty stack is a safe no-op. */
 static void test_nothing_to_undo(void)
 {
@@ -741,6 +816,10 @@ int main(void)
 	RUN(test_yank_text_len_only);
 	RUN(test_reflow_para);
 	RUN(test_dirty_tracking);
+	RUN(test_undo_stack_init_starts_clean);
+	RUN(test_undo_back_to_load_state_is_clean);
+	RUN(test_undo_eviction_invalidates_clean_checkpoint);
+	RUN(test_undo_free_clears_clean_checkpoint);
 	RUN(test_nothing_to_undo);
 	RUN(test_word_case_two_records);
 	RUN(test_delete_text_range_single_row);

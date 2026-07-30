@@ -1770,8 +1770,7 @@ static void buf_reset_slot(int slot)
 	struct editor_buffer *b = &buflist[slot];
 	memset(b, 0, sizeof(*b));
 	b->readonly_override = -1;
-	b->undostack.max_size = MAX_UNDO_SIZE;
-	b->undostack.clean_size = 0;
+	undo_stack_init(&b->undostack);
 	b->active = 1;
 }
 

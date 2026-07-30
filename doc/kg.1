@@ -803,7 +803,11 @@ for a literal backslash.
 .Pp
 Undo history is per-buffer.
 Each buffer keeps up to 1000 operations.
-The buffer is marked unmodified when undo returns to the last-saved state.
+The buffer is marked unmodified when undo returns to the last-saved state,
+or to the state the buffer was opened at.
+Beyond 1000 operations the oldest ones are discarded, and the saved state
+goes out of reach with them: the buffer then stays modified until it is
+saved again.
 .Ss File and Buffer Commands
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action

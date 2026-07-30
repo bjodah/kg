@@ -630,8 +630,8 @@ void editor_refresh_screen(void)
 			    e - s, DISPLAY_STATUS_TEXT);
 			ab_append(&ab, "\x1b[22m", 5);
 		}
-		ab_append_terminal_text(&ab, editor.statusmsg + e, fit - e,
-		    DISPLAY_STATUS_TEXT);
+		ab_append_terminal_text(
+		    &ab, editor.statusmsg + e, fit - e, DISPLAY_STATUS_TEXT);
 		ab_append(&ab, "\x1b[0m", 4); /* close any open attribute */
 	}
 

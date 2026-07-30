@@ -1,6 +1,5 @@
 /* ============================ Autocompletion ============================= */
 
-#include <ctype.h>
 #include <string.h>
 
 #include "def.h"

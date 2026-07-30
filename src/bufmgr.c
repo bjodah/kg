@@ -1002,7 +1002,7 @@ void editor_picker_emphasise(
 {
 	editor_set_status_emphasis(sel_off,
 	    (sel_off >= 0 && sel >= 0 && sel < n) ? (int)strlen(names[sel])
-						 : 0);
+						  : 0);
 }
 
 /* Does the typed path end in a "." or ".." component?  Emacs answers such
@@ -1394,8 +1394,7 @@ void buf_select_interactive(int fd)
 			sel_off = editor_picker_render(msg, sizeof(msg), &off,
 			    names, matches, matches, sel);
 			editor_set_status_message("%s", msg);
-			editor_picker_emphasise(
-			    sel_off, names, matches, sel);
+			editor_picker_emphasise(sel_off, names, matches, sel);
 			editor.echo_cursor_col
 			    = prompt_cursor_col(prompt, plen, query, qlen);
 			editor_refresh_screen();

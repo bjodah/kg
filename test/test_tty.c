@@ -262,7 +262,7 @@ static void test_malformed_utf8_keeps_the_following_key(void)
 
 	/* Two malformed leads back to back: the second lead is itself the
 	 * byte rescued from the first. */
-	CHECK(write(fds[1], "\xe3" "A", 2) == 2);
+	CHECK(write(fds[1], "\xe3\x41", 2) == 2);
 	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
 	CHECK(editor_read_key(fds[0]) == 0xE3);
 	CHECK(editor_read_utf8_seq(fds[0], 0xE3, seq) == 0);

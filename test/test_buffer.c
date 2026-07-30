@@ -428,9 +428,99 @@ static void test_codepoint_width_classes(void)
 	CHECK(kg_codepoint_width(0x309A) == 0); /* combining, though EAW=W */
 	CHECK(kg_codepoint_width(0xE0101) == 0); /* variation selector supp. */
 
-	/* Control bytes stay one cell: the renderer substitutes one symbol. */
+	/* This table is the Unicode width of a character printed as itself;
+	 * display_glyph_at() owns what a control byte costs instead. */
 	CHECK(kg_codepoint_width(0x00) == 1);
 	CHECK(kg_codepoint_width(0x1B) == 1);
+}
+
+/* Assert the spelling display_glyph_at() gives the glyph at buf[0]. */
+static void check_glyph(const char *buf, int len, const char *want, int span)
+{
+	struct display_glyph g;
+	int wlen = (int)strlen(want);
+
+	display_glyph_at(buf, len, 0, &g);
+	CHECK(g.span == span);
+	CHECK(g.len == wlen);
+	CHECK(g.width == wlen || g.bytes != g.esc);
+	if (g.len == wlen) {
+		CHECK(memcmp(g.bytes, want, (size_t)wlen) == 0);
+	}
+}
+
+/* Every byte that could become terminal syntax gets one visible
+ * spelling, and valid text passes through untouched. */
+static void test_display_glyph_spells_out_control_bytes(void)
+{
+	int b;
+
+	/* Printable ASCII is itself. */
+	check_glyph("a", 1, "a", 1);
+	check_glyph(" ", 1, " ", 1);
+	check_glyph("~", 1, "~", 1);
+
+	/* C0 controls and DEL read as caret notation. */
+	check_glyph("\x00", 1, "^@", 1);
+	check_glyph("\x07", 1, "^G", 1); /* BEL */
+	check_glyph("\x09", 1, "^I", 1);
+	check_glyph("\x1b", 1, "^[", 1); /* ESC */
+	check_glyph("\x1f", 1, "^_", 1);
+	check_glyph("\x7f", 1, "^?", 1);
+
+	/* Valid UTF-8 of every length is byte-identical. */
+	check_glyph("\xC3\xA9", 2, "\xC3\xA9", 2); /* é */
+	check_glyph("\xE6\xBC\xA2", 3, "\xE6\xBC\xA2", 3); /* 漢 */
+	check_glyph("\xF0\x9F\x98\x80", 4, "\xF0\x9F\x98\x80", 4); /* 😀 */
+
+	/* C1 controls: an 8-bit terminal reads 0x9B as CSI and 0x9D as OSC,
+	 * whether they arrive raw or properly encoded. */
+	check_glyph("\xC2\x9B", 2, "\\x9b", 2);
+	check_glyph("\x9b", 1, "\\x9b", 1);
+	check_glyph("\xC2\x80", 2, "\\x80", 2);
+
+	/* Malformed UTF-8 is spelled out one byte at a time: a truncated
+	 * lead, an overlong form, a lead no sequence starts with, and a
+	 * stray continuation byte. */
+	check_glyph("\xE2", 1, "\\xe2", 1);
+	check_glyph("\xE2\x41", 2, "\\xe2", 1);
+	check_glyph("\xC0\x80", 2, "\\xc0", 1);
+	check_glyph("\xF5\x80\x80\x80", 4, "\\xf5", 1);
+	check_glyph("\xBF", 1, "\\xbf", 1);
+
+	/* A surrogate is well-formed as far as kg's helpers go, so it stays
+	 * one three-byte glyph rather than three escapes. */
+	check_glyph("\xED\xA0\x80", 3, "\xED\xA0\x80", 3);
+
+	/* No lone byte, whatever its value, produces anything the terminal
+	 * could read as syntax: every emitted byte is printable ASCII. */
+	for (b = 0; b <= 0xFF; b++) {
+		char in = (char)b;
+		struct display_glyph g;
+		int i;
+
+		display_glyph_at(&in, 1, 0, &g);
+		CHECK(g.len > 0 && g.span == 1);
+		for (i = 0; i < g.len; i++) {
+			CHECK(g.bytes[i] >= 0x20 && g.bytes[i] <= 0x7e);
+		}
+	}
+}
+
+/* The escaped spelling is what the terminal draws, so it is also what
+ * the column arithmetic has to charge. */
+static void test_display_width_matches_the_spelling(void)
+{
+	CHECK(utf8_width_at("\x1b", 1, 0) == 2); /* ^[ */
+	CHECK(utf8_width_at("\x7f", 1, 0) == 2); /* ^? */
+	CHECK(utf8_width_at("\xC2\x9B", 2, 0) == 4); /* \x9b */
+	CHECK(utf8_width_at("\xC2\x9B", 2, 1) == 0); /* its continuation */
+	CHECK(utf8_width_at("\x9b", 1, 0) == 4); /* stray, so its own glyph */
+
+	/* Summing per byte still measures a run: the truncated lead and the
+	 * orphaned continuation each pay for their own escape. */
+	CHECK(utf8_display_width("\xE6\xBC", 2) == 8);
+	CHECK(utf8_display_width("a\x1b[7m", 5) == 6);
 }
 
 /* utf8_width_at() charges the whole glyph to its lead byte so that a
@@ -455,9 +545,10 @@ static void test_utf8_width_at_charges_lead_byte(void)
 	}
 	CHECK(total == 3);
 
-	/* A truncated sequence decodes to its raw lead byte and keeps the
-	 * one-column-per-byte fallback, never a wide glyph. */
-	CHECK(utf8_width_at("\xE6\xBC", 2, 0) == 1);
+	/* A truncated sequence decodes to its raw lead byte, which is
+	 * malformed input and costs the four cells of its "\xnn" spelling,
+	 * never a wide glyph. */
+	CHECK(utf8_width_at("\xE6\xBC", 2, 0) == 4);
 }
 
 static void test_utf8_codepoint_at_decodes_all_lengths(void)
@@ -1500,6 +1591,8 @@ int main(void)
 	RUN(test_chars_col_inside_tab);
 	RUN(test_chars_col_past_eol);
 	RUN(test_codepoint_width_classes);
+	RUN(test_display_glyph_spells_out_control_bytes);
+	RUN(test_display_width_matches_the_spelling);
 	RUN(test_utf8_width_at_charges_lead_byte);
 	RUN(test_utf8_codepoint_at_decodes_all_lengths);
 	RUN(test_visual_col_double_width);

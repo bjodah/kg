@@ -928,6 +928,24 @@ uint32_t utf8_codepoint_at(const char *buf, int len, int start, int *span);
 int utf8_width_at(const char *buf, int len, int start);
 int utf8_display_width(const char *buf, int len);
 
+/* Longest visible spelling display_glyph_at() produces ("\xnn"), with
+ * one byte to spare so callers may NUL-terminate it. */
+#define KG_DISPLAY_ESCAPE_MAX 5
+
+/* One glyph of text as the renderer draws it.  `bytes`/`len` is what
+ * goes to the terminal, `span` how many source bytes it stood for, and
+ * `width` how many cells it occupies. */
+struct display_glyph {
+	const char *bytes;
+	int len;
+	int span;
+	int width;
+	char esc[KG_DISPLAY_ESCAPE_MAX];
+};
+
+void display_glyph_at(
+    const char *buf, int len, int start, struct display_glyph *g);
+
 /* word.c */
 void editor_move_word_forward(void);
 void editor_move_word_backward(void);

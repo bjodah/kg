@@ -240,8 +240,9 @@ static bool cp_in_ranges(const struct cp_range *table, int count, uint32_t cp)
 
 /* Terminal cells occupied by `cp`: 0 for combining marks and invisible
  * format controls, 2 for East-Asian-Wide and Fullwidth, 1 otherwise.
- * Control characters count as one because kg's renderer substitutes a
- * single visible symbol for them (HL_NONPRINT). */
+ * This is the Unicode width of a character kg prints as itself; control
+ * characters never reach the terminal as themselves, so their width is
+ * the width of the spelling display_glyph_at() substitutes instead. */
 int kg_codepoint_width(uint32_t cp)
 {
 	if (cp < KG_WIDTH_TABLE_MIN) {
@@ -283,17 +284,99 @@ uint32_t utf8_codepoint_at(const char *buf, int len, int start, int *span)
 	return cp;
 }
 
+/* Visible spelling for a glyph the terminal must never receive as
+ * itself.  `cp` is the decoded scalar and `span` the source bytes it
+ * came from, so a span of 1 with cp >= 0x80 means a malformed byte
+ * rather than a character.  Writes the spelling into out[] and returns
+ * its length, or 0 when the glyph is safe to pass through.
+ *
+ * C0 controls and DEL get Emacs' caret notation.  The C1 controls — an
+ * 8-bit terminal reads 0x9B as CSI and 0x9D as OSC — and malformed bytes
+ * get "\xnn", which no terminal can mistake for syntax.  Both spellings
+ * are printable ASCII, so their byte count is also their cell count. */
+static int escape_glyph(uint32_t cp, int span, char *out)
+{
+	static const char hex[] = "0123456789abcdef";
+
+	if (cp < 0x20 || cp == 0x7F) {
+		out[0] = '^';
+		out[1] = (char)(cp == 0x7F ? '?' : '@' + (int)cp);
+		return 2;
+	}
+	if (cp >= 0x80 && (cp <= 0x9F || span == 1)) {
+		out[0] = '\\';
+		out[1] = 'x';
+		out[2] = hex[(cp >> 4) & 0xF];
+		out[3] = hex[cp & 0xF];
+		return 4;
+	}
+	return 0;
+}
+
+/* How the glyph starting at buf[start] is drawn: either the source bytes
+ * themselves, or the visible spelling substituted for a byte that must
+ * not reach the terminal as itself.  This is the one place that decides
+ * both, so the renderer and every column measurement agree.  Callers
+ * pass 0 <= start < len. */
+void display_glyph_at(
+    const char *buf, int len, int start, struct display_glyph *g)
+{
+	uint32_t cp;
+	int n;
+
+	g->span = utf8_glyph_span_at(buf, len, start);
+	if (start < 0 || start >= len) {
+		g->bytes = g->esc;
+		g->len = 0;
+		g->width = 0;
+		return;
+	}
+	cp = utf8_codepoint_at(buf, len, start, NULL);
+	n = escape_glyph(cp, g->span, g->esc);
+	if (n > 0) {
+		g->bytes = g->esc;
+		g->len = n;
+		g->width = n;
+		return;
+	}
+	g->bytes = buf + start;
+	g->len = g->span;
+	g->width = kg_codepoint_width(cp);
+}
+
+/* Is the continuation byte at buf[start] part of the valid glyph that
+ * starts before it?  Such a byte draws nothing of its own; a stray one
+ * is malformed input that gets its own visible spelling, and so its own
+ * width. */
+static int utf8_cont_is_covered(const char *buf, int len, int start)
+{
+	int k;
+
+	for (k = 1; k <= 3 && start - k >= 0; k++) {
+		if (!utf8_is_cont((unsigned char)buf[start - k])) {
+			return utf8_glyph_span_at(buf, len, start - k) > k;
+		}
+	}
+	return 0;
+}
+
 /* Cells occupied by the glyph whose first byte is buf[start].  A
  * continuation byte contributes nothing, so the idiomatic
  * "for each byte: vcol += utf8_width_at(...)" loop measures a run of
  * bytes in display columns without a separate glyph-boundary test. */
 int utf8_width_at(const char *buf, int len, int start)
 {
-	if (start < 0 || start >= len
-	    || utf8_is_cont((unsigned char)buf[start])) {
+	struct display_glyph g;
+
+	if (start < 0 || start >= len) {
 		return 0;
 	}
-	return kg_codepoint_width(utf8_codepoint_at(buf, len, start, NULL));
+	if (utf8_is_cont((unsigned char)buf[start])
+	    && utf8_cont_is_covered(buf, len, start)) {
+		return 0;
+	}
+	display_glyph_at(buf, len, start, &g);
+	return g.width;
 }
 
 /* Cells occupied by the first `len` bytes of `buf`.  Continuation bytes

@@ -109,6 +109,12 @@ FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS)
 FUZZ_SEEDS_REGEX = $(TESTDIR)/fuzz-seeds/regex
+# Crash, OOM and timeout inputs libFuzzer saves.  Without a prefix it
+# writes them into the working directory, where they are neither ignored
+# nor obviously related to a fuzz run; test/fuzz-artifacts/ is already
+# gitignored.  The trailing slash is what makes libFuzzer treat the value
+# as a directory, and the directory has to exist first.
+FUZZ_ARTIFACTS = $(TESTDIR)/fuzz-artifacts
 REGEX_DIFF_BIN = $(TESTDIR)/regex_differential
 REGEX_DIFF_CASES ?= 2000
 REGEX_DIFF_SEED ?= 20260729
@@ -251,14 +257,18 @@ check-pty: $(TARGET) $(PTY_TESTS)
 fuzz-keypress: $(FUZZBIN)
 
 fuzz-keypress-smoke: $(FUZZBIN)
-	mkdir -p $(TESTDIR)/fuzz-corpus/keypress
-	./$(FUZZBIN) -runs=1000 $(TESTDIR)/fuzz-corpus/keypress
+	mkdir -p $(TESTDIR)/fuzz-corpus/keypress $(FUZZ_ARTIFACTS)/keypress
+	./$(FUZZBIN) -runs=1000 \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/keypress/ \
+		$(TESTDIR)/fuzz-corpus/keypress
 
 fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
 
 fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS)
-	mkdir -p $(TESTDIR)/fuzz-corpus/dirlocals
-	./$(FUZZBIN_DIRLOCALS) -runs=50 $(TESTDIR)/fuzz-corpus/dirlocals
+	mkdir -p $(TESTDIR)/fuzz-corpus/dirlocals $(FUZZ_ARTIFACTS)/dirlocals
+	./$(FUZZBIN_DIRLOCALS) -runs=50 \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/dirlocals/ \
+		$(TESTDIR)/fuzz-corpus/dirlocals
 
 fuzz-regex: $(FUZZBIN_REGEX)
 
@@ -269,18 +279,26 @@ fuzz-regex-seed:
 	cp -f $(FUZZ_SEEDS_REGEX)/* $(TESTDIR)/fuzz-corpus/regex/
 
 fuzz-regex-smoke: $(FUZZBIN_REGEX) fuzz-regex-seed
-	./$(FUZZBIN_REGEX) -runs=50 $(TESTDIR)/fuzz-corpus/regex
+	mkdir -p $(FUZZ_ARTIFACTS)/regex
+	./$(FUZZBIN_REGEX) -runs=50 \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/regex/ \
+		$(TESTDIR)/fuzz-corpus/regex
 
 # Replay every tracked seed once, without mutation: a fast check that the
 # checked-in regression inputs still compile, run and stay clean.
 fuzz-regex-seed-replay: $(FUZZBIN_REGEX)
-	./$(FUZZBIN_REGEX) -runs=0 $(FUZZ_SEEDS_REGEX)/*
+	mkdir -p $(FUZZ_ARTIFACTS)/regex
+	./$(FUZZBIN_REGEX) -runs=0 \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/regex/ \
+		$(FUZZ_SEEDS_REGEX)/*
 
 fuzz-localvars: $(FUZZBIN_LOCALVARS)
 
 fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS)
-	mkdir -p $(TESTDIR)/fuzz-corpus/localvars
-	./$(FUZZBIN_LOCALVARS) -runs=50 $(TESTDIR)/fuzz-corpus/localvars
+	mkdir -p $(TESTDIR)/fuzz-corpus/localvars $(FUZZ_ARTIFACTS)/localvars
+	./$(FUZZBIN_LOCALVARS) -runs=50 \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/localvars/ \
+		$(TESTDIR)/fuzz-corpus/localvars
 
 fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
 

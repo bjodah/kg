@@ -69,15 +69,20 @@ make fuzz-keypress-smoke
 Run a longer campaign with a corpus directory:
 
 ```bash
-mkdir -p test/fuzz-corpus/keypress
-./test/fuzz_keypress test/fuzz-corpus/keypress
+mkdir -p test/fuzz-corpus/keypress test/fuzz-artifacts/keypress
+./test/fuzz_keypress -artifact_prefix=test/fuzz-artifacts/keypress/ \
+	test/fuzz-corpus/keypress
 ```
 
-libFuzzer will leave a reproducer file behind when it finds a crash.  Replay
-that input directly:
+libFuzzer will leave a reproducer file behind when it finds a crash, an OOM
+or a timeout.  Without `-artifact_prefix` it drops that file in the working
+directory, where it is untracked and unignored; the `fuzz-*-smoke` targets
+pass the prefix above, and `test/fuzz-artifacts/` is gitignored.  Note the
+trailing slash — it is what makes libFuzzer treat the value as a directory
+— and create the directory first.  Replay the input directly:
 
 ```bash
-./test/fuzz_keypress crash-*
+./test/fuzz_keypress test/fuzz-artifacts/keypress/crash-*
 ```
 
 When triaging a crash file:

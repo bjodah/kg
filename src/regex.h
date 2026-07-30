@@ -26,7 +26,8 @@
 #define KG_REGEX_OK 0
 #define KG_REGEX_NOMATCH 1
 #define KG_REGEX_BADPAT 2
-#define KG_REGEX_TOODEEP 3
+#define KG_REGEX_TOODEEP 3 /* compile ran out of budget */
+#define KG_REGEX_TOO_COMPLEX 4 /* a match attempt ran out of budget */
 
 #define KG_REGEX_ICASE (1 << 0)
 

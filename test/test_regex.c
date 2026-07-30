@@ -690,6 +690,36 @@ static void test_next_offset_pairs_utf8(void)
 	}
 }
 
+/* An exhausted match budget is not "no match": the subject may well hold
+ * one, and folding the two together made every such pattern look like a
+ * silent miss.  "\(a*\)*b" over a run of "a"s with no "b" is the classic
+ * catastrophic-backtracking shape; on this engine it stays under
+ * MAX_MATCH_STEPS at 17 "a"s and trips it at 18, so 24 sits well clear of
+ * the boundary and still costs no measurable time.  The assertion is the
+ * status the caller sees and never a step count -- how the budget is
+ * accounted for is the engine's business. */
+static void test_exhausted_budget_is_not_no_match(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+	char text[25];
+
+	memset(text, 'a', sizeof(text) - 1);
+	text[sizeof(text) - 1] = '\0';
+
+	CHECK(kg_regex_compile(&rx, "\\(a*\\)*b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match)
+	    == KG_REGEX_TOO_COMPLEX);
+	CHECK(kg_regex_match_backward(&rx, text, (int)strlen(text), &match)
+	    == KG_REGEX_TOO_COMPLEX);
+
+	/* a pattern that simply is not there still reports no match */
+	CHECK(kg_regex_compile(&rx, "zz", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_backward(&rx, text, (int)strlen(text), &match)
+	    == KG_REGEX_NOMATCH);
+}
+
 int main(void)
 {
 	RUN(test_compile_valid);
@@ -714,5 +744,6 @@ int main(void)
 	RUN(test_forward_boundary_table);
 	RUN(test_next_offset_iteration);
 	RUN(test_next_offset_pairs_utf8);
+	RUN(test_exhausted_budget_is_not_no_match);
 	return test_summary();
 }

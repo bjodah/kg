@@ -1,0 +1,22 @@
+# Query replace stops and says so when the engine runs out of budget: a
+# row may well hold a match it could not reach, and reporting "no
+# replacements made" would quietly skip it.  No prompt is ever asked here,
+# so nothing is replaced either.
+name: query-replace-regexp-too-complex
+filename: too-complex-replace.txt
+backend: tmux
+dimensions: [12, 60]
+startup_delay: 1.0
+key_delay: 0.2
+initial: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+keys:
+  - M-x
+  - query-replace-regexp
+  - RET
+  - '\(a*\)*b'
+  - RET
+  - 'X'
+  - RET
+expected_saved: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+expected_screen_contains:
+  - "Regexp too complex; stopped after 0 replacements."

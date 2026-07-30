@@ -1,0 +1,28 @@
+# A pattern the engine gives up on is not a pattern that failed to match.
+# "\(a*\)*b" over a run of "a"s is the classic catastrophic-backtracking
+# shape, and it exhausts tiny-regex-c's step budget well before 30 of
+# them.  The wrapper used to fold that into "no match", so isearch showed
+# an ordinary prompt and the user was told nothing.
+name: isearch-regexp-too-complex
+filename: too-complex.txt
+backend: tmux
+dimensions: [12, 60]
+startup_delay: 1.0
+key_delay: 0.2
+initial: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+keys:
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - '\(a*\)*b'
+# C-g leaves the search before the trailer saves and quits; without it the
+# isearch prompt would swallow C-x C-s.
+trailer_keys:
+  - C-g
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+expected_screen_contains:
+  - "Regexp I-search [too complex]"

@@ -795,6 +795,18 @@ ranges, and POSIX bracket classes (e.g.
 Smart-case matching (case-insensitive unless an uppercase character is present).
 .El
 .Pp
+The matcher bounds the work one pattern may spend on one line, and a
+pattern that would exceed it -- a quantified group nested inside another
+quantifier, over a long run of the repeated character, say -- is reported
+as such rather than answered.
+Incremental search shows
+.Ic [too complex]
+in its prompt, and
+.Ic M-x query-replace-regexp
+stops there and says how many replacements it had made.
+Neither means the pattern is absent: the line may well contain a match
+this matcher could not reach.
+.Pp
 .Ic M-x query-replace-regexp
 prompts for a regular expression and a replacement template.
 The replacement template supports:

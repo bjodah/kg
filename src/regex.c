@@ -130,6 +130,22 @@ static int kg_regex_take_match(
 	return 1;
 }
 
+/* What a failed match attempt means to a caller.  An exhausted step
+ * budget is its own answer, never "no match": the subject may well
+ * contain one.  A compiled program the engine cannot use -- a bad
+ * pattern, or storage too small for it -- is reported as the bad pattern
+ * it came from. */
+static int kg_regex_exec_status(re_status status)
+{
+	if (status == RE_STATUS_NO_MATCH) {
+		return KG_REGEX_NOMATCH;
+	}
+	if (status == RE_STATUS_TOO_COMPLEX) {
+		return KG_REGEX_TOO_COMPLEX;
+	}
+	return KG_REGEX_BADPAT;
+}
+
 int kg_regex_compile(struct kg_regex *rx, const char *pattern, int flags)
 {
 	if (!rx || !pattern) {
@@ -182,7 +198,7 @@ int kg_regex_match_forward(const struct kg_regex *rx, const char *text,
 	status = re_exec(rx->regex, text, from, &res);
 
 	if (status != RE_STATUS_OK) {
-		return KG_REGEX_NOMATCH;
+		return kg_regex_exec_status(status);
 	}
 	if (!kg_regex_take_match(out ? out : &scratch, &res, text, text_len)) {
 		return KG_REGEX_NOMATCH;
@@ -206,6 +222,12 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 		re_match_result res;
 		struct kg_match cur;
 		re_status status = re_exec(rx->regex, text, offset, &res);
+		if (status == RE_STATUS_TOO_COMPLEX) {
+			/* The scan is unfinished, so "the last match before
+			 * `before`" was never established -- an earlier one is
+			 * not the answer to the question that was asked. */
+			return KG_REGEX_TOO_COMPLEX;
+		}
 		if (status != RE_STATUS_OK) {
 			break;
 		}

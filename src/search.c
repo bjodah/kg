@@ -81,6 +81,10 @@ static char *isearch_find_last_before(
 	return best;
 }
 
+/* Look for the query from (start_row, start_col), wrapping once around the
+ * buffer.  Returns 1 with the match filled in, 0 when there is none, and
+ * -1 when a match attempt ran out of the engine's budget: the subject may
+ * well hold a match, so that is not the same answer as "no match". */
 static int isearch_find_match(int start_row, int start_col, int direction,
     enum search_kind kind, const struct kg_regex *rx, char *query, int qlen,
     int fold, int *match_row, int *match_col, int *match_len)
@@ -125,6 +129,9 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 				*match_len = match_res.spans[0].end
 				    - match_res.spans[0].start;
 				return 1;
+			}
+			if (status == KG_REGEX_TOO_COMPLEX) {
+				return -1;
 			}
 		} else {
 			char *match;
@@ -398,6 +405,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int last_match_col = -1;
 	int saved_hl_line = -1; /* No saved HL */
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
+	int too_complex = 0; /* last attempt ran out of engine budget */
 	char *saved_hl = NULL;
 	int qlen = 0;
 
@@ -426,6 +434,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			if (!rx_valid) {
 				editor_set_status_message(
 				    "Regexp I-search [bad regexp]: %s", query);
+			} else if (too_complex) {
+				/* The pattern is fine; matching it against
+				 * this buffer is what the engine gave up on. */
+				editor_set_status_message(
+				    "Regexp I-search [too complex]: %s", query);
 			} else {
 				editor_set_status_message(
 				    "Regexp I-search %s: %s",
@@ -556,11 +569,12 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				    search_dir, kind, &rx, query, qlen, fold,
 				    &match_row, &match_col, &match_len);
 				find_next = 0;
+				too_complex = match < 0;
 
 				/* Highlight */
 				RESTORE_HL;
 
-				if (match) {
+				if (match > 0) {
 					erow *row = &editor.row[match_row];
 					last_match_row = match_row;
 					last_match_col = match_col;
@@ -834,7 +848,7 @@ void editor_query_replace_regexp(int fd)
 	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0, since_poll = 0;
-	int guard_row = -1, guard_left = 0;
+	int guard_row = -1, guard_left = 0, too_complex = 0;
 
 	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
@@ -891,6 +905,13 @@ void editor_query_replace_regexp(int fd)
 		guard_row = filerow;
 		guard_left = left;
 
+		if (status == KG_REGEX_TOO_COMPLEX) {
+			/* Stop before touching text: the row may well hold a
+			 * match this engine could not reach, and pretending it
+			 * does not would silently skip it. */
+			too_complex = 1;
+			break;
+		}
 		if (status != KG_REGEX_OK) {
 			filerow++;
 			match_col = 0;
@@ -1001,6 +1022,12 @@ void editor_query_replace_regexp(int fd)
 	}
 
 	RESTORE_HL;
+	if (too_complex) {
+		editor_set_status_message(
+		    "Regexp too complex; stopped after %d replacement%s.",
+		    count, count == 1 ? "" : "s");
+		return;
+	}
 	editor_set_status_message(
 	    count ? "Replaced %d occurrence%s." : "No replacements made.",
 	    count, count == 1 ? "" : "s");

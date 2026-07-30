@@ -35,16 +35,6 @@ static void print_match(const struct kg_match *m)
 	printf("\n");
 }
 
-/* The engine folds an exhausted step budget into "no match" by the time it
- * reaches kg_regex_match_forward(), which would look like a divergence
- * whenever Emacs does match, so ask the engine directly first. */
-static int exec_ran_out(const struct kg_regex *rx, const char *text)
-{
-	re_match_result res;
-
-	return re_exec(rx->regex, text, 0, &res) == RE_STATUS_TOO_COMPLEX;
-}
-
 static void run_case(const char *pattern, const char *text)
 {
 	struct kg_regex rx;
@@ -60,15 +50,17 @@ static void run_case(const char *pattern, const char *text)
 		printf("badpat\n");
 		return;
 	}
-	if (exec_ran_out(&rx, text)) {
+	switch (kg_regex_match_forward(&rx, text, 0, &m)) {
+	case KG_REGEX_OK:
+		print_match(&m);
+		return;
+	case KG_REGEX_TOO_COMPLEX:
 		printf("toocomplex\n");
 		return;
-	}
-	if (kg_regex_match_forward(&rx, text, 0, &m) != KG_REGEX_OK) {
+	default:
 		printf("nomatch\n");
 		return;
 	}
-	print_match(&m);
 }
 
 int main(void)

@@ -833,7 +833,8 @@ void editor_query_replace_regexp(int fd)
 	int saved_hl_line = -1;
 	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
-	int count = 0, replace_all = 0;
+	int count = 0, replace_all = 0, since_poll = 0;
+	int guard_row = -1, guard_left = 0;
 
 	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
@@ -860,12 +861,25 @@ void editor_query_replace_regexp(int fd)
 	filerow = start_row;
 	match_col = start_col;
 
-	while (filerow <= end_row && filerow < editor.numrows) {
+	while (filerow <= end_row && filerow < editor.numrows && running) {
 		erow *row = &editor.row[filerow];
 		struct kg_match match_res;
+		int left = row->size - match_col;
 		int status = kg_regex_match_forward(
 		    &rx, row->chars, match_col, &match_res);
 		int c;
+
+		/* Each step of this loop, accepted or refused, must leave less
+		 * of the row ahead of the scan than the step before it did.
+		 * Anything else is a progress bug in the arithmetic below, and
+		 * continuing would rewrite the buffer without end. */
+		if (filerow == guard_row && left >= guard_left) {
+			editor_set_status_message(
+			    "Internal error: query-replace made no progress");
+			break;
+		}
+		guard_row = filerow;
+		guard_left = left;
 
 		if (status != KG_REGEX_OK) {
 			filerow++;
@@ -876,6 +890,11 @@ void editor_query_replace_regexp(int fd)
 		int match_start = match_res.spans[0].start;
 		int match_end = match_res.spans[0].end;
 		int match_len = match_end - match_start;
+		/* Where the scan resumes, taken before the row is edited: an
+		 * empty match consumed nothing, so only a whole glyph gets it
+		 * past this position, and -1 says the row is exhausted. */
+		int next_raw = kg_regex_next_offset(
+		    row->chars, row->size, &match_res.spans[0]);
 
 		/* A match straddling the region end is outside it, and so is
 		 * every later match on this row. */
@@ -915,7 +934,16 @@ void editor_query_replace_regexp(int fd)
 			editor_refresh_screen();
 			c = editor_read_key(fd);
 		} else {
+			/* "!" answers for the user, so nothing here ever reads
+			 * a key: poll for C-g now and then, or a replacement
+			 * over a large region cannot be stopped. */
 			c = 'y';
+			if (++since_poll >= 256) {
+				since_poll = 0;
+				if (editor_check_quit_pending()) {
+					c = CTRL_G;
+				}
+			}
 		}
 
 		if (c == ESC || c == CTRL_G || c == 'q') {
@@ -945,14 +973,21 @@ void editor_query_replace_regexp(int fd)
 			if (filerow == end_row) {
 				end_col += expanded_len - match_len;
 			}
-			match_col = match_start + expanded_len
-			    + (match_len == 0 ? 1 : 0);
+			/* The bytes after the match moved by the same delta as
+			 * the region end did, so the resume point moves with
+			 * them. */
+			match_col = next_raw < 0
+			    ? -1
+			    : next_raw + expanded_len - match_len;
 			count++;
 		} else {
-			match_col
-			    = match_start + (match_len == 0 ? 1 : match_len);
+			match_col = next_raw;
 		}
 		free(expanded);
+		if (match_col < 0 || match_col > editor.row[filerow].size) {
+			filerow++;
+			match_col = 0;
+		}
 	}
 
 	RESTORE_HL;

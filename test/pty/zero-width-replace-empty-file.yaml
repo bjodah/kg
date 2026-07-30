@@ -1,0 +1,21 @@
+# An empty buffer has no position to match at, so the walk ends before it
+# starts: no prompt is ever asked and the "!" that would have answered one
+# self-inserts instead.  Emacs does the same; the expectation is written
+# out rather than taken from the oracle only because Emacs saves a final
+# newline here and kg does not.
+name: zero-width-replace-empty-file
+filename: zero-width-empty-file.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: ""
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'a*'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+expected_saved: "!"

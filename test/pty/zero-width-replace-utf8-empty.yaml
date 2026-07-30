@@ -1,0 +1,23 @@
+# "a*" matches the empty string in front of every character, and the
+# replacement is empty too, so the buffer must come back unchanged --
+# after finitely many steps.  The scan used to resume one BYTE past an
+# empty match, which lands inside "å", where the wrapper snapped the next
+# match back to the same place: kg asked the same question forever and the
+# case failed as a harness timeout.
+name: zero-width-replace-utf8-empty
+filename: zero-width-empty.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'a*'
+  - ENTER
+  - ENTER
+  - '!'
+expected_saved: |
+  åbc

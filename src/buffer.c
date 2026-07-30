@@ -1163,12 +1163,41 @@ static int editor_point_row(int *filerow, erow **row, int *filecol)
 	return 1;
 }
 
+/* Remove `len` bytes at (filerow, col) as one undoable step.  Returns 0
+ * and leaves the buffer untouched when the range is bogus or the undo
+ * payload cannot be recorded, so a failed record never costs text.
+ *
+ * The record is an UNDO_REPLACE_TEXT whose replacement length is zero:
+ * its reverse skips the delete and re-inserts the saved bytes, which is
+ * exactly delete-undo.  A per-byte UNDO_DELETE_CHAR cannot serve, since
+ * one keystroke removes a whole glyph and undo must put every byte of it
+ * back in one step. */
+static int editor_delete_span_with_undo(int filerow, int col, int len)
+{
+	erow *row;
+
+	if (filerow < 0 || filerow >= editor.numrows) {
+		return 0;
+	}
+	row = &editor.row[filerow];
+	if (col < 0 || len <= 0 || col > row->size || len > row->size - col) {
+		return 0;
+	}
+	if (!undo_push(
+		UNDO_REPLACE_TEXT, filerow, col, 0, row->chars + col, len)) {
+		editor_nomem();
+		return 0;
+	}
+	return editor_delete_text_range_raw(filerow, col, len);
+}
+
 /* Delete the char at the current prompt position. */
 void editor_del_char(void)
 {
 	erow *row;
 	int filerow;
 	int filecol;
+	int glyph_start;
 
 	if (!editor_point_row(&filerow, &row, &filecol)) {
 		return;
@@ -1189,23 +1218,19 @@ void editor_del_char(void)
 		editor_row_append_string(
 		    &editor.row[filerow - 1], row->chars, row->size);
 		editor_del_row(filerow);
-		row = NULL;
 		editor_cursor_goto(filerow - 1, filecol);
-	} else {
-		/* Record undo: save the character being deleted */
-		undo_push(UNDO_DELETE_CHAR, filerow, filecol - 1,
-		    row->chars[filecol - 1], NULL, 0);
-		editor_row_del_char(row, filecol - 1);
-		if (editor.cx == 0 && editor.coloff) {
-			editor.coloff--;
-		} else {
-			editor.cx--;
-		}
+		editor.dirty++;
+		return;
 	}
-	if (row) {
-		editor_update_row(row);
+	/* Backspace removes one whole character, however many bytes it
+	 * spells; a malformed byte counts as its own one-byte glyph.  Point
+	 * follows it to the glyph's first byte, so it never rests inside a
+	 * UTF-8 sequence. */
+	glyph_start = utf8_glyph_start_before(row->chars, row->size, filecol);
+	if (editor_delete_span_with_undo(
+		filerow, glyph_start, filecol - glyph_start)) {
+		editor_cursor_goto(filerow, glyph_start);
 	}
-	editor.dirty++;
 }
 
 /* Forward-delete the char at the current cursor position (DEL key).
@@ -1233,12 +1258,13 @@ void editor_del_forward_char(void)
 		editor_row_append_string(row, editor.row[filerow + 1].chars,
 		    editor.row[filerow + 1].size);
 		editor_del_row(filerow + 1);
-	} else {
-		undo_push(UNDO_DELETE_CHAR, filerow, filecol,
-		    row->chars[filecol], NULL, 0);
-		editor_row_del_char(row, filecol);
+		editor.dirty++;
+		return;
 	}
-	editor.dirty++;
+	/* Forward-delete takes the whole glyph at point and leaves point
+	 * where it was — see editor_del_char() for the granularity rule. */
+	editor_delete_span_with_undo(filerow, filecol,
+	    utf8_glyph_span_at(row->chars, row->size, filecol));
 }
 
 void editor_refresh_readonly_state(void)

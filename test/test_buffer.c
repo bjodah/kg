@@ -1108,6 +1108,164 @@ static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
 	teardown();
 }
 
+/* One deletion command removes one whole glyph, whatever its byte length,
+ * and one undo puts the exact bytes back.  `tail` is the glyph under test;
+ * it always starts at byte offset 1, after a leading 'a'. */
+static const struct {
+	const char *name;
+	const char *tail;
+	int tail_len;
+} glyph_cases[] = {
+	{ "ascii", "b", 1 },
+	{ "two-byte", "\xC3\xA9", 2 }, /* é */
+	{ "three-byte", "\xE4\xB8\xAD", 3 }, /* 中, double width */
+	{ "four-byte", "\xF0\x9F\x98\x80", 4 }, /* emoji */
+	{ "combining", "\xCC\x81", 2 }, /* U+0301, its own codepoint */
+	{ "stray-continuation", "\x80", 1 },
+	{ "truncated-lead", "\xC3", 1 },
+};
+
+/* Build "a" + case tail, leaving point at `col`. */
+static void glyph_case_setup(int i, int col)
+{
+	char buf[8] = { 0 };
+
+	setup();
+	buf[0] = 'a';
+	memcpy(buf + 1, glyph_cases[i].tail, glyph_cases[i].tail_len);
+	editor_insert_row(0, buf, 1 + glyph_cases[i].tail_len);
+	editor_cursor_goto(0, col);
+}
+
+/* Backspace at the end of the row takes the whole glyph with it. */
+static void test_backspace_deletes_whole_glyph(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(glyph_cases) / sizeof(glyph_cases[0]); i++) {
+		int len = glyph_cases[i].tail_len;
+
+		glyph_case_setup((int)i, 1 + len);
+		editor_del_char();
+
+		CHECK(editor.row[0].size == 1);
+		CHECK(editor.row[0].chars[0] == 'a');
+		CHECK(editor.row[0].chars[1] == '\0');
+		CHECK(editor.coloff + editor.cx == 1);
+		CHECK(editor_visual_col(&editor.row[0], 1) == 1);
+
+		editor_undo();
+
+		CHECK(editor.row[0].size == 1 + len);
+		CHECK(memcmp(editor.row[0].chars + 1, glyph_cases[i].tail, len)
+		    == 0);
+		CHECK(editor.row[0].chars[editor.row[0].size] == '\0');
+		teardown();
+	}
+}
+
+/* Forward-delete removes the glyph at point without moving point. */
+static void test_forward_delete_removes_whole_glyph(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(glyph_cases) / sizeof(glyph_cases[0]); i++) {
+		int len = glyph_cases[i].tail_len;
+
+		glyph_case_setup((int)i, 1);
+		editor_del_forward_char();
+
+		CHECK(editor.row[0].size == 1);
+		CHECK(editor.row[0].chars[0] == 'a');
+		CHECK(editor.row[0].chars[1] == '\0');
+		CHECK(editor.coloff + editor.cx == 1);
+
+		editor_undo();
+
+		CHECK(editor.row[0].size == 1 + len);
+		CHECK(memcmp(editor.row[0].chars + 1, glyph_cases[i].tail, len)
+		    == 0);
+		teardown();
+	}
+}
+
+/* A double-width glyph is one deletion, and the row's rendered width
+ * shrinks by two columns rather than by a byte. */
+static void test_backspace_double_width_glyph_visual_col(void)
+{
+	setup();
+	editor_insert_row(0, "a\xE4\xB8\xAD", 4);
+	editor_cursor_goto(0, 4);
+	CHECK(editor_visual_col(&editor.row[0], 4) == 3);
+
+	editor_del_char();
+
+	CHECK(editor.row[0].size == 1);
+	CHECK(editor_visual_col(&editor.row[0], editor.row[0].size) == 1);
+	teardown();
+}
+
+/* Backspace at column 0 still joins with the previous row, and undo splits
+ * it back — the glyph path must not swallow that case. */
+static void test_backspace_at_bol_still_joins(void)
+{
+	setup();
+	editor_insert_row(0, "a\xC3\xA9", 3);
+	editor_insert_row(1, "\xC3\xA9z", 3);
+	editor_cursor_goto(1, 0);
+
+	editor_del_char();
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9\xC3\xA9z", 6) == 0);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 2);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9", 3) == 0);
+	CHECK(memcmp(editor.row[1].chars, "\xC3\xA9z", 3) == 0);
+	teardown();
+}
+
+/* Forward-delete at end of line still joins the next row in. */
+static void test_forward_delete_at_eol_still_joins(void)
+{
+	setup();
+	editor_insert_row(0, "a\xC3\xA9", 3);
+	editor_insert_row(1, "z", 1);
+	editor_cursor_goto(0, 3);
+
+	editor_del_forward_char();
+
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9z", 4) == 0);
+	teardown();
+}
+
+/* Deleting inside a row leaves the bytes on either side of the glyph
+ * untouched and the row terminated. */
+static void test_delete_glyph_between_neighbours(void)
+{
+	setup();
+	editor_insert_row(0, "a\xF0\x9F\x98\x80z", 6);
+	editor_cursor_goto(0, 5);
+
+	editor_del_char();
+
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "az", 2) == 0);
+	CHECK(editor.row[0].chars[2] == '\0');
+	CHECK(editor.coloff + editor.cx == 1);
+
+	editor_undo();
+
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "a\xF0\x9F\x98\x80z", 6) == 0);
+	teardown();
+}
+
 static void test_checked_helpers(void)
 {
 	/* test checked_add_size_t */
@@ -1623,5 +1781,11 @@ int main(void)
 	RUN(test_insert_newline_raw_clamps_huge_column_offset);
 	RUN(test_insert_text_raw_multiline_preserves_split_suffix);
 	RUN(test_backspace_join_long_previous_row_keeps_scroll_nonnegative);
+	RUN(test_backspace_deletes_whole_glyph);
+	RUN(test_forward_delete_removes_whole_glyph);
+	RUN(test_backspace_double_width_glyph_visual_col);
+	RUN(test_backspace_at_bol_still_joins);
+	RUN(test_forward_delete_at_eol_still_joins);
+	RUN(test_delete_glyph_between_neighbours);
 	return test_summary();
 }

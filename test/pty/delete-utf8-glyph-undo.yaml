@@ -1,0 +1,28 @@
+# Backspace (C-?) and forward-delete (C-d) remove one whole character,
+# not one byte, and one undo puts every byte of it back.  Deleting a byte
+# at a time would leave the trailing continuation bytes of "é"/"中"/"😀"
+# behind, and the per-byte undo record would restore only one of them.
+name: delete-utf8-glyph-undo
+filename: delete-utf8-glyph-undo.txt
+initial: |
+  aéz
+  b中z
+  c😀z
+keys:
+  - C-f
+  - C-f
+  - C-?
+  - C-n
+  - C-a
+  - C-f
+  - C-d
+  - C-n
+  - C-a
+  - C-f
+  - C-f
+  - C-?
+  - C-_
+expected_saved: |
+  az
+  bz
+  c😀z

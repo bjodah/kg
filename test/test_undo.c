@@ -572,6 +572,44 @@ static void test_undo_self_insert_glyph_overwrite(void)
 	teardown();
 }
 
+/* Backspace over a multi-byte glyph is one undo step holding the exact
+ * bytes removed: one record, one undo, the whole glyph back. */
+static void test_undo_backspace_multibyte_glyph(void)
+{
+	setup();
+	editor_insert_row(0, "a\xE2\x82\xACz", 5);
+	editor_cursor_goto(0, 4); /* point after the three-byte glyph */
+
+	editor_del_char();
+	CHECK(undostack.size == 1);
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "az", 2) == 0);
+
+	editor_undo();
+	CHECK(undostack.size == 0);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "a\xE2\x82\xACz", 5) == 0);
+	teardown();
+}
+
+/* And so is forward-delete (C-d) over the same glyph. */
+static void test_undo_forward_delete_multibyte_glyph(void)
+{
+	setup();
+	editor_insert_row(0, "a\xE2\x82\xACz", 5);
+	editor_cursor_goto(0, 1);
+
+	editor_del_forward_char();
+	CHECK(undostack.size == 1);
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "az", 2) == 0);
+
+	editor_undo();
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "a\xE2\x82\xACz", 5) == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -603,5 +641,7 @@ int main(void)
 	RUN(test_undo_overwrite_malformed_utf8);
 	RUN(test_undo_self_insert_glyph);
 	RUN(test_undo_self_insert_glyph_overwrite);
+	RUN(test_undo_backspace_multibyte_glyph);
+	RUN(test_undo_forward_delete_multibyte_glyph);
 	return test_summary();
 }

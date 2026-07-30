@@ -59,6 +59,23 @@ static void test_match_backward(void)
 	/* no "a" ending by index 0 */
 	status = kg_regex_match_backward(&rx, "aba", 0, &match);
 	CHECK(status == KG_REGEX_NOMATCH);
+
+	/* the scan steps by glyph now, so a multi-byte subject reports the
+	 * same spans it always did -- including the overlapping match a
+	 * step to the previous match's end would have skipped */
+	CHECK(kg_regex_compile(&rx, "b\xc3\xa5", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx,
+		  "a\xc3\xa5"
+		  "b\xc3\xa5",
+		  6, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 3);
+	CHECK(match.spans[0].end == 6);
+
+	CHECK(kg_regex_compile(&rx, "aa", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, "aaa", 3, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 3);
 }
 
 static void test_zero_length_match(void)
@@ -417,10 +434,12 @@ static void test_utf8_glyph_boundaries(void)
 	CHECK(match.spans[0].start == 0);
 	CHECK(match.spans[0].end == 2);
 
-	/* resuming inside the glyph snaps back to its first byte */
+	/* a request inside the glyph resumes after it, never behind the
+	 * request: snapping used to hand back the å the caller had already
+	 * passed, which is how an iterating caller stopped making progress */
 	CHECK(kg_regex_match_forward(&rx, text, 1, &match) == KG_REGEX_OK);
-	CHECK(match.spans[0].start == 0);
-	CHECK(match.spans[0].end == 2);
+	CHECK(match.spans[0].start == 2);
+	CHECK(match.spans[0].end == 3);
 
 	/* the ASCII bytes after it are unaffected */
 	CHECK(kg_regex_match_forward(&rx, text, 2, &match) == KG_REGEX_OK);
@@ -533,6 +552,144 @@ static void test_empty_repetition_capture_register(void)
 	CHECK(match.spans[1].end == 1);
 }
 
+/* Subjects covering the glyph shapes the helpers have to survive: ASCII,
+ * two-byte, CJK, emoji, a combining sequence, and three malformed
+ * spellings. */
+static const char *const glyph_subjects[] = {
+	"",
+	"a\xc3\xa5"
+	"b", /* aåb */
+	"\xe4\xb8\xad\xe6\x96\x87", /* 中文 */
+	"\xf0\x9f\x98\x80"
+	"x", /* emoji + x */
+	"e\xcc\x81", /* e + U+0301 */
+	"\xc3", /* truncated two-byte lead */
+	"\xa5x", /* stray continuation byte */
+	"a\xe2\x82", /* truncated three-byte lead */
+};
+
+static int subject_glyphs(const char *text)
+{
+	int len = (int)strlen(text);
+	int i = 0, n = 0;
+
+	while (i < len) {
+		i += utf8_glyph_span_at(text, len, i);
+		n++;
+	}
+	return n;
+}
+
+/* kg_utf8_forward_boundary() over every byte offset of every subject: it
+ * never goes below its argument, never past the end, is monotone, and is
+ * idempotent -- which is the same as saying it lands on a glyph start. */
+static void test_forward_boundary_table(void)
+{
+	for (size_t i = 0; i < sizeof(glyph_subjects) / sizeof(*glyph_subjects);
+	    i++) {
+		const char *text = glyph_subjects[i];
+		int len = (int)strlen(text);
+		int prev = 0;
+
+		for (int k = 0; k <= len; k++) {
+			int b = kg_utf8_forward_boundary(text, len, k);
+
+			CHECK(b >= k);
+			CHECK(b <= len);
+			CHECK(b >= prev);
+			CHECK(kg_utf8_forward_boundary(text, len, b) == b);
+			prev = b;
+		}
+		/* out-of-range requests clamp rather than wander */
+		CHECK(kg_utf8_forward_boundary(text, len, -3) == 0);
+		CHECK(kg_utf8_forward_boundary(text, len, len + 7) == len);
+	}
+
+	/* the interesting individual answers: inside "å" moves forward to
+	 * the byte after it, a stray continuation byte is its own glyph */
+	CHECK(kg_utf8_forward_boundary("a\xc3\xa5"
+				       "b",
+		  4, 2)
+	    == 3);
+	CHECK(kg_utf8_forward_boundary("\xa5x", 2, 1) == 1);
+	CHECK(kg_utf8_forward_boundary("a\xe2\x82", 3, 2) == 2);
+}
+
+/* Walking every match with kg_regex_next_offset() terminates, progresses
+ * strictly, and visits one position per glyph plus the end. */
+static void test_next_offset_iteration(void)
+{
+	static const char *const patterns[] = { "q*", "a*", "." };
+
+	for (size_t p = 0; p < sizeof(patterns) / sizeof(*patterns); p++) {
+		for (size_t i = 0;
+		    i < sizeof(glyph_subjects) / sizeof(*glyph_subjects); i++) {
+			const char *text = glyph_subjects[i];
+			int len = (int)strlen(text);
+			struct kg_regex rx;
+			struct kg_match match;
+			int from = 0, prev = -1, seen = 0;
+
+			CHECK(kg_regex_compile(&rx, patterns[p], 0)
+			    == KG_REGEX_OK);
+			while (from >= 0
+			    && kg_regex_match_forward(&rx, text, from, &match)
+				== KG_REGEX_OK) {
+				/* never behind the normalized request */
+				CHECK(match.spans[0].start
+				    >= kg_utf8_forward_boundary(
+					text, len, from));
+				CHECK(from > prev);
+				prev = from;
+				seen++;
+				CHECK(seen <= subject_glyphs(text) + 1);
+				from = kg_regex_next_offset(
+				    text, len, &match.spans[0]);
+			}
+			/* a pattern with nothing to consume here reports one
+			 * empty match per glyph boundary, end included */
+			if (p == 0) {
+				CHECK(seen == subject_glyphs(text) + 1);
+			}
+		}
+	}
+}
+
+/* The exact (start, next) pairs "a*" walks over "åbc", the buffer whose
+ * byte-wise "+ 1" step used to loop forever. */
+static void test_next_offset_pairs_utf8(void)
+{
+	static const int expect[][2]
+	    = { { 0, 2 }, { 2, 3 }, { 3, 4 }, { 4, -1 } };
+	const char *text = "\xc3\xa5"
+			   "bc";
+	int len = (int)strlen(text);
+	struct kg_regex rx;
+	struct kg_match match;
+	int from = 0;
+	size_t i;
+
+	CHECK(len == 4);
+	CHECK(kg_regex_compile(&rx, "a*", 0) == KG_REGEX_OK);
+	/* the end of the subject is a position; past it is not one, or the
+	 * walk above would never reach its -1 */
+	CHECK(kg_regex_match_forward(&rx, text, len, &match) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, len + 1, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_forward(&rx, text, -1, &match) == KG_REGEX_NOMATCH);
+
+	for (i = 0; i < sizeof(expect) / sizeof(*expect); i++) {
+		CHECK(from == expect[i][0]);
+		CHECK(kg_regex_match_forward(&rx, text, from, &match)
+		    == KG_REGEX_OK);
+		CHECK(match.spans[0].start == expect[i][0]);
+		CHECK(match.spans[0].end == expect[i][0]);
+		from = kg_regex_next_offset(text, len, &match.spans[0]);
+		CHECK(from == expect[i][1]);
+	}
+}
+
 int main(void)
 {
 	RUN(test_compile_valid);
@@ -554,5 +711,8 @@ int main(void)
 	RUN(test_utf8_glyph_boundaries);
 	RUN(test_utf8_engine_counts_characters);
 	RUN(test_empty_repetition_capture_register);
+	RUN(test_forward_boundary_table);
+	RUN(test_next_offset_iteration);
+	RUN(test_next_offset_pairs_utf8);
 	return test_summary();
 }

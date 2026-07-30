@@ -30,6 +30,51 @@ static int utf8_glyph_end(const char *text, int len, int pos)
 	return start + utf8_glyph_span_at(text, len, start);
 }
 
+int kg_utf8_forward_boundary(const char *text, int len, int requested)
+{
+	int start;
+
+	if (len < 0) {
+		len = 0;
+	}
+	if (!text || requested <= 0) {
+		return 0;
+	}
+	if (requested >= len) {
+		return len;
+	}
+	start = utf8_glyph_start(text, len, requested);
+	if (start == requested) {
+		return requested;
+	}
+	/* utf8_glyph_start() only moves back for a glyph that really
+	 * covers `requested`, so its end is strictly past it. */
+	return start + utf8_glyph_span_at(text, len, start);
+}
+
+int kg_regex_next_offset(const char *text, int len, const struct kg_span *match)
+{
+	int start, end;
+
+	if (!text || !match || len < 0) {
+		return -1;
+	}
+	start = match->start;
+	end = match->end;
+	if (start < 0 || end < start) {
+		return -1;
+	}
+	if (end > start) {
+		return end > len ? len : end;
+	}
+	/* An empty match consumed nothing, so the scan has to step over a
+	 * whole glyph itself; at the end of the subject there is none. */
+	if (start >= len) {
+		return -1;
+	}
+	return start + utf8_glyph_span_at(text, len, start);
+}
+
 /* Reject a span the engine got wrong, then widen the surviving one to
  * whole glyphs so no boundary lands inside a UTF-8 sequence.  Empty
  * spans stay empty and only move to the start of their glyph.  Returns 0
@@ -121,7 +166,20 @@ int kg_regex_match_forward(const struct kg_regex *rx, const char *text,
 	re_match_result res;
 	struct kg_match scratch;
 	int text_len = (int)strlen(text);
-	re_status status = re_exec(rx->regex, text, start_offset, &res);
+	int from;
+	re_status status;
+
+	/* A request outside the subject stays no match, as re_exec() reports
+	 * it: normalizing it would fold "past the end" onto "at the end", and
+	 * a caller walking empty matches would never leave the last one. */
+	if (start_offset < 0 || start_offset > text_len) {
+		return KG_REGEX_NOMATCH;
+	}
+	/* Resume on a glyph boundary: an offset inside a sequence would let
+	 * the engine match from a continuation byte, and kg_span_snap()
+	 * would then hand back a match starting before the request. */
+	from = kg_utf8_forward_boundary(text, text_len, start_offset);
+	status = re_exec(rx->regex, text, from, &res);
 
 	if (status != RE_STATUS_OK) {
 		return KG_REGEX_NOMATCH;
@@ -157,6 +215,7 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 
 		int start = cur.spans[0].start;
 		int end = cur.spans[0].end;
+		int next;
 
 		if (start == end) {
 			if (start < before) {
@@ -169,10 +228,21 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 				found = 1;
 			}
 		}
-		/* Snapping can pull `start` back before `offset`, and a
-		 * confused engine could report a match behind it too; scan
-		 * position must still advance every iteration. */
-		offset = (start > offset ? start : offset) + 1;
+		/* The next candidate start is the glyph after this match's
+		 * first byte -- for an empty match that is exactly
+		 * kg_regex_next_offset(), and for a consuming one it is less
+		 * than the match end on purpose: skipping to the end would
+		 * drop the overlapping matches this scan exists to find.
+		 * Stepping by whole glyphs keeps the engine off continuation
+		 * bytes.  Snapping can pull `start` back before `offset`, and
+		 * a confused engine could report a match behind it too, so
+		 * the scan position still has to advance every iteration. */
+		next = kg_utf8_forward_boundary(
+		    text, text_len, (start > offset ? start : offset) + 1);
+		if (next <= offset) {
+			break;
+		}
+		offset = next;
 	}
 
 	if (found) {

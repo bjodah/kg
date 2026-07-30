@@ -1266,6 +1266,98 @@ static void test_delete_glyph_between_neighbours(void)
 	teardown();
 }
 
+/* editor_insert_row() takes a byte slice, not a C string.  A caller
+ * handing it an interior slice — every '\n'-bounded line in an undo
+ * replay does — must still get a row whose chars[size] is '\0'. */
+static void test_insert_row_terminates_interior_slice(void)
+{
+	setup();
+	editor_insert_row(0, "abc\ndef", 3);
+
+	CHECK(editor.row[0].size == 3);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+	CHECK(editor.row[0].chars[3] == '\0');
+	teardown();
+}
+
+/* The slice ends exactly at the end of its allocation, so reading s[len]
+ * is an out-of-bounds read — invisible with a string literal, which is
+ * why every existing caller here passed one. */
+static void test_insert_row_does_not_read_past_slice(void)
+{
+	char *exact = malloc(4);
+
+	CHECK(exact != NULL);
+	if (!exact) {
+		return;
+	}
+	memcpy(exact, "abcd", 4);
+
+	setup();
+	editor_insert_row(0, exact, 4);
+	free(exact);
+
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "abcd", 4) == 0);
+	CHECK(editor.row[0].chars[4] == '\0');
+	teardown();
+}
+
+/* End-to-end for the same invariant: undoing a paragraph reflow rebuilds
+ * rows from '\n'-bounded slices, and sort_lines_cmp() then compares them
+ * with strcmp(), which walks off the end of a row that is not
+ * terminated. */
+static void test_reflow_undo_rows_are_sortable(void)
+{
+	setup();
+	editor_insert_row(0, "b a", 3);
+	undo_push(UNDO_REFLOW_PARA, 0, 1, 0, "b\na", 3);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 1);
+	CHECK(editor.row[0].chars[1] == '\0');
+	CHECK(editor.row[1].size == 1);
+	CHECK(editor.row[1].chars[1] == '\0');
+
+	editor.mark_set = 1;
+	editor.mark_row = 0;
+	editor.mark_col = 0;
+	editor_cursor_goto(1, 1);
+	editor_sort_lines();
+
+	CHECK(editor.numrows == 2);
+	CHECK(memcmp(editor.row[0].chars, "a", 1) == 0);
+	CHECK(memcmp(editor.row[1].chars, "b", 1) == 0);
+	CHECK(editor.row[0].chars[editor.row[0].size] == '\0');
+	CHECK(editor.row[1].chars[editor.row[1].size] == '\0');
+	teardown();
+}
+
+/* Undoing a rectangle overwrite restores rows the same way, from slices
+ * of one '\n'-joined blob. */
+static void test_rect_overwrite_undo_terminates_rows(void)
+{
+	int i;
+
+	setup();
+	editor_insert_row(0, "XX", 2);
+	editor_insert_row(1, "YY", 2);
+	undo_push(UNDO_RECT_OVERWRITE, 0, 0, 2, "ab\ncd", 5);
+
+	editor_undo();
+
+	CHECK(editor.numrows == 2);
+	for (i = 0; i < editor.numrows; i++) {
+		CHECK(editor.row[i].size == 2);
+		CHECK(editor.row[i].chars[editor.row[i].size] == '\0');
+	}
+	CHECK(memcmp(editor.row[0].chars, "ab", 2) == 0);
+	CHECK(memcmp(editor.row[1].chars, "cd", 2) == 0);
+	teardown();
+}
+
 static void test_checked_helpers(void)
 {
 	/* test checked_add_size_t */
@@ -1787,5 +1879,9 @@ int main(void)
 	RUN(test_backspace_at_bol_still_joins);
 	RUN(test_forward_delete_at_eol_still_joins);
 	RUN(test_delete_glyph_between_neighbours);
+	RUN(test_insert_row_terminates_interior_slice);
+	RUN(test_insert_row_does_not_read_past_slice);
+	RUN(test_reflow_undo_rows_are_sortable);
+	RUN(test_rect_overwrite_undo_terminates_rows);
 	return test_summary();
 }

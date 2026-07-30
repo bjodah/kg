@@ -239,7 +239,8 @@ static int load_append_row(
 		errno = ENOMEM;
 		return -1;
 	}
-	memcpy(newchars, line, chars_size);
+	memcpy(newchars, line, linelen);
+	newchars[linelen] = '\0';
 
 	new_rows = realloc(res->row, rows_size);
 	if (!new_rows) {

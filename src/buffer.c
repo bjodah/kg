@@ -321,22 +321,32 @@ void editor_update_row(erow *row)
 }
 
 /* Insert a row at the specified position, shifting the other rows on the bottom
- * if required. */
+ * if required.  `s` is a byte slice of exactly `len` bytes: the row is
+ * terminated here rather than by copying whatever follows the caller's
+ * slice, which for the '\n'-bounded slices the undo replays hand over is
+ * a newline, and for a slice ending at the end of an allocation is a read
+ * past it. */
 void editor_insert_row(int at, const char *s, size_t len)
 {
 	erow *newrows;
 	char *newchars;
+	size_t alloc_sz;
 
 	if (at > editor.numrows) {
 		return;
 	}
 
-	newchars = malloc(len + 1);
+	if (!checked_add_size_t(&alloc_sz, len, 1)) {
+		editor_nomem();
+		return;
+	}
+	newchars = malloc(alloc_sz);
 	if (!newchars) {
 		editor_nomem();
 		return;
 	}
-	memcpy(newchars, s, len + 1);
+	memcpy(newchars, s, len);
+	newchars[len] = '\0';
 
 	newrows = realloc(editor.row, sizeof(erow) * (editor.numrows + 1));
 	if (!newrows) {

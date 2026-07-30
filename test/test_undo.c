@@ -237,7 +237,8 @@ static void test_kill_line_eol_undo(void)
 static void test_kill_line_eol_kill_ring(void)
 {
 	setup();
-	kill_ring_init();
+	/* Start from an empty ring, freeing anything an earlier test left. */
+	kill_ring_free();
 	editor_insert_row(0, "a", 1);
 	editor_insert_row(1, "b", 1);
 	editor_cursor_goto(0, 1);

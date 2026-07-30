@@ -1,22 +1,21 @@
-# Query replace stops and says so when the engine runs out of budget: a
-# row may well hold a match it could not reach, and reporting "no
-# replacements made" would quietly skip it.  No prompt is ever asked here,
-# so nothing is replaced either.
+# Query replace stops where the engine gave up instead of walking on to
+# the next line: the line it could not finish may well hold a match, and
+# replacing the one after it would quietly skip that.  So the second line
+# keeps its "aab", no prompt is ever asked, and the "!" that would have
+# answered one self-inserts at point -- as it does in an empty buffer.
 name: query-replace-regexp-too-complex
 filename: too-complex-replace.txt
-backend: tmux
-dimensions: [12, 60]
+backend: pexpect
 startup_delay: 1.0
 key_delay: 0.2
-initial: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+initial: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\naab\n"
 keys:
   - M-x
   - query-replace-regexp
   - RET
   - '\(a*\)*b'
   - RET
-  - 'X'
+  - 'Z'
   - RET
-expected_saved: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
-expected_screen_contains:
-  - "Regexp too complex; stopped after 0 replacements."
+  - '!'
+expected_saved: "!aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\naab\n"

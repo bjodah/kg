@@ -709,30 +709,19 @@ void editor_query_replace(int fd)
 		}
 
 		if (c == 'y' || c == ENTER || c == ' ') {
-			erow *row = &editor.row[filerow];
-			int i;
-
 			/* Restore the snapshot while it still matches this
 			 * row's render size.  A length-changing replacement
 			 * regenerates hl, so restoring later would use the old
 			 * allocation with the new rsize. */
 			RESTORE_HL;
 
-			/* A replacement is one user operation: one C-_ removes
-			 * the replacement span and restores the original match.
-			 */
-			undo_push(UNDO_REPLACE_TEXT, filerow, match_col, rlen,
-			    row->chars + match_col, slen);
-
-			suppress_undo = 1;
-			for (i = 0; i < slen; i++) {
-				editor_row_del_char(row, match_col);
+			/* A replacement is one user operation: one row
+			 * rebuild, and one C-_ that removes the replacement
+			 * span and restores the original match. */
+			if (!editor_row_replace_range(
+				filerow, match_col, slen, replace, rlen)) {
+				break;
 			}
-			for (i = 0; i < rlen; i++) {
-				editor_row_insert_char(row, match_col + i,
-				    (unsigned char)replace[i]);
-			}
-			suppress_undo = 0;
 
 			if (filerow == end_row) {
 				end_col += rlen - slen;

@@ -1173,6 +1173,56 @@ static int editor_point_row(int *filerow, erow **row, int *filecol)
 	return 1;
 }
 
+/* Replace the `delete_len` bytes at (filerow, at) with the `insert_len`
+ * bytes at `insert` -- one row rebuild, one dirty step and one undo
+ * record, whatever the lengths are.  `insert` must be non-NULL; either
+ * length may be zero.  Returns 0 with the row byte-identical when the
+ * range is bogus, the resulting size does not fit an int, or memory runs
+ * out: the capacity is reserved and the undo payload copied before
+ * anything moves. */
+int editor_row_replace_range(
+    int filerow, int at, int delete_len, const char *insert, int insert_len)
+{
+	erow *row;
+	char *newchars;
+	int new_size, alloc_sz;
+
+	if (filerow < 0 || filerow >= editor.numrows || at < 0 || delete_len < 0
+	    || insert_len < 0) {
+		return 0;
+	}
+	row = &editor.row[filerow];
+	if (at > row->size || delete_len > row->size - at) {
+		return 0;
+	}
+	if (!checked_add_int_size(
+		&new_size, row->size - delete_len, (size_t)insert_len)
+	    || !checked_add_int_size(&alloc_sz, new_size, 1)) {
+		return 0;
+	}
+	if (new_size > row->size) {
+		newchars = realloc(row->chars, (size_t)alloc_sz);
+		if (!newchars) {
+			editor_nomem();
+			return 0;
+		}
+		row->chars = newchars;
+	}
+	if (!undo_push(UNDO_REPLACE_TEXT, filerow, at, insert_len,
+		row->chars + at, delete_len)) {
+		editor_nomem();
+		return 0;
+	}
+	memmove(row->chars + at + insert_len, row->chars + at + delete_len,
+	    (size_t)(row->size - at - delete_len));
+	memcpy(row->chars + at, insert, (size_t)insert_len);
+	row->size = new_size;
+	row->chars[new_size] = '\0';
+	editor_update_row(row);
+	editor.dirty++;
+	return 1;
+}
+
 /* Remove `len` bytes at (filerow, col) as one undoable step.  Returns 0
  * and leaves the buffer untouched when the range is bogus or the undo
  * payload cannot be recorded, so a failed record never costs text.

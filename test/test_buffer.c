@@ -1266,6 +1266,72 @@ static void test_delete_glyph_between_neighbours(void)
 	teardown();
 }
 
+/* One logical replacement is one row rebuild, one dirty step and one undo
+ * record, whatever the two lengths are -- the byte-at-a-time loops it
+ * replaces charged one of each per byte. */
+static void test_row_replace_range(void)
+{
+	int dirty;
+
+	setup();
+	editor_insert_row(0, "abcdef", 6);
+
+	dirty = editor.dirty;
+	CHECK(editor_row_replace_range(0, 1, 3, "XY", 2) == 1);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "aXYef", 5) == 0);
+	CHECK(editor.row[0].chars[5] == '\0');
+	CHECK(editor.dirty == dirty + 1);
+
+	/* one undo puts the whole original back */
+	editor_undo();
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "abcdef", 6) == 0);
+
+	/* a pure insertion, and a pure deletion */
+	CHECK(editor_row_replace_range(0, 6, 0, "gh", 2) == 1);
+	CHECK(editor.row[0].size == 8);
+	CHECK(memcmp(editor.row[0].chars, "abcdefgh", 8) == 0);
+	CHECK(editor_row_replace_range(0, 0, 3, "", 0) == 1);
+	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "defgh", 5) == 0);
+	CHECK(editor.row[0].chars[5] == '\0');
+
+	/* replacing nothing with nothing is still a well-formed request */
+	CHECK(editor_row_replace_range(0, 2, 0, "", 0) == 1);
+	CHECK(editor.row[0].size == 5);
+	teardown();
+}
+
+/* A request the row cannot satisfy leaves it exactly as it was, and
+ * records no undo step to replay.  The oversized insert trips the checked
+ * arithmetic before any allocation, which is the only way to reach the
+ * failure path without a malloc injection hook. */
+static void test_row_replace_range_refuses_bad_ranges(void)
+{
+	int dirty;
+
+	setup();
+	editor_insert_row(0, "abcdef", 6);
+	dirty = editor.dirty;
+
+	CHECK(editor_row_replace_range(0, -1, 1, "X", 1) == 0);
+	CHECK(editor_row_replace_range(0, 7, 0, "X", 1) == 0);
+	CHECK(editor_row_replace_range(0, 4, 3, "X", 1) == 0);
+	CHECK(editor_row_replace_range(0, 0, -1, "X", 1) == 0);
+	CHECK(editor_row_replace_range(1, 0, 0, "X", 1) == 0);
+	CHECK(editor_row_replace_range(0, 0, 0, "X", INT_MAX) == 0);
+
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "abcdef", 6) == 0);
+	CHECK(editor.dirty == dirty);
+
+	editor_undo();
+	CHECK(editor.row[0].size == 6);
+	CHECK(memcmp(editor.row[0].chars, "abcdef", 6) == 0);
+	teardown();
+}
+
 /* editor_insert_row() takes a byte slice, not a C string.  A caller
  * handing it an interior slice — every '\n'-bounded line in an undo
  * replay does — must still get a row whose chars[size] is '\0'. */
@@ -1883,5 +1949,7 @@ int main(void)
 	RUN(test_insert_row_does_not_read_past_slice);
 	RUN(test_reflow_undo_rows_are_sortable);
 	RUN(test_rect_overwrite_undo_terminates_rows);
+	RUN(test_row_replace_range);
+	RUN(test_row_replace_range_refuses_bad_ranges);
 	return test_summary();
 }

@@ -574,6 +574,8 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len);
 void editor_row_insert_spaces(erow *row, int at, int len);
 void editor_row_append_string(erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
+int editor_row_replace_range(
+    int filerow, int at, int delete_len, const char *insert, int insert_len);
 void editor_insert_char(int c);
 void editor_insert_newline_raw(void);
 void editor_insert_text_raw(const char *text, int len);

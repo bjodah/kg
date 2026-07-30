@@ -1067,7 +1067,7 @@ void editor_named_command(int fd)
 				sel = (sel - 1 + shown) % shown;
 				explicit_selection = 1;
 			}
-		} else if (isprint(c) && len < (int)sizeof(name) - 1) {
+		} else if (ascii_is_print(c) && len < (int)sizeof(name) - 1) {
 			name[len++] = c;
 			name[len] = '\0';
 			sel = 0;

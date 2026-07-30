@@ -52,7 +52,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-10-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-11-*.sh`;
   run one directly when iterating on a specific phase. The step list is a
   glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
 - CI parallelism is controlled with `JOBS` (default: `nproc`), e.g.
@@ -87,6 +87,17 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - If you change user-visible behavior or keybindings, update `README.md`
   and/or `doc/kg.1`; also update the built-in help table in `src/help.c`
   when a keybinding changes.
+- Character classification: prefer `ascii_is_print/digit/space()` from
+  `def.h` wherever the grammar is ASCII by definition (syntax scanning,
+  local variables, key codes). Where libc `<ctype.h>` genuinely belongs,
+  pass `(unsigned char)` -- it is undefined for any other negative value,
+  and kg never calls `setlocale()`, so in the `"C"` locale it says
+  nothing useful about a byte >= 0x80. `.ci/ci-11-*.sh` runs the unit
+  suite under both `-fsigned-char` and `-funsigned-char`.
+- Nothing kg reads may become terminal syntax. Untrusted bytes reach the
+  screen only through `display_glyph_at()` (`src/width.c`), which also
+  decides their width; styling is the renderer's, never spelled into a
+  string a caller interpolates into.
 
 ## Useful context
 - `doc/TODO.md` tracks planned editor features and known technical debt.

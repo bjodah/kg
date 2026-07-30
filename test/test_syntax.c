@@ -59,6 +59,54 @@ static void test_is_separator_alnum_false(void)
 	CHECK(!is_separator('_'));
 }
 
+/* Character classification is ASCII-only where the grammar is.  These
+ * assertions are the same under -fsigned-char and -funsigned-char, which
+ * .ci/ci-11-char-signedness.sh checks by running this binary both ways;
+ * <ctype.h> on an uncast char is undefined for a negative value, and in
+ * the "C" locale says nothing useful about a byte >= 0x80 either. */
+static void test_ascii_classification_is_sign_independent(void)
+{
+	CHECK(ascii_is_print(' ') && ascii_is_print('~'));
+	CHECK(!ascii_is_print(0x1f) && !ascii_is_print(0x7f));
+	CHECK(!ascii_is_print(0xc3) && !ascii_is_print(-61));
+	/* Soft key codes live above 0xFF and are not text. */
+	CHECK(!ascii_is_print(ARROW_LEFT) && !ascii_is_print(DEL_KEY));
+	CHECK(ascii_is_digit('0') && ascii_is_digit('9'));
+	CHECK(!ascii_is_digit('a') && !ascii_is_digit(0xb9) /* superscript */);
+	CHECK(ascii_is_space(' ') && ascii_is_space('\t')
+	    && ascii_is_space('\n') && ascii_is_space('\r'));
+	CHECK(!ascii_is_space('x') && !ascii_is_space(0xa0) /* NBSP byte */);
+	CHECK(!ascii_is_space(-96));
+
+	/* is_separator() takes an int that callers feed a plain char from,
+	 * so it must survive a negative one and answer the same either
+	 * way. */
+	CHECK(is_separator(' ') && is_separator('\0'));
+	CHECK(!is_separator((char)0xc3) && !is_separator(0xc3));
+}
+
+/* The generic scanner marks ASCII control bytes and nothing else.  It
+ * used to test isprint() on a signed char, so every byte of every
+ * ordinary UTF-8 character in a C buffer came out HL_NONPRINT and was
+ * then fed to a renderer that turned byte 0xDB into a raw ESC. */
+static void test_generic_scan_marks_only_ascii_controls(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("C"));
+	/* "x = \"\u00e9\"; " with an ESC and a DEL after it. */
+	editor_insert_row(0, "int \xc3\xa9 = 1;\x1b\x7f", 13);
+
+	CHECK(editor.row[0].hl[0] == HL_KEYWORD2); /* int */
+	for (i = 4; i <= 5; i++) {
+		CHECK(editor.row[0].hl[i] != HL_NONPRINT); /* the U+00E9 */
+	}
+	CHECK(editor.row[0].hl[9] == HL_NUMBER); /* 1 */
+	CHECK(editor.row[0].hl[11] == HL_NONPRINT); /* ESC */
+	CHECK(editor.row[0].hl[12] == HL_NONPRINT); /* DEL */
+	teardown();
+}
+
 /* ---- editor_syntax_to_color tests ---- */
 
 static void test_syntax_to_color(void)
@@ -1225,6 +1273,8 @@ int main(void)
 	RUN(test_is_separator_nul);
 	RUN(test_is_separator_punct);
 	RUN(test_is_separator_alnum_false);
+	RUN(test_ascii_classification_is_sign_independent);
+	RUN(test_generic_scan_marks_only_ascii_controls);
 	RUN(test_syntax_to_color);
 	RUN(test_c_type_keyword);
 	RUN(test_c_ctrl_keyword);

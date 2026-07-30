@@ -486,7 +486,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				last_match_col = -1;
 				find_next = direction;
 			}
-		} else if (isprint(c)) {
+		} else if (ascii_is_print(c)) {
 			if (qlen < KILO_QUERY_LEN) {
 				query[qlen++] = c;
 				query[qlen] = '\0';

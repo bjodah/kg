@@ -817,7 +817,10 @@ static FeObject *native_backward_word(FeContext *context, FeObject *arguments)
 
 static bool lisp_is_word_byte(unsigned char byte)
 {
-	return isalnum(byte) || byte == '_' || byte >= 0x80;
+	/* The >= 0x80 test comes first so <ctype.h> is only ever asked
+	 * about ASCII; in the "C" locale its answer for a UTF-8 byte is
+	 * both meaningless and unused. */
+	return byte >= 0x80 || isalnum(byte) || byte == '_';
 }
 
 /* Byte columns of the word at `col` in `row`.  Point sitting just after a

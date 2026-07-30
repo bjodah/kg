@@ -65,7 +65,8 @@ void editor_insert_char_auto_complete(int c)
 	/* Check if we're at end of line or the next character is
 	 * whitespace/symbol */
 	at_end = (!row || filecol >= row->size);
-	next_char_space = at_end || isspace(row->chars[filecol])
+	next_char_space = at_end
+	    || ascii_is_space((unsigned char)row->chars[filecol])
 	    || strchr(",.()+-/*=~%[];{}", row->chars[filecol]);
 
 	/* Find closing character if this is an opening bracket/quote */

@@ -678,7 +678,8 @@ static int is_setext_line(const char *p, int len)
 
 int is_separator(int c)
 {
-	return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];", c) != NULL;
+	return c == '\0' || ascii_is_space(c)
+	    || strchr(",.()+-/*=~%[];", c) != NULL;
 }
 
 /* Return true if the specified row last char is part of a multi line comment
@@ -1587,7 +1588,7 @@ static void generic_keyword_scan(erow *row)
 	char *scs = editor.syntax->singleline_comment_start;
 
 	/* Point to the first non-space char. */
-	while (*p && isspace(*p)) {
+	while (*p && ascii_is_space((unsigned char)*p)) {
 		p++;
 		i++;
 	}
@@ -1660,8 +1661,13 @@ static void generic_keyword_scan(erow *row)
 			}
 		}
 
-		/* Handle non printable chars. */
-		if (!isprint(*p)) {
+		/* Handle non printable chars.  ASCII only: isprint() of a
+		 * signed char 0xC3 was 0 in the "C" locale, so this used to
+		 * mark every byte of every ordinary UTF-8 character in a C,
+		 * Python or shell buffer HL_NONPRINT.  What a byte >= 0x80
+		 * looks like is display_glyph_at()'s question, not the
+		 * scanner's. */
+		if ((unsigned char)*p < 0x80 && !ascii_is_print(*p)) {
 			row->hl[i] = HL_NONPRINT;
 			p++;
 			i++;
@@ -1733,7 +1739,8 @@ static void generic_keyword_scan(erow *row)
 		}
 
 		/* Handle numbers */
-		if ((isdigit(*p) && (prev_sep || row->hl[i - 1] == HL_NUMBER))
+		if ((ascii_is_digit((unsigned char)*p)
+			&& (prev_sep || row->hl[i - 1] == HL_NUMBER))
 		    || (*p == '.' && i > 0 && row->hl[i - 1] == HL_NUMBER)) {
 			row->hl[i] = HL_NUMBER;
 			p++;

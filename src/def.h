@@ -651,6 +651,21 @@ static inline int is_special_buffer(const char *filename)
  * a raw byte stream and needing to skip past or land on glyph boundaries. */
 static inline int utf8_is_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
 
+/* ASCII classification, for the grammars that are ASCII by definition:
+ * syntax scanning, local-variable parsing, key codes.  Prefer these to
+ * <ctype.h> there.  They take an int so a key code above 0xFF or a
+ * negative char can be passed safely -- <ctype.h> is undefined for any
+ * negative value but EOF -- and they answer only about ASCII, where
+ * <ctype.h> in the "C" locale kg always runs in says nothing useful
+ * about a byte >= 0x80 and would call an ordinary UTF-8 lead byte
+ * unprintable. */
+static inline int ascii_is_print(int c) { return c >= 0x20 && c <= 0x7e; }
+static inline int ascii_is_digit(int c) { return c >= '0' && c <= '9'; }
+static inline int ascii_is_space(int c)
+{
+	return c == ' ' || (c >= '\t' && c <= '\r');
+}
+
 /* Tab stops sit every KG_TAB_WIDTH display columns, matching Emacs'
  * default tab-width, cat(1) and the terminal itself. */
 #define KG_TAB_WIDTH 8

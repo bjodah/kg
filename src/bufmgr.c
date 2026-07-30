@@ -676,7 +676,7 @@ static int minibuf_edit_key(
 	default:
 		break;
 	};
-	if (isprint(c)) {
+	if (ascii_is_print(c)) {
 		seq[0] = (char)c;
 		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, 1);
 		return 1;
@@ -1428,7 +1428,7 @@ void buf_select_interactive(int fd)
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				return;
-			} else if (isprint(c)
+			} else if (ascii_is_print(c)
 			    && qlen < (int)sizeof(query) - 1) {
 				query[qlen++] = c;
 				query[qlen] = '\0';

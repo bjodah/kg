@@ -1,0 +1,29 @@
+# A numeric argument of zero is supplied, and its value is zero: Emacs
+# runs C-u 0 C-x e zero times.  kg used to flatten the prefix into a
+# single int on the way into the C-x sub-prefix and then test it with
+# "> 0", so an explicit zero was indistinguishable from no argument at
+# all and the macro ran once, capitalising "beta".  The trailing "z"
+# checks that the replay consumed the prefix rather than leaving it for
+# the next command.
+name: macro-prefix-zero-replays-nothing
+filename: macro-prefix-zero.txt
+initial: |
+  alpha
+  beta
+  gamma
+keys:
+  - C-x
+  - "("
+  - M-c
+  - C-f
+  - C-x
+  - ")"
+  - C-u
+  - "0"
+  - C-x
+  - e
+  - "z"
+expected_saved: |
+  Alpha
+  zbeta
+  gamma

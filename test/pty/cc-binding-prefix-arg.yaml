@@ -1,0 +1,23 @@
+# A prefix argument typed before C-c reaches the command the C-c key is
+# bound to.  It survives because the C-c keystroke returns after setting
+# editor.current_prefix and the follow-up key is dispatched before
+# anything reassigns it -- the same route C-x relies on.  shell-command
+# reads that prefix to decide between showing its output and inserting
+# it, and an explicit zero counts as supplied, so the output lands in the
+# buffer.
+name: cc-binding-prefix-arg
+filename: cc-prefix.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (global-set-key "C-c s" "shell-command")
+initial: ""
+keys:
+  - C-u
+  - "0"
+  - C-c
+  - s
+  - "printf yes"
+  - RET
+expected_saved: |-
+  yes

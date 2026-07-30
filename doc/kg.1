@@ -456,6 +456,22 @@ cancels an in-progress prefix.
 The accumulated count is shown in the echo area while it is being built,
 and is capped at 1000 repeats.
 .Pp
+Whether an argument was supplied and what it counts to are separate
+questions, as in Emacs.
+.Ic C-u 0
+supplies an argument whose count is zero, so
+.Ic C-u 0 C-x e
+does not replay the macro at all, while a command that only asks whether
+an argument is present treats zero as present, so
+.Ic C-u 0 C-x C-e
+still inserts its result.
+A prefix typed before
+.Ic C-x ,
+.Ic C-x r
+or
+.Ic C-c
+reaches the command the following key names.
+.Pp
 Cursor motion, character and word deletion, word-case commands, opening
 lines, inserting newlines and inserting plain characters all honour the
 count;
@@ -918,7 +934,10 @@ When not recording,
 (or
 .Ic C-x e )
 replays it; a numeric argument replays it that many times, e.g.
-.Ic C-u 2 C-x e .
+.Ic C-u 2 C-x e ,
+and
+.Ic C-u 0 C-x e
+replays it zero times.
 Every keystroke during recording is captured, including characters typed into
 prompts (search strings, goto-line numbers, etc.), so the macro replays
 the full interaction faithfully.

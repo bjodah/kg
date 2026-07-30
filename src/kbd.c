@@ -364,9 +364,21 @@ static void handle_rect_prefix_key(int c, int fd)
 	}
 }
 
-/* Handle the key after a C-x prefix. */
+/* Handle the key after a C-x prefix.
+ *
+ * The prefix argument typed before the C-x is still in
+ * editor.current_prefix: the C-x keystroke set it and returned, and this
+ * key is dispatched from the top of editor_process_keypress() before
+ * anything reassigns it.  handle_cc_prefix_key() and
+ * handle_rect_prefix_key() reach their commands the same way, so C-c and
+ * C-x r bindings see the prefix too -- keep that early return ahead of
+ * the assignment.  Presence and value are separate questions: C-u 0 is a
+ * supplied zero, so never use `value > 0` to ask whether an argument was
+ * given. */
 static void handle_cx_prefix_key(int c, int fd)
 {
+	struct command_prefix prefix = editor.current_prefix;
+
 	switch (c) {
 	case CTRL_C: /* C-x C-c: Quit */
 		if (editor_confirm_quit(fd)) {
@@ -431,12 +443,11 @@ static void handle_cx_prefix_key(int c, int fd)
 		macro_stop(2);
 		break;
 	case 'e': /* C-x e: Execute keyboard macro; C-u N repeats */
-		macro_replay(
-		    fd, editor.cx_prefix_arg > 0 ? editor.cx_prefix_arg : 1);
+		macro_replay(fd, prefix.supplied ? prefix.value : 1);
 		break;
 	case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
 		if (kg_lisp_active()) {
-			cmd_eval_last_sexp(editor.cx_prefix_arg > 0);
+			cmd_eval_last_sexp(prefix.supplied);
 		} else {
 			editor_set_status_message("Lisp not available");
 		}
@@ -893,7 +904,6 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
-		editor.cx_prefix_arg = prefix.supplied ? prefix.value : 0;
 		editor_set_status_message("C-x-");
 		return;
 	case CTRL_C: /* C-c prefix: user-defined bindings */

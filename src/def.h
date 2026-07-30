@@ -269,7 +269,6 @@ struct editor_config {
 	struct editor_syntax *syntax; /* Current syntax highlight, or NULL. */
 	int cx_prefix; /* Set to 1 when C-x was pressed, waiting for next key.
 			*/
-	int cx_prefix_arg; /* Prefix arg carried into the C-x sub-prefix. */
 	int cc_prefix; /* Set to 1 when C-c was pressed, waiting for the
 			  user-bound key. */
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */

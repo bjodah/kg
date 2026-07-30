@@ -105,12 +105,12 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 	for (i = 0; i < editor.numrows; i++) {
 		erow *row = &editor.row[current];
 		int col
-		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->rsize);
+		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->size);
 
 		if (col < 0) {
 			col = 0;
-		} else if (col > row->rsize) {
-			col = row->rsize;
+		} else if (col > row->size) {
+			col = row->size;
 		}
 
 		if (kind == SEARCH_REGEXP) {
@@ -118,10 +118,10 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 			int status;
 			if (direction > 0) {
 				status = kg_regex_match_forward(
-				    rx, row->render, col, &match_res);
+				    rx, row->chars, col, &match_res);
 			} else {
 				status = kg_regex_match_backward(
-				    rx, row->render, col, &match_res);
+				    rx, row->chars, col, &match_res);
 			}
 			if (status == KG_REGEX_OK) {
 				*match_row = current;
@@ -137,15 +137,15 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 			char *match;
 			if (direction > 0) {
 				match = case_strstr(
-				    row->render + col, query, fold);
+				    row->chars + col, query, fold);
 			} else {
 				match = isearch_find_last_before(
-				    row->render, query, col, qlen, fold);
+				    row->chars, query, col, qlen, fold);
 			}
 
 			if (match) {
 				*match_row = current;
-				*match_col = match - row->render;
+				*match_col = match - row->chars;
 				*match_len = qlen;
 				return 1;
 			}
@@ -409,13 +409,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	char *saved_hl = NULL;
 	int qlen = 0;
 
-	/* isearch_find_match() indexes row->render, so the starting point
-	 * has to be a render BYTE offset — not a display column.  The two
-	 * only coincide on rows made of single-byte, single-width glyphs. */
-	if (start_row >= 0 && start_row < editor.numrows) {
-		start_col = chars_to_render_col(
-		    &editor.row[start_row], editor.coloff + editor.cx);
-	}
+	/* Everything in this function is a chars byte offset: the search
+	 * reads row->chars, so a TAB is one character and never the eight
+	 * columns it is drawn as.  Only the highlight below is converted to
+	 * render space, because row->hl is indexed that way. */
+	start_col = editor.coloff + editor.cx;
 
 	while (1) {
 		int c;
@@ -579,6 +577,13 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 					last_match_row = match_row;
 					last_match_col = match_col;
 					if (row->hl) {
+						int rcol = chars_to_render_col(
+						    row, match_col);
+						int rlen
+						    = chars_to_render_col(row,
+							  match_col + match_len)
+						    - rcol;
+
 						saved_hl_line = match_row;
 						saved_hl = malloc(row->rsize);
 						if (!saved_hl) {
@@ -590,8 +595,10 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 						}
 						memcpy(saved_hl, row->hl,
 						    row->rsize);
-						memset(row->hl + match_col,
-						    HL_MATCH, match_len);
+						if (rcol + rlen <= row->rsize) {
+							memset(row->hl + rcol,
+							    HL_MATCH, rlen);
+						}
 					}
 					point_col = match_col
 					    + (search_dir > 0 ? match_len : 0);

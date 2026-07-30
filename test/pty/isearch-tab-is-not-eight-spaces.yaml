@@ -1,0 +1,38 @@
+# A TAB is one character, not eight spaces: searching for eight spaces
+# must walk past the tab-indented line and land on the one that really is
+# indented with spaces.  Rendered text answered the other way, twice --
+# once for the literal search and once for the regexp one, where eight
+# spaces are also just eight literal characters.
+name: isearch-tab-is-not-eight-spaces
+filename: tab-vs-spaces.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "\ttab\n        spaces\n"
+keys:
+  - C-s
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - C-a
+  - X
+  - C-Home
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - SPC
+  - C-a
+  - "Y"
+expected_saved: "\ttab\nYX        spaces\n"

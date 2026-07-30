@@ -714,6 +714,10 @@ with an empty query repeats the last search, so
 .Ic C-s C-s
 finds the next occurrence of it.
 Literal and regexp searches keep separate rings, as in Emacs.
+Both kinds match the text in the buffer rather than the text as it is
+drawn: a TAB is one character and never the eight columns it occupies, so
+a search for eight spaces passes an indented line by, and point after a
+match lands just behind the match whatever the line is indented with.
 .Pp
 .Ic M-%
 or

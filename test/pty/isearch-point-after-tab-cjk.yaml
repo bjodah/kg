@@ -1,0 +1,18 @@
+# The same coordinate confusion, with glyphs that are wider than they are
+# long: a TAB plus three double-width characters put the render offset
+# nine columns past the buffer offset, so point used to land beyond the
+# end of the row and the insert padded with spaces to reach it.
+name: isearch-point-after-tab-cjk
+filename: tab-cjk.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "\t日本語 tail\n"
+keys:
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - 日本語
+  - RET
+  - X
+expected_saved: "\t日本語X tail\n"

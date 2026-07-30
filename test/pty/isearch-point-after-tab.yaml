@@ -1,0 +1,20 @@
+# Search matched the RENDERED row, where a TAB is eight spaces, and then
+# handed that render offset to the reveal as if it were a buffer column.
+# On a tab-indented line point therefore landed well past the match -- off
+# the end of this row, where an insert pads with spaces.  Both halves are
+# buffer offsets now, so typing after the search writes right behind the
+# match.
+name: isearch-point-after-tab
+filename: tab-point.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "\tfoo bar\n"
+keys:
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - foo
+  - RET
+  - X
+expected_saved: "\tfooX bar\n"

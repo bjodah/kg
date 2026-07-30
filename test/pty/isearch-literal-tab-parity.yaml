@@ -1,0 +1,14 @@
+# The literal search read row->render too, so it left point in the same
+# wrong place as the regexp one.  Same fixture, same answer.
+name: isearch-literal-tab-parity
+filename: tab-point-literal.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "\tfoo bar\n"
+keys:
+  - C-s
+  - foo
+  - RET
+  - X
+expected_saved: "\tfooX bar\n"

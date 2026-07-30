@@ -1,0 +1,23 @@
+# Point after a search is a buffer offset, and the viewport it is revealed
+# in is measured in display columns; visual-line-mode is where the two are
+# furthest apart.  The window is eight columns wide, so the tab-indented
+# line wraps, and the search still has to leave point exactly behind the
+# match.
+name: isearch-point-after-tab-visual-line
+filename: tab-visual.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+dimensions: [10, 8]
+initial: "\tfoo bar\n"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - M-x
+  - isearch-forward-regexp
+  - RET
+  - bar
+  - RET
+  - X
+expected_saved: "\tfoo barX\n"

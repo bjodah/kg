@@ -161,10 +161,80 @@ static void test_tty_write_completes_or_reports_loss(void)
 	editor_write_fn = write;
 }
 
+/* The DSR reply arrives on the wire and is as trustworthy as anything
+ * else the terminal sends -- a paste can forge one.  It is accepted only
+ * in its exact shape. */
+static void test_cursor_report_parses_exact_shape_only(void)
+{
+	int r = -1, c = -1;
+
+	CHECK(kg_parse_cursor_report("\x1b[24;80R", &r, &c) == 0);
+	CHECK(r == 24 && c == 80);
+	CHECK(kg_parse_cursor_report("\x1b[1;1R", &r, &c) == 0);
+	CHECK(r == 1 && c == 1);
+
+	/* Zero is a valid parse; kg_normalize_window_size() is what rules
+	 * on whether a size is usable. */
+	CHECK(kg_parse_cursor_report("\x1b[0;0R", &r, &c) == 0);
+	CHECK(r == 0 && c == 0);
+
+	/* A sign, a missing field, a missing terminator, trailing bytes,
+	 * the wrong introducer, or nothing at all: all refused.  sscanf
+	 * accepted the first four. */
+	CHECK(kg_parse_cursor_report("\x1b[-1;80R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[;80R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[24;R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[24R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[24;80", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[24;80Rjunk", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b[24; 80R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b]24;80R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("24;80R", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("", &r, &c) == -1);
+	CHECK(kg_parse_cursor_report("\x1b", &r, &c) == -1);
+
+	/* A digit run long enough to overflow int saturates instead, which
+	 * kg_normalize_window_size() then throws out. */
+	CHECK(kg_parse_cursor_report("\x1b[99999999999;80R", &r, &c) == 0);
+	CHECK(r > KG_MAX_ROWS && c == 80);
+}
+
+/* Layout code never receives a zero, a negative, or an absurd size. */
+static void test_window_size_normalises_or_refuses(void)
+{
+	int r = 0, c = 0;
+
+	CHECK(kg_normalize_window_size(24, 80, &r, &c) == 1);
+	CHECK(r == 24 && c == 80);
+
+	/* Too small clamps up: the layout stays consistent and needs no
+	 * separate "terminal too small" path. */
+	CHECK(kg_normalize_window_size(1, 1, &r, &c) == 1);
+	CHECK(r == KG_MIN_ROWS && c == KG_MIN_COLS);
+	CHECK(kg_normalize_window_size(2, 5, &r, &c) == 1);
+	CHECK(r == KG_MIN_ROWS && c == KG_MIN_COLS);
+	CHECK(kg_normalize_window_size(KG_MIN_ROWS, KG_MIN_COLS, &r, &c) == 1);
+	CHECK(r == KG_MIN_ROWS && c == KG_MIN_COLS);
+
+	/* Nonsense is refused, so the caller retries or keeps what it had. */
+	CHECK(kg_normalize_window_size(0, 80, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(24, 0, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(-1, 80, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(24, -80, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(KG_MAX_ROWS + 1, 80, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(24, KG_MAX_COLS + 1, &r, &c) == 0);
+	CHECK(kg_normalize_window_size(INT_MAX, INT_MAX, &r, &c) == 0);
+
+	/* A refusal leaves the out-parameters alone. */
+	CHECK(r == KG_MIN_ROWS && c == KG_MIN_COLS);
+}
+
 int main(void)
 {
 	RUN(test_sigwinch_handling);
 	RUN(test_input_flood_detects_paste_sized_queue);
 	RUN(test_tty_write_completes_or_reports_loss);
+	RUN(test_cursor_report_parses_exact_shape_only);
+	RUN(test_window_size_normalises_or_refuses);
 	return test_summary();
 }

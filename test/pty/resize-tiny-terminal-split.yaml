@@ -1,0 +1,30 @@
+# The same walk down to 1x1 and back with both a horizontal and a
+# vertical split open, which is where win_reflow() divides the rows and
+# columns among windows and can hand one of them a negative height or a
+# zero width.  Every window keeps a usable size, and the buffer is still
+# editable afterwards.
+name: resize-tiny-terminal-split
+filename: resize-split.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |
+  alpha
+  beta
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - "3"
+  - RESIZE=1,1
+  - RESIZE=2,5
+  - RESIZE=3,8
+  - RESIZE=24,80
+  - C-e
+  - "!"
+trailer_keys: [C-x, C-s, C-x, C-c]
+expected_saved: |
+  alpha!
+  beta
+expected_screen_contains:
+  - "alpha!"
+  - "resize-split.txt"

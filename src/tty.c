@@ -537,6 +537,74 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
  * instead so they aren't redrawn (or silently reverted) under the user. */
 int editor_read_key_idle(int fd) { return read_key_common(fd, 1, 1); }
 
+/* One numeric field of a terminal report: at least one decimal digit and
+ * nothing else.  The running value stops growing well below INT_MAX, so
+ * a long digit run saturates instead of overflowing; what it saturates
+ * to is far past any real terminal, and kg_normalize_window_size()
+ * throws it out. */
+static int parse_report_field(const char **p, int *out)
+{
+	const char *s = *p;
+	int v = 0;
+
+	if (*s < '0' || *s > '9') {
+		return -1;
+	}
+	while (*s >= '0' && *s <= '9') {
+		if (v <= KG_MAX_ROWS) {
+			v = v * 10 + (*s - '0');
+		}
+		s++;
+	}
+	*p = s;
+	*out = v;
+	return 0;
+}
+
+/* Parse a DSR cursor-position report, exactly "ESC [ <rows> ; <cols> R":
+ * decimal digits only in both fields, no sign, no other parameter bytes,
+ * nothing after the R.  Returns 0 with *rows and *cols set, else -1.
+ *
+ * sscanf("%d;%d") accepted a leading '-', ignored whatever followed the
+ * numbers, and had undefined behaviour on a digit run that overflows
+ * int.  The reply comes from the terminal, which is not a trusted source
+ * of any of that: a stray paste can forge one. */
+int kg_parse_cursor_report(const char *buf, int *rows, int *cols)
+{
+	const char *p = buf;
+
+	if (p[0] != ESC || p[1] != '[') {
+		return -1;
+	}
+	p += 2;
+	if (parse_report_field(&p, rows) != 0 || *p++ != ';') {
+		return -1;
+	}
+	if (parse_report_field(&p, cols) != 0 || *p++ != 'R') {
+		return -1;
+	}
+	return *p == '\0' ? 0 : -1;
+}
+
+/* 1 with a usable size in the two out-parameters, 0 when the probe
+ * result is not a plausible terminal size at all.
+ *
+ * Below the minimum the size is clamped up rather than refused: clamping
+ * keeps win_reflow()'s row total consistent and needs no separate
+ * "terminal too small" render path.  Above the maximum it is refused --
+ * the frame buffer's arithmetic is int (display.c), so rows * cols has
+ * to stay far from INT_MAX, and a terminal that large does not exist. */
+int kg_normalize_window_size(int rows, int cols, int *out_rows, int *out_cols)
+{
+	if (rows <= 0 || cols <= 0 || rows > KG_MAX_ROWS
+	    || cols > KG_MAX_COLS) {
+		return 0;
+	}
+	*out_rows = rows < KG_MIN_ROWS ? KG_MIN_ROWS : rows;
+	*out_cols = cols < KG_MIN_COLS ? KG_MIN_COLS : cols;
+	return 1;
+}
+
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor is stored at *rows and *cols and 0 is returned. */
@@ -576,22 +644,14 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 		if (nread == 0) {
 			break;
 		}
-		if (buf[i] == 'R') {
+		i++;
+		if (buf[i - 1] == 'R') {
 			break;
 		}
-		i++;
 	}
 	buf[i] = '\0';
 
-	/* Parse it. */
-	if (buf[0] != ESC || buf[1] != '[') {
-		return -1;
-	}
-	if (sscanf(buf + 2, "%d;%d", rows, cols) != 2) {
-		return -1;
-	}
-
-	return 0;
+	return kg_parse_cursor_report(buf, rows, cols);
 #endif
 }
 
@@ -609,7 +669,8 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 #else
 	struct winsize ws;
 
-	if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+	if (ioctl(ofd, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0
+	    || ws.ws_row == 0) {
 		/* ioctl() failed. Try to query the terminal itself. */
 		int orig_row, orig_col, retval;
 
@@ -634,12 +695,18 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 		if (write(ofd, seq, strlen(seq)) == -1) {
 			/* Can't recover... */
 		}
-		return 0;
 	} else {
 		*cols = ws.ws_col;
 		*rows = ws.ws_row;
-		return 0;
 	}
+	/* Neither source is trusted: the ioctl reports whatever the kernel
+	 * was last told, and the DSR reply comes off the wire.  An
+	 * implausible answer is an error, so the caller's retry loop gets
+	 * another go rather than laying out to it. */
+	if (!kg_normalize_window_size(*rows, *cols, rows, cols)) {
+		goto failed;
+	}
+	return 0;
 
 failed:
 	return -1;
@@ -651,6 +718,12 @@ failed:
  * (two rows go to the status and echo lines). */
 static void apply_window_size(int rows, int cols)
 {
+	/* Last gate before the layout: whatever route the numbers took to
+	 * get here, nothing below this line sees a zero, a negative or an
+	 * absurd dimension. */
+	if (!kg_normalize_window_size(rows, cols, &rows, &cols)) {
+		return;
+	}
 	win_total_rows = rows;
 	win_total_cols = cols;
 	if (win_count > 0) {

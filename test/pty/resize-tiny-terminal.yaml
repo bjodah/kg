@@ -1,0 +1,29 @@
+# Terminal geometry is an input like any other.  A one-row terminal used
+# to give editor.screenrows = -1 (rows - 2, unfloored) and win_reflow() a
+# window height of -1 with its mode line drawn at terminal row 0.
+# kg_normalize_window_size() clamps anything below the usable minimum
+# before the layout sees it, so kg walks down to 1x1 and back and is
+# still editing the same buffer at the same point.
+name: resize-tiny-terminal
+filename: resize.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |
+  alpha
+  beta
+keys:
+  - RESIZE=1,1
+  - RESIZE=2,5
+  - RESIZE=3,8
+  - RESIZE=24,80
+  - C-e
+  - "!"
+trailer_keys: [C-x, C-s, C-x, C-c]
+expected_saved: |
+  alpha!
+  beta
+expected_screen_contains:
+  # Back at 24x80 the frame is a frame again: the edited text and a mode
+  # line naming the buffer.
+  - "alpha!"
+  - "resize.txt"

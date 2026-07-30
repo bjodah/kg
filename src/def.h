@@ -912,7 +912,19 @@ int editor_input_flood(int fd);
 int editor_read_raw_byte(int fd);
 int editor_read_utf8_seq(int fd, int lead, char *seq);
 int editor_check_quit_pending(void);
+/* Smallest terminal kg lays out for: one text row, one mode line and one
+ * echo row, and columns enough for the mode line and the tilde/banner
+ * filler to land somewhere.  Largest: the frame buffer's arithmetic is
+ * int (display.c), so rows * cols stays far from INT_MAX, and no
+ * terminal is this big -- a probe that says so is lying. */
+#define KG_MIN_ROWS 3
+#define KG_MIN_COLS 8
+#define KG_MAX_ROWS 10000
+#define KG_MAX_COLS 10000
+
 int tty_write(const void *buf, size_t n);
+int kg_parse_cursor_report(const char *buf, int *rows, int *cols);
+int kg_normalize_window_size(int rows, int cols, int *out_rows, int *out_cols);
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols);
 int get_window_size(int ifd, int ofd, int *rows, int *cols);
 void update_window_size(void);

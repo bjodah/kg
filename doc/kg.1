@@ -1423,6 +1423,14 @@ Use
 .Ic C-x o
 to cycle between windows.
 Up to 8 windows may be open simultaneously.
+.Pp
+The smallest terminal
+.Nm
+lays out for is 3 rows by 8 columns: one text row, one mode line and the
+echo area.
+A smaller terminal is treated as that size, so the display overflows but
+the editor keeps working; a reported size larger than 10000 in either
+direction is rejected as implausible and the previous size is kept.
 .Sh CONTROL CHARACTERS
 Nothing
 .Nm

@@ -104,6 +104,13 @@ void win_reflow(void)
 
 	usable
 	    = win_total_rows - 1; /* reserve 1 row for the global echo area */
+	/* Defensive: apply_window_size() keeps win_total_* at or above
+	 * KG_MIN_ROWS/KG_MIN_COLS, but a caller that sets them directly
+	 * must not be able to hand out a negative height or a zero-width
+	 * window, which would put a mode line on terminal row 0. */
+	if (usable < 1) {
+		usable = 1;
+	}
 	/* Reserve one column per inter-group gap for the vertical separator. */
 	col_w = (win_total_cols - (num_col_groups - 1)) / num_col_groups;
 	col_rem = (win_total_cols - (num_col_groups - 1)) % num_col_groups;
@@ -138,6 +145,12 @@ void win_reflow(void)
 			winlist[i].h = band_h
 			    - 1; /* text rows; mode line uses the last row */
 			winlist[i].w = cw;
+			if (winlist[i].h < 0) {
+				winlist[i].h = 0;
+			}
+			if (winlist[i].w < 1) {
+				winlist[i].w = 1;
+			}
 			row_y += band_h;
 			win_idx++;
 		}

@@ -1423,6 +1423,41 @@ Use
 .Ic C-x o
 to cycle between windows.
 Up to 8 windows may be open simultaneously.
+.Sh CONTROL CHARACTERS
+Nothing
+.Nm
+reads becomes something the terminal obeys.
+Bytes from a file, a filename, a directory listing, a Lisp string or a
+subprocess' output are always drawn as characters, never as terminal
+control sequences, whatever mode or syntax the buffer is in.
+.Pp
+A control character is shown in caret notation:
+.Ql ^@
+through
+.Ql ^_
+for the bytes below a space, and
+.Ql ^?
+for
+.Ql DEL .
+The C1 controls
+.Pq U+0080 No through U+009F ,
+which an eight-bit terminal reads as
+.Ql CSI ,
+.Ql OSC
+and
+.Ql DCS
+introducers, and bytes that are not valid UTF-8 at all, are shown as
+.Ql \e Ns Ar xnn
+with the byte's value in lowercase hexadecimal, one spelling per byte.
+.Pp
+These spellings occupy the columns they are drawn in, so the cursor, the
+mode line's column indicator, tab stops and rectangles all count a
+.Ql ^[
+as two columns and a
+.Ql \ex9b
+as four.
+Tabs are not control characters here: they expand to the next tab stop as
+usual.
 .Sh SYNTAX HIGHLIGHTING
 Syntax highlighting is detected automatically from the file extension or
 type, e.g., Makefile.  Hash-bang lines

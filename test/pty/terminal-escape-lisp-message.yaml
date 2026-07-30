@@ -1,0 +1,26 @@
+# Lisp strings reach the echo area through (message ...), and Lisp is
+# trusted code -- but "trusted to edit the buffer" is not "trusted to
+# write terminal control sequences", and a message string is just as
+# likely to be carrying a filename or a subprocess' output.  The init file
+# here holds real ESC bytes (the YAML is double-quoted, so \x1b is one
+# byte in the file, and fe's reader takes it literally inside a string).
+#
+# Drawn through, the CSI recoloured the rest of the frame and the OSC
+# renamed the terminal window.  Drawn as text, both read back.
+name: terminal-escape-lisp-message
+filename: escmsg.txt
+backend: tmux
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: "(defun shout ()\n  \"Say something the terminal must not act on.\"\n  (interactive)\n  (message \"say \x1b[31mred\x1b]0;renamed\x07 done\"))\n(global-set-key \"C-c s\" \"shout\")\n"
+initial: |
+  hello
+keys:
+  - C-c
+  - s
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  hello
+expected_screen_contains:
+  - "say ^[[31mred^[]0;renamed^G done"
+  - "hello"

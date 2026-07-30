@@ -922,15 +922,21 @@ static void push_open_files_back(struct path_entry *entries, int n)
  *
  * The window of visible entries is sized so `sel` is always present
  * even when the full list overflows the terminal width; trimmed sides
- * get "… | " / " | …" markers. */
-void editor_picker_render(char *msg, int msg_size, int *off,
+ * get "… | " / " | …" markers.
+ *
+ * Returns the byte offset in `msg` where the selected entry starts, for
+ * editor_set_status_emphasis(), or -1 when nothing was rendered.  The
+ * entry's name is a filename or a buffer name, so it is written as plain
+ * text; the emphasis is the renderer's, addressed by position. */
+int editor_picker_render(char *msg, int msg_size, int *off,
     const char *const *names, int n, int n_total, int sel)
 {
 	int budget, used, win_start, win_end, i;
+	int sel_off = -1;
 
 	if (n <= 0) {
 		editor_msg_appendf(msg, msg_size, off, "[no match]");
-		return;
+		return -1;
 	}
 	if (sel < 0) {
 		sel = 0;
@@ -974,11 +980,9 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 			editor_msg_appendf(msg, msg_size, off, " | ");
 		}
 		if (i == sel) {
-			editor_msg_appendf(
-			    msg, msg_size, off, "\x1b[1m%s\x1b[22m", names[i]);
-		} else {
-			editor_msg_appendf(msg, msg_size, off, "%s", names[i]);
+			sel_off = *off;
 		}
+		editor_msg_appendf(msg, msg_size, off, "%s", names[i]);
 	}
 	if (win_end < n) {
 		editor_msg_appendf(msg, msg_size, off, " | …");
@@ -988,6 +992,17 @@ void editor_picker_render(char *msg, int msg_size, int *off,
 		editor_msg_appendf(
 		    msg, msg_size, off, "  (+%d more)", n_total - n);
 	}
+	return sel_off;
+}
+
+/* Emphasise the pick list's selected entry in the message just set.
+ * `sel_off` is what editor_picker_render() returned. */
+void editor_picker_emphasise(
+    int sel_off, const char *const *names, int n, int sel)
+{
+	editor_set_status_emphasis(sel_off,
+	    (sel_off >= 0 && sel >= 0 && sel < n) ? (int)strlen(names[sel])
+						 : 0);
 }
 
 /* Does the typed path end in a "." or ".." component?  Emacs answers such
@@ -1027,7 +1042,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	buf[len] = '\0';
 	while (1) {
 		const char *names[PICKER_MAX_ENTRIES] = { 0 };
-		int off, i;
+		int off, i, sel_off;
 
 		editor_path_split(buf, dir, sizeof(dir), file, sizeof(file));
 		flen = (int)strlen(file);
@@ -1048,10 +1063,11 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		off = 0;
 		editor_msg_appendf(
 		    msg, sizeof(msg), &off, "%s%s ", prompt, buf);
-		editor_picker_render(
+		sel_off = editor_picker_render(
 		    msg, sizeof(msg), &off, names, matches, total, sel);
 
 		editor_set_status_message("%s", msg);
+		editor_picker_emphasise(sel_off, names, matches, sel);
 		editor.echo_cursor_col
 		    = prompt_cursor_col(prompt, plen, buf, cursor);
 		editor_refresh_screen();
@@ -1314,7 +1330,7 @@ void buf_select_interactive(int fd)
 	int qlen = 0, sel = 0;
 	int i, c;
 	char msg[512];
-	int off;
+	int off, sel_off;
 
 	query[0] = '\0';
 
@@ -1375,9 +1391,11 @@ void buf_select_interactive(int fd)
 			off = 0;
 			editor_msg_appendf(
 			    msg, sizeof(msg), &off, "%s%s ", prompt, query);
-			editor_picker_render(msg, sizeof(msg), &off, names,
-			    matches, matches, sel);
+			sel_off = editor_picker_render(msg, sizeof(msg), &off,
+			    names, matches, matches, sel);
 			editor_set_status_message("%s", msg);
+			editor_picker_emphasise(
+			    sel_off, names, matches, sel);
 			editor.echo_cursor_col
 			    = prompt_cursor_col(prompt, plen, query, qlen);
 			editor_refresh_screen();

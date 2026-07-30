@@ -914,7 +914,7 @@ void editor_named_command(int fd)
 	struct command_prefix prefix = editor.current_prefix;
 	char name[64];
 	char msg[512];
-	int len = 0, c, i, off;
+	int len = 0, c, i, off, sel_off;
 	int sel = 0; /* index within match_idx[] of the highlighted entry */
 	/* Set once the user explicitly moves `sel` with Left/Right (or
 	 * C-f/C-b) so an empty Enter repeats the *highlighted* command
@@ -979,10 +979,11 @@ void editor_named_command(int fd)
 			editor_msg_appendf(
 			    msg, sizeof(msg), &off, "%s%s ", prompt, name);
 		}
-		editor_picker_render(
+		sel_off = editor_picker_render(
 		    msg, sizeof(msg), &off, names, shown, total, sel);
 
 		editor_set_status_message("%s", msg);
+		editor_picker_emphasise(sel_off, names, shown, sel);
 		editor.echo_cursor_col = plen + len + 1;
 		editor_refresh_screen();
 

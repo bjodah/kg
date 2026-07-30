@@ -269,6 +269,12 @@ struct editor_config {
 	char *filename; /* Currently open filename */
 	char statusmsg[512];
 	time_t statusmsg_time;
+	/* Half-open byte range of statusmsg[] the echo area draws
+	 * emphasised; empty when equal.  Styling is addressed by position
+	 * rather than spelled into the text, so nothing a caller
+	 * interpolates into a message can ask the terminal for it. */
+	int statusmsg_emph_start;
+	int statusmsg_emph_end;
 	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
 			      * row where the cursor should rest (for minibuffer
 			      * prompts). */
@@ -496,8 +502,10 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 void editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
-void editor_picker_render(char *msg, int msg_size, int *off,
+int editor_picker_render(char *msg, int msg_size, int *off,
     const char *const *names, int n, int n_total, int sel);
+void editor_picker_emphasise(
+    int sel_off, const char *const *names, int n, int sel);
 void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
     __attribute__((format(printf, 4, 5)));
 int autorevert_poll(void);
@@ -777,6 +785,7 @@ int ab_append(struct abuf *ab, const char *s, int len);
 void ab_free(struct abuf *ab);
 void editor_refresh_screen(void);
 void editor_set_status_message(const char *fmt, ...);
+void editor_set_status_emphasis(int start, int len);
 
 /* fileio.c */
 struct temp_load_result {

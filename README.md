@@ -100,6 +100,10 @@ standard VT100 escape sequences.
 - Display columns measured the way the terminal draws them: East-Asian-Wide
   and Fullwidth characters take two columns, combining marks none (Unicode
   15.1 width table, no libc locale required)
+- Nothing kg reads becomes something the terminal obeys: bytes from a
+  file, a filename, a directory listing, a Lisp string or a subprocess
+  are always drawn as characters. Control characters show as `^X`, and
+  C1 controls and invalid UTF-8 as `\xnn`; see [kg(1)][7]
 - Graceful terminal resize handling
 - Local-variable and `.dir-locals.el` parsing is non-evaluating and
   works in `WITH_LISP=0` builds; see [kg(1)][7] for the exact

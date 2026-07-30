@@ -1,0 +1,32 @@
+# Dired listings are built from readdir() output, and dired-mode installs
+# its own highlight hook -- so generic_keyword_scan(), the one place that
+# ever set HL_NONPRINT, never runs over a dired buffer at all.  A file
+# named with ESC [ 2J and BEL therefore reached the terminal intact and
+# erased the listing it was part of.
+#
+# Terminal safety is not a highlighter's job: the entry is drawn as text
+# because every row is, whatever mode the buffer is in.
+#
+# The prompt answer names a file inside the target directory; see
+# dired-listing.yaml for why.
+name: terminal-escape-dired-entry
+filename: notes.txt
+backend: tmux
+config_files:
+  "esc\x1b[2Jbel\x07.txt": x
+  keep.txt: k
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/keep.txt"
+  - RET
+# q leaves dired for notes.txt before the trailer quits.
+trailer_keys: [q, C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "esc^[[2Jbel^G.txt"
+  - "keep.txt"
+  - "2 entries"

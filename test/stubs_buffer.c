@@ -24,6 +24,11 @@ int global_auto_revert = 0;
 
 /* No-op stubs */
 void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
+void editor_set_status_emphasis(int start, int len)
+{
+	(void)start;
+	(void)len;
+}
 void editor_refresh_screen(void) { }
 int editor_read_key(int fd)
 {

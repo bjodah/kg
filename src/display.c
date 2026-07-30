@@ -604,42 +604,34 @@ void editor_refresh_screen(void)
 	ab_append(&ab, "\x1b[0K", 4);
 	msglen = strlen(editor.statusmsg);
 	if (msglen && time(NULL) - editor.statusmsg_time < 5) {
-		/* Cap by display width, not byte count, so embedded ANSI
-		 * escapes (e.g. reverse video around a selected completion)
-		 * pass through intact and aren't sliced mid-sequence, and a
-		 * multi-byte or double-width glyph is either whole or absent
-		 * — the same budget shell_output_fits_echo() measures against.
-		 */
-		int p = 0, visible = 0;
+		/* Messages interpolate filenames, directory entries, Lisp
+		 * strings and subprocess output, so the text is escaped and
+		 * the only styling is the renderer's own: a byte range the
+		 * caller marked, not bytes the caller spelled.  Cap by drawn
+		 * width, not byte count, so a glyph is whole or absent — the
+		 * same budget shell_output_fits_echo() measures against. */
+		int visible = 0;
+		int fit = display_fit(
+		    editor.statusmsg, msglen, win_total_cols, &visible);
+		int s = editor.statusmsg_emph_start;
+		int e = editor.statusmsg_emph_end;
 
-		while (p < msglen) {
-			int w, span;
-
-			if (editor.statusmsg[p] == '\x1b') {
-				p++;
-				if (p < msglen && editor.statusmsg[p] == '[') {
-					p++;
-					while (p < msglen
-					    && (editor.statusmsg[p] < 0x40
-						|| editor.statusmsg[p]
-						    > 0x7e)) {
-						p++;
-					}
-					if (p < msglen) {
-						p++; /* the final letter */
-					}
-				}
-				continue;
-			}
-			w = utf8_width_at(editor.statusmsg, msglen, p);
-			span = utf8_glyph_span_at(editor.statusmsg, msglen, p);
-			if (w > 0 && visible + w > win_total_cols) {
-				break;
-			}
-			visible += w;
-			p += span;
+		if (s > fit) {
+			s = fit;
 		}
-		ab_append(&ab, editor.statusmsg, p);
+		if (e > fit) {
+			e = fit;
+		}
+		ab_append_terminal_text(
+		    &ab, editor.statusmsg, s, DISPLAY_STATUS_TEXT);
+		if (e > s) {
+			ab_append(&ab, "\x1b[1m", 4);
+			ab_append_terminal_text(&ab, editor.statusmsg + s,
+			    e - s, DISPLAY_STATUS_TEXT);
+			ab_append(&ab, "\x1b[22m", 5);
+		}
+		ab_append_terminal_text(&ab, editor.statusmsg + e, fit - e,
+		    DISPLAY_STATUS_TEXT);
 		ab_append(&ab, "\x1b[0m", 4); /* close any open attribute */
 	}
 
@@ -723,4 +715,20 @@ void editor_set_status_message(const char *fmt, ...)
 	vsnprintf(editor.statusmsg, sizeof(editor.statusmsg), fmt, ap);
 	va_end(ap);
 	editor.statusmsg_time = time(NULL);
+	editor.statusmsg_emph_start = 0;
+	editor.statusmsg_emph_end = 0;
+}
+
+/* Draw `len` bytes of the current message from byte `start` emphasised.
+ * Call after editor_set_status_message(), which clears any previous
+ * range; a negative or empty range means none. */
+void editor_set_status_emphasis(int start, int len)
+{
+	if (start < 0 || len <= 0) {
+		editor.statusmsg_emph_start = 0;
+		editor.statusmsg_emph_end = 0;
+		return;
+	}
+	editor.statusmsg_emph_start = start;
+	editor.statusmsg_emph_end = start + len;
 }

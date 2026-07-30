@@ -1,0 +1,33 @@
+# The path picker draws directory entries into the echo area.  Those names
+# come from readdir(), so one of them here carries a real ESC [ 2J: drawn
+# through, it erased the frame kg had just painted.  Drawn as text it reads
+# back, and the pick list around it survives.
+#
+# This is also the one place kg used to spell ANSI into a message
+# (bufmgr.c wrapped the selected candidate in \x1b[1m ... \x1b[22m), which
+# is why the echo area passed escapes through at all.  The emphasis is now
+# a byte range the renderer owns, so the passthrough could go.
+name: terminal-escape-completion-echo
+filename: notes.txt
+backend: tmux
+config_files:
+  "esc\x1b[2Jhere.txt": x
+  zz.txt: z
+initial: |
+  notes
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/"
+# C-g leaves the prompt without visiting anything; the buffer is clean, so
+# C-x C-c quits without a question.
+trailer_keys: [C-g, C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "esc^[[2Jhere.txt"
+  - "zz.txt"
+  # The frame the entry would have erased is still there.
+  - "notes"

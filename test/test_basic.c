@@ -243,6 +243,30 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	teardown();
 }
 
+/* An escape spelling is a glyph like any other, so a wrap moves it whole
+ * to the next display row instead of cutting it in half.  The four-cell
+ * "\xnn" forms are the ones the double-width rule did not already cover:
+ * a segment that could not fit one used to skip past it, and the byte
+ * was drawn on neither display row. */
+static void test_visual_wrap_moves_a_whole_escape_spelling(void)
+{
+	int logical_row, render_offset;
+
+	setup(0);
+	/* Nine columns of text, then a C1 control spelled "\x9b". */
+	editor_insert_row(0, "aaaaaaaaa\xc2\x9bzz", 13);
+
+	CHECK(editor_visual_col(&editor.row[0], 9) == 9);
+	/* At win_w 10 the spelling does not fit in the one column left, so
+	 * it starts the second display row -- and that row starts at it. */
+	CHECK(get_total_visual_rows(editor.row, editor.numrows, 10) == 2);
+	find_visual_row(
+	    editor.row, editor.numrows, 10, 0, 1, &logical_row, &render_offset);
+	CHECK(logical_row == 0);
+	CHECK(render_offset == 9);
+	teardown();
+}
+
 static void test_visual_rows_guard_zero_width(void)
 {
 	setup(1);
@@ -441,6 +465,7 @@ int main(void)
 	RUN(test_move_cursor_clamps_huge_column_offset);
 	RUN(test_rect_right_saturates_huge_column_offset);
 	RUN(test_visual_rows_use_glyph_columns_and_tab_stops);
+	RUN(test_visual_wrap_moves_a_whole_escape_spelling);
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);

@@ -22,18 +22,23 @@ int chars_to_render_col(erow *row, int chars_col)
 	return render_col;
 }
 
-/* A double-width glyph cannot be split across a wrap, so Emacs moves it
- * whole to the next display row and leaves the edge cell blank.  Returns
- * the blank cells to charge before laying a `width`-cell glyph out at
- * display column `vcol`. */
+/* A glyph wider than one cell cannot be split across a wrap, so Emacs
+ * moves it whole to the next display row and leaves the edge cells
+ * blank.  Returns the blank cells to charge before laying a `width`-cell
+ * glyph out at display column `vcol`.  Double-width characters are the
+ * common case; display_glyph_at() also spells a C1 control or a
+ * malformed byte "\xnn", which is four. */
 static int wrap_pad(int vcol, int width, int win_w)
 {
-	/* A one-column window can never hold a wide glyph; don't pad
-	 * forever, and never divide by a zero width. */
-	if (width != 2 || win_w <= 1) {
+	int room;
+
+	/* A window too narrow to hold the glyph at all can never be padded
+	 * into fitting it; don't pad forever, and never divide by zero. */
+	if (width < 2 || win_w <= 1 || width > win_w) {
 		return 0;
 	}
-	return (vcol % win_w == win_w - 1) ? 1 : 0;
+	room = win_w - (vcol % win_w);
+	return width > room ? room : 0;
 }
 
 /* Display column of byte offset `chars_col` once `row` is wrapped every

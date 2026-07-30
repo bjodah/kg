@@ -2,8 +2,11 @@
  * Fuzz harness for the tiny-regex-c engine via the kg_regex wrapper.
  *
  * Strategy: split the fuzz input into a pattern and a text, compile the
- * pattern, then match forward and backward against the text.  Regex
- * engines are historically rich bug-hunting ground.
+ * pattern, then match forward and backward against the text and walk
+ * every match the way query-replace does, asserting the properties that
+ * loop forever when they break.  Regex engines are historically rich
+ * bug-hunting ground.  The input encoding is unchanged by that walk, so
+ * the tracked seeds still mean what they say.
  *
  * Tracked seed inputs live in test/fuzz-seeds/regex and are copied into
  * the (gitignored) working corpus by `make fuzz-regex-seed`.  To hand-write
@@ -14,6 +17,7 @@
  */
 #include "../src/regex.h"
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -57,6 +61,26 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 	kg_regex_match_forward(&rx, text, 0, &match);
 	kg_regex_match_backward(&rx, text, (int)txt_len, &match);
+
+	/* Walk every match the way query-replace does.  The properties are
+	 * the ones that loop forever when they break: no match starts before
+	 * the normalized request, the resume offset strictly advances, and
+	 * the walk ends within one step per glyph plus the one at the end of
+	 * the subject. */
+	int len = (int)txt_len;
+	int from = 0;
+	int steps = 0;
+
+	while (from >= 0
+	    && kg_regex_match_forward(&rx, text, from, &match) == KG_REGEX_OK) {
+		int next = kg_regex_next_offset(text, len, &match.spans[0]);
+
+		assert(match.spans[0].start
+		    >= kg_utf8_forward_boundary(text, len, from));
+		assert(next < 0 || next > from);
+		assert(++steps <= len + 1);
+		from = next;
+	}
 
 	return 0;
 }

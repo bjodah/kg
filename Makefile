@@ -154,19 +154,25 @@ endif
 SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
-# Ratcheted 4199 -> 4208 for the path picker's literal-accept answers
-# (M-RET, and RET on a "."/".." component); kept snug so the next
-# growth gets reviewed too.
-SCC_COMPLEXITY_MAX ?= 4208
+# Deliberately re-baselined 4208 -> 4280 (+1.7%) as the one sanctioned
+# ratchet raise of the 2026-07-30 review program, per
+# doc/reviews/2026-07-30/plans/p0-evidence-baselines-and-budgets.md phase 3.
+# Measured 4193 after that plan's extraction pass, so the program starts
+# with 87 points of headroom to spend across plans 01-15; nothing raises
+# this again without a reviewed exception.  (History: 4199 -> 4208 for the
+# path picker's literal-accept answers.)
+SCC_COMPLEXITY_MAX ?= 4280
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
-# Lowered 130 -> 120 after the deduplication pass extracted the C-x and
-# C-x r prefix dispatch out of editor_process_keypress(); 120 admits the
-# current worst function exactly.  Lower it, do not raise it.  (History:
-# 130 dates from when a missing pmccabe binary silently disabled this
-# gate; the checker now rejects empty input.)
-PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 120
+# Lowered 120 -> 110 after editor_process_keypress() shed its kill-lines,
+# repeated-yank, shift-motion, recenter and end-of-keypress bookkeeping
+# into helpers: that function measures 85 and the worst function in the
+# tree is now localvars_parse_footer at 100, so 110 is the budget plans
+# 01-15 have to stay under.  Lower it, do not raise it.  (History: 130 ->
+# 120 when the C-x and C-x r prefix dispatch moved out; 130 dates from
+# when a missing pmccabe binary silently disabled this gate.)
+PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 110
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov

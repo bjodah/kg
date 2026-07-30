@@ -498,13 +498,178 @@ static int handle_dired_key(int c, int fd)
 	return 0;
 }
 
+/* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),
+ * matching Emacs.  editor_kill_line() is a half-step primitive, so this
+ * counts *newlines* removed (numrows dropped) rather than iterations.  A
+ * stalled kill ring tells us we hit EOF and should stop. */
+static void key_kill_lines(int n)
+{
+	int start_row = editor_current_filerow_or_eof();
+	int start_col = editor_current_filecol();
+	int prev_kill_len = killring.len;
+	int newlines_left = n;
+	int killed_len;
+
+	suppress_undo = 1;
+	while (newlines_left > 0) {
+		int before_numrows = editor.numrows;
+		int before_ring_len = killring.len;
+
+		editor_kill_line();
+		if (killring.len == before_ring_len) {
+			break;
+		}
+		if (editor.numrows < before_numrows) {
+			newlines_left--;
+		}
+	}
+	suppress_undo = 0;
+	killed_len = killring.len - prev_kill_len;
+	if (killed_len > 0) {
+		undo_push(UNDO_KILL_TEXT, start_row, start_col, 0,
+		    killring.text + prev_kill_len, killed_len);
+	}
+}
+
+/* C-u N C-y: batch N yanks under one undo record.  UNDO_YANK_TEXT
+ * reverses by deleting len chars forward, so the record only needs the
+ * full N-copy byte count.  The caller has already established that the
+ * kill ring holds something. */
+static void key_yank_repeated(int n)
+{
+	int start_row = editor_current_filerow_or_eof();
+	int start_col = editor_current_filecol();
+	int total_len;
+	char *combined;
+	int i;
+
+	editor_push_mark();
+	if (killring.len > INT_MAX / n) {
+		editor_set_status_message("Yank too large");
+		return;
+	}
+	total_len = n * killring.len;
+	if (total_len > YANK_BATCH_MAX) {
+		editor_set_status_message("Yank too large");
+		return;
+	}
+	combined = malloc(total_len);
+	if (!combined) {
+		editor_set_status_message("Out of memory");
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		memcpy(
+		    combined + i * killring.len, killring.text, killring.len);
+	}
+	undo_push(UNDO_YANK_TEXT, start_row, start_col, 0, NULL, total_len);
+	editor_insert_text_raw(combined, total_len);
+	free(combined);
+	editor_set_status_message("Yanked");
+}
+
+/* The plain motion a shift-selecting key extends the region with.  A
+ * table rather than a switch on purpose: at -Os gcc lowers the switch to
+ * a synthesized constant array and then -fanalyzer mis-reads its own
+ * index arithmetic, reporting a buffer over-read of "CSWTCH.NN" that has
+ * no counterpart in this source.  That false positive is what the
+ * __attribute__((optimize("O0"))) on editor_process_keypress used to
+ * suppress, back when this mapping was inlined there. */
+static const struct {
+	int key;
+	int motion;
+} shift_motions[] = {
+	{ SHIFT_ARROW_LEFT, ARROW_LEFT },
+	{ SHIFT_ARROW_RIGHT, ARROW_RIGHT },
+	{ SHIFT_ARROW_UP, ARROW_UP },
+	{ SHIFT_ARROW_DOWN, ARROW_DOWN },
+	{ SHIFT_HOME, HOME_KEY },
+	{ SHIFT_END, END_KEY },
+};
+
+static int shift_select_motion(int c)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(shift_motions) / sizeof(shift_motions[0]); i++) {
+		if (shift_motions[i].key == c) {
+			return shift_motions[i].motion;
+		}
+	}
+	return END_KEY;
+}
+
+/* C-l: recenter, cycling center -> top -> bottom. */
+static void key_recenter(void)
+{
+	int filerow = editor_current_filerow_or_eof();
+
+	switch (editor.recenter_state) {
+	case 0: /* center */
+		editor.rowoff = filerow - editor.screenrows / 2;
+		break;
+	case 1: /* top */
+		editor.rowoff = filerow;
+		break;
+	default: /* bottom */
+		editor.rowoff = filerow - (editor.screenrows - 1);
+		break;
+	}
+	if (editor.rowoff < 0) {
+		editor.rowoff = 0;
+	}
+	editor.cy = filerow - editor.rowoff;
+	editor.recenter_state = (editor.recenter_state + 1) % 3;
+	probe_window_size();
+	tty_write("\x1b[2J", 4);
+	editor_refresh_screen();
+}
+
+/* Per-keystroke bookkeeping that runs after the command has had its say:
+ * region teardown and goal-column invalidation.  `fname_before` and
+ * `dirty_before` are the values sampled before dispatch, and
+ * `was_shift_select` whether a shift-selected region was live then. */
+static void key_finish_keypress(
+    int c, const char *fname_before, int dirty_before, int was_shift_select)
+{
+	/* Any command that modified the buffer (insertion, deletion, undo,
+	 * etc.) deactivates the visual mark region — matching Emacs'
+	 * transient-mark-mode convention.  The filename guard avoids
+	 * stomping the highlight that was just restored from a buffer slot
+	 * when the user switched buffers (C-x b, C-x C-f). */
+	if (editor.filename == fname_before && editor.dirty != dirty_before) {
+		editor.mark_highlight = 0;
+		editor.rect_mode = 0;
+		editor_snap_cx_to_row();
+	}
+
+	/* Tear down a shift-selected region after the command has had its
+	 * say.  Done last so C-w / M-w / C-x C-x can still see the mark
+	 * during their dispatch.  Extender keys keep the region alive; a
+	 * C-x prefix keystroke also keeps it (the follow-up may consume
+	 * the region). */
+	if (was_shift_select && !editor.cx_prefix && c != SHIFT_ARROW_LEFT
+	    && c != SHIFT_ARROW_RIGHT && c != SHIFT_ARROW_UP
+	    && c != SHIFT_ARROW_DOWN && c != SHIFT_HOME && c != SHIFT_END) {
+		editor.shift_select = 0;
+		editor.mark_set = 0;
+		editor.mark_highlight = 0;
+		editor.rect_mode = 0;
+		editor_snap_cx_to_row();
+	}
+
+	/* Goal column is only valid between consecutive vertical motions —
+	 * any other key invalidates it.  Keep-list mirrors every key that
+	 * eventually routes through editor_move_cursor(ARROW_UP/DOWN). */
+	if (c != ARROW_UP && c != ARROW_DOWN && c != SHIFT_ARROW_UP
+	    && c != SHIFT_ARROW_DOWN && c != PAGE_UP && c != PAGE_DOWN
+	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V) {
+		editor.desired_visual_col = -1;
+	}
+}
+
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wanalyzer-out-of-bounds"
-__attribute__((optimize("O0")))
-#endif
 void editor_process_keypress(int fd)
 {
 	struct timeval tv;
@@ -675,36 +840,7 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_K: /* Kill line */
 		if (n > 1) {
-			/* Kill N logical lines (each = content-to-EOL +
-			 * newline), matching Emacs' C-u N C-k.
-			 * editor_kill_line() is a half- step primitive, so we
-			 * count *newlines* removed (numrows dropped) rather
-			 * than iterations.  A stalled kill_ring tells us we hit
-			 * EOF and should stop. */
-			int start_row = editor_current_filerow_or_eof();
-			int start_col = editor_current_filecol();
-			int prev_kill_len = killring.len;
-			int newlines_left = n;
-			int killed_len;
-			suppress_undo = 1;
-			while (newlines_left > 0) {
-				int before_numrows = editor.numrows;
-				int before_ring_len = killring.len;
-				editor_kill_line();
-				if (killring.len == before_ring_len) {
-					break;
-				}
-				if (editor.numrows < before_numrows) {
-					newlines_left--;
-				}
-			}
-			suppress_undo = 0;
-			killed_len = killring.len - prev_kill_len;
-			if (killed_len > 0) {
-				undo_push(UNDO_KILL_TEXT, start_row, start_col,
-				    0, killring.text + prev_kill_len,
-				    killed_len);
-			}
+			key_kill_lines(n);
 		} else {
 			editor_kill_line();
 		}
@@ -767,40 +903,7 @@ void editor_process_keypress(int fd)
 	case CTRL_Y: /* Yank (paste) */
 	case SHIFT_INSERT: /* CUA paste */
 		if (n > 1 && killring.text && killring.len > 0) {
-			/* Batch N yanks under one undo: UNDO_YANK_TEXT reverses
-			 * by deleting len chars forward, so the record only
-			 * needs the full N-copy byte count. */
-			int start_row = editor_current_filerow_or_eof();
-			int start_col = editor_current_filecol();
-			editor_push_mark();
-			if (killring.len <= INT_MAX / n) {
-				int total_len = n * killring.len;
-				char *combined;
-				int i;
-
-				if (total_len > YANK_BATCH_MAX) {
-					editor_set_status_message(
-					    "Yank too large");
-					break;
-				}
-				combined = malloc(total_len);
-				if (!combined) {
-					editor_set_status_message(
-					    "Out of memory");
-					break;
-				}
-				for (i = 0; i < n; i++) {
-					memcpy(combined + i * killring.len,
-					    killring.text, killring.len);
-				}
-				undo_push(UNDO_YANK_TEXT, start_row, start_col,
-				    0, NULL, total_len);
-				editor_insert_text_raw(combined, total_len);
-				free(combined);
-				editor_set_status_message("Yanked");
-			} else {
-				editor_set_status_message("Yank too large");
-			}
+			key_yank_repeated(n);
 		} else {
 			editor_yank();
 		}
@@ -867,7 +970,8 @@ void editor_process_keypress(int fd)
 	case SHIFT_ARROW_DOWN:
 	case SHIFT_HOME:
 	case SHIFT_END: {
-		int motion;
+		int motion = shift_select_motion(c);
+
 		/* Drop the mark at the current position the first time the user
 		 * starts a shift-selected region, so subsequent shift+motion
 		 * extends it.  If a region is already on-screen we just extend.
@@ -875,19 +979,6 @@ void editor_process_keypress(int fd)
 		if (!editor.mark_highlight) {
 			editor_set_mark_silent();
 			editor.shift_select = 1;
-		}
-		if (c == SHIFT_ARROW_LEFT) {
-			motion = ARROW_LEFT;
-		} else if (c == SHIFT_ARROW_RIGHT) {
-			motion = ARROW_RIGHT;
-		} else if (c == SHIFT_ARROW_UP) {
-			motion = ARROW_UP;
-		} else if (c == SHIFT_ARROW_DOWN) {
-			motion = ARROW_DOWN;
-		} else if (c == SHIFT_HOME) {
-			motion = HOME_KEY;
-		} else {
-			motion = END_KEY;
 		}
 		while (n--) {
 			editor_move_cursor(motion);
@@ -1052,29 +1143,9 @@ void editor_process_keypress(int fd)
 			macro_replay(fd, n);
 		}
 		break;
-	case CTRL_L: { /* Recenter: cycle center → top → bottom */
-		int filerow = editor_current_filerow_or_eof();
-		switch (editor.recenter_state) {
-		case 0: /* center */
-			editor.rowoff = filerow - editor.screenrows / 2;
-			break;
-		case 1: /* top */
-			editor.rowoff = filerow;
-			break;
-		default: /* bottom */
-			editor.rowoff = filerow - (editor.screenrows - 1);
-			break;
-		}
-		if (editor.rowoff < 0) {
-			editor.rowoff = 0;
-		}
-		editor.cy = filerow - editor.rowoff;
-		editor.recenter_state = (editor.recenter_state + 1) % 3;
-		probe_window_size();
-		tty_write("\x1b[2J", 4);
-		editor_refresh_screen();
+	case CTRL_L: /* Recenter: cycle center → top → bottom */
+		key_recenter();
 		break;
-	}
 	default:
 		/* Filter out control characters and non-printable characters.
 		 * Only allow printable ASCII (32-126) and TAB.  (ENTER is
@@ -1109,41 +1180,5 @@ void editor_process_keypress(int fd)
 		break;
 	}
 
-	/* Any command that modified the buffer (insertion, deletion, undo,
-	 * etc.) deactivates the visual mark region — matching Emacs'
-	 * transient-mark-mode convention.  The filename guard avoids
-	 * stomping the highlight that was just restored from a buffer slot
-	 * when the user switched buffers (C-x b, C-x C-f). */
-	if (editor.filename == fname_before && editor.dirty != dirty_before) {
-		editor.mark_highlight = 0;
-		editor.rect_mode = 0;
-		editor_snap_cx_to_row();
-	}
-
-	/* Tear down a shift-selected region after the command has had its
-	 * say.  Done last so C-w / M-w / C-x C-x can still see the mark
-	 * during their dispatch.  Extender keys keep the region alive; a
-	 * C-x prefix keystroke also keeps it (the follow-up may consume
-	 * the region). */
-	if (was_shift_select && !editor.cx_prefix && c != SHIFT_ARROW_LEFT
-	    && c != SHIFT_ARROW_RIGHT && c != SHIFT_ARROW_UP
-	    && c != SHIFT_ARROW_DOWN && c != SHIFT_HOME && c != SHIFT_END) {
-		editor.shift_select = 0;
-		editor.mark_set = 0;
-		editor.mark_highlight = 0;
-		editor.rect_mode = 0;
-		editor_snap_cx_to_row();
-	}
-
-	/* Goal column is only valid between consecutive vertical motions —
-	 * any other key invalidates it.  Keep-list mirrors every key that
-	 * eventually routes through editor_move_cursor(ARROW_UP/DOWN). */
-	if (c != ARROW_UP && c != ARROW_DOWN && c != SHIFT_ARROW_UP
-	    && c != SHIFT_ARROW_DOWN && c != PAGE_UP && c != PAGE_DOWN
-	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V) {
-		editor.desired_visual_col = -1;
-	}
+	key_finish_keypress(c, fname_before, dirty_before, was_shift_select);
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif

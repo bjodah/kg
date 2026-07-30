@@ -282,6 +282,30 @@ static void test_ab_append_oom(void)
 	ab_free(&ab);
 }
 
+/* Untrusted text goes through the same abuf as everything else, so it
+ * has to answer an allocation failure the same way: report it and append
+ * nothing further.  Half a frame is never emitted. */
+static void test_append_terminal_text_escapes_and_propagates_oom(void)
+{
+	struct abuf ab = ABUF_INIT;
+	struct abuf dead = { NULL, 0, 1 };
+
+	/* Printable ASCII and a whole UTF-8 glyph pass through; an ESC, a
+	 * DEL and a malformed byte get their visible spelling. */
+	CHECK(ab_append_terminal_text(
+		  &ab, "a\xc3\xa9\x1b\x7f\xff", 6, DISPLAY_BUFFER_TEXT)
+	    == 1);
+	CHECK(ab.len == 11);
+	CHECK(ab.b != NULL && memcmp(ab.b, "a\xc3\xa9^[^?\\xff", 11) == 0);
+	ab_free(&ab);
+
+	/* An abuf that has already failed takes nothing more. */
+	CHECK(
+	    ab_append_terminal_text(&dead, "abc", 3, DISPLAY_STATUS_TEXT) == 0);
+	CHECK(dead.b == NULL && dead.len == 0);
+	ab_free(&dead);
+}
+
 static void test_overwrite_mode_toggle_and_replace(void)
 {
 	setup(0);
@@ -362,6 +386,7 @@ int main(void)
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);
+	RUN(test_append_terminal_text_escapes_and_propagates_oom);
 	RUN(test_overwrite_mode_toggle_and_replace);
 	RUN(test_overwrite_multibyte_glyph);
 	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);

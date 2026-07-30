@@ -1,0 +1,21 @@
+# Characterises the undo granularity of C-u N C-k: the N kills are one
+# undo step, not N.  key_kill_lines() suppresses the per-step records and
+# pushes a single one built from the bytes the kill ring gained, so it is
+# unaffected by what editor_kill_line() records on its own.  Point lands
+# where the restored text starts, which the typed "X" pins.
+name: kill-lines-prefix-undo
+filename: kill-lines-prefix-undo.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-u
+  - '2'
+  - C-k
+  - C-_
+  - 'X'
+expected_saved: |
+  one
+  two
+  Xthree

@@ -210,6 +210,116 @@ static void test_kill_line(void)
 	teardown();
 }
 
+/* C-k at end of line pulls the next row up; undo must put the newline
+ * back, not a second copy of the row that was pulled up. */
+static void test_kill_line_eol_undo(void)
+{
+	setup();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "b", 1);
+	editor_cursor_goto(0, 1);
+
+	editor_kill_line();
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 2);
+	CHECK(memcmp(editor.row[0].chars, "ab", 2) == 0);
+
+	editor_undo();
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 1);
+	CHECK(memcmp(editor.row[0].chars, "a", 1) == 0);
+	CHECK(editor.row[1].size == 1);
+	CHECK(memcmp(editor.row[1].chars, "b", 1) == 0);
+	teardown();
+}
+
+/* The kill ring gets exactly the newline that was removed. */
+static void test_kill_line_eol_kill_ring(void)
+{
+	setup();
+	kill_ring_init();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "b", 1);
+	editor_cursor_goto(0, 1);
+
+	editor_kill_line();
+
+	CHECK(killring.len == 1);
+	CHECK(killring.text != NULL);
+	CHECK(killring.text && killring.text[0] == '\n');
+	kill_ring_free();
+	teardown();
+}
+
+/* An empty next row is still a newline: undo restores the empty row. */
+static void test_kill_line_eol_undo_empty_next_row(void)
+{
+	setup();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "", 0);
+	editor_cursor_goto(0, 1);
+
+	editor_kill_line();
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 1);
+
+	editor_undo();
+	CHECK(editor.numrows == 2);
+	CHECK(editor.row[0].size == 1);
+	CHECK(editor.row[1].size == 0);
+	teardown();
+}
+
+/* The split point is a byte offset, so a next row starting with a
+ * multi-byte glyph must come back whole and in one piece. */
+static void test_kill_line_eol_undo_multibyte_next_row(void)
+{
+	setup();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "\xC3\xA9z", 3);
+	editor_cursor_goto(0, 1);
+
+	editor_kill_line();
+	CHECK(editor.numrows == 1);
+	CHECK(editor.row[0].size == 4);
+	CHECK(memcmp(editor.row[0].chars, "a\xC3\xA9z", 4) == 0);
+
+	editor_undo();
+	CHECK(editor.numrows == 2);
+	CHECK(memcmp(editor.row[0].chars, "a", 1) == 0);
+	CHECK(editor.row[1].size == 3);
+	CHECK(memcmp(editor.row[1].chars, "\xC3\xA9z", 3) == 0);
+	teardown();
+}
+
+/* Two EOL kills are two records: two undos rebuild both line breaks. */
+static void test_kill_line_eol_undo_twice(void)
+{
+	setup();
+	editor_insert_row(0, "a", 1);
+	editor_insert_row(1, "b", 1);
+	editor_insert_row(2, "c", 1);
+	editor_cursor_goto(0, 1);
+
+	editor_kill_line();
+	editor_cursor_goto(0, 2);
+	editor_kill_line();
+	CHECK(editor.numrows == 1);
+	CHECK(memcmp(editor.row[0].chars, "abc", 3) == 0);
+
+	editor_undo();
+	CHECK(editor.numrows == 2);
+	CHECK(memcmp(editor.row[0].chars, "ab", 2) == 0);
+	CHECK(memcmp(editor.row[1].chars, "c", 1) == 0);
+
+	editor_undo();
+	CHECK(editor.numrows == 3);
+	CHECK(memcmp(editor.row[0].chars, "a", 1) == 0);
+	CHECK(memcmp(editor.row[1].chars, "b", 1) == 0);
+	CHECK(memcmp(editor.row[2].chars, "c", 1) == 0);
+	teardown();
+}
+
 /* A yanked span is deleted by its undo record.
  * editor_insert_text_raw (used by yank) sets suppress_undo internally,
  * so the UNDO_YANK_TEXT record is the only one on the stack. */
@@ -622,6 +732,11 @@ int main(void)
 	RUN(test_split_line_short_row);
 	RUN(test_join_line);
 	RUN(test_kill_line);
+	RUN(test_kill_line_eol_undo);
+	RUN(test_kill_line_eol_kill_ring);
+	RUN(test_kill_line_eol_undo_empty_next_row);
+	RUN(test_kill_line_eol_undo_multibyte_next_row);
+	RUN(test_kill_line_eol_undo_twice);
 	RUN(test_yank_text);
 	RUN(test_yank_text_len_only);
 	RUN(test_reflow_para);

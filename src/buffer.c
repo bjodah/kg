@@ -1407,10 +1407,12 @@ void editor_kill_line(void)
 		if (filerow + 1 < editor.numrows) {
 			/* Save newline to kill ring */
 			kill_ring_append("\n", 1);
-			/* Record undo: save the line that will be joined */
-			undo_push(UNDO_KILL_TEXT, filerow, filecol, 0,
-			    editor.row[filerow + 1].chars,
-			    editor.row[filerow + 1].size);
+			/* Record undo: the newline is what leaves the
+			 * buffer.  The next row's bytes stay -- they are
+			 * appended to this one -- so re-inserting a "\n"
+			 * here splits them back off, while re-inserting
+			 * the row itself would duplicate it. */
+			undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, "\n", 1);
 			editor_row_append_string(row,
 			    editor.row[filerow + 1].chars,
 			    editor.row[filerow + 1].size);

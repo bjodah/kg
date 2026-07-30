@@ -984,18 +984,11 @@ void editor_query_replace_regexp(int fd)
 
 		if (c == 'y' || c == ENTER || c == ' ') {
 			RESTORE_HL;
-			undo_push(UNDO_REPLACE_TEXT, filerow, match_start,
-			    expanded_len, row->chars + match_start, match_len);
-
-			suppress_undo = 1;
-			for (int i = 0; i < match_len; i++) {
-				editor_row_del_char(row, match_start);
+			if (!editor_row_replace_range(filerow, match_start,
+				match_len, expanded, expanded_len)) {
+				free(expanded);
+				break;
 			}
-			for (int i = 0; i < expanded_len; i++) {
-				editor_row_insert_char(row, match_start + i,
-				    (unsigned char)expanded[i]);
-			}
-			suppress_undo = 0;
 
 			if (filerow == end_row) {
 				end_col += expanded_len - match_len;

@@ -1,0 +1,20 @@
+# One accepted replacement is one row rebuild and one undo record, so a
+# single C-_ puts back every byte of a multi-byte match -- not the last of
+# the bytes a per-character loop would have removed.
+name: query-replace-regexp-utf8-undo
+filename: replace-regexp-undo.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "räksmörgås\n"
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'sm\(ö\)rg'
+  - ENTER
+  - 'SM\1RG'
+  - ENTER
+  - 'y'
+  - C-_
+expected_saved: "räksmörgås\n"

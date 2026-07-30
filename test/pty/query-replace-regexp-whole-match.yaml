@@ -1,0 +1,18 @@
+# "\&" is the whole match, and it still expands once the replacement is
+# applied in one step rather than a byte at a time.
+name: query-replace-regexp-whole-match
+filename: replace-regexp-amp.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: "foo bar\n"
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'b.r'
+  - ENTER
+  - '[\&]'
+  - ENTER
+  - '!'
+expected_saved: "foo [bar]\n"

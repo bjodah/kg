@@ -865,9 +865,19 @@ void editor_query_replace_regexp(int fd)
 		erow *row = &editor.row[filerow];
 		struct kg_match match_res;
 		int left = row->size - match_col;
-		int status = kg_regex_match_forward(
-		    &rx, row->chars, match_col, &match_res);
+		int status;
 		int c;
+
+		/* Emacs' replace loop ends as soon as point reaches the end of
+		 * the region -- the end of the buffer when there is none -- so
+		 * the empty match sitting exactly there is never replaced, and
+		 * a region of two characters takes two replacements rather
+		 * than three. */
+		if (filerow == end_row && match_col >= end_col) {
+			break;
+		}
+		status = kg_regex_match_forward(
+		    &rx, row->chars, match_col, &match_res);
 
 		/* Each step of this loop, accepted or refused, must leave less
 		 * of the row ahead of the scan than the step before it did.

@@ -1,0 +1,22 @@
+# The region covers "åb" only, so the walk stops at its end: two
+# insertions, and "c" and "d" outside it are untouched.
+name: zero-width-replace-region
+filename: zero-width-region.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbcd
+keys:
+  - C-SPC
+  - C-f
+  - C-f
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'a*'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+oracle: emacs

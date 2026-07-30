@@ -1,0 +1,25 @@
+# Refusing has to advance as far as accepting does: "n" three times walks
+# past "å", "b" and "c" rather than asking about the same empty match
+# again, and "q" at the fourth prompt leaves the buffer untouched.  Before
+# the glyph-wise step this case never reached the fourth prompt.
+name: zero-width-replace-refuse
+filename: zero-width-refuse.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'a*'
+  - ENTER
+  - 'X'
+  - ENTER
+  - 'n'
+  - 'n'
+  - 'n'
+  - 'q'
+expected_saved: |
+  åbc

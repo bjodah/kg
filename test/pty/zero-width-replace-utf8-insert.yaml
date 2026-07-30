@@ -1,0 +1,23 @@
+# "a*" matches the empty string in front of every character, so a
+# non-empty replacement inserts once per glyph boundary -- including the
+# one at the end of the line, but not the one at the end of the buffer,
+# where Emacs' replace loop stops.  The byte-wise scan used to resume
+# inside "å" and insert forever; the oracle pins both the count and the
+# stopping point.
+name: zero-width-replace-utf8-insert
+filename: zero-width-insert.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  åbc
+keys:
+  - M-x
+  - query-replace-regexp
+  - ENTER
+  - 'a*'
+  - ENTER
+  - 'X'
+  - ENTER
+  - '!'
+oracle: emacs

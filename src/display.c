@@ -219,6 +219,7 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			erow *r = &rows[fr];
 			char *c;
 			unsigned char *hl;
+			int span = 1;
 
 			/* Walk render bytes from offset to compute len bounded
 			 * by win_w VISIBLE columns, keeping UTF-8 glyphs whole.
@@ -275,16 +276,20 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 				}
 			}
 
-			for (j = 0; j < len; j++) {
+			/* One glyph per iteration: a multi-byte character is
+			 * emitted whole, so neither an attribute escape nor
+			 * the right-edge clip can ever split it, and a byte
+			 * that is not a character at all gets the visible
+			 * spelling display_glyph_at() gives it. */
+			for (j = 0; j < len; j += span) {
 				int render_col = offset + j;
 				int want_rev = (render_col >= hi_lo
 				    && render_col < hi_hi);
-				/* Defer the reverse-video toggle on UTF-8
-				 * continuation bytes so an escape can never
-				 * split a multi-byte glyph; the next start byte
-				 * will catch up. */
-				if (want_rev != current_reverse
-				    && !utf8_is_cont(c[j])) {
+				struct display_glyph g;
+
+				display_glyph_at(c, len, j, &g);
+				span = g.span;
+				if (want_rev != current_reverse) {
 					if (want_rev) {
 						ab_append(ab, "\x1b[7m", 4);
 					} else {
@@ -292,24 +297,12 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					}
 					current_reverse = want_rev;
 				}
-				if (hl[j] == HL_NONPRINT) {
-					char sym;
-					ab_append(ab, "\x1b[7m", 4);
-					sym = (c[j] <= 26) ? ('@' + c[j]) : '?';
-					ab_append(ab, &sym, 1);
-					ab_append(ab, "\x1b[0m", 4);
-					/* The [0m reset just cleared every
-					 * attribute, so the next iteration must
-					 * re-establish whatever color and
-					 * reverse state it actually wants. */
-					current_color = -1;
-					current_reverse = 0;
-				} else if (hl[j] == HL_NORMAL) {
+				if (hl[j] == HL_NORMAL
+				    || hl[j] == HL_NONPRINT) {
 					if (current_color != -1) {
 						ab_append(ab, "\x1b[39m", 5);
 						current_color = -1;
 					}
-					ab_append(ab, c + j, 1);
 				} else {
 					int color
 					    = editor_syntax_to_color(hl[j]);
@@ -321,8 +314,8 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 						current_color = color;
 						ab_append(ab, cbuf, clen);
 					}
-					ab_append(ab, c + j, 1);
 				}
+				ab_append(ab, g.bytes, g.len);
 			}
 			/* When rect mode's right edge is past this row's
 			 * visual content, extend the highlight into virtual

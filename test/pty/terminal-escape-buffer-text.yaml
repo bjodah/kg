@@ -1,0 +1,25 @@
+# A file's bytes are text, never terminal syntax.  This file holds a real
+# ESC [ 2J (erase the display) and a real OSC 0 title-set terminated by
+# BEL.  Rendered straight through, the first wipes the pane and the second
+# renames the terminal window; rendered as text they are just characters,
+# and the mode line is still where it was.
+#
+# The name has no extension on purpose: editor.syntax is NULL, so no
+# highlighter runs at all and every byte stays HL_NORMAL.  That is the
+# case the old HL_NONPRINT path never reached, and the reason terminal
+# safety cannot live in a syntax highlighter.
+name: terminal-escape-buffer-text
+filename: escapes
+backend: tmux
+initial: "clear\x1b[2Jhere\ntitle\x1b]0;renamed\x07here\ndel\x7fhere\n"
+keys: []
+trailer_keys: [C-x, C-c]
+expected_saved: "clear\x1b[2Jhere\ntitle\x1b]0;renamed\x07here\ndel\x7fhere\n"
+expected_screen_contains:
+  # The escapes read as text, and the text around them survived: nothing
+  # was erased, so ESC [ 2J never executed.
+  - "clear^[[2Jhere"
+  - "title^[]0;renamed^Ghere"
+  - "del^?here"
+  # ... and the mode line, which a successful erase would have taken too.
+  - "escapes"

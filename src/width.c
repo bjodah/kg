@@ -313,37 +313,6 @@ static int escape_glyph(uint32_t cp, int span, char *out)
 	return 0;
 }
 
-/* How the glyph starting at buf[start] is drawn: either the source bytes
- * themselves, or the visible spelling substituted for a byte that must
- * not reach the terminal as itself.  This is the one place that decides
- * both, so the renderer and every column measurement agree.  Callers
- * pass 0 <= start < len. */
-void display_glyph_at(
-    const char *buf, int len, int start, struct display_glyph *g)
-{
-	uint32_t cp;
-	int n;
-
-	g->span = utf8_glyph_span_at(buf, len, start);
-	if (start < 0 || start >= len) {
-		g->bytes = g->esc;
-		g->len = 0;
-		g->width = 0;
-		return;
-	}
-	cp = utf8_codepoint_at(buf, len, start, NULL);
-	n = escape_glyph(cp, g->span, g->esc);
-	if (n > 0) {
-		g->bytes = g->esc;
-		g->len = n;
-		g->width = n;
-		return;
-	}
-	g->bytes = buf + start;
-	g->len = g->span;
-	g->width = kg_codepoint_width(cp);
-}
-
 /* Is the continuation byte at buf[start] part of the valid glyph that
  * starts before it?  Such a byte draws nothing of its own; a stray one
  * is malformed input that gets its own visible spelling, and so its own
@@ -360,6 +329,46 @@ static int utf8_cont_is_covered(const char *buf, int len, int start)
 	return 0;
 }
 
+/* How the glyph starting at buf[start] is drawn: either the source bytes
+ * themselves, or the visible spelling substituted for a byte that must
+ * not reach the terminal as itself.  This is the one place that decides
+ * both, so the renderer and every column measurement agree.
+ *
+ * A byte already drawn by a glyph that starts earlier in buf[] emits
+ * nothing and costs nothing, which is what lets the idiomatic per-byte
+ * loop measure a run: a caller landing there -- horizontal scroll into
+ * the middle of a character -- draws the same nothing the measurement
+ * charged for. */
+void display_glyph_at(
+    const char *buf, int len, int start, struct display_glyph *g)
+{
+	uint32_t cp;
+	int n;
+
+	g->bytes = g->esc;
+	g->len = 0;
+	g->span = 1;
+	g->width = 0;
+	if (start < 0 || start >= len) {
+		return;
+	}
+	if (utf8_is_cont((unsigned char)buf[start])
+	    && utf8_cont_is_covered(buf, len, start)) {
+		return;
+	}
+	g->span = utf8_glyph_span_at(buf, len, start);
+	cp = utf8_codepoint_at(buf, len, start, NULL);
+	n = escape_glyph(cp, g->span, g->esc);
+	if (n > 0) {
+		g->len = n;
+		g->width = n;
+		return;
+	}
+	g->bytes = buf + start;
+	g->len = g->span;
+	g->width = kg_codepoint_width(cp);
+}
+
 /* Cells occupied by the glyph whose first byte is buf[start].  A
  * continuation byte contributes nothing, so the idiomatic
  * "for each byte: vcol += utf8_width_at(...)" loop measures a run of
@@ -368,13 +377,6 @@ int utf8_width_at(const char *buf, int len, int start)
 {
 	struct display_glyph g;
 
-	if (start < 0 || start >= len) {
-		return 0;
-	}
-	if (utf8_is_cont((unsigned char)buf[start])
-	    && utf8_cont_is_covered(buf, len, start)) {
-		return 0;
-	}
 	display_glyph_at(buf, len, start, &g);
 	return g.width;
 }

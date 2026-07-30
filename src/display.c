@@ -270,8 +270,6 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 
 		{
 			erow *r = &rows[fr];
-			char *c;
-			unsigned char *hl;
 			int span = 1;
 
 			/* Walk render bytes from offset to compute len bounded
@@ -296,9 +294,6 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					len++;
 				}
 			}
-
-			c = r->render + offset;
-			hl = r->hl + offset;
 
 			if (region_active && fr >= region_s_row
 			    && fr <= region_e_row) {
@@ -333,14 +328,16 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			 * emitted whole, so neither an attribute escape nor
 			 * the right-edge clip can ever split it, and a byte
 			 * that is not a character at all gets the visible
-			 * spelling display_glyph_at() gives it. */
-			for (j = 0; j < len; j += span) {
-				int render_col = offset + j;
-				int want_rev = (render_col >= hi_lo
-				    && render_col < hi_hi);
+			 * spelling display_glyph_at() gives it.  The whole
+			 * row is in scope, not just the visible slice, so a
+			 * `coloff` that landed inside a character draws the
+			 * same nothing for its bytes that the width loop
+			 * above charged for them. */
+			for (j = offset; j < offset + len; j += span) {
+				int want_rev = (j >= hi_lo && j < hi_hi);
 				struct display_glyph g;
 
-				display_glyph_at(c, len, j, &g);
+				display_glyph_at(r->render, r->rsize, j, &g);
 				span = g.span;
 				if (want_rev != current_reverse) {
 					if (want_rev) {
@@ -350,15 +347,15 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					}
 					current_reverse = want_rev;
 				}
-				if (hl[j] == HL_NORMAL
-				    || hl[j] == HL_NONPRINT) {
+				if (r->hl[j] == HL_NORMAL
+				    || r->hl[j] == HL_NONPRINT) {
 					if (current_color != -1) {
 						ab_append(ab, "\x1b[39m", 5);
 						current_color = -1;
 					}
 				} else {
 					int color
-					    = editor_syntax_to_color(hl[j]);
+					    = editor_syntax_to_color(r->hl[j]);
 					if (color != current_color) {
 						char cbuf[16];
 						int clen = snprintf(cbuf,

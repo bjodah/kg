@@ -306,6 +306,64 @@ static void test_append_terminal_text_escapes_and_propagates_oom(void)
 	ab_free(&dead);
 }
 
+/* Cells a rendered row occupies: the renderer's own CSI sequences cost
+ * nothing, and everything else is drawn text, whose spellings are all
+ * printable ASCII or whole UTF-8 glyphs. */
+static int drawn_cells(struct abuf *ab)
+{
+	int i = 0, cells = 0;
+
+	while (i < ab->len) {
+		if (ab->b[i] == '\x1b' && i + 1 < ab->len
+		    && ab->b[i + 1] == '[') {
+			i += 2;
+			while (i < ab->len
+			    && !(ab->b[i] >= 0x40 && ab->b[i] <= 0x7e)) {
+				i++;
+			}
+			i++;
+			continue;
+		}
+		cells += utf8_width_at(ab->b, ab->len, i);
+		i++;
+	}
+	return cells;
+}
+
+/* A row never draws more cells than its window is wide, including when
+ * the horizontal scroll lands inside a multi-byte character: those bytes
+ * belong to a glyph that is off screen, the width loop charges nothing
+ * for them, and so the renderer must draw nothing for them either.
+ * Spelling them out instead cost four cells the window had not budgeted,
+ * which on a vertical split bled into the pane next door. */
+static void test_row_draw_stays_inside_the_window(void)
+{
+	struct abuf ab = ABUF_INIT;
+	char line[61]; /* editor_insert_row() copies the terminator too */
+	int i;
+
+	setup(0);
+	for (i = 0; i < 20; i++) {
+		memcpy(line + i * 3, "\xe2\x82\xac", 3); /* € */
+	}
+	line[60] = '\0';
+	editor_insert_row(0, line, 60);
+
+	/* Byte 2 is the last byte of the first €. */
+	draw_window_rows(
+	    &ab, 1, 1, 1, 10, 0, 2, editor.numrows, editor.row, 0, 1, 0);
+	CHECK(drawn_cells(&ab) == 10);
+	ab_free(&ab);
+
+	/* A glyph boundary is unaffected. */
+	ab = (struct abuf)ABUF_INIT;
+	draw_window_rows(
+	    &ab, 1, 1, 1, 10, 0, 3, editor.numrows, editor.row, 0, 1, 0);
+	CHECK(drawn_cells(&ab) == 10);
+	ab_free(&ab);
+	teardown();
+}
+
 static void test_overwrite_mode_toggle_and_replace(void)
 {
 	setup(0);
@@ -387,6 +445,7 @@ int main(void)
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);
 	RUN(test_append_terminal_text_escapes_and_propagates_oom);
+	RUN(test_row_draw_stays_inside_the_window);
 	RUN(test_overwrite_mode_toggle_and_replace);
 	RUN(test_overwrite_multibyte_glyph);
 	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);

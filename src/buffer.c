@@ -1234,21 +1234,9 @@ int editor_row_replace_range(
  * back in one step. */
 static int editor_delete_span_with_undo(int filerow, int col, int len)
 {
-	erow *row;
-
-	if (filerow < 0 || filerow >= editor.numrows) {
-		return 0;
-	}
-	row = &editor.row[filerow];
-	if (col < 0 || len <= 0 || col > row->size || len > row->size - col) {
-		return 0;
-	}
-	if (!undo_push(
-		UNDO_REPLACE_TEXT, filerow, col, 0, row->chars + col, len)) {
-		editor_nomem();
-		return 0;
-	}
-	return editor_delete_text_range_raw(filerow, col, len);
+	/* A delete is a replacement by nothing, so the range checking, the
+	 * undo record and the single row rebuild are all already written. */
+	return len > 0 && editor_row_replace_range(filerow, col, len, "", 0);
 }
 
 /* Delete the char at the current prompt position. */

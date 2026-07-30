@@ -113,6 +113,23 @@ REGEX_DIFF_BIN = $(TESTDIR)/regex_differential
 REGEX_DIFF_CASES ?= 2000
 REGEX_DIFF_SEED ?= 20260729
 EMACS ?= emacs
+# The PTY harness needs pexpect and PyYAML, which are not always installed
+# for the same interpreter everywhere: CI images ship them for python3,
+# while the developer box this grew up on has them only for its own
+# `python`.  Pick the first interpreter that can import both, and fall back
+# to python3 so a machine with neither reports the missing module rather
+# than a missing binary.  Override with `make PYTHON=...`.
+PYTHON ?= $(shell for p in python3 python; do \
+		if command -v $$p >/dev/null 2>&1 && \
+		   $$p -c 'import pexpect, yaml' >/dev/null 2>&1; then \
+			echo $$p; exit 0; \
+		fi; \
+	done; echo python3)
+# Passed to the harness as --emacs when set, so `make check
+# KG_PTY_EMACS=/path/to/emacs` reaches it (a make-level variable is not in
+# the child's environment).  Unset, the harness searches $KG_PTY_EMACS and
+# then PATH itself.
+KG_PTY_EMACS ?=
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
@@ -217,11 +234,12 @@ check-unit: $(TESTBINS)
 	[ $$fail -eq 0 ]
 
 check-pty: $(TARGET) $(PTY_TESTS)
-	@python utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
+	@$(PYTHON) utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
 		$(if $(PTY_JOBS),--jobs $(PTY_JOBS),) \
+		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
 		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)
 
 fuzz-keypress: $(FUZZBIN)
@@ -264,7 +282,7 @@ fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-local
 # `check`: it needs emacs on PATH, and skips itself with a message when it
 # is missing.  Bump REGEX_DIFF_CASES to hunt, keep the default quick.
 check-regex-differential: $(REGEX_DIFF_BIN)
-	@python3 utils/regex_differential.py --driver $(REGEX_DIFF_BIN) \
+	@$(PYTHON) utils/regex_differential.py --driver $(REGEX_DIFF_BIN) \
 		--emacs $(EMACS) --cases $(REGEX_DIFF_CASES) \
 		--seed $(REGEX_DIFF_SEED)
 
@@ -273,7 +291,7 @@ complexity:
 
 complexity-check:
 	$(SCC) --ci --by-file --format json $(SCC_COMPLEXITY_PATHS) | \
-		python3 utils/check_scc_complexity.py \
+		$(PYTHON) utils/check_scc_complexity.py \
 			--max-total $(SCC_COMPLEXITY_MAX) \
 			--max-file $(SCC_FILE_COMPLEXITY_MAX)
 
@@ -282,7 +300,7 @@ pmccabe:
 
 pmccabe-check:
 	$(PMCCABE) $(PMCCABE_PATHS) | \
-		python3 utils/check_pmccabe_complexity.py \
+		$(PYTHON) utils/check_pmccabe_complexity.py \
 			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX)
 
 coverage: coverage-clean

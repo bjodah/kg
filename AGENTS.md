@@ -19,6 +19,16 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `python3 utils/pty_accept.py --kg src/kg <case.yaml>` (add
   `--timeout`, `--startup-delay-add`, `--key-delay-add` for flaky cases). A
   failing case prints a unified diff of the expected vs actual saved file.
+  The harness needs `pexpect` and `PyYAML`; if `python3` lacks them, use
+  the interpreter that has them (the Makefile picks one automatically and
+  it can be overridden with `make PYTHON=...`).
+- The suite skips rather than fakes what it cannot run: a case needing
+  `tmux`, or the `emacs` oracle, SKIPs with a printed reason and count when
+  the tool is missing. `--require-tools` (hosted CI passes it via
+  `make check PTY_ACCEPT_ARGS=--require-tools`) turns that into an upfront
+  failure naming the tool. The oracle binary is `--emacs`, else
+  `$KG_PTY_EMACS` (`make check KG_PTY_EMACS=...`), else `emacs` on PATH,
+  else the `/opt-3` developer-box pin.
 - PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`, CI default 8)
   sets how many. Use `--jobs 1` when debugging a case so its output is not
   interleaved with other work on the box.

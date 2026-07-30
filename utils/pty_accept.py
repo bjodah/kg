@@ -53,7 +53,10 @@ READY_DEADLINE = 2.0
 # alone does not mean kg has reached its input loop.  Wait for output to
 # stop as well.
 READY_SETTLE = 0.05
-EMACS = "/opt-3/emacs-31-lucid/bin/emacs"
+# Last resort only: the developer box this suite grew up on keeps its Emacs
+# outside PATH.  Anything with an `emacs` on PATH (a CI image, a distro
+# install) is served by the search in resolve_emacs() long before this.
+EMACS_FALLBACK = "/opt-3/emacs-31-lucid/bin/emacs"
 
 
 @dataclass
@@ -87,6 +90,32 @@ class RunResult:
 	exit_code: int | None
 	error: str | None
 	transcript: bytes
+
+
+def resolve_emacs(explicit: str | None) -> str | None:
+	"""Find the Emacs the oracle cases run against, or None.
+
+	An explicit --emacs is taken at its word (a wrong path should say so
+	rather than fall back to something that happens to work); after that
+	$KG_PTY_EMACS, then PATH, then the developer-box pin.
+	"""
+	if explicit:
+		return explicit if os.access(explicit, os.X_OK) else None
+	env = os.environ.get("KG_PTY_EMACS")
+	if env:
+		return env if os.access(env, os.X_OK) else None
+	found = shutil.which("emacs")
+	if found:
+		return found
+	if os.access(EMACS_FALLBACK, os.X_OK):
+		return EMACS_FALLBACK
+	return None
+
+
+def case_needs_tmux(case: "Case") -> bool:
+	if case.backend == "tmux":
+		return True
+	return case.oracle == "emacs" and (case.oracle_backend or case.backend) == "tmux"
 
 
 def ctrl_byte(ch: str) -> bytes:
@@ -599,9 +628,16 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 
 
 def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: float,
-		  startup_delay_add: float, key_delay_add: float) -> tuple[str, str | None]:
+		  startup_delay_add: float, key_delay_add: float,
+		  emacs: str | None, have_tmux: bool) -> tuple[str, str | None]:
 	if case.requires_feature is not None and case.requires_feature not in features:
 		return ("SKIP", None)
+	# A missing tool is a skip here and a hard failure in main() under
+	# --require-tools; either way it is counted and named, never silent.
+	if case_needs_tmux(case) and not have_tmux:
+		return ("SKIP", f"{case.name}: skipped, tmux not found")
+	if case.oracle == "emacs" and emacs is None:
+		return ("SKIP", f"{case.name}: skipped, emacs oracle not found")
 	startup_delay = case.startup_delay + startup_delay_add
 	key_delay = case.key_delay + key_delay_add
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
@@ -616,7 +652,7 @@ def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: f
 		oracle_backend = case.oracle_backend or case.backend
 		# The oracle keeps the fixed startup sleep: KG_READY describes
 		# kg's mode line, not Emacs's.
-		emacs_run = run_editor([EMACS, "-q", "-nw"], case.filename, case.initial,
+		emacs_run = run_editor([emacs, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
 				       startup_delay, key_delay, case.dimensions,
 				       timeout, {}, ready=False)
@@ -679,6 +715,12 @@ def main() -> int:
 	parser.add_argument("--jobs", "-j", type=int, default=0,
 	                    help="Cases to run concurrently (0 picks a default, "
 	                         "1 runs them in this process)")
+	parser.add_argument("--emacs", default="",
+	                    help="Emacs binary the oracle cases compare against "
+	                         "(default: $KG_PTY_EMACS, then PATH)")
+	parser.add_argument("--require-tools", action="store_true",
+	                    help="Fail instead of skipping when a tool some case "
+	                         "needs (tmux, the Emacs oracle) is missing")
 	parser.add_argument("cases", nargs="+", help="YAML case files")
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
@@ -692,10 +734,33 @@ def main() -> int:
 	jobs = args.jobs if args.jobs > 0 else min(DEFAULT_JOBS, os.cpu_count() or 1)
 	jobs = max(1, min(jobs, len(cases)))
 
+	# What this run can actually exercise, decided once and reported, so a
+	# green summary means the same thing everywhere it is read.
+	emacs = resolve_emacs(args.emacs)
+	have_tmux = shutil.which("tmux") is not None
+	oracle_cases = sum(1 for c in cases if c.oracle == "emacs")
+	tmux_cases = sum(1 for c in cases if case_needs_tmux(c))
+	missing = []
+	if oracle_cases and emacs is None:
+		missing.append(f"emacs ({oracle_cases} oracle case(s); set --emacs "
+			       "or $KG_PTY_EMACS, or put emacs on PATH)")
+	if tmux_cases and not have_tmux:
+		missing.append(f"tmux ({tmux_cases} case(s) need it)")
+	for item in missing:
+		print(f"{'FAIL' if args.require_tools else 'warning'}: missing tool: {item}",
+		      file=sys.stderr)
+	if missing and args.require_tools:
+		print("FAIL: --require-tools was given and the suite cannot run in full",
+		      file=sys.stderr)
+		return 1
+	if emacs and oracle_cases:
+		print(f"# oracle: {emacs} ({oracle_cases} case(s))")
+
 	run_one = functools.partial(evaluate_case, kg_argv=kg_argv,
 				    features=features, timeout=args.timeout,
 				    startup_delay_add=args.startup_delay_add,
-				    key_delay_add=args.key_delay_add)
+				    key_delay_add=args.key_delay_add,
+				    emacs=emacs, have_tmux=have_tmux)
 
 	def report(results) -> None:
 		for case, (status, details) in zip(cases, results):

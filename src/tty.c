@@ -237,7 +237,15 @@ void editor_at_exit(void)
 #ifdef KG_FUZZ
 	return;
 #endif
-	/* Clear screen and reset cursor position before exiting. */
+	/* Hand the terminal back the way it was found.  A frame can stop
+	 * half-written now that tty_write() reports a short write instead of
+	 * discarding it, and editor_refresh_screen() answers by shutting
+	 * down -- so the attributes that frame would have closed itself may
+	 * still be open: the cursor hidden by the "\x1b[?25l" every frame
+	 * starts with, and whatever colour or reverse video the row it died
+	 * on had set. */
+	(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
+	(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
 	(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
 	(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
 

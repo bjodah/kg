@@ -130,6 +130,19 @@ static ssize_t mock_write_zero(int fd, const void *buf, size_t count)
 	return 0;
 }
 
+static char mock_sink[128];
+static size_t mock_sink_len;
+
+static ssize_t mock_write_capture(int fd, const void *buf, size_t count)
+{
+	(void)fd;
+	if (mock_sink_len + count < sizeof(mock_sink)) {
+		memcpy(mock_sink + mock_sink_len, buf, count);
+		mock_sink_len += count;
+	}
+	return (ssize_t)count;
+}
+
 /* A frame that stops half-written leaves the screen lying about the
  * buffer, so tty_write() reports only "all of it went out" or "the
  * terminal is gone". */
@@ -159,6 +172,23 @@ static void test_tty_write_completes_or_reports_loss(void)
 	CHECK(tty_write(frame, 0) == 0);
 
 	editor_write_fn = write;
+}
+
+/* The frame that shut the editor down may have died between the
+ * "hide cursor" every frame starts with and the "show cursor" it ends
+ * with, or in the middle of a coloured row.  The exit path is the last
+ * chance to hand the terminal back the way it was found. */
+static void test_at_exit_hands_the_terminal_back(void)
+{
+	mock_sink_len = 0;
+	editor.rawmode = 0;
+	editor_write_fn = mock_write_capture;
+	editor_at_exit();
+	editor_write_fn = write;
+
+	mock_sink[mock_sink_len] = '\0';
+	CHECK(strstr(mock_sink, "\x1b[?25h") != NULL); /* cursor visible */
+	CHECK(strstr(mock_sink, "\x1b[0m") != NULL); /* attributes closed */
 }
 
 /* The DSR reply arrives on the wire and is as trustworthy as anything
@@ -292,6 +322,7 @@ int main(void)
 	RUN(test_sigwinch_handling);
 	RUN(test_input_flood_detects_paste_sized_queue);
 	RUN(test_tty_write_completes_or_reports_loss);
+	RUN(test_at_exit_hands_the_terminal_back);
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);

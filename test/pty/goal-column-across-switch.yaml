@@ -1,0 +1,46 @@
+# The goal column must not survive a buffer switch.
+#
+# editor.desired_visual_col is global editor state (src/def.h), reset at the
+# end of editor_process_keypress() for every key that is not a vertical
+# motion -- but C-x returns before that reset runs, and so does the key
+# after the prefix, so C-x b leaves the goal column of the buffer being left
+# behind in place.
+#
+# Here beta.txt is entered first: C-e puts point at column 10 of a 10-column
+# line and C-n takes it down with a goal column of 10.  C-x b then switches
+# to alpha.txt, where point is at the start of a two-column line.  In Emacs
+# the following C-n moves to column 0 of the next line, because the previous
+# command in that buffer was not a vertical motion; in kg the leaked goal
+# column carries point to column 10 instead, and the "Z" lands at the end of
+# the line rather than at its start.
+#
+# xfail: Plan 09 phase 5 gives the goal column an owner; this case flips to
+# PASS when it does.
+name: goal-column-across-switch
+filename: alpha.txt
+xfail: true
+config_files:
+  beta.txt: |
+    abcdefghij
+    klmnopqrst
+initial: |
+  xy
+  1234567890
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-e
+  - C-n
+  - C-x
+  - b
+  - "alpha"
+  - RET
+  - C-n
+  - "Z"
+expected_saved: |
+  xy
+  Z1234567890

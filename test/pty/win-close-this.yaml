@@ -1,0 +1,26 @@
+# C-x 0 removes the window the point is in, and the window that survives
+# keeps the point it had, not the point of the window that went away.
+#
+# Both windows show the same buffer.  Point is moved down two lines in the
+# lower window, then that window is deleted; the "X" that follows is typed
+# at the upper window's own point, which never left line 1.
+name: win-close-this
+filename: win-close-this.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - C-n
+  - C-n
+  - C-x
+  - "0"
+  - "X"
+expected_saved: |
+  Xone
+  two
+  three

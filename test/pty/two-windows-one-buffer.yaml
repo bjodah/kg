@@ -1,0 +1,71 @@
+# Two windows on one buffer share the text but keep separate points and
+# separate viewports.
+#
+# C-x 2 splits; "A" is typed on line 1 in the upper window, then C-x o
+# moves to the lower one, M-> takes it to the end of the buffer -- past the
+# final newline, so "B" starts a new last line, which the file then ends
+# without.  Both edits land in one saved file, which is what "one buffer"
+# means; they land at different places, which is what "separate points"
+# means.
+#
+# The screen assertions cover the viewports: the upper window is still
+# showing line 1 (with its edit) at the same time as the lower window shows
+# line 20, which no single window of this size could do.
+name: two-windows-one-buffer
+filename: two-windows-one-buffer.txt
+backend: tmux
+dimensions: [12, 40]
+initial: |
+  line01
+  line02
+  line03
+  line04
+  line05
+  line06
+  line07
+  line08
+  line09
+  line10
+  line11
+  line12
+  line13
+  line14
+  line15
+  line16
+  line17
+  line18
+  line19
+  line20
+keys:
+  - C-x
+  - "2"
+  - "A"
+  - C-x
+  - o
+  - M->
+  - "B"
+expected_saved: |-
+  Aline01
+  line02
+  line03
+  line04
+  line05
+  line06
+  line07
+  line08
+  line09
+  line10
+  line11
+  line12
+  line13
+  line14
+  line15
+  line16
+  line17
+  line18
+  line19
+  line20
+  B
+expected_screen_contains:
+  - "Aline01"
+  - "line20"

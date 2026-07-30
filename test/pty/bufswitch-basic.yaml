@@ -1,0 +1,53 @@
+# C-x b switches between buffers and each buffer keeps its own text.
+#
+# kg's C-x b only selects among buffers that already exist (the picker
+# returns without switching when nothing matches), so the second buffer is
+# made with C-x C-f on a file planted in the case HOME.  The path prompt
+# comes prefilled with the current file's directory, hence the C-a C-k
+# before each answer is typed.
+#
+# The harness only reads back the file kg was started on, so beta's own
+# saved bytes are checked by reading them in again with C-x i once alpha
+# is current: the trailing "Bbeta" line is beta.txt as it landed on disk,
+# and the leading "Aalpha" is alpha's own edit.  Between them they pin
+# down that each typed character went to the buffer that was current.
+#
+# The insertion happens at the end-of-buffer position M-> leaves point on,
+# past alpha's final newline, and alpha then saves without a final newline
+# of its own -- hence the "|-" expectation.
+name: bufswitch-basic
+filename: alpha.txt
+backend: tmux
+config_files:
+  beta.txt: |
+    beta
+initial: |
+  alpha
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - "B"
+  - C-x
+  - C-s
+  - C-x
+  - b
+  - "alpha"
+  - RET
+  - "A"
+  - M->
+  - C-x
+  - i
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+expected_saved: |-
+  Aalpha
+  Bbeta
+expected_screen_contains:
+  - "Aalpha"
+  - "alpha.txt"

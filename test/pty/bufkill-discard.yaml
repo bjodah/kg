@@ -1,0 +1,30 @@
+# C-x k on a modified buffer asks before throwing the edit away; y kills
+# the buffer and the edit dies with it.
+#
+# alpha.txt is the file the harness reads back, so it has to be the buffer
+# that gets killed: beta.txt only exists to keep a second buffer alive, so
+# that killing alpha leaves kg running (killing the last buffer quits).
+name: bufkill-discard
+filename: alpha.txt
+config_files:
+  beta.txt: |
+    beta
+initial: |
+  alpha
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-x
+  - b
+  - "alpha"
+  - RET
+  - "X"
+  - C-x
+  - k
+  - "y"
+expected_saved: |
+  alpha

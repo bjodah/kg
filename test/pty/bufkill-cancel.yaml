@@ -1,0 +1,28 @@
+# The other answer to C-x k's discard question: n keeps the buffer, and
+# the edit is still there to be saved by the trailer.
+#
+# Companion to bufkill-discard.yaml; same setup, opposite answer.
+name: bufkill-cancel
+filename: alpha.txt
+config_files:
+  beta.txt: |
+    beta
+initial: |
+  alpha
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-x
+  - b
+  - "alpha"
+  - RET
+  - "X"
+  - C-x
+  - k
+  - "n"
+expected_saved: |
+  Xalpha

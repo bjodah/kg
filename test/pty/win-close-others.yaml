@@ -1,0 +1,31 @@
+# C-x 1 keeps the window the point is in and drops the rest, so the point
+# stays where the surviving window had it.
+#
+# Same setup as win-close-this.yaml with the opposite command: the point is
+# moved down two lines in the lower window and that window is the one that
+# survives, so the "X" lands on line 3.
+#
+# Characterization only: win_delete_others() (src/winmgr.c) does not save
+# the outgoing view state the way win_delete_current() and win_cycle_next()
+# do.  This case records what that produces today; it is not an assertion
+# that the omission is right.
+name: win-close-others
+filename: win-close-others.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - C-n
+  - C-n
+  - C-x
+  - "1"
+  - "X"
+expected_saved: |
+  one
+  two
+  Xthree

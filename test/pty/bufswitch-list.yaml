@@ -1,0 +1,29 @@
+# C-x C-b opens *Buffer List* and every open buffer is listed there.
+#
+# Nothing is edited, so the trailer only has to leave the read-only listing
+# (q kills a special buffer while another one is open) before quitting;
+# alpha.txt keeps the bytes it started with.
+name: bufswitch-list
+filename: alpha.txt
+backend: tmux
+config_files:
+  beta.txt: |
+    beta
+initial: |
+  alpha
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-x
+  - C-b
+trailer_keys: [q, C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "*Buffer List*"
+  - "alpha.txt"
+  - "beta.txt"

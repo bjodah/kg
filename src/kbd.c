@@ -621,7 +621,7 @@ static void key_recenter(void)
 	editor.cy = filerow - editor.rowoff;
 	editor.recenter_state = (editor.recenter_state + 1) % 3;
 	probe_window_size();
-	tty_write("\x1b[2J", 4);
+	(void)tty_write("\x1b[2J", 4);
 	editor_refresh_screen();
 }
 

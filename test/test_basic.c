@@ -9,6 +9,12 @@
 
 /* Stub functions required by display.c */
 void editor_at_exit(void) { }
+int tty_write(const void *buf, size_t n)
+{
+	(void)buf;
+	(void)n;
+	return 0;
+}
 
 #define editor_set_status_message unused_editor_set_status_message
 #define editor_refresh_screen unused_editor_refresh_screen

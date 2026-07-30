@@ -702,7 +702,12 @@ void editor_refresh_screen(void)
 		 * handlers are LIFO. */
 		exit(1);
 	}
-	tty_write(ab.b, ab.len);
+	if (tty_write(ab.b, ab.len) == -1) {
+		/* The terminal is gone.  There is nowhere to report that --
+		 * a status message would need the frame that just failed --
+		 * so stop the main loop and let the ordinary exit path run. */
+		running = 0;
+	}
 	ab_free(&ab);
 }
 

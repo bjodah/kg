@@ -202,6 +202,24 @@ int editor_check_quit_pending(void)
 #endif
 }
 
+/* Put a whole frame on the terminal.  Returns 0 once every byte is out
+ * and -1 when the terminal is gone.  A single write(2) is allowed to
+ * stop short -- a signal lands mid-frame, or the pty's buffer fills
+ * because whatever is reading us is slow -- and half a frame is a screen
+ * that lies about the buffer, so this retries through write_all() rather
+ * than discarding the result.  Callers that cannot repaint answer -1 by
+ * shutting down; they cannot report it, since reporting needs a frame. */
+int tty_write(const void *buf, size_t n)
+{
+#ifdef KG_FUZZ
+	(void)buf;
+	(void)n;
+	return 0;
+#else
+	return write_all(STDOUT_FILENO, buf, n) < 0 ? -1 : 0;
+#endif
+}
+
 /* Called at exit to avoid remaining in raw mode. */
 void editor_at_exit(void)
 {
@@ -209,8 +227,8 @@ void editor_at_exit(void)
 	return;
 #endif
 	/* Clear screen and reset cursor position before exiting. */
-	tty_write("\x1b[2J", 4); /* Clear entire screen */
-	tty_write("\x1b[H", 3); /* Move cursor to top-left */
+	(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
+	(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
 
 	disable_raw_mode(STDIN_FILENO);
 }
@@ -681,7 +699,7 @@ void probe_window_size(void)
 
 restore:
 	snprintf(seq, sizeof(seq), "\x1b[%d;%dH", orig_row, orig_col);
-	tty_write(seq, strlen(seq));
+	(void)tty_write(seq, strlen(seq));
 #endif
 }
 
@@ -747,7 +765,7 @@ void editor_suspend(void)
 	return;
 #else
 	disable_raw_mode(STDIN_FILENO);
-	tty_write("\x1b[2J\x1b[H", 7); /* clear screen, cursor home */
+	(void)tty_write("\x1b[2J\x1b[H", 7); /* clear screen, cursor home */
 	raise(SIGTSTP);
 	/* Execution resumes here when the shell sends SIGCONT (fg). */
 	enable_raw_mode(STDIN_FILENO);

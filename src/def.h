@@ -76,18 +76,6 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Write escape sequences to stdout; silently discard errors (best-effort). */
-static inline void tty_write(const void *buf, size_t n)
-{
-#ifdef KG_FUZZ
-	(void)buf;
-	(void)n;
-#else
-	ssize_t r = write(STDOUT_FILENO, buf, n);
-	(void)r;
-#endif
-}
-
 /* Syntax highlight types */
 #define HL_NORMAL 0
 #define HL_NONPRINT 1
@@ -924,6 +912,7 @@ int editor_input_flood(int fd);
 int editor_read_raw_byte(int fd);
 int editor_read_utf8_seq(int fd, int lead, char *seq);
 int editor_check_quit_pending(void);
+int tty_write(const void *buf, size_t n);
 int get_cursor_position(int ifd, int ofd, int *rows, int *cols);
 int get_window_size(int ifd, int ofd, int *rows, int *cols);
 void update_window_size(void);

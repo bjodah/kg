@@ -22,6 +22,16 @@ static size_t pending_input_off;
 static size_t pending_input_cap;
 static volatile sig_atomic_t pending_resize;
 
+/* One key handed back to the reader, delivered before anything else and
+ * never recorded into a keyboard macro again -- it was recorded when it
+ * was first read.  A single slot is enough: the only producer is
+ * editor_read_utf8_seq(), which over-reads at most one byte and returns
+ * immediately, and every consumer drains the slot before another read
+ * can reach the producer. */
+static int unread_key_slot = -1;
+
+static void unread_key(int key) { unread_key_slot = key; }
+
 struct key_map {
 	char byte;
 	int key;
@@ -87,6 +97,7 @@ void disable_raw_mode(int fd)
 	pending_input_len = 0;
 	pending_input_off = 0;
 	pending_input_cap = 0;
+	unread_key_slot = -1;
 #ifdef KG_FUZZ
 	(void)fd;
 	editor.rawmode = 0;
@@ -473,9 +484,15 @@ static int read_key_byte(int fd, int idle)
  * a macro in progress. */
 static int read_key_common(int fd, int idle, int decode_escapes)
 {
-	int key = macro_next_key();
+	int key;
 	int c;
 
+	if (unread_key_slot >= 0) {
+		key = unread_key_slot;
+		unread_key_slot = -1;
+		return key;
+	}
+	key = macro_next_key();
 	if (key >= 0) {
 		return key;
 	}
@@ -522,7 +539,17 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
 	seq[0] = (char)lead;
 	for (i = 1; i <= need; i++) {
 		int b = editor_read_raw_byte(fd);
-		if (!running || !utf8_is_cont((unsigned char)b)) {
+
+		if (!running) {
+			return 0;
+		}
+		if (!utf8_is_cont((unsigned char)b)) {
+			/* The promised continuation never came, so the lead
+			 * is dropped -- but the byte that ended the sequence
+			 * is a keystroke in its own right and used to be
+			 * swallowed with it: typing a corrupt lead and then
+			 * "A" lost the A.  Hand it back to the reader. */
+			unread_key(b);
 			return 0;
 		}
 		seq[i] = (char)b;

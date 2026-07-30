@@ -229,6 +229,64 @@ static void test_window_size_normalises_or_refuses(void)
 	CHECK(r == KG_MIN_ROWS && c == KG_MIN_COLS);
 }
 
+/* A malformed UTF-8 lead is dropped, but the byte that proved it
+ * malformed is the user's next keystroke and used to be dropped with it:
+ * typing a corrupt lead and then "A" lost the A.
+ *
+ * The write end of the pipe stays open throughout: read_key_byte() reads
+ * nread == 0 as a VTIME timeout and loops, so an EOF here would hang.
+ * Every test writes exactly the bytes it consumes. */
+static void test_malformed_utf8_keeps_the_following_key(void)
+{
+	int fds[2];
+	char seq[4];
+
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
+	running = 1;
+
+	/* "E2 41 42": the three-byte lead is promised two continuation
+	 * bytes and gets an 'A'.  The 'A' comes back once, and the 'B'
+	 * behind it is still queued -- so it came back exactly once. */
+	CHECK(write(fds[1], "AB", 2) == 2);
+	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
+	CHECK(editor_read_key(fds[0]) == 'A');
+	CHECK(editor_read_key(fds[0]) == 'B');
+
+	/* The rescued byte need not be printable. */
+	CHECK(write(fds[1], "\x07", 1) == 1);
+	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
+	CHECK(editor_read_key(fds[0]) == CTRL_G);
+
+	/* Two malformed leads back to back: the second lead is itself the
+	 * byte rescued from the first. */
+	CHECK(write(fds[1], "\xe3" "A", 2) == 2);
+	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
+	CHECK(editor_read_key(fds[0]) == 0xE3);
+	CHECK(editor_read_utf8_seq(fds[0], 0xE3, seq) == 0);
+	CHECK(editor_read_key(fds[0]) == 'A');
+
+	/* A truncated four-byte lead followed by a whole two-byte glyph:
+	 * the glyph survives intact. */
+	CHECK(write(fds[1], "\xc3\xa9z", 3) == 3);
+	CHECK(editor_read_utf8_seq(fds[0], 0xF0, seq) == 0);
+	CHECK(editor_read_key(fds[0]) == 0xC3);
+	CHECK(editor_read_utf8_seq(fds[0], 0xC3, seq) == 2);
+	CHECK(seq[0] == '\xc3' && seq[1] == '\xa9');
+	CHECK(editor_read_key(fds[0]) == 'z');
+
+	/* A lone continuation byte starts nothing, so nothing is read and
+	 * nothing is owed back. */
+	CHECK(editor_read_utf8_seq(fds[0], 0x80, seq) == 0);
+	CHECK(write(fds[1], "y", 1) == 1);
+	CHECK(editor_read_key(fds[0]) == 'y');
+
+	close(fds[0]);
+	close(fds[1]);
+}
+
 int main(void)
 {
 	RUN(test_sigwinch_handling);
@@ -236,5 +294,6 @@ int main(void)
 	RUN(test_tty_write_completes_or_reports_loss);
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
+	RUN(test_malformed_utf8_keeps_the_following_key);
 	return test_summary();
 }

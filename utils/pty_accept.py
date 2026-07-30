@@ -137,6 +137,16 @@ def token_to_bytes(token: str) -> bytes:
 
 	upper = token.upper()
 
+	# One raw byte, named in hex.  Every other token is UTF-8 encoded on
+	# the way out, so this is the only way to send a byte that is not
+	# valid UTF-8 -- a malformed lead, a stray continuation byte, a C1
+	# control -- which is exactly what the input decoder has to survive.
+	if upper.startswith("BYTE="):
+		digits = token[len("BYTE="):]
+		if len(digits) != 2 or any(d not in "0123456789abcdefABCDEF" for d in digits):
+			raise ValueError(f"BYTE= takes exactly two hex digits: {token!r}")
+		return bytes([int(digits, 16)])
+
 	if upper in ("ESC",):
 		return b"\x1b"
 	if upper in ("RET", "ENTER"):
@@ -239,6 +249,11 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 
 def tmux_key_name(token: str) -> tuple[str, str]:
 	upper = token.upper()
+
+	# tmux send-keys has no raw-byte form this harness uses, and its -l
+	# payload is a string that gets UTF-8 encoded like any other.
+	if upper.startswith("BYTE="):
+		raise ValueError(f"{token!r}: BYTE= needs backend: pexpect")
 
 	if upper == "ESC":
 		return ("key", "Escape")

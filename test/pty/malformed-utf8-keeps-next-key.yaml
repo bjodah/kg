@@ -1,0 +1,21 @@
+# A byte the terminal sends that is not valid UTF-8 is dropped -- kg will
+# not store half a character -- but the keystroke behind it belongs to the
+# user.  editor_read_utf8_seq() used to consume it while looking for the
+# continuation bytes that never came, so a corrupt lead swallowed the next
+# key with it.
+#
+# BYTE=e2 is the only way to put a byte that is not valid UTF-8 on the
+# wire; every other token is UTF-8 encoded on its way out, which is why
+# this case is pexpect-backed.
+name: malformed-utf8-keeps-next-key
+filename: utf8-lead.txt
+backend: pexpect
+initial: |
+  x
+keys:
+  - C-e
+  - BYTE=e2
+  - A
+trailer_keys: [C-x, C-s, C-x, C-c]
+expected_saved: |
+  xA

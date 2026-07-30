@@ -81,6 +81,59 @@ static void ab_fill(struct abuf *ab, char c, int n)
 
 static void ab_append_spaces(struct abuf *ab, int n) { ab_fill(ab, ' ', n); }
 
+/* Where a run of text came from.  Every context is escaped the same way
+ * today; the enum exists so a later exception has to be named rather
+ * than smuggled in as a bare ab_append(). */
+enum display_text_context {
+	DISPLAY_BUFFER_TEXT,
+	DISPLAY_FILENAME,
+	DISPLAY_STATUS_TEXT,
+};
+
+/* Append `len` bytes of untrusted text spelled the way display_glyph_at()
+ * says they must be drawn, so no byte of a file, a filename, a directory
+ * entry, a Lisp string or a subprocess' output can become terminal
+ * syntax.  Returns 0 once the buffer has run out of memory, as
+ * ab_append() does. */
+static int ab_append_terminal_text(struct abuf *ab, const char *text, int len,
+    enum display_text_context context)
+{
+	int i = 0;
+
+	(void)context;
+	while (i < len) {
+		struct display_glyph g;
+
+		display_glyph_at(text, len, i, &g);
+		if (!ab_append(ab, g.bytes, g.len)) {
+			return 0;
+		}
+		i += g.span;
+	}
+	return 1;
+}
+
+/* Bytes of `text` whose drawn spelling fits in `budget` cells, cut on a
+ * glyph boundary so a character is shown whole or not at all and an
+ * escape spelling is never halved.  *used takes the cells they occupy. */
+static int display_fit(const char *text, int len, int budget, int *used)
+{
+	int i = 0, cols = 0;
+
+	while (i < len) {
+		struct display_glyph g;
+
+		display_glyph_at(text, len, i, &g);
+		if (g.width > 0 && cols + g.width > budget) {
+			break;
+		}
+		cols += g.width;
+		i += g.span;
+	}
+	*used = cols;
+	return i;
+}
+
 /* Render the text rows of one window into ab.
  * win_y, win_x, win_h, win_w describe the window's position/size.
  * rowoff/coloff/numrows/rows describe the buffer viewport.
@@ -374,7 +427,7 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 {
 	char status[512];
 	char bname[128];
-	int len;
+	int len, used = 0;
 	struct editor_buffer *b = &buflist[bufidx];
 	const char *modename = b->syntax ? b->syntax->name : "Fundamental";
 	const char *changed = "";
@@ -419,11 +472,18 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	    dirty ? "-**-" : "----", bname, changed, pos, cur_row, cur_col,
 	    mode_buf);
 
-	if (len > win_w) {
-		len = win_w;
+	/* snprintf reports what it WOULD have written, so a name long
+	 * enough to overflow status[] would otherwise hand ab_append() a
+	 * length that reads past the array. */
+	if (len >= (int)sizeof(status)) {
+		len = (int)sizeof(status) - 1;
 	}
-	ab_append(ab, status, len);
-	ab_append_spaces(ab, win_w - len);
+	/* The name is the buffer's, so the whole line is untrusted text and
+	 * has to be budgeted by drawn cells rather than by bytes: an escape
+	 * spelling is wider than the byte it stands for. */
+	len = display_fit(status, len, win_w, &used);
+	ab_append_terminal_text(ab, status, len, DISPLAY_FILENAME);
+	ab_append_spaces(ab, win_w - used);
 	ab_append(ab, "\x1b[0m", 4);
 }
 

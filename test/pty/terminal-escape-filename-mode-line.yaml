@@ -1,0 +1,19 @@
+# The mode line interpolates the buffer's name, which comes from the
+# filesystem and can hold anything a path may hold.  This one carries an
+# ESC [ 2J and a BEL: drawn through, the first erases the pane (mode line
+# included) and the second rings the terminal.  Drawn as text, the name
+# reads back exactly and the rest of the mode line is still beside it.
+name: terminal-escape-filename-mode-line
+filename: "esc\x1b[2Jbel\x07.txt"
+backend: tmux
+initial: |
+  hello
+keys: []
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  hello
+expected_screen_contains:
+  - "esc^[[2Jbel^G.txt"
+  # The buffer text and the rest of the mode line survived the name.
+  - "hello"
+  - "(Fundamental)"

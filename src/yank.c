@@ -521,8 +521,9 @@ static int sort_lines_cmp(const void *a, const void *b)
 void editor_sort_lines(void)
 {
 	int start_row, start_col, end_row, end_col;
-	int nlines, orig_len, i;
-	char *orig_text;
+	int nlines, sorted_len, i;
+	char *sorted, *p;
+	struct kg_edit e;
 	erow *temp;
 
 	if (!bcur()->mark_set) {
@@ -543,37 +544,50 @@ void editor_sort_lines(void)
 		return;
 	}
 
-	orig_text
-	    = editor_rows_to_string(&bcur()->row[start_row], nlines, &orig_len);
-	if (!orig_text) {
-		return;
-	}
-
-	temp = malloc(nlines * sizeof(erow));
+	/* Sort a copy of the row records, then write the sorted text back as
+	 * one replacement of the span they cover: the transaction copies the
+	 * original bytes for undo, so nothing has to snapshot the region
+	 * first, and the rows are never half-sorted. */
+	temp = malloc((size_t)nlines * sizeof(erow));
 	if (!temp) {
-		free(orig_text);
 		editor_set_status_message("Out of memory");
 		return;
 	}
-	memcpy(temp, &bcur()->row[start_row], nlines * sizeof(erow));
+	memcpy(temp, &bcur()->row[start_row], (size_t)nlines * sizeof(erow));
+	qsort(temp, (size_t)nlines, sizeof(erow), sort_lines_cmp);
 
-	qsort(temp, nlines, sizeof(erow), sort_lines_cmp);
-
+	sorted_len = 0;
 	for (i = 0; i < nlines; i++) {
-		bcur()->row[start_row + i] = temp[i];
-		bcur()->row[start_row + i].idx = start_row + i;
+		sorted_len += temp[i].size + (i > 0);
 	}
-
+	sorted = malloc((size_t)sorted_len + 1);
+	if (!sorted) {
+		free(temp);
+		editor_set_status_message("Out of memory");
+		return;
+	}
+	p = sorted;
+	for (i = 0; i < nlines; i++) {
+		if (i > 0) {
+			*p++ = '\n';
+		}
+		memcpy(p, temp[i].chars, (size_t)temp[i].size);
+		p += temp[i].size;
+	}
+	*p = '\0';
 	free(temp);
 
-	undo_push(bcur(), UNDO_REPLACE_TEXT, start_row, 0, orig_len, orig_text,
-	    orig_len);
-	free(orig_text);
+	e = kg_edit_user(bcur(),
+	    buffer_row_col_to_position(bcur(), start_row, 0),
+	    buffer_row_col_to_position(
+		bcur(), end_row, bcur()->row[end_row].size),
+	    sorted, (size_t)sorted_len);
+	kg_buffer_replace(&e, NULL);
+	free(sorted);
 
 	bcur()->mark_highlight = 0;
 	bcur()->rect_mode = 0;
 	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
-	buffer_note_change(bcur());
 	editor_set_status_message("Sorted %d lines", nlines);
 }

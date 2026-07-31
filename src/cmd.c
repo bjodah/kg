@@ -12,6 +12,7 @@
 #include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
+#include "edit.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
@@ -132,30 +133,22 @@ static void cmd_eval_buffer(int fd)
 	display_lisp_result(rc, result);
 }
 
-/* Strip trailing whitespace from row, push one undo record, return bytes
- * removed. */
+/* Strip trailing whitespace from row as one edit, return bytes removed.
+ * Each row's span is its own replacement, and so its own undo record, so
+ * C-_ restores line by line. */
 static int strip_trailing_whitespace(erow *row, int filerow)
 {
 	int newsize = row->size;
-	int removed;
 
 	while (newsize > 0 && isspace((unsigned char)row->chars[newsize - 1])) {
 		newsize--;
 	}
-
-	if (newsize == row->size) {
+	if (newsize == row->size
+	    || !editor_row_replace_range(
+		filerow, newsize, row->size - newsize, "", 0, KG_EDIT_USER)) {
 		return 0;
 	}
-
-	removed = row->size - newsize;
-	/* Each removed span is a separate undo record so C-_ restores line by
-	 * line. */
-	undo_push(bcur(), UNDO_KILL_TEXT, filerow, newsize, 0,
-	    row->chars + newsize, removed);
-	row->chars[newsize] = '\0';
-	row->size = newsize;
-	editor_update_row(bcur(), row);
-	return removed;
+	return row->size - newsize;
 }
 
 /* Re-read the current file from disk, discarding all unsaved changes. */
@@ -565,8 +558,6 @@ static void do_eval_last_sexp(int print_to_buffer, int insert_newline_before)
 		editor_set_status_message("Lisp error: %s", result);
 	} else {
 		if (print_to_buffer) {
-			int start_row = editor_current_filerow_or_eof();
-			int start_col = editor_current_filecol();
 			int res_len = (int)strlen(result);
 			int prefix = insert_newline_before ? 1 : 0;
 			int total = res_len + prefix;
@@ -578,10 +569,7 @@ static void do_eval_last_sexp(int print_to_buffer, int insert_newline_before)
 				}
 				memcpy(to_insert + prefix, result, res_len);
 				to_insert[total] = '\0';
-
-				undo_push(bcur(), UNDO_YANK_TEXT, start_row,
-				    start_col, 0, to_insert, total);
-				editor_insert_text_raw(to_insert, total);
+				editor_insert_text_at_point(to_insert, total);
 				free(to_insert);
 			} else {
 				editor_set_status_message(

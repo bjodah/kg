@@ -506,7 +506,10 @@ static void test_word_case_two_records(void)
 	editor_update_row(bcur(), &bcur()->row[0]);
 	bcur()->dirty = 1;
 
-	/* Records as do_word_case pushes them */
+	/* The pair of records the word-case commands used to push, before
+	 * a cased word became one replacement.  Kept because the two
+	 * opcodes are still replayed for records already on a stack, and
+	 * only phase 5 retires them. */
 	undo_push(bcur(), UNDO_KILL_TEXT, 0, 0, 0, "hello", 5); /* original  */
 	undo_push(
 	    bcur(), UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5); /* transformed */

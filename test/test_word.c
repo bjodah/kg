@@ -468,10 +468,163 @@ static void test_kill_word_backward_clamps_huge_column_offset(void)
 	teardown();
 }
 
+/* ---- One step per transform ---- */
+
+/* The buffer's bytes as one string.  Caller frees. */
+static char *word_buffer_text(void)
+{
+	int len;
+
+	return editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
+}
+
+/* Each word transform is one undo step, one generation step and one
+ * dirty step, and one C-_ puts the exact original bytes back.  M-u used
+ * to push a kill record and a yank record for the same word, so undoing
+ * it took two. */
+static void test_word_transforms_are_one_step_each(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "  hello   world", 15);
+	editor_insert_row(bcur(), 1, "    tail", 8);
+	bcur()->dirty = 0;
+
+	generation = bcur()->content_generation;
+	editor_cursor_goto(0, 2);
+	editor_upcase_word();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  HELLO   world\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(bcur()->dirty == 1);
+	CHECK(editor_current_filecol() == 7);
+	editor_undo();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  hello   world\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+
+	/* A word already in the asked-for case replaces its bytes with the
+	 * same bytes, which costs nothing at all. */
+	generation = bcur()->content_generation;
+	editor_cursor_goto(0, 2);
+	editor_downcase_word();
+	CHECK(bcur()->content_generation == generation);
+	CHECK(bcur()->undostack.size == 0);
+
+	/* M-SPC, M-\ and M-^ likewise. */
+	editor_cursor_goto(0, 8);
+	editor_just_one_space();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  hello world\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+
+	editor_cursor_goto(0, 8);
+	editor_delete_horizontal_space();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  helloworld\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+
+	editor_cursor_goto(1, 0);
+	editor_join_line();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  hello   world tail") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].idx == 0);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 15);
+	editor_undo();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  hello   world\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 2);
+	CHECK(bcur()->row[1].idx == 1);
+	teardown();
+}
+
+/* A read-only buffer refuses every one of them, and pays nothing. */
+static void test_word_transforms_refused_when_read_only(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "  hello   world", 15);
+	editor_insert_row(bcur(), 1, "    tail", 8);
+	bcur()->dirty = 0;
+	bcur()->readonly = 1;
+	generation = bcur()->content_generation;
+
+	editor_cursor_goto(0, 2);
+	editor_upcase_word();
+	editor_capitalize_word();
+	editor_cursor_goto(0, 8);
+	editor_just_one_space();
+	editor_delete_horizontal_space();
+	editor_cursor_goto(1, 0);
+	editor_join_line();
+	editor_cursor_goto(0, 2);
+	editor_kill_word_forward();
+	editor_kill_word_backward();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "  hello   world\n    tail") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->content_generation == generation);
+	CHECK(bcur()->dirty == 0);
+	bcur()->readonly = 0;
+	teardown();
+}
+
+/* Case transforms are byte-wise and ASCII-only, so a multi-byte glyph in
+ * the word has to come through untouched -- toupper() on a continuation
+ * byte would corrupt it.  A malformed byte is not a word character, so
+ * it bounds the word instead. */
+static void test_word_case_leaves_multibyte_bytes_alone(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0,
+	    "ab\xC3\xA9"
+	    "cd",
+	    6);
+	editor_cursor_goto(0, 0);
+	editor_upcase_word();
+	text = word_buffer_text();
+	CHECK(strcmp(text,
+		  "AB\xC3\xA9"
+		  "cd")
+	    == 0);
+	free(text);
+	editor_undo();
+	text = word_buffer_text();
+	CHECK(strcmp(text,
+		  "ab\xC3\xA9"
+		  "cd")
+	    == 0);
+	free(text);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
 {
+	RUN(test_word_transforms_are_one_step_each);
+	RUN(test_word_transforms_refused_when_read_only);
+	RUN(test_word_case_leaves_multibyte_bytes_alone);
 	RUN(test_upcase_word);
 	RUN(test_downcase_word);
 	RUN(test_capitalize_word);

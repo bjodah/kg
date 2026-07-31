@@ -1081,7 +1081,13 @@ void editor_reflow_paragraph(void)
 		while (len > 0 && isspace((unsigned char)line[len - 1])) {
 			len--;
 		}
-		if (len == 0) {
+		/* A row that is entirely whitespace contributes nothing.  The
+		 * test is `<= 0` rather than `== 0` so that the only way past
+		 * it is a run of bytes the analyzer can also see is positive:
+		 * `row->size` is never negative, but nothing in this function
+		 * says so, and an assumed-negative `len` makes both the
+		 * memcpy() below and `words_len` run backwards. */
+		if (len <= 0) {
 			continue;
 		}
 

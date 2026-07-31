@@ -58,14 +58,17 @@ status --recursive` for SHAs.
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
-- Complexity budget: kg scc is at 4269 against a cap of 4280.  Plan 10's
-  transaction cost 4 points net because each caller it took over deleted
-  a hand-rolled splice; its remaining phases (markers, decorations,
-  hooks) have to be funded the same way, from phase 9's migration.
-- `.ci/ci-06-static-analysis.sh` reports `src/compile.c:389` (ArrayBound
-  on the pending-line buffer) on this toolchain, and did so before Plan
-  10 started — verified on a clean worktree of `2edfac6`, where it is
-  the only finding.  Unowned; Plan 04's area.
+- Complexity budget: kg scc is at 4276 against a cap of 4280 — four
+  points of headroom, the tightest it has been.  Plan 10's transaction
+  cost 4 points net because each caller it took over deleted a
+  hand-rolled splice, and oversight pass 5's four defect fixes cost 7
+  more; the remaining phases (markers, decorations, hooks) have to be
+  funded from phase 9's migration, and the next commit that is not a
+  migration should expect to have to find its own room first.
+- `src/compile.c:389` (ArrayBound on the pending-line buffer) is fixed
+  (oversight pass 5).  It was the only finding in the whole compilation
+  database once ci-06's analysers were made to run at all — see the
+  `PARALLEL` note below.
 - Plan 09 phase 6 (nest the session record as `struct kg_session`) and
   phase 7 (lifecycle hooks, `winlist[].bufidx` as a handle) are not
   started; the plan doc's "Landed / deferred" section says where to pick
@@ -73,3 +76,61 @@ status --recursive` for SHAs.
 - Plan 09 phase 3 moved the file-identity and option fields flat rather
   than grouping them into `struct file_snapshot` / `struct
   buffer_options`; the grouping is now an independent rename.
+- `run-ci-steps.sh` exported `PARALLEL`, which is GNU parallel's own
+  variable for default options, so ci-06's clang-check and clang-tidy
+  phases ran no job and exited 0 under **both** runner modes; only
+  running `.ci/ci-06-static-analysis.sh` by hand ever analysed anything.
+  Fixed in oversight pass 5, along with two guards that make the same
+  class of silence loud.  Worth remembering as a shape: a step that
+  passes suspiciously fast is a step to read, and any gate whose "no
+  findings" answer is the absence of output needs a positive count.
+
+## Open, from oversight pass 5
+
+Found by audit, judged real, and **not** fixed — with what is known:
+
+- `editor_undo()` pops an `UNDO_CHANGE` record, replays it through
+  `kg_buffer_replace()` without looking at the return value, and frees
+  the record either way (`src/undo.c:270-272, 298, 433-441`).  A refused
+  replay therefore loses the record, and with one edit outstanding the
+  pop alone makes `size == clean_size`, clearing the modified flag on a
+  buffer that still differs from disk.  Only reachable through an
+  allocation failure today; it stops being only that as soon as a
+  `KG_EDIT_NO_UNDO` caller can shrink a buffer with `UNDO_CHANGE`
+  records under it, which is phase 9 batches 6-7.  Fix is local: re-link
+  the record and return on failure.
+- `edit_publish()` frees the head row (`editor_free_row()`) and installs
+  a fresh `erow`, so every gateway edit throws away that row's `render`
+  and `hl` allocations and their capacities — the thing
+  `editor_row_grown_capacity()` exists to preserve.  One backspace in a
+  1 MiB row now costs large frees and mallocs where it cost a `memmove`.
+  Measure `KG_PERF_RENDER_ALLOC` per keystroke before phase 9 widens the
+  set of callers on this path.
+- `editor_string_rectangle()` (`src/rect.c:443-452`) passes prompt text
+  straight to `editor_row_replace_range()` per row.  `C-q C-j` in that
+  prompt now splits rows, so the loop walks into rows it just made and
+  the coarse `UNDO_RECT_OVERWRITE` cannot restore the result.  Before the
+  transaction the separator was embedded in the row instead — wrong in
+  memory, right on disk.  Either refuse a separator there or teach the
+  loop the shape, the way `editor_query_replace()` now knows it.
+- The shift-select teardown in `key_finish_keypress()`
+  (`src/kbd.c:669-678`) writes through `bcur()` without the
+  `buffer_before` identity guard its neighbour has.  Not reachable
+  through `C-x b`, which returns from `handle_cx_prefix_key()` before
+  the teardown runs — so it is an asymmetry, not a demonstrated defect,
+  and closing it wants a command that both switches buffers and goes
+  through the ordinary dispatch.
+- `win_delete_others()` (`C-x 1`, `src/winmgr.c:277-288`) deactivates
+  the other windows without `buf_remember_view()`; it is the one detach
+  path that does not bank the view it is dropping.
+- Auto-revert still only reloads the current buffer
+  (`src/bufmgr.c:327-333`) on a rationale the ownership work retired:
+  points are in `winlist[]` now and are all enumerable.
+- The mutation census is textual and gameable in more ways than its
+  docstring admits: wrapping N raw calls in one helper banks a
+  "decrease", `r->size` hides from a probe that hard-codes the
+  identifier `row`, `memcpy(row->chars, ...)` matches nothing, the glob
+  is non-recursive and `.c`-only, and `dirty` is not a probe at all.
+  Cheap to tighten; the helper-wrapping hole needs a rule, not a regex.
+- The mode line of a *non-selected* window is correct by construction and
+  has no PTY case asserting it.

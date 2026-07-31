@@ -547,6 +547,13 @@ session state, all of it.
   re-read on every frame, so a window outliving its buffer is a display
   bug rather than a stale write.  Give it a handle when the window record
   grows a lifecycle (phase 7), not inside a substitution.
+
+  Oversight pass 5 found the half of that reasoning which does not hold:
+  selecting a window left on a killed slot makes `buf_select()` claim the
+  slot back as an empty buffer that `buf_count` never counted.  `C-x k`
+  now takes every window off the slot, which makes the deviation true as
+  stated -- a stale `bufidx` can no longer outlive the kill that made it
+  stale.  A handle is still the right answer for phase 7.
 - **`clamp_cursor_to_buffer()` and `win_reflow()`'s clamps are not
   folded.**  They answer different questions ("is point on a row that
   exists?" and "is point inside the window?"), so folding them changes
@@ -580,6 +587,19 @@ exist.  `buf_claim_slot()`, `buf_kill()`, `buf_attach_view()` and
 `buf_remember_view()` are the five points they attach to, and each is now
 a single named function, which is the thing that made this phase cheap to
 defer.
+
+**Oversight pass 5.**  Two defects against this plan's work, both fixed
+with a case that fails without the fix.  `buf_open_path()`,
+`buf_enter_special()` and `buf_load_args()` set `buf_current` without
+moving the selected window, so `buf_reset()` -- which empties the buffer
+*and* the view of the window showing it, and says in its own comment that
+callers must select first -- emptied the outgoing buffer's view, which
+the following `buf_select()` then banked as that buffer's remembered
+point.  `C-x C-f`, `C-x C-b`, dired and `*help*` all threw away where you
+were in the buffer you left, and a `+LINE` for the second file on the
+command line landed on the first file's view.  And `buf_kill()` left the
+unselected windows on the dead slot (above).  `PROGRESS.md` lists what
+that pass found and did not fix.
 
 **Where the next implementer starts.**  Either deferred phase can be done
 independently and in either order.  Phase 7's handle conversion for

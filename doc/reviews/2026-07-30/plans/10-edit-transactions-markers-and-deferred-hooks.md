@@ -489,7 +489,7 @@ Exit criteria:
 | 1 — inventory and seal raw mutation | complete | `aa5782d` |
 | 2 — flat position translation | complete | `4374afe` |
 | 3 — failure-atomic replace | complete | `e5ed3da`, `fbf7701` (analyzer follow-up) |
-| 7 — first item: retire the dirty change detectors | complete | `e1ad15c` (the signal), `751a78d` (the two readers) |
+| 7 — first item: retire the dirty change detectors | complete | `e1ad15c` (the signal), `9c05b0a` (the two readers) |
 | 4, 5, 6, 7 (rest), 8, 9 | not started | — |
 
 The transaction exists, is failure-atomic, and four callers are on it:
@@ -576,8 +576,21 @@ Phases 5 and 6 depend on nothing that is missing: markers hook into
 now passes.  `RESTORE_HL` (`src/search.c:22-30`) is untouched and is
 still decoration consumer #1.
 
-One environmental note: `.ci/ci-06-static-analysis.sh` reports
+One environmental note: `.ci/ci-06-static-analysis.sh` reported
 `src/compile.c:389` (ArrayBound on the pending-line buffer) and did so
 before this plan started -- verified on a clean worktree of `2edfac6`,
-where it is the only finding.  It is not plan 10's, and it is not fixed
-here.
+where it is the only finding.  It is not plan 10's; oversight pass 5
+fixed it, along with the reason nothing but a hand-run of that script
+ever saw it (`run-ci-steps.sh` exported `PARALLEL`, which GNU parallel
+reads as its own default options, so both of ci-06's analyser phases ran
+no job and exited 0 under the runner).
+
+Also from that pass, against this plan's work: `edit_publish()` did not
+number the rows it installed when the row count was unchanged (`C-t` at
+the start of a line, fixed); `editor_query_replace()` resumed on a row
+the replacement had just split, which AddressSanitizer reports as a
+heap-buffer-overflow (fixed, with two Emacs-oracle cases); and the
+staging comment's atomicity claim now says text rather than everything,
+because the commit's `editor_update_row()` pass still allocates.  Three
+more findings against phases 3 and 7 are open and listed in
+`PROGRESS.md`.

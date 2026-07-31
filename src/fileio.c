@@ -521,7 +521,7 @@ int editor_open(char *filename)
  * moves `accepted` on to the state the user just agreed to overwrite, which
  * is what the write then guards against — otherwise the guard would refuse
  * the very save that was authorised. */
-static int confirm_save_over_accepted(
+int confirm_save_over_accepted(
     int fd, const char *path, struct file_snapshot *accepted)
 {
 	struct file_snapshot now;

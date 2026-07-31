@@ -849,6 +849,8 @@ void editor_write_file(int fd);
 void editor_insert_file(int fd);
 void editor_snapshot_disk(void);
 int file_snapshot_path(const char *path, struct file_snapshot *out);
+int confirm_save_over_accepted(
+    int fd, const char *path, struct file_snapshot *accepted);
 int file_snapshot_fd(int fd, struct file_snapshot *out);
 enum file_change_state file_snapshot_compare(
     const struct file_snapshot *accepted, const struct file_snapshot *now);

@@ -1526,14 +1526,13 @@ void buf_open_file(int fd) { buf_open_file_ro(fd, 0); }
 void buf_open_file_read_only(int fd) { buf_open_file_ro(fd, 1); }
 
 /* Write a buffer slot's rows directly to its file without switching to it.
- * Returns 0 on success, 1 on error (errno set).  Unguarded: C-x s asks
- * whether to save each buffer but has never asked whether its file changed
- * underneath, and giving it an identity guard here would only turn that
- * silence into a bare "Stale file handle". */
+ * Returns 0 on success, 1 on error (errno set).  The accepted snapshot
+ * guards the rename, so a file that changes between the user's answer and
+ * the commit is refused rather than overwritten. */
 static int write_slot(struct editor_buffer *b)
 {
 	return editor_write_rows_to_file(
-	    b->filename, b->row, b->numrows, NULL, NULL);
+	    b->filename, b->row, b->numrows, NULL, &b->disk);
 }
 
 /* Save all modified non-special buffers, prompting for each (C-x s). */
@@ -1556,11 +1555,19 @@ void buf_save_all(int fd)
 		if (!editor_confirm_yn(fd, "Save %s? (y/n) ", b->filename)) {
 			continue;
 		}
+		if (!confirm_save_over_accepted(fd, b->filename, &b->disk)) {
+			editor_set_status_message("%s not saved", b->filename);
+			continue;
+		}
 
 		if (write_slot(b) == 0) {
 			b->dirty = 0;
+			b->disk_changed = 0;
+			(void)file_snapshot_path(b->filename, &b->disk);
 			if (i == buf_current) {
 				editor.dirty = 0;
+				editor.disk_changed = 0;
+				editor.disk = b->disk;
 				undo_mark_clean();
 			}
 			editor_set_status_message("Wrote %s", b->filename);

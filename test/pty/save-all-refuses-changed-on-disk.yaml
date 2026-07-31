@@ -1,0 +1,24 @@
+# C-x s on a buffer whose file changed on disk underneath: refusing the
+# "changed on disk" question must leave the disk file alone.  Before the
+# guard, save-all silently overwrote the external change; the refused 'n'
+# then self-inserted, so the saved bytes differed from these.
+name: save-all-refuses-changed-on-disk
+filename: saveall.txt
+initial: |
+  hello
+keys:
+  - M->
+  - "buffer edit"
+  - M-!
+  - "printf external >> saveall.txt"
+  - RET
+  - C-x
+  - s
+  - y
+  - n
+# The trailer's own C-x C-s meets the same changed-on-disk question; refuse
+# it too, then confirm quitting with the buffer still modified.
+trailer_keys: [C-x, C-s, n, C-x, C-c, y]
+expected_saved: |-
+  hello
+  external

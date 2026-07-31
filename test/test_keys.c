@@ -33,6 +33,7 @@
 #include "../src/cmd.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
+#include "../src/keyevent.h"
 #include "test.h"
 
 #include <stdio.h>
@@ -334,10 +335,10 @@ static const struct binding global_bindings[] = {
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
 	{ ALT_9, "M-9", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_CTRL_S, "ESC C-s", "editor_find_regexp(fd, 1)",
+	{ ALT_CTRL_S, "C-M-s", "editor_find_regexp(fd, 1)",
 	    "isearch-forward-regexp", 0, K_CMD, L_GLOBAL, RO_FREE, 0, NULL,
 	    NULL },
-	{ ALT_CTRL_R, "ESC C-r", "editor_find_regexp(fd, -1)",
+	{ ALT_CTRL_R, "C-M-r", "editor_find_regexp(fd, -1)",
 	    "isearch-backward-regexp", 0, K_CMD, L_GLOBAL, RO_FREE, 0, NULL,
 	    NULL },
 	{ KEY_F3, "<f3>", "macro_start", "kmacro-start-macro", 0, K_CMD,
@@ -628,6 +629,30 @@ static void test_edit_verdict_and_readonly_policy_agree(void)
 	}
 }
 
+/* The sequence column is the key's canonical spelling, and the spelling
+ * of the keycode the row names -- so the inventory, the decoder adapter
+ * and the parser cannot drift apart.  ESC C-s and ESC C-r are written
+ * "C-M-s" and "C-M-r": the terminal sends them as two bytes, but they
+ * are one key with two modifiers, which is what the map is keyed by. */
+static void test_sequences_are_the_keycode_spelled_canonically(void)
+{
+	int i;
+
+	for (i = 0; i < global_count(); i++) {
+		const struct binding *b = &global_bindings[i];
+		struct key_event parsed;
+		char text[KEY_FORMAT_MAX];
+
+		CHECKF(key_parse(b->seq, &parsed) == 0, "%s does not parse",
+		    b->seq);
+		CHECKF(key_event_equal(parsed, key_event_from_legacy(b->key)),
+		    "%s is not how keycode %d is spelled", b->seq, b->key);
+		CHECK(key_format(parsed, text, sizeof(text)) == 0);
+		CHECKF(strcmp(text, b->seq) == 0,
+		    "%s is spelled %s canonically", b->seq, text);
+	}
+}
+
 /* Where the two read-only verdicts contradict each other today.
  *
  * C-j is on kbd.c's blocklist, so a read-only buffer refuses it, while
@@ -779,5 +804,6 @@ int main(void)
 	RUN(test_named_commands_agree_with_the_command_table);
 	RUN(test_rows_are_well_formed);
 	RUN(test_named_pty_cases_exist);
+	RUN(test_sequences_are_the_keycode_spelled_canonically);
 	return test_summary();
 }

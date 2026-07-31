@@ -14,6 +14,7 @@
 #include "def.h"
 #include "kbd.h"
 #include "keybind.h"
+#include "keyevent.h"
 #include "lisp.h"
 #include "syntax.h"
 
@@ -56,24 +57,6 @@ static const int vertical_motion_keys[] = {
 
 #define PREFIX_ARG_MAX 1000
 
-/* Whether `c` is one of the `n` keycodes in `keys`.  The key lists in
- * this file are all answered through here rather than spelled out as a
- * run of `c != ...` tests: a list is cheaper to read, cheaper to extend,
- * and does not cost a branch per entry. */
-static int key_in_list(const int *keys, size_t n, int c)
-{
-	size_t i;
-
-	for (i = 0; i < n; i++) {
-		if (keys[i] == c) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-#define KEY_IN(list, c) key_in_list((list), sizeof(list) / sizeof(*(list)), (c))
-
 int key_would_edit_readonly_buffer(int c)
 {
 	if (c >= 32 && c < 127) {
@@ -85,7 +68,7 @@ int key_would_edit_readonly_buffer(int c)
 	if (c >= 0x80 && c <= 0xFF) {
 		return 1;
 	}
-	return KEY_IN(readonly_blocked_keys, c);
+	return KEY_IN_LIST(readonly_blocked_keys, c);
 }
 
 static int bottom_buffer_screen_row(void)
@@ -683,7 +666,7 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 
 	/* Goal column is only valid between consecutive vertical motions —
 	 * any other key invalidates it. */
-	if (!KEY_IN(vertical_motion_keys, c)) {
+	if (!KEY_IN_LIST(vertical_motion_keys, c)) {
 		wcur()->desired_visual_col = -1;
 	}
 }

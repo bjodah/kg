@@ -304,8 +304,9 @@ static void format_argument(FeContext *context, struct format_buffer *out,
 	char message[64];
 	FeObject *object;
 
-	if (spec != 's' && spec != 'S' && spec != 'd' && spec != 'e'
-	    && spec != 'f' && spec != 'g') {
+	/* A NUL byte inside the format string is not a spec: strchr() would
+	 * find it as the terminator of the set. */
+	if (!spec || !strchr("sSdefg", spec)) {
 		(void)snprintf(message, sizeof(message),
 		    "invalid format operation %%%c", spec);
 		FeHandleError(context, message);
@@ -319,7 +320,7 @@ static void format_argument(FeContext *context, struct format_buffer *out,
 		format_integer(context, out, object);
 		return;
 	}
-	if (spec == 'e' || spec == 'f' || spec == 'g') {
+	if (strchr("efg", spec)) {
 		format_float(context, out, spec, object);
 		return;
 	}

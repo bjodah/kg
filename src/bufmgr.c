@@ -14,10 +14,21 @@
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
+#include "keyevent.h"
 #include "lisp.h"
 #include "localvars.h"
 #include "perf.h"
 #include "syntax.h"
+
+/* Key sets the minibuffer and the pickers ask about.  A list rather than
+ * a run of comparisons: see key_in_list(). */
+static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
+static const int history_keys[]
+    = { ALT_P, ALT_N, ARROW_UP, ARROW_DOWN, CTRL_P, CTRL_N };
+static const int history_back_keys[] = { ALT_P, ARROW_UP, CTRL_P };
+static const int picker_next_keys[] = { ARROW_RIGHT, CTRL_F };
+static const int picker_prev_keys[] = { ARROW_LEFT, CTRL_B };
+static const int cancel_keys[] = { ESC, CTRL_G };
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -832,12 +843,8 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	while (1) {
 		prompt_refresh(prompt, plen, buf, cursor);
 		c = editor_read_key(fd);
-		if (hist
-		    && (c == ALT_P || c == ALT_N || c == ARROW_UP
-			|| c == ARROW_DOWN || c == CTRL_P || c == CTRL_N)) {
-			int dir = (c == ALT_P || c == ARROW_UP || c == CTRL_P)
-			    ? 1
-			    : -1;
+		if (hist && KEY_IN_LIST(history_keys, c)) {
+			int dir = KEY_IN_LIST(history_back_keys, c) ? 1 : -1;
 			const char *entry;
 
 			if (dir > 0 && hist_index < 0) {
@@ -865,7 +872,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 			fd, c, buf, bufsize, &cursor, &len, &overflow)) {
 			continue;
 		}
-		if (c == ESC || c == CTRL_G) {
+		if (KEY_IN_LIST(cancel_keys, c)) {
 			return prompt_done(-1);
 		} else if (c == ENTER) {
 			if (overflow == 0) {
@@ -1104,7 +1111,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
-		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+		if (KEY_IN_LIST(erase_keys, c)) {
 			if (cursor < len) {
 				minibuf_edit_key(fd, c, buf, bufsize, &cursor,
 				    &len, &overflow);
@@ -1124,7 +1131,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 				cursor = len;
 			}
 			sel = 0;
-		} else if (c == ESC || c == CTRL_G) {
+		} else if (KEY_IN_LIST(cancel_keys, c)) {
 			return prompt_done(-1);
 		} else if (c == CTRL_B) {
 			if (cursor > 0) {
@@ -1430,18 +1437,18 @@ void buf_select_interactive(int fd)
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
-			if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+			if (KEY_IN_LIST(erase_keys, c)) {
 				if (qlen > 0) {
 					qlen = utf8_glyph_start_before(
 					    query, qlen, qlen);
 					query[qlen] = '\0';
 				}
 				sel = 0;
-			} else if (c == ARROW_RIGHT || c == CTRL_F) {
+			} else if (KEY_IN_LIST(picker_next_keys, c)) {
 				if (matches > 0) {
 					sel = (sel + 1) % matches;
 				}
-			} else if (c == ARROW_LEFT || c == CTRL_B) {
+			} else if (KEY_IN_LIST(picker_prev_keys, c)) {
 				if (matches > 0) {
 					sel = (sel - 1 + matches) % matches;
 				}
@@ -1452,7 +1459,7 @@ void buf_select_interactive(int fd)
 					buf_select(order[ring_pos[sel]]);
 				}
 				return;
-			} else if (c == ESC || c == CTRL_G) {
+			} else if (KEY_IN_LIST(cancel_keys, c)) {
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				return;

@@ -13,6 +13,7 @@
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
+#include "keyevent.h"
 #include "lisp.h"
 #include "localvars.h"
 #include "syntax.h"
@@ -20,6 +21,12 @@
 static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;
 static constexpr size_t lisp_last_sexp_max = 64 * 1024;
+
+/* Key sets the M-x picker asks about; see key_in_list(). */
+static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
+static const int cancel_keys[] = { ESC, CTRL_G };
+static const int picker_next_keys[] = { ARROW_RIGHT, CTRL_F };
+static const int picker_prev_keys[] = { ARROW_LEFT, CTRL_B };
 
 /* ---- Individual commands ---- */
 
@@ -409,7 +416,7 @@ static void sexp_scan_byte(struct sexp_scan *scan, int c)
 			break;
 		}
 		if (scan->kind == SEXP_ATOM) {
-			if (sexp_space(c) || c == '(' || c == ')' || c == ';') {
+			if (sexp_space(c) || (c && strchr("();", c))) {
 				sexp_complete(scan, scan->pos);
 				again = true;
 				continue;
@@ -1173,13 +1180,13 @@ void editor_named_command(int fd)
 
 		c = editor_read_key(fd);
 
-		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+		if (KEY_IN_LIST(erase_keys, c)) {
 			if (len > 0) {
 				name[--len] = '\0';
 			}
 			sel = 0;
 			explicit_selection = 0;
-		} else if (c == ESC || c == CTRL_G) {
+		} else if (KEY_IN_LIST(cancel_keys, c)) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			return;
@@ -1240,12 +1247,12 @@ void editor_named_command(int fd)
 			}
 			sel = 0;
 			explicit_selection = 0;
-		} else if (c == ARROW_RIGHT || c == CTRL_F) {
+		} else if (KEY_IN_LIST(picker_next_keys, c)) {
 			if (shown > 0) {
 				sel = (sel + 1) % shown;
 				explicit_selection = 1;
 			}
-		} else if (c == ARROW_LEFT || c == CTRL_B) {
+		} else if (KEY_IN_LIST(picker_prev_keys, c)) {
 			if (shown > 0) {
 				sel = (sel - 1 + shown) % shown;
 				explicit_selection = 1;

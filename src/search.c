@@ -8,11 +8,21 @@
 #include <string.h>
 
 #include "def.h"
+#include "keyevent.h"
 #include "localvars.h"
 #include "regex.h"
 #include "syntax.h"
 
 #define KILO_QUERY_LEN 256
+
+/* Key sets the search prompts ask about; see key_in_list(). */
+static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
+static const int replace_stop_keys[] = { ESC, CTRL_G, 'q' };
+static const int replace_do_keys[] = { 'y', ENTER, ' ' };
+static const int isearch_end_keys[] = { ESC, ENTER, CTRL_G };
+static const int isearch_forward_keys[] = { ARROW_RIGHT, ARROW_DOWN, CTRL_S };
+static const int isearch_backward_keys[] = { ARROW_LEFT, ARROW_UP, CTRL_R };
+static const int isearch_history_keys[] = { ALT_P, ALT_N };
 
 /* Emacs keeps literal and regexp searches in separate rings (search-ring
  * and regexp-search-ring) and runs every query-replace prompt — both
@@ -237,13 +247,13 @@ enum replace_answer {
 
 static enum replace_answer query_replace_answer(int c)
 {
-	if (c == ESC || c == CTRL_G || c == 'q') {
+	if (KEY_IN_LIST(replace_stop_keys, c)) {
 		return REPLACE_STOP;
 	}
 	if (c == '!') {
 		return REPLACE_ALL;
 	}
-	if (c == 'y' || c == ENTER || c == ' ') {
+	if (KEY_IN_LIST(replace_do_keys, c)) {
 		return REPLACE_DO;
 	}
 	return REPLACE_SKIP;
@@ -500,7 +510,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
-		if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+		if (KEY_IN_LIST(erase_keys, c)) {
 			/* Drop a whole character, so backspacing over a
 			 * multi-byte glyph never leaves half of it in the
 			 * search string. */
@@ -512,7 +522,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			last_match_row = -1;
 			last_match_col = -1;
 			find_next = direction;
-		} else if (c == ESC || c == ENTER || c == CTRL_G) {
+		} else if (KEY_IN_LIST(isearch_end_keys, c)) {
 			if (c == ESC) {
 				wcur()->cx = saved_cx;
 				wcur()->cy = saved_cy;
@@ -527,13 +537,13 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			hl_snapshot_restore(&snap);
 			editor_set_status_message("");
 			return;
-		} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_S) {
+		} else if (KEY_IN_LIST(isearch_forward_keys, c)) {
 			isearch_recall_last(hist, query, &qlen, &hist_index);
 			find_next = 1;
-		} else if (c == ARROW_LEFT || c == ARROW_UP || c == CTRL_R) {
+		} else if (KEY_IN_LIST(isearch_backward_keys, c)) {
 			isearch_recall_last(hist, query, &qlen, &hist_index);
 			find_next = -1;
-		} else if (c == ALT_P || c == ALT_N) {
+		} else if (KEY_IN_LIST(isearch_history_keys, c)) {
 			int dir = c == ALT_P ? 1 : -1;
 			const char *entry;
 

@@ -538,8 +538,7 @@ static void dlr_skip_ws(struct dlr *r)
 		while (r->pos < r->len) {
 			char c = r->src[r->pos];
 
-			if (c == ' ' || c == '\t' || c == '\n' || c == '\r'
-			    || c == '\f') {
+			if (c && strchr(" \t\n\r\f", c)) {
 				r->pos++;
 				continue;
 			}

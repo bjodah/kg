@@ -232,31 +232,6 @@ static void test_shell_run_waitpid_permanent_failure(void)
 	while (waitpid(-1, NULL, WNOHANG) > 0) { }
 }
 
-static void rmtree(const char *path)
-{
-	struct dirent *de;
-	struct stat st;
-	DIR *dp = opendir(path);
-	char child[512];
-
-	if (!dp) {
-		return;
-	}
-	while ((de = readdir(dp)) != NULL) {
-		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
-			continue;
-		}
-		snprintf(child, sizeof(child), "%s/%s", path, de->d_name);
-		if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
-			rmtree(child);
-		} else {
-			unlink(child);
-		}
-	}
-	closedir(dp);
-	rmdir(path);
-}
-
 /* ---- shell_output_fits_echo() ---- */
 
 static void test_echo_fits_short_single_line(void)

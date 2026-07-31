@@ -201,27 +201,205 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 
 void editor_query_replace(int fd) { (void)fd; }
 void editor_named_command(int fd) { (void)fd; }
-int cmd_execute_named(const char *name, int fd)
+
+/* The command table cmd.c would provide.  The real one reaches the whole
+ * editor -- pickers that read keys of their own, compilation, dired --
+ * so this target links a table of its own instead, holding the commands
+ * whose handlers are in the objects it does link and which return
+ * without reading more input.
+ *
+ * It has to hold every command the built-in keymap binds to a key this
+ * target drives, or those keys stop doing anything here: the global map
+ * resolves a name, and an unresolved name is not a call.  When plan 01
+ * moves a family of keys into the map, its commands belong here too. */
+static void fuzz_forward_char(int fd)
 {
-	(void)name;
 	(void)fd;
-	return 1;
+	editor_move_cursor(ARROW_RIGHT);
 }
+
+static void fuzz_backward_char(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_LEFT);
+}
+
+static void fuzz_next_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_DOWN);
+}
+
+static void fuzz_previous_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_UP);
+}
+
+static void fuzz_beginning_of_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(HOME_KEY);
+}
+
+static void fuzz_end_of_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(END_KEY);
+}
+
+static void fuzz_forward_word(int fd)
+{
+	(void)fd;
+	editor_move_word_forward();
+}
+
+static void fuzz_backward_word(int fd)
+{
+	(void)fd;
+	editor_move_word_backward();
+}
+
+static void fuzz_forward_paragraph(int fd)
+{
+	(void)fd;
+	editor_move_paragraph_forward();
+}
+
+static void fuzz_backward_paragraph(int fd)
+{
+	(void)fd;
+	editor_move_paragraph_backward();
+}
+
+static void fuzz_forward_sentence(int fd)
+{
+	(void)fd;
+	editor_move_sentence_forward();
+}
+
+static void fuzz_backward_sentence(int fd)
+{
+	(void)fd;
+	editor_move_sentence_backward();
+}
+
+static void fuzz_back_to_indentation(int fd)
+{
+	(void)fd;
+	editor_move_to_indentation();
+}
+
+static void fuzz_beginning_of_buffer(int fd)
+{
+	(void)fd;
+	editor_push_mark();
+	editor_move_to_beginning();
+}
+
+static void fuzz_end_of_buffer(int fd)
+{
+	(void)fd;
+	editor_push_mark();
+	editor_move_to_end();
+}
+
+static void fuzz_scroll_up(int fd)
+{
+	(void)fd;
+	editor_scroll_page_forward();
+}
+
+static void fuzz_scroll_down(int fd)
+{
+	(void)fd;
+	editor_scroll_page_backward();
+}
+
+static void fuzz_recenter(int fd)
+{
+	(void)fd;
+	editor_recenter();
+}
+
+static void fuzz_window_line(int fd)
+{
+	(void)fd;
+	editor_move_to_window_line();
+}
+
+static const struct named_cmd fuzz_cmdtable[] = {
+	{ "back-to-indentation", fuzz_back_to_indentation, CMD_NONE, "stub" },
+	{ "backward-char", fuzz_backward_char, CMD_REPEATS, "stub" },
+	{ "backward-paragraph", fuzz_backward_paragraph, CMD_REPEATS, "stub" },
+	{ "backward-sentence", fuzz_backward_sentence, CMD_REPEATS, "stub" },
+	{ "backward-word", fuzz_backward_word, CMD_REPEATS, "stub" },
+	{ "beginning-of-buffer", fuzz_beginning_of_buffer, CMD_NONE, "stub" },
+	{ "end-of-buffer", fuzz_end_of_buffer, CMD_NONE, "stub" },
+	{ "forward-char", fuzz_forward_char, CMD_REPEATS, "stub" },
+	{ "forward-paragraph", fuzz_forward_paragraph, CMD_REPEATS, "stub" },
+	{ "forward-sentence", fuzz_forward_sentence, CMD_REPEATS, "stub" },
+	{ "forward-word", fuzz_forward_word, CMD_REPEATS, "stub" },
+	{ "move-beginning-of-line", fuzz_beginning_of_line, CMD_NONE, "stub" },
+	{ "move-end-of-line", fuzz_end_of_line, CMD_NONE, "stub" },
+	{ "move-to-window-line-top-bottom", fuzz_window_line, CMD_NONE,
+	    "stub" },
+	{ "next-line", fuzz_next_line, CMD_REPEATS, "stub" },
+	{ "previous-line", fuzz_previous_line, CMD_REPEATS, "stub" },
+	{ "recenter-top-bottom", fuzz_recenter, CMD_NONE, "stub" },
+	{ "scroll-down-command", fuzz_scroll_down, CMD_NONE, "stub" },
+	{ "scroll-up-command", fuzz_scroll_up, CMD_NONE, "stub" },
+	{ nullptr, nullptr, CMD_NONE, nullptr },
+};
+
 const struct named_cmd *cmd_lookup(const char *name)
 {
-	(void)name;
+	int i;
+
+	for (i = 0; name && fuzz_cmdtable[i].name; i++) {
+		if (strcmp(fuzz_cmdtable[i].name, name) == 0) {
+			return &fuzz_cmdtable[i];
+		}
+	}
 	return nullptr;
 }
 const struct named_cmd *cmd_descriptor_at(int index)
 {
-	(void)index;
-	return nullptr;
+	return index >= 0 && fuzz_cmdtable[index].name ? &fuzz_cmdtable[index]
+						       : nullptr;
+}
+command_id cmd_id_by_name(const char *name)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	return cmd ? CMD_ID_STATIC_BASE + (command_id)(cmd - fuzz_cmdtable)
+		   : CMD_ID_NONE;
 }
 int cmd_invoke(const char *name, const struct command_context *ctx)
 {
-	(void)name;
-	(void)ctx;
-	return CMD_UNKNOWN;
+	const struct named_cmd *cmd = cmd_lookup(name);
+	int repeat;
+
+	if (!cmd) {
+		return CMD_UNKNOWN;
+	}
+	if ((cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly) {
+		return CMD_READ_ONLY;
+	}
+	repeat = (cmd->flags & CMD_REPEATS) && ctx->prefix.supplied
+	    ? ctx->prefix.value
+	    : 1;
+	while (repeat-- > 0) {
+		cmd->fn(ctx->fd);
+	}
+	return CMD_RAN;
+}
+int cmd_execute_named(const char *name, int fd)
+{
+	struct command_context ctx
+	    = { fd, editor.current_prefix, CMD_ORIGIN_KEY };
+
+	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
 command_id cmd_runtime_define(const char *name)
 {

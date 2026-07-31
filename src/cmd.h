@@ -48,6 +48,13 @@ enum command_flags {
 	CMD_EDITS_BUFFER = 1 << 0,
 	/* May be reached from Lisp's (command-execute ...). */
 	CMD_LISP_CALLABLE = 1 << 1,
+	/* A numeric argument repeats it: cmd_invoke() runs it that many
+	 * times.  Repetition is metadata rather than a loop in each
+	 * handler, so a key, M-x, a macro and Lisp all repeat the same
+	 * command the same way.  Commands that read the prefix argument
+	 * themselves, or that mean something else with one, do not have
+	 * this. */
+	CMD_REPEATS = 1 << 2,
 };
 
 struct named_cmd {

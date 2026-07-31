@@ -1,0 +1,21 @@
+# A numeric argument repeats the command, and an explicit zero repeats it
+# no times.  Repetition is the command's own metadata (CMD_REPEATS) now
+# rather than a loop in key dispatch, so this pins that the key path
+# still counts the same way.
+#
+# C-u 5 C-f moves five characters, then X marks where point is; C-u 0 C-f
+# moves nowhere, so Y lands immediately after X rather than one further
+# on.
+name: prefix-argument-repeats-a-motion
+filename: prefix-repeat.txt
+initial: "abcdefghij\n"
+keys:
+  - C-u
+  - "5"
+  - C-f
+  - X
+  - C-u
+  - "0"
+  - C-f
+  - Y
+expected_saved: "abcdeXYfghij\n"

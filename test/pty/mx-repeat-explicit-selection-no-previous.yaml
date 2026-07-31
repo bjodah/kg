@@ -1,10 +1,19 @@
+# Enter on an empty M-x prompt normally repeats the last M-x command, and
+# reports "No previous M-x command" when there is none.  Moving the
+# selection with C-f arms an explicit choice, and that has to win over
+# both.
+#
+# The case depends on the second row of cmdtable, which is what one C-f
+# selects: auto-revert-mode -> back-to-indentation.  When a command that
+# sorts before it is added, update the keys and the expectation together.
+# back-to-indentation moves point off column 0 to the "f", so the typed X
+# lands after the tab only if the command really ran.
 name: mx-repeat-explicit-selection-no-previous
 filename: mx-explicit-sel-no-prev.txt
-initial: "foo bar\n"
+initial: "\tfoo bar\n"
 keys:
   - M-x
-  - C-f  # move the picker selection off the default (auto-revert-mode ->
-         # capitalize-word) without typing anything
-  - RET  # must run the highlighted command, not report "No previous
-         # M-x command"
-expected_saved: "Foo bar\n"
+  - C-f
+  - RET
+  - X
+expected_saved: "\tXfoo bar\n"

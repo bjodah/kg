@@ -1090,6 +1090,41 @@ Toggle automatic re-reading of the current buffer's file when it changes
 on disk.
 A buffer is only auto-reverted while it is unmodified; a buffer with
 unsaved edits is never silently overwritten.
+.It back-to-indentation
+Move point to the first non-blank character of the line.
+Bound to
+.Ic M-m .
+.It backward-char
+Move point one character back.
+Bound to
+.Ic C-b
+and the left arrow.
+A numeric argument repeats it.
+.It backward-paragraph
+Move point to the previous paragraph boundary.
+Bound to
+.Ic M-\&{
+and
+.Ic C-\(ua .
+A numeric argument repeats it.
+.It backward-sentence
+Move point to the start of the sentence.
+Bound to
+.Ic M-a .
+A numeric argument repeats it.
+.It backward-word
+Move point one word back.
+Bound to
+.Ic M-b
+and
+.Ic C-\(<- .
+A numeric argument repeats it.
+.It beginning-of-buffer
+Move point to the start of the buffer, leaving the mark behind.
+Bound to
+.Ic M-\&<
+and
+.Ic C-Home .
 .It capitalize-word
 Capitalize the word forward from point (first letter upper, rest lower).
 Equivalent to
@@ -1126,6 +1161,12 @@ Toggle automatic insertion of closing brackets and quotes (see
 .Sx AUTOCOMPLETE ) .
 Off by default; may be enabled from the init file with
 .Ql (command-execute \(aqelectric-pair-mode) .
+.It end-of-buffer
+Move point to the end of the buffer, leaving the mark behind.
+Bound to
+.Ic M-\&>
+and
+.Ic C-End .
 .It eval-buffer
 Evaluate the entire current buffer as Lisp and show the final value or error
 in the status area.
@@ -1143,6 +1184,31 @@ Bound to
 in
 .Pa *scratch*
 and Lisp Interaction buffers.
+.It forward-char
+Move point one character forward.
+Bound to
+.Ic C-f
+and the right arrow.
+A numeric argument repeats it.
+.It forward-paragraph
+Move point to the next paragraph boundary.
+Bound to
+.Ic M-\&}
+and
+.Ic C-\(da .
+A numeric argument repeats it.
+.It forward-sentence
+Move point to the end of the sentence.
+Bound to
+.Ic M-e .
+A numeric argument repeats it.
+.It forward-word
+Move point one word forward.
+Bound to
+.Ic M-f
+and
+.Ic C-\(-> .
+A numeric argument repeats it.
 .It global-auto-revert-mode
 Toggle automatic re-reading for every buffer at once.
 Equivalent to enabling
@@ -1186,6 +1252,18 @@ In this mode
 evaluates the s-expression before point and inserts the result.
 .Pa *scratch*
 buffers are created in this mode by default.
+.It move-beginning-of-line
+Move point to the start of the line.
+Bound to
+.Ic C-a
+and
+.Ic Home .
+.It move-end-of-line
+Move point to the end of the line.
+Bound to
+.Ic C-e
+and
+.Ic End .
 .It move-to-window-line-top-bottom
 Move point to the top line of the window, then on a repeat to the
 middle, then to the bottom.
@@ -1193,8 +1271,20 @@ Bound to
 .Ic M-r .
 The cycle only advances while this is the command that ran last, so any
 other command in between starts it again at the top.
+.It next-line
+Move point one line down, keeping the goal column.
+Bound to
+.Ic C-n
+and the down arrow.
+A numeric argument repeats it.
 .It not-modified
 Clear the modified flag without saving.
+.It previous-line
+Move point one line up, keeping the goal column.
+Bound to
+.Ic C-p
+and the up arrow.
+A numeric argument repeats it.
 .It query-replace-regexp
 Prompted query replace with regexp matching.
 Supports \e&, \e1..\e9, \e\e expansions.
@@ -1231,6 +1321,18 @@ If the buffer is modified a confirmation prompt is shown.
 Save the current buffer to its file.
 Equivalent to
 .Ic C-x C-s .
+.It scroll-down-command
+Scroll one windowful back.
+Bound to
+.Ic M-v
+and
+.Ic PgUp .
+.It scroll-up-command
+Scroll one windowful forward.
+Bound to
+.Ic C-v
+and
+.Ic PgDn .
 .It shell-command
 Run a shell command.
 Without a numeric prefix, displays output in the echo area or output buffer.

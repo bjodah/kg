@@ -15,6 +15,7 @@
 #include "kbd.h"
 #include "keybind.h"
 #include "keyevent.h"
+#include "keymap.h"
 #include "lisp.h"
 #include "syntax.h"
 
@@ -69,20 +70,6 @@ int key_would_edit_readonly_buffer(int c)
 		return 1;
 	}
 	return KEY_IN_LIST(readonly_blocked_keys, c);
-}
-
-static int bottom_buffer_screen_row(void)
-{
-	int bottom = wcur()->h > 0 ? wcur()->h - 1 : 0;
-	int last = bcur()->numrows - wcur()->rowoff - 1;
-
-	if (last < 0) {
-		last = 0;
-	}
-	if (last > bottom) {
-		last = bottom;
-	}
-	return last;
 }
 
 static int prefix_arg_mul_add(int value, int mul, int add)
@@ -629,6 +616,96 @@ static int shift_select_motion(int c)
 	return 0;
 }
 
+/* ---- The global map ----
+ *
+ * One row per built-in binding that has moved out of the switch below.
+ * The rest of the switch is what plan 01 phase 4 still has to migrate,
+ * family by family; a key the map does not answer falls through to it,
+ * so the two halves coexist while that happens.
+ *
+ * Sequences are canonical key spellings (see key_format()), and the
+ * command names are resolved at dispatch, not here. */
+static const struct {
+	const char *sequence;
+	const char *command;
+} global_map_keys[] = {
+	{ "C-f", "forward-char" },
+	{ "<right>", "forward-char" },
+	{ "C-b", "backward-char" },
+	{ "<left>", "backward-char" },
+	{ "C-n", "next-line" },
+	{ "<down>", "next-line" },
+	{ "C-p", "previous-line" },
+	{ "<up>", "previous-line" },
+	{ "C-a", "move-beginning-of-line" },
+	{ "<home>", "move-beginning-of-line" },
+	{ "C-e", "move-end-of-line" },
+	{ "<end>", "move-end-of-line" },
+	{ "M-f", "forward-word" },
+	{ "C-<right>", "forward-word" },
+	{ "M-b", "backward-word" },
+	{ "C-<left>", "backward-word" },
+	{ "M-}", "forward-paragraph" },
+	{ "C-<down>", "forward-paragraph" },
+	{ "M-{", "backward-paragraph" },
+	{ "C-<up>", "backward-paragraph" },
+	{ "M-e", "forward-sentence" },
+	{ "M-a", "backward-sentence" },
+	{ "M-m", "back-to-indentation" },
+	{ "M-<", "beginning-of-buffer" },
+	{ "C-<home>", "beginning-of-buffer" },
+	{ "M->", "end-of-buffer" },
+	{ "C-<end>", "end-of-buffer" },
+	{ "C-v", "scroll-up-command" },
+	{ "<next>", "scroll-up-command" },
+	{ "M-v", "scroll-down-command" },
+	{ "<prior>", "scroll-down-command" },
+	{ "C-l", "recenter-top-bottom" },
+	{ "M-r", "move-to-window-line-top-bottom" },
+	{ "M-g", "goto-line" },
+};
+
+static struct keymap *global_map;
+
+/* Installed once, on the first keystroke: the editor has no init hook
+ * every entry point runs, and the map is the same for every session.
+ * A binding that does not install leaves its key to the switch below,
+ * which is the behaviour it had before it was listed; test_keymap.c
+ * checks that none of them does. */
+void key_install_builtin_maps(void)
+{
+	size_t i;
+
+	global_map = keymap_create("global", KEYMAP_LAYER_GLOBAL);
+	for (i = 0; i < sizeof(global_map_keys) / sizeof(*global_map_keys);
+	    i++) {
+		(void)keymap_bind(global_map, global_map_keys[i].sequence,
+		    global_map_keys[i].command);
+	}
+}
+
+/* Run `c` from the keymaps.  Returns 1 when it was a complete binding
+ * and the command ran; 0 leaves the key to the switch.
+ *
+ * Only one-key sequences reach here so far: the C-x, C-x r and C-c
+ * prefixes still have their own helpers, and phase 5 moves them into the
+ * map with the traversal state a prefix needs. */
+static int key_dispatch_map(int c, int fd)
+{
+	struct key_event event = key_event_from_legacy(c);
+	struct keymap_match match;
+
+	if (!global_map) {
+		key_install_builtin_maps();
+	}
+	keymap_lookup(&event, 1, &match);
+	if (match.result != KEYMAP_COMMAND) {
+		return 0;
+	}
+	(void)cmd_execute_named(match.command, fd);
+	return 1;
+}
+
 /* Per-keystroke bookkeeping that runs after the command has had its say:
  * region teardown and goal-column invalidation.  `buffer_before` and
  * `generation_before` are the values sampled before dispatch, and
@@ -776,6 +853,14 @@ void editor_process_keypress(int fd)
 	 * the one keystroke it is. */
 	cmd_state_begin_keystroke();
 
+	/* Keys the maps answer.  What they do not answer falls through to
+	 * the switch, which is what phase 4 empties one family at a time. */
+	if (key_dispatch_map(c, fd)) {
+		key_finish_keypress(
+		    c, buffer_before, generation_before, was_shift_select);
+		return;
+	}
+
 	/* Regular key processing */
 	switch (c) {
 	case ESC:
@@ -812,25 +897,9 @@ void editor_process_keypress(int fd)
 			}
 		}
 		break;
-	case CTRL_A: /* Beginning of line */
-		editor_move_cursor(HOME_KEY);
-		break;
-	case CTRL_B: /* Backward char */
-		while (n--) {
-			editor_move_cursor(ARROW_LEFT);
-		}
-		break;
 	case CTRL_D: /* Delete char forward */
 		while (n--) {
 			editor_del_forward_char();
-		}
-		break;
-	case CTRL_E: /* End of line */
-		editor_move_cursor(END_KEY);
-		break;
-	case CTRL_F: /* Forward char */
-		while (n--) {
-			editor_move_cursor(ARROW_RIGHT);
 		}
 		break;
 	case CTRL_G: /* Keyboard quit / cancel */
@@ -852,16 +921,6 @@ void editor_process_keypress(int fd)
 			editor_open_line();
 		}
 		break;
-	case CTRL_N: /* Next line */
-		while (n--) {
-			editor_move_cursor(ARROW_DOWN);
-		}
-		break;
-	case CTRL_P: /* Previous line */
-		while (n--) {
-			editor_move_cursor(ARROW_UP);
-		}
-		break;
 	case CTRL_S: /* Incremental search */
 		editor_find(fd, 1);
 		break;
@@ -880,15 +939,6 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	}
-	case CTRL_V: /* Page down */
-		wcur()->cy = bottom_buffer_screen_row();
-		{
-			int times = wcur()->h;
-			while (times--) {
-				editor_move_cursor(ARROW_DOWN);
-			}
-		}
-		break;
 	case CTRL_W: /* Kill region (cut) */
 	case SHIFT_DELETE: /* CUA cut */
 		editor_kill_region();
@@ -937,34 +987,6 @@ void editor_process_keypress(int fd)
 	case INSERT_KEY:
 		editor_toggle_overwrite_mode();
 		break;
-	case PAGE_UP:
-	case PAGE_DOWN:
-		if (c == PAGE_UP && wcur()->cy != 0) {
-			wcur()->cy = 0;
-		} else if (c == PAGE_DOWN) {
-			wcur()->cy = bottom_buffer_screen_row();
-		}
-		{
-			int times = wcur()->h;
-			while (times--) {
-				editor_move_cursor(
-				    c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-			}
-		}
-		break;
-
-	case ARROW_UP:
-	case ARROW_DOWN:
-	case ARROW_LEFT:
-	case ARROW_RIGHT:
-		while (n--) {
-			editor_move_cursor(c);
-		}
-		break;
-	case HOME_KEY:
-	case END_KEY:
-		editor_move_cursor(c);
-		break;
 	case SHIFT_ARROW_LEFT:
 	case SHIFT_ARROW_RIGHT:
 	case SHIFT_ARROW_UP:
@@ -987,36 +1009,11 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	}
-	case CTRL_HOME:
-	case ALT_LT:
-		editor_push_mark();
-		editor_move_to_beginning();
-		break;
-	case CTRL_END:
-	case ALT_GT:
-		editor_push_mark();
-		editor_move_to_end();
-		break;
-	case ALT_G: /* Goto line */
-		editor_goto_line(fd);
-		break;
 	case ALT_H: /* Mark paragraph */
 		editor_mark_paragraph();
 		break;
 	case ALT_AT: /* Mark word */
 		editor_mark_word(n);
-		break;
-	case CTRL_ARROW_LEFT:
-	case ALT_B:
-		while (n--) {
-			editor_move_word_backward();
-		}
-		break;
-	case CTRL_ARROW_RIGHT:
-	case ALT_F:
-		while (n--) {
-			editor_move_word_forward();
-		}
 		break;
 	case ALT_D: /* Kill word forward */
 		while (n--) {
@@ -1028,21 +1025,6 @@ void editor_process_keypress(int fd)
 			editor_kill_word_backward();
 		}
 		break;
-	case CTRL_ARROW_UP:
-	case ALT_LBRACE:
-		while (n--) {
-			editor_move_paragraph_backward();
-		}
-		break;
-	case CTRL_ARROW_DOWN:
-	case ALT_RBRACE:
-		while (n--) {
-			editor_move_paragraph_forward();
-		}
-		break;
-	case ALT_M: /* M-m: back-to-indentation */
-		editor_move_to_indentation();
-		break;
 	case ALT_BACKSLASH: /* Delete horizontal space */
 		editor_delete_horizontal_space();
 		break;
@@ -1051,30 +1033,6 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_Z: /* Zap to char */
 		editor_zap_to_char(fd, n);
-		break;
-	case ALT_A: /* M-a: backward sentence */
-		while (n--) {
-			editor_move_sentence_backward();
-		}
-		break;
-	case ALT_E: /* M-e: forward sentence */
-		while (n--) {
-			editor_move_sentence_forward();
-		}
-		break;
-	case ALT_R: /* M-r: top/middle/bottom of window cycle */
-		(void)cmd_execute_named("move-to-window-line-top-bottom", fd);
-		break;
-	case ALT_V: /* Page up */
-		if (wcur()->cy != 0) {
-			wcur()->cy = 0;
-		}
-		{
-			int times = wcur()->h;
-			while (times--) {
-				editor_move_cursor(ARROW_UP);
-			}
-		}
 		break;
 	case ALT_W: /* Copy region */
 	case CTRL_INSERT: /* CUA copy */
@@ -1144,9 +1102,6 @@ void editor_process_keypress(int fd)
 		} else {
 			macro_replay(fd, n);
 		}
-		break;
-	case CTRL_L: /* Recenter: cycle center → top → bottom */
-		(void)cmd_execute_named("recenter-top-bottom", fd);
 		break;
 	default:
 		/* Filter out control characters and non-printable characters.

@@ -323,6 +323,45 @@ void editor_move_to_window_line(void)
 	wcur()->coloff = 0;
 }
 
+/* Screen row of the last line the window actually shows content on. */
+static int bottom_buffer_screen_row(void)
+{
+	int bottom = wcur()->h > 0 ? wcur()->h - 1 : 0;
+	int last = bcur()->numrows - wcur()->rowoff - 1;
+
+	if (last < 0) {
+		last = 0;
+	}
+	if (last > bottom) {
+		last = bottom;
+	}
+	return last;
+}
+
+/* One windowful forward (C-v, PageDown) and back (M-v, PageUp).  Point
+ * starts at the far edge of the window so the page that arrives is the
+ * next one, and then walks a windowful of lines, which is what makes the
+ * step follow wrapped lines when visual-line mode is on. */
+void editor_scroll_page_forward(void)
+{
+	int times = wcur()->h;
+
+	wcur()->cy = bottom_buffer_screen_row();
+	while (times--) {
+		editor_move_cursor(ARROW_DOWN);
+	}
+}
+
+void editor_scroll_page_backward(void)
+{
+	int times = wcur()->h;
+
+	wcur()->cy = 0;
+	while (times--) {
+		editor_move_cursor(ARROW_UP);
+	}
+}
+
 /* Scroll so that point's line is at the centre of the window, then its
  * top, then its bottom (C-l), cycling on consecutive presses.  The
  * repaint is unconditional and clears the screen first: this is also the

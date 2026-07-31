@@ -742,6 +742,118 @@ static void cmd_dired_unmark(int fd)
 	dired_set_mark(' ');
 }
 
+/* ---- Motions ----
+ *
+ * One line each, because the work is already a function somewhere: what
+ * a descriptor adds is a name, a policy verdict and an identity, which
+ * is what a keymap leaf resolves to.  Repetition is the CMD_REPEATS flag
+ * rather than a loop here, so C-u 5 C-f, M-x with a prefix argument and
+ * a macro all repeat the same way. */
+static void cmd_forward_char(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_RIGHT);
+}
+
+static void cmd_backward_char(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_LEFT);
+}
+
+static void cmd_next_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_DOWN);
+}
+
+static void cmd_previous_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(ARROW_UP);
+}
+
+static void cmd_move_beginning_of_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(HOME_KEY);
+}
+
+static void cmd_move_end_of_line(int fd)
+{
+	(void)fd;
+	editor_move_cursor(END_KEY);
+}
+
+static void cmd_forward_word(int fd)
+{
+	(void)fd;
+	editor_move_word_forward();
+}
+
+static void cmd_backward_word(int fd)
+{
+	(void)fd;
+	editor_move_word_backward();
+}
+
+static void cmd_forward_paragraph(int fd)
+{
+	(void)fd;
+	editor_move_paragraph_forward();
+}
+
+static void cmd_backward_paragraph(int fd)
+{
+	(void)fd;
+	editor_move_paragraph_backward();
+}
+
+static void cmd_forward_sentence(int fd)
+{
+	(void)fd;
+	editor_move_sentence_forward();
+}
+
+static void cmd_backward_sentence(int fd)
+{
+	(void)fd;
+	editor_move_sentence_backward();
+}
+
+static void cmd_back_to_indentation(int fd)
+{
+	(void)fd;
+	editor_move_to_indentation();
+}
+
+/* Both leave the mark behind, so C-u C-SPC comes back. */
+static void cmd_beginning_of_buffer(int fd)
+{
+	(void)fd;
+	editor_push_mark();
+	editor_move_to_beginning();
+}
+
+static void cmd_end_of_buffer(int fd)
+{
+	(void)fd;
+	editor_push_mark();
+	editor_move_to_end();
+}
+
+static void cmd_scroll_up_command(int fd)
+{
+	(void)fd;
+	editor_scroll_page_forward();
+}
+
+static void cmd_scroll_down_command(int fd)
+{
+	(void)fd;
+	editor_scroll_page_backward();
+}
+
 /* The two commands whose behaviour depends on having just run: each
  * cycles through three positions while it is the command that ran last.
  * They are descriptors rather than switch branches because that is what
@@ -778,10 +890,23 @@ static void cmd_yaml_mode(int fd)
 
 #define LISP_OK CMD_LISP_CALLABLE
 #define EDITS CMD_EDITS_BUFFER
+#define REPEATS CMD_REPEATS
 
 static const struct named_cmd cmdtable[] = {
 	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE,
 	    "Toggle reloading this buffer when its file changes" },
+	{ "back-to-indentation", cmd_back_to_indentation, CMD_NONE,
+	    "Move point to the first non-blank on this line" },
+	{ "backward-char", cmd_backward_char, REPEATS,
+	    "Move point one character back" },
+	{ "backward-paragraph", cmd_backward_paragraph, REPEATS,
+	    "Move point to the previous paragraph boundary" },
+	{ "backward-sentence", cmd_backward_sentence, REPEATS,
+	    "Move point to the start of the sentence" },
+	{ "backward-word", cmd_backward_word, REPEATS,
+	    "Move point one word back" },
+	{ "beginning-of-buffer", cmd_beginning_of_buffer, CMD_NONE,
+	    "Move point to the start of the buffer" },
 	{ "capitalize-word", cmd_capitalize_word, EDITS | LISP_OK,
 	    "Capitalize the word forward from point" },
 	{ "compile", editor_compile, CMD_NONE,
@@ -812,6 +937,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Convert the word forward from point to lower case" },
 	{ "electric-pair-mode", cmd_electric_pair_mode, LISP_OK,
 	    "Toggle auto-insertion of closing brackets and quotes" },
+	{ "end-of-buffer", cmd_end_of_buffer, CMD_NONE,
+	    "Move point to the end of the buffer" },
 	{ "eval-buffer", cmd_eval_buffer, CMD_NONE,
 	    "Evaluate the whole buffer as Lisp" },
 	{ "eval-expression", cmd_eval_expression, CMD_NONE,
@@ -820,6 +947,14 @@ static const struct named_cmd cmdtable[] = {
 	    "Evaluate the s-expression before point" },
 	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE,
 	    "Evaluate the s-expression before point and insert it" },
+	{ "forward-char", cmd_forward_char, REPEATS,
+	    "Move point one character forward" },
+	{ "forward-paragraph", cmd_forward_paragraph, REPEATS,
+	    "Move point to the next paragraph boundary" },
+	{ "forward-sentence", cmd_forward_sentence, REPEATS,
+	    "Move point to the end of the sentence" },
+	{ "forward-word", cmd_forward_word, REPEATS,
+	    "Move point one word forward" },
 	{ "git-rebase-drop", cmd_rebase_drop, EDITS,
 	    "Set this rebase line's action to drop" },
 	{ "git-rebase-edit", cmd_rebase_edit, EDITS,
@@ -852,12 +987,19 @@ static const struct named_cmd cmdtable[] = {
 	    "Terminate the running compilation" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
+	{ "move-beginning-of-line", cmd_move_beginning_of_line, CMD_NONE,
+	    "Move point to the start of this line" },
+	{ "move-end-of-line", cmd_move_end_of_line, CMD_NONE,
+	    "Move point to the end of this line" },
 	{ "move-to-window-line-top-bottom", cmd_move_to_window_line, CMD_NONE,
 	    "Move point to the top, middle or bottom of the window" },
+	{ "next-line", cmd_next_line, REPEATS, "Move point one line down" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
 	    "Clear the modified flag without saving" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
+	{ "previous-line", cmd_previous_line, REPEATS,
+	    "Move point one line up" },
 	{ "query-replace-regexp", cmd_query_replace_regexp, EDITS,
 	    "Replace regexp matches, asking about each one" },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE,
@@ -870,6 +1012,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Re-read this buffer from its file" },
 	{ "save-buffer", cmd_save_buffer, CMD_NONE,
 	    "Write this buffer to its file" },
+	{ "scroll-down-command", cmd_scroll_down_command, CMD_NONE,
+	    "Scroll one windowful back" },
+	{ "scroll-up-command", cmd_scroll_up_command, CMD_NONE,
+	    "Scroll one windowful forward" },
 	{ "shell-command", cmd_shell_command, CMD_NONE,
 	    "Run a shell command and show its output" },
 	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE,
@@ -898,6 +1044,7 @@ static const struct named_cmd cmdtable[] = {
 
 #undef LISP_OK
 #undef EDITS
+#undef REPEATS
 
 /* ---- Command identity ----
  *
@@ -1047,6 +1194,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
 	struct command_prefix saved;
 	command_id outer;
+	int repeat;
 
 	if (!cmd) {
 		if (!kg_lisp_command_exists(name)) {
@@ -1067,13 +1215,19 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	}
 	saved = editor.current_prefix;
 	editor.current_prefix = ctx->prefix;
+	/* An explicit zero is a real count: C-u 0 C-f moves nowhere. */
+	repeat = (cmd->flags & CMD_REPEATS) && ctx->prefix.supplied
+	    ? ctx->prefix.value
+	    : 1;
 	/* Publish the identity only now: a command refused above did not
 	 * run, so it is not what ran last either. */
 	outer = cmd_state_begin_command(cmd_id_by_name(name));
-	if (cmd->fn) {
-		cmd->fn(ctx->fd);
-	} else {
-		(void)kg_lisp_run_command(name, ctx->fd);
+	while (repeat-- > 0) {
+		if (cmd->fn) {
+			cmd->fn(ctx->fd);
+		} else {
+			(void)kg_lisp_run_command(name, ctx->fd);
+		}
 	}
 	cmd_state_end_command(outer);
 	editor.current_prefix = saved;

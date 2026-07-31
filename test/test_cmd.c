@@ -77,7 +77,8 @@ static void test_every_entry_has_a_handler_and_summary(void)
 		CHECKF(cmd->summary[strlen(cmd->summary) - 1] != '.',
 		    "%s: summary ends in a period", cmd->name);
 		CHECKF((cmd->flags
-			   & ~(unsigned)(CMD_EDITS_BUFFER | CMD_LISP_CALLABLE))
+			   & ~(unsigned)(CMD_EDITS_BUFFER | CMD_LISP_CALLABLE
+			       | CMD_REPEATS))
 			== 0,
 		    "%s has an unknown flag", cmd->name);
 	}

@@ -1,0 +1,15 @@
+# The numeric argument belongs to the command, not to the key that
+# reached it, so M-x repeats what a key would repeat: C-u 3 M-x
+# forward-word moves three words, exactly as C-u 3 M-f does.  X marks
+# where point ended up.
+name: prefix-argument-repeats-through-mx
+filename: prefix-repeat-mx.txt
+initial: "one two three four five\n"
+keys:
+  - C-u
+  - "3"
+  - M-x
+  - forward-word
+  - RET
+  - X
+expected_saved: "one two threeX four five\n"

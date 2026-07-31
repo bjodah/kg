@@ -7,6 +7,7 @@ test_complete
 test_dired
 test_keys
 test_keyevent
+test_keymap
 test_lisp
 test_localvars
 test_minibuf

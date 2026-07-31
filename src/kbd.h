@@ -26,4 +26,9 @@ void editor_process_keypress(int fd);
  * a command name (plan 01 phase 4). */
 [[nodiscard]] int key_would_edit_readonly_buffer(int c);
 
+/* Installs the built-in keymaps.  The editor calls this on its first
+ * keystroke; a test calls it after keymap_reset() to read what the
+ * built-in declarations resolve to. */
+void key_install_builtin_maps(void);
+
 #endif /* KG_KBD_H */

@@ -1,3 +1,9 @@
+# An explicit picker selection beats the remembered default: the second
+# M-x must run what is highlighted, not repeat upcase-word.
+#
+# The case depends on the second row of cmdtable, which is what one C-f
+# selects: auto-revert-mode -> back-to-indentation.  That one leaves the
+# text alone, so a repeat of upcase-word would be visible as "FOO BAR".
 name: mx-repeat-explicit-selection-overrides-previous
 filename: mx-explicit-sel-overrides.txt
 initial: "foo bar\n"
@@ -6,6 +12,6 @@ keys:
   - upcase-word
   - RET  # buffer becomes "FOO bar", last M-x command remembered: upcase-word
   - M-x
-  - C-f  # explicitly move the picker selection to capitalize-word
-  - RET  # must run the highlighted capitalize-word, not repeat upcase-word
-expected_saved: "FOO Bar\n"
+  - C-f
+  - RET
+expected_saved: "FOO bar\n"

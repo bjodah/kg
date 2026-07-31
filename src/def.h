@@ -571,6 +571,8 @@ void editor_move_to_end(void);
 void editor_move_to_indentation(void);
 void editor_move_to_window_line(void);
 void editor_recenter(void);
+void editor_scroll_page_forward(void);
+void editor_scroll_page_backward(void);
 void editor_goto_line_direct(int line, int col);
 void editor_goto_line(int fd);
 void editor_cursor_goto(int row, int col);

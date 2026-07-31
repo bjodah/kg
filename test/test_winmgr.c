@@ -381,6 +381,56 @@ static void test_delete_window_paths(void)
 	free(names[1]);
 }
 
+/* C-x 1 discards every other window.  A window's point is the only record
+ * of where the buffer it shows was being read, so a discarded window has
+ * to bank it the way C-x 0 does -- otherwise showing that buffer again
+ * resumes wherever some earlier view left it.
+ *
+ * Today it does not: win_delete_others() clears `active` without going
+ * through the remember/detach path.  Characterized, not fixed. */
+static void test_delete_others_banks_the_views_it_discards(void)
+{
+	char *names[2];
+	int other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "b0\nb1\nb2\nb3\nb4\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+
+	/* Read b.txt in the other window, four lines down. */
+	win_cycle_next();
+	CHECK(win_current == other);
+	buf_select(1);
+	wcur()->cy = 3;
+	wcur()->cx = 1;
+
+	/* Back to the first window, then C-x 1. */
+	win_cycle_next();
+	CHECK(win_current != other);
+	CHECK(buf_current == 0);
+	win_delete_others();
+	CHECK(win_count == 1);
+	CHECK(!winlist[other].active);
+
+	/* Showing b.txt again resumes at the top, not at the point the
+	 * discarded window had. */
+	buf_select(1);
+	CHECK(buf_current == 1);
+	CHECK(buflist[1].last_point.cy == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 0);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
 /* Killing a buffer that two windows show leaves both windows pointing at a
  * dead slot today.  Characterized, not fixed. */
 static void test_kill_buffer_shown_twice(void)
@@ -861,6 +911,7 @@ int main(void)
 	RUN(test_vertical_split_geometry);
 	RUN(test_display_other_window_retargets_only_that_window);
 	RUN(test_delete_window_paths);
+	RUN(test_delete_others_banks_the_views_it_discards);
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_slot_exhaustion_and_reuse);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);

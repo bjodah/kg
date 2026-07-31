@@ -41,6 +41,9 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	buf[0] = '\0';
 	return MINIBUF_CANCELLED;
 }
+/* Reached from fileio.o, which flushes a completed save back into the
+ * buffer table; this suite has no buffer table. */
+void buf_save_current_state(void) { }
 
 static void test_sigwinch_handling(void)
 {

@@ -645,6 +645,11 @@ static int editor_save_named(int fd, int destination_decided)
 	editor.dirty = 0;
 	undo_mark_clean(); /* Mark this state as clean for undo tracking */
 	editor_snapshot_disk();
+	/* Push the freshly saved state — including the name, when this save
+	 * adopted a new one — back into the buffer table.  The slot holds the
+	 * same filename pointer, and the caller is about to free the string it
+	 * replaced. */
+	buf_save_current_state();
 	editor_set_status_message("Wrote %s (%d bytes)", editor.filename, len);
 	return 0;
 

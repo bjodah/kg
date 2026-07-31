@@ -447,11 +447,17 @@ static void test_multiline_insert_flattens_buffer(void)
 	editor_cursor_goto(2, 4);
 	kg_perf_reset();
 	editor_insert_text_raw("one\ntwo\n", 8);
-	/* Before Plan 08 phase 6: inserting text containing a newline
-	 * serialises the whole buffer and rebuilds every row from it. */
-	CHECK(counter(KG_PERF_BUFFER_FLATTEN) == 1);
-	CHECK(counter(KG_PERF_BUFFER_REBUILD) == 1);
-	CHECK(counter(KG_PERF_ROW_UPDATE) >= 64);
+	/* Plan 08 phase 6: a local splice.  Inserting text with a newline
+	 * used to serialise the whole buffer and rebuild every row from
+	 * it; now only the split row and the rows it became are touched. */
+	CHECK(counter(KG_PERF_BUFFER_FLATTEN) == 0);
+	CHECK(counter(KG_PERF_BUFFER_REBUILD) == 0);
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 3);
+	CHECK(editor.numrows == 64 + 2);
+	CHECK(strncmp(editor.row[2].chars, "a lione", 7) == 0);
+	CHECK(strcmp(editor.row[3].chars, "two") == 0);
+	CHECK(strcmp(editor.row[4].chars, "ne of the buffer") == 0);
+	CHECK(strcmp(editor.row[65].chars, "a line of the buffer") == 0);
 	teardown();
 }
 

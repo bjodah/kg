@@ -93,6 +93,12 @@ CASES = {
 	"open-comment-c-40k": ("comment-c-40k", ["\x18\x03"]),
 	# End of buffer, then back to the top: a scroll over every row.
 	"scroll-lines-100k": ("lines-100k", ["\x1b>", "\x1b<", "\x18\x03"]),
+	# Yank a 5-line region 200 times into a 100k-line file: the
+	# multiline insertion path, which used to serialise the whole
+	# buffer and rebuild every row for each one.
+	"yank-multiline-100k": ("lines-100k", ["\x1b<", "\x00", "\x0e" * 5,
+					      "\x1bw", "\x1b>"]
+			       + ["\x19"] * 200 + ["\x18\x03", "y"]),
 	# Type into the middle of a 1 MiB row: the render/highlight rebuild.
 	# The trailing "y" answers the modified-buffer prompt C-x C-c raises
 	# once the row has been edited.

@@ -1079,6 +1079,93 @@ static void test_insert_text_raw_multiline_preserves_split_suffix(void)
 	teardown();
 }
 
+/* Multiline insertion is a local splice now (plan 08 phase 6), so the
+ * edges it used to get for free from flattening the whole buffer and
+ * rebuilding it have to be checked one at a time.  All of these compare
+ * the flattened result, which is what a save writes. */
+static void check_splice(const char *label, const char *text, int text_len,
+    int at_row, int at_col, const char *expect, int expect_rows, int expect_cy,
+    int expect_cx)
+{
+	char *s;
+	int len;
+
+	(void)label;
+	editor_cursor_goto(at_row, at_col);
+	editor_insert_text_raw(text, text_len);
+	CHECK(editor.numrows == expect_rows);
+	s = editor_rows_to_string(editor.row, editor.numrows, &len);
+	CHECK(s != NULL);
+	if (s) {
+		CHECK(len == (int)strlen(expect));
+		CHECK(len == (int)strlen(expect)
+		    && memcmp(s, expect, (size_t)len) == 0);
+		free(s);
+	}
+	CHECK(editor.rowoff + editor.cy == expect_cy);
+	CHECK(editor.coloff + editor.cx == expect_cx);
+}
+
+static void test_insert_text_raw_multiline_edges(void)
+{
+	/* Start of the buffer. */
+	setup();
+	editor_insert_row(0, "one", 3);
+	editor_insert_row(1, "two", 3);
+	check_splice("bob", "A\nB", 3, 0, 0, "A\nBone\ntwo", 3, 1, 1);
+	teardown();
+
+	/* End of the last row. */
+	setup();
+	editor_insert_row(0, "one", 3);
+	editor_insert_row(1, "two", 3);
+	check_splice("eob", "A\nB", 3, 1, 3, "one\ntwoA\nB", 3, 2, 1);
+	teardown();
+
+	/* Empty buffer: no row to split, so one is opened first. */
+	setup();
+	check_splice("empty", "A\nB", 3, 0, 0, "A\nB", 2, 1, 1);
+	teardown();
+
+	/* Text ending in a newline opens a trailing empty row. */
+	setup();
+	editor_insert_row(0, "onetwo", 6);
+	check_splice("trailing-nl", "A\n", 2, 0, 3, "oneA\ntwo", 2, 1, 0);
+	teardown();
+
+	/* Nothing but a newline: a plain split. */
+	setup();
+	editor_insert_row(0, "onetwo", 6);
+	check_splice("bare-nl", "\n", 1, 0, 3, "one\ntwo", 2, 1, 0);
+	teardown();
+
+	/* Point past the end of its row clamps to the row's end, the way
+	 * the flattening path clamped the flat offset. */
+	setup();
+	editor_insert_row(0, "ab", 2);
+	check_splice("past-eol", "A\nB", 3, 0, 99, "abA\nB", 2, 1, 1);
+	teardown();
+
+	/* Many rows: the ones after the splice keep their content and get
+	 * renumbered. */
+	setup();
+	for (int i = 0; i < 40; i++) {
+		editor_insert_row(i, "row", 3);
+	}
+	editor_cursor_goto(20, 1);
+	editor_insert_text_raw("A\nB\nC", 5);
+	CHECK(editor.numrows == 42);
+	CHECK(strcmp(editor.row[20].chars, "rA") == 0);
+	CHECK(strcmp(editor.row[21].chars, "B") == 0);
+	CHECK(strcmp(editor.row[22].chars, "Cow") == 0);
+	CHECK(strcmp(editor.row[41].chars, "row") == 0);
+	for (int i = 0; i < editor.numrows; i++) {
+		CHECK(editor.row[i].idx == i);
+		CHECK(editor.row[i].render != NULL);
+	}
+	teardown();
+}
+
 static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
 {
 	enum { prev_len = 96 };
@@ -2235,6 +2322,7 @@ int main(void)
 	RUN(test_backspace_ignores_huge_column_offset);
 	RUN(test_insert_newline_raw_clamps_huge_column_offset);
 	RUN(test_insert_text_raw_multiline_preserves_split_suffix);
+	RUN(test_insert_text_raw_multiline_edges);
 	RUN(test_backspace_join_long_previous_row_keeps_scroll_nonnegative);
 	RUN(test_backspace_deletes_whole_glyph);
 	RUN(test_forward_delete_removes_whole_glyph);

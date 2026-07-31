@@ -821,49 +821,164 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	editor.numrows++;
 }
 
+/* Build the `nl` rows that follow the split row: segments 1..nl of
+ * `text`, with `suffix` (the split row's bytes after point) appended to
+ * the last of them.  `rows` is zeroed on entry.  Returns 0 having freed
+ * everything it had allocated, so the caller has published nothing. */
+static int splice_build_rows(const char *text, int len, int nl,
+    const char *suffix, int suffix_len, erow *rows)
+{
+	const char *p = (const char *)memchr(text, '\n', (size_t)len) + 1;
+	const char *end = text + len;
+	int i;
+
+	for (i = 0; i < nl; i++) {
+		const char *stop = (i + 1 < nl)
+		    ? (const char *)memchr(p, '\n', (size_t)(end - p))
+		    : end;
+		int seg = (int)(stop - p);
+		int tail = (i + 1 < nl) ? 0 : suffix_len;
+		int size, alloc_sz;
+
+		if (!checked_add_int_size(&size, seg, (size_t)tail)
+		    || !checked_add_int_size(&alloc_sz, size, 1)) {
+			goto fail;
+		}
+		rows[i].chars = malloc((size_t)alloc_sz);
+		if (!rows[i].chars) {
+			goto fail;
+		}
+		memcpy(rows[i].chars, p, (size_t)seg);
+		memcpy(rows[i].chars + seg, suffix, (size_t)tail);
+		rows[i].chars[size] = '\0';
+		rows[i].size = size;
+		p = stop + 1;
+	}
+	return 1;
+
+fail:
+	while (i-- > 0) {
+		free(rows[i].chars);
+		rows[i].chars = NULL;
+	}
+	return 0;
+}
+
+/* Count of '\n' in `text`. */
+static int splice_newlines(const char *text, int len)
+{
+	int i, n = 0;
+
+	for (i = 0; i < len; i++) {
+		if (text[i] == '\n') {
+			n++;
+		}
+	}
+	return n;
+}
+
+/* Allocate everything the splice will publish: the split row's new
+ * content (`*head`, `*head_len` bytes: what was before point, plus the
+ * text's first segment) and the `nl` rows that follow it (`*rows`).
+ * Returns 0 having allocated nothing. */
+static int splice_alloc(const char *text, int len, int nl, int filecol,
+    char **head, int *head_len, erow **rows)
+{
+	erow *row = &editor.row[editor_current_filerow()];
+	int first_seg
+	    = (int)((const char *)memchr(text, '\n', (size_t)len) - text);
+	int alloc_sz;
+
+	if (!checked_add_int_size(head_len, filecol, (size_t)first_seg)
+	    || !checked_add_int_size(&alloc_sz, *head_len, 1)) {
+		return 0;
+	}
+	*head = malloc((size_t)alloc_sz);
+	*rows = *head ? calloc((size_t)nl, sizeof(**rows)) : NULL;
+	if (!*rows
+	    || !splice_build_rows(text, len, nl, row->chars + filecol,
+		row->size - filecol, *rows)) {
+		free(*head);
+		free(*rows);
+		return 0;
+	}
+	memcpy(*head, row->chars, (size_t)filecol);
+	memcpy(*head + filecol, text, (size_t)first_seg);
+	(*head)[*head_len] = '\0';
+	return 1;
+}
+
+/* Insert `text`, which holds at least one '\n', at point.
+ *
+ * A local splice: the row at point is cut in two, the inserted lines are
+ * built, the row array is grown once and its tail moved once.  This used
+ * to serialise the whole buffer, build a second copy of it with the text
+ * inserted, and rebuild every row from that -- so pasting one line into
+ * a 100k-line file rewrote all 100k of them.
+ *
+ * Failure is atomic: every allocation the new rows need is made before
+ * any of them is published, so an out-of-memory paste leaves the buffer
+ * exactly as it was. */
 static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 {
-	char *buf, *newbuf;
-	int len, new_len, point, row, col;
+	erow *newrows = NULL;
+	erow *row;
+	char *head = NULL;
+	int filerow, filecol, nl, i, suffix_len, head_len = 0;
 
-	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
-	if (!buf) {
+	nl = splice_newlines(text, insert_len);
+	if (nl == 0) {
 		return 0;
 	}
-	if (len > INT_MAX - insert_len - 1) {
-		free(buf);
+	if (editor.numrows == 0) {
+		editor_insert_row(0, "", 0);
+		if (editor.numrows == 0) {
+			return 0;
+		}
+	}
+	filerow = editor_current_filerow();
+	filecol = editor_current_filecol_in_row(&editor.row[filerow]);
+	/* What follows point on the split row, which the last inserted row
+	 * takes over -- and which is what makes that row longer than the
+	 * text's last segment, so point lands before it. */
+	suffix_len = editor.row[filerow].size - filecol;
+	if (!splice_alloc(
+		text, insert_len, nl, filecol, &head, &head_len, &newrows)) {
+		editor_nomem();
+		return 0;
+	}
+	if (!editor_rows_reserve(
+		&editor.row, &editor.row_capacity, editor.numrows + nl)) {
+		for (i = 0; i < nl; i++) {
+			free(newrows[i].chars);
+		}
+		free(head);
+		free(newrows);
 		editor_nomem();
 		return 0;
 	}
 
-	point = editor_current_flat_offset();
-	if (point < 0) {
-		point = 0;
-	}
-	if (point > len) {
-		point = len;
-	}
+	/* Nothing below here can fail. */
+	row = &editor.row[filerow];
+	memmove(editor.row + filerow + 1 + nl, editor.row + filerow + 1,
+	    sizeof(*editor.row) * (size_t)(editor.numrows - filerow - 1));
+	memcpy(
+	    editor.row + filerow + 1, newrows, sizeof(*newrows) * (size_t)nl);
+	free(newrows);
+	editor.numrows += nl;
+	free(row->chars);
+	row->chars = head;
+	row->size = head_len;
 
-	new_len = len + insert_len;
-	newbuf = malloc(new_len + 1);
-	if (!newbuf) {
-		free(buf);
-		editor_nomem();
-		return 0;
+	for (i = filerow; i < editor.numrows; i++) {
+		editor.row[i].idx = i;
 	}
-	memcpy(newbuf, buf, point);
-	memcpy(newbuf + point, text, insert_len);
-	memcpy(newbuf + point + insert_len, buf + point, len - point);
-	newbuf[new_len] = '\0';
-
-	editor_replace_rows_from_text(newbuf, new_len);
-	editor_flat_offset_to_row_col(
-	    newbuf, new_len, point + insert_len, &row, &col);
-	editor_cursor_goto(row, col);
+	for (i = filerow; i <= filerow + nl; i++) {
+		editor_update_row(&editor.row[i]);
+	}
+	editor_cursor_goto(
+	    filerow + nl, editor.row[filerow + nl].size - suffix_len);
 	editor.dirty++;
-
-	free(newbuf);
-	free(buf);
 	return 1;
 }
 

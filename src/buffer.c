@@ -208,8 +208,9 @@ void editor_cursor_goto(int row, int col)
 /* Keep (row, col) visible, but only recenter when it is currently off-screen.
  * Used by isearch so matches already visible in the window do not jerk the
  * viewport forward on every character typed, while distant matches still land
- * in a stable, centered view.  `col` is a rendered column, matching the
- * display/search convention used by coloff and HL_MATCH placement. */
+ * in a stable, centered view.  `col` is a byte offset into row->chars, the
+ * same space editor.coloff + editor.cx is measured in — this lands point,
+ * so a rendered column would put it elsewhere on any line holding a tab. */
 void editor_reveal_position_centered(int row, int col)
 {
 	int max_rowoff;

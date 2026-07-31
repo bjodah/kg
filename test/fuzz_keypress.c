@@ -1,3 +1,18 @@
+/* fuzz_keypress.c -- one byte stream, read as a buffer and then as keys.
+ *
+ * Input encoding: with more than 32 bytes, the first quarter seeds the
+ * buffer (a byte with its low nibble clear ends a line, one divisible by
+ * four is a TAB, anything else is a printable character) and the rest is
+ * fed to the terminal decoder as if typed.  A shorter input is all
+ * buffer text.  Escape sequences, UTF-8 leads and control bytes are
+ * therefore whatever the stream happens to contain, which is the point.
+ *
+ * Since plan 01, those bytes also drive the key adapter and the global
+ * keymap: every keystroke becomes a key_event, is looked up in the map,
+ * and the commands it resolves to run through a command table this
+ * target links itself (see fuzz_stubs.c).
+ */
+
 #include "../src/def.h"
 #include "../src/kbd.h"
 

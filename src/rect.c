@@ -436,6 +436,20 @@ void editor_string_rect(int fd)
 		return;
 	}
 	input_len = strlen(input);
+	/* A replacement carrying a row separator has no rectangle meaning:
+	 * it would split the very rows this loop walks, and the one coarse
+	 * record pushed below describes a row block that would no longer
+	 * exist -- so not even undo could put the buffer back.  Refuse it
+	 * before the record and before a short row is padded out to the
+	 * left edge, so text, point, mark, undo, dirty and the content
+	 * generation are all still what they were.  Teaching a rectangle
+	 * replacement to change the row count is a different feature, and
+	 * needs a different iteration and a different undo. */
+	if (memchr(input, '\n', (size_t)input_len)) {
+		editor_set_status_message(
+		    "Rectangle string cannot contain a newline");
+		return;
+	}
 
 	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 

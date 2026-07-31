@@ -673,6 +673,11 @@ everywhere it should.
 prompts for a string and replaces each row's span of the rectangle
 with it; with a zero-width rectangle this inserts the string in the
 same column on every row.
+The string is one row's worth of text: a newline quoted into it with
+.Ic C-q
+is refused, with the buffer, the mark and the undo history untouched,
+since a rectangle replacement that split its own rows would leave
+nothing for one undo step to restore.
 Each rectangle command is one undo step;
 .Ic C-_
 restores the entire affected range, including any padding or row

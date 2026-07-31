@@ -1,0 +1,29 @@
+# The other half of the refusal: it costs nothing.  The 'X' typed first is
+# the only undoable step in the session, so the single C-_ afterwards has
+# to remove it.  If C-x r t had pushed its coarse rectangle record before
+# noticing the newline, that undo would spend itself on the rectangle
+# instead and leave the X behind.
+name: string-rectangle-refuses-newline-keeps-undo
+filename: rect-newline-undo.txt
+initial: |
+  foo
+  bar
+  baz
+keys:
+  - X
+  - C-SPC
+  - C-n
+  - C-n
+  - C-x
+  - r
+  - t
+  - a
+  - C-q
+  - C-j
+  - b
+  - RET
+  - C-_
+expected_saved: |
+  foo
+  bar
+  baz

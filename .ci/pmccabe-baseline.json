@@ -622,7 +622,7 @@
   "src/rect.c:editor_delete_rect": 1,
   "src/rect.c:editor_kill_rect": 1,
   "src/rect.c:editor_rect_mode_toggle": 3,
-  "src/rect.c:editor_string_rect": 5,
+  "src/rect.c:editor_string_rect": 6,
   "src/rect.c:editor_yank_rect": 13,
   "src/rect.c:rect_bounds": 8,
   "src/rect.c:rect_deactivate": 1,

@@ -398,6 +398,16 @@ done
 printf '  total %-28s %8ss\n' "" "${elapsed_all}"
 echo "============================================================================"
 
+# One machine-readable summary of the run, from the files the steps already
+# wrote: stage states and durations, both test layers' counts and slowest
+# cases, coverage against its floor, the complexity manifest, the pins.
+# Never fatal -- a report is not a gate.
+if ! "${PYTHON:-python3}" utils/quality_report.py \
+	--results-dir "${CI_RUN_DIR}/results/ci-03-gcc-analyzer-valgrind" \
+	--output "${CI_RUN_DIR}/quality.json"; then
+	echo "(quality report not written)"
+fi
+
 if [ "${#failed[@]}" -eq 0 ]; then
 	rmdir "${lane_root}" 2>/dev/null || true
 	echo "all steps passed; logs kept in ${CI_RUN_DIR}/logs"

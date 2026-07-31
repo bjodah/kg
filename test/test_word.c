@@ -25,8 +25,8 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 	undo_free();
 }
 
@@ -42,13 +42,13 @@ static void cursor_home(void)
 static void test_upcase_word(void)
 {
 	setup();
-	editor_insert_row(0, "hello", 5);
+	editor_insert_row(bcur(), 0, "hello", 5);
 	cursor_home();
 
 	editor_upcase_word();
 
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "HELLO", 5) == 0);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "HELLO", 5) == 0);
 	CHECK(editor.cx == 5);
 	teardown();
 }
@@ -57,13 +57,13 @@ static void test_upcase_word(void)
 static void test_downcase_word(void)
 {
 	setup();
-	editor_insert_row(0, "HELLO", 5);
+	editor_insert_row(bcur(), 0, "HELLO", 5);
 	cursor_home();
 
 	editor_downcase_word();
 
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "hello", 5) == 0);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "hello", 5) == 0);
 	teardown();
 }
 
@@ -71,13 +71,13 @@ static void test_downcase_word(void)
 static void test_capitalize_word(void)
 {
 	setup();
-	editor_insert_row(0, "hELLO", 5);
+	editor_insert_row(bcur(), 0, "hELLO", 5);
 	cursor_home();
 
 	editor_capitalize_word();
 
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "Hello", 5) == 0);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "Hello", 5) == 0);
 	teardown();
 }
 
@@ -86,12 +86,12 @@ static void test_capitalize_word(void)
 static void test_upcase_word_skips_leading_space(void)
 {
 	setup();
-	editor_insert_row(0, " hello", 6);
+	editor_insert_row(bcur(), 0, " hello", 6);
 	cursor_home(); /* cursor before the space */
 
 	editor_upcase_word();
 
-	CHECK(memcmp(editor.row[0].chars, " HELLO", 6) == 0);
+	CHECK(memcmp(bcur()->row[0].chars, " HELLO", 6) == 0);
 	CHECK(editor.cx == 6);
 	teardown();
 }
@@ -100,14 +100,14 @@ static void test_upcase_word_skips_leading_space(void)
 static void test_upcase_two_words(void)
 {
 	setup();
-	editor_insert_row(0, "hello world", 11);
+	editor_insert_row(bcur(), 0, "hello world", 11);
 	cursor_home();
 
 	editor_upcase_word(); /* "HELLO world", cx=5 */
 	/* cursor is now at col 5 (the space); upcase again moves to "world" */
 	editor_upcase_word(); /* "HELLO WORLD", cx=11 */
 
-	CHECK(memcmp(editor.row[0].chars, "HELLO WORLD", 11) == 0);
+	CHECK(memcmp(bcur()->row[0].chars, "HELLO WORLD", 11) == 0);
 	teardown();
 }
 
@@ -117,16 +117,16 @@ static void test_upcase_two_words(void)
 static void test_join_line_basic(void)
 {
 	setup();
-	editor_insert_row(0, "hello", 5);
-	editor_insert_row(1, "world", 5);
+	editor_insert_row(bcur(), 0, "hello", 5);
+	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
 	editor.cy = 1;
 
 	editor_join_line();
 
-	CHECK(editor.numrows == 1);
-	CHECK(editor.row[0].size == 11);
-	CHECK(memcmp(editor.row[0].chars, "hello world", 11) == 0);
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 11);
+	CHECK(memcmp(bcur()->row[0].chars, "hello world", 11) == 0);
 	teardown();
 }
 
@@ -134,16 +134,16 @@ static void test_join_line_basic(void)
 static void test_join_line_strips_indent(void)
 {
 	setup();
-	editor_insert_row(0, "hello", 5);
-	editor_insert_row(1, "  world", 7);
+	editor_insert_row(bcur(), 0, "hello", 5);
+	editor_insert_row(bcur(), 1, "  world", 7);
 	cursor_home();
 	editor.cy = 1;
 
 	editor_join_line();
 
-	CHECK(editor.numrows == 1);
-	CHECK(editor.row[0].size == 11);
-	CHECK(memcmp(editor.row[0].chars, "hello world", 11) == 0);
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 11);
+	CHECK(memcmp(bcur()->row[0].chars, "hello world", 11) == 0);
 	teardown();
 }
 
@@ -151,16 +151,16 @@ static void test_join_line_strips_indent(void)
 static void test_join_line_empty_upper(void)
 {
 	setup();
-	editor_insert_row(0, "", 0);
-	editor_insert_row(1, "world", 5);
+	editor_insert_row(bcur(), 0, "", 0);
+	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
 	editor.cy = 1;
 
 	editor_join_line();
 
-	CHECK(editor.numrows == 1);
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "world", 5) == 0);
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "world", 5) == 0);
 	teardown();
 }
 
@@ -168,13 +168,13 @@ static void test_join_line_empty_upper(void)
 static void test_join_line_first_row_noop(void)
 {
 	setup();
-	editor_insert_row(0, "only row", 8);
+	editor_insert_row(bcur(), 0, "only row", 8);
 	cursor_home();
 
 	editor_join_line();
 
-	CHECK(editor.numrows == 1);
-	CHECK(editor.row[0].size == 8);
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 8);
 	teardown();
 }
 
@@ -182,8 +182,8 @@ static void test_join_line_first_row_noop(void)
 static void test_join_line_cursor_at_join(void)
 {
 	setup();
-	editor_insert_row(0, "hello", 5);
-	editor_insert_row(1, "world", 5);
+	editor_insert_row(bcur(), 0, "hello", 5);
+	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
 	editor.cy = 1;
 
@@ -200,15 +200,15 @@ static void test_join_line_cursor_at_join(void)
 static void test_comment_dwim_add(void)
 {
 	setup();
-	editor.syntax = &HLDB[0]; /* C syntax: scs = "//" */
-	editor_insert_row(0, "int x;", 6);
+	bcur()->syntax = &HLDB[0]; /* C syntax: scs = "//" */
+	editor_insert_row(bcur(), 0, "int x;", 6);
 	cursor_home();
 	editor.mark_set = 0;
 
 	editor_comment_dwim();
 
-	CHECK(editor.row[0].size == 9);
-	CHECK(memcmp(editor.row[0].chars, "// int x;", 9) == 0);
+	CHECK(bcur()->row[0].size == 9);
+	CHECK(memcmp(bcur()->row[0].chars, "// int x;", 9) == 0);
 	teardown();
 }
 
@@ -216,15 +216,15 @@ static void test_comment_dwim_add(void)
 static void test_comment_dwim_remove(void)
 {
 	setup();
-	editor.syntax = &HLDB[0];
-	editor_insert_row(0, "// int x;", 9);
+	bcur()->syntax = &HLDB[0];
+	editor_insert_row(bcur(), 0, "// int x;", 9);
 	cursor_home();
 	editor.mark_set = 0;
 
 	editor_comment_dwim();
 
-	CHECK(editor.row[0].size == 6);
-	CHECK(memcmp(editor.row[0].chars, "int x;", 6) == 0);
+	CHECK(bcur()->row[0].size == 6);
+	CHECK(memcmp(bcur()->row[0].chars, "int x;", 6) == 0);
 	teardown();
 }
 
@@ -232,13 +232,13 @@ static void test_comment_dwim_remove(void)
 static void test_comment_dwim_no_syntax(void)
 {
 	setup();
-	editor.syntax = NULL;
-	editor_insert_row(0, "hello", 5);
+	bcur()->syntax = NULL;
+	editor_insert_row(bcur(), 0, "hello", 5);
 	cursor_home();
 
 	editor_comment_dwim(); /* must not crash */
 
-	CHECK(editor.row[0].size == 5);
+	CHECK(bcur()->row[0].size == 5);
 	teardown();
 }
 
@@ -247,10 +247,10 @@ static void test_comment_dwim_no_syntax(void)
 static void test_comment_dwim_region_excludes_final_bol_line(void)
 {
 	setup();
-	editor.syntax = &HLDB[0];
-	editor_insert_row(0, "a += 1;", 7);
-	editor_insert_row(1, "b += 2;", 7);
-	editor_insert_row(2, "return a + b;", 13);
+	bcur()->syntax = &HLDB[0];
+	editor_insert_row(bcur(), 0, "a += 1;", 7);
+	editor_insert_row(bcur(), 1, "b += 2;", 7);
+	editor_insert_row(bcur(), 2, "return a + b;", 13);
 
 	editor.mark_set = 1;
 	editor.mark_row = 0;
@@ -263,67 +263,67 @@ static void test_comment_dwim_region_excludes_final_bol_line(void)
 
 	editor_comment_dwim();
 
-	CHECK(memcmp(editor.row[0].chars, "// a += 1;", 10) == 0);
-	CHECK(memcmp(editor.row[1].chars, "// b += 2;", 10) == 0);
-	CHECK(memcmp(editor.row[2].chars, "return a + b;", 13) == 0);
+	CHECK(memcmp(bcur()->row[0].chars, "// a += 1;", 10) == 0);
+	CHECK(memcmp(bcur()->row[1].chars, "// b += 2;", 10) == 0);
+	CHECK(memcmp(bcur()->row[2].chars, "return a + b;", 13) == 0);
 	teardown();
 }
 
 static void test_delete_horizontal_space_around_point(void)
 {
 	setup();
-	editor_insert_row(0, "alpha \t  beta", 13);
+	editor_insert_row(bcur(), 0, "alpha \t  beta", 13);
 	editor.cx = 8;
 
 	editor_delete_horizontal_space();
 
-	CHECK(editor.row[0].size == 9);
-	CHECK(memcmp(editor.row[0].chars, "alphabeta", 9) == 0);
+	CHECK(bcur()->row[0].size == 9);
+	CHECK(memcmp(bcur()->row[0].chars, "alphabeta", 9) == 0);
 	CHECK(editor.cx == 5);
 	editor_undo();
-	CHECK(editor.row[0].size == 13);
-	CHECK(memcmp(editor.row[0].chars, "alpha \t  beta", 13) == 0);
+	CHECK(bcur()->row[0].size == 13);
+	CHECK(memcmp(bcur()->row[0].chars, "alpha \t  beta", 13) == 0);
 	teardown();
 }
 
 static void test_just_one_space_collapses_run(void)
 {
 	setup();
-	editor_insert_row(0, "alpha \t  beta", 13);
+	editor_insert_row(bcur(), 0, "alpha \t  beta", 13);
 	editor.cx = 8;
 
 	editor_just_one_space();
 
-	CHECK(editor.row[0].size == 10);
-	CHECK(memcmp(editor.row[0].chars, "alpha beta", 10) == 0);
+	CHECK(bcur()->row[0].size == 10);
+	CHECK(memcmp(bcur()->row[0].chars, "alpha beta", 10) == 0);
 	CHECK(editor.cx == 6);
 	editor_undo();
-	CHECK(editor.row[0].size == 13);
-	CHECK(memcmp(editor.row[0].chars, "alpha \t  beta", 13) == 0);
+	CHECK(bcur()->row[0].size == 13);
+	CHECK(memcmp(bcur()->row[0].chars, "alpha \t  beta", 13) == 0);
 	teardown();
 }
 
 static void test_just_one_space_inserts_when_none(void)
 {
 	setup();
-	editor_insert_row(0, "alphabeta", 9);
+	editor_insert_row(bcur(), 0, "alphabeta", 9);
 	editor.cx = 5;
 
 	editor_just_one_space();
 
-	CHECK(editor.row[0].size == 10);
-	CHECK(memcmp(editor.row[0].chars, "alpha beta", 10) == 0);
+	CHECK(bcur()->row[0].size == 10);
+	CHECK(memcmp(bcur()->row[0].chars, "alpha beta", 10) == 0);
 	CHECK(editor.cx == 6);
 	editor_undo();
-	CHECK(editor.row[0].size == 9);
-	CHECK(memcmp(editor.row[0].chars, "alphabeta", 9) == 0);
+	CHECK(bcur()->row[0].size == 9);
+	CHECK(memcmp(bcur()->row[0].chars, "alphabeta", 9) == 0);
 	teardown();
 }
 
 static void test_sentence_backward_clamps_stale_row(void)
 {
 	setup();
-	editor_insert_row(0, "One. Two.", 9);
+	editor_insert_row(bcur(), 0, "One. Two.", 9);
 	editor.cy = 8;
 	editor.cx = 3;
 
@@ -338,7 +338,7 @@ static void test_sentence_backward_clamps_stale_row(void)
 static void test_word_backward_clamps_stale_column(void)
 {
 	setup();
-	editor_insert_row(0, "", 0);
+	editor_insert_row(bcur(), 0, "", 0);
 	editor.cx = 2;
 
 	editor_move_word_backward();
@@ -350,8 +350,8 @@ static void test_word_backward_clamps_stale_column(void)
 static void test_word_forward_clamps_stale_row_offset(void)
 {
 	setup();
-	editor_insert_row(0, "abc", 3);
-	editor_insert_row(1, "def", 3);
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "def", 3);
 	editor.rowoff = INT_MAX - 5;
 	editor.cy = 79;
 
@@ -366,9 +366,9 @@ static void test_word_forward_clamps_stale_row_offset(void)
 static void test_paragraph_backward_clamps_stale_row(void)
 {
 	setup();
-	editor_insert_row(0, "alpha", 5);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "beta", 4);
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "beta", 4);
 	editor.cy = 8;
 
 	editor_move_paragraph_backward();
@@ -382,7 +382,7 @@ static void test_paragraph_backward_clamps_stale_row(void)
 static void test_paragraph_forward_clamps_stale_row(void)
 {
 	setup();
-	editor_insert_row(0, "alpha", 5);
+	editor_insert_row(bcur(), 0, "alpha", 5);
 	editor.cy = 8;
 
 	editor_move_paragraph_forward();
@@ -396,7 +396,7 @@ static void test_paragraph_forward_clamps_stale_row(void)
 static void test_sentence_forward_clamps_huge_column_offset(void)
 {
 	setup();
-	editor_insert_row(0, "Hi.", 3);
+	editor_insert_row(bcur(), 0, "Hi.", 3);
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 
@@ -412,28 +412,28 @@ static void test_sentence_forward_clamps_huge_column_offset(void)
 static void test_kill_word_forward_clamps_huge_column_offset(void)
 {
 	setup();
-	editor_insert_row(0, "abc def", 7);
+	editor_insert_row(bcur(), 0, "abc def", 7);
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 
 	editor_kill_word_forward();
 
-	CHECK(editor.row[0].size == 7);
-	CHECK(memcmp(editor.row[0].chars, "abc def", 7) == 0);
+	CHECK(bcur()->row[0].size == 7);
+	CHECK(memcmp(bcur()->row[0].chars, "abc def", 7) == 0);
 	teardown();
 }
 
 static void test_kill_word_backward_clamps_huge_column_offset(void)
 {
 	setup();
-	editor_insert_row(0, "abc def", 7);
+	editor_insert_row(bcur(), 0, "abc def", 7);
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 
 	editor_kill_word_backward();
 
-	CHECK(editor.row[0].size == 4);
-	CHECK(memcmp(editor.row[0].chars, "abc ", 4) == 0);
+	CHECK(bcur()->row[0].size == 4);
+	CHECK(memcmp(bcur()->row[0].chars, "abc ", 4) == 0);
 	CHECK(editor.coloff == 4);
 	CHECK(editor.cx == 0);
 	teardown();

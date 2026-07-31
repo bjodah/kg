@@ -61,11 +61,11 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 	p_col = editor.coloff + editor.cx;
 	m_row = editor.mark_row;
 	m_col = editor.mark_col;
-	p_vcol = (p_row < editor.numrows)
-	    ? editor_visual_col(&editor.row[p_row], p_col)
+	p_vcol = (p_row < bcur()->numrows)
+	    ? editor_visual_col(&bcur()->row[p_row], p_col)
 	    : p_col;
-	m_vcol = (m_row < editor.numrows)
-	    ? editor_visual_col(&editor.row[m_row], m_col)
+	m_vcol = (m_row < bcur()->numrows)
+	    ? editor_visual_col(&bcur()->row[m_row], m_col)
 	    : m_col;
 	*s_row = (p_row < m_row) ? p_row : m_row;
 	*e_row = (p_row > m_row) ? p_row : m_row;
@@ -108,8 +108,8 @@ static void rect_row_replace_with_spaces(erow *row, int lo, int hi)
 		return;
 	}
 	memset(row->chars + lo, ' ', hi - lo);
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 /* Snapshot rows [start_row, end_row) joined with '\n' for undo storage.
@@ -124,8 +124,8 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	if (start_row < 0) {
 		start_row = 0;
 	}
-	if (end_row > editor.numrows) {
-		end_row = editor.numrows;
+	if (end_row > bcur()->numrows) {
+		end_row = bcur()->numrows;
 	}
 	if (end_row <= start_row) {
 		*out_len = 0;
@@ -133,7 +133,7 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	}
 
 	for (r = start_row; r < end_row; r++) {
-		if (!checked_add_int_size(&total, total, editor.row[r].size)) {
+		if (!checked_add_int_size(&total, total, bcur()->row[r].size)) {
 			*out_len = 0;
 			return NULL;
 		}
@@ -157,8 +157,8 @@ static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
 	}
 	p = buf;
 	for (r = start_row; r < end_row; r++) {
-		memcpy(p, editor.row[r].chars, editor.row[r].size);
-		p += editor.row[r].size;
+		memcpy(p, bcur()->row[r].chars, bcur()->row[r].size);
+		p += bcur()->row[r].size;
 		if (r < end_row - 1) {
 			*p++ = '\n';
 		}
@@ -178,12 +178,12 @@ static int rect_push_overwrite_undo(int s_row, int s_vcol, int e_row)
 	int snap_len;
 	char *snap = rect_snapshot_rows(s_row, e_row + 1, &snap_len);
 
-	if (s_row < editor.numrows) {
+	if (s_row < bcur()->numrows) {
 		int hi_unused;
 		rect_row_byte_range(
-		    &editor.row[s_row], s_vcol, s_vcol, &byte_lo, &hi_unused);
+		    &bcur()->row[s_row], s_vcol, s_vcol, &byte_lo, &hi_unused);
 	}
-	undo_push(UNDO_RECT_OVERWRITE, s_row, byte_lo, editor.numrows,
+	undo_push(UNDO_RECT_OVERWRITE, s_row, byte_lo, bcur()->numrows,
 	    snap ? snap : (char *)"", snap_len);
 	free(snap);
 	return byte_lo;
@@ -225,10 +225,10 @@ static void rect_kill_or_delete(int save_to_ring)
 		char *killed_text;
 		int killed_ok = 1;
 
-		for (r = s_row; r <= e_row && r < editor.numrows; r++) {
+		for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
 			int lo, hi;
 			rect_row_byte_range(
-			    &editor.row[r], s_vcol, e_vcol, &lo, &hi);
+			    &bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
 			if (!checked_add_int_size(
 				&killed_total, killed_total, hi - lo)) {
 				killed_ok = 0;
@@ -251,8 +251,9 @@ static void rect_kill_or_delete(int save_to_ring)
 		}
 		if (killed_text) {
 			char *p = killed_text;
-			for (r = s_row; r <= e_row && r < editor.numrows; r++) {
-				erow *row = &editor.row[r];
+			for (r = s_row; r <= e_row && r < bcur()->numrows;
+			    r++) {
+				erow *row = &bcur()->row[r];
 				int lo, hi;
 				rect_row_byte_range(
 				    row, s_vcol, e_vcol, &lo, &hi);
@@ -280,17 +281,17 @@ static void rect_kill_or_delete(int save_to_ring)
 	 * loop used to toggle was doing nothing -- editor_row_del_char()
 	 * records no undo of its own -- and would have started to once the
 	 * loop moved onto a primitive that does. */
-	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
+	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
 		int lo, hi;
 
-		rect_row_byte_range(&editor.row[r], s_vcol, e_vcol, &lo, &hi);
+		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
 		editor_row_replace_range(
 		    r, lo, hi - lo, "", 0, KG_EDIT_NO_UNDO);
 	}
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	editor.dirty++;
+	bcur()->dirty++;
 	editor_set_status_message(
 	    save_to_ring ? "Rectangle killed" : "Rectangle deleted");
 }
@@ -319,8 +320,8 @@ void editor_clear_rect(void)
 	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 
 	suppress_undo = 1;
-	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
-		erow *row = &editor.row[r];
+	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
+		erow *row = &bcur()->row[r];
 		int lo, hi;
 
 		/* Pad with spaces until row's visual width reaches s_vcol. */
@@ -336,7 +337,7 @@ void editor_clear_rect(void)
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	editor.dirty++;
+	bcur()->dirty++;
 	editor_set_status_message("Rectangle cleared");
 }
 
@@ -359,11 +360,11 @@ void editor_yank_rect(void)
 
 	cur_row = editor.rowoff + editor.cy;
 	cur_col = editor.coloff + editor.cx;
-	orig_numrows = editor.numrows;
+	orig_numrows = bcur()->numrows;
 
 	rows_to_snap = rect_killed_nrows;
-	if (cur_row + rows_to_snap > editor.numrows) {
-		rows_to_snap = editor.numrows - cur_row;
+	if (cur_row + rows_to_snap > bcur()->numrows) {
+		rows_to_snap = bcur()->numrows - cur_row;
 	}
 	if (rows_to_snap < 0) {
 		rows_to_snap = 0;
@@ -384,10 +385,10 @@ void editor_yank_rect(void)
 		int target = cur_row + i;
 		erow *r;
 
-		while (target >= editor.numrows) {
-			editor_insert_row(editor.numrows, "", 0);
+		while (target >= bcur()->numrows) {
+			editor_insert_row(bcur(), bcur()->numrows, "", 0);
 		}
-		r = &editor.row[target];
+		r = &bcur()->row[target];
 		if (r->size < cur_col) {
 			editor_row_insert_spaces(r, r->size, cur_col - r->size);
 		}
@@ -404,7 +405,7 @@ void editor_yank_rect(void)
 	suppress_undo = 0;
 
 	rect_deactivate();
-	editor.dirty++;
+	bcur()->dirty++;
 	editor_set_status_message("Rectangle yanked");
 }
 
@@ -440,18 +441,18 @@ void editor_string_rect(int fd)
 	/* Delete and insert are one replacement, so a row is rebuilt once
 	 * (twice when it had to be padded out to the rectangle's left
 	 * edge first) rather than once per byte on either side. */
-	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
+	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
 		int lo, hi;
 
-		rect_row_pad_to_visual(&editor.row[r], s_vcol);
-		rect_row_byte_range(&editor.row[r], s_vcol, e_vcol, &lo, &hi);
+		rect_row_pad_to_visual(&bcur()->row[r], s_vcol);
+		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
 		editor_row_replace_range(
 		    r, lo, hi - lo, input, input_len, KG_EDIT_NO_UNDO);
 	}
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	editor.dirty++;
+	bcur()->dirty++;
 	editor_set_status_message("Rectangle replaced");
 }
 

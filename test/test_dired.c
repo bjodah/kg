@@ -163,8 +163,8 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 	free(editor.filename);
 	editor.filename = NULL;
 }
@@ -183,13 +183,13 @@ static void test_open_directory_lists_it(void)
 	CHECK(editor_open(dir) == 0);
 	CHECK(syntax_is_dired());
 	CHECK(editor.readonly == 1);
-	CHECK(editor.dirty == 0);
+	CHECK(bcur()->dirty == 0);
 	CHECK(editor.filename != NULL
 	    && strncmp(editor.filename, "*Dired: ", 8) == 0);
-	CHECK(editor.numrows == 3);
-	if (editor.numrows == 3) {
-		CHECK(strcmp(editor.row[1].chars, "  a.txt") == 0);
-		CHECK(strcmp(editor.row[2].chars, "  sub/") == 0);
+	CHECK(bcur()->numrows == 3);
+	if (bcur()->numrows == 3) {
+		CHECK(strcmp(bcur()->row[1].chars, "  a.txt") == 0);
+		CHECK(strcmp(bcur()->row[2].chars, "  sub/") == 0);
 	}
 	teardown();
 	drop_tree(dir);
@@ -207,22 +207,22 @@ static void test_highlights_header_and_directories(void)
 	}
 	setup();
 	CHECK(dired_fill_current(dir) == 0);
-	CHECK(editor.numrows == 3);
-	if (editor.numrows != 3) {
+	CHECK(bcur()->numrows == 3);
+	if (bcur()->numrows != 3) {
 		teardown();
 		drop_tree(dir);
 		return;
 	}
-	for (i = 0; i < editor.row[0].rsize; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+	for (i = 0; i < bcur()->row[0].rsize; i++) {
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
-	for (i = 0; i < editor.row[1].rsize; i++) {
-		CHECK(editor.row[1].hl[i] == HL_NORMAL);
+	for (i = 0; i < bcur()->row[1].rsize; i++) {
+		CHECK(bcur()->row[1].hl[i] == HL_NORMAL);
 	}
-	CHECK(editor.row[2].hl[0] == HL_NORMAL);
-	CHECK(editor.row[2].hl[1] == HL_NORMAL);
-	for (i = 2; i < editor.row[2].rsize; i++) {
-		CHECK(editor.row[2].hl[i] == HL_KEYWORD1);
+	CHECK(bcur()->row[2].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[2].hl[1] == HL_NORMAL);
+	for (i = 2; i < bcur()->row[2].rsize; i++) {
+		CHECK(bcur()->row[2].hl[i] == HL_KEYWORD1);
 	}
 	teardown();
 	drop_tree(dir);
@@ -240,26 +240,26 @@ static void test_highlights_markers(void)
 	}
 	setup();
 	CHECK(dired_fill_current(dir) == 0);
-	CHECK(editor.numrows == 3);
-	if (editor.numrows != 3) {
+	CHECK(bcur()->numrows == 3);
+	if (bcur()->numrows != 3) {
 		teardown();
 		drop_tree(dir);
 		return;
 	}
 
-	editor.row[1].chars[0] = 'D';
-	editor_update_row(&editor.row[1]);
-	CHECK(editor.row[1].hl[0] == HL_WARNING);
-	for (i = 1; i < editor.row[1].rsize; i++) {
-		CHECK(editor.row[1].hl[i] == HL_NORMAL);
+	bcur()->row[1].chars[0] = 'D';
+	editor_update_row(bcur(), &bcur()->row[1]);
+	CHECK(bcur()->row[1].hl[0] == HL_WARNING);
+	for (i = 1; i < bcur()->row[1].rsize; i++) {
+		CHECK(bcur()->row[1].hl[i] == HL_NORMAL);
 	}
 
-	editor.row[2].chars[0] = '*';
-	editor_update_row(&editor.row[2]);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[2].hl[1] == HL_NORMAL);
-	for (i = 2; i < editor.row[2].rsize; i++) {
-		CHECK(editor.row[2].hl[i] == HL_KEYWORD1);
+	bcur()->row[2].chars[0] = '*';
+	editor_update_row(bcur(), &bcur()->row[2]);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[2].hl[1] == HL_NORMAL);
+	for (i = 2; i < bcur()->row[2].rsize; i++) {
+		CHECK(bcur()->row[2].hl[i] == HL_KEYWORD1);
 	}
 	teardown();
 	drop_tree(dir);
@@ -349,7 +349,7 @@ static void test_delete_verified_refuses_a_replaced_name(void)
 	}
 
 	/* Flag a.txt (row 1) and collect it. */
-	editor.row[1].chars[0] = 'D';
+	bcur()->row[1].chars[0] = 'D';
 	CHECK(dired_collect_flagged(dirfd, &target, 1) == 1);
 	CHECK(strcmp(target.name, "a.txt") == 0);
 
@@ -422,21 +422,21 @@ static void test_delete_verified_symlink_and_nonempty_directory(void)
 	}
 
 	/* The symlink lists as a directory. */
-	for (i = 1; i < editor.numrows; i++) {
-		if (strcmp(editor.row[i].chars, "  tolink/") == 0) {
+	for (i = 1; i < bcur()->numrows; i++) {
+		if (strcmp(bcur()->row[i].chars, "  tolink/") == 0) {
 			link_at = i;
 		}
-		if (strcmp(editor.row[i].chars, "  sub/") == 0) {
+		if (strcmp(bcur()->row[i].chars, "  sub/") == 0) {
 			sub_at = i;
 		}
 	}
 	CHECK(link_at > 0);
 	CHECK(sub_at > 0);
 	if (link_at > 0) {
-		editor.row[link_at].chars[0] = 'D';
+		bcur()->row[link_at].chars[0] = 'D';
 	}
 	if (sub_at > 0) {
-		editor.row[sub_at].chars[0] = 'D';
+		bcur()->row[sub_at].chars[0] = 'D';
 	}
 
 	n = dired_collect_flagged(dirfd, targets, 4);

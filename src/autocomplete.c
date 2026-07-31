@@ -56,8 +56,8 @@ void editor_insert_char_auto_complete(int c)
 	}
 
 	filerow = editor_current_filerow_or_eof();
-	if (filerow < editor.numrows) {
-		row = &editor.row[filerow];
+	if (filerow < bcur()->numrows) {
+		row = &bcur()->row[filerow];
 	}
 	filecol = editor_current_filecol();
 

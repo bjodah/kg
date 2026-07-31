@@ -49,8 +49,8 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 	undo_free();
 }
 
@@ -173,7 +173,7 @@ static void write_comment_c(FILE *fp)
  * reads only the row above; markdown_syntax() also looks one row *down*
  * (a setext heading is one, if the row under it is its underline) and
  * writes one row *up* (the underline re-highlights the heading above it).
- * The staged pass publishes rows one at a time -- editor.numrows is the
+ * The staged pass publishes rows one at a time -- bcur()->numrows is the
  * count staged so far -- so during it the look-down is out of bounds and
  * the heading is coloured only when its underline arrives and reaches
  * back for it.  A blank line inside a fenced block is the other shape
@@ -229,31 +229,31 @@ static void check_load_highlight_is_final(
 	fclose(fp);
 
 	CHECK(editor_open(path) == 0);
-	rows = editor.numrows;
+	rows = bcur()->numrows;
 	CHECK(rows > 100);
 	hl = calloc((size_t)rows, sizeof(*hl));
 	oc = calloc((size_t)rows, sizeof(*oc));
 	CHECK(hl != NULL && oc != NULL);
 	if (hl && oc) {
 		for (i = 0; i < rows; i++) {
-			int n = editor.row[i].rsize;
+			int n = bcur()->row[i].rsize;
 
-			oc[i] = editor.row[i].hl_oc;
+			oc[i] = bcur()->row[i].hl_oc;
 			hl[i] = n > 0 ? malloc((size_t)n) : NULL;
 			if (hl[i]) {
-				memcpy(hl[i], editor.row[i].hl, (size_t)n);
+				memcpy(hl[i], bcur()->row[i].hl, (size_t)n);
 			}
 		}
-		editor_rehighlight_all();
+		editor_rehighlight_all(bcur());
 		for (i = 0; i < rows; i++) {
 			if (hl[i]) {
-				CHECK(memcmp(hl[i], editor.row[i].hl,
-					  (size_t)editor.row[i].rsize)
+				CHECK(memcmp(hl[i], bcur()->row[i].hl,
+					  (size_t)bcur()->row[i].rsize)
 				    == 0);
 				free(hl[i]);
 				hl[i] = NULL;
 			}
-			CHECK(oc[i] == editor.row[i].hl_oc);
+			CHECK(oc[i] == bcur()->row[i].hl_oc);
 		}
 	}
 	free(hl);
@@ -282,9 +282,9 @@ static void test_insert_row_array_growth(void)
 	setup();
 	kg_perf_reset();
 	for (i = 0; i < rows; i++) {
-		editor_insert_row(i, "x", 1);
+		editor_insert_row(bcur(), i, "x", 1);
 	}
-	CHECK(editor.numrows == rows);
+	CHECK(bcur()->numrows == rows);
 	/* Plan 08 phase 2b: the growth path every subprocess output line
 	 * takes doubles, so R rows cost O(log R) reallocations.  It used to
 	 * realloc to an exact size once per row -- 4096 of them here. */
@@ -294,7 +294,7 @@ static void test_insert_row_array_growth(void)
 
 /* The row array a build log fills: compilation and shell-command output
  * reaches a buffer through buf_append_special_text(), one
- * editor_insert_row() per line, on a path the user watches in real
+ * editor_insert_row(bcur(), ) per line, on a path the user watches in real
  * time. */
 static void test_special_text_append_growth(void)
 {
@@ -391,7 +391,7 @@ static void refresh_ab_shape(int screen_rows, int screen_cols,
 	win_total_cols = screen_cols;
 	win_init();
 	for (i = 0; i < screen_rows; i++) {
-		editor_insert_row(i, "some ordinary buffer text", 25);
+		editor_insert_row(bcur(), i, "some ordinary buffer text", 25);
 	}
 	kg_perf_reset();
 	refresh_quietly();
@@ -437,9 +437,9 @@ static void test_long_row_update_allocations(void)
 	line[len] = '\0';
 
 	setup();
-	editor_insert_row(0, line, (size_t)len);
+	editor_insert_row(bcur(), 0, line, (size_t)len);
 	kg_perf_reset();
-	editor_update_row(&editor.row[0]);
+	editor_update_row(bcur(), &bcur()->row[0]);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
 	/* Plan 08 phase 4: render and highlight storage carry capacities,
 	 * so re-updating a row no wider than it has been costs no
@@ -448,8 +448,8 @@ static void test_long_row_update_allocations(void)
 	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
 	CHECK(counter(KG_PERF_RENDER_BYTES) == 0);
 	CHECK(counter(KG_PERF_HL_ALLOC) == 0);
-	CHECK(editor.row[0].rsize == len);
-	CHECK(editor.row[0].render[len] == '\0');
+	CHECK(bcur()->row[0].rsize == len);
+	CHECK(bcur()->row[0].render[len] == '\0');
 
 	teardown();
 	free(line);
@@ -476,15 +476,15 @@ static void test_typing_into_long_row_reuses_storage(void)
 	line[len] = '\0';
 
 	setup();
-	editor_insert_row(0, line, (size_t)len);
+	editor_insert_row(bcur(), 0, line, (size_t)len);
 	kg_perf_reset();
 	for (i = 0; i < typed; i++) {
-		editor_row_insert_char(&editor.row[0], 0, 'y');
+		editor_row_insert_char(&bcur()->row[0], 0, 'y');
 	}
 	CHECK(counter(KG_PERF_ROW_UPDATE) == (unsigned long long)typed);
 	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
 	CHECK(counter(KG_PERF_HL_ALLOC) == 0);
-	CHECK(editor.row[0].size == len + typed);
+	CHECK(bcur()->row[0].size == len + typed);
 	teardown();
 	free(line);
 }
@@ -494,12 +494,12 @@ static void test_typing_into_long_row_reuses_storage(void)
 static void test_replace_range_updates_once(void)
 {
 	setup();
-	editor_insert_row(0, "aaaaaaaaaaaaaaaa", 16);
+	editor_insert_row(bcur(), 0, "aaaaaaaaaaaaaaaa", 16);
 	kg_perf_reset();
 	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11, 0) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
 	CHECK(counter(KG_PERF_UNDO_PUSH) == 1);
-	CHECK(editor.row[0].size == 19);
+	CHECK(bcur()->row[0].size == 19);
 	teardown();
 }
 
@@ -509,7 +509,7 @@ static void test_rect_delete_updates_per_byte(void)
 
 	setup();
 	for (r = 0; r < 8; r++) {
-		editor_insert_row(r, "0123456789abcdef", 16);
+		editor_insert_row(bcur(), r, "0123456789abcdef", 16);
 	}
 	editor.mark_set = 1;
 	editor.mark_row = 0;
@@ -519,7 +519,7 @@ static void test_rect_delete_updates_per_byte(void)
 	editor.rect_mode = 1;
 	kg_perf_reset();
 	editor_delete_rect();
-	CHECK(editor.row[0].size == 6);
+	CHECK(bcur()->row[0].size == 6);
 	/* Plan 08 phase 5: one row rebuild per row, where rect.c used to
 	 * delete a byte at a time and pay a full render and highlight
 	 * rebuild for each -- 80 of them for this 8x10 rectangle. */
@@ -537,7 +537,7 @@ static void test_multiline_insert_flattens_buffer(void)
 
 	setup();
 	for (r = 0; r < 64; r++) {
-		editor_insert_row(r, "a line of the buffer", 20);
+		editor_insert_row(bcur(), r, "a line of the buffer", 20);
 	}
 	editor_cursor_goto(2, 4);
 	kg_perf_reset();
@@ -548,11 +548,11 @@ static void test_multiline_insert_flattens_buffer(void)
 	CHECK(counter(KG_PERF_BUFFER_FLATTEN) == 0);
 	CHECK(counter(KG_PERF_BUFFER_REBUILD) == 0);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 3);
-	CHECK(editor.numrows == 64 + 2);
-	CHECK(strncmp(editor.row[2].chars, "a lione", 7) == 0);
-	CHECK(strcmp(editor.row[3].chars, "two") == 0);
-	CHECK(strcmp(editor.row[4].chars, "ne of the buffer") == 0);
-	CHECK(strcmp(editor.row[65].chars, "a line of the buffer") == 0);
+	CHECK(bcur()->numrows == 64 + 2);
+	CHECK(strncmp(bcur()->row[2].chars, "a lione", 7) == 0);
+	CHECK(strcmp(bcur()->row[3].chars, "two") == 0);
+	CHECK(strcmp(bcur()->row[4].chars, "ne of the buffer") == 0);
+	CHECK(strcmp(bcur()->row[65].chars, "a line of the buffer") == 0);
 	teardown();
 }
 
@@ -564,13 +564,13 @@ static void test_undo_eviction_walk(void)
 	const int max = 1000;
 
 	setup();
-	undostack.max_size = max;
-	editor_insert_row(0, "text", 4);
+	bcur()->undostack.max_size = max;
+	editor_insert_row(bcur(), 0, "text", 4);
 	kg_perf_reset();
 	for (i = 0; i < max + 8; i++) {
 		CHECK(undo_push(UNDO_INSERT_CHAR, 0, 0, 'x', NULL, 0) == 1);
 	}
-	CHECK(undostack.size == max);
+	CHECK(bcur()->undostack.size == max);
 	/* Trimming keeps max_size - 1 records, so a full stack evicts on
 	 * every second push: 4 walks of 999 links for the 8 pushes past the
 	 * limit.  Plan 08 phase 7 asks whether that is worth a deque; this
@@ -590,7 +590,8 @@ static void test_visual_line_scan_per_refresh(void)
 
 	setup();
 	for (i = 0; i < rows; i++) {
-		editor_insert_row(i, "a reasonably long line of text", 30);
+		editor_insert_row(
+		    bcur(), i, "a reasonably long line of text", 30);
 	}
 	editor.visual_line_mode = 1;
 	kg_perf_reset();

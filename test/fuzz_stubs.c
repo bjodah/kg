@@ -138,6 +138,15 @@ void win_cycle_next(void) { }
 void win_delete_current(void) { }
 void win_delete_others(void) { }
 void win_save_active_view(void) { }
+
+/* Buffer identity lives in bufmgr.c, which the fuzz targets do not link. */
+struct kg_buffer_handle buf_handle(int slot)
+{
+	struct kg_buffer_handle handle = { slot, 1, 0 };
+
+	return handle;
+}
+int buf_handle_slot(struct kg_buffer_handle handle) { return handle.slot; }
 void win_reflow(void) { }
 
 void editor_find(int fd, int dir)

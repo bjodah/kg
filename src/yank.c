@@ -106,7 +106,7 @@ int editor_region_bounds(
 	int cur_row = yank_current_row();
 	int cur_col = yank_current_col();
 
-	if (!editor.mark_set || editor.numrows <= 0) {
+	if (!editor.mark_set || bcur()->numrows <= 0) {
 		return 0;
 	}
 	if (region_point_before(
@@ -122,28 +122,28 @@ int editor_region_bounds(
 		*end_col = editor.mark_col;
 	}
 
-	if (*end_row < 0 || *start_row >= editor.numrows) {
+	if (*end_row < 0 || *start_row >= bcur()->numrows) {
 		return 0;
 	}
 	if (*start_row < 0) {
 		*start_row = 0;
 		*start_col = 0;
 	}
-	if (*end_row >= editor.numrows) {
-		*end_row = editor.numrows - 1;
-		*end_col = editor.row[*end_row].size;
+	if (*end_row >= bcur()->numrows) {
+		*end_row = bcur()->numrows - 1;
+		*end_col = bcur()->row[*end_row].size;
 	}
 	if (*start_col < 0) {
 		*start_col = 0;
 	}
-	if (*start_col > editor.row[*start_row].size) {
-		*start_col = editor.row[*start_row].size;
+	if (*start_col > bcur()->row[*start_row].size) {
+		*start_col = bcur()->row[*start_row].size;
 	}
 	if (*end_col < 0) {
 		*end_col = 0;
 	}
-	if (*end_col > editor.row[*end_row].size) {
-		*end_col = editor.row[*end_row].size;
+	if (*end_col > bcur()->row[*end_row].size) {
+		*end_col = bcur()->row[*end_row].size;
 	}
 	return *start_row < *end_row
 	    || (*start_row == *end_row && *start_col < *end_col);
@@ -206,8 +206,8 @@ void editor_pop_to_mark(void)
 	 * here and let editor_snap_cx_to_row settle an overlong column. */
 	row = editor.mark_row;
 	col = editor.mark_col;
-	if (row >= editor.numrows) {
-		row = editor.numrows > 0 ? editor.numrows - 1 : 0;
+	if (row >= bcur()->numrows) {
+		row = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
 		col = 0;
 	}
 	editor_cursor_goto(row, col);
@@ -277,16 +277,16 @@ char *editor_get_region_text(int *out_len)
 	}
 
 	/* Calculate total length needed */
-	for (row = start_row; row <= end_row && row < editor.numrows; row++) {
+	for (row = start_row; row <= end_row && row < bcur()->numrows; row++) {
 		int copy_start = (row == start_row) ? start_col : 0;
 		int copy_end
-		    = (row == end_row) ? end_col : editor.row[row].size;
+		    = (row == end_row) ? end_col : bcur()->row[row].size;
 
-		if (copy_end > editor.row[row].size) {
-			copy_end = editor.row[row].size;
+		if (copy_end > bcur()->row[row].size) {
+			copy_end = bcur()->row[row].size;
 		}
-		if (copy_start > editor.row[row].size) {
-			copy_start = editor.row[row].size;
+		if (copy_start > bcur()->row[row].size) {
+			copy_start = bcur()->row[row].size;
 		}
 		if (copy_start < 0) {
 			copy_start = 0;
@@ -317,17 +317,17 @@ char *editor_get_region_text(int *out_len)
 		return NULL;
 	}
 
-	for (row = start_row; row <= end_row && row < editor.numrows; row++) {
+	for (row = start_row; row <= end_row && row < bcur()->numrows; row++) {
 		int copy_start = (row == start_row) ? start_col : 0;
 		int copy_end
-		    = (row == end_row) ? end_col : editor.row[row].size;
+		    = (row == end_row) ? end_col : bcur()->row[row].size;
 		int copy_len;
 
-		if (copy_end > editor.row[row].size) {
-			copy_end = editor.row[row].size;
+		if (copy_end > bcur()->row[row].size) {
+			copy_end = bcur()->row[row].size;
 		}
-		if (copy_start > editor.row[row].size) {
-			copy_start = editor.row[row].size;
+		if (copy_start > bcur()->row[row].size) {
+			copy_start = bcur()->row[row].size;
 		}
 		if (copy_start < 0) {
 			copy_start = 0;
@@ -342,7 +342,7 @@ char *editor_get_region_text(int *out_len)
 				free(text);
 				return NULL;
 			}
-			memcpy(text + pos, editor.row[row].chars + copy_start,
+			memcpy(text + pos, bcur()->row[row].chars + copy_start,
 			    copy_len);
 			pos += copy_len;
 		}
@@ -378,17 +378,17 @@ static int editor_delete_region_range(
 	int removed;
 
 	if (start_row == end_row) {
-		erow *r = &editor.row[start_row];
+		erow *r = &bcur()->row[start_row];
 		memmove(r->chars + start_col, r->chars + end_col,
 		    r->size - end_col + 1);
 		r->size -= end_col - start_col;
-		editor_update_row(r);
-		editor.dirty++;
+		editor_update_row(bcur(), r);
+		bcur()->dirty++;
 		return 1;
 	}
 
-	first = &editor.row[start_row];
-	last = &editor.row[end_row];
+	first = &bcur()->row[start_row];
+	last = &bcur()->row[end_row];
 	suffix_len = last->size - end_col;
 	if (!checked_add_int_size(
 		&new_size, start_col, (size_t)suffix_len + 1)) {
@@ -403,19 +403,19 @@ static int editor_delete_region_range(
 	memcpy(first->chars + start_col, last->chars + end_col, suffix_len);
 	first->chars[new_size] = '\0';
 	first->size = new_size;
-	editor_update_row(first);
+	editor_update_row(bcur(), first);
 
 	for (row = start_row + 1; row <= end_row; row++) {
-		editor_free_row(&editor.row[row]);
+		editor_free_row(&bcur()->row[row]);
 	}
 	removed = end_row - start_row;
-	memmove(editor.row + start_row + 1, editor.row + end_row + 1,
-	    (size_t)(editor.numrows - end_row - 1) * sizeof(*editor.row));
-	editor.numrows -= removed;
-	for (row = start_row + 1; row < editor.numrows; row++) {
-		editor.row[row].idx = row;
+	memmove(bcur()->row + start_row + 1, bcur()->row + end_row + 1,
+	    (size_t)(bcur()->numrows - end_row - 1) * sizeof(*bcur()->row));
+	bcur()->numrows -= removed;
+	for (row = start_row + 1; row < bcur()->numrows; row++) {
+		bcur()->row[row].idx = row;
 	}
-	editor.dirty++;
+	bcur()->dirty++;
 	return 1;
 }
 
@@ -424,10 +424,10 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	if (byte_len <= 0) {
 		return 0;
 	}
-	if (start_row < 0 || start_row >= editor.numrows) {
+	if (start_row < 0 || start_row >= bcur()->numrows) {
 		return 0;
 	}
-	if (start_col < 0 || start_col > editor.row[start_row].size) {
+	if (start_col < 0 || start_col > bcur()->row[start_row].size) {
 		return 0;
 	}
 
@@ -436,12 +436,12 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	int rem = byte_len;
 
 	while (rem > 0) {
-		int row_len = editor.row[row].size;
+		int row_len = bcur()->row[row].size;
 		if (rem <= row_len - col) {
 			col += rem;
 			rem = 0;
 		} else {
-			if (row + 1 >= editor.numrows) {
+			if (row + 1 >= bcur()->numrows) {
 				return 0;
 			}
 			rem -= (row_len - col + 1);
@@ -614,7 +614,7 @@ void editor_sort_lines(void)
 	}
 
 	orig_text
-	    = editor_rows_to_string(&editor.row[start_row], nlines, &orig_len);
+	    = editor_rows_to_string(&bcur()->row[start_row], nlines, &orig_len);
 	if (!orig_text) {
 		return;
 	}
@@ -625,13 +625,13 @@ void editor_sort_lines(void)
 		editor_set_status_message("Out of memory");
 		return;
 	}
-	memcpy(temp, &editor.row[start_row], nlines * sizeof(erow));
+	memcpy(temp, &bcur()->row[start_row], nlines * sizeof(erow));
 
 	qsort(temp, nlines, sizeof(erow), sort_lines_cmp);
 
 	for (i = 0; i < nlines; i++) {
-		editor.row[start_row + i] = temp[i];
-		editor.row[start_row + i].idx = start_row + i;
+		bcur()->row[start_row + i] = temp[i];
+		bcur()->row[start_row + i].idx = start_row + i;
 	}
 
 	free(temp);
@@ -644,6 +644,6 @@ void editor_sort_lines(void)
 	editor.rect_mode = 0;
 	editor.shift_select = 0;
 	editor_snap_cx_to_row();
-	editor.dirty = 1;
+	bcur()->dirty = 1;
 	editor_set_status_message("Sorted %d lines", nlines);
 }

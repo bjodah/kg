@@ -350,11 +350,11 @@ static int load_append_row(
  * staged filename selects.
  *
  * Rendering and syntax highlighting are shared editor machinery, so the
- * staged array is installed as the live one for the duration and all live
- * state is restored before any failure is reported.  editor.numrows grows
- * a row at a time on purpose: each row is updated as the last row of the
- * staged prefix, which is what stops an hl_oc flip from propagating into
- * rows that have no render yet -- and turning the pass quadratic.
+ * staged array is given a buffer record of its own for the duration.  Its
+ * numrows grows a row at a time on purpose: each row is updated as the
+ * last row of the staged prefix, which is what stops an hl_oc flip from
+ * propagating into rows that have no render yet -- and turning the pass
+ * quadratic.
  *
  * Syntax selection happens once here rather than once per row.  It reads
  * only the filename, but for a file with no recognised extension it
@@ -364,29 +364,28 @@ static int load_append_row(
  * Returns 0, or -1 with errno set when a row could not be rendered. */
 static int load_stage_rows(struct temp_load_result *res)
 {
-	erow *saved_row = editor.row;
-	int saved_numrows = editor.numrows;
-	int saved_capacity = editor.row_capacity;
-	struct editor_syntax *saved_syntax = editor.syntax;
+	struct editor_buffer staged;
 	int saved_running = running;
 	int i, failed = 0;
 
-	editor.row = res->row;
-	editor.numrows = 0;
-	editor.row_capacity = res->row_capacity;
-	editor_select_syntax_highlight(res->filename);
+	/* A buffer record that owns nothing but the staged array: the render
+	 * and the highlighter both need to reach the rows above the one they
+	 * are working on, and this is the whole of what they need.  It used
+	 * to be the live buffer with its fields saved and put back, which
+	 * meant the load was briefly indistinguishable from the buffer the
+	 * user was in. */
+	memset(&staged, 0, sizeof(staged));
+	staged.row = res->row;
+	staged.row_capacity = res->row_capacity;
+	editor_select_syntax_highlight(&staged, res->filename);
 	for (i = 0; i < res->numrows; i++) {
-		editor.numrows = i + 1;
-		editor_update_row(&res->row[i]);
+		staged.numrows = i + 1;
+		editor_update_row(&staged, &res->row[i]);
 		if (!res->row[i].render || running != saved_running) {
 			failed = 1;
 			break;
 		}
 	}
-	editor.row = saved_row;
-	editor.numrows = saved_numrows;
-	editor.row_capacity = saved_capacity;
-	editor.syntax = saved_syntax;
 	running = saved_running;
 	if (failed) {
 		errno = ENOMEM;
@@ -489,32 +488,31 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 void commit_load_result(struct temp_load_result *res)
 {
 	int i;
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
+	for (i = 0; i < bcur()->numrows; i++) {
+		editor_free_row(&bcur()->row[i]);
 	}
-	free(editor.row);
+	free(bcur()->row);
 	free(editor.filename);
 
 	editor.filename = res->filename;
-	editor.row = res->row;
-	editor.numrows = res->numrows;
-	editor.row_capacity = res->row_capacity;
+	bcur()->row = res->row;
+	bcur()->numrows = res->numrows;
+	bcur()->row_capacity = res->row_capacity;
 	editor.disk = res->disk;
 	editor.disk_changed = 0;
-	editor.dirty = 0;
+	bcur()->dirty = 0;
 
 	/* The staged pass (load_stage_rows()) already rendered and
 	 * highlighted every row in order, with the syntax this filename
 	 * selects, so re-highlighting here would recompute the same hl and
 	 * hl_oc for every row -- two full passes over the buffer on every
-	 * open.  The selection itself stays: the staged pass restored the
-	 * outgoing buffer's syntax on its way out, and this is the live
-	 * buffer's.
+	 * open.  The selection itself stays: the staged pass made it on a
+	 * throwaway buffer record, and this is the one that keeps the rows.
 	 *
 	 * test_load_highlight_is_final() in test/test_perf.c is the proof:
 	 * it compares every row's hl bytes and hl_oc after a load against a
 	 * from-scratch editor_rehighlight_all(). */
-	editor_select_syntax_highlight(editor.filename);
+	editor_select_syntax_highlight(bcur(), editor.filename);
 
 	res->filename = NULL;
 	res->row = NULL;
@@ -665,11 +663,11 @@ static int editor_save_named(int fd, int destination_decided)
 		}
 
 		old_filename = editor.filename;
-		old_syntax = editor.syntax;
+		old_syntax = bcur()->syntax;
 		name_changed = 1;
 
 		editor.filename = newfilename;
-		editor_select_syntax_highlight(editor.filename);
+		editor_select_syntax_highlight(bcur(), editor.filename);
 		accepted = NULL;
 	} else if (!destination_decided
 	    && !confirm_save_over_accepted(fd, editor.filename, &editor.disk)) {
@@ -677,24 +675,24 @@ static int editor_save_named(int fd, int destination_decided)
 		return 1;
 	}
 
-	if (editor_write_rows_to_file(
-		editor.filename, editor.row, editor.numrows, &len, accepted)) {
+	if (editor_write_rows_to_file(editor.filename, bcur()->row,
+		bcur()->numrows, &len, accepted)) {
 		if (name_changed) {
 			free(editor.filename);
 			editor.filename = old_filename;
-			editor.syntax = old_syntax;
+			bcur()->syntax = old_syntax;
 		}
 		goto writeerr;
 	}
 
 	if (name_changed) {
 		free(old_filename);
-		for (int i = 0; i < editor.numrows; i++) {
-			editor_update_syntax(&editor.row[i]);
+		for (int i = 0; i < bcur()->numrows; i++) {
+			editor_update_syntax(bcur(), &bcur()->row[i]);
 		}
 	}
 
-	editor.dirty = 0;
+	bcur()->dirty = 0;
 	undo_mark_clean(); /* Mark this state as clean for undo tracking */
 	editor_snapshot_disk();
 	/* Push the freshly saved state — including the name, when this save
@@ -751,11 +749,11 @@ void editor_write_file(int fd)
 	}
 
 	char *old_filename = editor.filename;
-	struct editor_syntax *old_syntax = editor.syntax;
+	struct editor_syntax *old_syntax = bcur()->syntax;
 	struct file_snapshot old_disk = editor.disk;
 
 	editor.filename = newfilename;
-	editor_select_syntax_highlight(editor.filename);
+	editor_select_syntax_highlight(bcur(), editor.filename);
 
 	if (editor_save_named(fd, 1) != 0) {
 		/* Save failed: restore the previous name, syntax and snapshot
@@ -763,14 +761,14 @@ void editor_write_file(int fd)
 		 * would measure its next save against the wrong file. */
 		free(editor.filename);
 		editor.filename = old_filename;
-		editor.syntax = old_syntax;
+		bcur()->syntax = old_syntax;
 		editor.disk = old_disk;
 	} else {
 		/* Save succeeded: free the old filename and update syntax of
 		 * rows */
 		free(old_filename);
-		for (int i = 0; i < editor.numrows; i++) {
-			editor_update_syntax(&editor.row[i]);
+		for (int i = 0; i < bcur()->numrows; i++) {
+			editor_update_syntax(bcur(), &bcur()->row[i]);
 		}
 	}
 }

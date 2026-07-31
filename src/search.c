@@ -23,8 +23,8 @@ static struct minibuf_history query_replace_history;
 #define RESTORE_HL                                                             \
 	do {                                                                   \
 		if (saved_hl) {                                                \
-			memcpy(editor.row[saved_hl_line].hl, saved_hl,         \
-			    editor.row[saved_hl_line].rsize);                  \
+			memcpy(bcur()->row[saved_hl_line].hl, saved_hl,        \
+			    bcur()->row[saved_hl_line].rsize);                 \
 			free(saved_hl);                                        \
 			saved_hl = NULL;                                       \
 		}                                                              \
@@ -91,19 +91,19 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 {
 	int current, i;
 
-	if (editor.numrows == 0 || qlen == 0) {
+	if (bcur()->numrows == 0 || qlen == 0) {
 		return 0;
 	}
 
 	if (start_row < 0) {
 		start_row = 0;
-	} else if (start_row >= editor.numrows) {
-		start_row = editor.numrows - 1;
+	} else if (start_row >= bcur()->numrows) {
+		start_row = bcur()->numrows - 1;
 	}
 
 	current = start_row;
-	for (i = 0; i < editor.numrows; i++) {
-		erow *row = &editor.row[current];
+	for (i = 0; i < bcur()->numrows; i++) {
+		erow *row = &bcur()->row[current];
 		int col
 		    = (i == 0) ? start_col : (direction > 0 ? 0 : row->size);
 
@@ -153,8 +153,8 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 
 		current += direction;
 		if (current < 0) {
-			current = editor.numrows - 1;
-		} else if (current == editor.numrows) {
+			current = bcur()->numrows - 1;
+		} else if (current == bcur()->numrows) {
 			current = 0;
 		}
 	}
@@ -188,7 +188,7 @@ static enum replace_answer query_replace_answer(int c)
 
 static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 {
-	erow *row = &editor.row[rowidx];
+	erow *row = &bcur()->row[rowidx];
 	int join_col = row->size;
 	int i;
 
@@ -201,11 +201,11 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 		    row, join_col + i, (unsigned char)replace[i]);
 	}
 	editor_row_append_string(
-	    row, editor.row[rowidx + 1].chars, editor.row[rowidx + 1].size);
-	editor_del_row(rowidx + 1);
+	    row, bcur()->row[rowidx + 1].chars, bcur()->row[rowidx + 1].size);
+	editor_del_row(bcur(), rowidx + 1);
 	suppress_undo = 0;
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 /* Emacs restricts query-replace to the region when one is active; otherwise
@@ -220,8 +220,8 @@ static void query_replace_bounds(
 	}
 	*start_row = editor.rowoff + editor.cy;
 	*start_col = editor.coloff + editor.cx;
-	*end_row = editor.numrows > 0 ? editor.numrows - 1 : 0;
-	*end_col = editor.numrows > 0 ? editor.row[*end_row].size : 0;
+	*end_row = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
+	*end_col = bcur()->numrows > 0 ? bcur()->row[*end_row].size : 0;
 }
 
 /* Snapshot the highlight of row `filerow` into *saved_hl, then paint the
@@ -233,7 +233,7 @@ static void query_replace_bounds(
 static int query_replace_mark_match(
     int filerow, int rcol, int rlen, char **saved_hl, int *saved_hl_line)
 {
-	erow *row = &editor.row[filerow];
+	erow *row = &bcur()->row[filerow];
 
 	if (!row->hl) {
 		return 0;
@@ -258,10 +258,10 @@ static void editor_query_replace_newline(
 
 	/* The newline ending row R is inside the region only while R is above
 	 * the last region row. */
-	while (filerow < end_row && filerow < editor.numrows - 1) {
+	while (filerow < end_row && filerow < bcur()->numrows - 1) {
 		enum replace_answer answer = REPLACE_DO;
 
-		editor_cursor_goto(filerow, editor.row[filerow].size);
+		editor_cursor_goto(filerow, bcur()->row[filerow].size);
 		if (!replace_all) {
 			editor_set_status_message(
 			    "Replace \"^J\" with \"%s\"? (y/n/!/q)", replace);
@@ -595,7 +595,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				RESTORE_HL;
 
 				if (match > 0) {
-					erow *row = &editor.row[match_row];
+					erow *row = &bcur()->row[match_row];
 					last_match_row = match_row;
 					last_match_col = match_col;
 					if (row->hl) {
@@ -691,9 +691,9 @@ void editor_query_replace(int fd)
 	match_col = start_col;
 	fold = !query_has_upper(search, slen);
 
-	while (filerow <= end_row && filerow < editor.numrows) {
+	while (filerow <= end_row && filerow < bcur()->numrows) {
 		char *match = case_strstr(
-		    editor.row[filerow].chars + match_col, search, fold);
+		    bcur()->row[filerow].chars + match_col, search, fold);
 		enum replace_answer answer = REPLACE_DO;
 
 		if (!match) {
@@ -701,7 +701,7 @@ void editor_query_replace(int fd)
 			match_col = 0;
 			continue;
 		}
-		match_col = match - editor.row[filerow].chars;
+		match_col = match - bcur()->row[filerow].chars;
 		/* A match straddling the region end is outside it, and so is
 		 * every later match on this row. */
 		if (filerow == end_row && match_col + slen > end_col) {
@@ -715,7 +715,7 @@ void editor_query_replace(int fd)
 		 * precede the match on the line. */
 		RESTORE_HL;
 		if (query_replace_mark_match(filerow,
-			chars_to_render_col(&editor.row[filerow], match_col),
+			chars_to_render_col(&bcur()->row[filerow], match_col),
 			slen, &saved_hl, &saved_hl_line)
 		    != 0) {
 			editor_set_status_message("Out of memory");
@@ -760,7 +760,7 @@ void editor_query_replace(int fd)
 			count++;
 		} else {
 			match_col
-			    = skip_one_glyph(&editor.row[filerow], match_col);
+			    = skip_one_glyph(&bcur()->row[filerow], match_col);
 		}
 	}
 
@@ -902,8 +902,8 @@ void editor_query_replace_regexp(int fd)
 	filerow = start_row;
 	match_col = start_col;
 
-	while (filerow <= end_row && filerow < editor.numrows && running) {
-		erow *row = &editor.row[filerow];
+	while (filerow <= end_row && filerow < bcur()->numrows && running) {
+		erow *row = &bcur()->row[filerow];
 		struct kg_match match_res;
 		enum replace_answer answer = REPLACE_DO;
 		int left = row->size - match_col;
@@ -1031,7 +1031,7 @@ void editor_query_replace_regexp(int fd)
 			match_col = next_raw;
 		}
 		free(expanded);
-		if (match_col < 0 || match_col > editor.row[filerow].size) {
+		if (match_col < 0 || match_col > bcur()->row[filerow].size) {
 			filerow++;
 			match_col = 0;
 		}

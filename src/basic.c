@@ -36,7 +36,7 @@ static void cursor_place_col(int col)
 void editor_move_cursor(int key)
 {
 	int filerow = editor_current_filerow_or_eof();
-	erow *row = filerow >= editor.numrows ? NULL : &editor.row[filerow];
+	erow *row = filerow >= bcur()->numrows ? NULL : &bcur()->row[filerow];
 	int filecol = editor_current_filecol();
 	int is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
 	int rowlen;
@@ -84,8 +84,8 @@ void editor_move_cursor(int key)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cur_vrow = get_visual_row(editor.row,
-			    editor.numrows, win_w, filerow, filecol);
+			int cur_vrow = get_visual_row(bcur()->row,
+			    bcur()->numrows, win_w, filerow, filecol);
 			if (cur_vrow > 0) {
 				goto_visual_row_col(cur_vrow - 1, rcol % win_w);
 			}
@@ -95,8 +95,8 @@ void editor_move_cursor(int key)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cur_vrow = get_visual_row(editor.row,
-			    editor.numrows, win_w, filerow, filecol);
+			int cur_vrow = get_visual_row(bcur()->row,
+			    bcur()->numrows, win_w, filerow, filecol);
 			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
 			return;
 		}
@@ -115,12 +115,12 @@ void editor_move_cursor(int key)
 		break;
 	case ARROW_LEFT:
 		if (filecol == 0) {
-			if (filerow >= editor.numrows) {
-				int prevrow = editor.numrows - 1;
+			if (filerow >= bcur()->numrows) {
+				int prevrow = bcur()->numrows - 1;
 				prevrow = prevrow < 0 ? 0 : prevrow;
 				editor_cursor_goto(prevrow,
-				    editor.numrows ? editor.row[prevrow].size
-						   : 0);
+				    bcur()->numrows ? bcur()->row[prevrow].size
+						    : 0);
 				break;
 			}
 			if (filerow > 0) {
@@ -129,7 +129,7 @@ void editor_move_cursor(int key)
 				} else {
 					editor.cy--;
 				}
-				editor.cx = editor.row[filerow - 1].size;
+				editor.cx = bcur()->row[filerow - 1].size;
 				if (editor.cx > editor.screencols - 1) {
 					editor.coloff
 					    = editor.cx - editor.screencols + 1;
@@ -188,7 +188,7 @@ void editor_move_cursor(int key)
 			 * some rows don't reach. */
 			cursor_advance_screen_col();
 		} else if (row && filecol == row->size
-		    && filerow < editor.numrows - 1) {
+		    && filerow < bcur()->numrows - 1) {
 			editor.cx = 0;
 			editor.coloff = 0;
 			if (editor.cy == editor.screenrows - 1) {
@@ -210,7 +210,7 @@ void editor_move_cursor(int key)
 		}
 		break;
 	case ARROW_DOWN:
-		if (filerow < editor.numrows - 1) {
+		if (filerow < bcur()->numrows - 1) {
 			if (editor.cy == editor.screenrows - 1) {
 				editor.rowoff++;
 			} else {
@@ -227,7 +227,7 @@ void editor_move_cursor(int key)
 	 * cursor is allowed to stay past EOL; the trailing clamp below
 	 * only fires for non-rect-mode. */
 	filerow = editor_current_filerow_or_eof();
-	row = filerow >= editor.numrows ? NULL : &editor.row[filerow];
+	row = filerow >= bcur()->numrows ? NULL : &bcur()->row[filerow];
 	if (is_vertical && row && editor.desired_visual_col >= 0) {
 		int target = editor_chars_col_at_visual(
 		    row, editor.desired_visual_col);
@@ -271,13 +271,13 @@ void editor_move_to_indentation(void)
 	erow *row;
 	int col;
 
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (editor_current_filerow_or_eof() >= bcur()->numrows) {
 		return;
 	}
 
 	editor_move_cursor(HOME_KEY);
 
-	row = &editor.row[editor_current_filerow()];
+	row = &bcur()->row[editor_current_filerow()];
 	col = editor_current_filecol();
 	while (col < row->size && isspace((unsigned char)row->chars[col])) {
 		editor_move_cursor(ARROW_RIGHT);
@@ -306,7 +306,7 @@ void editor_move_to_window_line(void)
 		break;
 	}
 
-	last_visible_row = editor.numrows - editor.rowoff - 1;
+	last_visible_row = bcur()->numrows - editor.rowoff - 1;
 	if (last_visible_row < 0) {
 		last_visible_row = 0;
 	}
@@ -329,19 +329,19 @@ void editor_goto_line_direct(int line, int col)
 	int filerow, filecol;
 	erow *row;
 
-	if (editor.numrows == 0) {
+	if (bcur()->numrows == 0) {
 		return;
 	}
 	if (line < 1) {
 		line = 1;
 	}
-	if (line > editor.numrows) {
-		line = editor.numrows;
+	if (line > bcur()->numrows) {
+		line = bcur()->numrows;
 	}
 
 	filerow = line - 1;
 	filecol = (col > 1) ? col - 1 : 0;
-	row = &editor.row[filerow];
+	row = &bcur()->row[filerow];
 	if (filecol > row->size) {
 		filecol = row->size;
 	}
@@ -387,12 +387,12 @@ void editor_move_to_end(void)
 	erow *row;
 	int filerow;
 
-	if (editor.numrows == 0) {
+	if (bcur()->numrows == 0) {
 		return;
 	}
 
-	filerow = editor.numrows - 1;
-	row = &editor.row[filerow];
+	filerow = bcur()->numrows - 1;
+	row = &bcur()->row[filerow];
 
 	/* Update cursor position */
 	if (filerow >= editor.rowoff + editor.screenrows) {

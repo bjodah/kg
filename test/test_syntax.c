@@ -18,14 +18,14 @@ static void setup(struct editor_syntax *syn)
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	editor.syntax = syn;
+	bcur()->syntax = syn;
 }
 
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 }
 
 /* ---- is_separator tests ---- */
@@ -95,15 +95,15 @@ static void test_generic_scan_marks_only_ascii_controls(void)
 
 	setup(syntax_find_by_name("C"));
 	/* "x = \"\u00e9\"; " with an ESC and a DEL after it. */
-	editor_insert_row(0, "int \xc3\xa9 = 1;\x1b\x7f", 13);
+	editor_insert_row(bcur(), 0, "int \xc3\xa9 = 1;\x1b\x7f", 13);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2); /* int */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2); /* int */
 	for (i = 4; i <= 5; i++) {
-		CHECK(editor.row[0].hl[i] != HL_NONPRINT); /* the U+00E9 */
+		CHECK(bcur()->row[0].hl[i] != HL_NONPRINT); /* the U+00E9 */
 	}
-	CHECK(editor.row[0].hl[9] == HL_NUMBER); /* 1 */
-	CHECK(editor.row[0].hl[11] == HL_NONPRINT); /* ESC */
-	CHECK(editor.row[0].hl[12] == HL_NONPRINT); /* DEL */
+	CHECK(bcur()->row[0].hl[9] == HL_NUMBER); /* 1 */
+	CHECK(bcur()->row[0].hl[11] == HL_NONPRINT); /* ESC */
+	CHECK(bcur()->row[0].hl[12] == HL_NONPRINT); /* DEL */
 	teardown();
 }
 
@@ -127,12 +127,12 @@ static void test_syntax_to_color(void)
 static void test_c_type_keyword(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "int x;", 6);
+	editor_insert_row(bcur(), 0, "int x;", 6);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[1] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[2] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[3] == HL_NORMAL); /* space after keyword */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[1] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[2] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[3] == HL_NORMAL); /* space after keyword */
 	teardown();
 }
 
@@ -140,12 +140,12 @@ static void test_c_type_keyword(void)
 static void test_c_ctrl_keyword(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "return 0;", 9);
+	editor_insert_row(bcur(), 0, "return 0;", 9);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[5] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* space */
-	CHECK(editor.row[0].hl[7] == HL_NUMBER); /* 0 */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[5] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL); /* space */
+	CHECK(bcur()->row[0].hl[7] == HL_NUMBER); /* 0 */
 	teardown();
 }
 
@@ -155,10 +155,10 @@ static void test_c_string(void)
 	int i;
 
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "\"hello\"", 7);
+	editor_insert_row(bcur(), 0, "\"hello\"", 7);
 
 	for (i = 0; i < 7; i++) {
-		CHECK(editor.row[0].hl[i] == HL_STRING);
+		CHECK(bcur()->row[0].hl[i] == HL_STRING);
 	}
 	teardown();
 }
@@ -169,10 +169,10 @@ static void test_c_line_comment(void)
 	int i;
 
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "// comment", 10);
+	editor_insert_row(bcur(), 0, "// comment", 10);
 
 	for (i = 0; i < 10; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -181,10 +181,10 @@ static void test_c_line_comment(void)
 static void test_c_integer(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "42", 2);
+	editor_insert_row(bcur(), 0, "42", 2);
 
-	CHECK(editor.row[0].hl[0] == HL_NUMBER);
-	CHECK(editor.row[0].hl[1] == HL_NUMBER);
+	CHECK(bcur()->row[0].hl[0] == HL_NUMBER);
+	CHECK(bcur()->row[0].hl[1] == HL_NUMBER);
 	teardown();
 }
 
@@ -194,10 +194,10 @@ static void test_c_hex(void)
 	int i;
 
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "0xff", 4);
+	editor_insert_row(bcur(), 0, "0xff", 4);
 
 	for (i = 0; i < 4; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NUMBER);
+		CHECK(bcur()->row[0].hl[i] == HL_NUMBER);
 	}
 	teardown();
 }
@@ -208,10 +208,10 @@ static void test_c_binary(void)
 	int i;
 
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "0b101", 5);
+	editor_insert_row(bcur(), 0, "0b101", 5);
 
 	for (i = 0; i < 5; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NUMBER);
+		CHECK(bcur()->row[0].hl[i] == HL_NUMBER);
 	}
 	teardown();
 }
@@ -220,9 +220,9 @@ static void test_c_binary(void)
 static void test_c_no_partial_keyword(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "returning", 9); /* not "return" */
+	editor_insert_row(bcur(), 0, "returning", 9); /* not "return" */
 
-	CHECK(editor.row[0].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
 	teardown();
 }
 
@@ -232,12 +232,12 @@ static void test_c_no_partial_keyword(void)
 static void test_make_target(void)
 {
 	setup(syntax_find_by_name("Makefile"));
-	editor_insert_row(0, "all: src", 8);
+	editor_insert_row(bcur(), 0, "all: src", 8);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[1] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[2] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[3] == HL_NORMAL); /* ':' not highlighted */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[1] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[2] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[3] == HL_NORMAL); /* ':' not highlighted */
 	teardown();
 }
 
@@ -245,12 +245,12 @@ static void test_make_target(void)
 static void test_make_simple_assignment(void)
 {
 	setup(syntax_find_by_name("Makefile"));
-	editor_insert_row(0, "CC = gcc", 8);
+	editor_insert_row(bcur(), 0, "CC = gcc", 8);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[1] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[2] == HL_NORMAL); /* space */
-	CHECK(editor.row[0].hl[3] == HL_KEYWORD1); /* '=' */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[1] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[2] == HL_NORMAL); /* space */
+	CHECK(bcur()->row[0].hl[3] == HL_KEYWORD1); /* '=' */
 	teardown();
 }
 
@@ -258,12 +258,12 @@ static void test_make_simple_assignment(void)
 static void test_make_compound_assignment(void)
 {
 	setup(syntax_find_by_name("Makefile"));
-	editor_insert_row(0, "CFLAGS := -Wall", 15);
+	editor_insert_row(bcur(), 0, "CFLAGS := -Wall", 15);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2); /* C */
-	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* space */
-	CHECK(editor.row[0].hl[7] == HL_KEYWORD1); /* ':' of ':=' */
-	CHECK(editor.row[0].hl[8] == HL_KEYWORD1); /* '=' of ':=' */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2); /* C */
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL); /* space */
+	CHECK(bcur()->row[0].hl[7] == HL_KEYWORD1); /* ':' of ':=' */
+	CHECK(bcur()->row[0].hl[8] == HL_KEYWORD1); /* '=' of ':=' */
 	teardown();
 }
 
@@ -273,10 +273,10 @@ static void test_make_comment(void)
 	int i;
 
 	setup(syntax_find_by_name("Makefile"));
-	editor_insert_row(0, "# comment", 9);
+	editor_insert_row(bcur(), 0, "# comment", 9);
 
 	for (i = 0; i < 9; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -289,10 +289,10 @@ static void test_md_atx_heading(void)
 	int i;
 
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "# Heading", 9);
+	editor_insert_row(bcur(), 0, "# Heading", 9);
 
 	for (i = 0; i < 9; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD1);
 	}
 	teardown();
 }
@@ -303,10 +303,10 @@ static void test_md_blockquote(void)
 	int i;
 
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "> quote", 7);
+	editor_insert_row(bcur(), 0, "> quote", 7);
 
 	for (i = 0; i < 7; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -317,10 +317,10 @@ static void test_md_fenced_code_fence(void)
 	int i;
 
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "```", 3);
+	editor_insert_row(bcur(), 0, "```", 3);
 
 	for (i = 0; i < 3; i++) {
-		CHECK(editor.row[0].hl[i] == HL_STRING);
+		CHECK(bcur()->row[0].hl[i] == HL_STRING);
 	}
 	teardown();
 }
@@ -334,21 +334,21 @@ static void test_md_setext_underline(void)
 	/* Two rows: the heading text and the underline.
 	 * markdown_syntax checks row->idx+1 to detect setext underlines,
 	 * so both rows must exist with correct idx values. */
-	editor_insert_row(0, "Hello", 5);
-	editor_insert_row(1, "=====", 5);
+	editor_insert_row(bcur(), 0, "Hello", 5);
+	editor_insert_row(bcur(), 1, "=====", 5);
 	/* editor_insert_row updates syntax before incrementing numrows, so the
 	 * "row above underline" re-trigger fires with numrows=1 and misses.
 	 * Re-trigger row 0 now that numrows is correct. */
-	editor_update_row(&editor.row[0]);
+	editor_update_row(bcur(), &bcur()->row[0]);
 
 	/* The underline row itself is HL_KEYWORD1. */
 	for (i = 0; i < 5; i++) {
-		CHECK(editor.row[1].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[1].hl[i] == HL_KEYWORD1);
 	}
 
 	/* The heading text row is re-highlighted as HL_KEYWORD1 too. */
 	for (i = 0; i < 5; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD1);
 	}
 	teardown();
 }
@@ -361,10 +361,10 @@ static void test_md_unmatched_bold(void)
 	int i;
 
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "stray '**' marker", 17);
+	editor_insert_row(bcur(), 0, "stray '**' marker", 17);
 
 	for (i = 0; i < 17; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 	}
 	teardown();
 }
@@ -377,10 +377,10 @@ static void test_gitcommit_comment_line(void)
 	int i;
 
 	setup(syntax_find_by_name("Git commit"));
-	editor_insert_row(0, "# comment line", 14);
+	editor_insert_row(bcur(), 0, "# comment line", 14);
 
 	for (i = 0; i < 14; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -396,13 +396,13 @@ static void test_gitcommit_subject_overflow(void)
 
 	setup(syntax_find_by_name("Git commit"));
 	memset(subject, 'x', 60);
-	editor_insert_row(0, subject, 60);
+	editor_insert_row(bcur(), 0, subject, 60);
 
 	for (i = 0; i < 50; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 	}
 	for (i = 50; i < 60; i++) {
-		CHECK(editor.row[0].hl[i] == HL_WARNING);
+		CHECK(bcur()->row[0].hl[i] == HL_WARNING);
 	}
 	teardown();
 }
@@ -412,11 +412,11 @@ static void test_gitcommit_subject_overflow(void)
 static void test_gitcommit_subject_skips_comment(void)
 {
 	setup(syntax_find_by_name("Git commit"));
-	editor_insert_row(0, "# leading comment", 17);
-	editor_insert_row(1, "the subject", 11);
+	editor_insert_row(bcur(), 0, "# leading comment", 17);
+	editor_insert_row(bcur(), 1, "the subject", 11);
 
 	CHECK(syntax_git_commit_subject() == 1);
-	CHECK(editor.row[1].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[1].hl[0] == HL_NORMAL);
 	teardown();
 }
 
@@ -428,12 +428,12 @@ static void test_gitcommit_body_not_warned(void)
 
 	setup(syntax_find_by_name("Git commit"));
 	memset(body, 'y', 60);
-	editor_insert_row(0, "short subject", 13);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, body, 60);
+	editor_insert_row(bcur(), 0, "short subject", 13);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, body, 60);
 
 	for (i = 0; i < 60; i++) {
-		CHECK(editor.row[2].hl[i] == HL_NORMAL);
+		CHECK(bcur()->row[2].hl[i] == HL_NORMAL);
 	}
 	teardown();
 }
@@ -444,15 +444,15 @@ static void test_gitcommit_no_subject(void)
 	int i;
 
 	setup(syntax_find_by_name("Git commit"));
-	editor_insert_row(0, "# only a comment", 16);
-	editor_insert_row(1, "# another comment", 17);
+	editor_insert_row(bcur(), 0, "# only a comment", 16);
+	editor_insert_row(bcur(), 1, "# another comment", 17);
 
 	CHECK(syntax_git_commit_subject() == -1);
 	for (i = 0; i < 16; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	for (i = 0; i < 17; i++) {
-		CHECK(editor.row[1].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[1].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -465,10 +465,10 @@ static void test_gitrebase_comment_line(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "# Rebase abc..def onto abc", 26);
+	editor_insert_row(bcur(), 0, "# Rebase abc..def onto abc", 26);
 
 	for (i = 0; i < 26; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -481,17 +481,17 @@ static void test_gitrebase_pick_line(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "pick 1a2b3c4 decade", 19);
+	editor_insert_row(bcur(), 0, "pick 1a2b3c4 decade", 19);
 
 	for (i = 0; i < 4; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD1);
 	}
-	CHECK(editor.row[0].hl[4] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[4] == HL_NORMAL);
 	for (i = 5; i < 12; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD2);
 	}
 	for (i = 12; i < 19; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 	}
 	teardown();
 }
@@ -502,10 +502,10 @@ static void test_gitrebase_unknown_action_warns(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "puck 1a2b3c4 oops", 17);
+	editor_insert_row(bcur(), 0, "puck 1a2b3c4 oops", 17);
 
 	for (i = 0; i < 4; i++) {
-		CHECK(editor.row[0].hl[i] == HL_WARNING);
+		CHECK(bcur()->row[0].hl[i] == HL_WARNING);
 	}
 	teardown();
 }
@@ -516,13 +516,13 @@ static void test_gitrebase_exec_body_string(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "exec make check", 15);
+	editor_insert_row(bcur(), 0, "exec make check", 15);
 
 	for (i = 0; i < 4; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD1);
 	}
 	for (i = 5; i < 15; i++) {
-		CHECK(editor.row[0].hl[i] == HL_STRING);
+		CHECK(bcur()->row[0].hl[i] == HL_STRING);
 	}
 	teardown();
 }
@@ -533,13 +533,13 @@ static void test_gitrebase_abbrev_and_flag(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "f -C 1a2b3c4 subj", 17);
+	editor_insert_row(bcur(), 0, "f -C 1a2b3c4 subj", 17);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[2] == HL_NORMAL);
-	CHECK(editor.row[0].hl[3] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[2] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[3] == HL_NORMAL);
 	for (i = 5; i < 12; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD2);
 	}
 	teardown();
 }
@@ -568,16 +568,18 @@ static void test_gitrebase_pick_span(void)
 static void test_gitrebase_detect_basename_only(void)
 {
 	setup(NULL);
-	editor_select_syntax_highlight(".git/rebase-merge/git-rebase-todo");
-	CHECK(editor.syntax == syntax_find_by_name("Git rebase"));
+	editor_select_syntax_highlight(
+	    bcur(), ".git/rebase-merge/git-rebase-todo");
+	CHECK(bcur()->syntax == syntax_find_by_name("Git rebase"));
 
-	editor.syntax = NULL;
-	editor_select_syntax_highlight("git-rebase-todo");
-	CHECK(editor.syntax == syntax_find_by_name("Git rebase"));
+	bcur()->syntax = NULL;
+	editor_select_syntax_highlight(bcur(), "git-rebase-todo");
+	CHECK(bcur()->syntax == syntax_find_by_name("Git rebase"));
 
-	editor.syntax = NULL;
-	editor_select_syntax_highlight("notes-on-git-rebase-todo-things");
-	CHECK(editor.syntax != syntax_find_by_name("Git rebase"));
+	bcur()->syntax = NULL;
+	editor_select_syntax_highlight(
+	    bcur(), "notes-on-git-rebase-todo-things");
+	CHECK(bcur()->syntax != syntax_find_by_name("Git rebase"));
 	teardown();
 }
 
@@ -588,12 +590,12 @@ static void test_gitrebase_invalid_flag_warns(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "pick -C 1a2b3c4 x", 17);
+	editor_insert_row(bcur(), 0, "pick -C 1a2b3c4 x", 17);
 
-	CHECK(editor.row[0].hl[5] == HL_WARNING);
-	CHECK(editor.row[0].hl[6] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[5] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[6] == HL_WARNING);
 	for (i = 8; i < 15; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD2);
 	}
 	teardown();
 }
@@ -602,11 +604,11 @@ static void test_gitrebase_invalid_flag_warns(void)
 static void test_gitrebase_fixup_bad_flag_warns(void)
 {
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "fixup -X 1a2b3c4", 16);
+	editor_insert_row(bcur(), 0, "fixup -X 1a2b3c4", 16);
 
-	CHECK(editor.row[0].hl[6] == HL_WARNING);
-	CHECK(editor.row[0].hl[7] == HL_WARNING);
-	CHECK(editor.row[0].hl[9] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[6] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[7] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[9] == HL_KEYWORD2);
 	teardown();
 }
 
@@ -617,18 +619,18 @@ static void test_gitrebase_merge_hash(void)
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
-	editor_insert_row(0, "merge -C 1a2b3c4 topic", 22);
+	editor_insert_row(bcur(), 0, "merge -C 1a2b3c4 topic", 22);
 
 	for (i = 0; i < 5; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD1);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD1);
 	}
-	CHECK(editor.row[0].hl[6] == HL_NORMAL);
-	CHECK(editor.row[0].hl[7] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[7] == HL_NORMAL);
 	for (i = 9; i < 16; i++) {
-		CHECK(editor.row[0].hl[i] == HL_KEYWORD2);
+		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD2);
 	}
 	for (i = 17; i < 22; i++) {
-		CHECK(editor.row[0].hl[i] == HL_NORMAL);
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 	}
 	teardown();
 }
@@ -649,16 +651,16 @@ static void test_gitrebase_flags_end(void)
 static void test_gitcommit_detect_basename_only(void)
 {
 	setup(NULL);
-	editor_select_syntax_highlight(".git/COMMIT_EDITMSG");
-	CHECK(editor.syntax == syntax_find_by_name("Git commit"));
+	editor_select_syntax_highlight(bcur(), ".git/COMMIT_EDITMSG");
+	CHECK(bcur()->syntax == syntax_find_by_name("Git commit"));
 
-	editor.syntax = NULL;
-	editor_select_syntax_highlight("MERGE_MSG");
-	CHECK(editor.syntax == syntax_find_by_name("Git commit"));
+	bcur()->syntax = NULL;
+	editor_select_syntax_highlight(bcur(), "MERGE_MSG");
+	CHECK(bcur()->syntax == syntax_find_by_name("Git commit"));
 
-	editor.syntax = NULL;
-	editor_select_syntax_highlight("my-COMMIT_EDITMSG-notes");
-	CHECK(editor.syntax != syntax_find_by_name("Git commit"));
+	bcur()->syntax = NULL;
+	editor_select_syntax_highlight(bcur(), "my-COMMIT_EDITMSG-notes");
+	CHECK(bcur()->syntax != syntax_find_by_name("Git commit"));
 	teardown();
 }
 
@@ -666,18 +668,20 @@ static void test_gitcommit_detect_basename_only(void)
 static void test_md_blank_line_in_fence(void)
 {
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "```", 3);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "code", 4);
+	editor_insert_row(bcur(), 0, "```", 3);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "code", 4);
 
-	CHECK(editor.row[0].hl[0] == HL_STRING);
-	CHECK(editor.row[1].hl == NULL);
-	CHECK(editor.row[2].hl[0] == HL_STRING);
+	CHECK(bcur()->row[0].hl[0] == HL_STRING);
+	CHECK(bcur()->row[1].hl == NULL);
+	CHECK(bcur()->row[2].hl[0] == HL_STRING);
 	teardown();
 }
 
-static void dummy_highlight(struct erow *row)
+static void dummy_highlight(struct editor_buffer *b, struct erow *row)
 {
+	(void)b;
+
 	int i;
 	for (i = 0; i < row->rsize; i++) {
 		row->hl[i] = HL_KEYWORD1;
@@ -690,8 +694,8 @@ static void test_custom_highlighter_pointer(void)
 	struct editor_syntax dummy_syntax
 	    = { "Dummy", NULL, NULL, "", "", "", 0, dummy_highlight };
 	setup(&dummy_syntax);
-	editor_insert_row(0, "hello", 5);
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
+	editor_insert_row(bcur(), 0, "hello", 5);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
 	teardown();
 }
 
@@ -699,11 +703,11 @@ static void test_custom_highlighter_pointer(void)
 static void test_editor_set_syntax_rebuilds(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "int x;", 6);
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
+	editor_insert_row(bcur(), 0, "int x;", 6);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
 
-	editor_set_syntax(syntax_find_by_name("Markdown"));
-	CHECK(editor.row[0].hl[0] == HL_NORMAL);
+	editor_set_syntax(bcur(), syntax_find_by_name("Markdown"));
+	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
 	teardown();
 }
 
@@ -714,39 +718,41 @@ static void test_iterative_propagation(void)
 	setup(syntax_find_by_name("Markdown"));
 
 	for (i = 0; i < 500; i++) {
-		editor_insert_row(i, "some text", 9);
+		editor_insert_row(bcur(), i, "some text", 9);
 	}
 
-	CHECK(editor.row[499].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[499].hl[0] == HL_NORMAL);
 
 	/* Insert fence at row 0, pushing all other rows down and triggering
 	 * propagation */
-	editor_insert_row(0, "```", 3);
+	editor_insert_row(bcur(), 0, "```", 3);
 
-	CHECK(editor.row[0].hl[0] == HL_STRING);
-	CHECK(editor.row[1].hl[0] == HL_STRING);
-	CHECK(editor.row[500].hl[0] == HL_STRING);
+	CHECK(bcur()->row[0].hl[0] == HL_STRING);
+	CHECK(bcur()->row[1].hl[0] == HL_STRING);
+	CHECK(bcur()->row[500].hl[0] == HL_STRING);
 	teardown();
 }
 
 static void test_generic_comment_across_blank_line(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_insert_row(0, "/* comment", 10);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "still comment */", 16);
-	editor_insert_row(3, "code", 4);
+	editor_insert_row(bcur(), 0, "/* comment", 10);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "still comment */", 16);
+	editor_insert_row(bcur(), 3, "code", 4);
 
-	CHECK(editor.row[0].hl[0] == HL_MLCOMMENT);
-	CHECK(editor.row[1].hl == NULL);
-	CHECK(editor.row[2].hl[0] == HL_MLCOMMENT);
-	CHECK(editor.row[3].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[0] == HL_MLCOMMENT);
+	CHECK(bcur()->row[1].hl == NULL);
+	CHECK(bcur()->row[2].hl[0] == HL_MLCOMMENT);
+	CHECK(bcur()->row[3].hl[0] == HL_NORMAL);
 	teardown();
 }
 
 static int custom_hl_count = 0;
-static void counting_highlight(struct erow *row)
+static void counting_highlight(struct editor_buffer *b, struct erow *row)
 {
+	(void)b;
+
 	(void)row;
 	custom_hl_count++;
 }
@@ -759,11 +765,11 @@ static void test_rehighlight_all_linear_complexity(void)
 	setup(&counting_syntax);
 
 	for (i = 0; i < 200; i++) {
-		editor_insert_row(i, "text", 4);
+		editor_insert_row(bcur(), i, "text", 4);
 	}
 
 	custom_hl_count = 0;
-	editor_rehighlight_all();
+	editor_rehighlight_all(bcur());
 
 	CHECK(custom_hl_count == 200);
 	teardown();
@@ -772,30 +778,30 @@ static void test_rehighlight_all_linear_complexity(void)
 static void test_propagation_on_row_deletion(void)
 {
 	setup(syntax_find_by_name("Markdown"));
-	editor_insert_row(0, "```", 3);
-	editor_insert_row(1, "code line", 9);
-	editor_insert_row(2, "another code line", 17);
+	editor_insert_row(bcur(), 0, "```", 3);
+	editor_insert_row(bcur(), 1, "code line", 9);
+	editor_insert_row(bcur(), 2, "another code line", 17);
 
-	CHECK(editor.row[0].hl[0] == HL_STRING);
-	CHECK(editor.row[1].hl[0] == HL_STRING);
-	CHECK(editor.row[2].hl[0] == HL_STRING);
+	CHECK(bcur()->row[0].hl[0] == HL_STRING);
+	CHECK(bcur()->row[1].hl[0] == HL_STRING);
+	CHECK(bcur()->row[2].hl[0] == HL_STRING);
 
-	editor_del_row(0);
+	editor_del_row(bcur(), 0);
 
-	CHECK(editor.row[0].hl[0] == HL_NORMAL);
-	CHECK(editor.row[1].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[1].hl[0] == HL_NORMAL);
 	teardown();
 }
 
 static void test_editor_set_syntax_persistence(void)
 {
 	setup(syntax_find_by_name("C"));
-	editor_set_syntax(syntax_find_by_name("C"));
-	CHECK(editor.syntax == syntax_find_by_name("C"));
+	editor_set_syntax(bcur(), syntax_find_by_name("C"));
+	CHECK(bcur()->syntax == syntax_find_by_name("C"));
 	CHECK(buflist[buf_current].syntax == syntax_find_by_name("C"));
 
-	editor_set_syntax(syntax_find_by_name("Markdown"));
-	CHECK(editor.syntax == syntax_find_by_name("Markdown"));
+	editor_set_syntax(bcur(), syntax_find_by_name("Markdown"));
+	CHECK(bcur()->syntax == syntax_find_by_name("Markdown"));
 	CHECK(buflist[buf_current].syntax == syntax_find_by_name("Markdown"));
 	teardown();
 }
@@ -803,13 +809,13 @@ static void test_editor_set_syntax_persistence(void)
 static void test_makefile_empty_row(void)
 {
 	setup(syntax_find_by_name("Makefile"));
-	editor_insert_row(0, "all: src", 8);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "\tgcc main.c", 11);
+	editor_insert_row(bcur(), 0, "all: src", 8);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "\tgcc main.c", 11);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[1].hl == NULL);
-	CHECK(editor.row[2].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[1].hl == NULL);
+	CHECK(bcur()->row[2].hl[0] == HL_NORMAL);
 	teardown();
 }
 
@@ -819,10 +825,10 @@ static void test_setext_recursion_stress(void)
 	setup(syntax_find_by_name("Markdown"));
 
 	for (i = 0; i < 50; i++) {
-		editor_insert_row(i, "====", 4);
+		editor_insert_row(bcur(), i, "====", 4);
 	}
 
-	CHECK(editor.row[49].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[49].hl[0] == HL_KEYWORD1);
 	teardown();
 }
 
@@ -833,24 +839,24 @@ static void test_setext_recursion_stress(void)
 static void test_yaml_selection_yaml_extension(void)
 {
 	setup(NULL);
-	editor_select_syntax_highlight("config.yaml");
-	CHECK(editor.syntax == syntax_find_by_name("YAML"));
+	editor_select_syntax_highlight(bcur(), "config.yaml");
+	CHECK(bcur()->syntax == syntax_find_by_name("YAML"));
 	teardown();
 }
 
 static void test_yaml_selection_yml_extension(void)
 {
 	setup(NULL);
-	editor_select_syntax_highlight("config.yml");
-	CHECK(editor.syntax == syntax_find_by_name("YAML"));
+	editor_select_syntax_highlight(bcur(), "config.yml");
+	CHECK(bcur()->syntax == syntax_find_by_name("YAML"));
 	teardown();
 }
 
 static void test_yaml_selection_unrelated_extension_unchanged(void)
 {
 	setup(NULL);
-	editor_select_syntax_highlight("notes.txt");
-	CHECK(editor.syntax == NULL);
+	editor_select_syntax_highlight(bcur(), "notes.txt");
+	CHECK(bcur()->syntax == NULL);
 	teardown();
 }
 
@@ -859,70 +865,70 @@ static void test_yaml_selection_unrelated_extension_unchanged(void)
 static void test_yaml_simple_key(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "name: value", 11);
+	editor_insert_row(bcur(), 0, "name: value", 11);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* n */
-	CHECK(editor.row[0].hl[3] == HL_KEYWORD1); /* e */
-	CHECK(editor.row[0].hl[4] == HL_NORMAL); /* : */
-	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* v (plain value) */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* n */
+	CHECK(bcur()->row[0].hl[3] == HL_KEYWORD1); /* e */
+	CHECK(bcur()->row[0].hl[4] == HL_NORMAL); /* : */
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL); /* v (plain value) */
 	teardown();
 }
 
 static void test_yaml_seq_item_key(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "- name: first", 13);
+	editor_insert_row(bcur(), 0, "- name: first", 13);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2); /* - */
-	CHECK(editor.row[0].hl[2] == HL_KEYWORD1); /* n of name */
-	CHECK(editor.row[0].hl[5] == HL_KEYWORD1); /* e of name */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2); /* - */
+	CHECK(bcur()->row[0].hl[2] == HL_KEYWORD1); /* n of name */
+	CHECK(bcur()->row[0].hl[5] == HL_KEYWORD1); /* e of name */
 	teardown();
 }
 
 static void test_yaml_quoted_key(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "\"quoted key\": value", 19);
+	editor_insert_row(bcur(), 0, "\"quoted key\": value", 19);
 
-	CHECK(editor.row[0].hl[0] == HL_STRING); /* opening quote */
-	CHECK(editor.row[0].hl[11] == HL_STRING); /* closing quote */
-	CHECK(editor.row[0].hl[12] == HL_NORMAL); /* : */
+	CHECK(bcur()->row[0].hl[0] == HL_STRING); /* opening quote */
+	CHECK(bcur()->row[0].hl[11] == HL_STRING); /* closing quote */
+	CHECK(bcur()->row[0].hl[12] == HL_NORMAL); /* : */
 	teardown();
 }
 
 static void test_yaml_merge_key(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "<<: *base", 9);
+	editor_insert_row(bcur(), 0, "<<: *base", 9);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[1] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[2] == HL_NORMAL); /* : */
-	CHECK(editor.row[0].hl[4] == HL_KEYWORD2); /* * of alias */
-	CHECK(editor.row[0].hl[8] == HL_KEYWORD2); /* e of base */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[1] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[2] == HL_NORMAL); /* : */
+	CHECK(bcur()->row[0].hl[4] == HL_KEYWORD2); /* * of alias */
+	CHECK(bcur()->row[0].hl[8] == HL_KEYWORD2); /* e of base */
 	teardown();
 }
 
 static void test_yaml_no_false_key_in_url(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "url: http://example.com", 23);
+	editor_insert_row(bcur(), 0, "url: http://example.com", 23);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* u */
-	CHECK(editor.row[0].hl[2] == HL_KEYWORD1); /* l */
-	CHECK(editor.row[0].hl[3] == HL_NORMAL); /* : (the real separator) */
-	CHECK(editor.row[0].hl[9] == HL_NORMAL); /* : inside http:// */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* u */
+	CHECK(bcur()->row[0].hl[2] == HL_KEYWORD1); /* l */
+	CHECK(bcur()->row[0].hl[3] == HL_NORMAL); /* : (the real separator) */
+	CHECK(bcur()->row[0].hl[9] == HL_NORMAL); /* : inside http:// */
 	teardown();
 }
 
 static void test_yaml_no_false_key_in_time(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "time: 12:34", 11);
+	editor_insert_row(bcur(), 0, "time: 12:34", 11);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* t */
-	CHECK(editor.row[0].hl[3] == HL_KEYWORD1); /* e */
-	CHECK(editor.row[0].hl[6] == HL_NORMAL); /* 1 of 12:34, not a number */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* t */
+	CHECK(bcur()->row[0].hl[3] == HL_KEYWORD1); /* e */
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL); /* 1 of 12:34, not a number */
 	teardown();
 }
 
@@ -933,10 +939,10 @@ static void test_yaml_full_line_comment(void)
 	int i;
 
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "# comment", 9);
+	editor_insert_row(bcur(), 0, "# comment", 9);
 
 	for (i = 0; i < 9; i++) {
-		CHECK(editor.row[0].hl[i] == HL_COMMENT);
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
 	}
 	teardown();
 }
@@ -944,31 +950,31 @@ static void test_yaml_full_line_comment(void)
 static void test_yaml_trailing_comment(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "key: value  # trailing comment", 30);
+	editor_insert_row(bcur(), 0, "key: value  # trailing comment", 30);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* key */
-	CHECK(editor.row[0].hl[12] == HL_COMMENT); /* # */
-	CHECK(editor.row[0].hl[29] == HL_COMMENT); /* last char */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* key */
+	CHECK(bcur()->row[0].hl[12] == HL_COMMENT); /* # */
+	CHECK(bcur()->row[0].hl[29] == HL_COMMENT); /* last char */
 	teardown();
 }
 
 static void test_yaml_hash_in_word_not_comment(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "literal: abc#def", 16);
+	editor_insert_row(bcur(), 0, "literal: abc#def", 16);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* literal */
-	CHECK(editor.row[0].hl[12] == HL_NORMAL); /* # inside abc#def */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* literal */
+	CHECK(bcur()->row[0].hl[12] == HL_NORMAL); /* # inside abc#def */
 	teardown();
 }
 
 static void test_yaml_quoted_hash_not_comment(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "quoted: \"not # a comment\"", 25);
+	editor_insert_row(bcur(), 0, "quoted: \"not # a comment\"", 25);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1); /* quoted */
-	CHECK(editor.row[0].hl[13] == HL_STRING); /* # inside the string */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1); /* quoted */
+	CHECK(bcur()->row[0].hl[13] == HL_STRING); /* # inside the string */
 	teardown();
 }
 
@@ -978,10 +984,10 @@ static void test_yaml_double_quoted_escape(void)
 {
 	setup(syntax_find_by_name("YAML"));
 	/* key: "a\"b"  (a backslash-escaped quote does not close early) */
-	editor_insert_row(0, "key: \"a\\\"b\"", 11);
+	editor_insert_row(bcur(), 0, "key: \"a\\\"b\"", 11);
 
-	CHECK(editor.row[0].hl[5] == HL_STRING); /* opening quote */
-	CHECK(editor.row[0].hl[10] == HL_STRING); /* closing quote */
+	CHECK(bcur()->row[0].hl[5] == HL_STRING); /* opening quote */
+	CHECK(bcur()->row[0].hl[10] == HL_STRING); /* closing quote */
 	teardown();
 }
 
@@ -989,21 +995,21 @@ static void test_yaml_single_quoted_doubled_quote(void)
 {
 	setup(syntax_find_by_name("YAML"));
 	/* key: 'it''s fine' */
-	editor_insert_row(0, "key: 'it''s fine'", 17);
+	editor_insert_row(bcur(), 0, "key: 'it''s fine'", 17);
 
-	CHECK(editor.row[0].hl[5] == HL_STRING); /* opening quote */
-	CHECK(editor.row[0].hl[9] == HL_STRING); /* embedded '' is content */
-	CHECK(editor.row[0].hl[16] == HL_STRING); /* closing quote */
+	CHECK(bcur()->row[0].hl[5] == HL_STRING); /* opening quote */
+	CHECK(bcur()->row[0].hl[9] == HL_STRING); /* embedded '' is content */
+	CHECK(bcur()->row[0].hl[16] == HL_STRING); /* closing quote */
 	teardown();
 }
 
 static void test_yaml_colon_and_hash_inside_strings(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "key: 'a:b#c'", 12);
+	editor_insert_row(bcur(), 0, "key: 'a:b#c'", 12);
 
-	CHECK(editor.row[0].hl[7] == HL_STRING); /* : inside the string */
-	CHECK(editor.row[0].hl[9] == HL_STRING); /* # inside the string */
+	CHECK(bcur()->row[0].hl[7] == HL_STRING); /* : inside the string */
+	CHECK(bcur()->row[0].hl[9] == HL_STRING); /* # inside the string */
 	teardown();
 }
 
@@ -1012,24 +1018,24 @@ static void test_yaml_colon_and_hash_inside_strings(void)
 static void test_yaml_booleans(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "true", 4);
-	editor_insert_row(1, "False", 5);
-	editor_insert_row(2, "TRUE", 4);
+	editor_insert_row(bcur(), 0, "true", 4);
+	editor_insert_row(bcur(), 1, "False", 5);
+	editor_insert_row(bcur(), 2, "TRUE", 4);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD2);
 	teardown();
 }
 
 static void test_yaml_null_and_tilde(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "null", 4);
-	editor_insert_row(1, "~", 1);
+	editor_insert_row(bcur(), 0, "null", 4);
+	editor_insert_row(bcur(), 1, "~", 1);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD2);
 	teardown();
 }
 
@@ -1054,11 +1060,11 @@ static void test_yaml_numbers(void)
 
 	setup(syntax_find_by_name("YAML"));
 	for (n = 0; n < sizeof(cases) / sizeof(cases[0]); n++) {
-		editor_insert_row((int)n, cases[n].text, cases[n].len);
+		editor_insert_row(bcur(), (int)n, cases[n].text, cases[n].len);
 	}
 	for (n = 0; n < sizeof(cases) / sizeof(cases[0]); n++) {
 		for (i = 0; i < cases[n].len; i++) {
-			CHECK(editor.row[n].hl[i] == HL_NUMBER);
+			CHECK(bcur()->row[n].hl[i] == HL_NUMBER);
 		}
 	}
 	teardown();
@@ -1067,10 +1073,10 @@ static void test_yaml_numbers(void)
 static void test_yaml_quoted_boolean_is_string(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "flag: \"true\"", 12);
+	editor_insert_row(bcur(), 0, "flag: \"true\"", 12);
 
-	CHECK(editor.row[0].hl[6] == HL_STRING); /* opening quote */
-	CHECK(editor.row[0].hl[10] == HL_STRING); /* e of true, still string */
+	CHECK(bcur()->row[0].hl[6] == HL_STRING); /* opening quote */
+	CHECK(bcur()->row[0].hl[10] == HL_STRING); /* e of true, still string */
 	teardown();
 }
 
@@ -1079,36 +1085,36 @@ static void test_yaml_quoted_boolean_is_string(void)
 static void test_yaml_document_markers(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "---", 3);
-	editor_insert_row(1, "...", 3);
+	editor_insert_row(bcur(), 0, "---", 3);
+	editor_insert_row(bcur(), 1, "...", 3);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[2] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[2] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD2);
 	teardown();
 }
 
 static void test_yaml_anchor_alias_tag(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "&anchor", 7);
-	editor_insert_row(1, "*alias", 6);
-	editor_insert_row(2, "!tag", 4);
+	editor_insert_row(bcur(), 0, "&anchor", 7);
+	editor_insert_row(bcur(), 1, "*alias", 6);
+	editor_insert_row(bcur(), 2, "!tag", 4);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[6] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[6] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD2);
 	teardown();
 }
 
 static void test_yaml_directive(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "%YAML 1.2", 9);
+	editor_insert_row(bcur(), 0, "%YAML 1.2", 9);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[0].hl[4] == HL_KEYWORD1); /* L of %YAML */
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[4] == HL_KEYWORD1); /* L of %YAML */
 	teardown();
 }
 
@@ -1117,87 +1123,89 @@ static void test_yaml_directive(void)
 static void test_yaml_literal_block(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "script: |", 9);
-	editor_insert_row(1, "  echo first", 12);
-	editor_insert_row(2, "next: value", 11);
+	editor_insert_row(bcur(), 0, "script: |", 9);
+	editor_insert_row(bcur(), 1, "  echo first", 12);
+	editor_insert_row(bcur(), 2, "next: value", 11);
 
-	CHECK(editor.row[0].hl[8] == HL_KEYWORD2); /* | */
-	CHECK(editor.row[1].hl[0] == HL_NORMAL); /* indentation */
-	CHECK(editor.row[1].hl[2] == HL_STRING); /* echo first */
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD1); /* dedent: next is a key */
+	CHECK(bcur()->row[0].hl[8] == HL_KEYWORD2); /* | */
+	CHECK(bcur()->row[1].hl[0] == HL_NORMAL); /* indentation */
+	CHECK(bcur()->row[1].hl[2] == HL_STRING); /* echo first */
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD1); /* dedent: next is a key */
 	teardown();
 }
 
 static void test_yaml_folded_block(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "notes: >", 8);
-	editor_insert_row(1, "  folded text", 13);
+	editor_insert_row(bcur(), 0, "notes: >", 8);
+	editor_insert_row(bcur(), 1, "  folded text", 13);
 
-	CHECK(editor.row[0].hl[7] == HL_KEYWORD2); /* > */
-	CHECK(editor.row[1].hl[2] == HL_STRING);
+	CHECK(bcur()->row[0].hl[7] == HL_KEYWORD2); /* > */
+	CHECK(bcur()->row[1].hl[2] == HL_STRING);
 	teardown();
 }
 
 static void test_yaml_block_chomping_modifiers(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "a: |-", 5);
-	editor_insert_row(1, "  x", 3);
-	editor_insert_row(2, "b: |+", 5);
-	editor_insert_row(3, "  y", 3);
+	editor_insert_row(bcur(), 0, "a: |-", 5);
+	editor_insert_row(bcur(), 1, "  x", 3);
+	editor_insert_row(bcur(), 2, "b: |+", 5);
+	editor_insert_row(bcur(), 3, "  y", 3);
 
-	CHECK(editor.row[0].hl[3] == HL_KEYWORD2); /* |- */
-	CHECK(editor.row[0].hl[4] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[2] == HL_STRING);
-	CHECK(editor.row[2].hl[3] == HL_KEYWORD2); /* |+ */
-	CHECK(editor.row[3].hl[2] == HL_STRING);
+	CHECK(bcur()->row[0].hl[3] == HL_KEYWORD2); /* |- */
+	CHECK(bcur()->row[0].hl[4] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[2] == HL_STRING);
+	CHECK(bcur()->row[2].hl[3] == HL_KEYWORD2); /* |+ */
+	CHECK(bcur()->row[3].hl[2] == HL_STRING);
 	teardown();
 }
 
 static void test_yaml_block_explicit_indent(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "a: |2", 5);
-	editor_insert_row(1, "  x", 3); /* content indent == explicit 2 */
+	editor_insert_row(bcur(), 0, "a: |2", 5);
+	editor_insert_row(
+	    bcur(), 1, "  x", 3); /* content indent == explicit 2 */
 
-	CHECK(editor.row[0].hl[3] == HL_KEYWORD2);
-	CHECK(editor.row[0].hl[4] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[2] == HL_STRING); /* content, no pending phase */
+	CHECK(bcur()->row[0].hl[3] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[4] == HL_KEYWORD2);
+	CHECK(
+	    bcur()->row[1].hl[2] == HL_STRING); /* content, no pending phase */
 	teardown();
 }
 
 static void test_yaml_block_blank_line(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "script: |", 9);
-	editor_insert_row(1, "  line one", 10);
-	editor_insert_row(2, "", 0);
-	editor_insert_row(3, "  line two", 10);
-	editor_insert_row(4, "next: value", 11);
+	editor_insert_row(bcur(), 0, "script: |", 9);
+	editor_insert_row(bcur(), 1, "  line one", 10);
+	editor_insert_row(bcur(), 2, "", 0);
+	editor_insert_row(bcur(), 3, "  line two", 10);
+	editor_insert_row(bcur(), 4, "next: value", 11);
 
-	CHECK(editor.row[1].hl[2] == HL_STRING);
-	CHECK(editor.row[2].hl == NULL);
-	CHECK(editor.row[3].hl[2] == HL_STRING); /* survives the blank line */
-	CHECK(editor.row[4].hl[0] == HL_KEYWORD1); /* dedent ends the block */
+	CHECK(bcur()->row[1].hl[2] == HL_STRING);
+	CHECK(bcur()->row[2].hl == NULL);
+	CHECK(bcur()->row[3].hl[2] == HL_STRING); /* survives the blank line */
+	CHECK(bcur()->row[4].hl[0] == HL_KEYWORD1); /* dedent ends the block */
 	teardown();
 }
 
 static void test_yaml_block_header_insertion_repropagates(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "  echo hello", 12);
-	editor_insert_row(1, "next: value", 11);
+	editor_insert_row(bcur(), 0, "  echo hello", 12);
+	editor_insert_row(bcur(), 1, "next: value", 11);
 
-	CHECK(editor.row[0].hl[2] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[2] == HL_NORMAL);
 
 	/* Turn the previous row's owner into a block scalar header; the
 	 * following rows must be re-highlighted as block content. */
-	editor_insert_row(0, "script: |", 9);
+	editor_insert_row(bcur(), 0, "script: |", 9);
 
-	CHECK(editor.row[0].hl[8] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[2] == HL_STRING);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[8] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[2] == HL_STRING);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD1);
 	teardown();
 }
 
@@ -1206,51 +1214,51 @@ static void test_yaml_block_header_insertion_repropagates(void)
 static void test_yaml_lone_quote_no_crash(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "\"abc", 4);
+	editor_insert_row(bcur(), 0, "\"abc", 4);
 
-	CHECK(editor.row[0].hl[0] == HL_STRING);
-	CHECK(editor.row[0].hl[3] == HL_STRING);
+	CHECK(bcur()->row[0].hl[0] == HL_STRING);
+	CHECK(bcur()->row[0].hl[3] == HL_STRING);
 	teardown();
 }
 
 static void test_yaml_lone_special_chars_no_crash(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "&", 1);
-	editor_insert_row(1, "*", 1);
-	editor_insert_row(2, "!", 1);
-	editor_insert_row(3, "|", 1);
-	editor_insert_row(4, ">", 1);
+	editor_insert_row(bcur(), 0, "&", 1);
+	editor_insert_row(bcur(), 1, "*", 1);
+	editor_insert_row(bcur(), 2, "!", 1);
+	editor_insert_row(bcur(), 3, "|", 1);
+	editor_insert_row(bcur(), 4, ">", 1);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[3].hl[0] == HL_KEYWORD2);
-	CHECK(editor.row[4].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[3].hl[0] == HL_KEYWORD2);
+	CHECK(bcur()->row[4].hl[0] == HL_KEYWORD2);
 	teardown();
 }
 
 static void test_yaml_colon_at_end_of_short_row(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, ":", 1);
-	editor_insert_row(1, "a:", 2);
+	editor_insert_row(bcur(), 0, ":", 1);
+	editor_insert_row(bcur(), 1, "a:", 2);
 
-	CHECK(editor.row[0].hl[0] == HL_NORMAL);
-	CHECK(editor.row[1].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[1].hl[0] == HL_KEYWORD1);
 	teardown();
 }
 
 static void test_yaml_empty_rows_no_crash(void)
 {
 	setup(syntax_find_by_name("YAML"));
-	editor_insert_row(0, "key: value", 10);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "other: value", 12);
+	editor_insert_row(bcur(), 0, "key: value", 10);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "other: value", 12);
 
-	CHECK(editor.row[0].hl[0] == HL_KEYWORD1);
-	CHECK(editor.row[1].hl == NULL);
-	CHECK(editor.row[2].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+	CHECK(bcur()->row[1].hl == NULL);
+	CHECK(bcur()->row[2].hl[0] == HL_KEYWORD1);
 	teardown();
 }
 
@@ -1258,10 +1266,10 @@ static void test_yaml_malformed_escape_at_eol_no_crash(void)
 {
 	setup(syntax_find_by_name("YAML"));
 	/* key: "abc\  (a trailing, unterminated backslash escape) */
-	editor_insert_row(0, "key: \"abc\\", 10);
+	editor_insert_row(bcur(), 0, "key: \"abc\\", 10);
 
-	CHECK(editor.row[0].hl[5] == HL_STRING);
-	CHECK(editor.row[0].hl[9] == HL_STRING);
+	CHECK(bcur()->row[0].hl[5] == HL_STRING);
+	CHECK(bcur()->row[0].hl[9] == HL_STRING);
 	teardown();
 }
 

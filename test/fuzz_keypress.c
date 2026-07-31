@@ -13,13 +13,13 @@ static void free_rows(void)
 {
 	int i;
 
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
+	for (i = 0; i < bcur()->numrows; i++) {
+		editor_free_row(&bcur()->row[i]);
 	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
-	editor.row_capacity = 0;
+	free(bcur()->row);
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
+	bcur()->row_capacity = 0;
 }
 
 static void reset_state(void)
@@ -59,7 +59,7 @@ static void seed_buffer(const uint8_t *data, size_t size)
 		unsigned char ch = data[i];
 
 		if ((ch & 0x0f) == 0) {
-			editor_insert_row(editor.numrows, line, len);
+			editor_insert_row(bcur(), bcur()->numrows, line, len);
 			len = 0;
 			continue;
 		}
@@ -72,21 +72,21 @@ static void seed_buffer(const uint8_t *data, size_t size)
 			line[len++] = (char)ch;
 		}
 	}
-	if (len > 0 || editor.numrows == 0) {
-		editor_insert_row(editor.numrows, line, len);
+	if (len > 0 || bcur()->numrows == 0) {
+		editor_insert_row(bcur(), bcur()->numrows, line, len);
 	}
-	editor.dirty = 0;
+	bcur()->dirty = 0;
 	undo_mark_clean();
 	buflist[0].active = 1;
 	buflist[0].cx = editor.cx;
 	buflist[0].cy = editor.cy;
 	buflist[0].rowoff = editor.rowoff;
 	buflist[0].coloff = editor.coloff;
-	buflist[0].numrows = editor.numrows;
-	buflist[0].row = editor.row;
-	buflist[0].dirty = editor.dirty;
+	buflist[0].numrows = bcur()->numrows;
+	buflist[0].row = bcur()->row;
+	buflist[0].dirty = bcur()->dirty;
 	buflist[0].filename = editor.filename;
-	buflist[0].syntax = editor.syntax;
+	buflist[0].syntax = bcur()->syntax;
 }
 
 static void teardown_state(void)

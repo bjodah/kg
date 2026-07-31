@@ -80,7 +80,7 @@ static void session(int nfiles, char **names)
 	}
 	memset(&editor, 0, sizeof(editor));
 	editor.readonly_override = -1;
-	undo_stack_init(&undostack);
+	undo_stack_init(&bcur()->undostack);
 	win_total_rows = 24;
 	win_total_cols = 80;
 	buf_load_args(nfiles, names, 0);
@@ -96,8 +96,6 @@ static void session_teardown(void)
 	int i, j;
 
 	buf_save_current_state();
-	undostack.head = NULL;
-	undostack.size = 0;
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 		struct undo_op *op;
@@ -121,10 +119,10 @@ static void session_teardown(void)
 	buf_count = 0;
 	buf_current = 0;
 	memset(&editor, 0, sizeof(editor));
-	editor.row = NULL;
-	editor.numrows = 0;
-	editor.row_capacity = 0;
-	undo_stack_init(&undostack);
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
+	bcur()->row_capacity = 0;
+	undo_stack_init(&bcur()->undostack);
 	win_count = 0;
 	win_current = 0;
 	memset(winlist, 0, sizeof(winlist));
@@ -219,13 +217,13 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	buf_restore_from_slot(1);
 
 	CHECK(buf_current == 1);
-	CHECK(editor.dirty == 0);
+	CHECK(bcur()->dirty == 0);
 	CHECK(editor.mark_set == 0);
 	CHECK(editor.readonly == 0);
 	CHECK(strcmp(editor.compile_command, "make -k") == 0);
 	CHECK(editor.compile_command_user_override == 0);
-	CHECK(undostack.size == 0);
-	CHECK(editor.row != rows0);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->row != rows0);
 
 	/* Buffer 0's record kept everything. */
 	CHECK(buflist[0].dirty != 0);
@@ -242,12 +240,12 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	buf_restore_from_slot(0);
 
 	CHECK(buf_current == 0);
-	CHECK(editor.row == rows0);
-	CHECK(editor.dirty != 0);
+	CHECK(bcur()->row == rows0);
+	CHECK(bcur()->dirty != 0);
 	CHECK(editor.mark_set == 1 && editor.mark_col == 3);
 	CHECK(editor.readonly == 1);
 	CHECK(strcmp(editor.compile_command, "make zero") == 0);
-	CHECK(undostack.size == 1);
+	CHECK(bcur()->undostack.size == 1);
 	CHECK(buflist[1].undostack.size == 1);
 	CHECK(buflist[1].dirty != 0);
 	CHECK(buflist[1].mark_set == 0);
@@ -288,7 +286,7 @@ static void test_split_shares_text_not_point(void)
 	CHECK(editor.cy == 0);
 	CHECK(editor.cx == 0);
 	/* Same buffer, same rows. */
-	CHECK(editor.row == buflist[winlist[win_current].bufidx].row);
+	CHECK(bcur()->row == buflist[winlist[win_current].bufidx].row);
 
 	/* An edit through either window reaches the one shared text. */
 	editor_insert_char('Z');
@@ -346,13 +344,13 @@ static void test_display_other_window_retargets_only_that_window(void)
 	CHECK(winlist[other].bufidx == 1);
 	CHECK(winlist[win_current].bufidx == 0);
 	CHECK(buf_current == 0);
-	CHECK(editor.row == bslot(0)->row);
+	CHECK(bcur()->row == bslot(0)->row);
 
 	/* Selecting the other window follows its buffer. */
 	win_cycle_next();
 	CHECK(win_current == other);
 	CHECK(buf_current == 1);
-	CHECK(editor.numrows == 3);
+	CHECK(bcur()->numrows == 3);
 
 	session_teardown();
 	free(names[0]);
@@ -498,7 +496,7 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 
 	editor.cy = 1;
 	editor_insert_char('Q');
-	rows0 = editor.row;
+	rows0 = bcur()->row;
 	filename0 = editor.filename;
 
 	target
@@ -508,12 +506,12 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 	CHECK(buf_append_special_text(target, "line one\nline two\n", 18) == 0);
 
 	CHECK(buf_current == 0);
-	CHECK(editor.row == rows0);
+	CHECK(bcur()->row == rows0);
 	CHECK(editor.filename == filename0);
-	CHECK(editor.numrows == 3);
+	CHECK(bcur()->numrows == 3);
 	CHECK(editor.cy == 1);
-	CHECK(editor.dirty != 0);
-	CHECK(undostack.size == 1);
+	CHECK(bcur()->dirty != 0);
+	CHECK(bcur()->undostack.size == 1);
 
 	CHECK(buflist[target].numrows == 3);
 	CHECK(buflist[target].row != rows0);
@@ -524,8 +522,8 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 
 	buf_clear_special_text(target);
 	CHECK(buflist[target].numrows == 0);
-	CHECK(editor.row == rows0);
-	CHECK(editor.numrows == 3);
+	CHECK(bcur()->row == rows0);
+	CHECK(bcur()->numrows == 3);
 
 	session_teardown();
 	free(names[0]);

@@ -7,15 +7,10 @@
 #include "localvars.h"
 #include "perf.h"
 
-/* Global undo stack */
-struct undo_stack undostack = { NULL, 0, MAX_UNDO_SIZE, 0 };
-
 /* Initialize an undo stack.  clean_size starts at 0, not -1: a stack is
  * only ever initialized for a buffer that is at its saved state (freshly
  * loaded, freshly created, or rebuilt from scratch), so popping back to
- * zero records is popping back to that state.  Both the global stack and
- * the per-buffer ones in buflist[] go through here so they cannot
- * disagree about what an empty history means. */
+ * zero records is popping back to that state. */
 void undo_stack_init(struct undo_stack *st)
 {
 	st->head = NULL;
@@ -24,12 +19,15 @@ void undo_stack_init(struct undo_stack *st)
 	st->clean_size = 0;
 }
 
-void undo_init(void) { undo_stack_init(&undostack); }
+void undo_init(void) { undo_stack_init(&bcur()->undostack); }
 
-/* Free the entire undo stack */
-void undo_free(void)
+/* Drop every record in `st`.  Buffers that are not the current one are
+ * rebuilt by background producers, so this takes the stack rather than
+ * reaching for bcur(): the two callers that do mean the current buffer
+ * say so through undo_free(). */
+void undo_stack_free(struct undo_stack *st)
 {
-	struct undo_op *op = undostack.head;
+	struct undo_op *op = st->head;
 
 	while (op) {
 		struct undo_op *next = op->next;
@@ -39,12 +37,14 @@ void undo_free(void)
 		free(op);
 		op = next;
 	}
-	undostack.head = NULL;
-	undostack.size = 0;
+	st->head = NULL;
+	st->size = 0;
 	/* The records that led back to the saved state are gone, so no
 	 * amount of undoing reaches it; -1 is "unreachable". */
-	undostack.clean_size = -1;
+	st->clean_size = -1;
 }
+
+void undo_free(void) { undo_stack_free(&bcur()->undostack); }
 
 /* Push an undo operation onto the stack */
 int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
@@ -86,19 +86,19 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 	}
 
 	/* Add to front of stack */
-	op->next = undostack.head;
-	undostack.head = op;
-	undostack.size++;
+	op->next = bcur()->undostack.head;
+	bcur()->undostack.head = op;
+	bcur()->undostack.size++;
 	KG_PERF_INC(KG_PERF_UNDO_PUSH);
 
 	/* Trim stack if too large */
-	if (undostack.size > undostack.max_size) {
-		struct undo_op *curr = undostack.head;
+	if (bcur()->undostack.size > bcur()->undostack.max_size) {
+		struct undo_op *curr = bcur()->undostack.head;
 		struct undo_op *prev = NULL;
 		int count = 0;
 
 		/* Find the last operation to keep */
-		while (curr && count < undostack.max_size - 1) {
+		while (curr && count < bcur()->undostack.max_size - 1) {
 			KG_PERF_INC(KG_PERF_UNDO_EVICT_LINKS);
 			prev = curr;
 			curr = curr->next;
@@ -114,7 +114,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 			 * them from exactly that end, and only ever after a
 			 * later edit was pushed, so the checkpoint is now
 			 * unreachable rather than merely renumbered. */
-			undostack.clean_size = -1;
+			bcur()->undostack.clean_size = -1;
 			while (curr) {
 				struct undo_op *next = curr->next;
 				if (curr->text) {
@@ -122,7 +122,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 				}
 				free(curr);
 				curr = next;
-				undostack.size--;
+				bcur()->undostack.size--;
 			}
 		}
 	}
@@ -134,14 +134,14 @@ void editor_undo(void)
 {
 	struct undo_op *op;
 
-	if (!undostack.head) {
+	if (!bcur()->undostack.head) {
 		editor_set_status_message("Nothing to undo");
 		return;
 	}
 
-	op = undostack.head;
-	undostack.head = op->next;
-	undostack.size--;
+	op = bcur()->undostack.head;
+	bcur()->undostack.head = op->next;
+	bcur()->undostack.size--;
 
 	/* Position cursor at operation location */
 	editor_cursor_goto(op->row, op->col);
@@ -150,37 +150,37 @@ void editor_undo(void)
 	switch (op->type) {
 	case UNDO_INSERT_CHAR:
 		/* Reverse: delete the character */
-		if (op->row < editor.numrows) {
-			erow *row = &editor.row[op->row];
+		if (op->row < bcur()->numrows) {
+			erow *row = &bcur()->row[op->row];
 			if (op->col < row->size) {
 				editor_row_del_char(row, op->col);
-				editor.dirty++;
+				bcur()->dirty++;
 			}
 		}
 		break;
 
 	case UNDO_DELETE_CHAR:
 		/* Reverse: insert the character */
-		if (op->row < editor.numrows) {
-			erow *row = &editor.row[op->row];
+		if (op->row < bcur()->numrows) {
+			erow *row = &bcur()->row[op->row];
 			editor_row_insert_char(row, op->col, op->c);
-			editor.dirty++;
+			bcur()->dirty++;
 		}
 		break;
 
 	case UNDO_INSERT_LINE:
 		/* Reverse: delete the line */
-		if (op->row < editor.numrows) {
-			editor_del_row(op->row);
-			editor.dirty++;
+		if (op->row < bcur()->numrows) {
+			editor_del_row(bcur(), op->row);
+			bcur()->dirty++;
 		}
 		break;
 
 	case UNDO_DELETE_LINE:
 		/* Reverse: insert the line */
 		if (op->text) {
-			editor_insert_row(op->row, op->text, op->len);
-			editor.dirty++;
+			editor_insert_row(bcur(), op->row, op->text, op->len);
+			bcur()->dirty++;
 		}
 		break;
 
@@ -189,8 +189,8 @@ void editor_undo(void)
 		 * delete row+1. Using saved op->text rather than live row+1
 		 * content because row+1 may have an auto-indent prefix that was
 		 * not part of the original text. */
-		if (op->row < editor.numrows) {
-			erow *row = &editor.row[op->row];
+		if (op->row < bcur()->numrows) {
+			erow *row = &bcur()->row[op->row];
 			int split_col = op->col;
 			if (split_col < 0) {
 				split_col = 0;
@@ -204,24 +204,25 @@ void editor_undo(void)
 				editor_row_append_string(
 				    row, op->text, op->len);
 			} else {
-				editor_update_row(row);
+				editor_update_row(bcur(), row);
 			}
-			if (op->row + 1 < editor.numrows) {
-				editor_del_row(op->row + 1);
+			if (op->row + 1 < bcur()->numrows) {
+				editor_del_row(bcur(), op->row + 1);
 			}
-			editor.dirty++;
+			bcur()->dirty++;
 		}
 		break;
 
 	case UNDO_JOIN_LINE:
 		/* Reverse: split the line */
-		if (op->row < editor.numrows && op->text) {
+		if (op->row < bcur()->numrows && op->text) {
 			erow *row;
 			int split_col;
 			/* Insert new line after current; this realloc's
-			 * editor.row, so fetch the row pointer afterwards. */
-			editor_insert_row(op->row + 1, op->text, op->len);
-			row = &editor.row[op->row];
+			 * bcur()->row, so fetch the row pointer afterwards. */
+			editor_insert_row(
+			    bcur(), op->row + 1, op->text, op->len);
+			row = &bcur()->row[op->row];
 			split_col = op->col;
 			if (split_col < 0) {
 				split_col = 0;
@@ -231,8 +232,8 @@ void editor_undo(void)
 			}
 			row->size = split_col;
 			row->chars[split_col] = '\0';
-			editor_update_row(row);
-			editor.dirty++;
+			editor_update_row(bcur(), row);
+			bcur()->dirty++;
 		}
 		break;
 
@@ -279,8 +280,8 @@ void editor_undo(void)
 		int i = 0;
 
 		suppress_undo = 1;
-		while (editor.numrows > orig_numrows) {
-			editor_del_row(editor.numrows - 1);
+		while (bcur()->numrows > orig_numrows) {
+			editor_del_row(bcur(), bcur()->numrows - 1);
 		}
 		if (op->text && op->len > 0) {
 			while (p <= end) {
@@ -289,10 +290,10 @@ void editor_undo(void)
 				int line_len = nl ? (nl - p) : (end - p);
 				int target = op->row + i;
 
-				if (target < editor.numrows) {
-					editor_del_row(target);
+				if (target < bcur()->numrows) {
+					editor_del_row(bcur(), target);
 				}
-				editor_insert_row(target, p, line_len);
+				editor_insert_row(bcur(), target, p, line_len);
 				if (!nl) {
 					break;
 				}
@@ -301,7 +302,7 @@ void editor_undo(void)
 			}
 		}
 		suppress_undo = 0;
-		editor.dirty++;
+		bcur()->dirty++;
 		break;
 	}
 
@@ -314,8 +315,8 @@ void editor_undo(void)
 
 		suppress_undo = 1;
 		for (r = 0; r < op->col; r++) {
-			if (op->row < editor.numrows) {
-				editor_del_row(op->row);
+			if (op->row < bcur()->numrows) {
+				editor_del_row(bcur(), op->row);
 			}
 		}
 		if (op->text) {
@@ -325,25 +326,25 @@ void editor_undo(void)
 			while (line_start < end) {
 				nl = memchr(line_start, '\n', end - line_start);
 				if (nl) {
-					editor_insert_row(
-					    r++, line_start, nl - line_start);
+					editor_insert_row(bcur(), r++,
+					    line_start, nl - line_start);
 					line_start = nl + 1;
 				} else {
-					editor_insert_row(
-					    r++, line_start, end - line_start);
+					editor_insert_row(bcur(), r++,
+					    line_start, end - line_start);
 					break;
 				}
 			}
 		}
 		suppress_undo = 0;
-		editor.dirty++;
+		bcur()->dirty++;
 		break;
 	}
 	}
 
 	/* Check if we've undone back to the saved state */
-	if (undostack.size == undostack.clean_size) {
-		editor.dirty = 0;
+	if (bcur()->undostack.size == bcur()->undostack.clean_size) {
+		bcur()->dirty = 0;
 	}
 
 	/* Free the operation */
@@ -356,4 +357,7 @@ void editor_undo(void)
 }
 
 /* Mark current state as clean (called after save) */
-void undo_mark_clean(void) { undostack.clean_size = undostack.size; }
+void undo_mark_clean(void)
+{
+	bcur()->undostack.clean_size = bcur()->undostack.size;
+}

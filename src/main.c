@@ -57,12 +57,12 @@ void init_editor(void)
 	editor.cy = 0;
 	editor.rowoff = 0;
 	editor.coloff = 0;
-	editor.numrows = 0;
-	editor.row = NULL;
-	editor.row_capacity = 0;
-	editor.dirty = 0;
+	bcur()->numrows = 0;
+	bcur()->row = NULL;
+	bcur()->row_capacity = 0;
+	bcur()->dirty = 0;
 	editor.filename = NULL;
-	editor.syntax = NULL;
+	bcur()->syntax = NULL;
 	editor.cx_prefix = 0;
 	editor.cc_prefix = 0;
 	editor.paste_mode = 0;

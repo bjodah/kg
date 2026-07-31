@@ -473,7 +473,7 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	const char *modename = b->syntax ? b->syntax->name : "Fundamental";
 	const char *changed = "";
 	int is_current = (is_active || bufidx == buf_current);
-	int dirty = is_current ? editor.dirty : b->dirty;
+	int dirty = b->dirty;
 	char pos[8];
 
 	/* Show only the basename in the mode line (Emacs-style); the directory
@@ -541,7 +541,7 @@ void editor_refresh_screen(void)
 		int filerow = editor.rowoff + editor.cy;
 		int filecol = editor.coloff + editor.cx;
 		int cursor_vrow = get_visual_row(
-		    editor.row, editor.numrows, w_act->w, filerow, filecol);
+		    bcur()->row, bcur()->numrows, w_act->w, filerow, filecol);
 		if (cursor_vrow < editor.rowoff_visual) {
 			editor.rowoff_visual = cursor_vrow;
 		} else if (cursor_vrow >= editor.rowoff_visual + w_act->h) {
@@ -572,18 +572,15 @@ void editor_refresh_screen(void)
 
 		int vline = (bidx == buf_current) ? editor.visual_line_mode
 						  : b->visual_line_mode;
+		/* The rows come from the buffer the window shows, whichever
+		 * window this is: there is one row array per buffer now, so
+		 * there is no longer a live copy to prefer over a stale one. */
+		numrows = b->numrows;
+		rows = b->row;
 		if (is_active) {
-			numrows = editor.numrows;
-			rows = editor.row;
 			rowoff = vline ? editor.rowoff_visual : editor.rowoff;
 			coloff = editor.coloff;
 		} else {
-			/* Row data: if this window shares the active buffer,
-			 * use the live editor arrays — b->row may be a stale
-			 * pointer after realloc. */
-			numrows = (bidx == buf_current) ? editor.numrows
-							: b->numrows;
-			rows = (bidx == buf_current) ? editor.row : b->row;
 			/* Always use the window's own scroll offsets, not the
 			 * buffer slot's (which tracks the last-active window's
 			 * scroll). */
@@ -615,13 +612,9 @@ void editor_refresh_screen(void)
 			}
 			int cur_col = editor_display_col(
 			    rows, numrows, filerow, filecol);
-			int total_rows = (is_active || bidx == buf_current)
-			    ? (vline ? get_total_visual_rows(
-					   editor.row, editor.numrows, w->w)
-				     : editor.numrows)
-			    : (vline ? get_total_visual_rows(
-					   b->row, b->numrows, w->w)
-				     : b->numrows);
+			int total_rows = vline
+			    ? get_total_visual_rows(b->row, b->numrows, w->w)
+			    : b->numrows;
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
 			    cur_row, cur_col, total_rows, wrowoff, w->h);
 		}
@@ -688,8 +681,8 @@ void editor_refresh_screen(void)
 		ab_move_to(&ab, win_total_rows, col);
 	} else {
 		struct editor_window *w = &winlist[win_current];
-		erow *row = (editor.rowoff + editor.cy < editor.numrows)
-		    ? &editor.row[editor.rowoff + editor.cy]
+		erow *row = (editor.rowoff + editor.cy < bcur()->numrows)
+		    ? &bcur()->row[editor.rowoff + editor.cy]
 		    : NULL;
 
 		cx = 1;
@@ -725,8 +718,8 @@ void editor_refresh_screen(void)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cursor_vrow = get_visual_row(editor.row,
-			    editor.numrows, win_w, filerow, filecol);
+			int cursor_vrow = get_visual_row(bcur()->row,
+			    bcur()->numrows, win_w, filerow, filecol);
 			int screen_y = cursor_vrow - editor.rowoff_visual;
 			cx = (rcol % win_w) + 1;
 			ab_move_to(&ab, w->y + screen_y, w->x + cx - 1);

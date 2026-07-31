@@ -229,9 +229,9 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 	if (target_vrow < 0) {
 		target_vrow = 0;
 	}
-	for (r = 0; r < editor.numrows; r++) {
-		int width = visual_line_width(&editor.row[r], win_w);
-		int segments = visual_segments(&editor.row[r], win_w);
+	for (r = 0; r < bcur()->numrows; r++) {
+		int width = visual_line_width(&bcur()->row[r], win_w);
+		int segments = visual_segments(&bcur()->row[r], win_w);
 		if (visual_row_count + segments > target_vrow) {
 			int segment_idx = target_vrow - visual_row_count;
 			int start_rcol = segment_idx * win_w;
@@ -240,15 +240,15 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 				target_rcol = width;
 			}
 			int char_idx = render_col_to_chars(
-			    &editor.row[r], target_rcol, win_w);
+			    &bcur()->row[r], target_rcol, win_w);
 			editor_cursor_goto(r, char_idx);
 			return;
 		}
 		visual_row_count += segments;
 	}
-	if (editor.numrows > 0) {
+	if (bcur()->numrows > 0) {
 		editor_cursor_goto(
-		    editor.numrows - 1, editor.row[editor.numrows - 1].size);
+		    bcur()->numrows - 1, bcur()->row[bcur()->numrows - 1].size);
 	}
 }
 

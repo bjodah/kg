@@ -593,12 +593,12 @@ char *GITCOMMIT_HL_extensions[] = { NULL };
  * editor_select_syntax_highlight(), never on a substring hit. */
 char *GITREBASE_HL_extensions[] = { NULL };
 
-static void markdown_syntax(erow *row);
-static void makefile_syntax(erow *row);
-static void gitcommit_syntax(erow *row);
-static void gitrebase_syntax(erow *row);
-static void yaml_syntax(erow *row);
-static void editor_update_syntax_row_only(erow *row);
+static void markdown_syntax(struct editor_buffer *b, erow *row);
+static void makefile_syntax(struct editor_buffer *b, erow *row);
+static void gitcommit_syntax(struct editor_buffer *b, erow *row);
+static void gitrebase_syntax(struct editor_buffer *b, erow *row);
+static void yaml_syntax(struct editor_buffer *b, erow *row);
+static void editor_update_syntax_row_only(struct editor_buffer *b, erow *row);
 
 struct editor_syntax HLDB[] = {
 	{ "C", C_HL_extensions, C_HL_keywords, "//", "/*", "*/",
@@ -699,11 +699,11 @@ int editor_row_has_open_comment(erow *row)
 
 /* Markdown syntax highlighter.  Uses hl_oc to track fenced code block state
  * across rows (1 = inside a fenced block). */
-static void markdown_syntax(erow *row)
+static void markdown_syntax(struct editor_buffer *b, erow *row)
 {
 	char *p = row->render;
 	int len = row->rsize, i, j, oc;
-	int in_block = (row->idx > 0 && editor.row[row->idx - 1].hl_oc);
+	int in_block = (row->idx > 0 && b->row[row->idx - 1].hl_oc);
 
 	/* Fenced code block fence line (```). */
 	if (len >= 3 && p[0] == '`' && p[1] == '`' && p[2] == '`') {
@@ -728,16 +728,15 @@ static void markdown_syntax(erow *row)
 	if (is_setext_line(p, len)) {
 		memset(row->hl, HL_KEYWORD1, len);
 		if (row->idx > 0) {
-			editor_update_syntax_row_only(
-			    &editor.row[row->idx - 1]);
+			editor_update_syntax_row_only(b, &b->row[row->idx - 1]);
 		}
 		goto done;
 	}
 
 	/* Setext heading text: next row is the underline. */
-	if (len > 0 && row->idx + 1 < editor.numrows
-	    && is_setext_line(editor.row[row->idx + 1].render,
-		editor.row[row->idx + 1].rsize)) {
+	if (len > 0 && row->idx + 1 < b->numrows
+	    && is_setext_line(
+		b->row[row->idx + 1].render, b->row[row->idx + 1].rsize)) {
 		memset(row->hl, HL_KEYWORD1, len);
 		goto done;
 	}
@@ -831,8 +830,9 @@ static void make_var_and_comment(erow *row, int start)
  *   - Variable references $(VAR), ${VAR}, $@, $<, ...: HL_STRING
  *   - Comments (#): HL_COMMENT
  */
-static void makefile_syntax(erow *row)
+static void makefile_syntax(struct editor_buffer *b, erow *row)
 {
+	(void)b;
 	static const char *directives[] = { "include", "-include", "sinclude",
 		"define", "endef", "ifdef", "ifndef", "ifeq", "ifneq", "else",
 		"endif", "override", "export", "unexport", "vpath", NULL };
@@ -935,7 +935,8 @@ static void makefile_syntax(erow *row)
 /* True when the current buffer is a git commit/merge/tag message. */
 int syntax_is_git_commit(void)
 {
-	return editor.syntax && (editor.syntax->highlight == gitcommit_syntax);
+	return bcur()->syntax
+	    && (bcur()->syntax->highlight == gitcommit_syntax);
 }
 
 /* Row index of the commit subject: the first non-blank row that is not
@@ -944,8 +945,8 @@ int syntax_git_commit_subject(void)
 {
 	int j;
 
-	for (j = 0; j < editor.numrows; j++) {
-		erow *r = &editor.row[j];
+	for (j = 0; j < bcur()->numrows; j++) {
+		erow *r = &bcur()->row[j];
 
 		if (r->rsize == 0 || r->render[0] == '#') {
 			continue;
@@ -957,17 +958,16 @@ int syntax_git_commit_subject(void)
 
 /* True if `row` is the subject line: itself non-blank/non-comment, and
  * every already-existing earlier row (0..row->idx-1) is blank or a '#'
- * comment.  Deliberately does not consult editor.numrows: buffer.c's
+ * comment.  Deliberately does not consult b->numrows: buffer.c's
  * editor_insert_row() calls editor_update_row() (and thus this
  * highlighter) *before* incrementing numrows, so a numrows-bounded scan
  * could never match a row against itself on first insertion, and a
  * freshly opened commit file would never show the subject warning until
  * the user edited that line.  Walking only the rows that are already in
  * the array sidesteps that ordering entirely. */
-static void gitcommit_syntax(erow *row)
+static void gitcommit_syntax(struct editor_buffer *b, erow *row)
 {
-	int has_subject_above
-	    = (row->idx > 0 && editor.row[row->idx - 1].hl_oc);
+	int has_subject_above = (row->idx > 0 && b->row[row->idx - 1].hl_oc);
 	int oc = has_subject_above;
 
 	if (row->rsize > 0 && row->render[0] == '#') {
@@ -1014,7 +1014,8 @@ static const struct gitrebase_action gitrebase_actions[] = {
 /* True when the current buffer is a git-rebase-todo. */
 int syntax_is_git_rebase(void)
 {
-	return editor.syntax && (editor.syntax->highlight == gitrebase_syntax);
+	return bcur()->syntax
+	    && (bcur()->syntax->highlight == gitrebase_syntax);
 }
 
 /* Index into gitrebase_actions for the word at p[0..len), or -1. */
@@ -1116,8 +1117,9 @@ static int gitrebase_is_hash(const char *p, int len)
  * merge's -C) as KEYWORD2, an exec command body as string, and an
  * unknown first word or an option flag the action cannot take as a
  * warning (either typo would make git fail the whole rebase). */
-static void gitrebase_syntax(erow *row)
+static void gitrebase_syntax(struct editor_buffer *b, erow *row)
 {
+	(void)b;
 	char *p = row->render;
 	int len = row->rsize;
 	int i = 0, w, a, flags_ok;
@@ -1489,11 +1491,11 @@ static int yaml_find_mapping_colon(const char *p, int start, int len)
  * first (inherited via the previous row's hl_oc), then parses the row as
  * ordinary YAML: directives, document markers, sequence markers, a
  * mapping key, and finally the value via yaml_scan_value(). */
-static void yaml_syntax(erow *row)
+static void yaml_syntax(struct editor_buffer *b, erow *row)
 {
 	char *p = row->render;
 	int len = row->rsize;
-	int prev_oc = (row->idx > 0) ? editor.row[row->idx - 1].hl_oc : 0;
+	int prev_oc = (row->idx > 0) ? b->row[row->idx - 1].hl_oc : 0;
 	int kind = prev_oc & YAML_STATE_KIND_MASK;
 	int state_indent = prev_oc & YAML_STATE_INDENT_MASK;
 	int cur_indent = yaml_indent(row);
@@ -1576,17 +1578,17 @@ static void yaml_syntax(erow *row)
 	yaml_scan_value(row, i);
 }
 
-static void generic_keyword_scan(erow *row)
+static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 {
 	int in_string = 0; /* Are we inside "" or '' ? */
 	int in_comment = 0; /* Are we inside multi-line comment? */
 	int prev_sep = 1; /* Tell the parser if 'i' points to start of word. */
 	char *p = row->render;
 	int i = 0; /* Current char offset */
-	char **keywords = editor.syntax->keywords;
-	char *mcs = editor.syntax->multiline_comment_start;
-	char *mce = editor.syntax->multiline_comment_end;
-	char *scs = editor.syntax->singleline_comment_start;
+	char **keywords = b->syntax->keywords;
+	char *mcs = b->syntax->multiline_comment_start;
+	char *mce = b->syntax->multiline_comment_end;
+	char *scs = b->syntax->singleline_comment_start;
 
 	/* Point to the first non-space char. */
 	while (*p && ascii_is_space((unsigned char)*p)) {
@@ -1596,7 +1598,7 @@ static void generic_keyword_scan(erow *row)
 
 	/* If the previous line has an open comment, this line starts
 	 * with an open comment state. */
-	if (row->idx > 0 && editor.row[row->idx - 1].hl_oc) {
+	if (row->idx > 0 && b->row[row->idx - 1].hl_oc) {
 		in_comment = 1;
 	}
 
@@ -1820,7 +1822,7 @@ static int row_hl_reserve(erow *row)
 	return 1;
 }
 
-static void editor_update_syntax_row_only(erow *row)
+static void editor_update_syntax_row_only(struct editor_buffer *b, erow *row)
 {
 	KG_PERF_INC(KG_PERF_SYNTAX_ROW);
 	KG_PERF_ADD(KG_PERF_SYNTAX_BYTES, row->rsize);
@@ -1829,13 +1831,12 @@ static void editor_update_syntax_row_only(erow *row)
 		row->hl = NULL;
 		row->hl_capacity = 0;
 		row->hl_oc = 0;
-		if (editor.syntax && editor.syntax->highlight) {
-			editor.syntax->highlight(
-			    row); /* state propagation only */
+		if (b->syntax && b->syntax->highlight) {
+			b->syntax->highlight(
+			    b, row); /* state propagation only */
 		} else {
-			row->hl_oc = (row->idx > 0)
-			    ? editor.row[row->idx - 1].hl_oc
-			    : 0;
+			row->hl_oc
+			    = (row->idx > 0) ? b->row[row->idx - 1].hl_oc : 0;
 		}
 		return;
 	}
@@ -1845,45 +1846,46 @@ static void editor_update_syntax_row_only(erow *row)
 	}
 	memset(row->hl, HL_NORMAL, (size_t)row->rsize);
 
-	if (editor.syntax == NULL) {
+	if (b->syntax == NULL) {
 		return; /* No syntax, everything is HL_NORMAL. */
 	}
 
-	if (editor.syntax->highlight) {
+	if (b->syntax->highlight) {
 		row->hl_oc = 0;
-		editor.syntax->highlight(row);
+		b->syntax->highlight(b, row);
 	} else {
-		generic_keyword_scan(row);
+		generic_keyword_scan(b, row);
 	}
 }
 
-static void syntax_propagate_downstream(erow *row, int old_oc)
+static void syntax_propagate_downstream(
+    struct editor_buffer *b, erow *row, int old_oc)
 {
 	int idx = row->idx;
-	while (row->hl_oc != old_oc && idx + 1 < editor.numrows) {
+	while (row->hl_oc != old_oc && idx + 1 < b->numrows) {
 		idx++;
-		row = &editor.row[idx];
+		row = &b->row[idx];
 		old_oc = row->hl_oc;
 		KG_PERF_INC(KG_PERF_SYNTAX_PROPAGATE);
-		editor_update_syntax_row_only(row);
+		editor_update_syntax_row_only(b, row);
 	}
 }
 
 /* Set every byte of row->hl (that corresponds to every character in the line)
  * to the right syntax highlight type (HL_* defines). */
-void editor_update_syntax(erow *row)
+void editor_update_syntax(struct editor_buffer *b, erow *row)
 {
 	int old_oc = row->hl_oc;
-	editor_update_syntax_row_only(row);
-	syntax_propagate_downstream(row, old_oc);
+	editor_update_syntax_row_only(b, row);
+	syntax_propagate_downstream(b, row, old_oc);
 }
 
-void editor_rehighlight_from(int start_idx)
+void editor_rehighlight_from(struct editor_buffer *b, int start_idx)
 {
-	if (start_idx < 0 || start_idx >= editor.numrows) {
+	if (start_idx < 0 || start_idx >= b->numrows) {
 		return;
 	}
-	editor_update_syntax(&editor.row[start_idx]);
+	editor_update_syntax(b, &b->row[start_idx]);
 }
 
 struct editor_syntax *syntax_find_by_name(const char *name)
@@ -1897,24 +1899,21 @@ struct editor_syntax *syntax_find_by_name(const char *name)
 	return NULL;
 }
 
-void editor_rehighlight_all(void)
+void editor_rehighlight_all(struct editor_buffer *b)
 {
 	int j;
-	for (j = 0; j < editor.numrows; j++) {
-		editor.row[j].hl_oc = 0;
+	for (j = 0; j < b->numrows; j++) {
+		b->row[j].hl_oc = 0;
 	}
-	for (j = 0; j < editor.numrows; j++) {
-		editor_update_syntax_row_only(&editor.row[j]);
+	for (j = 0; j < b->numrows; j++) {
+		editor_update_syntax_row_only(b, &b->row[j]);
 	}
 }
 
-void editor_set_syntax(struct editor_syntax *syntax)
+void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax)
 {
-	editor.syntax = syntax;
-	if (buf_current >= 0 && buf_current < MAX_BUFFERS) {
-		buflist[buf_current].syntax = syntax;
-	}
-	editor_rehighlight_all();
+	b->syntax = syntax;
+	editor_rehighlight_all(b);
 }
 
 /* Maps syntax highlight token types to terminal colors. */
@@ -1982,7 +1981,8 @@ static const char *shebang_interp_to_ext(const char *interp)
 
 /* Try to select syntax by reading a hash-bang (#!) on the first line of
  * filename, falling back to extension matching via shebang_interp_to_ext(). */
-static void select_syntax_by_shebang(const char *filename)
+static void select_syntax_by_shebang(
+    struct editor_buffer *b, const char *filename)
 {
 	char line[256];
 	char *interp, *slash, *end;
@@ -2046,7 +2046,7 @@ static void select_syntax_by_shebang(const char *filename)
 		struct editor_syntax *s = HLDB + j;
 		for (i = 0; s->filematch[i]; i++) {
 			if (strcmp(s->filematch[i], ext) == 0) {
-				editor.syntax = s;
+				b->syntax = s;
 				return;
 			}
 		}
@@ -2054,8 +2054,8 @@ static void select_syntax_by_shebang(const char *filename)
 }
 
 /* Select the syntax highlight scheme depending on the filename,
- * setting it in the global state editor.syntax. */
-void editor_select_syntax_highlight(char *filename)
+ * setting it on the buffer that is being given that filename. */
+void editor_select_syntax_highlight(struct editor_buffer *b, char *filename)
 {
 	unsigned int j;
 	/* The git modes are matched on the exact basename only: they bind
@@ -2064,12 +2064,12 @@ void editor_select_syntax_highlight(char *filename)
 	const char *base = buf_basename(filename);
 
 	if (strcmp(base, "git-rebase-todo") == 0) {
-		editor.syntax = syntax_find_by_name("Git rebase");
+		b->syntax = syntax_find_by_name("Git rebase");
 		return;
 	}
 	for (j = 0; gitcommit_basenames[j]; j++) {
 		if (strcmp(base, gitcommit_basenames[j]) == 0) {
-			editor.syntax = syntax_find_by_name("Git commit");
+			b->syntax = syntax_find_by_name("Git commit");
 			return;
 		}
 	}
@@ -2083,7 +2083,7 @@ void editor_select_syntax_highlight(char *filename)
 			if (p
 			    && (s->filematch[i][0] != '.'
 				|| p[patlen] == '\0')) {
-				editor.syntax = s;
+				b->syntax = s;
 				return;
 			}
 			i++;
@@ -2091,5 +2091,5 @@ void editor_select_syntax_highlight(char *filename)
 	}
 
 	/* No extension match — try hash-bang on first line of file */
-	select_syntax_by_shebang(filename);
+	select_syntax_by_shebang(b, filename);
 }

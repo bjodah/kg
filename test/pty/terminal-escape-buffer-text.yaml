@@ -4,7 +4,7 @@
 # renames the terminal window; rendered as text they are just characters,
 # and the mode line is still where it was.
 #
-# The name has no extension on purpose: editor.syntax is NULL, so no
+# The name has no extension on purpose: the buffer's syntax is NULL, so no
 # highlighter runs at all and every byte stays HL_NORMAL.  That is the
 # case the old HL_NONPRINT path never reached, and the reason terminal
 # safety cannot live in a syntax highlighter.

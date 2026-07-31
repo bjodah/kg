@@ -36,7 +36,7 @@ static void cmd_read_only_mode(int fd)
 static void cmd_not_modified(int fd)
 {
 	(void)fd;
-	editor.dirty = 0;
+	bcur()->dirty = 0;
 	editor_set_status_message("Modification-flag cleared");
 }
 
@@ -47,12 +47,12 @@ static void cmd_what_cursor_position(int fd)
 	/* Zero-based display column, as Emacs' C-x = reports and as the
 	 * mode line shows, so the two never disagree. */
 	int col = editor_display_col(
-	    editor.row, editor.numrows, line - 1, editor.coloff + editor.cx);
-	int pct = editor.numrows ? (line * 100) / editor.numrows : 100;
+	    bcur()->row, bcur()->numrows, line - 1, editor.coloff + editor.cx);
+	int pct = bcur()->numrows ? (line * 100) / bcur()->numrows : 100;
 
 	(void)fd;
 	editor_set_status_message(
-	    "Line %d of %d (%d%%), col %d", line, editor.numrows, pct, col);
+	    "Line %d of %d (%d%%), col %d", line, bcur()->numrows, pct, col);
 }
 
 /* Go to a specific line (prompts for line or line:col). */
@@ -104,7 +104,7 @@ static void cmd_eval_buffer(int fd)
 	int length, rc;
 
 	(void)fd;
-	source = editor_rows_to_string(editor.row, editor.numrows, &length);
+	source = editor_rows_to_string(bcur()->row, bcur()->numrows, &length);
 	if (!source) {
 		return;
 	}
@@ -135,7 +135,7 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 	    UNDO_KILL_TEXT, filerow, newsize, 0, row->chars + newsize, removed);
 	row->chars[newsize] = '\0';
 	row->size = newsize;
-	editor_update_row(row);
+	editor_update_row(bcur(), row);
 	return removed;
 }
 
@@ -146,7 +146,7 @@ static void cmd_revert_buffer(int fd)
 		editor_set_status_message("Cannot revert a special buffer");
 		return;
 	}
-	if (editor.dirty
+	if (bcur()->dirty
 	    && !editor_confirm_yn(
 		fd, "Buffer modified.  Revert from disk? (y/n) ")) {
 		editor_set_status_message("");
@@ -262,14 +262,14 @@ static void cmd_whitespace_cleanup(int fd)
 
 	(void)fd;
 
-	for (r = 0; r < editor.numrows; r++) {
-		if (strip_trailing_whitespace(&editor.row[r], r)) {
+	for (r = 0; r < bcur()->numrows; r++) {
+		if (strip_trailing_whitespace(&bcur()->row[r], r)) {
 			changed++;
 		}
 	}
 
 	if (changed) {
-		editor.dirty = 1;
+		bcur()->dirty = 1;
 	}
 	editor_set_status_message(changed
 		? "Removed trailing whitespace from %d line%s."
@@ -285,17 +285,17 @@ static void cmd_delete_trailing_space(int fd)
 
 	(void)fd;
 
-	if (filerow >= editor.numrows) {
+	if (filerow >= bcur()->numrows) {
 		return;
 	}
 
-	removed = strip_trailing_whitespace(&editor.row[filerow], filerow);
+	removed = strip_trailing_whitespace(&bcur()->row[filerow], filerow);
 	if (!removed) {
 		editor_set_status_message(
 		    "No trailing whitespace on this line");
 		return;
 	}
-	editor.dirty = 1;
+	bcur()->dirty = 1;
 	editor_set_status_message(
 	    "Removed %d trailing space%s", removed, removed == 1 ? "" : "s");
 }
@@ -316,7 +316,7 @@ static void cmd_visual_line_mode(int fd)
 		editor.coloff = 0;
 		editor.cx = filecol;
 		editor.rowoff_visual = get_visual_row(
-		    editor.row, editor.numrows, w->w, filerow, filecol);
+		    bcur()->row, bcur()->numrows, w->w, filerow, filecol);
 	} else {
 		editor.rowoff = filerow > 10 ? filerow - 10 : 0;
 		editor.cy = filerow - editor.rowoff;
@@ -456,17 +456,17 @@ static void scan_to_point(struct sexp_scan *scan)
 	int r, c;
 
 	memset(scan, 0, sizeof(*scan));
-	for (r = 0; r < editor.numrows && r <= point_row; r++) {
-		int limit = editor.row[r].size;
+	for (r = 0; r < bcur()->numrows && r <= point_row; r++) {
+		int limit = bcur()->row[r].size;
 
 		if (r == point_row && point_col < limit) {
 			limit = point_col;
 		}
 		for (c = 0; c < limit; c++) {
 			sexp_scan_byte(
-			    scan, (unsigned char)editor.row[r].chars[c]);
+			    scan, (unsigned char)bcur()->row[r].chars[c]);
 		}
-		if (r < point_row && r + 1 < editor.numrows) {
+		if (r < point_row && r + 1 < bcur()->numrows) {
 			sexp_scan_byte(scan, '\n');
 		}
 	}
@@ -485,13 +485,13 @@ static char *copy_sexp_text(size_t start, size_t end)
 	if (!text) {
 		return NULL;
 	}
-	for (r = 0; r < editor.numrows && off < end; r++) {
-		for (c = 0; c < editor.row[r].size && off < end; c++, off++) {
+	for (r = 0; r < bcur()->numrows && off < end; r++) {
+		for (c = 0; c < bcur()->row[r].size && off < end; c++, off++) {
 			if (off >= start) {
-				text[copied++] = editor.row[r].chars[c];
+				text[copied++] = bcur()->row[r].chars[c];
 			}
 		}
-		if (r + 1 < editor.numrows && off < end) {
+		if (r + 1 < bcur()->numrows && off < end) {
 			if (off++ >= start) {
 				text[copied++] = '\n';
 			}
@@ -605,7 +605,7 @@ static void cmd_query_replace_regexp(int fd)
 static void cmd_lisp_interaction_mode(int fd)
 {
 	(void)fd;
-	editor_set_syntax(&lisp_interaction_syntax);
+	editor_set_syntax(bcur(), &lisp_interaction_syntax);
 	editor_set_status_message("Lisp Interaction mode enabled");
 }
 
@@ -735,7 +735,7 @@ static void cmd_dired_unmark(int fd)
 static void cmd_yaml_mode(int fd)
 {
 	(void)fd;
-	editor_set_syntax(syntax_find_by_name("YAML"));
+	editor_set_syntax(bcur(), syntax_find_by_name("YAML"));
 	editor_set_status_message("YAML mode enabled");
 }
 

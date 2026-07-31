@@ -11,15 +11,18 @@ void free_all_rows(void)
 {
 	int i;
 
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
+	for (i = 0; i < bcur()->numrows; i++) {
+		editor_free_row(&bcur()->row[i]);
 	}
-	free(editor.row);
-	/* The row array now carries a capacity (editor_rows_reserve()), so
+	free(bcur()->row);
+	/* The row array carries a capacity (editor_rows_reserve()), so
 	 * dropping the rows has to drop it too: a stale capacity over a
 	 * freed pointer is what the next editor_insert_row() would write
-	 * through. */
-	editor.row = NULL;
-	editor.numrows = 0;
-	editor.row_capacity = 0;
+	 * through.  The dirty flag goes with them: it used to be cleared by
+	 * the memset(&editor, ...) every setup() does, and it no longer
+	 * lives in that struct. */
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
+	bcur()->row_capacity = 0;
+	bcur()->dirty = 0;
 }

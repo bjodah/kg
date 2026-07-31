@@ -14,7 +14,7 @@
 #include "def.h"
 #include "localvars.h"
 
-static void dired_highlight(erow *row);
+static void dired_highlight(struct editor_buffer *b, erow *row);
 
 /* Synthetic syntax record, deliberately outside HLDB: a dired buffer is
  * never selected by filename.  syntax_is_dired() compares this record's
@@ -46,7 +46,7 @@ static struct dired_entry *dired_list;
 static int dired_list_count;
 
 /* True when the current buffer is a directory listing. */
-int syntax_is_dired(void) { return editor.syntax == &dired_syntax; }
+int syntax_is_dired(void) { return bcur()->syntax == &dired_syntax; }
 
 /* Recover the directory from a dired buffer name.  Returns 0, or -1 when
  * `bufname` is not a dired buffer name or the path would not fit: a
@@ -106,8 +106,10 @@ int dired_row_name(const char *line, int len, char *out, int size)
  * row — a flagged directory keeps its name highlighted, which is what
  * Emacs' default dired faces do.  Indexed over render, like every other
  * highlighter; a listing row holds no tabs, so it equals chars. */
-static void dired_highlight(erow *row)
+static void dired_highlight(struct editor_buffer *b, erow *row)
 {
+	(void)b;
+
 	int len = row->rsize;
 
 	if (len == 0) {
@@ -233,8 +235,8 @@ static void dired_add_row(const char *line, int len)
 {
 	int have = (int)strlen(line);
 
-	editor_insert_row(
-	    editor.numrows, line, (size_t)(len < 0 || len > have ? have : len));
+	editor_insert_row(bcur(), bcur()->numrows, line,
+	    (size_t)(len < 0 || len > have ? have : len));
 }
 
 /* Rebuild the rows of the current dired buffer: a header line naming the
@@ -245,10 +247,10 @@ static void dired_populate(void)
 	char line[PATH_MAX + 8];
 	int i, len;
 
-	/* Attached before any row exists, because editor_insert_row()
+	/* Attached before any row exists, because editor_insert_row(bcur(), )
 	 * highlights each row as it is appended and both callers of this
 	 * populate step attach the syntax only after it returns. */
-	editor.syntax = &dired_syntax;
+	bcur()->syntax = &dired_syntax;
 
 	if (dired_dir_of(editor.filename, dir, sizeof(dir)) != 0) {
 		/* Unreachable: dired_open() built the name this reads back.
@@ -333,17 +335,17 @@ int dired_fill_current(const char *dir)
 	if (dired_stage(dir, &l) != 0) {
 		return 1;
 	}
-	editor_free_all_rows();
+	editor_free_all_rows(bcur());
 	free(editor.filename);
 	editor.filename = strdup(l.name);
 	dired_populate();
 	dired_unstage();
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
-	editor.dirty = 0;
+	bcur()->dirty = 0;
 	editor.readonly_override = 1;
 	editor_refresh_readonly_state();
-	editor.syntax = &dired_syntax;
+	bcur()->syntax = &dired_syntax;
 	editor_set_status_message("%s", l.status);
 	return 0;
 }
@@ -378,7 +380,8 @@ static int dired_entry_row(void)
 {
 	int filerow = editor_current_filerow_or_eof();
 
-	if (editor.numrows <= 0 || filerow <= 0 || filerow >= editor.numrows) {
+	if (bcur()->numrows <= 0 || filerow <= 0
+	    || filerow >= bcur()->numrows) {
 		return -1;
 	}
 	return filerow;
@@ -393,8 +396,8 @@ static int dired_path_at_point(char *out, int size)
 	int filerow = dired_entry_row();
 
 	if (filerow < 0
-	    || dired_row_name(editor.row[filerow].chars,
-		   editor.row[filerow].size, name, sizeof(name))
+	    || dired_row_name(bcur()->row[filerow].chars,
+		   bcur()->row[filerow].size, name, sizeof(name))
 		!= 0) {
 		editor_set_status_message("No file on this line");
 		return -1;
@@ -460,7 +463,7 @@ void dired_revert(void)
  * Emacs' m/d/u do so a run of entries marks with one key per line.  The
  * gutter is view state rather than an edit: the row is mutated in place
  * with no undo record (buf_open_special() reset undo when the listing was
- * built) and editor.dirty is deliberately left alone, so quitting a
+ * built) and bcur()->dirty is deliberately left alone, so quitting a
  * marked-up listing never prompts. */
 void dired_set_mark(char mark)
 {
@@ -471,13 +474,13 @@ void dired_set_mark(char mark)
 		return;
 	}
 	filerow = dired_entry_row();
-	if (filerow < 0 || editor.row[filerow].size <= DIRED_GUTTER_LEN) {
+	if (filerow < 0 || bcur()->row[filerow].size <= DIRED_GUTTER_LEN) {
 		editor_set_status_message("No file on this line");
 		return;
 	}
-	row = &editor.row[filerow];
+	row = &bcur()->row[filerow];
 	row->chars[0] = mark;
-	editor_update_row(row);
+	editor_update_row(bcur(), row);
 	editor_move_cursor(ARROW_DOWN);
 }
 
@@ -500,8 +503,8 @@ int dired_collect_flagged(int dirfd, struct dired_target *out, int max)
 {
 	int i, n = 0;
 
-	for (i = 1; i < editor.numrows && n < max; i++) {
-		erow *row = &editor.row[i];
+	for (i = 1; i < bcur()->numrows && n < max; i++) {
+		erow *row = &bcur()->row[i];
 		struct stat st;
 
 		if (row->size <= 0 || row->chars[0] != 'D') {
@@ -576,14 +579,14 @@ void dired_do_flagged_delete(int fd)
 		editor_set_status_message("Dired %s: %s", dir, strerror(errno));
 		return;
 	}
-	targets = calloc((size_t)editor.numrows + 1, sizeof(*targets));
+	targets = calloc((size_t)bcur()->numrows + 1, sizeof(*targets));
 	if (!targets) {
 		close(dirfd);
 		editor_set_status_message("Dired: out of memory");
 		return;
 	}
 
-	flagged = dired_collect_flagged(dirfd, targets, editor.numrows + 1);
+	flagged = dired_collect_flagged(dirfd, targets, bcur()->numrows + 1);
 	if (flagged <= 0) {
 		close(dirfd);
 		free(targets);

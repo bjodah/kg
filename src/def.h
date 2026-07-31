@@ -204,6 +204,7 @@ enum KEY_ACTION {
 
 /* Syntax highlight definition */
 struct erow;
+struct editor_buffer;
 struct editor_syntax {
 	char *name; /* Display name shown in mode line, e.g. "C", "Python" */
 	char **filematch;
@@ -212,8 +213,10 @@ struct editor_syntax {
 	char multiline_comment_start[5];
 	char multiline_comment_end[5];
 	int flags;
-	void (*highlight)(
-	    struct erow *row); /* NULL => generic keyword scanner */
+	/* NULL => generic keyword scanner.  The buffer is passed because a
+	 * multi-line construct's state comes from the row above, which is
+	 * only reachable through the buffer that owns it. */
+	void (*highlight)(struct editor_buffer *b, struct erow *row);
 };
 
 /* This structure represents a single line of the file we are editing. */
@@ -286,12 +289,7 @@ struct editor_config {
 	int coloff; /* Offset of column displayed. */
 	int screenrows; /* Number of rows that we can show */
 	int screencols; /* Number of cols that we can show */
-	int numrows; /* Number of rows */
 	int rawmode; /* Is terminal raw mode enabled? */
-	erow *row; /* Rows */
-	int row_capacity; /* Row records `row` can hold; see
-			     editor_rows_reserve(). */
-	int dirty; /* File modified but not saved. */
 	char *filename; /* Currently open filename */
 	char statusmsg[512];
 	time_t statusmsg_time;
@@ -304,7 +302,6 @@ struct editor_config {
 	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
 			      * row where the cursor should rest (for minibuffer
 			      * prompts). */
-	struct editor_syntax *syntax; /* Current syntax highlight, or NULL. */
 	int cx_prefix; /* Set to 1 when C-x was pressed, waiting for next key.
 			*/
 	int cc_prefix; /* Set to 1 when C-c was pressed, waiting for the
@@ -482,7 +479,6 @@ extern int running;
 extern int kg_exit_status; /* Process exit status returned by main(). */
 extern int suppress_undo;
 extern struct kill_ring killring;
-extern struct undo_stack undostack;
 extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
 extern int buf_count; /* number of active buffers */
@@ -634,13 +630,14 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
 int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
-void editor_update_row(erow *row);
+void editor_update_row(struct editor_buffer *b, erow *row);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
 int editor_row_grown_capacity(int need);
-void editor_insert_row(int at, const char *s, size_t len);
+void editor_insert_row(
+    struct editor_buffer *b, int at, const char *s, size_t len);
 void editor_free_row(erow *row);
-void editor_free_all_rows(void);
-void editor_del_row(int at);
+void editor_free_all_rows(struct editor_buffer *b);
+void editor_del_row(struct editor_buffer *b, int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
 void editor_row_insert_string(erow *row, int at, const char *s, int len);
@@ -973,13 +970,13 @@ bool shell_output_fits_echo(
 /* syntax.c */
 int is_separator(int c);
 int editor_row_has_open_comment(erow *row);
-void editor_update_syntax(erow *row);
-void editor_rehighlight_from(int start_idx);
+void editor_update_syntax(struct editor_buffer *b, erow *row);
+void editor_rehighlight_from(struct editor_buffer *b, int start_idx);
 struct editor_syntax *syntax_find_by_name(const char *name);
-void editor_set_syntax(struct editor_syntax *syntax);
-void editor_rehighlight_all(void);
+void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax);
+void editor_rehighlight_all(struct editor_buffer *b);
 int editor_syntax_to_color(int hl);
-void editor_select_syntax_highlight(char *filename);
+void editor_select_syntax_highlight(struct editor_buffer *b, char *filename);
 [[nodiscard]] int syntax_is_git_commit(void);
 [[nodiscard]] int syntax_git_commit_subject(void);
 [[nodiscard]] int syntax_is_git_rebase(void);
@@ -1135,6 +1132,7 @@ void editor_sort_lines(void);
 
 /* undo.c */
 void undo_stack_init(struct undo_stack *st);
+void undo_stack_free(struct undo_stack *st);
 void undo_init(void);
 void undo_free(void);
 int undo_push(

@@ -574,8 +574,8 @@ static FeObject *native_current_column(FeContext *context, FeObject *arguments)
 	int col = 0;
 
 	FeRequireNoArguments(context, arguments);
-	if (editor.numrows > 0) {
-		row = &editor.row[editor_current_filerow()];
+	if (bcur()->numrows > 0) {
+		row = &bcur()->row[editor_current_filerow()];
 		col = editor_visual_col(
 		    row, editor_current_filecol_in_row(row));
 	}
@@ -652,7 +652,7 @@ static size_t lisp_span_bytes(const int *rows, const int *cols)
 
 	for (r = rows[0]; r <= rows[1]; r++) {
 		from = (r == rows[0]) ? cols[0] : 0;
-		to = (r == rows[1]) ? cols[1] : editor.row[r].size;
+		to = (r == rows[1]) ? cols[1] : bcur()->row[r].size;
 		bytes += (size_t)(to - from);
 		if (r < rows[1]) {
 			bytes++;
@@ -677,8 +677,8 @@ static char *lisp_copy_span(
 	}
 	for (r = rows[0]; r <= rows[1]; r++) {
 		from = (r == rows[0]) ? cols[0] : 0;
-		to = (r == rows[1]) ? cols[1] : editor.row[r].size;
-		memcpy(text + pos, editor.row[r].chars + from,
+		to = (r == rows[1]) ? cols[1] : bcur()->row[r].size;
+		memcpy(text + pos, bcur()->row[r].chars + from,
 		    (size_t)(to - from));
 		pos += (size_t)(to - from);
 		if (r < rows[1]) {
@@ -708,7 +708,7 @@ static FeObject *native_buffer_substring(
 		beg = end;
 		end = swap;
 	}
-	if (editor.numrows <= 0) {
+	if (bcur()->numrows <= 0) {
 		return FeMakeString(context, "");
 	}
 	editor_offset_to_rowcol(beg, &rows[0], &cols[0]);
@@ -742,7 +742,7 @@ static long lisp_decode_char(const char *text, int length, int col)
  * separator. */
 static long lisp_char_at(int row, int col)
 {
-	erow *r = &editor.row[row];
+	erow *r = &bcur()->row[row];
 
 	if (col >= r->size) {
 		return '\n';
@@ -758,7 +758,7 @@ static FeObject *native_char_after(FeContext *context, FeObject *arguments)
 	int row, col;
 
 	FeRequireNoArguments(context, arguments);
-	if (editor.numrows <= 0 || offset >= editor_buffer_char_length()) {
+	if (bcur()->numrows <= 0 || offset >= editor_buffer_char_length()) {
 		return FeNil(context);
 	}
 	editor_offset_to_rowcol(offset, &row, &col);
@@ -828,7 +828,7 @@ static bool lisp_is_word_byte(unsigned char byte)
  * none and returns false. */
 static bool lisp_word_bounds(int row, int col, int *from, int *to)
 {
-	erow *r = &editor.row[row];
+	erow *r = &bcur()->row[row];
 	int start = col, end = col;
 
 	if (col < r->size && lisp_is_word_byte((unsigned char)r->chars[col])) {
@@ -883,13 +883,13 @@ static FeObject *native_bounds_of_thing(FeContext *context, FeObject *arguments)
 
 	FeRequireNoArguments(context, arguments);
 	want_word = lisp_thing_is_word(context, object);
-	if (editor.numrows <= 0) {
+	if (bcur()->numrows <= 0) {
 		return FeNil(context);
 	}
 	row = editor_current_filerow();
-	col = editor_current_filecol_in_row(&editor.row[row]);
+	col = editor_current_filecol_in_row(&bcur()->row[row]);
 	start = 0;
-	end = editor.row[row].size;
+	end = bcur()->row[row].size;
 	if (want_word && !lisp_word_bounds(row, col, &start, &end)) {
 		return FeNil(context);
 	}
@@ -898,7 +898,7 @@ static FeObject *native_bounds_of_thing(FeContext *context, FeObject *arguments)
 	/* A word stops at the line break; a line takes it in, as in Emacs, so
 	 * END is the start of the next row.  The last row has no next row and
 	 * ends at end of buffer. */
-	if (!want_word && row < editor.numrows - 1) {
+	if (!want_word && row < bcur()->numrows - 1) {
 		to++;
 	}
 	return FeCons(

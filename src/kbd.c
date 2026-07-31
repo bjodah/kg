@@ -60,7 +60,7 @@ static int key_would_edit_readonly_buffer(int c)
 static int bottom_buffer_screen_row(void)
 {
 	int bottom = editor.screenrows > 0 ? editor.screenrows - 1 : 0;
-	int last = editor.numrows - editor.rowoff - 1;
+	int last = bcur()->numrows - editor.rowoff - 1;
 
 	if (last < 0) {
 		last = 0;
@@ -95,9 +95,9 @@ static void editor_insert_repeated_literal(int c, int n)
 
 	start_row = editor_current_filerow_or_eof();
 	start_col = editor_current_filecol();
-	dirty_before = editor.dirty;
+	dirty_before = bcur()->dirty;
 	editor_insert_text_raw(text, n);
-	if (editor.dirty != dirty_before) {
+	if (bcur()->dirty != dirty_before) {
 		for (i = 0; i < n; i++) {
 			int col
 			    = start_col > INT_MAX - i ? INT_MAX : start_col + i;
@@ -184,7 +184,7 @@ static int editor_confirm_quit(int fd)
 	int i, ndirty = 0;
 
 	/* Count modified real-file buffers (exclude *special* ones). */
-	if (editor.dirty && !is_special_buffer(editor.filename)) {
+	if (bcur()->dirty && !is_special_buffer(editor.filename)) {
 		ndirty++;
 	}
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -523,14 +523,14 @@ static void key_kill_lines(int n)
 
 	suppress_undo = 1;
 	while (newlines_left > 0) {
-		int before_numrows = editor.numrows;
+		int before_numrows = bcur()->numrows;
 		int before_ring_len = killring.len;
 
 		editor_kill_line();
 		if (killring.len == before_ring_len) {
 			break;
 		}
-		if (editor.numrows < before_numrows) {
+		if (bcur()->numrows < before_numrows) {
 			newlines_left--;
 		}
 	}
@@ -652,7 +652,7 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	 * slot can be handed to another file whose name was allocated at the
 	 * same address. */
 	if (buf_handle_slot(buffer_before) == buf_current
-	    && editor.dirty != dirty_before) {
+	    && bcur()->dirty != dirty_before) {
 		editor.mark_highlight = 0;
 		editor.rect_mode = 0;
 		editor_snap_cx_to_row();
@@ -690,7 +690,7 @@ void editor_process_keypress(int fd)
 	struct timeval tv;
 	int c = editor_read_key_idle(fd);
 	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
-	int dirty_before = editor.dirty;
+	int dirty_before = bcur()->dirty;
 	int was_shift_select = editor.shift_select;
 	long elapsed;
 	long seconds;
@@ -816,9 +816,9 @@ void editor_process_keypress(int fd)
 		break;
 	case CTRL_J: /* Ctrl-j: eval sexp in Lisp/Scratch if Lisp active, else
 			newline */
-		if (kg_lisp_active() && editor.syntax
-		    && (strcmp(editor.syntax->name, "Lisp Interaction") == 0
-			|| strcmp(editor.syntax->name, "Lisp") == 0)) {
+		if (kg_lisp_active() && bcur()->syntax
+		    && (strcmp(bcur()->syntax->name, "Lisp Interaction") == 0
+			|| strcmp(bcur()->syntax->name, "Lisp") == 0)) {
 			cmd_eval_print_last_sexp();
 		} else {
 			while (n--) {

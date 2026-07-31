@@ -36,12 +36,12 @@ int editor_current_filerow_or_eof(void)
 {
 	editor.rowoff = editor_nonnegative(editor.rowoff);
 	editor.cy = editor_nonnegative(editor.cy);
-	if (editor.numrows <= 0) {
+	if (bcur()->numrows <= 0) {
 		return 0;
 	}
-	if (editor.rowoff >= editor.numrows
-	    || editor.cy >= editor.numrows - editor.rowoff) {
-		return editor.numrows;
+	if (editor.rowoff >= bcur()->numrows
+	    || editor.cy >= bcur()->numrows - editor.rowoff) {
+		return bcur()->numrows;
 	}
 	return editor.rowoff + editor.cy;
 }
@@ -50,8 +50,8 @@ int editor_current_filerow(void)
 {
 	int row = editor_current_filerow_or_eof();
 
-	if (editor.numrows > 0 && row >= editor.numrows) {
-		return editor.numrows - 1;
+	if (bcur()->numrows > 0 && row >= bcur()->numrows) {
+		return bcur()->numrows - 1;
 	}
 	return row;
 }
@@ -166,11 +166,11 @@ void editor_snap_cx_to_row(void)
 	int filecol;
 	int rowlen;
 
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (editor_current_filerow_or_eof() >= bcur()->numrows) {
 		return;
 	}
 	filecol = editor_current_filecol();
-	rowlen = editor.row[editor_current_filerow()].size;
+	rowlen = bcur()->row[editor_current_filerow()].size;
 	if (filecol > rowlen) {
 		if (editor.coloff > rowlen) {
 			editor.coloff = rowlen;
@@ -228,7 +228,7 @@ void editor_reveal_position_centered(int row, int col)
 		if (editor.rowoff < 0) {
 			editor.rowoff = 0;
 		}
-		max_rowoff = editor.numrows - editor.screenrows;
+		max_rowoff = bcur()->numrows - editor.screenrows;
 		if (max_rowoff < 0) {
 			max_rowoff = 0;
 		}
@@ -316,7 +316,7 @@ static int row_render_reserve(erow *row, int need)
  * of freeing it and leaving row->rsize describing bytes that are gone.
  * running is cleared either way, so the callers that watch for that (and
  * for a NULL render on a row that never had one) still see it. */
-void editor_update_row(erow *row)
+void editor_update_row(struct editor_buffer *b, erow *row)
 {
 	unsigned int tabs = 0;
 	unsigned long long allocsize;
@@ -375,7 +375,7 @@ void editor_update_row(erow *row)
 	row->render[idx] = '\0';
 
 	/* Update the syntax highlighting attributes of the row. */
-	editor_update_syntax(row);
+	editor_update_syntax(b, row);
 }
 
 /* Rows a fresh row array starts out able to hold.  Small enough that a
@@ -431,12 +431,13 @@ int editor_rows_reserve(erow **rows, int *capacity, int need)
  * slice, which for the '\n'-bounded slices the undo replays hand over is
  * a newline, and for a slice ending at the end of an allocation is a read
  * past it. */
-void editor_insert_row(int at, const char *s, size_t len)
+void editor_insert_row(
+    struct editor_buffer *b, int at, const char *s, size_t len)
 {
 	char *newchars;
 	size_t alloc_sz;
 
-	if (at > editor.numrows) {
+	if (at > b->numrows) {
 		return;
 	}
 
@@ -452,28 +453,27 @@ void editor_insert_row(int at, const char *s, size_t len)
 	memcpy(newchars, s, len);
 	newchars[len] = '\0';
 
-	if (!editor_rows_reserve(
-		&editor.row, &editor.row_capacity, editor.numrows + 1)) {
+	if (!editor_rows_reserve(&b->row, &b->row_capacity, b->numrows + 1)) {
 		free(newchars);
 		editor_nomem();
 		return;
 	}
-	if (at != editor.numrows) {
-		memmove(editor.row + at + 1, editor.row + at,
-		    sizeof(editor.row[0]) * (editor.numrows - at));
-		for (int j = at + 1; j <= editor.numrows; j++) {
-			editor.row[j].idx++;
+	if (at != b->numrows) {
+		memmove(b->row + at + 1, b->row + at,
+		    sizeof(b->row[0]) * (b->numrows - at));
+		for (int j = at + 1; j <= b->numrows; j++) {
+			b->row[j].idx++;
 		}
 	}
 
-	editor.row[at] = (erow) {
+	b->row[at] = (erow) {
 		.idx = at,
 		.size = (int)len,
 		.chars = newchars,
 	};
-	editor.numrows++;
-	editor_update_row(editor.row + at);
-	editor.dirty++;
+	b->numrows++;
+	editor_update_row(b, b->row + at);
+	b->dirty++;
 }
 
 /* Free row's heap allocated stuff. */
@@ -494,40 +494,41 @@ void editor_free_row(erow *row)
 	row->hl_capacity = 0;
 }
 
-/* Free every row of the current buffer and leave it empty.  Used whenever
- * a buffer's contents are rebuilt from scratch. */
-void editor_free_all_rows(void)
+/* Free every row of `b` and leave it empty.  Used whenever a buffer's
+ * contents are rebuilt from scratch.  The capacity goes with the pointer:
+ * one left behind describes storage that has been freed. */
+void editor_free_all_rows(struct editor_buffer *b)
 {
 	int i;
 
-	for (i = 0; i < editor.numrows; i++) {
-		editor_free_row(&editor.row[i]);
+	for (i = 0; i < b->numrows; i++) {
+		editor_free_row(&b->row[i]);
 	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.numrows = 0;
-	editor.row_capacity = 0;
+	free(b->row);
+	b->row = NULL;
+	b->numrows = 0;
+	b->row_capacity = 0;
 }
 
 /* Remove the row at the specified position, shifting the remaining on the top.
  */
-void editor_del_row(int at)
+void editor_del_row(struct editor_buffer *b, int at)
 {
 	erow *row;
 
-	if (at >= editor.numrows) {
+	if (at >= b->numrows) {
 		return;
 	}
-	row = editor.row + at;
+	row = b->row + at;
 	editor_free_row(row);
-	memmove(editor.row + at, editor.row + at + 1,
-	    sizeof(editor.row[0]) * (editor.numrows - at - 1));
-	for (int j = at; j < editor.numrows - 1; j++) {
-		editor.row[j].idx--;
+	memmove(b->row + at, b->row + at + 1,
+	    sizeof(b->row[0]) * (b->numrows - at - 1));
+	for (int j = at; j < b->numrows - 1; j++) {
+		b->row[j].idx--;
 	}
-	editor.numrows--;
-	editor.dirty++;
-	editor_rehighlight_from(at);
+	b->numrows--;
+	b->dirty++;
+	editor_rehighlight_from(b, at);
 }
 
 /* Turn the editor rows into a single heap-allocated string.
@@ -598,12 +599,12 @@ static int editor_current_flat_offset(void)
 	int off = 0;
 	int r;
 
-	for (r = 0; r < filerow && r < editor.numrows; r++) {
-		off += editor.row[r].size + 1;
+	for (r = 0; r < filerow && r < bcur()->numrows; r++) {
+		off += bcur()->row[r].size + 1;
 	}
-	if (filerow < editor.numrows) {
-		if (filecol > editor.row[filerow].size) {
-			filecol = editor.row[filerow].size;
+	if (filerow < bcur()->numrows) {
+		if (filecol > bcur()->row[filerow].size) {
+			filecol = bcur()->row[filerow].size;
 		}
 		off += filecol;
 	}
@@ -716,19 +717,19 @@ long editor_char_offset(int row, int col)
 	long off = 0;
 	int i;
 
-	if (editor.numrows <= 0 || row < 0) {
+	if (bcur()->numrows <= 0 || row < 0) {
 		return 0;
 	}
-	if (row >= editor.numrows) {
-		row = editor.numrows - 1;
-		col = editor.row[row].size;
+	if (row >= bcur()->numrows) {
+		row = bcur()->numrows - 1;
+		col = bcur()->row[row].size;
 	}
 	for (i = 0; i < row; i++) {
 		off += editor_row_byte_to_char(
-			   &editor.row[i], editor.row[i].size)
+			   &bcur()->row[i], bcur()->row[i].size)
 		    + 1;
 	}
-	return off + editor_row_byte_to_char(&editor.row[row], col);
+	return off + editor_row_byte_to_char(&bcur()->row[row], col);
 }
 
 /* Inverse of editor_char_offset().  `*col` comes back as a byte index so it
@@ -739,19 +740,19 @@ void editor_offset_to_rowcol(long offset, int *row, int *col)
 
 	*row = 0;
 	*col = 0;
-	if (editor.numrows <= 0 || offset <= 0) {
+	if (bcur()->numrows <= 0 || offset <= 0) {
 		return;
 	}
-	for (i = 0; i < editor.numrows; i++) {
+	for (i = 0; i < bcur()->numrows; i++) {
 		long len = editor_row_byte_to_char(
-		    &editor.row[i], editor.row[i].size);
-		if (offset <= len || i == editor.numrows - 1) {
+		    &bcur()->row[i], bcur()->row[i].size);
+		if (offset <= len || i == bcur()->numrows - 1) {
 			if (offset > len) {
 				offset = len;
 			}
 			*row = i;
 			*col = editor_row_char_to_byte(
-			    &editor.row[i], (int)offset);
+			    &bcur()->row[i], (int)offset);
 			return;
 		}
 		offset -= len + 1;
@@ -762,10 +763,10 @@ void editor_offset_to_rowcol(long offset, int *row, int *col)
  * offset of the end of buffer. */
 long editor_buffer_char_length(void)
 {
-	if (editor.numrows <= 0) {
+	if (bcur()->numrows <= 0) {
 		return 0;
 	}
-	return editor_char_offset(editor.numrows - 1, INT_MAX);
+	return editor_char_offset(bcur()->numrows - 1, INT_MAX);
 }
 
 static int editor_init_row(erow *row, int idx, const char *s, int len)
@@ -779,7 +780,7 @@ static int editor_init_row(erow *row, int idx, const char *s, int len)
 	}
 	memcpy(row->chars, s, row->size);
 	row->chars[row->size] = '\0';
-	editor_update_row(row);
+	editor_update_row(bcur(), row);
 	return 1;
 }
 
@@ -790,36 +791,36 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	int row_count = 1;
 
 	KG_PERF_INC(KG_PERF_BUFFER_REBUILD);
-	editor_free_all_rows();
+	editor_free_all_rows(bcur());
 
 	for (i = 0; i < len; i++) {
 		if (text[i] == '\n') {
 			row_count++;
 		}
 	}
-	editor.row = calloc(row_count, sizeof(erow));
-	if (!editor.row) {
+	bcur()->row = calloc(row_count, sizeof(erow));
+	if (!bcur()->row) {
 		editor_nomem();
 		return;
 	}
-	editor.row_capacity = row_count;
+	bcur()->row_capacity = row_count;
 
 	for (i = 0; i < len; i++) {
 		if (text[i] == '\n') {
-			erow *row = &editor.row[editor.numrows];
-			if (!editor_init_row(
-				row, editor.numrows, text + start, i - start)) {
+			erow *row = &bcur()->row[bcur()->numrows];
+			if (!editor_init_row(row, bcur()->numrows, text + start,
+				i - start)) {
 				return;
 			}
-			editor.numrows++;
+			bcur()->numrows++;
 			start = i + 1;
 		}
 	}
-	if (!editor_init_row(&editor.row[editor.numrows], editor.numrows,
+	if (!editor_init_row(&bcur()->row[bcur()->numrows], bcur()->numrows,
 		text + start, len - start)) {
 		return;
 	}
-	editor.numrows++;
+	bcur()->numrows++;
 }
 
 /* Build the `nl` rows that follow the split row: segments 1..nl of
@@ -885,7 +886,7 @@ static int splice_newlines(const char *text, int len)
 static int splice_alloc(const char *text, int len, int nl, int filecol,
     char **head, int *head_len, erow **rows)
 {
-	erow *row = &editor.row[editor_current_filerow()];
+	erow *row = &bcur()->row[editor_current_filerow()];
 	int first_seg
 	    = (int)((const char *)memchr(text, '\n', (size_t)len) - text);
 	int alloc_sz;
@@ -931,25 +932,25 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 	if (nl == 0) {
 		return 0;
 	}
-	if (editor.numrows == 0) {
-		editor_insert_row(0, "", 0);
-		if (editor.numrows == 0) {
+	if (bcur()->numrows == 0) {
+		editor_insert_row(bcur(), 0, "", 0);
+		if (bcur()->numrows == 0) {
 			return 0;
 		}
 	}
 	filerow = editor_current_filerow();
-	filecol = editor_current_filecol_in_row(&editor.row[filerow]);
+	filecol = editor_current_filecol_in_row(&bcur()->row[filerow]);
 	/* What follows point on the split row, which the last inserted row
 	 * takes over -- and which is what makes that row longer than the
 	 * text's last segment, so point lands before it. */
-	suffix_len = editor.row[filerow].size - filecol;
+	suffix_len = bcur()->row[filerow].size - filecol;
 	if (!splice_alloc(
 		text, insert_len, nl, filecol, &head, &head_len, &newrows)) {
 		editor_nomem();
 		return 0;
 	}
 	if (!editor_rows_reserve(
-		&editor.row, &editor.row_capacity, editor.numrows + nl)) {
+		&bcur()->row, &bcur()->row_capacity, bcur()->numrows + nl)) {
 		for (i = 0; i < nl; i++) {
 			free(newrows[i].chars);
 		}
@@ -960,26 +961,26 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 	}
 
 	/* Nothing below here can fail. */
-	row = &editor.row[filerow];
-	memmove(editor.row + filerow + 1 + nl, editor.row + filerow + 1,
-	    sizeof(*editor.row) * (size_t)(editor.numrows - filerow - 1));
+	row = &bcur()->row[filerow];
+	memmove(bcur()->row + filerow + 1 + nl, bcur()->row + filerow + 1,
+	    sizeof(*bcur()->row) * (size_t)(bcur()->numrows - filerow - 1));
 	memcpy(
-	    editor.row + filerow + 1, newrows, sizeof(*newrows) * (size_t)nl);
+	    bcur()->row + filerow + 1, newrows, sizeof(*newrows) * (size_t)nl);
 	free(newrows);
-	editor.numrows += nl;
+	bcur()->numrows += nl;
 	free(row->chars);
 	row->chars = head;
 	row->size = head_len;
 
-	for (i = filerow; i < editor.numrows; i++) {
-		editor.row[i].idx = i;
+	for (i = filerow; i < bcur()->numrows; i++) {
+		bcur()->row[i].idx = i;
 	}
 	for (i = filerow; i <= filerow + nl; i++) {
-		editor_update_row(&editor.row[i]);
+		editor_update_row(bcur(), &bcur()->row[i]);
 	}
 	editor_cursor_goto(
-	    filerow + nl, editor.row[filerow + nl].size - suffix_len);
-	editor.dirty++;
+	    filerow + nl, bcur()->row[filerow + nl].size - suffix_len);
+	bcur()->dirty++;
 	return 1;
 }
 
@@ -1035,8 +1036,8 @@ void editor_row_insert_char(erow *row, int at, int c)
 		row->size++;
 	}
 	row->chars[at] = c;
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 void editor_row_insert_string(erow *row, int at, const char *s, int len)
@@ -1081,8 +1082,8 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len)
 	}
 	row->size = new_size;
 	row->chars[new_size] = '\0';
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 void editor_row_insert_spaces(erow *row, int at, int len)
@@ -1124,8 +1125,8 @@ void editor_row_append_string(erow *row, char *s, size_t len)
 	memcpy(row->chars + row->size, s, len);
 	row->size += (int)len;
 	row->chars[row->size] = '\0';
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 /* Delete the character at offset 'at' from the specified row. */
@@ -1136,8 +1137,8 @@ void editor_row_del_char(erow *row, int at)
 	}
 	memmove(row->chars + at, row->chars + at + 1, row->size - at);
 	row->size--;
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 }
 
 /* Insert the specified char at the current prompt position. */
@@ -1149,27 +1150,27 @@ void editor_insert_char(int c)
 
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
-	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 
 	/* If the row where the cursor is currently located does not exist in
 	 * our logical representation of the file, add enough empty rows as
 	 * needed. */
 	if (!row) {
-		if (!editor.row && editor.numrows > 0) {
+		if (!bcur()->row && bcur()->numrows > 0) {
 			editor_nomem();
 			return;
 		}
-		while (editor.numrows <= filerow) {
-			editor_insert_row(editor.numrows, "", 0);
+		while (bcur()->numrows <= filerow) {
+			editor_insert_row(bcur(), bcur()->numrows, "", 0);
 		}
-		if (editor.numrows <= filerow) {
+		if (bcur()->numrows <= filerow) {
 			return;
 		}
 	}
-	if (filerow >= editor.numrows) {
+	if (filerow >= bcur()->numrows) {
 		return;
 	}
-	row = &editor.row[filerow];
+	row = &bcur()->row[filerow];
 	if (!editor.rect_mode && filecol > row->size) {
 		filecol = row->size;
 		editor_cursor_goto(filerow, filecol);
@@ -1188,7 +1189,7 @@ void editor_insert_char(int c)
 	} else {
 		editor.cx++;
 	}
-	editor.dirty++;
+	bcur()->dirty++;
 }
 
 /* Split the current line at the cursor without auto-indent.
@@ -1209,23 +1210,24 @@ void editor_insert_newline_raw(void)
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
 
-	if (filerow >= editor.numrows) {
+	if (filerow >= bcur()->numrows) {
 		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(filerow, "", 0);
+		editor_insert_row(bcur(), filerow, "", 0);
 		target_row = filerow;
 	} else {
-		row = &editor.row[filerow];
+		row = &bcur()->row[filerow];
 		if (filecol > row->size) {
 			filecol = row->size;
 		}
 		rest_len = row->size - filecol;
 		undo_push(UNDO_SPLIT_LINE, filerow, filecol, 0,
 		    row->chars + filecol, rest_len);
-		editor_insert_row(filerow + 1, row->chars + filecol, rest_len);
-		row = &editor.row[filerow];
+		editor_insert_row(
+		    bcur(), filerow + 1, row->chars + filecol, rest_len);
+		row = &bcur()->row[filerow];
 		row->chars[filecol] = '\0';
 		row->size = filecol;
-		editor_update_row(row);
+		editor_update_row(bcur(), row);
 		target_row = filerow + 1;
 	}
 	editor.cx = 0;
@@ -1266,13 +1268,14 @@ void editor_insert_text_raw(const char *text, int len)
 			run_len = i - start;
 			filerow = editor_current_filerow_or_eof();
 			filecol = editor_current_filecol();
-			while (editor.numrows <= filerow) {
-				editor_insert_row(editor.numrows, "", 0);
+			while (bcur()->numrows <= filerow) {
+				editor_insert_row(
+				    bcur(), bcur()->numrows, "", 0);
 			}
-			if (filerow >= editor.numrows) {
+			if (filerow >= bcur()->numrows) {
 				break;
 			}
-			row = &editor.row[filerow];
+			row = &bcur()->row[filerow];
 			if (!editor.rect_mode && filecol > row->size) {
 				filecol = row->size;
 				editor_cursor_goto(filerow, filecol);
@@ -1307,11 +1310,11 @@ void editor_insert_newline(void)
 
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
-	row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 
 	if (!row) {
-		if (filerow == editor.numrows) {
-			editor_insert_row(filerow, "", 0);
+		if (filerow == bcur()->numrows) {
+			editor_insert_row(bcur(), filerow, "", 0);
 			goto fixcursor;
 		}
 		return;
@@ -1323,7 +1326,7 @@ void editor_insert_newline(void)
 	}
 	if (filecol <= 0) {
 		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(filerow, "", 0);
+		editor_insert_row(bcur(), filerow, "", 0);
 	} else {
 		/* Compute leading whitespace of the current line for
 		 * auto-indent. */
@@ -1352,12 +1355,13 @@ void editor_insert_newline(void)
 		 * prefix. */
 		undo_push(UNDO_SPLIT_LINE, filerow, filecol, 0,
 		    row->chars + filecol, rest_len);
-		editor_insert_row(filerow + 1, new_content, indent + rest_len);
+		editor_insert_row(
+		    bcur(), filerow + 1, new_content, indent + rest_len);
 		free(new_content);
-		row = &editor.row[filerow];
+		row = &bcur()->row[filerow];
 		row->chars[filecol] = '\0';
 		row->size = filecol;
-		editor_update_row(row);
+		editor_update_row(bcur(), row);
 	}
 fixcursor:
 	if (editor.cy == editor.screenrows - 1) {
@@ -1394,11 +1398,11 @@ void editor_open_line(void)
  * point sits past the last row, where there is nothing to edit. */
 static int editor_point_row(int *filerow, erow **row, int *filecol)
 {
-	if (editor_current_filerow_or_eof() >= editor.numrows) {
+	if (editor_current_filerow_or_eof() >= bcur()->numrows) {
 		return 0;
 	}
 	*filerow = editor_current_filerow();
-	*row = &editor.row[*filerow];
+	*row = &bcur()->row[*filerow];
 	*filecol = editor_current_filecol();
 	return 1;
 }
@@ -1411,11 +1415,11 @@ static int row_replace_range_valid(
 {
 	erow *row;
 
-	if (filerow < 0 || filerow >= editor.numrows || at < 0 || delete_len < 0
-	    || insert_len < 0) {
+	if (filerow < 0 || filerow >= bcur()->numrows || at < 0
+	    || delete_len < 0 || insert_len < 0) {
 		return 0;
 	}
-	row = &editor.row[filerow];
+	row = &bcur()->row[filerow];
 	if (at > row->size || delete_len > row->size - at) {
 		return 0;
 	}
@@ -1447,7 +1451,7 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 		filerow, at, delete_len, insert_len, &new_size)) {
 		return 0;
 	}
-	row = &editor.row[filerow];
+	row = &bcur()->row[filerow];
 	if (delete_len == 0 && insert_len == 0) {
 		return 1;
 	}
@@ -1473,8 +1477,8 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 	memcpy(row->chars + at, insert, (size_t)insert_len);
 	row->size = new_size;
 	row->chars[new_size] = '\0';
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 	return 1;
 }
 
@@ -1518,13 +1522,13 @@ void editor_del_char(void)
 		 * on the right of the previous one. */
 		/* Record undo: save the line that will be joined */
 		undo_push(UNDO_JOIN_LINE, filerow - 1,
-		    editor.row[filerow - 1].size, 0, row->chars, row->size);
-		filecol = editor.row[filerow - 1].size;
+		    bcur()->row[filerow - 1].size, 0, row->chars, row->size);
+		filecol = bcur()->row[filerow - 1].size;
 		editor_row_append_string(
-		    &editor.row[filerow - 1], row->chars, row->size);
-		editor_del_row(filerow);
+		    &bcur()->row[filerow - 1], row->chars, row->size);
+		editor_del_row(bcur(), filerow);
 		editor_cursor_goto(filerow - 1, filecol);
-		editor.dirty++;
+		bcur()->dirty++;
 		return;
 	}
 	/* Backspace removes one whole character, however many bytes it
@@ -1554,16 +1558,16 @@ void editor_del_forward_char(void)
 		return;
 	}
 	if (filecol == row->size) {
-		if (filerow + 1 >= editor.numrows) {
+		if (filerow + 1 >= bcur()->numrows) {
 			return;
 		}
 		undo_push(UNDO_JOIN_LINE, filerow, filecol, 0,
-		    editor.row[filerow + 1].chars,
-		    editor.row[filerow + 1].size);
-		editor_row_append_string(row, editor.row[filerow + 1].chars,
-		    editor.row[filerow + 1].size);
-		editor_del_row(filerow + 1);
-		editor.dirty++;
+		    bcur()->row[filerow + 1].chars,
+		    bcur()->row[filerow + 1].size);
+		editor_row_append_string(row, bcur()->row[filerow + 1].chars,
+		    bcur()->row[filerow + 1].size);
+		editor_del_row(bcur(), filerow + 1);
+		bcur()->dirty++;
 		return;
 	}
 	/* Forward-delete takes the whole glyph at point and leaves point
@@ -1610,7 +1614,7 @@ void editor_overwrite_char(int c)
 {
 	int filerow = editor_current_filerow_or_eof();
 	int filecol = editor_current_filecol();
-	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len;
 
 	if (!row || filecol >= row->size) {
@@ -1634,8 +1638,8 @@ void editor_overwrite_char(int c)
 		row->size -= (old_len - 1);
 	}
 
-	editor_update_row(row);
-	editor.dirty++;
+	editor_update_row(bcur(), row);
+	bcur()->dirty++;
 
 	if (editor.cx == editor.screencols - 1) {
 		editor.coloff++;
@@ -1668,7 +1672,7 @@ void editor_self_insert_glyph(const char *seq, int len)
 {
 	int filerow = editor_current_filerow_or_eof();
 	int filecol = editor_current_filecol();
-	erow *row = (filerow >= editor.numrows) ? NULL : &editor.row[filerow];
+	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len = 0;
 
 	if (editor.overwrite_mode && row && filecol < row->size) {
@@ -1709,7 +1713,7 @@ void editor_kill_line(void)
 	}
 	if (filecol == row->size) {
 		/* At end of line, join with next line like C-k in Emacs. */
-		if (filerow + 1 < editor.numrows) {
+		if (filerow + 1 < bcur()->numrows) {
 			/* Save newline to kill ring */
 			kill_ring_append("\n", 1);
 			/* Record undo: the newline is what leaves the
@@ -1719,9 +1723,9 @@ void editor_kill_line(void)
 			 * the row itself would duplicate it. */
 			undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, "\n", 1);
 			editor_row_append_string(row,
-			    editor.row[filerow + 1].chars,
-			    editor.row[filerow + 1].size);
-			editor_del_row(filerow + 1);
+			    bcur()->row[filerow + 1].chars,
+			    bcur()->row[filerow + 1].size);
+			editor_del_row(bcur(), filerow + 1);
 		}
 	} else {
 		/* Delete from cursor to end of line and save to kill ring. */
@@ -1734,8 +1738,8 @@ void editor_kill_line(void)
 		}
 		row->chars[filecol] = '\0';
 		row->size = filecol;
-		editor_update_row(row);
-		editor.dirty++;
+		editor_update_row(bcur(), row);
+		bcur()->dirty++;
 	}
 }
 
@@ -1753,7 +1757,7 @@ void editor_transpose_chars(void)
 		return;
 	}
 
-	buf = editor_rows_to_string(editor.row, editor.numrows, &len);
+	buf = editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
 	if (!buf) {
 		return;
 	}
@@ -1817,7 +1821,7 @@ void editor_transpose_chars(void)
 	editor_replace_rows_from_text(newbuf, len);
 	editor_flat_offset_to_row_col(newbuf, len, b_end, &row, &col);
 	editor_cursor_goto(row, col);
-	editor.dirty++;
+	bcur()->dirty++;
 
 	free(orig);
 	free(repl);

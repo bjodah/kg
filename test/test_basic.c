@@ -40,15 +40,15 @@ static void setup(int n)
 		buf[1] = '0' + i / 10;
 		buf[2] = '0' + i % 10;
 		buf[3] = '\0';
-		editor_insert_row(i, buf, 3);
+		editor_insert_row(bcur(), i, buf, 3);
 	}
 }
 
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 }
 
 /* ---- Tests ---- */
@@ -177,7 +177,7 @@ static void test_goto_line_empty_file(void)
 
 	editor_goto_line_direct(1, 0); /* must not crash */
 
-	CHECK(editor.numrows == 0);
+	CHECK(bcur()->numrows == 0);
 	teardown();
 }
 
@@ -227,19 +227,19 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	int logical_row, render_offset;
 
 	setup(0);
-	editor_insert_row(0, "a\xe2\x80\xa6\tb", 6); /* a…<tab>b */
+	editor_insert_row(bcur(), 0, "a\xe2\x80\xa6\tb", 6); /* a…<tab>b */
 
-	CHECK(editor_visual_col(&editor.row[0], 4) == 2);
-	CHECK(editor_visual_col(&editor.row[0], 5) == 8);
-	CHECK(editor_visual_col(&editor.row[0], 6) == 9);
-	CHECK(chars_to_render_col(&editor.row[0], 4) == 4);
-	CHECK(chars_to_render_col(&editor.row[0], 5) == 10);
-	CHECK(get_total_visual_rows(editor.row, editor.numrows, 4) == 3);
-	find_visual_row(
-	    editor.row, editor.numrows, 4, 0, 1, &logical_row, &render_offset);
+	CHECK(editor_visual_col(&bcur()->row[0], 4) == 2);
+	CHECK(editor_visual_col(&bcur()->row[0], 5) == 8);
+	CHECK(editor_visual_col(&bcur()->row[0], 6) == 9);
+	CHECK(chars_to_render_col(&bcur()->row[0], 4) == 4);
+	CHECK(chars_to_render_col(&bcur()->row[0], 5) == 10);
+	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 4) == 3);
+	find_visual_row(bcur()->row, bcur()->numrows, 4, 0, 1, &logical_row,
+	    &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 6);
-	CHECK(render_col_to_chars(&editor.row[0], 4, 4) == 4);
+	CHECK(render_col_to_chars(&bcur()->row[0], 4, 4) == 4);
 	teardown();
 }
 
@@ -254,14 +254,14 @@ static void test_visual_wrap_moves_a_whole_escape_spelling(void)
 
 	setup(0);
 	/* Nine columns of text, then a C1 control spelled "\x9b". */
-	editor_insert_row(0, "aaaaaaaaa\xc2\x9bzz", 13);
+	editor_insert_row(bcur(), 0, "aaaaaaaaa\xc2\x9bzz", 13);
 
-	CHECK(editor_visual_col(&editor.row[0], 9) == 9);
+	CHECK(editor_visual_col(&bcur()->row[0], 9) == 9);
 	/* At win_w 10 the spelling does not fit in the one column left, so
 	 * it starts the second display row -- and that row starts at it. */
-	CHECK(get_total_visual_rows(editor.row, editor.numrows, 10) == 2);
-	find_visual_row(
-	    editor.row, editor.numrows, 10, 0, 1, &logical_row, &render_offset);
+	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 10) == 2);
+	find_visual_row(bcur()->row, bcur()->numrows, 10, 0, 1, &logical_row,
+	    &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 9);
 	teardown();
@@ -270,19 +270,19 @@ static void test_visual_wrap_moves_a_whole_escape_spelling(void)
 static void test_visual_rows_guard_zero_width(void)
 {
 	setup(1);
-	CHECK(get_visual_row(editor.row, editor.numrows, 0, 0, 2) == 2);
-	CHECK(get_total_visual_rows(editor.row, editor.numrows, 0) == 3);
+	CHECK(get_visual_row(bcur()->row, bcur()->numrows, 0, 0, 2) == 2);
+	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 0) == 3);
 	teardown();
 }
 
 static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 {
 	setup(0);
-	editor_insert_row(0, "12345678", 8);
+	editor_insert_row(bcur(), 0, "12345678", 8);
 
-	CHECK(get_total_visual_rows(editor.row, editor.numrows, 8) == 1);
-	CHECK(get_visual_row(editor.row, editor.numrows, 8, 0, 8) == 0);
-	CHECK(visual_line_cursor_col(&editor.row[0], 8, 8) == 7);
+	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 8) == 1);
+	CHECK(get_visual_row(bcur()->row, bcur()->numrows, 8, 0, 8) == 0);
+	CHECK(visual_line_cursor_col(&bcur()->row[0], 8, 8) == 7);
 	teardown();
 }
 
@@ -422,7 +422,8 @@ static int drawn_cells(struct abuf *ab)
 static void test_row_draw_stays_inside_the_window(void)
 {
 	struct abuf ab = ABUF_INIT;
-	char line[61]; /* editor_insert_row() copies the terminator too */
+	char line[61]; /* editor_insert_row(bcur(), ) copies the terminator too
+			*/
 	int i;
 
 	setup(0);
@@ -430,18 +431,18 @@ static void test_row_draw_stays_inside_the_window(void)
 		memcpy(line + i * 3, "\xe2\x82\xac", 3); /* € */
 	}
 	line[60] = '\0';
-	editor_insert_row(0, line, 60);
+	editor_insert_row(bcur(), 0, line, 60);
 
 	/* Byte 2 is the last byte of the first €. */
 	draw_window_rows(
-	    &ab, 1, 1, 1, 10, 0, 2, editor.numrows, editor.row, 0, 1, 0);
+	    &ab, 1, 1, 1, 10, 0, 2, bcur()->numrows, bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
 	ab_free(&ab);
 
 	/* A glyph boundary is unaffected. */
 	ab = (struct abuf)ABUF_INIT;
 	draw_window_rows(
-	    &ab, 1, 1, 1, 10, 0, 3, editor.numrows, editor.row, 0, 1, 0);
+	    &ab, 1, 1, 1, 10, 0, 3, bcur()->numrows, bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
 	ab_free(&ab);
 	teardown();
@@ -450,7 +451,7 @@ static void test_row_draw_stays_inside_the_window(void)
 static void test_overwrite_mode_toggle_and_replace(void)
 {
 	setup(0);
-	editor_insert_row(0, "abcde", 5);
+	editor_insert_row(bcur(), 0, "abcde", 5);
 	editor.cx = 1;
 	editor.cy = 0;
 
@@ -459,8 +460,8 @@ static void test_overwrite_mode_toggle_and_replace(void)
 	CHECK(editor.overwrite_mode == 1);
 
 	editor_overwrite_char('X');
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "aXcde", 5) == 0);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "aXcde", 5) == 0);
 	CHECK(editor.cx == 2);
 
 	editor_toggle_overwrite_mode();
@@ -471,13 +472,14 @@ static void test_overwrite_mode_toggle_and_replace(void)
 static void test_overwrite_multibyte_glyph(void)
 {
 	setup(0);
-	editor_insert_row(0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
+	editor_insert_row(
+	    bcur(), 0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
 	editor.cx = 1;
 	editor.cy = 0;
 
 	editor_overwrite_char('X');
-	CHECK(editor.row[0].size == 4);
-	CHECK(memcmp(editor.row[0].chars, "aXzz", 4) == 0);
+	CHECK(bcur()->row[0].size == 4);
+	CHECK(memcmp(bcur()->row[0].chars, "aXzz", 4) == 0);
 	teardown();
 }
 
@@ -493,16 +495,16 @@ static void test_overwrite_malformed_utf8_treated_as_one_byte(void)
 	row[0] = 'a';
 	memset(row + 1, '\x80', 20);
 	row[21] = 'b';
-	editor_insert_row(0, row, 22);
+	editor_insert_row(bcur(), 0, row, 22);
 	editor.cx = 1;
 	editor.cy = 0;
 
 	editor_overwrite_char('X');
-	CHECK(editor.row[0].size == 22);
-	CHECK(editor.row[0].chars[0] == 'a');
-	CHECK(editor.row[0].chars[1] == 'X');
-	CHECK((unsigned char)editor.row[0].chars[2] == 0x80);
-	CHECK(editor.row[0].chars[21] == 'b');
+	CHECK(bcur()->row[0].size == 22);
+	CHECK(bcur()->row[0].chars[0] == 'a');
+	CHECK(bcur()->row[0].chars[1] == 'X');
+	CHECK((unsigned char)bcur()->row[0].chars[2] == 0x80);
+	CHECK(bcur()->row[0].chars[21] == 'b');
 	teardown();
 }
 

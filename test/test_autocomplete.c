@@ -23,8 +23,8 @@ static void setup(void)
 static void teardown(void)
 {
 	free_all_rows();
-	editor.row = NULL;
-	editor.numrows = 0;
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
 	undo_free();
 }
 
@@ -66,12 +66,12 @@ static void test_auto_complete_off_by_default(void)
 {
 	setup();
 	electric_pairs = 0;
-	editor_insert_row(0, "", 0);
+	editor_insert_row(bcur(), 0, "", 0);
 
 	editor_insert_char_auto_complete('(');
 
-	CHECK(editor.row[0].size == 1);
-	CHECK(editor.row[0].chars[0] == '(');
+	CHECK(bcur()->row[0].size == 1);
+	CHECK(bcur()->row[0].chars[0] == '(');
 	teardown();
 }
 
@@ -79,14 +79,14 @@ static void test_auto_complete_clamps_huge_column_offset(void)
 {
 	setup();
 	electric_pairs = 1;
-	editor_insert_row(0, "abc", 3);
+	editor_insert_row(bcur(), 0, "abc", 3);
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 
 	editor_insert_char_auto_complete('(');
 
-	CHECK(editor.row[0].size == 5);
-	CHECK(memcmp(editor.row[0].chars, "abc()", 5) == 0);
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "abc()", 5) == 0);
 	/* This test target stubs editor_move_cursor(); keep the assertion
 	 * scoped to the clamped insert position. */
 	CHECK(editor.coloff >= 0);

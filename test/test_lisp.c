@@ -42,8 +42,8 @@ static void setup_editor(void)
 static void teardown_editor(void)
 {
 	free_all_rows();
-	editor.row = nullptr;
-	editor.numrows = 0;
+	bcur()->row = nullptr;
+	bcur()->numrows = 0;
 	undo_free();
 }
 
@@ -221,14 +221,14 @@ static void test_insert_and_undo(void)
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_eval_string(source, source_len, result, sizeof(result))
 	    == 0);
-	CHECK(editor.numrows == 1);
-	CHECK(editor.row[0].size == (int)payload_len);
-	CHECK(memcmp(
-		  editor.row[0].chars, source + sizeof(prefix) - 1, payload_len)
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == (int)payload_len);
+	CHECK(memcmp(bcur()->row[0].chars, source + sizeof(prefix) - 1,
+		  payload_len)
 	    == 0);
-	CHECK(undostack.size == 1);
+	CHECK(bcur()->undostack.size == 1);
 	editor_undo();
-	CHECK(editor.row[0].size == 0);
+	CHECK(bcur()->row[0].size == 0);
 	kg_lisp_shutdown();
 	free(source);
 	teardown_editor();
@@ -239,15 +239,15 @@ static void test_insert_read_only_recovery(void)
 	char result[128] = "";
 
 	setup_editor();
-	editor_insert_row(0, "original", 8);
+	editor_insert_row(bcur(), 0, "original", 8);
 	editor.readonly = 1;
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_eval_string(
 		  "(insert \"changed\")", 18, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "buffer is read-only") != nullptr);
-	CHECK(editor.row[0].size == 8);
-	CHECK(memcmp(editor.row[0].chars, "original", 8) == 0);
+	CHECK(bcur()->row[0].size == 8);
+	CHECK(memcmp(bcur()->row[0].chars, "original", 8) == 0);
 	CHECK(kg_lisp_eval_string("(+ 5 6)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "11") == 0);
 	kg_lisp_shutdown();
@@ -259,9 +259,9 @@ static void test_goto_line_and_buffer_name(void)
 	char result[128] = "";
 
 	setup_editor();
-	editor_insert_row(0, "zero", 4);
-	editor_insert_row(1, "second", 6);
-	editor_insert_row(2, "third", 5);
+	editor_insert_row(bcur(), 0, "zero", 4);
+	editor_insert_row(bcur(), 1, "second", 6);
+	editor_insert_row(bcur(), 2, "third", 5);
 	CHECK(kg_lisp_init() == 0);
 	/* Lines count from 1 and point lands at the beginning of the line, so
 	 * line 2 of "zero\nsecond\nthird" is position 6. */
@@ -620,9 +620,9 @@ static int eval_eq_int(const char *source, int expected)
 static void setup_utf8_buffer(void)
 {
 	setup_editor();
-	editor_insert_row(0, "abc", 3);
-	editor_insert_row(1, "h\xc3\xa9llo", 6);
-	editor_insert_row(2, "\xe6\xbc\xa2\xe5\xad\x97", 6);
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "h\xc3\xa9llo", 6);
+	editor_insert_row(bcur(), 2, "\xe6\xbc\xa2\xe5\xad\x97", 6);
 }
 
 static void test_point_offsets(void)
@@ -664,7 +664,7 @@ static void test_point_offsets(void)
 static void test_current_column_tab(void)
 {
 	setup_editor();
-	editor_insert_row(0, "\tx", 2);
+	editor_insert_row(bcur(), 0, "\tx", 2);
 	CHECK(kg_lisp_init() == 0);
 
 	/* Display column, so the tab expands to the next tab stop (8),
@@ -724,7 +724,7 @@ static void test_mark_and_region(void)
 
 	setup_utf8_buffer();
 	CHECK(kg_lisp_init() == 0);
-	dirty_before = editor.dirty;
+	dirty_before = bcur()->dirty;
 
 	/* No mark: (mark) is nil and the region accessors signal. */
 	CHECK(eval_eq("(mark)", "nil"));
@@ -756,7 +756,7 @@ static void test_mark_and_region(void)
 	CHECK(eval_eq("(mark)", "13"));
 
 	/* None of this touches the buffer. */
-	CHECK(editor.dirty == dirty_before);
+	CHECK(bcur()->dirty == dirty_before);
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -765,7 +765,7 @@ static void test_mark_and_region(void)
 static void test_word_motion(void)
 {
 	setup_editor();
-	editor_insert_row(0, "one two three", 13);
+	editor_insert_row(bcur(), 0, "one two three", 13);
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(eval_eq("(progn (goto-char 1) (forward-word) (point))", "4"));
@@ -790,7 +790,7 @@ static void test_word_motion(void)
 static void test_editor_bridge(void)
 {
 	setup_editor();
-	editor_insert_row(0, "abc", 3);
+	editor_insert_row(bcur(), 0, "abc", 3);
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(eval_ok("(message \"bridged\")"));
@@ -1003,10 +1003,10 @@ static void test_char_string_round_trip(void)
 static void setup_thing_buffer(void)
 {
 	setup_editor();
-	editor_insert_row(0, "one  two", 8);
-	editor_insert_row(1, "", 0);
-	editor_insert_row(2, "h\xc3\xa9llo w\xc3\xb6rld", 13);
-	editor_insert_row(3, "\xe6\xbc\xa2\xe5\xad\x97", 6);
+	editor_insert_row(bcur(), 0, "one  two", 8);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "h\xc3\xa9llo w\xc3\xb6rld", 13);
+	editor_insert_row(bcur(), 3, "\xe6\xbc\xa2\xe5\xad\x97", 6);
 }
 
 static void test_thing_at_point(void)

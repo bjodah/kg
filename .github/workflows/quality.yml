@@ -1,0 +1,107 @@
+name: Quality
+
+# The deep pipeline, hosted.  build.yml is platform smoke (`make`, `make
+# check`, install, .deb); everything that makes a kg change safe --
+# complexity ratchets, coverage floors, the analyzers, the sanitizers,
+# valgrind, the fuzzers, the regex differential, both submodule suites --
+# lived only in .ci/ and ran only where someone remembered to run it.
+#
+# One job per numbered step, not a single `run-ci-steps.sh --parallel`:
+#   - the step list is a glob, so a new .ci/ci-NN-*.sh joins this matrix
+#     with no edit here, exactly as it joins the local runner;
+#   - --parallel hands every building step a throwaway copy of the tree
+#     and rebuilds it with -B; eight copies and eight rebuilds is the
+#     wrong shape for a 2-4 core hosted runner, where CI_PARALLEL_LANES
+#     would resolve to 2 anyway;
+#   - a failing step is then its own job, with its own log and its own
+#     re-run button, instead of one line buried in .ci/.run/logs.
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: list steps
+    runs-on: ubuntu-latest
+    outputs:
+      steps: ${{ steps.list.outputs.steps }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: list
+        run: |
+          printf 'steps=' >>"$GITHUB_OUTPUT"
+          ls .ci/ci-[0-9][0-9]-*.sh | jq -R -s -c \
+            '[split("\n")[:-1][] | {path: ., name: (sub("^[.]ci/"; "") | sub("[.]sh$"; ""))}]' \
+            >>"$GITHUB_OUTPUT"
+
+  step:
+    name: ${{ matrix.step.name }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        step: ${{ fromJson(needs.discover.outputs.steps) }}
+    env:
+      # The Makefile's defaults for these two are a developer box's
+      # layout (/opt-3); on any other machine they have to be told.
+      IWYU: include-what-you-use
+      IWYU_TOOL: iwyu_tool.py
+      # A missing tmux or Emacs is a failure here, never a green skip.
+      PTY_ACCEPT_ARGS: --require-tools
+      SCC_VERSION: v3.7.0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Verify submodules
+        run: |
+          test -f fe/fe.c
+          test -f fe/tiny-regex-c/re.c
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ccache clang clang-format clang-tidy \
+            clang-tools cppcheck valgrind lcov pmccabe parallel \
+            ripgrep iwyu bear tmux emacs-nox \
+            python3-pexpect python3-yaml jq
+      - name: Install scc
+        run: |
+          go install "github.com/boyter/scc/v3@${SCC_VERSION}"
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+      # Recorded before anything runs: a result that cannot name its
+      # toolchain is not evidence, and this is what a "green here, red
+      # there" report gets diffed against.
+      - name: Tool versions
+        run: ./utils/print-tool-versions.sh
+      - name: Run ${{ matrix.step.name }}
+        run: ${{ matrix.step.path }}
+      - name: Collect artifacts
+        if: always()
+        run: |
+          mkdir -p ci-artifacts
+          for path in coverage/src.info coverage/kg.info \
+                      .ci/coverage-baseline.json test/.results \
+                      test/fuzz-artifacts .ci/.run; do
+            [ -e "$path" ] || continue
+            mkdir -p "ci-artifacts/$(dirname "$path")"
+            cp -a "$path" "ci-artifacts/$path"
+          done
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.step.name }}
+          path: ci-artifacts
+          if-no-files-found: ignore
+          retention-days: 14

@@ -645,7 +645,8 @@ static void test_dl_nul_inside_sexp(void)
 	 * spun on that one byte.  A .dir-locals.el is read from disk and
 	 * may contain anything, so this hung the editor.  Found by
 	 * test/fuzz_dirlocals once its corpus had seeds. */
-	static const char src[] = "((nil . ((tab-width . 4\0x) (buffer-read-only . t))))";
+	static const char src[]
+	    = "((nil . ((tab-width . 4\0x) (buffer-read-only . t))))";
 	struct local_settings s;
 
 	/* The point is that this returns at all; that it still finds the

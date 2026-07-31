@@ -439,7 +439,7 @@ make WITH_LISP=1 clean all check
 ## Landed / deferred
 
 Phases 9 and 10 were scoped as one session on `stricter-emacs-adherence`,
-in four commits (`b640625` .. `b810c4a`), deliberately without the Fe
+in five commits (`b640625` .. `4752aed`), deliberately without the Fe
 runtime work: phases 1-8 and 11 wait on foundations that are not there
 yet (plan 10's event queue is its phase 8, plan 11's phases 3 and 8),
 and phase 10's process API for Lisp is downstream of phase 3's handles.
@@ -485,8 +485,8 @@ and phase 10's process API for Lisp is downstream of phase 3's handles.
   in the two `WIFEXITED` ladders, which is also what let both callers
   drop `<sys/wait.h>` honestly rather than because glibc happens to
   re-export the macros through `<stdlib.h>`.
-- **Self-funded.**  scc 4238 → 4225 with `SCC_COMPLEXITY_MAX` lowered at
-  each commit and never raised: compile.c 149 → 129, shell.c 123 → 100,
+- **Self-funded.**  scc 4238 → 4223 with `SCC_COMPLEXITY_MAX` lowered at
+  each commit and never raised: compile.c 149 → 129, shell.c 123 → 98,
   process.c 30.  Two simplifications inside the subject paid for the new
   module: `shell_run()` no longer dups its pipe ends before pumping them
   (they were CLOEXEC copies of CLOEXEC fds), and `pump_io()` fills both
@@ -494,7 +494,9 @@ and phase 10's process API for Lisp is downstream of phase 3's handles.
   `poll()` ignores a negative fd, which is exactly the "this side is
   closed" case the count existed for.  The second was found by
   `gcc -fanalyzer`, which lost track of the count once the fds came from
-  another translation unit and reported an over-read of `pfd[2]`.
+  another translation unit and reported an over-read of `pfd[2]`.  With
+  the descriptor bookkeeping gone, so are shell.c's two
+  `-Wanalyzer-fd-*` suppressions.
 
 ### Deferred, with the pickup point
 

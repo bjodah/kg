@@ -746,6 +746,60 @@ static void test_special_buffer_reuse_bumps_identity(void)
 	free(names[0]);
 }
 
+/* buf_current is the selected window's buffer, by construction.  Every
+ * command that changes either one has to leave them agreeing, or the mode
+ * line describes one buffer while the keys edit another. */
+static void test_current_buffer_is_the_selected_window_s(void)
+{
+	char *names[2];
+	int i;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	CHECK(buf_current == wcur()->bufidx);
+
+	buf_select(1);
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_split_horizontal();
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_display_buffer_other_window(0);
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_cycle_next();
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_split_vertical();
+	win_cycle_next();
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_delete_current();
+	CHECK(buf_current == wcur()->bufidx);
+
+	win_delete_others();
+	CHECK(buf_current == wcur()->bufidx);
+
+	buf_kill(-1);
+	CHECK(buf_current == wcur()->bufidx);
+
+	/* And every window still names a buffer that exists. */
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active) {
+			CHECK(winlist[i].bufidx >= 0);
+			CHECK(winlist[i].bufidx < MAX_BUFFERS);
+		}
+	}
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
 /* The goal column belongs to the view.  It is only meaningful between two
  * consecutive vertical motions in one buffer, so attaching a view to a
  * different buffer drops it -- and a different window has its own. */
@@ -810,6 +864,7 @@ int main(void)
 	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
 	RUN(test_special_buffer_reuse_bumps_identity);
+	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);
 
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);

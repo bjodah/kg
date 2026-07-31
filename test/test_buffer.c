@@ -1271,7 +1271,7 @@ static void test_delete_glyph_between_neighbours(void)
  * replaces charged one of each per byte. */
 static void test_row_replace_range(void)
 {
-	int dirty;
+	int dirty, records;
 
 	setup();
 	editor_insert_row(0, "abcdef", 6);
@@ -1297,9 +1297,17 @@ static void test_row_replace_range(void)
 	CHECK(memcmp(editor.row[0].chars, "defgh", 5) == 0);
 	CHECK(editor.row[0].chars[5] == '\0');
 
-	/* replacing nothing with nothing is still a well-formed request */
+	/* Replacing nothing with nothing is a well-formed request that moves
+	 * no byte, so it is not a modification and leaves nothing to undo --
+	 * query-replace-regexp of a zero-width pattern by the empty string
+	 * asks for one per glyph, and Emacs leaves that buffer unmodified. */
+	dirty = editor.dirty;
+	records = undostack.size;
 	CHECK(editor_row_replace_range(0, 2, 0, "", 0) == 1);
 	CHECK(editor.row[0].size == 5);
+	CHECK(memcmp(editor.row[0].chars, "defgh", 5) == 0);
+	CHECK(editor.dirty == dirty);
+	CHECK(undostack.size == records);
 	teardown();
 }
 

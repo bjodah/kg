@@ -4,9 +4,15 @@
 # empty match, which lands inside "å", where the wrapper snapped the next
 # match back to the same place: kg asked the same question forever and the
 # case failed as a harness timeout.
+#
+# Unchanged means unchanged: no byte moved, so the mode line still reads
+# "----" and not "-**-".  Emacs answers the same way -- replacing an empty
+# match by the empty string leaves buffer-modified-p nil -- while kg
+# counted one modification and one undo record per glyph boundary.
 name: zero-width-replace-utf8-empty
 filename: zero-width-empty.txt
-backend: pexpect
+backend: tmux
+dimensions: [12, 40]
 startup_delay: 1.0
 key_delay: 0.2
 initial: |
@@ -21,3 +27,7 @@ keys:
   - '!'
 expected_saved: |
   åbc
+expected_screen_contains:
+  - "----  zero-width-empty.txt"
+expected_screen_not_contains:
+  - "-**-"

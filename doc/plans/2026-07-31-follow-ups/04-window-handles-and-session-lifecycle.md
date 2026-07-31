@@ -1,5 +1,40 @@
 # Plan 04 — Window handles and session lifecycle
 
+## Decision — auto-revert stays restricted to `buf_current`
+
+Taken 2026-07-31 after characterizing the reload
+(`test_winmgr.c`: poll reverts only the current buffer; a deferred revert
+clamps a point past the new EOF; a revert drops the region and the undo
+chain; a revert clamps every window on the buffer).  The poll keeps
+reverting only `buf_current`; other changed buffers stay flagged and
+reload at the next `buf_select()`.  Reasons, in order of weight:
+
+1. **A reload destroys state the user cannot see it destroy.**
+   `buf_reload_from_disk()` clears `mark_set`, `mark_highlight`,
+   `shift_select` and `rect_mode`, and frees the undo chain.  For the
+   current buffer the user is watching the buffer change.  For a
+   background buffer, a later `C-x b` finds the region gone and `C-_`
+   with nothing to undo, and no event said so.
+2. **Nothing is being fixed.**  A flagged buffer already reloads at the
+   next `buf_select()`, which is the first moment its content is
+   observable.  Widening only moves *when*, to the moment with no user
+   present.
+3. **The reload chain is written against `bcur()`.**
+   `commit_load_result()` (`fileio.c`), `undo_free()`/`undo_init()`/
+   `undo_mark_clean()` (`undo.c`) and `buf_apply_local_settings()` all
+   mean the current buffer.  Widening means either threading a buffer
+   through three more modules or rebinding `buf_current` around the
+   reload — the copy protocol this codebase spent commits deleting.
+4. **The prompt is unaffected either way.**
+   `confirm_save_over_accepted()` only fires for a dirty buffer, and a
+   revert never runs against one.
+
+The multi-window half of the plan's premise *was* a real defect and is
+fixed independently: `silent_revert_current()` now clamps every window on
+the reverted buffer, not just the selected one.  That is also the
+prerequisite a future widening would need, so revisiting this decision is
+a policy change and no longer a plumbing project.
+
 ## Outcome
 
 An active window never names a buffer by a reusable slot alone.  Buffer/view

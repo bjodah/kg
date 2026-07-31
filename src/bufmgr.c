@@ -1597,6 +1597,7 @@ void buf_save_all(int fd)
 /* Kill (close) the current buffer, prompting if modified. */
 void buf_kill(int fd)
 {
+	int killed = buf_current;
 	int i;
 
 	if (bcur()->filename && strcmp(bcur()->filename, "*compilation*") == 0
@@ -1640,6 +1641,17 @@ void buf_kill(int fd)
 		if (buflist[i].active) {
 			buf_select(i);
 			break;
+		}
+	}
+	/* Every other window showing the dead slot follows.  Left behind, a
+	 * window shows nothing until C-x o selects it -- and then buf_select()
+	 * finds the slot inactive and claims it, resurrecting the buffer as
+	 * an empty one the count knows nothing about; or, if a file took the
+	 * slot first, the window silently starts showing that file at the
+	 * dead one's scroll position. */
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active && winlist[i].bufidx == killed) {
+			buf_attach_view(&winlist[i], buf_current);
 		}
 	}
 	editor_set_status_message(

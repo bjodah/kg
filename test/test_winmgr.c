@@ -407,9 +407,11 @@ static void test_kill_buffer_shown_twice(void)
 	CHECK(buflist[0].filename == NULL);
 	CHECK(buf_current == 1);
 	CHECK(winlist[win_current].bufidx == 1);
-	/* The unselected window still names the killed slot: a bare index
-	 * that outlived the buffer it referred to. */
-	CHECK(winlist[other].bufidx == 0);
+	/* The unselected window comes off the killed slot too.  `bufidx` is
+	 * a bare index, so nothing would have stopped it naming a slot that
+	 * no longer describes a buffer -- and selecting such a window claims
+	 * the slot back as an empty buffer the count knows nothing about. */
+	CHECK(winlist[other].bufidx == 1);
 
 	session_teardown();
 	free(names[0]);
@@ -787,11 +789,14 @@ static void test_current_buffer_is_the_selected_window_s(void)
 	buf_kill(-1);
 	CHECK(buf_current == wcur()->bufidx);
 
-	/* And every window still names a buffer that exists. */
+	/* And every window still names a buffer that exists -- a live one,
+	 * not merely a slot number in range: a window left on a killed slot
+	 * resurrects it, uncounted, the moment it is selected. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		if (winlist[i].active) {
 			CHECK(winlist[i].bufidx >= 0);
 			CHECK(winlist[i].bufidx < MAX_BUFFERS);
+			CHECK(buflist[winlist[i].bufidx].active);
 		}
 	}
 

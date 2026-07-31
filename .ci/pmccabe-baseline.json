@@ -103,7 +103,7 @@
   "src/bufmgr.c:buf_handle_slot": 2,
   "src/bufmgr.c:buf_help_populate": 2,
   "src/bufmgr.c:buf_ibuffer_select": 12,
-  "src/bufmgr.c:buf_kill": 11,
+  "src/bufmgr.c:buf_kill": 14,
   "src/bufmgr.c:buf_list_populate": 7,
   "src/bufmgr.c:buf_load_args": 6,
   "src/bufmgr.c:buf_open_file": 1,

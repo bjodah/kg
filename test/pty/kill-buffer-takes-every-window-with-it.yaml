@@ -1,0 +1,47 @@
+# Killing a buffer takes every window off it, not just the selected one.
+#
+# C-x 2 splits with both windows on a.txt; C-x C-f moves only the selected
+# window to b.txt; C-x b brings it back, so both windows are on a.txt
+# again.  C-x k then kills it.
+#
+# The selected window moves to the surviving buffer.  The other one used
+# to keep the killed slot's number: C-x o then selected a window pointing
+# at a slot with no buffer in it, and buf_select() claimed the slot back
+# as an empty buffer that the open-buffer count knew nothing about --
+# which is the "[new]" this case refuses.  Had a file been opened first,
+# that window would silently have started showing it instead.
+name: kill-buffer-takes-every-window-with-it
+filename: a.txt
+backend: tmux
+dimensions: [20, 60]
+config_files:
+  b.txt: |
+    BBBBB
+initial: |
+  AAAAA
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/b.txt"
+  - RET
+  - C-x
+  - b
+  - "a.txt"
+  - RET
+  - C-x
+  - k
+  - RET
+  - C-x
+  - o
+# a.txt is killed unmodified, so the file kg was started on is untouched.
+expected_saved: |
+  AAAAA
+expected_screen_contains:
+  - "BBBBB"
+expected_screen_not_contains:
+  - "[new]"
+trailer_keys: [C-x, C-c, "y"]

@@ -74,6 +74,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
   depend on what the PTY cases painted. Function coverage was identical
   in every run measured and gets no slack.
+- `make gateway-check` (part of `.ci/ci-01-*.sh`) is a census, not a ban:
+  `.ci/mutation-gateway.json` records, per `src/*.c`, how many raw row
+  primitives it calls, how many undo records it writes by hand, how many
+  times it touches `suppress_undo`, and how many times it writes a row's
+  text fields directly. No count may rise and no unlisted file may
+  appear; `make gateway-baseline` banks a decrease. The manifest is plan
+  10's remaining migration work written down.
 - Every `make check` writes machine-readable results to `test/.results/`
   (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
   from `utils/pty_accept.py --json`, both with per-case status and wall

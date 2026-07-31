@@ -233,6 +233,12 @@ PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 110
 # the diff shows what moved and in which direction.
 PMCCABE_BASELINE ?= .ci/pmccabe-baseline.json
 PMCCABE_NEW_FUNCTION_MAX ?= 15
+# Census of everything that still changes buffer text outside the edit
+# gateway plan 10 is growing: raw row primitives, hand-written undo
+# records, the ambient suppress_undo flag and direct writes to a row's
+# text fields.  A ratchet, not a ban -- no count may rise, and `make
+# gateway-baseline` is how a migrated caller is banked.
+GATEWAY_MANIFEST ?= .ci/mutation-gateway.json
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 # --branch-coverage matches what both subprojects already collect; the
@@ -390,6 +396,14 @@ pmccabe-baseline:
 			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX) \
 			--max-new-function $(PMCCABE_NEW_FUNCTION_MAX) \
 			--write-baseline $(PMCCABE_BASELINE)
+
+gateway-check:
+	$(PYTHON) utils/check_mutation_gateway.py \
+		--manifest $(GATEWAY_MANIFEST) $(OBJDIR)
+
+gateway-baseline:
+	$(PYTHON) utils/check_mutation_gateway.py \
+		--manifest $(GATEWAY_MANIFEST) --write $(OBJDIR)
 
 coverage: coverage-clean
 	$(MAKE) clean
@@ -555,7 +569,7 @@ uninstall:
 
 .PHONY: all clean distclean check check-unit check-pty check-regex-differential \
 	bench complexity complexity-check \
-	pmccabe pmccabe-check pmccabe-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \

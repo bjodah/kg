@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #define COMPILATION_READ_CHUNK 4096
@@ -133,7 +132,7 @@ static void compilation_start(const char *command, const char *directory,
 	g_compilation.compilation_buffer = buf_handle(cidx);
 	g_compilation.pipe_eof = false;
 	g_compilation.child_reaped = false;
-	g_compilation.wait_status = 0;
+	g_compilation.wait_status = (struct kg_process_status) { 0 };
 	compilation_stream_reset(&g_compilation, g_default_maximum_output);
 
 	/* stdin from /dev/null, stderr into the same pipe as stdout, and a
@@ -546,14 +545,14 @@ int compilation_poll(void)
 
 		buf_append_special_text(out_slot, "\n", 1);
 
-		if (WIFEXITED(g_compilation.wait_status)) {
-			int code = WEXITSTATUS(g_compilation.wait_status);
+		if (g_compilation.wait_status.exited) {
+			int code = g_compilation.wait_status.exit_code;
 			msg_len = snprintf(msg, sizeof(msg),
 			    "Compilation finished with exit code %d\n", code);
 			editor_set_status_message(
 			    "Compilation finished with exit code %d", code);
-		} else if (WIFSIGNALED(g_compilation.wait_status)) {
-			int sig = WTERMSIG(g_compilation.wait_status);
+		} else if (g_compilation.wait_status.signal_number) {
+			int sig = g_compilation.wait_status.signal_number;
 			msg_len = snprintf(msg, sizeof(msg),
 			    "Compilation terminated by signal %d\n", sig);
 			editor_set_status_message(
@@ -648,7 +647,7 @@ void compilation_shutdown(void)
 	if (g_compilation.phase != COMPILATION_IDLE) {
 		kg_close_fd(&g_compilation.output_fd);
 		if (g_compilation.process_group > 0) {
-			int status;
+			struct kg_process_status status;
 
 			kg_process_signal_group(
 			    g_compilation.process_group, SIGKILL);

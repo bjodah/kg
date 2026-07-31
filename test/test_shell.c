@@ -295,9 +295,9 @@ static void test_spawn_child_leads_its_own_group(void)
 		.stdin_fd = -1,
 	};
 	char line[64];
+	struct kg_process_status status = { 0 };
 	pid_t pid = -1;
 	int fd = -1;
-	int status = 0;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) == 5);
@@ -307,8 +307,8 @@ static void test_spawn_child_leads_its_own_group(void)
 
 	kg_process_signal_group(pid, SIGKILL);
 	CHECK(kg_process_wait(pid, &status) == 0);
-	CHECK(WIFSIGNALED(status));
-	CHECK(WTERMSIG(status) == SIGKILL);
+	CHECK(!status.exited);
+	CHECK(status.signal_number == SIGKILL);
 	close(fd);
 }
 
@@ -323,10 +323,10 @@ static void test_signal_group_reaches_grandchildren(void)
 		.stdin_fd = -1,
 	};
 	char line[64];
+	struct kg_process_status status = { 0 };
 	pid_t pid = -1;
 	pid_t grandchild;
 	int fd = -1;
-	int status = 0;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) > 4);
@@ -361,9 +361,9 @@ static void test_spawn_stdin_defaults_to_devnull(void)
 		.stdin_fd = -1,
 	};
 	char line[64];
+	struct kg_process_status status = { 0 };
 	pid_t pid = -1;
 	int fd = -1;
-	int status = 0;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) == 4);
@@ -382,9 +382,9 @@ static void test_spawn_routes_stderr(void)
 		.stderr_to_output = true,
 	};
 	char line[64];
+	struct kg_process_status status = { 0 };
 	pid_t pid = -1;
 	int fd = -1;
-	int status = 0;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) == 3);
@@ -410,15 +410,15 @@ static void test_spawn_unenterable_directory_exits_127(void)
 		.stdin_fd = -1,
 	};
 	char line[64];
+	struct kg_process_status status = { 0 };
 	pid_t pid = -1;
 	int fd = -1;
-	int status = 0;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) == 0);
 	CHECK(kg_process_wait(pid, &status) == 0);
-	CHECK(WIFEXITED(status));
-	CHECK(WEXITSTATUS(status) == 127);
+	CHECK(status.exited);
+	CHECK(status.exit_code == 127);
 	close(fd);
 }
 
@@ -432,24 +432,24 @@ static void test_reap_reports_running_then_gone(void)
 		.stdin_fd = -1,
 	};
 	char line[64];
+	struct kg_process_status status = { .exit_code = 123 };
 	pid_t pid = -1;
 	int fd = -1;
-	int status = 123;
 
 	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
 	CHECK(read_line_from(fd, line, sizeof(line)) == 5);
 	CHECK(kg_process_reap(pid, &status) == 0);
-	CHECK(status == 123);
+	CHECK(status.exit_code == 123); /* still running: left untouched */
 
 	kg_process_signal_group(pid, SIGKILL);
 	for (int i = 0; i < 2000 && kg_process_reap(pid, &status) == 0; i++) {
 		usleep(1000);
 	}
-	CHECK(WIFSIGNALED(status));
+	CHECK(status.signal_number == SIGKILL);
 
-	status = 123;
-	CHECK(kg_process_reap(pid, &status) == 1);
-	CHECK(status == 0);
+	status.exit_code = 123;
+	CHECK(kg_process_reap(pid, &status) == 1); /* ECHILD: already gone */
+	CHECK(status.exit_code == 0);
 	close(fd);
 }
 

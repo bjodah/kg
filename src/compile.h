@@ -3,6 +3,7 @@
 
 #include "def.h"
 #include "localvars.h"
+#include "process.h"
 #include <limits.h>
 #include <stddef.h>
 #include <sys/types.h>
@@ -32,7 +33,7 @@ struct compilation_state {
 
 	bool pipe_eof;
 	bool child_reaped;
-	int wait_status;
+	struct kg_process_status wait_status;
 
 	/* One budget for everything the child produced and kg kept:
 	 * every byte held in pending_line, every byte committed as a

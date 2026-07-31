@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stddef.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -111,26 +112,46 @@ int kg_process_spawn(
 	return 0;
 }
 
-int kg_process_wait(pid_t pid, int *status)
+/* The one place a raw wait status is taken apart: everything above this
+ * module sees the decoded record. */
+static void decode_status(int wait_status, struct kg_process_status *out)
 {
+	*out = (struct kg_process_status) { 0 };
+	if (WIFEXITED(wait_status)) {
+		out->exited = true;
+		out->exit_code = WEXITSTATUS(wait_status);
+	} else if (WIFSIGNALED(wait_status)) {
+		out->signal_number = WTERMSIG(wait_status);
+	}
+}
+
+int kg_process_wait(pid_t pid, struct kg_process_status *status)
+{
+	int wait_status = 0;
 	pid_t result;
 
 	do {
-		result = kg_process_waitpid_fn(pid, status, 0);
+		result = kg_process_waitpid_fn(pid, &wait_status, 0);
 	} while (result < 0 && errno == EINTR);
 
-	return result == pid ? 0 : -1;
+	if (result != pid) {
+		return -1;
+	}
+	decode_status(wait_status, status);
+	return 0;
 }
 
-int kg_process_reap(pid_t pid, int *status)
+int kg_process_reap(pid_t pid, struct kg_process_status *status)
 {
-	pid_t result = kg_process_waitpid_fn(pid, status, WNOHANG);
+	int wait_status = 0;
+	pid_t result = kg_process_waitpid_fn(pid, &wait_status, WNOHANG);
 
 	if (result == pid) {
+		decode_status(wait_status, status);
 		return 1;
 	}
 	if (result < 0 && errno == ECHILD) {
-		*status = 0;
+		*status = (struct kg_process_status) { 0 };
 		return 1;
 	}
 	return 0;

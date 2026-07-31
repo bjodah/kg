@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include "def.h"
@@ -55,7 +54,7 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 	int buf_cap = SHELL_INITIAL_CAP;
 	int buf_len = 0;
 	int written = 0;
-	int npoll, i, n;
+	int n;
 
 	buf = malloc(buf_cap);
 	if (!buf) {
@@ -79,67 +78,54 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 	}
 
 	while (rfd >= 0 || wfd >= 0) {
-		npoll = 0;
-		if (rfd >= 0) {
-			pfd[npoll].fd = rfd;
-			pfd[npoll].events = POLLIN;
-			npoll++;
-		}
-		if (wfd >= 0) {
-			pfd[npoll].fd = wfd;
-			pfd[npoll].events = POLLOUT;
-			npoll++;
-		}
+		/* Both slots are always polled: poll() ignores an entry whose
+		 * fd is negative and reports revents 0 for it, so the side
+		 * that has already been closed needs no bookkeeping here. */
+		pfd[0].fd = rfd;
+		pfd[0].events = POLLIN;
+		pfd[1].fd = wfd;
+		pfd[1].events = POLLOUT;
 
-		if (poll(pfd, npoll, -1) < 0) {
+		if (poll(pfd, 2, -1) < 0) {
 			if (errno == EINTR) {
 				continue;
 			}
 			break;
 		}
 
-		for (i = 0; i < npoll; i++) {
-			if (pfd[i].fd == rfd
-			    && (pfd[i].revents
-				& (POLLIN | POLLHUP | POLLERR))) {
-				int fd = pfd[i].fd;
-
-				if (buf_len + 1024 >= buf_cap) {
-					char *nb;
-					buf_cap *= 2;
-					nb = realloc(buf, buf_cap);
-					if (!nb) {
-						free(buf);
-						kg_close_fd(&rfd);
-						kg_close_fd(&wfd);
-						*out_len = 0;
-						return NULL;
-					}
-					buf = nb;
-				}
-				n = read(
-				    fd, buf + buf_len, buf_cap - buf_len - 1);
-				if (n > 0) {
-					buf_len += n;
-				} else {
+		if (pfd[0].revents & (POLLIN | POLLHUP | POLLERR)) {
+			if (buf_len + 1024 >= buf_cap) {
+				char *nb;
+				buf_cap *= 2;
+				nb = realloc(buf, buf_cap);
+				if (!nb) {
+					free(buf);
 					kg_close_fd(&rfd);
+					kg_close_fd(&wfd);
+					*out_len = 0;
+					return NULL;
 				}
-			} else if (pfd[i].fd == wfd
-			    && (pfd[i].revents
-				& (POLLOUT | POLLHUP | POLLERR))) {
-				int fd = pfd[i].fd;
+				buf = nb;
+			}
+			n = read(rfd, buf + buf_len, buf_cap - buf_len - 1);
+			if (n > 0) {
+				buf_len += n;
+			} else {
+				kg_close_fd(&rfd);
+			}
+		}
 
-				n = write(fd, in + written, inlen - written);
-				if (n > 0) {
-					written += n;
-					if (written >= inlen) {
-						kg_close_fd(&wfd);
-					}
-				} else if (n < 0 && errno == EAGAIN) {
-					;
-				} else {
+		if (pfd[1].revents & (POLLOUT | POLLHUP | POLLERR)) {
+			n = write(wfd, in + written, inlen - written);
+			if (n > 0) {
+				written += n;
+				if (written >= inlen) {
 					kg_close_fd(&wfd);
 				}
+			} else if (n < 0 && errno == EAGAIN) {
+				;
+			} else {
+				kg_close_fd(&wfd);
 			}
 		}
 	}
@@ -169,7 +155,7 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 	int pump_rfd, pump_wfd;
 	int p[2];
 	int saved_errno;
-	int wstatus;
+	struct kg_process_status result;
 	char *out;
 	pid_t pid = -1; /* -1 sentinel: no child spawned yet, nothing to reap */
 
@@ -210,14 +196,11 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 		 * it. */
 		kg_process_signal_group(pid, SIGKILL);
 	}
-	if (kg_process_wait(pid, &wstatus) == 0 && status) {
+	if (kg_process_wait(pid, &result) == 0 && status) {
 		status->known = true;
-		if (WIFEXITED(wstatus)) {
-			status->exited = true;
-			status->exit_code = WEXITSTATUS(wstatus);
-		} else if (WIFSIGNALED(wstatus)) {
-			status->signal_number = WTERMSIG(wstatus);
-		}
+		status->exited = result.exited;
+		status->exit_code = result.exit_code;
+		status->signal_number = result.signal_number;
 	}
 	errno = saved_errno;
 	return out;

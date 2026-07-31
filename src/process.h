@@ -8,7 +8,6 @@
  * process group, the redirections, and reaping -- and nothing about how the
  * output is read, which is what actually differs between the callers. */
 
-#include <stdbool.h>
 #include <sys/types.h>
 
 struct kg_spawn_request {
@@ -34,14 +33,24 @@ struct kg_spawn_request {
 int kg_process_spawn(
     const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out);
 
+/* What became of a child, decoded from the wait status the callers would
+ * otherwise each pick apart with WIFEXITED and friends.  A collected child
+ * either exited, with a code, or died from a signal; the zeroed value
+ * claims neither, which is what an unreaped child is worth. */
+struct kg_process_status {
+	bool exited;
+	int exit_code;
+	int signal_number;
+};
+
 /* Blocking reap, retried across EINTR.  Returns 0 with *status filled in,
  * -1 (status untouched) if the child could not be reaped at all. */
-int kg_process_wait(pid_t pid, int *status);
+int kg_process_wait(pid_t pid, struct kg_process_status *status);
 
 /* Non-blocking reap.  Returns 1 when the child has been collected -- or was
  * already gone (ECHILD), in which case *status is zeroed -- and 0 while it
  * is still running, leaving *status untouched. */
-int kg_process_reap(pid_t pid, int *status);
+int kg_process_reap(pid_t pid, struct kg_process_status *status);
 
 /* Send `sig` to every process in group `group`.  A group id of 0 or less is
  * ignored rather than passed to kill(), where it would mean kg's own group:

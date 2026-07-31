@@ -1,7 +1,7 @@
 {
  "schema": "kg-mutation-gateway/1",
  "regenerate_with": "make gateway-baseline",
- "note": "Every file that can change buffer text without going through the edit gateway, and how many ways it does. No count may rise and no unlisted file may appear; regenerating is how a decrease is banked. Follow-up Plan 02 drives live-buffer publication into buffer.c.",
+ "note": "Every file that can change buffer text without going through the edit gateway, and how many ways it does. No count may rise and no unlisted file may appear; regenerating is how a decrease is banked. Follow-up Plan 02 drives this to buffer.c alone.",
  "probes": [
   "row_primitive",
   "undo_push",
@@ -10,10 +10,10 @@
  ],
  "files": {
   "src/buffer.c": {
-   "row_primitive": 32,
-   "undo_push": 12,
+   "row_primitive": 27,
+   "undo_push": 8,
    "suppress_undo": 4,
-   "row_field_write": 25
+   "row_field_write": 21
   },
   "src/bufmgr.c": {
    "row_primitive": 15,

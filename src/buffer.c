@@ -1231,48 +1231,34 @@ void editor_insert_char(int c)
 	buffer_note_change(bcur());
 }
 
+/* Insert `text` at point as one edit and leave point after it.  The
+ * separator commands are all this call with a different string: a
+ * newline is one byte between two rows, and a newline plus an indent is
+ * that byte and the bytes the next line starts with.
+ *
+ * The record is KG_EDIT_USER's, which is dropped while yank and undo
+ * replay hold `suppress_undo` -- that is what lets one primitive serve
+ * both them and a typed newline, and is the last thing the flag is doing
+ * here. */
+static void editor_insert_at_point(const char *text, int len)
+{
+	size_t pos = buffer_row_col_to_position(
+	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
+	struct kg_edit e = kg_edit_user(bcur(), pos, pos, text, (size_t)len);
+	int row, col;
+
+	if (!kg_buffer_replace(&e, NULL)) {
+		return;
+	}
+	buffer_position_to_row_col(bcur(), pos + (size_t)len, &row, &col);
+	wcur()->coloff = 0;
+	editor_cursor_goto(row, col);
+}
+
 /* Split the current line at the cursor without auto-indent.
  * Used by yank, kill-undo, and the paste-mode short-circuit in
- * editor_insert_newline to re-insert newlines exactly as typed.
- * Pushes the same UNDO_SPLIT_LINE / UNDO_INSERT_LINE records as
- * editor_insert_newline so a terminal paste stays reversible — yank
- * and undo replay both raise suppress_undo so the record is dropped
- * when they don't want it. */
-void editor_insert_newline_raw(void)
-{
-	int filerow;
-	int filecol;
-	int rest_len;
-	erow *row;
-	int target_row;
-
-	filerow = editor_current_filerow_or_eof();
-	filecol = editor_current_filecol();
-
-	if (filerow >= bcur()->numrows) {
-		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(bcur(), filerow, "", 0);
-		target_row = filerow;
-	} else {
-		row = &bcur()->row[filerow];
-		if (filecol > row->size) {
-			filecol = row->size;
-		}
-		rest_len = row->size - filecol;
-		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
-		    row->chars + filecol, rest_len);
-		editor_insert_row(
-		    bcur(), filerow + 1, row->chars + filecol, rest_len);
-		row = &bcur()->row[filerow];
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-		target_row = filerow + 1;
-	}
-	wcur()->cx = 0;
-	wcur()->coloff = 0;
-	editor_cursor_goto(target_row, 0);
-}
+ * editor_insert_newline to re-insert newlines exactly as typed. */
+void editor_insert_newline_raw(void) { editor_insert_at_point("\n", 1); }
 
 /* Insert text character by character without recording undo, using raw
  * newlines (no auto-indent).  Used by editor_yank and UNDO_KILL_TEXT. */
@@ -1336,10 +1322,8 @@ void editor_insert_text_raw(const char *text, int len)
  * Delegate to the raw variant in that case. */
 void editor_insert_newline(void)
 {
-	int rest_len, indent = 0;
-	char *new_content;
-	int filerow;
-	int filecol;
+	int filerow, filecol, indent = 0;
+	char *text;
 	erow *row;
 
 	if (editor.paste_mode) {
@@ -1350,70 +1334,25 @@ void editor_insert_newline(void)
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
 	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
-
-	if (!row) {
-		if (filerow == bcur()->numrows) {
-			editor_insert_row(bcur(), filerow, "", 0);
-			goto fixcursor;
-		}
+	/* The indent is the current line's leading whitespace, and never
+	 * reaches past the split point: splitting inside the indentation
+	 * copies only the part that is above the split. */
+	while (row && indent < filecol && indent < row->size
+	    && (row->chars[indent] == ' ' || row->chars[indent] == TAB)) {
+		indent++;
+	}
+	/* One separator followed by that indent, inserted as one edit --
+	 * so one row rebuild, and one C-_ that rejoins the line exactly,
+	 * the indent going with it because it was never there before. */
+	text = malloc((size_t)indent + 2);
+	if (!text) {
+		editor_nomem();
 		return;
 	}
-	/* If the cursor is over the current line size, we want to conceptually
-	 * think it's just over the last character. */
-	if (filecol >= row->size) {
-		filecol = row->size;
-	}
-	if (filecol <= 0) {
-		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(bcur(), filerow, "", 0);
-	} else {
-		/* Compute leading whitespace of the current line for
-		 * auto-indent. */
-		while (indent < row->size
-		    && (row->chars[indent] == ' '
-			|| row->chars[indent] == TAB)) {
-			indent++;
-		}
-		/* Don't indent past the split point. */
-		if (indent > filecol) {
-			indent = filecol;
-		}
-
-		/* Build new line: indent prefix + rest of split. */
-		rest_len = row->size - filecol;
-		new_content = malloc(indent + rest_len + 1);
-		if (!new_content) {
-			editor_nomem();
-			return;
-		}
-		memcpy(new_content, row->chars, indent);
-		memcpy(new_content + indent, row->chars + filecol, rest_len);
-		new_content[indent + rest_len] = '\0';
-
-		/* Record undo: save the original rest without the indent
-		 * prefix. */
-		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
-		    row->chars + filecol, rest_len);
-		editor_insert_row(
-		    bcur(), filerow + 1, new_content, indent + rest_len);
-		free(new_content);
-		row = &bcur()->row[filerow];
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-	}
-fixcursor:
-	if (wcur()->cy == wcur()->h - 1) {
-		wcur()->rowoff++;
-	} else {
-		wcur()->cy++;
-	}
-	wcur()->cx = indent;
-	wcur()->coloff = 0;
-	if (wcur()->cx >= wcur()->w) {
-		wcur()->coloff = indent - wcur()->w + 1;
-		wcur()->cx = wcur()->w - 1;
-	}
+	text[0] = '\n';
+	memcpy(text + 1, row ? row->chars : "", (size_t)indent);
+	editor_insert_at_point(text, indent + 1);
+	free(text);
 }
 
 /* Insert a newline at point without advancing the cursor (C-o).

@@ -59,16 +59,31 @@ static void silent_revert_current(void);
 static void buf_apply_local_settings(void);
 
 /* Next buffer identity to hand out.  Starts at 1 so a zeroed slot — and a
- * zeroed handle — names no buffer. */
-static uint32_t buf_next_id = 1;
+ * zeroed handle — names no buffer.
+ *
+ * 64 bits, because the counter's whole job is the claim that it never
+ * repeats and 32 bits does not get to make it.  4.29 billion claims is a
+ * long session but it is a number, and a wrapped id would hand a live
+ * buffer the identity a long-dead one's handle still holds — the exact
+ * confusion handles exist to prevent.  At 64 bits, one claim per
+ * nanosecond runs for 584 years. */
+static uint64_t buf_next_id = 1;
 
 /* Hand `slot` to a buffer that is not the one that had it.  This is the only
  * place identity is assigned, so every handle taken before the handover stops
  * resolving at exactly the point the old buffer stopped existing. */
 static void buf_claim_slot(int slot)
 {
-	buflist[slot].id = buf_next_id++;
 	buflist[slot].generation++;
+	if (buf_next_id == UINT64_MAX) {
+		/* Exhausted.  Reuse is refused rather than wrapped: the
+		 * slot keeps id 0, which names no buffer, so it is
+		 * unreachable by handle instead of confusable with one. */
+		buflist[slot].id = 0;
+		editor_set_status_message("Buffer identity exhausted.");
+		return;
+	}
+	buflist[slot].id = buf_next_id++;
 }
 
 struct kg_buffer_handle buf_handle(int slot)
@@ -95,7 +110,9 @@ struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 		return NULL; /* Never named a buffer at all. */
 	}
 	b = &buflist[handle.slot];
-	if (b->active && b->id == handle.id
+	/* id 0 is "no identity": a zeroed handle, and the slot a claim that
+	 * ran out of identities left behind.  Neither may match. */
+	if (handle.id != 0 && b->active && b->id == handle.id
 	    && b->generation == handle.generation) {
 		return b;
 	}
@@ -1760,7 +1777,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 static void buf_reset_slot(int slot)
 {
 	struct editor_buffer *b = &buflist[slot];
-	uint32_t generation = b->generation;
+	uint64_t generation = b->generation;
 
 	memset(b, 0, sizeof(*b));
 	b->generation

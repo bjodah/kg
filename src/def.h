@@ -358,9 +358,10 @@ struct editor_buffer {
 	 * the life of the process; `generation` counts the times this slot has
 	 * changed hands.  Both are needed to tell "the buffer I meant" from
 	 * "another buffer that happens to sit where it did".  A slot that has
-	 * never been used has id 0. */
-	uint32_t id;
-	uint32_t generation;
+	 * never been used has id 0, and so does one a claim could not give an
+	 * identity to; neither is ever matched. */
+	uint64_t id;
+	uint64_t generation;
 	struct kg_point last_point; /* Where a view last left off here. */
 	int numrows;
 	erow *row;
@@ -406,8 +407,8 @@ struct editor_buffer {
  * names nothing. */
 struct kg_buffer_handle {
 	int slot;
-	uint32_t id;
-	uint32_t generation;
+	uint64_t id;
+	uint64_t generation;
 };
 
 /* Global editor state */

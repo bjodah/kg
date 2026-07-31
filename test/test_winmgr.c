@@ -918,6 +918,31 @@ static void test_handles_do_not_survive_their_buffer(void)
 	free(names[1]);
 }
 
+/* A zeroed handle names nothing, whatever sits in slot 0.  This is the
+ * spelling a detached view uses, so it has to be a definite "no". */
+static void test_zeroed_handle_names_nothing(void)
+{
+	char *names[1];
+	struct kg_buffer_handle zero = { 0, 0, 0 };
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	CHECK(buflist[0].active);
+	CHECK(buflist[0].id != 0);
+	CHECK(buf_resolve(zero) == NULL);
+	CHECK(buf_handle_slot(zero) == -1);
+
+	/* Identity is 64-bit and monotonic: it is wide enough that the
+	 * counter's claim to never repeat is a fact rather than a hope. */
+	CHECK(sizeof(buflist[0].id) == 8);
+	CHECK(buf_handle(0).id == buflist[0].id);
+
+	session_teardown();
+	free(names[0]);
+}
+
 /* A special buffer that takes over a freed slot gets a fresh identity too:
  * buf_reset_slot() is the other way a slot changes hands. */
 static void test_special_buffer_reuse_bumps_identity(void)
@@ -1076,6 +1101,7 @@ int main(void)
 	RUN(test_reflow_sizes);
 	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
+	RUN(test_zeroed_handle_names_nothing);
 	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);

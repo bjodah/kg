@@ -63,6 +63,7 @@ No product code was changed. Only review reports were added.
 
 Detailed implementation work is broken down in the
 [implementation-plan master roadmap](plans/00-master-roadmap.md).
+Implementation state is tracked in the [progress ledger](PROGRESS.md).
 
 ## Priority 0: fix before ambitious feature work
 

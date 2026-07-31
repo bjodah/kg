@@ -49,11 +49,6 @@
    "undo_push": 2,
    "suppress_undo": 4
   },
-  "src/search.c": {
-   "row_primitive": 3,
-   "undo_push": 2,
-   "suppress_undo": 2
-  },
   "src/shell.c": {
    "undo_push": 1
   },

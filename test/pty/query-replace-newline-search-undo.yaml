@@ -1,0 +1,29 @@
+# Searching *for* a separator and replacing it joins two rows.  One
+# accepted replacement is one undo step, like every other accepted
+# query replacement: kg used to push a kill record and a yank record for
+# the two halves it did by hand, so C-_ once left "a-b" as "a\nb" only
+# after a second C-_ took the "-" back out.
+#
+# The "y" accepts the first separator, "q" stops at the second, and the
+# single C-_ has to put the whole buffer back.
+name: query-replace-newline-search-undo
+filename: query-newline-undo.txt
+initial: |
+  a
+  b
+  c
+keys:
+  - ESC
+  - "%"
+  - C-q
+  - C-j
+  - RET
+  - "-"
+  - RET
+  - "y"
+  - "q"
+  - C-_
+expected_saved: |
+  a
+  b
+  c

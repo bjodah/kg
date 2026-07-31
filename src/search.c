@@ -260,26 +260,19 @@ static enum replace_answer query_replace_answer(int c)
 	return REPLACE_SKIP;
 }
 
+/* Replace the separator ending row `rowidx` with `replace`.  One byte
+ * out and `rlen` bytes in is one replacement, so it is one row rebuild
+ * and one C-_ -- where this used to push a kill record and a yank record
+ * for the two halves it did by hand, so undoing one accepted
+ * replacement took two. */
 static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 {
-	erow *row = &bcur()->row[rowidx];
-	int join_col = row->size;
-	int i;
+	size_t pos = buffer_row_col_to_position(
+	    bcur(), rowidx, bcur()->row[rowidx].size);
+	struct kg_edit e
+	    = kg_edit_user(bcur(), pos, pos + 1, replace, (size_t)rlen);
 
-	undo_push(bcur(), UNDO_KILL_TEXT, rowidx, join_col, 0, "\n", 1);
-	undo_push(bcur(), UNDO_YANK_TEXT, rowidx, join_col, 0, replace, rlen);
-
-	suppress_undo = 1;
-	for (i = 0; i < rlen; i++) {
-		editor_row_insert_char(
-		    row, join_col + i, (unsigned char)replace[i]);
-	}
-	editor_row_append_string(
-	    row, bcur()->row[rowidx + 1].chars, bcur()->row[rowidx + 1].size);
-	editor_del_row(bcur(), rowidx + 1);
-	suppress_undo = 0;
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
+	kg_buffer_replace(&e, NULL);
 }
 
 /* Emacs restricts query-replace to the region when one is active; otherwise

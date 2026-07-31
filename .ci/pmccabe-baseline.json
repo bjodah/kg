@@ -661,7 +661,7 @@
   "src/search.c:query_has_upper": 3,
   "src/search.c:query_replace_answer": 4,
   "src/search.c:query_replace_bounds": 6,
-  "src/search.c:query_replace_newline_at": 2,
+  "src/search.c:query_replace_newline_at": 1,
   "src/search.c:replacement_length": 8,
   "src/search.c:replacement_shape": 3,
   "src/search.c:replacement_span_len": 4,

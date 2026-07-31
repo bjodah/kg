@@ -1,0 +1,18 @@
+# The M-r cycle only advances between consecutive M-r presses: any other
+# command in between restarts it at "top of window".  Two M-r presses park
+# point on line 6 (the middle of a 10-line window starting at line 1),
+# C-f is an unrelated command, and the third M-r must go back to line 1
+# rather than on to line 10.  X records where point ended up.
+name: window-line-cycle-restarts-after-another-command
+filename: window-line-restart.txt
+backend: pexpect
+dimensions: [12, 40]
+key_delay: 0.06
+initial: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\n"
+keys:
+  - M-r
+  - M-r
+  - C-f
+  - M-r
+  - X
+expected_saved: "XL01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\n"

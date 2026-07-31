@@ -1,5 +1,6 @@
 #include "compile.h"
 #include "def.h"
+#include "kbd.h"
 #include "process.h"
 #include <errno.h>
 #include <signal.h>

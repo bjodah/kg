@@ -1,0 +1,28 @@
+# The C-l cycle only advances between consecutive C-l presses: any other
+# command in between restarts it at "centre".  Same geometry as
+# recenter-cycle-centre-top-bottom: a 10-line window over 30 lines with
+# point on line 20.
+#
+# C-l centres (window starts at line 15), C-f is an unrelated command, and
+# the second C-l must centre again rather than continue to "top".  M-r
+# parks point on the window's first line and X records it: line 15 when
+# the cycle restarted, line 20 if it had continued.
+name: recenter-cycle-restarts-after-another-command
+filename: recenter-restart.txt
+backend: pexpect
+dimensions: [12, 40]
+# Each C-l clears and repaints the whole screen; 0.25 is the delay the
+# other C-l case (30-left-scroll-bol-previous-line) settled on.
+key_delay: 0.25
+initial: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\nL13\nL14\nL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"
+keys:
+  - C-u
+  - "1"
+  - "9"
+  - C-n
+  - C-l
+  - C-f
+  - C-l
+  - M-r
+  - X
+expected_saved: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\nL13\nL14\nXL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"

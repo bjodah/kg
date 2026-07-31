@@ -41,6 +41,7 @@
 
 #include "compile.h"
 #include "def.h"
+#include "kbd.h"
 #include "lisp.h"
 #include "perf.h"
 

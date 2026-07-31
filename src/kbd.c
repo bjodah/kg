@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "compile.h"
 #include "def.h"
+#include "kbd.h"
 #include "keybind.h"
 #include "lisp.h"
 #include "syntax.h"
@@ -38,7 +39,7 @@ static const int readonly_blocked_keys[] = {
 
 #define PREFIX_ARG_MAX 1000
 
-static int key_would_edit_readonly_buffer(int c)
+int key_would_edit_readonly_buffer(int c)
 {
 	size_t i;
 

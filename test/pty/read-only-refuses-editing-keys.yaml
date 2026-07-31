@@ -1,0 +1,33 @@
+# A read-only buffer must refuse every editing key, whichever key reaches
+# the command.  kbd.c's readonly_blocked_keys[] is the second read-only
+# verdict beside the command table's CMD_EDITS_BUFFER, and it names only
+# some of the editing keys: C-o, M-d, M-^, M-q and M-u reach handlers that
+# do not check, so today they edit a buffer that refuses edits.
+#
+# The keys are pressed on line 2 with point after "se", where each one
+# would leave a visible mark: C-o splits the line, M-d kills "cond", M-^
+# joins the two lines, M-q refills the paragraph and M-u upcases "cond".
+#
+# xfail until the keymap migration (plan 01 phase 4) routes every editing
+# key through cmd_invoke() and deletes readonly_blocked_keys[]; that
+# commit's read-only parity proof is this case turning green.
+name: read-only-refuses-editing-keys
+filename: read-only-keys.txt
+backend: pexpect
+key_delay: 0.08
+xfail: true
+initial: "hello world\nsecond line\n"
+keys:
+  - C-x
+  - C-q
+  - C-n
+  - C-f
+  - C-f
+  - C-o
+  - M-d
+  - "M-^"
+  - M-q
+  - M-u
+  - C-x
+  - C-q
+expected_saved: "hello world\nsecond line\n"

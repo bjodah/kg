@@ -101,7 +101,8 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
            $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
-           $(TESTDIR)/test_cmd $(TESTDIR)/test_perf
+           $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
+           $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
 # be mixed with the src/*.o everything else links.  Its objects live in
@@ -525,6 +526,9 @@ EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/
 # most of the editor; the same everything-but-main.c link test_perf uses
 # is cheaper than stubbing 74 handlers.
 EXTRA_cmd         := $(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) $(REGEX_OBJS) $(FE_OBJ)
+# The binding inventory reads both the command table and kbd.c's key-level
+# read-only verdict, so it links the same everything-but-main.c set.
+EXTRA_keys        := $(EXTRA_cmd)
 EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o
 
 .SECONDEXPANSION:

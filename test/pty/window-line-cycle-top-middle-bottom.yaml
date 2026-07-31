@@ -1,0 +1,20 @@
+# M-r parks point on the top, middle, then bottom line of the window,
+# cycling while it is the command that ran last.  Like the C-l cycle this
+# is state carried between two invocations of one command, pinned here
+# before that state moves onto command identity.
+#
+# The window is rows - 2 = 10 lines tall and starts at line 1, so the
+# three positions are lines 1, 6 and 10.  Three M-r presses must leave
+# point on line 10; X records where it landed.
+name: window-line-cycle-top-middle-bottom
+filename: window-line-cycle.txt
+backend: pexpect
+dimensions: [12, 40]
+key_delay: 0.06
+initial: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\n"
+keys:
+  - M-r
+  - M-r
+  - M-r
+  - X
+expected_saved: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nXL10\nL11\nL12\n"

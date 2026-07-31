@@ -5,6 +5,7 @@ test_cmd
 test_compile
 test_complete
 test_dired
+test_keys
 test_lisp
 test_localvars
 test_minibuf

@@ -942,9 +942,7 @@ enum file_change_state file_snapshot_compare(
 enum file_change_state file_snapshot_compare_path(
     const char *path, const struct file_snapshot *accepted);
 
-/* kbd.c */
-void editor_process_keypress(int fd);
-[[nodiscard]] int editor_confirm_yn(int fd, const char *fmt, ...);
+/* kbd.c has its own header, src/kbd.h. */
 
 /* macro.c */
 int macro_is_recording(void);

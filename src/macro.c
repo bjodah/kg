@@ -2,6 +2,7 @@
  */
 
 #include "def.h"
+#include "kbd.h"
 
 #define MACRO_MAX 1024
 

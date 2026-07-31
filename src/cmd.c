@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "compile.h"
 #include "def.h"
+#include "kbd.h"
 #include "lisp.h"
 #include "localvars.h"
 #include "syntax.h"

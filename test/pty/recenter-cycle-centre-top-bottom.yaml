@@ -1,0 +1,30 @@
+# C-l recenters, cycling centre -> top -> bottom while it is the command
+# that ran last.  The cycle is state kept between two invocations of one
+# command, which is what command identity replaces raw last-key identity
+# for, so it is pinned before that state moves.
+#
+# The window is rows - 2 = 10 lines tall and point is on line 20.  Three
+# C-l presses must leave point's line at the *bottom* of the window, so
+# the window starts at line 11.  M-r then parks point on the window's top
+# line, and the typed X records which line that was: line 11 for the third
+# state, line 15 (centre) if the cycle never advanced, line 20 (top) if it
+# advanced only once.
+name: recenter-cycle-centre-top-bottom
+filename: recenter-cycle.txt
+backend: pexpect
+dimensions: [12, 40]
+# Each C-l clears and repaints the whole screen; 0.25 is the delay the
+# other C-l case (30-left-scroll-bol-previous-line) settled on.
+key_delay: 0.25
+initial: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\nL13\nL14\nL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"
+keys:
+  - C-u
+  - "1"
+  - "9"
+  - C-n
+  - C-l
+  - C-l
+  - C-l
+  - M-r
+  - X
+expected_saved: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nXL11\nL12\nL13\nL14\nL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"

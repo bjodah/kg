@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "kbd.h"
 #include "localvars.h"
 #include "perf.h"
 #include "syntax.h"

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "localvars.h"
 
 /* Rectangle kill ring.  Holds the last killed/copied rectangle as a

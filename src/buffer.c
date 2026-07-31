@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "localvars.h"
 #include "perf.h"
 #include "syntax.h"

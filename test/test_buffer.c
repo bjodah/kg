@@ -1,6 +1,7 @@
 /* test_buffer.c — regression tests for row-level buffer operations */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "test.h"
 #include <dirent.h>
 #include <limits.h>

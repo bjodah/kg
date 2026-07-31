@@ -230,6 +230,32 @@ static void test_comment_dwim_remove(void)
 	teardown();
 }
 
+/* The content generation moves for every edit, including the ones that
+ * used to announce themselves by setting the modified flag to 1: from a
+ * buffer that was already modified, that assignment said nothing, and
+ * the per-keystroke region teardown reads exactly this signal.
+ *
+ * The modified flag is asserted too, because it is what the mode line
+ * and the quit prompt read and it must stay set either way. */
+static void test_comment_dwim_moves_generation_when_already_dirty(void)
+{
+	uint64_t generation;
+
+	setup();
+	bcur()->syntax = &HLDB[0];
+	editor_insert_row(bcur(), 0, "int x;", 6);
+	cursor_home();
+	bcur()->mark_set = 0;
+	bcur()->dirty = 1;
+	generation = bcur()->content_generation;
+
+	editor_comment_dwim();
+
+	CHECK(bcur()->content_generation != generation);
+	CHECK(bcur()->dirty != 0);
+	teardown();
+}
+
 /* No syntax set: comment_dwim is a no-op (does not crash). */
 static void test_comment_dwim_no_syntax(void)
 {
@@ -456,6 +482,7 @@ int main(void)
 	RUN(test_join_line_first_row_noop);
 	RUN(test_join_line_cursor_at_join);
 	RUN(test_comment_dwim_add);
+	RUN(test_comment_dwim_moves_generation_when_already_dirty);
 	RUN(test_comment_dwim_remove);
 	RUN(test_comment_dwim_no_syntax);
 	RUN(test_comment_dwim_region_excludes_final_bol_line);

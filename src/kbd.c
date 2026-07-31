@@ -88,16 +88,16 @@ static void editor_insert_repeated_literal(int c, int n)
 {
 	char text[PREFIX_ARG_MAX];
 	int start_row, start_col;
-	int dirty_before;
+	uint64_t generation_before;
 	int i;
 
 	memset(text, c, n);
 
 	start_row = editor_current_filerow_or_eof();
 	start_col = editor_current_filecol();
-	dirty_before = bcur()->dirty;
+	generation_before = bcur()->content_generation;
 	editor_insert_text_raw(text, n);
-	if (bcur()->dirty != dirty_before) {
+	if (bcur()->content_generation != generation_before) {
 		for (i = 0; i < n; i++) {
 			int col
 			    = start_col > INT_MAX - i ? INT_MAX : start_col + i;
@@ -640,10 +640,10 @@ static void key_recenter(void)
 
 /* Per-keystroke bookkeeping that runs after the command has had its say:
  * region teardown and goal-column invalidation.  `buffer_before` and
- * `dirty_before` are the values sampled before dispatch, and
+ * `generation_before` are the values sampled before dispatch, and
  * `was_shift_select` whether a shift-selected region was live then. */
 static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
-    int dirty_before, int was_shift_select)
+    uint64_t generation_before, int was_shift_select)
 {
 	/* Any command that modified the buffer (insertion, deletion, undo,
 	 * etc.) deactivates the visual mark region — matching Emacs'
@@ -654,7 +654,7 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	 * slot can be handed to another file whose name was allocated at the
 	 * same address. */
 	if (buf_handle_slot(buffer_before) == buf_current
-	    && bcur()->dirty != dirty_before) {
+	    && bcur()->content_generation != generation_before) {
 		bcur()->mark_highlight = 0;
 		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
@@ -692,7 +692,7 @@ void editor_process_keypress(int fd)
 	struct timeval tv;
 	int c = editor_read_key_idle(fd);
 	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
-	int dirty_before = bcur()->dirty;
+	uint64_t generation_before = bcur()->content_generation;
 	int was_shift_select = bcur()->shift_select;
 	long elapsed;
 	long seconds;
@@ -1196,5 +1196,6 @@ void editor_process_keypress(int fd)
 		break;
 	}
 
-	key_finish_keypress(c, buffer_before, dirty_before, was_shift_select);
+	key_finish_keypress(
+	    c, buffer_before, generation_before, was_shift_select);
 }

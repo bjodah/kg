@@ -663,6 +663,11 @@ static const struct {
 	{ "C-l", "recenter-top-bottom" },
 	{ "M-r", "move-to-window-line-top-bottom" },
 	{ "M-g", "goto-line" },
+	{ "C-SPC", "set-mark-command" },
+	{ "M-h", "mark-paragraph" },
+	{ "M-@", "mark-word" },
+	{ "M-w", "kill-ring-save" },
+	{ "C-<insert>", "kill-ring-save" },
 };
 
 static struct keymap *global_map;
@@ -868,16 +873,9 @@ void editor_process_keypress(int fd)
 		if (c == '%' || c == ALT_PCT) {
 			editor_query_replace(fd);
 		} else if (c == '@' || c == ALT_AT) {
-			editor_mark_word(n);
+			(void)cmd_execute_named("mark-word", fd);
 		} else if (c != CTRL_G) {
 			editor_set_status_message("ESC %c is undefined", c);
-		}
-		break;
-	case KEY_NULL: /* Ctrl+Space: set mark; with C-u, pop the mark ring */
-		if (prefix.supplied) {
-			editor_pop_to_mark();
-		} else {
-			editor_set_mark();
 		}
 		break;
 	case ENTER: /* Enter */
@@ -1009,12 +1007,6 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	}
-	case ALT_H: /* Mark paragraph */
-		editor_mark_paragraph();
-		break;
-	case ALT_AT: /* Mark word */
-		editor_mark_word(n);
-		break;
 	case ALT_D: /* Kill word forward */
 		while (n--) {
 			editor_kill_word_forward();
@@ -1033,10 +1025,6 @@ void editor_process_keypress(int fd)
 		break;
 	case ALT_Z: /* Zap to char */
 		editor_zap_to_char(fd, n);
-		break;
-	case ALT_W: /* Copy region */
-	case CTRL_INSERT: /* CUA copy */
-		editor_copy_region();
 		break;
 	case ALT_Q: /* Reflow paragraph */
 		editor_reflow_paragraph();

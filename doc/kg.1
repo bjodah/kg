@@ -1245,6 +1245,12 @@ Equivalent to
 inside the
 .Pa *compilation*
 buffer.
+.It kill-ring-save
+Copy the region to the kill ring without deleting it.
+Bound to
+.Ic M-w
+and
+.Ic C-Insert .
 .It lisp-interaction-mode
 Enable Lisp Interaction mode in the current buffer.
 In this mode
@@ -1252,6 +1258,16 @@ In this mode
 evaluates the s-expression before point and inserts the result.
 .Pa *scratch*
 buffers are created in this mode by default.
+.It mark-paragraph
+Put the region around the paragraph point is in, including its
+trailing blank line.
+Bound to
+.Ic M-h .
+.It mark-word
+Put the region around the word after point; a numeric argument marks
+that many words, and repeating it extends the region by one more.
+Bound to
+.Ic M-@ .
 .It move-beginning-of-line
 Move point to the start of the line.
 Bound to
@@ -1333,6 +1349,12 @@ Bound to
 .Ic C-v
 and
 .Ic PgDn .
+.It set-mark-command
+Set the mark where point is.
+With a prefix argument, move point to the last mark instead, walking
+the mark ring.
+Bound to
+.Ic C-SPC .
 .It shell-command
 Run a shell command.
 Without a numeric prefix, displays output in the echo area or output buffer.

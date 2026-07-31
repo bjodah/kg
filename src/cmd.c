@@ -854,6 +854,40 @@ static void cmd_scroll_down_command(int fd)
 	editor_scroll_page_backward();
 }
 
+/* ---- Mark and region ----
+ *
+ * The numeric argument means something other than "do it again" here, so
+ * these read it rather than carrying CMD_REPEATS: C-u C-SPC pops the
+ * mark ring instead of setting the mark, and C-u N M-@ marks N words. */
+static void cmd_set_mark_command(int fd)
+{
+	(void)fd;
+	if (editor.current_prefix.supplied) {
+		editor_pop_to_mark();
+	} else {
+		editor_set_mark();
+	}
+}
+
+static void cmd_mark_paragraph(int fd)
+{
+	(void)fd;
+	editor_mark_paragraph();
+}
+
+static void cmd_mark_word(int fd)
+{
+	(void)fd;
+	editor_mark_word(
+	    editor.current_prefix.supplied ? editor.current_prefix.value : 1);
+}
+
+static void cmd_kill_ring_save(int fd)
+{
+	(void)fd;
+	editor_copy_region();
+}
+
 /* The two commands whose behaviour depends on having just run: each
  * cycles through three positions while it is the command that ran last.
  * They are descriptors rather than switch branches because that is what
@@ -985,8 +1019,14 @@ static const struct named_cmd cmdtable[] = {
 	    "Collapse spaces and tabs around point to one space" },
 	{ "kill-compilation", editor_kill_compilation, CMD_NONE,
 	    "Terminate the running compilation" },
+	{ "kill-ring-save", cmd_kill_ring_save, CMD_NONE,
+	    "Copy the region to the kill ring" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
+	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
+	    "Put the region around this paragraph" },
+	{ "mark-word", cmd_mark_word, CMD_NONE,
+	    "Put the region around the next word or words" },
 	{ "move-beginning-of-line", cmd_move_beginning_of_line, CMD_NONE,
 	    "Move point to the start of this line" },
 	{ "move-end-of-line", cmd_move_end_of_line, CMD_NONE,
@@ -1016,6 +1056,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Scroll one windowful back" },
 	{ "scroll-up-command", cmd_scroll_up_command, CMD_NONE,
 	    "Scroll one windowful forward" },
+	{ "set-mark-command", cmd_set_mark_command, CMD_NONE,
+	    "Set the mark here, or with a prefix pop the mark ring" },
 	{ "shell-command", cmd_shell_command, CMD_NONE,
 	    "Run a shell command and show its output" },
 	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE,

@@ -1,5 +1,6 @@
 /* ======================= Layered key sequence maps ======================= */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "keyevent.h"
@@ -99,6 +100,52 @@ int keymap_parse_sequence(const char *text, struct key_event *out, int max)
 		text += len;
 	}
 	return count > 0 ? count : -1;
+}
+
+int keymap_format_sequence(
+    const struct key_event *keys, int count, char *out, size_t size)
+{
+	size_t used = 0;
+	int i;
+
+	if (!out || size == 0) {
+		return -1;
+	}
+	out[0] = '\0';
+	for (i = 0; i < count; i++) {
+		char text[KEY_FORMAT_MAX];
+		int written;
+
+		if (key_format(keys[i], text, sizeof(text)) != 0) {
+			out[0] = '\0';
+			return -1;
+		}
+		written = snprintf(
+		    out + used, size - used, "%s%s", used ? " " : "", text);
+		if (written < 0 || used + (size_t)written >= size) {
+			out[0] = '\0';
+			return -1;
+		}
+		used += (size_t)written;
+	}
+	return 0;
+}
+
+int keymap_binding_count(void) { return entry_count; }
+
+int keymap_binding_at(int index, struct keymap_binding *out)
+{
+	const struct keymap_entry *entry;
+
+	if (!out || index < 0 || index >= entry_count) {
+		return -1;
+	}
+	entry = &entries[index];
+	memcpy(out->keys, entry->keys, sizeof(out->keys));
+	out->count = entry->count;
+	out->command = entry->command;
+	out->map = &maps[entry->map];
+	return 0;
 }
 
 /* C-g cancels whatever is going on, including a keymap that has been
@@ -373,4 +420,23 @@ void keymap_lookup(
 		}
 		return;
 	}
+}
+
+/* Deactivating the winner and asking again is the whole implementation:
+ * a shadow report that reasoned about layers instead would be a second
+ * copy of the precedence rule, and the two would drift. */
+void keymap_lookup_shadowed(const struct key_event *keys, int count,
+    const struct keymap *hidden, struct keymap_match *out)
+{
+	struct keymap *map = (struct keymap *)hidden;
+	int was_active;
+
+	if (!map) {
+		keymap_lookup(nullptr, 0, out);
+		return;
+	}
+	was_active = map->active;
+	map->active = 0;
+	keymap_lookup(keys, count, out);
+	map->active = was_active;
 }

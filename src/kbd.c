@@ -534,25 +534,12 @@ static struct {
 
 void key_reset_pending_sequence(void) { pending.len = 0; }
 
-/* The sequence so far, in canonical spelling: "C-x r". */
+/* The sequence so far, in canonical spelling: "C-x r".  The same
+ * spelling the describe commands report, because it is the same
+ * formatter. */
 static void pending_format(char *out, size_t size)
 {
-	int i;
-	size_t used = 0;
-
-	out[0] = '\0';
-	for (i = 0; i < pending.len; i++) {
-		char text[KEY_FORMAT_MAX];
-
-		if (key_format(pending.keys[i], text, sizeof(text)) != 0) {
-			continue;
-		}
-		used += (size_t)snprintf(
-		    out + used, size - used, "%s%s", used ? " " : "", text);
-		if (used >= size) {
-			return;
-		}
-	}
+	(void)keymap_format_sequence(pending.keys, pending.len, out, size);
 }
 
 /* Installed once, on the first keystroke: the editor has no init hook
@@ -609,7 +596,7 @@ static enum key_dispatch key_dispatch_map(int c, int fd)
 	struct key_event event = key_event_from_legacy(c);
 	struct key_event quit = { 'g', KEY_MOD_CTRL };
 	struct keymap_match match;
-	char text[KEYMAP_SEQUENCE_MAX * (KEY_FORMAT_MAX + 1)];
+	char text[KEYMAP_SEQUENCE_FORMAT_MAX];
 	int started = pending.len;
 
 	if (!global_map) {

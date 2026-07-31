@@ -1,0 +1,11 @@
+# RET in a buffer with no rows at all inserts a separator, like RET
+# anywhere else.  kg used to add an empty row instead and keep the byte
+# count at zero, so the newline the user typed was not in the saved file;
+# routing the split through the edit transaction, which addresses bytes
+# rather than rows, made the two cases the same one.
+name: newline-in-empty-buffer
+filename: empty-newline.txt
+initial: ""
+keys:
+  - RET
+oracle: emacs

@@ -76,7 +76,7 @@ The recommendations identify the right work, with these ordering corrections:
 | [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | **Phases 0–5 done**; see its Status section for the two open items |
 | [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | Now, parallel with 01 |
 | [03](03-markers-decorations-and-events.md) | Stable markers, compact decorations, bounded typed events and C safe points | Marker core during 02; consumer conversion after 02 |
-| [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | Handle work now; events after 03; nesting after 01 and kill ring |
+| [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | **Phases 0–2 done**; Phase 3 blocked on 03's event queue, Phase 4 deferred |
 | [05](05-emacs-affordances-delivery.md) | Dependency-ready Emacs habits without new one-off dispatch | Per bundle |
 | [06](06-runtime-and-lisp-extensibility.md) | Bounded direct Fe calls, editor objects, hooks, processes, proof packages | Preparation now; callbacks after 03 |
 | [07](07-visual-line-geometry-index.md) | Warm repaint independent of total buffer bytes; bounded prefix lookup | After a funding/extraction commit; coordinate with 03 display work |

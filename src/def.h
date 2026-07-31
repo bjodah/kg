@@ -76,6 +76,9 @@
 #include <time.h>
 #include <unistd.h>
 
+/* struct editor_window stores a buffer handle by value, and is defined
+ * before the buffer table is, so the type has to arrive first. */
+#include "bufhandle.h"
 #include "cmd.h"
 #include "perf.h"
 
@@ -285,9 +288,6 @@ struct kill_ring {
 /* Undo operation types */
 enum undo_type {
 	UNDO_INSERT_CHAR,
-	UNDO_DELETE_CHAR,
-	UNDO_INSERT_LINE,
-	UNDO_DELETE_LINE,
 	UNDO_SPLIT_LINE,
 	UNDO_JOIN_LINE,
 	UNDO_KILL_TEXT, /* Kill line or region */
@@ -298,7 +298,7 @@ enum undo_type {
 			      */
 	/* One replacement of a byte range, addressed by flat position:
 	 * what an edit through kg_buffer_replace() records, and what the
-	 * eleven opcodes above are being migrated to.  It needs no variant
+	 * eight opcodes above are being migrated to.  It needs no variant
 	 * per kind of edit because every edit is one of these. */
 	UNDO_CHANGE
 };
@@ -337,7 +337,13 @@ struct kg_point {
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
-	int bufidx; /* Which buffer this window shows */
+	/* Which buffer this window shows, by identity rather than by slot:
+	 * a slot is reused, so a window left on a killed buffer would
+	 * otherwise start showing whoever took its place.  A zeroed handle
+	 * names nothing, which is what an inactive or detached view holds.
+	 * See bufhandle.h; win_buffer()/win_buffer_slot() are the only
+	 * supported ways to read it. */
+	struct kg_buffer_handle buf;
 	int cx, cy; /* Cursor position within window */
 	int rowoff, coloff; /* Scroll offsets */
 	int y, x; /* Top-left corner on terminal (1-based) */
@@ -358,9 +364,10 @@ struct editor_buffer {
 	 * the life of the process; `generation` counts the times this slot has
 	 * changed hands.  Both are needed to tell "the buffer I meant" from
 	 * "another buffer that happens to sit where it did".  A slot that has
-	 * never been used has id 0. */
-	uint32_t id;
-	uint32_t generation;
+	 * never been used has id 0, and so does one a claim could not give an
+	 * identity to; neither is ever matched. */
+	uint64_t id;
+	uint64_t generation;
 	struct kg_point last_point; /* Where a view last left off here. */
 	int numrows;
 	erow *row;
@@ -394,20 +401,6 @@ struct editor_buffer {
 	int auto_revert;
 	int visual_line_mode;
 	int overwrite_mode;
-};
-
-/* A reference to a buffer that outlives the command that took it.
- *
- * A bare slot index does not: buf_kill() frees the slot and the next open
- * hands it to an unrelated buffer, so an index kept across commands can
- * quietly start naming somebody else's text.  The identity pair survives
- * that, because buf_resolve() refuses to answer unless the slot still holds
- * the same (id, generation) the handle was taken from.  A zeroed handle
- * names nothing. */
-struct kg_buffer_handle {
-	int slot;
-	uint32_t id;
-	uint32_t generation;
 };
 
 /* Global editor state */
@@ -468,6 +461,11 @@ enum minibuf_result {
 	MINIBUF_OVERFLOW = 1,
 };
 
+/* `buf` is read before it is written: whatever it already holds, as
+ * measured by strnlen(buf, bufsize), becomes the prompt's initial text.
+ * A caller wanting an empty prompt must set buf[0] = '\0' first --
+ * passing an uninitialized array reads uninitialized memory and
+ * prefills the minibuffer with whatever the stack held. */
 enum minibuf_result editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
@@ -505,11 +503,7 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
 void buf_select(int slot);
-void buf_remember_view(const struct editor_window *w);
-void buf_attach_view(struct editor_window *w, int slot);
-struct kg_buffer_handle buf_handle(int slot);
-struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
-int buf_handle_slot(struct kg_buffer_handle handle);
+/* Buffer identity and the view API that speaks it: see bufhandle.h. */
 void buf_visit_file(const char *filename, int explicit_readonly);
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 
@@ -594,56 +588,11 @@ void editor_del_row(struct editor_buffer *b, int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
 void editor_row_insert_string(erow *row, int at, const char *s, int len);
-void editor_row_insert_spaces(erow *row, int at, int len);
 void editor_row_append_string(erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
-/* What an edit through editor_row_replace_range() should also do.  Zero
- * is the ordinary edit -- record undo, count the buffer dirty -- and is
- * what every command that is one user operation passes.  This is the
- * local precursor to the edit gateway described by follow-up Plan 02; it is a
- * flag word rather than a struct so that a later option needs no churn
- * at the call sites that do not want it. */
-enum edit_option {
-	/* The caller records its own undo step covering the whole
-	 * operation, so this one must not push a second, finer record. */
-	KG_EDIT_NO_UNDO = 1 << 0,
-	/* This edit is undo putting a record back.  It records nothing --
-	 * for the same reason KG_EDIT_NO_UNDO does not -- and it is a
-	 * distinct option because the two must not be confused when the
-	 * one flag they both replace, `suppress_undo`, is retired: a
-	 * caller writing its own coarse record and undo replaying one are
-	 * different situations that happen to want the same silence. */
-	KG_EDIT_REPLAY = 1 << 1,
-};
-
-/* One replacement of a byte range by other bytes: the whole of what a
- * command may do to a buffer's text.  `begin_byte` and `end_byte` are
- * flat byte positions (see buffer_byte_length()); `end_byte` equal to
- * `begin_byte` is an insertion, an empty replacement is a deletion, and
- * `replacement` must be non-NULL even when its length is zero. */
-struct kg_edit {
-	struct editor_buffer *buffer;
-	size_t begin_byte;
-	size_t end_byte;
-	const char *replacement;
-	size_t replacement_len;
-	unsigned options; /* bitwise OR of enum edit_option */
-};
-
-/* What the edit did, for a caller that has to describe it afterwards.
- * The generations bracket the commit: they differ by exactly one when
- * the edit changed bytes, and are equal when it was refused. */
-struct kg_edit_result {
-	size_t old_length;
-	size_t new_length;
-	uint64_t before_generation;
-	uint64_t after_generation;
-};
-
-int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out);
-
-int editor_row_replace_range(int filerow, int at, int delete_len,
-    const char *insert, int insert_len, unsigned options);
+/* The edit transaction is src/edit.h's -- the intent, the two structs,
+ * kg_buffer_replace() and editor_row_replace_range().  A consumer
+ * includes that header directly. */
 void editor_insert_char(int c);
 void editor_insert_newline_raw(void);
 void editor_insert_text_raw(const char *text, int len);
@@ -660,7 +609,6 @@ void editor_self_insert_char(int c);
 void editor_self_insert_glyph(const char *seq, int len);
 void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
-void editor_set_readonly_override(int enabled);
 int editor_row_byte_to_char(erow *row, int byte_index);
 int editor_row_char_to_byte(erow *row, int char_index);
 

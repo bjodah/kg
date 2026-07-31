@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 11462,
-  "lines_hit": 9281,
-  "line_rate": 0.8097,
-  "functions_found": 825,
-  "functions_hit": 773,
-  "function_rate": 0.937,
-  "branches_found": 7189,
-  "branches_hit": 4994,
-  "branch_rate": 0.6947
+  "lines_found": 11480,
+  "lines_hit": 9542,
+  "line_rate": 0.8312,
+  "functions_found": 866,
+  "functions_hit": 825,
+  "function_rate": 0.9527,
+  "branches_found": 7270,
+  "branches_hit": 5178,
+  "branch_rate": 0.7122
  },
  "files": {
   "src/autocomplete.c": {
@@ -38,37 +38,37 @@
    "branch_rate": 0.6868
   },
   "src/buffer.c": {
-   "lines_found": 1018,
-   "lines_hit": 847,
-   "line_rate": 0.832,
-   "functions_found": 72,
-   "functions_hit": 70,
-   "function_rate": 0.9722,
-   "branches_found": 582,
-   "branches_hit": 431,
-   "branch_rate": 0.7405
+   "lines_found": 973,
+   "lines_hit": 862,
+   "line_rate": 0.8859,
+   "functions_found": 85,
+   "functions_hit": 85,
+   "function_rate": 1.0,
+   "branches_found": 580,
+   "branches_hit": 461,
+   "branch_rate": 0.7948
   },
   "src/bufmgr.c": {
-   "lines_found": 1129,
-   "lines_hit": 835,
-   "line_rate": 0.7396,
-   "functions_found": 66,
-   "functions_hit": 58,
-   "function_rate": 0.8788,
-   "branches_found": 710,
-   "branches_hit": 422,
-   "branch_rate": 0.5944
+   "lines_found": 1139,
+   "lines_hit": 905,
+   "line_rate": 0.7946,
+   "functions_found": 70,
+   "functions_hit": 65,
+   "function_rate": 0.9286,
+   "branches_found": 706,
+   "branches_hit": 455,
+   "branch_rate": 0.6445
   },
   "src/cmd.c": {
-   "lines_found": 829,
+   "lines_found": 822,
    "lines_hit": 631,
-   "line_rate": 0.7612,
+   "line_rate": 0.7676,
    "functions_found": 154,
-   "functions_hit": 128,
-   "function_rate": 0.8312,
-   "branches_found": 408,
+   "functions_hit": 129,
+   "function_rate": 0.8377,
+   "branches_found": 410,
    "branches_hit": 271,
-   "branch_rate": 0.6642
+   "branch_rate": 0.661
   },
   "src/cmdstate.c": {
    "lines_found": 38,
@@ -92,6 +92,17 @@
    "branches_hit": 102,
    "branch_rate": 0.573
   },
+  "src/describe.c": {
+   "lines_found": 122,
+   "lines_hit": 107,
+   "line_rate": 0.877,
+   "functions_found": 13,
+   "functions_hit": 13,
+   "function_rate": 1.0,
+   "branches_found": 72,
+   "branches_hit": 48,
+   "branch_rate": 0.6667
+  },
   "src/dired.c": {
    "lines_found": 277,
    "lines_hit": 238,
@@ -104,15 +115,15 @@
    "branch_rate": 0.7558
   },
   "src/display.c": {
-   "lines_found": 367,
-   "lines_hit": 347,
-   "line_rate": 0.9455,
+   "lines_found": 369,
+   "lines_hit": 348,
+   "line_rate": 0.9431,
    "functions_found": 13,
    "functions_hit": 13,
    "function_rate": 1.0,
-   "branches_found": 220,
-   "branches_hit": 193,
-   "branch_rate": 0.8773
+   "branches_found": 222,
+   "branches_hit": 194,
+   "branch_rate": 0.8739
   },
   "src/fileio.c": {
    "lines_found": 417,
@@ -126,15 +137,15 @@
    "branch_rate": 0.6636
   },
   "src/kbd.c": {
-   "lines_found": 281,
-   "lines_hit": 257,
-   "line_rate": 0.9146,
+   "lines_found": 272,
+   "lines_hit": 250,
+   "line_rate": 0.9191,
    "functions_found": 20,
    "functions_hit": 20,
    "function_rate": 1.0,
-   "branches_found": 173,
-   "branches_hit": 143,
-   "branch_rate": 0.8266
+   "branches_found": 165,
+   "branches_hit": 137,
+   "branch_rate": 0.8303
   },
   "src/keybind.c": {
    "lines_found": 48,
@@ -148,26 +159,26 @@
    "branch_rate": 0.7895
   },
   "src/keyevent.c": {
-   "lines_found": 105,
-   "lines_hit": 104,
-   "line_rate": 0.9905,
+   "lines_found": 104,
+   "lines_hit": 103,
+   "line_rate": 0.9904,
    "functions_found": 10,
    "functions_hit": 10,
    "function_rate": 1.0,
-   "branches_found": 82,
-   "branches_hit": 77,
-   "branch_rate": 0.939
+   "branches_found": 80,
+   "branches_hit": 75,
+   "branch_rate": 0.9375
   },
   "src/keymap.c": {
-   "lines_found": 183,
-   "lines_hit": 178,
-   "line_rate": 0.9727,
-   "functions_found": 18,
-   "functions_hit": 18,
+   "lines_found": 217,
+   "lines_hit": 212,
+   "line_rate": 0.977,
+   "functions_found": 22,
+   "functions_hit": 22,
    "function_rate": 1.0,
-   "branches_found": 142,
-   "branches_hit": 124,
-   "branch_rate": 0.8732
+   "branches_found": 164,
+   "branches_hit": 145,
+   "branch_rate": 0.8841
   },
   "src/lisp.c": {
    "lines_found": 901,
@@ -203,9 +214,9 @@
    "branch_rate": 0.6111
   },
   "src/main.c": {
-   "lines_found": 86,
-   "lines_hit": 75,
-   "line_rate": 0.8721,
+   "lines_found": 87,
+   "lines_hit": 76,
+   "line_rate": 0.8736,
    "functions_found": 3,
    "functions_hit": 2,
    "function_rate": 0.6667,
@@ -247,15 +258,15 @@
    "branch_rate": 0.5227
   },
   "src/rect.c": {
-   "lines_found": 241,
-   "lines_hit": 116,
-   "line_rate": 0.4813,
-   "functions_found": 16,
-   "functions_hit": 11,
-   "function_rate": 0.6875,
-   "branches_found": 130,
-   "branches_hit": 39,
-   "branch_rate": 0.3
+   "lines_found": 268,
+   "lines_hit": 234,
+   "line_rate": 0.8731,
+   "functions_found": 19,
+   "functions_hit": 19,
+   "function_rate": 1.0,
+   "branches_found": 150,
+   "branches_hit": 96,
+   "branch_rate": 0.64
   },
   "src/regex.c": {
    "lines_found": 122,
@@ -269,15 +280,15 @@
    "branch_rate": 0.7447
   },
   "src/search.c": {
-   "lines_found": 593,
-   "lines_hit": 483,
-   "line_rate": 0.8145,
+   "lines_found": 583,
+   "lines_hit": 474,
+   "line_rate": 0.813,
    "functions_found": 23,
    "functions_hit": 23,
    "function_rate": 1.0,
-   "branches_found": 351,
-   "branches_hit": 268,
-   "branch_rate": 0.7635
+   "branches_found": 349,
+   "branches_hit": 267,
+   "branch_rate": 0.765
   },
   "src/shell.c": {
    "lines_found": 223,
@@ -287,8 +298,8 @@
    "functions_hit": 10,
    "function_rate": 1.0,
    "branches_found": 157,
-   "branches_hit": 110,
-   "branch_rate": 0.7006
+   "branches_hit": 111,
+   "branch_rate": 0.707
   },
   "src/syntax.c": {
    "lines_found": 758,
@@ -298,8 +309,8 @@
    "functions_hit": 43,
    "function_rate": 0.9773,
    "branches_found": 732,
-   "branches_hit": 547,
-   "branch_rate": 0.7473
+   "branches_hit": 548,
+   "branch_rate": 0.7486
   },
   "src/tty.c": {
    "lines_found": 374,
@@ -313,59 +324,59 @@
    "branch_rate": 0.5833
   },
   "src/undo.c": {
-   "lines_found": 233,
-   "lines_hit": 209,
-   "line_rate": 0.897,
-   "functions_found": 13,
-   "functions_hit": 13,
+   "lines_found": 226,
+   "lines_hit": 212,
+   "line_rate": 0.9381,
+   "functions_found": 15,
+   "functions_hit": 15,
    "function_rate": 1.0,
-   "branches_found": 133,
-   "branches_hit": 91,
-   "branch_rate": 0.6842
+   "branches_found": 130,
+   "branches_hit": 93,
+   "branch_rate": 0.7154
   },
   "src/width.c": {
    "lines_found": 75,
-   "lines_hit": 74,
-   "line_rate": 0.9867,
+   "lines_hit": 75,
+   "line_rate": 1.0,
    "functions_found": 8,
    "functions_hit": 8,
    "function_rate": 1.0,
    "branches_found": 52,
-   "branches_hit": 50,
-   "branch_rate": 0.9615
+   "branches_hit": 51,
+   "branch_rate": 0.9808
   },
   "src/winmgr.c": {
-   "lines_found": 199,
-   "lines_hit": 168,
-   "line_rate": 0.8442,
-   "functions_found": 11,
-   "functions_hit": 11,
+   "lines_found": 204,
+   "lines_hit": 178,
+   "line_rate": 0.8725,
+   "functions_found": 13,
+   "functions_hit": 13,
    "function_rate": 1.0,
-   "branches_found": 142,
-   "branches_hit": 105,
-   "branch_rate": 0.7394
+   "branches_found": 140,
+   "branches_hit": 106,
+   "branch_rate": 0.7571
   },
   "src/word.c": {
-   "lines_found": 853,
-   "lines_hit": 641,
-   "line_rate": 0.7515,
+   "lines_found": 748,
+   "lines_hit": 559,
+   "line_rate": 0.7473,
    "functions_found": 31,
    "functions_hit": 30,
    "function_rate": 0.9677,
-   "branches_found": 552,
-   "branches_hit": 327,
-   "branch_rate": 0.5924
+   "branches_found": 534,
+   "branches_hit": 320,
+   "branch_rate": 0.5993
   },
   "src/yank.c": {
-   "lines_found": 313,
+   "lines_found": 314,
    "lines_hit": 264,
-   "line_rate": 0.8435,
+   "line_rate": 0.8408,
    "functions_found": 26,
    "functions_hit": 26,
    "function_rate": 1.0,
-   "branches_found": 166,
-   "branches_hit": 114,
-   "branch_rate": 0.6867
+   "branches_found": 170,
+   "branches_hit": 118,
+   "branch_rate": 0.6941
   }
  }
 }

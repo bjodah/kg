@@ -39,6 +39,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include "bufhandle.h"
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
@@ -159,6 +160,12 @@ int main(int argc, char **argv)
 		compilation_poll();
 		compilation_start_pending_restart();
 		autorevert_poll();
+		/* Windows first, then the frame: nothing is drawn from a
+		 * handle that has stopped resolving.  The top of the loop
+		 * is the lifecycle commit -- whatever the last keystroke
+		 * opened, killed or switched to has finished happening. */
+		win_check_handles();
+		KG_STATE_CHECK("main loop");
 		/* Skip the redraw while a paste floods stdin, so it costs
 		 * a handful of refreshes instead of one per pasted byte. */
 		if (!editor_input_flood(STDIN_FILENO)) {

@@ -4,6 +4,7 @@ test_buffer
 test_cmd
 test_compile
 test_complete
+test_describe
 test_dired
 test_keys
 test_keyevent

@@ -1,0 +1,27 @@
+# describe-bindings in a 40-column window.
+#
+# The page keeps no width model of its own: it is rendered into an
+# ordinary buffer in visual-line mode, so a row wider than the window
+# folds at the window edge through the same display path every other
+# buffer uses.  Only the key column is padded -- padding the command
+# column too would push the map name off every row at this width.
+name: describe-bindings-narrow-window
+filename: describe-narrow.txt
+backend: tmux
+dimensions: [24, 40]
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-bindings
+  - RET
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "Key bindings, and the map each is in."
+  # Short rows still fit whole at this width.
+  - "C-f         forward-char (global)"
+  # A row that does not fit folds rather than being cut off.
+  - "C-a         move-beginning-of-line (glob"
+  - "VLine"

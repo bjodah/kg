@@ -87,6 +87,8 @@ const char *kg_help_lines[]
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",
 	      "     C-c <key> runs user Lisp bindings; see global-set-key in "
 	      "kg(1)",
+	      "  Ask the editor: M-x describe-key · describe-command · "
+	      "describe-bindings",
 	      "  Git commit: C-c C-c commit · C-c C-k abort  ·  Compile: C-c "
 	      "C-k kill",
 	      "  Git rebase: C-c C-p/r/e/s/f/d set action · M-p/M-n move "

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "localvars.h"
 #include "perf.h"
 #include "syntax.h"
@@ -836,6 +837,41 @@ long editor_buffer_char_length(void)
 	return editor_char_offset(bcur()->numrows - 1, INT_MAX);
 }
 
+/* How many more allocations the edit transaction's staging path may make
+ * before one of them is failed on purpose.  Negative is how the editor
+ * always runs: no seam.  See kg_edit_fail_alloc_after() in edit.h. */
+static int edit_alloc_budget = -1;
+
+void kg_edit_fail_alloc_after(int n) { edit_alloc_budget = n; }
+
+/* Whether the transaction may make one more allocation.  Every staging
+ * allocation asks, so a test picks which one fails; the seam disarms
+ * itself once it has fired, so the failure is one point in one edit and
+ * not a state the rest of the run has to be dug out of. */
+static int edit_alloc_ok(void)
+{
+	return edit_alloc_budget < 0 || edit_alloc_budget-- != 0;
+}
+
+/* malloc() and calloc() for the staging path, failable at a chosen
+ * point.  Identical to the libc calls while the seam is disarmed. */
+static void *edit_malloc(size_t size)
+{
+	return edit_alloc_ok() ? malloc(size) : NULL;
+}
+
+static void *edit_calloc(size_t count, size_t size)
+{
+	return edit_alloc_ok() ? calloc(count, size) : NULL;
+}
+
+/* And the row array's growth, which is the staging path's one
+ * allocation that is not a malloc() of its own. */
+static int edit_rows_reserve(erow **rows, int *capacity, int need)
+{
+	return edit_alloc_ok() && editor_rows_reserve(rows, capacity, need);
+}
+
 /* Build the `nl` rows that follow the split row: segments 1..nl of
  * `text`, with `suffix` (the split row's bytes after point) appended to
  * the last of them.  `rows` is zeroed on entry.  Returns 0 having freed
@@ -859,7 +895,7 @@ static int splice_build_rows(const char *text, int len, int nl,
 		    || !checked_add_int_size(&alloc_sz, size, 1)) {
 			goto fail;
 		}
-		rows[i].chars = malloc((size_t)alloc_sz);
+		rows[i].chars = edit_malloc((size_t)alloc_sz);
 		if (!rows[i].chars) {
 			goto fail;
 		}
@@ -908,7 +944,7 @@ static int splice_head_alloc(const char *text, int first_seg,
 	    || !checked_add_int_size(&alloc_sz, *head_len, 1)) {
 		return 0;
 	}
-	*head = malloc((size_t)alloc_sz);
+	*head = edit_malloc((size_t)alloc_sz);
 	if (!*head) {
 		return 0;
 	}
@@ -927,7 +963,7 @@ static int splice_head_alloc(const char *text, int first_seg,
 static int splice_rows_alloc(const char *text, int len, int nl,
     const char *suffix, int suffix_len, erow **rows)
 {
-	*rows = calloc((size_t)nl, sizeof(**rows));
+	*rows = edit_calloc((size_t)nl, sizeof(**rows));
 	if (!*rows
 	    || !splice_build_rows(text, len, nl, suffix, suffix_len, *rows)) {
 		free(*rows);
@@ -957,7 +993,7 @@ static int splice_alloc(const char *text, int len, int nl, const char *prefix,
 	return 1;
 }
 
-/* Insert `text`, which holds at least one '\n', at point.
+/* Insert `text` at point.
  *
  * Inserting is replacing an empty range, so this is the edit transaction
  * with nothing to delete: the row at point is cut in two, the inserted
@@ -971,18 +1007,11 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 {
 	size_t pos = buffer_row_col_to_position(
 	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = pos,
-		.end_byte = pos,
-		.replacement = text,
-		.replacement_len = (size_t)insert_len,
-		.options = KG_EDIT_NO_UNDO,
-	};
+	struct kg_edit e
+	    = kg_edit_user_part(bcur(), pos, pos, text, (size_t)insert_len);
 	int row, col;
 
-	if (!memchr(text, '\n', (size_t)insert_len)
-	    || !kg_buffer_replace(&e, NULL)) {
+	if (!kg_buffer_replace(&e, NULL)) {
 		return 0;
 	}
 	/* Point ends where the inserted text does, which is in front of
@@ -1095,23 +1124,6 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len)
 	buffer_note_change(bcur());
 }
 
-void editor_row_insert_spaces(erow *row, int at, int len)
-{
-	char *spaces;
-
-	if (len <= 0) {
-		return;
-	}
-	spaces = malloc(len);
-	if (!spaces) {
-		editor_nomem();
-		return;
-	}
-	memset(spaces, ' ', len);
-	editor_row_insert_string(row, at, spaces, len);
-	free(spaces);
-}
-
 /* Append the string 's' at the end of a row */
 void editor_row_append_string(erow *row, char *s, size_t len)
 {
@@ -1201,51 +1213,44 @@ void editor_insert_char(int c)
 	buffer_note_change(bcur());
 }
 
-/* Split the current line at the cursor without auto-indent.
- * Used by yank, kill-undo, and the paste-mode short-circuit in
- * editor_insert_newline to re-insert newlines exactly as typed.
- * Pushes the same UNDO_SPLIT_LINE / UNDO_INSERT_LINE records as
- * editor_insert_newline so a terminal paste stays reversible — yank
- * and undo replay both raise suppress_undo so the record is dropped
- * when they don't want it. */
-void editor_insert_newline_raw(void)
+/* Insert `text` at point as one edit and leave point after it.  The
+ * commands that put a run of text into the buffer are all this call with
+ * a different string: a newline is one byte between two rows, a newline
+ * plus an indent is that byte and the bytes the next line starts with,
+ * and a yank is the kill ring's contents.
+ *
+ * The record is KG_EDIT_USER's, which is dropped while yank replay and
+ * the batched kills hold `suppress_undo` -- that is what lets one
+ * primitive serve both them and a typed newline, and is the last thing
+ * the flag is doing here. */
+void editor_insert_text_at_point(const char *text, int len)
 {
-	int filerow;
-	int filecol;
-	int rest_len;
-	erow *row;
-	int target_row;
+	size_t pos = buffer_row_col_to_position(
+	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
+	struct kg_edit e = kg_edit_user(bcur(), pos, pos, text, (size_t)len);
+	int row, col;
 
-	filerow = editor_current_filerow_or_eof();
-	filecol = editor_current_filecol();
-
-	if (filerow >= bcur()->numrows) {
-		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(bcur(), filerow, "", 0);
-		target_row = filerow;
-	} else {
-		row = &bcur()->row[filerow];
-		if (filecol > row->size) {
-			filecol = row->size;
-		}
-		rest_len = row->size - filecol;
-		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
-		    row->chars + filecol, rest_len);
-		editor_insert_row(
-		    bcur(), filerow + 1, row->chars + filecol, rest_len);
-		row = &bcur()->row[filerow];
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-		target_row = filerow + 1;
+	if (!kg_buffer_replace(&e, NULL)) {
+		return;
 	}
-	wcur()->cx = 0;
+	buffer_position_to_row_col(bcur(), pos + (size_t)len, &row, &col);
 	wcur()->coloff = 0;
-	editor_cursor_goto(target_row, 0);
+	editor_cursor_goto(row, col);
 }
 
-/* Insert text character by character without recording undo, using raw
- * newlines (no auto-indent).  Used by editor_yank and UNDO_KILL_TEXT. */
+/* Split the current line at the cursor without auto-indent.
+ * Used by yank, kill-undo, and the paste-mode short-circuit in
+ * editor_insert_newline to re-insert newlines exactly as typed. */
+void editor_insert_newline_raw(void) { editor_insert_text_at_point("\n", 1); }
+
+/* Insert `text` at point without recording undo of its own, using raw
+ * newlines (no auto-indent).  Used by editor_yank and UNDO_KILL_TEXT.
+ *
+ * A rectangle mark is the one thing that keeps this off the transaction:
+ * point may then sit in virtual space past the end of its row, which is
+ * a column no byte position names, so the row primitive pads out to it
+ * one run at a time.  Everything else is one replacement of the empty
+ * range at point, whether or not the text carries separators. */
 void editor_insert_text_raw(const char *text, int len)
 {
 	int saved = suppress_undo;
@@ -1255,7 +1260,7 @@ void editor_insert_text_raw(const char *text, int len)
 		return;
 	}
 	suppress_undo = 1;
-	if (!bcur()->rect_mode && memchr(text, '\n', len)) {
+	if (!bcur()->rect_mode) {
 		editor_insert_text_raw_bulk(text, len);
 		suppress_undo = saved;
 		return;
@@ -1285,10 +1290,6 @@ void editor_insert_text_raw(const char *text, int len)
 				break;
 			}
 			row = &bcur()->row[filerow];
-			if (!bcur()->rect_mode && filecol > row->size) {
-				filecol = row->size;
-				editor_cursor_goto(filerow, filecol);
-			}
 			editor_row_insert_string(
 			    row, filecol, text + start, run_len);
 			editor_cursor_goto(
@@ -1306,10 +1307,8 @@ void editor_insert_text_raw(const char *text, int len)
  * Delegate to the raw variant in that case. */
 void editor_insert_newline(void)
 {
-	int rest_len, indent = 0;
-	char *new_content;
-	int filerow;
-	int filecol;
+	int filerow, filecol, indent = 0;
+	char *text;
 	erow *row;
 
 	if (editor.paste_mode) {
@@ -1320,70 +1319,25 @@ void editor_insert_newline(void)
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
 	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
-
-	if (!row) {
-		if (filerow == bcur()->numrows) {
-			editor_insert_row(bcur(), filerow, "", 0);
-			goto fixcursor;
-		}
+	/* The indent is the current line's leading whitespace, and never
+	 * reaches past the split point: splitting inside the indentation
+	 * copies only the part that is above the split. */
+	while (row && indent < filecol && indent < row->size
+	    && (row->chars[indent] == ' ' || row->chars[indent] == TAB)) {
+		indent++;
+	}
+	/* One separator followed by that indent, inserted as one edit --
+	 * so one row rebuild, and one C-_ that rejoins the line exactly,
+	 * the indent going with it because it was never there before. */
+	text = malloc((size_t)indent + 2);
+	if (!text) {
+		editor_nomem();
 		return;
 	}
-	/* If the cursor is over the current line size, we want to conceptually
-	 * think it's just over the last character. */
-	if (filecol >= row->size) {
-		filecol = row->size;
-	}
-	if (filecol <= 0) {
-		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
-		editor_insert_row(bcur(), filerow, "", 0);
-	} else {
-		/* Compute leading whitespace of the current line for
-		 * auto-indent. */
-		while (indent < row->size
-		    && (row->chars[indent] == ' '
-			|| row->chars[indent] == TAB)) {
-			indent++;
-		}
-		/* Don't indent past the split point. */
-		if (indent > filecol) {
-			indent = filecol;
-		}
-
-		/* Build new line: indent prefix + rest of split. */
-		rest_len = row->size - filecol;
-		new_content = malloc(indent + rest_len + 1);
-		if (!new_content) {
-			editor_nomem();
-			return;
-		}
-		memcpy(new_content, row->chars, indent);
-		memcpy(new_content + indent, row->chars + filecol, rest_len);
-		new_content[indent + rest_len] = '\0';
-
-		/* Record undo: save the original rest without the indent
-		 * prefix. */
-		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
-		    row->chars + filecol, rest_len);
-		editor_insert_row(
-		    bcur(), filerow + 1, new_content, indent + rest_len);
-		free(new_content);
-		row = &bcur()->row[filerow];
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-	}
-fixcursor:
-	if (wcur()->cy == wcur()->h - 1) {
-		wcur()->rowoff++;
-	} else {
-		wcur()->cy++;
-	}
-	wcur()->cx = indent;
-	wcur()->coloff = 0;
-	if (wcur()->cx >= wcur()->w) {
-		wcur()->coloff = indent - wcur()->w + 1;
-		wcur()->cx = wcur()->w - 1;
-	}
+	text[0] = '\n';
+	memcpy(text + 1, row ? row->chars : "", (size_t)indent);
+	editor_insert_text_at_point(text, indent + 1);
+	free(text);
 }
 
 /* Insert a newline at point without advancing the cursor (C-o).
@@ -1456,7 +1410,7 @@ static void edit_staged_free(struct edit_staged *st)
 static char *buffer_copy_span(
     const struct editor_buffer *b, size_t pos, size_t len)
 {
-	char *out = malloc(len + 1);
+	char *out = edit_malloc(len + 1);
 	size_t n = 0;
 	int row, col;
 
@@ -1482,18 +1436,86 @@ static char *buffer_copy_span(
 	return out;
 }
 
+/* The policy, one row per intent: between them these three answers are
+ * the whole of what an edit's intent decides.  A table rather than a
+ * chain of tests, for the same reason cmdtable is one -- reading the
+ * policy off is reading four rows, and adding an intent is adding a
+ * fifth rather than remembering every place that asks.
+ *
+ * The content generation is deliberately not a column: it advances for
+ * every intent, because the bytes did change, whatever else follows. */
+static const struct {
+	unsigned char records_undo; /* transaction writes the record */
+	unsigned char obeys_readonly; /* a read-only buffer refuses it */
+	unsigned char marks_modified; /* the buffer comes out dirty */
+} edit_policy[] = {
+	[KG_EDIT_USER] = { 1, 1, 1 },
+	[KG_EDIT_USER_PART] = { 0, 1, 1 },
+	[KG_EDIT_REPLAY] = { 0, 0, 1 },
+	[KG_EDIT_INTERNAL] = { 0, 0, 0 },
+};
+
+/* Count the change the edit just made.  The modified flag only advances
+ * for text that was the user's to modify, so a listing or a process's
+ * output can be rewritten without the mode line claiming unsaved work.
+ * buffer_note_change() is the two together, which is what every
+ * mutation that has not reached the gateway still wants. */
+static void edit_note_change(
+    struct editor_buffer *b, enum kg_edit_intent intent)
+{
+	b->content_generation++;
+	b->dirty += edit_policy[intent].marks_modified;
+}
+
+static struct kg_edit edit_make(enum kg_edit_intent intent,
+    struct editor_buffer *b, size_t begin, size_t end, const char *replacement,
+    size_t replacement_len)
+{
+	return (struct kg_edit) { .buffer = b,
+		.begin_byte = begin,
+		.end_byte = end,
+		.replacement = replacement,
+		.replacement_len = replacement_len,
+		.intent = intent };
+}
+
+struct kg_edit kg_edit_user(struct editor_buffer *b, size_t begin, size_t end,
+    const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_USER, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_user_part(struct editor_buffer *b, size_t begin,
+    size_t end, const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_USER_PART, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_replay(struct editor_buffer *b, size_t begin, size_t end,
+    const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_REPLAY, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_internal(struct editor_buffer *b, size_t begin,
+    size_t end, const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_INTERNAL, b, begin, end, replacement, replacement_len);
+}
+
 /* Whether `e` names a range this buffer has, and may have replaced. */
 static int edit_valid(const struct kg_edit *e)
 {
 	const struct editor_buffer *b = e->buffer;
-	unsigned quiet = KG_EDIT_NO_UNDO | KG_EDIT_REPLAY;
 
 	if (!b || !b->active || !e->replacement) {
 		return 0;
 	}
-	/* An edit the user did not ask for -- a load, a rebuild, undo
-	 * putting a record back -- is not what read-only is about. */
-	if (b->readonly && !(e->options & quiet)) {
+	if (b->readonly && edit_policy[e->intent].obeys_readonly) {
 		return 0;
 	}
 	if (e->begin_byte > e->end_byte
@@ -1544,8 +1566,34 @@ static int edit_stage(const struct kg_edit *e, int r0, int c0, int r1, int c1,
 	}
 	/* Reserving after the rows are built is what lets them be built
 	 * from `b->row`: this call may move that array. */
-	return editor_rows_reserve(
+	return edit_rows_reserve(
 	    &b->row, &b->row_capacity, b->numrows + st->nl - (r1 - r0));
+}
+
+/* The undo record this edit owes, or 1 when it owes none.  The record's
+ * own two allocations are undo.c's, so the failure seam stands in for
+ * them here: what the transaction has to answer for is a record it could
+ * not write, however the writing failed. */
+static int edit_record_undo(
+    const struct kg_edit *e, const struct edit_staged *st)
+{
+	if (!edit_policy[e->intent].records_undo) {
+		return 1;
+	}
+	return edit_alloc_ok()
+	    && undo_push_change(e->buffer, e->begin_byte, st->old_text,
+		st->old_len, (int)e->replacement_len);
+}
+
+/* Whether the replacement is the bytes that are already there.  Staging
+ * has copied them, so this is the comparison and not a second walk of
+ * the buffer.  Nothing follows from such an edit: no record, no
+ * modified flag, no generation step, and -- once Plan 03 lands the event
+ * queue -- nothing for a reader to be told about. */
+static int edit_is_noop(const struct kg_edit *e, const struct edit_staged *st)
+{
+	return (size_t)st->old_len == e->replacement_len
+	    && memcmp(st->old_text, e->replacement, e->replacement_len) == 0;
 }
 
 /* Put the staged rows in place of rows [r0, r1].  Nothing here can fail
@@ -1557,10 +1605,19 @@ static void edit_publish(
 {
 	int old_span = r1 - r0 + 1;
 	int new_span = st->nl + 1;
+	/* Row r0 is replaced in place, whatever the topology around it, so
+	 * its render and highlight storage outlives the text it described:
+	 * both carry a capacity, and the update below refills them without
+	 * allocating when the new content is no wider than the old.  That
+	 * is the whole of a one-row edit's derived-state cost -- freeing
+	 * the pair here charged two megabytes per keystroke in a megabyte
+	 * row.  Rows r0+1..r1 are going away, so they are freed outright. */
+	erow derived = b->row[r0];
 	int last;
 	int i;
 
-	for (i = r0; i <= r1; i++) {
+	free(b->row[r0].chars);
+	for (i = r0 + 1; i <= r1; i++) {
 		editor_free_row(&b->row[i]);
 	}
 	if (new_span != old_span) {
@@ -1568,8 +1625,13 @@ static void edit_publish(
 		    sizeof(*b->row) * (size_t)(b->numrows - r1 - 1));
 		b->numrows += new_span - old_span;
 	}
-	b->row[r0]
-	    = (erow) { .idx = r0, .size = st->head_len, .chars = st->head };
+	b->row[r0] = (erow) { .idx = r0,
+		.size = st->head_len,
+		.chars = st->head,
+		.render = derived.render,
+		.hl = derived.hl,
+		.render_capacity = derived.render_capacity,
+		.hl_capacity = derived.hl_capacity };
 	if (st->nl) {
 		memcpy(b->row + r0 + 1, st->rows,
 		    sizeof(*st->rows) * (size_t)st->nl);
@@ -1591,12 +1653,16 @@ static void edit_publish(
 }
 
 /* Replace the bytes [begin_byte, end_byte) of `e->buffer` with
- * `e->replacement`, as one step: one undo record, one bump of the
+ * `e->replacement`, as one step: one undo record, one step of the
  * modified flag and the content generation, one row rebuild per row the
- * result has.  Returns 0 with the buffer byte-identical when the range is
- * not one the buffer has, the buffer is read-only, or memory runs out.
- * `out` may be NULL, and is zeroed on a refusal -- the two generations
- * are equal either way, which is the thing a caller asks it. */
+ * result has.  What of that the edit's intent actually asks for is
+ * edit_records_undo() and friends above; see enum kg_edit_intent.
+ *
+ * Returns 0 with the buffer byte-identical when the range is not one the
+ * buffer has, the intent has no authority over a read-only buffer, or
+ * memory runs out.  `out` may be NULL, and is zeroed on a refusal -- the
+ * two generations are equal either way, which is the thing a caller asks
+ * it, and they are equal for a replacement by identical bytes too. */
 int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 {
 	struct editor_buffer *b = e->buffer;
@@ -1617,17 +1683,23 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	}
 	buffer_position_to_row_col(b, e->begin_byte, &r0, &c0);
 	buffer_position_to_row_col(b, e->end_byte, &r1, &c1);
-	if (!edit_stage(e, r0, c0, r1, c1, &st)
-	    || (!(e->options & (KG_EDIT_NO_UNDO | KG_EDIT_REPLAY))
-		&& !undo_push_change(b, e->begin_byte, st.old_text, st.old_len,
-		    (int)e->replacement_len))) {
+	if (!edit_stage(e, r0, c0, r1, c1, &st)) {
+		edit_staged_free(&st);
+		editor_nomem();
+		return 0;
+	}
+	if (edit_is_noop(e, &st)) {
+		edit_staged_free(&st);
+		return 1;
+	}
+	if (!edit_record_undo(e, &st)) {
 		edit_staged_free(&st);
 		editor_nomem();
 		return 0;
 	}
 	edit_publish(b, r0, r1, &st);
 	edit_staged_free(&st);
-	buffer_note_change(b);
+	edit_note_change(b, e->intent);
 	if (out) {
 		out->new_length = buffer_byte_length(b);
 		out->after_generation = b->content_generation;
@@ -1671,18 +1743,19 @@ static int row_replace_range_valid(
 /* Replace the `delete_len` bytes at (filerow, at) with the `insert_len`
  * bytes at `insert` -- one row rebuild, one dirty step and one undo
  * record, whatever the lengths are.  `insert` must be non-NULL; either
- * length may be zero.  `options` is a bitwise OR of enum edit_option, 0
- * for an ordinary edit.  Returns 0 with the row byte-identical when the
- * range is bogus, the resulting size does not fit an int, or memory runs
- * out: the capacity is reserved and the undo payload copied before
- * anything moves.
+ * length may be zero.  `intent` says whose edit it is; see enum
+ * kg_edit_intent.  Returns 0 with the row byte-identical when the range
+ * is bogus, the resulting size does not fit an int, or memory runs out:
+ * the capacity is reserved and the undo payload copied before anything
+ * moves.
  *
- * Replacing nothing by nothing is a well-formed request that changes no
- * byte, so it costs neither a modification nor an undo step -- Emacs
- * answers the same way, and query-replace-regexp of a zero-width pattern
- * by the empty string is the caller that asks it for every glyph. */
+ * Replacing bytes by the same bytes -- including nothing by nothing --
+ * is a well-formed request that changes none of them, so it costs
+ * neither a modification nor an undo step.  Emacs answers the same way,
+ * and query-replace-regexp of a zero-width pattern by the empty string
+ * is the caller that asks it for every glyph. */
 int editor_row_replace_range(int filerow, int at, int delete_len,
-    const char *insert, int insert_len, unsigned options)
+    const char *insert, int insert_len, enum kg_edit_intent intent)
 {
 	size_t pos;
 	struct kg_edit e;
@@ -1692,22 +1765,13 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 		filerow, at, delete_len, insert_len, &new_size)) {
 		return 0;
 	}
-	if (delete_len == 0 && insert_len == 0) {
-		return 1;
-	}
 	/* A range inside one row is a byte range like any other, so this is
 	 * the edit transaction with the row bounds already checked -- which
 	 * is the checking the transaction cannot do, since a flat position
 	 * clamps where a row column is refused. */
 	pos = buffer_row_col_to_position(bcur(), filerow, at);
-	e = (struct kg_edit) {
-		.buffer = bcur(),
-		.begin_byte = pos,
-		.end_byte = pos + (size_t)delete_len,
-		.replacement = insert,
-		.replacement_len = (size_t)insert_len,
-		.options = options,
-	};
+	e = edit_make(intent, bcur(), pos, pos + (size_t)delete_len, insert,
+	    (size_t)insert_len);
 	return kg_buffer_replace(&e, NULL);
 }
 
@@ -1717,16 +1781,26 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
  *
  * The record is an UNDO_REPLACE_TEXT whose replacement length is zero:
  * its reverse skips the delete and re-inserts the saved bytes, which is
- * exactly delete-undo.  A per-byte UNDO_DELETE_CHAR cannot serve, since
- * one keystroke removes a whole glyph and undo must put every byte of it
- * back in one step. */
+ * exactly delete-undo.  A per-byte deleted-character record cannot serve,
+ * since one keystroke removes a whole glyph and undo must put every byte
+ * of it back in one step. */
 static int editor_delete_span_with_undo(int filerow, int col, int len)
 {
 	/* A delete is a replacement by nothing, so the range checking, the
 	 * undo record and the single row rebuild are all already written --
 	 * including what a `len` of zero or below means, which this must not
 	 * answer differently. */
-	return editor_row_replace_range(filerow, col, len, "", 0, 0);
+	return editor_row_replace_range(filerow, col, len, "", 0, KG_EDIT_USER);
+}
+
+/* The same, for a span that crosses a row separator: the separator is a
+ * byte of the buffer like any other, and removing it is what joins two
+ * rows.  Addressed flat, because a row column cannot name it. */
+static int editor_delete_span_at(size_t pos, size_t len)
+{
+	struct kg_edit e = kg_edit_user(bcur(), pos, pos + len, "", 0);
+
+	return kg_buffer_replace(&e, NULL);
 }
 
 /* Delete the char at the current prompt position. */
@@ -1747,17 +1821,16 @@ void editor_del_char(void)
 		return;
 	}
 	if (filecol == 0) {
-		/* Handle the case of column 0, we need to move the current line
-		 * on the right of the previous one. */
-		/* Record undo: save the line that will be joined */
-		undo_push(bcur(), UNDO_JOIN_LINE, filerow - 1,
-		    bcur()->row[filerow - 1].size, 0, row->chars, row->size);
-		filecol = bcur()->row[filerow - 1].size;
-		editor_row_append_string(
-		    &bcur()->row[filerow - 1], row->chars, row->size);
-		editor_del_row(bcur(), filerow);
-		editor_cursor_goto(filerow - 1, filecol);
-		buffer_note_change(bcur());
+		/* At column 0 the byte before point is the separator above
+		 * it, so backspace removing that byte is what joins the two
+		 * rows -- no appending, no row deletion, no record saying
+		 * which of the two happened. */
+		int prev_end = bcur()->row[filerow - 1].size;
+		size_t pos = buffer_row_col_to_position(bcur(), filerow, 0);
+
+		if (editor_delete_span_at(pos - 1, 1)) {
+			editor_cursor_goto(filerow - 1, prev_end);
+		}
 		return;
 	}
 	/* Backspace removes one whole character, however many bytes it
@@ -1787,16 +1860,14 @@ void editor_del_forward_char(void)
 		return;
 	}
 	if (filecol == row->size) {
+		/* At end of line the byte at point is the separator below
+		 * it; removing it joins the next row on, and point does not
+		 * move because it is already where the join happens. */
 		if (filerow + 1 >= bcur()->numrows) {
 			return;
 		}
-		undo_push(bcur(), UNDO_JOIN_LINE, filerow, filecol, 0,
-		    bcur()->row[filerow + 1].chars,
-		    bcur()->row[filerow + 1].size);
-		editor_row_append_string(row, bcur()->row[filerow + 1].chars,
-		    bcur()->row[filerow + 1].size);
-		editor_del_row(bcur(), filerow + 1);
-		buffer_note_change(bcur());
+		editor_delete_span_at(
+		    buffer_row_col_to_position(bcur(), filerow, filecol), 1);
 		return;
 	}
 	/* Forward-delete takes the whole glyph at point and leaves point
@@ -1815,12 +1886,6 @@ void editor_refresh_readonly_state(void)
 void editor_set_local_readonly(int enabled)
 {
 	bcur()->readonly_local = enabled ? 1 : 0;
-	editor_refresh_readonly_state();
-}
-
-void editor_set_readonly_override(int enabled)
-{
-	bcur()->readonly_override = enabled ? 1 : 0;
 	editor_refresh_readonly_state();
 }
 
@@ -1884,19 +1949,14 @@ void editor_overwrite_char(int c)
  * UNDO_INSERT_CHAR per byte, so undo would peel a glyph apart and leave
  * the buffer holding invalid UTF-8.
  *
- * Undo granularity therefore follows yank, which is the other command
- * that inserts multi-byte text: one UNDO_YANK_TEXT record whose reverse
- * deletes `len` bytes forward from the insertion point, so a single
- * undo removes the whole character.  Insertion goes through
- * editor_insert_text_raw(), which suppresses the per-byte records and
- * leaves point `len` bytes further along — exactly where C-f over the
- * glyph lands, since wcur()->cx is a byte offset into row->chars.
+ * One replacement is therefore the whole command: the glyph at point in
+ * overwrite mode, or nothing at all otherwise, becomes `seq`, and the
+ * record the transaction writes covers every byte of it.  Point ends
+ * `len` bytes further along — exactly where C-f over the glyph lands,
+ * since wcur()->cx is a byte offset into row->chars.
  *
  * No autopair is multi-byte, so unlike editor_self_insert_char() there
- * is nothing for editor_insert_char_auto_complete() to do; overwrite
- * mode is honoured with the same UNDO_REPLACE_TEXT record
- * editor_overwrite_char() uses, only with a replacement longer than one
- * byte. */
+ * is nothing for editor_insert_char_auto_complete() to do. */
 void editor_self_insert_glyph(const char *seq, int len)
 {
 	int filerow = editor_current_filerow_or_eof();
@@ -1904,22 +1964,24 @@ void editor_self_insert_glyph(const char *seq, int len)
 	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len = 0;
 
-	if (bcur()->overwrite_mode && row && filecol < row->size) {
-		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
-	}
-	if (old_len > 0) {
-		if (!undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, filecol, len,
-			row->chars + filecol, old_len)) {
-			editor_nomem();
-			return;
+	/* A rectangle mark puts point in virtual space past the end of its
+	 * row, and point can sit below the last row.  Neither is a byte
+	 * range, so both keep the padding insertion, and the record that
+	 * covers the whole glyph with it. */
+	if (!row || filecol > row->size) {
+		if (undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
+			len)) {
+			editor_insert_text_raw(seq, len);
 		}
-		editor_delete_text_range_raw(filerow, filecol, old_len);
-	} else if (!undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
-		       len)) {
-		editor_nomem();
 		return;
 	}
-	editor_insert_text_raw(seq, len);
+	if (bcur()->overwrite_mode && filecol < row->size) {
+		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
+	}
+	if (editor_row_replace_range(
+		filerow, filecol, old_len, seq, len, KG_EDIT_USER)) {
+		editor_cursor_goto(filerow, filecol + len);
+	}
 }
 
 /* Kill (delete) from cursor to end of line (C-k).
@@ -1942,35 +2004,24 @@ void editor_kill_line(void)
 		return;
 	}
 	if (filecol == row->size) {
-		/* At end of line, join with next line like C-k in Emacs. */
+		/* At end of line, join with next line like C-k in Emacs.
+		 * The newline is the only byte that leaves the buffer: the
+		 * next row's bytes stay, so the record undo needs is the
+		 * one the transaction writes, describing that byte. */
 		if (filerow + 1 < bcur()->numrows) {
-			/* Save newline to kill ring */
 			kill_ring_append("\n", 1);
-			/* Record undo: the newline is what leaves the
-			 * buffer.  The next row's bytes stay -- they are
-			 * appended to this one -- so re-inserting a "\n"
-			 * here splits them back off, while re-inserting
-			 * the row itself would duplicate it. */
-			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
-			    "\n", 1);
-			editor_row_append_string(row,
-			    bcur()->row[filerow + 1].chars,
-			    bcur()->row[filerow + 1].size);
-			editor_del_row(bcur(), filerow + 1);
+			editor_delete_span_at(buffer_row_col_to_position(
+						  bcur(), filerow, filecol),
+			    1);
 		}
-	} else {
-		/* Delete from cursor to end of line and save to kill ring. */
-		int kill_len = row->size - filecol;
-		if (kill_len > 0) {
-			kill_ring_append(row->chars + filecol, kill_len);
-			/* Record undo operation */
-			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
-			    row->chars + filecol, kill_len);
-		}
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-		buffer_note_change(bcur());
+		return;
+	}
+	/* Otherwise the rest of the line, to the kill ring and out of the
+	 * buffer in one step. */
+	if (row->size > filecol) {
+		kill_ring_append(row->chars + filecol, row->size - filecol);
+		editor_row_replace_range(
+		    filerow, filecol, row->size - filecol, "", 0, KG_EDIT_USER);
 	}
 }
 

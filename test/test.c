@@ -41,7 +41,12 @@ void reset_current_buffer(void)
 
 	free_all_rows();
 	memset(b, 0, sizeof(*b));
-	b->id = keep.id;
+	/* A slot holding a buffer has an identity, or no view can attach to
+	 * it: buf_resolve() reads id 0 as "no buffer".  bufmgr.c's counter
+	 * is private and not every suite links it, so a harness-made buffer
+	 * mints its own -- it only has to be nonzero, since these tests
+	 * never hand the slot to a second buffer. */
+	b->id = keep.id ? keep.id : 1;
 	b->generation = keep.generation;
 	/* The undo chain stays put: setups pair this with undo_free() and
 	 * undo_init(), and a stack dropped here would be a stack leaked. */

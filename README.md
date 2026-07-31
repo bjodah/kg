@@ -96,6 +96,16 @@ standard VT100 escape sequences.
   (off by default, can be enabled from the init file)
 - Suspend to background (C-z)
 - Built-in help in a scrollable *help* buffer (C-h)
+- Introspection over the command table and the keymaps, rendered into a
+  read-only `*Describe*` buffer (`q` closes): `M-x describe-key` reads a
+  key sequence and reports the command it runs, the map that answered and
+  the binding that map shadows; `M-x describe-command` reports a named
+  command's summary, its read-only and Lisp-callability verdicts, and the
+  keys that run it; `M-x describe-bindings` lists every binding with the
+  map holding it; `M-x where-is` names the keys for a command in the echo
+  area.  Every answer is read out of the registries when it is asked, so
+  a binding whose Lisp command has been removed reports that rather than
+  a stale name
 - Compilation: `M-x compile` / `M-x recompile` running the buffer's
   `compile-command` in `/bin/sh -c` asynchronously, output streaming into a read-only
   `*compilation*` buffer; cancel with `M-x kill-compilation` or `C-c C-k` inside `*compilation*`

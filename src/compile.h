@@ -1,7 +1,7 @@
 #ifndef KG_COMPILE_H
 #define KG_COMPILE_H
 
-#include "def.h"
+#include "bufhandle.h"
 #include "localvars.h"
 #include "process.h"
 #include <limits.h>

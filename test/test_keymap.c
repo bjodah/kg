@@ -207,6 +207,153 @@ static void test_precedence(void)
 	keymap_reset();
 }
 
+/* Spelling a sequence back out, which is how every diagnostic and every
+ * describe command names a key.  Canonical, and round-trips through the
+ * parser. */
+static void test_format_sequence(void)
+{
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	struct key_event again[KEYMAP_SEQUENCE_MAX];
+	char text[KEYMAP_SEQUENCE_FORMAT_MAX];
+	static const char *const spellings[] = { "C-x C-s", "M-f", "C-x r C-k",
+		"RET", "C-M-s", "S-<home>", "<f3>", "M-%" };
+	size_t i;
+
+	for (i = 0; i < sizeof(spellings) / sizeof(*spellings); i++) {
+		int count = keymap_parse_sequence(
+		    spellings[i], keys, KEYMAP_SEQUENCE_MAX);
+
+		CHECKF(count > 0, "%s does not parse", spellings[i]);
+		CHECKF(keymap_format_sequence(keys, count, text, sizeof(text))
+			== 0,
+		    "%s does not format", spellings[i]);
+		CHECKF(strcmp(text, spellings[i]) == 0, "%s formats as %s",
+		    spellings[i], text);
+		CHECK(keymap_parse_sequence(text, again, KEYMAP_SEQUENCE_MAX)
+		    == count);
+	}
+
+	/* No room is a refusal, not a truncated spelling that would parse
+	 * back as a different, shorter sequence. */
+	CHECK(
+	    keymap_parse_sequence("C-x r C-k", keys, KEYMAP_SEQUENCE_MAX) == 3);
+	CHECK(keymap_format_sequence(keys, 3, text, 4) != 0);
+	CHECK(text[0] == '\0');
+	CHECK(keymap_format_sequence(keys, 3, NULL, sizeof(text)) != 0);
+	/* Nothing to say is not a failure. */
+	CHECK(keymap_format_sequence(keys, 0, text, sizeof(text)) == 0);
+	CHECK(text[0] == '\0');
+}
+
+/* Enumeration: what the describe commands walk, since they have to show
+ * what is bound without knowing what to ask for. */
+static void test_enumerate_bindings(void)
+{
+	struct keymap *global, *major;
+	struct keymap_binding binding;
+	char text[KEYMAP_SEQUENCE_FORMAT_MAX];
+	int i, seen_leaf = 0, seen_prefix = 0;
+
+	keymap_reset();
+	CHECK(keymap_binding_count() == 0);
+	CHECK(keymap_binding_at(0, &binding) != 0);
+
+	global = keymap_create("global", KEYMAP_LAYER_GLOBAL);
+	major = keymap_create("major", KEYMAP_LAYER_MAJOR);
+	CHECK(keymap_bind(global, "M-f", "forward-word") == 0);
+	CHECK(keymap_bind_prefix(global, "C-c") == 0);
+	CHECK(keymap_bind(major, "C-c C-k", "kill-compilation") == 0);
+	CHECK(keymap_binding_count() == 3);
+
+	for (i = 0; i < keymap_binding_count(); i++) {
+		CHECK(keymap_binding_at(i, &binding) == 0);
+		CHECK(keymap_format_sequence(
+			  binding.keys, binding.count, text, sizeof(text))
+		    == 0);
+		if (strcmp(text, "M-f") == 0) {
+			seen_leaf++;
+			CHECK(strcmp(binding.command, "forward-word") == 0);
+			CHECK(binding.map == global);
+		}
+		/* A prefix declared with no leaf enumerates with no
+		 * command, which is how it is told from a binding whose
+		 * command was removed. */
+		if (strcmp(text, "C-c") == 0) {
+			seen_prefix++;
+			CHECK(binding.command == NULL);
+		}
+		if (strcmp(text, "C-c C-k") == 0) {
+			CHECK(binding.map == major);
+			CHECK(binding.count == 2);
+		}
+	}
+	CHECK(seen_leaf == 1);
+	CHECK(seen_prefix == 1);
+
+	/* Out of range both ways, and a NULL destination. */
+	CHECK(keymap_binding_at(-1, &binding) != 0);
+	CHECK(keymap_binding_at(keymap_binding_count(), &binding) != 0);
+	CHECK(keymap_binding_at(0, NULL) != 0);
+
+	/* Unbinding takes it out of the enumeration too. */
+	CHECK(keymap_unbind(global, "M-f") == 0);
+	CHECK(keymap_binding_count() == 2);
+	keymap_reset();
+}
+
+/* What a winning layer is standing in front of, asked by re-lookup so it
+ * reports what dispatch would really do rather than restating the
+ * precedence rule. */
+static void test_lookup_shadowed(void)
+{
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	struct keymap *global, *major;
+	struct keymap_match match, shadowed;
+	int count;
+
+	keymap_reset();
+	global = keymap_create("global", KEYMAP_LAYER_GLOBAL);
+	major = keymap_create("major", KEYMAP_LAYER_MAJOR);
+	CHECK(keymap_bind(global, "M-p", "previous-line") == 0);
+	CHECK(keymap_bind(major, "M-p", "git-rebase-move-line-up") == 0);
+
+	count = keymap_parse_sequence("M-p", keys, KEYMAP_SEQUENCE_MAX);
+	CHECK(count == 1);
+	keymap_lookup(keys, count, &match);
+	CHECK(strcmp(match.command, "git-rebase-move-line-up") == 0);
+	CHECK(match.map == major);
+
+	keymap_lookup_shadowed(keys, count, match.map, &shadowed);
+	CHECK(shadowed.result == KEYMAP_COMMAND);
+	CHECK(strcmp(shadowed.command, "previous-line") == 0);
+	CHECK(shadowed.map == global);
+
+	/* Asking again leaves the map exactly as it was: the mode binding
+	 * still wins, and the map is still active. */
+	CHECK(keymap_is_active(major));
+	keymap_lookup(keys, count, &match);
+	CHECK(strcmp(match.command, "git-rebase-move-line-up") == 0);
+
+	/* A key only the bottom layer has shadows nothing. */
+	CHECK(keymap_bind(global, "M-w", "kill-ring-save") == 0);
+	count = keymap_parse_sequence("M-w", keys, KEYMAP_SEQUENCE_MAX);
+	keymap_lookup(keys, count, &match);
+	CHECK(match.map == global);
+	keymap_lookup_shadowed(keys, count, match.map, &shadowed);
+	CHECK(shadowed.result == KEYMAP_NO_MATCH);
+	/* Nor does an unbound key, whose lookup named no map. */
+	keymap_lookup_shadowed(keys, count, NULL, &shadowed);
+	CHECK(shadowed.result == KEYMAP_NO_MATCH);
+	CHECK(shadowed.command == NULL);
+
+	/* An inactive map is left inactive, not switched on by the
+	 * save-and-restore. */
+	keymap_set_active(major, 0);
+	keymap_lookup_shadowed(keys, count, major, &shadowed);
+	CHECK(!keymap_is_active(major));
+	keymap_reset();
+}
+
 /* The case the plan names: a major map that binds C-c C-k makes C-c a
  * prefix there, and C-c u still has to reach the global layer. */
 static void test_layers_advance_together(void)
@@ -348,6 +495,9 @@ int main(void)
 	RUN(test_bind_refuses_and_changes_nothing);
 	RUN(test_unresolved_names);
 	RUN(test_precedence);
+	RUN(test_format_sequence);
+	RUN(test_enumerate_bindings);
+	RUN(test_lookup_shadowed);
 	RUN(test_layers_advance_together);
 	RUN(test_ambiguous_configuration);
 	RUN(test_prefix_without_a_leaf);

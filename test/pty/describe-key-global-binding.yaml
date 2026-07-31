@@ -1,0 +1,28 @@
+# describe-key reads the answer out of the keymaps, so a key bound in
+# the global map reports the command name the map holds and the layer
+# that answered -- not a sentence kept in a table beside the map.
+name: describe-key-global-binding
+filename: describe-global.txt
+backend: tmux
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-key
+  - RET
+  - C-x
+  - C-s
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "C-x C-s"
+  - "Bound in the global map"
+  - "save-buffer"
+  - "Write this buffer to its file"
+  # The read-only verdict comes from the one policy table, so the page
+  # says what cmd_invoke() would decide rather than guessing.
+  - "Allowed in a read-only buffer"
+expected_screen_not_contains:
+  - "Shadows"
+  - "Not bound"

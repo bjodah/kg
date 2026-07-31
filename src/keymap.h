@@ -1,9 +1,10 @@
 #ifndef KG_KEYMAP_H
 #define KG_KEYMAP_H
 
-#include "cmd.h"
+#include <stddef.h>
 
-struct key_event;
+#include "cmd.h"
+#include "keyevent.h"
 
 /* Key sequences, in layers, resolved to a command name.
  *
@@ -25,6 +26,10 @@ struct key_event;
 /* Longest sequence a binding may have: "C-x r k" is the longest kg has,
  * and a fourth key leaves room for one more prefix level. */
 #define KEYMAP_SEQUENCE_MAX 4
+
+/* Room for a whole sequence spelled out, separators and terminator
+ * included: "C-x r C-k" is the shape, KEY_FORMAT_MAX the widest key. */
+#define KEYMAP_SEQUENCE_FORMAT_MAX (KEYMAP_SEQUENCE_MAX * (KEY_FORMAT_MAX + 1))
 
 enum keymap_layer {
 	KEYMAP_LAYER_TRANSIENT,
@@ -83,9 +88,40 @@ void keymap_set_active(struct keymap *map, int active);
 void keymap_lookup(
     const struct key_event *keys, int count, struct keymap_match *out);
 
+/* What `keys` would mean if `hidden` were not active: the binding the
+ * layer that answered is standing in front of.  Asked by re-looking-up
+ * rather than by reasoning about layers, so it reports what the editor
+ * would really do, not what the precedence rule suggests.  `hidden` may
+ * be NULL, which reports no match. */
+void keymap_lookup_shadowed(const struct key_event *keys, int count,
+    const struct keymap *hidden, struct keymap_match *out);
+
 /* Splits a sequence into keys.  Returns how many, or -1. */
 [[nodiscard]] int keymap_parse_sequence(
     const char *text, struct key_event *out, int max);
+
+/* Spells `count` keys back out, canonically and space-separated, the way
+ * keymap_parse_sequence() would read them again.  Returns 0, or non-zero
+ * and an empty `out` when a key has no spelling or the room runs out;
+ * KEYMAP_SEQUENCE_FORMAT_MAX is always enough for a bound sequence. */
+[[nodiscard]] int keymap_format_sequence(
+    const struct key_event *keys, int count, char *out, size_t size);
+
+/* One binding, for callers that enumerate rather than look up: the help
+ * commands, which have to show what is bound without knowing what to ask
+ * for.  Enumeration order is the order bindings were installed in and is
+ * not precedence; `map` is which layer holds it. */
+struct keymap_binding {
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	int count;
+	const char *command; /* NULL for a prefix declared with no leaf */
+	const struct keymap *map;
+};
+
+[[nodiscard]] int keymap_binding_count(void);
+/* The `index`th binding.  Returns 0, or non-zero when `index` is past
+ * the end. */
+[[nodiscard]] int keymap_binding_at(int index, struct keymap_binding *out);
 
 /* Whether `keys` may not be shadowed: the emergency quit has to work
  * when a map is wrong, so nothing binds it. */

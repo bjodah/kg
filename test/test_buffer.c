@@ -1801,6 +1801,104 @@ static void test_snapshot_unreadable_is_unknown(void)
 	rmdir(dir);
 }
 
+/* ---- Staged whole-file reads ---- */
+
+static int g_read_step;
+
+/* One byte per call: a short read is a read, not an end of file. */
+static ssize_t mock_read_one_byte(int fd, void *buf, size_t count)
+{
+	(void)count;
+	return read(fd, buf, 1);
+}
+
+/* EINTR, then the real thing.  A retried read must not lose the file. */
+static ssize_t mock_read_eintr_once(int fd, void *buf, size_t count)
+{
+	if (g_read_step++ == 0) {
+		errno = EINTR;
+		return -1;
+	}
+	return read(fd, buf, count);
+}
+
+/* Hand over some bytes, then fail: the partial staging is discarded and the
+ * caller is told, rather than inserting half a file. */
+static ssize_t mock_read_fails_after_data(int fd, void *buf, size_t count)
+{
+	if (g_read_step++ == 0) {
+		return read(fd, buf, count);
+	}
+	errno = EIO;
+	return -1;
+}
+
+static void test_file_read_all(void)
+{
+	char dir_template[] = "test_readall_XXXXXX";
+	char *dir = mkdtemp(dir_template);
+	char path[PATH_MAX], empty_path[PATH_MAX];
+	char *buf = NULL;
+	size_t len = 12345;
+	int fd;
+
+	CHECK(dir != NULL);
+	if (!dir) {
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/f", dir);
+	snprintf(empty_path, sizeof(empty_path), "%s/e", dir);
+	write_text_file(path, "hello world");
+	write_text_file(empty_path, "");
+
+	fd = open(path, O_RDONLY);
+	CHECK(fd >= 0);
+	editor_read_fn = mock_read_one_byte;
+	CHECK(file_read_all(fd, &buf, &len) == 0);
+	close(fd);
+	CHECK(len == 11);
+	CHECK(buf != NULL);
+	if (buf) {
+		CHECK(memcmp(buf, "hello world", 11) == 0);
+	}
+	free(buf);
+	buf = NULL;
+
+	fd = open(path, O_RDONLY);
+	CHECK(fd >= 0);
+	g_read_step = 0;
+	editor_read_fn = mock_read_eintr_once;
+	CHECK(file_read_all(fd, &buf, &len) == 0);
+	close(fd);
+	CHECK(len == 11);
+	free(buf);
+	buf = NULL;
+
+	fd = open(path, O_RDONLY);
+	CHECK(fd >= 0);
+	g_read_step = 0;
+	editor_read_fn = mock_read_fails_after_data;
+	errno = 0;
+	CHECK(file_read_all(fd, &buf, &len) == -1);
+	close(fd);
+	CHECK(errno == EIO);
+	CHECK(buf == NULL);
+
+	/* An empty file is a successful read of nothing. */
+	editor_read_fn = read;
+	fd = open(empty_path, O_RDONLY);
+	CHECK(fd >= 0);
+	len = 12345;
+	CHECK(file_read_all(fd, &buf, &len) == 0);
+	close(fd);
+	CHECK(len == 0);
+	CHECK(buf == NULL);
+
+	unlink(path);
+	unlink(empty_path);
+	rmdir(dir);
+}
+
 /* A save replaces the file the user accepted, or it refuses.  Both the
  * window before the write and the window between the last check and the
  * rename are covered — the second through the pre-rename hook, which is the
@@ -2142,6 +2240,7 @@ int main(void)
 	RUN(test_insert_row_does_not_read_past_slice);
 	RUN(test_reflow_undo_rows_are_sortable);
 	RUN(test_rect_overwrite_undo_terminates_rows);
+	RUN(test_file_read_all);
 	RUN(test_guarded_write_refuses_replaced_target);
 	RUN(test_snapshot_distinguishes_by_identity);
 	RUN(test_snapshot_unreadable_is_unknown);

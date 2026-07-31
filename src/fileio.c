@@ -109,6 +109,7 @@ ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count) = write;
 int (*editor_fsync_fn)(int fd) = fsync;
 int (*editor_close_fn)(int fd) = close;
 int (*editor_rename_fn)(const char *oldpath, const char *newpath) = rename;
+ssize_t (*editor_read_fn)(int fd, void *buf, size_t count) = read;
 
 /* Loop until all bytes are written, retrying on EINTR and handling short
  * writes. */
@@ -718,16 +719,68 @@ void editor_write_file(int fd)
 	}
 }
 
+/* Read everything `fd` will give into one fresh allocation.  Returns 0 with
+ * *out and *out_len set (the caller frees), or -1 with errno set and nothing
+ * allocated.  A short read is a read, not an end; EINTR is a retry, not a
+ * failure; and the buffer grows through the checked helpers, so an
+ * impossible length fails loudly instead of wrapping. */
+int file_read_all(int fd, char **out, size_t *out_len)
+{
+	char *buf = NULL;
+	size_t len = 0, cap = 0;
+	char tmp[4096];
+	ssize_t n;
+
+	while ((n = editor_read_fn(fd, tmp, sizeof(tmp))) != 0) {
+		size_t need, want;
+		char *newbuf;
+
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			goto fail;
+		}
+		/* n is at most sizeof(tmp), so only `len` can overflow. */
+		if (!checked_add_size_t(&need, len, (size_t)n + 1)) {
+			errno = EOVERFLOW;
+			goto fail;
+		}
+		if (need > cap) {
+			if (!checked_mul_size_t(&want, need, 2)) {
+				want = need;
+			}
+			newbuf = realloc(buf, want);
+			if (!newbuf) {
+				errno = ENOMEM;
+				goto fail;
+			}
+			buf = newbuf;
+			cap = want;
+		}
+		memcpy(buf + len, tmp, (size_t)n);
+		len += (size_t)n;
+	}
+	*out = buf;
+	*out_len = len;
+	return 0;
+
+fail: {
+	int saved_errno = errno;
+	free(buf);
+	errno = saved_errno;
+	return -1;
+}
+}
+
 /* Prompt for a filename and insert its contents at point.
  * This is Emacs C-x i (insert-file). */
 void editor_insert_file(int fd)
 {
 	char filename[256];
 	char *buf = NULL;
-	size_t buflen = 0, bufcap = 0;
-	char tmp[4096];
-	size_t n;
-	int filerow, filecol;
+	size_t buflen = 0;
+	int filerow, filecol, buflen_int;
 	int filefd;
 
 	editor_prompt_prefill_dir(filename, sizeof(filename));
@@ -750,66 +803,41 @@ void editor_insert_file(int fd)
 		return;
 	}
 
-	for (;;) {
-		char *newbuf;
+	/* Nothing below this point touches the buffer or the undo stack until
+	 * the whole file is staged, so every failure leaves both untouched. */
+	if (file_read_all(filefd, &buf, &buflen) != 0) {
+		int saved_errno = errno;
 
-		n = read(filefd, tmp, sizeof(tmp));
-		if (n == 0) {
-			break;
-		}
-		if ((ssize_t)n < 0) {
-			int saved_errno = errno;
-
-			free(buf);
-			close(filefd);
-			editor_set_status_message("Error reading %s: %s",
-			    filename, strerror(saved_errno));
-			return;
-		}
-
-		if (buflen + n >= bufcap) {
-			bufcap = (buflen + n) * 2 + 1;
-			newbuf = realloc(buf, bufcap);
-			if (!newbuf) {
-				free(buf);
-				close(filefd);
-				editor_set_status_message(
-				    "Out of memory reading %s", filename);
-				return;
-			}
-			buf = newbuf;
-		} else if (!buf) {
-			newbuf = malloc(buflen + n + 1);
-			if (!newbuf) {
-				close(filefd);
-				editor_set_status_message(
-				    "Out of memory reading %s", filename);
-				return;
-			}
-			buf = newbuf;
-			bufcap = buflen + n + 1;
-		}
-		memcpy(buf + buflen, tmp, n);
-		buflen += n;
+		close(filefd);
+		editor_set_status_message(
+		    "Error reading %s: %s", filename, strerror(saved_errno));
+		return;
 	}
 	close(filefd);
 
-	if (!buflen) {
+	/* Strip a single trailing newline to avoid inserting a spurious blank
+	 * line — most text files end with \n but we're inserting mid-buffer.
+	 * A file that was nothing but that newline is then empty, and says so
+	 * rather than pushing an undo record for no bytes. */
+	if (buflen > 0 && buf[buflen - 1] == '\n') {
+		buflen--;
+	}
+	if (buflen == 0) {
 		free(buf);
 		editor_set_status_message("(empty file)");
 		return;
 	}
-
-	/* Strip a single trailing newline to avoid inserting a spurious blank
-	 * line — most text files end with \n but we're inserting mid-buffer. */
-	if (buf[buflen - 1] == '\n') {
-		buflen--;
+	if (!checked_size_to_int(&buflen_int, buflen)) {
+		free(buf);
+		editor_set_status_message(
+		    "%s is too large to insert", filename);
+		return;
 	}
 
 	filerow = editor.rowoff + editor.cy;
 	filecol = editor.coloff + editor.cx;
-	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen);
-	editor_insert_text_raw(buf, buflen);
+	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen_int);
+	editor_insert_text_raw(buf, buflen_int);
 	free(buf);
 
 	editor_set_status_message("Inserted %s", filename);

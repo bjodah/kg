@@ -1,0 +1,31 @@
+# C-x i strips one trailing newline, so a file whose entire content is that
+# newline has nothing left to insert.  It must say so and leave the buffer
+# and its undo history alone, rather than push a record for no bytes.
+#
+# The file is produced by writing a two-empty-row buffer out with C-x C-w:
+# the path prompts are prefilled with the current file's directory, whose
+# name is an unpredictable temporary, so everything stays relative to it.
+name: insert-file-newline-only
+filename: notes.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: "\n"
+keys:
+  - C-x
+  - C-w
+  - "nl.txt"
+  - RET
+  - C-x
+  - C-f
+  - "notes.txt"
+  - RET
+  - "a"
+  - C-x
+  - i
+  - "nl.txt"
+  - RET
+trailer_keys: [C-x, C-s, C-x, C-c]
+expected_saved: "a\n"
+expected_screen_contains:
+  - "(empty file)"

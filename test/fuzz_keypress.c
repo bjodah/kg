@@ -77,16 +77,9 @@ static void seed_buffer(const uint8_t *data, size_t size)
 	}
 	bcur()->dirty = 0;
 	undo_mark_clean();
+	/* buflist[0] is the buffer this built: bcur() is a name for it, not
+	 * a copy of it. */
 	buflist[0].active = 1;
-	buflist[0].cx = wcur()->cx;
-	buflist[0].cy = wcur()->cy;
-	buflist[0].rowoff = wcur()->rowoff;
-	buflist[0].coloff = wcur()->coloff;
-	buflist[0].numrows = bcur()->numrows;
-	buflist[0].row = bcur()->row;
-	buflist[0].dirty = bcur()->dirty;
-	buflist[0].filename = bcur()->filename;
-	buflist[0].syntax = bcur()->syntax;
 }
 
 static void teardown_state(void)

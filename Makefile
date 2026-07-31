@@ -179,6 +179,14 @@ PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 # 120 when the C-x and C-x r prefix dispatch moved out; 130 dates from
 # when a missing pmccabe binary silently disabled this gate.)
 PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 110
+# The ceiling above is a backstop; the ratchet is per symbol.  Every
+# function's measured complexity is recorded in this manifest, no symbol
+# may exceed its entry, and a function with no entry is new and has to
+# come in at or under PMCCABE_NEW_FUNCTION_MAX.  Regenerate with
+# `make pmccabe-baseline` -- which is also how a decrease is banked, so
+# the diff shows what moved and in which direction.
+PMCCABE_BASELINE ?= .ci/pmccabe-baseline.json
+PMCCABE_NEW_FUNCTION_MAX ?= 15
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
@@ -325,7 +333,16 @@ pmccabe:
 pmccabe-check:
 	$(PMCCABE) $(PMCCABE_PATHS) | \
 		$(PYTHON) utils/check_pmccabe_complexity.py \
-			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX)
+			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX) \
+			--max-new-function $(PMCCABE_NEW_FUNCTION_MAX) \
+			--baseline $(PMCCABE_BASELINE)
+
+pmccabe-baseline:
+	$(PMCCABE) $(PMCCABE_PATHS) | \
+		$(PYTHON) utils/check_pmccabe_complexity.py \
+			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX) \
+			--max-new-function $(PMCCABE_NEW_FUNCTION_MAX) \
+			--write-baseline $(PMCCABE_BASELINE)
 
 coverage: coverage-clean
 	$(MAKE) clean
@@ -450,6 +467,6 @@ uninstall:
 
 .PHONY: all clean distclean check check-unit check-pty check-regex-differential \
 	complexity complexity-check \
-	pmccabe pmccabe-check coverage coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check pmccabe-baseline coverage coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-smoke fuzz-regex-seed fuzz-regex-seed-replay \
 	deb release install uninstall

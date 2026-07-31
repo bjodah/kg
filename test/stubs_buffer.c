@@ -3,6 +3,7 @@
 
 #include "../src/def.h"
 #include <stdarg.h>
+#include <string.h>
 
 /* Globals normally defined in main.c */
 struct editor_config editor;
@@ -54,7 +55,14 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	return 0;
 }
 
-void local_settings_init(struct local_settings *settings) { (void)settings; }
+/* Not a no-op: buf_apply_local_settings() declares its four local_settings
+ * on the stack and relies on the initialiser to clear them, so a stub that
+ * returns without writing leaves the "is it set?" flags reading uninitialised
+ * memory. */
+void local_settings_init(struct local_settings *settings)
+{
+	memset(settings, 0, sizeof(*settings));
+}
 int dirlocals_find(
     const char *visited_filename, char *result, size_t result_size)
 {

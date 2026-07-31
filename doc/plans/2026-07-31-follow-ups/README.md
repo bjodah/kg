@@ -35,6 +35,31 @@ only the next implementation program.
 Re-read the named code before implementing.  Symbols are authoritative; line
 numbers are not.
 
+## Delivered so far
+
+The list above is the program's starting point and is kept as the record of
+it; several of its bullets are no longer true.  As of the wave-1 merge:
+
+- `make check`: 24 native suites and 312 PTY cases, zero failures, zero
+  skips.  All 12 stages green in both `WITH_LISP` configurations.
+- `SCC_COMPLEXITY_MAX` is 4144 and measured usage is 4144, having gone
+  4223 → 4116 (Plan 01 phases 0–5) → 4152 (phase 6's describe commands,
+  the one deliberate raise, decided by the maintainer) → 4144.
+- `.ci/mutation-gateway.json` records 115 raw mutation opinions in nine
+  files, from 209 in fourteen.  `search.c`, `word.c`, `yank.c`, `cmd.c`
+  and `rect.c` no longer mutate rows directly at all.
+- `readonly_blocked_keys[]` is gone; built-in keys resolve to command
+  names through the keymap.
+- Windows name their buffer by a 64-bit generation-checked handle, not a
+  slot index.
+
+Wave 1's residue, for whoever picks up next: `src/word.c` line coverage
+sits one covered line above its floor, so the next commit touching it
+should expect to add a test.  Plan 02 Phase 5 still owns
+`UNDO_SPLIT_LINE`, `UNDO_JOIN_LINE`, `UNDO_REFLOW_PARA`,
+`UNDO_RECT_OVERWRITE` and `editor_set_local_readonly`, which have no
+producer in `src/` but are held live by tests that push records by hand.
+
 ## Review of the consultant's recommendations
 
 The recommendations identify the right work, with these ordering corrections:
@@ -73,8 +98,8 @@ The recommendations identify the right work, with these ordering corrections:
 
 | Plan | Outcome | May start |
 | --- | --- | --- |
-| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | **Phases 0–5 done**; see its Status section for the two open items |
-| [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | Now, parallel with 01 |
+| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | **Phases 0–6 done**; the decoder flag day remains, see its Status section |
+| [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | **Phases 0–3 done**; Phases 4–5 are the next slice, see its Status section |
 | [03](03-markers-decorations-and-events.md) | Stable markers, compact decorations, bounded typed events and C safe points | Marker core during 02; consumer conversion after 02 |
 | [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | **Phases 0–2 done**; Phase 3 blocked on 03's event queue, Phase 4 deferred |
 | [05](05-emacs-affordances-delivery.md) | Dependency-ready Emacs habits without new one-off dispatch | Per bundle |

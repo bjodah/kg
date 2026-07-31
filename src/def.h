@@ -340,7 +340,13 @@ struct kg_point {
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
-	int bufidx; /* Which buffer this window shows */
+	/* Which buffer this window shows, by identity rather than by slot:
+	 * a slot is reused, so a window left on a killed buffer would
+	 * otherwise start showing whoever took its place.  A zeroed handle
+	 * names nothing, which is what an inactive or detached view holds.
+	 * See bufhandle.h; win_buffer()/win_buffer_slot() are the only
+	 * supported ways to read it. */
+	struct kg_buffer_handle buf;
 	int cx, cy; /* Cursor position within window */
 	int rowoff, coloff; /* Scroll offsets */
 	int y, x; /* Top-left corner on terminal (1-based) */

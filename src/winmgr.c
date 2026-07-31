@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "bufhandle.h"
 #include "def.h"
 
 struct editor_window winlist[MAX_WINDOWS];
@@ -127,6 +128,21 @@ void win_reflow(void)
 	}
 }
 
+/* The active window showing the buffer `handle` names, or -1.  The one
+ * place "is this buffer on screen?" is answered. */
+static int win_showing(struct kg_buffer_handle handle)
+{
+	int i;
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active
+		    && win_shows_buffer(&winlist[i], handle)) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 /* Initialise the window list with a single window covering the whole screen.
  * Called once from init_editor() after update_window_size(). */
 void win_init(void)
@@ -135,9 +151,12 @@ void win_init(void)
 	win_current = 0;
 	win_count = 1;
 
-	winlist[0].bufidx = 0;
 	winlist[0].active = 1;
 	winlist[0].col_group = 0;
+	/* No-op during init_editor(), which runs before any buffer exists:
+	 * buf_load_args()' first buf_select() is what gives window 0 its
+	 * buffer.  It matters for a caller that opens the buffers first. */
+	buf_attach_view(&winlist[0], buf_current);
 
 	/* win_total_rows/cols are set by update_window_size() before
 	 * win_init(). */
@@ -173,7 +192,8 @@ void win_split_horizontal(void)
 
 	/* New window inherits the same buffer, view, and col_group: a split
 	 * copies the view, which is what "the same place in the same buffer"
-	 * means and what the record already says. */
+	 * means and what the record already says.  Copying the buffer handle
+	 * is deliberate -- two views of one buffer, not two names for it. */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 
@@ -213,7 +233,7 @@ void win_split_vertical(void)
 		return;
 	}
 
-	/* New window: same buffer and view, but a new column group
+	/* New window: same buffer handle and view, but a new column group
 	 * (rightmost). */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
@@ -242,8 +262,9 @@ void win_cycle_next(void)
 	}
 
 	/* The window already holds its own view; all that changes is which
-	 * buffer is current. */
-	buf_select(winlist[win_current].bufidx);
+	 * buffer is current.  A window whose handle no longer resolves gives
+	 * -1, which buf_select() declines rather than indexes. */
+	buf_select(win_buffer_slot(wcur()));
 	editor_set_status_message(
 	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
@@ -258,7 +279,7 @@ void win_delete_current(void)
 		return;
 	}
 
-	buf_remember_view(&winlist[win_current]);
+	buf_detach_view(&winlist[win_current]);
 	winlist[win_current].active = 0;
 	win_count--;
 
@@ -270,7 +291,7 @@ void win_delete_current(void)
 	}
 
 	win_reflow();
-	buf_select(winlist[win_current].bufidx);
+	buf_select(win_buffer_slot(wcur()));
 }
 
 /* Delete all other windows, leaving only the current one (C-x 1).  Each
@@ -286,7 +307,7 @@ void win_delete_others(void)
 		if (i == win_current || !winlist[i].active) {
 			continue;
 		}
-		buf_remember_view(&winlist[i]);
+		buf_detach_view(&winlist[i]);
 		winlist[i].active = 0;
 	}
 	win_count = 1;
@@ -299,8 +320,8 @@ void win_delete_others(void)
  * where the buffer was last left. */
 static void win_show_at_top(struct editor_window *w, int buffer_index)
 {
-	buf_remember_view(w);
-	w->bufidx = buffer_index;
+	buf_detach_view(w);
+	w->buf = buf_handle(buffer_index);
 	w->cx = w->cy = 0;
 	w->rowoff = w->coloff = 0;
 	w->rowoff_visual = 0;
@@ -309,19 +330,11 @@ static void win_show_at_top(struct editor_window *w, int buffer_index)
 
 void win_display_buffer_other_window(int buffer_index)
 {
-	int i, j;
+	struct kg_buffer_handle h = buf_handle(buffer_index);
+	int j;
 
-	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS) {
+	if (!buf_resolve(h) || win_showing(h) >= 0) {
 		return;
-	}
-	if (!buflist[buffer_index].active) {
-		return;
-	}
-
-	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (winlist[i].active && winlist[i].bufidx == buffer_index) {
-			return;
-		}
 	}
 
 	if (win_count == 1 && winlist[win_current].h >= 6) {
@@ -356,21 +369,14 @@ void win_display_buffer_other_window(int buffer_index)
  * whether to call win_display_buffer_other_window() at all. */
 int win_can_display_buffer_other_window(int buffer_index)
 {
-	int i;
+	struct kg_buffer_handle h = buf_handle(buffer_index);
 
-	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS) {
+	if (!buf_resolve(h)) {
 		return 0;
 	}
-	if (!buflist[buffer_index].active) {
-		return 0;
+	if (win_showing(h) >= 0) {
+		return 1;
 	}
-
-	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (winlist[i].active && winlist[i].bufidx == buffer_index) {
-			return 1;
-		}
-	}
-
 	if (win_count == 1 && winlist[win_current].h >= 6) {
 		return 1;
 	}
@@ -380,25 +386,21 @@ int win_can_display_buffer_other_window(int buffer_index)
 
 void win_position_at_end(int buffer_index)
 {
-	int i;
-	struct editor_buffer *b = &buflist[buffer_index];
-	int numrows = b->numrows;
+	struct kg_buffer_handle h = buf_handle(buffer_index);
+	struct editor_buffer *b = buf_resolve(h);
+	int numrows, i;
+
+	if (!b) {
+		return;
+	}
+	numrows = b->numrows;
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		struct editor_window *w = &winlist[i];
-		if (w->active && w->bufidx == buffer_index) {
-			int h = w->h;
-			int rowoff = (numrows > h) ? (numrows - h) : 0;
-			int cy = (numrows > 0) ? (numrows - 1 - rowoff) : 0;
-			int cx = 0;
-			if (i == win_current) {
-				wcur()->rowoff = rowoff;
-				wcur()->cy = cy;
-				wcur()->cx = cx;
-			} else {
-				w->rowoff = rowoff;
-				w->cy = cy;
-				w->cx = cx;
-			}
+		if (w->active && win_shows_buffer(w, h)) {
+			int rowoff = (numrows > w->h) ? (numrows - w->h) : 0;
+			w->rowoff = rowoff;
+			w->cy = (numrows > 0) ? (numrows - 1 - rowoff) : 0;
+			w->cx = 0;
 		}
 	}
 }

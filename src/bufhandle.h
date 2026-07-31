@@ -41,11 +41,35 @@ struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
  * value without testing it: -1 is the answer for a handle that has died. */
 int buf_handle_slot(struct kg_buffer_handle handle);
 
+/* ---- A window's view of a buffer ----
+ *
+ * A window names its buffer by handle, never by slot.  These four are the
+ * whole supported vocabulary; they live in bufmgr.c beside the identity
+ * they check. */
+
+/* The buffer `w` shows, or NULL when it shows none.  An inactive window, a
+ * detached view and a window left on a killed buffer all answer NULL. */
+struct editor_buffer *win_buffer(const struct editor_window *w);
+
+/* The slot `w` shows, or -1.  The only supported way to get an index out
+ * of a window, and the reason a failed resolution never becomes one. */
+int win_buffer_slot(const struct editor_window *w);
+
+/* Whether `w` shows the buffer `handle` names.  A handle that no longer
+ * resolves matches nothing, on either side: two views of nothing are not
+ * views of the same thing. */
+int win_shows_buffer(
+    const struct editor_window *w, struct kg_buffer_handle handle);
+
 /* Hand the buffer a window is leaving the point that window had in it. */
 void buf_remember_view(const struct editor_window *w);
 
 /* Point `w` at buffer slot `slot`, resuming where that buffer was last
- * left. */
+ * left.  A slot holding no live buffer leaves `w` alone. */
 void buf_attach_view(struct editor_window *w, int slot);
+
+/* Take `w` off whatever it shows, banking its point first.  The view is
+ * left naming nothing. */
+void buf_detach_view(struct editor_window *w);
 
 #endif /* KG_BUFHANDLE_H */

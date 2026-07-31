@@ -132,3 +132,17 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 void editor_cleanup(void) { }
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
+
+/* Buffer identity lives in bufmgr.c, which these binaries do not link.
+ * The stub buflist has no ids, so a view resolves on slot bounds alone:
+ * enough for the display code included by test_basic, and the same answer
+ * the bare index gave before windows named buffers by handle. */
+struct editor_buffer *win_buffer(const struct editor_window *w)
+{
+	if (w->buf.slot < 0 || w->buf.slot >= MAX_BUFFERS) {
+		return NULL;
+	}
+	return &buflist[w->buf.slot];
+}
+
+int win_buffer_slot(const struct editor_window *w) { return w->buf.slot; }

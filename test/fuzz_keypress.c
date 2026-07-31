@@ -57,7 +57,7 @@ static void reset_state(void)
 	wcur()->desired_visual_col = -1;
 	bcur()->filename = strdup("fuzz.txt");
 	winlist[0].active = 1;
-	winlist[0].bufidx = 0;
+	winlist[0].buf = buf_handle(0);
 	winlist[0].h = 22;
 	winlist[0].w = 80;
 	kill_ring_init();

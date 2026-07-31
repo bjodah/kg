@@ -261,7 +261,7 @@ static void test_split_shares_text_not_point(void)
 	CHECK(win_count == 2);
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[win_current].bufidx == winlist[other].bufidx);
+	CHECK(win_buffer(&winlist[win_current]) == win_buffer(&winlist[other]));
 
 	/* Move point in the selected window only. */
 	wcur()->cy = 2;
@@ -275,7 +275,7 @@ static void test_split_shares_text_not_point(void)
 	CHECK(wcur()->cy == 0);
 	CHECK(wcur()->cx == 0);
 	/* Same buffer, same rows. */
-	CHECK(bcur()->row == buflist[winlist[win_current].bufidx].row);
+	CHECK(bcur()->row == win_buffer(&winlist[win_current])->row);
 
 	/* An edit through either window reaches the one shared text. */
 	editor_insert_char('Z');
@@ -330,8 +330,8 @@ static void test_display_other_window_retargets_only_that_window(void)
 	CHECK(win_count == 2);
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == 1);
-	CHECK(winlist[win_current].bufidx == 0);
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 0);
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == bslot(0)->row);
 
@@ -364,7 +364,7 @@ static void test_delete_window_paths(void)
 	win_delete_current(); /* C-x 0 */
 	CHECK(win_count == 1);
 	CHECK(winlist[win_current].active);
-	CHECK(winlist[win_current].bufidx == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 1);
 	CHECK(buf_current == 1);
 	CHECK(wcur()->h == winlist[win_current].h);
 
@@ -600,7 +600,7 @@ static void test_kill_buffer_shown_twice(void)
 	win_split_horizontal();
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == 0);
+	CHECK(win_buffer_slot(&winlist[other]) == 0);
 
 	buf_kill(-1);
 	CHECK(buf_count == 1);
@@ -609,12 +609,13 @@ static void test_kill_buffer_shown_twice(void)
 	CHECK(buflist[0].row_capacity == 0);
 	CHECK(buflist[0].filename == NULL);
 	CHECK(buf_current == 1);
-	CHECK(winlist[win_current].bufidx == 1);
-	/* The unselected window comes off the killed slot too.  `bufidx` is
-	 * a bare index, so nothing would have stopped it naming a slot that
-	 * no longer describes a buffer -- and selecting such a window claims
-	 * the slot back as an empty buffer the count knows nothing about. */
-	CHECK(winlist[other].bufidx == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 1);
+	/* The unselected window comes off the killed buffer too, and lands
+	 * on the survivor by identity: the handle it held stopped resolving
+	 * when the buffer died, so it cannot instead start naming whoever
+	 * takes the slot next. */
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	CHECK(win_buffer(&winlist[other]) == &buflist[1]);
 
 	session_teardown();
 	free(names[0]);
@@ -739,7 +740,7 @@ static void test_append_to_visible_buffer_follows_that_window(void)
 	win_display_buffer_other_window(target);
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == target);
+	CHECK(win_buffer_slot(&winlist[other]) == target);
 
 	wcur()->cy = 1;
 	CHECK(buf_append_special_text(target, "one\ntwo\nthree\n", 14) == 0);
@@ -990,41 +991,42 @@ static void test_current_buffer_is_the_selected_window_s(void)
 	names[1] = strdup(tmppath("b.txt"));
 
 	session(2, names);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	buf_select(1);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_split_horizontal();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_display_buffer_other_window(0);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_cycle_next();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_split_vertical();
 	win_cycle_next();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_delete_current();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	win_delete_others();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	buf_kill(-1);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
 
 	/* And every window still names a buffer that exists -- a live one,
 	 * not merely a slot number in range: a window left on a killed slot
 	 * resurrects it, uncounted, the moment it is selected. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		if (winlist[i].active) {
-			CHECK(winlist[i].bufidx >= 0);
-			CHECK(winlist[i].bufidx < MAX_BUFFERS);
-			CHECK(buflist[winlist[i].bufidx].active);
+			CHECK(win_buffer(&winlist[i]) != NULL);
+			CHECK(win_buffer_slot(&winlist[i]) >= 0);
+			CHECK(win_buffer(&winlist[i])
+			    == &buflist[win_buffer_slot(&winlist[i])]);
 		}
 	}
 

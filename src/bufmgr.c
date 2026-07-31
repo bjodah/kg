@@ -1526,10 +1526,14 @@ void buf_open_file(int fd) { buf_open_file_ro(fd, 0); }
 void buf_open_file_read_only(int fd) { buf_open_file_ro(fd, 1); }
 
 /* Write a buffer slot's rows directly to its file without switching to it.
- * Returns 0 on success, 1 on error (errno set). */
+ * Returns 0 on success, 1 on error (errno set).  Unguarded: C-x s asks
+ * whether to save each buffer but has never asked whether its file changed
+ * underneath, and giving it an identity guard here would only turn that
+ * silence into a bare "Stale file handle". */
 static int write_slot(struct editor_buffer *b)
 {
-	return editor_write_rows_to_file(b->filename, b->row, b->numrows, NULL);
+	return editor_write_rows_to_file(
+	    b->filename, b->row, b->numrows, NULL, NULL);
 }
 
 /* Save all modified non-special buffers, prompting for each (C-x s). */

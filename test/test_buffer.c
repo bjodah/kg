@@ -1699,6 +1699,29 @@ static void write_text_file(const char *path, const char *text)
 	}
 }
 
+static void read_text_file(const char *path, char *out, size_t size)
+{
+	FILE *f = fopen(path, "r");
+	size_t n = 0;
+
+	out[0] = '\0';
+	CHECK(f != NULL);
+	if (f) {
+		n = fread(out, 1, size - 1, f);
+		out[n] = '\0';
+		fclose(f);
+	}
+}
+
+/* Stands in for another process replacing the destination while kg is busy
+ * writing its temp file: the hook runs after the data is safely down and
+ * just before the identity guard, so the guard has to catch it. */
+static void mock_pre_rename_replace(const char *path)
+{
+	CHECK(unlink(path) == 0);
+	write_text_file(path, "theirs");
+}
+
 /* Two files can share a size and an mtime second and still be different
  * objects; the inode says so.  A hard link to the accepted inode is the same
  * object and must compare equal. */
@@ -1778,6 +1801,76 @@ static void test_snapshot_unreadable_is_unknown(void)
 	rmdir(dir);
 }
 
+/* A save replaces the file the user accepted, or it refuses.  Both the
+ * window before the write and the window between the last check and the
+ * rename are covered — the second through the pre-rename hook, which is the
+ * only way to land a replacement there deterministically. */
+static void test_guarded_write_refuses_replaced_target(void)
+{
+	char dir_template[] = "test_guard_XXXXXX";
+	char *dir = mkdtemp(dir_template);
+	char path[PATH_MAX];
+	char content[64];
+	struct file_snapshot accepted;
+	int out_len = 0;
+
+	CHECK(dir != NULL);
+	if (!dir) {
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/f", dir);
+	write_text_file(path, "accepted");
+	CHECK(file_snapshot_path(path, &accepted) == 0);
+
+	setup();
+	editor_insert_row(0, "ours", 4);
+
+	/* Unchanged on disk: the guard lets an ordinary save through. */
+	CHECK(editor_write_rows_to_file(
+		  path, editor.row, editor.numrows, &out_len, &accepted)
+	    == 0);
+	read_text_file(path, content, sizeof(content));
+	CHECK(strcmp(content, "ours") == 0);
+	CHECK(file_snapshot_path(path, &accepted) == 0);
+
+	/* Replaced behind kg's back before the save. */
+	CHECK(unlink(path) == 0);
+	write_text_file(path, "theirs");
+	errno = 0;
+	CHECK(editor_write_rows_to_file(
+		  path, editor.row, editor.numrows, &out_len, &accepted)
+	    == 1);
+	CHECK(errno == ESTALE);
+	read_text_file(path, content, sizeof(content));
+	CHECK(strcmp(content, "theirs") == 0);
+	CHECK(count_files_in_dir(dir) == 1);
+
+	/* Replaced while the temp file was being written. */
+	CHECK(file_snapshot_path(path, &accepted) == 0);
+	editor_pre_rename_hook_fn = mock_pre_rename_replace;
+	errno = 0;
+	CHECK(editor_write_rows_to_file(
+		  path, editor.row, editor.numrows, &out_len, &accepted)
+	    == 1);
+	editor_pre_rename_hook_fn = NULL;
+	CHECK(errno == ESTALE);
+	read_text_file(path, content, sizeof(content));
+	CHECK(strcmp(content, "theirs") == 0);
+	CHECK(count_files_in_dir(dir) == 1);
+
+	/* Without an accepted state there is nothing to guard against, which
+	 * is how a buffer adopting a new name still saves. */
+	CHECK(editor_write_rows_to_file(
+		  path, editor.row, editor.numrows, &out_len, NULL)
+	    == 0);
+	read_text_file(path, content, sizeof(content));
+	CHECK(strcmp(content, "ours") == 0);
+
+	teardown();
+	unlink(path);
+	rmdir(dir);
+}
+
 static void test_atomic_save_transactions(void)
 {
 	char tmp_dir_template[] = "test_atomic_XXXXXX";
@@ -1810,7 +1903,7 @@ static void test_atomic_save_transactions(void)
 
 	int out_len = 0;
 	int save_res = editor_write_rows_to_file(
-	    target_path, editor.row, editor.numrows, &out_len);
+	    target_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 0);
 	CHECK(out_len == 11);
 
@@ -1833,7 +1926,7 @@ static void test_atomic_save_transactions(void)
 	/* A new file honours the process umask rather than forcing 0644. */
 	mode_t old_umask = umask(0077);
 	save_res = editor_write_rows_to_file(
-	    new_path, editor.row, editor.numrows, &out_len);
+	    new_path, editor.row, editor.numrows, &out_len, NULL);
 	umask(old_umask);
 	CHECK(save_res == 0);
 	CHECK(stat(new_path, &st) == 0);
@@ -1847,7 +1940,7 @@ static void test_atomic_save_transactions(void)
 	editor_insert_row(0, "updated through link", 20);
 
 	save_res = editor_write_rows_to_file(
-	    link_path, editor.row, editor.numrows, &out_len);
+	    link_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 0);
 	CHECK(out_len == 20);
 
@@ -1880,7 +1973,7 @@ static void test_atomic_save_transactions(void)
 	editor_insert_row(0, "failed save attempt", 19);
 
 	save_res = editor_write_rows_to_file(
-	    target_path, editor.row, editor.numrows, &out_len);
+	    target_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 1);
 
 	/* Verify original content is unmodified */
@@ -1909,21 +2002,21 @@ static void test_atomic_save_transactions(void)
 	editor_write_fn = write;
 	editor_fsync_fn = mock_fsync_error;
 	save_res = editor_write_rows_to_file(
-	    target_path, editor.row, editor.numrows, &out_len);
+	    target_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 1);
 	CHECK(count_files_in_dir(tmp_dir) == 3);
 
 	editor_fsync_fn = fsync;
 	editor_close_fn = mock_close_error;
 	save_res = editor_write_rows_to_file(
-	    target_path, editor.row, editor.numrows, &out_len);
+	    target_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 1);
 	CHECK(count_files_in_dir(tmp_dir) == 3);
 
 	editor_close_fn = close;
 	editor_rename_fn = mock_rename_error;
 	save_res = editor_write_rows_to_file(
-	    target_path, editor.row, editor.numrows, &out_len);
+	    target_path, editor.row, editor.numrows, &out_len, NULL);
 	CHECK(save_res == 1);
 	CHECK(count_files_in_dir(tmp_dir) == 3);
 
@@ -2049,6 +2142,7 @@ int main(void)
 	RUN(test_insert_row_does_not_read_past_slice);
 	RUN(test_reflow_undo_rows_are_sortable);
 	RUN(test_rect_overwrite_undo_terminates_rows);
+	RUN(test_guarded_write_refuses_replaced_target);
 	RUN(test_snapshot_distinguishes_by_identity);
 	RUN(test_snapshot_unreadable_is_unknown);
 	RUN(test_row_replace_range);

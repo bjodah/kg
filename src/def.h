@@ -840,8 +840,9 @@ extern ssize_t (*editor_write_fn)(int fd, const void *buf, size_t count);
 extern int (*editor_fsync_fn)(int fd);
 extern int (*editor_close_fn)(int fd);
 extern int (*editor_rename_fn)(const char *oldpath, const char *newpath);
-int editor_write_rows_to_file(
-    const char *filename, erow *rows, int numrows, int *out_len);
+extern void (*editor_pre_rename_hook_fn)(const char *path);
+int editor_write_rows_to_file(const char *filename, erow *rows, int numrows,
+    int *out_len, const struct file_snapshot *accepted);
 void editor_write_file(int fd);
 void editor_insert_file(int fd);
 void editor_snapshot_disk(void);

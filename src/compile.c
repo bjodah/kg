@@ -46,17 +46,13 @@ void compilation_stream_reset(struct compilation_state *s, size_t bytes)
 int compilation_resolve_directory(
     const char *filename, char *directory, size_t directory_size)
 {
-	const char *slash;
+	const char *slash = NULL;
 	size_t dirlen;
 
-	if (!filename || is_special_buffer(filename)) {
-		if (!getcwd(directory, directory_size)) {
-			return -1;
-		}
-		return 0;
+	/* is_special_buffer() already answers for a NULL name. */
+	if (!is_special_buffer(filename)) {
+		slash = strrchr(filename, '/');
 	}
-
-	slash = strrchr(filename, '/');
 	if (!slash) {
 		if (!getcwd(directory, directory_size)) {
 			return -1;

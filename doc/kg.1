@@ -1461,6 +1461,14 @@ before the buffer adopts the name.
 Declining leaves the buffer, its name and its recorded file state exactly
 as they were.
 .Pp
+A save writes to a temporary file beside the target, flushes it, checks one
+last time that the target is still the file the user agreed to replace, and
+only then renames it into place and flushes the directory entry.
+If the target changed in between, nothing is written and the buffer reports
+.Sq ... changed on disk during the save; nothing written .
+Saving through a symbolic link replaces the file the link points at, not
+the link.
+.Pp
 With
 .Ic auto-revert-mode
 (or its global counterpart

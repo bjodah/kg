@@ -132,16 +132,24 @@ ssize_t write_all(int fd, const char *buf, size_t len)
 	return (ssize_t)total;
 }
 
+/* Injected between the last identity check and the rename, so a test can
+ * replace the destination in exactly that window instead of racing for it.
+ * NULL in every build; only the unit tests set it. */
+void (*editor_pre_rename_hook_fn)(const char *path) = NULL;
+
 /* Write row storage atomically to filename.  Returns 0 on success, 1 on error
- * with errno set. */
-int editor_write_rows_to_file(
-    const char *filename, erow *rows, int numrows, int *out_len)
+ * with errno set.  `accepted`, when non-NULL and valid, is the on-disk state
+ * the caller agreed to replace: the destination is checked against it once
+ * more just before the swap and the write fails with ESTALE if some other
+ * process got there first. */
+int editor_write_rows_to_file(const char *filename, erow *rows, int numrows,
+    int *out_len, const struct file_snapshot *accepted)
 {
 	char *buf = NULL;
 	int len = 0;
 	char resolved_path[PATH_MAX];
 	const char *target_path = filename;
-	char *dir = NULL;
+	char dir[PATH_MAX];
 	char temp_template[PATH_MAX + 32];
 	int temp_fd = -1;
 	int temp_opened = 0;
@@ -157,30 +165,23 @@ int editor_write_rows_to_file(
 		return 1;
 	}
 
-	/* Check if filename is a symlink using lstat() */
+	/* lstat(), not stat(): a symlink is resolved and its *target* is the
+	 * file replaced, so saving through a link keeps the link. */
 	if (lstat(filename, &st) == 0 && S_ISLNK(st.st_mode)) {
 		if (realpath(filename, resolved_path) != NULL) {
 			target_path = resolved_path;
 		}
 	}
 
-	/* Derive the directory of target_path */
-	const char *last_slash = strrchr(target_path, '/');
-	if (last_slash == NULL) {
-		dir = strdup(".");
-	} else if (last_slash == target_path) {
-		dir = strdup("/");
-	} else {
-		size_t dir_len = last_slash - target_path;
-		dir = malloc(dir_len + 1);
-		if (dir) {
-			memcpy(dir, target_path, dir_len);
-			dir[dir_len] = '\0';
-		}
-	}
-	if (!dir) {
-		errno = ENOMEM;
+	/* The temp file is created beside the target so the rename stays
+	 * within one filesystem. */
+	if (snprintf(dir, sizeof(dir), "%s", target_path)
+	    >= (int)sizeof(dir)) {
+		errno = ENAMETOOLONG;
 		goto err_cleanup;
+	}
+	if (path_parent_dir(dir) != 0) {
+		strcpy(dir, ".");
 	}
 
 	/* "/.kgtempXXXXXX" needs 14 bytes including its NUL; the extra 32
@@ -225,10 +226,8 @@ int editor_write_rows_to_file(
 		goto err_cleanup;
 	}
 
-	/* Flush file data before rename.  We intentionally do not sync the
-	 * containing directory, so a successful save is not full crash
-	 * durability. Filesystems that reject fsync() still report save
-	 * failure. */
+	/* Flush file data before rename.  Filesystems that reject fsync()
+	 * report save failure. */
 	if (editor_fsync_fn(temp_fd) == -1) {
 		goto err_cleanup;
 	}
@@ -244,12 +243,46 @@ int editor_write_rows_to_file(
 		goto err_cleanup;
 	}
 
+	if (editor_pre_rename_hook_fn) {
+		editor_pre_rename_hook_fn(target_path);
+	}
+
+	/* Last look before the swap: the object about to be replaced must
+	 * still be the one whose replacement was agreed to.  This narrows the
+	 * window to the microseconds between here and the rename; without a
+	 * renameat2(RENAME_EXCHANGE) it cannot be closed entirely, and the
+	 * long, interesting window — the one containing a user prompt — is
+	 * the one this covers. */
+	if (accepted && accepted->valid
+	    && file_snapshot_compare_path(target_path, accepted) != FILE_SAME) {
+		errno = ESTALE;
+		goto err_cleanup;
+	}
+
 	/* Rename temp file over target_path */
 	if (editor_rename_fn(temp_template, target_path) == -1) {
 		goto err_cleanup;
 	}
 
-	free(dir);
+	/* Flush the directory entry so the rename itself survives a crash.
+	 * Best effort by design: fsync() on a directory descriptor is EINVAL
+	 * on several filesystems, and a directory that cannot be opened or
+	 * flushed does not make the rename that already happened any less
+	 * done — the data was fsync()ed before the swap either way. */
+	int dirfd = open(dir,
+	    O_RDONLY
+#ifdef O_DIRECTORY
+		| O_DIRECTORY
+#endif
+#ifdef O_CLOEXEC
+		| O_CLOEXEC
+#endif
+	);
+	if (dirfd >= 0) {
+		(void)editor_fsync_fn(dirfd);
+		close(dirfd);
+	}
+
 	free(buf);
 	if (out_len) {
 		*out_len = len;
@@ -264,7 +297,6 @@ err_cleanup: {
 	if (temp_created) {
 		unlink(temp_template);
 	}
-	free(dir);
 	free(buf);
 	errno = saved_errno;
 	return 1;
@@ -483,22 +515,34 @@ int editor_open(char *filename)
 }
 
 /* The decision an ordinary save needs: the object on disk must still be the
- * one this buffer accepted.  Returns 1 to proceed. */
+ * one this buffer accepted.  Returns 1 to proceed.  A "save anyway" answer
+ * moves `accepted` on to the state the user just agreed to overwrite, which
+ * is what the write then guards against — otherwise the guard would refuse
+ * the very save that was authorised. */
 static int confirm_save_over_accepted(
-    int fd, const char *path, const struct file_snapshot *accepted)
+    int fd, const char *path, struct file_snapshot *accepted)
 {
-	enum file_change_state state
-	    = file_snapshot_compare_path(path, accepted);
+	struct file_snapshot now;
+	enum file_change_state state;
+	int answered;
 
+	(void)file_snapshot_path(path, &now);
+	state = file_snapshot_compare(accepted, &now);
 	if (state == FILE_SAME) {
 		return 1;
 	}
 	if (state == FILE_UNKNOWN) {
-		return editor_confirm_yn(fd,
+		answered = editor_confirm_yn(fd,
 		    "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
+	} else {
+		answered = editor_confirm_yn(fd,
+		    "File %s changed on disk.  Save anyway? (y/n) ", path);
 	}
-	return editor_confirm_yn(
-	    fd, "File %s changed on disk.  Save anyway? (y/n) ", path);
+	if (!answered) {
+		return 0;
+	}
+	*accepted = now;
+	return 1;
 }
 
 /* The decision adopting a name needs: prompts whenever `path` names an
@@ -534,6 +578,15 @@ static int editor_save_named(int fd, int destination_decided)
 	char *old_filename = NULL;
 	struct editor_syntax *old_syntax = NULL;
 	int name_changed = 0;
+	/* The state the write may replace.  NULL whenever the buffer is
+	 * adopting a name rather than rewriting its own file: editor.disk
+	 * then still describes the file it came from, which says nothing
+	 * about the destination. */
+	const struct file_snapshot *accepted = &editor.disk;
+
+	if (destination_decided) {
+		accepted = NULL;
+	}
 
 	if (is_special_buffer(editor.filename)) {
 		char newname[256];
@@ -565,6 +618,7 @@ static int editor_save_named(int fd, int destination_decided)
 
 		editor.filename = newfilename;
 		editor_select_syntax_highlight(editor.filename);
+		accepted = NULL;
 	} else if (!destination_decided
 	    && !confirm_save_over_accepted(fd, editor.filename, &editor.disk)) {
 		editor_set_status_message("Save aborted");
@@ -572,7 +626,7 @@ static int editor_save_named(int fd, int destination_decided)
 	}
 
 	if (editor_write_rows_to_file(
-		editor.filename, editor.row, editor.numrows, &len)) {
+		editor.filename, editor.row, editor.numrows, &len, accepted)) {
 		if (name_changed) {
 			free(editor.filename);
 			editor.filename = old_filename;
@@ -595,6 +649,14 @@ static int editor_save_named(int fd, int destination_decided)
 	return 0;
 
 writeerr:
+	if (errno == ESTALE) {
+		/* The guard in editor_write_rows_to_file() refused: say what
+		 * happened rather than render ESTALE as "Stale file handle". */
+		editor_set_status_message(
+		    "%s changed on disk during the save; nothing written",
+		    editor.filename);
+		return 1;
+	}
 	editor_set_status_message(
 	    "Error writing %s: %s", editor.filename, strerror(errno));
 	return 1;

@@ -948,6 +948,27 @@ int dired_open(const char *dir);
 int dired_fill_current(const char *dir);
 int dired_dir_of(const char *bufname, char *out, int size);
 int dired_row_name(const char *line, int len, char *out, int size);
+
+#ifndef NAME_MAX
+#define NAME_MAX 255
+#endif
+
+/* What a flagged listing row named, and what it was, at the moment the user
+ * was asked about it.  Compared as bytes, so it is laid out without padding
+ * the way struct file_identity is. */
+struct dired_identity {
+	uint64_t device;
+	uint64_t inode;
+	uint64_t type; /* st_mode & S_IFMT */
+};
+
+struct dired_target {
+	char name[NAME_MAX + 1];
+	struct dired_identity id;
+};
+
+int dired_collect_flagged(int dirfd, struct dired_target *out, int max);
+int dired_delete_verified(int dirfd, const struct dired_target *target);
 void dired_find_file(void);
 void dired_up_directory(void);
 void dired_revert(void);

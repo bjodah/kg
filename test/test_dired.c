@@ -265,6 +265,202 @@ static void test_highlights_markers(void)
 	drop_tree(dir);
 }
 
+/* ---- Verified deletion ---- */
+
+static int open_dir(const char *dir)
+{
+	int fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+
+	CHECK(fd >= 0);
+	return fd;
+}
+
+static void make_file(const char *dir, const char *name)
+{
+	char path[512];
+	FILE *fp;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	fp = fopen(path, "w");
+	CHECK(fp != NULL);
+	if (fp) {
+		fclose(fp);
+	}
+}
+
+static int name_exists(const char *dir, const char *name)
+{
+	char path[512];
+	struct stat st;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	return lstat(path, &st) == 0;
+}
+
+static int lstat_exists(const char *path)
+{
+	struct stat st;
+
+	return lstat(path, &st) == 0;
+}
+
+static int unlink_at_dir(const char *dir, const char *name)
+{
+	char path[512];
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	return unlink(path);
+}
+
+static int mkdir_at_dir(const char *dir, const char *name)
+{
+	char path[512];
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	return mkdir(path, 0700);
+}
+
+static int rmdir_at_dir(const char *dir, const char *name)
+{
+	char path[512];
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	return rmdir(path);
+}
+
+/* Collect captures identity; deleting is refused unless the name still
+ * holds the very object that was collected. */
+static void test_delete_verified_refuses_a_replaced_name(void)
+{
+	char dir[64];
+	struct dired_target target;
+	int dirfd;
+
+	if (make_tree(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	setup();
+	CHECK(dired_fill_current(dir) == 0);
+	dirfd = open_dir(dir);
+	if (dirfd < 0) {
+		teardown();
+		drop_tree(dir);
+		return;
+	}
+
+	/* Flag a.txt (row 1) and collect it. */
+	editor.row[1].chars[0] = 'D';
+	CHECK(dired_collect_flagged(dirfd, &target, 1) == 1);
+	CHECK(strcmp(target.name, "a.txt") == 0);
+
+	/* Same object: it goes. */
+	CHECK(dired_delete_verified(dirfd, &target) == 0);
+	CHECK(!name_exists(dir, "a.txt"));
+
+	/* Gone entirely. */
+	errno = 0;
+	CHECK(dired_delete_verified(dirfd, &target) == -1);
+	CHECK(errno == ENOENT);
+
+	/* A different inode under the same name is refused, and survives. */
+	make_file(dir, "a.txt");
+	errno = 0;
+	CHECK(dired_delete_verified(dirfd, &target) == -1);
+	CHECK(errno == ESTALE);
+	CHECK(name_exists(dir, "a.txt"));
+
+	/* So is a name that changed kind: file becomes directory. */
+	CHECK(unlink_at_dir(dir, "a.txt") == 0);
+	CHECK(mkdir_at_dir(dir, "a.txt") == 0);
+	errno = 0;
+	CHECK(dired_delete_verified(dirfd, &target) == -1);
+	CHECK(errno == ESTALE);
+	CHECK(name_exists(dir, "a.txt"));
+	CHECK(rmdir_at_dir(dir, "a.txt") == 0);
+
+	close(dirfd);
+	teardown();
+	drop_tree(dir);
+}
+
+/* A symlink to a directory lists with a "/" because the listing stats
+ * through it, but deletion unlinks the link and leaves the directory —
+ * which is what Emacs' dired does.  A non-empty directory is still
+ * refused, since dired is not recursive. */
+static void test_delete_verified_symlink_and_nonempty_directory(void)
+{
+	char dir[64];
+	char path[512];
+	struct dired_target targets[4];
+	int dirfd, n, i, link_at = -1, sub_at = -1;
+
+	if (make_tree(dir, sizeof(dir)) != 0) {
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/sub/keep.txt", dir);
+	{
+		FILE *fp = fopen(path, "w");
+		CHECK(fp != NULL);
+		if (fp) {
+			fclose(fp);
+		}
+	}
+	snprintf(path, sizeof(path), "%s/tolink", dir);
+	CHECK(symlink("sub", path) == 0);
+
+	setup();
+	CHECK(dired_fill_current(dir) == 0);
+	dirfd = open_dir(dir);
+	if (dirfd < 0) {
+		teardown();
+		snprintf(path, sizeof(path), "%s/sub/keep.txt", dir);
+		unlink(path);
+		snprintf(path, sizeof(path), "%s/tolink", dir);
+		unlink(path);
+		drop_tree(dir);
+		return;
+	}
+
+	/* The symlink lists as a directory. */
+	for (i = 1; i < editor.numrows; i++) {
+		if (strcmp(editor.row[i].chars, "  tolink/") == 0) {
+			link_at = i;
+		}
+		if (strcmp(editor.row[i].chars, "  sub/") == 0) {
+			sub_at = i;
+		}
+	}
+	CHECK(link_at > 0);
+	CHECK(sub_at > 0);
+	if (link_at > 0) {
+		editor.row[link_at].chars[0] = 'D';
+	}
+	if (sub_at > 0) {
+		editor.row[sub_at].chars[0] = 'D';
+	}
+
+	n = dired_collect_flagged(dirfd, targets, 4);
+	CHECK(n == 2);
+	for (i = 0; i < n; i++) {
+		if (strcmp(targets[i].name, "tolink") == 0) {
+			CHECK(dired_delete_verified(dirfd, &targets[i]) == 0);
+		} else {
+			errno = 0;
+			CHECK(dired_delete_verified(dirfd, &targets[i]) == -1);
+			CHECK(errno == ENOTEMPTY);
+		}
+	}
+	CHECK(!name_exists(dir, "tolink"));
+	CHECK(name_exists(dir, "sub"));
+	snprintf(path, sizeof(path), "%s/sub/keep.txt", dir);
+	CHECK(lstat_exists(path));
+
+	close(dirfd);
+	teardown();
+	unlink(path);
+	drop_tree(dir);
+}
+
 int main(void)
 {
 	RUN(test_round_trips_an_absolute_path);
@@ -279,5 +475,7 @@ int main(void)
 	RUN(test_open_directory_lists_it);
 	RUN(test_highlights_header_and_directories);
 	RUN(test_highlights_markers);
+	RUN(test_delete_verified_refuses_a_replaced_name);
+	RUN(test_delete_verified_symlink_and_nonempty_directory);
 	return test_summary();
 }

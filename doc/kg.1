@@ -1770,13 +1770,21 @@ acts on the
 flags only, after a single
 .Dq Delete N flagged entries? (y/n)
 confirmation.
-Deletion is never recursive and never follows a symbolic link:
-directories go through
-.Xr rmdir 2 ,
-so a non-empty one fails and says so, and everything else through
-.Xr unlink 2 .
-A failure does not stop the rest; the count that failed is reported
-with the first error seen, and the listing is re-read afterwards.
+Each flagged entry's identity is recorded before that question is asked
+and checked again at the deletion, against a descriptor held open on the
+listed directory for the whole operation.
+An entry that has since been removed, replaced by a different object, or
+changed kind is skipped and counted, never deleted in the confirmed
+entry's place.
+Deletion is never recursive and never follows a symbolic link: a
+directory is removed as a directory, so a non-empty one fails and says
+so, a symbolic link is unlinked as the link it is even where the listing
+marks it with a
+.Sq /
+because it points at a directory, and everything else is unlinked.
+A failure does not stop the rest; the counts that failed and that were
+skipped for having changed are reported, with the first error seen, and
+the listing is re-read afterwards.
 .Pp
 Marks are the buffer's own text rather than editor state, so they take
 no undo record, never make the buffer modified, and are dropped by

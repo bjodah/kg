@@ -479,93 +479,147 @@ void dired_set_mark(char mark)
 	editor_move_cursor(ARROW_DOWN);
 }
 
-static int dired_flagged_count(void)
+static void dired_identity_from_stat(
+    struct dired_identity *id, const struct stat *st)
+{
+	id->device = (uint64_t)st->st_dev;
+	id->inode = (uint64_t)st->st_ino;
+	id->type = (uint64_t)(st->st_mode & S_IFMT);
+}
+
+/* Collect the D-flagged rows, capturing what each name holds *now*, before
+ * the user is asked anything.  Names are resolved against `dirfd` rather
+ * than rebuilt into an absolute path, so a directory swapped underneath
+ * cannot redirect the operation.  Returns the number collected, or -1 when
+ * a flagged row carries no usable name.  An entry that cannot be stat()ed
+ * is collected with a zeroed identity, which dired_delete_verified() then
+ * refuses. */
+int dired_collect_flagged(int dirfd, struct dired_target *out, int max)
 {
 	int i, n = 0;
 
-	for (i = 1; i < editor.numrows; i++) {
-		if (editor.row[i].size > 0 && editor.row[i].chars[0] == 'D') {
-			n++;
-		}
-	}
-	return n;
-}
-
-/* Remove one entry.  lstat(), not stat(): a symlink is unlinked rather
- * than followed, and rmdir() refuses a non-empty directory, which is how
- * dired stays non-recursive. */
-static int dired_remove(const char *path)
-{
-	struct stat st;
-
-	if (lstat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
-		return rmdir(path);
-	}
-	return unlink(path);
-}
-
-/* Delete every flagged entry in `dir`, continuing past failures so one
- * unreadable entry does not strand the rest.  Returns the number deleted
- * and reports how many failed, with the first errno seen. */
-static int dired_delete_flagged(const char *dir, int *failed, int *first_err)
-{
-	char name[PATH_MAX];
-	char path[PATH_MAX];
-	int i, done = 0;
-
-	*failed = 0;
-	*first_err = 0;
-	for (i = 1; i < editor.numrows; i++) {
+	for (i = 1; i < editor.numrows && n < max; i++) {
 		erow *row = &editor.row[i];
-		int err = 0;
+		struct stat st;
 
 		if (row->size <= 0 || row->chars[0] != 'D') {
 			continue;
 		}
-		if (dired_row_name(row->chars, row->size, name, sizeof(name))
-			!= 0
-		    || dired_join(dir, name, path, sizeof(path)) != 0) {
-			err = ENAMETOOLONG;
-		} else if (dired_remove(path) != 0) {
-			err = errno;
+		if (dired_row_name(row->chars, row->size, out[n].name,
+			(int)sizeof(out[n].name))
+		    != 0) {
+			return -1;
 		}
-		if (err) {
-			(*failed)++;
-			if (!*first_err) {
-				*first_err = err;
-			}
-		} else {
-			done++;
+		memset(&out[n].id, 0, sizeof(out[n].id));
+		if (fstatat(dirfd, out[n].name, &st, AT_SYMLINK_NOFOLLOW)
+		    == 0) {
+			dired_identity_from_stat(&out[n].id, &st);
 		}
+		n++;
 	}
-	return done;
+	return n;
+}
+
+/* Delete one collected target, refusing whatever the name holds if it is no
+ * longer the object that was collected.  Returns 0, or -1 with errno set:
+ * ENOENT when the entry is gone, ESTALE when the name now holds something
+ * else.  AT_SYMLINK_NOFOLLOW throughout, so a symlink is unlinked as the
+ * link it is rather than followed — what Emacs' dired does, even though the
+ * listing marks a symlink to a directory with a "/" because dired_read()
+ * uses stat().  A non-empty directory still fails with ENOTEMPTY: dired
+ * stays non-recursive on purpose. */
+int dired_delete_verified(int dirfd, const struct dired_target *target)
+{
+	struct dired_identity now;
+	struct stat st;
+
+	if (fstatat(dirfd, target->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+		return -1;
+	}
+	dired_identity_from_stat(&now, &st);
+	if (memcmp(&now, &target->id, sizeof(now)) != 0) {
+		errno = ESTALE;
+		return -1;
+	}
+	return unlinkat(
+	    dirfd, target->name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
 }
 
 /* Delete the D-flagged entries after one confirmation, then re-read the
- * listing — which drops any flags that survived, since flags are text. */
+ * listing — which drops any flags that survived, since flags are text.
+ * Identity is captured before the prompt and rechecked at the unlink, so an
+ * entry replaced while the question was on screen is skipped and counted
+ * rather than deleted in the confirmed one's place. */
 void dired_do_flagged_delete(int fd)
 {
 	char dir[PATH_MAX];
 	char msg[128];
-	int flagged, done, failed, first_err;
+	struct dired_target *targets;
+	int dirfd, flagged, i;
+	int done = 0, failed = 0, changed = 0, first_err = 0;
 
 	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
 		return;
 	}
-	flagged = dired_flagged_count();
-	if (flagged == 0) {
-		editor_set_status_message("No files flagged for deletion");
+	dirfd = open(dir,
+	    O_RDONLY
+#ifdef O_DIRECTORY
+		| O_DIRECTORY
+#endif
+#ifdef O_CLOEXEC
+		| O_CLOEXEC
+#endif
+	);
+	if (dirfd < 0) {
+		editor_set_status_message(
+		    "Dired %s: %s", dir, strerror(errno));
+		return;
+	}
+	targets = calloc((size_t)editor.numrows + 1, sizeof(*targets));
+	if (!targets) {
+		close(dirfd);
+		editor_set_status_message("Dired: out of memory");
+		return;
+	}
+
+	flagged = dired_collect_flagged(dirfd, targets, editor.numrows + 1);
+	if (flagged <= 0) {
+		close(dirfd);
+		free(targets);
+		editor_set_status_message(flagged == 0
+			? "No files flagged for deletion"
+			: "Dired: unreadable flagged entry");
 		return;
 	}
 	if (!editor_confirm_yn(fd, "Delete %d flagged %s? (y/n) ", flagged,
 		flagged == 1 ? "entry" : "entries")) {
+		close(dirfd);
+		free(targets);
 		editor_set_status_message("Deletion cancelled");
 		return;
 	}
-	done = dired_delete_flagged(dir, &failed, &first_err);
+
+	for (i = 0; i < flagged; i++) {
+		if (dired_delete_verified(dirfd, &targets[i]) == 0) {
+			done++;
+		} else if (errno == ESTALE) {
+			changed++;
+		} else {
+			failed++;
+			if (!first_err) {
+				first_err = errno;
+			}
+		}
+	}
+	close(dirfd);
+	free(targets);
+
 	if (failed) {
 		snprintf(msg, sizeof(msg), "Deleted %d, failed %d (first: %s)",
 		    done, failed, strerror(first_err));
+	} else if (changed) {
+		snprintf(msg, sizeof(msg),
+		    "Deleted %d, skipped %d that changed", done, changed);
 	} else {
 		snprintf(msg, sizeof(msg), "Deleted %d", done);
 	}

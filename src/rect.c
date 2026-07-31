@@ -1,5 +1,6 @@
 /* rect.c - Rectangle operations (C-x SPC, C-x r {k,y,d,c,t}) */
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -128,7 +129,10 @@ static void rect_append(struct rect_block *t, const char *s, int n)
 		t->oom = 1;
 		return;
 	}
-	if (need > t->cap) {
+	/* The `!t->b` half is redundant -- a nonzero capacity always has an
+	 * allocation beside it -- but saying so is what keeps the memcpy
+	 * below out of gcc -fanalyzer's set of reachable NULL writes. */
+	if (!t->b || need > t->cap) {
 		int cap = t->cap > 0 ? t->cap : 64;
 		char *grown;
 

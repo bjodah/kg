@@ -11,6 +11,7 @@
 static void setup(void)
 {
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
@@ -748,7 +749,7 @@ static void test_undo_self_insert_glyph_overwrite(void)
 	    bcur(), 0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
 	editor.cx = 1;
 	editor.cy = 0;
-	editor.overwrite_mode = 1;
+	bcur()->overwrite_mode = 1;
 
 	editor_self_insert_glyph("\xE2\x82\xAC", 3); /* "aézz" -> "a€zz" */
 	CHECK(bcur()->row[0].size == 6);

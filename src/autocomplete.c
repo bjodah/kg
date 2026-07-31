@@ -91,7 +91,7 @@ void editor_insert_char_auto_complete(int c)
 
 void editor_self_insert_char(int c)
 {
-	if (editor.overwrite_mode) {
+	if (bcur()->overwrite_mode) {
 		editor_overwrite_char(c);
 	} else {
 		editor_insert_char_auto_complete(c);

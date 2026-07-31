@@ -290,7 +290,6 @@ struct editor_config {
 	int screenrows; /* Number of rows that we can show */
 	int screencols; /* Number of cols that we can show */
 	int rawmode; /* Is terminal raw mode enabled? */
-	char *filename; /* Currently open filename */
 	char statusmsg[512];
 	time_t statusmsg_time;
 	/* Half-open byte range of statusmsg[] the echo area draws
@@ -330,24 +329,12 @@ struct editor_config {
 	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
 	int desired_visual_col; /* goal column across vertical motion; -1 =
 				   unset. */
-	int readonly; /* If 1, buffer is read-only (editing is blocked). */
-	int readonly_local; /* 0/1, set by local variables */
-	int readonly_override; /* -1 none, 0 explicit writable, 1 explicit
-				  read-only */
-	char compile_command[KG_COMPILE_COMMAND_MAX];
-	int compile_command_user_override; /* 1 once the user edited
-					      compile-command */
 	int last_key; /* Last key processed, for command repetition logic. */
 	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom.
 			     */
 	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle,
 				  2=bottom. */
-	struct file_snapshot disk; /* `filename` as we last read/wrote it. */
-	int disk_changed; /* Set by the auto-revert poll when disk differs. */
-	int auto_revert; /* Per-buffer auto-revert toggle. */
-	int visual_line_mode; /* 1 if visual-line-mode is enabled */
 	int rowoff_visual; /* Visual row offset for visual-line-mode */
-	int overwrite_mode; /* 1 if overwrite-mode is enabled */
 };
 
 /* Append buffer for efficient screen rendering */

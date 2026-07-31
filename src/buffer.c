@@ -1578,34 +1578,34 @@ void editor_del_forward_char(void)
 
 void editor_refresh_readonly_state(void)
 {
-	editor.readonly = (editor.readonly_override >= 0)
-	    ? editor.readonly_override
-	    : editor.readonly_local;
+	bcur()->readonly = (bcur()->readonly_override >= 0)
+	    ? bcur()->readonly_override
+	    : bcur()->readonly_local;
 }
 
 void editor_set_local_readonly(int enabled)
 {
-	editor.readonly_local = enabled ? 1 : 0;
+	bcur()->readonly_local = enabled ? 1 : 0;
 	editor_refresh_readonly_state();
 }
 
 void editor_set_readonly_override(int enabled)
 {
-	editor.readonly_override = enabled ? 1 : 0;
+	bcur()->readonly_override = enabled ? 1 : 0;
 	editor_refresh_readonly_state();
 }
 
 void editor_toggle_read_only_mode(void)
 {
-	editor.readonly_override = !editor.readonly;
+	bcur()->readonly_override = !bcur()->readonly;
 	editor_refresh_readonly_state();
-	editor_set_status_message(editor.readonly ? "Read-only" : "Writable");
+	editor_set_status_message(bcur()->readonly ? "Read-only" : "Writable");
 }
 
 void editor_toggle_overwrite_mode(void)
 {
-	editor.overwrite_mode = !editor.overwrite_mode;
-	editor_set_status_message(editor.overwrite_mode
+	bcur()->overwrite_mode = !bcur()->overwrite_mode;
+	editor_set_status_message(bcur()->overwrite_mode
 		? "Overwrite mode enabled"
 		: "Overwrite mode disabled");
 }
@@ -1675,7 +1675,7 @@ void editor_self_insert_glyph(const char *seq, int len)
 	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len = 0;
 
-	if (editor.overwrite_mode && row && filecol < row->size) {
+	if (bcur()->overwrite_mode && row && filecol < row->size) {
 		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
 	}
 	if (old_len > 0) {
@@ -1754,7 +1754,7 @@ void editor_transpose_chars(void)
 	int len, point, a_start, b_start, a_len, b_len, b_end, span_len;
 	int row, col;
 
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}

@@ -518,7 +518,7 @@ void editor_shell_command(int fd, int insert_output)
 	struct shell_run_status status;
 	enum minibuf_result result;
 
-	if (insert_output && editor.readonly) {
+	if (insert_output && bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -544,7 +544,7 @@ void editor_shell_command_on_region(int fd, int insert_output)
 	struct shell_run_status status;
 	enum minibuf_result result;
 
-	if (insert_output && editor.readonly) {
+	if (insert_output && bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}

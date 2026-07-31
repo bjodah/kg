@@ -143,7 +143,7 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 /* Re-read the current file from disk, discarding all unsaved changes. */
 static void cmd_revert_buffer(int fd)
 {
-	if (is_special_buffer(editor.filename)) {
+	if (is_special_buffer(bcur()->filename)) {
 		editor_set_status_message("Cannot revert a special buffer");
 		return;
 	}
@@ -156,7 +156,7 @@ static void cmd_revert_buffer(int fd)
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 	buf_reload_from_disk();
-	editor_set_status_message("Reverted %s", editor.filename);
+	editor_set_status_message("Reverted %s", bcur()->filename);
 }
 
 /* Join the current line with the previous one (M-^). */
@@ -233,9 +233,9 @@ static void cmd_sort_lines(int fd)
 static void cmd_auto_revert_mode(int fd)
 {
 	(void)fd;
-	editor.auto_revert = !editor.auto_revert;
+	bcur()->auto_revert = !bcur()->auto_revert;
 	editor_set_status_message("Auto-revert for %s is %s",
-	    buf_basename(editor.filename), editor.auto_revert ? "on" : "off");
+	    buf_basename(bcur()->filename), bcur()->auto_revert ? "on" : "off");
 }
 
 /* Toggle automatic insertion of closing brackets and quotes. */
@@ -307,8 +307,8 @@ static void cmd_visual_line_mode(int fd)
 	int filerow = editor.rowoff + editor.cy;
 
 	(void)fd;
-	editor.visual_line_mode = !editor.visual_line_mode;
-	if (editor.visual_line_mode) {
+	bcur()->visual_line_mode = !bcur()->visual_line_mode;
+	if (bcur()->visual_line_mode) {
 		struct editor_window *w = &winlist[win_current];
 
 		/* Soft wrapping has no horizontal viewport.  Preserve point by
@@ -323,7 +323,7 @@ static void cmd_visual_line_mode(int fd)
 		editor.cy = filerow - editor.rowoff;
 	}
 	editor_set_status_message("visual-line-mode %s",
-	    editor.visual_line_mode ? "enabled" : "disabled");
+	    bcur()->visual_line_mode ? "enabled" : "disabled");
 }
 
 enum sexp_kind {
@@ -509,7 +509,7 @@ static void do_eval_last_sexp(int print_to_buffer, int insert_newline_before)
 	char *expr;
 	int rc;
 
-	if (print_to_buffer && editor.readonly) {
+	if (print_to_buffer && bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -843,7 +843,7 @@ int cmd_execute_named(const char *name, int fd)
 	for (i = 0; cmdtable[i].name; i++) {
 		if (strcmp(cmdtable[i].name, name) == 0) {
 			if ((cmdtable[i].flags & CMD_EDITS_BUFFER)
-			    && editor.readonly) {
+			    && bcur()->readonly) {
 				editor_set_status_message(
 				    "Buffer is read-only");
 				return 0;

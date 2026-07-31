@@ -252,7 +252,7 @@ static void dired_populate(void)
 	 * populate step attach the syntax only after it returns. */
 	bcur()->syntax = &dired_syntax;
 
-	if (dired_dir_of(editor.filename, dir, sizeof(dir)) != 0) {
+	if (dired_dir_of(bcur()->filename, dir, sizeof(dir)) != 0) {
 		/* Unreachable: dired_open() built the name this reads back.
 		 * Leave the buffer empty rather than write a header naming
 		 * the wrong directory. */
@@ -336,14 +336,14 @@ int dired_fill_current(const char *dir)
 		return 1;
 	}
 	editor_free_all_rows(bcur());
-	free(editor.filename);
-	editor.filename = strdup(l.name);
+	free(bcur()->filename);
+	bcur()->filename = strdup(l.name);
 	dired_populate();
 	dired_unstage();
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 	bcur()->dirty = 0;
-	editor.readonly_override = 1;
+	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
 	bcur()->syntax = &dired_syntax;
 	editor_set_status_message("%s", l.status);
@@ -366,7 +366,7 @@ static int dired_active(void)
  * and it refuses a name it cannot round-trip. */
 static int dired_current_dir(char *out, int size)
 {
-	if (dired_dir_of(editor.filename, out, size) != 0) {
+	if (dired_dir_of(bcur()->filename, out, size) != 0) {
 		editor_set_status_message(
 		    "Dired: no directory for this buffer");
 		return -1;

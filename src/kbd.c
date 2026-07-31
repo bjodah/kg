@@ -185,7 +185,7 @@ static int editor_confirm_quit(int fd)
 	int i, ndirty = 0;
 
 	/* Count modified real-file buffers (exclude *special* ones). */
-	if (bcur()->dirty && !is_special_buffer(editor.filename)) {
+	if (bcur()->dirty && !is_special_buffer(bcur()->filename)) {
 		ndirty++;
 	}
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -321,8 +321,8 @@ static void handle_cc_prefix_key(int c, int fd)
 		editor_git_abort(fd, "Abort rebase? (y/n) ");
 	} else if (rebase_action) {
 		editor_rebase_set_action(rebase_action);
-	} else if (editor.filename
-	    && strcmp(editor.filename, "*compilation*") == 0 && c == CTRL_K) {
+	} else if (bcur()->filename
+	    && strcmp(bcur()->filename, "*compilation*") == 0 && c == CTRL_K) {
 		editor_kill_compilation(fd);
 	} else {
 		handle_user_binding(c, fd);
@@ -334,7 +334,7 @@ static void handle_cc_prefix_key(int c, int fd)
  * only C-g (cancel) still has any business reaching the switch. */
 static void handle_rect_prefix_key(int c, int fd)
 {
-	if (editor.readonly && c != CTRL_G) {
+	if (bcur()->readonly && c != CTRL_G) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -760,13 +760,13 @@ void editor_process_keypress(int fd)
 	}
 
 	/* q closes special *...* buffers, but only if another buffer exists */
-	if (c == 'q' && is_special_buffer(editor.filename) && buf_count > 1) {
+	if (c == 'q' && is_special_buffer(bcur()->filename) && buf_count > 1) {
 		buf_kill(fd);
 		return;
 	}
 
 	/* Read-only mode: Enter opens the item at point; editing is blocked. */
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		/* Dired's bare keys come first: dired and the buffer list are
 		 * mutually exclusive by syntax pointer, so the ENTER below is
 		 * ibuffer's only when this declines the key. */
@@ -1169,7 +1169,7 @@ void editor_process_keypress(int fd)
 		 * Repeats N times when a C-u prefix preceded the key. */
 		if (c == TAB || (c >= 32 && c < 127)) {
 			if (n > 1 && key_can_batch_literal_insert(c)
-			    && !editor.overwrite_mode) {
+			    && !bcur()->overwrite_mode) {
 				editor_insert_repeated_literal(c, n);
 			} else {
 				while (n--) {

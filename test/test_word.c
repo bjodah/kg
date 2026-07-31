@@ -14,6 +14,7 @@ extern struct editor_syntax HLDB[]; /* defined in syntax.c */
 static void setup(void)
 {
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;

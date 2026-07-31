@@ -56,7 +56,7 @@ int cmd_static_exists(const char *name)
 void buf_display_name(int idx, char *out, size_t outsize)
 {
 	(void)idx;
-	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
+	(void)snprintf(out, outsize, "%s", buf_basename(bcur()->filename));
 }
 enum minibuf_result __attribute__((weak)) editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize)

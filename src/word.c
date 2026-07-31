@@ -671,7 +671,7 @@ void editor_delete_horizontal_space(void)
 	int start, end, len;
 	erow *row;
 
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -723,7 +723,7 @@ void editor_just_one_space(void)
 	char *newchars;
 	erow *row;
 
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -800,7 +800,7 @@ void editor_zap_to_char(int fd, int count)
 	int filecol = 0;
 	int i;
 
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
@@ -1388,7 +1388,7 @@ static int rebase_edit_row(const char *noline)
 		editor_set_status_message("Not a git-rebase-todo buffer");
 		return -1;
 	}
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		editor_set_status_message("Buffer is read-only");
 		return -1;
 	}

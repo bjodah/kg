@@ -391,7 +391,7 @@ static FeObject *native_insert(FeContext *context, FeObject *arguments)
 
 	FeRequireNoArguments(context, arguments);
 	text = copy_fe_string(context, object, &length);
-	if (editor.readonly) {
+	if (bcur()->readonly) {
 		free(text);
 		FeHandleError(context, "buffer is read-only");
 	}
@@ -1280,7 +1280,7 @@ static FeObject *native_command(FeContext *context, FeObject *arguments)
 		free(name);
 		command_error(context, "command is not allowed", rejected);
 	}
-	if (allowed->mutates && editor.readonly) {
+	if (allowed->mutates && bcur()->readonly) {
 		free(name);
 		FeHandleError(context, "buffer is read-only");
 	}

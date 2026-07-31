@@ -78,8 +78,9 @@ static void session(int nfiles, char **names)
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		buflist[i].active = 0;
 	}
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
-	editor.readonly_override = -1;
+	bcur()->readonly_override = -1;
 	undo_stack_init(&bcur()->undostack);
 	win_total_rows = 24;
 	win_total_cols = 80;
@@ -118,6 +119,7 @@ static void session_teardown(void)
 	memset(buflist, 0, sizeof(buflist));
 	buf_count = 0;
 	buf_current = 0;
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
@@ -204,9 +206,9 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	editor.mark_row = 0;
 	editor.mark_col = 3;
 	editor_set_local_readonly(1);
-	snprintf(editor.compile_command, sizeof(editor.compile_command),
+	snprintf(bcur()->compile_command, sizeof(bcur()->compile_command),
 	    "make zero");
-	editor.compile_command_user_override = 1;
+	bcur()->compile_command_user_override = 1;
 	rows0 = bslot(0)->row;
 
 	CHECK(bslot(0)->dirty != 0);
@@ -219,9 +221,9 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	CHECK(buf_current == 1);
 	CHECK(bcur()->dirty == 0);
 	CHECK(editor.mark_set == 0);
-	CHECK(editor.readonly == 0);
-	CHECK(strcmp(editor.compile_command, "make -k") == 0);
-	CHECK(editor.compile_command_user_override == 0);
+	CHECK(bcur()->readonly == 0);
+	CHECK(strcmp(bcur()->compile_command, "make -k") == 0);
+	CHECK(bcur()->compile_command_user_override == 0);
 	CHECK(bcur()->undostack.size == 0);
 	CHECK(bcur()->row != rows0);
 
@@ -243,8 +245,8 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	CHECK(bcur()->row == rows0);
 	CHECK(bcur()->dirty != 0);
 	CHECK(editor.mark_set == 1 && editor.mark_col == 3);
-	CHECK(editor.readonly == 1);
-	CHECK(strcmp(editor.compile_command, "make zero") == 0);
+	CHECK(bcur()->readonly == 1);
+	CHECK(strcmp(bcur()->compile_command, "make zero") == 0);
 	CHECK(bcur()->undostack.size == 1);
 	CHECK(buflist[1].undostack.size == 1);
 	CHECK(buflist[1].dirty != 0);
@@ -497,7 +499,7 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 	editor.cy = 1;
 	editor_insert_char('Q');
 	rows0 = bcur()->row;
-	filename0 = editor.filename;
+	filename0 = bcur()->filename;
 
 	target
 	    = buf_prepare_special_text("*background*", &compilation_syntax, 1);
@@ -507,7 +509,7 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == rows0);
-	CHECK(editor.filename == filename0);
+	CHECK(bcur()->filename == filename0);
 	CHECK(bcur()->numrows == 3);
 	CHECK(editor.cy == 1);
 	CHECK(bcur()->dirty != 0);

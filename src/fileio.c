@@ -103,8 +103,8 @@ enum file_change_state file_snapshot_compare_path(
  * check have a baseline. */
 void editor_snapshot_disk(void)
 {
-	editor.disk_changed = 0;
-	(void)file_snapshot_path(editor.filename, &editor.disk);
+	bcur()->disk_changed = 0;
+	(void)file_snapshot_path(bcur()->filename, &bcur()->disk);
 }
 
 /* Function pointer for write syscall, allows mocking in unit tests. */
@@ -492,14 +492,14 @@ void commit_load_result(struct temp_load_result *res)
 		editor_free_row(&bcur()->row[i]);
 	}
 	free(bcur()->row);
-	free(editor.filename);
+	free(bcur()->filename);
 
-	editor.filename = res->filename;
+	bcur()->filename = res->filename;
 	bcur()->row = res->row;
 	bcur()->numrows = res->numrows;
 	bcur()->row_capacity = res->row_capacity;
-	editor.disk = res->disk;
-	editor.disk_changed = 0;
+	bcur()->disk = res->disk;
+	bcur()->disk_changed = 0;
 	bcur()->dirty = 0;
 
 	/* The staged pass (load_stage_rows()) already rendered and
@@ -512,7 +512,7 @@ void commit_load_result(struct temp_load_result *res)
 	 * test_load_highlight_is_final() in test/test_perf.c is the proof:
 	 * it compares every row's hl bytes and hl_oc after a load against a
 	 * from-scratch editor_rehighlight_all(). */
-	editor_select_syntax_highlight(bcur(), editor.filename);
+	editor_select_syntax_highlight(bcur(), bcur()->filename);
 
 	res->filename = NULL;
 	res->row = NULL;
@@ -629,16 +629,16 @@ static int editor_save_named(int fd, int destination_decided)
 	struct editor_syntax *old_syntax = NULL;
 	int name_changed = 0;
 	/* The state the write may replace.  NULL whenever the buffer is
-	 * adopting a name rather than rewriting its own file: editor.disk
+	 * adopting a name rather than rewriting its own file: bcur()->disk
 	 * then still describes the file it came from, which says nothing
 	 * about the destination. */
-	const struct file_snapshot *accepted = &editor.disk;
+	const struct file_snapshot *accepted = &bcur()->disk;
 
 	if (destination_decided) {
 		accepted = NULL;
 	}
 
-	if (is_special_buffer(editor.filename)) {
+	if (is_special_buffer(bcur()->filename)) {
 		char newname[256];
 
 		editor_prompt_prefill_dir(newname, sizeof(newname));
@@ -651,7 +651,7 @@ static int editor_save_named(int fd, int destination_decided)
 
 		/* Ask *before* mutating the buffer's filename or syntax so a
 		 * "no" answer leaves the buffer untouched. */
-		if (!confirm_destination_exists(fd, newname, &editor.disk)) {
+		if (!confirm_destination_exists(fd, newname, &bcur()->disk)) {
 			editor_set_status_message("Save aborted");
 			return 1;
 		}
@@ -662,24 +662,25 @@ static int editor_save_named(int fd, int destination_decided)
 			return 1;
 		}
 
-		old_filename = editor.filename;
+		old_filename = bcur()->filename;
 		old_syntax = bcur()->syntax;
 		name_changed = 1;
 
-		editor.filename = newfilename;
-		editor_select_syntax_highlight(bcur(), editor.filename);
+		bcur()->filename = newfilename;
+		editor_select_syntax_highlight(bcur(), bcur()->filename);
 		accepted = NULL;
 	} else if (!destination_decided
-	    && !confirm_save_over_accepted(fd, editor.filename, &editor.disk)) {
+	    && !confirm_save_over_accepted(
+		fd, bcur()->filename, &bcur()->disk)) {
 		editor_set_status_message("Save aborted");
 		return 1;
 	}
 
-	if (editor_write_rows_to_file(editor.filename, bcur()->row,
+	if (editor_write_rows_to_file(bcur()->filename, bcur()->row,
 		bcur()->numrows, &len, accepted)) {
 		if (name_changed) {
-			free(editor.filename);
-			editor.filename = old_filename;
+			free(bcur()->filename);
+			bcur()->filename = old_filename;
 			bcur()->syntax = old_syntax;
 		}
 		goto writeerr;
@@ -700,7 +701,7 @@ static int editor_save_named(int fd, int destination_decided)
 	 * same filename pointer, and the caller is about to free the string it
 	 * replaced. */
 	buf_save_current_state();
-	editor_set_status_message("Wrote %s (%d bytes)", editor.filename, len);
+	editor_set_status_message("Wrote %s (%d bytes)", bcur()->filename, len);
 	return 0;
 
 writeerr:
@@ -709,11 +710,11 @@ writeerr:
 		 * happened rather than render ESTALE as "Stale file handle". */
 		editor_set_status_message(
 		    "%s changed on disk during the save; nothing written",
-		    editor.filename);
+		    bcur()->filename);
 		return 1;
 	}
 	editor_set_status_message(
-	    "Error writing %s: %s", editor.filename, strerror(errno));
+	    "Error writing %s: %s", bcur()->filename, strerror(errno));
 	return 1;
 }
 
@@ -734,10 +735,10 @@ void editor_write_file(int fd)
 	}
 
 	/* The destination question belongs here, against the typed name and
-	 * before it is adopted: once editor.filename says the buffer owns the
+	 * before it is adopted: once bcur()->filename says the buffer owns the
 	 * name, a save can only ask whether that file changed, which is a
 	 * different question about a different file. */
-	if (!confirm_destination_exists(fd, newname, &editor.disk)) {
+	if (!confirm_destination_exists(fd, newname, &bcur()->disk)) {
 		editor_set_status_message("Save aborted");
 		return;
 	}
@@ -748,21 +749,21 @@ void editor_write_file(int fd)
 		return;
 	}
 
-	char *old_filename = editor.filename;
+	char *old_filename = bcur()->filename;
 	struct editor_syntax *old_syntax = bcur()->syntax;
-	struct file_snapshot old_disk = editor.disk;
+	struct file_snapshot old_disk = bcur()->disk;
 
-	editor.filename = newfilename;
-	editor_select_syntax_highlight(bcur(), editor.filename);
+	bcur()->filename = newfilename;
+	editor_select_syntax_highlight(bcur(), bcur()->filename);
 
 	if (editor_save_named(fd, 1) != 0) {
 		/* Save failed: restore the previous name, syntax and snapshot
 		 * together — a buffer left holding another file's metadata
 		 * would measure its next save against the wrong file. */
-		free(editor.filename);
-		editor.filename = old_filename;
+		free(bcur()->filename);
+		bcur()->filename = old_filename;
 		bcur()->syntax = old_syntax;
-		editor.disk = old_disk;
+		bcur()->disk = old_disk;
 	} else {
 		/* Save succeeded: free the old filename and update syntax of
 		 * rows */

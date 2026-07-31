@@ -28,10 +28,11 @@ static void setup_editor(void)
 {
 	free_all_rows();
 	undo_free();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	editor.filename = "/tmp/bridge.txt";
+	bcur()->filename = "/tmp/bridge.txt";
 	suppress_undo = 0;
 	undo_init();
 	test_status_message[0] = '\0';
@@ -240,7 +241,7 @@ static void test_insert_read_only_recovery(void)
 
 	setup_editor();
 	editor_insert_row(bcur(), 0, "original", 8);
-	editor.readonly = 1;
+	bcur()->readonly = 1;
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_eval_string(
 		  "(insert \"changed\")", 18, result, sizeof(result))

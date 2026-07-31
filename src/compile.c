@@ -281,7 +281,7 @@ void editor_compile(int fd)
 	int rc;
 	struct kg_buffer_handle source;
 
-	strncpy(prompt, editor.compile_command, sizeof(prompt));
+	strncpy(prompt, bcur()->compile_command, sizeof(prompt));
 	prompt[sizeof(prompt) - 1] = '\0';
 
 	rc = editor_read_line_with_history(
@@ -298,13 +298,14 @@ void editor_compile(int fd)
 		return;
 	}
 
-	strncpy(editor.compile_command, prompt, sizeof(editor.compile_command));
-	editor.compile_command[sizeof(editor.compile_command) - 1] = '\0';
-	editor.compile_command_user_override = 1;
+	strncpy(
+	    bcur()->compile_command, prompt, sizeof(bcur()->compile_command));
+	bcur()->compile_command[sizeof(bcur()->compile_command) - 1] = '\0';
+	bcur()->compile_command_user_override = 1;
 	buf_save_current_state();
 	source = buf_handle(buf_current);
 
-	if (compilation_resolve_directory(editor.filename, dir, sizeof(dir))
+	if (compilation_resolve_directory(bcur()->filename, dir, sizeof(dir))
 	    != 0) {
 		if (!getcwd(dir, sizeof(dir))) {
 			strcpy(dir, ".");
@@ -321,7 +322,8 @@ void editor_recompile(int fd)
 	const char *command;
 	struct kg_buffer_handle source;
 
-	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0) {
+	if (bcur()->filename
+	    && strcmp(bcur()->filename, "*compilation*") == 0) {
 		if (!g_compilation.have_last_command) {
 			editor_set_status_message("No compile command");
 			return;
@@ -332,13 +334,13 @@ void editor_recompile(int fd)
 		strncpy(dir, g_compilation.last_directory, sizeof(dir));
 		dir[sizeof(dir) - 1] = '\0';
 	} else {
-		command = editor.compile_command;
+		command = bcur()->compile_command;
 		if (command[0] == '\0') {
 			editor_set_status_message("No compile command");
 			return;
 		}
 		if (compilation_resolve_directory(
-			editor.filename, dir, sizeof(dir))
+			bcur()->filename, dir, sizeof(dir))
 		    != 0) {
 			if (!getcwd(dir, sizeof(dir))) {
 				strcpy(dir, ".");

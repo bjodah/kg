@@ -96,7 +96,9 @@ int buf_handle_slot(struct kg_buffer_handle handle)
 	return buf_resolve(handle) ? handle.slot : -1;
 }
 
-/* Save live editor state (and global bcur()->undostack) into buflist[idx]. */
+/* Save the session-held part of the current buffer's state into
+ * buflist[idx].  What is left here is the view and the region; everything
+ * a buffer owns already lives in the slot. */
 static void buf_save_to_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
@@ -110,7 +112,6 @@ static void buf_save_to_slot(int idx)
 	b->cy = editor.cy;
 	b->rowoff = editor.rowoff;
 	b->coloff = editor.coloff;
-	b->filename = editor.filename;
 	b->mark_set = editor.mark_set;
 	b->mark_row = editor.mark_row;
 	b->mark_col = editor.mark_col;
@@ -122,24 +123,13 @@ static void buf_save_to_slot(int idx)
 	b->mark_ring_len = editor.mark_ring_len;
 	b->shift_select = editor.shift_select;
 	b->rect_mode = editor.rect_mode;
-	b->readonly = editor.readonly;
-	b->readonly_local = editor.readonly_local;
-	b->readonly_override = editor.readonly_override;
-	memcpy(b->compile_command, editor.compile_command,
-	    sizeof(b->compile_command));
-	b->compile_command_user_override = editor.compile_command_user_override;
-	b->disk = editor.disk;
-	b->disk_changed = editor.disk_changed;
-	b->auto_revert = editor.auto_revert;
-	b->visual_line_mode = editor.visual_line_mode;
 	b->rowoff_visual = editor.rowoff_visual;
-	b->overwrite_mode = editor.overwrite_mode;
 	b->active = 1;
 }
 
-/* Restore buflist[idx] into live editor state.  The buffer's own text,
- * dirty flag, syntax and undo history are not here: they never leave the
- * slot. */
+/* Select buflist[idx] and restore the session-held part of its state.  The
+ * buffer's text, dirty flag, syntax, undo history, file identity and local
+ * options are not here: they never leave the slot. */
 void buf_restore_from_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
@@ -152,7 +142,6 @@ void buf_restore_from_slot(int idx)
 	editor.cy = b->cy;
 	editor.rowoff = b->rowoff;
 	editor.coloff = b->coloff;
-	editor.filename = b->filename;
 	editor.mark_set = b->mark_set;
 	editor.mark_row = b->mark_row;
 	editor.mark_col = b->mark_col;
@@ -164,18 +153,9 @@ void buf_restore_from_slot(int idx)
 	editor.mark_ring_len = b->mark_ring_len;
 	editor.shift_select = b->shift_select;
 	editor.rect_mode = b->rect_mode;
-	editor.readonly_local = b->readonly_local;
-	editor.readonly_override = b->readonly_override;
-	memcpy(editor.compile_command, b->compile_command,
-	    sizeof(editor.compile_command));
-	editor.compile_command_user_override = b->compile_command_user_override;
-	editor_refresh_readonly_state();
-	editor.disk = b->disk;
-	editor.disk_changed = b->disk_changed;
-	editor.auto_revert = b->auto_revert;
-	editor.visual_line_mode = b->visual_line_mode;
 	editor.rowoff_visual = b->rowoff_visual;
-	editor.overwrite_mode = b->overwrite_mode;
+	/* readonly is derived, so it is recomputed rather than carried. */
+	editor_refresh_readonly_state();
 	/* Keep the active window pointing at the newly-restored buffer. */
 	if (win_count > 0) {
 		winlist[win_current].bufidx = idx;
@@ -184,8 +164,8 @@ void buf_restore_from_slot(int idx)
 	/* If this buffer was flagged stale while it sat in its slot, reload
 	 * it now — but only when the user has opted in and there are no
 	 * unsaved edits to lose. */
-	if (editor.disk_changed && !b->dirty
-	    && (editor.auto_revert || global_auto_revert)) {
+	if (bcur()->disk_changed && !b->dirty
+	    && (bcur()->auto_revert || global_auto_revert)) {
 		silent_revert_current();
 	}
 }
@@ -260,12 +240,12 @@ static void clamp_cursor_to_buffer(void)
  * after editor_open's realloc. */
 void buf_reload_from_disk(void)
 {
-	if (!editor.filename) {
+	if (!bcur()->filename) {
 		return;
 	}
 
 	struct temp_load_result res;
-	if (load_file_transactional(editor.filename, &res) != 0) {
+	if (load_file_transactional(bcur()->filename, &res) != 0) {
 		editor_set_status_message("Reload failed: %s", strerror(errno));
 		free_load_result(&res);
 		return;
@@ -311,7 +291,7 @@ static void silent_revert_current(void)
 	buf_save_to_slot(buf_current);
 
 	editor_set_status_message(
-	    "Reverted %s from disk", buf_basename(editor.filename));
+	    "Reverted %s from disk", buf_basename(bcur()->filename));
 }
 
 /* Walk every active buffer, stat its underlying file, and update the
@@ -337,37 +317,29 @@ int autorevert_poll(void)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
-		int current = (i == buf_current);
 		struct file_snapshot now;
 		enum file_change_state state;
-		const char *fname;
-		int *flag;
 		int new_changed;
 
-		if (!b->active) {
+		if (!b->active || is_special_buffer(b->filename)) {
 			continue;
 		}
 
-		fname = current ? editor.filename : b->filename;
-		if (is_special_buffer(fname)) {
-			continue;
-		}
-
-		flag = current ? &editor.disk_changed : &b->disk_changed;
-		(void)file_snapshot_path(fname, &now);
-		state = file_snapshot_compare(
-		    current ? &editor.disk : &b->disk, &now);
+		(void)file_snapshot_path(b->filename, &now);
+		state = file_snapshot_compare(&b->disk, &now);
 		new_changed = state != FILE_SAME;
-		if (new_changed != *flag) {
-			*flag = new_changed;
+		if (new_changed != b->disk_changed) {
+			b->disk_changed = new_changed;
 			refresh_needed = 1;
 		}
 		/* Reload only what can still be read back.  A file that
 		 * vanished, or that we cannot even stat, leaves the buffer as
-		 * the last copy of its contents: flag it and leave it be. */
-		if (current && state == FILE_DIFFERENT && now.id.present
-		    && !bcur()->dirty
-		    && (editor.auto_revert || global_auto_revert)) {
+		 * the last copy of its contents: flag it and leave it be.
+		 * Only the current buffer is reverted here: reloading another
+		 * one would move a point this loop cannot see. */
+		if (i == buf_current && state == FILE_DIFFERENT
+		    && now.id.present && !b->dirty
+		    && (b->auto_revert || global_auto_revert)) {
 			silent_revert_current();
 			refresh_needed = 1;
 		}
@@ -393,7 +365,7 @@ static void buf_reset(void)
 	editor_free_all_rows(b);
 	b->dirty = 0;
 	b->syntax = NULL;
-	editor.filename = NULL;
+	bcur()->filename = NULL;
 	editor.mark_set = editor.mark_row = editor.mark_col = 0;
 	editor.mark_highlight = 0;
 	editor.mark_ring_len = 0;
@@ -404,17 +376,17 @@ static void buf_reset(void)
 	editor.prefix_arg = 0;
 	editor.prefix_no_digits = 0;
 	editor.paste_mode = 0;
-	editor.readonly = 0;
-	editor.readonly_local = 0;
-	editor.readonly_override = -1;
-	editor.compile_command[0] = '\0';
-	editor.compile_command_user_override = 0;
-	memset(&editor.disk, 0, sizeof(editor.disk));
-	editor.disk_changed = 0;
-	editor.auto_revert = 0;
-	editor.visual_line_mode = 0;
+	bcur()->readonly = 0;
+	bcur()->readonly_local = 0;
+	bcur()->readonly_override = -1;
+	bcur()->compile_command[0] = '\0';
+	bcur()->compile_command_user_override = 0;
+	memset(&bcur()->disk, 0, sizeof(bcur()->disk));
+	bcur()->disk_changed = 0;
+	bcur()->auto_revert = 0;
+	bcur()->visual_line_mode = 0;
 	editor.rowoff_visual = 0;
-	editor.overwrite_mode = 0;
+	bcur()->overwrite_mode = 0;
 	undo_stack_free(&b->undostack);
 	undo_init();
 }
@@ -528,7 +500,7 @@ static void prompt_refresh(
  * buffers. */
 void editor_prompt_prefill_dir(char *buf, int bufsize)
 {
-	const char *fn = editor.filename;
+	const char *fn = bcur()->filename;
 	const char *home, *path, *slash;
 	char *abs = NULL;
 	int dir_len, home_len;
@@ -1250,7 +1222,7 @@ static void buf_apply_local_settings(void)
 	ssize_t n;
 	char *data = NULL;
 
-	if (is_special_buffer(editor.filename)) {
+	if (is_special_buffer(bcur()->filename)) {
 		return;
 	}
 
@@ -1258,7 +1230,7 @@ static void buf_apply_local_settings(void)
 	local_settings_init(&modeline);
 	local_settings_init(&footer);
 
-	if (dirlocals_find(editor.filename, dirfile, sizeof(dirfile)) == 0) {
+	if (dirlocals_find(bcur()->filename, dirfile, sizeof(dirfile)) == 0) {
 		fd = open(dirfile,
 		    O_RDONLY
 #ifdef O_CLOEXEC
@@ -1290,13 +1262,13 @@ static void buf_apply_local_settings(void)
 	local_settings_merge(&merged, &footer);
 
 	if (merged.compile_command_set
-	    && !editor.compile_command_user_override) {
-		memcpy(editor.compile_command, merged.compile_command,
-		    sizeof(editor.compile_command));
+	    && !bcur()->compile_command_user_override) {
+		memcpy(bcur()->compile_command, merged.compile_command,
+		    sizeof(bcur()->compile_command));
 	}
 
 	if (merged.buffer_read_only != LOCAL_BOOL_UNSET) {
-		editor.readonly_local
+		bcur()->readonly_local
 		    = (merged.buffer_read_only == LOCAL_BOOL_TRUE) ? 1 : 0;
 	}
 	editor_refresh_readonly_state();
@@ -1310,9 +1282,9 @@ void buf_visit_file(const char *filename, int explicit_readonly)
 {
 	buf_reset();
 
-	snprintf(
-	    editor.compile_command, sizeof(editor.compile_command), "make -k");
-	editor.compile_command_user_override = 0;
+	snprintf(bcur()->compile_command, sizeof(bcur()->compile_command),
+	    "make -k");
+	bcur()->compile_command_user_override = 0;
 
 	editor_select_syntax_highlight(bcur(), (char *)filename);
 	editor_open((char *)filename);
@@ -1320,7 +1292,7 @@ void buf_visit_file(const char *filename, int explicit_readonly)
 	buf_apply_local_settings();
 
 	if (explicit_readonly) {
-		editor.readonly_override = 1;
+		bcur()->readonly_override = 1;
 		editor_refresh_readonly_state();
 	}
 
@@ -1344,7 +1316,7 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 		/* No files given: open an empty *scratch* buffer. */
 		buf_current = 0;
 		buf_reset();
-		editor.filename = strdup("*scratch*");
+		bcur()->filename = strdup("*scratch*");
 		bcur()->syntax = &lisp_interaction_syntax;
 		buf_save_to_slot(0);
 		buflist[0].active = 1;
@@ -1534,11 +1506,11 @@ void buf_open_path(const char *path, int readonly)
 		buf_save_current_state();
 		buf_restore_from_slot(slot);
 		if (readonly) {
-			editor.readonly_override = 1;
+			bcur()->readonly_override = 1;
 			editor_refresh_readonly_state();
 			buf_save_to_slot(slot);
 		}
-		editor_set_status_message("%s", editor.filename);
+		editor_set_status_message("%s", bcur()->filename);
 		return;
 	}
 
@@ -1560,7 +1532,7 @@ void buf_open_path(const char *path, int readonly)
 	buf_restore_from_slot(slot);
 	buf_count++;
 	editor_set_status_message("%s%s",
-	    editor.filename ? editor.filename : "[new]",
+	    bcur()->filename ? bcur()->filename : "[new]",
 	    readonly ? " [read-only]" : "");
 }
 
@@ -1622,8 +1594,8 @@ void buf_save_all(int fd)
 			(void)file_snapshot_path(b->filename, &b->disk);
 			if (i == buf_current) {
 				bcur()->dirty = 0;
-				editor.disk_changed = 0;
-				editor.disk = b->disk;
+				bcur()->disk_changed = 0;
+				bcur()->disk = b->disk;
 				undo_mark_clean();
 			}
 			editor_set_status_message("Wrote %s", b->filename);
@@ -1639,7 +1611,7 @@ void buf_kill(int fd)
 {
 	int i;
 
-	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0
+	if (bcur()->filename && strcmp(bcur()->filename, "*compilation*") == 0
 	    && compilation_is_running()) {
 		if (!editor_confirm_yn(
 			fd, "Compilation is still running; kill it? (y/n) ")) {
@@ -1660,7 +1632,7 @@ void buf_kill(int fd)
 	 * reset would walk. */
 	editor_free_all_rows(bcur());
 	undo_free();
-	free(editor.filename);
+	free(bcur()->filename);
 
 	buflist[buf_current].active = 0;
 	buflist[buf_current].filename = NULL;
@@ -1683,7 +1655,7 @@ void buf_kill(int fd)
 		}
 	}
 	editor_set_status_message(
-	    "%s", editor.filename ? editor.filename : "[new]");
+	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
 
 /* Make the special buffer named `name` current so its content can be
@@ -1719,7 +1691,7 @@ static int buf_enter_special(const char *name, int *existing)
 	}
 	buf_current = slot;
 	buf_reset();
-	editor.filename = strdup(name);
+	bcur()->filename = strdup(name);
 	return slot;
 }
 
@@ -1754,7 +1726,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 	bcur()->dirty = 0;
-	editor.readonly_override = 1;
+	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
 	bcur()->syntax = syn;
 
@@ -2022,8 +1994,8 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 	bcur()->dirty = 0;
-	editor.readonly_override = readonly ? 1 : -1;
-	editor.readonly_local = 0;
+	bcur()->readonly_override = readonly ? 1 : -1;
+	bcur()->readonly_local = 0;
 	editor_refresh_readonly_state();
 	bcur()->syntax = syntax;
 
@@ -2127,8 +2099,8 @@ void buf_ibuffer_select(void)
 		if (strcmp(buflist[i].filename, filename) == 0) {
 			buf_save_current_state();
 			buf_restore_from_slot(i);
-			editor_set_status_message(
-			    "%s", editor.filename ? editor.filename : "[new]");
+			editor_set_status_message("%s",
+			    bcur()->filename ? bcur()->filename : "[new]");
 			return;
 		}
 	}
@@ -2161,7 +2133,7 @@ void editor_cleanup(void)
 		undo_stack_free(&b->undostack);
 		b->active = 0;
 	}
-	editor.filename = NULL;
+	bcur()->filename = NULL;
 	kill_ring_free();
 	rect_kill_ring_free();
 	kg_lisp_shutdown();

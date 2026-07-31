@@ -39,7 +39,7 @@ static void reset_state(void)
 	editor.screenrows = 22;
 	editor.screencols = 80;
 	editor.desired_visual_col = -1;
-	editor.filename = strdup("fuzz.txt");
+	bcur()->filename = strdup("fuzz.txt");
 	winlist[0].active = 1;
 	winlist[0].bufidx = 0;
 	winlist[0].h = 22;
@@ -85,7 +85,7 @@ static void seed_buffer(const uint8_t *data, size_t size)
 	buflist[0].numrows = bcur()->numrows;
 	buflist[0].row = bcur()->row;
 	buflist[0].dirty = bcur()->dirty;
-	buflist[0].filename = editor.filename;
+	buflist[0].filename = bcur()->filename;
 	buflist[0].syntax = bcur()->syntax;
 }
 
@@ -95,8 +95,8 @@ static void teardown_state(void)
 	undo_free();
 	rect_kill_ring_free();
 	kill_ring_free();
-	free(editor.filename);
-	editor.filename = NULL;
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 	free_rows();
 }
 

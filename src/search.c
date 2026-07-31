@@ -307,7 +307,7 @@ static int isearch_handoff_key(int fd, int c)
 		editor_move_cursor(ARROW_LEFT);
 		return 1;
 	case CTRL_D:
-		if (editor.readonly) {
+		if (bcur()->readonly) {
 			editor_set_status_message("Buffer is read-only");
 		} else {
 			editor_set_status_message("");

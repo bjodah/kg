@@ -15,6 +15,7 @@
 static void setup(void)
 {
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
@@ -1604,8 +1605,8 @@ static void test_transactional_open_reload(void)
 	setup();
 	editor_insert_row(bcur(), 0, "line1", 5);
 	editor_insert_row(bcur(), 1, "line2", 5);
-	editor.filename = strdup("test.txt");
-	CHECK(editor.filename != NULL);
+	bcur()->filename = strdup("test.txt");
+	CHECK(bcur()->filename != NULL);
 	CHECK(bcur()->numrows == 2);
 	CHECK(strcmp(bcur()->row[0].chars, "line1") == 0);
 	CHECK(strcmp(bcur()->row[1].chars, "line2") == 0);
@@ -1617,17 +1618,17 @@ static void test_transactional_open_reload(void)
 	if (fd != -1) {
 		CHECK(write(fd, "fresh", 5) == 5);
 		CHECK(close(fd) == 0);
-		editor.disk_changed = 1;
+		bcur()->disk_changed = 1;
 		CHECK(editor_open(path) == 0);
-		CHECK(editor.disk_changed == 0);
+		CHECK(bcur()->disk_changed == 0);
 		unlink(path);
 	}
 
 	free_all_rows();
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
-	free(editor.filename);
-	editor.filename = strdup("test.txt");
+	free(bcur()->filename);
+	bcur()->filename = strdup("test.txt");
 	editor_insert_row(bcur(), 0, "line1", 5);
 	editor_insert_row(bcur(), 1, "line2", 5);
 
@@ -1648,25 +1649,25 @@ static void test_transactional_open_reload(void)
 	/* and asserts that the buffer rows and filename are preserved intact.
 	 */
 	CHECK(open_res == 1);
-	CHECK(editor.filename != NULL);
-	CHECK(strcmp(editor.filename, "test.txt") == 0);
+	CHECK(bcur()->filename != NULL);
+	CHECK(strcmp(bcur()->filename, "test.txt") == 0);
 	CHECK(bcur()->numrows == 2);
 	CHECK(strcmp(bcur()->row[0].chars, "line1") == 0);
 	CHECK(strcmp(bcur()->row[1].chars, "line2") == 0);
 
 	/* Tries to reload using a directory name (e.g. set filename to `.` and
 	 * reload) */
-	free(editor.filename);
-	editor.filename = strdup(".");
+	free(bcur()->filename);
+	bcur()->filename = strdup(".");
 	buf_reload_from_disk();
 	/* asserts reload fails and preserves the previous rows. */
 	CHECK(bcur()->numrows == 2);
 	CHECK(strcmp(bcur()->row[0].chars, "line1") == 0);
 	CHECK(strcmp(bcur()->row[1].chars, "line2") == 0);
-	CHECK(strcmp(editor.filename, ".") == 0);
+	CHECK(strcmp(bcur()->filename, ".") == 0);
 
-	free(editor.filename);
-	editor.filename = NULL;
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 	teardown();
 }
 

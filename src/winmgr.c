@@ -297,7 +297,7 @@ void win_cycle_next(void)
 
 	win_activate_window();
 	editor_set_status_message(
-	    "%s", editor.filename ? editor.filename : "[new]");
+	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
 
 /* Delete the current window (C-x 0). */

@@ -48,7 +48,7 @@ void editor_move_cursor(int key)
 		editor.desired_visual_col = editor_visual_col(row, filecol);
 	}
 
-	if (editor.visual_line_mode) {
+	if (bcur()->visual_line_mode) {
 		struct editor_window *w = &winlist[win_current];
 		int win_w = w->w > 0 ? w->w : 1;
 		switch (key) {

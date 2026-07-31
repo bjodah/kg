@@ -31,6 +31,7 @@ static void setup(int n)
 	char buf[8];
 
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
@@ -455,9 +456,9 @@ static void test_overwrite_mode_toggle_and_replace(void)
 	editor.cx = 1;
 	editor.cy = 0;
 
-	CHECK(editor.overwrite_mode == 0);
+	CHECK(bcur()->overwrite_mode == 0);
 	editor_toggle_overwrite_mode();
-	CHECK(editor.overwrite_mode == 1);
+	CHECK(bcur()->overwrite_mode == 1);
 
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 5);
@@ -465,7 +466,7 @@ static void test_overwrite_mode_toggle_and_replace(void)
 	CHECK(editor.cx == 2);
 
 	editor_toggle_overwrite_mode();
-	CHECK(editor.overwrite_mode == 0);
+	CHECK(bcur()->overwrite_mode == 0);
 	teardown();
 }
 

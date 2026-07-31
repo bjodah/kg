@@ -129,7 +129,7 @@ int autorevert_poll(void) { return 0; }
 void buf_display_name(int idx, char *out, size_t outsize)
 {
 	(void)idx;
-	(void)snprintf(out, outsize, "%s", buf_basename(editor.filename));
+	(void)snprintf(out, outsize, "%s", buf_basename(bcur()->filename));
 }
 
 void win_split_horizontal(void) { }

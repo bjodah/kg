@@ -472,7 +472,6 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	struct editor_buffer *b = &buflist[bufidx];
 	const char *modename = b->syntax ? b->syntax->name : "Fundamental";
 	const char *changed = "";
-	int is_current = (is_active || bufidx == buf_current);
 	int dirty = b->dirty;
 	char pos[8];
 
@@ -481,7 +480,7 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	 * prepends the parent directory when another open buffer shares the
 	 * basename, so foo and dir/foo can be told apart. */
 	buf_display_name(bufidx, bname, sizeof(bname));
-	if (is_current ? editor.disk_changed : b->disk_changed) {
+	if (b->disk_changed) {
 		changed = " (changed)";
 	}
 
@@ -501,9 +500,9 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	    4); /* active: reverse; inactive: dim */
 
 	char mode_buf[128];
-	int readonly = is_current ? editor.readonly : b->readonly;
-	int vline = is_current ? editor.visual_line_mode : b->visual_line_mode;
-	int ovwrt = is_current ? editor.overwrite_mode : b->overwrite_mode;
+	int readonly = b->readonly;
+	int vline = b->visual_line_mode;
+	int ovwrt = b->overwrite_mode;
 
 	snprintf(mode_buf, sizeof(mode_buf), "%s%s%s%s", modename,
 	    vline ? " VLine" : "", ovwrt ? " Ovwrt" : "",
@@ -536,7 +535,7 @@ void editor_refresh_screen(void)
 	int msglen;
 
 	KG_PERF_INC(KG_PERF_REFRESH);
-	if (editor.visual_line_mode) {
+	if (bcur()->visual_line_mode) {
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = editor.rowoff + editor.cy;
 		int filecol = editor.coloff + editor.cx;
@@ -570,8 +569,7 @@ void editor_refresh_screen(void)
 		bidx = w->bufidx;
 		b = &buflist[bidx];
 
-		int vline = (bidx == buf_current) ? editor.visual_line_mode
-						  : b->visual_line_mode;
+		int vline = b->visual_line_mode;
 		/* The rows come from the buffer the window shows, whichever
 		 * window this is: there is one row array per buffer now, so
 		 * there is no longer a live copy to prefer over a stale one. */
@@ -711,7 +709,7 @@ void editor_refresh_screen(void)
 				cx += target - row->size;
 			}
 		}
-		if (editor.visual_line_mode) {
+		if (bcur()->visual_line_mode) {
 			int filerow = editor.rowoff + editor.cy;
 			int filecol = editor.coloff + editor.cx;
 			int win_w = w->w > 0 ? w->w : 1;

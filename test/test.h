@@ -6,8 +6,12 @@
 extern int tests_run;
 extern int tests_failed;
 
-/* Shared helper: free all rows and the row array of the global editor. */
+/* Shared helper: free all rows and the row array of the current buffer. */
 void free_all_rows(void);
+
+/* Shared helper: free the current buffer's rows and undo history and clear
+ * every per-buffer field. */
+void reset_current_buffer(void);
 
 #define CHECK(cond)                                                            \
 	do {                                                                   \

@@ -32,10 +32,11 @@
 static void setup(void)
 {
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
-	editor.readonly_override = -1;
+	bcur()->readonly_override = -1;
 	win_total_rows = 24;
 	win_total_cols = 80;
 	win_init();
@@ -258,8 +259,8 @@ static void check_load_highlight_is_final(
 	}
 	free(hl);
 	free(oc);
-	free(editor.filename);
-	editor.filename = NULL;
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 	unlink(path);
 	teardown();
 }
@@ -594,7 +595,7 @@ static void test_visual_line_scan_per_refresh(void)
 		editor_insert_row(
 		    bcur(), i, "a reasonably long line of text", 30);
 	}
-	editor.visual_line_mode = 1;
+	bcur()->visual_line_mode = 1;
 	kg_perf_reset();
 	refresh_quietly();
 	scans = counter(KG_PERF_VISUAL_ROW_SCAN);
@@ -602,7 +603,7 @@ static void test_visual_line_scan_per_refresh(void)
 	 * buffer several times over -- find_visual_row() rescans from row
 	 * 0 per screen row, and the mode line totals the whole buffer. */
 	CHECK(scans > (unsigned long long)rows);
-	editor.visual_line_mode = 0;
+	bcur()->visual_line_mode = 0;
 	teardown();
 }
 

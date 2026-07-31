@@ -155,6 +155,7 @@ static void drop_tree(const char *dir)
 static void setup(void)
 {
 	free_all_rows();
+	reset_current_buffer();
 	memset(&editor, 0, sizeof(editor));
 	editor.screenrows = 24;
 	editor.screencols = 80;
@@ -165,8 +166,8 @@ static void teardown(void)
 	free_all_rows();
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
-	free(editor.filename);
-	editor.filename = NULL;
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 }
 
 /* editor_open() on a directory is not an error: it turns the current
@@ -182,10 +183,10 @@ static void test_open_directory_lists_it(void)
 	setup();
 	CHECK(editor_open(dir) == 0);
 	CHECK(syntax_is_dired());
-	CHECK(editor.readonly == 1);
+	CHECK(bcur()->readonly == 1);
 	CHECK(bcur()->dirty == 0);
-	CHECK(editor.filename != NULL
-	    && strncmp(editor.filename, "*Dired: ", 8) == 0);
+	CHECK(bcur()->filename != NULL
+	    && strncmp(bcur()->filename, "*Dired: ", 8) == 0);
 	CHECK(bcur()->numrows == 3);
 	if (bcur()->numrows == 3) {
 		CHECK(strcmp(bcur()->row[1].chars, "  a.txt") == 0);

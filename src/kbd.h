@@ -31,4 +31,13 @@ void editor_process_keypress(int fd);
  * built-in declarations resolve to. */
 void key_install_builtin_maps(void);
 
+/* The two batched edits a numeric argument asks for: N lines killed as
+ * one undo record, and N copies of the kill ring yanked as one.  They
+ * write undo records by hand, which the mutation-gateway manifest counts
+ * in this file, so they stay here and the commands call them rather than
+ * the other way round -- until plan 02 moves both onto the edit
+ * gateway. */
+void key_kill_lines(int n);
+void key_yank_repeated(int n);
+
 #endif /* KG_KBD_H */

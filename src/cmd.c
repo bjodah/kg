@@ -795,6 +795,89 @@ static void cmd_self_insert(int fd)
 	}
 }
 
+/* ---- Deleting, killing and yanking ----
+ *
+ * Kill-ring coalescing is untouched here: every kill still appends to
+ * the ring the way it did, and giving consecutive kills their own
+ * behaviour is plan 05's change to make. */
+static void cmd_delete_char(int fd)
+{
+	(void)fd;
+	editor_del_forward_char();
+}
+
+/* The forward-delete key takes an active region first, which is what
+ * makes it delete-forward-char rather than delete-char. */
+static void cmd_delete_forward_char(int fd)
+{
+	int n = prefix_count();
+
+	(void)fd;
+	if (bcur()->mark_set && bcur()->mark_highlight) {
+		editor_delete_region_or_char();
+		return;
+	}
+	while (n-- > 0) {
+		editor_del_forward_char();
+	}
+}
+
+static void cmd_delete_backward_char(int fd)
+{
+	(void)fd;
+	editor_del_char();
+}
+
+/* A count kills that many whole lines under one undo record, which is
+ * not the same as killing one line N times. */
+static void cmd_kill_line(int fd)
+{
+	int n = prefix_count();
+
+	(void)fd;
+	if (n > 1) {
+		key_kill_lines(n);
+		return;
+	}
+	editor_kill_line();
+}
+
+static void cmd_kill_region(int fd)
+{
+	(void)fd;
+	editor_kill_region();
+}
+
+/* A count yanks that many copies as one insertion and one undo record. */
+static void cmd_yank(int fd)
+{
+	int n = prefix_count();
+
+	(void)fd;
+	if (n > 1 && killring.text && killring.len > 0) {
+		key_yank_repeated(n);
+		return;
+	}
+	editor_yank();
+}
+
+static void cmd_undo(int fd)
+{
+	(void)fd;
+	editor_undo();
+}
+
+/* The next byte is data, not a key: it is read here rather than by the
+ * decoder, which is why C-q is a command that reads input. */
+static void cmd_quoted_insert(int fd)
+{
+	int key = editor_read_raw_byte(fd);
+
+	if (running) {
+		editor_insert_char(key);
+	}
+}
+
 /* ---- Motions ----
  *
  * One line each, because the work is already a function somewhere: what
@@ -998,6 +1081,12 @@ static const struct named_cmd cmdtable[] = {
 	    "Capitalize the word forward from point" },
 	{ "compile", editor_compile, CMD_NONE,
 	    "Run a compile command and collect its output" },
+	{ "delete-backward-char", cmd_delete_backward_char, EDITS | REPEATS,
+	    "Delete the character before point" },
+	{ "delete-char", cmd_delete_char, EDITS | REPEATS,
+	    "Delete the character after point" },
+	{ "delete-forward-char", cmd_delete_forward_char, EDITS,
+	    "Delete the region, or the character after point" },
 	{ "delete-horizontal-space", cmd_delete_horizontal_space,
 	    EDITS | LISP_OK, "Delete spaces and tabs around point" },
 	{ "delete-trailing-space", cmd_delete_trailing_space, EDITS | LISP_OK,
@@ -1072,6 +1161,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Collapse spaces and tabs around point to one space" },
 	{ "kill-compilation", editor_kill_compilation, CMD_NONE,
 	    "Terminate the running compilation" },
+	{ "kill-line", cmd_kill_line, EDITS,
+	    "Kill to end of line, or a count of whole lines" },
+	{ "kill-region", cmd_kill_region, EDITS,
+	    "Kill the region into the kill ring" },
 	{ "kill-ring-save", cmd_kill_ring_save, CMD_NONE,
 	    "Copy the region to the kill ring" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
@@ -1101,6 +1194,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point one line up" },
 	{ "query-replace-regexp", cmd_query_replace_regexp, EDITS,
 	    "Replace regexp matches, asking about each one" },
+	{ "quoted-insert", cmd_quoted_insert, EDITS,
+	    "Insert the next byte typed, whatever it is" },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE,
 	    "Toggle whether this buffer refuses edits" },
 	{ "recenter-top-bottom", cmd_recenter_top_bottom, CMD_NONE,
@@ -1129,6 +1224,7 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle whether this buffer refuses edits" },
 	{ "transpose-chars", cmd_transpose_chars, EDITS | LISP_OK,
 	    "Transpose the characters around point" },
+	{ "undo", cmd_undo, EDITS | REPEATS, "Undo the last change" },
 	{ "upcase-word", cmd_upcase_word, EDITS | LISP_OK,
 	    "Convert the word forward from point to upper case" },
 	{ "version", cmd_version, LISP_OK, "Show the editor version" },
@@ -1140,6 +1236,7 @@ static const struct named_cmd cmdtable[] = {
 	    "Delete trailing whitespace on every line" },
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
+	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },
 	{ "zap-to-char", cmd_zap_to_char, EDITS,
 	    "Kill through the next occurrence of a character" },
 	{ NULL, NULL, CMD_NONE, NULL },

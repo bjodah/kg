@@ -1,5 +1,6 @@
 #include "../src/cmdstate.h"
 #include "../src/def.h"
+#include "../src/kbd.h"
 
 #include <fcntl.h>
 #include <stddef.h>
@@ -331,6 +332,93 @@ static void fuzz_window_line(int fd)
 
 static void fuzz_self_insert(int fd) { (void)fd; }
 
+static void fuzz_newline(int fd)
+{
+	(void)fd;
+	editor_insert_newline();
+}
+
+static void fuzz_open_line(int fd)
+{
+	(void)fd;
+	editor_open_line();
+}
+
+static void fuzz_overwrite_mode(int fd)
+{
+	(void)fd;
+	editor_toggle_overwrite_mode();
+}
+
+static void fuzz_delete_char(int fd)
+{
+	(void)fd;
+	editor_del_forward_char();
+}
+
+static void fuzz_delete_backward_char(int fd)
+{
+	(void)fd;
+	editor_del_char();
+}
+
+static void fuzz_delete_forward_char(int fd)
+{
+	(void)fd;
+	if (bcur()->mark_set && bcur()->mark_highlight) {
+		editor_delete_region_or_char();
+		return;
+	}
+	editor_del_forward_char();
+}
+
+static void fuzz_kill_line(int fd)
+{
+	int n
+	    = editor.current_prefix.supplied ? editor.current_prefix.value : 1;
+
+	(void)fd;
+	if (n > 1) {
+		key_kill_lines(n);
+		return;
+	}
+	editor_kill_line();
+}
+
+static void fuzz_kill_region(int fd)
+{
+	(void)fd;
+	editor_kill_region();
+}
+
+static void fuzz_yank(int fd)
+{
+	int n
+	    = editor.current_prefix.supplied ? editor.current_prefix.value : 1;
+
+	(void)fd;
+	if (n > 1 && killring.text && killring.len > 0) {
+		key_yank_repeated(n);
+		return;
+	}
+	editor_yank();
+}
+
+static void fuzz_undo(int fd)
+{
+	(void)fd;
+	editor_undo();
+}
+
+static void fuzz_quoted_insert(int fd)
+{
+	int key = editor_read_raw_byte(fd);
+
+	if (running) {
+		editor_insert_char(key);
+	}
+}
+
 static const struct named_cmd fuzz_cmdtable[] = {
 	{ "back-to-indentation", fuzz_back_to_indentation, CMD_NONE, "stub" },
 	{ "backward-char", fuzz_backward_char, CMD_REPEATS, "stub" },
@@ -352,6 +440,23 @@ static const struct named_cmd fuzz_cmdtable[] = {
 	{ "recenter-top-bottom", fuzz_recenter, CMD_NONE, "stub" },
 	{ "scroll-down-command", fuzz_scroll_down, CMD_NONE, "stub" },
 	{ "scroll-up-command", fuzz_scroll_up, CMD_NONE, "stub" },
+	{ "delete-backward-char", fuzz_delete_backward_char,
+	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "delete-char", fuzz_delete_char, CMD_EDITS_BUFFER | CMD_REPEATS,
+	    "stub" },
+	{ "delete-forward-char", fuzz_delete_forward_char, CMD_EDITS_BUFFER,
+	    "stub" },
+	{ "kill-line", fuzz_kill_line, CMD_EDITS_BUFFER, "stub" },
+	{ "kill-region", fuzz_kill_region, CMD_EDITS_BUFFER, "stub" },
+	{ "newline", fuzz_newline, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	/* The real one evaluates in Lisp buffers, which needs cmd.c. */
+	{ "newline-or-eval-print-last-sexp", fuzz_newline, CMD_EDITS_BUFFER,
+	    "stub" },
+	{ "open-line", fuzz_open_line, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "overwrite-mode", fuzz_overwrite_mode, CMD_NONE, "stub" },
+	{ "quoted-insert", fuzz_quoted_insert, CMD_EDITS_BUFFER, "stub" },
+	{ "undo", fuzz_undo, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "yank", fuzz_yank, CMD_EDITS_BUFFER, "stub" },
 	/* The fast path in kbd.c does the insertion itself and only asks
 	 * this row for the read-only verdict and the identity. */
 	{ "self-insert-command", fuzz_self_insert, CMD_EDITS_BUFFER, "stub" },

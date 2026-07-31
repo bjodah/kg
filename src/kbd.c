@@ -515,7 +515,7 @@ static int handle_dired_key(int c, int fd)
  * matching Emacs.  editor_kill_line() is a half-step primitive, so this
  * counts *newlines* removed (numrows dropped) rather than iterations.  A
  * stalled kill ring tells us we hit EOF and should stop. */
-static void key_kill_lines(int n)
+void key_kill_lines(int n)
 {
 	int start_row = editor_current_filerow_or_eof();
 	int start_col = editor_current_filecol();
@@ -548,7 +548,7 @@ static void key_kill_lines(int n)
  * reverses by deleting len chars forward, so the record only needs the
  * full N-copy byte count.  The caller has already established that the
  * kill ring holds something. */
-static void key_yank_repeated(int n)
+void key_yank_repeated(int n)
 {
 	int start_row = editor_current_filerow_or_eof();
 	int start_col = editor_current_filecol();
@@ -715,6 +715,16 @@ static const struct {
 	{ "C-j", "newline-or-eval-print-last-sexp" },
 	{ "C-o", "open-line" },
 	{ "<insert>", "overwrite-mode" },
+	{ "C-d", "delete-char" },
+	{ "C-k", "kill-line" },
+	{ "C-w", "kill-region" },
+	{ "S-<delete>", "kill-region" },
+	{ "C-y", "yank" },
+	{ "S-<insert>", "yank" },
+	{ "C-_", "undo" },
+	{ "DEL", "delete-backward-char" },
+	{ "<delete>", "delete-forward-char" },
+	{ "C-q", "quoted-insert" },
 };
 
 static struct keymap *global_map;
@@ -926,24 +936,12 @@ void editor_process_keypress(int fd)
 			editor_set_status_message("ESC %c is undefined", c);
 		}
 		break;
-	case CTRL_D: /* Delete char forward */
-		while (n--) {
-			editor_del_forward_char();
-		}
-		break;
 	case CTRL_G: /* Keyboard quit / cancel */
 		bcur()->mark_highlight = 0;
 		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 		cmd_clear_transient();
 		editor_set_status_message("");
-		break;
-	case CTRL_K: /* Kill line */
-		if (n > 1) {
-			key_kill_lines(n);
-		} else {
-			editor_kill_line();
-		}
 		break;
 	case CTRL_S: /* Incremental search */
 		editor_find(fd, 1);
@@ -956,17 +954,6 @@ void editor_process_keypress(int fd)
 	case CTRL_R:
 		editor_find(fd, -1);
 		break;
-	case CTRL_Q: {
-		int key = editor_read_raw_byte(fd);
-		if (running) {
-			editor_insert_char(key);
-		}
-		break;
-	}
-	case CTRL_W: /* Kill region (cut) */
-	case SHIFT_DELETE: /* CUA cut */
-		editor_kill_region();
-		break;
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
 		editor_set_status_message("C-x-");
@@ -975,38 +962,11 @@ void editor_process_keypress(int fd)
 		editor.cc_prefix = 1;
 		editor_set_status_message("C-c-");
 		return;
-	case CTRL_Y: /* Yank (paste) */
-	case SHIFT_INSERT: /* CUA paste */
-		if (n > 1 && killring.text && killring.len > 0) {
-			key_yank_repeated(n);
-		} else {
-			editor_yank();
-		}
-		break;
-	case CTRL_UNDERSCORE: /* Undo (C-_ or C-/) */
-		while (n--) {
-			editor_undo();
-		}
-		break;
 	case CTRL_H: /* Help */
 		buf_open_help();
 		break;
 	case CTRL_Z: /* Suspend to shell */
 		editor_suspend();
-		break;
-	case BACKSPACE: /* Backspace */
-		while (n--) {
-			editor_del_char();
-		}
-		break;
-	case DEL_KEY: /* Forward delete; consumes an active region first. */
-		if (bcur()->mark_set && bcur()->mark_highlight) {
-			editor_delete_region_or_char();
-		} else {
-			while (n--) {
-				editor_del_forward_char();
-			}
-		}
 		break;
 	case SHIFT_ARROW_LEFT:
 	case SHIFT_ARROW_RIGHT:

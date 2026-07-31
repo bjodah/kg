@@ -1142,6 +1142,21 @@ An empty confirmed command reports
 .Do
 No compile command
 .Dc .
+.It delete-backward-char
+Delete the character before point.
+Bound to
+.Ic Backspace .
+A numeric argument repeats it.
+.It delete-char
+Delete the character after point.
+Bound to
+.Ic C-d .
+A numeric argument repeats it.
+.It delete-forward-char
+Delete the active region if there is one, otherwise the character
+after point.
+Bound to
+.Ic Delete .
 .It delete-horizontal-space
 Delete spaces and tabs around point on the current line.
 Equivalent to
@@ -1245,6 +1260,17 @@ Equivalent to
 inside the
 .Pa *compilation*
 buffer.
+.It kill-line
+Kill from point to the end of the line, or with a numeric argument
+that many whole lines under one undo record.
+Bound to
+.Ic C-k .
+.It kill-region
+Kill the region into the kill ring.
+Bound to
+.Ic C-w
+and
+.Ic Shift-Delete .
 .It kill-ring-save
 Copy the region to the kill ring without deleting it.
 Bound to
@@ -1320,6 +1346,10 @@ A numeric argument repeats it.
 .It query-replace-regexp
 Prompted query replace with regexp matching.
 Supports \e&, \e1..\e9, \e\e expansions.
+.It quoted-insert
+Insert the next byte typed without interpreting it as a key.
+Bound to
+.Ic C-q .
 .It read-only-mode
 Toggle the current buffer between read-only and writable.
 Bound to
@@ -1402,6 +1432,13 @@ Equivalent to
 Transpose characters around point.
 Equivalent to
 .Ic C-t .
+.It undo
+Undo the last change.
+Bound to
+.Ic C-_
+(also
+.Ic C-/ ) .
+A numeric argument repeats it.
 .It upcase-word
 Convert the word forward from point to upper case.
 Equivalent to
@@ -1414,6 +1451,13 @@ Show current line, column, and percentage through the buffer.
 Remove trailing whitespace from every line in the buffer.
 Each modified line is independently reversible with
 .Ic C-_ .
+.It yank
+Insert the kill ring's contents at point, or with a numeric argument
+that many copies under one undo record.
+Bound to
+.Ic C-y
+and
+.Ic Shift-Insert .
 .It zap-to-char
 Prompt for a character, then kill from point through the next occurrence
 of that character.

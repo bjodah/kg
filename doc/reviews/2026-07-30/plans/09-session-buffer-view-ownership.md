@@ -1,5 +1,12 @@
 # Plan 09 — Session, buffer, view, and window ownership
 
+## Status (2026-07-31)
+
+Phases 0-5 are **landed**; phases 6 and 7 are **deferred**.  See
+[Landed / deferred](#landed--deferred) at the end of this document for
+what changed against the plan as written and where the next implementer
+picks up.
+
 ## Goal
 
 Give every piece of persistent editor state exactly one owner, delete the
@@ -499,3 +506,82 @@ Exit criteria:
 - every cross-command buffer reference is `(id, generation)`;
 - the Phase 0 native model and the new window/buffer PTY cases pass under
   ASan and Valgrind in both Lisp configurations.
+
+## Landed / deferred
+
+### Landed
+
+| Phase | State | Commits |
+| --- | --- | --- |
+| 0 — characterize | complete | `a21cfbe` (native model `test/test_winmgr.c`, `test/stubs_win.c`), `408f3cd` (stub fix it exposed) |
+| 1 — stable buffer identity | complete | `52fd089` |
+| 2 — buffer owns its text (flag day A) | complete | `12c041d` (accessor), `be1f45d` (flag day), `40c6cd5` (analyzer follow-up) |
+| 3 — filename, disk, options (flag day B) | complete | `4556cf8` |
+| 4 — marks (flag day C) | complete | `88edf96`, `3e83325` (coverage re-baseline) |
+| 5 — window owns the view (flag day D) | complete | `71d7caa` (accessor), `e16710a` (flag day), `1e26dcc` (fuzz harness + coverage), `861dbe2` (invariant 4 test) |
+
+All six copy protocols and the global undo stack are gone:
+
+```sh
+rg 'buf_save_to_slot|buf_restore_from_slot|buf_save_current_state' src/ test/
+rg 'win_save_active_view|win_restore_active_view|win_activate_window' src/ test/
+rg 'editor_buffer_swap|buf_temp_swap_(in|out)' src/ test/
+rg '(^|[^.>_[:alnum:]])undostack\b' src/ test/   # only the struct field
+rg 'editor\.(row|numrows|row_capacity|dirty|syntax|filename|disk|readonly|compile_command|mark_|shift_select|rect_mode|cx|cy|rowoff|coloff|screenrows|screencols|desired_visual_col)' src/ test/
+```
+
+all return nothing.  `struct editor_config` holds the terminal mode, the
+echo area, the prefix/command state and two command cycle states —
+session state, all of it.
+
+### Deviations, all deliberate
+
+- **Phase 3 moved the file/option fields flat** rather than regrouping
+  them into `struct file_snapshot` / `struct buffer_options`.  The plan
+  judged grouping cheaper than moving flat and regrouping later; that was
+  written before the fields turned out to already exist in `struct
+  editor_buffer` under the same names, which makes the move a pure
+  substitution and the grouping an independent rename of two structs.
+  Still worth doing — as a cleanup, not as part of a flag day.
+- **`winlist[].bufidx` stays a slot index.**  Every window is walked and
+  re-read on every frame, so a window outliving its buffer is a display
+  bug rather than a stale write.  Give it a handle when the window record
+  grows a lifecycle (phase 7), not inside a substitution.
+- **`clamp_cursor_to_buffer()` and `win_reflow()`'s clamps are not
+  folded.**  They answer different questions ("is point on a row that
+  exists?" and "is point inside the window?"), so folding them changes
+  behaviour, which a flag day must not.
+- **`undo_push()` took `struct editor_buffer *` in phase 2, not just
+  `bcur()`.**  gcc `-fanalyzer` cannot see that a store through a pointer
+  into an extern array escapes and read every push as a leak; a parameter
+  is clean, and it is the signature the plan wanted anyway.
+- **The plan's phase-2 hand-edit list did not mention the highlighter
+  callback.**  `struct editor_syntax.highlight` had to take the buffer:
+  multi-line state comes from the row above, which is only reachable
+  through the owning buffer, and with `bcur()` a hidden `*compilation*`
+  buffer would have read past the end of somebody else's row array.
+
+### Deferred
+
+**Phase 6 — nest the session record.**  Not started.  `struct
+editor_config editor` is not renamed to `struct kg_session` and
+`terminal` / `commands` / `echo` / `killring` are not nested;
+`win_total_rows`/`win_total_cols` and the rectangle kill ring are still
+bare globals.  This is a rename, and the plan puts it last precisely
+because it is noise; the struct is now about a dozen fields, which is the
+size the plan predicted it would be at this point.  Nothing else depends
+on it.
+
+**Phase 7 — lifecycle callbacks and accounting.**  Not started, with one
+exception: `KG_PERF_HANDLE_STALE` landed in phase 1 and counts handles
+that outlived the buffer they named.  The buffer-created /
+about-to-be-killed / killed / view-attached / view-detached hooks do not
+exist.  `buf_claim_slot()`, `buf_kill()`, `buf_attach_view()` and
+`buf_remember_view()` are the five points they attach to, and each is now
+a single named function, which is the thing that made this phase cheap to
+defer.
+
+**Where the next implementer starts.**  Either deferred phase can be done
+independently and in either order.  Phase 7's handle conversion for
+`winlist[].bufidx` should go with its lifecycle hooks.  Plan 10 depends
+on phases 2-4, which are landed, so it is not blocked by either.

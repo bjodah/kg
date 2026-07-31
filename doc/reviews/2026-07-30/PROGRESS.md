@@ -1,6 +1,6 @@
 # Implementation progress ledger
 
-Updated 2026-07-31, at the close of the second oversight review pass.
+Updated 2026-07-31, at the close of Plan 09.
 Source plans: [plans/00-master-roadmap.md](plans/00-master-roadmap.md).
 Each plan doc now carries its own deferred-work section where phases were
 consciously skipped; this file is the cross-plan index.
@@ -18,6 +18,7 @@ consciously skipped; this file is the cross-plan index.
 | 06 | complete (phases 1–5, 8 seeds; 6–7 deferred) | tiny-regex-c: published alignment contract with refusal; single emitter (fixed silent prefix-truncation); explicit parse stack with an Emacs-verified acceptance table; per-execution budgets + `re_exec_with_options` (cancel callback); honest `TOO_COMPLEX` on the repeat ceiling; submodule sanitizer CI had never been armed — fixed |
 | 07 | complete (stateful fuzz targets, mutation, portability deferred with notes) | `ci-12-subprojects` runs both submodule suites from root; per-symbol pmccabe baselines (kg 657 symbols, fe 189; new functions ≤15); per-file coverage floors with measured jitter allowance; `quality.json` + per-case results both layers; fuzz time budgets + tracked seeds (first seeded run found and fixed a `.dir-locals.el` NUL editor hang); differential walks whole match successions; hosted one-job-per-step workflow |
 | 08 | complete (phases 1–6; 5b/7/8/9/10/11 measured and deferred) | 22 perf counters + `test_perf` gate + `make bench`; 1M-line load 3341→756 ms (single highlight pass, syntax selection hoisted off the per-row path); frame buffer and row capacities (frames verified byte-identical); rect one-shot column edits (`KG_EDIT_NO_UNDO`); multiline insert local splice (no whole-buffer flatten) |
+| 09 | complete (phases 0–5; 6 and 7 deferred with notes) | one owner per field: buffers own text/undo/syntax/dirty, file identity, local options and marks; windows own point, scroll and goal column. All six copy protocols deleted (`buf_save_to_slot`, `buf_restore_from_slot`, `buf_save_current_state`, `win_save_active_view`, `win_restore_active_view`/`win_activate_window`, `buf_temp_swap_in/out`) plus the global `undostack` and `editor_set_syntax`'s dual write; `(id, generation)` buffer handles retire compilation's slot indices and kbd.c's filename-pointer identity; the goal-column leak across `C-x b` is fixed (P0's XFAIL flipped); `test/test_winmgr.c` is the first native model of buffers and windows together |
 
 Oversight cadence: intermediate Opus review after every two steps
 (4 passes, 13 follow-up commits across the three repos), plus two direct
@@ -35,9 +36,8 @@ status --recursive` for SHAs.
 
 | Plan | Waiting on |
 | --- | --- |
-| 09 session/buffer/view ownership | next in sequence |
-| 10 transactions/markers/hooks | Plan 09 phases 2–4 |
-| 11 command/keymap/mode registries | phases 1/2/6/7 anytime; modes after 09 |
+| 10 transactions/markers/hooks | unblocked (Plan 09 phases 2–4 landed) |
+| 11 command/keymap/mode registries | unblocked (ownership landed) |
 | 12 runtime/process/Lisp extensibility | 09/10/11 foundations |
 | 13 Emacs affordances | per-bundle dependencies (kill ring needs 11 phase 3) |
 | 14 coordinate-space invariants | after 03 (met); `RESTORE_HL` interim fix is its phase 2 |
@@ -56,5 +56,12 @@ status --recursive` for SHAs.
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
-- Complexity budget: kg scc is within ~12 points of its cap again — the
-  next structural plan should bank extractions early (Plan 15 phase 1 material).
+- Complexity budget: kg scc is at 4265 against a cap of 4280 — the next
+  structural plan should bank extractions early (Plan 15 phase 1 material).
+- Plan 09 phase 6 (nest the session record as `struct kg_session`) and
+  phase 7 (lifecycle hooks, `winlist[].bufidx` as a handle) are not
+  started; the plan doc's "Landed / deferred" section says where to pick
+  up.  Nothing depends on either.
+- Plan 09 phase 3 moved the file-identity and option fields flat rather
+  than grouping them into `struct file_snapshot` / `struct
+  buffer_options`; the grouping is now an independent rename.

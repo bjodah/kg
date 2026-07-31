@@ -300,7 +300,13 @@ $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check check-unit check-pty
+check: header-check docs-check check-unit check-pty
+
+# Cheap documentation drift: every key the built-in help table names has
+# to be spelled somewhere in kg(1).  Not a substitute for reading either
+# one -- it is what catches a binding added to src/help.c and nowhere else.
+docs-check:
+	@$(PYTHON) utils/check_help_drift.py
 
 # Compile each src/*.h as the first thing in its own translation unit.
 # The trailing declaration is there so a header that legitimately expands
@@ -608,7 +614,7 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check header-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check docs-check check-unit check-pty check-regex-differential \
 	bench complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

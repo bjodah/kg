@@ -204,7 +204,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Prefer the existing C harness for pure logic and `test/pty/*.yaml` for interactive editor behavior.
 - If you change user-visible behavior or keybindings, update `README.md`
   and/or `doc/kg.1`; also update the built-in help table in `src/help.c`
-  when a keybinding changes.
+  when a keybinding changes.  `make docs-check` (part of `make check`,
+  `utils/check_help_drift.py`) is the dumb half of that: every key the
+  help table names must be spelled somewhere in `doc/kg.1`, with the
+  handful of "the man page writes it in roff" spellings listed in the
+  script rather than tolerated.  It does not check the other direction --
+  kg(1) documents far more than one screen of help can.
+  Generating the help table's *text* from `struct named_cmd::summary`
+  would make this structural rather than checked, and is the right end
+  state, but it needs two things that do not exist yet: built-in keys
+  resolving to command names (plan 11 phase 3), and a second, ~15-column
+  summary per command, since the table's cells are that wide and the
+  registry's summaries are up to 60.
 - Command policy is one table: `cmdtable` in `src/cmd.c`, whose
   `struct named_cmd` (name, handler, flags, one-line summary) lives in
   `src/cmd.h`.  `CMD_EDITS_BUFFER` is the read-only verdict and

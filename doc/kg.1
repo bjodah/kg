@@ -24,8 +24,8 @@ Print a short usage message and exit.
 .Nm
 is a minimal terminal text editor with Emacs-style keybindings.
 It supports syntax highlighting for many programming languages,
-multiple buffers, split windows, incremental search, a kill ring,
-and undo/redo.
+multiple buffers, split windows, incremental search, a single-entry
+kill ring, and undo/redo.
 .Pp
 .Nm
 does not depend on curses; it uses VT100 escape sequences directly.
@@ -517,6 +517,8 @@ will be mis-detected as sentence ends.
 .It Delete Ta Delete character at point
 .It C-d Ta Delete character before point
 .It C-k Ta Kill from point to end of line
+.It M-d Ta Kill from point to the end of the next word
+.It M-Backspace Ta Kill from point back to the start of the previous word
 .It C-o Ta Open line (insert newline, keep cursor)
 .It C-q Ta Quoted-insert: insert the next byte literally
 .It C-t Ta Transpose characters around point
@@ -979,6 +981,7 @@ The macro buffer holds up to 1024 keystrokes.
 .It C-g Ta Cancel current operation
 .It C-l Ta Recenter: cycle current line to center, top, then bottom of window
 .It C-h Ta Open *help* buffer (q closes)
+.It C-z Ta Suspend kg to the shell; the job resumes with fg
 .It M-x Ta Execute named command
 .It M-: Ta Evaluate Lisp expression
 .It M-\&! Ta Run shell command; C-u prefix inserts output at point
@@ -1268,6 +1271,11 @@ when another buffer is available to switch to.
 .Pp
 The kill ring is global and shared across all buffers, so text killed in
 one buffer can be yanked in another.
+It holds a single entry: a kill replaces what was there, consecutive
+.Ic C-k
+kills append to it, and there is no
+.Ic M-y
+yank-pop with which to reach an older one.
 .Sh COMPILATION
 .Ic M-x compile
 prompts for a command line, prefilled with the current buffer's

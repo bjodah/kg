@@ -1,0 +1,11 @@
+name: isearch-ctrl-d-join-restores-highlight
+filename: join.txt
+initial: |
+  ab
+  cdefghijklmnopqrstuvwxyz0123456789
+keys:
+  - C-s
+  - ab
+  - C-d
+expected_saved: |
+  abcdefghijklmnopqrstuvwxyz0123456789

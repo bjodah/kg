@@ -3,6 +3,7 @@
 
 #include <ctype.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,15 +21,71 @@ static struct minibuf_history search_history;
 static struct minibuf_history regexp_search_history;
 static struct minibuf_history query_replace_history;
 
-#define RESTORE_HL                                                             \
-	do {                                                                   \
-		if (saved_hl) {                                                \
-			memcpy(bcur()->row[saved_hl_line].hl, saved_hl,        \
-			    bcur()->row[saved_hl_line].rsize);                 \
-			free(saved_hl);                                        \
-			saved_hl = NULL;                                       \
-		}                                                              \
-	} while (0)
+/* One search's highlight snapshot: the bytes lifted out of row->hl, how
+ * many of them there were, which row they came from, and the buffer's
+ * content generation when they were taken.  All four are needed because
+ * the snapshot outlives keys that can edit the buffer -- isearch hands
+ * C-d off to editor_del_forward_char(), which at end of line joins the
+ * next row into this one and grows its rsize under a snapshot sized
+ * before the join. */
+struct hl_snapshot {
+	unsigned char *hl;
+	int len;
+	int line;
+	uint64_t generation;
+};
+
+/* Put a snapshot back and drop it.  A row that changed since the save is
+ * left alone: the edit re-ran the highlighter over it already, so the
+ * snapshot describes text that is no longer there. */
+static void hl_snapshot_restore(struct hl_snapshot *snap)
+{
+	if (!snap->hl) {
+		return;
+	}
+	if (snap->line < bcur()->numrows
+	    && snap->generation == bcur()->content_generation) {
+		erow *row = &bcur()->row[snap->line];
+		/* TODO(plan-10): the saved length is what bounds this copy
+		 * until decorations live on the edit transaction; row->rsize
+		 * is the restore-time size and describes a different row. */
+		int n = snap->len < row->rsize ? snap->len : row->rsize;
+
+		memcpy(row->hl, snap->hl, (size_t)n);
+	}
+	free(snap->hl);
+	snap->hl = NULL;
+}
+
+/* Snapshot row `filerow`'s highlight, then paint the match at chars
+ * offsets [col, col + len) as HL_MATCH so the search question is asked
+ * about a visibly marked match.  row->hl is indexed in render bytes, so
+ * the span is converted here and every caller stays in chars space.
+ * Returns 0, or -1 when the snapshot could not be allocated; a row
+ * carrying no highlight array needs neither and reports success. */
+static int hl_snapshot_mark(
+    int filerow, int col, int len, struct hl_snapshot *snap)
+{
+	erow *row = &bcur()->row[filerow];
+	int rcol = chars_to_render_col(row, col);
+	int rlen = chars_to_render_col(row, col + len) - rcol;
+
+	if (!row->hl) {
+		return 0;
+	}
+	snap->hl = malloc((size_t)row->rsize);
+	if (!snap->hl) {
+		return -1;
+	}
+	snap->len = row->rsize;
+	snap->line = filerow;
+	snap->generation = bcur()->content_generation;
+	memcpy(snap->hl, row->hl, (size_t)row->rsize);
+	if (rcol + rlen <= row->rsize) {
+		memset(row->hl + rcol, HL_MATCH, (size_t)rlen);
+	}
+	return 0;
+}
 
 static int query_has_upper(const char *q, int qlen)
 {
@@ -224,32 +281,6 @@ static void query_replace_bounds(
 	*end_col = bcur()->numrows > 0 ? bcur()->row[*end_row].size : 0;
 }
 
-/* Snapshot the highlight of row `filerow` into *saved_hl, then paint the
- * match spanning render columns [rcol, rcol + rlen) as HL_MATCH so the
- * y/n question is asked about a visibly marked match.  Returns 0, or -1
- * when the snapshot could not be allocated; a row carrying no highlight
- * array needs neither and reports success.  RESTORE_HL puts the snapshot
- * back, so it stays with the caller that owns those two variables. */
-static int query_replace_mark_match(
-    int filerow, int rcol, int rlen, char **saved_hl, int *saved_hl_line)
-{
-	erow *row = &bcur()->row[filerow];
-
-	if (!row->hl) {
-		return 0;
-	}
-	*saved_hl = malloc(row->rsize);
-	if (!*saved_hl) {
-		return -1;
-	}
-	*saved_hl_line = filerow;
-	memcpy(*saved_hl, row->hl, row->rsize);
-	if (rcol + rlen <= row->rsize) {
-		memset(row->hl + rcol, HL_MATCH, rlen);
-	}
-	return 0;
-}
-
 static void editor_query_replace_newline(
     int fd, char *replace, int rlen, int start_row, int end_row)
 {
@@ -425,10 +456,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int start_col = 0;
 	int last_match_row = -1;
 	int last_match_col = -1;
-	int saved_hl_line = -1; /* No saved HL */
+	struct hl_snapshot snap = { 0 };
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
 	int too_complex = 0; /* last attempt ran out of engine budget */
-	char *saved_hl = NULL;
 	int qlen = 0;
 
 	/* Everything in this function is a chars byte offset: the search
@@ -450,24 +480,17 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			}
 		}
 
-		if (kind == SEARCH_REGEXP) {
-			if (!rx_valid) {
-				editor_set_status_message(
-				    "Regexp I-search [bad regexp]: %s", query);
-			} else if (too_complex) {
-				/* The pattern is fine; matching it against
-				 * this buffer is what the engine gave up on. */
-				editor_set_status_message(
-				    "Regexp I-search [too complex]: %s", query);
-			} else {
-				editor_set_status_message(
-				    "Regexp I-search %s: %s",
-				    fold ? "[fold]" : "[case]", query);
-			}
-		} else {
-			editor_set_status_message("I-search %s: %s",
-			    fold ? "[fold]" : "[case]", query);
-		}
+		/* One prompt for both kinds.  "[too complex]" says the
+		 * pattern is fine and matching it against this buffer is
+		 * what the engine gave up on; a literal search reaches
+		 * neither that state nor an invalid pattern. */
+		editor_set_status_message("%sI-search %s: %s",
+		    kind == SEARCH_REGEXP ? "Regexp " : "",
+		    !rx_valid	      ? "[bad regexp]"
+			: too_complex ? "[too complex]"
+			: fold	      ? "[fold]"
+				      : "[case]",
+		    query);
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
@@ -495,7 +518,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			if (c == ENTER) {
 				minibuf_history_add(hist, query);
 			}
-			RESTORE_HL;
+			hl_snapshot_restore(&snap);
 			editor_set_status_message("");
 			return;
 		} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_S) {
@@ -543,9 +566,12 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			}
 		} else if (isearch_handoff_key(fd, c)) {
 			/* A handoff ends the search on its match, which in
-			 * Emacs commits the query just like Enter does. */
+			 * Emacs commits the query just like Enter does.  The
+			 * key may have edited the buffer (C-d), so the
+			 * snapshot is only put back if it still fits the row
+			 * it came from. */
 			minibuf_history_add(hist, query);
-			RESTORE_HL;
+			hl_snapshot_restore(&snap);
 			return;
 		}
 
@@ -592,35 +618,18 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				too_complex = match < 0;
 
 				/* Highlight */
-				RESTORE_HL;
+				hl_snapshot_restore(&snap);
 
 				if (match > 0) {
-					erow *row = &bcur()->row[match_row];
 					last_match_row = match_row;
 					last_match_col = match_col;
-					if (row->hl) {
-						int rcol = chars_to_render_col(
-						    row, match_col);
-						int rlen
-						    = chars_to_render_col(row,
-							  match_col + match_len)
-						    - rcol;
-
-						saved_hl_line = match_row;
-						saved_hl = malloc(row->rsize);
-						if (!saved_hl) {
-							editor_set_status_message(
-							    "Out of memory");
-							running = 0;
-							RESTORE_HL;
-							return;
-						}
-						memcpy(saved_hl, row->hl,
-						    row->rsize);
-						if (rcol + rlen <= row->rsize) {
-							memset(row->hl + rcol,
-							    HL_MATCH, rlen);
-						}
+					if (hl_snapshot_mark(match_row,
+						match_col, match_len, &snap)
+					    != 0) {
+						editor_set_status_message(
+						    "Out of memory");
+						running = 0;
+						return;
 					}
 					point_col = match_col
 					    + (search_dir > 0 ? match_len : 0);
@@ -676,8 +685,7 @@ void editor_query_replace(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
 	char replace[KILO_QUERY_LEN + 1] = { 0 };
-	char *saved_hl = NULL;
-	int saved_hl_line = -1;
+	struct hl_snapshot snap = { 0 };
 	int slen, rlen;
 	int replace_nl, replace_tail;
 	int filerow, match_col;
@@ -731,14 +739,11 @@ void editor_query_replace(int fd)
 
 		editor_goto_line_direct(filerow + 1, match_col + 1);
 
-		/* Highlight the match.  Convert the chars offset to a render
-		 * offset so the highlight lands correctly even when tabs
-		 * precede the match on the line. */
-		RESTORE_HL;
-		if (query_replace_mark_match(filerow,
-			chars_to_render_col(&bcur()->row[filerow], match_col),
-			slen, &saved_hl, &saved_hl_line)
-		    != 0) {
+		/* Highlight the match.  The span is in chars offsets;
+		 * hl_snapshot_mark() converts it, so a tab before the match
+		 * on this line does not shift the highlight. */
+		hl_snapshot_restore(&snap);
+		if (hl_snapshot_mark(filerow, match_col, slen, &snap) != 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
 			return;
@@ -769,7 +774,7 @@ void editor_query_replace(int fd)
 			 * row's render size.  A length-changing replacement
 			 * regenerates hl, so restoring later would use the old
 			 * allocation with the new rsize. */
-			RESTORE_HL;
+			hl_snapshot_restore(&snap);
 
 			/* A replacement is one user operation: one row
 			 * rebuild, and one C-_ that removes the replacement
@@ -798,7 +803,7 @@ void editor_query_replace(int fd)
 		}
 	}
 
-	RESTORE_HL;
+	hl_snapshot_restore(&snap);
 	editor_set_status_message(
 	    count ? "Replaced %d occurrence%s." : "No replacements made.",
 	    count, count == 1 ? "" : "s");
@@ -904,8 +909,7 @@ void editor_query_replace_regexp(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
 	char replace[KILO_QUERY_LEN + 1] = { 0 };
-	char *saved_hl = NULL;
-	int saved_hl_line = -1;
+	struct hl_snapshot snap = { 0 };
 	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0, since_poll = 0;
@@ -996,12 +1000,8 @@ void editor_query_replace_regexp(int fd)
 
 		editor_goto_line_direct(filerow + 1, match_start + 1);
 
-		int rcol_start = chars_to_render_col(row, match_start);
-
-		RESTORE_HL;
-		if (query_replace_mark_match(filerow, rcol_start,
-			chars_to_render_col(row, match_end) - rcol_start,
-			&saved_hl, &saved_hl_line)
+		hl_snapshot_restore(&snap);
+		if (hl_snapshot_mark(filerow, match_start, match_len, &snap)
 		    != 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
@@ -1014,7 +1014,7 @@ void editor_query_replace_regexp(int fd)
 		if (!expanded) {
 			editor_set_status_message("Out of memory");
 			running = 0;
-			RESTORE_HL;
+			hl_snapshot_restore(&snap);
 			return;
 		}
 
@@ -1044,7 +1044,7 @@ void editor_query_replace_regexp(int fd)
 		}
 
 		if (answer != REPLACE_SKIP) {
-			RESTORE_HL;
+			hl_snapshot_restore(&snap);
 			if (!editor_row_replace_range(filerow, match_start,
 				match_len, expanded, expanded_len, 0)) {
 				free(expanded);
@@ -1071,7 +1071,7 @@ void editor_query_replace_regexp(int fd)
 		}
 	}
 
-	RESTORE_HL;
+	hl_snapshot_restore(&snap);
 	if (too_complex) {
 		editor_set_status_message(
 		    "Regexp too complex; stopped after %d replacement%s.",

@@ -213,7 +213,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # with 87 points of headroom to spend across plans 01-15; nothing raises
 # this again without a reviewed exception.  (History: 4199 -> 4208 for the
 # path picker's literal-accept answers.)
-SCC_COMPLEXITY_MAX ?= 4256
+SCC_COMPLEXITY_MAX ?= 4251
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

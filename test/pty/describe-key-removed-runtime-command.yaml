@@ -1,0 +1,33 @@
+# A keymap leaf holds a name, not a pointer, so a binding whose command
+# has been removed is reportable rather than dangerous.  The init file
+# defines a command, binds C-c u to it, and removes the command again;
+# describe-key still names the binding and says the command behind it is
+# not defined now, which is exactly the state dispatch would refuse in.
+name: describe-key-removed-runtime-command
+filename: describe-removed.txt
+backend: tmux
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun soon-gone ()
+      (interactive)
+      (insert "x"))
+    (global-set-key "C-c u" "soon-gone")
+    (remove-command "soon-gone")
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-key
+  - RET
+  - C-c
+  - u
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "C-c u"
+  - "soon-gone"
+  - "No command of that name is defined now"
+expected_screen_not_contains:
+  - "Not bound"

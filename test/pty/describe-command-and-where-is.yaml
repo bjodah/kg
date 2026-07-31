@@ -1,0 +1,29 @@
+# The two commands that take a name rather than a key.
+#
+# describe-command renders the registry's own row -- summary, read-only
+# verdict, Lisp callability -- plus every key that runs it, found by
+# walking the maps rather than by keeping a list beside them.  where-is
+# answers the same reverse lookup in the echo area, the way Emacs' does,
+# so it does not take the window away from what the user was reading.
+name: describe-command-and-where-is
+filename: describe-named.txt
+backend: tmux
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-command
+  - RET
+  - kill-region
+  - RET
+  - q
+  - M-x
+  - where-is
+  - RET
+  - upcase-word
+  - RET
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "upcase-word is on M-u"

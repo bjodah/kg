@@ -1194,6 +1194,34 @@ Reversible with
 Delete the current window.
 Bound to
 .Ic C-x 0 .
+.It describe-bindings
+List every key binding, with the map that holds it, in a read-only
+.Pa *Describe*
+buffer.
+Maps that are not active in the current buffer are listed too, so the
+dired and git-rebase keys are visible from anywhere.
+The order is the order the maps were installed in, not precedence; use
+.Ic describe-key
+to find out which binding wins for one key.
+.It describe-command
+Prompt for a command name and describe it in a read-only
+.Pa *Describe*
+buffer: its one-line summary, whether a read-only buffer refuses it,
+whether Lisp may reach it through
+.Ql (command-execute ...) ,
+and every key sequence bound to it.
+.It describe-key
+Read a key sequence and describe it in a read-only
+.Pa *Describe*
+buffer.
+Prefixes are followed the way ordinary dispatch follows them, so
+.Ic C-x r k
+is one question rather than three.
+The answer names the command, the map that answered, and \(em when a mode
+map is shadowing a lower layer \(em the binding it is standing in front
+of.
+A sequence nothing binds says so, and a binding whose command has been
+removed reports that instead of a stale name.
 .It downcase-word
 Convert the word forward from point to lower case.
 Equivalent to
@@ -1623,6 +1651,12 @@ Equivalent to
 .Ic M-u .
 .It version
 Print the editor version string in the status bar.
+.It where-is
+Prompt for a command name and report the key sequences that run it in
+the echo area.
+Answers from the keymaps as they are at that moment, so a binding made
+from the init file is included and one whose command has been removed is
+not.
 .It what-cursor-position
 Show current line, column, and percentage through the buffer.
 .It whitespace-cleanup

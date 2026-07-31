@@ -75,7 +75,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
-       display.c search.c basic.c word.c kbd.c yank.c undo.c help.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
+       display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c \
        width.c dired.c perf.c process.c
 
@@ -103,6 +103,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
+           $(TESTDIR)/test_describe \
            $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -221,7 +222,16 @@ SCC_COMPLEXITY_PATHS ?= src
 # path picker's literal-accept answers; 4280 -> 4223 -> 4221 -> 4217 ->
 # 4193 -> 4127 as the follow-up program's slices funded themselves and
 # banked what was left.)
-SCC_COMPLEXITY_MAX ?= 4127
+#
+# Raised 4127 -> 4152 by explicit decision for Plan 01 Phase 6, the four
+# describe commands.  That slice is additive by nature: it adds a way to
+# ask the command table and the keymaps what they hold, and there is
+# nothing it replaces to pay for it.  The funding candidates that remain
+# are parser state machines whose rewrite would be invented work, and the
+# three picker loops, which are a Plan 05/06-shaped refactor.  Measured
+# 4151 after the slice, so this is the ceiling and not a target -- and it
+# is still 71 below the 4223 this follow-up program started from.
+SCC_COMPLEXITY_MAX ?= 4152
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -537,6 +547,9 @@ EXTRA_keys        := $(EXTRA_cmd)
 # the UTF-8 decoder it shares with the display; the harness itself needs
 # the editor globals the other stub links provide.
 EXTRA_keymap      := $(EXTRA_cmd)
+# describe-bindings renders the real maps into a real buffer, so it needs
+# the same everything-but-main.c set the command table does.
+EXTRA_describe    := $(EXTRA_cmd)
 EXTRA_keyevent    := $(TESTDIR)/stubs.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 

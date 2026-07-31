@@ -12,6 +12,7 @@
 #include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
+#include "describe.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
@@ -1380,6 +1381,16 @@ static const struct named_cmd cmdtable[] = {
 	 * exactly the flag that refuses a command in a read-only buffer;
 	 * dired's commands guard themselves on the syntax pointer instead. */
 	{ "delete-window", cmd_delete_window, CMD_NONE, "Delete this window" },
+	/* The registries describing themselves.  All four are questions a
+	 * person asks: three read the terminal, and the fourth takes the
+	 * window away to show its answer, so none is CMD_LISP_CALLABLE --
+	 * the historical Lisp-callable set stays exactly what it was. */
+	{ "describe-bindings", describe_bindings, CMD_NONE,
+	    "Show every key binding and the map it is in" },
+	{ "describe-command", describe_command, CMD_NONE,
+	    "Show what a named command does and what runs it" },
+	{ "describe-key", describe_key, CMD_NONE,
+	    "Read a key and show the command it runs" },
 	{ "dired", cmd_dired, CMD_NONE, "Open a directory listing" },
 	{ "dired-do-flagged-delete", dired_do_flagged_delete, CMD_NONE,
 	    "Delete the files flagged in this listing" },
@@ -1580,6 +1591,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle wrapping long lines at the window edge" },
 	{ "what-cursor-position", cmd_what_cursor_position, LISP_OK,
 	    "Show the line, column and position at point" },
+	{ "where-is", describe_where_is, CMD_NONE,
+	    "Report the keys that run a named command" },
 	{ "whitespace-cleanup", cmd_whitespace_cleanup, EDITS,
 	    "Delete trailing whitespace on every line" },
 	{ "write-file", cmd_write_file, CMD_NONE,

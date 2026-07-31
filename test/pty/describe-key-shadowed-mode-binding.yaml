@@ -1,0 +1,29 @@
+# A mode map shadowing a global key, reported truthfully.
+#
+# In a read-only buffer the buffer-list map is live and binds RET, which
+# the global map binds to newline.  describe-key has to name the layer
+# that actually answers *and* what it is standing in front of -- and the
+# shadow line comes from looking the sequence up again with the winning
+# map switched off, not from reasoning about precedence, so it says what
+# the editor would really do.
+name: describe-key-shadowed-mode-binding
+filename: describe-shadow.txt
+backend: tmux
+args:
+  - -R
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-key
+  - RET
+  - RET
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "Bound in the buffer-list map"
+  - "ibuffer-visit-buffer"
+  - "Shadows newline, from the global map"
+expected_screen_not_contains:
+  - "Bound in the global map"

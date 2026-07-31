@@ -108,7 +108,7 @@ int keymap_format_sequence(
 	size_t used = 0;
 	int i;
 
-	if (!out || size == 0) {
+	if (!out || !size) {
 		return -1;
 	}
 	out[0] = '\0';

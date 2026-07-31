@@ -1,0 +1,26 @@
+# describe-key follows a prefix the way dispatch does: it keeps reading
+# while the maps say a longer sequence starts here, so "C-x r k" is one
+# question rather than three.  The answer names the whole sequence, and
+# lists the other key bound to the same command -- which is where the
+# reverse lookup earns its place.
+name: describe-key-prefix-sequence
+filename: describe-prefix.txt
+backend: tmux
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-key
+  - RET
+  - C-x
+  - r
+  - k
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "C-x r k"
+  - "kill-rectangle"
+  - "Refused in a read-only buffer"
+  # Both spellings of the same command, from the reverse lookup.
+  - "C-x r C-k"

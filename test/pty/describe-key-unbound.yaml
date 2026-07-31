@@ -1,0 +1,24 @@
+# An unbound key is an answer, not a failure.  C-c is a prefix with
+# nothing under it here, so "C-c z" is a complete sequence that no layer
+# claims: the page names the sequence it read and says so, and describes
+# no command at all.
+name: describe-key-unbound
+filename: describe-unbound.txt
+backend: tmux
+initial: |
+  alpha
+keys:
+  - M-x
+  - describe-key
+  - RET
+  - C-c
+  - z
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "C-c z"
+  - "Not bound"
+expected_screen_not_contains:
+  - "Bound in the"
+  - "read-only buffer"

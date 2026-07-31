@@ -52,10 +52,6 @@ jobs:
       matrix:
         step: ${{ fromJson(needs.discover.outputs.steps) }}
     env:
-      # The Makefile's defaults for these two are a developer box's
-      # layout (/opt-3); on any other machine they have to be told.
-      IWYU: include-what-you-use
-      IWYU_TOOL: iwyu_tool.py
       # A missing tmux or Emacs is a failure here, never a green skip.
       PTY_ACCEPT_ARGS: --require-tools
       SCC_VERSION: v3.7.0
@@ -73,7 +69,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential ccache clang clang-format clang-tidy \
             clang-tools cppcheck valgrind lcov pmccabe parallel \
-            ripgrep iwyu bear tmux emacs-nox \
+            iwyu bear tmux emacs-nox \
             python3-pexpect python3-yaml jq
       - name: Install scc
         run: |

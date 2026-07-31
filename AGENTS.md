@@ -116,6 +116,35 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `quality.yml` runs one job per `.ci/ci-NN-*.sh`, discovered from the
   same glob, with `--require-tools` so a missing tmux or Emacs fails
   instead of skipping.
+- The toolchain, and who needs it.  Every one of these is a bare name the
+  Makefile or a `.ci` step resolves through `PATH`, overridable by the
+  variable in parentheses; nothing is pinned to an absolute path any more.
+  `utils/print-tool-versions.sh` prints which of them this box has, and
+  what version, and is the thing to run first when a step fails only here.
+  - `make`, a C23 compiler (`CC`, default `gcc`) and `clang` (`CLANG_CC`,
+    `FUZZ_CC`) -- sanitizer lanes `ci-03`..`ci-05` and the fuzz targets are
+    clang-only.  `ccache` is optional and only ever a speed-up.
+  - `python3` or `python` (`PYTHON`) with `pexpect` and `PyYAML`: the PTY
+    harness and every ratchet script under `utils/`.  The Makefile picks
+    the first interpreter that can import both.
+  - `tmux`: PTY cases with `backend: tmux`.  `emacs` (`EMACS`,
+    `KG_PTY_EMACS`): `oracle: emacs` cases and
+    `make check-regex-differential`.  Both SKIP with a reason when
+    missing, unless `--require-tools` is passed.
+  - `scc` (`SCC`, tested at v3.7.0) and `pmccabe` (`PMCCABE`): the
+    complexity ratchets in `ci-01`.
+  - `lcov`, `genhtml`, `gcov`: `make coverage`, `ci-02`.
+  - `clang-format` (`CLANG_FORMAT`): `ci-07`.
+  - `bear` (`BEAR`), `clang-check`, `clang-tidy`, `cppcheck`,
+    `include-what-you-use` and `iwyu_tool.py` (`IWYU`, `IWYU_TOOL`), and
+    GNU `parallel` (`GNU_PARALLEL`): `ci-06`.  `parallel` must be GNU
+    parallel, not moreutils'.
+  - `valgrind` (`VALGRIND`): `ci-03`.
+  - `cbmc` (`CBMC`): `fe/tiny-regex-c`'s `make verify` only.  Nothing kg
+    runs needs it -- `make check` there runs `verify-syntax`, which asks
+    an ordinary compiler whether the CPROVER harness still builds.
+  - Hosted CI additionally needs `jq` (step discovery) and `go` (to
+    install `scc`); see `.github/workflows/quality.yml`.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.

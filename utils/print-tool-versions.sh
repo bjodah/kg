@@ -66,7 +66,6 @@ show clang-check clang-check --version
 show cppcheck cppcheck --version
 show bear bear --version
 show parallel parallel --version
-show rg rg --version
 show tmux tmux -V
 show emacs emacs --version
 show python3 python3 --version

@@ -482,11 +482,53 @@ int editor_open(char *filename)
 	return 0;
 }
 
-/* Save the current file on disk. Return 0 on success, 1 on error.
- * Special buffers (filename is NULL or starts with '*') prompt for a name. */
-int editor_save(int fd)
+/* The decision an ordinary save needs: the object on disk must still be the
+ * one this buffer accepted.  Returns 1 to proceed. */
+static int confirm_save_over_accepted(
+    int fd, const char *path, const struct file_snapshot *accepted)
 {
-	struct stat st;
+	enum file_change_state state
+	    = file_snapshot_compare_path(path, accepted);
+
+	if (state == FILE_SAME) {
+		return 1;
+	}
+	if (state == FILE_UNKNOWN) {
+		return editor_confirm_yn(fd,
+		    "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
+	}
+	return editor_confirm_yn(
+	    fd, "File %s changed on disk.  Save anyway? (y/n) ", path);
+}
+
+/* The decision adopting a name needs: prompts whenever `path` names an
+ * existing object that is not the exact file this buffer already accepted.
+ * Metadata equality is never allowed to answer "does this destination
+ * exist?" — only the absence of an object is. */
+static int confirm_destination_exists(
+    int fd, const char *path, const struct file_snapshot *accepted)
+{
+	struct file_snapshot dest;
+
+	(void)file_snapshot_path(path, &dest);
+	if (!dest.valid) {
+		return editor_confirm_yn(fd,
+		    "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
+	}
+	if (!dest.id.present
+	    || file_snapshot_compare(accepted, &dest) == FILE_SAME) {
+		return 1;
+	}
+	return editor_confirm_yn(
+	    fd, "File %s exists.  Overwrite? (y/n) ", path);
+}
+
+/* Save the current file on disk. Return 0 on success, 1 on error.
+ * Special buffers (filename is NULL or starts with '*') prompt for a name.
+ * `destination_decided` is set by write-file, which has already asked about
+ * the destination it is adopting; asking again here would double-prompt. */
+static int editor_save_named(int fd, int destination_decided)
+{
 	char *newfilename;
 	int len = 0;
 	char *old_filename = NULL;
@@ -504,12 +546,9 @@ int editor_save(int fd)
 			return 1;
 		}
 
-		/* If the entered path already exists, warn before clobbering —
-		 * and do it *before* mutating the buffer's filename or syntax
-		 * so that a "no" answer leaves the buffer untouched. */
-		if (stat(newname, &st) == 0
-		    && !editor_confirm_yn(
-			fd, "File %s exists.  Overwrite? (y/n) ", newname)) {
+		/* Ask *before* mutating the buffer's filename or syntax so a
+		 * "no" answer leaves the buffer untouched. */
+		if (!confirm_destination_exists(fd, newname, &editor.disk)) {
 			editor_set_status_message("Save aborted");
 			return 1;
 		}
@@ -526,14 +565,10 @@ int editor_save(int fd)
 
 		editor.filename = newfilename;
 		editor_select_syntax_highlight(editor.filename);
-	} else if (file_snapshot_compare_path(editor.filename, &editor.disk)
-	    != FILE_SAME) {
-		if (!editor_confirm_yn(fd,
-			"File %s changed on disk.  Save anyway? (y/n) ",
-			editor.filename)) {
-			editor_set_status_message("Save aborted");
-			return 1;
-		}
+	} else if (!destination_decided
+	    && !confirm_save_over_accepted(fd, editor.filename, &editor.disk)) {
+		editor_set_status_message("Save aborted");
+		return 1;
 	}
 
 	if (editor_write_rows_to_file(
@@ -565,6 +600,8 @@ writeerr:
 	return 1;
 }
 
+int editor_save(int fd) { return editor_save_named(fd, 0); }
+
 /* Prompt for a new filename, write the buffer there, and adopt that name.
  * This is Emacs C-x C-w (write-file / save as). */
 void editor_write_file(int fd)
@@ -578,6 +615,16 @@ void editor_write_file(int fd)
 	    || !newname[0]) {
 		return;
 	}
+
+	/* The destination question belongs here, against the typed name and
+	 * before it is adopted: once editor.filename says the buffer owns the
+	 * name, a save can only ask whether that file changed, which is a
+	 * different question about a different file. */
+	if (!confirm_destination_exists(fd, newname, &editor.disk)) {
+		editor_set_status_message("Save aborted");
+		return;
+	}
+
 	newfilename = strdup(newname);
 	if (!newfilename) {
 		editor_set_status_message("Out of memory");
@@ -586,15 +633,19 @@ void editor_write_file(int fd)
 
 	char *old_filename = editor.filename;
 	struct editor_syntax *old_syntax = editor.syntax;
+	struct file_snapshot old_disk = editor.disk;
 
 	editor.filename = newfilename;
 	editor_select_syntax_highlight(editor.filename);
 
-	if (editor_save(fd) != 0) {
-		/* Save failed: restore previous filename and syntax */
+	if (editor_save_named(fd, 1) != 0) {
+		/* Save failed: restore the previous name, syntax and snapshot
+		 * together — a buffer left holding another file's metadata
+		 * would measure its next save against the wrong file. */
 		free(editor.filename);
 		editor.filename = old_filename;
 		editor.syntax = old_syntax;
+		editor.disk = old_disk;
 	} else {
 		/* Save succeeded: free the old filename and update syntax of
 		 * rows */

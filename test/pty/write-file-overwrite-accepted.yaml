@@ -1,0 +1,34 @@
+# The other half of write-file-existing-destination-prompts: answering "y"
+# overwrites the destination and the buffer adopts its name, so the mode
+# line names the destination and the original file is left as it was on
+# disk.
+name: write-file-overwrite-accepted
+filename: notes.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |
+  notes
+keys:
+  - C-x
+  - C-w
+  - "dest.txt"
+  - RET
+  - C-x
+  - C-f
+  - "notes.txt"
+  - RET
+  - "X"
+  - C-x
+  - C-w
+  - "dest.txt"
+  - RET
+  - "y"
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "Wrote"
+  - "dest.txt"
+expected_screen_not_contains:
+  - "Save aborted"

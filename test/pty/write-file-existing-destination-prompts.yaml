@@ -1,0 +1,41 @@
+# C-x C-w onto a name that already holds a file asks about that file, before
+# the buffer adopts the name.  The question used to be asked (if at all)
+# after the swap, when it could only compare the destination against the
+# *previous* file's metadata — so a destination that happened to share a
+# size and an mtime second was overwritten in silence.
+#
+# The destination is created by an earlier C-x C-w rather than by
+# config_files, because the path prompt is prefilled with the current file's
+# directory and that temporary directory has no predictable name.
+#
+# Answering "n" happens in the trailer so the screen capture still shows the
+# open prompt; the following C-x C-s then proves the buffer kept its own
+# name and saved there.
+name: write-file-existing-destination-prompts
+filename: notes.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |
+  notes
+keys:
+  - C-x
+  - C-w
+  - "dest.txt"
+  - RET
+  - C-x
+  - C-f
+  - "notes.txt"
+  - RET
+  - "X"
+  - C-x
+  - C-w
+  - "dest.txt"
+  - RET
+trailer_keys: ["n", C-x, C-s, C-x, C-c]
+expected_saved: |
+  Xnotes
+expected_screen_contains:
+  - "exists"
+  - "Overwrite"
+  - "notes.txt"

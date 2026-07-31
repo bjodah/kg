@@ -1445,7 +1445,21 @@ error, a symlink loop — is tagged the same way: unable to check is never
 reported as unchanged.
 On
 .Ic C-x C-s
-against such a buffer the user is prompted to confirm before overwriting.
+against such a buffer the user is prompted to confirm before overwriting,
+either
+.Sq File ... changed on disk.  Save anyway?
+or, when the file cannot be examined at all,
+.Sq Cannot verify ... on disk.  Save anyway? .
+Both default to no.
+.Pp
+.Ic C-x C-w
+asks a different question about a different file: whenever the name typed
+there already exists and is not the file the buffer already holds, it
+prompts
+.Sq File ... exists.  Overwrite?
+before the buffer adopts the name.
+Declining leaves the buffer, its name and its recorded file state exactly
+as they were.
 .Pp
 With
 .Ic auto-revert-mode

@@ -51,7 +51,11 @@ standard VT100 escape sequences.
   the completion (an intentional deviation from Emacs), and so does
   `RET` when the last component is `.` or `..`, so `C-x C-f . RET`
   opens the prompt's directory in dired the way Emacs does
-- Detects external changes to open files; optional auto-revert
+- Detects external changes to open files by identity, not just by
+  timestamp: a replaced, removed or unexaminable file is flagged and a
+  save over it asks first; optional auto-revert reloads only what can
+  still be read back. `C-x C-w` asks before it overwrites an existing
+  destination
 - Shell commands (M-!) and pipe-region-through-command (M-|); a prefix
   argument inserts/replaces with the output instead of just displaying it;
   both entry points recall previous commands from one shared history

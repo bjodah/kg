@@ -109,7 +109,7 @@ static void rect_row_replace_with_spaces(erow *row, int lo, int hi)
 	}
 	memset(row->chars + lo, ' ', hi - lo);
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Snapshot rows [start_row, end_row) joined with '\n' for undo storage.
@@ -291,7 +291,7 @@ static void rect_kill_or_delete(int save_to_ring)
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message(
 	    save_to_ring ? "Rectangle killed" : "Rectangle deleted");
 }
@@ -337,7 +337,7 @@ void editor_clear_rect(void)
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Rectangle cleared");
 }
 
@@ -405,7 +405,7 @@ void editor_yank_rect(void)
 	suppress_undo = 0;
 
 	rect_deactivate();
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Rectangle yanked");
 }
 
@@ -452,7 +452,7 @@ void editor_string_rect(int fd)
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Rectangle replaced");
 }
 

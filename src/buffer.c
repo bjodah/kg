@@ -24,6 +24,23 @@ static int editor_saturating_add(int a, int b)
 	return a > INT_MAX - b ? INT_MAX : a + b;
 }
 
+/* One change to a buffer's content happened.
+ *
+ * `dirty` is the modified flag the mode line and the quit prompt read; it
+ * counts up and is reset to zero when the buffer is saved or undone back
+ * to its saved state, so only its nonzero-ness means anything.
+ * `content_generation` never resets, which is what makes it usable as an
+ * identity: two samples that differ mean bytes changed in between, and
+ * two that match mean they did not.  A command that samples it before
+ * dispatch and after can tell whether it edited anything -- which the
+ * dirty counter could not, because the paths that set it to 1 leave it at
+ * 1 when it was already there. */
+void buffer_note_change(struct editor_buffer *b)
+{
+	b->dirty++;
+	b->content_generation++;
+}
+
 static int editor_virtual_insert_gap_too_large(erow *row, int at)
 {
 	if (!row) {
@@ -473,7 +490,7 @@ void editor_insert_row(
 	};
 	b->numrows++;
 	editor_update_row(b, b->row + at);
-	b->dirty++;
+	buffer_note_change(b);
 }
 
 /* Free row's heap allocated stuff. */
@@ -527,7 +544,7 @@ void editor_del_row(struct editor_buffer *b, int at)
 		b->row[j].idx--;
 	}
 	b->numrows--;
-	b->dirty++;
+	buffer_note_change(b);
 	editor_rehighlight_from(b, at);
 }
 
@@ -1047,7 +1064,7 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 	}
 	editor_cursor_goto(
 	    filerow + nl, bcur()->row[filerow + nl].size - suffix_len);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	return 1;
 }
 
@@ -1104,7 +1121,7 @@ void editor_row_insert_char(erow *row, int at, int c)
 	}
 	row->chars[at] = c;
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 void editor_row_insert_string(erow *row, int at, const char *s, int len)
@@ -1150,7 +1167,7 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len)
 	row->size = new_size;
 	row->chars[new_size] = '\0';
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 void editor_row_insert_spaces(erow *row, int at, int len)
@@ -1193,7 +1210,7 @@ void editor_row_append_string(erow *row, char *s, size_t len)
 	row->size += (int)len;
 	row->chars[row->size] = '\0';
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Delete the character at offset 'at' from the specified row. */
@@ -1205,7 +1222,7 @@ void editor_row_del_char(erow *row, int at)
 	memmove(row->chars + at, row->chars + at + 1, row->size - at);
 	row->size--;
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Insert the specified char at the current prompt position. */
@@ -1256,7 +1273,7 @@ void editor_insert_char(int c)
 	} else {
 		wcur()->cx++;
 	}
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Split the current line at the cursor without auto-indent.
@@ -1545,7 +1562,7 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 	row->size = new_size;
 	row->chars[new_size] = '\0';
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	return 1;
 }
 
@@ -1595,7 +1612,7 @@ void editor_del_char(void)
 		    &bcur()->row[filerow - 1], row->chars, row->size);
 		editor_del_row(bcur(), filerow);
 		editor_cursor_goto(filerow - 1, filecol);
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 		return;
 	}
 	/* Backspace removes one whole character, however many bytes it
@@ -1634,7 +1651,7 @@ void editor_del_forward_char(void)
 		editor_row_append_string(row, bcur()->row[filerow + 1].chars,
 		    bcur()->row[filerow + 1].size);
 		editor_del_row(bcur(), filerow + 1);
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 		return;
 	}
 	/* Forward-delete takes the whole glyph at point and leaves point
@@ -1706,7 +1723,7 @@ void editor_overwrite_char(int c)
 	}
 
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 
 	if (wcur()->cx == wcur()->w - 1) {
 		wcur()->coloff++;
@@ -1808,7 +1825,7 @@ void editor_kill_line(void)
 		row->chars[filecol] = '\0';
 		row->size = filecol;
 		editor_update_row(bcur(), row);
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 	}
 }
 
@@ -1889,7 +1906,7 @@ void editor_transpose_chars(void)
 	editor_replace_rows_from_text(newbuf, len);
 	editor_flat_offset_to_row_col(newbuf, len, b_end, &row, &col);
 	editor_cursor_goto(row, col);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 
 	free(orig);
 	free(repl);

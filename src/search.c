@@ -205,7 +205,7 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 	editor_del_row(bcur(), rowidx + 1);
 	suppress_undo = 0;
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Emacs restricts query-replace to the region when one is active; otherwise

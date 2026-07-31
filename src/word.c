@@ -172,7 +172,7 @@ void editor_kill_word_forward(void)
 	    row->size - start_col - kill_len + 1);
 	row->size -= kill_len;
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Kill from start of current word back to cursor, saving text to kill ring
@@ -231,7 +231,7 @@ void editor_kill_word_backward(void)
 	    row->size - filecol - kill_len + 1);
 	row->size -= kill_len;
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Move to the beginning of the previous paragraph (or beginning of buffer) */
@@ -660,7 +660,7 @@ void editor_join_line(void)
 	/* Move cursor to join point */
 	editor_cursor_goto(prev_row_idx, join_col);
 
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }
 
 /* Delete spaces and tabs around point on the current line (M-\). */
@@ -709,7 +709,7 @@ void editor_delete_horizontal_space(void)
 	row->size -= len;
 	editor_update_row(bcur(), row);
 	editor_cursor_goto(filerow, start);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Deleted horizontal space");
 }
 
@@ -787,7 +787,7 @@ void editor_just_one_space(void)
 	}
 	editor_update_row(bcur(), row);
 	editor_cursor_goto(filerow, start + 1);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Just one space");
 }
 
@@ -879,7 +879,7 @@ void editor_zap_to_char(int fd, int count)
 	}
 	suppress_undo = 0;
 	free(text);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("Zapped");
 }
 
@@ -934,7 +934,7 @@ static void do_word_case(int mode)
 		}
 	}
 	editor_update_row(bcur(), row);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 
 	/* Two undo records (LIFO): first pop deletes transformed text, second
 	 * re-inserts original */
@@ -1065,7 +1065,7 @@ void editor_comment_dwim(void)
 			    scslen + 1);
 		}
 	}
-	bcur()->dirty = 1;
+	buffer_note_change(bcur());
 }
 
 /* Reflow the current paragraph to FILL_COLUMN (M-q).
@@ -1473,7 +1473,7 @@ void editor_rebase_set_action(const char *action)
 		col = start + nlen;
 	}
 	editor_cursor_goto(filerow, col);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	editor_set_status_message("%s", action);
 }
 
@@ -1518,5 +1518,5 @@ void editor_rebase_move_line(int dir)
 	editor_update_syntax(bcur(), &bcur()->row[top + 1]);
 
 	editor_cursor_goto(other, filecol);
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 }

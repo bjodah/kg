@@ -383,7 +383,7 @@ static int editor_delete_region_range(
 		    r->size - end_col + 1);
 		r->size -= end_col - start_col;
 		editor_update_row(bcur(), r);
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 		return 1;
 	}
 
@@ -415,7 +415,7 @@ static int editor_delete_region_range(
 	for (row = start_row + 1; row < bcur()->numrows; row++) {
 		bcur()->row[row].idx = row;
 	}
-	bcur()->dirty++;
+	buffer_note_change(bcur());
 	return 1;
 }
 
@@ -645,6 +645,6 @@ void editor_sort_lines(void)
 	bcur()->rect_mode = 0;
 	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
-	bcur()->dirty = 1;
+	buffer_note_change(bcur());
 	editor_set_status_message("Sorted %d lines", nlines);
 }

@@ -410,6 +410,10 @@ struct editor_buffer {
 	erow *row;
 	int row_capacity;
 	int dirty;
+	/* Bumped once per content change and never reset, so a command can
+	 * sample it before and after and know whether it edited anything.
+	 * See buffer_note_change(). */
+	uint64_t content_generation;
 	char *filename;
 	struct editor_syntax *syntax;
 	int mark_set;
@@ -613,6 +617,7 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
 int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
+void buffer_note_change(struct editor_buffer *b);
 void editor_update_row(struct editor_buffer *b, erow *row);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
 int editor_row_grown_capacity(int need);

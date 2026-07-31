@@ -157,7 +157,7 @@ void editor_undo(void)
 			erow *row = &bcur()->row[op->row];
 			if (op->col < row->size) {
 				editor_row_del_char(row, op->col);
-				bcur()->dirty++;
+				buffer_note_change(bcur());
 			}
 		}
 		break;
@@ -167,7 +167,7 @@ void editor_undo(void)
 		if (op->row < bcur()->numrows) {
 			erow *row = &bcur()->row[op->row];
 			editor_row_insert_char(row, op->col, op->c);
-			bcur()->dirty++;
+			buffer_note_change(bcur());
 		}
 		break;
 
@@ -175,7 +175,7 @@ void editor_undo(void)
 		/* Reverse: delete the line */
 		if (op->row < bcur()->numrows) {
 			editor_del_row(bcur(), op->row);
-			bcur()->dirty++;
+			buffer_note_change(bcur());
 		}
 		break;
 
@@ -183,7 +183,7 @@ void editor_undo(void)
 		/* Reverse: insert the line */
 		if (op->text) {
 			editor_insert_row(bcur(), op->row, op->text, op->len);
-			bcur()->dirty++;
+			buffer_note_change(bcur());
 		}
 		break;
 
@@ -212,7 +212,7 @@ void editor_undo(void)
 			if (op->row + 1 < bcur()->numrows) {
 				editor_del_row(bcur(), op->row + 1);
 			}
-			bcur()->dirty++;
+			buffer_note_change(bcur());
 		}
 		break;
 
@@ -236,7 +236,7 @@ void editor_undo(void)
 			row->size = split_col;
 			row->chars[split_col] = '\0';
 			editor_update_row(bcur(), row);
-			bcur()->dirty++;
+			buffer_note_change(bcur());
 		}
 		break;
 
@@ -305,7 +305,7 @@ void editor_undo(void)
 			}
 		}
 		suppress_undo = 0;
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 		break;
 	}
 
@@ -340,7 +340,7 @@ void editor_undo(void)
 			}
 		}
 		suppress_undo = 0;
-		bcur()->dirty++;
+		buffer_note_change(bcur());
 		break;
 	}
 	}

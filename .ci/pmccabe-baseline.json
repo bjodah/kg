@@ -17,6 +17,7 @@
   "src/basic.c:editor_move_to_indentation": 4,
   "src/basic.c:editor_move_to_window_line": 5,
   "src/buffer.c:buffer_byte_length": 3,
+  "src/buffer.c:buffer_note_change": 1,
   "src/buffer.c:buffer_position_to_row_col": 4,
   "src/buffer.c:buffer_row_col_to_position": 7,
   "src/buffer.c:editor_buffer_char_length": 2,

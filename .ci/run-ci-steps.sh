@@ -296,6 +296,12 @@ mkdir -p "${lane_root}" "${CI_RUN_DIR}/logs"
 # instead of asking git for them.  The cheap-to-name artifacts are skipped while
 # copying; `make distclean coverage-clean` then removes the rest (test binaries,
 # fuzz binaries, ...) without duplicating the Makefile's lists here.
+#
+# test/.results is excluded for a different reason than size: a lane that
+# inherits it and never runs `make check` copies it back out again, and the
+# run then reports a full acceptance suite for a step that ran none.  A lane
+# starts with no results and keeps only what it measured.  test/.bench is a
+# generated corpus cache that no step reads.
 copy_tree() {
 	local dest=$1
 
@@ -305,6 +311,8 @@ copy_tree() {
 		--exclude=.ci/.run \
 		--exclude=coverage \
 		--exclude=compile_commands.json \
+		--exclude=test/.results \
+		--exclude=test/.bench \
 		--exclude='*.o' \
 		--exclude='*.gcda' \
 		--exclude='*.gcno' \

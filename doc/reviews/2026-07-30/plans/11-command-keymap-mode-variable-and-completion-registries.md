@@ -496,3 +496,130 @@ make check
 make WITH_LISP=0 clean all check
 .ci/run-ci-steps.sh --parallel
 ```
+
+## Landed / deferred
+
+### Landed
+
+| Phase | State | Commits |
+| --- | --- | --- |
+| 7 — first slice: one two-pass rank filter for the name pickers | partial | `3f3238a` |
+| 1 — authoritative command descriptors; allow-list deleted; the Lisp read-only gap closed | complete | `759c5c0` |
+| 6 — one applier and one name table behind the three envelope scanners | partial (the value application; no `struct editor_variable`, no new settable variables) | `210ef56` |
+| 2, 3, 4, 5, 8 | not started | — |
+
+Counters at the close: `scc` 4276 at the start of the work, 4256 at the
+end, with `SCC_COMPLEXITY_MAX` lowered to match at each step (4280 →
+4271 → 4256, never raised).  `make check` is 20 unit binaries and 282
+PTY cases, green in both Lisp configurations; the full twelve-step
+runner is green at every one of the three commits.  Worst `pmccabe` is
+`localvars_parse_footer` at 93, down from 100; `editor_named_command`
+50 → 43, `buf_select_interactive` 33 → 28,
+`localvars_parse_modeline` 65 → 56, `dlr_apply_pair` 38 → 35.
+
+Self-funding arithmetic, in commit order:
+
+| Commit | scc before → after | Note |
+| --- | --- | --- |
+| `3f3238a` picker filter | 4276 → 4268 | pure dedup; caps deliberately *not* lowered, the 12 points banked for the next commit |
+| `759c5c0` command descriptors | 4268 → 4271 | the registry's net cost, paid by the line above; cap lowered to 4271 |
+| `210ef56` variable appliers | 4271 → 4256 | pure dedup; cap lowered to 4256 |
+
+### What phase 1 actually changed
+
+- `struct named_cmd` is in `def.h` with `CMD_LISP_CALLABLE` and a
+  one-line `summary`; `cmd_invoke(name, ctx)` is the only route into a
+  command and owns the read-only refusal, the Lisp-callability verdict
+  and the prefix argument.  `cmd_execute_named()` is a wrapper, so
+  `kbd.c` is untouched; `cmd_execute_named_with_prefix()` and
+  `cmd_static_exists()` are deleted along with their three stub copies.
+- `allowed_commands[]` in `lisp.c` is deleted.  `(command-execute ...)`
+  asks `cmd_invoke()` and translates the verdict, preserving both error
+  strings exactly (`command is not allowed: %s`, `buffer is read-only`),
+  which three PTY cases pin.
+- **The live gap is closed.**  A Lisp-defined command used to fall
+  through `cmd_execute_named()` into `kg_lisp_run_command()` with no
+  descriptor, so a read-only buffer refused it only if the body happened
+  to reach a native that guards itself — and then as a Lisp error,
+  mid-command.  `test/pty/lisp-defined-command-readonly.yaml` fails at
+  `3f3238a` (*missing screen text: 'Buffer is read-only'; unexpected
+  screen text: 'Lisp error'*) and passes at `759c5c0`.
+- Until phase 8, every Lisp-defined command counts as
+  `CMD_EDITS_BUFFER`.  That is a user-visible restriction and is
+  documented in `README.md` and `doc/kg.1`.
+- `test/test_cmd.c` is new and links every translation unit except
+  `main.c` (so `test/stubs_perf.c` is now `test/stubs_main.c`).  It
+  asserts the table is sorted and unique, that every entry has a handler
+  and a summary of at most 60 columns with no trailing period, and that
+  the `CMD_LISP_CALLABLE` set is exactly the historical eleven with the
+  same mutation verdicts the deleted `mutates` field carried.
+- `test/test.h` gains `CHECKF`, a `CHECK` that can name the offending
+  element.
+
+### Deviations, all deliberate
+
+- **`CMD_MAY_PROMPT`, `CMD_OK_READ_ONLY` and `CMD_INTERNAL` were not
+  added.**  Nothing reads them: no command is hidden from M-x today, and
+  a flag with no consumer is a claim the tests cannot check.  `test_cmd`
+  rejects any flag bit outside the two that exist, so adding one is a
+  deliberate act.
+- **`CMD_ORIGIN_HOOK` and `CMD_ORIGIN_MACRO` were not added** for the
+  same reason; the enum has the three origins that exist (key, M-x,
+  Lisp).  Only the Lisp origin is policed differently, and it is the
+  only one that reports refusal as an error rather than an echo-area
+  message — which is the whole reason `origin` is in the context at all.
+- **Phase 7 was started before phase 1, not after it.**  The command
+  registry costs complexity and the ratchets had four points of
+  headroom; the picker dedup is the plan's own phase 7 work and paid for
+  it.  Only the two-pass rank filter moved — `minibuffer_session` does
+  not exist, and the path picker is untouched, because it ranks through
+  `editor_path_complete_entries()`, which sorts rather than filters.
+- **Phase 6 landed the applier, not the registry.**  `localvars_kind()`
+  is the one statement of which names exist and what kind of value each
+  takes, and `localvars_apply_bool()`/`localvars_apply_string()` are the
+  one statement of what a value means; the three scanners keep their
+  grammars, as the plan requires.  What is *not* there is
+  `struct editor_variable` with `scope`, `file_local_safe`, `validate`,
+  `get` and `set`, and the four new settable variables (`auto-revert`,
+  `visual-line-mode`, `overwrite-mode`, `electric-pair-mode`).  Those
+  four would each widen what a downloaded file can change and the plan
+  itself asks for a safety argument per variable; registering them as
+  `file_local_safe = false` first would be a registry nothing can use.
+  The cross-envelope matrix in `test_localvars` passes against the three
+  old copies as well as the new applier, so it is characterization, not
+  a bug fix — say so.
+- **Two `localvars` questions were left as they are, on purpose**: the
+  modeline still skips a `#!` first line before looking for the marker,
+  and `dirlocals_find()` still walks to `/` rather than stopping at a
+  project root.  Both are recorded here so they are decisions rather
+  than oversights.
+
+### Pick-up points
+
+- **Phase 2 (`key_parse`/`key_format`) was skipped deliberately.**  It
+  has no consumer until phase 3: nothing today formats a key, and
+  `keybind_parse` already parses the one syntax that is bindable.
+  Landing it alone is infrastructure the tests can only exercise
+  directly.  Start it *with* phase 3.
+- **Phase 3 is the next real unit of work and is large.**  The
+  migration order in this document still holds.  Note that `P0` already
+  spent the one sanctioned re-baseline on `editor_process_keypress`
+  (120 → 85, and the `optimize("O0")`/`-Wanalyzer-out-of-bounds`
+  workaround is already gone, so that part of phase 3's acceptance is
+  met); the function measures 84 today against a cap of 110, so there is
+  room to route dispatch through a map before deleting branches.
+- **`readonly_blocked_keys[]` (`src/kbd.c:17`) is the last surviving
+  second opinion on the read-only verdict** and is the acceptance
+  criterion this work did not meet.  It cannot go until built-in keys
+  resolve to command names, i.e. phase 3 step 1.
+- **Phase 4's drift test is still blocked.**  `kg_help_lines[]` cells
+  are a 9-column key field and a 15-column abbreviation, not command
+  names, so "every key resolves to a bound command" needs the keymap and
+  "every summary matches its descriptor" needs a name in the cell.  The
+  `summary` field phase 1 added is the half that now exists.
+- **Phase 7's remaining loops** are `editor_read_line_path`
+  (`pmccabe` 49) and `editor_named_command` (43); both still own their
+  cancel handshake, backspace and Tab handling.  The two divergences the
+  plan names (M-x accepting ASCII only; the path picker deliberately
+  giving `C-b`/`C-f` to cursor motion) are both still true and still
+  unresolved.

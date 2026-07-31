@@ -201,8 +201,9 @@ ordered by value vs implementation effort.
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist
       - grow the `command-execute` allow-list deliberately (policy per
-        command).  It is still the eleven entries in `allowed_commands`
-        in `src/lisp.c`
+        command).  The list is gone: it is the `CMD_LISP_CALLABLE` flag
+        on `cmdtable` in `src/cmd.c`, still the same eleven commands,
+        and `cmd_invoke()` is the one place that reads it
       - **word constituents disagree between the two layers**: the global
         `is_word_char()` in `src/word.c` is ASCII-only (`isalnum() || '_'`),
         so `M-f`, `M-b`, `M-@`, `M-d` and the Lisp `forward-word` /

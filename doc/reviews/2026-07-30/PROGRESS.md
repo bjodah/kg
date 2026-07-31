@@ -1,6 +1,7 @@
 # Implementation progress ledger
 
-Updated 2026-07-31, at the close of Plan 10 phases 1-3.
+Updated 2026-07-31, at the close of Plan 11 phases 1, 6 (partial) and 7
+(first slice).
 Source plans: [plans/00-master-roadmap.md](plans/00-master-roadmap.md).
 Each plan doc now carries its own deferred-work section where phases were
 consciously skipped; this file is the cross-plan index.
@@ -19,6 +20,7 @@ consciously skipped; this file is the cross-plan index.
 | 07 | complete (stateful fuzz targets, mutation, portability deferred with notes) | `ci-12-subprojects` runs both submodule suites from root; per-symbol pmccabe baselines (kg 657 symbols, fe 189; new functions ≤15); per-file coverage floors with measured jitter allowance; `quality.json` + per-case results both layers; fuzz time budgets + tracked seeds (first seeded run found and fixed a `.dir-locals.el` NUL editor hang); differential walks whole match successions; hosted one-job-per-step workflow |
 | 08 | complete (phases 1–6; 5b/7/8/9/10/11 measured and deferred) | 22 perf counters + `test_perf` gate + `make bench`; 1M-line load 3341→756 ms (single highlight pass, syntax selection hoisted off the per-row path); frame buffer and row capacities (frames verified byte-identical); rect one-shot column edits (`KG_EDIT_NO_UNDO`); multiline insert local splice (no whole-buffer flatten) |
 | 09 | complete (phases 0–5; 6 and 7 deferred with notes) | one owner per field: buffers own text/undo/syntax/dirty, file identity, local options and marks; windows own point, scroll and goal column. All six copy protocols deleted (`buf_save_to_slot`, `buf_restore_from_slot`, `buf_save_current_state`, `win_save_active_view`, `win_restore_active_view`/`win_activate_window`, `buf_temp_swap_in/out`) plus the global `undostack` and `editor_set_syntax`'s dual write; `(id, generation)` buffer handles retire compilation's slot indices and kbd.c's filename-pointer identity; the goal-column leak across `C-x b` is fixed (P0's XFAIL flipped); `test/test_winmgr.c` is the first native model of buffers and windows together |
+| 11 | partial (phase 1 complete; phase 6's applier and phase 7's rank filter; 2-5 and 8 not started) | command policy is one table: `struct named_cmd` in `def.h` carries `CMD_EDITS_BUFFER`, `CMD_LISP_CALLABLE` and a one-line summary, and `cmd_invoke()` is the only route into a command -- it owns the read-only refusal, the Lisp-callability verdict and the prefix argument. `allowed_commands[]` in `lisp.c` is deleted (both its error strings pinned by PTY cases), and the live gap is closed: a Lisp-defined command used to fall through `cmd_execute_named()` with no descriptor, so a read-only buffer refused it only if the body reached a self-guarding native, and then as a mid-command Lisp error. Every Lisp-defined command now counts as one that edits the buffer, documented in README and kg.1. `test_cmd.c` (the tree's second everything-but-main.c binary) asserts the table's invariants. Two dedups fund it: one two-pass rank filter behind M-x and `C-x b`, and one value applier plus one name table behind the three file-local envelope scanners, whose scanners stay separate. scc 4276 -> 4256 with `SCC_COMPLEXITY_MAX` lowered at each step and never raised |
 | 10 | partial (phases 1–3 and phase 7's detectors; 4–6, 8, 9 not started) | one mutation gateway exists and is failure-atomic: `kg_buffer_replace()` stages the replaced text, the rows that replace it, the row-array growth and the undo record, and only then publishes, so a refused or failed edit leaves text, undo, modified flag and generation untouched. `UNDO_CHANGE` is one record for any edit and replays through the same primitive (`KG_EDIT_REPLAY`), so there is no second splice to disagree. Four callers migrated, each of which *was* a second splice — transpose-chars (no longer rebuilds every row), multiline insert, `editor_row_replace_range`, yank's region delete — paying for the layer: scc 4265 → 4269. Byte positions are the editor's one position dialect (`buffer_byte_length`/`row_col_to_position`/`position_to_row_col`), codepoints are the Lisp adapter's alone. `content_generation` replaces the dirty counter as the "did this command edit?" signal, closing the hole where `dirty = 1` said nothing on an already-modified buffer. `make gateway-check` is the census of what still mutates by hand: 227 → 209 sites, may only shrink |
 
 Oversight cadence: intermediate Opus review after every two steps
@@ -37,9 +39,8 @@ status --recursive` for SHAs.
 
 | Plan | Waiting on |
 | --- | --- |
-| 11 command/keymap/mode registries | unblocked (ownership landed) |
-| 12 runtime/process/Lisp extensibility | 09/10/11 foundations (10's hook queue is its phase 8, not started) |
-| 13 Emacs affordances | per-bundle dependencies (kill ring needs 11 phase 3) |
+| 12 runtime/process/Lisp extensibility | 09/10/11 foundations (10's hook queue is its phase 8, not started; 11 phases 3 and 8 not started) |
+| 13 Emacs affordances | per-bundle dependencies (kill ring needs 11 phase 2/3, which are not started: there is still no `ALT_Y`, so M-y and M-t remain blocked on the keymap) |
 | 14 coordinate-space invariants | after 03 (met); `RESTORE_HL` interim fix is its phase 2 |
 | 15 structural/toolchain hygiene | anytime; phase 4 partly done by 06/07 (CBMC repaired, drivers honest) |
 
@@ -58,13 +59,12 @@ status --recursive` for SHAs.
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
-- Complexity budget: kg scc is at 4276 against a cap of 4280 — four
-  points of headroom, the tightest it has been.  Plan 10's transaction
-  cost 4 points net because each caller it took over deleted a
-  hand-rolled splice, and oversight pass 5's four defect fixes cost 7
-  more; the remaining phases (markers, decorations, hooks) have to be
-  funded from phase 9's migration, and the next commit that is not a
-  migration should expect to have to find its own room first.
+- Complexity budget: kg scc is at 4256 against a cap of 4256 — no
+  headroom, which is the normal state here.  Plan 11's registries were
+  sequenced dedup-first for exactly this reason: the picker filter freed
+  8 points, the command descriptors spent 3 of them, and the file-local
+  appliers freed 15 more.  The next commit that is not a migration
+  should expect to have to find its own room first.
 - `src/compile.c:389` (ArrayBound on the pending-line buffer) is fixed
   (oversight pass 5).  It was the only finding in the whole compilation
   database once ci-06's analysers were made to run at all — see the
@@ -134,3 +134,18 @@ Found by audit, judged real, and **not** fixed — with what is known:
   Cheap to tighten; the helper-wrapping hole needs a rule, not a regex.
 - The mode line of a *non-selected* window is correct by construction and
   has no PTY case asserting it.
+
+## Open, from plan 11
+
+- `readonly_blocked_keys[]` (`src/kbd.c:17`) is the third statement of
+  the read-only verdict and the one plan 11 phase 1 could not delete: it
+  keys off keycodes, and built-in keys do not resolve to command names
+  until phase 3 step 1.  It agrees with `cmdtable` today.
+- Plan 11 phases 2 and 3 are the blocking pair for plan 13's kill ring,
+  M-y and M-t: kg has no modifier bits, Meta combinations are separate
+  enumerators in one flat enum, and there is no `ALT_Y` at all.
+- Plan 11 phase 6 landed the value application, not the typed variable
+  registry.  The four new settable variables the plan lists
+  (`auto-revert`, `visual-line-mode`, `overwrite-mode`,
+  `electric-pair-mode`) each widen what a downloaded file can change and
+  were deliberately not registered.

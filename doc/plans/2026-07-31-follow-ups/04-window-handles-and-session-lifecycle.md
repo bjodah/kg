@@ -1,5 +1,38 @@
 # Plan 04 — Window handles and session lifecycle
 
+## Status (2026-07-31, after the handle campaign)
+
+Phases 0, 1 and 2 are complete.  `editor_window.bufidx` is gone:
+`struct editor_window` holds a `kg_buffer_handle`, `win_buffer()` /
+`win_buffer_slot()` / `win_shows_buffer()` are the only readers, and
+`win_buffer_slot()` answers -1 rather than an index for a handle that has
+died.  `win_check_handles()` runs at the top of the main loop, before the
+repaint.  `KG_DEBUG_STATE` arms six of the seven invariants and is on in
+`.ci/ci-04`.  scc went 4116 → 4123 against the 4127 cap: the flag day
+itself was −9 (six duplicated window scans collapsed onto one predicate;
+two functions stopped distinguishing `wcur()` from the window already in
+hand), and the invariant checker spent +16 of that back.
+
+Deliberately not done:
+
+- **The seventh invariant has nothing to check.**  Buffer-owned marker
+  and decoration handles arrive with Plan 03.
+- **No new perf counter.**  `KG_PERF_HANDLE_STALE` now counts only a
+  handle that once named a buffer and no longer does — a zeroed view is
+  asked about on every window scan and no longer inflates it — so a
+  nonzero value already *is* the invariant question, and a second
+  "views repaired" counter would answer it twice.
+- **Phase 3 is blocked** on Plan 03's event queue, and a parallel
+  callback registry is not a substitute.
+- **Phase 4 is deferred** by the program's ordering.
+
+Buffer identity is 64-bit.  The claim that the counter "never repeats" is
+the whole reason it exists, and 32 bits does not get to make it: 4.29
+billion claims is a number, and a wrapped id would hand a live buffer the
+identity a long-dead one's handle still holds.  A claim that reaches
+`UINT64_MAX` refuses to reuse, leaving the slot with id 0, which
+`buf_resolve()` never matches.
+
 ## Decision — auto-revert stays restricted to `buf_current`
 
 Taken 2026-07-31 after characterizing the reload

@@ -1,0 +1,26 @@
+# A replacement holding a separator splits the row it lands in, and the
+# loop has to resume on the row that split produced.
+#
+# `C-q C-j` puts a literal newline in the replacement, so each "X" becomes
+# an end of line.  The replaced row keeps only the bytes before the match,
+# and the resume column used to be measured against the row's old length:
+# the next `strstr` then started past the end of a heap block one or two
+# bytes long.  Under the ASan lane that is a heap-buffer-overflow; without
+# it the loop read whatever followed in the heap.
+#
+# Emacs is the oracle because the answer is not obvious: the replacement
+# is applied to every later match too, on rows that did not exist when the
+# command started.
+name: query-replace-newline-replacement
+filename: query-replace-newline-replacement.txt
+initial: "aXaXa\n"
+keys:
+  - ESC
+  - "%"
+  - "X"
+  - RET
+  - C-q
+  - C-j
+  - RET
+  - "!"
+oracle: emacs

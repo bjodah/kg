@@ -1,0 +1,24 @@
+# The same split, bounded by a region: the region's last row and last
+# column both move down with the rows the replacement makes.
+#
+# The region runs from the start of the buffer to the end of the second
+# line, so the "X" on the third line must survive.  Each replacement adds
+# a row above the region's end, and the end column is measured on a row
+# that is about to be cut in two -- get either wrong and the command
+# either stops early or runs past the region.
+name: query-replace-newline-replacement-region
+filename: query-replace-newline-replacement-region.txt
+initial: "aXbXc\ndXeXf\ngXh\n"
+keys:
+  - C-SPC
+  - C-n
+  - C-e
+  - ESC
+  - "%"
+  - "X"
+  - RET
+  - C-q
+  - C-j
+  - RET
+  - "!"
+oracle: emacs

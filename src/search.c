@@ -653,6 +653,25 @@ static int skip_one_glyph(erow *row, int col)
 	return col + (span > 0 ? span : 1);
 }
 
+/* How a replacement reshapes the row it lands in.  `*nl` rows appear
+ * below that row, and `*tail` is how many bytes of the replacement follow
+ * its last separator -- which is the column the bytes that came after the
+ * match end up at, on the last of the new rows.  With no separator the
+ * row count does not move and `*tail` is the whole replacement. */
+static void replacement_shape(const char *replace, int rlen, int *nl, int *tail)
+{
+	int i;
+
+	*nl = 0;
+	*tail = rlen;
+	for (i = 0; i < rlen; i++) {
+		if (replace[i] == '\n') {
+			(*nl)++;
+			*tail = rlen - i - 1;
+		}
+	}
+}
+
 void editor_query_replace(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
@@ -660,6 +679,7 @@ void editor_query_replace(int fd)
 	char *saved_hl = NULL;
 	int saved_hl_line = -1;
 	int slen, rlen;
+	int replace_nl, replace_tail;
 	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0;
@@ -690,6 +710,7 @@ void editor_query_replace(int fd)
 	filerow = start_row;
 	match_col = start_col;
 	fold = !query_has_upper(search, slen);
+	replacement_shape(replace, rlen, &replace_nl, &replace_tail);
 
 	while (filerow <= end_row && filerow < bcur()->numrows) {
 		char *match = case_strstr(
@@ -739,6 +760,11 @@ void editor_query_replace(int fd)
 		}
 
 		if (answer != REPLACE_SKIP) {
+			/* Where the region's end sits relative to the match,
+			 * measured before the row it shares with it moves. */
+			int after = end_col - match_col - slen;
+			int resume;
+
 			/* Restore the snapshot while it still matches this
 			 * row's render size.  A length-changing replacement
 			 * regenerates hl, so restoring later would use the old
@@ -753,10 +779,18 @@ void editor_query_replace(int fd)
 				break;
 			}
 
+			/* A replacement holding a separator splits the row, so
+			 * both the resume point and the region's end land on a
+			 * row that did not exist a moment ago.  Without this
+			 * the next search would start past the end of the (now
+			 * much shorter) row it thinks it is still on. */
+			resume = replace_nl ? replace_tail : match_col + rlen;
 			if (filerow == end_row) {
-				end_col += rlen - slen;
+				end_col = resume + after;
 			}
-			match_col += rlen;
+			end_row += replace_nl;
+			filerow += replace_nl;
+			match_col = resume;
 			count++;
 		} else {
 			match_col

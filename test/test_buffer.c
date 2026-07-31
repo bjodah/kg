@@ -1641,6 +1641,52 @@ static void test_edit_internal_changes_text_without_dirtying(void)
 	teardown();
 }
 
+/* Replacing bytes with the same bytes changes nothing, so it costs
+ * nothing: no undo record, no modified flag, no generation step.  It
+ * still succeeds -- the buffer does hold what the caller asked for --
+ * and query-replace of a zero-width pattern by the empty string is the
+ * caller that asks for it once per glyph. */
+static void test_edit_by_identical_bytes_is_no_change(void)
+{
+	struct kg_edit e;
+	struct kg_edit_result res;
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "beta", 4);
+	bcur()->dirty = 0;
+	generation = bcur()->content_generation;
+
+	CHECK(edit_at(1, 3, "lp", KG_EDIT_USER) == 1); /* inside a row */
+	CHECK(edit_at(3, 8, "ha\nbe", KG_EDIT_USER) == 1); /* across one */
+	CHECK(edit_at(2, 2, "", KG_EDIT_USER) == 1); /* nothing by nothing */
+	CHECK(edit_at(0, 10, "alpha\nbeta", KG_EDIT_USER) == 1); /* all of it */
+
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nbeta") == 0);
+	free(text);
+	CHECK(bcur()->content_generation == generation);
+	CHECK(bcur()->dirty == 0);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->numrows == 2);
+
+	/* The result says the same thing: nothing between the two
+	 * generations, and the length it started with. */
+	e = kg_edit_user(bcur(), 1, 3, "lp", 2);
+	CHECK(kg_buffer_replace(&e, &res) == 1);
+	CHECK(res.before_generation == res.after_generation);
+	CHECK(res.old_length == res.new_length);
+	CHECK(res.new_length == 10);
+
+	/* One byte different is a change again. */
+	CHECK(edit_at(1, 3, "lP", KG_EDIT_USER) == 1);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(bcur()->undostack.size == 1);
+	teardown();
+}
+
 /* What the transaction does at the two ends of a buffer.  A buffer with
  * no rows and one holding a single empty row spell the same zero bytes,
  * and the transaction neither adds a final newline nor takes one away:
@@ -2838,6 +2884,7 @@ int main(void)
 	RUN(test_edit_replaces_byte_ranges);
 	RUN(test_edit_empties_and_fills_a_buffer);
 	RUN(test_edit_internal_changes_text_without_dirtying);
+	RUN(test_edit_by_identical_bytes_is_no_change);
 	RUN(test_edit_empty_buffer_and_final_newline);
 	RUN(test_edit_refusal_changes_nothing);
 	RUN(test_edit_refusal_is_atomic_at_every_allocation);

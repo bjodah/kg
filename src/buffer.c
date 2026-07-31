@@ -1661,6 +1661,17 @@ static int edit_record_undo(
 		st->old_len, (int)e->replacement_len);
 }
 
+/* Whether the replacement is the bytes that are already there.  Staging
+ * has copied them, so this is the comparison and not a second walk of
+ * the buffer.  Nothing follows from such an edit: no record, no
+ * modified flag, no generation step, and -- once Plan 03 lands the event
+ * queue -- nothing for a reader to be told about. */
+static int edit_is_noop(const struct kg_edit *e, const struct edit_staged *st)
+{
+	return (size_t)st->old_len == e->replacement_len
+	    && memcmp(st->old_text, e->replacement, e->replacement_len) == 0;
+}
+
 /* Put the staged rows in place of rows [r0, r1].  Nothing here can fail
  * the edit, which is the whole point of everything above it; the trailing
  * `editor_update_row()` pass rebuilds derived state and can still run out
@@ -1727,7 +1738,7 @@ static void edit_publish(
  * buffer has, the intent has no authority over a read-only buffer, or
  * memory runs out.  `out` may be NULL, and is zeroed on a refusal -- the
  * two generations are equal either way, which is the thing a caller asks
- * it. */
+ * it, and they are equal for a replacement by identical bytes too. */
 int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 {
 	struct editor_buffer *b = e->buffer;
@@ -1748,7 +1759,16 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	}
 	buffer_position_to_row_col(b, e->begin_byte, &r0, &c0);
 	buffer_position_to_row_col(b, e->end_byte, &r1, &c1);
-	if (!edit_stage(e, r0, c0, r1, c1, &st) || !edit_record_undo(e, &st)) {
+	if (!edit_stage(e, r0, c0, r1, c1, &st)) {
+		edit_staged_free(&st);
+		editor_nomem();
+		return 0;
+	}
+	if (edit_is_noop(e, &st)) {
+		edit_staged_free(&st);
+		return 1;
+	}
+	if (!edit_record_undo(e, &st)) {
 		edit_staged_free(&st);
 		editor_nomem();
 		return 0;
@@ -1805,10 +1825,11 @@ static int row_replace_range_valid(
  * the capacity is reserved and the undo payload copied before anything
  * moves.
  *
- * Replacing nothing by nothing is a well-formed request that changes no
- * byte, so it costs neither a modification nor an undo step -- Emacs
- * answers the same way, and query-replace-regexp of a zero-width pattern
- * by the empty string is the caller that asks it for every glyph. */
+ * Replacing bytes by the same bytes -- including nothing by nothing --
+ * is a well-formed request that changes none of them, so it costs
+ * neither a modification nor an undo step.  Emacs answers the same way,
+ * and query-replace-regexp of a zero-width pattern by the empty string
+ * is the caller that asks it for every glyph. */
 int editor_row_replace_range(int filerow, int at, int delete_len,
     const char *insert, int insert_len, enum kg_edit_intent intent)
 {
@@ -1819,9 +1840,6 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 	if (!row_replace_range_valid(
 		filerow, at, delete_len, insert_len, &new_size)) {
 		return 0;
-	}
-	if (delete_len == 0 && insert_len == 0) {
-		return 1;
 	}
 	/* A range inside one row is a byte range like any other, so this is
 	 * the edit transaction with the row bounds already checked -- which

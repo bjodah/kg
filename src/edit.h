@@ -96,7 +96,12 @@ struct kg_edit_result {
 /* Replace the bytes [begin_byte, end_byte) of `e->buffer` by
  * `e->replacement`, as one step.  Returns 0 with the buffer
  * byte-identical when the range is not one the buffer has, the intent
- * has no authority over a read-only buffer, or memory runs out. */
+ * has no authority over a read-only buffer, or memory runs out.
+ *
+ * Replacing bytes with the same bytes is a well-formed request that
+ * changes nothing, so it succeeds having recorded no undo, left the
+ * buffer as modified as it was and left the content generation alone --
+ * there is no change for a later reader to be told about. */
 int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out);
 
 /* The same replacement addressed inside one row of the current buffer:

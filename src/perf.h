@@ -64,6 +64,9 @@ enum kg_perf_counter {
 	KG_PERF_VISUAL_ROW_SCAN, /* rows measured by visual_line_width() */
 	KG_PERF_VISUAL_BYTE_SCAN, /* their bytes */
 
+	/* Buffer identity (src/bufmgr.c). */
+	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */
+
 	KG_PERF_COUNTER_COUNT
 };
 

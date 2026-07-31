@@ -42,10 +42,67 @@ int buf_count = 0;
 static void silent_revert_current(void);
 static void buf_apply_local_settings(void);
 
+/* Next buffer identity to hand out.  Starts at 1 so a zeroed slot — and a
+ * zeroed handle — names no buffer. */
+static uint32_t buf_next_id = 1;
+
+/* Hand `slot` to a buffer that is not the one that had it.  This is the only
+ * place identity is assigned, so every handle taken before the handover stops
+ * resolving at exactly the point the old buffer stopped existing. */
+static void buf_claim_slot(int slot)
+{
+	buflist[slot].id = buf_next_id++;
+	buflist[slot].generation++;
+}
+
+struct kg_buffer_handle buf_handle(int slot)
+{
+	struct kg_buffer_handle handle = { -1, 0, 0 };
+
+	if (slot < 0 || slot >= MAX_BUFFERS || !buflist[slot].active) {
+		return handle;
+	}
+	handle.slot = slot;
+	handle.id = buflist[slot].id;
+	handle.generation = buflist[slot].generation;
+	return handle;
+}
+
+/* The buffer `handle` names, or NULL once it is gone.  Callers must handle
+ * NULL: it is the answer for a killed buffer and for a slot that has been
+ * handed to somebody else, which are the two cases a bare index confuses. */
+struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
+{
+	struct editor_buffer *b;
+
+	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS) {
+		return NULL; /* Never named a buffer at all. */
+	}
+	b = &buflist[handle.slot];
+	if (b->active && b->id == handle.id
+	    && b->generation == handle.generation) {
+		return b;
+	}
+	KG_PERF_INC(KG_PERF_HANDLE_STALE);
+	return NULL;
+}
+
+/* The slot `handle` names, or -1.  For the call sites that still speak in
+ * indices; they at least stop speaking in stale ones. */
+int buf_handle_slot(struct kg_buffer_handle handle)
+{
+	return buf_resolve(handle) ? handle.slot : -1;
+}
+
 /* Save live editor state (and global undostack) into buflist[idx]. */
 static void buf_save_to_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
+
+	/* Landing in a slot nobody holds means a new buffer is taking it. */
+	if (!b->active) {
+		buf_claim_slot(idx);
+	}
 
 	b->cx = editor.cx;
 	b->cy = editor.cy;
@@ -1457,7 +1514,7 @@ void buf_select_interactive(int fd)
  * readonly: if 1, mark the buffer read-only after loading. */
 void buf_open_path(const char *path, int readonly)
 {
-	int i, slot;
+	int slot;
 
 	/* A directory lists.  dired_open() finds or allocates the listing's
 	 * own slot — the same one M-x dired would reuse — so it must not be
@@ -1468,19 +1525,17 @@ void buf_open_path(const char *path, int readonly)
 	}
 
 	/* Switch to existing buffer if the file is already open. */
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (buflist[i].active && buflist[i].filename
-		    && strcmp(buflist[i].filename, path) == 0) {
-			buf_save_current_state();
-			buf_restore_from_slot(i);
-			if (readonly) {
-				editor.readonly_override = 1;
-				editor_refresh_readonly_state();
-				buf_save_to_slot(i);
-			}
-			editor_set_status_message("%s", editor.filename);
-			return;
+	slot = buf_find_by_name(path);
+	if (slot >= 0) {
+		buf_save_current_state();
+		buf_restore_from_slot(slot);
+		if (readonly) {
+			editor.readonly_override = 1;
+			editor_refresh_readonly_state();
+			buf_save_to_slot(slot);
 		}
+		editor_set_status_message("%s", editor.filename);
+		return;
 	}
 
 	if (buf_count >= MAX_BUFFERS) {
@@ -1489,14 +1544,7 @@ void buf_open_path(const char *path, int readonly)
 		return;
 	}
 
-	/* Find a free slot. */
-	slot = -1;
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active) {
-			slot = i;
-			break;
-		}
-	}
+	slot = buf_first_free_slot();
 	if (slot < 0) {
 		return; /* should not happen given buf_count check above */
 	}
@@ -1614,6 +1662,8 @@ void buf_kill(int fd)
 	buflist[buf_current].row = NULL;
 	buflist[buf_current].row_capacity = 0;
 	buflist[buf_current].filename = NULL;
+	/* Every handle taken on this buffer stops resolving here. */
+	buflist[buf_current].generation++;
 	buf_count--;
 
 	if (buf_count == 0) {
@@ -1785,7 +1835,12 @@ static void buf_temp_swap_out(int idx, struct editor_buffer_swap *saved)
 static void buf_reset_slot(int slot)
 {
 	struct editor_buffer *b = &buflist[slot];
+	uint32_t generation = b->generation;
+
 	memset(b, 0, sizeof(*b));
+	b->generation
+	    = generation; /* Handovers accumulate; they don't reset. */
+	buf_claim_slot(slot);
 	b->readonly_override = -1;
 	undo_stack_init(&b->undostack);
 	b->active = 1;

@@ -164,8 +164,9 @@ static int compilation_spawn(const char *command, const char *directory,
  * for a deferred restart (launched from the top-level loop) we keep whatever
  * buffer the user currently occupies and only show output in another window. */
 static void compilation_start(const char *command, const char *directory,
-    int source_buffer, bool from_user)
+    struct kg_buffer_handle source_buffer, bool from_user)
 {
+	int source_slot = buf_handle_slot(source_buffer);
 	int cidx
 	    = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
 	if (cidx < 0) {
@@ -186,7 +187,7 @@ static void compilation_start(const char *command, const char *directory,
 
 	g_compilation.phase = COMPILATION_RUNNING;
 	g_compilation.source_buffer = source_buffer;
-	g_compilation.compilation_buffer = cidx;
+	g_compilation.compilation_buffer = buf_handle(cidx);
 	g_compilation.pipe_eof = false;
 	g_compilation.child_reaped = false;
 	g_compilation.wait_status = 0;
@@ -210,9 +211,11 @@ static void compilation_start(const char *command, const char *directory,
 	    "Compilation started in %s\n\n$ %s\n\n", directory, command);
 	buf_append_special_text(cidx, header, header_len);
 
-	if (from_user) {
+	/* The source buffer may have been killed between the prompt and here;
+	 * a compilation with nowhere to return to is still a compilation. */
+	if (from_user && source_slot >= 0) {
 		buf_save_current_state();
-		buf_restore_from_slot(source_buffer);
+		buf_restore_from_slot(source_slot);
 	}
 	win_display_buffer_other_window(cidx);
 	win_position_at_end(cidx);
@@ -220,13 +223,13 @@ static void compilation_start(const char *command, const char *directory,
 	editor_set_status_message("Compilation started: %s", command);
 }
 
-/* Run `command` in `dir` on behalf of buffer slot `source_slot`, dealing
+/* Run `command` in `dir` on behalf of the buffer `source` names, dealing
  * first with a compilation that is already running: ask before killing it,
  * and on a yes signal it and queue this command to start once it dies.
  * Shared by M-x compile and M-x recompile, which differ only in where the
  * command and the directory come from. */
-static void compilation_start_or_defer(
-    int fd, const char *command, const char *dir, int source_slot)
+static void compilation_start_or_defer(int fd, const char *command,
+    const char *dir, struct kg_buffer_handle source)
 {
 	if (compilation_is_running()) {
 		if (!editor_confirm_yn(fd,
@@ -256,7 +259,7 @@ static void compilation_start_or_defer(
 			g_compilation.pending_directory
 			    [sizeof(g_compilation.pending_directory) - 1]
 			    = '\0';
-			g_compilation.pending_source_buffer = source_slot;
+			g_compilation.pending_source_buffer = source;
 
 			editor_set_status_message("Sent SIGINT to active "
 						  "compilation, restart "
@@ -265,7 +268,7 @@ static void compilation_start_or_defer(
 		}
 	}
 
-	compilation_start(command, dir, source_slot, true);
+	compilation_start(command, dir, source, true);
 }
 
 /* Emacs' compile-history: separate from every other prompt's ring. */
@@ -276,7 +279,7 @@ void editor_compile(int fd)
 	char prompt[KG_COMPILE_COMMAND_MAX];
 	char dir[PATH_MAX];
 	int rc;
-	int source_slot;
+	struct kg_buffer_handle source;
 
 	strncpy(prompt, editor.compile_command, sizeof(prompt));
 	prompt[sizeof(prompt) - 1] = '\0';
@@ -299,7 +302,7 @@ void editor_compile(int fd)
 	editor.compile_command[sizeof(editor.compile_command) - 1] = '\0';
 	editor.compile_command_user_override = 1;
 	buf_save_current_state();
-	source_slot = buf_current;
+	source = buf_handle(buf_current);
 
 	if (compilation_resolve_directory(editor.filename, dir, sizeof(dir))
 	    != 0) {
@@ -308,7 +311,7 @@ void editor_compile(int fd)
 		}
 	}
 
-	compilation_start_or_defer(fd, prompt, dir, source_slot);
+	compilation_start_or_defer(fd, prompt, dir, source);
 }
 
 void editor_recompile(int fd)
@@ -316,7 +319,7 @@ void editor_recompile(int fd)
 	char dir[PATH_MAX];
 	char cmd_buf[KG_COMPILE_COMMAND_MAX];
 	const char *command;
-	int source_slot;
+	struct kg_buffer_handle source;
 
 	if (editor.filename && strcmp(editor.filename, "*compilation*") == 0) {
 		if (!g_compilation.have_last_command) {
@@ -344,9 +347,9 @@ void editor_recompile(int fd)
 	}
 
 	buf_save_current_state();
-	source_slot = buf_current;
+	source = buf_handle(buf_current);
 
-	compilation_start_or_defer(fd, command, dir, source_slot);
+	compilation_start_or_defer(fd, command, dir, source);
 }
 
 /* Accept one output byte into the pending line, charging it to the budget as
@@ -396,12 +399,14 @@ static void compilation_append_char(struct compilation_state *s, char c)
  * displayed_pending_length). */
 static void compilation_commit_line(struct compilation_state *s)
 {
+	int slot = buf_handle_slot(s->compilation_buffer);
+
 	if (s->pending_line_length > 0) {
-		buf_append_special_text(s->compilation_buffer, s->pending_line,
-		    s->pending_line_length);
+		buf_append_special_text(
+		    slot, s->pending_line, s->pending_line_length);
 	}
 	if (s->stored_output < s->maximum_output) {
-		buf_append_special_text(s->compilation_buffer, "\n", 1);
+		buf_append_special_text(slot, "\n", 1);
 		s->stored_output++;
 	} else {
 		s->truncated = true;
@@ -420,8 +425,8 @@ static void compilation_commit_line(struct compilation_state *s)
 static void compilation_mirror_pending(struct compilation_state *s)
 {
 	if (s->pending_line_length > 0) {
-		buf_append_special_text(s->compilation_buffer, s->pending_line,
-		    s->pending_line_length);
+		buf_append_special_text(buf_handle_slot(s->compilation_buffer),
+		    s->pending_line, s->pending_line_length);
 	}
 	s->displayed_pending_length = s->pending_line_length;
 }
@@ -433,8 +438,8 @@ void compilation_process_bytes(
 		return;
 	}
 
-	buf_truncate_last_row(
-	    s->compilation_buffer, s->displayed_pending_length);
+	buf_truncate_last_row(buf_handle_slot(s->compilation_buffer),
+	    s->displayed_pending_length);
 	s->displayed_pending_length = 0;
 
 	for (size_t i = 0; i < len; i++) {
@@ -558,8 +563,11 @@ int compilation_poll(void)
 		/* Remove the mirrored copy of the pending line before
 		 * committing it for real, otherwise the final unterminated
 		 * line would appear twice. */
-		buf_truncate_last_row(g_compilation.compilation_buffer,
-		    g_compilation.displayed_pending_length);
+		int out_slot
+		    = buf_handle_slot(g_compilation.compilation_buffer);
+
+		buf_truncate_last_row(
+		    out_slot, g_compilation.displayed_pending_length);
 		g_compilation.displayed_pending_length = 0;
 		if (g_compilation.pending_cr) {
 			g_compilation.pending_line_length = 0;
@@ -577,13 +585,11 @@ int compilation_poll(void)
 			    "[kg: compilation output truncated after %zu "
 			    "bytes]\n",
 			    g_compilation.maximum_output);
-			buf_append_special_text(
-			    g_compilation.compilation_buffer, msg, msg_len);
+			buf_append_special_text(out_slot, msg, msg_len);
 			g_compilation.truncation_marker_written = true;
 		}
 
-		buf_append_special_text(
-		    g_compilation.compilation_buffer, "\n", 1);
+		buf_append_special_text(out_slot, "\n", 1);
 
 		if (WIFEXITED(g_compilation.wait_status)) {
 			int code = WEXITSTATUS(g_compilation.wait_status);
@@ -602,8 +608,7 @@ int compilation_poll(void)
 			    msg, sizeof(msg), "Compilation finished\n");
 			editor_set_status_message("Compilation finished");
 		}
-		buf_append_special_text(
-		    g_compilation.compilation_buffer, msg, msg_len);
+		buf_append_special_text(out_slot, msg, msg_len);
 
 		if (g_compilation.output_fd >= 0) {
 			close(g_compilation.output_fd);

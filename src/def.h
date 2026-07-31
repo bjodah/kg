@@ -421,6 +421,14 @@ struct editor_window {
 /* Per-buffer state saved when switching away from a buffer. */
 #define MAX_BUFFERS 20
 struct editor_buffer {
+	/* Identity of whatever buffer currently occupies this slot.  `id` is
+	 * drawn from a counter that never repeats, so it names one buffer for
+	 * the life of the process; `generation` counts the times this slot has
+	 * changed hands.  Both are needed to tell "the buffer I meant" from
+	 * "another buffer that happens to sit where it did".  A slot that has
+	 * never been used has id 0. */
+	uint32_t id;
+	uint32_t generation;
 	int cx, cy;
 	int rowoff, coloff;
 	int numrows;
@@ -452,6 +460,20 @@ struct editor_buffer {
 	int visual_line_mode;
 	int rowoff_visual;
 	int overwrite_mode;
+};
+
+/* A reference to a buffer that outlives the command that took it.
+ *
+ * A bare slot index does not: buf_kill() frees the slot and the next open
+ * hands it to an unrelated buffer, so an index kept across commands can
+ * quietly start naming somebody else's text.  The identity pair survives
+ * that, because buf_resolve() refuses to answer unless the slot still holds
+ * the same (id, generation) the handle was taken from.  A zeroed handle
+ * names nothing. */
+struct kg_buffer_handle {
+	int slot;
+	uint32_t id;
+	uint32_t generation;
 };
 
 /* Global editor state */
@@ -536,6 +558,9 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
 void buf_restore_from_slot(int idx);
+struct kg_buffer_handle buf_handle(int slot);
+struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
+int buf_handle_slot(struct kg_buffer_handle handle);
 void buf_visit_file(const char *filename, int explicit_readonly);
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 

@@ -62,6 +62,17 @@ void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }
 void buf_restore_from_slot(int idx) { (void)idx; }
 
+/* Buffer identity belongs to bufmgr.c, which this binary does not link: here
+ * a handle is its slot and always resolves, so the streaming tests exercise
+ * the parser rather than the slot table. */
+struct kg_buffer_handle buf_handle(int slot)
+{
+	struct kg_buffer_handle handle = { slot, 1, 0 };
+
+	return handle;
+}
+int buf_handle_slot(struct kg_buffer_handle handle) { return handle.slot; }
+
 /* A minimal flat model of the compilation buffer so streaming tests can
  * observe exactly what the byte-processing state machine appended. Rows are
  * newline-separated in g_model; buf_truncate_last_row removes bytes from the

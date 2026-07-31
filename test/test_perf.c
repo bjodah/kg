@@ -357,7 +357,7 @@ static void test_compilation_mirror_updates_per_read(void)
 	if (slot >= 0) {
 		memset(&s, 0, sizeof(s));
 		compilation_stream_reset(&s, (size_t)line * 4);
-		s.compilation_buffer = slot;
+		s.compilation_buffer = buf_handle(slot);
 		kg_perf_reset();
 		for (i = 0; i + chunk <= line + 1; i += chunk) {
 			compilation_process_bytes(&s, bytes + i, chunk);

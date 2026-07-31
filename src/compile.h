@@ -1,6 +1,7 @@
 #ifndef KG_COMPILE_H
 #define KG_COMPILE_H
 
+#include "def.h"
 #include "localvars.h"
 #include <limits.h>
 #include <stddef.h>
@@ -19,8 +20,11 @@ struct compilation_state {
 	char last_command[KG_COMPILE_COMMAND_MAX];
 	char last_directory[PATH_MAX];
 
-	int source_buffer;
-	int compilation_buffer;
+	/* Handles, not slot indices: a compilation outlives many commands,
+	 * and either buffer can be killed or have its slot reused while the
+	 * child is still writing. */
+	struct kg_buffer_handle source_buffer;
+	struct kg_buffer_handle compilation_buffer;
 
 	pid_t pid;
 	pid_t process_group;
@@ -53,7 +57,7 @@ struct compilation_state {
 	bool restart_pending;
 	char pending_command[KG_COMPILE_COMMAND_MAX];
 	char pending_directory[PATH_MAX];
-	int pending_source_buffer;
+	struct kg_buffer_handle pending_source_buffer;
 };
 
 int compilation_resolve_directory(

@@ -637,18 +637,22 @@ static void key_recenter(void)
 }
 
 /* Per-keystroke bookkeeping that runs after the command has had its say:
- * region teardown and goal-column invalidation.  `fname_before` and
+ * region teardown and goal-column invalidation.  `buffer_before` and
  * `dirty_before` are the values sampled before dispatch, and
  * `was_shift_select` whether a shift-selected region was live then. */
-static void key_finish_keypress(
-    int c, const char *fname_before, int dirty_before, int was_shift_select)
+static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
+    int dirty_before, int was_shift_select)
 {
 	/* Any command that modified the buffer (insertion, deletion, undo,
 	 * etc.) deactivates the visual mark region — matching Emacs'
-	 * transient-mark-mode convention.  The filename guard avoids
+	 * transient-mark-mode convention.  The identity guard avoids
 	 * stomping the highlight that was just restored from a buffer slot
-	 * when the user switched buffers (C-x b, C-x C-f). */
-	if (editor.filename == fname_before && editor.dirty != dirty_before) {
+	 * when the user switched buffers (C-x b, C-x C-f).  It has to be the
+	 * buffer's identity and not its filename pointer: a killed buffer's
+	 * slot can be handed to another file whose name was allocated at the
+	 * same address. */
+	if (buf_handle_slot(buffer_before) == buf_current
+	    && editor.dirty != dirty_before) {
 		editor.mark_highlight = 0;
 		editor.rect_mode = 0;
 		editor_snap_cx_to_row();
@@ -685,7 +689,7 @@ void editor_process_keypress(int fd)
 {
 	struct timeval tv;
 	int c = editor_read_key_idle(fd);
-	char *fname_before = editor.filename;
+	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
 	int dirty_before = editor.dirty;
 	int was_shift_select = editor.shift_select;
 	long elapsed;
@@ -1190,5 +1194,5 @@ void editor_process_keypress(int fd)
 		break;
 	}
 
-	key_finish_keypress(c, fname_before, dirty_before, was_shift_select);
+	key_finish_keypress(c, buffer_before, dirty_before, was_shift_select);
 }

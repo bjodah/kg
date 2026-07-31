@@ -616,6 +616,88 @@ static void test_reflow_sizes(void)
 	free(names[0]);
 }
 
+/* A handle taken before a kill must not resolve afterwards, and must not
+ * resolve to whatever buffer is handed the slot next. */
+static void test_handles_do_not_survive_their_buffer(void)
+{
+	char *names[2];
+	struct kg_buffer_handle killed, live;
+	int i;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+
+	killed = buf_handle(0);
+	live = buf_handle(1);
+	CHECK(killed.id != 0);
+	CHECK(live.id != 0);
+	CHECK(killed.id != live.id);
+	CHECK(buf_resolve(killed) == &buflist[0]);
+	CHECK(buf_handle_slot(live) == 1);
+
+	buf_kill(-1); /* kills buffer 0, the current one */
+	CHECK(buf_resolve(killed) == NULL);
+	CHECK(buf_handle_slot(killed) == -1);
+	CHECK(buf_resolve(live) == &buflist[1]);
+
+	/* Slot 0 comes back as somebody else's. */
+	write_text_file(tmppath("c.txt"), "gamma\n");
+	buf_open_path(tmppath("c.txt"), 0);
+	CHECK(buflist[0].active);
+	CHECK(buf_resolve(killed) == NULL);
+	CHECK(buf_handle(0).id != killed.id);
+	CHECK(buf_handle(0).generation != killed.generation);
+
+	/* A handle taken on a slot that has never been used names nothing. */
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active) {
+			CHECK(buf_resolve(buf_handle(i)) == NULL);
+			break;
+		}
+	}
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* A special buffer that takes over a freed slot gets a fresh identity too:
+ * buf_reset_slot() is the other way a slot changes hands. */
+static void test_special_buffer_reuse_bumps_identity(void)
+{
+	char *names[1];
+	struct kg_buffer_handle before;
+	int target;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	target
+	    = buf_prepare_special_text("*background*", &compilation_syntax, 1);
+	CHECK(target > 0);
+	before = buf_handle(target);
+	CHECK(before.id != 0);
+
+	/* Re-preparing the same name keeps the buffer, so the handle holds. */
+	CHECK(buf_prepare_special_text("*background*", &compilation_syntax, 1)
+	    == target);
+	CHECK(buf_resolve(before) == &buflist[target]);
+
+	/* A different special buffer taking a free slot gets its own id. */
+	CHECK(buf_handle(
+		  buf_prepare_special_text("*other*", &compilation_syntax, 1))
+		  .id
+	    != before.id);
+
+	session_teardown();
+	free(names[0]);
+}
+
 /* The goal column is the one view field no record owns: it lives on the
  * session and therefore leaks across a buffer switch.  Pinned here so the
  * phase that gives the view an owner has to change this test on purpose. */
@@ -667,6 +749,8 @@ int main(void)
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
 	RUN(test_append_to_visible_buffer_follows_that_window);
 	RUN(test_reflow_sizes);
+	RUN(test_handles_do_not_survive_their_buffer);
+	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_goal_column_is_session_scoped_today);
 
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);

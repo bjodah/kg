@@ -76,6 +76,9 @@
 #include <time.h>
 #include <unistd.h>
 
+/* struct editor_window stores a buffer handle by value, and is defined
+ * before the buffer table is, so the type has to arrive first. */
+#include "bufhandle.h"
 #include "cmd.h"
 #include "perf.h"
 
@@ -397,20 +400,6 @@ struct editor_buffer {
 	int overwrite_mode;
 };
 
-/* A reference to a buffer that outlives the command that took it.
- *
- * A bare slot index does not: buf_kill() frees the slot and the next open
- * hands it to an unrelated buffer, so an index kept across commands can
- * quietly start naming somebody else's text.  The identity pair survives
- * that, because buf_resolve() refuses to answer unless the slot still holds
- * the same (id, generation) the handle was taken from.  A zeroed handle
- * names nothing. */
-struct kg_buffer_handle {
-	int slot;
-	uint64_t id;
-	uint64_t generation;
-};
-
 /* Global editor state */
 extern struct editor_config editor;
 extern int running;
@@ -506,11 +495,7 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
 void buf_select(int slot);
-void buf_remember_view(const struct editor_window *w);
-void buf_attach_view(struct editor_window *w, int slot);
-struct kg_buffer_handle buf_handle(int slot);
-struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
-int buf_handle_slot(struct kg_buffer_handle handle);
+/* Buffer identity and the view API that speaks it: see bufhandle.h. */
 void buf_visit_file(const char *filename, int explicit_readonly);
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 

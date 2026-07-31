@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "bufhandle.h"
 #include "cmdstate.h"
 #include "compile.h"
 #include "def.h"

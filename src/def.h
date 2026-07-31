@@ -1042,12 +1042,6 @@ void editor_named_command(int fd);
 [[nodiscard]] const struct named_cmd *cmd_descriptor_at(int index);
 void cmd_eval_print_last_sexp(void);
 
-/* keybind.c */
-[[nodiscard]] int keybind_parse(const char *sequence, int *key);
-[[nodiscard]] int keybind_bind(const char *sequence, const char *command);
-[[nodiscard]] int keybind_unbind(const char *sequence);
-[[nodiscard]] const char *keybind_lookup(int key);
-
 /* macro.c */
 int macro_is_recording(void);
 void macro_on_key(int key);

@@ -28,6 +28,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 
 #include "../fe/fe.h"
 #include "def.h"
+#include "keybind.h"
 #include "localvars.h"
 
 static_assert(FE_API_VERSION == 1);

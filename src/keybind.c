@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "keybind.h"
 
 #define KEYBIND_MAX 32
 #define KEYBIND_NAME_MAX 64

@@ -1,6 +1,7 @@
 /* test_lisp.c - Fe interpreter lifecycle regression tests */
 
 #include "../src/def.h"
+#include "../src/keybind.h"
 #include "../src/lisp.h"
 #include "test.h"
 #include <stdio.h>

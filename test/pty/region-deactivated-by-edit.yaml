@@ -1,0 +1,24 @@
+# Editing the buffer takes the region down, as transient-mark-mode does in
+# Emacs: after the "X" is typed the mark is still set but no longer
+# highlighted, so the Delete key that follows removes one character
+# forward instead of consuming the region.
+#
+# This is a characterization case for the change detector behind that
+# teardown.  `key_finish_keypress()` decides "the command modified the
+# buffer" by comparing the buffer's dirty counter before and after
+# dispatch; plan 10 moves it to a content generation.  If the replacement
+# signal ever misses an edit the region survives and Delete takes "abc"
+# with it, which this file's expectation refuses.
+name: region-deactivated-by-edit
+filename: region-deactivated-by-edit.txt
+initial: "abcdefgh"
+keys:
+  - C-SPC
+  - C-f
+  - C-f
+  - C-f
+  - 'X'
+  - "M-["  # Delete key: ESC [ 3 ~
+  - "3"
+  - "~"
+expected_saved: "abcXefgh"

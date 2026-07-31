@@ -1,0 +1,22 @@
+# The other half of region-deactivated-by-edit: a command that changes no
+# byte leaves the region up, so the Delete key still consumes it.  Three
+# C-f take point to column 3 and one C-b brings it back to 2, all without
+# touching the text, and the region [0, 2) is what Delete removes.
+#
+# Together the two cases pin both answers of the "did this command modify
+# the buffer?" test that deactivates the region, which is what makes
+# replacing the dirty counter with a content generation a checkable move
+# rather than a plausible one.
+name: region-survives-motion
+filename: region-survives-motion.txt
+initial: "abcdefgh"
+keys:
+  - C-SPC
+  - C-f
+  - C-f
+  - C-f
+  - C-b
+  - "M-["  # Delete key: ESC [ 3 ~
+  - "3"
+  - "~"
+expected_saved: "cdefgh"

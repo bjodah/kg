@@ -1,0 +1,19 @@
+# `C-u 3 x` inserts three characters as one bulk insertion but records one
+# undo step per character, so three C-_ take them off one at a time and two
+# leave a single "x" behind.  Emacs behaves the same way.
+#
+# The per-character records are pushed only when the bulk insertion is
+# known to have happened, which `editor_insert_repeated_literal()` decides
+# by comparing the buffer's dirty counter across the call.  Plan 10 moves
+# that detector to a content generation; this case is what says the
+# records are still pushed, and still one per character, afterwards.
+name: insert-repeated-literal-undo
+filename: insert-repeated-literal-undo.txt
+initial: "ab"
+keys:
+  - C-u
+  - "3"
+  - x
+  - C-_
+  - C-_
+expected_saved: "xab"

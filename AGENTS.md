@@ -42,6 +42,14 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is not part of `make check`; CI runs it as `.ci/ci-10-*.sh`. Both sides
   report BYTE offsets — Emacs reports character offsets natively and the
   oracle converts, so do not remove that conversion.
+  Every generated pattern is asked in two modes (`--modes f,fa`): the
+  first match from offset 0, and every successive match iterated by
+  `kg_regex_next_offset()`'s rule, which is where empty-match progress
+  and leftover capture registers show up. Backward matching is still
+  uncompared; `kg_regex_match_backward()`'s selection rule (last match
+  ending at or before the limit, taking the plain forward match at each
+  candidate start) is not Emacs' bounded backward search, so an oracle
+  for it has to encode kg's policy rather than read Emacs'.
 - Fuzz smoke runs are a time budget, not a run count: `FUZZ_MAX_TOTAL_TIME`
   (5 s per target) with `FUZZ_MAX_LEN`, `FUZZ_TIMEOUT`,
   `FUZZ_RSS_LIMIT_MB` and `FUZZ_VERBOSITY`, the same names both

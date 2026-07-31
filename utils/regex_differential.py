@@ -233,21 +233,44 @@ def gen_cases(rng, count):
 	return cases
 
 
-def normalise(result):
-	"""Drop trailing groups that did not participate.
+def _normalise_spans(fields, index):
+	"""Read one "N s0 e0 ..." group, dropping trailing non-participants.
 
 	Not a divergence, a representation difference: kg always reports one
 	span per group in the pattern, while Emacs truncates `match-data' at
 	the last group that actually matched.  The spans that both sides do
 	report still have to agree exactly.
 	"""
-	if not result.startswith("match "):
-		return result
-	fields = result.split()[2:]
-	spans = list(zip(fields[0::2], fields[1::2]))
+	count = int(fields[index])
+	index += 1
+	spans = [(fields[index + 2 * k], fields[index + 2 * k + 1])
+		 for k in range(count)]
+	index += 2 * count
 	while len(spans) > 1 and spans[-1] == ("-1", "-1"):
 		spans.pop()
-	return "match %d %s" % (len(spans), " ".join(a + " " + b for a, b in spans))
+	return ("%d %s" % (len(spans),
+			   " ".join(a + " " + b for a, b in spans)), index)
+
+
+def normalise(result):
+	"""Canonical form of one result line, for either mode."""
+	fields = result.split()
+	if not fields:
+		return result
+	try:
+		if fields[0] == "match":
+			return "match " + _normalise_spans(fields, 1)[0]
+		if fields[0] == "matches":
+			count = int(fields[1])
+			index = 2
+			matches = []
+			for _ in range(count):
+				text, index = _normalise_spans(fields, index)
+				matches.append(text)
+			return "matches %d %s" % (count, " ".join(matches))
+	except (IndexError, ValueError):
+		return result
+	return result
 
 
 def run_side(argv, payload, env=None):
@@ -265,6 +288,9 @@ def main():
 	parser.add_argument("--oracle", default=ORACLE)
 	parser.add_argument("--cases", type=int, default=2000)
 	parser.add_argument("--seed", type=int, default=20260729)
+	parser.add_argument("--modes", default="f,fa",
+			    help="comma-separated result modes to compare: "
+				 "f (first match), fa (every match)")
 	parser.add_argument("--show", type=int, default=10,
 			    help="how many divergences to print")
 	args = parser.parse_args()
@@ -279,8 +305,17 @@ def main():
 				 % (args.driver, args.driver))
 
 	rng = random.Random(args.seed)
-	cases = gen_cases(rng, args.cases)
-	payload = "".join("%s\t%s\n" % (p, t) for p, t, _ in cases).encode("utf-8")
+	modes = [m for m in args.modes.split(",") if m]
+	# Every case is asked in every mode.  "f" is the first match from
+	# offset 0, which is all this harness compared for its first two
+	# years; "fa" is the whole succession of matches, iterated by the
+	# rule callers must use, which is where empty-match progress and
+	# capture registers left over from a previous match show up.
+	cases = [(pattern, subject, tag, mode)
+		 for pattern, subject, tag in gen_cases(rng, args.cases)
+		 for mode in modes]
+	payload = "".join("%s\t%s\t%s\n" % (mode, p, t)
+			  for p, t, _, mode in cases).encode("utf-8")
 
 	kg = run_side([args.driver], payload)
 	# TERM matters: Emacs refuses to start under some values even in batch.
@@ -295,7 +330,8 @@ def main():
 	skipped = 0
 	allowed = 0
 	rejected = 0
-	for (pattern, subject, tag), mine, theirs in zip(cases, kg, oracle):
+	per_mode = {mode: 0 for mode in modes}
+	for (pattern, subject, tag, mode), mine, theirs in zip(cases, kg, oracle):
 		# Giving up is a resource answer, not a statement about the
 		# language: kg alone has a budget, so there is nothing to
 		# compare it against.  Counted and reported, never hidden.
@@ -311,10 +347,11 @@ def main():
 				allowed += 1
 				continue
 			diverged += 1
+			per_mode[mode] += 1
 			if diverged <= args.show:
-				print("DIVERGE-ACCEPT pattern=%r subject=%r "
-				      "kg=%r emacs=%r"
-				      % (pattern, subject, mine, theirs))
+				print("DIVERGE-ACCEPT mode=%s pattern=%r "
+				      "subject=%r kg=%r emacs=%r"
+				      % (mode, pattern, subject, mine, theirs))
 			continue
 		if mine == "badpat":
 			rejected += 1
@@ -322,12 +359,17 @@ def main():
 		if normalise(mine) == normalise(theirs):
 			continue
 		diverged += 1
+		per_mode[mode] += 1
 		if diverged <= args.show:
-			print("DIVERGE pattern=%r subject=%r kg=%r emacs=%r"
-			      % (pattern, subject, mine, theirs))
-	print("regex differential: cases=%d diverged=%d both-reject=%d "
-	      "allowed-diff=%d incomparable=%d seed=%d"
-	      % (len(cases), diverged, rejected, allowed, skipped, args.seed))
+			print("DIVERGE mode=%s pattern=%r subject=%r kg=%r "
+			      "emacs=%r" % (mode, pattern, subject, mine, theirs))
+	print("regex differential: cases=%d (%d patterns x %s) diverged=%d "
+	      "both-reject=%d allowed-diff=%d incomparable=%d seed=%d"
+	      % (len(cases), args.cases, ",".join(modes), diverged, rejected,
+		 allowed, skipped, args.seed))
+	if diverged:
+		print("  by mode: %s"
+		      % ", ".join("%s=%d" % (m, per_mode[m]) for m in modes))
 	return 1 if diverged else 0
 
 

@@ -725,6 +725,23 @@ static const struct {
 	{ "DEL", "delete-backward-char" },
 	{ "<delete>", "delete-forward-char" },
 	{ "C-q", "quoted-insert" },
+	{ "C-s", "isearch-forward" },
+	{ "C-r", "isearch-backward" },
+	{ "C-M-s", "isearch-forward-regexp" },
+	{ "C-M-r", "isearch-backward-regexp" },
+	{ "C-t", "transpose-chars" },
+	{ "M-%", "query-replace" },
+	{ "M-d", "kill-word" },
+	{ "M-DEL", "backward-kill-word" },
+	{ "M-q", "fill-paragraph" },
+	{ "M-;", "comment-dwim" },
+	{ "M-^", "join-line" },
+	{ "M-u", "upcase-word" },
+	{ "M-l", "downcase-word" },
+	{ "M-c", "capitalize-word" },
+	{ "M-\\", "delete-horizontal-space" },
+	{ "M-SPC", "just-one-space" },
+	{ "M-z", "zap-to-char" },
 };
 
 static struct keymap *global_map;
@@ -929,7 +946,7 @@ void editor_process_keypress(int fd)
 	case ESC:
 		c = editor_read_key(fd);
 		if (c == '%' || c == ALT_PCT) {
-			editor_query_replace(fd);
+			(void)cmd_execute_named("query-replace", fd);
 		} else if (c == '@' || c == ALT_AT) {
 			(void)cmd_execute_named("mark-word", fd);
 		} else if (c != CTRL_G) {
@@ -942,17 +959,6 @@ void editor_process_keypress(int fd)
 		editor_snap_cx_to_row();
 		cmd_clear_transient();
 		editor_set_status_message("");
-		break;
-	case CTRL_S: /* Incremental search */
-		editor_find(fd, 1);
-		break;
-	case CTRL_T: /* Transpose chars */
-		while (n--) {
-			editor_transpose_chars();
-		}
-		break;
-	case CTRL_R:
-		editor_find(fd, -1);
 		break;
 	case CTRL_X: /* C-x prefix */
 		editor.cx_prefix = 1;
@@ -990,34 +996,6 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	}
-	case ALT_D: /* Kill word forward */
-		while (n--) {
-			editor_kill_word_forward();
-		}
-		break;
-	case ALT_BACKSPACE: /* Kill word backward */
-		while (n--) {
-			editor_kill_word_backward();
-		}
-		break;
-	case ALT_BACKSLASH: /* Delete horizontal space */
-		editor_delete_horizontal_space();
-		break;
-	case ALT_SPACE: /* Just one space */
-		editor_just_one_space();
-		break;
-	case ALT_Z: /* Zap to char */
-		editor_zap_to_char(fd, n);
-		break;
-	case ALT_Q: /* Reflow paragraph */
-		editor_reflow_paragraph();
-		break;
-	case ALT_PCT: /* Query replace */
-		editor_query_replace(fd);
-		break;
-	case ALT_SEMICOLON: /* Toggle line comment */
-		editor_comment_dwim();
-		break;
 	case ALT_COLON: /* Eval expression */
 		(void)cmd_execute_named("eval-expression", fd);
 		break;
@@ -1030,32 +1008,6 @@ void editor_process_keypress(int fd)
 			while (n--) {
 				editor_rebase_move_line(c == ALT_P ? -1 : 1);
 			}
-		}
-		break;
-	case ALT_CTRL_S:
-		editor_find_regexp(fd, 1);
-		break;
-	case ALT_CTRL_R:
-		editor_find_regexp(fd, -1);
-		break;
-	case ALT_CARET: /* Join current line with previous */
-		while (n--) {
-			editor_join_line();
-		}
-		break;
-	case ALT_U: /* Upcase word forward */
-		while (n--) {
-			editor_upcase_word();
-		}
-		break;
-	case ALT_L: /* Downcase word forward */
-		while (n--) {
-			editor_downcase_word();
-		}
-		break;
-	case ALT_C: /* Capitalize word forward */
-		while (n--) {
-			editor_capitalize_word();
 		}
 		break;
 	case ALT_BANG: /* Shell command */

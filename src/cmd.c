@@ -30,6 +30,13 @@ static const int picker_prev_keys[] = { ARROW_LEFT, CTRL_B };
 
 /* ---- Individual commands ---- */
 
+/* The count a numeric argument asks for, for the commands that read it
+ * rather than being repeated by CMD_REPEATS. */
+static int prefix_count(void)
+{
+	return editor.current_prefix.supplied ? editor.current_prefix.value : 1;
+}
+
 /* Print the editor version string. */
 static void cmd_version(int fd)
 {
@@ -197,7 +204,7 @@ static void cmd_just_one_space(int fd)
 	editor_just_one_space();
 }
 
-static void cmd_zap_to_char(int fd) { editor_zap_to_char(fd, 1); }
+static void cmd_zap_to_char(int fd) { editor_zap_to_char(fd, prefix_count()); }
 
 /* Upcase, downcase, capitalize word forward from point. */
 static void cmd_upcase_word(int fd)
@@ -742,13 +749,6 @@ static void cmd_dired_unmark(int fd)
 	dired_set_mark(' ');
 }
 
-/* The count a numeric argument asks for, for the commands that read it
- * rather than being repeated by CMD_REPEATS. */
-static int prefix_count(void)
-{
-	return editor.current_prefix.supplied ? editor.current_prefix.value : 1;
-}
-
 /* ---- Insertion ---- */
 static void cmd_newline(int fd)
 {
@@ -793,6 +793,37 @@ static void cmd_self_insert(int fd)
 	if (key.mods == 0 && ascii_is_print((int)key.base)) {
 		editor_self_insert_char((int)key.base);
 	}
+}
+
+/* ---- Search, words, case and whitespace ---- */
+static void cmd_isearch_forward(int fd) { editor_find(fd, 1); }
+
+static void cmd_isearch_backward(int fd) { editor_find(fd, -1); }
+
+static void cmd_query_replace(int fd) { editor_query_replace(fd); }
+
+static void cmd_kill_word(int fd)
+{
+	(void)fd;
+	editor_kill_word_forward();
+}
+
+static void cmd_backward_kill_word(int fd)
+{
+	(void)fd;
+	editor_kill_word_backward();
+}
+
+static void cmd_fill_paragraph(int fd)
+{
+	(void)fd;
+	editor_reflow_paragraph();
+}
+
+static void cmd_comment_dwim(int fd)
+{
+	(void)fd;
+	editor_comment_dwim();
 }
 
 /* ---- Deleting, killing and yanking ----
@@ -1069,6 +1100,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point to the first non-blank on this line" },
 	{ "backward-char", cmd_backward_char, REPEATS,
 	    "Move point one character back" },
+	{ "backward-kill-word", cmd_backward_kill_word, EDITS | REPEATS,
+	    "Kill the word before point" },
 	{ "backward-paragraph", cmd_backward_paragraph, REPEATS,
 	    "Move point to the previous paragraph boundary" },
 	{ "backward-sentence", cmd_backward_sentence, REPEATS,
@@ -1077,8 +1110,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point one word back" },
 	{ "beginning-of-buffer", cmd_beginning_of_buffer, CMD_NONE,
 	    "Move point to the start of the buffer" },
-	{ "capitalize-word", cmd_capitalize_word, EDITS | LISP_OK,
+	{ "capitalize-word", cmd_capitalize_word, EDITS | REPEATS | LISP_OK,
 	    "Capitalize the word forward from point" },
+	{ "comment-dwim", cmd_comment_dwim, EDITS,
+	    "Comment or uncomment the line or region" },
 	{ "compile", editor_compile, CMD_NONE,
 	    "Run a compile command and collect its output" },
 	{ "delete-backward-char", cmd_delete_backward_char, EDITS | REPEATS,
@@ -1109,7 +1144,7 @@ static const struct named_cmd cmdtable[] = {
 	    "Remove the mark from the file on this line" },
 	{ "dired-up-directory", cmd_dired_up_directory, CMD_NONE,
 	    "Visit the parent of this directory" },
-	{ "downcase-word", cmd_downcase_word, EDITS | LISP_OK,
+	{ "downcase-word", cmd_downcase_word, EDITS | REPEATS | LISP_OK,
 	    "Convert the word forward from point to lower case" },
 	{ "electric-pair-mode", cmd_electric_pair_mode, LISP_OK,
 	    "Toggle auto-insertion of closing brackets and quotes" },
@@ -1123,6 +1158,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Evaluate the s-expression before point" },
 	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE,
 	    "Evaluate the s-expression before point and insert it" },
+	{ "fill-paragraph", cmd_fill_paragraph, EDITS,
+	    "Reflow this paragraph to the fill column" },
 	{ "forward-char", cmd_forward_char, REPEATS,
 	    "Move point one character forward" },
 	{ "forward-paragraph", cmd_forward_paragraph, REPEATS,
@@ -1151,11 +1188,15 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle auto-revert for every buffer at once" },
 	{ "goto-line", cmd_goto_line, CMD_NONE,
 	    "Move point to a line, or a line and column" },
+	{ "isearch-backward", cmd_isearch_backward, CMD_NONE,
+	    "Incremental search backward" },
 	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE,
 	    "Incremental regexp search backward" },
+	{ "isearch-forward", cmd_isearch_forward, CMD_NONE,
+	    "Incremental search forward" },
 	{ "isearch-forward-regexp", cmd_isearch_forward_regexp, CMD_NONE,
 	    "Incremental regexp search forward" },
-	{ "join-line", cmd_join_line, EDITS | LISP_OK,
+	{ "join-line", cmd_join_line, EDITS | REPEATS | LISP_OK,
 	    "Join this line to the previous one" },
 	{ "just-one-space", cmd_just_one_space, EDITS | LISP_OK,
 	    "Collapse spaces and tabs around point to one space" },
@@ -1167,6 +1208,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Kill the region into the kill ring" },
 	{ "kill-ring-save", cmd_kill_ring_save, CMD_NONE,
 	    "Copy the region to the kill ring" },
+	{ "kill-word", cmd_kill_word, EDITS | REPEATS,
+	    "Kill the word after point" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
 	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
@@ -1192,6 +1235,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle overwriting instead of inserting" },
 	{ "previous-line", cmd_previous_line, REPEATS,
 	    "Move point one line up" },
+	{ "query-replace", cmd_query_replace, EDITS,
+	    "Replace matches, asking about each one" },
 	{ "query-replace-regexp", cmd_query_replace_regexp, EDITS,
 	    "Replace regexp matches, asking about each one" },
 	{ "quoted-insert", cmd_quoted_insert, EDITS,
@@ -1222,10 +1267,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Sort the lines of the region in ascending order" },
 	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE,
 	    "Toggle whether this buffer refuses edits" },
-	{ "transpose-chars", cmd_transpose_chars, EDITS | LISP_OK,
+	{ "transpose-chars", cmd_transpose_chars, EDITS | REPEATS | LISP_OK,
 	    "Transpose the characters around point" },
 	{ "undo", cmd_undo, EDITS | REPEATS, "Undo the last change" },
-	{ "upcase-word", cmd_upcase_word, EDITS | LISP_OK,
+	{ "upcase-word", cmd_upcase_word, EDITS | REPEATS | LISP_OK,
 	    "Convert the word forward from point to upper case" },
 	{ "version", cmd_version, LISP_OK, "Show the editor version" },
 	{ "visual-line-mode", cmd_visual_line_mode, CMD_NONE,

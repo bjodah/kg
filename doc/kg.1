@@ -1100,6 +1100,11 @@ Bound to
 .Ic C-b
 and the left arrow.
 A numeric argument repeats it.
+.It backward-kill-word
+Kill the word before point.
+Bound to
+.Ic M-Backspace .
+A numeric argument repeats it.
 .It backward-paragraph
 Move point to the previous paragraph boundary.
 Bound to
@@ -1129,6 +1134,11 @@ and
 Capitalize the word forward from point (first letter upper, rest lower).
 Equivalent to
 .Ic M-c .
+.It comment-dwim
+Comment the line or region out, or uncomment it, using the mode's
+comment syntax.
+Bound to
+.Ic M-\&; .
 .It compile
 Prompt for a compile command (prefilled with the current buffer's
 .Va compile-command ) ,
@@ -1199,6 +1209,10 @@ Bound to
 in
 .Pa *scratch*
 and Lisp Interaction buffers.
+.It fill-paragraph
+Reflow the paragraph around point to the fill column.
+Bound to
+.Ic M-q .
 .It forward-char
 Move point one character forward.
 Bound to
@@ -1233,10 +1247,18 @@ in every buffer.
 Go to a specific line (prompts for line or line:col).
 Equivalent to
 .Ic M-g .
+.It isearch-backward
+Incremental search backward.
+Bound to
+.Ic C-r .
 .It isearch-backward-regexp
 Incremental regexp search backward.
 Equivalent to
 .Ic M-C-r .
+.It isearch-forward
+Incremental search forward.
+Bound to
+.Ic C-s .
 .It isearch-forward-regexp
 Incremental regexp search forward.
 Equivalent to
@@ -1277,6 +1299,11 @@ Bound to
 .Ic M-w
 and
 .Ic C-Insert .
+.It kill-word
+Kill the word after point.
+Bound to
+.Ic M-d .
+A numeric argument repeats it.
 .It lisp-interaction-mode
 Enable Lisp Interaction mode in the current buffer.
 In this mode
@@ -1343,6 +1370,10 @@ Bound to
 .Ic C-p
 and the up arrow.
 A numeric argument repeats it.
+.It query-replace
+Replace matches of a string, asking about each one.
+Bound to
+.Ic M-% .
 .It query-replace-regexp
 Prompted query replace with regexp matching.
 Supports \e&, \e1..\e9, \e\e expansions.
@@ -1463,6 +1494,7 @@ Prompt for a character, then kill from point through the next occurrence
 of that character.
 Equivalent to
 .Ic M-z .
+A numeric argument kills through that many occurrences.
 .El
 .Sh BUFFERS
 .Nm
@@ -1570,6 +1602,7 @@ supports a limited subset of Emacs file-local variables, parsed
 without evaluation.
 Two variables are recognized:
 .Bl -tag -width "compile-command"
+A numeric argument zaps through that many occurrences.
 .It Va compile-command
 A quoted string such as
 .Ql "make all && ./a.out" .

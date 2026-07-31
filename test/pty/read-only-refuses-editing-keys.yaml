@@ -1,21 +1,22 @@
-# A read-only buffer must refuse every editing key, whichever key reaches
-# the command.  kbd.c's readonly_blocked_keys[] is the second read-only
-# verdict beside the command table's CMD_EDITS_BUFFER, and it names only
-# some of the editing keys: C-o, M-d, M-^, M-q and M-u reach handlers that
-# do not check, so today they edit a buffer that refuses edits.
+# A read-only buffer refuses every editing key, whichever key reaches the
+# command.
+#
+# It did not always: C-o, M-d, M-^, M-q, M-u, M-l, M-c and M-; were not on
+# kbd.c's readonly_blocked_keys[] and their handlers do not check, so they
+# edited a buffer that refuses edits.  Phase 4 of plan 01 settles that by
+# making each of them a command with CMD_EDITS_BUFFER, which cmd_invoke()
+# refuses in one place for every route: key, M-x and Lisp alike.  The case
+# was checked in xfail and turned green when the last of them moved.
 #
 # The keys are pressed on line 2 with point after "se", where each one
 # would leave a visible mark: C-o splits the line, M-d kills "cond", M-^
-# joins the two lines, M-q refills the paragraph and M-u upcases "cond".
-#
-# xfail until the keymap migration (plan 01 phase 4) routes every editing
-# key through cmd_invoke() and deletes readonly_blocked_keys[]; that
-# commit's read-only parity proof is this case turning green.
+# joins the two lines, M-q refills the paragraph, M-u/M-l/M-c change the
+# case of "cond", and M-; comments the line out (the file is .c so the
+# mode has a comment syntax to use).
 name: read-only-refuses-editing-keys
-filename: read-only-keys.txt
+filename: read-only-keys.c
 backend: pexpect
 key_delay: 0.08
-xfail: true
 initial: "hello world\nsecond line\n"
 keys:
   - C-x
@@ -28,6 +29,9 @@ keys:
   - "M-^"
   - M-q
   - M-u
+  - M-l
+  - M-c
+  - "M-;"
   - C-x
   - C-q
 expected_saved: "hello world\nsecond line\n"

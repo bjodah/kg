@@ -410,6 +410,84 @@ static void fuzz_undo(int fd)
 	editor_undo();
 }
 
+static void fuzz_kill_word(int fd)
+{
+	(void)fd;
+	editor_kill_word_forward();
+}
+
+static void fuzz_backward_kill_word(int fd)
+{
+	(void)fd;
+	editor_kill_word_backward();
+}
+
+static void fuzz_transpose_chars(int fd)
+{
+	(void)fd;
+	editor_transpose_chars();
+}
+
+static void fuzz_join_line(int fd)
+{
+	(void)fd;
+	editor_join_line();
+}
+
+static void fuzz_upcase_word(int fd)
+{
+	(void)fd;
+	editor_upcase_word();
+}
+
+static void fuzz_downcase_word(int fd)
+{
+	(void)fd;
+	editor_downcase_word();
+}
+
+static void fuzz_capitalize_word(int fd)
+{
+	(void)fd;
+	editor_capitalize_word();
+}
+
+static void fuzz_delete_horizontal_space(int fd)
+{
+	(void)fd;
+	editor_delete_horizontal_space();
+}
+
+static void fuzz_just_one_space(int fd)
+{
+	(void)fd;
+	editor_just_one_space();
+}
+
+static void fuzz_zap_to_char(int fd)
+{
+	editor_zap_to_char(fd,
+	    editor.current_prefix.supplied ? editor.current_prefix.value : 1);
+}
+
+static void fuzz_fill_paragraph(int fd)
+{
+	(void)fd;
+	editor_reflow_paragraph();
+}
+
+static void fuzz_comment_dwim(int fd)
+{
+	(void)fd;
+	editor_comment_dwim();
+}
+
+static void fuzz_isearch_forward(int fd) { editor_find(fd, 1); }
+
+static void fuzz_isearch_backward(int fd) { editor_find(fd, -1); }
+
+static void fuzz_query_replace(int fd) { editor_query_replace(fd); }
+
 static void fuzz_quoted_insert(int fd)
 {
 	int key = editor_read_raw_byte(fd);
@@ -440,6 +518,27 @@ static const struct named_cmd fuzz_cmdtable[] = {
 	{ "recenter-top-bottom", fuzz_recenter, CMD_NONE, "stub" },
 	{ "scroll-down-command", fuzz_scroll_down, CMD_NONE, "stub" },
 	{ "scroll-up-command", fuzz_scroll_up, CMD_NONE, "stub" },
+	{ "backward-kill-word", fuzz_backward_kill_word,
+	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "capitalize-word", fuzz_capitalize_word,
+	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "comment-dwim", fuzz_comment_dwim, CMD_EDITS_BUFFER, "stub" },
+	{ "delete-horizontal-space", fuzz_delete_horizontal_space,
+	    CMD_EDITS_BUFFER, "stub" },
+	{ "downcase-word", fuzz_downcase_word, CMD_EDITS_BUFFER | CMD_REPEATS,
+	    "stub" },
+	{ "fill-paragraph", fuzz_fill_paragraph, CMD_EDITS_BUFFER, "stub" },
+	{ "isearch-backward", fuzz_isearch_backward, CMD_NONE, "stub" },
+	{ "isearch-forward", fuzz_isearch_forward, CMD_NONE, "stub" },
+	{ "join-line", fuzz_join_line, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "just-one-space", fuzz_just_one_space, CMD_EDITS_BUFFER, "stub" },
+	{ "kill-word", fuzz_kill_word, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "query-replace", fuzz_query_replace, CMD_EDITS_BUFFER, "stub" },
+	{ "transpose-chars", fuzz_transpose_chars,
+	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "upcase-word", fuzz_upcase_word, CMD_EDITS_BUFFER | CMD_REPEATS,
+	    "stub" },
+	{ "zap-to-char", fuzz_zap_to_char, CMD_EDITS_BUFFER, "stub" },
 	{ "delete-backward-char", fuzz_delete_backward_char,
 	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
 	{ "delete-char", fuzz_delete_char, CMD_EDITS_BUFFER | CMD_REPEATS,

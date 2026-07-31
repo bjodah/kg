@@ -478,3 +478,106 @@ Exit criteria:
 - `saved_hl` / `RESTORE_HL` are gone;
 - deferred hook tests pass with Fe enabled and disabled;
 - OOM injection at every preparation point leaves no partial edit.
+
+## Landed / deferred
+
+### Landed
+
+| Phase | State | Commits |
+| --- | --- | --- |
+| 0 — characterize the change detector | complete (added; not in the plan as a phase) | `91bf0ec` |
+| 1 — inventory and seal raw mutation | complete | `aa5782d` |
+| 2 — flat position translation | complete | `4374afe` |
+| 3 — failure-atomic replace | complete | `e5ed3da`, `fbf7701` (analyzer follow-up) |
+| 7 — first item: retire the dirty change detectors | complete | `e1ad15c` (the signal), `751a78d` (the two readers) |
+| 4, 5, 6, 7 (rest), 8, 9 | not started | — |
+
+The transaction exists, is failure-atomic, and four callers are on it:
+
+```sh
+rg 'kg_buffer_replace' src/            # buffer.c (impl + 3), undo.c, yank.c (2)
+rg 'editor_replace_rows_from_text|editor_flat_offset_to_row_col' src/   # nothing
+rg 'dirty_before' src/                 # nothing
+make gateway-check                     # 209 sites, was 227
+```
+
+Counters at the close: scc 4269 against the 4280 cap (4265 at the start,
+so the whole layer cost 4 points net, the migrations having paid for it);
+`make check` 273/273 both configurations (237 + 36 skips with
+`WITH_LISP=0`); the mutation census down from 227 sites to 209.
+
+### Deviations, all deliberate
+
+- **The 45 `undo_push` sites in the plan's inventory are 42.**  Plans
+  02, 03, 08 and 09 moved the count; the classification table is in
+  `aa5782d`'s message, and the counts per file are the manifest.
+- **Phase 1 seals with a manifest, not with `static`.**  Not one row
+  primitive can be made private yet -- `editor_insert_row` alone has
+  callers in bufmgr, dired, rect, syntax, undo and word -- so the whole
+  of phase 1 is the deny-list the plan allows for, plus the census of
+  hand-written undo records, `suppress_undo` mentions and direct writes
+  to a row's text fields.  There is no assert-build "changed outside a
+  transaction" counter: with four callers migrated it would fire
+  everywhere, and it wants to land with the last batch of phase 9, not
+  the first.
+- **`KG_EDIT_REPLAY` landed in phase 3, not phase 1**, where it has a
+  user.  An unused option is not a seal.
+- **Phase 2 did not reimplement `editor_offset_to_rowcol()` on the byte
+  layer.**  It converts a codepoint offset to a row and column, which is
+  a different unit, not a different spelling; `editor_char_offset()` did
+  move its clamp onto the byte layer, which is where the two dialects
+  could have come to disagree.  The rule ("bytes for the editor,
+  codepoints for the Lisp adapter") is written next to the declarations
+  in `def.h`.
+- **Phase 3's tests are in `test/test_buffer.c`, not a new
+  `test/test_edit.c`.**  The transaction lives in `buffer.c` and its
+  tests need the same setup; a second binary buys nothing yet.  There is
+  no allocation-failure injection harness -- the failure paths are
+  covered by refusal cases (`test_edit_refusal_changes_nothing`), which
+  prove the "nothing published" half but not the OOM half.  A malloc
+  interposer is the missing piece and is worth its own commit.
+- **The 43 hand-written `dirty` writes became `buffer_note_change()`
+  before anything read the generation.**  The plan has `content_generation`
+  arriving with the transaction and the kbd.c detectors moving in phase
+  7; taken in that order the detectors would have gone blind to every
+  path the transaction had not reached yet.  Doing the mechanical
+  substitution first makes the signal complete from the moment it
+  exists, and it closed a real hole: the four commands that assigned
+  `dirty = 1` were invisible to the detector when the buffer was already
+  modified (`test_comment_dwim_moves_generation_when_already_dirty`).
+- **Undo's cursor placement for `UNDO_CHANGE` is the start of the
+  restored text**, where the eleven older opcodes each have their own
+  answer.  The named granularity cases are unaffected because none of
+  the commands they cover is on `UNDO_CHANGE` yet.
+
+### Deferred
+
+**Phase 4 (edit grouping), 5 (markers), 6 (decorations), 7's queue, 8
+(hooks), 9 (the remaining migration).**  Not started.  Nothing about
+them changed; the plan text stands as written.
+
+**Where the next implementer starts.**  Phase 9 batches are the cheapest
+next step and they *fund* the rest: every caller moved onto
+`kg_buffer_replace()` deletes a hand-rolled splice, which is where the
+complexity budget for markers and decorations has to come from.  Four
+callers are already across and each paid for itself; `.ci/mutation-gateway.json`
+is the worklist, ordered by how much each file still does by hand
+(`buffer.c` 73 sites, `word.c` 36, `bufmgr.c` 24, `undo.c` 22).  The
+batch order in phase 9 still holds, with one amendment: batch 1 is
+partly done (`editor_row_replace_range`, `editor_insert_text_raw_bulk`,
+`editor_delete_region_range`, `editor_delete_text_range_raw`,
+`editor_transpose_chars`), and what is left of it is the split/join
+family -- `editor_insert_newline{,_raw}`, `editor_del_char`,
+`editor_del_forward_char`, `editor_kill_line` at end of line -- which
+share one shape: a single separator byte appearing or disappearing.
+
+Phases 5 and 6 depend on nothing that is missing: markers hook into
+`edit_publish()`, which is the single point where every published edit
+now passes.  `RESTORE_HL` (`src/search.c:22-30`) is untouched and is
+still decoration consumer #1.
+
+One environmental note: `.ci/ci-06-static-analysis.sh` reports
+`src/compile.c:389` (ArrayBound on the pending-line buffer) and did so
+before this plan started -- verified on a clean worktree of `2edfac6`,
+where it is the only finding.  It is not plan 10's, and it is not fixed
+here.

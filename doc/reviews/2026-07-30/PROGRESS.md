@@ -1,6 +1,6 @@
 # Implementation progress ledger
 
-Updated 2026-07-31, at the close of Plan 09.
+Updated 2026-07-31, at the close of Plan 10 phases 1-3.
 Source plans: [plans/00-master-roadmap.md](plans/00-master-roadmap.md).
 Each plan doc now carries its own deferred-work section where phases were
 consciously skipped; this file is the cross-plan index.
@@ -19,6 +19,7 @@ consciously skipped; this file is the cross-plan index.
 | 07 | complete (stateful fuzz targets, mutation, portability deferred with notes) | `ci-12-subprojects` runs both submodule suites from root; per-symbol pmccabe baselines (kg 657 symbols, fe 189; new functions ≤15); per-file coverage floors with measured jitter allowance; `quality.json` + per-case results both layers; fuzz time budgets + tracked seeds (first seeded run found and fixed a `.dir-locals.el` NUL editor hang); differential walks whole match successions; hosted one-job-per-step workflow |
 | 08 | complete (phases 1–6; 5b/7/8/9/10/11 measured and deferred) | 22 perf counters + `test_perf` gate + `make bench`; 1M-line load 3341→756 ms (single highlight pass, syntax selection hoisted off the per-row path); frame buffer and row capacities (frames verified byte-identical); rect one-shot column edits (`KG_EDIT_NO_UNDO`); multiline insert local splice (no whole-buffer flatten) |
 | 09 | complete (phases 0–5; 6 and 7 deferred with notes) | one owner per field: buffers own text/undo/syntax/dirty, file identity, local options and marks; windows own point, scroll and goal column. All six copy protocols deleted (`buf_save_to_slot`, `buf_restore_from_slot`, `buf_save_current_state`, `win_save_active_view`, `win_restore_active_view`/`win_activate_window`, `buf_temp_swap_in/out`) plus the global `undostack` and `editor_set_syntax`'s dual write; `(id, generation)` buffer handles retire compilation's slot indices and kbd.c's filename-pointer identity; the goal-column leak across `C-x b` is fixed (P0's XFAIL flipped); `test/test_winmgr.c` is the first native model of buffers and windows together |
+| 10 | partial (phases 1–3 and phase 7's detectors; 4–6, 8, 9 not started) | one mutation gateway exists and is failure-atomic: `kg_buffer_replace()` stages the replaced text, the rows that replace it, the row-array growth and the undo record, and only then publishes, so a refused or failed edit leaves text, undo, modified flag and generation untouched. `UNDO_CHANGE` is one record for any edit and replays through the same primitive (`KG_EDIT_REPLAY`), so there is no second splice to disagree. Four callers migrated, each of which *was* a second splice — transpose-chars (no longer rebuilds every row), multiline insert, `editor_row_replace_range`, yank's region delete — paying for the layer: scc 4265 → 4269. Byte positions are the editor's one position dialect (`buffer_byte_length`/`row_col_to_position`/`position_to_row_col`), codepoints are the Lisp adapter's alone. `content_generation` replaces the dirty counter as the "did this command edit?" signal, closing the hole where `dirty = 1` said nothing on an already-modified buffer. `make gateway-check` is the census of what still mutates by hand: 227 → 209 sites, may only shrink |
 
 Oversight cadence: intermediate Opus review after every two steps
 (4 passes, 13 follow-up commits across the three repos), plus two direct
@@ -36,9 +37,8 @@ status --recursive` for SHAs.
 
 | Plan | Waiting on |
 | --- | --- |
-| 10 transactions/markers/hooks | unblocked (Plan 09 phases 2–4 landed) |
 | 11 command/keymap/mode registries | unblocked (ownership landed) |
-| 12 runtime/process/Lisp extensibility | 09/10/11 foundations |
+| 12 runtime/process/Lisp extensibility | 09/10/11 foundations (10's hook queue is its phase 8, not started) |
 | 13 Emacs affordances | per-bundle dependencies (kill ring needs 11 phase 3) |
 | 14 coordinate-space invariants | after 03 (met); `RESTORE_HL` interim fix is its phase 2 |
 | 15 structural/toolchain hygiene | anytime; phase 4 partly done by 06/07 (CBMC repaired, drivers honest) |
@@ -48,16 +48,24 @@ status --recursive` for SHAs.
 - Visual-line repaint cost: gate met (583k rows / 30 MB scanned per
   repaint on a 100k-line buffer; 6.7 s vs 0.18 s) — first performance
   candidate when complexity budget allows (Plan 08 phase 8).
-- `transpose-chars` still flattens the whole buffer (same shape Plan 08
-  phase 6 removed for insert).
+- `transpose-chars` no longer rebuilds every row (Plan 10 phase 3 routed
+  it through the edit transaction).  It still serialises the buffer once
+  to find the two glyphs around point; doing that on the rows would need
+  a glyph walk across the row separator, which is marker-shaped work.
 - Backward regex search remains O(n²) per row; needs either an anchored
   engine entry point or a policy decision (kg's backward selection rule
   is deliberately not Emacs' bounded search).
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
-- Complexity budget: kg scc is at 4265 against a cap of 4280 — the next
-  structural plan should bank extractions early (Plan 15 phase 1 material).
+- Complexity budget: kg scc is at 4269 against a cap of 4280.  Plan 10's
+  transaction cost 4 points net because each caller it took over deleted
+  a hand-rolled splice; its remaining phases (markers, decorations,
+  hooks) have to be funded the same way, from phase 9's migration.
+- `.ci/ci-06-static-analysis.sh` reports `src/compile.c:389` (ArrayBound
+  on the pending-line buffer) on this toolchain, and did so before Plan
+  10 started — verified on a clean worktree of `2edfac6`, where it is
+  the only finding.  Unowned; Plan 04's area.
 - Plan 09 phase 6 (nest the session record as `struct kg_session`) and
   phase 7 (lifecycle hooks, `winlist[].bufidx` as a handle) are not
   started; the plan doc's "Landed / deferred" section says where to pick

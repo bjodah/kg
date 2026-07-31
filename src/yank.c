@@ -369,101 +369,53 @@ char *editor_get_region_text(int *out_len)
 static int editor_delete_region_range(
     int start_row, int start_col, int end_row, int end_col)
 {
-	erow *first;
-	erow *last;
-	char *newchars;
-	int suffix_len;
-	int new_size;
-	int row;
-	int removed;
+	/* Two row/column pairs name a byte range, and removing a byte range
+	 * is the edit transaction with nothing to put back in its place.
+	 * The caller records the step -- both of them push their own
+	 * UNDO_KILL_TEXT covering the whole region -- so this one does not.
+	 *
+	 * This used to be a second implementation of the multi-row splice:
+	 * join the first row to the tail of the last, free the rows
+	 * between, move the array down, renumber.  Two of those are one too
+	 * many. */
+	size_t begin = buffer_row_col_to_position(bcur(), start_row, start_col);
+	struct kg_edit e = {
+		.buffer = bcur(),
+		.begin_byte = begin,
+		.end_byte
+		= buffer_row_col_to_position(bcur(), end_row, end_col),
+		.replacement = "",
+		.options = KG_EDIT_NO_UNDO,
+	};
 
-	if (start_row == end_row) {
-		erow *r = &bcur()->row[start_row];
-		memmove(r->chars + start_col, r->chars + end_col,
-		    r->size - end_col + 1);
-		r->size -= end_col - start_col;
-		editor_update_row(bcur(), r);
-		buffer_note_change(bcur());
-		return 1;
-	}
-
-	first = &bcur()->row[start_row];
-	last = &bcur()->row[end_row];
-	suffix_len = last->size - end_col;
-	if (!checked_add_int_size(
-		&new_size, start_col, (size_t)suffix_len + 1)) {
-		return 0;
-	}
-	new_size--;
-	newchars = realloc(first->chars, (size_t)new_size + 1);
-	if (!newchars) {
-		return 0;
-	}
-	first->chars = newchars;
-	memcpy(first->chars + start_col, last->chars + end_col, suffix_len);
-	first->chars[new_size] = '\0';
-	first->size = new_size;
-	editor_update_row(bcur(), first);
-
-	for (row = start_row + 1; row <= end_row; row++) {
-		editor_free_row(&bcur()->row[row]);
-	}
-	removed = end_row - start_row;
-	memmove(bcur()->row + start_row + 1, bcur()->row + end_row + 1,
-	    (size_t)(bcur()->numrows - end_row - 1) * sizeof(*bcur()->row));
-	bcur()->numrows -= removed;
-	for (row = start_row + 1; row < bcur()->numrows; row++) {
-		bcur()->row[row].idx = row;
-	}
-	buffer_note_change(bcur());
-	return 1;
+	return kg_buffer_replace(&e, NULL);
 }
 
+/* Remove `byte_len` bytes from (start_row, start_col) forward, recording
+ * nothing: undo replay and overwrite-mode self-insert use it, and both
+ * own the record that covers what they are doing.  Returns 0 without
+ * touching the buffer when the span is not one the buffer has. */
 int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 {
-	if (byte_len <= 0) {
+	size_t begin;
+	struct kg_edit e;
+
+	if (byte_len <= 0 || start_row < 0 || start_row >= bcur()->numrows
+	    || start_col < 0 || start_col > bcur()->row[start_row].size) {
 		return 0;
 	}
-	if (start_row < 0 || start_row >= bcur()->numrows) {
+	begin = buffer_row_col_to_position(bcur(), start_row, start_col);
+	if ((size_t)byte_len > buffer_byte_length(bcur()) - begin) {
 		return 0;
 	}
-	if (start_col < 0 || start_col > bcur()->row[start_row].size) {
-		return 0;
-	}
-
-	int row = start_row;
-	int col = start_col;
-	int rem = byte_len;
-
-	while (rem > 0) {
-		int row_len = bcur()->row[row].size;
-		if (rem <= row_len - col) {
-			col += rem;
-			rem = 0;
-		} else {
-			if (row + 1 >= bcur()->numrows) {
-				return 0;
-			}
-			rem -= (row_len - col + 1);
-			row++;
-			col = 0;
-		}
-	}
-
-	int end_row = row;
-	int end_col = col;
-
-	if (start_row == end_row && start_col == end_col) {
-		return 0;
-	}
-
-	int saved_suppress = suppress_undo;
-	suppress_undo = 1;
-	int deleted = editor_delete_region_range(
-	    start_row, start_col, end_row, end_col);
-	suppress_undo = saved_suppress;
-
-	return deleted;
+	e = (struct kg_edit) {
+		.buffer = bcur(),
+		.begin_byte = begin,
+		.end_byte = begin + (size_t)byte_len,
+		.replacement = "",
+		.options = KG_EDIT_NO_UNDO,
+	};
+	return kg_buffer_replace(&e, NULL);
 }
 
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at

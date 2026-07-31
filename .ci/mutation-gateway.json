@@ -11,9 +11,9 @@
  "files": {
   "src/buffer.c": {
    "row_primitive": 32,
-   "undo_push": 14,
+   "undo_push": 12,
    "suppress_undo": 4,
-   "row_field_write": 33
+   "row_field_write": 25
   },
   "src/bufmgr.c": {
    "row_primitive": 15,
@@ -58,10 +58,10 @@
    "undo_push": 1
   },
   "src/undo.c": {
-   "row_primitive": 13,
+   "row_primitive": 12,
    "undo_push": 1,
    "suppress_undo": 5,
-   "row_field_write": 5
+   "row_field_write": 4
   },
   "src/word.c": {
    "row_primitive": 3,
@@ -70,10 +70,8 @@
    "row_field_write": 14
   },
   "src/yank.c": {
-   "row_primitive": 1,
    "undo_push": 3,
-   "suppress_undo": 5,
-   "row_field_write": 2
+   "suppress_undo": 2
   }
  }
 }

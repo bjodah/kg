@@ -50,12 +50,14 @@ ROW_PRIMITIVES = (
 
 # Direct writes to the fields a row's text lives in.  Reads are fine and
 # are not matched: only an assignment, an increment or a decrement is.
+# `op->row` is an undo record's row number, not a buffer's row array, and
+# is the one spelling that has to be excluded by name.
 FIELD_WRITES = (
 	re.compile(r"\brow(?:s\[[^]]*\])?->size\s*(?:[-+*/|&^]?=[^=]|\+\+|--)"),
 	re.compile(r"->chars\s*\[[^]]*\]\s*=[^=]"),
 	re.compile(r"->numrows\s*(?:[-+]?=[^=]|\+\+|--)"),
 	re.compile(r"->row_capacity\s*(?:[-+]?=[^=]|\+\+|--)"),
-	re.compile(r"->row\s*=[^=]"),
+	re.compile(r"(?<!\bop)->row\s*=[^=]"),
 )
 
 PROBES = ("row_primitive", "undo_push", "suppress_undo", "row_field_write")

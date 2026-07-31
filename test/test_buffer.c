@@ -1472,6 +1472,183 @@ static void test_delete_glyph_between_neighbours(void)
 	teardown();
 }
 
+/* ---- The edit transaction ---- */
+
+/* The buffer's bytes as one string, for comparing a whole buffer against
+ * a literal.  Caller frees. */
+static char *buffer_text(void)
+{
+	int len;
+
+	return editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
+}
+
+static int edit_at(size_t begin, size_t end, const char *insert, unsigned opts)
+{
+	struct kg_edit e = {
+		.buffer = bcur(),
+		.begin_byte = begin,
+		.end_byte = end,
+		.replacement = insert,
+		.replacement_len = strlen(insert),
+		.options = opts,
+	};
+
+	return kg_buffer_replace(&e, NULL);
+}
+
+/* A replacement inside one row, a replacement spanning rows, and one that
+ * brings rows of its own: the same call, addressed in bytes. */
+static void test_edit_replaces_byte_ranges(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "hello", 5);
+	editor_insert_row(bcur(), 1, "world", 5);
+
+	CHECK(edit_at(1, 4, "EY", 0) == 1); /* inside row 0 */
+	text = buffer_text();
+	CHECK(strcmp(text, "hEYo\nworld") == 0);
+	free(text);
+
+	/* Across the separator: rows 0 and 1 become one. */
+	CHECK(edit_at(3, 6, "-", 0) == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "hEY-orld") == 0);
+	CHECK(bcur()->numrows == 1);
+	free(text);
+
+	/* A replacement carrying separators of its own splits the row. */
+	CHECK(edit_at(3, 4, "\na\nb\n", 0) == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "hEY\na\nb\norld") == 0);
+	CHECK(bcur()->numrows == 4);
+	free(text);
+	teardown();
+}
+
+/* Deleting everything, and inserting into a buffer that has no rows at
+ * all: the two ends of the range of shapes, both of which used to need a
+ * special case somewhere. */
+static void test_edit_empties_and_fills_a_buffer(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one", 3);
+	editor_insert_row(bcur(), 1, "two", 3);
+
+	CHECK(edit_at(0, buffer_byte_length(bcur()), "", 0) == 1);
+	CHECK(buffer_byte_length(bcur()) == 0);
+	CHECK(bcur()->numrows == 1);
+	teardown();
+
+	setup();
+	CHECK(bcur()->numrows == 0);
+	CHECK(edit_at(0, 0, "a\nb", 0) == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "a\nb") == 0);
+	free(text);
+	teardown();
+}
+
+/* A refused edit changes nothing at all: not a byte, not the modified
+ * flag, not the content generation, not the undo stack. */
+static void test_edit_refusal_changes_nothing(void)
+{
+	struct kg_edit e = { 0 };
+	struct kg_edit_result res;
+	uint64_t generation;
+	char *text;
+	int size;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "de", 2);
+	generation = bcur()->content_generation;
+	size = bcur()->undostack.size;
+
+	CHECK(edit_at(0, 99, "X", 0) == 0); /* past the end */
+	CHECK(edit_at(4, 2, "X", 0) == 0); /* end before begin */
+
+	bcur()->readonly = 1;
+	CHECK(edit_at(0, 1, "X", 0) == 0);
+	/* ... but a load, a rebuild or undo putting a record back is not
+	 * what read-only is about. */
+	CHECK(edit_at(0, 1, "X", KG_EDIT_NO_UNDO) == 1);
+	CHECK(edit_at(0, 1, "a", KG_EDIT_REPLAY) == 1);
+	bcur()->readonly = 0;
+
+	text = buffer_text();
+	CHECK(strcmp(text, "abc\nde") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == size);
+
+	/* Two edits happened, so the generation moved twice and no further:
+	 * the refusals cost nothing. */
+	CHECK(bcur()->content_generation == generation + 2);
+
+	e = (struct kg_edit) { .buffer = bcur(),
+		.begin_byte = 1,
+		.end_byte = 99,
+		.replacement = "",
+		.replacement_len = 0 };
+	CHECK(kg_buffer_replace(&e, &res) == 0);
+	CHECK(res.before_generation == res.after_generation);
+	teardown();
+}
+
+/* The result brackets the commit: one generation step, and the two
+ * lengths of the buffer around it. */
+static void test_edit_result_reports_the_commit(void)
+{
+	struct kg_edit e;
+	struct kg_edit_result res;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	e = (struct kg_edit) { .buffer = bcur(),
+		.begin_byte = 2,
+		.end_byte = 4,
+		.replacement = "XYZ",
+		.replacement_len = 3 };
+
+	CHECK(kg_buffer_replace(&e, &res) == 1);
+	CHECK(res.old_length == 6);
+	CHECK(res.new_length == 7);
+	CHECK(res.after_generation == res.before_generation + 1);
+	teardown();
+}
+
+/* One undo puts the exact bytes back, wherever the range crossed, and
+ * lands point where the change was. */
+static void test_edit_undo_restores_exact_bytes(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "beta", 4);
+	editor_insert_row(bcur(), 2, "gamma", 5);
+
+	/* From inside row 0 to inside row 2, replaced by two rows. */
+	CHECK(edit_at(2, 13, "X\nY", 0) == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "alX\nYmma") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+
+	editor_undo();
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nbeta\ngamma") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 2);
+	teardown();
+}
+
 /* One logical replacement is one row rebuild, one dirty step and one undo
  * record, whatever the two lengths are -- the byte-at-a-time loops it
  * replaces charged one of each per byte. */
@@ -2461,6 +2638,11 @@ int main(void)
 	RUN(test_guarded_write_refuses_replaced_target);
 	RUN(test_snapshot_distinguishes_by_identity);
 	RUN(test_snapshot_unreadable_is_unknown);
+	RUN(test_edit_replaces_byte_ranges);
+	RUN(test_edit_empties_and_fills_a_buffer);
+	RUN(test_edit_refusal_changes_nothing);
+	RUN(test_edit_result_reports_the_commit);
+	RUN(test_edit_undo_restores_exact_bytes);
 	RUN(test_row_replace_range);
 	RUN(test_row_replace_range_refuses_bad_ranges);
 	return test_summary();

@@ -379,7 +379,7 @@ static void buf_reset(void)
 	bcur()->mark_ring_len = 0;
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
-	editor.cx_prefix = 0;
+	key_reset_pending_sequence();
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;
 	editor.prefix_no_digits = 0;

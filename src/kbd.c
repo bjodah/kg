@@ -130,56 +130,6 @@ static int handle_universal_arg(int c)
 	return 0;
 }
 
-/* Quit confirmation for C-x C-c: prompt when modified real-file buffers
- * exist.  Returns 1 when quitting may proceed. */
-static int editor_confirm_quit(int fd)
-{
-	int i, ndirty = 0;
-
-	/* Count modified real-file buffers (exclude *special* ones). */
-	if (bcur()->dirty && !is_special_buffer(bcur()->filename)) {
-		ndirty++;
-	}
-	for (i = 0; i < MAX_BUFFERS; i++) {
-		if (!buflist[i].active || i == buf_current) {
-			continue;
-		}
-		if (!buflist[i].dirty) {
-			continue;
-		}
-		if (is_special_buffer(buflist[i].filename)) {
-			continue;
-		}
-		ndirty++;
-	}
-	if (ndirty) {
-		int ok = ndirty == 1
-		    ? editor_confirm_yn(
-			  fd, "Modified buffer, really quit? (y/n) ")
-		    : editor_confirm_yn(fd,
-			  "%d modified buffers, really quit? (y/n) ", ndirty);
-		if (!ok) {
-			editor_set_status_message("");
-			return 0;
-		}
-	}
-	return 1;
-}
-
-/* Finish an EDITOR-server session (C-c C-c in git-commit buffers,
- * C-x # anywhere): save the current buffer, then quit with status 0.
- * A failed or cancelled save keeps the session running. */
-static void editor_server_done(int fd)
-{
-	if (editor_save(fd) != 0) {
-		return;
-	}
-	if (!editor_confirm_quit(fd)) {
-		return;
-	}
-	running = 0;
-}
-
 /* Ask `fmt` (printf-style, as for the status line) in the echo area and
  * read one key.  Returns 1 only for a literal yes; anything else, C-g
  * included, is a no.  The screen is refreshed first because the question
@@ -266,7 +216,7 @@ static void handle_cc_prefix_key(int c, int fd)
 	    = syntax_is_git_rebase() ? rebase_action_for_key(c) : NULL;
 
 	if ((syntax_is_git_commit() || syntax_is_git_rebase()) && c == CTRL_C) {
-		editor_server_done(fd);
+		(void)cmd_execute_named("server-edit", fd);
 	} else if (syntax_is_git_commit() && c == CTRL_K) {
 		editor_git_abort(fd, "Abort commit? (y/n) ");
 	} else if (syntax_is_git_rebase() && c == CTRL_K) {
@@ -278,149 +228,6 @@ static void handle_cc_prefix_key(int c, int fd)
 		editor_kill_compilation(fd);
 	} else {
 		handle_user_binding(c, fd);
-	}
-}
-
-/* Handle the key after a C-x r prefix (rectangle operations).  Every op
- * here mutates the buffer, so a read-only buffer rejects them outright;
- * only C-g (cancel) still has any business reaching the switch. */
-static void handle_rect_prefix_key(int c, int fd)
-{
-	if (bcur()->readonly && c != CTRL_G) {
-		editor_set_status_message("Buffer is read-only");
-		return;
-	}
-	switch (c) {
-	case 'k':
-	case CTRL_K:
-		editor_kill_rect();
-		break;
-	case 'd':
-		editor_delete_rect();
-		break;
-	case 'c':
-		editor_clear_rect();
-		break;
-	case 'y':
-	case CTRL_Y:
-		editor_yank_rect();
-		break;
-	case 't':
-		editor_string_rect(fd);
-		break;
-	case CTRL_G:
-		editor_set_status_message("");
-		break;
-	default:
-		editor_set_status_message("C-x r %c is undefined", c);
-		break;
-	}
-}
-
-/* Handle the key after a C-x prefix.
- *
- * The prefix argument typed before the C-x is still in
- * editor.current_prefix: the C-x keystroke set it and returned, and this
- * key is dispatched from the top of editor_process_keypress() before
- * anything reassigns it.  handle_cc_prefix_key() and
- * handle_rect_prefix_key() reach their commands the same way, so C-c and
- * C-x r bindings see the prefix too -- keep that early return ahead of
- * the assignment.  Presence and value are separate questions: C-u 0 is a
- * supplied zero, so never use `value > 0` to ask whether an argument was
- * given. */
-static void handle_cx_prefix_key(int c, int fd)
-{
-	struct command_prefix prefix = editor.current_prefix;
-
-	switch (c) {
-	case CTRL_C: /* C-x C-c: Quit */
-		if (editor_confirm_quit(fd)) {
-			running = 0;
-		}
-		break;
-	case CTRL_S: /* C-x C-s: Save */
-		editor_save(fd);
-		break;
-	case 's': /* C-x s: Save all modified buffers */
-		buf_save_all(fd);
-		break;
-	case CTRL_F: /* C-x C-f: Open file in new buffer */
-		buf_open_file(fd);
-		break;
-	case CTRL_R: /* C-x C-r: Open file read-only */
-		buf_open_file_read_only(fd);
-		break;
-	case 'b': /* C-x b: Interactive buffer select */
-		buf_select_interactive(fd);
-		break;
-	case 'k': /* C-x k: Kill current buffer */
-		buf_kill(fd);
-		break;
-	case CTRL_B: /* C-x C-b: Open buffer list */
-		buf_open_list();
-		break;
-	case 'd': /* C-x d: Dired */
-		(void)cmd_execute_named("dired", fd);
-		break;
-	case '2': /* C-x 2: Split window horizontally */
-		win_split_horizontal();
-		break;
-	case '3': /* C-x 3: Split window vertically */
-		win_split_vertical();
-		break;
-	case 'o': /* C-x o: Other window */
-		win_cycle_next();
-		break;
-	case '0': /* C-x 0: Delete current window */
-		win_delete_current();
-		break;
-	case '1': /* C-x 1: Delete other windows */
-		win_delete_others();
-		break;
-	case CTRL_X: /* C-x C-x: Exchange point and mark */
-		editor_exchange_point_and_mark();
-		break;
-	case CTRL_W: /* C-x C-w: Write file (save as) */
-		editor_write_file(fd);
-		break;
-	case 'i': /* C-x i: Insert file at point */
-		editor_insert_file(fd);
-		break;
-	case CTRL_Q: /* C-x C-q: read-only-mode */
-		(void)cmd_execute_named("read-only-mode", fd);
-		break;
-	case '(': /* C-x (: Start keyboard macro */
-		macro_start();
-		break;
-	case ')': /* C-x ): Stop keyboard macro (trim C-x + ')' from buffer) */
-		macro_stop(2);
-		break;
-	case 'e': /* C-x e: Execute keyboard macro; C-u N repeats */
-		macro_replay(fd, prefix.supplied ? prefix.value : 1);
-		break;
-	case CTRL_E: /* C-x C-e: eval-last-sexp; with prefix, insert */
-		if (kg_lisp_active()) {
-			cmd_eval_last_sexp(prefix.supplied);
-		} else {
-			editor_set_status_message("Lisp not available");
-		}
-		break;
-	case ' ': /* C-x SPC: rectangle-mark-mode */
-		editor_rect_mode_toggle();
-		break;
-	case 'r': /* C-x r-: rectangle operation prefix */
-		editor.rect_prefix = 1;
-		editor_set_status_message("C-x r-");
-		break;
-	case CTRL_G: /* C-x C-g: Cancel C-x prefix */
-		editor_set_status_message("");
-		break;
-	case '#': /* C-x #: save and exit 0 (EDITOR-server done) */
-		editor_server_done(fd);
-		break;
-	default:
-		editor_set_status_message("C-x %c is undefined", c);
-		break;
 	}
 }
 
@@ -701,9 +508,85 @@ static const struct {
 	{ "M-|", "shell-command-on-region" },
 	{ "<f3>", "kmacro-start-macro" },
 	{ "<f4>", "kmacro-end-or-call-macro" },
+
+	/* ESC is a prefix, not a key that reads another key itself.  The
+	 * decoder still merges ESC with a key that follows it inside 100 ms
+	 * into one Meta key, so these two sequences are what a *deliberate*
+	 * ESC then key produces; the Meta spellings are bound above. */
+	{ "ESC %", "query-replace" },
+	{ "ESC M-%", "query-replace" },
+	{ "ESC @", "mark-word" },
+	{ "ESC M-@", "mark-word" },
+
+	{ "C-x C-c", "save-buffers-kill-terminal" },
+	{ "C-x C-s", "save-buffer" },
+	{ "C-x s", "save-some-buffers" },
+	{ "C-x C-f", "find-file" },
+	{ "C-x C-r", "find-file-read-only" },
+	{ "C-x b", "switch-to-buffer" },
+	{ "C-x k", "kill-buffer" },
+	{ "C-x C-b", "list-buffers" },
+	{ "C-x d", "dired" },
+	{ "C-x 2", "split-window-below" },
+	{ "C-x 3", "split-window-right" },
+	{ "C-x o", "other-window" },
+	{ "C-x 0", "delete-window" },
+	{ "C-x 1", "delete-other-windows" },
+	{ "C-x C-x", "exchange-point-and-mark" },
+	{ "C-x C-w", "write-file" },
+	{ "C-x i", "insert-file" },
+	{ "C-x C-q", "read-only-mode" },
+	{ "C-x (", "kmacro-start-macro" },
+	{ "C-x )", "kmacro-end-macro" },
+	{ "C-x e", "kmacro-end-and-call-macro" },
+	{ "C-x C-e", "eval-last-sexp" },
+	{ "C-x SPC", "rectangle-mark-mode" },
+	{ "C-x #", "server-edit" },
+
+	{ "C-x r k", "kill-rectangle" },
+	{ "C-x r C-k", "kill-rectangle" },
+	{ "C-x r d", "delete-rectangle" },
+	{ "C-x r c", "clear-rectangle" },
+	{ "C-x r y", "yank-rectangle" },
+	{ "C-x r C-y", "yank-rectangle" },
+	{ "C-x r t", "string-rectangle" },
 };
 
 static struct keymap *global_map;
+
+/* The sequence in progress, and the numeric argument its first key
+ * carried.  One buffer at any depth, in place of editor.cx_prefix,
+ * editor.cc_prefix and editor.rect_prefix -- three booleans that could
+ * only describe three fixed shapes, and that left the argument sitting
+ * in an ambient global for the follow-up key to find. */
+static struct {
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	int len;
+	struct command_prefix prefix;
+} pending;
+
+void key_reset_pending_sequence(void) { pending.len = 0; }
+
+/* The sequence so far, in canonical spelling: "C-x r". */
+static void pending_format(char *out, size_t size)
+{
+	int i;
+	size_t used = 0;
+
+	out[0] = '\0';
+	for (i = 0; i < pending.len; i++) {
+		char text[KEY_FORMAT_MAX];
+
+		if (key_format(pending.keys[i], text, sizeof(text)) != 0) {
+			continue;
+		}
+		used += (size_t)snprintf(
+		    out + used, size - used, "%s%s", used ? " " : "", text);
+		if (used >= size) {
+			return;
+		}
+	}
+}
 
 /* Installed once, on the first keystroke: the editor has no init hook
  * every entry point runs, and the map is the same for every session.
@@ -722,26 +605,71 @@ void key_install_builtin_maps(void)
 	}
 }
 
-/* Run `c` from the keymaps.  Returns 1 when it was a complete binding
- * and the command ran; 0 leaves the key to the switch.
+/* Run `c` from the keymaps, one key of a sequence at a time.
  *
- * Only one-key sequences reach here so far: the C-x, C-x r and C-c
- * prefixes still have their own helpers, and phase 5 moves them into the
- * map with the traversal state a prefix needs. */
-static int key_dispatch_map(int c, int fd)
+ * KEY_DISPATCH_IN_SEQUENCE is a keystroke that was part of a longer
+ * sequence -- a prefix, or the key that finished one.  Those return
+ * without the per-keystroke teardown, which is what the three prefix
+ * helpers did by returning early, and is why a shift-selected region
+ * survives a C-x sequence that may be about to use it. */
+enum key_dispatch {
+	KEY_DISPATCH_UNHANDLED,
+	KEY_DISPATCH_DONE,
+	KEY_DISPATCH_IN_SEQUENCE,
+};
+
+static enum key_dispatch key_dispatch_map(int c, int fd)
 {
 	struct key_event event = key_event_from_legacy(c);
+	struct key_event quit = { 'g', KEY_MOD_CTRL };
 	struct keymap_match match;
+	char text[KEYMAP_SEQUENCE_MAX * (KEY_FORMAT_MAX + 1)];
+	int started = pending.len;
 
 	if (!global_map) {
 		key_install_builtin_maps();
 	}
-	keymap_lookup(&event, 1, &match);
-	if (match.result != KEYMAP_COMMAND) {
-		return 0;
+	/* C-g gets out of a sequence at any depth, which is why no map may
+	 * bind it: a keymap that is wrong must still be escapable. */
+	if (started > 0 && key_event_equal(event, quit)) {
+		pending.len = 0;
+		editor_set_status_message("");
+		return KEY_DISPATCH_IN_SEQUENCE;
 	}
-	(void)cmd_execute_named(match.command, fd);
-	return 1;
+	if (started == 0) {
+		pending.prefix = editor.current_prefix;
+	}
+	pending.keys[pending.len++] = event;
+	keymap_lookup(pending.keys, pending.len, &match);
+	pending_format(text, sizeof(text));
+	if (match.result == KEYMAP_PREFIX) {
+		editor_set_status_message("%s-", text);
+		return KEY_DISPATCH_IN_SEQUENCE;
+	}
+	pending.len = 0;
+	if (match.result == KEYMAP_COMMAND) {
+		struct command_context ctx
+		    = { fd, pending.prefix, CMD_ORIGIN_KEY };
+
+		(void)cmd_invoke(match.command, &ctx);
+		return started ? KEY_DISPATCH_IN_SEQUENCE : KEY_DISPATCH_DONE;
+	}
+	if (match.result == KEYMAP_UNRESOLVED) {
+		editor_set_status_message(
+		    "%s runs %s, which is not defined", text, match.command);
+		return KEY_DISPATCH_IN_SEQUENCE;
+	}
+	if (match.result == KEYMAP_AMBIGUOUS) {
+		editor_set_status_message("%s is bound in two ways", text);
+		return KEY_DISPATCH_IN_SEQUENCE;
+	}
+	/* Nothing has it.  One key falls through to the switch below; a
+	 * longer sequence is undefined, and says which sequence. */
+	if (started == 0) {
+		return KEY_DISPATCH_UNHANDLED;
+	}
+	editor_set_status_message("%s is undefined", text);
+	return KEY_DISPATCH_IN_SEQUENCE;
 }
 
 /* Whether what just ran keeps the goal column. */
@@ -780,8 +708,7 @@ static void key_finish_keypress(struct kg_buffer_handle buffer_before,
 	 * during their dispatch.  A shift-translated keystroke keeps the
 	 * region alive; a C-x prefix keystroke also keeps it (the follow-up
 	 * may consume the region). */
-	if (was_shift_select && !editor.cx_prefix
-	    && !cmd_state()->shift_translated) {
+	if (was_shift_select && !cmd_state()->shift_translated) {
 		bcur()->shift_select = 0;
 		bcur()->mark_set = 0;
 		bcur()->mark_highlight = 0;
@@ -808,6 +735,7 @@ void editor_process_keypress(int fd)
 	int was_shift_select = bcur()->shift_select;
 	long elapsed;
 	long seconds;
+	enum key_dispatch dispatched;
 	int n;
 
 	/* Paste mode detection: characters arriving less than 30ms apart are
@@ -828,23 +756,18 @@ void editor_process_keypress(int fd)
 	}
 	editor.last_char_time = tv;
 
-	/* The three prefixes take the whole keystroke: C-x r (rectangle ops),
-	 * C-c (mode and user bindings), C-x. */
-	if (editor.rect_prefix) {
-		editor.rect_prefix = 0;
-		handle_rect_prefix_key(c, fd);
+	/* A sequence in progress takes the whole keystroke: no numeric
+	 * argument, no mode intercepts, no new command state.  The
+	 * argument the sequence started with is waiting in `pending`. */
+	if (pending.len > 0) {
+		(void)key_dispatch_map(c, fd);
 		return;
 	}
 
+	/* The last prefix still outside the map; commit order, not design. */
 	if (editor.cc_prefix) {
 		editor.cc_prefix = 0;
 		handle_cc_prefix_key(c, fd);
-		return;
-	}
-
-	if (editor.cx_prefix) {
-		editor.cx_prefix = 0;
-		handle_cx_prefix_key(c, fd);
 		return;
 	}
 
@@ -906,25 +829,18 @@ void editor_process_keypress(int fd)
 	cmd_state_set_key(key_event_from_legacy(c));
 
 	/* Keys the maps answer.  What they do not answer falls through to
-	 * the switch, which is what phase 4 empties one family at a time. */
-	if (key_dispatch_map(c, fd)) {
-		key_finish_keypress(
-		    buffer_before, generation_before, was_shift_select);
+	 * the switch, which is down to the input-layer fast paths. */
+	dispatched = key_dispatch_map(c, fd);
+	if (dispatched != KEY_DISPATCH_UNHANDLED) {
+		if (dispatched == KEY_DISPATCH_DONE) {
+			key_finish_keypress(
+			    buffer_before, generation_before, was_shift_select);
+		}
 		return;
 	}
 
 	/* Regular key processing */
 	switch (c) {
-	case ESC:
-		c = editor_read_key(fd);
-		if (c == '%' || c == ALT_PCT) {
-			(void)cmd_execute_named("query-replace", fd);
-		} else if (c == '@' || c == ALT_AT) {
-			(void)cmd_execute_named("mark-word", fd);
-		} else if (c != CTRL_G) {
-			editor_set_status_message("ESC %c is undefined", c);
-		}
-		break;
 	case CTRL_G: /* Keyboard quit / cancel */
 		bcur()->mark_highlight = 0;
 		bcur()->rect_mode = 0;
@@ -932,10 +848,6 @@ void editor_process_keypress(int fd)
 		cmd_clear_transient();
 		editor_set_status_message("");
 		break;
-	case CTRL_X: /* C-x prefix */
-		editor.cx_prefix = 1;
-		editor_set_status_message("C-x-");
-		return;
 	case CTRL_C: /* C-c prefix: user-defined bindings */
 		editor.cc_prefix = 1;
 		editor_set_status_message("C-c-");

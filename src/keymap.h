@@ -70,6 +70,10 @@ struct keymap_match {
  * or no room left. */
 [[nodiscard]] int keymap_bind(
     struct keymap *map, const char *sequence, const char *command);
+/* Declares `sequence` a prefix with no leaf of its own, for a key that
+ * has to wait for the next one even when nothing under it is bound yet:
+ * C-c is a prefix whether or not the user has bound anything to it. */
+[[nodiscard]] int keymap_bind_prefix(struct keymap *map, const char *sequence);
 [[nodiscard]] int keymap_unbind(struct keymap *map, const char *sequence);
 void keymap_set_active(struct keymap *map, int active);
 [[nodiscard]] int keymap_is_active(const struct keymap *map);

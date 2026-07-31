@@ -128,6 +128,11 @@ static void test_bind_refuses_and_changes_nothing(void)
 	CHECK(keymap_is_reserved(&(struct key_event) { 'g', KEY_MOD_CTRL }, 1));
 	CHECK(keymap_bind(map, "C-g", "forward-char") != 0);
 	CHECK(keymap_bind(map, "C-g x", "forward-char") != 0);
+	/* At any depth: traversal cancels on C-g before looking up. */
+	CHECK(keymap_bind(map, "C-x C-g", "forward-char") != 0);
+	CHECK(keymap_is_reserved((struct key_event[]) { { 'x', KEY_MOD_CTRL },
+				     { 'g', KEY_MOD_CTRL } },
+	    2));
 	CHECK(lookup("C-g").result == KEYMAP_NO_MATCH);
 
 	CHECK(strcmp(lookup("M-f").command, "forward-word") == 0);
@@ -243,6 +248,32 @@ static void test_ambiguous_configuration(void)
 	keymap_reset();
 }
 
+/* A prefix with no leaf of its own: C-c is a prefix whether or not
+ * anything is bound under it, so the key waits rather than reporting
+ * itself undefined. */
+static void test_prefix_without_a_leaf(void)
+{
+	struct keymap *map;
+
+	keymap_reset();
+	map = keymap_create("test-global", KEYMAP_LAYER_GLOBAL);
+	CHECK(keymap_bind_prefix(map, "C-c") == 0);
+	CHECK(lookup("C-c").result == KEYMAP_PREFIX);
+	CHECK(lookup("C-c x").result == KEYMAP_NO_MATCH);
+	/* Declaring it twice is not a conflict, and a leaf may still be
+	 * hung under it. */
+	CHECK(keymap_bind_prefix(map, "C-c") == 0);
+	CHECK(keymap_bind(map, "C-c x", "forward-char") == 0);
+	CHECK(lookup("C-c").result == KEYMAP_PREFIX);
+	CHECK(strcmp(lookup("C-c x").command, "forward-char") == 0);
+	/* But it is still a prefix, so it cannot also become a command. */
+	CHECK(keymap_bind(map, "C-c", "forward-word") != 0);
+	CHECK(keymap_bind_prefix(map, "C-g") != 0);
+	CHECK(keymap_bind_prefix(NULL, "C-c") != 0);
+	CHECK(keymap_bind_prefix(map, "not a key") != 0);
+	keymap_reset();
+}
+
 static void test_storage_is_bounded(void)
 {
 	struct keymap *map;
@@ -314,6 +345,7 @@ int main(void)
 	RUN(test_precedence);
 	RUN(test_layers_advance_together);
 	RUN(test_ambiguous_configuration);
+	RUN(test_prefix_without_a_leaf);
 	RUN(test_storage_is_bounded);
 	RUN(test_builtin_global_map_resolves);
 	return test_summary();

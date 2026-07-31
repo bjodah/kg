@@ -1134,6 +1134,11 @@ and
 Capitalize the word forward from point (first letter upper, rest lower).
 Equivalent to
 .Ic M-c .
+.It clear-rectangle
+Blank out the rectangle between point and the mark, keeping its
+width.
+Bound to
+.Ic C-x r c .
 .It comment-dwim
 Comment the line or region out, or uncomment it, using the mode's
 comment syntax.
@@ -1173,10 +1178,22 @@ Equivalent to
 .Ic M-\e .
 Reversible with
 .Ic C-_ .
+.It delete-other-windows
+Give the current window the whole frame.
+Bound to
+.Ic C-x 1 .
+.It delete-rectangle
+Delete the rectangle between point and the mark without saving it.
+Bound to
+.Ic C-x r d .
 .It delete-trailing-space
 Remove trailing whitespace from the current line only.
 Reversible with
 .Ic C-_ .
+.It delete-window
+Delete the current window.
+Bound to
+.Ic C-x 0 .
 .It downcase-word
 Convert the word forward from point to lower case.
 Equivalent to
@@ -1202,6 +1219,8 @@ Equivalent to
 .Ic M-: .
 .It eval-last-sexp
 Evaluate the s-expression before point and show the result in the status area.
+With a numeric argument it inserts the result, which a read-only
+buffer refuses.
 .It eval-print-last-sexp
 Evaluate the s-expression before point and insert the result on the next line.
 Bound to
@@ -1210,6 +1229,10 @@ in
 .Pa *scratch*
 and Lisp Interaction buffers.
 It inserts, so a read-only buffer refuses it.
+.It exchange-point-and-mark
+Swap point and the mark.
+Bound to
+.Ic C-x C-x .
 .It execute-extended-command
 Read a command name in the minibuffer and run it.
 Bound to
@@ -1219,6 +1242,14 @@ A numeric argument is passed to the command it runs.
 Reflow the paragraph around point to the fill column.
 Bound to
 .Ic M-q .
+.It find-file
+Visit a file in a new buffer.
+Bound to
+.Ic C-x C-f .
+.It find-file-read-only
+Visit a file in a new read-only buffer.
+Bound to
+.Ic C-x C-r .
 .It forward-char
 Move point one character forward.
 Bound to
@@ -1257,6 +1288,10 @@ Equivalent to
 Show the built-in key binding help in a read-only buffer.
 Bound to
 .Ic C-h .
+.It insert-file
+Insert a file's contents at point.
+Bound to
+.Ic C-x i .
 .It isearch-backward
 Incremental search backward.
 Bound to
@@ -1284,6 +1319,10 @@ Equivalent to
 .Ic M-Space .
 Reversible with
 .Ic C-_ .
+.It kill-buffer
+Kill the current buffer, offering to save it when it is modified.
+Bound to
+.Ic C-x k .
 .It kill-compilation
 Send SIGINT to the active compilation process group to terminate it.
 If already terminating, a second call sends SIGKILL.
@@ -1297,6 +1336,12 @@ Kill from point to the end of the line, or with a numeric argument
 that many whole lines under one undo record.
 Bound to
 .Ic C-k .
+.It kill-rectangle
+Kill the rectangle between point and the mark.
+Bound to
+.Ic C-x r k
+and
+.Ic C-x r C-k .
 .It kill-region
 Kill the region into the kill ring.
 Bound to
@@ -1314,6 +1359,15 @@ Kill the word after point.
 Bound to
 .Ic M-d .
 A numeric argument repeats it.
+.It kmacro-end-and-call-macro
+Replay the last keyboard macro.
+Bound to
+.Ic C-x e ;
+a numeric argument replays it that many times.
+.It kmacro-end-macro
+Finish recording a keyboard macro.
+Bound to
+.Ic C-x \&) .
 .It kmacro-end-or-call-macro
 Finish recording a keyboard macro, or replay the last one when not
 recording.
@@ -1333,6 +1387,10 @@ In this mode
 evaluates the s-expression before point and inserts the result.
 .Pa *scratch*
 buffers are created in this mode by default.
+.It list-buffers
+Show the buffer list in a read-only buffer.
+Bound to
+.Ic C-x C-b .
 .It mark-paragraph
 Put the region around the paragraph point is in, including its
 trailing blank line.
@@ -1386,6 +1444,10 @@ Insert a newline after point, leaving point where it is.
 Bound to
 .Ic C-o .
 A numeric argument repeats it.
+.It other-window
+Move to the next window.
+Bound to
+.Ic C-x o .
 .It previous-line
 Move point one line up, keeping the goal column.
 Bound to
@@ -1429,6 +1491,10 @@ No compile command
 .Dc .
 .It overwrite-mode
 Toggle overwrite mode in the current buffer.
+.It rectangle-mark-mode
+Toggle whether the region between point and the mark is a rectangle.
+Bound to
+.Ic C-x SPC .
 .It revert-buffer
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.
@@ -1436,6 +1502,14 @@ If the buffer is modified a confirmation prompt is shown.
 Save the current buffer to its file.
 Equivalent to
 .Ic C-x C-s .
+.It save-buffers-kill-terminal
+Offer to save modified buffers, then quit.
+Bound to
+.Ic C-x C-c .
+.It save-some-buffers
+Save every modified buffer, asking about each one.
+Bound to
+.Ic C-x s .
 .It scroll-down-command
 Scroll one windowful back.
 Bound to
@@ -1452,6 +1526,14 @@ and
 Insert the character the command was reached by.
 This is what an ordinary printable key runs; a read-only buffer refuses
 it like any other edit.
+.It server-edit
+Save the buffer and finish an editor-server session, exiting with
+status 0.
+Bound to
+.Ic C-x # ,
+and to
+.Ic C-c C-c
+in git commit and rebase buffers.
 .It set-mark-command
 Set the mark where point is.
 With a prefix argument, move point to the last mark instead, walking
@@ -1476,11 +1558,28 @@ If the region end is at column 0 of a line, that final line is excluded
 from the sort.
 The entire sort is reversible in one step with
 .Ic C-_ .
+.It split-window-below
+Split the current window into two, one above the other.
+Bound to
+.Ic C-x 2 .
+.It split-window-right
+Split the current window into two, side by side.
+Bound to
+.Ic C-x 3 .
+.It string-rectangle
+Replace each line of the rectangle with a string read in the
+minibuffer.
+Bound to
+.Ic C-x r t .
 .It suspend-editor
 Suspend kg and return to the shell; resume it with
 .Ic fg .
 Bound to
 .Ic C-z .
+.It switch-to-buffer
+Switch to another buffer, chosen in the picker.
+Bound to
+.Ic C-x b .
 .It toggle-read-only
 Alias for
 .Ic read-only-mode .
@@ -1509,6 +1608,10 @@ Show current line, column, and percentage through the buffer.
 Remove trailing whitespace from every line in the buffer.
 Each modified line is independently reversible with
 .Ic C-_ .
+.It write-file
+Write the buffer to a different file.
+Bound to
+.Ic C-x C-w .
 .It yank
 Insert the kill ring's contents at point, or with a numeric argument
 that many copies under one undo record.
@@ -1516,6 +1619,12 @@ Bound to
 .Ic C-y
 and
 .Ic Shift-Insert .
+.It yank-rectangle
+Insert the last killed rectangle at point.
+Bound to
+.Ic C-x r y
+and
+.Ic C-x r C-y .
 .It zap-to-char
 Prompt for a character, then kill from point through the next occurrence
 of that character.

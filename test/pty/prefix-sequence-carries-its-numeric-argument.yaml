@@ -1,0 +1,30 @@
+# The numeric argument belongs to the sequence, not to an ambient global
+# that the follow-up key happens to find still set: C-u 3 C-x e replays
+# the macro three times, and C-g gets out of a half-typed sequence at any
+# depth without running anything.
+#
+# The macro typed here inserts "ab", so the recording plus three replays
+# make four copies of it; the C-x r that is cancelled with C-g must leave
+# the rectangle commands untouched, and the final X shows the editor is
+# still taking keys.
+name: prefix-sequence-carries-its-numeric-argument
+filename: prefix-argument-sequence.txt
+backend: pexpect
+key_delay: 0.08
+initial: "\n"
+keys:
+  - C-x
+  - "("
+  - a
+  - b
+  - C-x
+  - ")"
+  - C-u
+  - "3"
+  - C-x
+  - e
+  - C-x
+  - r
+  - C-g
+  - X
+expected_saved: "ababababX\n"

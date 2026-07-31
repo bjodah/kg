@@ -105,8 +105,16 @@ int keymap_parse_sequence(const char *text, struct key_event *out, int max)
 int keymap_is_reserved(const struct key_event *keys, int count)
 {
 	struct key_event quit = { 'g', KEY_MOD_CTRL };
+	int i;
 
-	return count > 0 && key_event_equal(keys[0], quit);
+	/* At any depth: prefix traversal cancels on C-g before it looks
+	 * anything up, so a binding containing one could never fire. */
+	for (i = 0; i < count; i++) {
+		if (key_event_equal(keys[i], quit)) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static int keys_equal(
@@ -156,6 +164,11 @@ static enum keymap_result map_probe(int map, const struct key_event *keys,
 			continue;
 		}
 		if (entry->count == count) {
+			/* A prefix declared with no leaf keeps waiting. */
+			if (!entry->command) {
+				result = KEYMAP_PREFIX;
+				continue;
+			}
 			*found = entry;
 			return KEYMAP_COMMAND;
 		}
@@ -164,13 +177,48 @@ static enum keymap_result map_probe(int map, const struct key_event *keys,
 	return result;
 }
 
-int keymap_bind(struct keymap *map, const char *sequence, const char *command)
+/* What in `map` would conflict with `keys`: the index of the node for
+ * exactly this sequence (or -1), and whether anything longer starts with
+ * it.  Returns non-zero when a leaf already covers a prefix of `keys`,
+ * which no binding may grow children under. */
+static int bind_survey(int index, const struct key_event *keys, int count,
+    int *exact, int *children)
+{
+	int i;
+
+	*exact = -1;
+	*children = 0;
+	for (i = 0; i < entry_count; i++) {
+		const struct keymap_entry *entry = &entries[i];
+		int shared = entry->count < count ? entry->count : count;
+
+		if (entry->map != index
+		    || !keys_equal(entry->keys, keys, shared)) {
+			continue;
+		}
+		if (entry->count == count) {
+			*exact = i;
+		} else if (entry->count < count) {
+			if (entry->command) {
+				return -1;
+			}
+		} else {
+			*children = 1;
+		}
+	}
+	return 0;
+}
+
+/* The shared half of binding: a leaf with a name, or a prefix with
+ * none.  `command` is NULL for the latter. */
+static int keymap_bind_name(
+    struct keymap *map, const char *sequence, const char *command)
 {
 	struct key_event keys[KEYMAP_SEQUENCE_MAX];
 	const char *name;
-	int count, index, i;
+	int count, index, exact, children;
 
-	if (!map || !command || !command[0]) {
+	if (!map) {
 		return -1;
 	}
 	count = keymap_parse_sequence(sequence, keys, KEYMAP_SEQUENCE_MAX);
@@ -178,28 +226,27 @@ int keymap_bind(struct keymap *map, const char *sequence, const char *command)
 		return -1;
 	}
 	index = (int)(map - maps);
-	for (i = 0; i < entry_count; i++) {
-		struct keymap_entry *entry = &entries[i];
-		int shared = entry->count < count ? entry->count : count;
-
-		if (entry->map != index
-		    || !keys_equal(entry->keys, keys, shared)) {
-			continue;
-		}
-		/* Same sequence: a rebind.  Otherwise one of the two is a
-		 * prefix of the other, and a node cannot be both. */
-		if (entry->count != count) {
-			return -1;
+	if (bind_survey(index, keys, count, &exact, &children) != 0) {
+		return -1;
+	}
+	/* A command may not be hung where children already are.  A bare
+	 * prefix declaration over either is what C-c is, and is fine. */
+	if (command && children) {
+		return -1;
+	}
+	if (exact >= 0) {
+		if (!command) {
+			return 0; /* already known to be a prefix */
 		}
 		name = intern(command);
 		if (!name) {
 			return -1;
 		}
-		entry->command = name;
+		entries[exact].command = name;
 		return 0;
 	}
-	name = intern(command);
-	if (!name || entry_count == keymap_max_entries) {
+	name = command ? intern(command) : nullptr;
+	if ((command && !name) || entry_count == keymap_max_entries) {
 		return -1;
 	}
 	entries[entry_count].map = index;
@@ -209,6 +256,19 @@ int keymap_bind(struct keymap *map, const char *sequence, const char *command)
 	entries[entry_count].command = name;
 	entry_count++;
 	return 0;
+}
+
+int keymap_bind(struct keymap *map, const char *sequence, const char *command)
+{
+	if (!command || !command[0]) {
+		return -1;
+	}
+	return keymap_bind_name(map, sequence, command);
+}
+
+int keymap_bind_prefix(struct keymap *map, const char *sequence)
+{
+	return keymap_bind_name(map, sequence, nullptr);
 }
 
 int keymap_unbind(struct keymap *map, const char *sequence)

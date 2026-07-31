@@ -606,10 +606,22 @@ static void cmd_eval_print_last_sexp_cmd(int fd)
 	cmd_eval_print_last_sexp();
 }
 
+/* With a prefix argument it inserts the result, which is an edit and is
+ * refused where an edit would be; without one it only reports. */
 static void cmd_eval_last_sexp_cmd(int fd)
 {
+	int insert = editor.current_prefix.supplied;
+
 	(void)fd;
-	do_eval_last_sexp(0, 0);
+	if (!kg_lisp_active()) {
+		editor_set_status_message("Lisp not available");
+		return;
+	}
+	if (insert && bcur()->readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	do_eval_last_sexp(insert, 0);
 }
 
 static void cmd_isearch_backward_regexp(int fd) { editor_find_regexp(fd, -1); }
@@ -793,6 +805,171 @@ static void cmd_self_insert(int fd)
 	if (key.mods == 0 && ascii_is_print((int)key.base)) {
 		editor_self_insert_char((int)key.base);
 	}
+}
+
+/* ---- Rectangles ----
+ *
+ * Each one refuses a read-only buffer through its own descriptor now;
+ * the C-x r helper used to refuse the whole prefix by hand. */
+static void cmd_kill_rectangle(int fd)
+{
+	(void)fd;
+	editor_kill_rect();
+}
+
+static void cmd_delete_rectangle(int fd)
+{
+	(void)fd;
+	editor_delete_rect();
+}
+
+static void cmd_clear_rectangle(int fd)
+{
+	(void)fd;
+	editor_clear_rect();
+}
+
+static void cmd_yank_rectangle(int fd)
+{
+	(void)fd;
+	editor_yank_rect();
+}
+
+static void cmd_string_rectangle(int fd) { editor_string_rect(fd); }
+
+/* ---- Files, buffers, windows and the session ---- */
+/* Quit confirmation for C-x C-c: prompt when modified real-file buffers
+ * exist.  Returns 1 when quitting may proceed. */
+static int editor_confirm_quit(int fd)
+{
+	int i, ndirty = 0;
+
+	/* Count modified real-file buffers (exclude *special* ones). */
+	if (bcur()->dirty && !is_special_buffer(bcur()->filename)) {
+		ndirty++;
+	}
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (!buflist[i].active || i == buf_current) {
+			continue;
+		}
+		if (!buflist[i].dirty) {
+			continue;
+		}
+		if (is_special_buffer(buflist[i].filename)) {
+			continue;
+		}
+		ndirty++;
+	}
+	if (ndirty) {
+		int ok = ndirty == 1
+		    ? editor_confirm_yn(
+			  fd, "Modified buffer, really quit? (y/n) ")
+		    : editor_confirm_yn(fd,
+			  "%d modified buffers, really quit? (y/n) ", ndirty);
+		if (!ok) {
+			editor_set_status_message("");
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* Finish an EDITOR-server session (C-c C-c in git-commit buffers,
+ * C-x # anywhere): save the current buffer, then quit with status 0.
+ * A failed or cancelled save keeps the session running. */
+static void editor_server_done(int fd)
+{
+	if (editor_save(fd) != 0) {
+		return;
+	}
+	if (!editor_confirm_quit(fd)) {
+		return;
+	}
+	running = 0;
+}
+
+static void cmd_save_buffers_kill_terminal(int fd)
+{
+	if (editor_confirm_quit(fd)) {
+		running = 0;
+	}
+}
+
+static void cmd_server_edit(int fd) { editor_server_done(fd); }
+
+static void cmd_save_some_buffers(int fd) { buf_save_all(fd); }
+
+static void cmd_find_file(int fd) { buf_open_file(fd); }
+
+static void cmd_find_file_read_only(int fd) { buf_open_file_read_only(fd); }
+
+static void cmd_switch_to_buffer(int fd) { buf_select_interactive(fd); }
+
+static void cmd_kill_buffer(int fd) { buf_kill(fd); }
+
+static void cmd_list_buffers(int fd)
+{
+	(void)fd;
+	buf_open_list();
+}
+
+static void cmd_write_file(int fd) { editor_write_file(fd); }
+
+static void cmd_insert_file(int fd) { editor_insert_file(fd); }
+
+static void cmd_split_window_below(int fd)
+{
+	(void)fd;
+	win_split_horizontal();
+}
+
+static void cmd_split_window_right(int fd)
+{
+	(void)fd;
+	win_split_vertical();
+}
+
+static void cmd_other_window(int fd)
+{
+	(void)fd;
+	win_cycle_next();
+}
+
+static void cmd_delete_window(int fd)
+{
+	(void)fd;
+	win_delete_current();
+}
+
+static void cmd_delete_other_windows(int fd)
+{
+	(void)fd;
+	win_delete_others();
+}
+
+static void cmd_exchange_point_and_mark(int fd)
+{
+	(void)fd;
+	editor_exchange_point_and_mark();
+}
+
+static void cmd_rectangle_mark_mode(int fd)
+{
+	(void)fd;
+	editor_rect_mode_toggle();
+}
+
+/* C-x ) trims the C-x and the ) themselves out of the recording; F4
+ * trims only itself, which is why the two are different commands. */
+static void cmd_kmacro_end_macro(int fd)
+{
+	(void)fd;
+	macro_stop(2);
+}
+
+static void cmd_kmacro_end_and_call_macro(int fd)
+{
+	macro_replay(fd, prefix_count());
 }
 
 /* ---- Help, the shell, and keyboard macros ---- */
@@ -1145,6 +1322,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point to the start of the buffer" },
 	{ "capitalize-word", cmd_capitalize_word, EDITS | REPEATS | LISP_OK,
 	    "Capitalize the word forward from point" },
+	{ "clear-rectangle", cmd_clear_rectangle, EDITS,
+	    "Blank out the rectangle, keeping its width" },
 	{ "comment-dwim", cmd_comment_dwim, EDITS,
 	    "Comment or uncomment the line or region" },
 	{ "compile", editor_compile, CMD_NONE,
@@ -1157,11 +1336,16 @@ static const struct named_cmd cmdtable[] = {
 	    "Delete the region, or the character after point" },
 	{ "delete-horizontal-space", cmd_delete_horizontal_space,
 	    EDITS | LISP_OK, "Delete spaces and tabs around point" },
+	{ "delete-other-windows", cmd_delete_other_windows, CMD_NONE,
+	    "Give this window the whole frame" },
+	{ "delete-rectangle", cmd_delete_rectangle, EDITS,
+	    "Delete the rectangle without saving it" },
 	{ "delete-trailing-space", cmd_delete_trailing_space, EDITS | LISP_OK,
 	    "Delete trailing whitespace on this line" },
 	/* Dired buffers are read-only by design, and CMD_EDITS_BUFFER is
 	 * exactly the flag that refuses a command in a read-only buffer;
 	 * dired's commands guard themselves on the syntax pointer instead. */
+	{ "delete-window", cmd_delete_window, CMD_NONE, "Delete this window" },
 	{ "dired", cmd_dired, CMD_NONE, "Open a directory listing" },
 	{ "dired-do-flagged-delete", dired_do_flagged_delete, CMD_NONE,
 	    "Delete the files flagged in this listing" },
@@ -1191,10 +1375,16 @@ static const struct named_cmd cmdtable[] = {
 	    "Evaluate the s-expression before point" },
 	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, EDITS,
 	    "Evaluate the s-expression before point and insert it" },
+	{ "exchange-point-and-mark", cmd_exchange_point_and_mark, CMD_NONE,
+	    "Swap point and the mark" },
 	{ "execute-extended-command", cmd_execute_extended_command, CMD_NONE,
 	    "Read a command name and run it" },
 	{ "fill-paragraph", cmd_fill_paragraph, EDITS,
 	    "Reflow this paragraph to the fill column" },
+	{ "find-file", cmd_find_file, CMD_NONE,
+	    "Visit a file in a new buffer" },
+	{ "find-file-read-only", cmd_find_file_read_only, CMD_NONE,
+	    "Visit a file in a new read-only buffer" },
 	{ "forward-char", cmd_forward_char, REPEATS,
 	    "Move point one character forward" },
 	{ "forward-paragraph", cmd_forward_paragraph, REPEATS,
@@ -1224,6 +1414,8 @@ static const struct named_cmd cmdtable[] = {
 	{ "goto-line", cmd_goto_line, CMD_NONE,
 	    "Move point to a line, or a line and column" },
 	{ "help", cmd_help, CMD_NONE, "Show the built-in key binding help" },
+	{ "insert-file", cmd_insert_file, EDITS,
+	    "Insert a file's contents at point" },
 	{ "isearch-backward", cmd_isearch_backward, CMD_NONE,
 	    "Incremental search backward" },
 	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE,
@@ -1236,22 +1428,30 @@ static const struct named_cmd cmdtable[] = {
 	    "Join this line to the previous one" },
 	{ "just-one-space", cmd_just_one_space, EDITS | LISP_OK,
 	    "Collapse spaces and tabs around point to one space" },
+	{ "kill-buffer", cmd_kill_buffer, CMD_NONE, "Kill this buffer" },
 	{ "kill-compilation", editor_kill_compilation, CMD_NONE,
 	    "Terminate the running compilation" },
 	{ "kill-line", cmd_kill_line, EDITS,
 	    "Kill to end of line, or a count of whole lines" },
+	{ "kill-rectangle", cmd_kill_rectangle, EDITS,
+	    "Kill the rectangle into the rectangle ring" },
 	{ "kill-region", cmd_kill_region, EDITS,
 	    "Kill the region into the kill ring" },
 	{ "kill-ring-save", cmd_kill_ring_save, CMD_NONE,
 	    "Copy the region to the kill ring" },
 	{ "kill-word", cmd_kill_word, EDITS | REPEATS,
 	    "Kill the word after point" },
+	{ "kmacro-end-and-call-macro", cmd_kmacro_end_and_call_macro, CMD_NONE,
+	    "Replay the last keyboard macro" },
+	{ "kmacro-end-macro", cmd_kmacro_end_macro, CMD_NONE,
+	    "Finish recording a keyboard macro" },
 	{ "kmacro-end-or-call-macro", cmd_kmacro_end_or_call, CMD_NONE,
 	    "Finish recording a macro, or replay the last one" },
 	{ "kmacro-start-macro", cmd_kmacro_start, CMD_NONE,
 	    "Start recording a keyboard macro" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
+	{ "list-buffers", cmd_list_buffers, CMD_NONE, "Show the buffer list" },
 	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
 	    "Put the region around this paragraph" },
 	{ "mark-word", cmd_mark_word, CMD_NONE,
@@ -1272,6 +1472,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Clear the modified flag without saving" },
 	{ "open-line", cmd_open_line, EDITS | REPEATS,
 	    "Insert a newline after point, leaving point before it" },
+	{ "other-window", cmd_other_window, CMD_NONE,
+	    "Move to the next window" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
 	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL,
@@ -1288,16 +1490,24 @@ static const struct named_cmd cmdtable[] = {
 	    "Scroll point's line to the centre, top or bottom" },
 	{ "recompile", editor_recompile, CMD_NONE,
 	    "Run the previous compile command again" },
+	{ "rectangle-mark-mode", cmd_rectangle_mark_mode, CMD_NONE,
+	    "Toggle whether the region is a rectangle" },
 	{ "revert-buffer", cmd_revert_buffer, CMD_NONE,
 	    "Re-read this buffer from its file" },
 	{ "save-buffer", cmd_save_buffer, CMD_NONE,
 	    "Write this buffer to its file" },
+	{ "save-buffers-kill-terminal", cmd_save_buffers_kill_terminal,
+	    CMD_NONE, "Offer to save modified buffers, then quit" },
+	{ "save-some-buffers", cmd_save_some_buffers, CMD_NONE,
+	    "Save every modified buffer, asking about each" },
 	{ "scroll-down-command", cmd_scroll_down_command, KEEPS_GOAL,
 	    "Scroll one windowful back" },
 	{ "scroll-up-command", cmd_scroll_up_command, KEEPS_GOAL,
 	    "Scroll one windowful forward" },
 	{ "self-insert-command", cmd_self_insert, EDITS,
 	    "Insert the character this command was reached by" },
+	{ "server-edit", cmd_server_edit, CMD_NONE,
+	    "Save and finish an editor-server session" },
 	{ "set-mark-command", cmd_set_mark_command, CMD_NONE,
 	    "Set the mark here, or with a prefix pop the mark ring" },
 	{ "shell-command", cmd_shell_command, CMD_NONE,
@@ -1306,8 +1516,16 @@ static const struct named_cmd cmdtable[] = {
 	    "Pipe the region through a shell command" },
 	{ "sort-lines", cmd_sort_lines, EDITS,
 	    "Sort the lines of the region in ascending order" },
+	{ "split-window-below", cmd_split_window_below, CMD_NONE,
+	    "Split this window into two, one above the other" },
+	{ "split-window-right", cmd_split_window_right, CMD_NONE,
+	    "Split this window into two, side by side" },
+	{ "string-rectangle", cmd_string_rectangle, EDITS,
+	    "Replace each line of the rectangle with a string" },
 	{ "suspend-editor", cmd_suspend_editor, CMD_NONE,
 	    "Suspend kg and return to the shell" },
+	{ "switch-to-buffer", cmd_switch_to_buffer, CMD_NONE,
+	    "Switch to another buffer by name" },
 	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE,
 	    "Toggle whether this buffer refuses edits" },
 	{ "transpose-chars", cmd_transpose_chars, EDITS | REPEATS | LISP_OK,
@@ -1322,9 +1540,13 @@ static const struct named_cmd cmdtable[] = {
 	    "Show the line, column and position at point" },
 	{ "whitespace-cleanup", cmd_whitespace_cleanup, EDITS,
 	    "Delete trailing whitespace on every line" },
+	{ "write-file", cmd_write_file, CMD_NONE,
+	    "Write this buffer to a different file" },
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
 	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },
+	{ "yank-rectangle", cmd_yank_rectangle, EDITS,
+	    "Insert the last killed rectangle at point" },
 	{ "zap-to-char", cmd_zap_to_char, EDITS,
 	    "Kill through the next occurrence of a character" },
 	{ NULL, NULL, CMD_NONE, NULL },

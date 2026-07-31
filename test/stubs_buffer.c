@@ -27,6 +27,7 @@ void editor_set_status_emphasis(int start, int len)
 	(void)len;
 }
 void editor_refresh_screen(void) { }
+void key_reset_pending_sequence(void) { }
 int editor_read_key(int fd)
 {
 	(void)fd;

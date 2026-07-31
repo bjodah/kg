@@ -20,6 +20,10 @@ void editor_process_keypress(int fd);
  * built-in declarations resolve to. */
 void key_install_builtin_maps(void);
 
+/* Forgets a key sequence that was part-way through, for the places that
+ * reset the editor out from under one. */
+void key_reset_pending_sequence(void);
+
 /* The two batched edits a numeric argument asks for: N lines killed as
  * one undo record, and N copies of the kill ring yanked as one.  They
  * write undo records by hand, which the mutation-gateway manifest counts

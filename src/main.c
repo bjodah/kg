@@ -64,7 +64,6 @@ void init_editor(void)
 	bcur()->dirty = 0;
 	bcur()->filename = NULL;
 	bcur()->syntax = NULL;
-	editor.cx_prefix = 0;
 	editor.cc_prefix = 0;
 	editor.paste_mode = 0;
 	bcur()->mark_set = 0;
@@ -73,7 +72,6 @@ void init_editor(void)
 	bcur()->mark_highlight = 0;
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
-	editor.rect_prefix = 0;
 	wcur()->desired_visual_col = -1;
 	bcur()->readonly = 0;
 	bcur()->readonly_local = 0;

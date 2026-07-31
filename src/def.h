@@ -255,8 +255,6 @@ struct editor_config {
 	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
 			      * row where the cursor should rest (for minibuffer
 			      * prompts). */
-	int cx_prefix; /* Set to 1 when C-x was pressed, waiting for next key.
-			*/
 	int cc_prefix; /* Set to 1 when C-c was pressed, waiting for the
 			  user-bound key. */
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
@@ -269,7 +267,6 @@ struct editor_config {
 	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */
 	struct timeval
 	    last_char_time; /* Time of last character for paste detection */
-	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
 };
 
 /* Append buffer for efficient screen rendering */

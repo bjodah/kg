@@ -1,0 +1,23 @@
+# An undefined sequence says which sequence, in the spelling the user
+# would type back: the prefix keys and the key that ended it, not just
+# the last one.  It used to be "C-x %c is undefined", which could not
+# name a key that is not a character and knew nothing about depth.
+#
+# C-x C-z is undefined, and so is C-x r z one level deeper.  Neither may
+# do anything to the buffer, and the editor has to be usable afterwards,
+# which the typed Z at the end shows.
+name: prefix-sequence-undefined-names-the-whole-sequence
+filename: prefix-undefined.txt
+backend: tmux
+dimensions: [12, 60]
+initial: "abc\n"
+keys:
+  - C-x
+  - C-z
+  - C-x
+  - r
+  - z
+  - Z
+expected_saved: "Zabc\n"
+expected_screen_contains:
+  - "C-x r z is undefined"

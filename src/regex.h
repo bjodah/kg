@@ -41,8 +41,14 @@ struct kg_match {
 	struct kg_span spans[RE_MAX_SPANS];
 };
 
+/* `regex` points into `storage`, so a kg_regex is not copyable: copying
+ * one leaves the copy's `regex` aimed at the original's bytes.  The
+ * alignment is the engine's published requirement for caller storage --
+ * it reads the compiled program's multi-byte fields in place, and refuses
+ * a buffer that is not aligned for them. */
 struct kg_regex {
-	unsigned char storage[RE_MAX_COMPILED_BYTES];
+	alignas(
+	    RE_STORAGE_ALIGNMENT) unsigned char storage[RE_MAX_COMPILED_BYTES];
 	unsigned storage_size;
 	re_t regex;
 };

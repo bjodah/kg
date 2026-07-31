@@ -49,6 +49,43 @@ done in the prelude was done there instead.
 | Calling a non-function whose head is a symbol raises `void-function NAME` | Upstream's `tried to call non-callable value` never said which name was unbound | one helper in `Evaluate` |
 | `GcStackSize` 512 → 4096 | The GC stack, not the C stack, bounds recursion: upstream died at about 70 frames, which is too few to write ordinary list code. Now about 450. | `FeMinimumArenaSize()` grew by 28 KiB to 36608 bytes; `test_api.c`'s fixed arena was raised to 64 KiB. kg allocates 1 MiB, so a `KG_LISP_ARENA_SIZE` override below ~68 KiB now fails to open a context. |
 
+## The nested tiny-regex-c submodule
+
+The pin chain is **kg → fe → tiny-regex-c**. `fe/.gitmodules` pins
+`tiny-regex-c` on the **`adapt-to-fe` branch** of `github.com:bjodah/tiny-regex-c`,
+and moving that pin means moving fe's gitlink and then kg's, in that order.
+
+This is not at arm's length. kg compiles `fe/tiny-regex-c/re.c` **directly**
+into the editor (`Makefile`'s `$(OBJDIR)/tiny_regex.o`, plus the regex fuzzer
+and the differential driver, with `-Ife/tiny-regex-c` on both `CFLAGS` and
+`FE_CFLAGS`), so every engine change ships to kg users whether or not Fe's own
+`fex_re.c` is built. It is also compiled in **both** `WITH_LISP` configurations.
+`src/regex.c` and `src/regex.h` are kg's only consumers of `re.h`.
+
+To move the pin: land the change on `adapt-to-fe` with the submodule's own
+`make check` and `.ci/run-ci-steps.sh` green, move fe's gitlink with
+`make -C fe check`, then move kg's and run `make check`,
+`make check-regex-differential`, `make fuzz-regex-seed-replay`,
+`.ci/run-ci-steps.sh` and `.ci/ci-08-with-lisp-0.sh`.
+
+Growing `re_status` is an ABI change that has to move `fe/fex_re.c`,
+`src/regex.c` and `test/regex_differential.c` in the same pin step; prefer
+reusing an existing value.
+
+### kg-visible divergences from upstream kokke/tiny-regex-c
+
+| Divergence | Why | Cost |
+| --- | --- | --- |
+| Emacs-style escaped operators: `\(...\)`, `\|`, `\{n,m\}`; bare `(`, `)`, `\|`, `{` are literal | kg presents regexps as Emacs' | patterns in kg's docs, tests and Lisp are Emacs-shaped |
+| The matcher steps by UTF-8 character, not by byte | `å*` must repeat `å`, and `[åä]` must not match the `0xC3` they share | spans and `start_offset` stay byte offsets; `re.h` says so |
+| A construct the engine cannot honour is `RE_STATUS_BAD_PATTERN`, never literal text | `[[:blank:]]` used to match `a`, out of the letters spelling the class name | an exact documented subset in `re.h`; kg surfaces it as `KG_REGEX_BADPAT` |
+| An unclosed `\(`, an unmatched `\)` and an unterminated bracket expression are bad patterns; a `]` in first position is a member | `\(\(a\)` and `[a` used to compile and quietly mean something else | one compile-time parse stack replaces two scans over the half-written program |
+| A quantifier on an already-quantified atom (`a++`, `a\{2\}\{3\}`) is a bad pattern | Emacs folds the two into one; this engine has no faithful spelling for the composition, and used to compile a node that could never match | the one place kg is stricter than Emacs; `utils/regex_differential.py` never generates it |
+| `*`, `+`, `?` and `\{` with nothing to repeat are the literal characters | Emacs reads them that way at the start of a pattern, group or alternative | `\(?` is accepted as a literal `?` where Emacs reserves it for shy groups |
+| Caller storage must be `RE_STORAGE_ALIGNMENT`-aligned or the compile is refused | the program's multi-byte fields are read in place; a misaligned buffer aborted under UBSan | `struct kg_regex` declares `alignas(RE_STORAGE_ALIGNMENT)` rather than relying on its own layout |
+| The matching budget is per execution, with `re_exec_with_options()` for per-call limits and cancellation | it used to live in file-scope statics, so a nested or concurrent match spent the running one's allowance | kg still calls plain `re_exec()`; the options are available for a future C-g-aware search |
+| Reaching the group-repetition ceiling is `RE_STATUS_TOO_COMPLEX` | it was a false no-match, and for `\(a\)*` a match shorter than the pattern asked for | kg reports `KG_REGEX_TOO_COMPLEX`, which the search UI already distinguishes from "not found" |
+
 Deliberately **not** changed in `fe.c`, and why:
 
 - **Quasiquote semantics.** `quasiquote` is a prelude macro in `src/lisp.c`, so

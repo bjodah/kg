@@ -720,6 +720,110 @@ static void test_exhausted_budget_is_not_no_match(void)
 	    == KG_REGEX_NOMATCH);
 }
 
+/* The engine's accepted language, as kg sees it.  Each of these used to
+ * compile: an unclosed group, a bracket expression that ran off the end
+ * of the pattern, and a quantifier on an atom that already carried one --
+ * the last of which compiled into a program that could never match. */
+static void test_malformed_patterns_are_rejected(void)
+{
+	struct kg_regex rx;
+
+	CHECK(kg_regex_compile(&rx, "\\(\\(a\\)", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "\\(a", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a\\)", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "[a", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "[]", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a++", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "a\\{2\\}\\{3\\}", 0) == KG_REGEX_BADPAT);
+}
+
+/* Where Emacs reads a quantifier as a literal character, so does kg: at
+ * the start of the pattern, of a group or of an alternative, and just
+ * after an anchor.  A ']' in the first position of a bracket expression
+ * is likewise a member of the set. */
+static void test_literal_quantifiers_and_bracket_members(void)
+{
+	static const struct {
+		const char *pattern;
+		const char *text;
+		int start;
+		int end;
+	} cases[] = {
+		{ "*", "x*", 1, 2 },
+		{ "+", "x+", 1, 2 },
+		{ "?", "x?", 1, 2 },
+		{ "^*", "*x", 0, 1 },
+		{ "\\(*\\)", "*", 0, 1 },
+		{ "a\\|*b", "*b", 0, 2 },
+		{ "[]a]", "]", 0, 1 },
+		{ "[]a]", "a", 0, 1 },
+		{ "[^]]", "a", 0, 1 },
+	};
+	struct kg_regex rx;
+	struct kg_match match;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		CHECK(
+		    kg_regex_compile(&rx, cases[i].pattern, 0) == KG_REGEX_OK);
+		CHECK(kg_regex_match_forward(&rx, cases[i].text, 0, &match)
+		    == KG_REGEX_OK);
+		CHECK(match.spans[0].start == cases[i].start);
+		CHECK(match.spans[0].end == cases[i].end);
+	}
+}
+
+/* An invalid "\x" escape is the literal characters it is spelled with, and
+ * used to leave the compiler's node count behind its write position: a
+ * group *after* one was then misparsed and the whole pattern rejected. */
+static void test_invalid_hex_escape_does_not_break_later_groups(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "\\(a\\)\\xZ\\(b\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a\\xZb", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 3);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 5);
+	CHECK(match.spans[1].start == 0 && match.spans[1].end == 1);
+	CHECK(match.spans[2].start == 4 && match.spans[2].end == 5);
+}
+
+/* Past the engine's group-repetition ceiling the answer is "too complex",
+ * never a no-match and never a match shorter than the pattern asks for.
+ * A group whose body matches empty still satisfies any minimum count,
+ * which is what Emacs does and what a bare interval on one atom does. */
+static void test_group_repeat_ceiling_is_reported(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+	char text[301];
+
+	memset(text, 'a', sizeof(text) - 1);
+	text[sizeof(text) - 1] = '\0';
+
+	CHECK(kg_regex_compile(&rx, "\\(a\\)\\{257\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match)
+	    == KG_REGEX_TOO_COMPLEX);
+	CHECK(kg_regex_compile(&rx, "\\(a\\)*", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match)
+	    == KG_REGEX_TOO_COMPLEX);
+
+	/* under the ceiling, and on a single atom, nothing changed */
+	CHECK(kg_regex_compile(&rx, "\\(a\\)\\{256\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].end == 256);
+	CHECK(kg_regex_compile(&rx, "a\\{300\\}", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].end == 300);
+
+	/* an empty body satisfies a minimum past the ceiling */
+	CHECK(kg_regex_compile(&rx, "\\(a*\\)\\{300\\}b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "b", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 1);
+	CHECK(match.spans[1].start == 0 && match.spans[1].end == 0);
+}
+
 int main(void)
 {
 	RUN(test_compile_valid);
@@ -745,5 +849,9 @@ int main(void)
 	RUN(test_next_offset_iteration);
 	RUN(test_next_offset_pairs_utf8);
 	RUN(test_exhausted_budget_is_not_no_match);
+	RUN(test_malformed_patterns_are_rejected);
+	RUN(test_literal_quantifiers_and_bracket_members);
+	RUN(test_invalid_hex_escape_does_not_break_later_groups);
+	RUN(test_group_repeat_ceiling_is_reported);
 	return test_summary();
 }

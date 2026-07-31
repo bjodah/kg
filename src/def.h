@@ -609,7 +609,6 @@ void editor_self_insert_char(int c);
 void editor_self_insert_glyph(const char *seq, int len);
 void editor_refresh_readonly_state(void);
 void editor_set_local_readonly(int enabled);
-void editor_set_readonly_override(int enabled);
 int editor_row_byte_to_char(erow *row, int byte_index);
 int editor_row_char_to_byte(erow *row, int char_index);
 

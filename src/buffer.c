@@ -1889,12 +1889,6 @@ void editor_set_local_readonly(int enabled)
 	editor_refresh_readonly_state();
 }
 
-void editor_set_readonly_override(int enabled)
-{
-	bcur()->readonly_override = enabled ? 1 : 0;
-	editor_refresh_readonly_state();
-}
-
 void editor_toggle_read_only_mode(void)
 {
 	bcur()->readonly_override = !bcur()->readonly;

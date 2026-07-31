@@ -15,7 +15,6 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
-#include "localvars.h"
 #include "syntax.h"
 
 static constexpr int lisp_expression_max = 512;

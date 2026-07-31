@@ -1750,12 +1750,18 @@ static void test_snapshot_distinguishes_by_identity(void)
 	CHECK(utimensat(AT_FDCWD, a, times, 0) == 0);
 	CHECK(utimensat(AT_FDCWD, b, times, 0) == 0);
 
+	/* Linked before the snapshot: link() bumps the inode's ctime, which
+	 * is part of the identity, so a snapshot taken first would disagree
+	 * with itself for reasons that have nothing to do with the contents.
+	 * A file whose link count moved really has changed. */
+	CHECK(link(a, hardlink) == 0);
+
 	CHECK(file_snapshot_path(a, &snap) == 0);
 	CHECK(snap.valid);
 	CHECK(file_snapshot_compare_path(a, &snap) == FILE_SAME);
 	CHECK(file_snapshot_compare_path(b, &snap) == FILE_DIFFERENT);
 
-	CHECK(link(a, hardlink) == 0);
+	/* Another name for the same inode is the same file. */
 	CHECK(file_snapshot_compare_path(hardlink, &snap) == FILE_SAME);
 
 	/* A destination that goes away is a change, not a non-event. */

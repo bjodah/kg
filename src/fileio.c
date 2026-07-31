@@ -3,11 +3,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "def.h"
@@ -750,7 +752,10 @@ int file_read_all(int fd, char **out, size_t *out_len)
 			errno = EOVERFLOW;
 			goto fail;
 		}
-		if (need > cap) {
+		/* !buf is implied by need > cap on the first pass; spelling it
+		 * out keeps gcc's analyzer from reading the memcpy below as a
+		 * possible NULL destination. */
+		if (!buf || need > cap) {
 			if (!checked_mul_size_t(&want, need, 2)) {
 				want = need;
 			}

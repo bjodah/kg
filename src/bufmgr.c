@@ -117,7 +117,12 @@ struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 	    && b->generation == handle.generation) {
 		return b;
 	}
-	KG_PERF_INC(KG_PERF_HANDLE_STALE);
+	if (handle.id != 0) {
+		/* Only a handle that once named a buffer counts.  id 0 is a
+		 * view that names nothing on purpose, which is asked about
+		 * on every window scan and is not an outlived handle. */
+		KG_PERF_INC(KG_PERF_HANDLE_STALE);
+	}
 	return NULL;
 }
 

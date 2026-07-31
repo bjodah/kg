@@ -72,4 +72,10 @@ void buf_attach_view(struct editor_window *w, int slot);
  * left naming nothing. */
 void buf_detach_view(struct editor_window *w);
 
+/* Put every active window back on a live buffer.  Called from the top of
+ * the main loop, before the repaint: no window is ever drawn from a handle
+ * that has stopped resolving.  Implemented in winmgr.c, which owns the
+ * window table. */
+void win_check_handles(void);
+
 #endif /* KG_BUFHANDLE_H */

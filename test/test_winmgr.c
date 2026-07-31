@@ -944,6 +944,48 @@ static void test_zeroed_handle_names_nothing(void)
 	free(names[0]);
 }
 
+/* The safe-point sweep is the net under every path that ends a buffer.
+ * A window holding a handle nobody detached must not be drawn from, and
+ * must not be left to resurrect the slot the next time it is selected:
+ * the sweep puts it on the buffer the session is in and says so. */
+static void test_check_handles_recovers_an_injected_stale_view(void)
+{
+	char *names[2];
+	int other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	buf_select(1);
+	CHECK(win_buffer_slot(wcur()) == 1);
+
+	/* Inject what no code path is allowed to produce: the other window
+	 * keeps a handle on slot 0 while slot 0 changes hands. */
+	CHECK(win_buffer_slot(&winlist[other]) == 0);
+	buflist[0].generation++;
+	CHECK(win_buffer(&winlist[other]) == NULL);
+
+	win_check_handles();
+	CHECK(win_buffer(&winlist[other]) == &buflist[1]);
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	/* The selected window was never stale and is untouched. */
+	CHECK(win_buffer_slot(wcur()) == 1);
+
+	/* And it is idempotent: a second sweep finds nothing to do. */
+	win_check_handles();
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
 /* A special buffer that takes over a freed slot gets a fresh identity too:
  * buf_reset_slot() is the other way a slot changes hands. */
 static void test_special_buffer_reuse_bumps_identity(void)
@@ -1104,6 +1146,7 @@ int main(void)
 	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
 	RUN(test_zeroed_handle_names_nothing);
+	RUN(test_check_handles_recovers_an_injected_stale_view);
 	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);

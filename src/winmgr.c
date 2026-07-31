@@ -143,6 +143,32 @@ static int win_showing(struct kg_buffer_handle handle)
 	return -1;
 }
 
+/* Put every active window back on a live buffer.
+ *
+ * Every path that ends a buffer already detaches the views on it, so
+ * reaching this with work to do means one did not: it is a bug, not a
+ * state to render.  The response is conservative rather than clever --
+ * the window takes the buffer the session is in, which is the one
+ * definitely alive -- and it says so, because a window quietly changing
+ * what it shows is how the bug would otherwise stay hidden.
+ *
+ * Runs at the top of the main loop, before the repaint, so a window is
+ * never drawn from a handle that has stopped resolving. */
+void win_check_handles(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (!winlist[i].active || win_buffer(&winlist[i])) {
+			continue;
+		}
+		buf_detach_view(&winlist[i]);
+		buf_attach_view(&winlist[i], buf_current);
+		editor_set_status_message(
+		    "Window %d had lost its buffer.", i + 1);
+	}
+}
+
 /* Initialise the window list with a single window covering the whole screen.
  * Called once from init_editor() after update_window_size(). */
 void win_init(void)

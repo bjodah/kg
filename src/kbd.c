@@ -21,25 +21,6 @@
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 
-static const int readonly_blocked_keys[] = {
-	BACKSPACE,
-	DEL_KEY,
-	CTRL_D,
-	CTRL_K,
-	CTRL_W,
-	CTRL_Y,
-	CTRL_Q,
-	CTRL_T,
-	CTRL_J,
-	SHIFT_DELETE,
-	SHIFT_INSERT,
-	CTRL_UNDERSCORE,
-	ALT_BACKSLASH,
-	ALT_SPACE,
-	ALT_Z,
-	TAB,
-};
-
 /* Vertical motions, which are the keys that may keep the goal column.
  * The list mirrors every key that eventually reaches
  * editor_move_cursor(ARROW_UP/ARROW_DOWN). */
@@ -57,20 +38,6 @@ static const int vertical_motion_keys[] = {
 };
 
 #define PREFIX_ARG_MAX 1000
-
-int key_would_edit_readonly_buffer(int c)
-{
-	if (c >= 32 && c < 127) {
-		return 1;
-	}
-	/* The lead byte of a typed multi-byte character self-inserts too;
-	 * its continuation bytes then arrive as keys of their own and are
-	 * refused by the same test. */
-	if (c >= 0x80 && c <= 0xFF) {
-		return 1;
-	}
-	return KEY_IN_LIST(readonly_blocked_keys, c);
-}
 
 static int prefix_arg_mul_add(int value, int mul, int add)
 {
@@ -927,10 +894,12 @@ void editor_process_keypress(int fd)
 			buf_ibuffer_select();
 			return;
 		}
-		if (key_would_edit_readonly_buffer(c)) {
-			editor_set_status_message("Buffer is read-only");
-			return;
-		}
+		/* Everything else a read-only buffer refuses, it refuses
+		 * through the command the key resolves to: cmd_invoke()
+		 * and the self-insert fast path both ask the descriptor,
+		 * so a key, M-x and Lisp cannot disagree.  The list of
+		 * keycodes that used to be the second opinion here is
+		 * gone. */
 	}
 
 	/* End the previous keystroke's command: whatever ran during it

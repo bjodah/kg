@@ -1188,7 +1188,7 @@ static const struct named_cmd cmdtable[] = {
 	    "Read one Lisp expression and evaluate it" },
 	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE,
 	    "Evaluate the s-expression before point" },
-	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE,
+	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, EDITS,
 	    "Evaluate the s-expression before point and insert it" },
 	{ "execute-extended-command", cmd_execute_extended_command, CMD_NONE,
 	    "Read a command name and run it" },

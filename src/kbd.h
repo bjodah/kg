@@ -15,17 +15,6 @@ void editor_process_keypress(int fd);
  * yes is and on when the question is on screen. */
 [[nodiscard]] int editor_confirm_yn(int fd, const char *fmt, ...);
 
-/* Whether `c` is a key kbd.c refuses outright in a read-only buffer.
- *
- * This is the second read-only verdict, beside CMD_EDITS_BUFFER in the
- * command table: it judges keycodes rather than commands, so it says
- * nothing about a command reached by M-x or from Lisp, and it names only
- * the editing keys someone remembered to list.  It is exported so
- * test/test_keys.c can check the binding inventory's recorded verdict
- * against it; both it and the check go when every editing key resolves to
- * a command name (plan 01 phase 4). */
-[[nodiscard]] int key_would_edit_readonly_buffer(int c);
-
 /* Installs the built-in keymaps.  The editor calls this on its first
  * keystroke; a test calls it after keymap_reset() to read what the
  * built-in declarations resolve to. */

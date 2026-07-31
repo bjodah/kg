@@ -1,0 +1,50 @@
+# Parity proof for deleting kbd.c's readonly_blocked_keys[]: every key
+# that list named is still refused in a read-only buffer, now by its own
+# command's CMD_EDITS_BUFFER through cmd_invoke().
+#
+# The keys, in the order the list had them: Backspace, Delete, C-d, C-k,
+# C-w, C-y, C-q, C-t, C-j, C-_, M-\, M-SPC, M-z and TAB, plus RET and a
+# printable character.  Delete has no named token, so it is sent as its
+# xterm escape sequence.
+#
+# The first three keystrokes fill the kill ring while the buffer is still
+# writable, so the C-y under test has something to yank; that is why the
+# third line is gone from the expected text and the empty line it left
+# behind is not.
+name: read-only-refuses-the-keys-the-blocklist-named
+filename: read-only-blocklist.txt
+backend: pexpect
+key_delay: 0.08
+initial: "hello world\nsecond line\nthird\n"
+keys:
+  - C-n
+  - C-n
+  - C-k
+  - C-x
+  - C-q
+  - C-p
+  - C-f
+  - C-f
+  - C-?
+  - M-[
+  - "3"
+  - "~"
+  - C-d
+  - C-k
+  - C-w
+  - C-y
+  - C-q
+  - "Z"
+  - C-t
+  - C-j
+  - C-_
+  - "M-\\"
+  - M-SPC
+  - M-z
+  - "x"
+  - TAB
+  - RET
+  - "Q"
+  - C-x
+  - C-q
+expected_saved: "hello world\nsecond line\n\n"

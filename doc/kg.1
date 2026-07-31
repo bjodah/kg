@@ -1209,6 +1209,7 @@ Bound to
 in
 .Pa *scratch*
 and Lisp Interaction buffers.
+It inserts, so a read-only buffer refuses it.
 .It execute-extended-command
 Read a command name in the minibuffer and run it.
 Bound to
@@ -1601,13 +1602,17 @@ is a compatibility alias.
 .Pp
 The read-only state is buffer-local and survives buffer and window
 switches.
-A read-only buffer rejects editing keys and mutating
-.Ic M-x
-commands, showing
+A read-only buffer rejects every editing command, showing
 .Do
 Buffer is read-only
 .Dc
 in the status area.
+The verdict is the command's, not the key's: the same command is refused
+whether it is reached by its key, by
+.Ic M-x ,
+by a
+.Ic C-c
+binding or from Lisp.
 .Pp
 Opening a file with
 .Fl R

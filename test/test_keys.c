@@ -32,7 +32,6 @@
 
 #include "../src/cmd.h"
 #include "../src/def.h"
-#include "../src/kbd.h"
 #include "../src/keyevent.h"
 #include "test.h"
 
@@ -67,18 +66,17 @@ enum binding_layer {
 	L_MINIBUF, /* consumed by a prompt, never by dispatch */
 };
 
-/* What refuses this binding in a read-only buffer, as of today. */
+/* What refuses this binding in a read-only buffer. */
 enum readonly_policy {
 	RO_FREE, /* does not edit; allowed */
-	RO_KEY, /* refused by key_would_edit_readonly_buffer() */
-	/* refused by its own descriptor, through cmd_invoke(): where every
-	 * editing key ends up, and where the ones that have moved are */
+	/* refused by its own descriptor, through cmd_invoke() or through
+	 * cmd_fast_path_begin(): where every editing key now is */
 	RO_COMMAND,
 	RO_INTERCEPTED, /* the read-only branch takes the key first */
 	RO_HANDLER, /* edits; its own handler refuses */
 	RO_PREFIX, /* edits; the prefix helper refuses before dispatch */
 	RO_UNGUARDED, /* edits, and nothing refuses it: a hole */
-	RO_UNCHECKED, /* reached past the key filter; no verdict recorded */
+	RO_UNCHECKED, /* reached past dispatch; no verdict recorded */
 };
 
 struct binding {
@@ -112,7 +110,7 @@ static const struct binding global_bindings[] = {
 	{ CTRL_C, "C-c", "editor.cc_prefix = 1", "kg-c-c-prefix", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, "mode keys first, then user bindings" },
 	{ CTRL_D, "C-d", "the global map -> cmd_invoke()", "delete-char", EDITS,
-	    K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ CTRL_E, "C-e", "the global map -> cmd_invoke()", "move-end-of-line",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_F, "C-f", "the global map -> cmd_invoke()", "forward-char", 0,
@@ -122,14 +120,15 @@ static const struct binding global_bindings[] = {
 	    "stays an explicit fast path: it must work when a map does not" },
 	{ CTRL_H, "C-h", "the global map -> cmd_invoke()", "help", 0, K_CMD,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ TAB, "TAB", "editor_self_insert_char", "self-insert-command", EDITS,
-	    K_SELF, L_GLOBAL, RO_KEY, 0, NULL,
+	{ TAB, "TAB", "the self-insert fast path", "self-insert-command", EDITS,
+	    K_SELF, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the one non-printable key the self-insert fallback accepts" },
 	{ CTRL_J, "C-j", "the global map -> cmd_invoke()",
-	    "newline-or-eval-print-last-sexp", EDITS, K_CMD, L_GLOBAL, RO_KEY,
-	    1, NULL, "newline outside Lisp and Lisp Interaction buffers" },
+	    "newline-or-eval-print-last-sexp", EDITS, K_CMD, L_GLOBAL,
+	    RO_COMMAND, 1, NULL,
+	    "newline outside Lisp and Lisp Interaction buffers" },
 	{ CTRL_K, "C-k", "the global map -> cmd_invoke()", "kill-line", EDITS,
-	    K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ CTRL_L, "C-l", "the global map -> cmd_invoke()",
 	    "recenter-top-bottom", 0, K_CMD, L_GLOBAL, RO_FREE, 1,
 	    "recenter-cycle-centre-top-bottom",
@@ -145,25 +144,25 @@ static const struct binding global_bindings[] = {
 	{ CTRL_P, "C-p", "the global map -> cmd_invoke()", "previous-line", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_Q, "C-q", "the global map -> cmd_invoke()", "quoted-insert",
-	    EDITS, K_INPUT, L_GLOBAL, RO_KEY, 1, NULL,
+	    EDITS, K_INPUT, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the next byte is data, not a key: stays outside the map" },
 	{ CTRL_R, "C-r", "the global map -> cmd_invoke()", "isearch-backward",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_S, "C-s", "the global map -> cmd_invoke()", "isearch-forward", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_T, "C-t", "the global map -> cmd_invoke()", "transpose-chars",
-	    EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ CTRL_U, "C-u", "handle_universal_arg", "universal-argument", 0,
 	    K_PREFIX, L_GLOBAL, RO_FREE, 0, NULL,
 	    "collects the numeric argument; explicit zero is a value" },
 	{ CTRL_V, "C-v", "the global map -> cmd_invoke()", "scroll-up-command",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_W, "C-w", "the global map -> cmd_invoke()", "kill-region", EDITS,
-	    K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ CTRL_X, "C-x", "editor.cx_prefix = 1", "kg-c-x-prefix", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
 	{ CTRL_Y, "C-y", "the global map -> cmd_invoke()", "yank", EDITS, K_CMD,
-	    L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ CTRL_Z, "C-z", "the global map -> cmd_invoke()", "suspend-editor", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ ESC, "ESC", "reads one more key", "kg-esc-prefix", 0, K_PREFIX,
@@ -176,10 +175,10 @@ static const struct binding global_bindings[] = {
 	{ 30, "C-^", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
 	    NULL, NULL },
 	{ CTRL_UNDERSCORE, "C-_", "the global map -> cmd_invoke()", "undo",
-	    EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL,
+	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "C-/ arrives as the same code" },
 	{ BACKSPACE, "DEL", "the global map -> cmd_invoke()",
-	    "delete-backward-char", EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL,
+	    "delete-backward-char", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    NULL },
 
 	{ ARROW_LEFT, "<left>", "the global map -> cmd_invoke()",
@@ -191,7 +190,7 @@ static const struct binding global_bindings[] = {
 	{ ARROW_DOWN, "<down>", "the global map -> cmd_invoke()", "next-line",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ DEL_KEY, "<delete>", "the global map -> cmd_invoke()",
-	    "delete-forward-char", EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL,
+	    "delete-forward-char", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "consumes an active region first" },
 	{ HOME_KEY, "<home>", "the global map -> cmd_invoke()",
 	    "move-beginning-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
@@ -235,9 +234,10 @@ static const struct binding global_bindings[] = {
 	{ INSERT_KEY, "<insert>", "the global map -> cmd_invoke()",
 	    "overwrite-mode", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ SHIFT_INSERT, "S-<insert>", "the global map -> cmd_invoke()", "yank",
-	    EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL, "CUA paste" },
+	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, "CUA paste" },
 	{ SHIFT_DELETE, "S-<delete>", "the global map -> cmd_invoke()",
-	    "kill-region", EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL, "CUA cut" },
+	    "kill-region", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
+	    "CUA cut" },
 	{ CTRL_INSERT, "C-<insert>", "the global map -> cmd_invoke()",
 	    "kill-ring-save", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "CUA copy" },
@@ -261,9 +261,9 @@ static const struct binding global_bindings[] = {
 	    "read-only-refuses-editing-keys", NULL },
 	{ ALT_BACKSPACE, "M-DEL", "the global map -> cmd_invoke()",
 	    "backward-kill-word", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
-	    "same hole as M-d, and no terminal-independent key token" },
+	    "no terminal-independent key token, so no PTY case of its own" },
 	{ ALT_PCT, "M-%", "the global map -> cmd_invoke()", "query-replace",
-	    EDITS, K_CMD, L_GLOBAL, RO_HANDLER, 1, NULL, NULL },
+	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ ALT_AT, "M-@", "the global map -> cmd_invoke()", "mark-word", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ ALT_SEMICOLON, "M-;", "the global map -> cmd_invoke()",
@@ -309,12 +309,13 @@ static const struct binding global_bindings[] = {
 	    "window-line-cycle-top-middle-bottom",
 	    "cycles top/middle/bottom while it is the last command" },
 	{ ALT_BACKSLASH, "M-\\", "the global map -> cmd_invoke()",
-	    "delete-horizontal-space", EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL,
-	    NULL },
+	    "delete-horizontal-space", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1,
+	    NULL, NULL },
 	{ ALT_SPACE, "M-SPC", "the global map -> cmd_invoke()",
-	    "just-one-space", EDITS, K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    "just-one-space", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
+	    NULL },
 	{ ALT_Z, "M-z", "the global map -> cmd_invoke()", "zap-to-char", EDITS,
-	    K_CMD, L_GLOBAL, RO_KEY, 1, NULL, NULL },
+	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
 	{ ALT_P, "M-p", "editor_rebase_move_line(-1)",
 	    "git-rebase-move-line-up", EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER,
 	    0, NULL, "does nothing outside a git-rebase-todo buffer" },
@@ -368,12 +369,13 @@ static const struct {
 	{ 32, 126,
 	    { -1, "<printable>",
 		"editor_self_insert_char / editor_insert_repeated_literal",
-		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_KEY, 0, NULL,
-		"a measured fast path; it must keep the same policy check" } },
+		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_COMMAND, 1,
+		NULL, "a measured fast path, through cmd_fast_path_begin()" } },
 	{ 0x80, 0xFF,
 	    { -1, "<utf-8 lead>",
 		"editor_read_utf8_seq + editor_self_insert_glyph",
-		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_KEY, 0, NULL,
+		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_COMMAND, 1,
+		NULL,
 		"one glyph at a time; a malformed sequence is dropped" } },
 };
 
@@ -581,44 +583,44 @@ static void test_global_table_covers_the_key_domain(void)
 	}
 }
 
-/* The recorded verdict and kbd.c's readonly_blocked_keys[] are the same
- * verdict.  When phase 4 deletes that list, this is what shows the
- * verdicts arrived in the command table intact. */
-static void test_readonly_verdict_matches_the_key_blocklist(void)
+/* Every editing key is refused by the command it resolves to.
+ *
+ * This replaced kbd.c's readonly_blocked_keys[], which judged keycodes:
+ * it said nothing about the same command reached by M-x or from Lisp,
+ * and it named only the editing keys someone remembered to list.  The
+ * check is now that a row which edits reaches a descriptor that says so,
+ * and that nothing else claims to. */
+static void test_every_editing_key_is_refused_by_its_command(void)
 {
 	int c, i, k;
 
 	for (i = 0; i < global_count(); i++) {
 		const struct binding *b = &global_bindings[i];
-		int blocked = key_would_edit_readonly_buffer(b->key);
+		const struct named_cmd *cmd = cmd_lookup(b->command);
+		int edits = (b->flags & CMD_EDITS_BUFFER) != 0;
 
-		CHECKF(blocked == (b->readonly == RO_KEY),
-		    "%s: key_would_edit_readonly_buffer() says %d, the "
-		    "inventory says %s",
-		    b->seq, blocked,
-		    b->readonly == RO_KEY ? "blocked" : "not blocked");
 		if (b->readonly == RO_COMMAND) {
-			const struct named_cmd *cmd = cmd_lookup(b->command);
-
 			CHECKF(b->dispatched_by_name && cmd
 				&& (cmd->flags & CMD_EDITS_BUFFER),
 			    "%s: nothing refuses it in a read-only buffer",
 			    b->seq);
+			continue;
 		}
+		CHECKF(!edits || b->readonly != RO_FREE,
+		    "%s edits and nothing refuses it", b->seq);
 	}
 	for (k = 0; k < range_count(); k++) {
+		const struct binding *row = &fallback_ranges[k].row;
+		const struct named_cmd *cmd = cmd_lookup(row->command);
+
+		CHECKF(row->readonly == RO_COMMAND && cmd
+			&& (cmd->flags & CMD_EDITS_BUFFER),
+		    "%s: the self-insert fallback is not refused", row->seq);
 		for (c = fallback_ranges[k].lo; c <= fallback_ranges[k].hi;
 		    c++) {
-			CHECKF(key_would_edit_readonly_buffer(c) == 1,
-			    "%s: keycode %d is not refused in a read-only "
-			    "buffer",
-			    fallback_ranges[k].row.seq, c);
 			CHECKF(global_row_for(c) == NULL,
 			    "keycode %d is both a fallback and a row", c);
 		}
-		CHECKF(fallback_ranges[k].row.readonly == RO_KEY,
-		    "%s: the fallback rows are the blocklist's printable half",
-		    fallback_ranges[k].row.seq);
 	}
 }
 
@@ -670,32 +672,6 @@ static void test_sequences_are_the_keycode_spelled_canonically(void)
 	}
 }
 
-/* Where the two read-only verdicts contradict each other today.
- *
- * C-j is on kbd.c's blocklist, so a read-only buffer refuses it, while
- * cmdtable records eval-print-last-sexp as non-editing, so M-x runs it
- * and it inserts the result.  The inventory records the contradiction
- * rather than picking a side: settling it is a behaviour change and gets
- * its own commit in phase 4.  A name may only stay here while it really
- * does disagree. */
-static const char *const known_verdict_disagreements[] = {
-	"eval-print-last-sexp",
-};
-
-static int verdict_disagreement_is_known(const char *name)
-{
-	size_t i;
-
-	for (i = 0; i < sizeof(known_verdict_disagreements)
-		/ sizeof(known_verdict_disagreements[0]);
-	    i++) {
-		if (strcmp(known_verdict_disagreements[i], name) == 0) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
 /* One command, one verdict: a row whose command already has a descriptor
  * must record the descriptor's CMD_EDITS_BUFFER bit. */
 static void test_named_commands_agree_with_the_command_table(void)
@@ -720,14 +696,6 @@ static void test_named_commands_agree_with_the_command_table(void)
 				    b->seq, b->command);
 			}
 			if (!cmd) {
-				continue;
-			}
-			if (verdict_disagreement_is_known(b->command)) {
-				CHECKF((cmd->flags & CMD_EDITS_BUFFER)
-					!= (b->flags & CMD_EDITS_BUFFER),
-				    "%s: %s agrees with cmdtable now; drop it "
-				    "from known_verdict_disagreements[]",
-				    b->seq, b->command);
 				continue;
 			}
 			CHECKF((cmd->flags & CMD_EDITS_BUFFER)
@@ -816,7 +784,7 @@ static void test_named_pty_cases_exist(void)
 int main(void)
 {
 	RUN(test_global_table_covers_the_key_domain);
-	RUN(test_readonly_verdict_matches_the_key_blocklist);
+	RUN(test_every_editing_key_is_refused_by_its_command);
 	RUN(test_edit_verdict_and_readonly_policy_agree);
 	RUN(test_named_commands_agree_with_the_command_table);
 	RUN(test_rows_are_well_formed);

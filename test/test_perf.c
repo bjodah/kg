@@ -1,0 +1,358 @@
+/* test_perf.c — what the editor's hot paths cost, in counters.
+ *
+ * Every phase of
+ * doc/reviews/2026-07-30/plans/08-performance-quick-wins-and-benchmarks.md
+ * has to name the evidence that justifies it before it may change code.
+ * This file is that evidence, and it is deterministic: a counter says the
+ * same thing on a loaded box, inside a sanitizer lane and under valgrind,
+ * where a wall time says whatever the machine felt like.  `make bench`
+ * reports times; this reports shapes, and only this is a gate.
+ *
+ * Assertions here are written as bounds ("no more than c*log2(rows)
+ * reallocations"), not as equalities, except where the exact number is
+ * the property (one row update per logical replacement).  A test that
+ * pins an exact allocation count fails on every unrelated refactor and
+ * gets deleted; a bound survives and still catches the pathology.
+ *
+ * This binary links every editor translation unit except main.c, built
+ * with -DKG_PERF_COUNTERS=1, so the counters measure the real code.
+ */
+
+#include "../src/def.h"
+#include "test.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+/* ---- Helpers ---- */
+
+static void setup(void)
+{
+	free_all_rows();
+	memset(&editor, 0, sizeof(editor));
+	editor.screenrows = 24;
+	editor.screencols = 80;
+	editor.readonly_override = -1;
+	win_total_rows = 24;
+	win_total_cols = 80;
+	win_init();
+	suppress_undo = 0;
+	running = 1;
+	undo_free();
+	undo_init();
+	kg_perf_reset();
+}
+
+static void teardown(void)
+{
+	free_all_rows();
+	editor.row = NULL;
+	editor.numrows = 0;
+	undo_free();
+}
+
+static unsigned long long counter(enum kg_perf_counter c)
+{
+	return kg_perf_read(c);
+}
+
+/* Number of times a doubling array has to grow to hold `n` records, plus
+ * slack for the first few small steps.  The point of the bound is that it
+ * is logarithmic; the constant is not load-bearing. */
+static unsigned long long log_growth_bound(int n)
+{
+	unsigned long long steps = 0;
+	long long cap = 1;
+
+	while (cap < n) {
+		cap *= 2;
+		steps++;
+	}
+	return steps + 4;
+}
+
+/* editor_refresh_screen() writes the frame to fd 1.  Send it to /dev/null
+ * so the suite's own output stays readable, and so the counters below
+ * measure a full repaint rather than a pipe's mood. */
+static void refresh_quietly(void)
+{
+	int saved = dup(STDOUT_FILENO);
+	int devnull = open("/dev/null", O_WRONLY);
+
+	fflush(stdout);
+	if (devnull >= 0) {
+		dup2(devnull, STDOUT_FILENO);
+	}
+	editor_refresh_screen();
+	fflush(stdout);
+	if (saved >= 0) {
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
+	if (devnull >= 0) {
+		close(devnull);
+	}
+}
+
+/* Write `lines` short lines to a fresh temporary file.  Returns 0 on
+ * success and fills `path`. */
+static int write_lines_file(char *path, size_t path_size, int lines)
+{
+	int fd, i;
+	FILE *fp;
+
+	snprintf(path, path_size, "test_perf_load_XXXXXX");
+	fd = mkstemp(path);
+	if (fd < 0) {
+		return -1;
+	}
+	fp = fdopen(fd, "w");
+	if (!fp) {
+		close(fd);
+		unlink(path);
+		return -1;
+	}
+	for (i = 0; i < lines; i++) {
+		fprintf(fp, "line %d of the corpus\n", i);
+	}
+	fclose(fp);
+	return 0;
+}
+
+/* ---- Phase 2: the file loader's row array ---- */
+
+static void test_load_row_array_growth(void)
+{
+	char path[64];
+	struct temp_load_result res;
+	const int lines = 4096;
+
+	setup();
+	if (write_lines_file(path, sizeof(path), lines) != 0) {
+		CHECK(0 && "could not create a temporary file");
+		teardown();
+		return;
+	}
+	kg_perf_reset();
+	CHECK(load_file_transactional(path, &res) == 0);
+	/* A file ending in a newline stages one more row: the empty last
+	 * line the newline opens. */
+	CHECK(res.numrows == lines + 1);
+	/* Before Plan 08 phase 2: one realloc per line, so loading R lines
+	 * copies O(R^2) row records. */
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) == (unsigned long long)lines + 1);
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) > log_growth_bound(lines));
+	free_load_result(&res);
+	unlink(path);
+	teardown();
+}
+
+/* ---- Phase 2b: the live row array ---- */
+
+static void test_insert_row_array_growth(void)
+{
+	const int rows = 4096;
+	int i;
+
+	setup();
+	kg_perf_reset();
+	for (i = 0; i < rows; i++) {
+		editor_insert_row(i, "x", 1);
+	}
+	CHECK(editor.numrows == rows);
+	/* Before Plan 08 phase 2b: the growth path every subprocess line
+	 * takes reallocs to an exact size, once per row. */
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) == (unsigned long long)rows);
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) > log_growth_bound(rows));
+	teardown();
+}
+
+/* ---- Phase 3: the screen append buffer ---- */
+
+static void refresh_ab_shape(int screen_rows, int screen_cols,
+    unsigned long long *appends, unsigned long long *grows,
+    unsigned long long *copied)
+{
+	int i;
+
+	setup();
+	win_total_rows = screen_rows;
+	win_total_cols = screen_cols;
+	win_init();
+	for (i = 0; i < screen_rows; i++) {
+		editor_insert_row(i, "some ordinary buffer text", 25);
+	}
+	kg_perf_reset();
+	refresh_quietly();
+	*appends = counter(KG_PERF_AB_APPEND);
+	*grows = counter(KG_PERF_AB_GROW);
+	*copied = counter(KG_PERF_AB_COPIED);
+	teardown();
+}
+
+static void test_frame_append_growth(void)
+{
+	unsigned long long appends, grows, copied;
+
+	refresh_ab_shape(24, 80, &appends, &grows, &copied);
+	CHECK(appends > 0);
+	/* Before Plan 08 phase 3: ab_append() reallocs to exactly len + n,
+	 * so every single append is a reallocation. */
+	CHECK(grows == appends);
+	CHECK(copied > 0);
+
+	refresh_ab_shape(200, 600, &appends, &grows, &copied);
+	CHECK(appends > 0);
+	CHECK(grows == appends);
+}
+
+/* ---- Phase 4: render and highlight storage ---- */
+
+static void test_long_row_update_allocations(void)
+{
+	const int len = 1 << 20;
+	char *line = malloc((size_t)len + 1);
+
+	CHECK(line != NULL);
+	if (!line) {
+		return;
+	}
+	memset(line, 'x', (size_t)len);
+	line[len] = '\0';
+
+	setup();
+	editor_insert_row(0, line, (size_t)len);
+	kg_perf_reset();
+	editor_update_row(&editor.row[0]);
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
+	/* Before Plan 08 phase 4: a repeat update of an unchanged row
+	 * frees and reallocates the whole render buffer, and reallocates
+	 * the highlight array, every time. */
+	CHECK(counter(KG_PERF_RENDER_ALLOC) == 1);
+	CHECK(counter(KG_PERF_RENDER_BYTES) >= (unsigned long long)len);
+	CHECK(counter(KG_PERF_HL_ALLOC) == 1);
+	teardown();
+	free(line);
+}
+
+/* ---- Phase 5: one row update per logical replacement ---- */
+
+static void test_replace_range_updates_once(void)
+{
+	setup();
+	editor_insert_row(0, "aaaaaaaaaaaaaaaa", 16);
+	kg_perf_reset();
+	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11) == 1);
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
+	CHECK(counter(KG_PERF_UNDO_PUSH) == 1);
+	CHECK(editor.row[0].size == 19);
+	teardown();
+}
+
+static void test_rect_delete_updates_per_byte(void)
+{
+	int r;
+
+	setup();
+	for (r = 0; r < 8; r++) {
+		editor_insert_row(r, "0123456789abcdef", 16);
+	}
+	editor.mark_set = 1;
+	editor.mark_row = 0;
+	editor.mark_col = 2;
+	editor.cy = 7;
+	editor.cx = 12;
+	editor.rect_mode = 1;
+	kg_perf_reset();
+	editor_delete_rect();
+	CHECK(editor.row[0].size == 6);
+	/* Before Plan 08 phase 5: rect.c deletes one byte at a time, and
+	 * every byte pays a full render and highlight rebuild. */
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 8 * 10);
+	teardown();
+}
+
+/* ---- Phase 6: multiline insertion ---- */
+
+static void test_multiline_insert_flattens_buffer(void)
+{
+	int r;
+
+	setup();
+	for (r = 0; r < 64; r++) {
+		editor_insert_row(r, "a line of the buffer", 20);
+	}
+	editor_cursor_goto(2, 4);
+	kg_perf_reset();
+	editor_insert_text_raw("one\ntwo\n", 8);
+	/* Before Plan 08 phase 6: inserting text containing a newline
+	 * serialises the whole buffer and rebuilds every row from it. */
+	CHECK(counter(KG_PERF_BUFFER_FLATTEN) == 1);
+	CHECK(counter(KG_PERF_BUFFER_REBUILD) == 1);
+	CHECK(counter(KG_PERF_ROW_UPDATE) >= 64);
+	teardown();
+}
+
+/* ---- Phase 7: undo eviction ---- */
+
+static void test_undo_eviction_walk(void)
+{
+	int i;
+	const int max = 1000;
+
+	setup();
+	undostack.max_size = max;
+	editor_insert_row(0, "text", 4);
+	kg_perf_reset();
+	for (i = 0; i < max + 8; i++) {
+		CHECK(undo_push(UNDO_INSERT_CHAR, 0, 0, 'x', NULL, 0) == 1);
+	}
+	CHECK(undostack.size == max);
+	/* Trimming keeps max_size - 1 records, so a full stack evicts on
+	 * every second push: 4 walks of 999 links for the 8 pushes past the
+	 * limit.  Plan 08 phase 7 asks whether that is worth a deque; this
+	 * is the number that says how much there is to win. */
+	CHECK(counter(KG_PERF_UNDO_EVICT_LINKS)
+	    == (unsigned long long)4 * (max - 1));
+	teardown();
+}
+
+/* ---- Phase 8: visual-line geometry ---- */
+
+static void test_visual_line_scan_per_refresh(void)
+{
+	const int rows = 500;
+	int i;
+	unsigned long long scans;
+
+	setup();
+	for (i = 0; i < rows; i++) {
+		editor_insert_row(i, "a reasonably long line of text", 30);
+	}
+	editor.visual_line_mode = 1;
+	kg_perf_reset();
+	refresh_quietly();
+	scans = counter(KG_PERF_VISUAL_ROW_SCAN);
+	/* Before Plan 08 phase 8: one repaint measures every row of the
+	 * buffer several times over -- find_visual_row() rescans from row
+	 * 0 per screen row, and the mode line totals the whole buffer. */
+	CHECK(scans > (unsigned long long)rows);
+	editor.visual_line_mode = 0;
+	teardown();
+}
+
+int main(void)
+{
+	RUN(test_load_row_array_growth);
+	RUN(test_insert_row_array_growth);
+	RUN(test_frame_append_growth);
+	RUN(test_long_row_update_allocations);
+	RUN(test_replace_range_updates_once);
+	RUN(test_rect_delete_updates_per_byte);
+	RUN(test_multiline_insert_flattens_buffer);
+	RUN(test_undo_eviction_walk);
+	RUN(test_visual_line_scan_per_refresh);
+	return test_summary();
+}

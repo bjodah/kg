@@ -7,6 +7,7 @@ test_dired
 test_lisp
 test_localvars
 test_minibuf
+test_perf
 test_regex
 test_region
 test_shell

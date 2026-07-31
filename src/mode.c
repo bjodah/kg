@@ -99,6 +99,8 @@ int visual_line_width(erow *row, int win_w)
 	if (win_w <= 0) {
 		win_w = 1;
 	}
+	KG_PERF_INC(KG_PERF_VISUAL_ROW_SCAN);
+	KG_PERF_ADD(KG_PERF_VISUAL_BYTE_SCAN, row->size);
 	return wrapped_visual_col(row, row->size, win_w);
 }
 

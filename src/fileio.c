@@ -336,6 +336,8 @@ static int load_append_row(
 	memcpy(newchars, line, linelen);
 	newchars[linelen] = '\0';
 
+	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);
+	KG_PERF_ADD(KG_PERF_ROW_ARRAY_BYTES, rows_size);
 	new_rows = realloc(res->row, rows_size);
 	if (!new_rows) {
 		free(newchars);
@@ -376,6 +378,7 @@ static int load_append_row(
 
 int load_file_transactional(const char *filename, struct temp_load_result *res)
 {
+	KG_PERF_INC(KG_PERF_LOAD);
 	memset(res, 0, sizeof(*res));
 	res->filename = strdup(filename);
 	if (!res->filename) {

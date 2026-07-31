@@ -263,6 +263,7 @@ void editor_update_row(erow *row)
 	unsigned long long allocsize;
 	int j, idx, render_cap, vcol;
 
+	KG_PERF_INC(KG_PERF_ROW_UPDATE);
 	/* Create a version of the row we can directly print on the screen,
 	 * respecting tabs. */
 	free(row->render);
@@ -283,6 +284,8 @@ void editor_update_row(erow *row)
 		return;
 	}
 
+	KG_PERF_INC(KG_PERF_RENDER_ALLOC);
+	KG_PERF_ADD(KG_PERF_RENDER_BYTES, allocsize);
 	row->render = malloc((size_t)allocsize);
 	if (!row->render) {
 		editor_nomem();
@@ -349,6 +352,9 @@ void editor_insert_row(int at, const char *s, size_t len)
 	memcpy(newchars, s, len);
 	newchars[len] = '\0';
 
+	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);
+	KG_PERF_ADD(
+	    KG_PERF_ROW_ARRAY_BYTES, sizeof(erow) * (editor.numrows + 1));
 	newrows = realloc(editor.row, sizeof(erow) * (editor.numrows + 1));
 	if (!newrows) {
 		free(newchars);
@@ -429,6 +435,7 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	size_t totlen_sz = 0;
 	int j;
 
+	KG_PERF_INC(KG_PERF_BUFFER_FLATTEN);
 	/* Compute count of bytes */
 	for (j = 0; j < numrows; j++) {
 		if (rows[j].size < 0) {
@@ -677,6 +684,7 @@ static void editor_replace_rows_from_text(const char *text, int len)
 	int i;
 	int row_count = 1;
 
+	KG_PERF_INC(KG_PERF_BUFFER_REBUILD);
 	editor_free_all_rows();
 
 	for (i = 0; i < len; i++) {

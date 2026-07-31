@@ -23,6 +23,9 @@ test/fuzz-artifacts/
 test/fuzz-corpus/
 # Per-run machine-readable results from make check (CHECK_RESULTS_DIR).
 test/.results/
+# Counting build (make bench) and its generated corpora.
+test/perfobj/
+test/.bench/
 test/regex_differential
 *.elc
 repomix-output.*

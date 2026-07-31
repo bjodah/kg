@@ -88,6 +88,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 	op->next = undostack.head;
 	undostack.head = op;
 	undostack.size++;
+	KG_PERF_INC(KG_PERF_UNDO_PUSH);
 
 	/* Trim stack if too large */
 	if (undostack.size > undostack.max_size) {
@@ -97,6 +98,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 
 		/* Find the last operation to keep */
 		while (curr && count < undostack.max_size - 1) {
+			KG_PERF_INC(KG_PERF_UNDO_EVICT_LINKS);
 			prev = curr;
 			curr = curr->next;
 			count++;

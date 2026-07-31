@@ -45,6 +45,10 @@ int ab_append(struct abuf *ab, const char *s, int len)
 		ab->oom = 1;
 		return 0;
 	}
+	KG_PERF_INC(KG_PERF_AB_APPEND);
+	KG_PERF_ADD(KG_PERF_AB_BYTES, len);
+	KG_PERF_INC(KG_PERF_AB_GROW);
+	KG_PERF_ADD(KG_PERF_AB_COPIED, ab->len);
 	char *new = realloc(ab->b, ab->len + len);
 
 	if (new == NULL) {
@@ -491,6 +495,7 @@ void editor_refresh_screen(void)
 	int i, cx, j;
 	int msglen;
 
+	KG_PERF_INC(KG_PERF_REFRESH);
 	if (editor.visual_line_mode) {
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = editor.rowoff + editor.cy;

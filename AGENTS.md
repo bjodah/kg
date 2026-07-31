@@ -83,6 +83,28 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   and slowest cases, coverage against its floor, the complexity manifest,
   the pins. `utils/print-tool-versions.sh` prints the toolchain and the
   box; hosted CI runs it before every step.
+- Performance evidence is counters first, wall clock second.
+  `src/perf.h` declares counters that compile to nothing unless
+  `KG_PERF_COUNTERS` is 1 (the KG_SHOW_TILDE/KG_FUZZ pattern), so the
+  shipped editor carries none of it. The counting build lives in its own
+  object directory, `test/perfobj/`, and never mixes with `src/*.o`:
+  `test/test_perf` is that build minus `main.o` plus the test harness,
+  and `test/perfobj/kg` is the same objects plus `main.o`. A counting kg
+  writes every counter as JSON to `$KG_PERF_OUT` when it exits.
+- `test/test_perf.c` is the gate. It runs inside every `make check`, and
+  it asserts shapes -- reallocations against `c*log2(rows)`, exactly one
+  `editor_update_row()` per logical replacement -- because a counter is
+  the same number on a loaded box, in a sanitizer lane and under
+  valgrind. Each of its cases names the plan phase whose evidence it is.
+- `make bench` (`utils/bench.py`, JSON to `test/.results/bench.json`)
+  drives `test/perfobj/kg` over generated corpora in a real pty and
+  reports median/p95 wall time, peak RSS and the counters per case.
+  It is deliberately *not* a CI step: benchmark numbers taken while five
+  sanitizer lanes drive PTYs measure the box, not the change, and a gate
+  that flakes gets switched off. Its times are comparable only against
+  another counting build -- never against a release `-Os` one. The
+  `startup` case is the constant to subtract by eye. `--big` adds the
+  1M-line corpus; corpora are cached in the gitignored `test/.bench/`.
 - Hosted CI is two workflows: `build.yml` is platform smoke, and
   `quality.yml` runs one job per `.ci/ci-NN-*.sh`, discovered from the
   same glob, with `--require-tools` so a missing tmux or Emacs fails

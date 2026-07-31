@@ -77,7 +77,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c bufmgr.c winmgr.c cmd.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c \
-       width.c dired.c
+       width.c dired.c perf.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -96,7 +96,27 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
            $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
-           $(TESTDIR)/test_dired
+           $(TESTDIR)/test_dired $(TESTDIR)/test_perf
+# test_perf is not built like the other unit tests: it needs the whole
+# editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
+# be mixed with the src/*.o everything else links.  Its objects live in
+# their own directory, and the counting kg `make bench` drives is the same
+# objects plus main.o -- so a counting build never leaves a stale object
+# in src/ for the next plain `make` to link.
+PERFOBJDIR = $(TESTDIR)/perfobj
+PERF_KG = $(PERFOBJDIR)/kg
+# --coverage is dropped on purpose: the coverage lane builds every test
+# binary, and instrumenting a second copy of every src/*.c would merge two
+# differently-compiled builds of the same source into one tracefile.  It
+# stays in the *link* flags so libgcov is still there for the objects that
+# were instrumented (fe.o).
+PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1
+PERF_SRC_OBJS = $(addprefix $(PERFOBJDIR)/,$(SRCS:.c=.o)) $(PERFOBJDIR)/regex.o
+PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
+		 $(PERFOBJDIR)/stubs_perf.o \
+		 $(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS))
+BENCH_OUT ?= $(TESTDIR)/.results/bench.json
+BENCH_ARGS ?=
 FUZZBIN = $(TESTDIR)/fuzz_keypress
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
@@ -446,8 +466,34 @@ EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yan
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
-$(TESTBINS): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
+$(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+$(PERFOBJDIR):
+	mkdir -p $@
+
+$(PERFOBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
+	$(CC) $(PERF_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
+	$(CC) $(PERF_CFLAGS) -I$(OBJDIR) -c $< -o $@
+
+$(PERFOBJDIR)/lisp.o: $(OBJDIR)/lisp.h
+$(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h
+
+$(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+$(PERF_KG): $(PERF_SRC_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+# Wall-clock benchmarks, deliberately not a CI gate: see the note in
+# CLAUDE.md.  The gates that hold are the counter assertions in
+# test/test_perf.c, which run inside every `make check`.
+bench: $(PERF_KG)
+	@mkdir -p $(dir $(BENCH_OUT))
+	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --json $(BENCH_OUT) \
+		$(BENCH_ARGS)
 
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
@@ -481,6 +527,7 @@ $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 clean:
 	rm -f $(OBJS) $(OBJDIR)/fe.o $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(FUZZBINS) $(REGEX_DIFF_BIN)
+	rm -rf $(PERFOBJDIR)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)
@@ -505,7 +552,7 @@ uninstall:
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
 .PHONY: all clean distclean check check-unit check-pty check-regex-differential \
-	complexity complexity-check \
+	bench complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \

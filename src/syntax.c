@@ -1797,6 +1797,8 @@ static void editor_update_syntax_row_only(erow *row)
 {
 	unsigned char *newhl;
 
+	KG_PERF_INC(KG_PERF_SYNTAX_ROW);
+	KG_PERF_ADD(KG_PERF_SYNTAX_BYTES, row->rsize);
 	if (row->rsize == 0) {
 		free(row->hl);
 		row->hl = NULL;
@@ -1812,6 +1814,8 @@ static void editor_update_syntax_row_only(erow *row)
 		return;
 	}
 
+	KG_PERF_INC(KG_PERF_HL_ALLOC);
+	KG_PERF_ADD(KG_PERF_HL_BYTES, row->rsize);
 	newhl = realloc(row->hl, row->rsize);
 	if (!newhl) {
 		editor_set_status_message("Out of memory");
@@ -1840,6 +1844,7 @@ static void syntax_propagate_downstream(erow *row, int old_oc)
 		idx++;
 		row = &editor.row[idx];
 		old_oc = row->hl_oc;
+		KG_PERF_INC(KG_PERF_SYNTAX_PROPAGATE);
 		editor_update_syntax_row_only(row);
 	}
 }

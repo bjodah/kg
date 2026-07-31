@@ -167,5 +167,10 @@ int main(int argc, char **argv)
 		}
 		editor_process_keypress(STDIN_FILENO);
 	}
+	/* Nothing in a default build: KG_PERF_COUNTERS is off and this is a
+	 * no-op macro.  A counting build writes its counters to
+	 * $KG_PERF_OUT here, which is the only place that knows the session
+	 * is over. */
+	kg_perf_dump();
 	return kg_exit_status;
 }

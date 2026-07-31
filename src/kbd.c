@@ -37,12 +37,44 @@ static const int readonly_blocked_keys[] = {
 	TAB,
 };
 
+/* Vertical motions, which are the keys that may keep the goal column.
+ * The list mirrors every key that eventually reaches
+ * editor_move_cursor(ARROW_UP/ARROW_DOWN). */
+static const int vertical_motion_keys[] = {
+	ARROW_UP,
+	ARROW_DOWN,
+	SHIFT_ARROW_UP,
+	SHIFT_ARROW_DOWN,
+	PAGE_UP,
+	PAGE_DOWN,
+	CTRL_N,
+	CTRL_P,
+	CTRL_V,
+	ALT_V,
+};
+
 #define PREFIX_ARG_MAX 1000
 
-int key_would_edit_readonly_buffer(int c)
+/* Whether `c` is one of the `n` keycodes in `keys`.  The key lists in
+ * this file are all answered through here rather than spelled out as a
+ * run of `c != ...` tests: a list is cheaper to read, cheaper to extend,
+ * and does not cost a branch per entry. */
+static int key_in_list(const int *keys, size_t n, int c)
 {
 	size_t i;
 
+	for (i = 0; i < n; i++) {
+		if (keys[i] == c) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+#define KEY_IN(list, c) key_in_list((list), sizeof(list) / sizeof(*(list)), (c))
+
+int key_would_edit_readonly_buffer(int c)
+{
 	if (c >= 32 && c < 127) {
 		return 1;
 	}
@@ -52,14 +84,7 @@ int key_would_edit_readonly_buffer(int c)
 	if (c >= 0x80 && c <= 0xFF) {
 		return 1;
 	}
-	for (i = 0; i
-	    < sizeof(readonly_blocked_keys) / sizeof(readonly_blocked_keys[0]);
-	    i++) {
-		if (readonly_blocked_keys[i] == c) {
-			return 1;
-		}
-	}
-	return 0;
+	return KEY_IN(readonly_blocked_keys, c);
 }
 
 static int bottom_buffer_screen_row(void)
@@ -605,6 +630,9 @@ static const struct {
 	{ SHIFT_END, END_KEY },
 };
 
+/* The motion `c` extends the region with, or 0 when `c` is not a
+ * shift-selecting key -- which is also how the teardown below asks
+ * whether this keystroke was one of them. */
 static int shift_select_motion(int c)
 {
 	size_t i;
@@ -614,7 +642,7 @@ static int shift_select_motion(int c)
 			return shift_motions[i].motion;
 		}
 	}
-	return END_KEY;
+	return 0;
 }
 
 /* C-l: recenter, cycling center -> top -> bottom. */
@@ -670,9 +698,7 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	 * during their dispatch.  Extender keys keep the region alive; a
 	 * C-x prefix keystroke also keeps it (the follow-up may consume
 	 * the region). */
-	if (was_shift_select && !editor.cx_prefix && c != SHIFT_ARROW_LEFT
-	    && c != SHIFT_ARROW_RIGHT && c != SHIFT_ARROW_UP
-	    && c != SHIFT_ARROW_DOWN && c != SHIFT_HOME && c != SHIFT_END) {
+	if (was_shift_select && !editor.cx_prefix && !shift_select_motion(c)) {
 		bcur()->shift_select = 0;
 		bcur()->mark_set = 0;
 		bcur()->mark_highlight = 0;
@@ -681,11 +707,8 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	}
 
 	/* Goal column is only valid between consecutive vertical motions —
-	 * any other key invalidates it.  Keep-list mirrors every key that
-	 * eventually routes through editor_move_cursor(ARROW_UP/DOWN). */
-	if (c != ARROW_UP && c != ARROW_DOWN && c != SHIFT_ARROW_UP
-	    && c != SHIFT_ARROW_DOWN && c != PAGE_UP && c != PAGE_DOWN
-	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V) {
+	 * any other key invalidates it. */
+	if (!KEY_IN(vertical_motion_keys, c)) {
 		wcur()->desired_visual_col = -1;
 	}
 }
@@ -991,6 +1014,7 @@ void editor_process_keypress(int fd)
 	case SHIFT_ARROW_DOWN:
 	case SHIFT_HOME:
 	case SHIFT_END: {
+		/* Never 0: `c` is one of the six labels above. */
 		int motion = shift_select_motion(c);
 
 		/* Drop the mark at the current position the first time the user

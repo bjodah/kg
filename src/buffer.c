@@ -837,6 +837,41 @@ long editor_buffer_char_length(void)
 	return editor_char_offset(bcur()->numrows - 1, INT_MAX);
 }
 
+/* How many more allocations the edit transaction's staging path may make
+ * before one of them is failed on purpose.  Negative is how the editor
+ * always runs: no seam.  See kg_edit_fail_alloc_after() in edit.h. */
+static int edit_alloc_budget = -1;
+
+void kg_edit_fail_alloc_after(int n) { edit_alloc_budget = n; }
+
+/* Whether the transaction may make one more allocation.  Every staging
+ * allocation asks, so a test picks which one fails; the seam disarms
+ * itself once it has fired, so the failure is one point in one edit and
+ * not a state the rest of the run has to be dug out of. */
+static int edit_alloc_ok(void)
+{
+	return edit_alloc_budget < 0 || edit_alloc_budget-- != 0;
+}
+
+/* malloc() and calloc() for the staging path, failable at a chosen
+ * point.  Identical to the libc calls while the seam is disarmed. */
+static void *edit_malloc(size_t size)
+{
+	return edit_alloc_ok() ? malloc(size) : NULL;
+}
+
+static void *edit_calloc(size_t count, size_t size)
+{
+	return edit_alloc_ok() ? calloc(count, size) : NULL;
+}
+
+/* And the row array's growth, which is the staging path's one
+ * allocation that is not a malloc() of its own. */
+static int edit_rows_reserve(erow **rows, int *capacity, int need)
+{
+	return edit_alloc_ok() && editor_rows_reserve(rows, capacity, need);
+}
+
 /* Build the `nl` rows that follow the split row: segments 1..nl of
  * `text`, with `suffix` (the split row's bytes after point) appended to
  * the last of them.  `rows` is zeroed on entry.  Returns 0 having freed
@@ -860,7 +895,7 @@ static int splice_build_rows(const char *text, int len, int nl,
 		    || !checked_add_int_size(&alloc_sz, size, 1)) {
 			goto fail;
 		}
-		rows[i].chars = malloc((size_t)alloc_sz);
+		rows[i].chars = edit_malloc((size_t)alloc_sz);
 		if (!rows[i].chars) {
 			goto fail;
 		}
@@ -909,7 +944,7 @@ static int splice_head_alloc(const char *text, int first_seg,
 	    || !checked_add_int_size(&alloc_sz, *head_len, 1)) {
 		return 0;
 	}
-	*head = malloc((size_t)alloc_sz);
+	*head = edit_malloc((size_t)alloc_sz);
 	if (!*head) {
 		return 0;
 	}
@@ -928,7 +963,7 @@ static int splice_head_alloc(const char *text, int first_seg,
 static int splice_rows_alloc(const char *text, int len, int nl,
     const char *suffix, int suffix_len, erow **rows)
 {
-	*rows = calloc((size_t)nl, sizeof(**rows));
+	*rows = edit_calloc((size_t)nl, sizeof(**rows));
 	if (!*rows
 	    || !splice_build_rows(text, len, nl, suffix, suffix_len, *rows)) {
 		free(*rows);
@@ -1457,7 +1492,7 @@ static void edit_staged_free(struct edit_staged *st)
 static char *buffer_copy_span(
     const struct editor_buffer *b, size_t pos, size_t len)
 {
-	char *out = malloc(len + 1);
+	char *out = edit_malloc(len + 1);
 	size_t n = 0;
 	int row, col;
 
@@ -1545,8 +1580,23 @@ static int edit_stage(const struct kg_edit *e, int r0, int c0, int r1, int c1,
 	}
 	/* Reserving after the rows are built is what lets them be built
 	 * from `b->row`: this call may move that array. */
-	return editor_rows_reserve(
+	return edit_rows_reserve(
 	    &b->row, &b->row_capacity, b->numrows + st->nl - (r1 - r0));
+}
+
+/* The undo record this edit owes, or 1 when it owes none.  The record's
+ * own two allocations are undo.c's, so the failure seam stands in for
+ * them here: what the transaction has to answer for is a record it could
+ * not write, however the writing failed. */
+static int edit_record_undo(
+    const struct kg_edit *e, const struct edit_staged *st)
+{
+	if (e->options & (KG_EDIT_NO_UNDO | KG_EDIT_REPLAY)) {
+		return 1;
+	}
+	return edit_alloc_ok()
+	    && undo_push_change(e->buffer, e->begin_byte, st->old_text,
+		st->old_len, (int)e->replacement_len);
 }
 
 /* Put the staged rows in place of rows [r0, r1].  Nothing here can fail
@@ -1618,10 +1668,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	}
 	buffer_position_to_row_col(b, e->begin_byte, &r0, &c0);
 	buffer_position_to_row_col(b, e->end_byte, &r1, &c1);
-	if (!edit_stage(e, r0, c0, r1, c1, &st)
-	    || (!(e->options & (KG_EDIT_NO_UNDO | KG_EDIT_REPLAY))
-		&& !undo_push_change(b, e->begin_byte, st.old_text, st.old_len,
-		    (int)e->replacement_len))) {
+	if (!edit_stage(e, r0, c0, r1, c1, &st) || !edit_record_undo(e, &st)) {
 		edit_staged_free(&st);
 		editor_nomem();
 		return 0;

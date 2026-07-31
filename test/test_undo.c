@@ -1,6 +1,7 @@
 /* test_undo.c — regression tests for the undo stack */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -801,6 +802,92 @@ static void test_undo_forward_delete_multibyte_glyph(void)
 	teardown();
 }
 
+/* ---- A replay the transaction refused ---- */
+
+/* The buffer's bytes as one string.  Caller frees. */
+static char *undo_buffer_text(void)
+{
+	int len;
+
+	return editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
+}
+
+/* An undo that could not be replayed keeps its record.  The stack, the
+ * text and point are what they were, so the next undo is still the one
+ * the user asked for -- where dropping the record made the edit
+ * permanently unreachable. */
+static void test_undo_failed_replay_keeps_the_record(void)
+{
+	struct undo_op *head;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(editor_row_replace_range(0, 0, 5, "GOODBYE", 7, 0) == 1);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->dirty != 0);
+	head = bcur()->undostack.head;
+	editor_cursor_goto(0, 3);
+
+	/* The replay cannot copy the bytes it is about to remove. */
+	kg_edit_fail_alloc_after(0);
+	editor_undo();
+	running = 1; /* the transaction reported the failure by quitting */
+
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->undostack.head == head);
+	CHECK(bcur()->dirty != 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "GOODBYE world") == 0);
+	free(text);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 3);
+
+	/* And the undo the user asked for is still available, once. */
+	editor_undo();
+	CHECK(bcur()->undostack.size == 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "hello world") == 0);
+	free(text);
+	editor_undo();
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
+/* The same refusal one record above the saved checkpoint: the buffer is
+ * not clean until the record that carries it back is actually replayed. */
+static void test_undo_failed_replay_keeps_dirty_truth(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	CHECK(editor_row_replace_range(0, 3, 0, "X", 1, 0) == 1);
+	undo_mark_clean(); /* as a save would: one record deep, clean */
+	bcur()->dirty = 0;
+	CHECK(editor_row_replace_range(0, 4, 0, "Y", 1, 0) == 1);
+	CHECK(bcur()->dirty != 0);
+
+	kg_edit_fail_alloc_after(0);
+	editor_undo();
+	running = 1;
+
+	CHECK(bcur()->undostack.size == 2);
+	CHECK(bcur()->dirty != 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "abcXY") == 0);
+	free(text);
+
+	/* Replayed for real, the same record does reach the checkpoint. */
+	editor_undo();
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->dirty == 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "abcX") == 0);
+	free(text);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -843,5 +930,7 @@ int main(void)
 	RUN(test_undo_self_insert_glyph_overwrite);
 	RUN(test_undo_backspace_multibyte_glyph);
 	RUN(test_undo_forward_delete_multibyte_glyph);
+	RUN(test_undo_failed_replay_keeps_the_record);
+	RUN(test_undo_failed_replay_keeps_dirty_truth);
 	return test_summary();
 }

@@ -257,6 +257,50 @@ static void undo_replay_reflow_para(struct undo_op *op)
 	buffer_note_change(bcur());
 }
 
+/* Reverse one UNDO_CHANGE: put the saved bytes back where the
+ * replacement bytes now are.  Through the same primitive that made the
+ * change, in replay mode, so nothing is recorded and no second
+ * implementation of the splice exists to disagree.  Returns 0 with the
+ * buffer, point and the modified flag untouched when the transaction
+ * refused it -- it stages every allocation before it publishes, so a
+ * refusal is a whole edit that did not happen. */
+static int undo_replay_change(struct undo_op *op)
+{
+	struct kg_edit e = {
+		.buffer = bcur(),
+		.begin_byte = op->position,
+		.end_byte = op->position + (size_t)op->c,
+		.replacement = op->text ? op->text : "",
+		.replacement_len = (size_t)op->len,
+		.options = KG_EDIT_REPLAY,
+	};
+	int row, col;
+
+	if (!kg_buffer_replace(&e, NULL)) {
+		/* A refusal that was fatal has already said why; saying
+		 * "Undo failed" over "Out of memory" loses the reason. */
+		if (running) {
+			editor_set_status_message("Undo failed");
+		}
+		return 0;
+	}
+	buffer_position_to_row_col(bcur(), op->position, &row, &col);
+	editor_cursor_goto(row, col);
+	return 1;
+}
+
+/* Put a popped record back at the head, exactly as it was.  Not
+ * undo_stack_add(): this record was never spent, so it neither counts as
+ * a push nor may evict the oldest records -- and evicting them here
+ * would throw away the saved checkpoint over an edit that did not
+ * happen. */
+static void undo_relink(struct undo_stack *st, struct undo_op *op)
+{
+	op->next = st->head;
+	st->head = op;
+	st->size++;
+}
+
 /* Perform undo operation */
 void editor_undo(void)
 {
@@ -281,26 +325,16 @@ void editor_undo(void)
 
 	/* Perform the reverse operation */
 	switch (op->type) {
-	case UNDO_CHANGE: {
-		/* Reverse: put the saved bytes back where the replacement
-		 * bytes now are.  Through the same primitive that made the
-		 * change, in replay mode, so nothing is recorded and no
-		 * second implementation of the splice exists to disagree. */
-		struct kg_edit e = {
-			.buffer = bcur(),
-			.begin_byte = op->position,
-			.end_byte = op->position + (size_t)op->c,
-			.replacement = op->text ? op->text : "",
-			.replacement_len = (size_t)op->len,
-			.options = KG_EDIT_REPLAY,
-		};
-		int row, col;
-
-		kg_buffer_replace(&e, NULL);
-		buffer_position_to_row_col(bcur(), op->position, &row, &col);
-		editor_cursor_goto(row, col);
+	case UNDO_CHANGE:
+		if (!undo_replay_change(op)) {
+			/* Nothing changed, so neither has which undo the
+			 * user is owed: put the record back rather than
+			 * make the edit it describes unreachable for the
+			 * rest of the session. */
+			undo_relink(st, op);
+			return;
+		}
 		break;
-	}
 
 	case UNDO_INSERT_CHAR:
 		/* Reverse: delete the character */

@@ -56,4 +56,17 @@ struct kg_edit_result {
 
 int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out);
 
+/* Test-only allocation-failure seam.  Lets the transaction's next `n`
+ * allocations before publication succeed and fails the one after that,
+ * then disarms itself; a negative `n` disarms it immediately, which is
+ * how the editor always runs.  Nothing outside test/ calls this.
+ *
+ * It exists because refusal atomicity is a promise no ordinary input can
+ * exercise: a bogus range is refused before anything is staged, so it
+ * proves nothing about the state a half-staged edit leaves behind.  The
+ * allocations it counts are the ones the transaction makes before it
+ * publishes anything -- the replaced bytes, the replacement rows, the
+ * row array's growth and the undo record. */
+void kg_edit_fail_alloc_after(int n);
+
 #endif /* KG_EDIT_H */

@@ -217,7 +217,7 @@
   "src/cmd.c:sexp_scan_byte": 31,
   "src/cmd.c:sexp_space": 4,
   "src/cmd.c:strip_trailing_whitespace": 4,
-  "src/compile.c:compilation_append_char": 6,
+  "src/compile.c:compilation_append_char": 7,
   "src/compile.c:compilation_commit_line": 4,
   "src/compile.c:compilation_is_running": 1,
   "src/compile.c:compilation_mirror_pending": 2,

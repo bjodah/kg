@@ -377,6 +377,18 @@ static void compilation_append_char(struct compilation_state *s, char c)
 		if (new_cap - s->pending_line_length - 1 > room) {
 			new_cap = s->pending_line_length + room + 1;
 		}
+		/* Both writes below -- the byte and the terminator after it --
+		 * have to fit.  They already do: room is at least 1, because
+		 * the budget check above returned when stored_output had
+		 * caught up with maximum_output, so the clamped capacity is
+		 * never below pending_line_length + 2.  Saying so costs one
+		 * comparison and puts the property in front of the next edit
+		 * to the growth above, as well as in front of the analyzer,
+		 * which does not carry the subtraction's lower bound this
+		 * far and reads the clamp as a one-byte allocation. */
+		if (new_cap < s->pending_line_length + 2) {
+			new_cap = s->pending_line_length + 2;
+		}
 		new_buf = realloc(s->pending_line, new_cap);
 		if (!new_buf) {
 			s->truncated = true;

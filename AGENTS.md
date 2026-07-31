@@ -52,9 +52,17 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-11-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-12-*.sh`;
   run one directly when iterating on a specific phase. The step list is a
   glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
+- `.ci/ci-12-subprojects.sh` runs the submodules' own fast suites from the
+  root: `make -C fe check complexity-check pmccabe-check format-check` and
+  the same for `fe/tiny-regex-c` (~12 s together). kg links `fe/fe.c` and
+  `fe/tiny-regex-c/re.c`, so their standalone behaviour -- Fex, the Fe
+  script suite, the regex test vectors -- is kg's too. Their numbered
+  runners (`fe/.ci`, `fe/tiny-regex-c/.ci`: valgrind, MSan, coverage,
+  clang-analyzer) are minutes each and stay the submodule's own green
+  light before a pin moves; this stage is not a replacement for them.
 - CI parallelism is controlled with `JOBS` (default: `nproc`), e.g.
   `JOBS=8 .ci/run-ci-steps.sh`. Shared CI defaults live in
   `.ci/ci-env.sh`.

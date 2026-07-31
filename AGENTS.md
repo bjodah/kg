@@ -69,7 +69,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   Branch data is collected and reported but not yet a floor. The lane
   keeps `PTY_JOBS=8`: three runs (two at 8, one at 1) agreed file for
   file, so the parallel gcda merge is not lossy here and the 5m37
-  serial run buys nothing over 1m02.
+  serial run buys nothing over 1m02. A file may lose up to 4 covered
+  lines (the tree, 8) before the gate fires: repeated runs of one commit
+  wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
+  depend on what the PTY cases painted. Function coverage was identical
+  in every run measured and gets no slack.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.

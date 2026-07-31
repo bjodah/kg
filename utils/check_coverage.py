@@ -7,9 +7,19 @@ for a year without a gate noticing.  This reads the same tracefile and
 holds every file to the rate it had when the baseline was recorded.
 
 Rates, not hit counts: deleting dead code lowers the count and is not a
-regression.  No tolerance, because the point of a ratchet is that new
-code arrives with tests; `make coverage-baseline` is how a measured
-improvement (or a reviewed, explained drop) gets recorded.
+regression.  `make coverage-baseline` is how a measured improvement (or a
+reviewed, explained drop) gets recorded.
+
+The slack is measured, not a comfort margin.  Repeated runs of the same
+commit agree exactly for most files and wobble for two: src/syntax.c by
+up to 3 of its 757 lines, because which highlighting paths run depends on
+what the PTY cases painted, and src/compile.c in its branch counts,
+because a child process's timing decides how much output the poll loop
+sees.  A gate that flakes gets switched off, so a file may lose
+SLACK_LINES lines before it fails and the tree may lose TOTAL_SLACK_LINES.
+Function coverage was identical across every run measured, so it gets no
+slack; branch coverage is reported and not gated, its jitter being the
+largest of the three.
 """
 
 import argparse
@@ -18,6 +28,10 @@ import sys
 from pathlib import Path
 
 SCHEMA = "kg-coverage-baseline/1"
+# Measured jitter between runs of one commit: 3 lines in src/syntax.c, 0
+# elsewhere.  Raise only with a measurement that says why.
+SLACK_LINES = 4
+TOTAL_SLACK_LINES = 8
 COUNTERS = ("LF", "LH", "FNF", "FNH", "BRF", "BRH")
 
 
@@ -101,7 +115,24 @@ def write_baseline(path, measured, note, how):
 	      f"lines {total['line_rate']:.4f}, functions {total['function_rate']:.4f}")
 
 
-def compare(measured, baseline, metric_key, rate_key, label, failures, notes):
+def below_floor(now, was, metric_key, rate_key, slack):
+	"""Whether this measurement is a regression rather than jitter.
+
+	The rate is what is compared -- a file that loses covered *and*
+	uncovered lines has not regressed -- but a file whose rate slipped
+	is only a failure if it also lost more than `slack` covered lines
+	than the floor would predict for its current size.
+	"""
+	if was[rate_key] is None or now[rate_key] is None:
+		return False
+	if now[rate_key] >= was[rate_key]:
+		return False
+	expected = was[rate_key] * now[metric_key[0]]
+	return now[metric_key[1]] < expected - slack
+
+
+def compare(measured, baseline, metric_key, rate_key, label, failures, notes,
+	    slack):
 	recorded = baseline["files"]
 	for name in sorted(measured):
 		now = rates(measured[name])
@@ -111,9 +142,7 @@ def compare(measured, baseline, metric_key, rate_key, label, failures, notes):
 				     f"{fmt(now[rate_key])} (not yet a floor; run "
 				     "'make coverage-baseline')")
 			continue
-		if was[rate_key] is None or now[rate_key] is None:
-			continue
-		if now[rate_key] < was[rate_key]:
+		if below_floor(now, was, metric_key, rate_key, slack):
 			failures.append(
 				f"  {name}: {label} {fmt(now[rate_key])} "
 				f"({now[metric_key[1]]}/{now[metric_key[0]]}), "
@@ -165,15 +194,17 @@ def main():
 	failures = []
 	notes = []
 	compare(measured, baseline, ("lines_found", "lines_hit"), "line_rate",
-		"line coverage", failures, notes)
+		"line coverage", failures, notes, SLACK_LINES)
 	compare(measured, baseline, ("functions_found", "functions_hit"),
-		"function_rate", "function coverage", failures, [])
+		"function_rate", "function coverage", failures, [], 0)
 
 	was = baseline["total"]
-	for rate_key, label in (("line_rate", "line coverage"),
-				("function_rate", "function coverage")):
-		if total[rate_key] is not None and was.get(rate_key) is not None \
-		   and total[rate_key] < was[rate_key]:
+	for metric_key, rate_key, label, slack in (
+			(("lines_found", "lines_hit"), "line_rate",
+			 "line coverage", TOTAL_SLACK_LINES),
+			(("functions_found", "functions_hit"), "function_rate",
+			 "function coverage", 0)):
+		if below_floor(total, was, metric_key, rate_key, slack):
 			failures.append(f"  TOTAL: {label} {fmt(total[rate_key])}, "
 					f"floor {fmt(was[rate_key])}")
 

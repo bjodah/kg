@@ -1924,6 +1924,14 @@ Use
 to cycle between windows.
 Up to 8 windows may be open simultaneously.
 .Pp
+Closing a window with
+.Ic C-x 0
+or
+.Ic C-x 1
+hands its point back to the buffer it was showing, so displaying that
+buffer again resumes where the closed window was reading rather than at
+the top.
+.Pp
 The smallest terminal
 .Nm
 lays out for is 3 rows by 8 columns: one text row, one mode line and the

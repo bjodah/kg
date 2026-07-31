@@ -428,7 +428,12 @@ int editor_rows_reserve(erow **rows, int *capacity, int need)
 		}
 		newcap *= 2;
 	}
-	if (!checked_mul_size_t(&bytes, (size_t)newcap, sizeof(**rows))) {
+	/* newcap is positive by construction -- it starts at a positive
+	 * number and only doubles.  Saying so is what keeps a zero-byte
+	 * realloc out of reach of a future edit to the doubling above, and
+	 * out of the static analyzer's set of reachable states. */
+	if (newcap <= 0
+	    || !checked_mul_size_t(&bytes, (size_t)newcap, sizeof(**rows))) {
 		return 0;
 	}
 	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);

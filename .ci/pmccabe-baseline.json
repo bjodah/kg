@@ -65,7 +65,7 @@
   "src/buffer.c:editor_row_insert_spaces": 3,
   "src/buffer.c:editor_row_insert_string": 9,
   "src/buffer.c:editor_row_replace_range": 4,
-  "src/buffer.c:editor_rows_reserve": 7,
+  "src/buffer.c:editor_rows_reserve": 8,
   "src/buffer.c:editor_rows_to_string": 11,
   "src/buffer.c:editor_saturating_add": 2,
   "src/buffer.c:editor_self_insert_glyph": 8,

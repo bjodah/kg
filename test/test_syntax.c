@@ -1,6 +1,7 @@
 /* test_syntax.c — regression tests for syntax highlighting */
 
 #include "../src/def.h"
+#include "../src/syntax.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>

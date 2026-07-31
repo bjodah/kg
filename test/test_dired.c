@@ -4,6 +4,7 @@
  * directory, and for the row highlighter over it. */
 
 #include "../src/def.h"
+#include "../src/syntax.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>

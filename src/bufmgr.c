@@ -15,6 +15,7 @@
 #include "lisp.h"
 #include "localvars.h"
 #include "perf.h"
+#include "syntax.h"
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>

@@ -15,6 +15,7 @@
 #include "def.h"
 #include "localvars.h"
 #include "perf.h"
+#include "syntax.h"
 
 /* The comparison is a memcmp, which is only total if the identity carries no
  * padding.  Ordering the fields widest-first makes that so; assert it rather

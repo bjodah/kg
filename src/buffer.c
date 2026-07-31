@@ -8,6 +8,7 @@
 #include "def.h"
 #include "localvars.h"
 #include "perf.h"
+#include "syntax.h"
 
 #define KG_MAX_VIRTUAL_INSERT_GAP (64 * 1024)
 

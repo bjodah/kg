@@ -1,6 +1,7 @@
 /* test_word.c — regression tests for word-case, join-line, and comment-dwim */
 
 #include "../src/def.h"
+#include "../src/syntax.h"
 #include "test.h"
 #include <limits.h>
 #include <stdio.h>

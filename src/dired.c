@@ -13,6 +13,7 @@
 
 #include "def.h"
 #include "localvars.h"
+#include "syntax.h"
 
 static void dired_highlight(struct editor_buffer *b, erow *row);
 

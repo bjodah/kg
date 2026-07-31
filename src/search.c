@@ -10,6 +10,7 @@
 #include "def.h"
 #include "localvars.h"
 #include "regex.h"
+#include "syntax.h"
 
 #define KILO_QUERY_LEN 256
 

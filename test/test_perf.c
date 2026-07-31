@@ -20,6 +20,7 @@
 
 #include "../src/compile.h"
 #include "../src/def.h"
+#include "../src/syntax.h"
 #include "test.h"
 #include <fcntl.h>
 #include <stdio.h>

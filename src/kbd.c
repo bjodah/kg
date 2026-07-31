@@ -13,6 +13,7 @@
 #include "def.h"
 #include "keybind.h"
 #include "lisp.h"
+#include "syntax.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 

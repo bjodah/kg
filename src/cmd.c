@@ -13,6 +13,7 @@
 #include "def.h"
 #include "lisp.h"
 #include "localvars.h"
+#include "syntax.h"
 
 static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;

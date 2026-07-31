@@ -10,6 +10,7 @@
 #include "def.h"
 #include "localvars.h"
 #include "perf.h"
+#include "syntax.h"
 
 #ifndef ABUF_INIT
 #define ABUF_INIT { NULL, 0, 0, 0 }

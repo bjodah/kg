@@ -380,7 +380,6 @@ static void test_frame_append_growth(void)
 static void test_long_row_update_allocations(void)
 {
 	const int len = 1 << 20;
-	int i;
 	char *line = malloc((size_t)len + 1);
 
 	CHECK(line != NULL);

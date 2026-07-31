@@ -110,19 +110,19 @@ struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS) {
 		return NULL; /* Never named a buffer at all. */
 	}
-	b = &buflist[handle.slot];
 	/* id 0 is "no identity": a zeroed handle, and the slot a claim that
-	 * ran out of identities left behind.  Neither may match. */
-	if (handle.id != 0 && b->active && b->id == handle.id
+	 * ran out of identities left behind.  Neither may match, and neither
+	 * is an outlived handle -- a view that names nothing on purpose is
+	 * asked about on every window scan and must not inflate the count. */
+	if (handle.id == 0) {
+		return NULL;
+	}
+	b = &buflist[handle.slot];
+	if (b->active && b->id == handle.id
 	    && b->generation == handle.generation) {
 		return b;
 	}
-	if (handle.id != 0) {
-		/* Only a handle that once named a buffer counts.  id 0 is a
-		 * view that names nothing on purpose, which is asked about
-		 * on every window scan and is not an outlived handle. */
-		KG_PERF_INC(KG_PERF_HANDLE_STALE);
-	}
+	KG_PERF_INC(KG_PERF_HANDLE_STALE);
 	return NULL;
 }
 

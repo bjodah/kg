@@ -637,6 +637,32 @@ static void test_dl_missing_close_paren(void)
 	CHECK(s.buffer_read_only == LOCAL_BOOL_UNSET);
 }
 
+static void test_dl_nul_inside_sexp(void)
+{
+	/* A NUL byte inside a parenthesised sexp used to hang the parser:
+	 * every atom scan walked "while not a delimiter", and strchr()
+	 * calls '\0' a delimiter, so nothing consumed it and the reader
+	 * spun on that one byte.  A .dir-locals.el is read from disk and
+	 * may contain anything, so this hung the editor.  Found by
+	 * test/fuzz_dirlocals once its corpus had seeds. */
+	static const char src[] = "((nil . ((tab-width . 4\0x) (buffer-read-only . t))))";
+	struct local_settings s;
+
+	/* The point is that this returns at all; that it still finds the
+	 * setting after the NUL says the reader kept its place. */
+	CHECK(dirlocals_parse(src, sizeof(src) - 1, &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_nul_terminates_value(void)
+{
+	static const char src[] = "((nil . ((buffer-read-only . t))))\0junk";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, sizeof(src) - 1, &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
 static void test_dl_excessive_nesting(void)
 {
 	char buf[512];
@@ -905,6 +931,8 @@ int main(void)
 	RUN(test_dl_leading_quote);
 	RUN(test_dl_malformed_alist_not_list);
 	RUN(test_dl_missing_close_paren);
+	RUN(test_dl_nul_inside_sexp);
+	RUN(test_dl_nul_terminates_value);
 	RUN(test_dl_excessive_nesting);
 	RUN(test_dl_oversized_input);
 	RUN(test_dl_oversized_command_string);

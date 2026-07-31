@@ -477,6 +477,17 @@ struct dlr {
 	size_t tokcount;
 };
 
+static int dlr_is_delim(char c)
+{
+	/* strchr() answers "yes" for '\0', because every string ends in
+	 * one.  Every atom scan below is a "walk while not a delimiter"
+	 * loop, so a NUL inside a sexp stopped the walk without consuming
+	 * anything and dirlocals_parse() spun on it forever -- a
+	 * .dir-locals.el with one NUL byte in it hung the editor.  A NUL
+	 * is an ordinary atom byte here. */
+	return c != '\0' && strchr("() \t\n\r;'\"", c) != NULL;
+}
+
 static void dlr_skip_ws(struct dlr *r)
 {
 	for (;;) {
@@ -502,7 +513,6 @@ static void dlr_skip_ws(struct dlr *r)
 
 static int dlr_read_sym(struct dlr *r, char *buf, size_t bufsz)
 {
-	const char *delim = "() \t\n\r;'\"";
 	size_t start;
 
 	dlr_skip_ws(r);
@@ -510,7 +520,7 @@ static int dlr_read_sym(struct dlr *r, char *buf, size_t bufsz)
 		return -1;
 	}
 	start = r->pos;
-	while (r->pos < r->len && !strchr(delim, r->src[r->pos])) {
+	while (r->pos < r->len && !dlr_is_delim(r->src[r->pos])) {
 		r->pos++;
 	}
 	{
@@ -652,10 +662,8 @@ static int dlr_skip_sexp(struct dlr *r)
 					r->pos++;
 					r->tokcount++;
 				} else {
-					const char *delim = "() \t\n\r;'\"";
-
 					while (r->pos < r->len
-					    && !strchr(delim, r->src[r->pos])) {
+					    && !dlr_is_delim(r->src[r->pos])) {
 						r->pos++;
 					}
 					r->tokcount++;
@@ -688,13 +696,8 @@ static int dlr_skip_sexp(struct dlr *r)
 			r->pos++;
 			return dlr_skip_sexp(r);
 		}
-		{
-			const char *delim = "() \t\n\r;'\"";
-
-			while (
-			    r->pos < r->len && !strchr(delim, r->src[r->pos])) {
-				r->pos++;
-			}
+		while (r->pos < r->len && !dlr_is_delim(r->src[r->pos])) {
+			r->pos++;
 		}
 	}
 	return 0;

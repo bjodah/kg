@@ -154,21 +154,64 @@ static void test_load_row_array_growth(void)
 	teardown();
 }
 
+/* Comment-heavy C: an unterminated block comment sets hl_oc, which is the
+ * state the next row reads, and an unterminated string does not. */
+static void write_comment_c(FILE *fp)
+{
+	int i;
+
+	for (i = 0; i < 40; i++) {
+		fprintf(fp, "/* a comment opened on this row\n");
+		fprintf(fp, " * and continued across this one%s\n",
+		    i % 3 ? "" : " */");
+		fprintf(fp, "int v%d = %d; /* trailing */ \"str\"\n", i, i);
+		fprintf(fp, "#define M%d \"unterminated /* inside\n", i);
+	}
+}
+
+/* Markdown, which is not the same shape at all.  The generic scanner
+ * reads only the row above; markdown_syntax() also looks one row *down*
+ * (a setext heading is one, if the row under it is its underline) and
+ * writes one row *up* (the underline re-highlights the heading above it).
+ * The staged pass publishes rows one at a time -- editor.numrows is the
+ * count staged so far -- so during it the look-down is out of bounds and
+ * the heading is coloured only when its underline arrives and reaches
+ * back for it.  A blank line inside a fenced block is the other shape
+ * this adds: rsize 0 with a highlight callback installed, which is the
+ * branch that propagates state without touching any bytes. */
+static void write_markdown(FILE *fp)
+{
+	int i;
+
+	for (i = 0; i < 30; i++) {
+		fprintf(fp, "A setext heading %d\n", i);
+		fprintf(fp, "==========\n");
+		fprintf(fp, "text with `code` and *emphasis*\n");
+		fprintf(fp, "```\n");
+		fprintf(fp, "fenced line %d\n", i);
+		fprintf(fp, "\n");
+		fprintf(fp, "still inside the fence\n");
+		/* Every fourth block is left open, so the fence that opens
+		 * the next one closes it instead and the states interleave. */
+		fprintf(fp, "%s\n", i % 4 ? "```" : "no fence here");
+	}
+}
+
 /* The staged pass is the only highlight pass a load pays for now, so it
  * has to leave the buffer in the state a from-scratch rehighlight would:
- * same hl bytes, same hl_oc, row for row.  Comment-heavy C is the shape
- * that can disagree -- an unterminated block comment sets hl_oc, which is
- * the state the next row reads. */
-static void test_load_highlight_is_final(void)
+ * same hl bytes, same hl_oc, row for row. */
+static void check_load_highlight_is_final(
+    const char *name_template, int suffix_len, void (*write_corpus)(FILE *))
 {
-	char path[64] = "test_perf_hl_XXXXXX.c";
+	char path[64];
 	unsigned char **hl = NULL;
 	int *oc = NULL;
 	int fd, i, rows;
 	FILE *fp;
 
 	setup();
-	fd = mkstemps(path, 2);
+	snprintf(path, sizeof(path), "%s", name_template);
+	fd = mkstemps(path, suffix_len);
 	CHECK(fd >= 0);
 	if (fd < 0) {
 		teardown();
@@ -182,13 +225,7 @@ static void test_load_highlight_is_final(void)
 		teardown();
 		return;
 	}
-	for (i = 0; i < 40; i++) {
-		fprintf(fp, "/* a comment opened on this row\n");
-		fprintf(fp, " * and continued across this one%s\n",
-		    i % 3 ? "" : " */");
-		fprintf(fp, "int v%d = %d; /* trailing */ \"str\"\n", i, i);
-		fprintf(fp, "#define M%d \"unterminated /* inside\n", i);
-	}
+	write_corpus(fp);
 	fclose(fp);
 
 	CHECK(editor_open(path) == 0);
@@ -225,6 +262,14 @@ static void test_load_highlight_is_final(void)
 	editor.filename = NULL;
 	unlink(path);
 	teardown();
+}
+
+static void test_load_highlight_is_final(void)
+{
+	check_load_highlight_is_final(
+	    "test_perf_hl_XXXXXX.c", 2, write_comment_c);
+	check_load_highlight_is_final(
+	    "test_perf_hl_XXXXXX.md", 3, write_markdown);
 }
 
 /* ---- Phase 2b: the live row array ---- */

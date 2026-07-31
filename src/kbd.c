@@ -810,12 +810,11 @@ void editor_process_keypress(int fd)
 		(void)cmd_execute_named(shift_select_command(c), fd);
 		break;
 	default:
-		/* Filter out control characters and non-printable characters.
-		 * Only allow printable ASCII (32-126) and TAB.  (ENTER is
-		 * handled as its own case above and would never reach here.)
-		 * Repeats N times when a C-u prefix preceded the key. */
+		/* Printable ASCII, TAB and the lead byte of a multi-byte
+		 * character insert themselves, N times when a numeric
+		 * argument preceded them; every other control or
+		 * non-printable key that no map claimed is ignored. */
 		key_self_insert(c, n, fd);
-		/* Silently ignore all other control/non-printable characters */
 		break;
 	}
 

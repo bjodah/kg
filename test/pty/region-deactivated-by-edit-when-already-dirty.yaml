@@ -1,0 +1,33 @@
+# Editing takes the region down even when the buffer was already
+# modified.  This is the hole the dirty counter had and the content
+# generation closes, end to end.
+#
+# `C-d` makes one edit, so the counter reads exactly 1.  `C-SPC C-n` puts
+# a region on the first line.  `M-;` comments it, which is one of the four
+# commands that used to announce an edit by *assigning* the modified flag
+# rather than stepping it: from a counter of 1 that assignment landed back
+# on 1, the per-keystroke change detector saw no edit, and the region
+# stayed up.  The Delete that follows then took the whole first line with
+# it instead of one character -- which is the two-line file this case
+# refuses.
+#
+# `test_comment_dwim_moves_generation_when_already_dirty` asserts the same
+# thing one layer down, on the counter itself.
+name: region-deactivated-by-edit-when-already-dirty
+filename: region-deactivated-by-edit-when-already-dirty.c
+initial: |
+  int a = 3;
+  int b = 4;
+  int c = 5;
+keys:
+  - C-d
+  - C-SPC
+  - C-n
+  - M-;
+  - "M-[" # Delete key: ESC [ 3 ~
+  - "3"
+  - "~"
+expected_saved: |
+  // nt a = 3;
+  nt b = 4;
+  int c = 5;

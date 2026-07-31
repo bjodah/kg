@@ -487,6 +487,14 @@ extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
 extern int buf_count; /* number of active buffers */
 extern int global_auto_revert; /* Default auto-revert flag for all buffers. */
+
+/* The buffer the session is currently in.  Buffer-scoped state belongs to a
+ * slot in buflist[]; this is how code that only ever means "the one the user
+ * is editing" reaches it without carrying an index around.  Never NULL:
+ * buf_current always names a slot, and a slot nobody holds reads as an empty
+ * buffer.  Code that may mean a *different* buffer must take a
+ * struct editor_buffer * instead — that is the whole point of the split. */
+static inline struct editor_buffer *bcur(void) { return &buflist[buf_current]; }
 extern int electric_pairs; /* 1 when typing an opener inserts its closer. */
 
 extern struct editor_window winlist[MAX_WINDOWS];

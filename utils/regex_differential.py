@@ -16,6 +16,15 @@ The grammar deliberately stays out of the places where kg is known to
 differ from Emacs on purpose; each exclusion is commented where it is made.
 Anything else that diverges is a finding, not something to tune away.
 
+Whether a pattern *compiles* is part of the dialect and is compared like
+any other answer.  A share of the generated cases are deliberately
+malformed -- unclosed groups, unterminated bracket expressions, malformed
+intervals, unknown class names -- and both sides must reject them.  The
+only permitted acceptance differences are the three named in KG_STRICTER
+and KG_LOOSER below, each of which the generator tags on purpose; every
+other one is reported as DIVERGE-ACCEPT.  Only kg's work budget
+("toocomplex") is incomparable, Emacs having none.
+
 Its first find beyond the ones the plan already knew about was the capture
 register left by an empty repetition of a quantified group
 (`\\(x*\\|a\\)\\{2\\}b` against `ab`), at roughly 4 cases per million -- out of
@@ -106,9 +115,9 @@ def rnd_seq(rng, depth):
 	out = ""
 	for _ in range(rng.randint(1, 4)):
 		atom = rnd_atom(rng, depth)
-		# One quantifier per atom: a quantifier on a quantifier
-		# ('a\{2\}\{2\}') is valid in Emacs but never matches in kg, a
-		# known and documented hole.
+		# One quantifier per atom here; a quantifier on a quantifier is
+		# a deliberate acceptance difference and rnd_bad_pattern()
+		# generates it on purpose.
 		if rng.random() < 0.45:
 			atom += rnd_quant(rng)
 		out += atom
@@ -133,19 +142,80 @@ def rnd_pattern(rng):
 	return pattern
 
 
+# Acceptance differences kg documents and Emacs does not share.  A tag
+# names the reason; any *other* disagreement about whether a pattern
+# compiles is a divergence, not something to skip past.
+#
+#   double-quantifier  kg rejects 'a++' and 'a\{2\}\{3\}'.  Emacs folds the
+#                      two quantifiers into one; kg has no faithful
+#                      spelling for the composition and used to compile a
+#                      node that could never match.
+#   representation-class
+#                      kg rejects '[[:multibyte:]]' and '[[:unibyte:]]'.
+#                      Emacs answers them from the string's internal
+#                      representation, which a byte matcher cannot see;
+#                      rejecting beats answering wrongly.
+#   group-question     kg reads '\(?' as a group holding a literal '?'.
+#                      Emacs rejects it, reserving the spelling for shy
+#                      groups, which kg does not have.
+KG_STRICTER = {"double-quantifier", "representation-class"}
+KG_LOOSER = {"group-question"}
+
+
+def rnd_bad_pattern(rng):
+	"""A malformed or edge-case pattern, with the tag it exercises.
+
+	Most of these must be rejected by *both* sides; the two tagged ones
+	are the documented acceptance differences.  The untagged edge cases
+	(a leading quantifier, a ']' in first position) are accepted by both
+	and compared span for span like any other case.
+	"""
+	body = rnd_seq(rng, 0)
+	kinds = [
+		("\\(" + body, None),
+		(body + "\\)", None),
+		("\\(" + body + "\\(" + body + "\\)", None),
+		(body + "[" + rng.choice(ASCII), None),
+		(body + "[^" + rng.choice(ASCII), None),
+		(body + "[]", None),
+		(body + "[^]", None),
+		(body + "\\", None),
+		(body + rng.choice(
+			["\\{2,1\\}", "\\{x\\}", "\\{1,2,3\\}", "\\{1", "\\{65536\\}"]), None),
+		(body + "[[:" + rng.choice(["foo", "Alpha", "digitx"]) + ":]]", None),
+		(body + "[[:" + rng.choice(["multibyte", "unibyte"]) + ":]]",
+		 "representation-class"),
+		(body + rnd_quant(rng) + rnd_quant(rng), "double-quantifier"),
+		("\\(?" + body + "\\)", "group-question"),
+		(rng.choice(["*", "+", "?"]) + body, None),
+		("^" + rng.choice(["*", "+", "?"]) + body, None),
+		("[]" + rng.choice(ASCII) + "]" + body, None),
+	]
+	return rng.choice(kinds)
+
+
 def rnd_subject(rng):
 	return "".join(rng.choice(ALL) for _ in range(rng.randint(0, 8)))
+
+
+# How often a generated case is a deliberately malformed or edge-case
+# pattern rather than a well-formed one.
+BAD_PATTERN_RATE = 0.15
 
 
 def gen_cases(rng, count):
 	cases = []
 	seen = set()
 	while len(cases) < count:
-		case = (rnd_pattern(rng), rnd_subject(rng))
+		if rng.random() < BAD_PATTERN_RATE:
+			pattern, tag = rnd_bad_pattern(rng)
+		else:
+			pattern, tag = rnd_pattern(rng), None
+		case = (pattern, rnd_subject(rng))
 		if case in seen or case[0].count("\\(") > MAX_GROUPS:
 			continue
 		seen.add(case)
-		cases.append(case)
+		cases.append(case + (tag,))
 	return cases
 
 
@@ -196,7 +266,7 @@ def main():
 
 	rng = random.Random(args.seed)
 	cases = gen_cases(rng, args.cases)
-	payload = "".join("%s\t%s\n" % case for case in cases).encode("utf-8")
+	payload = "".join("%s\t%s\n" % (p, t) for p, t, _ in cases).encode("utf-8")
 
 	kg = run_side([args.driver], payload)
 	# TERM matters: Emacs refuses to start under some values even in batch.
@@ -209,12 +279,31 @@ def main():
 
 	diverged = 0
 	skipped = 0
-	for (pattern, subject), mine, theirs in zip(cases, kg, oracle):
-		# A pattern one side refuses to compile, or a match one side
-		# gives up on, is not a comparable answer.  These are counted
-		# and reported rather than hidden.
-		if mine in ("badpat", "toocomplex") or theirs == "badpat":
+	allowed = 0
+	rejected = 0
+	for (pattern, subject, tag), mine, theirs in zip(cases, kg, oracle):
+		# Giving up is a resource answer, not a statement about the
+		# language: kg alone has a budget, so there is nothing to
+		# compare it against.  Counted and reported, never hidden.
+		if mine == "toocomplex":
 			skipped += 1
+			continue
+		# Whether a pattern compiles at all is part of the dialect and
+		# is compared like everything else.  Only the two documented
+		# differences above are allowed to disagree.
+		if (mine == "badpat") != (theirs == "badpat"):
+			if (mine == "badpat" and tag in KG_STRICTER) or (
+					theirs == "badpat" and tag in KG_LOOSER):
+				allowed += 1
+				continue
+			diverged += 1
+			if diverged <= args.show:
+				print("DIVERGE-ACCEPT pattern=%r subject=%r "
+				      "kg=%r emacs=%r"
+				      % (pattern, subject, mine, theirs))
+			continue
+		if mine == "badpat":
+			rejected += 1
 			continue
 		if normalise(mine) == normalise(theirs):
 			continue
@@ -222,8 +311,9 @@ def main():
 		if diverged <= args.show:
 			print("DIVERGE pattern=%r subject=%r kg=%r emacs=%r"
 			      % (pattern, subject, mine, theirs))
-	print("regex differential: cases=%d diverged=%d incomparable=%d seed=%d"
-	      % (len(cases), diverged, skipped, args.seed))
+	print("regex differential: cases=%d diverged=%d both-reject=%d "
+	      "allowed-diff=%d incomparable=%d seed=%d"
+	      % (len(cases), diverged, rejected, allowed, skipped, args.seed))
 	return 1 if diverged else 0
 
 

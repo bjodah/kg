@@ -216,8 +216,9 @@ SCC_COMPLEXITY_PATHS ?= src
 # Measured 4193 after the program's extraction pass, leaving 87 points of
 # headroom for that completed campaign; nothing raises this again without a
 # reviewed exception.  (History: 4199 -> 4208 for the
-# path picker's literal-accept answers.)
-SCC_COMPLEXITY_MAX ?= 4223
+# path picker's literal-accept answers; 4280 -> 4223 -> 4221 as the
+# follow-up program's slices funded themselves and banked what was left.)
+SCC_COMPLEXITY_MAX ?= 4221
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

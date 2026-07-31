@@ -58,7 +58,7 @@ status --recursive` for SHAs.
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
-- Complexity budget: kg scc is at 4239 against a cap of 4239 — no
+- Complexity budget: kg scc is at 4238 against a cap of 4238 — no
   headroom, which is the normal state here.  Plan 11's registries were
   sequenced dedup-first for exactly this reason: the picker filter freed
   8 points, the command descriptors spent 3 of them, and the file-local

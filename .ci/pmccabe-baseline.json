@@ -274,7 +274,7 @@
   "src/display.c:ab_reserve": 6,
   "src/display.c:display_fit": 4,
   "src/display.c:draw_mode_line": 12,
-  "src/display.c:draw_window_rows": 65,
+  "src/display.c:draw_window_rows": 64,
   "src/display.c:editor_refresh_screen": 26,
   "src/display.c:editor_set_status_emphasis": 3,
   "src/display.c:editor_set_status_message": 1,

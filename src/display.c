@@ -335,17 +335,15 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			 * rather than letting half a glyph bleed into the next
 			 * pane. */
 			len = 0;
-			if (offset < r->rsize) {
-				while (offset + len < r->rsize) {
-					int w = utf8_width_at(
-					    r->render, r->rsize, offset + len);
+			while (offset + len < r->rsize) {
+				int w = utf8_width_at(
+				    r->render, r->rsize, offset + len);
 
-					if (w > 0 && vcol_used + w > win_w) {
-						break;
-					}
-					vcol_used += w;
-					len++;
+				if (w > 0 && vcol_used + w > win_w) {
+					break;
 				}
+				vcol_used += w;
+				len++;
 			}
 
 			if (region_active && fr >= region_s_row

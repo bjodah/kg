@@ -1686,6 +1686,98 @@ static int count_files_in_dir(const char *path)
 	return count;
 }
 
+/* ---- Disk identity ---- */
+
+static void write_text_file(const char *path, const char *text)
+{
+	FILE *f = fopen(path, "w");
+
+	CHECK(f != NULL);
+	if (f) {
+		fputs(text, f);
+		fclose(f);
+	}
+}
+
+/* Two files can share a size and an mtime second and still be different
+ * objects; the inode says so.  A hard link to the accepted inode is the same
+ * object and must compare equal. */
+static void test_snapshot_distinguishes_by_identity(void)
+{
+	char dir_template[] = "test_snapshot_XXXXXX";
+	char *dir = mkdtemp(dir_template);
+	char a[PATH_MAX], b[PATH_MAX], hardlink[PATH_MAX];
+	struct file_snapshot snap;
+	struct timespec times[2];
+
+	CHECK(dir != NULL);
+	if (!dir) {
+		return;
+	}
+	snprintf(a, sizeof(a), "%s/a", dir);
+	snprintf(b, sizeof(b), "%s/b", dir);
+	snprintf(hardlink, sizeof(hardlink), "%s/link", dir);
+	write_text_file(a, "one");
+	write_text_file(b, "two");
+
+	/* Same size, same timestamps to the nanosecond. */
+	times[0].tv_sec = 1000000000;
+	times[0].tv_nsec = 0;
+	times[1] = times[0];
+	CHECK(utimensat(AT_FDCWD, a, times, 0) == 0);
+	CHECK(utimensat(AT_FDCWD, b, times, 0) == 0);
+
+	CHECK(file_snapshot_path(a, &snap) == 0);
+	CHECK(snap.valid);
+	CHECK(file_snapshot_compare_path(a, &snap) == FILE_SAME);
+	CHECK(file_snapshot_compare_path(b, &snap) == FILE_DIFFERENT);
+
+	CHECK(link(a, hardlink) == 0);
+	CHECK(file_snapshot_compare_path(hardlink, &snap) == FILE_SAME);
+
+	/* A destination that goes away is a change, not a non-event. */
+	CHECK(unlink(a) == 0);
+	CHECK(unlink(hardlink) == 0);
+	CHECK(file_snapshot_compare_path(a, &snap) == FILE_DIFFERENT);
+
+	unlink(b);
+	rmdir(dir);
+}
+
+/* A path that cannot be examined at all is FILE_UNKNOWN, never FILE_SAME.
+ * A symlink loop produces ELOOP for every user, including root, where a
+ * chmod 0 parent directory would not. */
+static void test_snapshot_unreadable_is_unknown(void)
+{
+	char dir_template[] = "test_snapunk_XXXXXX";
+	char *dir = mkdtemp(dir_template);
+	char loop[PATH_MAX], other[PATH_MAX];
+	struct file_snapshot snap;
+	struct file_snapshot never = { 0 };
+
+	CHECK(dir != NULL);
+	if (!dir) {
+		return;
+	}
+	snprintf(loop, sizeof(loop), "%s/loop", dir);
+	snprintf(other, sizeof(other), "%s/other", dir);
+	write_text_file(loop, "real");
+	CHECK(file_snapshot_path(loop, &snap) == 0);
+
+	CHECK(unlink(loop) == 0);
+	CHECK(symlink("other", loop) == 0);
+	CHECK(symlink("loop", other) == 0);
+	CHECK(file_snapshot_compare_path(loop, &snap) == FILE_UNKNOWN);
+
+	/* A snapshot that was never taken cannot vouch for anything. */
+	CHECK(file_snapshot_compare_path(loop, &never) == FILE_UNKNOWN);
+	CHECK(file_snapshot_compare_path(dir, &never) == FILE_UNKNOWN);
+
+	unlink(loop);
+	unlink(other);
+	rmdir(dir);
+}
+
 static void test_atomic_save_transactions(void)
 {
 	char tmp_dir_template[] = "test_atomic_XXXXXX";
@@ -1957,6 +2049,8 @@ int main(void)
 	RUN(test_insert_row_does_not_read_past_slice);
 	RUN(test_reflow_undo_rows_are_sortable);
 	RUN(test_rect_overwrite_undo_terminates_rows);
+	RUN(test_snapshot_distinguishes_by_identity);
+	RUN(test_snapshot_unreadable_is_unknown);
 	RUN(test_row_replace_range);
 	RUN(test_row_replace_range_refuses_bad_ranges);
 	return test_summary();

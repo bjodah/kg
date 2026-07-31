@@ -1,0 +1,51 @@
+# A file that disappears is a conflict, not an invitation to reload: an
+# auto-reverting buffer whose file was removed must keep its contents,
+# because reloading a missing file loads nothing and the buffer is by then
+# the only remaining copy.
+#
+# The victim is reached through dired rather than C-x C-f because the
+# find-file prompt is prefilled with the current file's directory, which is
+# an unpredictable temporary directory, while dired's prompt starts empty
+# and so accepts "~" (see dired-listing.yaml for why the answer names a
+# file inside the directory).  One n moves onto the sole entry.
+#
+# The padding keys after the removal are the wait: auto-revert only polls
+# while the editor is idle, and no more often than every two seconds.
+name: autorevert-skips-vanished-file
+filename: notes.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.4
+config_files:
+  victim.txt: |
+    keep this line
+initial: |
+  notes
+keys:
+  - C-x
+  - d
+  - "~/victim.txt"
+  - RET
+  - n
+  - RET
+  - M-x
+  - "auto-revert-mode"
+  - RET
+  - "M-!"
+  - "rm -f ~/victim.txt"
+  - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+trailer_keys: [C-x, C-c]
+expected_saved: |
+  notes
+expected_screen_contains:
+  - "keep this line"
+expected_screen_not_contains:
+  - "Reverted victim.txt"

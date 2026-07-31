@@ -243,6 +243,38 @@ struct command_prefix {
 	int value;
 };
 
+/* The on-disk identity of a file, as one stat() saw it.  The fields are
+ * widened to fixed-width types and ordered so the struct carries no padding
+ * on any supported target, which is what lets two samples be compared as
+ * bytes instead of field by field. */
+struct file_identity {
+	uint64_t present; /* 1 when the path named an object at all. */
+	uint64_t device;
+	uint64_t inode;
+	uint64_t size;
+	int64_t mtime_sec;
+	int64_t ctime_sec;
+	uint32_t mtime_nsec;
+	uint32_t ctime_nsec;
+};
+
+/* What a buffer accepted the last time it read or wrote its file.  `valid`
+ * is false when the state could not be sampled at all, which is a different
+ * thing from "the file is not there" — stat() reports absence perfectly
+ * well. */
+struct file_snapshot {
+	struct file_identity id;
+	bool valid;
+};
+
+/* Three answers, because "unable to check" must never be spelled the same
+ * way as "unchanged". */
+enum file_change_state {
+	FILE_SAME,
+	FILE_DIFFERENT,
+	FILE_UNKNOWN,
+};
+
 /* Editor configuration state */
 struct editor_config {
 	int cx, cy; /* Cursor x and y position in characters */
@@ -307,8 +339,7 @@ struct editor_config {
 			     */
 	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle,
 				  2=bottom. */
-	time_t disk_mtime; /* mtime of `filename` when we last read/wrote it. */
-	off_t disk_size; /* size of `filename` when we last read/wrote it. */
+	struct file_snapshot disk; /* `filename` as we last read/wrote it. */
 	int disk_changed; /* Set by the auto-revert poll when disk differs. */
 	int auto_revert; /* Per-buffer auto-revert toggle. */
 	int visual_line_mode; /* 1 if visual-line-mode is enabled */
@@ -407,8 +438,7 @@ struct editor_buffer {
 	char compile_command[KG_COMPILE_COMMAND_MAX];
 	int compile_command_user_override; /* 1 once the user edited
 					      compile-command */
-	time_t disk_mtime;
-	off_t disk_size;
+	struct file_snapshot disk;
 	int disk_changed;
 	int auto_revert;
 	int visual_line_mode;
@@ -796,8 +826,7 @@ struct temp_load_result {
 	char *filename;
 	erow *row;
 	int numrows;
-	time_t disk_mtime;
-	off_t disk_size;
+	struct file_snapshot disk;
 };
 
 int load_file_transactional(const char *filename, struct temp_load_result *res);
@@ -816,7 +845,12 @@ int editor_write_rows_to_file(
 void editor_write_file(int fd);
 void editor_insert_file(int fd);
 void editor_snapshot_disk(void);
-int file_state_differs(const char *path, time_t mtime, off_t size);
+int file_snapshot_path(const char *path, struct file_snapshot *out);
+int file_snapshot_fd(int fd, struct file_snapshot *out);
+enum file_change_state file_snapshot_compare(
+    const struct file_snapshot *accepted, const struct file_snapshot *now);
+enum file_change_state file_snapshot_compare_path(
+    const char *path, const struct file_snapshot *accepted);
 
 /* kbd.c */
 void editor_process_keypress(int fd);

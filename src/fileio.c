@@ -13,35 +13,95 @@
 #include "def.h"
 #include "localvars.h"
 
-/* Refresh the on-disk metadata snapshot for the active buffer.  Called after
- * a successful open or save so the auto-revert poll has a baseline to
- * compare against.  If the file is not present (e.g. a freshly created
- * buffer that has never been saved) the snapshot is zeroed. */
-void editor_snapshot_disk(void)
-{
-	struct stat st;
+/* The comparison is a memcmp, which is only total if the identity carries no
+ * padding.  Ordering the fields widest-first makes that so; assert it rather
+ * than trust it. */
+static_assert(sizeof(struct file_identity)
+	== 6 * sizeof(uint64_t) + 2 * sizeof(uint32_t),
+    "struct file_identity must be padding-free to be compared as bytes");
 
-	editor.disk_changed = 0;
-	if (editor.filename && stat(editor.filename, &st) == 0) {
-		editor.disk_mtime = st.st_mtime;
-		editor.disk_size = st.st_size;
-	} else {
-		editor.disk_mtime = 0;
-		editor.disk_size = 0;
-	}
+/* st_mtim/st_ctim are POSIX.1-2008; kg builds with _POSIX_C_SOURCE=200809L.
+ * A platform offering only second-resolution st_mtime would need the
+ * nanoseconds zeroed here, which weakens same-second rewrite detection to
+ * device/inode/size/ctime alone. */
+static void file_identity_from_stat(
+    struct file_identity *id, const struct stat *st)
+{
+	id->present = 1;
+	id->device = (uint64_t)st->st_dev;
+	id->inode = (uint64_t)st->st_ino;
+	id->size = (uint64_t)st->st_size;
+	id->mtime_sec = (int64_t)st->st_mtim.tv_sec;
+	id->ctime_sec = (int64_t)st->st_ctim.tv_sec;
+	id->mtime_nsec = (uint32_t)st->st_mtim.tv_nsec;
+	id->ctime_nsec = (uint32_t)st->st_ctim.tv_nsec;
 }
 
-/* Return 1 if the file at `path` exists and its mtime or size disagrees
- * with the supplied snapshot.  Used both by editor_save (where the snapshot
- * comes from the buffer's own last-seen state) and by autorevert_poll. */
-int file_state_differs(const char *path, time_t mtime, off_t size)
+/* Sample what `path` names right now.  Returns 0 when the answer is known —
+ * including "nothing is there", which stat() reports precisely — and -1 with
+ * `out->valid` false when it could not be determined at all. */
+int file_snapshot_path(const char *path, struct file_snapshot *out)
 {
 	struct stat st;
 
-	if (stat(path, &st) != 0) {
+	memset(out, 0, sizeof(*out));
+	if (path && stat(path, &st) == 0) {
+		file_identity_from_stat(&out->id, &st);
+		out->valid = true;
 		return 0;
 	}
-	return st.st_mtime != mtime || st.st_size != size;
+	/* An absent file is a state we know.  EACCES, EIO, ELOOP and a
+	 * buffer with no filename at all are states we do not. */
+	out->valid = (path && errno == ENOENT);
+	return out->valid ? 0 : -1;
+}
+
+/* Same, for a descriptor already open on the file. */
+int file_snapshot_fd(int fd, struct file_snapshot *out)
+{
+	struct stat st;
+
+	memset(out, 0, sizeof(*out));
+	if (fstat(fd, &st) != 0) {
+		return -1;
+	}
+	file_identity_from_stat(&out->id, &st);
+	out->valid = true;
+	return 0;
+}
+
+/* Compare what the buffer accepted against what is there now.  Anything we
+ * could not sample is FILE_UNKNOWN: never FILE_SAME, because "unable to
+ * check" is not "unchanged". */
+enum file_change_state file_snapshot_compare(
+    const struct file_snapshot *accepted, const struct file_snapshot *now)
+{
+	if (!accepted->valid || !now->valid) {
+		return FILE_UNKNOWN;
+	}
+	return memcmp(&accepted->id, &now->id, sizeof(accepted->id)) == 0
+	    ? FILE_SAME
+	    : FILE_DIFFERENT;
+}
+
+enum file_change_state file_snapshot_compare_path(
+    const char *path, const struct file_snapshot *accepted)
+{
+	struct file_snapshot now;
+
+	/* A failed sample leaves now.valid false, which compare reads as
+	 * FILE_UNKNOWN. */
+	(void)file_snapshot_path(path, &now);
+	return file_snapshot_compare(accepted, &now);
+}
+
+/* Refresh the on-disk snapshot for the active buffer.  Called after a
+ * successful open or save so the auto-revert poll and the save conflict
+ * check have a baseline. */
+void editor_snapshot_disk(void)
+{
+	editor.disk_changed = 0;
+	(void)file_snapshot_path(editor.filename, &editor.disk);
 }
 
 /* Function pointer for write syscall, allows mocking in unit tests. */
@@ -299,14 +359,7 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 		return -1;
 	}
 
-	struct stat st;
-	if (fstat(fileno(fp), &st) == 0) {
-		res->disk_mtime = st.st_mtime;
-		res->disk_size = st.st_size;
-	} else {
-		res->disk_mtime = 0;
-		res->disk_size = 0;
-	}
+	(void)file_snapshot_fd(fileno(fp), &res->disk);
 
 	char *line = NULL;
 	size_t linecap = 0;
@@ -372,8 +425,7 @@ void commit_load_result(struct temp_load_result *res)
 	editor.filename = res->filename;
 	editor.row = res->row;
 	editor.numrows = res->numrows;
-	editor.disk_mtime = res->disk_mtime;
-	editor.disk_size = res->disk_size;
+	editor.disk = res->disk;
 	editor.disk_changed = 0;
 	editor.dirty = 0;
 
@@ -474,8 +526,8 @@ int editor_save(int fd)
 
 		editor.filename = newfilename;
 		editor_select_syntax_highlight(editor.filename);
-	} else if (file_state_differs(
-		       editor.filename, editor.disk_mtime, editor.disk_size)) {
+	} else if (file_snapshot_compare_path(editor.filename, &editor.disk)
+	    != FILE_SAME) {
 		if (!editor_confirm_yn(fd,
 			"File %s changed on disk.  Save anyway? (y/n) ",
 			editor.filename)) {

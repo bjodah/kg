@@ -1434,11 +1434,15 @@ from
 .Pa .dir-locals.el .
 .Sh EXTERNAL CHANGES
 .Nm
-keeps track of each open file's modification time and size as last seen.
-A background poll catches files that have been rewritten by another
-process and tags the affected buffer with a
+records each open file's device, inode, size and nanosecond timestamps as
+last seen.
+A background poll catches files that have been rewritten, replaced or
+removed by another process, and tags the affected buffer with a
 .Sq (changed)
 marker in the mode line.
+A file that cannot be examined at all — an unreadable directory, an I/O
+error, a symlink loop — is tagged the same way: unable to check is never
+reported as unchanged.
 On
 .Ic C-x C-s
 against such a buffer the user is prompted to confirm before overwriting.
@@ -1449,6 +1453,8 @@ With
 .Ic global-auto-revert-mode )
 turned on, a clean buffer whose file has changed on disk is silently
 reloaded so the view always matches the file.
+A file that has been removed, or that cannot be examined, is only marked,
+never reverted: the buffer is then the last copy of its contents.
 Modified buffers are never reverted automatically — the
 .Sq (changed)
 marker stays visible until either the user saves (and is prompted) or

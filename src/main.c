@@ -78,8 +78,7 @@ void init_editor(void)
 	editor.compile_command[0] = '\0';
 	editor.compile_command_user_override = 0;
 	editor.echo_cursor_col = 0;
-	editor.disk_mtime = 0;
-	editor.disk_size = 0;
+	memset(&editor.disk, 0, sizeof(editor.disk));
 	editor.disk_changed = 0;
 	editor.auto_revert = 0;
 	editor.visual_line_mode = 0;

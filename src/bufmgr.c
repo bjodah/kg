@@ -75,8 +75,7 @@ static void buf_save_to_slot(int idx)
 	memcpy(b->compile_command, editor.compile_command,
 	    sizeof(b->compile_command));
 	b->compile_command_user_override = editor.compile_command_user_override;
-	b->disk_mtime = editor.disk_mtime;
-	b->disk_size = editor.disk_size;
+	b->disk = editor.disk;
 	b->disk_changed = editor.disk_changed;
 	b->auto_revert = editor.auto_revert;
 	b->visual_line_mode = editor.visual_line_mode;
@@ -117,8 +116,7 @@ void buf_restore_from_slot(int idx)
 	    sizeof(editor.compile_command));
 	editor.compile_command_user_override = b->compile_command_user_override;
 	editor_refresh_readonly_state();
-	editor.disk_mtime = b->disk_mtime;
-	editor.disk_size = b->disk_size;
+	editor.disk = b->disk;
 	editor.disk_changed = b->disk_changed;
 	editor.auto_revert = b->auto_revert;
 	editor.visual_line_mode = b->visual_line_mode;
@@ -264,8 +262,9 @@ static void silent_revert_current(void)
 }
 
 /* Walk every active buffer, stat its underlying file, and update the
- * disk_changed flag when the mtime or size disagrees with our last seen
- * snapshot.  Cheap on a local FS; we still rate-limit to keep network
+ * disk_changed flag when its identity disagrees with our last seen
+ * snapshot, or when it cannot be sampled at all.  Cheap on a local FS; we
+ * still rate-limit to keep network
  * stat() latency from compounding across keystrokes.
  *
  * Returns 1 if anything visible changed (a flag transitioned, or a buffer
@@ -285,37 +284,36 @@ int autorevert_poll(void)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
+		int current = (i == buf_current);
+		struct file_snapshot now;
+		enum file_change_state state;
 		const char *fname;
 		int *flag;
-		time_t snap_mtime;
-		off_t snap_size;
 		int new_changed;
 
 		if (!b->active) {
 			continue;
 		}
 
-		fname = (i == buf_current) ? editor.filename : b->filename;
+		fname = current ? editor.filename : b->filename;
 		if (is_special_buffer(fname)) {
 			continue;
 		}
 
-		if (i == buf_current) {
-			flag = &editor.disk_changed;
-			snap_mtime = editor.disk_mtime;
-			snap_size = editor.disk_size;
-		} else {
-			flag = &b->disk_changed;
-			snap_mtime = b->disk_mtime;
-			snap_size = b->disk_size;
-		}
-
-		new_changed = file_state_differs(fname, snap_mtime, snap_size);
+		flag = current ? &editor.disk_changed : &b->disk_changed;
+		(void)file_snapshot_path(fname, &now);
+		state = file_snapshot_compare(
+		    current ? &editor.disk : &b->disk, &now);
+		new_changed = state != FILE_SAME;
 		if (new_changed != *flag) {
 			*flag = new_changed;
 			refresh_needed = 1;
 		}
-		if (i == buf_current && new_changed && !editor.dirty
+		/* Reload only what can still be read back.  A file that
+		 * vanished, or that we cannot even stat, leaves the buffer as
+		 * the last copy of its contents: flag it and leave it be. */
+		if (current && state == FILE_DIFFERENT && now.id.present
+		    && !editor.dirty
 		    && (editor.auto_revert || global_auto_revert)) {
 			silent_revert_current();
 			refresh_needed = 1;
@@ -350,8 +348,7 @@ static void buf_reset(void)
 	editor.readonly_override = -1;
 	editor.compile_command[0] = '\0';
 	editor.compile_command_user_override = 0;
-	editor.disk_mtime = 0;
-	editor.disk_size = 0;
+	memset(&editor.disk, 0, sizeof(editor.disk));
 	editor.disk_changed = 0;
 	editor.auto_revert = 0;
 	editor.visual_line_mode = 0;

@@ -428,6 +428,162 @@ static void test_delete_others_banks_the_views_it_discards(void)
 	free(names[1]);
 }
 
+/* ---- Auto-revert's restriction ----
+ *
+ * The poll walks every buffer but reverts only the current one; the rest
+ * are flagged and reload at the next buf_select().  These four cases are
+ * what widening that restriction would have to survive, so they say what
+ * the reload does to a view before anything decides to do it to more
+ * views.  `autorevert_poll()` rate-limits itself with a process-lifetime
+ * static, so exactly one test here may call it; the others set
+ * `disk_changed` by hand, which is the poll's whole output. */
+
+/* One poll, two changed files: only the current buffer's text moves. */
+static void test_autorevert_poll_reverts_only_the_current_buffer(void)
+{
+	char *names[2];
+
+	write_text_file(tmppath("a.txt"), "a0\na1\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "b0\nb1\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	global_auto_revert = 1;
+	CHECK(buf_current == 0);
+
+	write_text_file(tmppath("a.txt"), "A0\nA1\nA2\n");
+	write_text_file(tmppath("b.txt"), "B0\nB1\nB2\n");
+	CHECK(autorevert_poll() == 1);
+
+	CHECK(buflist[0].numrows == 4);
+	CHECK(memcmp(buflist[0].row[0].chars, "A0", 2) == 0);
+	CHECK(buflist[0].disk_changed == 0);
+
+	/* The other buffer is flagged and left holding its old text. */
+	CHECK(buflist[1].disk_changed == 1);
+	CHECK(buflist[1].numrows == 3);
+	CHECK(memcmp(buflist[1].row[0].chars, "b0", 2) == 0);
+
+	/* Showing it is what reloads it. */
+	buf_select(1);
+	CHECK(buflist[1].numrows == 4);
+	CHECK(memcmp(buflist[1].row[0].chars, "B0", 2) == 0);
+	CHECK(buflist[1].disk_changed == 0);
+
+	global_auto_revert = 0;
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* A point banked past the new end of file comes back inside it. */
+static void test_deferred_revert_clamps_point_past_new_eof(void)
+{
+	char *names[2];
+
+	write_text_file(tmppath("a.txt"), "a0\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(
+	    tmppath("b.txt"), "b0\nb1\nb2\nb3\nb4\nb5\nb6\nb7\nb8\nb9\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+
+	buf_select(1);
+	wcur()->cy = 8;
+	wcur()->cx = 2;
+	buf_select(0);
+	CHECK(buflist[1].last_point.cy == 8);
+
+	write_text_file(tmppath("b.txt"), "B0\n");
+	buflist[1].disk_changed = 1;
+	buflist[1].auto_revert = 1;
+
+	buf_select(1);
+	CHECK(buflist[1].numrows == 2);
+	CHECK(wcur()->rowoff + wcur()->cy < buflist[1].numrows);
+	CHECK(wcur()->coloff + wcur()->cx
+	    <= buflist[1].row[wcur()->rowoff + wcur()->cy].size);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* A revert drops the region it finds.  Nothing asks first, and nothing
+ * says so afterwards beyond the status line. */
+static void test_revert_drops_the_region_it_finds(void)
+{
+	char *names[1];
+
+	write_text_file(tmppath("a.txt"), "a0\na1\na2\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 1;
+	bcur()->mark_highlight = 1;
+	bcur()->rect_mode = 1;
+	bcur()->mark_ring_len = 1;
+
+	write_text_file(tmppath("a.txt"), "A0\nA1\nA2\n");
+	bcur()->disk_changed = 1;
+	bcur()->auto_revert = 1;
+	buf_select(0);
+
+	CHECK(memcmp(bcur()->row[0].chars, "A0", 2) == 0);
+	CHECK(bcur()->mark_set == 0);
+	CHECK(bcur()->mark_highlight == 0);
+	CHECK(bcur()->rect_mode == 0);
+	/* The mark ring is not part of what the reload clears. */
+	CHECK(bcur()->mark_ring_len == 1);
+	CHECK(bcur()->undostack.head == NULL);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* A revert clamps the selected window's point and no other.  A second
+ * window on the same buffer keeps a point past the new end of file, and
+ * selecting it does not clamp either -- buf_attach_view() has nothing to
+ * do for a window already on the buffer.  Typing there then reaches a row
+ * that does not exist, which appends the blank lines to get to it. */
+static void test_revert_leaves_other_windows_unclamped(void)
+{
+	char *names[1];
+	int other;
+
+	write_text_file(
+	    tmppath("a.txt"), "a0\na1\na2\na3\na4\na5\na6\na7\na8\na9\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	winlist[other].cy = 9;
+	winlist[other].rowoff = 0;
+	wcur()->cy = 1;
+
+	write_text_file(tmppath("a.txt"), "A0\n");
+	bcur()->disk_changed = 1;
+	bcur()->auto_revert = 1;
+	buf_select(0);
+
+	CHECK(bcur()->numrows == 2);
+	CHECK(wcur()->rowoff + wcur()->cy < bcur()->numrows);
+	CHECK(winlist[other].rowoff + winlist[other].cy >= bcur()->numrows);
+
+	win_cycle_next();
+	CHECK(win_current == other);
+	CHECK(wcur()->rowoff + wcur()->cy >= bcur()->numrows);
+
+	session_teardown();
+	free(names[0]);
+}
+
 /* Killing a buffer that two windows show leaves both windows pointing at a
  * dead slot today.  Characterized, not fixed. */
 static void test_kill_buffer_shown_twice(void)
@@ -909,6 +1065,10 @@ int main(void)
 	RUN(test_display_other_window_retargets_only_that_window);
 	RUN(test_delete_window_paths);
 	RUN(test_delete_others_banks_the_views_it_discards);
+	RUN(test_autorevert_poll_reverts_only_the_current_buffer);
+	RUN(test_deferred_revert_clamps_point_past_new_eof);
+	RUN(test_revert_drops_the_region_it_finds);
+	RUN(test_revert_leaves_other_windows_unclamped);
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_slot_exhaustion_and_reuse);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);

@@ -1605,6 +1605,123 @@ static void test_edit_refusal_changes_nothing(void)
 	teardown();
 }
 
+/* Everything the transaction is asked to leave alone when it refuses.
+ * Sampled before the edit, compared after it. */
+struct edit_snapshot {
+	char *text;
+	uint64_t generation;
+	int numrows;
+	int undo_size;
+	int clean_size;
+	int dirty;
+	struct undo_op *undo_head;
+	int render_capacity[3];
+	int hl_capacity[3];
+	int render_present[3];
+};
+
+static void edit_snapshot_take(struct edit_snapshot *s)
+{
+	int i;
+
+	s->text = buffer_text();
+	s->generation = bcur()->content_generation;
+	s->numrows = bcur()->numrows;
+	s->undo_size = bcur()->undostack.size;
+	s->clean_size = bcur()->undostack.clean_size;
+	s->dirty = bcur()->dirty;
+	s->undo_head = bcur()->undostack.head;
+	for (i = 0; i < 3 && i < bcur()->numrows; i++) {
+		s->render_capacity[i] = bcur()->row[i].render_capacity;
+		s->hl_capacity[i] = bcur()->row[i].hl_capacity;
+		s->render_present[i] = bcur()->row[i].render != NULL;
+	}
+}
+
+static void edit_snapshot_check(const struct edit_snapshot *s)
+{
+	char *text = buffer_text();
+	int i;
+
+	CHECK(text && strcmp(text, s->text) == 0);
+	free(text);
+	CHECK(bcur()->content_generation == s->generation);
+	CHECK(bcur()->numrows == s->numrows);
+	CHECK(bcur()->undostack.size == s->undo_size);
+	CHECK(bcur()->undostack.clean_size == s->clean_size);
+	CHECK(bcur()->dirty == s->dirty);
+	CHECK(bcur()->undostack.head == s->undo_head);
+	for (i = 0; i < 3 && i < bcur()->numrows; i++) {
+		CHECK(bcur()->row[i].idx == i);
+		/* The storage the rows already had is still theirs: a
+		 * refusal that dropped it would cost the next edit the
+		 * allocation this one never made. */
+		CHECK(bcur()->row[i].render_capacity == s->render_capacity[i]);
+		CHECK(bcur()->row[i].hl_capacity == s->hl_capacity[i]);
+		CHECK((bcur()->row[i].render != NULL) == s->render_present[i]);
+	}
+}
+
+/* Build "ALpha/beta/gamma" with two undo records, the older of which is
+ * the saved checkpoint.  Deliberately not clean and not empty: a refusal
+ * has more to leave alone than a fresh buffer offers. */
+static void edit_fixture(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "beta", 4);
+	editor_insert_row(bcur(), 2, "gamma", 5);
+	CHECK(edit_at(0, 1, "A", 0) == 1);
+	undo_mark_clean();
+	bcur()->dirty = 0;
+	CHECK(edit_at(1, 2, "L", 0) == 1);
+}
+
+/* Every allocation the transaction makes before it publishes anything,
+ * failed one at a time.  Whichever one goes, the buffer is
+ * byte-identical, the rows are numbered, the undo stack keeps its head,
+ * its size and its saved checkpoint, and the derived storage the rows
+ * already had is still theirs: there is no partial edit to observe or to
+ * unwind.
+ *
+ * There are seven -- the replaced bytes, the head row, the array for the
+ * two rows the replacement brings, one for each of those rows, the row
+ * array's growth and the undo record -- and letting all seven through is
+ * how the case pins the count as well as the behaviour. */
+static void test_edit_refusal_is_atomic_at_every_allocation(void)
+{
+	const int allocations = 7;
+	int k;
+
+	for (k = 0; k <= allocations; k++) {
+		struct edit_snapshot snap;
+		int ran;
+
+		edit_fixture();
+		edit_snapshot_take(&snap);
+
+		kg_edit_fail_alloc_after(k);
+		/* From inside row 0 to inside row 2, by two rows of its
+		 * own: the shape that allocates one of everything. */
+		ran = edit_at(2, 13, "X\nY\nZ", 0);
+		running = 1; /* the refusal reported itself by quitting */
+
+		CHECK(ran == (k == allocations));
+		if (ran) {
+			char *text = buffer_text();
+
+			CHECK(strcmp(text, "ALX\nY\nZmma") == 0);
+			free(text);
+			CHECK(bcur()->undostack.size == snap.undo_size + 1);
+		} else {
+			edit_snapshot_check(&snap);
+		}
+		free(snap.text);
+		teardown();
+	}
+	kg_edit_fail_alloc_after(-1);
+}
+
 /* The result brackets the commit: one generation step, and the two
  * lengths of the buffer around it. */
 static void test_edit_result_reports_the_commit(void)
@@ -2647,6 +2764,7 @@ int main(void)
 	RUN(test_edit_replaces_byte_ranges);
 	RUN(test_edit_empties_and_fills_a_buffer);
 	RUN(test_edit_refusal_changes_nothing);
+	RUN(test_edit_refusal_is_atomic_at_every_allocation);
 	RUN(test_edit_result_reports_the_commit);
 	RUN(test_edit_undo_restores_exact_bytes);
 	RUN(test_row_replace_range);

@@ -1,5 +1,6 @@
 /* ========================= Window management ============================== */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "bufhandle.h"
@@ -142,6 +143,73 @@ static int win_showing(struct kg_buffer_handle handle)
 	}
 	return -1;
 }
+
+#if KG_DEBUG_STATE
+#include <stdlib.h>
+
+static void state_fail(const char *where, const char *what)
+{
+	fprintf(stderr, "kg: state invariant failed at %s: %s\n", where, what);
+	abort();
+}
+
+#define STATE_CHECK(cond)                                                      \
+	do {                                                                   \
+		if (!(cond)) {                                                 \
+			state_fail(where, #cond);                              \
+		}                                                              \
+	} while (0)
+
+/* What the buffer table, the window table and the selection are supposed
+ * to agree on at a lifecycle commit.  Six of the seven invariants Plan 04
+ * names; the seventh -- buffer-owned marker and decoration handles
+ * resolving to their buffer -- has nothing to check yet, because markers
+ * arrive with Plan 03. */
+void kg_state_check(const char *where)
+{
+	int i, j, buffers = 0, windows = 0;
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		struct editor_buffer *b = &buflist[i];
+
+		if (!b->active) {
+			continue;
+		}
+		buffers++;
+		/* A live buffer has an identity, and rows a count and a
+		 * capacity can describe. */
+		STATE_CHECK(b->id);
+		STATE_CHECK(b->numrows >= 0);
+		STATE_CHECK(b->row_capacity >= b->numrows);
+		STATE_CHECK(b->row || !b->numrows);
+		for (j = i + 1; j < MAX_BUFFERS; j++) {
+			if (!buflist[j].active) {
+				continue;
+			}
+			/* Identities are unique, and live row storage has
+			 * one owner: two buffers sharing a row array is a
+			 * double free waiting for the second kill. */
+			STATE_CHECK(buflist[j].id != b->id);
+			STATE_CHECK(!b->row || buflist[j].row != b->row);
+		}
+	}
+	STATE_CHECK(buffers == buf_count);
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (!winlist[i].active) {
+			continue;
+		}
+		windows++;
+		/* Every active window resolves; win_check_handles() is what
+		 * makes this true for a release build. */
+		STATE_CHECK(win_buffer(&winlist[i]));
+	}
+	STATE_CHECK(windows == win_count);
+	/* And the selected window is showing the current buffer, or the
+	 * mode line describes one buffer while the keys edit another. */
+	STATE_CHECK(!win_count || win_buffer(wcur()) == bcur());
+}
+#endif /* KG_DEBUG_STATE */
 
 /* Put every active window back on a live buffer.
  *

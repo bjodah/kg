@@ -78,4 +78,27 @@ void buf_detach_view(struct editor_window *w);
  * window table. */
 void win_check_handles(void);
 
+/* ---- Buffer/view state invariants ----
+ *
+ * Off unless the build asks for them, the same shape as KG_PERF_COUNTERS
+ * and KG_DEBUG_COORDS: the shipped editor carries none of it, and
+ * .ci/ci-04 arms them for the sanitizer lane, which drives the whole PTY
+ * suite.  Build by hand with
+ * `make CFLAGS="-Wall -g -DKG_DEBUG_STATE=1"`.
+ *
+ * KG_STATE_CHECK() belongs at a lifecycle commit -- a point where the
+ * buffer table, the window table and the selection are all supposed to
+ * agree -- and nowhere in the middle of one.  It aborts naming the
+ * failed invariant and the site, because a state this far wrong renders
+ * as something odd rather than as an error. */
+#ifndef KG_DEBUG_STATE
+#define KG_DEBUG_STATE 0
+#endif
+#if KG_DEBUG_STATE
+void kg_state_check(const char *where);
+#define KG_STATE_CHECK(where) kg_state_check(where)
+#else
+#define KG_STATE_CHECK(where) ((void)0)
+#endif
+
 #endif /* KG_BUFHANDLE_H */

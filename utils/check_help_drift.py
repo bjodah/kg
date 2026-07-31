@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every key the built-in help names must also appear in doc/kg.1.
+"""Every key the built-in help names must appear in doc/kg.1, and be bound.
 
 Deliberately listy and dumb.  It does not parse English and it does not
 know what a command does; it takes the key column out of src/help.c's
@@ -11,6 +11,15 @@ to the help table (or renamed there) and never written into kg(1).
 The other direction is deliberately not checked.  kg(1) documents far
 more than the one-screen help table shows, so "in the man page but not in
 help" is the normal state, not drift.
+
+Since the keymaps landed there is a second question worth the same dumb
+treatment: is the key the help table names actually bound?  The built-in
+maps are plain tables of canonical spellings in src/kbd.c, so this reads
+them the same way it reads the help table, translates the help art's
+narrow spellings ("C-up", "S-Ins") into canonical ones, and asks whether
+each is there.  Two keys are deliberately not in any map and say so
+below.  What the maps then do with those sequences -- that each parses
+and names a command that exists -- is test_keymap.c's half of the check.
 
 Prints the number of keys it checked, because a table it failed to parse
 would otherwise look exactly like a pass.
@@ -25,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HELP_C = ROOT / "src" / "help.c"
 MAN = ROOT / "doc" / "kg.1"
+KBD_C = ROOT / "src" / "kbd.c"
 
 # The help table writes keys in nine columns, the man page in prose and
 # roff.  Each entry here is one spelling difference that is not drift, and
@@ -51,6 +61,34 @@ WHOLE_KEYS = {
 # the slash lends them no modifier: "C-d/DEL" is C-d and DEL, where
 # "M-\\/SPC" is M-\\ and M-SPC.
 STANDALONE = {"DEL", "BS", "RET", "F3", "F4"}
+
+# The help table has nine columns to name a key in; a keymap has as many
+# as it likes.  Each entry is one narrow spelling and the canonical one
+# key_format() produces for the same key.
+CANONICAL = {
+    "BS": "DEL",
+    "M-BS": "M-DEL",
+    "DEL": "<delete>",
+    "F3": "<f3>",
+    "F4": "<f4>",
+    "C-up": "C-<up>",
+    "C-dn": "C-<down>",
+    "C-Ins": "C-<insert>",
+    "S-Ins": "S-<insert>",
+    "S-Del": "S-<delete>",
+    "M-C-s": "C-M-s",
+    "M-C-r": "C-M-r",
+    # A numeric argument is not part of the sequence that is bound.
+    "C-u C-SPC": "C-SPC",
+}
+# Keys no map holds, and why.  These are the input-layer fast paths plan
+# 01 leaves outside the keymaps; each one still reaches a command, or is
+# read before a lookup could happen.
+UNBOUND_BY_DESIGN = {
+    "C-g": "the emergency quit, which no map may shadow",
+    "C-u": "the numeric-argument collector, read before dispatch",
+    "S-arrow": "shift translation, which runs the plain motion's command",
+}
 
 
 def help_table_lines() -> list[str]:
@@ -178,6 +216,13 @@ def man_spelling(key: str) -> str:
 	    lambda m: NAMES[m.group(0)], key)
 
 
+def bound_sequences() -> set[str]:
+	"""Every sequence the built-in maps bind, from the tables in kbd.c."""
+	src = KBD_C.read_text(encoding="utf-8")
+	rows = re.findall(r'\{\s*(?:[A-Z_]+,\s*)?"((?:[^"\\]|\\.)+)",\s*"[a-z0-9-]+"\s*\}', src)
+	return {row.replace("\\\\", "\\") for row in rows}
+
+
 def main() -> int:
 	# Strip the two roff escapes that only exist to stop a punctuation
 	# character being read as a macro argument, so "M-\&;" in the source
@@ -188,12 +233,19 @@ def main() -> int:
 	fields = []
 	for block in sections(help_table_lines()):
 		fields += key_fields(block)
+	bound = bound_sequences()
+	unbound: list[tuple[str, str]] = []
 	for field in fields:
 		for key in expand(field):
 			checked += 1
 			wanted = man_spelling(key)
 			if wanted not in man:
 				missing.append((key, wanted))
+			if key in UNBOUND_BY_DESIGN:
+				continue
+			sequence = CANONICAL.get(key, key)
+			if sequence not in bound:
+				unbound.append((key, sequence))
 	if checked < 50:
 		print("check_help_drift: only %d keys parsed out of the help table;"
 		      " the parser has lost track of it" % checked, file=sys.stderr)
@@ -201,11 +253,17 @@ def main() -> int:
 	for key, wanted in missing:
 		print("check_help_drift: src/help.c names %r, doc/kg.1 has no %r"
 		      % (key, wanted), file=sys.stderr)
-	if missing:
-		print("check_help_drift: %d of %d help keys are undocumented"
-		      % (len(missing), checked), file=sys.stderr)
+	for key, sequence in unbound:
+		print("check_help_drift: src/help.c names %r, no built-in map"
+		      " binds %r" % (key, sequence), file=sys.stderr)
+	if missing or unbound:
+		print("check_help_drift: %d undocumented and %d unbound, of %d"
+		      " help keys" % (len(missing), len(unbound), checked),
+		      file=sys.stderr)
 		return 1
-	print("check_help_drift: %d help keys all appear in doc/kg.1" % checked)
+	print("check_help_drift: %d help keys all appear in doc/kg.1 and all"
+	      " but %d are bound in a built-in map"
+	      % (checked, len(UNBOUND_BY_DESIGN)))
 	return 0
 
 

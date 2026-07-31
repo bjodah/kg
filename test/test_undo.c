@@ -805,6 +805,32 @@ static void test_undo_forward_delete_multibyte_glyph(void)
 	teardown();
 }
 
+/* UNDO_RECT_OVERWRITE restores a block of rows by number and trims the
+ * buffer back to the row count it recorded.  Nothing pushes it any more
+ * -- the rectangle commands publish one replacement instead -- but a
+ * stack saved before that change can still hold one, so its replay
+ * stays until phase 5 retires the opcode, and stays tested. */
+static void test_rect_overwrite_replay(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "AAAA", 4);
+	editor_insert_row(bcur(), 1, "BBBB", 4);
+	editor_insert_row(bcur(), 2, "extra", 5);
+
+	/* row = first row, c = the row count to trim back to, text = the
+	 * original content of the rows it covers. */
+	undo_push(bcur(), UNDO_RECT_OVERWRITE, 0, 0, 2, "one\ntwo", 7);
+
+	editor_undo();
+
+	CHECK(bcur()->numrows == 2);
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, "one", 3) == 0);
+	CHECK(bcur()->row[1].size == 3);
+	CHECK(memcmp(bcur()->row[1].chars, "two", 3) == 0);
+	teardown();
+}
+
 /* ---- A replay the transaction refused ---- */
 
 /* The buffer's bytes as one string.  Caller frees. */
@@ -912,6 +938,7 @@ int main(void)
 	RUN(test_yank_text);
 	RUN(test_yank_text_len_only);
 	RUN(test_reflow_para);
+	RUN(test_rect_overwrite_replay);
 	RUN(test_dirty_tracking);
 	RUN(test_undo_stack_init_starts_clean);
 	RUN(test_undo_back_to_load_state_is_clean);

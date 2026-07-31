@@ -46,6 +46,17 @@ static void setup_rows(int n)
 	}
 }
 
+/* Every row's idx is its position: the transaction renumbers what it
+ * publishes, and a change in row count renumbers what is below it too. */
+static void check_rows_numbered(void)
+{
+	int i;
+
+	for (i = 0; i < bcur()->numrows; i++) {
+		CHECK(bcur()->row[i].idx == i);
+	}
+}
+
 /* ---- Tests ---- */
 
 /* Three rows join with "\n" separators but no forced trailing newline. */
@@ -1966,18 +1977,59 @@ static void test_row_replace_range_refuses_bad_ranges(void)
 	teardown();
 }
 
-/* ---- The separator commands ---- */
+/* ---- Insertion in a rectangle's virtual space ---- */
 
-/* Every row's idx is its position: the transaction renumbers what it
- * publishes, and a change in row count renumbers what is below it too. */
-static void check_rows_numbered(void)
+/* A rectangle mark lets point sit past the end of its row, in a column
+ * no byte position names.  That is the one insertion the transaction
+ * cannot serve, so the raw path pads the row out to point with spaces
+ * first -- one run of text at a time, splitting the row on each
+ * separator it carries. */
+static void test_rect_mode_raw_insert_pads_virtual_space(void)
 {
-	int i;
+	char *text;
 
-	for (i = 0; i < bcur()->numrows; i++) {
-		CHECK(bcur()->row[i].idx == i);
-	}
+	setup();
+	editor_insert_row(bcur(), 0, "ab", 2);
+	bcur()->rect_mode = 1;
+	editor_cursor_goto(0, 5);
+
+	editor_insert_text_raw("XY\nZ", 4);
+
+	text = buffer_text();
+	CHECK(strcmp(text, "ab   XY\nZ") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 2);
+	check_rows_numbered();
+	bcur()->rect_mode = 0;
+	teardown();
 }
+
+/* And self-inserting a whole multi-byte glyph there goes the same way,
+ * with the one record that covers every byte of it. */
+static void test_rect_mode_self_insert_glyph_in_virtual_space(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "ab", 2);
+	bcur()->rect_mode = 1;
+	editor_cursor_goto(0, 5);
+
+	editor_self_insert_glyph("\xE2\x82\xAC", 3);
+
+	text = buffer_text();
+	CHECK(strcmp(text, "ab   \xE2\x82\xAC") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	text = buffer_text();
+	CHECK(strcmp(text, "ab   ") == 0);
+	free(text);
+	bcur()->rect_mode = 0;
+	teardown();
+}
+
+/* ---- The separator commands ---- */
 
 /* RET, backspace at column 0, C-d at end of line and C-k at end of line
  * are the four commands whose whole job is one separator byte appearing
@@ -3060,6 +3112,8 @@ int main(void)
 	RUN(test_edit_result_reports_the_commit);
 	RUN(test_edit_undo_restores_exact_bytes);
 	RUN(test_row_replace_range);
+	RUN(test_rect_mode_raw_insert_pads_virtual_space);
+	RUN(test_rect_mode_self_insert_glyph_in_virtual_space);
 	RUN(test_separator_edits_are_one_step_each);
 	RUN(test_separator_edits_refused_when_read_only);
 	RUN(test_separator_edits_keep_utf8_and_malformed_bytes);

@@ -288,6 +288,82 @@ static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 	teardown();
 }
 
+/* Walk `text` glyph by glyph and assert what doc/coordinates.md claims
+ * round-trips between the three spaces.  `win_w` is the window width the
+ * visual-line pair is checked at, so the caller can ask both for a width
+ * that never wraps this row and for one that does. */
+static void check_round_trips(const char *text, int len, int win_w)
+{
+	erow *row;
+	int c, prev_r = -1;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, (char *)text, len);
+	row = &bcur()->row[0];
+
+	CHECK(chars_to_render_col(row, 0) == 0);
+	CHECK(chars_to_render_col(row, row->size) == row->rsize);
+
+	for (c = 0; c <= row->size; c += (c < row->size)
+		? utf8_glyph_span_at(row->chars, row->size, c)
+		: 1) {
+		int r = chars_to_render_col(row, c);
+
+		/* chars -> display column -> chars, at glyph starts. */
+		CHECK(editor_chars_col_at_visual(row, editor_visual_col(row, c))
+		    == c);
+		/* The render offset moves forward and names the same byte
+		 * for anything that is not a tab expansion. */
+		CHECK(r > prev_r);
+		if (c < row->size && row->chars[c] != TAB) {
+			CHECK(row->render[r] == row->chars[c]);
+		}
+		prev_r = r;
+		/* The visual-line pair: render_col_to_chars() consumes what
+		 * visual_line_cursor_col() produces, which is a column. */
+		CHECK(render_col_to_chars(
+			  row, visual_line_cursor_col(row, c, win_w), win_w)
+		    == c);
+	}
+	teardown();
+}
+
+/* The three coordinate spaces of doc/coordinates.md, on rows where they
+ * do not coincide: a tab, a two-byte glyph and a double-width one. */
+static void test_coordinate_space_round_trips(void)
+{
+	/* "\tab" — a tab, so render != chars. */
+	check_round_trips("\tab", 3, 80);
+	/* "a\xc3\xa5z" — a two-byte glyph, so chars != columns. */
+	check_round_trips("a\xc3\xa5z", 4, 80);
+	/* "\t\xe4\xb8\xadz" — tab plus a double-width glyph: all three
+	 * spaces disagree.  Also checked at a width that wraps it. */
+	check_round_trips("\t\xe4\xb8\xadz", 5, 80);
+	check_round_trips("\t\xe4\xb8\xadz", 5, 10);
+}
+
+/* render_col_to_chars() takes a display column, never the render offset
+ * chars_to_render_col() returns.  On "中中z" the two spaces part company,
+ * and pairing them the wrong way lands one glyph off. */
+static void test_render_offset_is_not_a_display_column(void)
+{
+	erow *row;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "\xe4\xb8\xad\xe4\xb8\xadz", 7);
+	row = &bcur()->row[0];
+
+	CHECK(row->size == 7 && row->rsize == 7);
+	CHECK(chars_to_render_col(row, 6) == 6); /* render byte of "z" */
+	CHECK(editor_visual_col(row, 6) == 4); /* display column of "z" */
+	/* Correct pairing: a column goes back to its byte. */
+	CHECK(render_col_to_chars(row, 4, 80) == 6);
+	/* Wrong pairing: the render offset reads as a column past the end
+	 * of a row only five columns wide, and clamps to EOL. */
+	CHECK(render_col_to_chars(row, 6, 80) == 7);
+	teardown();
+}
+
 static void test_ab_append_oom(void)
 {
 	struct abuf ab = ABUF_INIT;
@@ -531,6 +607,8 @@ int main(void)
 	RUN(test_visual_wrap_moves_a_whole_escape_spelling);
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
+	RUN(test_coordinate_space_round_trips);
+	RUN(test_render_offset_is_not_a_display_column);
 	RUN(test_ab_append_oom);
 	RUN(test_ab_append_growth_boundary);
 	RUN(test_append_terminal_text_escapes_and_propagates_oom);

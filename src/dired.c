@@ -341,7 +341,7 @@ int dired_fill_current(const char *dir)
 	dired_populate();
 	dired_unstage();
 
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	bcur()->dirty = 0;
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();

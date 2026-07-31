@@ -34,16 +34,16 @@ static int editor_virtual_insert_gap_too_large(erow *row, int at)
 
 int editor_current_filerow_or_eof(void)
 {
-	editor.rowoff = editor_nonnegative(editor.rowoff);
-	editor.cy = editor_nonnegative(editor.cy);
+	wcur()->rowoff = editor_nonnegative(wcur()->rowoff);
+	wcur()->cy = editor_nonnegative(wcur()->cy);
 	if (bcur()->numrows <= 0) {
 		return 0;
 	}
-	if (editor.rowoff >= bcur()->numrows
-	    || editor.cy >= bcur()->numrows - editor.rowoff) {
+	if (wcur()->rowoff >= bcur()->numrows
+	    || wcur()->cy >= bcur()->numrows - wcur()->rowoff) {
 		return bcur()->numrows;
 	}
-	return editor.rowoff + editor.cy;
+	return wcur()->rowoff + wcur()->cy;
 }
 
 int editor_current_filerow(void)
@@ -58,9 +58,9 @@ int editor_current_filerow(void)
 
 int editor_current_filecol(void)
 {
-	editor.coloff = editor_nonnegative(editor.coloff);
-	editor.cx = editor_nonnegative(editor.cx);
-	return editor_saturating_add(editor.coloff, editor.cx);
+	wcur()->coloff = editor_nonnegative(wcur()->coloff);
+	wcur()->cx = editor_nonnegative(wcur()->cx);
+	return editor_saturating_add(wcur()->coloff, wcur()->cx);
 }
 
 int editor_current_filecol_in_row(erow *row)
@@ -172,11 +172,11 @@ void editor_snap_cx_to_row(void)
 	filecol = editor_current_filecol();
 	rowlen = bcur()->row[editor_current_filerow()].size;
 	if (filecol > rowlen) {
-		if (editor.coloff > rowlen) {
-			editor.coloff = rowlen;
-			editor.cx = 0;
+		if (wcur()->coloff > rowlen) {
+			wcur()->coloff = rowlen;
+			wcur()->cx = 0;
 		} else {
-			editor.cx = rowlen - editor.coloff;
+			wcur()->cx = rowlen - wcur()->coloff;
 		}
 	}
 }
@@ -186,23 +186,23 @@ void editor_snap_cx_to_row(void)
  * to land on a target without otherwise centring the view. */
 void editor_cursor_goto(int row, int col)
 {
-	if (row < editor.rowoff) {
-		editor.rowoff = row;
-		editor.cy = 0;
-	} else if (row >= editor.rowoff + editor.screenrows) {
-		editor.rowoff = row - editor.screenrows + 1;
-		editor.cy = editor.screenrows - 1;
+	if (row < wcur()->rowoff) {
+		wcur()->rowoff = row;
+		wcur()->cy = 0;
+	} else if (row >= wcur()->rowoff + wcur()->h) {
+		wcur()->rowoff = row - wcur()->h + 1;
+		wcur()->cy = wcur()->h - 1;
 	} else {
-		editor.cy = row - editor.rowoff;
+		wcur()->cy = row - wcur()->rowoff;
 	}
-	if (col < editor.coloff) {
-		editor.coloff = col;
-		editor.cx = 0;
-	} else if (col >= editor.coloff + editor.screencols) {
-		editor.coloff = col - editor.screencols + 1;
-		editor.cx = editor.screencols - 1;
+	if (col < wcur()->coloff) {
+		wcur()->coloff = col;
+		wcur()->cx = 0;
+	} else if (col >= wcur()->coloff + wcur()->w) {
+		wcur()->coloff = col - wcur()->w + 1;
+		wcur()->cx = wcur()->w - 1;
 	} else {
-		editor.cx = col - editor.coloff;
+		wcur()->cx = col - wcur()->coloff;
 	}
 }
 
@@ -210,7 +210,7 @@ void editor_cursor_goto(int row, int col)
  * Used by isearch so matches already visible in the window do not jerk the
  * viewport forward on every character typed, while distant matches still land
  * in a stable, centered view.  `col` is a byte offset into row->chars, the
- * same space editor.coloff + editor.cx is measured in — this lands point,
+ * same space wcur()->coloff + wcur()->cx is measured in — this lands point,
  * so a rendered column would put it elsewhere on any line holding a tab. */
 void editor_reveal_position_centered(int row, int col)
 {
@@ -223,37 +223,37 @@ void editor_reveal_position_centered(int row, int col)
 		col = 0;
 	}
 
-	if (row < editor.rowoff || row >= editor.rowoff + editor.screenrows) {
-		editor.rowoff = row - editor.screenrows / 2;
-		if (editor.rowoff < 0) {
-			editor.rowoff = 0;
+	if (row < wcur()->rowoff || row >= wcur()->rowoff + wcur()->h) {
+		wcur()->rowoff = row - wcur()->h / 2;
+		if (wcur()->rowoff < 0) {
+			wcur()->rowoff = 0;
 		}
-		max_rowoff = bcur()->numrows - editor.screenrows;
+		max_rowoff = bcur()->numrows - wcur()->h;
 		if (max_rowoff < 0) {
 			max_rowoff = 0;
 		}
-		if (editor.rowoff > max_rowoff) {
-			editor.rowoff = max_rowoff;
+		if (wcur()->rowoff > max_rowoff) {
+			wcur()->rowoff = max_rowoff;
 		}
 	}
-	editor.cy = row - editor.rowoff;
-	if (editor.cy < 0) {
-		editor.cy = 0;
-	} else if (editor.cy >= editor.screenrows) {
-		editor.cy = editor.screenrows - 1;
+	wcur()->cy = row - wcur()->rowoff;
+	if (wcur()->cy < 0) {
+		wcur()->cy = 0;
+	} else if (wcur()->cy >= wcur()->h) {
+		wcur()->cy = wcur()->h - 1;
 	}
 
-	if (col < editor.coloff || col >= editor.coloff + editor.screencols) {
-		editor.coloff = col - editor.screencols / 2;
-		if (editor.coloff < 0) {
-			editor.coloff = 0;
+	if (col < wcur()->coloff || col >= wcur()->coloff + wcur()->w) {
+		wcur()->coloff = col - wcur()->w / 2;
+		if (wcur()->coloff < 0) {
+			wcur()->coloff = 0;
 		}
 	}
-	editor.cx = col - editor.coloff;
-	if (editor.cx < 0) {
-		editor.cx = 0;
-	} else if (editor.cx >= editor.screencols) {
-		editor.cx = editor.screencols - 1;
+	wcur()->cx = col - wcur()->coloff;
+	if (wcur()->cx < 0) {
+		wcur()->cx = 0;
+	} else if (wcur()->cx >= wcur()->w) {
+		wcur()->cx = wcur()->w - 1;
 	}
 }
 
@@ -1184,10 +1184,10 @@ void editor_insert_char(int c)
 	undo_push(bcur(), UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
 
 	editor_row_insert_char(row, filecol, c);
-	if (editor.cx == editor.screencols - 1) {
-		editor.coloff++;
+	if (wcur()->cx == wcur()->w - 1) {
+		wcur()->coloff++;
 	} else {
-		editor.cx++;
+		wcur()->cx++;
 	}
 	bcur()->dirty++;
 }
@@ -1230,8 +1230,8 @@ void editor_insert_newline_raw(void)
 		editor_update_row(bcur(), row);
 		target_row = filerow + 1;
 	}
-	editor.cx = 0;
-	editor.coloff = 0;
+	wcur()->cx = 0;
+	wcur()->coloff = 0;
 	editor_cursor_goto(target_row, 0);
 }
 
@@ -1364,16 +1364,16 @@ void editor_insert_newline(void)
 		editor_update_row(bcur(), row);
 	}
 fixcursor:
-	if (editor.cy == editor.screenrows - 1) {
-		editor.rowoff++;
+	if (wcur()->cy == wcur()->h - 1) {
+		wcur()->rowoff++;
 	} else {
-		editor.cy++;
+		wcur()->cy++;
 	}
-	editor.cx = indent;
-	editor.coloff = 0;
-	if (editor.cx >= editor.screencols) {
-		editor.coloff = indent - editor.screencols + 1;
-		editor.cx = editor.screencols - 1;
+	wcur()->cx = indent;
+	wcur()->coloff = 0;
+	if (wcur()->cx >= wcur()->w) {
+		wcur()->coloff = indent - wcur()->w + 1;
+		wcur()->cx = wcur()->w - 1;
 	}
 }
 
@@ -1381,17 +1381,17 @@ fixcursor:
  * Splits the current line and leaves the cursor on the original line. */
 void editor_open_line(void)
 {
-	int cy = editor.cy;
-	int cx = editor.cx;
-	int rowoff = editor.rowoff;
-	int coloff = editor.coloff;
+	int cy = wcur()->cy;
+	int cx = wcur()->cx;
+	int rowoff = wcur()->rowoff;
+	int coloff = wcur()->coloff;
 
 	editor_insert_newline();
 
-	editor.cy = cy;
-	editor.cx = cx;
-	editor.rowoff = rowoff;
-	editor.coloff = coloff;
+	wcur()->cy = cy;
+	wcur()->cx = cx;
+	wcur()->rowoff = rowoff;
+	wcur()->coloff = coloff;
 }
 
 /* Fetch point's row and column for the editing commands.  Returns 0 when
@@ -1641,10 +1641,10 @@ void editor_overwrite_char(int c)
 	editor_update_row(bcur(), row);
 	bcur()->dirty++;
 
-	if (editor.cx == editor.screencols - 1) {
-		editor.coloff++;
+	if (wcur()->cx == wcur()->w - 1) {
+		wcur()->coloff++;
 	} else {
-		editor.cx++;
+		wcur()->cx++;
 	}
 }
 
@@ -1661,7 +1661,7 @@ void editor_overwrite_char(int c)
  * undo removes the whole character.  Insertion goes through
  * editor_insert_text_raw(), which suppresses the per-byte records and
  * leaves point `len` bytes further along — exactly where C-f over the
- * glyph lands, since editor.cx is a byte offset into row->chars.
+ * glyph lands, since wcur()->cx is a byte offset into row->chars.
  *
  * No autopair is multi-byte, so unlike editor_self_insert_char() there
  * is nothing for editor_insert_char_auto_complete() to do; overwrite

@@ -10,6 +10,5 @@ int win_count = 0;
 int win_total_rows = 24;
 int win_total_cols = 80;
 
-void win_save_active_view(void) { }
 void win_display_buffer_other_window(int idx) { (void)idx; }
 void win_position_at_end(int idx) { (void)idx; }

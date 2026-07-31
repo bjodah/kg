@@ -1,5 +1,5 @@
-# editor.cx is relative to the horizontal scroll offset, so the mode line
-# has to add editor.coloff back in.  In a 40-column window C-e on this
+# A window's cx is relative to its horizontal scroll offset, so the mode
+# line has to add its coloff back in.  In a 40-column window C-e on this
 # 120-character line scrolls the view; real Emacs reports (1,120) for the
 # same file and window width, while kg used to report the on-screen
 # column (1,40).

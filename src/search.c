@@ -218,8 +218,8 @@ static void query_replace_bounds(
 	    && editor_region_bounds(start_row, start_col, end_row, end_col)) {
 		return;
 	}
-	*start_row = editor.rowoff + editor.cy;
-	*start_col = editor.coloff + editor.cx;
+	*start_row = wcur()->rowoff + wcur()->cy;
+	*start_col = wcur()->coloff + wcur()->cx;
 	*end_row = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
 	*end_col = bcur()->numrows > 0 ? bcur()->row[*end_row].size : 0;
 }
@@ -419,9 +419,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	struct minibuf_history *hist
 	    = kind == SEARCH_REGEXP ? &regexp_search_history : &search_history;
 	int hist_index = -1; /* -1 == the query being typed, not a recall */
-	int saved_cx = editor.cx, saved_cy = editor.cy;
-	int saved_coloff = editor.coloff, saved_rowoff = editor.rowoff;
-	int start_row = editor.rowoff + editor.cy;
+	int saved_cx = wcur()->cx, saved_cy = wcur()->cy;
+	int saved_coloff = wcur()->coloff, saved_rowoff = wcur()->rowoff;
+	int start_row = wcur()->rowoff + wcur()->cy;
 	int start_col = 0;
 	int last_match_row = -1;
 	int last_match_col = -1;
@@ -435,7 +435,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	 * reads row->chars, so a TAB is one character and never the eight
 	 * columns it is drawn as.  Only the highlight below is converted to
 	 * render space, because row->hl is indexed that way. */
-	start_col = editor.coloff + editor.cx;
+	start_col = wcur()->coloff + wcur()->cx;
 
 	while (1) {
 		int c;
@@ -485,10 +485,10 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			find_next = direction;
 		} else if (c == ESC || c == ENTER || c == CTRL_G) {
 			if (c == ESC) {
-				editor.cx = saved_cx;
-				editor.cy = saved_cy;
-				editor.coloff = saved_coloff;
-				editor.rowoff = saved_rowoff;
+				wcur()->cx = saved_cx;
+				wcur()->cy = saved_cy;
+				wcur()->coloff = saved_coloff;
+				wcur()->rowoff = saved_rowoff;
 			}
 			/* Emacs records the query when the search is
 			 * accepted, never when it is abandoned. */

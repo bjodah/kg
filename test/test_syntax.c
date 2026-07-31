@@ -16,9 +16,10 @@ static void setup(struct editor_syntax *syn)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	bcur()->syntax = syn;
 }
 

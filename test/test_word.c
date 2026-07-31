@@ -15,9 +15,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	suppress_undo = 0;
 	undo_free();
 	undo_init();
@@ -34,7 +35,7 @@ static void teardown(void)
 /* Position the cursor at the start of the first row. */
 static void cursor_home(void)
 {
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 }
 
 /* ---- Word-case tests ---- */
@@ -50,7 +51,7 @@ static void test_upcase_word(void)
 
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "HELLO", 5) == 0);
-	CHECK(editor.cx == 5);
+	CHECK(wcur()->cx == 5);
 	teardown();
 }
 
@@ -93,7 +94,7 @@ static void test_upcase_word_skips_leading_space(void)
 	editor_upcase_word();
 
 	CHECK(memcmp(bcur()->row[0].chars, " HELLO", 6) == 0);
-	CHECK(editor.cx == 6);
+	CHECK(wcur()->cx == 6);
 	teardown();
 }
 
@@ -121,7 +122,7 @@ static void test_join_line_basic(void)
 	editor_insert_row(bcur(), 0, "hello", 5);
 	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
-	editor.cy = 1;
+	wcur()->cy = 1;
 
 	editor_join_line();
 
@@ -138,7 +139,7 @@ static void test_join_line_strips_indent(void)
 	editor_insert_row(bcur(), 0, "hello", 5);
 	editor_insert_row(bcur(), 1, "  world", 7);
 	cursor_home();
-	editor.cy = 1;
+	wcur()->cy = 1;
 
 	editor_join_line();
 
@@ -155,7 +156,7 @@ static void test_join_line_empty_upper(void)
 	editor_insert_row(bcur(), 0, "", 0);
 	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
-	editor.cy = 1;
+	wcur()->cy = 1;
 
 	editor_join_line();
 
@@ -186,12 +187,12 @@ static void test_join_line_cursor_at_join(void)
 	editor_insert_row(bcur(), 0, "hello", 5);
 	editor_insert_row(bcur(), 1, "world", 5);
 	cursor_home();
-	editor.cy = 1;
+	wcur()->cy = 1;
 
 	editor_join_line();
 
 	/* join_col was 5 (size of "hello"), coloff=0, so cx should be 5 */
-	CHECK(editor.cx == 5);
+	CHECK(wcur()->cx == 5);
 	teardown();
 }
 
@@ -257,10 +258,10 @@ static void test_comment_dwim_region_excludes_final_bol_line(void)
 	bcur()->mark_row = 0;
 	bcur()->mark_col = 0;
 	bcur()->mark_highlight = 1;
-	editor.rowoff = 0;
-	editor.coloff = 0;
-	editor.cy = 2;
-	editor.cx = 0;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
+	wcur()->cy = 2;
+	wcur()->cx = 0;
 
 	editor_comment_dwim();
 
@@ -274,13 +275,13 @@ static void test_delete_horizontal_space_around_point(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "alpha \t  beta", 13);
-	editor.cx = 8;
+	wcur()->cx = 8;
 
 	editor_delete_horizontal_space();
 
 	CHECK(bcur()->row[0].size == 9);
 	CHECK(memcmp(bcur()->row[0].chars, "alphabeta", 9) == 0);
-	CHECK(editor.cx == 5);
+	CHECK(wcur()->cx == 5);
 	editor_undo();
 	CHECK(bcur()->row[0].size == 13);
 	CHECK(memcmp(bcur()->row[0].chars, "alpha \t  beta", 13) == 0);
@@ -291,13 +292,13 @@ static void test_just_one_space_collapses_run(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "alpha \t  beta", 13);
-	editor.cx = 8;
+	wcur()->cx = 8;
 
 	editor_just_one_space();
 
 	CHECK(bcur()->row[0].size == 10);
 	CHECK(memcmp(bcur()->row[0].chars, "alpha beta", 10) == 0);
-	CHECK(editor.cx == 6);
+	CHECK(wcur()->cx == 6);
 	editor_undo();
 	CHECK(bcur()->row[0].size == 13);
 	CHECK(memcmp(bcur()->row[0].chars, "alpha \t  beta", 13) == 0);
@@ -308,13 +309,13 @@ static void test_just_one_space_inserts_when_none(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "alphabeta", 9);
-	editor.cx = 5;
+	wcur()->cx = 5;
 
 	editor_just_one_space();
 
 	CHECK(bcur()->row[0].size == 10);
 	CHECK(memcmp(bcur()->row[0].chars, "alpha beta", 10) == 0);
-	CHECK(editor.cx == 6);
+	CHECK(wcur()->cx == 6);
 	editor_undo();
 	CHECK(bcur()->row[0].size == 9);
 	CHECK(memcmp(bcur()->row[0].chars, "alphabeta", 9) == 0);
@@ -325,14 +326,14 @@ static void test_sentence_backward_clamps_stale_row(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "One. Two.", 9);
-	editor.cy = 8;
-	editor.cx = 3;
+	wcur()->cy = 8;
+	wcur()->cx = 3;
 
 	editor_move_sentence_backward();
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -340,11 +341,11 @@ static void test_word_backward_clamps_stale_column(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "", 0);
-	editor.cx = 2;
+	wcur()->cx = 2;
 
 	editor_move_word_backward();
 
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -353,14 +354,14 @@ static void test_word_forward_clamps_stale_row_offset(void)
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
 	editor_insert_row(bcur(), 1, "def", 3);
-	editor.rowoff = INT_MAX - 5;
-	editor.cy = 79;
+	wcur()->rowoff = INT_MAX - 5;
+	wcur()->cy = 79;
 
 	editor_move_word_forward();
 
-	CHECK(editor.rowoff == 1);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 3);
+	CHECK(wcur()->rowoff == 1);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 3);
 	teardown();
 }
 
@@ -370,13 +371,13 @@ static void test_paragraph_backward_clamps_stale_row(void)
 	editor_insert_row(bcur(), 0, "alpha", 5);
 	editor_insert_row(bcur(), 1, "", 0);
 	editor_insert_row(bcur(), 2, "beta", 4);
-	editor.cy = 8;
+	wcur()->cy = 8;
 
 	editor_move_paragraph_backward();
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -384,13 +385,13 @@ static void test_paragraph_forward_clamps_stale_row(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "alpha", 5);
-	editor.cy = 8;
+	wcur()->cy = 8;
 
 	editor_move_paragraph_forward();
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 5);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 5);
 	teardown();
 }
 
@@ -398,15 +399,15 @@ static void test_sentence_forward_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "Hi.", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_move_sentence_forward();
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.coloff == 3);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->coloff == 3);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -414,8 +415,8 @@ static void test_kill_word_forward_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc def", 7);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_kill_word_forward();
 
@@ -428,15 +429,15 @@ static void test_kill_word_backward_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc def", 7);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_kill_word_backward();
 
 	CHECK(bcur()->row[0].size == 4);
 	CHECK(memcmp(bcur()->row[0].chars, "abc ", 4) == 0);
-	CHECK(editor.coloff == 4);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->coloff == 4);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 

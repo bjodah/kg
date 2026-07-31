@@ -13,6 +13,10 @@ void free_all_rows(void);
  * every per-buffer field. */
 void reset_current_buffer(void);
 
+/* Shared helper: put the selected window's point, scroll and goal column
+ * back to the top of the buffer. */
+void reset_current_view(void);
+
 #define CHECK(cond)                                                            \
 	do {                                                                   \
 		tests_run++;                                                   \

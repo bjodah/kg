@@ -196,8 +196,8 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 	int region_e_row = 0, region_e_col = 0;
 
 	if (is_active && bcur()->mark_highlight && bcur()->mark_set) {
-		int p_row = editor.rowoff + editor.cy;
-		int p_col = editor.coloff + editor.cx;
+		int p_row = wcur()->rowoff + wcur()->cy;
+		int p_col = wcur()->coloff + wcur()->cx;
 		int m_row = bcur()->mark_row;
 		int m_col = bcur()->mark_col;
 		if (bcur()->rect_mode) {
@@ -537,17 +537,17 @@ void editor_refresh_screen(void)
 	KG_PERF_INC(KG_PERF_REFRESH);
 	if (bcur()->visual_line_mode) {
 		struct editor_window *w_act = &winlist[win_current];
-		int filerow = editor.rowoff + editor.cy;
-		int filecol = editor.coloff + editor.cx;
+		int filerow = wcur()->rowoff + wcur()->cy;
+		int filecol = wcur()->coloff + wcur()->cx;
 		int cursor_vrow = get_visual_row(
 		    bcur()->row, bcur()->numrows, w_act->w, filerow, filecol);
-		if (cursor_vrow < editor.rowoff_visual) {
-			editor.rowoff_visual = cursor_vrow;
-		} else if (cursor_vrow >= editor.rowoff_visual + w_act->h) {
-			editor.rowoff_visual = cursor_vrow - w_act->h + 1;
+		if (cursor_vrow < wcur()->rowoff_visual) {
+			wcur()->rowoff_visual = cursor_vrow;
+		} else if (cursor_vrow >= wcur()->rowoff_visual + w_act->h) {
+			wcur()->rowoff_visual = cursor_vrow - w_act->h + 1;
 		}
-		editor.cx += editor.coloff;
-		editor.coloff = 0;
+		wcur()->cx += wcur()->coloff;
+		wcur()->coloff = 0;
 	}
 
 	ab_append(&ab, "\x1b[?25l", 6); /* Hide cursor. */
@@ -575,31 +575,21 @@ void editor_refresh_screen(void)
 		 * there is no longer a live copy to prefer over a stale one. */
 		numrows = b->numrows;
 		rows = b->row;
-		if (is_active) {
-			rowoff = vline ? editor.rowoff_visual : editor.rowoff;
-			coloff = editor.coloff;
-		} else {
-			/* Always use the window's own scroll offsets, not the
-			 * buffer slot's (which tracks the last-active window's
-			 * scroll). */
-			rowoff = vline ? w->rowoff_visual : w->rowoff;
-			coloff = w->coloff;
-		}
+		/* And the scroll comes from the window, whichever window this
+		 * is: the selected one is not a special case any more. */
+		rowoff = vline ? w->rowoff_visual : w->rowoff;
+		coloff = w->coloff;
 
 		draw_window_rows(&ab, w->y, w->x, w->h, w->w, rowoff, coloff,
 		    numrows, rows, is_active, is_full_width, vline);
 
 		ml_row = w->y + w->h;
 		{
-			int wrowoff = is_active
-			    ? (vline ? editor.rowoff_visual : editor.rowoff)
-			    : (vline ? w->rowoff_visual : w->rowoff);
+			int wrowoff = vline ? w->rowoff_visual : w->rowoff;
 			/* cx/coloff: cx is relative to the horizontal scroll
 			 * offset, so the file column is their sum. */
-			int filerow = is_active ? (editor.rowoff + editor.cy)
-						: (w->rowoff + w->cy);
-			int filecol = is_active ? (editor.coloff + editor.cx)
-						: (w->coloff + w->cx);
+			int filerow = w->rowoff + w->cy;
+			int filecol = w->coloff + w->cx;
 			int cur_row;
 			if (vline) {
 				cur_row = get_visual_row(rows, numrows, w->w,
@@ -679,20 +669,20 @@ void editor_refresh_screen(void)
 		ab_move_to(&ab, win_total_rows, col);
 	} else {
 		struct editor_window *w = &winlist[win_current];
-		erow *row = (editor.rowoff + editor.cy < bcur()->numrows)
-		    ? &bcur()->row[editor.rowoff + editor.cy]
+		erow *row = (wcur()->rowoff + wcur()->cy < bcur()->numrows)
+		    ? &bcur()->row[wcur()->rowoff + wcur()->cy]
 		    : NULL;
 
 		cx = 1;
 		if (row) {
-			/* editor.cx is a byte offset into row->chars, but the
+			/* wcur()->cx is a byte offset into row->chars, but the
 			 * cursor must be placed at the visible column.  Tabs
 			 * widen to the next tab stop; every other glyph is
 			 * worth its display width, so this stays in step with
 			 * editor_visual_col() and the row render above. */
-			int target = editor.cx + editor.coloff;
+			int target = wcur()->cx + wcur()->coloff;
 
-			for (j = editor.coloff; j < target && j < row->size;
+			for (j = wcur()->coloff; j < target && j < row->size;
 			    j++) {
 				if (row->chars[j] == TAB) {
 					/* cx is 1-based. */
@@ -710,19 +700,19 @@ void editor_refresh_screen(void)
 			}
 		}
 		if (bcur()->visual_line_mode) {
-			int filerow = editor.rowoff + editor.cy;
-			int filecol = editor.coloff + editor.cx;
+			int filerow = wcur()->rowoff + wcur()->cy;
+			int filecol = wcur()->coloff + wcur()->cx;
 			int win_w = w->w > 0 ? w->w : 1;
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
 			int cursor_vrow = get_visual_row(bcur()->row,
 			    bcur()->numrows, win_w, filerow, filecol);
-			int screen_y = cursor_vrow - editor.rowoff_visual;
+			int screen_y = cursor_vrow - wcur()->rowoff_visual;
 			cx = (rcol % win_w) + 1;
 			ab_move_to(&ab, w->y + screen_y, w->x + cx - 1);
 		} else {
-			ab_move_to(&ab, w->y + editor.cy, w->x + cx - 1);
+			ab_move_to(&ab, w->y + wcur()->cy, w->x + cx - 1);
 		}
 	}
 

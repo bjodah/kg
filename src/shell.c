@@ -315,8 +315,8 @@ fail:
 /* Insert text at point as a single undoable yank. */
 static void insert_as_yank(const char *text, int len)
 {
-	int filerow = editor.rowoff + editor.cy;
-	int filecol = editor.coloff + editor.cx;
+	int filerow = wcur()->rowoff + wcur()->cy;
+	int filecol = wcur()->coloff + wcur()->cx;
 
 	if (len <= 0) {
 		return;

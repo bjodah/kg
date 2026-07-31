@@ -40,8 +40,6 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	return 0;
 }
 
-void buf_save_current_state(void) { }
-
 void editor_free_row(erow *row) { (void)row; }
 
 struct editor_syntax compilation_syntax
@@ -60,7 +58,7 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 
 void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }
-void buf_restore_from_slot(int idx) { (void)idx; }
+void buf_select(int slot) { (void)slot; }
 
 /* Buffer identity belongs to bufmgr.c, which this binary does not link: here
  * a handle is its slot and always resolves, so the streaming tests exercise

@@ -696,11 +696,6 @@ static int editor_save_named(int fd, int destination_decided)
 	bcur()->dirty = 0;
 	undo_mark_clean(); /* Mark this state as clean for undo tracking */
 	editor_snapshot_disk();
-	/* Push the freshly saved state — including the name, when this save
-	 * adopted a new one — back into the buffer table.  The slot holds the
-	 * same filename pointer, and the caller is about to free the string it
-	 * replaced. */
-	buf_save_current_state();
 	editor_set_status_message("Wrote %s (%d bytes)", bcur()->filename, len);
 	return 0;
 
@@ -892,8 +887,8 @@ void editor_insert_file(int fd)
 		return;
 	}
 
-	filerow = editor.rowoff + editor.cy;
-	filecol = editor.coloff + editor.cx;
+	filerow = wcur()->rowoff + wcur()->cy;
+	filecol = wcur()->coloff + wcur()->cx;
 	undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen_int);
 	editor_insert_text_raw(buf, buflen_int);
 	free(buf);

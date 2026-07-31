@@ -284,11 +284,6 @@ enum file_change_state {
 
 /* Editor configuration state */
 struct editor_config {
-	int cx, cy; /* Cursor x and y position in characters */
-	int rowoff; /* Offset of row displayed. */
-	int coloff; /* Offset of column displayed. */
-	int screenrows; /* Number of rows that we can show */
-	int screencols; /* Number of cols that we can show */
 	int rawmode; /* Is terminal raw mode enabled? */
 	char statusmsg[512];
 	time_t statusmsg_time;
@@ -316,14 +311,11 @@ struct editor_config {
 	struct timeval
 	    last_char_time; /* Time of last character for paste detection */
 	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
-	int desired_visual_col; /* goal column across vertical motion; -1 =
-				   unset. */
 	int last_key; /* Last key processed, for command repetition logic. */
 	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom.
 			     */
 	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle,
 				  2=bottom. */
-	int rowoff_visual; /* Visual row offset for visual-line-mode */
 };
 
 /* Append buffer for efficient screen rendering */
@@ -377,6 +369,15 @@ struct undo_stack {
 	int clean_size; /* Stack size at last save (-1 if never saved clean) */
 };
 
+/* Where a view sat in a buffer.  A window that shows a buffer it has not
+ * shown before starts here rather than at the top, which is what makes a
+ * buffer switch feel like returning to where you were. */
+struct kg_point {
+	int cx, cy;
+	int rowoff, coloff;
+	int rowoff_visual;
+};
+
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
@@ -404,8 +405,7 @@ struct editor_buffer {
 	 * never been used has id 0. */
 	uint32_t id;
 	uint32_t generation;
-	int cx, cy;
-	int rowoff, coloff;
+	struct kg_point last_point; /* Where a view last left off here. */
 	int numrows;
 	erow *row;
 	int row_capacity;
@@ -433,7 +433,6 @@ struct editor_buffer {
 	int disk_changed;
 	int auto_revert;
 	int visual_line_mode;
-	int rowoff_visual;
 	int overwrite_mode;
 };
 
@@ -496,7 +495,6 @@ int buf_append_special_text(
     int buffer_index, const char *text, size_t text_length);
 void buf_clear_special_text(int buffer_index);
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
-void buf_save_current_state(void);
 void buf_open_special(const char *name, struct editor_syntax *syn,
     void (*populate)(void), const char *status);
 
@@ -546,7 +544,9 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
     __attribute__((format(printf, 4, 5)));
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
-void buf_restore_from_slot(int idx);
+void buf_select(int slot);
+void buf_remember_view(const struct editor_window *w);
+void buf_attach_view(struct editor_window *w, int slot);
 struct kg_buffer_handle buf_handle(int slot);
 struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
 int buf_handle_slot(struct kg_buffer_handle handle);
@@ -580,8 +580,6 @@ void editor_cleanup(void);
 /* winmgr.c */
 void win_init(void);
 void win_reflow(void);
-void win_save_active_view(void);
-void win_restore_active_view(void);
 void win_split_horizontal(void);
 void win_split_vertical(void);
 void win_cycle_next(void);

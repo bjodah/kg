@@ -9,12 +9,12 @@
 
 static void cursor_advance_screen_col(void)
 {
-	if (editor.cx == editor.screencols - 1) {
-		if (editor.coloff < INT_MAX) {
-			editor.coloff++;
+	if (wcur()->cx == wcur()->w - 1) {
+		if (wcur()->coloff < INT_MAX) {
+			wcur()->coloff++;
 		}
-	} else if (editor.cx < INT_MAX) {
-		editor.cx++;
+	} else if (wcur()->cx < INT_MAX) {
+		wcur()->cx++;
 	}
 }
 
@@ -23,12 +23,12 @@ static void cursor_advance_screen_col(void)
  * to match.  Every "jump to a column" motion lands here. */
 static void cursor_place_col(int col)
 {
-	if (col > editor.screencols - 1) {
-		editor.coloff = col - editor.screencols + 1;
-		editor.cx = editor.screencols - 1;
+	if (col > wcur()->w - 1) {
+		wcur()->coloff = col - wcur()->w + 1;
+		wcur()->cx = wcur()->w - 1;
 	} else {
-		editor.cx = col;
-		editor.coloff = 0;
+		wcur()->cx = col;
+		wcur()->coloff = 0;
 	}
 }
 
@@ -44,8 +44,8 @@ void editor_move_cursor(int key)
 	/* Capture the visual goal column on the first vertical move so a
 	 * run of C-n/C-p stays at the same visible column across rows of
 	 * mixed UTF-8/tab content. */
-	if (is_vertical && editor.desired_visual_col < 0 && row) {
-		editor.desired_visual_col = editor_visual_col(row, filecol);
+	if (is_vertical && wcur()->desired_visual_col < 0 && row) {
+		wcur()->desired_visual_col = editor_visual_col(row, filecol);
 	}
 
 	if (bcur()->visual_line_mode) {
@@ -105,8 +105,8 @@ void editor_move_cursor(int key)
 
 	switch (key) {
 	case HOME_KEY:
-		editor.cx = 0;
-		editor.coloff = 0;
+		wcur()->cx = 0;
+		wcur()->coloff = 0;
 		break;
 	case END_KEY:
 		if (row) {
@@ -124,27 +124,27 @@ void editor_move_cursor(int key)
 				break;
 			}
 			if (filerow > 0) {
-				if (editor.cy == 0) {
-					editor.rowoff--;
+				if (wcur()->cy == 0) {
+					wcur()->rowoff--;
 				} else {
-					editor.cy--;
+					wcur()->cy--;
 				}
-				editor.cx = bcur()->row[filerow - 1].size;
-				if (editor.cx > editor.screencols - 1) {
-					editor.coloff
-					    = editor.cx - editor.screencols + 1;
-					editor.cx = editor.screencols - 1;
+				wcur()->cx = bcur()->row[filerow - 1].size;
+				if (wcur()->cx > wcur()->w - 1) {
+					wcur()->coloff
+					    = wcur()->cx - wcur()->w + 1;
+					wcur()->cx = wcur()->w - 1;
 				}
 			}
 		} else if (row && filecol > row->size) {
 			/* Virtual space past EOL (rect mark mode): plain step.
 			 */
-			if (editor.cx == 0) {
-				if (editor.coloff) {
-					editor.coloff--;
+			if (wcur()->cx == 0) {
+				if (wcur()->coloff) {
+					wcur()->coloff--;
 				}
 			} else {
-				editor.cx -= 1;
+				wcur()->cx -= 1;
 			}
 		} else {
 			/* Step back a whole glyph (1 byte for ASCII, 2-4 for
@@ -157,14 +157,14 @@ void editor_move_cursor(int key)
 				pos--;
 			}
 			while (n--) {
-				if (editor.cx == 0) {
-					if (editor.coloff) {
-						editor.coloff--;
+				if (wcur()->cx == 0) {
+					if (wcur()->coloff) {
+						wcur()->coloff--;
 					} else {
 						break;
 					}
 				} else {
-					editor.cx -= 1;
+					wcur()->cx -= 1;
 				}
 			}
 		}
@@ -189,36 +189,36 @@ void editor_move_cursor(int key)
 			cursor_advance_screen_col();
 		} else if (row && filecol == row->size
 		    && filerow < bcur()->numrows - 1) {
-			editor.cx = 0;
-			editor.coloff = 0;
-			if (editor.cy == editor.screenrows - 1) {
-				editor.rowoff++;
+			wcur()->cx = 0;
+			wcur()->coloff = 0;
+			if (wcur()->cy == wcur()->h - 1) {
+				wcur()->rowoff++;
 			} else {
-				editor.cy += 1;
+				wcur()->cy += 1;
 			}
 		}
 		break;
 	case ARROW_UP:
-		if (editor.cy > 0) {
-			editor.cy -= 1;
-		} else if (editor.rowoff) {
-			editor.rowoff--;
+		if (wcur()->cy > 0) {
+			wcur()->cy -= 1;
+		} else if (wcur()->rowoff) {
+			wcur()->rowoff--;
 		} else {
-			editor.desired_visual_col = -1;
-			editor.cx = 0;
-			editor.coloff = 0;
+			wcur()->desired_visual_col = -1;
+			wcur()->cx = 0;
+			wcur()->coloff = 0;
 		}
 		break;
 	case ARROW_DOWN:
 		if (filerow < bcur()->numrows - 1) {
-			if (editor.cy == editor.screenrows - 1) {
-				editor.rowoff++;
+			if (wcur()->cy == wcur()->h - 1) {
+				wcur()->rowoff++;
 			} else {
-				editor.cy += 1;
+				wcur()->cy += 1;
 			}
 		} else if (row) {
 			cursor_place_col(row->size);
-			editor.desired_visual_col = -1;
+			wcur()->desired_visual_col = -1;
 		}
 		break;
 	}
@@ -228,16 +228,16 @@ void editor_move_cursor(int key)
 	 * only fires for non-rect-mode. */
 	filerow = editor_current_filerow_or_eof();
 	row = filerow >= bcur()->numrows ? NULL : &bcur()->row[filerow];
-	if (is_vertical && row && editor.desired_visual_col >= 0) {
+	if (is_vertical && row && wcur()->desired_visual_col >= 0) {
 		int target = editor_chars_col_at_visual(
-		    row, editor.desired_visual_col);
-		editor.cx = target - editor.coloff;
-		if (editor.cx < 0) {
-			editor.coloff = target;
-			editor.cx = 0;
-		} else if (editor.cx > editor.screencols - 1) {
-			editor.coloff += editor.cx - (editor.screencols - 1);
-			editor.cx = editor.screencols - 1;
+		    row, wcur()->desired_visual_col);
+		wcur()->cx = target - wcur()->coloff;
+		if (wcur()->cx < 0) {
+			wcur()->coloff = target;
+			wcur()->cx = 0;
+		} else if (wcur()->cx > wcur()->w - 1) {
+			wcur()->coloff += wcur()->cx - (wcur()->w - 1);
+			wcur()->cx = wcur()->w - 1;
 		}
 	}
 
@@ -246,21 +246,21 @@ void editor_move_cursor(int key)
 	 * extend a rectangle whose right edge crosses shorter lines —
 	 * editor_snap_cx_to_row() snaps it back when rect mode ends. */
 	rowlen = row ? row->size : 0;
-	if (!bcur()->rect_mode && editor.coloff > rowlen) {
-		editor.coloff = rowlen;
-		editor.cx = 0;
-	} else if (!bcur()->rect_mode && editor.cx > rowlen - editor.coloff) {
-		editor.cx = rowlen - editor.coloff;
+	if (!bcur()->rect_mode && wcur()->coloff > rowlen) {
+		wcur()->coloff = rowlen;
+		wcur()->cx = 0;
+	} else if (!bcur()->rect_mode && wcur()->cx > rowlen - wcur()->coloff) {
+		wcur()->cx = rowlen - wcur()->coloff;
 	}
 }
 
 /* Move to the beginning of the document */
 void editor_move_to_beginning(void)
 {
-	editor.cx = 0;
-	editor.cy = 0;
-	editor.rowoff = 0;
-	editor.coloff = 0;
+	wcur()->cx = 0;
+	wcur()->cy = 0;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
 }
 
 /* Move the cursor to the first non-whitespace character on the current
@@ -299,14 +299,14 @@ void editor_move_to_window_line(void)
 		target = 0;
 		break;
 	case 1:
-		target = editor.screenrows / 2;
+		target = wcur()->h / 2;
 		break;
 	default:
-		target = editor.screenrows - 1;
+		target = wcur()->h - 1;
 		break;
 	}
 
-	last_visible_row = bcur()->numrows - editor.rowoff - 1;
+	last_visible_row = bcur()->numrows - wcur()->rowoff - 1;
 	if (last_visible_row < 0) {
 		last_visible_row = 0;
 	}
@@ -317,9 +317,9 @@ void editor_move_to_window_line(void)
 		target = 0;
 	}
 
-	editor.cy = target;
-	editor.cx = 0;
-	editor.coloff = 0;
+	wcur()->cy = target;
+	wcur()->cx = 0;
+	wcur()->coloff = 0;
 	editor.window_line_state = (editor.window_line_state + 1) % 3;
 }
 
@@ -347,11 +347,11 @@ void editor_goto_line_direct(int line, int col)
 	}
 
 	/* Centre the target line vertically. */
-	editor.rowoff = filerow - editor.screenrows / 2;
-	if (editor.rowoff < 0) {
-		editor.rowoff = 0;
+	wcur()->rowoff = filerow - wcur()->h / 2;
+	if (wcur()->rowoff < 0) {
+		wcur()->rowoff = 0;
 	}
-	editor.cy = filerow - editor.rowoff;
+	wcur()->cy = filerow - wcur()->rowoff;
 
 	cursor_place_col(filecol);
 }
@@ -395,11 +395,11 @@ void editor_move_to_end(void)
 	row = &bcur()->row[filerow];
 
 	/* Update cursor position */
-	if (filerow >= editor.rowoff + editor.screenrows) {
-		editor.rowoff = filerow - editor.screenrows + 1;
-		editor.cy = editor.screenrows - 1;
+	if (filerow >= wcur()->rowoff + wcur()->h) {
+		wcur()->rowoff = filerow - wcur()->h + 1;
+		wcur()->cy = wcur()->h - 1;
 	} else {
-		editor.cy = filerow - editor.rowoff;
+		wcur()->cy = filerow - wcur()->rowoff;
 	}
 
 	/* Move to end of last line */

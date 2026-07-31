@@ -13,9 +13,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	suppress_undo = 0;
 	undo_free();
 	undo_init();
@@ -38,10 +39,10 @@ static void set_region(int mark_row, int mark_col, int cur_row, int cur_col)
 	bcur()->mark_set = 1;
 	bcur()->mark_row = mark_row;
 	bcur()->mark_col = mark_col;
-	editor.rowoff = 0;
-	editor.coloff = 0;
-	editor.cy = cur_row;
-	editor.cx = cur_col;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
+	wcur()->cy = cur_row;
+	wcur()->cx = cur_col;
 }
 
 /* ---- Tests ---- */
@@ -113,7 +114,7 @@ static void test_copy_region_no_mark(void)
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
 	bcur()->mark_set = 0;
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 
 	editor_copy_region();
 
@@ -125,8 +126,8 @@ static void test_set_mark_saturates_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_set_mark_silent();
 
@@ -144,8 +145,8 @@ static void test_exchange_point_and_mark_saturates_huge_column_offset(void)
 	bcur()->mark_set = 1;
 	bcur()->mark_row = 0;
 	bcur()->mark_col = 0;
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_exchange_point_and_mark();
 

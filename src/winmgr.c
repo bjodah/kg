@@ -10,53 +10,6 @@ int win_count = 0;
 int win_total_rows = 0;
 int win_total_cols = 0;
 
-/* Save the active editor cursor/scroll state into the current window slot and
- * also into its buffer slot so switching buffers later is consistent. */
-void win_save_active_view(void)
-{
-	struct editor_window *w = &winlist[win_current];
-
-	w->cx = editor.cx;
-	w->cy = editor.cy;
-	w->rowoff = editor.rowoff;
-	w->coloff = editor.coloff;
-	w->rowoff_visual = editor.rowoff_visual;
-
-	/* Keep buflist in sync so a buffer switch restores correctly. */
-	if (w->bufidx < MAX_BUFFERS && buflist[w->bufidx].active) {
-		buflist[w->bufidx].cx = editor.cx;
-		buflist[w->bufidx].cy = editor.cy;
-		buflist[w->bufidx].rowoff = editor.rowoff;
-		buflist[w->bufidx].coloff = editor.coloff;
-		buflist[w->bufidx].rowoff_visual = editor.rowoff_visual;
-	}
-}
-
-/* Load the buffer associated with win_current into live editor state and
- * restore the window's cursor/scroll.  Called after win_current changes. */
-static void win_activate_window(void)
-{
-	buf_current = winlist[win_current].bufidx;
-	buf_restore_from_slot(buf_current);
-	win_restore_active_view();
-}
-
-/* Restore the active window's cursor/scroll into editor and update
- * editor.screenrows/cols to match the window dimensions so all movement code
- * stays correct. */
-void win_restore_active_view(void)
-{
-	struct editor_window *w = &winlist[win_current];
-
-	editor.cx = w->cx;
-	editor.cy = w->cy;
-	editor.rowoff = w->rowoff;
-	editor.coloff = w->coloff;
-	editor.rowoff_visual = w->rowoff_visual;
-	editor.screenrows = w->h;
-	editor.screencols = w->w;
-}
-
 /* Recompute the layout of all active windows.
  *
  * Windows are organised into column groups (col_group field).  Windows sharing
@@ -159,21 +112,18 @@ void win_reflow(void)
 		    + 1; /* +1 skips the separator column between groups */
 	}
 
-	editor.screenrows = winlist[win_current].h;
-	editor.screencols = winlist[win_current].w;
-
 	/* Clamp cursor to new bounds. */
-	if (editor.cy >= editor.screenrows) {
-		editor.cy = editor.screenrows - 1;
+	if (wcur()->cy >= wcur()->h) {
+		wcur()->cy = wcur()->h - 1;
 	}
-	if (editor.cx >= editor.screencols) {
-		editor.cx = editor.screencols - 1;
+	if (wcur()->cx >= wcur()->w) {
+		wcur()->cx = wcur()->w - 1;
 	}
-	if (editor.cy < 0) {
-		editor.cy = 0;
+	if (wcur()->cy < 0) {
+		wcur()->cy = 0;
 	}
-	if (editor.cx < 0) {
-		editor.cx = 0;
+	if (wcur()->cx < 0) {
+		wcur()->cx = 0;
 	}
 }
 
@@ -221,9 +171,9 @@ void win_split_horizontal(void)
 		return;
 	}
 
-	buf_save_current_state();
-
-	/* New window inherits the same buffer, cursor state, and col_group. */
+	/* New window inherits the same buffer, view, and col_group: a split
+	 * copies the view, which is what "the same place in the same buffer"
+	 * means and what the record already says. */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 
@@ -263,10 +213,8 @@ void win_split_vertical(void)
 		return;
 	}
 
-	buf_save_current_state();
-
-	/* New window: same buffer/cursor, but a new column group (rightmost).
-	 */
+	/* New window: same buffer and view, but a new column group
+	 * (rightmost). */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 	winlist[slot].col_group = max_cg + 1;
@@ -285,8 +233,6 @@ void win_cycle_next(void)
 		return;
 	}
 
-	buf_save_current_state();
-
 	for (i = 1; i <= MAX_WINDOWS; i++) {
 		int idx = (win_current + i) % MAX_WINDOWS;
 		if (winlist[idx].active) {
@@ -295,7 +241,9 @@ void win_cycle_next(void)
 		}
 	}
 
-	win_activate_window();
+	/* The window already holds its own view; all that changes is which
+	 * buffer is current. */
+	buf_select(winlist[win_current].bufidx);
 	editor_set_status_message(
 	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
@@ -310,7 +258,7 @@ void win_delete_current(void)
 		return;
 	}
 
-	buf_save_current_state();
+	buf_remember_view(&winlist[win_current]);
 	winlist[win_current].active = 0;
 	win_count--;
 
@@ -322,7 +270,7 @@ void win_delete_current(void)
 	}
 
 	win_reflow();
-	win_activate_window();
+	buf_select(winlist[win_current].bufidx);
 }
 
 /* Delete all other windows, leaving only the current one (C-x 1). */
@@ -337,6 +285,20 @@ void win_delete_others(void)
 	}
 	win_count = 1;
 	win_reflow();
+}
+
+/* Point `w` at `buffer_index` showing its start.  Output buffers are
+ * meant to be read from the top (or, for a compilation, from the end that
+ * win_position_at_end() then picks), so this deliberately does not resume
+ * where the buffer was last left. */
+static void win_show_at_top(struct editor_window *w, int buffer_index)
+{
+	buf_remember_view(w);
+	w->bufidx = buffer_index;
+	w->cx = w->cy = 0;
+	w->rowoff = w->coloff = 0;
+	w->rowoff_visual = 0;
+	w->desired_visual_col = -1;
 }
 
 void win_display_buffer_other_window(int buffer_index)
@@ -360,10 +322,7 @@ void win_display_buffer_other_window(int buffer_index)
 		win_split_horizontal();
 		for (j = 0; j < MAX_WINDOWS; j++) {
 			if (winlist[j].active && j != win_current) {
-				winlist[j].bufidx = buffer_index;
-				winlist[j].cx = winlist[j].cy = 0;
-				winlist[j].rowoff = winlist[j].coloff = 0;
-				winlist[j].rowoff_visual = 0;
+				win_show_at_top(&winlist[j], buffer_index);
 				break;
 			}
 		}
@@ -374,19 +333,14 @@ void win_display_buffer_other_window(int buffer_index)
 		j = (win_current + 1) % MAX_WINDOWS;
 		while (j != win_current) {
 			if (winlist[j].active) {
-				buf_save_current_state();
-				winlist[j].bufidx = buffer_index;
-				winlist[j].cx = winlist[j].cy = 0;
-				winlist[j].rowoff = winlist[j].coloff = 0;
-				winlist[j].rowoff_visual = 0;
+				win_show_at_top(&winlist[j], buffer_index);
 				return;
 			}
 			j = (j + 1) % MAX_WINDOWS;
 		}
 	}
 
-	winlist[win_current].bufidx = buffer_index;
-	buf_restore_from_slot(buffer_index);
+	buf_select(buffer_index);
 }
 
 /* True if win_display_buffer_other_window(buffer_index) can show the buffer
@@ -431,9 +385,9 @@ void win_position_at_end(int buffer_index)
 			int cy = (numrows > 0) ? (numrows - 1 - rowoff) : 0;
 			int cx = 0;
 			if (i == win_current) {
-				editor.rowoff = rowoff;
-				editor.cy = cy;
-				editor.cx = cx;
+				wcur()->rowoff = rowoff;
+				wcur()->cy = cy;
+				wcur()->cx = cx;
 			} else {
 				w->rowoff = rowoff;
 				w->cy = cy;

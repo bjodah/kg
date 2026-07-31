@@ -33,9 +33,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	bcur()->readonly_override = -1;
 	win_total_rows = 24;
 	win_total_cols = 80;
@@ -515,8 +516,8 @@ static void test_rect_delete_updates_per_byte(void)
 	bcur()->mark_set = 1;
 	bcur()->mark_row = 0;
 	bcur()->mark_col = 2;
-	editor.cy = 7;
-	editor.cx = 12;
+	wcur()->cy = 7;
+	wcur()->cx = 12;
 	bcur()->rect_mode = 1;
 	kg_perf_reset();
 	editor_delete_rect();

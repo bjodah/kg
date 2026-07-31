@@ -220,11 +220,11 @@ void editor_kill_word_backward(void)
 	undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0, text, kill_len);
 	free(text);
 
-	if (filecol < editor.coloff) {
-		editor.coloff = filecol;
-		editor.cx = 0;
+	if (filecol < wcur()->coloff) {
+		wcur()->coloff = filecol;
+		wcur()->cx = 0;
 	} else {
-		editor.cx = filecol - editor.coloff;
+		wcur()->cx = filecol - wcur()->coloff;
 	}
 
 	memmove(row->chars + filecol, row->chars + filecol + kill_len,
@@ -416,8 +416,8 @@ void editor_mark_paragraph(void)
  * backwards grows backwards, as in Emacs' mark-word. */
 void editor_mark_word(int count)
 {
-	int saved_cx = editor.cx, saved_cy = editor.cy;
-	int saved_coloff = editor.coloff, saved_rowoff = editor.rowoff;
+	int saved_cx = wcur()->cx, saved_cy = wcur()->cy;
+	int saved_coloff = wcur()->coloff, saved_rowoff = wcur()->rowoff;
 	int point_row = word_cursor_filerow();
 	int point_col = word_cursor_filecol(&bcur()->row[point_row]);
 	int backward = 0;
@@ -445,10 +445,10 @@ void editor_mark_word(int count)
 	bcur()->mark_col = word_cursor_filecol(&bcur()->row[bcur()->mark_row]);
 	bcur()->mark_highlight = 1;
 
-	editor.cx = saved_cx;
-	editor.cy = saved_cy;
-	editor.coloff = saved_coloff;
-	editor.rowoff = saved_rowoff;
+	wcur()->cx = saved_cx;
+	wcur()->cy = saved_cy;
+	wcur()->coloff = saved_coloff;
+	wcur()->rowoff = saved_rowoff;
 	editor_set_status_message("Mark set");
 }
 
@@ -1130,9 +1130,7 @@ void editor_reflow_paragraph(void)
 		}
 	}
 
-	fill_col = (FILL_COLUMN < editor.screencols - 1)
-	    ? FILL_COLUMN
-	    : editor.screencols - 1;
+	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
 
 	/* Save original text (lines joined with '\n') for undo */
 	orig_text = malloc(total_chars + nrows + 1);

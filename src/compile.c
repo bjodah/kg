@@ -214,8 +214,7 @@ static void compilation_start(const char *command, const char *directory,
 	/* The source buffer may have been killed between the prompt and here;
 	 * a compilation with nowhere to return to is still a compilation. */
 	if (from_user && source_slot >= 0) {
-		buf_save_current_state();
-		buf_restore_from_slot(source_slot);
+		buf_select(source_slot);
 	}
 	win_display_buffer_other_window(cidx);
 	win_position_at_end(cidx);
@@ -302,7 +301,6 @@ void editor_compile(int fd)
 	    bcur()->compile_command, prompt, sizeof(bcur()->compile_command));
 	bcur()->compile_command[sizeof(bcur()->compile_command) - 1] = '\0';
 	bcur()->compile_command_user_override = 1;
-	buf_save_current_state();
 	source = buf_handle(buf_current);
 
 	if (compilation_resolve_directory(bcur()->filename, dir, sizeof(dir))
@@ -348,7 +346,6 @@ void editor_recompile(int fd)
 		}
 	}
 
-	buf_save_current_state();
 	source = buf_handle(buf_current);
 
 	compilation_start_or_defer(fd, command, dir, source);

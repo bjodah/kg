@@ -44,11 +44,11 @@ static void cmd_not_modified(int fd)
 /* Show current line, column, and position within the buffer. */
 static void cmd_what_cursor_position(int fd)
 {
-	int line = editor.rowoff + editor.cy + 1;
+	int line = wcur()->rowoff + wcur()->cy + 1;
 	/* Zero-based display column, as Emacs' C-x = reports and as the
 	 * mode line shows, so the two never disagree. */
-	int col = editor_display_col(
-	    bcur()->row, bcur()->numrows, line - 1, editor.coloff + editor.cx);
+	int col = editor_display_col(bcur()->row, bcur()->numrows, line - 1,
+	    wcur()->coloff + wcur()->cx);
 	int pct = bcur()->numrows ? (line * 100) / bcur()->numrows : 100;
 
 	(void)fd;
@@ -154,7 +154,7 @@ static void cmd_revert_buffer(int fd)
 		return;
 	}
 
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	buf_reload_from_disk();
 	editor_set_status_message("Reverted %s", bcur()->filename);
 }
@@ -281,7 +281,7 @@ static void cmd_whitespace_cleanup(int fd)
 /* Remove trailing whitespace from the current line only. */
 static void cmd_delete_trailing_space(int fd)
 {
-	int filerow = editor.rowoff + editor.cy;
+	int filerow = wcur()->rowoff + wcur()->cy;
 	int removed;
 
 	(void)fd;
@@ -303,8 +303,8 @@ static void cmd_delete_trailing_space(int fd)
 
 static void cmd_visual_line_mode(int fd)
 {
-	int filecol = editor.coloff + editor.cx;
-	int filerow = editor.rowoff + editor.cy;
+	int filecol = wcur()->coloff + wcur()->cx;
+	int filerow = wcur()->rowoff + wcur()->cy;
 
 	(void)fd;
 	bcur()->visual_line_mode = !bcur()->visual_line_mode;
@@ -314,13 +314,13 @@ static void cmd_visual_line_mode(int fd)
 		/* Soft wrapping has no horizontal viewport.  Preserve point by
 		 * converting the old screen-relative position to its absolute
 		 * byte offset before clearing coloff. */
-		editor.coloff = 0;
-		editor.cx = filecol;
-		editor.rowoff_visual = get_visual_row(
+		wcur()->coloff = 0;
+		wcur()->cx = filecol;
+		wcur()->rowoff_visual = get_visual_row(
 		    bcur()->row, bcur()->numrows, w->w, filerow, filecol);
 	} else {
-		editor.rowoff = filerow > 10 ? filerow - 10 : 0;
-		editor.cy = filerow - editor.rowoff;
+		wcur()->rowoff = filerow > 10 ? filerow - 10 : 0;
+		wcur()->cy = filerow - wcur()->rowoff;
 	}
 	editor_set_status_message("visual-line-mode %s",
 	    bcur()->visual_line_mode ? "enabled" : "disabled");

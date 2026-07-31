@@ -1,5 +1,5 @@
 # Terminal geometry is an input like any other.  A one-row terminal used
-# to give editor.screenrows = -1 (rows - 2, unfloored) and win_reflow() a
+# to give a window height of -1 (rows - 2, unfloored) and win_reflow() a
 # window height of -1 with its mode line drawn at terminal row 0.
 # kg_normalize_window_size() clamps anything below the usable minimum
 # before the layout sees it, so kg walks down to 1x1 and back and is

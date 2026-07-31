@@ -764,8 +764,8 @@ static void apply_window_size(int rows, int cols)
 	if (win_count > 0) {
 		win_reflow();
 	} else {
-		editor.screenrows = rows - 2;
-		editor.screencols = cols;
+		wcur()->h = rows - 2;
+		wcur()->w = cols;
 	}
 }
 
@@ -778,8 +778,8 @@ void probe_window_size(void)
 #ifdef KG_FUZZ
 	win_total_rows = 24;
 	win_total_cols = 80;
-	editor.screenrows = 22;
-	editor.screencols = 80;
+	wcur()->h = 22;
+	wcur()->w = 80;
 	return;
 #else
 	int new_rows, new_cols, orig_row, orig_col;

@@ -49,3 +49,20 @@ void reset_current_buffer(void)
 	b->readonly_override = -1;
 	b->active = 1;
 }
+
+/* Reset the selected window's view: point, scroll and goal column.  Its
+ * geometry is left alone, because setups set that themselves.  Like
+ * reset_current_buffer(), this used to be part of what
+ * `memset(&editor, 0, sizeof(editor))` did; the view now belongs to the
+ * window. */
+void reset_current_view(void)
+{
+	struct editor_window *w = wcur();
+
+	w->cx = 0;
+	w->cy = 0;
+	w->rowoff = 0;
+	w->coloff = 0;
+	w->rowoff_visual = 0;
+	w->desired_visual_col = -1;
+}

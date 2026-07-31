@@ -59,8 +59,8 @@ static int key_would_edit_readonly_buffer(int c)
 
 static int bottom_buffer_screen_row(void)
 {
-	int bottom = editor.screenrows > 0 ? editor.screenrows - 1 : 0;
-	int last = bcur()->numrows - editor.rowoff - 1;
+	int bottom = wcur()->h > 0 ? wcur()->h - 1 : 0;
+	int last = bcur()->numrows - wcur()->rowoff - 1;
 
 	if (last < 0) {
 		last = 0;
@@ -619,19 +619,19 @@ static void key_recenter(void)
 
 	switch (editor.recenter_state) {
 	case 0: /* center */
-		editor.rowoff = filerow - editor.screenrows / 2;
+		wcur()->rowoff = filerow - wcur()->h / 2;
 		break;
 	case 1: /* top */
-		editor.rowoff = filerow;
+		wcur()->rowoff = filerow;
 		break;
 	default: /* bottom */
-		editor.rowoff = filerow - (editor.screenrows - 1);
+		wcur()->rowoff = filerow - (wcur()->h - 1);
 		break;
 	}
-	if (editor.rowoff < 0) {
-		editor.rowoff = 0;
+	if (wcur()->rowoff < 0) {
+		wcur()->rowoff = 0;
 	}
-	editor.cy = filerow - editor.rowoff;
+	wcur()->cy = filerow - wcur()->rowoff;
 	editor.recenter_state = (editor.recenter_state + 1) % 3;
 	probe_window_size();
 	(void)tty_write("\x1b[2J", 4);
@@ -681,7 +681,7 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	if (c != ARROW_UP && c != ARROW_DOWN && c != SHIFT_ARROW_UP
 	    && c != SHIFT_ARROW_DOWN && c != PAGE_UP && c != PAGE_DOWN
 	    && c != CTRL_N && c != CTRL_P && c != CTRL_V && c != ALT_V) {
-		editor.desired_visual_col = -1;
+		wcur()->desired_visual_col = -1;
 	}
 }
 
@@ -896,9 +896,9 @@ void editor_process_keypress(int fd)
 		break;
 	}
 	case CTRL_V: /* Page down */
-		editor.cy = bottom_buffer_screen_row();
+		wcur()->cy = bottom_buffer_screen_row();
 		{
-			int times = editor.screenrows;
+			int times = wcur()->h;
 			while (times--) {
 				editor_move_cursor(ARROW_DOWN);
 			}
@@ -954,13 +954,13 @@ void editor_process_keypress(int fd)
 		break;
 	case PAGE_UP:
 	case PAGE_DOWN:
-		if (c == PAGE_UP && editor.cy != 0) {
-			editor.cy = 0;
+		if (c == PAGE_UP && wcur()->cy != 0) {
+			wcur()->cy = 0;
 		} else if (c == PAGE_DOWN) {
-			editor.cy = bottom_buffer_screen_row();
+			wcur()->cy = bottom_buffer_screen_row();
 		}
 		{
-			int times = editor.screenrows;
+			int times = wcur()->h;
 			while (times--) {
 				editor_move_cursor(
 				    c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
@@ -1080,11 +1080,11 @@ void editor_process_keypress(int fd)
 		editor_move_to_window_line();
 		break;
 	case ALT_V: /* Page up */
-		if (editor.cy != 0) {
-			editor.cy = 0;
+		if (wcur()->cy != 0) {
+			wcur()->cy = 0;
 		}
 		{
-			int times = editor.screenrows;
+			int times = wcur()->h;
 			while (times--) {
 				editor_move_cursor(ARROW_UP);
 			}

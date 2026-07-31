@@ -32,9 +32,10 @@ static void setup(int n)
 
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 
 	for (i = 0; i < n; i++) {
 		buf[0] = 'r';
@@ -61,10 +62,10 @@ static void test_goto_line_1(void)
 
 	editor_goto_line_direct(1, 0);
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 0);
-	CHECK(editor.coloff == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 0);
+	CHECK(wcur()->coloff == 0);
 	teardown();
 }
 
@@ -76,9 +77,9 @@ static void test_goto_line_5(void)
 	editor_goto_line_direct(5, 0);
 
 	/* filerow=4, rowoff=max(0,4-12)=0, cy=4 */
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 4);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 4);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -90,8 +91,8 @@ static void test_goto_last_line(void)
 	editor_goto_line_direct(10, 0);
 
 	/* filerow=9, rowoff=max(0,9-12)=0, cy=9 */
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 9);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 9);
 	teardown();
 }
 
@@ -103,7 +104,7 @@ static void test_goto_line_clamp_high(void)
 	editor_goto_line_direct(999, 0);
 
 	/* clamped to line 5, filerow=4, rowoff=0, cy=4 */
-	CHECK(editor.cy == 4);
+	CHECK(wcur()->cy == 4);
 	teardown();
 }
 
@@ -113,10 +114,10 @@ static void test_goto_line_clamp_low(void)
 	setup(5);
 
 	editor_goto_line_direct(0, 0);
-	CHECK(editor.cy == 0);
+	CHECK(wcur()->cy == 0);
 
 	editor_goto_line_direct(-10, 0);
-	CHECK(editor.cy == 0);
+	CHECK(wcur()->cy == 0);
 	teardown();
 }
 
@@ -126,10 +127,10 @@ static void test_goto_col_one_is_zero(void)
 	setup(5);
 
 	editor_goto_line_direct(1, 1);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->cx == 0);
 
 	editor_goto_line_direct(1, 0);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -141,7 +142,7 @@ static void test_goto_col_explicit(void)
 	editor_goto_line_direct(1, 3);
 
 	/* filecol = col-1 = 2, within row size=3, cx=2 */
-	CHECK(editor.cx == 2);
+	CHECK(wcur()->cx == 2);
 	teardown();
 }
 
@@ -153,7 +154,7 @@ static void test_goto_col_clamp(void)
 	editor_goto_line_direct(1, 99);
 
 	/* filecol clamped to row->size=3, cx=3 */
-	CHECK(editor.cx == 3);
+	CHECK(wcur()->cx == 3);
 	teardown();
 }
 
@@ -166,8 +167,8 @@ static void test_goto_line_centering(void)
 
 	editor_goto_line_direct(20, 0);
 
-	CHECK(editor.rowoff == 7);
-	CHECK(editor.cy == 12);
+	CHECK(wcur()->rowoff == 7);
+	CHECK(wcur()->cy == 12);
 	teardown();
 }
 
@@ -186,26 +187,26 @@ static void test_left_from_stale_row_clamps_to_eof(void)
 {
 	setup(1);
 
-	editor.cy = 8;
-	editor.cx = 0;
+	wcur()->cy = 8;
+	wcur()->cx = 0;
 	editor_move_cursor(ARROW_LEFT);
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 3);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 3);
 	teardown();
 }
 
 static void test_move_cursor_clamps_huge_column_offset(void)
 {
 	setup(1);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_move_cursor(ARROW_RIGHT);
 
-	CHECK(editor.coloff == 3);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->coloff == 3);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -213,13 +214,13 @@ static void test_rect_right_saturates_huge_column_offset(void)
 {
 	setup(1);
 	bcur()->rect_mode = 1;
-	editor.coloff = INT_MAX;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX;
+	wcur()->cx = 79;
 
 	editor_move_cursor(ARROW_RIGHT);
 
-	CHECK(editor.coloff == INT_MAX);
-	CHECK(editor.cx == 79);
+	CHECK(wcur()->coloff == INT_MAX);
+	CHECK(wcur()->cx == 79);
 	teardown();
 }
 
@@ -453,8 +454,8 @@ static void test_overwrite_mode_toggle_and_replace(void)
 {
 	setup(0);
 	editor_insert_row(bcur(), 0, "abcde", 5);
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	CHECK(bcur()->overwrite_mode == 0);
 	editor_toggle_overwrite_mode();
@@ -463,7 +464,7 @@ static void test_overwrite_mode_toggle_and_replace(void)
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "aXcde", 5) == 0);
-	CHECK(editor.cx == 2);
+	CHECK(wcur()->cx == 2);
 
 	editor_toggle_overwrite_mode();
 	CHECK(bcur()->overwrite_mode == 0);
@@ -475,8 +476,8 @@ static void test_overwrite_multibyte_glyph(void)
 	setup(0);
 	editor_insert_row(
 	    bcur(), 0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 4);
@@ -497,8 +498,8 @@ static void test_overwrite_malformed_utf8_treated_as_one_byte(void)
 	memset(row + 1, '\x80', 20);
 	row[21] = 'b';
 	editor_insert_row(bcur(), 0, row, 22);
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 22);

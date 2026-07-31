@@ -51,23 +51,12 @@ static const char *tmppath(const char *name)
 	return buf[turn];
 }
 
-/* The authoritative record for buffer slot `i`. */
-static struct editor_buffer *bslot(int i)
-{
-	if (i == buf_current) {
-		buf_save_current_state();
-	}
-	return &buflist[i];
-}
+/* The record for buffer slot `i`.  There is nothing to flush first any
+ * more: a buffer owns its state whether or not it is the current one. */
+static struct editor_buffer *bslot(int i) { return &buflist[i]; }
 
-/* The authoritative record for window slot `i`. */
-static struct editor_window *wslot(int i)
-{
-	if (i == win_current) {
-		win_save_active_view();
-	}
-	return &winlist[i];
-}
+/* The record for window slot `i`, likewise. */
+static struct editor_window *wslot(int i) { return &winlist[i]; }
 
 /* A fresh session with one window and the named files open, current buffer 0.
  */
@@ -79,6 +68,7 @@ static void session(int nfiles, char **names)
 		buflist[i].active = 0;
 	}
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
 	bcur()->readonly_override = -1;
 	undo_stack_init(&bcur()->undostack);
@@ -86,7 +76,6 @@ static void session(int nfiles, char **names)
 	win_total_cols = 80;
 	buf_load_args(nfiles, names, 0);
 	win_init();
-	win_restore_active_view();
 }
 
 /* editor_cleanup() runs at most once per process, so this suite frees its
@@ -96,7 +85,6 @@ static void session_teardown(void)
 {
 	int i, j;
 
-	buf_save_current_state();
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 		struct undo_op *op;
@@ -120,6 +108,7 @@ static void session_teardown(void)
 	buf_count = 0;
 	buf_current = 0;
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
@@ -199,8 +188,8 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 
 	/* Buffer 0: dirty it, set a mark, make it read-only, give it a
 	 * compile command. */
-	editor.cy = 1;
-	editor.cx = 2;
+	wcur()->cy = 1;
+	wcur()->cx = 2;
 	editor_insert_char('X');
 	bcur()->mark_set = 1;
 	bcur()->mark_row = 0;
@@ -215,8 +204,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	CHECK(undo_depth(bslot(0)) == 1);
 
 	/* Switch to buffer 1. */
-	buf_save_current_state();
-	buf_restore_from_slot(1);
+	buf_select(1);
 
 	CHECK(buf_current == 1);
 	CHECK(bcur()->dirty == 0);
@@ -238,8 +226,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 
 	/* Edit buffer 1 so it has its own history, then switch back. */
 	editor_insert_char('Y');
-	buf_save_current_state();
-	buf_restore_from_slot(0);
+	buf_select(0);
 
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == rows0);
@@ -277,16 +264,16 @@ static void test_split_shares_text_not_point(void)
 	CHECK(winlist[win_current].bufidx == winlist[other].bufidx);
 
 	/* Move point in the selected window only. */
-	editor.cy = 2;
-	editor.cx = 1;
+	wcur()->cy = 2;
+	wcur()->cx = 1;
 	CHECK(wslot(win_current)->cy == 2);
 	CHECK(winlist[other].cy == 0);
 
 	/* Now select the other window and confirm it kept its own point. */
 	win_cycle_next();
 	CHECK(win_current == other);
-	CHECK(editor.cy == 0);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->cy == 0);
+	CHECK(wcur()->cx == 0);
 	/* Same buffer, same rows. */
 	CHECK(bcur()->row == buflist[winlist[win_current].bufidx].row);
 
@@ -319,8 +306,8 @@ static void test_vertical_split_geometry(void)
 	CHECK(winlist[win_current].w + winlist[other].w == 79);
 	CHECK(winlist[other].x > winlist[win_current].x);
 	CHECK(winlist[other].h == winlist[win_current].h);
-	CHECK(editor.screencols == winlist[win_current].w);
-	CHECK(editor.screenrows == winlist[win_current].h);
+	CHECK(wcur()->w == winlist[win_current].w);
+	CHECK(wcur()->h == winlist[win_current].h);
 
 	session_teardown();
 	free(names[0]);
@@ -379,7 +366,7 @@ static void test_delete_window_paths(void)
 	CHECK(winlist[win_current].active);
 	CHECK(winlist[win_current].bufidx == 1);
 	CHECK(buf_current == 1);
-	CHECK(editor.screenrows == winlist[win_current].h);
+	CHECK(wcur()->h == winlist[win_current].h);
 
 	win_split_horizontal();
 	CHECK(win_count == 2);
@@ -387,7 +374,7 @@ static void test_delete_window_paths(void)
 	CHECK(win_count == 1);
 	CHECK(winlist[win_current].active);
 	CHECK(buf_current == 1);
-	CHECK(editor.screenrows == winlist[win_current].h);
+	CHECK(wcur()->h == winlist[win_current].h);
 
 	session_teardown();
 	free(names[0]);
@@ -454,8 +441,7 @@ static void test_slot_exhaustion_and_reuse(void)
 	CHECK(buf_count == MAX_BUFFERS);
 
 	/* Kill slot 5's buffer and reopen: the freed slot is taken. */
-	buf_save_current_state();
-	buf_restore_from_slot(5);
+	buf_select(5);
 	CHECK(bslot(5)->row != NULL);
 	CHECK(bslot(5)->filename != NULL);
 	buf_kill(-1);
@@ -496,7 +482,7 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 	names[0] = strdup(tmppath("a.txt"));
 	session(1, names);
 
-	editor.cy = 1;
+	wcur()->cy = 1;
 	editor_insert_char('Q');
 	rows0 = bcur()->row;
 	filename0 = bcur()->filename;
@@ -511,7 +497,7 @@ static void test_append_to_hidden_buffer_leaves_current_alone(void)
 	CHECK(bcur()->row == rows0);
 	CHECK(bcur()->filename == filename0);
 	CHECK(bcur()->numrows == 3);
-	CHECK(editor.cy == 1);
+	CHECK(wcur()->cy == 1);
 	CHECK(bcur()->dirty != 0);
 	CHECK(bcur()->undostack.size == 1);
 
@@ -550,11 +536,11 @@ static void test_append_to_visible_buffer_follows_that_window(void)
 	CHECK(other >= 0);
 	CHECK(winlist[other].bufidx == target);
 
-	editor.cy = 1;
+	wcur()->cy = 1;
 	CHECK(buf_append_special_text(target, "one\ntwo\nthree\n", 14) == 0);
 
 	CHECK(buf_current == 0);
-	CHECK(editor.cy == 1);
+	CHECK(wcur()->cy == 1);
 	CHECK(buflist[target].numrows == 4);
 	/* The unselected window tracked the tail it was already at. */
 	CHECK(winlist[other].rowoff + winlist[other].cy
@@ -584,8 +570,8 @@ static void test_reflow_sizes(void)
 	win_reflow();
 	CHECK(winlist[0].h == 8);
 	CHECK(winlist[0].w == 40);
-	CHECK(editor.screenrows == 8);
-	CHECK(editor.screencols == 40);
+	CHECK(wcur()->h == 8);
+	CHECK(wcur()->w == 40);
 
 	/* A window too small to split says so and stays one window. */
 	win_total_rows = 4;
@@ -642,8 +628,7 @@ static void test_marks_belong_to_the_buffer(void)
 	bcur()->mark_ring_col[0] = 4;
 	bcur()->mark_ring_len = 1;
 
-	buf_save_current_state();
-	buf_restore_from_slot(1);
+	buf_select(1);
 
 	/* Buffer 1 has a region of its own, which is to say none. */
 	CHECK(bcur()->mark_set == 0);
@@ -656,8 +641,7 @@ static void test_marks_belong_to_the_buffer(void)
 	CHECK(buflist[0].mark_ring_len == 1);
 	CHECK(buflist[0].mark_ring_col[0] == 4);
 
-	buf_save_current_state();
-	buf_restore_from_slot(0);
+	buf_select(0);
 	CHECK(bcur()->mark_set == 1);
 	CHECK(bcur()->mark_col == 2);
 	CHECK(bcur()->mark_highlight == 1);
@@ -762,12 +746,13 @@ static void test_special_buffer_reuse_bumps_identity(void)
 	free(names[0]);
 }
 
-/* The goal column is the one view field no record owns: it lives on the
- * session and therefore leaks across a buffer switch.  Pinned here so the
- * phase that gives the view an owner has to change this test on purpose. */
-static void test_goal_column_is_session_scoped_today(void)
+/* The goal column belongs to the view.  It is only meaningful between two
+ * consecutive vertical motions in one buffer, so attaching a view to a
+ * different buffer drops it -- and a different window has its own. */
+static void test_goal_column_belongs_to_the_view(void)
 {
 	char *names[2];
+	int other;
 
 	write_text_file(tmppath("a.txt"), "alpha\n");
 	names[0] = strdup(tmppath("a.txt"));
@@ -775,14 +760,23 @@ static void test_goal_column_is_session_scoped_today(void)
 	names[1] = strdup(tmppath("b.txt"));
 
 	session(2, names);
-	editor.desired_visual_col = 7;
-	buf_save_current_state();
-	buf_restore_from_slot(1);
-	CHECK(editor.desired_visual_col == 7);
+	wcur()->desired_visual_col = 7;
+	buf_select(1);
+	CHECK(wcur()->desired_visual_col == -1);
 
+	/* A split copies the view, goal column and all -- the new window is
+	 * looking at the same place in the same buffer. */
+	wcur()->desired_visual_col = 5;
 	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	CHECK(winlist[other].desired_visual_col == 5);
+
+	/* But the two are separate from then on. */
+	winlist[other].desired_visual_col = 9;
+	CHECK(wcur()->desired_visual_col == 5);
 	win_cycle_next();
-	CHECK(editor.desired_visual_col == 7);
+	CHECK(wcur()->desired_visual_col == 9);
 
 	session_teardown();
 	free(names[0]);
@@ -816,7 +810,7 @@ int main(void)
 	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
 	RUN(test_special_buffer_reuse_bumps_identity);
-	RUN(test_goal_column_is_session_scoped_today);
+	RUN(test_goal_column_belongs_to_the_view);
 
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
 	if (system(cmd) != 0) {

@@ -96,67 +96,79 @@ int buf_handle_slot(struct kg_buffer_handle handle)
 	return buf_resolve(handle) ? handle.slot : -1;
 }
 
-/* Remember where the session's point and scroll are in buflist[idx], so a
- * later visit to that buffer starts where the user left it.  This is all
- * that is left of the save protocol: everything a buffer owns lives in the
- * slot already, and the view is the one thing still held by the session.
- * Plan 09 phase 5 gives it to the window. */
-static void buf_save_to_slot(int idx)
+/* Hand the buffer a window is leaving the point that window had in it, so
+ * the next view to visit that buffer can resume there.  Called whenever a
+ * view detaches; this is the only writer of last_point. */
+void buf_remember_view(const struct editor_window *w)
 {
-	struct editor_buffer *b = &buflist[idx];
+	struct editor_buffer *b;
 
-	/* Landing in a slot nobody holds means a new buffer is taking it. */
-	if (!b->active) {
-		buf_claim_slot(idx);
+	if (w->bufidx < 0 || w->bufidx >= MAX_BUFFERS) {
+		return;
 	}
-
-	b->cx = editor.cx;
-	b->cy = editor.cy;
-	b->rowoff = editor.rowoff;
-	b->coloff = editor.coloff;
-	b->rowoff_visual = editor.rowoff_visual;
-	b->active = 1;
+	b = &buflist[w->bufidx];
+	if (!b->active) {
+		return;
+	}
+	b->last_point.cx = w->cx;
+	b->last_point.cy = w->cy;
+	b->last_point.rowoff = w->rowoff;
+	b->last_point.coloff = w->coloff;
+	b->last_point.rowoff_visual = w->rowoff_visual;
 }
 
-/* Select buflist[idx] and put the session's view where that buffer last
- * had it.  Nothing else is copied: the buffer's text, dirty flag, syntax,
- * undo history, file identity, local options and marks never leave the
- * slot. */
-void buf_restore_from_slot(int idx)
+/* Point `w` at buffer slot `slot`, resuming where that buffer was last
+ * left.  The goal column does not survive the move: it is only meaningful
+ * between two consecutive vertical motions in one buffer. */
+void buf_attach_view(struct editor_window *w, int slot)
 {
-	struct editor_buffer *b = &buflist[idx];
+	const struct kg_point *p;
 
-	/* Select first: everything below that reaches for the current buffer
-	 * has to mean this one. */
-	buf_current = idx;
-
-	editor.cx = b->cx;
-	editor.cy = b->cy;
-	editor.rowoff = b->rowoff;
-	editor.coloff = b->coloff;
-	editor.rowoff_visual = b->rowoff_visual;
-	/* readonly is derived, so it is recomputed rather than carried. */
-	editor_refresh_readonly_state();
-
-	/* Keep the active window pointing at the newly-restored buffer. */
-	if (win_count > 0) {
-		winlist[win_current].bufidx = idx;
+	if (slot < 0 || slot >= MAX_BUFFERS || w->bufidx == slot) {
+		return;
 	}
+	buf_remember_view(w);
+	w->bufidx = slot;
+	p = &buflist[slot].last_point;
+	w->cx = p->cx;
+	w->cy = p->cy;
+	w->rowoff = p->rowoff;
+	w->coloff = p->coloff;
+	w->rowoff_visual = p->rowoff_visual;
+	w->desired_visual_col = -1;
+}
+
+/* Show buflist[slot] in the selected window and make it the current buffer.
+ * This is the whole of what switching buffers is now: there is no state to
+ * copy out of the outgoing buffer and none to copy into the incoming one.
+ * The slot claim is here because a buffer being built into a free slot is
+ * made current before it has any content. */
+void buf_select(int slot)
+{
+	struct editor_buffer *b;
+
+	if (slot < 0 || slot >= MAX_BUFFERS) {
+		return;
+	}
+	b = &buflist[slot];
+	if (!b->active) {
+		buf_claim_slot(slot);
+		b->active = 1;
+	}
+	if (win_count > 0) {
+		buf_attach_view(wcur(), slot);
+	}
+	buf_current = slot;
+	/* readonly is derived, so it is recomputed rather than stored. */
+	editor_refresh_readonly_state();
 
 	/* If this buffer was flagged stale while it sat in its slot, reload
 	 * it now — but only when the user has opted in and there are no
 	 * unsaved edits to lose. */
-	if (bcur()->disk_changed && !b->dirty
-	    && (bcur()->auto_revert || global_auto_revert)) {
+	if (b->disk_changed && !b->dirty
+	    && (b->auto_revert || global_auto_revert)) {
 		silent_revert_current();
 	}
-}
-
-/* Save current window view and buffer state before switching away. */
-void buf_save_current_state(void)
-{
-	win_save_active_view();
-	buf_save_to_slot(buf_current);
 }
 
 /* Clamp the current cursor (cx/cy/rowoff/coloff) to whatever the current
@@ -168,12 +180,12 @@ static void clamp_cursor_to_buffer(void)
 	int filerow, filecol, rowsize;
 
 	if (bcur()->numrows == 0) {
-		editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+		wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 		return;
 	}
 
-	filerow = editor.rowoff + editor.cy;
-	filecol = editor.coloff + editor.cx;
+	filerow = wcur()->rowoff + wcur()->cy;
+	filecol = wcur()->coloff + wcur()->cx;
 	if (filerow >= bcur()->numrows) {
 		filerow = bcur()->numrows - 1;
 	}
@@ -189,27 +201,27 @@ static void clamp_cursor_to_buffer(void)
 		filecol = 0;
 	}
 
-	if (editor.rowoff > filerow) {
-		editor.rowoff = filerow;
+	if (wcur()->rowoff > filerow) {
+		wcur()->rowoff = filerow;
 	}
-	if (editor.rowoff + editor.screenrows <= filerow) {
-		editor.rowoff = filerow - editor.screenrows + 1;
+	if (wcur()->rowoff + wcur()->h <= filerow) {
+		wcur()->rowoff = filerow - wcur()->h + 1;
 	}
-	if (editor.rowoff < 0) {
-		editor.rowoff = 0;
+	if (wcur()->rowoff < 0) {
+		wcur()->rowoff = 0;
 	}
-	editor.cy = filerow - editor.rowoff;
+	wcur()->cy = filerow - wcur()->rowoff;
 
-	if (editor.coloff > filecol) {
-		editor.coloff = filecol;
+	if (wcur()->coloff > filecol) {
+		wcur()->coloff = filecol;
 	}
-	if (editor.coloff + editor.screencols <= filecol) {
-		editor.coloff = filecol - editor.screencols + 1;
+	if (wcur()->coloff + wcur()->w <= filecol) {
+		wcur()->coloff = filecol - wcur()->w + 1;
 	}
-	if (editor.coloff < 0) {
-		editor.coloff = 0;
+	if (wcur()->coloff < 0) {
+		wcur()->coloff = 0;
 	}
-	editor.cx = filecol - editor.coloff;
+	wcur()->cx = filecol - wcur()->coloff;
 }
 
 /* Reload the current buffer's file from disk and reset undo history.
@@ -249,8 +261,6 @@ void buf_reload_from_disk(void)
 	undo_free();
 	undo_init();
 	undo_mark_clean();
-
-	buf_save_to_slot(buf_current);
 }
 
 /* Auto-revert path: reload the buffer from disk and try to keep the user's
@@ -258,19 +268,18 @@ void buf_reload_from_disk(void)
  * M-x revert-buffer would).  Never called against a dirty buffer. */
 static void silent_revert_current(void)
 {
-	int saved_cx = editor.cx;
-	int saved_cy = editor.cy;
-	int saved_rowoff = editor.rowoff;
-	int saved_coloff = editor.coloff;
+	int saved_cx = wcur()->cx;
+	int saved_cy = wcur()->cy;
+	int saved_rowoff = wcur()->rowoff;
+	int saved_coloff = wcur()->coloff;
 
 	buf_reload_from_disk();
 
-	editor.cx = saved_cx;
-	editor.cy = saved_cy;
-	editor.rowoff = saved_rowoff;
-	editor.coloff = saved_coloff;
+	wcur()->cx = saved_cx;
+	wcur()->cy = saved_cy;
+	wcur()->rowoff = saved_rowoff;
+	wcur()->coloff = saved_coloff;
 	clamp_cursor_to_buffer();
-	buf_save_to_slot(buf_current);
 
 	editor_set_status_message(
 	    "Reverted %s from disk", buf_basename(bcur()->filename));
@@ -342,8 +351,8 @@ static void buf_reset(void)
 {
 	struct editor_buffer *b = bcur();
 
-	editor.cx = editor.cy = 0;
-	editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = 0;
+	wcur()->rowoff = wcur()->coloff = 0;
 	editor_free_all_rows(b);
 	b->dirty = 0;
 	b->syntax = NULL;
@@ -367,7 +376,7 @@ static void buf_reset(void)
 	bcur()->disk_changed = 0;
 	bcur()->auto_revert = 0;
 	bcur()->visual_line_mode = 0;
-	editor.rowoff_visual = 0;
+	wcur()->rowoff_visual = 0;
 	bcur()->overwrite_mode = 0;
 	undo_stack_free(&b->undostack);
 	undo_init();
@@ -1300,10 +1309,10 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 		buf_reset();
 		bcur()->filename = strdup("*scratch*");
 		bcur()->syntax = &lisp_interaction_syntax;
-		buf_save_to_slot(0);
+		buf_claim_slot(0);
 		buflist[0].active = 1;
 		buf_count = 1;
-		buf_restore_from_slot(0);
+		buf_select(0);
 		return;
 	}
 
@@ -1323,12 +1332,12 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 			pending_line = 0;
 			pending_col = 1;
 		}
-		buf_save_to_slot(slot);
+		buf_claim_slot(slot);
 		buflist[slot].active = 1;
 		buf_count++;
 		slot++;
 	}
-	buf_restore_from_slot(0);
+	buf_select(0);
 }
 
 /* Interactive buffer selector shown in the echo area (C-x b).
@@ -1434,8 +1443,7 @@ void buf_select_interactive(int fd)
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				if (matches > 0) {
-					buf_save_current_state();
-					buf_restore_from_slot(match_idx[sel]);
+					buf_select(match_idx[sel]);
 				}
 				return;
 			} else if (c == ESC || c == CTRL_G) {
@@ -1485,12 +1493,10 @@ void buf_open_path(const char *path, int readonly)
 	/* Switch to existing buffer if the file is already open. */
 	slot = buf_find_by_name(path);
 	if (slot >= 0) {
-		buf_save_current_state();
-		buf_restore_from_slot(slot);
+		buf_select(slot);
 		if (readonly) {
 			bcur()->readonly_override = 1;
 			editor_refresh_readonly_state();
-			buf_save_to_slot(slot);
 		}
 		editor_set_status_message("%s", bcur()->filename);
 		return;
@@ -1507,11 +1513,10 @@ void buf_open_path(const char *path, int readonly)
 		return; /* should not happen given buf_count check above */
 	}
 
-	buf_save_current_state();
+	/* Build the new buffer in the slot it will keep, then show it. */
 	buf_current = slot;
 	buf_visit_file(path, readonly);
-	buf_save_to_slot(slot);
-	buf_restore_from_slot(slot);
+	buf_select(slot);
 	buf_count++;
 	editor_set_status_message("%s%s",
 	    bcur()->filename ? bcur()->filename : "[new]",
@@ -1549,8 +1554,6 @@ static int write_slot(struct editor_buffer *b)
 void buf_save_all(int fd)
 {
 	int i;
-
-	buf_save_to_slot(buf_current); /* flush current edits into slot */
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
@@ -1632,7 +1635,7 @@ void buf_kill(int fd)
 	/* Switch to the nearest remaining buffer. */
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (buflist[i].active) {
-			buf_restore_from_slot(i);
+			buf_select(i);
 			break;
 		}
 	}
@@ -1650,13 +1653,11 @@ static int buf_enter_special(const char *name, int *existing)
 {
 	int slot;
 
-	buf_save_current_state();
-
 	*existing = buf_find_by_name(name);
 	slot = buf_first_free_slot();
 
 	if (*existing >= 0) {
-		buf_restore_from_slot(*existing);
+		buf_select(*existing);
 		/* Content is rebuilt from scratch; drop stale ops, freeing
 		 * their text first so repeated refreshes don't leak. */
 		undo_free();
@@ -1681,9 +1682,8 @@ static int buf_enter_special(const char *name, int *existing)
  * counting it as newly opened when it was not already there. */
 static void buf_commit_special(int slot, int existing)
 {
-	buf_save_to_slot(slot);
 	if (existing < 0) {
-		buf_restore_from_slot(slot);
+		buf_select(slot);
 		buf_count++;
 	}
 }
@@ -1706,7 +1706,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 
 	populate();
 
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	bcur()->dirty = 0;
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
@@ -1812,10 +1812,10 @@ int buf_append_special_text(
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && w->bufidx == buffer_index) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? editor.rowoff
+			int rowoff = (w_idx == win_current) ? wcur()->rowoff
 							    : w->rowoff;
 			int cursor_row = (w_idx == win_current)
-			    ? (editor.rowoff + editor.cy)
+			    ? (wcur()->rowoff + wcur()->cy)
 			    : (w->rowoff + w->cy);
 			if (old_numrows <= 0 || rowoff + h >= old_numrows) {
 				follow_viewport[w_idx] = true;
@@ -1853,10 +1853,10 @@ int buf_append_special_text(
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && w->bufidx == buffer_index) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? editor.rowoff
+			int rowoff = (w_idx == win_current) ? wcur()->rowoff
 							    : w->rowoff;
 			int cursor_row = (w_idx == win_current)
-			    ? (editor.rowoff + editor.cy)
+			    ? (wcur()->rowoff + wcur()->cy)
 			    : (w->rowoff + w->cy);
 
 			if (follow_viewport[w_idx]) {
@@ -1887,9 +1887,9 @@ int buf_append_special_text(
 			int cx = 0;
 
 			if (w_idx == win_current) {
-				editor.rowoff = rowoff;
-				editor.cy = cy;
-				editor.cx = cx;
+				wcur()->rowoff = rowoff;
+				wcur()->cy = cy;
+				wcur()->cx = cx;
 			} else {
 				w->rowoff = rowoff;
 				w->cy = cy;
@@ -1974,7 +1974,7 @@ int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
 		editor_insert_row(bcur(), bcur()->numrows, "", 0);
 	}
 
-	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
+	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	bcur()->dirty = 0;
 	bcur()->readonly_override = readonly ? 1 : -1;
 	bcur()->readonly_local = 0;
@@ -2052,7 +2052,7 @@ void buf_open_help(void)
  * The full filename starts at byte offset 54. */
 void buf_ibuffer_select(void)
 {
-	int filerow = editor.rowoff + editor.cy;
+	int filerow = wcur()->rowoff + wcur()->cy;
 	const char *filename;
 	int i;
 
@@ -2079,8 +2079,7 @@ void buf_ibuffer_select(void)
 			continue;
 		}
 		if (strcmp(buflist[i].filename, filename) == 0) {
-			buf_save_current_state();
-			buf_restore_from_slot(i);
+			buf_select(i);
 			editor_set_status_message("%s",
 			    bcur()->filename ? bcur()->filename : "[new]");
 			return;
@@ -2098,7 +2097,6 @@ void editor_cleanup(void)
 	}
 	cleaned_up = 1;
 	compilation_shutdown();
-	buf_save_to_slot(buf_current);
 
 	/* Every slot owns its rows, its filename and its undo chain, and no
 	 * copy of any of them lives anywhere else, so one pass over the table

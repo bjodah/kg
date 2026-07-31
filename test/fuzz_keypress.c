@@ -36,9 +36,9 @@ static void reset_state(void)
 	win_count = 1;
 	win_total_rows = 24;
 	win_total_cols = 80;
-	editor.screenrows = 22;
-	editor.screencols = 80;
-	editor.desired_visual_col = -1;
+	wcur()->h = 22;
+	wcur()->w = 80;
+	wcur()->desired_visual_col = -1;
 	bcur()->filename = strdup("fuzz.txt");
 	winlist[0].active = 1;
 	winlist[0].bufidx = 0;
@@ -78,10 +78,10 @@ static void seed_buffer(const uint8_t *data, size_t size)
 	bcur()->dirty = 0;
 	undo_mark_clean();
 	buflist[0].active = 1;
-	buflist[0].cx = editor.cx;
-	buflist[0].cy = editor.cy;
-	buflist[0].rowoff = editor.rowoff;
-	buflist[0].coloff = editor.coloff;
+	buflist[0].cx = wcur()->cx;
+	buflist[0].cy = wcur()->cy;
+	buflist[0].rowoff = wcur()->rowoff;
+	buflist[0].coloff = wcur()->coloff;
 	buflist[0].numrows = bcur()->numrows;
 	buflist[0].row = bcur()->row;
 	buflist[0].dirty = bcur()->dirty;

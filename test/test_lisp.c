@@ -29,9 +29,10 @@ static void setup_editor(void)
 	free_all_rows();
 	undo_free();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	bcur()->filename = "/tmp/bridge.txt";
 	suppress_undo = 0;
 	undo_init();

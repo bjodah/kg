@@ -13,9 +13,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	suppress_undo = 0;
 	undo_free();
 	undo_init();
@@ -81,8 +82,8 @@ static void test_auto_complete_clamps_huge_column_offset(void)
 	setup();
 	electric_pairs = 1;
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_insert_char_auto_complete('(');
 
@@ -90,10 +91,10 @@ static void test_auto_complete_clamps_huge_column_offset(void)
 	CHECK(memcmp(bcur()->row[0].chars, "abc()", 5) == 0);
 	/* This test target stubs editor_move_cursor(); keep the assertion
 	 * scoped to the clamped insert position. */
-	CHECK(editor.coloff >= 0);
-	CHECK(editor.cx >= 0);
-	CHECK(editor.coloff <= INT_MAX - editor.cx);
-	CHECK(editor.coloff + editor.cx == 5);
+	CHECK(wcur()->coloff >= 0);
+	CHECK(wcur()->cx >= 0);
+	CHECK(wcur()->coloff <= INT_MAX - wcur()->cx);
+	CHECK(wcur()->coloff + wcur()->cx == 5);
 	teardown();
 }
 

@@ -53,10 +53,10 @@ int electric_pairs = 0;
 
 void init_editor(void)
 {
-	editor.cx = 0;
-	editor.cy = 0;
-	editor.rowoff = 0;
-	editor.coloff = 0;
+	wcur()->cx = 0;
+	wcur()->cy = 0;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
 	bcur()->numrows = 0;
 	bcur()->row = NULL;
 	bcur()->row_capacity = 0;
@@ -73,7 +73,7 @@ void init_editor(void)
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
 	editor.rect_prefix = 0;
-	editor.desired_visual_col = -1;
+	wcur()->desired_visual_col = -1;
 	bcur()->readonly = 0;
 	bcur()->readonly_local = 0;
 	bcur()->readonly_override = -1;
@@ -84,7 +84,7 @@ void init_editor(void)
 	bcur()->disk_changed = 0;
 	bcur()->auto_revert = 0;
 	bcur()->visual_line_mode = 0;
-	editor.rowoff_visual = 0;
+	wcur()->rowoff_visual = 0;
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;
 	editor.prefix_no_digits = 0;

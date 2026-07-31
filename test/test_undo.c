@@ -12,9 +12,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	suppress_undo = 0;
 
 	undo_free();
@@ -36,7 +37,7 @@ static void test_insert_char(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hllo", 4);
-	editor.cx = 1; /* cursor after 'h'  */
+	wcur()->cx = 1; /* cursor after 'h'  */
 	editor_insert_char('e'); /* "hllo" → "hello"  */
 
 	CHECK(bcur()->row[0].size == 5);
@@ -54,7 +55,7 @@ static void test_delete_char(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.cx = 1; /* cursor after 'h'  */
+	wcur()->cx = 1; /* cursor after 'h'  */
 	editor_del_char(); /* "hello" → "ello"  */
 
 	CHECK(bcur()->row[0].size == 4);
@@ -72,7 +73,7 @@ static void test_forward_delete_char(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.cx = 0;
+	wcur()->cx = 0;
 	editor_del_forward_char(); /* "hello" → "ello"  */
 
 	CHECK(bcur()->row[0].size == 4);
@@ -90,8 +91,8 @@ static void test_insert_line(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.cx = 0;
-	editor.cy = 0;
+	wcur()->cx = 0;
+	wcur()->cy = 0;
 	editor_insert_newline(); /* inserts empty row before "hello" */
 
 	CHECK(bcur()->numrows == 2);
@@ -110,7 +111,7 @@ static void test_split_line(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.cx = 2; /* cursor after "he"  */
+	wcur()->cx = 2; /* cursor after "he"  */
 	editor_insert_newline(); /* "hello" → "he" / "llo" */
 
 	CHECK(bcur()->numrows == 2);
@@ -198,7 +199,7 @@ static void test_kill_line(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.cx = 2; /* cursor after "he"  */
+	wcur()->cx = 2; /* cursor after "he"  */
 	editor_kill_line(); /* "hello" → "he"     */
 
 	CHECK(bcur()->row[0].size == 2);
@@ -329,7 +330,7 @@ static void test_yank_text(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abhellocd", 9);
-	editor.cx = 2; /* cursor before 'h'  */
+	wcur()->cx = 2; /* cursor before 'h'  */
 
 	/* Record simulates what editor_yank / insert_text_raw would push */
 	undo_push(bcur(), UNDO_YANK_TEXT, 0, 2, 0, "hello", 5);
@@ -345,7 +346,7 @@ static void test_yank_text_len_only(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abhellocd", 9);
-	editor.cx = 2;
+	wcur()->cx = 2;
 
 	undo_push(bcur(), UNDO_YANK_TEXT, 0, 2, 0, NULL, 5);
 
@@ -679,8 +680,8 @@ static void test_undo_overwrite_multibyte_glyph(void)
 	setup();
 	editor_insert_row(
 	    bcur(), 0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 4);
@@ -703,8 +704,8 @@ static void test_undo_overwrite_malformed_utf8(void)
 	memset(row + 1, '\x80', 20);
 	row[21] = 'b';
 	editor_insert_row(bcur(), 0, row, 22);
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	editor_overwrite_char('X');
 	CHECK(bcur()->row[0].size == 22);
@@ -726,13 +727,13 @@ static void test_undo_self_insert_glyph(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "ac", 2);
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 
 	editor_self_insert_glyph("\xC3\xA5", 2); /* "ac" -> "aåc" */
 	CHECK(bcur()->row[0].size == 4);
 	CHECK(memcmp(bcur()->row[0].chars, "a\303\245c", 4) == 0);
-	CHECK(editor.cx == 3);
+	CHECK(wcur()->cx == 3);
 
 	editor_undo();
 	CHECK(bcur()->row[0].size == 2);
@@ -747,14 +748,14 @@ static void test_undo_self_insert_glyph_overwrite(void)
 	setup();
 	editor_insert_row(
 	    bcur(), 0, "a\xC3\xA9zz", 5); /* 'a', two-byte glyph, "zz" */
-	editor.cx = 1;
-	editor.cy = 0;
+	wcur()->cx = 1;
+	wcur()->cy = 0;
 	bcur()->overwrite_mode = 1;
 
 	editor_self_insert_glyph("\xE2\x82\xAC", 3); /* "aézz" -> "a€zz" */
 	CHECK(bcur()->row[0].size == 6);
 	CHECK(memcmp(bcur()->row[0].chars, "a\342\202\254zz", 6) == 0);
-	CHECK(editor.cx == 4);
+	CHECK(wcur()->cx == 4);
 
 	editor_undo();
 	CHECK(bcur()->row[0].size == 5);

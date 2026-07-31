@@ -114,7 +114,6 @@ void editor_set_status_message(const char *fmt, ...) { (void)fmt; }
 
 void editor_refresh_screen(void) { }
 
-void buf_save_current_state(void) { }
 void buf_save_all(int fd) { (void)fd; }
 void buf_open_file(int fd) { (void)fd; }
 void buf_open_file_read_only(int fd) { (void)fd; }
@@ -137,7 +136,6 @@ void win_split_vertical(void) { }
 void win_cycle_next(void) { }
 void win_delete_current(void) { }
 void win_delete_others(void) { }
-void win_save_active_view(void) { }
 
 /* Buffer identity lives in bufmgr.c, which the fuzz targets do not link. */
 struct kg_buffer_handle buf_handle(int slot)

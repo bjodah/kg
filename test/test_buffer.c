@@ -16,9 +16,10 @@ static void setup(void)
 {
 	free_all_rows();
 	reset_current_buffer();
+	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
-	editor.screenrows = 24;
-	editor.screencols = 80;
+	wcur()->h = 24;
+	wcur()->w = 80;
 	suppress_undo = 0;
 	undo_free();
 	undo_init();
@@ -854,15 +855,15 @@ static void test_buffer_char_length_trailing_empty_row(void)
 static void test_reveal_position_visible_row_keeps_rowoff(void)
 {
 	setup_rows(30);
-	editor.screenrows = 10;
-	editor.screencols = 80;
-	editor.rowoff = 0;
-	editor.coloff = 0;
+	wcur()->h = 10;
+	wcur()->w = 80;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
 
 	editor_reveal_position_centered(2, 0);
 
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 2);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 2);
 	teardown();
 }
 
@@ -871,15 +872,15 @@ static void test_reveal_position_visible_row_keeps_rowoff(void)
 static void test_reveal_position_offscreen_row_recenters(void)
 {
 	setup_rows(30);
-	editor.screenrows = 10;
-	editor.screencols = 80;
-	editor.rowoff = 0;
-	editor.coloff = 0;
+	wcur()->h = 10;
+	wcur()->w = 80;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
 
 	editor_reveal_position_centered(14, 0);
 
-	CHECK(editor.rowoff == 9);
-	CHECK(editor.cy == 5);
+	CHECK(wcur()->rowoff == 9);
+	CHECK(wcur()->cy == 5);
 	teardown();
 }
 
@@ -888,15 +889,15 @@ static void test_reveal_position_offscreen_row_recenters(void)
 static void test_reveal_position_near_eof_clamps(void)
 {
 	setup_rows(30);
-	editor.screenrows = 10;
-	editor.screencols = 80;
-	editor.rowoff = 0;
-	editor.coloff = 0;
+	wcur()->h = 10;
+	wcur()->w = 80;
+	wcur()->rowoff = 0;
+	wcur()->coloff = 0;
 
 	editor_reveal_position_centered(29, 0);
 
-	CHECK(editor.rowoff == 20);
-	CHECK(editor.cy == 9);
+	CHECK(wcur()->rowoff == 20);
+	CHECK(wcur()->cy == 9);
 	teardown();
 }
 
@@ -904,13 +905,13 @@ static void test_transpose_chars_ascii_middle(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.cx = 1;
+	wcur()->cx = 1;
 
 	editor_transpose_chars();
 
 	CHECK(bcur()->row[0].size == 3);
 	CHECK(memcmp(bcur()->row[0].chars, "bac", 3) == 0);
-	CHECK(editor.cx == 2);
+	CHECK(wcur()->cx == 2);
 	teardown();
 }
 
@@ -918,13 +919,13 @@ static void test_transpose_chars_eol(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "ab", 2);
-	editor.cx = 2;
+	wcur()->cx = 2;
 
 	editor_transpose_chars();
 
 	CHECK(bcur()->row[0].size == 2);
 	CHECK(memcmp(bcur()->row[0].chars, "ba", 2) == 0);
-	CHECK(editor.cx == 2);
+	CHECK(wcur()->cx == 2);
 	teardown();
 }
 
@@ -933,8 +934,8 @@ static void test_transpose_chars_bol_swaps_newline(void)
 	setup();
 	editor_insert_row(bcur(), 0, "ab", 2);
 	editor_insert_row(bcur(), 1, "cd", 2);
-	editor.cy = 1;
-	editor.cx = 0;
+	wcur()->cy = 1;
+	wcur()->cx = 0;
 
 	editor_transpose_chars();
 
@@ -943,8 +944,8 @@ static void test_transpose_chars_bol_swaps_newline(void)
 	CHECK(memcmp(bcur()->row[0].chars, "abc", 3) == 0);
 	CHECK(bcur()->row[1].size == 1);
 	CHECK(memcmp(bcur()->row[1].chars, "d", 1) == 0);
-	CHECK(editor.cy == 1);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->cy == 1);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -952,7 +953,7 @@ static void test_transpose_chars_utf8(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "a\xc3\xa9", 3);
-	editor.cx = 1;
+	wcur()->cx = 1;
 
 	editor_transpose_chars();
 
@@ -962,7 +963,7 @@ static void test_transpose_chars_utf8(void)
 		  "a",
 		  3)
 	    == 0);
-	CHECK(editor.cx == 3);
+	CHECK(wcur()->cx == 3);
 	teardown();
 }
 
@@ -970,7 +971,7 @@ static void test_transpose_chars_undo_one_step(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.cx = 1;
+	wcur()->cx = 1;
 
 	editor_transpose_chars();
 	editor_undo();
@@ -984,15 +985,15 @@ static void test_insert_char_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_insert_char('x');
 
 	CHECK(bcur()->row[0].size == 4);
 	CHECK(memcmp(bcur()->row[0].chars, "abcx", 4) == 0);
-	CHECK(editor.coloff == 3);
-	CHECK(editor.cx == 1);
+	CHECK(wcur()->coloff == 3);
+	CHECK(wcur()->cx == 1);
 	teardown();
 }
 
@@ -1001,8 +1002,8 @@ static void test_insert_char_rejects_huge_rect_virtual_gap(void)
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
 	bcur()->rect_mode = 1;
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 	running = 1;
 
 	editor_insert_char('x');
@@ -1017,13 +1018,13 @@ static void test_snap_cx_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_snap_cx_to_row();
 
-	CHECK(editor.coloff == 3);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->coloff == 3);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -1031,8 +1032,8 @@ static void test_backspace_ignores_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_del_char();
 
@@ -1045,8 +1046,8 @@ static void test_insert_newline_raw_clamps_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.coloff = INT_MAX - 5;
-	editor.cx = 79;
+	wcur()->coloff = INT_MAX - 5;
+	wcur()->cx = 79;
 
 	editor_insert_newline_raw();
 
@@ -1054,9 +1055,9 @@ static void test_insert_newline_raw_clamps_huge_column_offset(void)
 	CHECK(bcur()->row[0].size == 3);
 	CHECK(memcmp(bcur()->row[0].chars, "abc", 3) == 0);
 	CHECK(bcur()->row[1].size == 0);
-	CHECK(editor.rowoff == 0);
-	CHECK(editor.cy == 1);
-	CHECK(editor.cx == 0);
+	CHECK(wcur()->rowoff == 0);
+	CHECK(wcur()->cy == 1);
+	CHECK(wcur()->cx == 0);
 	teardown();
 }
 
@@ -1077,8 +1078,8 @@ static void test_insert_text_raw_multiline_preserves_split_suffix(void)
 	CHECK(memcmp(bcur()->row[1].chars, "Y", 1) == 0);
 	CHECK(memcmp(bcur()->row[2].chars, "Z cd", 4) == 0);
 	CHECK(memcmp(bcur()->row[3].chars, "tail", 4) == 0);
-	CHECK(editor.cy == 2);
-	CHECK(editor.cx == 1);
+	CHECK(wcur()->cy == 2);
+	CHECK(wcur()->cx == 1);
 
 	s = editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
 	CHECK(len == 15);
@@ -1110,8 +1111,8 @@ static void check_splice(const char *label, const char *text, int text_len,
 		    && memcmp(s, expect, (size_t)len) == 0);
 		free(s);
 	}
-	CHECK(editor.rowoff + editor.cy == expect_cy);
-	CHECK(editor.coloff + editor.cx == expect_cx);
+	CHECK(wcur()->rowoff + wcur()->cy == expect_cy);
+	CHECK(wcur()->coloff + wcur()->cx == expect_cx);
 }
 
 static void test_insert_text_raw_multiline_edges(void)
@@ -1184,20 +1185,20 @@ static void test_backspace_join_long_previous_row_keeps_scroll_nonnegative(void)
 	prev[prev_len] = '\0';
 	editor_insert_row(bcur(), 0, prev, prev_len);
 	editor_insert_row(bcur(), 1, "b", 1);
-	editor.cy = 1;
-	editor.cx = 0;
+	wcur()->cy = 1;
+	wcur()->cx = 0;
 
 	editor_del_char();
 
 	CHECK(bcur()->numrows == 1);
-	CHECK(editor.coloff == prev_len - editor.screencols + 1);
-	CHECK(editor.cx == editor.screencols - 1);
-	CHECK(editor.coloff + editor.cx == prev_len);
+	CHECK(wcur()->coloff == prev_len - wcur()->w + 1);
+	CHECK(wcur()->cx == wcur()->w - 1);
+	CHECK(wcur()->coloff + wcur()->cx == prev_len);
 
 	editor_del_char();
 
-	CHECK(editor.coloff >= 0);
-	CHECK(editor.coloff + editor.cx == prev_len - 1);
+	CHECK(wcur()->coloff >= 0);
+	CHECK(wcur()->coloff + wcur()->cx == prev_len - 1);
 	CHECK(bcur()->row[0].size == prev_len);
 	CHECK(bcur()->row[0].chars[bcur()->row[0].size - 1] == 'b');
 	teardown();
@@ -1246,7 +1247,7 @@ static void test_backspace_deletes_whole_glyph(void)
 		CHECK(bcur()->row[0].size == 1);
 		CHECK(bcur()->row[0].chars[0] == 'a');
 		CHECK(bcur()->row[0].chars[1] == '\0');
-		CHECK(editor.coloff + editor.cx == 1);
+		CHECK(wcur()->coloff + wcur()->cx == 1);
 		CHECK(editor_visual_col(&bcur()->row[0], 1) == 1);
 
 		editor_undo();
@@ -1273,7 +1274,7 @@ static void test_forward_delete_removes_whole_glyph(void)
 		CHECK(bcur()->row[0].size == 1);
 		CHECK(bcur()->row[0].chars[0] == 'a');
 		CHECK(bcur()->row[0].chars[1] == '\0');
-		CHECK(editor.coloff + editor.cx == 1);
+		CHECK(wcur()->coloff + wcur()->cx == 1);
 
 		editor_undo();
 
@@ -1352,7 +1353,7 @@ static void test_delete_glyph_between_neighbours(void)
 	CHECK(bcur()->row[0].size == 2);
 	CHECK(memcmp(bcur()->row[0].chars, "az", 2) == 0);
 	CHECK(bcur()->row[0].chars[2] == '\0');
-	CHECK(editor.coloff + editor.cx == 1);
+	CHECK(wcur()->coloff + wcur()->cx == 1);
 
 	editor_undo();
 

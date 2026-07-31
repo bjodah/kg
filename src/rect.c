@@ -57,8 +57,8 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 		editor_set_status_message("No mark set");
 		return 0;
 	}
-	p_row = editor.rowoff + editor.cy;
-	p_col = editor.coloff + editor.cx;
+	p_row = wcur()->rowoff + wcur()->cy;
+	p_col = wcur()->coloff + wcur()->cx;
 	m_row = bcur()->mark_row;
 	m_col = bcur()->mark_col;
 	p_vcol = (p_row < bcur()->numrows)
@@ -358,8 +358,8 @@ void editor_yank_rect(void)
 		return;
 	}
 
-	cur_row = editor.rowoff + editor.cy;
-	cur_col = editor.coloff + editor.cx;
+	cur_row = wcur()->rowoff + wcur()->cy;
+	cur_col = wcur()->coloff + wcur()->cx;
 	orig_numrows = bcur()->numrows;
 
 	rows_to_snap = rect_killed_nrows;

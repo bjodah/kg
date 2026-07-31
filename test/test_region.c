@@ -328,6 +328,116 @@ static void test_clear_rect_pads_short_rows_in_batches(void)
 	teardown();
 }
 
+/* Each rectangle command is one undo step over the whole block, so one
+ * C-_ puts every affected row back -- including the padding a short row
+ * had to grow to reach the rectangle's left edge, and the rows a yank
+ * had to add past the end of the buffer. */
+static void test_rectangle_commands_are_one_step_each(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	editor_insert_row(bcur(), 1, "ab", 2);
+	editor_insert_row(bcur(), 2, "abcdef", 6);
+	bcur()->dirty = 0;
+	generation = bcur()->content_generation;
+
+	/* Kill the 2..4 column rectangle over all three rows. */
+	set_region(0, 2, 2, 4);
+	bcur()->rect_mode = 1;
+	editor_kill_rect();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abef\nab\nabef") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(bcur()->dirty == 1);
+	CHECK(bcur()->numrows == 3);
+	CHECK(bcur()->row[2].idx == 2);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 2);
+
+	editor_undo();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abcdef\nab\nabcdef") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+
+	/* Yank it back one row lower, which needs a fourth row. */
+	editor_cursor_goto(1, 0);
+	editor_yank_rect();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abcdef\ncdab\nabcdef\ncd") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 4);
+	CHECK(bcur()->row[3].idx == 3);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abcdef\nab\nabcdef") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 3);
+
+	/* Clearing pads the short row out to the rectangle's right edge. */
+	set_region(0, 2, 2, 4);
+	bcur()->rect_mode = 1;
+	editor_clear_rect();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "ab  ef\nab  \nab  ef") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abcdef\nab\nabcdef") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 3);
+	teardown();
+}
+
+/* A read-only buffer refuses every rectangle command, and pays nothing. */
+static void test_rectangle_commands_refused_when_read_only(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	editor_insert_row(bcur(), 1, "abcdef", 6);
+	set_region(0, 2, 1, 4);
+	bcur()->rect_mode = 1;
+	editor_kill_rect();
+	editor_undo();
+
+	bcur()->dirty = 0;
+	bcur()->readonly = 1;
+	undo_free();
+	undo_init();
+	generation = bcur()->content_generation;
+
+	set_region(0, 2, 1, 4);
+	bcur()->rect_mode = 1;
+	editor_kill_rect();
+	set_region(0, 2, 1, 4);
+	bcur()->rect_mode = 1;
+	editor_delete_rect();
+	set_region(0, 2, 1, 4);
+	bcur()->rect_mode = 1;
+	editor_clear_rect();
+	editor_cursor_goto(0, 0);
+	editor_yank_rect();
+
+	text = region_buffer_text();
+	CHECK(strcmp(text, "abcdef\nabcdef") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->content_generation == generation);
+	CHECK(bcur()->dirty == 0);
+	bcur()->readonly = 0;
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -345,5 +455,7 @@ int main(void)
 	RUN(test_kill_and_yank_are_one_step_each);
 	RUN(test_kill_and_yank_refused_when_read_only);
 	RUN(test_clear_rect_pads_short_rows_in_batches);
+	RUN(test_rectangle_commands_are_one_step_each);
+	RUN(test_rectangle_commands_refused_when_read_only);
 	return test_summary();
 }

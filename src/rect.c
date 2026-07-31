@@ -93,100 +93,140 @@ static void rect_row_byte_range(
 	*byte_hi = hi;
 }
 
-static void rect_row_pad_to_visual(erow *row, int target_vcol)
+/* A block of rows being built off to the side.
+ *
+ * Every rectangle command rewrites a contiguous run of rows, so every
+ * one of them builds the whole run here and hands it to the transaction
+ * once.  Nothing the buffer holds moves until the block is complete, so
+ * there is no half-applied rectangle to see, no per-row partial failure
+ * to unwind, and no coarse rectangle undo record describing rows that
+ * may since have moved. */
+struct rect_block {
+	char *b;
+	int len;
+	int cap;
+	int oom;
+};
+
+static void rect_block_free(struct rect_block *t)
+{
+	free(t->b);
+	*t = (struct rect_block) { 0 };
+}
+
+/* Append `n` bytes of `s`, growing by doubling.  A failed grow is
+ * remembered rather than reported here: the callers append in loops, and
+ * one check before publication is the whole of what they must do. */
+static void rect_append(struct rect_block *t, const char *s, int n)
+{
+	int need;
+
+	if (t->oom || n <= 0) {
+		return;
+	}
+	if (!checked_add_int_size(&need, t->len, (size_t)n + 1)) {
+		t->oom = 1;
+		return;
+	}
+	if (need > t->cap) {
+		int cap = t->cap > 0 ? t->cap : 64;
+		char *grown;
+
+		while (cap < need) {
+			if (cap > INT_MAX / 2) {
+				t->oom = 1;
+				return;
+			}
+			cap *= 2;
+		}
+		grown = realloc(t->b, (size_t)cap);
+		if (!grown) {
+			t->oom = 1;
+			return;
+		}
+		t->b = grown;
+		t->cap = cap;
+	}
+	memcpy(t->b + t->len, s, (size_t)n);
+	t->len += n;
+	t->b[t->len] = '\0';
+}
+
+static void rect_append_spaces(struct rect_block *t, int n)
+{
+	static const char spaces[16] = "                ";
+
+	while (n > 0 && !t->oom) {
+		int take = n < (int)sizeof(spaces) ? n : (int)sizeof(spaces);
+
+		rect_append(t, spaces, take);
+		n -= take;
+	}
+}
+
+/* How many spaces `row` needs to reach visual column `target_vcol`. */
+static int rect_pad_to_visual(erow *row, int target_vcol)
 {
 	int end_vcol = editor_visual_col(row, row->size);
 
-	if (end_vcol < target_vcol) {
-		editor_row_insert_spaces(
-		    row, row->size, target_vcol - end_vcol);
-	}
+	return end_vcol < target_vcol ? target_vcol - end_vcol : 0;
 }
 
-static void rect_row_replace_with_spaces(erow *row, int lo, int hi)
+/* Build row `r` with its [lo, hi) byte span replaced by `pad` spaces
+ * followed by `ins`, and append the result to `t` behind a separator
+ * when `need_sep` says a row has already been appended.  `pad` is what
+ * the row needs to reach the rectangle's left edge, and is only ever
+ * nonzero when the row stops short of it -- in which case lo and hi are
+ * both its end.  Returns where in `t` the built row starts, for a caller
+ * that has to measure it. */
+static int rect_append_row(struct rect_block *t, int r, int need_sep, int lo,
+    int hi, int pad, const char *ins, int ins_len)
 {
-	if (hi <= lo) {
-		return;
+	erow *row = &bcur()->row[r];
+	int start;
+
+	if (need_sep) {
+		rect_append(t, "\n", 1);
 	}
-	memset(row->chars + lo, ' ', hi - lo);
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
+	start = t->len;
+	rect_append(t, row->chars, lo);
+	rect_append_spaces(t, pad);
+	rect_append(t, ins, ins_len);
+	rect_append(t, row->chars + hi, row->size - hi);
+	return start;
 }
 
-/* Snapshot rows [start_row, end_row) joined with '\n' for undo storage.
- * Caller frees the returned buffer.  Returns NULL when there is nothing
- * to snapshot, with *out_len = 0. */
-static char *rect_snapshot_rows(int start_row, int end_row, int *out_len)
+/* Put `t` in place of rows [first, last] as one edit.  A `last` below
+ * `first` means the buffer has no such rows yet and the whole block is
+ * new.  Returns 0 having changed nothing when the block could not be
+ * built or the transaction refused it. */
+static int rect_publish(struct rect_block *t, int first, int last)
 {
-	int total = 0;
-	int r;
-	char *buf, *p;
+	size_t begin;
+	struct kg_edit e;
 
-	if (start_row < 0) {
-		start_row = 0;
+	if (t->oom || first < 0 || last >= bcur()->numrows) {
+		return 0;
 	}
-	if (end_row > bcur()->numrows) {
-		end_row = bcur()->numrows;
-	}
-	if (end_row <= start_row) {
-		*out_len = 0;
-		return NULL;
-	}
-
-	for (r = start_row; r < end_row; r++) {
-		if (!checked_add_int_size(&total, total, bcur()->row[r].size)) {
-			*out_len = 0;
-			return NULL;
-		}
-		if (r < end_row - 1) {
-			if (!checked_add_int_size(&total, total, 1)) {
-				*out_len = 0;
-				return NULL;
-			}
-		}
-	}
-
-	int alloc_sz;
-	if (!checked_add_int_size(&alloc_sz, total, 1)) {
-		*out_len = 0;
-		return NULL;
-	}
-	buf = malloc(alloc_sz);
-	if (!buf) {
-		*out_len = 0;
-		return NULL;
-	}
-	p = buf;
-	for (r = start_row; r < end_row; r++) {
-		memcpy(p, bcur()->row[r].chars, bcur()->row[r].size);
-		p += bcur()->row[r].size;
-		if (r < end_row - 1) {
-			*p++ = '\n';
-		}
-	}
-	*p = '\0';
-	*out_len = total;
-	return buf;
+	begin = buffer_row_col_to_position(bcur(), first, 0);
+	e = kg_edit_user(bcur(), begin,
+	    last < first ? begin
+			 : buffer_row_col_to_position(
+			       bcur(), last, bcur()->row[last].size),
+	    t->b ? t->b : "", (size_t)t->len);
+	return kg_buffer_replace(&e, NULL);
 }
 
-/* Snapshot rows [s_row, e_row] and push a single UNDO_RECT_OVERWRITE
- * step anchored at the rect's left edge on the start row.  Returns the
- * anchor's byte column so callers can land the cursor on it.  Must run
- * before the rows are modified. */
-static int rect_push_overwrite_undo(int s_row, int s_vcol, int e_row)
+/* The byte column the rectangle's left edge sits at on its first row,
+ * which is where the cursor lands afterwards.  Measured before the edit. */
+static int rect_anchor_col(int s_row, int s_vcol)
 {
-	int byte_lo = 0;
-	int snap_len;
-	char *snap = rect_snapshot_rows(s_row, e_row + 1, &snap_len);
+	int byte_lo = 0, hi_unused;
 
 	if (s_row < bcur()->numrows) {
-		int hi_unused;
 		rect_row_byte_range(
 		    &bcur()->row[s_row], s_vcol, s_vcol, &byte_lo, &hi_unused);
 	}
-	undo_push(bcur(), UNDO_RECT_OVERWRITE, s_row, byte_lo, bcur()->numrows,
-	    snap ? snap : (char *)"", snap_len);
-	free(snap);
 	return byte_lo;
 }
 
@@ -206,8 +246,9 @@ static void rect_deactivate(void)
  * so tabs and UTF-8 don't bend the cut into a non-rectangular shape. */
 static void rect_kill_or_delete(int save_to_ring)
 {
+	struct rect_block block = { 0 };
 	int s_row, s_vcol, e_row, e_vcol;
-	int s_row_byte_lo;
+	int s_row_byte_lo, last;
 	int r;
 
 	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
@@ -274,25 +315,26 @@ static void rect_kill_or_delete(int save_to_ring)
 	}
 
 	/* Cursor lands at the rect's left edge on the start row. */
-	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
+	s_row_byte_lo = rect_anchor_col(s_row, s_vcol);
 
-	/* One row rebuild per row, not one per byte: the whole rectangle is
-	 * covered by the single UNDO_RECT_OVERWRITE pushed above, which is
-	 * what KG_EDIT_USER_PART says here.  The global suppress_undo this
-	 * loop used to toggle was doing nothing -- editor_row_del_char()
-	 * records no undo of its own -- and would have started to once the
-	 * loop moved onto a primitive that does. */
-	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
+	/* The whole affected block, built off to the side and published
+	 * once: one row rebuild per row, one undo step, and no row left
+	 * cut when a later one cannot be. */
+	last = e_row < bcur()->numrows ? e_row : bcur()->numrows - 1;
+	for (r = s_row; r <= last; r++) {
 		int lo, hi;
 
 		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
-		editor_row_replace_range(
-		    r, lo, hi - lo, "", 0, KG_EDIT_USER_PART);
+		rect_append_row(&block, r, r != s_row, lo, hi, 0, "", 0);
 	}
+	if (!rect_publish(&block, s_row, last)) {
+		rect_block_free(&block);
+		return;
+	}
+	rect_block_free(&block);
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	buffer_note_change(bcur());
 	editor_set_status_message(
 	    save_to_ring ? "Rectangle killed" : "Rectangle deleted");
 }
@@ -306,8 +348,9 @@ void editor_delete_rect(void) { rect_kill_or_delete(0); }
  * it should.  Each row resolves the visual range to its own byte range. */
 void editor_clear_rect(void)
 {
+	struct rect_block block = { 0 };
 	int s_row, s_vcol, e_row, e_vcol;
-	int s_row_byte_lo;
+	int s_row_byte_lo, last;
 	int r;
 
 	if (!rect_bounds(&s_row, &s_vcol, &e_row, &e_vcol)) {
@@ -318,27 +361,41 @@ void editor_clear_rect(void)
 		return;
 	}
 
-	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
+	s_row_byte_lo = rect_anchor_col(s_row, s_vcol);
 
-	suppress_undo = 1;
-	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
+	last = e_row < bcur()->numrows ? e_row : bcur()->numrows - 1;
+	for (r = s_row; r <= last; r++) {
 		erow *row = &bcur()->row[r];
-		int lo, hi;
+		int pad = rect_pad_to_visual(row, s_vcol);
+		int lo, hi, start;
 
-		/* Pad with spaces until row's visual width reaches s_vcol. */
-		rect_row_pad_to_visual(row, s_vcol);
+		/* A row that stops short of the left edge is padded out to
+		 * it, and then has nothing of its own inside the rectangle. */
+		if (pad > 0) {
+			lo = hi = row->size;
+		} else {
+			rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
+		}
+		start = rect_append_row(
+		    &block, r, r != s_row, lo, hi, pad + (hi - lo), "", 0);
+		/* And is extended again when the rectangle runs past what
+		 * the row is now worth on screen. */
+		if (!block.oom) {
+			erow built = { .chars = block.b + start,
+				.size = block.len - start };
 
-		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
-		rect_row_replace_with_spaces(row, lo, hi);
-
-		/* Extend with spaces if the rect runs past row's visual end. */
-		rect_row_pad_to_visual(row, e_vcol);
+			rect_append_spaces(
+			    &block, rect_pad_to_visual(&built, e_vcol));
+		}
 	}
-	suppress_undo = 0;
+	if (!rect_publish(&block, s_row, last)) {
+		rect_block_free(&block);
+		return;
+	}
+	rect_block_free(&block);
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	buffer_note_change(bcur());
 	editor_set_status_message("Rectangle cleared");
 }
 
@@ -346,11 +403,8 @@ void editor_clear_rect(void)
  * with spaces and appending new rows when the buffer is too short. */
 void editor_yank_rect(void)
 {
-	int cur_row, cur_col;
-	int orig_numrows;
-	int rows_to_snap;
-	char *snap;
-	int snap_len;
+	struct rect_block block = { 0 };
+	int cur_row, cur_col, last;
 	char *p, *end;
 	int i;
 
@@ -359,55 +413,50 @@ void editor_yank_rect(void)
 		return;
 	}
 
-	cur_row = wcur()->rowoff + wcur()->cy;
-	cur_col = wcur()->coloff + wcur()->cx;
-	orig_numrows = bcur()->numrows;
+	cur_row = editor_current_filerow();
+	cur_col = editor_current_filecol();
 
-	rows_to_snap = rect_killed_nrows;
-	if (cur_row + rows_to_snap > bcur()->numrows) {
-		rows_to_snap = bcur()->numrows - cur_row;
+	/* The block covers every row the rectangle lands on.  Rows the
+	 * buffer does not have yet are not appended first: they are simply
+	 * part of the text that replaces the rows it does have, so the
+	 * whole paste is still one edit and one undo step. */
+	last = cur_row + rect_killed_nrows - 1;
+	if (last >= bcur()->numrows) {
+		last = bcur()->numrows - 1;
 	}
-	if (rows_to_snap < 0) {
-		rows_to_snap = 0;
-	}
-	snap = rect_snapshot_rows(cur_row, cur_row + rows_to_snap, &snap_len);
-
-	undo_push(bcur(), UNDO_RECT_OVERWRITE, cur_row, cur_col, orig_numrows,
-	    snap ? snap : (char *)"", snap_len);
-	free(snap);
-
-	suppress_undo = 1;
 	p = rect_killed;
 	end = rect_killed + rect_killed_len;
-	i = 0;
-	while (i < rect_killed_nrows) {
+	for (i = 0; i < rect_killed_nrows; i++) {
 		char *nl = (p < end) ? memchr(p, '\n', end - p) : NULL;
-		int line_len = nl ? (nl - p) : (end - p);
+		int line_len = nl ? (int)(nl - p) : (int)(end - p);
 		int target = cur_row + i;
-		erow *r;
 
-		while (target >= bcur()->numrows) {
-			editor_insert_row(bcur(), bcur()->numrows, "", 0);
-		}
-		r = &bcur()->row[target];
-		if (r->size < cur_col) {
-			editor_row_insert_spaces(r, r->size, cur_col - r->size);
-		}
-		if (line_len > 0) {
-			editor_row_insert_string(r, cur_col, p, line_len);
-		}
+		if (target <= last) {
+			erow *row = &bcur()->row[target];
+			int at = cur_col < row->size ? cur_col : row->size;
 
+			rect_append_row(&block, target, i > 0, at, at,
+			    cur_col > row->size ? cur_col - row->size : 0, p,
+			    line_len);
+		} else {
+			/* Past the end of the buffer: a whole new row, its
+			 * left edge made of spaces. */
+			if (i > 0) {
+				rect_append(&block, "\n", 1);
+			}
+			rect_append_spaces(&block, cur_col);
+			rect_append(&block, p, line_len);
+		}
 		if (!nl) {
 			break;
 		}
 		p = nl + 1;
-		i++;
 	}
-	suppress_undo = 0;
-
-	rect_deactivate();
-	buffer_note_change(bcur());
-	editor_set_status_message("Rectangle yanked");
+	if (rect_publish(&block, cur_row, last)) {
+		rect_deactivate();
+		editor_set_status_message("Rectangle yanked");
+	}
+	rect_block_free(&block);
 }
 
 /* Emacs' string-rectangle prompt has a history of its own. */
@@ -419,8 +468,9 @@ static struct minibuf_history string_rectangle_history;
  * padded with spaces first, like editor_clear_rect. */
 void editor_string_rect(int fd)
 {
+	struct rect_block block = { 0 };
 	int s_row, s_vcol, e_row, e_vcol;
-	int s_row_byte_lo;
+	int s_row_byte_lo, last;
 	char input[256];
 	int input_len;
 	int r;
@@ -451,23 +501,32 @@ void editor_string_rect(int fd)
 		return;
 	}
 
-	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
+	s_row_byte_lo = rect_anchor_col(s_row, s_vcol);
 
-	/* Delete and insert are one replacement, so a row is rebuilt once
-	 * (twice when it had to be padded out to the rectangle's left
-	 * edge first) rather than once per byte on either side. */
-	for (r = s_row; r <= e_row && r < bcur()->numrows; r++) {
+	/* Every affected row, with its span replaced and any padding it
+	 * needed to reach the left edge, built and published once. */
+	last = e_row < bcur()->numrows ? e_row : bcur()->numrows - 1;
+	for (r = s_row; r <= last; r++) {
+		erow *row = &bcur()->row[r];
+		int pad = rect_pad_to_visual(row, s_vcol);
 		int lo, hi;
 
-		rect_row_pad_to_visual(&bcur()->row[r], s_vcol);
-		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
-		editor_row_replace_range(
-		    r, lo, hi - lo, input, input_len, KG_EDIT_USER_PART);
+		if (pad > 0) {
+			lo = hi = row->size;
+		} else {
+			rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
+		}
+		rect_append_row(
+		    &block, r, r != s_row, lo, hi, pad, input, input_len);
 	}
+	if (!rect_publish(&block, s_row, last)) {
+		rect_block_free(&block);
+		return;
+	}
+	rect_block_free(&block);
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
-	buffer_note_change(bcur());
 	editor_set_status_message("Rectangle replaced");
 }
 

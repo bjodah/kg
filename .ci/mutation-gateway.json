@@ -40,11 +40,6 @@
    "suppress_undo": 1,
    "row_field_write": 3
   },
-  "src/rect.c": {
-   "row_primitive": 4,
-   "undo_push": 2,
-   "suppress_undo": 4
-  },
   "src/shell.c": {
    "undo_push": 1
   },

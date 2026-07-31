@@ -469,3 +469,69 @@ lower measured coverage; increase a function's debt unnoticed; add an analyzer
 finding; crash or time out a seeded fuzzer; violate edit/search/GC/regex state
 invariants; or change supported regex/Fe semantics without a minimized
 differential case.
+
+## Implementation status (2026-07-31)
+
+Landed on `stricter-emacs-adherence`, in commit order:
+
+| Phase | What landed |
+| --- | --- |
+| 1a | Done in Plan P0 (tool discovery, `--require-tools`, `PYTHON`). |
+| 1 | `.github/workflows/quality.yml`: one hosted job per `.ci/ci-NN-*.sh`, discovered from the same glob the local runner uses; `utils/print-tool-versions.sh`; `run-ci-steps.sh` no longer dies on a box without `/opt-3`; the duplicate macOS `gcc` cell is gone. |
+| 2 | `.ci/ci-12-subprojects.sh` runs `check complexity-check pmccabe-check format-check` in both submodules (~20 s). Their own numbered runners stay out, measured: `fe/.ci` 2m00, `fe/tiny-regex-c/.ci` 29 s, and both largely repeat the root lanes on the same sources. |
+| 3 | `utils/run_unit_tests.py` (honest counts, `ERROR` for a signal), `pty_accept.py --json`, `test/.results/`, `utils/quality_report.py`, per-lane results kept under `.ci/.run/results/<step>`. |
+| 4 | `.ci/coverage-baseline.json` (28 files, 78.15% lines, 90.62% functions), `make coverage-check` / `coverage-baseline`, `--branch-coverage` collected. The parallel-gcda pitfall is settled by measurement: two `PTY_JOBS=8` runs and one `PTY_JOBS=1` run agree file for file, so the lane stays at 8 (1m02 rather than 5m37). |
+| 5 | `.ci/pmccabe-baseline.json` (640 symbols), per-symbol no-increase, new functions ≤ 15, symbol-name resolution that never accepts `__attribute__`. Same treatment in `fe` (189 symbols), where scc's total is a floor rather than a measurement. |
+| 6 | `-max_total_time` budgets with `FUZZ_MAX_LEN`/`FUZZ_TIMEOUT`/`FUZZ_RSS_LIMIT_MB`/`FUZZ_VERBOSITY`/`-print_final_stats`, tracked seeds for all four targets, `make fuzz-<target>-seed`. Found an infinite loop in `dirlocals_parse()` on its first seeded run (fixed, with unit tests and the input as a seed). |
+| 8 | Mode column in the differential protocol; every generated pattern is now asked for its first match *and* its whole succession of matches (`f`, `fa`). 0 divergences at 200k comparisons on the tracked seed and 100k each on three others. |
+
+Submodule tickets folded in: tiny-regex-c's Python drivers (which had been
+exiting 0 having matched nothing since Python 3.11 broke the vendored exrex)
+now run over generated Python-compatible subsets and fail; `tests/test_api`
+counts its 1470 cases instead of printing `1/1`; the CBMC harness compiles
+and `make verify-syntax` keeps it that way. Fe objects now depend on the
+flags they were built with.
+
+### Deferred, with next steps
+
+- **Phase 7 (stateful/model fuzz targets).** Not started. Each piece needs
+  its own stub-set design before any of it can link: `test/fuzz_edit_model.c`
+  needs a flat reference string beside the row array; `test/test_winmgr.c`
+  needs an `EXTRA_winmgr` line and a deliberate stub choice, since
+  `src/winmgr.o` is linked into no test binary today; and linking
+  `src/search.c` into the keypress fuzzer means replacing the canned
+  `editor_read_line*` stubs (`test/fuzz_stubs.c:77-99`, which always return
+  `MINIBUF_CANCELLED`) with answers scripted from the fuzz input. Deferred
+  because the gated phases buy more per hour: the seeded time-budget
+  fuzzers already reach 37k-715k executions per target per 5 s and found a
+  reachable hang on their first run.
+- **Phase 8, backward matching.** `kg_regex_match_backward()` answers "the
+  last match ending at or before the limit, taking the plain forward match
+  at each candidate start". Emacs' backward search will shorten a greedy
+  match to fit before point, so the two disagree by policy, not by defect.
+  An oracle has to encode kg's rule rather than read Emacs', which makes
+  "which rule does kg want" a Plan 03 decision that comes first.
+- **Phase 9 (mutation pilot).** Not started. Next: Mull against
+  `src/width.c` and `src/localvars.c` (pure, fast, well covered); if it
+  cannot handle C23 or the pinned Clang, evaluate one alternative on one
+  module before adopting anything project-wide.
+- **Phase 10 (portability matrix).** Not started; `.ci/ci-11` (char
+  signedness) is the only portability lane. Cheapest first: `-O2` and LTO
+  smoke, since the default build is `-Os` and every sanitizer lane is
+  `-O0`, then musl/Alpine native tests, then 32-bit.
+- **Phase 11 (flake and trend management).** Not started. `--shuffle`
+  /`--seed` for `utils/pty_accept.py` is the first piece, and the per-case
+  durations `--json` now records are the input to the rest.
+- **A "kg is idle" primitive for the PTY harness.** Not needed by the
+  phases above (they add no screen assertions), so still a ticket. Design
+  note: the harness already knows how to wait for quiet -- `settle_tmux()`
+  and `READY_SETTLE` do it at startup -- so the shape is a case-local
+  `settle:` knob that reuses that poll after a named key, not a new
+  mechanism.
+- **`quality.json` growth.** Schema validation in CI, analyzer findings by
+  stable fingerprint, fuzzer corpus/features/exec-per-second, and Plan 08
+  benchmark medians are all absent; the file has the shape to grow into
+  them and is uploaded by the hosted workflow today.
+- **Coverage staging.** Branch coverage is collected and reported but is
+  not a floor, and changed-line coverage is not measured at all. Both need
+  the stability period the phase describes before they can gate.

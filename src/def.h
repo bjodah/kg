@@ -588,7 +588,6 @@ void editor_del_row(struct editor_buffer *b, int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
 void editor_row_insert_string(erow *row, int at, const char *s, int len);
-void editor_row_insert_spaces(erow *row, int at, int len);
 void editor_row_append_string(erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
 /* The edit transaction is src/edit.h's -- the intent, the two structs,

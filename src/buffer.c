@@ -1124,23 +1124,6 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len)
 	buffer_note_change(bcur());
 }
 
-void editor_row_insert_spaces(erow *row, int at, int len)
-{
-	char *spaces;
-
-	if (len <= 0) {
-		return;
-	}
-	spaces = malloc(len);
-	if (!spaces) {
-		editor_nomem();
-		return;
-	}
-	memset(spaces, ' ', len);
-	editor_row_insert_string(row, at, spaces, len);
-	free(spaces);
-}
-
 /* Append the string 's' at the end of a row */
 void editor_row_append_string(erow *row, char *s, size_t len)
 {

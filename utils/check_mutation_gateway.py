@@ -42,7 +42,6 @@ ROW_PRIMITIVES = (
 	"editor_free_all_rows",
 	"editor_row_insert_char",
 	"editor_row_insert_string",
-	"editor_row_insert_spaces",
 	"editor_row_append_string",
 	"editor_row_del_char",
 	"editor_rows_reserve",

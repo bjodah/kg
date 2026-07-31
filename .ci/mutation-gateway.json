@@ -10,7 +10,7 @@
  ],
  "files": {
   "src/buffer.c": {
-   "row_primitive": 21,
+   "row_primitive": 19,
    "undo_push": 3,
    "suppress_undo": 4,
    "row_field_write": 19

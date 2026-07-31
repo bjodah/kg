@@ -225,6 +225,8 @@ typedef struct erow {
 	char *render; /* Row content "rendered" for screen (for TABs). */
 	unsigned char
 	    *hl; /* Syntax highlight type for each character in render.*/
+	int render_capacity; /* Bytes `render` holds; >= rsize + 1. */
+	int hl_capacity; /* Bytes `hl` holds; >= rsize. */
 	int hl_oc; /* Row had open comment at end in last syntax highlight
 		      check. */
 } erow;
@@ -601,6 +603,7 @@ int editor_chars_col_at_visual(erow *row, int target_vcol);
 /* buffer.c */
 void editor_update_row(erow *row);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
+int editor_row_grown_capacity(int need);
 void editor_insert_row(int at, const char *s, size_t len);
 void editor_free_row(erow *row);
 void editor_free_all_rows(void);

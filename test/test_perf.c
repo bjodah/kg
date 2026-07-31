@@ -331,6 +331,7 @@ static void test_frame_append_growth(void)
 static void test_long_row_update_allocations(void)
 {
 	const int len = 1 << 20;
+	int i;
 	char *line = malloc((size_t)len + 1);
 
 	CHECK(line != NULL);
@@ -345,12 +346,50 @@ static void test_long_row_update_allocations(void)
 	kg_perf_reset();
 	editor_update_row(&editor.row[0]);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
-	/* Before Plan 08 phase 4: a repeat update of an unchanged row
-	 * frees and reallocates the whole render buffer, and reallocates
-	 * the highlight array, every time. */
-	CHECK(counter(KG_PERF_RENDER_ALLOC) == 1);
-	CHECK(counter(KG_PERF_RENDER_BYTES) >= (unsigned long long)len);
-	CHECK(counter(KG_PERF_HL_ALLOC) == 1);
+	/* Plan 08 phase 4: render and highlight storage carry capacities,
+	 * so re-updating a row no wider than it has been costs no
+	 * allocation.  It used to free and malloc a fresh 1 MiB render, and
+	 * realloc a 1 MiB highlight array, on every call. */
+	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
+	CHECK(counter(KG_PERF_RENDER_BYTES) == 0);
+	CHECK(counter(KG_PERF_HL_ALLOC) == 0);
+	CHECK(editor.row[0].rsize == len);
+	CHECK(editor.row[0].render[len] == '\0');
+
+	teardown();
+	free(line);
+}
+
+/* Storage is grown with slack once a row is long enough to be worth it,
+ * so lengthening a row a byte at a time -- which is what typing into it
+ * does -- does not reallocate per keystroke.  A 4 KiB row rather than
+ * the 1 MiB one above: this loop rebuilds the render every iteration,
+ * which is the editor's real per-keystroke cost and not something to pay
+ * a thousand megabytes of under valgrind. */
+static void test_typing_into_long_row_reuses_storage(void)
+{
+	const int len = 4096;
+	const int typed = 400;
+	char *line = malloc((size_t)len + 1);
+	int i;
+
+	CHECK(line != NULL);
+	if (!line) {
+		return;
+	}
+	memset(line, 'x', (size_t)len);
+	line[len] = '\0';
+
+	setup();
+	editor_insert_row(0, line, (size_t)len);
+	kg_perf_reset();
+	for (i = 0; i < typed; i++) {
+		editor_row_insert_char(&editor.row[0], 0, 'y');
+	}
+	CHECK(counter(KG_PERF_ROW_UPDATE) == (unsigned long long)typed);
+	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
+	CHECK(counter(KG_PERF_HL_ALLOC) == 0);
+	CHECK(editor.row[0].size == len + typed);
 	teardown();
 	free(line);
 }
@@ -469,6 +508,7 @@ int main(void)
 	RUN(test_special_text_append_growth);
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
+	RUN(test_typing_into_long_row_reuses_storage);
 	RUN(test_replace_range_updates_once);
 	RUN(test_rect_delete_updates_per_byte);
 	RUN(test_multiline_insert_flattens_buffer);

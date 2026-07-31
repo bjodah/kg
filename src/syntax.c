@@ -1793,15 +1793,40 @@ done:;
 	row->hl_oc = oc;
 }
 
-static void editor_update_syntax_row_only(erow *row)
+/* Make row->hl able to hold row->rsize bytes.  Reused like the render
+ * buffer: a row that has been this wide before pays nothing, and a
+ * failed grow leaves the old highlight in place rather than freeing what
+ * row->rsize still describes. */
+static int row_hl_reserve(erow *row)
 {
 	unsigned char *newhl;
+	int newcap;
 
+	if (row->rsize <= row->hl_capacity) {
+		return 1;
+	}
+	newcap = editor_row_grown_capacity(row->rsize);
+	KG_PERF_INC(KG_PERF_HL_ALLOC);
+	KG_PERF_ADD(KG_PERF_HL_BYTES, newcap);
+	newhl = realloc(row->hl, (size_t)newcap);
+	if (!newhl) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return 0;
+	}
+	row->hl = newhl;
+	row->hl_capacity = newcap;
+	return 1;
+}
+
+static void editor_update_syntax_row_only(erow *row)
+{
 	KG_PERF_INC(KG_PERF_SYNTAX_ROW);
 	KG_PERF_ADD(KG_PERF_SYNTAX_BYTES, row->rsize);
 	if (row->rsize == 0) {
 		free(row->hl);
 		row->hl = NULL;
+		row->hl_capacity = 0;
 		row->hl_oc = 0;
 		if (editor.syntax && editor.syntax->highlight) {
 			editor.syntax->highlight(
@@ -1814,16 +1839,10 @@ static void editor_update_syntax_row_only(erow *row)
 		return;
 	}
 
-	KG_PERF_INC(KG_PERF_HL_ALLOC);
-	KG_PERF_ADD(KG_PERF_HL_BYTES, row->rsize);
-	newhl = realloc(row->hl, row->rsize);
-	if (!newhl) {
-		editor_set_status_message("Out of memory");
-		running = 0;
+	if (!row_hl_reserve(row)) {
 		return;
 	}
-	row->hl = newhl;
-	memset(row->hl, HL_NORMAL, row->rsize);
+	memset(row->hl, HL_NORMAL, (size_t)row->rsize);
 
 	if (editor.syntax == NULL) {
 		return; /* No syntax, everything is HL_NORMAL. */

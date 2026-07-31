@@ -256,7 +256,65 @@ void editor_reveal_position_centered(int row, int col)
 	}
 }
 
-/* Update the rendered version and the syntax highlight of a row. */
+/* Rows shorter than this are grown to exactly what they need. */
+#define KG_ROW_SLACK_MIN 1024
+
+/* How much storage to reserve for a row that needs `need` bytes.
+ *
+ * A long row gets an eighth of slack, so that typing into it -- which
+ * lengthens it one byte at a time -- does not reallocate and copy the
+ * whole row per keystroke: a 1 MiB row absorbs 128k insertions between
+ * allocations.  A short row gets none, because slack that looks free per
+ * row is megabytes across a file of a hundred thousand of them, and
+ * reallocating a row of a few dozen bytes costs nothing worth avoiding.
+ * (Measured: an eighth on every row, or even a flat 16 bytes, cost 4 MiB
+ * of RSS on a 100k-line file, for rows nobody is typing into.) */
+int editor_row_grown_capacity(int need)
+{
+	if (need < KG_ROW_SLACK_MIN) {
+		return need < 0 ? 0 : need;
+	}
+	if (need > INT_MAX - need / 8) {
+		return need;
+	}
+	return need + need / 8;
+}
+
+/* Make row->render able to hold `need` bytes.  Returns 0 having reported
+ * the failure and left the row's existing render untouched. */
+static int row_render_reserve(erow *row, int need)
+{
+	char *grown;
+	int newcap;
+
+	if (need <= row->render_capacity) {
+		return 1;
+	}
+	newcap = editor_row_grown_capacity(need);
+	KG_PERF_INC(KG_PERF_RENDER_ALLOC);
+	KG_PERF_ADD(KG_PERF_RENDER_BYTES, newcap);
+	grown = realloc(row->render, (size_t)newcap);
+	if (!grown) {
+		editor_nomem();
+		return 0;
+	}
+	row->render = grown;
+	row->render_capacity = newcap;
+	return 1;
+}
+
+/* Update the rendered version and the syntax highlight of a row.
+ *
+ * The render buffer is reused: it carries a capacity, so an edit that
+ * does not make the row longer than it has ever been costs no
+ * allocation at all, where this used to free and malloc the whole
+ * worst-case buffer on every call -- including the 32 call sites that
+ * update a row per typed byte.
+ *
+ * An allocation failure now leaves the previous render in place instead
+ * of freeing it and leaving row->rsize describing bytes that are gone.
+ * running is cleared either way, so the callers that watch for that (and
+ * for a NULL render on a row that never had one) still see it. */
 void editor_update_row(erow *row)
 {
 	unsigned int tabs = 0;
@@ -264,10 +322,6 @@ void editor_update_row(erow *row)
 	int j, idx, render_cap, vcol;
 
 	KG_PERF_INC(KG_PERF_ROW_UPDATE);
-	/* Create a version of the row we can directly print on the screen,
-	 * respecting tabs. */
-	free(row->render);
-	row->render = NULL;
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
 			tabs++;
@@ -284,14 +338,10 @@ void editor_update_row(erow *row)
 		return;
 	}
 
-	KG_PERF_INC(KG_PERF_RENDER_ALLOC);
-	KG_PERF_ADD(KG_PERF_RENDER_BYTES, allocsize);
-	row->render = malloc((size_t)allocsize);
-	if (!row->render) {
-		editor_nomem();
+	if (!row_render_reserve(row, (int)allocsize)) {
 		return;
 	}
-	render_cap = (int)allocsize;
+	render_cap = row->render_capacity;
 	idx = 0;
 	vcol = 0;
 	for (j = 0; j < row->size; j++) {
@@ -299,8 +349,11 @@ void editor_update_row(erow *row)
 			int spaces = tab_stop_advance(vcol);
 
 			if (idx + spaces >= render_cap) {
-				free(row->render);
-				row->render = NULL;
+				/* Unreachable -- allocsize is the worst
+				 * case -- so leave a consistent empty
+				 * render rather than a half-written one. */
+				row->render[0] = '\0';
+				row->rsize = 0;
 				editor_set_status_message(
 				    "Line render overflow");
 				running = 0;
@@ -412,24 +465,32 @@ void editor_insert_row(int at, const char *s, size_t len)
 		}
 	}
 
-	editor.row[at].size = len;
-	editor.row[at].chars = newchars;
-	editor.row[at].hl = NULL;
-	editor.row[at].hl_oc = 0;
-	editor.row[at].render = NULL;
-	editor.row[at].rsize = 0;
-	editor.row[at].idx = at;
+	editor.row[at] = (erow) {
+		.idx = at,
+		.size = (int)len,
+		.chars = newchars,
+	};
 	editor.numrows++;
 	editor_update_row(editor.row + at);
 	editor.dirty++;
 }
 
 /* Free row's heap allocated stuff. */
+/* Free a row's heap storage and leave the record describing nothing.
+ * The capacities are the reason it has to: a freed pointer with a
+ * capacity still beside it is storage the next update would reuse. */
 void editor_free_row(erow *row)
 {
 	free(row->render);
 	free(row->chars);
 	free(row->hl);
+	row->render = NULL;
+	row->chars = NULL;
+	row->hl = NULL;
+	row->size = 0;
+	row->rsize = 0;
+	row->render_capacity = 0;
+	row->hl_capacity = 0;
 }
 
 /* Free every row of the current buffer and leave it empty.  Used whenever

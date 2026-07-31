@@ -29,6 +29,7 @@ import os
 import platform
 import resource
 import select
+import signal
 import statistics
 import struct
 import subprocess
@@ -93,7 +94,9 @@ CASES = {
 	# End of buffer, then back to the top: a scroll over every row.
 	"scroll-lines-100k": ("lines-100k", ["\x1b>", "\x1b<", "\x18\x03"]),
 	# Type into the middle of a 1 MiB row: the render/highlight rebuild.
-	"type-in-long-line": ("long-line-1mib", ["hello", "\x18\x03"]),
+	# The trailing "y" answers the modified-buffer prompt C-x C-c raises
+	# once the row has been edited.
+	"type-in-long-line": ("long-line-1mib", ["hello", "\x18\x03", "y"]),
 }
 BIG_CASES = {"open-lines-1m": ("lines-1m", ["\x18\x03"])}
 
@@ -134,6 +137,23 @@ def drain(fd, deadline, quiet_for=0.0):
 		last = time.monotonic()
 
 
+def wait_or_kill(pid, deadline):
+	"""Reap `pid`, SIGKILLing it if it has not exited by `deadline`.
+
+	Returns (timed_out, status, rusage).  Never a bare blocking wait: a
+	case whose key script does not reach an exit -- an unanswered
+	prompt, say -- would otherwise hang the whole run forever.
+	"""
+	while time.monotonic() < deadline:
+		done, status, usage = os.wait4(pid, os.WNOHANG)
+		if done == pid:
+			return False, status, usage
+		time.sleep(0.01)
+	os.kill(pid, signal.SIGKILL)
+	_, status, usage = os.wait4(pid, 0)
+	return True, status, usage
+
+
 def run_once(kg, argv, env, rows, cols, keys, timeout):
 	"""Spawn kg on a pty, send `keys`, and return (seconds, max_rss_kb)."""
 	pid, fd = os.forkpty()
@@ -148,16 +168,21 @@ def run_once(kg, argv, env, rows, cols, keys, timeout):
 	try:
 		drain(fd, min(deadline, start + 5.0), quiet_for=0.05)
 		for key in keys:
-			os.write(fd, key.encode("utf-8"))
+			try:
+				os.write(fd, key.encode("utf-8"))
+			except OSError:
+				break  # kg has already gone
 			time.sleep(0.06)
 		drain(fd, deadline)
-		_, status, usage = os.wait4(pid, 0)
+		timed_out, status, usage = wait_or_kill(pid, deadline)
 	finally:
 		try:
 			os.close(fd)
 		except OSError:
 			pass
 	elapsed = time.monotonic() - start
+	if timed_out:
+		raise RuntimeError(f"kg did not exit within {timeout} s")
 	if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
 		raise RuntimeError(f"kg exited with status {status}")
 	return elapsed, usage.ru_maxrss

@@ -464,6 +464,11 @@ enum minibuf_result {
 	MINIBUF_OVERFLOW = 1,
 };
 
+/* `buf` is read before it is written: whatever it already holds, as
+ * measured by strnlen(buf, bufsize), becomes the prompt's initial text.
+ * A caller wanting an empty prompt must set buf[0] = '\0' first --
+ * passing an uninitialized array reads uninitialized memory and
+ * prefills the minibuffer with whatever the stack held. */
 enum minibuf_result editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize);
 int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);

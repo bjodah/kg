@@ -1,0 +1,17 @@
+# C-u 3 C-y: one batched yank of three copies (key_yank_repeated), and
+# the whole batch is one undo record: a single C-_ removes all three
+# copies at once, after which a plain C-y yanks a single copy back.
+name: yank-repeated-numeric-argument
+filename: repeat.txt
+initial: |
+  abc
+keys:
+  - C-k
+  - C-u
+  - "3"
+  - C-y
+  - C-_
+  - C-y
+expected_saved: |
+  abc
+backend: pexpect

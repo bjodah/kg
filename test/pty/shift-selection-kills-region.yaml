@@ -1,0 +1,21 @@
+# A shift-selecting key runs the plain motion through shift translation
+# (shift_select_command) while extending the region: S-End from the
+# start of "hello" selects the whole word for C-w, and S-End from
+# column 2 of "world" selects just its tail.
+name: shift-selection-kills-region
+filename: shift.txt
+initial: |
+  hello
+  world
+keys:
+  - S-End
+  - C-w
+  - Down
+  - C-f
+  - C-f
+  - S-End
+  - C-w
+expected_saved: |
+
+  wo
+backend: pexpect

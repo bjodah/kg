@@ -1,5 +1,73 @@
 # Plan 04 — Window handles and session lifecycle
 
+## Status (2026-07-31, after the handle campaign)
+
+Phases 0, 1 and 2 are complete.  `editor_window.bufidx` is gone:
+`struct editor_window` holds a `kg_buffer_handle`, `win_buffer()` /
+`win_buffer_slot()` / `win_shows_buffer()` are the only readers, and
+`win_buffer_slot()` answers -1 rather than an index for a handle that has
+died.  `win_check_handles()` runs at the top of the main loop, before the
+repaint.  `KG_DEBUG_STATE` arms six of the seven invariants and is on in
+`.ci/ci-04`.  scc went 4116 → 4123 against the 4127 cap: the flag day
+itself was −9 (six duplicated window scans collapsed onto one predicate;
+two functions stopped distinguishing `wcur()` from the window already in
+hand), and the invariant checker spent +16 of that back.
+
+Deliberately not done:
+
+- **The seventh invariant has nothing to check.**  Buffer-owned marker
+  and decoration handles arrive with Plan 03.
+- **No new perf counter.**  `KG_PERF_HANDLE_STALE` now counts only a
+  handle that once named a buffer and no longer does — a zeroed view is
+  asked about on every window scan and no longer inflates it — so a
+  nonzero value already *is* the invariant question, and a second
+  "views repaired" counter would answer it twice.
+- **Phase 3 is blocked** on Plan 03's event queue, and a parallel
+  callback registry is not a substitute.
+- **Phase 4 is deferred** by the program's ordering.
+
+Buffer identity is 64-bit.  The claim that the counter "never repeats" is
+the whole reason it exists, and 32 bits does not get to make it: 4.29
+billion claims is a number, and a wrapped id would hand a live buffer the
+identity a long-dead one's handle still holds.  A claim that reaches
+`UINT64_MAX` refuses to reuse, leaving the slot with id 0, which
+`buf_resolve()` never matches.
+
+## Decision — auto-revert stays restricted to `buf_current`
+
+Taken 2026-07-31 after characterizing the reload
+(`test_winmgr.c`: poll reverts only the current buffer; a deferred revert
+clamps a point past the new EOF; a revert drops the region and the undo
+chain; a revert clamps every window on the buffer).  The poll keeps
+reverting only `buf_current`; other changed buffers stay flagged and
+reload at the next `buf_select()`.  Reasons, in order of weight:
+
+1. **A reload destroys state the user cannot see it destroy.**
+   `buf_reload_from_disk()` clears `mark_set`, `mark_highlight`,
+   `shift_select` and `rect_mode`, and frees the undo chain.  For the
+   current buffer the user is watching the buffer change.  For a
+   background buffer, a later `C-x b` finds the region gone and `C-_`
+   with nothing to undo, and no event said so.
+2. **Nothing is being fixed.**  A flagged buffer already reloads at the
+   next `buf_select()`, which is the first moment its content is
+   observable.  Widening only moves *when*, to the moment with no user
+   present.
+3. **The reload chain is written against `bcur()`.**
+   `commit_load_result()` (`fileio.c`), `undo_free()`/`undo_init()`/
+   `undo_mark_clean()` (`undo.c`) and `buf_apply_local_settings()` all
+   mean the current buffer.  Widening means either threading a buffer
+   through three more modules or rebinding `buf_current` around the
+   reload — the copy protocol this codebase spent commits deleting.
+4. **The prompt is unaffected either way.**
+   `confirm_save_over_accepted()` only fires for a dirty buffer, and a
+   revert never runs against one.
+
+The multi-window half of the plan's premise *was* a real defect and is
+fixed independently: `silent_revert_current()` now clamps every window on
+the reverted buffer, not just the selected one.  That is also the
+prerequisite a future widening would need, so revisiting this decision is
+a policy change and no longer a plumbing project.
+
 ## Outcome
 
 An active window never names a buffer by a reusable slot alone.  Buffer/view

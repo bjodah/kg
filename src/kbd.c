@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include "bufhandle.h"
 #include "cmd.h"
 #include "cmdstate.h"
 #include "def.h"

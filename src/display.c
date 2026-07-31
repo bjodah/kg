@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "bufhandle.h"
 #include "def.h"
 #include "localvars.h"
 #include "perf.h"
@@ -574,8 +575,15 @@ void editor_refresh_screen(void)
 			continue;
 		}
 
-		bidx = w->bufidx;
-		b = &buflist[bidx];
+		/* A window whose handle no longer resolves is drawn as
+		 * nothing rather than indexed with: the slot it names may
+		 * now hold somebody else's text.  win_check_handles() is
+		 * what puts such a window back on a buffer. */
+		b = win_buffer(w);
+		bidx = win_buffer_slot(w);
+		if (!b) {
+			continue;
+		}
 
 		int vline = b->visual_line_mode;
 		/* The rows come from the buffer the window shows, whichever

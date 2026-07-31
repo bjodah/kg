@@ -137,6 +137,54 @@ static int undo_depth(const struct editor_buffer *b)
 	return b->undostack.size;
 }
 
+/* ---- The model ----
+ *
+ * The same six invariants src/winmgr.c checks when KG_DEBUG_STATE is
+ * armed, asked here in every build.  `invariants()` is what turns an
+ * example-based case into a model-style one: a case drives a lifecycle
+ * operation and then asserts nothing in particular went wrong, which is
+ * the half an outcome-only assertion never covers.
+ *
+ * The seventh invariant, buffer-owned marker and decoration handles
+ * resolving to their buffer, has nothing to check yet: markers arrive
+ * with Plan 03.
+ */
+static void invariants(void)
+{
+	int i, j, buffers = 0, windows = 0;
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		struct editor_buffer *b = &buflist[i];
+
+		if (!b->active) {
+			continue;
+		}
+		buffers++;
+		CHECK(b->id != 0);
+		CHECK(b->numrows >= 0);
+		CHECK(b->row_capacity >= b->numrows);
+		CHECK(b->row != NULL || b->numrows == 0);
+		for (j = i + 1; j < MAX_BUFFERS; j++) {
+			if (!buflist[j].active) {
+				continue;
+			}
+			CHECK(buflist[j].id != b->id);
+			CHECK(b->row == NULL || buflist[j].row != b->row);
+		}
+	}
+	CHECK(buffers == buf_count);
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (!winlist[i].active) {
+			continue;
+		}
+		windows++;
+		CHECK(win_buffer(&winlist[i]) != NULL);
+	}
+	CHECK(windows == win_count);
+	CHECK(win_count == 0 || win_buffer(wcur()) == bcur());
+}
+
 /* ---- Tests ---- */
 
 /* Two open files are two slots, each holding its own row array and its own
@@ -259,9 +307,12 @@ static void test_split_shares_text_not_point(void)
 
 	win_split_horizontal();
 	CHECK(win_count == 2);
+	invariants();
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[win_current].bufidx == winlist[other].bufidx);
+	/* A split copies the handle, deliberately: two views of one
+	 * buffer, not two names for it. */
+	CHECK(win_buffer(&winlist[win_current]) == win_buffer(&winlist[other]));
 
 	/* Move point in the selected window only. */
 	wcur()->cy = 2;
@@ -275,7 +326,7 @@ static void test_split_shares_text_not_point(void)
 	CHECK(wcur()->cy == 0);
 	CHECK(wcur()->cx == 0);
 	/* Same buffer, same rows. */
-	CHECK(bcur()->row == buflist[winlist[win_current].bufidx].row);
+	CHECK(bcur()->row == win_buffer(&winlist[win_current])->row);
 
 	/* An edit through either window reaches the one shared text. */
 	editor_insert_char('Z');
@@ -328,10 +379,11 @@ static void test_display_other_window_retargets_only_that_window(void)
 	session(2, names);
 	win_display_buffer_other_window(1);
 	CHECK(win_count == 2);
+	invariants();
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == 1);
-	CHECK(winlist[win_current].bufidx == 0);
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 0);
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == bslot(0)->row);
 
@@ -362,15 +414,17 @@ static void test_delete_window_paths(void)
 	CHECK(win_count == 2);
 
 	win_delete_current(); /* C-x 0 */
+	invariants();
 	CHECK(win_count == 1);
 	CHECK(winlist[win_current].active);
-	CHECK(winlist[win_current].bufidx == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 1);
 	CHECK(buf_current == 1);
 	CHECK(wcur()->h == winlist[win_current].h);
 
 	win_split_horizontal();
 	CHECK(win_count == 2);
 	win_delete_others(); /* C-x 1 */
+	invariants();
 	CHECK(win_count == 1);
 	CHECK(winlist[win_current].active);
 	CHECK(buf_current == 1);
@@ -379,6 +433,210 @@ static void test_delete_window_paths(void)
 	session_teardown();
 	free(names[0]);
 	free(names[1]);
+}
+
+/* C-x 1 discards every other window.  A window's point is the only record
+ * of where the buffer it shows was being read, so a discarded window banks
+ * it the way C-x 0 does -- otherwise showing that buffer again resumes
+ * wherever some earlier view left it. */
+static void test_delete_others_banks_the_views_it_discards(void)
+{
+	char *names[2];
+	int other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "b0\nb1\nb2\nb3\nb4\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+
+	/* Read b.txt in the other window, four lines down. */
+	win_cycle_next();
+	CHECK(win_current == other);
+	buf_select(1);
+	wcur()->cy = 3;
+	wcur()->cx = 1;
+
+	/* Back to the first window, then C-x 1. */
+	win_cycle_next();
+	CHECK(win_current != other);
+	CHECK(buf_current == 0);
+	win_delete_others();
+	invariants();
+	CHECK(win_count == 1);
+	CHECK(!winlist[other].active);
+
+	/* Showing b.txt again resumes at the point the discarded window
+	 * had in it. */
+	CHECK(buflist[1].last_point.cy == 3);
+	buf_select(1);
+	CHECK(buf_current == 1);
+	CHECK(wcur()->cy == 3);
+	CHECK(wcur()->cx == 1);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* ---- Auto-revert's restriction ----
+ *
+ * The poll walks every buffer but reverts only the current one; the rest
+ * are flagged and reload at the next buf_select().  These four cases are
+ * what widening that restriction would have to survive, so they say what
+ * the reload does to a view before anything decides to do it to more
+ * views.  `autorevert_poll()` rate-limits itself with a process-lifetime
+ * static, so exactly one test here may call it; the others set
+ * `disk_changed` by hand, which is the poll's whole output. */
+
+/* One poll, two changed files: only the current buffer's text moves. */
+static void test_autorevert_poll_reverts_only_the_current_buffer(void)
+{
+	char *names[2];
+
+	write_text_file(tmppath("a.txt"), "a0\na1\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "b0\nb1\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	global_auto_revert = 1;
+	CHECK(buf_current == 0);
+
+	write_text_file(tmppath("a.txt"), "A0\nA1\nA2\n");
+	write_text_file(tmppath("b.txt"), "B0\nB1\nB2\n");
+	CHECK(autorevert_poll() == 1);
+
+	CHECK(buflist[0].numrows == 4);
+	CHECK(memcmp(buflist[0].row[0].chars, "A0", 2) == 0);
+	CHECK(buflist[0].disk_changed == 0);
+
+	/* The other buffer is flagged and left holding its old text. */
+	CHECK(buflist[1].disk_changed == 1);
+	CHECK(buflist[1].numrows == 3);
+	CHECK(memcmp(buflist[1].row[0].chars, "b0", 2) == 0);
+
+	/* Showing it is what reloads it. */
+	buf_select(1);
+	CHECK(buflist[1].numrows == 4);
+	CHECK(memcmp(buflist[1].row[0].chars, "B0", 2) == 0);
+	CHECK(buflist[1].disk_changed == 0);
+
+	global_auto_revert = 0;
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* A point banked past the new end of file comes back inside it. */
+static void test_deferred_revert_clamps_point_past_new_eof(void)
+{
+	char *names[2];
+
+	write_text_file(tmppath("a.txt"), "a0\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(
+	    tmppath("b.txt"), "b0\nb1\nb2\nb3\nb4\nb5\nb6\nb7\nb8\nb9\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+
+	buf_select(1);
+	wcur()->cy = 8;
+	wcur()->cx = 2;
+	buf_select(0);
+	CHECK(buflist[1].last_point.cy == 8);
+
+	write_text_file(tmppath("b.txt"), "B0\n");
+	buflist[1].disk_changed = 1;
+	buflist[1].auto_revert = 1;
+
+	buf_select(1);
+	CHECK(buflist[1].numrows == 2);
+	CHECK(wcur()->rowoff + wcur()->cy < buflist[1].numrows);
+	CHECK(wcur()->coloff + wcur()->cx
+	    <= buflist[1].row[wcur()->rowoff + wcur()->cy].size);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* A revert drops the region it finds.  Nothing asks first, and nothing
+ * says so afterwards beyond the status line. */
+static void test_revert_drops_the_region_it_finds(void)
+{
+	char *names[1];
+
+	write_text_file(tmppath("a.txt"), "a0\na1\na2\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 1;
+	bcur()->mark_highlight = 1;
+	bcur()->rect_mode = 1;
+	bcur()->mark_ring_len = 1;
+
+	write_text_file(tmppath("a.txt"), "A0\nA1\nA2\n");
+	bcur()->disk_changed = 1;
+	bcur()->auto_revert = 1;
+	buf_select(0);
+
+	CHECK(memcmp(bcur()->row[0].chars, "A0", 2) == 0);
+	CHECK(bcur()->mark_set == 0);
+	CHECK(bcur()->mark_highlight == 0);
+	CHECK(bcur()->rect_mode == 0);
+	/* The mark ring is not part of what the reload clears. */
+	CHECK(bcur()->mark_ring_len == 1);
+	CHECK(bcur()->undostack.head == NULL);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* A revert clamps every window on the buffer, not just the selected one.
+ * buf_attach_view() has nothing to do for a window already on the buffer,
+ * so an unclamped one would stay past the new end of file until the user
+ * typed there -- and typing at a row that does not exist appends the
+ * blank lines to reach it. */
+static void test_revert_clamps_every_window_on_the_buffer(void)
+{
+	char *names[1];
+	int other;
+
+	write_text_file(
+	    tmppath("a.txt"), "a0\na1\na2\na3\na4\na5\na6\na7\na8\na9\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	winlist[other].cy = 9;
+	winlist[other].rowoff = 0;
+	wcur()->cy = 1;
+
+	write_text_file(tmppath("a.txt"), "A0\n");
+	bcur()->disk_changed = 1;
+	bcur()->auto_revert = 1;
+	buf_select(0);
+
+	CHECK(bcur()->numrows == 2);
+	CHECK(wcur()->rowoff + wcur()->cy < bcur()->numrows);
+	CHECK(winlist[other].rowoff + winlist[other].cy < bcur()->numrows);
+
+	win_cycle_next();
+	CHECK(win_current == other);
+	CHECK(wcur()->rowoff + wcur()->cy < bcur()->numrows);
+
+	session_teardown();
+	free(names[0]);
 }
 
 /* Killing a buffer that two windows show leaves both windows pointing at a
@@ -397,21 +655,23 @@ static void test_kill_buffer_shown_twice(void)
 	win_split_horizontal();
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == 0);
+	CHECK(win_buffer_slot(&winlist[other]) == 0);
 
 	buf_kill(-1);
+	invariants();
 	CHECK(buf_count == 1);
 	CHECK(!buflist[0].active);
 	CHECK(buflist[0].row == NULL);
 	CHECK(buflist[0].row_capacity == 0);
 	CHECK(buflist[0].filename == NULL);
 	CHECK(buf_current == 1);
-	CHECK(winlist[win_current].bufidx == 1);
-	/* The unselected window comes off the killed slot too.  `bufidx` is
-	 * a bare index, so nothing would have stopped it naming a slot that
-	 * no longer describes a buffer -- and selecting such a window claims
-	 * the slot back as an empty buffer the count knows nothing about. */
-	CHECK(winlist[other].bufidx == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 1);
+	/* The unselected window comes off the killed buffer too, and lands
+	 * on the survivor by identity: the handle it held stopped resolving
+	 * when the buffer died, so it cannot instead start naming whoever
+	 * takes the slot next. */
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	CHECK(win_buffer(&winlist[other]) == &buflist[1]);
 
 	session_teardown();
 	free(names[0]);
@@ -436,11 +696,13 @@ static void test_slot_exhaustion_and_reuse(void)
 		buf_open_path(tmppath(name), 0);
 	}
 	CHECK(buf_count == MAX_BUFFERS);
+	invariants();
 
 	/* One more is refused rather than overwriting a slot. */
 	write_text_file(tmppath("overflow.txt"), "x\n");
 	buf_open_path(tmppath("overflow.txt"), 0);
 	CHECK(buf_count == MAX_BUFFERS);
+	invariants();
 
 	/* Kill slot 5's buffer and reopen: the freed slot is taken. */
 	buf_select(5);
@@ -452,6 +714,7 @@ static void test_slot_exhaustion_and_reuse(void)
 
 	buf_open_path(tmppath("overflow.txt"), 0);
 	CHECK(buf_count == MAX_BUFFERS);
+	invariants();
 	reused = -1;
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		if (buflist[i].active && buflist[i].filename
@@ -536,7 +799,7 @@ static void test_append_to_visible_buffer_follows_that_window(void)
 	win_display_buffer_other_window(target);
 	other = other_window();
 	CHECK(other >= 0);
-	CHECK(winlist[other].bufidx == target);
+	CHECK(win_buffer_slot(&winlist[other]) == target);
 
 	wcur()->cy = 1;
 	CHECK(buf_append_special_text(target, "one\ntwo\nthree\n", 14) == 0);
@@ -715,6 +978,114 @@ static void test_handles_do_not_survive_their_buffer(void)
 	free(names[1]);
 }
 
+/* A zeroed handle names nothing, whatever sits in slot 0.  This is the
+ * spelling a detached view uses, so it has to be a definite "no". */
+static void test_zeroed_handle_names_nothing(void)
+{
+	char *names[1];
+	struct kg_buffer_handle zero = { 0, 0, 0 };
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	CHECK(buflist[0].active);
+	CHECK(buflist[0].id != 0);
+	CHECK(buf_resolve(zero) == NULL);
+	CHECK(buf_handle_slot(zero) == -1);
+
+	/* Identity is 64-bit and monotonic: it is wide enough that the
+	 * counter's claim to never repeat is a fact rather than a hope. */
+	CHECK(sizeof(buflist[0].id) == 8);
+	CHECK(buf_handle(0).id == buflist[0].id);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* The safe-point sweep is the net under every path that ends a buffer.
+ * A window holding a handle nobody detached must not be drawn from, and
+ * must not be left to resurrect the slot the next time it is selected:
+ * the sweep puts it on the buffer the session is in and says so. */
+static void test_check_handles_recovers_an_injected_stale_view(void)
+{
+	char *names[2];
+	int other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	buf_select(1);
+	CHECK(win_buffer_slot(wcur()) == 1);
+
+	/* Inject what no code path is allowed to produce: the other window
+	 * keeps a handle on slot 0 while slot 0 changes hands. */
+	CHECK(win_buffer_slot(&winlist[other]) == 0);
+	buflist[0].generation++;
+	CHECK(win_buffer(&winlist[other]) == NULL);
+
+	win_check_handles();
+	invariants();
+	CHECK(win_buffer(&winlist[other]) == &buflist[1]);
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+	/* The selected window was never stale and is untouched. */
+	CHECK(win_buffer_slot(wcur()) == 1);
+
+	/* And it is idempotent: a second sweep finds nothing to do. */
+	win_check_handles();
+	CHECK(win_buffer_slot(&winlist[other]) == 1);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* Killing the last buffer ends the session, and is the one commit the
+ * invariants deliberately do not describe: there is no current buffer for
+ * a window to be showing.  What must still hold is that no window is left
+ * holding a *stale* handle -- one that names a slot somebody else could
+ * take.  A detached view names nothing, which is a different thing. */
+static void test_last_buffer_leaves_no_stale_view(void)
+{
+	char *names[1];
+	int i, live = 0;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+	win_split_horizontal();
+	CHECK(win_count == 2);
+	invariants();
+
+	running = 1;
+	buf_kill(-1);
+	CHECK(buf_count == 0);
+	CHECK(running == 0);
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (!winlist[i].active) {
+			continue;
+		}
+		live++;
+		CHECK(win_buffer(&winlist[i]) == NULL);
+		CHECK(win_buffer_slot(&winlist[i]) == -1);
+		/* Detached, not stale: the handle names no slot at all. */
+		CHECK(winlist[i].buf.id == 0);
+	}
+	CHECK(live == 2);
+
+	running = 1;
+	session_teardown();
+	free(names[0]);
+}
+
 /* A special buffer that takes over a freed slot gets a fresh identity too:
  * buf_reset_slot() is the other way a slot changes hands. */
 static void test_special_buffer_reuse_bumps_identity(void)
@@ -762,41 +1133,51 @@ static void test_current_buffer_is_the_selected_window_s(void)
 	names[1] = strdup(tmppath("b.txt"));
 
 	session(2, names);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	buf_select(1);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_split_horizontal();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_display_buffer_other_window(0);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_cycle_next();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_split_vertical();
 	win_cycle_next();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_delete_current();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	win_delete_others();
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	buf_kill(-1);
-	CHECK(buf_current == wcur()->bufidx);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	invariants();
 
 	/* And every window still names a buffer that exists -- a live one,
 	 * not merely a slot number in range: a window left on a killed slot
 	 * resurrects it, uncounted, the moment it is selected. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
 		if (winlist[i].active) {
-			CHECK(winlist[i].bufidx >= 0);
-			CHECK(winlist[i].bufidx < MAX_BUFFERS);
-			CHECK(buflist[winlist[i].bufidx].active);
+			CHECK(win_buffer(&winlist[i]) != NULL);
+			CHECK(win_buffer_slot(&winlist[i]) >= 0);
+			CHECK(win_buffer(&winlist[i])
+			    == &buflist[win_buffer_slot(&winlist[i])]);
 		}
 	}
 
@@ -861,6 +1242,11 @@ int main(void)
 	RUN(test_vertical_split_geometry);
 	RUN(test_display_other_window_retargets_only_that_window);
 	RUN(test_delete_window_paths);
+	RUN(test_delete_others_banks_the_views_it_discards);
+	RUN(test_autorevert_poll_reverts_only_the_current_buffer);
+	RUN(test_deferred_revert_clamps_point_past_new_eof);
+	RUN(test_revert_drops_the_region_it_finds);
+	RUN(test_revert_clamps_every_window_on_the_buffer);
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_slot_exhaustion_and_reuse);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
@@ -868,6 +1254,9 @@ int main(void)
 	RUN(test_reflow_sizes);
 	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
+	RUN(test_zeroed_handle_names_nothing);
+	RUN(test_check_handles_recovers_an_injected_stale_view);
+	RUN(test_last_buffer_leaves_no_stale_view);
 	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);

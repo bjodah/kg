@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "bufhandle.h"
 #include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
@@ -59,16 +60,31 @@ static void silent_revert_current(void);
 static void buf_apply_local_settings(void);
 
 /* Next buffer identity to hand out.  Starts at 1 so a zeroed slot — and a
- * zeroed handle — names no buffer. */
-static uint32_t buf_next_id = 1;
+ * zeroed handle — names no buffer.
+ *
+ * 64 bits, because the counter's whole job is the claim that it never
+ * repeats and 32 bits does not get to make it.  4.29 billion claims is a
+ * long session but it is a number, and a wrapped id would hand a live
+ * buffer the identity a long-dead one's handle still holds — the exact
+ * confusion handles exist to prevent.  At 64 bits, one claim per
+ * nanosecond runs for 584 years. */
+static uint64_t buf_next_id = 1;
 
 /* Hand `slot` to a buffer that is not the one that had it.  This is the only
  * place identity is assigned, so every handle taken before the handover stops
  * resolving at exactly the point the old buffer stopped existing. */
 static void buf_claim_slot(int slot)
 {
-	buflist[slot].id = buf_next_id++;
 	buflist[slot].generation++;
+	if (buf_next_id == UINT64_MAX) {
+		/* Exhausted.  Reuse is refused rather than wrapped: the
+		 * slot keeps id 0, which names no buffer, so it is
+		 * unreachable by handle instead of confusable with one. */
+		buflist[slot].id = 0;
+		editor_set_status_message("Buffer identity exhausted.");
+		return;
+	}
+	buflist[slot].id = buf_next_id++;
 }
 
 struct kg_buffer_handle buf_handle(int slot)
@@ -94,6 +110,13 @@ struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS) {
 		return NULL; /* Never named a buffer at all. */
 	}
+	/* id 0 is "no identity": a zeroed handle, and the slot a claim that
+	 * ran out of identities left behind.  Neither may match, and neither
+	 * is an outlived handle -- a view that names nothing on purpose is
+	 * asked about on every window scan and must not inflate the count. */
+	if (handle.id == 0) {
+		return NULL;
+	}
 	b = &buflist[handle.slot];
 	if (b->active && b->id == handle.id
 	    && b->generation == handle.generation) {
@@ -110,18 +133,34 @@ int buf_handle_slot(struct kg_buffer_handle handle)
 	return buf_resolve(handle) ? handle.slot : -1;
 }
 
+struct editor_buffer *win_buffer(const struct editor_window *w)
+{
+	return buf_resolve(w->buf);
+}
+
+int win_buffer_slot(const struct editor_window *w)
+{
+	return buf_handle_slot(w->buf);
+}
+
+int win_shows_buffer(
+    const struct editor_window *w, struct kg_buffer_handle handle)
+{
+	const struct editor_buffer *shown = win_buffer(w);
+
+	/* Pointer equality after both sides resolve, so a dead handle is
+	 * unequal to everything including another dead one. */
+	return shown && shown == buf_resolve(handle);
+}
+
 /* Hand the buffer a window is leaving the point that window had in it, so
  * the next view to visit that buffer can resume there.  Called whenever a
  * view detaches; this is the only writer of last_point. */
 void buf_remember_view(const struct editor_window *w)
 {
-	struct editor_buffer *b;
+	struct editor_buffer *b = win_buffer(w);
 
-	if (w->bufidx < 0 || w->bufidx >= MAX_BUFFERS) {
-		return;
-	}
-	b = &buflist[w->bufidx];
-	if (!b->active) {
+	if (!b) {
 		return;
 	}
 	b->last_point.cx = w->cx;
@@ -136,20 +175,28 @@ void buf_remember_view(const struct editor_window *w)
  * between two consecutive vertical motions in one buffer. */
 void buf_attach_view(struct editor_window *w, int slot)
 {
-	const struct kg_point *p;
+	struct kg_buffer_handle h = buf_handle(slot);
+	struct editor_buffer *b = buf_resolve(h);
 
-	if (slot < 0 || slot >= MAX_BUFFERS || w->bufidx == slot) {
+	if (!b || win_shows_buffer(w, h)) {
 		return;
 	}
 	buf_remember_view(w);
-	w->bufidx = slot;
-	p = &buflist[slot].last_point;
-	w->cx = p->cx;
-	w->cy = p->cy;
-	w->rowoff = p->rowoff;
-	w->coloff = p->coloff;
-	w->rowoff_visual = p->rowoff_visual;
+	w->buf = h;
+	w->cx = b->last_point.cx;
+	w->cy = b->last_point.cy;
+	w->rowoff = b->last_point.rowoff;
+	w->coloff = b->last_point.coloff;
+	w->rowoff_visual = b->last_point.rowoff_visual;
 	w->desired_visual_col = -1;
+}
+
+void buf_detach_view(struct editor_window *w)
+{
+	struct kg_buffer_handle none = { 0, 0, 0 };
+
+	buf_remember_view(w);
+	w->buf = none;
 }
 
 /* Show buflist[slot] in the selected window and make it the current buffer.
@@ -188,29 +235,30 @@ void buf_select(int slot)
 	}
 }
 
-/* Clamp the current cursor (cx/cy/rowoff/coloff) to whatever the current
- * buffer can hold, without recentering.  After a reload the file may be
- * shorter than the old view; this keeps the cursor on a real row and
- * column while preserving the user's scroll position when possible. */
-static void clamp_cursor_to_buffer(void)
+/* Clamp `w`'s cursor (cx/cy/rowoff/coloff) to whatever `b` can hold,
+ * without recentering.  After a reload the file may be shorter than the
+ * old view; this keeps the cursor on a real row and column while
+ * preserving the user's scroll position when possible. */
+static void clamp_view_to_buffer(
+    struct editor_window *w, const struct editor_buffer *b)
 {
 	int filerow, filecol, rowsize;
 
-	if (bcur()->numrows == 0) {
-		wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
+	if (b->numrows == 0) {
+		w->cx = w->cy = w->rowoff = w->coloff = 0;
 		return;
 	}
 
-	filerow = wcur()->rowoff + wcur()->cy;
-	filecol = wcur()->coloff + wcur()->cx;
-	if (filerow >= bcur()->numrows) {
-		filerow = bcur()->numrows - 1;
+	filerow = w->rowoff + w->cy;
+	filecol = w->coloff + w->cx;
+	if (filerow >= b->numrows) {
+		filerow = b->numrows - 1;
 	}
 	if (filerow < 0) {
 		filerow = 0;
 	}
 
-	rowsize = bcur()->row[filerow].size;
+	rowsize = b->row[filerow].size;
 	if (filecol > rowsize) {
 		filecol = rowsize;
 	}
@@ -218,33 +266,33 @@ static void clamp_cursor_to_buffer(void)
 		filecol = 0;
 	}
 
-	if (wcur()->rowoff > filerow) {
-		wcur()->rowoff = filerow;
+	if (w->rowoff > filerow) {
+		w->rowoff = filerow;
 	}
-	if (wcur()->rowoff + wcur()->h <= filerow) {
-		wcur()->rowoff = filerow - wcur()->h + 1;
+	if (w->rowoff + w->h <= filerow) {
+		w->rowoff = filerow - w->h + 1;
 	}
-	if (wcur()->rowoff < 0) {
-		wcur()->rowoff = 0;
+	if (w->rowoff < 0) {
+		w->rowoff = 0;
 	}
-	wcur()->cy = filerow - wcur()->rowoff;
+	w->cy = filerow - w->rowoff;
 
-	if (wcur()->coloff > filecol) {
-		wcur()->coloff = filecol;
+	if (w->coloff > filecol) {
+		w->coloff = filecol;
 	}
-	if (wcur()->coloff + wcur()->w <= filecol) {
-		wcur()->coloff = filecol - wcur()->w + 1;
+	if (w->coloff + w->w <= filecol) {
+		w->coloff = filecol - w->w + 1;
 	}
-	if (wcur()->coloff < 0) {
-		wcur()->coloff = 0;
+	if (w->coloff < 0) {
+		w->coloff = 0;
 	}
-	wcur()->cx = filecol - wcur()->coloff;
+	w->cx = filecol - w->coloff;
 }
 
 /* Reload the current buffer's file from disk and reset undo history.
  * Leaves the cursor wherever the caller had it set; callers that want
  * the post-reload cursor clamped to the new file size should call
- * clamp_cursor_to_buffer() afterwards.
+ * clamp_view_to_buffer() afterwards, once per window on the buffer.
  *
  * Syncs the fresh state back into buflist[buf_current] so other windows
  * showing the same buffer don't dangle on the old, freed filename pointer
@@ -282,13 +330,20 @@ void buf_reload_from_disk(void)
 
 /* Auto-revert path: reload the buffer from disk and try to keep the user's
  * viewport intact (rather than recentering on the cursor as an explicit
- * M-x revert-buffer would).  Never called against a dirty buffer. */
+ * M-x revert-buffer would).  Never called against a dirty buffer.
+ *
+ * Every window on the buffer is clamped, not just the selected one.  A
+ * second window keeps its own point, and buf_attach_view() has nothing to
+ * do for a window already on the buffer, so an unclamped one stays past
+ * the new end of file until the user types there -- and typing at a row
+ * that does not exist appends the blank lines to reach it. */
 static void silent_revert_current(void)
 {
 	int saved_cx = wcur()->cx;
 	int saved_cy = wcur()->cy;
 	int saved_rowoff = wcur()->rowoff;
 	int saved_coloff = wcur()->coloff;
+	int i;
 
 	buf_reload_from_disk();
 
@@ -296,7 +351,15 @@ static void silent_revert_current(void)
 	wcur()->cy = saved_cy;
 	wcur()->rowoff = saved_rowoff;
 	wcur()->coloff = saved_coloff;
-	clamp_cursor_to_buffer();
+
+	/* Resolving each view and comparing the buffer it lands on is the
+	 * whole test: a window showing nothing resolves to NULL, and bcur()
+	 * is never NULL. */
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (win_buffer(&winlist[i]) == bcur()) {
+			clamp_view_to_buffer(&winlist[i], bcur());
+		}
+	}
 
 	editor_set_status_message(
 	    "Reverted %s from disk", buf_basename(bcur()->filename));
@@ -1606,9 +1669,16 @@ void buf_save_all(int fd)
 	}
 }
 
-/* Kill (close) the current buffer, prompting if modified. */
+/* Kill (close) the current buffer, prompting if modified.
+ *
+ * The order is the point.  The dying handle is taken while it still
+ * resolves, every view on it is detached before the generation bump kills
+ * the handle, and only then is the slot freed -- so no window is ever
+ * active holding a handle that has stopped resolving, not even for the
+ * span of this function. */
 void buf_kill(int fd)
 {
+	struct kg_buffer_handle dying;
 	int killed = buf_current;
 	int i;
 
@@ -1626,6 +1696,13 @@ void buf_kill(int fd)
 	    && !editor_confirm_yn(fd, "Buffer modified, really kill? (y/n) ")) {
 		editor_set_status_message("");
 		return;
+	}
+
+	dying = buf_handle(killed);
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (win_shows_buffer(&winlist[i], dying)) {
+			buf_detach_view(&winlist[i]);
+		}
 	}
 
 	/* Free the buffer's memory and leave the slot describing nothing:
@@ -1655,14 +1732,12 @@ void buf_kill(int fd)
 			break;
 		}
 	}
-	/* Every other window showing the dead slot follows.  Left behind, a
-	 * window shows nothing until C-x o selects it -- and then buf_select()
-	 * finds the slot inactive and claims it, resurrecting the buffer as
-	 * an empty one the count knows nothing about; or, if a file took the
-	 * slot first, the window silently starts showing that file at the
-	 * dead one's scroll position. */
+	/* Every window the detach left showing nothing follows.  A view is
+	 * never left naming a slot it does not own: it would resurrect the
+	 * slot as an empty buffer the count knows nothing about, or start
+	 * showing whichever file took the slot next. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (winlist[i].active && winlist[i].bufidx == killed) {
+		if (winlist[i].active && !win_buffer(&winlist[i])) {
 			buf_attach_view(&winlist[i], buf_current);
 		}
 	}
@@ -1747,7 +1822,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 static void buf_reset_slot(int slot)
 {
 	struct editor_buffer *b = &buflist[slot];
-	uint32_t generation = b->generation;
+	uint64_t generation = b->generation;
 
 	memset(b, 0, sizeof(*b));
 	b->generation
@@ -1819,15 +1894,16 @@ int buf_prepare_special_text(
 int buf_append_special_text(
     int buffer_index, const char *text, size_t text_length)
 {
-	if (buffer_index < 0 || buffer_index >= MAX_BUFFERS
-	    || !buflist[buffer_index].active) {
+	struct kg_buffer_handle target = buf_handle(buffer_index);
+	struct editor_buffer *b = buf_resolve(target);
+
+	if (!b) {
 		return -1;
 	}
 	if (text_length == 0) {
 		return 0;
 	}
 
-	struct editor_buffer *b = &buflist[buffer_index];
 	int saved_suppress = suppress_undo;
 	suppress_undo = 1;
 
@@ -1837,13 +1913,11 @@ int buf_append_special_text(
 
 	for (int w_idx = 0; w_idx < MAX_WINDOWS; w_idx++) {
 		struct editor_window *w = &winlist[w_idx];
-		if (w->active && w->bufidx == buffer_index) {
+		if (w->active && win_shows_buffer(w, target)) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? wcur()->rowoff
-							    : w->rowoff;
-			int cursor_row = (w_idx == win_current)
-			    ? (wcur()->rowoff + wcur()->cy)
-			    : (w->rowoff + w->cy);
+			int rowoff = w->rowoff;
+			int cursor_row = w->rowoff + w->cy;
+
 			if (old_numrows <= 0 || rowoff + h >= old_numrows) {
 				follow_viewport[w_idx] = true;
 			}
@@ -1878,13 +1952,10 @@ int buf_append_special_text(
 	int new_numrows = b->numrows;
 	for (int w_idx = 0; w_idx < MAX_WINDOWS; w_idx++) {
 		struct editor_window *w = &winlist[w_idx];
-		if (w->active && w->bufidx == buffer_index) {
+		if (w->active && win_shows_buffer(w, target)) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? wcur()->rowoff
-							    : w->rowoff;
-			int cursor_row = (w_idx == win_current)
-			    ? (wcur()->rowoff + wcur()->cy)
-			    : (w->rowoff + w->cy);
+			int rowoff = w->rowoff;
+			int cursor_row = w->rowoff + w->cy;
 
 			if (follow_viewport[w_idx]) {
 				rowoff
@@ -1910,18 +1981,9 @@ int buf_append_special_text(
 				}
 			}
 
-			int cy = cursor_row - rowoff;
-			int cx = 0;
-
-			if (w_idx == win_current) {
-				wcur()->rowoff = rowoff;
-				wcur()->cy = cy;
-				wcur()->cx = cx;
-			} else {
-				w->rowoff = rowoff;
-				w->cy = cy;
-				w->cx = cx;
-			}
+			w->rowoff = rowoff;
+			w->cy = cursor_row - rowoff;
+			w->cx = 0;
 		}
 	}
 

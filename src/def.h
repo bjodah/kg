@@ -76,6 +76,9 @@
 #include <time.h>
 #include <unistd.h>
 
+/* struct editor_window stores a buffer handle by value, and is defined
+ * before the buffer table is, so the type has to arrive first. */
+#include "bufhandle.h"
 #include "cmd.h"
 #include "perf.h"
 
@@ -337,7 +340,13 @@ struct kg_point {
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
-	int bufidx; /* Which buffer this window shows */
+	/* Which buffer this window shows, by identity rather than by slot:
+	 * a slot is reused, so a window left on a killed buffer would
+	 * otherwise start showing whoever took its place.  A zeroed handle
+	 * names nothing, which is what an inactive or detached view holds.
+	 * See bufhandle.h; win_buffer()/win_buffer_slot() are the only
+	 * supported ways to read it. */
+	struct kg_buffer_handle buf;
 	int cx, cy; /* Cursor position within window */
 	int rowoff, coloff; /* Scroll offsets */
 	int y, x; /* Top-left corner on terminal (1-based) */
@@ -358,9 +367,10 @@ struct editor_buffer {
 	 * the life of the process; `generation` counts the times this slot has
 	 * changed hands.  Both are needed to tell "the buffer I meant" from
 	 * "another buffer that happens to sit where it did".  A slot that has
-	 * never been used has id 0. */
-	uint32_t id;
-	uint32_t generation;
+	 * never been used has id 0, and so does one a claim could not give an
+	 * identity to; neither is ever matched. */
+	uint64_t id;
+	uint64_t generation;
 	struct kg_point last_point; /* Where a view last left off here. */
 	int numrows;
 	erow *row;
@@ -394,20 +404,6 @@ struct editor_buffer {
 	int auto_revert;
 	int visual_line_mode;
 	int overwrite_mode;
-};
-
-/* A reference to a buffer that outlives the command that took it.
- *
- * A bare slot index does not: buf_kill() frees the slot and the next open
- * hands it to an unrelated buffer, so an index kept across commands can
- * quietly start naming somebody else's text.  The identity pair survives
- * that, because buf_resolve() refuses to answer unless the slot still holds
- * the same (id, generation) the handle was taken from.  A zeroed handle
- * names nothing. */
-struct kg_buffer_handle {
-	int slot;
-	uint32_t id;
-	uint32_t generation;
 };
 
 /* Global editor state */
@@ -505,11 +501,7 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
 void buf_select(int slot);
-void buf_remember_view(const struct editor_window *w);
-void buf_attach_view(struct editor_window *w, int slot);
-struct kg_buffer_handle buf_handle(int slot);
-struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
-int buf_handle_slot(struct kg_buffer_handle handle);
+/* Buffer identity and the view API that speaks it: see bufhandle.h. */
 void buf_visit_file(const char *filename, int explicit_readonly);
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 

@@ -144,7 +144,82 @@ static void test_load_row_array_growth(void)
 	 * It used to realloc to an exact size once per line, so loading R
 	 * lines copied O(R^2) row records. */
 	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(lines));
+	/* One render and one highlight per staged row, not one per row per
+	 * line read, and not a second pass on commit. */
+	CHECK(counter(KG_PERF_ROW_UPDATE) == (unsigned long long)lines + 1);
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == (unsigned long long)lines + 1);
 	free_load_result(&res);
+	unlink(path);
+	teardown();
+}
+
+/* The staged pass is the only highlight pass a load pays for now, so it
+ * has to leave the buffer in the state a from-scratch rehighlight would:
+ * same hl bytes, same hl_oc, row for row.  Comment-heavy C is the shape
+ * that can disagree -- an unterminated block comment sets hl_oc, which is
+ * the state the next row reads. */
+static void test_load_highlight_is_final(void)
+{
+	char path[64] = "test_perf_hl_XXXXXX.c";
+	unsigned char **hl = NULL;
+	int *oc = NULL;
+	int fd, i, rows;
+	FILE *fp;
+
+	setup();
+	fd = mkstemps(path, 2);
+	CHECK(fd >= 0);
+	if (fd < 0) {
+		teardown();
+		return;
+	}
+	fp = fdopen(fd, "w");
+	CHECK(fp != NULL);
+	if (!fp) {
+		close(fd);
+		unlink(path);
+		teardown();
+		return;
+	}
+	for (i = 0; i < 40; i++) {
+		fprintf(fp, "/* a comment opened on this row\n");
+		fprintf(fp, " * and continued across this one%s\n",
+		    i % 3 ? "" : " */");
+		fprintf(fp, "int v%d = %d; /* trailing */ \"str\"\n", i, i);
+		fprintf(fp, "#define M%d \"unterminated /* inside\n", i);
+	}
+	fclose(fp);
+
+	CHECK(editor_open(path) == 0);
+	rows = editor.numrows;
+	CHECK(rows > 100);
+	hl = calloc((size_t)rows, sizeof(*hl));
+	oc = calloc((size_t)rows, sizeof(*oc));
+	CHECK(hl != NULL && oc != NULL);
+	if (hl && oc) {
+		for (i = 0; i < rows; i++) {
+			oc[i] = editor.row[i].hl_oc;
+			if (editor.row[i].rsize > 0) {
+				hl[i] = malloc((size_t)editor.row[i].rsize);
+				memcpy(hl[i], editor.row[i].hl,
+				    (size_t)editor.row[i].rsize);
+			}
+		}
+		editor_rehighlight_all();
+		for (i = 0; i < rows; i++) {
+			CHECK(oc[i] == editor.row[i].hl_oc);
+			if (hl[i]) {
+				CHECK(memcmp(hl[i], editor.row[i].hl,
+					  (size_t)editor.row[i].rsize)
+				    == 0);
+			}
+			free(hl[i]);
+		}
+	}
+	free(hl);
+	free(oc);
+	free(editor.filename);
+	editor.filename = NULL;
 	unlink(path);
 	teardown();
 }
@@ -384,6 +459,7 @@ static void test_visual_line_scan_per_refresh(void)
 int main(void)
 {
 	RUN(test_load_row_array_growth);
+	RUN(test_load_highlight_is_final);
 	RUN(test_insert_row_array_growth);
 	RUN(test_special_text_append_growth);
 	RUN(test_frame_append_growth);

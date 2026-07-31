@@ -310,13 +310,8 @@ static int load_append_row(
 {
 	int at;
 	int new_numrows;
-	int saved_running;
 	size_t chars_size;
 	char *newchars;
-	erow *saved_row;
-	int saved_numrows;
-	int saved_capacity;
-	struct editor_syntax *saved_syntax;
 
 	if (!checked_size_to_int(&at, linelen)
 	    || !checked_add_int_size(&new_numrows, res->numrows, 1)
@@ -347,59 +342,78 @@ static int load_append_row(
 		.chars = newchars,
 	};
 	res->numrows = new_numrows;
+	return 0;
+}
 
-	/* Rendering and syntax highlighting are shared editor machinery.  It is
-	 * safe here because the staged rows are installed as a complete prefix;
-	 * restore all live state before reporting a staged allocation failure.
-	 */
-	saved_row = editor.row;
-	saved_numrows = editor.numrows;
-	saved_capacity = editor.row_capacity;
-	saved_syntax = editor.syntax;
-	saved_running = running;
+/* Render and highlight every staged row, once, with the syntax the
+ * staged filename selects.
+ *
+ * Rendering and syntax highlighting are shared editor machinery, so the
+ * staged array is installed as the live one for the duration and all live
+ * state is restored before any failure is reported.  editor.numrows grows
+ * a row at a time on purpose: each row is updated as the last row of the
+ * staged prefix, which is what stops an hl_oc flip from propagating into
+ * rows that have no render yet -- and turning the pass quadratic.
+ *
+ * Syntax selection happens once here rather than once per row.  It reads
+ * only the filename, but for a file with no recognised extension it
+ * re-opens the file to look for a hash-bang, so the old per-row call
+ * opened and read the file once per line.
+ *
+ * Returns 0, or -1 with errno set when a row could not be rendered. */
+static int load_stage_rows(struct temp_load_result *res)
+{
+	erow *saved_row = editor.row;
+	int saved_numrows = editor.numrows;
+	int saved_capacity = editor.row_capacity;
+	struct editor_syntax *saved_syntax = editor.syntax;
+	int saved_running = running;
+	int i, failed = 0;
+
 	editor.row = res->row;
-	editor.numrows = res->numrows;
+	editor.numrows = 0;
 	editor.row_capacity = res->row_capacity;
 	editor_select_syntax_highlight(res->filename);
-	editor_update_row(&res->row[at]);
+	for (i = 0; i < res->numrows; i++) {
+		editor.numrows = i + 1;
+		editor_update_row(&res->row[i]);
+		if (!res->row[i].render || running != saved_running) {
+			failed = 1;
+			break;
+		}
+	}
 	editor.row = saved_row;
 	editor.numrows = saved_numrows;
 	editor.row_capacity = saved_capacity;
 	editor.syntax = saved_syntax;
-	if (!res->row[at].render || running != saved_running) {
-		running = saved_running;
+	running = saved_running;
+	if (failed) {
 		errno = ENOMEM;
 		return -1;
 	}
 	return 0;
 }
 
-int load_file_transactional(const char *filename, struct temp_load_result *res)
+/* Roll a partial load back and report it.  free_load_result() must not
+ * be allowed to disturb the errno the caller has to see. */
+static int load_failed(struct temp_load_result *res, int saved_errno)
 {
-	KG_PERF_INC(KG_PERF_LOAD);
-	memset(res, 0, sizeof(*res));
-	res->filename = strdup(filename);
-	if (!res->filename) {
-		errno = ENOMEM;
-		return -1;
-	}
+	free_load_result(res);
+	errno = saved_errno;
+	return -1;
+}
 
-	FILE *fp = fopen(filename, "r");
-	if (!fp) {
-		if (errno == ENOENT) {
-			return 0;
-		}
-		free(res->filename);
-		res->filename = NULL;
-		return -1;
-	}
-
-	(void)file_snapshot_fd(fileno(fp), &res->disk);
-
+/* Read `fp` line by line into staged rows, dropping one trailing '\n' or
+ * '\r' per line and opening a final empty row when the file ended with
+ * one.  Returns 0, or -1 with errno set; the caller still has to ask
+ * ferror() whether the read itself ended badly. */
+static int load_read_rows(FILE *fp, struct temp_load_result *res)
+{
 	char *line = NULL;
 	size_t linecap = 0;
 	ssize_t linelen;
 	int ended_with_newline = 0;
+	int rc = 0;
 
 	while ((linelen = getline(&line, &linecap, fp)) != -1) {
 		ended_with_newline = 0;
@@ -411,41 +425,64 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 		}
 
 		if (load_append_row(res, line, (size_t)linelen) != 0) {
-			goto load_error;
+			rc = -1;
+			break;
 		}
 	}
-
-	if (ended_with_newline) {
-		if (load_append_row(res, "", 0) != 0) {
-			goto load_error;
-		}
+	if (rc == 0 && ended_with_newline) {
+		rc = load_append_row(res, "", 0);
 	}
-
 	free(line);
+	return rc;
+}
 
-	if (ferror(fp)) {
-		int saved_errno = errno ? errno : EIO;
-		fclose(fp);
-		free_load_result(res);
-		errno = saved_errno;
+int load_file_transactional(const char *filename, struct temp_load_result *res)
+{
+	FILE *fp;
+	int saved_errno;
+
+	KG_PERF_INC(KG_PERF_LOAD);
+	memset(res, 0, sizeof(*res));
+	res->filename = strdup(filename);
+	if (!res->filename) {
+		errno = ENOMEM;
 		return -1;
 	}
 
-	if (fclose(fp) != 0) {
-		free_load_result(res);
+	fp = fopen(filename, "r");
+	if (!fp) {
+		if (errno == ENOENT) {
+			return 0;
+		}
+		free(res->filename);
+		res->filename = NULL;
 		return -1;
+	}
+
+	(void)file_snapshot_fd(fileno(fp), &res->disk);
+
+	if (load_read_rows(fp, res) != 0) {
+		saved_errno = errno;
+		fclose(fp);
+		return load_failed(res, saved_errno);
+	}
+	if (ferror(fp)) {
+		saved_errno = errno ? errno : EIO;
+		fclose(fp);
+		return load_failed(res, saved_errno);
+	}
+	if (fclose(fp) != 0) {
+		return load_failed(res, errno);
+	}
+
+	/* One render and highlight pass over the staged rows, after the
+	 * file is closed: the shebang probe in syntax selection opens it
+	 * again. */
+	if (load_stage_rows(res) != 0) {
+		return load_failed(res, errno);
 	}
 
 	return 0;
-
-load_error: {
-	int saved_errno = errno;
-	free(line);
-	fclose(fp);
-	free_load_result(res);
-	errno = saved_errno;
-	return -1;
-}
 }
 
 void commit_load_result(struct temp_load_result *res)
@@ -465,10 +502,18 @@ void commit_load_result(struct temp_load_result *res)
 	editor.disk_changed = 0;
 	editor.dirty = 0;
 
+	/* The staged pass (load_stage_rows()) already rendered and
+	 * highlighted every row in order, with the syntax this filename
+	 * selects, so re-highlighting here would recompute the same hl and
+	 * hl_oc for every row -- two full passes over the buffer on every
+	 * open.  The selection itself stays: the staged pass restored the
+	 * outgoing buffer's syntax on its way out, and this is the live
+	 * buffer's.
+	 *
+	 * test_load_highlight_is_final() in test/test_perf.c is the proof:
+	 * it compares every row's hl bytes and hl_oc after a load against a
+	 * from-scratch editor_rehighlight_all(). */
 	editor_select_syntax_highlight(editor.filename);
-	for (i = 0; i < editor.numrows; i++) {
-		editor_update_syntax(&editor.row[i]);
-	}
 
 	res->filename = NULL;
 	res->row = NULL;

@@ -1209,6 +1209,11 @@ Bound to
 in
 .Pa *scratch*
 and Lisp Interaction buffers.
+.It execute-extended-command
+Read a command name in the minibuffer and run it.
+Bound to
+.Ic M-x .
+A numeric argument is passed to the command it runs.
 .It fill-paragraph
 Reflow the paragraph around point to the fill column.
 Bound to
@@ -1247,6 +1252,10 @@ in every buffer.
 Go to a specific line (prompts for line or line:col).
 Equivalent to
 .Ic M-g .
+.It help
+Show the built-in key binding help in a read-only buffer.
+Bound to
+.Ic C-h .
 .It isearch-backward
 Incremental search backward.
 Bound to
@@ -1304,6 +1313,18 @@ Kill the word after point.
 Bound to
 .Ic M-d .
 A numeric argument repeats it.
+.It kmacro-end-or-call-macro
+Finish recording a keyboard macro, or replay the last one when not
+recording.
+Bound to
+.Ic F4 .
+A numeric argument replays it that many times.
+.It kmacro-start-macro
+Start recording a keyboard macro.
+Bound to
+.Ic F3
+and
+.Ic C-x \&( .
 .It lisp-interaction-mode
 Enable Lisp Interaction mode in the current buffer.
 In this mode
@@ -1454,6 +1475,11 @@ If the region end is at column 0 of a line, that final line is excluded
 from the sort.
 The entire sort is reversible in one step with
 .Ic C-_ .
+.It suspend-editor
+Suspend kg and return to the shell; resume it with
+.Ic fg .
+Bound to
+.Ic C-z .
 .It toggle-read-only
 Alias for
 .Ic read-only-mode .

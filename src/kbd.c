@@ -742,6 +742,14 @@ static const struct {
 	{ "M-\\", "delete-horizontal-space" },
 	{ "M-SPC", "just-one-space" },
 	{ "M-z", "zap-to-char" },
+	{ "C-h", "help" },
+	{ "C-z", "suspend-editor" },
+	{ "M-:", "eval-expression" },
+	{ "M-x", "execute-extended-command" },
+	{ "M-!", "shell-command" },
+	{ "M-|", "shell-command-on-region" },
+	{ "<f3>", "kmacro-start-macro" },
+	{ "<f4>", "kmacro-end-or-call-macro" },
 };
 
 static struct keymap *global_map;
@@ -968,12 +976,6 @@ void editor_process_keypress(int fd)
 		editor.cc_prefix = 1;
 		editor_set_status_message("C-c-");
 		return;
-	case CTRL_H: /* Help */
-		buf_open_help();
-		break;
-	case CTRL_Z: /* Suspend to shell */
-		editor_suspend();
-		break;
 	case SHIFT_ARROW_LEFT:
 	case SHIFT_ARROW_RIGHT:
 	case SHIFT_ARROW_UP:
@@ -996,34 +998,12 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	}
-	case ALT_COLON: /* Eval expression */
-		(void)cmd_execute_named("eval-expression", fd);
-		break;
-	case ALT_X: /* Named command */
-		editor_named_command(fd);
-		break;
 	case ALT_P: /* M-p / M-n: reorder git-rebase-todo lines */
 	case ALT_N:
 		if (syntax_is_git_rebase()) {
 			while (n--) {
 				editor_rebase_move_line(c == ALT_P ? -1 : 1);
 			}
-		}
-		break;
-	case ALT_BANG: /* Shell command */
-		editor_shell_command(fd, prefix.supplied);
-		break;
-	case ALT_PIPE: /* Shell command on region */
-		editor_shell_command_on_region(fd, prefix.supplied);
-		break;
-	case KEY_F3: /* F3: Start keyboard macro */
-		macro_start();
-		break;
-	case KEY_F4: /* F4: Stop if recording, else execute; C-u N repeats */
-		if (macro_is_recording()) {
-			macro_stop(1);
-		} else {
-			macro_replay(fd, n);
 		}
 		break;
 	default:

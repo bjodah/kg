@@ -795,6 +795,38 @@ static void cmd_self_insert(int fd)
 	}
 }
 
+/* ---- Help, the shell, and keyboard macros ---- */
+static void cmd_help(int fd)
+{
+	(void)fd;
+	buf_open_help();
+}
+
+static void cmd_suspend_editor(int fd)
+{
+	(void)fd;
+	editor_suspend();
+}
+
+static void cmd_kmacro_start(int fd)
+{
+	(void)fd;
+	macro_start();
+}
+
+/* F4 finishes a recording or replays the last one; the recording itself
+ * is the input layer's, since it is the keystrokes that are recorded. */
+static void cmd_kmacro_end_or_call(int fd)
+{
+	if (macro_is_recording()) {
+		macro_stop(1);
+		return;
+	}
+	macro_replay(fd, prefix_count());
+}
+
+static void cmd_execute_extended_command(int fd) { editor_named_command(fd); }
+
 /* ---- Search, words, case and whitespace ---- */
 static void cmd_isearch_forward(int fd) { editor_find(fd, 1); }
 
@@ -1158,6 +1190,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Evaluate the s-expression before point" },
 	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE,
 	    "Evaluate the s-expression before point and insert it" },
+	{ "execute-extended-command", cmd_execute_extended_command, CMD_NONE,
+	    "Read a command name and run it" },
 	{ "fill-paragraph", cmd_fill_paragraph, EDITS,
 	    "Reflow this paragraph to the fill column" },
 	{ "forward-char", cmd_forward_char, REPEATS,
@@ -1188,6 +1222,7 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle auto-revert for every buffer at once" },
 	{ "goto-line", cmd_goto_line, CMD_NONE,
 	    "Move point to a line, or a line and column" },
+	{ "help", cmd_help, CMD_NONE, "Show the built-in key binding help" },
 	{ "isearch-backward", cmd_isearch_backward, CMD_NONE,
 	    "Incremental search backward" },
 	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE,
@@ -1210,6 +1245,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Copy the region to the kill ring" },
 	{ "kill-word", cmd_kill_word, EDITS | REPEATS,
 	    "Kill the word after point" },
+	{ "kmacro-end-or-call-macro", cmd_kmacro_end_or_call, CMD_NONE,
+	    "Finish recording a macro, or replay the last one" },
+	{ "kmacro-start-macro", cmd_kmacro_start, CMD_NONE,
+	    "Start recording a keyboard macro" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
 	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
@@ -1265,6 +1304,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Pipe the region through a shell command" },
 	{ "sort-lines", cmd_sort_lines, EDITS,
 	    "Sort the lines of the region in ascending order" },
+	{ "suspend-editor", cmd_suspend_editor, CMD_NONE,
+	    "Suspend kg and return to the shell" },
 	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE,
 	    "Toggle whether this buffer refuses edits" },
 	{ "transpose-chars", cmd_transpose_chars, EDITS | REPEATS | LISP_OK,

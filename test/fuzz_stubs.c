@@ -488,6 +488,22 @@ static void fuzz_isearch_backward(int fd) { editor_find(fd, -1); }
 
 static void fuzz_query_replace(int fd) { editor_query_replace(fd); }
 
+static void fuzz_kmacro_start(int fd)
+{
+	(void)fd;
+	macro_start();
+}
+
+static void fuzz_kmacro_end_or_call(int fd)
+{
+	if (macro_is_recording()) {
+		macro_stop(1);
+		return;
+	}
+	macro_replay(fd,
+	    editor.current_prefix.supplied ? editor.current_prefix.value : 1);
+}
+
 static void fuzz_quoted_insert(int fd)
 {
 	int key = editor_read_raw_byte(fd);
@@ -533,6 +549,9 @@ static const struct named_cmd fuzz_cmdtable[] = {
 	{ "join-line", fuzz_join_line, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
 	{ "just-one-space", fuzz_just_one_space, CMD_EDITS_BUFFER, "stub" },
 	{ "kill-word", fuzz_kill_word, CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
+	{ "kmacro-end-or-call-macro", fuzz_kmacro_end_or_call, CMD_NONE,
+	    "stub" },
+	{ "kmacro-start-macro", fuzz_kmacro_start, CMD_NONE, "stub" },
 	{ "query-replace", fuzz_query_replace, CMD_EDITS_BUFFER, "stub" },
 	{ "transpose-chars", fuzz_transpose_chars,
 	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },

@@ -740,140 +740,227 @@ static void cmd_yaml_mode(int fd)
 	editor_set_status_message("YAML mode enabled");
 }
 
-/* ---- Command table ---- */
+/* ---- Command table ----
+ *
+ * `struct named_cmd`, its flags and the invocation context live in def.h:
+ * this table is the one place that says whether a command edits the
+ * buffer and whether Lisp may ask for it.  CMD_LISP_CALLABLE replaces the
+ * separate allow-list lisp.c used to keep, which agreed with these flags
+ * only for as long as someone remembered to edit both. */
 
-typedef void (*cmdfn)(int fd);
-
-enum command_flags {
-	CMD_NONE = 0,
-	CMD_EDITS_BUFFER = 1 << 0,
-};
-
-struct named_cmd {
-	const char *name;
-	cmdfn fn;
-	unsigned flags;
-};
+#define LISP_OK CMD_LISP_CALLABLE
+#define EDITS CMD_EDITS_BUFFER
 
 static const struct named_cmd cmdtable[] = {
-	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE },
-	{ "capitalize-word", cmd_capitalize_word, CMD_EDITS_BUFFER },
-	{ "compile", editor_compile, CMD_NONE },
+	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE,
+	    "Toggle reloading this buffer when its file changes" },
+	{ "capitalize-word", cmd_capitalize_word, EDITS | LISP_OK,
+	    "Capitalize the word forward from point" },
+	{ "compile", editor_compile, CMD_NONE,
+	    "Run a compile command and collect its output" },
 	{ "delete-horizontal-space", cmd_delete_horizontal_space,
-	    CMD_EDITS_BUFFER },
-	{ "delete-trailing-space", cmd_delete_trailing_space,
-	    CMD_EDITS_BUFFER },
+	    EDITS | LISP_OK, "Delete spaces and tabs around point" },
+	{ "delete-trailing-space", cmd_delete_trailing_space, EDITS | LISP_OK,
+	    "Delete trailing whitespace on this line" },
 	/* Dired buffers are read-only by design, and CMD_EDITS_BUFFER is
 	 * exactly the flag that refuses a command in a read-only buffer;
 	 * dired's commands guard themselves on the syntax pointer instead. */
-	{ "dired", cmd_dired, CMD_NONE },
-	{ "dired-do-flagged-delete", dired_do_flagged_delete, CMD_NONE },
-	{ "dired-find-file", cmd_dired_find_file, CMD_NONE },
-	{ "dired-flag-file-deletion", cmd_dired_flag_file_deletion, CMD_NONE },
-	{ "dired-mark", cmd_dired_mark, CMD_NONE },
-	{ "dired-revert", cmd_dired_revert, CMD_NONE },
-	{ "dired-unmark", cmd_dired_unmark, CMD_NONE },
-	{ "dired-up-directory", cmd_dired_up_directory, CMD_NONE },
-	{ "downcase-word", cmd_downcase_word, CMD_EDITS_BUFFER },
-	{ "electric-pair-mode", cmd_electric_pair_mode, CMD_NONE },
-	{ "eval-buffer", cmd_eval_buffer, CMD_NONE },
-	{ "eval-expression", cmd_eval_expression, CMD_NONE },
-	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE },
-	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE },
-	{ "git-rebase-drop", cmd_rebase_drop, CMD_EDITS_BUFFER },
-	{ "git-rebase-edit", cmd_rebase_edit, CMD_EDITS_BUFFER },
-	{ "git-rebase-fixup", cmd_rebase_fixup, CMD_EDITS_BUFFER },
-	{ "git-rebase-move-line-down", cmd_rebase_move_down, CMD_EDITS_BUFFER },
-	{ "git-rebase-move-line-up", cmd_rebase_move_up, CMD_EDITS_BUFFER },
-	{ "git-rebase-pick", cmd_rebase_pick, CMD_EDITS_BUFFER },
-	{ "git-rebase-reword", cmd_rebase_reword, CMD_EDITS_BUFFER },
-	{ "git-rebase-squash", cmd_rebase_squash, CMD_EDITS_BUFFER },
-	{ "global-auto-revert-mode", cmd_global_auto_revert_mode, CMD_NONE },
-	{ "goto-line", cmd_goto_line, CMD_NONE },
-	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE },
-	{ "isearch-forward-regexp", cmd_isearch_forward_regexp, CMD_NONE },
-	{ "join-line", cmd_join_line, CMD_EDITS_BUFFER },
-	{ "just-one-space", cmd_just_one_space, CMD_EDITS_BUFFER },
-	{ "kill-compilation", editor_kill_compilation, CMD_NONE },
-	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE },
-	{ "not-modified", cmd_not_modified, CMD_NONE },
-	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE },
-	{ "query-replace-regexp", cmd_query_replace_regexp, CMD_EDITS_BUFFER },
-	{ "read-only-mode", cmd_read_only_mode, CMD_NONE },
-	{ "recompile", editor_recompile, CMD_NONE },
-	{ "revert-buffer", cmd_revert_buffer, CMD_NONE },
-	{ "save-buffer", cmd_save_buffer, CMD_NONE },
-	{ "shell-command", cmd_shell_command, CMD_NONE },
-	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE },
-	{ "sort-lines", cmd_sort_lines, CMD_EDITS_BUFFER },
-	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE },
-	{ "transpose-chars", cmd_transpose_chars, CMD_EDITS_BUFFER },
-	{ "upcase-word", cmd_upcase_word, CMD_EDITS_BUFFER },
-	{ "version", cmd_version, CMD_NONE },
-	{ "visual-line-mode", cmd_visual_line_mode, CMD_NONE },
-	{ "what-cursor-position", cmd_what_cursor_position, CMD_NONE },
-	{ "whitespace-cleanup", cmd_whitespace_cleanup, CMD_EDITS_BUFFER },
-	{ "yaml-mode", cmd_yaml_mode, CMD_NONE },
-	{ "zap-to-char", cmd_zap_to_char, CMD_EDITS_BUFFER },
-	{ NULL, NULL, CMD_NONE },
+	{ "dired", cmd_dired, CMD_NONE, "Open a directory listing" },
+	{ "dired-do-flagged-delete", dired_do_flagged_delete, CMD_NONE,
+	    "Delete the files flagged in this listing" },
+	{ "dired-find-file", cmd_dired_find_file, CMD_NONE,
+	    "Visit the file or directory on this line" },
+	{ "dired-flag-file-deletion", cmd_dired_flag_file_deletion, CMD_NONE,
+	    "Flag the file on this line for deletion" },
+	{ "dired-mark", cmd_dired_mark, CMD_NONE,
+	    "Mark the file on this line" },
+	{ "dired-revert", cmd_dired_revert, CMD_NONE,
+	    "Re-read the directory this listing shows" },
+	{ "dired-unmark", cmd_dired_unmark, CMD_NONE,
+	    "Remove the mark from the file on this line" },
+	{ "dired-up-directory", cmd_dired_up_directory, CMD_NONE,
+	    "Visit the parent of this directory" },
+	{ "downcase-word", cmd_downcase_word, EDITS | LISP_OK,
+	    "Convert the word forward from point to lower case" },
+	{ "electric-pair-mode", cmd_electric_pair_mode, LISP_OK,
+	    "Toggle auto-insertion of closing brackets and quotes" },
+	{ "eval-buffer", cmd_eval_buffer, CMD_NONE,
+	    "Evaluate the whole buffer as Lisp" },
+	{ "eval-expression", cmd_eval_expression, CMD_NONE,
+	    "Read one Lisp expression and evaluate it" },
+	{ "eval-last-sexp", cmd_eval_last_sexp_cmd, CMD_NONE,
+	    "Evaluate the s-expression before point" },
+	{ "eval-print-last-sexp", cmd_eval_print_last_sexp_cmd, CMD_NONE,
+	    "Evaluate the s-expression before point and insert it" },
+	{ "git-rebase-drop", cmd_rebase_drop, EDITS,
+	    "Set this rebase line's action to drop" },
+	{ "git-rebase-edit", cmd_rebase_edit, EDITS,
+	    "Set this rebase line's action to edit" },
+	{ "git-rebase-fixup", cmd_rebase_fixup, EDITS,
+	    "Set this rebase line's action to fixup" },
+	{ "git-rebase-move-line-down", cmd_rebase_move_down, EDITS,
+	    "Move this rebase line one line down" },
+	{ "git-rebase-move-line-up", cmd_rebase_move_up, EDITS,
+	    "Move this rebase line one line up" },
+	{ "git-rebase-pick", cmd_rebase_pick, EDITS,
+	    "Set this rebase line's action to pick" },
+	{ "git-rebase-reword", cmd_rebase_reword, EDITS,
+	    "Set this rebase line's action to reword" },
+	{ "git-rebase-squash", cmd_rebase_squash, EDITS,
+	    "Set this rebase line's action to squash" },
+	{ "global-auto-revert-mode", cmd_global_auto_revert_mode, CMD_NONE,
+	    "Toggle auto-revert for every buffer at once" },
+	{ "goto-line", cmd_goto_line, CMD_NONE,
+	    "Move point to a line, or a line and column" },
+	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE,
+	    "Incremental regexp search backward" },
+	{ "isearch-forward-regexp", cmd_isearch_forward_regexp, CMD_NONE,
+	    "Incremental regexp search forward" },
+	{ "join-line", cmd_join_line, EDITS | LISP_OK,
+	    "Join this line to the previous one" },
+	{ "just-one-space", cmd_just_one_space, EDITS | LISP_OK,
+	    "Collapse spaces and tabs around point to one space" },
+	{ "kill-compilation", editor_kill_compilation, CMD_NONE,
+	    "Terminate the running compilation" },
+	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
+	    "Use Lisp Interaction mode in this buffer" },
+	{ "not-modified", cmd_not_modified, CMD_NONE,
+	    "Clear the modified flag without saving" },
+	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
+	    "Toggle overwriting instead of inserting" },
+	{ "query-replace-regexp", cmd_query_replace_regexp, EDITS,
+	    "Replace regexp matches, asking about each one" },
+	{ "read-only-mode", cmd_read_only_mode, CMD_NONE,
+	    "Toggle whether this buffer refuses edits" },
+	{ "recompile", editor_recompile, CMD_NONE,
+	    "Run the previous compile command again" },
+	{ "revert-buffer", cmd_revert_buffer, CMD_NONE,
+	    "Re-read this buffer from its file" },
+	{ "save-buffer", cmd_save_buffer, CMD_NONE,
+	    "Write this buffer to its file" },
+	{ "shell-command", cmd_shell_command, CMD_NONE,
+	    "Run a shell command and show its output" },
+	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE,
+	    "Pipe the region through a shell command" },
+	{ "sort-lines", cmd_sort_lines, EDITS,
+	    "Sort the lines of the region in ascending order" },
+	{ "toggle-read-only", cmd_read_only_mode, CMD_NONE,
+	    "Toggle whether this buffer refuses edits" },
+	{ "transpose-chars", cmd_transpose_chars, EDITS | LISP_OK,
+	    "Transpose the characters around point" },
+	{ "upcase-word", cmd_upcase_word, EDITS | LISP_OK,
+	    "Convert the word forward from point to upper case" },
+	{ "version", cmd_version, LISP_OK, "Show the editor version" },
+	{ "visual-line-mode", cmd_visual_line_mode, CMD_NONE,
+	    "Toggle wrapping long lines at the window edge" },
+	{ "what-cursor-position", cmd_what_cursor_position, LISP_OK,
+	    "Show the line, column and position at point" },
+	{ "whitespace-cleanup", cmd_whitespace_cleanup, EDITS,
+	    "Delete trailing whitespace on every line" },
+	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
+	    "Use YAML mode in this buffer" },
+	{ "zap-to-char", cmd_zap_to_char, EDITS,
+	    "Kill through the next occurrence of a character" },
+	{ NULL, NULL, CMD_NONE, NULL },
 };
 
-int cmd_static_exists(const char *name)
+#undef LISP_OK
+#undef EDITS
+
+/* The descriptor every Lisp-defined command gets until plan 11 phase 8
+ * lets a `defun` declare its own.  CMD_EDITS_BUFFER is the safe half of
+ * the guess -- a Lisp body cannot be asked what it intends -- and the
+ * missing CMD_LISP_CALLABLE keeps (command-execute ...) restricted to
+ * built-ins, exactly as the allow-list it replaced did. */
+static const struct named_cmd lisp_defined_command
+    = { NULL, NULL, CMD_EDITS_BUFFER, NULL };
+
+static int cmd_static_count(void)
+{
+	static int n = -1;
+
+	if (n < 0) {
+		for (n = 0; cmdtable[n].name; n++) {
+			;
+		}
+	}
+	return n;
+}
+
+const struct named_cmd *cmd_lookup(const char *name)
 {
 	int i;
 
-	if (name == NULL) {
-		return 0;
+	if (!name) {
+		return NULL;
 	}
 	for (i = 0; cmdtable[i].name; i++) {
 		if (strcmp(cmdtable[i].name, name) == 0) {
-			return 1;
+			return &cmdtable[i];
 		}
 	}
-	return 0;
+	return NULL;
 }
 
+/* The static table by position, for callers that enumerate it (the M-x
+ * picker, the table's own invariant tests).  Lisp-defined commands are
+ * not here; kg_lisp_command_name() continues the enumeration. */
+const struct named_cmd *cmd_descriptor_at(int index)
+{
+	return index >= 0 && index < cmd_static_count() ? &cmdtable[index]
+							: NULL;
+}
+
+/* The one route into a command.  It owns the read-only refusal, the
+ * Lisp-callability verdict, and the prefix argument the command will see:
+ * execution sites outside the per-keystroke dispatch in kbd.c (Lisp, the
+ * M-x picker) have no keystroke setting editor.current_prefix for them,
+ * so reading it ambiently there would leak a stale prefix from an
+ * unrelated earlier keystroke.  Save/restore keeps the ambient global
+ * correct for the handful of commands (shell-command and
+ * shell-command-on-region) that still read it. */
+int cmd_invoke(const char *name, const struct command_context *ctx)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
+	struct command_prefix saved;
+
+	if (!cmd) {
+		if (!kg_lisp_command_exists(name)) {
+			return CMD_UNKNOWN;
+		}
+		cmd = &lisp_defined_command;
+	}
+	if (from_lisp && !(cmd->flags & CMD_LISP_CALLABLE)) {
+		return CMD_NOT_CALLABLE;
+	}
+	if ((cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly) {
+		/* Lisp reports its own refusal as an error; saying it in
+		 * the echo area too would leave the wrong one showing. */
+		if (!from_lisp) {
+			editor_set_status_message("Buffer is read-only");
+		}
+		return CMD_READ_ONLY;
+	}
+	saved = editor.current_prefix;
+	editor.current_prefix = ctx->prefix;
+	if (cmd->fn) {
+		cmd->fn(ctx->fd);
+	} else {
+		(void)kg_lisp_run_command(name, ctx->fd);
+	}
+	editor.current_prefix = saved;
+	return CMD_RAN;
+}
+
+/* Key dispatch's entry point: the ambient prefix is the one the keystroke
+ * just set.  Returns 1 only when no command of that name exists. */
 int cmd_execute_named(const char *name, int fd)
 {
-	int i;
+	struct command_context ctx
+	    = { fd, editor.current_prefix, CMD_ORIGIN_KEY };
 
-	if (name == NULL) {
-		return 1;
-	}
-	for (i = 0; cmdtable[i].name; i++) {
-		if (strcmp(cmdtable[i].name, name) == 0) {
-			if ((cmdtable[i].flags & CMD_EDITS_BUFFER)
-			    && bcur()->readonly) {
-				editor_set_status_message(
-				    "Buffer is read-only");
-				return 0;
-			}
-			cmdtable[i].fn(fd);
-			return 0;
-		}
-	}
-	return kg_lisp_run_command(name, fd);
-}
-
-/* Run `name` with an explicit prefix argument rather than whatever
- * editor.current_prefix happens to hold.  Named-command execution sites
- * outside the per-keystroke dispatch in kbd.c (Lisp's (command ...), the
- * M-x picker) don't have a keystroke of their own setting current_prefix
- * for them, so reading it ambiently there can leak a stale prefix left
- * over from an unrelated earlier keystroke. Save/restore keeps the ambient
- * global correct for the handful of commands (shell-command and
- * shell-command-on-region) that still read it, without threading an
- * explicit prefix parameter through every entry in cmdtable. */
-int cmd_execute_named_with_prefix(
-    const char *name, int fd, struct command_prefix prefix)
-{
-	struct command_prefix saved = editor.current_prefix;
-	int rc;
-
-	editor.current_prefix = prefix;
-	rc = cmd_execute_named(name, fd);
-	editor.current_prefix = saved;
-	return rc;
+	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
 
 /* All command names visible to the M-x picker: the static table in its
@@ -881,20 +968,10 @@ int cmd_execute_named_with_prefix(
  * picker_name_fn so editor_picker_filter() can walk it. */
 static const char *command_name_at(int idx, void *data)
 {
-	static int nstatic = -1;
-	int i;
+	const struct named_cmd *cmd = cmd_descriptor_at(idx);
 
 	(void)data;
-	if (nstatic < 0) {
-		for (i = 0; cmdtable[i].name; i++) {
-			;
-		}
-		nstatic = i;
-	}
-	if (idx < nstatic) {
-		return cmdtable[idx].name;
-	}
-	return kg_lisp_command_name(idx - nstatic);
+	return cmd ? cmd->name : kg_lisp_command_name(idx - cmd_static_count());
 }
 
 /* Name of the last command run to completion via the M-x picker (typed or
@@ -902,6 +979,15 @@ static const char *command_name_at(int idx, void *data)
  * empty M-x prompt re-runs it, mirroring Emacs' extended-command history
  * default. */
 static char last_extended_command[64];
+
+/* Run a command the M-x picker settled on, with the prefix the M-x
+ * keystroke itself carried. */
+static void mx_run(const char *name, int fd, struct command_prefix prefix)
+{
+	struct command_context ctx = { fd, prefix, CMD_ORIGIN_MX };
+
+	(void)cmd_invoke(name, &ctx);
+}
 
 /* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
  * execute. */
@@ -982,15 +1068,13 @@ void editor_named_command(int fd)
 			editor_set_status_message("");
 			if (len == 0 && !explicit_selection
 			    && last_extended_command[0]) {
-				(void)cmd_execute_named_with_prefix(
-				    last_extended_command, fd, prefix);
+				mx_run(last_extended_command, fd, prefix);
 			} else if ((len > 0 || explicit_selection) && shown > 0
 			    && sel >= 0 && sel < shown) {
 				snprintf(last_extended_command,
 				    sizeof(last_extended_command), "%s",
 				    names[sel]);
-				(void)cmd_execute_named_with_prefix(
-				    names[sel], fd, prefix);
+				mx_run(names[sel], fd, prefix);
 			} else if (len == 0) {
 				editor_set_status_message(
 				    "No previous M-x command");

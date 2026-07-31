@@ -325,6 +325,12 @@ e.g. enabling electric bracket pairing (off by default):
 call, named by a quoted symbol as in Emacs or equivalently by a string, and
 always without a prefix argument.
 
+Which commands those are, and which of them a read-only buffer refuses, is
+one table in the editor — the same one M-x and every key binding consult, so
+a command cannot be refused by one route and allowed by another. Commands
+defined in Lisp count as commands that edit the buffer, so a read-only buffer
+refuses them too; there is no way yet for a `defun` to say otherwise.
+
 Packages define interactive commands the way Emacs does, with `defun` plus
 `(interactive)`, and bind them by name:
 

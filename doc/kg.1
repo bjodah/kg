@@ -411,6 +411,12 @@ keeps, and that
 inside a
 .Li defun
 writes to.
+A command defined this way counts as a command that edits the buffer, so a
+read-only buffer refuses it before it runs, exactly as it refuses
+.Ic M-x upcase-word ;
+a
+.Li defun
+has no way yet to declare otherwise.
 .Pp
 If no files are given,
 .Nm

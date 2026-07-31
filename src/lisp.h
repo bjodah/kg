@@ -14,6 +14,9 @@ void kg_lisp_shutdown(void);
 /* Runs a Lisp-defined command: 0 when the name is known (errors are
  * shown in the status area), nonzero when no such command exists. */
 [[nodiscard]] int kg_lisp_run_command(const char *name, int fd);
+/* Whether a Lisp-defined command of this name is registered.  cmd_invoke()
+ * asks before running one so command policy is applied to it too. */
+[[nodiscard]] int kg_lisp_command_exists(const char *name);
 /* Iterates Lisp-defined command names for M-x completion; nullptr past
  * the end. */
 [[nodiscard]] const char *kg_lisp_command_name(int index);

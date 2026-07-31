@@ -1,0 +1,19 @@
+# (command-execute ...) asks cmd_invoke() for the verdict now that the
+# allow-list in lisp.c is gone; a Lisp-callable command that edits the
+# buffer must still be refused with this exact wording.
+name: lisp-command-execute-readonly
+filename: lisp-cmdexec-ro.txt
+args:
+  - -R
+requires_feature: lisp
+backend: tmux
+initial: abc
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (command-execute 'upcase-word)
+  - RET
+expected_saved: abc
+expected_screen_contains:
+  - buffer is read-only

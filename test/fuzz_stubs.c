@@ -207,16 +207,21 @@ int cmd_execute_named(const char *name, int fd)
 	(void)fd;
 	return 1;
 }
-int cmd_execute_named_with_prefix(
-    const char *name, int fd, struct command_prefix prefix)
-{
-	(void)prefix;
-	return cmd_execute_named(name, fd);
-}
-int cmd_static_exists(const char *name)
+const struct named_cmd *cmd_lookup(const char *name)
 {
 	(void)name;
-	return 0;
+	return nullptr;
+}
+const struct named_cmd *cmd_descriptor_at(int index)
+{
+	(void)index;
+	return nullptr;
+}
+int cmd_invoke(const char *name, const struct command_context *ctx)
+{
+	(void)name;
+	(void)ctx;
+	return CMD_UNKNOWN;
 }
 void editor_shell_command(int fd, int insert_output)
 {

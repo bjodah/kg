@@ -27,6 +27,20 @@ void reset_current_view(void);
 		}                                                              \
 	} while (0)
 
+/* CHECK with a printf-style note, for assertions inside a loop where the
+ * condition alone does not say which element failed. */
+#define CHECKF(cond, ...)                                                      \
+	do {                                                                   \
+		tests_run++;                                                   \
+		if (!(cond)) {                                                 \
+			fprintf(stderr, "  FAIL %s:%d: %s\n       ", __FILE__, \
+			    __LINE__, #cond);                                  \
+			fprintf(stderr, __VA_ARGS__);                          \
+			fprintf(stderr, "\n");                                 \
+			tests_failed++;                                        \
+		}                                                              \
+	} while (0)
+
 #define RUN(fn)                                                                \
 	do {                                                                   \
 		printf("  %s\n", #fn);                                         \

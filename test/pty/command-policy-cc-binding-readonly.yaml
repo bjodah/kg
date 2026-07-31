@@ -1,0 +1,19 @@
+# One read-only verdict, whichever route asks for the command.  84- and
+# 82- cover the M-x and key routes; this is the third, a "C-c <key>"
+# user binding, which reaches cmd_invoke() through keybind_lookup()
+# rather than through the picker.
+name: command-policy-cc-binding-readonly
+filename: cc-readonly.txt
+args:
+  - -R
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.fe: '(global-set-key "C-c u" "upcase-word")'
+initial: abc
+keys:
+  - C-c
+  - u
+expected_saved: abc
+expected_screen_contains:
+  - Buffer is read-only

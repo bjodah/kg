@@ -35,23 +35,55 @@ void editor_set_status_message(const char *fmt, ...)
 	    test_status_message, sizeof(test_status_message), fmt, ap);
 	va_end(ap);
 }
+/* A miniature cmdtable: enough entries to exercise every verdict
+ * cmd_invoke() can reach without linking the real cmd.c. */
+static const struct named_cmd stub_cmdtable[] = {
+	{ "version", nullptr, CMD_LISP_CALLABLE, "stub" },
+	{ "upcase-word", nullptr, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE,
+	    "stub" },
+	{ "shell-command", nullptr, CMD_NONE, "stub" },
+	{ nullptr, nullptr, CMD_NONE, nullptr },
+};
+const struct named_cmd *cmd_lookup(const char *name)
+{
+	int i;
+
+	for (i = 0; name && stub_cmdtable[i].name; i++) {
+		if (strcmp(stub_cmdtable[i].name, name) == 0) {
+			return &stub_cmdtable[i];
+		}
+	}
+	return nullptr;
+}
+const struct named_cmd *cmd_descriptor_at(int index)
+{
+	return index >= 0 && stub_cmdtable[index].name ? &stub_cmdtable[index]
+						       : nullptr;
+}
+int cmd_invoke(const char *name, const struct command_context *ctx)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	if (!cmd) {
+		return CMD_UNKNOWN;
+	}
+	if (ctx->origin == CMD_ORIGIN_LISP
+	    && !(cmd->flags & CMD_LISP_CALLABLE)) {
+		return CMD_NOT_CALLABLE;
+	}
+	if ((cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly) {
+		return CMD_READ_ONLY;
+	}
+	test_command_calls++;
+	(void)snprintf(
+	    test_command_name, sizeof(test_command_name), "%s", name);
+	return CMD_RAN;
+}
 int cmd_execute_named(const char *name, int fd)
 {
-	(void)fd;
-	test_command_calls++;
-	(void)snprintf(test_command_name, sizeof(test_command_name), "%s",
-	    name ? name : "");
-	return name ? 0 : 1;
-}
-int cmd_execute_named_with_prefix(
-    const char *name, int fd, struct command_prefix prefix)
-{
-	(void)prefix;
-	return cmd_execute_named(name, fd);
-}
-int cmd_static_exists(const char *name)
-{
-	return name && strcmp(name, "version") == 0;
+	struct command_context ctx = { fd, { 0, 0 }, CMD_ORIGIN_KEY };
+
+	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
 void buf_display_name(int idx, char *out, size_t outsize)
 {

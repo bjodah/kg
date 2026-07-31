@@ -1,0 +1,27 @@
+# NEW BEHAVIOR (plan 11 phase 1): a command defined in Lisp is refused in
+# a read-only buffer before it runs, the same way a built-in editing
+# command is.  It used to fall straight through cmd_execute_named() into
+# kg_lisp_run_command() with no descriptor to consult, so the refusal
+# depended on whichever native the body happened to reach first -- and
+# came back as a Lisp error, mid-command, if it came back at all.
+# Until Lisp can declare its own flags, every Lisp-defined command counts
+# as one that edits the buffer.
+name: lisp-defined-command-readonly
+filename: lisp-defcmd-ro.txt
+args:
+  - -R
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.fe: |
+    (defun insert-hi () (interactive) (insert "hi"))
+initial: unchanged
+keys:
+  - M-x
+  - insert-hi
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - Buffer is read-only
+expected_screen_not_contains:
+  - Lisp error

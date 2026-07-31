@@ -1225,25 +1225,6 @@ static FeObject *native_functionp(FeContext *context, FeObject *arguments)
 	    type == FeTFn || type == FeTNativeFn || type == FeTPrimitive);
 }
 
-struct allowed_command {
-	const char *name;
-	bool mutates;
-};
-
-static const struct allowed_command allowed_commands[] = {
-	{ "capitalize-word", true },
-	{ "delete-horizontal-space", true },
-	{ "delete-trailing-space", true },
-	{ "downcase-word", true },
-	{ "electric-pair-mode", false },
-	{ "join-line", true },
-	{ "just-one-space", true },
-	{ "transpose-chars", true },
-	{ "upcase-word", true },
-	{ "version", false },
-	{ "what-cursor-position", false },
-};
-
 [[noreturn]] static void command_error(
     FeContext *context, const char *prefix, const char *name)
 {
@@ -1255,49 +1236,35 @@ static const struct allowed_command allowed_commands[] = {
 
 /* (command-execute COMMAND): COMMAND names a built-in editor command, as a
  * symbol like Emacs or equivalently as a string, since fe reads the text of
- * either.  Only allowed_commands above can be run this way. */
+ * either.  Which commands may be reached this way, and which of them refuse
+ * a read-only buffer, is cmd.c's CMD_LISP_CALLABLE/CMD_EDITS_BUFFER and
+ * nothing else; this native only translates the verdict into a Fe error.
+ * Explicit empty prefix: a Lisp-invoked command has no keystroke of its
+ * own, so it must not inherit whatever prefix arg was left over from the
+ * keystroke that triggered this Lisp call (or none at all, e.g. init.fe
+ * running at startup). */
 static FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	const struct allowed_command *allowed = nullptr;
+	struct command_context ctx
+	    = { STDIN_FILENO, { 0, 0 }, CMD_ORIGIN_LISP };
+	char rejected[512];
 	char *name;
-	size_t length, i;
+	size_t length;
+	int rc;
 
 	FeRequireNoArguments(context, arguments);
 	name = copy_fe_string(context, object, &length);
 	(void)length;
-	for (i = 0; i < sizeof(allowed_commands) / sizeof(allowed_commands[0]);
-	    i++) {
-		if (strcmp(name, allowed_commands[i].name) == 0) {
-			allowed = &allowed_commands[i];
-			break;
-		}
-	}
-	if (allowed == nullptr) {
-		char rejected[512];
-
-		(void)snprintf(rejected, sizeof(rejected), "%s", name);
-		free(name);
-		command_error(context, "command is not allowed", rejected);
-	}
-	if (allowed->mutates && bcur()->readonly) {
-		free(name);
+	rc = cmd_invoke(name, &ctx);
+	(void)snprintf(rejected, sizeof(rejected), "%s", name);
+	free(name);
+	if (rc == CMD_READ_ONLY) {
 		FeHandleError(context, "buffer is read-only");
 	}
-	/* Explicit empty prefix: a Lisp-invoked command has no keystroke of
-	 * its own, so it must not inherit whatever prefix arg was left over
-	 * from the keystroke that triggered this Lisp call (or none at all,
-	 * e.g. init.fe running at startup). */
-	if (cmd_execute_named_with_prefix(
-		name, STDIN_FILENO, (struct command_prefix) { 0, 0 })
-	    != 0) {
-		char unknown[512];
-
-		(void)snprintf(unknown, sizeof(unknown), "%s", name);
-		free(name);
-		command_error(context, "unknown command", unknown);
+	if (rc != CMD_RAN) {
+		command_error(context, "command is not allowed", rejected);
 	}
-	free(name);
 	return FeNil(context);
 }
 
@@ -1477,7 +1444,7 @@ static FeObject *native_define_command(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "define-command requires a function");
 	}
 	copy_command_name(context, name_object, name, sizeof(name));
-	if (cmd_static_exists(name)) {
+	if (cmd_lookup(name) != nullptr) {
 		command_error(
 		    context, "cannot redefine built-in command", name);
 	}
@@ -2137,6 +2104,12 @@ int kg_lisp_run_command(const char *name, int fd)
 	return 0;
 }
 
+int kg_lisp_command_exists(const char *name)
+{
+	return state.initialized && name != nullptr
+	    && find_lisp_command(name) != nullptr;
+}
+
 const char *kg_lisp_command_name(int index)
 {
 	size_t i;
@@ -2205,6 +2178,12 @@ int kg_lisp_run_command(const char *name, int fd)
 	(void)name;
 	(void)fd;
 	return 1;
+}
+
+int kg_lisp_command_exists(const char *name)
+{
+	(void)name;
+	return 0;
 }
 
 const char *kg_lisp_command_name(int index)

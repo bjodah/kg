@@ -1,0 +1,16 @@
+# A command with no CMD_LISP_CALLABLE flag is still refused by name, with
+# the wording the deleted allow-list used.
+name: lisp-command-execute-not-allowed
+filename: lisp-cmdexec-deny.txt
+requires_feature: lisp
+backend: tmux
+initial: abc
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (command-execute 'compile)
+  - RET
+expected_saved: abc
+expected_screen_contains:
+  - "command is not allowed: compile"

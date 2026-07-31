@@ -154,10 +154,11 @@ static void rect_append(struct rect_block *t, const char *s, int n)
 
 static void rect_append_spaces(struct rect_block *t, int n)
 {
-	static const char spaces[16] = "                ";
+	static const char spaces[] = "                ";
+	const int chunk = (int)sizeof(spaces) - 1;
 
 	while (n > 0 && !t->oom) {
-		int take = n < (int)sizeof(spaces) ? n : (int)sizeof(spaces);
+		int take = n < chunk ? n : chunk;
 
 		rect_append(t, spaces, take);
 		n -= take;

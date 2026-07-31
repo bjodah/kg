@@ -25,6 +25,21 @@ struct local_settings {
 	unsigned malformed_entries;
 };
 
+/* What kind of value a file-local variable takes, or LOCAL_VAR_NONE for
+ * a name kg does not apply.  The three envelope parsers ask before they
+ * scan a value, because a string and a symbol are read differently. */
+enum local_var_kind {
+	LOCAL_VAR_NONE,
+	LOCAL_VAR_STRING,
+	LOCAL_VAR_BOOL,
+};
+
+enum local_var_kind localvars_kind(const char *name);
+void localvars_apply_bool(
+    struct local_settings *out, const char *text, int len);
+void localvars_apply_string(
+    struct local_settings *out, const char *text, int len);
+
 void local_settings_init(struct local_settings *settings);
 
 void local_settings_merge(

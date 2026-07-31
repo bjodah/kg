@@ -892,6 +892,113 @@ static void test_dl_find_nonexistent(void)
 	CHECK(dirlocals_find(NULL, found, sizeof(found)) == -1);
 }
 
+/* ---- One value applier, three envelopes ----
+ *
+ * The `-*- ... -*-` line, the `Local Variables:` block and
+ * `.dir-locals.el` scan differently on purpose, but a name they all
+ * find, and a value they all read, has to mean the same thing in each.
+ * That used to be three copies of "lower-case the token, compare it
+ * against t and nil, otherwise count it malformed"; this matrix is what
+ * keeps the one applier honest. */
+
+static struct local_settings via_modeline(const char *name, const char *value)
+{
+	char line[512];
+	erow rows[1];
+	struct local_settings s;
+
+	snprintf(line, sizeof(line), "-*- %s: %s -*-", name, value);
+	setup_one_row(&rows[0], line);
+	(void)localvars_parse_modeline(rows, 1, &s);
+	return s;
+}
+
+static struct local_settings via_footer(const char *name, const char *value)
+{
+	char middle[512];
+	const char *lines[3];
+
+	snprintf(middle, sizeof(middle), "# %s: %s", name, value);
+	lines[0] = "# Local Variables:";
+	lines[1] = middle;
+	lines[2] = "# End:";
+	return parse_footer_lines(lines, 3);
+}
+
+static struct local_settings via_dirlocals(const char *name, const char *value)
+{
+	char src[512];
+	struct local_settings s;
+
+	snprintf(src, sizeof(src), "((nil . ((%s . %s))))", name, value);
+	(void)dirlocals_parse(src, strlen(src), &s);
+	return s;
+}
+
+struct envelope_case {
+	const char *name;
+	const char *value;
+	enum local_bool_value read_only;
+	const char *compile_command; /* NULL when it must stay unset */
+	unsigned malformed;
+	unsigned ignored;
+};
+
+static void check_envelope(const char *envelope, const struct envelope_case *c,
+    const struct local_settings *s)
+{
+	CHECKF(s->buffer_read_only == c->read_only,
+	    "%s: %s: %s -> read_only %d, expected %d", envelope, c->name,
+	    c->value, (int)s->buffer_read_only, (int)c->read_only);
+	CHECKF(s->compile_command_set == (c->compile_command != NULL),
+	    "%s: %s: %s -> compile_command_set %d", envelope, c->name, c->value,
+	    (int)s->compile_command_set);
+	if (c->compile_command && s->compile_command_set) {
+		CHECKF(strcmp(s->compile_command, c->compile_command) == 0,
+		    "%s: %s -> compile_command \"%s\"", envelope, c->name,
+		    s->compile_command);
+	}
+	CHECKF(s->malformed_entries == c->malformed,
+	    "%s: %s: %s -> %u malformed, expected %u", envelope, c->name,
+	    c->value, s->malformed_entries, c->malformed);
+	CHECKF(s->ignored_entries == c->ignored,
+	    "%s: %s: %s -> %u ignored, expected %u", envelope, c->name,
+	    c->value, s->ignored_entries, c->ignored);
+}
+
+static void test_same_value_through_every_envelope(void)
+{
+	static const struct envelope_case cases[] = {
+		{ "buffer-read-only", "t", LOCAL_BOOL_TRUE, NULL, 0, 0 },
+		{ "buffer-read-only", "nil", LOCAL_BOOL_FALSE, NULL, 0, 0 },
+		/* Emacs reads these symbols case-insensitively. */
+		{ "buffer-read-only", "T", LOCAL_BOOL_TRUE, NULL, 0, 0 },
+		{ "buffer-read-only", "NIL", LOCAL_BOOL_FALSE, NULL, 0, 0 },
+		{ "buffer-read-only", "yes", LOCAL_BOOL_UNSET, NULL, 1, 0 },
+		/* Longer than the applier's token buffer: malformed, not
+		 * truncated into a match. */
+		{ "buffer-read-only", "ttttttttttttttttttt", LOCAL_BOOL_UNSET,
+		    NULL, 1, 0 },
+		{ "compile-command", "\"make -k\"", LOCAL_BOOL_UNSET, "make -k",
+		    0, 0 },
+		/* Nothing kg knows: consumed, counted, never applied. */
+		{ "no-such-variable", "t", LOCAL_BOOL_UNSET, NULL, 0, 1 },
+		{ "no-such-variable", "\"x\"", LOCAL_BOOL_UNSET, NULL, 0, 1 },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+		struct local_settings s;
+
+		s = via_modeline(cases[i].name, cases[i].value);
+		check_envelope("modeline", &cases[i], &s);
+		s = via_footer(cases[i].name, cases[i].value);
+		check_envelope("footer", &cases[i], &s);
+		s = via_dirlocals(cases[i].name, cases[i].value);
+		check_envelope("dir-locals", &cases[i], &s);
+	}
+}
+
 int main(void)
 {
 	RUN(test_compile_command_only);
@@ -942,5 +1049,6 @@ int main(void)
 	RUN(test_dl_find_root_level);
 	RUN(test_dl_find_nearest_wins);
 	RUN(test_dl_find_nonexistent);
+	RUN(test_same_value_through_every_envelope);
 	return test_summary();
 }

@@ -32,6 +32,75 @@ void local_settings_merge(
 	destination->malformed_entries += source->malformed_entries;
 }
 
+/* ---- The variables, and what their values mean ----
+ *
+ * kg understands two file-local variables through three envelope
+ * grammars.  The grammars differ in how a name and a value are *found*
+ * -- semicolon splitting inside `-*- ... -*-`, a prefixed/suffixed block
+ * with backslash continuation, or a non-evaluating sexp reader -- and
+ * that scanning stays with each parser.  What a name means, and what a
+ * value means once it has been found, is stated only here, so a third
+ * variable is one row and not three edits. */
+
+enum local_var_kind localvars_kind(const char *name)
+{
+	static const struct {
+		const char *name;
+		enum local_var_kind kind;
+	} table[] = {
+		{ "compile-command", LOCAL_VAR_STRING },
+		{ "buffer-read-only", LOCAL_VAR_BOOL },
+		{ NULL, LOCAL_VAR_NONE },
+	};
+	int i;
+
+	for (i = 0; table[i].name; i++) {
+		if (strcmp(table[i].name, name) == 0) {
+			return table[i].kind;
+		}
+	}
+	return LOCAL_VAR_NONE;
+}
+
+/* Apply a boolean variable's value from the raw token text the envelope
+ * found.  Emacs spells these `t` and `nil`, case-insensitively; anything
+ * else, including a token too long to be either, is malformed.  Trailing
+ * blanks are trimmed here so a parser can hand over the span it has
+ * without normalising it first -- a symbol read by the dir-locals reader
+ * has none, and the other two envelopes have already trimmed. */
+void localvars_apply_bool(struct local_settings *out, const char *text, int len)
+{
+	char token[12];
+	int i, n;
+
+	while (len > 0 && (text[len - 1] == ' ' || text[len - 1] == '\t')) {
+		len--;
+	}
+	n = len < (int)sizeof(token) - 1 ? len : (int)sizeof(token) - 1;
+	for (i = 0; i < n; i++) {
+		token[i] = (char)tolower((unsigned char)text[i]);
+	}
+	token[n] = '\0';
+
+	if (strcmp(token, "t") == 0) {
+		out->buffer_read_only = LOCAL_BOOL_TRUE;
+	} else if (strcmp(token, "nil") == 0) {
+		out->buffer_read_only = LOCAL_BOOL_FALSE;
+	} else {
+		out->malformed_entries++;
+	}
+}
+
+/* Apply a string variable's value, already decoded by the envelope's own
+ * unquoting.  `len` excludes the terminator, which the caller's buffer
+ * still carries. */
+void localvars_apply_string(
+    struct local_settings *out, const char *text, int len)
+{
+	out->compile_command_set = true;
+	memcpy(out->compile_command, text, (size_t)len + 1);
+}
+
 static int parse_quoted_string(const char *value, char *out, size_t out_size)
 {
 	while (*value == ' ' || *value == '\t') {
@@ -198,10 +267,6 @@ int localvars_parse_modeline(
 				char name[64];
 				int nl;
 				const char *val;
-				const char *bv, *bve;
-				int bv_len;
-				char bname[12];
-				int bnl;
 
 				while (seg_start < seg_end
 				    && (*seg_start == ' '
@@ -269,47 +334,26 @@ int localvars_parse_modeline(
 					val++;
 				}
 
-				if (strcmp(name, "compile-command") == 0) {
+				switch (localvars_kind(name)) {
+				case LOCAL_VAR_STRING: {
 					char decoded[KG_COMPILE_COMMAND_MAX];
 					int rc = parse_quoted_string(
 					    val, decoded, sizeof(decoded));
 					if (rc < 0) {
 						out->malformed_entries++;
 					} else {
-						out->compile_command_set = true;
-						memcpy(out->compile_command,
-						    decoded, (size_t)rc + 1);
+						localvars_apply_string(
+						    out, decoded, rc);
 					}
-				} else if (strcmp(name, "buffer-read-only")
-				    == 0) {
-					bv = val;
-					while (bv < seg_end
-					    && (*bv == ' ' || *bv == '\t')) {
-						bv++;
-					}
-					bve = seg_end;
-					bv_len = (int)(bve - bv);
-					if (bv_len < 0) {
-						goto bad_ro;
-					}
-					bnl = (bv_len < 11) ? bv_len : 11;
-					for (i = 0; i < bnl; i++) {
-						bname[i] = (char)tolower(
-						    (unsigned char)bv[i]);
-					}
-					bname[bnl] = '\0';
-					if (strcmp(bname, "t") == 0) {
-						out->buffer_read_only
-						    = LOCAL_BOOL_TRUE;
-					} else if (strcmp(bname, "nil") == 0) {
-						out->buffer_read_only
-						    = LOCAL_BOOL_FALSE;
-					} else {
-					bad_ro:
-						out->malformed_entries++;
-					}
-				} else {
+					break;
+				}
+				case LOCAL_VAR_BOOL:
+					localvars_apply_bool(
+					    out, val, (int)(seg_end - val));
+					break;
+				default:
 					out->ignored_entries++;
+					break;
 				}
 			}
 
@@ -706,6 +750,7 @@ static int dlr_skip_sexp(struct dlr *r)
 static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 {
 	char varname[128];
+	enum local_var_kind kind;
 	int vlen;
 
 	dlr_skip_ws(r);
@@ -763,7 +808,8 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 		return 0;
 	}
 
-	if (strcmp(varname, "compile-command") == 0) {
+	kind = localvars_kind(varname);
+	if (kind == LOCAL_VAR_STRING) {
 		if (r->src[r->pos] == '"') {
 			char buf[KG_COMPILE_COMMAND_MAX];
 			int slen = dlr_read_str(r, buf, sizeof(buf));
@@ -780,9 +826,7 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 				}
 				out->malformed_entries++;
 			} else {
-				out->compile_command_set = true;
-				memcpy(out->compile_command, buf,
-				    (size_t)slen + 1);
+				localvars_apply_string(out, buf, slen);
 			}
 		} else {
 			if (dlr_skip_sexp(r) != 0) {
@@ -790,7 +834,7 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 			}
 			out->malformed_entries++;
 		}
-	} else if (strcmp(varname, "buffer-read-only") == 0) {
+	} else if (kind == LOCAL_VAR_BOOL) {
 		if (r->src[r->pos] == '"' || r->src[r->pos] == '('
 		    || r->src[r->pos] == ')') {
 			if (dlr_skip_sexp(r) != 0) {
@@ -804,21 +848,7 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 			if (svlen < 0) {
 				out->malformed_entries++;
 			} else {
-				int i;
-
-				for (i = 0; i < svlen; i++) {
-					symval[i] = (char)tolower(
-					    (unsigned char)symval[i]);
-				}
-				symval[svlen] = '\0';
-				if (strcmp(symval, "t") == 0) {
-					out->buffer_read_only = LOCAL_BOOL_TRUE;
-				} else if (strcmp(symval, "nil") == 0) {
-					out->buffer_read_only
-					    = LOCAL_BOOL_FALSE;
-				} else {
-					out->malformed_entries++;
-				}
+				localvars_apply_bool(out, symval, svlen);
 			}
 		}
 	} else {
@@ -1166,6 +1196,7 @@ int localvars_parse_footer(
 		const char *val;
 		int val_len;
 		int in_q, esc;
+		enum local_var_kind kind;
 
 		if (ll < prefix_len) {
 			goto skip_line;
@@ -1248,7 +1279,8 @@ int localvars_parse_footer(
 		}
 		val_len = body_len - (int)(val - body);
 
-		if (strcmp(name, "compile-command") == 0) {
+		kind = localvars_kind(name);
+		if (kind == LOCAL_VAR_STRING) {
 			char acc[KG_COMPILE_COMMAND_MAX];
 			int acc_len, cli;
 
@@ -1268,9 +1300,8 @@ int localvars_parse_footer(
 				rc = parse_quoted_string(
 				    acc, decoded, sizeof(decoded));
 				if (rc >= 0) {
-					out->compile_command_set = true;
-					memcpy(out->compile_command, decoded,
-					    (size_t)rc + 1);
+					localvars_apply_string(
+					    out, decoded, rc);
 					break;
 				}
 				if (rc != -3) {
@@ -1342,29 +1373,8 @@ int localvars_parse_footer(
 			continue;
 		}
 
-		if (strcmp(name, "buffer-read-only") == 0) {
-			const char *bv = val;
-			int bv_len = val_len;
-			char bname[12];
-			int bnl;
-
-			while (bv_len > 0
-			    && (bv[bv_len - 1] == ' '
-				|| bv[bv_len - 1] == '\t')) {
-				bv_len--;
-			}
-			bnl = bv_len < 11 ? bv_len : 11;
-			for (int i = 0; i < bnl; i++) {
-				bname[i] = (char)tolower((unsigned char)bv[i]);
-			}
-			bname[bnl] = '\0';
-			if (strcmp(bname, "t") == 0) {
-				out->buffer_read_only = LOCAL_BOOL_TRUE;
-			} else if (strcmp(bname, "nil") == 0) {
-				out->buffer_read_only = LOCAL_BOOL_FALSE;
-			} else {
-				out->malformed_entries++;
-			}
+		if (kind == LOCAL_VAR_BOOL) {
+			localvars_apply_bool(out, val, val_len);
 			goto next_li;
 		}
 

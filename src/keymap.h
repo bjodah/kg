@@ -2,7 +2,8 @@
 #define KG_KEYMAP_H
 
 #include "cmd.h"
-#include "keyevent.h"
+
+struct key_event;
 
 /* Key sequences, in layers, resolved to a command name.
  *

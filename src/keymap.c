@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "keyevent.h"
 #include "keymap.h"
 
 /* Bounded, and shared: every map's entries live in one pool, so a mode

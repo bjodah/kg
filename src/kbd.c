@@ -10,13 +10,10 @@
 
 #include "cmd.h"
 #include "cmdstate.h"
-#include "compile.h"
 #include "def.h"
 #include "kbd.h"
-#include "keybind.h"
 #include "keyevent.h"
 #include "keymap.h"
-#include "lisp.h"
 #include "syntax.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)

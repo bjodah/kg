@@ -273,15 +273,21 @@ void win_delete_current(void)
 	buf_select(winlist[win_current].bufidx);
 }
 
-/* Delete all other windows, leaving only the current one (C-x 1). */
+/* Delete all other windows, leaving only the current one (C-x 1).  Each
+ * discarded view banks its point first, the way C-x 0 does: a window's
+ * point is the only record of where the buffer it showed was being read,
+ * so throwing the window away without it makes the buffer resume wherever
+ * some earlier view left off. */
 void win_delete_others(void)
 {
 	int i;
 
 	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (i != win_current) {
-			winlist[i].active = 0;
+		if (i == win_current || !winlist[i].active) {
+			continue;
 		}
+		buf_remember_view(&winlist[i]);
+		winlist[i].active = 0;
 	}
 	win_count = 1;
 	win_reflow();

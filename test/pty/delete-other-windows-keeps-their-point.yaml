@@ -1,0 +1,61 @@
+# C-x 1 banks the point of every window it discards.
+#
+# b.txt opens in the selected window; C-x C-f moves that window to a.txt,
+# C-x 2 splits it, and C-x o selects the lower window.  C-x b brings b.txt
+# back there and C-n four times reads down to line b4.  C-x o returns to
+# the upper window (still a.txt) and C-x 1 throws the lower one away.
+#
+# C-x b then shows b.txt in the one remaining window.  It has to resume at
+# b4, where the discarded window was reading: that window's point was the
+# only record of it.  Before win_delete_others() went through the
+# remember/detach path, the view was dropped unbanked and b.txt resumed at
+# line b0, so the X landed on the first line instead.
+name: delete-other-windows-keeps-their-point
+filename: b.txt
+backend: pexpect
+dimensions: [20, 60]
+config_files:
+  a.txt: |
+    AAAAA
+initial: |
+  b0
+  b1
+  b2
+  b3
+  b4
+  b5
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/a.txt"
+  - RET
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - C-x
+  - b
+  - "b.txt"
+  - RET
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-x
+  - o
+  - C-x
+  - "1"
+  - C-x
+  - b
+  - "b.txt"
+  - RET
+  - "X"
+expected_saved: |
+  b0
+  b1
+  b2
+  b3
+  Xb4
+  b5

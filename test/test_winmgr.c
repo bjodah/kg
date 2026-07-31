@@ -382,12 +382,9 @@ static void test_delete_window_paths(void)
 }
 
 /* C-x 1 discards every other window.  A window's point is the only record
- * of where the buffer it shows was being read, so a discarded window has
- * to bank it the way C-x 0 does -- otherwise showing that buffer again
- * resumes wherever some earlier view left it.
- *
- * Today it does not: win_delete_others() clears `active` without going
- * through the remember/detach path.  Characterized, not fixed. */
+ * of where the buffer it shows was being read, so a discarded window banks
+ * it the way C-x 0 does -- otherwise showing that buffer again resumes
+ * wherever some earlier view left it. */
 static void test_delete_others_banks_the_views_it_discards(void)
 {
 	char *names[2];
@@ -418,13 +415,13 @@ static void test_delete_others_banks_the_views_it_discards(void)
 	CHECK(win_count == 1);
 	CHECK(!winlist[other].active);
 
-	/* Showing b.txt again resumes at the top, not at the point the
-	 * discarded window had. */
+	/* Showing b.txt again resumes at the point the discarded window
+	 * had in it. */
+	CHECK(buflist[1].last_point.cy == 3);
 	buf_select(1);
 	CHECK(buf_current == 1);
-	CHECK(buflist[1].last_point.cy == 0);
-	CHECK(wcur()->cy == 0);
-	CHECK(wcur()->cx == 0);
+	CHECK(wcur()->cy == 3);
+	CHECK(wcur()->cx == 1);
 
 	session_teardown();
 	free(names[0]);

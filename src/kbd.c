@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include "cmd.h"
 #include "compile.h"
 #include "def.h"
 #include "keybind.h"

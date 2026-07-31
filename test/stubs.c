@@ -1,5 +1,6 @@
 /* stubs.c — global definitions and no-op stubs for symbols not under test */
 
+#include "../src/cmd.h"
 #include "../src/def.h"
 #include <stdarg.h>
 

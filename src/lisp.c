@@ -27,6 +27,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 #include <unistd.h>
 
 #include "../fe/fe.h"
+#include "cmd.h"
 #include "def.h"
 #include "keybind.h"
 #include "localvars.h"

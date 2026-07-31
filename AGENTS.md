@@ -178,7 +178,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   when a keybinding changes.
 - Command policy is one table: `cmdtable` in `src/cmd.c`, whose
   `struct named_cmd` (name, handler, flags, one-line summary) lives in
-  `src/def.h`.  `CMD_EDITS_BUFFER` is the read-only verdict and
+  `src/cmd.h`.  `CMD_EDITS_BUFFER` is the read-only verdict and
   `CMD_LISP_CALLABLE` is what `(command-execute ...)` may reach; both are
   read only by `cmd_invoke()`, the single route into a command.  Add a
   command by adding a row, and keep `test/test_cmd.c` green -- it asserts

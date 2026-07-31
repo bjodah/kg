@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "cmd.h"
 #include "compile.h"
 #include "def.h"
 #include "lisp.h"

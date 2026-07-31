@@ -9,6 +9,7 @@
  * test_perf does, because reaching the table means linking cmd.o and
  * cmd.o reaches most of the editor.  It calls no handler. */
 
+#include "../src/cmd.h"
 #include "../src/def.h"
 #include "test.h"
 

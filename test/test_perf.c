@@ -18,6 +18,7 @@
  * with -DKG_PERF_COUNTERS=1, so the counters measure the real code.
  */
 
+#include "../src/compile.h"
 #include "../src/def.h"
 #include "test.h"
 #include <fcntl.h>
@@ -282,6 +283,54 @@ static void test_special_text_append_growth(void)
 	teardown();
 }
 
+/* What a poll of subprocess output costs the buffer it mirrors into.
+ *
+ * Every read chunk truncates the still-open line off the last row and
+ * re-mirrors it, so a long line arriving in small reads is re-rendered
+ * once per read.  This measures that, which is the number plan 08 phase
+ * 5b asks for before it is allowed to change anything. */
+static void test_compilation_mirror_updates_per_read(void)
+{
+	struct compilation_state s;
+	const int chunk = 64;
+	const int line = 4096;
+	int slot, i;
+	char *bytes = malloc((size_t)line + 1);
+
+	CHECK(bytes != NULL);
+	if (!bytes) {
+		return;
+	}
+	memset(bytes, 'o', (size_t)line);
+	bytes[line] = '\n';
+
+	setup();
+	slot = buf_prepare_special_text("*perf-compile*", NULL, 1);
+	CHECK(slot >= 0);
+	if (slot >= 0) {
+		memset(&s, 0, sizeof(s));
+		compilation_stream_reset(&s, (size_t)line * 4);
+		s.compilation_buffer = slot;
+		kg_perf_reset();
+		for (i = 0; i + chunk <= line + 1; i += chunk) {
+			compilation_process_bytes(&s, bytes + i, chunk);
+		}
+		/* One truncate and one re-mirror of the whole pending line
+		 * per read: 64 reads of a 4 KiB line cost 128 row updates,
+		 * and the bytes each re-renders grow with the line. */
+		CHECK(counter(KG_PERF_ROW_UPDATE)
+		    == (unsigned long long)2 * (line / chunk));
+		compilation_stream_reset(&s, 0);
+		buf_clear_special_text(slot);
+		free(buflist[slot].filename);
+		buflist[slot].filename = NULL;
+		buflist[slot].active = 0;
+		buf_count--;
+	}
+	free(bytes);
+	teardown();
+}
+
 /* ---- Phase 3: the screen append buffer ---- */
 
 static void refresh_ab_shape(int screen_rows, int screen_cols,
@@ -515,6 +564,7 @@ int main(void)
 	RUN(test_load_highlight_is_final);
 	RUN(test_insert_row_array_growth);
 	RUN(test_special_text_append_growth);
+	RUN(test_compilation_mirror_updates_per_read);
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
 	RUN(test_typing_into_long_row_reuses_storage);

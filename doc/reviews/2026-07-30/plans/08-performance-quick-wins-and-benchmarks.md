@@ -432,6 +432,120 @@ reference patterns; binary size.
 Budgets tolerate machine noise by preferring counters; wall-time gates use
 medians and generous thresholds, and stay out of sanitizer lanes.
 
+## What landed, and what was deferred (2026-07-31)
+
+Implemented, each with its counter before/after in the commit message:
+measurement foundation and phase 1's kg counters (`src/perf.h`,
+`test/test_perf.c`, `utils/bench.py`, `make bench`); phase 2 (staged
+loader growth, and the duplicated syntax selection and highlight pass a
+load paid); phase 2b (live row array growth); phase 3 (frame buffer
+capacity); phase 4 (render and highlight reuse); phase 5 (the options
+parameter, rect.c's column loops, the mid-glyph refusal advance); phase 6
+(local multiline splice).
+
+Everything below was measured first and then *not* done. The measurement
+is the reason, and it is recorded here so the next person does not have
+to take it again. Every number comes from the counting build
+(`-DKG_PERF_COUNTERS=1`), either `test/test_perf.c` or `make bench`.
+
+### Phase 4, `chars_capacity` — deferred
+
+Only `render_capacity` and `hl_capacity` landed. `row->chars` is already
+reallocated only when a row grows (`editor_row_replace_range()` does not
+touch it for a shrink), and phase 5 removed the callers that grew it a
+byte at a time. Adding a third capacity means every site that mallocs
+`row->chars` -- `editor_insert_row()`, `editor_init_row()`,
+`load_append_row()`, the four `editor_row_*` primitives,
+`editor_row_append_raw()` in bufmgr.c, the splice -- has to set it, which
+is a wide blast radius for storage that phase 4's own gate (bytes per
+`editor_update_row()` on a 1 MiB line) does not measure.
+
+### Phase 5, undo replay — deferred
+
+`src/undo.c:153,163` replay `UNDO_INSERT_CHAR` and `UNDO_DELETE_CHAR`.
+Each is one call and one `editor_update_row()` already, so there is
+nothing to save, and replay must not push a record -- routing it through
+a primitive that does adds a way to corrupt the stack for no measured
+gain. The rectangle and query-replace loops, which did pay per byte, were
+migrated.
+
+### Phase 5b, compilation mirroring — deferred
+
+Measured by `test_compilation_mirror_updates_per_read()`: a 4 KiB line
+arriving in 64-byte reads costs 128 `editor_update_row()` calls, two per
+read (one to truncate the displayed pending line off the last row, one to
+re-mirror it). That is bounded work per poll -- proportional to reads and
+to the length of the *pending line*, not to the buffer -- and the buffer
+it mirrors into no longer pays O(R^2) for its row array (phase 2b) or a
+fresh render allocation per update (phase 4). The remaining win is
+coalescing truncate+append into one update, halving a number that is
+already small; the counter test is checked in so the claim can be
+re-checked when it stops being small.
+
+### Phase 7, undo tail or deque — skipped
+
+Measured by `test_undo_eviction_walk()`: with `max_size` 1000, trimming
+keeps `max_size - 1` records, so a full stack evicts on every *second*
+push -- 4 walks of 999 links per 8 pushes past the limit, about 500 links
+amortised per push. At roughly a nanosecond a link that is under a
+microsecond per keystroke, three orders of magnitude below the 30 ms
+paste threshold in `kbd.c` and four below a repaint. The reviewer's
+verdict ("microseconds, tidiness") is what the counter says. Not worth
+destabilising the `clean_size` marker plan 02 depends on; the counter
+stays checked in so the claim is re-checkable.
+
+### Phase 8, visual-line geometry — deferred, but the gate is met
+
+Measured by `make bench --case visual-line-100k`: 24 repaints of a
+100k-line buffer in visual-line mode scanned 13,999,212 rows and
+713,958,945 row bytes -- about 583,000 rows and 30 MB per repaint, and
+6.7 s for a session that costs 0.18 s with the mode off. This is a real
+pathology and phase 8's gate is satisfied; it is deferred only because
+the plan ranks it below phases 2-6 (the mode is off by default and
+reached through `M-x visual-line-mode`) and because the per-row wrap
+cache it needs -- a content generation on `erow`, invalidation on resize
+and on tab-width change -- does not fit in what is left of the
+`SCC_COMPLEXITY_MAX` budget without an extraction pass of its own.
+
+There is no cheap subset: the scans come from `get_visual_row()` twice,
+`get_total_visual_rows()` once and `find_visual_row()` once per screen
+row, and the two `get_total_visual_rows()` calls in `src/display.c` are
+exclusive branches of one ternary, not a duplicate to hoist.
+
+### Phase 9, syntax — partly landed, the rest deferred
+
+The `hl` allocation reuse landed with phase 4. Downstream propagation was
+measured and is not a problem: opening a block comment at the top of a
+40k-line comment-heavy C file propagated **4 rows**
+(`syntax_propagate` 4, `make bench --case open-comment-c-40k-edit`),
+because the next comment terminator closes it again. Neither the
+visible-rows-first frontier nor bounded slicing has a workload behind it.
+Keyword grouping by first ASCII byte in `HLDB` is untouched for the same
+reason: `generic_keyword_scan()` is 51 pmccabe and the corpora that
+exercise it (40k-line C) load in 158 ms.
+
+### Phases 10 and 11, and phase 1's Fe and regex counters — skipped
+
+No kg workload measured here is Fe-bound or regex-bound. The Fe and regex
+counter sub-phases of phase 1 were therefore not implemented: they are
+submodule changes, and a counter in `fe/` or `fe/tiny-regex-c/` has to
+travel the whole pin chain (tiny `adapt-to-fe` -> fe `analyzers-etc` ->
+kg) to reach this tree, which is a disproportionate price for
+instrumentation whose consumers (phases 10 and 11) are themselves waiting
+on evidence. `kg_regex_match_backward()`'s quadratic rescan is the one
+candidate with a known shape -- an anchored entry point in tiny-regex-c
+would fix it -- and it stays a separate, submodule-touching piece of work
+with its own differential run.
+
+### Ratchets
+
+No loose budgets were added on top of the counter assertions. The
+assertions in `test/test_perf.c` *are* the ratchet: they are bounds
+(`c*log2(rows)`, exactly one row update per logical replacement) rather
+than recorded numbers, so they catch a pathology coming back without
+failing on every unrelated refactor. Wall-time budgets were deliberately
+not added -- see the note at the top of `utils/bench.py`.
+
 ## Final commands
 
 ```sh

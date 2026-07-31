@@ -93,6 +93,16 @@ CASES = {
 	"open-comment-c-40k": ("comment-c-40k", ["\x18\x03"]),
 	# End of buffer, then back to the top: a scroll over every row.
 	"scroll-lines-100k": ("lines-100k", ["\x1b>", "\x1b<", "\x18\x03"]),
+	# Visual-line mode on a 100k-line file, then end of buffer: the
+	# geometry scans plan 08 phase 8 is about.  Off by default, which
+	# is why it is a case of its own rather than part of the others.
+	"visual-line-100k": ("lines-100k",
+			     ["\x1bx", "visual-line-mode\r", "\x1b>",
+			      "\x10\x10\x10", "\x18\x03"]),
+	# Open a block comment at the top of a comment-heavy C file: the
+	# downstream hl_oc propagation plan 08 phase 9 is about.
+	"open-comment-c-40k-edit": ("comment-c-40k",
+				    ["\x1b<", "/*", "\x18\x03", "y"]),
 	# Yank a 5-line region 200 times into a 100k-line file: the
 	# multiline insertion path, which used to serialise the whole
 	# buffer and rebuild every row for each one.

@@ -537,6 +537,15 @@ candidate with a known shape -- an anchored entry point in tiny-regex-c
 would fix it -- and it stays a separate, submodule-touching piece of work
 with its own differential run.
 
+### The bench step
+
+The plan allowed a non-gating `.ci/ci-NN-bench.sh`; `make bench` is a
+Makefile target only, and no CI step runs it. The runner's whole point is
+that its steps run concurrently, and five of them drive PTYs under
+sanitizers -- `.ci/ci-env.sh` already doubles `PTY_TIMEOUT` because of
+it. A benchmark taken in that company measures the box. What CI does hold
+is the counter assertions, which are the same number under any lane.
+
 ### Ratchets
 
 No loose budgets were added on top of the counter assertions. The

@@ -1,6 +1,5 @@
 /* ========================= Window management ============================== */
 
-#include <stdio.h>
 #include <string.h>
 
 #include "bufhandle.h"
@@ -145,6 +144,7 @@ static int win_showing(struct kg_buffer_handle handle)
 }
 
 #if KG_DEBUG_STATE
+#include <stdio.h>
 #include <stdlib.h>
 
 static void state_fail(const char *where, const char *what)

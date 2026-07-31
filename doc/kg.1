@@ -329,7 +329,16 @@ Argument lists accept
 .Li &optional
 and
 .Li &rest ;
-a missing argument is nil.
+a missing argument is nil and an extra one is dropped.
+A name that has never been assigned is an error,
+.Li void-variable NAME ,
+rather than nil;
+.Li (boundp \(aqNAME)
+asks whether a name has a value,
+.Li (makunbound \(aqNAME)
+takes it away, and a variable holding nil is bound, which is what
+.Li defvar
+tests before initialising.
 .Pp
 .Li type-of
 returns the type as a symbol, one of
@@ -343,7 +352,9 @@ and
 .Li consp
 and
 .Li functionp
-are the corresponding predicates.
+are the corresponding predicates, and
+.Li boundp
+reports whether a name has a value.
 .Pp
 kg's Lisp differs from Emacs Lisp in ways worth knowing:
 .Li =
@@ -355,9 +366,6 @@ to compare;
 .Li eq
 compares numbers and strings by value, and only pairs by identity;
 every number is a double;
-.Li defvar
-cannot tell an unbound variable from one holding nil, so it re-initialises
-a nil variable;
 .Li t
 is an ordinary assignable global;
 character literals such as
@@ -370,8 +378,9 @@ or
 .Li condition-case ;
 and recursion is bounded at roughly 450 frames by the interpreter's
 garbage-collector stack.
-A macro expands once per call site and the expansion replaces the call, so
-a macro whose expansion depends on run-time state gives a stale answer.
+A structure that refers to itself prints as far as the cycle and then
+.Li #<cycle> ,
+rather than being printed forever.
 .Pp
 The editor bridge uses the Emacs names
 .Li insert ,

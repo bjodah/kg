@@ -1,0 +1,17 @@
+# A list that contains itself used to make M-: hang: the interpreter's
+# writer walked the cdr spine forever, inside a render kg cannot interrupt
+# because C-g only reaches evaluation.  The spine walk now detects the cycle
+# and prints #<cycle>, and the editor is still there afterwards.
+name: lisp-eval-cyclic
+filename: lisp-cyclic.txt
+requires_feature: lisp
+backend: tmux
+initial: ""
+keys:
+  - "M-:"
+  - "(progn (setq c (cons 1 nil)) (setcdr c c) c)"
+  - RET
+  - survived
+expected_saved: survived
+expected_screen_contains:
+  - "#<cycle>"

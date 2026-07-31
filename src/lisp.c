@@ -1839,29 +1839,10 @@ static const char *const lisp_prelude[] = {
 	"  (cons 'append (reverse segs))))\n"
 	"(= quasiquote (macro (form) (internal--qq form)))\n",
 	/* --- definition forms --- */
-	/* (a &optional b &rest r) -> (a b . r); missing arguments already bind
-	 * to nil and extra ones are already dropped.  Fe's own dotted and bare
-	 * symbol parameter lists pass through unchanged. */
-	"(= internal--arglist (lambda (params)\n"
-	"  (internal--let out nil)\n"
-	"  (internal--let tail nil)\n"
-	"  (while (consp params)\n"
-	"    (internal--let p (car params))\n"
-	"    (if (eq p '&optional)\n"
-	"        nil\n"
-	"      (if (eq p '&rest)\n"
-	"          (progn (setq tail (car (cdr params)))\n"
-	"                 (setq params (list nil)))\n"
-	"        (setq out (cons p out))))\n"
-	"    (setq params (cdr params)))\n"
-	"  (if (and params (not (consp params))) (setq tail params))\n"
-	"  (setq out (reverse out))\n"
-	"  (if (null tail)\n"
-	"      out\n"
-	"    (if (null out)\n"
-	"        tail\n"
-	"      (setcdr (last out) tail)\n"
-	"      out))))\n"
+	/* Argument lists go to Fe unchanged: its binder reads &optional and
+	 * &rest itself, as well as its own dotted and bare-symbol forms.  kg
+	 * used to lower "(a &optional b &rest r)" to "(a b . r)" here, which
+	 * worked only because the binder accepted any argument count. */
 	"(= internal--interactive-p (lambda (form)\n"
 	"  (if (atom form) nil (eq (car form) 'interactive))))\n"
 	"(= internal--has-interactive (lambda (body)\n"
@@ -1882,7 +1863,7 @@ static const char *const lisp_prelude[] = {
 	 * way Emacs makes a defun interactive; define-command takes the
 	 * symbol.  defun returns the name, as Emacs does. */
 	"(= defun (macro (name params . body)\n"
-	"  (internal--let f (cons 'lambda (cons (internal--arglist params)\n"
+	"  (internal--let f (cons 'lambda (cons params\n"
 	"                     (internal--strip-interactive body))))\n"
 	"  (if (internal--has-interactive body)\n"
 	"      (list 'progn (list 'setq name f)\n"
@@ -1892,13 +1873,16 @@ static const char *const lisp_prelude[] = {
 	"(= defmacro (macro (name params . body)\n"
 	"  (list 'progn\n"
 	"    (list 'setq name\n"
-	"      (cons 'macro (cons (internal--arglist params) body)))\n"
+	"      (cons 'macro (cons params body)))\n"
 	"    (list 'quote name))))\n"
-	/* Fe cannot tell an unbound variable from one holding nil, so defvar
-	 * re-initialises a variable whose value is nil. */
+	/* Fe distinguishes an unassigned symbol from one holding nil, so
+	 * defvar asks boundp rather than reading the variable -- which would
+	 * now raise void-variable -- and a variable holding nil stays nil. */
 	"(= defvar (macro (name . rest)\n"
 	"  (list 'progn\n"
-	"    (list 'if name (list 'quote nil) (list 'setq name (car rest)))\n"
+	"    (list 'if (list 'boundp (list 'quote name))\n"
+	"      (list 'quote nil)\n"
+	"      (list 'setq name (car rest)))\n"
 	"    (list 'quote name))))\n"
 	"(= defconst (macro (name . rest)\n"
 	"  (list 'progn (list 'setq name (car rest)) (list 'quote name))))\n"

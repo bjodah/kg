@@ -265,13 +265,18 @@ read like an `init.el`.
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` |
+| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is plain `f` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
 
-Argument lists take `&optional` and `&rest`; a missing argument is `nil`.
-`length` also counts the codepoints of a string. `equal` is structural on
-lists, where Fe's `is` compares pairs by identity.
+Argument lists take `&optional` and `&rest`; a missing argument is `nil` and an
+extra one is dropped. `length` also counts the codepoints of a string. `equal`
+is structural on lists, where Fe's `is` compares pairs by identity.
+
+A name that has never been assigned is an error rather than `nil`, so a typo
+says `void-variable NAME` instead of quietly being false. `(boundp 'NAME)` asks
+whether a name has a value, `(makunbound 'NAME)` takes it away, and a variable
+holding `nil` is bound — which is what `defvar` tests before initialising.
 
 ```lisp
 (defun initialise (words)
@@ -292,15 +297,13 @@ first surprise:
   Emacs says `nil`. Only pairs are compared by identity.
 - Every number is a double, and there is no character type: write
   `(string-to-char "a")` rather than `?a`.
-- `defvar` cannot tell an unbound variable from one holding `nil`, so it
-  re-initialises a variable whose value is `nil`.
 - `t` is an ordinary assignable global.
 - There is no `unwind-protect` or `condition-case`, no dynamic binding, no
   vectors or hash tables.
 - Recursion is bounded at roughly 450 frames by the interpreter's
   garbage-collector stack, so walk long lists with `while`, not recursion.
-- A macro expands once per call site and the expansion replaces the call, so
-  a macro whose expansion depends on run-time state gives a stale answer.
+- A structure that refers to itself prints as far as the cycle and then
+  `#<cycle>`, rather than being printed forever.
 
 The editor bridge uses the Emacs names throughout: `insert`, `message`,
 `buffer-name`, `load`, `global-set-key` and `global-unset-key`. `message`

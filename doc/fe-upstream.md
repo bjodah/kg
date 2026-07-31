@@ -47,7 +47,14 @@ done in the prelude was done there instead.
 | Reader macros `` `x ``, `,x`, `,@x` read as `(quasiquote x)`, `(unquote x)`, `(unquote-splicing x)` | Backquote is the difference between writing macros and fighting them. The *semantics* stay in kg's prelude; only the punctuation had to move into the reader. | `` ` `` and `,` became symbol delimiters (nothing in fe or kg used them inside symbols) |
 | Reader macro `#'x` reads as plain `x` | Upstream read `#'car` as a symbol named `#'car`, which evaluated to `nil` *silently*. Fe has one namespace, so the elisp function quote is the identity. | `#` stays an ordinary symbol character; only the two-character `#'` is special |
 | Calling a non-function whose head is a symbol raises `void-function NAME` | Upstream's `tried to call non-callable value` never said which name was unbound | one helper in `Evaluate` |
-| `GcStackSize` 512 → 4096 | The GC stack, not the C stack, bounds recursion: upstream died at about 70 frames, which is too few to write ordinary list code. Now about 450. | `FeMinimumArenaSize()` grew by 28 KiB to 36608 bytes; `test_api.c`'s fixed arena was raised to 64 KiB. kg allocates 1 MiB, so a `KG_LISP_ARENA_SIZE` override below ~68 KiB now fails to open a context. |
+| `GcStackSize` 512 → 4096 | The GC stack, not the C stack, bounds recursion: upstream died at about 70 frames, which is too few to write ordinary list code. Now about 450. | `FeMinimumArenaSize()` grew by 28 KiB, and to 36784 bytes once `boundp` and `makunbound` were added; `test_api.c`'s fixed arena was raised to 64 KiB. kg allocates 1 MiB, so a `KG_LISP_ARENA_SIZE` override below ~68 KiB now fails to open a context. |
+| `FeToString(dst, 0)` writes nothing and returns 0 | `size - 1` underflowed, so a zero-size destination received the whole rendering plus a terminator past it | the contract is now written down: bytes stored, never more than `size - 1`, always terminated. No snprintf-style required length, because measuring is unbounded on a cyclic object |
+| Malformed dotted lists are syntax errors | `'(a . b c)` read as `(a c)`, `'(a . b . c)` as `(a . c)` and `'(. a)` as `a`, all silently | three new reader diagnostics; `(a .)` says `missing value after '.'` instead of `stray ')'` |
+| A macro expands on every call instead of overwriting its call site | copying the expansion over the call site cloned it, and `nil` and interned symbols are compared by address: a macro expanding to `nil` produced a truthy nil, and one expanding to a symbol missed every lexical binding | one expansion per invocation, charged against the step budget; kg's "a macro expands once per call site" caveat is gone from `README.md` and `doc/kg.1` |
+| The writer is bounded and terminates on cycles | `(setcdr x x)` then rendering hung kg with no C-g escape: `M-:`, `eval-buffer`, `C-j`, `format`'s `%s`/`%S` all render | `#<cycle>`, `#<deep>` and `#<truncated>` are stable output; `FeWriteWithOptions()` carries the budgets and reports completion; the writer no longer allocates, and spends the step budget while an evaluation is active |
+| `&optional` and `&rest` in parameter lists | Emacs Lisp spells them that way, and kg had to delete `&optional` from every arglist because the binder could not see it | `internal--arglist` is gone from kg's prelude; `&optional` and `&rest` cannot be parameter names |
+| Optional argument-count checking, `FeSetStrictArity()` | `((lambda (x) x))` was nil, `((lambda () 1) 2)` was 1 and `((lambda (1) 5) 2)` was 5 | off by default, so kg is unaffected; `fe -a` turns it on and Fe's script suite runs a third time under it |
+| An unassigned symbol is `void-variable`, not `nil` | a typo was silently false; Fe's own `TODO.md` asked for this | `boundp` and `makunbound` are new primitives and `FeIsBound()` is a new API; kg's `defvar` asks `(boundp 'name)` rather than evaluating the name |
 
 ## The nested tiny-regex-c submodule
 
@@ -86,6 +93,11 @@ reusing an existing value.
 | The matching budget is per execution, with `re_exec_with_options()` for per-call limits and cancellation | it used to live in file-scope statics, so a nested or concurrent match spent the running one's allowance | kg still calls plain `re_exec()`; the options are available for a future C-g-aware search |
 | Reaching the group-repetition ceiling is `RE_STATUS_TOO_COMPLEX` | it was a false no-match, and for `\(a\)*` a match shorter than the pattern asked for | kg reports `KG_REGEX_TOO_COMPLEX`, which the search UI already distinguishes from "not found" |
 
+Fex — `fex*.c`, which kg does **not** compile — also gained a file-lifecycle
+owner and finalizer, exact byte handling instead of fixed-size renderings, and
+`waitpid` EINTR retry. Those are listed here only so an update is not surprised
+by them; they cannot reach kg.
+
 Deliberately **not** changed in `fe.c`, and why:
 
 - **Quasiquote semantics.** `quasiquote` is a prelude macro in `src/lisp.c`, so
@@ -100,4 +112,10 @@ Deliberately **not** changed in `fe.c`, and why:
   assignment.
 - **Dynamic binding, `unwind-protect`, `condition-case`, vectors, hash tables,
   keyword arguments, a byte compiler.** All need new object types or a real
-  non-local exit mechanism in `Evaluate`. Out of scope.
+  non-local exit mechanism in `Evaluate`. `fe/doc/unwind-design.md` is the
+  design for the exit mechanism; it is deliberately unimplemented.
+- **Strict arity by default.** `FeSetStrictArity()` exists and kg does not call
+  it. Turning it on would make every `(defun c (x) (interactive) …)` an arity
+  error, because kg invokes interactive commands with zero arguments
+  (`FeCall(ctx, cmd, nullptr, 0)`). It becomes possible once commands are
+  invoked with their arguments.

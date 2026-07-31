@@ -1329,14 +1329,17 @@ static void test_definition_forms(void)
 	/* defun returns the symbol, as Emacs does. */
 	CHECK(eval_eq("(defun square (x) (* x x))", "square"));
 	CHECK(eval_eq("(square 7)", "49"));
-	/* Argument-list rewriting in isolation. */
-	CHECK(eval_eq(
-	    "(internal--arglist '(a &optional b &rest r))", "(a b . r)"));
-	CHECK(eval_eq("(internal--arglist '(a b))", "(a b)"));
-	CHECK(eval_eq("(internal--arglist '(&rest r))", "r"));
-	CHECK(eval_eq("(internal--arglist '(a . r))", "(a . r)"));
-	CHECK(eval_eq("(internal--arglist 'args)", "args"));
-	CHECK(eval_eq("(internal--arglist nil)", "nil"));
+	/* Argument lists reach Fe as written: its binder reads &optional and
+	 * &rest itself, so kg no longer lowers them to a dotted list. */
+	CHECK(eval_ok("(defun bare args args)"));
+	CHECK(eval_eq("(bare 1 2)", "(1 2)"));
+	CHECK(eval_ok("(defun dotted (a . r) (list a r))"));
+	CHECK(eval_eq("(dotted 1 2 3)", "(1 (2 3))"));
+	CHECK(eval_ok("(defun none () 7)"));
+	CHECK(eval_eq("(none)", "7"));
+	CHECK(eval_ok("(defun both (a &optional b &rest r) (list a b r))"));
+	CHECK(eval_eq("(both 1)", "(1 nil nil)"));
+	CHECK(eval_eq("(both 1 2 3 4)", "(1 2 (3 4))"));
 
 	CHECK(eval_ok("(defun opt (a &optional b) (list a b))"));
 	CHECK(eval_eq("(opt 1)", "(1 nil)"));
@@ -1358,11 +1361,14 @@ static void test_definition_forms(void)
 	CHECK(eval_ok("(defmacro my-list (&rest body) (cons 'list body))"));
 	CHECK(eval_eq("(my-list 1 2)", "(1 2)"));
 
-	/* defvar initialises only while the variable is nil; defconst always
-	 * assigns. */
+	/* defvar initialises only an unbound variable; defconst always
+	 * assigns.  A variable holding nil is bound, so defvar leaves it. */
 	CHECK(eval_eq("(defvar dv 5)", "dv"));
 	CHECK(eval_ok("(defvar dv 9)"));
 	CHECK(eval_eq("dv", "5"));
+	CHECK(eval_ok("(setq dvn nil)"));
+	CHECK(eval_ok("(defvar dvn 9)"));
+	CHECK(eval_eq("dvn", "nil"));
 	CHECK(eval_eq("(defconst dc 5)", "dc"));
 	CHECK(eval_ok("(defconst dc 9)"));
 	CHECK(eval_eq("dc", "9"));
@@ -1430,6 +1436,51 @@ static void test_void_function(void)
 	kg_lisp_shutdown();
 }
 
+/* A name that was never assigned is an error, not nil. */
+static void test_void_variable(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(boundp 'no-such-variable)", "nil"));
+	CHECK(eval_error_contains(
+	    "no-such-variable", "void-variable no-such-variable"));
+	CHECK(eval_error_contains(
+	    "(+ 1 no-such-variable)", "void-variable no-such-variable"));
+
+	/* Assignment creates the binding, and nil is a value like any other. */
+	CHECK(eval_ok("(setq no-such-variable nil)"));
+	CHECK(eval_eq("(boundp 'no-such-variable)", "t"));
+	CHECK(eval_eq("no-such-variable", "nil"));
+	CHECK(eval_eq("(makunbound 'no-such-variable)", "no-such-variable"));
+	CHECK(eval_eq("(boundp 'no-such-variable)", "nil"));
+
+	/* boundp sees lexical bindings too. */
+	CHECK(eval_eq("((lambda (p) (boundp 'p)) 1)", "t"));
+	CHECK(eval_eq("(boundp 'p)", "nil"));
+
+	CHECK(eval_ok("(+ 1 2)"));
+
+	kg_lisp_shutdown();
+}
+
+/* A structure that refers to itself used to make the writer loop forever,
+ * with no C-g out of it: M-:, eval-buffer and C-j all render their result. */
+static void test_cyclic_result(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq(
+	    "(progn (setq c (cons 1 nil)) (setcdr c c) c)", "(1 . #<cycle>)"));
+	CHECK(eval_eq("(progn (setq d (cons 1 (cons 2 nil)))"
+		      " (setcdr (cdr d) d) d)",
+	    "(1 2 1 . #<cycle>)"));
+	/* Shared but acyclic structure is still printed in full. */
+	CHECK(eval_eq("(progn (setq s '(1 2)) (list s s))", "((1 2) (1 2))"));
+	CHECK(eval_ok("(+ 1 2)"));
+
+	kg_lisp_shutdown();
+}
+
 /* Fe's GC stack is what bounds recursion, not the C stack. */
 static void test_recursion_depth(void)
 {
@@ -1486,6 +1537,8 @@ int main(void)
 	RUN(test_definition_forms);
 	RUN(test_quasiquote);
 	RUN(test_void_function);
+	RUN(test_void_variable);
+	RUN(test_cyclic_result);
 	RUN(test_recursion_depth);
 	return test_summary();
 }

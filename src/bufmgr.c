@@ -339,7 +339,6 @@ void buf_reload_from_disk(void)
  * that does not exist appends the blank lines to reach it. */
 static void silent_revert_current(void)
 {
-	struct kg_buffer_handle current = buf_handle(buf_current);
 	int saved_cx = wcur()->cx;
 	int saved_cy = wcur()->cy;
 	int saved_rowoff = wcur()->rowoff;
@@ -353,8 +352,11 @@ static void silent_revert_current(void)
 	wcur()->rowoff = saved_rowoff;
 	wcur()->coloff = saved_coloff;
 
+	/* Resolving each view and comparing the buffer it lands on is the
+	 * whole test: a window showing nothing resolves to NULL, and bcur()
+	 * is never NULL. */
 	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (win_shows_buffer(&winlist[i], current)) {
+		if (win_buffer(&winlist[i]) == bcur()) {
 			clamp_view_to_buffer(&winlist[i], bcur());
 		}
 	}

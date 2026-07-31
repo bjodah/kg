@@ -431,6 +431,67 @@ and edit groups (batches 3-5).
 Phase invariant after each batch: the batch's commands route through the
 transaction, and the previous batches still do.
 
+## Design note — who may mutate a buffer outside a keypress (written by plan 15 phase 5)
+
+Not a phase, and not a change: this is the rule the code already follows,
+written down so plan 10's safe points and plan 12's process events stop
+being two separate answers to it.  Nothing here is a request to change
+behaviour.
+
+**Two mutators run outside a command.**  `compilation_poll()` and
+`autorevert_poll()` are both called from the top of the input loop
+(`src/main.c:162-164`) *and* from inside `read_key_byte()` in
+`src/tty.c`, which is where a minibuffer prompt waits for its next key.
+The `idle` argument is the difference: the main loop's poll set includes
+`autorevert_poll()` and `compilation_start_pending_restart()`, and a
+prompt's does not -- a prompt gets `compilation_poll()` alone.
+
+**The rule that makes that safe, stated positively.**  Outside a
+keypress, code may append to a buffer that is not the current one, and
+may set a flag the mode line reads.  It may not: change which buffer is
+current, change which buffer a window shows, move point in any window,
+touch the buffer the minibuffer's caller is editing, or run Lisp.
+`compilation_poll()` obeys this literally -- it writes only into the
+`*compilation*` buffer it holds a handle to, and the comment at
+`src/compile.c:648-653` is why a finished compilation's queued restart is
+deferred to `compilation_start_pending_restart()`: starting a
+compilation switches buffers and windows, so it may only happen from the
+top-level loop.  `autorevert_poll()` obeys it by refusing to reload
+anything but the current buffer, and by only ever setting `disk_changed`
+on the others.
+
+**Auto-revert's restriction is now stricter than its reason.**  The
+comment at `src/bufmgr.c:327-333` says reloading another buffer "would
+move a point this loop cannot see".  That was true before plan 09: points
+lived in the session record and in per-buffer saved state.  It is not
+true now -- every point is in `winlist[]` and enumerable, and a buffer
+with no window showing it has one remembered `last_point` that a reload
+can clamp.  The restriction is therefore a *conservative* one that
+outlived its argument, not a correctness requirement.  Widening it is a
+behaviour change and belongs to whichever plan wants background reverts
+of unshown buffers; it needs its own decision about what happens to a
+point that a reload puts past the end, and its own PTY case.  Plan 15
+deliberately did not touch it.
+
+**What this means for plan 10 phase 8.**  A deferred hook queue is the
+mechanism this rule already implies: pollers may *enqueue*, and the
+drain happens at the one place the loop is between commands, which is
+where `compilation_start_pending_restart()` already sits.  A C hook that
+runs from inside `compilation_poll()` would be running underneath an
+open prompt, and the "may not run Lisp" clause above is exactly the
+re-entrancy the phase invariant asks to assert with a counter.
+
+**What it means for plan 12 phase 9.**  A generalized process manager
+multiplies the pollers.  Each one inherits the rule unchanged: a process
+may fill its own output buffer, and may not select, display, or move
+point.  The `restart_pending` shape -- a flag the poller sets and the
+top-level loop acts on -- is the pattern to copy, not to reinvent.
+
+**Regression cover.**  `test/pty/90d-compile-output-during-prompt.yaml`
+pins the observable half: output arriving from a running compilation
+while an `M-x` prompt is open does not disturb the buffer being edited,
+the prompt still completes, and the output does reach `*compilation*`.
+
 ## Model and property testing
 
 Reference model: a flat `char *` plus a marker list.

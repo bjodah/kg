@@ -448,6 +448,68 @@ Rules:
 - `src/lisp.h` keeps its `KG_USE_LISP`-free shape. The Lisp adapter continues
   to translate 1-based character positions in `src/lisp.c` only.
 
+## Design note — buffer slot lifecycle policy (written by plan 15 phase 5)
+
+Not a phase.  This is the decision record plans 09, 10 and 12 kept
+inventing separately, written against the code as it stands after phases
+0-5 landed.
+
+**The cap is hard, and stays hard.**  `buflist[]` is a fixed array of
+`MAX_BUFFERS` (20) `struct editor_buffer`, `winlist[]` a fixed array of
+`MAX_WINDOWS` (8).  `buf_first_free_slot()` takes the lowest inactive
+slot; when there is none the command refuses with "Too many open buffers
+(20 max)" and changes nothing.  There is deliberately **no reuse policy
+and no LRU eviction**: an editor that silently discards a buffer to make
+room for the one you asked for is an editor that can lose unsaved work
+without asking, and every alternative to the refusal has to answer "which
+buffer did you throw away, and was it modified?".  A user at the cap
+kills a buffer.  If the cap is ever raised, raise the number; do not add
+an eviction rule.
+
+**Identity, not position, is what outlives a command.**  `buf_claim_slot()`
+is the single place a slot changes hands: it assigns a fresh `id` from a
+counter that never repeats and bumps `generation`.  `buf_kill()` bumps
+`generation` too, so every `struct kg_buffer_handle` taken before either
+event stops resolving at exactly the moment the buffer it named stopped
+existing.  Anything that has to name a buffer across a command boundary
+holds a handle and calls `buf_resolve()`, which returns NULL rather than
+somebody else's text; a bare `int` slot index is only valid inside the
+command that read it.  **The compilation-index hazard the review found is
+closed by this**: `compilation_state` used to retain slot indices for its
+output and source buffers across the life of a child process, so killing
+the output buffer and opening a file could hand the compilation somebody
+else's rows.  It holds handles now (`KG_PERF_HANDLE_STALE` counts the
+resolutions that come back empty).  Plan 09 phase 7 would extend the same
+treatment to `winlist[].bufidx`, which is still an index -- safe today
+only because `buf_kill()` walks the window list and re-attaches every
+window that pointed at the dead slot.
+
+**`*scratch*` is not immortal, and nothing depends on its being so.**
+Slot 0 gets `*scratch*` when kg starts with no file arguments, and it is
+an ordinary buffer thereafter: killable, and reusable once killed.  Emacs
+recreates `*scratch*` on demand; kg does not, and there is no code path
+that assumes slot 0 holds anything in particular.  A future
+`(switch-to-buffer "*scratch*")` should create it like any other special
+buffer rather than reserve a slot for it.
+
+**Killing the last buffer exits.**  `buf_kill()` decrements `buf_count`
+and, at zero, clears `running`.  This is deliberate and matches the
+"editor as `$EDITOR`" shape kg is built for; it is not Emacs, which keeps
+`*scratch*` alive.  The dirty-buffer confirmation happens first, so it is
+not an unprompted exit.  A plan that wants the Emacs behaviour has to
+decide what the empty editor shows, and that is a new buffer, which is a
+new slot, which is this policy again.
+
+**Consequences for the plans that asked.**  Plan 10's markers and
+decorations attach to a buffer, so they die with the slot's generation
+and need no separate invalidation pass.  Plan 12's Lisp-visible buffer
+objects must be handles, never indices, and `buf_resolve()` returning
+NULL is a Lisp error, not a fallback to the current buffer.  Plan 09
+phase 7's lifecycle hooks fire at `buf_claim_slot()`, `buf_kill()`,
+`buf_attach_view()` and `buf_remember_view()`; none of them may allocate
+a slot, or the refusal above stops being the only place the cap is
+enforced.
+
 ## Not in this plan
 
 - No marker relocation, edit transaction, or change events (Plan 10).

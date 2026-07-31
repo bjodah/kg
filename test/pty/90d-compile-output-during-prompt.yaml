@@ -1,0 +1,38 @@
+# A running compilation writes into *compilation* from inside
+# read_key_byte(), which is where a minibuffer prompt waits for its next
+# key -- see plan 10's "who may mutate a buffer outside a keypress" note.
+# This pins the observable half of that rule: the child's output lands
+# while an M-x prompt is open, and the buffer being edited, its point and
+# the prompt itself are all undisturbed.
+name: compile-output-during-prompt
+filename: promptcompile.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: "hello"
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "sh -c 'sleep 1; echo LATE'"
+  - RET
+  # Hold a prompt open across the moment the child prints.  Eight keys at
+  # 0.15 s is longer than the sleep, and a slower box only widens the
+  # window, never narrows it.
+  - M-x
+  - v
+  - e
+  - r
+  - s
+  - i
+  - o
+  - "n"
+  - C-g
+  # Back in the source buffer, at the point M-x was pressed from.
+  - C-e
+  - " world"
+expected_saved: "hello world"
+expected_screen_contains:
+  - LATE

@@ -53,6 +53,7 @@ static void buf_save_to_slot(int idx)
 	b->coloff = editor.coloff;
 	b->numrows = editor.numrows;
 	b->row = editor.row;
+	b->row_capacity = editor.row_capacity;
 	b->dirty = editor.dirty;
 	b->filename = editor.filename;
 	b->syntax = editor.syntax;
@@ -95,6 +96,7 @@ void buf_restore_from_slot(int idx)
 	editor.coloff = b->coloff;
 	editor.numrows = b->numrows;
 	editor.row = b->row;
+	editor.row_capacity = b->row_capacity;
 	editor.dirty = b->dirty;
 	editor.filename = b->filename;
 	editor.syntax = b->syntax;
@@ -330,6 +332,7 @@ static void buf_reset(void)
 	editor.rowoff = editor.coloff = 0;
 	editor.numrows = 0;
 	editor.row = NULL;
+	editor.row_capacity = 0;
 	editor.dirty = 0;
 	editor.filename = NULL;
 	editor.syntax = NULL;
@@ -1609,6 +1612,7 @@ void buf_kill(int fd)
 
 	buflist[buf_current].active = 0;
 	buflist[buf_current].row = NULL;
+	buflist[buf_current].row_capacity = 0;
 	buflist[buf_current].filename = NULL;
 	buf_count--;
 
@@ -1707,6 +1711,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 struct editor_buffer_swap {
 	erow *row;
 	int numrows;
+	int row_capacity;
 	int dirty;
 	struct editor_syntax *syntax;
 	char *filename;
@@ -1727,6 +1732,7 @@ static void buf_temp_swap_in(int idx, struct editor_buffer_swap *saved)
 
 	saved->row = editor.row;
 	saved->numrows = editor.numrows;
+	saved->row_capacity = editor.row_capacity;
 	saved->dirty = editor.dirty;
 	saved->syntax = editor.syntax;
 	saved->filename = editor.filename;
@@ -1737,6 +1743,7 @@ static void buf_temp_swap_in(int idx, struct editor_buffer_swap *saved)
 
 	editor.row = buflist[idx].row;
 	editor.numrows = buflist[idx].numrows;
+	editor.row_capacity = buflist[idx].row_capacity;
 	editor.dirty = buflist[idx].dirty;
 	editor.syntax = buflist[idx].syntax;
 	editor.filename = buflist[idx].filename;
@@ -1754,6 +1761,7 @@ static void buf_temp_swap_out(int idx, struct editor_buffer_swap *saved)
 
 	buflist[idx].row = editor.row;
 	buflist[idx].numrows = editor.numrows;
+	buflist[idx].row_capacity = editor.row_capacity;
 	buflist[idx].dirty = editor.dirty;
 	buflist[idx].syntax = editor.syntax;
 	buflist[idx].filename = editor.filename;
@@ -1764,6 +1772,7 @@ static void buf_temp_swap_out(int idx, struct editor_buffer_swap *saved)
 
 	editor.row = saved->row;
 	editor.numrows = saved->numrows;
+	editor.row_capacity = saved->row_capacity;
 	editor.dirty = saved->dirty;
 	editor.syntax = saved->syntax;
 	editor.filename = saved->filename;
@@ -2182,6 +2191,7 @@ void editor_cleanup(void)
 	}
 	editor.row = NULL;
 	editor.numrows = 0;
+	editor.row_capacity = 0;
 	editor.filename = NULL;
 	kill_ring_free();
 	rect_kill_ring_free();

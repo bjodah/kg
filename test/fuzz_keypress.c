@@ -19,6 +19,7 @@ static void free_rows(void)
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
+	editor.row_capacity = 0;
 }
 
 static void reset_state(void)

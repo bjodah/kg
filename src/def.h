@@ -287,6 +287,8 @@ struct editor_config {
 	int numrows; /* Number of rows */
 	int rawmode; /* Is terminal raw mode enabled? */
 	erow *row; /* Rows */
+	int row_capacity; /* Row records `row` can hold; see
+			     editor_rows_reserve(). */
 	int dirty; /* File modified but not saved. */
 	char *filename; /* Currently open filename */
 	char statusmsg[512];
@@ -420,6 +422,7 @@ struct editor_buffer {
 	int rowoff, coloff;
 	int numrows;
 	erow *row;
+	int row_capacity;
 	int dirty;
 	char *filename;
 	struct editor_syntax *syntax;
@@ -596,6 +599,7 @@ int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
 void editor_update_row(erow *row);
+int editor_rows_reserve(erow **rows, int *capacity, int need);
 void editor_insert_row(int at, const char *s, size_t len);
 void editor_free_row(erow *row);
 void editor_free_all_rows(void);

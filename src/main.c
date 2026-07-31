@@ -58,6 +58,7 @@ void init_editor(void)
 	editor.coloff = 0;
 	editor.numrows = 0;
 	editor.row = NULL;
+	editor.row_capacity = 0;
 	editor.dirty = 0;
 	editor.filename = NULL;
 	editor.syntax = NULL;

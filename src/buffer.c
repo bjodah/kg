@@ -324,6 +324,53 @@ void editor_update_row(erow *row)
 	editor_update_syntax(row);
 }
 
+/* Rows a fresh row array starts out able to hold.  Small enough that a
+ * one-line buffer is not paying for a page, large enough that the first
+ * screenful of a file costs one allocation. */
+#define KG_ROWS_INITIAL_CAPACITY 16
+
+/* Make room for `need` row records in `*rows`, doubling so that filling a
+ * buffer with R rows costs O(log R) reallocations instead of R of them --
+ * which is what an exact-size realloc per row costs, and R of them copy
+ * O(R^2) row records between them.
+ *
+ * `*capacity` is how many records the allocation holds, and only ever
+ * grows: shrinking on deletion would make delete/insert at a size
+ * boundary pay the copy twice, and the memory is a row record (not row
+ * text) per deleted line.  Returns 0 with the array and the capacity
+ * untouched when the size would overflow or the allocation fails, so a
+ * caller that has already published nothing stays failure-atomic. */
+int editor_rows_reserve(erow **rows, int *capacity, int need)
+{
+	int newcap;
+	size_t bytes;
+	erow *grown;
+
+	if (need <= *capacity) {
+		return need >= 0;
+	}
+	newcap = *capacity > 0 ? *capacity : KG_ROWS_INITIAL_CAPACITY;
+	while (newcap < need) {
+		if (newcap > INT_MAX / 2) {
+			newcap = need;
+			break;
+		}
+		newcap *= 2;
+	}
+	if (!checked_mul_size_t(&bytes, (size_t)newcap, sizeof(**rows))) {
+		return 0;
+	}
+	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);
+	KG_PERF_ADD(KG_PERF_ROW_ARRAY_BYTES, bytes);
+	grown = realloc(*rows, bytes);
+	if (!grown) {
+		return 0;
+	}
+	*rows = grown;
+	*capacity = newcap;
+	return 1;
+}
+
 /* Insert a row at the specified position, shifting the other rows on the bottom
  * if required.  `s` is a byte slice of exactly `len` bytes: the row is
  * terminated here rather than by copying whatever follows the caller's
@@ -332,7 +379,6 @@ void editor_update_row(erow *row)
  * past it. */
 void editor_insert_row(int at, const char *s, size_t len)
 {
-	erow *newrows;
 	char *newchars;
 	size_t alloc_sz;
 
@@ -352,16 +398,12 @@ void editor_insert_row(int at, const char *s, size_t len)
 	memcpy(newchars, s, len);
 	newchars[len] = '\0';
 
-	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);
-	KG_PERF_ADD(
-	    KG_PERF_ROW_ARRAY_BYTES, sizeof(erow) * (editor.numrows + 1));
-	newrows = realloc(editor.row, sizeof(erow) * (editor.numrows + 1));
-	if (!newrows) {
+	if (!editor_rows_reserve(
+		&editor.row, &editor.row_capacity, editor.numrows + 1)) {
 		free(newchars);
 		editor_nomem();
 		return;
 	}
-	editor.row = newrows;
 	if (at != editor.numrows) {
 		memmove(editor.row + at + 1, editor.row + at,
 		    sizeof(editor.row[0]) * (editor.numrows - at));
@@ -402,6 +444,7 @@ void editor_free_all_rows(void)
 	free(editor.row);
 	editor.row = NULL;
 	editor.numrows = 0;
+	editor.row_capacity = 0;
 }
 
 /* Remove the row at the specified position, shifting the remaining on the top.
@@ -697,6 +740,7 @@ static void editor_replace_rows_from_text(const char *text, int len)
 		editor_nomem();
 		return;
 	}
+	editor.row_capacity = row_count;
 
 	for (i = 0; i < len; i++) {
 		if (text[i] == '\n') {

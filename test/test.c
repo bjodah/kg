@@ -15,4 +15,11 @@ void free_all_rows(void)
 		editor_free_row(&editor.row[i]);
 	}
 	free(editor.row);
+	/* The row array now carries a capacity (editor_rows_reserve()), so
+	 * dropping the rows has to drop it too: a stale capacity over a
+	 * freed pointer is what the next editor_insert_row() would write
+	 * through. */
+	editor.row = NULL;
+	editor.numrows = 0;
+	editor.row_capacity = 0;
 }

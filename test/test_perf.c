@@ -162,10 +162,48 @@ static void test_insert_row_array_growth(void)
 		editor_insert_row(i, "x", 1);
 	}
 	CHECK(editor.numrows == rows);
-	/* Before Plan 08 phase 2b: the growth path every subprocess line
-	 * takes reallocs to an exact size, once per row. */
-	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) == (unsigned long long)rows);
-	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) > log_growth_bound(rows));
+	/* Plan 08 phase 2b: the growth path every subprocess output line
+	 * takes doubles, so R rows cost O(log R) reallocations.  It used to
+	 * realloc to an exact size once per row -- 4096 of them here. */
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(rows));
+	teardown();
+}
+
+/* The row array a build log fills: compilation and shell-command output
+ * reaches a buffer through buf_append_special_text(), one
+ * editor_insert_row() per line, on a path the user watches in real
+ * time. */
+static void test_special_text_append_growth(void)
+{
+	const int lines = 20000;
+	int slot, i;
+	size_t len = 0;
+	char *text = malloc((size_t)lines * 32 + 1);
+
+	CHECK(text != NULL);
+	if (!text) {
+		return;
+	}
+	for (i = 0; i < lines; i++) {
+		len += (size_t)snprintf(
+		    text + len, 32, "cc -c file%05d.c\n", i);
+	}
+
+	setup();
+	slot = buf_prepare_special_text("*perf-output*", NULL, 1);
+	CHECK(slot >= 0);
+	if (slot >= 0) {
+		kg_perf_reset();
+		CHECK(buf_append_special_text(slot, text, len) == 0);
+		CHECK(
+		    counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(lines));
+		buf_clear_special_text(slot);
+		free(buflist[slot].filename);
+		buflist[slot].filename = NULL;
+		buflist[slot].active = 0;
+		buf_count--;
+	}
+	free(text);
 	teardown();
 }
 
@@ -347,6 +385,7 @@ int main(void)
 {
 	RUN(test_load_row_array_growth);
 	RUN(test_insert_row_array_growth);
+	RUN(test_special_text_append_growth);
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
 	RUN(test_replace_range_updates_once);

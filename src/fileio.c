@@ -317,6 +317,7 @@ static int load_append_row(
 	char *newchars;
 	erow *saved_row;
 	int saved_numrows;
+	int saved_capacity;
 	struct editor_syntax *saved_syntax;
 
 	if (!checked_size_to_int(&at, linelen)
@@ -359,14 +360,17 @@ static int load_append_row(
 	 */
 	saved_row = editor.row;
 	saved_numrows = editor.numrows;
+	saved_capacity = editor.row_capacity;
 	saved_syntax = editor.syntax;
 	saved_running = running;
 	editor.row = res->row;
 	editor.numrows = res->numrows;
+	editor.row_capacity = res->numrows;
 	editor_select_syntax_highlight(res->filename);
 	editor_update_row(&res->row[at]);
 	editor.row = saved_row;
 	editor.numrows = saved_numrows;
+	editor.row_capacity = saved_capacity;
 	editor.syntax = saved_syntax;
 	if (!res->row[at].render || running != saved_running) {
 		running = saved_running;
@@ -462,6 +466,7 @@ void commit_load_result(struct temp_load_result *res)
 	editor.filename = res->filename;
 	editor.row = res->row;
 	editor.numrows = res->numrows;
+	editor.row_capacity = res->numrows;
 	editor.disk = res->disk;
 	editor.disk_changed = 0;
 	editor.dirty = 0;

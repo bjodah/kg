@@ -34,6 +34,7 @@ static void page_reset(void)
  * with nothing saying so. */
 [[gnu::format(printf, 1, 2)]] static void page_line(const char *fmt, ...)
 {
+	size_t room = sizeof(page) - page_used;
 	va_list ap;
 	int written;
 
@@ -41,8 +42,13 @@ static void page_reset(void)
 		return;
 	}
 	va_start(ap, fmt);
-	written
-	    = vsnprintf(page + page_used, sizeof(page) - page_used, fmt, ap);
+	/* C23 expands va_start to __builtin_c23_va_start, which clang's
+	 * valist checker does not model, so it reports `ap` as
+	 * uninitialized here.  Same suppression as the other va_start
+	 * sites in the editor.  `room` is hoisted out so the call fits on
+	 * the one line the suppression covers. */
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
+	written = vsnprintf(page + page_used, room, fmt, ap);
 	va_end(ap);
 	if (written < 0 || page_used + (size_t)written >= sizeof(page)) {
 		page[page_used] = '\0';
@@ -216,9 +222,14 @@ void describe_key(int fd)
 }
 
 /* Prompt for a command name.  Returns 0 when the user cancelled or
- * entered nothing. */
+ * entered nothing.
+ *
+ * The prompt prefills from `name`, so it is emptied here rather than at
+ * each call site: reaching editor_read_line() with an uninitialised
+ * buffer is a read of whatever the stack held. */
 static int describe_read_name(int fd, const char *prompt, char *name, int size)
 {
+	name[0] = '\0';
 	return editor_read_line(fd, prompt, name, size) == MINIBUF_ACCEPTED
 	    && name[0];
 }

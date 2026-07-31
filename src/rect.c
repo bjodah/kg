@@ -183,7 +183,7 @@ static int rect_push_overwrite_undo(int s_row, int s_vcol, int e_row)
 		rect_row_byte_range(
 		    &bcur()->row[s_row], s_vcol, s_vcol, &byte_lo, &hi_unused);
 	}
-	undo_push(UNDO_RECT_OVERWRITE, s_row, byte_lo, bcur()->numrows,
+	undo_push(bcur(), UNDO_RECT_OVERWRITE, s_row, byte_lo, bcur()->numrows,
 	    snap ? snap : (char *)"", snap_len);
 	free(snap);
 	return byte_lo;
@@ -371,7 +371,7 @@ void editor_yank_rect(void)
 	}
 	snap = rect_snapshot_rows(cur_row, cur_row + rows_to_snap, &snap_len);
 
-	undo_push(UNDO_RECT_OVERWRITE, cur_row, cur_col, orig_numrows,
+	undo_push(bcur(), UNDO_RECT_OVERWRITE, cur_row, cur_col, orig_numrows,
 	    snap ? snap : (char *)"", snap_len);
 	free(snap);
 

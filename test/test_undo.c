@@ -133,7 +133,7 @@ static void test_split_line_short_row(void)
 	setup();
 	editor_insert_row(bcur(), 0, "", 0);
 	editor_insert_row(bcur(), 1, "", 0);
-	undo_push(UNDO_SPLIT_LINE, 0, 3, 0, "tail", 4);
+	undo_push(bcur(), UNDO_SPLIT_LINE, 0, 3, 0, "tail", 4);
 
 	editor_undo();
 
@@ -157,7 +157,7 @@ static void test_join_line(void)
 	/* Push the UNDO_JOIN_LINE record as editor_join_line would:
 	 *   prev_row=0, join_col=5 (original end of row[0]),
 	 *   text = original row[1] content including leading spaces */
-	undo_push(UNDO_JOIN_LINE, 0, 5, 0, "  world", 7);
+	undo_push(bcur(), UNDO_JOIN_LINE, 0, 5, 0, "  world", 7);
 
 	/* Perform join: "hello" + " " + "world" = "hello world"
 	 * (leading whitespace stripped from row[1], space inserted at join
@@ -331,7 +331,7 @@ static void test_yank_text(void)
 	editor.cx = 2; /* cursor before 'h'  */
 
 	/* Record simulates what editor_yank / insert_text_raw would push */
-	undo_push(UNDO_YANK_TEXT, 0, 2, 0, "hello", 5);
+	undo_push(bcur(), UNDO_YANK_TEXT, 0, 2, 0, "hello", 5);
 
 	editor_undo(); /* del 5 chars from col 2 */
 
@@ -346,7 +346,7 @@ static void test_yank_text_len_only(void)
 	editor_insert_row(bcur(), 0, "abhellocd", 9);
 	editor.cx = 2;
 
-	undo_push(UNDO_YANK_TEXT, 0, 2, 0, NULL, 5);
+	undo_push(bcur(), UNDO_YANK_TEXT, 0, 2, 0, NULL, 5);
 
 	editor_undo();
 
@@ -367,7 +367,7 @@ static void test_reflow_para(void)
 	/* Record as editor_reflow_paragraph would push it:
 	 *   row=0, col=1 (number of reflowed rows to delete),
 	 *   text = original two lines joined with '\n' */
-	undo_push(UNDO_REFLOW_PARA, 0, 1, 0, "hello\nworld", 11);
+	undo_push(bcur(), UNDO_REFLOW_PARA, 0, 1, 0, "hello\nworld", 11);
 
 	editor_undo();
 
@@ -504,8 +504,9 @@ static void test_word_case_two_records(void)
 	bcur()->dirty = 1;
 
 	/* Records as do_word_case pushes them */
-	undo_push(UNDO_KILL_TEXT, 0, 0, 0, "hello", 5); /* original  */
-	undo_push(UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5); /* transformed */
+	undo_push(bcur(), UNDO_KILL_TEXT, 0, 0, 0, "hello", 5); /* original  */
+	undo_push(
+	    bcur(), UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5); /* transformed */
 
 	/* First undo (YANK_TEXT): deletes "HELLO" leaving an empty row */
 	editor_undo();
@@ -628,7 +629,7 @@ static void test_undo_yank_multi_row(void)
 	editor_insert_row(bcur(), 1, "worldcd", 7);
 	bcur()->numrows = 2;
 
-	undo_push(UNDO_YANK_TEXT, 0, 2, 0, "hello\nworld", 11);
+	undo_push(bcur(), UNDO_YANK_TEXT, 0, 2, 0, "hello\nworld", 11);
 
 	editor_undo();
 
@@ -644,7 +645,7 @@ static void test_undo_replace_text(void)
 	editor_insert_row(bcur(), 0, "hey", 3);
 	bcur()->numrows = 1;
 
-	undo_push(UNDO_REPLACE_TEXT, 0, 2, 1, "llo", 3);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, 0, 2, 1, "llo", 3);
 
 	editor_undo();
 
@@ -658,7 +659,7 @@ static void test_undo_replace_text_multi_row(void)
 	setup();
 	editor_insert_row(bcur(), 0, "heZZZZZZZZZ", 11);
 
-	undo_push(UNDO_REPLACE_TEXT, 0, 2, 9, "llo\nworld", 9);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, 0, 2, 9, "llo\nworld", 9);
 
 	editor_undo();
 

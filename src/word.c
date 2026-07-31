@@ -164,7 +164,8 @@ void editor_kill_word_forward(void)
 	text[kill_len] = '\0';
 
 	kill_ring_set(text, kill_len);
-	undo_push(UNDO_KILL_TEXT, filerow, start_col, 0, text, kill_len);
+	undo_push(
+	    bcur(), UNDO_KILL_TEXT, filerow, start_col, 0, text, kill_len);
 	free(text);
 
 	memmove(row->chars + start_col, row->chars + start_col + kill_len,
@@ -216,7 +217,7 @@ void editor_kill_word_backward(void)
 	text[kill_len] = '\0';
 
 	kill_ring_set(text, kill_len);
-	undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, text, kill_len);
+	undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0, text, kill_len);
 	free(text);
 
 	if (filecol < editor.coloff) {
@@ -631,8 +632,8 @@ void editor_join_line(void)
 	join_col = prev->size;
 	add_space = (join_col > 0 && rest_len > 0) ? 1 : 0;
 
-	undo_push(
-	    UNDO_JOIN_LINE, prev_row_idx, join_col, 0, cur->chars, cur->size);
+	undo_push(bcur(), UNDO_JOIN_LINE, prev_row_idx, join_col, 0, cur->chars,
+	    cur->size);
 
 	{
 		char *newchars
@@ -702,7 +703,8 @@ void editor_delete_horizontal_space(void)
 		return;
 	}
 
-	undo_push(UNDO_KILL_TEXT, filerow, start, 0, row->chars + start, len);
+	undo_push(
+	    bcur(), UNDO_KILL_TEXT, filerow, start, 0, row->chars + start, len);
 	memmove(row->chars + start, row->chars + end, row->size - end + 1);
 	row->size -= len;
 	editor_update_row(bcur(), row);
@@ -771,7 +773,7 @@ void editor_just_one_space(void)
 		}
 		row->chars = newchars;
 	}
-	undo_push(UNDO_REPLACE_TEXT, filerow, start, 1, orig, old_len);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, start, 1, orig, old_len);
 	free(orig);
 
 	memmove(row->chars + start + 1, row->chars + end, row->size - end + 1);
@@ -869,7 +871,8 @@ void editor_zap_to_char(int fd, int count)
 
 	editor_cursor_goto(filerow, filecol);
 	kill_ring_set(text, end - point);
-	undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, text, end - point);
+	undo_push(
+	    bcur(), UNDO_KILL_TEXT, filerow, filecol, 0, text, end - point);
 	suppress_undo = 1;
 	for (i = 0; i < end - point; i++) {
 		editor_del_forward_char();
@@ -935,8 +938,9 @@ static void do_word_case(int mode)
 
 	/* Two undo records (LIFO): first pop deletes transformed text, second
 	 * re-inserts original */
-	undo_push(UNDO_KILL_TEXT, filerow, word_start, 0, orig, word_len);
-	undo_push(UNDO_YANK_TEXT, filerow, word_start, 0,
+	undo_push(
+	    bcur(), UNDO_KILL_TEXT, filerow, word_start, 0, orig, word_len);
+	undo_push(bcur(), UNDO_YANK_TEXT, filerow, word_start, 0,
 	    row->chars + word_start, word_len);
 
 	free(orig);
@@ -1034,7 +1038,8 @@ void editor_comment_dwim(void)
 			row->size -= rlen;
 			editor_update_row(bcur(), row);
 
-			undo_push(UNDO_KILL_TEXT, r, i, 0, removed, rlen);
+			undo_push(
+			    bcur(), UNDO_KILL_TEXT, r, i, 0, removed, rlen);
 		} else {
 			/* Not commented: insert scs + space at column 0. */
 			char prefix[8];
@@ -1056,7 +1061,8 @@ void editor_comment_dwim(void)
 			row->size += scslen + 1;
 			editor_update_row(bcur(), row);
 
-			undo_push(UNDO_YANK_TEXT, r, 0, 0, prefix, scslen + 1);
+			undo_push(bcur(), UNDO_YANK_TEXT, r, 0, 0, prefix,
+			    scslen + 1);
 		}
 	}
 	bcur()->dirty = 1;
@@ -1358,8 +1364,8 @@ oom:
 
 	/* col = new_count: the undo handler uses it to know how many rows to
 	 * delete */
-	undo_push(
-	    UNDO_REFLOW_PARA, para_start, new_count, 0, orig_text, orig_len);
+	undo_push(bcur(), UNDO_REFLOW_PARA, para_start, new_count, 0, orig_text,
+	    orig_len);
 
 	free(orig_text);
 	for (i = 0; i < new_count; i++) {
@@ -1450,7 +1456,7 @@ void editor_rebase_set_action(const char *action)
 		}
 		row->chars = newchars;
 	}
-	undo_push(UNDO_REPLACE_TEXT, filerow, start, nlen, orig, wlen);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, start, nlen, orig, wlen);
 	free(orig);
 
 	wend = start + wlen;
@@ -1502,7 +1508,7 @@ void editor_rebase_move_line(int dir)
 	}
 	/* Same trick as editor_sort_lines(): swapping equal-length text,
 	 * so one REPLACE_TEXT record with c == len restores both rows. */
-	undo_push(UNDO_REPLACE_TEXT, top, 0, orig_len, orig, orig_len);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, top, 0, orig_len, orig, orig_len);
 	free(orig);
 
 	tmp = bcur()->row[filerow];

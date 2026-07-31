@@ -11,6 +11,7 @@
 #include "compile.h"
 #include "def.h"
 #include "lisp.h"
+#include "localvars.h"
 
 static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;
@@ -131,8 +132,8 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 	removed = row->size - newsize;
 	/* Each removed span is a separate undo record so C-_ restores line by
 	 * line. */
-	undo_push(
-	    UNDO_KILL_TEXT, filerow, newsize, 0, row->chars + newsize, removed);
+	undo_push(bcur(), UNDO_KILL_TEXT, filerow, newsize, 0,
+	    row->chars + newsize, removed);
 	row->chars[newsize] = '\0';
 	row->size = newsize;
 	editor_update_row(bcur(), row);
@@ -560,8 +561,8 @@ static void do_eval_last_sexp(int print_to_buffer, int insert_newline_before)
 				memcpy(to_insert + prefix, result, res_len);
 				to_insert[total] = '\0';
 
-				undo_push(UNDO_YANK_TEXT, start_row, start_col,
-				    0, to_insert, total);
+				undo_push(bcur(), UNDO_YANK_TEXT, start_row,
+				    start_col, 0, to_insert, total);
 				editor_insert_text_raw(to_insert, total);
 				free(to_insert);
 			} else {

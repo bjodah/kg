@@ -1181,7 +1181,7 @@ void editor_insert_char(int c)
 	}
 
 	/* Record undo operation */
-	undo_push(UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
+	undo_push(bcur(), UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
 
 	editor_row_insert_char(row, filecol, c);
 	if (editor.cx == editor.screencols - 1) {
@@ -1211,7 +1211,7 @@ void editor_insert_newline_raw(void)
 	filecol = editor_current_filecol();
 
 	if (filerow >= bcur()->numrows) {
-		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
+		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
 		editor_insert_row(bcur(), filerow, "", 0);
 		target_row = filerow;
 	} else {
@@ -1220,7 +1220,7 @@ void editor_insert_newline_raw(void)
 			filecol = row->size;
 		}
 		rest_len = row->size - filecol;
-		undo_push(UNDO_SPLIT_LINE, filerow, filecol, 0,
+		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
 		    row->chars + filecol, rest_len);
 		editor_insert_row(
 		    bcur(), filerow + 1, row->chars + filecol, rest_len);
@@ -1325,7 +1325,7 @@ void editor_insert_newline(void)
 		filecol = row->size;
 	}
 	if (filecol <= 0) {
-		undo_push(UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
+		undo_push(bcur(), UNDO_INSERT_LINE, filerow, 0, 0, NULL, 0);
 		editor_insert_row(bcur(), filerow, "", 0);
 	} else {
 		/* Compute leading whitespace of the current line for
@@ -1353,7 +1353,7 @@ void editor_insert_newline(void)
 
 		/* Record undo: save the original rest without the indent
 		 * prefix. */
-		undo_push(UNDO_SPLIT_LINE, filerow, filecol, 0,
+		undo_push(bcur(), UNDO_SPLIT_LINE, filerow, filecol, 0,
 		    row->chars + filecol, rest_len);
 		editor_insert_row(
 		    bcur(), filerow + 1, new_content, indent + rest_len);
@@ -1467,7 +1467,7 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 		row->chars = newchars;
 	}
 	if (!(options & KG_EDIT_NO_UNDO)
-	    && !undo_push(UNDO_REPLACE_TEXT, filerow, at, insert_len,
+	    && !undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, at, insert_len,
 		row->chars + at, delete_len)) {
 		editor_nomem();
 		return 0;
@@ -1521,7 +1521,7 @@ void editor_del_char(void)
 		/* Handle the case of column 0, we need to move the current line
 		 * on the right of the previous one. */
 		/* Record undo: save the line that will be joined */
-		undo_push(UNDO_JOIN_LINE, filerow - 1,
+		undo_push(bcur(), UNDO_JOIN_LINE, filerow - 1,
 		    bcur()->row[filerow - 1].size, 0, row->chars, row->size);
 		filecol = bcur()->row[filerow - 1].size;
 		editor_row_append_string(
@@ -1561,7 +1561,7 @@ void editor_del_forward_char(void)
 		if (filerow + 1 >= bcur()->numrows) {
 			return;
 		}
-		undo_push(UNDO_JOIN_LINE, filerow, filecol, 0,
+		undo_push(bcur(), UNDO_JOIN_LINE, filerow, filecol, 0,
 		    bcur()->row[filerow + 1].chars,
 		    bcur()->row[filerow + 1].size);
 		editor_row_append_string(row, bcur()->row[filerow + 1].chars,
@@ -1624,7 +1624,7 @@ void editor_overwrite_char(int c)
 
 	old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
 
-	if (!undo_push(UNDO_REPLACE_TEXT, filerow, filecol, 1,
+	if (!undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, filecol, 1,
 		row->chars + filecol, old_len)) {
 		editor_nomem();
 		return;
@@ -1679,13 +1679,14 @@ void editor_self_insert_glyph(const char *seq, int len)
 		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
 	}
 	if (old_len > 0) {
-		if (!undo_push(UNDO_REPLACE_TEXT, filerow, filecol, len,
+		if (!undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, filecol, len,
 			row->chars + filecol, old_len)) {
 			editor_nomem();
 			return;
 		}
 		editor_delete_text_range_raw(filerow, filecol, old_len);
-	} else if (!undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, NULL, len)) {
+	} else if (!undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
+		       len)) {
 		editor_nomem();
 		return;
 	}
@@ -1721,7 +1722,8 @@ void editor_kill_line(void)
 			 * appended to this one -- so re-inserting a "\n"
 			 * here splits them back off, while re-inserting
 			 * the row itself would duplicate it. */
-			undo_push(UNDO_KILL_TEXT, filerow, filecol, 0, "\n", 1);
+			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
+			    "\n", 1);
 			editor_row_append_string(row,
 			    bcur()->row[filerow + 1].chars,
 			    bcur()->row[filerow + 1].size);
@@ -1733,7 +1735,7 @@ void editor_kill_line(void)
 		if (kill_len > 0) {
 			kill_ring_append(row->chars + filecol, kill_len);
 			/* Record undo operation */
-			undo_push(UNDO_KILL_TEXT, filerow, filecol, 0,
+			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
 			    row->chars + filecol, kill_len);
 		}
 		row->chars[filecol] = '\0';
@@ -1817,7 +1819,8 @@ void editor_transpose_chars(void)
 	memcpy(newbuf + a_start, repl, span_len);
 
 	editor_flat_offset_to_row_col(buf, len, a_start, &row, &col);
-	undo_push(UNDO_REPLACE_TEXT, row, col, span_len, orig, span_len);
+	undo_push(
+	    bcur(), UNDO_REPLACE_TEXT, row, col, span_len, orig, span_len);
 	editor_replace_rows_from_text(newbuf, len);
 	editor_flat_offset_to_row_col(newbuf, len, b_end, &row, &col);
 	editor_cursor_goto(row, col);

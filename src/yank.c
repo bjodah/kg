@@ -496,7 +496,7 @@ static void region_kill_or_delete(int save)
 
 	editor_cursor_goto(start_row, start_col);
 
-	undo_push(UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
+	undo_push(bcur(), UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
 
 	suppress_undo = 1;
 	editor_delete_region_range(start_row, start_col, end_row, end_col);
@@ -573,7 +573,8 @@ void editor_yank(void)
 	editor_push_mark();
 
 	/* Record single undo operation for entire yank */
-	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, text, killring.len);
+	undo_push(
+	    bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, text, killring.len);
 
 	editor_insert_text_raw(text, killring.len);
 
@@ -636,8 +637,8 @@ void editor_sort_lines(void)
 
 	free(temp);
 
-	undo_push(
-	    UNDO_REPLACE_TEXT, start_row, 0, orig_len, orig_text, orig_len);
+	undo_push(bcur(), UNDO_REPLACE_TEXT, start_row, 0, orig_len, orig_text,
+	    orig_len);
 	free(orig_text);
 
 	editor.mark_highlight = 0;

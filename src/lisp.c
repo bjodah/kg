@@ -406,7 +406,8 @@ static FeObject *native_insert(FeContext *context, FeObject *arguments)
 	if (length != 0) {
 		row = editor_current_filerow_or_eof();
 		col = editor_current_filecol();
-		undo_push(UNDO_YANK_TEXT, row, col, 0, text, (int)length);
+		undo_push(
+		    bcur(), UNDO_YANK_TEXT, row, col, 0, text, (int)length);
 		editor_insert_text_raw(text, (int)length);
 	}
 	free(text);

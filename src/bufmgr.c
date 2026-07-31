@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@
 #include "def.h"
 #include "lisp.h"
 #include "localvars.h"
+#include "perf.h"
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>

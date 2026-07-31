@@ -192,8 +192,8 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 	int join_col = row->size;
 	int i;
 
-	undo_push(UNDO_KILL_TEXT, rowidx, join_col, 0, "\n", 1);
-	undo_push(UNDO_YANK_TEXT, rowidx, join_col, 0, replace, rlen);
+	undo_push(bcur(), UNDO_KILL_TEXT, rowidx, join_col, 0, "\n", 1);
+	undo_push(bcur(), UNDO_YANK_TEXT, rowidx, join_col, 0, replace, rlen);
 
 	suppress_undo = 1;
 	for (i = 0; i < rlen; i++) {

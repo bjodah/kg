@@ -1135,8 +1135,8 @@ void undo_stack_init(struct undo_stack *st);
 void undo_stack_free(struct undo_stack *st);
 void undo_init(void);
 void undo_free(void);
-int undo_push(
-    enum undo_type type, int row, int col, int c, char *text, int len);
+int undo_push(struct editor_buffer *b, enum undo_type type, int row, int col,
+    int c, char *text, int len);
 void editor_undo(void);
 void undo_mark_clean(void);
 

@@ -568,7 +568,8 @@ static void test_undo_eviction_walk(void)
 	editor_insert_row(bcur(), 0, "text", 4);
 	kg_perf_reset();
 	for (i = 0; i < max + 8; i++) {
-		CHECK(undo_push(UNDO_INSERT_CHAR, 0, 0, 'x', NULL, 0) == 1);
+		CHECK(undo_push(bcur(), UNDO_INSERT_CHAR, 0, 0, 'x', NULL, 0)
+		    == 1);
 	}
 	CHECK(bcur()->undostack.size == max);
 	/* Trimming keeps max_size - 1 records, so a full stack evicts on

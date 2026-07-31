@@ -47,8 +47,10 @@ void undo_stack_free(struct undo_stack *st)
 void undo_free(void) { undo_stack_free(&bcur()->undostack); }
 
 /* Push an undo operation onto the stack */
-int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
+int undo_push(struct editor_buffer *b, enum undo_type type, int row, int col,
+    int c, char *text, int len)
 {
+	struct undo_stack *st = &b->undostack;
 	struct undo_op *op;
 	int alloc_sz;
 
@@ -86,19 +88,19 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 	}
 
 	/* Add to front of stack */
-	op->next = bcur()->undostack.head;
-	bcur()->undostack.head = op;
-	bcur()->undostack.size++;
+	op->next = st->head;
+	st->head = op;
+	st->size++;
 	KG_PERF_INC(KG_PERF_UNDO_PUSH);
 
 	/* Trim stack if too large */
-	if (bcur()->undostack.size > bcur()->undostack.max_size) {
-		struct undo_op *curr = bcur()->undostack.head;
+	if (st->size > st->max_size) {
+		struct undo_op *curr = st->head;
 		struct undo_op *prev = NULL;
 		int count = 0;
 
 		/* Find the last operation to keep */
-		while (curr && count < bcur()->undostack.max_size - 1) {
+		while (curr && count < st->max_size - 1) {
 			KG_PERF_INC(KG_PERF_UNDO_EVICT_LINKS);
 			prev = curr;
 			curr = curr->next;
@@ -114,7 +116,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 			 * them from exactly that end, and only ever after a
 			 * later edit was pushed, so the checkpoint is now
 			 * unreachable rather than merely renumbered. */
-			bcur()->undostack.clean_size = -1;
+			st->clean_size = -1;
 			while (curr) {
 				struct undo_op *next = curr->next;
 				if (curr->text) {
@@ -122,7 +124,7 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 				}
 				free(curr);
 				curr = next;
-				bcur()->undostack.size--;
+				st->size--;
 			}
 		}
 	}
@@ -132,16 +134,17 @@ int undo_push(enum undo_type type, int row, int col, int c, char *text, int len)
 /* Perform undo operation */
 void editor_undo(void)
 {
+	struct undo_stack *st = &bcur()->undostack;
 	struct undo_op *op;
 
-	if (!bcur()->undostack.head) {
+	if (!st->head) {
 		editor_set_status_message("Nothing to undo");
 		return;
 	}
 
-	op = bcur()->undostack.head;
-	bcur()->undostack.head = op->next;
-	bcur()->undostack.size--;
+	op = st->head;
+	st->head = op->next;
+	st->size--;
 
 	/* Position cursor at operation location */
 	editor_cursor_goto(op->row, op->col);
@@ -343,7 +346,7 @@ void editor_undo(void)
 	}
 
 	/* Check if we've undone back to the saved state */
-	if (bcur()->undostack.size == bcur()->undostack.clean_size) {
+	if (st->size == st->clean_size) {
 		bcur()->dirty = 0;
 	}
 

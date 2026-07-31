@@ -322,7 +322,8 @@ static void insert_as_yank(const char *text, int len)
 		return;
 	}
 
-	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, (char *)text, len);
+	undo_push(
+	    bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, (char *)text, len);
 	editor_insert_text_raw(text, len);
 }
 

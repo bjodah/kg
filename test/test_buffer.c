@@ -1479,7 +1479,7 @@ static void test_reflow_undo_rows_are_sortable(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "b a", 3);
-	undo_push(UNDO_REFLOW_PARA, 0, 1, 0, "b\na", 3);
+	undo_push(bcur(), UNDO_REFLOW_PARA, 0, 1, 0, "b\na", 3);
 
 	editor_undo();
 
@@ -1512,7 +1512,7 @@ static void test_rect_overwrite_undo_terminates_rows(void)
 	setup();
 	editor_insert_row(bcur(), 0, "XX", 2);
 	editor_insert_row(bcur(), 1, "YY", 2);
-	undo_push(UNDO_RECT_OVERWRITE, 0, 0, 2, "ab\ncd", 5);
+	undo_push(bcur(), UNDO_RECT_OVERWRITE, 0, 0, 2, "ab\ncd", 5);
 
 	editor_undo();
 

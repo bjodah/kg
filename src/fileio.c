@@ -893,7 +893,7 @@ void editor_insert_file(int fd)
 
 	filerow = editor.rowoff + editor.cy;
 	filecol = editor.coloff + editor.cx;
-	undo_push(UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen_int);
+	undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen_int);
 	editor_insert_text_raw(buf, buflen_int);
 	free(buf);
 

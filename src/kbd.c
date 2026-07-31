@@ -101,7 +101,8 @@ static void editor_insert_repeated_literal(int c, int n)
 		for (i = 0; i < n; i++) {
 			int col
 			    = start_col > INT_MAX - i ? INT_MAX : start_col + i;
-			undo_push(UNDO_INSERT_CHAR, start_row, col, c, NULL, 0);
+			undo_push(bcur(), UNDO_INSERT_CHAR, start_row, col, c,
+			    NULL, 0);
 		}
 	}
 }
@@ -537,7 +538,7 @@ static void key_kill_lines(int n)
 	suppress_undo = 0;
 	killed_len = killring.len - prev_kill_len;
 	if (killed_len > 0) {
-		undo_push(UNDO_KILL_TEXT, start_row, start_col, 0,
+		undo_push(bcur(), UNDO_KILL_TEXT, start_row, start_col, 0,
 		    killring.text + prev_kill_len, killed_len);
 	}
 }
@@ -573,7 +574,8 @@ static void key_yank_repeated(int n)
 		memcpy(
 		    combined + i * killring.len, killring.text, killring.len);
 	}
-	undo_push(UNDO_YANK_TEXT, start_row, start_col, 0, NULL, total_len);
+	undo_push(
+	    bcur(), UNDO_YANK_TEXT, start_row, start_col, 0, NULL, total_len);
 	editor_insert_text_raw(combined, total_len);
 	free(combined);
 	editor_set_status_message("Yanked");

@@ -73,7 +73,7 @@ The recommendations identify the right work, with these ordering corrections:
 
 | Plan | Outcome | May start |
 | --- | --- | --- |
-| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | Now |
+| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | **Phases 0–5 done**; see its Status section for the two open items |
 | [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | Now, parallel with 01 |
 | [03](03-markers-decorations-and-events.md) | Stable markers, compact decorations, bounded typed events and C safe points | Marker core during 02; consumer conversion after 02 |
 | [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | Handle work now; events after 03; nesting after 01 and kill ring |

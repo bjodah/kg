@@ -324,8 +324,53 @@ static void test_streaming_no_final_newline(void)
 	CHECK(strstr(g_model, "Compilation finished with exit code 0") != NULL);
 }
 
+/* The streaming seams: a stack-allocated state, no child, no globals.  A
+ * committed line is charged and mirrored, the still-open one is only
+ * mirrored. */
+static void test_stream_seam_drives_parser(void)
+{
+	struct compilation_state s;
+
+	memset(&s, 0, sizeof(s));
+	compilation_stream_reset(&s, 64);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+
+	compilation_process_bytes(&s, "one\ntw", 6);
+	compilation_process_bytes(&s, "o", 1);
+	CHECK(strcmp(g_model, "one\ntwo") == 0);
+	CHECK(s.stored_output == 3);
+	CHECK(s.pending_line_length == 3);
+	CHECK(!s.truncated);
+
+	compilation_stream_reset(&s, 64);
+	CHECK(s.pending_line == NULL);
+	CHECK(s.stored_output == 0);
+}
+
+/* The budget setter reaches a real run: a two-byte cap truncates output that
+ * the 8 MiB default would have kept whole. */
+static void test_set_maximum_output_reaches_run(void)
+{
+	compilation_set_maximum_output(2);
+	strcpy(g_next_command, "printf '\\132\\132\\132\\132\\n'");
+	editor_compile(0);
+
+	for (int i = 0; i < 2000 && compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	compilation_set_maximum_output(8 * 1024 * 1024);
+
+	CHECK(!compilation_is_running());
+	CHECK(strstr(g_model, "ZZZZ") == NULL);
+	CHECK(strstr(g_model, "[kg: compilation output truncated after 2 bytes]")
+	    != NULL);
+}
+
 int main(void)
 {
+	RUN(test_stream_seam_drives_parser);
+	RUN(test_set_maximum_output_reaches_run);
 	RUN(test_streaming_no_final_newline);
 	RUN(test_transcript_command_and_directory);
 	RUN(test_transcript_exit_code);

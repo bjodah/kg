@@ -59,6 +59,14 @@ char *compilation_format_transcript(const char *command, const char *directory,
 void editor_compile(int fd);
 void editor_recompile(int fd);
 
+/* Streaming seams.  compilation_process_bytes() touches no global state: it
+ * is exposed, along with the reset and budget setters, so the byte parser and
+ * its output budget can be driven directly from tests. */
+void compilation_set_maximum_output(size_t bytes);
+void compilation_stream_reset(struct compilation_state *s, size_t bytes);
+void compilation_process_bytes(
+    struct compilation_state *s, const char *bytes, size_t len);
+
 int compilation_poll(void);
 void compilation_start_pending_restart(void);
 int compilation_is_running(void);

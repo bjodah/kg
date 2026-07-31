@@ -15,6 +15,34 @@
 
 static struct compilation_state g_compilation;
 
+/* Retained-output budget handed to the next compilation.  compilation_start()
+ * copies it into the run's own state, so lowering it (tests do) never disturbs
+ * a compilation already in progress. */
+static size_t g_default_maximum_output = 8 * 1024 * 1024;
+
+void compilation_set_maximum_output(size_t bytes)
+{
+	g_default_maximum_output = bytes;
+}
+
+/* Reset the streaming half of `s` for a fresh run and adopt `bytes` as its
+ * retained-output budget.  `s` must either be zeroed or own a pending line.
+ * Exposed so a test can drive the byte parser against a stack state. */
+void compilation_stream_reset(struct compilation_state *s, size_t bytes)
+{
+	free(s->pending_line);
+	s->pending_line = NULL;
+	s->pending_line_length = 0;
+	s->pending_line_cap = 0;
+	s->displayed_pending_length = 0;
+	s->stored_output = 0;
+	s->maximum_output = bytes;
+	s->truncated = false;
+	s->truncation_marker_written = false;
+	s->ansi_state = 0;
+	s->pending_cr = false;
+}
+
 int compilation_resolve_directory(
     const char *filename, char *directory, size_t directory_size)
 {
@@ -231,23 +259,10 @@ static void compilation_start(const char *command, const char *directory,
 	g_compilation.phase = COMPILATION_RUNNING;
 	g_compilation.source_buffer = source_buffer;
 	g_compilation.compilation_buffer = cidx;
-	g_compilation.stored_output = 0;
-	g_compilation.maximum_output = 8 * 1024 * 1024;
-	g_compilation.truncated = false;
-	g_compilation.truncation_marker_written = false;
 	g_compilation.pipe_eof = false;
 	g_compilation.child_reaped = false;
 	g_compilation.wait_status = 0;
-	g_compilation.ansi_state = 0;
-	g_compilation.pending_cr = false;
-
-	if (g_compilation.pending_line) {
-		free(g_compilation.pending_line);
-	}
-	g_compilation.pending_line = NULL;
-	g_compilation.pending_line_length = 0;
-	g_compilation.pending_line_cap = 0;
-	g_compilation.displayed_pending_length = 0;
+	compilation_stream_reset(&g_compilation, g_default_maximum_output);
 
 	pid_t pid;
 	int out_fd;
@@ -471,7 +486,7 @@ static void compilation_mirror_pending(struct compilation_state *s)
 	s->displayed_pending_length = to_show;
 }
 
-static void compilation_process_bytes(
+void compilation_process_bytes(
     struct compilation_state *s, const char *bytes, size_t len)
 {
 	if (len == 0) {

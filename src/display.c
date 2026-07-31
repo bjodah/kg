@@ -11,7 +11,7 @@
 #include "localvars.h"
 
 #ifndef ABUF_INIT
-#define ABUF_INIT { NULL, 0, 0 }
+#define ABUF_INIT { NULL, 0, 0, 0 }
 #endif
 
 /* Welcome banner shown on an empty buffer.  An apothecary's cylindrical
@@ -33,6 +33,41 @@ static const char *kg_logo[] = {
 #define KG_LOGO_LINES ((int)(sizeof(kg_logo) / sizeof(kg_logo[0])))
 #define KG_LOGO_COLS 32
 
+/* Bytes a frame buffer starts out holding.  One frame is hundreds of
+ * appends -- ab_fill() alone splits a blank line into 256-byte chunks --
+ * so the first allocation may as well cover a small screen outright. */
+#define KG_ABUF_MIN_CAPACITY 4096
+
+/* Make `ab` able to hold `need` bytes, doubling.  Sets the sticky oom
+ * flag and returns 0 when it cannot, leaving the existing bytes intact. */
+static int ab_reserve(struct abuf *ab, int need)
+{
+	int newcap;
+	char *grown;
+
+	if (need <= ab->capacity) {
+		return 1;
+	}
+	newcap = ab->capacity > 0 ? ab->capacity : KG_ABUF_MIN_CAPACITY;
+	while (newcap < need) {
+		if (newcap > INT_MAX / 2) {
+			newcap = need;
+			break;
+		}
+		newcap *= 2;
+	}
+	KG_PERF_INC(KG_PERF_AB_GROW);
+	KG_PERF_ADD(KG_PERF_AB_COPIED, ab->len);
+	grown = realloc(ab->b, (size_t)newcap);
+	if (grown == NULL) {
+		ab->oom = 1;
+		return 0;
+	}
+	ab->b = grown;
+	ab->capacity = newcap;
+	return 1;
+}
+
 int ab_append(struct abuf *ab, const char *s, int len)
 {
 	if (ab->oom) {
@@ -47,21 +82,25 @@ int ab_append(struct abuf *ab, const char *s, int len)
 	}
 	KG_PERF_INC(KG_PERF_AB_APPEND);
 	KG_PERF_ADD(KG_PERF_AB_BYTES, len);
-	KG_PERF_INC(KG_PERF_AB_GROW);
-	KG_PERF_ADD(KG_PERF_AB_COPIED, ab->len);
-	char *new = realloc(ab->b, ab->len + len);
-
-	if (new == NULL) {
-		ab->oom = 1;
+	if (!ab_reserve(ab, ab->len + len)) {
 		return 0;
 	}
-	memcpy(new + ab->len, s, len);
-	ab->b = new;
+	memcpy(ab->b + ab->len, s, len);
 	ab->len += len;
 	return 1;
 }
 
-void ab_free(struct abuf *ab) { free(ab->b); }
+/* Drop the buffer and every field describing it.  Leaving len, capacity
+ * or oom behind over a freed pointer is what a reused abuf would then
+ * append through. */
+void ab_free(struct abuf *ab)
+{
+	free(ab->b);
+	ab->b = NULL;
+	ab->len = 0;
+	ab->capacity = 0;
+	ab->oom = 0;
+}
 
 /* Append a VT100 "move to absolute position" escape (1-based). */
 static void ab_move_to(struct abuf *ab, int row, int col)

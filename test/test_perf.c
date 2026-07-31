@@ -286,7 +286,7 @@ static void test_special_text_append_growth(void)
 
 static void refresh_ab_shape(int screen_rows, int screen_cols,
     unsigned long long *appends, unsigned long long *grows,
-    unsigned long long *copied)
+    unsigned long long *copied, unsigned long long *bytes)
 {
 	int i;
 
@@ -302,23 +302,28 @@ static void refresh_ab_shape(int screen_rows, int screen_cols,
 	*appends = counter(KG_PERF_AB_APPEND);
 	*grows = counter(KG_PERF_AB_GROW);
 	*copied = counter(KG_PERF_AB_COPIED);
+	*bytes = counter(KG_PERF_AB_BYTES);
 	teardown();
 }
 
 static void test_frame_append_growth(void)
 {
-	unsigned long long appends, grows, copied;
+	unsigned long long appends, grows, copied, bytes;
 
-	refresh_ab_shape(24, 80, &appends, &grows, &copied);
-	CHECK(appends > 0);
-	/* Before Plan 08 phase 3: ab_append() reallocs to exactly len + n,
-	 * so every single append is a reallocation. */
-	CHECK(grows == appends);
-	CHECK(copied > 0);
+	refresh_ab_shape(24, 80, &appends, &grows, &copied, &bytes);
+	CHECK(appends > 100);
+	/* Plan 08 phase 3: the frame buffer has a capacity and doubles, so
+	 * one repaint is a handful of reallocations instead of one per
+	 * append -- which is what it used to be, hundreds of them, each
+	 * copying the frame so far.  A 24x80 frame fits the first
+	 * allocation outright. */
+	CHECK(grows <= log_growth_bound((int)bytes));
+	CHECK(copied <= 4 * bytes);
 
-	refresh_ab_shape(200, 600, &appends, &grows, &copied);
-	CHECK(appends > 0);
-	CHECK(grows == appends);
+	refresh_ab_shape(200, 600, &appends, &grows, &copied, &bytes);
+	CHECK(appends > 1000);
+	CHECK(grows <= log_growth_bound((int)bytes));
+	CHECK(copied <= 4 * bytes);
 }
 
 /* ---- Phase 4: render and highlight storage ---- */

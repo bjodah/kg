@@ -250,6 +250,7 @@
   "src/display.c:ab_fill": 3,
   "src/display.c:ab_free": 1,
   "src/display.c:ab_move_to": 1,
+  "src/display.c:ab_reserve": 6,
   "src/display.c:display_fit": 4,
   "src/display.c:draw_mode_line": 18,
   "src/display.c:draw_window_rows": 64,

@@ -306,13 +306,66 @@ static void test_ab_append_oom(void)
 	ab_free(&ab);
 }
 
+/* The frame buffer has a capacity now, so the interesting cases are the
+ * boundary it grows at and the reset that follows a free.  What must not
+ * change is the bytes: an append that fits and an append that grows have
+ * to leave the same content behind. */
+static void test_ab_append_growth_boundary(void)
+{
+	struct abuf ab = ABUF_INIT;
+	char big[9000];
+	int i;
+
+	for (i = 0; i < (int)sizeof(big); i++) {
+		big[i] = (char)('a' + i % 26);
+	}
+
+	/* First append allocates; the next ones are free until it fills. */
+	CHECK(ab_append(&ab, big, 100) == 1);
+	CHECK(ab.capacity >= 100);
+	int first_capacity = ab.capacity;
+	while (ab.len + 100 <= first_capacity) {
+		CHECK(ab_append(&ab, big, 100) == 1);
+	}
+	CHECK(ab.capacity == first_capacity);
+
+	/* One more crosses it. */
+	int before = ab.len;
+	CHECK(ab_append(&ab, big, 100) == 1);
+	CHECK(ab.capacity > first_capacity);
+	CHECK(ab.len == before + 100);
+	CHECK(memcmp(ab.b, big, 100) == 0);
+	CHECK(memcmp(ab.b + before, big, 100) == 0);
+
+	/* An append larger than any doubling reaches is still exact. */
+	before = ab.len;
+	CHECK(ab_append(&ab, big, (int)sizeof(big)) == 1);
+	CHECK(ab.len == before + (int)sizeof(big));
+	CHECK(memcmp(ab.b + before, big, sizeof(big)) == 0);
+
+	ab_free(&ab);
+	CHECK(ab.b == NULL);
+	CHECK(ab.len == 0);
+	CHECK(ab.capacity == 0);
+	CHECK(ab.oom == 0);
+
+	/* Freed and reused: the reset has to make it a fresh buffer, not a
+	 * length and a capacity over a dangling pointer. */
+	CHECK(ab_append(&ab, "hi", 2) == 1);
+	CHECK(ab.len == 2 && ab.b != NULL && memcmp(ab.b, "hi", 2) == 0);
+	ab_free(&ab);
+}
+
 /* Untrusted text goes through the same abuf as everything else, so it
  * has to answer an allocation failure the same way: report it and append
  * nothing further.  Half a frame is never emitted. */
 static void test_append_terminal_text_escapes_and_propagates_oom(void)
 {
 	struct abuf ab = ABUF_INIT;
-	struct abuf dead = { NULL, 0, 1 };
+	/* Named, not positional: struct abuf has grown a capacity, and a
+	 * positional 1 landing there instead of in oom is a buffer that is
+	 * not dead at all. */
+	struct abuf dead = { .oom = 1 };
 
 	/* Printable ASCII and a whole UTF-8 glyph pass through; an ESC, a
 	 * DEL and a malformed byte get their visible spelling. */
@@ -469,6 +522,7 @@ int main(void)
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
 	RUN(test_ab_append_oom);
+	RUN(test_ab_append_growth_boundary);
 	RUN(test_append_terminal_text_escapes_and_propagates_oom);
 	RUN(test_row_draw_stays_inside_the_window);
 	RUN(test_overwrite_mode_toggle_and_replace);

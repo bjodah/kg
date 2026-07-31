@@ -355,9 +355,10 @@ struct editor_config {
 struct abuf {
 	char *b;
 	int len;
+	int capacity; /* Bytes `b` holds; see ab_append(). */
 	int oom;
 };
-#define ABUF_INIT { NULL, 0, 0 }
+#define ABUF_INIT { NULL, 0, 0, 0 }
 
 /* Kill ring (yank buffer) for copy/paste operations */
 struct kill_ring {

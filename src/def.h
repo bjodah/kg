@@ -389,6 +389,8 @@ struct editor_window {
 	int col_group; /* Column group: windows with same value stack
 			  vertically; different values sit side-by-side */
 	int rowoff_visual; /* Visual row offset for visual-line-mode */
+	int desired_visual_col; /* goal column across vertical motion; -1 =
+				   unset. */
 };
 
 /* Per-buffer state saved when switching away from a buffer. */
@@ -474,6 +476,13 @@ extern int win_current; /* index into winlist[] of the active window */
 extern int win_count; /* number of active windows */
 extern int win_total_rows; /* terminal rows (set by update_window_size) */
 extern int win_total_cols; /* terminal cols (set by update_window_size) */
+
+/* The window the user is typing in.  Point, scroll and goal column belong
+ * to a window, not to the session and not to the buffer: two windows on one
+ * buffer scroll independently.  Never NULL, for the same reason bcur() is
+ * not -- win_current always names a slot.  Code that may mean a different
+ * window takes a struct editor_window * instead. */
+static inline struct editor_window *wcur(void) { return &winlist[win_current]; }
 
 /* bufmgr.c */
 extern struct editor_syntax lisp_interaction_syntax;

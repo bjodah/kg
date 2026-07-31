@@ -146,8 +146,8 @@ static void test_shell_run_exit_nonzero(void)
 	free(out);
 }
 
-/* A command killed by a signal reports exited==false and the signal number,
- * mirroring shell_run_capture()'s equivalent case. */
+/* A command killed by a signal reports exited==false and the signal
+ * number. */
 static void test_shell_run_killed_by_signal(void)
 {
 	char *out;
@@ -255,141 +255,6 @@ static void rmtree(const char *path)
 	}
 	closedir(dp);
 	rmdir(path);
-}
-
-static void test_capture_stdout(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("printf 'hello\\n'", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(r.output_length == 6);
-	CHECK(strcmp(r.output, "hello\n") == 0);
-	CHECK(!r.truncated);
-	free(r.output);
-}
-
-static void test_capture_stderr(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("printf 'err\\n' 1>&2", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(strstr(r.output, "err\n") != NULL);
-	free(r.output);
-}
-
-static void test_capture_both(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("printf 'out\\n'; printf 'err\\n' 1>&2", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.output != NULL);
-	CHECK(strstr(r.output, "out\n") != NULL);
-	CHECK(strstr(r.output, "err\n") != NULL);
-	free(r.output);
-}
-
-static void test_capture_exit_zero(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("true", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(r.output[0] == '\0');
-	CHECK(r.output_length == 0);
-	free(r.output);
-}
-
-static void test_capture_exit_nonzero(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("sh -c 'exit 7'", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 7);
-	free(r.output);
-}
-
-static void test_capture_signal(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("kill -TERM $$", NULL, 0, &r);
-	CHECK(!r.exited);
-	CHECK(r.signal_number == SIGTERM);
-	free(r.output);
-}
-
-static void test_capture_working_dir(void)
-{
-	struct shell_capture_result r;
-	char tmpl[] = "/tmp/kg-shell-capture-XXXXXX";
-	const char *dir = mkdtemp(tmpl);
-
-	CHECK(dir != NULL);
-	shell_run_capture("pwd", dir, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(strstr(r.output, dir) != NULL);
-	free(r.output);
-	rmtree(dir);
-}
-
-static void test_capture_command_not_found(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("kg-definitely-not-a-real-cmd-xyz", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 127);
-	free(r.output);
-}
-
-static void test_capture_truncate(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("seq 1 100000", NULL, 1024, &r);
-	CHECK(r.exited);
-	CHECK(r.truncated);
-	CHECK(r.output_length <= 1024);
-	CHECK(r.output != NULL);
-	free(r.output);
-}
-
-static void test_capture_empty_output(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("true", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(r.output_length == 0);
-	CHECK(r.output[0] == '\0');
-	free(r.output);
-}
-
-static void test_capture_closed_stdin(void)
-{
-	struct shell_capture_result r;
-
-	shell_run_capture("cat", NULL, 0, &r);
-	CHECK(r.exited);
-	CHECK(r.exit_code == 0);
-	CHECK(r.output != NULL);
-	CHECK(r.output_length == 0);
-	CHECK(r.output[0] == '\0');
-	free(r.output);
 }
 
 /* ---- shell_output_fits_echo() ---- */
@@ -555,17 +420,6 @@ int main(void)
 	RUN(test_shell_run_killed_by_signal);
 	RUN(test_shell_run_waitpid_retries_eintr);
 	RUN(test_shell_run_waitpid_permanent_failure);
-	RUN(test_capture_stdout);
-	RUN(test_capture_stderr);
-	RUN(test_capture_both);
-	RUN(test_capture_exit_zero);
-	RUN(test_capture_exit_nonzero);
-	RUN(test_capture_signal);
-	RUN(test_capture_working_dir);
-	RUN(test_capture_command_not_found);
-	RUN(test_capture_truncate);
-	RUN(test_capture_empty_output);
-	RUN(test_capture_closed_stdin);
 	RUN(test_echo_fits_short_single_line);
 	RUN(test_echo_fits_trailing_newline);
 	RUN(test_echo_fits_exact_width);

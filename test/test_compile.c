@@ -44,17 +44,6 @@ void buf_save_current_state(void) { }
 
 void editor_free_row(erow *row) { (void)row; }
 
-int shell_run_capture(
-    const char *c, const char *d, size_t m, struct shell_capture_result *r)
-{
-	(void)c;
-	(void)d;
-	(void)m;
-	memset(r, 0, sizeof(*r));
-	r->output = NULL;
-	return -1;
-}
-
 struct editor_syntax compilation_syntax
     = { "Compilation", NULL, NULL, "", "", "", 0, NULL };
 
@@ -126,115 +115,6 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 		g_model_len -= len_to_remove;
 		g_model[g_model_len] = '\0';
 	}
-}
-
-static void test_transcript_command_and_directory(void)
-{
-	struct shell_capture_result cap;
-	char *t;
-
-	memset(&cap, 0, sizeof(cap));
-	cap.output = strdup("out\n");
-	if (!cap.output) {
-		return;
-	}
-	cap.output_length = strlen(cap.output);
-	cap.exited = true;
-	cap.exit_code = 0;
-
-	t = compilation_format_transcript("make all", "/tmp/proj", 0, &cap);
-	CHECK(t != NULL);
-	CHECK(strstr(t, "Compilation started in /tmp/proj") != NULL);
-	CHECK(strstr(t, "$ make all") != NULL);
-	free(cap.output);
-	free(t);
-}
-
-static void test_transcript_exit_code(void)
-{
-	struct shell_capture_result cap;
-	char *t;
-
-	memset(&cap, 0, sizeof(cap));
-	cap.output = strdup("err\n");
-	if (!cap.output) {
-		return;
-	}
-	cap.output_length = strlen(cap.output);
-	cap.exited = true;
-	cap.exit_code = 7;
-
-	t = compilation_format_transcript("make", "/tmp", 0, &cap);
-	CHECK(t != NULL);
-	CHECK(strstr(t, "Compilation finished with exit code 7") != NULL);
-	free(cap.output);
-	free(t);
-}
-
-static void test_transcript_signal(void)
-{
-	struct shell_capture_result cap;
-	char *t;
-
-	memset(&cap, 0, sizeof(cap));
-	cap.output = strdup("killed\n");
-	if (!cap.output) {
-		return;
-	}
-	cap.output_length = strlen(cap.output);
-	cap.exited = false;
-	cap.signal_number = 15;
-
-	t = compilation_format_transcript("make", "/tmp", 0, &cap);
-	CHECK(t != NULL);
-	CHECK(strstr(t, "Compilation terminated by signal 15") != NULL);
-	free(cap.output);
-	free(t);
-}
-
-static void test_transcript_truncation(void)
-{
-	struct shell_capture_result cap;
-	char *t;
-
-	memset(&cap, 0, sizeof(cap));
-	cap.output = strdup("x");
-	if (!cap.output) {
-		return;
-	}
-	cap.output_length = 1;
-	cap.exited = true;
-	cap.exit_code = 0;
-	cap.truncated = true;
-
-	t = compilation_format_transcript("cmd", "/tmp", 1024, &cap);
-	CHECK(t != NULL);
-	CHECK(strstr(t, "[kg: compilation output truncated after 1024 bytes]")
-	    != NULL);
-	free(cap.output);
-	free(t);
-}
-
-static void test_transcript_output_no_newline(void)
-{
-	struct shell_capture_result cap;
-	char *t;
-
-	memset(&cap, 0, sizeof(cap));
-	cap.output = strdup("noeol");
-	if (!cap.output) {
-		return;
-	}
-	cap.output_length = strlen(cap.output);
-	cap.exited = true;
-	cap.exit_code = 0;
-
-	t = compilation_format_transcript("cmd", "/tmp", 0, &cap);
-	CHECK(t != NULL);
-	CHECK(strstr(t, "noeol\n\nCompilation finished with exit code 0")
-	    != NULL);
-	free(cap.output);
-	free(t);
 }
 
 static void test_resolve_null_filename(void)
@@ -496,11 +376,6 @@ int main(void)
 	RUN(test_stream_split_sequences);
 	RUN(test_truncated_run_still_finishes);
 	RUN(test_streaming_no_final_newline);
-	RUN(test_transcript_command_and_directory);
-	RUN(test_transcript_exit_code);
-	RUN(test_transcript_signal);
-	RUN(test_transcript_truncation);
-	RUN(test_transcript_output_no_newline);
 	RUN(test_resolve_null_filename);
 	RUN(test_resolve_special_buffer);
 	RUN(test_resolve_relative_no_slash);

@@ -909,17 +909,6 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 /* Overridable by tests; defaults to waitpid(). */
 extern pid_t (*shell_waitpid_fn)(pid_t pid, int *status, int options);
 
-struct shell_capture_result {
-	char *output;
-	size_t output_length;
-	bool exited;
-	int exit_code;
-	int signal_number;
-	bool truncated;
-};
-
-int shell_run_capture(const char *command, const char *directory,
-    size_t maximum_output, struct shell_capture_result *result);
 bool shell_output_fits_echo(
     const char *out, int out_len, int available_columns, int reserved_columns);
 

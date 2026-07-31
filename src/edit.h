@@ -112,6 +112,12 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out);
 int editor_row_replace_range(int filerow, int at, int delete_len,
     const char *insert, int insert_len, enum kg_edit_intent intent);
 
+/* Insert `text` at point as one user edit and leave point after it: one
+ * undo record, and one row rebuild per row the result has.  The commands
+ * that put a run of text into the current buffer -- a newline and its
+ * auto-indent, a yank, a repeated yank -- are all this call. */
+void editor_insert_text_at_point(const char *text, int len);
+
 /* Test-only allocation-failure seam.  Lets the transaction's next `n`
  * allocations before publication succeed and fails the one after that,
  * then disarms itself; a negative `n` disarms it immediately, which is

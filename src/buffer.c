@@ -993,7 +993,7 @@ static int splice_alloc(const char *text, int len, int nl, const char *prefix,
 	return 1;
 }
 
-/* Insert `text`, which holds at least one '\n', at point.
+/* Insert `text` at point.
  *
  * Inserting is replacing an empty range, so this is the edit transaction
  * with nothing to delete: the row at point is cut in two, the inserted
@@ -1011,8 +1011,7 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 	    = kg_edit_user_part(bcur(), pos, pos, text, (size_t)insert_len);
 	int row, col;
 
-	if (!memchr(text, '\n', (size_t)insert_len)
-	    || !kg_buffer_replace(&e, NULL)) {
+	if (!kg_buffer_replace(&e, NULL)) {
 		return 0;
 	}
 	/* Point ends where the inserted text does, which is in front of
@@ -1232,15 +1231,16 @@ void editor_insert_char(int c)
 }
 
 /* Insert `text` at point as one edit and leave point after it.  The
- * separator commands are all this call with a different string: a
- * newline is one byte between two rows, and a newline plus an indent is
- * that byte and the bytes the next line starts with.
+ * commands that put a run of text into the buffer are all this call with
+ * a different string: a newline is one byte between two rows, a newline
+ * plus an indent is that byte and the bytes the next line starts with,
+ * and a yank is the kill ring's contents.
  *
- * The record is KG_EDIT_USER's, which is dropped while yank and undo
- * replay hold `suppress_undo` -- that is what lets one primitive serve
- * both them and a typed newline, and is the last thing the flag is doing
- * here. */
-static void editor_insert_at_point(const char *text, int len)
+ * The record is KG_EDIT_USER's, which is dropped while yank replay and
+ * the batched kills hold `suppress_undo` -- that is what lets one
+ * primitive serve both them and a typed newline, and is the last thing
+ * the flag is doing here. */
+void editor_insert_text_at_point(const char *text, int len)
 {
 	size_t pos = buffer_row_col_to_position(
 	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
@@ -1258,10 +1258,16 @@ static void editor_insert_at_point(const char *text, int len)
 /* Split the current line at the cursor without auto-indent.
  * Used by yank, kill-undo, and the paste-mode short-circuit in
  * editor_insert_newline to re-insert newlines exactly as typed. */
-void editor_insert_newline_raw(void) { editor_insert_at_point("\n", 1); }
+void editor_insert_newline_raw(void) { editor_insert_text_at_point("\n", 1); }
 
-/* Insert text character by character without recording undo, using raw
- * newlines (no auto-indent).  Used by editor_yank and UNDO_KILL_TEXT. */
+/* Insert `text` at point without recording undo of its own, using raw
+ * newlines (no auto-indent).  Used by editor_yank and UNDO_KILL_TEXT.
+ *
+ * A rectangle mark is the one thing that keeps this off the transaction:
+ * point may then sit in virtual space past the end of its row, which is
+ * a column no byte position names, so the row primitive pads out to it
+ * one run at a time.  Everything else is one replacement of the empty
+ * range at point, whether or not the text carries separators. */
 void editor_insert_text_raw(const char *text, int len)
 {
 	int saved = suppress_undo;
@@ -1271,7 +1277,7 @@ void editor_insert_text_raw(const char *text, int len)
 		return;
 	}
 	suppress_undo = 1;
-	if (!bcur()->rect_mode && memchr(text, '\n', len)) {
+	if (!bcur()->rect_mode) {
 		editor_insert_text_raw_bulk(text, len);
 		suppress_undo = saved;
 		return;
@@ -1301,10 +1307,6 @@ void editor_insert_text_raw(const char *text, int len)
 				break;
 			}
 			row = &bcur()->row[filerow];
-			if (!bcur()->rect_mode && filecol > row->size) {
-				filecol = row->size;
-				editor_cursor_goto(filerow, filecol);
-			}
 			editor_row_insert_string(
 			    row, filecol, text + start, run_len);
 			editor_cursor_goto(
@@ -1351,7 +1353,7 @@ void editor_insert_newline(void)
 	}
 	text[0] = '\n';
 	memcpy(text + 1, row ? row->chars : "", (size_t)indent);
-	editor_insert_at_point(text, indent + 1);
+	editor_insert_text_at_point(text, indent + 1);
 	free(text);
 }
 
@@ -1970,19 +1972,14 @@ void editor_overwrite_char(int c)
  * UNDO_INSERT_CHAR per byte, so undo would peel a glyph apart and leave
  * the buffer holding invalid UTF-8.
  *
- * Undo granularity therefore follows yank, which is the other command
- * that inserts multi-byte text: one UNDO_YANK_TEXT record whose reverse
- * deletes `len` bytes forward from the insertion point, so a single
- * undo removes the whole character.  Insertion goes through
- * editor_insert_text_raw(), which suppresses the per-byte records and
- * leaves point `len` bytes further along — exactly where C-f over the
- * glyph lands, since wcur()->cx is a byte offset into row->chars.
+ * One replacement is therefore the whole command: the glyph at point in
+ * overwrite mode, or nothing at all otherwise, becomes `seq`, and the
+ * record the transaction writes covers every byte of it.  Point ends
+ * `len` bytes further along — exactly where C-f over the glyph lands,
+ * since wcur()->cx is a byte offset into row->chars.
  *
  * No autopair is multi-byte, so unlike editor_self_insert_char() there
- * is nothing for editor_insert_char_auto_complete() to do; overwrite
- * mode is honoured with the same UNDO_REPLACE_TEXT record
- * editor_overwrite_char() uses, only with a replacement longer than one
- * byte. */
+ * is nothing for editor_insert_char_auto_complete() to do. */
 void editor_self_insert_glyph(const char *seq, int len)
 {
 	int filerow = editor_current_filerow_or_eof();
@@ -1990,22 +1987,24 @@ void editor_self_insert_glyph(const char *seq, int len)
 	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len = 0;
 
-	if (bcur()->overwrite_mode && row && filecol < row->size) {
-		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
-	}
-	if (old_len > 0) {
-		if (!undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, filecol, len,
-			row->chars + filecol, old_len)) {
-			editor_nomem();
-			return;
+	/* A rectangle mark puts point in virtual space past the end of its
+	 * row, and point can sit below the last row.  Neither is a byte
+	 * range, so both keep the padding insertion, and the record that
+	 * covers the whole glyph with it. */
+	if (!row || filecol > row->size) {
+		if (undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
+			len)) {
+			editor_insert_text_raw(seq, len);
 		}
-		editor_delete_text_range_raw(filerow, filecol, old_len);
-	} else if (!undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
-		       len)) {
-		editor_nomem();
 		return;
 	}
-	editor_insert_text_raw(seq, len);
+	if (bcur()->overwrite_mode && filecol < row->size) {
+		old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
+	}
+	if (editor_row_replace_range(
+		filerow, filecol, old_len, seq, len, KG_EDIT_USER)) {
+		editor_cursor_goto(filerow, filecol + len);
+	}
 }
 
 /* Kill (delete) from cursor to end of line (C-k).

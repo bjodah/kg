@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "cmdstate.h"
 #include "def.h"
+#include "edit.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"
@@ -195,14 +196,11 @@ void key_kill_lines(int n)
 	}
 }
 
-/* C-u N C-y: batch N yanks under one undo record.  UNDO_YANK_TEXT
- * reverses by deleting len chars forward, so the record only needs the
- * full N-copy byte count.  The caller has already established that the
- * kill ring holds something. */
+/* C-u N C-y: batch N yanks under one undo record.  The N copies are one
+ * string, so the insertion is one edit and the record is its own.  The
+ * caller has already established that the kill ring holds something. */
 void key_yank_repeated(int n)
 {
-	int start_row = editor_current_filerow_or_eof();
-	int start_col = editor_current_filecol();
 	int total_len;
 	char *combined;
 	int i;
@@ -226,9 +224,7 @@ void key_yank_repeated(int n)
 		memcpy(
 		    combined + i * killring.len, killring.text, killring.len);
 	}
-	undo_push(
-	    bcur(), UNDO_YANK_TEXT, start_row, start_col, 0, NULL, total_len);
-	editor_insert_text_raw(combined, total_len);
+	editor_insert_text_at_point(combined, total_len);
 	free(combined);
 	editor_set_status_message("Yanked");
 }

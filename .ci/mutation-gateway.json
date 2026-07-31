@@ -11,7 +11,7 @@
  "files": {
   "src/buffer.c": {
    "row_primitive": 21,
-   "undo_push": 4,
+   "undo_push": 3,
    "suppress_undo": 4,
    "row_field_write": 19
   },
@@ -34,7 +34,7 @@
    "row_field_write": 10
   },
   "src/kbd.c": {
-   "undo_push": 3,
+   "undo_push": 2,
    "suppress_undo": 2
   },
   "src/lisp.c": {
@@ -70,8 +70,7 @@
    "row_field_write": 14
   },
   "src/yank.c": {
-   "undo_push": 3,
-   "suppress_undo": 2
+   "undo_push": 1
   }
  }
 }

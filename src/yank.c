@@ -371,16 +371,16 @@ static int editor_delete_region_range(
     int start_row, int start_col, int end_row, int end_col)
 {
 	/* Two row/column pairs name a byte range, and removing a byte range
-	 * is the edit transaction with nothing to put back in its place.
-	 * The caller records the step -- both of them push their own
-	 * UNDO_KILL_TEXT covering the whole region -- so this one does not.
+	 * is the edit transaction with nothing to put back in its place --
+	 * including the one record that covers the whole region, which the
+	 * two callers used to push themselves around a suppressed edit.
 	 *
 	 * This used to be a second implementation of the multi-row splice:
 	 * join the first row to the tail of the last, free the rows
 	 * between, move the array down, renumber.  Two of those are one too
 	 * many. */
 	size_t begin = buffer_row_col_to_position(bcur(), start_row, start_col);
-	struct kg_edit e = kg_edit_user_part(bcur(), begin,
+	struct kg_edit e = kg_edit_user(bcur(), begin,
 	    buffer_row_col_to_position(bcur(), end_row, end_col), "", 0);
 
 	return kg_buffer_replace(&e, NULL);
@@ -436,12 +436,7 @@ static void region_kill_or_delete(int save)
 	}
 
 	editor_cursor_goto(start_row, start_col);
-
-	undo_push(bcur(), UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
-
-	suppress_undo = 1;
 	editor_delete_region_range(start_row, start_col, end_row, end_col);
-	suppress_undo = 0;
 
 	/* Drop the highlight and any transient-region machinery, but keep
 	 * mark_set so C-x C-x after a region command can still bounce back
@@ -498,27 +493,20 @@ void editor_delete_region_or_char(void)
 	editor_del_forward_char();
 }
 
-/* Yank (paste) from kill ring */
+/* Yank (paste) from kill ring.  One insertion of the ring's whole
+ * contents, so one row rebuild per row it brings and one C-_ that takes
+ * all of it back out again. */
 void editor_yank(void)
 {
-	int filerow = editor_current_filerow_or_eof();
-	int filecol = editor_current_filecol();
 	char *text = kill_ring_get();
 
 	if (!text) {
 		editor_set_status_message("Kill ring is empty");
 		return;
 	}
-
 	/* Mark the start of the yanked text, as Emacs does. */
 	editor_push_mark();
-
-	/* Record single undo operation for entire yank */
-	undo_push(
-	    bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, text, killring.len);
-
-	editor_insert_text_raw(text, killring.len);
-
+	editor_insert_text_at_point(text, killring.len);
 	editor_set_status_message("Yanked");
 }
 

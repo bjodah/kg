@@ -16,8 +16,8 @@
 /* The comparison is a memcmp, which is only total if the identity carries no
  * padding.  Ordering the fields widest-first makes that so; assert it rather
  * than trust it. */
-static_assert(sizeof(struct file_identity)
-	== 6 * sizeof(uint64_t) + 2 * sizeof(uint32_t),
+static_assert(
+    sizeof(struct file_identity) == 6 * sizeof(uint64_t) + 2 * sizeof(uint32_t),
     "struct file_identity must be padding-free to be compared as bytes");
 
 /* st_mtim/st_ctim are POSIX.1-2008; kg builds with _POSIX_C_SOURCE=200809L.
@@ -176,8 +176,7 @@ int editor_write_rows_to_file(const char *filename, erow *rows, int numrows,
 
 	/* The temp file is created beside the target so the rename stays
 	 * within one filesystem. */
-	if (snprintf(dir, sizeof(dir), "%s", target_path)
-	    >= (int)sizeof(dir)) {
+	if (snprintf(dir, sizeof(dir), "%s", target_path) >= (int)sizeof(dir)) {
 		errno = ENAMETOOLONG;
 		goto err_cleanup;
 	}
@@ -533,11 +532,11 @@ static int confirm_save_over_accepted(
 		return 1;
 	}
 	if (state == FILE_UNKNOWN) {
-		answered = editor_confirm_yn(fd,
-		    "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
+		answered = editor_confirm_yn(
+		    fd, "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
 	} else {
-		answered = editor_confirm_yn(fd,
-		    "File %s changed on disk.  Save anyway? (y/n) ", path);
+		answered = editor_confirm_yn(
+		    fd, "File %s changed on disk.  Save anyway? (y/n) ", path);
 	}
 	if (!answered) {
 		return 0;
@@ -557,8 +556,8 @@ static int confirm_destination_exists(
 
 	(void)file_snapshot_path(path, &dest);
 	if (!dest.valid) {
-		return editor_confirm_yn(fd,
-		    "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
+		return editor_confirm_yn(
+		    fd, "Cannot verify %s on disk.  Save anyway? (y/n) ", path);
 	}
 	if (!dest.id.present
 	    || file_snapshot_compare(accepted, &dest) == FILE_SAME) {

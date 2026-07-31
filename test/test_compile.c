@@ -350,8 +350,8 @@ static void test_stream_seam_drives_parser(void)
 }
 
 /* Feed `text` to `s` in `chunk`-byte pieces, the way short pipe reads do. */
-static void feed_chunks(struct compilation_state *s, const char *text,
-    size_t len, size_t chunk)
+static void feed_chunks(
+    struct compilation_state *s, const char *text, size_t len, size_t chunk)
 {
 	for (size_t i = 0; i < len; i += chunk) {
 		size_t n = len - i < chunk ? len - i : chunk;
@@ -467,7 +467,8 @@ static void test_truncated_run_still_finishes(void)
 	const char *found;
 
 	compilation_set_maximum_output(2);
-	strcpy(g_next_command, "printf '\\132\\132\\132\\132\\n%.0s' $(seq 200)");
+	strcpy(
+	    g_next_command, "printf '\\132\\132\\132\\132\\n%.0s' $(seq 200)");
 	editor_compile(0);
 
 	for (int i = 0; i < 5000 && compilation_is_running(); i++) {

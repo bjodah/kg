@@ -571,8 +571,7 @@ void dired_do_flagged_delete(int fd)
 #endif
 	);
 	if (dirfd < 0) {
-		editor_set_status_message(
-		    "Dired %s: %s", dir, strerror(errno));
+		editor_set_status_message("Dired %s: %s", dir, strerror(errno));
 		return;
 	}
 	targets = calloc((size_t)editor.numrows + 1, sizeof(*targets));

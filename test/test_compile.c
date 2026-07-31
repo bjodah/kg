@@ -338,7 +338,9 @@ static void test_stream_seam_drives_parser(void)
 	compilation_process_bytes(&s, "one\ntw", 6);
 	compilation_process_bytes(&s, "o", 1);
 	CHECK(strcmp(g_model, "one\ntwo") == 0);
-	CHECK(s.stored_output == 3);
+	/* Three body bytes, the newline that terminated them, and the three
+	 * bytes still pending: every retained byte is charged. */
+	CHECK(s.stored_output == 7);
 	CHECK(s.pending_line_length == 3);
 	CHECK(!s.truncated);
 
@@ -347,15 +349,128 @@ static void test_stream_seam_drives_parser(void)
 	CHECK(s.stored_output == 0);
 }
 
-/* The budget setter reaches a real run: a two-byte cap truncates output that
- * the 8 MiB default would have kept whole. */
-static void test_set_maximum_output_reaches_run(void)
+/* Feed `text` to `s` in `chunk`-byte pieces, the way short pipe reads do. */
+static void feed_chunks(struct compilation_state *s, const char *text,
+    size_t len, size_t chunk)
 {
+	for (size_t i = 0; i < len; i += chunk) {
+		size_t n = len - i < chunk ? len - i : chunk;
+		compilation_process_bytes(s, text + i, n);
+	}
+}
+
+/* A stream of nothing but newlines used to append rows forever: the body of
+ * each line was empty, so stored_output never moved.  Retained newlines are
+ * charged now, so the flood stops at the cap. */
+static void test_budget_charges_newlines(void)
+{
+	struct compilation_state s;
+	char flood[10000];
+
+	memset(&s, 0, sizeof(s));
+	compilation_stream_reset(&s, 16);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+
+	memset(flood, '\n', sizeof(flood));
+	feed_chunks(&s, flood, sizeof(flood), 4096);
+
+	CHECK(g_model_len == 16);
+	CHECK(s.stored_output == 16);
+	CHECK(s.truncated);
+	compilation_stream_reset(&s, 0);
+}
+
+/* One unterminated line must not grow the pending buffer past what the budget
+ * could still fund, however long the child keeps writing. */
+static void test_budget_bounds_pending_line(void)
+{
+	struct compilation_state s;
+	char *line = malloc(1 << 20);
+
+	CHECK(line != NULL);
+	if (!line) {
+		return;
+	}
+	memset(line, 'a', 1 << 20);
+
+	memset(&s, 0, sizeof(s));
+	compilation_stream_reset(&s, 64);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+
+	feed_chunks(&s, line, 1 << 20, 4096);
+
+	CHECK(s.pending_line_cap <= 65);
+	CHECK(s.pending_line_length == 64);
+	CHECK(s.stored_output == 64);
+	CHECK(g_model_len == 64);
+	CHECK(s.truncated);
+	compilation_stream_reset(&s, 0);
+	free(line);
+}
+
+/* The cap counts every retained byte: three body bytes plus the newline is
+ * exactly four.  One below fits with room, one above truncates. */
+static void test_budget_boundary(void)
+{
+	struct compilation_state s;
+
+	memset(&s, 0, sizeof(s));
+	compilation_stream_reset(&s, 4);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	compilation_process_bytes(&s, "abc\n", 4);
+	CHECK(g_model_len == 4);
+	CHECK(s.stored_output == 4);
+	CHECK(!s.truncated);
+
+	compilation_process_bytes(&s, "d", 1);
+	CHECK(g_model_len == 4);
+	CHECK(s.truncated);
+
+	compilation_stream_reset(&s, 5);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	compilation_process_bytes(&s, "abc\n", 4);
+	CHECK(!s.truncated);
+	compilation_process_bytes(&s, "d", 1);
+	CHECK(g_model_len == 5);
+	CHECK(!s.truncated);
+	compilation_stream_reset(&s, 0);
+}
+
+/* Escape sequences and CRLF pairs split across a read boundary must be
+ * recognised exactly as if they had arrived together. */
+static void test_stream_split_sequences(void)
+{
+	struct compilation_state s;
+
+	memset(&s, 0, sizeof(s));
+	compilation_stream_reset(&s, 1024);
+	buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+
+	/* CSI split between ESC and '[', and again inside its parameters. */
+	feed_chunks(&s, "a\x1b[1;32mb\n", 10, 1);
+	/* OSC split across its BEL terminator. */
+	feed_chunks(&s, "\x1b]0;title\ac\n", 12, 3);
+	/* CRLF split across the pair. */
+	feed_chunks(&s, "d\r\ne\n", 5, 2);
+
+	CHECK(strcmp(g_model, "ab\nc\nd\ne\n") == 0);
+	CHECK(s.stored_output == 9);
+	compilation_stream_reset(&s, 0);
+}
+
+/* The budget setter reaches a real run, and hitting the cap stops nothing
+ * else: the pipe is still drained, the child still reaped, the exit status
+ * still reported, and the marker written exactly once. */
+static void test_truncated_run_still_finishes(void)
+{
+	const char *marker = "[kg: compilation output truncated after 2 bytes]";
+	const char *found;
+
 	compilation_set_maximum_output(2);
-	strcpy(g_next_command, "printf '\\132\\132\\132\\132\\n'");
+	strcpy(g_next_command, "printf '\\132\\132\\132\\132\\n%.0s' $(seq 200)");
 	editor_compile(0);
 
-	for (int i = 0; i < 2000 && compilation_is_running(); i++) {
+	for (int i = 0; i < 5000 && compilation_is_running(); i++) {
 		compilation_poll();
 		usleep(1000);
 	}
@@ -363,14 +478,22 @@ static void test_set_maximum_output_reaches_run(void)
 
 	CHECK(!compilation_is_running());
 	CHECK(strstr(g_model, "ZZZZ") == NULL);
-	CHECK(strstr(g_model, "[kg: compilation output truncated after 2 bytes]")
-	    != NULL);
+	found = strstr(g_model, marker);
+	CHECK(found != NULL);
+	if (found) {
+		CHECK(strstr(found + 1, marker) == NULL);
+	}
+	CHECK(strstr(g_model, "Compilation finished with exit code 0") != NULL);
 }
 
 int main(void)
 {
 	RUN(test_stream_seam_drives_parser);
-	RUN(test_set_maximum_output_reaches_run);
+	RUN(test_budget_charges_newlines);
+	RUN(test_budget_bounds_pending_line);
+	RUN(test_budget_boundary);
+	RUN(test_stream_split_sequences);
+	RUN(test_truncated_run_still_finishes);
 	RUN(test_streaming_no_final_newline);
 	RUN(test_transcript_command_and_directory);
 	RUN(test_transcript_exit_code);

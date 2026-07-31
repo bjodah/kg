@@ -32,6 +32,14 @@ struct compilation_state {
 	bool child_reaped;
 	int wait_status;
 
+	/* One budget for everything the child produced and kg kept:
+	 * every byte held in pending_line, every byte committed as a
+	 * completed line, and every line terminator retained in
+	 * *compilation*.  Bytes are charged when accepted and never
+	 * refunded, so \b and \r rubbing them out still costs.  Not
+	 * charged: the header compilation_start() writes, the truncation
+	 * note and the finish line — editor-generated text bounded by the
+	 * command and directory lengths, not by the child. */
 	size_t stored_output;
 	size_t maximum_output;
 	bool truncated;

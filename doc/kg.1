@@ -1294,7 +1294,12 @@ or
 inside the
 .Pa *compilation*
 buffer.
-Output is capped at 8\~MiB; truncated output is noted in the buffer.
+Retained output is capped at 8\~MiB.
+Every kept byte counts against that cap, line terminators and the still
+incomplete last line included, so neither a flood of blank lines nor one
+endless line can grow the buffer past it.
+Truncation is noted in the buffer; the process keeps running, its remaining
+output is still read and discarded, and its exit status is still reported.
 .Pp
 Compilation is permitted while the source buffer is read-only.
 .Sh READ-ONLY MODE

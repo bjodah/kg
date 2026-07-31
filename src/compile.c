@@ -421,13 +421,35 @@ void editor_recompile(int fd)
 	compilation_start_or_defer(fd, command, dir, source_slot);
 }
 
+/* Accept one output byte into the pending line, charging it to the budget as
+ * it is accepted.  Past the budget the byte is dropped and the run is marked
+ * truncated, so pending_line never holds a byte that was not paid for and its
+ * capacity never exceeds what the budget could still fund.  Bytes later rubbed
+ * out by \b or \r are not refunded: a stream that keeps erasing itself still
+ * makes progress towards the cap instead of spinning.  A failed realloc counts
+ * as truncation too — the byte is lost either way, and the user is entitled to
+ * know the output is incomplete. */
 static void compilation_append_char(struct compilation_state *s, char c)
 {
+	if (s->stored_output >= s->maximum_output) {
+		s->truncated = true;
+		return;
+	}
 	if (s->pending_line_length + 1 >= s->pending_line_cap) {
+		size_t room = s->maximum_output - s->stored_output;
 		size_t new_cap
 		    = s->pending_line_cap == 0 ? 128 : s->pending_line_cap * 2;
-		char *new_buf = realloc(s->pending_line, new_cap);
+		char *new_buf;
+
+		/* Clamp geometric growth to what the budget can still fund.
+		 * Phrased so the sum is only formed once it is known to be
+		 * below new_cap, which cannot overflow. */
+		if (new_cap - s->pending_line_length - 1 > room) {
+			new_cap = s->pending_line_length + room + 1;
+		}
+		new_buf = realloc(s->pending_line, new_cap);
 		if (!new_buf) {
+			s->truncated = true;
 			return;
 		}
 		s->pending_line = new_buf;
@@ -435,30 +457,25 @@ static void compilation_append_char(struct compilation_state *s, char c)
 	}
 	s->pending_line[s->pending_line_length++] = c;
 	s->pending_line[s->pending_line_length] = '\0';
+	s->stored_output++;
 }
 
-/* Commit the completed pending line (plus its terminating newline) to the
- * buffer as permanent output and reset the pending line. Only committed bytes
- * are charged against the output cap, and each real byte is charged exactly
- * once here, so a line split across several reads is never double-counted.
- * The caller must have already removed any mirrored copy of the pending line
- * from the buffer's last row (see displayed_pending_length). */
+/* Commit the completed pending line to the buffer as permanent output and
+ * reset the pending line.  Its body was charged byte by byte as it arrived;
+ * the terminating newline is charged here, and that is what bounds a stream
+ * which is nothing but newlines.  The caller must have already removed any
+ * mirrored copy of the pending line from the buffer's last row (see
+ * displayed_pending_length). */
 static void compilation_commit_line(struct compilation_state *s)
 {
+	if (s->pending_line_length > 0) {
+		buf_append_special_text(s->compilation_buffer, s->pending_line,
+		    s->pending_line_length);
+	}
 	if (s->stored_output < s->maximum_output) {
-		size_t rem = s->maximum_output - s->stored_output;
-		size_t to_add = s->pending_line_length;
-		if (to_add > rem) {
-			to_add = rem;
-			s->truncated = true;
-		}
-		if (to_add > 0) {
-			buf_append_special_text(
-			    s->compilation_buffer, s->pending_line, to_add);
-		}
 		buf_append_special_text(s->compilation_buffer, "\n", 1);
-		s->stored_output += to_add;
-	} else if (s->pending_line_length > 0) {
+		s->stored_output++;
+	} else {
 		s->truncated = true;
 	}
 	s->pending_line_length = 0;
@@ -468,22 +485,17 @@ static void compilation_commit_line(struct compilation_state *s)
 }
 
 /* Mirror the still-incomplete pending line into the buffer's last row so the
- * user sees partial progress. These bytes are transient: they are removed
- * (via displayed_pending_length) before the next chunk is processed and are
- * not charged against the cap until the line is actually committed. */
+ * user sees partial progress.  These bytes are transient — they are removed
+ * (via displayed_pending_length) before the next chunk is processed — but they
+ * are already paid for, so the whole pending line is shown and what is on
+ * screen is exactly what a later commit will keep. */
 static void compilation_mirror_pending(struct compilation_state *s)
 {
-	size_t to_show = 0;
-	if (s->stored_output < s->maximum_output) {
-		size_t rem = s->maximum_output - s->stored_output;
-		to_show = s->pending_line_length < rem ? s->pending_line_length
-						       : rem;
-		if (to_show > 0) {
-			buf_append_special_text(
-			    s->compilation_buffer, s->pending_line, to_show);
-		}
+	if (s->pending_line_length > 0) {
+		buf_append_special_text(s->compilation_buffer, s->pending_line,
+		    s->pending_line_length);
 	}
-	s->displayed_pending_length = to_show;
+	s->displayed_pending_length = s->pending_line_length;
 }
 
 void compilation_process_bytes(

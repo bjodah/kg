@@ -20,7 +20,7 @@ Whether a pattern *compiles* is part of the dialect and is compared like
 any other answer.  A share of the generated cases are deliberately
 malformed -- unclosed groups, unterminated bracket expressions, malformed
 intervals, unknown class names -- and both sides must reject them.  The
-only permitted acceptance differences are the three named in KG_STRICTER
+only permitted acceptance differences are the four named in KG_STRICTER
 and KG_LOOSER below, each of which the generator tags on purpose; every
 other one is reported as DIVERGE-ACCEPT.  Only kg's work budget
 ("toocomplex") is incomparable, Emacs having none.
@@ -61,8 +61,11 @@ MEMBERS = ALL
 # they are untested -- test/test_regex.c covers them.
 POSIX_CLASSES = ["[:ascii:]", "[:nonascii:]"]
 
-# RE_MAX_SPANS is 10, so group 10 and up would be silently dropped by kg
-# while Emacs still reports them.  Cases over the limit are regenerated.
+# RE_MAX_SPANS is 10 -- the whole match plus nine groups -- so kg refuses
+# a pattern with a tenth '\\(' outright, while Emacs compiles it and
+# reports every group.  An ordinary case is regenerated when it goes over;
+# rnd_bad_pattern() generates the difference deliberately, tagged
+# "group-count", so it is checked rather than avoided.
 MAX_GROUPS = 9
 
 
@@ -101,8 +104,10 @@ def rnd_quant(rng):
 	if r < 0.5:
 		return "+"
 	if r < 0.65:
-		# Greedy in both dialects; the non-greedy '?' of other engines
-		# is spelled '\?' in Emacs and is not generated here.
+		# Greedy in both dialects.  Emacs' non-greedy operators are a
+		# second '?' on a quantifier ('a*?', 'a+?', '??'); kg has no
+		# such thing and rejects them, which rnd_bad_pattern() tags
+		# "double-quantifier" and generates on purpose.
 		return "?"
 	n = rng.randint(0, 3)
 	m = n + rng.randint(0, 2)
@@ -155,17 +160,21 @@ def rnd_pattern(rng):
 #                      Emacs answers them from the string's internal
 #                      representation, which a byte matcher cannot see;
 #                      rejecting beats answering wrongly.
+#   group-count        kg rejects a pattern with ten or more '\('.
+#                      RE_MAX_SPANS is 10, the whole match plus nine
+#                      groups, so the tenth has nowhere to be reported;
+#                      Emacs has no limit.
 #   group-question     kg reads '\(?' as a group holding a literal '?'.
 #                      Emacs rejects it, reserving the spelling for shy
 #                      groups, which kg does not have.
-KG_STRICTER = {"double-quantifier", "representation-class"}
+KG_STRICTER = {"double-quantifier", "representation-class", "group-count"}
 KG_LOOSER = {"group-question"}
 
 
 def rnd_bad_pattern(rng):
 	"""A malformed or edge-case pattern, with the tag it exercises.
 
-	Most of these must be rejected by *both* sides; the two tagged ones
+	Most of these must be rejected by *both* sides; the four tagged ones
 	are the documented acceptance differences.  The untagged edge cases
 	(a leading quantifier, a ']' in first position) are accepted by both
 	and compared span for span like any other case.
@@ -187,6 +196,7 @@ def rnd_bad_pattern(rng):
 		 "representation-class"),
 		(body + rnd_quant(rng) + rnd_quant(rng), "double-quantifier"),
 		("\\(?" + body + "\\)", "group-question"),
+		("\\(a\\)" * (MAX_GROUPS + rng.randint(1, 3)), "group-count"),
 		(rng.choice(["*", "+", "?"]) + body, None),
 		("^" + rng.choice(["*", "+", "?"]) + body, None),
 		("[]" + rng.choice(ASCII) + "]" + body, None),
@@ -212,7 +222,11 @@ def gen_cases(rng, count):
 		else:
 			pattern, tag = rnd_pattern(rng), None
 		case = (pattern, rnd_subject(rng))
-		if case in seen or case[0].count("\\(") > MAX_GROUPS:
+		# Over the group limit kg rejects and Emacs does not, so such a
+		# pattern is only usable as the tagged acceptance difference;
+		# anywhere else it would drown every other answer.
+		if case in seen or (
+				tag != "group-count" and case[0].count("\\(") > MAX_GROUPS):
 			continue
 		seen.add(case)
 		cases.append(case + (tag,))

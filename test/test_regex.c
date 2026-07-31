@@ -773,6 +773,43 @@ static void test_literal_quantifiers_and_bracket_members(void)
 	}
 }
 
+/* struct kg_match holds RE_MAX_SPANS spans -- the whole match plus nine
+ * groups -- so a pattern with a tenth "\(" is refused at compile time
+ * rather than compiled into a group whose span nothing can report.  Emacs
+ * has no such limit; this is one of the acceptance differences
+ * utils/regex_differential.py tags and checks rather than avoids. */
+static void test_capture_group_ceiling(void)
+{
+	char pattern[RE_MAX_SPANS * 6 + 8];
+	char text[RE_MAX_SPANS + 2];
+	struct kg_regex rx;
+	struct kg_match match;
+	int n, i;
+
+	for (n = 1; n <= RE_MAX_SPANS + 1; n++) {
+		for (i = 0; i < n; i++) {
+			memcpy(pattern + i * 5, "\\(a\\)", 5);
+			text[i] = 'a';
+		}
+		pattern[n * 5] = '\0';
+		text[n] = '\0';
+
+		if (n >= RE_MAX_SPANS) {
+			CHECK(kg_regex_compile(&rx, pattern, 0)
+			    == KG_REGEX_BADPAT);
+			continue;
+		}
+		CHECK(kg_regex_compile(&rx, pattern, 0) == KG_REGEX_OK);
+		CHECK(kg_regex_match_forward(&rx, text, 0, &match)
+		    == KG_REGEX_OK);
+		CHECK(match.nspans == n + 1);
+		for (i = 1; i <= n; i++) {
+			CHECK(match.spans[i].start == i - 1);
+			CHECK(match.spans[i].end == i);
+		}
+	}
+}
+
 /* An invalid "\x" escape is the literal characters it is spelled with, and
  * used to leave the compiler's node count behind its write position: a
  * group *after* one was then misparsed and the whole pattern rejected. */
@@ -851,6 +888,7 @@ int main(void)
 	RUN(test_exhausted_budget_is_not_no_match);
 	RUN(test_malformed_patterns_are_rejected);
 	RUN(test_literal_quantifiers_and_bracket_members);
+	RUN(test_capture_group_ceiling);
 	RUN(test_invalid_hex_escape_does_not_break_later_groups);
 	RUN(test_group_repeat_ceiling_is_reported);
 	return test_summary();

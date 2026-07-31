@@ -106,3 +106,121 @@ stated policy instead of each inventing one:
   submodule tests wired, pins advanced through fe to kg.
 - Policy notes exist and are referenced by Plans 09, 10, and 12.
 - Behavior unchanged: `make check`, `WITH_LISP=0`, full CI green.
+
+## Landed / deferred
+
+Landed on `stricter-emacs-adherence` as eight kg commits (`e736bd9` ..
+`b526d19`), three `fe/tiny-regex-c` commits (`b9e9dc6`, `5fe0dfb`,
+`b92284f`) and two `fe` commits (`bfcddfc`, `52c7ef7`), pins advanced
+tiny → fe → kg in that order.  Both submodules' full `.ci` runners are
+green at their new pins; kg's twelve-step runner is green at the tip.
+
+### Landed
+
+- **Phase 1 — convention first, then three extractions.**  The
+  convention is a bullet in `AGENTS.md`: a module owns `src/<module>.h`,
+  self-contained in the shape `src/localvars.h` already had, included by
+  `def.h` only when `def.h`'s own definitions need the type, and included
+  directly by consumers, which is what IWYU makes them do anyway.
+  `make header-check` (in `make check`) compiles every `src/*.h` as the
+  first thing in its own translation unit and prints the count, so a
+  header that only works after `def.h` cannot pass and a glob that
+  matched nothing cannot look like one.
+  `def.h` went 1279 → 1160 lines across three mechanical commits:
+  `keybind.h` (17 lines, 4 declarations, 3 consumers), `cmd.h` (72 lines:
+  `command_prefix`, `cmdfn`, `command_flags`, `named_cmd`,
+  `command_origin`, `command_context`, `command_result` and 6
+  declarations, 5 consumers), `syntax.h` (62 lines: the `HL_*` types and
+  flags, `struct editor_syntax`, 15 declarations, 16 consumers).
+  One thing the plan did not predict and the next extraction should
+  copy: **spelling rows as `struct erow *` rather than `def.h`'s `erow`
+  typedef is what made the syntax extraction cost no include churn at
+  all.**  With the typedef repeated in `syntax.h`, IWYU reattributed
+  `erow` from `localvars.h` to `syntax.h` and demanded `localvars.h` be
+  dropped from twelve files that still legitimately used it.  With the
+  tag, `make iwyu` is clean at 36 files with only the sixteen direct
+  `syntax.h` includes added.  `hl_color`, dead since the colour table
+  became `editor_syntax_to_color()`, went with it.
+  scc stayed at exactly 4238/4238 through all four commits: declarations
+  carry no branches, and an include guard's `#ifndef` does not match
+  scc's `if ` probe.
+- **Phase 2 — the last absolute paths.**  `IWYU` and `IWYU_TOOL` in all
+  three Makefiles were `/opt-3/iwyu-21/bin/...`, so `make iwyu` anywhere
+  else died as "no such file" rather than as a missing tool.  All three
+  now use `command -v` with that box as the documented fallback, and each
+  recipe checks and names the tool and the variable that overrides it.
+  The hosted workflow's two env overrides are deleted, discovery now
+  doing their job.  `AGENTS.md` gains the toolchain list derived from
+  `.ci/*.sh` and the Makefile: each tool, its override variable, and the
+  step that needs it.  `rg` was in the version census and the hosted
+  install list and is used by nothing in the tree; it left both.
+  Verified while doing this that the *other* tools already fail by name:
+  a missing `scc` reports `invalid scc JSON`, a missing `pmccabe`
+  reports `no pmccabe output to check -- is pmccabe installed?`.
+  `utils/pty_accept.py`'s Emacs fallback and `run-ci-steps.sh`'s
+  `/opt-?/cpython-*` activation are deliberately left: both search first,
+  both are glob-guarded, both keep going when the box is not that box.
+- **Phase 3 — the drift check found two real gaps.**
+  `utils/check_help_drift.py` (`make docs-check`, in `make check`) takes
+  the key column out of `src/help.c`'s box art and asks whether each
+  sequence is spelled anywhere in `doc/kg.1`.  It measures the key
+  column's width from the table rather than assuming it (the two halves
+  use 9 and 11), expands the `A/B` shorthands the width forces, and
+  keeps the six roff/CUA spellings in a table that can be argued with
+  rather than tolerating them.  95 keys checked; it prints the count.
+  It found `M-Backspace` (backward-kill-word) and `C-z` (suspend) in the
+  help table and in the editor and in no key table in kg(1), and `M-d`
+  with only a passing mention in prose.  All three are documented now.
+  The kill-ring wording is softened rather than left as a TODO: README
+  and kg(1) say the ring holds a single entry, and kg(1) says once what
+  that means, until plan 13 bundle A makes it false.
+- **Phase 4 — the tiny-regex-c leftovers, and fe's numbering.**
+  `tests/test_end_anchor.c` is in `TEST_BINS` and in `make test`;
+  `tests/test_print.c` is deleted, having called an `re_print()` this
+  fork removed with the debug printer (it does not compile, and has not
+  for as long as that has been true).  `MAX_CHAR_CLASS_LEN` and
+  `MAX_REGEXP_LEN` are gone.  fe's two `ci-06-*` stages are 06/07/08,
+  which is both the order the glob was already producing by accident and
+  the order fe's contributor guide already claimed; the guide now says
+  that a stage number *is* the execution order, in fe, in tiny-regex-c
+  and in the parent.
+- **Phase 5 — two decision records, no behaviour change.**  Plan 09 has
+  the buffer-slot lifecycle policy (hard cap and refusal, never
+  eviction; `(id, generation)` identity, which is what closed the
+  compilation-index hazard; `*scratch*` ordinary and killable; killing
+  the last buffer exits, deliberately), each stated with what it means
+  for plans 10 and 12.  Plan 10 has the async-mutation rule the code
+  already follows, stated positively, plus the observation that
+  auto-revert's current-buffer-only restriction is now stricter than the
+  comment defending it — points have been enumerable since plan 09 — and
+  that widening it is a behaviour change belonging to whichever plan
+  wants it.  `test/pty/90d-compile-output-during-prompt.yaml` is the
+  regression case plan 04 never added: a child printing one second in, an
+  `M-x` prompt held open across that moment, and afterwards the edited
+  buffer, its point and the prompt all as they were.
+
+### Deferred
+
+- **Generating the help table's text from `struct named_cmd::summary`.**
+  Reviewer #6's suggestion, and the right end state, but it needs two
+  things that do not exist: built-in keys resolving to command names
+  (plan 11 phase 3, not started), and a second ~15-column summary per
+  command, the table's cells being that wide against the registry's 60.
+  The dumb key check is what landed instead; `AGENTS.md` records the
+  prerequisite so the next attempt does not rediscover it.
+- **The reverse drift direction** (man page key ⇒ help table) is not
+  checked and should not be: kg(1) documents far more than one screen of
+  help, so "documented but not in help" is the normal state.
+- **`README` claims checked against `kg -V`.**  Not attempted.  `kg -V`
+  reports one feature bit (`+lisp`/`-lisp`), which `.ci/ci-08` already
+  asserts; there is nothing else there to join against, and inventing a
+  feature-string format to make a checker possible would be building the
+  gate's subject.
+- **tiny-regex-c's `SCC_COMPLEXITY_MAX`** is 345 against a measured 336,
+  and that slack predates this plan.  Not tightened here: nothing in
+  this work improved that number, and taking another plan's headroom
+  without earning it is the mirror of raising a cap without paying for
+  it.
+- **Auto-revert widening** (`src/bufmgr.c:327-333`), which the oversight
+  pass raised: written down in plan 10's design note as a conservative
+  restriction that outlived its argument, and deliberately not changed.

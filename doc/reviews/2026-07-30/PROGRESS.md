@@ -1,6 +1,6 @@
 # Implementation progress ledger
 
-Updated 2026-07-31, at the close of Plan 14 (all four phases).
+Updated 2026-07-31, at the close of Plan 15 (all five phases).
 Source plans: [plans/00-master-roadmap.md](plans/00-master-roadmap.md).
 Each plan doc now carries its own deferred-work section where phases were
 consciously skipped; this file is the cross-plan index.
@@ -22,6 +22,7 @@ consciously skipped; this file is the cross-plan index.
 | 11 | partial (phase 1 complete; phase 6's applier and phase 7's rank filter; 2-5 and 8 not started) | command policy is one table: `struct named_cmd` in `def.h` carries `CMD_EDITS_BUFFER`, `CMD_LISP_CALLABLE` and a one-line summary, and `cmd_invoke()` is the only route into a command -- it owns the read-only refusal, the Lisp-callability verdict and the prefix argument. `allowed_commands[]` in `lisp.c` is deleted (both its error strings pinned by PTY cases), and the live gap is closed: a Lisp-defined command used to fall through `cmd_execute_named()` with no descriptor, so a read-only buffer refused it only if the body reached a self-guarding native, and then as a mid-command Lisp error. Every Lisp-defined command now counts as one that edits the buffer, documented in README and kg.1. `test_cmd.c` (the tree's second everything-but-main.c binary) asserts the table's invariants. Two dedups fund it: one two-pass rank filter behind M-x and `C-x b`, and one value applier plus one name table behind the three file-local envelope scanners, whose scanners stay separate. scc 4276 -> 4256 with `SCC_COMPLEXITY_MAX` lowered at each step and never raised |
 | 10 | partial (phases 1–3 and phase 7's detectors; 4–6, 8, 9 not started) | one mutation gateway exists and is failure-atomic: `kg_buffer_replace()` stages the replaced text, the rows that replace it, the row-array growth and the undo record, and only then publishes, so a refused or failed edit leaves text, undo, modified flag and generation untouched. `UNDO_CHANGE` is one record for any edit and replays through the same primitive (`KG_EDIT_REPLAY`), so there is no second splice to disagree. Four callers migrated, each of which *was* a second splice — transpose-chars (no longer rebuilds every row), multiline insert, `editor_row_replace_range`, yank's region delete — paying for the layer: scc 4265 → 4269. Byte positions are the editor's one position dialect (`buffer_byte_length`/`row_col_to_position`/`position_to_row_col`), codepoints are the Lisp adapter's alone. `content_generation` replaces the dirty counter as the "did this command edit?" signal, closing the hole where `dirty = 1` said nothing on an already-modified buffer. `make gateway-check` is the census of what still mutates by hand: 227 → 209 sites, may only shrink |
 | 14 | complete (phases 1–4) | the three coordinate spaces are written down and enforced. Phase 2's `RESTORE_HL` hazard was real and keyboard-reachable: an ASan build overreads a 2-byte allocation by 36 bytes when isearch's `C-d` handoff joins the next row into the match's row and the restore then copies the *new* `rsize` (the plan predicted a shortening row, which is the safe direction; growth is the bug, and plan 01's `hl_capacity` slack does not mask it because the source is an exact `malloc`). `struct hl_snapshot` carries the saved length, the row and the buffer generation, clamps, and refuses a row whose generation moved -- `TODO(plan-10)` marks it as the interim until decorations live on the edit transaction. `doc/coordinates.md` is the audit: 15 rows, 11 `ok`, 2 fixed by plan 03 (including the confirmation that `kg_regex_match_backward()` consumed the shared glyph-boundary helper), 1 documented divergence, 2 wrong and fixed -- `generic_keyword_scan()` filling a render-indexed run with a chars length, and `coloff` being read as a render offset by `display.c` while every command writes it as a chars offset, which closes `doc/TODO.md`'s horizontal-scroll/tab item. `render_col_to_chars()` is `visual_col_to_chars()` (it takes a display column), and `KG_ASSERT_CHARS_OFF`/`KG_ASSERT_RENDER_OFF` are armed by `.ci/ci-04`, so the assertions run against the whole PTY suite. Self-funded throughout: scc 4256 → 4239, cap lowered at each of the four commits |
+| 15 | complete (phases 1-5) | `def.h` 1279 -> 1160 lines: `cmd.h`, `keybind.h` and `syntax.h` are the first three module headers under a written convention, and `make header-check` compiles every `src/*.h` as the first thing in its own translation unit. The extraction cost no include churn beyond the sixteen direct `syntax.h` includes IWYU wanted, because spelling rows as `struct erow *` there kept `erow` attributed to `localvars.h` -- the shape the next extraction should copy. `IWYU`/`IWYU_TOOL` were the last absolute `/opt-3` paths in any of the three Makefiles; all are `command -v` with a named failure now, and `AGENTS.md` carries the toolchain list with each tool's override variable and the step that needs it. `make docs-check` (`utils/check_help_drift.py`, 95 keys) found `M-Backspace` and `C-z` in the help table, in the editor, and in no key table in kg(1); `M-d` had only a passing mention in prose. The single-slot kill ring is no longer called something a reader will expect `M-y` to work on. tiny-regex-c: `tests/test_end_anchor.c` runs, `tests/test_print.c` (which calls a removed `re_print()`) is gone, two dead constants deleted; fe's colliding `ci-06` stages are 06/07/08 and its guide says a stage number is the execution order. Two decision records landed rather than code: plan 09's buffer-slot lifecycle policy and plan 10's "who may mutate a buffer outside a keypress", the latter with the prompt-time compilation case plan 04 never added. scc 4238 throughout -- declaration moves carry no branches |
 
 Oversight cadence: intermediate Opus review after every two steps
 (4 passes, 13 follow-up commits across the three repos), plus two direct
@@ -41,7 +42,6 @@ status --recursive` for SHAs.
 | --- | --- |
 | 12 runtime/process/Lisp extensibility | 09/10/11 foundations (10's hook queue is its phase 8, not started; 11 phases 3 and 8 not started) |
 | 13 Emacs affordances | per-bundle dependencies (kill ring needs 11 phase 2/3, which are not started: there is still no `ALT_Y`, so M-y and M-t remain blocked on the keymap) |
-| 15 structural/toolchain hygiene | anytime; phase 4 partly done by 06/07 (CBMC repaired, drivers honest) |
 
 ## Deferred items worth remembering
 
@@ -58,6 +58,14 @@ status --recursive` for SHAs.
 - `buf_save_all` conflict guard landed in oversight pass 1; the remaining
   save-path gap list is in Plan 04's deferred notes.
 - fe unwind/cleanup design exists (`fe/doc/unwind-design.md`); no code.
+- The coverage baseline was last re-measured at plan 09 (`1e26dcc`);
+  `make coverage-check` has reported "12 file(s) above their floor" since,
+  and plans 10, 11, 14 and 15 all left it alone rather than banking a
+  number that partly reflects the documented per-file jitter.  Whoever
+  re-measures next should do it as its own commit.
+- The three module headers plan 15 extracted (`cmd.h`, `keybind.h`,
+  `syntax.h`) are the first three of a longer list; `def.h` is still 1160
+  lines and `bufmgr.c`/`winmgr.c`/`undo.c` all still declare through it.
 - Complexity budget: kg scc is at 4238 against a cap of 4238 — no
   headroom, which is the normal state here.  Plan 11's registries were
   sequenced dedup-first for exactly this reason: the picker filter freed
@@ -68,7 +76,9 @@ status --recursive` for SHAs.
   `editor_visual_col()` instead of the cursor loop's private copy of it,
   and one `win_cells()` instead of eight `if (win_w <= 0)` guards.  The
   next commit that is not a migration should expect to have to find its
-  own room first.
+  own room first.  Plan 15 needed none: moving declarations between
+  headers is free, since scc's C complexity probe matches `if ` and an
+  include guard's `#ifndef` is not that.
 - `src/compile.c:389` (ArrayBound on the pending-line buffer) is fixed
   (oversight pass 5).  It was the only finding in the whole compilation
   database once ci-06's analysers were made to run at all — see the
@@ -129,7 +139,11 @@ Found by audit, judged real, and **not** fixed — with what is known:
   path that does not bank the view it is dropping.
 - Auto-revert still only reloads the current buffer
   (`src/bufmgr.c:327-333`) on a rationale the ownership work retired:
-  points are in `winlist[]` now and are all enumerable.
+  points are in `winlist[]` now and are all enumerable.  Plan 15 phase 5
+  wrote this down in plan 10's design note as a *conservative*
+  restriction that outlived its argument rather than a correctness
+  requirement, and deliberately did not change it: widening it needs a
+  decision about a point a reload puts past the end, and its own case.
 - The mutation census is textual and gameable in more ways than its
   docstring admits: wrapping N raw calls in one helper banks a
   "decrease", `r->size` hides from a probe that hard-codes the

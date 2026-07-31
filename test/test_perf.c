@@ -498,11 +498,11 @@ static void test_typing_into_long_row_reuses_storage(void)
  *
  * The row is replaced in place and is the same width either way, so its
  * render and highlight storage is derived state the edit has no reason
- * to build again -- but the commit frees the row it replaces, capacities
- * and all, and then rebuilds both from nothing.  Two megabytes of
- * allocation and copying per keystroke, on a row that already had the
- * storage.  This case is the evidence; the counters below are what it
- * costs today. */
+ * to build again, and does not: the commit hands both to the row that
+ * replaces it, capacities included, and the update refills them without
+ * allocating.  It used to free the pair with the row and rebuild both
+ * from nothing -- two megabytes of allocation and copying per
+ * keystroke, on a row that already had the storage. */
 static void test_one_byte_edit_in_long_row_derived_storage(void)
 {
 	const int len = 1 << 20;
@@ -522,10 +522,12 @@ static void test_one_byte_edit_in_long_row_derived_storage(void)
 	CHECK(editor_row_replace_range(0, 0, 1, "", 0, 0) == 1); /* erased */
 
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 2);
-	CHECK(counter(KG_PERF_RENDER_ALLOC) == 2);
-	CHECK(counter(KG_PERF_HL_ALLOC) == 2);
-	CHECK(counter(KG_PERF_RENDER_BYTES) > 2ULL * (unsigned long long)len);
+	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
+	CHECK(counter(KG_PERF_RENDER_BYTES) == 0);
+	CHECK(counter(KG_PERF_HL_ALLOC) == 0);
 	CHECK(bcur()->row[0].size == len);
+	CHECK(bcur()->row[0].rsize == len);
+	CHECK(bcur()->row[0].render[len] == '\0');
 	teardown();
 	free(line);
 }

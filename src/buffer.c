@@ -1608,10 +1608,19 @@ static void edit_publish(
 {
 	int old_span = r1 - r0 + 1;
 	int new_span = st->nl + 1;
+	/* Row r0 is replaced in place, whatever the topology around it, so
+	 * its render and highlight storage outlives the text it described:
+	 * both carry a capacity, and the update below refills them without
+	 * allocating when the new content is no wider than the old.  That
+	 * is the whole of a one-row edit's derived-state cost -- freeing
+	 * the pair here charged two megabytes per keystroke in a megabyte
+	 * row.  Rows r0+1..r1 are going away, so they are freed outright. */
+	erow derived = b->row[r0];
 	int last;
 	int i;
 
-	for (i = r0; i <= r1; i++) {
+	free(b->row[r0].chars);
+	for (i = r0 + 1; i <= r1; i++) {
 		editor_free_row(&b->row[i]);
 	}
 	if (new_span != old_span) {
@@ -1619,8 +1628,13 @@ static void edit_publish(
 		    sizeof(*b->row) * (size_t)(b->numrows - r1 - 1));
 		b->numrows += new_span - old_span;
 	}
-	b->row[r0]
-	    = (erow) { .idx = r0, .size = st->head_len, .chars = st->head };
+	b->row[r0] = (erow) { .idx = r0,
+		.size = st->head_len,
+		.chars = st->head,
+		.render = derived.render,
+		.hl = derived.hl,
+		.render_capacity = derived.render_capacity,
+		.hl_capacity = derived.hl_capacity };
 	if (st->nl) {
 		memcpy(b->row + r0 + 1, st->rows,
 		    sizeof(*st->rows) * (size_t)st->nl);

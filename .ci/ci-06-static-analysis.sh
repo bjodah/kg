@@ -20,8 +20,17 @@ run_clang_check() {
 	cd "$(dirname "${file}")"
 	out=$(mktemp)
 	trap 'rm -f "${out}"' RETURN
-	clang-check -analyze -p "${COMPILE_DB}" "$(basename "${file}")" 2>&1 | tee "${out}"
-	if rg -q "warning:" "${out}"; then
+	# A job shell inherits no shell options, so the tool's own exit
+	# status has to be looked at here: a clang-check that is missing or
+	# that dies would otherwise print nothing, match no "warning:", and
+	# report the file clean.
+	if ! clang-check -analyze -p "${COMPILE_DB}" "$(basename "${file}")" \
+		>"${out}" 2>&1; then
+		cat "${out}"
+		exit 1
+	fi
+	cat "${out}"
+	if grep -q "warning:" "${out}"; then
 		exit 1
 	fi
 }
@@ -38,6 +47,29 @@ run_clang_tidy() {
 	fi
 }
 
+# Run one analyser over every file in the compilation database, and insist
+# that it really ran over every one of them.  GNU parallel exits 0 when it
+# runs no job at all, so an empty database, a database the build failed to
+# record, or a mis-parsed command line all read as a fast pass otherwise --
+# which is exactly how the $PARALLEL name collision (see .ci/ci-env.sh) hid
+# both phases of this step for as long as it did.
+analyse_db_files() {
+	local fn=$1 list joblog expected ran
+
+	list=$(compile_db_files)
+	expected=$(printf '%s\n' "${list}" | grep -c . || true)
+	joblog=$(mktemp)
+	printf '%s\n' "${list}" | "${GNU_PARALLEL}" --halt soon,fail=1 \
+		--jobs "${JOBS}" --line-buffer --joblog "${joblog}" "${fn}"
+	ran=$(grep -c . "${joblog}" || true)
+	rm -f "${joblog}"
+	ran=$((ran - 1)) # the job log's header line
+	if [ "${expected}" -lt 1 ] || [ "${ran}" -ne "${expected}" ]; then
+		echo "${fn}: analysed ${ran} of ${expected} files" >&2
+		exit 1
+	fi
+}
+
 export -f run_clang_check run_clang_tidy
 export CC="ccache clang"
 
@@ -46,8 +78,8 @@ bear -- "${MAKE_PARALLEL[@]}" -B
 export COMPILE_DB=$(/bin/pwd)
 make iwyu
 
-compile_db_files | "${PARALLEL}" --halt soon,fail=1 --jobs "${JOBS}" --line-buffer run_clang_check
+analyse_db_files run_clang_check
 
 cppcheck --quiet --error-exitcode=1 --suppress=normalCheckLevelMaxBranches -j "${JOBS}" src/*.c
 
-compile_db_files | "${PARALLEL}" --halt soon,fail=1 --jobs "${JOBS}" --line-buffer run_clang_tidy
+analyse_db_files run_clang_tidy

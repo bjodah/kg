@@ -259,7 +259,7 @@ if [ -n "${python_activate}" ]; then
 	source "${python_activate}"
 fi
 
-export JOBS PARALLEL VALGRIND
+export JOBS GNU_PARALLEL VALGRIND
 export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_JOBS
 
 rm -f "${CI_RUN_DIR}"/*.state "${CI_RUN_DIR}"/*.state.tmp

@@ -45,7 +45,13 @@ PTY_JOBS=${PTY_JOBS:-8}
 # has to stay in the real tree: a lane runs in a throwaway copy of it.
 CI_RUN_DIR=${CI_RUN_DIR:-.ci/.run}
 
-PARALLEL=${PARALLEL:-parallel}
+# Not named PARALLEL: GNU parallel reads $PARALLEL as its own default
+# options, so exporting a variable by that name to a step -- which
+# run-ci-steps.sh does -- makes every `parallel` invocation in it parse
+# "parallel" as an option string, run nothing, and exit 0.  That silently
+# disarmed ci-06's clang-check and clang-tidy phases under both runner
+# modes.  Keep the name out of GNU parallel's namespace.
+GNU_PARALLEL=${GNU_PARALLEL:-parallel}
 VALGRIND=${VALGRIND:-valgrind --quiet --tool=memcheck --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,possible --error-exitcode=1}
 
 MAKE_PARALLEL=(make -j "${JOBS}" --output-sync=target)

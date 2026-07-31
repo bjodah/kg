@@ -492,6 +492,44 @@ static void test_typing_into_long_row_reuses_storage(void)
 	free(line);
 }
 
+/* What one typed byte costs in a 1 MiB row when it goes through the edit
+ * transaction, which is the editor's hottest path into it: self-insert,
+ * backspace and forward-delete are all one-row replacements.
+ *
+ * The row is replaced in place and is the same width either way, so its
+ * render and highlight storage is derived state the edit has no reason
+ * to build again -- but the commit frees the row it replaces, capacities
+ * and all, and then rebuilds both from nothing.  Two megabytes of
+ * allocation and copying per keystroke, on a row that already had the
+ * storage.  This case is the evidence; the counters below are what it
+ * costs today. */
+static void test_one_byte_edit_in_long_row_derived_storage(void)
+{
+	const int len = 1 << 20;
+	char *line = malloc((size_t)len + 1);
+
+	CHECK(line != NULL);
+	if (!line) {
+		return;
+	}
+	memset(line, 'x', (size_t)len);
+	line[len] = '\0';
+
+	setup();
+	editor_insert_row(bcur(), 0, line, (size_t)len);
+	kg_perf_reset();
+	CHECK(editor_row_replace_range(0, 0, 0, "y", 1, 0) == 1); /* typed */
+	CHECK(editor_row_replace_range(0, 0, 1, "", 0, 0) == 1); /* erased */
+
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 2);
+	CHECK(counter(KG_PERF_RENDER_ALLOC) == 2);
+	CHECK(counter(KG_PERF_HL_ALLOC) == 2);
+	CHECK(counter(KG_PERF_RENDER_BYTES) > 2ULL * (unsigned long long)len);
+	CHECK(bcur()->row[0].size == len);
+	teardown();
+	free(line);
+}
+
 /* ---- One row update per logical replacement ---- */
 
 static void test_replace_range_updates_once(void)
@@ -620,6 +658,7 @@ int main(void)
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
 	RUN(test_typing_into_long_row_reuses_storage);
+	RUN(test_one_byte_edit_in_long_row_derived_storage);
 	RUN(test_replace_range_updates_once);
 	RUN(test_rect_delete_updates_per_byte);
 	RUN(test_multiline_insert_flattens_buffer);

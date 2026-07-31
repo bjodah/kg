@@ -545,12 +545,12 @@ static void test_revert_drops_the_region_it_finds(void)
 	free(names[0]);
 }
 
-/* A revert clamps the selected window's point and no other.  A second
- * window on the same buffer keeps a point past the new end of file, and
- * selecting it does not clamp either -- buf_attach_view() has nothing to
- * do for a window already on the buffer.  Typing there then reaches a row
- * that does not exist, which appends the blank lines to get to it. */
-static void test_revert_leaves_other_windows_unclamped(void)
+/* A revert clamps every window on the buffer, not just the selected one.
+ * buf_attach_view() has nothing to do for a window already on the buffer,
+ * so an unclamped one would stay past the new end of file until the user
+ * typed there -- and typing at a row that does not exist appends the
+ * blank lines to reach it. */
+static void test_revert_clamps_every_window_on_the_buffer(void)
 {
 	char *names[1];
 	int other;
@@ -574,11 +574,11 @@ static void test_revert_leaves_other_windows_unclamped(void)
 
 	CHECK(bcur()->numrows == 2);
 	CHECK(wcur()->rowoff + wcur()->cy < bcur()->numrows);
-	CHECK(winlist[other].rowoff + winlist[other].cy >= bcur()->numrows);
+	CHECK(winlist[other].rowoff + winlist[other].cy < bcur()->numrows);
 
 	win_cycle_next();
 	CHECK(win_current == other);
-	CHECK(wcur()->rowoff + wcur()->cy >= bcur()->numrows);
+	CHECK(wcur()->rowoff + wcur()->cy < bcur()->numrows);
 
 	session_teardown();
 	free(names[0]);
@@ -1068,7 +1068,7 @@ int main(void)
 	RUN(test_autorevert_poll_reverts_only_the_current_buffer);
 	RUN(test_deferred_revert_clamps_point_past_new_eof);
 	RUN(test_revert_drops_the_region_it_finds);
-	RUN(test_revert_leaves_other_windows_unclamped);
+	RUN(test_revert_clamps_every_window_on_the_buffer);
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_slot_exhaustion_and_reuse);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);

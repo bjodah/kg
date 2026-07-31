@@ -188,29 +188,30 @@ void buf_select(int slot)
 	}
 }
 
-/* Clamp the current cursor (cx/cy/rowoff/coloff) to whatever the current
- * buffer can hold, without recentering.  After a reload the file may be
- * shorter than the old view; this keeps the cursor on a real row and
- * column while preserving the user's scroll position when possible. */
-static void clamp_cursor_to_buffer(void)
+/* Clamp `w`'s cursor (cx/cy/rowoff/coloff) to whatever `b` can hold,
+ * without recentering.  After a reload the file may be shorter than the
+ * old view; this keeps the cursor on a real row and column while
+ * preserving the user's scroll position when possible. */
+static void clamp_view_to_buffer(
+    struct editor_window *w, const struct editor_buffer *b)
 {
 	int filerow, filecol, rowsize;
 
-	if (bcur()->numrows == 0) {
-		wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
+	if (b->numrows == 0) {
+		w->cx = w->cy = w->rowoff = w->coloff = 0;
 		return;
 	}
 
-	filerow = wcur()->rowoff + wcur()->cy;
-	filecol = wcur()->coloff + wcur()->cx;
-	if (filerow >= bcur()->numrows) {
-		filerow = bcur()->numrows - 1;
+	filerow = w->rowoff + w->cy;
+	filecol = w->coloff + w->cx;
+	if (filerow >= b->numrows) {
+		filerow = b->numrows - 1;
 	}
 	if (filerow < 0) {
 		filerow = 0;
 	}
 
-	rowsize = bcur()->row[filerow].size;
+	rowsize = b->row[filerow].size;
 	if (filecol > rowsize) {
 		filecol = rowsize;
 	}
@@ -218,33 +219,33 @@ static void clamp_cursor_to_buffer(void)
 		filecol = 0;
 	}
 
-	if (wcur()->rowoff > filerow) {
-		wcur()->rowoff = filerow;
+	if (w->rowoff > filerow) {
+		w->rowoff = filerow;
 	}
-	if (wcur()->rowoff + wcur()->h <= filerow) {
-		wcur()->rowoff = filerow - wcur()->h + 1;
+	if (w->rowoff + w->h <= filerow) {
+		w->rowoff = filerow - w->h + 1;
 	}
-	if (wcur()->rowoff < 0) {
-		wcur()->rowoff = 0;
+	if (w->rowoff < 0) {
+		w->rowoff = 0;
 	}
-	wcur()->cy = filerow - wcur()->rowoff;
+	w->cy = filerow - w->rowoff;
 
-	if (wcur()->coloff > filecol) {
-		wcur()->coloff = filecol;
+	if (w->coloff > filecol) {
+		w->coloff = filecol;
 	}
-	if (wcur()->coloff + wcur()->w <= filecol) {
-		wcur()->coloff = filecol - wcur()->w + 1;
+	if (w->coloff + w->w <= filecol) {
+		w->coloff = filecol - w->w + 1;
 	}
-	if (wcur()->coloff < 0) {
-		wcur()->coloff = 0;
+	if (w->coloff < 0) {
+		w->coloff = 0;
 	}
-	wcur()->cx = filecol - wcur()->coloff;
+	w->cx = filecol - w->coloff;
 }
 
 /* Reload the current buffer's file from disk and reset undo history.
  * Leaves the cursor wherever the caller had it set; callers that want
  * the post-reload cursor clamped to the new file size should call
- * clamp_cursor_to_buffer() afterwards.
+ * clamp_view_to_buffer() afterwards, once per window on the buffer.
  *
  * Syncs the fresh state back into buflist[buf_current] so other windows
  * showing the same buffer don't dangle on the old, freed filename pointer
@@ -282,13 +283,20 @@ void buf_reload_from_disk(void)
 
 /* Auto-revert path: reload the buffer from disk and try to keep the user's
  * viewport intact (rather than recentering on the cursor as an explicit
- * M-x revert-buffer would).  Never called against a dirty buffer. */
+ * M-x revert-buffer would).  Never called against a dirty buffer.
+ *
+ * Every window on the buffer is clamped, not just the selected one.  A
+ * second window keeps its own point, and buf_attach_view() has nothing to
+ * do for a window already on the buffer, so an unclamped one stays past
+ * the new end of file until the user types there -- and typing at a row
+ * that does not exist appends the blank lines to reach it. */
 static void silent_revert_current(void)
 {
 	int saved_cx = wcur()->cx;
 	int saved_cy = wcur()->cy;
 	int saved_rowoff = wcur()->rowoff;
 	int saved_coloff = wcur()->coloff;
+	int i;
 
 	buf_reload_from_disk();
 
@@ -296,7 +304,12 @@ static void silent_revert_current(void)
 	wcur()->cy = saved_cy;
 	wcur()->rowoff = saved_rowoff;
 	wcur()->coloff = saved_coloff;
-	clamp_cursor_to_buffer();
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active && winlist[i].bufidx == buf_current) {
+			clamp_view_to_buffer(&winlist[i], bcur());
+		}
+	}
 
 	editor_set_status_message(
 	    "Reverted %s from disk", buf_basename(bcur()->filename));

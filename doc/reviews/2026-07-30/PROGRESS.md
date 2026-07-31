@@ -1,6 +1,6 @@
 # Implementation progress ledger
 
-Updated 2026-07-31, at the close of Plan 12's process phases (9-10).
+Updated 2026-07-31, at the campaign close-out.
 Source plans: [plans/00-master-roadmap.md](plans/00-master-roadmap.md).
 Each plan doc now carries its own deferred-work section where phases were
 consciously skipped; this file is the cross-plan index.
@@ -174,3 +174,37 @@ Found by audit, judged real, and **not** fixed — with what is known:
   (`auto-revert`, `visual-line-mode`, `overwrite-mode`,
   `electric-pair-mode`) each widen what a downloaded file can change and
   were deliberately not registered.
+
+## Campaign close-out (2026-07-31)
+
+The 2026-07-30 review program's implementation campaign ran thirteen
+sequential implementation steps (P0, 01-11 with 09-11 partial, 14, 15,
+and Plan 12's process slice) with six interposed adversarial review
+passes and four direct oversight passes. Every landed commit left
+`make check`, both Lisp configurations, and the full CI runner green.
+
+Defects found and fixed during implementation, beyond the review's own
+findings — keyboard-reachable memory safety: RESTORE_HL heap overread
+(`C-s ab C-d`), query-replace newline-in-replacement heap overflow,
+cross-pane rendering bleed from mid-glyph scroll offsets, a `.dir-locals.el`
+NUL byte hanging the editor, a pre-existing use-after-free in write-file
+name adoption. State corruption: buffer switches losing point, killed
+buffers leaving phantom windows, spliced rows left unnumbered,
+zero-width replacements dirtying clean buffers, `C-x s` silently
+overwriting external edits then poisoning its own snapshot. Verification
+infrastructure that only looked like it worked: `PARALLEL=parallel`
+had kept clang-tidy/clang-check from ever running under the CI runner;
+tiny-regex-c's sanitizer lanes had never received their flags; fe's
+`assert-equals` family was a suite-wide no-op; the tiny-regex Python
+drivers had matched nothing since Python 3.11.
+
+The remaining work, in recommended order, each with its pickup point in
+its plan doc: Plan 11 phases 2-3 (key parser + layered keymaps — the
+single most enabling unit, unblocks Plan 13's kill ring and `M-y`/`M-t`
+and retires the third read-only table), Plan 10 phases 5-9 (markers,
+decorations, event queue, and the migration batches that fund them —
+fix `editor_undo`'s ignored replay return before batches 6-7), Plan 09
+phases 6-7 (session nesting, lifecycle hooks), Plan 13's bundles as
+their dependencies land, Plan 12's runtime phases, Plan 08 phase 8
+(visual-line repaint — its gate is met and measured), and the
+conditional design documents the roadmap lists.

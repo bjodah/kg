@@ -1966,6 +1966,175 @@ static void test_row_replace_range_refuses_bad_ranges(void)
 	teardown();
 }
 
+/* ---- The separator commands ---- */
+
+/* Every row's idx is its position: the transaction renumbers what it
+ * publishes, and a change in row count renumbers what is below it too. */
+static void check_rows_numbered(void)
+{
+	int i;
+
+	for (i = 0; i < bcur()->numrows; i++) {
+		CHECK(bcur()->row[i].idx == i);
+	}
+}
+
+/* RET, backspace at column 0, C-d at end of line and C-k at end of line
+ * are the four commands whose whole job is one separator byte appearing
+ * or disappearing.  Each is one undo step, one generation step and one
+ * dirty step, leaves point where the change was, and renumbers the rows
+ * it moved. */
+static void test_separator_edits_are_one_step_each(void)
+{
+	uint64_t generation;
+	char *text;
+
+	/* RET: the separator appears, and undo takes it back out. */
+	setup();
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "omega", 5);
+	bcur()->dirty = 0;
+	generation = bcur()->content_generation;
+	editor_cursor_goto(0, 2);
+	editor_insert_newline();
+	text = buffer_text();
+	CHECK(strcmp(text, "al\npha\nomega") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 3);
+	check_rows_numbered();
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(bcur()->dirty == 1);
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 0);
+	editor_undo();
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nomega") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 2);
+	check_rows_numbered();
+	CHECK(bcur()->undostack.size == 0);
+
+	/* Backspace at column 0 joins upward, and lands point on the seam. */
+	editor_cursor_goto(1, 0);
+	generation = bcur()->content_generation;
+	editor_del_char();
+	text = buffer_text();
+	CHECK(strcmp(text, "alphaomega") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 1);
+	check_rows_numbered();
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 5);
+	editor_undo();
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nomega") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 2);
+	check_rows_numbered();
+
+	/* C-d at end of line joins downward, and point does not move. */
+	editor_cursor_goto(0, 5);
+	editor_del_forward_char();
+	text = buffer_text();
+	CHECK(strcmp(text, "alphaomega") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 5);
+	editor_undo();
+	CHECK(bcur()->numrows == 2);
+
+	/* C-k at end of line is the same join, and puts the separator on
+	 * the kill ring. */
+	kill_ring_free();
+	editor_cursor_goto(0, 5);
+	editor_kill_line();
+	text = buffer_text();
+	CHECK(strcmp(text, "alphaomega") == 0);
+	free(text);
+	CHECK(killring.len == 1);
+	CHECK(killring.text && killring.text[0] == '\n');
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nomega") == 0);
+	free(text);
+	check_rows_numbered();
+	kill_ring_free();
+	teardown();
+}
+
+/* A read-only buffer refuses all four, and pays nothing for refusing:
+ * the key-level gate in cmd_invoke() is the first answer, and this is
+ * the transaction's own. */
+static void test_separator_edits_refused_when_read_only(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "alpha", 5);
+	editor_insert_row(bcur(), 1, "omega", 5);
+	bcur()->dirty = 0;
+	bcur()->readonly = 1;
+	generation = bcur()->content_generation;
+
+	editor_cursor_goto(0, 2);
+	editor_insert_newline();
+	editor_insert_newline_raw();
+	editor_cursor_goto(1, 0);
+	editor_del_char();
+	editor_cursor_goto(0, 5);
+	editor_del_forward_char();
+	editor_kill_line();
+
+	text = buffer_text();
+	CHECK(strcmp(text, "alpha\nomega") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 2);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->content_generation == generation);
+	CHECK(bcur()->dirty == 0);
+	bcur()->readonly = 0;
+	teardown();
+}
+
+/* Splitting a line inside a multi-byte glyph is not something point can
+ * ask for, but backspacing over one is: it removes the whole glyph, and
+ * a malformed byte counts as a glyph of its own.  Joining across the
+ * separator must not disturb either side's bytes. */
+static void test_separator_edits_keep_utf8_and_malformed_bytes(void)
+{
+	char *text;
+
+	setup();
+	/* "a€" and a lone 0x80 continuation byte followed by "z". */
+	editor_insert_row(bcur(), 0, "a\xE2\x82\xAC", 4);
+	editor_insert_row(bcur(), 1, "\x80z", 2);
+
+	editor_cursor_goto(1, 0);
+	editor_del_char(); /* joins, removing only the separator */
+	text = buffer_text();
+	CHECK(strcmp(text, "a\xE2\x82\xAC\x80z") == 0);
+	free(text);
+	CHECK(editor_current_filecol() == 4);
+
+	editor_del_char(); /* the whole three-byte glyph before point */
+	text = buffer_text();
+	CHECK(strcmp(text, "a\x80z") == 0);
+	free(text);
+	CHECK(editor_current_filecol() == 1);
+
+	editor_del_forward_char(); /* the malformed byte, on its own */
+	text = buffer_text();
+	CHECK(strcmp(text, "az") == 0);
+	free(text);
+	teardown();
+}
+
 /* editor_insert_row(bcur(), ) takes a byte slice, not a C string.  A caller
  * handing it an interior slice — every '\n'-bounded line in an undo
  * replay does — must still get a row whose chars[size] is '\0'. */
@@ -2891,6 +3060,9 @@ int main(void)
 	RUN(test_edit_result_reports_the_commit);
 	RUN(test_edit_undo_restores_exact_bytes);
 	RUN(test_row_replace_range);
+	RUN(test_separator_edits_are_one_step_each);
+	RUN(test_separator_edits_refused_when_read_only);
+	RUN(test_separator_edits_keep_utf8_and_malformed_bytes);
 	RUN(test_row_replace_range_refuses_bad_ranges);
 	return test_summary();
 }

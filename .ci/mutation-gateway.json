@@ -10,10 +10,10 @@
  ],
  "files": {
   "src/buffer.c": {
-   "row_primitive": 27,
-   "undo_push": 8,
+   "row_primitive": 21,
+   "undo_push": 4,
    "suppress_undo": 4,
-   "row_field_write": 21
+   "row_field_write": 19
   },
   "src/bufmgr.c": {
    "row_primitive": 15,

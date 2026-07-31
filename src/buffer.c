@@ -1808,6 +1808,16 @@ static int editor_delete_span_with_undo(int filerow, int col, int len)
 	return editor_row_replace_range(filerow, col, len, "", 0, KG_EDIT_USER);
 }
 
+/* The same, for a span that crosses a row separator: the separator is a
+ * byte of the buffer like any other, and removing it is what joins two
+ * rows.  Addressed flat, because a row column cannot name it. */
+static int editor_delete_span_at(size_t pos, size_t len)
+{
+	struct kg_edit e = kg_edit_user(bcur(), pos, pos + len, "", 0);
+
+	return kg_buffer_replace(&e, NULL);
+}
+
 /* Delete the char at the current prompt position. */
 void editor_del_char(void)
 {
@@ -1826,17 +1836,16 @@ void editor_del_char(void)
 		return;
 	}
 	if (filecol == 0) {
-		/* Handle the case of column 0, we need to move the current line
-		 * on the right of the previous one. */
-		/* Record undo: save the line that will be joined */
-		undo_push(bcur(), UNDO_JOIN_LINE, filerow - 1,
-		    bcur()->row[filerow - 1].size, 0, row->chars, row->size);
-		filecol = bcur()->row[filerow - 1].size;
-		editor_row_append_string(
-		    &bcur()->row[filerow - 1], row->chars, row->size);
-		editor_del_row(bcur(), filerow);
-		editor_cursor_goto(filerow - 1, filecol);
-		buffer_note_change(bcur());
+		/* At column 0 the byte before point is the separator above
+		 * it, so backspace removing that byte is what joins the two
+		 * rows -- no appending, no row deletion, no record saying
+		 * which of the two happened. */
+		int prev_end = bcur()->row[filerow - 1].size;
+		size_t pos = buffer_row_col_to_position(bcur(), filerow, 0);
+
+		if (editor_delete_span_at(pos - 1, 1)) {
+			editor_cursor_goto(filerow - 1, prev_end);
+		}
 		return;
 	}
 	/* Backspace removes one whole character, however many bytes it
@@ -1866,16 +1875,14 @@ void editor_del_forward_char(void)
 		return;
 	}
 	if (filecol == row->size) {
+		/* At end of line the byte at point is the separator below
+		 * it; removing it joins the next row on, and point does not
+		 * move because it is already where the join happens. */
 		if (filerow + 1 >= bcur()->numrows) {
 			return;
 		}
-		undo_push(bcur(), UNDO_JOIN_LINE, filerow, filecol, 0,
-		    bcur()->row[filerow + 1].chars,
-		    bcur()->row[filerow + 1].size);
-		editor_row_append_string(row, bcur()->row[filerow + 1].chars,
-		    bcur()->row[filerow + 1].size);
-		editor_del_row(bcur(), filerow + 1);
-		buffer_note_change(bcur());
+		editor_delete_span_at(
+		    buffer_row_col_to_position(bcur(), filerow, filecol), 1);
 		return;
 	}
 	/* Forward-delete takes the whole glyph at point and leaves point
@@ -2021,35 +2028,24 @@ void editor_kill_line(void)
 		return;
 	}
 	if (filecol == row->size) {
-		/* At end of line, join with next line like C-k in Emacs. */
+		/* At end of line, join with next line like C-k in Emacs.
+		 * The newline is the only byte that leaves the buffer: the
+		 * next row's bytes stay, so the record undo needs is the
+		 * one the transaction writes, describing that byte. */
 		if (filerow + 1 < bcur()->numrows) {
-			/* Save newline to kill ring */
 			kill_ring_append("\n", 1);
-			/* Record undo: the newline is what leaves the
-			 * buffer.  The next row's bytes stay -- they are
-			 * appended to this one -- so re-inserting a "\n"
-			 * here splits them back off, while re-inserting
-			 * the row itself would duplicate it. */
-			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
-			    "\n", 1);
-			editor_row_append_string(row,
-			    bcur()->row[filerow + 1].chars,
-			    bcur()->row[filerow + 1].size);
-			editor_del_row(bcur(), filerow + 1);
+			editor_delete_span_at(buffer_row_col_to_position(
+						  bcur(), filerow, filecol),
+			    1);
 		}
-	} else {
-		/* Delete from cursor to end of line and save to kill ring. */
-		int kill_len = row->size - filecol;
-		if (kill_len > 0) {
-			kill_ring_append(row->chars + filecol, kill_len);
-			/* Record undo operation */
-			undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0,
-			    row->chars + filecol, kill_len);
-		}
-		row->chars[filecol] = '\0';
-		row->size = filecol;
-		editor_update_row(bcur(), row);
-		buffer_note_change(bcur());
+		return;
+	}
+	/* Otherwise the rest of the line, to the kill ring and out of the
+	 * buffer in one step. */
+	if (row->size > filecol) {
+		kill_ring_append(row->chars + filecol, row->size - filecol);
+		editor_row_replace_range(
+		    filerow, filecol, row->size - filecol, "", 0, KG_EDIT_USER);
 	}
 }
 

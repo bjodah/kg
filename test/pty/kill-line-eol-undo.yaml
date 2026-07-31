@@ -1,7 +1,12 @@
 # C-k at end of line removes the newline and pulls the next line up.
 # Undo has to put that newline back: the record used to hold the next
-# row's own bytes, so undoing "a<C-k>" on "a\nb" produced "abb".  Point
-# lands at the start of the restored line, which the typed "X" pins.
+# row's own bytes, so undoing "a<C-k>" on "a\nb" produced "abb".
+#
+# Point lands where the change was -- just after the "a", in front of the
+# restored separator -- which the typed "X" pins.  That is where Emacs
+# leaves it too (checked against the oracle).  kg used to land at the
+# start of the restored line instead, because the record it replayed
+# described a row rather than the byte range that had changed.
 name: kill-line-eol-undo
 filename: kill-line-eol-undo.txt
 initial: |
@@ -13,5 +18,5 @@ keys:
   - C-_
   - 'X'
 expected_saved: |
-  a
-  Xb
+  aX
+  b

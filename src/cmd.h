@@ -55,6 +55,10 @@ enum command_flags {
 	 * themselves, or that mean something else with one, do not have
 	 * this. */
 	CMD_REPEATS = 1 << 2,
+	/* A vertical motion: it moves between lines at a remembered
+	 * column, so the goal column survives it.  Any other command
+	 * invalidates it.  Read by key_finish_keypress(). */
+	CMD_KEEPS_GOAL_COLUMN = 1 << 3,
 };
 
 struct named_cmd {
@@ -109,6 +113,9 @@ void cmd_fast_path_end(command_id outer);
 
 /* The identity of `name`, or CMD_ID_NONE when nothing is called that. */
 [[nodiscard]] command_id cmd_id_by_name(const char *name);
+/* The descriptor an identity names, or NULL.  Dispatch bookkeeping asks
+ * what the command that just ran was allowed to keep. */
+[[nodiscard]] const struct named_cmd *cmd_descriptor_by_id(command_id id);
 /* Told by the runtime command registry (lisp.c) that a command has been
  * defined or removed.  Defining a name that already has an id keeps it;
  * removing frees the slot, so the next definition of that name is a

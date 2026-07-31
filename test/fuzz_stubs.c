@@ -529,11 +529,14 @@ static const struct named_cmd fuzz_cmdtable[] = {
 	{ "move-end-of-line", fuzz_end_of_line, CMD_NONE, "stub" },
 	{ "move-to-window-line-top-bottom", fuzz_window_line, CMD_NONE,
 	    "stub" },
-	{ "next-line", fuzz_next_line, CMD_REPEATS, "stub" },
-	{ "previous-line", fuzz_previous_line, CMD_REPEATS, "stub" },
+	{ "next-line", fuzz_next_line, CMD_REPEATS | CMD_KEEPS_GOAL_COLUMN,
+	    "stub" },
+	{ "previous-line", fuzz_previous_line,
+	    CMD_REPEATS | CMD_KEEPS_GOAL_COLUMN, "stub" },
 	{ "recenter-top-bottom", fuzz_recenter, CMD_NONE, "stub" },
-	{ "scroll-down-command", fuzz_scroll_down, CMD_NONE, "stub" },
-	{ "scroll-up-command", fuzz_scroll_up, CMD_NONE, "stub" },
+	{ "scroll-down-command", fuzz_scroll_down, CMD_KEEPS_GOAL_COLUMN,
+	    "stub" },
+	{ "scroll-up-command", fuzz_scroll_up, CMD_KEEPS_GOAL_COLUMN, "stub" },
 	{ "backward-kill-word", fuzz_backward_kill_word,
 	    CMD_EDITS_BUFFER | CMD_REPEATS, "stub" },
 	{ "capitalize-word", fuzz_capitalize_word,
@@ -596,6 +599,13 @@ const struct named_cmd *cmd_descriptor_at(int index)
 {
 	return index >= 0 && fuzz_cmdtable[index].name ? &fuzz_cmdtable[index]
 						       : nullptr;
+}
+const struct named_cmd *cmd_descriptor_by_id(command_id id)
+{
+	if (id < CMD_ID_STATIC_BASE || id >= CMD_ID_RUNTIME_BASE) {
+		return nullptr;
+	}
+	return cmd_descriptor_at((int)(id - CMD_ID_STATIC_BASE));
 }
 command_id cmd_id_by_name(const char *name)
 {

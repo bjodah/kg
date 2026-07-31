@@ -79,7 +79,7 @@ static void test_every_entry_has_a_handler_and_summary(void)
 		    "%s: summary ends in a period", cmd->name);
 		CHECKF((cmd->flags
 			   & ~(unsigned)(CMD_EDITS_BUFFER | CMD_LISP_CALLABLE
-			       | CMD_REPEATS))
+			       | CMD_REPEATS | CMD_KEEPS_GOAL_COLUMN))
 			== 0,
 		    "%s has an unknown flag", cmd->name);
 	}
@@ -427,6 +427,23 @@ static void test_the_keystrokes_key_is_recorded(void)
 	    "the key is replaced by the next keystroke, not cleared");
 }
 
+/* An identity resolves back to the descriptor it came from, which is how
+ * dispatch bookkeeping asks what the command that just ran may keep. */
+static void test_descriptors_are_reachable_by_id(void)
+{
+	int i, n = table_size();
+
+	CHECK(cmd_descriptor_by_id(CMD_ID_NONE) == NULL);
+	CHECK(cmd_descriptor_by_id(CMD_ID_RUNTIME_BASE) == NULL);
+	CHECK(cmd_descriptor_by_id(CMD_ID_STATIC_BASE + (command_id)n) == NULL);
+	for (i = 0; i < n; i++) {
+		const struct named_cmd *cmd = cmd_descriptor_at(i);
+
+		CHECKF(cmd_descriptor_by_id(cmd_id_by_name(cmd->name)) == cmd,
+		    "%s does not resolve back to its descriptor", cmd->name);
+	}
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
@@ -446,5 +463,6 @@ int main(void)
 	RUN(test_transient_state_is_cleared_on_demand);
 	RUN(test_fast_path_applies_the_same_policy_and_identity);
 	RUN(test_the_keystrokes_key_is_recorded);
+	RUN(test_descriptors_are_reachable_by_id);
 	return test_summary();
 }

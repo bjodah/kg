@@ -21,22 +21,6 @@
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 
-/* Vertical motions, which are the keys that may keep the goal column.
- * The list mirrors every key that eventually reaches
- * editor_move_cursor(ARROW_UP/ARROW_DOWN). */
-static const int vertical_motion_keys[] = {
-	ARROW_UP,
-	ARROW_DOWN,
-	SHIFT_ARROW_UP,
-	SHIFT_ARROW_DOWN,
-	PAGE_UP,
-	PAGE_DOWN,
-	CTRL_N,
-	CTRL_P,
-	CTRL_V,
-	ALT_V,
-};
-
 #define PREFIX_ARG_MAX 1000
 
 static int prefix_arg_mul_add(int value, int mul, int add)
@@ -549,38 +533,38 @@ void key_yank_repeated(int n)
 	editor_set_status_message("Yanked");
 }
 
-/* The plain motion a shift-selecting key extends the region with.  A
- * table rather than a switch on purpose: at -Os gcc lowers the switch to
- * a synthesized constant array and then -fanalyzer mis-reads its own
- * index arithmetic, reporting a buffer over-read of "CSWTCH.NN" that has
- * no counterpart in this source.  That false positive is what the
+/* Shift translation: the command a shift-selecting key runs is the plain
+ * motion, and the shift is what extends the region across it.  A table
+ * rather than a switch on purpose: at -Os gcc lowers the switch to a
+ * synthesized constant array and then -fanalyzer mis-reads its own index
+ * arithmetic, reporting a buffer over-read of "CSWTCH.NN" that has no
+ * counterpart in this source.  That false positive is what the
  * __attribute__((optimize("O0"))) on editor_process_keypress used to
  * suppress, back when this mapping was inlined there. */
 static const struct {
 	int key;
-	int motion;
+	const char *command;
 } shift_motions[] = {
-	{ SHIFT_ARROW_LEFT, ARROW_LEFT },
-	{ SHIFT_ARROW_RIGHT, ARROW_RIGHT },
-	{ SHIFT_ARROW_UP, ARROW_UP },
-	{ SHIFT_ARROW_DOWN, ARROW_DOWN },
-	{ SHIFT_HOME, HOME_KEY },
-	{ SHIFT_END, END_KEY },
+	{ SHIFT_ARROW_LEFT, "backward-char" },
+	{ SHIFT_ARROW_RIGHT, "forward-char" },
+	{ SHIFT_ARROW_UP, "previous-line" },
+	{ SHIFT_ARROW_DOWN, "next-line" },
+	{ SHIFT_HOME, "move-beginning-of-line" },
+	{ SHIFT_END, "move-end-of-line" },
 };
 
-/* The motion `c` extends the region with, or 0 when `c` is not a
- * shift-selecting key -- which is also how the teardown below asks
- * whether this keystroke was one of them. */
-static int shift_select_motion(int c)
+/* The command `c` extends the region with, or NULL when `c` is not a
+ * shift-selecting key. */
+static const char *shift_select_command(int c)
 {
 	size_t i;
 
 	for (i = 0; i < sizeof(shift_motions) / sizeof(shift_motions[0]); i++) {
 		if (shift_motions[i].key == c) {
-			return shift_motions[i].motion;
+			return shift_motions[i].command;
 		}
 	}
-	return 0;
+	return nullptr;
 }
 
 /* The self-insert fallback.
@@ -760,11 +744,20 @@ static int key_dispatch_map(int c, int fd)
 	return 1;
 }
 
+/* Whether what just ran keeps the goal column. */
+static int cmd_this_command_keeps_goal_column(void)
+{
+	const struct named_cmd *cmd
+	    = cmd_descriptor_by_id(cmd_state()->this_command);
+
+	return cmd && (cmd->flags & CMD_KEEPS_GOAL_COLUMN);
+}
+
 /* Per-keystroke bookkeeping that runs after the command has had its say:
  * region teardown and goal-column invalidation.  `buffer_before` and
  * `generation_before` are the values sampled before dispatch, and
  * `was_shift_select` whether a shift-selected region was live then. */
-static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
+static void key_finish_keypress(struct kg_buffer_handle buffer_before,
     uint64_t generation_before, int was_shift_select)
 {
 	/* Any command that modified the buffer (insertion, deletion, undo,
@@ -784,10 +777,11 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 
 	/* Tear down a shift-selected region after the command has had its
 	 * say.  Done last so C-w / M-w / C-x C-x can still see the mark
-	 * during their dispatch.  Extender keys keep the region alive; a
-	 * C-x prefix keystroke also keeps it (the follow-up may consume
-	 * the region). */
-	if (was_shift_select && !editor.cx_prefix && !shift_select_motion(c)) {
+	 * during their dispatch.  A shift-translated keystroke keeps the
+	 * region alive; a C-x prefix keystroke also keeps it (the follow-up
+	 * may consume the region). */
+	if (was_shift_select && !editor.cx_prefix
+	    && !cmd_state()->shift_translated) {
 		bcur()->shift_select = 0;
 		bcur()->mark_set = 0;
 		bcur()->mark_highlight = 0;
@@ -795,9 +789,10 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 		editor_snap_cx_to_row();
 	}
 
-	/* Goal column is only valid between consecutive vertical motions —
-	 * any other key invalidates it. */
-	if (!KEY_IN_LIST(vertical_motion_keys, c)) {
+	/* Goal column is only valid between consecutive vertical motions,
+	 * and which commands those are is the command's own property --
+	 * whichever key, macro or M-x invocation reached it. */
+	if (!cmd_this_command_keeps_goal_column()) {
 		wcur()->desired_visual_col = -1;
 	}
 }
@@ -914,7 +909,7 @@ void editor_process_keypress(int fd)
 	 * the switch, which is what phase 4 empties one family at a time. */
 	if (key_dispatch_map(c, fd)) {
 		key_finish_keypress(
-		    c, buffer_before, generation_before, was_shift_select);
+		    buffer_before, generation_before, was_shift_select);
 		return;
 	}
 
@@ -950,10 +945,7 @@ void editor_process_keypress(int fd)
 	case SHIFT_ARROW_UP:
 	case SHIFT_ARROW_DOWN:
 	case SHIFT_HOME:
-	case SHIFT_END: {
-		/* Never 0: `c` is one of the six labels above. */
-		int motion = shift_select_motion(c);
-
+	case SHIFT_END:
 		/* Drop the mark at the current position the first time the user
 		 * starts a shift-selected region, so subsequent shift+motion
 		 * extends it.  If a region is already on-screen we just extend.
@@ -962,11 +954,13 @@ void editor_process_keypress(int fd)
 			editor_set_mark_silent();
 			bcur()->shift_select = 1;
 		}
-		while (n--) {
-			editor_move_cursor(motion);
-		}
+		/* The command is the plain motion; what makes this keystroke
+		 * different is recorded as dispatch state, which is what the
+		 * teardown below reads.  Never NULL: `c` is one of the six
+		 * labels above. */
+		cmd_state_set_shift_translated();
+		(void)cmd_execute_named(shift_select_command(c), fd);
 		break;
-	}
 	case ALT_P: /* M-p / M-n: reorder git-rebase-todo lines */
 	case ALT_N:
 		if (syntax_is_git_rebase()) {
@@ -985,6 +979,5 @@ void editor_process_keypress(int fd)
 		break;
 	}
 
-	key_finish_keypress(
-	    c, buffer_before, generation_before, was_shift_select);
+	key_finish_keypress(buffer_before, generation_before, was_shift_select);
 }

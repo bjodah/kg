@@ -1124,6 +1124,7 @@ static void cmd_yaml_mode(int fd)
 #define LISP_OK CMD_LISP_CALLABLE
 #define EDITS CMD_EDITS_BUFFER
 #define REPEATS CMD_REPEATS
+#define KEEPS_GOAL CMD_KEEPS_GOAL_COLUMN
 
 static const struct named_cmd cmdtable[] = {
 	{ "auto-revert-mode", cmd_auto_revert_mode, CMD_NONE,
@@ -1265,14 +1266,15 @@ static const struct named_cmd cmdtable[] = {
 	    "Insert a newline, with the same indentation" },
 	{ "newline-or-eval-print-last-sexp", cmd_newline_or_eval_print, EDITS,
 	    "Newline, or evaluate and print the sexp in Lisp buffers" },
-	{ "next-line", cmd_next_line, REPEATS, "Move point one line down" },
+	{ "next-line", cmd_next_line, REPEATS | KEEPS_GOAL,
+	    "Move point one line down" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
 	    "Clear the modified flag without saving" },
 	{ "open-line", cmd_open_line, EDITS | REPEATS,
 	    "Insert a newline after point, leaving point before it" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
-	{ "previous-line", cmd_previous_line, REPEATS,
+	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL,
 	    "Move point one line up" },
 	{ "query-replace", cmd_query_replace, EDITS,
 	    "Replace matches, asking about each one" },
@@ -1290,9 +1292,9 @@ static const struct named_cmd cmdtable[] = {
 	    "Re-read this buffer from its file" },
 	{ "save-buffer", cmd_save_buffer, CMD_NONE,
 	    "Write this buffer to its file" },
-	{ "scroll-down-command", cmd_scroll_down_command, CMD_NONE,
+	{ "scroll-down-command", cmd_scroll_down_command, KEEPS_GOAL,
 	    "Scroll one windowful back" },
-	{ "scroll-up-command", cmd_scroll_up_command, CMD_NONE,
+	{ "scroll-up-command", cmd_scroll_up_command, KEEPS_GOAL,
 	    "Scroll one windowful forward" },
 	{ "self-insert-command", cmd_self_insert, EDITS,
 	    "Insert the character this command was reached by" },
@@ -1331,6 +1333,7 @@ static const struct named_cmd cmdtable[] = {
 #undef LISP_OK
 #undef EDITS
 #undef REPEATS
+#undef KEEPS_GOAL
 
 /* ---- Command identity ----
  *
@@ -1410,6 +1413,14 @@ command_id cmd_id_by_name(const char *name)
 		return CMD_ID_STATIC_BASE + (command_id)(cmd - cmdtable);
 	}
 	return name ? runtime_id_of(name) : CMD_ID_NONE;
+}
+
+const struct named_cmd *cmd_descriptor_by_id(command_id id)
+{
+	if (id < CMD_ID_STATIC_BASE || id >= CMD_ID_RUNTIME_BASE) {
+		return nullptr;
+	}
+	return cmd_descriptor_at((int)(id - CMD_ID_STATIC_BASE));
 }
 
 command_id cmd_runtime_define(const char *name)

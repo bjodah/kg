@@ -781,6 +781,49 @@ static void test_named_pty_cases_exist(void)
 	}
 }
 
+/* The goal column is kept by the commands the vertical-motion keys run,
+ * and by nothing else.  key_finish_keypress() reads that flag instead of
+ * the keycode list it used to keep, so this is what pins the two
+ * together: shift-translated Up and Down reach the same commands, which
+ * is why they are in the list. */
+static void test_vertical_motions_keep_the_goal_column(void)
+{
+	static const char *const vertical[] = { "C-n", "C-p", "<up>", "<down>",
+		"C-v", "M-v", "<prior>", "<next>", "S-<up>", "S-<down>" };
+	int i;
+	size_t k;
+
+	for (k = 0; k < sizeof(vertical) / sizeof(*vertical); k++) {
+		const struct named_cmd *cmd = NULL;
+
+		for (i = 0; i < global_count(); i++) {
+			if (strcmp(global_bindings[i].seq, vertical[k]) == 0) {
+				cmd = cmd_lookup(global_bindings[i].command);
+			}
+		}
+		CHECKF(cmd && (cmd->flags & CMD_KEEPS_GOAL_COLUMN),
+		    "%s runs a command that drops the goal column",
+		    vertical[k]);
+	}
+	for (i = 0; i < global_count(); i++) {
+		const struct binding *b = &global_bindings[i];
+		const struct named_cmd *cmd = cmd_lookup(b->command);
+		int expected = 0;
+
+		for (k = 0; k < sizeof(vertical) / sizeof(*vertical); k++) {
+			if (strcmp(b->seq, vertical[k]) == 0) {
+				expected = 1;
+			}
+		}
+		if (!cmd || expected) {
+			continue;
+		}
+		CHECKF(!(cmd->flags & CMD_KEEPS_GOAL_COLUMN),
+		    "%s is not a vertical motion but keeps the goal column",
+		    b->seq);
+	}
+}
+
 int main(void)
 {
 	RUN(test_global_table_covers_the_key_domain);
@@ -790,5 +833,6 @@ int main(void)
 	RUN(test_rows_are_well_formed);
 	RUN(test_named_pty_cases_exist);
 	RUN(test_sequences_are_the_keycode_spelled_canonically);
+	RUN(test_vertical_motions_keep_the_goal_column);
 	return test_summary();
 }

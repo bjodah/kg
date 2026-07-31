@@ -1,7 +1,7 @@
 {
  "schema": "kg-mutation-gateway/1",
  "regenerate_with": "make gateway-baseline",
- "note": "Every file that can change buffer text without going through the edit gateway, and how many ways it does. No count may rise and no unlisted file may appear; regenerating is how a decrease is banked. Follow-up Plan 02 drives live-buffer publication into buffer.c.",
+ "note": "Every file that can change buffer text without going through the edit gateway, and how many ways it does. No count may rise and no unlisted file may appear; regenerating is how a decrease is banked. Follow-up Plan 02 drives this to buffer.c alone.",
  "probes": [
   "row_primitive",
   "undo_push",
@@ -10,19 +10,15 @@
  ],
  "files": {
   "src/buffer.c": {
-   "row_primitive": 32,
-   "undo_push": 12,
+   "row_primitive": 21,
+   "undo_push": 3,
    "suppress_undo": 4,
-   "row_field_write": 25
+   "row_field_write": 19
   },
   "src/bufmgr.c": {
    "row_primitive": 15,
    "suppress_undo": 5,
    "row_field_write": 4
-  },
-  "src/cmd.c": {
-   "undo_push": 2,
-   "row_field_write": 2
   },
   "src/dired.c": {
    "row_primitive": 2,
@@ -34,7 +30,7 @@
    "row_field_write": 10
   },
   "src/kbd.c": {
-   "undo_push": 3,
+   "undo_push": 2,
    "suppress_undo": 2
   },
   "src/lisp.c": {
@@ -44,16 +40,6 @@
    "suppress_undo": 1,
    "row_field_write": 3
   },
-  "src/rect.c": {
-   "row_primitive": 4,
-   "undo_push": 2,
-   "suppress_undo": 4
-  },
-  "src/search.c": {
-   "row_primitive": 3,
-   "undo_push": 2,
-   "suppress_undo": 2
-  },
   "src/shell.c": {
    "undo_push": 1
   },
@@ -62,16 +48,6 @@
    "undo_push": 1,
    "suppress_undo": 5,
    "row_field_write": 4
-  },
-  "src/word.c": {
-   "row_primitive": 3,
-   "undo_push": 13,
-   "suppress_undo": 6,
-   "row_field_write": 14
-  },
-  "src/yank.c": {
-   "undo_push": 3,
-   "suppress_undo": 2
   }
  }
 }

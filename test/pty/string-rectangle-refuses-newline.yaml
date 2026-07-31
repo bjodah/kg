@@ -1,0 +1,33 @@
+# C-x r t replaces the same column span on every row of the rectangle, so
+# a replacement carrying a row separator has no meaning: it would split
+# the very rows the command is walking, and the one coarse undo record it
+# pushes describes a row block that would no longer exist.  Refuse it,
+# say so, and leave the text alone.
+name: string-rectangle-refuses-newline
+backend: tmux
+filename: rect-newline.txt
+initial: |
+  foo
+  bar
+  baz
+keys:
+  - X
+  - C-SPC
+  - C-n
+  - C-n
+  - C-x
+  - r
+  - t
+  - a
+  - C-q
+  - C-j
+  - b
+  - RET
+expected_saved: |
+  Xfoo
+  bar
+  baz
+expected_screen_contains:
+  - Rectangle string cannot contain a newline
+expected_screen_not_contains:
+  - Rectangle replaced

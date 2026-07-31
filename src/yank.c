@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "localvars.h"
 
 /* Global kill ring */
@@ -370,23 +371,17 @@ static int editor_delete_region_range(
     int start_row, int start_col, int end_row, int end_col)
 {
 	/* Two row/column pairs name a byte range, and removing a byte range
-	 * is the edit transaction with nothing to put back in its place.
-	 * The caller records the step -- both of them push their own
-	 * UNDO_KILL_TEXT covering the whole region -- so this one does not.
+	 * is the edit transaction with nothing to put back in its place --
+	 * including the one record that covers the whole region, which the
+	 * two callers used to push themselves around a suppressed edit.
 	 *
 	 * This used to be a second implementation of the multi-row splice:
 	 * join the first row to the tail of the last, free the rows
 	 * between, move the array down, renumber.  Two of those are one too
 	 * many. */
 	size_t begin = buffer_row_col_to_position(bcur(), start_row, start_col);
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = begin,
-		.end_byte
-		= buffer_row_col_to_position(bcur(), end_row, end_col),
-		.replacement = "",
-		.options = KG_EDIT_NO_UNDO,
-	};
+	struct kg_edit e = kg_edit_user(bcur(), begin,
+	    buffer_row_col_to_position(bcur(), end_row, end_col), "", 0);
 
 	return kg_buffer_replace(&e, NULL);
 }
@@ -408,13 +403,7 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	if ((size_t)byte_len > buffer_byte_length(bcur()) - begin) {
 		return 0;
 	}
-	e = (struct kg_edit) {
-		.buffer = bcur(),
-		.begin_byte = begin,
-		.end_byte = begin + (size_t)byte_len,
-		.replacement = "",
-		.options = KG_EDIT_NO_UNDO,
-	};
+	e = kg_edit_user_part(bcur(), begin, begin + (size_t)byte_len, "", 0);
 	return kg_buffer_replace(&e, NULL);
 }
 
@@ -447,12 +436,7 @@ static void region_kill_or_delete(int save)
 	}
 
 	editor_cursor_goto(start_row, start_col);
-
-	undo_push(bcur(), UNDO_KILL_TEXT, start_row, start_col, 0, text, len);
-
-	suppress_undo = 1;
 	editor_delete_region_range(start_row, start_col, end_row, end_col);
-	suppress_undo = 0;
 
 	/* Drop the highlight and any transient-region machinery, but keep
 	 * mark_set so C-x C-x after a region command can still bounce back
@@ -509,27 +493,20 @@ void editor_delete_region_or_char(void)
 	editor_del_forward_char();
 }
 
-/* Yank (paste) from kill ring */
+/* Yank (paste) from kill ring.  One insertion of the ring's whole
+ * contents, so one row rebuild per row it brings and one C-_ that takes
+ * all of it back out again. */
 void editor_yank(void)
 {
-	int filerow = editor_current_filerow_or_eof();
-	int filecol = editor_current_filecol();
 	char *text = kill_ring_get();
 
 	if (!text) {
 		editor_set_status_message("Kill ring is empty");
 		return;
 	}
-
 	/* Mark the start of the yanked text, as Emacs does. */
 	editor_push_mark();
-
-	/* Record single undo operation for entire yank */
-	undo_push(
-	    bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, text, killring.len);
-
-	editor_insert_text_raw(text, killring.len);
-
+	editor_insert_text_at_point(text, killring.len);
 	editor_set_status_message("Yanked");
 }
 
@@ -544,8 +521,9 @@ static int sort_lines_cmp(const void *a, const void *b)
 void editor_sort_lines(void)
 {
 	int start_row, start_col, end_row, end_col;
-	int nlines, orig_len, i;
-	char *orig_text;
+	int nlines, sorted_len, i;
+	char *sorted, *p;
+	struct kg_edit e;
 	erow *temp;
 
 	if (!bcur()->mark_set) {
@@ -566,37 +544,50 @@ void editor_sort_lines(void)
 		return;
 	}
 
-	orig_text
-	    = editor_rows_to_string(&bcur()->row[start_row], nlines, &orig_len);
-	if (!orig_text) {
-		return;
-	}
-
-	temp = malloc(nlines * sizeof(erow));
+	/* Sort a copy of the row records, then write the sorted text back as
+	 * one replacement of the span they cover: the transaction copies the
+	 * original bytes for undo, so nothing has to snapshot the region
+	 * first, and the rows are never half-sorted. */
+	temp = malloc((size_t)nlines * sizeof(erow));
 	if (!temp) {
-		free(orig_text);
 		editor_set_status_message("Out of memory");
 		return;
 	}
-	memcpy(temp, &bcur()->row[start_row], nlines * sizeof(erow));
+	memcpy(temp, &bcur()->row[start_row], (size_t)nlines * sizeof(erow));
+	qsort(temp, (size_t)nlines, sizeof(erow), sort_lines_cmp);
 
-	qsort(temp, nlines, sizeof(erow), sort_lines_cmp);
-
+	sorted_len = 0;
 	for (i = 0; i < nlines; i++) {
-		bcur()->row[start_row + i] = temp[i];
-		bcur()->row[start_row + i].idx = start_row + i;
+		sorted_len += temp[i].size + (i > 0);
 	}
-
+	sorted = malloc((size_t)sorted_len + 1);
+	if (!sorted) {
+		free(temp);
+		editor_set_status_message("Out of memory");
+		return;
+	}
+	p = sorted;
+	for (i = 0; i < nlines; i++) {
+		if (i > 0) {
+			*p++ = '\n';
+		}
+		memcpy(p, temp[i].chars, (size_t)temp[i].size);
+		p += temp[i].size;
+	}
+	*p = '\0';
 	free(temp);
 
-	undo_push(bcur(), UNDO_REPLACE_TEXT, start_row, 0, orig_len, orig_text,
-	    orig_len);
-	free(orig_text);
+	e = kg_edit_user(bcur(),
+	    buffer_row_col_to_position(bcur(), start_row, 0),
+	    buffer_row_col_to_position(
+		bcur(), end_row, bcur()->row[end_row].size),
+	    sorted, (size_t)sorted_len);
+	kg_buffer_replace(&e, NULL);
+	free(sorted);
 
 	bcur()->mark_highlight = 0;
 	bcur()->rect_mode = 0;
 	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
-	buffer_note_change(bcur());
 	editor_set_status_message("Sorted %d lines", nlines);
 }

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "localvars.h"
 #include "syntax.h"
 
@@ -165,15 +166,11 @@ void editor_kill_word_forward(void)
 	text[kill_len] = '\0';
 
 	kill_ring_set(text, kill_len);
-	undo_push(
-	    bcur(), UNDO_KILL_TEXT, filerow, start_col, 0, text, kill_len);
 	free(text);
-
-	memmove(row->chars + start_col, row->chars + start_col + kill_len,
-	    row->size - start_col - kill_len + 1);
-	row->size -= kill_len;
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
+	/* The killed span leaving the row is one replacement by nothing:
+	 * one row rebuild, one undo step, whatever the word's length. */
+	editor_row_replace_range(
+	    filerow, start_col, kill_len, "", 0, KG_EDIT_USER);
 }
 
 /* Kill from start of current word back to cursor, saving text to kill ring
@@ -218,21 +215,17 @@ void editor_kill_word_backward(void)
 	text[kill_len] = '\0';
 
 	kill_ring_set(text, kill_len);
-	undo_push(bcur(), UNDO_KILL_TEXT, filerow, filecol, 0, text, kill_len);
 	free(text);
-
+	if (!editor_row_replace_range(
+		filerow, filecol, kill_len, "", 0, KG_EDIT_USER)) {
+		return;
+	}
 	if (filecol < wcur()->coloff) {
 		wcur()->coloff = filecol;
 		wcur()->cx = 0;
 	} else {
 		wcur()->cx = filecol - wcur()->coloff;
 	}
-
-	memmove(row->chars + filecol, row->chars + filecol + kill_len,
-	    row->size - filecol - kill_len + 1);
-	row->size -= kill_len;
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
 }
 
 /* Move to the beginning of the previous paragraph (or beginning of buffer) */
@@ -606,10 +599,9 @@ place:
 void editor_join_line(void)
 {
 	int filerow;
-	int prev_row_idx, join_col, add_space;
+	int prev_row_idx, join_col, add_space, lead;
 	erow *prev, *cur;
-	const char *rest;
-	int rest_len;
+	struct kg_edit e;
 
 	if (bcur()->numrows <= 0) {
 		return;
@@ -623,45 +615,24 @@ void editor_join_line(void)
 	prev = &bcur()->row[prev_row_idx];
 	cur = &bcur()->row[filerow];
 
-	rest = cur->chars;
-	rest_len = cur->size;
-	while (rest_len > 0 && isspace((unsigned char)*rest)) {
-		rest++;
-		rest_len--;
+	lead = 0;
+	while (lead < cur->size && isspace((unsigned char)cur->chars[lead])) {
+		lead++;
 	}
-
 	join_col = prev->size;
-	add_space = (join_col > 0 && rest_len > 0) ? 1 : 0;
+	add_space = (join_col > 0 && cur->size > lead) ? 1 : 0;
 
-	undo_push(bcur(), UNDO_JOIN_LINE, prev_row_idx, join_col, 0, cur->chars,
-	    cur->size);
-
-	{
-		char *newchars
-		    = realloc(prev->chars, join_col + add_space + rest_len + 1);
-		if (!newchars) {
-			editor_set_status_message(
-			    "Out of memory joining lines");
-			return;
-		}
-		prev->chars = newchars;
+	/* What leaves the buffer is the separator and the line's own
+	 * indentation; what arrives is a single space, when there is text
+	 * on both sides of the join.  One replacement, so one row rebuild
+	 * and one C-_ that puts the separator and the indentation back. */
+	e = kg_edit_user(bcur(),
+	    buffer_row_col_to_position(bcur(), prev_row_idx, join_col),
+	    buffer_row_col_to_position(bcur(), filerow, lead), " ",
+	    (size_t)add_space);
+	if (kg_buffer_replace(&e, NULL)) {
+		editor_cursor_goto(prev_row_idx, join_col);
 	}
-	if (add_space) {
-		prev->chars[join_col] = ' ';
-	}
-	memcpy(prev->chars + join_col + add_space, rest, rest_len);
-	prev->size = join_col + add_space + rest_len;
-	prev->chars[prev->size] = '\0';
-	editor_update_row(bcur(), prev);
-
-	suppress_undo = 1;
-	editor_del_row(bcur(), filerow);
-	suppress_undo = 0;
-
-	/* Move cursor to join point */
-	editor_cursor_goto(prev_row_idx, join_col);
-
-	buffer_note_change(bcur());
 }
 
 /* Delete spaces and tabs around point on the current line (M-\). */
@@ -704,13 +675,11 @@ void editor_delete_horizontal_space(void)
 		return;
 	}
 
-	undo_push(
-	    bcur(), UNDO_KILL_TEXT, filerow, start, 0, row->chars + start, len);
-	memmove(row->chars + start, row->chars + end, row->size - end + 1);
-	row->size -= len;
-	editor_update_row(bcur(), row);
+	if (!editor_row_replace_range(
+		filerow, start, len, "", 0, KG_EDIT_USER)) {
+		return;
+	}
 	editor_cursor_goto(filerow, start);
-	buffer_note_change(bcur());
 	editor_set_status_message("Deleted horizontal space");
 }
 
@@ -719,9 +688,7 @@ void editor_just_one_space(void)
 {
 	int filerow;
 	int filecol;
-	int start, end, old_len, new_size;
-	char *orig = NULL;
-	char *newchars;
+	int start, end;
 	erow *row;
 
 	if (bcur()->readonly) {
@@ -754,41 +721,14 @@ void editor_just_one_space(void)
 		end++;
 	}
 
-	old_len = end - start;
-	if (old_len > 0) {
-		orig = malloc(old_len);
-		if (!orig) {
-			word_nomem();
-			return;
-		}
-		memcpy(orig, row->chars + start, old_len);
+	/* Whatever run of spaces and tabs surrounds point becomes one
+	 * space: one replacement, so one row rebuild and one C-_ that puts
+	 * the original run back exactly. */
+	if (!editor_row_replace_range(
+		filerow, start, end - start, " ", 1, KG_EDIT_USER)) {
+		return;
 	}
-
-	new_size = row->size - old_len + 1;
-	if (old_len == 0) {
-		newchars = realloc(row->chars, new_size + 1);
-		if (!newchars) {
-			free(orig);
-			word_nomem();
-			return;
-		}
-		row->chars = newchars;
-	}
-	undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, start, 1, orig, old_len);
-	free(orig);
-
-	memmove(row->chars + start + 1, row->chars + end, row->size - end + 1);
-	row->chars[start] = ' ';
-	row->size = new_size;
-	if (old_len > 1) {
-		newchars = realloc(row->chars, new_size + 1);
-		if (newchars) {
-			row->chars = newchars;
-		}
-	}
-	editor_update_row(bcur(), row);
 	editor_cursor_goto(filerow, start + 1);
-	buffer_note_change(bcur());
 	editor_set_status_message("Just one space");
 }
 
@@ -796,6 +736,7 @@ void editor_just_one_space(void)
 void editor_zap_to_char(int fd, int count)
 {
 	char *buf, *text;
+	struct kg_edit zap;
 	int len, point = 0, end, target, seen = 0;
 	int filerow = 0;
 	int filecol = 0;
@@ -872,15 +813,13 @@ void editor_zap_to_char(int fd, int count)
 
 	editor_cursor_goto(filerow, filecol);
 	kill_ring_set(text, end - point);
-	undo_push(
-	    bcur(), UNDO_KILL_TEXT, filerow, filecol, 0, text, end - point);
-	suppress_undo = 1;
-	for (i = 0; i < end - point; i++) {
-		editor_del_forward_char();
-	}
-	suppress_undo = 0;
 	free(text);
-	buffer_note_change(bcur());
+	/* `point` and `end` are already flat byte positions, so the whole
+	 * zap is one replacement by nothing -- one undo step and one row
+	 * rebuild per row it crosses, where this used to forward-delete a
+	 * byte at a time under a suppressed record. */
+	zap = kg_edit_user(bcur(), (size_t)point, (size_t)end, "", 0);
+	kg_buffer_replace(&zap, NULL);
 	editor_set_status_message("Zapped");
 }
 
@@ -891,7 +830,7 @@ static void do_word_case(int mode)
 	int filerow;
 	int filecol;
 	int word_start, word_end, word_len, i;
-	char *orig;
+	char *cased;
 	erow *row;
 
 	if (!word_point(&filerow, &row, &filecol)) {
@@ -914,38 +853,33 @@ static void do_word_case(int mode)
 		return;
 	}
 
-	/* Save original for undo, then transform in-place */
-	orig = malloc(word_len + 1);
-	if (!orig) {
+	/* Build the cased word beside the row, then put it in place as one
+	 * replacement: one row rebuild and one C-_, where transforming the
+	 * bytes in place needed a kill record and a yank record to say what
+	 * had happened, and two C-_ to take it back.
+	 *
+	 * A word that is already in the asked-for case replaces its bytes
+	 * with the same bytes, which the transaction charges nothing for --
+	 * so M-u on "FOO" costs no undo step, as in Emacs. */
+	cased = malloc((size_t)word_len);
+	if (!cased) {
+		word_nomem();
 		return;
 	}
-	memcpy(orig, row->chars + word_start, word_len);
-	orig[word_len] = '\0';
-
 	for (i = 0; i < word_len; i++) {
-		unsigned char ch = (unsigned char)orig[i];
+		unsigned char ch = (unsigned char)row->chars[word_start + i];
 
 		if (mode == 'u') {
-			row->chars[word_start + i] = toupper(ch);
+			cased[i] = (char)toupper(ch);
 		} else if (mode == 'l') {
-			row->chars[word_start + i] = tolower(ch);
+			cased[i] = (char)tolower(ch);
 		} else { /* 'c' */
-			row->chars[word_start + i]
-			    = (i == 0) ? toupper(ch) : tolower(ch);
+			cased[i] = (char)(i == 0 ? toupper(ch) : tolower(ch));
 		}
 	}
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
-
-	/* Two undo records (LIFO): first pop deletes transformed text, second
-	 * re-inserts original */
-	undo_push(
-	    bcur(), UNDO_KILL_TEXT, filerow, word_start, 0, orig, word_len);
-	undo_push(bcur(), UNDO_YANK_TEXT, filerow, word_start, 0,
-	    row->chars + word_start, word_len);
-
-	free(orig);
-
+	editor_row_replace_range(
+	    filerow, word_start, word_len, cased, word_len, KG_EDIT_USER);
+	free(cased);
 	editor_cursor_goto(filerow, word_end);
 }
 
@@ -1025,48 +959,24 @@ void editor_comment_dwim(void)
 		    && strncmp(row->chars + i, scs, scslen) == 0) {
 			/* Already commented: remove scs and an optional
 			 * following space. */
-			char removed[8];
 			int rlen = scslen;
 
 			if (i + scslen < row->size
 			    && row->chars[i + scslen] == ' ') {
 				rlen++;
 			}
-
-			memcpy(removed, row->chars + i, rlen);
-			memmove(row->chars + i, row->chars + i + rlen,
-			    row->size - i - rlen + 1);
-			row->size -= rlen;
-			editor_update_row(bcur(), row);
-
-			undo_push(
-			    bcur(), UNDO_KILL_TEXT, r, i, 0, removed, rlen);
+			editor_row_replace_range(
+			    r, i, rlen, "", 0, KG_EDIT_USER);
 		} else {
 			/* Not commented: insert scs + space at column 0. */
 			char prefix[8];
-			char *newchars;
 
 			memcpy(prefix, scs, scslen);
 			prefix[scslen] = ' ';
-
-			newchars = realloc(row->chars, row->size + scslen + 2);
-			if (!newchars) {
-				word_nomem();
-				return;
-			}
-			row->chars = newchars;
-			memmove(
-			    row->chars + scslen + 1, row->chars, row->size + 1);
-			memcpy(row->chars, scs, scslen);
-			row->chars[scslen] = ' ';
-			row->size += scslen + 1;
-			editor_update_row(bcur(), row);
-
-			undo_push(bcur(), UNDO_YANK_TEXT, r, 0, 0, prefix,
-			    scslen + 1);
+			editor_row_replace_range(
+			    r, 0, 0, prefix, scslen + 1, KG_EDIT_USER);
 		}
 	}
-	buffer_note_change(bcur());
 }
 
 /* Reflow the current paragraph to FILL_COLUMN (M-q).
@@ -1079,8 +989,8 @@ void editor_reflow_paragraph(void)
 	int para_start, para_end, nrows, total_chars, i;
 	int fill_col, indent_len;
 	erow *row;
-	char *words = NULL, *indent = NULL, *orig_text = NULL;
-	int words_len, orig_len;
+	char *words = NULL, *indent = NULL, *joined = NULL;
+	int words_len, joined_len;
 	char **new_lines = NULL;
 	int *new_lens = NULL;
 	int new_count = 0, new_cap;
@@ -1132,23 +1042,6 @@ void editor_reflow_paragraph(void)
 	}
 
 	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
-
-	/* Save original text (lines joined with '\n') for undo */
-	orig_text = malloc(total_chars + nrows + 1);
-	if (!orig_text) {
-		word_nomem();
-		return;
-	}
-	orig_len = 0;
-	for (i = para_start; i <= para_end; i++) {
-		row = &bcur()->row[i];
-		if (i > para_start) {
-			orig_text[orig_len++] = '\n';
-		}
-		memcpy(orig_text + orig_len, row->chars, row->size);
-		orig_len += row->size;
-	}
-	orig_text[orig_len] = '\0';
 
 	/* Detect leading whitespace indent from first paragraph line */
 	row = &bcur()->row[para_start];
@@ -1339,39 +1232,48 @@ oom:
 	free(cur);
 	free(words);
 	free(indent);
-	if (!ok) {
-		word_nomem();
-		for (i = 0; i < new_count; i++) {
-			free(new_lines[i]);
-		}
-		free(new_lines);
-		free(new_lens);
-		free(orig_text);
-		return;
-	}
-
-	/* Replace paragraph rows with reflowed lines */
-	suppress_undo = 1;
-	for (i = para_end; i >= para_start; i--) {
-		editor_del_row(bcur(), i);
-	}
+	/* The reflowed lines as one string, so the whole paragraph is one
+	 * replacement: one undo step, and no moment in which the old rows
+	 * are gone and the new ones are not there yet.  The transaction
+	 * copies the bytes it removes, so nothing has to save the original
+	 * paragraph beforehand either. */
+	joined_len = 0;
 	for (i = 0; i < new_count; i++) {
-		editor_insert_row(
-		    bcur(), para_start + i, new_lines[i], new_lens[i]);
+		joined_len += new_lens[i] + (i > 0);
 	}
-	suppress_undo = 0;
+	joined = malloc((size_t)joined_len + 1);
+	if (joined) {
+		char *q = joined;
 
-	/* col = new_count: the undo handler uses it to know how many rows to
-	 * delete */
-	undo_push(bcur(), UNDO_REFLOW_PARA, para_start, new_count, 0, orig_text,
-	    orig_len);
-
-	free(orig_text);
+		for (i = 0; i < new_count; i++) {
+			if (i > 0) {
+				*q++ = '\n';
+			}
+			memcpy(q, new_lines[i], (size_t)new_lens[i]);
+			q += new_lens[i];
+		}
+		*q = '\0';
+	}
 	for (i = 0; i < new_count; i++) {
 		free(new_lines[i]);
 	}
 	free(new_lines);
 	free(new_lens);
+	if (!ok || !joined) {
+		word_nomem();
+		free(joined);
+		return;
+	}
+	{
+		struct kg_edit e = kg_edit_user(bcur(),
+		    buffer_row_col_to_position(bcur(), para_start, 0),
+		    buffer_row_col_to_position(
+			bcur(), para_end, bcur()->row[para_end].size),
+		    joined, (size_t)joined_len);
+
+		kg_buffer_replace(&e, NULL);
+	}
+	free(joined);
 
 	editor_cursor_goto(para_start, indent_len);
 	editor_set_status_message("Paragraph reflowed");
@@ -1411,7 +1313,6 @@ static int rebase_edit_row(const char *noline)
 void editor_rebase_set_action(const char *action)
 {
 	int filerow, filecol, start, wlen, nlen, wend, col;
-	char *orig, *newchars;
 	erow *row;
 
 	filerow = rebase_edit_row("Not on a rebase action line");
@@ -1440,30 +1341,13 @@ void editor_rebase_set_action(const char *action)
 	}
 	filecol = word_cursor_filecol(row);
 
-	orig = malloc(wlen);
-	if (!orig) {
-		word_nomem();
+	/* The action word, and any flag the new action cannot carry, become
+	 * the new word: one replacement, one row rebuild, one C-_. */
+	wend = start + wlen;
+	if (!editor_row_replace_range(
+		filerow, start, wlen, action, nlen, KG_EDIT_USER)) {
 		return;
 	}
-	memcpy(orig, row->chars + start, wlen);
-	if (nlen > wlen) {
-		newchars = realloc(row->chars, row->size - wlen + nlen + 1);
-		if (!newchars) {
-			free(orig);
-			word_nomem();
-			return;
-		}
-		row->chars = newchars;
-	}
-	undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, start, nlen, orig, wlen);
-	free(orig);
-
-	wend = start + wlen;
-	memmove(
-	    row->chars + start + nlen, row->chars + wend, row->size - wend + 1);
-	memcpy(row->chars + start, action, nlen);
-	row->size += nlen - wlen;
-	editor_update_row(bcur(), row);
 
 	/* Keep point on the same spot: shifted with the tail, clamped to
 	 * the new word when it sat inside the old one. */
@@ -1474,7 +1358,6 @@ void editor_rebase_set_action(const char *action)
 		col = start + nlen;
 	}
 	editor_cursor_goto(filerow, col);
-	buffer_note_change(bcur());
 	editor_set_status_message("%s", action);
 }
 
@@ -1484,8 +1367,7 @@ void editor_rebase_set_action(const char *action)
 void editor_rebase_move_line(int dir)
 {
 	int filerow, other, top, filecol, orig_len;
-	char *orig;
-	erow tmp;
+	char *swapped;
 
 	filerow = rebase_edit_row(NULL);
 	if (filerow < 0) {
@@ -1500,24 +1382,31 @@ void editor_rebase_move_line(int dir)
 	filecol = word_cursor_filecol(&bcur()->row[filerow]);
 	top = dir < 0 ? other : filerow;
 
-	orig = editor_rows_to_string(&bcur()->row[top], 2, &orig_len);
-	if (!orig) {
+	/* The two rows swapped is a replacement of the span they cover, so
+	 * the transaction does the rest: it copies the original bytes for
+	 * undo, splices the two rows, and counts one change.  Building the
+	 * new text is the swap. */
+	swapped = editor_rows_to_string(&bcur()->row[top], 2, &orig_len);
+	if (!swapped) {
 		word_nomem();
 		return;
 	}
-	/* Same trick as editor_sort_lines(): swapping equal-length text,
-	 * so one REPLACE_TEXT record with c == len restores both rows. */
-	undo_push(bcur(), UNDO_REPLACE_TEXT, top, 0, orig_len, orig, orig_len);
-	free(orig);
+	{
+		int first = bcur()->row[top].size;
+		int second = bcur()->row[top + 1].size;
+		struct kg_edit e;
 
-	tmp = bcur()->row[filerow];
-	bcur()->row[filerow] = bcur()->row[other];
-	bcur()->row[other] = tmp;
-	bcur()->row[filerow].idx = filerow;
-	bcur()->row[other].idx = other;
-	editor_update_syntax(bcur(), &bcur()->row[top]);
-	editor_update_syntax(bcur(), &bcur()->row[top + 1]);
+		memcpy(swapped, bcur()->row[top + 1].chars, (size_t)second);
+		swapped[second] = '\n';
+		memcpy(swapped + second + 1, bcur()->row[top].chars,
+		    (size_t)first);
+		e = kg_edit_user(bcur(),
+		    buffer_row_col_to_position(bcur(), top, 0),
+		    buffer_row_col_to_position(bcur(), top + 1, second),
+		    swapped, (size_t)orig_len);
+		kg_buffer_replace(&e, NULL);
+	}
+	free(swapped);
 
 	editor_cursor_goto(other, filecol);
-	buffer_note_change(bcur());
 }

@@ -1,5 +1,37 @@
 # Plan 02 — Complete the edit gateway
 
+## Status (2026-07-31, after the phase 0–2 campaign)
+
+Phases 0, 1 and 2 are complete on `stricter-emacs-adherence`.  The
+mutation manifest went 209 sites in fourteen files to 120 in nine;
+`search.c`, `word.c`, `yank.c`, `cmd.c` and `rect.c` no longer mutate
+rows directly at all.  Phase 3's design gate was obeyed: no edit-group
+API and no `kg_buffer_replace_many()` exist, because every migration
+turned out to have one precomputed replacement.
+
+What the remaining 120 sites are: `buffer.c`'s own row primitives and
+the staged-load helpers (43), `undo.c`'s replays of the eleven legacy
+opcodes (22), `bufmgr.c`'s special-buffer rebuilds (24), `fileio.c`'s
+loader (14), and small counts in `dired.c`, `kbd.c`, `lisp.c`,
+`main.c` and `shell.c`.  Phase 4 owns the rebuild and load paths;
+phase 5 owns the legacy replays and `suppress_undo`.
+
+Behaviour that changed, each with a case:
+
+- RET in a buffer with no rows inserts a separator instead of adding a
+  row without adding a byte (`newline-in-empty-buffer`, Emacs oracle).
+- Undo of a C-k at end of line lands point in front of the restored
+  separator, where Emacs leaves it, not at the start of the row that
+  came back (`kill-line-eol-undo`).
+- One accepted query replacement of a searched-for separator is one undo
+  step, not two (`query-replace-newline-search-undo`).
+- M-u on a word already upper-case costs no undo step, and an M-u that
+  does change the word is undone by one C-_ rather than two.
+- C-x r t refuses a quoted newline instead of splitting the rows it is
+  walking (`string-rectangle-refuses-newline`).
+- A command that writes its own coarse undo record is now refused on a
+  read-only buffer; `KG_EDIT_NO_UNDO` used to grant it authority.
+
 ## Outcome
 
 Every observable mutation of a live buffer publishes through one checked

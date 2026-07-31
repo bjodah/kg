@@ -1,6 +1,7 @@
 /* test_undo.c — regression tests for the undo stack */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -505,7 +506,10 @@ static void test_word_case_two_records(void)
 	editor_update_row(bcur(), &bcur()->row[0]);
 	bcur()->dirty = 1;
 
-	/* Records as do_word_case pushes them */
+	/* The pair of records the word-case commands used to push, before
+	 * a cased word became one replacement.  Kept because the two
+	 * opcodes are still replayed for records already on a stack, and
+	 * only phase 5 retires them. */
 	undo_push(bcur(), UNDO_KILL_TEXT, 0, 0, 0, "hello", 5); /* original  */
 	undo_push(
 	    bcur(), UNDO_YANK_TEXT, 0, 0, 0, "HELLO", 5); /* transformed */
@@ -801,6 +805,119 @@ static void test_undo_forward_delete_multibyte_glyph(void)
 	teardown();
 }
 
+/* UNDO_RECT_OVERWRITE restores a block of rows by number and trims the
+ * buffer back to the row count it recorded.  Nothing pushes it any more
+ * -- the rectangle commands publish one replacement instead -- but a
+ * stack saved before that change can still hold one, so its replay
+ * stays until phase 5 retires the opcode, and stays tested. */
+static void test_rect_overwrite_replay(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "AAAA", 4);
+	editor_insert_row(bcur(), 1, "BBBB", 4);
+	editor_insert_row(bcur(), 2, "extra", 5);
+
+	/* row = first row, c = the row count to trim back to, text = the
+	 * original content of the rows it covers. */
+	undo_push(bcur(), UNDO_RECT_OVERWRITE, 0, 0, 2, "one\ntwo", 7);
+
+	editor_undo();
+
+	CHECK(bcur()->numrows == 2);
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, "one", 3) == 0);
+	CHECK(bcur()->row[1].size == 3);
+	CHECK(memcmp(bcur()->row[1].chars, "two", 3) == 0);
+	teardown();
+}
+
+/* ---- A replay the transaction refused ---- */
+
+/* The buffer's bytes as one string.  Caller frees. */
+static char *undo_buffer_text(void)
+{
+	int len;
+
+	return editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
+}
+
+/* An undo that could not be replayed keeps its record.  The stack, the
+ * text and point are what they were, so the next undo is still the one
+ * the user asked for -- where dropping the record made the edit
+ * permanently unreachable. */
+static void test_undo_failed_replay_keeps_the_record(void)
+{
+	struct undo_op *head;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(
+	    editor_row_replace_range(0, 0, 5, "GOODBYE", 7, KG_EDIT_USER) == 1);
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->dirty != 0);
+	head = bcur()->undostack.head;
+	editor_cursor_goto(0, 3);
+
+	/* The replay cannot copy the bytes it is about to remove. */
+	kg_edit_fail_alloc_after(0);
+	editor_undo();
+	running = 1; /* the transaction reported the failure by quitting */
+
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->undostack.head == head);
+	CHECK(bcur()->dirty != 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "GOODBYE world") == 0);
+	free(text);
+	CHECK(editor_current_filerow() == 0);
+	CHECK(editor_current_filecol() == 3);
+
+	/* And the undo the user asked for is still available, once. */
+	editor_undo();
+	CHECK(bcur()->undostack.size == 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "hello world") == 0);
+	free(text);
+	editor_undo();
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
+/* The same refusal one record above the saved checkpoint: the buffer is
+ * not clean until the record that carries it back is actually replayed. */
+static void test_undo_failed_replay_keeps_dirty_truth(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	CHECK(editor_row_replace_range(0, 3, 0, "X", 1, KG_EDIT_USER) == 1);
+	undo_mark_clean(); /* as a save would: one record deep, clean */
+	bcur()->dirty = 0;
+	CHECK(editor_row_replace_range(0, 4, 0, "Y", 1, KG_EDIT_USER) == 1);
+	CHECK(bcur()->dirty != 0);
+
+	kg_edit_fail_alloc_after(0);
+	editor_undo();
+	running = 1;
+
+	CHECK(bcur()->undostack.size == 2);
+	CHECK(bcur()->dirty != 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "abcXY") == 0);
+	free(text);
+
+	/* Replayed for real, the same record does reach the checkpoint. */
+	editor_undo();
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->dirty == 0);
+	text = undo_buffer_text();
+	CHECK(strcmp(text, "abcX") == 0);
+	free(text);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -821,6 +938,7 @@ int main(void)
 	RUN(test_yank_text);
 	RUN(test_yank_text_len_only);
 	RUN(test_reflow_para);
+	RUN(test_rect_overwrite_replay);
 	RUN(test_dirty_tracking);
 	RUN(test_undo_stack_init_starts_clean);
 	RUN(test_undo_back_to_load_state_is_clean);
@@ -843,5 +961,7 @@ int main(void)
 	RUN(test_undo_self_insert_glyph_overwrite);
 	RUN(test_undo_backspace_multibyte_glyph);
 	RUN(test_undo_forward_delete_multibyte_glyph);
+	RUN(test_undo_failed_replay_keeps_the_record);
+	RUN(test_undo_failed_replay_keeps_dirty_truth);
 	return test_summary();
 }

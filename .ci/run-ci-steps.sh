@@ -377,6 +377,14 @@ for step in "${steps[@]}"; do
 	secs=$(state_field "${state_file}" elapsed)
 	lane_dir=$(lane_dir_for "${name}")
 
+	# Each lane's `make check` results, kept per step: which stage they
+	# came from is half of what they mean, since the valgrind lane's
+	# timings are not the plain build's.
+	if [ -n "${lane_dir}" ] && [ -d "${lane_dir}/test/.results" ]; then
+		mkdir -p "${CI_RUN_DIR}/results"
+		rm -rf "${CI_RUN_DIR}/results/${name}"
+		cp -a "${lane_dir}/test/.results" "${CI_RUN_DIR}/results/${name}"
+	fi
 	if [ "${st}" = PASS ]; then
 		printf '  PASS  %-28s %8ss\n' "${name}" "${secs}"
 		# ci-02 builds coverage/ inside its lane; put it back where a

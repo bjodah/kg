@@ -655,7 +655,7 @@
   "src/rect.c:editor_string_rect": 8,
   "src/rect.c:editor_yank_rect": 13,
   "src/rect.c:rect_anchor_col": 2,
-  "src/rect.c:rect_append": 9,
+  "src/rect.c:rect_append": 10,
   "src/rect.c:rect_append_row": 2,
   "src/rect.c:rect_append_spaces": 4,
   "src/rect.c:rect_block_free": 1,

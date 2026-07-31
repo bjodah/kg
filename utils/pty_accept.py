@@ -4,6 +4,7 @@ import argparse
 import difflib
 import functools
 import io
+import json
 import multiprocessing
 import os
 import re
@@ -642,9 +643,19 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 				  timeout, config_files, ready)
 
 
-def evaluate_case(case: Case, kg_argv: list[str], features: set[str], timeout: float,
-		  startup_delay_add: float, key_delay_add: float,
-		  emacs: str | None, have_tmux: bool) -> tuple[str, str | None]:
+def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
+	"""Time one case.  The wall time is per case, not per key: it is what
+	makes a slow lane visible in the results file rather than only as a
+	timeout."""
+	started = time.monotonic()
+	status, details = evaluate_case_status(case, **kwargs)
+	return (status, details, round(time.monotonic() - started, 3))
+
+
+def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
+			 timeout: float, startup_delay_add: float,
+			 key_delay_add: float, emacs: str | None,
+			 have_tmux: bool) -> tuple[str, str | None]:
 	if case.requires_feature is not None and case.requires_feature not in features:
 		return ("SKIP", None)
 	# A missing tool is a skip here and a hard failure in main() under
@@ -736,6 +747,9 @@ def main() -> int:
 	parser.add_argument("--require-tools", action="store_true",
 	                    help="Fail instead of skipping when a tool some case "
 	                         "needs (tmux, the Emacs oracle) is missing")
+	parser.add_argument("--json", dest="json_path", default="",
+	                    help="Write per-case results (status, wall time, "
+	                         "backend, oracle) to this file")
 	parser.add_argument("cases", nargs="+", help="YAML case files")
 	args = parser.parse_args()
 	args.kg = str(Path(args.kg).resolve())
@@ -777,12 +791,24 @@ def main() -> int:
 				    key_delay_add=args.key_delay_add,
 				    emacs=emacs, have_tmux=have_tmux)
 
+	records: list[dict] = []
+
 	def report(results) -> None:
-		for case, (status, details) in zip(cases, results):
+		for case, (status, details, seconds) in zip(cases, results):
 			counts[status] += 1
 			print(f"{status}: {case.name}")
 			if details:
 				print(details.rstrip())
+			records.append({
+				"name": case.name,
+				"path": str(case.path),
+				"status": status,
+				"seconds": seconds,
+				"backend": case.backend,
+				"oracle": case.oracle,
+				"requires_feature": case.requires_feature,
+				"xfail": case.xfail,
+			})
 
 	# The suite is dominated by waiting on a child editor, so running cases
 	# side by side is close to a linear speedup.  Cases are independent:
@@ -806,6 +832,25 @@ def main() -> int:
 					 mp_context=multiprocessing.get_context(
 						 "forkserver")) as pool:
 			report(pool.map(run_one, cases))
+
+	if args.json_path:
+		path = Path(args.json_path)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with path.open("w", encoding="utf-8") as fp:
+			json.dump({
+				"schema": "kg-pty-results/1",
+				"kg": args.kg,
+				"kg_runner": args.kg_runner,
+				"jobs": jobs,
+				"emacs": emacs,
+				"tmux": have_tmux,
+				"timeout": args.timeout,
+				"startup_delay_add": args.startup_delay_add,
+				"key_delay_add": args.key_delay_add,
+				"counts": counts,
+				"cases": records,
+			}, fp, indent=1)
+			fp.write("\n")
 
 	total = sum(counts.values())
 	print()

@@ -142,6 +142,10 @@ TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(OBJDIR)/width.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
+# Per-run machine-readable test results (gitignored).  Both layers write
+# here so a CI stage, or utils/quality_report.py, can read counts and
+# per-case durations instead of scraping the summary block.
+CHECK_RESULTS_DIR ?= $(TESTDIR)/.results
 PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
@@ -231,30 +235,12 @@ $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 check: check-unit check-pty
 
 check-unit: $(TESTBINS)
-	@pass=0; fail=0; \
-	for t in $(TESTBINS); do \
-		name=$$(basename $$t); \
-		log=$$(mktemp); \
-		if $(TEST_RUNNER) $$t >$$log 2>&1; then \
-			echo "PASS: $$name"; pass=$$((pass+1)); \
-		else \
-			echo "FAIL: $$name"; fail=$$((fail+1)); \
-			cat $$log; \
-		fi; \
-		rm -f $$log; \
-	done; \
-	total=$$((pass+fail)); \
-	echo ""; \
-	echo "============================================================================"; \
-	echo "Testsuite summary for kg"; \
-	echo "============================================================================"; \
-	printf "# TOTAL: %d\n# PASS:  %d\n# SKIP:  0\n# XFAIL: 0\n# FAIL:  %d\n# XPASS: 0\n# ERROR: 0\n" \
-	       $$total $$pass $$fail; \
-	echo "============================================================================"; \
-	[ $$fail -eq 0 ]
+	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
+		--json $(CHECK_RESULTS_DIR)/unit.json $(TESTBINS)
 
 check-pty: $(TARGET) $(PTY_TESTS)
 	@$(PYTHON) utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
+		--json $(CHECK_RESULTS_DIR)/pty.json \
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \

@@ -21,6 +21,8 @@ test/fuzz_regex
 test/fuzz-artifacts/
 # The working corpus is generated; the tracked seeds live in test/fuzz-seeds.
 test/fuzz-corpus/
+# Per-run machine-readable results from make check (CHECK_RESULTS_DIR).
+test/.results/
 test/regex_differential
 *.elc
 repomix-output.*

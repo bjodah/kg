@@ -342,31 +342,6 @@ void editor_undo(void)
 		}
 		break;
 
-	case UNDO_DELETE_CHAR:
-		/* Reverse: insert the character */
-		if (op->row < bcur()->numrows) {
-			erow *row = &bcur()->row[op->row];
-			editor_row_insert_char(row, op->col, op->c);
-			buffer_note_change(bcur());
-		}
-		break;
-
-	case UNDO_INSERT_LINE:
-		/* Reverse: delete the line */
-		if (op->row < bcur()->numrows) {
-			editor_del_row(bcur(), op->row);
-			buffer_note_change(bcur());
-		}
-		break;
-
-	case UNDO_DELETE_LINE:
-		/* Reverse: insert the line */
-		if (op->text) {
-			editor_insert_row(bcur(), op->row, op->text, op->len);
-			buffer_note_change(bcur());
-		}
-		break;
-
 	case UNDO_SPLIT_LINE:
 		/* Reverse: truncate row at split point, append saved rest,
 		 * delete row+1. Using saved op->text rather than live row+1

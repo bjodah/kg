@@ -44,7 +44,7 @@
    "undo_push": 1
   },
   "src/undo.c": {
-   "row_primitive": 12,
+   "row_primitive": 9,
    "undo_push": 1,
    "suppress_undo": 5,
    "row_field_write": 4

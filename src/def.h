@@ -288,9 +288,6 @@ struct kill_ring {
 /* Undo operation types */
 enum undo_type {
 	UNDO_INSERT_CHAR,
-	UNDO_DELETE_CHAR,
-	UNDO_INSERT_LINE,
-	UNDO_DELETE_LINE,
 	UNDO_SPLIT_LINE,
 	UNDO_JOIN_LINE,
 	UNDO_KILL_TEXT, /* Kill line or region */
@@ -301,7 +298,7 @@ enum undo_type {
 			      */
 	/* One replacement of a byte range, addressed by flat position:
 	 * what an edit through kg_buffer_replace() records, and what the
-	 * eleven opcodes above are being migrated to.  It needs no variant
+	 * eight opcodes above are being migrated to.  It needs no variant
 	 * per kind of edit because every edit is one of these. */
 	UNDO_CHANGE
 };

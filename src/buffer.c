@@ -1798,9 +1798,9 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
  *
  * The record is an UNDO_REPLACE_TEXT whose replacement length is zero:
  * its reverse skips the delete and re-inserts the saved bytes, which is
- * exactly delete-undo.  A per-byte UNDO_DELETE_CHAR cannot serve, since
- * one keystroke removes a whole glyph and undo must put every byte of it
- * back in one step. */
+ * exactly delete-undo.  A per-byte deleted-character record cannot serve,
+ * since one keystroke removes a whole glyph and undo must put every byte
+ * of it back in one step. */
 static int editor_delete_span_with_undo(int filerow, int col, int len)
 {
 	/* A delete is a replacement by nothing, so the range checking, the

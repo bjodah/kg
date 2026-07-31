@@ -1,4 +1,4 @@
-# NEW BEHAVIOR (plan 11 phase 1): a command defined in Lisp is refused in
+# A command defined in Lisp is refused in
 # a read-only buffer before it runs, the same way a built-in editing
 # command is.  It used to fall straight through cmd_execute_named() into
 # kg_lisp_run_command() with no descriptor to consult, so the refusal

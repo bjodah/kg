@@ -211,11 +211,10 @@ SCC ?= scc
 SCC_PATHS ?= src test
 SCC_COMPLEXITY_PATHS ?= src
 # Deliberately re-baselined 4208 -> 4280 (+1.7%) as the one sanctioned
-# ratchet raise of the 2026-07-30 review program, per
-# doc/reviews/2026-07-30/plans/p0-evidence-baselines-and-budgets.md phase 3.
-# Measured 4193 after that plan's extraction pass, so the program starts
-# with 87 points of headroom to spend across plans 01-15; nothing raises
-# this again without a reviewed exception.  (History: 4199 -> 4208 for the
+# ratchet raise of the completed 2026-07-30 review program.
+# Measured 4193 after the program's extraction pass, leaving 87 points of
+# headroom for that completed campaign; nothing raises this again without a
+# reviewed exception.  (History: 4199 -> 4208 for the
 # path picker's literal-accept answers.)
 SCC_COMPLEXITY_MAX ?= 4223
 SCC_FILE_COMPLEXITY_MAX ?= 520
@@ -224,8 +223,8 @@ PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 # Lowered 120 -> 110 after editor_process_keypress() shed its kill-lines,
 # repeated-yank, shift-motion, recenter and end-of-keypress bookkeeping
 # into helpers: that function measures 85 and the worst function in the
-# tree is now localvars_parse_footer at 100, so 110 is the budget plans
-# 01-15 have to stay under.  Lower it, do not raise it.  (History: 130 ->
+# tree is now localvars_parse_footer at 100, so 110 is the budget later work
+# has to stay under.  Lower it, do not raise it.  (History: 130 ->
 # 120 when the C-x and C-x r prefix dispatch moved out; 130 dates from
 # when a missing pmccabe binary silently disabled this gate.)
 PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 110
@@ -238,7 +237,7 @@ PMCCABE_FUNCTION_COMPLEXITY_MAX ?= 110
 PMCCABE_BASELINE ?= .ci/pmccabe-baseline.json
 PMCCABE_NEW_FUNCTION_MAX ?= 15
 # Census of everything that still changes buffer text outside the edit
-# gateway plan 10 is growing: raw row primitives, hand-written undo
+# edit-gateway follow-up is shrinking: raw row primitives, hand-written undo
 # records, the ambient suppress_undo flag and direct writes to a row's
 # text fields.  A ratchet, not a ban -- no count may rise, and `make
 # gateway-baseline` is how a migrated caller is banked.

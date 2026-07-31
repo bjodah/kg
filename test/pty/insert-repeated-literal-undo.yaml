@@ -3,10 +3,9 @@
 # leave a single "x" behind.  Emacs behaves the same way.
 #
 # The per-character records are pushed only when the bulk insertion is
-# known to have happened, which `editor_insert_repeated_literal()` decides
-# by comparing the buffer's dirty counter across the call.  Plan 10 moves
-# that detector to a content generation; this case is what says the
-# records are still pushed, and still one per character, afterwards.
+# known to have happened.  `editor_insert_repeated_literal()` used to compare
+# the dirty counter and now compares content generation; this case says the
+# records are still pushed, and still one per character.
 name: insert-repeated-literal-undo
 filename: insert-repeated-literal-undo.txt
 initial: "ab"

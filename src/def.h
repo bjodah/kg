@@ -607,7 +607,7 @@ void editor_row_del_char(erow *row, int at);
 /* What an edit through editor_row_replace_range() should also do.  Zero
  * is the ordinary edit -- record undo, count the buffer dirty -- and is
  * what every command that is one user operation passes.  This is the
- * local precursor to the edit transaction plan 10 describes; it is a
+ * local precursor to the edit gateway described by follow-up Plan 02; it is a
  * flag word rather than a struct so that a later option needs no churn
  * at the call sites that do not want it. */
 enum edit_option {

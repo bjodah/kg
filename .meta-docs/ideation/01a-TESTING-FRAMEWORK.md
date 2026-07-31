@@ -1,2 +1,0 @@
-# Idea: a testing framework using library to manipulate a console to compare real emacs vs. kg
-During the development of kg, we will continuously encounter small nauance differences between "pure" emacs (`emacs -q -nw`) and kg. If we can use a third party tool (e.g. tmux, or some python library with a PTY like-interface), we could come up with e.g. a yaml format which contains e.g. an original document, a sequence of key combinations, and an expected output. That way, a suite of unit tests is simply a collection of such yaml files.

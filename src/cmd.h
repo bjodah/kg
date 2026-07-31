@@ -18,8 +18,8 @@ struct command_prefix {
  * question "may this run here, and who may ask for it?" has exactly one
  * answer.  Before this, the read-only verdict was spelled three times
  * (cmd.c's flags, lisp.c's allow-list, kbd.c's per-keycode blocklist);
- * the first two are now this table, and kbd.c's list is what plan 11
- * phase 3 retires when built-in keys resolve to command names. */
+ * the first two are now this table, and kbd.c's list is retired by the
+ * layered-keymap migration when built-in keys resolve to command names. */
 typedef void (*cmdfn)(int fd);
 
 enum command_flags {

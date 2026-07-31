@@ -1203,7 +1203,7 @@ static void test_insert_text_raw_multiline_preserves_split_suffix(void)
 	teardown();
 }
 
-/* Multiline insertion is a local splice now (plan 08 phase 6), so the
+/* Multiline insertion is a local splice now, so the
  * edges it used to get for free from flattening the whole buffer and
  * rebuilding it have to be checked one at a time.  All of these compare
  * the flattened result, which is what a save writes. */

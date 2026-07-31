@@ -1,6 +1,6 @@
 # A running compilation writes into *compilation* from inside
 # read_key_byte(), which is where a minibuffer prompt waits for its next
-# key -- see plan 10's "who may mutate a buffer outside a keypress" note.
+# key; follow-up Plan 03 routes its notification through a safe-point event.
 # This pins the observable half of that rule: the child's output lands
 # while an M-x prompt is open, and the buffer being edited, its point and
 # the prompt itself are all undisturbed.

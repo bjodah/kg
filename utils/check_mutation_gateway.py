@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Enumerate every module that can mutate buffer text, and hold the set shut.
 
-kg is growing one gateway for buffer mutation (plan 10).  Until every
+kg is growing one gateway for buffer mutation (follow-up Plan 02).  Until every
 caller is migrated the old paths have to keep working, so this is not a
 ban -- it is a census with a ratchet.  Each source file's count of
 
@@ -17,7 +17,7 @@ ban -- it is a census with a ratchet.  Each source file's count of
 is recorded in a manifest.  No count may rise and no unlisted file may
 acquire one; a count that falls is banked by regenerating.  The manifest
 therefore reads as the migration's remaining work, and the exit criterion
-in the plan ("undo_push appears only in undo.c") is the same file going
+in the follow-up ("undo_push appears only in undo.c") is the same file going
 to zero.
 
 The probes are textual.  Comments and string literals are stripped first,
@@ -34,7 +34,7 @@ from pathlib import Path
 SCHEMA = "kg-mutation-gateway/1"
 
 # Row primitives: they move bytes in a row array and record nothing.  Every
-# one of these is what the plan calls "raw mutation".
+# one of these is what the follow-up calls "raw mutation".
 ROW_PRIMITIVES = (
 	"editor_insert_row",
 	"editor_del_row",
@@ -138,7 +138,7 @@ def write_manifest(path, measured):
 		"note": ("Every file that can change buffer text without going "
 			 "through the edit gateway, and how many ways it does. "
 			 "No count may rise and no unlisted file may appear; "
-			 "regenerating is how a decrease is banked. Plan 10 "
+			 "regenerating is how a decrease is banked. Follow-up Plan 02 "
 			 "drives this to buffer.c alone."),
 		"probes": list(PROBES),
 		"files": {name: measured[name] for name in sorted(measured)},

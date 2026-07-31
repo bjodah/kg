@@ -5,8 +5,8 @@ Generates random patterns and subjects from an Emacs-regexp grammar, runs
 both through test/regex_differential.c and `emacs -Q --batch -l
 utils/regex_oracle.el`, and fails on any disagreement.  This is the harness
 that found the span-overshoot bug at a 0.37% hit rate, which is well below
-what hand-written cases reach; see
-.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md.
+what hand-written cases reach; the remaining deliberate differences are
+tracked in doc/TODO.md.
 
 Both sides report BYTE offsets.  Emacs itself reports character offsets;
 utils/regex_oracle.el converts.  Getting that wrong makes every multi-byte
@@ -25,7 +25,7 @@ and KG_LOOSER below, each of which the generator tags on purpose; every
 other one is reported as DIVERGE-ACCEPT.  Only kg's work budget
 ("toocomplex") is incomparable, Emacs having none.
 
-Its first find beyond the ones the plan already knew about was the capture
+Its first find beyond the previously known cases was the capture
 register left by an empty repetition of a quantified group
 (`\\(x*\\|a\\)\\{2\\}b` against `ab`), at roughly 4 cases per million -- out of
 reach of the default budget, which is the argument for raising --cases when

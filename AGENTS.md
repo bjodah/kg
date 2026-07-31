@@ -79,8 +79,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   primitives it calls, how many undo records it writes by hand, how many
   times it touches `suppress_undo`, and how many times it writes a row's
   text fields directly. No count may rise and no unlisted file may
-  appear; `make gateway-baseline` banks a decrease. The manifest is plan
-  10's remaining migration work written down.
+  appear; `make gateway-baseline` banks a decrease. The manifest is
+  follow-up Plan 02's remaining migration work written down.
 - Every `make check` writes machine-readable results to `test/.results/`
   (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
   from `utils/pty_accept.py --json`, both with per-case status and wall
@@ -102,7 +102,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   it asserts shapes -- reallocations against `c*log2(rows)`, exactly one
   `editor_update_row()` per logical replacement -- because a counter is
   the same number on a loaded box, in a sanitizer lane and under
-  valgrind. Each of its cases names the plan phase whose evidence it is.
+  valgrind. Each case names the performance property whose evidence it is.
 - `make bench` (`utils/bench.py`, JSON to `test/.results/bench.json`)
   drives `test/perfobj/kg` over generated corpora in a real pty and
   reports median/p95 wall time, peak RSS and the counters per case.
@@ -213,7 +213,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   Generating the help table's *text* from `struct named_cmd::summary`
   would make this structural rather than checked, and is the right end
   state, but it needs two things that do not exist yet: built-in keys
-  resolving to command names (plan 11 phase 3), and a second, ~15-column
+  resolving to command names (follow-up keymap Plan 01), and a second,
+  ~15-column
   summary per command, since the table's cells are that wide and the
   registry's summaries are up to 60.
 - Command policy is one table: `cmdtable` in `src/cmd.c`, whose

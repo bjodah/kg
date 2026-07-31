@@ -8,7 +8,8 @@
  * never leaves a stale mixed-flag object behind in src/.
  *
  * What the counters are for: every optimization in
- * doc/reviews/2026-07-30/plans/08-performance-quick-wins-and-benchmarks.md
+ * doc/plans/2026-07-31-follow-ups/07-visual-line-geometry-index.md (and any
+ * later measured performance plan)
  * has to name the counter that shows the pathology before it is allowed to
  * change any code, and record its before/after reading.  Counters are
  * preferred over wall times because they are deterministic -- a native

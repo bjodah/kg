@@ -1,7 +1,7 @@
 /* test_perf.c — what the editor's hot paths cost, in counters.
  *
- * Every phase of
- * doc/reviews/2026-07-30/plans/08-performance-quick-wins-and-benchmarks.md
+ * Every phase of the measured performance work, currently
+ * doc/plans/2026-07-31-follow-ups/07-visual-line-geometry-index.md,
  * has to name the evidence that justifies it before it may change code.
  * This file is that evidence, and it is deterministic: a counter says the
  * same thing on a loaded box, inside a sanitizer lane and under valgrind,
@@ -125,7 +125,7 @@ static int write_lines_file(char *path, size_t path_size, int lines)
 	return 0;
 }
 
-/* ---- Phase 2: the file loader's row array ---- */
+/* ---- File loader row-array growth ---- */
 
 static void test_load_row_array_growth(void)
 {
@@ -144,7 +144,7 @@ static void test_load_row_array_growth(void)
 	/* A file ending in a newline stages one more row: the empty last
 	 * line the newline opens. */
 	CHECK(res.numrows == lines + 1);
-	/* Plan 08 phase 2: the staged row array doubles, like the live one.
+	/* The staged row array doubles, like the live one.
 	 * It used to realloc to an exact size once per line, so loading R
 	 * lines copied O(R^2) row records. */
 	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(lines));
@@ -275,7 +275,7 @@ static void test_load_highlight_is_final(void)
 	    "test_perf_hl_XXXXXX.md", 3, write_markdown);
 }
 
-/* ---- Phase 2b: the live row array ---- */
+/* ---- Live row-array growth ---- */
 
 static void test_insert_row_array_growth(void)
 {
@@ -288,7 +288,7 @@ static void test_insert_row_array_growth(void)
 		editor_insert_row(bcur(), i, "x", 1);
 	}
 	CHECK(bcur()->numrows == rows);
-	/* Plan 08 phase 2b: the growth path every subprocess output line
+	/* The growth path every subprocess output line
 	 * takes doubles, so R rows cost O(log R) reallocations.  It used to
 	 * realloc to an exact size once per row -- 4096 of them here. */
 	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(rows));
@@ -337,8 +337,8 @@ static void test_special_text_append_growth(void)
  *
  * Every read chunk truncates the still-open line off the last row and
  * re-mirrors it, so a long line arriving in small reads is re-rendered
- * once per read.  This measures that, which is the number plan 08 phase
- * 5b asks for before it is allowed to change anything. */
+ * once per read.  This measures the number a future coalescing change
+ * has to improve before it is allowed to add state. */
 static void test_compilation_mirror_updates_per_read(void)
 {
 	struct compilation_state s;
@@ -381,7 +381,7 @@ static void test_compilation_mirror_updates_per_read(void)
 	teardown();
 }
 
-/* ---- Phase 3: the screen append buffer ---- */
+/* ---- Screen append buffer ---- */
 
 static void refresh_ab_shape(int screen_rows, int screen_cols,
     unsigned long long *appends, unsigned long long *grows,
@@ -411,7 +411,7 @@ static void test_frame_append_growth(void)
 
 	refresh_ab_shape(24, 80, &appends, &grows, &copied, &bytes);
 	CHECK(appends > 100);
-	/* Plan 08 phase 3: the frame buffer has a capacity and doubles, so
+	/* The frame buffer has a capacity and doubles, so
 	 * one repaint is a handful of reallocations instead of one per
 	 * append -- which is what it used to be, hundreds of them, each
 	 * copying the frame so far.  A 24x80 frame fits the first
@@ -425,7 +425,7 @@ static void test_frame_append_growth(void)
 	CHECK(copied <= 4 * bytes);
 }
 
-/* ---- Phase 4: render and highlight storage ---- */
+/* ---- Render and highlight storage ---- */
 
 static void test_long_row_update_allocations(void)
 {
@@ -444,7 +444,7 @@ static void test_long_row_update_allocations(void)
 	kg_perf_reset();
 	editor_update_row(bcur(), &bcur()->row[0]);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
-	/* Plan 08 phase 4: render and highlight storage carry capacities,
+	/* Render and highlight storage carry capacities,
 	 * so re-updating a row no wider than it has been costs no
 	 * allocation.  It used to free and malloc a fresh 1 MiB render, and
 	 * realloc a 1 MiB highlight array, on every call. */
@@ -492,7 +492,7 @@ static void test_typing_into_long_row_reuses_storage(void)
 	free(line);
 }
 
-/* ---- Phase 5: one row update per logical replacement ---- */
+/* ---- One row update per logical replacement ---- */
 
 static void test_replace_range_updates_once(void)
 {
@@ -523,7 +523,7 @@ static void test_rect_delete_updates_per_byte(void)
 	kg_perf_reset();
 	editor_delete_rect();
 	CHECK(bcur()->row[0].size == 6);
-	/* Plan 08 phase 5: one row rebuild per row, where rect.c used to
+	/* One row rebuild per row, where rect.c used to
 	 * delete a byte at a time and pay a full render and highlight
 	 * rebuild for each -- 80 of them for this 8x10 rectangle. */
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 8);
@@ -532,7 +532,7 @@ static void test_rect_delete_updates_per_byte(void)
 	teardown();
 }
 
-/* ---- Phase 6: multiline insertion ---- */
+/* ---- Multiline insertion ---- */
 
 static void test_multiline_insert_flattens_buffer(void)
 {
@@ -545,7 +545,7 @@ static void test_multiline_insert_flattens_buffer(void)
 	editor_cursor_goto(2, 4);
 	kg_perf_reset();
 	editor_insert_text_raw("one\ntwo\n", 8);
-	/* Plan 08 phase 6: a local splice.  Inserting text with a newline
+	/* A local splice: inserting text with a newline
 	 * used to serialise the whole buffer and rebuild every row from
 	 * it; now only the split row and the rows it became are touched. */
 	CHECK(counter(KG_PERF_BUFFER_FLATTEN) == 0);
@@ -559,7 +559,7 @@ static void test_multiline_insert_flattens_buffer(void)
 	teardown();
 }
 
-/* ---- Phase 7: undo eviction ---- */
+/* ---- Undo eviction ---- */
 
 static void test_undo_eviction_walk(void)
 {
@@ -577,14 +577,14 @@ static void test_undo_eviction_walk(void)
 	CHECK(bcur()->undostack.size == max);
 	/* Trimming keeps max_size - 1 records, so a full stack evicts on
 	 * every second push: 4 walks of 999 links for the 8 pushes past the
-	 * limit.  Plan 08 phase 7 asks whether that is worth a deque; this
-	 * is the number that says how much there is to win. */
+	 * limit.  This counter says whether replacing it with a deque is
+	 * worthwhile; it is the number that says how much there is to win. */
 	CHECK(counter(KG_PERF_UNDO_EVICT_LINKS)
 	    == (unsigned long long)4 * (max - 1));
 	teardown();
 }
 
-/* ---- Phase 8: visual-line geometry ---- */
+/* ---- Visual-line geometry ---- */
 
 static void test_visual_line_scan_per_refresh(void)
 {
@@ -601,9 +601,10 @@ static void test_visual_line_scan_per_refresh(void)
 	kg_perf_reset();
 	refresh_quietly();
 	scans = counter(KG_PERF_VISUAL_ROW_SCAN);
-	/* Before Plan 08 phase 8: one repaint measures every row of the
-	 * buffer several times over -- find_visual_row() rescans from row
-	 * 0 per screen row, and the mode line totals the whole buffer. */
+	/* Before the visual-line index follow-up, one repaint measures every
+	 * row of the buffer several times over -- find_visual_row() rescans
+	 * from row 0 per screen row, and the mode line totals the whole
+	 * buffer. */
 	CHECK(scans > (unsigned long long)rows);
 	bcur()->visual_line_mode = 0;
 	teardown();

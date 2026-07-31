@@ -1420,7 +1420,7 @@ void editor_open_line(void)
  * already correct and the editor is on its way down -- but it is the
  * reason this is atomicity of the text rather than of everything.
  *
- * Plan 10 grows the rest of the layer here: markers relocate in the
+ * Follow-up Plan 03 grows the rest of the layer here: markers relocate in the
  * commit, decorations follow them, and one change event per committed
  * transaction is queued. */
 

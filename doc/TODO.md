@@ -1,5 +1,9 @@
 # TODO In Priority Order
 
+The dependency-ordered implementation program for the next architecture and
+feature work is [doc/plans/2026-07-31-follow-ups](plans/2026-07-31-follow-ups/README.md).
+This file remains the broader feature and technical-debt inventory.
+
 ## Missing Mg features
 
 Features and keybindings present in Mg but missing from kg, roughly
@@ -107,9 +111,8 @@ ordered by value vs implementation effort.
       subject, and a `M-q` that respects column 72 in the body but
       leaves the subject alone.  Lands kg in the "what's your
       $EDITOR" conversation alongside `emacs -nw` and `vim`.
-      Implemented as a syntax-flag-detected mode (`SHL_GITCOMMIT`), no
-      Lisp package; see
-      [w7b-git-commit-mode.md](file:///work/.meta-docs/plans/w7b-git-commit-mode.md).
+      Implemented as a syntax-flag-detected mode (`SHL_GITCOMMIT`), with no
+      Lisp package.
 
 ### Lower priority / larger scope
 
@@ -215,11 +218,9 @@ ordered by value vs implementation effort.
       - extend the keypress fuzz harness to drive `eval-expression` once it
         can run without filesystem side effects
       - upstream Fe: `FeCallWithOptions` so hosts can budget a bare `FeCall`
-        without the run trampoline; Fe plan phase 8 (per-context custom
-        types) remains deferred
+        without the run trampoline; per-context custom types remain deferred
 
-- [ ] **Dired follow-ups**: dired mode shipped as a C mode (`src/dired.c`,
-      see [dired-mode-c-core.md](file:///work/.meta-docs/plans/dired-mode-c-core.md))
+- [ ] **Dired follow-ups**: dired mode shipped as a C mode (`src/dired.c`)
       with listing, `RET`/`^`/`g`/`n`/`p`, the `*`/`D` markers and `x`
       delete-flagged.  Deliberately left out of that first version:
       - `C` copy and `R` rename the entry (or the marked entries) at point
@@ -330,8 +331,7 @@ ordered by value vs implementation effort.
       offset into `row->chars` and advances by the glyph's byte length,
       which is exactly where `C-f` over the same glyph lands.
 
-- [x] **Regex follow-ups from the Emacs-fidelity work** (see
-      `.meta-docs/plans/103-REGEX-EMACS-FIDELITY-FIXES.md`).
+- [x] **Regex follow-ups from the Emacs-fidelity work.**
       Both infrastructure halves are done: the differential fuzzer
       against the Emacs oracle is now `make check-regex-differential`
       (`utils/regex_differential.py`, `utils/regex_oracle.el`,

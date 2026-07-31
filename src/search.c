@@ -47,7 +47,7 @@ static void hl_snapshot_restore(struct hl_snapshot *snap)
 	if (snap->line < bcur()->numrows
 	    && snap->generation == bcur()->content_generation) {
 		erow *row = &bcur()->row[snap->line];
-		/* TODO(plan-10): the saved length is what bounds this copy
+		/* TODO(markers): the saved length is what bounds this copy
 		 * until decorations live on the edit transaction; row->rsize
 		 * is the restore-time size and describes a different row. */
 		int n = snap->len < row->rsize ? snap->len : row->rsize;

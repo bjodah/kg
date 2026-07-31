@@ -1,0 +1,134 @@
+# kg follow-up implementation roadmap
+
+Status: authoritative follow-up plan for `stricter-emacs-adherence` at
+`7d1a2af` (2026-07-31).
+
+This series supersedes the completed 2026-07-30 review campaign and its
+progress reports.  Git history retains that material.  Current feature and
+technical-debt inventory remains in `doc/TODO.md`; this directory contains
+only the next implementation program.
+
+## Verified baseline
+
+- kg `7d1a2af`, Fe `52c7ef7`, tiny-regex-c `b92284f`.
+- Clean worktree when this plan was written.
+- `make check`: 20 native suites and 285 PTY cases, zero failures.
+- Both `WITH_LISP` configurations and the 12-stage runner are green.
+- `SCC_COMPLEXITY_MAX` is 4223 and measured usage is 4223: every additive
+  commit must first delete, extract, or migrate enough complexity to pay for
+  itself.
+- `kg_buffer_replace()` is failure-atomic for text and has four callers, but
+  `.ci/mutation-gateway.json` still records 209 raw mutation opinions.
+- Commands have one policy table and one invocation route, but built-in keys
+  still call handlers directly and `readonly_blocked_keys[]` remains a second
+  read-only verdict.
+- Buffer handles exist; windows still retain raw buffer slot indices.
+- Visual-line mode is off by default but demonstrably pathological: the
+  checked benchmark measured about 583,000 rows and 30 MB scanned per repaint
+  on a 100k-line buffer, 6.7 s versus 0.18 s for the comparable session with
+  wrapping disabled.
+
+Re-read the named code before implementing.  Symbols are authoritative; line
+numbers are not.
+
+## Review of the consultant's recommendations
+
+The recommendations identify the right work, with these ordering corrections:
+
+1. **Command identity plus normalized keys and layered keymaps remains first.**
+   Treat command identity and the keymap migration as one workstream.  A hidden
+   prerequisite is that most built-in key actions do not yet have command
+   descriptors; add a named wrapper as each switch branch is removed.  Delete
+   `readonly_blocked_keys[]` only after every editing key, including newline,
+   delete, yank, and self-insert, reaches the authoritative policy.
+2. **Finish the edit gateway before adopting markers.**  Marker storage and
+   relocation tests may be written earlier, but isearch, marks, yank spans, or
+   registers cannot use markers while ordinary edits still bypass
+   `edit_publish()`.  Otherwise the first legacy edit makes the marker stale.
+   Fix failed `UNDO_CHANGE` replay before widening gateway use.
+3. **Split Plan 09's remaining work.**  Window handles and lifecycle invariants
+   are useful correctness work.  Lifecycle notifications belong in the typed
+   event queue, not a parallel callback mechanism.  Session nesting is a
+   non-enabling rename and should follow the keymap state rewrite and kill-ring
+   redesign so those fields move only once.
+4. **Deliver Plan 13 by dependency-ready slices.**  The first product train is
+   command introspection, kill ring/yank-pop, transpose-words, navigable
+   compilation, then registers.  Do not start line numbers before visual-line
+   geometry has one width model, or process-backed packages before the event
+   and process services exist.
+5. **Runtime work starts after the event queue, except for its Fe call seam.**
+   `FeCallWithOptions` and internal `lisp.c` decomposition can proceed earlier.
+   Editor callbacks, hooks, process filters, and packages wait for safe-point
+   delivery and stable object handles.
+6. **Promote visual-line indexing ahead of optional runtime packages.**  The
+   performance gate is already met.  Start with per-row width caching and a
+   persistent view-owned prefix vector.  A Fenwick tree is conditional on the
+   edit-and-repaint benchmark, not the default design.
+
+## Plan index
+
+| Plan | Outcome | May start |
+| --- | --- | --- |
+| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | Now |
+| [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | Now, parallel with 01 |
+| [03](03-markers-decorations-and-events.md) | Stable markers, compact decorations, bounded typed events and C safe points | Marker core during 02; consumer conversion after 02 |
+| [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | Handle work now; events after 03; nesting after 01 and kill ring |
+| [05](05-emacs-affordances-delivery.md) | Dependency-ready Emacs habits without new one-off dispatch | Per bundle |
+| [06](06-runtime-and-lisp-extensibility.md) | Bounded direct Fe calls, editor objects, hooks, processes, proof packages | Preparation now; callbacks after 03 |
+| [07](07-visual-line-geometry-index.md) | Warm repaint independent of total buffer bytes; bounded prefix lookup | After a funding/extraction commit; coordinate with 03 display work |
+
+## Dependency and delivery order
+
+```text
+01 command identity + keymaps ───────────┬──────────────> 05 affordances
+                                         │
+02 complete live edit gateway ─> 03 markers/decorations/events ─┬─> 05
+                                         │                      └─> 06 runtime
+04 window handles ───────────────────────┘
+
+07 visual-line cache/index is independent after complexity is funded.
+04 session nesting waits for 01 and the kill-ring slice of 05.
+```
+
+Recommended waves:
+
+1. In parallel: Plan 01 through the global keymap; Plan 02 through ordinary
+   live-buffer migrations; Plan 04 window-handle correctness.  Start Plan 07
+   if one of those tracks has freed enough complexity.
+2. Finish Plan 02's observable rebuild paths.  Land Plan 03 markers, convert
+   consumers, then decorations and the event queue.  Finish Plan 01's mode
+   layers and introspection.
+3. Deliver Plan 05's kill ring/yank-pop, transpose-words, compilation
+   navigation, and registers as their exact prerequisites turn green.
+4. Land Plan 06's safe callback/object/process slices and proof packages.
+   Perform Plan 04 session nesting only after the state shapes are stable.
+
+## Rules for every implementation slice
+
+1. One semantic change per commit; characterization precedes changed behavior.
+2. A module gets a self-contained header.  Do not add module-owned declarations
+   back to `def.h`.
+3. Commands, key bindings, edits, lifecycle events, and process ownership each
+   use their single registry/gateway; no temporary second policy tables.
+4. Preserve `WITH_LISP=0`.  Core headers and modules never gain Fe types.
+5. Keep memory/work bounded and report truncation or exhaustion distinctly.
+6. No complexity or coverage ratchet is raised for routine work.  Record scc
+   before/after and lower a ratchet when a durable saving lands.
+7. User-visible behavior or keys update `README.md`, `doc/kg.1`, and
+   `src/help.c`; run `make docs-check`.
+8. Interactive behavior uses focused PTY cases; pure state machines and data
+   structures use native tests; performance gates use counters rather than CI
+   wall time.
+9. Each commit runs its focused suite.  Each plan phase ends with `make check`
+   and `make WITH_LISP=0 clean all check`.  A completed workstream ends with
+   `.ci/run-ci-steps.sh --parallel`.
+10. Fe or tiny-regex-c changes land and pass in the submodule first, then the
+    parent pin moves in a separate kg commit.
+
+## Program completion
+
+This follow-up program is complete when all non-conditional phases in Plans
+01–07 are green, every dependency-ready Plan 05 bundle named for the first
+product train has landed, and the remaining conditional work has fresh
+measurements and an explicit keep/defer decision.  Update this index as phases
+land; do not create another progress report beside it.

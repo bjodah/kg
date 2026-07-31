@@ -869,8 +869,8 @@ static const struct named_cmd cmdtable[] = {
 #undef LISP_OK
 #undef EDITS
 
-/* The descriptor every Lisp-defined command gets until plan 11 phase 8
- * lets a `defun` declare its own.  CMD_EDITS_BUFFER is the safe half of
+/* The descriptor every Lisp-defined command gets until runtime descriptors
+ * let a `defun` declare its own.  CMD_EDITS_BUFFER is the safe half of
  * the guess -- a Lisp body cannot be asked what it intends -- and the
  * missing CMD_LISP_CALLABLE keeps (command-execute ...) restricted to
  * built-ins, exactly as the allow-list it replaced did. */

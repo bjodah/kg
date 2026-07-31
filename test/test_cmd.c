@@ -1,7 +1,8 @@
 /* test_cmd.c — invariants of the one command table.
  *
  * cmdtable is the single statement of what a command is allowed to do
- * (plan 11 phase 1): whether it edits the buffer, whether Lisp may ask
+ * in the authoritative registry: whether it edits the buffer, whether Lisp
+ * may ask
  * for it, and what it is called in one line.  Nothing else in the tree
  * enforces those properties, so they are asserted here.
  *

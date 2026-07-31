@@ -22,12 +22,19 @@ tabs, which is why a test that uses such a row proves nothing here.
   `row->render`**, not a column.
 - A function that produces or consumes a display column says `visual`
   (`editor_visual_col`, `visual_line_cursor_col`, `visual_line_width`,
-  `editor_chars_col_at_visual`).
+  `editor_chars_col_at_visual`, `visual_col_to_chars`).
 - Anything else is chars space.  `col`, `cx`, `coloff`, `match_col`,
   `mark_col`, `filecol` are chars offsets everywhere in the tree.
-- `render_col_to_chars()` is the one name that lies, and it is kept for
-  the diff it would cost: it consumes a **display column**, not a render
-  offset — see the divergence row below.
+- The one name that lied was `render_col_to_chars()`, which consumes a
+  display column; it is `visual_col_to_chars()` now, and
+  `find_visual_row()`'s out-parameter is `render_offset` rather than
+  `char_offset`.
+
+`KG_ASSERT_CHARS_OFF` / `KG_ASSERT_RENDER_OFF` (`src/def.h`) say which
+space an argument is in at the seams below.  They compile to nothing
+unless the build defines `KG_DEBUG_COORDS=1`, the same shape as
+`KG_PERF_COUNTERS`; `.ci/ci-04-clang-asan-ubsan.sh` arms them, so they
+are checked against the whole PTY suite on every run of the deep CI.
 
 ## Producers and consumers
 
@@ -41,10 +48,10 @@ divergence that is correct but reads wrong.
 | 2 | `editor_display_col(rows, n, filerow, filecol)` (`buffer.c`) | vcol | `cmd.c:50` `C-x =`; `display.c:601` mode line | ok |
 | 3 | `editor_chars_col_at_visual(row, vcol)` (`buffer.c`) | chars | `basic.c:232` goal-column snap; `display.c:346,349` rect region; `rect.c:83,84` | ok — inverse of 1 at glyph starts |
 | 4 | `chars_to_render_col(row, chars_col)` (`mode.c`) | **render byte offset** | `display.c:357-365` `hi_lo`/`hi_hi`, compared against the render index `j`; `search.c:69` highlight span (`row->hl`) | ok — both consumers are render-indexed |
-| 5 | `render_col_to_chars(row, target, win_w)` (`mode.c`) | chars | `basic.c:60,77` visual-line Home/End; `mode.c:242` `goto_visual_row_col` | **div** — takes a *display column*, not a render offset; every caller feeds it one (`visual_line_cursor_col`, `segment * win_w`).  It is not the inverse of 4 and must never be paired with it |
+| 5 | `visual_col_to_chars(row, target_vcol, win_w)` (`mode.c`) | chars | `basic.c:60,77` visual-line Home/End; `mode.c:242` `goto_visual_row_col` | **div** — takes a *display column*, not a render offset; every caller feeds it one (`visual_line_cursor_col`, `segment * win_w`).  It is not the inverse of 4 and must never be paired with it.  Named `render_col_to_chars()` until this plan |
 | 6 | `visual_line_cursor_col(row, chars_col, win_w)` (`mode.c`) | vcol (wrapped) | `basic.c:57,68,85,96`; `display.c:707`; `mode.c:171` | ok |
 | 7 | `visual_line_width(row, win_w)` (`mode.c`) | vcol (wrapped) | `basic.c:70`; `mode.c:116,132,210,233` | ok |
-| 8 | `render_offset_at_visual(row, vcol, win_w)` (`mode.c`) | **render byte offset** | `mode.c:193` `find_visual_row`'s out-param, named `char_offset` but consumed by `display.c:238` as the render slice start | ok — misleading parameter name only |
+| 8 | `render_offset_at_visual(row, vcol, win_w)` (`mode.c`) | **render byte offset** | `mode.c:193` `find_visual_row`'s `render_offset` out-param, consumed by `display.c:238` as the render slice start | ok |
 | 9 | `get_visual_row(rows, n, win_w, cy, cx)` (`mode.c`) | visual row index; `cx` in | chars | `basic.c:87,98`; `cmd.c:319`; `display.c:542,595,709` | ok |
 | 10 | `row->hl[i]` | render | `syntax.c` highlighters (walk `row->render`, bound by `row->rsize`); `display.c:394` the draw loop; `search.c` match highlight; `dired.c:119-129` (gutter is ASCII, so chars == render) | ok, except `generic_keyword_scan`'s single-line comment, which filled a render-indexed run with the **chars** length `row->size - i` and so stopped the colour one tab expansion short — **P14** |
 | 11 | `wcur()->coloff` | chars (`filecol = coloff + cx` at `buffer.c:80`) | every command; `editor_reveal_position_centered`; `basic.c` motion | ok |
@@ -67,8 +74,8 @@ glyphs:
 - `chars_to_render_col()` is non-decreasing, maps `0` to `0` and
   `row->size` to `row->rsize`, and for a non-tab glyph the byte it names
   in `row->render` is the byte at `c` in `row->chars`.
-- `render_col_to_chars(row, visual_line_cursor_col(row, c, w), w) == c`
+- `visual_col_to_chars(row, visual_line_cursor_col(row, c, w), w) == c`
   at glyph starts, for a wide `w` and for a `w` narrow enough to wrap.
-- Feeding `render_col_to_chars()` the output of `chars_to_render_col()`
+- Feeding `visual_col_to_chars()` the output of `chars_to_render_col()`
   gives a wrong answer as soon as a row holds a double-width glyph; the
   test pins that so the divergence in row 5 stays deliberate.

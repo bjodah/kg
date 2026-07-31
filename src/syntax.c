@@ -1611,6 +1611,7 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 			 * row->rsize: row->size is the chars length, and on
 			 * a row holding a tab it stops the colour short by
 			 * however much the tab expanded. */
+			KG_ASSERT_RENDER_OFF(row, i);
 			memset(row->hl + i, HL_COMMENT, row->rsize - i);
 			goto done;
 		}

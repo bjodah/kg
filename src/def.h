@@ -851,6 +851,27 @@ static inline int ascii_is_space(int c)
  * default tab-width, cat(1) and the terminal itself. */
 #define KG_TAB_WIDTH 8
 
+/* Coordinate-space checks, doc/coordinates.md's table turned into
+ * something a build can fail on: KG_ASSERT_CHARS_OFF takes a byte offset
+ * into row->chars, KG_ASSERT_RENDER_OFF one into row->render (which is
+ * also how row->hl is indexed).  Off unless the build asks for them, the
+ * same shape as KG_PERF_COUNTERS -- the shipped editor carries none of
+ * it, and .ci/ci-04 turns them on for the sanitizer lane, which drives
+ * the whole PTY suite.  Build by hand with
+ * `make CFLAGS="-Wall -g -DKG_DEBUG_COORDS=1"`. */
+#ifndef KG_DEBUG_COORDS
+#define KG_DEBUG_COORDS 0
+#endif
+#if KG_DEBUG_COORDS
+#include <assert.h>
+#define KG_ASSERT_CHARS_OFF(row, off) assert((off) >= 0 && (off) <= (row)->size)
+#define KG_ASSERT_RENDER_OFF(row, off)                                         \
+	assert((off) >= 0 && (off) <= (row)->rsize)
+#else
+#define KG_ASSERT_CHARS_OFF(row, off) ((void)0)
+#define KG_ASSERT_RENDER_OFF(row, off) ((void)0)
+#endif
+
 /* Columns a TAB occupies when it starts at visual column `vcol`: enough
  * to reach the next tab stop, i.e. 1..KG_TAB_WIDTH columns.  Every
  * module that models tab geometry must go through this. */
@@ -1245,8 +1266,8 @@ void undo_mark_clean(void);
 int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);
 int visual_line_cursor_col(erow *row, int chars_col, int win_w);
 void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
-    int target_y, int *logical_row, int *char_offset);
-int render_col_to_chars(erow *row, int target_rcol, int win_w);
+    int target_y, int *logical_row, int *render_offset);
+int visual_col_to_chars(erow *row, int target_rcol, int win_w);
 int visual_line_width(erow *row, int win_w);
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment);
 int chars_to_render_col(erow *row, int chars_col);

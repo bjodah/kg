@@ -323,6 +323,8 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			erow *r = &rows[fr];
 			int span = 1;
 
+			KG_ASSERT_RENDER_OFF(r, offset);
+
 			/* Walk render bytes from offset to compute len bounded
 			 * by win_w VISIBLE columns, keeping UTF-8 glyphs whole.
 			 * Charging each glyph its display width lets a

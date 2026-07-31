@@ -241,7 +241,7 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	    &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 6);
-	CHECK(render_col_to_chars(&bcur()->row[0], 4, 4) == 4);
+	CHECK(visual_col_to_chars(&bcur()->row[0], 4, 4) == 4);
 	teardown();
 }
 
@@ -319,9 +319,9 @@ static void check_round_trips(const char *text, int len, int win_w)
 			CHECK(row->render[r] == row->chars[c]);
 		}
 		prev_r = r;
-		/* The visual-line pair: render_col_to_chars() consumes what
+		/* The visual-line pair: visual_col_to_chars() consumes what
 		 * visual_line_cursor_col() produces, which is a column. */
-		CHECK(render_col_to_chars(
+		CHECK(visual_col_to_chars(
 			  row, visual_line_cursor_col(row, c, win_w), win_w)
 		    == c);
 	}
@@ -342,7 +342,7 @@ static void test_coordinate_space_round_trips(void)
 	check_round_trips("\t\xe4\xb8\xadz", 5, 10);
 }
 
-/* render_col_to_chars() takes a display column, never the render offset
+/* visual_col_to_chars() takes a display column, never the render offset
  * chars_to_render_col() returns.  On "中中z" the two spaces part company,
  * and pairing them the wrong way lands one glyph off. */
 static void test_render_offset_is_not_a_display_column(void)
@@ -357,10 +357,10 @@ static void test_render_offset_is_not_a_display_column(void)
 	CHECK(chars_to_render_col(row, 6) == 6); /* render byte of "z" */
 	CHECK(editor_visual_col(row, 6) == 4); /* display column of "z" */
 	/* Correct pairing: a column goes back to its byte. */
-	CHECK(render_col_to_chars(row, 4, 80) == 6);
+	CHECK(visual_col_to_chars(row, 4, 80) == 6);
 	/* Wrong pairing: the render offset reads as a column past the end
 	 * of a row only five columns wide, and clamps to EOL. */
-	CHECK(render_col_to_chars(row, 6, 80) == 7);
+	CHECK(visual_col_to_chars(row, 6, 80) == 7);
 	teardown();
 }
 

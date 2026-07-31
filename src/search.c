@@ -51,6 +51,7 @@ static void hl_snapshot_restore(struct hl_snapshot *snap)
 		 * is the restore-time size and describes a different row. */
 		int n = snap->len < row->rsize ? snap->len : row->rsize;
 
+		KG_ASSERT_RENDER_OFF(row, n);
 		memcpy(row->hl, snap->hl, (size_t)n);
 	}
 	free(snap->hl);
@@ -67,9 +68,13 @@ static int hl_snapshot_mark(
     int filerow, int col, int len, struct hl_snapshot *snap)
 {
 	erow *row = &bcur()->row[filerow];
-	int rcol = chars_to_render_col(row, col);
-	int rlen = chars_to_render_col(row, col + len) - rcol;
+	int rcol, rlen;
 
+	KG_ASSERT_CHARS_OFF(row, col);
+	KG_ASSERT_CHARS_OFF(row, col + len);
+	rcol = chars_to_render_col(row, col);
+	rlen = chars_to_render_col(row, col + len) - rcol;
+	KG_ASSERT_RENDER_OFF(row, rcol + rlen);
 	if (!row->hl) {
 		return 0;
 	}

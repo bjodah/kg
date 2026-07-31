@@ -23,6 +23,12 @@ int chars_to_render_col(erow *row, int chars_col)
 	return render_col;
 }
 
+/* A window narrower than one cell cannot lay anything out.  Every
+ * wrapping calculation below starts by taking its width through here, so
+ * a zero or negative width is one line of arithmetic rather than eight
+ * copies of the same guard. */
+static int win_cells(int win_w) { return win_w > 0 ? win_w : 1; }
+
 /* A glyph wider than one cell cannot be split across a wrap, so Emacs
  * moves it whole to the next display row and leaves the edge cells
  * blank.  Returns the blank cells to charge before laying a `width`-cell
@@ -97,9 +103,7 @@ static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
  * including any blank cells left by glyphs bumped off a wrap boundary. */
 int visual_line_width(erow *row, int win_w)
 {
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	KG_PERF_INC(KG_PERF_VISUAL_ROW_SCAN);
 	KG_PERF_ADD(KG_PERF_VISUAL_BYTE_SCAN, row->size);
 	return wrapped_visual_col(row, row->size, win_w);
@@ -109,9 +113,7 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 {
 	int rcol, width;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	rcol = wrapped_visual_col(row, chars_col, win_w);
 	width = visual_line_width(row, win_w);
 	/* Point at EOL on an exact-width line remains on the final display
@@ -126,9 +128,7 @@ static int visual_segments(erow *row, int win_w)
 {
 	int width;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	width = visual_line_width(row, win_w);
 	return width > 0 ? 1 + (width - 1) / win_w : 1;
 }
@@ -161,9 +161,7 @@ int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx)
 	int vrow = 0;
 	int r;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	for (r = 0; r < cy && r < numrows; r++) {
 		vrow += visual_segments(&rows[r], win_w);
 	}
@@ -175,14 +173,12 @@ int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx)
 }
 
 void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
-    int target_y, int *logical_row, int *char_offset)
+    int target_y, int *logical_row, int *render_offset)
 {
 	int visual_row_count = 0;
 	int r;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	for (r = 0; r < numrows; r++) {
 		int segments = visual_segments(&rows[r], win_w);
 		if (visual_row_count + segments > rowoff_visual + target_y) {
@@ -190,31 +186,38 @@ void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
 			    = rowoff_visual + target_y - visual_row_count;
 
 			*logical_row = r;
-			*char_offset = render_offset_at_visual(
+			*render_offset = render_offset_at_visual(
 			    &rows[r], segment * win_w, win_w);
 			return;
 		}
 		visual_row_count += segments;
 	}
 	*logical_row = numrows;
-	*char_offset = 0;
+	*render_offset = 0;
 }
 
-int render_col_to_chars(erow *row, int target_rcol, int win_w)
+/* Byte offset into row->chars at wrapped display column `target_vcol`.
+ * The argument is a display column -- what visual_line_cursor_col() and
+ * a segment boundary produce -- and never the render byte offset
+ * chars_to_render_col() returns; see doc/coordinates.md row 5. */
+int visual_col_to_chars(erow *row, int target_vcol, int win_w)
 {
 	int width;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	width = visual_line_width(row, win_w);
-	if (target_rcol > width) {
-		target_rcol = width;
+	if (target_vcol > width) {
+		target_vcol = width;
 	}
-	if (target_rcol < 0) {
-		target_rcol = 0;
+	if (target_vcol < 0) {
+		target_vcol = 0;
 	}
-	return wrapped_chars_col(row, target_rcol, win_w);
+	{
+		int chars_col = wrapped_chars_col(row, target_vcol, win_w);
+
+		KG_ASSERT_CHARS_OFF(row, chars_col);
+		return chars_col;
+	}
 }
 
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
@@ -223,9 +226,7 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 	int visual_row_count = 0;
 	int win_w = winlist[win_current].w;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	if (target_vrow < 0) {
 		target_vrow = 0;
 	}
@@ -239,7 +240,7 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 			if (target_rcol > width) {
 				target_rcol = width;
 			}
-			int char_idx = render_col_to_chars(
+			int char_idx = visual_col_to_chars(
 			    &bcur()->row[r], target_rcol, win_w);
 			editor_cursor_goto(r, char_idx);
 			return;
@@ -257,9 +258,7 @@ int get_total_visual_rows(erow *rows, int numrows, int win_w)
 	int total = 0;
 	int r;
 
-	if (win_w <= 0) {
-		win_w = 1;
-	}
+	win_w = win_cells(win_w);
 	for (r = 0; r < numrows; r++) {
 		total += visual_segments(&rows[r], win_w);
 	}

@@ -195,6 +195,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   screen only through `display_glyph_at()` (`src/width.c`), which also
   decides their width; styling is the renderer's, never spelled into a
   string a caller interpolates into.
+- A row is addressed in three coordinate spaces -- bytes of `row->chars`,
+  bytes of `row->render` (which is how `row->hl` is indexed too), and
+  display columns. `doc/coordinates.md` is the table of which function
+  produces and consumes which, and the naming rule that keeps them
+  apart; read it before adding one, and state the space at a new seam
+  with `KG_ASSERT_CHARS_OFF`/`KG_ASSERT_RENDER_OFF` (armed by
+  `-DKG_DEBUG_COORDS=1`, which `.ci/ci-04` builds with).
 
 ## Useful context
 - `doc/TODO.md` tracks planned editor features and known technical debt.

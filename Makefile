@@ -193,8 +193,15 @@ PMCCABE_BASELINE ?= .ci/pmccabe-baseline.json
 PMCCABE_NEW_FUNCTION_MAX ?= 15
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
-COVERAGE_LCOV_ARGS ?= --quiet --ignore-errors inconsistent,gcov
+# --branch-coverage matches what both subprojects already collect; the
+# root reported lines and functions only.  The ignore list stays: lcov 2.x
+# calls a gcno/gcda pair that disagrees "inconsistent" and refuses the
+# file otherwise.
+COVERAGE_LCOV_ARGS ?= --quiet --branch-coverage --ignore-errors inconsistent,gcov
 COVERAGE_GENHTML_ARGS ?= --quiet
+COVERAGE_BASELINE ?= .ci/coverage-baseline.json
+COVERAGE_BASELINE_HOW ?= 'make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract'
+COVERAGE_BASELINE_NOTE ?= 'Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in "how"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.'
 CLANG_FORMAT ?= clang-format
 FUZZ_CC ?= clang
 FORMAT_FILES = $(wildcard $(OBJDIR)/*.[ch] $(TESTDIR)/*.[ch])
@@ -350,6 +357,19 @@ coverage: coverage-clean
 	genhtml $(COVERAGE_GENHTML_ARGS) $(COVERAGE_DIR)/src.info \
 		--output-directory $(COVERAGE_DIR)/html
 	lcov --summary $(COVERAGE_DIR)/src.info
+	$(MAKE) coverage-check
+
+# Hold every file to the rate it had when the baseline was recorded.  Run
+# it separately to re-check an existing tracefile without a 60 s rebuild.
+coverage-check:
+	@$(PYTHON) utils/check_coverage.py $(COVERAGE_DIR)/src.info \
+		--baseline $(COVERAGE_BASELINE) --root $(CURDIR)
+
+coverage-baseline:
+	@$(PYTHON) utils/check_coverage.py $(COVERAGE_DIR)/src.info \
+		--baseline $(COVERAGE_BASELINE) --root $(CURDIR) \
+		--write-baseline --note $(COVERAGE_BASELINE_NOTE) \
+		--how $(COVERAGE_BASELINE_HOW)
 
 coverage-clean:
 	rm -rf $(COVERAGE_DIR)
@@ -453,6 +473,6 @@ uninstall:
 
 .PHONY: all clean distclean check check-unit check-pty check-regex-differential \
 	complexity complexity-check \
-	pmccabe pmccabe-check pmccabe-baseline coverage coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check pmccabe-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-smoke fuzz-regex-seed fuzz-regex-seed-replay \
 	deb release install uninstall

@@ -47,6 +47,15 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   which `make fuzz-regex-smoke` depends on. `make fuzz-regex-seed-replay`
   runs every tracked seed once without mutation. The input encoding is in
   the header comment of `test/fuzz_regex.c`.
+- `make coverage` ends in a ratchet, not a printed number:
+  `.ci/coverage-baseline.json` holds every `src/*.c` file's line and
+  function rate, `make coverage-check` fails when one falls below its
+  floor, and `make coverage-baseline` is the one command that rewrites
+  the file (bank an improvement; a drop needs a reason in the commit).
+  Branch data is collected and reported but not yet a floor. The lane
+  keeps `PTY_JOBS=8`: three runs (two at 8, one at 1) agreed file for
+  file, so the parallel gcda merge is not lossy here and the 5m37
+  serial run buys nothing over 1m02.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.

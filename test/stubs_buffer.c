@@ -63,13 +63,16 @@ void local_settings_init(struct local_settings *settings)
 {
 	memset(settings, 0, sizeof(*settings));
 }
+/* -1, not 0: 0 means "found, and `result` names the file", and a stub that
+ * says so without writing `result` sends the caller to open() a path made of
+ * stack garbage. */
 int dirlocals_find(
     const char *visited_filename, char *result, size_t result_size)
 {
 	(void)visited_filename;
 	(void)result;
 	(void)result_size;
-	return 0;
+	return -1;
 }
 int dirlocals_parse(
     const char *source, size_t source_len, struct local_settings *out)

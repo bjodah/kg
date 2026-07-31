@@ -270,11 +270,6 @@ struct editor_config {
 	struct timeval
 	    last_char_time; /* Time of last character for paste detection */
 	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
-	int last_key; /* Last key processed, for command repetition logic. */
-	int recenter_state; /* Cycle state for C-l: 0=center, 1=top, 2=bottom.
-			     */
-	int window_line_state; /* Cycle state for M-r: 0=top, 1=middle,
-				  2=bottom. */
 };
 
 /* Append buffer for efficient screen rendering */
@@ -575,6 +570,7 @@ void editor_move_to_beginning(void);
 void editor_move_to_end(void);
 void editor_move_to_indentation(void);
 void editor_move_to_window_line(void);
+void editor_recenter(void);
 void editor_goto_line_direct(int line, int col);
 void editor_goto_line(int fd);
 void editor_cursor_goto(int row, int col);

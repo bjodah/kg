@@ -1,5 +1,6 @@
 /* test_basic.c — regression tests for editor_goto_line_direct */
 
+#include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "test.h"
 #include <limits.h>
@@ -21,6 +22,10 @@ int tty_write(const void *buf, size_t n)
 #include "../src/display.c"
 #undef editor_set_status_message
 #undef editor_refresh_screen
+
+/* Stub functions the two window-cycle commands reach for. */
+void editor_refresh_screen(void) { }
+void probe_window_size(void) { }
 
 /* ---- Helpers ---- */
 
@@ -586,6 +591,78 @@ static void test_overwrite_malformed_utf8_treated_as_one_byte(void)
 	teardown();
 }
 
+/* ---- The two three-position cycles ----
+ *
+ * M-r and C-l advance while they are the command that ran last, and
+ * start over otherwise.  `id` stands in for a command identity: these
+ * tests link cmdstate.o without the registry, and the cycle only ever
+ * asks whether the id it sees is the one that ran last. */
+static void run_cycle_command(command_id id, void (*command)(void))
+{
+	command_id outer;
+
+	cmd_state_begin_keystroke();
+	outer = cmd_state_begin_command(id);
+	command();
+	cmd_state_end_command(outer);
+}
+
+static void test_window_line_cycles_while_it_is_the_last_command(void)
+{
+	const command_id id = 1234;
+
+	setup(30);
+	wcur()->h = 10;
+	wcur()->rowoff = 0;
+	cmd_clear_transient();
+
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 0); /* top */
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 5); /* middle */
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 9); /* bottom */
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 0); /* wraps */
+
+	/* A keystroke that ran no command, then another command, both end
+	 * the run: the next invocation is a first one. */
+	cmd_state_begin_keystroke();
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 0);
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 5);
+	run_cycle_command(id + 1, editor_move_to_window_line);
+	run_cycle_command(id, editor_move_to_window_line);
+	CHECK(wcur()->cy == 0);
+	teardown();
+}
+
+static void test_recenter_cycles_while_it_is_the_last_command(void)
+{
+	const command_id id = 4321;
+
+	setup(30);
+	wcur()->h = 10;
+	wcur()->rowoff = 0;
+	wcur()->cy = 19; /* point on line 20 */
+	cmd_clear_transient();
+
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff == 14); /* centre: 19 - 10 / 2 */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff == 19); /* top */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff == 10); /* bottom: 19 - (10 - 1) */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff == 14); /* wraps */
+
+	cmd_state_begin_keystroke();
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff == 14);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -616,5 +693,7 @@ int main(void)
 	RUN(test_overwrite_mode_toggle_and_replace);
 	RUN(test_overwrite_multibyte_glyph);
 	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);
+	RUN(test_window_line_cycles_while_it_is_the_last_command);
+	RUN(test_recenter_cycles_while_it_is_the_last_command);
 	return test_summary();
 }

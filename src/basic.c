@@ -4,6 +4,7 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include "cmdstate.h"
 #include "def.h"
 #include "localvars.h"
 
@@ -285,28 +286,28 @@ void editor_move_to_indentation(void)
 	}
 }
 
+/* Where the next press of a three-position cycle goes, and what to
+ * remember for the press after it.  The state is the command's own
+ * (cmd_transient_value()), so a repeat is a repeat of the command
+ * however it was reached, and anything else in between starts over. */
+static int cycle_step(void)
+{
+	int step = cmd_transient_value() % 3;
+
+	cmd_set_transient_value(step + 1);
+	return step;
+}
+
 /* Park the cursor at the top, middle, or bottom of the visible window
  * (M-r), cycling through those three on consecutive presses.  Doesn't
  * scroll — only moves the cursor within the existing viewport, clamped
  * to actual content. */
 void editor_move_to_window_line(void)
 {
-	int target;
-	int last_visible_row;
+	int rows[3] = { 0, wcur()->h / 2, wcur()->h - 1 };
+	int target = rows[cycle_step()];
+	int last_visible_row = bcur()->numrows - wcur()->rowoff - 1;
 
-	switch (editor.window_line_state) {
-	case 0:
-		target = 0;
-		break;
-	case 1:
-		target = wcur()->h / 2;
-		break;
-	default:
-		target = wcur()->h - 1;
-		break;
-	}
-
-	last_visible_row = bcur()->numrows - wcur()->rowoff - 1;
 	if (last_visible_row < 0) {
 		last_visible_row = 0;
 	}
@@ -320,7 +321,25 @@ void editor_move_to_window_line(void)
 	wcur()->cy = target;
 	wcur()->cx = 0;
 	wcur()->coloff = 0;
-	editor.window_line_state = (editor.window_line_state + 1) % 3;
+}
+
+/* Scroll so that point's line is at the centre of the window, then its
+ * top, then its bottom (C-l), cycling on consecutive presses.  The
+ * repaint is unconditional and clears the screen first: this is also the
+ * key for "the display is wrong, draw it again". */
+void editor_recenter(void)
+{
+	int filerow = editor_current_filerow_or_eof();
+	int above[3] = { wcur()->h / 2, 0, wcur()->h - 1 };
+
+	wcur()->rowoff = filerow - above[cycle_step()];
+	if (wcur()->rowoff < 0) {
+		wcur()->rowoff = 0;
+	}
+	wcur()->cy = filerow - wcur()->rowoff;
+	probe_window_size();
+	(void)tty_write("\x1b[2J", 4);
+	editor_refresh_screen();
 }
 
 /* Jump to a specific line (1-based) and column (1-based, 0 = start). */

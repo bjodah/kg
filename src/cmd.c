@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 
 #include "cmd.h"
+#include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
@@ -734,6 +735,23 @@ static void cmd_dired_unmark(int fd)
 	dired_set_mark(' ');
 }
 
+/* The two commands whose behaviour depends on having just run: each
+ * cycles through three positions while it is the command that ran last.
+ * They are descriptors rather than switch branches because that is what
+ * gives them an identity to key the cycle on -- and it makes both
+ * reachable from M-x, where the cycle works the same way. */
+static void cmd_recenter_top_bottom(int fd)
+{
+	(void)fd;
+	editor_recenter();
+}
+
+static void cmd_move_to_window_line(int fd)
+{
+	(void)fd;
+	editor_move_to_window_line();
+}
+
 /* Manually enable YAML syntax highlighting, e.g. for an extensionless
  * file. ".yaml"/".yml" files select it automatically. */
 static void cmd_yaml_mode(int fd)
@@ -827,6 +845,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Terminate the running compilation" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
+	{ "move-to-window-line-top-bottom", cmd_move_to_window_line, CMD_NONE,
+	    "Move point to the top, middle or bottom of the window" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
 	    "Clear the modified flag without saving" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
@@ -835,6 +855,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Replace regexp matches, asking about each one" },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE,
 	    "Toggle whether this buffer refuses edits" },
+	{ "recenter-top-bottom", cmd_recenter_top_bottom, CMD_NONE,
+	    "Scroll point's line to the centre, top or bottom" },
 	{ "recompile", editor_recompile, CMD_NONE,
 	    "Run the previous compile command again" },
 	{ "revert-buffer", cmd_revert_buffer, CMD_NONE,
@@ -869,6 +891,41 @@ static const struct named_cmd cmdtable[] = {
 
 #undef LISP_OK
 #undef EDITS
+
+/* ---- Command identity ----
+ *
+ * Static commands are their table slot.  Runtime commands need somewhere
+ * to remember which number a name was given, and it cannot be the Lisp
+ * registry's slot: a removed command's slot is reused, and an identity
+ * that comes back on a different command is worse than none.  The table
+ * is the same size as lisp.c's, and the two move together -- every
+ * successful define registers here and every remove clears here -- so a
+ * full table here means the Lisp side is full too. */
+static constexpr size_t runtime_id_slots = 32;
+static constexpr size_t runtime_id_name_max = 64;
+
+static struct {
+	char name[runtime_id_name_max];
+	command_id id;
+} runtime_ids[runtime_id_slots];
+
+/* Never reused, so a name that is removed and defined again is a
+ * different command.  32 bits of them at one definition per keystroke is
+ * more definitions than a session can type. */
+static command_id next_runtime_id = CMD_ID_RUNTIME_BASE;
+
+static command_id runtime_id_of(const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < runtime_id_slots; i++) {
+		if (runtime_ids[i].id != CMD_ID_NONE
+		    && strcmp(runtime_ids[i].name, name) == 0) {
+			return runtime_ids[i].id;
+		}
+	}
+	return CMD_ID_NONE;
+}
 
 /* The descriptor every Lisp-defined command gets until runtime descriptors
  * let a `defun` declare its own.  CMD_EDITS_BUFFER is the safe half of
@@ -905,6 +962,61 @@ const struct named_cmd *cmd_lookup(const char *name)
 	return NULL;
 }
 
+command_id cmd_id_by_name(const char *name)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	if (cmd) {
+		return CMD_ID_STATIC_BASE + (command_id)(cmd - cmdtable);
+	}
+	return name ? runtime_id_of(name) : CMD_ID_NONE;
+}
+
+command_id cmd_runtime_define(const char *name)
+{
+	size_t i, free_slot = runtime_id_slots;
+	command_id existing;
+
+	if (!name || !name[0] || strlen(name) >= runtime_id_name_max) {
+		return CMD_ID_NONE;
+	}
+	existing = runtime_id_of(name);
+	if (existing != CMD_ID_NONE) {
+		return existing; /* redefinition keeps the identity */
+	}
+	for (i = 0; i < runtime_id_slots; i++) {
+		if (runtime_ids[i].id == CMD_ID_NONE) {
+			free_slot = i;
+			break;
+		}
+	}
+	if (free_slot == runtime_id_slots) {
+		return CMD_ID_NONE;
+	}
+	memcpy(runtime_ids[free_slot].name, name, strlen(name) + 1);
+	runtime_ids[free_slot].id = next_runtime_id++;
+	return runtime_ids[free_slot].id;
+}
+
+void cmd_runtime_remove(const char *name)
+{
+	size_t i;
+
+	if (!name) {
+		return;
+	}
+	for (i = 0; i < runtime_id_slots; i++) {
+		if (runtime_ids[i].id == CMD_ID_NONE
+		    || strcmp(runtime_ids[i].name, name) != 0) {
+			continue;
+		}
+		cmd_forget_transient_owner(runtime_ids[i].id);
+		runtime_ids[i].id = CMD_ID_NONE;
+		runtime_ids[i].name[0] = '\0';
+		return;
+	}
+}
+
 /* The static table by position, for callers that enumerate it (the M-x
  * picker, the table's own invariant tests).  Lisp-defined commands are
  * not here; kg_lisp_command_name() continues the enumeration. */
@@ -927,6 +1039,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	const struct named_cmd *cmd = cmd_lookup(name);
 	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
 	struct command_prefix saved;
+	command_id outer;
 
 	if (!cmd) {
 		if (!kg_lisp_command_exists(name)) {
@@ -947,11 +1060,15 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	}
 	saved = editor.current_prefix;
 	editor.current_prefix = ctx->prefix;
+	/* Publish the identity only now: a command refused above did not
+	 * run, so it is not what ran last either. */
+	outer = cmd_state_begin_command(cmd_id_by_name(name));
 	if (cmd->fn) {
 		cmd->fn(ctx->fd);
 	} else {
 		(void)kg_lisp_run_command(name, ctx->fd);
 	}
+	cmd_state_end_command(outer);
 	editor.current_prefix = saved;
 	return CMD_RAN;
 }

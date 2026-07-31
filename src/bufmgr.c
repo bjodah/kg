@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
@@ -163,6 +164,9 @@ void buf_select(int slot)
 	buf_current = slot;
 	/* readonly is derived, so it is recomputed rather than stored. */
 	editor_refresh_readonly_state();
+	/* A cycle a command was part-way through belongs to the buffer it
+	 * was cycling; the next invocation in this one starts over. */
+	cmd_clear_transient();
 
 	/* If this buffer was flagged stale while it sat in its slot, reload
 	 * it now — but only when the user has opted in and there are no
@@ -822,6 +826,9 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	int draft_overflow = 0;
 
 	buf[len] = '\0';
+	/* Keystrokes read here are the prompt's, not commands: nothing that
+	 * happens inside it may look like a repeat of what ran before it. */
+	cmd_clear_transient();
 	while (1) {
 		prompt_refresh(prompt, plen, buf, cursor);
 		c = editor_read_key(fd);

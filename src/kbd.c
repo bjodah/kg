@@ -9,6 +9,7 @@
 #include <sys/time.h>
 
 #include "cmd.h"
+#include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
 #include "kbd.h"
@@ -645,32 +646,6 @@ static int shift_select_motion(int c)
 	return 0;
 }
 
-/* C-l: recenter, cycling center -> top -> bottom. */
-static void key_recenter(void)
-{
-	int filerow = editor_current_filerow_or_eof();
-
-	switch (editor.recenter_state) {
-	case 0: /* center */
-		wcur()->rowoff = filerow - wcur()->h / 2;
-		break;
-	case 1: /* top */
-		wcur()->rowoff = filerow;
-		break;
-	default: /* bottom */
-		wcur()->rowoff = filerow - (wcur()->h - 1);
-		break;
-	}
-	if (wcur()->rowoff < 0) {
-		wcur()->rowoff = 0;
-	}
-	wcur()->cy = filerow - wcur()->rowoff;
-	editor.recenter_state = (editor.recenter_state + 1) % 3;
-	probe_window_size();
-	(void)tty_write("\x1b[2J", 4);
-	editor_refresh_screen();
-}
-
 /* Per-keystroke bookkeeping that runs after the command has had its say:
  * region teardown and goal-column invalidation.  `buffer_before` and
  * `generation_before` are the values sampled before dispatch, and
@@ -811,14 +786,12 @@ void editor_process_keypress(int fd)
 		}
 	}
 
-	/* Reset cycle states if the previous key wasn't the cycling command. */
-	if (editor.last_key != CTRL_L) {
-		editor.recenter_state = 0;
-	}
-	if (editor.last_key != ALT_R) {
-		editor.window_line_state = 0;
-	}
-	editor.last_key = c;
+	/* End the previous keystroke's command: whatever ran during it
+	 * becomes last_command, which is how a command recognises its own
+	 * repeat.  The key after a prefix, and the keys of a numeric
+	 * argument, return above this point, so a two-key sequence counts as
+	 * the one keystroke it is. */
+	cmd_state_begin_keystroke();
 
 	/* Regular key processing */
 	switch (c) {
@@ -881,6 +854,7 @@ void editor_process_keypress(int fd)
 		bcur()->mark_highlight = 0;
 		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
+		cmd_clear_transient();
 		editor_set_status_message("");
 		break;
 	case CTRL_K: /* Kill line */
@@ -1106,7 +1080,7 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case ALT_R: /* M-r: top/middle/bottom of window cycle */
-		editor_move_to_window_line();
+		(void)cmd_execute_named("move-to-window-line-top-bottom", fd);
 		break;
 	case ALT_V: /* Page up */
 		if (wcur()->cy != 0) {
@@ -1189,7 +1163,7 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case CTRL_L: /* Recenter: cycle center → top → bottom */
-		key_recenter();
+		(void)cmd_execute_named("recenter-top-bottom", fd);
 		break;
 	default:
 		/* Filter out control characters and non-printable characters.

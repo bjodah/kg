@@ -1186,6 +1186,13 @@ In this mode
 evaluates the s-expression before point and inserts the result.
 .Pa *scratch*
 buffers are created in this mode by default.
+.It move-to-window-line-top-bottom
+Move point to the top line of the window, then on a repeat to the
+middle, then to the bottom.
+Bound to
+.Ic M-r .
+The cycle only advances while this is the command that ran last, so any
+other command in between starts it again at the top.
 .It not-modified
 Clear the modified flag without saving.
 .It query-replace-regexp
@@ -1197,6 +1204,13 @@ Bound to
 .Ic C-x C-q .
 .Ic M-x toggle-read-only
 is a compatibility alias.
+.It recenter-top-bottom
+Scroll so that point's line is at the centre of the window, then on a
+repeat at the top, then at the bottom.
+Bound to
+.Ic C-l ,
+which also redraws the screen.
+The cycle only advances while this is the command that ran last.
 .It recompile
 Re-run the last compile command without prompting.
 From an ordinary buffer uses that buffer's

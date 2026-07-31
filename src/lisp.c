@@ -1406,6 +1406,7 @@ static void release_lisp_commands(void)
 	for (i = 0; i < lisp_max_commands; i++) {
 		if (state.commands[i].name[0]) {
 			FeReleaseRoot(state.context, state.commands[i].root);
+			cmd_runtime_remove(state.commands[i].name);
 			state.commands[i].name[0] = '\0';
 			state.commands[i].root = nullptr;
 		}
@@ -1470,6 +1471,10 @@ static FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	}
 	strcpy(cmd->name, name);
 	cmd->root = root;
+	/* The registry hands out the identity; this table only holds the
+	 * function.  Redefining keeps the identity, so a command that
+	 * repeats itself does not lose its place when its body changes. */
+	(void)cmd_runtime_define(name);
 	return FeNil(context);
 }
 
@@ -1489,6 +1494,9 @@ static FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 	FeReleaseRoot(context, cmd->root);
 	cmd->name[0] = '\0';
 	cmd->root = nullptr;
+	/* Frees the identity too: defining this name again is a different
+	 * command, and any state the old one owned is dropped. */
+	cmd_runtime_remove(name);
 	return FeNil(context);
 }
 

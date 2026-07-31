@@ -8,11 +8,31 @@
  * answer.  cmdtable in cmd.c is the table; adding a command is adding a
  * row to it. */
 
+#include <stdint.h>
+
 /* Prefix argument context for commands */
 struct command_prefix {
 	int supplied;
 	int value;
 };
+
+/* A command's identity, handed out by the registry and by nothing else.
+ *
+ * A handler pointer is not an identity: two commands may share one (see
+ * read-only-mode and toggle-read-only below), and a Lisp-defined command
+ * has none.  A name is not one either: the storage a name lives in is
+ * reused when a runtime command is removed and another defined.  So the
+ * registry says: a static command is its table slot, a runtime command
+ * gets the next unused number, redefining one keeps its number, and
+ * removing and recreating one does not. */
+typedef uint32_t command_id;
+
+#define CMD_ID_NONE ((command_id)0)
+/* Static ids are 1-based table slots; runtime ids start past any table
+ * this file could plausibly grow to, so the two never collide and an id
+ * says which kind of command it names. */
+#define CMD_ID_STATIC_BASE ((command_id)1)
+#define CMD_ID_RUNTIME_BASE ((command_id)0x10000)
 
 /* Every interactive command is invoked through one descriptor, so the
  * question "may this run here, and who may ask for it?" has exactly one
@@ -68,5 +88,14 @@ void editor_named_command(int fd);
 [[nodiscard]] const struct named_cmd *cmd_lookup(const char *name);
 [[nodiscard]] const struct named_cmd *cmd_descriptor_at(int index);
 void cmd_eval_print_last_sexp(void);
+
+/* The identity of `name`, or CMD_ID_NONE when nothing is called that. */
+[[nodiscard]] command_id cmd_id_by_name(const char *name);
+/* Told by the runtime command registry (lisp.c) that a command has been
+ * defined or removed.  Defining a name that already has an id keeps it;
+ * removing frees the slot, so the next definition of that name is a
+ * different command.  Returns CMD_ID_NONE when no slot is free. */
+command_id cmd_runtime_define(const char *name);
+void cmd_runtime_remove(const char *name);
 
 #endif /* KG_CMD_H */

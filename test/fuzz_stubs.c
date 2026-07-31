@@ -223,6 +223,13 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	(void)ctx;
 	return CMD_UNKNOWN;
 }
+command_id cmd_runtime_define(const char *name)
+{
+	(void)name;
+	return CMD_ID_NONE;
+}
+void cmd_runtime_remove(const char *name) { (void)name; }
+
 void editor_shell_command(int fd, int insert_output)
 {
 	(void)fd;

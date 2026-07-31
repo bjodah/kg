@@ -11,6 +11,7 @@
  * cmd.o reaches most of the editor.  It calls no handler. */
 
 #include "../src/cmd.h"
+#include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "test.h"
 
@@ -153,6 +154,230 @@ static void test_lookup_edges(void)
 	CHECK(cmd_descriptor_at(n) == NULL);
 }
 
+/* ---- Command identity ----
+ *
+ * "version" is the command these tests invoke: it is Lisp-callable, does
+ * not edit, and its whole effect is an echo-area message, so running it
+ * for real costs nothing.  "upcase-word" is the one they get refused. */
+
+static int run(const char *name, enum command_origin origin)
+{
+	struct command_context ctx
+	    = { 0, { 0, 0 }, origin }; /* fd 0, no prefix argument */
+
+	return cmd_invoke(name, &ctx);
+}
+
+/* One keystroke that runs `name`, so last_command ends up holding it. */
+static void run_as_keystroke(const char *name)
+{
+	cmd_state_begin_keystroke();
+	CHECK(run(name, CMD_ORIGIN_KEY) == CMD_RAN);
+}
+
+static void test_static_ids_are_table_slots(void)
+{
+	int i, n = table_size();
+
+	CHECK(cmd_id_by_name(NULL) == CMD_ID_NONE);
+	CHECK(cmd_id_by_name("no-such-command") == CMD_ID_NONE);
+	for (i = 0; i < n; i++) {
+		const char *name = cmd_descriptor_at(i)->name;
+		command_id id = cmd_id_by_name(name);
+
+		CHECKF(id == CMD_ID_STATIC_BASE + (command_id)i,
+		    "%s: id %u is not its table slot", name, (unsigned)id);
+		CHECKF(id < CMD_ID_RUNTIME_BASE,
+		    "the table has outgrown the runtime id base");
+	}
+	/* Two names for one handler are two commands, which is why a
+	 * handler pointer cannot be the identity. */
+	CHECK(cmd_lookup("read-only-mode")->fn
+	    == cmd_lookup("toggle-read-only")->fn);
+	CHECK(cmd_id_by_name("read-only-mode")
+	    != cmd_id_by_name("toggle-read-only"));
+}
+
+static void test_identity_is_published_for_every_origin(void)
+{
+	command_id version = cmd_id_by_name("version");
+	enum command_origin origins[]
+	    = { CMD_ORIGIN_KEY, CMD_ORIGIN_MX, CMD_ORIGIN_LISP };
+	size_t i;
+
+	for (i = 0; i < sizeof(origins) / sizeof(origins[0]); i++) {
+		cmd_state_begin_keystroke();
+		CHECK(run("version", origins[i]) == CMD_RAN);
+		CHECKF(cmd_state()->this_command == version,
+		    "origin %d did not publish the command's identity",
+		    (int)origins[i]);
+		cmd_state_begin_keystroke();
+		CHECK(cmd_state()->last_command == version);
+		CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	}
+	CHECK(cmd_state()->invocation_depth == 0);
+}
+
+/* A keystroke that runs no command still ends the previous command's
+ * turn: last_command becomes "nothing", which is what makes a repeat a
+ * first invocation again. */
+static void test_a_keystroke_without_a_command_ends_the_history(void)
+{
+	run_as_keystroke("version");
+	cmd_state_begin_keystroke(); /* a key that runs nothing */
+	cmd_state_begin_keystroke();
+	CHECK(cmd_state()->last_command == CMD_ID_NONE);
+}
+
+static void test_refused_commands_are_not_what_ran_last(void)
+{
+	command_id version = cmd_id_by_name("version");
+
+	run_as_keystroke("version");
+	cmd_state_begin_keystroke();
+
+	/* Not callable from Lisp. */
+	CHECK(run("sort-lines", CMD_ORIGIN_LISP) == CMD_NOT_CALLABLE);
+	CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	/* Refused by a read-only buffer. */
+	bcur()->readonly = 1;
+	CHECK(run("upcase-word", CMD_ORIGIN_KEY) == CMD_READ_ONLY);
+	bcur()->readonly = 0;
+	CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	/* No such command. */
+	CHECK(run("no-such-command", CMD_ORIGIN_KEY) == CMD_UNKNOWN);
+	CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	CHECK(cmd_state()->last_command == version);
+	CHECK(cmd_state()->invocation_depth == 0);
+}
+
+/* A nested invocation may say what it is while it runs, and must give
+ * the outer command's identity back when it finishes. */
+static void test_nested_invocation_restores_the_outer_identity(void)
+{
+	command_id outer_id = cmd_id_by_name("version");
+	command_id inner_id = cmd_id_by_name("sort-lines");
+	command_id saved_outer, saved_inner;
+
+	cmd_state_begin_keystroke();
+	saved_outer = cmd_state_begin_command(outer_id);
+	CHECK(cmd_state()->invocation_depth == 1);
+
+	saved_inner = cmd_state_begin_command(inner_id);
+	CHECK(cmd_state()->this_command == inner_id);
+	CHECK(cmd_state()->invocation_depth == 2);
+	cmd_state_end_command(saved_inner);
+	CHECK(cmd_state()->this_command == outer_id);
+
+	cmd_state_end_command(saved_outer);
+	CHECK(cmd_state()->invocation_depth == 0);
+	CHECK(cmd_state()->this_command == outer_id);
+	cmd_state_begin_keystroke();
+	CHECKF(cmd_state()->last_command == outer_id,
+	    "the nested command rewrote the keystroke's history");
+}
+
+static void test_runtime_ids_are_stable_across_redefinition(void)
+{
+	command_id first = cmd_runtime_define("my-command");
+	command_id again = cmd_runtime_define("my-command");
+	command_id other = cmd_runtime_define("my-other-command");
+	command_id recreated;
+
+	CHECK(first >= CMD_ID_RUNTIME_BASE);
+	CHECKF(again == first, "redefining changed the identity");
+	CHECKF(other != first, "two commands share one identity");
+	CHECK(cmd_id_by_name("my-command") == first);
+
+	cmd_runtime_remove("my-command");
+	CHECK(cmd_id_by_name("my-command") == CMD_ID_NONE);
+	recreated = cmd_runtime_define("my-command");
+	CHECKF(recreated != first,
+	    "a removed and recreated command kept its identity");
+	CHECKF(recreated != other, "the recreated command took another's id");
+
+	cmd_runtime_remove("my-command");
+	cmd_runtime_remove("my-other-command");
+	cmd_runtime_remove("my-command"); /* removing twice is harmless */
+	CHECK(cmd_runtime_define(NULL) == CMD_ID_NONE);
+	CHECK(cmd_runtime_define("") == CMD_ID_NONE);
+}
+
+/* The table is bounded, and says so rather than handing out an identity
+ * it cannot remember. */
+static void test_runtime_id_table_is_bounded(void)
+{
+	char name[32];
+	int i, defined = 0;
+
+	for (i = 0; i < 64; i++) {
+		snprintf(name, sizeof(name), "bounded-%d", i);
+		if (cmd_runtime_define(name) != CMD_ID_NONE) {
+			defined++;
+		}
+	}
+	CHECKF(defined < 64, "the runtime id table is unbounded");
+	CHECKF(defined > 0, "the runtime id table holds nothing");
+	for (i = 0; i < 64; i++) {
+		snprintf(name, sizeof(name), "bounded-%d", i);
+		cmd_runtime_remove(name);
+	}
+	/* Freed slots are usable again. */
+	CHECK(cmd_runtime_define("bounded-0") != CMD_ID_NONE);
+	cmd_runtime_remove("bounded-0");
+}
+
+static void test_transient_state_survives_only_a_repeat(void)
+{
+	run_as_keystroke("version");
+	cmd_set_transient_value(3);
+
+	/* The same command next keystroke: its own state is there. */
+	run_as_keystroke("version");
+	CHECK(cmd_transient_value() == 3);
+
+	/* Another command next keystroke: nothing to read, for either. */
+	cmd_set_transient_value(5);
+	run_as_keystroke("what-cursor-position");
+	CHECK(cmd_transient_value() == 0);
+	run_as_keystroke("version");
+	CHECKF(
+	    cmd_transient_value() == 0, "state survived a command in between");
+}
+
+static void test_transient_state_is_cleared_by_its_owners_removal(void)
+{
+	command_id id = cmd_runtime_define("transient-owner");
+	command_id outer;
+
+	cmd_state_begin_keystroke();
+	outer = cmd_state_begin_command(id);
+	cmd_set_transient_value(7);
+	CHECK(cmd_state()->transient.owner == id);
+	cmd_state_end_command(outer);
+
+	cmd_runtime_remove("transient-owner");
+	CHECKF(cmd_state()->transient.owner == CMD_ID_NONE,
+	    "a removed command left its state behind");
+	CHECK(cmd_transient_value() == 0);
+	CHECK(cmd_state()->invocation_depth == 0);
+}
+
+static void test_transient_state_is_cleared_on_demand(void)
+{
+	run_as_keystroke("version");
+	cmd_set_transient_value(9);
+	run_as_keystroke("version");
+	CHECK(cmd_transient_value() == 9);
+	cmd_clear_transient();
+	CHECK(cmd_transient_value() == 0);
+	CHECK(cmd_state()->transient.owner == CMD_ID_NONE);
+	/* Forgetting an owner that owns nothing is harmless. */
+	cmd_forget_transient_owner(cmd_id_by_name("version"));
+	cmd_forget_transient_owner(CMD_ID_NONE);
+	CHECK(cmd_transient_value() == 0);
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
@@ -160,5 +385,15 @@ int main(void)
 	RUN(test_lisp_callable_set_is_the_historical_one);
 	RUN(test_lisp_callable_mutation_verdicts);
 	RUN(test_lookup_edges);
+	RUN(test_static_ids_are_table_slots);
+	RUN(test_identity_is_published_for_every_origin);
+	RUN(test_a_keystroke_without_a_command_ends_the_history);
+	RUN(test_refused_commands_are_not_what_ran_last);
+	RUN(test_nested_invocation_restores_the_outer_identity);
+	RUN(test_runtime_ids_are_stable_across_redefinition);
+	RUN(test_runtime_id_table_is_bounded);
+	RUN(test_transient_state_survives_only_a_repeat);
+	RUN(test_transient_state_is_cleared_by_its_owners_removal);
+	RUN(test_transient_state_is_cleared_on_demand);
 	return test_summary();
 }

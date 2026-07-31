@@ -14,10 +14,17 @@ extern char test_status_message[512];
 extern char test_command_name[128];
 extern int test_command_calls;
 
-/* word.o is linked for forward-word/backward-word; its interactive
- * zap-to-char primitive drags in terminal entry points the Lisp tests
- * never reach. */
+/* word.o is linked for forward-word/backward-word, and basic.o for the
+ * window-cycle commands; their interactive primitives drag in terminal
+ * entry points the Lisp tests never reach. */
 void editor_refresh_screen(void) { }
+void probe_window_size(void) { }
+int tty_write(const void *buf, size_t n)
+{
+	(void)buf;
+	(void)n;
+	return 0;
+}
 
 int editor_read_raw_byte(int fd)
 {

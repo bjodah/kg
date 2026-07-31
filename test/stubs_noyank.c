@@ -86,6 +86,13 @@ int cmd_execute_named(const char *name, int fd)
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
+command_id cmd_runtime_define(const char *name)
+{
+	(void)name;
+	return CMD_ID_NONE;
+}
+void cmd_runtime_remove(const char *name) { (void)name; }
+
 void buf_display_name(int idx, char *out, size_t outsize)
 {
 	(void)idx;

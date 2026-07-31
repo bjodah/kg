@@ -660,6 +660,24 @@ void editor_set_local_readonly(int enabled);
 void editor_set_readonly_override(int enabled);
 int editor_row_byte_to_char(erow *row, int byte_index);
 int editor_row_char_to_byte(erow *row, int char_index);
+
+/* A position in a buffer is a byte offset into its text read as one
+ * string: every row's bytes, one '\n' between neighbours, none after the
+ * last.  This is the only position dialect the editor uses.
+ *
+ * The three `editor_*_char_*` conversions below are a second dialect --
+ * 0-based codepoint offsets, in `long` -- and belong to `src/lisp.c`,
+ * which is where Emacs-shaped point arithmetic is spoken.  Nothing else
+ * may grow a use for them: two dialects that interleave is how a
+ * coordinate bug gets written, and one of them is already the adapter at
+ * the edge. */
+size_t buffer_byte_length(const struct editor_buffer *b);
+size_t buffer_row_col_to_position(
+    const struct editor_buffer *b, int row, int col);
+int buffer_position_to_row_col(
+    const struct editor_buffer *b, size_t pos, int *row, int *col);
+
+/* Lisp adapter only. */
 long editor_char_offset(int row, int col);
 void editor_offset_to_rowcol(long offset, int *row, int *col);
 long editor_buffer_char_length(void);

@@ -719,6 +719,116 @@ static void test_row_byte_char_multibyte(void)
 	teardown();
 }
 
+/* Every byte position round-trips position → (row, col) → position, and
+ * the row separators are positions in their own right: the buffer's
+ * length counts one byte for each of them and none after the last row. */
+static void test_byte_position_round_trip(void)
+{
+	size_t pos, len;
+
+	setup();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "de", 2);
+	editor_insert_row(bcur(), 2, "", 0);
+	editor_insert_row(bcur(), 3, "fghi", 4);
+
+	len = buffer_byte_length(bcur());
+	CHECK(len == 12); /* 3 + 2 + 0 + 4 bytes + 3 separators */
+	for (pos = 0; pos <= len; pos++) {
+		int row = -1, col = -1;
+		CHECK(buffer_position_to_row_col(bcur(), pos, &row, &col) == 1);
+		CHECK(buffer_row_col_to_position(bcur(), row, col) == pos);
+	}
+	/* Row starts land just past the preceding separator. */
+	CHECK(buffer_row_col_to_position(bcur(), 1, 0) == 4);
+	CHECK(buffer_row_col_to_position(bcur(), 2, 0) == 7);
+	CHECK(buffer_row_col_to_position(bcur(), 3, 0) == 8);
+	teardown();
+}
+
+/* Positions are bytes, not codepoints: a row of four bytes spelling two
+ * characters is four positions wide, and a position inside a glyph is a
+ * position like any other -- it is the caller's business, not this
+ * layer's, whether it is a glyph boundary. */
+static void test_byte_position_multibyte(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	editor_insert_row(bcur(), 0, "a\xc3\xa9", 3); /* "aé"  — 3 bytes */
+	editor_insert_row(bcur(), 1, "\xe6\xbc\xa2y", 4); /* "漢y" — 4 bytes */
+
+	CHECK(buffer_byte_length(bcur()) == 8);
+	CHECK(buffer_row_col_to_position(bcur(), 1, 0) == 4);
+	CHECK(buffer_row_col_to_position(bcur(), 1, 2) == 6);
+
+	CHECK(buffer_position_to_row_col(bcur(), 2, &row, &col) == 1);
+	CHECK(row == 0 && col == 2); /* inside 'é' */
+	CHECK(buffer_position_to_row_col(bcur(), 3, &row, &col) == 1);
+	CHECK(row == 0 && col == 3); /* the separator's position */
+	CHECK(buffer_position_to_row_col(bcur(), 4, &row, &col) == 1);
+	CHECK(row == 1 && col == 0);
+	teardown();
+}
+
+/* Out-of-range rows, columns and positions clamp to a position that
+ * exists; only the position conversion reports that it had to. */
+static void test_byte_position_clamps(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	editor_insert_row(bcur(), 0, "ab", 2);
+	editor_insert_row(bcur(), 1, "cde", 3);
+
+	CHECK(buffer_byte_length(bcur()) == 6);
+	CHECK(buffer_row_col_to_position(bcur(), -1, 0) == 0);
+	CHECK(buffer_row_col_to_position(bcur(), 0, -7) == 0);
+	CHECK(buffer_row_col_to_position(bcur(), 0, 99) == 2);
+	CHECK(buffer_row_col_to_position(bcur(), 9, 0) == 6);
+	CHECK(buffer_row_col_to_position(bcur(), 9, 99) == 6);
+
+	CHECK(buffer_position_to_row_col(bcur(), 6, &row, &col) == 1);
+	CHECK(row == 1 && col == 3);
+	CHECK(buffer_position_to_row_col(bcur(), 99, &row, &col) == 0);
+	CHECK(row == 1 && col == 3);
+	teardown();
+}
+
+/* An empty buffer is zero bytes long and has exactly one position; a
+ * lone empty row is the same buffer, and a trailing empty row -- what a
+ * file's final newline becomes -- adds exactly its separator. */
+static void test_byte_position_empty_and_trailing_row(void)
+{
+	int row = -1, col = -1;
+
+	setup();
+	CHECK(bcur()->numrows == 0);
+	CHECK(buffer_byte_length(bcur()) == 0);
+	CHECK(buffer_row_col_to_position(bcur(), 0, 0) == 0);
+	CHECK(buffer_row_col_to_position(bcur(), 4, 9) == 0);
+	CHECK(buffer_position_to_row_col(bcur(), 0, &row, &col) == 1);
+	CHECK(row == 0 && col == 0);
+	CHECK(buffer_position_to_row_col(bcur(), 17, &row, &col) == 0);
+	CHECK(row == 0 && col == 0);
+	teardown();
+
+	setup();
+	editor_insert_row(bcur(), 0, "", 0);
+	CHECK(buffer_byte_length(bcur()) == 0);
+	teardown();
+
+	setup();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "def", 3);
+	CHECK(buffer_byte_length(bcur()) == 7);
+	editor_insert_row(bcur(), 2, "", 0);
+	CHECK(buffer_byte_length(bcur()) == 8);
+	CHECK(buffer_position_to_row_col(bcur(), 8, &row, &col) == 1);
+	CHECK(row == 2 && col == 0);
+	teardown();
+}
+
 /* Every offset in an ASCII buffer round-trips offset → (row, col) →
  * offset, including across the empty row and at end of buffer. */
 static void test_char_offset_ascii_round_trip(void)
@@ -2311,6 +2421,10 @@ int main(void)
 	RUN(test_chars_col_inside_double_width);
 	RUN(test_row_byte_char_ascii);
 	RUN(test_row_byte_char_multibyte);
+	RUN(test_byte_position_round_trip);
+	RUN(test_byte_position_multibyte);
+	RUN(test_byte_position_clamps);
+	RUN(test_byte_position_empty_and_trailing_row);
 	RUN(test_char_offset_ascii_round_trip);
 	RUN(test_char_offset_multibyte);
 	RUN(test_char_offset_mid_glyph_rounds_down);

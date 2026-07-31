@@ -592,25 +592,6 @@ char *editor_rows_to_string(erow *rows, int numrows, int *buflen)
 	return buf;
 }
 
-static int editor_current_flat_offset(void)
-{
-	int filerow = editor_current_filerow_or_eof();
-	int filecol = editor_current_filecol();
-	int off = 0;
-	int r;
-
-	for (r = 0; r < filerow && r < bcur()->numrows; r++) {
-		off += bcur()->row[r].size + 1;
-	}
-	if (filerow < bcur()->numrows) {
-		if (filecol > bcur()->row[filerow].size) {
-			filecol = bcur()->row[filerow].size;
-		}
-		off += filecol;
-	}
-	return off;
-}
-
 static void editor_flat_offset_to_row_col(
     const char *buf, int len, int off, int *row, int *col)
 {
@@ -658,11 +639,97 @@ static int utf8_prev_glyph_start(const char *buf, int pos)
 	return start;
 }
 
+/* ---- Flat byte positions ----------------------------------------------
+ * The buffer's text read as one string: every row's bytes, one '\n'
+ * between neighbours, none after the last.  A position is a byte offset
+ * into that string, so 0 is the start, buffer_byte_length() is the end,
+ * and the offset of a row separator is the offset of the row's last byte
+ * plus one.  This is the unit the edit transaction addresses in; the
+ * codepoint offsets below are a separate dialect and are the Lisp
+ * adapter's alone.
+ *
+ * Nothing caches: a conversion walks the rows it crosses, which is what
+ * the two dialects have always cost.  Add a per-row prefix sum here if a
+ * measurement ever asks for one -- but add it once, to this layer. */
+
+/* Bytes in the whole buffer, separators included.  An empty buffer -- and
+ * a slot that has never been loaded -- is 0 bytes long. */
+size_t buffer_byte_length(const struct editor_buffer *b)
+{
+	size_t total = 0;
+	int i;
+
+	for (i = 0; i < b->numrows; i++) {
+		total += (size_t)b->row[i].size + 1;
+	}
+	return total ? total - 1 : 0;
+}
+
+/* Byte position of (row, byte column).  A row past the last one, or a
+ * column past its row's end, names the nearest position that exists
+ * rather than failing: callers arrive here holding point, which may sit
+ * past the end of a row that just got shorter. */
+size_t buffer_row_col_to_position(
+    const struct editor_buffer *b, int row, int col)
+{
+	size_t pos = 0;
+	int i;
+
+	if (b->numrows <= 0 || row < 0) {
+		return 0;
+	}
+	if (row >= b->numrows) {
+		row = b->numrows - 1;
+		col = b->row[row].size;
+	}
+	for (i = 0; i < row; i++) {
+		pos += (size_t)b->row[i].size + 1;
+	}
+	if (col < 0) {
+		col = 0;
+	} else if (col > b->row[row].size) {
+		col = b->row[row].size;
+	}
+	return pos + (size_t)col;
+}
+
+/* Inverse.  Returns 0 for a position past the end of the buffer, having
+ * clamped `*row`/`*col` to the end anyway, so a caller that ignores the
+ * result still gets a position that exists. */
+int buffer_position_to_row_col(
+    const struct editor_buffer *b, size_t pos, int *row, int *col)
+{
+	int i;
+
+	*row = 0;
+	*col = 0;
+	if (b->numrows <= 0) {
+		return pos == 0;
+	}
+	for (i = 0; i < b->numrows; i++) {
+		size_t len = (size_t)b->row[i].size;
+
+		if (pos <= len) {
+			*row = i;
+			*col = (int)pos;
+			return 1;
+		}
+		pos -= len + 1;
+	}
+	*row = b->numrows - 1;
+	*col = b->row[*row].size;
+	return 0;
+}
+
 /* ---- Codepoint offset conversions ------------------------------------
  * kg stores positions as (row, byte column); Emacs-shaped APIs address the
  * buffer by a single codepoint offset where every row separator counts as
  * one character.  These helpers convert between the two on demand; nothing
- * here caches, so callers pay a walk of the rows they cross. */
+ * here caches, so callers pay a walk of the rows they cross.
+ *
+ * This dialect is `src/lisp.c`'s and no other module's -- see the note on
+ * the flat byte positions above.  Anything inside the editor that needs a
+ * position uses those. */
 
 /* Codepoints before `byte_index` in `row`.  A byte index inside a glyph
  * rounds down to that glyph's start, so the result never names a fractional
@@ -711,19 +778,19 @@ int editor_row_char_to_byte(erow *row, int char_index)
 }
 
 /* Codepoint offset from buffer start for (row, byte column).  A row past the
- * last one clamps to end of buffer; a negative row clamps to offset 0. */
+ * last one clamps to end of buffer; a negative row clamps to offset 0 --
+ * which is the byte layer's clamp, taken from it rather than restated, so
+ * the two dialects cannot come to disagree about where the buffer ends. */
 long editor_char_offset(int row, int col)
 {
 	long off = 0;
 	int i;
 
-	if (bcur()->numrows <= 0 || row < 0) {
+	if (bcur()->numrows <= 0) {
 		return 0;
 	}
-	if (row >= bcur()->numrows) {
-		row = bcur()->numrows - 1;
-		col = bcur()->row[row].size;
-	}
+	buffer_position_to_row_col(
+	    bcur(), buffer_row_col_to_position(bcur(), row, col), &row, &col);
 	for (i = 0; i < row; i++) {
 		off += editor_row_byte_to_char(
 			   &bcur()->row[i], bcur()->row[i].size)
@@ -1767,13 +1834,11 @@ void editor_transpose_chars(void)
 		goto done;
 	}
 
-	point = editor_current_flat_offset();
-	if (point < 0) {
-		point = 0;
-	}
-	if (point > len) {
-		point = len;
-	}
+	/* `buf` is the buffer's bytes in exactly the form the flat position
+	 * layer addresses, so point converts straight across -- clamped
+	 * there, which is why nothing is re-clamped here. */
+	point = (int)buffer_row_col_to_position(
+	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
 	while (point > 0 && point < len
 	    && utf8_is_cont((unsigned char)buf[point])) {
 		point--;

@@ -807,6 +807,28 @@ static void cmd_self_insert(int fd)
 	}
 }
 
+/* Abort a git commit or rebase (C-c C-k): quit without saving and with
+ * a non-zero exit status so git discards the message / todo list. */
+static void editor_git_abort(int fd, const char *prompt)
+{
+	if (!editor_confirm_yn(fd, prompt)) {
+		editor_set_status_message("");
+		return;
+	}
+	kg_exit_status = 1;
+	running = 0;
+}
+
+static void cmd_git_commit_abort(int fd)
+{
+	editor_git_abort(fd, "Abort commit? (y/n) ");
+}
+
+static void cmd_git_rebase_abort(int fd)
+{
+	editor_git_abort(fd, "Abort rebase? (y/n) ");
+}
+
 /* Bare keys in the listings: q leaves, and Enter opens what is on this
  * line.  They are commands so the listing's map can name them, and so
  * M-x can reach them. */
@@ -1404,15 +1426,19 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point to the end of the sentence" },
 	{ "forward-word", cmd_forward_word, REPEATS,
 	    "Move point one word forward" },
+	{ "git-commit-abort", cmd_git_commit_abort, CMD_NONE,
+	    "Abort the commit and exit non-zero" },
+	{ "git-rebase-abort", cmd_git_rebase_abort, CMD_NONE,
+	    "Abort the rebase and exit non-zero" },
 	{ "git-rebase-drop", cmd_rebase_drop, EDITS,
 	    "Set this rebase line's action to drop" },
 	{ "git-rebase-edit", cmd_rebase_edit, EDITS,
 	    "Set this rebase line's action to edit" },
 	{ "git-rebase-fixup", cmd_rebase_fixup, EDITS,
 	    "Set this rebase line's action to fixup" },
-	{ "git-rebase-move-line-down", cmd_rebase_move_down, EDITS,
+	{ "git-rebase-move-line-down", cmd_rebase_move_down, EDITS | REPEATS,
 	    "Move this rebase line one line down" },
-	{ "git-rebase-move-line-up", cmd_rebase_move_up, EDITS,
+	{ "git-rebase-move-line-up", cmd_rebase_move_up, EDITS | REPEATS,
 	    "Move this rebase line one line up" },
 	{ "git-rebase-pick", cmd_rebase_pick, EDITS,
 	    "Set this rebase line's action to pick" },

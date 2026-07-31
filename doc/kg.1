@@ -1275,6 +1275,16 @@ Bound to
 and
 .Ic C-\(-> .
 A numeric argument repeats it.
+.It git-commit-abort
+Abort the commit and exit non-zero, so git discards the message.
+Bound to
+.Ic C-c C-k
+in git commit buffers.
+.It git-rebase-abort
+Abort the rebase and exit non-zero, so git discards the todo list.
+Bound to
+.Ic C-c C-k
+in git-rebase-todo buffers.
 .It global-auto-revert-mode
 Toggle automatic re-reading for every buffer at once.
 Equivalent to enabling

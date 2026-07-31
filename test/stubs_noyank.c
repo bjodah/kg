@@ -86,6 +86,13 @@ int cmd_execute_named(const char *name, int fd)
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
+command_id cmd_id_by_name(const char *name)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	return cmd ? CMD_ID_STATIC_BASE + (command_id)(cmd - stub_cmdtable)
+		   : CMD_ID_NONE;
+}
 command_id cmd_runtime_define(const char *name)
 {
 	(void)name;

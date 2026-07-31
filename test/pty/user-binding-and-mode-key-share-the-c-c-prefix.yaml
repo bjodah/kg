@@ -1,0 +1,30 @@
+# A user binding and a mode's own C-c keys live in different layers, and
+# a lookup advances both: the git-rebase map makes C-c a prefix of its
+# own with C-c C-p and C-c C-k under it, and "C-c u" still has to reach
+# the user's binding in the global layer rather than being swallowed.
+#
+# The buffer is a git-rebase-todo, so C-c C-e rewrites the first line's
+# action to "edit" from the mode map, and C-c u upcases a word from the
+# user's map.  C-c z is bound by neither and names the whole sequence.
+name: user-binding-and-mode-key-share-the-c-c-prefix
+filename: git-rebase-todo
+backend: tmux
+dimensions: [14, 70]
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: '(global-set-key "C-c u" "upcase-word")'
+initial: "pick abc123 first commit\npick def456 second commit\n"
+keys:
+  - C-c
+  - C-e
+  - C-n
+  - M-f
+  - M-f
+  - C-f
+  - C-c
+  - u
+  - C-c
+  - z
+expected_saved: "edit abc123 first commit\npick def456 SECOND commit\n"
+expected_screen_contains:
+  - "C-c z is undefined"

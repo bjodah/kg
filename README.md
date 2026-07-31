@@ -374,7 +374,10 @@ Lisp-defined commands appear in `M-x` completion and run under the same
 step budget and error recovery as `eval-expression`; `remove-command`
 and `global-unset-key` undo the registrations. Only `C-c <key>` sequences
 are bindable — `C-c` is reserved for user bindings, so they can never
-shadow built-in keys.
+shadow built-in keys. A mode that defines its own `C-c` keys (git commit
+and rebase buffers, `*compilation*`) shadows the user's binding of that
+same sequence while it is current, and every other `C-c` key still
+reaches the user's.
 
 ## Development
 

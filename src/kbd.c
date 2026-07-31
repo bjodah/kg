@@ -152,85 +152,6 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	return answer == 'y' || answer == 'Y';
 }
 
-/* Abort a git commit or rebase (C-c C-k): quit without saving and with
- * a non-zero exit status so git discards the message / todo list. */
-static void editor_git_abort(int fd, const char *prompt)
-{
-	if (!editor_confirm_yn(fd, prompt)) {
-		editor_set_status_message("");
-		return;
-	}
-	kg_exit_status = 1;
-	running = 0;
-}
-
-/* Action rewritten by a built-in C-c C-<letter> key in git-rebase-todo
- * buffers, mirroring the letters of Emacs' git-rebase-mode. */
-static const char *rebase_action_for_key(int c)
-{
-	switch (c) {
-	case CTRL_P:
-		return "pick";
-	case CTRL_R:
-		return "reword";
-	case CTRL_E:
-		return "edit";
-	case CTRL_S:
-		return "squash";
-	case CTRL_F:
-		return "fixup";
-	case CTRL_D:
-		return "drop";
-	default:
-		return NULL;
-	}
-}
-
-/* Run the command bound to C-c <key>, or report an undefined key.  The
- * binding table maps the second key to a named command, so a bound key
- * runs exactly what M-x would. */
-static void handle_user_binding(int c, int fd)
-{
-	const char *bound = keybind_lookup(c);
-
-	if (bound) {
-		(void)cmd_execute_named(bound, fd);
-	} else if (c == CTRL_G) {
-		editor_set_status_message("");
-	} else if (c >= 32 && c < 127) {
-		editor_set_status_message("C-c %c is undefined", c);
-	} else if (c > 0 && c < 27) {
-		editor_set_status_message("C-c C-%c is undefined", 'a' + c - 1);
-	} else {
-		editor_set_status_message("C-c key is undefined");
-	}
-}
-
-/* Handle the key after a C-c prefix: built-in commit/rebase-mode keys
- * first, then user bindings installed with (global-set-key ...).
- * C-c C-c is never user-bindable (see keybind_parse), and in commit
- * and rebase buffers the other built-ins shadow any user binding. */
-static void handle_cc_prefix_key(int c, int fd)
-{
-	const char *rebase_action
-	    = syntax_is_git_rebase() ? rebase_action_for_key(c) : NULL;
-
-	if ((syntax_is_git_commit() || syntax_is_git_rebase()) && c == CTRL_C) {
-		(void)cmd_execute_named("server-edit", fd);
-	} else if (syntax_is_git_commit() && c == CTRL_K) {
-		editor_git_abort(fd, "Abort commit? (y/n) ");
-	} else if (syntax_is_git_rebase() && c == CTRL_K) {
-		editor_git_abort(fd, "Abort rebase? (y/n) ");
-	} else if (rebase_action) {
-		editor_rebase_set_action(rebase_action);
-	} else if (bcur()->filename
-	    && strcmp(bcur()->filename, "*compilation*") == 0 && c == CTRL_K) {
-		editor_kill_compilation(fd);
-	} else {
-		handle_user_binding(c, fd);
-	}
-}
-
 /* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),
  * matching Emacs.  editor_kill_line() is a half-step primitive, so this
  * counts *newlines* removed (numrows dropped) rather than iterations.  A
@@ -541,10 +462,23 @@ static const struct {
 	{ "buffer-list", "RET", "ibuffer-visit-buffer" },
 	{ "buffer-list", "q", "quit-window" },
 	{ "special", "q", "quit-window" },
+	{ "compilation", "C-c C-k", "kill-compilation" },
+	{ "git-commit", "C-c C-c", "server-edit" },
+	{ "git-commit", "C-c C-k", "git-commit-abort" },
+	{ "git-rebase", "C-c C-c", "server-edit" },
+	{ "git-rebase", "C-c C-k", "git-rebase-abort" },
+	{ "git-rebase", "C-c C-p", "git-rebase-pick" },
+	{ "git-rebase", "C-c C-r", "git-rebase-reword" },
+	{ "git-rebase", "C-c C-e", "git-rebase-edit" },
+	{ "git-rebase", "C-c C-s", "git-rebase-squash" },
+	{ "git-rebase", "C-c C-f", "git-rebase-fixup" },
+	{ "git-rebase", "C-c C-d", "git-rebase-drop" },
+	{ "git-rebase", "M-p", "git-rebase-move-line-up" },
+	{ "git-rebase", "M-n", "git-rebase-move-line-down" },
 };
 
 static struct keymap *global_map;
-static struct keymap *mode_maps[3];
+static struct keymap *mode_maps[6];
 
 /* The map a row names, so the table above reads as one list rather than
  * three. */
@@ -565,12 +499,17 @@ static struct keymap *key_mode_map(const char *name)
  * which is what the special-buffer branch in dispatch used to do. */
 static void key_update_mode_maps(void)
 {
+	const char *name = bcur()->filename;
 	int listing = syntax_is_dired();
-	int special = is_special_buffer(bcur()->filename) && buf_count > 1;
+	int special = name && is_special_buffer(name) && buf_count > 1;
 
 	keymap_set_active(mode_maps[0], listing);
 	keymap_set_active(mode_maps[1], bcur()->readonly && !listing);
 	keymap_set_active(mode_maps[2], special && !listing);
+	keymap_set_active(
+	    mode_maps[3], name && strcmp(name, "*compilation*") == 0);
+	keymap_set_active(mode_maps[4], syntax_is_git_commit());
+	keymap_set_active(mode_maps[5], syntax_is_git_rebase());
 }
 
 /* The sequence in progress, and the numeric argument its first key
@@ -625,6 +564,13 @@ void key_install_builtin_maps(void)
 	mode_maps[0] = keymap_create("dired", KEYMAP_LAYER_MAJOR);
 	mode_maps[1] = keymap_create("buffer-list", KEYMAP_LAYER_MAJOR);
 	mode_maps[2] = keymap_create("special", KEYMAP_LAYER_MAJOR);
+	mode_maps[3] = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
+	mode_maps[4] = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
+	mode_maps[5] = keymap_create("git-rebase", KEYMAP_LAYER_MAJOR);
+	/* C-c waits for its second key even when nothing is bound under
+	 * it, which is what makes it the user's prefix rather than an
+	 * undefined key. */
+	(void)keymap_bind_prefix(global_map, "C-c");
 	for (i = 0; i < sizeof(mode_map_keys) / sizeof(*mode_map_keys); i++) {
 		(void)keymap_bind(key_mode_map(mode_map_keys[i].name),
 		    mode_map_keys[i].sequence, mode_map_keys[i].command);
@@ -791,13 +737,6 @@ void editor_process_keypress(int fd)
 		return;
 	}
 
-	/* The last prefix still outside the map; commit order, not design. */
-	if (editor.cc_prefix) {
-		editor.cc_prefix = 0;
-		handle_cc_prefix_key(c, fd);
-		return;
-	}
-
 	if (handle_universal_arg(c)) {
 		return;
 	}
@@ -849,10 +788,6 @@ void editor_process_keypress(int fd)
 		cmd_clear_transient();
 		editor_set_status_message("");
 		break;
-	case CTRL_C: /* C-c prefix: user-defined bindings */
-		editor.cc_prefix = 1;
-		editor_set_status_message("C-c-");
-		return;
 	case SHIFT_ARROW_LEFT:
 	case SHIFT_ARROW_RIGHT:
 	case SHIFT_ARROW_UP:
@@ -873,14 +808,6 @@ void editor_process_keypress(int fd)
 		 * labels above. */
 		cmd_state_set_shift_translated();
 		(void)cmd_execute_named(shift_select_command(c), fd);
-		break;
-	case ALT_P: /* M-p / M-n: reorder git-rebase-todo lines */
-	case ALT_N:
-		if (syntax_is_git_rebase()) {
-			while (n--) {
-				editor_rebase_move_line(c == ALT_P ? -1 : 1);
-			}
-		}
 		break;
 	default:
 		/* Filter out control characters and non-printable characters.

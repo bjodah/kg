@@ -255,8 +255,6 @@ struct editor_config {
 	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
 			      * row where the cursor should rest (for minibuffer
 			      * prompts). */
-	int cc_prefix; /* Set to 1 when C-c was pressed, waiting for the
-			  user-bound key. */
 	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
 	int prefix_arg; /* The numeric argument under construction. */
 	int prefix_supplied; /* 1 if a numeric argument sequence was typed. */

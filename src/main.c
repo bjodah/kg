@@ -64,7 +64,6 @@ void init_editor(void)
 	bcur()->dirty = 0;
 	bcur()->filename = NULL;
 	bcur()->syntax = NULL;
-	editor.cc_prefix = 0;
 	editor.paste_mode = 0;
 	bcur()->mark_set = 0;
 	bcur()->mark_row = 0;

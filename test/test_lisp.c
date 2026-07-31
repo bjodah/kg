@@ -554,28 +554,37 @@ static void test_define_and_run_command(void)
 
 static void test_key_bindings(void)
 {
-	int key;
+	char spelled[32];
 
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(keybind_parse("C-c i", &key) == 0 && key == 'i');
-	CHECK(keybind_parse("C-c C-y", &key) == 0 && key == ('y' & 0x1f));
-	CHECK(keybind_parse("C-x i", &key) != 0);
-	CHECK(keybind_parse("C-c", &key) != 0);
-	CHECK(keybind_parse("C-c  i", &key) != 0);
-	CHECK(keybind_parse("C-c ii", &key) != 0);
-	CHECK(keybind_parse("C-c C-g", &key) != 0);
+	CHECK(keybind_parse("C-c i", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "C-c i") == 0);
+	CHECK(keybind_parse("C-c C-y", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "C-c C-y") == 0);
+	CHECK(keybind_parse("C-x i", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c", spelled, sizeof(spelled)) != 0);
+	/* Extra spaces are separators now, so this one is bindable; what
+	 * matters is that it means exactly what "C-c i" means. */
+	CHECK(keybind_parse("C-c  i", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "C-c i") == 0);
+	CHECK(keybind_parse("C-c ii", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c C-g", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c C-c", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c C-x", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c M-f", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("C-c SPC", spelled, sizeof(spelled)) != 0);
 
 	CHECK(eval_ok(
 	    "(define-command \"greet\" (lambda () (message \"hey\")))"));
 	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
-	CHECK(keybind_lookup('i') != nullptr);
-	CHECK(strcmp(keybind_lookup('i'), "greet") == 0);
+	CHECK(keybind_lookup("C-c i") != nullptr);
+	CHECK(strcmp(keybind_lookup("C-c i"), "greet") == 0);
 	CHECK(eval_error_contains(
 	    "(global-set-key \"C-x i\" \"greet\")", "invalid key sequence"));
 	CHECK(eval_ok("(global-unset-key \"C-c i\")"));
-	CHECK(keybind_lookup('i') == nullptr);
+	CHECK(keybind_lookup("C-c i") == nullptr);
 	CHECK(eval_error_contains("(global-unset-key \"C-c i\")", "not bound"));
 
 	kg_lisp_shutdown();
@@ -811,9 +820,9 @@ static void test_editor_bridge(void)
 	CHECK(eval_ok(
 	    "(define-command \"greet\" (lambda () (message \"hey\")))"));
 	CHECK(eval_ok("(global-set-key \"C-c i\" \"greet\")"));
-	CHECK(keybind_lookup('i') != nullptr);
+	CHECK(keybind_lookup("C-c i") != nullptr);
 	CHECK(eval_ok("(global-unset-key \"C-c i\")"));
-	CHECK(keybind_lookup('i') == nullptr);
+	CHECK(keybind_lookup("C-c i") == nullptr);
 	CHECK(
 	    eval_error_contains("(load \"absent-package\")", "absent-package"));
 

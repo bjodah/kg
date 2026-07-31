@@ -1,125 +1,133 @@
 /* keybind.c - User key bindings on the C-c prefix.
  *
- * The single canonical key-sequence parser lives here; configuration
- * (global-set-key), dispatch (kbd.c), and any future help display must all
- * go through it.  Only two-key sequences starting with C-c are
- * bindable: C-c followed by a printable character or a control letter.
- * C-c is reserved for users, matching the Emacs convention, so user
- * bindings can never collide with built-in keys.
+ * What a user may bind, and where it goes.  The parsing is
+ * key_parse()'s; this file is the restricted subset kg accepts today:
+ * exactly two keys, the first C-c, the second a printable character or a
+ * control letter other than C-c, C-g or C-x -- so a user binding can
+ * never shadow a prefix, the emergency quit, or the key that finishes a
+ * git commit.  C-c is the user's prefix by the Emacs convention, so
+ * nothing built in has to be checked against.
+ *
+ * The bindings themselves live in a keymap of their own, in the global
+ * layer: mode maps shadow them, which is what the commit and rebase C-c
+ * keys did when this file kept its own table.
  */
 
+#include <stdio.h>
 #include <string.h>
 
-#include "def.h"
 #include "keybind.h"
 
-#define KEYBIND_MAX 32
-#define KEYBIND_NAME_MAX 64
+#include "def.h"
+#include "keyevent.h"
+#include "keymap.h"
 
-struct keybind {
-	int key; /* 0 marks a free slot */
-	char command[KEYBIND_NAME_MAX];
-};
+/* Created on the first binding.  keymap_reset() is a test facility and
+ * invalidates this along with everything else; nothing in the editor
+ * calls it. */
+static struct keymap *bindings;
 
-static struct keybind bindings[KEYBIND_MAX];
-
-/* Parse "C-c X" or "C-c C-x" into the second key's code.  Returns 0 on
- * success.  The parser is deliberately strict: exactly one space, no
- * trailing text, and the second key must be printable or a control
- * letter other than C-c/C-g/C-x (which would shadow prefix handling and
- * cancel). */
-int keybind_parse(const char *sequence, int *key)
+static struct keymap *user_map(void)
 {
-	const char *p = sequence;
-	int c;
+	if (!bindings) {
+		bindings = keymap_create("user", KEYMAP_LAYER_GLOBAL);
+	}
+	return bindings;
+}
 
-	if (!p || strncmp(p, "C-c ", 4) != 0) {
+/* The keys kg refuses to let a user take: the two prefixes, and the
+ * emergency quit that no map may bind at all. */
+static int second_key_is_reserved(struct key_event key)
+{
+	static const char *const reserved[] = { "C-c", "C-g", "C-x" };
+	char text[KEY_FORMAT_MAX];
+	size_t i;
+
+	if (key_format(key, text, sizeof(text)) != 0) {
 		return 1;
 	}
-	p += 4;
-	if (p[0] == 'C' && p[1] == '-' && p[2] != '\0' && p[3] == '\0') {
-		c = (unsigned char)p[2];
-		if (c < 'a' || c > 'z') {
+	for (i = 0; i < sizeof(reserved) / sizeof(*reserved); i++) {
+		if (strcmp(reserved[i], text) == 0) {
 			return 1;
 		}
-		c = c & 0x1f;
-		if (c == CTRL_C || c == CTRL_G || c == CTRL_X) {
-			return 1;
-		}
-	} else if (p[0] != '\0' && p[1] == '\0') {
-		c = (unsigned char)p[0];
-		if (c < 32 || c > 126 || c == ' ') {
-			return 1;
-		}
-	} else {
-		return 1;
 	}
-	*key = c;
 	return 0;
 }
 
-/* Bind a parsed sequence to a named command.  Rebinding a key replaces
- * its command.  Returns 0 on success, 1 on a bad sequence or name, 2
- * when the table is full. */
+int keybind_parse(const char *sequence, char *out, size_t size)
+{
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	struct key_event prefix = { 'c', KEY_MOD_CTRL };
+	char second[KEY_FORMAT_MAX];
+
+	if (keymap_parse_sequence(sequence, keys, KEYMAP_SEQUENCE_MAX) != 2) {
+		return 1;
+	}
+	if (!key_event_equal(keys[0], prefix)) {
+		return 1;
+	}
+	/* A printable character, or a control letter.  Not Meta, not a
+	 * named key: what the terminal reports for those is not settled
+	 * enough to promise a user it stays bound. */
+	if (keys[1].mods & ~(unsigned)KEY_MOD_CTRL) {
+		return 1;
+	}
+	if (!ascii_is_print((int)keys[1].base) || keys[1].base == ' ') {
+		return 1;
+	}
+	if (second_key_is_reserved(keys[1])
+	    || key_format(keys[1], second, sizeof(second)) != 0) {
+		return 1;
+	}
+	(void)snprintf(out, size, "C-c %s", second);
+	return 0;
+}
+
 int keybind_bind(const char *sequence, const char *command)
 {
-	struct keybind *slot = NULL;
-	int key, i;
+	char canonical[KEY_FORMAT_MAX * 2 + 2];
 
-	if (keybind_parse(sequence, &key)) {
+	if (keybind_parse(sequence, canonical, sizeof(canonical))) {
 		return 1;
 	}
-	if (!command || !command[0] || strlen(command) >= KEYBIND_NAME_MAX) {
+	if (!command || !command[0]) {
 		return 1;
 	}
-	for (i = 0; i < KEYBIND_MAX; i++) {
-		if (bindings[i].key == key) {
-			slot = &bindings[i];
-			break;
-		}
-		if (!slot && bindings[i].key == 0) {
-			slot = &bindings[i];
-		}
-	}
-	if (!slot) {
+	/* Storage is the keymap's shared, bounded pool now, and a bind
+	 * that will not fit fails without changing the map. */
+	if (keymap_bind(user_map(), canonical, command) != 0) {
 		return 2;
 	}
-	slot->key = key;
-	strcpy(slot->command, command);
 	return 0;
 }
 
-/* Returns 0 on success, 1 on a bad sequence, 2 when the key was not
- * bound. */
 int keybind_unbind(const char *sequence)
 {
-	int key, i;
+	char canonical[KEY_FORMAT_MAX * 2 + 2];
 
-	if (keybind_parse(sequence, &key)) {
+	if (keybind_parse(sequence, canonical, sizeof(canonical))) {
 		return 1;
 	}
-	for (i = 0; i < KEYBIND_MAX; i++) {
-		if (bindings[i].key == key) {
-			bindings[i].key = 0;
-			bindings[i].command[0] = '\0';
-			return 0;
-		}
+	if (keymap_unbind(user_map(), canonical) != 0) {
+		return 2;
 	}
-	return 2;
+	return 0;
 }
 
-/* Command bound to C-c <key>, or NULL. */
-const char *keybind_lookup(int key)
+const char *keybind_lookup(const char *sequence)
 {
-	int i;
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	struct keymap_match match;
+	char canonical[KEY_FORMAT_MAX * 2 + 2];
+	int count;
 
-	if (key == 0) {
+	if (keybind_parse(sequence, canonical, sizeof(canonical))) {
 		return NULL;
 	}
-	for (i = 0; i < KEYBIND_MAX; i++) {
-		if (bindings[i].key == key) {
-			return bindings[i].command;
-		}
+	count = keymap_parse_sequence(canonical, keys, KEYMAP_SEQUENCE_MAX);
+	keymap_lookup(keys, count, &match);
+	if (match.map != user_map()) {
+		return NULL;
 	}
-	return NULL;
+	return match.command;
 }

@@ -211,13 +211,18 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 		re_match_result res;
 		struct kg_match cur;
 		re_status status = re_exec(rx->regex, text, offset, &res);
-		if (status == RE_STATUS_TOO_COMPLEX) {
-			/* The scan is unfinished, so "the last match before
-			 * `before`" was never established -- an earlier one is
-			 * not the answer to the question that was asked. */
-			return KG_REGEX_TOO_COMPLEX;
-		}
 		if (status != RE_STATUS_OK) {
+			/* Only a genuine no-match ends the scan with whatever
+			 * it has found.  Anything else leaves it unfinished, so
+			 * "the last match before `before`" was never
+			 * established -- an earlier one is not the answer to
+			 * the question that was asked, and the caller gets the
+			 * same reason the forward wrapper would give it. */
+			int why = kg_regex_exec_status(status);
+
+			if (why != KG_REGEX_NOMATCH) {
+				return why;
+			}
 			break;
 		}
 		if (!kg_regex_take_match(&cur, &res, text, text_len)) {

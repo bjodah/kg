@@ -13,6 +13,7 @@
 #include "../src/cmd.h"
 #include "../src/cmdstate.h"
 #include "../src/def.h"
+#include "../src/keyevent.h"
 #include "test.h"
 
 #include <string.h>
@@ -379,6 +380,53 @@ static void test_transient_state_is_cleared_on_demand(void)
 	CHECK(cmd_transient_value() == 0);
 }
 
+/* The self-insert fallback runs a command without cmd_invoke(), so it
+ * has to be refused and published the same way one that does would be. */
+static void test_fast_path_applies_the_same_policy_and_identity(void)
+{
+	command_id id = cmd_id_by_name("self-insert-command");
+	command_id outer = CMD_ID_NONE;
+
+	CHECK(id != CMD_ID_NONE);
+	cmd_state_begin_keystroke();
+	CHECK(cmd_fast_path_begin("self-insert-command", &outer) == 1);
+	CHECK(cmd_state()->this_command == id);
+	cmd_fast_path_end(outer);
+	CHECK(cmd_state()->invocation_depth == 0);
+	cmd_state_begin_keystroke();
+	CHECKF(cmd_state()->last_command == id,
+	    "the fast path did not publish what ran");
+
+	/* A read-only buffer refuses it, and nothing is published. */
+	bcur()->readonly = 1;
+	cmd_state_begin_keystroke();
+	CHECK(cmd_fast_path_begin("self-insert-command", &outer) == 0);
+	CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	bcur()->readonly = 0;
+
+	CHECK(cmd_fast_path_begin("no-such-command", &outer) == 0);
+	CHECK(cmd_state()->invocation_depth == 0);
+}
+
+/* The key is dispatch state, not identity: it says what self-insert
+ * inserts, and two keys bound to one command are still one command. */
+static void test_the_keystrokes_key_is_recorded(void)
+{
+	struct key_event key = { 'q', 0 };
+
+	cmd_state_begin_keystroke();
+	cmd_state_set_key(key);
+	CHECK(key_event_equal(cmd_state()->this_key, key));
+	CHECK(cmd_state()->shift_translated == 0);
+	cmd_state_set_shift_translated();
+	CHECK(cmd_state()->shift_translated == 1);
+	cmd_state_begin_keystroke();
+	CHECKF(cmd_state()->shift_translated == 0,
+	    "shift translation outlived its keystroke");
+	CHECKF(key_event_equal(cmd_state()->this_key, key),
+	    "the key is replaced by the next keystroke, not cleared");
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
@@ -396,5 +444,7 @@ int main(void)
 	RUN(test_transient_state_survives_only_a_repeat);
 	RUN(test_transient_state_is_cleared_by_its_owners_removal);
 	RUN(test_transient_state_is_cleared_on_demand);
+	RUN(test_fast_path_applies_the_same_policy_and_identity);
+	RUN(test_the_keystrokes_key_is_recorded);
 	return test_summary();
 }

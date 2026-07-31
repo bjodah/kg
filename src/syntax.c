@@ -887,10 +887,10 @@ static void makefile_syntax(struct editor_buffer *b, erow *row)
 		}
 		if (p[j] == '=') {
 			eq = j;
-			/* Back up over compound operators := ?= += != */
-			if (j > i
-			    && (p[j - 1] == ':' || p[j - 1] == '?'
-				|| p[j - 1] == '+' || p[j - 1] == '!')) {
+			/* Back up over compound operators := ?= += != .
+			 * The NUL check is strchr()'s: it finds the byte
+			 * that ends the set. */
+			if (j > i && p[j - 1] && strchr(":?+!", p[j - 1])) {
 				eq = j - 1;
 			}
 			break;
@@ -1430,7 +1430,7 @@ static void yaml_scan_value(erow *row, int start)
 			i = yaml_scan_quoted(row, i);
 			continue;
 		}
-		if (p[i] == '&' || p[i] == '*' || p[i] == '!') {
+		if (p[i] && strchr("&*!", p[i])) {
 			i = yaml_scan_anchor_or_tag(row, i);
 			continue;
 		}

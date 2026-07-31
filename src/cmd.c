@@ -742,6 +742,59 @@ static void cmd_dired_unmark(int fd)
 	dired_set_mark(' ');
 }
 
+/* The count a numeric argument asks for, for the commands that read it
+ * rather than being repeated by CMD_REPEATS. */
+static int prefix_count(void)
+{
+	return editor.current_prefix.supplied ? editor.current_prefix.value : 1;
+}
+
+/* ---- Insertion ---- */
+static void cmd_newline(int fd)
+{
+	(void)fd;
+	editor_insert_newline();
+}
+
+/* C-j: a newline, except in Lisp buffers, where it evaluates the
+ * s-expression before point and inserts the result.  One command because
+ * one key does both; the choice moves into a mode layer when there is
+ * one. */
+static void cmd_newline_or_eval_print(int fd)
+{
+	int n = prefix_count();
+
+	(void)fd;
+	if (kg_lisp_active() && bcur()->syntax
+	    && (strcmp(bcur()->syntax->name, "Lisp Interaction") == 0
+		|| strcmp(bcur()->syntax->name, "Lisp") == 0)) {
+		cmd_eval_print_last_sexp();
+		return;
+	}
+	while (n-- > 0) {
+		editor_insert_newline();
+	}
+}
+
+static void cmd_open_line(int fd)
+{
+	(void)fd;
+	editor_open_line();
+}
+
+/* Reached from M-x rather than from a key: the fast path in kbd.c does
+ * the insertion itself so a repeated character is one edit.  What it
+ * inserts is the key that invoked it, as in Emacs. */
+static void cmd_self_insert(int fd)
+{
+	struct key_event key = cmd_state()->this_key;
+
+	(void)fd;
+	if (key.mods == 0 && ascii_is_print((int)key.base)) {
+		editor_self_insert_char((int)key.base);
+	}
+}
+
 /* ---- Motions ----
  *
  * One line each, because the work is already a function somewhere: what
@@ -1033,9 +1086,15 @@ static const struct named_cmd cmdtable[] = {
 	    "Move point to the end of this line" },
 	{ "move-to-window-line-top-bottom", cmd_move_to_window_line, CMD_NONE,
 	    "Move point to the top, middle or bottom of the window" },
+	{ "newline", cmd_newline, EDITS | REPEATS,
+	    "Insert a newline, with the same indentation" },
+	{ "newline-or-eval-print-last-sexp", cmd_newline_or_eval_print, EDITS,
+	    "Newline, or evaluate and print the sexp in Lisp buffers" },
 	{ "next-line", cmd_next_line, REPEATS, "Move point one line down" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
 	    "Clear the modified flag without saving" },
+	{ "open-line", cmd_open_line, EDITS | REPEATS,
+	    "Insert a newline after point, leaving point before it" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
 	{ "previous-line", cmd_previous_line, REPEATS,
@@ -1056,6 +1115,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Scroll one windowful back" },
 	{ "scroll-up-command", cmd_scroll_up_command, CMD_NONE,
 	    "Scroll one windowful forward" },
+	{ "self-insert-command", cmd_self_insert, EDITS,
+	    "Insert the character this command was reached by" },
 	{ "set-mark-command", cmd_set_mark_command, CMD_NONE,
 	    "Set the mark here, or with a prefix pop the mark ring" },
 	{ "shell-command", cmd_shell_command, CMD_NONE,
@@ -1222,6 +1283,31 @@ const struct named_cmd *cmd_descriptor_at(int index)
 							: NULL;
 }
 
+/* The read-only verdict, in one place: every route into a command asks
+ * here, including the self-insert fallback that does not go through
+ * cmd_invoke(). */
+static int refuses_read_only(const struct named_cmd *cmd)
+{
+	return (cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly;
+}
+
+int cmd_fast_path_begin(const char *name, command_id *outer)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	if (!cmd) {
+		return 0;
+	}
+	if (refuses_read_only(cmd)) {
+		editor_set_status_message("Buffer is read-only");
+		return 0;
+	}
+	*outer = cmd_state_begin_command(cmd_id_by_name(name));
+	return 1;
+}
+
+void cmd_fast_path_end(command_id outer) { cmd_state_end_command(outer); }
+
 /* The one route into a command.  It owns the read-only refusal, the
  * Lisp-callability verdict, and the prefix argument the command will see:
  * execution sites outside the per-keystroke dispatch in kbd.c (Lisp, the
@@ -1247,7 +1333,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	if (from_lisp && !(cmd->flags & CMD_LISP_CALLABLE)) {
 		return CMD_NOT_CALLABLE;
 	}
-	if ((cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly) {
+	if (refuses_read_only(cmd)) {
 		/* Lisp reports its own refusal as an error; saying it in
 		 * the echo area too would leave the wrong one showing. */
 		if (!from_lisp) {

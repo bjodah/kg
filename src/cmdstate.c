@@ -13,7 +13,12 @@ void cmd_state_begin_keystroke(void)
 {
 	state.last_command = state.this_command;
 	state.this_command = CMD_ID_NONE;
+	state.shift_translated = 0;
 }
+
+void cmd_state_set_key(struct key_event key) { state.this_key = key; }
+
+void cmd_state_set_shift_translated(void) { state.shift_translated = 1; }
 
 command_id cmd_state_begin_command(command_id id)
 {

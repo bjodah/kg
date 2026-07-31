@@ -71,6 +71,9 @@ enum binding_layer {
 enum readonly_policy {
 	RO_FREE, /* does not edit; allowed */
 	RO_KEY, /* refused by key_would_edit_readonly_buffer() */
+	/* refused by its own descriptor, through cmd_invoke(): where every
+	 * editing key ends up, and where the ones that have moved are */
+	RO_COMMAND,
 	RO_INTERCEPTED, /* the read-only branch takes the key first */
 	RO_HANDLER, /* edits; its own handler refuses */
 	RO_PREFIX, /* edits; the prefix helper refuses before dispatch */
@@ -122,22 +125,23 @@ static const struct binding global_bindings[] = {
 	{ TAB, "TAB", "editor_self_insert_char", "self-insert-command", EDITS,
 	    K_SELF, L_GLOBAL, RO_KEY, 0, NULL,
 	    "the one non-printable key the self-insert fallback accepts" },
-	{ CTRL_J, "C-j", "cmd_eval_print_last_sexp / editor_insert_newline",
-	    "eval-print-last-sexp", EDITS, K_CMD, L_GLOBAL, RO_KEY, 0, NULL,
-	    "newline outside Lisp and Lisp Interaction buffers" },
+	{ CTRL_J, "C-j", "the global map -> cmd_invoke()",
+	    "newline-or-eval-print-last-sexp", EDITS, K_CMD, L_GLOBAL, RO_KEY,
+	    1, NULL, "newline outside Lisp and Lisp Interaction buffers" },
 	{ CTRL_K, "C-k", "editor_kill_line / key_kill_lines", "kill-line",
 	    EDITS, K_CMD, L_GLOBAL, RO_KEY, 0, NULL, NULL },
 	{ CTRL_L, "C-l", "the global map -> cmd_invoke()",
 	    "recenter-top-bottom", 0, K_CMD, L_GLOBAL, RO_FREE, 1,
 	    "recenter-cycle-centre-top-bottom",
 	    "cycles centre/top/bottom while it is the last command" },
-	{ ENTER, "RET", "editor_insert_newline", "newline", EDITS, K_CMD,
-	    L_GLOBAL, RO_INTERCEPTED, 0, NULL,
+	{ ENTER, "RET", "the global map -> cmd_invoke()", "newline", EDITS,
+	    K_CMD, L_GLOBAL, RO_INTERCEPTED, 1, NULL,
 	    "a read-only buffer runs buf_ibuffer_select() on RET first" },
 	{ CTRL_N, "C-n", "the global map -> cmd_invoke()", "next-line", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_O, "C-o", "editor_open_line", "open-line", EDITS, K_CMD,
-	    L_GLOBAL, RO_UNGUARDED, 0, "read-only-refuses-editing-keys", NULL },
+	{ CTRL_O, "C-o", "the global map -> cmd_invoke()", "open-line", EDITS,
+	    K_CMD, L_GLOBAL, RO_COMMAND, 1, "read-only-refuses-editing-keys",
+	    "edited a read-only buffer until it became a command" },
 	{ CTRL_P, "C-p", "the global map -> cmd_invoke()", "previous-line", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ CTRL_Q, "C-q", "editor_read_raw_byte + editor_insert_char",
@@ -227,8 +231,8 @@ static const struct binding global_bindings[] = {
 	{ SHIFT_END, "S-<end>", "shift_select_motion + move",
 	    "move-end-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 0, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ INSERT_KEY, "<insert>", "editor_toggle_overwrite_mode",
-	    "overwrite-mode", 0, K_CMD, L_GLOBAL, RO_FREE, 0, NULL, NULL },
+	{ INSERT_KEY, "<insert>", "the global map -> cmd_invoke()",
+	    "overwrite-mode", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 	{ SHIFT_INSERT, "S-<insert>", "editor_yank", "yank", EDITS, K_CMD,
 	    L_GLOBAL, RO_KEY, 0, NULL, "CUA paste" },
 	{ SHIFT_DELETE, "S-<delete>", "editor_kill_region", "kill-region",
@@ -589,6 +593,14 @@ static void test_readonly_verdict_matches_the_key_blocklist(void)
 		    "inventory says %s",
 		    b->seq, blocked,
 		    b->readonly == RO_KEY ? "blocked" : "not blocked");
+		if (b->readonly == RO_COMMAND) {
+			const struct named_cmd *cmd = cmd_lookup(b->command);
+
+			CHECKF(b->dispatched_by_name && cmd
+				&& (cmd->flags & CMD_EDITS_BUFFER),
+			    "%s: nothing refuses it in a read-only buffer",
+			    b->seq);
+		}
 	}
 	for (k = 0; k < range_count(); k++) {
 		for (c = fallback_ranges[k].lo; c <= fallback_ranges[k].hi;

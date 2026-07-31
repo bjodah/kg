@@ -616,6 +616,49 @@ static int shift_select_motion(int c)
 	return 0;
 }
 
+/* The self-insert fallback.
+ *
+ * It stays outside cmd_invoke() because it batches: a repeated printable
+ * character becomes one insertion and one undo record rather than N of
+ * each, which is measurable on a paste.  What it must not skip is the
+ * policy: cmd_fast_path_begin() applies the same read-only verdict the
+ * descriptor would and publishes the same identity, so self-insert is a
+ * command that ran as far as read-only buffers, last_command and the
+ * goal column are concerned. */
+static void key_self_insert(int c, int n, int fd)
+{
+	command_id outer;
+	char seq[4];
+	int seqlen;
+
+	if (c != TAB && !ascii_is_print(c) && (c < 0x80 || c > 0xFF)) {
+		return;
+	}
+	if (!cmd_fast_path_begin("self-insert-command", &outer)) {
+		return;
+	}
+	if (c >= 0x80) {
+		/* A byte above ASCII is the lead of a multi-byte character
+		 * the terminal sends one byte at a time.  Pull in the
+		 * continuation bytes and insert the whole glyph as one
+		 * unit; a malformed sequence (or a stray continuation
+		 * byte) is dropped rather than half inserted, the same
+		 * policy the minibuffer uses. */
+		seqlen = editor_read_utf8_seq(fd, c, seq);
+		while (seqlen > 0 && n-- > 0) {
+			editor_self_insert_glyph(seq, seqlen);
+		}
+	} else if (n > 1 && key_can_batch_literal_insert(c)
+	    && !bcur()->overwrite_mode) {
+		editor_insert_repeated_literal(c, n);
+	} else {
+		while (n-- > 0) {
+			editor_self_insert_char(c);
+		}
+	}
+	cmd_fast_path_end(outer);
+}
+
 /* ---- The global map ----
  *
  * One row per built-in binding that has moved out of the switch below.
@@ -668,6 +711,10 @@ static const struct {
 	{ "M-@", "mark-word" },
 	{ "M-w", "kill-ring-save" },
 	{ "C-<insert>", "kill-ring-save" },
+	{ "RET", "newline" },
+	{ "C-j", "newline-or-eval-print-last-sexp" },
+	{ "C-o", "open-line" },
+	{ "<insert>", "overwrite-mode" },
 };
 
 static struct keymap *global_map;
@@ -857,6 +904,7 @@ void editor_process_keypress(int fd)
 	 * argument, return above this point, so a two-key sequence counts as
 	 * the one keystroke it is. */
 	cmd_state_begin_keystroke();
+	cmd_state_set_key(key_event_from_legacy(c));
 
 	/* Keys the maps answer.  What they do not answer falls through to
 	 * the switch, which is what phase 4 empties one family at a time. */
@@ -878,23 +926,6 @@ void editor_process_keypress(int fd)
 			editor_set_status_message("ESC %c is undefined", c);
 		}
 		break;
-	case ENTER: /* Enter */
-		while (n--) {
-			editor_insert_newline();
-		}
-		break;
-	case CTRL_J: /* Ctrl-j: eval sexp in Lisp/Scratch if Lisp active, else
-			newline */
-		if (kg_lisp_active() && bcur()->syntax
-		    && (strcmp(bcur()->syntax->name, "Lisp Interaction") == 0
-			|| strcmp(bcur()->syntax->name, "Lisp") == 0)) {
-			cmd_eval_print_last_sexp();
-		} else {
-			while (n--) {
-				editor_insert_newline();
-			}
-		}
-		break;
 	case CTRL_D: /* Delete char forward */
 		while (n--) {
 			editor_del_forward_char();
@@ -912,11 +943,6 @@ void editor_process_keypress(int fd)
 			key_kill_lines(n);
 		} else {
 			editor_kill_line();
-		}
-		break;
-	case CTRL_O: /* Open line */
-		while (n--) {
-			editor_open_line();
 		}
 		break;
 	case CTRL_S: /* Incremental search */
@@ -981,9 +1007,6 @@ void editor_process_keypress(int fd)
 				editor_del_forward_char();
 			}
 		}
-		break;
-	case INSERT_KEY:
-		editor_toggle_overwrite_mode();
 		break;
 	case SHIFT_ARROW_LEFT:
 	case SHIFT_ARROW_RIGHT:
@@ -1096,31 +1119,7 @@ void editor_process_keypress(int fd)
 		 * Only allow printable ASCII (32-126) and TAB.  (ENTER is
 		 * handled as its own case above and would never reach here.)
 		 * Repeats N times when a C-u prefix preceded the key. */
-		if (c == TAB || (c >= 32 && c < 127)) {
-			if (n > 1 && key_can_batch_literal_insert(c)
-			    && !bcur()->overwrite_mode) {
-				editor_insert_repeated_literal(c, n);
-			} else {
-				while (n--) {
-					editor_self_insert_char(c);
-				}
-			}
-		} else if (c >= 0x80 && c <= 0xFF) {
-			/* A byte above ASCII is the lead of a multi-byte
-			 * character the terminal sends one byte at a time.
-			 * Pull in the continuation bytes and insert the whole
-			 * glyph as one unit; a malformed sequence (or a stray
-			 * continuation byte) is dropped rather than half
-			 * inserted, the same policy the minibuffer uses. */
-			char seq[4];
-			int seqlen = editor_read_utf8_seq(fd, c, seq);
-
-			if (seqlen > 0) {
-				while (n--) {
-					editor_self_insert_glyph(seq, seqlen);
-				}
-			}
-		}
+		key_self_insert(c, n, fd);
 		/* Silently ignore all other control/non-printable characters */
 		break;
 	}

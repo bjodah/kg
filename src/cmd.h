@@ -96,6 +96,17 @@ void editor_named_command(int fd);
 [[nodiscard]] const struct named_cmd *cmd_descriptor_at(int index);
 void cmd_eval_print_last_sexp(void);
 
+/* The two halves of cmd_invoke() a dispatch path needs when it runs a
+ * command without going through it.  The self-insert fallback is the one
+ * such path: it batches a repeated character into a single insertion, so
+ * it cannot be a plain handler call, but it must still be refused by a
+ * read-only buffer and still publish the command's identity.
+ *
+ * Returns 0 when policy refuses the command; on success the caller pairs
+ * it with cmd_fast_path_end(*outer). */
+[[nodiscard]] int cmd_fast_path_begin(const char *name, command_id *outer);
+void cmd_fast_path_end(command_id outer);
+
 /* The identity of `name`, or CMD_ID_NONE when nothing is called that. */
 [[nodiscard]] command_id cmd_id_by_name(const char *name);
 /* Told by the runtime command registry (lisp.c) that a command has been

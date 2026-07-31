@@ -2,6 +2,7 @@
 #define KG_CMDSTATE_H
 
 #include "cmd.h"
+#include "keyevent.h"
 
 /* What the editor is running, what it ran last, and the little state a
  * command keeps between two of its own invocations.
@@ -27,6 +28,14 @@ struct command_state {
 	command_id last_command;
 	unsigned invocation_depth;
 	struct command_transient transient;
+	/* The key that started this keystroke, for the commands that are
+	 * about the key rather than about the buffer: self-insert-command
+	 * inserts it.  It is dispatch state, not the command's identity:
+	 * two keys bound to one command are still one command. */
+	struct key_event this_key;
+	/* Set when this keystroke was a shift-translated motion, which is
+	 * what keeps the region alive across it. */
+	int shift_translated;
 };
 
 [[nodiscard]] const struct command_state *cmd_state(void);
@@ -34,6 +43,10 @@ struct command_state {
 /* Start one keystroke: whatever ran during the previous keystroke becomes
  * last_command, and this keystroke starts out running nothing. */
 void cmd_state_begin_keystroke(void);
+/* Records what the keystroke about to be dispatched was, and that it
+ * extends a shift-selected region. */
+void cmd_state_set_key(struct key_event key);
+void cmd_state_set_shift_translated(void);
 
 /* Publish `id` as the running command.  Returns the identity to hand back
  * to cmd_state_end_command(), which is the outer command's when this one

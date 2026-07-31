@@ -1,3 +1,4 @@
+#include "../src/cmdstate.h"
 #include "../src/def.h"
 
 #include <fcntl.h>
@@ -328,6 +329,8 @@ static void fuzz_window_line(int fd)
 	editor_move_to_window_line();
 }
 
+static void fuzz_self_insert(int fd) { (void)fd; }
+
 static const struct named_cmd fuzz_cmdtable[] = {
 	{ "back-to-indentation", fuzz_back_to_indentation, CMD_NONE, "stub" },
 	{ "backward-char", fuzz_backward_char, CMD_REPEATS, "stub" },
@@ -349,6 +352,9 @@ static const struct named_cmd fuzz_cmdtable[] = {
 	{ "recenter-top-bottom", fuzz_recenter, CMD_NONE, "stub" },
 	{ "scroll-down-command", fuzz_scroll_down, CMD_NONE, "stub" },
 	{ "scroll-up-command", fuzz_scroll_up, CMD_NONE, "stub" },
+	/* The fast path in kbd.c does the insertion itself and only asks
+	 * this row for the read-only verdict and the identity. */
+	{ "self-insert-command", fuzz_self_insert, CMD_EDITS_BUFFER, "stub" },
 	{ nullptr, nullptr, CMD_NONE, nullptr },
 };
 
@@ -401,6 +407,20 @@ int cmd_execute_named(const char *name, int fd)
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
+int cmd_fast_path_begin(const char *name, command_id *outer)
+{
+	const struct named_cmd *cmd = cmd_lookup(name);
+
+	if (!cmd) {
+		return 0;
+	}
+	if ((cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly) {
+		return 0;
+	}
+	*outer = cmd_state_begin_command(cmd_id_by_name(name));
+	return 1;
+}
+void cmd_fast_path_end(command_id outer) { cmd_state_end_command(outer); }
 command_id cmd_runtime_define(const char *name)
 {
 	(void)name;

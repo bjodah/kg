@@ -1287,6 +1287,17 @@ Bound to
 .Ic M-r .
 The cycle only advances while this is the command that ran last, so any
 other command in between starts it again at the top.
+.It newline
+Insert a newline, carrying the current line's indentation when
+auto-indent applies.
+Bound to
+.Ic Enter .
+A numeric argument repeats it.
+.It newline-or-eval-print-last-sexp
+Insert a newline; in Lisp Interaction and Lisp buffers, evaluate the
+s-expression before point and insert the result instead.
+Bound to
+.Ic C-j .
 .It next-line
 Move point one line down, keeping the goal column.
 Bound to
@@ -1295,6 +1306,11 @@ and the down arrow.
 A numeric argument repeats it.
 .It not-modified
 Clear the modified flag without saving.
+.It open-line
+Insert a newline after point, leaving point where it is.
+Bound to
+.Ic C-o .
+A numeric argument repeats it.
 .It previous-line
 Move point one line up, keeping the goal column.
 Bound to
@@ -1349,6 +1365,10 @@ Bound to
 .Ic C-v
 and
 .Ic PgDn .
+.It self-insert-command
+Insert the character the command was reached by.
+This is what an ordinary printable key runs; a read-only buffer refuses
+it like any other edit.
 .It set-mark-command
 Set the mark where point is.
 With a prefix argument, move point to the last mark instead, walking

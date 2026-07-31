@@ -179,6 +179,25 @@ static void test_c_line_comment(void)
 	teardown();
 }
 
+/* row->hl is indexed in render bytes, so a comment run has to end at
+ * row->rsize.  With a leading tab the chars length is eight bytes
+ * shorter, and the tail of the comment used to keep the colour of
+ * whatever was there before. */
+static void test_c_line_comment_after_tab(void)
+{
+	int i;
+
+	setup(syntax_find_by_name("C"));
+	editor_insert_row(bcur(), 0, "\t// comment", 11);
+
+	CHECK(bcur()->row[0].size == 11);
+	CHECK(bcur()->row[0].rsize == 18);
+	for (i = 8; i < 18; i++) {
+		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
+	}
+	teardown();
+}
+
 /* A decimal integer literal is HL_NUMBER. */
 static void test_c_integer(void)
 {
@@ -1290,6 +1309,7 @@ int main(void)
 	RUN(test_c_ctrl_keyword);
 	RUN(test_c_string);
 	RUN(test_c_line_comment);
+	RUN(test_c_line_comment_after_tab);
 	RUN(test_c_integer);
 	RUN(test_c_hex);
 	RUN(test_c_binary);

@@ -239,7 +239,14 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			    rows, numrows, win_w, rowoff, y, &fr, &offset);
 		} else {
 			fr = rowoff + y;
-			offset = coloff;
+			/* `offset` slices row->render, but coloff is a chars
+			 * offset (filecol == coloff + cx everywhere else), so
+			 * it has to be converted.  Reading it as a render
+			 * offset drew a window that did not contain point on
+			 * any horizontally scrolled row holding a tab. */
+			offset = fr < numrows
+			    ? chars_to_render_col(&rows[fr], coloff)
+			    : 0;
 		}
 		int current_color = -1;
 		int current_reverse = 0;
@@ -531,7 +538,7 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 void editor_refresh_screen(void)
 {
 	struct abuf ab = ABUF_INIT;
-	int i, cx, j;
+	int i, cx;
 	int msglen;
 
 	KG_PERF_INC(KG_PERF_REFRESH);
@@ -676,28 +683,17 @@ void editor_refresh_screen(void)
 		cx = 1;
 		if (row) {
 			/* wcur()->cx is a byte offset into row->chars, but the
-			 * cursor must be placed at the visible column.  Tabs
-			 * widen to the next tab stop; every other glyph is
-			 * worth its display width, so this stays in step with
-			 * editor_visual_col() and the row render above. */
-			int target = wcur()->cx + wcur()->coloff;
-
-			for (j = wcur()->coloff; j < target && j < row->size;
-			    j++) {
-				if (row->chars[j] == TAB) {
-					/* cx is 1-based. */
-					cx += tab_stop_advance(cx - 1);
-				} else {
-					cx += utf8_width_at(
-					    row->chars, row->size, j);
-				}
-			}
-			/* Past EOL — rect mode allows the cursor to live in
-			 * virtual space; each virtual byte renders as one extra
-			 * column. */
-			if (target > row->size) {
-				cx += target - row->size;
-			}
+			 * cursor must be placed at the visible column: the
+			 * cells drawn between the left edge of the window
+			 * (chars offset coloff) and point.  editor_visual_col()
+			 * is the one model of that -- tab stops measured from
+			 * the start of the line, every other glyph worth its
+			 * display width, virtual space past EOL one cell per
+			 * byte -- and it is what the row above was rendered
+			 * with. */
+			cx += editor_visual_col(
+				  row, wcur()->cx + wcur()->coloff)
+			    - editor_visual_col(row, wcur()->coloff);
 		}
 		if (bcur()->visual_line_mode) {
 			int filerow = wcur()->rowoff + wcur()->cy;

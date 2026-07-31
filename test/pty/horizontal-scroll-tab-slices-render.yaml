@@ -1,0 +1,18 @@
+# doc/coordinates.md row 11b: coloff is a chars offset everywhere the
+# editor computes with it, but the row-drawing loop sliced row->render
+# with it directly.  On a row with a tab the two disagree by the tab's
+# expansion, so a horizontally scrolled window drew eight columns'
+# worth of the wrong text and did not contain point at all: C-e here
+# used to leave "ZQX" -- the last three characters of the line, the ones
+# point is sitting after -- off the right-hand edge of the screen.
+name: horizontal-scroll-tab-slices-render
+filename: hscroll-tab.txt
+backend: tmux
+dimensions: [12, 40]
+initial: "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaZQX\nx\n"
+keys:
+  - C-e
+expected_saved: "\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaZQX\nx\n"
+expected_screen_contains:
+  - "aaaZQX"
+  - "All (1,61)"

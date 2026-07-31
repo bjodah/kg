@@ -287,14 +287,17 @@ ordered by value vs implementation effort.
       of its parts, so a flag reports four columns where the terminal
       draws two.
 
-- [ ] **Horizontal-scroll + tab units mismatch in display.c**.
-      `editor.coloff` is used both as a chars-byte offset
-      (`editor.coloff + editor.cx == filecol`) and as a render-byte
-      offset (the row-render loop indexes `r->render + coloff`).  These
-      agree only for rows with no tabs.  Once a row is long enough to
-      scroll horizontally and contains a tab, the cursor placement and
-      the rendered viewport disagree.  Pre-existing, no user reports;
-      fix would unify on render-col units throughout the cursor maths.
+- [x] **Horizontal-scroll + tab units mismatch in display.c**.  Fixed:
+      `coloff` is a chars-byte offset (`coloff + cx == filecol`), which
+      is what every other module already assumed, and the two places
+      that read it as a render offset now convert.  The row-drawing
+      loop slices `r->render` at `chars_to_render_col(r, coloff)`, and
+      the cursor column is the difference of two `editor_visual_col()`
+      readings instead of a second, subtly different, walk of the row.
+      A scrolled window used to be drawn one tab expansion off and not
+      contain point at all
+      (`test/pty/horizontal-scroll-tab-slices-render.yaml`).
+      See `doc/coordinates.md` row 11b.
 
 - [ ] **mandoc -T lint nits in doc/kg.1**.  Three pre-existing
       "new sentence, new line" warnings (e.g. around `M-a/M-e`'s

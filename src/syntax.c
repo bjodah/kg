@@ -1606,8 +1606,12 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 		/* Handle single-line comments (1- or 2-char starter). */
 		if (scs[0] && prev_sep && *p == scs[0]
 		    && (!scs[1] || *(p + 1) == scs[1])) {
-			/* From here to end is a comment */
-			memset(row->hl + i, HL_COMMENT, row->size - i);
+			/* From here to end is a comment.  `i` and row->hl
+			 * are both in render bytes, so the run ends at
+			 * row->rsize: row->size is the chars length, and on
+			 * a row holding a tab it stops the colour short by
+			 * however much the tab expanded. */
+			memset(row->hl + i, HL_COMMENT, row->rsize - i);
 			goto done;
 		}
 

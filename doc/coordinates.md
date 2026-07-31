@@ -32,8 +32,8 @@ tabs, which is why a test that uses such a row proves nothing here.
 ## Producers and consumers
 
 Verdicts: **ok** = correct as written; **P03** = fixed by plan 03;
-**P14** = wrong, and fixed by this plan's phase 3; **div** = a
-documented divergence that is correct but reads wrong.
+**P14** = was wrong, fixed by this plan; **div** = a documented
+divergence that is correct but reads wrong.
 
 | # | Producer | Space out | Consumers | Verdict |
 | --- | --- | --- | --- | --- |
@@ -46,9 +46,9 @@ documented divergence that is correct but reads wrong.
 | 7 | `visual_line_width(row, win_w)` (`mode.c`) | vcol (wrapped) | `basic.c:70`; `mode.c:116,132,210,233` | ok |
 | 8 | `render_offset_at_visual(row, vcol, win_w)` (`mode.c`) | **render byte offset** | `mode.c:193` `find_visual_row`'s out-param, named `char_offset` but consumed by `display.c:238` as the render slice start | ok — misleading parameter name only |
 | 9 | `get_visual_row(rows, n, win_w, cy, cx)` (`mode.c`) | visual row index; `cx` in | chars | `basic.c:87,98`; `cmd.c:319`; `display.c:542,595,709` | ok |
-| 10 | `row->hl[i]` | render | `syntax.c` highlighters (walk `row->render`, bound by `row->rsize`); `display.c:394` the draw loop; `search.c` match highlight; `dired.c:119-129` (gutter is ASCII, so chars == render) | ok, except `generic_keyword_scan`'s single-line comment, which used the **chars** length `row->size - i` to fill a render-indexed run — **P14** |
+| 10 | `row->hl[i]` | render | `syntax.c` highlighters (walk `row->render`, bound by `row->rsize`); `display.c:394` the draw loop; `search.c` match highlight; `dired.c:119-129` (gutter is ASCII, so chars == render) | ok, except `generic_keyword_scan`'s single-line comment, which filled a render-indexed run with the **chars** length `row->size - i` and so stopped the colour one tab expansion short — **P14** |
 | 11 | `wcur()->coloff` | chars (`filecol = coloff + cx` at `buffer.c:80`) | every command; `editor_reveal_position_centered`; `basic.c` motion | ok |
-| 11b | ... the same `coloff` | consumed as a **render** offset | `display.c` `draw_window_rows` (`offset = coloff`, indexing `r->render`) and the cursor-placement loop (walking `row->chars` from `coloff`) | **P14** — the fix is to convert with 4 where the row is drawn, and to take the cursor column as the difference of two `editor_visual_col()` readings.  This was `doc/TODO.md`'s "horizontal-scroll + tab units mismatch" |
+| 11b | ... the same `coloff` | consumed as a **render** offset | `display.c` `draw_window_rows` (`offset = coloff`, indexing `r->render`) and the cursor-placement loop (walking `row->chars` from `coloff`) | **P14** — the row is drawn from `chars_to_render_col(r, coloff)` (row 4), and the cursor column is the difference of two `editor_visual_col()` readings.  This was `doc/TODO.md`'s "horizontal-scroll + tab units mismatch" |
 | 12 | isearch match offsets (`search.c`) | chars (`row->chars` is what is searched) | `editor_reveal_position_centered(match_row, point_col)` — takes chars, documented at `buffer.c:229` | **P03** |
 | 13 | `search.c` highlight span | render, converted from chars inside `hl_snapshot_mark()` | `row->hl` | fixed in this plan's phase 2 — the literal query-replace used to pass the chars *length* `slen` as a render length, wrong for a match containing a tab |
 | 14 | `kg_regex_match_forward/backward` (`regex.c`) | chars (byte offsets into the subject) | `search.c` | **P03** — both paths step with `kg_utf8_forward_boundary()`; the backward scan at `regex.c:256` consumes the shared helper, so the mid-glyph `+1` is gone from both |

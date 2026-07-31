@@ -1404,11 +1404,20 @@ void editor_open_line(void)
 
 /* ---- The edit transaction ---------------------------------------------
  * One replacement of a byte range by other bytes, which is the whole of
- * what a command may do to a buffer's text.  Every allocation the result
- * needs is made first; only once none of them can fail does anything the
- * buffer holds move.  A refused or failed edit therefore leaves the text,
- * the undo stack, the modified flag and the content generation exactly as
- * they were -- there is no partial edit to observe or to unwind.
+ * what a command may do to a buffer's text.  Every allocation the *text*
+ * needs is made first -- the replaced bytes, the rows that replace them,
+ * the row array's growth and the undo record; only once none of them can
+ * fail does anything the buffer holds move.  A refused or failed edit
+ * therefore leaves the text, the undo stack, the modified flag and the
+ * content generation exactly as they were -- there is no partial edit to
+ * observe or to unwind.
+ *
+ * The derived state is the stated exception: the commit calls
+ * `editor_update_row()` on each row it published, which grows that row's
+ * render and highlight buffers and can run out of memory there.  That
+ * failure is `editor_nomem()`'s, not the transaction's -- the text is
+ * already correct and the editor is on its way down -- but it is the
+ * reason this is atomicity of the text rather than of everything.
  *
  * Plan 10 grows the rest of the layer here: markers relocate in the
  * commit, decorations follow them, and one change event per committed
@@ -1538,8 +1547,10 @@ static int edit_stage(const struct kg_edit *e, int r0, int c0, int r1, int c1,
 	    &b->row, &b->row_capacity, b->numrows + st->nl - (r1 - r0));
 }
 
-/* Put the staged rows in place of rows [r0, r1].  Nothing here can fail,
- * which is the whole point of everything above it. */
+/* Put the staged rows in place of rows [r0, r1].  Nothing here can fail
+ * the edit, which is the whole point of everything above it; the trailing
+ * `editor_update_row()` pass rebuilds derived state and can still run out
+ * of memory, which quits rather than unwinding (see the section header). */
 static void edit_publish(
     struct editor_buffer *b, int r0, int r1, struct edit_staged *st)
 {

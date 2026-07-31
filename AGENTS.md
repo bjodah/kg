@@ -74,6 +74,19 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
   depend on what the PTY cases painted. Function coverage was identical
   in every run measured and gets no slack.
+- Every `make check` writes machine-readable results to `test/.results/`
+  (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
+  from `utils/pty_accept.py --json`, both with per-case status and wall
+  time. `--parallel` keeps each lane's copy under
+  `.ci/.run/results/<step>` and ends by writing `.ci/.run/quality.json`
+  (`utils/quality_report.py`): stages and durations, both layers' counts
+  and slowest cases, coverage against its floor, the complexity manifest,
+  the pins. `utils/print-tool-versions.sh` prints the toolchain and the
+  box; hosted CI runs it before every step.
+- Hosted CI is two workflows: `build.yml` is platform smoke, and
+  `quality.yml` runs one job per `.ci/ci-NN-*.sh`, discovered from the
+  same glob, with `--require-tools` so a missing tmux or Emacs fails
+  instead of skipping.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.

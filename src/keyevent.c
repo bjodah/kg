@@ -206,6 +206,7 @@ static int key_base_takes_shift(int32_t base)
 static int32_t key_parse_base(const char *text)
 {
 	uint32_t scalar;
+	size_t len;
 	int span = 0;
 	size_t i;
 
@@ -214,11 +215,16 @@ static int32_t key_parse_base(const char *text)
 			return key_names[i].base;
 		}
 	}
-	scalar = utf8_codepoint_at(text, (int)strlen(text), 0, &span);
-	/* A literal space is not a token -- a sequence is split on spaces --
-	 * so the space key is only ever spelled "SPC", which the table
-	 * above already answered. */
-	if (span <= 0 || text[span] != '\0' || scalar <= ' ') {
+	len = strlen(text);
+	scalar = utf8_codepoint_at(text, (int)len, 0, &span);
+	/* The scalar must span the whole text: compared as lengths, not as
+	 * text[span] != '\0', because the decoder reports a span of one
+	 * even for the empty string a trailing modifier leaves ("C-"), and
+	 * indexing by it would read past the string.  A literal space is
+	 * not a token -- a sequence is split on spaces -- so the space key
+	 * is only ever spelled "SPC", which the table above already
+	 * answered. */
+	if (span <= 0 || (size_t)span != len || scalar <= ' ') {
 		return -1;
 	}
 	return (int32_t)scalar;

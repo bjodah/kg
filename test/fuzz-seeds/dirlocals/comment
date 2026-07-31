@@ -1,0 +1,2 @@
+; a comment
+((nil . ((tab-width . 8)))) ; trailing

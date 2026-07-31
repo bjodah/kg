@@ -1,0 +1,2 @@
+((c-mode . ((tab-width . 4) (fill-column . 80)))
+ (fundamental-mode . ((tab-width . 2))))

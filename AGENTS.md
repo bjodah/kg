@@ -42,11 +42,17 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is not part of `make check`; CI runs it as `.ci/ci-10-*.sh`. Both sides
   report BYTE offsets — Emacs reports character offsets natively and the
   oracle converts, so do not remove that conversion.
-- Seed inputs for the regex fuzzer are tracked in `test/fuzz-seeds/regex`
-  and copied into the gitignored working corpus by `make fuzz-regex-seed`,
-  which `make fuzz-regex-smoke` depends on. `make fuzz-regex-seed-replay`
-  runs every tracked seed once without mutation. The input encoding is in
-  the header comment of `test/fuzz_regex.c`.
+- Fuzz smoke runs are a time budget, not a run count: `FUZZ_MAX_TOTAL_TIME`
+  (5 s per target) with `FUZZ_MAX_LEN`, `FUZZ_TIMEOUT`,
+  `FUZZ_RSS_LIMIT_MB` and `FUZZ_VERBOSITY`, the same names both
+  subprojects use, and `-print_final_stats` so execs/s and peak RSS are
+  in the log. Every target has tracked seeds under `test/fuzz-seeds/<target>`
+  and a `make fuzz-<target>-seed` that copies them into the gitignored
+  working corpus; `make fuzz-seed` does all four. Crash, timeout and OOM
+  inputs land in `test/fuzz-artifacts/<target>/`.
+- `make fuzz-regex-seed-replay` runs every tracked regex seed once without
+  mutation. Each harness documents its input encoding in its header
+  comment (`test/fuzz_regex.c`, `test/fuzz_keypress.c`, ...).
 - `make coverage` ends in a ratchet, not a printed number:
   `.ci/coverage-baseline.json` holds every `src/*.c` file's line and
   function rate, `make coverage-check` fails when one falls below its

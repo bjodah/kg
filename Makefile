@@ -108,7 +108,28 @@ FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS)
-FUZZ_SEEDS_REGEX = $(TESTDIR)/fuzz-seeds/regex
+FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
+FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
+# The working corpus is gitignored, so a fresh checkout starts each target
+# from nothing unless the tracked seeds are copied in first.  Every target
+# has seeds now: keypress, dirlocals and localvars used to start empty, so
+# `-runs=50` on an empty corpus explored almost nothing.
+FUZZ_CORPUS = $(TESTDIR)/fuzz-corpus
+# Smoke runs are a time budget, not a run count: 50 runs is a different
+# amount of work on every machine and on every build of the target, while
+# 5 s is the thing CI actually has to pay.  The rest of these mirror the
+# names both subprojects already use, so one habit works everywhere.
+FUZZ_MAX_TOTAL_TIME ?= 5
+FUZZ_MAX_LEN ?= 4096
+FUZZ_TIMEOUT ?= 10
+FUZZ_RSS_LIMIT_MB ?= 2048
+FUZZ_VERBOSITY ?= 0
+# -print_final_stats reports execs/s, features and peak RSS per target,
+# which is the drift a smoke run can otherwise only fail to notice.
+FUZZ_SMOKE_ARGS ?= -max_total_time=$(FUZZ_MAX_TOTAL_TIME) \
+		   -max_len=$(FUZZ_MAX_LEN) -timeout=$(FUZZ_TIMEOUT) \
+		   -rss_limit_mb=$(FUZZ_RSS_LIMIT_MB) \
+		   -verbosity=$(FUZZ_VERBOSITY) -print_final_stats=1
 # Crash, OOM and timeout inputs libFuzzer saves.  Without a prefix it
 # writes them into the working directory, where they are neither ignored
 # nor obviously related to a fuzz run; test/fuzz-artifacts/ is already
@@ -257,33 +278,39 @@ check-pty: $(TARGET) $(PTY_TESTS)
 
 fuzz-keypress: $(FUZZBIN)
 
-fuzz-keypress-smoke: $(FUZZBIN)
-	mkdir -p $(TESTDIR)/fuzz-corpus/keypress $(FUZZ_ARTIFACTS)/keypress
-	./$(FUZZBIN) -runs=1000 \
+fuzz-keypress-seed:
+	mkdir -p $(FUZZ_CORPUS)/keypress
+	cp -f $(FUZZ_SEEDS)/keypress/* $(FUZZ_CORPUS)/keypress/
+
+fuzz-keypress-smoke: $(FUZZBIN) fuzz-keypress-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/keypress
+	./$(FUZZBIN) $(FUZZ_SMOKE_ARGS) \
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keypress/ \
-		$(TESTDIR)/fuzz-corpus/keypress
+		$(FUZZ_CORPUS)/keypress
 
 fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
 
-fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS)
-	mkdir -p $(TESTDIR)/fuzz-corpus/dirlocals $(FUZZ_ARTIFACTS)/dirlocals
-	./$(FUZZBIN_DIRLOCALS) -runs=50 \
+fuzz-dirlocals-seed:
+	mkdir -p $(FUZZ_CORPUS)/dirlocals
+	cp -f $(FUZZ_SEEDS)/dirlocals/* $(FUZZ_CORPUS)/dirlocals/
+
+fuzz-dirlocals-smoke: $(FUZZBIN_DIRLOCALS) fuzz-dirlocals-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/dirlocals
+	./$(FUZZBIN_DIRLOCALS) $(FUZZ_SMOKE_ARGS) \
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/dirlocals/ \
-		$(TESTDIR)/fuzz-corpus/dirlocals
+		$(FUZZ_CORPUS)/dirlocals
 
 fuzz-regex: $(FUZZBIN_REGEX)
 
-# test/fuzz-corpus is gitignored, so a fresh checkout starts from nothing
-# unless the tracked seeds are copied in first.
 fuzz-regex-seed:
-	mkdir -p $(TESTDIR)/fuzz-corpus/regex
-	cp -f $(FUZZ_SEEDS_REGEX)/* $(TESTDIR)/fuzz-corpus/regex/
+	mkdir -p $(FUZZ_CORPUS)/regex
+	cp -f $(FUZZ_SEEDS_REGEX)/* $(FUZZ_CORPUS)/regex/
 
 fuzz-regex-smoke: $(FUZZBIN_REGEX) fuzz-regex-seed
 	mkdir -p $(FUZZ_ARTIFACTS)/regex
-	./$(FUZZBIN_REGEX) -runs=50 \
+	./$(FUZZBIN_REGEX) $(FUZZ_SMOKE_ARGS) \
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/regex/ \
-		$(TESTDIR)/fuzz-corpus/regex
+		$(FUZZ_CORPUS)/regex
 
 # Replay every tracked seed once, without mutation: a fast check that the
 # checked-in regression inputs still compile, run and stay clean.
@@ -295,11 +322,17 @@ fuzz-regex-seed-replay: $(FUZZBIN_REGEX)
 
 fuzz-localvars: $(FUZZBIN_LOCALVARS)
 
-fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS)
-	mkdir -p $(TESTDIR)/fuzz-corpus/localvars $(FUZZ_ARTIFACTS)/localvars
-	./$(FUZZBIN_LOCALVARS) -runs=50 \
+fuzz-localvars-seed:
+	mkdir -p $(FUZZ_CORPUS)/localvars
+	cp -f $(FUZZ_SEEDS)/localvars/* $(FUZZ_CORPUS)/localvars/
+
+fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS) fuzz-localvars-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/localvars
+	./$(FUZZBIN_LOCALVARS) $(FUZZ_SMOKE_ARGS) \
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/localvars/ \
-		$(TESTDIR)/fuzz-corpus/localvars
+		$(FUZZ_CORPUS)/localvars
+
+fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed
 
 fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
 
@@ -474,5 +507,9 @@ uninstall:
 .PHONY: all clean distclean check check-unit check-pty check-regex-differential \
 	complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
-	fuzz-keypress fuzz-keypress-smoke fuzz-regex-seed fuzz-regex-seed-replay \
+	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
+	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \
+	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
+	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
+	fuzz-seed fuzz-smoke \
 	deb release install uninstall

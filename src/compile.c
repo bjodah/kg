@@ -1,7 +1,7 @@
 #include "compile.h"
 #include "def.h"
+#include "process.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,63 +99,6 @@ int compilation_resolve_directory(
 	return 0;
 }
 
-static int compilation_spawn(const char *command, const char *directory,
-    pid_t *pid_out, int *output_fd_out)
-{
-	int p[2];
-	if (pipe(p) < 0) {
-		return -1;
-	}
-
-	fcntl(p[0], F_SETFD, FD_CLOEXEC);
-	fcntl(p[1], F_SETFD, FD_CLOEXEC);
-
-	pid_t pid = fork();
-	if (pid < 0) {
-		int saved_errno = errno;
-		close(p[0]);
-		close(p[1]);
-		errno = saved_errno;
-		return -1;
-	}
-
-	if (pid == 0) {
-		setpgid(0, 0);
-
-		if (directory && chdir(directory) < 0) {
-			_exit(127);
-		}
-
-		int dn = open("/dev/null",
-		    O_RDONLY
-#ifdef O_CLOEXEC
-			| O_CLOEXEC
-#endif
-		);
-		if (dn >= 0) {
-			dup2(dn, STDIN_FILENO);
-			close(dn);
-		}
-
-		dup2(p[1], STDOUT_FILENO);
-		dup2(p[1], STDERR_FILENO);
-
-		close(p[0]);
-		close(p[1]);
-
-		execl("/bin/sh", "sh", "-c", command, (char *)NULL);
-		_exit(127);
-	}
-
-	close(p[1]);
-	fcntl(p[0], F_SETFL, O_NONBLOCK);
-	setpgid(pid, pid);
-
-	*pid_out = pid;
-	*output_fd_out = p[0];
-	return 0;
-}
-
 /* Start a compilation of COMMAND in DIRECTORY. compilation_start is the
  * single place that records the command/directory that actually started, so
  * an ordinary start and a deferred restart both leave last_command and
@@ -193,9 +136,18 @@ static void compilation_start(const char *command, const char *directory,
 	g_compilation.wait_status = 0;
 	compilation_stream_reset(&g_compilation, g_default_maximum_output);
 
+	/* stdin from /dev/null, stderr into the same pipe as stdout, and a
+	 * read end kg can drain without blocking its own input loop. */
+	struct kg_spawn_request request = {
+		.command = command,
+		.directory = directory,
+		.stdin_fd = -1,
+		.stderr_to_output = true,
+		.nonblocking_output = true,
+	};
 	pid_t pid;
 	int out_fd;
-	if (compilation_spawn(command, directory, &pid, &out_fd) != 0) {
+	if (kg_process_spawn(&request, &pid, &out_fd) != 0) {
 		editor_set_status_message(
 		    "Cannot start compilation: %s", strerror(errno));
 		g_compilation.phase = COMPILATION_IDLE;
@@ -243,9 +195,8 @@ static void compilation_start_or_defer(int fd, const char *command,
 		 * start the new command directly to avoid signalling a stale
 		 * (possibly reused) process group. */
 		if (compilation_is_running()) {
-			if (g_compilation.process_group > 0) {
-				kill(-g_compilation.process_group, SIGINT);
-			}
+			kg_process_signal_group(
+			    g_compilation.process_group, SIGINT);
 			g_compilation.phase = COMPILATION_TERMINATING;
 			g_compilation.restart_pending = true;
 			strncpy(g_compilation.pending_command, command,
@@ -558,16 +509,9 @@ int compilation_poll(void)
 		}
 	}
 
-	if (!g_compilation.child_reaped && g_compilation.pid > 0) {
-		int status;
-		pid_t wpid = waitpid(g_compilation.pid, &status, WNOHANG);
-		if (wpid == g_compilation.pid) {
-			g_compilation.child_reaped = true;
-			g_compilation.wait_status = status;
-		} else if (wpid < 0 && errno == ECHILD) {
-			g_compilation.child_reaped = true;
-			g_compilation.wait_status = 0;
-		}
+	if (!g_compilation.child_reaped && g_compilation.pid > 0
+	    && kg_process_reap(g_compilation.pid, &g_compilation.wait_status)) {
+		g_compilation.child_reaped = true;
 	}
 
 	if (g_compilation.pipe_eof && g_compilation.child_reaped) {
@@ -621,10 +565,7 @@ int compilation_poll(void)
 		}
 		buf_append_special_text(out_slot, msg, msg_len);
 
-		if (g_compilation.output_fd >= 0) {
-			close(g_compilation.output_fd);
-			g_compilation.output_fd = -1;
-		}
+		kg_close_fd(&g_compilation.output_fd);
 
 		if (g_compilation.pending_line) {
 			free(g_compilation.pending_line);
@@ -684,7 +625,8 @@ void editor_kill_compilation(int fd)
 
 	if (g_compilation.phase == COMPILATION_TERMINATING) {
 		if (g_compilation.process_group > 0) {
-			kill(-g_compilation.process_group, SIGKILL);
+			kg_process_signal_group(
+			    g_compilation.process_group, SIGKILL);
 			editor_set_status_message(
 			    "Sent SIGKILL to compilation process group");
 		}
@@ -692,7 +634,7 @@ void editor_kill_compilation(int fd)
 	}
 
 	if (g_compilation.process_group > 0) {
-		kill(-g_compilation.process_group, SIGINT);
+		kg_process_signal_group(g_compilation.process_group, SIGINT);
 		g_compilation.phase = COMPILATION_TERMINATING;
 		editor_set_status_message("Sent SIGINT to compilation process "
 					  "group (repeat to SIGKILL)");
@@ -702,18 +644,15 @@ void editor_kill_compilation(int fd)
 void compilation_shutdown(void)
 {
 	if (g_compilation.phase != COMPILATION_IDLE) {
-		if (g_compilation.output_fd >= 0) {
-			close(g_compilation.output_fd);
-			g_compilation.output_fd = -1;
-		}
+		kg_close_fd(&g_compilation.output_fd);
 		if (g_compilation.process_group > 0) {
-			kill(-g_compilation.process_group, SIGKILL);
 			int status;
+
+			kg_process_signal_group(
+			    g_compilation.process_group, SIGKILL);
 			for (int i = 0; i < 100; i++) {
-				pid_t wpid = waitpid(
-				    g_compilation.pid, &status, WNOHANG);
-				if (wpid == g_compilation.pid
-				    || (wpid < 0 && errno == ECHILD)) {
+				if (kg_process_reap(
+					g_compilation.pid, &status)) {
 					break;
 				}
 				usleep(1000);

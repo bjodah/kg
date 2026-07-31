@@ -10,6 +10,7 @@
  * and are exercised by hand. */
 
 #include "../src/def.h"
+#include "../src/process.h"
 #include "test.h"
 #include <dirent.h>
 #include <signal.h>
@@ -162,7 +163,7 @@ static void test_shell_run_killed_by_signal(void)
 	free(out);
 }
 
-/* ---- shell_waitpid_fn injection: EINTR retry / permanent failure ---- */
+/* ---- kg_process_waitpid_fn injection: EINTR retry / permanent failure ---- */
 
 static int g_fake_waitpid_eintr_countdown;
 
@@ -185,9 +186,9 @@ static void test_shell_run_waitpid_retries_eintr(void)
 	struct shell_run_status status;
 
 	g_fake_waitpid_eintr_countdown = 3;
-	shell_waitpid_fn = fake_waitpid_eintr_then_real;
+	kg_process_waitpid_fn = fake_waitpid_eintr_then_real;
 	out = shell_run("true", NULL, 0, &len, &status);
-	shell_waitpid_fn = waitpid;
+	kg_process_waitpid_fn = waitpid;
 
 	CHECK(g_fake_waitpid_eintr_countdown == 0);
 	CHECK(out != NULL);
@@ -215,9 +216,9 @@ static void test_shell_run_waitpid_permanent_failure(void)
 	int len = -1;
 	struct shell_run_status status;
 
-	shell_waitpid_fn = fake_waitpid_always_fails;
+	kg_process_waitpid_fn = fake_waitpid_always_fails;
 	out = shell_run("true", NULL, 0, &len, &status);
-	shell_waitpid_fn = waitpid;
+	kg_process_waitpid_fn = waitpid;
 
 	CHECK(out != NULL);
 	CHECK(!status.known);

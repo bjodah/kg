@@ -975,12 +975,11 @@ struct shell_run_status {
 	int signal_number;
 };
 
-/* status may be NULL when the caller doesn't need exit-status detail. */
+/* status may be NULL when the caller doesn't need exit-status detail.  The
+ * child runs in a process group of its own; process.h owns the spawn and the
+ * reap, including the waitpid() seam tests inject through. */
 char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
     struct shell_run_status *status);
-
-/* Overridable by tests; defaults to waitpid(). */
-extern pid_t (*shell_waitpid_fn)(pid_t pid, int *status, int options);
 
 bool shell_output_fits_echo(
     const char *out, int out_len, int available_columns, int reserved_columns);

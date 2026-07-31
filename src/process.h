@@ -1,0 +1,62 @@
+#ifndef KG_PROCESS_H
+#define KG_PROCESS_H
+
+/* Child processes kg starts on the user's behalf.  Every one of them is a
+ * `/bin/sh -c` command whose output kg reads from a pipe: M-x compile
+ * streams it into *compilation*, M-! and M-| collect it.  This module owns
+ * the parts that are the same either way -- the CLOEXEC pipe, the fork, the
+ * process group, the redirections, and reaping -- and nothing about how the
+ * output is read, which is what actually differs between the callers. */
+
+#include <stdbool.h>
+#include <sys/types.h>
+
+struct kg_spawn_request {
+	/* Passed to /bin/sh -c, so the user's pipes and redirects work. */
+	const char *command;
+	/* chdir() here before exec, or NULL to inherit kg's directory. */
+	const char *directory;
+	/* The child's stdin: a descriptor to dup, or -1 for /dev/null. */
+	int stdin_fd;
+	/* Where the child's stderr goes: the output pipe, or /dev/null. */
+	bool stderr_to_output;
+	/* O_NONBLOCK on the read end the caller gets back. */
+	bool nonblocking_output;
+};
+
+/* Start `req->command`.  On success returns 0, stores the child's pid and
+ * the read end of its output pipe, and the child is a process group leader
+ * whose id is that pid -- so kg_process_signal_group() reaches the command's
+ * own children too.  Returns -1 with errno set from pipe() or fork().
+ *
+ * Every other descriptor kg holds must already be CLOEXEC: the child is
+ * exec'd immediately and closes only the fds named here. */
+int kg_process_spawn(
+    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out);
+
+/* Blocking reap, retried across EINTR.  Returns 0 with *status filled in,
+ * -1 (status untouched) if the child could not be reaped at all. */
+int kg_process_wait(pid_t pid, int *status);
+
+/* Non-blocking reap.  Returns 1 when the child has been collected -- or was
+ * already gone (ECHILD), in which case *status is zeroed -- and 0 while it
+ * is still running, leaving *status untouched. */
+int kg_process_reap(pid_t pid, int *status);
+
+/* Send `sig` to every process in group `group`.  A group id of 0 or less is
+ * ignored rather than passed to kill(), where it would mean kg's own group:
+ * a finalized run leaves the field at 0 exactly so it cannot be signalled
+ * twice, and that must not turn into suicide. */
+void kg_process_signal_group(pid_t group, int sig);
+
+/* A pipe whose two ends are both CLOEXEC.  Returns 0, or -1 with errno. */
+int kg_pipe_cloexec(int fds[2]);
+
+/* close() an owned descriptor once, and mark it closed. */
+void kg_close_fd(int *fd);
+
+/* Overridable by tests to inject EINTR sequences and permanent failures
+ * without needing to race a real child process.  Defaults to waitpid(). */
+extern pid_t (*kg_process_waitpid_fn)(pid_t pid, int *status, int options);
+
+#endif /* KG_PROCESS_H */

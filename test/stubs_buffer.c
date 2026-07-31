@@ -9,12 +9,8 @@ struct editor_config editor;
 int running = 1;
 int suppress_undo = 0;
 
-/* Globals normally defined in winmgr.c */
-struct editor_window winlist[MAX_WINDOWS];
-int win_current = 0;
-int win_count = 0;
-int win_total_rows = 24;
-int win_total_cols = 80;
+/* The window globals and the win_* entry points live in stubs_win.c: this
+ * file is also linked by test_winmgr, which brings the real winmgr.o. */
 
 /* Global from help.c */
 const char *kg_help_lines[] = { NULL };
@@ -57,8 +53,6 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	(void)fmt;
 	return 0;
 }
-
-void win_save_active_view(void) { }
 
 void local_settings_init(struct local_settings *settings) { (void)settings; }
 int dirlocals_find(
@@ -139,5 +133,3 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 
 void __attribute__((weak)) editor_cleanup(void) { }
 void kg_lisp_shutdown(void) { }
-void win_display_buffer_other_window(int idx) { (void)idx; }
-void win_position_at_end(int idx) { (void)idx; }

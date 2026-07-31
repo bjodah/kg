@@ -64,56 +64,69 @@ static void editor_insert_repeated_literal(int c, int n)
  * and the caller should stop processing this key.  Returns 0 if `c` is a
  * real command — by then editor.prefix_pending is cleared and the count
  * is committed in editor.prefix_arg, waiting to be picked up. */
+/* M-0..M-9 start a numeric argument by themselves; a plain digit only
+ * continues one that C-u or a Meta digit already started, which is why
+ * these are two questions. */
+static int prefix_meta_digit(int c)
+{
+	if (c >= ALT_0 && c <= ALT_9) {
+		return c - ALT_0;
+	}
+	return -1;
+}
+
+static int prefix_digit(int c)
+{
+	if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	return prefix_meta_digit(c);
+}
+
+/* The two spellings of the same argument, told apart by the key that
+ * last contributed to it. */
+static void prefix_echo(int c, int value)
+{
+	if (prefix_meta_digit(c) >= 0) {
+		editor_set_status_message("M-%d", value);
+		return;
+	}
+	editor_set_status_message("C-u %d", value);
+}
+
 static int handle_universal_arg(int c)
 {
-	int meta_digit = (c >= ALT_0 && c <= ALT_9) ? c - ALT_0 : -1;
+	int digit = prefix_digit(c);
 
 	if (!editor.prefix_pending) {
-		if (c == CTRL_U) {
-			editor.prefix_pending = 1;
-			editor.prefix_supplied = 1;
-			editor.prefix_arg = 4;
-			editor.prefix_no_digits = 1;
+		int meta = prefix_meta_digit(c);
+
+		if (c != CTRL_U && meta < 0) {
+			return 0;
+		}
+		editor.prefix_pending = 1;
+		editor.prefix_supplied = 1;
+		editor.prefix_arg = meta < 0 ? 4 : meta;
+		editor.prefix_no_digits = meta < 0;
+		if (meta < 0) {
 			editor_set_status_message("C-u");
-			return 1;
+		} else {
+			prefix_echo(c, editor.prefix_arg);
 		}
-		if (meta_digit >= 0) {
-			editor.prefix_pending = 1;
-			editor.prefix_supplied = 1;
-			editor.prefix_arg = meta_digit;
-			editor.prefix_no_digits = 0;
-			editor_set_status_message("M-%d", editor.prefix_arg);
-			return 1;
-		}
-		return 0;
+		return 1;
 	}
 
 	if (c == CTRL_U) {
 		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
-		editor_set_status_message("C-u %d", editor.prefix_arg);
+		prefix_echo(c, editor.prefix_arg);
 		return 1;
 	}
-	if (c >= '0' && c <= '9') {
-		int digit = c - '0';
-		if (editor.prefix_no_digits) {
-			editor.prefix_arg = digit;
-			editor.prefix_no_digits = 0;
-		} else {
-			editor.prefix_arg
-			    = prefix_arg_mul_add(editor.prefix_arg, 10, digit);
-		}
-		editor_set_status_message("C-u %d", editor.prefix_arg);
-		return 1;
-	}
-	if (meta_digit >= 0) {
-		if (editor.prefix_no_digits) {
-			editor.prefix_arg = meta_digit;
-			editor.prefix_no_digits = 0;
-		} else {
-			editor.prefix_arg = prefix_arg_mul_add(
-			    editor.prefix_arg, 10, meta_digit);
-		}
-		editor_set_status_message("M-%d", editor.prefix_arg);
+	if (digit >= 0) {
+		editor.prefix_arg = editor.prefix_no_digits
+		    ? digit
+		    : prefix_arg_mul_add(editor.prefix_arg, 10, digit);
+		editor.prefix_no_digits = 0;
+		prefix_echo(c, editor.prefix_arg);
 		return 1;
 	}
 	if (c == CTRL_G) {
@@ -444,55 +457,51 @@ static const struct {
  * stay mutually exclusive the way they already were: dired and the
  * buffer list are told apart by the syntax pointer, and the git modes by
  * their own. */
+enum mode_map {
+	MODE_MAP_DIRED,
+	MODE_MAP_BUFFER_LIST,
+	MODE_MAP_SPECIAL,
+	MODE_MAP_COMPILATION,
+	MODE_MAP_GIT_COMMIT,
+	MODE_MAP_GIT_REBASE,
+	MODE_MAP_COUNT,
+};
+
 static const struct {
-	const char *name;
+	enum mode_map map;
 	const char *sequence;
 	const char *command;
 } mode_map_keys[] = {
-	{ "dired", "RET", "dired-find-file" },
-	{ "dired", "^", "dired-up-directory" },
-	{ "dired", "g", "dired-revert" },
-	{ "dired", "m", "dired-mark" },
-	{ "dired", "d", "dired-flag-file-deletion" },
-	{ "dired", "u", "dired-unmark" },
-	{ "dired", "x", "dired-do-flagged-delete" },
-	{ "dired", "n", "next-line" },
-	{ "dired", "p", "previous-line" },
-	{ "dired", "q", "quit-window" },
-	{ "buffer-list", "RET", "ibuffer-visit-buffer" },
-	{ "buffer-list", "q", "quit-window" },
-	{ "special", "q", "quit-window" },
-	{ "compilation", "C-c C-k", "kill-compilation" },
-	{ "git-commit", "C-c C-c", "server-edit" },
-	{ "git-commit", "C-c C-k", "git-commit-abort" },
-	{ "git-rebase", "C-c C-c", "server-edit" },
-	{ "git-rebase", "C-c C-k", "git-rebase-abort" },
-	{ "git-rebase", "C-c C-p", "git-rebase-pick" },
-	{ "git-rebase", "C-c C-r", "git-rebase-reword" },
-	{ "git-rebase", "C-c C-e", "git-rebase-edit" },
-	{ "git-rebase", "C-c C-s", "git-rebase-squash" },
-	{ "git-rebase", "C-c C-f", "git-rebase-fixup" },
-	{ "git-rebase", "C-c C-d", "git-rebase-drop" },
-	{ "git-rebase", "M-p", "git-rebase-move-line-up" },
-	{ "git-rebase", "M-n", "git-rebase-move-line-down" },
+	{ MODE_MAP_DIRED, "RET", "dired-find-file" },
+	{ MODE_MAP_DIRED, "^", "dired-up-directory" },
+	{ MODE_MAP_DIRED, "g", "dired-revert" },
+	{ MODE_MAP_DIRED, "m", "dired-mark" },
+	{ MODE_MAP_DIRED, "d", "dired-flag-file-deletion" },
+	{ MODE_MAP_DIRED, "u", "dired-unmark" },
+	{ MODE_MAP_DIRED, "x", "dired-do-flagged-delete" },
+	{ MODE_MAP_DIRED, "n", "next-line" },
+	{ MODE_MAP_DIRED, "p", "previous-line" },
+	{ MODE_MAP_DIRED, "q", "quit-window" },
+	{ MODE_MAP_BUFFER_LIST, "RET", "ibuffer-visit-buffer" },
+	{ MODE_MAP_BUFFER_LIST, "q", "quit-window" },
+	{ MODE_MAP_SPECIAL, "q", "quit-window" },
+	{ MODE_MAP_COMPILATION, "C-c C-k", "kill-compilation" },
+	{ MODE_MAP_GIT_COMMIT, "C-c C-c", "server-edit" },
+	{ MODE_MAP_GIT_COMMIT, "C-c C-k", "git-commit-abort" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-c", "server-edit" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-k", "git-rebase-abort" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-p", "git-rebase-pick" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-r", "git-rebase-reword" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-e", "git-rebase-edit" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-s", "git-rebase-squash" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-f", "git-rebase-fixup" },
+	{ MODE_MAP_GIT_REBASE, "C-c C-d", "git-rebase-drop" },
+	{ MODE_MAP_GIT_REBASE, "M-p", "git-rebase-move-line-up" },
+	{ MODE_MAP_GIT_REBASE, "M-n", "git-rebase-move-line-down" },
 };
 
 static struct keymap *global_map;
-static struct keymap *mode_maps[6];
-
-/* The map a row names, so the table above reads as one list rather than
- * three. */
-static struct keymap *key_mode_map(const char *name)
-{
-	size_t i;
-
-	for (i = 0; i < sizeof(mode_maps) / sizeof(*mode_maps); i++) {
-		if (strcmp(keymap_name(mode_maps[i]), name) == 0) {
-			return mode_maps[i];
-		}
-	}
-	return nullptr;
-}
+static struct keymap *mode_maps[MODE_MAP_COUNT];
 
 /* Whether each mode map is live, asked once per keystroke.  A read-only
  * buffer that is neither dired nor the buffer list still answers q,
@@ -503,13 +512,16 @@ static void key_update_mode_maps(void)
 	int listing = syntax_is_dired();
 	int special = name && is_special_buffer(name) && buf_count > 1;
 
-	keymap_set_active(mode_maps[0], listing);
-	keymap_set_active(mode_maps[1], bcur()->readonly && !listing);
-	keymap_set_active(mode_maps[2], special && !listing);
+	keymap_set_active(mode_maps[MODE_MAP_DIRED], listing);
 	keymap_set_active(
-	    mode_maps[3], name && strcmp(name, "*compilation*") == 0);
-	keymap_set_active(mode_maps[4], syntax_is_git_commit());
-	keymap_set_active(mode_maps[5], syntax_is_git_rebase());
+	    mode_maps[MODE_MAP_BUFFER_LIST], bcur()->readonly && !listing);
+	keymap_set_active(mode_maps[MODE_MAP_SPECIAL], special && !listing);
+	keymap_set_active(mode_maps[MODE_MAP_COMPILATION],
+	    name && strcmp(name, "*compilation*") == 0);
+	keymap_set_active(
+	    mode_maps[MODE_MAP_GIT_COMMIT], syntax_is_git_commit());
+	keymap_set_active(
+	    mode_maps[MODE_MAP_GIT_REBASE], syntax_is_git_rebase());
 }
 
 /* The sequence in progress, and the numeric argument its first key
@@ -561,18 +573,23 @@ void key_install_builtin_maps(void)
 		(void)keymap_bind(global_map, global_map_keys[i].sequence,
 		    global_map_keys[i].command);
 	}
-	mode_maps[0] = keymap_create("dired", KEYMAP_LAYER_MAJOR);
-	mode_maps[1] = keymap_create("buffer-list", KEYMAP_LAYER_MAJOR);
-	mode_maps[2] = keymap_create("special", KEYMAP_LAYER_MAJOR);
-	mode_maps[3] = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
-	mode_maps[4] = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
-	mode_maps[5] = keymap_create("git-rebase", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_DIRED] = keymap_create("dired", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_BUFFER_LIST]
+	    = keymap_create("buffer-list", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_SPECIAL]
+	    = keymap_create("special", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_COMPILATION]
+	    = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_GIT_COMMIT]
+	    = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_GIT_REBASE]
+	    = keymap_create("git-rebase", KEYMAP_LAYER_MAJOR);
 	/* C-c waits for its second key even when nothing is bound under
 	 * it, which is what makes it the user's prefix rather than an
 	 * undefined key. */
 	(void)keymap_bind_prefix(global_map, "C-c");
 	for (i = 0; i < sizeof(mode_map_keys) / sizeof(*mode_map_keys); i++) {
-		(void)keymap_bind(key_mode_map(mode_map_keys[i].name),
+		(void)keymap_bind(mode_maps[mode_map_keys[i].map],
 		    mode_map_keys[i].sequence, mode_map_keys[i].command);
 	}
 }

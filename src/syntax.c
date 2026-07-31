@@ -1160,8 +1160,7 @@ static void gitrebase_syntax(struct editor_buffer *b, erow *row)
 	 * so any other flag would make git reject the whole todo -- warn. */
 	while (i < len && p[i] == '-') {
 		w = gitrebase_skip_word(p, len, i);
-		if (!flags_ok || w - i != 2
-		    || (p[i + 1] != 'C' && p[i + 1] != 'c')) {
+		if (!flags_ok || w - i != 2 || !strchr("Cc", p[i + 1])) {
 			memset(row->hl + i, HL_WARNING, w - i);
 		}
 		i = gitrebase_skip_ws(p, len, w);

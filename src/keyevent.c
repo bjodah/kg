@@ -218,7 +218,7 @@ static int32_t key_parse_base(const char *text)
 	/* A literal space is not a token -- a sequence is split on spaces --
 	 * so the space key is only ever spelled "SPC", which the table
 	 * above already answered. */
-	if (span <= 0 || text[span] != '\0' || scalar == 0 || scalar == ' ') {
+	if (span <= 0 || text[span] != '\0' || scalar <= ' ') {
 		return -1;
 	}
 	return (int32_t)scalar;

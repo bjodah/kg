@@ -777,9 +777,10 @@ static void cmd_newline_or_eval_print(int fd)
 	int n = prefix_count();
 
 	(void)fd;
+	/* "Lisp" and "Lisp Interaction" are the two, and the only two,
+	 * syntax names that start that way. */
 	if (kg_lisp_active() && bcur()->syntax
-	    && (strcmp(bcur()->syntax->name, "Lisp Interaction") == 0
-		|| strcmp(bcur()->syntax->name, "Lisp") == 0)) {
+	    && strncmp(bcur()->syntax->name, "Lisp", 4) == 0) {
 		cmd_eval_print_last_sexp();
 		return;
 	}

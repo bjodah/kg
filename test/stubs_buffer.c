@@ -141,6 +141,18 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 	(void)needle;
 	return 0;
 }
+int editor_picker_filter(picker_name_fn name_at, void *data, const char *query,
+    const char **names, int *order, int max, int *prefix_matches)
+{
+	(void)name_at;
+	(void)data;
+	(void)query;
+	(void)names;
+	(void)order;
+	(void)max;
+	*prefix_matches = 0;
+	return 0;
+}
 
 void __attribute__((weak)) editor_cleanup(void) { }
 void kg_lisp_shutdown(void) { }

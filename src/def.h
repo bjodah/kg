@@ -575,6 +575,12 @@ void editor_path_split(
 int editor_path_complete_entries(const char *dir, const char *prefix,
     struct path_entry *entries, int max, char *lcp, int lcp_size);
 int editor_picker_match_rank(const char *haystack, const char *needle);
+/* Walks a picker's candidates: `index` counts from 0, `data` is whatever
+ * the caller handed editor_picker_filter(), and NULL ends the walk. */
+typedef const char *(*picker_name_fn)(int index, void *data);
+[[nodiscard]] int editor_picker_filter(picker_name_fn name_at, void *data,
+    const char *query, const char **names, int *order, int max,
+    int *prefix_matches);
 void buf_load_args(int nfiles, char **filenames, int readonly);
 void buf_select_interactive(int fd);
 void buf_open_file(int fd);

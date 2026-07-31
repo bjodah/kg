@@ -1341,6 +1341,20 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 	buf_select(0);
 }
 
+/* The candidate buffer names buf_select_interactive() has cached for this
+ * redraw, shaped so editor_picker_filter() can walk them. */
+struct bufpick_names {
+	char (*name)[128];
+	int n;
+};
+
+static const char *bufpick_name_at(int index, void *data)
+{
+	const struct bufpick_names *cand = data;
+
+	return index < cand->n ? cand->name[index] : NULL;
+}
+
 /* Interactive buffer selector shown in the echo area (C-x b).
  * Lists every buffer except the current one and narrows the list as
  * the user types — substring matching with prefix matches ranked
@@ -1375,10 +1389,11 @@ void buf_select_interactive(int fd)
 	{
 		static char namebuf[MAX_BUFFERS][128];
 		const char *names[MAX_BUFFERS];
-		int match_idx[MAX_BUFFERS];
+		int ring_pos[MAX_BUFFERS];
+		struct bufpick_names cand = { namebuf, n };
 
 		while (1) {
-			int matches = 0;
+			int matches, nprefix;
 
 			/* Cache every candidate's display name once per redraw,
 			 * then build the filtered view as prefix matches
@@ -1388,27 +1403,8 @@ void buf_select_interactive(int fd)
 				    order[i], namebuf[i], sizeof(namebuf[i]));
 			}
 
-			for (i = 0; i < n; i++) {
-				if (editor_picker_match_rank(namebuf[i], query)
-				    != 0) {
-					continue;
-				}
-				names[matches] = namebuf[i];
-				match_idx[matches] = order[i];
-				matches++;
-			}
-			if (qlen > 0) {
-				for (i = 0; i < n; i++) {
-					if (editor_picker_match_rank(
-						namebuf[i], query)
-					    != 1) {
-						continue;
-					}
-					names[matches] = namebuf[i];
-					match_idx[matches] = order[i];
-					matches++;
-				}
-			}
+			matches = editor_picker_filter(bufpick_name_at, &cand,
+			    query, names, ring_pos, MAX_BUFFERS, &nprefix);
 			if (sel >= matches) {
 				sel = matches > 0 ? matches - 1 : 0;
 			}
@@ -1444,7 +1440,7 @@ void buf_select_interactive(int fd)
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				if (matches > 0) {
-					buf_select(match_idx[sel]);
+					buf_select(order[ring_pos[sel]]);
 				}
 				return;
 			} else if (c == ESC || c == CTRL_G) {

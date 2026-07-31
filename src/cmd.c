@@ -877,12 +877,14 @@ int cmd_execute_named_with_prefix(
 }
 
 /* All command names visible to the M-x picker: the static table in its
- * alphabetical order, then Lisp-defined commands. */
-static const char *command_name_at(int idx)
+ * alphabetical order, then Lisp-defined commands.  Shaped as a
+ * picker_name_fn so editor_picker_filter() can walk it. */
+static const char *command_name_at(int idx, void *data)
 {
 	static int nstatic = -1;
 	int i;
 
+	(void)data;
 	if (nstatic < 0) {
 		for (i = 0; cmdtable[i].name; i++) {
 			;
@@ -927,44 +929,19 @@ void editor_named_command(int fd)
 	name[0] = '\0';
 
 	while (1) {
-		int total = 0, shown;
-		const char *first_name = NULL;
+		int total, shown, nprefix;
+		const char *first_name;
 		const char *entry;
 		const char *names[PICKER_MAX_ENTRIES] = { 0 };
 
-		/* Prefix matches first, then mid-name substring matches.
-		 * Two passes preserve cmdtable's alphabetical order within
-		 * each rank (Lisp commands follow the static table), and
-		 * keep TAB-completion's longest-common-prefix over the
-		 * prefix group only (substring matches share no prefix
-		 * worth extending to). */
-		for (i = 0; (entry = command_name_at(i)); i++) {
-			if (editor_picker_match_rank(entry, name) != 0) {
-				continue;
-			}
-			if (!first_name) {
-				first_name = entry;
-			}
-			if (total < PICKER_MAX_ENTRIES) {
-				names[total] = entry;
-			}
-			total++;
-		}
-		/* Skip the substring pass when nothing's typed: every entry
-		 * already ranked as a prefix match above, so a second scan
-		 * looking for rank==1 would just walk the table for nothing. */
-		if (len > 0) {
-			for (i = 0; (entry = command_name_at(i)); i++) {
-				if (editor_picker_match_rank(entry, name)
-				    != 1) {
-					continue;
-				}
-				if (total < PICKER_MAX_ENTRIES) {
-					names[total] = entry;
-				}
-				total++;
-			}
-		}
+		/* Prefix matches first, then mid-name substring matches, so
+		 * cmdtable's alphabetical order survives within each rank
+		 * (Lisp commands follow the static table) and TAB's
+		 * longest-common-prefix stays over the prefix group only --
+		 * substring matches share no prefix worth extending to. */
+		total = editor_picker_filter(command_name_at, NULL, name, names,
+		    NULL, PICKER_MAX_ENTRIES, &nprefix);
+		first_name = nprefix > 0 ? names[0] : NULL;
 		shown = total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES : total;
 		if (sel >= shown) {
 			sel = shown > 0 ? shown - 1 : 0;
@@ -1033,8 +1010,9 @@ void editor_named_command(int fd)
 				for (clen = len; ref[clen]; clen++) {
 					int ok = 1;
 
-					for (i = 0;
-					    (entry = command_name_at(i)) && ok;
+					for (i = 0; ok
+					    && (entry
+						= command_name_at(i, NULL));
 					    i++) {
 						if (editor_picker_match_rank(
 							entry, name)

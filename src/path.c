@@ -35,6 +35,51 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 	return -1;
 }
 
+/* The two-pass rank filter every ido-style picker in kg runs: prefix
+ * matches first, mid-name matches after, each pass keeping the
+ * enumerator's own order so a table that is already sorted stays sorted
+ * within its rank.  The second pass is skipped for an empty query, where
+ * every candidate already ranked as a prefix match.
+ *
+ * `names` receives at most `max` matches, but the return value counts
+ * them all, so a picker can say "(+N more)".  `order`, when not NULL,
+ * receives each stored name's enumerator index -- what the caller needs
+ * to map a selection back to the thing it named.  `*prefix_matches`
+ * receives how many matches ranked as prefix matches: Tab completion
+ * extends the longest common prefix over that group only.
+ *
+ * Lives here beside editor_picker_match_rank() for the same reason: this
+ * is the whole of the ranking policy, and path.c pulls in none of the
+ * editor's globals to state it. */
+int editor_picker_filter(picker_name_fn name_at, void *data, const char *query,
+    const char **names, int *order, int max, int *prefix_matches)
+{
+	const char *entry;
+	int rank, i, total = 0;
+
+	for (rank = 0; rank <= 1; rank++) {
+		for (i = 0; (entry = name_at(i, data)); i++) {
+			if (editor_picker_match_rank(entry, query) != rank) {
+				continue;
+			}
+			if (total < max) {
+				names[total] = entry;
+				if (order) {
+					order[total] = i;
+				}
+			}
+			total++;
+		}
+		if (rank == 0) {
+			*prefix_matches = total;
+			if (!query[0]) {
+				break;
+			}
+		}
+	}
+	return total;
+}
+
 /* qsort comparator state: the typed needle that ranked these entries.
  * Set just before qsort, cleared after, so the comparator can keep
  * prefix matches above mid-name matches without an extra rank field

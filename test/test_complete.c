@@ -339,6 +339,80 @@ static void test_path_is_dir(void)
 	teardown();
 }
 
+/* The two-pass filter both name pickers share: prefix matches first,
+ * mid-name matches after, enumerator order kept within each rank. */
+static const char *const filter_names[]
+    = { "buffer.c", "bufmgr.c", "editor_buffer.c", "syntax.c", NULL };
+
+static const char *filter_name_at(int index, void *data)
+{
+	int *calls = data;
+
+	if (calls) {
+		(*calls)++;
+	}
+	return filter_names[index];
+}
+
+static void test_picker_filter_ranks_prefix_first(void)
+{
+	const char *names[8] = { 0 };
+	int order[8] = { 0 };
+	int nprefix = -1, total;
+
+	total = editor_picker_filter(
+	    filter_name_at, NULL, "buf", names, order, 8, &nprefix);
+	CHECK(total == 3);
+	CHECK(nprefix == 2);
+	/* The two prefix matches in table order, then the mid-name one. */
+	CHECK(strcmp(names[0], "buffer.c") == 0);
+	CHECK(strcmp(names[1], "bufmgr.c") == 0);
+	CHECK(strcmp(names[2], "editor_buffer.c") == 0);
+	CHECK(order[0] == 0 && order[1] == 1 && order[2] == 2);
+}
+
+static void test_picker_filter_empty_query_takes_one_pass(void)
+{
+	const char *names[8] = { 0 };
+	int nprefix = -1, total, calls = 0;
+
+	total = editor_picker_filter(
+	    filter_name_at, &calls, "", names, NULL, 8, &nprefix);
+	CHECK(total == 4);
+	CHECK(nprefix == 4);
+	/* One walk of four names plus the NULL that ends it: an empty
+	 * query ranks everything as a prefix match, so the second pass
+	 * would find nothing and is skipped. */
+	CHECK(calls == 5);
+	CHECK(strcmp(names[3], "syntax.c") == 0);
+}
+
+static void test_picker_filter_counts_past_max(void)
+{
+	const char *names[2] = { 0 };
+	int nprefix = -1, total;
+
+	total = editor_picker_filter(
+	    filter_name_at, NULL, "", names, NULL, 2, &nprefix);
+	/* Every match is counted so the picker can say "(+N more)", but
+	 * only `max` of them are stored. */
+	CHECK(total == 4);
+	CHECK(nprefix == 4);
+	CHECK(strcmp(names[1], "bufmgr.c") == 0);
+}
+
+static void test_picker_filter_no_match(void)
+{
+	const char *names[8] = { 0 };
+	int nprefix = -1;
+
+	CHECK(editor_picker_filter(
+		  filter_name_at, NULL, "zzz", names, NULL, 8, &nprefix)
+	    == 0);
+	CHECK(nprefix == 0);
+	CHECK(names[0] == NULL);
+}
+
 int main(void)
 {
 	RUN(test_multiple_matches_lcp);
@@ -351,6 +425,10 @@ int main(void)
 	RUN(test_dot_prefix_shows_hidden);
 	RUN(test_max_clamp);
 	RUN(test_picker_match_rank);
+	RUN(test_picker_filter_ranks_prefix_first);
+	RUN(test_picker_filter_empty_query_takes_one_pass);
+	RUN(test_picker_filter_counts_past_max);
+	RUN(test_picker_filter_no_match);
 	RUN(test_substring_matching);
 	RUN(test_path_parent_dir);
 	RUN(test_path_is_dir);

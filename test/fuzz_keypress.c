@@ -1,4 +1,5 @@
 #include "../src/def.h"
+#include "../src/kbd.h"
 
 #include <stddef.h>
 #include <stdint.h>

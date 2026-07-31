@@ -7,6 +7,8 @@
 #include "../src/localvars.h"
 #include "../src/syntax.h"
 #include "test.h"
+#include <errno.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -377,6 +379,81 @@ static void test_truncated_run_still_finishes(void)
 	CHECK(strstr(g_model, "Compilation finished with exit code 0") != NULL);
 }
 
+/* The pid the child announced with "PID=", or 0 if it has not yet.  The
+ * command line is echoed into the buffer too, so the first "PID=" in the
+ * model is the header's literal one, with a "$" where a digit would be. */
+static pid_t model_announced_pid(void)
+{
+	const char *at = g_model;
+
+	while ((at = strstr(at, "PID=")) != NULL) {
+		at += 4;
+		if (*at >= '0' && *at <= '9') {
+			return (pid_t)atoi(at);
+		}
+	}
+	return 0;
+}
+
+/* True once `pid` is gone; bounded, since what it is really asking is
+ * whether the signal reached it at all. */
+static bool process_gone(pid_t pid)
+{
+	for (int i = 0; i < 2000; i++) {
+		if (kill(pid, 0) < 0 && errno == ESRCH) {
+			return true;
+		}
+		usleep(1000);
+	}
+	return false;
+}
+
+/* C-c C-k signals the compilation's process *group*, so a command that
+ * left something running in the background dies with it rather than
+ * leaking a process kg can no longer name.  The group comes from the
+ * shared spawner (src/process.c), which is the only reason this holds for
+ * a shell command too. */
+static void test_kill_compilation_reaches_grandchild(void)
+{
+	pid_t grandchild = 0;
+
+	strcpy(g_next_command, "sleep 30 & echo PID=$!; exec sleep 30");
+	editor_compile(0);
+
+	for (int i = 0; i < 5000 && grandchild == 0; i++) {
+		compilation_poll();
+		grandchild = model_announced_pid();
+		usleep(1000);
+	}
+	CHECK(grandchild > 0);
+	CHECK(compilation_is_running());
+	if (grandchild <= 0) {
+		compilation_shutdown();
+		return;
+	}
+
+	/* The first C-c C-k sends SIGINT, which kills the command itself but
+	 * not the background job it left behind: a non-interactive shell
+	 * starts one with SIGINT ignored, and while it holds the output pipe
+	 * open the run cannot finish.  The second C-c C-k sends SIGKILL to
+	 * the same group, which nothing can ignore. */
+	editor_kill_compilation(0);
+	for (int i = 0; i < 200 && compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	CHECK(compilation_is_running());
+	editor_kill_compilation(0);
+	for (int i = 0; i < 5000 && compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+
+	CHECK(!compilation_is_running());
+	CHECK(process_gone(grandchild));
+	CHECK(strstr(g_model, "Compilation terminated by signal") != NULL);
+}
+
 int main(void)
 {
 	RUN(test_stream_seam_drives_parser);
@@ -390,5 +467,6 @@ int main(void)
 	RUN(test_resolve_special_buffer);
 	RUN(test_resolve_relative_no_slash);
 	RUN(test_resolve_absolute);
+	RUN(test_kill_compilation_reaches_grandchild);
 	return test_summary();
 }

@@ -13,6 +13,8 @@
 #include "../src/process.h"
 #include "test.h"
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -233,6 +235,224 @@ static void test_shell_run_waitpid_permanent_failure(void)
 	while (waitpid(-1, NULL, WNOHANG) > 0) { }
 }
 
+/* ---- kg_process_spawn(): the shared spawn/reap/kill primitives ---- */
+
+/* Read from `fd` until a newline arrives or the buffer is full.  The
+ * children below announce themselves with one line and then block, so this
+ * returns as soon as the child is known to be running. */
+static int read_line_from(int fd, char *buf, size_t bufsize)
+{
+	size_t len = 0;
+
+	while (len + 1 < bufsize) {
+		ssize_t n = read(fd, buf + len, 1);
+
+		if (n <= 0) {
+			break;
+		}
+		if (buf[len] == '\n') {
+			break;
+		}
+		len++;
+	}
+	buf[len] = '\0';
+	return (int)len;
+}
+
+/* True once `pid` is gone.  Bounded: a process this test killed either
+ * goes away promptly or the group kill did not reach it. */
+static bool wait_until_gone(pid_t pid)
+{
+	for (int i = 0; i < 2000; i++) {
+		if (kill(pid, 0) < 0 && errno == ESRCH) {
+			return true;
+		}
+		usleep(1000);
+	}
+	return false;
+}
+
+/* Both ends of the pipe the spawner hands out must be close-on-exec, or
+ * every command kg runs inherits every file the editor has open. */
+static void test_pipe_cloexec_marks_both_ends(void)
+{
+	int p[2];
+
+	CHECK(kg_pipe_cloexec(p) == 0);
+	CHECK((fcntl(p[0], F_GETFD) & FD_CLOEXEC) != 0);
+	CHECK((fcntl(p[1], F_GETFD) & FD_CLOEXEC) != 0);
+	close(p[0]);
+	close(p[1]);
+}
+
+/* The child leads a process group of its own -- kg's group is not it --
+ * which is what makes a group-directed signal possible at all: sending one
+ * to a child that shares kg's group would signal the editor too. */
+static void test_spawn_child_leads_its_own_group(void)
+{
+	struct kg_spawn_request request = {
+		.command = "echo ready; exec sleep 30",
+		.stdin_fd = -1,
+	};
+	char line[64];
+	pid_t pid = -1;
+	int fd = -1;
+	int status = 0;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 5);
+	CHECK(strcmp(line, "ready") == 0);
+	CHECK(getpgid(pid) == pid);
+	CHECK(getpgid(pid) != getpgid(0));
+
+	kg_process_signal_group(pid, SIGKILL);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	CHECK(WIFSIGNALED(status));
+	CHECK(WTERMSIG(status) == SIGKILL);
+	close(fd);
+}
+
+/* The reason the group exists: a shell command that leaves something
+ * running in the background used to outlive the shell kg started, because
+ * only the shell's own pid was known.  Killing the group takes the
+ * grandchild with it. */
+static void test_signal_group_reaches_grandchildren(void)
+{
+	struct kg_spawn_request request = {
+		.command = "sleep 30 & echo PID=$!; exec sleep 30",
+		.stdin_fd = -1,
+	};
+	char line[64];
+	pid_t pid = -1;
+	pid_t grandchild;
+	int fd = -1;
+	int status = 0;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) > 4);
+	CHECK(strncmp(line, "PID=", 4) == 0);
+	grandchild = (pid_t)atoi(line + 4);
+	CHECK(grandchild > 0);
+	CHECK(grandchild != pid);
+	CHECK(getpgid(grandchild) == pid);
+
+	kg_process_signal_group(pid, SIGKILL);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	CHECK(wait_until_gone(grandchild));
+	close(fd);
+}
+
+/* A group id of 0 means "the caller's own group" to kill(), i.e. kg: the
+ * cleared field a finalized run leaves behind must never be signalled.
+ * That this test process is still here to report is the assertion. */
+static void test_signal_group_ignores_no_group(void)
+{
+	kg_process_signal_group(0, SIGKILL);
+	kg_process_signal_group(-1, SIGKILL);
+	CHECK(true);
+}
+
+/* stdin_fd < 0 means /dev/null, not "whatever kg had": a command that
+ * reads must see EOF rather than the editor's own input. */
+static void test_spawn_stdin_defaults_to_devnull(void)
+{
+	struct kg_spawn_request request = {
+		.command = "cat; echo done",
+		.stdin_fd = -1,
+	};
+	char line[64];
+	pid_t pid = -1;
+	int fd = -1;
+	int status = 0;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 4);
+	CHECK(strcmp(line, "done") == 0);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	close(fd);
+}
+
+/* stderr goes where the caller asked: into the output pipe for a
+ * compilation, into /dev/null for a shell command. */
+static void test_spawn_routes_stderr(void)
+{
+	struct kg_spawn_request request = {
+		.command = "echo err >&2; echo out",
+		.stdin_fd = -1,
+		.stderr_to_output = true,
+	};
+	char line[64];
+	pid_t pid = -1;
+	int fd = -1;
+	int status = 0;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 3);
+	CHECK(strcmp(line, "err") == 0);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	close(fd);
+
+	request.stderr_to_output = false;
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 3);
+	CHECK(strcmp(line, "out") == 0);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	close(fd);
+}
+
+/* A directory that cannot be entered fails in the child, after the fork:
+ * the spawn reports success and the command exits 127 without running. */
+static void test_spawn_unenterable_directory_exits_127(void)
+{
+	struct kg_spawn_request request = {
+		.command = "echo ran",
+		.directory = "/kg-no-such-directory-12345",
+		.stdin_fd = -1,
+	};
+	char line[64];
+	pid_t pid = -1;
+	int fd = -1;
+	int status = 0;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 0);
+	CHECK(kg_process_wait(pid, &status) == 0);
+	CHECK(WIFEXITED(status));
+	CHECK(WEXITSTATUS(status) == 127);
+	close(fd);
+}
+
+/* The non-blocking reap: still running is 0 and leaves the status alone,
+ * a finished child is 1, and a second call on the same pid is 1 with a
+ * zeroed status (ECHILD) rather than a wait that never returns. */
+static void test_reap_reports_running_then_gone(void)
+{
+	struct kg_spawn_request request = {
+		.command = "echo ready; exec sleep 30",
+		.stdin_fd = -1,
+	};
+	char line[64];
+	pid_t pid = -1;
+	int fd = -1;
+	int status = 123;
+
+	CHECK(kg_process_spawn(&request, &pid, &fd) == 0);
+	CHECK(read_line_from(fd, line, sizeof(line)) == 5);
+	CHECK(kg_process_reap(pid, &status) == 0);
+	CHECK(status == 123);
+
+	kg_process_signal_group(pid, SIGKILL);
+	for (int i = 0; i < 2000 && kg_process_reap(pid, &status) == 0; i++) {
+		usleep(1000);
+	}
+	CHECK(WIFSIGNALED(status));
+
+	status = 123;
+	CHECK(kg_process_reap(pid, &status) == 1);
+	CHECK(status == 0);
+	close(fd);
+}
+
 /* ---- shell_output_fits_echo() ---- */
 
 static void test_echo_fits_short_single_line(void)
@@ -396,6 +616,14 @@ int main(void)
 	RUN(test_shell_run_killed_by_signal);
 	RUN(test_shell_run_waitpid_retries_eintr);
 	RUN(test_shell_run_waitpid_permanent_failure);
+	RUN(test_pipe_cloexec_marks_both_ends);
+	RUN(test_spawn_child_leads_its_own_group);
+	RUN(test_signal_group_reaches_grandchildren);
+	RUN(test_signal_group_ignores_no_group);
+	RUN(test_spawn_stdin_defaults_to_devnull);
+	RUN(test_spawn_routes_stderr);
+	RUN(test_spawn_unenterable_directory_exits_127);
+	RUN(test_reap_reports_running_then_gone);
 	RUN(test_echo_fits_short_single_line);
 	RUN(test_echo_fits_trailing_newline);
 	RUN(test_echo_fits_exact_width);

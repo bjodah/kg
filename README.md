@@ -62,7 +62,9 @@ standard VT100 escape sequences.
   destination
 - Shell commands (M-!) and pipe-region-through-command (M-|); a prefix
   argument inserts/replaces with the output instead of just displaying it;
-  both entry points recall previous commands from one shared history
+  both entry points recall previous commands from one shared history.  The
+  child runs in its own process group, so whatever it starts is signalled
+  with it; kg blocks until it exits
 - Comment-dwim (M-;)
 - Git commit mode: `COMMIT_EDITMSG` buffers (and `MERGE_MSG` etc.,
   matched on the exact basename) get comment dimming, a column-50

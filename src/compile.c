@@ -623,22 +623,24 @@ void editor_kill_compilation(int fd)
 		return;
 	}
 
-	if (g_compilation.phase == COMPILATION_TERMINATING) {
-		if (g_compilation.process_group > 0) {
-			kg_process_signal_group(
-			    g_compilation.process_group, SIGKILL);
-			editor_set_status_message(
-			    "Sent SIGKILL to compilation process group");
-		}
+	/* A run whose group has been cleared has already been finalized:
+	 * there is nothing left to signal, and -0 would mean kg's own
+	 * group. */
+	if (g_compilation.process_group <= 0) {
 		return;
 	}
 
-	if (g_compilation.process_group > 0) {
-		kg_process_signal_group(g_compilation.process_group, SIGINT);
-		g_compilation.phase = COMPILATION_TERMINATING;
-		editor_set_status_message("Sent SIGINT to compilation process "
-					  "group (repeat to SIGKILL)");
+	if (g_compilation.phase == COMPILATION_TERMINATING) {
+		kg_process_signal_group(g_compilation.process_group, SIGKILL);
+		editor_set_status_message(
+		    "Sent SIGKILL to compilation process group");
+		return;
 	}
+
+	kg_process_signal_group(g_compilation.process_group, SIGINT);
+	g_compilation.phase = COMPILATION_TERMINATING;
+	editor_set_status_message("Sent SIGINT to compilation process "
+				  "group (repeat to SIGKILL)");
 }
 
 void compilation_shutdown(void)

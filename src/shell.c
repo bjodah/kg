@@ -201,6 +201,15 @@ char *shell_run(const char *cmd, const char *in, int inlen, int *out_len,
 	out = pump_io(pump_rfd, pump_wfd, in, inlen, out_len);
 	saved_errno = errno;
 	signal(SIGPIPE, old_sigpipe);
+	if (!out) {
+		/* pump_io() ran out of memory and has already closed both
+		 * pipes.  A child that is neither reading nor writing them --
+		 * `sleep 60`, or anything it left running -- would otherwise
+		 * keep the editor blocked in the reap below for as long as it
+		 * cares to live, so kill the group and take its children with
+		 * it. */
+		kg_process_signal_group(pid, SIGKILL);
+	}
 	if (kg_process_wait(pid, &wstatus) == 0 && status) {
 		status->known = true;
 		if (WIFEXITED(wstatus)) {

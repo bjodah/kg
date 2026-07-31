@@ -1029,6 +1029,13 @@ or
 .Xr sed 1 ;
 interactive programs that require a terminal will not work.
 .Pp
+The command runs in a process group of its own, as a compilation does, so
+anything it starts in the background belongs to that group and is
+signalled with it rather than surviving it.
+kg waits for the command to finish and does not draw or accept input while
+it runs; there is no key that interrupts one, so a command that never exits
+has to be dealt with from outside the editor.
+.Pp
 Both commands share one command-line history.
 .Pp
 Minibuffer prompts keep a history of what has been entered at them:

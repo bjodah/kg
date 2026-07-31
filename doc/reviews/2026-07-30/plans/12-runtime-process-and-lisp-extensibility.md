@@ -435,3 +435,94 @@ make WITH_LISP=0 clean all check
 make WITH_LISP=1 clean all check
 .ci/run-ci-steps.sh --parallel
 ```
+
+## Landed / deferred
+
+Phases 9 and 10 were scoped as one session on `stricter-emacs-adherence`,
+in four commits (`b640625` .. `b810c4a`), deliberately without the Fe
+runtime work: phases 1-8 and 11 wait on foundations that are not there
+yet (plan 10's event queue is its phase 8, plan 11's phases 3 and 8),
+and phase 10's process API for Lisp is downstream of phase 3's handles.
+
+### Landed
+
+- **Phase 9, the deduplication.**  The baseline said three `fork`/`execl`
+  sites; there are **two**.  `shell_run_capture()` — the transcript
+  capture the table lists at `src/shell.c:309` — was deleted as dead
+  code in plan 11's oversight pass, and left behind a `CAP_DEFAULT`
+  `#define`/`#undef` pair with nothing between them, now also gone.  The
+  two survivors, `compilation_spawn()` and `shell_run()`, duplicated
+  pipe creation, `FD_CLOEXEC`, `fork`, the `/dev/null` redirections,
+  `execl("/bin/sh", "sh", "-c", …)` and the reap.
+  `src/process.h` is the shared core: a `struct kg_spawn_request`
+  (command, directory, stdin descriptor, where stderr goes, whether the
+  read end is non-blocking), `kg_process_spawn()`, the two reaps, the
+  group signal, and the CLOEXEC pipe and fd-close helpers.  Each caller
+  keeps its own I/O strategy, which is what actually differs:
+  compilation's `O_NONBLOCK` drain and shell.c's `poll()` pump were not
+  touched by the extraction.
+- **Phase 9, the process-group gap.**  Only compilation called
+  `setpgid`, so a shell command could not be group-killed and anything
+  it started outlived it.  The shared spawner does it on both sides of
+  the fork, so `M-!` and `M-|` children lead their own groups now.
+  kg's one disposal path for such a child — the allocation failure in
+  `pump_io()`, after which both pipes are closed and the reap would
+  otherwise block behind a `sleep 60` — kills the group first.
+  `test/test_shell.c` pins the rest: a grandchild is in the group and
+  dies with it, a group id of 0 is never passed to `kill()`, both pipe
+  ends are CLOEXEC, stdin defaults to `/dev/null`, an unenterable
+  directory exits 127 after the fork, and the non-blocking reap reports
+  running / gone / already-gone.  `test/test_compile.c` has the
+  end-to-end case: `C-c C-k` on a compilation that backgrounded a
+  `sleep` kills the sleep too — in two presses, because a
+  non-interactive shell starts a background job with SIGINT ignored, so
+  the escalation to SIGKILL is what ends the run.
+- **The reap seam moved with the reaping.**  `shell_waitpid_fn` is
+  `kg_process_waitpid_fn` and serves both callers; test_shell's EINTR
+  and permanent-failure injections are unchanged in substance.  Raw wait
+  statuses no longer leave `process.c`: `struct kg_process_status`
+  (exited, exit_code, signal_number) is decoded in one place instead of
+  in the two `WIFEXITED` ladders, which is also what let both callers
+  drop `<sys/wait.h>` honestly rather than because glibc happens to
+  re-export the macros through `<stdlib.h>`.
+- **Self-funded.**  scc 4238 → 4225 with `SCC_COMPLEXITY_MAX` lowered at
+  each commit and never raised: compile.c 149 → 129, shell.c 123 → 100,
+  process.c 30.  Two simplifications inside the subject paid for the new
+  module: `shell_run()` no longer dups its pipe ends before pumping them
+  (they were CLOEXEC copies of CLOEXEC fds), and `pump_io()` fills both
+  `pollfd` slots every round instead of carrying a count and an index —
+  `poll()` ignores a negative fd, which is exactly the "this side is
+  closed" case the count existed for.  The second was found by
+  `gcc -fanalyzer`, which lost track of the count once the fds came from
+  another translation unit and reported an over-read of `pfd[2]`.
+
+### Deferred, with the pickup point
+
+- **Phase 10 (process APIs for Lisp), and phases 1-8 and 11.**  All of
+  them need the Fe-side foundations this session was scoped out of:
+  `FeCallWithOptions` on kg's pinned branch (phase 2), plan 10 phase 8's
+  event queue for filters and sentinels, plan 11 phase 3 for keymaps and
+  built-in key names, and phase 3's stable handles before any handle-
+  typed API.  Nothing in phases 9's result blocks them; `process.h` is
+  the interface a `start-process` native would extend.
+- **Concurrency (a process table).**  Not built, and deliberately: the
+  plan's own gate is "a second client", and the second client is still a
+  *second call site*, not a second simultaneous child.  `compile.c` still
+  owns exactly one `struct compilation_state`, and `shell_run()` is
+  still synchronous.  The record to split out when that changes is the
+  one the plan lists — the process fields of `compilation_state` — and
+  the fields are already the same names.
+- **A cancel path for `M-!`.**  There is none: kg sits inside
+  `pump_io()`'s `poll()` and does not read the keyboard, so `C-g` cannot
+  reach it, and no PTY case could assert a cancellation that has nothing
+  to cancel it with.  The process group is the prerequisite for adding
+  one — a group-directed signal from a child that shared kg's group
+  would have signalled the editor — but the pump would also have to poll
+  kg's input fd, which is a bigger change than a deduplication.  kg(1)
+  now says the command cannot be interrupted rather than leaving it to
+  be found out.
+- **An injected `fork`/`pipe`/`fcntl` failure.**  The plan asks for
+  these; only the reap has a seam today.  Adding three more function
+  pointers to exercise error paths that are three lines each was judged
+  not worth the surface, so `kg_process_spawn()`'s failure return is
+  covered by inspection and by the callers' `goto fail`, not by a test.

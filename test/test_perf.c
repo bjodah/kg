@@ -199,22 +199,24 @@ static void test_load_highlight_is_final(void)
 	CHECK(hl != NULL && oc != NULL);
 	if (hl && oc) {
 		for (i = 0; i < rows; i++) {
+			int n = editor.row[i].rsize;
+
 			oc[i] = editor.row[i].hl_oc;
-			if (editor.row[i].rsize > 0) {
-				hl[i] = malloc((size_t)editor.row[i].rsize);
-				memcpy(hl[i], editor.row[i].hl,
-				    (size_t)editor.row[i].rsize);
+			hl[i] = n > 0 ? malloc((size_t)n) : NULL;
+			if (hl[i]) {
+				memcpy(hl[i], editor.row[i].hl, (size_t)n);
 			}
 		}
 		editor_rehighlight_all();
 		for (i = 0; i < rows; i++) {
-			CHECK(oc[i] == editor.row[i].hl_oc);
 			if (hl[i]) {
 				CHECK(memcmp(hl[i], editor.row[i].hl,
 					  (size_t)editor.row[i].rsize)
 				    == 0);
+				free(hl[i]);
+				hl[i] = NULL;
 			}
-			free(hl[i]);
+			CHECK(oc[i] == editor.row[i].hl_oc);
 		}
 	}
 	free(hl);

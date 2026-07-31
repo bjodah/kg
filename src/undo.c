@@ -5,6 +5,7 @@
 
 #include "def.h"
 #include "localvars.h"
+#include "perf.h"
 
 /* Global undo stack */
 struct undo_stack undostack = { NULL, 0, MAX_UNDO_SIZE, 0 };

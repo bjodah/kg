@@ -42,6 +42,7 @@
 #include "compile.h"
 #include "def.h"
 #include "lisp.h"
+#include "perf.h"
 
 struct editor_config editor;
 int running = 1;

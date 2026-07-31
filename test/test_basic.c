@@ -334,14 +334,20 @@ static void test_ab_append_growth_boundary(void)
 	CHECK(ab_append(&ab, big, 100) == 1);
 	CHECK(ab.capacity > first_capacity);
 	CHECK(ab.len == before + 100);
-	CHECK(memcmp(ab.b, big, 100) == 0);
-	CHECK(memcmp(ab.b + before, big, 100) == 0);
+	CHECK(ab.b != NULL);
+	if (ab.b) {
+		CHECK(memcmp(ab.b, big, 100) == 0);
+		CHECK(memcmp(ab.b + before, big, 100) == 0);
+	}
 
 	/* An append larger than any doubling reaches is still exact. */
 	before = ab.len;
 	CHECK(ab_append(&ab, big, (int)sizeof(big)) == 1);
 	CHECK(ab.len == before + (int)sizeof(big));
-	CHECK(memcmp(ab.b + before, big, sizeof(big)) == 0);
+	CHECK(ab.b != NULL);
+	if (ab.b) {
+		CHECK(memcmp(ab.b + before, big, sizeof(big)) == 0);
+	}
 
 	ab_free(&ab);
 	CHECK(ab.b == NULL);

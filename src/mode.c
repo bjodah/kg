@@ -1,5 +1,6 @@
 #include "def.h"
 #include "localvars.h"
+#include "perf.h"
 
 int chars_to_render_col(erow *row, int chars_col)
 {

@@ -37,12 +37,6 @@
 
 #define SHELL_INITIAL_CAP 4096
 
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
-#pragma GCC diagnostic ignored "-Wanalyzer-fd-use-without-check"
-#endif
-
 /* Concurrently write `in` (inlen bytes) to wfd and read everything from rfd
  * into a newly-malloc'd buffer.  Either fd may be -1 to skip that side.
  * Both fds are closed before return.  Returns the output buffer on success
@@ -216,10 +210,6 @@ fail:
 	errno = saved_errno;
 	return NULL;
 }
-
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 /* Insert text at point as a single undoable yank. */
 static void insert_as_yank(const char *text, int len)

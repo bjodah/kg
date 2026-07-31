@@ -1913,11 +1913,9 @@ int buf_append_special_text(
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && win_shows_buffer(w, target)) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? wcur()->rowoff
-							    : w->rowoff;
-			int cursor_row = (w_idx == win_current)
-			    ? (wcur()->rowoff + wcur()->cy)
-			    : (w->rowoff + w->cy);
+			int rowoff = w->rowoff;
+			int cursor_row = w->rowoff + w->cy;
+
 			if (old_numrows <= 0 || rowoff + h >= old_numrows) {
 				follow_viewport[w_idx] = true;
 			}
@@ -1954,11 +1952,8 @@ int buf_append_special_text(
 		struct editor_window *w = &winlist[w_idx];
 		if (w->active && win_shows_buffer(w, target)) {
 			int h = w->h;
-			int rowoff = (w_idx == win_current) ? wcur()->rowoff
-							    : w->rowoff;
-			int cursor_row = (w_idx == win_current)
-			    ? (wcur()->rowoff + wcur()->cy)
-			    : (w->rowoff + w->cy);
+			int rowoff = w->rowoff;
+			int cursor_row = w->rowoff + w->cy;
 
 			if (follow_viewport[w_idx]) {
 				rowoff
@@ -1984,18 +1979,9 @@ int buf_append_special_text(
 				}
 			}
 
-			int cy = cursor_row - rowoff;
-			int cx = 0;
-
-			if (w_idx == win_current) {
-				wcur()->rowoff = rowoff;
-				wcur()->cy = cy;
-				wcur()->cx = cx;
-			} else {
-				w->rowoff = rowoff;
-				w->cy = cy;
-				w->cx = cx;
-			}
+			w->rowoff = rowoff;
+			w->cy = cursor_row - rowoff;
+			w->cx = 0;
 		}
 	}
 

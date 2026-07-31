@@ -231,44 +231,6 @@ static void handle_cc_prefix_key(int c, int fd)
 	}
 }
 
-/* Bare keys in a directory listing.  User Lisp bindings are C-c-only by
- * design, so dired's Emacs keys are built in, like the commit and rebase
- * C-c keys; each one runs the command M-x would. */
-static const struct {
-	int key;
-	const char *cmd;
-} dired_keys[] = {
-	{ ENTER, "dired-find-file" },
-	{ '^', "dired-up-directory" },
-	{ 'g', "dired-revert" },
-	{ 'm', "dired-mark" },
-	{ 'd', "dired-flag-file-deletion" },
-	{ 'u', "dired-unmark" },
-	{ 'x', "dired-do-flagged-delete" },
-};
-
-/* Handle `c` as a dired key.  Returns 1 when it was one, so the caller
- * stops before the read-only buffer's other bare keys. */
-static int handle_dired_key(int c, int fd)
-{
-	size_t i;
-
-	if (!syntax_is_dired()) {
-		return 0;
-	}
-	if (c == 'n' || c == 'p') {
-		editor_move_cursor(c == 'n' ? ARROW_DOWN : ARROW_UP);
-		return 1;
-	}
-	for (i = 0; i < sizeof(dired_keys) / sizeof(dired_keys[0]); i++) {
-		if (dired_keys[i].key == c) {
-			(void)cmd_execute_named(dired_keys[i].cmd, fd);
-			return 1;
-		}
-	}
-	return 0;
-}
-
 /* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),
  * matching Emacs.  editor_kill_line() is a half-step primitive, so this
  * counts *newlines* removed (numrows dropped) rather than iterations.  A
@@ -552,7 +514,64 @@ static const struct {
 	{ "C-x r t", "string-rectangle" },
 };
 
+/* Mode maps, and the predicate each is live under.  These are the
+ * existing checks -- a syntax pointer, a buffer name, a read-only flag --
+ * adapted into layers, not a mode registry: when there is a real one it
+ * owns this table and the predicates go with it.
+ *
+ * They are MAJOR maps, which is one layer, so their predicates have to
+ * stay mutually exclusive the way they already were: dired and the
+ * buffer list are told apart by the syntax pointer, and the git modes by
+ * their own. */
+static const struct {
+	const char *name;
+	const char *sequence;
+	const char *command;
+} mode_map_keys[] = {
+	{ "dired", "RET", "dired-find-file" },
+	{ "dired", "^", "dired-up-directory" },
+	{ "dired", "g", "dired-revert" },
+	{ "dired", "m", "dired-mark" },
+	{ "dired", "d", "dired-flag-file-deletion" },
+	{ "dired", "u", "dired-unmark" },
+	{ "dired", "x", "dired-do-flagged-delete" },
+	{ "dired", "n", "next-line" },
+	{ "dired", "p", "previous-line" },
+	{ "dired", "q", "quit-window" },
+	{ "buffer-list", "RET", "ibuffer-visit-buffer" },
+	{ "buffer-list", "q", "quit-window" },
+	{ "special", "q", "quit-window" },
+};
+
 static struct keymap *global_map;
+static struct keymap *mode_maps[3];
+
+/* The map a row names, so the table above reads as one list rather than
+ * three. */
+static struct keymap *key_mode_map(const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(mode_maps) / sizeof(*mode_maps); i++) {
+		if (strcmp(keymap_name(mode_maps[i]), name) == 0) {
+			return mode_maps[i];
+		}
+	}
+	return nullptr;
+}
+
+/* Whether each mode map is live, asked once per keystroke.  A read-only
+ * buffer that is neither dired nor the buffer list still answers q,
+ * which is what the special-buffer branch in dispatch used to do. */
+static void key_update_mode_maps(void)
+{
+	int listing = syntax_is_dired();
+	int special = is_special_buffer(bcur()->filename) && buf_count > 1;
+
+	keymap_set_active(mode_maps[0], listing);
+	keymap_set_active(mode_maps[1], bcur()->readonly && !listing);
+	keymap_set_active(mode_maps[2], special && !listing);
+}
 
 /* The sequence in progress, and the numeric argument its first key
  * carried.  One buffer at any depth, in place of editor.cx_prefix,
@@ -603,6 +622,13 @@ void key_install_builtin_maps(void)
 		(void)keymap_bind(global_map, global_map_keys[i].sequence,
 		    global_map_keys[i].command);
 	}
+	mode_maps[0] = keymap_create("dired", KEYMAP_LAYER_MAJOR);
+	mode_maps[1] = keymap_create("buffer-list", KEYMAP_LAYER_MAJOR);
+	mode_maps[2] = keymap_create("special", KEYMAP_LAYER_MAJOR);
+	for (i = 0; i < sizeof(mode_map_keys) / sizeof(*mode_map_keys); i++) {
+		(void)keymap_bind(key_mode_map(mode_map_keys[i].name),
+		    mode_map_keys[i].sequence, mode_map_keys[i].command);
+	}
 }
 
 /* Run `c` from the keymaps, one key of a sequence at a time.
@@ -629,6 +655,7 @@ static enum key_dispatch key_dispatch_map(int c, int fd)
 	if (!global_map) {
 		key_install_builtin_maps();
 	}
+	key_update_mode_maps();
 	/* C-g gets out of a sequence at any depth, which is why no map may
 	 * bind it: a keymap that is wrong must still be escapable. */
 	if (started > 0 && key_event_equal(event, quit)) {
@@ -792,32 +819,6 @@ void editor_process_keypress(int fd)
 		n = prefix.value;
 	} else {
 		n = 1;
-	}
-
-	/* q closes special *...* buffers, but only if another buffer exists */
-	if (c == 'q' && is_special_buffer(bcur()->filename) && buf_count > 1) {
-		buf_kill(fd);
-		return;
-	}
-
-	/* Read-only mode: Enter opens the item at point; editing is blocked. */
-	if (bcur()->readonly) {
-		/* Dired's bare keys come first: dired and the buffer list are
-		 * mutually exclusive by syntax pointer, so the ENTER below is
-		 * ibuffer's only when this declines the key. */
-		if (handle_dired_key(c, fd)) {
-			return;
-		}
-		if (c == ENTER) {
-			buf_ibuffer_select();
-			return;
-		}
-		/* Everything else a read-only buffer refuses, it refuses
-		 * through the command the key resolves to: cmd_invoke()
-		 * and the self-insert fast path both ask the descriptor,
-		 * so a key, M-x and Lisp cannot disagree.  The list of
-		 * keycodes that used to be the second opinion here is
-		 * gone. */
 	}
 
 	/* End the previous keystroke's command: whatever ran during it

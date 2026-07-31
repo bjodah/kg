@@ -1,0 +1,21 @@
+# A mode map shadows a global key only while its predicate is true.
+#
+# "g" is dired-revert in a directory listing and an ordinary character
+# everywhere else, "n" is next-line there and a character here, and "q"
+# leaves a special buffer but types itself in a file buffer.  The three
+# are typed in an ordinary buffer, where the global self-insert fallback
+# has to win: the dired map exists from the first keystroke, and only its
+# predicate keeps it out of the way.
+name: mode-map-shadows-only-in-its-mode
+filename: mode-shadow.txt
+backend: pexpect
+key_delay: 0.08
+initial: "x\n"
+keys:
+  - g
+  - "n"
+  - q
+  - "^"
+  - m
+  - u
+expected_saved: "gnq^mux\n"

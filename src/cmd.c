@@ -807,6 +807,17 @@ static void cmd_self_insert(int fd)
 	}
 }
 
+/* Bare keys in the listings: q leaves, and Enter opens what is on this
+ * line.  They are commands so the listing's map can name them, and so
+ * M-x can reach them. */
+static void cmd_quit_window(int fd) { buf_kill(fd); }
+
+static void cmd_ibuffer_visit_buffer(int fd)
+{
+	(void)fd;
+	buf_ibuffer_select();
+}
+
 /* ---- Rectangles ----
  *
  * Each one refuses a read-only buffer through its own descriptor now;
@@ -1414,6 +1425,8 @@ static const struct named_cmd cmdtable[] = {
 	{ "goto-line", cmd_goto_line, CMD_NONE,
 	    "Move point to a line, or a line and column" },
 	{ "help", cmd_help, CMD_NONE, "Show the built-in key binding help" },
+	{ "ibuffer-visit-buffer", cmd_ibuffer_visit_buffer, CMD_NONE,
+	    "Visit the buffer named on this line" },
 	{ "insert-file", cmd_insert_file, EDITS,
 	    "Insert a file's contents at point" },
 	{ "isearch-backward", cmd_isearch_backward, CMD_NONE,
@@ -1482,6 +1495,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Replace matches, asking about each one" },
 	{ "query-replace-regexp", cmd_query_replace_regexp, EDITS,
 	    "Replace regexp matches, asking about each one" },
+	{ "quit-window", cmd_quit_window, CMD_NONE,
+	    "Kill this buffer and leave the listing" },
 	{ "quoted-insert", cmd_quoted_insert, EDITS,
 	    "Insert the next byte typed, whatever it is" },
 	{ "read-only-mode", cmd_read_only_mode, CMD_NONE,

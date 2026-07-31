@@ -327,6 +327,19 @@ static enum keymap_result layer_probe(enum keymap_layer layer,
 	return result;
 }
 
+int keymap_unresolved_count(void)
+{
+	int i, unresolved = 0;
+
+	for (i = 0; i < entry_count; i++) {
+		if (entries[i].command
+		    && cmd_id_by_name(entries[i].command) == CMD_ID_NONE) {
+			unresolved++;
+		}
+	}
+	return unresolved;
+}
+
 void keymap_lookup(
     const struct key_event *keys, int count, struct keymap_match *out)
 {

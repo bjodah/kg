@@ -90,6 +90,11 @@ void keymap_lookup(
  * when a map is wrong, so nothing binds it. */
 [[nodiscard]] int keymap_is_reserved(const struct key_event *keys, int count);
 
+/* How many bindings name a command that does not exist right now.  The
+ * built-in maps must install with none; user and runtime bindings may
+ * have some, and report it at dispatch. */
+[[nodiscard]] int keymap_unresolved_count(void);
+
 /* Drops every map and binding.  For tests; the editor installs its maps
  * once. */
 void keymap_reset(void);

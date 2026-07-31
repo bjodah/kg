@@ -329,6 +329,11 @@ static void test_builtin_global_map_resolves(void)
 		    "command",
 		    sequences[i], match.command);
 	}
+	/* Every binding in every built-in map, including the mode maps that
+	 * are not active right now, names a command that exists. */
+	CHECKF(keymap_unresolved_count() == 0,
+	    "%d built-in bindings name a command that does not exist",
+	    keymap_unresolved_count());
 	/* Nothing binds the emergency quit or the self-insert range. */
 	CHECK(lookup("C-g").result == KEYMAP_NO_MATCH);
 	CHECK(lookup("a").result == KEYMAP_NO_MATCH);

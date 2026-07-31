@@ -1288,6 +1288,11 @@ Equivalent to
 Show the built-in key binding help in a read-only buffer.
 Bound to
 .Ic C-h .
+.It ibuffer-visit-buffer
+Visit the buffer named on this line of the buffer list.
+Bound to
+.Ic Enter
+in read-only buffers that are not directory listings.
 .It insert-file
 Insert a file's contents at point.
 Bound to
@@ -1461,6 +1466,12 @@ Bound to
 .It query-replace-regexp
 Prompted query replace with regexp matching.
 Supports \e&, \e1..\e9, \e\e expansions.
+.It quit-window
+Kill this buffer and leave the listing it shows.
+Bound to
+.Ic q
+in directory listings, the buffer list and other special buffers,
+while another buffer exists to return to.
 .It quoted-insert
 Insert the next byte typed without interpreting it as a key.
 Bound to

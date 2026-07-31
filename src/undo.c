@@ -266,14 +266,9 @@ static void undo_replay_reflow_para(struct undo_op *op)
  * refusal is a whole edit that did not happen. */
 static int undo_replay_change(struct undo_op *op)
 {
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = op->position,
-		.end_byte = op->position + (size_t)op->c,
-		.replacement = op->text ? op->text : "",
-		.replacement_len = (size_t)op->len,
-		.options = KG_EDIT_REPLAY,
-	};
+	struct kg_edit e
+	    = kg_edit_replay(bcur(), op->position, op->position + (size_t)op->c,
+		op->text ? op->text : "", (size_t)op->len);
 	int row, col;
 
 	if (!kg_buffer_replace(&e, NULL)) {

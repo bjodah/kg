@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "edit.h"
 #include "keyevent.h"
 #include "localvars.h"
 #include "regex.h"
@@ -795,8 +796,8 @@ void editor_query_replace(int fd)
 			/* A replacement is one user operation: one row
 			 * rebuild, and one C-_ that removes the replacement
 			 * span and restores the original match. */
-			if (!editor_row_replace_range(
-				filerow, match_col, slen, replace, rlen, 0)) {
+			if (!editor_row_replace_range(filerow, match_col, slen,
+				replace, rlen, KG_EDIT_USER)) {
 				break;
 			}
 
@@ -1062,7 +1063,8 @@ void editor_query_replace_regexp(int fd)
 		if (answer != REPLACE_SKIP) {
 			hl_snapshot_restore(&snap);
 			if (!editor_row_replace_range(filerow, match_start,
-				match_len, expanded, expanded_len, 0)) {
+				match_len, expanded, expanded_len,
+				KG_EDIT_USER)) {
 				free(expanded);
 				break;
 			}

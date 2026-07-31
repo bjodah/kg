@@ -380,14 +380,8 @@ static int editor_delete_region_range(
 	 * between, move the array down, renumber.  Two of those are one too
 	 * many. */
 	size_t begin = buffer_row_col_to_position(bcur(), start_row, start_col);
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = begin,
-		.end_byte
-		= buffer_row_col_to_position(bcur(), end_row, end_col),
-		.replacement = "",
-		.options = KG_EDIT_NO_UNDO,
-	};
+	struct kg_edit e = kg_edit_user_part(bcur(), begin,
+	    buffer_row_col_to_position(bcur(), end_row, end_col), "", 0);
 
 	return kg_buffer_replace(&e, NULL);
 }
@@ -409,13 +403,7 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	if ((size_t)byte_len > buffer_byte_length(bcur()) - begin) {
 		return 0;
 	}
-	e = (struct kg_edit) {
-		.buffer = bcur(),
-		.begin_byte = begin,
-		.end_byte = begin + (size_t)byte_len,
-		.replacement = "",
-		.options = KG_EDIT_NO_UNDO,
-	};
+	e = kg_edit_user_part(bcur(), begin, begin + (size_t)byte_len, "", 0);
 	return kg_buffer_replace(&e, NULL);
 }
 

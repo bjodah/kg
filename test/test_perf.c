@@ -20,6 +20,7 @@
 
 #include "../src/compile.h"
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "../src/syntax.h"
 #include "test.h"
 #include <fcntl.h>
@@ -518,8 +519,10 @@ static void test_one_byte_edit_in_long_row_derived_storage(void)
 	setup();
 	editor_insert_row(bcur(), 0, line, (size_t)len);
 	kg_perf_reset();
-	CHECK(editor_row_replace_range(0, 0, 0, "y", 1, 0) == 1); /* typed */
-	CHECK(editor_row_replace_range(0, 0, 1, "", 0, 0) == 1); /* erased */
+	CHECK(editor_row_replace_range(0, 0, 0, "y", 1, KG_EDIT_USER)
+	    == 1); /* typed */
+	CHECK(editor_row_replace_range(0, 0, 1, "", 0, KG_EDIT_USER)
+	    == 1); /* erased */
 
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 2);
 	CHECK(counter(KG_PERF_RENDER_ALLOC) == 0);
@@ -539,7 +542,8 @@ static void test_replace_range_updates_once(void)
 	setup();
 	editor_insert_row(bcur(), 0, "aaaaaaaaaaaaaaaa", 16);
 	kg_perf_reset();
-	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11, 0) == 1);
+	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11, KG_EDIT_USER)
+	    == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
 	CHECK(counter(KG_PERF_UNDO_PUSH) == 1);
 	CHECK(bcur()->row[0].size == 19);

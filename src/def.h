@@ -597,12 +597,9 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len);
 void editor_row_insert_spaces(erow *row, int at, int len);
 void editor_row_append_string(erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
-/* The edit transaction -- enum edit_option, struct kg_edit, struct
- * kg_edit_result and kg_buffer_replace() -- is src/edit.h's; a consumer
- * includes that header directly.  `options` below is a bitwise OR of
- * enum edit_option, 0 for an ordinary edit. */
-int editor_row_replace_range(int filerow, int at, int delete_len,
-    const char *insert, int insert_len, unsigned options);
+/* The edit transaction is src/edit.h's -- the intent, the two structs,
+ * kg_buffer_replace() and editor_row_replace_range().  A consumer
+ * includes that header directly. */
 void editor_insert_char(int c);
 void editor_insert_newline_raw(void);
 void editor_insert_text_raw(const char *text, int len);

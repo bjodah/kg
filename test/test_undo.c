@@ -823,7 +823,8 @@ static void test_undo_failed_replay_keeps_the_record(void)
 
 	setup();
 	editor_insert_row(bcur(), 0, "hello world", 11);
-	CHECK(editor_row_replace_range(0, 0, 5, "GOODBYE", 7, 0) == 1);
+	CHECK(
+	    editor_row_replace_range(0, 0, 5, "GOODBYE", 7, KG_EDIT_USER) == 1);
 	CHECK(bcur()->undostack.size == 1);
 	CHECK(bcur()->dirty != 0);
 	head = bcur()->undostack.head;
@@ -862,10 +863,10 @@ static void test_undo_failed_replay_keeps_dirty_truth(void)
 
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	CHECK(editor_row_replace_range(0, 3, 0, "X", 1, 0) == 1);
+	CHECK(editor_row_replace_range(0, 3, 0, "X", 1, KG_EDIT_USER) == 1);
 	undo_mark_clean(); /* as a save would: one record deep, clean */
 	bcur()->dirty = 0;
-	CHECK(editor_row_replace_range(0, 4, 0, "Y", 1, 0) == 1);
+	CHECK(editor_row_replace_range(0, 4, 0, "Y", 1, KG_EDIT_USER) == 1);
 	CHECK(bcur()->dirty != 0);
 
 	kg_edit_fail_alloc_after(0);

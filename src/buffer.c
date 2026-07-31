@@ -1007,14 +1007,8 @@ static int editor_insert_text_raw_bulk(const char *text, int insert_len)
 {
 	size_t pos = buffer_row_col_to_position(
 	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = pos,
-		.end_byte = pos,
-		.replacement = text,
-		.replacement_len = (size_t)insert_len,
-		.options = KG_EDIT_NO_UNDO,
-	};
+	struct kg_edit e
+	    = kg_edit_user_part(bcur(), pos, pos, text, (size_t)insert_len);
 	int row, col;
 
 	if (!memchr(text, '\n', (size_t)insert_len)
@@ -1518,18 +1512,86 @@ static char *buffer_copy_span(
 	return out;
 }
 
+/* The policy, one row per intent: between them these three answers are
+ * the whole of what an edit's intent decides.  A table rather than a
+ * chain of tests, for the same reason cmdtable is one -- reading the
+ * policy off is reading four rows, and adding an intent is adding a
+ * fifth rather than remembering every place that asks.
+ *
+ * The content generation is deliberately not a column: it advances for
+ * every intent, because the bytes did change, whatever else follows. */
+static const struct {
+	unsigned char records_undo; /* transaction writes the record */
+	unsigned char obeys_readonly; /* a read-only buffer refuses it */
+	unsigned char marks_modified; /* the buffer comes out dirty */
+} edit_policy[] = {
+	[KG_EDIT_USER] = { 1, 1, 1 },
+	[KG_EDIT_USER_PART] = { 0, 1, 1 },
+	[KG_EDIT_REPLAY] = { 0, 0, 1 },
+	[KG_EDIT_INTERNAL] = { 0, 0, 0 },
+};
+
+/* Count the change the edit just made.  The modified flag only advances
+ * for text that was the user's to modify, so a listing or a process's
+ * output can be rewritten without the mode line claiming unsaved work.
+ * buffer_note_change() is the two together, which is what every
+ * mutation that has not reached the gateway still wants. */
+static void edit_note_change(
+    struct editor_buffer *b, enum kg_edit_intent intent)
+{
+	b->content_generation++;
+	b->dirty += edit_policy[intent].marks_modified;
+}
+
+static struct kg_edit edit_make(enum kg_edit_intent intent,
+    struct editor_buffer *b, size_t begin, size_t end, const char *replacement,
+    size_t replacement_len)
+{
+	return (struct kg_edit) { .buffer = b,
+		.begin_byte = begin,
+		.end_byte = end,
+		.replacement = replacement,
+		.replacement_len = replacement_len,
+		.intent = intent };
+}
+
+struct kg_edit kg_edit_user(struct editor_buffer *b, size_t begin, size_t end,
+    const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_USER, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_user_part(struct editor_buffer *b, size_t begin,
+    size_t end, const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_USER_PART, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_replay(struct editor_buffer *b, size_t begin, size_t end,
+    const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_REPLAY, b, begin, end, replacement, replacement_len);
+}
+
+struct kg_edit kg_edit_internal(struct editor_buffer *b, size_t begin,
+    size_t end, const char *replacement, size_t replacement_len)
+{
+	return edit_make(
+	    KG_EDIT_INTERNAL, b, begin, end, replacement, replacement_len);
+}
+
 /* Whether `e` names a range this buffer has, and may have replaced. */
 static int edit_valid(const struct kg_edit *e)
 {
 	const struct editor_buffer *b = e->buffer;
-	unsigned quiet = KG_EDIT_NO_UNDO | KG_EDIT_REPLAY;
 
 	if (!b || !b->active || !e->replacement) {
 		return 0;
 	}
-	/* An edit the user did not ask for -- a load, a rebuild, undo
-	 * putting a record back -- is not what read-only is about. */
-	if (b->readonly && !(e->options & quiet)) {
+	if (b->readonly && edit_policy[e->intent].obeys_readonly) {
 		return 0;
 	}
 	if (e->begin_byte > e->end_byte
@@ -1591,7 +1653,7 @@ static int edit_stage(const struct kg_edit *e, int r0, int c0, int r1, int c1,
 static int edit_record_undo(
     const struct kg_edit *e, const struct edit_staged *st)
 {
-	if (e->options & (KG_EDIT_NO_UNDO | KG_EDIT_REPLAY)) {
+	if (!edit_policy[e->intent].records_undo) {
 		return 1;
 	}
 	return edit_alloc_ok()
@@ -1656,12 +1718,16 @@ static void edit_publish(
 }
 
 /* Replace the bytes [begin_byte, end_byte) of `e->buffer` with
- * `e->replacement`, as one step: one undo record, one bump of the
+ * `e->replacement`, as one step: one undo record, one step of the
  * modified flag and the content generation, one row rebuild per row the
- * result has.  Returns 0 with the buffer byte-identical when the range is
- * not one the buffer has, the buffer is read-only, or memory runs out.
- * `out` may be NULL, and is zeroed on a refusal -- the two generations
- * are equal either way, which is the thing a caller asks it. */
+ * result has.  What of that the edit's intent actually asks for is
+ * edit_records_undo() and friends above; see enum kg_edit_intent.
+ *
+ * Returns 0 with the buffer byte-identical when the range is not one the
+ * buffer has, the intent has no authority over a read-only buffer, or
+ * memory runs out.  `out` may be NULL, and is zeroed on a refusal -- the
+ * two generations are equal either way, which is the thing a caller asks
+ * it. */
 int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 {
 	struct editor_buffer *b = e->buffer;
@@ -1689,7 +1755,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	}
 	edit_publish(b, r0, r1, &st);
 	edit_staged_free(&st);
-	buffer_note_change(b);
+	edit_note_change(b, e->intent);
 	if (out) {
 		out->new_length = buffer_byte_length(b);
 		out->after_generation = b->content_generation;
@@ -1733,18 +1799,18 @@ static int row_replace_range_valid(
 /* Replace the `delete_len` bytes at (filerow, at) with the `insert_len`
  * bytes at `insert` -- one row rebuild, one dirty step and one undo
  * record, whatever the lengths are.  `insert` must be non-NULL; either
- * length may be zero.  `options` is a bitwise OR of enum edit_option, 0
- * for an ordinary edit.  Returns 0 with the row byte-identical when the
- * range is bogus, the resulting size does not fit an int, or memory runs
- * out: the capacity is reserved and the undo payload copied before
- * anything moves.
+ * length may be zero.  `intent` says whose edit it is; see enum
+ * kg_edit_intent.  Returns 0 with the row byte-identical when the range
+ * is bogus, the resulting size does not fit an int, or memory runs out:
+ * the capacity is reserved and the undo payload copied before anything
+ * moves.
  *
  * Replacing nothing by nothing is a well-formed request that changes no
  * byte, so it costs neither a modification nor an undo step -- Emacs
  * answers the same way, and query-replace-regexp of a zero-width pattern
  * by the empty string is the caller that asks it for every glyph. */
 int editor_row_replace_range(int filerow, int at, int delete_len,
-    const char *insert, int insert_len, unsigned options)
+    const char *insert, int insert_len, enum kg_edit_intent intent)
 {
 	size_t pos;
 	struct kg_edit e;
@@ -1762,14 +1828,8 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 	 * is the checking the transaction cannot do, since a flat position
 	 * clamps where a row column is refused. */
 	pos = buffer_row_col_to_position(bcur(), filerow, at);
-	e = (struct kg_edit) {
-		.buffer = bcur(),
-		.begin_byte = pos,
-		.end_byte = pos + (size_t)delete_len,
-		.replacement = insert,
-		.replacement_len = (size_t)insert_len,
-		.options = options,
-	};
+	e = edit_make(intent, bcur(), pos, pos + (size_t)delete_len, insert,
+	    (size_t)insert_len);
 	return kg_buffer_replace(&e, NULL);
 }
 
@@ -1788,7 +1848,7 @@ static int editor_delete_span_with_undo(int filerow, int col, int len)
 	 * undo record and the single row rebuild are all already written --
 	 * including what a `len` of zero or below means, which this must not
 	 * answer differently. */
-	return editor_row_replace_range(filerow, col, len, "", 0, 0);
+	return editor_row_replace_range(filerow, col, len, "", 0, KG_EDIT_USER);
 }
 
 /* Delete the char at the current prompt position. */

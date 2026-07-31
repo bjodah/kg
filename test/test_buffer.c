@@ -1489,17 +1489,27 @@ static char *buffer_text(void)
 	return editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
 }
 
-static int edit_at(size_t begin, size_t end, const char *insert, unsigned opts)
+static int edit_at(
+    size_t begin, size_t end, const char *insert, enum kg_edit_intent intent)
 {
-	struct kg_edit e = {
-		.buffer = bcur(),
-		.begin_byte = begin,
-		.end_byte = end,
-		.replacement = insert,
-		.replacement_len = strlen(insert),
-		.options = opts,
-	};
+	struct kg_edit e;
 
+	switch (intent) {
+	case KG_EDIT_USER_PART:
+		e = kg_edit_user_part(
+		    bcur(), begin, end, insert, strlen(insert));
+		break;
+	case KG_EDIT_REPLAY:
+		e = kg_edit_replay(bcur(), begin, end, insert, strlen(insert));
+		break;
+	case KG_EDIT_INTERNAL:
+		e = kg_edit_internal(
+		    bcur(), begin, end, insert, strlen(insert));
+		break;
+	default:
+		e = kg_edit_user(bcur(), begin, end, insert, strlen(insert));
+		break;
+	}
 	return kg_buffer_replace(&e, NULL);
 }
 
@@ -1513,20 +1523,20 @@ static void test_edit_replaces_byte_ranges(void)
 	editor_insert_row(bcur(), 0, "hello", 5);
 	editor_insert_row(bcur(), 1, "world", 5);
 
-	CHECK(edit_at(1, 4, "EY", 0) == 1); /* inside row 0 */
+	CHECK(edit_at(1, 4, "EY", KG_EDIT_USER) == 1); /* inside row 0 */
 	text = buffer_text();
 	CHECK(strcmp(text, "hEYo\nworld") == 0);
 	free(text);
 
 	/* Across the separator: rows 0 and 1 become one. */
-	CHECK(edit_at(3, 6, "-", 0) == 1);
+	CHECK(edit_at(3, 6, "-", KG_EDIT_USER) == 1);
 	text = buffer_text();
 	CHECK(strcmp(text, "hEY-orld") == 0);
 	CHECK(bcur()->numrows == 1);
 	free(text);
 
 	/* A replacement carrying separators of its own splits the row. */
-	CHECK(edit_at(3, 4, "\na\nb\n", 0) == 1);
+	CHECK(edit_at(3, 4, "\na\nb\n", KG_EDIT_USER) == 1);
 	text = buffer_text();
 	CHECK(strcmp(text, "hEY\na\nb\norld") == 0);
 	CHECK(bcur()->numrows == 4);
@@ -1545,14 +1555,14 @@ static void test_edit_empties_and_fills_a_buffer(void)
 	editor_insert_row(bcur(), 0, "one", 3);
 	editor_insert_row(bcur(), 1, "two", 3);
 
-	CHECK(edit_at(0, buffer_byte_length(bcur()), "", 0) == 1);
+	CHECK(edit_at(0, buffer_byte_length(bcur()), "", KG_EDIT_USER) == 1);
 	CHECK(buffer_byte_length(bcur()) == 0);
 	CHECK(bcur()->numrows == 1);
 	teardown();
 
 	setup();
 	CHECK(bcur()->numrows == 0);
-	CHECK(edit_at(0, 0, "a\nb", 0) == 1);
+	CHECK(edit_at(0, 0, "a\nb", KG_EDIT_USER) == 1);
 	text = buffer_text();
 	CHECK(strcmp(text, "a\nb") == 0);
 	free(text);
@@ -1575,15 +1585,18 @@ static void test_edit_refusal_changes_nothing(void)
 	generation = bcur()->content_generation;
 	size = bcur()->undostack.size;
 
-	CHECK(edit_at(0, 99, "X", 0) == 0); /* past the end */
-	CHECK(edit_at(4, 2, "X", 0) == 0); /* end before begin */
+	CHECK(edit_at(0, 99, "X", KG_EDIT_USER) == 0); /* past the end */
+	CHECK(edit_at(4, 2, "X", KG_EDIT_USER) == 0); /* end before begin */
 
 	bcur()->readonly = 1;
-	CHECK(edit_at(0, 1, "X", 0) == 0);
-	/* ... but a load, a rebuild or undo putting a record back is not
-	 * what read-only is about. */
-	CHECK(edit_at(0, 1, "X", KG_EDIT_NO_UNDO) == 1);
-	CHECK(edit_at(0, 1, "a", KG_EDIT_REPLAY) == 1);
+	CHECK(edit_at(0, 1, "X", KG_EDIT_USER) == 0);
+	/* A command that writes its own coarser record is still the user
+	 * asking, so read-only refuses it too. */
+	CHECK(edit_at(0, 1, "X", KG_EDIT_USER_PART) == 0);
+	/* Undo putting a record back, and an owner rewriting text that was
+	 * never the user's, are not what read-only is about. */
+	CHECK(edit_at(0, 1, "X", KG_EDIT_REPLAY) == 1);
+	CHECK(edit_at(0, 1, "a", KG_EDIT_INTERNAL) == 1);
 	bcur()->readonly = 0;
 
 	text = buffer_text();
@@ -1595,13 +1608,77 @@ static void test_edit_refusal_changes_nothing(void)
 	 * the refusals cost nothing. */
 	CHECK(bcur()->content_generation == generation + 2);
 
-	e = (struct kg_edit) { .buffer = bcur(),
-		.begin_byte = 1,
-		.end_byte = 99,
-		.replacement = "",
-		.replacement_len = 0 };
+	e = kg_edit_user(bcur(), 1, 99, "", 0);
 	CHECK(kg_buffer_replace(&e, &res) == 0);
 	CHECK(res.before_generation == res.after_generation);
+	teardown();
+}
+
+/* An owner rewriting text that was never the user's: the bytes change
+ * and the content generation says so, but the buffer is no more
+ * modified than it was, nothing is recorded to undo, and the read-only
+ * flag that presents such a buffer is not in its way. */
+static void test_edit_internal_changes_text_without_dirtying(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "old listing", 11);
+	bcur()->dirty = 0;
+	bcur()->readonly = 1;
+	generation = bcur()->content_generation;
+
+	CHECK(edit_at(0, 3, "new", KG_EDIT_INTERNAL) == 1);
+
+	text = buffer_text();
+	CHECK(strcmp(text, "new listing") == 0);
+	free(text);
+	CHECK(bcur()->content_generation == generation + 1);
+	CHECK(bcur()->dirty == 0);
+	CHECK(bcur()->undostack.size == 0);
+	bcur()->readonly = 0;
+	teardown();
+}
+
+/* What the transaction does at the two ends of a buffer.  A buffer with
+ * no rows and one holding a single empty row spell the same zero bytes,
+ * and the transaction neither adds a final newline nor takes one away:
+ * a trailing separator is an empty last row and nothing else.  (What a
+ * *saved file* ends with is fileio's policy, not this one's.) */
+static void test_edit_empty_buffer_and_final_newline(void)
+{
+	char *text;
+
+	setup();
+	CHECK(bcur()->numrows == 0);
+	CHECK(buffer_byte_length(bcur()) == 0);
+	CHECK(edit_at(0, 0, "abc", KG_EDIT_USER) == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "abc") == 0);
+	free(text);
+	CHECK(bcur()->numrows == 1);
+
+	/* A trailing separator is one more row, and one more byte. */
+	CHECK(edit_at(3, 3, "\n", KG_EDIT_USER) == 1);
+	CHECK(bcur()->numrows == 2);
+	CHECK(buffer_byte_length(bcur()) == 4);
+	text = buffer_text();
+	CHECK(strcmp(text, "abc\n") == 0);
+	free(text);
+
+	/* And taking it back leaves "abc", not "abc\n" put back by
+	 * anybody's newline policy. */
+	CHECK(edit_at(3, 4, "", KG_EDIT_USER) == 1);
+	CHECK(bcur()->numrows == 1);
+	text = buffer_text();
+	CHECK(strcmp(text, "abc") == 0);
+	free(text);
+
+	/* Emptied out, the buffer keeps one empty row and no bytes. */
+	CHECK(edit_at(0, 3, "", KG_EDIT_USER) == 1);
+	CHECK(bcur()->numrows == 1);
+	CHECK(buffer_byte_length(bcur()) == 0);
 	teardown();
 }
 
@@ -1671,10 +1748,10 @@ static void edit_fixture(void)
 	editor_insert_row(bcur(), 0, "alpha", 5);
 	editor_insert_row(bcur(), 1, "beta", 4);
 	editor_insert_row(bcur(), 2, "gamma", 5);
-	CHECK(edit_at(0, 1, "A", 0) == 1);
+	CHECK(edit_at(0, 1, "A", KG_EDIT_USER) == 1);
 	undo_mark_clean();
 	bcur()->dirty = 0;
-	CHECK(edit_at(1, 2, "L", 0) == 1);
+	CHECK(edit_at(1, 2, "L", KG_EDIT_USER) == 1);
 }
 
 /* Every allocation the transaction makes before it publishes anything,
@@ -1703,7 +1780,7 @@ static void test_edit_refusal_is_atomic_at_every_allocation(void)
 		kg_edit_fail_alloc_after(k);
 		/* From inside row 0 to inside row 2, by two rows of its
 		 * own: the shape that allocates one of everything. */
-		ran = edit_at(2, 13, "X\nY\nZ", 0);
+		ran = edit_at(2, 13, "X\nY\nZ", KG_EDIT_USER);
 		running = 1; /* the refusal reported itself by quitting */
 
 		CHECK(ran == (k == allocations));
@@ -1731,11 +1808,7 @@ static void test_edit_result_reports_the_commit(void)
 
 	setup();
 	editor_insert_row(bcur(), 0, "abcdef", 6);
-	e = (struct kg_edit) { .buffer = bcur(),
-		.begin_byte = 2,
-		.end_byte = 4,
-		.replacement = "XYZ",
-		.replacement_len = 3 };
+	e = kg_edit_user(bcur(), 2, 4, "XYZ", 3);
 
 	CHECK(kg_buffer_replace(&e, &res) == 1);
 	CHECK(res.old_length == 6);
@@ -1756,7 +1829,7 @@ static void test_edit_undo_restores_exact_bytes(void)
 	editor_insert_row(bcur(), 2, "gamma", 5);
 
 	/* From inside row 0 to inside row 2, replaced by two rows. */
-	CHECK(edit_at(2, 13, "X\nY", 0) == 1);
+	CHECK(edit_at(2, 13, "X\nY", KG_EDIT_USER) == 1);
 	text = buffer_text();
 	CHECK(strcmp(text, "alX\nYmma") == 0);
 	free(text);
@@ -1783,7 +1856,7 @@ static void test_row_replace_range(void)
 	editor_insert_row(bcur(), 0, "abcdef", 6);
 
 	dirty = bcur()->dirty;
-	CHECK(editor_row_replace_range(0, 1, 3, "XY", 2, 0) == 1);
+	CHECK(editor_row_replace_range(0, 1, 3, "XY", 2, KG_EDIT_USER) == 1);
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "aXYef", 5) == 0);
 	CHECK(bcur()->row[0].chars[5] == '\0');
@@ -1795,10 +1868,10 @@ static void test_row_replace_range(void)
 	CHECK(memcmp(bcur()->row[0].chars, "abcdef", 6) == 0);
 
 	/* a pure insertion, and a pure deletion */
-	CHECK(editor_row_replace_range(0, 6, 0, "gh", 2, 0) == 1);
+	CHECK(editor_row_replace_range(0, 6, 0, "gh", 2, KG_EDIT_USER) == 1);
 	CHECK(bcur()->row[0].size == 8);
 	CHECK(memcmp(bcur()->row[0].chars, "abcdefgh", 8) == 0);
-	CHECK(editor_row_replace_range(0, 0, 3, "", 0, 0) == 1);
+	CHECK(editor_row_replace_range(0, 0, 3, "", 0, KG_EDIT_USER) == 1);
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "defgh", 5) == 0);
 	CHECK(bcur()->row[0].chars[5] == '\0');
@@ -1809,7 +1882,7 @@ static void test_row_replace_range(void)
 	 * asks for one per glyph, and Emacs leaves that buffer unmodified. */
 	dirty = bcur()->dirty;
 	records = bcur()->undostack.size;
-	CHECK(editor_row_replace_range(0, 2, 0, "", 0, 0) == 1);
+	CHECK(editor_row_replace_range(0, 2, 0, "", 0, KG_EDIT_USER) == 1);
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "defgh", 5) == 0);
 	CHECK(bcur()->dirty == dirty);
@@ -1829,12 +1902,13 @@ static void test_row_replace_range_refuses_bad_ranges(void)
 	editor_insert_row(bcur(), 0, "abcdef", 6);
 	dirty = bcur()->dirty;
 
-	CHECK(editor_row_replace_range(0, -1, 1, "X", 1, 0) == 0);
-	CHECK(editor_row_replace_range(0, 7, 0, "X", 1, 0) == 0);
-	CHECK(editor_row_replace_range(0, 4, 3, "X", 1, 0) == 0);
-	CHECK(editor_row_replace_range(0, 0, -1, "X", 1, 0) == 0);
-	CHECK(editor_row_replace_range(1, 0, 0, "X", 1, 0) == 0);
-	CHECK(editor_row_replace_range(0, 0, 0, "X", INT_MAX, 0) == 0);
+	CHECK(editor_row_replace_range(0, -1, 1, "X", 1, KG_EDIT_USER) == 0);
+	CHECK(editor_row_replace_range(0, 7, 0, "X", 1, KG_EDIT_USER) == 0);
+	CHECK(editor_row_replace_range(0, 4, 3, "X", 1, KG_EDIT_USER) == 0);
+	CHECK(editor_row_replace_range(0, 0, -1, "X", 1, KG_EDIT_USER) == 0);
+	CHECK(editor_row_replace_range(1, 0, 0, "X", 1, KG_EDIT_USER) == 0);
+	CHECK(
+	    editor_row_replace_range(0, 0, 0, "X", INT_MAX, KG_EDIT_USER) == 0);
 
 	CHECK(bcur()->row[0].size == 6);
 	CHECK(memcmp(bcur()->row[0].chars, "abcdef", 6) == 0);
@@ -2763,6 +2837,8 @@ int main(void)
 	RUN(test_snapshot_unreadable_is_unknown);
 	RUN(test_edit_replaces_byte_ranges);
 	RUN(test_edit_empties_and_fills_a_buffer);
+	RUN(test_edit_internal_changes_text_without_dirtying);
+	RUN(test_edit_empty_buffer_and_final_newline);
 	RUN(test_edit_refusal_changes_nothing);
 	RUN(test_edit_refusal_is_atomic_at_every_allocation);
 	RUN(test_edit_result_reports_the_commit);

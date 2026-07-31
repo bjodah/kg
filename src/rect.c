@@ -278,7 +278,7 @@ static void rect_kill_or_delete(int save_to_ring)
 
 	/* One row rebuild per row, not one per byte: the whole rectangle is
 	 * covered by the single UNDO_RECT_OVERWRITE pushed above, which is
-	 * what KG_EDIT_NO_UNDO says here.  The global suppress_undo this
+	 * what KG_EDIT_USER_PART says here.  The global suppress_undo this
 	 * loop used to toggle was doing nothing -- editor_row_del_char()
 	 * records no undo of its own -- and would have started to once the
 	 * loop moved onto a primitive that does. */
@@ -287,7 +287,7 @@ static void rect_kill_or_delete(int save_to_ring)
 
 		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
 		editor_row_replace_range(
-		    r, lo, hi - lo, "", 0, KG_EDIT_NO_UNDO);
+		    r, lo, hi - lo, "", 0, KG_EDIT_USER_PART);
 	}
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
@@ -462,7 +462,7 @@ void editor_string_rect(int fd)
 		rect_row_pad_to_visual(&bcur()->row[r], s_vcol);
 		rect_row_byte_range(&bcur()->row[r], s_vcol, e_vcol, &lo, &hi);
 		editor_row_replace_range(
-		    r, lo, hi - lo, input, input_len, KG_EDIT_NO_UNDO);
+		    r, lo, hi - lo, input, input_len, KG_EDIT_USER_PART);
 	}
 
 	editor_cursor_goto(s_row, s_row_byte_lo);

@@ -1325,15 +1325,16 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 			    &pending_col);
 			continue;
 		}
-		buf_current = slot;
+		/* The window follows the slot being filled, so a +LINE lands
+		 * on that file's own view and is banked there when the next
+		 * file takes the window. */
+		buf_select(slot);
 		buf_visit_file(filenames[i], readonly);
 		if (pending_line > 0) {
 			editor_goto_line_direct(pending_line, pending_col);
 			pending_line = 0;
 			pending_col = 1;
 		}
-		buf_claim_slot(slot);
-		buflist[slot].active = 1;
 		buf_count++;
 		slot++;
 	}
@@ -1513,10 +1514,12 @@ void buf_open_path(const char *path, int readonly)
 		return; /* should not happen given buf_count check above */
 	}
 
-	/* Build the new buffer in the slot it will keep, then show it. */
-	buf_current = slot;
-	buf_visit_file(path, readonly);
+	/* Show the slot before filling it.  buf_reset() empties the buffer
+	 * *and* the view of the window showing it, so until the window has
+	 * moved, that window is still the outgoing buffer's -- and the move
+	 * would then bank the emptied view as where that buffer was left. */
 	buf_select(slot);
+	buf_visit_file(path, readonly);
 	buf_count++;
 	editor_set_status_message("%s%s",
 	    bcur()->filename ? bcur()->filename : "[new]",
@@ -1672,7 +1675,7 @@ static int buf_enter_special(const char *name, int *existing)
 	if (slot < 0) {
 		return -1;
 	}
-	buf_current = slot;
+	buf_select(slot);
 	buf_reset();
 	bcur()->filename = strdup(name);
 	return slot;

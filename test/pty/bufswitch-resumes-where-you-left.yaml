@@ -1,0 +1,42 @@
+# Coming back to a buffer resumes at the point you left it on, even when
+# the buffer you left it for was opened with C-x C-f.
+#
+# Opening a file empties the slot it is about to fill -- including the
+# view of the window that will show it.  The window only moves to the new
+# slot afterwards, and moving is what banks the view it is leaving as the
+# outgoing buffer's remembered point: for a moment the window still
+# belonged to alpha.txt, so alpha.txt remembered the emptied view and came
+# back at line 1.
+#
+# M-> puts point past alpha's last line.  After the round trip through
+# beta.txt, "Z" has to land there and not at the top -- and kg saves no
+# final newline for a buffer whose point sat past one, hence the "|-".
+name: bufswitch-resumes-where-you-left
+filename: alpha.txt
+config_files:
+  beta.txt: |
+    beta
+initial: |
+  l1
+  l2
+  l3
+  l4
+keys:
+  - M->
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-x
+  - b
+  - "alpha"
+  - RET
+  - "Z"
+expected_saved: |-
+  l1
+  l2
+  l3
+  l4
+  Z

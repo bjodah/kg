@@ -282,7 +282,7 @@ bool shell_output_fits_echo(
 		unsigned char ch = (unsigned char)out[i];
 		int span;
 
-		if (ch == '\n' || ch == '\x1b' || (ch < 0x20) || ch == 0x7f) {
+		if (ch < 0x20 || ch == 0x7f) {
 			return false;
 		}
 		if (ch < 0x80) {

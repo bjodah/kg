@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 void local_settings_init(struct local_settings *settings)
@@ -176,8 +177,8 @@ int localvars_parse_modeline(
 	}
 
 	cand = 0;
-	if (row_count >= 2 && rows[0].size >= 2 && rows[0].chars[0] == '#'
-	    && rows[0].chars[1] == '!') {
+	if (row_count >= 2 && rows[0].size >= 2
+	    && memcmp(rows[0].chars, "#!", 2) == 0) {
 		cand = 1;
 	}
 
@@ -186,8 +187,7 @@ int localvars_parse_modeline(
 
 	start_marker = NULL;
 	for (i = 0; i <= len - 3; i++) {
-		if (line[i] == '-' && line[i + 1] == '*'
-		    && line[i + 2] == '-') {
+		if (memcmp(line + i, "-*-", 3) == 0) {
 			start_marker = line + i;
 			break;
 		}
@@ -203,8 +203,7 @@ int localvars_parse_modeline(
 	}
 	end_marker = NULL;
 	for (i = 0; i <= remaining - 3; i++) {
-		if (search_from[i] == '-' && search_from[i + 1] == '*'
-		    && search_from[i + 2] == '-') {
+		if (memcmp(search_from + i, "-*-", 3) == 0) {
 			end_marker = search_from + i;
 			break;
 		}
@@ -1169,10 +1168,8 @@ int localvars_parse_footer(
 			body_len--;
 		}
 
-		if (body_len == 4 && tolower((unsigned char)body[0]) == 'e'
-		    && tolower((unsigned char)body[1]) == 'n'
-		    && tolower((unsigned char)body[2]) == 'd'
-		    && body[3] == ':') {
+		if (body_len == 4 && body[3] == ':'
+		    && strncasecmp(body, "end", 3) == 0) {
 			end_line = li;
 			break;
 		}

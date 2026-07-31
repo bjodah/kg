@@ -707,7 +707,7 @@ static void markdown_syntax(struct editor_buffer *b, erow *row)
 	int in_block = (row->idx > 0 && b->row[row->idx - 1].hl_oc);
 
 	/* Fenced code block fence line (```). */
-	if (len >= 3 && p[0] == '`' && p[1] == '`' && p[2] == '`') {
+	if (len >= 3 && memcmp(p, "```", 3) == 0) {
 		memset(row->hl, HL_STRING, len);
 		oc = in_block ? 0 : 1;
 		goto done;
@@ -1335,8 +1335,7 @@ static int yaml_is_number_token(const char *tok, int toklen)
 		return 1;
 	}
 
-	if (tok[i] == '0' && i + 1 < toklen
-	    && (tok[i + 1] == 'x' || tok[i + 1] == 'o')) {
+	if (tok[i] == '0' && i + 1 < toklen && strchr("xo", tok[i + 1])) {
 		int is_hex = tok[i + 1] == 'x';
 		i += 2;
 		if (i >= toklen) {

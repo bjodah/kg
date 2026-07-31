@@ -1,0 +1,16 @@
+# C-o splits the line at point and leaves point where it was, so the
+# rest of the line moves down and the next thing typed still lands on
+# the first row.  editor_open_line() does that by saving and restoring
+# the window's cursor and scroll offsets around the split; only a real
+# window can show whether the restore happened, so this is a PTY case
+# rather than a native one.
+name: open-line-keeps-point
+filename: open-line.txt
+initial: |
+  alpha beta
+  gamma
+keys:
+  - M-f
+  - C-o
+  - 'X'
+oracle: emacs

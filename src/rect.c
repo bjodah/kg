@@ -274,17 +274,19 @@ static void rect_kill_or_delete(int save_to_ring)
 	/* Cursor lands at the rect's left edge on the start row. */
 	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 
-	suppress_undo = 1;
+	/* One row rebuild per row, not one per byte: the whole rectangle is
+	 * covered by the single UNDO_RECT_OVERWRITE pushed above, which is
+	 * what KG_EDIT_NO_UNDO says here.  The global suppress_undo this
+	 * loop used to toggle was doing nothing -- editor_row_del_char()
+	 * records no undo of its own -- and would have started to once the
+	 * loop moved onto a primitive that does. */
 	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
-		erow *row = &editor.row[r];
-		int lo, hi, i;
+		int lo, hi;
 
-		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
-		for (i = hi - 1; i >= lo; i--) {
-			editor_row_del_char(row, i);
-		}
+		rect_row_byte_range(&editor.row[r], s_vcol, e_vcol, &lo, &hi);
+		editor_row_replace_range(
+		    r, lo, hi - lo, "", 0, KG_EDIT_NO_UNDO);
 	}
-	suppress_undo = 0;
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();
@@ -435,21 +437,17 @@ void editor_string_rect(int fd)
 
 	s_row_byte_lo = rect_push_overwrite_undo(s_row, s_vcol, e_row);
 
-	suppress_undo = 1;
+	/* Delete and insert are one replacement, so a row is rebuilt once
+	 * (twice when it had to be padded out to the rectangle's left
+	 * edge first) rather than once per byte on either side. */
 	for (r = s_row; r <= e_row && r < editor.numrows; r++) {
-		erow *row = &editor.row[r];
-		int lo, hi, i;
+		int lo, hi;
 
-		rect_row_pad_to_visual(row, s_vcol);
-		rect_row_byte_range(row, s_vcol, e_vcol, &lo, &hi);
-		for (i = hi - 1; i >= lo; i--) {
-			editor_row_del_char(row, i);
-		}
-		if (input_len > 0) {
-			editor_row_insert_string(row, lo, input, input_len);
-		}
+		rect_row_pad_to_visual(&editor.row[r], s_vcol);
+		rect_row_byte_range(&editor.row[r], s_vcol, e_vcol, &lo, &hi);
+		editor_row_replace_range(
+		    r, lo, hi - lo, input, input_len, KG_EDIT_NO_UNDO);
 	}
-	suppress_undo = 0;
 
 	editor_cursor_goto(s_row, s_row_byte_lo);
 	rect_deactivate();

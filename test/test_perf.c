@@ -401,7 +401,7 @@ static void test_replace_range_updates_once(void)
 	setup();
 	editor_insert_row(0, "aaaaaaaaaaaaaaaa", 16);
 	kg_perf_reset();
-	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11) == 1);
+	CHECK(editor_row_replace_range(0, 4, 8, "REPLACEMENT", 11, 0) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
 	CHECK(counter(KG_PERF_UNDO_PUSH) == 1);
 	CHECK(editor.row[0].size == 19);
@@ -425,9 +425,12 @@ static void test_rect_delete_updates_per_byte(void)
 	kg_perf_reset();
 	editor_delete_rect();
 	CHECK(editor.row[0].size == 6);
-	/* Before Plan 08 phase 5: rect.c deletes one byte at a time, and
-	 * every byte pays a full render and highlight rebuild. */
-	CHECK(counter(KG_PERF_ROW_UPDATE) == 8 * 10);
+	/* Plan 08 phase 5: one row rebuild per row, where rect.c used to
+	 * delete a byte at a time and pay a full render and highlight
+	 * rebuild for each -- 80 of them for this 8x10 rectangle. */
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 8);
+	/* And still exactly one undo step for the whole rectangle. */
+	CHECK(counter(KG_PERF_UNDO_PUSH) == 1);
 	teardown();
 }
 

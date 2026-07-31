@@ -642,6 +642,17 @@ void editor_find_regexp(int fd, int direction)
 	do_isearch(fd, direction, SEARCH_REGEXP);
 }
 
+/* Where a refused match resumes: past the whole glyph at `col`, so a
+ * byte offset never lands inside a multi-byte character.  This is the
+ * only advance in the literal query-replace loop that is not already a
+ * whole match, and it used to be a plain col + 1. */
+static int skip_one_glyph(erow *row, int col)
+{
+	int span = utf8_glyph_span_at(row->chars, row->size, col);
+
+	return col + (span > 0 ? span : 1);
+}
+
 void editor_query_replace(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
@@ -738,7 +749,7 @@ void editor_query_replace(int fd)
 			 * rebuild, and one C-_ that removes the replacement
 			 * span and restores the original match. */
 			if (!editor_row_replace_range(
-				filerow, match_col, slen, replace, rlen)) {
+				filerow, match_col, slen, replace, rlen, 0)) {
 				break;
 			}
 
@@ -748,7 +759,8 @@ void editor_query_replace(int fd)
 			match_col += rlen;
 			count++;
 		} else {
-			match_col++;
+			match_col
+			    = skip_one_glyph(&editor.row[filerow], match_col);
 		}
 	}
 
@@ -1000,7 +1012,7 @@ void editor_query_replace_regexp(int fd)
 		if (answer != REPLACE_SKIP) {
 			RESTORE_HL;
 			if (!editor_row_replace_range(filerow, match_start,
-				match_len, expanded, expanded_len)) {
+				match_len, expanded, expanded_len, 0)) {
 				free(expanded);
 				break;
 			}

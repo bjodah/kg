@@ -1287,24 +1287,13 @@ static int editor_point_row(int *filerow, erow **row, int *filecol)
 	return 1;
 }
 
-/* Replace the `delete_len` bytes at (filerow, at) with the `insert_len`
- * bytes at `insert` -- one row rebuild, one dirty step and one undo
- * record, whatever the lengths are.  `insert` must be non-NULL; either
- * length may be zero.  Returns 0 with the row byte-identical when the
- * range is bogus, the resulting size does not fit an int, or memory runs
- * out: the capacity is reserved and the undo payload copied before
- * anything moves.
- *
- * Replacing nothing by nothing is a well-formed request that changes no
- * byte, so it costs neither a modification nor an undo step -- Emacs
- * answers the same way, and query-replace-regexp of a zero-width pattern
- * by the empty string is the caller that asks it for every glyph. */
-int editor_row_replace_range(
-    int filerow, int at, int delete_len, const char *insert, int insert_len)
+/* Whether [at, at + delete_len) names bytes of `filerow` that may be
+ * replaced by `insert_len` bytes, and what the row's size would become.
+ * Returns 0 for a range no row has, or a result that does not fit. */
+static int row_replace_range_valid(
+    int filerow, int at, int delete_len, int insert_len, int *new_size)
 {
 	erow *row;
-	char *newchars;
-	int new_size, alloc_sz;
 
 	if (filerow < 0 || filerow >= editor.numrows || at < 0 || delete_len < 0
 	    || insert_len < 0) {
@@ -1314,12 +1303,39 @@ int editor_row_replace_range(
 	if (at > row->size || delete_len > row->size - at) {
 		return 0;
 	}
+	return checked_add_int_size(
+	    new_size, row->size - delete_len, (size_t)insert_len);
+}
+
+/* Replace the `delete_len` bytes at (filerow, at) with the `insert_len`
+ * bytes at `insert` -- one row rebuild, one dirty step and one undo
+ * record, whatever the lengths are.  `insert` must be non-NULL; either
+ * length may be zero.  `options` is a bitwise OR of enum edit_option, 0
+ * for an ordinary edit.  Returns 0 with the row byte-identical when the
+ * range is bogus, the resulting size does not fit an int, or memory runs
+ * out: the capacity is reserved and the undo payload copied before
+ * anything moves.
+ *
+ * Replacing nothing by nothing is a well-formed request that changes no
+ * byte, so it costs neither a modification nor an undo step -- Emacs
+ * answers the same way, and query-replace-regexp of a zero-width pattern
+ * by the empty string is the caller that asks it for every glyph. */
+int editor_row_replace_range(int filerow, int at, int delete_len,
+    const char *insert, int insert_len, unsigned options)
+{
+	erow *row;
+	char *newchars;
+	int new_size, alloc_sz;
+
+	if (!row_replace_range_valid(
+		filerow, at, delete_len, insert_len, &new_size)) {
+		return 0;
+	}
+	row = &editor.row[filerow];
 	if (delete_len == 0 && insert_len == 0) {
 		return 1;
 	}
-	if (!checked_add_int_size(
-		&new_size, row->size - delete_len, (size_t)insert_len)
-	    || !checked_add_int_size(&alloc_sz, new_size, 1)) {
+	if (!checked_add_int_size(&alloc_sz, new_size, 1)) {
 		return 0;
 	}
 	if (new_size > row->size) {
@@ -1330,7 +1346,8 @@ int editor_row_replace_range(
 		}
 		row->chars = newchars;
 	}
-	if (!undo_push(UNDO_REPLACE_TEXT, filerow, at, insert_len,
+	if (!(options & KG_EDIT_NO_UNDO)
+	    && !undo_push(UNDO_REPLACE_TEXT, filerow, at, insert_len,
 		row->chars + at, delete_len)) {
 		editor_nomem();
 		return 0;
@@ -1360,7 +1377,7 @@ static int editor_delete_span_with_undo(int filerow, int col, int len)
 	 * undo record and the single row rebuild are all already written --
 	 * including what a `len` of zero or below means, which this must not
 	 * answer differently. */
-	return editor_row_replace_range(filerow, col, len, "", 0);
+	return editor_row_replace_range(filerow, col, len, "", 0, 0);
 }
 
 /* Delete the char at the current prompt position. */

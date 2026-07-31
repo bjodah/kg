@@ -1277,7 +1277,7 @@ static void test_row_replace_range(void)
 	editor_insert_row(0, "abcdef", 6);
 
 	dirty = editor.dirty;
-	CHECK(editor_row_replace_range(0, 1, 3, "XY", 2) == 1);
+	CHECK(editor_row_replace_range(0, 1, 3, "XY", 2, 0) == 1);
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "aXYef", 5) == 0);
 	CHECK(editor.row[0].chars[5] == '\0');
@@ -1289,10 +1289,10 @@ static void test_row_replace_range(void)
 	CHECK(memcmp(editor.row[0].chars, "abcdef", 6) == 0);
 
 	/* a pure insertion, and a pure deletion */
-	CHECK(editor_row_replace_range(0, 6, 0, "gh", 2) == 1);
+	CHECK(editor_row_replace_range(0, 6, 0, "gh", 2, 0) == 1);
 	CHECK(editor.row[0].size == 8);
 	CHECK(memcmp(editor.row[0].chars, "abcdefgh", 8) == 0);
-	CHECK(editor_row_replace_range(0, 0, 3, "", 0) == 1);
+	CHECK(editor_row_replace_range(0, 0, 3, "", 0, 0) == 1);
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "defgh", 5) == 0);
 	CHECK(editor.row[0].chars[5] == '\0');
@@ -1303,7 +1303,7 @@ static void test_row_replace_range(void)
 	 * asks for one per glyph, and Emacs leaves that buffer unmodified. */
 	dirty = editor.dirty;
 	records = undostack.size;
-	CHECK(editor_row_replace_range(0, 2, 0, "", 0) == 1);
+	CHECK(editor_row_replace_range(0, 2, 0, "", 0, 0) == 1);
 	CHECK(editor.row[0].size == 5);
 	CHECK(memcmp(editor.row[0].chars, "defgh", 5) == 0);
 	CHECK(editor.dirty == dirty);
@@ -1323,12 +1323,12 @@ static void test_row_replace_range_refuses_bad_ranges(void)
 	editor_insert_row(0, "abcdef", 6);
 	dirty = editor.dirty;
 
-	CHECK(editor_row_replace_range(0, -1, 1, "X", 1) == 0);
-	CHECK(editor_row_replace_range(0, 7, 0, "X", 1) == 0);
-	CHECK(editor_row_replace_range(0, 4, 3, "X", 1) == 0);
-	CHECK(editor_row_replace_range(0, 0, -1, "X", 1) == 0);
-	CHECK(editor_row_replace_range(1, 0, 0, "X", 1) == 0);
-	CHECK(editor_row_replace_range(0, 0, 0, "X", INT_MAX) == 0);
+	CHECK(editor_row_replace_range(0, -1, 1, "X", 1, 0) == 0);
+	CHECK(editor_row_replace_range(0, 7, 0, "X", 1, 0) == 0);
+	CHECK(editor_row_replace_range(0, 4, 3, "X", 1, 0) == 0);
+	CHECK(editor_row_replace_range(0, 0, -1, "X", 1, 0) == 0);
+	CHECK(editor_row_replace_range(1, 0, 0, "X", 1, 0) == 0);
+	CHECK(editor_row_replace_range(0, 0, 0, "X", INT_MAX, 0) == 0);
 
 	CHECK(editor.row[0].size == 6);
 	CHECK(memcmp(editor.row[0].chars, "abcdef", 6) == 0);

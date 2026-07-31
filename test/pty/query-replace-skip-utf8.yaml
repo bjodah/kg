@@ -1,0 +1,26 @@
+# Refusing a match ("n") has to resume past a whole glyph, not one byte
+# into it.  The row is three "åå" pairs; the search string is "åå", the
+# first match is refused and the second and third are taken.  With a
+# one-byte advance the scan restarts inside the first "å" -- harmless
+# while the buffer is valid UTF-8, because a needle beginning with a lead
+# byte cannot match at a continuation byte, but it is a byte offset that
+# is not a position, and it is the only advance in this loop that is not
+# already a whole match.
+name: query-replace-skip-utf8
+filename: skip_utf8.txt
+backend: pexpect
+startup_delay: 1.0
+key_delay: 0.2
+initial: |
+  ååXååXåå
+keys:
+  - M-%
+  - 'åå'
+  - ENTER
+  - 'Q'
+  - ENTER
+  - 'n'
+  - 'y'
+  - 'y'
+expected_saved: |
+  ååXQXQ

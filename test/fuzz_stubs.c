@@ -180,11 +180,11 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	return chars_col;
 }
 
-int visual_col_to_chars(erow *row, int target_rcol, int win_w)
+int visual_col_to_chars(erow *row, int target_vcol, int win_w)
 {
 	(void)row;
 	(void)win_w;
-	return target_rcol;
+	return target_vcol;
 }
 
 int visual_line_width(erow *row, int win_w)

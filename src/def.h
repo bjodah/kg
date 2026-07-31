@@ -1267,7 +1267,7 @@ int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);
 int visual_line_cursor_col(erow *row, int chars_col, int win_w);
 void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
     int target_y, int *logical_row, int *render_offset);
-int visual_col_to_chars(erow *row, int target_rcol, int win_w);
+int visual_col_to_chars(erow *row, int target_vcol, int win_w);
 int visual_line_width(erow *row, int win_w);
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment);
 int chars_to_render_col(erow *row, int chars_col);

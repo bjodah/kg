@@ -17,10 +17,13 @@ focused native/PTY case, call the canonical remember/detach path for each
 discarded view, and preserve the point seen when that buffer is shown again.
 Do not combine this behavior fix with the handle flag day.
 
-Also decide auto-revert's stale restriction in its own commit: all windows are
-now enumerable, so reloading a buffer shown in inactive windows can clamp each
-view to the new buffer bounds.  Characterize multiple windows, point past new
-EOF, active mark, and changed-on-disk prompt behavior before widening it.
+Also decide auto-revert's restriction in its own commit.  Today the poll
+reverts only `buf_current` — `silent_revert_current()` can restore only the
+active window's view — while other changed buffers merely mark `disk_changed`
+and revert on the next `buf_select()`.  Once every window is enumerable, a
+buffer shown in inactive windows can be reverted with each view clamped to
+the new bounds.  Characterize multiple windows, point past new EOF, active
+mark, and changed-on-disk prompt behavior before widening it.
 
 ## Phase 1 — Window buffer handles
 
@@ -72,9 +75,10 @@ debug CI lane.  At lifecycle commits, check:
 - buffer-owned marker/decoration handles resolve to that buffer.
 
 Keep the existing stale-handle perf counter and add only counters that answer a
-real invariant question.  Extend `test/test_winmgr.c`'s model and fuzz checks
-for split copies, buffer shown twice, kill/reuse, last buffer, slot exhaustion,
-and injected stale display input.
+real invariant question.  Extend `test/test_winmgr.c` — today an example-based
+characterization suite, not a model — with model-style checks for split
+copies, buffer shown twice, kill/reuse, last buffer, slot exhaustion, and
+injected stale display input.
 
 ## Phase 3 — Lifecycle events, not a second callback registry
 

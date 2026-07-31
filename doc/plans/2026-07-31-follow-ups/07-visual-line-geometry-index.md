@@ -12,7 +12,9 @@ recorded only by `make bench`.
 
 The existing `visual-line-100k` benchmark measured 13,999,212 row scans and
 713,958,945 row bytes across 24 refreshes: roughly 583k rows and 30 MB per
-repaint, 6.7 s versus 0.18 s with the mode off.  The feature is optional but
+repaint, 6.8 s median versus 0.18 s with the mode off.  `make bench` writes to
+the gitignored `test/.results/bench.json`, so the figures recorded here are
+the durable baseline; re-run the case before claiming an improvement.  The feature is optional but
 user-reachable and its evidence gate is met.  Schedule it before optional Lisp
 packages once another migration/extraction has freed complexity; do not raise
 the 4223 cap.

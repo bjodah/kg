@@ -12,7 +12,9 @@ precondition for converting any persistent position to a marker.
 
 - `kg_buffer_replace()` stages changed text, row storage, row-array growth, and
   its `UNDO_CHANGE` record before publishing.
-- Four edit paths use it.  The mutation manifest still records 209 raw
+- Six paths call it: bulk insert, ranged row replace, transpose-chars, region
+  delete, raw range delete, and `UNDO_CHANGE` replay.  The mutation manifest
+  still records 209 raw
   opinions across 14 files; `buffer.c`, `word.c`, `bufmgr.c`, and `undo.c` are
   the largest groups.
 - `editor_undo()` pops and frees an `UNDO_CHANGE` even when replay fails.

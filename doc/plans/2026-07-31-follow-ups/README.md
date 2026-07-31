@@ -1,7 +1,7 @@
 # kg follow-up implementation roadmap
 
-Status: authoritative follow-up plan for `stricter-emacs-adherence` at
-`7d1a2af` (2026-07-31).
+Status: authoritative follow-up plan for `stricter-emacs-adherence`,
+written 2026-07-31 against the commit that landed this directory.
 
 This series supersedes the completed 2026-07-30 review campaign and its
 progress reports.  Git history retains that material.  Current feature and
@@ -10,14 +10,18 @@ only the next implementation program.
 
 ## Verified baseline
 
-- kg `7d1a2af`, Fe `52c7ef7`, tiny-regex-c `b92284f`.
+- Submodule pins are branches, per `doc/fe-upstream.md`: `fe` tracks
+  `analyzers-etc` and `fe/tiny-regex-c` tracks `adapt-to-fe`.  Commit SHAs are
+  deliberately not repeated here; `git submodule status` is the record.
 - Clean worktree when this plan was written.
 - `make check`: 20 native suites and 285 PTY cases, zero failures.
 - Both `WITH_LISP` configurations and the 12-stage runner are green.
 - `SCC_COMPLEXITY_MAX` is 4223 and measured usage is 4223: every additive
   commit must first delete, extract, or migrate enough complexity to pay for
   itself.
-- `kg_buffer_replace()` is failure-atomic for text and has four callers, but
+- `kg_buffer_replace()` is failure-atomic for text and has six callers (bulk
+  insert, ranged row replace, transpose-chars, region delete, raw range
+  delete, and `UNDO_CHANGE` replay), but
   `.ci/mutation-gateway.json` still records 209 raw mutation opinions.
 - Commands have one policy table and one invocation route, but built-in keys
   still call handlers directly and `readonly_blocked_keys[]` remains a second
@@ -25,7 +29,7 @@ only the next implementation program.
 - Buffer handles exist; windows still retain raw buffer slot indices.
 - Visual-line mode is off by default but demonstrably pathological: the
   checked benchmark measured about 583,000 rows and 30 MB scanned per repaint
-  on a 100k-line buffer, 6.7 s versus 0.18 s for the comparable session with
+  on a 100k-line buffer, 6.8 s versus 0.18 s for the comparable session with
   wrapping disabled.
 
 Re-read the named code before implementing.  Symbols are authoritative; line

@@ -120,6 +120,11 @@ Tests cover relative/absolute paths, spaces, UTF-8, column absent/present,
 truncation, rebuild, edits before a marker, killed/reused source buffer, failed
 open, read-only source, and two windows.
 
+`M-g` is not free: it is bound directly to goto-line today (`ALT_G`).
+Turning it into an Emacs-style prefix map moves goto-line to `M-g g` /
+`M-g M-g`, a user-visible binding change that needs its own commit with
+README/man/help updates and a PTY case, before `M-g n`/`M-g p` land.
+
 ## Bundle E — Registers
 
 Dependencies: Plan 01 `C-x r` map; Plan 03 markers; Plan 04 stable buffer/view

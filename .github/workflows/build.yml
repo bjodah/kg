@@ -14,8 +14,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        compiler: [gcc, clang]
+        # No macOS gcc cell: /usr/bin/gcc there is Apple Clang wearing a
+        # different name, so it repeated the macOS clang cell exactly.
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+          - os: ubuntu-latest
+            compiler: clang
+          - os: macos-latest
+            compiler: clang
       fail-fast: false
     env:
       CC: ${{ matrix.compiler }}
@@ -41,12 +48,9 @@ jobs:
         run: |
           brew install tmux emacs
           python3 -m pip install --break-system-packages pexpect PyYAML
+      # Which compiler this cell really has, among the rest of the box.
       - name: Tool versions
-        run: |
-          tmux -V
-          emacs --version | head -1
-          python3 --version
-          python3 -c 'import pexpect, yaml; print("pexpect", pexpect.__version__, "PyYAML", yaml.__version__)'
+        run: ./utils/print-tool-versions.sh
       - name: Build
         run: make
       # --require-tools turns a missing tmux or Emacs into a loud failure

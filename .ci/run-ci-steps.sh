@@ -249,7 +249,15 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-source $(compgen -G "/opt-?/cpython-v3.*-apt-deb/bin/activate")
+# The developer box this grew up on keeps the interpreter that has
+# pexpect and PyYAML outside PATH.  Anywhere else -- a CI image, a fresh
+# checkout -- there is nothing to activate and the runner has to keep
+# going: the Makefile's PYTHON discovery finds a working interpreter, and
+# a box with none fails in the step, by name.
+python_activate=$(compgen -G "/opt-?/cpython-v3.*-apt-deb/bin/activate" | head -n 1 || true)
+if [ -n "${python_activate}" ]; then
+	source "${python_activate}"
+fi
 
 export JOBS PARALLEL VALGRIND
 export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_JOBS

@@ -273,7 +273,7 @@
   "src/fileio.c:file_snapshot_fd": 2,
   "src/fileio.c:file_snapshot_path": 5,
   "src/fileio.c:free_load_result": 4,
-  "src/fileio.c:load_append_row": 9,
+  "src/fileio.c:load_append_row": 8,
   "src/fileio.c:load_file_transactional": 14,
   "src/fileio.c:write_all": 5,
   "src/kbd.c:bottom_buffer_screen_row": 4,

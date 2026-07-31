@@ -832,6 +832,7 @@ struct temp_load_result {
 	char *filename;
 	erow *row;
 	int numrows;
+	int row_capacity;
 	struct file_snapshot disk;
 };
 

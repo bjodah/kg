@@ -312,8 +312,6 @@ static int load_append_row(
 	int new_numrows;
 	int saved_running;
 	size_t chars_size;
-	size_t rows_size;
-	erow *new_rows;
 	char *newchars;
 	erow *saved_row;
 	int saved_numrows;
@@ -322,8 +320,6 @@ static int load_append_row(
 
 	if (!checked_size_to_int(&at, linelen)
 	    || !checked_add_int_size(&new_numrows, res->numrows, 1)
-	    || !checked_mul_size_t(
-		&rows_size, (size_t)new_numrows, sizeof(*res->row))
 	    || !checked_add_size_t(&chars_size, linelen, 1)) {
 		errno = EOVERFLOW;
 		return -1;
@@ -337,15 +333,13 @@ static int load_append_row(
 	memcpy(newchars, line, linelen);
 	newchars[linelen] = '\0';
 
-	KG_PERF_INC(KG_PERF_ROW_ARRAY_GROW);
-	KG_PERF_ADD(KG_PERF_ROW_ARRAY_BYTES, rows_size);
-	new_rows = realloc(res->row, rows_size);
-	if (!new_rows) {
+	/* The same doubling the live row array uses, so staging R lines
+	 * costs O(log R) reallocations instead of R of them. */
+	if (!editor_rows_reserve(&res->row, &res->row_capacity, new_numrows)) {
 		free(newchars);
 		errno = ENOMEM;
 		return -1;
 	}
-	res->row = new_rows;
 	at = res->numrows;
 	res->row[at] = (erow) {
 		.idx = at,
@@ -365,7 +359,7 @@ static int load_append_row(
 	saved_running = running;
 	editor.row = res->row;
 	editor.numrows = res->numrows;
-	editor.row_capacity = res->numrows;
+	editor.row_capacity = res->row_capacity;
 	editor_select_syntax_highlight(res->filename);
 	editor_update_row(&res->row[at]);
 	editor.row = saved_row;
@@ -466,7 +460,7 @@ void commit_load_result(struct temp_load_result *res)
 	editor.filename = res->filename;
 	editor.row = res->row;
 	editor.numrows = res->numrows;
-	editor.row_capacity = res->numrows;
+	editor.row_capacity = res->row_capacity;
 	editor.disk = res->disk;
 	editor.disk_changed = 0;
 	editor.dirty = 0;
@@ -479,6 +473,7 @@ void commit_load_result(struct temp_load_result *res)
 	res->filename = NULL;
 	res->row = NULL;
 	res->numrows = 0;
+	res->row_capacity = 0;
 }
 
 void free_load_result(struct temp_load_result *res)
@@ -497,6 +492,7 @@ void free_load_result(struct temp_load_result *res)
 		res->row = NULL;
 	}
 	res->numrows = 0;
+	res->row_capacity = 0;
 }
 
 /* Load the specified program in the editor memory and returns 0 on success

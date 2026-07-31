@@ -140,10 +140,10 @@ static void test_load_row_array_growth(void)
 	/* A file ending in a newline stages one more row: the empty last
 	 * line the newline opens. */
 	CHECK(res.numrows == lines + 1);
-	/* Before Plan 08 phase 2: one realloc per line, so loading R lines
-	 * copies O(R^2) row records. */
-	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) == (unsigned long long)lines + 1);
-	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) > log_growth_bound(lines));
+	/* Plan 08 phase 2: the staged row array doubles, like the live one.
+	 * It used to realloc to an exact size once per line, so loading R
+	 * lines copied O(R^2) row records. */
+	CHECK(counter(KG_PERF_ROW_ARRAY_GROW) <= log_growth_bound(lines));
 	free_load_result(&res);
 	unlink(path);
 	teardown();

@@ -159,6 +159,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Keep changes small and local; this codebase values minimalism.
 - Match existing C style: C23, tabs, short helper functions, Linux-kernel-like brace/layout conventions.
 - Avoid new dependencies unless explicitly requested.
+- A new module gets its own header. `src/def.h` is the core: the key
+  enum, `erow`, the buffer/window/session structs and the globals every
+  module reaches for. Everything a *single* module owns -- its types, its
+  constants, its function declarations -- goes in `src/<module>.h` with an
+  include guard, in the shape `src/localvars.h` already has: self-contained
+  (it includes or forward-declares what it needs and nothing more), so it
+  compiles on its own. `def.h` includes it only when `def.h`'s own
+  definitions need the type; consumers include it directly, which is what
+  IWYU (`make iwyu`, `.ci/ci-06`) will make them do anyway. `make
+  header-check` compiles every `src/*.h` standalone and is part of
+  `make check`. Do not add a module's declarations to `def.h` -- that is
+  how `def.h` got to 1279 lines, and the per-file scc cap is 520.
 - When behavior changes, add or update a focused test under `test/`.
 - Prefer the existing C harness for pure logic and `test/pty/*.yaml` for interactive editor behavior.
 - If you change user-visible behavior or keybindings, update `README.md`

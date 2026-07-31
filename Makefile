@@ -85,6 +85,10 @@ REGEX_ENGINE_OBJ = $(OBJDIR)/tiny_regex.o
 REGEX_WRAPPER_OBJ = $(OBJDIR)/regex.o
 REGEX_OBJS = $(REGEX_ENGINE_OBJ) $(REGEX_WRAPPER_OBJ)
 HDRS = $(OBJDIR)/def.h
+# Every header in src/ is checked for compiling on its own (see
+# `header-check`): a module header that only works once def.h has been
+# included is def.h with extra steps.
+ALL_HDRS = $(sort $(wildcard $(OBJDIR)/*.h))
 
 # Test infrastructure
 TESTDIR  = test
@@ -287,7 +291,21 @@ $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: check-unit check-pty
+check: header-check check-unit check-pty
+
+# Compile each src/*.h as the first thing in its own translation unit.
+# The trailing declaration is there so a header that legitimately expands
+# to nothing (perf.h with the counters off) is not an empty translation
+# unit, which -pedantic rejects.  Prints the count it checked, because "no
+# output" is also what a glob that matched nothing looks like.
+header-check:
+	@n=0; for h in $(ALL_HDRS); do \
+		printf '#include "%s"\nextern int kg_header_check;\n' "$$h" | \
+			$(CC) $(CFLAGS) -fsyntax-only -x c - || exit 1; \
+		n=$$((n + 1)); \
+	done; \
+	test "$$n" -gt 0 || { echo "header-check: no headers found" >&2; exit 1; }; \
+	echo "header-check: $$n header(s) compile standalone"
 
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
@@ -571,7 +589,7 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check check-unit check-pty check-regex-differential \
 	bench complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

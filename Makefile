@@ -231,7 +231,13 @@ SCC_COMPLEXITY_PATHS ?= src
 # three picker loops, which are a Plan 05/06-shaped refactor.  Measured
 # 4151 after the slice, so this is the ceiling and not a target -- and it
 # is still 71 below the 4223 this follow-up program started from.
-SCC_COMPLEXITY_MAX ?= 4152
+#
+# Lowered 4152 -> 4144 to bank what wave 1 left behind: the merged
+# tracks measured 4150, and deleting the three undo opcodes nothing can
+# produce and the row primitive the rectangle migration orphaned took
+# that to 4144.  The cap is the measurement again, as it was before the
+# describe slice.
+SCC_COMPLEXITY_MAX ?= 4144
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

@@ -212,7 +212,7 @@ static void test_move_cursor_clamps_huge_column_offset(void)
 static void test_rect_right_saturates_huge_column_offset(void)
 {
 	setup(1);
-	editor.rect_mode = 1;
+	bcur()->rect_mode = 1;
 	editor.coloff = INT_MAX;
 	editor.cx = 79;
 

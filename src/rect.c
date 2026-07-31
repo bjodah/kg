@@ -53,14 +53,14 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 	int p_row, p_col, m_row, m_col;
 	int p_vcol, m_vcol;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return 0;
 	}
 	p_row = editor.rowoff + editor.cy;
 	p_col = editor.coloff + editor.cx;
-	m_row = editor.mark_row;
-	m_col = editor.mark_col;
+	m_row = bcur()->mark_row;
+	m_col = bcur()->mark_col;
 	p_vcol = (p_row < bcur()->numrows)
 	    ? editor_visual_col(&bcur()->row[p_row], p_col)
 	    : p_col;
@@ -192,10 +192,10 @@ static int rect_push_overwrite_undo(int s_row, int s_vcol, int e_row)
 /* Common tear-down after a rectangle command. */
 static void rect_deactivate(void)
 {
-	editor.mark_set = 0;
-	editor.mark_highlight = 0;
-	editor.rect_mode = 0;
-	editor.shift_select = 0;
+	bcur()->mark_set = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->rect_mode = 0;
+	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
 }
 
@@ -459,14 +459,14 @@ void editor_string_rect(int fd)
 /* C-x SPC: start a rectangular region at point, or cancel an active one. */
 void editor_rect_mode_toggle(void)
 {
-	if (editor.rect_mode && editor.mark_highlight) {
-		editor.rect_mode = 0;
-		editor.mark_highlight = 0;
+	if (bcur()->rect_mode && bcur()->mark_highlight) {
+		bcur()->rect_mode = 0;
+		bcur()->mark_highlight = 0;
 		editor_snap_cx_to_row();
 		editor_set_status_message("");
 		return;
 	}
 	editor_set_mark_silent();
-	editor.rect_mode = 1;
+	bcur()->rect_mode = 1;
 	editor_set_status_message("Rectangle mark set");
 }

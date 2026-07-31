@@ -204,7 +204,7 @@ static void test_comment_dwim_add(void)
 	bcur()->syntax = &HLDB[0]; /* C syntax: scs = "//" */
 	editor_insert_row(bcur(), 0, "int x;", 6);
 	cursor_home();
-	editor.mark_set = 0;
+	bcur()->mark_set = 0;
 
 	editor_comment_dwim();
 
@@ -220,7 +220,7 @@ static void test_comment_dwim_remove(void)
 	bcur()->syntax = &HLDB[0];
 	editor_insert_row(bcur(), 0, "// int x;", 9);
 	cursor_home();
-	editor.mark_set = 0;
+	bcur()->mark_set = 0;
 
 	editor_comment_dwim();
 
@@ -253,10 +253,10 @@ static void test_comment_dwim_region_excludes_final_bol_line(void)
 	editor_insert_row(bcur(), 1, "b += 2;", 7);
 	editor_insert_row(bcur(), 2, "return a + b;", 13);
 
-	editor.mark_set = 1;
-	editor.mark_row = 0;
-	editor.mark_col = 0;
-	editor.mark_highlight = 1;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 0;
+	bcur()->mark_highlight = 1;
 	editor.rowoff = 0;
 	editor.coloff = 0;
 	editor.cy = 2;

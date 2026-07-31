@@ -182,7 +182,7 @@ void editor_move_cursor(int key)
 			while (n--) {
 				cursor_advance_screen_col();
 			}
-		} else if (row && editor.rect_mode) {
+		} else if (row && bcur()->rect_mode) {
 			/* In rect mark mode, extend the cursor into virtual
 			 * space past EOL so a rectangle can span columns that
 			 * some rows don't reach. */
@@ -246,10 +246,10 @@ void editor_move_cursor(int key)
 	 * extend a rectangle whose right edge crosses shorter lines —
 	 * editor_snap_cx_to_row() snaps it back when rect mode ends. */
 	rowlen = row ? row->size : 0;
-	if (!editor.rect_mode && editor.coloff > rowlen) {
+	if (!bcur()->rect_mode && editor.coloff > rowlen) {
 		editor.coloff = rowlen;
 		editor.cx = 0;
-	} else if (!editor.rect_mode && editor.cx > rowlen - editor.coloff) {
+	} else if (!bcur()->rect_mode && editor.cx > rowlen - editor.coloff) {
 		editor.cx = rowlen - editor.coloff;
 	}
 }

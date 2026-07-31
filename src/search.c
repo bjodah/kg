@@ -214,7 +214,7 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 static void query_replace_bounds(
     int *start_row, int *start_col, int *end_row, int *end_col)
 {
-	if (editor.mark_set && editor.mark_highlight
+	if (bcur()->mark_set && bcur()->mark_highlight
 	    && editor_region_bounds(start_row, start_col, end_row, end_col)) {
 		return;
 	}

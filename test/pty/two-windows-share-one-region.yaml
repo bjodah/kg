@@ -1,0 +1,39 @@
+# The mark and the active region belong to the buffer, not to the window.
+#
+# C-x 2 splits, leaving both windows at the top of the buffer.  C-x o moves
+# to the lower window, C-n C-n takes its point to line03, and C-SPC sets the
+# mark there.  C-x o goes back to the upper window, whose own point is still
+# on line01; C-n moves it to line02 and C-w kills the region.
+#
+# Buffer-owned mark: the region is line02..line03, so line02 goes.  If the
+# mark were window state instead, the upper window would have no mark of its
+# own -- the split copied its view before the mark was set -- and C-w would
+# report "No mark set" and change nothing.  The two answers differ in the
+# saved file, which is what makes this an assertion and not a coincidence.
+name: two-windows-share-one-region
+filename: two-windows-share-one-region.txt
+backend: pexpect
+dimensions: [16, 40]
+initial: |
+  line01
+  line02
+  line03
+  line04
+  line05
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - C-n
+  - C-n
+  - C-SPC
+  - C-x
+  - o
+  - C-n
+  - C-w
+expected_saved: |
+  line01
+  line03
+  line04
+  line05

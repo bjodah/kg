@@ -403,10 +403,10 @@ void editor_mark_paragraph(void)
 		end_col = bcur()->row[para_end].size;
 	}
 	editor_cursor_goto(para_start, 0);
-	editor.mark_set = 1;
-	editor.mark_row = end_row;
-	editor.mark_col = end_col;
-	editor.mark_highlight = 1;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = end_row;
+	bcur()->mark_col = end_col;
+	bcur()->mark_highlight = 1;
 	editor_set_status_message("Mark set");
 }
 
@@ -426,11 +426,11 @@ void editor_mark_word(int count)
 	if (bcur()->numrows <= 0) {
 		return;
 	}
-	if (editor.mark_set && editor.mark_highlight) {
-		backward = editor.mark_row < point_row
-		    || (editor.mark_row == point_row
-			&& editor.mark_col < point_col);
-		editor_cursor_goto(editor.mark_row, editor.mark_col);
+	if (bcur()->mark_set && bcur()->mark_highlight) {
+		backward = bcur()->mark_row < point_row
+		    || (bcur()->mark_row == point_row
+			&& bcur()->mark_col < point_col);
+		editor_cursor_goto(bcur()->mark_row, bcur()->mark_col);
 	}
 	for (i = 0; i < count; i++) {
 		if (backward) {
@@ -440,10 +440,10 @@ void editor_mark_word(int count)
 		}
 	}
 
-	editor.mark_set = 1;
-	editor.mark_row = word_cursor_filerow();
-	editor.mark_col = word_cursor_filecol(&bcur()->row[editor.mark_row]);
-	editor.mark_highlight = 1;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = word_cursor_filerow();
+	bcur()->mark_col = word_cursor_filecol(&bcur()->row[bcur()->mark_row]);
+	bcur()->mark_highlight = 1;
 
 	editor.cx = saved_cx;
 	editor.cy = saved_cy;
@@ -975,9 +975,9 @@ void editor_comment_dwim(void)
 
 	row_start = bcur()->numrows > 0 ? word_cursor_filerow() : 0;
 	row_end = row_start;
-	if (editor.mark_set) {
-		int mark_row = editor.mark_row;
-		int mark_col = editor.mark_col;
+	if (bcur()->mark_set) {
+		int mark_row = bcur()->mark_row;
+		int mark_col = bcur()->mark_col;
 		int cur_row = row_start;
 		int cur_col = bcur()->numrows > 0
 		    ? word_cursor_filecol(&bcur()->row[cur_row])

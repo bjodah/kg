@@ -96,9 +96,11 @@ int buf_handle_slot(struct kg_buffer_handle handle)
 	return buf_resolve(handle) ? handle.slot : -1;
 }
 
-/* Save the session-held part of the current buffer's state into
- * buflist[idx].  What is left here is the view and the region; everything
- * a buffer owns already lives in the slot. */
+/* Remember where the session's point and scroll are in buflist[idx], so a
+ * later visit to that buffer starts where the user left it.  This is all
+ * that is left of the save protocol: everything a buffer owns lives in the
+ * slot already, and the view is the one thing still held by the session.
+ * Plan 09 phase 5 gives it to the window. */
 static void buf_save_to_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
@@ -112,24 +114,14 @@ static void buf_save_to_slot(int idx)
 	b->cy = editor.cy;
 	b->rowoff = editor.rowoff;
 	b->coloff = editor.coloff;
-	b->mark_set = editor.mark_set;
-	b->mark_row = editor.mark_row;
-	b->mark_col = editor.mark_col;
-	b->mark_highlight = editor.mark_highlight;
-	memcpy(
-	    b->mark_ring_row, editor.mark_ring_row, sizeof(b->mark_ring_row));
-	memcpy(
-	    b->mark_ring_col, editor.mark_ring_col, sizeof(b->mark_ring_col));
-	b->mark_ring_len = editor.mark_ring_len;
-	b->shift_select = editor.shift_select;
-	b->rect_mode = editor.rect_mode;
 	b->rowoff_visual = editor.rowoff_visual;
 	b->active = 1;
 }
 
-/* Select buflist[idx] and restore the session-held part of its state.  The
- * buffer's text, dirty flag, syntax, undo history, file identity and local
- * options are not here: they never leave the slot. */
+/* Select buflist[idx] and put the session's view where that buffer last
+ * had it.  Nothing else is copied: the buffer's text, dirty flag, syntax,
+ * undo history, file identity, local options and marks never leave the
+ * slot. */
 void buf_restore_from_slot(int idx)
 {
 	struct editor_buffer *b = &buflist[idx];
@@ -142,20 +134,10 @@ void buf_restore_from_slot(int idx)
 	editor.cy = b->cy;
 	editor.rowoff = b->rowoff;
 	editor.coloff = b->coloff;
-	editor.mark_set = b->mark_set;
-	editor.mark_row = b->mark_row;
-	editor.mark_col = b->mark_col;
-	editor.mark_highlight = b->mark_highlight;
-	memcpy(editor.mark_ring_row, b->mark_ring_row,
-	    sizeof(editor.mark_ring_row));
-	memcpy(editor.mark_ring_col, b->mark_ring_col,
-	    sizeof(editor.mark_ring_col));
-	editor.mark_ring_len = b->mark_ring_len;
-	editor.shift_select = b->shift_select;
-	editor.rect_mode = b->rect_mode;
 	editor.rowoff_visual = b->rowoff_visual;
 	/* readonly is derived, so it is recomputed rather than carried. */
 	editor_refresh_readonly_state();
+
 	/* Keep the active window pointing at the newly-restored buffer. */
 	if (win_count > 0) {
 		winlist[win_current].bufidx = idx;
@@ -251,10 +233,10 @@ void buf_reload_from_disk(void)
 		return;
 	}
 
-	editor.mark_set = 0;
-	editor.mark_highlight = 0;
-	editor.shift_select = 0;
-	editor.rect_mode = 0;
+	bcur()->mark_set = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->shift_select = 0;
+	bcur()->rect_mode = 0;
 
 	suppress_undo = 1;
 	commit_load_result(&res);
@@ -366,11 +348,11 @@ static void buf_reset(void)
 	b->dirty = 0;
 	b->syntax = NULL;
 	bcur()->filename = NULL;
-	editor.mark_set = editor.mark_row = editor.mark_col = 0;
-	editor.mark_highlight = 0;
-	editor.mark_ring_len = 0;
-	editor.shift_select = 0;
-	editor.rect_mode = 0;
+	bcur()->mark_set = bcur()->mark_row = bcur()->mark_col = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->mark_ring_len = 0;
+	bcur()->shift_select = 0;
+	bcur()->rect_mode = 0;
 	editor.cx_prefix = 0;
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;

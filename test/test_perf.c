@@ -512,12 +512,12 @@ static void test_rect_delete_updates_per_byte(void)
 	for (r = 0; r < 8; r++) {
 		editor_insert_row(bcur(), r, "0123456789abcdef", 16);
 	}
-	editor.mark_set = 1;
-	editor.mark_row = 0;
-	editor.mark_col = 2;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 2;
 	editor.cy = 7;
 	editor.cx = 12;
-	editor.rect_mode = 1;
+	bcur()->rect_mode = 1;
 	kg_perf_reset();
 	editor_delete_rect();
 	CHECK(bcur()->row[0].size == 6);

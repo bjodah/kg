@@ -1000,7 +1000,7 @@ static void test_insert_char_rejects_huge_rect_virtual_gap(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.rect_mode = 1;
+	bcur()->rect_mode = 1;
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 	running = 1;
@@ -1490,9 +1490,9 @@ static void test_reflow_undo_rows_are_sortable(void)
 	CHECK(bcur()->row[1].size == 1);
 	CHECK(bcur()->row[1].chars[1] == '\0');
 
-	editor.mark_set = 1;
-	editor.mark_row = 0;
-	editor.mark_col = 0;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 0;
 	editor_cursor_goto(1, 1);
 	editor_sort_lines();
 

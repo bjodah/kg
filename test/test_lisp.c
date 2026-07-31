@@ -733,8 +733,8 @@ static void test_mark_and_region(void)
 	CHECK(eval_error_contains("(region-end)", "no region"));
 
 	CHECK(eval_ok("(set-mark 5)"));
-	CHECK(editor.mark_set == 1);
-	CHECK(editor.mark_highlight == 1);
+	CHECK(bcur()->mark_set == 1);
+	CHECK(bcur()->mark_highlight == 1);
 	CHECK(eval_eq("(mark)", "5"));
 	CHECK(eval_eq("(progn (goto-char 9) (region-beginning))", "5"));
 	CHECK(eval_eq("(region-end)", "9"));
@@ -752,8 +752,8 @@ static void test_mark_and_region(void)
 
 	/* deactivate-mark drops the highlight but keeps the mark. */
 	CHECK(eval_ok("(deactivate-mark)"));
-	CHECK(editor.mark_highlight == 0);
-	CHECK(editor.mark_set == 1);
+	CHECK(bcur()->mark_highlight == 0);
+	CHECK(bcur()->mark_set == 1);
 	CHECK(eval_eq("(mark)", "13"));
 
 	/* None of this touches the buffer. */

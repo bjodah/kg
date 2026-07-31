@@ -315,17 +315,6 @@ struct editor_config {
 	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */
 	struct timeval
 	    last_char_time; /* Time of last character for paste detection */
-	int mark_set; /* Is mark set for region selection? */
-	int mark_row; /* Mark row position */
-	int mark_col; /* Mark column position */
-	int mark_highlight; /* 1 when the region should render with reverse
-			       video. */
-	int mark_ring_row[MARK_RING_MAX]; /* Previous marks, newest first. */
-	int mark_ring_col[MARK_RING_MAX];
-	int mark_ring_len; /* Number of live entries in the mark ring. */
-	int shift_select; /* 1 when the active region was started by
-			     shift+motion. */
-	int rect_mode; /* 1 when the region should render as a rectangle. */
 	int rect_prefix; /* 1 after C-x r, waiting for the rectangle op key. */
 	int desired_visual_col; /* goal column across vertical motion; -1 =
 				   unset. */

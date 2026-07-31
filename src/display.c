@@ -195,12 +195,12 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 	int region_s_row = 0, region_s_col = 0;
 	int region_e_row = 0, region_e_col = 0;
 
-	if (is_active && editor.mark_highlight && editor.mark_set) {
+	if (is_active && bcur()->mark_highlight && bcur()->mark_set) {
 		int p_row = editor.rowoff + editor.cy;
 		int p_col = editor.coloff + editor.cx;
-		int m_row = editor.mark_row;
-		int m_col = editor.mark_col;
-		if (editor.rect_mode) {
+		int m_row = bcur()->mark_row;
+		int m_col = bcur()->mark_col;
+		if (bcur()->rect_mode) {
 			/* Rectangle bounds live in VISUAL-column space.  Each
 			 * row in range maps that visual range back to its own
 			 * byte / render range — matches what the kill/clear
@@ -341,7 +341,7 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 
 			if (region_active && fr >= region_s_row
 			    && fr <= region_e_row) {
-				if (editor.rect_mode) {
+				if (bcur()->rect_mode) {
 					int byte_lo
 					    = editor_chars_col_at_visual(
 						r, region_s_col);
@@ -416,7 +416,7 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			 * space with reverse-video spaces — so a rectangle
 			 * pulled out past short rows still looks rectangular.
 			 */
-			if (editor.rect_mode && region_active
+			if (bcur()->rect_mode && region_active
 			    && fr >= region_s_row && fr <= region_e_row) {
 				int row_vwidth = editor_visual_col(r, r->size);
 

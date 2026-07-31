@@ -1171,7 +1171,7 @@ void editor_insert_char(int c)
 		return;
 	}
 	row = &bcur()->row[filerow];
-	if (!editor.rect_mode && filecol > row->size) {
+	if (!bcur()->rect_mode && filecol > row->size) {
 		filecol = row->size;
 		editor_cursor_goto(filerow, filecol);
 	}
@@ -1246,7 +1246,7 @@ void editor_insert_text_raw(const char *text, int len)
 		return;
 	}
 	suppress_undo = 1;
-	if (!editor.rect_mode && memchr(text, '\n', len)) {
+	if (!bcur()->rect_mode && memchr(text, '\n', len)) {
 		editor_insert_text_raw_bulk(text, len);
 		suppress_undo = saved;
 		return;
@@ -1276,7 +1276,7 @@ void editor_insert_text_raw(const char *text, int len)
 				break;
 			}
 			row = &bcur()->row[filerow];
-			if (!editor.rect_mode && filecol > row->size) {
+			if (!bcur()->rect_mode && filecol > row->size) {
 				filecol = row->size;
 				editor_cursor_goto(filerow, filecol);
 			}

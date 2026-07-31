@@ -202,9 +202,9 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	editor.cy = 1;
 	editor.cx = 2;
 	editor_insert_char('X');
-	editor.mark_set = 1;
-	editor.mark_row = 0;
-	editor.mark_col = 3;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 3;
 	editor_set_local_readonly(1);
 	snprintf(bcur()->compile_command, sizeof(bcur()->compile_command),
 	    "make zero");
@@ -220,7 +220,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 
 	CHECK(buf_current == 1);
 	CHECK(bcur()->dirty == 0);
-	CHECK(editor.mark_set == 0);
+	CHECK(bcur()->mark_set == 0);
 	CHECK(bcur()->readonly == 0);
 	CHECK(strcmp(bcur()->compile_command, "make -k") == 0);
 	CHECK(bcur()->compile_command_user_override == 0);
@@ -244,7 +244,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == rows0);
 	CHECK(bcur()->dirty != 0);
-	CHECK(editor.mark_set == 1 && editor.mark_col == 3);
+	CHECK(bcur()->mark_set == 1 && bcur()->mark_col == 3);
 	CHECK(bcur()->readonly == 1);
 	CHECK(strcmp(bcur()->compile_command, "make zero") == 0);
 	CHECK(bcur()->undostack.size == 1);
@@ -616,6 +616,70 @@ static void test_reflow_sizes(void)
 	free(names[0]);
 }
 
+/* The mark, the mark ring and the region flags belong to the buffer.  A
+ * buffer switch must leave each buffer's region as its own, and the window
+ * that shows a buffer must not be able to own a second one. */
+static void test_marks_belong_to_the_buffer(void)
+{
+	char *names[2];
+	int other;
+
+	write_text_file(tmppath("a.txt"), "alpha\nbeta\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+
+	/* Buffer 0: a live region and two entries in the mark ring. */
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 2;
+	bcur()->mark_highlight = 1;
+	bcur()->shift_select = 1;
+	bcur()->rect_mode = 1;
+	bcur()->mark_ring_row[0] = 1;
+	bcur()->mark_ring_col[0] = 4;
+	bcur()->mark_ring_len = 1;
+
+	buf_save_current_state();
+	buf_restore_from_slot(1);
+
+	/* Buffer 1 has a region of its own, which is to say none. */
+	CHECK(bcur()->mark_set == 0);
+	CHECK(bcur()->mark_highlight == 0);
+	CHECK(bcur()->shift_select == 0);
+	CHECK(bcur()->rect_mode == 0);
+	CHECK(bcur()->mark_ring_len == 0);
+	CHECK(buflist[0].mark_set == 1);
+	CHECK(buflist[0].mark_col == 2);
+	CHECK(buflist[0].mark_ring_len == 1);
+	CHECK(buflist[0].mark_ring_col[0] == 4);
+
+	buf_save_current_state();
+	buf_restore_from_slot(0);
+	CHECK(bcur()->mark_set == 1);
+	CHECK(bcur()->mark_col == 2);
+	CHECK(bcur()->mark_highlight == 1);
+	CHECK(bcur()->rect_mode == 1);
+	CHECK(bcur()->mark_ring_len == 1);
+
+	/* One buffer, two windows, one region: the second window sees the
+	 * mark the first one set, because the buffer holds it. */
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	win_cycle_next();
+	CHECK(win_current == other);
+	CHECK(buf_current == 0);
+	CHECK(bcur()->mark_set == 1);
+	CHECK(bcur()->mark_col == 2);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
 /* A handle taken before a kill must not resolve afterwards, and must not
  * resolve to whatever buffer is handed the slot next. */
 static void test_handles_do_not_survive_their_buffer(void)
@@ -749,6 +813,7 @@ int main(void)
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
 	RUN(test_append_to_visible_buffer_follows_that_window);
 	RUN(test_reflow_sizes);
+	RUN(test_marks_belong_to_the_buffer);
 	RUN(test_handles_do_not_survive_their_buffer);
 	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_goal_column_is_session_scoped_today);

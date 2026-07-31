@@ -106,20 +106,20 @@ int editor_region_bounds(
 	int cur_row = yank_current_row();
 	int cur_col = yank_current_col();
 
-	if (!editor.mark_set || bcur()->numrows <= 0) {
+	if (!bcur()->mark_set || bcur()->numrows <= 0) {
 		return 0;
 	}
 	if (region_point_before(
-		editor.mark_row, editor.mark_col, cur_row, cur_col)) {
-		*start_row = editor.mark_row;
-		*start_col = editor.mark_col;
+		bcur()->mark_row, bcur()->mark_col, cur_row, cur_col)) {
+		*start_row = bcur()->mark_row;
+		*start_col = bcur()->mark_col;
 		*end_row = cur_row;
 		*end_col = cur_col;
 	} else {
 		*start_row = cur_row;
 		*start_col = cur_col;
-		*end_row = editor.mark_row;
-		*end_col = editor.mark_col;
+		*end_row = bcur()->mark_row;
+		*end_col = bcur()->mark_col;
 	}
 
 	if (*end_row < 0 || *start_row >= bcur()->numrows) {
@@ -153,17 +153,17 @@ int editor_region_bounds(
  * The oldest entry falls off when the ring is full. */
 static void mark_ring_push_current(void)
 {
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		return;
 	}
-	memmove(&editor.mark_ring_row[1], &editor.mark_ring_row[0],
-	    (MARK_RING_MAX - 1) * sizeof(editor.mark_ring_row[0]));
-	memmove(&editor.mark_ring_col[1], &editor.mark_ring_col[0],
-	    (MARK_RING_MAX - 1) * sizeof(editor.mark_ring_col[0]));
-	editor.mark_ring_row[0] = editor.mark_row;
-	editor.mark_ring_col[0] = editor.mark_col;
-	if (editor.mark_ring_len < MARK_RING_MAX) {
-		editor.mark_ring_len++;
+	memmove(&bcur()->mark_ring_row[1], &bcur()->mark_ring_row[0],
+	    (MARK_RING_MAX - 1) * sizeof(bcur()->mark_ring_row[0]));
+	memmove(&bcur()->mark_ring_col[1], &bcur()->mark_ring_col[0],
+	    (MARK_RING_MAX - 1) * sizeof(bcur()->mark_ring_col[0]));
+	bcur()->mark_ring_row[0] = bcur()->mark_row;
+	bcur()->mark_ring_col[0] = bcur()->mark_col;
+	if (bcur()->mark_ring_len < MARK_RING_MAX) {
+		bcur()->mark_ring_len++;
 	}
 }
 
@@ -173,10 +173,10 @@ static void mark_ring_push_current(void)
 void editor_set_mark_silent(void)
 {
 	mark_ring_push_current();
-	editor.mark_set = 1;
-	editor.mark_row = yank_current_row();
-	editor.mark_col = yank_current_col();
-	editor.mark_highlight = 1;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = yank_current_row();
+	bcur()->mark_col = yank_current_col();
+	bcur()->mark_highlight = 1;
 }
 
 /* Set mark at point and remember the old one on the ring, without
@@ -185,9 +185,9 @@ void editor_set_mark_silent(void)
 void editor_push_mark(void)
 {
 	mark_ring_push_current();
-	editor.mark_set = 1;
-	editor.mark_row = yank_current_row();
-	editor.mark_col = yank_current_col();
+	bcur()->mark_set = 1;
+	bcur()->mark_row = yank_current_row();
+	bcur()->mark_col = yank_current_col();
 }
 
 /* C-u C-SPC: jump to mark, then rotate the mark ring so repeated pops
@@ -197,15 +197,15 @@ void editor_pop_to_mark(void)
 {
 	int row, col;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}
 
 	/* Edits since the push may have shrunk the buffer; clamp the row
 	 * here and let editor_snap_cx_to_row settle an overlong column. */
-	row = editor.mark_row;
-	col = editor.mark_col;
+	row = bcur()->mark_row;
+	col = bcur()->mark_col;
 	if (row >= bcur()->numrows) {
 		row = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
 		col = 0;
@@ -213,21 +213,21 @@ void editor_pop_to_mark(void)
 	editor_cursor_goto(row, col);
 	editor_snap_cx_to_row();
 
-	if (editor.mark_ring_len > 0) {
-		int last = editor.mark_ring_len - 1;
-		int old_row = editor.mark_row;
-		int old_col = editor.mark_col;
+	if (bcur()->mark_ring_len > 0) {
+		int last = bcur()->mark_ring_len - 1;
+		int old_row = bcur()->mark_row;
+		int old_col = bcur()->mark_col;
 
-		editor.mark_row = editor.mark_ring_row[0];
-		editor.mark_col = editor.mark_ring_col[0];
-		memmove(&editor.mark_ring_row[0], &editor.mark_ring_row[1],
-		    last * sizeof(editor.mark_ring_row[0]));
-		memmove(&editor.mark_ring_col[0], &editor.mark_ring_col[1],
-		    last * sizeof(editor.mark_ring_col[0]));
-		editor.mark_ring_row[last] = old_row;
-		editor.mark_ring_col[last] = old_col;
+		bcur()->mark_row = bcur()->mark_ring_row[0];
+		bcur()->mark_col = bcur()->mark_ring_col[0];
+		memmove(&bcur()->mark_ring_row[0], &bcur()->mark_ring_row[1],
+		    last * sizeof(bcur()->mark_ring_row[0]));
+		memmove(&bcur()->mark_ring_col[0], &bcur()->mark_ring_col[1],
+		    last * sizeof(bcur()->mark_ring_col[0]));
+		bcur()->mark_ring_row[last] = old_row;
+		bcur()->mark_ring_col[last] = old_col;
 	}
-	editor.mark_highlight = 0;
+	bcur()->mark_highlight = 0;
 	editor_set_status_message("Mark popped");
 }
 
@@ -245,21 +245,21 @@ void editor_exchange_point_and_mark(void)
 {
 	int cur_row, cur_col, mark_row, mark_col;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}
 
 	cur_row = yank_current_row();
 	cur_col = yank_current_col();
-	mark_row = editor.mark_row;
-	mark_col = editor.mark_col;
+	mark_row = bcur()->mark_row;
+	mark_col = bcur()->mark_col;
 
 	editor_cursor_goto(mark_row, mark_col);
 
-	editor.mark_row = cur_row;
-	editor.mark_col = cur_col;
-	editor.mark_highlight = 1;
+	bcur()->mark_row = cur_row;
+	bcur()->mark_col = cur_col;
+	bcur()->mark_highlight = 1;
 	editor_set_status_message("Mark exchanged");
 }
 
@@ -475,7 +475,7 @@ static void region_kill_or_delete(int save)
 	char *text;
 	int len;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}
@@ -506,9 +506,9 @@ static void region_kill_or_delete(int save)
 	 * mark_set so C-x C-x after a region command can still bounce back
 	 * to where the region started (matches Emacs, the C-g teardown,
 	 * and the first-edit teardown in kbd.c). */
-	editor.mark_highlight = 0;
-	editor.rect_mode = 0;
-	editor.shift_select = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->rect_mode = 0;
+	bcur()->shift_select = 0;
 	free(text);
 	editor_set_status_message(save ? "Region killed" : "Region deleted");
 }
@@ -522,7 +522,7 @@ void editor_copy_region(void)
 	char *text;
 	int len;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}
@@ -534,9 +534,9 @@ void editor_copy_region(void)
 	}
 
 	kill_ring_set(text, len);
-	editor.mark_highlight = 0;
-	editor.rect_mode = 0;
-	editor.shift_select = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->rect_mode = 0;
+	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
 	free(text);
 	editor_set_status_message("Region copied");
@@ -546,8 +546,8 @@ void editor_copy_region(void)
  * saving, otherwise just delete the character ahead. */
 void editor_delete_region_or_char(void)
 {
-	if (editor.mark_set && editor.mark_highlight) {
-		if (editor.rect_mode) {
+	if (bcur()->mark_set && bcur()->mark_highlight) {
+		if (bcur()->rect_mode) {
 			editor_delete_rect();
 		} else {
 			editor_delete_region();
@@ -596,7 +596,7 @@ void editor_sort_lines(void)
 	char *orig_text;
 	erow *temp;
 
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}
@@ -641,9 +641,9 @@ void editor_sort_lines(void)
 	    orig_len);
 	free(orig_text);
 
-	editor.mark_highlight = 0;
-	editor.rect_mode = 0;
-	editor.shift_select = 0;
+	bcur()->mark_highlight = 0;
+	bcur()->rect_mode = 0;
+	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();
 	bcur()->dirty = 1;
 	editor_set_status_message("Sorted %d lines", nlines);

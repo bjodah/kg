@@ -35,9 +35,9 @@ static void teardown(void)
 /* Set mark at (row, col) and cursor at (cur_row, cur_col). */
 static void set_region(int mark_row, int mark_col, int cur_row, int cur_col)
 {
-	editor.mark_set = 1;
-	editor.mark_row = mark_row;
-	editor.mark_col = mark_col;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = mark_row;
+	bcur()->mark_col = mark_col;
 	editor.rowoff = 0;
 	editor.coloff = 0;
 	editor.cy = cur_row;
@@ -60,8 +60,8 @@ static void test_copy_region_single_line(void)
 	/* Highlight goes away but the mark itself stays put so the next
 	 * C-x C-x bounces back to where the region started (Emacs'
 	 * transient-mark convention; matches the C-g teardown). */
-	CHECK(editor.mark_set == 1);
-	CHECK(editor.mark_highlight == 0);
+	CHECK(bcur()->mark_set == 1);
+	CHECK(bcur()->mark_highlight == 0);
 	teardown();
 }
 
@@ -112,7 +112,7 @@ static void test_copy_region_no_mark(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	editor.mark_set = 0;
+	bcur()->mark_set = 0;
 	editor.cx = editor.cy = editor.rowoff = editor.coloff = 0;
 
 	editor_copy_region();
@@ -130,10 +130,10 @@ static void test_set_mark_saturates_huge_column_offset(void)
 
 	editor_set_mark_silent();
 
-	CHECK(editor.mark_set == 1);
-	CHECK(editor.mark_row == 0);
-	CHECK(editor.mark_col == INT_MAX);
-	CHECK(editor.mark_highlight == 1);
+	CHECK(bcur()->mark_set == 1);
+	CHECK(bcur()->mark_row == 0);
+	CHECK(bcur()->mark_col == INT_MAX);
+	CHECK(bcur()->mark_highlight == 1);
 	teardown();
 }
 
@@ -141,16 +141,16 @@ static void test_exchange_point_and_mark_saturates_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	editor.mark_set = 1;
-	editor.mark_row = 0;
-	editor.mark_col = 0;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = 0;
+	bcur()->mark_col = 0;
 	editor.coloff = INT_MAX - 5;
 	editor.cx = 79;
 
 	editor_exchange_point_and_mark();
 
-	CHECK(editor.mark_row == 0);
-	CHECK(editor.mark_col == INT_MAX);
+	CHECK(bcur()->mark_row == 0);
+	CHECK(bcur()->mark_col == INT_MAX);
 	teardown();
 }
 
@@ -220,8 +220,8 @@ static void test_clear_rect_pads_short_rows_in_batches(void)
 	CHECK(memcmp(bcur()->row[0].chars, "a     ", 6) == 0);
 	CHECK(bcur()->row[1].size == 6);
 	CHECK(memcmp(bcur()->row[1].chars, "abcd  ", 6) == 0);
-	CHECK(editor.mark_set == 0);
-	CHECK(editor.rect_mode == 0);
+	CHECK(bcur()->mark_set == 0);
+	CHECK(bcur()->rect_mode == 0);
 	teardown();
 }
 

@@ -24,7 +24,10 @@ standard VT100 escape sequences.
   hex/binary/octal integer literals
 - Multiple buffers with shared kill ring
 - Split-window support
-- Visual mark mode: the region renders in reverse video as you move
+- Visual mark mode: the region renders in reverse video as you move.
+  The mark, the mark ring and the active region belong to the buffer,
+  not to the window: two windows showing one buffer share one region,
+  and switching buffers leaves each buffer's region as you left it
 - Per-buffer mark ring: C-u C-SPC jumps to the mark and pops older
   marks; C-y, M-< and M-> push a mark like in Emacs
 - M-@ marks the next word without moving point; repeat it (or add C-u N)

@@ -586,11 +586,11 @@ static FeObject *native_current_column(FeContext *context, FeObject *arguments)
 static FeObject *native_mark(FeContext *context, FeObject *arguments)
 {
 	FeRequireNoArguments(context, arguments);
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		return FeNil(context);
 	}
 	return lisp_position(
-	    context, editor_char_offset(editor.mark_row, editor.mark_col));
+	    context, editor_char_offset(bcur()->mark_row, bcur()->mark_col));
 }
 
 static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
@@ -601,10 +601,10 @@ static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
 	FeRequireNoArguments(context, arguments);
 	editor_offset_to_rowcol(
 	    lisp_offset_argument(context, object), &row, &col);
-	editor.mark_set = 1;
-	editor.mark_row = row;
-	editor.mark_col = col;
-	editor.mark_highlight = 1;
+	bcur()->mark_set = 1;
+	bcur()->mark_row = row;
+	bcur()->mark_col = col;
+	bcur()->mark_highlight = 1;
 	return FeNil(context);
 }
 
@@ -612,7 +612,7 @@ static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
 static FeObject *native_deactivate_mark(FeContext *context, FeObject *arguments)
 {
 	FeRequireNoArguments(context, arguments);
-	editor.mark_highlight = 0;
+	bcur()->mark_highlight = 0;
 	return FeNil(context);
 }
 

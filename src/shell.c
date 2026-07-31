@@ -496,9 +496,9 @@ static void handle_shell_result(const char *out, int out_len, int insert_output,
 		int start_row = editor_current_filerow_or_eof();
 		int start_col = editor_current_filecol();
 		insert_as_yank(out, out_len);
-		editor.mark_set = 1;
-		editor.mark_row = editor_current_filerow_or_eof();
-		editor.mark_col = editor_current_filecol();
+		bcur()->mark_set = 1;
+		bcur()->mark_row = editor_current_filerow_or_eof();
+		bcur()->mark_col = editor_current_filecol();
 		editor_cursor_goto(start_row, start_col);
 		editor_set_status_message("Inserted %d byte%s%s", out_len,
 		    out_len == 1 ? "" : "s", suffix);
@@ -548,7 +548,7 @@ void editor_shell_command_on_region(int fd, int insert_output)
 		editor_set_status_message("Buffer is read-only");
 		return;
 	}
-	if (!editor.mark_set) {
+	if (!bcur()->mark_set) {
 		editor_set_status_message("No mark set");
 		return;
 	}

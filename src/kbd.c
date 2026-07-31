@@ -655,8 +655,8 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	 * same address. */
 	if (buf_handle_slot(buffer_before) == buf_current
 	    && bcur()->dirty != dirty_before) {
-		editor.mark_highlight = 0;
-		editor.rect_mode = 0;
+		bcur()->mark_highlight = 0;
+		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 	}
 
@@ -668,10 +668,10 @@ static void key_finish_keypress(int c, struct kg_buffer_handle buffer_before,
 	if (was_shift_select && !editor.cx_prefix && c != SHIFT_ARROW_LEFT
 	    && c != SHIFT_ARROW_RIGHT && c != SHIFT_ARROW_UP
 	    && c != SHIFT_ARROW_DOWN && c != SHIFT_HOME && c != SHIFT_END) {
-		editor.shift_select = 0;
-		editor.mark_set = 0;
-		editor.mark_highlight = 0;
-		editor.rect_mode = 0;
+		bcur()->shift_select = 0;
+		bcur()->mark_set = 0;
+		bcur()->mark_highlight = 0;
+		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 	}
 
@@ -693,7 +693,7 @@ void editor_process_keypress(int fd)
 	int c = editor_read_key_idle(fd);
 	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
 	int dirty_before = bcur()->dirty;
-	int was_shift_select = editor.shift_select;
+	int was_shift_select = bcur()->shift_select;
 	long elapsed;
 	long seconds;
 	int n;
@@ -850,8 +850,8 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case CTRL_G: /* Keyboard quit / cancel */
-		editor.mark_highlight = 0;
-		editor.rect_mode = 0;
+		bcur()->mark_highlight = 0;
+		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 		editor_set_status_message("");
 		break;
@@ -941,7 +941,7 @@ void editor_process_keypress(int fd)
 		}
 		break;
 	case DEL_KEY: /* Forward delete; consumes an active region first. */
-		if (editor.mark_set && editor.mark_highlight) {
+		if (bcur()->mark_set && bcur()->mark_highlight) {
 			editor_delete_region_or_char();
 		} else {
 			while (n--) {
@@ -992,9 +992,9 @@ void editor_process_keypress(int fd)
 		 * starts a shift-selected region, so subsequent shift+motion
 		 * extends it.  If a region is already on-screen we just extend.
 		 */
-		if (!editor.mark_highlight) {
+		if (!bcur()->mark_highlight) {
 			editor_set_mark_silent();
-			editor.shift_select = 1;
+			bcur()->shift_select = 1;
 		}
 		while (n--) {
 			editor_move_cursor(motion);

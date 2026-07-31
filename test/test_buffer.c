@@ -1056,6 +1056,11 @@ static void test_transpose_chars_bol_swaps_newline(void)
 	CHECK(memcmp(bcur()->row[1].chars, "d", 1) == 0);
 	CHECK(wcur()->cy == 1);
 	CHECK(wcur()->cx == 0);
+	/* This edit replaces one separator with another, so the row count
+	 * does not move -- and a row that keeps its number still has to
+	 * carry it.  The highlighter reads `idx` to find the row above. */
+	CHECK(bcur()->row[0].idx == 0);
+	CHECK(bcur()->row[1].idx == 1);
 	teardown();
 }
 

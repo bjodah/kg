@@ -1545,6 +1545,7 @@ static void edit_publish(
 {
 	int old_span = r1 - r0 + 1;
 	int new_span = st->nl + 1;
+	int last;
 	int i;
 
 	for (i = r0; i <= r1; i++) {
@@ -1564,9 +1565,12 @@ static void edit_publish(
 	free(st->rows);
 	st->rows = NULL;
 	st->head = NULL;
-	/* Only a change in row count renumbers anything below the edit,
-	 * which is what keeps an in-row edit off an O(rows) walk. */
-	for (i = r0; new_span != old_span && i < b->numrows; i++) {
+	/* The staged rows arrive with no number of their own, so the rows
+	 * the edit installed are always renumbered.  Only a change in row
+	 * count renumbers what is *below* the edit as well, which is what
+	 * keeps an in-row edit off an O(rows) walk. */
+	last = new_span != old_span ? b->numrows : r0 + new_span;
+	for (i = r0; i < last; i++) {
 		b->row[i].idx = i;
 	}
 	for (i = r0; i < r0 + new_span; i++) {

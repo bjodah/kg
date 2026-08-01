@@ -364,7 +364,14 @@ enum kg_event_enqueue_result kg_event_publish_lifecycle(
 /* ---- consumer -------------------------------------------------------------
  */
 
-bool kg_event_queue_pop(struct kg_event *out)
+/* Shared by kg_event_queue_pop() and kg_event_drain_safe(): pop the next
+ * event in publication order -- the ring's front entry, or, when it sorts
+ * earlier, a pending overflow summary -- but only when that event's own
+ * sequence number is at or below `boundary`.  Otherwise returns false and
+ * touches nothing, so a drain's boundary check never has to un-pop what it
+ * already took.  `boundary` of UINT64_MAX is "no boundary", which is all
+ * kg_event_queue_pop() needs. */
+static bool queue_pop_bounded(uint64_t boundary, struct kg_event *out)
 {
 	int overflow_idx = -1;
 	uint64_t overflow_seq = 0;
@@ -381,6 +388,9 @@ bool kg_event_queue_pop(struct kg_event *out)
 	}
 	if (overflow_idx >= 0
 	    && (ring_count == 0 || overflow_seq <= ring[ring_head].ev.seq)) {
+		if (overflow_seq > boundary) {
+			return false;
+		}
 		if (out) {
 			*out = kg_event_make_buffer_broad(
 			    overflow[overflow_idx].buffer,
@@ -391,7 +401,7 @@ bool kg_event_queue_pop(struct kg_event *out)
 		overflow[overflow_idx].in_use = false;
 		return true;
 	}
-	if (ring_count == 0) {
+	if (ring_count == 0 || ring[ring_head].ev.seq > boundary) {
 		return false;
 	}
 	if (out) {
@@ -402,7 +412,19 @@ bool kg_event_queue_pop(struct kg_event *out)
 	return true;
 }
 
+bool kg_event_queue_pop(struct kg_event *out)
+{
+	return queue_pop_bounded(UINT64_MAX, out);
+}
+
 /* ---- lifecycle of the queue itself --------------------------------------- */
+
+/* Forward declaration: the subscriber registry this resets is defined
+ * below, but kg_event_queue_init() -- this file's one "back to a known
+ * state" entry point, which is all any test's setup()/teardown() calls --
+ * clears it too, so a test never leaks a subscription into the next
+ * test. */
+static void event_subscribers_reset(void);
 
 void kg_event_queue_init(void)
 {
@@ -412,6 +434,7 @@ void kg_event_queue_init(void)
 	next_seq = 1;
 	reserved_outstanding = 0;
 	memset(overflow, 0, sizeof(overflow));
+	event_subscribers_reset();
 }
 
 void kg_event_queue_set_capacity_for_test(size_t capacity)
@@ -425,3 +448,261 @@ void kg_event_queue_set_capacity_for_test(size_t capacity)
 	}
 	ring_capacity = capacity;
 }
+
+/* ---- Phase 5: subscriber registry ---------------------------------------
+ *
+ * See event.h for the contract.  `reg_seq` is what makes dispatch order
+ * independent of slot reuse: a slot freed by unsubscribe and handed to a
+ * later kg_event_subscribe() call gets a fresh, larger reg_seq, so
+ * snapshot_subscribers() below sorts the newcomer after every subscriber
+ * still active from before -- exactly registration order, not slot
+ * order. */
+struct kg_event_subscriber {
+	kg_event_callback cb;
+	void *ctx;
+	unsigned kind_mask;
+	uint64_t reg_seq;
+	uint32_t generation;
+	bool active;
+};
+
+static struct kg_event_subscriber subs[KG_EVENT_MAX_SUBSCRIBERS];
+static uint64_t next_reg_seq = 1;
+static uint32_t next_sub_generation = 1;
+static unsigned prompt_depth;
+static unsigned drain_depth;
+static unsigned max_drain_depth_seen;
+static unsigned error_count;
+
+static void event_subscribers_reset(void)
+{
+	memset(subs, 0, sizeof(subs));
+	next_reg_seq = 1;
+	next_sub_generation = 1;
+	prompt_depth = 0;
+	drain_depth = 0;
+	max_drain_depth_seen = 0;
+	error_count = 0;
+}
+
+struct kg_event_subscriber_token kg_event_subscribe(
+    unsigned kind_mask, kg_event_callback cb, void *ctx)
+{
+	size_t i;
+
+	if (!cb) {
+		return KG_EVENT_SUBSCRIBER_NONE;
+	}
+	for (i = 0; i < KG_EVENT_MAX_SUBSCRIBERS; i++) {
+		if (!subs[i].active) {
+			break;
+		}
+	}
+	if (i == KG_EVENT_MAX_SUBSCRIBERS) {
+		return KG_EVENT_SUBSCRIBER_NONE;
+	}
+	subs[i] = (struct kg_event_subscriber) {
+		.cb = cb,
+		.ctx = ctx,
+		.kind_mask = kind_mask,
+		.reg_seq = next_reg_seq++,
+		.generation = next_sub_generation++,
+		.active = true,
+	};
+	return (struct kg_event_subscriber_token) {
+		.slot = (uint32_t)i,
+		.generation = subs[i].generation,
+	};
+}
+
+bool kg_event_unsubscribe(struct kg_event_subscriber_token token)
+{
+	struct kg_event_subscriber *s;
+
+	if (token.slot >= KG_EVENT_MAX_SUBSCRIBERS) {
+		return false;
+	}
+	s = &subs[token.slot];
+	if (!s->active || s->generation != token.generation) {
+		return false;
+	}
+	s->active = false;
+	return true;
+}
+
+void kg_event_prompt_enter(void) { prompt_depth++; }
+
+void kg_event_prompt_leave(void)
+{
+	if (prompt_depth > 0) {
+		prompt_depth--;
+	}
+}
+
+/* One entry of a drain's subscriber snapshot: which slot, and the
+ * generation it held when the drain started.  Re-checked against the live
+ * registry before every call, so an unsubscribe -- another subscriber's,
+ * or its own, from a callback earlier in the same drain -- is honoured
+ * immediately rather than at the next drain. */
+struct kg_event_sub_snapshot {
+	uint32_t slot;
+	uint32_t generation;
+};
+
+/* Every currently active subscriber, insertion-sorted by registration
+ * order (`reg_seq`) rather than slot index, which slot reuse can put out
+ * of order.  KG_EVENT_MAX_SUBSCRIBERS is small enough that an insertion
+ * sort costs nothing worth avoiding it for. */
+static size_t snapshot_subscribers(struct kg_event_sub_snapshot *out)
+{
+	size_t n = 0, i, j;
+
+	for (i = 0; i < KG_EVENT_MAX_SUBSCRIBERS; i++) {
+		if (subs[i].active) {
+			out[n].slot = (uint32_t)i;
+			out[n].generation = subs[i].generation;
+			n++;
+		}
+	}
+	for (i = 1; i < n; i++) {
+		struct kg_event_sub_snapshot key = out[i];
+		uint64_t key_seq = subs[key.slot].reg_seq;
+
+		j = i;
+		while (j > 0 && subs[out[j - 1].slot].reg_seq > key_seq) {
+			out[j] = out[j - 1];
+			j--;
+		}
+		out[j] = key;
+	}
+	return n;
+}
+
+/* Which buffer handle `ev` carries, whatever its kind -- the one thing
+ * every payload but broad-change-free kinds has.  Used only to re-resolve
+ * at delivery; nothing here reads any other field. */
+static struct kg_buffer_handle event_buffer_handle(const struct kg_event *ev)
+{
+	switch (ev->kind) {
+	case KG_EVENT_BUFFER_CHANGED:
+		return ev->payload.changed.buffer;
+	case KG_EVENT_BUFFER_BROAD_CHANGE:
+		return ev->payload.broad.buffer;
+	case KG_EVENT_BUFFER_OPENED:
+	case KG_EVENT_BUFFER_KILLING:
+	case KG_EVENT_BUFFER_KILLED:
+		return ev->payload.buffer_life.buffer;
+	case KG_EVENT_VIEW_ATTACHED:
+	case KG_EVENT_VIEW_DETACHED:
+		return ev->payload.view.buffer;
+	case KG_EVENT_BEFORE_SAVE:
+		return ev->payload.before_save.buffer;
+	case KG_EVENT_AFTER_SAVE:
+		return ev->payload.after_save.buffer;
+	case KG_EVENT_MODE_CHANGED:
+		return ev->payload.mode_changed.buffer;
+	}
+	return (struct kg_buffer_handle) { 0 };
+}
+
+/* Live/gone is re-derived every delivery, from the handle, through the
+ * same buf_resolve() a live caller would use -- never cached from publish
+ * time, and never able to answer "live" for a slot a dead handle no
+ * longer names, because that is exactly what buf_resolve() itself
+ * refuses. */
+static enum kg_event_resolution event_resolution(const struct kg_event *ev)
+{
+	return buf_resolve(event_buffer_handle(ev)) ? KG_EVENT_RESOLVED_LIVE
+						    : KG_EVENT_RESOLVED_GONE;
+}
+
+/* Run `ev` past every subscriber in `snap`, in the snapshot's order.  Each
+ * slot is re-checked live before its call: a subscriber unsubscribed
+ * earlier in this same drain (by itself or another callback) is skipped,
+ * not called on a stale pointer, and a kind_mask that does not name `ev`'s
+ * kind skips it too.  An UNSUBSCRIBE return retires the slot for every
+ * later event this drain and beyond; an ERROR return is counted and never
+ * stops the loop. */
+static void dispatch_event(const struct kg_event *ev,
+    const struct kg_event_sub_snapshot *snap, size_t count)
+{
+	enum kg_event_resolution res = event_resolution(ev);
+	size_t i;
+
+	for (i = 0; i < count; i++) {
+		struct kg_event_subscriber *s = &subs[snap[i].slot];
+		enum kg_event_cb_status status;
+
+		if (!s->active || s->generation != snap[i].generation) {
+			continue;
+		}
+		if (!(s->kind_mask & (1u << ev->kind))) {
+			continue;
+		}
+		status = s->cb(ev, res, s->ctx);
+		if (status == KG_EVENT_CB_UNSUBSCRIBE) {
+			s->active = false;
+		} else if (status == KG_EVENT_CB_ERROR) {
+			error_count++;
+		}
+	}
+}
+
+#if KG_DEBUG_STATE
+static unsigned debug_unsafe_flags;
+
+void kg_event_debug_enter(enum kg_event_unsafe_reason reason)
+{
+	debug_unsafe_flags |= (unsigned)reason;
+}
+
+void kg_event_debug_leave(enum kg_event_unsafe_reason reason)
+{
+	debug_unsafe_flags &= ~(unsigned)reason;
+}
+
+/* Abort, naming which reasons, rather than deliver into a half-finished
+ * edit or a half-painted frame -- the three safe points this is meant to
+ * be called from never have any of these bits set, so seeing one here
+ * means a call site outside them. */
+static void assert_safe_to_drain(void)
+{
+	if (debug_unsafe_flags == 0) {
+		return;
+	}
+	fprintf(stderr,
+	    "kg: kg_event_drain_safe() called outside a safe point "
+	    "(reason flags=0x%x)\n",
+	    debug_unsafe_flags);
+	abort();
+}
+#else
+static void assert_safe_to_drain(void) { }
+#endif
+
+void kg_event_drain_safe(void)
+{
+	uint64_t boundary;
+	struct kg_event ev;
+	struct kg_event_sub_snapshot snap[KG_EVENT_MAX_SUBSCRIBERS];
+	size_t count;
+
+	if (prompt_depth > 0 || drain_depth > 0) {
+		return;
+	}
+	assert_safe_to_drain();
+	drain_depth++;
+	if (drain_depth > max_drain_depth_seen) {
+		max_drain_depth_seen = drain_depth;
+	}
+	boundary = next_seq > 0 ? next_seq - 1 : 0;
+	count = snapshot_subscribers(snap);
+	while (queue_pop_bounded(boundary, &ev)) {
+		dispatch_event(&ev, snap, count);
+	}
+	drain_depth--;
+}
+
+unsigned kg_event_test_max_drain_depth(void) { return max_drain_depth_seen; }
+
+unsigned kg_event_test_error_count(void) { return error_count; }

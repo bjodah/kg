@@ -35,13 +35,13 @@
  *     pressure may never silently drop a kill, attach or save transition
  *     no subscriber can observe.
  *
- * This slice delivers the queue complete and self-tested through its own
- * API.  Nothing in src/ calls it yet: wiring buffer.c/bufmgr.c/fileio.c/
- * winmgr.c producers is the next slice, and a C safe-point drain plus
- * subscriber registry (kg_event_drain_safe(), Phase 5) is the one after.
- * kg_event_queue_pop() is what Phase 5's drain will call in a loop; this
- * header does not yet know about subscribers, safe points, or
- * re-entrancy, by design. */
+ * Producers are wired throughout src/ (buffer.c, bufmgr.c, fileio.c,
+ * syntax.c).  The rest of this header is Phase 5: a small subscriber
+ * registry plus kg_event_drain_safe(), the only thing that ever calls
+ * kg_event_queue_pop() outside a test.  Delivery happens only from the
+ * named safe points in src/main.c's loop -- never from inside a producer,
+ * a command handler, or a prompt -- so a callback never sees a partial
+ * edit or a screen mid-repaint. */
 
 #ifndef KG_EVENT_H
 #define KG_EVENT_H
@@ -295,5 +295,123 @@ void kg_event_queue_init(void);
  * the editor always runs at the full physical capacity, matching
  * kg_decor_fail_alloc_after()'s precedent in decor.h. */
 void kg_event_queue_set_capacity_for_test(size_t capacity);
+
+/* ---- Phase 5: subscriber registry and safe-point delivery --------------
+ *
+ * A subscriber is a C function pointer plus an opaque context and a mask
+ * of the event kinds it wants; dispatch runs subscribers in registration
+ * order.  kg_event_drain_safe() is the only caller of
+ * kg_event_queue_pop()'s machinery from outside a test: it goes only at
+ * the three named safe points in src/main.c's loop (after a command and
+ * its edit group, after a completed non-command lifecycle action, and
+ * before the next screen repaint), because that is the only place none of
+ * an edit transaction, the renderer or a prompt read can be mid-way
+ * through. */
+
+/* What a callback answers.  KG_EVENT_CB_ERROR is recorded and does not
+ * stop later subscribers from running this drain or any later one;
+ * nothing here ever longjmps through the loop. */
+enum kg_event_cb_status {
+	KG_EVENT_CB_CONTINUE = 0,
+	KG_EVENT_CB_UNSUBSCRIBE,
+	KG_EVENT_CB_ERROR,
+};
+
+/* Whether the event's buffer handle still resolves right now -- re-checked
+ * at delivery, never the state at publish time.  KG_EVENT_RESOLVED_GONE is
+ * expected for KG_EVENT_BUFFER_KILLED and possible for anything else: a
+ * dead handle is still delivered, so a subscriber can discard cached
+ * state, and no dispatcher hands back the current occupant of a reused
+ * slot -- buf_resolve() already refuses that. */
+enum kg_event_resolution {
+	KG_EVENT_RESOLVED_LIVE,
+	KG_EVENT_RESOLVED_GONE,
+};
+
+typedef enum kg_event_cb_status (*kg_event_callback)(
+    const struct kg_event *ev, enum kg_event_resolution resolution, void *ctx);
+
+#define KG_EVENT_MAX_SUBSCRIBERS 16
+
+/* A registration receipt.  `generation` is what stops a stale token --
+ * held past its own unregister, or across the slot's reuse by a later
+ * subscriber -- from ever unregistering whoever occupies the slot now.
+ * The zero value (KG_EVENT_SUBSCRIBER_NONE) names no subscriber, matching
+ * a zeroed struct kg_buffer_handle's convention; kg_event_subscribe()
+ * returns it when the registry is full. */
+struct kg_event_subscriber_token {
+	uint32_t slot;
+	uint32_t generation;
+};
+
+#define KG_EVENT_SUBSCRIBER_NONE ((struct kg_event_subscriber_token) { 0, 0 })
+
+/* Register `cb`/`ctx` for delivery of every kind set in `kind_mask` (an OR
+ * of `1u << KG_EVENT_...` bits).  Returns KG_EVENT_SUBSCRIBER_NONE, having
+ * registered nothing, when `cb` is NULL or the registry is already at
+ * KG_EVENT_MAX_SUBSCRIBERS.  A subscriber registered while a drain is in
+ * progress (from a callback) is not eligible for delivery until the next
+ * drain -- kg_event_drain_safe() snapshots who is active once, at the
+ * start. */
+struct kg_event_subscriber_token kg_event_subscribe(
+    unsigned kind_mask, kg_event_callback cb, void *ctx);
+
+/* Remove `token`'s subscriber.  Idempotent: a token already unregistered,
+ * never valid, or naming a slot some later registration has since reused
+ * answers false and touches nothing -- it never removes the wrong
+ * subscriber. */
+bool kg_event_unsubscribe(struct kg_event_subscriber_token token);
+
+/* Mark one prompt/minibuffer read as open (nestable: a prompt started from
+ * inside another just adds depth).  While any are open,
+ * kg_event_drain_safe() defers instead of draining -- eligibility resumes
+ * once the outermost kg_event_prompt_leave() runs, not by draining from a
+ * prompt's own cleanup. */
+void kg_event_prompt_enter(void);
+void kg_event_prompt_leave(void);
+
+/* Deliver every event published at or before this call's own start --
+ * captured as the queue's latest sequence number right then -- to every
+ * subscriber whose mask matches, in registration order.  Events an
+ * invoked callback queues (directly, or by editing/killing/saving) are
+ * strictly newer than that boundary and wait for the next call instead of
+ * being drained in this one; that is what keeps a callback's own work
+ * from recursing into a second dispatch of itself.  A no-op while a
+ * prompt is open (see kg_event_prompt_enter()) or while a drain is
+ * already running.  In a KG_DEBUG_STATE build, also aborts, naming the
+ * reason, if called while an edit transaction or the renderer is active
+ * -- both are supposed to be impossible at any of the three safe points
+ * this is meant to be called from. */
+void kg_event_drain_safe(void);
+
+/* Test-only: the deepest kg_event_drain_safe() has ever recursed in this
+ * process.  Must never exceed 1; see test/test_event.c. */
+unsigned kg_event_test_max_drain_depth(void);
+
+/* Test-only: how many KG_EVENT_CB_ERROR returns kg_event_drain_safe() has
+ * recorded since the last kg_event_queue_init(). */
+unsigned kg_event_test_error_count(void);
+
+/* Reasons kg_event_drain_safe() refuses to run in a KG_DEBUG_STATE build;
+ * see src/buffer.c's kg_buffer_replace() and src/display.c's
+ * editor_refresh_screen() for where each is marked.  Not a Fe type and not
+ * gated on KG_USE_LISP -- this is core reentrancy bookkeeping, always
+ * compiled, just inert (KG_EVENT_DEBUG_ENTER()/_LEAVE() below expand to
+ * nothing) unless KG_DEBUG_STATE arms it, matching KG_STATE_CHECK's own
+ * precedent in bufhandle.h. */
+enum kg_event_unsafe_reason {
+	KG_EVENT_UNSAFE_EDIT = 1u << 0,
+	KG_EVENT_UNSAFE_RENDER = 1u << 1,
+};
+
+#if KG_DEBUG_STATE
+void kg_event_debug_enter(enum kg_event_unsafe_reason reason);
+void kg_event_debug_leave(enum kg_event_unsafe_reason reason);
+#define KG_EVENT_DEBUG_ENTER(reason) kg_event_debug_enter(reason)
+#define KG_EVENT_DEBUG_LEAVE(reason) kg_event_debug_leave(reason)
+#else
+#define KG_EVENT_DEBUG_ENTER(reason) ((void)0)
+#define KG_EVENT_DEBUG_LEAVE(reason) ((void)0)
+#endif
 
 #endif /* KG_EVENT_H */

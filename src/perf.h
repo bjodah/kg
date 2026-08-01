@@ -61,9 +61,27 @@ enum kg_perf_counter {
 	KG_PERF_UNDO_PUSH, /* records pushed */
 	KG_PERF_UNDO_EVICT_LINKS, /* links walked looking for the oldest */
 
-	/* Visual-line geometry (src/mode.c), off by default in the editor. */
+	/* Visual-line geometry (src/mode.c), off by default in the editor.
+	 * ROW_SCAN/BYTE_SCAN are the row-byte width work visual_line_width()
+	 * does; phase 1's per-row wrapped-width cache makes them fire only
+	 * on a cache miss, so they still name actual scanning rather than
+	 * call count.  WIDTH_CACHE_HIT is the complement: a call the cache
+	 * answered without scanning.  There is no separate miss/rebuild
+	 * counter -- a miss and its rebuild are the same synchronous event
+	 * ROW_SCAN already counts, and a second counter for it would answer
+	 * a question ROW_SCAN already answers.  PREFIX_VISIT is a different
+	 * shape: rows visited by the O(rows) walks that sum wrap segments
+	 * from row zero looking for a position (get_visual_row(),
+	 * find_visual_row(), goto_visual_row_col(), get_total_visual_rows())
+	 * -- one row can be "visited" without its bytes being rescanned, so
+	 * the width cache does not by itself change this count; a
+	 * persistent prefix index (phase 2) is what would. */
 	KG_PERF_VISUAL_ROW_SCAN, /* rows measured by visual_line_width() */
 	KG_PERF_VISUAL_BYTE_SCAN, /* their bytes */
+	KG_PERF_VISUAL_WIDTH_CACHE_HIT, /* visual_line_width() calls a cached
+					    width answered without scanning */
+	KG_PERF_VISUAL_PREFIX_VISIT, /* rows visited by a segment-summing walk
+				      */
 
 	/* Buffer identity (src/bufmgr.c). */
 	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */

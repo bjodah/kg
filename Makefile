@@ -237,6 +237,26 @@ SCC_COMPLEXITY_PATHS ?= src
 # produce and the row primitive the rectangle migration orphaned took
 # that to 4144.  The cap is the measurement again, as it was before the
 # describe slice.
+#
+# Raised 4144 -> 4200 by the maintainer's explicit wave-2 budget update.
+# Wave 1 ended with the cap equal to the measurement, which is the right
+# resting state between programs and the wrong starting state for a wave:
+# it serializes the work, because Plan 03's marker store, Plan 07's width
+# cache and Plan 06's runtime seams are additive by construction and each
+# would have to be paired with a deletion slice landing first.  The 56 is
+# headroom borrowed from wave 1's savings, not a new budget.  (Every
+# concurrent wave-2 track was told to write this same number rather than
+# its own measurement, so the one-line change merges cleanly; that is an
+# integration mechanic, not the reason for the size.)
+# Plan 07 Phase 1 itself measured 4146: the cache-hit branch
+# visual_line_width() needs to answer from a row's cache without
+# rescanning, plus one more branch consolidating the redundant width
+# query visual_line_cursor_col() used to make at end-of-line.  The
+# goto_visual_row_col()/visual_segments() consolidation the plan asked to
+# fund this from nets to zero (a call swapped for a call, not a removed
+# branch), so this is not a target to shrink back to -- it is the
+# integration ceiling until the next reviewed exception.  Do not exceed
+# 4200; the pre-program 4223 baseline does not move.
 SCC_COMPLEXITY_MAX ?= 4200
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe

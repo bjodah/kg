@@ -334,13 +334,20 @@ static int row_render_reserve(erow *row, int need)
  * An allocation failure now leaves the previous render in place instead
  * of freeing it and leaving row->rsize describing bytes that are gone.
  * running is cleared either way, so the callers that watch for that (and
- * for a NULL render on a row that never had one) still see it. */
+ * for a NULL render on a row that never had one) still see it.
+ *
+ * The row's wrapped-width cache (def.h's erow, src/mode.c) is invalidated
+ * first and unconditionally, before anything below can run out of memory
+ * or bail out: every caller has already changed row->chars by the time it
+ * gets here, so a cache a failure left marked valid would go on claiming
+ * the width of text that is no longer there. */
 void editor_update_row(struct editor_buffer *b, erow *row)
 {
 	unsigned int tabs = 0;
 	unsigned long long allocsize;
 	int j, idx, render_cap, vcol;
 
+	row->wrap_cache_win_w = 0;
 	KG_PERF_INC(KG_PERF_ROW_UPDATE);
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {

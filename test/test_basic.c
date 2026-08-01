@@ -293,6 +293,89 @@ static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 	teardown();
 }
 
+/* visual_line_width() must answer the same at a given (row, win_w)
+ * whether it scans (cold) or reads plan 07 phase 1's per-row cache
+ * (warm): the second call here always lands on the cache the first call
+ * just filled.  One case per edge the plan names for phase 1. */
+static void check_width_cache_agrees(erow *row, int win_w, int expect_width)
+{
+	CHECK(visual_line_width(row, win_w) == expect_width); /* cold */
+	CHECK(visual_line_width(row, win_w) == expect_width); /* warm */
+}
+
+static void test_visual_width_cache_matches_uncached_edge_cases(void)
+{
+	erow *row;
+
+	/* Empty row: nothing to scan, at two different widths. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "", 0);
+	check_width_cache_agrees(&bcur()->row[0], 80, 0);
+	check_width_cache_agrees(&bcur()->row[0], 1, 0);
+	teardown();
+
+	/* Exact-width row: width equals win_w, no wrap padding to add. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "12345678", 8);
+	check_width_cache_agrees(&bcur()->row[0], 8, 8);
+	teardown();
+
+	/* Tabs: width depends on the tab stop reached, not byte count --
+	 * "a\tb" reaches column 8 on the tab, then one more for "b". */
+	setup(0);
+	editor_insert_row(bcur(), 0, "a\tb", 3);
+	check_width_cache_agrees(&bcur()->row[0], 80, 9);
+	teardown();
+
+	/* Wide glyph at a wrap boundary: nine single-width columns leave one
+	 * cell before the win_w-10 wrap; the double-width CJK glyph that
+	 * follows does not fit it, so wrap_pad() charges one blank column
+	 * before the glyph's own two -- 9 + 1 + 2 = 12 -- whether that
+	 * padding comes from a fresh scan or the cached total. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "aaaaaaaaa\xe4\xb8\xad", 12);
+	check_width_cache_agrees(&bcur()->row[0], 10, 12);
+	teardown();
+
+	/* Combining mark: zero display width, so "e" + U+0301 + "z" is two
+	 * columns, not three. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "e\xcc\x81z", 4);
+	check_width_cache_agrees(&bcur()->row[0], 80, 2);
+	teardown();
+
+	/* Invalid byte: display_glyph_at() (src/width.c) substitutes the
+	 * four-cell "\xnn" escape for a byte that is not valid UTF-8, so
+	 * "a" + one bad byte + "z" is six columns. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "a\xffz", 3);
+	check_width_cache_agrees(&bcur()->row[0], 80, 6);
+	teardown();
+
+	/* Virtual space: a chars_col past row->size costs one column per
+	 * byte past EOL, and visual_line_cursor_col() must answer that by
+	 * reusing the row's width (cold or cached) rather than rescanning
+	 * past text that is not there. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "ab", 2);
+	row = &bcur()->row[0];
+	CHECK(visual_line_width(row, 80) == 2);
+	CHECK(visual_line_cursor_col(row, 5, 80) == 5); /* 2 + (5 - 2) */
+	CHECK(visual_line_cursor_col(row, 2, 80) == 2); /* exactly at EOL */
+	teardown();
+
+	/* Nonpositive window width: win_cells() normalizes both 0 and a
+	 * negative width to 1 cell, and the cache keys on that normalized
+	 * width -- so a call with a *different* raw nonpositive argument
+	 * still hits the entry the first call filled. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "ab", 2);
+	row = &bcur()->row[0];
+	CHECK(visual_line_width(row, 0) == 2);
+	CHECK(visual_line_width(row, -5) == 2);
+	teardown();
+}
+
 /* Walk `text` glyph by glyph and assert what doc/coordinates.md claims
  * round-trips between the three spaces.  `win_w` is the window width the
  * visual-line pair is checked at, so the caller can ask both for a width
@@ -684,6 +767,7 @@ int main(void)
 	RUN(test_visual_wrap_moves_a_whole_escape_spelling);
 	RUN(test_visual_rows_guard_zero_width);
 	RUN(test_visual_row_exact_width_keeps_eol_on_last_segment);
+	RUN(test_visual_width_cache_matches_uncached_edge_cases);
 	RUN(test_coordinate_space_round_trips);
 	RUN(test_render_offset_is_not_a_display_column);
 	RUN(test_ab_append_oom);

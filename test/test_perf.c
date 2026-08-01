@@ -798,6 +798,63 @@ static void test_visual_line_scan_per_refresh(void)
 	teardown();
 }
 
+/* The decoration visible-range query's own cost shape: src/decor.c's
+ * kg_decor_query_next() is a sorted-vector walk, called once per drawn
+ * row (src/display.c), not once per repaint -- so EXAMINED grows with
+ * (visible rows) x (decorations the walk has to pass before it can stop),
+ * and VISIBLE is the exact number of decoration/row intersections a
+ * repaint draws.  This is the measurement doc/plans/2026-07-31-follow-
+ * ups/03-markers-decorations-and-events.md asks for before an interval
+ * tree is ever considered, not a bound on it: there is no ceiling here to
+ * violate, only a number to have before proposing a different structure.
+ *
+ * Buffer layout: 20 rows of "lineNN" (6 bytes) + 1 separator = 7 bytes of
+ * flat position per row, rows 0-19 at positions 0, 7, 14, .... The window
+ * shows only the first 5 (h=5), i.e. flat range [0,34) split into five
+ * per-row queries at [0,6), [7,13), [14,20), [21,27), [28,34).
+ *
+ * Decoration A [0,4) intersects only row 0's range. Decoration B [10,14)
+ * intersects only row 1's range [7,13) -- its own end sits exactly at row
+ * 2's start, which the half-open test excludes. Decoration C [100,104) is
+ * never inside any drawn row's range at all, and the sorted walk stops as
+ * soon as it sees C's start past a row's range_end, so it is "examined"
+ * only where the walk had not already stopped on B. */
+static void test_decor_query_examines_and_returns_by_row(void)
+{
+	int i;
+	char buf[16];
+
+	setup();
+	wcur()->h = 5;
+	for (i = 0; i < 20; i++) {
+		int len = snprintf(buf, sizeof(buf), "line%02d", i);
+
+		editor_insert_row(bcur(), i, buf, len);
+	}
+	CHECK(kg_decor_create(bcur(), 0, 4, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+	CHECK(kg_decor_create(bcur(), 10, 14, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+	CHECK(kg_decor_create(bcur(), 100, 104, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 0, false)
+		  .id
+	    != 0);
+
+	kg_perf_reset();
+	refresh_quietly();
+
+	CHECK(counter(KG_PERF_DECOR_VISIBLE) == 2);
+	CHECK(counter(KG_PERF_DECOR_EXAMINED) == 14);
+	CHECK(
+	    counter(KG_PERF_DECOR_EXAMINED) >= counter(KG_PERF_DECOR_VISIBLE));
+
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_load_row_array_growth);
@@ -819,5 +876,6 @@ int main(void)
 	RUN(test_visual_line_new_width_scans_each_row_once);
 	RUN(test_visual_line_prefix_walk_restarts_per_screen_row);
 	RUN(test_erow_wrap_cache_size_cost);
+	RUN(test_decor_query_examines_and_returns_by_row);
 	return test_summary();
 }

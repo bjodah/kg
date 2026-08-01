@@ -600,16 +600,313 @@ static void test_row_draw_stays_inside_the_window(void)
 	editor_insert_row(bcur(), 0, line, 60);
 
 	/* Byte 2 is the last byte of the first €. */
-	draw_window_rows(
-	    &ab, 1, 1, 1, 10, 0, 2, bcur()->numrows, bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 2, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
 	ab_free(&ab);
 
 	/* A glyph boundary is unaffected. */
 	ab = (struct abuf)ABUF_INIT;
-	draw_window_rows(
-	    &ab, 1, 1, 1, 10, 0, 3, bcur()->numrows, bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 3, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
+	ab_free(&ab);
+	teardown();
+}
+
+/* Foreground SGR color active at each drawn glyph, replaying the
+ * renderer's own escape sequences the way drawn_cells() replays them for
+ * width -- one entry per glyph (not per display cell), which every test
+ * below sticks to single-width glyphs to keep unambiguous.  -1 means no
+ * color is active, whether because nothing ever set one or because
+ * "\x1b[39m" (HL_NORMAL/HL_NONPRINT's reset) did. */
+static int drawn_glyph_colors(struct abuf *ab, int *colors, int max)
+{
+	int i = 0, n = 0, color = -1;
+
+	while (i < ab->len && n < max) {
+		if (ab->b[i] == '\x1b' && i + 1 < ab->len
+		    && ab->b[i + 1] == '[') {
+			int j = i + 2, val = 0, have_digit = 0;
+
+			while (
+			    j < ab->len && ab->b[j] >= '0' && ab->b[j] <= '9') {
+				val = val * 10 + (ab->b[j] - '0');
+				have_digit = 1;
+				j++;
+			}
+			if (have_digit && j < ab->len && ab->b[j] == 'm') {
+				if (val == 39) {
+					color = -1;
+				} else if (val != 7 && val != 27) {
+					color = val;
+				}
+			}
+			while (j < ab->len
+			    && !(ab->b[j] >= 0x40 && ab->b[j] <= 0x7e)) {
+				j++;
+			}
+			i = j + 1;
+			continue;
+		}
+		{
+			struct display_glyph g;
+
+			display_glyph_at(ab->b, ab->len, i, &g);
+			colors[n++] = color;
+			i += g.span;
+		}
+	}
+	return n;
+}
+
+/* A decoration paints its face's color at the drawing seam without ever
+ * touching row->hl -- kg_decor_create() here is the only decoration
+ * source in the whole tree, since this phase lands with no consumer. */
+static void test_decor_colors_a_match_span(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[10];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+	CHECK(kg_decor_create(bcur(), 3, 6, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 10);
+	CHECK(n == 10);
+	for (int i = 0; i < 10; i++) {
+		int want = (i >= 3 && i < 6) ? 34 : -1;
+		CHECKF(colors[i] == want, "cell %d: got %d want %d", i,
+		    colors[i], want);
+	}
+	ab_free(&ab);
+	teardown();
+}
+
+/* A decoration that starts left of the horizontal scroll offset is drawn
+ * only from where the viewport begins -- the renderer never emits
+ * anything for the scrolled-off bytes in the first place, so the clip is
+ * automatic, not a separate step this test could skip proving. */
+static void test_decor_clips_at_left_viewport_edge(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[5];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+	/* Covers chars [3,7): "3456". */
+	CHECK(kg_decor_create(bcur(), 3, 7, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	/* coloff=5: the visible window is chars [5,10). */
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 5, 0, 5, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 5);
+	CHECK(n == 5);
+	CHECK(colors[0] == 34); /* '5', inside [3,7) */
+	CHECK(colors[1] == 34); /* '6', inside [3,7) */
+	CHECK(colors[2] == -1); /* '7' */
+	CHECK(colors[3] == -1); /* '8' */
+	CHECK(colors[4] == -1); /* '9' */
+	ab_free(&ab);
+	teardown();
+}
+
+/* A decoration that runs past the right edge of the window is drawn only
+ * up to it: the row-width loop never produces a `j` past the visible
+ * slice, so kg_decor_query's own span end is never consulted there. */
+static void test_decor_clips_at_right_viewport_edge(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[4];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+	/* Covers chars [2,10): the rest of the row. */
+	CHECK(kg_decor_create(bcur(), 2, 10, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	/* win_w=4: the visible window is chars [0,4). */
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 4, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 4);
+	CHECK(n == 4);
+	CHECK(colors[0] == -1); /* '0' */
+	CHECK(colors[1] == -1); /* '1' */
+	CHECK(colors[2] == 34); /* '2', inside [2,10) */
+	CHECK(colors[3] == 34); /* '3', inside [2,10) */
+	ab_free(&ab);
+	teardown();
+}
+
+/* Two overlapping decorations combine by priority, not by creation or
+ * store order: the higher-priority KG_DECOR_FACE_WARNING span wins in
+ * the middle even though the lower-priority match span was created
+ * first and sorts first (its start is smaller). */
+static void test_decor_combines_overlapping_faces_by_priority(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[10];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+	CHECK(kg_decor_create(bcur(), 2, 8, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+	CHECK(kg_decor_create(bcur(), 4, 6, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 5, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 10);
+	CHECK(n == 10);
+	CHECK(colors[0] == -1 && colors[1] == -1);
+	CHECK(colors[2] == 34 && colors[3] == 34); /* match only */
+	CHECK(colors[4] == 31 && colors[5] == 31); /* warning wins */
+	CHECK(colors[6] == 34 && colors[7] == 34); /* match only */
+	CHECK(colors[8] == -1 && colors[9] == -1);
+	ab_free(&ab);
+	teardown();
+}
+
+/* An empty row draws nothing and a decoration ending exactly where an
+ * adjacent empty row's flat range begins does not leak into it: the
+ * half-open range test treats a decoration's own end as exclusive. */
+static void test_decor_skips_empty_row(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[8];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "hello", 5);
+	editor_insert_row(bcur(), 1, "", 0);
+	/* [0,5): the whole of row 0, ending exactly at row 1's flat start
+	 * (position 6, across the '\n') -- well short of it either way. */
+	CHECK(kg_decor_create(bcur(), 0, 5, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 2, 8, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 8);
+	CHECK(n == 5); /* row 1 is empty: nothing drawn for it at all */
+	for (int i = 0; i < 5; i++) {
+		CHECK(colors[i] == 34);
+	}
+	ab_free(&ab);
+	teardown();
+}
+
+/* A decoration spanning a TAB in chars space converts to however many
+ * render bytes the tab expanded to, not one: the exact bug the "audit"
+ * row of doc/coordinates.md records for the syntax highlighter's own
+ * single-line-comment scanner. */
+static void test_decor_spans_a_tab_in_render_space(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[16];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "a\tb", 3);
+	CHECK(bcur()->row[0].rsize == 9); /* 'a' + 7-col tab + 'b' */
+	/* chars [1,2): just the TAB. */
+	CHECK(kg_decor_create(bcur(), 1, 2, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 16);
+	CHECK(n == 9);
+	CHECK(colors[0] == -1); /* 'a' */
+	for (int i = 1; i < 8; i++) {
+		CHECKF(colors[i] == 34, "tab cell %d: got %d", i, colors[i]);
+	}
+	CHECK(colors[8] == -1); /* 'b' */
+	ab_free(&ab);
+	teardown();
+}
+
+/* A decoration spanning a whole multi-byte UTF-8 glyph colors it whole;
+ * one entry in drawn_glyph_colors() is one glyph, matching how the
+ * renderer itself never splits an escape or a multi-byte character. */
+static void test_decor_spans_a_utf8_glyph(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[8];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0, "a\xc3\xa9wb", 5); /* a é w b */
+	/* chars [1,3): the two bytes of 'é'. */
+	CHECK(kg_decor_create(bcur(), 1, 3, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 8);
+	CHECK(n == 4); /* 'a', 'é' (one glyph), 'w', 'b' */
+	CHECK(colors[0] == -1); /* 'a' */
+	CHECK(colors[1] == 34); /* 'é' */
+	CHECK(colors[2] == -1); /* 'w' */
+	CHECK(colors[3] == -1); /* 'b' */
+	ab_free(&ab);
+	teardown();
+}
+
+/* A decoration spanning a byte that is not valid UTF-8 still colors it.
+ * display_glyph_at() substitutes a 4-character "\xNN" escape spelling
+ * for one malformed render byte -- four drawn terminal cells, all still
+ * inside the decoration's one-render-byte span, so all four carry its
+ * color; the source byte itself never reaches the terminal. */
+static void test_decor_spans_a_malformed_byte(void)
+{
+	struct abuf ab = ABUF_INIT;
+	int colors[8];
+	int n;
+
+	setup(0);
+	editor_insert_row(bcur(), 0,
+	    "a\xff"
+	    "b",
+	    3);
+	/* chars [1,2): the malformed byte alone. */
+	CHECK(kg_decor_create(bcur(), 1, 2, KG_MARKER_GRAV_RIGHT,
+		  KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 0, false)
+		  .id
+	    != 0);
+
+	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
+	    bcur()->row, 0, 1, 0);
+	n = drawn_glyph_colors(&ab, colors, 8);
+	CHECK(n == 6); /* 'a', the four-cell "\xff" spelling, 'b' */
+	CHECK(colors[0] == -1); /* 'a' */
+	for (int i = 1; i <= 4; i++) {
+		CHECKF(colors[i] == 31, "escape cell %d: got %d", i, colors[i]);
+	}
+	CHECK(colors[5] == -1); /* 'b' */
 	ab_free(&ab);
 	teardown();
 }
@@ -774,6 +1071,14 @@ int main(void)
 	RUN(test_ab_append_growth_boundary);
 	RUN(test_append_terminal_text_escapes_and_propagates_oom);
 	RUN(test_row_draw_stays_inside_the_window);
+	RUN(test_decor_colors_a_match_span);
+	RUN(test_decor_clips_at_left_viewport_edge);
+	RUN(test_decor_clips_at_right_viewport_edge);
+	RUN(test_decor_combines_overlapping_faces_by_priority);
+	RUN(test_decor_skips_empty_row);
+	RUN(test_decor_spans_a_tab_in_render_space);
+	RUN(test_decor_spans_a_utf8_glyph);
+	RUN(test_decor_spans_a_malformed_byte);
 	RUN(test_overwrite_mode_toggle_and_replace);
 	RUN(test_overwrite_multibyte_glyph);
 	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);

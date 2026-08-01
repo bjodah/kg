@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "bufhandle.h"
+#include "decor.h"
 #include "def.h"
 #include "localvars.h"
 #include "marker.h"
@@ -181,6 +182,137 @@ static int display_fit(const char *text, int len, int budget, int *used)
 	return i;
 }
 
+/* A decoration face names a color the same way syntax highlighting does
+ * (src/syntax.h's HL_* set, fed to editor_syntax_to_color()) rather than
+ * owning a second color table -- decor.h's closed face enum and
+ * editor_syntax_to_color()'s switch both have to grow together for a new
+ * face, which is the point: a face is still a color story, just one whose
+ * span comes from a decoration instead of a syntax scan. */
+static int decor_face_to_hl(enum kg_decor_face face)
+{
+	switch (face) {
+	case KG_DECOR_FACE_MATCH:
+		return HL_MATCH;
+	case KG_DECOR_FACE_WARNING:
+		return HL_WARNING;
+	}
+	return HL_NORMAL;
+}
+
+/* No consumer creates decorations yet (that lands with isearch's
+ * migration); a row that will eventually carry more simultaneously
+ * visible faces than this keeps the first KG_ROW_DECOR_MAX the sorted
+ * walk yields and drops the rest rather than allocating -- a rendering
+ * fidelity note for that future consumer, not a crash here. */
+#define KG_ROW_DECOR_MAX 16
+
+struct row_decor_span {
+	int render_start;
+	int render_end; /* half-open, row->render bytes */
+	enum kg_decor_face face;
+	uint8_t priority;
+	uint32_t id;
+};
+
+/* Fill `spans` with `b`'s decorations intersecting row `r`'s flat-byte
+ * range [row_start, row_start + r->size), converting each to row-local
+ * render-byte coordinates at this seam via chars_to_render_col() -- the
+ * same converter the region highlight above already uses to go from a
+ * chars offset to the render offset r->hl is indexed by.  Returns the
+ * number of spans filled. */
+static int row_decor_spans(struct editor_buffer *b, erow *r, size_t row_start,
+    struct row_decor_span *spans)
+{
+	struct kg_decor_query q;
+	struct kg_decor_query_span s;
+	size_t row_end = row_start + (size_t)r->size;
+	int n = 0;
+
+	kg_decor_query_begin(&q, b, row_start, row_end);
+	while (n < KG_ROW_DECOR_MAX && kg_decor_query_next(&q, &s)) {
+		int chars_start
+		    = s.start > row_start ? (int)(s.start - row_start) : 0;
+		int chars_end
+		    = s.end < row_end ? (int)(s.end - row_start) : r->size;
+
+		KG_ASSERT_CHARS_OFF(r, chars_start);
+		KG_ASSERT_CHARS_OFF(r, chars_end);
+		spans[n].render_start = chars_to_render_col(r, chars_start);
+		spans[n].render_end = chars_to_render_col(r, chars_end);
+		KG_ASSERT_RENDER_OFF(r, spans[n].render_start);
+		KG_ASSERT_RENDER_OFF(r, spans[n].render_end);
+		spans[n].face = s.face;
+		spans[n].priority = s.priority;
+		spans[n].id = s.id;
+		n++;
+	}
+	return n;
+}
+
+/* The face covering render offset `render_off`, combining overlap by
+ * priority and then by the larger (more recently created) ID, or false
+ * when nothing covers it. */
+static bool row_decor_face_at(const struct row_decor_span *spans, int n,
+    int render_off, enum kg_decor_face *out_face)
+{
+	bool found = false;
+	uint8_t best_priority = 0;
+	uint32_t best_id = 0;
+	enum kg_decor_face best_face = KG_DECOR_FACE_MATCH;
+
+	for (int i = 0; i < n; i++) {
+		if (render_off < spans[i].render_start
+		    || render_off >= spans[i].render_end) {
+			continue;
+		}
+		if (!found || spans[i].priority > best_priority
+		    || (spans[i].priority == best_priority
+			&& spans[i].id > best_id)) {
+			found = true;
+			best_priority = spans[i].priority;
+			best_id = spans[i].id;
+			best_face = spans[i].face;
+		}
+	}
+	if (found && out_face) {
+		*out_face = best_face;
+	}
+	return found;
+}
+
+/* The HL_* color code to draw render offset `render_off` with: a
+ * decoration's, if one covers it, else `fallback_hl` (r->hl[j], syntax
+ * highlighting's own answer).  A decoration always wins over syntax
+ * highlighting where the two overlap, the same way an overlay wins over
+ * a face in Emacs. */
+static int row_decor_hl_at(
+    const struct row_decor_span *spans, int n, int render_off, int fallback_hl)
+{
+	enum kg_decor_face face;
+
+	return row_decor_face_at(spans, n, render_off, &face)
+	    ? decor_face_to_hl(face)
+	    : fallback_hl;
+}
+
+/* Advance the flat-byte position tracker in *pos to row `fr`: an O(1)
+ * step from the immediately preceding row, or -- the first row of a
+ * repaint, or any other non-adjacent jump -- one O(row)
+ * buffer_row_col_to_position() lookup.  Kept out of draw_window_rows()
+ * itself so its own branching doesn't count against that function's
+ * budget; see the caller for why this shape is mandatory rather than a
+ * convenience. */
+static void flat_row_advance(
+    struct editor_buffer *b, erow *rows, int fr, int *idx, size_t *pos)
+{
+	if (*idx >= 0 && fr == *idx + 1) {
+		*pos += (size_t)rows[*idx].size + 1;
+	} else if (fr != *idx) {
+		*pos = buffer_row_col_to_position(b, fr, 0);
+	}
+	*idx = fr;
+}
+
 /* Render the text rows of one window into ab.
  * win_y, win_x, win_h, win_w describe the window's position/size.
  * rowoff/coloff/numrows/rows describe the buffer viewport.
@@ -189,14 +321,26 @@ static int display_fit(const char *text, int len, int budget, int *used)
  * is_full_width: if true we can use \x1b[0K (erase to EOL) to clear the
  * rest of each row; if false (vertical split) we must space-pad to stay
  * within the window's column range. */
-static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
-    int win_w, int rowoff, int coloff, int numrows, erow *rows, int is_active,
-    int is_full_width, int visual_line_mode)
+static void draw_window_rows(struct abuf *ab, struct editor_buffer *b,
+    int win_y, int win_x, int win_h, int win_w, int rowoff, int coloff,
+    int numrows, erow *rows, int is_active, int is_full_width,
+    int visual_line_mode)
 {
 	int y, j;
 	int region_active = 0;
 	int region_s_row = 0, region_s_col = 0;
 	int region_e_row = 0, region_e_col = 0;
+	/* The flat-byte position of buffer row `flat_row_idx`, kept current
+	 * as `fr` advances through the loop below by adding
+	 * `rows[flat_row_idx].size + 1` per row -- never by calling
+	 * buffer_row_col_to_position() again, which is O(row) and would make
+	 * one repaint O(rows x visible_rows).  -1 means "not primed yet";
+	 * the first row seen (or any non-adjacent jump, which visual-line
+	 * wrapping never produces since a wrapped row's fr is non-decreasing
+	 * and advances by at most one buffer row at a time) falls back to
+	 * one O(row) lookup. */
+	int flat_row_idx = -1;
+	size_t flat_row_pos = 0;
 
 	if (is_active && bcur()->mark_highlight) {
 		int p_row = wcur()->rowoff + wcur()->cy;
@@ -329,8 +473,15 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 		{
 			erow *r = &rows[fr];
 			int span = 1;
+			struct row_decor_span row_spans[KG_ROW_DECOR_MAX];
+			int row_span_count;
 
 			KG_ASSERT_RENDER_OFF(r, offset);
+
+			flat_row_advance(
+			    b, rows, fr, &flat_row_idx, &flat_row_pos);
+			row_span_count
+			    = row_decor_spans(b, r, flat_row_pos, row_spans);
 
 			/* Walk render bytes from offset to compute len bounded
 			 * by win_w VISIBLE columns, keeping UTF-8 glyphs whole.
@@ -405,22 +556,30 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 					}
 					current_reverse = want_rev;
 				}
-				if (r->hl[j] == HL_NORMAL
-				    || r->hl[j] == HL_NONPRINT) {
-					if (current_color != -1) {
-						ab_append(ab, "\x1b[39m", 5);
-						current_color = -1;
-					}
-				} else {
-					int color
-					    = editor_syntax_to_color(r->hl[j]);
-					if (color != current_color) {
-						char cbuf[16];
-						int clen = snprintf(cbuf,
-						    sizeof(cbuf), "\x1b[%dm",
-						    color);
-						current_color = color;
-						ab_append(ab, cbuf, clen);
+				{
+					int hl = row_decor_hl_at(row_spans,
+					    row_span_count, j, r->hl[j]);
+
+					if (hl == HL_NORMAL
+					    || hl == HL_NONPRINT) {
+						if (current_color != -1) {
+							ab_append(
+							    ab, "\x1b[39m", 5);
+							current_color = -1;
+						}
+					} else {
+						int color
+						    = editor_syntax_to_color(
+							hl);
+						if (color != current_color) {
+							char cbuf[16];
+							int clen = snprintf(
+							    cbuf, sizeof(cbuf),
+							    "\x1b[%dm", color);
+							current_color = color;
+							ab_append(
+							    ab, cbuf, clen);
+						}
 					}
 				}
 				ab_append(ab, g.bytes, g.len);
@@ -601,7 +760,7 @@ void editor_refresh_screen(void)
 		rowoff = vline ? w->rowoff_visual : w->rowoff;
 		coloff = w->coloff;
 
-		draw_window_rows(&ab, w->y, w->x, w->h, w->w, rowoff, coloff,
+		draw_window_rows(&ab, b, w->y, w->x, w->h, w->w, rowoff, coloff,
 		    numrows, rows, is_active, is_full_width, vline);
 
 		ml_row = w->y + w->h;

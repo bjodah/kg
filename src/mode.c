@@ -100,13 +100,26 @@ static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
 }
 
 /* Total display columns `row` occupies when wrapped every win_w cells,
- * including any blank cells left by glyphs bumped off a wrap boundary. */
+ * including any blank cells left by glyphs bumped off a wrap boundary.
+ *
+ * Window width is the row's wrapped-width cache key (def.h's erow): a
+ * row's text and the tab/Unicode width tables it is measured against are
+ * otherwise unchanged between calls, so the same win_w always reproduces
+ * the same answer.  A cache hit costs no row-byte scan at all, which is
+ * what lets an unchanged repaint stay off the buffer's total size; a
+ * miss rescans and refills the cache for next time. */
 int visual_line_width(erow *row, int win_w)
 {
 	win_w = win_cells(win_w);
+	if (row->wrap_cache_win_w == win_w) {
+		KG_PERF_INC(KG_PERF_VISUAL_WIDTH_CACHE_HIT);
+		return row->wrap_cache_vcols;
+	}
 	KG_PERF_INC(KG_PERF_VISUAL_ROW_SCAN);
 	KG_PERF_ADD(KG_PERF_VISUAL_BYTE_SCAN, row->size);
-	return wrapped_visual_col(row, row->size, win_w);
+	row->wrap_cache_vcols = wrapped_visual_col(row, row->size, win_w);
+	row->wrap_cache_win_w = win_w;
+	return row->wrap_cache_vcols;
 }
 
 int visual_line_cursor_col(erow *row, int chars_col, int win_w)
@@ -114,8 +127,13 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	int rcol, width;
 
 	win_w = win_cells(win_w);
-	rcol = wrapped_visual_col(row, chars_col, win_w);
+	/* visual_line_width() already walks the row to chars_col == size;
+	 * asking wrapped_visual_col() to redo that same walk when point
+	 * sits at or past EOL (end-of-line motions, appends, a cursor
+	 * parked past a short line) would query the row's width twice. */
 	width = visual_line_width(row, win_w);
+	rcol = chars_col < row->size ? wrapped_visual_col(row, chars_col, win_w)
+				      : width + (chars_col - row->size);
 	/* Point at EOL on an exact-width line remains on the final display
 	 * row.  Treat its screen cell as the last cell of that segment. */
 	if (rcol > 0 && rcol == width && rcol % win_w == 0) {
@@ -124,14 +142,21 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	return rcol;
 }
 
+/* Wrap segments a row of display width `width` occupies at `win_w`.  Pure
+ * arithmetic on an already-known width, so a caller that has one (a cache
+ * hit, or a width it just computed for another reason) never has to ask
+ * visual_line_width() for the same row again just to get its segment
+ * count. */
+static int visual_segments_for_width(int width, int win_w)
+{
+	return width > 0 ? 1 + (width - 1) / win_w : 1;
+}
+
 static int visual_segments(erow *row, int win_w)
 {
-	int width;
-
 	win_w = win_cells(win_w);
 	KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
-	width = visual_line_width(row, win_w);
-	return width > 0 ? 1 + (width - 1) / win_w : 1;
+	return visual_segments_for_width(visual_line_width(row, win_w), win_w);
 }
 
 /* Byte offset in row->render where the display column `target_vcol`
@@ -232,8 +257,13 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 		target_vrow = 0;
 	}
 	for (r = 0; r < bcur()->numrows; r++) {
+		/* One width query per row, not one for the width and a second
+		 * (through visual_segments()) to derive the segment count
+		 * from it -- the two used to ask the same row twice. */
 		int width = visual_line_width(&bcur()->row[r], win_w);
-		int segments = visual_segments(&bcur()->row[r], win_w);
+		int segments = visual_segments_for_width(width, win_w);
+
+		KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
 		if (visual_row_count + segments > target_vrow) {
 			int segment_idx = target_vrow - visual_row_count;
 			int start_rcol = segment_idx * win_w;

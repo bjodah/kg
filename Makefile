@@ -237,7 +237,21 @@ SCC_COMPLEXITY_PATHS ?= src
 # produce and the row primitive the rectangle migration orphaned took
 # that to 4144.  The cap is the measurement again, as it was before the
 # describe slice.
-SCC_COMPLEXITY_MAX ?= 4144
+#
+# Raised 4144 -> 4200 by the maintainer's explicit wave-2 budget update
+# for Plan 07 Phase 1's per-row wrapped-width cache, granting 56 of
+# headroom shared across concurrent wave-2 tracks so an identical one-line
+# change merges cleanly instead of three different numbers conflicting.
+# Plan 07 Phase 1 itself measured 4146: the cache-hit branch
+# visual_line_width() needs to answer from a row's cache without
+# rescanning, plus one more branch consolidating the redundant width
+# query visual_line_cursor_col() used to make at end-of-line.  The
+# goto_visual_row_col()/visual_segments() consolidation the plan asked to
+# fund this from nets to zero (a call swapped for a call, not a removed
+# branch), so this is not a target to shrink back to -- it is the
+# integration ceiling until the next reviewed exception.  Do not exceed
+# 4200; the pre-program 4223 baseline does not move.
+SCC_COMPLEXITY_MAX ?= 4200
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

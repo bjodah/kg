@@ -653,36 +653,101 @@ static void setup_visual_line_rows(int rows, int len)
 	bcur()->visual_line_mode = 1;
 }
 
-/* Baseline (before phase 1's cache): a second, wholly unchanged repaint
- * costs exactly what the first one did.  Nothing yet remembers that a
- * row's wrapped width at this window's width has already been measured,
- * so find_visual_row()'s per-screen-row restart from row zero and the
- * mode line's get_total_visual_rows() redo the same wrapped_visual_col()
- * walk every time.  Phase 1 breaks this equality on purpose: a warm
- * repaint is the one case its acceptance criteria name outright ("scans
- * zero row bytes"). */
-static void test_visual_line_warm_repaint_currently_rescans_everything(void)
+/* Phase 1 acceptance: a warm, wholly unchanged repaint scans zero row
+ * bytes.  Before the per-row wrapped-width cache, this was the opposite --
+ * a second repaint cost exactly what the first one did, because nothing
+ * remembered that a row's wrapped width at this window's width had
+ * already been measured (test_visual_line_scan_per_refresh() below still
+ * pins the cold case that made this worth fixing). */
+static void test_visual_line_warm_repaint_scans_nothing(void)
 {
 	const int rows = 300;
-	unsigned long long cold_scan, cold_byte, warm_scan, warm_byte;
+	unsigned long long cold_scan;
 
 	setup_visual_line_rows(rows, 40);
 
 	kg_perf_reset();
 	refresh_quietly();
 	cold_scan = counter(KG_PERF_VISUAL_ROW_SCAN);
-	cold_byte = counter(KG_PERF_VISUAL_BYTE_SCAN);
-	CHECK(cold_scan > 0);
+	CHECK(cold_scan > 0); /* the first repaint is still genuinely cold */
 
 	kg_perf_reset();
 	refresh_quietly();
-	warm_scan = counter(KG_PERF_VISUAL_ROW_SCAN);
-	warm_byte = counter(KG_PERF_VISUAL_BYTE_SCAN);
-	CHECK(warm_scan == cold_scan);
-	CHECK(warm_byte == cold_byte);
+	CHECK(counter(KG_PERF_VISUAL_ROW_SCAN) == 0);
+	CHECK(counter(KG_PERF_VISUAL_BYTE_SCAN) == 0);
+	/* Cursor motion alone -- no edit, no width change -- is the same
+	 * warm case: get_visual_row() asks every row's width on the way to
+	 * the cursor's row and none of them should scan either. */
+	editor_move_cursor(ARROW_DOWN);
+	editor_move_cursor(ARROW_DOWN);
+	kg_perf_reset();
+	refresh_quietly();
+	CHECK(counter(KG_PERF_VISUAL_ROW_SCAN) == 0);
+	CHECK(counter(KG_PERF_VISUAL_BYTE_SCAN) == 0);
 
 	bcur()->visual_line_mode = 0;
 	teardown();
+}
+
+/* Phase 1 acceptance: a one-row edit misses only that row's width cache,
+ * at the window's current width -- every other row's cache survives the
+ * edit untouched.  editor_update_row() invalidates unconditionally before
+ * it can fail, so this also covers the row actually edited rather than a
+ * neighbour. */
+static void test_visual_line_edit_misses_only_that_row(void)
+{
+	const int rows = 300;
+
+	setup_visual_line_rows(rows, 40);
+	refresh_quietly(); /* warm every row's cache at the current width */
+
+	kg_perf_reset();
+	editor_row_insert_char(&bcur()->row[5], 0, 'y');
+	refresh_quietly();
+	CHECK(counter(KG_PERF_VISUAL_ROW_SCAN) == 1);
+	CHECK(counter(KG_PERF_VISUAL_BYTE_SCAN)
+	    == (unsigned long long)bcur()->row[5].size);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
+/* Phase 1 acceptance: a genuinely new window width performs at most one
+ * cold byte scan per row -- the cache key is the width, so every row
+ * misses exactly once at the new width and any later visit to the same
+ * row within the same repaint (find_visual_row() restarting from row
+ * zero per screen row) is warm again immediately. */
+static void test_visual_line_new_width_scans_each_row_once(void)
+{
+	const int rows = 300;
+
+	setup_visual_line_rows(rows, 40);
+	refresh_quietly(); /* warm every row's cache at the old width */
+
+	kg_perf_reset();
+	wcur()->w = 20; /* narrower: 40-column lines now wrap in two */
+	refresh_quietly();
+	CHECK(counter(KG_PERF_VISUAL_ROW_SCAN) > 0);
+	CHECK(counter(KG_PERF_VISUAL_ROW_SCAN) <= (unsigned long long)rows);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
+/* Phase 1's RSS cost, recorded rather than left to be inferred: erow
+ * (def.h) gained wrap_cache_win_w and wrap_cache_vcols, two int fields.
+ * On a 64-bit build that lands exactly in the struct's existing trailing
+ * padding after hl_oc (56 bytes rounded up to 64 for the pointers'
+ * 8-byte alignment either way), so the cache costs 8 bytes/row here and
+ * adds no padding of its own; a build where int and pointer alignment
+ * differ could see up to 16. */
+static void test_erow_wrap_cache_size_cost(void)
+{
+	erow r;
+
+	CHECK(sizeof(r.wrap_cache_win_w) == sizeof(int));
+	CHECK(sizeof(r.wrap_cache_vcols) == sizeof(int));
+	CHECK(sizeof(erow) <= 64);
 }
 
 /* The prefix-summing walk's own shape, independent of whether a visit
@@ -706,6 +771,15 @@ static void test_visual_line_prefix_walk_restarts_per_screen_row(void)
 	teardown();
 }
 
+/* Historical aggregate case, kept for before/after continuity (see
+ * doc/plans/2026-07-31-follow-ups/07-visual-line-geometry-index.md).
+ * Before phase 1's cache, one repaint measured every row of the buffer
+ * several times over -- find_visual_row() rescans from row 0 per screen
+ * row, and the mode line's get_total_visual_rows() totals the whole
+ * buffer again -- so `scans` was several multiples of `rows`.  The width
+ * cache collapses every row revisited within one repaint to its first
+ * (cold) visit, so even this still-cold first repaint now scans each row
+ * at most once. */
 static void test_visual_line_scan_per_refresh(void)
 {
 	const int rows = 500;
@@ -721,11 +795,8 @@ static void test_visual_line_scan_per_refresh(void)
 	kg_perf_reset();
 	refresh_quietly();
 	scans = counter(KG_PERF_VISUAL_ROW_SCAN);
-	/* Before the visual-line index follow-up, one repaint measures every
-	 * row of the buffer several times over -- find_visual_row() rescans
-	 * from row 0 per screen row, and the mode line totals the whole
-	 * buffer. */
-	CHECK(scans > (unsigned long long)rows);
+	CHECK(scans > 0);
+	CHECK(scans <= (unsigned long long)rows);
 	bcur()->visual_line_mode = 0;
 	teardown();
 }
@@ -746,7 +817,10 @@ int main(void)
 	RUN(test_multiline_insert_flattens_buffer);
 	RUN(test_undo_eviction_walk);
 	RUN(test_visual_line_scan_per_refresh);
-	RUN(test_visual_line_warm_repaint_currently_rescans_everything);
+	RUN(test_visual_line_warm_repaint_scans_nothing);
+	RUN(test_visual_line_edit_misses_only_that_row);
+	RUN(test_visual_line_new_width_scans_each_row_once);
 	RUN(test_visual_line_prefix_walk_restarts_per_screen_row);
+	RUN(test_erow_wrap_cache_size_cost);
 	return test_summary();
 }

@@ -204,6 +204,16 @@ typedef struct erow {
 	int hl_capacity; /* Bytes `hl` holds; >= rsize. */
 	int hl_oc; /* Row had open comment at end in last syntax highlight
 		      check. */
+	/* Visual-line wrapped-width cache (src/mode.c), plan 07 phase 1.
+	 * wrap_cache_win_w is the normalized window width (win_cells()'s
+	 * output, always >= 1) the cache was computed for; 0 -- never a
+	 * valid width -- means "invalid" and doubles as the cache's own
+	 * valid bit, so there is nothing else to keep in sync.  Fresh rows
+	 * zero-initialize to invalid.  wrap_cache_vcols is the row's total
+	 * wrapped display width at that window width; wrap (segment) count
+	 * derives from it and win_w rather than being stored again. */
+	int wrap_cache_win_w;
+	int wrap_cache_vcols;
 } erow;
 
 #include "localvars.h"

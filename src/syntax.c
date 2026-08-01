@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bufhandle.h"
 #include "def.h"
 #include "event.h"
 #include "localvars.h"

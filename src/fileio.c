@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "bufhandle.h"
 #include "def.h"
 #include "edit.h"
 #include "event.h"

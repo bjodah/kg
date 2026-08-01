@@ -3,7 +3,6 @@
 
 #include <ctype.h>
 #include <limits.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,7 +12,6 @@
 #include "keyevent.h"
 #include "marker.h"
 #include "regex.h"
-#include "syntax.h"
 
 #define KILO_QUERY_LEN 256
 

@@ -12,6 +12,8 @@
  * Forward declaration; the full struct is defined in def.h.  buffer.c
  * includes def.h to reach its members. */
 struct editor_buffer;
+struct editor_syntax;
+typedef struct erow erow;
 
 /* Why an edit is being made, which is the whole of what its policy
  * depends on.  An intent rather than a flag word, because the flag word
@@ -130,5 +132,75 @@ void editor_insert_text_at_point(const char *text, int len);
  * publishes anything -- the replaced bytes, the replacement rows, the
  * row array's growth and the undo record. */
 void kg_edit_fail_alloc_after(int n);
+
+/* ---- The staged row builder --------------------------------------------
+ * A second way to make rows, alongside the byte-range replacement above:
+ * one for editing text already in a buffer, one for building a buffer's
+ * *whole* content before it has one.  A file load, a directory listing, a
+ * rebuilt *Buffer List* or *help* screen all start from nothing, already
+ * know the syntax and rendering they want, and would gain nothing from
+ * being expressed as a replacement of the old content by the new -- the
+ * old content is not being edited, it is being discarded.
+ *
+ * Raw row construction (editor_insert_row() and friends, declared in
+ * def.h) is legal here because these rows belong to no buffer yet: they
+ * are not observable, so nothing can be lost by racing a partial rebuild
+ * against a failure, and nothing has to unwind.  That stops being true
+ * the moment they are attached to a buffer, which is what
+ * kg_buffer_adopt_rows() does, once, deliberately, as the seam's only
+ * publication point. */
+
+/* Append one row of `len` bytes to `*rows`, growing `*rows`/`*row_capacity`
+ * the same way the live row array does (editor_rows_reserve()), so
+ * building R rows costs O(log R) reallocations rather than R of them.
+ * Returns 1, or 0 with errno set (ENOMEM, or EOVERFLOW when `len` or the
+ * resulting row count cannot fit where a row counts them) and `*rows`
+ * unchanged. */
+int kg_row_builder_add_line(erow **rows, int *numrows, int *row_capacity,
+    const char *s, size_t len);
+
+/* Render and syntax-highlight every row of a staged, unpublished array, in
+ * the order they appear.  `numrows` is announced to the highlighter one
+ * row at a time as the pass goes, rather than up front: a highlighter
+ * that carries state into the next row (an open block comment) must not
+ * be let propagate into rows this pass has not reached yet, which have no
+ * render and would be misread as empty.  Returns 0, or -1 with errno set
+ * (ENOMEM, or the editor shutting down mid-pass) leaving whatever
+ * rendered so far as it is -- the caller's abandon path
+ * (kg_row_builder_free()) does not care how far a failed pass got. */
+int kg_row_builder_highlight(
+    erow *rows, int numrows, struct editor_syntax *syntax);
+
+/* Free a staged row array exactly as kg_row_builder_add_line() built it:
+ * every row's owned storage, then the array, then the triple that
+ * described it.  The counterpart to a staged rebuild that is abandoned
+ * rather than adopted. */
+void kg_row_builder_free(erow **rows, int *numrows, int *row_capacity);
+
+/* Publish a freshly built row array as `b`'s whole content, discarding
+ * whatever rows `b` held.  `*rows`/`*numrows`/`*row_capacity` are taken
+ * over -- on return they describe an empty, still-valid staged array
+ * (like a fresh kg_row_builder), never `b`'s previous content, so the
+ * same variables may be reused or simply left to go out of scope.
+ *
+ * This is not kg_buffer_replace(): no undo record could restore content
+ * that was never spliced in through it, so none is written, and `b` is
+ * always left clean regardless of what it was -- a file load, a revert
+ * and a listing rebuild all want a new baseline, not a change to the old
+ * one.  content_generation still advances, because the bytes did
+ * change. */
+void kg_buffer_adopt_rows(
+    struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity);
+
+/* Append `text` to `b`'s last row, opening a new one at each embedded '\n'
+ * -- what a compilation's or a shell command's output does to the special
+ * buffer that displays it, arriving a chunk at a time rather than as one
+ * finished file.  Opens a first empty row when `b` has none.  No undo
+ * record is written for output that was never the user's to type, and the
+ * buffer is left clean regardless of what it held: `b->dirty` is reset
+ * once this returns, whatever the row primitives underneath did to it
+ * along the way. */
+void kg_buffer_append_internal(
+    struct editor_buffer *b, const char *text, size_t len);
 
 #endif /* KG_EDIT_H */

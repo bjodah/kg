@@ -1775,6 +1775,133 @@ int editor_row_replace_range(int filerow, int at, int delete_len,
 	return kg_buffer_replace(&e, NULL);
 }
 
+/* ---- The staged row builder --------------------------------------------
+ * See edit.h for why this exists alongside the byte-range transaction
+ * above: building a buffer's whole content from nothing is not editing
+ * its old content, so it is not shaped like a replacement of one span by
+ * another. */
+
+/* Append one row of `len` bytes to `*rows`.  `at` is what the row's index
+ * becomes; the same value the caller already has as `*numrows`, before
+ * `*numrows` is `at + 1`.  errno is EOVERFLOW when `len` cannot be an
+ * erow.size or the resulting row count cannot be reached, ENOMEM when an
+ * allocation fails; `*rows` is untouched either way. */
+int kg_row_builder_add_line(
+    erow **rows, int *numrows, int *row_capacity, const char *s, size_t len)
+{
+	int at = *numrows;
+	int new_numrows;
+	int len_int;
+	size_t alloc_sz;
+	char *newchars;
+
+	if (!checked_size_to_int(&len_int, len)
+	    || !checked_add_int_size(&new_numrows, at, 1)
+	    || !checked_add_size_t(&alloc_sz, len, 1)) {
+		errno = EOVERFLOW;
+		return 0;
+	}
+	newchars = malloc(alloc_sz);
+	if (!newchars) {
+		errno = ENOMEM;
+		return 0;
+	}
+	memcpy(newchars, s, len);
+	newchars[len] = '\0';
+
+	if (!editor_rows_reserve(rows, row_capacity, new_numrows)) {
+		free(newchars);
+		errno = ENOMEM;
+		return 0;
+	}
+	(*rows)[at] = (erow) { .idx = at, .size = len_int, .chars = newchars };
+	*numrows = new_numrows;
+	return 1;
+}
+
+int kg_row_builder_highlight(
+    erow *rows, int numrows, struct editor_syntax *syntax)
+{
+	struct editor_buffer staged = { 0 };
+	int saved_running = running;
+	int i;
+
+	staged.row = rows;
+	staged.syntax = syntax;
+	for (i = 0; i < numrows; i++) {
+		staged.numrows = i + 1;
+		editor_update_row(&staged, &rows[i]);
+		if (!rows[i].render || running != saved_running) {
+			running = saved_running;
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+	return 0;
+}
+
+void kg_row_builder_free(erow **rows, int *numrows, int *row_capacity)
+{
+	int i;
+
+	for (i = 0; i < *numrows; i++) {
+		editor_free_row(&(*rows)[i]);
+	}
+	free(*rows);
+	*rows = NULL;
+	*numrows = 0;
+	*row_capacity = 0;
+}
+
+void kg_buffer_adopt_rows(
+    struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity)
+{
+	editor_free_all_rows(b);
+	b->row = *rows;
+	b->numrows = *numrows;
+	b->row_capacity = *row_capacity;
+	*rows = NULL;
+	*numrows = 0;
+	*row_capacity = 0;
+
+	b->dirty = 0;
+	b->content_generation++;
+}
+
+void kg_buffer_append_internal(
+    struct editor_buffer *b, const char *text, size_t len)
+{
+	const char *p = text;
+	const char *end = text + len;
+
+	if (len == 0) {
+		return;
+	}
+	if (b->numrows == 0) {
+		editor_insert_row(b, 0, "", 0);
+	}
+	while (p < end) {
+		const char *nl = memchr(p, '\n', (size_t)(end - p));
+		erow *row = &b->row[b->numrows - 1];
+
+		if (!nl) {
+			editor_row_append_string(
+			    row, (char *)p, (size_t)(end - p));
+			p = end;
+		} else {
+			editor_row_append_string(row, (char *)p, (size_t)(nl - p));
+			editor_insert_row(b, b->numrows, "", 0);
+			p = nl + 1;
+		}
+	}
+	/* editor_insert_row()/editor_row_append_string() each note their own
+	 * change as they go, the same as they would for typed text -- so
+	 * dirty is forced back to zero here rather than left to their count:
+	 * process output was never the user's to save, whatever it took to
+	 * lay the rows out. */
+	b->dirty = 0;
+}
+
 /* Remove `len` bytes at (filerow, col) as one undoable step.  Returns 0
  * and leaves the buffer untouched when the range is bogus or the undo
  * payload cannot be recorded, so a failed record never costs text.

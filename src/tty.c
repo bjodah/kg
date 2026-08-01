@@ -38,10 +38,13 @@ static void unread_key(int key) { unread_key_slot = key; }
  * modifier on top of Meta the two Ctrl-letter rows need.  Named bases
  * (KEY_BASE_DEL, KEY_BASE_RET) are for the terminal's own idea of
  * Backspace and Enter, which is a raw byte, not the "DEL"/"RET" key
- * kg's own decoder never emits from a bare press. */
+ * kg's own decoder never emits from a bare press.  Field order is base
+ * first (not the byte-first order the row initializers below read in):
+ * int32_t base first keeps the struct's padding to what its alignment
+ * needs, instead of the 6 stray bytes a leading char costs it. */
 struct meta_key {
-	char byte;
 	int32_t base;
+	char byte;
 	uint8_t extra_mods;
 };
 
@@ -54,8 +57,8 @@ static const struct meta_key meta_keys[] = {
 	{ 'v', 'v', 0 },
 	{ 'w', 'w', 0 },
 	{ 'q', 'q', 0 },
-	{ '\x7f', KEY_BASE_DEL, 0 },
-	{ '\b', KEY_BASE_DEL, 0 },
+	{ KEY_BASE_DEL, '\x7f', 0 },
+	{ KEY_BASE_DEL, '\b', 0 },
 	{ '%', '%', 0 },
 	{ '@', '@', 0 },
 	{ ';', ';', 0 },
@@ -80,10 +83,10 @@ static const struct meta_key meta_keys[] = {
 	{ 'z', 'z', 0 },
 	{ 'p', 'p', 0 },
 	{ 'n', 'n', 0 },
-	{ '\r', KEY_BASE_RET, 0 },
-	{ '\n', KEY_BASE_RET, 0 },
-	{ '\x13', 's', KEY_MOD_CTRL }, /* ESC C-s */
-	{ '\x12', 'r', KEY_MOD_CTRL }, /* ESC C-r */
+	{ KEY_BASE_RET, '\r', 0 },
+	{ KEY_BASE_RET, '\n', 0 },
+	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */
+	{ 'r', '\x12', KEY_MOD_CTRL }, /* ESC C-r */
 };
 
 /* The key_event a Meta-prefixed byte stands for, or a zero base when
@@ -95,7 +98,8 @@ static struct key_event lookup_meta_key(char byte)
 	for (i = 0; i < sizeof(meta_keys) / sizeof(meta_keys[0]); i++) {
 		if (meta_keys[i].byte == byte) {
 			return (struct key_event) { meta_keys[i].base,
-				(uint8_t)(KEY_MOD_META | meta_keys[i].extra_mods) };
+				(uint8_t)(KEY_MOD_META
+				    | meta_keys[i].extra_mods) };
 		}
 	}
 	return (struct key_event) { 0, 0 };
@@ -316,7 +320,10 @@ fatal:
 /* Bare ESC: nothing more arrived, or what did arrive names nothing kg
  * decodes.  A named base with no modifier, same as a deliberate press
  * of the Escape key. */
-static struct key_event bare_esc(void) { return (struct key_event) { KEY_BASE_ESC, 0 }; }
+static struct key_event bare_esc(void)
+{
+	return (struct key_event) { KEY_BASE_ESC, 0 };
+}
 
 /* Decode an escape sequence (ESC byte already consumed) into a key_event. */
 static struct key_event parse_escape(int fd)
@@ -334,7 +341,8 @@ static struct key_event parse_escape(int fd)
 		return event;
 	}
 	if (seq[0] >= '0' && seq[0] <= '9') {
-		return (struct key_event) { '0' + (seq[0] - '0'), KEY_MOD_META };
+		return (
+		    struct key_event) { '0' + (seq[0] - '0'), KEY_MOD_META };
 	}
 
 	if (read_input_byte(fd, seq + 1) != 1) {
@@ -351,18 +359,30 @@ static struct key_event parse_escape(int fd)
 				switch (seq[1]) {
 				case '1':
 				case '7':
-					return (struct key_event) { KEY_BASE_HOME, 0 };
+					return (struct key_event) {
+						KEY_BASE_HOME, 0
+					};
 				case '2':
-					return (struct key_event) { KEY_BASE_INSERT, 0 };
+					return (struct key_event) {
+						KEY_BASE_INSERT, 0
+					};
 				case '3':
-					return (struct key_event) { KEY_BASE_DELETE, 0 };
+					return (struct key_event) {
+						KEY_BASE_DELETE, 0
+					};
 				case '4':
 				case '8':
-					return (struct key_event) { KEY_BASE_END, 0 };
+					return (struct key_event) {
+						KEY_BASE_END, 0
+					};
 				case '5':
-					return (struct key_event) { KEY_BASE_PRIOR, 0 };
+					return (struct key_event) {
+						KEY_BASE_PRIOR, 0
+					};
 				case '6':
-					return (struct key_event) { KEY_BASE_NEXT, 0 };
+					return (struct key_event) {
+						KEY_BASE_NEXT, 0
+					};
 				}
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
@@ -373,9 +393,13 @@ static struct key_event parse_escape(int fd)
 				if (seq[3] == '~' && seq[1] == '1') {
 					switch (seq[2]) {
 					case '3':
-						return (struct key_event) { KEY_BASE_F3, 0 };
+						return (struct key_event) {
+							KEY_BASE_F3, 0
+						};
 					case '4':
-						return (struct key_event) { KEY_BASE_F4, 0 };
+						return (struct key_event) {
+							KEY_BASE_F4, 0
+						};
 					}
 				}
 			} else if (seq[2] == ';') {
@@ -390,44 +414,89 @@ static struct key_event parse_escape(int fd)
 				if (seq[1] == '1' && seq[3] == '5') {
 					switch (seq[4]) {
 					case 'A':
-						return (struct key_event) { KEY_BASE_UP, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_UP,
+							KEY_MOD_CTRL
+						};
 					case 'B':
-						return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_DOWN,
+							KEY_MOD_CTRL
+						};
 					case 'C':
-						return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_RIGHT,
+							KEY_MOD_CTRL
+						};
 					case 'D':
-						return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_LEFT,
+							KEY_MOD_CTRL
+						};
 					case 'H':
-						return (struct key_event) { KEY_BASE_HOME, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_HOME,
+							KEY_MOD_CTRL
+						};
 					case 'F':
-						return (struct key_event) { KEY_BASE_END, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_END,
+							KEY_MOD_CTRL
+						};
 					}
 				} else if (seq[1] == '1' && seq[3] == '2') {
 					switch (seq[4]) {
 					case 'A':
-						return (struct key_event) { KEY_BASE_UP, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_UP,
+							KEY_MOD_SHIFT
+						};
 					case 'B':
-						return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_DOWN,
+							KEY_MOD_SHIFT
+						};
 					case 'C':
-						return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_RIGHT,
+							KEY_MOD_SHIFT
+						};
 					case 'D':
-						return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_LEFT,
+							KEY_MOD_SHIFT
+						};
 					case 'H':
-						return (struct key_event) { KEY_BASE_HOME, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_HOME,
+							KEY_MOD_SHIFT
+						};
 					case 'F':
-						return (struct key_event) { KEY_BASE_END, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_END,
+							KEY_MOD_SHIFT
+						};
 					}
 				} else if (seq[4] == '~') {
 					/* ESC [ N ; M ~  modified Insert/Delete
 					 * (CUA clipboard) */
 					if (seq[1] == '2' && seq[3] == '2') {
-						return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_INSERT,
+							KEY_MOD_SHIFT
+						};
 					}
 					if (seq[1] == '2' && seq[3] == '5') {
-						return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_CTRL };
+						return (struct key_event) {
+							KEY_BASE_INSERT,
+							KEY_MOD_CTRL
+						};
 					}
 					if (seq[1] == '3' && seq[3] == '2') {
-						return (struct key_event) { KEY_BASE_DELETE, KEY_MOD_SHIFT };
+						return (struct key_event) {
+							KEY_BASE_DELETE,
+							KEY_MOD_SHIFT
+						};
 					}
 				}
 			}
@@ -559,10 +628,7 @@ struct key_event editor_read_key(int fd) { return read_key_common(fd, 0, 1); }
  * Used by quoted-insert so that an ESC, an arrow-key prefix, or any other
  * byte the user is trying to embed literally ends up in the buffer as
  * itself rather than being interpreted as the start of a meta key. */
-int editor_read_raw_byte(int fd)
-{
-	return (int)read_key_common(fd, 0, 0).base;
-}
+int editor_read_raw_byte(int fd) { return (int)read_key_common(fd, 0, 0).base; }
 
 /* Collect the UTF-8 sequence a terminal sends for one multi-byte
  * character: `lead` is the byte already read, the continuation bytes are

@@ -339,8 +339,12 @@ static void test_escape_sequences_decode_to_key_events(void)
 		{ "\x1b[C", 3, { KEY_BASE_RIGHT, 0 } },
 		{ "\x1b[1;5D", 6, { KEY_BASE_LEFT, KEY_MOD_CTRL } },
 		{ "\x1b[1;2C", 6, { KEY_BASE_RIGHT, KEY_MOD_SHIFT } },
-		{ "\x1b" "f", 2, { 'f', KEY_MOD_META } },
-		{ "\x1b" "5", 2, { '5', KEY_MOD_META } },
+		{ "\x1b"
+		  "f",
+		    2, { 'f', KEY_MOD_META } },
+		{ "\x1b"
+		  "5",
+		    2, { '5', KEY_MOD_META } },
 		{ "\x1b\x13", 2, { 's', KEY_MOD_CTRL | KEY_MOD_META } },
 		{ "\x1b[13~", 5, { KEY_BASE_F3, 0 } },
 		{ "\x1b[2~", 4, { KEY_BASE_INSERT, 0 } },

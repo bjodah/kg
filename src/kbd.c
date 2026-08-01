@@ -290,7 +290,8 @@ static void key_self_insert(struct key_event c, int n, int fd)
 	/* TAB's base is the named key, not the byte self-insert writes;
 	 * every other accepted base already is the byte to insert. */
 	base = c.base == KEY_BASE_TAB ? TAB : (int)c.base;
-	if (base != TAB && !ascii_is_print(base) && (base < 0x80 || base > 0xFF)) {
+	if (base != TAB && !ascii_is_print(base)
+	    && (base < 0x80 || base > 0xFF)) {
 		return;
 	}
 	if (!cmd_fast_path_begin("self-insert-command", &outer)) {

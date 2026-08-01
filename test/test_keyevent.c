@@ -206,9 +206,8 @@ static void test_format_reports_a_buffer_that_is_too_small(void)
 
 static void test_key_in_list(void)
 {
-	static const struct key_event keys[]
-	    = { { 'a', KEY_MOD_CTRL }, { 'f', KEY_MOD_META },
-		      { KEY_BASE_UP, 0 } };
+	static const struct key_event keys[] = { { 'a', KEY_MOD_CTRL },
+		{ 'f', KEY_MOD_META }, { KEY_BASE_UP, 0 } };
 	static const struct key_event one[] = { { KEY_BASE_RET, 0 } };
 	struct key_event a = { 'a', KEY_MOD_CTRL };
 	struct key_event up = { KEY_BASE_UP, 0 };

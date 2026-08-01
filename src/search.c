@@ -19,16 +19,16 @@
 /* Key sets the search prompts ask about; see key_in_list(). */
 static const struct key_event erase_keys[]
     = { { KEY_BASE_DELETE, 0 }, { 'h', KEY_MOD_CTRL }, { KEY_BASE_DEL, 0 } };
-static const struct key_event replace_stop_keys[] = { { KEY_BASE_ESC, 0 },
-	{ 'g', KEY_MOD_CTRL }, { 'q', 0 } };
+static const struct key_event replace_stop_keys[]
+    = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL }, { 'q', 0 } };
 static const struct key_event replace_do_keys[]
     = { { 'y', 0 }, { KEY_BASE_RET, 0 }, { ' ', 0 } };
 static const struct key_event isearch_end_keys[]
     = { { KEY_BASE_ESC, 0 }, { KEY_BASE_RET, 0 }, { 'g', KEY_MOD_CTRL } };
-static const struct key_event isearch_forward_keys[] = { { KEY_BASE_RIGHT, 0 },
-	{ KEY_BASE_DOWN, 0 }, { 's', KEY_MOD_CTRL } };
-static const struct key_event isearch_backward_keys[] = { { KEY_BASE_LEFT, 0 },
-	{ KEY_BASE_UP, 0 }, { 'r', KEY_MOD_CTRL } };
+static const struct key_event isearch_forward_keys[]
+    = { { KEY_BASE_RIGHT, 0 }, { KEY_BASE_DOWN, 0 }, { 's', KEY_MOD_CTRL } };
+static const struct key_event isearch_backward_keys[]
+    = { { KEY_BASE_LEFT, 0 }, { KEY_BASE_UP, 0 }, { 'r', KEY_MOD_CTRL } };
 static const struct key_event isearch_history_keys[]
     = { { 'p', KEY_MOD_META }, { 'n', KEY_MOD_META } };
 

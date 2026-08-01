@@ -11,7 +11,8 @@ int key_event_equal(struct key_event a, struct key_event b)
 	return a.base == b.base && a.mods == b.mods;
 }
 
-int key_in_list(const struct key_event *keys, size_t count, struct key_event key)
+int key_in_list(
+    const struct key_event *keys, size_t count, struct key_event key)
 {
 	size_t i;
 

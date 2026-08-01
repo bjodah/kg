@@ -1260,7 +1260,8 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			 * Keep the path picker's selection cycling on the arrow
 			 * keys so the two operations do not silently steal each
 			 * other's bindings. */
-		} else if (KEY_IS(c, KEY_BASE_LEFT, 0) || KEY_IS(c, KEY_BASE_UP, 0)) {
+		} else if (KEY_IS(c, KEY_BASE_LEFT, 0)
+		    || KEY_IS(c, KEY_BASE_UP, 0)) {
 			if (matches > 0) {
 				sel = (sel - 1 + matches) % matches;
 			}

@@ -3,6 +3,7 @@
 
 #include "def.h"
 #include "kbd.h"
+#include "keyevent.h"
 
 #define MACRO_MAX 1024
 

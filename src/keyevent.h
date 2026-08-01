@@ -62,7 +62,7 @@ struct key_event {
 /* `event` is exactly `base_` with `mods_` set -- the spot check every
  * dispatch site that used to compare a legacy int now writes instead of
  * building a temporary and calling key_event_equal() by hand. */
-#define KEY_IS(event, base_, mods_)                                           \
+#define KEY_IS(event, base_, mods_)                                            \
 	key_event_equal((event), (struct key_event) { (base_), (mods_) })
 
 /* The event one plain, undecoded byte stands for: a control character,

@@ -80,7 +80,8 @@ enum kg_perf_counter {
 	KG_PERF_VISUAL_BYTE_SCAN, /* their bytes */
 	KG_PERF_VISUAL_WIDTH_CACHE_HIT, /* visual_line_width() calls a cached
 					    width answered without scanning */
-	KG_PERF_VISUAL_PREFIX_VISIT, /* rows visited by a segment-summing walk */
+	KG_PERF_VISUAL_PREFIX_VISIT, /* rows visited by a segment-summing walk
+				      */
 
 	/* Buffer identity (src/bufmgr.c). */
 	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */

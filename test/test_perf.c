@@ -765,7 +765,8 @@ static void test_visual_line_prefix_walk_restarts_per_screen_row(void)
 
 	kg_perf_reset();
 	refresh_quietly();
-	CHECK(counter(KG_PERF_VISUAL_PREFIX_VISIT) > (unsigned long long)wcur()->h);
+	CHECK(counter(KG_PERF_VISUAL_PREFIX_VISIT)
+	    > (unsigned long long)wcur()->h);
 
 	bcur()->visual_line_mode = 0;
 	teardown();

@@ -133,7 +133,7 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	 * parked past a short line) would query the row's width twice. */
 	width = visual_line_width(row, win_w);
 	rcol = chars_col < row->size ? wrapped_visual_col(row, chars_col, win_w)
-				      : width + (chars_col - row->size);
+				     : width + (chars_col - row->size);
 	/* Point at EOL on an exact-width line remains on the final display
 	 * row.  Treat its screen cell as the last cell of that segment. */
 	if (rcol > 0 && rcol == width && rcol % win_w == 0) {

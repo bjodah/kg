@@ -42,6 +42,7 @@
 #include "bufhandle.h"
 #include "compile.h"
 #include "def.h"
+#include "event.h"
 #include "kbd.h"
 #include "lisp.h"
 #include "marker.h"
@@ -160,6 +161,12 @@ int main(int argc, char **argv)
 		compilation_poll();
 		compilation_start_pending_restart();
 		autorevert_poll();
+		/* Safe point: each of the non-command lifecycle actions
+		 * above (signal-driven resize, compilation polling,
+		 * autorevert) has either done nothing or fully completed --
+		 * none of them holds an edit transaction or the renderer
+		 * open across this call. */
+		kg_event_drain_safe();
 		/* Windows first, then the frame: nothing is drawn from a
 		 * handle that has stopped resolving.  The top of the loop
 		 * is the lifecycle commit -- whatever the last keystroke
@@ -169,9 +176,18 @@ int main(int argc, char **argv)
 		/* Skip the redraw while a paste floods stdin, so it costs
 		 * a handful of refreshes instead of one per pasted byte. */
 		if (!editor_input_flood(STDIN_FILENO)) {
+			/* Safe point: about to repaint, so a callback that
+			 * changed buffer text will show up in this frame
+			 * rather than the one after. */
+			kg_event_drain_safe();
 			editor_refresh_screen();
 		}
 		editor_process_keypress(STDIN_FILENO);
+		/* Safe point: the keystroke just processed, and the one
+		 * command (if any) and edit group it ran, have fully
+		 * committed -- editor_process_keypress() never returns
+		 * mid-command. */
+		kg_event_drain_safe();
 	}
 	/* Nothing in a default build: KG_PERF_COUNTERS is off and this is a
 	 * no-op macro.  A counting build writes its counters to

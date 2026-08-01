@@ -156,7 +156,7 @@ static int describe_read_sequence(
 	while (count < KEYMAP_SEQUENCE_MAX) {
 		editor_set_status_message("Describe key: %s", sofar);
 		editor_refresh_screen();
-		keys[count] = key_event_from_legacy(editor_read_key(fd));
+		keys[count] = editor_read_key(fd);
 		if (!running) {
 			return 0;
 		}

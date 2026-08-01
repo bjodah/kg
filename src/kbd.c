@@ -66,25 +66,25 @@ static void editor_insert_repeated_literal(int c, int n)
 /* M-0..M-9 start a numeric argument by themselves; a plain digit only
  * continues one that C-u or a Meta digit already started, which is why
  * these are two questions. */
-static int prefix_meta_digit(int c)
+static int prefix_meta_digit(struct key_event c)
 {
-	if (c >= ALT_0 && c <= ALT_9) {
-		return c - ALT_0;
+	if ((c.mods & KEY_MOD_META) && c.base >= '0' && c.base <= '9') {
+		return (int)(c.base - '0');
 	}
 	return -1;
 }
 
-static int prefix_digit(int c)
+static int prefix_digit(struct key_event c)
 {
-	if (c >= '0' && c <= '9') {
-		return c - '0';
+	if (c.mods == 0 && c.base >= '0' && c.base <= '9') {
+		return (int)(c.base - '0');
 	}
 	return prefix_meta_digit(c);
 }
 
 /* The two spellings of the same argument, told apart by the key that
  * last contributed to it. */
-static void prefix_echo(int c, int value)
+static void prefix_echo(struct key_event c, int value)
 {
 	if (prefix_meta_digit(c) >= 0) {
 		editor_set_status_message("M-%d", value);
@@ -93,14 +93,14 @@ static void prefix_echo(int c, int value)
 	editor_set_status_message("C-u %d", value);
 }
 
-static int handle_universal_arg(int c)
+static int handle_universal_arg(struct key_event c)
 {
 	int digit = prefix_digit(c);
 
 	if (!editor.prefix_pending) {
 		int meta = prefix_meta_digit(c);
 
-		if (c != CTRL_U && meta < 0) {
+		if (!KEY_IS(c, 'u', KEY_MOD_CTRL) && meta < 0) {
 			return 0;
 		}
 		editor.prefix_pending = 1;
@@ -115,7 +115,7 @@ static int handle_universal_arg(int c)
 		return 1;
 	}
 
-	if (c == CTRL_U) {
+	if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
 		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
 		prefix_echo(c, editor.prefix_arg);
 		return 1;
@@ -128,7 +128,7 @@ static int handle_universal_arg(int c)
 		prefix_echo(c, editor.prefix_arg);
 		return 1;
 	}
-	if (c == CTRL_G) {
+	if (KEY_IS(c, 'g', KEY_MOD_CTRL)) {
 		editor.prefix_pending = 0;
 		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
@@ -152,7 +152,7 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 {
 	char prompt[sizeof(editor.statusmsg)];
 	va_list ap;
-	int answer;
+	struct key_event answer;
 
 	va_start(ap, fmt);
 	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
@@ -161,7 +161,7 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	editor_set_status_message("%s", prompt);
 	editor_refresh_screen();
 	answer = editor_read_key(fd);
-	return answer == 'y' || answer == 'Y';
+	return KEY_IS(answer, 'y', 0) || KEY_IS(answer, 'Y', 0);
 }
 
 /* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),
@@ -239,25 +239,25 @@ void key_yank_repeated(int n)
  * __attribute__((optimize("O0"))) on editor_process_keypress used to
  * suppress, back when this mapping was inlined there. */
 static const struct {
-	int key;
+	struct key_event key;
 	const char *command;
 } shift_motions[] = {
-	{ SHIFT_ARROW_LEFT, "backward-char" },
-	{ SHIFT_ARROW_RIGHT, "forward-char" },
-	{ SHIFT_ARROW_UP, "previous-line" },
-	{ SHIFT_ARROW_DOWN, "next-line" },
-	{ SHIFT_HOME, "move-beginning-of-line" },
-	{ SHIFT_END, "move-end-of-line" },
+	{ { KEY_BASE_LEFT, KEY_MOD_SHIFT }, "backward-char" },
+	{ { KEY_BASE_RIGHT, KEY_MOD_SHIFT }, "forward-char" },
+	{ { KEY_BASE_UP, KEY_MOD_SHIFT }, "previous-line" },
+	{ { KEY_BASE_DOWN, KEY_MOD_SHIFT }, "next-line" },
+	{ { KEY_BASE_HOME, KEY_MOD_SHIFT }, "move-beginning-of-line" },
+	{ { KEY_BASE_END, KEY_MOD_SHIFT }, "move-end-of-line" },
 };
 
 /* The command `c` extends the region with, or NULL when `c` is not a
  * shift-selecting key. */
-static const char *shift_select_command(int c)
+static const char *shift_select_command(struct key_event c)
 {
 	size_t i;
 
 	for (i = 0; i < sizeof(shift_motions) / sizeof(shift_motions[0]); i++) {
-		if (shift_motions[i].key == c) {
+		if (key_event_equal(shift_motions[i].key, c)) {
 			return shift_motions[i].command;
 		}
 	}
@@ -273,35 +273,47 @@ static const char *shift_select_command(int c)
  * descriptor would and publishes the same identity, so self-insert is a
  * command that ran as far as read-only buffers, last_command and the
  * goal column are concerned. */
-static void key_self_insert(int c, int n, int fd)
+static void key_self_insert(struct key_event c, int n, int fd)
 {
 	command_id outer;
 	char seq[4];
 	int seqlen;
+	int base;
 
-	if (c != TAB && !ascii_is_print(c) && (c < 0x80 || c > 0xFF)) {
+	/* Any modifier disqualifies self-insert: Ctrl-x is not the letter
+	 * x, and an unbound Ctrl or Meta combination that reaches here
+	 * (nothing else claimed it) is silently ignored rather than typed
+	 * as its bare base character. */
+	if (c.mods != 0) {
+		return;
+	}
+	/* TAB's base is the named key, not the byte self-insert writes;
+	 * every other accepted base already is the byte to insert. */
+	base = c.base == KEY_BASE_TAB ? TAB : (int)c.base;
+	if (base != TAB && !ascii_is_print(base)
+	    && (base < 0x80 || base > 0xFF)) {
 		return;
 	}
 	if (!cmd_fast_path_begin("self-insert-command", &outer)) {
 		return;
 	}
-	if (c >= 0x80) {
+	if (base >= 0x80) {
 		/* A byte above ASCII is the lead of a multi-byte character
 		 * the terminal sends one byte at a time.  Pull in the
 		 * continuation bytes and insert the whole glyph as one
 		 * unit; a malformed sequence (or a stray continuation
 		 * byte) is dropped rather than half inserted, the same
 		 * policy the minibuffer uses. */
-		seqlen = editor_read_utf8_seq(fd, c, seq);
+		seqlen = editor_read_utf8_seq(fd, base, seq);
 		while (seqlen > 0 && n-- > 0) {
 			editor_self_insert_glyph(seq, seqlen);
 		}
-	} else if (n > 1 && key_can_batch_literal_insert(c)
+	} else if (n > 1 && key_can_batch_literal_insert(base)
 	    && !bcur()->overwrite_mode) {
-		editor_insert_repeated_literal(c, n);
+		editor_insert_repeated_literal(base, n);
 	} else {
 		while (n-- > 0) {
-			editor_self_insert_char(c);
+			editor_self_insert_char(base);
 		}
 	}
 	cmd_fast_path_end(outer);
@@ -588,9 +600,8 @@ enum key_dispatch {
 	KEY_DISPATCH_IN_SEQUENCE,
 };
 
-static enum key_dispatch key_dispatch_map(int c, int fd)
+static enum key_dispatch key_dispatch_map(struct key_event event, int fd)
 {
-	struct key_event event = key_event_from_legacy(c);
 	struct key_event quit = { 'g', KEY_MOD_CTRL };
 	struct keymap_match match;
 	char text[KEYMAP_SEQUENCE_FORMAT_MAX];
@@ -700,13 +711,14 @@ static void key_finish_keypress(struct kg_buffer_handle buffer_before,
 void editor_process_keypress(int fd)
 {
 	struct timeval tv;
-	int c = editor_read_key_idle(fd);
+	struct key_event c = editor_read_key_idle(fd);
 	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
 	uint64_t generation_before = bcur()->content_generation;
 	int was_shift_select = bcur()->shift_select;
 	long elapsed;
 	long seconds;
 	enum key_dispatch dispatched;
+	const char *shift_cmd;
 	int n;
 
 	/* Paste mode detection: characters arriving less than 30ms apart are
@@ -764,7 +776,7 @@ void editor_process_keypress(int fd)
 	 * argument, return above this point, so a two-key sequence counts as
 	 * the one keystroke it is. */
 	cmd_state_begin_keystroke();
-	cmd_state_set_key(key_event_from_legacy(c));
+	cmd_state_set_key(c);
 
 	/* Keys the maps answer.  What they do not answer falls through to
 	 * the switch, which is down to the input-layer fast paths. */
@@ -778,20 +790,13 @@ void editor_process_keypress(int fd)
 	}
 
 	/* Regular key processing */
-	switch (c) {
-	case CTRL_G: /* Keyboard quit / cancel */
+	if (KEY_IS(c, 'g', KEY_MOD_CTRL)) { /* Keyboard quit / cancel */
 		bcur()->mark_highlight = 0;
 		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 		cmd_clear_transient();
 		editor_set_status_message("");
-		break;
-	case SHIFT_ARROW_LEFT:
-	case SHIFT_ARROW_RIGHT:
-	case SHIFT_ARROW_UP:
-	case SHIFT_ARROW_DOWN:
-	case SHIFT_HOME:
-	case SHIFT_END:
+	} else if ((shift_cmd = shift_select_command(c)) != nullptr) {
 		/* Drop the mark at the current position the first time the user
 		 * starts a shift-selected region, so subsequent shift+motion
 		 * extends it.  If a region is already on-screen we just extend.
@@ -802,18 +807,15 @@ void editor_process_keypress(int fd)
 		}
 		/* The command is the plain motion; what makes this keystroke
 		 * different is recorded as dispatch state, which is what the
-		 * teardown below reads.  Never NULL: `c` is one of the six
-		 * labels above. */
+		 * teardown below reads. */
 		cmd_state_set_shift_translated();
-		(void)cmd_execute_named(shift_select_command(c), fd);
-		break;
-	default:
+		(void)cmd_execute_named(shift_cmd, fd);
+	} else {
 		/* Printable ASCII, TAB and the lead byte of a multi-byte
 		 * character insert themselves, N times when a numeric
 		 * argument preceded them; every other control or
 		 * non-printable key that no map claimed is ignored. */
 		key_self_insert(c, n, fd);
-		break;
 	}
 
 	key_finish_keypress(buffer_before, generation_before, was_shift_select);

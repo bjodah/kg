@@ -6,31 +6,32 @@
 
 #include "def.h"
 
-int key_in_list(const int *keys, size_t count, int key)
+int key_event_equal(struct key_event a, struct key_event b)
+{
+	return a.base == b.base && a.mods == b.mods;
+}
+
+int key_in_list(
+    const struct key_event *keys, size_t count, struct key_event key)
 {
 	size_t i;
 
 	for (i = 0; i < count; i++) {
-		if (keys[i] == key) {
+		if (key_event_equal(keys[i], key)) {
 			return 1;
 		}
 	}
 	return 0;
 }
 
-int key_event_equal(struct key_event a, struct key_event b)
-{
-	return a.base == b.base && a.mods == b.mods;
-}
-
-/* Every decoder integer that is not a bare character, and the event it
- * stands for.  Control letters (1..26) and the scalars 0x20..0x10FFFF
+/* Every plain byte that is not a bare character, and the event it
+ * stands for.  Control letters (1..26) and the scalars 0x20..0xFF
  * follow the rules below instead of taking a row each. */
 static const struct {
-	int legacy;
+	int byte;
 	int32_t base;
 	uint8_t mods;
-} legacy_keys[] = {
+} byte_keys[] = {
 	{ KEY_NULL, ' ', KEY_MOD_CTRL },
 	{ TAB, KEY_BASE_TAB, 0 },
 	{ ENTER, KEY_BASE_RET, 0 },
@@ -40,105 +41,31 @@ static const struct {
 	{ 30, '^', KEY_MOD_CTRL },
 	{ CTRL_UNDERSCORE, '_', KEY_MOD_CTRL },
 	{ BACKSPACE, KEY_BASE_DEL, 0 },
-
-	{ ARROW_LEFT, KEY_BASE_LEFT, 0 },
-	{ ARROW_RIGHT, KEY_BASE_RIGHT, 0 },
-	{ ARROW_UP, KEY_BASE_UP, 0 },
-	{ ARROW_DOWN, KEY_BASE_DOWN, 0 },
-	{ DEL_KEY, KEY_BASE_DELETE, 0 },
-	{ HOME_KEY, KEY_BASE_HOME, 0 },
-	{ END_KEY, KEY_BASE_END, 0 },
-	{ PAGE_UP, KEY_BASE_PRIOR, 0 },
-	{ PAGE_DOWN, KEY_BASE_NEXT, 0 },
-	{ CTRL_ARROW_LEFT, KEY_BASE_LEFT, KEY_MOD_CTRL },
-	{ CTRL_ARROW_RIGHT, KEY_BASE_RIGHT, KEY_MOD_CTRL },
-	{ CTRL_ARROW_UP, KEY_BASE_UP, KEY_MOD_CTRL },
-	{ CTRL_ARROW_DOWN, KEY_BASE_DOWN, KEY_MOD_CTRL },
-	{ CTRL_HOME, KEY_BASE_HOME, KEY_MOD_CTRL },
-	{ CTRL_END, KEY_BASE_END, KEY_MOD_CTRL },
-	{ SHIFT_ARROW_LEFT, KEY_BASE_LEFT, KEY_MOD_SHIFT },
-	{ SHIFT_ARROW_RIGHT, KEY_BASE_RIGHT, KEY_MOD_SHIFT },
-	{ SHIFT_ARROW_UP, KEY_BASE_UP, KEY_MOD_SHIFT },
-	{ SHIFT_ARROW_DOWN, KEY_BASE_DOWN, KEY_MOD_SHIFT },
-	{ SHIFT_HOME, KEY_BASE_HOME, KEY_MOD_SHIFT },
-	{ SHIFT_END, KEY_BASE_END, KEY_MOD_SHIFT },
-	{ INSERT_KEY, KEY_BASE_INSERT, 0 },
-	{ SHIFT_INSERT, KEY_BASE_INSERT, KEY_MOD_SHIFT },
-	{ SHIFT_DELETE, KEY_BASE_DELETE, KEY_MOD_SHIFT },
-	{ CTRL_INSERT, KEY_BASE_INSERT, KEY_MOD_CTRL },
-	{ KEY_F3, KEY_BASE_F3, 0 },
-	{ KEY_F4, KEY_BASE_F4, 0 },
-
-	{ ALT_F, 'f', KEY_MOD_META },
-	{ ALT_B, 'b', KEY_MOD_META },
-	{ ALT_D, 'd', KEY_MOD_META },
-	{ ALT_G, 'g', KEY_MOD_META },
-	{ ALT_H, 'h', KEY_MOD_META },
-	{ ALT_V, 'v', KEY_MOD_META },
-	{ ALT_W, 'w', KEY_MOD_META },
-	{ ALT_Q, 'q', KEY_MOD_META },
-	{ ALT_BACKSPACE, KEY_BASE_DEL, KEY_MOD_META },
-	{ ALT_PCT, '%', KEY_MOD_META },
-	{ ALT_AT, '@', KEY_MOD_META },
-	{ ALT_SEMICOLON, ';', KEY_MOD_META },
-	{ ALT_COLON, ':', KEY_MOD_META },
-	{ ALT_X, 'x', KEY_MOD_META },
-	{ ALT_CARET, '^', KEY_MOD_META },
-	{ ALT_U, 'u', KEY_MOD_META },
-	{ ALT_L, 'l', KEY_MOD_META },
-	{ ALT_C, 'c', KEY_MOD_META },
-	{ ALT_BANG, '!', KEY_MOD_META },
-	{ ALT_PIPE, '|', KEY_MOD_META },
-	{ ALT_LT, '<', KEY_MOD_META },
-	{ ALT_GT, '>', KEY_MOD_META },
-	{ ALT_LBRACE, '{', KEY_MOD_META },
-	{ ALT_RBRACE, '}', KEY_MOD_META },
-	{ ALT_M, 'm', KEY_MOD_META },
-	{ ALT_A, 'a', KEY_MOD_META },
-	{ ALT_E, 'e', KEY_MOD_META },
-	{ ALT_R, 'r', KEY_MOD_META },
-	{ ALT_BACKSLASH, '\\', KEY_MOD_META },
-	{ ALT_SPACE, ' ', KEY_MOD_META },
-	{ ALT_Z, 'z', KEY_MOD_META },
-	{ ALT_P, 'p', KEY_MOD_META },
-	{ ALT_N, 'n', KEY_MOD_META },
-	{ ALT_ENTER, KEY_BASE_RET, KEY_MOD_META },
-	{ ALT_0, '0', KEY_MOD_META },
-	{ ALT_1, '1', KEY_MOD_META },
-	{ ALT_2, '2', KEY_MOD_META },
-	{ ALT_3, '3', KEY_MOD_META },
-	{ ALT_4, '4', KEY_MOD_META },
-	{ ALT_5, '5', KEY_MOD_META },
-	{ ALT_6, '6', KEY_MOD_META },
-	{ ALT_7, '7', KEY_MOD_META },
-	{ ALT_8, '8', KEY_MOD_META },
-	{ ALT_9, '9', KEY_MOD_META },
-	{ ALT_CTRL_S, 's', KEY_MOD_CTRL | KEY_MOD_META },
-	{ ALT_CTRL_R, 'r', KEY_MOD_CTRL | KEY_MOD_META },
 };
 
-struct key_event key_event_from_legacy(int key)
+struct key_event key_event_from_byte(int c)
 {
 	struct key_event event = { 0, 0 };
 	size_t i;
 
-	for (i = 0; i < sizeof(legacy_keys) / sizeof(*legacy_keys); i++) {
-		if (legacy_keys[i].legacy == key) {
-			event.base = legacy_keys[i].base;
-			event.mods = legacy_keys[i].mods;
+	for (i = 0; i < sizeof(byte_keys) / sizeof(*byte_keys); i++) {
+		if (byte_keys[i].byte == c) {
+			event.base = byte_keys[i].base;
+			event.mods = byte_keys[i].mods;
 			return event;
 		}
 	}
 	/* The rest of the control range is the letter it holds down. */
-	if (key >= CTRL_A && key <= CTRL_Z) {
-		event.base = 'a' + key - CTRL_A;
+	if (c >= CTRL_A && c <= CTRL_Z) {
+		event.base = 'a' + c - CTRL_A;
 		event.mods = KEY_MOD_CTRL;
 		return event;
 	}
-	/* A bare character, and (during the transition) a raw byte above
-	 * ASCII, which is the same number as the scalar it is written as. */
-	if (key > 0 && key <= KEY_BASE_LAST_SCALAR) {
-		event.base = key;
+	/* A bare character, and a raw byte above ASCII -- the lead of a
+	 * multi-byte character the terminal sends one byte at a time --
+	 * which is the same number as the scalar it is written as. */
+	if (c > 0 && c <= 0xFF) {
+		event.base = c;
 	}
 	return event;
 }

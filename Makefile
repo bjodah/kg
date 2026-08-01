@@ -238,25 +238,21 @@ SCC_COMPLEXITY_PATHS ?= src
 # that to 4144.  The cap is the measurement again, as it was before the
 # describe slice.
 #
-# Raised 4144 -> 4200 by the maintainer's explicit wave-2 budget update.
-# Wave 1 ended with the cap equal to the measurement, which is the right
-# resting state between programs and the wrong starting state for a wave:
-# it serializes the work, because Plan 03's marker store, Plan 07's width
-# cache and Plan 06's runtime seams are additive by construction and each
-# would have to be paired with a deletion slice landing first.  The 56 is
-# headroom borrowed from wave 1's savings, not a new budget.  (Every
-# concurrent wave-2 track was told to write this same number rather than
-# its own measurement, so the one-line change merges cleanly; that is an
-# integration mechanic, not the reason for the size.)
-# Plan 07 Phase 1 itself measured 4146: the cache-hit branch
-# visual_line_width() needs to answer from a row's cache without
-# rescanning, plus one more branch consolidating the redundant width
-# query visual_line_cursor_col() used to make at end-of-line.  The
-# goto_visual_row_col()/visual_segments() consolidation the plan asked to
-# fund this from nets to zero (a call swapped for a call, not a removed
-# branch), so this is not a target to shrink back to -- it is the
-# integration ceiling until the next reviewed exception.  Do not exceed
-# 4200; the pre-program 4223 baseline does not move.
+# Raised 4144 -> 4200 for Plan 01's decoder flag day (wave 2): C has no
+# switch on a struct, so every switch(legacy int) the flag day touched
+# (tty.c's parse_escape() escape-key names, search.c's
+# isearch_handoff_key(), bufmgr.c's minibuf_edit_key(), kbd.c's
+# CTRL_G/shift-select dispatch) became comparisons instead, and several
+# sites also gained a `mods == 0` guard the old encoding's disjoint
+# numeric ranges used to give for free (Ctrl-a's key_event base is the
+# same 'a' the bare letter uses, unlike the legacy int).  Table-driven
+# dispatch (the shift_motions[]-shaped pattern already in kbd.c) funded
+# most of it back -- isearch_handoff_key() and minibuf_edit_key() both
+# gained a second lookup table for exactly this -- but not all of it.
+# Measured 4161 after the slice, 4200 is this wave's agreed integration
+# ceiling (three slices landing against the same baseline), not a
+# reviewed exception of its own; the maintainer's integration commit is
+# where the wave's total gets re-measured and banked.
 SCC_COMPLEXITY_MAX ?= 4200
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
@@ -559,7 +555,7 @@ EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJ
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/process.o
-EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(TEST_SRCS_OBJS)
+EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # The command table is only reachable by linking cmd.o, which reaches

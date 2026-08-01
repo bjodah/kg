@@ -29,10 +29,10 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 }
 
 void editor_refresh_screen(void) { }
-int editor_read_key(int fd)
+struct key_event editor_read_key(int fd)
 {
 	(void)fd;
-	return 0;
+	return (struct key_event) { 0, 0 };
 }
 /* Same answer the editor_read_key() above used to give the hand-rolled
  * prompt this replaced: not a yes. */

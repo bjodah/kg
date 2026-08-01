@@ -28,10 +28,10 @@ void editor_set_status_emphasis(int start, int len)
 }
 void editor_refresh_screen(void) { }
 void key_reset_pending_sequence(void) { }
-int editor_read_key(int fd)
+struct key_event editor_read_key(int fd)
 {
 	(void)fd;
-	return 0;
+	return (struct key_event) { 0, 0 };
 }
 int editor_read_raw_byte(int fd)
 {

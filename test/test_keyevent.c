@@ -2,9 +2,11 @@
  *
  * Three properties, checked rather than sampled:
  *
- *  - the adapter from the decoder's integers is total and injective over
- *    the whole key domain, which is what makes it lossless: every
- *    enum KEY_ACTION value has an event, and no two share one;
+ *  - key_event_from_byte() is total and injective over one plain,
+ *    undecoded byte (0..255): every byte has an event, and no two share
+ *    one.  Escape sequences -- arrows, modified keys, function keys,
+ *    Meta -- are multiple bytes and are decoded in tty.c instead (see
+ *    test_tty.c's test_escape_sequences_decode_to_key_events());
  *  - format is canonical and parse is its inverse, over every named key
  *    and every modifier combination each accepts;
  *  - parse rejects what it does not document: a repeated modifier, a
@@ -20,45 +22,30 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Every keycode the decoder can produce: the control range, DEL, and the
- * soft keys.  Printable ASCII and the bytes above it are characters and
- * are checked separately. */
-static int key_is_in_domain(int c)
-{
-	return (c >= 0 && c <= 31) || c == BACKSPACE
-	    || (c >= ARROW_LEFT && c <= KEY_F4);
-}
-
-static void test_legacy_adapter_is_total_and_injective(void)
+static void test_byte_decode_is_total_and_injective(void)
 {
 	int a, b;
 
-	for (a = 0; a <= KEY_F4; a++) {
-		struct key_event ea = key_event_from_legacy(a);
+	for (a = 0; a <= 0xFF; a++) {
+		struct key_event ea = key_event_from_byte(a);
 
-		if (!key_is_in_domain(a)) {
-			continue;
-		}
-		CHECKF(ea.base != 0, "keycode %d has no event", a);
+		CHECKF(ea.base != 0, "byte %d has no event", a);
 		CHECKF((ea.mods & ~(unsigned)KEY_MOD_ALL) == 0,
-		    "keycode %d has an unknown modifier", a);
-		for (b = a + 1; b <= KEY_F4; b++) {
-			struct key_event eb = key_event_from_legacy(b);
+		    "byte %d has an unknown modifier", a);
+		for (b = a + 1; b <= 0xFF; b++) {
+			struct key_event eb = key_event_from_byte(b);
 
-			if (!key_is_in_domain(b)) {
-				continue;
-			}
 			CHECKF(!key_event_equal(ea, eb),
-			    "keycodes %d and %d are the same event", a, b);
+			    "bytes %d and %d are the same event", a, b);
 		}
 	}
 }
 
 /* The mapping the rest of the editor will be read against. */
-static void test_legacy_adapter_spellings(void)
+static void test_byte_decode_spellings(void)
 {
 	static const struct {
-		int legacy;
+		int byte;
 		const char *spelling;
 	} expected[] = {
 		{ KEY_NULL, "C-SPC" },
@@ -69,23 +56,6 @@ static void test_legacy_adapter_spellings(void)
 		{ ESC, "ESC" },
 		{ CTRL_UNDERSCORE, "C-_" },
 		{ BACKSPACE, "DEL" },
-		{ DEL_KEY, "<delete>" },
-		{ ARROW_LEFT, "<left>" },
-		{ CTRL_ARROW_LEFT, "C-<left>" },
-		{ SHIFT_ARROW_LEFT, "S-<left>" },
-		{ CTRL_HOME, "C-<home>" },
-		{ PAGE_UP, "<prior>" },
-		{ PAGE_DOWN, "<next>" },
-		{ INSERT_KEY, "<insert>" },
-		{ SHIFT_INSERT, "S-<insert>" },
-		{ KEY_F3, "<f3>" },
-		{ ALT_F, "M-f" },
-		{ ALT_BACKSPACE, "M-DEL" },
-		{ ALT_SPACE, "M-SPC" },
-		{ ALT_ENTER, "M-RET" },
-		{ ALT_PCT, "M-%" },
-		{ ALT_5, "M-5" },
-		{ ALT_CTRL_S, "C-M-s" },
 	};
 	size_t i;
 
@@ -93,15 +63,15 @@ static void test_legacy_adapter_spellings(void)
 		char text[KEY_FORMAT_MAX];
 		struct key_event parsed;
 
-		CHECK(key_format(key_event_from_legacy(expected[i].legacy),
-			  text, sizeof(text))
+		CHECK(key_format(key_event_from_byte(expected[i].byte), text,
+			  sizeof(text))
 		    == 0);
 		CHECKF(strcmp(text, expected[i].spelling) == 0,
-		    "keycode %d formats as %s, want %s", expected[i].legacy,
-		    text, expected[i].spelling);
+		    "byte %d formats as %s, want %s", expected[i].byte, text,
+		    expected[i].spelling);
 		CHECK(key_parse(expected[i].spelling, &parsed) == 0);
 		CHECK(key_event_equal(
-		    parsed, key_event_from_legacy(expected[i].legacy)));
+		    parsed, key_event_from_byte(expected[i].byte)));
 	}
 }
 
@@ -122,7 +92,7 @@ static void test_characters_round_trip(void)
 		CHECKF(key_parse(text, &parsed) == 0, "%s does not parse back",
 		    text);
 		CHECK(key_event_equal(event, parsed));
-		CHECK(key_event_equal(event, key_event_from_legacy(c)));
+		CHECK(key_event_equal(event, key_event_from_byte(c)));
 	}
 	for (i = 0; i < sizeof(characters) / sizeof(*characters); i++) {
 		char text[KEY_FORMAT_MAX];
@@ -236,21 +206,27 @@ static void test_format_reports_a_buffer_that_is_too_small(void)
 
 static void test_key_in_list(void)
 {
-	static const int keys[] = { CTRL_A, ALT_F, ARROW_UP };
-	static const int one[] = { ENTER };
+	static const struct key_event keys[] = { { 'a', KEY_MOD_CTRL },
+		{ 'f', KEY_MOD_META }, { KEY_BASE_UP, 0 } };
+	static const struct key_event one[] = { { KEY_BASE_RET, 0 } };
+	struct key_event a = { 'a', KEY_MOD_CTRL };
+	struct key_event up = { KEY_BASE_UP, 0 };
+	struct key_event b = { 'b', KEY_MOD_CTRL };
+	struct key_event ret = { KEY_BASE_RET, 0 };
+	struct key_event zero = { 0, 0 };
 
-	CHECK(KEY_IN_LIST(keys, CTRL_A));
-	CHECK(KEY_IN_LIST(keys, ARROW_UP));
-	CHECK(!KEY_IN_LIST(keys, CTRL_B));
-	CHECK(KEY_IN_LIST(one, ENTER));
-	CHECK(!KEY_IN_LIST(one, 0));
-	CHECK(!key_in_list(keys, 0, CTRL_A));
+	CHECK(KEY_IN_LIST(keys, a));
+	CHECK(KEY_IN_LIST(keys, up));
+	CHECK(!KEY_IN_LIST(keys, b));
+	CHECK(KEY_IN_LIST(one, ret));
+	CHECK(!KEY_IN_LIST(one, zero));
+	CHECK(!key_in_list(keys, 0, a));
 }
 
 int main(void)
 {
-	RUN(test_legacy_adapter_is_total_and_injective);
-	RUN(test_legacy_adapter_spellings);
+	RUN(test_byte_decode_is_total_and_injective);
+	RUN(test_byte_decode_spellings);
 	RUN(test_characters_round_trip);
 	RUN(test_every_base_and_modifier_round_trips);
 	RUN(test_parse_rejects_what_it_does_not_document);

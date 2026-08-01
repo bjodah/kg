@@ -24,13 +24,19 @@
 
 /* Key sets the minibuffer and the pickers ask about.  A list rather than
  * a run of comparisons: see key_in_list(). */
-static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
-static const int history_keys[]
-    = { ALT_P, ALT_N, ARROW_UP, ARROW_DOWN, CTRL_P, CTRL_N };
-static const int history_back_keys[] = { ALT_P, ARROW_UP, CTRL_P };
-static const int picker_next_keys[] = { ARROW_RIGHT, CTRL_F };
-static const int picker_prev_keys[] = { ARROW_LEFT, CTRL_B };
-static const int cancel_keys[] = { ESC, CTRL_G };
+static const struct key_event erase_keys[]
+    = { { KEY_BASE_DELETE, 0 }, { 'h', KEY_MOD_CTRL }, { KEY_BASE_DEL, 0 } };
+static const struct key_event history_keys[] = { { 'p', KEY_MOD_META },
+	{ 'n', KEY_MOD_META }, { KEY_BASE_UP, 0 }, { KEY_BASE_DOWN, 0 },
+	{ 'p', KEY_MOD_CTRL }, { 'n', KEY_MOD_CTRL } };
+static const struct key_event history_back_keys[]
+    = { { 'p', KEY_MOD_META }, { KEY_BASE_UP, 0 }, { 'p', KEY_MOD_CTRL } };
+static const struct key_event picker_next_keys[]
+    = { { KEY_BASE_RIGHT, 0 }, { 'f', KEY_MOD_CTRL } };
+static const struct key_event picker_prev_keys[]
+    = { { KEY_BASE_LEFT, 0 }, { 'b', KEY_MOD_CTRL } };
+static const struct key_event cancel_keys[]
+    = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL } };
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -682,21 +688,58 @@ static void minibuf_insert(char *buf, int bufsize, int *cursor, int *len,
 	*len += n;
 }
 
-static int minibuf_edit_key(
-    int fd, int c, char *buf, int bufsize, int *cursor, int *len, int *overflow)
+/* The four cursor motions minibuf_edit_key() answers as plain keys, each
+ * reachable by a Ctrl letter or the matching arrow/Home/End -- a table
+ * instead of four KEY_IS() || KEY_IS() pairs, in the shape
+ * isearch_handoff_direction() (search.c) already uses for the same
+ * problem. */
+enum minibuf_motion {
+	MINIBUF_MOTION_NONE,
+	MINIBUF_MOTION_LEFT,
+	MINIBUF_MOTION_RIGHT,
+	MINIBUF_MOTION_HOME,
+	MINIBUF_MOTION_END,
+};
+
+static const struct {
+	struct key_event key;
+	enum minibuf_motion motion;
+} minibuf_motions[] = {
+	{ { 'f', KEY_MOD_CTRL }, MINIBUF_MOTION_RIGHT },
+	{ { KEY_BASE_RIGHT, 0 }, MINIBUF_MOTION_RIGHT },
+	{ { 'b', KEY_MOD_CTRL }, MINIBUF_MOTION_LEFT },
+	{ { KEY_BASE_LEFT, 0 }, MINIBUF_MOTION_LEFT },
+	{ { 'a', KEY_MOD_CTRL }, MINIBUF_MOTION_HOME },
+	{ { KEY_BASE_HOME, 0 }, MINIBUF_MOTION_HOME },
+	{ { 'e', KEY_MOD_CTRL }, MINIBUF_MOTION_END },
+	{ { KEY_BASE_END, 0 }, MINIBUF_MOTION_END },
+};
+
+static enum minibuf_motion minibuf_motion_for(struct key_event c)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(minibuf_motions) / sizeof(*minibuf_motions);
+	    i++) {
+		if (key_event_equal(minibuf_motions[i].key, c)) {
+			return minibuf_motions[i].motion;
+		}
+	}
+	return MINIBUF_MOTION_NONE;
+}
+
+static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
+    int *cursor, int *len, int *overflow)
 {
 	char seq[4];
-	int n;
+	int n, raw;
 
-	if (c == DEL_KEY || c == BACKSPACE) {
+	if (KEY_IS(c, KEY_BASE_DELETE, 0) || KEY_IS(c, KEY_BASE_DEL, 0)
+	    || KEY_IS(c, 'h', KEY_MOD_CTRL)) {
 		minibuf_delete_backward(buf, cursor, len, overflow);
 		return 1;
 	}
-	switch (c) {
-	case CTRL_H:
-		minibuf_delete_backward(buf, cursor, len, overflow);
-		return 1;
-	case CTRL_D:
+	if (KEY_IS(c, 'd', KEY_MOD_CTRL)) {
 		if (*cursor < *len) {
 			int span = utf8_glyph_span_at(buf, *len, *cursor);
 			memmove(buf + *cursor, buf + *cursor + span,
@@ -704,27 +747,28 @@ static int minibuf_edit_key(
 			*len -= span;
 		}
 		return 1;
-	case CTRL_F:
-	case ARROW_RIGHT:
+	}
+	switch (minibuf_motion_for(c)) {
+	case MINIBUF_MOTION_RIGHT:
 		if (*cursor < *len) {
 			*cursor += utf8_glyph_span_at(buf, *len, *cursor);
 		}
 		return 1;
-	case CTRL_B:
-	case ARROW_LEFT:
+	case MINIBUF_MOTION_LEFT:
 		if (*cursor > 0) {
 			*cursor = utf8_glyph_start_before(buf, *len, *cursor);
 		}
 		return 1;
-	case CTRL_A:
-	case HOME_KEY:
+	case MINIBUF_MOTION_HOME:
 		*cursor = 0;
 		return 1;
-	case CTRL_E:
-	case END_KEY:
+	case MINIBUF_MOTION_END:
 		*cursor = *len;
 		return 1;
-	case CTRL_K: {
+	case MINIBUF_MOTION_NONE:
+		break;
+	}
+	if (KEY_IS(c, 'k', KEY_MOD_CTRL)) {
 		int kill_len = *len - *cursor;
 		if (kill_len > 0) {
 			minibuf_set_kill(buf + *cursor, kill_len);
@@ -733,7 +777,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	case CTRL_Y: {
+	if (KEY_IS(c, 'y', KEY_MOD_CTRL)) {
 		int yank_len = (int)strlen(minibuf_kill);
 		if (yank_len > 0 && *len + yank_len < bufsize) {
 			minibuf_insert(buf, bufsize, cursor, len, overflow,
@@ -741,13 +785,15 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	case ALT_F:
+	if (KEY_IS(c, 'f', KEY_MOD_META)) {
 		*cursor = minibuf_word_end(buf, *len, *cursor);
 		return 1;
-	case ALT_B:
+	}
+	if (KEY_IS(c, 'b', KEY_MOD_META)) {
 		*cursor = minibuf_word_start(buf, *cursor);
 		return 1;
-	case ALT_D: {
+	}
+	if (KEY_IS(c, 'd', KEY_MOD_META)) {
 		int end = minibuf_word_end(buf, *len, *cursor);
 		int kill_len = end - *cursor;
 		if (kill_len > 0) {
@@ -757,7 +803,7 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	case ALT_BACKSPACE: {
+	if (KEY_IS(c, KEY_BASE_DEL, KEY_MOD_META)) {
 		int start = minibuf_word_start(buf, *cursor);
 		int kill_len = *cursor - start;
 		if (kill_len > 0) {
@@ -768,31 +814,34 @@ static int minibuf_edit_key(
 		}
 		return 1;
 	}
-	case CTRL_Q:
-		c = editor_read_raw_byte(fd);
+	if (KEY_IS(c, 'q', KEY_MOD_CTRL)) {
+		raw = editor_read_raw_byte(fd);
 		if (!running) {
 			return 1;
 		}
-		seq[0] = (char)c;
+		seq[0] = (char)raw;
 		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, 1);
 		return 1;
-	default:
-		break;
-	};
-	if (ascii_is_print(c)) {
-		seq[0] = (char)c;
+	}
+	/* Every plain-character path below is for an unmodified base: Ctrl-x
+	 * is not the letter x, and nothing here should treat it as one. */
+	if (c.mods != 0) {
+		return 0;
+	}
+	if (ascii_is_print(c.base)) {
+		seq[0] = (char)c.base;
 		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, 1);
 		return 1;
 	}
 	/* A byte above ASCII is the lead of a multi-byte character the
 	 * terminal is sending one byte at a time; pull in the rest so the
 	 * whole glyph enters the prompt together. */
-	n = editor_read_utf8_seq(fd, c, seq);
+	n = editor_read_utf8_seq(fd, (int)c.base, seq);
 	if (n > 0) {
 		minibuf_insert(buf, bufsize, cursor, len, overflow, seq, n);
 		return 1;
 	}
-	if (c >= 0x80 && c <= 0xFF) {
+	if (c.base >= 0x80 && c.base <= 0xFF) {
 		return 1; /* malformed sequence: swallow the stray byte */
 	}
 	return 0;
@@ -894,7 +943,8 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	int plen = (int)strlen(prompt);
 	int len = (int)strnlen(buf, bufsize - 1);
 	int cursor = len;
-	int overflow = 0, c;
+	int overflow = 0;
+	struct key_event c;
 	int hist_index = -1; /* -1 == editing the draft, not a history entry */
 	char draft[bufsize];
 	int draft_cursor = cursor;
@@ -938,7 +988,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 		}
 		if (KEY_IN_LIST(cancel_keys, c)) {
 			return prompt_done(-1);
-		} else if (c == ENTER) {
+		} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
 			if (overflow == 0) {
 				minibuf_history_add(hist, buf);
 			}
@@ -1138,7 +1188,8 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	int len = (int)strnlen(buf, bufsize - 1);
 	int cursor = len;
 	int overflow = 0;
-	int c, sel = 0;
+	struct key_event c;
+	int sel = 0;
 	int matches = 0, total = 0, flen = 0;
 
 	buf[len] = '\0';
@@ -1197,12 +1248,12 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			sel = 0;
 		} else if (KEY_IN_LIST(cancel_keys, c)) {
 			return prompt_done(-1);
-		} else if (c == CTRL_B) {
+		} else if (KEY_IS(c, 'b', KEY_MOD_CTRL)) {
 			if (cursor > 0) {
 				cursor
 				    = utf8_glyph_start_before(buf, len, cursor);
 			}
-		} else if (c == CTRL_F) {
+		} else if (KEY_IS(c, 'f', KEY_MOD_CTRL)) {
 			if (cursor < len) {
 				cursor += utf8_glyph_span_at(buf, len, cursor);
 			}
@@ -1210,23 +1261,26 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			 * Keep the path picker's selection cycling on the arrow
 			 * keys so the two operations do not silently steal each
 			 * other's bindings. */
-		} else if (c == ARROW_LEFT || c == ARROW_UP) {
+		} else if (KEY_IS(c, KEY_BASE_LEFT, 0)
+		    || KEY_IS(c, KEY_BASE_UP, 0)) {
 			if (matches > 0) {
 				sel = (sel - 1 + matches) % matches;
 			}
-		} else if (c == ARROW_RIGHT || c == ARROW_DOWN) {
+		} else if (KEY_IS(c, KEY_BASE_RIGHT, 0)
+		    || KEY_IS(c, KEY_BASE_DOWN, 0)) {
 			if (matches > 0) {
 				sel = (sel + 1) % matches;
 			}
-		} else if (c == ALT_ENTER
-		    || (c == ENTER && path_ends_in_dot_component(buf))) {
+		} else if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META)
+		    || (KEY_IS(c, KEY_BASE_RET, 0)
+			&& path_ends_in_dot_component(buf))) {
 			/* Accept the text exactly as typed: no completion
 			 * applied, no descend.  M-RET is a deliberate
 			 * deviation from Emacs; the "." form is Emacs'
 			 * own. */
 			editor_path_expand_tilde(buf, bufsize);
 			return prompt_done(0);
-		} else if (c == ENTER) {
+		} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
 			if (matches > 0 && cursor == len) {
 				/* Replace the typed file part with the selected
 				 * name. */
@@ -1254,7 +1308,8 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			}
 			editor_path_expand_tilde(buf, bufsize);
 			return prompt_done(0);
-		} else if (c == TAB && matches > 0 && cursor == len) {
+		} else if (KEY_IS(c, KEY_BASE_TAB, 0) && matches > 0
+		    && cursor == len) {
 			int llen = (int)strlen(lcp);
 			if (llen > flen) {
 				int extend = llen - flen;
@@ -1447,7 +1502,8 @@ void buf_select_interactive(int fd)
 	int order[MAX_BUFFERS], n = 0;
 	char query[64];
 	int qlen = 0, sel = 0;
-	int i, c;
+	int i;
+	struct key_event c;
 	char msg[512];
 	int off, sel_off;
 
@@ -1516,7 +1572,7 @@ void buf_select_interactive(int fd)
 				if (matches > 0) {
 					sel = (sel - 1 + matches) % matches;
 				}
-			} else if (c == ENTER) {
+			} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				if (matches > 0) {
@@ -1527,17 +1583,19 @@ void buf_select_interactive(int fd)
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
 				return;
-			} else if (ascii_is_print(c)
+			} else if (c.mods == 0 && ascii_is_print(c.base)
 			    && qlen < (int)sizeof(query) - 1) {
-				query[qlen++] = c;
+				query[qlen++] = (char)c.base;
 				query[qlen] = '\0';
 				sel = 0;
-			} else if (c >= 0x80 && c <= 0xFF) {
+			} else if (c.mods == 0 && c.base >= 0x80
+			    && c.base <= 0xFF) {
 				/* Multi-byte character: take the whole
 				 * sequence so buffer names with non-ASCII
 				 * text can be typed at. */
 				char seq[4];
-				int n = editor_read_utf8_seq(fd, c, seq);
+				int n = editor_read_utf8_seq(
+				    fd, (int)c.base, seq);
 
 				if (n > 0
 				    && qlen + n < (int)sizeof(query) - 1) {

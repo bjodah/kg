@@ -1,6 +1,7 @@
 /* test_tty.c — unit tests for tty signal handling */
 
 #include "../src/def.h"
+#include "../src/keyevent.h"
 #include "test.h"
 #include <errno.h>
 #include <signal.h>
@@ -11,8 +12,12 @@
 void win_reflow(void) { }
 void editor_refresh_screen(void) { }
 int autorevert_poll(void) { return 0; }
-int macro_next_key(void) { return -1; }
-void macro_on_key(int key) { (void)key; }
+int macro_next_key(struct key_event *out)
+{
+	(void)out;
+	return 0;
+}
+void macro_on_key(struct key_event key) { (void)key; }
 
 /* tty_write() writes through write_all(), so this binary links fileio.o
  * for the real loop rather than reimplementing it; these are the prompt
@@ -284,39 +289,89 @@ static void test_malformed_utf8_keeps_the_following_key(void)
 	 * behind it is still queued -- so it came back exactly once. */
 	CHECK(write(fds[1], "AB", 2) == 2);
 	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
-	CHECK(editor_read_key(fds[0]) == 'A');
-	CHECK(editor_read_key(fds[0]) == 'B');
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'A', 0));
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'B', 0));
 
 	/* The rescued byte need not be printable. */
 	CHECK(write(fds[1], "\x07", 1) == 1);
 	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
-	CHECK(editor_read_key(fds[0]) == CTRL_G);
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'g', KEY_MOD_CTRL));
 
 	/* Two malformed leads back to back: the second lead is itself the
 	 * byte rescued from the first. */
 	CHECK(write(fds[1], "\xe3\x41", 2) == 2);
 	CHECK(editor_read_utf8_seq(fds[0], 0xE2, seq) == 0);
-	CHECK(editor_read_key(fds[0]) == 0xE3);
+	CHECK(KEY_IS(editor_read_key(fds[0]), 0xE3, 0));
 	CHECK(editor_read_utf8_seq(fds[0], 0xE3, seq) == 0);
-	CHECK(editor_read_key(fds[0]) == 'A');
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'A', 0));
 
 	/* A truncated four-byte lead followed by a whole two-byte glyph:
 	 * the glyph survives intact. */
 	CHECK(write(fds[1], "\xc3\xa9z", 3) == 3);
 	CHECK(editor_read_utf8_seq(fds[0], 0xF0, seq) == 0);
-	CHECK(editor_read_key(fds[0]) == 0xC3);
+	CHECK(KEY_IS(editor_read_key(fds[0]), 0xC3, 0));
 	CHECK(editor_read_utf8_seq(fds[0], 0xC3, seq) == 2);
 	CHECK(seq[0] == '\xc3' && seq[1] == '\xa9');
-	CHECK(editor_read_key(fds[0]) == 'z');
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'z', 0));
 
 	/* A lone continuation byte starts nothing, so nothing is read and
 	 * nothing is owed back. */
 	CHECK(editor_read_utf8_seq(fds[0], 0x80, seq) == 0);
 	CHECK(write(fds[1], "y", 1) == 1);
-	CHECK(editor_read_key(fds[0]) == 'y');
+	CHECK(KEY_IS(editor_read_key(fds[0]), 'y', 0));
 
 	close(fds[0]);
 	close(fds[1]);
+}
+
+/* Characterizes Plan 01 phase 2's second half (the decoder flag day):
+ * tty.c's parse_escape() now builds these key_events directly, with no
+ * legacy int or adapter in between.  The values checked against are
+ * exactly what this test checked before the rewrite -- that is the
+ * proof it is behavior-preserving, not just a representation change. */
+static void test_escape_sequences_decode_to_key_events(void)
+{
+	static const struct {
+		const char *bytes;
+		size_t len;
+		struct key_event want;
+	} cases[] = {
+		{ "\x1b[C", 3, { KEY_BASE_RIGHT, 0 } },
+		{ "\x1b[1;5D", 6, { KEY_BASE_LEFT, KEY_MOD_CTRL } },
+		{ "\x1b[1;2C", 6, { KEY_BASE_RIGHT, KEY_MOD_SHIFT } },
+		{ "\x1b"
+		  "f",
+		    2, { 'f', KEY_MOD_META } },
+		{ "\x1b"
+		  "5",
+		    2, { '5', KEY_MOD_META } },
+		{ "\x1b\x13", 2, { 's', KEY_MOD_CTRL | KEY_MOD_META } },
+		{ "\x1b[13~", 5, { KEY_BASE_F3, 0 } },
+		{ "\x1b[2~", 4, { KEY_BASE_INSERT, 0 } },
+		{ "\x1b[5~", 4, { KEY_BASE_PRIOR, 0 } },
+		{ "\x1bOH", 3, { KEY_BASE_HOME, 0 } },
+	};
+	size_t i;
+
+	running = 1;
+	for (i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+		int fds[2];
+		struct key_event got;
+
+		if (pipe(fds) != 0) {
+			CHECK(!"pipe failed");
+			return;
+		}
+		CHECK(write(fds[1], cases[i].bytes, cases[i].len)
+		    == (ssize_t)cases[i].len);
+		got = editor_read_key(fds[0]);
+		CHECKF(key_event_equal(got, cases[i].want),
+		    "%s: got base=%d mods=%u, want base=%d mods=%u",
+		    cases[i].bytes, got.base, got.mods, cases[i].want.base,
+		    cases[i].want.mods);
+		close(fds[0]);
+		close(fds[1]);
+	}
 }
 
 int main(void)
@@ -328,5 +383,6 @@ int main(void)
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);
+	RUN(test_escape_sequences_decode_to_key_events);
 	return test_summary();
 }

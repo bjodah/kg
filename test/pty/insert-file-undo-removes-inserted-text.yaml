@@ -1,0 +1,30 @@
+# C-x i now records its undo through the same gateway as yank, rather
+# than a hand-written record: one C-_ must still remove exactly the bytes
+# it inserted and nothing else, leaving buffer and point as they were.
+#
+# The harness always reads back the file named by `filename:`, so the
+# buffer being edited at the end must be that file again: save the
+# starting content as src.txt, reopen dest.txt (== filename, untouched by
+# the C-x C-w rename), insert src.txt into it, then undo.
+name: insert-file-undo-removes-inserted-text
+filename: dest.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: "kept"
+keys:
+  - C-x
+  - C-w
+  - "src.txt"
+  - RET
+  - C-x
+  - C-f
+  - "dest.txt"
+  - RET
+  - C-x
+  - i
+  - "src.txt"
+  - RET
+  - C-_
+trailer_keys: [C-x, C-s, C-x, C-c]
+expected_saved: "kept"

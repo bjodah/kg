@@ -1,0 +1,15 @@
+# (insert ...) now records its undo through the same user-edit gateway as
+# yank rather than a hand-written UNDO_YANK_TEXT record; one C-_ must
+# still remove exactly the inserted bytes and nothing else.
+name: lisp-insert-undo
+filename: lisp-insert-undo.txt
+requires_feature: lisp
+initial: "kept"
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (insert "hi")
+  - RET
+  - C-_
+expected_saved: kept

@@ -1,0 +1,11 @@
+name: shell-command-on-region-replaces-with-prefix
+filename: shell-replace-region.txt
+initial: "hello\n"
+keys:
+  - C-SPC
+  - "M->"
+  - M-1
+  - "M-|"
+  - "tr a-z A-Z"
+  - RET
+expected_saved: "HELLO\n"

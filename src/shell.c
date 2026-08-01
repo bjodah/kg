@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "edit.h"
 #include "process.h"
 
 #define SHELL_INITIAL_CAP 4096
@@ -211,19 +212,13 @@ fail:
 	return NULL;
 }
 
-/* Insert text at point as a single undoable yank. */
+/* Insert text at point as a single undoable edit. */
 static void insert_as_yank(const char *text, int len)
 {
-	int filerow = wcur()->rowoff + wcur()->cy;
-	int filecol = wcur()->coloff + wcur()->cx;
-
 	if (len <= 0) {
 		return;
 	}
-
-	undo_push(
-	    bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, (char *)text, len);
-	editor_insert_text_raw(text, len);
+	editor_insert_text_at_point(text, len);
 }
 
 /* Reject scalar values utf8_glyph_span_at() lets through as structurally

@@ -29,6 +29,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 #include "../fe/fe.h"
 #include "cmd.h"
 #include "def.h"
+#include "edit.h"
 #include "keybind.h"
 #include "localvars.h"
 
@@ -388,7 +389,6 @@ static FeObject *native_message(FeContext *context, FeObject *arguments)
 static FeObject *native_insert(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	int row, col;
 	size_t length;
 	char *text;
 
@@ -403,15 +403,10 @@ static FeObject *native_insert(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "string is too large to insert");
 	}
 
-	/* Match yank/paste: one insert call creates one UNDO_YANK_TEXT
-	 * record, while the raw bulk insertion suppresses its internal records.
-	 */
+	/* Match yank/paste: one insert call is one user edit, through the
+	 * same gateway, so it is one undo step. */
 	if (length != 0) {
-		row = editor_current_filerow_or_eof();
-		col = editor_current_filecol();
-		undo_push(
-		    bcur(), UNDO_YANK_TEXT, row, col, 0, text, (int)length);
-		editor_insert_text_raw(text, (int)length);
+		editor_insert_text_at_point(text, (int)length);
 	}
 	free(text);
 	return FeNil(context);

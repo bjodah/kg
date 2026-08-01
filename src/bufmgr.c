@@ -13,6 +13,7 @@
 #include "bufhandle.h"
 #include "cmdstate.h"
 #include "compile.h"
+#include "decor.h"
 #include "def.h"
 #include "edit.h"
 #include "kbd.h"
@@ -1766,6 +1767,7 @@ void buf_kill(int fd)
 	 * reset would walk. */
 	editor_free_all_rows(bcur());
 	undo_free();
+	kg_decor_store_free(bcur());
 	kg_marker_store_free(bcur());
 	free(bcur()->filename);
 
@@ -1892,6 +1894,7 @@ static void buf_reset_slot(int slot)
 	struct editor_buffer *b = &buflist[slot];
 	uint64_t generation = b->generation;
 
+	kg_decor_store_free(b);
 	kg_marker_store_free(b);
 	memset(b, 0, sizeof(*b));
 	b->generation
@@ -2167,13 +2170,14 @@ void editor_cleanup(void)
 	cleaned_up = 1;
 	compilation_shutdown();
 
-	/* Every slot owns its rows, filename, undo chain and marker store, and
-	 * no copy of any of them lives elsewhere, so one table pass is the
-	 * whole teardown. */
+	/* Every slot owns its rows, filename, undo chain, marker store and
+	 * decoration store, and no copy of any of them lives elsewhere, so
+	 * one table pass is the whole teardown. */
 	for (int i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 
 		if (!b->active) {
+			kg_decor_store_free(b);
 			kg_marker_store_free(b);
 			continue;
 		}
@@ -2181,6 +2185,7 @@ void editor_cleanup(void)
 		free(b->filename);
 		b->filename = NULL;
 		undo_stack_free(&b->undostack);
+		kg_decor_store_free(b);
 		kg_marker_store_free(b);
 		b->active = 0;
 	}

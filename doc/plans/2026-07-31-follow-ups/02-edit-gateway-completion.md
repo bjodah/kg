@@ -1,14 +1,14 @@
 # Plan 02 — Complete the edit gateway
 
-## Status (2026-07-31, after the phase 0–2 campaign)
+## Status (2026-08-01, after the phase 4 campaign)
 
-Phases 0–3 done; Phase 4 in progress—file, shell, Lisp, Dired and related consumers largely migrated, with special-buffer/reload and undo residue remaining; Phase 5 pending.
+Phases 0–4 done; Phase 5 pending.
 
-What the remaining 86 sites are: `buffer.c`'s own row primitives and
-the staged-load helpers (55), `bufmgr.c`: 7, `undo.c`'s replays of the eleven legacy
-opcodes (19), `bufmgr.c`'s special-buffer rebuilds (7), and small counts in `kbd.c`: 4, `main.c`: 1
-.  Phase 4 owns the rebuild and load paths;
-phase 5 owns the legacy replays and `suppress_undo`.
+What the remaining 82 sites are: `buffer.c`'s own row primitives and
+the staged-load helpers (55), `bufmgr.c`: 3 (all `editor_free_all_rows`
+for buffer teardown, not observable mutation), `undo.c`'s replays of the
+eleven legacy opcodes (19), and small counts in `kbd.c`: 4, `main.c`: 1.
+Phase 5 owns the legacy replays and `suppress_undo`.
 
 Behaviour that changed, each with a case:
 

@@ -322,9 +322,7 @@ void buf_reload_from_disk(void)
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
 
-	suppress_undo = 1;
 	commit_load_result(&res);
-	suppress_undo = 0;
 
 	free_load_result(&res);
 
@@ -2043,15 +2041,15 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 	}
 
 	struct editor_buffer *b = &buflist[buffer_index];
+	size_t total = buffer_byte_length(b);
 
-	if (b->numrows > 0) {
-		erow *row = &b->row[b->numrows - 1];
-		if (len_to_remove <= (size_t)row->size) {
-			row->size -= len_to_remove;
-			row->chars[row->size] = '\0';
-			editor_update_row(b, row);
-		}
+	if (len_to_remove > total) {
+		return;
 	}
+
+	struct kg_edit e = kg_edit_internal(
+	    b, total - len_to_remove, total, "", 0);
+	(void)kg_buffer_replace(&e, NULL);
 }
 
 /* Stage the *Buffer List* rows from the buflist[] snapshot. */

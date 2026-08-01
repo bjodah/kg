@@ -6,9 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cmdstate.h"
 #include "decor.h"
 #include "def.h"
 #include "edit.h"
+#include "event.h"
 #include "marker.h"
 #include "perf.h"
 #include "syntax.h"
@@ -1620,6 +1622,22 @@ static void edit_publish(
 	}
 }
 
+/* The handle naming `b`, found the same way marker.c's buffer_get_handle()
+ * does: neither module has a live buffer's own handle to hand, so this is
+ * a linear search of the buffer table rather than a stored field.  A
+ * buffer not found in the table (NULL, or not one of buflist[]'s slots)
+ * answers a handle that names nothing. */
+static struct kg_buffer_handle buffer_get_handle(const struct editor_buffer *b)
+{
+	for (int i = 0; b && i < MAX_BUFFERS; i++) {
+		if (b == &buflist[i]) {
+			return buf_handle(i);
+		}
+	}
+	struct kg_buffer_handle zero = { -1, 0, 0 };
+	return zero;
+}
+
 /* Replace the bytes [begin_byte, end_byte) of `e->buffer` with
  * `e->replacement`, as one step: one undo record, one step of the
  * modified flag and the content generation, one row rebuild per row the
@@ -1635,6 +1653,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 {
 	struct editor_buffer *b = e->buffer;
 	struct edit_staged st = { 0 };
+	size_t old_total;
 	int r0, c0, r1, c1;
 
 	if (out) {
@@ -1643,10 +1662,11 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	if (!edit_valid(e) || !edit_ensure_one_row(b)) {
 		return 0;
 	}
+	old_total = buffer_byte_length(b);
 	if (out) {
-		out->old_length = buffer_byte_length(b);
+		out->old_length = old_total;
 		out->before_generation = b->content_generation;
-		out->new_length = out->old_length;
+		out->new_length = old_total;
 		out->after_generation = out->before_generation;
 	}
 	buffer_position_to_row_col(b, e->begin_byte, &r0, &c0);
@@ -1675,6 +1695,16 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 		out->new_length = buffer_byte_length(b);
 		out->after_generation = b->content_generation;
 	}
+	/* Byte, marker and decoration publication have all succeeded past
+	 * this point, so the edit is real: tell the queue after everything
+	 * else a subscriber could observe is already true, never before. */
+	kg_event_queue_text_change(buffer_get_handle(b), e->begin_byte,
+	    e->end_byte - e->begin_byte, e->replacement_len,
+	    (struct kg_event_buffer_extent) {
+		.old_total_len = old_total,
+		.new_total_len = buffer_byte_length(b),
+	    },
+	    b->content_generation, cmd_state()->this_command);
 	return 1;
 }
 
@@ -1827,6 +1857,8 @@ void kg_row_builder_free(erow **rows, int *numrows, int *row_capacity)
 void kg_buffer_adopt_rows(
     struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity)
 {
+	size_t old_total = buffer_byte_length(b);
+
 	/* A staged adoption has no edit span through which old positions can
 	 * be relocated.  Its documented broad-replacement policy is therefore
 	 * to detach every marker before the old rows disappear; every
@@ -1847,6 +1879,12 @@ void kg_buffer_adopt_rows(
 
 	b->dirty = 0;
 	b->content_generation++;
+	kg_event_queue_broad_change(buffer_get_handle(b),
+	    (struct kg_event_buffer_extent) {
+		.old_total_len = old_total,
+		.new_total_len = buffer_byte_length(b),
+	    },
+	    b->content_generation);
 }
 
 void kg_buffer_append_internal(

@@ -190,7 +190,8 @@ KG_PTY_EMACS ?=
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
-                 $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o
+                 $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
+                 $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
 # Per-run machine-readable test results (gitignored).  Both layers write

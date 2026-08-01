@@ -157,6 +157,74 @@ static void test_event_refused_and_noop_edits_queue_nothing(void)
 	CHECK(r2.before_generation == r2.after_generation);
 	CHECK(kg_event_queue_pop(NULL) == false);
 
+	bcur()->readonly = 1;
+	struct kg_edit ro = kg_edit_user(bcur(), 0, 5, "world", 5);
+	struct kg_edit_result r3 = { 0 };
+	CHECK(kg_buffer_replace(&ro, &r3) == 0);
+	CHECK(r3.before_generation == r3.after_generation);
+	CHECK(kg_event_queue_pop(NULL) == false);
+	bcur()->readonly = 0;
+
+	teardown();
+}
+
+/* ---- a successful edit produces exactly one exact change event -----------
+ */
+
+static void test_event_successful_edit_produces_one_exact_event(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "hello", 5);
+	uint64_t before_gen = bcur()->content_generation;
+
+	struct kg_edit e = kg_edit_user(bcur(), 1, 3, "ELLO", 4);
+	struct kg_edit_result r = { 0 };
+	CHECK(kg_buffer_replace(&e, &r) == 1);
+	CHECK(r.after_generation == before_gen + 1);
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_CHANGED);
+	CHECK(ev.payload.changed.buffer.slot == 0);
+	CHECK(ev.payload.changed.begin_byte == 1);
+	CHECK(ev.payload.changed.old_len == 2);
+	CHECK(ev.payload.changed.new_len == 4);
+	CHECK(ev.payload.changed.generation == r.after_generation);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	teardown();
+}
+
+/* ---- kg_buffer_adopt_rows produces exactly one broad event ---------------
+ */
+
+static void test_event_adopt_rows_produces_one_broad_event(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "one", 3);
+	editor_insert_row(bcur(), 1, "two", 3);
+	size_t old_total = buffer_byte_length(bcur());
+
+	erow *rows = NULL;
+	int numrows = 0, row_capacity = 0;
+	struct editor_buffer staged = { .active = 1 };
+	editor_insert_row(&staged, 0, "abcde", 5);
+	rows = staged.row;
+	numrows = staged.numrows;
+	row_capacity = staged.row_capacity;
+
+	kg_buffer_adopt_rows(bcur(), &rows, &numrows, &row_capacity);
+	size_t new_total = buffer_byte_length(bcur());
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(ev.payload.broad.buffer.slot == 0);
+	CHECK(ev.payload.broad.extent.old_total_len == old_total);
+	CHECK(ev.payload.broad.extent.new_total_len == new_total);
+	CHECK(ev.payload.broad.generation == bcur()->content_generation);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
 	teardown();
 }
 
@@ -694,6 +762,8 @@ int main(void)
 {
 	RUN(test_event_payload_constructors);
 	RUN(test_event_refused_and_noop_edits_queue_nothing);
+	RUN(test_event_successful_edit_produces_one_exact_event);
+	RUN(test_event_adopt_rows_produces_one_broad_event);
 	RUN(test_event_exact_ordering);
 	RUN(test_event_coalescing_merges_contained_edit);
 	RUN(test_event_coalescing_refuses_ineligible_pairs);

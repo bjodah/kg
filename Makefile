@@ -237,7 +237,23 @@ SCC_COMPLEXITY_PATHS ?= src
 # produce and the row primitive the rectangle migration orphaned took
 # that to 4144.  The cap is the measurement again, as it was before the
 # describe slice.
-SCC_COMPLEXITY_MAX ?= 4144
+#
+# Raised 4144 -> 4200 for Plan 01's decoder flag day (wave 2): C has no
+# switch on a struct, so every switch(legacy int) the flag day touched
+# (tty.c's parse_escape() escape-key names, search.c's
+# isearch_handoff_key(), bufmgr.c's minibuf_edit_key(), kbd.c's
+# CTRL_G/shift-select dispatch) became comparisons instead, and several
+# sites also gained a `mods == 0` guard the old encoding's disjoint
+# numeric ranges used to give for free (Ctrl-a's key_event base is the
+# same 'a' the bare letter uses, unlike the legacy int).  Table-driven
+# dispatch (the shift_motions[]-shaped pattern already in kbd.c) funded
+# most of it back -- isearch_handoff_key() and minibuf_edit_key() both
+# gained a second lookup table for exactly this -- but not all of it.
+# Measured 4161 after the slice, 4200 is this wave's agreed integration
+# ceiling (three slices landing against the same baseline), not a
+# reviewed exception of its own; the maintainer's integration commit is
+# where the wave's total gets re-measured and banked.
+SCC_COMPLEXITY_MAX ?= 4200
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

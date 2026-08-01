@@ -1,0 +1,14 @@
+# Accepting isearch (RET) deletes its match decoration -- there is no
+# row->hl paint left to worry about restoring any more.  Typing right at
+# the old match's end boundary immediately afterward has to land cleanly,
+# which it would not if a stale decoration (or its markers) were still
+# occupying that span.
+name: decor-isearch-accept-clears
+filename: decor-isearch-accept.txt
+initial: "hello world\n"
+keys:
+  - C-s
+  - world
+  - RET
+  - "!"
+expected_saved: "hello world!\n"

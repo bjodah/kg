@@ -1,0 +1,29 @@
+# Row join during query-replace: searching for a literal newline (C-q C-j)
+# and accepting the replacement joins two rows through
+# query_replace_newline_at(), src/search.c's one row-joining edit path.
+# That path never painted a match highlight even before this migration
+# (editor_query_replace() dispatches to it before ever creating one), so
+# there is no decoration of its own to retire here -- the point of this
+# case is to pin that the row-joining edit still works correctly now that
+# every OTHER match in this file is shown through a marker-anchored
+# decoration living in the same per-buffer store buffer.c compacts after
+# every edit, join included.
+name: decor-query-replace-row-join
+filename: decor-qr-join.txt
+backend: tmux
+dimensions: [10, 40]
+initial: |
+  once
+  upon
+keys:
+  - M-h
+  - "M-%"
+  - C-q
+  - C-j
+  - RET
+  - SPC
+  - RET
+  - "!"
+expected_saved: "once upon "
+expected_screen_contains:
+  - "once upon"

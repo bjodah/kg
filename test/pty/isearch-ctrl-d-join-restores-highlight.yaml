@@ -1,5 +1,20 @@
+# C-d hands off from isearch to editor_del_forward_char(): point sits right
+# after the "ab" match, at the end of row 0, so the forward-delete removes
+# the newline and joins row 1 into row 0.  The match decoration spans
+# [0, 2) of row 0; the join's edit touches [2, 3) (the newline byte), which
+# does not overlap it, so the decoration's start/end markers relocate
+# unchanged (right/left gravity keeps the end marker from being dragged
+# into the join) and it survives the join intact before the handoff exit
+# path deletes it a moment later.  This used to be hl_snapshot_restore()'s
+# job: it declined to restore whenever content_generation had moved (any
+# edit bumps it), leaving the question of whether row 0's paint was still
+# right to whatever the syntax highlighter did on its own re-scan.  A
+# decoration answers that question by construction instead of by generation
+# check, which is what this case pins now.
 name: isearch-ctrl-d-join-restores-highlight
 filename: join.txt
+backend: tmux
+dimensions: [10, 40]
 initial: |
   ab
   cdefghijklmnopqrstuvwxyz0123456789
@@ -9,3 +24,5 @@ keys:
   - C-d
 expected_saved: |
   abcdefghijklmnopqrstuvwxyz0123456789
+expected_screen_contains:
+  - "abcdefghijklmnopqrstuvwxyz0123456789"

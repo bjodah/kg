@@ -1,0 +1,18 @@
+# Cancelling isearch (ESC) deletes the match decoration and restores
+# point to where the search began.  Typing right after cancel has to land
+# at the ORIGINAL point, not at the abandoned match -- which is also
+# where the decoration's markers used to be, so a leftover one could
+# quietly shift where typed text lands.
+name: decor-isearch-cancel-restores-point
+filename: decor-isearch-cancel.txt
+# ESC and the following X must land more than 100ms apart, or kg's
+# decoder merges them into one Meta-X (execute-extended-command) instead
+# of "cancel isearch, then self-insert".
+key_delay: 0.15
+initial: "hello world\n"
+keys:
+  - C-s
+  - world
+  - ESC
+  - X
+expected_saved: "Xhello world\n"

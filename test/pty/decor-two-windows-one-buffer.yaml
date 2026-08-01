@@ -1,0 +1,68 @@
+# A decoration lives on the buffer, not the window: isearch runs in the
+# upper window, matching text near the top of the file, while the lower
+# window (split from the same buffer) is scrolled to show the bottom.
+# Both windows have to keep rendering their own slice correctly through
+# the search and the accepted edit -- the buffer-owned decoration store
+# is not itself window-scoped, and row_decor_spans() (src/display.c)
+# queries it fresh for whichever row each window is drawing.
+name: decor-two-windows-one-buffer
+filename: decor-two-windows.txt
+backend: tmux
+dimensions: [14, 40]
+initial: |
+  line01
+  line02
+  line03
+  line04
+  line05
+  line06
+  line07
+  line08
+  line09
+  line10
+  line11
+  line12
+  line13
+  line14
+  line15
+  line16
+  line17
+  line18
+  line19
+  line20
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - M->
+  - C-x
+  - o
+  - C-s
+  - line01
+  - RET
+  - "!"
+expected_saved: |
+  line01!
+  line02
+  line03
+  line04
+  line05
+  line06
+  line07
+  line08
+  line09
+  line10
+  line11
+  line12
+  line13
+  line14
+  line15
+  line16
+  line17
+  line18
+  line19
+  line20
+expected_screen_contains:
+  - "line01!"
+  - "line20"

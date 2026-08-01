@@ -1,0 +1,23 @@
+# An editing handoff key (C-d) both edits the buffer and ends the search
+# in the same step: the match decoration's markers relocate through that
+# edit (a mid-row delete here, not a row join -- see
+# isearch-ctrl-d-join-restores-highlight.yaml for that case), and then
+# the handoff exit path deletes the decoration regardless of what the
+# edit left it pointing at.  A second isearch run right after has to work
+# normally, proving nothing from the first one leaked.
+name: decor-isearch-edit-clears-highlight
+filename: decor-isearch-editclear.txt
+backend: tmux
+dimensions: [10, 40]
+initial: "alpha beta gamma\n"
+keys:
+  - C-s
+  - beta
+  - C-d
+  - C-s
+  - gamma
+  - RET
+  - "!"
+expected_saved: "alpha betagamma!\n"
+expected_screen_contains:
+  - "alpha betagamma!"

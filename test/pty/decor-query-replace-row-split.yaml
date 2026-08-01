@@ -1,0 +1,29 @@
+# Row split during query-replace: the replacement text holds a literal
+# newline (C-q C-j), so accepting it splits the row the match was on.  The
+# match's decoration is deleted before the edit runs (src/search.c's single-
+# owner discipline), so this is a regression proof that a row-splitting
+# replace still works correctly now that a decoration, not a row->hl paint,
+# is what briefly marked the match -- and a screen check that the split
+# content actually renders.
+name: decor-query-replace-row-split
+filename: decor-qr-split.txt
+backend: tmux
+dimensions: [10, 40]
+initial: "aXaXa\n"
+keys:
+  - ESC
+  - "%"
+  - "X"
+  - RET
+  - C-q
+  - C-j
+  - Y
+  - RET
+  - "!"
+expected_saved: |
+  a
+  Ya
+  Ya
+expected_screen_contains:
+  - "Ya"
+

@@ -1,0 +1,16 @@
+# Typing more of the query re-searches from isearch's own origin every
+# time, so the match decoration has to move, not just grow: "ca" first
+# matches inside "cat" at the start of the line, and extending the query
+# to "cap" relocates the match (and its decoration) to the later "cap".
+# Accepting and typing right at the new match's end has to land there,
+# not at the abandoned "cat" match.
+name: decor-isearch-query-change-updates-match
+filename: decor-isearch-querychange.txt
+initial: "cat cap car\n"
+keys:
+  - C-s
+  - ca
+  - p
+  - RET
+  - "!"
+expected_saved: "cat cap! car\n"

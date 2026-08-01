@@ -1,0 +1,45 @@
+# A search's match decoration never outlives do_isearch() -- every exit
+# path (accept, cancel, handoff) deletes it before the function returns,
+# so by the time any other command can run, nothing is left in the
+# buffer's decoration store for a buffer switch or a kill to trip over.
+# This is the regression proof for that: switch away mid-way through
+# editing (after an accepted search), come back, then kill the buffer
+# isearch ran in, all without a crash or a leftover decoration wedging
+# open a resource kg_decor_store_free() should have released.
+#
+# C-x C-f opens the second file as a real buffer (config_files only
+# plants it on disk; C-x b would just create an empty buffer of that
+# name), matching kill-buffer-takes-every-window-with-it.yaml's pattern.
+name: decor-isearch-buffer-switch-and-kill
+filename: decor-switch-a.txt
+backend: tmux
+dimensions: [12, 50]
+config_files:
+  decor-switch-b.txt: |
+    BBBBB
+initial: |
+  alpha beta gamma
+keys:
+  - C-s
+  - beta
+  - RET
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/decor-switch-b.txt"
+  - RET
+  - C-x
+  - b
+  - "decor-switch-a.txt"
+  - RET
+  - C-x
+  - k
+  - RET
+  - C-x
+  - o
+expected_saved: |
+  alpha beta gamma
+expected_screen_contains:
+  - "BBBBB"
+trailer_keys: [C-x, C-c, "y"]

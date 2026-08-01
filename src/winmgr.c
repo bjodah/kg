@@ -5,6 +5,7 @@
 
 #include "bufhandle.h"
 #include "def.h"
+#include "event.h"
 
 struct editor_window winlist[MAX_WINDOWS];
 int win_current = 0;
@@ -362,6 +363,25 @@ void win_init(void)
 	win_reflow();
 }
 
+/* Publish the KG_EVENT_VIEW_ATTACHED a split's new window earns.  Unlike
+ * buf_attach_view(), `w` already shows the buffer by the time this runs --
+ * the struct copy in win_split_horizontal()/win_split_vertical() did that,
+ * deliberately, so the new view keeps the split window's own point rather
+ * than resuming at the buffer's last_point -- so this only announces the
+ * attach that already happened.  A refused reservation costs only the
+ * event: `w` is correctly attached either way, the same as any other
+ * lifecycle producer's refusal. */
+static void win_publish_split_attach(struct editor_window *w)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	if (!res.valid) {
+		return;
+	}
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_view_attached(win_handle_of(w), w->buf));
+}
+
 /* Split the current window horizontally (C-x 2): the current window shrinks
  * to the top half; a new window showing the same buffer appears below.
  * The new window stays in the same column group. */
@@ -399,6 +419,7 @@ void win_split_horizontal(void)
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 	win_claim_slot(slot);
+	win_publish_split_attach(&winlist[slot]);
 
 	win_count++;
 	win_reflow();
@@ -442,6 +463,7 @@ void win_split_vertical(void)
 	winlist[slot].active = 1;
 	winlist[slot].col_group = max_cg + 1;
 	win_claim_slot(slot);
+	win_publish_split_attach(&winlist[slot]);
 
 	win_count++;
 	win_reflow();

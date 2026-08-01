@@ -6,6 +6,7 @@
 #include <string.h>
 
 void kg_marker_store_free(struct editor_buffer *b) __attribute__((weak));
+void kg_decor_store_free(struct editor_buffer *b) __attribute__((weak));
 
 int tests_run = 0;
 int tests_failed = 0;
@@ -42,6 +43,9 @@ void reset_current_buffer(void)
 	struct editor_buffer keep = *b;
 
 	free_all_rows();
+	if (kg_decor_store_free) {
+		kg_decor_store_free(b);
+	}
 	if (kg_marker_store_free) {
 		kg_marker_store_free(b);
 	}

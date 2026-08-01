@@ -104,6 +104,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
            $(TESTDIR)/test_describe $(TESTDIR)/test_marker \
+           $(TESTDIR)/test_decor \
            $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -575,6 +576,7 @@ EXTRA_describe    := $(EXTRA_cmd)
 EXTRA_keyevent    := $(TESTDIR)/stubs.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_marker      := $(EXTRA_buffer)
+EXTRA_decor       := $(EXTRA_buffer)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

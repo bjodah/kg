@@ -17,7 +17,6 @@
 /* Globals required by def.h but unused by the localvars parser. */
 struct editor_config editor;
 int running = 1;
-int suppress_undo = 0;
 int global_auto_revert = 0;
 int electric_pairs = 0;
 int kg_exit_status = 0;

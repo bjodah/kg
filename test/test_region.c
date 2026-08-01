@@ -17,7 +17,6 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	wcur()->h = 24;
 	wcur()->w = 80;
-	suppress_undo = 0;
 	undo_free();
 	undo_init();
 	kill_ring_free();

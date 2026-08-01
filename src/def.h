@@ -253,33 +253,12 @@ struct kill_ring {
 	int len; /* Length of text */
 };
 
-/* Undo operation types */
-enum undo_type {
-	UNDO_INSERT_CHAR,
-	UNDO_SPLIT_LINE,
-	UNDO_JOIN_LINE,
-	UNDO_KILL_TEXT, /* Kill line or region */
-	UNDO_YANK_TEXT, /* Yank (paste) */
-	UNDO_REPLACE_TEXT, /* Replace span at row/col; c = replacement length */
-	UNDO_REFLOW_PARA, /* M-q paragraph reflow */
-	UNDO_RECT_OVERWRITE, /* Rectangle kill/delete/clear/yank: restore rows
-			      */
-	/* One replacement of a byte range, addressed by flat position:
-	 * what an edit through kg_buffer_replace() records, and what the
-	 * eight opcodes above are being migrated to.  It needs no variant
-	 * per kind of edit because every edit is one of these. */
-	UNDO_CHANGE
-};
-
-/* Single undo operation */
+/* Single undo operation (recording one flat-position byte range change) */
 struct undo_op {
-	enum undo_type type;
-	size_t position; /* UNDO_CHANGE: flat byte position of the change */
-	int row; /* Row where operation occurred */
-	int col; /* Column where operation occurred */
-	int c; /* Character (for char operations); UNDO_CHANGE: new length */
-	char *text; /* Line text (for line operations) */
-	int len; /* Length of text */
+	size_t position; /* flat byte position of the change */
+	int c;           /* replacement (new) length */
+	char *text;      /* old text (for restoration) */
+	int len;         /* old text length */
 	struct undo_op *next;
 };
 
@@ -375,7 +354,6 @@ struct editor_buffer {
 extern struct editor_config editor;
 extern int running;
 extern int kg_exit_status; /* Process exit status returned by main(). */
-extern int suppress_undo;
 extern struct kill_ring killring;
 extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
@@ -543,15 +521,14 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
 int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
-void buffer_note_change(struct editor_buffer *b);
 void editor_update_row(struct editor_buffer *b, erow *row);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
 int editor_row_grown_capacity(int need);
 void editor_insert_row(
     struct editor_buffer *b, int at, const char *s, size_t len);
+void editor_del_row(struct editor_buffer *b, int at);
 void editor_free_row(erow *row);
 void editor_free_all_rows(struct editor_buffer *b);
-void editor_del_row(struct editor_buffer *b, int at);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
 void editor_row_insert_string(erow *row, int at, const char *s, int len);
@@ -1044,8 +1021,6 @@ void undo_stack_init(struct undo_stack *st);
 void undo_stack_free(struct undo_stack *st);
 void undo_init(void);
 void undo_free(void);
-int undo_push(struct editor_buffer *b, enum undo_type type, int row, int col,
-    int c, char *text, int len);
 int undo_push_change(struct editor_buffer *b, size_t position, char *old_text,
     int old_len, int new_len);
 void editor_undo(void);

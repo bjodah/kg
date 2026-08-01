@@ -11,7 +11,6 @@ int test_command_calls;
 /* Globals normally defined in main.c */
 struct editor_config editor;
 int running = 1;
-int suppress_undo = 0;
 
 /* Globals normally defined in bufmgr.c */
 struct editor_buffer buflist[MAX_BUFFERS];

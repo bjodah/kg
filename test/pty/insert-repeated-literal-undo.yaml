@@ -1,11 +1,6 @@
-# `C-u 3 x` inserts three characters as one bulk insertion but records one
-# undo step per character, so three C-_ take them off one at a time and two
-# leave a single "x" behind.  Emacs behaves the same way.
-#
-# The per-character records are pushed only when the bulk insertion is
-# known to have happened.  `editor_insert_repeated_literal()` used to compare
-# the dirty counter and now compares content generation; this case says the
-# records are still pushed, and still one per character.
+# `C-u 3 x` inserts three characters as one edit transaction, recorded as one
+# undo step through the edit gateway, matching Emacs.  Undoing it with C-_
+# removes all three characters in one step.
 name: insert-repeated-literal-undo
 filename: insert-repeated-literal-undo.txt
 initial: "ab"
@@ -15,4 +10,4 @@ keys:
   - x
   - C-_
   - C-_
-expected_saved: "xab"
+expected_saved: "ab"

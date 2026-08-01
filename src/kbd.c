@@ -38,24 +38,14 @@ static int key_can_batch_literal_insert(int c)
 static void editor_insert_repeated_literal(int c, int n)
 {
 	char text[PREFIX_ARG_MAX];
-	int start_row, start_col;
-	uint64_t generation_before;
-	int i;
-
-	memset(text, c, n);
-
-	start_row = editor_current_filerow_or_eof();
-	start_col = editor_current_filecol();
-	generation_before = bcur()->content_generation;
-	editor_insert_text_raw(text, n);
-	if (bcur()->content_generation != generation_before) {
-		for (i = 0; i < n; i++) {
-			int col
-			    = start_col > INT_MAX - i ? INT_MAX : start_col + i;
-			undo_push(bcur(), UNDO_INSERT_CHAR, start_row, col, c,
-			    NULL, 0);
-		}
+	if (n <= 0) {
+		return;
 	}
+	if (n > (int)sizeof(text)) {
+		n = (int)sizeof(text);
+	}
+	memset(text, c, n);
+	editor_insert_text_at_point(text, n);
 }
 
 /* C-u universal-argument: accumulate a numeric prefix.  Returns 1 if `c`
@@ -172,28 +162,43 @@ void key_kill_lines(int n)
 {
 	int start_row = editor_current_filerow_or_eof();
 	int start_col = editor_current_filecol();
-	int prev_kill_len = killring.len;
-	int newlines_left = n;
-	int killed_len;
+	int start_pos;
+	int end_pos;
+	int r, c;
+	int newlines_left;
 
-	suppress_undo = 1;
-	while (newlines_left > 0) {
-		int before_numrows = bcur()->numrows;
-		int before_ring_len = killring.len;
+	if (start_row >= bcur()->numrows || n <= 0) {
+		return;
+	}
 
-		editor_kill_line();
-		if (killring.len == before_ring_len) {
-			break;
-		}
-		if (bcur()->numrows < before_numrows) {
-			newlines_left--;
+	start_pos = (int)buffer_row_col_to_position(bcur(), start_row, start_col);
+	r = start_row;
+	c = start_col;
+	newlines_left = n;
+
+	while (newlines_left > 0 && r < bcur()->numrows) {
+		erow *row = &bcur()->row[r];
+		if (c < row->size) {
+			kill_ring_append(row->chars + c, row->size - c);
+			c = row->size;
+		} else {
+			if (r + 1 < bcur()->numrows) {
+				kill_ring_append("\n", 1);
+				r++;
+				c = 0;
+				newlines_left--;
+			} else {
+				break;
+			}
 		}
 	}
-	suppress_undo = 0;
-	killed_len = killring.len - prev_kill_len;
-	if (killed_len > 0) {
-		undo_push(bcur(), UNDO_KILL_TEXT, start_row, start_col, 0,
-		    killring.text + prev_kill_len, killed_len);
+
+	end_pos = (int)buffer_row_col_to_position(bcur(), r, c);
+	if (end_pos > start_pos) {
+		struct kg_edit e = kg_edit_user(
+		    bcur(), (size_t)start_pos, (size_t)end_pos, "", 0);
+		(void)kg_buffer_replace(&e, NULL);
+		editor_cursor_goto(start_row, start_col);
 	}
 }
 

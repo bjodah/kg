@@ -11,7 +11,6 @@
 
 struct editor_config editor;
 int running = 1;
-int suppress_undo = 0;
 int global_auto_revert = 0;
 /* Enabled under fuzzing so the pairing path stays covered. */
 int electric_pairs = 1;

@@ -10,26 +10,11 @@
  ],
  "files": {
   "src/buffer.c": {
-   "row_primitive": 26,
-   "undo_push": 3,
-   "suppress_undo": 4,
-   "row_field_write": 22
+   "row_primitive": 24,
+   "row_field_write": 20
   },
   "src/bufmgr.c": {
    "row_primitive": 3
-  },
-  "src/kbd.c": {
-   "undo_push": 2,
-   "suppress_undo": 2
-  },
-  "src/main.c": {
-   "suppress_undo": 1
-  },
-  "src/undo.c": {
-   "row_primitive": 9,
-   "undo_push": 1,
-   "suppress_undo": 5,
-   "row_field_write": 4
   }
  }
 }

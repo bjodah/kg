@@ -43,7 +43,6 @@ static void setup(void)
 	win_total_rows = 24;
 	win_total_cols = 80;
 	win_init();
-	suppress_undo = 0;
 	running = 1;
 	undo_free();
 	undo_init();
@@ -615,8 +614,7 @@ static void test_undo_eviction_walk(void)
 	editor_insert_row(bcur(), 0, "text", 4);
 	kg_perf_reset();
 	for (i = 0; i < max + 8; i++) {
-		CHECK(undo_push(bcur(), UNDO_INSERT_CHAR, 0, 0, 'x', NULL, 0)
-		    == 1);
+		CHECK(undo_push_change(bcur(), 0, "x", 1, 1) == 1);
 	}
 	CHECK(bcur()->undostack.size == max);
 	/* Trimming keeps max_size - 1 records, so a full stack evicts on

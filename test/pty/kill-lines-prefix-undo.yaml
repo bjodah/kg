@@ -16,6 +16,6 @@ keys:
   - C-_
   - 'X'
 expected_saved: |
-  one
+  Xone
   two
-  Xthree
+  three

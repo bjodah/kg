@@ -44,7 +44,6 @@ static void reset_state(void)
 	memset(buflist, 0, sizeof(buflist));
 	memset(winlist, 0, sizeof(winlist));
 	running = 1;
-	suppress_undo = 0;
 	global_auto_revert = 0;
 	buf_current = 0;
 	buf_count = 1;

@@ -284,9 +284,6 @@ static void cmd_whitespace_cleanup(int fd)
 		}
 	}
 
-	if (changed) {
-		buffer_note_change(bcur());
-	}
 	editor_set_status_message(changed
 		? "Removed trailing whitespace from %d line%s."
 		: "No trailing whitespace found.",
@@ -311,7 +308,6 @@ static void cmd_delete_trailing_space(int fd)
 		    "No trailing whitespace on this line");
 		return;
 	}
-	buffer_note_change(bcur());
 	editor_set_status_message(
 	    "Removed %d trailing space%s", removed, removed == 1 ? "" : "s");
 }

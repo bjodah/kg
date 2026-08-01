@@ -21,7 +21,6 @@ static void setup(void)
 	memset(&editor, 0, sizeof(editor));
 	wcur()->h = 24;
 	wcur()->w = 80;
-	suppress_undo = 0;
 	undo_free();
 	undo_init();
 }
@@ -2023,7 +2022,7 @@ static void test_rect_mode_self_insert_glyph_in_virtual_space(void)
 	CHECK(bcur()->undostack.size == 1);
 	editor_undo();
 	text = buffer_text();
-	CHECK(strcmp(text, "ab   ") == 0);
+	CHECK(strcmp(text, "ab") == 0);
 	free(text);
 	bcur()->rect_mode = 0;
 	teardown();
@@ -2232,7 +2231,7 @@ static void test_reflow_undo_rows_are_sortable(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "b a", 3);
-	undo_push(bcur(), UNDO_REFLOW_PARA, 0, 1, 0, "b\na", 3);
+	undo_push_change(bcur(), 0, "b\na", 3, 3);
 
 	editor_undo();
 
@@ -2265,7 +2264,7 @@ static void test_rect_overwrite_undo_terminates_rows(void)
 	setup();
 	editor_insert_row(bcur(), 0, "XX", 2);
 	editor_insert_row(bcur(), 1, "YY", 2);
-	undo_push(bcur(), UNDO_RECT_OVERWRITE, 0, 0, 2, "ab\ncd", 5);
+	undo_push_change(bcur(), 0, "ab\ncd", 5, 5);
 
 	editor_undo();
 

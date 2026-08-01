@@ -8,7 +8,6 @@
 /* Globals normally defined in main.c */
 struct editor_config editor;
 int running = 1;
-int suppress_undo = 0;
 
 /* The window globals and the win_* entry points live in stubs_win.c: this
  * file is also linked by test_winmgr, which brings the real winmgr.o. */

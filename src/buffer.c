@@ -1172,52 +1172,8 @@ void editor_row_del_char(erow *row, int at)
 /* Insert the specified char at the current prompt position. */
 void editor_insert_char(int c)
 {
-	erow *row;
-	int filerow;
-	int filecol;
-
-	filerow = editor_current_filerow_or_eof();
-	filecol = editor_current_filecol();
-	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
-
-	/* If the row where the cursor is currently located does not exist in
-	 * our logical representation of the file, add enough empty rows as
-	 * needed. */
-	if (!row) {
-		if (!bcur()->row && bcur()->numrows > 0) {
-			editor_nomem();
-			return;
-		}
-		while (bcur()->numrows <= filerow) {
-			editor_insert_row(bcur(), bcur()->numrows, "", 0);
-		}
-		if (bcur()->numrows <= filerow) {
-			return;
-		}
-	}
-	if (filerow >= bcur()->numrows) {
-		return;
-	}
-	row = &bcur()->row[filerow];
-	if (!bcur()->rect_mode && filecol > row->size) {
-		filecol = row->size;
-		editor_cursor_goto(filerow, filecol);
-	}
-	if (editor_virtual_insert_gap_too_large(row, filecol)) {
-		editor_nomem();
-		return;
-	}
-
-	/* Record undo operation */
-	undo_push(bcur(), UNDO_INSERT_CHAR, filerow, filecol, c, NULL, 0);
-
-	editor_row_insert_char(row, filecol, c);
-	if (wcur()->cx == wcur()->w - 1) {
-		wcur()->coloff++;
-	} else {
-		wcur()->cx++;
-	}
-	buffer_note_change(bcur());
+	char ch = (char)c;
+	editor_self_insert_glyph(&ch, 1);
 }
 
 /* Insert `text` at point as one edit and leave point after it.  The
@@ -1260,16 +1216,13 @@ void editor_insert_newline_raw(void) { editor_insert_text_at_point("\n", 1); }
  * range at point, whether or not the text carries separators. */
 void editor_insert_text_raw(const char *text, int len)
 {
-	int saved = suppress_undo;
 	int i = 0;
 
 	if (len <= 0) {
 		return;
 	}
-	suppress_undo = 1;
 	if (!bcur()->rect_mode) {
 		editor_insert_text_raw_bulk(text, len);
-		suppress_undo = saved;
 		return;
 	}
 	while (i < len) {
@@ -1303,7 +1256,6 @@ void editor_insert_text_raw(const char *text, int len)
 			    filerow, editor_saturating_add(filecol, run_len));
 		}
 	}
-	suppress_undo = saved;
 }
 
 /* Inserting a newline is slightly complex as we have to handle inserting a
@@ -2041,40 +1993,11 @@ void editor_toggle_overwrite_mode(void)
 
 void editor_overwrite_char(int c)
 {
-	int filerow = editor_current_filerow_or_eof();
-	int filecol = editor_current_filecol();
-	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
-	int old_len;
-
-	if (!row || filecol >= row->size) {
-		editor_insert_char(c);
-		return;
-	}
-
-	old_len = utf8_glyph_span_at(row->chars, row->size, filecol);
-
-	if (!undo_push(bcur(), UNDO_REPLACE_TEXT, filerow, filecol, 1,
-		row->chars + filecol, old_len)) {
-		editor_nomem();
-		return;
-	}
-
-	row->chars[filecol] = (char)c;
-	if (old_len > 1) {
-		memmove(row->chars + filecol + 1,
-		    row->chars + filecol + old_len,
-		    row->size - filecol - old_len + 1);
-		row->size -= (old_len - 1);
-	}
-
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
-
-	if (wcur()->cx == wcur()->w - 1) {
-		wcur()->coloff++;
-	} else {
-		wcur()->cx++;
-	}
+	char ch = (char)c;
+	int old_mode = bcur()->overwrite_mode;
+	bcur()->overwrite_mode = 1;
+	editor_self_insert_glyph(&ch, 1);
+	bcur()->overwrite_mode = old_mode;
 }
 
 /* Self-insert one whole multi-byte character, the `seq` bytes (`len` of
@@ -2099,14 +2022,34 @@ void editor_self_insert_glyph(const char *seq, int len)
 	erow *row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	int old_len = 0;
 
+	if (row && !bcur()->rect_mode && filecol > row->size) {
+		filecol = row->size;
+		editor_cursor_goto(filerow, filecol);
+	}
+
 	/* A rectangle mark puts point in virtual space past the end of its
 	 * row, and point can sit below the last row.  Neither is a byte
 	 * range, so both keep the padding insertion, and the record that
 	 * covers the whole glyph with it. */
 	if (!row || filecol > row->size) {
-		if (undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, NULL,
-			len)) {
-			editor_insert_text_raw(seq, len);
+		int target_col = row ? row->size : 0;
+		int pad = filecol - target_col;
+		if (pad > 0) {
+			char *buf = malloc((size_t)pad + (size_t)len);
+			if (buf) {
+				memset(buf, ' ', (size_t)pad);
+				memcpy(buf + pad, seq, (size_t)len);
+				size_t pos = buffer_row_col_to_position(
+				    bcur(), filerow, target_col);
+				struct kg_edit e = kg_edit_user(
+				    bcur(), pos, pos, buf, (size_t)(pad + len));
+				if (kg_buffer_replace(&e, NULL)) {
+					editor_cursor_goto(filerow, filecol + len);
+				}
+				free(buf);
+			}
+		} else {
+			editor_insert_text_at_point(seq, len);
 		}
 		return;
 	}

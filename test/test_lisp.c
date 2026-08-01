@@ -42,7 +42,6 @@ static void setup_editor(void)
 	wcur()->h = 24;
 	wcur()->w = 80;
 	bcur()->filename = "/tmp/bridge.txt";
-	suppress_undo = 0;
 	undo_init();
 	test_status_message[0] = '\0';
 	test_command_name[0] = '\0';

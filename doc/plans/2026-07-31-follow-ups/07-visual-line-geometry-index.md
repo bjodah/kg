@@ -1,5 +1,80 @@
 # Plan 07 — Visual-line geometry cache and index
 
+## Status (2026-08-01, after phases 0-1)
+
+Phases 0 and 1 are done; phases 2-5 are not started.  The `visual-line-100k`
+benchmark reproduced the program's cited baseline exactly (13,999,212 row
+scans, 713,958,945 row bytes, on the code before either phase) before any
+change landed, per rule 1's "characterization precedes changed behavior."
+
+- **Phase 0** added `KG_PERF_VISUAL_PREFIX_VISIT` (rows visited by the
+  segment-summing walks, independent of whether a visit rescans bytes) and
+  split the bench matrix the phase asked for: warm/motion, edit, resize (a
+  mid-session `TIOCSWINSZ`, new to `utils/bench.py`), an unequal-width
+  vertical split, window-count variants (vertical/horizontal/four), buffer
+  position (top/middle/end), and tabs/invalid-byte corpora, alongside the
+  existing tabs-free/unicode ones.  No cache existed yet, so this phase was
+  one line in `src/mode.c` (the counter increment) plus tests and bench
+  cases; scc stayed at the program's 4144.
+- **Phase 1** added the per-row wrapped-width cache (`erow.wrap_cache_win_w`
+  / `wrap_cache_vcols`, def.h) and consolidated the width/segments calls the
+  plan named as its funding (`goto_visual_row_col()`, `visual_line_cursor_col()`
+  at end-of-line).  scc measured 4146 against that consolidation, 2 over
+  4144; `SCC_COMPLEXITY_MAX` moved to 4200 by the maintainer's wave-2 budget
+  decision (56 shared headroom across concurrent tracks), not a self-funded
+  raise -- see the Makefile comment for the exact accounting.
+
+Measured effect on `visual-line-100k` (100,001-row corpus, one window):
+
+| | before (phase 0 baseline) | after (phase 1) |
+| --- | --- | --- |
+| row scans | 13,999,212 | 100,001 |
+| row bytes | 713,958,945 | 5,100,000 |
+| wall (counting build, median) | 5.29 s | 0.47 s |
+
+Phase 1's three named acceptance shapes, confirmed both as `test/test_perf.c`
+counter assertions and independently via `make bench`:
+
+- warm unchanged repaint (including plain cursor motion): 0 row scans, 0 row
+  bytes -- `visual-line-warm-100k`.
+- one-row edit: exactly 1 row scan, of exactly the edited row's byte count --
+  `visual-line-edit-100k`.
+- a genuinely new width: exactly one cold scan per row for *each* width the
+  session has used -- `visual-line-resize-100k` measured 200,002 scans
+  (100,001 rows at each of two widths) after a mid-session resize, not
+  200,000+ again on every subsequent repaint at either width.
+
+`KG_PERF_VISUAL_PREFIX_VISIT` is deliberately unmoved by phase 1: the same
+`visual-line-100k` run visits 13,699,181 rows both before and after the
+cache lands, because the width cache does not change *how many times* the
+O(rows) walks revisit a row, only whether that revisit rescans it.  That
+count, and the wall-clock evidence it is not yet material at this corpus
+size, is what phase 2's persistent prefix vector is for.
+
+**Unequal-width thrashing, measured rather than assumed** (the plan's "one
+entry per row may thrash... measure this case"): `visual-line-vsplit-100k`
+(80-column terminal, `win_reflow()` gives the two windows 39 and 40) scans
+2,900,031 rows -- 29x the single-window baseline -- because the two windows'
+alternating repaints evict each other's cache entry for every row on every
+switch.  `visual-line-hsplit-100k` (two windows, same width) scans exactly
+100,001, confirming the thrash is specific to *unequal* widths and not
+splitting itself.  `visual-line-4win-100k` (mixed widths) scans 3,300,039.
+This is real evidence for phase 2's "initially tolerate duplicate vectors
+... measure memory before inventing a global LRU" -- a single-entry-per-row
+design is measurably wrong for this shape, and a view-owned prefix vector
+(keyed by width, one per view) sidesteps it entirely rather than needing a
+second cache-eviction policy bolted onto `erow`.
+
+RSS: `sizeof(erow)` went from 56 to 64 bytes on the 64-bit build this ran
+on -- the two new `int` fields land exactly in the struct's existing
+trailing alignment padding, so the cost is 8 bytes/row here, the low end of
+the plan's "roughly 8-16" estimate, not 16.
+
+Deliberately not done: phases 2-5 (the persistent prefix vector, the
+one-traversal draw loop, the incremental-tree re-measurement gate, and the
+window-text-width seam for later line numbers) are unstarted, per this
+plan's own phasing -- phase 1 is where this campaign's assignment ends.
+
 ## Outcome
 
 An unchanged visual-line repaint performs no row-byte width scans and does not

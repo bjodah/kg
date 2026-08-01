@@ -162,7 +162,7 @@ CASES = {
 	# one cold scan per row rather than reusing the old width's cache.
 	"visual-line-resize-100k": ("lines-100k",
 				    ["\x1bx", "visual-line-mode\r", "\x1b>",
-				     ("resize", 24, 40), "\x18\x03"]),
+				     ("settle",), ("resize", 24, 40), "\x18\x03"]),
 	# Two windows on the same buffer at unequal widths: an 80-column
 	# vertical split gives 39 and 40 (win_reflow() hands the split
 	# remainder to the last column group), so this is "two widths" with
@@ -280,6 +280,17 @@ def run_once(kg, argv, env, rows, cols, keys, timeout):
 	SIGWINCH to the foreground process group the way a real terminal
 	resize does.  This is what the visual-line-resize-* cases use to
 	measure a width change without restarting kg.
+
+	A `keys` entry may also be a ("settle",) tuple: drain until quiet
+	instead of the flat 0.06s every other key gets.  A jump to the end
+	of a 100k-line buffer does not finish redrawing in 0.06s, and a case
+	that immediately follows one with a width-sensitive action (a resize,
+	an edit whose row-scan count the case is measuring) needs that
+	redraw to have actually landed first, the way the initial "wait for
+	the first frame" wait does -- confirmed by instrumenting
+	visual_line_width() directly: without this, the resize case's own
+	drain (below) faithfully caught a repaint, just the repaint of the
+	still-in-flight end-of-buffer jump instead of the resize.
 	"""
 	pid, fd = os.forkpty()
 	if pid == 0:  # child
@@ -295,12 +306,25 @@ def run_once(kg, argv, env, rows, cols, keys, timeout):
 		for key in keys:
 			if isinstance(key, tuple) and key[0] == "resize":
 				set_winsize(fd, key[1], key[2])
+				# TIOCSWINSZ only queues pending_resize (src/tty.c);
+				# kg does not apply it and redraw until its blocking
+				# read() next returns, and a full-buffer repaint at
+				# the new width is not instant.  A flat 0.06s here
+				# raced that redraw badly enough that the resize
+				# cases measured almost no width change at all --
+				# wait for the frame it provokes the way the
+				# initial startup wait does.
+				drain(fd, min(deadline, time.monotonic() + 2.0),
+				      quiet_for=0.1)
+			elif isinstance(key, tuple) and key[0] == "settle":
+				drain(fd, min(deadline, time.monotonic() + 3.0),
+				      quiet_for=0.2)
 			else:
 				try:
 					os.write(fd, key.encode("utf-8"))
 				except OSError:
 					break  # kg has already gone
-			time.sleep(0.06)
+				time.sleep(0.06)
 		drain(fd, deadline)
 		timed_out, status, usage = wait_or_kill(pid, deadline)
 	finally:

@@ -77,7 +77,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c \
-       width.c dired.c perf.c process.c marker.c
+       width.c dired.c perf.c process.c marker.c decor.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))

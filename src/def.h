@@ -78,6 +78,7 @@
 
 #include "bufhandle.h"
 #include "cmd.h"
+#include "decor.h"
 #include "keyevent.h"
 #include "marker.h"
 #include "perf.h"
@@ -333,6 +334,7 @@ struct editor_buffer {
 	int rect_mode;
 	struct undo_stack undostack; /* per-buffer undo chain */
 	struct kg_marker_store *markers; /* per-buffer marker store */
+	struct kg_decor_store *decorations; /* per-buffer decoration store */
 	int active; /* 1 if this slot is in use */
 	int readonly; /* 1 if buffer is read-only */
 	int readonly_local; /* 0/1, set by local variables */

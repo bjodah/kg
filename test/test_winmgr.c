@@ -178,17 +178,29 @@ static int undo_depth(const struct editor_buffer *b)
 	return b->undostack.size;
 }
 
+/* One marker handle a live buffer is supposed to own: `owner`'s mark, a
+ * mark ring entry, or a decoration endpoint.  Mirrors
+ * src/winmgr.c's check_marker_owner() (the seventh invariant), but with
+ * CHECK() rather than an abort: this model runs in every build, including
+ * ones without KG_DEBUG_STATE. */
+static void model_check_marker_owner(
+    struct kg_marker_handle m, struct kg_buffer_handle owner)
+{
+	if (!m.id) {
+		return;
+	}
+	CHECK(m.buffer.slot == owner.slot && m.buffer.id == owner.id
+	    && m.buffer.generation == owner.generation);
+	CHECK(kg_marker_resolve(m, NULL) == KG_MARKER_OK);
+}
+
 /* ---- The model ----
  *
- * The same six invariants src/winmgr.c checks when KG_DEBUG_STATE is
+ * The same seven invariants src/winmgr.c checks when KG_DEBUG_STATE is
  * armed, asked here in every build.  `invariants()` is what turns an
  * example-based case into a model-style one: a case drives a lifecycle
  * operation and then asserts nothing in particular went wrong, which is
  * the half an outcome-only assertion never covers.
- *
- * The seventh invariant, buffer-owned marker and decoration handles
- * resolving to their buffer, has nothing to check yet: markers arrive
- * with Plan 03.
  */
 static void invariants(void)
 {
@@ -196,6 +208,8 @@ static void invariants(void)
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
+		struct kg_buffer_handle self;
+		size_t k;
 
 		if (!b->active) {
 			continue;
@@ -205,6 +219,19 @@ static void invariants(void)
 		CHECK(b->numrows >= 0);
 		CHECK(b->row_capacity >= b->numrows);
 		CHECK(b->row != NULL || b->numrows == 0);
+		self = buf_handle(i);
+		model_check_marker_owner(b->mark.marker, self);
+		for (k = 0; k < (size_t)b->mark_ring_len; k++) {
+			model_check_marker_owner(b->mark_ring[k].marker, self);
+		}
+		if (b->decorations) {
+			for (k = 0; k < b->decorations->count; k++) {
+				model_check_marker_owner(
+				    b->decorations->items[k].start, self);
+				model_check_marker_owner(
+				    b->decorations->items[k].end, self);
+			}
+		}
 		for (j = i + 1; j < MAX_BUFFERS; j++) {
 			if (!buflist[j].active) {
 				continue;
@@ -1353,6 +1380,50 @@ static void test_split_gives_the_new_window_a_distinct_identity(void)
 	free(names[0]);
 }
 
+#if KG_DEBUG_STATE
+#include <signal.h>
+#include <sys/wait.h>
+
+/* The seventh invariant, exercised the only way a debug-only abort can be:
+ * fork, corrupt a live buffer's mark to name a buffer it does not belong
+ * to, and check that the child dies of the invariant rather than of
+ * something the corruption happened to break downstream. */
+static void test_invariant_seven_fires_on_corrupted_marker_owner(void)
+{
+	char *names[1];
+	pid_t pid;
+	int status;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	CHECK(test_set_mark(bcur(), 0, 2));
+	CHECK(bcur()->mark.marker.id != 0);
+	/* The one field a resolved lookup alone would not catch: the marker
+	 * still resolves fine, just to a buffer identity that is not its
+	 * owner's. */
+	bcur()->mark.marker.buffer.id ^= 0xdeadbeefu;
+
+	pid = fork();
+	CHECK(pid >= 0);
+	if (pid == 0) {
+		kg_state_check("test");
+		_exit(0);
+	} else if (pid > 0) {
+		CHECK(waitpid(pid, &status, 0) == pid);
+		CHECK(WIFSIGNALED(status));
+		CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+	}
+
+	/* Undo the corruption before the normal teardown path resolves it
+	 * for real. */
+	bcur()->mark.marker.buffer.id ^= 0xdeadbeefu;
+	session_teardown();
+	free(names[0]);
+}
+#endif
+
 int main(void)
 {
 	char dir_template[] = "test_winmgr_XXXXXX";
@@ -1392,6 +1463,9 @@ int main(void)
 	RUN(test_goal_column_belongs_to_the_view);
 	RUN(test_window_handle_resolves_until_slot_released_and_reused);
 	RUN(test_split_gives_the_new_window_a_distinct_identity);
+#if KG_DEBUG_STATE
+	RUN(test_invariant_seven_fires_on_corrupted_marker_owner);
+#endif
 
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
 	if (system(cmd) != 0) {

@@ -223,11 +223,51 @@ static void state_fail(const char *where, const char *what)
 		}                                                              \
 	} while (0)
 
+/* The seventh invariant, for one marker handle a live buffer is supposed to
+ * own: `owner`'s mark, a mark ring entry, or a decoration endpoint.  A
+ * zeroed handle (an unset mark, or a mark-ring slot past mark_ring_len
+ * never reaches here) owns nothing and is skipped rather than asked to
+ * resolve.  Otherwise it must both resolve *and* resolve to `owner` --
+ * two different failures a corrupted `.buffer` field can produce: a
+ * marker that has simply gone, and one that now answers for somebody
+ * else's buffer, which resolving alone would not catch. */
+static void check_marker_owner(
+    const char *where, struct kg_marker_handle m, struct kg_buffer_handle owner)
+{
+	if (!m.id) {
+		return;
+	}
+	STATE_CHECK(m.buffer.slot == owner.slot && m.buffer.id == owner.id
+	    && m.buffer.generation == owner.generation);
+	STATE_CHECK(kg_marker_resolve(m, NULL) == KG_MARKER_OK);
+}
+
+/* The seventh invariant, for everything one live buffer owns: its mark,
+ * every live entry of its mark ring, and both endpoint markers of every
+ * decoration in its store.  Split out of kg_state_check() so that
+ * function's own branching stays where the six invariants it already had
+ * left it -- this is a second function, not a second cost against the
+ * same one. */
+static void check_buffer_owned_markers(
+    const char *where, struct editor_buffer *b, struct kg_buffer_handle self)
+{
+	size_t k;
+
+	check_marker_owner(where, b->mark.marker, self);
+	for (k = 0; k < (size_t)b->mark_ring_len; k++) {
+		check_marker_owner(where, b->mark_ring[k].marker, self);
+	}
+	if (b->decorations) {
+		for (k = 0; k < b->decorations->count; k++) {
+			struct kg_decor *d = &b->decorations->items[k];
+			check_marker_owner(where, d->start, self);
+			check_marker_owner(where, d->end, self);
+		}
+	}
+}
+
 /* What the buffer table, the window table and the selection are supposed
- * to agree on at a lifecycle commit.  Six of the seven invariants Plan 04
- * names; the seventh -- buffer-owned marker and decoration handles
- * resolving to their buffer -- has nothing to check yet, because markers
- * arrive with Plan 03. */
+ * to agree on at a lifecycle commit -- the seven invariants Plan 04 names. */
 void kg_state_check(const char *where)
 {
 	int i, j, buffers = 0, windows = 0;
@@ -245,6 +285,7 @@ void kg_state_check(const char *where)
 		STATE_CHECK(b->numrows >= 0);
 		STATE_CHECK(b->row_capacity >= b->numrows);
 		STATE_CHECK(b->row || !b->numrows);
+		check_buffer_owned_markers(where, b, buf_handle(i));
 		for (j = i + 1; j < MAX_BUFFERS; j++) {
 			if (!buflist[j].active) {
 				continue;

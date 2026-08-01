@@ -6,21 +6,21 @@
 
 #include "def.h"
 
-int key_in_list(const int *keys, size_t count, int key)
+int key_event_equal(struct key_event a, struct key_event b)
+{
+	return a.base == b.base && a.mods == b.mods;
+}
+
+int key_in_list(const struct key_event *keys, size_t count, struct key_event key)
 {
 	size_t i;
 
 	for (i = 0; i < count; i++) {
-		if (keys[i] == key) {
+		if (key_event_equal(keys[i], key)) {
 			return 1;
 		}
 	}
 	return 0;
-}
-
-int key_event_equal(struct key_event a, struct key_event b)
-{
-	return a.base == b.base && a.mods == b.mods;
 }
 
 /* Every decoder integer that is not a bare character, and the event it

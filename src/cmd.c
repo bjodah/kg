@@ -24,10 +24,14 @@ static constexpr int lisp_result_size = 512;
 static constexpr size_t lisp_last_sexp_max = 64 * 1024;
 
 /* Key sets the M-x picker asks about; see key_in_list(). */
-static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
-static const int cancel_keys[] = { ESC, CTRL_G };
-static const int picker_next_keys[] = { ARROW_RIGHT, CTRL_F };
-static const int picker_prev_keys[] = { ARROW_LEFT, CTRL_B };
+static const struct key_event erase_keys[]
+    = { { KEY_BASE_DELETE, 0 }, { 'h', KEY_MOD_CTRL }, { KEY_BASE_DEL, 0 } };
+static const struct key_event cancel_keys[]
+    = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL } };
+static const struct key_event picker_next_keys[]
+    = { { KEY_BASE_RIGHT, 0 }, { 'f', KEY_MOD_CTRL } };
+static const struct key_event picker_prev_keys[]
+    = { { KEY_BASE_LEFT, 0 }, { 'b', KEY_MOD_CTRL } };
 
 /* ---- Individual commands ---- */
 
@@ -1870,7 +1874,8 @@ void editor_named_command(int fd)
 	struct command_prefix prefix = editor.current_prefix;
 	char name[64];
 	char msg[512];
-	int len = 0, c, i, off, sel_off;
+	struct key_event c;
+	int len = 0, i, off, sel_off;
 	int sel = 0; /* index within match_idx[] of the highlighted entry */
 	/* Set once the user explicitly moves `sel` with Left/Right (or
 	 * C-f/C-b) so an empty Enter repeats the *highlighted* command
@@ -1918,7 +1923,7 @@ void editor_named_command(int fd)
 		editor.echo_cursor_col = plen + len + 1;
 		editor_refresh_screen();
 
-		c = editor_read_key(fd);
+		c = key_event_from_legacy(editor_read_key(fd));
 
 		if (KEY_IN_LIST(erase_keys, c)) {
 			if (len > 0) {
@@ -1930,7 +1935,7 @@ void editor_named_command(int fd)
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			return;
-		} else if (c == ENTER) {
+		} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			if (len == 0 && !explicit_selection
@@ -1950,7 +1955,7 @@ void editor_named_command(int fd)
 				    "No command: %s", name);
 			}
 			return;
-		} else if (c == TAB) {
+		} else if (KEY_IS(c, KEY_BASE_TAB, 0)) {
 			/* Complete to the longest common prefix of the prefix-
 			 * matched group only — substring matches share no
 			 * leading text worth extending typed input to. */
@@ -1997,8 +2002,9 @@ void editor_named_command(int fd)
 				sel = (sel - 1 + shown) % shown;
 				explicit_selection = 1;
 			}
-		} else if (ascii_is_print(c) && len < (int)sizeof(name) - 1) {
-			name[len++] = c;
+		} else if (c.mods == 0 && ascii_is_print(c.base)
+		    && len < (int)sizeof(name) - 1) {
+			name[len++] = (char)c.base;
 			name[len] = '\0';
 			sel = 0;
 			explicit_selection = 0;

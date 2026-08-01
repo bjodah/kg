@@ -80,11 +80,12 @@ struct key_event {
  * `size` is too small (KEY_FORMAT_MAX is always enough). */
 [[nodiscard]] int key_format(struct key_event key, char *out, size_t size);
 
-/* Whether `key` is one of the `count` decoder integers in `keys`.  The
- * key sets the editor still asks about as integers live in tables and
- * are answered here, rather than being spelled out as a run of
- * comparisons at each site. */
-[[nodiscard]] int key_in_list(const int *keys, size_t count, int key);
+/* Whether `key` is one of the `count` events in `keys`.  The key sets
+ * prompt loops ask about ("is this an erase key, a cancel key, ...")
+ * live in tables and are answered here, rather than being spelled out
+ * as a run of key_event_equal() comparisons at each site. */
+[[nodiscard]] int key_in_list(
+    const struct key_event *keys, size_t count, struct key_event key);
 #define KEY_IN_LIST(list, key)                                                 \
 	key_in_list((list), sizeof(list) / sizeof(*(list)), (key))
 

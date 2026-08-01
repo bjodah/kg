@@ -17,13 +17,20 @@
 #define KILO_QUERY_LEN 256
 
 /* Key sets the search prompts ask about; see key_in_list(). */
-static const int erase_keys[] = { DEL_KEY, CTRL_H, BACKSPACE };
-static const int replace_stop_keys[] = { ESC, CTRL_G, 'q' };
-static const int replace_do_keys[] = { 'y', ENTER, ' ' };
-static const int isearch_end_keys[] = { ESC, ENTER, CTRL_G };
-static const int isearch_forward_keys[] = { ARROW_RIGHT, ARROW_DOWN, CTRL_S };
-static const int isearch_backward_keys[] = { ARROW_LEFT, ARROW_UP, CTRL_R };
-static const int isearch_history_keys[] = { ALT_P, ALT_N };
+static const struct key_event erase_keys[]
+    = { { KEY_BASE_DELETE, 0 }, { 'h', KEY_MOD_CTRL }, { KEY_BASE_DEL, 0 } };
+static const struct key_event replace_stop_keys[] = { { KEY_BASE_ESC, 0 },
+	{ 'g', KEY_MOD_CTRL }, { 'q', 0 } };
+static const struct key_event replace_do_keys[]
+    = { { 'y', 0 }, { KEY_BASE_RET, 0 }, { ' ', 0 } };
+static const struct key_event isearch_end_keys[]
+    = { { KEY_BASE_ESC, 0 }, { KEY_BASE_RET, 0 }, { 'g', KEY_MOD_CTRL } };
+static const struct key_event isearch_forward_keys[] = { { KEY_BASE_RIGHT, 0 },
+	{ KEY_BASE_DOWN, 0 }, { 's', KEY_MOD_CTRL } };
+static const struct key_event isearch_backward_keys[] = { { KEY_BASE_LEFT, 0 },
+	{ KEY_BASE_UP, 0 }, { 'r', KEY_MOD_CTRL } };
+static const struct key_event isearch_history_keys[]
+    = { { 'p', KEY_MOD_META }, { 'n', KEY_MOD_META } };
 
 /* Emacs keeps literal and regexp searches in separate rings (search-ring
  * and regexp-search-ring) and runs every query-replace prompt — both
@@ -246,12 +253,12 @@ enum replace_answer {
 	REPLACE_STOP,
 };
 
-static enum replace_answer query_replace_answer(int c)
+static enum replace_answer query_replace_answer(struct key_event c)
 {
 	if (KEY_IN_LIST(replace_stop_keys, c)) {
 		return REPLACE_STOP;
 	}
-	if (c == '!') {
+	if (KEY_IS(c, '!', 0)) {
 		return REPLACE_ALL;
 	}
 	if (KEY_IN_LIST(replace_do_keys, c)) {
@@ -307,7 +314,7 @@ static void editor_query_replace_newline(
 			editor_set_status_message(
 			    "Replace \"^J\" with \"%s\"? (y/n/!/q)", replace);
 			editor_refresh_screen();
-			answer = query_replace_answer(editor_read_key(fd));
+			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
 		}
 
 		if (answer == REPLACE_STOP) {
@@ -333,21 +340,53 @@ static void editor_query_replace_newline(
 	    count, count == 1 ? "" : "s");
 }
 
-static int isearch_handoff_key(int fd, int c)
+/* The plain motion `c` hands off to, as the legacy direction constant
+ * editor_move_cursor() takes, or 0 when `c` is not one of the six. */
+static int isearch_handoff_direction(struct key_event c)
 {
-	switch (c) {
-	case KEY_NULL:
+	static const struct {
+		struct key_event key;
+		int direction;
+	} moves[] = {
+		{ { 'a', KEY_MOD_CTRL }, HOME_KEY },
+		{ { KEY_BASE_HOME, 0 }, HOME_KEY },
+		{ { 'b', KEY_MOD_CTRL }, ARROW_LEFT },
+		{ { KEY_BASE_LEFT, 0 }, ARROW_LEFT },
+		{ { 'e', KEY_MOD_CTRL }, END_KEY },
+		{ { KEY_BASE_END, 0 }, END_KEY },
+		{ { 'f', KEY_MOD_CTRL }, ARROW_RIGHT },
+		{ { KEY_BASE_RIGHT, 0 }, ARROW_RIGHT },
+		{ { 'n', KEY_MOD_CTRL }, ARROW_DOWN },
+		{ { KEY_BASE_DOWN, 0 }, ARROW_DOWN },
+		{ { 'p', KEY_MOD_CTRL }, ARROW_UP },
+		{ { KEY_BASE_UP, 0 }, ARROW_UP },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(moves) / sizeof(*moves); i++) {
+		if (key_event_equal(moves[i].key, c)) {
+			return moves[i].direction;
+		}
+	}
+	return 0;
+}
+
+static int isearch_handoff_key(int fd, struct key_event c)
+{
+	int direction;
+
+	(void)fd;
+	if (KEY_IS(c, ' ', KEY_MOD_CTRL)) {
 		editor_set_mark();
 		return 1;
-	case CTRL_A:
+	}
+	direction = isearch_handoff_direction(c);
+	if (direction) {
 		editor_set_status_message("");
-		editor_move_cursor(HOME_KEY);
+		editor_move_cursor(direction);
 		return 1;
-	case CTRL_B:
-		editor_set_status_message("");
-		editor_move_cursor(ARROW_LEFT);
-		return 1;
-	case CTRL_D:
+	}
+	if (KEY_IS(c, 'd', KEY_MOD_CTRL)) {
 		if (bcur()->readonly) {
 			editor_set_status_message("Buffer is read-only");
 		} else {
@@ -355,77 +394,53 @@ static int isearch_handoff_key(int fd, int c)
 			editor_del_forward_char();
 		}
 		return 1;
-	case CTRL_E:
-		editor_set_status_message("");
-		editor_move_cursor(END_KEY);
-		return 1;
-	case CTRL_F:
-		editor_set_status_message("");
-		editor_move_cursor(ARROW_RIGHT);
-		return 1;
-	case CTRL_N:
-		editor_set_status_message("");
-		editor_move_cursor(ARROW_DOWN);
-		return 1;
-	case CTRL_P:
-		editor_set_status_message("");
-		editor_move_cursor(ARROW_UP);
-		return 1;
-	case ARROW_LEFT:
-	case ARROW_RIGHT:
-	case ARROW_UP:
-	case ARROW_DOWN:
-	case HOME_KEY:
-	case END_KEY:
-		editor_set_status_message("");
-		editor_move_cursor(c);
-		return 1;
-	case CTRL_HOME:
-	case ALT_LT:
+	}
+	if (KEY_IS(c, KEY_BASE_HOME, KEY_MOD_CTRL) || KEY_IS(c, '<', KEY_MOD_META)) {
 		editor_set_status_message("");
 		editor_move_to_beginning();
 		return 1;
-	case CTRL_END:
-	case ALT_GT:
+	}
+	if (KEY_IS(c, KEY_BASE_END, KEY_MOD_CTRL) || KEY_IS(c, '>', KEY_MOD_META)) {
 		editor_set_status_message("");
 		editor_move_to_end();
 		return 1;
-	case ALT_B:
-	case CTRL_ARROW_LEFT:
+	}
+	if (KEY_IS(c, 'b', KEY_MOD_META) || KEY_IS(c, KEY_BASE_LEFT, KEY_MOD_CTRL)) {
 		editor_set_status_message("");
 		editor_move_word_backward();
 		return 1;
-	case ALT_F:
-	case CTRL_ARROW_RIGHT:
+	}
+	if (KEY_IS(c, 'f', KEY_MOD_META) || KEY_IS(c, KEY_BASE_RIGHT, KEY_MOD_CTRL)) {
 		editor_set_status_message("");
 		editor_move_word_forward();
 		return 1;
-	case ALT_M:
+	}
+	if (KEY_IS(c, 'm', KEY_MOD_META)) {
 		editor_set_status_message("");
 		editor_move_to_indentation();
 		return 1;
-	case ALT_A:
+	}
+	if (KEY_IS(c, 'a', KEY_MOD_META)) {
 		editor_set_status_message("");
 		editor_move_sentence_backward();
 		return 1;
-	case ALT_E:
+	}
+	if (KEY_IS(c, 'e', KEY_MOD_META)) {
 		editor_set_status_message("");
 		editor_move_sentence_forward();
 		return 1;
-	case ALT_LBRACE:
-	case CTRL_ARROW_UP:
+	}
+	if (KEY_IS(c, '{', KEY_MOD_META) || KEY_IS(c, KEY_BASE_UP, KEY_MOD_CTRL)) {
 		editor_set_status_message("");
 		editor_move_paragraph_backward();
 		return 1;
-	case ALT_RBRACE:
-	case CTRL_ARROW_DOWN:
+	}
+	if (KEY_IS(c, '}', KEY_MOD_META) || KEY_IS(c, KEY_BASE_DOWN, KEY_MOD_CTRL)) {
 		editor_set_status_message("");
 		editor_move_paragraph_forward();
 		return 1;
-	default:
-		(void)fd;
-		return 0;
 	}
+	return 0;
 }
 
 /* Install `entry` as the in-progress isearch query.  Ring entries are
@@ -478,7 +493,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	start_col = wcur()->coloff + wcur()->cx;
 
 	while (1) {
-		int c;
+		struct key_event c;
 		int fold = !query_has_upper(query, qlen);
 		int rx_valid = 1;
 		if (kind == SEARCH_REGEXP && qlen > 0) {
@@ -503,7 +518,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		    query);
 		editor_refresh_screen();
 
-		c = editor_read_key(fd);
+		c = key_event_from_legacy(editor_read_key(fd));
 		if (KEY_IN_LIST(erase_keys, c)) {
 			/* Drop a whole character, so backspacing over a
 			 * multi-byte glyph never leaves half of it in the
@@ -517,7 +532,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			last_match_col = -1;
 			find_next = direction;
 		} else if (KEY_IN_LIST(isearch_end_keys, c)) {
-			if (c == ESC) {
+			if (KEY_IS(c, KEY_BASE_ESC, 0)) {
 				wcur()->cx = saved_cx;
 				wcur()->cy = saved_cy;
 				wcur()->coloff = saved_coloff;
@@ -525,7 +540,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			}
 			/* Emacs records the query when the search is
 			 * accepted, never when it is abandoned. */
-			if (c == ENTER) {
+			if (KEY_IS(c, KEY_BASE_RET, 0)) {
 				minibuf_history_add(hist, query);
 			}
 			hl_snapshot_restore(&snap);
@@ -538,7 +553,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			isearch_recall_last(hist, query, &qlen, &hist_index);
 			find_next = -1;
 		} else if (KEY_IN_LIST(isearch_history_keys, c)) {
-			int dir = c == ALT_P ? 1 : -1;
+			int dir = KEY_IS(c, 'p', KEY_MOD_META) ? 1 : -1;
 			const char *entry;
 
 			if (dir > 0 && hist_index < 0) {
@@ -552,19 +567,19 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				last_match_col = -1;
 				find_next = direction;
 			}
-		} else if (ascii_is_print(c)) {
+		} else if (c.mods == 0 && ascii_is_print(c.base)) {
 			if (qlen < KILO_QUERY_LEN) {
-				query[qlen++] = c;
+				query[qlen++] = (char)c.base;
 				query[qlen] = '\0';
 				last_match_row = -1;
 				last_match_col = -1;
 				find_next = direction;
 			}
-		} else if (c >= 0x80 && c <= 0xFF) {
+		} else if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
 			/* Lead byte of a multi-byte character: read the rest
 			 * of the sequence so it joins the query whole. */
 			char seq[4];
-			int n = editor_read_utf8_seq(fd, c, seq);
+			int n = editor_read_utf8_seq(fd, (int)c.base, seq);
 
 			if (n > 0 && qlen + n <= KILO_QUERY_LEN) {
 				memcpy(query + qlen, seq, (size_t)n);
@@ -764,7 +779,7 @@ void editor_query_replace(int fd)
 			    "Query replace %s \"%s\" with \"%s\"? (y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, replace);
 			editor_refresh_screen();
-			answer = query_replace_answer(editor_read_key(fd));
+			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
 		}
 
 		if (answer == REPLACE_STOP) {
@@ -1034,7 +1049,7 @@ void editor_query_replace_regexp(int fd)
 			    "(y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, expanded);
 			editor_refresh_screen();
-			answer = query_replace_answer(editor_read_key(fd));
+			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
 		} else if (++since_poll >= 256) {
 			/* "!" answers for the user, so nothing here ever reads
 			 * a key: poll for C-g now and then, or a replacement

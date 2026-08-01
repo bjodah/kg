@@ -314,7 +314,7 @@ static void editor_query_replace_newline(
 			editor_set_status_message(
 			    "Replace \"^J\" with \"%s\"? (y/n/!/q)", replace);
 			editor_refresh_screen();
-			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
+			answer = query_replace_answer(editor_read_key(fd));
 		}
 
 		if (answer == REPLACE_STOP) {
@@ -371,9 +371,49 @@ static int isearch_handoff_direction(struct key_event c)
 	return 0;
 }
 
+typedef void (*isearch_move_fn)(void);
+
+/* The remaining handoff keys, each a plain call with no result to act
+ * on: unlike isearch_handoff_direction()'s six, editor_move_cursor()
+ * does not cover these, so each gets the function it hands off to
+ * directly rather than a legacy direction constant. */
+static const struct {
+	struct key_event key;
+	isearch_move_fn move;
+} isearch_moves[] = {
+	{ { KEY_BASE_HOME, KEY_MOD_CTRL }, editor_move_to_beginning },
+	{ { '<', KEY_MOD_META }, editor_move_to_beginning },
+	{ { KEY_BASE_END, KEY_MOD_CTRL }, editor_move_to_end },
+	{ { '>', KEY_MOD_META }, editor_move_to_end },
+	{ { 'b', KEY_MOD_META }, editor_move_word_backward },
+	{ { KEY_BASE_LEFT, KEY_MOD_CTRL }, editor_move_word_backward },
+	{ { 'f', KEY_MOD_META }, editor_move_word_forward },
+	{ { KEY_BASE_RIGHT, KEY_MOD_CTRL }, editor_move_word_forward },
+	{ { 'm', KEY_MOD_META }, editor_move_to_indentation },
+	{ { 'a', KEY_MOD_META }, editor_move_sentence_backward },
+	{ { 'e', KEY_MOD_META }, editor_move_sentence_forward },
+	{ { '{', KEY_MOD_META }, editor_move_paragraph_backward },
+	{ { KEY_BASE_UP, KEY_MOD_CTRL }, editor_move_paragraph_backward },
+	{ { '}', KEY_MOD_META }, editor_move_paragraph_forward },
+	{ { KEY_BASE_DOWN, KEY_MOD_CTRL }, editor_move_paragraph_forward },
+};
+
+static isearch_move_fn isearch_lookup_move(struct key_event c)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(isearch_moves) / sizeof(*isearch_moves); i++) {
+		if (key_event_equal(isearch_moves[i].key, c)) {
+			return isearch_moves[i].move;
+		}
+	}
+	return NULL;
+}
+
 static int isearch_handoff_key(int fd, struct key_event c)
 {
 	int direction;
+	isearch_move_fn move;
 
 	(void)fd;
 	if (KEY_IS(c, ' ', KEY_MOD_CTRL)) {
@@ -395,49 +435,10 @@ static int isearch_handoff_key(int fd, struct key_event c)
 		}
 		return 1;
 	}
-	if (KEY_IS(c, KEY_BASE_HOME, KEY_MOD_CTRL) || KEY_IS(c, '<', KEY_MOD_META)) {
+	move = isearch_lookup_move(c);
+	if (move) {
 		editor_set_status_message("");
-		editor_move_to_beginning();
-		return 1;
-	}
-	if (KEY_IS(c, KEY_BASE_END, KEY_MOD_CTRL) || KEY_IS(c, '>', KEY_MOD_META)) {
-		editor_set_status_message("");
-		editor_move_to_end();
-		return 1;
-	}
-	if (KEY_IS(c, 'b', KEY_MOD_META) || KEY_IS(c, KEY_BASE_LEFT, KEY_MOD_CTRL)) {
-		editor_set_status_message("");
-		editor_move_word_backward();
-		return 1;
-	}
-	if (KEY_IS(c, 'f', KEY_MOD_META) || KEY_IS(c, KEY_BASE_RIGHT, KEY_MOD_CTRL)) {
-		editor_set_status_message("");
-		editor_move_word_forward();
-		return 1;
-	}
-	if (KEY_IS(c, 'm', KEY_MOD_META)) {
-		editor_set_status_message("");
-		editor_move_to_indentation();
-		return 1;
-	}
-	if (KEY_IS(c, 'a', KEY_MOD_META)) {
-		editor_set_status_message("");
-		editor_move_sentence_backward();
-		return 1;
-	}
-	if (KEY_IS(c, 'e', KEY_MOD_META)) {
-		editor_set_status_message("");
-		editor_move_sentence_forward();
-		return 1;
-	}
-	if (KEY_IS(c, '{', KEY_MOD_META) || KEY_IS(c, KEY_BASE_UP, KEY_MOD_CTRL)) {
-		editor_set_status_message("");
-		editor_move_paragraph_backward();
-		return 1;
-	}
-	if (KEY_IS(c, '}', KEY_MOD_META) || KEY_IS(c, KEY_BASE_DOWN, KEY_MOD_CTRL)) {
-		editor_set_status_message("");
-		editor_move_paragraph_forward();
+		move();
 		return 1;
 	}
 	return 0;
@@ -518,7 +519,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		    query);
 		editor_refresh_screen();
 
-		c = key_event_from_legacy(editor_read_key(fd));
+		c = editor_read_key(fd);
 		if (KEY_IN_LIST(erase_keys, c)) {
 			/* Drop a whole character, so backspacing over a
 			 * multi-byte glyph never leaves half of it in the
@@ -779,7 +780,7 @@ void editor_query_replace(int fd)
 			    "Query replace %s \"%s\" with \"%s\"? (y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, replace);
 			editor_refresh_screen();
-			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
+			answer = query_replace_answer(editor_read_key(fd));
 		}
 
 		if (answer == REPLACE_STOP) {
@@ -1049,7 +1050,7 @@ void editor_query_replace_regexp(int fd)
 			    "(y/n/!/q)",
 			    fold ? "[fold]" : "[case]", search, expanded);
 			editor_refresh_screen();
-			answer = query_replace_answer(key_event_from_legacy(editor_read_key(fd)));
+			answer = query_replace_answer(editor_read_key(fd));
 		} else if (++since_poll >= 256) {
 			/* "!" answers for the user, so nothing here ever reads
 			 * a key: poll for C-g now and then, or a replacement

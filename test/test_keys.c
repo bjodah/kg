@@ -80,7 +80,7 @@ enum readonly_policy {
 };
 
 struct binding {
-	int key; /* keycode, or -1 for a row that covers a range */
+	struct key_event key; /* base -1 for a row that covers a range */
 	const char *seq;
 	const char *handler; /* what kbd.c calls today */
 	const char *command; /* proposed command name */
@@ -99,263 +99,263 @@ struct binding {
  * can be handed.  Printable ASCII and the bytes above it are covered by
  * the two range rows at the end. */
 static const struct binding global_bindings[] = {
-	{ KEY_NULL, "C-SPC", "the global map -> cmd_invoke()",
+	{ { ' ', KEY_MOD_CTRL }, "C-SPC", "the global map -> cmd_invoke()",
 	    "set-mark-command", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "C-u C-SPC pops the mark ring instead" },
-	{ CTRL_A, "C-a", "the global map -> cmd_invoke()",
+	{ { 'a', KEY_MOD_CTRL }, "C-a", "the global map -> cmd_invoke()",
 	    "move-beginning-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ CTRL_B, "C-b", "the global map -> cmd_invoke()", "backward-char", 0,
+	{ { 'b', KEY_MOD_CTRL }, "C-b", "the global map -> cmd_invoke()", "backward-char", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_C, "C-c", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
+	{ { 'c', KEY_MOD_CTRL }, "C-c", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
 	    RO_FREE, 0, NULL,
 	    "declared a prefix so it waits even with nothing bound under "
 	    "it" },
-	{ CTRL_D, "C-d", "the global map -> cmd_invoke()", "delete-char", EDITS,
+	{ { 'd', KEY_MOD_CTRL }, "C-d", "the global map -> cmd_invoke()", "delete-char", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_E, "C-e", "the global map -> cmd_invoke()", "move-end-of-line",
+	{ { 'e', KEY_MOD_CTRL }, "C-e", "the global map -> cmd_invoke()", "move-end-of-line",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_F, "C-f", "the global map -> cmd_invoke()", "forward-char", 0,
+	{ { 'f', KEY_MOD_CTRL }, "C-f", "the global map -> cmd_invoke()", "forward-char", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_G, "C-g", "inline: drops the region, clears the echo area",
+	{ { 'g', KEY_MOD_CTRL }, "C-g", "inline: drops the region, clears the echo area",
 	    "keyboard-quit", 0, K_QUIT, L_GLOBAL, RO_FREE, 0, NULL,
 	    "stays an explicit fast path: it must work when a map does not" },
-	{ CTRL_H, "C-h", "the global map -> cmd_invoke()", "help", 0, K_CMD,
+	{ { 'h', KEY_MOD_CTRL }, "C-h", "the global map -> cmd_invoke()", "help", 0, K_CMD,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ TAB, "TAB", "the self-insert fast path", "self-insert-command", EDITS,
+	{ { KEY_BASE_TAB, 0 }, "TAB", "the self-insert fast path", "self-insert-command", EDITS,
 	    K_SELF, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the one non-printable key the self-insert fallback accepts" },
-	{ CTRL_J, "C-j", "the global map -> cmd_invoke()",
+	{ { 'j', KEY_MOD_CTRL }, "C-j", "the global map -> cmd_invoke()",
 	    "newline-or-eval-print-last-sexp", EDITS, K_CMD, L_GLOBAL,
 	    RO_COMMAND, 1, NULL,
 	    "newline outside Lisp and Lisp Interaction buffers" },
-	{ CTRL_K, "C-k", "the global map -> cmd_invoke()", "kill-line", EDITS,
+	{ { 'k', KEY_MOD_CTRL }, "C-k", "the global map -> cmd_invoke()", "kill-line", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_L, "C-l", "the global map -> cmd_invoke()",
+	{ { 'l', KEY_MOD_CTRL }, "C-l", "the global map -> cmd_invoke()",
 	    "recenter-top-bottom", 0, K_CMD, L_GLOBAL, RO_FREE, 1,
 	    "recenter-cycle-centre-top-bottom",
 	    "cycles centre/top/bottom while it is the last command" },
-	{ ENTER, "RET", "the global map -> cmd_invoke()", "newline", EDITS,
+	{ { KEY_BASE_RET, 0 }, "RET", "the global map -> cmd_invoke()", "newline", EDITS,
 	    K_CMD, L_GLOBAL, RO_INTERCEPTED, 1, NULL,
 	    "a read-only buffer runs buf_ibuffer_select() on RET first" },
-	{ CTRL_N, "C-n", "the global map -> cmd_invoke()", "next-line", 0,
+	{ { 'n', KEY_MOD_CTRL }, "C-n", "the global map -> cmd_invoke()", "next-line", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_O, "C-o", "the global map -> cmd_invoke()", "open-line", EDITS,
+	{ { 'o', KEY_MOD_CTRL }, "C-o", "the global map -> cmd_invoke()", "open-line", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, "read-only-refuses-editing-keys",
 	    "edited a read-only buffer until it became a command" },
-	{ CTRL_P, "C-p", "the global map -> cmd_invoke()", "previous-line", 0,
+	{ { 'p', KEY_MOD_CTRL }, "C-p", "the global map -> cmd_invoke()", "previous-line", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_Q, "C-q", "the global map -> cmd_invoke()", "quoted-insert",
+	{ { 'q', KEY_MOD_CTRL }, "C-q", "the global map -> cmd_invoke()", "quoted-insert",
 	    EDITS, K_INPUT, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the next byte is data, not a key: stays outside the map" },
-	{ CTRL_R, "C-r", "the global map -> cmd_invoke()", "isearch-backward",
+	{ { 'r', KEY_MOD_CTRL }, "C-r", "the global map -> cmd_invoke()", "isearch-backward",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_S, "C-s", "the global map -> cmd_invoke()", "isearch-forward", 0,
+	{ { 's', KEY_MOD_CTRL }, "C-s", "the global map -> cmd_invoke()", "isearch-forward", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_T, "C-t", "the global map -> cmd_invoke()", "transpose-chars",
+	{ { 't', KEY_MOD_CTRL }, "C-t", "the global map -> cmd_invoke()", "transpose-chars",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_U, "C-u", "handle_universal_arg", "universal-argument", 0,
+	{ { 'u', KEY_MOD_CTRL }, "C-u", "handle_universal_arg", "universal-argument", 0,
 	    K_PREFIX, L_GLOBAL, RO_FREE, 0, NULL,
 	    "collects the numeric argument; explicit zero is a value" },
-	{ CTRL_V, "C-v", "the global map -> cmd_invoke()", "scroll-up-command",
+	{ { 'v', KEY_MOD_CTRL }, "C-v", "the global map -> cmd_invoke()", "scroll-up-command",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_W, "C-w", "the global map -> cmd_invoke()", "kill-region", EDITS,
+	{ { 'w', KEY_MOD_CTRL }, "C-w", "the global map -> cmd_invoke()", "kill-region", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_X, "C-x", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
+	{ { 'x', KEY_MOD_CTRL }, "C-x", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
 	    RO_FREE, 0, NULL, "a prefix in the global map, at any depth" },
-	{ CTRL_Y, "C-y", "the global map -> cmd_invoke()", "yank", EDITS, K_CMD,
+	{ { 'y', KEY_MOD_CTRL }, "C-y", "the global map -> cmd_invoke()", "yank", EDITS, K_CMD,
 	    L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_Z, "C-z", "the global map -> cmd_invoke()", "suspend-editor", 0,
+	{ { 'z', KEY_MOD_CTRL }, "C-z", "the global map -> cmd_invoke()", "suspend-editor", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ESC, "ESC", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
+	{ { KEY_BASE_ESC, 0 }, "ESC", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
 	    RO_FREE, 0, NULL,
 	    "only ESC % and ESC @ are defined; see prefix_bindings" },
-	{ 28, "C-\\", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
+	{ { '\\', KEY_MOD_CTRL }, "C-\\", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
 	    NULL, NULL },
-	{ 29, "C-]", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
+	{ { ']', KEY_MOD_CTRL }, "C-]", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
 	    NULL, NULL },
-	{ 30, "C-^", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
+	{ { '^', KEY_MOD_CTRL }, "C-^", "default: ignored", "", 0, K_NONE, L_GLOBAL, RO_FREE, 0,
 	    NULL, NULL },
-	{ CTRL_UNDERSCORE, "C-_", "the global map -> cmd_invoke()", "undo",
+	{ { '_', KEY_MOD_CTRL }, "C-_", "the global map -> cmd_invoke()", "undo",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "C-/ arrives as the same code" },
-	{ BACKSPACE, "DEL", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_DEL, 0 }, "DEL", "the global map -> cmd_invoke()",
 	    "delete-backward-char", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    NULL },
 
-	{ ARROW_LEFT, "<left>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_LEFT, 0 }, "<left>", "the global map -> cmd_invoke()",
 	    "backward-char", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ARROW_RIGHT, "<right>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_RIGHT, 0 }, "<right>", "the global map -> cmd_invoke()",
 	    "forward-char", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ARROW_UP, "<up>", "the global map -> cmd_invoke()", "previous-line",
+	{ { KEY_BASE_UP, 0 }, "<up>", "the global map -> cmd_invoke()", "previous-line",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ARROW_DOWN, "<down>", "the global map -> cmd_invoke()", "next-line",
+	{ { KEY_BASE_DOWN, 0 }, "<down>", "the global map -> cmd_invoke()", "next-line",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ DEL_KEY, "<delete>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_DELETE, 0 }, "<delete>", "the global map -> cmd_invoke()",
 	    "delete-forward-char", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "consumes an active region first" },
-	{ HOME_KEY, "<home>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_HOME, 0 }, "<home>", "the global map -> cmd_invoke()",
 	    "move-beginning-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ END_KEY, "<end>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_END, 0 }, "<end>", "the global map -> cmd_invoke()",
 	    "move-end-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ PAGE_UP, "<prior>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_PRIOR, 0 }, "<prior>", "the global map -> cmd_invoke()",
 	    "scroll-down-command", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ PAGE_DOWN, "<next>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_NEXT, 0 }, "<next>", "the global map -> cmd_invoke()",
 	    "scroll-up-command", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_ARROW_LEFT, "C-<left>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_LEFT, KEY_MOD_CTRL }, "C-<left>", "the global map -> cmd_invoke()",
 	    "backward-word", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_ARROW_RIGHT, "C-<right>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_RIGHT, KEY_MOD_CTRL }, "C-<right>", "the global map -> cmd_invoke()",
 	    "forward-word", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_ARROW_UP, "C-<up>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_UP, KEY_MOD_CTRL }, "C-<up>", "the global map -> cmd_invoke()",
 	    "backward-paragraph", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_ARROW_DOWN, "C-<down>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_DOWN, KEY_MOD_CTRL }, "C-<down>", "the global map -> cmd_invoke()",
 	    "forward-paragraph", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_HOME, "C-<home>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_HOME, KEY_MOD_CTRL }, "C-<home>", "the global map -> cmd_invoke()",
 	    "beginning-of-buffer", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_END, "C-<end>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_END, KEY_MOD_CTRL }, "C-<end>", "the global map -> cmd_invoke()",
 	    "end-of-buffer", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ SHIFT_ARROW_LEFT, "S-<left>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_LEFT, KEY_MOD_SHIFT }, "S-<left>", "shift translation -> cmd_invoke()",
 	    "backward-char", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ SHIFT_ARROW_RIGHT, "S-<right>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_RIGHT, KEY_MOD_SHIFT }, "S-<right>", "shift translation -> cmd_invoke()",
 	    "forward-char", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ SHIFT_ARROW_UP, "S-<up>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_UP, KEY_MOD_SHIFT }, "S-<up>", "shift translation -> cmd_invoke()",
 	    "previous-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ SHIFT_ARROW_DOWN, "S-<down>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_DOWN, KEY_MOD_SHIFT }, "S-<down>", "shift translation -> cmd_invoke()",
 	    "next-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ SHIFT_HOME, "S-<home>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_HOME, KEY_MOD_SHIFT }, "S-<home>", "shift translation -> cmd_invoke()",
 	    "move-beginning-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ SHIFT_END, "S-<end>", "shift translation -> cmd_invoke()",
+	{ { KEY_BASE_END, KEY_MOD_SHIFT }, "S-<end>", "shift translation -> cmd_invoke()",
 	    "move-end-of-line", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "shift translation: sets the mark, then the plain motion" },
-	{ INSERT_KEY, "<insert>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_INSERT, 0 }, "<insert>", "the global map -> cmd_invoke()",
 	    "overwrite-mode", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ SHIFT_INSERT, "S-<insert>", "the global map -> cmd_invoke()", "yank",
+	{ { KEY_BASE_INSERT, KEY_MOD_SHIFT }, "S-<insert>", "the global map -> cmd_invoke()", "yank",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, "CUA paste" },
-	{ SHIFT_DELETE, "S-<delete>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_DELETE, KEY_MOD_SHIFT }, "S-<delete>", "the global map -> cmd_invoke()",
 	    "kill-region", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "CUA cut" },
-	{ CTRL_INSERT, "C-<insert>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_INSERT, KEY_MOD_CTRL }, "C-<insert>", "the global map -> cmd_invoke()",
 	    "kill-ring-save", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "CUA copy" },
-	{ ALT_F, "M-f", "the global map -> cmd_invoke()", "forward-word", 0,
+	{ { 'f', KEY_MOD_META }, "M-f", "the global map -> cmd_invoke()", "forward-word", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_B, "M-b", "the global map -> cmd_invoke()", "backward-word", 0,
+	{ { 'b', KEY_MOD_META }, "M-b", "the global map -> cmd_invoke()", "backward-word", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_D, "M-d", "the global map -> cmd_invoke()", "kill-word", EDITS,
+	{ { 'd', KEY_MOD_META }, "M-d", "the global map -> cmd_invoke()", "kill-word", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, "read-only-refuses-editing-keys",
 	    NULL },
-	{ ALT_G, "M-g", "the global map -> cmd_invoke()", "goto-line", 0, K_CMD,
+	{ { 'g', KEY_MOD_META }, "M-g", "the global map -> cmd_invoke()", "goto-line", 0, K_CMD,
 	    L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_H, "M-h", "the global map -> cmd_invoke()", "mark-paragraph", 0,
+	{ { 'h', KEY_MOD_META }, "M-h", "the global map -> cmd_invoke()", "mark-paragraph", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_V, "M-v", "the global map -> cmd_invoke()", "scroll-down-command",
+	{ { 'v', KEY_MOD_META }, "M-v", "the global map -> cmd_invoke()", "scroll-down-command",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_W, "M-w", "the global map -> cmd_invoke()", "kill-ring-save", 0,
+	{ { 'w', KEY_MOD_META }, "M-w", "the global map -> cmd_invoke()", "kill-ring-save", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_Q, "M-q", "the global map -> cmd_invoke()", "fill-paragraph",
+	{ { 'q', KEY_MOD_META }, "M-q", "the global map -> cmd_invoke()", "fill-paragraph",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1,
 	    "read-only-refuses-editing-keys", NULL },
-	{ ALT_BACKSPACE, "M-DEL", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_DEL, KEY_MOD_META }, "M-DEL", "the global map -> cmd_invoke()",
 	    "backward-kill-word", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "no terminal-independent key token, so no PTY case of its own" },
-	{ ALT_PCT, "M-%", "the global map -> cmd_invoke()", "query-replace",
+	{ { '%', KEY_MOD_META }, "M-%", "the global map -> cmd_invoke()", "query-replace",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ ALT_AT, "M-@", "the global map -> cmd_invoke()", "mark-word", 0,
+	{ { '@', KEY_MOD_META }, "M-@", "the global map -> cmd_invoke()", "mark-word", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_SEMICOLON, "M-;", "the global map -> cmd_invoke()",
+	{ { ';', KEY_MOD_META }, "M-;", "the global map -> cmd_invoke()",
 	    "comment-dwim", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "only visible in a buffer whose mode has a comment syntax" },
-	{ ALT_COLON, "M-:", "the global map -> cmd_invoke()", "eval-expression",
+	{ { ':', KEY_MOD_META }, "M-:", "the global map -> cmd_invoke()", "eval-expression",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_X, "M-x", "the global map -> cmd_invoke()",
+	{ { 'x', KEY_MOD_META }, "M-x", "the global map -> cmd_invoke()",
 	    "execute-extended-command", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "the picker itself is a prompt; it invokes by name" },
-	{ ALT_CARET, "M-^", "the global map -> cmd_invoke()", "join-line",
+	{ { '^', KEY_MOD_META }, "M-^", "the global map -> cmd_invoke()", "join-line",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1,
 	    "read-only-refuses-editing-keys", NULL },
-	{ ALT_U, "M-u", "the global map -> cmd_invoke()", "upcase-word", EDITS,
+	{ { 'u', KEY_MOD_META }, "M-u", "the global map -> cmd_invoke()", "upcase-word", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, "read-only-refuses-editing-keys",
 	    NULL },
-	{ ALT_L, "M-l", "the global map -> cmd_invoke()", "downcase-word",
+	{ { 'l', KEY_MOD_META }, "M-l", "the global map -> cmd_invoke()", "downcase-word",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, "same hole as M-u" },
-	{ ALT_C, "M-c", "the global map -> cmd_invoke()", "capitalize-word",
+	{ { 'c', KEY_MOD_META }, "M-c", "the global map -> cmd_invoke()", "capitalize-word",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, "same hole as M-u" },
-	{ ALT_BANG, "M-!", "the global map -> cmd_invoke()", "shell-command", 0,
+	{ { '!', KEY_MOD_META }, "M-!", "the global map -> cmd_invoke()", "shell-command", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "C-u M-! inserts the output; cmdtable still calls it non-editing" },
-	{ ALT_PIPE, "M-|", "the global map -> cmd_invoke()",
+	{ { '|', KEY_MOD_META }, "M-|", "the global map -> cmd_invoke()",
 	    "shell-command-on-region", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "C-u M-| replaces the region; cmdtable calls it non-editing" },
-	{ ALT_LT, "M-<", "the global map -> cmd_invoke()",
+	{ { '<', KEY_MOD_META }, "M-<", "the global map -> cmd_invoke()",
 	    "beginning-of-buffer", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_GT, "M->", "the global map -> cmd_invoke()", "end-of-buffer", 0,
+	{ { '>', KEY_MOD_META }, "M->", "the global map -> cmd_invoke()", "end-of-buffer", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_LBRACE, "M-{", "the global map -> cmd_invoke()",
+	{ { '{', KEY_MOD_META }, "M-{", "the global map -> cmd_invoke()",
 	    "backward-paragraph", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_RBRACE, "M-}", "the global map -> cmd_invoke()",
+	{ { '}', KEY_MOD_META }, "M-}", "the global map -> cmd_invoke()",
 	    "forward-paragraph", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_M, "M-m", "the global map -> cmd_invoke()", "back-to-indentation",
+	{ { 'm', KEY_MOD_META }, "M-m", "the global map -> cmd_invoke()", "back-to-indentation",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_A, "M-a", "the global map -> cmd_invoke()", "backward-sentence",
+	{ { 'a', KEY_MOD_META }, "M-a", "the global map -> cmd_invoke()", "backward-sentence",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_E, "M-e", "the global map -> cmd_invoke()", "forward-sentence", 0,
+	{ { 'e', KEY_MOD_META }, "M-e", "the global map -> cmd_invoke()", "forward-sentence", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ALT_R, "M-r", "the global map -> cmd_invoke()",
+	{ { 'r', KEY_MOD_META }, "M-r", "the global map -> cmd_invoke()",
 	    "move-to-window-line-top-bottom", 0, K_CMD, L_GLOBAL, RO_FREE, 1,
 	    "window-line-cycle-top-middle-bottom",
 	    "cycles top/middle/bottom while it is the last command" },
-	{ ALT_BACKSLASH, "M-\\", "the global map -> cmd_invoke()",
+	{ { '\\', KEY_MOD_META }, "M-\\", "the global map -> cmd_invoke()",
 	    "delete-horizontal-space", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1,
 	    NULL, NULL },
-	{ ALT_SPACE, "M-SPC", "the global map -> cmd_invoke()",
+	{ { ' ', KEY_MOD_META }, "M-SPC", "the global map -> cmd_invoke()",
 	    "just-one-space", EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    NULL },
-	{ ALT_Z, "M-z", "the global map -> cmd_invoke()", "zap-to-char", EDITS,
+	{ { 'z', KEY_MOD_META }, "M-z", "the global map -> cmd_invoke()", "zap-to-char", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ ALT_P, "M-p", "the git-rebase map -> cmd_invoke()",
+	{ { 'p', KEY_MOD_META }, "M-p", "the git-rebase map -> cmd_invoke()",
 	    "git-rebase-move-line-up", EDITS, K_CMD, L_GIT_REBASE, RO_COMMAND,
 	    1, NULL, "the map is live only in a git-rebase-todo buffer" },
-	{ ALT_N, "M-n", "the git-rebase map -> cmd_invoke()",
+	{ { 'n', KEY_MOD_META }, "M-n", "the git-rebase map -> cmd_invoke()",
 	    "git-rebase-move-line-down", EDITS, K_CMD, L_GIT_REBASE, RO_COMMAND,
 	    1, NULL, "the map is live only in a git-rebase-todo buffer" },
-	{ ALT_ENTER, "M-RET", "not reached: prompts read it themselves", "", 0,
+	{ { KEY_BASE_RET, KEY_MOD_META }, "M-RET", "not reached: prompts read it themselves", "", 0,
 	    K_INPUT, L_MINIBUF, RO_FREE, 0, NULL,
 	    "the path prompt's \"accept what I typed\" key" },
-	{ ALT_0, "M-0", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '0', KEY_MOD_META }, "M-0", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, "explicit zero is a supplied value" },
-	{ ALT_1, "M-1", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '1', KEY_MOD_META }, "M-1", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_2, "M-2", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '2', KEY_MOD_META }, "M-2", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_3, "M-3", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '3', KEY_MOD_META }, "M-3", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_4, "M-4", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '4', KEY_MOD_META }, "M-4", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_5, "M-5", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '5', KEY_MOD_META }, "M-5", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_6, "M-6", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '6', KEY_MOD_META }, "M-6", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_7, "M-7", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '7', KEY_MOD_META }, "M-7", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_8, "M-8", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '8', KEY_MOD_META }, "M-8", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_9, "M-9", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
+	{ { '9', KEY_MOD_META }, "M-9", "handle_universal_arg", "digit-argument", 0, K_PREFIX,
 	    L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ ALT_CTRL_S, "C-M-s", "the global map -> cmd_invoke()",
+	{ { 's', KEY_MOD_CTRL | KEY_MOD_META }, "C-M-s", "the global map -> cmd_invoke()",
 	    "isearch-forward-regexp", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ ALT_CTRL_R, "C-M-r", "the global map -> cmd_invoke()",
+	{ { 'r', KEY_MOD_CTRL | KEY_MOD_META }, "C-M-r", "the global map -> cmd_invoke()",
 	    "isearch-backward-regexp", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ KEY_F3, "<f3>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_F3, 0 }, "<f3>", "the global map -> cmd_invoke()",
 	    "kmacro-start-macro", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ KEY_F4, "<f4>", "the global map -> cmd_invoke()",
+	{ { KEY_BASE_F4, 0 }, "<f4>", "the global map -> cmd_invoke()",
 	    "kmacro-end-or-call-macro", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
 };
@@ -369,12 +369,12 @@ static const struct {
 	const struct binding row;
 } fallback_ranges[] = {
 	{ 32, 126,
-	    { -1, "<printable>",
+	    { { -1, 0 }, "<printable>",
 		"editor_self_insert_char / editor_insert_repeated_literal",
 		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_COMMAND, 1,
 		NULL, "a measured fast path, through cmd_fast_path_begin()" } },
 	{ 0x80, 0xFF,
-	    { -1, "<utf-8 lead>",
+	    { { -1, 0 }, "<utf-8 lead>",
 		"editor_read_utf8_seq + editor_self_insert_glyph",
 		"self-insert-command", EDITS, K_SELF, L_GLOBAL, RO_COMMAND, 1,
 		NULL,
@@ -386,141 +386,141 @@ static const struct {
  * not keycodes of their own, so they are checked for uniqueness and for
  * naming a resolvable command, not for covering a domain. */
 static const struct binding prefix_bindings[] = {
-	{ CTRL_C, "C-x C-c", "the global map -> cmd_invoke()",
+	{ { 'c', KEY_MOD_CTRL }, "C-x C-c", "the global map -> cmd_invoke()",
 	    "save-buffers-kill-terminal", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ CTRL_S, "C-x C-s", "the global map -> cmd_invoke()", "save-buffer", 0,
+	{ { 's', KEY_MOD_CTRL }, "C-x C-s", "the global map -> cmd_invoke()", "save-buffer", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 's', "C-x s", "the global map -> cmd_invoke()", "save-some-buffers",
+	{ { 's', 0 }, "C-x s", "the global map -> cmd_invoke()", "save-some-buffers",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_F, "C-x C-f", "the global map -> cmd_invoke()", "find-file", 0,
+	{ { 'f', KEY_MOD_CTRL }, "C-x C-f", "the global map -> cmd_invoke()", "find-file", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ CTRL_R, "C-x C-r", "the global map -> cmd_invoke()",
+	{ { 'r', KEY_MOD_CTRL }, "C-x C-r", "the global map -> cmd_invoke()",
 	    "find-file-read-only", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'b', "C-x b", "the global map -> cmd_invoke()", "switch-to-buffer", 0,
+	{ { 'b', 0 }, "C-x b", "the global map -> cmd_invoke()", "switch-to-buffer", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'k', "C-x k", "the global map -> cmd_invoke()", "kill-buffer", 0,
+	{ { 'k', 0 }, "C-x k", "the global map -> cmd_invoke()", "kill-buffer", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 0, NULL, NULL },
-	{ CTRL_B, "C-x C-b", "the global map -> cmd_invoke()", "list-buffers",
+	{ { 'b', KEY_MOD_CTRL }, "C-x C-b", "the global map -> cmd_invoke()", "list-buffers",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'd', "C-x d", "the global map -> cmd_invoke()", "dired", 0, K_CMD,
+	{ { 'd', 0 }, "C-x d", "the global map -> cmd_invoke()", "dired", 0, K_CMD,
 	    L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ '2', "C-x 2", "the global map -> cmd_invoke()", "split-window-below",
+	{ { '2', 0 }, "C-x 2", "the global map -> cmd_invoke()", "split-window-below",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ '3', "C-x 3", "the global map -> cmd_invoke()", "split-window-right",
+	{ { '3', 0 }, "C-x 3", "the global map -> cmd_invoke()", "split-window-right",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'o', "C-x o", "the global map -> cmd_invoke()", "other-window", 0,
+	{ { 'o', 0 }, "C-x o", "the global map -> cmd_invoke()", "other-window", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ '0', "C-x 0", "the global map -> cmd_invoke()", "delete-window", 0,
+	{ { '0', 0 }, "C-x 0", "the global map -> cmd_invoke()", "delete-window", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ '1', "C-x 1", "the global map -> cmd_invoke()",
+	{ { '1', 0 }, "C-x 1", "the global map -> cmd_invoke()",
 	    "delete-other-windows", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ CTRL_X, "C-x C-x", "the global map -> cmd_invoke()",
+	{ { 'x', KEY_MOD_CTRL }, "C-x C-x", "the global map -> cmd_invoke()",
 	    "exchange-point-and-mark", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    NULL },
-	{ CTRL_W, "C-x C-w", "the global map -> cmd_invoke()", "write-file", 0,
+	{ { 'w', KEY_MOD_CTRL }, "C-x C-w", "the global map -> cmd_invoke()", "write-file", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'i', "C-x i", "the global map -> cmd_invoke()", "insert-file", EDITS,
+	{ { 'i', 0 }, "C-x i", "the global map -> cmd_invoke()", "insert-file", EDITS,
 	    K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the prefix path never consults the key filter" },
-	{ CTRL_Q, "C-x C-q", "the global map -> cmd_invoke()", "read-only-mode",
+	{ { 'q', KEY_MOD_CTRL }, "C-x C-q", "the global map -> cmd_invoke()", "read-only-mode",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ '(', "C-x (", "the global map -> cmd_invoke()", "kmacro-start-macro",
+	{ { '(', 0 }, "C-x (", "the global map -> cmd_invoke()", "kmacro-start-macro",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ ')', "C-x )", "the global map -> cmd_invoke()", "kmacro-end-macro", 0,
+	{ { ')', 0 }, "C-x )", "the global map -> cmd_invoke()", "kmacro-end-macro", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'e', "C-x e", "the global map -> cmd_invoke()",
+	{ { 'e', 0 }, "C-x e", "the global map -> cmd_invoke()",
 	    "kmacro-end-and-call-macro", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "C-u N e repeats N times" },
-	{ CTRL_E, "C-x C-e", "the global map -> cmd_invoke()", "eval-last-sexp",
+	{ { 'e', KEY_MOD_CTRL }, "C-x C-e", "the global map -> cmd_invoke()", "eval-last-sexp",
 	    0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL,
 	    "with a prefix, inserts the result" },
-	{ ' ', "C-x SPC", "the global map -> cmd_invoke()",
+	{ { ' ', 0 }, "C-x SPC", "the global map -> cmd_invoke()",
 	    "rectangle-mark-mode", 0, K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
-	{ 'r', "C-x r", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
+	{ { 'r', 0 }, "C-x r", "keymap prefix traversal", "", 0, K_PREFIX, L_GLOBAL,
 	    RO_FREE, 0, NULL, "a prefix because leaves hang off it" },
-	{ CTRL_G, "C-x C-g", "prefix traversal cancels the sequence",
+	{ { 'g', KEY_MOD_CTRL }, "C-x C-g", "prefix traversal cancels the sequence",
 	    "keyboard-quit", 0, K_QUIT, L_GLOBAL, RO_FREE, 0, NULL,
 	    "C-g gets out at any depth, which is why no map may bind it" },
-	{ '#', "C-x #", "the global map -> cmd_invoke()", "server-edit", 0,
+	{ { '#', 0 }, "C-x #", "the global map -> cmd_invoke()", "server-edit", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 
-	{ 'k', "C-x r k", "the global map -> cmd_invoke()", "kill-rectangle",
+	{ { 'k', 0 }, "C-x r k", "the global map -> cmd_invoke()", "kill-rectangle",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "C-x r C-k is the same leaf" },
-	{ 'd', "C-x r d", "the global map -> cmd_invoke()", "delete-rectangle",
+	{ { 'd', 0 }, "C-x r d", "the global map -> cmd_invoke()", "delete-rectangle",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ 'c', "C-x r c", "the global map -> cmd_invoke()", "clear-rectangle",
+	{ { 'c', 0 }, "C-x r c", "the global map -> cmd_invoke()", "clear-rectangle",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ 'y', "C-x r y", "the global map -> cmd_invoke()", "yank-rectangle",
+	{ { 'y', 0 }, "C-x r y", "the global map -> cmd_invoke()", "yank-rectangle",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "C-x r C-y is the same leaf" },
-	{ 't', "C-x r t", "the global map -> cmd_invoke()", "string-rectangle",
+	{ { 't', 0 }, "C-x r t", "the global map -> cmd_invoke()", "string-rectangle",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL, NULL },
-	{ CTRL_G, "C-x r C-g", "prefix traversal cancels the sequence",
+	{ { 'g', KEY_MOD_CTRL }, "C-x r C-g", "prefix traversal cancels the sequence",
 	    "keyboard-quit", 0, K_QUIT, L_GLOBAL, RO_FREE, 0, NULL, NULL },
 
-	{ CTRL_C, "C-c C-c", "a mode map -> cmd_invoke()", "server-edit", 0,
+	{ { 'c', KEY_MOD_CTRL }, "C-c C-c", "a mode map -> cmd_invoke()", "server-edit", 0,
 	    K_CMD, L_GIT_COMMIT, RO_FREE, 1, NULL,
 	    "git-rebase-todo buffers bind it the same way" },
-	{ CTRL_K, "C-c C-k", "a mode map -> cmd_invoke()", "git-commit-abort",
+	{ { 'k', KEY_MOD_CTRL }, "C-c C-k", "a mode map -> cmd_invoke()", "git-commit-abort",
 	    0, K_CMD, L_GIT_COMMIT, RO_FREE, 1, NULL, NULL },
-	{ CTRL_K, "C-c C-k [rebase]", "a mode map -> cmd_invoke()",
+	{ { 'k', KEY_MOD_CTRL }, "C-c C-k [rebase]", "a mode map -> cmd_invoke()",
 	    "git-rebase-abort", 0, K_CMD, L_GIT_REBASE, RO_FREE, 1, NULL,
 	    NULL },
-	{ CTRL_P, "C-c C-p", "a mode map -> cmd_invoke()", "git-rebase-pick",
+	{ { 'p', KEY_MOD_CTRL }, "C-c C-p", "a mode map -> cmd_invoke()", "git-rebase-pick",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_R, "C-c C-r", "a mode map -> cmd_invoke()", "git-rebase-reword",
+	{ { 'r', KEY_MOD_CTRL }, "C-c C-r", "a mode map -> cmd_invoke()", "git-rebase-reword",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_E, "C-c C-e", "a mode map -> cmd_invoke()", "git-rebase-edit",
+	{ { 'e', KEY_MOD_CTRL }, "C-c C-e", "a mode map -> cmd_invoke()", "git-rebase-edit",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_S, "C-c C-s", "a mode map -> cmd_invoke()", "git-rebase-squash",
+	{ { 's', KEY_MOD_CTRL }, "C-c C-s", "a mode map -> cmd_invoke()", "git-rebase-squash",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_F, "C-c C-f", "a mode map -> cmd_invoke()", "git-rebase-fixup",
+	{ { 'f', KEY_MOD_CTRL }, "C-c C-f", "a mode map -> cmd_invoke()", "git-rebase-fixup",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_D, "C-c C-d", "a mode map -> cmd_invoke()", "git-rebase-drop",
+	{ { 'd', KEY_MOD_CTRL }, "C-c C-d", "a mode map -> cmd_invoke()", "git-rebase-drop",
 	    EDITS, K_CMD, L_GIT_REBASE, RO_HANDLER, 1, NULL, NULL },
-	{ CTRL_K, "C-c C-k [compilation]", "a mode map -> cmd_invoke()",
+	{ { 'k', KEY_MOD_CTRL }, "C-c C-k [compilation]", "a mode map -> cmd_invoke()",
 	    "kill-compilation", 0, K_CMD, L_COMPILATION, RO_FREE, 1, NULL,
 	    NULL },
-	{ -1, "C-c <key>", "the user map -> cmd_invoke()", "", 0, K_CMD, L_USER,
+	{ { -1, 0 }, "C-c <key>", "the user map -> cmd_invoke()", "", 0, K_CMD, L_USER,
 	    RO_UNCHECKED, 1, NULL,
 	    "whatever (global-set-key ...) bound; the name resolves at "
 	    "dispatch" },
 
-	{ '%', "ESC %", "cmd_execute_named(\"query-replace\")", "query-replace",
+	{ { '%', 0 }, "ESC %", "cmd_execute_named(\"query-replace\")", "query-replace",
 	    EDITS, K_CMD, L_GLOBAL, RO_COMMAND, 1, NULL,
 	    "the ESC branch reaches the same command M-% does" },
-	{ '@', "ESC @", "cmd_execute_named(\"mark-word\")", "mark-word", 0,
+	{ { '@', 0 }, "ESC @", "cmd_execute_named(\"mark-word\")", "mark-word", 0,
 	    K_CMD, L_GLOBAL, RO_FREE, 1, NULL, NULL },
 
-	{ ENTER, "RET [dired]", "a mode map -> cmd_invoke()", "dired-find-file",
+	{ { KEY_BASE_RET, 0 }, "RET [dired]", "a mode map -> cmd_invoke()", "dired-find-file",
 	    0, K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ '^', "^ [dired]", "a mode map -> cmd_invoke()", "dired-up-directory",
+	{ { '^', 0 }, "^ [dired]", "a mode map -> cmd_invoke()", "dired-up-directory",
 	    0, K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ 'g', "g [dired]", "a mode map -> cmd_invoke()", "dired-revert", 0,
+	{ { 'g', 0 }, "g [dired]", "a mode map -> cmd_invoke()", "dired-revert", 0,
 	    K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ 'm', "m [dired]", "a mode map -> cmd_invoke()", "dired-mark", 0,
+	{ { 'm', 0 }, "m [dired]", "a mode map -> cmd_invoke()", "dired-mark", 0,
 	    K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ 'd', "d [dired]", "a mode map -> cmd_invoke()",
+	{ { 'd', 0 }, "d [dired]", "a mode map -> cmd_invoke()",
 	    "dired-flag-file-deletion", 0, K_CMD, L_DIRED, RO_FREE, 1, NULL,
 	    NULL },
-	{ 'u', "u [dired]", "a mode map -> cmd_invoke()", "dired-unmark", 0,
+	{ { 'u', 0 }, "u [dired]", "a mode map -> cmd_invoke()", "dired-unmark", 0,
 	    K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ 'x', "x [dired]", "a mode map -> cmd_invoke()",
+	{ { 'x', 0 }, "x [dired]", "a mode map -> cmd_invoke()",
 	    "dired-do-flagged-delete", 0, K_CMD, L_DIRED, RO_FREE, 1, NULL,
 	    NULL },
-	{ 'n', "n [dired]", "a mode map -> cmd_invoke()", "next-line", 0, K_CMD,
+	{ { 'n', 0 }, "n [dired]", "a mode map -> cmd_invoke()", "next-line", 0, K_CMD,
 	    L_DIRED, RO_FREE, 1, NULL, NULL },
-	{ 'p', "p [dired]", "a mode map -> cmd_invoke()", "previous-line", 0,
+	{ { 'p', 0 }, "p [dired]", "a mode map -> cmd_invoke()", "previous-line", 0,
 	    K_CMD, L_DIRED, RO_FREE, 1, NULL, NULL },
 
-	{ ENTER, "RET [read-only]", "a mode map -> cmd_invoke()",
+	{ { KEY_BASE_RET, 0 }, "RET [read-only]", "a mode map -> cmd_invoke()",
 	    "ibuffer-visit-buffer", 0, K_CMD, L_READONLY, RO_FREE, 1, NULL,
 	    "the buffer-list map is live in any read-only buffer that is "
 	    "not a listing" },
-	{ 'q', "q [special]", "a mode map -> cmd_invoke()", "quit-window", 0,
+	{ { 'q', 0 }, "q [special]", "a mode map -> cmd_invoke()", "quit-window", 0,
 	    K_CMD, L_SPECIAL, RO_FREE, 1, NULL,
 	    "the special map's predicate: another buffer has to exist" },
 };
@@ -542,49 +542,153 @@ static int range_count(void)
 
 /* The keycodes global dispatch can be handed: the control range, DEL, and
  * every soft key.  The printable range and the bytes above ASCII belong
- * to the fallback ranges instead. */
+ * to the fallback ranges instead.  Meta combinations are not in this
+ * domain: since the decoder flag day they are a base plus a modifier
+ * bit, not a parallel set of legacy enumerators, so there is nothing
+ * left to enumerate them against -- test_global_table_covers_the_key_
+ * domain()'s injectivity pass covers them instead. */
 static int key_is_in_domain(int c)
 {
 	return (c >= 0 && c <= 31) || c == BACKSPACE
 	    || (c >= ARROW_LEFT && c <= KEY_F4);
 }
 
+/* The key_event a domain keycode decodes to, independently of
+ * src/keyevent.c and src/tty.c: the same cross-check test_legacy_
+ * adapter_spellings used to do, now scoped to what remains enumerable.
+ * Zero base means "not a domain keycode". */
+static struct key_event domain_event(int c)
+{
+	switch (c) {
+	case KEY_NULL:
+		return (struct key_event) { ' ', KEY_MOD_CTRL };
+	case TAB:
+		return (struct key_event) { KEY_BASE_TAB, 0 };
+	case ENTER:
+		return (struct key_event) { KEY_BASE_RET, 0 };
+	case ESC:
+		return (struct key_event) { KEY_BASE_ESC, 0 };
+	case 28:
+		return (struct key_event) { '\\', KEY_MOD_CTRL };
+	case 29:
+		return (struct key_event) { ']', KEY_MOD_CTRL };
+	case 30:
+		return (struct key_event) { '^', KEY_MOD_CTRL };
+	case CTRL_UNDERSCORE:
+		return (struct key_event) { '_', KEY_MOD_CTRL };
+	case BACKSPACE:
+		return (struct key_event) { KEY_BASE_DEL, 0 };
+	case ARROW_LEFT:
+		return (struct key_event) { KEY_BASE_LEFT, 0 };
+	case ARROW_RIGHT:
+		return (struct key_event) { KEY_BASE_RIGHT, 0 };
+	case ARROW_UP:
+		return (struct key_event) { KEY_BASE_UP, 0 };
+	case ARROW_DOWN:
+		return (struct key_event) { KEY_BASE_DOWN, 0 };
+	case DEL_KEY:
+		return (struct key_event) { KEY_BASE_DELETE, 0 };
+	case HOME_KEY:
+		return (struct key_event) { KEY_BASE_HOME, 0 };
+	case END_KEY:
+		return (struct key_event) { KEY_BASE_END, 0 };
+	case PAGE_UP:
+		return (struct key_event) { KEY_BASE_PRIOR, 0 };
+	case PAGE_DOWN:
+		return (struct key_event) { KEY_BASE_NEXT, 0 };
+	case CTRL_ARROW_LEFT:
+		return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_CTRL };
+	case CTRL_ARROW_RIGHT:
+		return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_CTRL };
+	case CTRL_ARROW_UP:
+		return (struct key_event) { KEY_BASE_UP, KEY_MOD_CTRL };
+	case CTRL_ARROW_DOWN:
+		return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_CTRL };
+	case CTRL_HOME:
+		return (struct key_event) { KEY_BASE_HOME, KEY_MOD_CTRL };
+	case CTRL_END:
+		return (struct key_event) { KEY_BASE_END, KEY_MOD_CTRL };
+	case SHIFT_ARROW_LEFT:
+		return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_SHIFT };
+	case SHIFT_ARROW_RIGHT:
+		return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_SHIFT };
+	case SHIFT_ARROW_UP:
+		return (struct key_event) { KEY_BASE_UP, KEY_MOD_SHIFT };
+	case SHIFT_ARROW_DOWN:
+		return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_SHIFT };
+	case SHIFT_HOME:
+		return (struct key_event) { KEY_BASE_HOME, KEY_MOD_SHIFT };
+	case SHIFT_END:
+		return (struct key_event) { KEY_BASE_END, KEY_MOD_SHIFT };
+	case INSERT_KEY:
+		return (struct key_event) { KEY_BASE_INSERT, 0 };
+	case SHIFT_INSERT:
+		return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_SHIFT };
+	case SHIFT_DELETE:
+		return (struct key_event) { KEY_BASE_DELETE, KEY_MOD_SHIFT };
+	case CTRL_INSERT:
+		return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_CTRL };
+	case KEY_F3:
+		return (struct key_event) { KEY_BASE_F3, 0 };
+	case KEY_F4:
+		return (struct key_event) { KEY_BASE_F4, 0 };
+	}
+	/* The rest of the control range is the letter it holds down. */
+	if (c >= CTRL_A && c <= CTRL_Z) {
+		return (struct key_event) { 'a' + c - CTRL_A, KEY_MOD_CTRL };
+	}
+	return (struct key_event) { 0, 0 };
+}
+
+/* Whether a row is bound to the plain (unmodified) character `c` --
+ * what the fallback ranges (self-insert) cover. */
 static const struct binding *global_row_for(int c)
 {
+	struct key_event event = { c, 0 };
 	int i;
 
 	for (i = 0; i < global_count(); i++) {
-		if (global_bindings[i].key == c) {
+		if (key_event_equal(global_bindings[i].key, event)) {
 			return &global_bindings[i];
 		}
 	}
 	return NULL;
 }
 
-/* Every keycode in the domain is classified exactly once.  A new
- * enumerator in enum KEY_ACTION fails here until someone says what it
- * does. */
+/* Every keycode still enumerable (the control range, DEL, and the named
+ * soft keys) is classified exactly once, checked against an
+ * independently written expectation.  Meta combinations have no such
+ * domain to enumerate any more -- a base plus a modifier bit -- so the
+ * second pass instead checks that no two rows, Meta included, share one
+ * key_event. */
 static void test_global_table_covers_the_key_domain(void)
 {
-	int c, i;
+	int c, i, j;
 
 	for (c = 0; c <= KEY_F4; c++) {
+		struct key_event event;
 		int seen = 0;
 
 		if (!key_is_in_domain(c)) {
 			continue;
 		}
+		event = domain_event(c);
+		CHECKF(event.base != 0, "keycode %d has no expected event", c);
 		for (i = 0; i < global_count(); i++) {
-			if (global_bindings[i].key == c) {
+			if (key_event_equal(global_bindings[i].key, event)) {
 				seen++;
 			}
 		}
 		CHECKF(seen == 1, "keycode %d has %d rows, want 1", c, seen);
 	}
 	for (i = 0; i < global_count(); i++) {
-		CHECKF(key_is_in_domain(global_bindings[i].key),
-		    "%s: keycode %d is outside the global key domain",
-		    global_bindings[i].seq, global_bindings[i].key);
+		for (j = i + 1; j < global_count(); j++) {
+			CHECKF(
+			    !key_event_equal(
+				global_bindings[i].key, global_bindings[j].key),
+			    "%s and %s are the same key", global_bindings[i].seq,
+			    global_bindings[j].seq);
+		}
 	}
 }
 
@@ -669,8 +773,8 @@ static void test_sequences_are_the_keycode_spelled_canonically(void)
 
 		CHECKF(key_parse(b->seq, &parsed) == 0, "%s does not parse",
 		    b->seq);
-		CHECKF(key_event_equal(parsed, key_event_from_legacy(b->key)),
-		    "%s is not how keycode %d is spelled", b->seq, b->key);
+		CHECKF(key_event_equal(parsed, b->key),
+		    "%s is not how the table's key_event is spelled", b->seq);
 		CHECK(key_format(parsed, text, sizeof(text)) == 0);
 		CHECKF(strcmp(text, b->seq) == 0,
 		    "%s is spelled %s canonically", b->seq, text);

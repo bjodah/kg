@@ -80,6 +80,7 @@
  * before the buffer table is, so the type has to arrive first. */
 #include "bufhandle.h"
 #include "cmd.h"
+#include "keyevent.h"
 #include "perf.h"
 
 /* Key action codes */
@@ -141,54 +142,11 @@ enum KEY_ACTION {
 	SHIFT_INSERT, /* CUA paste */
 	SHIFT_DELETE, /* CUA cut */
 	CTRL_INSERT, /* CUA copy */
-	ALT_F,
-	ALT_B,
-	ALT_D,
-	ALT_G,
-	ALT_H,
-	ALT_V,
-	ALT_W,
-	ALT_Q,
-	ALT_BACKSPACE,
-	ALT_PCT, /* M-% query-replace */
-	ALT_AT, /* M-@ mark-word */
-	ALT_SEMICOLON, /* M-; comment-dwim */
-	ALT_COLON, /* M-: eval-expression */
-	ALT_X, /* M-x named command */
-	ALT_CARET, /* M-^ join-line */
-	ALT_U, /* M-u upcase-word */
-	ALT_L, /* M-l downcase-word */
-	ALT_C, /* M-c capitalize-word */
-	ALT_BANG, /* M-! shell-command */
-	ALT_PIPE, /* M-| shell-command-on-region */
-	ALT_LT, /* M-< beginning-of-buffer */
-	ALT_GT, /* M-> end-of-buffer */
-	ALT_LBRACE, /* M-{ backward paragraph */
-	ALT_RBRACE, /* M-} forward paragraph */
-	ALT_M, /* M-m back-to-indentation */
-	ALT_A, /* M-a backward sentence */
-	ALT_E, /* M-e forward sentence */
-	ALT_R, /* M-r move-to-window-line */
-	ALT_BACKSLASH, /* M-\ delete-horizontal-space */
-	ALT_SPACE, /* M-SPC just-one-space */
-	ALT_Z, /* M-z zap-to-char */
-	ALT_P, /* M-p minibuffer history: previous */
-	ALT_N, /* M-n minibuffer history: next */
-	ALT_ENTER, /* M-RET path prompt: accept the text literally */
-	ALT_0, /* M-0 numeric argument */
-	ALT_1,
-	ALT_2,
-	ALT_3,
-	ALT_4,
-	ALT_5,
-	ALT_6,
-	ALT_7,
-	ALT_8,
-	ALT_9,
-	ALT_CTRL_S, /* ESC C-s */
-	ALT_CTRL_R, /* ESC C-r */
 	KEY_F3, /* F3: start keyboard macro */
 	KEY_F4 /* F4: stop or replay keyboard macro */
+	/* Meta is a key_event modifier bit (src/keyevent.h), not a parallel
+	 * set of enumerators here: there is no ALT_F, only 'f' with
+	 * KEY_MOD_META set.  tty.c's decoder builds that directly. */
 };
 
 /* This structure represents a single line of the file we are editing. */
@@ -887,8 +845,9 @@ enum file_change_state file_snapshot_compare_path(
 
 /* macro.c */
 int macro_is_recording(void);
-void macro_on_key(int key);
-int macro_next_key(void);
+void macro_on_key(struct key_event key);
+/* 1 with *out filled in during replay, 0 to fall back to the terminal. */
+int macro_next_key(struct key_event *out);
 void macro_reset(void);
 void macro_start(void);
 void macro_stop(int trim);
@@ -963,9 +922,11 @@ void disable_raw_mode(int fd);
 void editor_at_exit(void);
 int enable_raw_mode(int fd);
 void editor_suspend(void);
-int editor_read_key(int fd);
-int editor_read_key_idle(int fd);
+struct key_event editor_read_key(int fd);
+struct key_event editor_read_key_idle(int fd);
 int editor_input_flood(int fd);
+/* Reads one undecoded byte -- no escape sequence, no Ctrl/Meta decode --
+ * for quoted-insert's literal data and UTF-8 continuation bytes. */
 int editor_read_raw_byte(int fd);
 int editor_read_utf8_seq(int fd, int lead, char *seq);
 int editor_check_quit_pending(void);

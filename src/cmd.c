@@ -1923,7 +1923,7 @@ void editor_named_command(int fd)
 		editor.echo_cursor_col = plen + len + 1;
 		editor_refresh_screen();
 
-		c = key_event_from_legacy(editor_read_key(fd));
+		c = editor_read_key(fd);
 
 		if (KEY_IN_LIST(erase_keys, c)) {
 			if (len > 0) {

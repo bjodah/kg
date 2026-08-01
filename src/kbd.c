@@ -160,7 +160,7 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	va_end(ap);
 	editor_set_status_message("%s", prompt);
 	editor_refresh_screen();
-	answer = key_event_from_legacy(editor_read_key(fd));
+	answer = editor_read_key(fd);
 	return KEY_IS(answer, 'y', 0) || KEY_IS(answer, 'Y', 0);
 }
 
@@ -710,7 +710,7 @@ static void key_finish_keypress(struct kg_buffer_handle buffer_before,
 void editor_process_keypress(int fd)
 {
 	struct timeval tv;
-	struct key_event c = key_event_from_legacy(editor_read_key_idle(fd));
+	struct key_event c = editor_read_key_idle(fd);
 	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
 	uint64_t generation_before = bcur()->content_generation;
 	int was_shift_select = bcur()->shift_select;

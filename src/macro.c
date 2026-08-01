@@ -6,7 +6,14 @@
 
 #define MACRO_MAX 1024
 
-static int macro_keys[MACRO_MAX];
+/* One slot per key the reader saw, whichever of the three readers saw
+ * it.  A byte editor_read_raw_byte() recorded (quoted-insert's literal
+ * data, say) is a key_event with mods 0 and base equal to the byte --
+ * the same encoding editor_read_key() uses for a bare, unmodified
+ * character -- so the two interleave in one queue with no tag needed:
+ * replay calls the readers in the same order recording did, and each
+ * reader gets back exactly the shape it would have produced itself. */
+static struct key_event macro_keys[MACRO_MAX];
 static int macro_len = 0;
 static int macro_pos = 0;
 static int macro_recording = 0;
@@ -22,23 +29,25 @@ void macro_reset(void)
 	macro_replaying = 0;
 }
 
-/* Called by editor_read_key: append key to buffer while recording.
+/* Called by the readers in tty.c: append key to buffer while recording.
  * Skipped during replay so we don't corrupt the buffer with replayed keys. */
-void macro_on_key(int key)
+void macro_on_key(struct key_event key)
 {
 	if (macro_recording && !macro_replaying && macro_len < MACRO_MAX) {
 		macro_keys[macro_len++] = key;
 	}
 }
 
-/* Called by editor_read_key: return next pre-recorded key during replay,
- * or -1 when the buffer is exhausted (fall back to terminal). */
-int macro_next_key(void)
+/* Called by the readers in tty.c: 1 with *out set to the next
+ * pre-recorded key during replay, 0 when the buffer is exhausted (fall
+ * back to the terminal). */
+int macro_next_key(struct key_event *out)
 {
 	if (macro_replaying && macro_pos < macro_len) {
-		return macro_keys[macro_pos++];
+		*out = macro_keys[macro_pos++];
+		return 1;
 	}
-	return -1;
+	return 0;
 }
 
 /* C-x ( or F3: begin recording.  Resets any previously recorded macro. */

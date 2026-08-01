@@ -14,6 +14,7 @@
 
 #include "compile.h"
 #include "def.h"
+#include "keyevent.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static unsigned char *pending_input;
@@ -32,62 +33,72 @@ static int unread_key_slot = -1;
 
 static void unread_key(int key) { unread_key_slot = key; }
 
-struct key_map {
+/* ESC followed by one of these bytes is that Meta combination: the base
+ * a plain, unmodified press of the same byte would carry, plus whatever
+ * modifier on top of Meta the two Ctrl-letter rows need.  Named bases
+ * (KEY_BASE_DEL, KEY_BASE_RET) are for the terminal's own idea of
+ * Backspace and Enter, which is a raw byte, not the "DEL"/"RET" key
+ * kg's own decoder never emits from a bare press. */
+struct meta_key {
 	char byte;
-	int key;
+	int32_t base;
+	uint8_t extra_mods;
 };
 
-static const struct key_map alt_keys[] = {
-	{ 'f', ALT_F },
-	{ 'b', ALT_B },
-	{ 'd', ALT_D },
-	{ 'g', ALT_G },
-	{ 'h', ALT_H },
-	{ 'v', ALT_V },
-	{ 'w', ALT_W },
-	{ 'q', ALT_Q },
-	{ '\x7f', ALT_BACKSPACE },
-	{ '\b', ALT_BACKSPACE },
-	{ '%', ALT_PCT },
-	{ '@', ALT_AT },
-	{ ';', ALT_SEMICOLON },
-	{ ':', ALT_COLON },
-	{ 'x', ALT_X },
-	{ '^', ALT_CARET },
-	{ 'u', ALT_U },
-	{ 'l', ALT_L },
-	{ 'c', ALT_C },
-	{ '!', ALT_BANG },
-	{ '|', ALT_PIPE },
-	{ '<', ALT_LT },
-	{ '>', ALT_GT },
-	{ '{', ALT_LBRACE },
-	{ '}', ALT_RBRACE },
-	{ 'm', ALT_M },
-	{ 'a', ALT_A },
-	{ 'e', ALT_E },
-	{ 'r', ALT_R },
-	{ '\\', ALT_BACKSLASH },
-	{ ' ', ALT_SPACE },
-	{ 'z', ALT_Z },
-	{ 'p', ALT_P },
-	{ 'n', ALT_N },
-	{ '\r', ALT_ENTER },
-	{ '\n', ALT_ENTER },
-	{ '\x13', ALT_CTRL_S },
-	{ '\x12', ALT_CTRL_R },
+static const struct meta_key meta_keys[] = {
+	{ 'f', 'f', 0 },
+	{ 'b', 'b', 0 },
+	{ 'd', 'd', 0 },
+	{ 'g', 'g', 0 },
+	{ 'h', 'h', 0 },
+	{ 'v', 'v', 0 },
+	{ 'w', 'w', 0 },
+	{ 'q', 'q', 0 },
+	{ '\x7f', KEY_BASE_DEL, 0 },
+	{ '\b', KEY_BASE_DEL, 0 },
+	{ '%', '%', 0 },
+	{ '@', '@', 0 },
+	{ ';', ';', 0 },
+	{ ':', ':', 0 },
+	{ 'x', 'x', 0 },
+	{ '^', '^', 0 },
+	{ 'u', 'u', 0 },
+	{ 'l', 'l', 0 },
+	{ 'c', 'c', 0 },
+	{ '!', '!', 0 },
+	{ '|', '|', 0 },
+	{ '<', '<', 0 },
+	{ '>', '>', 0 },
+	{ '{', '{', 0 },
+	{ '}', '}', 0 },
+	{ 'm', 'm', 0 },
+	{ 'a', 'a', 0 },
+	{ 'e', 'e', 0 },
+	{ 'r', 'r', 0 },
+	{ '\\', '\\', 0 },
+	{ ' ', ' ', 0 },
+	{ 'z', 'z', 0 },
+	{ 'p', 'p', 0 },
+	{ 'n', 'n', 0 },
+	{ '\r', KEY_BASE_RET, 0 },
+	{ '\n', KEY_BASE_RET, 0 },
+	{ '\x13', 's', KEY_MOD_CTRL }, /* ESC C-s */
+	{ '\x12', 'r', KEY_MOD_CTRL }, /* ESC C-r */
 };
 
-static int lookup_alt_key(char byte)
+/* The key_event a Meta-prefixed byte stands for, or a zero base when
+ * `byte` starts no Meta combination kg knows. */
+static struct key_event lookup_meta_key(char byte)
 {
 	size_t i;
 
-	for (i = 0; i < sizeof(alt_keys) / sizeof(alt_keys[0]); i++) {
-		if (alt_keys[i].byte == byte) {
-			return alt_keys[i].key;
+	for (i = 0; i < sizeof(meta_keys) / sizeof(meta_keys[0]); i++) {
+		if (meta_keys[i].byte == byte) {
+			return (struct key_event) { meta_keys[i].base,
+				(uint8_t)(KEY_MOD_META | meta_keys[i].extra_mods) };
 		}
 	}
-	return 0;
+	return (struct key_event) { 0, 0 };
 }
 
 void disable_raw_mode(int fd)
@@ -302,149 +313,154 @@ fatal:
 #endif
 }
 
-/* Decode an escape sequence (ESC byte already consumed) into a key code. */
-static int parse_escape(int fd)
+/* Bare ESC: nothing more arrived, or what did arrive names nothing kg
+ * decodes.  A named base with no modifier, same as a deliberate press
+ * of the Escape key. */
+static struct key_event bare_esc(void) { return (struct key_event) { KEY_BASE_ESC, 0 }; }
+
+/* Decode an escape sequence (ESC byte already consumed) into a key_event. */
+static struct key_event parse_escape(int fd)
 {
 	unsigned char seq[6];
-	int key;
+	struct key_event event;
 
 	if (read_input_byte(fd, seq) != 1) {
-		return ESC; /* bare ESC */
+		return bare_esc();
 	}
 
-	/* Alt+key: ESC followed by a single character */
-	key = lookup_alt_key(seq[0]);
-	if (key) {
-		return key;
+	/* Meta+key: ESC followed by a single character */
+	event = lookup_meta_key((char)seq[0]);
+	if (event.base) {
+		return event;
 	}
 	if (seq[0] >= '0' && seq[0] <= '9') {
-		return ALT_0 + (seq[0] - '0');
+		return (struct key_event) { '0' + (seq[0] - '0'), KEY_MOD_META };
 	}
 
 	if (read_input_byte(fd, seq + 1) != 1) {
-		return ESC;
+		return bare_esc();
 	}
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
 		if (seq[1] >= '0' && seq[1] <= '9') {
 			if (read_input_byte(fd, seq + 2) != 1) {
-				return ESC;
+				return bare_esc();
 			}
 			if (seq[2] == '~') {
 				switch (seq[1]) {
 				case '1':
 				case '7':
-					return HOME_KEY;
+					return (struct key_event) { KEY_BASE_HOME, 0 };
 				case '2':
-					return INSERT_KEY;
+					return (struct key_event) { KEY_BASE_INSERT, 0 };
 				case '3':
-					return DEL_KEY;
+					return (struct key_event) { KEY_BASE_DELETE, 0 };
 				case '4':
 				case '8':
-					return END_KEY;
+					return (struct key_event) { KEY_BASE_END, 0 };
 				case '5':
-					return PAGE_UP;
+					return (struct key_event) { KEY_BASE_PRIOR, 0 };
 				case '6':
-					return PAGE_DOWN;
+					return (struct key_event) { KEY_BASE_NEXT, 0 };
 				}
 			} else if (seq[2] >= '0' && seq[2] <= '9') {
 				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
 				 * F4=ESC[14~) */
 				if (read_input_byte(fd, seq + 3) != 1) {
-					return ESC;
+					return bare_esc();
 				}
 				if (seq[3] == '~' && seq[1] == '1') {
 					switch (seq[2]) {
 					case '3':
-						return KEY_F3;
+						return (struct key_event) { KEY_BASE_F3, 0 };
 					case '4':
-						return KEY_F4;
+						return (struct key_event) { KEY_BASE_F4, 0 };
 					}
 				}
 			} else if (seq[2] == ';') {
 				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
 				 * Ctrl */
 				if (read_input_byte(fd, seq + 3) != 1) {
-					return ESC;
+					return bare_esc();
 				}
 				if (read_input_byte(fd, seq + 4) != 1) {
-					return ESC;
+					return bare_esc();
 				}
 				if (seq[1] == '1' && seq[3] == '5') {
 					switch (seq[4]) {
 					case 'A':
-						return CTRL_ARROW_UP;
+						return (struct key_event) { KEY_BASE_UP, KEY_MOD_CTRL };
 					case 'B':
-						return CTRL_ARROW_DOWN;
+						return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_CTRL };
 					case 'C':
-						return CTRL_ARROW_RIGHT;
+						return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_CTRL };
 					case 'D':
-						return CTRL_ARROW_LEFT;
+						return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_CTRL };
 					case 'H':
-						return CTRL_HOME;
+						return (struct key_event) { KEY_BASE_HOME, KEY_MOD_CTRL };
 					case 'F':
-						return CTRL_END;
+						return (struct key_event) { KEY_BASE_END, KEY_MOD_CTRL };
 					}
 				} else if (seq[1] == '1' && seq[3] == '2') {
 					switch (seq[4]) {
 					case 'A':
-						return SHIFT_ARROW_UP;
+						return (struct key_event) { KEY_BASE_UP, KEY_MOD_SHIFT };
 					case 'B':
-						return SHIFT_ARROW_DOWN;
+						return (struct key_event) { KEY_BASE_DOWN, KEY_MOD_SHIFT };
 					case 'C':
-						return SHIFT_ARROW_RIGHT;
+						return (struct key_event) { KEY_BASE_RIGHT, KEY_MOD_SHIFT };
 					case 'D':
-						return SHIFT_ARROW_LEFT;
+						return (struct key_event) { KEY_BASE_LEFT, KEY_MOD_SHIFT };
 					case 'H':
-						return SHIFT_HOME;
+						return (struct key_event) { KEY_BASE_HOME, KEY_MOD_SHIFT };
 					case 'F':
-						return SHIFT_END;
+						return (struct key_event) { KEY_BASE_END, KEY_MOD_SHIFT };
 					}
 				} else if (seq[4] == '~') {
 					/* ESC [ N ; M ~  modified Insert/Delete
 					 * (CUA clipboard) */
 					if (seq[1] == '2' && seq[3] == '2') {
-						return SHIFT_INSERT;
+						return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_SHIFT };
 					}
 					if (seq[1] == '2' && seq[3] == '5') {
-						return CTRL_INSERT;
+						return (struct key_event) { KEY_BASE_INSERT, KEY_MOD_CTRL };
 					}
 					if (seq[1] == '3' && seq[3] == '2') {
-						return SHIFT_DELETE;
+						return (struct key_event) { KEY_BASE_DELETE, KEY_MOD_SHIFT };
 					}
 				}
 			}
 		} else {
 			switch (seq[1]) {
 			case 'A':
-				return ARROW_UP;
+				return (struct key_event) { KEY_BASE_UP, 0 };
 			case 'B':
-				return ARROW_DOWN;
+				return (struct key_event) { KEY_BASE_DOWN, 0 };
 			case 'C':
-				return ARROW_RIGHT;
+				return (struct key_event) { KEY_BASE_RIGHT, 0 };
 			case 'D':
-				return ARROW_LEFT;
+				return (struct key_event) { KEY_BASE_LEFT, 0 };
 			case 'H':
-				return HOME_KEY;
+				return (struct key_event) { KEY_BASE_HOME, 0 };
 			case 'F':
-				return END_KEY;
+				return (struct key_event) { KEY_BASE_END, 0 };
 			}
 		}
 		/* ESC O sequences */
 	} else if (seq[0] == 'O') {
 		switch (seq[1]) {
 		case 'H':
-			return HOME_KEY;
+			return (struct key_event) { KEY_BASE_HOME, 0 };
 		case 'F':
-			return END_KEY;
+			return (struct key_event) { KEY_BASE_END, 0 };
 		case 'R':
-			return KEY_F3;
+			return (struct key_event) { KEY_BASE_F3, 0 };
 		case 'S':
-			return KEY_F4;
+			return (struct key_event) { KEY_BASE_F4, 0 };
 		}
 	}
-	return ESC;
+	return bare_esc();
 }
 
 /* Block until one input byte arrives, servicing signals and the idle
@@ -488,44 +504,65 @@ static int read_key_byte(int fd, int idle)
 }
 
 /* Body shared by the three readers below: replay macro keys, read one
- * byte, optionally decode an escape sequence, and record the result for
- * a macro in progress. */
-static int read_key_common(int fd, int idle, int decode_escapes)
+ * byte, optionally decode it (a bare byte through key_event_from_byte(),
+ * an escape sequence through parse_escape()), and record the result for
+ * a macro in progress.
+ *
+ * `decode_escapes` off is editor_read_raw_byte()'s case: the event
+ * handed back is the byte itself, base equal to the byte and no
+ * modifier, because nothing downstream wants it decoded -- quoted-insert
+ * inserts exactly the byte typed, and a UTF-8 continuation byte is not a
+ * key at all.  A byte recovered from the unread slot or a macro in
+ * replay is a byte that was itself read by one of the three readers, so
+ * it is decoded (or not) the same way here as it would have been the
+ * first time; the macro queue holds whichever shape its reader already
+ * produced, and is returned as-is. */
+static struct key_event read_key_common(int fd, int idle, int decode_escapes)
 {
-	int key;
+	struct key_event event;
 	int c;
 
 	if (unread_key_slot >= 0) {
-		key = unread_key_slot;
+		int raw = unread_key_slot;
+
 		unread_key_slot = -1;
-		return key;
+		return decode_escapes ? key_event_from_byte(raw)
+				      : (struct key_event) { raw, 0 };
 	}
-	key = macro_next_key();
-	if (key >= 0) {
-		return key;
+	if (macro_next_key(&event)) {
+		return event;
 	}
 
 	c = read_key_byte(fd, idle);
 	if (c < 0) {
-		return 0;
+		return (struct key_event) { 0, 0 };
 	}
 
-	key = (decode_escapes && c == ESC) ? parse_escape(fd) : c;
-	macro_on_key(key);
-	return key;
+	if (decode_escapes && c == ESC) {
+		event = parse_escape(fd);
+	} else if (decode_escapes) {
+		event = key_event_from_byte(c);
+	} else {
+		event = (struct key_event) { c, 0 };
+	}
+	macro_on_key(event);
+	return event;
 }
 
 /* Read a key from the terminal in raw mode, decoding escape sequences.
  * During macro replay returns pre-recorded keys; during recording saves
  * every key so the full sequence (including sub-prompt characters) is
  * captured in one place. */
-int editor_read_key(int fd) { return read_key_common(fd, 0, 1); }
+struct key_event editor_read_key(int fd) { return read_key_common(fd, 0, 1); }
 
 /* Read a single byte from the terminal without decoding escape sequences.
  * Used by quoted-insert so that an ESC, an arrow-key prefix, or any other
  * byte the user is trying to embed literally ends up in the buffer as
  * itself rather than being interpreted as the start of a meta key. */
-int editor_read_raw_byte(int fd) { return read_key_common(fd, 0, 0); }
+int editor_read_raw_byte(int fd)
+{
+	return (int)read_key_common(fd, 0, 0).base;
+}
 
 /* Collect the UTF-8 sequence a terminal sends for one multi-byte
  * character: `lead` is the byte already read, the continuation bytes are
@@ -570,7 +607,10 @@ int editor_read_utf8_seq(int fd, int lead, char *seq)
  * external file changes are noticed without requiring a keystroke.
  * Minibuffer prompts and y/n confirmations call the plain editor_read_key
  * instead so they aren't redrawn (or silently reverted) under the user. */
-int editor_read_key_idle(int fd) { return read_key_common(fd, 1, 1); }
+struct key_event editor_read_key_idle(int fd)
+{
+	return read_key_common(fd, 1, 1);
+}
 
 /* One numeric field of a terminal report: at least one decimal digit and
  * nothing else.  The running value stops growing well below INT_MAX, so

@@ -687,6 +687,46 @@ static void minibuf_insert(char *buf, int bufsize, int *cursor, int *len,
 	*len += n;
 }
 
+/* The four cursor motions minibuf_edit_key() answers as plain keys, each
+ * reachable by a Ctrl letter or the matching arrow/Home/End -- a table
+ * instead of four KEY_IS() || KEY_IS() pairs, in the shape
+ * isearch_handoff_direction() (search.c) already uses for the same
+ * problem. */
+enum minibuf_motion {
+	MINIBUF_MOTION_NONE,
+	MINIBUF_MOTION_LEFT,
+	MINIBUF_MOTION_RIGHT,
+	MINIBUF_MOTION_HOME,
+	MINIBUF_MOTION_END,
+};
+
+static const struct {
+	struct key_event key;
+	enum minibuf_motion motion;
+} minibuf_motions[] = {
+	{ { 'f', KEY_MOD_CTRL }, MINIBUF_MOTION_RIGHT },
+	{ { KEY_BASE_RIGHT, 0 }, MINIBUF_MOTION_RIGHT },
+	{ { 'b', KEY_MOD_CTRL }, MINIBUF_MOTION_LEFT },
+	{ { KEY_BASE_LEFT, 0 }, MINIBUF_MOTION_LEFT },
+	{ { 'a', KEY_MOD_CTRL }, MINIBUF_MOTION_HOME },
+	{ { KEY_BASE_HOME, 0 }, MINIBUF_MOTION_HOME },
+	{ { 'e', KEY_MOD_CTRL }, MINIBUF_MOTION_END },
+	{ { KEY_BASE_END, 0 }, MINIBUF_MOTION_END },
+};
+
+static enum minibuf_motion minibuf_motion_for(struct key_event c)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(minibuf_motions) / sizeof(*minibuf_motions);
+	    i++) {
+		if (key_event_equal(minibuf_motions[i].key, c)) {
+			return minibuf_motions[i].motion;
+		}
+	}
+	return MINIBUF_MOTION_NONE;
+}
+
 static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
     int *cursor, int *len, int *overflow)
 {
@@ -707,25 +747,25 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 		}
 		return 1;
 	}
-	if (KEY_IS(c, 'f', KEY_MOD_CTRL) || KEY_IS(c, KEY_BASE_RIGHT, 0)) {
+	switch (minibuf_motion_for(c)) {
+	case MINIBUF_MOTION_RIGHT:
 		if (*cursor < *len) {
 			*cursor += utf8_glyph_span_at(buf, *len, *cursor);
 		}
 		return 1;
-	}
-	if (KEY_IS(c, 'b', KEY_MOD_CTRL) || KEY_IS(c, KEY_BASE_LEFT, 0)) {
+	case MINIBUF_MOTION_LEFT:
 		if (*cursor > 0) {
 			*cursor = utf8_glyph_start_before(buf, *len, *cursor);
 		}
 		return 1;
-	}
-	if (KEY_IS(c, 'a', KEY_MOD_CTRL) || KEY_IS(c, KEY_BASE_HOME, 0)) {
+	case MINIBUF_MOTION_HOME:
 		*cursor = 0;
 		return 1;
-	}
-	if (KEY_IS(c, 'e', KEY_MOD_CTRL) || KEY_IS(c, KEY_BASE_END, 0)) {
+	case MINIBUF_MOTION_END:
 		*cursor = *len;
 		return 1;
+	case MINIBUF_MOTION_NONE:
+		break;
 	}
 	if (KEY_IS(c, 'k', KEY_MOD_CTRL)) {
 		int kill_len = *len - *cursor;
@@ -915,7 +955,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	cmd_clear_transient();
 	while (1) {
 		prompt_refresh(prompt, plen, buf, cursor);
-		c = key_event_from_legacy(editor_read_key(fd));
+		c = editor_read_key(fd);
 		if (hist && KEY_IN_LIST(history_keys, c)) {
 			int dir = KEY_IN_LIST(history_back_keys, c) ? 1 : -1;
 			const char *entry;
@@ -1184,7 +1224,7 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 		    = prompt_cursor_col(prompt, plen, buf, cursor);
 		editor_refresh_screen();
 
-		c = key_event_from_legacy(editor_read_key(fd));
+		c = editor_read_key(fd);
 		if (KEY_IN_LIST(erase_keys, c)) {
 			if (cursor < len) {
 				minibuf_edit_key(fd, c, buf, bufsize, &cursor,
@@ -1514,7 +1554,7 @@ void buf_select_interactive(int fd)
 			    = prompt_cursor_col(prompt, plen, query, qlen);
 			editor_refresh_screen();
 
-			c = key_event_from_legacy(editor_read_key(fd));
+			c = editor_read_key(fd);
 			if (KEY_IN_LIST(erase_keys, c)) {
 				if (qlen > 0) {
 					qlen = utf8_glyph_start_before(

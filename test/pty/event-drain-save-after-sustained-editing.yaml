@@ -1,0 +1,393 @@
+# Regression pin for Plan 03 Phase 5's safe-point drain (src/main.c's three
+# kg_event_drain_safe() call sites).
+#
+# The typed event queue's ring holds KG_EVENT_RING_MAX (64) entries, and
+# KG_EVENT_LIFECYCLE_RESERVE (4) of those never go to a droppable text
+# change -- they stay free for a lifecycle transition (open, kill, view
+# attach/detach, save, mode change).  Before Phase 5 wired a drain into the
+# main loop, nothing ever popped the queue, so a session's own traffic
+# could exhaust that reserve, and src/fileio.c's before-save reservation
+# correctly (for the wrong reason) refuses the whole save -- file
+# untouched -- rather than let an unobservable transition through.
+#
+# 65 edits, each on a different row's column 0, are what actually fills the
+# ring: event.c's coalescing exists precisely so ordinary same-spot typing
+# (self-insert after self-insert at one growing point) collapses into one
+# ring entry, so plain typing alone never stresses it.  Scattering the
+# edits -- Down, then C-a, before each insert -- makes every one land far
+# from the previous edit's post-edit span, so none of them coalesce, the
+# same as editing different parts of a file across a session would.  Two
+# startup lifecycle events (buffer opened, view attached) already sit in
+# the ring ahead of these, so 65 is comfortably past the 58 more needed to
+# reach the ring's droppable ceiling (60 total).
+#
+# From there, three saves in a row spend the reserve: the first two (four
+# lifecycle events: before/after times two) fill the ring from 60 to 64,
+# and the third's before-save reservation is exactly the one this
+# regression refuses without the drain.  This was checked by hand against
+# a build with every kg_event_drain_safe() call site removed: that third
+# save is silently refused, and the session cannot even exit cleanly
+# afterward, since the buffer never stops looking modified.  With the
+# drain wired in after every command, the ring never accumulates more than
+# a handful of entries between keystrokes, so all three saves land and the
+# file ends up with everything typed, not just the first save's share.
+name: event-drain-save-after-sustained-editing
+filename: sustained.txt
+initial: |
+  line0
+  line1
+  line2
+  line3
+  line4
+  line5
+  line6
+  line7
+  line8
+  line9
+  line10
+  line11
+  line12
+  line13
+  line14
+  line15
+  line16
+  line17
+  line18
+  line19
+  line20
+  line21
+  line22
+  line23
+  line24
+  line25
+  line26
+  line27
+  line28
+  line29
+  line30
+  line31
+  line32
+  line33
+  line34
+  line35
+  line36
+  line37
+  line38
+  line39
+  line40
+  line41
+  line42
+  line43
+  line44
+  line45
+  line46
+  line47
+  line48
+  line49
+  line50
+  line51
+  line52
+  line53
+  line54
+  line55
+  line56
+  line57
+  line58
+  line59
+  line60
+  line61
+  line62
+  line63
+  line64
+  line65
+  line66
+  line67
+  line68
+  line69
+  line70
+  line71
+  line72
+  line73
+  line74
+keys:
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - "Q"
+  - Down
+  - C-a
+  - C-x
+  - C-s
+  - Home
+  - "Z"
+  - C-x
+  - C-s
+  - Home
+  - "W"
+  - C-x
+  - C-s
+expected_saved: |
+  Qline0
+  Qline1
+  Qline2
+  Qline3
+  Qline4
+  Qline5
+  Qline6
+  Qline7
+  Qline8
+  Qline9
+  Qline10
+  Qline11
+  Qline12
+  Qline13
+  Qline14
+  Qline15
+  Qline16
+  Qline17
+  Qline18
+  Qline19
+  Qline20
+  Qline21
+  Qline22
+  Qline23
+  Qline24
+  Qline25
+  Qline26
+  Qline27
+  Qline28
+  Qline29
+  Qline30
+  Qline31
+  Qline32
+  Qline33
+  Qline34
+  Qline35
+  Qline36
+  Qline37
+  Qline38
+  Qline39
+  Qline40
+  Qline41
+  Qline42
+  Qline43
+  Qline44
+  Qline45
+  Qline46
+  Qline47
+  Qline48
+  Qline49
+  Qline50
+  Qline51
+  Qline52
+  Qline53
+  Qline54
+  Qline55
+  Qline56
+  Qline57
+  Qline58
+  Qline59
+  Qline60
+  Qline61
+  Qline62
+  Qline63
+  Qline64
+  WZline65
+  line66
+  line67
+  line68
+  line69
+  line70
+  line71
+  line72
+  line73
+  line74

@@ -65,10 +65,8 @@ struct kg_window_handle win_handle_of(const struct editor_window *w)
 
 struct editor_window *win_resolve(struct kg_window_handle handle)
 {
-	enum kg_slot_check r = kg_slot_resolves(
-	    win_slot_table, handle.slot, handle.id, handle.generation);
-
-	return r == KG_SLOT_OK ? &winlist[handle.slot] : NULL;
+	return kg_slot_resolve(
+	    win_slot_table, handle.slot, handle.id, handle.generation, NULL);
 }
 
 int win_handle_slot(struct kg_window_handle handle)

@@ -160,13 +160,14 @@ struct kg_buffer_handle buf_handle_of(const struct editor_buffer *b)
  * and must not inflate the counter. */
 struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 {
-	enum kg_slot_check r = kg_slot_resolves(
-	    buf_slot_table, handle.slot, handle.id, handle.generation);
+	enum kg_slot_check r;
+	void *rec = kg_slot_resolve(
+	    buf_slot_table, handle.slot, handle.id, handle.generation, &r);
 
 	if (r == KG_SLOT_STALE) {
 		KG_PERF_INC(KG_PERF_HANDLE_STALE);
 	}
-	return r == KG_SLOT_OK ? &buflist[handle.slot] : NULL;
+	return rec;
 }
 
 /* The slot `handle` names, or -1.  For the call sites that still speak in

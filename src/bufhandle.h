@@ -79,6 +79,26 @@ static inline enum kg_slot_check kg_slot_resolves(
 	return KG_SLOT_STALE;
 }
 
+/* The record `slot` names once slot, active, id and generation all agree,
+ * or NULL, reporting the check's verdict through `out` for a caller that
+ * distinguishes stale from unnamed.
+ *
+ * Handing the record back, rather than letting each family re-index its
+ * own table after asking, is what keeps the bounds test and the
+ * dereference in one place -- and it is the difference between
+ * clang-analyzer seeing that they agree and reporting an out-of-bounds
+ * access on the array a family indexes. */
+static inline void *kg_slot_resolve(struct kg_slot_table t, int slot,
+    uint64_t id, uint64_t generation, enum kg_slot_check *out)
+{
+	enum kg_slot_check r = kg_slot_resolves(t, slot, id, generation);
+
+	if (out) {
+		*out = r;
+	}
+	return r == KG_SLOT_OK ? kg_slot_rec(t, slot) : NULL;
+}
+
 /* The slot `rec` sits at, for buf_handle_of()/win_handle_of(), which are
  * handed a record pointer instead of an index.  -1 for NULL or for a
  * pointer outside the table. */

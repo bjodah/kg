@@ -7,6 +7,7 @@ test_complete
 test_decor
 test_describe
 test_dired
+test_event
 test_keys
 test_keyevent
 test_keymap

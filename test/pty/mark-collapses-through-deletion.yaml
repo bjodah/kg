@@ -1,0 +1,24 @@
+# Deleting cde one byte at a time eventually deletes through the mark that
+# began between d and e.  Left gravity collapses it to the start of that
+# deleted range.  After returning to BOB, C-x C-x must land before f; a stale
+# row/column mark would clamp to EOF instead.
+name: mark-collapses-through-deletion
+filename: mark-collapses-through-deletion.txt
+initial: "abcdef\n"
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-a
+  - C-f
+  - C-f
+  - C-d
+  - C-d
+  - C-d
+  - C-a
+  - C-x
+  - C-x
+  - X
+expected_saved: "abXf\n"

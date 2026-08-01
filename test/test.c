@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+void kg_marker_store_free(struct editor_buffer *b) __attribute__((weak));
+
 int tests_run = 0;
 int tests_failed = 0;
 
@@ -40,6 +42,9 @@ void reset_current_buffer(void)
 	struct editor_buffer keep = *b;
 
 	free_all_rows();
+	if (kg_marker_store_free) {
+		kg_marker_store_free(b);
+	}
 	memset(b, 0, sizeof(*b));
 	/* A slot holding a buffer has an identity, or no view can attach to
 	 * it: buf_resolve() reads id 0 as "no buffer".  bufmgr.c's counter
@@ -70,4 +75,32 @@ void reset_current_view(void)
 	w->coloff = 0;
 	w->rowoff_visual = 0;
 	w->desired_visual_col = -1;
+}
+
+struct kg_buffer_handle __attribute__((weak)) buf_handle(int slot)
+{
+	struct kg_buffer_handle h = { -1, 0, 0 };
+	if (slot >= 0 && slot < MAX_BUFFERS && buflist[slot].active
+	    && buflist[slot].id != 0) {
+		h.slot = slot;
+		h.id = buflist[slot].id;
+		h.generation = buflist[slot].generation;
+	}
+	return h;
+}
+
+struct editor_buffer *__attribute__((weak)) buf_resolve(
+    struct kg_buffer_handle handle)
+{
+	struct editor_buffer *b;
+
+	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS) {
+		return NULL;
+	}
+	b = &buflist[handle.slot];
+	if (!b->active || handle.id == 0 || b->id != handle.id
+	    || b->generation != handle.generation) {
+		return NULL;
+	}
+	return b;
 }

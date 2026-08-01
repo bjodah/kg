@@ -16,6 +16,7 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "marker.h"
 #include "syntax.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
@@ -171,7 +172,8 @@ void key_kill_lines(int n)
 		return;
 	}
 
-	start_pos = (int)buffer_row_col_to_position(bcur(), start_row, start_col);
+	start_pos
+	    = (int)buffer_row_col_to_position(bcur(), start_row, start_col);
 	r = start_row;
 	c = start_col;
 	newlines_left = n;
@@ -697,8 +699,7 @@ static void key_finish_keypress(struct kg_buffer_handle buffer_before,
 	 * may consume the region). */
 	if (was_shift_select && !cmd_state()->shift_translated) {
 		bcur()->shift_select = 0;
-		bcur()->mark_set = 0;
-		bcur()->mark_highlight = 0;
+		kg_mark_clear(bcur());
 		bcur()->rect_mode = 0;
 		editor_snap_cx_to_row();
 	}

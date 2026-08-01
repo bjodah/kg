@@ -28,7 +28,9 @@ standard VT100 escape sequences.
 - Visual mark mode: the region renders in reverse video as you move.
   The mark, the mark ring and the active region belong to the buffer,
   not to the window: two windows showing one buffer share one region,
-  and switching buffers leaves each buffer's region as you left it
+  and switching buffers leaves each buffer's region as you left it.
+  Marks are persistent positions, so edits before or through them move
+  them with the surrounding text, including edits replayed by undo.
 - Per-buffer mark ring: C-u C-SPC jumps to the mark and pops older
   marks; C-y, M-< and M-> push a mark like in Emacs
 - M-@ marks the next word without moving point; repeat it (or add C-u N)

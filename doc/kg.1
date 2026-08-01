@@ -587,6 +587,9 @@ on the first edit, and after a region command
 has consumed it.
 The mark itself stays set for the next
 .Ic C-x C-x .
+Marks are persistent buffer positions: inserting or deleting text before
+or through one relocates it with the edit, and undo relocates it through
+the replayed edit as well.
 The kill ring is shared across all buffers.
 .Pp
 .Ic M-@

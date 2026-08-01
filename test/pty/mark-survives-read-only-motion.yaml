@@ -1,0 +1,20 @@
+# Read-only mode blocks edits, not motion or point/mark exchange.  Moving to
+# EOL and exchanging must return to the persistent mark; after making the
+# buffer writable again, ! lands between c and d.
+name: mark-survives-read-only-motion
+filename: mark-survives-read-only-motion.txt
+initial: "abcdef\n"
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-x
+  - C-q
+  - C-e
+  - C-x
+  - C-x
+  - C-x
+  - C-q
+  - "!"
+expected_saved: "abc!def\n"

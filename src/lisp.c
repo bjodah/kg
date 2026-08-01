@@ -31,7 +31,7 @@ static void copy_result(char *result, size_t result_size, const char *text)
 #include "def.h"
 #include "edit.h"
 #include "keybind.h"
-#include "localvars.h"
+#include "marker.h"
 
 static_assert(FE_API_VERSION == 1);
 
@@ -583,12 +583,13 @@ static FeObject *native_current_column(FeContext *context, FeObject *arguments)
 
 static FeObject *native_mark(FeContext *context, FeObject *arguments)
 {
+	int row, col;
+
 	FeRequireNoArguments(context, arguments);
-	if (!bcur()->mark_set) {
+	if (!kg_mark_get_row_col(bcur(), &row, &col)) {
 		return FeNil(context);
 	}
-	return lisp_position(
-	    context, editor_char_offset(bcur()->mark_row, bcur()->mark_col));
+	return lisp_position(context, editor_char_offset(row, col));
 }
 
 static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
@@ -599,9 +600,9 @@ static FeObject *native_set_mark(FeContext *context, FeObject *arguments)
 	FeRequireNoArguments(context, arguments);
 	editor_offset_to_rowcol(
 	    lisp_offset_argument(context, object), &row, &col);
-	bcur()->mark_set = 1;
-	bcur()->mark_row = row;
-	bcur()->mark_col = col;
+	if (!kg_mark_set_row_col(bcur(), row, col)) {
+		FeHandleError(context, "out of memory");
+	}
 	bcur()->mark_highlight = 1;
 	return FeNil(context);
 }

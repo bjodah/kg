@@ -76,11 +76,10 @@
 #include <time.h>
 #include <unistd.h>
 
-/* struct editor_window stores a buffer handle by value, and is defined
- * before the buffer table is, so the type has to arrive first. */
 #include "bufhandle.h"
 #include "cmd.h"
 #include "keyevent.h"
+#include "marker.h"
 #include "perf.h"
 
 /* Key action codes */
@@ -256,9 +255,9 @@ struct kill_ring {
 /* Single undo operation (recording one flat-position byte range change) */
 struct undo_op {
 	size_t position; /* flat byte position of the change */
-	int c;           /* replacement (new) length */
-	char *text;      /* old text (for restoration) */
-	int len;         /* old text length */
+	int c; /* replacement (new) length */
+	char *text; /* old text (for restoration) */
+	int len; /* old text length */
 	struct undo_op *next;
 };
 
@@ -326,15 +325,14 @@ struct editor_buffer {
 	uint64_t content_generation;
 	char *filename;
 	struct editor_syntax *syntax;
-	int mark_set;
-	int mark_row, mark_col;
+	struct kg_buffer_mark mark;
 	int mark_highlight;
-	int mark_ring_row[MARK_RING_MAX];
-	int mark_ring_col[MARK_RING_MAX];
+	struct kg_buffer_mark mark_ring[MARK_RING_MAX];
 	int mark_ring_len;
 	int shift_select;
 	int rect_mode;
 	struct undo_stack undostack; /* per-buffer undo chain */
+	struct kg_marker_store *markers; /* per-buffer marker store */
 	int active; /* 1 if this slot is in use */
 	int readonly; /* 1 if buffer is read-only */
 	int readonly_local; /* 0/1, set by local variables */
@@ -532,7 +530,8 @@ void editor_free_all_rows(struct editor_buffer *b);
 char *editor_rows_to_string(erow *rows, int numrows, int *buflen);
 void editor_row_insert_char(erow *row, int at, int c);
 void editor_row_insert_string(erow *row, int at, const char *s, int len);
-void editor_row_append_string(erow *row, char *s, size_t len);
+void editor_row_append_string(
+    struct editor_buffer *b, erow *row, char *s, size_t len);
 void editor_row_del_char(erow *row, int at);
 /* The edit transaction is src/edit.h's -- the intent, the two structs,
  * kg_buffer_replace() and editor_row_replace_range().  A consumer

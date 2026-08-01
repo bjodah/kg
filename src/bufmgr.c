@@ -19,6 +19,7 @@
 #include "keyevent.h"
 #include "lisp.h"
 #include "localvars.h"
+#include "marker.h"
 #include "perf.h"
 #include "syntax.h"
 
@@ -317,8 +318,7 @@ void buf_reload_from_disk(void)
 		return;
 	}
 
-	bcur()->mark_set = 0;
-	bcur()->mark_highlight = 0;
+	kg_mark_clear(bcur());
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
 
@@ -442,9 +442,8 @@ static void buf_reset(void)
 	b->dirty = 0;
 	b->syntax = NULL;
 	bcur()->filename = NULL;
-	bcur()->mark_set = bcur()->mark_row = bcur()->mark_col = 0;
-	bcur()->mark_highlight = 0;
-	bcur()->mark_ring_len = 0;
+	kg_mark_clear(bcur());
+	kg_mark_ring_clear(bcur());
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
 	key_reset_pending_sequence();
@@ -1767,6 +1766,7 @@ void buf_kill(int fd)
 	 * reset would walk. */
 	editor_free_all_rows(bcur());
 	undo_free();
+	kg_marker_store_free(bcur());
 	free(bcur()->filename);
 
 	buflist[buf_current].active = 0;
@@ -1892,6 +1892,7 @@ static void buf_reset_slot(int slot)
 	struct editor_buffer *b = &buflist[slot];
 	uint64_t generation = b->generation;
 
+	kg_marker_store_free(b);
 	memset(b, 0, sizeof(*b));
 	b->generation
 	    = generation; /* Handovers accumulate; they don't reset. */
@@ -2047,8 +2048,8 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 		return;
 	}
 
-	struct kg_edit e = kg_edit_internal(
-	    b, total - len_to_remove, total, "", 0);
+	struct kg_edit e
+	    = kg_edit_internal(b, total - len_to_remove, total, "", 0);
 	(void)kg_buffer_replace(&e, NULL);
 }
 
@@ -2166,19 +2167,21 @@ void editor_cleanup(void)
 	cleaned_up = 1;
 	compilation_shutdown();
 
-	/* Every slot owns its rows, its filename and its undo chain, and no
-	 * copy of any of them lives anywhere else, so one pass over the table
-	 * is the whole teardown. */
+	/* Every slot owns its rows, filename, undo chain and marker store, and
+	 * no copy of any of them lives elsewhere, so one table pass is the
+	 * whole teardown. */
 	for (int i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 
 		if (!b->active) {
+			kg_marker_store_free(b);
 			continue;
 		}
 		editor_free_all_rows(b);
 		free(b->filename);
 		b->filename = NULL;
 		undo_stack_free(&b->undostack);
+		kg_marker_store_free(b);
 		b->active = 0;
 	}
 	bcur()->filename = NULL;

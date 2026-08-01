@@ -6,7 +6,7 @@
 
 #include "def.h"
 #include "edit.h"
-#include "localvars.h"
+#include "marker.h"
 #include "syntax.h"
 
 #define FILL_COLUMN 72
@@ -397,9 +397,11 @@ void editor_mark_paragraph(void)
 		end_col = bcur()->row[para_end].size;
 	}
 	editor_cursor_goto(para_start, 0);
-	bcur()->mark_set = 1;
-	bcur()->mark_row = end_row;
-	bcur()->mark_col = end_col;
+	if (!kg_mark_set_row_col(bcur(), end_row, end_col)) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
 	bcur()->mark_highlight = 1;
 	editor_set_status_message("Mark set");
 }
@@ -414,17 +416,18 @@ void editor_mark_word(int count)
 	int saved_coloff = wcur()->coloff, saved_rowoff = wcur()->rowoff;
 	int point_row = word_cursor_filerow();
 	int point_col = word_cursor_filecol(&bcur()->row[point_row]);
+	int mark_row, mark_col;
 	int backward = 0;
 	int i;
 
 	if (bcur()->numrows <= 0) {
 		return;
 	}
-	if (bcur()->mark_set && bcur()->mark_highlight) {
-		backward = bcur()->mark_row < point_row
-		    || (bcur()->mark_row == point_row
-			&& bcur()->mark_col < point_col);
-		editor_cursor_goto(bcur()->mark_row, bcur()->mark_col);
+	if (bcur()->mark_highlight
+	    && kg_mark_get_row_col(bcur(), &mark_row, &mark_col)) {
+		backward = mark_row < point_row
+		    || (mark_row == point_row && mark_col < point_col);
+		editor_cursor_goto(mark_row, mark_col);
 	}
 	for (i = 0; i < count; i++) {
 		if (backward) {
@@ -434,9 +437,13 @@ void editor_mark_word(int count)
 		}
 	}
 
-	bcur()->mark_set = 1;
-	bcur()->mark_row = word_cursor_filerow();
-	bcur()->mark_col = word_cursor_filecol(&bcur()->row[bcur()->mark_row]);
+	mark_row = word_cursor_filerow();
+	mark_col = word_cursor_filecol(&bcur()->row[mark_row]);
+	if (!kg_mark_set_row_col(bcur(), mark_row, mark_col)) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
 	bcur()->mark_highlight = 1;
 
 	wcur()->cx = saved_cx;
@@ -910,32 +917,31 @@ void editor_comment_dwim(void)
 
 	row_start = bcur()->numrows > 0 ? word_cursor_filerow() : 0;
 	row_end = row_start;
-	if (bcur()->mark_set) {
-		int mark_row = bcur()->mark_row;
-		int mark_col = bcur()->mark_col;
+	{
+		int mark_row, mark_col;
 		int cur_row = row_start;
 		int cur_col = bcur()->numrows > 0
 		    ? word_cursor_filecol(&bcur()->row[cur_row])
 		    : 0;
 		int end_col;
 
-		if (mark_row < cur_row
-		    || (mark_row == cur_row && mark_col < cur_col)) {
-			row_start = mark_row;
-			row_end = cur_row;
-			end_col = cur_col;
-		} else {
-			row_start = cur_row;
-			row_end = mark_row;
-			end_col = mark_col;
-		}
+		if (kg_mark_get_row_col(bcur(), &mark_row, &mark_col)) {
+			if (mark_row < cur_row
+			    || (mark_row == cur_row && mark_col < cur_col)) {
+				row_start = mark_row;
+				row_end = cur_row;
+				end_col = cur_col;
+			} else {
+				row_start = cur_row;
+				row_end = mark_row;
+				end_col = mark_col;
+			}
 
-		/* For line-wise toggles, a region that ends at column 0 does
-		 * not cover that final line — e.g. mark at the start of line N,
-		 * move down to the start of line N+2, then M-; should affect
-		 * only lines N and N+1. */
-		if (row_end > row_start && end_col == 0) {
-			row_end--;
+			/* For line-wise toggles, a region ending at column 0
+			 * does not cover that final line. */
+			if (row_end > row_start && end_col == 0) {
+				row_end--;
+			}
 		}
 	}
 

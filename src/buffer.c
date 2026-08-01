@@ -1,5 +1,6 @@
 /* ======================= Editor rows implementation ======================= */
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -7,7 +8,7 @@
 
 #include "def.h"
 #include "edit.h"
-#include "localvars.h"
+#include "marker.h"
 #include "perf.h"
 #include "syntax.h"
 
@@ -1132,7 +1133,8 @@ void editor_row_insert_string(erow *row, int at, const char *s, int len)
 }
 
 /* Append the string 's' at the end of a row */
-void editor_row_append_string(erow *row, char *s, size_t len)
+void editor_row_append_string(
+    struct editor_buffer *b, erow *row, char *s, size_t len)
 {
 	size_t len_plus_1;
 	int alloc_sz;
@@ -1153,8 +1155,8 @@ void editor_row_append_string(erow *row, char *s, size_t len)
 	memcpy(row->chars + row->size, s, len);
 	row->size += (int)len;
 	row->chars[row->size] = '\0';
-	editor_update_row(bcur(), row);
-	buffer_note_change(bcur());
+	editor_update_row(b, row);
+	buffer_note_change(b);
 }
 
 /* Delete the character at offset 'at' from the specified row. */
@@ -1470,6 +1472,7 @@ struct kg_edit kg_edit_internal(struct editor_buffer *b, size_t begin,
 static int edit_valid(const struct kg_edit *e)
 {
 	const struct editor_buffer *b = e->buffer;
+	size_t old_length, removed;
 
 	if (!b || !b->active || !e->replacement) {
 		return 0;
@@ -1481,8 +1484,13 @@ static int edit_valid(const struct kg_edit *e)
 	    || e->end_byte > buffer_byte_length(b)) {
 		return 0;
 	}
-	return e->end_byte - e->begin_byte <= (size_t)INT_MAX
-	    && e->replacement_len <= (size_t)INT_MAX;
+	removed = e->end_byte - e->begin_byte;
+	if (removed > (size_t)INT_MAX || e->replacement_len > (size_t)INT_MAX) {
+		return 0;
+	}
+	old_length = buffer_byte_length(b);
+	return e->replacement_len <= removed
+	    || old_length <= SIZE_MAX - (e->replacement_len - removed);
 }
 
 /* A buffer with no rows and one holding a single empty row spell the same
@@ -1657,6 +1665,8 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 		return 0;
 	}
 	edit_publish(b, r0, r1, &st);
+	kg_marker_relocate_all(
+	    b, e->begin_byte, e->end_byte, e->replacement_len);
 	edit_staged_free(&st);
 	edit_note_change(b, e->intent);
 	if (out) {
@@ -1815,6 +1825,12 @@ void kg_row_builder_free(erow **rows, int *numrows, int *row_capacity)
 void kg_buffer_adopt_rows(
     struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity)
 {
+	/* A staged adoption has no edit span through which old positions can
+	 * be relocated.  Its documented broad-replacement policy is therefore
+	 * to detach every marker before the old rows disappear. */
+	kg_mark_clear(b);
+	kg_mark_ring_clear(b);
+	kg_marker_detach_all(b);
 	editor_free_all_rows(b);
 	b->row = *rows;
 	b->numrows = *numrows;
@@ -1845,11 +1861,11 @@ void kg_buffer_append_internal(
 
 		if (!nl) {
 			editor_row_append_string(
-			    row, (char *)p, (size_t)(end - p));
+			    b, row, (char *)p, (size_t)(end - p));
 			p = end;
 		} else {
 			editor_row_append_string(
-			    row, (char *)p, (size_t)(nl - p));
+			    b, row, (char *)p, (size_t)(nl - p));
 			editor_insert_row(b, b->numrows, "", 0);
 			p = nl + 1;
 		}
@@ -2044,7 +2060,8 @@ void editor_self_insert_glyph(const char *seq, int len)
 				struct kg_edit e = kg_edit_user(
 				    bcur(), pos, pos, buf, (size_t)(pad + len));
 				if (kg_buffer_replace(&e, NULL)) {
-					editor_cursor_goto(filerow, filecol + len);
+					editor_cursor_goto(
+					    filerow, filecol + len);
 				}
 				free(buf);
 			}

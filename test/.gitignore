@@ -11,6 +11,7 @@ test_keyevent
 test_keymap
 test_lisp
 test_localvars
+test_marker
 test_minibuf
 test_perf
 test_regex

@@ -1,0 +1,21 @@
+# A buffer mark is a persistent byte marker.  Inserting before it moves it
+# forward, and undoing that insertion moves it back through the same edit
+# publication path.  Exchanging point and mark must therefore land between
+# d and e, where ! is inserted.  A stale row/column snapshot would land one
+# byte later after the insert/undo pair.
+name: mark-relocates-before-edit-and-undo
+filename: mark-relocates-before-edit-and-undo.txt
+initial: "abcdef\n"
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-a
+  - X
+  - C-_
+  - C-x
+  - C-x
+  - "!"
+expected_saved: "abcd!ef\n"

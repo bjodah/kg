@@ -10,6 +10,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "localvars.h"
+#include "marker.h"
 #include "perf.h"
 #include "syntax.h"
 
@@ -197,12 +198,13 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 	int region_s_row = 0, region_s_col = 0;
 	int region_e_row = 0, region_e_col = 0;
 
-	if (is_active && bcur()->mark_highlight && bcur()->mark_set) {
+	if (is_active && bcur()->mark_highlight) {
 		int p_row = wcur()->rowoff + wcur()->cy;
 		int p_col = wcur()->coloff + wcur()->cx;
-		int m_row = bcur()->mark_row;
-		int m_col = bcur()->mark_col;
-		if (bcur()->rect_mode) {
+		int m_row, m_col;
+		int mark_set = kg_mark_get_row_col(bcur(), &m_row, &m_col);
+
+		if (mark_set && bcur()->rect_mode) {
 			/* Rectangle bounds live in VISUAL-column space.  Each
 			 * row in range maps that visual range back to its own
 			 * byte / render range — matches what the kill/clear
@@ -218,19 +220,22 @@ static void draw_window_rows(struct abuf *ab, int win_y, int win_x, int win_h,
 			region_e_row = (p_row > m_row) ? p_row : m_row;
 			region_s_col = (p_vcol < m_vcol) ? p_vcol : m_vcol;
 			region_e_col = (p_vcol > m_vcol) ? p_vcol : m_vcol;
-		} else if (m_row < p_row || (m_row == p_row && m_col < p_col)) {
+		} else if (mark_set
+		    && (m_row < p_row || (m_row == p_row && m_col < p_col))) {
 			region_s_row = m_row;
 			region_s_col = m_col;
 			region_e_row = p_row;
 			region_e_col = p_col;
-		} else {
+		} else if (mark_set) {
 			region_s_row = p_row;
 			region_s_col = p_col;
 			region_e_row = m_row;
 			region_e_col = m_col;
 		}
-		region_active = (region_s_row != region_e_row
-		    || region_s_col != region_e_col);
+		if (mark_set) {
+			region_active = (region_s_row != region_e_row
+			    || region_s_col != region_e_col);
+		}
 	}
 
 	for (y = 0; y < win_h; y++) {

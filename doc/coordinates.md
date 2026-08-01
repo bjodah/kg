@@ -1,13 +1,15 @@
-# Coordinate spaces: chars, render, display columns
+# Coordinate spaces: buffer bytes, chars, render, display columns
 
-kg addresses a line in three different spaces.  Mixing them is not a
+kg addresses text in one buffer-wide space and a line in three different
+spaces.  Mixing them is not a
 compile error, and every defect this document exists to prevent was one
 function producing a number in one space and another consuming it as if
 it were in a different one.
 
 | Space | What one unit is | Where the numbers live |
 | --- | --- | --- |
-| **chars** | one byte of `row->chars` | point (`cx + coloff`), the mark, every match offset, `row->size` |
+| **buffer byte** | one byte of the flattened buffer, counting one `\n` between rows | persistent markers, edit transaction endpoints, `buffer_byte_length()` |
+| **chars** | one byte of `row->chars` | point (`cx + coloff`), resolved mark columns, every row-local match offset, `row->size` |
 | **render** | one byte of `row->render` (a TAB is already expanded to spaces there) | `row->hl` indexing, `row->rsize`, the row-drawing loop's cursor |
 | **display column** ("visual column", vcol) | one terminal cell | goal column, rectangle bounds, the reported column, everything visual-line mode measures |
 
@@ -23,8 +25,11 @@ tabs, which is why a test that uses such a row proves nothing here.
 - A function that produces or consumes a display column says `visual`
   (`editor_visual_col`, `visual_line_cursor_col`, `visual_line_width`,
   `editor_chars_col_at_visual`, `visual_col_to_chars`).
-- Anything else is chars space.  `col`, `cx`, `coloff`, `match_col`,
-  `mark_col`, `filecol` are chars offsets everywhere in the tree.
+- Row-local names without another qualifier are chars space.  `col`, `cx`,
+  `coloff`, `match_col`, `mark_col`, `filecol` are chars offsets everywhere
+  in the tree.  `position`, `begin_byte` and `end_byte` are flattened buffer
+  byte positions; convert them with `buffer_position_to_row_col()` or
+  `buffer_row_col_to_position()` at the seam.
 - The one name that lied was `render_col_to_chars()`, which consumes a
   display column; it is `visual_col_to_chars()` now, and
   `find_visual_row()`'s out-parameter is `render_offset` rather than
@@ -61,6 +66,7 @@ divergence that is correct but reads wrong.
 | 13 | `search.c` highlight span | render, converted from chars inside `hl_snapshot_mark()` | `row->hl` | fixed during the coordinate audit — literal query-replace used to pass the chars *length* `slen` as a render length, wrong for a match containing a tab |
 | 14 | `kg_regex_match_forward/backward` (`regex.c`) | chars (byte offsets into the subject) | `search.c` | **search** — both paths step with `kg_utf8_forward_boundary()`; the backward scan at `regex.c:256` consumes the shared helper, so the mid-glyph `+1` is gone from both |
 | 15 | `utf8_width_at` / `display_glyph_at` (`width.c`) | columns / bytes | the draw loop charges `vcol_used` in **columns** while `len` counts render **bytes**; both are needed and neither substitutes for the other | ok |
+| 16 | marker position (`marker.c`) | flat buffer byte | `kg_marker_get_row_col()` converts once to a chars row/column for mark, search and Lisp consumers; rectangle marks may additionally retain a virtual chars column past EOL | ok — edits relocate the flat position before consumers resolve it |
 
 ## Round-trip properties
 

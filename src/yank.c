@@ -6,7 +6,7 @@
 
 #include "def.h"
 #include "edit.h"
-#include "localvars.h"
+#include "marker.h"
 
 /* Global kill ring */
 struct kill_ring killring = { NULL, 0 };
@@ -106,21 +106,22 @@ int editor_region_bounds(
 {
 	int cur_row = yank_current_row();
 	int cur_col = yank_current_col();
+	int mark_row, mark_col;
 
-	if (!bcur()->mark_set || bcur()->numrows <= 0) {
+	if (!kg_mark_get_row_col(bcur(), &mark_row, &mark_col)
+	    || bcur()->numrows <= 0) {
 		return 0;
 	}
-	if (region_point_before(
-		bcur()->mark_row, bcur()->mark_col, cur_row, cur_col)) {
-		*start_row = bcur()->mark_row;
-		*start_col = bcur()->mark_col;
+	if (region_point_before(mark_row, mark_col, cur_row, cur_col)) {
+		*start_row = mark_row;
+		*start_col = mark_col;
 		*end_row = cur_row;
 		*end_col = cur_col;
 	} else {
 		*start_row = cur_row;
 		*start_col = cur_col;
-		*end_row = bcur()->mark_row;
-		*end_col = bcur()->mark_col;
+		*end_row = mark_row;
+		*end_col = mark_col;
 	}
 
 	if (*end_row < 0 || *start_row >= bcur()->numrows) {
@@ -152,20 +153,32 @@ int editor_region_bounds(
 
 /* Remember the current mark (if any) on the mark ring, newest first.
  * The oldest entry falls off when the ring is full. */
-static void mark_ring_push_current(void)
+static int mark_ring_push_current(void)
 {
-	if (!bcur()->mark_set) {
-		return;
+	size_t pos;
+	struct kg_marker_handle pushed;
+	int move;
+
+	if (!kg_mark_get_position(bcur(), &pos)) {
+		return 1;
 	}
-	memmove(&bcur()->mark_ring_row[1], &bcur()->mark_ring_row[0],
-	    (MARK_RING_MAX - 1) * sizeof(bcur()->mark_ring_row[0]));
-	memmove(&bcur()->mark_ring_col[1], &bcur()->mark_ring_col[0],
-	    (MARK_RING_MAX - 1) * sizeof(bcur()->mark_ring_col[0]));
-	bcur()->mark_ring_row[0] = bcur()->mark_row;
-	bcur()->mark_ring_col[0] = bcur()->mark_col;
-	if (bcur()->mark_ring_len < MARK_RING_MAX) {
+	pushed = kg_marker_create(bcur(), pos, KG_MARKER_GRAV_LEFT);
+	if (pushed.id == 0) {
+		return 0;
+	}
+	if (bcur()->mark_ring_len == MARK_RING_MAX) {
+		kg_marker_delete(bcur()->mark_ring[MARK_RING_MAX - 1].marker);
+	} else {
 		bcur()->mark_ring_len++;
 	}
+	move = bcur()->mark_ring_len - 1;
+	memmove(&bcur()->mark_ring[1], &bcur()->mark_ring[0],
+	    (size_t)move * sizeof(bcur()->mark_ring[0]));
+	bcur()->mark_ring[0] = (struct kg_buffer_mark) {
+		.marker = pushed,
+		.virtual_chars_col = bcur()->mark.virtual_chars_col,
+	};
+	return 1;
 }
 
 /* Set mark at current cursor position without echoing to the minibuffer.
@@ -173,10 +186,13 @@ static void mark_ring_push_current(void)
  * would be noisy. */
 void editor_set_mark_silent(void)
 {
-	mark_ring_push_current();
-	bcur()->mark_set = 1;
-	bcur()->mark_row = yank_current_row();
-	bcur()->mark_col = yank_current_col();
+	if (!mark_ring_push_current()
+	    || !kg_mark_set_row_col(
+		bcur(), yank_current_row(), yank_current_col())) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
 	bcur()->mark_highlight = 1;
 }
 
@@ -185,48 +201,36 @@ void editor_set_mark_silent(void)
  * (M-<, M->) and yank use this, matching Emacs' push-mark. */
 void editor_push_mark(void)
 {
-	mark_ring_push_current();
-	bcur()->mark_set = 1;
-	bcur()->mark_row = yank_current_row();
-	bcur()->mark_col = yank_current_col();
+	if (!mark_ring_push_current()
+	    || !kg_mark_set_row_col(
+		bcur(), yank_current_row(), yank_current_col())) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+	}
 }
 
 /* C-u C-SPC: jump to mark, then rotate the mark ring so repeated pops
- * walk older and older marks (Emacs' pop-to-mark-command).  Positions
- * are clamped since edits after the push may have shrunk the buffer. */
+ * walk older and older marks (Emacs' pop-to-mark-command). */
 void editor_pop_to_mark(void)
 {
 	int row, col;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_get_row_col(bcur(), &row, &col)) {
 		editor_set_status_message("No mark set");
 		return;
 	}
 
-	/* Edits since the push may have shrunk the buffer; clamp the row
-	 * here and let editor_snap_cx_to_row settle an overlong column. */
-	row = bcur()->mark_row;
-	col = bcur()->mark_col;
-	if (row >= bcur()->numrows) {
-		row = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
-		col = 0;
-	}
 	editor_cursor_goto(row, col);
 	editor_snap_cx_to_row();
 
 	if (bcur()->mark_ring_len > 0) {
 		int last = bcur()->mark_ring_len - 1;
-		int old_row = bcur()->mark_row;
-		int old_col = bcur()->mark_col;
+		struct kg_buffer_mark old = bcur()->mark;
 
-		bcur()->mark_row = bcur()->mark_ring_row[0];
-		bcur()->mark_col = bcur()->mark_ring_col[0];
-		memmove(&bcur()->mark_ring_row[0], &bcur()->mark_ring_row[1],
-		    last * sizeof(bcur()->mark_ring_row[0]));
-		memmove(&bcur()->mark_ring_col[0], &bcur()->mark_ring_col[1],
-		    last * sizeof(bcur()->mark_ring_col[0]));
-		bcur()->mark_ring_row[last] = old_row;
-		bcur()->mark_ring_col[last] = old_col;
+		bcur()->mark = bcur()->mark_ring[0];
+		memmove(&bcur()->mark_ring[0], &bcur()->mark_ring[1],
+		    (size_t)last * sizeof(bcur()->mark_ring[0]));
+		bcur()->mark_ring[last] = old;
 	}
 	bcur()->mark_highlight = 0;
 	editor_set_status_message("Mark popped");
@@ -246,20 +250,21 @@ void editor_exchange_point_and_mark(void)
 {
 	int cur_row, cur_col, mark_row, mark_col;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_get_row_col(bcur(), &mark_row, &mark_col)) {
 		editor_set_status_message("No mark set");
 		return;
 	}
 
 	cur_row = yank_current_row();
 	cur_col = yank_current_col();
-	mark_row = bcur()->mark_row;
-	mark_col = bcur()->mark_col;
 
 	editor_cursor_goto(mark_row, mark_col);
 
-	bcur()->mark_row = cur_row;
-	bcur()->mark_col = cur_col;
+	if (!kg_mark_set_row_col(bcur(), cur_row, cur_col)) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
 	bcur()->mark_highlight = 1;
 	editor_set_status_message("Mark exchanged");
 }
@@ -416,7 +421,7 @@ static void region_kill_or_delete(int save)
 	char *text;
 	int len;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_is_set(bcur())) {
 		editor_set_status_message("No mark set");
 		return;
 	}
@@ -439,7 +444,7 @@ static void region_kill_or_delete(int save)
 	editor_delete_region_range(start_row, start_col, end_row, end_col);
 
 	/* Drop the highlight and any transient-region machinery, but keep
-	 * mark_set so C-x C-x after a region command can still bounce back
+	 * the mark so C-x C-x after a region command can still bounce back
 	 * to where the region started (matches Emacs, the C-g teardown,
 	 * and the first-edit teardown in kbd.c). */
 	bcur()->mark_highlight = 0;
@@ -458,7 +463,7 @@ void editor_copy_region(void)
 	char *text;
 	int len;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_is_set(bcur())) {
 		editor_set_status_message("No mark set");
 		return;
 	}
@@ -482,7 +487,7 @@ void editor_copy_region(void)
  * saving, otherwise just delete the character ahead. */
 void editor_delete_region_or_char(void)
 {
-	if (bcur()->mark_set && bcur()->mark_highlight) {
+	if (kg_mark_is_set(bcur()) && bcur()->mark_highlight) {
 		if (bcur()->rect_mode) {
 			editor_delete_rect();
 		} else {
@@ -526,7 +531,7 @@ void editor_sort_lines(void)
 	struct kg_edit e;
 	erow *temp;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_is_set(bcur())) {
 		editor_set_status_message("No mark set");
 		return;
 	}

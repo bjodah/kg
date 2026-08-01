@@ -15,6 +15,7 @@
 
 #include "../src/def.h"
 #include "../src/kbd.h"
+#include "../src/marker.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -101,6 +102,7 @@ static void teardown_state(void)
 {
 	fuzz_clear_input();
 	undo_free();
+	kg_marker_store_free(bcur());
 	rect_kill_ring_free();
 	kill_ring_free();
 	free(bcur()->filename);

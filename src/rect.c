@@ -6,7 +6,7 @@
 
 #include "def.h"
 #include "edit.h"
-#include "localvars.h"
+#include "marker.h"
 
 /* Rectangle kill ring.  Holds the last killed/copied rectangle as a
  * '\n'-joined string of per-row content, plus the row count so yank
@@ -55,14 +55,12 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 	int p_row, p_col, m_row, m_col;
 	int p_vcol, m_vcol;
 
-	if (!bcur()->mark_set) {
+	if (!kg_mark_get_row_col(bcur(), &m_row, &m_col)) {
 		editor_set_status_message("No mark set");
 		return 0;
 	}
 	p_row = wcur()->rowoff + wcur()->cy;
 	p_col = wcur()->coloff + wcur()->cx;
-	m_row = bcur()->mark_row;
-	m_col = bcur()->mark_col;
 	p_vcol = (p_row < bcur()->numrows)
 	    ? editor_visual_col(&bcur()->row[p_row], p_col)
 	    : p_col;
@@ -238,8 +236,7 @@ static int rect_anchor_col(int s_row, int s_vcol)
 /* Common tear-down after a rectangle command. */
 static void rect_deactivate(void)
 {
-	bcur()->mark_set = 0;
-	bcur()->mark_highlight = 0;
+	kg_mark_clear(bcur());
 	bcur()->rect_mode = 0;
 	bcur()->shift_select = 0;
 	editor_snap_cx_to_row();

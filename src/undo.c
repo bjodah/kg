@@ -5,7 +5,6 @@
 
 #include "def.h"
 #include "edit.h"
-#include "localvars.h"
 #include "perf.h"
 
 /* Initialize an undo stack.  clean_size starts at 0, not -1: a stack is

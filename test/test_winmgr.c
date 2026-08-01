@@ -58,6 +58,38 @@ static struct editor_buffer *bslot(int i) { return &buflist[i]; }
 /* The record for window slot `i`, likewise. */
 static struct editor_window *wslot(int i) { return &winlist[i]; }
 
+static int set_mark_ring(struct editor_buffer *b, int index, int row, int col)
+{
+	struct kg_marker_handle marker;
+
+	if (index < 0 || index >= MARK_RING_MAX) {
+		return 0;
+	}
+	marker = kg_marker_create(
+	    b, buffer_row_col_to_position(b, row, col), KG_MARKER_GRAV_LEFT);
+	if (marker.id == 0) {
+		return 0;
+	}
+	b->mark_ring[index] = (struct kg_buffer_mark) {
+		.marker = marker,
+		.virtual_chars_col = -1,
+	};
+	if (b->mark_ring_len <= index) {
+		b->mark_ring_len = index + 1;
+	}
+	return 1;
+}
+
+static int mark_ring_col(const struct editor_buffer *b, int index)
+{
+	int row, col;
+
+	return index >= 0 && index < b->mark_ring_len
+		&& kg_marker_get_row_col(b->mark_ring[index].marker, &row, &col)
+	    ? col
+	    : -1;
+}
+
 /* A fresh session with one window and the named files open, current buffer 0.
  */
 static void session(int nfiles, char **names)
@@ -97,6 +129,7 @@ static void session_teardown(void)
 		}
 		free(b->row);
 		free(b->filename);
+		kg_marker_store_free(b);
 		for (op = b->undostack.head; op;) {
 			struct undo_op *next = op->next;
 			free(op->text);
@@ -239,9 +272,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	wcur()->cy = 1;
 	wcur()->cx = 2;
 	editor_insert_char('X');
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 3;
+	CHECK(test_set_mark(bcur(), 0, 3));
 	editor_set_local_readonly(1);
 	snprintf(bcur()->compile_command, sizeof(bcur()->compile_command),
 	    "make zero");
@@ -256,7 +287,7 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 
 	CHECK(buf_current == 1);
 	CHECK(bcur()->dirty == 0);
-	CHECK(bcur()->mark_set == 0);
+	CHECK(!kg_mark_is_set(bcur()));
 	CHECK(bcur()->readonly == 0);
 	CHECK(strcmp(bcur()->compile_command, "make -k") == 0);
 	CHECK(bcur()->compile_command_user_override == 0);
@@ -265,8 +296,8 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 
 	/* Buffer 0's record kept everything. */
 	CHECK(buflist[0].dirty != 0);
-	CHECK(buflist[0].mark_set == 1);
-	CHECK(buflist[0].mark_col == 3);
+	CHECK(kg_mark_is_set(&buflist[0]));
+	CHECK(test_mark_col(&buflist[0]) == 3);
 	CHECK(buflist[0].readonly_local == 1);
 	CHECK(strcmp(buflist[0].compile_command, "make zero") == 0);
 	CHECK(buflist[0].undostack.size == 1);
@@ -279,13 +310,13 @@ static void test_switch_round_trip_keeps_fields_in_their_buffer(void)
 	CHECK(buf_current == 0);
 	CHECK(bcur()->row == rows0);
 	CHECK(bcur()->dirty != 0);
-	CHECK(bcur()->mark_set == 1 && bcur()->mark_col == 3);
+	CHECK(kg_mark_is_set(bcur()) && test_mark_col(bcur()) == 3);
 	CHECK(bcur()->readonly == 1);
 	CHECK(strcmp(bcur()->compile_command, "make zero") == 0);
 	CHECK(bcur()->undostack.size == 1);
 	CHECK(buflist[1].undostack.size == 1);
 	CHECK(buflist[1].dirty != 0);
-	CHECK(buflist[1].mark_set == 0);
+	CHECK(!kg_mark_is_set(&buflist[1]));
 
 	session_teardown();
 	free(names[0]);
@@ -576,12 +607,10 @@ static void test_revert_drops_the_region_it_finds(void)
 	names[0] = strdup(tmppath("a.txt"));
 
 	session(1, names);
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 1;
+	CHECK(test_set_mark(bcur(), 0, 1));
 	bcur()->mark_highlight = 1;
 	bcur()->rect_mode = 1;
-	bcur()->mark_ring_len = 1;
+	CHECK(set_mark_ring(bcur(), 0, 1, 1));
 
 	write_text_file(tmppath("a.txt"), "A0\nA1\nA2\n");
 	bcur()->disk_changed = 1;
@@ -589,11 +618,10 @@ static void test_revert_drops_the_region_it_finds(void)
 	buf_select(0);
 
 	CHECK(memcmp(bcur()->row[0].chars, "A0", 2) == 0);
-	CHECK(bcur()->mark_set == 0);
+	CHECK(!kg_mark_is_set(bcur()));
 	CHECK(bcur()->mark_highlight == 0);
 	CHECK(bcur()->rect_mode == 0);
-	/* The mark ring is not part of what the reload clears. */
-	CHECK(bcur()->mark_ring_len == 1);
+	CHECK(bcur()->mark_ring_len == 0);
 	CHECK(bcur()->undostack.head == NULL);
 
 	session_teardown();
@@ -685,6 +713,8 @@ static void test_slot_exhaustion_and_reuse(void)
 	char *names[1];
 	char name[64];
 	int i, reused;
+	size_t marker_pos;
+	struct kg_marker_handle killed_marker;
 
 	write_text_file(tmppath("a.txt"), "alpha\n");
 	names[0] = strdup(tmppath("a.txt"));
@@ -708,9 +738,14 @@ static void test_slot_exhaustion_and_reuse(void)
 	buf_select(5);
 	CHECK(bslot(5)->row != NULL);
 	CHECK(bslot(5)->filename != NULL);
+	killed_marker = kg_marker_create(bcur(), 0, KG_MARKER_GRAV_LEFT);
+	CHECK(killed_marker.id != 0);
+	CHECK(kg_mark_set_position(bcur(), 0));
 	buf_kill(-1);
 	CHECK(buf_count == MAX_BUFFERS - 1);
 	CHECK(!buflist[5].active);
+	CHECK(buflist[5].markers == NULL);
+	CHECK(kg_marker_resolve(killed_marker, &marker_pos) == KG_MARKER_GONE);
 
 	buf_open_path(tmppath("overflow.txt"), 0);
 	CHECK(buf_count == MAX_BUFFERS);
@@ -727,7 +762,8 @@ static void test_slot_exhaustion_and_reuse(void)
 	CHECK(strstr(bslot(5)->filename, "overflow.txt") != NULL);
 	CHECK(bslot(5)->undostack.head == NULL);
 	CHECK(bslot(5)->dirty == 0);
-	CHECK(bslot(5)->mark_set == 0);
+	CHECK(!kg_mark_is_set(bslot(5)));
+	CHECK(kg_marker_resolve(killed_marker, &marker_pos) == KG_MARKER_GONE);
 
 	session_teardown();
 	free(names[0]);
@@ -883,32 +919,28 @@ static void test_marks_belong_to_the_buffer(void)
 	session(2, names);
 
 	/* Buffer 0: a live region and two entries in the mark ring. */
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 2;
+	CHECK(test_set_mark(bcur(), 0, 2));
 	bcur()->mark_highlight = 1;
 	bcur()->shift_select = 1;
 	bcur()->rect_mode = 1;
-	bcur()->mark_ring_row[0] = 1;
-	bcur()->mark_ring_col[0] = 4;
-	bcur()->mark_ring_len = 1;
+	CHECK(set_mark_ring(bcur(), 0, 1, 4));
 
 	buf_select(1);
 
 	/* Buffer 1 has a region of its own, which is to say none. */
-	CHECK(bcur()->mark_set == 0);
+	CHECK(!kg_mark_is_set(bcur()));
 	CHECK(bcur()->mark_highlight == 0);
 	CHECK(bcur()->shift_select == 0);
 	CHECK(bcur()->rect_mode == 0);
 	CHECK(bcur()->mark_ring_len == 0);
-	CHECK(buflist[0].mark_set == 1);
-	CHECK(buflist[0].mark_col == 2);
+	CHECK(kg_mark_is_set(&buflist[0]));
+	CHECK(test_mark_col(&buflist[0]) == 2);
 	CHECK(buflist[0].mark_ring_len == 1);
-	CHECK(buflist[0].mark_ring_col[0] == 4);
+	CHECK(mark_ring_col(&buflist[0], 0) == 4);
 
 	buf_select(0);
-	CHECK(bcur()->mark_set == 1);
-	CHECK(bcur()->mark_col == 2);
+	CHECK(kg_mark_is_set(bcur()));
+	CHECK(test_mark_col(bcur()) == 2);
 	CHECK(bcur()->mark_highlight == 1);
 	CHECK(bcur()->rect_mode == 1);
 	CHECK(bcur()->mark_ring_len == 1);
@@ -921,8 +953,8 @@ static void test_marks_belong_to_the_buffer(void)
 	win_cycle_next();
 	CHECK(win_current == other);
 	CHECK(buf_current == 0);
-	CHECK(bcur()->mark_set == 1);
-	CHECK(bcur()->mark_col == 2);
+	CHECK(kg_mark_is_set(bcur()));
+	CHECK(test_mark_col(bcur()) == 2);
 
 	session_teardown();
 	free(names[0]);

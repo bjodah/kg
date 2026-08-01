@@ -17,6 +17,7 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
+#include "marker.h"
 #include "syntax.h"
 
 static constexpr int lisp_expression_max = 512;
@@ -1075,7 +1076,7 @@ static void cmd_delete_forward_char(int fd)
 	int n = prefix_count();
 
 	(void)fd;
-	if (bcur()->mark_set && bcur()->mark_highlight) {
+	if (kg_mark_is_set(bcur()) && bcur()->mark_highlight) {
 		editor_delete_region_or_char();
 		return;
 	}

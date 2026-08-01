@@ -15,7 +15,6 @@
 #include "def.h"
 #include "edit.h"
 #include "kbd.h"
-#include "localvars.h"
 #include "perf.h"
 #include "syntax.h"
 

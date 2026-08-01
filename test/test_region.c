@@ -35,9 +35,7 @@ static void teardown(void)
 /* Set mark at (row, col) and cursor at (cur_row, cur_col). */
 static void set_region(int mark_row, int mark_col, int cur_row, int cur_col)
 {
-	bcur()->mark_set = 1;
-	bcur()->mark_row = mark_row;
-	bcur()->mark_col = mark_col;
+	CHECK(test_set_mark(bcur(), mark_row, mark_col));
 	wcur()->rowoff = 0;
 	wcur()->coloff = 0;
 	wcur()->cy = cur_row;
@@ -60,7 +58,7 @@ static void test_copy_region_single_line(void)
 	/* Highlight goes away but the mark itself stays put so the next
 	 * C-x C-x bounces back to where the region started (Emacs'
 	 * transient-mark convention; matches the C-g teardown). */
-	CHECK(bcur()->mark_set == 1);
+	CHECK(kg_mark_is_set(bcur()));
 	CHECK(bcur()->mark_highlight == 0);
 	teardown();
 }
@@ -112,7 +110,7 @@ static void test_copy_region_no_mark(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
-	bcur()->mark_set = 0;
+	kg_mark_clear(bcur());
 	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 
 	editor_copy_region();
@@ -130,9 +128,9 @@ static void test_set_mark_saturates_huge_column_offset(void)
 
 	editor_set_mark_silent();
 
-	CHECK(bcur()->mark_set == 1);
-	CHECK(bcur()->mark_row == 0);
-	CHECK(bcur()->mark_col == INT_MAX);
+	CHECK(kg_mark_is_set(bcur()));
+	CHECK(test_mark_row(bcur()) == 0);
+	CHECK(test_mark_col(bcur()) == INT_MAX);
 	CHECK(bcur()->mark_highlight == 1);
 	teardown();
 }
@@ -141,16 +139,14 @@ static void test_exchange_point_and_mark_saturates_huge_column_offset(void)
 {
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 0;
+	CHECK(test_set_mark(bcur(), 0, 0));
 	wcur()->coloff = INT_MAX - 5;
 	wcur()->cx = 79;
 
 	editor_exchange_point_and_mark();
 
-	CHECK(bcur()->mark_row == 0);
-	CHECK(bcur()->mark_col == INT_MAX);
+	CHECK(test_mark_row(bcur()) == 0);
+	CHECK(test_mark_col(bcur()) == INT_MAX);
 	teardown();
 }
 
@@ -243,7 +239,7 @@ static void test_kill_and_yank_are_one_step_each(void)
 	CHECK(bcur()->undostack.size == 1);
 	CHECK(bcur()->content_generation == generation + 1);
 	CHECK(bcur()->dirty == 1);
-	CHECK(bcur()->mark_set == 1);
+	CHECK(kg_mark_is_set(bcur()));
 	CHECK(editor_current_filerow() == 0);
 	CHECK(editor_current_filecol() == 6);
 
@@ -322,7 +318,7 @@ static void test_clear_rect_pads_short_rows_in_batches(void)
 	CHECK(memcmp(bcur()->row[0].chars, "a     ", 6) == 0);
 	CHECK(bcur()->row[1].size == 6);
 	CHECK(memcmp(bcur()->row[1].chars, "abcd  ", 6) == 0);
-	CHECK(bcur()->mark_set == 0);
+	CHECK(!kg_mark_is_set(bcur()));
 	CHECK(bcur()->rect_mode == 0);
 	teardown();
 }

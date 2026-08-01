@@ -10,7 +10,7 @@
 #include "def.h"
 #include "edit.h"
 #include "keyevent.h"
-#include "localvars.h"
+#include "marker.h"
 #include "regex.h"
 #include "syntax.h"
 
@@ -288,7 +288,7 @@ static void query_replace_newline_at(int rowidx, char *replace, int rlen)
 static void query_replace_bounds(
     int *start_row, int *start_col, int *end_row, int *end_col)
 {
-	if (bcur()->mark_set && bcur()->mark_highlight
+	if (kg_mark_is_set(bcur()) && bcur()->mark_highlight
 	    && editor_region_bounds(start_row, start_col, end_row, end_col)) {
 		return;
 	}
@@ -469,6 +469,21 @@ static void isearch_recall_last(
 	}
 }
 
+static void isearch_drop_marker(struct kg_marker_handle *marker)
+{
+	kg_marker_delete(*marker);
+	*marker = (struct kg_marker_handle) { 0 };
+}
+
+static int isearch_set_marker(struct kg_marker_handle *marker, size_t position)
+{
+	if (kg_marker_set_position(*marker, position) == KG_MARKER_OK) {
+		return 1;
+	}
+	*marker = kg_marker_create(bcur(), position, KG_MARKER_GRAV_LEFT);
+	return marker->id != 0;
+}
+
 static void do_isearch(int fd, int direction, enum search_kind kind)
 {
 	char query[KILO_QUERY_LEN + 1] = { 0 };
@@ -480,8 +495,8 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int saved_coloff = wcur()->coloff, saved_rowoff = wcur()->rowoff;
 	int start_row = wcur()->rowoff + wcur()->cy;
 	int start_col = 0;
-	int last_match_row = -1;
-	int last_match_col = -1;
+	struct kg_marker_handle saved_point = { 0 };
+	struct kg_marker_handle last_match = { 0 };
 	struct hl_snapshot snap = { 0 };
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
 	int too_complex = 0; /* last attempt ran out of engine budget */
@@ -492,6 +507,14 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	 * columns it is drawn as.  Only the highlight below is converted to
 	 * render space, because row->hl is indexed that way. */
 	start_col = wcur()->coloff + wcur()->cx;
+	saved_point = kg_marker_create(bcur(),
+	    buffer_row_col_to_position(bcur(), start_row, start_col),
+	    KG_MARKER_GRAV_LEFT);
+	if (saved_point.id == 0) {
+		editor_set_status_message("Out of memory");
+		running = 0;
+		return;
+	}
 
 	while (1) {
 		struct key_event c;
@@ -529,15 +552,31 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				    query, qlen, qlen);
 				query[qlen] = '\0';
 			}
-			last_match_row = -1;
-			last_match_col = -1;
+			isearch_drop_marker(&last_match);
 			find_next = direction;
 		} else if (KEY_IN_LIST(isearch_end_keys, c)) {
 			if (KEY_IS(c, KEY_BASE_ESC, 0)) {
-				wcur()->cx = saved_cx;
-				wcur()->cy = saved_cy;
-				wcur()->coloff = saved_coloff;
-				wcur()->rowoff = saved_rowoff;
+				int row, col;
+
+				if (kg_marker_get_row_col(
+					saved_point, &row, &col)) {
+					wcur()->coloff = saved_coloff;
+					wcur()->rowoff = saved_rowoff;
+					wcur()->cy = row - saved_rowoff;
+					wcur()->cx = col - saved_coloff;
+					if (wcur()->cy < 0
+					    || wcur()->cy >= wcur()->h
+					    || wcur()->cx < 0
+					    || wcur()->cx >= wcur()->w) {
+						editor_reveal_position_centered(
+						    row, col);
+					}
+				} else {
+					wcur()->cx = saved_cx;
+					wcur()->cy = saved_cy;
+					wcur()->coloff = saved_coloff;
+					wcur()->rowoff = saved_rowoff;
+				}
 			}
 			/* Emacs records the query when the search is
 			 * accepted, never when it is abandoned. */
@@ -545,6 +584,8 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				minibuf_history_add(hist, query);
 			}
 			hl_snapshot_restore(&snap);
+			isearch_drop_marker(&last_match);
+			isearch_drop_marker(&saved_point);
 			editor_set_status_message("");
 			return;
 		} else if (KEY_IN_LIST(isearch_forward_keys, c)) {
@@ -564,16 +605,14 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			    hist, dir, &hist_index, draft);
 			if (entry) {
 				isearch_set_query(query, &qlen, entry);
-				last_match_row = -1;
-				last_match_col = -1;
+				isearch_drop_marker(&last_match);
 				find_next = direction;
 			}
 		} else if (c.mods == 0 && ascii_is_print(c.base)) {
 			if (qlen < KILO_QUERY_LEN) {
 				query[qlen++] = (char)c.base;
 				query[qlen] = '\0';
-				last_match_row = -1;
-				last_match_col = -1;
+				isearch_drop_marker(&last_match);
 				find_next = direction;
 			}
 		} else if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
@@ -586,8 +625,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				memcpy(query + qlen, seq, (size_t)n);
 				qlen += n;
 				query[qlen] = '\0';
-				last_match_row = -1;
-				last_match_col = -1;
+				isearch_drop_marker(&last_match);
 				find_next = direction;
 			}
 		} else if (isearch_handoff_key(fd, c)) {
@@ -598,6 +636,8 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			 * it came from. */
 			minibuf_history_add(hist, query);
 			hl_snapshot_restore(&snap);
+			isearch_drop_marker(&last_match);
+			isearch_drop_marker(&saved_point);
 			return;
 		}
 
@@ -632,10 +672,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 
 				fold = !query_has_upper(query, qlen);
 
-				if (last_match_row != -1) {
-					current = last_match_row;
-					col = last_match_col
-					    + (search_dir > 0 ? 1 : 0);
+				if (kg_marker_get_row_col(
+					last_match, &current, &col)) {
+					col += search_dir > 0 ? 1 : 0;
 				}
 				match = isearch_find_match(current, col,
 				    search_dir, kind, &rx, query, qlen, fold,
@@ -647,14 +686,27 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				hl_snapshot_restore(&snap);
 
 				if (match > 0) {
-					last_match_row = match_row;
-					last_match_col = match_col;
+					if (!isearch_set_marker(&last_match,
+						buffer_row_col_to_position(
+						    bcur(), match_row,
+						    match_col))) {
+						editor_set_status_message(
+						    "Out of memory");
+						running = 0;
+						isearch_drop_marker(
+						    &saved_point);
+						return;
+					}
 					if (hl_snapshot_mark(match_row,
 						match_col, match_len, &snap)
 					    != 0) {
 						editor_set_status_message(
 						    "Out of memory");
 						running = 0;
+						isearch_drop_marker(
+						    &last_match);
+						isearch_drop_marker(
+						    &saved_point);
 						return;
 					}
 					point_col = match_col

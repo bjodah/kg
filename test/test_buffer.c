@@ -227,7 +227,7 @@ static void test_row_append_string(void)
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
 
-	editor_row_append_string(&bcur()->row[0], " world", 6);
+	editor_row_append_string(bcur(), &bcur()->row[0], " world", 6);
 
 	CHECK(bcur()->row[0].size == 11);
 	CHECK(memcmp(bcur()->row[0].chars, "hello world", 11) == 0);
@@ -240,10 +240,36 @@ static void test_row_append_string_to_empty(void)
 	setup();
 	editor_insert_row(bcur(), 0, "", 0);
 
-	editor_row_append_string(&bcur()->row[0], "hello", 5);
+	editor_row_append_string(bcur(), &bcur()->row[0], "hello", 5);
 
 	CHECK(bcur()->row[0].size == 5);
 	CHECK(memcmp(bcur()->row[0].chars, "hello", 5) == 0);
+	teardown();
+}
+
+/* Internal output may be appended to a buffer that is not current.  Its
+ * row updates and change accounting belong to that explicit owner: otherwise
+ * building a describe or compilation page makes the file the user was
+ * viewing look modified and turns the quit trailer into a prompt. */
+static void test_internal_append_to_background_buffer(void)
+{
+	struct editor_buffer background = { 0 };
+	uint64_t generation;
+
+	setup();
+	bcur()->dirty = 0;
+	generation = bcur()->content_generation;
+
+	kg_buffer_append_internal(&background, "answer\nsecond", 13);
+
+	CHECK(bcur()->dirty == 0);
+	CHECK(bcur()->content_generation == generation);
+	CHECK(background.dirty == 0);
+	CHECK(background.content_generation > 0);
+	CHECK(background.numrows == 2);
+	CHECK(strcmp(background.row[0].chars, "answer") == 0);
+	CHECK(strcmp(background.row[1].chars, "second") == 0);
+	editor_free_all_rows(&background);
 	teardown();
 }
 
@@ -2241,9 +2267,7 @@ static void test_reflow_undo_rows_are_sortable(void)
 	CHECK(bcur()->row[1].size == 1);
 	CHECK(bcur()->row[1].chars[1] == '\0');
 
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 0;
+	CHECK(test_set_mark(bcur(), 0, 0));
 	editor_cursor_goto(1, 1);
 	editor_sort_lines();
 
@@ -3038,6 +3062,7 @@ int main(void)
 	RUN(test_row_del_char_oob);
 	RUN(test_row_append_string);
 	RUN(test_row_append_string_to_empty);
+	RUN(test_internal_append_to_background_buffer);
 	RUN(test_update_row_tab_at_col0);
 	RUN(test_update_row_tab_mid);
 	RUN(test_update_row_no_tabs);

@@ -44,6 +44,7 @@
 #include "def.h"
 #include "kbd.h"
 #include "lisp.h"
+#include "marker.h"
 #include "perf.h"
 
 struct editor_config editor;
@@ -66,10 +67,9 @@ void init_editor(void)
 	bcur()->filename = NULL;
 	bcur()->syntax = NULL;
 	editor.paste_mode = 0;
-	bcur()->mark_set = 0;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 0;
+	bcur()->mark = (struct kg_buffer_mark) { .virtual_chars_col = -1 };
 	bcur()->mark_highlight = 0;
+	bcur()->mark_ring_len = 0;
 	bcur()->shift_select = 0;
 	bcur()->rect_mode = 0;
 	wcur()->desired_visual_col = -1;

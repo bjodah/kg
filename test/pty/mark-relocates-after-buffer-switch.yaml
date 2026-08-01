@@ -1,0 +1,31 @@
+# A mark belongs to its buffer even while another buffer is selected.  On the
+# return to alpha, inserting XX at BOB moves its marker from byte 3 to byte 5;
+# C-x C-x must then land between c and d.
+name: mark-relocates-after-buffer-switch
+filename: alpha.txt
+config_files:
+  beta.txt: |
+    beta
+initial: "abcdef\n"
+keys:
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - C-x
+  - b
+  - alpha
+  - RET
+  - C-a
+  - X
+  - X
+  - C-x
+  - C-x
+  - "!"
+expected_saved: "XXabc!def\n"

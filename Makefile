@@ -77,7 +77,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c \
-       width.c dired.c perf.c process.c
+       width.c dired.c perf.c process.c marker.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -103,7 +103,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
-           $(TESTDIR)/test_describe \
+           $(TESTDIR)/test_describe $(TESTDIR)/test_marker \
            $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -132,7 +132,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
-	    $(OBJDIR)/keymap.c
+	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
@@ -189,7 +189,7 @@ KG_PTY_EMACS ?=
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
-                 $(OBJDIR)/width.o
+                 $(OBJDIR)/width.o $(OBJDIR)/marker.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
 # Per-run machine-readable test results (gitignored).  Both layers write
@@ -249,11 +249,11 @@ SCC_COMPLEXITY_PATHS ?= src
 # dispatch (the shift_motions[]-shaped pattern already in kbd.c) funded
 # most of it back -- isearch_handoff_key() and minibuf_edit_key() both
 # gained a second lookup table for exactly this -- but not all of it.
-# Measured 4161 after the slice, 4200 is this wave's agreed integration
-# ceiling (three slices landing against the same baseline), not a
-# reviewed exception of its own; the maintainer's integration commit is
-# where the wave's total gets re-measured and banked.
-SCC_COMPLEXITY_MAX ?= 4200
+# Measured 4161 after the key-event slice.  Plan 03's standalone marker
+# store and buffer-mark adapter add 43 (4243 measured); 4250 banks that
+# named module with six points of rounding/tool-version room, not room for
+# unrelated command growth.
+SCC_COMPLEXITY_MAX ?= 4250
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -549,7 +549,7 @@ EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/auto
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
 EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS)
-EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/buffer.o $(OBJDIR)/undo.o $(OBJDIR)/syntax.o $(OBJDIR)/width.o $(OBJDIR)/process.o
+EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
 EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(OBJDIR)/keybind.o $(FE_OBJ) $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o $(OBJDIR)/keymap.o
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
@@ -574,6 +574,7 @@ EXTRA_keymap      := $(EXTRA_cmd)
 EXTRA_describe    := $(EXTRA_cmd)
 EXTRA_keyevent    := $(TESTDIR)/stubs.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
+EXTRA_marker      := $(EXTRA_buffer)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

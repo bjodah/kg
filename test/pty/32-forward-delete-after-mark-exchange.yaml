@@ -1,3 +1,7 @@
+# Deleting the byte immediately before a mark relocates the mark to BOB.
+# The later exchange and paragraph mark therefore leave C-d covering the
+# leading newline, which joins the two rows.  This used to preserve the blank
+# row while marks were stale row/column snapshots.
 name: forward-delete-after-mark-exchange
 filename: forward-delete-after-mark-exchange.txt
 initial: "a\nbbbb"
@@ -11,4 +15,4 @@ keys:
   - ESC
   - C-h
   - C-d
-expected_saved: "\nbbbb"
+expected_saved: "bbbb"

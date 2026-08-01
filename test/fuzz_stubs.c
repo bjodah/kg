@@ -1,6 +1,7 @@
 #include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
+#include "../src/marker.h"
 
 #include <fcntl.h>
 #include <stddef.h>
@@ -144,6 +145,14 @@ struct kg_buffer_handle buf_handle(int slot)
 	struct kg_buffer_handle handle = { slot, 1, 0 };
 
 	return handle;
+}
+struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
+{
+	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS
+	    || !buflist[handle.slot].active) {
+		return NULL;
+	}
+	return &buflist[handle.slot];
 }
 int buf_handle_slot(struct kg_buffer_handle handle) { return handle.slot; }
 void win_reflow(void) { }
@@ -364,7 +373,7 @@ static void fuzz_delete_backward_char(int fd)
 static void fuzz_delete_forward_char(int fd)
 {
 	(void)fd;
-	if (bcur()->mark_set && bcur()->mark_highlight) {
+	if (kg_mark_is_set(bcur()) && bcur()->mark_highlight) {
 		editor_delete_region_or_char();
 		return;
 	}

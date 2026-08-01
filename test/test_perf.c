@@ -557,9 +557,7 @@ static void test_rect_delete_updates_per_byte(void)
 	for (r = 0; r < 8; r++) {
 		editor_insert_row(bcur(), r, "0123456789abcdef", 16);
 	}
-	bcur()->mark_set = 1;
-	bcur()->mark_row = 0;
-	bcur()->mark_col = 2;
+	CHECK(test_set_mark(bcur(), 0, 2));
 	wcur()->cy = 7;
 	wcur()->cx = 12;
 	bcur()->rect_mode = 1;

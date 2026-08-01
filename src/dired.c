@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "edit.h"
 #include "kbd.h"
 #include "localvars.h"
 #include "syntax.h"
@@ -231,42 +232,41 @@ fail:
 	return -1;
 }
 
-/* Append `line` as the last row.  `len` is what snprintf() reported, i.e.
- * what it would have written, so it is clamped to what is really there. */
-static void dired_add_row(const char *line, int len)
+/* Append `line` as the last staged row.  `len` is what snprintf() reported,
+ * i.e. what it would have written, so it is clamped to what is really
+ * there. */
+static void dired_add_row(
+    erow **rows, int *numrows, int *row_capacity, const char *line, int len)
 {
 	int have = (int)strlen(line);
 
-	editor_insert_row(bcur(), bcur()->numrows, line,
+	kg_row_builder_add_line(rows, numrows, row_capacity, line,
 	    (size_t)(len < 0 || len > have ? have : len));
 }
 
-/* Rebuild the rows of the current dired buffer: a header line naming the
- * directory, then the listing dired_open() read. */
-static void dired_populate(void)
+/* Stage the rows of a dired listing: a header line naming the directory,
+ * then the listing dired_open() read.  Both callers highlight and adopt
+ * what this builds once it returns, against &dired_syntax -- this only
+ * has to lay the text out. */
+static void dired_populate(erow **rows, int *numrows, int *row_capacity)
 {
 	char dir[PATH_MAX];
 	char line[PATH_MAX + 8];
 	int i, len;
 
-	/* Attached before any row exists, because editor_insert_row(bcur(), )
-	 * highlights each row as it is appended and both callers of this
-	 * populate step attach the syntax only after it returns. */
-	bcur()->syntax = &dired_syntax;
-
 	if (dired_dir_of(bcur()->filename, dir, sizeof(dir)) != 0) {
 		/* Unreachable: dired_open() built the name this reads back.
-		 * Leave the buffer empty rather than write a header naming
+		 * Leave the listing empty rather than write a header naming
 		 * the wrong directory. */
 		return;
 	}
 	len = snprintf(line, sizeof(line), DIRED_GUTTER "%s:", dir);
-	dired_add_row(line, len);
+	dired_add_row(rows, numrows, row_capacity, line, len);
 
 	for (i = 0; i < dired_list_count; i++) {
 		len = snprintf(line, sizeof(line), DIRED_GUTTER "%s%s",
 		    dired_list[i].name, dired_list[i].is_dir ? "/" : "");
-		dired_add_row(line, len);
+		dired_add_row(rows, numrows, row_capacity, line, len);
 	}
 }
 
@@ -333,18 +333,24 @@ int dired_open(const char *dir)
 int dired_fill_current(const char *dir)
 {
 	struct dired_listing l;
+	erow *rows = NULL;
+	int numrows = 0, row_capacity = 0;
 
 	if (dired_stage(dir, &l) != 0) {
 		return 1;
 	}
-	editor_free_all_rows(bcur());
 	free(bcur()->filename);
 	bcur()->filename = strdup(l.name);
-	dired_populate();
+
+	dired_populate(&rows, &numrows, &row_capacity);
 	dired_unstage();
+	if (kg_row_builder_highlight(rows, numrows, &dired_syntax) != 0) {
+		kg_row_builder_free(&rows, &numrows, &row_capacity);
+		return 1;
+	}
+	kg_buffer_adopt_rows(bcur(), &rows, &numrows, &row_capacity);
 
 	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
-	bcur()->dirty = 0;
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
 	bcur()->syntax = &dired_syntax;
@@ -463,13 +469,12 @@ void dired_revert(void)
 
 /* Write `mark` into column 0 of the row at point, then step down the way
  * Emacs' m/d/u do so a run of entries marks with one key per line.  The
- * gutter is view state rather than an edit: the row is mutated in place
- * with no undo record (buf_open_special() reset undo when the listing was
- * built) and bcur()->dirty is deliberately left alone, so quitting a
- * marked-up listing never prompts. */
+ * gutter is view state rather than an edit: KG_EDIT_INTERNAL is the
+ * gateway's own "not the user's text" policy, so this records no undo and
+ * leaves bcur()->dirty alone, exactly as the direct write this replaced
+ * did -- quitting a marked-up listing still never prompts. */
 void dired_set_mark(char mark)
 {
-	erow *row;
 	int filerow;
 
 	if (!dired_active()) {
@@ -480,9 +485,7 @@ void dired_set_mark(char mark)
 		editor_set_status_message("No file on this line");
 		return;
 	}
-	row = &bcur()->row[filerow];
-	row->chars[0] = mark;
-	editor_update_row(bcur(), row);
+	editor_row_replace_range(filerow, 0, 1, &mark, 1, KG_EDIT_INTERNAL);
 	editor_move_cursor(ARROW_DOWN);
 }
 

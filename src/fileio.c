@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "def.h"
+#include "edit.h"
 #include "kbd.h"
 #include "localvars.h"
 #include "perf.h"
@@ -308,92 +309,36 @@ err_cleanup: {
 }
 }
 
+/* The staged array is edit.h's row builder: these rows belong to no
+ * buffer yet, so building them raw is not the same claim as writing a
+ * live buffer's text by hand. */
 static int load_append_row(
     struct temp_load_result *res, const char *line, size_t linelen)
 {
-	int at;
-	int new_numrows;
-	size_t chars_size;
-	char *newchars;
-
-	if (!checked_size_to_int(&at, linelen)
-	    || !checked_add_int_size(&new_numrows, res->numrows, 1)
-	    || !checked_add_size_t(&chars_size, linelen, 1)) {
-		errno = EOVERFLOW;
+	if (!kg_row_builder_add_line(
+		&res->row, &res->numrows, &res->row_capacity, line, linelen)) {
 		return -1;
 	}
-
-	newchars = malloc(chars_size);
-	if (!newchars) {
-		errno = ENOMEM;
-		return -1;
-	}
-	memcpy(newchars, line, linelen);
-	newchars[linelen] = '\0';
-
-	/* The same doubling the live row array uses, so staging R lines
-	 * costs O(log R) reallocations instead of R of them. */
-	if (!editor_rows_reserve(&res->row, &res->row_capacity, new_numrows)) {
-		free(newchars);
-		errno = ENOMEM;
-		return -1;
-	}
-	at = res->numrows;
-	res->row[at] = (erow) {
-		.idx = at,
-		.size = (int)linelen,
-		.chars = newchars,
-	};
-	res->numrows = new_numrows;
 	return 0;
 }
 
 /* Render and highlight every staged row, once, with the syntax the
  * staged filename selects.
  *
- * Rendering and syntax highlighting are shared editor machinery, so the
- * staged array is given a buffer record of its own for the duration.  Its
- * numrows grows a row at a time on purpose: each row is updated as the
- * last row of the staged prefix, which is what stops an hl_oc flip from
- * propagating into rows that have no render yet -- and turning the pass
- * quadratic.
- *
  * Syntax selection happens once here rather than once per row.  It reads
  * only the filename, but for a file with no recognised extension it
  * re-opens the file to look for a hash-bang, so the old per-row call
- * opened and read the file once per line.
+ * opened and read the file once per line.  The render/highlight pass
+ * itself is kg_row_builder_highlight()'s -- see its comment in edit.h for
+ * why it announces the staged rows one at a time rather than all at once.
  *
  * Returns 0, or -1 with errno set when a row could not be rendered. */
 static int load_stage_rows(struct temp_load_result *res)
 {
-	struct editor_buffer staged;
-	int saved_running = running;
-	int i, failed = 0;
+	struct editor_buffer probe = { 0 };
 
-	/* A buffer record that owns nothing but the staged array: the render
-	 * and the highlighter both need to reach the rows above the one they
-	 * are working on, and this is the whole of what they need.  It used
-	 * to be the live buffer with its fields saved and put back, which
-	 * meant the load was briefly indistinguishable from the buffer the
-	 * user was in. */
-	memset(&staged, 0, sizeof(staged));
-	staged.row = res->row;
-	staged.row_capacity = res->row_capacity;
-	editor_select_syntax_highlight(&staged, res->filename);
-	for (i = 0; i < res->numrows; i++) {
-		staged.numrows = i + 1;
-		editor_update_row(&staged, &res->row[i]);
-		if (!res->row[i].render || running != saved_running) {
-			failed = 1;
-			break;
-		}
-	}
-	running = saved_running;
-	if (failed) {
-		errno = ENOMEM;
-		return -1;
-	}
-	return 0;
+	editor_select_syntax_highlight(&probe, res->filename);
+	return kg_row_builder_highlight(res->row, res->numrows, probe.syntax);
 }
 
 /* Roll a partial load back and report it.  free_load_result() must not
@@ -489,20 +434,17 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 
 void commit_load_result(struct temp_load_result *res)
 {
-	int i;
-	for (i = 0; i < bcur()->numrows; i++) {
-		editor_free_row(&bcur()->row[i]);
-	}
-	free(bcur()->row);
-	free(bcur()->filename);
+	/* kg_buffer_adopt_rows() is the one publication point: it frees
+	 * whatever bcur() held, installs the staged rows, and leaves
+	 * res->row an empty (still valid) staged array. */
+	kg_buffer_adopt_rows(
+	    bcur(), &res->row, &res->numrows, &res->row_capacity);
 
+	free(bcur()->filename);
 	bcur()->filename = res->filename;
-	bcur()->row = res->row;
-	bcur()->numrows = res->numrows;
-	bcur()->row_capacity = res->row_capacity;
+	res->filename = NULL;
 	bcur()->disk = res->disk;
 	bcur()->disk_changed = 0;
-	bcur()->dirty = 0;
 
 	/* The staged pass (load_stage_rows()) already rendered and
 	 * highlighted every row in order, with the syntax this filename
@@ -515,11 +457,6 @@ void commit_load_result(struct temp_load_result *res)
 	 * it compares every row's hl bytes and hl_oc after a load against a
 	 * from-scratch editor_rehighlight_all(). */
 	editor_select_syntax_highlight(bcur(), bcur()->filename);
-
-	res->filename = NULL;
-	res->row = NULL;
-	res->numrows = 0;
-	res->row_capacity = 0;
 }
 
 void free_load_result(struct temp_load_result *res)
@@ -529,16 +466,7 @@ void free_load_result(struct temp_load_result *res)
 	}
 	free(res->filename);
 	res->filename = NULL;
-	if (res->row) {
-		int i;
-		for (i = 0; i < res->numrows; i++) {
-			editor_free_row(&res->row[i]);
-		}
-		free(res->row);
-		res->row = NULL;
-	}
-	res->numrows = 0;
-	res->row_capacity = 0;
+	kg_row_builder_free(&res->row, &res->numrows, &res->row_capacity);
 }
 
 /* Load the specified program in the editor memory and returns 0 on success
@@ -835,7 +763,7 @@ void editor_insert_file(int fd)
 	char filename[256];
 	char *buf = NULL;
 	size_t buflen = 0;
-	int filerow, filecol, buflen_int;
+	int buflen_int;
 	int filefd;
 
 	editor_prompt_prefill_dir(filename, sizeof(filename));
@@ -889,10 +817,7 @@ void editor_insert_file(int fd)
 		return;
 	}
 
-	filerow = wcur()->rowoff + wcur()->cy;
-	filecol = wcur()->coloff + wcur()->cx;
-	undo_push(bcur(), UNDO_YANK_TEXT, filerow, filecol, 0, buf, buflen_int);
-	editor_insert_text_raw(buf, buflen_int);
+	editor_insert_text_at_point(buf, buflen_int);
 	free(buf);
 
 	editor_set_status_message("Inserted %s", filename);

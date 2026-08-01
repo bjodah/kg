@@ -59,9 +59,10 @@ void init_editor(void)
 	wcur()->cy = 0;
 	wcur()->rowoff = 0;
 	wcur()->coloff = 0;
-	bcur()->numrows = 0;
-	bcur()->row = NULL;
-	bcur()->row_capacity = 0;
+	/* bcur()->row/numrows/row_capacity need no reset here: buflist[] is a
+	 * static array, zero-initialized before main() runs, and
+	 * init_editor() itself runs exactly once, before any buffer has held
+	 * a row. */
 	bcur()->dirty = 0;
 	bcur()->filename = NULL;
 	bcur()->syntax = NULL;

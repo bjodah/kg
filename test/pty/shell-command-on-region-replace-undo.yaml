@@ -1,0 +1,17 @@
+name: shell-command-on-region-replace-undo
+filename: shell-replace-region-undo.txt
+initial: "hello\n"
+keys:
+  - C-SPC
+  - "M->"
+  - M-1
+  - "M-|"
+  - "tr a-z A-Z"
+  - RET
+  # Two undo steps: the insert of the command's output, then the region
+  # kill that made room for it -- editor_shell_command_on_region() with a
+  # prefix arg is editor_kill_region() followed by one insert, and the
+  # insert itself is one step regardless of which gateway call records it.
+  - C-_
+  - C-_
+expected_saved: "hello\n"

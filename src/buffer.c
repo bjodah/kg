@@ -1889,7 +1889,8 @@ void kg_buffer_append_internal(
 			    row, (char *)p, (size_t)(end - p));
 			p = end;
 		} else {
-			editor_row_append_string(row, (char *)p, (size_t)(nl - p));
+			editor_row_append_string(
+			    row, (char *)p, (size_t)(nl - p));
 			editor_insert_row(b, b->numrows, "", 0);
 			p = nl + 1;
 		}

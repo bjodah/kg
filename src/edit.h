@@ -156,8 +156,8 @@ void kg_edit_fail_alloc_after(int n);
  * Returns 1, or 0 with errno set (ENOMEM, or EOVERFLOW when `len` or the
  * resulting row count cannot fit where a row counts them) and `*rows`
  * unchanged. */
-int kg_row_builder_add_line(erow **rows, int *numrows, int *row_capacity,
-    const char *s, size_t len);
+int kg_row_builder_add_line(
+    erow **rows, int *numrows, int *row_capacity, const char *s, size_t len);
 
 /* Render and syntax-highlight every row of a staged, unpublished array, in
  * the order they appear.  `numrows` is announced to the highlighter one

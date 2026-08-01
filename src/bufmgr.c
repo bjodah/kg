@@ -14,6 +14,7 @@
 #include "cmdstate.h"
 #include "compile.h"
 #include "def.h"
+#include "edit.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
@@ -1790,26 +1791,37 @@ static void buf_commit_special(int slot, int existing)
 	}
 }
 
-/* Set up the special buffer named `name`: take its slot, clear any prior
- * content, run `populate` to fill rows, then mark the buffer read-only,
- * attach `syn`, and post `status`.  Shared by buf_open_list, buf_open_help
- * and dired. */
+/* Set up the special buffer named `name`: take its slot, run `populate`
+ * to build rows off to the side, adopt them as the buffer's whole content,
+ * then mark the buffer read-only, attach `syn`, and post `status`.  Shared
+ * by buf_open_list, buf_open_help and dired.
+ *
+ * `populate` builds into a staged row array rather than bcur() directly
+ * (edit.h's row builder): a rebuild that ran out of memory partway used to
+ * leave the buffer's prior content already gone (editor_free_all_rows()
+ * ran first) and the new listing half-written; staging first means a
+ * failure here leaves whatever the buffer showed before untouched. */
 void buf_open_special(const char *name, struct editor_syntax *syn,
-    void (*populate)(void), const char *status)
+    void (*populate)(erow **rows, int *numrows, int *row_capacity),
+    const char *status)
 {
 	int existing;
 	int slot = buf_enter_special(name, &existing);
+	erow *rows = NULL;
+	int numrows = 0, row_capacity = 0;
 
 	if (slot < 0) {
 		return;
 	}
 
-	editor_free_all_rows(bcur());
-
-	populate();
+	populate(&rows, &numrows, &row_capacity);
+	if (kg_row_builder_highlight(rows, numrows, syn) != 0) {
+		kg_row_builder_free(&rows, &numrows, &row_capacity);
+		return;
+	}
+	kg_buffer_adopt_rows(bcur(), &rows, &numrows, &row_capacity);
 
 	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
-	bcur()->dirty = 0;
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
 	bcur()->syntax = syn;
@@ -1831,28 +1843,6 @@ static void buf_reset_slot(int slot)
 	b->readonly_override = -1;
 	undo_stack_init(&b->undostack);
 	b->active = 1;
-}
-
-/* Append raw bytes to `row`, which belongs to `b`.  The buffer is what the
- * re-render needs: a row's highlight depends on the syntax and on the row
- * above it, both of which live in the buffer that owns the row. */
-static void editor_row_append_raw(
-    struct editor_buffer *b, erow *row, const char *s, size_t len)
-{
-	if (len == 0) {
-		return;
-	}
-	char *newchars = realloc(row->chars, row->size + len + 1);
-	if (!newchars) {
-		editor_set_status_message("Out of memory");
-		running = 0;
-		return;
-	}
-	row->chars = newchars;
-	memcpy(row->chars + row->size, s, len);
-	row->size += len;
-	row->chars[row->size] = '\0';
-	editor_update_row(b, row);
 }
 
 int buf_prepare_special_text(
@@ -1904,9 +1894,6 @@ int buf_append_special_text(
 		return 0;
 	}
 
-	int saved_suppress = suppress_undo;
-	suppress_undo = 1;
-
 	bool follow_viewport[MAX_WINDOWS] = { false };
 	bool follow_cursor[MAX_WINDOWS] = { false };
 	int old_numrows = b->numrows;
@@ -1927,27 +1914,7 @@ int buf_append_special_text(
 		}
 	}
 
-	if (b->numrows == 0) {
-		editor_insert_row(b, 0, "", 0);
-	}
-
-	const char *p = text;
-	const char *end = text + text_length;
-	while (p < end) {
-		const char *nl = memchr(p, '\n', (size_t)(end - p));
-		if (!nl) {
-			editor_row_append_raw(
-			    b, &b->row[b->numrows - 1], p, (size_t)(end - p));
-			p = end;
-		} else {
-			editor_row_append_raw(
-			    b, &b->row[b->numrows - 1], p, (size_t)(nl - p));
-			editor_insert_row(b, b->numrows, "", 0);
-			p = nl + 1;
-		}
-	}
-
-	b->dirty = 0;
+	kg_buffer_append_internal(b, text, text_length);
 
 	int new_numrows = b->numrows;
 	for (int w_idx = 0; w_idx < MAX_WINDOWS; w_idx++) {
@@ -1987,7 +1954,6 @@ int buf_append_special_text(
 		}
 	}
 
-	suppress_undo = saved_suppress;
 	return 0;
 }
 
@@ -1999,9 +1965,10 @@ void buf_clear_special_text(int buffer_index)
 	}
 
 	struct editor_buffer *b = &buflist[buffer_index];
+	erow *rows = NULL;
+	int numrows = 0, row_capacity = 0;
 
-	editor_free_all_rows(b);
-	b->dirty = 0;
+	kg_buffer_adopt_rows(b, &rows, &numrows, &row_capacity);
 
 	undo_stack_free(&b->undostack);
 	undo_stack_init(&b->undostack);
@@ -2029,53 +1996,8 @@ void buf_truncate_last_row(int buffer_index, size_t len_to_remove)
 	}
 }
 
-int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
-    const char *text, size_t text_length, int readonly)
-{
-	const char *p, *end;
-	int ended_with_newline = 0;
-	int existing;
-	int slot = buf_enter_special(name, &existing);
-
-	if (slot < 0) {
-		return -1;
-	}
-
-	editor_free_all_rows(bcur());
-
-	p = text;
-	end = text + text_length;
-	while (p < end) {
-		const char *nl = memchr(p, '\n', (size_t)(end - p));
-		if (!nl) {
-			editor_insert_row(
-			    bcur(), bcur()->numrows, p, (size_t)(end - p));
-			p = end;
-			ended_with_newline = 0;
-		} else {
-			editor_insert_row(
-			    bcur(), bcur()->numrows, p, (size_t)(nl - p));
-			p = nl + 1;
-			ended_with_newline = 1;
-		}
-	}
-	if (ended_with_newline) {
-		editor_insert_row(bcur(), bcur()->numrows, "", 0);
-	}
-
-	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
-	bcur()->dirty = 0;
-	bcur()->readonly_override = readonly ? 1 : -1;
-	bcur()->readonly_local = 0;
-	editor_refresh_readonly_state();
-	bcur()->syntax = syntax;
-
-	buf_commit_special(slot, existing);
-	return slot;
-}
-
-/* Populate the *Buffer List* rows from the buflist[] snapshot. */
-static void buf_list_populate(void)
+/* Stage the *Buffer List* rows from the buflist[] snapshot. */
+static void buf_list_populate(erow **rows, int *numrows, int *row_capacity)
 {
 	char line[256];
 	int i, j, len, size;
@@ -2083,10 +2005,10 @@ static void buf_list_populate(void)
 
 	len = snprintf(line, sizeof(line), " M  %-24s  %6s  %-14s  %s",
 	    "Buffer", "Size", "Mode", "File");
-	editor_insert_row(bcur(), bcur()->numrows, line, len);
+	kg_row_builder_add_line(rows, numrows, row_capacity, line, (size_t)len);
 	len = snprintf(line, sizeof(line), " -  %-24s  %6s  %-14s  %s",
 	    "------", "------", "----", "----");
-	editor_insert_row(bcur(), bcur()->numrows, line, len);
+	kg_row_builder_add_line(rows, numrows, row_capacity, line, (size_t)len);
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
@@ -2103,7 +2025,8 @@ static void buf_list_populate(void)
 		len = snprintf(line, sizeof(line), " %c  %-24s  %6d  %-14s  %s",
 		    b->dirty ? '*' : ' ', buf_basename(b->filename), size,
 		    modename, b->filename ? b->filename : "");
-		editor_insert_row(bcur(), bcur()->numrows, line, len);
+		kg_row_builder_add_line(
+		    rows, numrows, row_capacity, line, (size_t)len);
 	}
 }
 
@@ -2116,14 +2039,14 @@ void buf_open_list(void)
 	    "Buffer list — RET to open, q or C-x k to close.");
 }
 
-/* Populate the *help* buffer rows from the static key-binding table. */
-static void buf_help_populate(void)
+/* Stage the *help* buffer rows from the static key-binding table. */
+static void buf_help_populate(erow **rows, int *numrows, int *row_capacity)
 {
 	int i;
 
 	for (i = 0; kg_help_lines[i]; i++) {
-		editor_insert_row(bcur(), bcur()->numrows, kg_help_lines[i],
-		    strlen(kg_help_lines[i]));
+		kg_row_builder_add_line(rows, numrows, row_capacity,
+		    kg_help_lines[i], strlen(kg_help_lines[i]));
 	}
 }
 

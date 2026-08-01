@@ -440,8 +440,6 @@ static inline struct editor_window *wcur(void) { return &winlist[win_current]; }
 extern struct editor_syntax lisp_interaction_syntax;
 extern struct editor_syntax compilation_syntax;
 extern struct editor_syntax text_syntax;
-int buf_replace_special_text(const char *name, struct editor_syntax *syntax,
-    const char *text, size_t text_length, int readonly);
 int buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly);
 int buf_append_special_text(
@@ -449,7 +447,8 @@ int buf_append_special_text(
 void buf_clear_special_text(int buffer_index);
 void buf_truncate_last_row(int buffer_index, size_t len_to_remove);
 void buf_open_special(const char *name, struct editor_syntax *syn,
-    void (*populate)(void), const char *status);
+    void (*populate)(erow **rows, int *numrows, int *row_capacity),
+    const char *status);
 
 /* Result of a minibuffer prompt.  ACCEPTED is the only outcome that should
  * ever be acted on by callers that execute the typed text (e.g. as a shell

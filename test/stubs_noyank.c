@@ -125,18 +125,6 @@ void editor_cleanup(void) { }
 
 struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0, NULL };
 
-int __attribute__((weak)) buf_replace_special_text(const char *name,
-    struct editor_syntax *syntax, const char *text, size_t text_length,
-    int readonly)
-{
-	(void)name;
-	(void)syntax;
-	(void)text;
-	(void)text_length;
-	(void)readonly;
-	return 0;
-}
-
 int __attribute__((weak)) buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)
 {

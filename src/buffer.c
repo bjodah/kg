@@ -1622,22 +1622,6 @@ static void edit_publish(
 	}
 }
 
-/* The handle naming `b`, found the same way marker.c's buffer_get_handle()
- * does: neither module has a live buffer's own handle to hand, so this is
- * a linear search of the buffer table rather than a stored field.  A
- * buffer not found in the table (NULL, or not one of buflist[]'s slots)
- * answers a handle that names nothing. */
-static struct kg_buffer_handle buffer_get_handle(const struct editor_buffer *b)
-{
-	for (int i = 0; b && i < MAX_BUFFERS; i++) {
-		if (b == &buflist[i]) {
-			return buf_handle(i);
-		}
-	}
-	struct kg_buffer_handle zero = { -1, 0, 0 };
-	return zero;
-}
-
 /* Replace the bytes [begin_byte, end_byte) of `e->buffer` with
  * `e->replacement`, as one step: one undo record, one step of the
  * modified flag and the content generation, one row rebuild per row the
@@ -1698,7 +1682,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	/* Byte, marker and decoration publication have all succeeded past
 	 * this point, so the edit is real: tell the queue after everything
 	 * else a subscriber could observe is already true, never before. */
-	kg_event_queue_text_change(buffer_get_handle(b), e->begin_byte,
+	kg_event_queue_text_change(buf_handle_of(b), e->begin_byte,
 	    e->end_byte - e->begin_byte, e->replacement_len,
 	    (struct kg_event_buffer_extent) {
 		.old_total_len = old_total,
@@ -1879,7 +1863,7 @@ void kg_buffer_adopt_rows(
 
 	b->dirty = 0;
 	b->content_generation++;
-	kg_event_queue_broad_change(buffer_get_handle(b),
+	kg_event_queue_broad_change(buf_handle_of(b),
 	    (struct kg_event_buffer_extent) {
 		.old_total_len = old_total,
 		.new_total_len = buffer_byte_length(b),

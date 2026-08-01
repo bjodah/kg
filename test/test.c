@@ -93,6 +93,19 @@ struct kg_buffer_handle __attribute__((weak)) buf_handle(int slot)
 	return h;
 }
 
+struct kg_buffer_handle __attribute__((weak)) buf_handle_of(
+    const struct editor_buffer *b)
+{
+	int i;
+
+	for (i = 0; b && i < MAX_BUFFERS; i++) {
+		if (b == &buflist[i]) {
+			return buf_handle(i);
+		}
+	}
+	return (struct kg_buffer_handle) { -1, 0, 0 };
+}
+
 struct editor_buffer *__attribute__((weak)) buf_resolve(
     struct kg_buffer_handle handle)
 {

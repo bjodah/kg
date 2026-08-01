@@ -34,6 +34,13 @@ struct kg_buffer_handle {
 /* The handle naming the buffer in `slot`, or a handle naming nothing. */
 struct kg_buffer_handle buf_handle(int slot);
 
+/* The handle naming `b`, for a module that was handed a buffer pointer
+ * rather than a slot.  A buffer is not asked to carry its own handle --
+ * that would be a second copy of the identity buf_handle() already
+ * derives -- so this searches the table for the slot `b` is, and answers
+ * a handle naming nothing for NULL or for storage outside buflist[]. */
+struct kg_buffer_handle buf_handle_of(const struct editor_buffer *b);
+
 /* The buffer `handle` names, or NULL once it is gone. */
 struct editor_buffer *buf_resolve(struct kg_buffer_handle handle);
 

@@ -7,17 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static struct kg_buffer_handle buffer_get_handle(const struct editor_buffer *b)
-{
-	for (int i = 0; b && i < MAX_BUFFERS; i++) {
-		if (b == &buflist[i]) {
-			return buf_handle(i);
-		}
-	}
-	struct kg_buffer_handle zero = { -1, 0, 0 };
-	return zero;
-}
-
 static bool marker_gravity_valid(enum kg_marker_gravity gravity)
 {
 	return gravity == KG_MARKER_GRAV_LEFT
@@ -59,7 +48,7 @@ struct kg_marker_handle kg_marker_create(
     struct editor_buffer *b, size_t pos, enum kg_marker_gravity gravity)
 {
 	struct kg_marker_handle null_handle = { { -1, 0, 0 }, 0, 0 };
-	struct kg_buffer_handle buffer = buffer_get_handle(b);
+	struct kg_buffer_handle buffer = buf_handle_of(b);
 	if (!b || !marker_gravity_valid(gravity)) {
 		return null_handle;
 	}

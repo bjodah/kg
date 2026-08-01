@@ -109,6 +109,18 @@ struct kg_buffer_handle buf_handle(int slot)
 	return handle;
 }
 
+struct kg_buffer_handle buf_handle_of(const struct editor_buffer *b)
+{
+	int i;
+
+	for (i = 0; b && i < MAX_BUFFERS; i++) {
+		if (b == &buflist[i]) {
+			return buf_handle(i);
+		}
+	}
+	return (struct kg_buffer_handle) { -1, 0, 0 };
+}
+
 /* The buffer `handle` names, or NULL once it is gone.  Callers must handle
  * NULL: it is the answer for a killed buffer and for a slot that has been
  * handed to somebody else, which are the two cases a bare index confuses. */

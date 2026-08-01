@@ -146,6 +146,17 @@ struct kg_buffer_handle buf_handle(int slot)
 
 	return handle;
 }
+struct kg_buffer_handle buf_handle_of(const struct editor_buffer *b)
+{
+	int i;
+
+	for (i = 0; b && i < MAX_BUFFERS; i++) {
+		if (b == &buflist[i]) {
+			return buf_handle(i);
+		}
+	}
+	return (struct kg_buffer_handle) { -1, 0, 0 };
+}
 struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 {
 	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS

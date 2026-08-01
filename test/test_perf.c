@@ -36,13 +36,13 @@ static void setup(void)
 {
 	/* win_init() below is the real winmgr.c/bufmgr.c pair (this binary
 	 * links everything but main.c), so it is a real KG_EVENT_VIEW_ATTACHED
-	 * producer every one of this file's many tests runs through; nothing
-	 * here ever drains the queue (Phase 5's job, not this file's), so a
-	 * fresh one per test is what keeps a later test's window attach from
-	 * being refused by an earlier test's undrained events -- a refusal
-	 * that would leave that test's window not showing its buffer at all,
-	 * not just short one event. */
-	kg_event_queue_init();
+	 * producer every one of this file's many tests runs through; a drain
+	 * with nobody subscribed -- the same relief src/main.c's safe points
+	 * give a real session -- is what keeps a later test's window attach
+	 * from being refused by an earlier test's undrained events, a
+	 * refusal that would leave that test's window not showing its
+	 * buffer at all, not just short one event. */
+	kg_event_drain_safe();
 	free_all_rows();
 	reset_current_buffer();
 	reset_current_view();

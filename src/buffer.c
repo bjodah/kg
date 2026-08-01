@@ -1640,10 +1640,16 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	size_t old_total;
 	int r0, c0, r1, c1;
 
+	/* Marks the whole of this function as one edit transaction, for
+	 * kg_event_drain_safe()'s KG_DEBUG_STATE assertion -- a debug-only,
+	 * always-cleared-before-return bracket, not a lock; nothing here
+	 * can recurse into kg_buffer_replace() itself. */
+	KG_EVENT_DEBUG_ENTER(KG_EVENT_UNSAFE_EDIT);
 	if (out) {
 		*out = (struct kg_edit_result) { 0 };
 	}
 	if (!edit_valid(e) || !edit_ensure_one_row(b)) {
+		KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 		return 0;
 	}
 	old_total = buffer_byte_length(b);
@@ -1658,15 +1664,18 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	if (!edit_stage(e, r0, c0, r1, c1, &st)) {
 		edit_staged_free(&st);
 		editor_nomem();
+		KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 		return 0;
 	}
 	if (edit_is_noop(e, &st)) {
 		edit_staged_free(&st);
+		KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 		return 1;
 	}
 	if (!edit_record_undo(e, &st)) {
 		edit_staged_free(&st);
 		editor_nomem();
+		KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 		return 0;
 	}
 	edit_publish(b, r0, r1, &st);
@@ -1689,6 +1698,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 		.new_total_len = buffer_byte_length(b),
 	    },
 	    b->content_generation, cmd_state()->this_command);
+	KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 	return 1;
 }
 

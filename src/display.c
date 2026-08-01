@@ -10,6 +10,7 @@
 #include "bufhandle.h"
 #include "decor.h"
 #include "def.h"
+#include "event.h"
 #include "localvars.h"
 #include "marker.h"
 #include "perf.h"
@@ -709,6 +710,13 @@ void editor_refresh_screen(void)
 	int msglen;
 
 	KG_PERF_INC(KG_PERF_REFRESH);
+	/* Debug-only bracket for kg_event_drain_safe()'s KG_DEBUG_STATE
+	 * assertion; see KG_EVENT_UNSAFE_EDIT's comment in kg_buffer_replace()
+	 * for what this is and is not.  The exit(1) below this point on an
+	 * out-of-memory append never returns here to clear it, but it also
+	 * never returns to the caller -- there is no "after" for this flag to
+	 * be stuck across. */
+	KG_EVENT_DEBUG_ENTER(KG_EVENT_UNSAFE_RENDER);
 	if (bcur()->visual_line_mode) {
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = wcur()->rowoff + wcur()->cy;
@@ -902,6 +910,7 @@ void editor_refresh_screen(void)
 		running = 0;
 	}
 	ab_free(&ab);
+	KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_RENDER);
 }
 
 /* Set an editor status message for the echo area at the bottom. */

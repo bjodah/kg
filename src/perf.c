@@ -40,6 +40,8 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_VISUAL_WIDTH_CACHE_HIT] = "visual_width_cache_hit",
 	[KG_PERF_VISUAL_PREFIX_VISIT] = "visual_prefix_visit",
 	[KG_PERF_HANDLE_STALE] = "handle_stale",
+	[KG_PERF_DECOR_EXAMINED] = "decor_examined",
+	[KG_PERF_DECOR_VISIBLE] = "decor_visible",
 };
 
 void kg_perf_reset(void)

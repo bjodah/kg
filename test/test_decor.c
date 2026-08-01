@@ -433,6 +433,165 @@ static void test_decor_buffer_kill_and_slot_reuse(void)
 	teardown();
 }
 
+/* Collect every span kg_decor_query_next() yields for [start,end) into
+ * `out`, in the order it yields them, and return the count. */
+static size_t collect_query(struct editor_buffer *b, size_t start, size_t end,
+    struct kg_decor_query_span *out, size_t max)
+{
+	struct kg_decor_query q;
+	size_t n = 0;
+
+	kg_decor_query_begin(&q, b, start, end);
+	while (n < max && kg_decor_query_next(&q, &out[n])) {
+		n++;
+	}
+	return n;
+}
+
+/* The visible-range query returns only intersecting spans, in the same
+ * (resolved start, end, priority, ID) order the store itself keeps --
+ * it is a filtered walk of the sorted vector, not a re-sort. */
+static void test_decor_query_returns_intersecting_spans_in_order(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "0123456789012345678901234567890", 32);
+
+	struct kg_decor_handle before
+	    = kg_decor_create(bcur(), 0, 3, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle low
+	    = kg_decor_create(bcur(), 10, 15, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 1, false);
+	struct kg_decor_handle high
+	    = kg_decor_create(bcur(), 10, 15, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 9, false);
+	struct kg_decor_handle spanning
+	    = kg_decor_create(bcur(), 8, 25, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle after
+	    = kg_decor_create(bcur(), 30, 32, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	CHECK(before.id && low.id && high.id && spanning.id && after.id);
+
+	struct kg_decor_query_span spans[8];
+	size_t n = collect_query(bcur(), 10, 20, spans, 8);
+
+	/* `before` ends before 10; `after` starts at 30 (>= range end);
+	 * neither intersects.  The three that do come back sorted:
+	 * `spanning` (start 8) first, then the two tied at (start 10, end
+	 * 15), low priority before high, matching store order. */
+	CHECK(n == 3);
+	CHECK(spans[0].id == spanning.id);
+	CHECK(spans[0].start == 8 && spans[0].end == 25);
+	CHECK(spans[1].id == low.id);
+	CHECK(spans[1].priority == 1);
+	CHECK(spans[2].id == high.id);
+	CHECK(spans[2].priority == 9);
+	CHECK(spans[2].face == KG_DECOR_FACE_WARNING);
+
+	teardown();
+}
+
+/* The intersection test is half-open on both the query range and the
+ * decoration's own span: a decoration ending exactly at range_start, or
+ * starting exactly at range_end, does not intersect; one that properly
+ * contains an interior point does, including a zero-width (point)
+ * decoration strictly inside the range. */
+static void test_decor_query_half_open_boundaries(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+
+	struct kg_decor_handle ends_at_start
+	    = kg_decor_create(bcur(), 2, 5, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle starts_at_end
+	    = kg_decor_create(bcur(), 8, 9, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle contains_range
+	    = kg_decor_create(bcur(), 0, 10, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle point_inside
+	    = kg_decor_create(bcur(), 6, 6, KG_MARKER_GRAV_LEFT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 0, false);
+	struct kg_decor_handle point_at_edge
+	    = kg_decor_create(bcur(), 8, 8, KG_MARKER_GRAV_LEFT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 0, false);
+	CHECK(ends_at_start.id && starts_at_end.id && contains_range.id
+	    && point_inside.id && point_at_edge.id);
+
+	/* Query range [5,8): only contains_range and point_inside (6) are
+	 * strictly inside it; ends_at_start's end (5) and starts_at_end's
+	 * start (8) both sit on the excluded boundary, and so does
+	 * point_at_edge (8). */
+	struct kg_decor_query_span spans[8];
+	size_t n = collect_query(bcur(), 5, 8, spans, 8);
+
+	CHECK(n == 2);
+	CHECK(spans[0].id == contains_range.id);
+	CHECK(spans[1].id == point_inside.id);
+
+	teardown();
+}
+
+/* A decoration whose endpoint marker has gone stale since the query
+ * began is skipped, never reported with a guessed range -- the query's
+ * own version of what kg_decor_resolve() already guarantees for a single
+ * handle. */
+static void test_decor_query_skips_stale_endpoint(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "0123456789", 10);
+
+	struct kg_decor_handle live
+	    = kg_decor_create(bcur(), 2, 5, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, 0, false);
+	struct kg_decor_handle going_stale
+	    = kg_decor_create(bcur(), 3, 6, KG_MARKER_GRAV_RIGHT,
+		KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_WARNING, 0, false);
+	CHECK(live.id != 0 && going_stale.id != 0);
+
+	/* Delete the second decoration's start marker directly, underneath
+	 * it -- the record stays in the store (only kg_decor_delete() would
+	 * remove that), but it can no longer resolve. */
+	struct kg_decor_store *store = bcur()->decorations;
+	CHECK(store->count == 2);
+	for (size_t i = 0; i < store->count; i++) {
+		if (store->items[i].id == going_stale.id) {
+			kg_marker_delete(store->items[i].start);
+		}
+	}
+	CHECK(kg_decor_resolve(going_stale, NULL) == KG_DECOR_GONE);
+
+	struct kg_decor_query_span spans[4];
+	size_t n = collect_query(bcur(), 0, 10, spans, 4);
+
+	CHECK(n == 1);
+	CHECK(spans[0].id == live.id);
+
+	teardown();
+}
+
+/* A NULL buffer, and a live buffer with no decoration store at all, both
+ * walk as "done" on the first poll -- never a crash, never a guessed
+ * span. */
+static void test_decor_query_empty_or_no_store(void)
+{
+	setup();
+
+	struct kg_decor_query q;
+	struct kg_decor_query_span span;
+
+	kg_decor_query_begin(&q, NULL, 0, 100);
+	CHECK(!kg_decor_query_next(&q, &span));
+
+	CHECK(bcur()->decorations == NULL);
+	kg_decor_query_begin(&q, bcur(), 0, 100);
+	CHECK(!kg_decor_query_next(&q, &span));
+
+	teardown();
+}
+
 /* Reference-model test: generate arbitrary decorations over a buffer that
  * undergoes a random edit sequence, and check every live decoration's
  * resolved span against a flat-string model driven by the same gravity
@@ -586,6 +745,10 @@ int main(void)
 	RUN(test_decor_id_exhaustion);
 	RUN(test_decor_broad_adoption_drops_decorations);
 	RUN(test_decor_buffer_kill_and_slot_reuse);
+	RUN(test_decor_query_returns_intersecting_spans_in_order);
+	RUN(test_decor_query_half_open_boundaries);
+	RUN(test_decor_query_skips_stale_endpoint);
+	RUN(test_decor_query_empty_or_no_store);
 	RUN(test_decor_randomized_reference_model);
 	return test_summary();
 }

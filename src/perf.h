@@ -86,6 +86,16 @@ enum kg_perf_counter {
 	/* Buffer identity (src/bufmgr.c). */
 	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */
 
+	/* Decoration visible-range query (src/decor.c), read by the renderer
+	 * at src/display.c's row-drawing seam.  EXAMINED is every record the
+	 * sorted-vector walk inspects, whether or not it turns out to
+	 * intersect; VISIBLE is the subset actually returned.  The gap
+	 * between them is the cost an interval tree would remove -- measure
+	 * it before adding one. */
+	KG_PERF_DECOR_EXAMINED, /* store records inspected by a visible-range
+				    walk */
+	KG_PERF_DECOR_VISIBLE, /* of which intersected and were returned */
+
 	KG_PERF_COUNTER_COUNT
 };
 

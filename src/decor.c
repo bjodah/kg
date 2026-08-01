@@ -2,6 +2,7 @@
 
 #include "decor.h"
 #include "def.h"
+#include "perf.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -288,6 +289,59 @@ void kg_decor_compact(struct editor_buffer *b)
 		w++;
 	}
 	store->count = w;
+}
+
+void kg_decor_query_begin(struct kg_decor_query *q, struct editor_buffer *b,
+    size_t range_start, size_t range_end)
+{
+	*q = (struct kg_decor_query) {
+		.store = b ? b->decorations : NULL,
+		.range_start = range_start,
+		.range_end = range_end,
+		.index = 0,
+	};
+}
+
+bool kg_decor_query_next(
+    struct kg_decor_query *q, struct kg_decor_query_span *out)
+{
+	if (!q->store) {
+		return false;
+	}
+	while (q->index < q->store->count) {
+		struct kg_decor *d = &q->store->items[q->index++];
+		size_t s, e;
+
+		KG_PERF_INC(KG_PERF_DECOR_EXAMINED);
+		if (kg_marker_resolve(d->start, &s) != KG_MARKER_OK
+		    || kg_marker_resolve(d->end, &e) != KG_MARKER_OK) {
+			continue; /* stale endpoint: gone, not a guessed span */
+		}
+		if (s >= q->range_end) {
+			/* Sorted by resolved start ascending: nothing further
+			 * in the store can start before range_end either, so
+			 * the walk is over. */
+			q->index = q->store->count;
+			return false;
+		}
+		if (e <= q->range_start) {
+			continue; /* ends at or before the visible range */
+		}
+		if (out) {
+			*out = (struct kg_decor_query_span) {
+				.start = s,
+				.end = e,
+				.face = d->face,
+				.priority = d->priority,
+				.evaporate
+				= (d->flags & KG_DECOR_FLAG_EVAPORATE) != 0,
+				.id = d->id,
+			};
+		}
+		KG_PERF_INC(KG_PERF_DECOR_VISIBLE);
+		return true;
+	}
+	return false;
 }
 
 void kg_decor_store_free(struct editor_buffer *b)

@@ -1,6 +1,7 @@
 /* test_tty.c — unit tests for tty signal handling */
 
 #include "../src/def.h"
+#include "../src/keyevent.h"
 #include "test.h"
 #include <errno.h>
 #include <signal.h>
@@ -319,6 +320,53 @@ static void test_malformed_utf8_keeps_the_following_key(void)
 	close(fds[1]);
 }
 
+/* Characterization ahead of Plan 01 phase 2's second half (the decoder
+ * flag day): today editor_read_key() returns a legacy int and callers
+ * adapt it with key_event_from_legacy(); once tty.c emits key_event
+ * directly, this test's only change is dropping that adapter call.  The
+ * expected events must stay exactly what they are here -- that agreement
+ * is the proof the rewrite is behavior-preserving. */
+static void test_escape_sequences_decode_to_key_events(void)
+{
+	static const struct {
+		const char *bytes;
+		size_t len;
+		struct key_event want;
+	} cases[] = {
+		{ "\x1b[C", 3, { KEY_BASE_RIGHT, 0 } },
+		{ "\x1b[1;5D", 6, { KEY_BASE_LEFT, KEY_MOD_CTRL } },
+		{ "\x1b[1;2C", 6, { KEY_BASE_RIGHT, KEY_MOD_SHIFT } },
+		{ "\x1b" "f", 2, { 'f', KEY_MOD_META } },
+		{ "\x1b" "5", 2, { '5', KEY_MOD_META } },
+		{ "\x1b\x13", 2, { 's', KEY_MOD_CTRL | KEY_MOD_META } },
+		{ "\x1b[13~", 5, { KEY_BASE_F3, 0 } },
+		{ "\x1b[2~", 4, { KEY_BASE_INSERT, 0 } },
+		{ "\x1b[5~", 4, { KEY_BASE_PRIOR, 0 } },
+		{ "\x1bOH", 3, { KEY_BASE_HOME, 0 } },
+	};
+	size_t i;
+
+	running = 1;
+	for (i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+		int fds[2];
+		struct key_event got;
+
+		if (pipe(fds) != 0) {
+			CHECK(!"pipe failed");
+			return;
+		}
+		CHECK(write(fds[1], cases[i].bytes, cases[i].len)
+		    == (ssize_t)cases[i].len);
+		got = key_event_from_legacy(editor_read_key(fds[0]));
+		CHECKF(key_event_equal(got, cases[i].want),
+		    "%s: got base=%d mods=%u, want base=%d mods=%u",
+		    cases[i].bytes, got.base, got.mods, cases[i].want.base,
+		    cases[i].want.mods);
+		close(fds[0]);
+		close(fds[1]);
+	}
+}
+
 int main(void)
 {
 	RUN(test_sigwinch_handling);
@@ -328,5 +376,6 @@ int main(void)
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);
+	RUN(test_escape_sequences_decode_to_key_events);
 	return test_summary();
 }

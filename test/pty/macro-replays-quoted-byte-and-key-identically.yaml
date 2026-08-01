@@ -1,0 +1,24 @@
+# macro.c is a byte-stream recorder: a keyboard macro mixes fully decoded
+# keys (C-f, a key_event once the decoder flag day lands) with raw,
+# undecoded bytes that never go through key decoding at all (C-q's quoted
+# insert, which reads via editor_read_raw_byte()).  Both kinds share one
+# replay queue, so this proves the interleaving survives a macro that
+# uses both, recorded once and replayed twice.
+name: macro-replays-quoted-byte-and-key-identically
+filename: macro-mixed.txt
+initial: |
+  abc
+keys:
+  - C-x
+  - "("
+  - C-f
+  - C-q
+  - "1"
+  - C-f
+  - C-x
+  - ")"
+  - C-u
+  - "2"
+  - C-x
+  - e
+expected_saved: "a1bc1\n1"

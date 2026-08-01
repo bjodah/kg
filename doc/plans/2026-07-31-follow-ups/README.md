@@ -53,6 +53,23 @@ it; several of its bullets are no longer true.  As of the wave-1 merge:
 - Windows name their buffer by a 64-bit generation-checked handle, not a
   slot index.
 
+## Decision — the complexity cap has headroom, bounded by 4223
+
+Taken 2026-08-01, entering wave 2.  Wave 1 ended with the cap equal to
+measured usage, which is the right resting state but the wrong starting
+state: it made every additive slice wait on a concurrent deletion slice,
+and Plan 03's marker module, Plan 07's width cache and Plan 06's runtime
+seams are all additive by construction.  `SCC_COMPLEXITY_MAX` is
+therefore 4200, granting 56 of headroom.
+
+The bound is not arbitrary and does not move: **4223 is what this program
+started from**, so a follow-up program whose whole point is to remove
+structural debt may not end above it.  Rule 6 is unchanged for routine
+work — a slice still funds itself where it can, still records scc
+before and after, and still banks a decrease when a durable saving
+lands.  Headroom is for the enabling modules, not for skipping the
+extraction that would otherwise pay for them.
+
 Wave 1's residue, for whoever picks up next: `src/word.c` line coverage
 sits one covered line above its floor, so the next commit touching it
 should expect to add a test.  Plan 02 Phase 5 still owns

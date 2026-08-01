@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "decor.h"
 #include "def.h"
 #include "edit.h"
 #include "keyevent.h"
@@ -40,75 +41,41 @@ static struct minibuf_history search_history;
 static struct minibuf_history regexp_search_history;
 static struct minibuf_history query_replace_history;
 
-/* One search's highlight snapshot: the bytes lifted out of row->hl, how
- * many of them there were, which row they came from, and the buffer's
- * content generation when they were taken.  All four are needed because
- * the snapshot outlives keys that can edit the buffer -- isearch hands
- * C-d off to editor_del_forward_char(), which at end of line joins the
- * next row into this one and grows its rsize under a snapshot sized
- * before the join. */
-struct hl_snapshot {
-	unsigned char *hl;
-	int len;
-	int line;
-	uint64_t generation;
-};
+/* The current match is one temporary decoration, never a byte painted
+ * into row->hl: a fresh find, a query edit, an accepted or cancelled
+ * search, or a query-replace answer all retire it the same way, through
+ * search_match_decor_drop() below.  There is exactly one such decoration
+ * live at a time per caller, so ownership is never ambiguous -- see the
+ * comment on search_match_decor() for the gravity choice and on each
+ * call site below for why that site is the one deleting it. */
 
-/* Put a snapshot back and drop it.  A row that changed since the save is
- * left alone: the edit re-ran the highlighter over it already, so the
- * snapshot describes text that is no longer there. */
-static void hl_snapshot_restore(struct hl_snapshot *snap)
+#define KG_SEARCH_MATCH_PRIORITY 0
+
+/* Create the current-match decoration spanning chars [col, col + len) of
+ * row `filerow`.  decor.h's documented gravity pair for a match
+ * highlight -- KG_MARKER_GRAV_RIGHT for the start, KG_MARKER_GRAV_LEFT
+ * for the end -- keeps text typed at either edge outside the match
+ * rather than growing it.  Returns a handle that resolves as gone on
+ * allocation failure; the caller is expected to treat `id == 0` as
+ * out-of-memory, matching kg_marker_create()'s convention elsewhere in
+ * this file. */
+static struct kg_decor_handle search_match_decor(int filerow, int col, int len)
 {
-	if (!snap->hl) {
-		return;
-	}
-	if (snap->line < bcur()->numrows
-	    && snap->generation == bcur()->content_generation) {
-		erow *row = &bcur()->row[snap->line];
-		/* TODO(markers): the saved length is what bounds this copy
-		 * until decorations live on the edit transaction; row->rsize
-		 * is the restore-time size and describes a different row. */
-		int n = snap->len < row->rsize ? snap->len : row->rsize;
+	size_t start_pos = buffer_row_col_to_position(bcur(), filerow, col);
+	size_t end_pos = buffer_row_col_to_position(bcur(), filerow, col + len);
 
-		KG_ASSERT_RENDER_OFF(row, n);
-		memcpy(row->hl, snap->hl, (size_t)n);
-	}
-	free(snap->hl);
-	snap->hl = NULL;
+	return kg_decor_create(bcur(), start_pos, end_pos, KG_MARKER_GRAV_RIGHT,
+	    KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, KG_SEARCH_MATCH_PRIORITY,
+	    true);
 }
 
-/* Snapshot row `filerow`'s highlight, then paint the match at chars
- * offsets [col, col + len) as HL_MATCH so the search question is asked
- * about a visibly marked match.  row->hl is indexed in render bytes, so
- * the span is converted here and every caller stays in chars space.
- * Returns 0, or -1 when the snapshot could not be allocated; a row
- * carrying no highlight array needs neither and reports success. */
-static int hl_snapshot_mark(
-    int filerow, int col, int len, struct hl_snapshot *snap)
+/* Delete `*decor` (a no-op if it is already the null handle or already
+ * gone) and clear the caller's copy, so a stale handle is never reused
+ * by accident. */
+static void search_match_decor_drop(struct kg_decor_handle *decor)
 {
-	erow *row = &bcur()->row[filerow];
-	int rcol, rlen;
-
-	KG_ASSERT_CHARS_OFF(row, col);
-	KG_ASSERT_CHARS_OFF(row, col + len);
-	rcol = chars_to_render_col(row, col);
-	rlen = chars_to_render_col(row, col + len) - rcol;
-	KG_ASSERT_RENDER_OFF(row, rcol + rlen);
-	if (!row->hl) {
-		return 0;
-	}
-	snap->hl = malloc((size_t)row->rsize);
-	if (!snap->hl) {
-		return -1;
-	}
-	snap->len = row->rsize;
-	snap->line = filerow;
-	snap->generation = bcur()->content_generation;
-	memcpy(snap->hl, row->hl, (size_t)row->rsize);
-	if (rcol + rlen <= row->rsize) {
-		memset(row->hl + rcol, HL_MATCH, (size_t)rlen);
-	}
-	return 0;
+	kg_decor_delete(*decor);
+	*decor = (struct kg_decor_handle) { 0 };
 }
 
 static int query_has_upper(const char *q, int qlen)
@@ -497,15 +464,16 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int start_col = 0;
 	struct kg_marker_handle saved_point = { 0 };
 	struct kg_marker_handle last_match = { 0 };
-	struct hl_snapshot snap = { 0 };
+	struct kg_decor_handle match_decor = { 0 };
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
 	int too_complex = 0; /* last attempt ran out of engine budget */
 	int qlen = 0;
 
 	/* Everything in this function is a chars byte offset: the search
 	 * reads row->chars, so a TAB is one character and never the eight
-	 * columns it is drawn as.  Only the highlight below is converted to
-	 * render space, because row->hl is indexed that way. */
+	 * columns it is drawn as.  The match decoration below is anchored by
+	 * flat buffer-byte markers instead; converting to render space for
+	 * display is the renderer's job now, not this file's. */
 	start_col = wcur()->coloff + wcur()->cx;
 	saved_point = kg_marker_create(bcur(),
 	    buffer_row_col_to_position(bcur(), start_row, start_col),
@@ -583,7 +551,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			if (KEY_IS(c, KEY_BASE_RET, 0)) {
 				minibuf_history_add(hist, query);
 			}
-			hl_snapshot_restore(&snap);
+			/* Accept or cancel: the search is over, so its match
+			 * decoration goes with it. */
+			search_match_decor_drop(&match_decor);
 			isearch_drop_marker(&last_match);
 			isearch_drop_marker(&saved_point);
 			editor_set_status_message("");
@@ -631,11 +601,14 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		} else if (isearch_handoff_key(fd, c)) {
 			/* A handoff ends the search on its match, which in
 			 * Emacs commits the query just like Enter does.  The
-			 * key may have edited the buffer (C-d), so the
-			 * snapshot is only put back if it still fits the row
-			 * it came from. */
+			 * key may have edited the buffer (C-d): its markers
+			 * relocated the decoration through that edit before
+			 * this ever runs, so there is nothing left to
+			 * reconcile here -- this call is the search's one
+			 * and only owner retiring it, whatever the edit did
+			 * to its span. */
 			minibuf_history_add(hist, query);
-			hl_snapshot_restore(&snap);
+			search_match_decor_drop(&match_decor);
 			isearch_drop_marker(&last_match);
 			isearch_drop_marker(&saved_point);
 			return;
@@ -682,8 +655,12 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				find_next = 0;
 				too_complex = match < 0;
 
-				/* Highlight */
-				hl_snapshot_restore(&snap);
+				/* Highlight: drop the previous match's
+				 * decoration unconditionally -- a new match,
+				 * a query edit, or no match at all all retire
+				 * it the same way -- before deciding whether
+				 * there is a new one to show. */
+				search_match_decor_drop(&match_decor);
 
 				if (match > 0) {
 					if (!isearch_set_marker(&last_match,
@@ -697,9 +674,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 						    &saved_point);
 						return;
 					}
-					if (hl_snapshot_mark(match_row,
-						match_col, match_len, &snap)
-					    != 0) {
+					match_decor = search_match_decor(
+					    match_row, match_col, match_len);
+					if (match_decor.id == 0) {
 						editor_set_status_message(
 						    "Out of memory");
 						running = 0;
@@ -763,7 +740,7 @@ void editor_query_replace(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
 	char replace[KILO_QUERY_LEN + 1] = { 0 };
-	struct hl_snapshot snap = { 0 };
+	struct kg_decor_handle match_decor = { 0 };
 	int slen, rlen;
 	int replace_nl, replace_tail;
 	int filerow, match_col;
@@ -817,11 +794,11 @@ void editor_query_replace(int fd)
 
 		editor_goto_line_direct(filerow + 1, match_col + 1);
 
-		/* Highlight the match.  The span is in chars offsets;
-		 * hl_snapshot_mark() converts it, so a tab before the match
-		 * on this line does not shift the highlight. */
-		hl_snapshot_restore(&snap);
-		if (hl_snapshot_mark(filerow, match_col, slen, &snap) != 0) {
+		/* Highlight the match: one temporary decoration, replacing
+		 * whatever the previous iteration's answer left behind. */
+		search_match_decor_drop(&match_decor);
+		match_decor = search_match_decor(filerow, match_col, slen);
+		if (match_decor.id == 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
 			return;
@@ -848,11 +825,11 @@ void editor_query_replace(int fd)
 			int after = end_col - match_col - slen;
 			int resume;
 
-			/* Restore the snapshot while it still matches this
-			 * row's render size.  A length-changing replacement
-			 * regenerates hl, so restoring later would use the old
-			 * allocation with the new rsize. */
-			hl_snapshot_restore(&snap);
+			/* The match is about to be edited; retire its
+			 * decoration first.  Ownership stays with this loop
+			 * the whole time -- it is never handed to the edit,
+			 * so there is only ever one place that deletes it. */
+			search_match_decor_drop(&match_decor);
 
 			/* A replacement is one user operation: one row
 			 * rebuild, and one C-_ that removes the replacement
@@ -881,7 +858,7 @@ void editor_query_replace(int fd)
 		}
 	}
 
-	hl_snapshot_restore(&snap);
+	search_match_decor_drop(&match_decor);
 	editor_set_status_message(
 	    count ? "Replaced %d occurrence%s." : "No replacements made.",
 	    count, count == 1 ? "" : "s");
@@ -987,7 +964,7 @@ void editor_query_replace_regexp(int fd)
 {
 	char search[KILO_QUERY_LEN + 1] = { 0 };
 	char replace[KILO_QUERY_LEN + 1] = { 0 };
-	struct hl_snapshot snap = { 0 };
+	struct kg_decor_handle match_decor = { 0 };
 	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0, since_poll = 0;
@@ -1078,9 +1055,12 @@ void editor_query_replace_regexp(int fd)
 
 		editor_goto_line_direct(filerow + 1, match_start + 1);
 
-		hl_snapshot_restore(&snap);
-		if (hl_snapshot_mark(filerow, match_start, match_len, &snap)
-		    != 0) {
+		/* Highlight the match: one temporary decoration, replacing
+		 * whatever the previous iteration's answer left behind. */
+		search_match_decor_drop(&match_decor);
+		match_decor
+		    = search_match_decor(filerow, match_start, match_len);
+		if (match_decor.id == 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
 			return;
@@ -1092,7 +1072,7 @@ void editor_query_replace_regexp(int fd)
 		if (!expanded) {
 			editor_set_status_message("Out of memory");
 			running = 0;
-			hl_snapshot_restore(&snap);
+			search_match_decor_drop(&match_decor);
 			return;
 		}
 
@@ -1122,7 +1102,10 @@ void editor_query_replace_regexp(int fd)
 		}
 
 		if (answer != REPLACE_SKIP) {
-			hl_snapshot_restore(&snap);
+			/* The match is about to be edited; retire its
+			 * decoration first -- this loop is its only owner,
+			 * start to finish. */
+			search_match_decor_drop(&match_decor);
 			if (!editor_row_replace_range(filerow, match_start,
 				match_len, expanded, expanded_len,
 				KG_EDIT_USER)) {
@@ -1150,7 +1133,7 @@ void editor_query_replace_regexp(int fd)
 		}
 	}
 
-	hl_snapshot_restore(&snap);
+	search_match_decor_drop(&match_decor);
 	if (too_complex) {
 		editor_set_status_message(
 		    "Regexp too complex; stopped after %d replacement%s.",

@@ -199,11 +199,12 @@ static int decor_face_to_hl(enum kg_decor_face face)
 	return HL_NORMAL;
 }
 
-/* No consumer creates decorations yet (that lands with isearch's
- * migration); a row that will eventually carry more simultaneously
- * visible faces than this keeps the first KG_ROW_DECOR_MAX the sorted
- * walk yields and drops the rest rather than allocating -- a rendering
- * fidelity note for that future consumer, not a crash here. */
+/* isearch and query-replace (src/search.c) are the first consumer, one
+ * match decoration at a time; a row that will eventually carry more
+ * simultaneously visible faces than this keeps the first
+ * KG_ROW_DECOR_MAX the sorted walk yields and drops the rest rather than
+ * allocating -- a rendering fidelity note for a future consumer with
+ * more faces live at once, not a crash here. */
 #define KG_ROW_DECOR_MAX 16
 
 struct row_decor_span {

@@ -1268,6 +1268,91 @@ static void test_goal_column_belongs_to_the_view(void)
 	free(names[1]);
 }
 
+/* A window handle is win_handle()'s counterpart to buf_handle(): live while
+ * the slot it names is the same window, dead once that slot is released,
+ * and still dead once the slot is handed to a different window. */
+static void test_window_handle_resolves_until_slot_released_and_reused(void)
+{
+	char *names[1];
+	int other, reused;
+	struct kg_window_handle h;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	h = win_handle(other);
+	CHECK(h.id != 0);
+	CHECK(win_resolve(h) == &winlist[other]);
+	CHECK(win_handle_slot(h) == other);
+
+	win_cycle_next();
+	CHECK(win_current == other);
+	win_delete_current();
+	CHECK(win_resolve(h) == NULL);
+	CHECK(win_handle_slot(h) == -1);
+
+	/* The freed slot comes back as somebody else's window; the old
+	 * handle must not resolve to the new occupant either. */
+	win_split_horizontal();
+	reused = other_window();
+	CHECK(reused == other);
+	CHECK(win_resolve(h) == NULL);
+	CHECK(win_handle(reused).id != h.id);
+	CHECK(win_resolve(win_handle(reused)) == &winlist[reused]);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* A split's new window is a new view, not a second name for the one it was
+ * copied from: same buffer, same point, but its own identity. */
+static void test_split_gives_the_new_window_a_distinct_identity(void)
+{
+	char *names[1];
+	int other, i;
+	struct kg_window_handle h0, h1;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	h0 = win_handle(win_current);
+	CHECK(h0.id != 0);
+
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+	h1 = win_handle(other);
+
+	CHECK(h1.id != 0);
+	CHECK(h1.id != h0.id);
+	CHECK(win_resolve(h0) == &winlist[win_current]);
+	CHECK(win_resolve(h1) == &winlist[other]);
+
+	/* Splitting again (neither split moves focus, so win_current is
+	 * still h0's window) must not repeat an id either. */
+	win_split_vertical();
+	CHECK(win_count == 3);
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		struct kg_window_handle h;
+
+		if (!winlist[i].active || i == win_current || i == other) {
+			continue;
+		}
+		h = win_handle(i);
+		CHECK(h.id != 0);
+		CHECK(h.id != h0.id);
+		CHECK(h.id != h1.id);
+	}
+
+	session_teardown();
+	free(names[0]);
+}
+
 int main(void)
 {
 	char dir_template[] = "test_winmgr_XXXXXX";
@@ -1305,6 +1390,8 @@ int main(void)
 	RUN(test_special_buffer_reuse_bumps_identity);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);
+	RUN(test_window_handle_resolves_until_slot_released_and_reused);
+	RUN(test_split_gives_the_new_window_a_distinct_identity);
 
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
 	if (system(cmd) != 0) {

@@ -127,16 +127,13 @@ struct kg_event_buffer_lifecycle {
 	struct kg_buffer_handle buffer;
 };
 
-/* A window's attach/detach to a buffer, addressed by the fields that
- * exist today.  struct editor_window (def.h) has no identity of its own
- * yet -- only the buffer handle it shows -- so `window_slot` is a raw
- * winlist[] index, not a generation-checked handle, and is only as
- * stable as that slot's occupancy.  Follow-up Plan 04's window-handle
- * work widens this payload to a real handle; that is an additive change
- * to this struct, not a second, temporary window registry, which rule 3
- * of the plan's implementation rules forbids. */
+/* A window's attach/detach to a buffer.  `window` is a generation-checked
+ * handle (bufhandle.h), not a raw winlist[] index: a consumer that holds
+ * this past the safe point it arrived at must be able to tell the window
+ * it names from whatever slot occupancy hands to next, the same reason
+ * `buffer` is a handle and not a bare slot. */
 struct kg_event_view {
-	int window_slot;
+	struct kg_window_handle window;
 	struct kg_buffer_handle buffer;
 };
 
@@ -191,9 +188,9 @@ struct kg_event kg_event_make_buffer_opened(struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_buffer_killing(struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_buffer_killed(struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_view_attached(
-    int window_slot, struct kg_buffer_handle buffer);
+    struct kg_window_handle window, struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_view_detached(
-    int window_slot, struct kg_buffer_handle buffer);
+    struct kg_window_handle window, struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_before_save(struct kg_buffer_handle buffer);
 struct kg_event kg_event_make_after_save(
     struct kg_buffer_handle buffer, bool success);

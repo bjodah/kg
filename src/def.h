@@ -291,6 +291,15 @@ struct editor_window {
 	 * See bufhandle.h; win_buffer()/win_buffer_slot() are the only
 	 * supported ways to read it. */
 	struct kg_buffer_handle buf;
+	/* This window's own identity, the same shape a buffer's is: a
+	 * never-repeating id plus a per-slot generation.  See bufhandle.h;
+	 * win_handle()/win_resolve() are the only supported ways to use it.
+	 * winmgr.c claims a fresh one whenever a slot starts a new window --
+	 * split included, which copies the rest of this struct but never
+	 * this pair, because the new window is a new view, not a second name
+	 * for the one it was copied from. */
+	uint64_t id;
+	uint64_t generation;
 	int cx, cy; /* Cursor position within window */
 	int rowoff, coloff; /* Scroll offsets */
 	int y, x; /* Top-left corner on terminal (1-based) */

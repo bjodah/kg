@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,11 +123,19 @@ static int buf_activate_slot(int slot)
 	return 1;
 }
 
+/* The kg_slot_table view of buflist[], for the generic identity checks in
+ * bufhandle.h -- see struct kg_slot_table's comment there for why a second
+ * handle family shares this instead of repeating it. */
+static const struct kg_slot_table buf_slot_table = { buflist, MAX_BUFFERS,
+	sizeof(buflist[0]), offsetof(struct editor_buffer, active),
+	offsetof(struct editor_buffer, id),
+	offsetof(struct editor_buffer, generation) };
+
 struct kg_buffer_handle buf_handle(int slot)
 {
 	struct kg_buffer_handle handle = { -1, 0, 0 };
 
-	if (slot < 0 || slot >= MAX_BUFFERS || !buflist[slot].active) {
+	if (!kg_slot_active_at(buf_slot_table, slot)) {
 		return handle;
 	}
 	handle.slot = slot;
@@ -137,40 +146,27 @@ struct kg_buffer_handle buf_handle(int slot)
 
 struct kg_buffer_handle buf_handle_of(const struct editor_buffer *b)
 {
-	int i;
+	int slot = kg_slot_find(buf_slot_table, b);
 
-	for (i = 0; b && i < MAX_BUFFERS; i++) {
-		if (b == &buflist[i]) {
-			return buf_handle(i);
-		}
-	}
-	return (struct kg_buffer_handle) { -1, 0, 0 };
+	return slot < 0 ? (struct kg_buffer_handle) { -1, 0, 0 }
+			: buf_handle(slot);
 }
 
 /* The buffer `handle` names, or NULL once it is gone.  Callers must handle
  * NULL: it is the answer for a killed buffer and for a slot that has been
- * handed to somebody else, which are the two cases a bare index confuses. */
+ * handed to somebody else, which are the two cases a bare index confuses.
+ * KG_SLOT_UNNAMED (out of range, or a zeroed id) never counts as stale: a
+ * view that names nothing on purpose is asked about on every window scan
+ * and must not inflate the counter. */
 struct editor_buffer *buf_resolve(struct kg_buffer_handle handle)
 {
-	struct editor_buffer *b;
+	enum kg_slot_check r = kg_slot_resolves(
+	    buf_slot_table, handle.slot, handle.id, handle.generation);
 
-	if (handle.slot < 0 || handle.slot >= MAX_BUFFERS) {
-		return NULL; /* Never named a buffer at all. */
+	if (r == KG_SLOT_STALE) {
+		KG_PERF_INC(KG_PERF_HANDLE_STALE);
 	}
-	/* id 0 is "no identity": a zeroed handle, and the slot a claim that
-	 * ran out of identities left behind.  Neither may match, and neither
-	 * is an outlived handle -- a view that names nothing on purpose is
-	 * asked about on every window scan and must not inflate the count. */
-	if (handle.id == 0) {
-		return NULL;
-	}
-	b = &buflist[handle.slot];
-	if (b->active && b->id == handle.id
-	    && b->generation == handle.generation) {
-		return b;
-	}
-	KG_PERF_INC(KG_PERF_HANDLE_STALE);
-	return NULL;
+	return r == KG_SLOT_OK ? &buflist[handle.slot] : NULL;
 }
 
 /* The slot `handle` names, or -1.  For the call sites that still speak in
@@ -256,7 +252,7 @@ void buf_attach_view(struct editor_window *w, int slot)
 	w->rowoff_visual = b->last_point.rowoff_visual;
 	w->desired_visual_col = -1;
 	kg_event_publish_lifecycle(
-	    &res, kg_event_make_view_attached((int)(w - winlist), h));
+	    &res, kg_event_make_view_attached(win_handle_of(w), h));
 }
 
 /* The whole of buf_detach_view(): pulled out so the wrapper stays a single
@@ -282,7 +278,7 @@ static void buf_detach_view_commit(struct editor_window *w)
 	buf_remember_view(w);
 	w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
 	kg_event_publish_lifecycle(
-	    &res, kg_event_make_view_detached((int)(w - winlist), old));
+	    &res, kg_event_make_view_detached(win_handle_of(w), old));
 }
 
 void buf_detach_view(struct editor_window *w) { buf_detach_view_commit(w); }

@@ -93,28 +93,28 @@ struct kg_event kg_event_make_buffer_killed(struct kg_buffer_handle buffer)
 	return make_lifecycle(KG_EVENT_BUFFER_KILLED, buffer);
 }
 
-static struct kg_event make_view(
-    enum kg_event_kind kind, int window_slot, struct kg_buffer_handle buffer)
+static struct kg_event make_view(enum kg_event_kind kind,
+    struct kg_window_handle window, struct kg_buffer_handle buffer)
 {
 	struct kg_event ev = { .kind = kind };
 
 	ev.payload.view = (struct kg_event_view) {
-		.window_slot = window_slot,
+		.window = window,
 		.buffer = buffer,
 	};
 	return ev;
 }
 
 struct kg_event kg_event_make_view_attached(
-    int window_slot, struct kg_buffer_handle buffer)
+    struct kg_window_handle window, struct kg_buffer_handle buffer)
 {
-	return make_view(KG_EVENT_VIEW_ATTACHED, window_slot, buffer);
+	return make_view(KG_EVENT_VIEW_ATTACHED, window, buffer);
 }
 
 struct kg_event kg_event_make_view_detached(
-    int window_slot, struct kg_buffer_handle buffer)
+    struct kg_window_handle window, struct kg_buffer_handle buffer)
 {
-	return make_view(KG_EVENT_VIEW_DETACHED, window_slot, buffer);
+	return make_view(KG_EVENT_VIEW_DETACHED, window, buffer);
 }
 
 struct kg_event kg_event_make_before_save(struct kg_buffer_handle buffer)

@@ -23,6 +23,10 @@ static void setup(void)
 	bcur()->active = 1;
 	memset(&editor, 0, sizeof(editor));
 	wcur()->active = 1;
+	/* Mint an identity the way reset_current_buffer() mints one for
+	 * bcur(): this suite pokes `.active` directly rather than going
+	 * through win_claim_slot(), so nothing else would. */
+	wcur()->id = wcur()->id ? wcur()->id : 1;
 	wcur()->h = 24;
 	wcur()->w = 80;
 	undo_free();
@@ -40,6 +44,13 @@ static void teardown(void)
 static struct kg_buffer_handle mkbuf(int slot, uint64_t id, uint64_t gen)
 {
 	return (struct kg_buffer_handle) {
+		.slot = slot, .id = id, .generation = gen
+	};
+}
+
+static struct kg_window_handle mkwin(int slot, uint64_t id, uint64_t gen)
+{
+	return (struct kg_window_handle) {
 		.slot = slot, .id = id, .generation = gen
 	};
 }
@@ -97,14 +108,16 @@ static void test_event_payload_constructors(void)
 	CHECK(e5.kind == KG_EVENT_BUFFER_KILLED);
 	CHECK(e5.payload.buffer_life.buffer.id == 1);
 
-	struct kg_event e6 = kg_event_make_view_attached(2, b);
+	struct kg_event e6 = kg_event_make_view_attached(mkwin(2, 20, 1), b);
 	CHECK(e6.kind == KG_EVENT_VIEW_ATTACHED);
-	CHECK(e6.payload.view.window_slot == 2);
+	CHECK(e6.payload.view.window.slot == 2);
+	CHECK(e6.payload.view.window.id == 20);
 	CHECK(e6.payload.view.buffer.id == 1);
 
-	struct kg_event e7 = kg_event_make_view_detached(3, b);
+	struct kg_event e7 = kg_event_make_view_detached(mkwin(3, 30, 1), b);
 	CHECK(e7.kind == KG_EVENT_VIEW_DETACHED);
-	CHECK(e7.payload.view.window_slot == 3);
+	CHECK(e7.payload.view.window.slot == 3);
+	CHECK(e7.payload.view.window.id == 30);
 
 	struct kg_event e8 = kg_event_make_before_save(b);
 	CHECK(e8.kind == KG_EVENT_BEFORE_SAVE);
@@ -579,9 +592,11 @@ static void test_event_lifecycle_round_trip_all_kinds(void)
 	res = kg_event_reserve_lifecycle();
 	kg_event_publish_lifecycle(&res, kg_event_make_buffer_killed(b));
 	res = kg_event_reserve_lifecycle();
-	kg_event_publish_lifecycle(&res, kg_event_make_view_attached(0, b));
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_view_attached(mkwin(0, 1, 1), b));
 	res = kg_event_reserve_lifecycle();
-	kg_event_publish_lifecycle(&res, kg_event_make_view_detached(0, b));
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_view_detached(mkwin(0, 1, 1), b));
 	res = kg_event_reserve_lifecycle();
 	kg_event_publish_lifecycle(&res, kg_event_make_before_save(b));
 	res = kg_event_reserve_lifecycle();
@@ -839,16 +854,24 @@ static void test_producer_attach_detach_carry_window_and_buffer(void)
 {
 	setup();
 	struct kg_buffer_handle h0 = buf_handle(0);
+	struct kg_window_handle w0;
 
 	winlist[0].buf = (struct kg_buffer_handle) { 0, 0, 0 };
 
 	buf_attach_view(&winlist[0], 0);
 	CHECK(winlist[0].buf.id == h0.id);
+	/* Captured after the attach, the same way h0 is: this test's stub
+	 * window never runs through win_claim_slot(), so its identity is
+	 * whatever the environment leaves it -- the event's payload is
+	 * checked against that same value, not against a hardcoded one. */
+	w0 = win_handle_of(&winlist[0]);
 
 	struct kg_event ev;
 	CHECK(kg_event_queue_pop(&ev));
 	CHECK(ev.kind == KG_EVENT_VIEW_ATTACHED);
-	CHECK(ev.payload.view.window_slot == 0);
+	CHECK(ev.payload.view.window.slot == 0);
+	CHECK(ev.payload.view.window.id == w0.id);
+	CHECK(win_resolve(ev.payload.view.window) == &winlist[0]);
 	CHECK(ev.payload.view.buffer.id == h0.id);
 	CHECK(kg_event_queue_pop(NULL) == false);
 
@@ -857,7 +880,8 @@ static void test_producer_attach_detach_carry_window_and_buffer(void)
 
 	CHECK(kg_event_queue_pop(&ev));
 	CHECK(ev.kind == KG_EVENT_VIEW_DETACHED);
-	CHECK(ev.payload.view.window_slot == 0);
+	CHECK(ev.payload.view.window.slot == 0);
+	CHECK(ev.payload.view.window.id == w0.id);
 	CHECK(ev.payload.view.buffer.id == h0.id);
 	CHECK(kg_event_queue_pop(NULL) == false);
 

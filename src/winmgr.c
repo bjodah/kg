@@ -1,5 +1,6 @@
 /* ========================= Window management ============================== */
 
+#include <stddef.h>
 #include <string.h>
 
 #include "bufhandle.h"
@@ -10,6 +11,68 @@ int win_current = 0;
 int win_count = 0;
 int win_total_rows = 0;
 int win_total_cols = 0;
+
+/* Next window identity to hand out.  Same policy as buf_next_id in
+ * bufmgr.c: 64 bits, starts at 1 so a zeroed slot names no window, and a
+ * counter that reaches UINT64_MAX refuses to reuse rather than wrap. */
+static uint64_t win_next_id = 1;
+
+/* The kg_slot_table view of winlist[], for the generic identity checks in
+ * bufhandle.h; see buf_slot_table in bufmgr.c, its counterpart. */
+static const struct kg_slot_table win_slot_table = { winlist, MAX_WINDOWS,
+	sizeof(winlist[0]), offsetof(struct editor_window, active),
+	offsetof(struct editor_window, id),
+	offsetof(struct editor_window, generation) };
+
+/* Give `slot` a fresh window identity: bump its generation so any handle
+ * taken on whatever was there stops resolving, then hand out the next id
+ * (or leave it 0, unresolvable, once the counter is exhausted).  Called
+ * whenever a slot starts a new window -- win_init() and both splits -- and
+ * deliberately not by anything that merely copies a window's viewport. */
+static void win_claim_slot(int slot)
+{
+	winlist[slot].generation++;
+	if (win_next_id == UINT64_MAX) {
+		winlist[slot].id = 0;
+		editor_set_status_message("Window identity exhausted.");
+		return;
+	}
+	winlist[slot].id = win_next_id++;
+}
+
+struct kg_window_handle win_handle(int slot)
+{
+	struct kg_window_handle handle = { -1, 0, 0 };
+
+	if (!kg_slot_active_at(win_slot_table, slot)) {
+		return handle;
+	}
+	handle.slot = slot;
+	handle.id = winlist[slot].id;
+	handle.generation = winlist[slot].generation;
+	return handle;
+}
+
+struct kg_window_handle win_handle_of(const struct editor_window *w)
+{
+	int slot = kg_slot_find(win_slot_table, w);
+
+	return slot < 0 ? (struct kg_window_handle) { -1, 0, 0 }
+			: win_handle(slot);
+}
+
+struct editor_window *win_resolve(struct kg_window_handle handle)
+{
+	enum kg_slot_check r = kg_slot_resolves(
+	    win_slot_table, handle.slot, handle.id, handle.generation);
+
+	return r == KG_SLOT_OK ? &winlist[handle.slot] : NULL;
+}
+
+int win_handle_slot(struct kg_window_handle handle)
+{
+	return win_resolve(handle) ? handle.slot : -1;
+}
 
 /* Recompute the layout of all active windows.
  *
@@ -247,6 +310,7 @@ void win_init(void)
 
 	winlist[0].active = 1;
 	winlist[0].col_group = 0;
+	win_claim_slot(0);
 	/* No-op during init_editor(), which runs before any buffer exists:
 	 * buf_load_args()' first buf_select() is what gives window 0 its
 	 * buffer.  It matters for a caller that opens the buffers first. */
@@ -287,9 +351,13 @@ void win_split_horizontal(void)
 	/* New window inherits the same buffer, view, and col_group: a split
 	 * copies the view, which is what "the same place in the same buffer"
 	 * means and what the record already says.  Copying the buffer handle
-	 * is deliberate -- two views of one buffer, not two names for it. */
+	 * is deliberate -- two views of one buffer, not two names for it.
+	 * The window's own identity is the opposite: win_claim_slot() below
+	 * overwrites whatever the struct copy just gave `slot`, because a
+	 * split is a new view and needs a name of its own. */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
+	win_claim_slot(slot);
 
 	win_count++;
 	win_reflow();
@@ -328,10 +396,11 @@ void win_split_vertical(void)
 	}
 
 	/* New window: same buffer handle and view, but a new column group
-	 * (rightmost). */
+	 * (rightmost) and, as in the horizontal split, a fresh identity. */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 	winlist[slot].col_group = max_cg + 1;
+	win_claim_slot(slot);
 
 	win_count++;
 	win_reflow();
@@ -375,6 +444,11 @@ void win_delete_current(void)
 
 	buf_detach_view(&winlist[win_current]);
 	winlist[win_current].active = 0;
+	/* Belt and braces alongside the active flag above, matching
+	 * buf_kill_commit()'s own double coverage: a handle taken on this
+	 * window stops resolving here, not only once the slot is claimed by
+	 * a future split. */
+	winlist[win_current].generation++;
 	win_count--;
 
 	for (i = 0; i < MAX_WINDOWS; i++) {
@@ -403,6 +477,7 @@ void win_delete_others(void)
 		}
 		buf_detach_view(&winlist[i]);
 		winlist[i].active = 0;
+		winlist[i].generation++;
 	}
 	win_count = 1;
 	win_reflow();

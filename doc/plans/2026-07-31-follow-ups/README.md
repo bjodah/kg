@@ -70,6 +70,35 @@ before and after, and still banks a decrease when a durable saving
 lands.  Headroom is for the enabling modules, not for skipping the
 extraction that would otherwise pay for them.
 
+## Decision — Plan 03's enabling modules get a 200-unit budget
+
+Taken 2026-08-01, after Plan 03 phase 3's decoration store measured 67
+complexity and put the tree at 4310 against a 4250 cap.  Three of Plan
+03's remaining deliverables — the decoration store, the typed event queue
+and its safe-point delivery registry — are new modules with no ad hoc
+predecessor to delete in exchange, which is the one case the ceiling above
+cannot absorb.  `SCC_COMPLEXITY_MAX` is therefore **4450** for the rest of
+Plan 03.
+
+This is knowingly above the 4223 the program started from, and the
+maintainer took it as a deliberate raise rather than a drift.  It is a
+loan, not a new resting state.  The named repayment sources, in the order
+they become available:
+
+- `src/search.c` (246): Plan 03 phase 3's isearch migration deletes
+  `struct hl_snapshot`, `hl_snapshot_mark()`, `hl_snapshot_restore()` and
+  every direct `row->hl` match write, replacing them with one decoration.
+- `src/cmd.c` (247) and `src/localvars.c` (242), the two remaining files
+  above 240, neither of which has had an extraction pass this program.
+- `src/buffer.c`'s residual raw mutation opinions, which
+  `.ci/mutation-gateway.json` still counts at 24 row primitives and 20
+  row-field writes.
+
+Rule 6 is otherwise unchanged: routine work still funds itself, still
+records scc before and after, and still banks a decrease with `make
+complexity-baseline` when one lands.  The program does not close above
+4223.
+
 Wave 1's residue, for whoever picks up next: `src/word.c` line coverage
 sits one covered line above its floor, so the next commit touching it
 should expect to add a test.  Plan 02 Phase 5 still owns

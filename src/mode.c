@@ -129,6 +129,7 @@ static int visual_segments(erow *row, int win_w)
 	int width;
 
 	win_w = win_cells(win_w);
+	KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
 	width = visual_line_width(row, win_w);
 	return width > 0 ? 1 + (width - 1) / win_w : 1;
 }

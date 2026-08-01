@@ -74,6 +74,31 @@ def corpus_comment_c(path, lines):
 			fp.write(f"static int fn_{i}(void) {{ return {i}; }}\n")
 
 
+def corpus_tabs(path, lines):
+	# Every column boundary is a tab stop recomputation, which is where
+	# render-space and display-column diverge from chars-space (see
+	# doc/coordinates.md): the wrap-width cache's key is a display width,
+	# not a byte count, and this is the corpus that would catch the two
+	# being confused.
+	with open(path, "w", encoding="utf-8") as fp:
+		for i in range(lines):
+			fp.write(f"{i:07d}\tone\ttwo\tthree\tfour\tfive\n")
+
+
+def corpus_invalid_bytes(path, lines):
+	# A stray continuation byte and a truncated multi-byte lead spliced
+	# into otherwise-ASCII text every line.  display_glyph_at() (src/
+	# width.c) substitutes the four-cell "\xnn" escape for both, which
+	# wrap_pad() must still budget for at a wrap boundary; this corpus is
+	# what exercises that rather than the common well-formed-UTF-8 path
+	# unicode-20k does.
+	with open(path, "wb") as fp:
+		for i in range(lines):
+			fp.write(f"{i:07d} valid text ".encode("ascii"))
+			fp.write(bytes([0x80 + (i % 0x40), 0xC2]))
+			fp.write(b" more text after the bad bytes\n")
+
+
 CORPORA = {
 	"lines-10k": (lambda p: corpus_lines(p, 10_000), "log.txt"),
 	"lines-100k": (lambda p: corpus_lines(p, 100_000), "log.txt"),
@@ -81,6 +106,8 @@ CORPORA = {
 	"long-line-1mib": (lambda p: corpus_one_long_line(p, 1 << 20), "min.js"),
 	"unicode-20k": (lambda p: corpus_unicode(p, 20_000), "utf8.txt"),
 	"comment-c-40k": (lambda p: corpus_comment_c(p, 40_000), "big.c"),
+	"tabs-100k": (lambda p: corpus_tabs(p, 100_000), "tabs.txt"),
+	"invalid-bytes-20k": (lambda p: corpus_invalid_bytes(p, 20_000), "invalid.txt"),
 }
 
 # name -> (corpus or None, keys sent after the first frame)
@@ -113,8 +140,83 @@ CASES = {
 	# The trailing "y" answers the modified-buffer prompt C-x C-c raises
 	# once the row has been edited.
 	"type-in-long-line": ("long-line-1mib", ["hello", "\x18\x03", "y"]),
+
+	# ---- Visual-line geometry matrix (plan 07 phase 0) ----
+	# visual-line-100k above is the historical aggregate case: one repaint
+	# that mixes every shape below, kept as-is for before/after
+	# continuity.  Each case here isolates one shape, so a scan/byte
+	# count regression shows up in the shape that caused it.
+	#
+	# Warm, unchanged repaint: cursor motion within the already-painted
+	# top of the buffer, no edit and no width change.  This is the case
+	# phase 1's cache exists for.
+	"visual-line-warm-100k": ("lines-100k",
+				  ["\x1bx", "visual-line-mode\r",
+				   "\x0e" * 5, "\x10" * 5, "\x18\x03"]),
+	# One-row edit, then the repaint it forces.
+	"visual-line-edit-100k": ("lines-100k",
+				  ["\x1bx", "visual-line-mode\r", "\x1b>",
+				   "x", "\x18\x03", "y"]),
+	# A width change mid-session: TIOCSWINSZ delivers SIGWINCH the way a
+	# real terminal resize does, which is the case that must cost at most
+	# one cold scan per row rather than reusing the old width's cache.
+	"visual-line-resize-100k": ("lines-100k",
+				    ["\x1bx", "visual-line-mode\r", "\x1b>",
+				     ("resize", 24, 40), "\x18\x03"]),
+	# Two windows on the same buffer at unequal widths: an 80-column
+	# vertical split gives 39 and 40 (win_reflow() hands the split
+	# remainder to the last column group), so this is "two widths" with
+	# no extra harness support.  One entry per row can thrash when the
+	# two windows repaint alternately -- this case is what phase 1's "do
+	# not add multiple entries preemptively" note is measured against.
+	"visual-line-vsplit-100k": ("lines-100k",
+				    ["\x1bx", "visual-line-mode\r",
+				     "\x18", "3", "\x0e" * 5,
+				     "\x18", "o", "\x0e" * 5, "\x18\x03"]),
+	# Horizontal split: two windows, same width, stacked.
+	"visual-line-hsplit-100k": ("lines-100k",
+				    ["\x1bx", "visual-line-mode\r",
+				     "\x18", "2", "\x0e" * 5,
+				     "\x18", "o", "\x0e" * 5, "\x18\x03"]),
+	# Four windows (vertical split, then each half split horizontally):
+	# the window-count end of the matrix.
+	"visual-line-4win-100k": ("lines-100k",
+				  ["\x1bx", "visual-line-mode\r",
+				   "\x18", "3", "\x18", "2",
+				   "\x18", "o", "\x18", "2",
+				   "\x0e" * 3, "\x18\x03"]),
+	# Buffer top, then middle (M-g goto-line), then end: the position end
+	# of the matrix, each its own case rather than folded into one so a
+	# regression at one position does not hide inside the others.
+	"visual-line-pos-top-100k": ("lines-100k",
+				     ["\x1bx", "visual-line-mode\r", "\x18\x03"]),
+	"visual-line-pos-middle-100k": ("lines-100k",
+					["\x1bx", "visual-line-mode\r",
+					 "\x1bg", "50000\r", "\x18\x03"]),
+	"visual-line-pos-end-100k": ("lines-100k",
+				     ["\x1bx", "visual-line-mode\r", "\x1b>",
+				      "\x18\x03"]),
+	# Corpora: tabs (render-space vs. display-column divergence) and
+	# invalid bytes (the escaped "\xnn" spelling's four-cell width),
+	# alongside unicode-20k above for wide/combining glyphs.
+	"visual-line-tabs-100k": ("tabs-100k",
+				  ["\x1bx", "visual-line-mode\r", "\x1b>",
+				   "\x18\x03"]),
+	"visual-line-invalid-bytes-20k": ("invalid-bytes-20k",
+					  ["\x1bx", "visual-line-mode\r",
+					   "\x1b>", "\x18\x03"]),
+	"visual-line-unicode-20k": ("unicode-20k",
+				    ["\x1bx", "visual-line-mode\r", "\x1b>",
+				     "\x10" * 5, "\x18\x03"]),
 }
-BIG_CASES = {"open-lines-1m": ("lines-1m", ["\x18\x03"])}
+BIG_CASES = {
+	"open-lines-1m": ("lines-1m", ["\x18\x03"]),
+	# The 1M-line counterpart to visual-line-100k: the corpus the plan's
+	# 583k-rows/30MB-per-repaint evidence was measured against.
+	"visual-line-1m": ("lines-1m",
+			   ["\x1bx", "visual-line-mode\r", "\x1b>",
+			    "\x10" * 5, "\x18\x03"]),
+}
 
 
 # ------------------------------------------------------------------- run
@@ -171,7 +273,14 @@ def wait_or_kill(pid, deadline):
 
 
 def run_once(kg, argv, env, rows, cols, keys, timeout):
-	"""Spawn kg on a pty, send `keys`, and return (seconds, max_rss_kb)."""
+	"""Spawn kg on a pty, send `keys`, and return (seconds, max_rss_kb).
+
+	A `keys` entry may be a ("resize", rows, cols) tuple instead of a
+	string: TIOCSWINSZ on the pty master mid-session, which delivers
+	SIGWINCH to the foreground process group the way a real terminal
+	resize does.  This is what the visual-line-resize-* cases use to
+	measure a width change without restarting kg.
+	"""
 	pid, fd = os.forkpty()
 	if pid == 0:  # child
 		try:
@@ -184,10 +293,13 @@ def run_once(kg, argv, env, rows, cols, keys, timeout):
 	try:
 		drain(fd, min(deadline, start + 5.0), quiet_for=0.05)
 		for key in keys:
-			try:
-				os.write(fd, key.encode("utf-8"))
-			except OSError:
-				break  # kg has already gone
+			if isinstance(key, tuple) and key[0] == "resize":
+				set_winsize(fd, key[1], key[2])
+			else:
+				try:
+					os.write(fd, key.encode("utf-8"))
+				except OSError:
+					break  # kg has already gone
 			time.sleep(0.06)
 		drain(fd, deadline)
 		timed_out, status, usage = wait_or_kill(pid, deadline)

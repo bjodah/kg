@@ -37,6 +37,7 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_UNDO_EVICT_LINKS] = "undo_evict_links",
 	[KG_PERF_VISUAL_ROW_SCAN] = "visual_row_scan",
 	[KG_PERF_VISUAL_BYTE_SCAN] = "visual_byte_scan",
+	[KG_PERF_VISUAL_PREFIX_VISIT] = "visual_prefix_visit",
 	[KG_PERF_HANDLE_STALE] = "handle_stale",
 };
 

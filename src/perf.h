@@ -61,9 +61,18 @@ enum kg_perf_counter {
 	KG_PERF_UNDO_PUSH, /* records pushed */
 	KG_PERF_UNDO_EVICT_LINKS, /* links walked looking for the oldest */
 
-	/* Visual-line geometry (src/mode.c), off by default in the editor. */
+	/* Visual-line geometry (src/mode.c), off by default in the editor.
+	 * ROW_SCAN/BYTE_SCAN are the row-byte width work visual_line_width()
+	 * does.  PREFIX_VISIT is a different shape: rows visited by the
+	 * O(rows) walks that sum wrap segments from row zero looking for a
+	 * position (get_visual_row(), find_visual_row(),
+	 * goto_visual_row_col(), get_total_visual_rows()) -- one row can be
+	 * "visited" without its bytes being rescanned, and a follow-up that
+	 * stops rescanning bytes on an unchanged row does not by itself stop
+	 * these walks from revisiting it, which is what this counter is for. */
 	KG_PERF_VISUAL_ROW_SCAN, /* rows measured by visual_line_width() */
 	KG_PERF_VISUAL_BYTE_SCAN, /* their bytes */
+	KG_PERF_VISUAL_PREFIX_VISIT, /* rows visited by a segment-summing walk */
 
 	/* Buffer identity (src/bufmgr.c). */
 	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */

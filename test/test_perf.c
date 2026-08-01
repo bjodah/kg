@@ -630,6 +630,82 @@ static void test_undo_eviction_walk(void)
 
 /* ---- Visual-line geometry ---- */
 
+/* Build `rows` lines of visual-line-mode content of a caller-chosen width,
+ * so one test can use short lines (one segment at the default 80-column
+ * window) and another can pick a `len` a later resize shrinks the window
+ * below, to force a wrap. */
+static void setup_visual_line_rows(int rows, int len)
+{
+	char *line = malloc((size_t)len + 1);
+	int i;
+
+	CHECK(line != NULL);
+	if (!line) {
+		return;
+	}
+	memset(line, 'x', (size_t)len);
+	line[len] = '\0';
+	setup();
+	for (i = 0; i < rows; i++) {
+		editor_insert_row(bcur(), i, line, (size_t)len);
+	}
+	free(line);
+	bcur()->visual_line_mode = 1;
+}
+
+/* Baseline (before phase 1's cache): a second, wholly unchanged repaint
+ * costs exactly what the first one did.  Nothing yet remembers that a
+ * row's wrapped width at this window's width has already been measured,
+ * so find_visual_row()'s per-screen-row restart from row zero and the
+ * mode line's get_total_visual_rows() redo the same wrapped_visual_col()
+ * walk every time.  Phase 1 breaks this equality on purpose: a warm
+ * repaint is the one case its acceptance criteria name outright ("scans
+ * zero row bytes"). */
+static void test_visual_line_warm_repaint_currently_rescans_everything(void)
+{
+	const int rows = 300;
+	unsigned long long cold_scan, cold_byte, warm_scan, warm_byte;
+
+	setup_visual_line_rows(rows, 40);
+
+	kg_perf_reset();
+	refresh_quietly();
+	cold_scan = counter(KG_PERF_VISUAL_ROW_SCAN);
+	cold_byte = counter(KG_PERF_VISUAL_BYTE_SCAN);
+	CHECK(cold_scan > 0);
+
+	kg_perf_reset();
+	refresh_quietly();
+	warm_scan = counter(KG_PERF_VISUAL_ROW_SCAN);
+	warm_byte = counter(KG_PERF_VISUAL_BYTE_SCAN);
+	CHECK(warm_scan == cold_scan);
+	CHECK(warm_byte == cold_byte);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
+/* The prefix-summing walk's own shape, independent of whether a visit
+ * rescans bytes: one cold repaint over `rows` lines, each fitting one
+ * segment, visits more rows than the buffer has -- find_visual_row()
+ * restarts from row zero for every one of the window's screen rows, so
+ * row zero alone is visited once per screen row.  This is the shape a
+ * later persistent prefix index (plan 07 phase 2) has to fix; phase 1's
+ * width cache does not by itself change it. */
+static void test_visual_line_prefix_walk_restarts_per_screen_row(void)
+{
+	const int rows = 300;
+
+	setup_visual_line_rows(rows, 10); /* narrower than win_w: one segment */
+
+	kg_perf_reset();
+	refresh_quietly();
+	CHECK(counter(KG_PERF_VISUAL_PREFIX_VISIT) > (unsigned long long)wcur()->h);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
 static void test_visual_line_scan_per_refresh(void)
 {
 	const int rows = 500;
@@ -670,5 +746,7 @@ int main(void)
 	RUN(test_multiline_insert_flattens_buffer);
 	RUN(test_undo_eviction_walk);
 	RUN(test_visual_line_scan_per_refresh);
+	RUN(test_visual_line_warm_repaint_currently_rescans_everything);
+	RUN(test_visual_line_prefix_walk_restarts_per_screen_row);
 	return test_summary();
 }

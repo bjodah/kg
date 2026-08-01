@@ -13,6 +13,7 @@
 #include "cmdstate.h"
 #include "def.h"
 #include "edit.h"
+#include "event.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"
@@ -144,15 +145,24 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	char prompt[sizeof(editor.statusmsg)];
 	va_list ap;
 	struct key_event answer;
+	int yes;
 
 	va_start(ap, fmt);
 	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(prompt, sizeof(prompt), fmt, ap);
 	va_end(ap);
 	editor_set_status_message("%s", prompt);
+	/* A confirmation reads one key with the echo area committed to the
+	 * question, which is exactly the window kg_event_drain_safe() must
+	 * defer through -- delivering into it would let a callback repaint
+	 * the status line out from under the prompt still waiting for its
+	 * answer. */
+	kg_event_prompt_enter();
 	editor_refresh_screen();
 	answer = editor_read_key(fd);
-	return KEY_IS(answer, 'y', 0) || KEY_IS(answer, 'Y', 0);
+	yes = KEY_IS(answer, 'y', 0) || KEY_IS(answer, 'Y', 0);
+	kg_event_prompt_leave();
+	return yes;
 }
 
 /* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),

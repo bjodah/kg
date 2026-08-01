@@ -619,13 +619,18 @@ void buf_display_name(int idx, char *out, size_t outsize)
 }
 
 /* Reset the echo-area cursor state and clear the status line.  Centralises
- * the "leaving the minibuffer" handshake so every exit path agrees. */
+ * the "leaving the minibuffer" handshake so every exit path agrees --
+ * including, now, kg_event_prompt_leave(): every read that entered through
+ * kg_event_prompt_enter() (editor_read_line_with_history(),
+ * editor_read_line_path()) returns through exactly this one function, so
+ * this is the one place that balances it. */
 static int prompt_done(int rc)
 {
 	editor.echo_cursor_col = 0;
 	if (rc < 0) {
 		editor_set_status_message("");
 	}
+	kg_event_prompt_leave();
 	return rc;
 }
 
@@ -1030,6 +1035,13 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	int draft_overflow = 0;
 
 	buf[len] = '\0';
+	/* kg_event_drain_safe() must defer for the whole of this read, not
+	 * just its final keystroke: the prompt is on screen and mid-edit
+	 * from its first character, so a callback repainting the echo area
+	 * (or killing the buffer the read is scoped to) could otherwise run
+	 * underneath it.  Balanced by prompt_done(), this function's one
+	 * exit path. */
+	kg_event_prompt_enter();
 	/* Keystrokes read here are the prompt's, not commands: nothing that
 	 * happens inside it may look like a repeat of what ran before it. */
 	cmd_clear_transient();
@@ -1272,6 +1284,10 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	int matches = 0, total = 0, flen = 0;
 
 	buf[len] = '\0';
+	/* See editor_read_line_with_history()'s comment: same deferral,
+	 * balanced the same way by prompt_done(), this function's one exit
+	 * path too. */
+	kg_event_prompt_enter();
 	while (1) {
 		const char *names[PICKER_MAX_ENTRIES] = { 0 };
 		int off, i, sel_off;
@@ -1606,6 +1622,15 @@ void buf_select_interactive(int fd)
 
 	query[0] = '\0';
 
+	/* See editor_read_line_with_history()'s comment: this is a
+	 * minibuffer read too (its query line), across a loop that may run
+	 * for many keystrokes before Enter or C-g -- including the "No
+	 * other buffers." early return just below, which never opens the
+	 * loop but is still, structurally, this prompt starting and
+	 * immediately finishing. Balanced at each of this function's three
+	 * returns, since it does not funnel through prompt_done(). */
+	kg_event_prompt_enter();
+
 	/* Build ring starting from the buffer after current (most natural
 	 * default). */
 	for (i = 1; i <= MAX_BUFFERS; i++) {
@@ -1616,6 +1641,7 @@ void buf_select_interactive(int fd)
 	}
 	if (n == 0) {
 		editor_set_status_message("No other buffers.");
+		kg_event_prompt_leave();
 		return;
 	}
 
@@ -1675,10 +1701,12 @@ void buf_select_interactive(int fd)
 				if (matches > 0) {
 					buf_select(order[ring_pos[sel]]);
 				}
+				kg_event_prompt_leave();
 				return;
 			} else if (KEY_IN_LIST(cancel_keys, c)) {
 				editor.echo_cursor_col = 0;
 				editor_set_status_message("");
+				kg_event_prompt_leave();
 				return;
 			} else if (c.mods == 0 && ascii_is_print(c.base)
 			    && qlen < (int)sizeof(query) - 1) {

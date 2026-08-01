@@ -890,6 +890,8 @@ static void test_producer_failed_save_produces_before_and_unsuccessful_after(
 
 	CHECK(kg_event_queue_pop(NULL) == false);
 
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 	teardown();
 }
 
@@ -962,6 +964,595 @@ static void test_producer_reservation_failure_refuses_kill(void)
 	teardown();
 }
 
+/* ---- Phase 5: subscriber registry and safe-point delivery --------------
+ *
+ * These build on the same setup()/teardown() as the rest of this file;
+ * kg_event_queue_init() (called by both) also resets the subscriber
+ * registry, drain depth and error count, so no test here leaks a
+ * subscription or a stale count into the next one. */
+
+/* Reserve-and-publish a KG_EVENT_MODE_CHANGED for `h` -- the one lifecycle
+ * kind most of these tests use as "some event", since its payload needs
+ * nothing beyond a handle. */
+static void publish_mode_changed(struct kg_buffer_handle h)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	CHECK(res.valid);
+	kg_event_publish_lifecycle(&res, kg_event_make_mode_changed(h, "C"));
+}
+
+/* Appends `tag` (from ctx) to a shared log and returns CONTINUE -- the
+ * simplest possible subscriber, used wherever a test only cares that a
+ * callback ran, and in what order. */
+struct log_ctx {
+	int *log;
+	size_t *count;
+	int tag;
+};
+
+static enum kg_event_cb_status log_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	struct log_ctx *ctx = ctx_;
+
+	(void)ev;
+	(void)res;
+	ctx->log[(*ctx->count)++] = ctx->tag;
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static enum kg_event_cb_status noop_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	(void)ev;
+	(void)res;
+	(void)ctx_;
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static enum kg_event_cb_status error_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	(void)ev;
+	(void)res;
+	(void)ctx_;
+	return KG_EVENT_CB_ERROR;
+}
+
+static void test_drain_dispatches_subscribers_in_registration_order(void)
+{
+	setup();
+	int log[3];
+	size_t count = 0;
+	struct log_ctx a = { log, &count, 1 };
+	struct log_ctx b = { log, &count, 2 };
+	struct log_ctx c = { log, &count, 3 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+
+	kg_event_subscribe(mask, log_cb, &a);
+	kg_event_subscribe(mask, log_cb, &b);
+	kg_event_subscribe(mask, log_cb, &c);
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+
+	CHECK(count == 3);
+	CHECK(log[0] == 1 && log[1] == 2 && log[2] == 3);
+	CHECK(kg_event_test_max_drain_depth() == 1);
+	teardown();
+}
+
+/* Records `tag`, then unsubscribes `target` -- another subscriber, or its
+ * own token when `target == ` the token this very subscription was given
+ * (the caller fills that in after registering, since a token does not
+ * exist before its own kg_event_subscribe() call returns). */
+struct unsub_ctx {
+	int *log;
+	size_t *count;
+	int tag;
+	struct kg_event_subscriber_token target;
+};
+
+static enum kg_event_cb_status unsub_and_log_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	struct unsub_ctx *ctx = ctx_;
+
+	(void)ev;
+	(void)res;
+	ctx->log[(*ctx->count)++] = ctx->tag;
+	kg_event_unsubscribe(ctx->target);
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_unsubscribing_another_before_its_turn_skips_it(void)
+{
+	setup();
+	int log[8];
+	size_t count = 0;
+	struct log_ctx a = { log, &count, 1 };
+	struct unsub_ctx b = { log, &count, 2, KG_EVENT_SUBSCRIBER_NONE };
+	struct log_ctx c = { log, &count, 3 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+	struct kg_event_subscriber_token tok_c;
+
+	kg_event_subscribe(mask, log_cb, &a);
+	kg_event_subscribe(mask, unsub_and_log_cb, &b);
+	tok_c = kg_event_subscribe(mask, log_cb, &c);
+	b.target = tok_c; /* set once C's token exists, before any dispatch */
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+
+	/* A: logged.  B: logged, then unsubscribed C.  C: never gets its
+	 * turn for this event. */
+	CHECK(count == 2);
+	CHECK(log[0] == 1 && log[1] == 2);
+	teardown();
+}
+
+static void test_self_unsubscribe_skips_later_events_in_the_same_drain(void)
+{
+	setup();
+	int log[8];
+	size_t count = 0;
+	struct log_ctx a = { log, &count, 1 };
+	struct unsub_ctx b = { log, &count, 2, KG_EVENT_SUBSCRIBER_NONE };
+	struct log_ctx c = { log, &count, 3 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+	struct kg_event_subscriber_token tok_b;
+
+	kg_event_subscribe(mask, log_cb, &a);
+	tok_b = kg_event_subscribe(mask, unsub_and_log_cb, &b);
+	kg_event_subscribe(mask, log_cb, &c);
+	b.target = tok_b; /* B unsubscribes itself on its first call */
+
+	publish_mode_changed(h);
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+
+	/* Event 1: A, B, C all run (B then unsubscribes itself).  Event 2,
+	 * same drain, same snapshot: B is re-checked live before its call
+	 * and is no longer active, so only A and C run. */
+	CHECK(count == 5);
+	CHECK(log[0] == 1 && log[1] == 2 && log[2] == 3);
+	CHECK(log[3] == 1 && log[4] == 3);
+	teardown();
+}
+
+static int recursive_drain_calls;
+
+static enum kg_event_cb_status recursive_drain_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	(void)ev;
+	(void)res;
+	(void)ctx_;
+	recursive_drain_calls++;
+	kg_event_drain_safe(); /* must no-op: a drain is already running */
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_drain_never_recurses(void)
+{
+	setup();
+	recursive_drain_calls = 0;
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+
+	kg_event_subscribe(mask, recursive_drain_cb, NULL);
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+
+	CHECK(recursive_drain_calls == 1);
+	CHECK(kg_event_test_max_drain_depth() == 1);
+	teardown();
+}
+
+/* Queues one text change on `buf` the first time it runs, and counts
+ * KG_EVENT_MODE_CHANGED deliveries -- proof that work a callback queues
+ * waits for the *next* kg_event_drain_safe(), never the one it ran in. */
+struct defer_ctx {
+	struct kg_buffer_handle buf;
+	int mode_events;
+};
+
+static enum kg_event_cb_status queue_change_once_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	struct defer_ctx *ctx = ctx_;
+
+	(void)res;
+	if (ev->kind != KG_EVENT_MODE_CHANGED) {
+		return KG_EVENT_CB_CONTINUE;
+	}
+	ctx->mode_events++;
+	if (ctx->mode_events == 1) {
+		kg_event_queue_text_change(ctx->buf, 0, 0, 1,
+		    (struct kg_event_buffer_extent) {
+			.old_total_len = 0, .new_total_len = 1 },
+		    1, CMD_ID_NONE);
+	}
+	return KG_EVENT_CB_CONTINUE;
+}
+
+/* Increments the int `ctx` points at and returns CONTINUE -- a subscriber
+ * that just counts deliveries, for tests that care how many, not what
+ * order. */
+static enum kg_event_cb_status count_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	int *n = ctx_;
+
+	(void)ev;
+	(void)res;
+	(*n)++;
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_events_queued_by_a_callback_wait_for_the_next_drain(void)
+{
+	setup();
+	struct kg_buffer_handle h = buf_handle(0);
+	struct defer_ctx ctx = { h, 0 };
+	int change_count = 0;
+	unsigned watch_change = 1u << KG_EVENT_BUFFER_CHANGED;
+	unsigned mask = (1u << KG_EVENT_MODE_CHANGED) | watch_change;
+
+	kg_event_subscribe(mask, queue_change_once_cb, &ctx);
+	kg_event_subscribe(watch_change, count_cb, &change_count);
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+	CHECK(ctx.mode_events == 1);
+	/* Queued from inside the drain that just ran: newer than the
+	 * boundary it captured at its own start, so not delivered yet. */
+	CHECK(change_count == 0);
+
+	kg_event_drain_safe();
+	CHECK(change_count == 1);
+	teardown();
+}
+
+/* Same shape as the previous test, but the callback-queued work is enough
+ * to collapse into an overflow summary rather than an exact ring entry --
+ * "Overflow summaries obey the same [drain] boundary" is its own line in
+ * the plan, not a corollary of the exact-event case, since the overflow
+ * table is a second path kg_event_drain_safe()'s bounded pop has to gate
+ * too. */
+static enum kg_event_cb_status fill_ring_once_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	struct defer_ctx *ctx = ctx_;
+	int i;
+
+	(void)res;
+	if (ev->kind != KG_EVENT_MODE_CHANGED) {
+		return KG_EVENT_CB_CONTINUE;
+	}
+	ctx->mode_events++;
+	if (ctx->mode_events != 1) {
+		return KG_EVENT_CB_CONTINUE;
+	}
+	/* Well past the ring's physical capacity, so at least the tail of
+	 * this run collapses into `ctx->buf`'s overflow summary regardless
+	 * of how much droppable headroom this drain started with. */
+	for (i = 0; i < KG_EVENT_RING_MAX; i++) {
+		kg_event_queue_text_change(ctx->buf, 0, 0, 1,
+		    (struct kg_event_buffer_extent) { .old_total_len = 0,
+			.new_total_len = (uint64_t)(i + 1) },
+		    (uint64_t)(i + 1), CMD_ID_NONE);
+	}
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_overflow_created_during_a_drain_waits_for_the_next_one(void)
+{
+	setup();
+	struct kg_buffer_handle h = buf_handle(0);
+	struct defer_ctx ctx = { h, 0 };
+	int change_count = 0;
+	unsigned watch_change = (1u << KG_EVENT_BUFFER_CHANGED)
+	    | (1u << KG_EVENT_BUFFER_BROAD_CHANGE);
+
+	kg_event_subscribe(
+	    1u << KG_EVENT_MODE_CHANGED, fill_ring_once_cb, &ctx);
+	kg_event_subscribe(watch_change, count_cb, &change_count);
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+	CHECK(change_count == 0);
+
+	kg_event_drain_safe();
+	CHECK(change_count > 0);
+	teardown();
+}
+
+static void test_drain_defers_while_a_prompt_is_open(void)
+{
+	setup();
+	int log[1];
+	size_t count = 0;
+	struct log_ctx ctx = { log, &count, 1 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+
+	kg_event_subscribe(mask, log_cb, &ctx);
+	publish_mode_changed(h);
+
+	kg_event_prompt_enter();
+	kg_event_drain_safe();
+	CHECK(count == 0);
+
+	/* Nested: a prompt started from inside another (e.g. a confirmation
+	 * read while a path prompt is open) still defers until the
+	 * *outermost* one leaves. */
+	kg_event_prompt_enter();
+	kg_event_drain_safe();
+	CHECK(count == 0);
+	kg_event_prompt_leave();
+	kg_event_drain_safe();
+	CHECK(count == 0);
+
+	/* Leaving the outermost prompt restores eligibility; it does not
+	 * itself drain -- the next explicit kg_event_drain_safe() does. */
+	kg_event_prompt_leave();
+	CHECK(count == 0);
+	kg_event_drain_safe();
+	CHECK(count == 1);
+	teardown();
+}
+
+/* Records `res` at `*ctx`, whatever the event -- the whole point being
+ * that a test controls what it publishes and reads back only the
+ * resolution kg_event_drain_safe() computed for it. */
+static enum kg_event_cb_status record_resolution_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	enum kg_event_resolution *out = ctx_;
+
+	(void)ev;
+	*out = res;
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_resolution_is_live_then_gone_as_the_handle_dies(void)
+{
+	setup();
+	int prev_count = buf_count;
+	buf_count = 2;
+	buf_attach_view(&winlist[0], 0);
+	kg_event_drain_safe(); /* discard the attach event: only this test's
+				* own traffic below matters */
+
+	enum kg_event_resolution open_res = (enum kg_event_resolution) - 1;
+	kg_event_subscribe(
+	    1u << KG_EVENT_BUFFER_OPENED, record_resolution_cb, &open_res);
+
+	CHECK(buf_select(1) == 1);
+	kg_event_drain_safe();
+	CHECK(open_res == KG_EVENT_RESOLVED_LIVE);
+
+	/* KG_EVENT_BUFFER_KILLING's resolution is the same ordinary
+	 * re-resolve, not a hard-coded answer for the kind: published by
+	 * hand here (buf_kill() itself always completes -- detach, free,
+	 * generation bump, KG_EVENT_BUFFER_KILLED -- before this suite ever
+	 * gets to drain, so its own KILLING has always died by drain time
+	 * too) for a handle nothing else has touched, it comes back live. */
+	struct kg_buffer_handle h = buf_handle(1);
+	enum kg_event_resolution killing_res = (enum kg_event_resolution) - 1;
+	struct kg_event_reservation res;
+
+	kg_event_subscribe(
+	    1u << KG_EVENT_BUFFER_KILLING, record_resolution_cb, &killing_res);
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	kg_event_publish_lifecycle(&res, kg_event_make_buffer_killing(h));
+	kg_event_drain_safe();
+	CHECK(killing_res == KG_EVENT_RESOLVED_LIVE);
+
+	buf_select(0);
+	memset(&buflist[1], 0, sizeof(buflist[1]));
+	buf_count = prev_count;
+	teardown();
+}
+
+static void test_killed_event_resolves_gone(void)
+{
+	setup();
+	int prev_count = buf_count;
+	buf_count = 2;
+	buf_attach_view(&winlist[0], 0);
+	kg_event_drain_safe();
+
+	enum kg_event_resolution kill_res = (enum kg_event_resolution) - 1;
+	kg_event_subscribe(
+	    1u << KG_EVENT_BUFFER_KILLED, record_resolution_cb, &kill_res);
+
+	CHECK(buf_select(1) == 1);
+	kg_event_drain_safe();
+
+	buf_kill(0);
+	kg_event_drain_safe();
+	/* Cleanup already ran and the slot's generation already moved on by
+	 * the time KG_EVENT_BUFFER_KILLED was published -- see
+	 * buf_kill_commit() -- so this is expected not to resolve. */
+	CHECK(kill_res == KG_EVENT_RESOLVED_GONE);
+
+	buf_select(0);
+	memset(&buflist[1], 0, sizeof(buflist[1]));
+	buf_count = prev_count;
+	teardown();
+}
+
+static void test_one_callback_s_error_does_not_stop_later_subscribers(void)
+{
+	setup();
+	int log[2];
+	size_t count = 0;
+	struct log_ctx before = { log, &count, 1 };
+	struct log_ctx after = { log, &count, 2 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct kg_buffer_handle h = buf_handle(0);
+
+	kg_event_subscribe(mask, log_cb, &before);
+	kg_event_subscribe(mask, error_cb, NULL);
+	kg_event_subscribe(mask, log_cb, &after);
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+
+	CHECK(count == 2);
+	CHECK(log[0] == 1 && log[1] == 2);
+	CHECK(kg_event_test_error_count() == 1);
+	teardown();
+}
+
+static void
+test_unsubscribe_is_idempotent_and_stale_tokens_cannot_reach_a_new_subscriber(
+    void)
+{
+	setup();
+	int log_a[1];
+	size_t count_a = 0;
+	struct log_ctx ctx_a = { log_a, &count_a, 1 };
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+
+	struct kg_event_subscriber_token tok_a
+	    = kg_event_subscribe(mask, log_cb, &ctx_a);
+	CHECK(kg_event_unsubscribe(tok_a)); /* removes it */
+	CHECK(!kg_event_unsubscribe(tok_a)); /* idempotent: already gone */
+
+	int log_b[1];
+	size_t count_b = 0;
+	struct log_ctx ctx_b = { log_b, &count_b, 2 };
+	struct kg_event_subscriber_token tok_b
+	    = kg_event_subscribe(mask, log_cb, &ctx_b);
+	CHECK(tok_b.slot == tok_a.slot); /* the freed slot really was reused */
+	CHECK(tok_b.generation != tok_a.generation);
+	CHECK(!kg_event_unsubscribe(tok_a)); /* stale: same slot, old token */
+
+	publish_mode_changed(buf_handle(0));
+	kg_event_drain_safe();
+	CHECK(count_b == 1); /* B is still registered and ran */
+	teardown();
+}
+
+static void test_registry_exhaustion_refuses_further_registration(void)
+{
+	setup();
+	struct kg_event_subscriber_token toks[KG_EVENT_MAX_SUBSCRIBERS];
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	int i;
+
+	CHECK(kg_event_subscribe(mask, NULL, NULL).generation == 0);
+
+	for (i = 0; i < KG_EVENT_MAX_SUBSCRIBERS; i++) {
+		toks[i] = kg_event_subscribe(mask, noop_cb, NULL);
+		CHECK(toks[i].generation != 0);
+	}
+	struct kg_event_subscriber_token overflow_tok
+	    = kg_event_subscribe(mask, noop_cb, NULL);
+	CHECK(overflow_tok.slot == 0 && overflow_tok.generation == 0);
+
+	/* Freeing one slot makes room for exactly one more. */
+	CHECK(kg_event_unsubscribe(toks[0]));
+	struct kg_event_subscriber_token reused
+	    = kg_event_subscribe(mask, noop_cb, NULL);
+	CHECK(reused.generation != 0);
+	teardown();
+}
+
+struct register_during_ctx {
+	int *count_new;
+	unsigned mask;
+};
+
+static enum kg_event_cb_status register_during_drain_cb(
+    const struct kg_event *ev, enum kg_event_resolution res, void *ctx_)
+{
+	struct register_during_ctx *ctx = ctx_;
+
+	(void)ev;
+	(void)res;
+	kg_event_subscribe(ctx->mask, count_cb, ctx->count_new);
+	return KG_EVENT_CB_CONTINUE;
+}
+
+static void test_a_subscriber_registered_during_a_drain_waits_for_the_next_one(
+    void)
+{
+	setup();
+	int count_new = 0;
+	unsigned mask = 1u << KG_EVENT_MODE_CHANGED;
+	struct register_during_ctx ctx = { &count_new, mask };
+	struct kg_buffer_handle h = buf_handle(0);
+
+	kg_event_subscribe(mask, register_during_drain_cb, &ctx);
+
+	publish_mode_changed(h);
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+	CHECK(count_new == 0); /* registered mid-drain: not this drain's */
+
+	publish_mode_changed(h);
+	kg_event_drain_safe();
+	CHECK(count_new >= 1); /* eligible from the next drain on */
+	teardown();
+}
+
+/* Pins the regression this slice exists to fix: undrained, the ring fills
+ * from ordinary edit traffic (KG_EVENT_RING_MAX minus the reserve, 60
+ * entries -- coalescing keeps genuinely distinct edits from collapsing,
+ * see kg_event_queue_text_change()) and then KG_EVENT_LIFECYCLE_RESERVE
+ * (4) more lifecycle events fill the rest, at which point a fifth is
+ * refused -- exactly what stopped saves and opens in a long session
+ * before this slice wired kg_event_drain_safe() into src/main.c's loop.
+ * See also test/pty/event-drain-save-after-sustained-editing.yaml, which
+ * pins the same regression end-to-end through the real producers and a
+ * real save. */
+static void test_drain_relieves_the_reserve_a_sustained_session_would_exhaust(
+    void)
+{
+	setup();
+	struct kg_buffer_handle h = buf_handle(0);
+	struct kg_event_reservation res[KG_EVENT_LIFECYCLE_RESERVE];
+	struct kg_event_reservation refused;
+	struct kg_event_reservation after_drain;
+	int i;
+
+	/* 65: past the droppable share (60), so the ring is pinned at its
+	 * ceiling and the tail overflow-collapses -- pressure either way. */
+	for (i = 0; i < 65; i++) {
+		kg_event_queue_text_change(h, 0, 0, 1,
+		    (struct kg_event_buffer_extent) { .old_total_len = 0,
+			.new_total_len = (uint64_t)(i + 1) },
+		    (uint64_t)(i + 1), CMD_ID_NONE);
+	}
+
+	for (i = 0; i < KG_EVENT_LIFECYCLE_RESERVE; i++) {
+		res[i] = kg_event_reserve_lifecycle();
+		CHECK(res[i].valid);
+		kg_event_publish_lifecycle(
+		    &res[i], kg_event_make_before_save(h));
+	}
+	refused = kg_event_reserve_lifecycle();
+	CHECK(!refused.valid); /* the regression: a 5th is refused */
+
+	/* What src/main.c now calls after every command -- no subscriber
+	 * needs to be registered for it to relieve the ring. */
+	kg_event_drain_safe();
+
+	after_drain = kg_event_reserve_lifecycle();
+	CHECK(after_drain.valid);
+	kg_event_release_reservation(&after_drain);
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_event_payload_constructors);
@@ -988,5 +1579,19 @@ int main(void)
 	RUN(test_producer_mode_changed_carries_name);
 	RUN(test_producer_reservation_failure_refuses_open);
 	RUN(test_producer_reservation_failure_refuses_kill);
+	RUN(test_drain_dispatches_subscribers_in_registration_order);
+	RUN(test_unsubscribing_another_before_its_turn_skips_it);
+	RUN(test_self_unsubscribe_skips_later_events_in_the_same_drain);
+	RUN(test_drain_never_recurses);
+	RUN(test_events_queued_by_a_callback_wait_for_the_next_drain);
+	RUN(test_overflow_created_during_a_drain_waits_for_the_next_one);
+	RUN(test_drain_defers_while_a_prompt_is_open);
+	RUN(test_resolution_is_live_then_gone_as_the_handle_dies);
+	RUN(test_killed_event_resolves_gone);
+	RUN(test_one_callback_s_error_does_not_stop_later_subscribers);
+	RUN(test_unsubscribe_is_idempotent_and_stale_tokens_cannot_reach_a_new_subscriber);
+	RUN(test_registry_exhaustion_refuses_further_registration);
+	RUN(test_a_subscriber_registered_during_a_drain_waits_for_the_next_one);
+	RUN(test_drain_relieves_the_reserve_a_sustained_session_would_exhaust);
 	return tests_failed ? 1 : 0;
 }

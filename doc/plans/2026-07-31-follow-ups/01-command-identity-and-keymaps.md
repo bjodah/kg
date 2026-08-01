@@ -2,43 +2,7 @@
 
 ## Status (2026-07-31, after the first implementation campaign)
 
-Phases 0–5 are complete on `stricter-emacs-adherence` (commits `e000e6e`
-through `8550e62`): the binding inventory and its checks, command identity
-and transient state, `src/keyevent.{c,h}` with a lossless legacy adapter,
-`src/keymap.{c,h}` with layered lookup, all six Phase 4 dispatch families,
-deletion of `readonly_blocked_keys[]`, and the Phase 5 prefix/mode layers
-including `keybind.c` as a facade over the keymap.  scc went 4223 → 4116
-with the cap banked down to 4127; `editor_process_keypress` went 84 → 19
-(pmccabe).  Remaining open items:
-
-1. **Phase 6's four describe commands are blocked on a cap decision.**  A
-   working `src/describe.{c,h}` (describe-key/command/bindings, where-is,
-   with truthful shadow reporting via re-lookup, a `keymap_binding_at()`
-   enumerator, and rendering through a generalized `buf_open_lines()` so no
-   new file gains a row-primitive site) measures +34 scc after trimming:
-   4152 against the 4127 cap.  Remaining funding candidates are parser
-   state machines whose rewrite would be invented work; the one real
-   duplication left (the three picker loops) is a Plan 05/06-shaped
-   refactor.  Landing Phase 6 as designed needs an explicit decision to
-   set the cap to 4152 — still 71 below the 4223 this program started
-   from.  The drift half of Phase 6 DID land: `utils/check_help_drift.py`
-   now requires every help-table key to be bound (three documented
-   fast-path exemptions recorded in the script), and `test_keymap.c`
-   proves every binding in every map resolves.
-2. **Phase 2's second half (decoder flag day) is deferred and scoped.**
-   `editor_read_key()` still returns legacy integers; converting
-   `handle_universal_arg`, `macro.c` (a byte-stream recorder), and the
-   prompt loops in `bufmgr.c`/`search.c` precedes deleting `alt_keys[]`
-   and the `ALT_*` enumerators (39 uses in `tty.c`).  The adapter is
-   lossless, so every unconverted consumer is correct today; estimated
-   scc delta ≈ 0 to −10, so it is justified on structure, not funding.
-   Do it as one dedicated slice; a half-conversion is strictly worse.
-
-Everything else in this plan's completion gate is met, including the full
-12-stage `.ci/run-ci-steps.sh --parallel` green light (which caught, and
-this campaign fixed, an out-of-bounds read in `key_parse`, two IWYU
-drifts, and two dispatch functions extraction had left without function
-coverage).  See the git log for the per-slice evidence.
+Phases 0–6 are complete on `stricter-emacs-adherence`
 
 ## Outcome
 

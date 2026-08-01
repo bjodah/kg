@@ -2,18 +2,12 @@
 
 ## Status (2026-07-31, after the phase 0–2 campaign)
 
-Phases 0, 1 and 2 are complete on `stricter-emacs-adherence`.  The
-mutation manifest went 209 sites in fourteen files to 120 in nine;
-`search.c`, `word.c`, `yank.c`, `cmd.c` and `rect.c` no longer mutate
-rows directly at all.  Phase 3's design gate was obeyed: no edit-group
-API and no `kg_buffer_replace_many()` exist, because every migration
-turned out to have one precomputed replacement.
+Phases 0–3 done; Phase 4 in progress—file, shell, Lisp, Dired and related consumers largely migrated, with special-buffer/reload and undo residue remaining; Phase 5 pending.
 
-What the remaining 120 sites are: `buffer.c`'s own row primitives and
-the staged-load helpers (43), `undo.c`'s replays of the eleven legacy
-opcodes (22), `bufmgr.c`'s special-buffer rebuilds (24), `fileio.c`'s
-loader (14), and small counts in `dired.c`, `kbd.c`, `lisp.c`,
-`main.c` and `shell.c`.  Phase 4 owns the rebuild and load paths;
+What the remaining 86 sites are: `buffer.c`'s own row primitives and
+the staged-load helpers (55), `bufmgr.c`: 7, `undo.c`'s replays of the eleven legacy
+opcodes (19), `bufmgr.c`'s special-buffer rebuilds (7), and small counts in `kbd.c`: 4, `main.c`: 1
+.  Phase 4 owns the rebuild and load paths;
 phase 5 owns the legacy replays and `suppress_undo`.
 
 Behaviour that changed, each with a case:

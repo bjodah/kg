@@ -114,14 +114,13 @@ The recommendations identify the right work, with these ordering corrections:
 ## Plan index
 
 | Plan | Outcome | May start |
-| --- | --- | --- |
-| [01](01-command-identity-and-keymaps.md) | Stable command identity, normalized key events, layered keymaps, generated introspection | **Phases 0–6 done**; the decoder flag day remains, see its Status section |
-| [02](02-edit-gateway-completion.md) | Replay safety, explicit internal-edit policy, all observable mutations through one gateway | **Phases 0–3 done**; Phases 4–5 are the next slice, see its Status section |
-| [03](03-markers-decorations-and-events.md) | Stable markers, compact decorations, bounded typed events and C safe points | Marker core during 02; consumer conversion after 02 |
-| [04](04-window-handles-and-session-lifecycle.md) | Window buffer handles, lifecycle invariants/events, later session nesting | **Phases 0–2 done**; Phase 3 blocked on 03's event queue, Phase 4 deferred |
-| [05](05-emacs-affordances-delivery.md) | Dependency-ready Emacs habits without new one-off dispatch | Per bundle |
-| [06](06-runtime-and-lisp-extensibility.md) | Bounded direct Fe calls, editor objects, hooks, processes, proof packages | Preparation now; callbacks after 03 |
-| [07](07-visual-line-geometry-index.md) | Warm repaint independent of total buffer bytes; bounded prefix lookup | **Phases 0–1 done**; Phase 2 (persistent prefix vector) is next, see its Status section |
+| [01](01-command-identity-and-keymaps.md) | ... | **Phases 0–6 done, including the decoder flag day; Plan 01 complete** |
+| [02](02-edit-gateway-completion.md) | ... | **Phases 0–3 done; Phase 4 in progress with 86 opinions remaining in five files; Phase 5 pending** |
+| [03](03-markers-decorations-and-events.md) | ... | **Not started; marker core may begin during remaining 02 work, consumer conversion after 02** |
+| [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–2 done; Phase 3 blocked on 03's event queue; Phase 4 deferred** |
+| [05](05-emacs-affordances-delivery.md) | ... | **Introspection delivered; Bundles A, B, D and E remain** |
+| [06](06-runtime-and-lisp-extensibility.md) | ... | **Not started; Phases 0–1 may begin, callback/event-dependent phases wait for 03** |
+| [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started; Phase 2 is next** |
 
 ## Dependency and delivery order
 

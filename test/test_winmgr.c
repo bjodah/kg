@@ -21,6 +21,7 @@
 #include "../src/event.h"
 #include "test.h"
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,6 +159,20 @@ static void session_teardown(void)
 	win_count = 0;
 	win_current = 0;
 	memset(winlist, 0, sizeof(winlist));
+}
+
+/* Drain every remaining event into `out` (capacity `max`), in publication
+ * order.  Returns the count -- the same helper test_event.c uses, kept
+ * local here since this suite links the real producers rather than
+ * calling the queue's constructors by hand. */
+static size_t drain_all(struct kg_event *out, size_t max)
+{
+	size_t n = 0;
+
+	while (n < max && kg_event_queue_pop(&out[n])) {
+		n++;
+	}
+	return n;
 }
 
 /* Index of the one active window that is not `win_current`. */
@@ -736,6 +751,81 @@ static void test_kill_buffer_shown_twice(void)
 	CHECK(win_buffer_slot(&winlist[other]) == 1);
 	CHECK(win_buffer(&winlist[other]) == &buflist[1]);
 
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
+/* Same scenario as test_kill_buffer_shown_twice(), but pinning the event
+ * stream buf_kill_commit() promises in its own comment: KILLING published
+ * once while the dying handle still resolves, one VIEW_DETACHED per window
+ * that showed it, then KILLED once cleanup is done -- in that order, ahead
+ * of anything buf_kill()'s post-cleanup reattach loop queues afterward. */
+static void test_kill_shown_in_two_windows_publishes_killing_detach_killed(void)
+{
+	char *names[2];
+	int home, other;
+	struct kg_window_handle home_h, other_h;
+	struct kg_buffer_handle dying;
+	struct kg_event ev;
+	int i;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	win_split_horizontal();
+	home = win_current;
+	other = other_window();
+	CHECK(other >= 0);
+	CHECK(win_buffer_slot(&winlist[home]) == 0);
+	CHECK(win_buffer_slot(&winlist[other]) == 0);
+	home_h = win_handle(home);
+	other_h = win_handle(other);
+	dying = buf_handle(0);
+	kg_event_drain_safe(); /* discard the session's own open/attach noise */
+
+	buf_kill(-1);
+	CHECK(buf_count == 1);
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_KILLING);
+	CHECK(ev.payload.buffer_life.buffer.id == dying.id);
+
+	bool saw_home = false, saw_other = false;
+	for (i = 0; i < 2; i++) {
+		CHECK(kg_event_queue_pop(&ev));
+		CHECK(ev.kind == KG_EVENT_VIEW_DETACHED);
+		CHECK(ev.payload.view.buffer.id == dying.id);
+		if (ev.payload.view.window.id == home_h.id) {
+			saw_home = true;
+		} else if (ev.payload.view.window.id == other_h.id) {
+			saw_other = true;
+		}
+	}
+	CHECK(saw_home && saw_other);
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_KILLED);
+	CHECK(ev.payload.buffer_life.buffer.id == dying.id);
+	CHECK(!buf_resolve(ev.payload.buffer_life.buffer));
+
+	/* No live window names the dead buffer, whatever buf_kill() queues
+	 * next to put both windows back on the survivor. */
+	CHECK(win_buffer(&winlist[home]) != NULL);
+	CHECK(win_buffer(&winlist[other]) != NULL);
+	CHECK(buf_resolve(winlist[home].buf) != buf_resolve(dying));
+	CHECK(buf_resolve(winlist[other].buf) != buf_resolve(dying));
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (!winlist[i].active) {
+			continue;
+		}
+		CHECK(!win_shows_buffer(&winlist[i], dying));
+	}
+
+	kg_event_drain_safe();
 	session_teardown();
 	free(names[0]);
 	free(names[1]);
@@ -1380,6 +1470,88 @@ static void test_split_gives_the_new_window_a_distinct_identity(void)
 	free(names[0]);
 }
 
+/* A fresh session's KG_EVENT_BUFFER_OPENED for its one buffer always
+ * precedes the KG_EVENT_VIEW_ATTACHED that puts it in window 0:
+ * buf_load_args() opens buffer 0 while win_count is still 0 (no window
+ * exists yet to attach), and win_init()'s own buf_attach_view() is what
+ * attaches it once the window does.  Loading the file's rows publishes its
+ * own KG_EVENT_BUFFER_BROAD_CHANGE in between (kg_buffer_adopt_rows(),
+ * called from editor_open()) -- expected, and not what this test is
+ * about, so it only pins the relative order of open and attach, not
+ * adjacency. */
+static void test_open_precedes_attach_when_the_session_starts(void)
+{
+	char *names[1];
+	struct kg_event out[8];
+	size_t n, opened_at = SIZE_MAX, attached_at = SIZE_MAX;
+	struct kg_buffer_handle opened = { 0 };
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+
+	session(1, names);
+
+	n = drain_all(out, 8);
+	for (size_t i = 0; i < n; i++) {
+		if (out[i].kind == KG_EVENT_BUFFER_OPENED
+		    && opened_at == SIZE_MAX) {
+			opened_at = i;
+			opened = out[i].payload.buffer_life.buffer;
+		}
+		if (out[i].kind == KG_EVENT_VIEW_ATTACHED
+		    && attached_at == SIZE_MAX) {
+			attached_at = i;
+		}
+	}
+	CHECK(opened_at != SIZE_MAX);
+	CHECK(attached_at != SIZE_MAX);
+	CHECK(opened_at < attached_at);
+	CHECK(buf_resolve(opened) == &buflist[0]);
+	CHECK(out[attached_at].payload.view.buffer.id == opened.id);
+	CHECK(win_resolve(out[attached_at].payload.view.window)
+	    == &winlist[win_current]);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* A window split publishes a KG_EVENT_VIEW_ATTACHED for the new view -- the
+ * new window really is a second reader of the buffer, not merely a struct
+ * copy the event stream never heard about -- and the attached window's own
+ * handle is distinct from the one the split copied it from. */
+static void test_split_publishes_view_attached_for_the_new_window(void)
+{
+	char *names[1];
+	int other;
+	struct kg_window_handle h0;
+	struct kg_buffer_handle b0;
+	struct kg_event ev;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+	kg_event_drain_safe(); /* discard the session's own open/attach */
+
+	h0 = win_handle(win_current);
+	b0 = buf_handle(win_buffer_slot(&winlist[win_current]));
+
+	win_split_horizontal();
+	other = other_window();
+	CHECK(other >= 0);
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_VIEW_ATTACHED);
+	CHECK(ev.payload.view.window.id == win_handle(other).id);
+	CHECK(ev.payload.view.window.id != h0.id);
+	CHECK(ev.payload.view.buffer.id == b0.id);
+	CHECK(win_resolve(ev.payload.view.window) == &winlist[other]);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	kg_event_drain_safe();
+	session_teardown();
+	free(names[0]);
+}
+
 #if KG_DEBUG_STATE
 #include <signal.h>
 #include <sys/wait.h>
@@ -1449,6 +1621,7 @@ int main(void)
 	RUN(test_revert_drops_the_region_it_finds);
 	RUN(test_revert_clamps_every_window_on_the_buffer);
 	RUN(test_kill_buffer_shown_twice);
+	RUN(test_kill_shown_in_two_windows_publishes_killing_detach_killed);
 	RUN(test_slot_exhaustion_and_reuse);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
 	RUN(test_append_to_visible_buffer_follows_that_window);
@@ -1463,6 +1636,8 @@ int main(void)
 	RUN(test_goal_column_belongs_to_the_view);
 	RUN(test_window_handle_resolves_until_slot_released_and_reused);
 	RUN(test_split_gives_the_new_window_a_distinct_identity);
+	RUN(test_open_precedes_attach_when_the_session_starts);
+	RUN(test_split_publishes_view_attached_for_the_new_window);
 #if KG_DEBUG_STATE
 	RUN(test_invariant_seven_fires_on_corrupted_marker_owner);
 #endif

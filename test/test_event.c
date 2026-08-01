@@ -1529,6 +1529,105 @@ static void test_a_subscriber_registered_during_a_drain_waits_for_the_next_one(
 	teardown();
 }
 
+/* ---- overflow must retain lifecycle truth ----------------------------------
+ *
+ * KG_EVENT_LIFECYCLE_RESERVE exists so a droppable change event can never
+ * crowd a lifecycle transition out of the ring -- see droppable_has_room()
+ * in event.c.  This drives two different buffers hard enough that every
+ * text change against them collapses into an overflow summary (capacity ==
+ * the reserve, so the droppable share is zero and nothing can ever ring in
+ * the ordinary way), then runs a full open/attach/detach/kill sequence for
+ * a third buffer through the untouched reserve, then drives more overflow
+ * pressure against the first buffer again.  What must hold: both overflow
+ * summaries and all four lifecycle events are still delivered, each
+ * exactly once, in publication order, with no lifecycle event lost,
+ * duplicated, or resequenced behind a summary it did not cause. */
+static void test_event_overflow_retains_lifecycle_truth(void)
+{
+	setup();
+	kg_event_queue_set_capacity_for_test(KG_EVENT_LIFECYCLE_RESERVE);
+
+	struct kg_buffer_handle ba = mkbuf(0, 10, 1);
+	struct kg_buffer_handle bb = mkbuf(1, 11, 1);
+	struct kg_buffer_handle bc = mkbuf(2, 12, 1);
+	struct kg_window_handle w0 = mkwin(0, 20, 1);
+	struct kg_event_reservation res;
+	int i;
+
+	for (i = 0; i < 20; i++) {
+		CHECK(kg_event_queue_text_change(ba, 0, 0, 1,
+			  mkext((uint64_t)i, (uint64_t)(i + 1)),
+			  (uint64_t)(i + 1), CMD_ID_NONE)
+		    == KG_EVENT_QUEUED_BROAD);
+	}
+	for (i = 0; i < 15; i++) {
+		CHECK(kg_event_queue_text_change(bb, 0, 0, 1,
+			  mkext((uint64_t)i, (uint64_t)(i + 1)),
+			  (uint64_t)(i + 1), CMD_ID_NONE)
+		    == KG_EVENT_QUEUED_BROAD);
+	}
+
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	CHECK(kg_event_publish_lifecycle(&res, kg_event_make_buffer_opened(bc))
+	    == KG_EVENT_QUEUED);
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	CHECK(kg_event_publish_lifecycle(
+		  &res, kg_event_make_view_attached(w0, bc))
+	    == KG_EVENT_QUEUED);
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	CHECK(kg_event_publish_lifecycle(
+		  &res, kg_event_make_view_detached(w0, bc))
+	    == KG_EVENT_QUEUED);
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	CHECK(kg_event_publish_lifecycle(&res, kg_event_make_buffer_killed(bc))
+	    == KG_EVENT_QUEUED);
+
+	/* More overflow pressure against the first buffer, after the
+	 * lifecycle run: it must fold into ba's existing summary rather than
+	 * disturbing anything already queued ahead of it. */
+	for (i = 0; i < 10; i++) {
+		CHECK(kg_event_queue_text_change(ba, 0, 0, 1,
+			  mkext((uint64_t)(100 + i), (uint64_t)(101 + i)),
+			  (uint64_t)(100 + i), CMD_ID_NONE)
+		    == KG_EVENT_QUEUED_BROAD);
+	}
+
+	struct kg_event out[8];
+	size_t n = drain_all(out, 8);
+	CHECK(n == 6);
+
+	CHECK(out[0].kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(out[0].payload.broad.buffer.id == ba.id);
+	CHECK(out[0].payload.broad.extent.old_total_len == 0);
+	/* The trailing pressure landed in this same summary: its new total
+	 * reflects the last fold, not the state at first collapse. */
+	CHECK(out[0].payload.broad.extent.new_total_len == 110);
+
+	CHECK(out[1].kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(out[1].payload.broad.buffer.id == bb.id);
+	CHECK(out[1].payload.broad.extent.new_total_len == 15);
+
+	CHECK(out[2].kind == KG_EVENT_BUFFER_OPENED);
+	CHECK(out[2].payload.buffer_life.buffer.id == bc.id);
+	CHECK(out[3].kind == KG_EVENT_VIEW_ATTACHED);
+	CHECK(out[3].payload.view.buffer.id == bc.id);
+	CHECK(out[3].payload.view.window.id == w0.id);
+	CHECK(out[4].kind == KG_EVENT_VIEW_DETACHED);
+	CHECK(out[4].payload.view.buffer.id == bc.id);
+	CHECK(out[5].kind == KG_EVENT_BUFFER_KILLED);
+	CHECK(out[5].payload.buffer_life.buffer.id == bc.id);
+
+	for (i = 1; i < 6; i++) {
+		CHECK(out[i - 1].seq < out[i].seq);
+	}
+
+	teardown();
+}
+
 /* Pins the regression this slice exists to fix: undrained, the ring fills
  * from ordinary edit traffic (KG_EVENT_RING_MAX minus the reserve, 60
  * entries -- coalescing keeps genuinely distinct edits from collapsing,
@@ -1616,6 +1715,7 @@ int main(void)
 	RUN(test_unsubscribe_is_idempotent_and_stale_tokens_cannot_reach_a_new_subscriber);
 	RUN(test_registry_exhaustion_refuses_further_registration);
 	RUN(test_a_subscriber_registered_during_a_drain_waits_for_the_next_one);
+	RUN(test_event_overflow_retains_lifecycle_truth);
 	RUN(test_drain_relieves_the_reserve_a_sustained_session_would_exhaust);
 	return tests_failed ? 1 : 0;
 }

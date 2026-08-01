@@ -102,6 +102,22 @@ markers; do not turn every cursor into a marker without a demonstrated need.
 
 ## Phase 3 — Compact decorations
 
+Status: complete.  `src/decor.h`/`decor.c` own the store, the renderer
+reads it through a stack-allocated query, and isearch is its first
+consumer.  Three details the implementation settled that this text left
+open:
+
+- The store is packed rather than hole-punched, unlike the marker store:
+  deletion and evaporation compact it in place, so there is no `active`
+  bit and no inactive slot to scan past.
+- `kg_decor_compact()` serves both jobs the plan describes separately.
+  After an ordinary edit it drops evaporating empty spans; after broad
+  row adoption, where `kg_marker_detach_all()` has already made every
+  endpoint gone, the same pass clears every decoration.
+- The renderer keeps at most `KG_ROW_DECOR_MAX` (16) simultaneous spans
+  per row and drops the rest rather than allocating.  That is a fidelity
+  limit for a future producer, not a limit isearch can reach.
+
 ### Data and ownership
 
 Create self-contained `src/decor.h`/`src/decor.c`.  Keep the public handle the
@@ -170,6 +186,30 @@ a row join and split, edit between highlight and clear, buffer switch/kill, and
 two windows displaying different slices of one decorated buffer.
 
 ## Phase 4 — One bounded typed event queue
+
+Status: complete.  `src/event.h`/`event.c` is the queue; its producers are
+wired at every publication point named below.  What the implementation
+settled:
+
+- The ring is 64 entries (`KG_EVENT_RING_MAX`) of which 4
+  (`KG_EVENT_LIFECYCLE_RESERVE`) are reachable only through a
+  reservation, so a text event can never crowd out a kill or a save.
+- Two lifecycle publications cannot refuse, because their transition has
+  already committed by the time the reservation is taken: `killed` (after
+  cleanup) and `after-save` (after the write returned).  Losing those
+  reservations drops the event, never the operation.  Every other
+  lifecycle producer reserves first and refuses with its old state
+  intact.
+- `editor_set_syntax()` is the mode-changed transition.
+  `editor_select_syntax_highlight()`, which runs at open, is deliberately
+  not instrumented: buffer-open already reports that.
+- Coalescing is narrower than the section below permits.  Only two
+  consecutive exact changes to the same buffer, under the same command
+  token and adjacent generations, whose second pre-edit span is contained
+  in the first's post-edit span, merge — the growing-insertion-point
+  shape.  A leftward-growing or disjoint pair stays two events, because
+  composing the old-length side exactly would mean relocating a boundary
+  backwards through the earlier edit.
 
 ### Envelope and storage
 
@@ -245,6 +285,36 @@ tests with `WITH_LISP=0`; the module contains no Fe types or conditionals.
 
 ## Phase 5 — C safe-point delivery
 
+Status: complete.  Three safe points in `src/main.c`'s loop: after
+`autorevert_poll()`, before `editor_refresh_screen()`, and after
+`editor_process_keypress()` returns.  Prompt deferral is a nesting depth
+kept in `event.c` and raised by the four functions that actually read a
+prompt, so `kg_event_drain_safe()` is a no-op until the outermost one
+leaves.  The drain captures `next_seq - 1` as its boundary and
+`queue_pop_bounded()` refuses anything above it, for ring entries and
+overflow summaries alike.
+
+Two limits recorded rather than fixed:
+
+- An overflow summary that already existed when a drain began, and is
+  *extended* by a callback during that drain, is not separately gated by
+  the boundary; only a summary first created during the drain is.  It
+  needs the ring to be under overflow pressure and a callback to edit
+  that same buffer in the same drain.
+- The debug-build assertion covers an active edit transaction, an active
+  renderer, an open prompt and a recursive drain, but not a signal
+  handler.  `handle_sig_winch()` only sets `pending_resize` for the main
+  loop to read; it reaches no buffer, render or event code, so the
+  condition cannot arise and instrumenting a real POSIX signal handler
+  for it was not worth the cost.
+
+Wiring the drain also closed a regression the producer slices opened: with
+nothing draining, 60 edits plus a few lifecycle transitions exhausted the
+reserve and the editor began refusing saves.
+`test/pty/event-drain-save-after-sustained-editing.yaml` and
+`test_drain_relieves_the_reserve_a_sustained_session_would_exhaust` pin it
+from both sides.
+
 ### Subscriber registry
 
 Define a small fixed-capacity C subscriber registry in `event.c`.  Registering
@@ -318,6 +388,14 @@ buffer kill, view changes, save, and process completion.  A test-only drain
 depth counter must never exceed one.
 
 ## Completion gate
+
+Met 2026-08-01.  27 native suites and 330 PTY cases pass with zero skips
+and zero XPASS in both `WITH_LISP` configurations, and all twelve
+`.ci/ci-NN-*.sh` stages pass.  `SCC_COMPLEXITY_MAX` is 4450 by the
+maintainer decision recorded in this directory's README; measured usage is
+4431, and the loan's named repayment sources are still outstanding —
+`src/search.c` gave back 7 (246 → 239) when the snapshot machinery went,
+`src/cmd.c` and `src/localvars.c` have not been touched.
 
 - The randomized marker model agrees after every generated edit.
 - No converted consumer retains a parallel row/column snapshot.

@@ -66,6 +66,8 @@ As of Plan 03's completion, later in wave 2:
   and every direct `row->hl` match write are gone.
 - Every observable mutation and lifecycle transition publishes a bounded
   typed event, drained into C subscribers at three named safe points.
+- Windows have their own generation-checked identity, sharing one slot
+  table with buffers, and all seven debug state invariants are armed.
 
 ## Decision — the complexity cap has headroom, bounded by 4223
 
@@ -160,7 +162,7 @@ The recommendations identify the right work, with these ordering corrections:
 | [01](01-command-identity-and-keymaps.md) | ... | **Phases 0–6 done, including the decoder flag day; Plan 01 complete** |
 | [02](02-edit-gateway-completion.md) | ... | **Phases 0–3 done; Phase 4 in progress with 86 opinions remaining in five files; Phase 5 pending** |
 | [03](03-markers-decorations-and-events.md) | ... | **Phases 0–5 done; Plan 03 complete, so 04's phase 3 and 06's event-dependent phases are unblocked** |
-| [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–2 done; Phase 3 unblocked now that 03's event queue has landed; Phase 4 deferred** |
+| [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–3 done; Phase 4 (session nesting) still deferred behind Plan 05's kill ring, and nothing depends on it** |
 | [05](05-emacs-affordances-delivery.md) | ... | **Introspection delivered; Bundles A, B, D and E remain** |
 | [06](06-runtime-and-lisp-extensibility.md) | ... | **Not started; every phase is now unblocked — a runtime adapter is one ordinary C subscriber on 03's queue, not a second hook path** |
 | [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started; Phase 2 is next** |

@@ -1,6 +1,46 @@
 # Plan 04 — Window handles and session lifecycle
 
-## Status (2026-07-31, after the handle campaign)
+## Status (2026-08-02, after Plan 03 landed)
+
+Phases 0-3 are complete; Phase 4 remains deferred, still waiting on Plan
+05's kill ring, and nothing outside it depends on the rename.
+
+Phase 3 arrived in two halves.  Plan 03's producer wiring published
+buffer opened/about-to-kill/killed and view attached/detached from
+`buf_claim_slot()`, `buf_kill()`, `buf_attach_view()` and the canonical
+detach path, on the one bounded queue with safe-point delivery — no
+parallel hook list exists.  This plan then supplied what that wiring had
+to fake:
+
+- **Windows have their own identity.**  `struct kg_window_handle` sits
+  beside `kg_buffer_handle` in `src/bufhandle.h`, same 64-bit
+  never-repeating id, same refusal to reuse at `UINT64_MAX`.
+  `struct kg_event_view` carries it instead of the raw `winlist[]` index
+  it was holding as a placeholder.  A split claims a *new* identity for
+  the copied slot — the one place the buffer-handle rule is deliberately
+  inverted, since a split makes a second view, not a second name for one.
+- **Both handle families share one identity check.**  `kg_slot_table`
+  and `kg_slot_resolve()` in `bufhandle.h` address a slot table by
+  layout, so the second family cost call sites rather than a second copy
+  of `buf_handle()`/`buf_resolve()`.  That sharing is most of what paid
+  for the family: `bufmgr.c` fell 429 → 417.  `kg_slot_resolve()` hands
+  back the *record*, not a verdict the caller re-indexes with, because
+  splitting those made clang-analyzer report an out-of-bounds access it
+  could no longer see was guarded.
+- **The seventh invariant is armed.**  It had nothing to check until
+  markers and decorations existed.  `kg_state_check()` now walks every
+  buffer's mark, mark ring and decoration endpoints, asserting each
+  handle resolves *and* names that buffer — a corrupted `.buffer` field
+  that still resolves is the failure resolving alone would miss.
+
+One real defect fell out of writing Phase 3's ordering tests: both split
+functions copy the window struct wholesale rather than calling
+`buf_attach_view()`, deliberately, so the new view keeps the split's
+point instead of the buffer's remembered one — but that made the new
+view's attach invisible to the queue, and no `KG_EVENT_VIEW_ATTACHED`
+ever fired for it.
+
+### Status (2026-07-31, after the handle campaign)
 
 Phases 0, 1 and 2 are complete.  `editor_window.bufidx` is gone:
 `struct editor_window` holds a `kg_buffer_handle`, `win_buffer()` /
@@ -13,7 +53,8 @@ itself was −9 (six duplicated window scans collapsed onto one predicate;
 two functions stopped distinguishing `wcur()` from the window already in
 hand), and the invariant checker spent +16 of that back.
 
-Deliberately not done:
+Deliberately not done *at that time*; the first and third are now done,
+and the second still holds:
 
 - **The seventh invariant has nothing to check.**  Buffer-owned marker
   and decoration handles arrive with Plan 03.

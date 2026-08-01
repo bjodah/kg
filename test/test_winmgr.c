@@ -18,6 +18,7 @@
  */
 
 #include "../src/def.h"
+#include "../src/event.h"
 #include "test.h"
 #include <limits.h>
 #include <stdio.h>
@@ -99,6 +100,12 @@ static void session(int nfiles, char **names)
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		buflist[i].active = 0;
 	}
+	/* This suite links the real bufmgr.c/winmgr.c, so every open, kill
+	 * and view attach/detach below is a real lifecycle producer -- and
+	 * this file never drains the queue (Phase 5's job, not this suite's).
+	 * A fresh queue per session is what keeps a later test's opens from
+	 * being refused by an earlier test's undrained events. */
+	kg_event_queue_init();
 	reset_current_buffer();
 	reset_current_view();
 	memset(&editor, 0, sizeof(editor));
@@ -727,6 +734,11 @@ static void test_slot_exhaustion_and_reuse(void)
 	}
 	CHECK(buf_count == MAX_BUFFERS);
 	invariants();
+	/* Filling every slot is ~2 lifecycle events each (open, then the
+	 * window following it) and nothing in this suite drains them (that
+	 * is Phase 5's job); reset here so the kill/reopen below is not the
+	 * operation that happens to hit the reserved capacity's ceiling. */
+	kg_event_queue_init();
 
 	/* One more is refused rather than overwriting a slot. */
 	write_text_file(tmppath("overflow.txt"), "x\n");

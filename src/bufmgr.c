@@ -16,6 +16,7 @@
 #include "decor.h"
 #include "def.h"
 #include "edit.h"
+#include "event.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
@@ -94,6 +95,31 @@ static void buf_claim_slot(int slot)
 		return;
 	}
 	buflist[slot].id = buf_next_id++;
+}
+
+/* Give `slot` a resolvable identity: reserve capacity for the
+ * KG_EVENT_BUFFER_OPENED event a fresh identity produces, claim the slot,
+ * mark it active, then publish -- in that order, so a full queue refuses
+ * the open before the slot resolves rather than after.  A no-op that
+ * always succeeds when `slot` is already active: most callers (switching
+ * to a buffer that already exists) never touch the reservation at all.
+ * Returns 0, the slot untouched, only when the reservation was refused. */
+static int buf_activate_slot(int slot)
+{
+	struct kg_event_reservation res;
+
+	if (buflist[slot].active) {
+		return 1;
+	}
+	res = kg_event_reserve_lifecycle();
+	if (!res.valid) {
+		return 0;
+	}
+	buf_claim_slot(slot);
+	buflist[slot].active = 1;
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
+	return 1;
 }
 
 struct kg_buffer_handle buf_handle(int slot)
@@ -191,15 +217,34 @@ void buf_remember_view(const struct editor_window *w)
 	b->last_point.rowoff_visual = w->rowoff_visual;
 }
 
-/* Point `w` at buffer slot `slot`, resuming where that buffer was last
- * left.  The goal column does not survive the move: it is only meaningful
- * between two consecutive vertical motions in one buffer. */
-void buf_attach_view(struct editor_window *w, int slot)
+/* Resolve `h` and reserve capacity for the KG_EVENT_VIEW_ATTACHED event
+ * buf_attach_view() would publish -- both while a refusal still costs `w`
+ * nothing.  NULL when the slot does not resolve, `w` already shows it (no
+ * transition to publish), or the queue has no room; `*res` is a live
+ * reservation only in the case this returns non-NULL. */
+static struct editor_buffer *buf_attach_prepare(struct editor_window *w,
+    struct kg_buffer_handle h, struct kg_event_reservation *res)
 {
-	struct kg_buffer_handle h = buf_handle(slot);
 	struct editor_buffer *b = buf_resolve(h);
 
 	if (!b || win_shows_buffer(w, h)) {
+		return NULL;
+	}
+	*res = kg_event_reserve_lifecycle();
+	return res->valid ? b : NULL;
+}
+
+/* Point `w` at buffer slot `slot`, resuming where that buffer was last
+ * left.  The goal column does not survive the move: it is only meaningful
+ * between two consecutive vertical motions in one buffer.  Reservation
+ * failure leaves `w` showing whatever it already did. */
+void buf_attach_view(struct editor_window *w, int slot)
+{
+	struct kg_buffer_handle h = buf_handle(slot);
+	struct kg_event_reservation res = { 0 };
+	struct editor_buffer *b = buf_attach_prepare(w, h, &res);
+
+	if (!b) {
 		return;
 	}
 	buf_remember_view(w);
@@ -210,32 +255,55 @@ void buf_attach_view(struct editor_window *w, int slot)
 	w->coloff = b->last_point.coloff;
 	w->rowoff_visual = b->last_point.rowoff_visual;
 	w->desired_visual_col = -1;
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_view_attached((int)(w - winlist), h));
 }
 
-void buf_detach_view(struct editor_window *w)
+/* The whole of buf_detach_view(): pulled out so the wrapper stays a single
+ * call (see its comment for why).  Reserves capacity for the
+ * KG_EVENT_VIEW_DETACHED event before detaching; when `w` shows nothing
+ * there is no transition to publish, so it just clears `w` as before.  A
+ * refused reservation leaves `w` attached -- a state win_check_handles()
+ * already recovers from if the buffer it names dies anyway. */
+static void buf_detach_view_commit(struct editor_window *w)
 {
-	struct kg_buffer_handle none = { 0, 0, 0 };
+	struct kg_buffer_handle old = w->buf;
+	struct kg_event_reservation res;
 
+	if (!buf_resolve(old)) {
+		buf_remember_view(w);
+		w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
+		return;
+	}
+	res = kg_event_reserve_lifecycle();
+	if (!res.valid) {
+		return;
+	}
 	buf_remember_view(w);
-	w->buf = none;
+	w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_view_detached((int)(w - winlist), old));
 }
+
+void buf_detach_view(struct editor_window *w) { buf_detach_view_commit(w); }
 
 /* Show buflist[slot] in the selected window and make it the current buffer.
  * This is the whole of what switching buffers is now: there is no state to
  * copy out of the outgoing buffer and none to copy into the incoming one.
  * The slot claim is here because a buffer being built into a free slot is
  * made current before it has any content. */
-void buf_select(int slot)
+int buf_select(int slot)
 {
 	struct editor_buffer *b;
 
 	if (slot < 0 || slot >= MAX_BUFFERS) {
-		return;
+		return 0;
 	}
 	b = &buflist[slot];
-	if (!b->active) {
-		buf_claim_slot(slot);
-		b->active = 1;
+	if (!buf_activate_slot(slot)) {
+		editor_set_status_message(
+		    "Too many pending events; buffer not opened.");
+		return 0;
 	}
 	if (win_count > 0) {
 		buf_attach_view(wcur(), slot);
@@ -254,6 +322,7 @@ void buf_select(int slot)
 	    && (b->auto_revert || global_auto_revert)) {
 		silent_revert_current();
 	}
+	return 1;
 }
 
 /* Clamp `w`'s cursor (cx/cy/rowoff/coloff) to whatever `b` can hold,
@@ -1439,6 +1508,27 @@ void buf_visit_file(const char *filename, int explicit_readonly)
 /* Load all command-line files into the buffer list, then start in buffer 0.
  * Called once from main() after init_editor().
  * Arguments of the form +LINE or +LINE:COL position the next file. */
+/* Load one command-line file into `slot`, honoring a pending +LINE[:COL]
+ * positioner (cleared either way, matching the caller's prior inline
+ * behaviour).  Returns 0 without touching the slot when buf_select()
+ * refused it under event-queue pressure -- buf_load_args() stops there
+ * rather than opening the remaining files out of a slot sequence that has
+ * started skipping entries. */
+static int buf_load_one_arg(int slot, const char *filename, int readonly,
+    int *pending_line, int *pending_col)
+{
+	if (!buf_select(slot)) {
+		return 0;
+	}
+	buf_visit_file(filename, readonly);
+	if (*pending_line > 0) {
+		editor_goto_line_direct(*pending_line, *pending_col);
+		*pending_line = 0;
+		*pending_col = 1;
+	}
+	return 1;
+}
+
 void buf_load_args(int nfiles, char **filenames, int readonly)
 {
 	int i, slot = 0;
@@ -1449,13 +1539,13 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 	buf_count = 0;
 
 	if (nfiles == 0) {
-		/* No files given: open an empty *scratch* buffer. */
+		/* No files given: open an empty *scratch* buffer.  buf_select()
+		 * below is what gives it its BUFFER_OPENED event, since it is
+		 * the one place a slot's identity is claimed. */
 		buf_current = 0;
 		buf_reset();
 		bcur()->filename = strdup("*scratch*");
 		bcur()->syntax = &lisp_interaction_syntax;
-		buf_claim_slot(0);
-		buflist[0].active = 1;
 		buf_count = 1;
 		buf_select(0);
 		return;
@@ -1473,12 +1563,9 @@ void buf_load_args(int nfiles, char **filenames, int readonly)
 		/* The window follows the slot being filled, so a +LINE lands
 		 * on that file's own view and is banked there when the next
 		 * file takes the window. */
-		buf_select(slot);
-		buf_visit_file(filenames[i], readonly);
-		if (pending_line > 0) {
-			editor_goto_line_direct(pending_line, pending_col);
-			pending_line = 0;
-			pending_col = 1;
+		if (!buf_load_one_arg(slot, filenames[i], readonly,
+			&pending_line, &pending_col)) {
+			break;
 		}
 		buf_count++;
 		slot++;
@@ -1619,6 +1706,23 @@ void buf_select_interactive(int fd)
 	}
 }
 
+/* buf_open_path()'s tail once a free slot has been picked: select it --
+ * which is where a fresh identity gets its BUFFER_OPENED event -- then
+ * visit the file.  A refused selection under event-queue pressure leaves
+ * the slot untouched and already reported (buf_select() sets the status
+ * message), so there is nothing left to do here. */
+static void buf_open_path_new(int slot, const char *path, int readonly)
+{
+	if (!buf_select(slot)) {
+		return;
+	}
+	buf_visit_file(path, readonly);
+	buf_count++;
+	editor_set_status_message("%s%s",
+	    bcur()->filename ? bcur()->filename : "[new]",
+	    readonly ? " [read-only]" : "");
+}
+
 /* Open `path` in a new buffer, or switch to the buffer already visiting
  * it.  This is C-x C-f minus the prompt, so anything that names a file
  * some other way (dired's RET) lands in exactly the same state.
@@ -1662,12 +1766,7 @@ void buf_open_path(const char *path, int readonly)
 	 * *and* the view of the window showing it, so until the window has
 	 * moved, that window is still the outgoing buffer's -- and the move
 	 * would then bank the emptied view as where that buffer was left. */
-	buf_select(slot);
-	buf_visit_file(path, readonly);
-	buf_count++;
-	editor_set_status_message("%s%s",
-	    bcur()->filename ? bcur()->filename : "[new]",
-	    readonly ? " [read-only]" : "");
+	buf_open_path_new(slot, path, readonly);
 }
 
 /* Prompt for a filename and open it (C-x C-f, C-x C-r). */
@@ -1745,6 +1844,66 @@ void buf_save_all(int fd)
  * the handle, and only then is the slot freed -- so no window is ever
  * active holding a handle that has stopped resolving, not even for the
  * span of this function. */
+/* The destructive part of buf_kill(), for `slot` (== buf_current, still
+ * bcur()) with the confirmation prompts already answered: detach every
+ * view on the dying buffer, then free its resources and mark the slot
+ * dead.  Brackets that with its two lifecycle events, each reserved right
+ * at the point its own transition happens rather than both up front:
+ *
+ *   - KG_EVENT_BUFFER_KILLING is reserved and published first, while
+ *     `dying` still resolves.  A refused reservation refuses the whole
+ *     kill here -- nothing has been touched yet, so bcur() is still
+ *     exactly what it was.
+ *   - KG_EVENT_BUFFER_KILLED is reserved after cleanup, when the buffer is
+ *     already gone.  There is no "old state" left to refuse back to at
+ *     that point -- a kill already past its point of no return -- so a
+ *     lost reservation there can only cost the event, not the kill;
+ *     that is the one refusal this producer cannot make.
+ *
+ * Returns 0 when the KILLING reservation was refused (nothing done), 1
+ * once the buffer is gone. */
+static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+	int i;
+
+	if (!res.valid) {
+		editor_set_status_message(
+		    "Too many pending events; buffer not killed.");
+		return 0;
+	}
+	kg_event_publish_lifecycle(&res, kg_event_make_buffer_killing(dying));
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (win_shows_buffer(&winlist[i], dying)) {
+			buf_detach_view(&winlist[i]);
+		}
+	}
+
+	/* Free the buffer's memory and leave the slot describing nothing:
+	 * a row count that outlives the rows is what the next occupant's
+	 * reset would walk. */
+	editor_free_all_rows(&buflist[slot]);
+	undo_free();
+	kg_decor_store_free(&buflist[slot]);
+	kg_marker_store_free(&buflist[slot]);
+	free(buflist[slot].filename);
+
+	buflist[slot].active = 0;
+	buflist[slot].filename = NULL;
+	buflist[slot].dirty = 0;
+	buflist[slot].syntax = NULL;
+	/* Every handle taken on this buffer stops resolving here. */
+	buflist[slot].generation++;
+
+	res = kg_event_reserve_lifecycle();
+	if (res.valid) {
+		kg_event_publish_lifecycle(
+		    &res, kg_event_make_buffer_killed(dying));
+	}
+	return 1;
+}
+
 void buf_kill(int fd)
 {
 	struct kg_buffer_handle dying;
@@ -1768,27 +1927,9 @@ void buf_kill(int fd)
 	}
 
 	dying = buf_handle(killed);
-	for (i = 0; i < MAX_WINDOWS; i++) {
-		if (win_shows_buffer(&winlist[i], dying)) {
-			buf_detach_view(&winlist[i]);
-		}
+	if (!buf_kill_commit(killed, dying)) {
+		return;
 	}
-
-	/* Free the buffer's memory and leave the slot describing nothing:
-	 * a row count that outlives the rows is what the next occupant's
-	 * reset would walk. */
-	editor_free_all_rows(bcur());
-	undo_free();
-	kg_decor_store_free(bcur());
-	kg_marker_store_free(bcur());
-	free(bcur()->filename);
-
-	buflist[buf_current].active = 0;
-	buflist[buf_current].filename = NULL;
-	buflist[buf_current].dirty = 0;
-	buflist[buf_current].syntax = NULL;
-	/* Every handle taken on this buffer stops resolving here. */
-	buflist[buf_current].generation++;
 	buf_count--;
 
 	if (buf_count == 0) {
@@ -1814,6 +1955,21 @@ void buf_kill(int fd)
 	}
 	editor_set_status_message(
 	    "%s", bcur()->filename ? bcur()->filename : "[new]");
+}
+
+/* buf_enter_special()'s "not already open" tail: select the free slot --
+ * which is where its BUFFER_OPENED event comes from -- then reset it.
+ * Returns -1, bcur() left wherever it already was, when buf_select()
+ * refused the slot under event-queue pressure (already reported: it sets
+ * the status message itself). */
+static int buf_enter_special_new(int slot, const char *name)
+{
+	if (!buf_select(slot)) {
+		return -1;
+	}
+	buf_reset();
+	bcur()->filename = strdup(name);
+	return slot;
 }
 
 /* Make the special buffer named `name` current so its content can be
@@ -1845,10 +2001,7 @@ static int buf_enter_special(const char *name, int *existing)
 	if (slot < 0) {
 		return -1;
 	}
-	buf_select(slot);
-	buf_reset();
-	bcur()->filename = strdup(name);
-	return slot;
+	return buf_enter_special_new(slot, name);
 }
 
 /* Land the rebuilt special buffer in the slot buf_enter_special() picked,
@@ -1917,6 +2070,27 @@ static void buf_reset_slot(int slot)
 	b->active = 1;
 }
 
+/* buf_prepare_special_text()'s "not already open" path: reserve capacity
+ * for the BUFFER_OPENED event, reset the free slot -- which is where
+ * buf_reset_slot() claims it -- publish, then give it `name`.  Returns
+ * MAX_BUFFERS, out of buf_prepare_special_text()'s valid slot range and so
+ * caught by its own "target_slot >= MAX_BUFFERS" guard, when the
+ * reservation was refused; the slot is left untouched. */
+static int buf_prepare_special_new(int slot, const char *name)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	if (!res.valid) {
+		return MAX_BUFFERS;
+	}
+	buf_reset_slot(slot);
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
+	buflist[slot].filename = strdup(name);
+	buf_count++;
+	return slot;
+}
+
 int buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)
 {
@@ -1935,14 +2109,15 @@ int buf_prepare_special_text(
 		if (slot < 0) {
 			return -1;
 		}
-		buf_reset_slot(slot);
-		buflist[slot].filename = strdup(name);
-		buf_count++;
-		target_slot = slot;
+		target_slot = buf_prepare_special_new(slot, name);
 	}
 	if (target_slot >= MAX_BUFFERS) {
-		/* Both sources are in-range slots; restate the bound so the
-		 * indexing below stands on its own. */
+		/* Both sources are in-range slots when the slot was claimed;
+		 * a full event queue is what makes buf_prepare_special_new()
+		 * hand back MAX_BUFFERS instead, so this is the one message
+		 * this guard needs to report now that it is reachable. */
+		editor_set_status_message(
+		    "Too many pending events; buffer not opened.");
 		return -1;
 	}
 

@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "def.h"
+#include "event.h"
 #include "localvars.h"
 #include "perf.h"
 #include "syntax.h"
@@ -1914,10 +1915,32 @@ void editor_rehighlight_all(struct editor_buffer *b)
 	}
 }
 
-void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax)
+/* The whole of editor_set_syntax(): reserve capacity for the
+ * KG_EVENT_MODE_CHANGED event before the transition, assign the syntax and
+ * rehighlight, then publish -- pulled into its own function so
+ * editor_set_syntax() stays the single call this comment describes,
+ * rather than gaining a branch of its own.  A refused reservation leaves
+ * `b`'s syntax exactly as it was. */
+static void editor_set_syntax_commit(
+    struct editor_buffer *b, struct editor_syntax *syntax)
 {
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	if (!res.valid) {
+		editor_set_status_message(
+		    "Too many pending events; mode not changed.");
+		return;
+	}
 	b->syntax = syntax;
 	editor_rehighlight_all(b);
+	kg_event_publish_lifecycle(&res,
+	    kg_event_make_mode_changed(
+		buf_handle_of(b), syntax ? syntax->name : NULL));
+}
+
+void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax)
+{
+	editor_set_syntax_commit(b, syntax);
 }
 
 /* Maps syntax highlight token types to terminal colors. */

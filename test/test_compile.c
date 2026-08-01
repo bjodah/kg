@@ -50,7 +50,11 @@ struct editor_syntax compilation_syntax
 
 void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }
-void buf_select(int slot) { (void)slot; }
+int buf_select(int slot)
+{
+	(void)slot;
+	return 1;
+}
 
 /* Buffer identity belongs to bufmgr.c, which this binary does not link: here
  * a handle is its slot and always resolves, so the streaming tests exercise

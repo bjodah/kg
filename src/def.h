@@ -447,7 +447,7 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
     __attribute__((format(printf, 4, 5)));
 int autorevert_poll(void);
 void buf_reload_from_disk(void);
-void buf_select(int slot);
+int buf_select(int slot);
 /* Buffer identity and the view API that speaks it: see bufhandle.h. */
 void buf_visit_file(const char *filename, int explicit_readonly);
 void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);

@@ -14,6 +14,7 @@
 
 #include "def.h"
 #include "edit.h"
+#include "event.h"
 #include "kbd.h"
 #include "perf.h"
 #include "syntax.h"
@@ -546,6 +547,78 @@ static int confirm_destination_exists(
 	    fd, "File %s exists.  Overwrite? (y/n) ", path);
 }
 
+/* The write itself, plus this producer's two lifecycle events around it:
+ * before-save is reserved and published ahead of the write, so a full
+ * event queue refuses the whole save with the file untouched; after-save
+ * is reserved only once the write has run, since only then is its
+ * success/failure payload known.  That second reservation is the one
+ * refusal this producer cannot make -- the write has already committed
+ * (or definitively failed) by the time it is taken, so a lost reservation
+ * there can only cost the after-save event, never undo the write.  Rolls
+ * `bcur()->filename`/`syntax` back to `old_filename`/`old_syntax` on a
+ * failed write when `name_changed`, matching editor_save_named()'s prior
+ * inline behaviour.  Returns 0 on success, 1 on failure, status message
+ * already set either way. */
+static int editor_save_commit(int name_changed, char *old_filename,
+    struct editor_syntax *old_syntax, const struct file_snapshot *accepted)
+{
+	struct kg_buffer_handle handle = buf_handle_of(bcur());
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+	int len = 0;
+	int write_failed;
+	int saved_errno;
+
+	if (!res.valid) {
+		editor_set_status_message(
+		    "Too many pending events; %s not saved", bcur()->filename);
+		return 1;
+	}
+	kg_event_publish_lifecycle(&res, kg_event_make_before_save(handle));
+
+	write_failed = editor_write_rows_to_file(
+	    bcur()->filename, bcur()->row, bcur()->numrows, &len, accepted);
+	saved_errno = errno;
+
+	res = kg_event_reserve_lifecycle();
+	if (res.valid) {
+		kg_event_publish_lifecycle(
+		    &res, kg_event_make_after_save(handle, !write_failed));
+	}
+
+	if (write_failed) {
+		if (name_changed) {
+			free(bcur()->filename);
+			bcur()->filename = old_filename;
+			bcur()->syntax = old_syntax;
+		}
+		if (saved_errno == ESTALE) {
+			/* The guard in editor_write_rows_to_file() refused: say
+			 * what happened rather than render ESTALE as "Stale
+			 * file handle". */
+			editor_set_status_message("%s changed on disk during "
+						  "the save; nothing written",
+			    bcur()->filename);
+			return 1;
+		}
+		editor_set_status_message("Error writing %s: %s",
+		    bcur()->filename, strerror(saved_errno));
+		return 1;
+	}
+
+	if (name_changed) {
+		free(old_filename);
+		for (int i = 0; i < bcur()->numrows; i++) {
+			editor_update_syntax(bcur(), &bcur()->row[i]);
+		}
+	}
+
+	bcur()->dirty = 0;
+	undo_mark_clean(); /* Mark this state as clean for undo tracking */
+	editor_snapshot_disk();
+	editor_set_status_message("Wrote %s (%d bytes)", bcur()->filename, len);
+	return 0;
+}
+
 /* Save the current file on disk. Return 0 on success, 1 on error.
  * Special buffers (filename is NULL or starts with '*') prompt for a name.
  * `destination_decided` is set by write-file, which has already asked about
@@ -553,7 +626,6 @@ static int confirm_destination_exists(
 static int editor_save_named(int fd, int destination_decided)
 {
 	char *newfilename;
-	int len = 0;
 	char *old_filename = NULL;
 	struct editor_syntax *old_syntax = NULL;
 	int name_changed = 0;
@@ -605,41 +677,8 @@ static int editor_save_named(int fd, int destination_decided)
 		return 1;
 	}
 
-	if (editor_write_rows_to_file(bcur()->filename, bcur()->row,
-		bcur()->numrows, &len, accepted)) {
-		if (name_changed) {
-			free(bcur()->filename);
-			bcur()->filename = old_filename;
-			bcur()->syntax = old_syntax;
-		}
-		goto writeerr;
-	}
-
-	if (name_changed) {
-		free(old_filename);
-		for (int i = 0; i < bcur()->numrows; i++) {
-			editor_update_syntax(bcur(), &bcur()->row[i]);
-		}
-	}
-
-	bcur()->dirty = 0;
-	undo_mark_clean(); /* Mark this state as clean for undo tracking */
-	editor_snapshot_disk();
-	editor_set_status_message("Wrote %s (%d bytes)", bcur()->filename, len);
-	return 0;
-
-writeerr:
-	if (errno == ESTALE) {
-		/* The guard in editor_write_rows_to_file() refused: say what
-		 * happened rather than render ESTALE as "Stale file handle". */
-		editor_set_status_message(
-		    "%s changed on disk during the save; nothing written",
-		    bcur()->filename);
-		return 1;
-	}
-	editor_set_status_message(
-	    "Error writing %s: %s", bcur()->filename, strerror(errno));
-	return 1;
+	return editor_save_commit(
+	    name_changed, old_filename, old_syntax, accepted);
 }
 
 int editor_save(int fd) { return editor_save_named(fd, 0); }

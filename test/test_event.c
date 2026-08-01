@@ -11,6 +11,7 @@
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/event.h"
+#include "../src/syntax.h"
 #include "test.h"
 #include <stdint.h>
 #include <string.h>
@@ -758,6 +759,209 @@ static void test_event_reference_model(void)
 	teardown();
 }
 
+/* ---- lifecycle producers: buffer open/kill, view attach/detach, save,
+ * mode changed (bufmgr.c, fileio.c, syntax.c) ------------------------------
+ *
+ * Unlike the tests above, which play producer by hand, these call the real
+ * wired producers linked in by EXTRA_event (bufmgr.o, fileio.o, syntax.o --
+ * see the Makefile).  Slot 0 is setup()'s buffer and stays put; a test that
+ * activates another slot or moves buf_current restores both before
+ * teardown() so later tests in this binary see the same starting state
+ * setup() always has. win_count stays 0 in this harness (stubs_win.c), so
+ * buf_select() never touches a window's view -- tests that care about
+ * attach/detach call buf_attach_view()/buf_detach_view() directly. */
+
+static void test_producer_open_queues_resolvable_handle(void)
+{
+	setup();
+	CHECK(!buflist[1].active);
+
+	CHECK(buf_select(1) == 1);
+	CHECK(buflist[1].active);
+	CHECK(buf_current == 1);
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_OPENED);
+	CHECK(buf_resolve(ev.payload.buffer_life.buffer) == &buflist[1]);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	buf_select(0);
+	memset(&buflist[1], 0, sizeof(buflist[1]));
+	teardown();
+}
+
+static void test_producer_kill_events_killing_resolves_killed_does_not(void)
+{
+	setup();
+	int prev_count = buf_count;
+	buf_count = 2; /* pretend a second buffer so buf_kill() does not
+			* decide the session is over. */
+
+	/* setup() marks window 0 active but never points it at a buffer
+	 * (that is normally buf_select()'s job under win_count > 0, which
+	 * this harness keeps at 0); attach it for real first so buf_kill()'s
+	 * "reattach any window left showing nothing" pass has nothing to do
+	 * and this test sees only the two events it is about. */
+	buf_attach_view(&winlist[0], 0);
+	CHECK(kg_event_queue_pop(NULL));
+
+	CHECK(buf_select(1) == 1);
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_OPENED);
+	struct kg_buffer_handle h = ev.payload.buffer_life.buffer;
+	CHECK(buf_resolve(h) == &buflist[1]);
+
+	buf_kill(0);
+	CHECK(buf_current == 0);
+	CHECK(!buflist[1].active);
+
+	/* KILLING carries the identity that resolved right up to this call;
+	 * KILLED carries the same identity once it no longer does. */
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_KILLING);
+	CHECK(ev.payload.buffer_life.buffer.slot == h.slot);
+	CHECK(ev.payload.buffer_life.buffer.id == h.id);
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_KILLED);
+	CHECK(ev.payload.buffer_life.buffer.id == h.id);
+	CHECK(!buf_resolve(ev.payload.buffer_life.buffer));
+
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	buf_count = prev_count;
+	teardown();
+}
+
+static void test_producer_attach_detach_carry_window_and_buffer(void)
+{
+	setup();
+	struct kg_buffer_handle h0 = buf_handle(0);
+
+	winlist[0].buf = (struct kg_buffer_handle) { 0, 0, 0 };
+
+	buf_attach_view(&winlist[0], 0);
+	CHECK(winlist[0].buf.id == h0.id);
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_VIEW_ATTACHED);
+	CHECK(ev.payload.view.window_slot == 0);
+	CHECK(ev.payload.view.buffer.id == h0.id);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	buf_detach_view(&winlist[0]);
+	CHECK(winlist[0].buf.id == 0);
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_VIEW_DETACHED);
+	CHECK(ev.payload.view.window_slot == 0);
+	CHECK(ev.payload.view.buffer.id == h0.id);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	teardown();
+}
+
+static void test_producer_failed_save_produces_before_and_unsuccessful_after(
+    void)
+{
+	setup();
+	bcur()->filename = strdup("/nonexistent-kg-test-dir/testfile.txt");
+	/* Snapshot the (absent) destination as "accepted" so the save does
+	 * not stop at a confirm prompt first -- editor_confirm_yn() always
+	 * answers "no" in this harness (stubs_buffer.c), which would abort
+	 * the save before it ever reached the write this test is about. */
+	file_snapshot_path(bcur()->filename, &bcur()->disk);
+	editor_insert_row(bcur(), 0, "hi", 2);
+
+	CHECK(editor_save(0) == 1);
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BEFORE_SAVE);
+	CHECK(buf_resolve(ev.payload.before_save.buffer) == bcur());
+
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_AFTER_SAVE);
+	CHECK(ev.payload.after_save.success == false);
+	CHECK(buf_resolve(ev.payload.after_save.buffer) == bcur());
+
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	teardown();
+}
+
+static void test_producer_mode_changed_carries_name(void)
+{
+	setup();
+	struct editor_syntax syn = { .name = "Python" };
+
+	editor_set_syntax(bcur(), &syn);
+	CHECK(bcur()->syntax == &syn);
+
+	struct kg_event ev;
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_MODE_CHANGED);
+	CHECK(buf_resolve(ev.payload.mode_changed.buffer) == bcur());
+	CHECK(strcmp(ev.payload.mode_changed.name, "Python") == 0);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	teardown();
+}
+
+/* ---- reservation failure refuses the transition, old state intact ------- */
+
+static void test_producer_reservation_failure_refuses_open(void)
+{
+	setup();
+	kg_event_queue_set_capacity_for_test(KG_EVENT_LIFECYCLE_RESERVE);
+
+	struct kg_event_reservation held[KG_EVENT_LIFECYCLE_RESERVE];
+	for (int i = 0; i < KG_EVENT_LIFECYCLE_RESERVE; i++) {
+		held[i] = kg_event_reserve_lifecycle();
+		CHECK(held[i].valid);
+	}
+
+	int prev_current = buf_current;
+	CHECK(!buflist[1].active);
+
+	CHECK(buf_select(1) == 0);
+	CHECK(!buflist[1].active);
+	CHECK(buf_current == prev_current);
+
+	teardown();
+}
+
+static void test_producer_reservation_failure_refuses_kill(void)
+{
+	setup();
+	int prev_count = buf_count;
+	buf_count = 2;
+	CHECK(buf_select(1) == 1);
+	CHECK(kg_event_queue_pop(NULL)); /* drain the open event */
+
+	kg_event_queue_set_capacity_for_test(KG_EVENT_LIFECYCLE_RESERVE);
+	struct kg_event_reservation held[KG_EVENT_LIFECYCLE_RESERVE];
+	for (int i = 0; i < KG_EVENT_LIFECYCLE_RESERVE; i++) {
+		held[i] = kg_event_reserve_lifecycle();
+		CHECK(held[i].valid);
+	}
+
+	buf_kill(0);
+	/* Refused before anything about the buffer changed: still active,
+	 * still current, nothing published. */
+	CHECK(buflist[1].active);
+	CHECK(buf_current == 1);
+	CHECK(kg_event_queue_pop(NULL) == false);
+
+	buf_select(0);
+	memset(&buflist[1], 0, sizeof(buflist[1]));
+	buf_count = prev_count;
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_event_payload_constructors);
@@ -777,5 +981,12 @@ int main(void)
 	RUN(test_event_kill_before_drain);
 	RUN(test_event_slot_reuse_starts_a_fresh_summary);
 	RUN(test_event_reference_model);
+	RUN(test_producer_open_queues_resolvable_handle);
+	RUN(test_producer_kill_events_killing_resolves_killed_does_not);
+	RUN(test_producer_attach_detach_carry_window_and_buffer);
+	RUN(test_producer_failed_save_produces_before_and_unsuccessful_after);
+	RUN(test_producer_mode_changed_carries_name);
+	RUN(test_producer_reservation_failure_refuses_open);
+	RUN(test_producer_reservation_failure_refuses_kill);
 	return tests_failed ? 1 : 0;
 }

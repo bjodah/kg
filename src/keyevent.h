@@ -58,6 +58,12 @@ struct key_event {
 
 [[nodiscard]] int key_event_equal(struct key_event a, struct key_event b);
 
+/* `event` is exactly `base_` with `mods_` set -- the spot check every
+ * dispatch site that used to compare a legacy int now writes instead of
+ * building a temporary and calling key_event_equal() by hand. */
+#define KEY_IS(event, base_, mods_)                                           \
+	key_event_equal((event), (struct key_event) { (base_), (mods_) })
+
 /* The event a decoder integer stands for.  Every enum KEY_ACTION value
  * has exactly one, and no two have the same. */
 [[nodiscard]] struct key_event key_event_from_legacy(int key);

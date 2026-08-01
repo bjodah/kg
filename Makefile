@@ -132,7 +132,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
-	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c
+	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
@@ -189,7 +189,7 @@ KG_PTY_EMACS ?=
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
-                 $(OBJDIR)/width.o $(OBJDIR)/marker.o
+                 $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
 # Per-run machine-readable test results (gitignored).  Both layers write

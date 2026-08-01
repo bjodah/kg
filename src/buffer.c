@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "decor.h"
 #include "def.h"
 #include "edit.h"
 #include "marker.h"
@@ -1667,6 +1668,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 	edit_publish(b, r0, r1, &st);
 	kg_marker_relocate_all(
 	    b, e->begin_byte, e->end_byte, e->replacement_len);
+	kg_decor_compact(b);
 	edit_staged_free(&st);
 	edit_note_change(b, e->intent);
 	if (out) {
@@ -1827,10 +1829,14 @@ void kg_buffer_adopt_rows(
 {
 	/* A staged adoption has no edit span through which old positions can
 	 * be relocated.  Its documented broad-replacement policy is therefore
-	 * to detach every marker before the old rows disappear. */
+	 * to detach every marker before the old rows disappear; every
+	 * decoration then finds both its endpoints gone and compacts away
+	 * with them, the same pass an ordinary edit uses to evaporate empty
+	 * spans. */
 	kg_mark_clear(b);
 	kg_mark_ring_clear(b);
 	kg_marker_detach_all(b);
+	kg_decor_compact(b);
 	editor_free_all_rows(b);
 	b->row = *rows;
 	b->numrows = *numrows;

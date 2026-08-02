@@ -160,6 +160,48 @@ should expect to add a test.  Plan 02 Phase 5 still owns
 `UNDO_RECT_OVERWRITE` and `editor_set_local_readonly`, which have no
 producer in `src/` but are held live by tests that push records by hand.
 
+## Decision — Plan 06 gets a measured budget, cap 5500
+
+Taken 2026-08-02, entering Plan 06's sub-plans C and D.
+`SCC_COMPLEXITY_MAX` is **5500**.
+
+Two things forced the decision rather than another loan against named
+sources.  First, the 4750 cap had already been missed: the tree measured
+4825 at `93ade5d`, so Plan 05's Bundle E closed 75 units over and
+`make complexity-check` has been red since.  That 75 is absorbed here and
+named rather than quietly carried.  Second, the repayment sources this
+README named are spent.  The `UNDO_SPLIT_LINE`/`UNDO_JOIN_LINE`/
+`UNDO_REFLOW_PARA`/`UNDO_RECT_OVERWRITE` residue in the paragraph above
+is stale — those kinds no longer exist in `src/`, only a comment in
+`test/test_undo.c` still says the name — and the README already records
+that `cmd.c` and `localvars.c` did not hold what was hoped.
+
+The number is derived from what the remaining phases actually build,
+priced against the closest existing module rather than guessed.  Plan 06
+Phase 2 measured 4893 on landing; the phases left are:
+
+| Phase | What it builds | Priced against | Budget |
+|-------|----------------|----------------|--------|
+| 3 | editing/search/marker natives, match data | `lisp_buffer.c` (55) roughly doubling + a search module near `lisp_io.c` (57) | 120 |
+| 4 | kg-side `save-excursion`, `with-current-buffer` | `lisp_cmd.c` (38) | 40 |
+| 5 | hook registry, event subscriber, hook natives | between `decor.c` (77) and `event.c` (84) | 90 |
+| 6 | keymap natives only; mode/variable/minibuffer stay gated | `lisp_cmd.c` (38) | 30 |
+| 7 | bounded process table, explicit-argv spawn, process natives | `marker.c` (101) for the table, `process.c` (30) growing, natives | 230 |
+| 8 | `provide`/`require`/`featurep`, load-path, cycle detection, docstrings | `lisp_io.c` (57) plus a feature table | 90 |
+
+That is 600 over the 4893 the tree measures today, so 5493, rounded to
+5500.  Fe's own growth does not count: `SCC_COMPLEXITY_PATHS` is `src`.
+
+This is a budget, not a blank cheque, and the per-phase rows above are
+the part that does the work.  Each phase records scc before and after
+against its row; a phase that overruns its row stops and reports rather
+than spending the next phase's allowance.  Rule 6 is otherwise unchanged:
+every slice still funds itself where it can, and a durable saving is
+still banked with `make complexity-baseline`.  The resting bound at
+program close is whatever is measured then — and, given that this is the
+second time an estimate has been missed low, whoever closes the program
+should state the measured number rather than predict it again.
+
 ## Review of the consultant's recommendations
 
 The recommendations identify the right work, with these ordering corrections:
@@ -202,7 +244,7 @@ The recommendations identify the right work, with these ordering corrections:
 | [03](03-markers-decorations-and-events.md) | ... | **Phases 0–5 done; Plan 03 complete, so 04's phase 3 and 06's event-dependent phases are unblocked** |
 | [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–3 done; Phase 4 (session nesting) still deferred behind Plan 05's kill ring, and nothing depends on it** |
 | [05](05-emacs-affordances-delivery.md) | ... | **Introspection delivered; Bundles A, B, D and E remain** |
-| [06](06-runtime-and-lisp-extensibility.md) | ... | **Not started; every phase is now unblocked — a runtime adapter is one ordinary C subscriber on 03's queue, not a second hook path** |
+| [06](06-runtime-and-lisp-extensibility.md) | ... | **Phases 0–2 done (adapter split, `FeCallWithOptions`, buffer objects and the runtime execution context); Phase 3 next; see [06-subplans](06-subplans/)** |
 | [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started; Phase 2 is next** |
 
 ## Dependency and delivery order

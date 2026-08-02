@@ -252,24 +252,37 @@ char *kill_ring_get(void) { return killring.entries[0].text; }
 /* Get the newest entry's length (returns 0 if the ring is empty) */
 size_t kill_ring_get_len(void) { return killring.entries[0].len; }
 
+/* How many bytes `n` copies of entry `index` come to, or 0 when there is
+ * nothing to make: a bad index, a non-positive count, a product that
+ * overflows or exceeds the batch cap -- or an empty entry, which repeated
+ * any number of times is still nothing to insert and must not become a
+ * zero-byte allocation. */
+static size_t kill_ring_repeated_len(int index, int n)
+{
+	size_t total_len;
+
+	if (n <= 0 || index < 0 || index >= killring.count) {
+		return 0;
+	}
+	if (!checked_mul_size_t(
+		&total_len, killring.entries[index].len, (size_t)n)
+	    || total_len > KG_YANK_BATCH_MAX) {
+		return 0;
+	}
+	return total_len;
+}
+
 /* `n` copies of entries[index]'s bytes in one allocation; see yank.h. */
 char *kill_ring_entry_repeated(int index, int n, size_t *out_len)
 {
-	size_t entry_len, total_len;
+	size_t entry_len, total_len = kill_ring_repeated_len(index, n);
 	char *combined;
 	int i;
 
-	if (n <= 0 || index < 0 || index >= killring.count) {
+	if (!total_len) {
 		return NULL;
 	}
 	entry_len = killring.entries[index].len;
-	/* An empty entry repeated any number of times is still nothing to
-	 * insert, and the callers already read NULL as "nothing to do" -- so
-	 * refuse it here rather than handing back a zero-byte allocation. */
-	if (!checked_mul_size_t(&total_len, entry_len, (size_t)n)
-	    || total_len == 0 || total_len > KG_YANK_BATCH_MAX) {
-		return NULL;
-	}
 	combined = yank_alloc_ok() ? malloc(total_len) : NULL;
 	if (!combined) {
 		return NULL;

@@ -402,6 +402,8 @@ static const struct {
 	 * never bound to anything. */
 	{ "M-g g", "goto-line" },
 	{ "M-g M-g", "goto-line" },
+	{ "M-g n", "next-error" },
+	{ "M-g p", "previous-error" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "cmdstate.h"
 #include "compile.h"
+#include "compile_nav.h"
 #include "def.h"
 #include "describe.h"
 #include "edit.h"
@@ -83,6 +84,10 @@ static void cmd_what_cursor_position(int fd)
 
 /* Go to a specific line (prompts for line or line:col). */
 static void cmd_goto_line(int fd) { editor_goto_line(fd); }
+
+/* Jump to the next/previous compilation diagnostic (M-g n / M-g p). */
+static void cmd_next_error(int fd) { editor_next_error(fd); }
+static void cmd_previous_error(int fd) { editor_previous_error(fd); }
 
 /* Save current buffer to its file. */
 static void cmd_save_buffer(int fd) { editor_save(fd); }
@@ -1534,6 +1539,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Insert a newline, with the same indentation" },
 	{ "newline-or-eval-print-last-sexp", cmd_newline_or_eval_print, EDITS,
 	    "Newline, or evaluate and print the sexp in Lisp buffers" },
+	{ "next-error", cmd_next_error, CMD_NONE,
+	    "Jump to the next compilation diagnostic" },
 	{ "next-line", cmd_next_line, REPEATS | KEEPS_GOAL,
 	    "Move point one line down" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
@@ -1544,6 +1551,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Move to the next window" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
+	{ "previous-error", cmd_previous_error, CMD_NONE,
+	    "Jump to the previous compilation diagnostic" },
 	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL,
 	    "Move point one line up" },
 	{ "query-replace", cmd_query_replace, EDITS,

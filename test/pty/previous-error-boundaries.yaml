@@ -1,0 +1,40 @@
+# previous-error (M-g p) walks the same list backward: unvisited, it
+# starts from the last diagnostic; repeated presses step back one at a
+# time; running past the first reports "No previous diagnostics" and
+# stays there instead of wrapping.
+name: previous-error-boundaries
+filename: prev.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+  four
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'prev.c:2:1: error: e1\\nprev.c:3:1: error: e2\\nprev.c:4:1: error: e3\\n'"
+  - RET
+  - M-g
+  - p
+  - Z
+  - M-g
+  - p
+  - Y
+  - M-g
+  - p
+  - X
+  - M-g
+  - p
+expected_screen_contains:
+  - "No previous diagnostics"
+expected_saved: |-
+  one
+  Xtwo
+  Ythree
+  Zfour

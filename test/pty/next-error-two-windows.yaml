@@ -1,0 +1,36 @@
+# Invoked from the *compilation* window with a second window available,
+# next-error moves focus to the other window rather than replacing
+# *compilation*'s own view: both the diagnostic (still visible in its
+# window) and the new cursor position (in the source window) show on
+# screen at once.
+name: next-error-two-windows
+filename: twowin.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'twowin.c:2:1: error: two is bad\\n'"
+  - RET
+  - C-x
+  - o
+  - M-g
+  - n
+  - M-x
+  - what-cursor-position
+  - RET
+expected_screen_contains:
+  - "Line 2 of 3"
+  - "twowin.c:2:1: error: two is bad"
+expected_saved: |-
+  one
+  two
+  three

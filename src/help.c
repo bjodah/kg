@@ -50,7 +50,7 @@ const char *kg_help_lines[]
 	      "nput hist ±   │",
 	      "│ M-t      transpose word │ M-z      zap to char    │           "
 	      "              │",
-	      "│                         │ M-x      named command  │ M-:       "
+	      "│ M-g n/p  next/prev err  │ M-x      named command  │ M-:       "
 	      "eval expr     │",
 	      "│                         │ C-j      eval sexp/nl   │ C-x #    "
 	      "save+exit      │",

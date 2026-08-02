@@ -1,0 +1,34 @@
+# next-error/M-g n on a relative-path diagnostic, with and without a
+# column: the compile command's cwd is the source file's own directory
+# (see compilation_resolve_directory()), so "cols.c:LINE[:COL]:" here
+# names the same buffer already open.  A diagnostic with no column lands
+# at the start of the line; one with a column lands there instead.
+name: next-error-relative-path-and-columns
+filename: cols.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+  four
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'cols.c:2: error: no column\\ncols.c:4:3: error: has column\\n'"
+  - RET
+  - M-g
+  - n
+  - A
+  - M-g
+  - n
+  - B
+expected_saved: |-
+  one
+  Atwo
+  three
+  foBur

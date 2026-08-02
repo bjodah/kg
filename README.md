@@ -111,7 +111,15 @@ standard VT100 escape sequences.
   a stale name
 - Compilation: `M-x compile` / `M-x recompile` running the buffer's
   `compile-command` in `/bin/sh -c` asynchronously, output streaming into a read-only
-  `*compilation*` buffer; cancel with `M-x kill-compilation` or `C-c C-k` inside `*compilation*`
+  `*compilation*` buffer; cancel with `M-x kill-compilation` or `C-c C-k` inside `*compilation*`.
+  `file:line[:column]:` diagnostics parsed from that output (up to 128 per
+  run) are navigable with `next-error`/`previous-error` (`M-g n` / `M-g p`),
+  which open or select the source file, in another window when
+  `*compilation*` is the selected one, and track the diagnostic's position
+  through edits made after visiting it. A recompile discards the previous
+  run's diagnostics and restarts the cursor from the first one
+- `M-g` is a prefix map: `M-g g` / `M-g M-g` go to a line, `M-g n` / `M-g p`
+  step through compilation diagnostics
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
   `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`

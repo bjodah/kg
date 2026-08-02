@@ -1,0 +1,25 @@
+# The diagnostic's column is a byte offset into the source line, the same
+# coordinate space buffer_row_col_to_position() uses; landing point at a
+# UTF-8 glyph boundary (not mid-sequence) is what makes typing there safe.
+name: next-error-utf8-source
+filename: utf8src.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  héllo
+  wörld
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'utf8src.c:2:2: error: e\\n'"
+  - RET
+  - M-g
+  - n
+  - X
+expected_saved: |-
+  héllo
+  wXörld

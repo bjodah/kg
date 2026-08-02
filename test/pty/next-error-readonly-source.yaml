@@ -1,0 +1,31 @@
+# next-error moves point into a read-only source file the same as any
+# other: read-only refuses edits, not navigation.  what-cursor-position
+# proves the move happened without ever writing to the buffer.
+name: next-error-readonly-source
+filename: ro.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  -*- buffer-read-only: t -*-
+  second
+  third
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'ro.c:2:1: error: e\\n'"
+  - RET
+  - M-g
+  - n
+  - M-x
+  - what-cursor-position
+  - RET
+expected_screen_contains:
+  - "Line 2 of 3"
+expected_saved: |-
+  -*- buffer-read-only: t -*-
+  second
+  third

@@ -1,0 +1,40 @@
+# Recompiling discards the previous run's diagnostics and its cursor: a
+# second, different compile followed by one next-error must land on that
+# run's first diagnostic, not continue where the first run's cursor was
+# or resurrect its markers.
+name: next-error-rebuild-invalidates
+filename: rebuild.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  aaa
+  bbb
+  ccc
+  ddd
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'rebuild.c:2:1: error: e1\\n'"
+  - RET
+  - M-g
+  - n
+  - X
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'rebuild.c:4:1: error: e2\\n'"
+  - RET
+  - M-g
+  - n
+  - Y
+expected_saved: |-
+  aaa
+  Xbbb
+  ccc
+  Yddd

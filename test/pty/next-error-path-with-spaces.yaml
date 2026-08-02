@@ -1,0 +1,27 @@
+# A diagnostic's path may contain spaces; compile_parse.h's file field is
+# everything before the first colon, spaces included, and next-error must
+# join and open it as one path rather than splitting on the space.
+name: next-error-path-with-spaces
+filename: "with space.c"
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'with space.c:2:1: error: e\\n'"
+  - RET
+  - M-g
+  - n
+  - Z
+expected_saved: |-
+  one
+  Ztwo
+  three

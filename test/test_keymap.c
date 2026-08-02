@@ -458,9 +458,10 @@ static void test_builtin_global_map_resolves(void)
 {
 	static const char *const sequences[] = { "C-f", "C-b", "C-n", "C-p",
 		"C-a", "C-e", "M-f", "M-b", "M-<", "M->", "C-v", "M-v", "C-l",
-		"M-r", "M-g g", "M-g M-g", "<left>", "<right>", "<up>",
-		"<down>", "<home>", "<end>", "<prior>", "<next>", "C-<left>",
-		"C-<right>", "C-<up>", "C-<down>", "C-<home>", "C-<end>" };
+		"M-r", "M-g g", "M-g M-g", "M-g n", "M-g p", "<left>",
+		"<right>", "<up>", "<down>", "<home>", "<end>", "<prior>",
+		"<next>", "C-<left>", "C-<right>", "C-<up>", "C-<down>",
+		"C-<home>", "C-<end>" };
 	size_t i;
 
 	keymap_reset();
@@ -476,7 +477,7 @@ static void test_builtin_global_map_resolves(void)
 		    "command",
 		    sequences[i], match.command);
 	}
-	/* M-g alone is a prefix now, not goto-line: both leaves below it are
+	/* M-g alone is a prefix now, not goto-line: every leaf below it is
 	 * two keys long, which is what makes the shorter probe report
 	 * KEYMAP_PREFIX (see keymap.c's map_probe()) without a bare "M-g"
 	 * prefix declaration. */

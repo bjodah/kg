@@ -1,0 +1,27 @@
+# A diagnostic naming an absolute path -- the compile command builds one
+# with $(pwd) at run time, since the PTY case's own directory is not known
+# ahead of time -- is opened the same way a relative one is.
+name: next-error-absolute-path
+filename: absfile.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf '%s:2:1: error: e\\n' \"$(pwd)/absfile.c\""
+  - RET
+  - M-g
+  - n
+  - Z
+expected_saved: |-
+  one
+  Ztwo
+  three

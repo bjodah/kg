@@ -41,6 +41,7 @@
 
 #include "bufhandle.h"
 #include "compile.h"
+#include "compile_nav.h"
 #include "def.h"
 #include "event.h"
 #include "kbd.h"
@@ -94,6 +95,7 @@ void init_editor(void)
 	undo_init();
 	update_window_size();
 	win_init();
+	compile_nav_install();
 	atexit(editor_cleanup);
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));

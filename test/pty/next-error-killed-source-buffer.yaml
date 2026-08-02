@@ -1,0 +1,42 @@
+# Killing the buffer next-error last visited invalidates its source
+# marker (a buffer handle's generation moves on kill, so the marker
+# resolves as gone rather than into whatever the freed slot picks up
+# next -- opening another file is what exercises that "reused storage"
+# case, not just an inactive slot).  Revisiting the same diagnostic must
+# reopen the file fresh by path and land at the diagnostic's own
+# line/column, not jump into the unrelated buffer that took the slot.
+name: next-error-killed-source-buffer
+filename: target.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  other.txt: |
+    other
+initial: |-
+  one
+  two
+  three
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'target.c:2:1: error: e\\n'"
+  - RET
+  - M-g
+  - n
+  - C-x
+  - k
+  - C-x
+  - C-f
+  - "~/other.txt"
+  - RET
+  - M-g
+  - n
+  - X
+expected_saved: |-
+  one
+  Xtwo
+  three

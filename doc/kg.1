@@ -446,6 +446,8 @@ Multiple files each open in their own buffer.
 .It M-m Ta Back to indentation on current line
 .It M-r Ta Cycle cursor through top/middle/bottom of window
 .It M-g g / M-g M-g Ta Go to line (prompts for line or line:col)
+.It M-g n Ta Jump to the next compilation diagnostic
+.It M-g p Ta Jump to the previous compilation diagnostic
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -1485,6 +1487,14 @@ Insert a newline; in Lisp Interaction and Lisp buffers, evaluate the
 s-expression before point and insert the result instead.
 Bound to
 .Ic C-j .
+.It next-error
+Jump to the next diagnostic parsed from the
+.Pa *compilation*
+buffer, opening or selecting its source file and moving point there.
+Bound to
+.Ic M-g n .
+See
+.Sx COMPILATION .
 .It next-line
 Move point one line down, keeping the goal column.
 Bound to
@@ -1502,6 +1512,16 @@ A numeric argument repeats it.
 Move to the next window.
 Bound to
 .Ic C-x o .
+.It previous-error
+Jump to the previous diagnostic parsed from the
+.Pa *compilation*
+buffer.
+Bound to
+.Ic M-g p .
+The reverse of
+.Ic next-error ;
+see
+.Sx COMPILATION .
 .It previous-line
 Move point one line up, keeping the goal column.
 Bound to
@@ -1823,6 +1843,46 @@ Truncation is noted in the buffer; the process keeps running, its remaining
 output is still read and discarded, and its exit status is still reported.
 .Pp
 Compilation is permitted while the source buffer is read-only.
+.Pp
+Every
+.Ql file:line[:column]:
+diagnostic in the output
+.Pq and, for GNU make, the directory a relative path is read against
+is recorded as it streams in, up to 128 per run; further diagnostics are
+counted but not kept, and the buffer says so.
+.Ic M-x next-error
+.Pq Ic M-g n
+and
+.Ic M-x previous-error
+.Pq Ic M-g p
+step through them, opening or selecting the named file, in another window
+when
+.Pa *compilation*
+is the selected one and a second window exists, otherwise in the current
+window, and moving point to the recorded position.
+The two commands share one cursor through the list, owned by them and not
+by the recorded diagnostics; running either past either end reports
+.Do
+No more diagnostics
+.Dc
+or
+.Do
+No previous diagnostics
+.Dc
+and stays there rather than wrapping.
+A numeric argument moves that many diagnostics at once.
+.Pp
+Revisiting a diagnostic after editing its file returns to the same place
+in the text even if the edit moved it, because the position is tracked as
+the file changes rather than re-read from the diagnostic's original line
+number; a file whose buffer was killed since the last visit, or that
+cannot be opened at all, loses that tracking and reports the problem
+instead of guessing.
+Starting a new compilation
+.Pq including Ic recompile
+discards the previous run's diagnostics and cursor, so
+.Ic next-error
+starts over from the first one.
 .Sh READ-ONLY MODE
 .Ic M-x read-only-mode
 .Pq bound to Ic C-x C-q

@@ -1,0 +1,40 @@
+# The point next-error revisited moves with the surrounding text: two
+# lines inserted above it push it down two rows, and a second visit to
+# the same diagnostic must follow the marker there rather than reopen the
+# file at the diagnostic's original (now stale) line number.
+name: next-error-edits-before-marker
+filename: markertest.c
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: |-
+  one
+  two
+  three
+  four
+keys:
+  - M-x
+  - compile
+  - RET
+  - C-a
+  - C-k
+  - "printf 'markertest.c:3:1: error: e\\n'"
+  - RET
+  - M-g
+  - n
+  - M
+  - M-<
+  - newA
+  - RET
+  - newB
+  - RET
+  - M-g
+  - n
+  - N
+expected_saved: |-
+  newA
+  newB
+  one
+  two
+  NMthree
+  four

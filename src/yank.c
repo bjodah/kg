@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bufhandle.h"
 #include "cmdstate.h"
 #include "def.h"
 #include "edit.h"

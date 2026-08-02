@@ -77,7 +77,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c compile_parse.c \
-       compile_nav.c \
+       compile_nav.c register.c \
        width.c dired.c perf.c process.c marker.c decor.c event.c
 
 # Object and header files
@@ -107,7 +107,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
            $(TESTDIR)/test_describe $(TESTDIR)/test_marker \
            $(TESTDIR)/test_decor $(TESTDIR)/test_event \
-           $(TESTDIR)/test_perf
+           $(TESTDIR)/test_register $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
 # be mixed with the src/*.o everything else links.  Its objects live in
@@ -606,6 +606,10 @@ EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yan
 EXTRA_marker      := $(EXTRA_buffer)
 EXTRA_decor       := $(EXTRA_buffer)
 EXTRA_event       := $(EXTRA_buffer) $(OBJDIR)/event.o
+# The register table stores markers into real buffers and its commands
+# reach the region text and the insertion path, so it links the same
+# buffer-backed set as EXTRA_marker plus its own object.
+EXTRA_register    := $(EXTRA_buffer) $(OBJDIR)/register.o
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

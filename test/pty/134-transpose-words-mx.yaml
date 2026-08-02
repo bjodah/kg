@@ -1,0 +1,12 @@
+name: transpose-words-mx
+filename: transpose-words-mx.txt
+initial: |
+  alpha beta gamma
+# Same as M-t, run through M-x to prove the command works from both
+# entry points, as the command table requires.
+keys:
+  - M-x
+  - transpose-words
+  - RET
+expected_saved: |
+  beta alpha gamma

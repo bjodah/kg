@@ -420,6 +420,7 @@ static const struct {
 	{ "C-M-s", "isearch-forward-regexp" },
 	{ "C-M-r", "isearch-backward-regexp" },
 	{ "C-t", "transpose-chars" },
+	{ "M-t", "transpose-words" },
 	{ "M-%", "query-replace" },
 	{ "M-d", "kill-word" },
 	{ "M-DEL", "backward-kill-word" },

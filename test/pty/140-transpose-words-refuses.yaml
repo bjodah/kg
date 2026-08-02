@@ -1,0 +1,10 @@
+name: transpose-words-refuses
+filename: transpose-words-refuses.txt
+initial: |
+  onlyword
+# A single word has no second word to transpose with; M-t refuses and
+# leaves the buffer untouched.
+keys:
+  - M-t
+expected_saved: |
+  onlyword

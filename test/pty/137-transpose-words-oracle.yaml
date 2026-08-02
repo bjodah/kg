@@ -1,0 +1,12 @@
+name: transpose-words-oracle
+filename: transpose-words-oracle.txt
+initial: |
+  The quick brown fox jumps
+# Two M-f land point between "quick" and "brown"; M-t then transposes
+# those two, matching Emacs' transpose-words for the ordinary in-a-line
+# case.
+keys:
+  - M-f
+  - M-f
+  - M-t
+oracle: emacs

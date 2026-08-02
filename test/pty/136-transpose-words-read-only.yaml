@@ -1,0 +1,14 @@
+name: transpose-words-read-only
+filename: transpose-words-ro.txt
+initial: |
+  alpha beta gamma
+# read-only-mode (C-x C-q) refuses M-t like any other editing command;
+# toggle it back off before saving so the save itself is not refused.
+keys:
+  - C-x
+  - C-q
+  - M-t
+  - C-x
+  - C-q
+expected_saved: |
+  alpha beta gamma

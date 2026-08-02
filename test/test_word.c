@@ -615,6 +615,214 @@ static void test_word_case_leaves_multibyte_bytes_alone(void)
 	teardown();
 }
 
+/* ---- Transpose-words tests ---- */
+
+/* Point between two words transposes them, keeping the separator between
+ * them exactly as it was (one space here), and costs one undo step. */
+static void test_transpose_words_between_words(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	editor_cursor_goto(0, 4); /* just before "two" */
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "two one three") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "one two three") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
+/* Point inside the first word transposes it with the next word, same as
+ * point between them -- Emacs' transpose-words picks the word containing
+ * or immediately before point, not the one point happens to sit in. */
+static void test_transpose_words_inside_word(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	editor_cursor_goto(0, 1); /* inside "one" */
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "two one three") == 0);
+	free(text);
+	teardown();
+}
+
+/* Beginning of buffer: the word at/after point is "one", the next is
+ * "two" -- same result as the between-words case, pinned separately
+ * because BOB is where the backward search cannot move at all. */
+static void test_transpose_words_at_bob(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	editor_cursor_goto(0, 0);
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "two one three") == 0);
+	free(text);
+	teardown();
+}
+
+/* End of buffer, right after the last word: there is no word after point,
+ * so this is refused and the buffer is untouched. */
+static void test_transpose_words_at_eob_refuses(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	editor_cursor_goto(0, 13);
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "one two three") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
+/* A buffer holding exactly one word has nothing to transpose it with. */
+static void test_transpose_words_one_word_refuses(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "onlyword", 8);
+	editor_cursor_goto(0, 0);
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "onlyword") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
+/* Repeated use bubbles the same word forward past its neighbours, one
+ * word at a time, matching Emacs: "aaa bbb ccc ddd" from BOB becomes
+ * "bbb aaa ccc ddd" then "bbb ccc aaa ddd" -- point after each call sits
+ * right after the moved word, which is where the next call picks up. */
+static void test_transpose_words_repeated_bubbles_forward(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "aaa bbb ccc ddd", 15);
+	editor_cursor_goto(0, 0);
+
+	editor_transpose_words();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "bbb aaa ccc ddd") == 0);
+	free(text);
+
+	editor_transpose_words();
+	text = word_buffer_text();
+	CHECK(strcmp(text, "bbb ccc aaa ddd") == 0);
+	free(text);
+	teardown();
+}
+
+/* A read-only buffer refuses, unconditionally and without cost. */
+static void test_transpose_words_refused_when_read_only(void)
+{
+	uint64_t generation;
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	bcur()->readonly = 1;
+	generation = bcur()->content_generation;
+	editor_cursor_goto(0, 4);
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text, "one two three") == 0);
+	free(text);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(bcur()->content_generation == generation);
+	bcur()->readonly = 0;
+	teardown();
+}
+
+/* A line break is a separator like any other: it is carried through the
+ * swap untouched, and the words either side of it stay on their own
+ * rows rather than being merged into one. */
+static void test_transpose_words_across_line_break(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0, "foo", 3);
+	editor_insert_row(bcur(), 1, "bar", 3);
+	editor_cursor_goto(0, 0);
+
+	editor_transpose_words();
+
+	CHECK(bcur()->numrows == 2);
+	CHECK(memcmp(bcur()->row[0].chars, "bar", 3) == 0);
+	CHECK(memcmp(bcur()->row[1].chars, "foo", 3) == 0);
+	text = word_buffer_text();
+	CHECK(strcmp(text, "bar\nfoo") == 0);
+	free(text);
+	teardown();
+}
+
+/* A multi-byte (or malformed) byte is not a word character, so it bounds
+ * a word like any other separator -- and, like any other separator, it
+ * comes through the swap byte-for-byte rather than being reinterpreted.
+ * "ab", the 2-byte accented separator, and "cd" swap their outer words
+ * and keep the middle bytes exactly as they were. */
+static void test_transpose_words_multibyte_separator_is_untouched(void)
+{
+	char *text;
+
+	setup();
+	editor_insert_row(bcur(), 0,
+	    "ab\xC3\xA9"
+	    "cd ef",
+	    9);
+	editor_cursor_goto(0, 0);
+
+	editor_transpose_words();
+
+	text = word_buffer_text();
+	CHECK(strcmp(text,
+		  "cd\xC3\xA9"
+		  "ab ef")
+	    == 0);
+	free(text);
+	teardown();
+}
+
+/* An empty buffer has no words at all: word_point() itself refuses. */
+static void test_transpose_words_empty_buffer_refuses(void)
+{
+	setup();
+	editor_transpose_words();
+	CHECK(bcur()->numrows == 0);
+	CHECK(bcur()->undostack.size == 0);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -648,5 +856,15 @@ int main(void)
 	RUN(test_sentence_forward_clamps_huge_column_offset);
 	RUN(test_kill_word_forward_clamps_huge_column_offset);
 	RUN(test_kill_word_backward_clamps_huge_column_offset);
+	RUN(test_transpose_words_between_words);
+	RUN(test_transpose_words_inside_word);
+	RUN(test_transpose_words_at_bob);
+	RUN(test_transpose_words_at_eob_refuses);
+	RUN(test_transpose_words_one_word_refuses);
+	RUN(test_transpose_words_repeated_bubbles_forward);
+	RUN(test_transpose_words_refused_when_read_only);
+	RUN(test_transpose_words_across_line_break);
+	RUN(test_transpose_words_multibyte_separator_is_untouched);
+	RUN(test_transpose_words_empty_buffer_refuses);
 	return test_summary();
 }

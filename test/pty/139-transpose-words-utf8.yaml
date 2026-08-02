@@ -1,0 +1,9 @@
+name: transpose-words-utf8
+filename: transpose-words-utf8.txt
+initial: "café bar\n"
+# The accented byte sequence in "café" is not a word character (ASCII-only
+# policy), so it bounds a word like any separator: word 1 is "caf", word 2
+# is "bar", and the "é " between them rides along untouched.
+keys:
+  - M-t
+expected_saved: "baré caf\n"

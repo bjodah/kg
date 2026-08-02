@@ -1,0 +1,10 @@
+name: transpose-words
+filename: transpose-words.txt
+initial: |
+  alpha beta gamma
+# Point starts at BOB, on "alpha".  M-t transposes the word at/before
+# point with the next one, landing point after both.
+keys:
+  - M-t
+expected_saved: |
+  beta alpha gamma

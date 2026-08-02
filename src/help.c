@@ -48,7 +48,7 @@ const char *kg_help_lines[]
 	      "quit           │",
 	      "│ M-g      goto line      │ M-\\/SPC  space cleanup │ M-p/M-n  i"
 	      "nput hist ±   │",
-	      "│                         │ M-z      zap to char    │           "
+	      "│ M-t      transpose word │ M-z      zap to char    │           "
 	      "              │",
 	      "│                         │ M-x      named command  │ M-:       "
 	      "eval expr     │",

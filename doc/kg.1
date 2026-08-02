@@ -174,7 +174,7 @@ includes the line break, and on the last line it ends at
 Every codepoint from U+0080 up counts as a word constituent there, so
 accented and CJK words come back whole.
 The interactive word commands
-.Pq M-f , M-b , M-@ , M-d
+.Pq M-f , M-b , M-@ , M-d , M-t
 and the Lisp
 .Li forward-word
 and
@@ -522,6 +522,7 @@ will be mis-detected as sentence ends.
 .It C-o Ta Open line (insert newline, keep cursor)
 .It C-q Ta Quoted-insert: insert the next byte literally
 .It C-t Ta Transpose characters around point
+.It M-t Ta Transpose the two words around point
 .It M-\e Ta Delete horizontal space around point
 .It M-Space Ta Collapse horizontal space around point to one space
 .It M-z Ta Kill through a prompted character
@@ -1646,6 +1647,21 @@ Equivalent to
 Transpose characters around point.
 Equivalent to
 .Ic C-t .
+.It transpose-words
+Transpose the two words around point: the word containing or
+immediately before point, and the word that follows it.
+Point ends up after both.
+Uses the same ASCII-only word-boundary policy as
+.Ic M-f
+and
+.Ic M-b ,
+so an accented or multi-byte character bounds a word instead of joining
+it.
+A numeric argument repeats it, moving the same word past that many
+neighbours.
+Refused when there are not two words to transpose.
+Equivalent to
+.Ic M-t .
 .It undo
 Undo the last change.
 Bound to

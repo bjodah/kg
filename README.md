@@ -88,7 +88,7 @@ standard VT100 escape sequences.
   block scalars (`|`/`>`), booleans/null, numbers, and structural
   markers; `M-x yaml-mode` enables it manually
 - Word-case bindings (M-u / M-l / M-c)
-- Transpose chars (C-t)
+- Transpose chars (C-t) and words (M-t)
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)
 - Sort lines in the region (M-x sort-lines, single-step undo)
 - Open line (C-o) and join-line (M-^)
@@ -237,8 +237,8 @@ Any other symbol is an error rather than a silent `nil`.
 
 Its word constituents include every codepoint from U+0080 up, so `héllo` and
 `漢字` come back whole. This is the one place that is true: the interactive
-word commands (`M-f`, `M-b`, `M-@`, `M-d`) are ASCII-only and stop at the
-first accented character, and so are the Lisp `forward-word` and
+word commands (`M-f`, `M-b`, `M-@`, `M-d`, `M-t`) are ASCII-only and stop at
+the first accented character, and so are the Lisp `forward-word` and
 `backward-word`, which drive the same editor primitives.
 
 Upstream fe has no string operations, so kg registers its own. They index by

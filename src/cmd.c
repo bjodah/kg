@@ -190,6 +190,13 @@ static void cmd_transpose_chars(int fd)
 	editor_transpose_chars();
 }
 
+/* Transpose the two words around point. */
+static void cmd_transpose_words(int fd)
+{
+	(void)fd;
+	editor_transpose_words();
+}
+
 /* Delete spaces and tabs around point on the current line. */
 static void cmd_delete_horizontal_space(int fd)
 {
@@ -1593,6 +1600,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle whether this buffer refuses edits" },
 	{ "transpose-chars", cmd_transpose_chars, EDITS | REPEATS | LISP_OK,
 	    "Transpose the characters around point" },
+	{ "transpose-words", cmd_transpose_words, EDITS | REPEATS,
+	    "Transpose the two words around point" },
 	{ "undo", cmd_undo, EDITS | REPEATS, "Undo the last change" },
 	{ "upcase-word", cmd_upcase_word, EDITS | REPEATS | LISP_OK,
 	    "Convert the word forward from point to upper case" },

@@ -1,0 +1,13 @@
+name: transpose-words-prefix
+filename: transpose-words-prefix.txt
+initial: |
+  aaa bbb ccc ddd
+# CMD_REPEATS runs the handler that many times: C-u 2 M-t from BOB
+# bubbles "aaa" past "bbb" and then past "ccc", the same as pressing M-t
+# twice in a row.
+keys:
+  - C-u
+  - "2"
+  - M-t
+expected_saved: |
+  bbb ccc aaa ddd

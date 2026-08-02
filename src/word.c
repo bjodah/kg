@@ -56,8 +56,9 @@ static int word_point(int *filerow, erow **row, int *filecol)
  * from U+0080 up as a word constituent, so "héllo" is one word there and
  * two words ("h", "llo", with the accented byte(s) as separators) here.
  * Unifying the two is a separate, later change that needs Emacs oracle
- * evidence -- see doc/plans/2026-07-31-follow-ups/05-emacs-affordances-delivery.md,
- * Bundle B.  README.md's Lisp section documents the split for users.
+ * evidence -- see
+ * doc/plans/2026-07-31-follow-ups/05-emacs-affordances-delivery.md, Bundle B.
+ * README.md's Lisp section documents the split for users.
  *
  * word_boundary_forward() is Emacs' forward-word: skip the separator run,
  * then the word run that follows it, crossing row boundaries (a line
@@ -154,6 +155,121 @@ void editor_move_word_backward(void)
 		editor_move_cursor(ARROW_LEFT);
 		filecol = word_cursor_filecol(row);
 	}
+}
+
+/* Emacs' backward-word, mirroring word_boundary_forward() above: skip the
+ * separator run backward, then the word run backward, crossing row
+ * boundaries the same way (a line break is one separator, so a row's own
+ * start is where the crossing happens).  Word runs never cross rows in
+ * either direction, so only the first loop needs to.
+ *
+ * Used only by editor_transpose_words() below, which needs a pure
+ * position computation rather than editor_move_word_backward()'s
+ * cursor-stepping one -- see the comment above word_boundary_forward()
+ * for why the two are kept separate. */
+static void word_boundary_backward(int *filerow, int *filecol)
+{
+	erow *row;
+
+	while (*filerow > 0 || *filecol > 0) {
+		if (*filecol <= 0) {
+			(*filerow)--;
+			*filecol = bcur()->row[*filerow].size;
+			continue;
+		}
+		row = &bcur()->row[*filerow];
+		if (is_word_char((unsigned char)row->chars[*filecol - 1])) {
+			break;
+		}
+		(*filecol)--;
+	}
+
+	while (*filecol > 0) {
+		row = &bcur()->row[*filerow];
+		if (!is_word_char((unsigned char)row->chars[*filecol - 1])) {
+			break;
+		}
+		(*filecol)--;
+	}
+}
+
+/* Transpose the two words around point (M-t), following Emacs'
+ * transpose-words: word 1 is the word containing or immediately before
+ * point (word_boundary_backward() then word_boundary_forward() from
+ * wherever that lands); word 2 is the next word after it
+ * (word_boundary_forward() then word_boundary_backward(), continuing from
+ * word 1's end).  Refuses, leaving the buffer untouched, when either
+ * search does not land on a real word or the two overlap -- fewer than
+ * two words to transpose, which covers BOB/EOB, a single word, and a
+ * buffer with no word at all.
+ *
+ * Publishes one replacement spanning both words: second word + the bytes
+ * between them, untouched, + first word.  The separator -- whitespace,
+ * punctuation, a line break, any run of bytes -- is carried through
+ * exactly rather than regenerated, and the transaction is what makes the
+ * whole swap one undo step.  Point ends up right after both words, at the
+ * byte offset that used to be word 2's end: the swap does not change how
+ * many bytes the span holds, so that offset is still valid once it is
+ * spliced in. */
+void editor_transpose_words(void)
+{
+	int filerow, filecol;
+	erow *row;
+	int r, c;
+	size_t w1s, w1e, w2s, w2e;
+	char *buf;
+	int buflen;
+	char *repl;
+	struct kg_edit e;
+
+	if (bcur()->readonly) {
+		editor_set_status_message("Buffer is read-only");
+		return;
+	}
+	if (!word_point(&filerow, &row, &filecol)) {
+		editor_set_status_message("Not enough words to transpose");
+		return;
+	}
+
+	r = filerow;
+	c = filecol;
+	word_boundary_backward(&r, &c);
+	w1s = buffer_row_col_to_position(bcur(), r, c);
+	word_boundary_forward(&r, &c);
+	w1e = buffer_row_col_to_position(bcur(), r, c);
+
+	word_boundary_forward(&r, &c);
+	w2e = buffer_row_col_to_position(bcur(), r, c);
+	word_boundary_backward(&r, &c);
+	w2s = buffer_row_col_to_position(bcur(), r, c);
+
+	if (w1s >= w1e || w2s >= w2e || w1e > w2s) {
+		editor_set_status_message("Not enough words to transpose");
+		return;
+	}
+
+	buf = editor_rows_to_string(bcur()->row, bcur()->numrows, &buflen);
+	if (!buf) {
+		return;
+	}
+
+	repl = malloc(w2e - w1s);
+	if (!repl) {
+		free(buf);
+		word_nomem();
+		return;
+	}
+	memcpy(repl, buf + w2s, w2e - w2s);
+	memcpy(repl + (w2e - w2s), buf + w1e, w2s - w1e);
+	memcpy(repl + (w2e - w2s) + (w2s - w1e), buf + w1s, w1e - w1s);
+	free(buf);
+
+	e = kg_edit_user(bcur(), w1s, w2e, repl, w2e - w1s);
+	if (kg_buffer_replace(&e, NULL)) {
+		buffer_position_to_row_col(bcur(), w2e, &r, &c);
+		editor_cursor_goto(r, c);
+	}
+	free(repl);
 }
 
 /* Kill from cursor to start of next word, saving text to kill ring (M-d). */

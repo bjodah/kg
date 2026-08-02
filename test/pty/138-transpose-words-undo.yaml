@@ -1,0 +1,11 @@
+name: transpose-words-undo
+filename: transpose-words-undo.txt
+initial: |
+  alpha beta gamma
+# The whole swap is one undo record: C-_ once puts the exact original
+# bytes back.
+keys:
+  - M-t
+  - C-_
+expected_saved: |
+  alpha beta gamma

@@ -985,6 +985,7 @@ void editor_downcase_word(void);
 void editor_capitalize_word(void);
 void editor_reflow_paragraph(void);
 void editor_comment_dwim(void);
+void editor_transpose_words(void);
 
 /* yank.c (struct kill_ring and its own API are in yank.h) */
 void editor_set_mark(void);

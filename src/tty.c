@@ -57,6 +57,7 @@ static const struct meta_key meta_keys[] = {
 	{ 'v', 'v', 0 },
 	{ 'w', 'w', 0 },
 	{ 'q', 'q', 0 },
+	{ 't', 't', 0 },
 	{ 'y', 'y', 0 },
 	{ KEY_BASE_DEL, '\x7f', 0 },
 	{ KEY_BASE_DEL, '\b', 0 },

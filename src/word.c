@@ -41,6 +41,69 @@ static int word_point(int *filerow, erow **row, int *filecol)
 	return 1;
 }
 
+/* ---- The interactive word-boundary policy -----------------------------
+ *
+ * What every interactive word command agrees a "word" is: a maximal run
+ * of is_word_char() bytes (ASCII alnum or '_', tested with plain
+ * isalnum(3) on an unsigned char).  Everything else bounds a word --
+ * space, tab, a line break, punctuation, and every byte of a UTF-8
+ * multi-byte sequence, lead or continuation, since all of them are
+ * >= 0x80 and fail isalnum().  A malformed or stray continuation byte is
+ * therefore also just a one-byte separator, the same as any other.
+ *
+ * This is deliberately not Unicode-aware.  One Lisp thing-at-point helper
+ * (bounds-of-thing-at-point 'word, src/lisp.c) treats every codepoint
+ * from U+0080 up as a word constituent, so "héllo" is one word there and
+ * two words ("h", "llo", with the accented byte(s) as separators) here.
+ * Unifying the two is a separate, later change that needs Emacs oracle
+ * evidence -- see doc/plans/2026-07-31-follow-ups/05-emacs-affordances-delivery.md,
+ * Bundle B.  README.md's Lisp section documents the split for users.
+ *
+ * word_boundary_forward() is Emacs' forward-word: skip the separator run,
+ * then the word run that follows it, crossing row boundaries (a line
+ * break is one separator, not a stop).  At the end of the buffer with no
+ * further word, it lands on the last row's end.  editor_move_word_forward
+ * (M-f) is exactly this, and editor_transpose_words (M-t) uses it to find
+ * the word after point.
+ *
+ * editor_move_word_backward (M-b) is NOT built on a mirror-image
+ * "word_boundary_backward" here: it steps through editor_move_cursor()
+ * one glyph at a time so it inherits ARROW_LEFT's UTF-8 glyph-precise
+ * stepping and viewport scrolling, which a byte-precise position
+ * computation would have to reimplement to match exactly.  M-t's own
+ * backward search (below, next to editor_transpose_words) is a separate,
+ * purely positional primitive for that one caller. */
+static void word_boundary_forward(int *filerow, int *filecol)
+{
+	erow *row;
+
+	while (*filerow < bcur()->numrows) {
+		row = &bcur()->row[*filerow];
+		if (*filecol >= row->size) {
+			if (*filerow >= bcur()->numrows - 1) {
+				*filecol = row->size;
+				return;
+			}
+			(*filerow)++;
+			*filecol = 0;
+			continue;
+		}
+		if (is_word_char((unsigned char)row->chars[*filecol])) {
+			break;
+		}
+		(*filecol)++;
+	}
+
+	while (*filerow < bcur()->numrows) {
+		row = &bcur()->row[*filerow];
+		if (*filecol >= row->size
+		    || !is_word_char((unsigned char)row->chars[*filecol])) {
+			break;
+		}
+		(*filecol)++;
+	}
+}
+
 /* Move cursor forward by one word.  Whitespace runs, including line breaks,
  * are crossed first; then point lands after the following word, matching
  * Emacs forward-word. */
@@ -53,32 +116,7 @@ void editor_move_word_forward(void)
 	if (!word_point(&filerow, &row, &filecol)) {
 		return;
 	}
-
-	while (filerow < bcur()->numrows) {
-		row = &bcur()->row[filerow];
-		if (filecol >= row->size) {
-			if (filerow >= bcur()->numrows - 1) {
-				editor_cursor_goto(filerow, row->size);
-				return;
-			}
-			filerow++;
-			filecol = 0;
-			continue;
-		}
-		if (is_word_char(row->chars[filecol])) {
-			break;
-		}
-		filecol++;
-	}
-
-	while (filerow < bcur()->numrows) {
-		row = &bcur()->row[filerow];
-		if (filecol >= row->size
-		    || !is_word_char(row->chars[filecol])) {
-			break;
-		}
-		filecol++;
-	}
+	word_boundary_forward(&filerow, &filecol);
 	editor_cursor_goto(filerow, filecol);
 }
 

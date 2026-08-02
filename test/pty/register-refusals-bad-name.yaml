@@ -1,0 +1,20 @@
+# A modified key at the register-name prompt cannot name a register (kg
+# reads the name as one raw byte; a control key is not one, C-g aside --
+# see register-refusals-quit.yaml for that one).  C-f is otherwise an
+# ordinary binding, but the prompt reads it directly rather than
+# dispatching it, so here it is only ever a rejected register name.
+name: register-refusals-bad-name
+filename: reg.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |-
+  alpha
+keys:
+  - C-x
+  - r
+  - SPC
+  - C-f
+expected_screen_contains:
+  - "Not a register name"
+expected_saved: |-
+  alpha

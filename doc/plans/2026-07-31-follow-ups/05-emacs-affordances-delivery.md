@@ -1,5 +1,46 @@
 # Plan 05 — Dependency-ready Emacs affordances
 
+## Status (2026-08-02, after Bundle E)
+
+The first delivery train is complete: Bundles A, B, C, D and E have all
+landed, in that order.
+
+- **A — bounded kill ring, coalescing, `M-y`.**  16 entries and 8 MiB,
+  refusing an oversize entry and evicting oldest-first otherwise.
+  Coalescing is a command *class* (`cmdstate.h`'s `kill_coalesce_class`),
+  so a kill that follows an unrelated motion starts a new entry — the
+  characterization commit pinned the old behaviour first, and the fix is
+  its own documented commit.  `M-y` replaces the previous yank's span,
+  repeat count included, in one undo unit.
+- **B — `transpose-words` on `M-t`.**  Built on `word_boundary_forward()`,
+  extracted first as the interactive word-boundary policy; Unicode word
+  policy is deliberately unchanged and still a separate future change.
+- **C — introspection.**  `describe-key`, `describe-command`,
+  `describe-bindings` and `where-is` are Plan 01's, and are bound and
+  reachable.  Two items of this bundle's *polish* remain open and are
+  not blocking anything: generating the packed help table's text from
+  the registry still needs a second, ~15-column summary per command, and
+  `docs-check` still runs one direction only (help key → man page), which
+  `utils/check_help_drift.py` documents as deliberate rather than
+  missing.
+- **D — navigable compilation.**  A pure bounded parser
+  (`compile_parse.c`), marker- and decoration-backed diagnostic records
+  (`compile_nav.c`), `M-g` turned into a prefix map, and `M-g n` /
+  `M-g p`.  No metadata is encoded in buffer text.
+- **E — registers.**  `src/register.[ch]`: 32 slots keyed by one
+  printable ASCII byte, holding either a marker-backed position or exact
+  bytes (1 MiB per register, 4 MiB across the table).  `C-x r SPC`,
+  `C-x r j`, `C-x r s`, `C-x r i`.  Every bound refuses rather than
+  evicting — a register is named by the user, so the kill ring's
+  drop-the-oldest rule would discard the one thing they asked to keep —
+  and a killed buffer reports a stale register instead of jumping into
+  whatever took the freed slot.
+
+Deferred from Bundle E, deliberately: persistent bookmarks, which the
+bundle already describes as a later, separately reviewed file-format
+feature (atomic writes, relocation fingerprints).  Nothing in this plan
+depends on it.
+
 ## Outcome
 
 Ship high-value Emacs habits in small product slices that consume the new

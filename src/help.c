@@ -82,6 +82,10 @@ const char *kg_help_lines[]
 	      "suspend        │",
 	      "│ M-y        yank-pop     │ C-x e/F4 exec macro     │ C-u      "
 	      "numeric arg    │",
+	      "│ C-x r SPC  save point   │ C-x r j  jump to reg    │           "
+	      "              │",
+	      "│ C-x r s    copy to reg  │ C-x r i  insert reg     │           "
+	      "              │",
 	      "└─────────────────────────┴─────────────────────────┴───────────"
 	      "──────────────┘",
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",

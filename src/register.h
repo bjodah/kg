@@ -125,6 +125,30 @@ size_t kg_register_text_bytes(void);
  * area.  "" for KG_REGISTER_OK. */
 const char *kg_register_result_message(enum kg_register_result result);
 
+/* ---- The interactive commands ----
+ *
+ * Each prompts, reads one key as the register name, and reports through
+ * kg_register_result_message().  Bound through the keymap only (C-x r
+ * SPC and C-x r j -- see src/kbd.c) and reachable from M-x.
+ *
+ * copy-to-register stores the region's exact bytes; insert-register
+ * puts them back at point as one edit, and so as one undo step, with
+ * the mark left where the insertion began the way a yank leaves it.
+ * A read-only buffer refuses insert-register through its command
+ * descriptor's CMD_EDITS_BUFFER, which is the editor's one read-only
+ * verdict -- this module does not ask again.
+ *
+ * jump-to-register moves point in the selected window, switching it to
+ * the register's buffer when that is a different one: a register names a
+ * buffer and a position, never a window, so which window shows it is
+ * whichever one the user is in -- the same policy as any other buffer
+ * switch, and deliberately not a saved window configuration, which is a
+ * separate Emacs register kind kg does not have. */
+void editor_point_to_register(int fd);
+void editor_jump_to_register(int fd);
+void editor_copy_to_register(int fd);
+void editor_insert_register(int fd);
+
 /* Test-only allocation-failure seam for this module's text storage --
  * distinct from kg_yank_fail_alloc_after() in yank.h and
  * kg_decor_fail_alloc_after() in decor.h, one seam per allocator.  Lets

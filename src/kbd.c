@@ -492,6 +492,10 @@ static const struct {
 	{ "C-x r y", "yank-rectangle" },
 	{ "C-x r C-y", "yank-rectangle" },
 	{ "C-x r t", "string-rectangle" },
+	{ "C-x r SPC", "point-to-register" },
+	{ "C-x r j", "jump-to-register" },
+	{ "C-x r s", "copy-to-register" },
+	{ "C-x r i", "insert-register" },
 };
 
 /* Mode maps, and the predicate each is live under.  These are the

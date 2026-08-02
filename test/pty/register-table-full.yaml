@@ -1,0 +1,164 @@
+# C-x r SPC fills all 32 register slots (a-z, 0-5); a 33rd distinct name
+# is refused with "All 32 registers are in use", while re-storing under a
+# name already in the table (here 'a', at a different point) still succeeds
+# -- a reuse replaces its own slot's contents, it never claims a new one.
+# The jump-back-to-'a' + typed marker proves the reuse really moved the
+# saved position (not just accepted without effect); the final refusal
+# message, captured on screen as the very last thing that happens, proves
+# the table is still exactly full at 32 and no slot leaked from the reuse.
+name: register-table-full
+filename: reg.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |-
+  target
+  filler
+keys:
+  - C-x
+  - r
+  - SPC
+  - a
+  - C-x
+  - r
+  - SPC
+  - b
+  - C-x
+  - r
+  - SPC
+  - c
+  - C-x
+  - r
+  - SPC
+  - d
+  - C-x
+  - r
+  - SPC
+  - e
+  - C-x
+  - r
+  - SPC
+  - f
+  - C-x
+  - r
+  - SPC
+  - g
+  - C-x
+  - r
+  - SPC
+  - h
+  - C-x
+  - r
+  - SPC
+  - i
+  - C-x
+  - r
+  - SPC
+  - j
+  - C-x
+  - r
+  - SPC
+  - k
+  - C-x
+  - r
+  - SPC
+  - l
+  - C-x
+  - r
+  - SPC
+  - m
+  - C-x
+  - r
+  - SPC
+  - n
+  - C-x
+  - r
+  - SPC
+  - o
+  - C-x
+  - r
+  - SPC
+  - p
+  - C-x
+  - r
+  - SPC
+  - q
+  - C-x
+  - r
+  - SPC
+  - r
+  - C-x
+  - r
+  - SPC
+  - s
+  - C-x
+  - r
+  - SPC
+  - t
+  - C-x
+  - r
+  - SPC
+  - u
+  - C-x
+  - r
+  - SPC
+  - v
+  - C-x
+  - r
+  - SPC
+  - w
+  - C-x
+  - r
+  - SPC
+  - x
+  - C-x
+  - r
+  - SPC
+  - y
+  - C-x
+  - r
+  - SPC
+  - z
+  - C-x
+  - r
+  - SPC
+  - "0"
+  - C-x
+  - r
+  - SPC
+  - "1"
+  - C-x
+  - r
+  - SPC
+  - "2"
+  - C-x
+  - r
+  - SPC
+  - "3"
+  - C-x
+  - r
+  - SPC
+  - "4"
+  - C-x
+  - r
+  - SPC
+  - "5"
+  - C-n
+  - C-x
+  - r
+  - SPC
+  - a
+  - M-<
+  - C-x
+  - r
+  - j
+  - a
+  - "R"
+  - C-x
+  - r
+  - SPC
+  - "6"
+expected_screen_contains:
+  - "Register 6: All 32 registers are in use"
+expected_saved: |-
+  target
+  Rfiller

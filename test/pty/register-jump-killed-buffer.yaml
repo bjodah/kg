@@ -1,0 +1,41 @@
+# A register that named a position in a since-killed buffer must refuse
+# rather than resolve into whatever now sits in the freed buffer slot.
+# The register is saved inside other.txt; C-x k kills other.txt outright
+# (it is unmodified, so no confirmation prompt is in the way) and kg falls
+# back to the only buffer left, main.txt.  Jumping to the register from
+# there must report the buffer as gone, and main.txt -- never touched --
+# must save back unchanged.
+name: register-jump-killed-buffer
+filename: main.txt
+backend: tmux
+dimensions: [24, 80]
+config_files:
+  other.txt: |
+    third
+    fourth
+initial: |-
+  alpha
+  beta
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/other.txt"
+  - RET
+  - C-n
+  - C-x
+  - r
+  - SPC
+  - b
+  - C-x
+  - k
+  - C-x
+  - r
+  - j
+  - b
+expected_screen_contains:
+  - "Register b: Register points into a buffer that is gone"
+expected_saved: |-
+  alpha
+  beta

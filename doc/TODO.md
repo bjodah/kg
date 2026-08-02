@@ -145,9 +145,10 @@ ordered by value vs implementation effort.
       `C-x r t` string-rectangle is still TODO.  Surprisingly useful
       for config tables, fstab columns, CSV-ish data.
 
-- [ ] **Registers / bookmarks**: At minimum position registers via
-      `C-x r SPC` (point-to-register) and `C-x r j` (jump-to-register).
-      Text registers (`C-x r s` / `C-x r i`) can follow.
+- [x] **Registers**: `C-x r SPC` (point-to-register), `C-x r j`
+      (jump-to-register), `C-x r s` (copy-to-register), `C-x r i`
+      (insert-register).  32 slots, marker-backed positions, bounded text
+      (1 MiB per register, 4 MiB total).  Persistent bookmarks deferred.
 
 - [ ] **Regex search**, or at least a case-sensitivity toggle in
       isearch.  Right now isearch is literal-only and case-sensitive.

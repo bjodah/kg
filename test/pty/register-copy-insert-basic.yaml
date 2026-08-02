@@ -1,0 +1,27 @@
+# C-x r s copies the region into a register named by the next key, and
+# C-x r i puts those exact bytes back at point.  The region here is the
+# whole first line; inserting it at the end of the buffer is what shows
+# the bytes came back unchanged.
+name: register-copy-insert-basic
+filename: reg.txt
+initial: |-
+  alpha beta
+  gamma
+keys:
+  - M-<
+  - C-SPC
+  - C-e
+  - C-x
+  - r
+  - s
+  - t
+  - M->
+  - C-x
+  - r
+  - i
+  - t
+  - C-x
+  - C-s
+expected_saved: |-
+  alpha beta
+  gammaalpha beta

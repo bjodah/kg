@@ -1,0 +1,39 @@
+# jump-to-register switches the selected window's buffer when the register
+# names a different one from the one currently showing: point-to-register
+# saves a spot in main.txt, C-x C-f then moves the (only) window onto
+# other.txt, and jump-to-register has to bring main.txt back on its own
+# before landing on the saved position.
+name: register-jump-across-buffers
+filename: main.txt
+config_files:
+  other.txt: |
+    third
+    fourth
+initial: |-
+  alpha
+  beta
+  gamma
+keys:
+  - C-n
+  - C-e
+  - C-x
+  - r
+  - SPC
+  - a
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/other.txt"
+  - RET
+  - C-x
+  - r
+  - j
+  - a
+  - "X"
+  - C-x
+  - C-s
+expected_saved: |-
+  alpha
+  betaX
+  gamma

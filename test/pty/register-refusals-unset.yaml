@@ -1,0 +1,17 @@
+# Jumping to a register nothing was ever stored under reports it is empty
+# rather than treating an unused slot as any particular position.
+name: register-refusals-unset
+filename: reg.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |-
+  alpha
+keys:
+  - C-x
+  - r
+  - j
+  - z
+expected_screen_contains:
+  - "Register z: Register is empty"
+expected_saved: |-
+  alpha

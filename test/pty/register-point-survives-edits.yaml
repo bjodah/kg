@@ -1,0 +1,48 @@
+# point-to-register stores a marker, not a (line, column) pair: inserting
+# whole lines above the saved point, and characters earlier on its own
+# line, must not move where jump-to-register lands relative to the text.
+# If kg instead re-derived the position from a stored row/col, this case
+# would land jump-to-register on the wrong line (row 3, now "CCC") and at
+# the wrong column (before the inserted "XYZ" prefix).
+name: register-point-survives-edits
+filename: reg.txt
+initial: |-
+  one
+  two
+  three
+  four
+  five
+keys:
+  - C-n
+  - C-n
+  - C-f
+  - C-f
+  - C-x
+  - r
+  - SPC
+  - a
+  - C-a
+  - "XYZ"
+  - M-<
+  - "AAA"
+  - RET
+  - "BBB"
+  - RET
+  - "CCC"
+  - RET
+  - C-x
+  - r
+  - j
+  - a
+  - "Q"
+  - C-x
+  - C-s
+expected_saved: |-
+  AAA
+  BBB
+  CCC
+  one
+  two
+  XYZthQree
+  four
+  five

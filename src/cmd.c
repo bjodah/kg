@@ -19,6 +19,7 @@
 #include "keyevent.h"
 #include "lisp.h"
 #include "marker.h"
+#include "register.h"
 #include "syntax.h"
 #include "yank.h"
 
@@ -88,6 +89,14 @@ static void cmd_goto_line(int fd) { editor_goto_line(fd); }
 /* Jump to the next/previous compilation diagnostic (M-g n / M-g p). */
 static void cmd_next_error(int fd) { editor_next_error(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
+
+/* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
+static void cmd_point_to_register(int fd) { editor_point_to_register(fd); }
+static void cmd_jump_to_register(int fd) { editor_jump_to_register(fd); }
+
+/* Put the region in, and back out of, a register (C-x r s / C-x r i). */
+static void cmd_copy_to_register(int fd) { editor_copy_to_register(fd); }
+static void cmd_insert_register(int fd) { editor_insert_register(fd); }
 
 /* Save current buffer to its file. */
 static void cmd_save_buffer(int fd) { editor_save(fd); }
@@ -1385,6 +1394,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Comment or uncomment the line or region" },
 	{ "compile", editor_compile, CMD_NONE,
 	    "Run a compile command and collect its output" },
+	{ "copy-to-register", cmd_copy_to_register, CMD_NONE,
+	    "Copy the region into a register named by a key" },
 	{ "delete-backward-char", cmd_delete_backward_char, EDITS | REPEATS,
 	    "Delete the character before point" },
 	{ "delete-char", cmd_delete_char, EDITS | REPEATS,
@@ -1489,6 +1500,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Visit the buffer named on this line" },
 	{ "insert-file", cmd_insert_file, EDITS,
 	    "Insert a file's contents at point" },
+	{ "insert-register", cmd_insert_register, EDITS,
+	    "Insert the text saved in a register at point" },
 	{ "isearch-backward", cmd_isearch_backward, CMD_NONE,
 	    "Incremental search backward" },
 	{ "isearch-backward-regexp", cmd_isearch_backward_regexp, CMD_NONE,
@@ -1499,6 +1512,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Incremental regexp search forward" },
 	{ "join-line", cmd_join_line, EDITS | REPEATS | LISP_OK,
 	    "Join this line to the previous one" },
+	{ "jump-to-register", cmd_jump_to_register, CMD_NONE,
+	    "Move point to the position saved in a register" },
 	{ "just-one-space", cmd_just_one_space, EDITS | LISP_OK,
 	    "Collapse spaces and tabs around point to one space" },
 	{ "kill-buffer", cmd_kill_buffer, CMD_NONE, "Kill this buffer" },
@@ -1551,6 +1566,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Move to the next window" },
 	{ "overwrite-mode", cmd_overwrite_mode, CMD_NONE,
 	    "Toggle overwriting instead of inserting" },
+	{ "point-to-register", cmd_point_to_register, CMD_NONE,
+	    "Save point in a register named by the next key" },
 	{ "previous-error", cmd_previous_error, CMD_NONE,
 	    "Jump to the previous compilation diagnostic" },
 	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL,

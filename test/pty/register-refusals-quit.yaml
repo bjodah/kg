@@ -1,0 +1,17 @@
+# C-g at the register-name prompt cancels the same way it cancels any
+# other prompt, and says so rather than silently doing nothing.
+name: register-refusals-quit
+filename: reg.txt
+backend: tmux
+dimensions: [24, 80]
+initial: |-
+  alpha
+keys:
+  - C-x
+  - r
+  - SPC
+  - C-g
+expected_screen_contains:
+  - "Quit"
+expected_saved: |-
+  alpha

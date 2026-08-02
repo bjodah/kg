@@ -39,6 +39,13 @@ standard VT100 escape sequences.
 - Shift-select and the CUA clipboard trio (Shift-Delete / Ctrl-Insert
   / Shift-Insert) alongside the Emacs C-w / M-w / C-y
 - Rectangle commands (C-x SPC, C-x r {k,y,d,c,t})
+- Registers: `C-x r SPC` saves point in one of 32 registers named by the
+  next key, `C-x r j` goes back to it.  A saved position is a persistent
+  marker, so edits before it move it with the text; a register whose
+  buffer has been killed reports that instead of jumping into whatever
+  took the freed slot.  `C-x r s` copies the region into a register and
+  `C-x r i` inserts it back as one undo step, byte for byte; registers
+  hold 1 MiB each and 4 MiB together, and refuse rather than evict
 - Smart-case literal and regexp search; query-replace (M-% / ESC %),
   confined to the region when one is active
 - Search history: M-p/M-n inside an incremental search recall earlier

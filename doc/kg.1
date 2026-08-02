@@ -688,6 +688,88 @@ Each rectangle command is one undo step;
 .Ic C-_
 restores the entire affected range, including any padding or row
 appends.
+.Ss Registers
+.Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
+.It Sy Key Ta Sy Action
+.It C-x r Space Ta Save point in a register
+.It C-x r j Ta Move point to a register's saved position
+.It C-x r s Ta Copy the region into a register
+.It C-x r i Ta Insert a register's text at point
+.El
+.Pp
+A register is named by the next key you type after the sequence: one
+printable character, so
+.Ic C-x r Space a
+saves point in register
+.Ql a
+and
+.Ic C-x r j a
+goes back to it.
+.Ic C-g
+at that prompt cancels; any other key
+.Pq a control key, an arrow, a non-ASCII character
+is refused with
+.Do
+Not a register name
+.Dc
+and changes nothing.
+There are 32 register slots.
+Storing into a name that already has one replaces it; a name that has
+none takes a free slot, and when every slot is in use a new name is
+refused rather than one of the existing registers being discarded.
+.Pp
+A saved position is a persistent marker, not a line number: text
+inserted or deleted before it moves it with the surrounding text, so
+.Ic C-x r j
+returns to the same place in the text rather than to the same line
+number.
+.Ic C-x r j
+switches the selected window to the register's buffer when that is a
+different one, exactly as switching buffers by any other means would;
+kg has no window-configuration registers, so which window shows the
+position is always the one you are in.
+A register whose buffer has been killed reports
+.Do
+Register points into a buffer that is gone
+.Dc
+and moves nothing \(em it never jumps into whatever buffer has since
+taken the freed slot.
+Such a register keeps reporting that until it is stored into again.
+.Pp
+.Ic C-x r s
+copies the region into a register and
+.Ic C-x r i
+inserts that register's text at point.
+The bytes are stored exactly, so an insertion gives back what was
+copied, byte for byte, whatever the encoding.
+.Ic C-x r i
+is one edit and therefore one undo step:
+.Ic C-_
+removes the whole insertion.
+It leaves the mark where the insertion began, the way a yank does, so
+.Ic C-x C-x
+selects what was just inserted.
+.Ic C-x r s
+needs a region and refuses without one
+.Pq Do No mark set Dc ;
+in rectangle mark mode it refuses too, since a rectangle is not a byte
+range \(em
+.Ic C-x r k
+and
+.Ic C-x r y
+are the rectangle's own commands.
+.Pp
+A register holds a position or text, never both: asking for the wrong
+one reports
+.Do
+Register holds the other kind of thing
+.Dc
+and does nothing.
+One register holds at most 1 MiB and all of them together at most
+4 MiB; a copy over either limit is refused with the region, the
+registers and the buffer untouched.
+A numeric argument is not part of any of these four commands and is
+ignored.
 .Ss Search and Replace
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action

@@ -48,6 +48,7 @@
 #include "lisp.h"
 #include "marker.h"
 #include "perf.h"
+#include "register.h"
 #include "yank.h"
 
 struct editor_config editor;
@@ -97,6 +98,9 @@ void init_editor(void)
 	win_init();
 	compile_nav_install();
 	atexit(editor_cleanup);
+	/* Registered after editor_cleanup, so it runs before it: a position
+	 * register's marker is given back while its buffer is still there. */
+	atexit(kg_register_clear);
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = handle_sig_winch;

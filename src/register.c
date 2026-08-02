@@ -1,8 +1,13 @@
-/* register.c — see register.h. */
+/* register.c — see register.h.
+ *
+ * Two halves, in this order: the table, which stores registers and knows
+ * nothing about the terminal, and the commands, which read a name from
+ * the keyboard and report what the table said. */
 
 #include "register.h"
 
 #include "def.h"
+#include "edit.h"
 #include "marker.h"
 
 #include <stdlib.h>
@@ -263,4 +268,141 @@ const char *kg_register_result_message(enum kg_register_result result)
 		return "Out of memory";
 	}
 	return "Register error";
+}
+
+/* ---- The interactive half ----------------------------------------- */
+
+/* Prompt with `prompt` and read one key as a register name.  Returns 0
+ * once it has reported why the key was not one -- C-g, which is how any
+ * prompt is escaped, or a key that cannot name a register -- so a caller
+ * only has to stop.  A shutdown mid-prompt reports nothing and also
+ * returns 0. */
+static int register_read_name(int fd, const char *prompt)
+{
+	struct key_event c;
+
+	editor_set_status_message("%s", prompt);
+	editor_refresh_screen();
+	c = editor_read_key(fd);
+	if (!running) {
+		return 0;
+	}
+	if (KEY_IS(c, 'g', KEY_MOD_CTRL)) {
+		editor_set_status_message("Quit");
+		return 0;
+	}
+	if (c.mods != 0 || !kg_register_name_valid(c.base)) {
+		editor_set_status_message("Not a register name");
+		return 0;
+	}
+	return (int)c.base;
+}
+
+/* Report `result` for register `name`, or the OK message when it is
+ * KG_REGISTER_OK.  One place so every command spells a condition the
+ * same way. */
+static void register_report(
+    int name, enum kg_register_result result, const char *ok)
+{
+	editor_set_status_message("Register %c: %s", name,
+	    result == KG_REGISTER_OK ? ok : kg_register_result_message(result));
+}
+
+void editor_point_to_register(int fd)
+{
+	int name = register_read_name(fd, "Point to register: ");
+	size_t pos;
+
+	if (name == 0) {
+		return;
+	}
+	pos = buffer_row_col_to_position(
+	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
+	register_report(
+	    name, kg_register_set_position(name, bcur(), pos), "point saved");
+}
+
+void editor_jump_to_register(int fd)
+{
+	int name = register_read_name(fd, "Jump to register: ");
+	struct kg_buffer_handle handle;
+	enum kg_register_result r;
+	size_t pos;
+	int row, col;
+
+	if (name == 0) {
+		return;
+	}
+	r = kg_register_get_position(name, &handle, &pos);
+	if (r != KG_REGISTER_OK) {
+		register_report(name, r, "");
+		return;
+	}
+	/* The register names a buffer and a position, never a window: the
+	 * selected window is what shows it, exactly as switching buffers
+	 * by any other means would. */
+	if (!buf_select(buf_handle_slot(handle))) {
+		register_report(name, KG_REGISTER_STALE, "");
+		return;
+	}
+	if (buffer_position_to_row_col(bcur(), pos, &row, &col) == 1) {
+		editor_goto_line_direct(row + 1, col + 1);
+	}
+	register_report(name, KG_REGISTER_OK, "jumped");
+}
+
+void editor_copy_to_register(int fd)
+{
+	int name;
+	char *text;
+	int len;
+
+	if (!kg_mark_is_set(bcur())) {
+		editor_set_status_message("No mark set");
+		return;
+	}
+	if (bcur()->rect_mode) {
+		editor_set_status_message(
+		    "copy-to-register: use C-x r k / C-x r y for rectangles");
+		return;
+	}
+	name = register_read_name(fd, "Copy to register: ");
+	if (name == 0) {
+		return;
+	}
+	text = editor_get_region_text(&len);
+	if (!text) {
+		editor_set_status_message("Empty region");
+		return;
+	}
+	register_report(name, kg_register_set_text(name, text, (size_t)len),
+	    "region copied");
+	free(text);
+	bcur()->mark_highlight = 0;
+	bcur()->shift_select = 0;
+}
+
+void editor_insert_register(int fd)
+{
+	const char *text;
+	size_t len;
+	enum kg_register_result r;
+	int name;
+
+	name = register_read_name(fd, "Insert register: ");
+	if (name == 0) {
+		return;
+	}
+	r = kg_register_get_text(name, &text, &len);
+	if (r != KG_REGISTER_OK) {
+		register_report(name, r, "");
+		return;
+	}
+	/* Mark the start of the inserted text, as a yank does, so the span
+	 * is a region again without having to remember where it began.
+	 * KG_REGISTER_TEXT_MAX is far under INT_MAX, so the narrowing is
+	 * exact for every entry this table can hold. */
+	editor_push_mark();
+	editor_insert_text_at_point(text, (int)len);
+	register_report(name, KG_REGISTER_OK, "inserted");
 }

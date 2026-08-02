@@ -2119,12 +2119,15 @@ void editor_self_insert_glyph(const char *seq, int len)
 	}
 }
 
-/* Kill (delete) from cursor to end of line (C-k).
+/* Kill (delete) from cursor to end of line (C-k): a forward kill, so it
+ * coalesces with whatever forward or backward kill ran immediately
+ * before it (kill_ring_kill_forward(), yank.h) rather than always
+ * starting fresh.
  *
- * Invariant relied on by the C-u-batched kill in kbd.c: every byte removed
- * from the buffer here is also kill_ring_append()-ed in the same step.
- * Keep them in lock-step — diverging would silently corrupt undo replay
- * for `C-u N C-k`. */
+ * Invariant relied on by the C-u-batched kill in kbd.c: every byte
+ * removed from the buffer here is also recorded on the kill ring in the
+ * same step.  Keep them in lock-step — diverging would silently corrupt
+ * undo replay for `C-u N C-k`. */
 void editor_kill_line(void)
 {
 	erow *row;
@@ -2144,7 +2147,7 @@ void editor_kill_line(void)
 		 * next row's bytes stay, so the record undo needs is the
 		 * one the transaction writes, describing that byte. */
 		if (filerow + 1 < bcur()->numrows) {
-			kill_ring_append("\n", 1);
+			kill_ring_kill_forward("\n", 1);
 			editor_delete_span_at(buffer_row_col_to_position(
 						  bcur(), filerow, filecol),
 			    1);
@@ -2154,7 +2157,8 @@ void editor_kill_line(void)
 	/* Otherwise the rest of the line, to the kill ring and out of the
 	 * buffer in one step. */
 	if (row->size > filecol) {
-		kill_ring_append(row->chars + filecol, row->size - filecol);
+		kill_ring_kill_forward(
+		    row->chars + filecol, row->size - filecol);
 		editor_row_replace_range(
 		    filerow, filecol, row->size - filecol, "", 0, KG_EDIT_USER);
 	}

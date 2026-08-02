@@ -1,5 +1,6 @@
 /* test_region.c — regression tests for region copy and kill */
 
+#include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/yank.h"
 #include "test.h"
@@ -7,6 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Ends the in-progress keystroke, exactly like kbd.c's
+ * cmd_state_begin_keystroke() does between two real keystrokes, so the
+ * next editor_kill_region() call sees this one's coalescing class as
+ * cmd_last_kill_class(). */
+static void end_keystroke(void) { cmd_state_begin_keystroke(); }
 
 /* ---- Helpers ---- */
 
@@ -201,6 +208,50 @@ static void test_kill_region_two_lines(void)
 	 * and an empty row remains. */
 	CHECK(bcur()->numrows == 1);
 	CHECK(bcur()->row[0].size == 0);
+	teardown();
+}
+
+/* C-w coalesces with a prior kill exactly like every other kill
+ * producer, and picks forward vs backward the way Emacs' own
+ * kill-region does: point ahead of the mark (the usual
+ * set-mark-then-move-right selection) is a forward kill and appends. */
+static void test_kill_region_forward_coalesces_with_prior_kill(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	set_region(0, 0, 0, 3); /* mark=col0, point=col3 (point ahead) */
+
+	editor_kill_region();
+	CHECK(memcmp(kill_ring_get(), "abc", 3) == 0);
+
+	end_keystroke();
+	set_region(0, 0, 0, 3); /* same shape, on what is now "def" */
+	editor_kill_region();
+
+	CHECK(memcmp(kill_ring_get(), "abcdef", 6) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* Point behind the mark (set-mark-then-move-left) is a backward kill and
+ * prepends, so two of them in a row still read in buffer order rather
+ * than reversed -- the same guarantee word.c's M-Backspace gives, now
+ * exercised through C-w. */
+static void test_kill_region_backward_coalesces_preserving_buffer_order(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	set_region(0, 6, 0, 3); /* mark=col6, point=col3 (point behind) */
+
+	editor_kill_region(); /* kills "def"; cursor lands at col3 */
+	CHECK(memcmp(kill_ring_get(), "def", 3) == 0);
+
+	end_keystroke();
+	set_region(0, 3, 0, 0); /* mark=col3 (current pos), point=col0 */
+	editor_kill_region(); /* kills "abc", behind point again */
+
+	CHECK(memcmp(kill_ring_get(), "abcdef", 6) == 0);
+	CHECK(killring.count == 1);
 	teardown();
 }
 
@@ -448,6 +499,8 @@ int main(void)
 	RUN(test_kill_region_single_line);
 	RUN(test_kill_region_tail);
 	RUN(test_kill_region_two_lines);
+	RUN(test_kill_region_forward_coalesces_with_prior_kill);
+	RUN(test_kill_region_backward_coalesces_preserving_buffer_order);
 	RUN(test_kill_and_yank_are_one_step_each);
 	RUN(test_kill_and_yank_refused_when_read_only);
 	RUN(test_clear_rect_pads_short_rows_in_batches);

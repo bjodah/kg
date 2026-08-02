@@ -1,16 +1,21 @@
-# Characterizes today's kill-ring coalescing defect: doc/kg.1 promises
-# only *consecutive* C-k's append, but editor_kill_line() appends
-# unconditionally, with no check that the previous top-level command was
-# also a kill.  C-n between the two C-k's is an unrelated motion and
-# should start a fresh kill-ring entry for the second C-k; instead the
-# second kill's text still lands on top of the first's.
+# Fixed by the kill-coalescing-class change: doc/kg.1 promises only
+# *consecutive* kills append, and now editor_kill_line() checks that
+# via cmd_last_kill_class() (cmdstate.h) instead of appending
+# unconditionally.  C-n between the two C-k's is an unrelated motion --
+# it never calls cmd_set_kill_class(), so the class defaults back to
+# KILL_COALESCE_NONE -- and now correctly starts a fresh kill-ring entry
+# for the second C-k.
 #
 # C-k empties "one", leaving an empty first row.  C-n moves to the
-# (still full) second row "two".  C-k there kills "two" into what should
-# be a fresh entry, but today's ring is still "one" and the kill grows
-# it to "onetwo".  C-y then pastes that combined entry rather than just
-# "two".  This is the case plan 05 calls out to fix; the follow-up
-# commit changes this file's expected_saved to "two".
+# (still full) second row "two".  C-k there kills "two" into a fresh
+# entry, discarding "one" as the ring's newest reachable entry (it is
+# still there as an older one, just not reachable without M-y, which
+# does not exist yet).  C-y pastes "two" alone.
+#
+# Before the fix, the ring wrongly kept growing across the intervening
+# C-n and this file's expected_saved was "onetwo" -- see
+# kill-forward-consecutive-append.yaml for the append case that was
+# already correct and stays that way.
 name: kill-line-motion-breaks-coalescing
 filename: kill-line-motion-breaks-coalescing.txt
 initial: |
@@ -24,5 +29,5 @@ keys:
   - C-y
 expected_saved: |
 
-  onetwo
+  two
   three

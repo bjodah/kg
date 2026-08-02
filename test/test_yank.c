@@ -1,5 +1,6 @@
 /* test_yank.c — regression tests for the bounded kill ring */
 
+#include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/yank.h"
 #include "test.h"
@@ -14,6 +15,18 @@ static void teardown(void)
 {
 	kg_yank_fail_alloc_after(-1);
 	kill_ring_free();
+}
+
+/* Ends the in-progress keystroke (if any) and starts a fresh one with no
+ * command run yet, matching what kbd.c's cmd_state_begin_keystroke() does
+ * between two real keystrokes.  Two calls guarantee both this- and
+ * last-kill-class read back as KILL_COALESCE_NONE, however a previous
+ * test left them. */
+static void end_keystroke(void) { cmd_state_begin_keystroke(); }
+static void reset_kill_class(void)
+{
+	end_keystroke();
+	end_keystroke();
 }
 
 static char *make_buf(size_t len, char fill)
@@ -347,6 +360,185 @@ static void test_embedded_nul_survives_append(void)
 	teardown();
 }
 
+/* ---- kill_ring_prepend(): the storage half of a backward kill ---- */
+
+/* Prepending to an empty ring acts like set. */
+static void test_prepend_to_empty(void)
+{
+	setup();
+	kill_ring_prepend("hello", 5);
+	CHECK(kill_ring_get() != NULL);
+	CHECK(memcmp(kill_ring_get(), "hello", 5) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* Consecutive prepends concatenate in reverse call order: each new call's
+ * bytes land in front of what was already there, which is what keeps two
+ * consecutive backward kills reading in buffer order (see
+ * kill_ring_kill_backward() in yank.h). */
+static void test_prepend_concatenates_in_reverse_order(void)
+{
+	setup();
+	kill_ring_prepend("world", 5);
+	kill_ring_prepend("hello ", 6);
+	CHECK(memcmp(kill_ring_get(), "hello world", 11) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* Prepending with len=0 is a no-op. */
+static void test_prepend_zero_len(void)
+{
+	setup();
+	kill_ring_set("hello", 5);
+	kill_ring_prepend("x", 0);
+	CHECK(memcmp(kill_ring_get(), "hello", 5) == 0);
+	teardown();
+}
+
+/* Same oversize-growth rejection as kill_ring_append(). */
+static void test_oversize_prepend_rejected(void)
+{
+	setup();
+	kill_ring_set("marker", 6);
+
+	kill_ring_prepend("x", KG_KILL_RING_MAX_BYTES);
+
+	CHECK(killring.count == 1);
+	CHECK(kill_ring_get_len() == 6);
+	CHECK(memcmp(kill_ring_get(), "marker", 6) == 0);
+	teardown();
+}
+
+/* Same OOM-preserves-old-ring guarantee as kill_ring_append(). */
+static void test_prepend_oom_preserves_old_ring(void)
+{
+	int count_before;
+	char *text_before;
+
+	setup();
+	kill_ring_set("world", 5);
+	count_before = killring.count;
+	text_before = kill_ring_get();
+
+	kg_yank_fail_alloc_after(0);
+	kill_ring_prepend("hello ", 6);
+	kg_yank_fail_alloc_after(-1);
+
+	CHECK(killring.count == count_before);
+	CHECK(kill_ring_get() == text_before);
+	CHECK(kill_ring_get_len() == 5);
+	CHECK(memcmp(kill_ring_get(), "world", 5) == 0);
+	teardown();
+}
+
+/* ---- kill_ring_kill_forward/backward/copy(): the coalescing-class-aware
+ * entry points every kill/copy producer uses (see cmdstate.h's
+ * kill_coalesce_class). ---- */
+
+/* Two forward kills with nothing between them append. */
+static void test_kill_forward_consecutive_appends(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_kill_forward("one", 3);
+	end_keystroke(); /* the next keystroke sees "one"'s class as KILL */
+	kill_ring_kill_forward("two", 3);
+	CHECK(memcmp(kill_ring_get(), "onetwo", 6) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* Two backward kills with nothing between them prepend, so they read in
+ * buffer order rather than reversed -- "one " killed after "two" still
+ * ends up ahead of it. */
+static void test_kill_backward_consecutive_prepends(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_kill_backward("two", 3);
+	end_keystroke();
+	kill_ring_kill_backward("one ", 4);
+	CHECK(memcmp(kill_ring_get(), "one two", 7) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* A forward kill immediately followed by a backward kill still coalesces
+ * -- the eligibility is "was the last command a kill", not "was it the
+ * same direction" -- so the backward one prepends onto what the forward
+ * one started. */
+static void test_kill_forward_then_backward_coalesces(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_kill_forward("abc", 3);
+	end_keystroke();
+	kill_ring_kill_backward("xyz", 3);
+	CHECK(memcmp(kill_ring_get(), "xyzabc", 6) == 0);
+	CHECK(killring.count == 1);
+	teardown();
+}
+
+/* An unrelated command between two kills breaks eligibility: the second
+ * kill starts a fresh entry rather than growing the first's. */
+static void test_kill_forward_breaks_across_unrelated_command(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_kill_forward("one", 3);
+	end_keystroke(); /* last_kill_class == KILL for whatever runs next */
+	/* An unrelated command runs here and never calls
+	 * cmd_set_kill_class(), so the class it leaves behind is NONE. */
+	end_keystroke(); /* last_kill_class == NONE now */
+	kill_ring_kill_forward("two", 3);
+	CHECK(memcmp(kill_ring_get(), "two", 3) == 0);
+	CHECK(killring.count == 2);
+	teardown();
+}
+
+/* A copy always starts a fresh entry, even right after a kill. */
+static void test_copy_starts_fresh_entry_after_kill(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_kill_forward("one", 3);
+	end_keystroke();
+	kill_ring_copy("two", 3);
+	CHECK(memcmp(kill_ring_get(), "two", 3) == 0);
+	CHECK(killring.count == 2);
+	teardown();
+}
+
+/* A kill right after a copy also starts fresh: a copy is not itself
+ * coalescing-eligible. */
+static void test_kill_forward_breaks_across_copy(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_copy("one", 3);
+	end_keystroke();
+	kill_ring_kill_forward("two", 3);
+	CHECK(memcmp(kill_ring_get(), "two", 3) == 0);
+	CHECK(killring.count == 2);
+	teardown();
+}
+
+/* Two consecutive copies each start a fresh entry rather than growing one
+ * -- "a copy starts a new entry" applies to a copy following a copy too. */
+static void test_copy_consecutive_each_fresh(void)
+{
+	setup();
+	reset_kill_class();
+	kill_ring_copy("one", 3);
+	end_keystroke();
+	kill_ring_copy("two", 3);
+	CHECK(memcmp(kill_ring_get(), "two", 3) == 0);
+	CHECK(killring.count == 2);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -371,5 +563,17 @@ int main(void)
 	RUN(test_append_oom_preserves_old_ring);
 	RUN(test_embedded_nul_and_utf8);
 	RUN(test_embedded_nul_survives_append);
+	RUN(test_prepend_to_empty);
+	RUN(test_prepend_concatenates_in_reverse_order);
+	RUN(test_prepend_zero_len);
+	RUN(test_oversize_prepend_rejected);
+	RUN(test_prepend_oom_preserves_old_ring);
+	RUN(test_kill_forward_consecutive_appends);
+	RUN(test_kill_backward_consecutive_prepends);
+	RUN(test_kill_forward_then_backward_coalesces);
+	RUN(test_kill_forward_breaks_across_unrelated_command);
+	RUN(test_copy_starts_fresh_entry_after_kill);
+	RUN(test_kill_forward_breaks_across_copy);
+	RUN(test_copy_consecutive_each_fresh);
 	return test_summary();
 }

@@ -166,6 +166,27 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 	return yes;
 }
 
+/* One chunk of a `C-u N C-k` kill.  The whole span the loop below walks
+ * is one command's forward kill, so only its first chunk consults the
+ * coalescing class -- calling kill_ring_kill_forward() (yank.h) on
+ * every chunk would re-read cmd_last_kill_class() each time and only
+ * ever keep the last chunk, since *this* command's own earlier chunks
+ * do not change what that reads until the next keystroke.  Every later
+ * chunk just grows what the first one started. */
+static void kill_lines_chunk(const char *text, size_t len, int *started)
+{
+	if (*started) {
+		kill_ring_append(text, len);
+		return;
+	}
+	if (cmd_last_kill_class() == KILL_COALESCE_KILL) {
+		kill_ring_append(text, len);
+	} else {
+		kill_ring_set(text, len);
+	}
+	*started = 1;
+}
+
 /* C-u N C-k: kill N logical lines (each = content-to-EOL + newline),
  * matching Emacs.  editor_kill_line() is a half-step primitive, so this
  * counts *newlines* removed (numrows dropped) rather than iterations.  A
@@ -178,6 +199,7 @@ void key_kill_lines(int n)
 	int end_pos;
 	int r, c;
 	int newlines_left;
+	int started = 0;
 
 	if (start_row >= bcur()->numrows || n <= 0) {
 		return;
@@ -192,11 +214,12 @@ void key_kill_lines(int n)
 	while (newlines_left > 0 && r < bcur()->numrows) {
 		erow *row = &bcur()->row[r];
 		if (c < row->size) {
-			kill_ring_append(row->chars + c, row->size - c);
+			kill_lines_chunk(
+			    row->chars + c, (size_t)(row->size - c), &started);
 			c = row->size;
 		} else {
 			if (r + 1 < bcur()->numrows) {
-				kill_ring_append("\n", 1);
+				kill_lines_chunk("\n", 1, &started);
 				r++;
 				c = 0;
 				newlines_left--;
@@ -212,6 +235,7 @@ void key_kill_lines(int n)
 		    bcur(), (size_t)start_pos, (size_t)end_pos, "", 0);
 		(void)kg_buffer_replace(&e, NULL);
 		editor_cursor_goto(start_row, start_col);
+		cmd_set_kill_class(KILL_COALESCE_KILL);
 	}
 }
 

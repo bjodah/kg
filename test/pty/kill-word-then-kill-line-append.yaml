@@ -1,0 +1,18 @@
+# Coalescing is by *class*, not exact command identity: M-d
+# (kill-word-forward) and C-k (kill-line) are different commands, but
+# both are forward kills, so a C-k immediately after an M-d appends onto
+# the entry the M-d started instead of replacing it.
+#
+# M-d kills "one" (point stays at column 0).  C-k there kills the rest
+# of the line, " two three".  Appending the two chunks reconstructs the
+# original text, which C-y pastes back whole.
+name: kill-word-then-kill-line-append
+filename: kill-word-then-kill-line-append.txt
+initial: |
+  one two three
+keys:
+  - M-d
+  - C-k
+  - C-y
+expected_saved: |
+  one two three

@@ -10,7 +10,14 @@
 
 /* Rectangle kill ring.  Holds the last killed/copied rectangle as a
  * '\n'-joined string of per-row content, plus the row count so yank
- * can rebuild the rectangle exactly even when some rows are empty. */
+ * can rebuild the rectangle exactly even when some rows are empty.
+ *
+ * This is a separate store from the main kill ring (yank.h) and stays
+ * that way in this bundle -- kill-rectangle never grows the main ring's
+ * newest entry, and does not mark this command KILL_COALESCE_KILL
+ * (cmdstate.h), so it is, from the main ring's point of view, just
+ * another unrelated command: a plain C-k right after it starts a fresh
+ * entry rather than appending. */
 static char *rect_killed = NULL;
 static int rect_killed_len = 0;
 static int rect_killed_nrows = 0;

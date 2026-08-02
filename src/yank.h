@@ -61,6 +61,36 @@ void kill_ring_set(const char *text, size_t len);
  * no-op. */
 void kill_ring_append(const char *text, size_t len);
 
+/* Grow the newest entry by adding `text`/`len` *before* its existing
+ * bytes, or start one if the ring is empty.  This is what a backward
+ * kill (M-Backspace, C-w with point behind the mark) uses: two
+ * consecutive backward kills each prepend the text they just removed,
+ * so the entry reads in buffer order rather than reversed.  Same
+ * oversize-rejection/eviction/OOM-preserves-old rules as
+ * kill_ring_set(), applied to the combined entry.  len==0 is a no-op. */
+void kill_ring_prepend(const char *text, size_t len);
+
+/* Record a forward kill's bytes: text that disappeared ahead of point,
+ * point unchanged (C-k, M-d, M-z, C-w with point ahead of the mark).
+ * Appends to the newest entry when the previous top-level command's
+ * coalescing class was KILL_COALESCE_KILL (see cmdstate.h) -- any kill
+ * producer, not just this one -- otherwise starts a fresh entry.  Marks
+ * this command KILL_COALESCE_KILL so whatever kill runs next may
+ * coalesce with it. */
+void kill_ring_kill_forward(const char *text, size_t len);
+
+/* Record a backward kill's bytes: text that disappeared behind point,
+ * point moved left (M-Backspace, C-w with point behind the mark).
+ * Prepends instead of appends; same coalescing rule as
+ * kill_ring_kill_forward(). */
+void kill_ring_kill_backward(const char *text, size_t len);
+
+/* Record a copy (M-w / kill-ring-save): always starts a fresh entry and
+ * marks this command KILL_COALESCE_COPY, which is not itself
+ * coalescing-eligible -- neither a repeated copy nor a kill that follows
+ * one grows an existing entry. */
+void kill_ring_copy(const char *text, size_t len);
+
 /* The newest entry's bytes, or NULL if the ring is empty.  `len` bytes
  * are followed by one defensive NUL for callers that read it as text;
  * that byte is not counted in kill_ring_get_len() and is not present

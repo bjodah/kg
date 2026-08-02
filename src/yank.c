@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cmdstate.h"
 #include "def.h"
 #include "edit.h"
 #include "marker.h"
@@ -158,13 +159,34 @@ static void kill_ring_replace_newest(char *combined, size_t new_len)
 	}
 }
 
-/* Append text to the newest entry (for consecutive kills) */
-void kill_ring_append(const char *text, size_t len)
+/* Combine `lead` (`lead_len` bytes) and `trail` (`trail_len` bytes), in
+ * that order, into the newest entry.  Shared by kill_ring_append()
+ * (lead is the existing entry, trail is the new bytes) and
+ * kill_ring_prepend() (the other way around) -- both already know the
+ * ring is non-empty, so unlike kill_ring_set() this never has to touch
+ * `count`. */
+static void kill_ring_combine_newest(
+    const char *lead, size_t lead_len, const char *trail, size_t trail_len)
 {
-	size_t old_len;
 	size_t new_len;
 	char *combined;
 
+	if (!checked_add_size_t(&new_len, lead_len, trail_len)) {
+		return;
+	}
+	if (new_len > KG_KILL_RING_MAX_BYTES) {
+		return;
+	}
+	combined = kill_ring_concat(lead, lead_len, trail, trail_len, new_len);
+	if (!combined) {
+		return;
+	}
+	kill_ring_replace_newest(combined, new_len);
+}
+
+/* Append text to the newest entry (for consecutive forward kills) */
+void kill_ring_append(const char *text, size_t len)
+{
 	if (len == 0) {
 		return;
 	}
@@ -172,19 +194,52 @@ void kill_ring_append(const char *text, size_t len)
 		kill_ring_set(text, len);
 		return;
 	}
-	old_len = killring.entries[0].len;
-	if (!checked_add_size_t(&new_len, old_len, len)) {
+	kill_ring_combine_newest(
+	    killring.entries[0].text, killring.entries[0].len, text, len);
+}
+
+/* Prepend text to the newest entry (for consecutive backward kills) */
+void kill_ring_prepend(const char *text, size_t len)
+{
+	if (len == 0) {
 		return;
 	}
-	if (new_len > KG_KILL_RING_MAX_BYTES) {
+	if (killring.count == 0) {
+		kill_ring_set(text, len);
 		return;
 	}
-	combined = kill_ring_concat(
-	    killring.entries[0].text, old_len, text, len, new_len);
-	if (!combined) {
-		return;
+	kill_ring_combine_newest(
+	    text, len, killring.entries[0].text, killring.entries[0].len);
+}
+
+/* Forward-kill/backward-kill/copy: the coalescing-class-aware entry
+ * points every kill and copy producer uses instead of
+ * kill_ring_set()/kill_ring_append()/kill_ring_prepend() directly, so
+ * "who may grow the newest entry" lives in one place.  See yank.h. */
+void kill_ring_kill_forward(const char *text, size_t len)
+{
+	if (cmd_last_kill_class() == KILL_COALESCE_KILL) {
+		kill_ring_append(text, len);
+	} else {
+		kill_ring_set(text, len);
 	}
-	kill_ring_replace_newest(combined, new_len);
+	cmd_set_kill_class(KILL_COALESCE_KILL);
+}
+
+void kill_ring_kill_backward(const char *text, size_t len)
+{
+	if (cmd_last_kill_class() == KILL_COALESCE_KILL) {
+		kill_ring_prepend(text, len);
+	} else {
+		kill_ring_set(text, len);
+	}
+	cmd_set_kill_class(KILL_COALESCE_KILL);
+}
+
+void kill_ring_copy(const char *text, size_t len)
+{
+	kill_ring_set(text, len);
+	cmd_set_kill_class(KILL_COALESCE_COPY);
 }
 
 /* Get the newest entry's bytes (returns NULL if the ring is empty) */
@@ -518,12 +573,31 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 	return kg_buffer_replace(&e, NULL);
 }
 
+/* editor_kill_region()'s direction, matching Emacs' own kill-region:
+ * forward when point was ahead of the mark (the usual C-Space-then-
+ * move-right selection), backward when point was behind it
+ * (C-Space-then-move-left).  editor_region_bounds() already normalizes
+ * mark/point into start/end, putting point at the *end* when point was
+ * ahead of the mark and at the *start* when it was behind -- so "point
+ * is not the start" is "point was ahead", i.e. forward. */
+static void kill_ring_region_kill(char *text, int len, int point_row,
+    int point_col, int start_row, int start_col)
+{
+	if (point_row == start_row && point_col == start_col) {
+		kill_ring_kill_backward(text, (size_t)len);
+	} else {
+		kill_ring_kill_forward(text, (size_t)len);
+	}
+}
+
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at
  * the start of the region; undo restores it as a single step. */
 static void region_kill_or_delete(int save)
 {
 	int start_row, start_col;
 	int end_row, end_col;
+	int point_row = yank_current_row();
+	int point_col = yank_current_col();
 	char *text;
 	int len;
 
@@ -543,7 +617,8 @@ static void region_kill_or_delete(int save)
 	}
 
 	if (save) {
-		kill_ring_set(text, len);
+		kill_ring_region_kill(
+		    text, len, point_row, point_col, start_row, start_col);
 	}
 
 	editor_cursor_goto(start_row, start_col);
@@ -580,7 +655,7 @@ void editor_copy_region(void)
 		return;
 	}
 
-	kill_ring_set(text, len);
+	kill_ring_copy(text, len);
 	bcur()->mark_highlight = 0;
 	bcur()->rect_mode = 0;
 	bcur()->shift_select = 0;

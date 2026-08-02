@@ -105,6 +105,26 @@ void kill_ring_append(const char *text, size_t len)
 	(void)text;
 	(void)len;
 }
+void kill_ring_prepend(const char *text, size_t len)
+{
+	(void)text;
+	(void)len;
+}
+void kill_ring_kill_forward(const char *text, size_t len)
+{
+	(void)text;
+	(void)len;
+}
+void kill_ring_kill_backward(const char *text, size_t len)
+{
+	(void)text;
+	(void)len;
+}
+void kill_ring_copy(const char *text, size_t len)
+{
+	(void)text;
+	(void)len;
+}
 char *kill_ring_get(void) { return NULL; }
 size_t kill_ring_get_len(void) { return 0; }
 enum minibuf_result editor_read_line(

@@ -13,6 +13,8 @@ void cmd_state_begin_keystroke(void)
 {
 	state.last_command = state.this_command;
 	state.this_command = CMD_ID_NONE;
+	state.last_kill_class = state.this_kill_class;
+	state.this_kill_class = KILL_COALESCE_NONE;
 	state.shift_translated = 0;
 }
 
@@ -76,4 +78,14 @@ void cmd_forget_transient_owner(command_id id)
 	if (id != CMD_ID_NONE && state.transient.owner == id) {
 		cmd_clear_transient();
 	}
+}
+
+enum kill_coalesce_class cmd_last_kill_class(void)
+{
+	return state.last_kill_class;
+}
+
+void cmd_set_kill_class(enum kill_coalesce_class cls)
+{
+	state.this_kill_class = cls;
 }

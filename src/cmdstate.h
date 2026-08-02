@@ -23,6 +23,26 @@ struct command_transient {
 	int value;
 };
 
+/* The kill ring's coalescing class: what kind of thing, if any, the last
+ * top-level command did to it.  A *class* rather than a command_id on
+ * purpose -- kill-line, kill-word and kill-region are different
+ * commands that must still coalesce with each other, the way Emacs'
+ * kill-region does regardless of which higher-level command called it.
+ * KILL_COALESCE_NONE is the default every keystroke starts from, so a
+ * command that never touches the kill ring (an unrelated command, a
+ * refused one, an undefined key, a prompt, C-g, a buffer switch) breaks
+ * eligibility for free, just by not calling cmd_set_kill_class(). */
+enum kill_coalesce_class {
+	KILL_COALESCE_NONE = 0,
+	/* A kill: consecutive kills grow one ring entry (forward kills
+	 * append, backward kills prepend -- see yank.h). */
+	KILL_COALESCE_KILL,
+	/* A copy: always starts a fresh entry and is not itself eligible,
+	 * so neither a repeated copy nor a kill that follows one grows an
+	 * existing entry. */
+	KILL_COALESCE_COPY,
+};
+
 struct command_state {
 	command_id this_command;
 	command_id last_command;
@@ -36,6 +56,12 @@ struct command_state {
 	/* Set when this keystroke was a shift-translated motion, which is
 	 * what keeps the region alive across it. */
 	int shift_translated;
+	/* What this keystroke's command did to the kill ring, and what the
+	 * previous one did -- same begin/end-keystroke lifecycle as
+	 * this_command/last_command, just for coalescing instead of
+	 * identity. */
+	enum kill_coalesce_class this_kill_class;
+	enum kill_coalesce_class last_kill_class;
 };
 
 [[nodiscard]] const struct command_state *cmd_state(void);
@@ -63,5 +89,12 @@ void cmd_clear_transient(void);
 /* Drop transient state owned by `id`: a runtime command being removed
  * must not leave state that a later command with a fresh id could read. */
 void cmd_forget_transient_owner(command_id id);
+
+/* What the previous top-level command did to the kill ring, for a kill
+ * or copy producer to decide whether it may coalesce with it. */
+[[nodiscard]] enum kill_coalesce_class cmd_last_kill_class(void);
+/* Publish what *this* command did, for the next keystroke to read back
+ * as cmd_last_kill_class(). */
+void cmd_set_kill_class(enum kill_coalesce_class cls);
 
 #endif /* KG_CMDSTATE_H */

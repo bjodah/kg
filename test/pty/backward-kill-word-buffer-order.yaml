@@ -1,0 +1,27 @@
+# Two consecutive backward kills (M-Backspace) grow the kill-ring entry
+# by *prepending*, not appending, so the entry keeps reading in buffer
+# order: killing "two" then "one " must not reverse into "twoone ".
+#
+# Before this bundle, editor_kill_word_backward() never coalesced at all
+# (always kill_ring_set(), a fresh entry every time) -- consecutive
+# M-Backspace's simply forgot everything but the most recent word.  Now
+# both calls share the KILL_COALESCE_KILL class with every other kill
+# producer, and kill_ring_kill_backward() (yank.h) prepends.
+#
+# C-e puts point at the end of "one two".  The first M-Backspace kills
+# "two" (word chars only).  The second kills "one " (the leading
+# whitespace *and* the word, per editor_kill_word_backward()'s own
+# whitespace-then-word walk), landing at column 0 with an empty line.
+# Prepending "one " ahead of "two" reconstructs "one two" exactly, which
+# C-y then pastes back.
+name: backward-kill-word-buffer-order
+filename: backward-kill-word-buffer-order.txt
+initial: |
+  one two
+keys:
+  - C-e
+  - M-DEL
+  - M-DEL
+  - C-y
+expected_saved: |
+  one two

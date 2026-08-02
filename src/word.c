@@ -166,7 +166,7 @@ void editor_kill_word_forward(void)
 	memcpy(text, row->chars + start_col, kill_len);
 	text[kill_len] = '\0';
 
-	kill_ring_set(text, kill_len);
+	kill_ring_kill_forward(text, (size_t)kill_len);
 	free(text);
 	/* The killed span leaving the row is one replacement by nothing:
 	 * one row rebuild, one undo step, whatever the word's length. */
@@ -215,7 +215,7 @@ void editor_kill_word_backward(void)
 	memcpy(text, row->chars + filecol, kill_len);
 	text[kill_len] = '\0';
 
-	kill_ring_set(text, kill_len);
+	kill_ring_kill_backward(text, (size_t)kill_len);
 	free(text);
 	if (!editor_row_replace_range(
 		filerow, filecol, kill_len, "", 0, KG_EDIT_USER)) {
@@ -820,7 +820,7 @@ void editor_zap_to_char(int fd, int count)
 	free(buf);
 
 	editor_cursor_goto(filerow, filecol);
-	kill_ring_set(text, end - point);
+	kill_ring_kill_forward(text, (size_t)(end - point));
 	free(text);
 	/* `point` and `end` are already flat byte positions, so the whole
 	 * zap is one replacement by nothing -- one undo step and one row

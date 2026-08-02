@@ -1,0 +1,6 @@
+make: Entering directory '/build'
+make[1]: Entering directory '/build/sub'
+sub/foo.c:3:1: error: x
+make[1]: Leaving directory '/build/sub'
+top.c:1:1: error: y
+make: Leaving directory '/build'

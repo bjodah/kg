@@ -76,7 +76,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c \
+       shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c compile_parse.c \
        width.c dired.c perf.c process.c marker.c decor.c event.c
 
 # Object and header files
@@ -99,6 +99,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
+           $(TESTDIR)/test_compile_parse \
            $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
@@ -138,7 +139,8 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS)
+FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -431,9 +433,21 @@ fuzz-localvars-smoke: $(FUZZBIN_LOCALVARS) fuzz-localvars-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/localvars/ \
 		$(FUZZ_CORPUS)/localvars
 
-fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed
+fuzz-compile-parse: $(FUZZBIN_COMPILE_PARSE)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke
+fuzz-compile-parse-seed:
+	mkdir -p $(FUZZ_CORPUS)/compile_parse
+	cp -f $(FUZZ_SEEDS)/compile_parse/* $(FUZZ_CORPUS)/compile_parse/
+
+fuzz-compile-parse-smoke: $(FUZZBIN_COMPILE_PARSE) fuzz-compile-parse-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/compile_parse
+	./$(FUZZBIN_COMPILE_PARSE) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/compile_parse/ \
+		$(FUZZ_CORPUS)/compile_parse
+
+fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -558,6 +572,9 @@ EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJ
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/process.o
+# compile_parse.c is pure: no editor state, nothing beyond def.h's checked
+# arithmetic/ASCII helpers.  Same minimal baseline as EXTRA_localvars.
+EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST_SRCS_OBJS)
 EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
@@ -637,6 +654,10 @@ $(FUZZBIN_LOCALVARS): $(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c
 
+$(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
+
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
@@ -674,5 +695,6 @@ uninstall:
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
+	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

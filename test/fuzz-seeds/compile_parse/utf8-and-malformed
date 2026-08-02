@@ -1,0 +1,2 @@
+cafÃ©.c:7:1: error: utf8 path
+bad�name.c:8:2: error: non-utf8 path

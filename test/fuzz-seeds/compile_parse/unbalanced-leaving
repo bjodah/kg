@@ -1,0 +1,2 @@
+make: Leaving directory '/nowhere'
+foo.c:1:1: error: unbalanced leaving before this

@@ -28,6 +28,10 @@ test/.results/
 test/perfobj/
 test/.bench/
 test/regex_differential
+# Unit-test binaries: test/test_foo is built from test/test_foo.c.
+test/test_*
+!test/test_*.c
+!test/test.h
 *.elc
 repomix-output.*
 .repomixignore

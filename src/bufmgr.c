@@ -1916,7 +1916,7 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 	 * a row count that outlives the rows is what the next occupant's
 	 * reset would walk. */
 	editor_free_all_rows(&buflist[slot]);
-	undo_free();
+	undo_stack_free(&buflist[slot].undostack);
 	kg_decor_store_free(&buflist[slot]);
 	kg_marker_store_free(&buflist[slot]);
 	free(buflist[slot].filename);

@@ -12,15 +12,102 @@
  * The editor stores (row, byte column); the Emacs-named natives address
  * the buffer with a single 1-based codepoint offset, so (point-min) is 1
  * and (point-max) is one past the last character.  Conversion happens
- * here and nowhere else. */
+ * here and nowhere else, and it is parameterised by the exec-context
+ * buffer so a hidden buffer is addressed exactly like the displayed one. */
 
-static long lisp_point_max(void) { return editor_buffer_char_length() + 1; }
-
-/* 0-based codepoint offset of point. */
-static long lisp_point(void)
+/* Codepoint length of `b`, counting one per row separator. */
+long lisp_buffer_char_length(const struct editor_buffer *b)
 {
-	return editor_char_offset(
-	    editor_current_filerow(), editor_current_filecol());
+	if (b->numrows <= 0) {
+		return 0;
+	}
+	return lisp_char_offset_of(b, buffer_byte_length(b));
+}
+
+/* 0-based codepoint offset of the flat byte position `byte` in `b`. */
+long lisp_char_offset_of(const struct editor_buffer *b, size_t byte)
+{
+	int row = 0, col = 0, i;
+	long n = 0;
+
+	if (b->numrows <= 0) {
+		return 0;
+	}
+	buffer_position_to_row_col(b, byte, &row, &col);
+	for (i = 0; i < row; i++) {
+		n += editor_row_byte_to_char(&b->row[i], b->row[i].size) + 1;
+	}
+	return n + editor_row_byte_to_char(&b->row[row], col);
+}
+
+/* (row, byte column) of 0-based codepoint offset `off` in `b`, clamped to
+ * the buffer the way editor_offset_to_rowcol() clamps for bcur(). */
+static void lisp_rowcol_of_char_offset(
+    const struct editor_buffer *b, long off, int *row, int *col)
+{
+	int i;
+
+	*row = 0;
+	*col = 0;
+	if (b->numrows <= 0 || off <= 0) {
+		return;
+	}
+	for (i = 0; i < b->numrows; i++) {
+		long len = editor_row_byte_to_char(&b->row[i], b->row[i].size);
+
+		if (off <= len || i == b->numrows - 1) {
+			if (off > len) {
+				off = len;
+			}
+			*row = i;
+			*col = editor_row_char_to_byte(&b->row[i], (int)off);
+			return;
+		}
+		off -= len + 1;
+	}
+}
+
+static size_t lisp_byte_of_char_offset(const struct editor_buffer *b, long off)
+{
+	int row, col;
+
+	lisp_rowcol_of_char_offset(b, off, &row, &col);
+	return buffer_row_col_to_position(b, row, col);
+}
+
+/* ---- The runtime execution context ----------------------------------- */
+
+struct editor_buffer *lisp_exec_buffer(FeContext *context)
+{
+	struct editor_buffer *b = buf_resolve(state.exec.buffer);
+
+	if (b == NULL) {
+		FeHandleError(context, "current buffer is dead");
+	}
+	return b;
+}
+
+size_t lisp_exec_point_byte(FeContext *context)
+{
+	size_t pos;
+
+	if (kg_marker_resolve(lisp_exec_point_marker(), &pos) != KG_MARKER_OK) {
+		FeHandleError(context, "runtime point is gone");
+	}
+	return pos;
+}
+
+long lisp_exec_point_char(FeContext *context)
+{
+	struct editor_buffer *b = lisp_exec_buffer(context);
+
+	return lisp_char_offset_of(b, lisp_exec_point_byte(context));
+}
+
+void lisp_exec_goto_char(const struct editor_buffer *b, long off)
+{
+	(void)kg_marker_set_position(
+	    lisp_exec_point_marker(), lisp_byte_of_char_offset(b, off));
 }
 
 FeDouble lisp_finite(FeContext *context, FeObject *object)
@@ -33,12 +120,13 @@ FeDouble lisp_finite(FeContext *context, FeObject *object)
 	return value;
 }
 
-/* Clamp a 1-based position argument to [point-min, point-max] and return
- * the 0-based offset the buffer helpers expect. */
-static long lisp_offset_argument(FeContext *context, FeObject *object)
+/* Clamp a 1-based position argument to [point-min, point-max] of `b` and
+ * return the 0-based offset the buffer helpers expect. */
+static long lisp_offset_argument(
+    FeContext *context, const struct editor_buffer *b, FeObject *object)
 {
 	FeDouble value = lisp_finite(context, object);
-	long max = lisp_point_max();
+	long max = lisp_buffer_char_length(b) + 1;
 
 	if (value < 1) {
 		return 0;
@@ -50,18 +138,19 @@ static long lisp_offset_argument(FeContext *context, FeObject *object)
 }
 
 /* An omitted or nil position argument means point, as in Emacs. */
-static long lisp_optional_offset(FeContext *context, FeObject **arguments)
+static long lisp_optional_offset(
+    FeContext *context, struct editor_buffer *b, FeObject **arguments)
 {
 	FeObject *object;
 
 	if (FeIsNil(*arguments)) {
-		return lisp_point();
+		return lisp_exec_point_char(context);
 	}
 	object = FeGetNextArgument(context, arguments);
 	if (FeIsNil(object)) {
-		return lisp_point();
+		return lisp_exec_point_char(context);
 	}
-	return lisp_offset_argument(context, object);
+	return lisp_offset_argument(context, b, object);
 }
 
 /* An omitted or nil repeat count means 1. */
@@ -95,7 +184,7 @@ FeObject *lisp_position(FeContext *context, long offset)
 FeObject *native_point_offset(FeContext *context, FeObject *arguments)
 {
 	FeRequireNoArguments(context, arguments);
-	return lisp_position(context, lisp_point());
+	return lisp_position(context, lisp_exec_point_char(context));
 }
 
 FeObject *native_point_min(FeContext *context, FeObject *arguments)
@@ -106,33 +195,48 @@ FeObject *native_point_min(FeContext *context, FeObject *arguments)
 
 FeObject *native_point_max(FeContext *context, FeObject *arguments)
 {
+	struct editor_buffer *b = lisp_exec_buffer(context);
+
 	FeRequireNoArguments(context, arguments);
-	return lisp_position(context, lisp_point_max() - 1);
+	return lisp_position(context, lisp_buffer_char_length(b));
 }
 
 FeObject *native_goto_char(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	int row, col;
+	struct editor_buffer *b = lisp_exec_buffer(context);
 
 	FeRequireNoArguments(context, arguments);
-	editor_offset_to_rowcol(
-	    lisp_offset_argument(context, object), &row, &col);
-	/* editor_cursor_goto scrolls just enough to reveal the target, so the
-	 * viewport follows point. */
-	editor_cursor_goto(row, col);
+	lisp_exec_goto_char(b, lisp_offset_argument(context, b, object));
 	return FeNil(context);
 }
 
 /* (goto-line LINE): point to the beginning of LINE, counting from 1 and
- * clamped to the buffer.  Emacs' goto-line takes no column; reach one with
- * (goto-char (+ (point) N)) afterwards.  The view is centred on the target,
- * as for the interactive M-g. */
+ * clamped to the buffer, as for the interactive M-g. */
+static void lisp_exec_goto_line(
+    FeContext *context, const struct editor_buffer *b, long line)
+{
+	size_t pos;
+
+	(void)context;
+	if (line < 1) {
+		pos = 0;
+	} else if (line - 1 >= b->numrows) {
+		/* Emacs clamps to the beginning of the last line, not to the
+		 * end of the buffer, which is what char_length would name. */
+		pos = buffer_row_col_to_position(b, b->numrows - 1, 0);
+	} else {
+		pos = buffer_row_col_to_position(b, (int)line - 1, 0);
+	}
+	(void)kg_marker_set_position(lisp_exec_point_marker(), pos);
+}
+
 FeObject *native_goto_line(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	FeDouble value;
-	int line;
+	long line;
 
 	FeRequireNoArguments(context, arguments);
 	value = lisp_finite(context, object);
@@ -141,104 +245,148 @@ FeObject *native_goto_line(FeContext *context, FeObject *arguments)
 	} else if (value < (FeDouble)INT_MIN) {
 		line = INT_MIN;
 	} else {
-		line = (int)value;
+		line = (long)value;
 	}
-	editor_goto_line_direct(line, 1);
+	lisp_exec_goto_line(context, b, line);
 	return FeNil(context);
 }
 
 FeObject *native_line_number(FeContext *context, FeObject *arguments)
 {
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	int row, col;
+
 	FeRequireNoArguments(context, arguments);
-	return FeMakeDouble(context, (FeDouble)editor_current_filerow() + 1);
+	buffer_position_to_row_col(
+	    b, lisp_exec_point_byte(context), &row, &col);
+	return FeMakeDouble(context, (FeDouble)row + 1);
 }
 
 /* Emacs' current-column is a display column, so tabs expand. */
 FeObject *native_current_column(FeContext *context, FeObject *arguments)
 {
-	erow *row;
-	int col = 0;
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	int col_out = 0;
 
 	FeRequireNoArguments(context, arguments);
-	if (bcur()->numrows > 0) {
-		row = &bcur()->row[editor_current_filerow()];
-		col = editor_visual_col(
-		    row, editor_current_filecol_in_row(row));
+	if (b->numrows > 0) {
+		int row, col;
+
+		buffer_position_to_row_col(
+		    b, lisp_exec_point_byte(context), &row, &col);
+		col_out = editor_visual_col(&b->row[row], col);
 	}
-	return FeMakeDouble(context, (FeDouble)col);
+	return FeMakeDouble(context, (FeDouble)col_out);
 }
 
 FeObject *native_mark(FeContext *context, FeObject *arguments)
 {
-	int row, col;
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t pos;
 
 	FeRequireNoArguments(context, arguments);
-	if (!kg_mark_get_row_col(bcur(), &row, &col)) {
+	if (!kg_mark_get_position(b, &pos)) {
 		return FeNil(context);
 	}
-	return lisp_position(context, editor_char_offset(row, col));
+	return lisp_position(context, lisp_char_offset_of(b, pos));
 }
 
 FeObject *native_set_mark(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	int row, col;
+	struct editor_buffer *b = lisp_exec_buffer(context);
 
 	FeRequireNoArguments(context, arguments);
-	editor_offset_to_rowcol(
-	    lisp_offset_argument(context, object), &row, &col);
-	if (!kg_mark_set_row_col(bcur(), row, col)) {
+	if (!kg_mark_set_position(b,
+		lisp_byte_of_char_offset(
+		    b, lisp_offset_argument(context, b, object)))) {
 		FeHandleError(context, "out of memory");
 	}
-	bcur()->mark_highlight = 1;
+	b->mark_highlight = 1;
 	return FeNil(context);
 }
 
 /* Drop the region highlight but keep the mark, as C-g does. */
 FeObject *native_deactivate_mark(FeContext *context, FeObject *arguments)
 {
+	struct editor_buffer *b = lisp_exec_buffer(context);
+
 	FeRequireNoArguments(context, arguments);
-	bcur()->mark_highlight = 0;
+	b->mark_highlight = 0;
 	return FeNil(context);
 }
 
-/* Emacs signals when there is no region; kg's bounds helper also rejects a
- * mark left outside a buffer that shrank under it. */
-static void lisp_region(FeContext *context, int *rows, int *cols)
+/* Resolve the exec buffer's region as flat byte positions [*beg, *end),
+ * raising when the mark is unset or has been left outside a buffer that
+ * shrank under it. */
+static void lisp_region_bytes(
+    FeContext *context, const struct editor_buffer *b, size_t *beg, size_t *end)
 {
-	if (!editor_region_bounds(&rows[0], &cols[0], &rows[1], &cols[1])) {
+	size_t mark_byte, point_byte;
+
+	if (!kg_mark_get_position(b, &mark_byte)) {
 		FeHandleError(context, "no region: the mark is not set");
 	}
+	if (mark_byte > buffer_byte_length(b)) {
+		FeHandleError(context, "no region: the mark is not set");
+	}
+	point_byte = lisp_exec_point_byte(context);
+	if (point_byte < mark_byte) {
+		*beg = point_byte;
+		*end = mark_byte;
+	} else {
+		*beg = mark_byte;
+		*end = point_byte;
+	}
+}
+
+/* Emacs signals when there is no region; kg's bounds also reject a mark
+ * left outside a buffer that shrank under it. */
+static void lisp_region(
+    FeContext *context, const struct editor_buffer *b, int *rows, int *cols)
+{
+	size_t beg, end;
+
+	lisp_region_bytes(context, b, &beg, &end);
+	buffer_position_to_row_col(b, beg, &rows[0], &cols[0]);
+	buffer_position_to_row_col(b, end, &rows[1], &cols[1]);
 }
 
 FeObject *native_region_beginning(FeContext *context, FeObject *arguments)
 {
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	int rows[2], cols[2];
 
 	FeRequireNoArguments(context, arguments);
-	lisp_region(context, rows, cols);
-	return lisp_position(context, editor_char_offset(rows[0], cols[0]));
+	lisp_region(context, b, rows, cols);
+	return lisp_position(context,
+	    lisp_char_offset_of(
+		b, buffer_row_col_to_position(b, rows[0], cols[0])));
 }
 
 FeObject *native_region_end(FeContext *context, FeObject *arguments)
 {
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	int rows[2], cols[2];
 
 	FeRequireNoArguments(context, arguments);
-	lisp_region(context, rows, cols);
-	return lisp_position(context, editor_char_offset(rows[1], cols[1]));
+	lisp_region(context, b, rows, cols);
+	return lisp_position(context,
+	    lisp_char_offset_of(
+		b, buffer_row_col_to_position(b, rows[1], cols[1])));
 }
 
 /* Bytes spanned by [(r0,c0), (r1,c1)), counting one byte per row break.
  * Both columns are valid byte indices in their rows. */
-static size_t lisp_span_bytes(const int *rows, const int *cols)
+static size_t lisp_span_bytes(
+    const struct editor_buffer *b, const int *rows, const int *cols)
 {
 	size_t bytes = 0;
 	int r, from, to;
 
 	for (r = rows[0]; r <= rows[1]; r++) {
 		from = (r == rows[0]) ? cols[0] : 0;
-		to = (r == rows[1]) ? cols[1] : bcur()->row[r].size;
+		to = (r == rows[1]) ? cols[1] : b->row[r].size;
 		bytes += (size_t)(to - from);
 		if (r < rows[1]) {
 			bytes++;
@@ -250,10 +398,10 @@ static size_t lisp_span_bytes(const int *rows, const int *cols)
 /* Buffer text between two (row, byte column) pairs, rows joined by '\n'.
  * Parked in state.scratch so frame recovery frees it if Fe raises before
  * the string object exists. */
-static char *lisp_copy_span(
-    FeContext *context, const int *rows, const int *cols)
+static char *lisp_copy_span(FeContext *context, const struct editor_buffer *b,
+    const int *rows, const int *cols)
 {
-	size_t size = lisp_span_bytes(rows, cols);
+	size_t size = lisp_span_bytes(b, rows, cols);
 	size_t pos = 0;
 	char *text = malloc(size + 1);
 	int r, from, to;
@@ -263,9 +411,8 @@ static char *lisp_copy_span(
 	}
 	for (r = rows[0]; r <= rows[1]; r++) {
 		from = (r == rows[0]) ? cols[0] : 0;
-		to = (r == rows[1]) ? cols[1] : bcur()->row[r].size;
-		memcpy(text + pos, bcur()->row[r].chars + from,
-		    (size_t)(to - from));
+		to = (r == rows[1]) ? cols[1] : b->row[r].size;
+		memcpy(text + pos, b->row[r].chars + from, (size_t)(to - from));
 		pos += (size_t)(to - from);
 		if (r < rows[1]) {
 			text[pos++] = '\n';
@@ -281,24 +428,25 @@ FeObject *native_buffer_substring(FeContext *context, FeObject *arguments)
 {
 	FeObject *beg_object = FeGetNextArgument(context, &arguments);
 	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	long beg, end, swap;
 	int rows[2], cols[2];
 	FeObject *result;
 
 	FeRequireNoArguments(context, arguments);
-	beg = lisp_offset_argument(context, beg_object);
-	end = lisp_offset_argument(context, end_object);
+	beg = lisp_offset_argument(context, b, beg_object);
+	end = lisp_offset_argument(context, b, end_object);
 	if (beg > end) {
 		swap = beg;
 		beg = end;
 		end = swap;
 	}
-	if (bcur()->numrows <= 0) {
+	if (b->numrows <= 0) {
 		return FeMakeString(context, "");
 	}
-	editor_offset_to_rowcol(beg, &rows[0], &cols[0]);
-	editor_offset_to_rowcol(end, &rows[1], &cols[1]);
-	result = FeMakeString(context, lisp_copy_span(context, rows, cols));
+	lisp_rowcol_of_char_offset(b, beg, &rows[0], &cols[0]);
+	lisp_rowcol_of_char_offset(b, end, &rows[1], &cols[1]);
+	result = FeMakeString(context, lisp_copy_span(context, b, rows, cols));
 	free(state.scratch);
 	state.scratch = nullptr;
 	return result;
@@ -325,9 +473,9 @@ long lisp_decode_char(const char *text, int length, int col)
 
 /* Codepoint at (row, byte column); one past a row's last byte is the row
  * separator. */
-static long lisp_char_at(int row, int col)
+static long lisp_char_at(const struct editor_buffer *b, int row, int col)
 {
-	erow *r = &bcur()->row[row];
+	erow *r = &b->row[row];
 
 	if (col >= r->size) {
 		return '\n';
@@ -339,13 +487,14 @@ static long lisp_char_at(int row, int col)
  * the buffer.  Fe has no character type, so a number is the closest fit. */
 FeObject *native_char_after(FeContext *context, FeObject *arguments)
 {
-	long offset = lisp_optional_offset(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	long offset = lisp_optional_offset(context, b, &arguments);
 	int row, col;
 
 	FeRequireNoArguments(context, arguments);
-	if (bcur()->numrows <= 0 || offset >= editor_buffer_char_length()) {
+	if (b->numrows <= 0 || offset >= lisp_buffer_char_length(b)) {
 		return FeNil(context);
 	}
-	editor_offset_to_rowcol(offset, &row, &col);
-	return FeMakeDouble(context, (FeDouble)lisp_char_at(row, col));
+	lisp_rowcol_of_char_offset(b, offset, &row, &col);
+	return FeMakeDouble(context, (FeDouble)lisp_char_at(b, row, col));
 }

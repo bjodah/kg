@@ -11,6 +11,9 @@
 #include <stddef.h>
 
 #include "../fe/fe.h"
+#include "def.h"
+#include "lisp_obj.h"
+#include "marker.h"
 
 /* Adapter limits, shared by struct lisp_state and the modules that walk
  * its tables.  Macros rather than constexpr because struct lisp_state's
@@ -33,6 +36,38 @@ struct lisp_frame {
 	size_t gc_checkpoint;
 };
 
+/* The runtime execution context for one frame: which buffer Lisp code is
+ * working in.  Separate from the active-window globals; hidden-buffer
+ * operations move it, never a window.  Initialized from the active window
+ * at frame entry (lisp_exec_enter) and synced back on success
+ * (lisp_exec_leave).
+ *
+ * Point is deliberately not part of the frame.  Emacs point is a property
+ * of the *buffer*, not of whichever frame happens to be looking at it: a
+ * single frame-scoped point loses (goto-char N) across an intervening
+ * (set-buffer other), and forgets where a previous frame left off in a
+ * hidden buffer.  So the runtime point lives in struct lisp_point_table
+ * below, keyed by buffer handle, and outlives the frame. */
+struct kg_lisp_exec_ctx {
+	struct kg_buffer_handle buffer; /* selected buffer for this frame */
+};
+
+/* One buffer's runtime point.  `active` false marks a free table slot;
+ * `buffer` and `point` are meaningless until then. */
+struct kg_lisp_point_entry {
+	bool active;
+	struct kg_buffer_handle buffer;
+	struct kg_marker_handle point; /* right gravity, per Plan 03 */
+};
+
+/* Bounded by MAX_BUFFERS: a frame can never have more distinct buffers to
+ * remember point for than exist, so a slot is always available once
+ * entries whose buffer has since been killed are reclaimed -- which is
+ * exactly what makes room after a kill. */
+struct lisp_point_table {
+	struct kg_lisp_point_entry entries[MAX_BUFFERS];
+};
+
 struct lisp_state {
 	void *arena;
 	FeContext *context;
@@ -47,6 +82,12 @@ struct lisp_state {
 	 * yet; freed by frame recovery for the same reason. */
 	char *scratch;
 	struct lisp_command commands[LISP_MAX_COMMANDS];
+	/* The execution context for the current frame, see above. */
+	struct kg_lisp_exec_ctx exec;
+	/* Every buffer's runtime point, independent of any frame. */
+	struct lisp_point_table points;
+	/* The bounded pool of Fe-visible editor objects. */
+	struct lisp_object_pool object_pool;
 	bool frame_active;
 	bool initialized;
 };
@@ -64,11 +105,46 @@ void copy_result(char *result, size_t result_size, const char *text);
 void release_scratch(void);
 char *copy_fe_string(FeContext *context, FeObject *object, size_t *length);
 
+/* ---- Runtime execution context (lisp_obj.c) -------------------------- */
+
+/* Initialise the exec context from the active window (frame entry): the
+ * window is the authority for the buffer it shows, so this overwrites that
+ * buffer's point-table entry from the window's cursor even if one already
+ * existed.  May raise. */
+void lisp_exec_enter(FeContext *ctx);
+/* Sync the exec buffer's runtime point back to the active window when
+ * `sync` and the window still shows that buffer, then drop the frame's
+ * buffer selection.  Every other buffer's point-table entry is untouched.
+ * Safe on the error path too: no sync, just cleanup. */
+void lisp_exec_leave(int sync);
+/* Select `b` as the exec buffer.  Reuses `b`'s existing point-table entry
+ * if it has one (Emacs does not move point when a buffer is merely
+ * selected); creates one at buffer start otherwise.  Never touches a
+ * window or buf_current.  May raise. */
+void lisp_exec_set_buffer(FeContext *ctx, struct editor_buffer *b);
+/* The runtime point marker for the exec buffer.  Valid once the exec
+ * context has a buffer, which lisp_exec_enter()/lisp_exec_set_buffer()
+ * both guarantee before returning; a handle naming nothing otherwise. */
+struct kg_marker_handle lisp_exec_point_marker(void);
+
 /* Position/codepoint conversions the modules share (lisp_buffer.c). */
 FeDouble lisp_finite(FeContext *context, FeObject *object);
 long lisp_decode_char(const char *text, int length, int col);
 long lisp_optional_count(FeContext *context, FeObject **arguments);
 FeObject *lisp_position(FeContext *context, long offset);
+/* The exec buffer, raising "current buffer is dead" when it is gone. */
+struct editor_buffer *lisp_exec_buffer(FeContext *context);
+/* Flat byte position of the runtime point, raising when its marker is
+ * gone (a buffer killed mid-frame). */
+size_t lisp_exec_point_byte(FeContext *context);
+/* 0-based codepoint offset of the runtime point (raises when gone). */
+long lisp_exec_point_char(FeContext *context);
+/* Set the runtime point to 0-based codepoint offset `off` of `b`. */
+void lisp_exec_goto_char(const struct editor_buffer *b, long off);
+/* Codepoint length of `b` (row separators count one each). */
+long lisp_buffer_char_length(const struct editor_buffer *b);
+/* 0-based codepoint offset of the flat byte position `byte` in `b`. */
+long lisp_char_offset_of(const struct editor_buffer *b, size_t byte);
 
 /* XDG config resolution (lisp_io.c). */
 int lisp_config_path(char *out, size_t outsize, const char *stem);
@@ -117,6 +193,13 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments);
 FeObject *native_remove_command(FeContext *context, FeObject *arguments);
 FeObject *native_bind_key(FeContext *context, FeObject *arguments);
 FeObject *native_unbind_key(FeContext *context, FeObject *arguments);
+FeObject *native_current_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_buffer_list(FeContext *context, FeObject *arguments);
+FeObject *native_get_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_get_buffer_create(FeContext *context, FeObject *arguments);
+FeObject *native_buffer_live_p(FeContext *context, FeObject *arguments);
+FeObject *native_set_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_kill_buffer(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

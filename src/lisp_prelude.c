@@ -53,6 +53,13 @@ static const struct native_binding native_bindings[] = {
 	 * name -> function registry, so these two have no Emacs analogue. */
 	{ "define-command", native_define_command },
 	{ "remove-command", native_remove_command },
+	{ "current-buffer", native_current_buffer },
+	{ "buffer-list", native_buffer_list },
+	{ "get-buffer", native_get_buffer },
+	{ "get-buffer-create", native_get_buffer_create },
+	{ "buffer-live-p", native_buffer_live_p },
+	{ "set-buffer", native_set_buffer },
+	{ "kill-buffer", native_kill_buffer },
 };
 
 void register_natives(FeContext *context)

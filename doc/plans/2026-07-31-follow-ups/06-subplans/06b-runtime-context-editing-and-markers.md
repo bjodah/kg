@@ -59,6 +59,58 @@ struct kg_lisp_exec_ctx {
   synchronise the runtime point back to the window.  Specify the exact
   moment this happens.
 
+#### Where point lives — decided 2026-08-02
+
+A single `point` field in the exec context is not enough, because point
+in Emacs is a property of the *buffer*, not of the frame.  Two behaviors
+fall out of a single field, and both are wrong:
+
+1. `(goto-char 4)`, `(set-buffer other)`, `(set-buffer back)` loses the
+   4: coming back re-derives point from the window cursor, which never
+   moved.
+2. A hidden buffer edited by one command starts the next command at
+   position 1, because nothing remembered where the previous frame left
+   off in it.
+
+So the runtime point is **per buffer**, held in a bounded adapter-owned
+table keyed by the generation-checked buffer handle:
+
+```c
+struct kg_lisp_point_entry {
+    struct kg_buffer_handle buffer;
+    struct kg_marker_handle point;     /* right gravity, per Plan 03 */
+};
+/* MAX_BUFFERS entries: a frame cannot select more distinct live buffers
+ * than exist.  An entry whose handle stops resolving is evicted, which is
+ * what makes room after a kill. */
+```
+
+The rules, stated so they can be tested one by one:
+
+- **Frame entry** takes the active window's buffer as the exec buffer and
+  *overwrites* that buffer's table entry from the window's cursor — the
+  user may have moved point since the last frame, and the window is the
+  authority for the buffer it displays.
+- **`set-buffer`** resolves the handle, looks up (or creates) that
+  buffer's entry, and makes it the exec buffer.  It never selects a
+  window, never touches `buf_current`, and never re-derives point for a
+  buffer that already has an entry.
+- **A buffer's entry outlives the frame.**  Markers are buffer-owned, so
+  the entry dies with the buffer and needs no frame-scoped cleanup.
+- **Successful frame exit** syncs only the *entry* buffer's point back to
+  the active window, and only while that window still shows it.  Every
+  other visited buffer keeps its runtime point in the table and its
+  window, if any, stays where it was — the "hidden work never moves a
+  displayed window" invariant outranks Emacs' redisplay-follows-point
+  behavior here, and the two-window PTY case is what pins it.
+- **Failed frame exit** syncs nothing.  Runtime points stay where the
+  body left them (point in Emacs does not roll back on error either);
+  only the window is protected.
+
+`b->last_point` stays what its comment says it is — written by
+`buf_remember_view()` alone, for view detach — and the adapter neither
+writes it nor reads it.
+
 #### Buffer APIs (incremental)
 
 | Native | Semantics |
@@ -116,6 +168,33 @@ struct kg_lisp_exec_ctx {
   pass.
 - PTY cases: at least one case exercising `set-buffer` + `insert` into
   a non-displayed buffer, then switching to verify the text is there.
+- **Point round-trip**: `(goto-char N)`, `set-buffer` away and back,
+  insert — the insertion lands at N, not at point-min.
+- **Point across frames**: one command inserts into a hidden buffer, a
+  second command `set-buffer`s to it and inserts — the second insertion
+  lands where the first left point.
+
+### Phase 2 notes
+
+- Fe has no per-context custom type facility, so a buffer object is a
+  `FeTFex0` value made with `FeMakePtr` over a record in a bounded
+  adapter pool (`src/lisp_obj.[ch]`), released by the `FeSetGCFn`
+  callback when Fe collects the wrapper.  Only the adapter mints
+  `FeTFex0`, so a buffer object cannot be forged from Lisp; resolution
+  re-checks the record *and* the generation-checked handle.
+- Two non-prompting bufmgr entry points back the natives:
+  `buf_create_named()` (create without selecting or attaching a window)
+  and `buf_kill_buffer()` (kill an arbitrary handle, refusing a modified
+  buffer and the last live one).
+- `buf_kill_commit()` freed `bcur()`'s undo stack rather than the dying
+  slot's — latent while only the interactive `buf_kill()` reached it, a
+  real leak-plus-corruption once Lisp can kill a hidden buffer.  Fixed
+  with the phase, called out here because it is a behavior change that
+  the split otherwise hides.
+- Word motion is re-expressed over the exec buffer rather than the
+  window, so it must not re-derive (row, col) from a flat byte position
+  per scanned byte: both conversions are O(rows).  Walk rows and columns
+  directly.
 
 ---
 

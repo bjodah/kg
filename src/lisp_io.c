@@ -223,12 +223,13 @@ FeObject *native_message(FeContext *context, FeObject *arguments)
 FeObject *native_insert(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	size_t length;
 	char *text;
 
 	FeRequireNoArguments(context, arguments);
 	text = copy_fe_string(context, object, &length);
-	if (bcur()->readonly) {
+	if (b->readonly) {
 		free(text);
 		FeHandleError(context, "buffer is read-only");
 	}
@@ -238,20 +239,40 @@ FeObject *native_insert(FeContext *context, FeObject *arguments)
 	}
 
 	/* Match yank/paste: one insert call is one user edit, through the
-	 * same gateway, so it is one undo step. */
+	 * same gateway, so it is one undo step.  The right-gravity runtime
+	 * point marker follows the inserted text. */
 	if (length != 0) {
-		editor_insert_text_at_point(text, (int)length);
+		struct kg_edit edit;
+		size_t pos = lisp_exec_point_byte(context);
+
+		edit = kg_edit_user(b, pos, pos, text, length);
+		(void)kg_buffer_replace(&edit, NULL);
 	}
 	free(text);
 	return FeNil(context);
 }
 
+/* (buffer-name [buf]): the display name of the exec buffer, or of the
+ * buffer object `arguments` names.  Extracted so the native body has no
+ * branches of its own. */
+static struct editor_buffer *lisp_buffer_name_target(
+    FeContext *context, FeObject **arguments)
+{
+	if (FeIsNil(*arguments)) {
+		return lisp_exec_buffer(context);
+	}
+	FeObject *object = FeGetNextArgument(context, arguments);
+
+	FeRequireNoArguments(context, *arguments);
+	return lisp_buffer_resolve(context, object, "buffer-name");
+}
+
 FeObject *native_buffer_name(FeContext *context, FeObject *arguments)
 {
 	char name[PATH_MAX];
+	struct editor_buffer *b = lisp_buffer_name_target(context, &arguments);
 
-	FeRequireNoArguments(context, arguments);
-	buf_display_name(buf_current, name, sizeof(name));
+	buf_display_name(buf_handle_slot(buf_handle_of(b)), name, sizeof(name));
 	return FeMakeString(context, name);
 }
 

@@ -9,43 +9,159 @@
 
 /* Move point by COUNT words; negative counts move backward.  The loop
  * stops as soon as point stops moving so a huge count cannot spin at the
- * edge of the buffer. */
-static void lisp_move_words(long count)
-{
-	int row, col;
+ * edge of the buffer.  Word motion is the editor's ASCII rule (isalnum or
+ * '_'), the same one M-f/M-b use.
+ *
+ * Scanning walks (row, byte column) directly, one step at a time, instead
+ * of repeatedly converting a flat byte position back to (row, col):
+ * buffer_position_to_row_col()/buffer_row_col_to_position() are each
+ * O(rows) (they sum row lengths to place or locate a flat offset), so
+ * calling either one per scanned byte made word motion O(rows * bytes
+ * scanned) instead of the O(bytes scanned) the row/col-based
+ * editor_move_word_forward() in word.c manages.  Below, both conversions
+ * happen exactly once each: once to seed (row, col) from the runtime
+ * point, once to write the final (row, col) back as a flat position. */
 
-	while (count != 0) {
-		row = editor_current_filerow();
-		col = editor_current_filecol();
-		if (count > 0) {
-			editor_move_word_forward();
-			count--;
-		} else {
-			editor_move_word_backward();
-			count++;
-		}
-		if (row == editor_current_filerow()
-		    && col == editor_current_filecol()) {
-			return;
-		}
+static bool lisp_is_ascii_word(unsigned char byte)
+{
+	return isalnum(byte) || byte == '_';
+}
+
+/* Byte at logical position (row, col): the row's own byte if col is
+ * inside it, otherwise the row separator ('\n') that position (row,
+ * row->size) names -- a direct array read, no row-summing conversion. */
+static unsigned char lisp_word_byte_at(
+    const struct editor_buffer *b, int row, int col)
+{
+	erow *r = &b->row[row];
+
+	return col < r->size ? (unsigned char)r->chars[col]
+			     : (unsigned char)'\n';
+}
+
+/* Whether (row, col) is at or past end of buffer: one past the last row's
+ * last byte, where a forward scan must stop.  An empty buffer is
+ * vacuously at its own end. */
+static bool lisp_word_at_end(const struct editor_buffer *b, int row, int col)
+{
+	if (b->numrows <= 0) {
+		return true;
 	}
+	return row >= b->numrows - 1 && col >= b->row[b->numrows - 1].size;
+}
+
+/* Step (row, col) one byte forward, crossing a row break as a single step
+ * (it is the '\n' byte lisp_word_byte_at() reports there).  No-op at the
+ * end of the buffer. */
+static void lisp_word_step_forward(
+    const struct editor_buffer *b, int *row, int *col)
+{
+	if (lisp_word_at_end(b, *row, *col)) {
+		return;
+	}
+	if (*col < b->row[*row].size) {
+		(*col)++;
+	} else {
+		(*row)++;
+		*col = 0;
+	}
+}
+
+/* One step back from (row, col) into (*prow, *pcol), without moving
+ * (row, col) itself; false at the buffer start, where there is nothing to
+ * peek at.  Used because the scan below decides whether to move by
+ * looking at the byte *before* the current position, the same shape the
+ * old flat-position version used with pos - 1. */
+static bool lisp_word_peek_backward(
+    const struct editor_buffer *b, int row, int col, int *prow, int *pcol)
+{
+	if (row <= 0 && col <= 0) {
+		return false;
+	}
+	if (col > 0) {
+		*prow = row;
+		*pcol = col - 1;
+	} else {
+		*prow = row - 1;
+		*pcol = b->row[row - 1].size;
+	}
+	return true;
+}
+
+static void lisp_word_forward(const struct editor_buffer *b, int *row, int *col)
+{
+	while (!lisp_word_at_end(b, *row, *col)
+	    && !lisp_is_ascii_word(lisp_word_byte_at(b, *row, *col))) {
+		lisp_word_step_forward(b, row, col);
+	}
+	while (!lisp_word_at_end(b, *row, *col)
+	    && lisp_is_ascii_word(lisp_word_byte_at(b, *row, *col))) {
+		lisp_word_step_forward(b, row, col);
+	}
+}
+
+static void lisp_word_backward(
+    const struct editor_buffer *b, int *row, int *col)
+{
+	int pr, pc;
+
+	while (lisp_word_peek_backward(b, *row, *col, &pr, &pc)) {
+		if (lisp_is_ascii_word(lisp_word_byte_at(b, pr, pc))) {
+			break;
+		}
+		*row = pr;
+		*col = pc;
+	}
+	while (lisp_word_peek_backward(b, *row, *col, &pr, &pc)) {
+		if (!lisp_is_ascii_word(lisp_word_byte_at(b, pr, pc))) {
+			break;
+		}
+		*row = pr;
+		*col = pc;
+	}
+}
+
+static void lisp_move_words(
+    FeContext *context, const struct editor_buffer *b, long count)
+{
+	int row, col, prow, pcol;
+
+	buffer_position_to_row_col(
+	    b, lisp_exec_point_byte(context), &row, &col);
+	while (count != 0) {
+		prow = row;
+		pcol = col;
+		if (count > 0) {
+			lisp_word_forward(b, &row, &col);
+		} else {
+			lisp_word_backward(b, &row, &col);
+		}
+		if (row == prow && col == pcol) {
+			break;
+		}
+		count += count > 0 ? -1 : 1;
+	}
+	(void)kg_marker_set_position(
+	    lisp_exec_point_marker(), buffer_row_col_to_position(b, row, col));
 }
 
 FeObject *native_forward_word(FeContext *context, FeObject *arguments)
 {
 	long count = lisp_optional_count(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 
 	FeRequireNoArguments(context, arguments);
-	lisp_move_words(count);
+	lisp_move_words(context, b, count);
 	return FeNil(context);
 }
 
 FeObject *native_backward_word(FeContext *context, FeObject *arguments)
 {
 	long count = lisp_optional_count(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 
 	FeRequireNoArguments(context, arguments);
-	lisp_move_words(-count);
+	lisp_move_words(context, b, -count);
 	return FeNil(context);
 }
 
@@ -65,12 +181,13 @@ static bool lisp_is_word_byte(unsigned char byte)
 	return byte >= 0x80 || isalnum(byte) || byte == '_';
 }
 
-/* Byte columns of the word at `col` in `row`.  Point sitting just after a
- * word belongs to that word, as in Emacs; point between words belongs to
- * none and returns false. */
-static bool lisp_word_bounds(int row, int col, int *from, int *to)
+/* Byte columns of the word at `col` in `row` of `b`.  Point sitting just
+ * after a word belongs to that word, as in Emacs; point between words
+ * belongs to none and returns false. */
+static bool lisp_word_bounds(
+    const struct editor_buffer *b, int row, int col, int *from, int *to)
 {
-	erow *r = &bcur()->row[row];
+	erow *r = &b->row[row];
 	int start = col, end = col;
 
 	if (col < r->size && lisp_is_word_byte((unsigned char)r->chars[col])) {
@@ -119,28 +236,30 @@ static bool lisp_thing_is_word(FeContext *context, FeObject *object)
 FeObject *native_bounds_of_thing(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
 	bool want_word;
 	long from, to;
 	int row, col, start, end;
 
 	FeRequireNoArguments(context, arguments);
 	want_word = lisp_thing_is_word(context, object);
-	if (bcur()->numrows <= 0) {
+	if (b->numrows <= 0) {
 		return FeNil(context);
 	}
-	row = editor_current_filerow();
-	col = editor_current_filecol_in_row(&bcur()->row[row]);
+	buffer_position_to_row_col(
+	    b, lisp_exec_point_byte(context), &row, &col);
 	start = 0;
-	end = bcur()->row[row].size;
-	if (want_word && !lisp_word_bounds(row, col, &start, &end)) {
+	end = b->row[row].size;
+	if (want_word && !lisp_word_bounds(b, row, col, &start, &end)) {
 		return FeNil(context);
 	}
-	from = editor_char_offset(row, start);
-	to = editor_char_offset(row, end);
+	from
+	    = lisp_char_offset_of(b, buffer_row_col_to_position(b, row, start));
+	to = lisp_char_offset_of(b, buffer_row_col_to_position(b, row, end));
 	/* A word stops at the line break; a line takes it in, as in Emacs, so
 	 * END is the start of the next row.  The last row has no next row and
 	 * ends at end of buffer. */
-	if (!want_word && row < bcur()->numrows - 1) {
+	if (!want_word && row < b->numrows - 1) {
 		to++;
 	}
 	return FeCons(

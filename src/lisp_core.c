@@ -212,6 +212,7 @@ int kg_lisp_init(void)
 	state.initialized = true;
 	FeSetUserData(context, &state);
 	FeSetErrorFn(context, handle_error);
+	FeSetGCFn(context, lisp_object_gc);
 	state.frame.gc_checkpoint = FeSaveGC(context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
@@ -272,9 +273,11 @@ int kg_lisp_eval_string(
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		release_frame_buffers();
+		lisp_exec_leave(0);
 		copy_result(result, result_size, state.error);
 		return 1;
 	}
+	lisp_exec_enter(state.context);
 
 	/* Fe's core has no printing error path: the installed handler copies
 	 * the diagnostic and longjmps.  Evaluation therefore cannot write to
@@ -286,6 +289,7 @@ int kg_lisp_eval_string(
 	}
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
+	lisp_exec_leave(1);
 	return 0;
 }
 
@@ -320,14 +324,17 @@ int kg_lisp_load_file(const char *path)
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		release_frame_buffers();
+		lisp_exec_leave(0);
 		(void)fclose(file);
 		return 1;
 	}
+	lisp_exec_enter(state.context);
 
 	(void)FeEvaluateFileWithOptions(
 	    state.context, path, file, &eval_options);
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
+	lisp_exec_leave(1);
 	if (fclose(file) != 0) {
 		saved_errno = errno;
 		set_error("cannot close %s: %s", path, strerror(saved_errno));
@@ -388,10 +395,12 @@ int kg_lisp_run_command(const char *name, int fd)
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		release_frame_buffers();
+		lisp_exec_leave(0);
 		editor_set_status_message(
 		    "Lisp error: %s: %s", command_name, state.error);
 		return 0;
 	}
+	lisp_exec_enter(state.context);
 
 	/* Call the rooted function directly so the FeCall runs under the
 	 * normal step budget and interrupt polling. */
@@ -399,6 +408,7 @@ int kg_lisp_run_command(const char *name, int fd)
 	    state.context, FeGetRoot(cmd->root), nullptr, 0, &eval_options);
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
+	lisp_exec_leave(1);
 	return 0;
 }
 

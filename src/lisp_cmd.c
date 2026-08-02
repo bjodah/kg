@@ -14,6 +14,17 @@
  * predicates need the real type tag.  `type_names` and `FeGetType` are
  * both public, so this stays kg-side. */
 
+/* The type name a value answers to: "buffer" for an adapter-owned editor
+ * object, otherwise the Fe tag's own spelling. */
+static const char *lisp_type_name(FeContext *context, FeObject *object)
+{
+	(void)context;
+	if (lisp_object_is_buffer(object)) {
+		return "buffer";
+	}
+	return type_names[FeGetType(object)];
+}
+
 /* (type-of OBJECT): the type as a symbol, spelled the way Fe's printer
  * spells it: pair, nil, double, symbol, string, lambda, macro, primitive
  * or native-fn. */
@@ -23,7 +34,7 @@ FeObject *native_type_of(FeContext *context, FeObject *arguments)
 	const char *name;
 
 	FeRequireNoArguments(context, arguments);
-	name = type_names[FeGetType(object)];
+	name = lisp_type_name(context, object);
 	return FeMakeSymbol(context, name != nullptr ? name : "unknown");
 }
 

@@ -115,6 +115,44 @@ records scc before and after, and still banks a decrease with `make
 complexity-baseline` when one lands.  The program does not close above
 4223.
 
+**Superseded 2026-08-02** — see the next section.  The loan was not
+repaid: `search.c` returned 7 of it (246 → 239) and the other two named
+sources turned out not to hold what was hoped.  `localvars.c`'s three
+parsers already share one variable table, so what is left in them is
+three genuinely different grammars rather than duplication, and
+`cmd.c` had no extraction that deletes branches rather than moving them.
+Plan 04 then spent the rest of the loan on window identity, closing at
+4449 of 4450.
+
+## Decision — the 4223 ceiling was wrong, and is re-baselined
+
+Taken 2026-08-02, entering Plan 05.  The 4223 bound rested on a premise
+that turned out to be false: that a program "whose whole point is to
+remove structural debt" would be net-removal, so ending above where it
+started would mean it had failed.  It was not net-removal.  Plans 01–04
+deleted a great deal — `readonly_blocked_keys[]`, the `ALT_*` decoder,
+`struct hl_snapshot`, six duplicated window scans, 162 of 209 raw
+mutation opinions — and then *built four subsystems that did not exist
+when the number was chosen*: persistent markers, compact decorations, a
+bounded typed event queue, and safe-point delivery.  None of those had an
+ad hoc predecessor to trade away.  Measuring that work against a ceiling
+set before it was designed does not describe whether the codebase got
+better; it only describes that the codebase got bigger, which nobody
+disputed.
+
+`SCC_COMPLEXITY_MAX` is therefore **4750** for Plan 05's product train,
+and the 4223 promise above is withdrawn rather than quietly missed.  The
+new resting bound is whatever the program measures at close, banked with
+`make complexity-baseline` — a number that is earned rather than
+predicted.
+
+Rule 6 is unchanged and is the part that was always doing the work: every
+slice records scc before and after, funds itself where it can, and banks
+a decrease when a durable saving lands.  What is withdrawn is the fixed
+end-state number, not the ratchet.  A future program that *is* meant to
+be net-removal should set its bound from its own measured start, and
+should say which code it intends to delete before it borrows against it.
+
 Wave 1's residue, for whoever picks up next: `src/word.c` line coverage
 sits one covered line above its floor, so the next commit touching it
 should expect to add a test.  Plan 02 Phase 5 still owns

@@ -41,6 +41,8 @@ static void setup_editor(void)
 	memset(&editor, 0, sizeof(editor));
 	wcur()->h = 24;
 	wcur()->w = 80;
+	winlist[0].active = 1;
+	wcur()->buf = buf_handle(buf_current);
 	bcur()->filename = "/tmp/bridge.txt";
 	undo_init();
 	test_status_message[0] = '\0';
@@ -859,6 +861,37 @@ static void test_word_motion(void)
 	teardown_editor();
 }
 
+/* forward-word/backward-word cross row boundaries treating a row break --
+ * even one crossing an empty row -- as a single separator, never a stop,
+ * matching src/word.c's word_boundary_forward().  This also pins the
+ * O(rows)-per-scanned-byte regression: the buggy lisp_flat_byte_at()
+ * (since removed) re-derived (row, col) from a flat position on every
+ * scanned byte, which this multi-row case exercises even though the test
+ * itself only checks the result, not the cost. */
+static void test_word_motion_crosses_rows(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "one", 3);
+	editor_insert_row(bcur(), 1, "", 0);
+	editor_insert_row(bcur(), 2, "two three", 9);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 1) (forward-word) (point))", "4"));
+	CHECK(eval_eq("(progn (goto-char 1) (forward-word 2) (point))", "9"));
+	CHECK(eval_eq("(progn (goto-char 1) (forward-word 3) (point))", "15"));
+	CHECK(eval_eq("(point-max)", "15"));
+
+	CHECK(eval_eq(
+	    "(progn (goto-char (point-max)) (backward-word) (point))", "10"));
+	CHECK(eval_eq(
+	    "(progn (goto-char (point-max)) (backward-word 2) (point))", "6"));
+	CHECK(eval_eq(
+	    "(progn (goto-char (point-max)) (backward-word 3) (point))", "1"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_editor_bridge(void)
 {
 	setup_editor();
@@ -878,6 +911,233 @@ static void test_editor_bridge(void)
 	CHECK(keybind_lookup("C-c i") == nullptr);
 	CHECK(
 	    eval_error_contains("(load \"absent-package\")", "absent-package"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* ---- Buffer objects and the runtime execution context ---------------- */
+
+/* Buffer undo depth, for the hidden-edit isolation checks below. */
+static int undo_depth_of_buffer(struct editor_buffer *b)
+{
+	return b ? b->undostack.size : -1;
+}
+
+static void test_buffer_objects(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* current-buffer answers with the display buffer, an adapter object
+	 * that is eq-identical across asks for the same buffer. */
+	CHECK(eval_eq("(type-of (current-buffer))", "buffer"));
+	CHECK(eval_eq("(buffer-live-p (current-buffer))", "t"));
+	CHECK(eval_eq("(buffer-name)", "bridge.txt"));
+	CHECK(
+	    eval_eq("(eq (current-buffer) (get-buffer \"bridge.txt\"))", "t"));
+	CHECK(eval_eq("(get-buffer \"absent\")", "nil"));
+	CHECK(eval_eq("(buffer-live-p 42)", "nil"));
+	CHECK(eval_error_contains("(buffer-name 42)", "expected a buffer"));
+
+	/* get-buffer-create makes a clean hidden buffer, idempotent by name. */
+	CHECK(eval_ok("(setq h (get-buffer-create \"hidden\"))"));
+	CHECK(eval_eq("(buffer-name h)", "hidden"));
+	CHECK(eval_eq("(eq h (get-buffer-create \"hidden\"))", "t"));
+	CHECK(eval_eq("(buffer-live-p h)", "t"));
+
+	/* Hidden-buffer editing: insert lands there and the displayed
+	 * window's point does not move; the edit is one undo record in the
+	 * hidden buffer and none in the display buffer's chain. */
+	CHECK(eval_eq("(progn (set-buffer h) (insert \"hello\")"
+		      " (list (buffer-name) (point)"
+		      " (buffer-substring (point-min) (point-max))))",
+	    "(\"hidden\" 6 \"hello\")"));
+	CHECK(wcur()->cx == 0 && wcur()->cy == 0);
+	CHECK(bcur()->undostack.size == 0);
+	CHECK(undo_depth_of_buffer(buf_resolve(buf_handle(1))) == 1);
+	/* A second hidden edit is a second undo record. */
+	CHECK(eval_ok("(progn (set-buffer h) (insert \"x\"))"));
+	CHECK(undo_depth_of_buffer(buf_resolve(buf_handle(1))) == 2);
+	/* The display buffer is untouched. */
+	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", ""));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_kill_buffer(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Killing a hidden buffer leaves its object dead. */
+	CHECK(eval_ok("(setq h (get-buffer-create \"doomed\"))"));
+	CHECK(eval_eq("(kill-buffer h)", "nil"));
+	CHECK(eval_eq("(buffer-live-p h)", "nil"));
+	CHECK(eval_error_contains("(buffer-name h)", "buffer is dead"));
+
+	/* A modified buffer is refused without prompting. */
+	CHECK(eval_ok("(setq h (get-buffer-create \"dirty\"))"));
+	CHECK(eval_ok("(progn (set-buffer h) (insert \"x\"))"));
+	CHECK(eval_error_contains("(kill-buffer h)", "modified"));
+	CHECK(eval_eq("(buffer-live-p h)", "t"));
+
+	/* Killing the exec buffer leaves later work on it an error. */
+	CHECK(eval_ok("(setq h (get-buffer-create \"current\"))"));
+	CHECK(eval_error_contains(
+	    "(progn (set-buffer h) (kill-buffer (current-buffer)) (point))",
+	    "current buffer is dead"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_buffer_stale_slot(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Kill a buffer, create another in the same slot; the old object
+	 * must not alias the new buffer. */
+	CHECK(eval_ok("(insert \"KEEP\")"));
+	CHECK(eval_ok("(setq a (get-buffer-create \"slot-a\"))"));
+	CHECK(eval_ok("(kill-buffer a)"));
+	CHECK(eval_ok("(setq b (get-buffer-create \"slot-b\"))"));
+	CHECK(eval_eq("(buffer-name b)", "slot-b"));
+	CHECK(eval_eq("(buffer-live-p a)", "nil"));
+	CHECK(eval_error_contains("(buffer-name a)", "buffer is dead"));
+	CHECK(eval_error_contains("(set-buffer a)", "buffer is dead"));
+	/* The display buffer's text is untouched by the slot reuse. */
+	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", "KEEP"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_buffer_point_sync(void)
+{
+	char result[128] = "";
+	setup_editor();
+	editor_insert_row(bcur(), 0, "one two", 7);
+	CHECK(kg_lisp_init() == 0);
+
+	/* A successful goto-char syncs the runtime point to the window. */
+	CHECK(kg_lisp_eval_string("(goto-char 3)", sizeof("(goto-char 3)") - 1,
+		  result, sizeof(result))
+	    == 0);
+	CHECK(wcur()->cx == 2);
+	CHECK(wcur()->cy == 0);
+	CHECK(eval_eq("(point)", "3"));
+
+	/* A failed frame must not synchronize: the window stays put. */
+	CHECK(eval_error_contains("(progn (goto-char 7) (car 1))", "pair"));
+	CHECK(wcur()->cx == 2);
+	CHECK(wcur()->cy == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Point is a property of the buffer, not of the frame that happens to be
+ * looking at it: (goto-char N), set-buffer away to a hidden buffer and
+ * straight back within the same frame, must still see N.  Native-test
+ * half of the PTY case lisp-point-survives-set-buffer.yaml. */
+static void test_point_survives_set_buffer(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 4)"
+		      " (set-buffer (get-buffer-create \"scratch\"))"
+		      " (set-buffer (get-buffer \"bridge.txt\"))"
+		      " (point))",
+	    "4"));
+	CHECK(eval_ok("(insert \"!\")"));
+	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", "abc!def"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* A hidden buffer's runtime point outlives the frame that created it: a
+ * later, separate frame that set-buffers to it must pick up point where
+ * the earlier frame's edit left it, not at point-min.  Native-test half
+ * of the PTY case lisp-hidden-buffer-point-persists.yaml. */
+static void test_hidden_buffer_point_persists_across_frames(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(progn (set-buffer (get-buffer-create \"scratch\"))"
+		      " (insert \"hello\"))"));
+	CHECK(eval_eq("(progn (set-buffer (get-buffer \"scratch\"))"
+		      " (insert \"X\")"
+		      " (buffer-substring (point-min) (point-max)))",
+	    "helloX"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Frame entry is authoritative for the buffer the active window shows: it
+ * overwrites that buffer's point-table entry from the window cursor on
+ * every frame, rather than keeping whatever an earlier frame (or a stale
+ * table entry) left there -- the window may have moved between commands
+ * without going through Lisp at all. */
+static void test_frame_entry_overwrites_from_window_cursor(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "one two three", 13);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 9) (point))", "9"));
+	wcur()->cy = 0;
+	wcur()->cx = 0;
+	CHECK(eval_eq("(point)", "1"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* The adapter object pool is bounded: distinct buffer handles each take
+ * one record, so enough create/kill cycles without releasing the Lisp
+ * values exhaust it, and the exhaustion is an error rather than a silent
+ * alias to an earlier record.  The loop keeps every object alive (the
+ * `held` list), so Fe's GC cannot release any record behind it. */
+static void test_buffer_object_capacity(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Take the display buffer's object first: its record is what must
+	 * survive the exhaustion below. */
+	CHECK(eval_ok("(setq before (current-buffer))"));
+
+	/* The adapter object pool is bounded: distinct buffer handles each
+	 * take one record, so enough create/kill cycles while every Lisp
+	 * value stays alive exhaust it, and the exhaustion is an error
+	 * rather than a silent alias to an earlier record. */
+	CHECK(eval_error_contains("(progn (setq held '()) (setq n 0)"
+				  " (while (< n 100)"
+				  "  (setq held (cons (get-buffer-create "
+				  "(format \"cap-%d\" n)) held))"
+				  "  (kill-buffer (car held))"
+				  "  (setq n (+ n 1))))",
+	    "too many buffer objects"));
+
+	/* Exhaustion does not break existing objects: the display buffer's
+	 * record was taken before the pool filled, so it still resolves and
+	 * is still the same object a fresh ask returns (the pool is
+	 * deduplicated per handle, not per ask). */
+	CHECK(eval_eq("(buffer-live-p before)", "t"));
+	CHECK(eval_eq("(eq before (current-buffer))", "t"));
+	CHECK(eval_eq("(buffer-name before)", "bridge.txt"));
+	/* Dropping the held list makes the wrappers unreachable again, so
+	 * the pool has room for new distinct handles the next time Fe's GC
+	 * actually collects. */
+	CHECK(eval_ok("(setq held '())"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -1597,7 +1857,16 @@ int main(void)
 	RUN(test_buffer_substring);
 	RUN(test_mark_and_region);
 	RUN(test_word_motion);
+	RUN(test_word_motion_crosses_rows);
 	RUN(test_editor_bridge);
+	RUN(test_buffer_objects);
+	RUN(test_kill_buffer);
+	RUN(test_buffer_stale_slot);
+	RUN(test_buffer_point_sync);
+	RUN(test_point_survives_set_buffer);
+	RUN(test_hidden_buffer_point_persists_across_frames);
+	RUN(test_frame_entry_overwrites_from_window_cursor);
+	RUN(test_buffer_object_capacity);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_format_natives);

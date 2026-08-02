@@ -1,0 +1,47 @@
+# Hidden-buffer operations from a Lisp command must not disturb either
+# window of a two-window session sharing one display buffer.
+#
+# Both windows show the same file.  The upper window's point is at "alpha"
+# (the start); the lower window's point is at "gamma" (the end).  The
+# command set-buffers to a hidden buffer, inserts there, and inserts a
+# marker into the shared buffer at its runtime point -- which was entered
+# from the upper window, so "!" lands at the upper window's point.  If the
+# hidden work had moved either window, the marker would land elsewhere and
+# the lower window would stop showing "gamma".
+name: lisp-two-windows-hidden-buffer
+filename: lisp-shared.txt
+backend: tmux
+dimensions: [12, 40]
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun edit-shared ()
+      (interactive)
+      (let ((h (get-buffer-create "scratch")))
+        (set-buffer h)
+        (insert "xyz")
+        (set-buffer (get-buffer "lisp-shared.txt"))
+        (insert "!")))
+    (global-set-key "C-c h" "edit-shared")
+initial: |
+  alpha
+  beta
+  gamma
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - M->
+  - C-x
+  - o
+  - C-c
+  - h
+expected_saved: |
+  !alpha
+  beta
+  gamma
+expected_screen_contains:
+  - "!alpha"
+  - "gamma"
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

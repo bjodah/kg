@@ -1,0 +1,29 @@
+# Point is a property of the buffer, not of the frame that is looking at
+# it: (goto-char N), then set-buffer away and back, must still see N.
+#
+# The command moves point to 4, set-buffers to a hidden scratch buffer and
+# straight back without touching it, then inserts "!" -- which must land
+# at the position goto-char left, not at point-min (the bug: a single
+# frame-scoped point field re-derives from the window cursor on every
+# set-buffer, forgetting where goto-char put it).
+name: lisp-point-survives-set-buffer
+filename: point-roundtrip.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun roundtrip ()
+      (interactive)
+      (goto-char 4)
+      (let ((h (get-buffer-create "scratch")))
+        (set-buffer h)
+        (set-buffer (get-buffer "point-roundtrip.txt"))
+        (insert "!")))
+    (global-set-key "C-c h" "roundtrip")
+initial: |
+  abcdef
+keys:
+  - C-c
+  - h
+expected_saved: |
+  abc!def
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

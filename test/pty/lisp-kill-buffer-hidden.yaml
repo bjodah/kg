@@ -1,0 +1,55 @@
+# (kill-buffer) end to end: creating a hidden buffer, killing it, and the
+# stale handle answering nil thereafter; and killing a modified hidden
+# buffer being refused so its text survives.
+#
+# The first key runs a command that creates "doomed", kills it, and
+# inserts the verdict of (buffer-live-p) into the display buffer -- the
+# "DEAD" proves both the kill and the staleness.  The second command
+# creates "dirty", inserts into it, and tries to kill it: the refusal
+# raises a Lisp error (shown in the status line), so the hidden buffer
+# survives with its text.  The third command then reads that surviving
+# text back into the display buffer, proving the refusal left it intact.
+name: lisp-kill-buffer-hidden
+filename: lisp-kill.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun kill-test ()
+      (interactive)
+      (let ((d (get-buffer-create "doomed")))
+        (kill-buffer d)
+        (insert (if (buffer-live-p d) "LIVE" "DEAD"))))
+    (defun refuse-test ()
+      (interactive)
+      (let ((d (get-buffer-create "dirty")))
+        (set-buffer d)
+        (insert "KEPT")
+        (kill-buffer d)))
+    (defun read-back ()
+      (interactive)
+      (let ((d (get-buffer "dirty")))
+        (if d
+            (progn (set-buffer d)
+                   (insert (buffer-substring (point-min) (point-max)))
+                   (set-buffer (get-buffer "lisp-kill.txt"))
+                   (insert "KEPT"))
+          (insert "LOST"))))
+    (global-set-key "C-c k" "kill-test")
+    (global-set-key "C-c r" "refuse-test")
+    (global-set-key "C-c g" "read-back")
+initial: ""
+keys:
+  - C-c
+  - k
+  - C-c
+  - r
+  - C-c
+  - g
+expected_saved: |-
+  DEADKEPT
+expected_screen_contains:
+  - "Lisp error"
+expected_screen_not_contains:
+  - LIVE
+  - LOST
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

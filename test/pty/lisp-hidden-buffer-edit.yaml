@@ -1,0 +1,29 @@
+# Hidden-buffer editing leaves the displayed window's point alone.
+#
+# The command creates a buffer that no window shows, set-buffers to it,
+# inserts there, and only then returns to the display buffer and inserts a
+# marker at point.  If the hidden work had moved the displayed point, the
+# "!" would land somewhere else in the saved file.
+name: lisp-hidden-buffer-edit
+filename: lisp-hidden.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun edit-hidden ()
+      (interactive)
+      (let ((h (get-buffer-create "scratch")))
+        (set-buffer h)
+        (insert "xyz")
+        (set-buffer (get-buffer "lisp-hidden.txt"))
+        (insert "!")))
+    (global-set-key "C-c h" "edit-hidden")
+initial: |
+  abc
+keys:
+  - C-c
+  - h
+expected_saved: |
+  !abc
+expected_screen_not_contains:
+  - "xyz"
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

@@ -1,0 +1,39 @@
+# A hidden buffer's point survives from one command to the next, the way
+# Emacs point survives between commands in any buffer, displayed or not.
+#
+# The first command creates a hidden "scratch" buffer and inserts "hello"
+# into it, leaving its runtime point after the "o".  The second command
+# set-buffers back to "scratch" and inserts "X" -- which must land after
+# "hello", not at point-min (the bug: nothing remembered where the first
+# command's frame left point in a buffer no window ever showed, so the
+# second command's frame re-derived point as 1).  It then copies the
+# hidden buffer's text into the display buffer so the result is visible in
+# the saved file.
+name: lisp-hidden-buffer-point-persists
+filename: hidden-point-persist.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun step1 ()
+      (interactive)
+      (set-buffer (get-buffer-create "scratch"))
+      (insert "hello"))
+    (defun step2 ()
+      (interactive)
+      (set-buffer (get-buffer "scratch"))
+      (insert "X")
+      (let ((s (buffer-substring (point-min) (point-max))))
+        (set-buffer (get-buffer "hidden-point-persist.txt"))
+        (insert s)))
+    (global-set-key "C-c 1" "step1")
+    (global-set-key "C-c 2" "step2")
+initial: |
+  -
+keys:
+  - C-c
+  - "1"
+  - C-c
+  - "2"
+expected_saved: |
+  helloX-
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

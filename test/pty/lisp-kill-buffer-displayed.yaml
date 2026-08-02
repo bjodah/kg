@@ -1,0 +1,54 @@
+# (kill-buffer) of a displayed buffer detaches the window showing it and
+# re-homes it to a remaining buffer; the killed handle is then dead.
+#
+# The Lisp command kills the buffer the selected window is showing, then
+# switches to the other open file and inserts the live/dead verdict there
+# -- the exec buffer being gone, the insert must not touch the dead one.
+# The window that showed the killed buffer must end up on a surviving file
+# (not "[new]" -- the old bug where a detached window resurrected the slot
+# as an empty buffer).
+name: lisp-kill-buffer-displayed
+filename: lisp-kill-displayed.txt
+backend: tmux
+dimensions: [20, 60]
+requires_feature: lisp
+config_files:
+  b.txt: |
+    BBBBB
+  .config/kg/init.fe: |
+    (defun kill-displayed ()
+      (interactive)
+      (setq doomed (current-buffer))
+      (kill-buffer doomed)
+      (set-buffer (get-buffer "b.txt"))
+      (insert (if (buffer-live-p doomed) "LIVE" "DEAD")))
+    (global-set-key "C-c k" "kill-displayed")
+initial: |
+  AAAAA
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/b.txt"
+  - RET
+  - C-x
+  - b
+  - "lisp-kill-displayed.txt"
+  - RET
+  - C-c
+  - k
+  - C-x
+  - o
+# lisp-kill-displayed.txt is killed unmodified, so the file kg was started
+# on is untouched.  The verdict lands at the start of b.txt.
+expected_saved: |
+  AAAAA
+expected_screen_contains:
+  - "DEADBBBBB"
+  - "BBBBB"
+expected_screen_not_contains:
+  - "[new]"
+trailer_keys: [C-x, C-c, "y"]

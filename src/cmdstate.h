@@ -41,6 +41,12 @@ enum kill_coalesce_class {
 	 * so neither a repeated copy nor a kill that follows one grows an
 	 * existing entry. */
 	KILL_COALESCE_COPY,
+	/* A yank or yank-pop: what makes M-y eligible on the very next
+	 * keystroke.  This is the one true "did a yank run last" test --
+	 * yank.c's editor_yank_pop() reads it back through
+	 * cmd_last_kill_class() rather than keeping a second opinion of its
+	 * own, the same way a kill producer already does for coalescing. */
+	KILL_COALESCE_YANK,
 };
 
 struct command_state {

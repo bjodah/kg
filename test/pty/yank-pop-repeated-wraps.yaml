@@ -1,0 +1,28 @@
+# Repeated M-y walks every older entry in turn and wraps from the
+# oldest back to the newest.  Three kills, each broken from the last by
+# an intervening C-n, build three separate ring entries: "three"
+# (newest), "two", "one" (oldest).  C-y yanks "three"; three more M-y's
+# then walk "two", "one", and wrap back to "three".
+name: yank-pop-repeated-wraps
+filename: yank-pop-repeated-wraps.txt
+initial: |
+  one
+  two
+  three
+  four
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+  - M-y
+  - M-y
+  - M-y
+expected_saved: |
+
+
+  three
+  four
+backend: pexpect

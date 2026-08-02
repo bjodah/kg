@@ -1,0 +1,35 @@
+# M-y is eligible only in the buffer the yank it would replace ran in.
+# alpha.txt yanks "one" back after killing it, then C-x C-f switches to
+# a second, unrelated buffer; M-y there refuses rather than reaching
+# back into alpha's span.  The keys end right on that M-y, not a switch
+# back to alpha: the tmux backend captures one screen snapshot after the
+# last of `keys`, and switching back would overwrite the refusal message
+# before that snapshot is taken.
+#
+# Neither buffer is explicitly saved by these keys, so the trailer's own
+# C-x C-s (of whichever buffer -- beta -- is current) leaves alpha.txt on
+# disk exactly as `initial` wrote it, which is what `expected_saved`
+# checks: not that kg re-saved it unchanged, but that M-y never touched
+# it in memory to begin with.
+name: yank-pop-refused-after-buffer-switch
+filename: alpha.txt
+backend: tmux
+config_files:
+  beta.txt: |
+    placeholder
+initial: |
+  one
+keys:
+  - C-k
+  - C-y
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta.txt"
+  - RET
+  - M-y
+expected_saved: |
+  one
+expected_screen_contains:
+  - "Previous command was not a yank"

@@ -1112,17 +1112,38 @@ static void cmd_kill_region(int fd)
 	editor_kill_region();
 }
 
-/* A count yanks that many copies as one insertion and one undo record. */
-static void cmd_yank(int fd)
+/* A count yanks that many copies as one insertion and one undo record.
+ * Zero or negative is an explicit no-op -- nothing inserted, nothing for
+ * a following M-y to be eligible over -- the same convention
+ * key_kill_lines() and editor_insert_repeated_literal() already use for
+ * a count that reads as "do it zero times." */
+static void yank_dispatch(int n)
 {
-	int n = prefix_count();
-
-	(void)fd;
+	if (n <= 0) {
+		return;
+	}
 	if (n > 1 && kill_ring_get_len() > 0) {
 		key_yank_repeated(n);
 		return;
 	}
 	editor_yank();
+}
+
+static void cmd_yank(int fd)
+{
+	(void)fd;
+	yank_dispatch(prefix_count());
+}
+
+/* M-y: replace what the immediately preceding yank or yank-pop inserted
+ * with the next-older kill ring entry.  No numeric argument of its own
+ * -- the copy count it replays is whatever the originating C-y was
+ * given, carried in yank.c's own transient record, not re-read from the
+ * prefix argument here; a prefix given directly to M-y is unused. */
+static void cmd_yank_pop(int fd)
+{
+	(void)fd;
+	editor_yank_pop();
 }
 
 static void cmd_undo(int fd)
@@ -1589,6 +1610,8 @@ static const struct named_cmd cmdtable[] = {
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
 	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },
+	{ "yank-pop", cmd_yank_pop, EDITS,
+	    "Replace the last yank with the next older kill ring entry" },
 	{ "yank-rectangle", cmd_yank_rectangle, EDITS,
 	    "Insert the last killed rectangle at point" },
 	{ "zap-to-char", cmd_zap_to_char, EDITS,

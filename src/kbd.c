@@ -21,8 +21,6 @@
 #include "syntax.h"
 #include "yank.h"
 
-#define YANK_BATCH_MAX (8 * 1024 * 1024)
-
 #define PREFIX_ARG_MAX 1000
 
 static int prefix_arg_mul_add(int value, int mul, int add)
@@ -244,28 +242,20 @@ void key_kill_lines(int n)
  * caller has already established that the kill ring holds something. */
 void key_yank_repeated(int n)
 {
-	size_t entry_len = kill_ring_get_len();
-	size_t total_len;
+	size_t start, total_len;
 	char *combined;
-	int i;
 
-	editor_push_mark();
-	if (!checked_mul_size_t(&total_len, entry_len, (size_t)n)
-	    || total_len > YANK_BATCH_MAX) {
+	combined = kill_ring_entry_repeated(0, n, &total_len);
+	if (!combined) {
 		editor_set_status_message("Yank too large");
 		return;
 	}
-	combined = malloc(total_len);
-	if (!combined) {
-		editor_set_status_message("Out of memory");
-		return;
-	}
-	for (i = 0; i < n; i++) {
-		memcpy(combined + (size_t)i * entry_len, kill_ring_get(),
-		    entry_len);
-	}
-	/* total_len <= YANK_BATCH_MAX, well under INT_MAX. */
+	editor_push_mark();
+	start = buffer_row_col_to_position(
+	    bcur(), editor_current_filerow_or_eof(), editor_current_filecol());
+	/* total_len <= KG_YANK_BATCH_MAX, well under INT_MAX. */
 	editor_insert_text_at_point(combined, (int)total_len);
+	kill_ring_note_yank(start, total_len, n);
 	free(combined);
 	editor_set_status_message("Yanked");
 }
@@ -421,6 +411,7 @@ static const struct {
 	{ "S-<delete>", "kill-region" },
 	{ "C-y", "yank" },
 	{ "S-<insert>", "yank" },
+	{ "M-y", "yank-pop" },
 	{ "C-_", "undo" },
 	{ "DEL", "delete-backward-char" },
 	{ "<delete>", "delete-forward-char" },

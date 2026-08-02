@@ -44,6 +44,7 @@ void kill_ring_free(void)
 	}
 	killring.count = 0;
 	killring.total_bytes = 0;
+	killring.generation++;
 }
 
 /* Drop the single oldest (last) entry. */
@@ -83,6 +84,7 @@ static void kill_ring_push_entry(char *copy, size_t len)
 	killring.entries[0].len = len;
 	killring.count++;
 	killring.total_bytes += len;
+	killring.generation++;
 }
 
 /* One allocation: `len` bytes of `text` plus a defensive trailing NUL. */
@@ -153,6 +155,7 @@ static void kill_ring_replace_newest(char *combined, size_t new_len)
 	    = killring.total_bytes - killring.entries[0].len + new_len;
 	killring.entries[0].text = combined;
 	killring.entries[0].len = new_len;
+	killring.generation++;
 	while (killring.count > 1
 	    && killring.total_bytes > KG_KILL_RING_MAX_BYTES) {
 		kill_ring_evict_oldest();
@@ -247,6 +250,33 @@ char *kill_ring_get(void) { return killring.entries[0].text; }
 
 /* Get the newest entry's length (returns 0 if the ring is empty) */
 size_t kill_ring_get_len(void) { return killring.entries[0].len; }
+
+/* `n` copies of entries[index]'s bytes in one allocation; see yank.h. */
+char *kill_ring_entry_repeated(int index, int n, size_t *out_len)
+{
+	size_t entry_len, total_len;
+	char *combined;
+	int i;
+
+	if (n <= 0 || index < 0 || index >= killring.count) {
+		return NULL;
+	}
+	entry_len = killring.entries[index].len;
+	if (!checked_mul_size_t(&total_len, entry_len, (size_t)n)
+	    || total_len > KG_YANK_BATCH_MAX) {
+		return NULL;
+	}
+	combined = yank_alloc_ok() ? malloc(total_len) : NULL;
+	if (!combined) {
+		return NULL;
+	}
+	for (i = 0; i < n; i++) {
+		memcpy(combined + (size_t)i * entry_len,
+		    killring.entries[index].text, entry_len);
+	}
+	*out_len = total_len;
+	return combined;
+}
 
 static int yank_current_row(void) { return editor_current_filerow_or_eof(); }
 
@@ -685,6 +715,7 @@ void editor_delete_region_or_char(void)
 void editor_yank(void)
 {
 	char *text = kill_ring_get();
+	size_t start;
 
 	if (!text) {
 		editor_set_status_message("Kill ring is empty");
@@ -692,9 +723,124 @@ void editor_yank(void)
 	}
 	/* Mark the start of the yanked text, as Emacs does. */
 	editor_push_mark();
+	start = buffer_row_col_to_position(
+	    bcur(), yank_current_row(), yank_current_col());
 	/* KG_KILL_RING_MAX_BYTES is well under INT_MAX, so this narrowing
 	 * is exact for every entry the ring can ever hold. */
 	editor_insert_text_at_point(text, (int)kill_ring_get_len());
+	kill_ring_note_yank(start, kill_ring_get_len(), 1);
+	editor_set_status_message("Yanked");
+}
+
+/* yank-pop's transient state: the span the immediately preceding yank or
+ * yank-pop inserted, and enough to replace it again with the next-older
+ * ring entry.  Owned here, not by struct kill_ring -- the ring is
+ * bytes-only storage.  Valid only while cmd_last_kill_class() reads
+ * KILL_COALESCE_YANK; that is the whole of yank-pop's eligibility test
+ * (see cmdstate.h), so nothing here duplicates it.  `start`'s buffer
+ * field is this record's buffer identity too: a marker handle already
+ * carries it, so a second copy would just be two sources of truth that
+ * could disagree. */
+struct yank_pop_state {
+	struct kg_marker_handle start;
+	size_t inserted_len;
+	uint32_t ring_generation;
+	int ring_index;
+	int repeat_count;
+};
+
+static struct yank_pop_state yank_pop;
+
+void kill_ring_note_yank(size_t start, size_t inserted_len, int repeat_count)
+{
+	struct kg_marker_handle m;
+
+	/* Harmless on the very first yank of a session: deleting a
+	 * zero-valued handle resolves nothing and kg_marker_delete() just
+	 * says so. */
+	kg_marker_delete(yank_pop.start);
+	m = kg_marker_create(bcur(), start, KG_MARKER_GRAV_LEFT);
+	if (m.id == 0) {
+		yank_pop = (struct yank_pop_state) { 0 };
+		return;
+	}
+	yank_pop = (struct yank_pop_state) {
+		.start = m,
+		.inserted_len = inserted_len,
+		.ring_generation = killring.generation,
+		.ring_index = 0,
+		.repeat_count = repeat_count,
+	};
+	cmd_set_kill_class(KILL_COALESCE_YANK);
+}
+
+/* Whether `yank_pop` still names a span in the current buffer that M-y
+ * may replace: the coalescing class, a marker that still resolves, that
+ * marker's buffer being the one point is in now, and a ring that has not
+ * mutated since (belt-and-suspenders past the coalescing class -- see
+ * yank.h's struct kill_ring comment).  `*out_start` is set only on
+ * success. */
+static bool yank_pop_eligible(size_t *out_start)
+{
+	struct kg_buffer_handle here;
+
+	if (cmd_last_kill_class() != KILL_COALESCE_YANK || killring.count == 0
+	    || yank_pop.ring_generation != killring.generation) {
+		return false;
+	}
+	here = buf_handle_of(bcur());
+	if (yank_pop.start.buffer.slot != here.slot
+	    || yank_pop.start.buffer.id != here.id
+	    || yank_pop.start.buffer.generation != here.generation) {
+		return false;
+	}
+	return kg_marker_resolve(yank_pop.start, out_start) == KG_MARKER_OK;
+}
+
+void editor_yank_pop(void)
+{
+	size_t start, new_len;
+	int new_index;
+	char *combined;
+	struct kg_edit e;
+	int row, col;
+
+	if (!yank_pop_eligible(&start)) {
+		editor_set_status_message("Previous command was not a yank");
+		return;
+	}
+
+	new_index = (yank_pop.ring_index + 1) % killring.count;
+	combined = kill_ring_entry_repeated(
+	    new_index, yank_pop.repeat_count, &new_len);
+	if (!combined) {
+		editor_set_status_message("Yank too large");
+		return;
+	}
+
+	e = kg_edit_user(
+	    bcur(), start, start + yank_pop.inserted_len, combined, new_len);
+	if (!kg_buffer_replace(&e, NULL)) {
+		free(combined);
+		editor_set_status_message("Out of memory");
+		return;
+	}
+	free(combined);
+	/* Merge this call's own undo record with the one beneath it (the
+	 * yank or yank-pop this call replaced), so one editor_undo() undoes
+	 * the whole chain regardless of how many pops ran.  A merge that
+	 * declines (the stack was not what was expected) just leaves two
+	 * records instead of one; the edit itself already succeeded either
+	 * way. */
+	undo_merge_at_top(bcur(), start);
+
+	yank_pop.ring_index = new_index;
+	yank_pop.inserted_len = new_len;
+	cmd_set_kill_class(KILL_COALESCE_YANK);
+
+	buffer_position_to_row_col(bcur(), start + new_len, &row, &col);
+	wcur()->coloff = 0;
+	editor_cursor_goto(row, col);
 	editor_set_status_message("Yanked");
 }
 

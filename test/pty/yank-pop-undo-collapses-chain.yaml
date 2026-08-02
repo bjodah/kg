@@ -1,0 +1,29 @@
+# A whole C-y / M-y / M-y chain is one undo record (undo_merge_at_top()
+# in undo.c): a single C-_ removes every entry the chain inserted, back
+# to the buffer's state before the first yank, however many pops ran.
+# Three kills build a three-entry ring; C-y then two M-y's walk to the
+# oldest entry, and one C-_ removes all of it in a single step rather
+# than needing one per keystroke.
+name: yank-pop-undo-collapses-chain
+filename: yank-pop-undo-collapses-chain.txt
+initial: |
+  one
+  two
+  three
+  four
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+  - M-y
+  - M-y
+  - C-_
+expected_saved: |
+
+
+
+  four
+backend: pexpect

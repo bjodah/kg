@@ -1,0 +1,22 @@
+# yank-pop reaches through M-x as well as its M-y key, since both go
+# through the same cmdtable entry: cmd_invoke("yank", ...) sets the
+# same eligibility cmd_invoke("yank-pop", ...) reads back.
+name: yank-pop-from-mx
+filename: yank-pop-from-mx.txt
+initial: |
+  one
+  two
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - M-x
+  - yank
+  - RET
+  - M-x
+  - yank-pop
+  - RET
+expected_saved: |
+
+  one
+backend: pexpect

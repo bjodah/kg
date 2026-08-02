@@ -1,0 +1,13 @@
+# M-y with no immediately preceding yank refuses and leaves the buffer
+# untouched, reporting why in the echo area.
+name: yank-pop-refused-without-yank
+filename: yank-pop-refused-without-yank.txt
+backend: tmux
+initial: |
+  hello
+keys:
+  - M-y
+expected_saved: |
+  hello
+expected_screen_contains:
+  - "Previous command was not a yank"

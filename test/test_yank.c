@@ -2,11 +2,15 @@
 
 #include "../src/cmdstate.h"
 #include "../src/def.h"
+#include "../src/edit.h"
+#include "../src/marker.h"
 #include "../src/yank.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+extern char test_status_message[512];
 
 /* ---- Helpers ---- */
 
@@ -27,6 +31,36 @@ static void reset_kill_class(void)
 {
 	end_keystroke();
 	end_keystroke();
+}
+
+/* ---- Helpers for editor_yank_pop(): these need a real buffer and view,
+ * unlike the ring-storage tests above, since a marker is anchored to a
+ * live buffer.  Mirrors test_undo.c's setup()/teardown(), which links
+ * the same real buffer.o/marker.o this binary does (see EXTRA_yank in
+ * the Makefile). ---- */
+
+static void setup_buf(void)
+{
+	kill_ring_init();
+	free_all_rows();
+	reset_current_buffer();
+	reset_current_view();
+	memset(&editor, 0, sizeof(editor));
+	wcur()->h = 24;
+	wcur()->w = 80;
+	undo_free();
+	undo_init();
+	editor_insert_row(bcur(), 0, "", 0);
+}
+
+static void teardown_buf(void)
+{
+	kg_yank_fail_alloc_after(-1);
+	kill_ring_free();
+	free_all_rows();
+	bcur()->row = NULL;
+	bcur()->numrows = 0;
+	undo_free();
 }
 
 static char *make_buf(size_t len, char fill)
@@ -539,6 +573,313 @@ static void test_copy_consecutive_each_fresh(void)
 	teardown();
 }
 
+/* ---- kill_ring_entry_repeated(): N copies of one entry ---- */
+
+static void test_entry_repeated_basic(void)
+{
+	size_t len;
+	char *combined;
+
+	setup();
+	kill_ring_set("ab", 2);
+	combined = kill_ring_entry_repeated(0, 3, &len);
+	CHECK(combined != NULL);
+	CHECK(len == 6);
+	CHECK(combined && memcmp(combined, "ababab", 6) == 0);
+	free(combined);
+	teardown();
+}
+
+/* Zero, negative, and out-of-range indices all refuse. */
+static void test_entry_repeated_rejects_bad_input(void)
+{
+	size_t len;
+
+	setup();
+	kill_ring_set("ab", 2);
+	CHECK(kill_ring_entry_repeated(0, 0, &len) == NULL);
+	CHECK(kill_ring_entry_repeated(0, -1, &len) == NULL);
+	CHECK(kill_ring_entry_repeated(-1, 1, &len) == NULL);
+	CHECK(
+	    kill_ring_entry_repeated(1, 1, &len) == NULL); /* only one entry */
+	teardown();
+}
+
+/* N copies over KG_YANK_BATCH_MAX refuse, independent of the per-entry
+ * KG_KILL_RING_MAX_BYTES cap the entry itself already passed. */
+static void test_entry_repeated_caps_total_size(void)
+{
+	size_t len;
+	char big[100];
+	int n;
+
+	setup();
+	memset(big, 'z', sizeof big);
+	kill_ring_set(big, sizeof big);
+	n = (int)(KG_YANK_BATCH_MAX / sizeof big) + 1;
+	CHECK(kill_ring_entry_repeated(0, n, &len) == NULL);
+	teardown();
+}
+
+/* ---- kill_ring_note_yank(): the eligibility side of yank-pop ---- */
+
+static void test_note_yank_makes_the_next_keystroke_eligible(void)
+{
+	setup_buf();
+	reset_kill_class();
+	kill_ring_note_yank(0, 5, 1);
+	end_keystroke();
+	CHECK(cmd_last_kill_class() == KILL_COALESCE_YANK);
+	teardown_buf();
+}
+
+/* A second note (a fresh C-y) drops the first note's marker rather than
+ * leaking it -- yank-pop's own bookkeeping holds at most one marker no
+ * matter how many plain yanks a session ever does. */
+static void test_note_yank_replaces_its_own_marker(void)
+{
+	size_t before, after;
+
+	setup_buf();
+	kill_ring_note_yank(0, 1, 1);
+	before = bcur()->markers ? bcur()->markers->count : 0;
+	kill_ring_note_yank(0, 1, 1);
+	kill_ring_note_yank(0, 1, 1);
+	after = bcur()->markers ? bcur()->markers->count : 0;
+	CHECK(after == before);
+	teardown_buf();
+}
+
+/* ---- editor_yank_pop(): the command itself ---- */
+
+/* An immediate M-y replaces the span C-y just inserted with the next
+ * older entry, in a buffer that starts out empty. */
+static void test_yank_pop_immediate_replaces_span(void)
+{
+	setup_buf();
+	kill_ring_set("second", 6);
+	kill_ring_set("first", 5); /* newest */
+	reset_kill_class();
+
+	editor_yank();
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "first", 5) == 0);
+
+	end_keystroke();
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 6);
+	CHECK(memcmp(bcur()->row[0].chars, "second", 6) == 0);
+	teardown_buf();
+}
+
+/* Repeated M-y walks every older entry and wraps from the oldest back to
+ * the newest. */
+static void test_yank_pop_repeated_walks_and_wraps(void)
+{
+	setup_buf();
+	kill_ring_set("a", 1); /* oldest */
+	kill_ring_set("b", 1);
+	kill_ring_set("c", 1); /* newest */
+	reset_kill_class();
+
+	editor_yank();
+	CHECK(memcmp(bcur()->row[0].chars, "c", 1) == 0);
+
+	end_keystroke();
+	editor_yank_pop();
+	CHECK(memcmp(bcur()->row[0].chars, "b", 1) == 0);
+
+	end_keystroke();
+	editor_yank_pop();
+	CHECK(memcmp(bcur()->row[0].chars, "a", 1) == 0);
+
+	end_keystroke();
+	editor_yank_pop(); /* wraps past the oldest */
+	CHECK(memcmp(bcur()->row[0].chars, "c", 1) == 0);
+	teardown_buf();
+}
+
+/* M-y with nothing eligible before it refuses, leaving the buffer
+ * exactly as it was. */
+static void test_yank_pop_refuses_without_a_preceding_yank(void)
+{
+	setup_buf();
+	kill_ring_set("only", 4);
+	reset_kill_class();
+
+	editor_yank_pop();
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 0);
+	CHECK(strcmp(test_status_message, "Previous command was not a yank")
+	    == 0);
+	teardown_buf();
+}
+
+/* An intervening command -- one that never calls cmd_set_kill_class(),
+ * the same as any command that is not itself a yank or a kill -- breaks
+ * eligibility exactly the way it already breaks kill coalescing. */
+static void test_yank_pop_refuses_after_an_intervening_command(void)
+{
+	setup_buf();
+	kill_ring_set("x", 1);
+	reset_kill_class();
+
+	editor_yank();
+	end_keystroke(); /* class YANK, for whatever runs next */
+	end_keystroke(); /* an unrelated command ran and left it NONE */
+
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 1);
+	CHECK(memcmp(bcur()->row[0].chars, "x", 1) == 0);
+	teardown_buf();
+}
+
+/* Switching to a different buffer refuses, even in the hypothetical
+ * where nothing else has cleared the coalescing class yet -- the
+ * buffer-identity check is its own guard, not a restatement of it. */
+static void test_yank_pop_refuses_in_a_different_buffer(void)
+{
+	setup_buf();
+	kill_ring_set("x", 1);
+	reset_kill_class();
+
+	editor_yank();
+	end_keystroke();
+
+	buflist[1].active = 1;
+	buflist[1].id = 99;
+	buflist[1].generation = 0;
+	buf_current = 1;
+
+	editor_yank_pop();
+	CHECK(bcur()->numrows == 0);
+	CHECK(strcmp(test_status_message, "Previous command was not a yank")
+	    == 0);
+
+	buf_current = 0;
+	memset(&buflist[1], 0, sizeof(buflist[1]));
+	teardown_buf();
+}
+
+/* A marker that has gone stale -- here, every marker in the buffer
+ * detached at once, the same thing a broad row-adoption leaves behind --
+ * refuses instead of resolving to a guessed position. */
+static void test_yank_pop_refuses_with_a_stale_marker(void)
+{
+	setup_buf();
+	kill_ring_set("x", 1);
+	reset_kill_class();
+
+	editor_yank();
+	end_keystroke();
+	kg_marker_detach_all(bcur());
+
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 1);
+	CHECK(memcmp(bcur()->row[0].chars, "x", 1) == 0);
+	teardown_buf();
+}
+
+/* The ring mutating out from under an eligible record refuses too, even
+ * though every ordinary path to that already clears the coalescing
+ * class first -- belt-and-suspenders, checked on its own here by
+ * mutating the ring directly rather than through a class-setting entry
+ * point. */
+static void test_yank_pop_refuses_when_the_ring_mutated(void)
+{
+	setup_buf();
+	kill_ring_set("x", 1);
+	reset_kill_class();
+
+	editor_yank();
+	end_keystroke();
+	kill_ring_set("unrelated", 9); /* does not touch the kill class */
+
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 1);
+	CHECK(memcmp(bcur()->row[0].chars, "x", 1) == 0);
+	teardown_buf();
+}
+
+/* M-y replays the repeat count the originating yank was given: "C-u 3
+ * C-y" then M-y replaces the whole three-copy span with three copies of
+ * the next-older entry, the way key_yank_repeated() in kbd.c drives
+ * kill_ring_note_yank(). */
+static void test_yank_pop_replays_the_originating_repeat_count(void)
+{
+	size_t total_len;
+	char *combined;
+
+	setup_buf();
+	kill_ring_set("y", 1);
+	kill_ring_set("x", 1); /* newest */
+	reset_kill_class();
+
+	combined = kill_ring_entry_repeated(0, 3, &total_len);
+	CHECK(combined != NULL);
+	editor_insert_text_at_point(combined, (int)total_len);
+	kill_ring_note_yank(0, total_len, 3);
+	free(combined);
+
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, "xxx", 3) == 0);
+
+	end_keystroke();
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, "yyy", 3) == 0);
+	teardown_buf();
+}
+
+/* Embedded NUL and multi-byte UTF-8 entries survive a pop unexamined,
+ * the same as they survive the ring's own storage. */
+static void test_yank_pop_embedded_nul_and_utf8(void)
+{
+	static const char a[] = { 'a', '\0', 'b' };
+	static const char u[] = { '\xE2', '\x82', '\xAC' }; /* Euro sign */
+
+	setup_buf();
+	kill_ring_set(a, sizeof a);
+	kill_ring_set(u, sizeof u); /* newest */
+	reset_kill_class();
+
+	editor_yank();
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, u, 3) == 0);
+
+	end_keystroke();
+	editor_yank_pop();
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(bcur()->row[0].chars && memcmp(bcur()->row[0].chars, a, 3) == 0);
+	teardown_buf();
+}
+
+/* A whole C-y / M-y / M-y chain is one undo record: a single
+ * editor_undo() reaches the state before the first yank, however many
+ * pops ran (see undo_merge_at_top() in undo.c). */
+static void test_yank_pop_chain_undoes_in_one_step(void)
+{
+	setup_buf();
+	kill_ring_set("second", 6);
+	kill_ring_set("first", 5); /* newest */
+	reset_kill_class();
+
+	editor_yank();
+	end_keystroke();
+	editor_yank_pop(); /* -> "second" */
+	end_keystroke();
+	editor_yank_pop(); /* wraps back -> "first" */
+
+	CHECK(bcur()->row[0].size == 5);
+	CHECK(memcmp(bcur()->row[0].chars, "first", 5) == 0);
+	CHECK(bcur()->undostack.size == 1);
+
+	editor_undo();
+	CHECK(bcur()->row[0].size == 0);
+	CHECK(bcur()->undostack.size == 0);
+	teardown_buf();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -575,5 +916,20 @@ int main(void)
 	RUN(test_copy_starts_fresh_entry_after_kill);
 	RUN(test_kill_forward_breaks_across_copy);
 	RUN(test_copy_consecutive_each_fresh);
+	RUN(test_entry_repeated_basic);
+	RUN(test_entry_repeated_rejects_bad_input);
+	RUN(test_entry_repeated_caps_total_size);
+	RUN(test_note_yank_makes_the_next_keystroke_eligible);
+	RUN(test_note_yank_replaces_its_own_marker);
+	RUN(test_yank_pop_immediate_replaces_span);
+	RUN(test_yank_pop_repeated_walks_and_wraps);
+	RUN(test_yank_pop_refuses_without_a_preceding_yank);
+	RUN(test_yank_pop_refuses_after_an_intervening_command);
+	RUN(test_yank_pop_refuses_in_a_different_buffer);
+	RUN(test_yank_pop_refuses_with_a_stale_marker);
+	RUN(test_yank_pop_refuses_when_the_ring_mutated);
+	RUN(test_yank_pop_replays_the_originating_repeat_count);
+	RUN(test_yank_pop_embedded_nul_and_utf8);
+	RUN(test_yank_pop_chain_undoes_in_one_step);
 	return test_summary();
 }

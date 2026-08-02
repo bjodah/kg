@@ -1,0 +1,35 @@
+# yank-pop works inside a keyboard macro: recording runs its keys live
+# (one C-y/M-y cycle lands while C-x ( .. C-x ) is recording), and C-x e
+# replays the same two keys as a second, independent cycle right after
+# it, on the same line.
+#
+# Two kills, broken by an intervening C-n (same technique as
+# kill-line-motion-breaks-coalescing.yaml), build a two-entry ring
+# ("two" newest, "one" older) and leave the first two lines empty.  The
+# live cycle yanks "two" then immediately pops to "one"; the replay
+# does the same right after it -- C-y appends a fresh "two", and that
+# M-y pops just the span it inserted, leaving "one" again -- so one line
+# ends up reading "oneone".
+name: yank-pop-inside-macro
+filename: yank-pop-inside-macro.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-x
+  - "("
+  - C-y
+  - M-y
+  - C-x
+  - ")"
+  - C-x
+  - e
+expected_saved: |
+
+  oneone
+  three
+backend: pexpect

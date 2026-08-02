@@ -8,12 +8,17 @@
  * big to ever fit even alone.  Every entry carries its length alongside
  * its bytes -- an embedded NUL is ordinary data, never a terminator.
  *
- * Only the newest entry is reachable today: C-y always yanks entries[0].
- * The ring holds more so a later slice can add M-y (yank-pop) to walk
- * older entries without another storage change; that slice owns the
- * command-transient state (which entry M-y last inserted, where, how
- * long) -- this module stores bytes only, nothing about a yank in
- * progress.
+ * C-y always yanks entries[0]; M-y (yank-pop) walks older entries from
+ * there.  yank-pop's own transient state -- which entry it last
+ * inserted, where, how long, and how many copies -- is a file-static
+ * struct in yank.c, not a member here: this module stores bytes only,
+ * nothing about a yank in progress.  `generation` is the one piece of
+ * that story the ring itself carries, bumped by every call that changes
+ * entries[] (push, in-place growth, or a free), so a stale yank-pop
+ * record can tell a mutation happened even in the hypothetical case
+ * where something other than the coalescing class (see cmdstate.h's
+ * kill_coalesce_class, which already gates every ordinary path) let one
+ * through.
  */
 
 #ifndef KG_YANK_H
@@ -21,8 +26,16 @@
 
 #include <stddef.h>
 
+#include <stdint.h>
+
 #define KG_KILL_RING_MAX_ENTRIES 16
 #define KG_KILL_RING_MAX_BYTES ((size_t)8 * 1024 * 1024)
+
+/* The largest span a single insertion -- a repeated yank (C-u N C-y) or
+ * a yank-pop replaying that same N against a different entry -- may
+ * produce.  Independent of KG_KILL_RING_MAX_BYTES: an entry is capped
+ * per copy, this caps N copies of it laid end to end. */
+#define KG_YANK_BATCH_MAX ((size_t)8 * 1024 * 1024)
 
 /* One killed/copied span.  `len` is authoritative; `text` is arbitrary
  * bytes that may contain an embedded NUL. */
@@ -40,6 +53,12 @@ struct kill_ring {
 	struct kill_ring_entry entries[KG_KILL_RING_MAX_ENTRIES];
 	int count;
 	size_t total_bytes;
+	/* Bumped by every push or in-place growth (kill_ring_set(),
+	 * kill_ring_append()/kill_ring_prepend() when they actually change
+	 * an entry) and by kill_ring_free().  Not bumped by a rejected
+	 * oversize entry or an OOM that left the ring untouched, since
+	 * nothing about entries[] changed either time. */
+	uint32_t generation;
 };
 
 extern struct kill_ring killring;
@@ -99,6 +118,44 @@ char *kill_ring_get(void);
 
 /* The newest entry's length, or 0 if the ring is empty. */
 size_t kill_ring_get_len(void);
+
+/* `n` copies of entries[index]'s bytes, concatenated into one fresh
+ * allocation, with `*out_len` set to its length.  NULL, `*out_len`
+ * untouched, for n <= 0, an out-of-range index, a result over
+ * KG_YANK_BATCH_MAX, or an allocation failure.  Shared by a repeated
+ * yank (C-u N C-y, always index 0) and yank-pop replacing the same span
+ * with N copies of a different entry -- which is why the copy count
+ * travels with the span (see kill_ring_note_yank()) rather than being
+ * re-read from whatever prefix argument M-y itself was given. */
+char *kill_ring_entry_repeated(int index, int n, size_t *out_len);
+
+/* Record that a yank just inserted `inserted_len` bytes at flat position
+ * `start`, `repeat_count` copies of the ring's newest entry (1 for a
+ * plain C-y, N for C-u N C-y) -- what M-y needs to replace that span
+ * with the next-older entry, repeated the same number of times.  Starts
+ * a fresh marker at `start` (deleting whatever marker a previous,
+ * unfinished yank-pop sequence left behind, so the record never
+ * accumulates more than one), and marks this command KILL_COALESCE_YANK,
+ * which is the only thing that makes M-y eligible on the next keystroke.
+ * A marker allocation failure leaves this yank a plain insertion: no
+ * eligibility, same as if nothing had been noted.  Called by
+ * editor_yank() and key_yank_repeated(), the two producers of an
+ * eligible span; yank-pop updates its own record in place instead of
+ * calling this again. */
+void kill_ring_note_yank(size_t start, size_t inserted_len, int repeat_count);
+
+/* M-y: replace the span the immediately preceding yank or yank-pop
+ * inserted with the next-older entry in the kill ring (wrapping past the
+ * oldest back to the newest), repeated the same number of times the
+ * originating yank was.  Eligible only when cmd_last_kill_class() reads
+ * KILL_COALESCE_YANK and the record kill_ring_note_yank() left resolves
+ * in the current buffer -- a different buffer, a stale marker, or an
+ * intervening command of any other kind (which already clears the
+ * coalescing class) all refuse without changing the buffer.  One undo
+ * record per call, merged with the one beneath it on the stack so a
+ * single editor_undo() undoes however many yank-pops chained, back to
+ * the state before the first yank (see undo_merge_at_top() in def.h). */
+void editor_yank_pop(void);
 
 /* Test-only allocation-failure seam for this module's own entry storage
  * (kill_ring_set()/kill_ring_append()'s malloc of one entry's bytes) --

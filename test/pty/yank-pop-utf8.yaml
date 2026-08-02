@@ -1,0 +1,18 @@
+# A multi-byte UTF-8 entry pops correctly, byte-for-byte: two kills of
+# lines with accented characters build a two-entry ring, and M-y swaps
+# the yanked "naïve" for the older "café" in one step.
+name: yank-pop-utf8
+filename: yank-pop-utf8.txt
+initial: |
+  café
+  naïve
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+  - M-y
+expected_saved: |
+
+  café
+backend: pexpect

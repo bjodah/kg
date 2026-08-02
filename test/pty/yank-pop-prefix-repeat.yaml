@@ -1,0 +1,22 @@
+# "C-u N C-y" inserts N copies of the newest entry as one span; an
+# immediate M-y replaces that whole span with N copies of the
+# next-older entry, not just one.  Two kills build a two-entry ring
+# ("y" newest, "x" older); C-u 3 C-y inserts "yyy", and M-y replaces it
+# with "xxx" in one step.
+name: yank-pop-prefix-repeat
+filename: yank-pop-prefix-repeat.txt
+initial: |
+  x
+  y
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-u
+  - "3"
+  - C-y
+  - M-y
+expected_saved: |
+
+  xxx
+backend: pexpect

@@ -1,0 +1,22 @@
+# An immediate M-y replaces the span C-y just inserted with the
+# next-older kill ring entry.  C-k, C-n, C-k mirrors
+# kill-line-motion-breaks-coalescing.yaml: the C-n between the two
+# kills breaks coalescing, so the ring ends up with two entries ("two"
+# newest, "one" older) rather than one combined "onetwo".
+name: yank-pop-immediate-after-yank
+filename: yank-pop-immediate-after-yank.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+  - M-y
+expected_saved: |
+
+  one
+  three
+backend: pexpect

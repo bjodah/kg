@@ -1,0 +1,27 @@
+# M-y in a read-only buffer refuses through the same CMD_EDITS_BUFFER
+# gate every other editing command does, before yank-pop's own handler
+# ever runs -- so the message is cmd_invoke()'s "Buffer is read-only",
+# not yank-pop's own "Previous command was not a yank".  The keys end
+# right on M-y, not a toggle back to writable: the tmux backend captures
+# one screen snapshot after the last of `keys`, and a later action would
+# overwrite the message this case is about before that snapshot is
+# taken.
+name: yank-pop-read-only
+filename: yank-pop-read-only.txt
+backend: tmux
+initial: |
+  one
+  two
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+  - C-x
+  - C-q
+  - M-y
+expected_saved: |
+
+  two
+expected_screen_contains:
+  - "Buffer is read-only"

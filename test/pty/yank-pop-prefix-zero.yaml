@@ -1,0 +1,23 @@
+# "C-u 0 C-y" is documented as an explicit no-op: nothing is inserted,
+# so nothing is eligible for a following M-y either.  M-w (copy, not
+# kill) puts "z" on the ring without touching the buffer, which is what
+# lets this case pin "the buffer never changes" all the way through --
+# an unexpected insert from the zero-count yank would show up here just
+# as plainly as a wrongly-accepted M-y would.
+name: yank-pop-prefix-zero
+filename: yank-pop-prefix-zero.txt
+backend: tmux
+initial: |
+  z
+keys:
+  - C-SPC
+  - C-e
+  - M-w
+  - C-u
+  - "0"
+  - C-y
+  - M-y
+expected_saved: |
+  z
+expected_screen_contains:
+  - "Previous command was not a yank"

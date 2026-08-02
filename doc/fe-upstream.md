@@ -59,6 +59,7 @@ that could be done in the prelude was done there instead.
 | `&optional` and `&rest` in parameter lists | Emacs Lisp spells them that way, and kg had to delete `&optional` from every arglist because the binder could not see it | `internal--arglist` is gone from kg's prelude; `&optional` and `&rest` cannot be parameter names |
 | Optional argument-count checking, `FeSetStrictArity()` | `((lambda (x) x))` was nil, `((lambda () 1) 2)` was 1 and `((lambda (1) 5) 2)` was 5 | off by default, so kg is unaffected; `fe -a` turns it on and Fe's script suite runs a third time under it |
 | An unassigned symbol is `void-variable`, not `nil` | a typo was silently false; Fe's own `TODO.md` asked for this | `boundp` and `makunbound` are new primitives and `FeIsBound()` is a new API; kg's `defvar` asks `(boundp 'name)` rather than evaluating the name |
+| `FeCallWithOptions()` — a controlled `FeCall()` | kg ran Lisp commands through a source-string trampoline (`(internal--run-pending-command)`) solely to reach the evaluator's step-budget/interrupt/GC accounting; the trampoline is gone now that a callable can be invoked under the same options | one declaration in `fe.h` and a thin wrapper reusing `BeginEvaluationControl`/`EndEvaluationControl`; tested in `test_api.c`, no `FE_API_VERSION` bump (compatible addition) |
 
 ## The nested tiny-regex-c submodule
 
@@ -124,5 +125,5 @@ Deliberately **not** changed in `fe.c`, and why:
 - **Strict arity by default.** `FeSetStrictArity()` exists and kg does not call
   it. Turning it on would make every `(defun c (x) (interactive) …)` an arity
   error, because kg invokes interactive commands with zero arguments
-  (`FeCall(ctx, cmd, nullptr, 0)`). It becomes possible once commands are
-  invoked with their arguments.
+  (`FeCallWithOptions(ctx, cmd, nullptr, 0, &opts)`). It becomes possible once
+  commands are invoked with their arguments.

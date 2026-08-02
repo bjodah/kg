@@ -218,8 +218,8 @@ ordered by value vs implementation effort.
         "Proper UTF-8 handling" item below, not a Lisp change
       - extend the keypress fuzz harness to drive `eval-expression` once it
         can run without filesystem side effects
-      - upstream Fe: `FeCallWithOptions` so hosts can budget a bare `FeCall`
-        without the run trampoline; per-context custom types remain deferred
+      - upstream Fe: `FeCallWithOptions` (landed) lets hosts budget a bare
+        `FeCall`; per-context custom types remain deferred
 
 - [ ] **Dired follow-ups**: dired mode shipped as a C mode (`src/dired.c`)
       with listing, `RET`/`^`/`g`/`n`/`p`, the `*`/`D` markers and `x`

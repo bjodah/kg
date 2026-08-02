@@ -524,10 +524,12 @@ static void test_define_and_run_command(void)
 	CHECK(strcmp(test_status_message, "again") == 0);
 	CHECK(kg_lisp_command_name(1) == nullptr);
 
-	/* Errors inside a command return to the caller with a message. */
+	/* Errors inside a command return to the caller with a message that
+	 * names the command, as the trampoline's eval label did. */
 	CHECK(eval_ok("(define-command \"boom\" (lambda () (car 1)))"));
 	CHECK(kg_lisp_run_command("boom", 0) == 0);
 	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
+	CHECK(strstr(test_status_message, "boom") != nullptr);
 	CHECK(kg_lisp_run_command("greet", 0) == 0);
 	CHECK(strcmp(test_status_message, "again") == 0);
 
@@ -546,6 +548,58 @@ static void test_define_and_run_command(void)
 	    "(define-command \"version\" (lambda () 1))", "built-in"));
 	CHECK(eval_error_contains(
 	    "(define-command \"x\" 1)", "requires a function"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_run_command_interrupt(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(define-command \"spin\" (lambda () (while t 1)))"));
+	/* C-g reaches the command's loop through the same interrupt check
+	 * eval-expression uses. */
+	interrupt_polls = 0;
+	kg_lisp_set_interrupt_check(cancel_evaluation);
+	CHECK(kg_lisp_run_command("spin", 0) == 0);
+	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
+	CHECK(strstr(test_status_message, "evaluation cancelled") != nullptr);
+	CHECK(strstr(test_status_message, "spin") != nullptr);
+	kg_lisp_set_interrupt_check(nullptr);
+
+	/* A cancelled run leaves the interpreter usable, and without the
+	 * interrupt the same command now exhausts the step budget. */
+	CHECK(kg_lisp_run_command("spin", 0) == 0);
+	CHECK(strstr(test_status_message, "step limit") != nullptr);
+	CHECK(eval_ok("(+ 1 1)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_run_command_reentrancy(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* A Lisp-defined command cannot re-enter another from Lisp origin:
+	 * lisp_defined_command is not CMD_LISP_CALLABLE, so command-execute
+	 * refuses it before any nested run.  There is no callback queue. */
+	CHECK(eval_ok("(define-command \"inner\""
+		      " (lambda () (message \"inner-ran\")))"));
+	CHECK(eval_ok("(define-command \"outer\""
+		      " (lambda () (command-execute 'inner)))"));
+	CHECK(kg_lisp_run_command("outer", 0) == 0);
+	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
+	CHECK(strstr(test_status_message, "outer") != nullptr);
+	CHECK(strstr(test_status_message, "command is not allowed") != nullptr);
+	CHECK(strstr(test_status_message, "inner") != nullptr);
+	/* The nested command never ran, and an independent later invocation
+	 * works normally. */
+	CHECK(kg_lisp_run_command("inner", 0) == 0);
+	CHECK(strcmp(test_status_message, "inner-ran") == 0);
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -1533,6 +1587,8 @@ int main(void)
 	RUN(test_init_file);
 	RUN(test_load_package);
 	RUN(test_define_and_run_command);
+	RUN(test_run_command_interrupt);
+	RUN(test_run_command_reentrancy);
 	RUN(test_key_bindings);
 	RUN(test_math_natives);
 	RUN(test_point_offsets);

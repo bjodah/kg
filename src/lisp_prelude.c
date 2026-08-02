@@ -4,19 +4,6 @@
 #include "../fe/fe.h"
 #include "lisp_internal.h"
 
-/* Internal trampoline: kg_lisp_run_command evaluates
- * "(internal--run-pending-command)" under the normal step budget, so the
- * FeCall below inherits that budget.  Calling it directly from user code
- * just runs the pending command again and is harmless. */
-static FeObject *native_run_pending(FeContext *context, FeObject *arguments)
-{
-	FeRequireNoArguments(context, arguments);
-	if (!state.pending_command) {
-		FeHandleError(context, "no pending command");
-	}
-	return FeCall(context, state.pending_command, nullptr, 0);
-}
-
 struct native_binding {
 	const char *name;
 	FeNativeFn *fn;
@@ -66,7 +53,6 @@ static const struct native_binding native_bindings[] = {
 	 * name -> function registry, so these two have no Emacs analogue. */
 	{ "define-command", native_define_command },
 	{ "remove-command", native_remove_command },
-	{ "internal--run-pending-command", native_run_pending },
 };
 
 void register_natives(FeContext *context)

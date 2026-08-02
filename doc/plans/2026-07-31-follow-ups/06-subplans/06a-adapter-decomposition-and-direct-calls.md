@@ -174,6 +174,25 @@ Document the divergence in `doc/fe-upstream.md`.
 - `WITH_LISP=0` build still links and all non-Lisp tests pass.
 - `make check`, `make complexity-check`.
 
+### Phase 1 notes
+
+- **No callback queue exists.** The plan's "queues for the next safe-point
+  drain" does not match repository reality.  `kg_lisp_run_command()` refuses
+  a nested run with the pre-existing `state.frame_active` guard ("Lisp is
+  busy"), and a Lisp-defined command is not reachable from Lisp origin at
+  all: `cmd_invoke()` resolves it to `lisp_defined_command`, which has no
+  `CMD_LISP_CALLABLE`, so `(command-execute 'other-lisp-command)` raises
+  "command is not allowed" before any nested run.  Both behaviors are
+  preserved unchanged; no Phase 5 event-queue machinery was invented.
+- The command-name diagnostic prefix is preserved at the adapter rather
+  than in Fe: `kg_lisp_run_command()` copies the bounded registered name
+  to stack storage before invoking (safe when a command removes or
+  redefines itself before raising) and formats the caught status as
+  `Lisp error: <name>: <detail>`, since a direct `FeCallWithOptions()` has
+  no Fe-side label.
+- Pin discipline remains two commits: commit `FeCallWithOptions` on Fe's
+  `analyzers-etc` branch first, then record that revision in kg's gitlink.
+
 ---
 
 ## Completion gate for sub-plan A

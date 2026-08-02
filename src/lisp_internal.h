@@ -47,8 +47,6 @@ struct lisp_state {
 	 * yet; freed by frame recovery for the same reason. */
 	char *scratch;
 	struct lisp_command commands[LISP_MAX_COMMANDS];
-	/* Command function about to be invoked by the run trampoline. */
-	FeObject *pending_command;
 	bool frame_active;
 	bool initialized;
 };

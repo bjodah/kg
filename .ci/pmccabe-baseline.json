@@ -651,7 +651,6 @@
   "src/lisp_io.c:native_message": 1,
   "src/lisp_io.c:read_whole_file": 9,
   "src/lisp_prelude.c:evaluate_prelude": 2,
-  "src/lisp_prelude.c:native_run_pending": 2,
   "src/lisp_prelude.c:register_natives": 2,
   "src/lisp_string.c:lisp_concat_bytes": 3,
   "src/lisp_string.c:lisp_encode_char": 4,

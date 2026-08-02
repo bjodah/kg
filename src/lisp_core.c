@@ -360,7 +360,7 @@ const char *kg_lisp_last_error(void) { return state.error; }
 
 int kg_lisp_run_command(const char *name, int fd)
 {
-	static const char trampoline[] = "(internal--run-pending-command)";
+	char command_name[LISP_COMMAND_NAME_MAX];
 	struct lisp_command *cmd;
 
 	(void)fd;
@@ -376,6 +376,11 @@ int kg_lisp_run_command(const char *name, int fd)
 		return 0;
 	}
 
+	/* The command may remove or redefine itself before raising, so keep a
+	 * stable copy of the registered name for the diagnostic below; a
+	 * stack copy needs no cleanup across the longjmp. */
+	memcpy(command_name, cmd->name, sizeof(command_name));
+
 	state.error[0] = '\0';
 	state.frame.gc_checkpoint = FeSaveGC(state.context);
 	state.frame_active = true;
@@ -383,17 +388,15 @@ int kg_lisp_run_command(const char *name, int fd)
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		release_frame_buffers();
-		state.pending_command = nullptr;
-		editor_set_status_message("Lisp error: %s", state.error);
+		editor_set_status_message(
+		    "Lisp error: %s: %s", command_name, state.error);
 		return 0;
 	}
 
-	/* Evaluate the trampoline so the command's FeCall runs under the
+	/* Call the rooted function directly so the FeCall runs under the
 	 * normal step budget and interrupt polling. */
-	state.pending_command = FeGetRoot(cmd->root);
-	(void)FeEvaluateStringWithOptions(state.context, name, trampoline,
-	    sizeof(trampoline) - 1, &eval_options);
-	state.pending_command = nullptr;
+	(void)FeCallWithOptions(
+	    state.context, FeGetRoot(cmd->root), nullptr, 0, &eval_options);
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	return 0;

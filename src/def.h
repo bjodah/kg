@@ -1023,6 +1023,7 @@ int undo_push_change(struct editor_buffer *b, size_t position, char *old_text,
     int old_len, int new_len);
 void editor_undo(void);
 void undo_mark_clean(void);
+bool undo_merge_at_top(struct editor_buffer *b, size_t position);
 
 /* mode.c */
 int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);

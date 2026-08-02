@@ -471,6 +471,51 @@ static void test_word_case_two_records(void)
 	teardown();
 }
 
+/* Merging the two most recent records at one position collapses them
+ * into one: the merged record keeps the newer's replacement length but
+ * the older's restoration text, so a single undo reverses both edits at
+ * once (yank-pop's own use, see editor_yank_pop() in yank.c). */
+static void test_merge_at_top_collapses_two_edits_into_one_undo(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "hi", 2); /* final state after the chain */
+
+	undo_push_change(
+	    bcur(), 0, NULL, 0, 5); /* "hello" inserted from nothing */
+	undo_push_change(bcur(), 0, "hello", 5, 2); /* replaced by "hi" */
+	CHECK(bcur()->undostack.size == 2);
+
+	CHECK(undo_merge_at_top(bcur(), 0));
+	CHECK(bcur()->undostack.size == 1);
+	CHECK(bcur()->undostack.head->text == NULL);
+	CHECK(bcur()->undostack.head->len == 0);
+	CHECK(bcur()->undostack.head->c == 2);
+
+	editor_undo(); /* one undo reaches the pre-chain (empty) state */
+	CHECK(bcur()->numrows == 1);
+	CHECK(bcur()->row[0].size == 0);
+	teardown();
+}
+
+/* A stack with fewer than two records, or whose top two are not both at
+ * the position asked for, declines and changes nothing. */
+static void test_merge_at_top_declines_without_a_matching_pair(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "x", 1);
+
+	undo_push_change(bcur(), 0, NULL, 0, 1);
+	CHECK(!undo_merge_at_top(bcur(), 0));
+	CHECK(bcur()->undostack.size == 1);
+
+	undo_push_change(bcur(), 5, NULL, 0, 1); /* a different position */
+	CHECK(!undo_merge_at_top(bcur(), 5));
+	CHECK(bcur()->undostack.size == 2);
+	CHECK(bcur()->undostack.head->position == 5);
+	CHECK(bcur()->undostack.head->next->position == 0);
+	teardown();
+}
+
 static void test_delete_text_range_single_row(void)
 {
 	setup();
@@ -888,6 +933,8 @@ int main(void)
 	RUN(test_undo_free_clears_clean_checkpoint);
 	RUN(test_nothing_to_undo);
 	RUN(test_word_case_two_records);
+	RUN(test_merge_at_top_collapses_two_edits_into_one_undo);
+	RUN(test_merge_at_top_declines_without_a_matching_pair);
 	RUN(test_delete_text_range_single_row);
 	RUN(test_delete_text_range_multi_row);
 	RUN(test_delete_text_range_newline);

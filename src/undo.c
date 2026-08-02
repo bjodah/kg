@@ -211,3 +211,39 @@ void undo_mark_clean(void)
 {
 	bcur()->undostack.clean_size = bcur()->undostack.size;
 }
+
+/* Merge the two most recent records at `b`'s stack top into one: the
+ * newer keeps its own `position` and `c` (what is at `position` now),
+ * but takes over the older's `text`/`len` (what undo puts back), and the
+ * older is dropped.  One editor_undo() then reverses both edits in a
+ * single step, whatever either individually described.
+ *
+ * Built for yank-pop: each pop pushes an ordinary record describing its
+ * own replacement, and merging it with the one beneath -- the yank or
+ * pop it just replaced -- means one undo always reaches the state before
+ * the first yank in the chain, however many pops ran in between.  Pure
+ * pointer surgery, so unlike undo_push_change() this cannot fail on
+ * allocation; it can only decline.
+ *
+ * Declines, leaving both records untouched, unless the stack holds at
+ * least two records and both are at `position` -- the caller's own
+ * assurance that it is merging the pair it thinks it is, not two
+ * unrelated edits that happen to be adjacent. */
+bool undo_merge_at_top(struct editor_buffer *b, size_t position)
+{
+	struct undo_op *top = b->undostack.head;
+	struct undo_op *prev;
+
+	if (!top || !top->next || top->position != position
+	    || top->next->position != position) {
+		return false;
+	}
+	prev = top->next;
+	free(top->text);
+	top->text = prev->text;
+	top->len = prev->len;
+	top->next = prev->next;
+	free(prev);
+	b->undostack.size--;
+	return true;
+}

@@ -1678,10 +1678,27 @@ Bound to
 .It yank
 Insert the kill ring's contents at point, or with a numeric argument
 that many copies under one undo record.
+A prefix of zero, or negative, inserts nothing.
 Bound to
 .Ic C-y
 and
 .Ic Shift-Insert .
+.It yank-pop
+Immediately after
+.Ic C-y
+or another
+.Ic M-y ,
+replace the text just inserted with the next-older kill ring entry,
+repeated as many times as the original yank was, under one undo record
+merged with the yank's own so a single
+.Ic C-_
+undoes the whole chain.
+Wraps from the oldest entry back to the newest.
+Run anywhere else -- with no yank immediately before it, in a different
+buffer, or in a buffer switched to since -- it refuses and leaves the
+buffer untouched.
+Bound to
+.Ic M-y .
 .It yank-rectangle
 Insert the last killed rectangle at point.
 Bound to
@@ -1711,11 +1728,14 @@ when another buffer is available to switch to.
 .Pp
 The kill ring is global and shared across all buffers, so text killed in
 one buffer can be yanked in another.
-It holds a single entry reachable from
-.Ic C-y ;
-there is no
+It holds up to 16 entries and 8 MiB total; pushing past either cap
+evicts the oldest entries first, and an individual entry too big to
+ever fit alone is rejected outright, leaving the ring as it was.
+.Ic C-y
+always yanks the newest entry;
 .Ic M-y
-yank-pop with which to reach an older one yet.
+.Pq yank-pop ,
+run immediately afterward, walks older ones.
 A kill replaces what was there, but a kill immediately following
 another kill grows that entry instead, regardless of which kill
 command either one was
@@ -1733,6 +1753,9 @@ A copy
 .Pq M-w
 always starts a fresh entry, and so does any command that is not
 itself a kill.
+A yank or yank-pop is its own kind of entry point again: only
+.Ic M-y ,
+run with nothing else in between, may follow one.
 .Sh COMPILATION
 .Ic M-x compile
 prompts for a command line, prefilled with the current buffer's

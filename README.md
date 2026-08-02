@@ -22,8 +22,9 @@ standard VT100 escape sequences.
 - Pure Emacs-style keybindings
 - Syntax highlighting for many programming languages, including
   hex/binary/octal integer literals
-- Multiple buffers sharing one kill ring, which holds one entry (there
-  is no M-y yank-pop yet)
+- Multiple buffers sharing one kill ring, which holds up to 16 entries
+  (8 MiB total); C-y yanks the newest, M-y (yank-pop) immediately
+  afterward walks older ones
 - Split-window support
 - Visual mark mode: the region renders in reverse video as you move.
   The mark, the mark ring and the active region belong to the buffer,

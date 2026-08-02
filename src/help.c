@@ -80,7 +80,7 @@ const char *kg_help_lines[]
 	      "help           │",
 	      "│ M-@        mark word    │ C-x )/F4 end macro      │ C-z      "
 	      "suspend        │",
-	      "│                         │ C-x e/F4 exec macro     │ C-u      "
+	      "│ M-y        yank-pop     │ C-x e/F4 exec macro     │ C-u      "
 	      "numeric arg    │",
 	      "└─────────────────────────┴─────────────────────────┴───────────"
 	      "──────────────┘",

@@ -77,6 +77,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c compile_parse.c \
+       compile_nav.c \
        width.c dired.c perf.c process.c marker.c decor.c event.c
 
 # Object and header files
@@ -99,7 +100,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
-           $(TESTDIR)/test_compile_parse \
+           $(TESTDIR)/test_compile_parse $(TESTDIR)/test_compile_nav \
            $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
@@ -572,6 +573,14 @@ EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJ
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/process.o
+# compile_nav.c is compile.c's optional hook implementation: it needs a real
+# buffer to attach markers/decorations to, so it links like EXTRA_buffer
+# (real bufmgr.o, TEST_SRCS_OBJS' marker.o/decor.o) rather than EXTRA_compile's
+# streaming-only set.  editor_next_error()/editor_previous_error() also call
+# editor_goto_line_direct(), which stubs_buffer.c stubs as a no-op -- the
+# native suite exercises the record/cursor state machine only, per Plan 05
+# Bundle D; the point-placement half is PTY-only.
+EXTRA_compile_nav := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/compile_parse.o $(OBJDIR)/compile_nav.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # compile_parse.c is pure: no editor state, nothing beyond def.h's checked
 # arithmetic/ASCII helpers.  Same minimal baseline as EXTRA_localvars.
 EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST_SRCS_OBJS)

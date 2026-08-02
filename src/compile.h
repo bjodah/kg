@@ -14,6 +14,22 @@ enum compilation_phase {
 	COMPILATION_TERMINATING,
 };
 
+/* Optional hooks compile.c calls as output streams in: once when a run
+ * starts (a fresh compilation buffer and its directory context) and once
+ * per line committed to it (the line's own bytes and where they start in
+ * the buffer).  Nothing in compile.c names a module that implements
+ * these -- compile_nav.c installs itself via compile_nav_install(), which
+ * the real editor calls once at startup -- so a caller that never installs
+ * anything (test/test_compile.c's lightweight streaming tests) still
+ * links and runs with plain, untracked output. */
+struct compile_diag_hooks {
+	void (*reset)(struct kg_buffer_handle compilation_buffer,
+	    const char *initial_cwd, size_t initial_cwd_len);
+	void (*ingest_line)(
+	    const char *line, size_t len, size_t line_start_pos);
+};
+void compilation_set_diag_hooks(const struct compile_diag_hooks *hooks);
+
 struct compilation_state {
 	enum compilation_phase phase;
 
@@ -47,6 +63,16 @@ struct compilation_state {
 	size_t maximum_output;
 	bool truncated;
 	bool truncation_marker_written;
+
+	/* Total bytes permanently committed to the compilation buffer so
+	 * far: the header, and every committed line plus its terminator.
+	 * Unlike stored_output, this is not a budget -- it is the buffer's
+	 * own byte length as compile.c itself has built it, tracked here
+	 * rather than read back with buffer_byte_length() so compile.c never
+	 * has to resolve its buffer handle to a real buffer.  It is what
+	 * lets the ingest_line hook above say where a line starts without
+	 * this module knowing anything about markers. */
+	size_t committed_len;
 
 	char *pending_line;
 	size_t pending_line_length;

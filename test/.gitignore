@@ -3,6 +3,7 @@ test_basic
 test_buffer
 test_cmd
 test_compile
+test_compile_nav
 test_compile_parse
 test_complete
 test_decor

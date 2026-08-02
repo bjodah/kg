@@ -559,6 +559,12 @@ static int buf_find_by_name(const char *name)
 	return -1;
 }
 
+/* The public half of buf_find_by_name(): a caller (next-error) that has to
+ * decide *where* to display a file -- reuse a window already showing it,
+ * or not -- before it can open it needs the answer before buf_open_path()
+ * would give it one. */
+int buf_find_open(const char *path) { return buf_find_by_name(path); }
+
 /* Lowest unused buffer slot, or -1 when the table is full. */
 static int buf_first_free_slot(void)
 {

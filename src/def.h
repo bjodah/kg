@@ -476,6 +476,7 @@ void buf_select_interactive(int fd);
 void buf_open_file(int fd);
 void buf_open_file_read_only(int fd);
 void buf_open_path(const char *path, int readonly);
+int buf_find_open(const char *path);
 void buf_kill(int fd);
 void buf_save_all(int fd);
 void buf_open_list(void);

@@ -25,6 +25,15 @@ void compilation_set_maximum_output(size_t bytes)
 	g_default_maximum_output = bytes;
 }
 
+/* Nothing here names compile_nav.c; see compile.h's struct
+ * compile_diag_hooks. */
+static const struct compile_diag_hooks *g_diag_hooks;
+
+void compilation_set_diag_hooks(const struct compile_diag_hooks *hooks)
+{
+	g_diag_hooks = hooks;
+}
+
 /* Reset the streaming half of `s` for a fresh run and adopt `bytes` as its
  * retained-output budget.  `s` must either be zeroed or own a pending line.
  * Exposed so a test can drive the byte parser against a stack state. */
@@ -41,6 +50,7 @@ void compilation_stream_reset(struct compilation_state *s, size_t bytes)
 	s->truncation_marker_written = false;
 	s->ansi_state = 0;
 	s->pending_cr = false;
+	s->committed_len = 0;
 }
 
 int compilation_resolve_directory(
@@ -97,6 +107,29 @@ int compilation_resolve_directory(
 	}
 
 	return 0;
+}
+
+/* The two call sites for g_diag_hooks, kept out of compilation_start() and
+ * compilation_commit_line() themselves so adding the hook did not raise
+ * either function's own complexity -- see .ci/pmccabe-baseline.json's entry
+ * for each. */
+static void compilation_report_diag_reset(
+    struct kg_buffer_handle compilation_buffer, const char *directory)
+{
+	if (!g_diag_hooks || !g_diag_hooks->reset) {
+		return;
+	}
+	g_diag_hooks->reset(compilation_buffer, directory, strlen(directory));
+}
+
+static void compilation_report_diag_line(
+    struct compilation_state *s, size_t line_len, size_t line_start)
+{
+	if (!g_diag_hooks || !g_diag_hooks->ingest_line) {
+		return;
+	}
+	g_diag_hooks->ingest_line(
+	    s->pending_line ? s->pending_line : "", line_len, line_start);
 }
 
 /* Start a compilation of COMMAND in DIRECTORY. compilation_start is the
@@ -162,6 +195,9 @@ static void compilation_start(const char *command, const char *directory,
 	int header_len = snprintf(header, sizeof(header),
 	    "Compilation started in %s\n\n$ %s\n\n", directory, command);
 	buf_append_special_text(cidx, header, header_len);
+	g_compilation.committed_len += (size_t)header_len;
+	compilation_report_diag_reset(
+	    g_compilation.compilation_buffer, directory);
 
 	/* The source buffer may have been killed between the prompt and here;
 	 * a compilation with nowhere to return to is still a compilation. */
@@ -362,17 +398,21 @@ static void compilation_append_char(struct compilation_state *s, char c)
 static void compilation_commit_line(struct compilation_state *s)
 {
 	int slot = buf_handle_slot(s->compilation_buffer);
+	size_t line_start = s->committed_len;
+	size_t line_len = s->pending_line_length;
 
-	if (s->pending_line_length > 0) {
-		buf_append_special_text(
-		    slot, s->pending_line, s->pending_line_length);
+	if (line_len > 0) {
+		buf_append_special_text(slot, s->pending_line, line_len);
+		s->committed_len += line_len;
 	}
 	if (s->stored_output < s->maximum_output) {
 		buf_append_special_text(slot, "\n", 1);
+		s->committed_len += 1;
 		s->stored_output++;
 	} else {
 		s->truncated = true;
 	}
+	compilation_report_diag_line(s, line_len, line_start);
 	s->pending_line_length = 0;
 	if (s->pending_line) {
 		s->pending_line[0] = '\0';

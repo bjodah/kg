@@ -263,8 +263,11 @@ char *kill_ring_entry_repeated(int index, int n, size_t *out_len)
 		return NULL;
 	}
 	entry_len = killring.entries[index].len;
+	/* An empty entry repeated any number of times is still nothing to
+	 * insert, and the callers already read NULL as "nothing to do" -- so
+	 * refuse it here rather than handing back a zero-byte allocation. */
 	if (!checked_mul_size_t(&total_len, entry_len, (size_t)n)
-	    || total_len > KG_YANK_BATCH_MAX) {
+	    || total_len == 0 || total_len > KG_YANK_BATCH_MAX) {
 		return NULL;
 	}
 	combined = yank_alloc_ok() ? malloc(total_len) : NULL;

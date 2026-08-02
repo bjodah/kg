@@ -1989,6 +1989,55 @@ void buf_kill(int fd)
 	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
 
+/* Kill the buffer `handle` names without prompting: refused (returns 0)
+ * when the buffer is modified and unsaved, when it is the last live
+ * buffer, or when the event queue has no room.  Detaches every window
+ * showing it, frees its resources, and re-homes the current buffer and
+ * every window the detach left showing nothing, exactly as the
+ * interactive buf_kill() does after its prompt -- the differences are
+ * that nothing prompts and the editor never exits when the count hits
+ * zero (the last-buffer refusal above is what keeps that from
+ * happening).  A handle that no longer resolves returns 0.  This is
+ * what Lisp's (kill-buffer) reaches. */
+int buf_kill_buffer(struct kg_buffer_handle handle)
+{
+	int slot = buf_handle_slot(handle);
+	struct editor_buffer *b = buf_resolve(handle);
+	int i;
+
+	if (!b || slot < 0) {
+		return 0;
+	}
+	if (b->dirty) {
+		return 0;
+	}
+	if (buf_count <= 1) {
+		return 0;
+	}
+	if (!buf_kill_commit(slot, handle)) {
+		return 0;
+	}
+	buf_count--;
+
+	/* If the current buffer died, select the nearest remaining one,
+	 * which also re-attaches the current window; then every window the
+	 * detach left showing nothing follows it, as buf_kill() does. */
+	if (!buflist[buf_current].active) {
+		for (i = 0; i < MAX_BUFFERS; i++) {
+			if (buflist[i].active) {
+				buf_select(i);
+				break;
+			}
+		}
+	}
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active && !win_buffer(&winlist[i])) {
+			buf_attach_view(&winlist[i], buf_current);
+		}
+	}
+	return 1;
+}
+
 /* buf_enter_special()'s "not already open" tail: select the free slot --
  * which is where its BUFFER_OPENED event comes from -- then reset it.
  * Returns -1, bcur() left wherever it already was, when buf_select()
@@ -2100,6 +2149,44 @@ static void buf_reset_slot(int slot)
 	b->readonly_override = -1;
 	undo_stack_init(&b->undostack);
 	b->active = 1;
+}
+
+/* Create a new empty buffer named `name` without selecting it or touching
+ * any window: the backend of Lisp's (get-buffer-create).  Returns a handle
+ * naming nothing when the name is empty, the table is full, or the event
+ * queue refused the open.  The new buffer is clean and carries the syntax
+ * its name selects, but no file. */
+struct kg_buffer_handle buf_create_named(const char *name)
+{
+	struct kg_buffer_handle zeroed = { -1, 0, 0 };
+	struct kg_event_reservation res;
+	int slot;
+
+	if (!name || !name[0] || buf_count >= MAX_BUFFERS) {
+		return zeroed;
+	}
+	slot = buf_first_free_slot();
+	if (slot < 0) {
+		return zeroed;
+	}
+	/* buf_prepare_special_new()'s shape: reserve, reset (which claims
+	 * the identity), publish, name. */
+	res = kg_event_reserve_lifecycle();
+	if (!res.valid) {
+		return zeroed;
+	}
+	buf_reset_slot(slot);
+	kg_event_publish_lifecycle(
+	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
+	buflist[slot].filename = strdup(name);
+	if (!buflist[slot].filename) {
+		buflist[slot].active = 0;
+		return zeroed;
+	}
+	editor_select_syntax_highlight(&buflist[slot], (char *)name);
+	buflist[slot].dirty = 0;
+	buf_count++;
+	return buf_handle(slot);
 }
 
 /* buf_prepare_special_text()'s "not already open" path: reserve capacity

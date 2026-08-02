@@ -478,6 +478,11 @@ void buf_open_file_read_only(int fd);
 void buf_open_path(const char *path, int readonly);
 int buf_find_open(const char *path);
 void buf_kill(int fd);
+/* Non-prompting variants the Lisp adapter reaches: kill an arbitrary
+ * buffer (refusing modified-unsaved ones) and create an empty one by name,
+ * both without touching windows or the selection. */
+int buf_kill_buffer(struct kg_buffer_handle handle);
+struct kg_buffer_handle buf_create_named(const char *name);
 void buf_save_all(int fd);
 void buf_open_list(void);
 void buf_open_help(void);

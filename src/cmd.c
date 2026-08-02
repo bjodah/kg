@@ -1361,7 +1361,8 @@ static void cmd_yaml_mode(int fd)
  * `struct named_cmd`, its flags and the invocation context live in def.h:
  * this table is the one place that says whether a command edits the
  * buffer and whether Lisp may ask for it.  CMD_LISP_CALLABLE replaces the
- * separate allow-list lisp.c used to keep, which agreed with these flags
+ * separate allow-list the Lisp adapter used to keep, which agreed with
+ * these flags
  * only for as long as someone remembered to edit both. */
 
 #define LISP_OK CMD_LISP_CALLABLE
@@ -1665,7 +1666,8 @@ static const struct named_cmd cmdtable[] = {
  * to remember which number a name was given, and it cannot be the Lisp
  * registry's slot: a removed command's slot is reused, and an identity
  * that comes back on a different command is worse than none.  The table
- * is the same size as lisp.c's, and the two move together -- every
+ * is the same size as the Lisp registry's, and the two move together --
+ * every
  * successful define registers here and every remove clears here -- so a
  * full table here means the Lisp side is full too. */
 static constexpr size_t runtime_id_slots = 32;

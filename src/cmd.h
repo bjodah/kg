@@ -37,7 +37,8 @@ typedef uint32_t command_id;
 /* Every interactive command is invoked through one descriptor, so the
  * question "may this run here, and who may ask for it?" has exactly one
  * answer.  Before this, the read-only verdict was spelled three times
- * (cmd.c's flags, lisp.c's allow-list, kbd.c's per-keycode blocklist);
+ * (cmd.c's flags, the Lisp adapter's allow-list, kbd.c's per-keycode
+ * blocklist);
  * the first two are now this table, and kbd.c's list is retired by the
  * layered-keymap migration when built-in keys resolve to command names. */
 typedef void (*cmdfn)(int fd);
@@ -99,6 +100,9 @@ void editor_named_command(int fd);
 [[nodiscard]] const struct named_cmd *cmd_lookup(const char *name);
 [[nodiscard]] const struct named_cmd *cmd_descriptor_at(int index);
 void cmd_eval_print_last_sexp(void);
+/* Evaluate the s-expression before point and report it in the status area
+ * (or insert it, with a prefix argument). */
+void cmd_eval_last_sexp(int print_to_buffer);
 
 /* The two halves of cmd_invoke() a dispatch path needs when it runs a
  * command without going through it.  The self-insert fallback is the one
@@ -116,8 +120,9 @@ void cmd_fast_path_end(command_id outer);
 /* The descriptor an identity names, or NULL.  Dispatch bookkeeping asks
  * what the command that just ran was allowed to keep. */
 [[nodiscard]] const struct named_cmd *cmd_descriptor_by_id(command_id id);
-/* Told by the runtime command registry (lisp.c) that a command has been
- * defined or removed.  Defining a name that already has an id keeps it;
+/* Told by the runtime command registry (the Lisp adapter) that a command
+ * has been defined or removed.  Defining a name that already has an id
+ * keeps it;
  * removing frees the slot, so the next definition of that name is a
  * different command.  Returns CMD_ID_NONE when no slot is free. */
 command_id cmd_runtime_define(const char *name);

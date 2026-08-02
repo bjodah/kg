@@ -50,7 +50,7 @@ divergence that is correct but reads wrong.
 
 | # | Producer | Space out | Consumers | Verdict |
 | --- | --- | --- | --- | --- |
-| 1 | `editor_visual_col(row, chars_col)` (`buffer.c`) | vcol | `basic.c:48` goal column; `display.c:210,213` region bounds in rect mode; `display.c:421` rect virtual tail; `rect.c:65,68,97`; `lisp.c:580` `current-column` | ok |
+| 1 | `editor_visual_col(row, chars_col)` (`buffer.c`) | vcol | `basic.c:48` goal column; `display.c:210,213` region bounds in rect mode; `display.c:421` rect virtual tail; `rect.c:65,68,97`; `lisp_buffer.c` `current-column` | ok |
 | 2 | `editor_display_col(rows, n, filerow, filecol)` (`buffer.c`) | vcol | `cmd.c:50` `C-x =`; `display.c:601` mode line | ok |
 | 3 | `editor_chars_col_at_visual(row, vcol)` (`buffer.c`) | chars | `basic.c:232` goal-column snap; `display.c:346,349` rect region; `rect.c:83,84` | ok — inverse of 1 at glyph starts |
 | 4 | `chars_to_render_col(row, chars_col)` (`mode.c`) | **render byte offset** | `display.c:357-365` `hi_lo`/`hi_hi`, compared against the render index `j`; `search.c:69` highlight span (`row->hl`) | ok — both consumers are render-indexed |

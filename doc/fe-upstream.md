@@ -9,8 +9,8 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 1`; `src/lisp.c` asserts
-it at compile time.
+The supported embedding interface is `FE_API_VERSION 1`; `src/lisp_core.c`
+asserts it at compile time.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
@@ -19,7 +19,11 @@ kg compiles only `fe/fe.c` and its public header `fe/fe.h`. The `fex*` files,
 `auto.*`, and `main.c` are deliberately excluded so Fe's optional I/O,
 process, regular-expression and time extensions are not exposed. The maths
 natives (`sin`, `sqrt`, `expt`, …) are in `fe.c` itself and therefore are
-available. Only `src/lisp.c` may include `fe.h`.
+available. Only the `src/lisp_*.c` adapter implementation files may include
+`fe.h`, and only their private `src/lisp_internal.h` — which includes fe.h
+itself, being a standalone header-check unit — may do the same; `make
+lisp-include-check` enforces both, and the public `src/lisp.h` stays
+Fe-free.
 
 To update Fe:
 
@@ -37,8 +41,8 @@ To update Fe:
 
 These changes live on `bjodah/fe`'s `analyzers-etc` branch. They exist because
 kg presents Fe to users as an Emacs Lisp dialect, and the remaining Emacs
-surface is bought in kg's own prelude in `src/lisp.c`. Anything that could be
-done in the prelude was done there instead.
+surface is bought in kg's own prelude in `src/lisp_prelude.c`. Anything
+that could be done in the prelude was done there instead.
 
 | Divergence | Why | Cost |
 | --- | --- | --- |
@@ -102,8 +106,9 @@ by them; they cannot reach kg.
 
 Deliberately **not** changed in `fe.c`, and why:
 
-- **Quasiquote semantics.** `quasiquote` is a prelude macro in `src/lisp.c`, so
-  it can change without moving the pin. The core only learns the punctuation.
+- **Quasiquote semantics.** `quasiquote` is a prelude macro in
+  `src/lisp_prelude.c`, so it can change without moving the pin. The core
+  only learns the punctuation.
 - **`?a` character literals.** `FeReadFn` yields one byte at a time and Fe has
   no character type, so `?é` would silently read as the first UTF-8 byte —
   reintroducing exactly the silent wrongness `#'` was fixed to remove.

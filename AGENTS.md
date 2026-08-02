@@ -297,12 +297,15 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 ## Lisp layer
 
 - Fe (the embedded Lisp) lives in the `fe/` git submodule, pinned per
-  `doc/fe-upstream.md`. kg compiles only `fe/fe.c`; only `src/lisp.c` may
-  include `fe.h`. Editor modules use `src/lisp.h` and stay free of
-  `KG_USE_LISP` conditionals.
+  `doc/fe-upstream.md`. kg compiles only `fe/fe.c`; `fe.h` may be included
+  only by the `src/lisp_*.c` adapter implementation files and their private
+  `src/lisp_internal.h` (which includes fe.h itself, being one of the
+  standalone header-check units) — `make lisp-include-check` enforces
+  that. Editor modules use `src/lisp.h` and stay free of `KG_USE_LISP`
+  conditionals.
 - The pin is a branch, not a SHA, and the branch carries kg-side changes to
   `fe.c` — fe is not pristine upstream. `doc/fe-upstream.md` lists every
-  divergence; prefer kg's prelude in `src/lisp.c` over a new one.
+  divergence; prefer kg's prelude in `src/lisp_prelude.c` over a new one.
 - kg's Lisp is Emacs-shaped (`defun`, `lambda`, `setq`, `progn`, `let` with
   binding lists, backquote). Write examples, tests and docs that way; `=` is
   still assignment, not comparison.

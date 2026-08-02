@@ -73,10 +73,24 @@ override CFLAGS += -DKG_SHOW_TILDE=$(KG_SHOW_TILDE)
 # directly, as enforced by Include What You Use.
 override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 
+# The Lisp adapter is one public Fe-free header (lisp.h) in front of a set
+# of adapter implementation files sharing a private lisp_internal.h.  Only
+# src/lisp_*.c may include fe.h or lisp_internal.h (the header includes
+# fe.h itself for standalone header checking) -- `lisp-include-check`
+# enforces that.  lisp_core.c is always built: it holds the interpreter
+# lifecycle and the WITH_LISP=0 stubs behind the same #ifdef the pre-split
+# file used.  The rest exist only when Fe is linked in.
+LISP_SRCS = lisp_core.c
+ifeq ($(WITH_LISP),1)
+LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
+             lisp_io.c lisp_cmd.c
+endif
+LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
+
 # Source files
 SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c lisp.c keybind.c mode.c localvars.c compile.c compile_parse.c \
+       shell.c path.c rect.c $(LISP_SRCS) keybind.c mode.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c \
        width.c dired.c perf.c process.c marker.c decor.c event.c
 
@@ -133,7 +147,8 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
-	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/lisp.c \
+	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c \
+	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c
@@ -336,13 +351,19 @@ $(OBJDIR)/tiny_regex.o: fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
 $(OBJDIR)/regex.o: src/regex.c src/regex.h $(HDRS) fe/tiny-regex-c/re.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/lisp.o: $(OBJDIR)/lisp.c $(OBJDIR)/lisp.h
+$(OBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
+$(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h
+$(OBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
+$(OBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
+$(OBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
+$(OBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
+$(OBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check docs-check check-unit check-pty
+check: header-check lisp-include-check docs-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -363,6 +384,38 @@ header-check:
 	done; \
 	test "$$n" -gt 0 || { echo "header-check: no headers found" >&2; exit 1; }; \
 	echo "header-check: $$n header(s) compile standalone"
+
+# The interpreter must stay behind the adapter seam: only the src/lisp_*.c
+# implementation files may include fe.h or the private lisp_internal.h
+# (which includes fe.h itself for standalone header-check compilation), so
+# every other module and the public lisp.h stay Fe-free.  A plain grep of
+# the checked-in sources, not the object dir.
+lisp-include-check:
+	@bad=$$(grep -l '#include.*fe\.h' src/*.c src/*.h 2>/dev/null | \
+		while read f; do \
+			case "$$f" in \
+				src/lisp_*.c | src/lisp_internal.h) ;; \
+				*) echo "$$f" ;; \
+			esac; \
+		done || true); \
+	if [ -n "$$bad" ]; then \
+		echo "lisp-include-check: fe.h reached outside the Lisp adapter:" >&2; \
+		echo "$$bad" | sed 's/^/  /' >&2; \
+		exit 1; \
+	fi; \
+	bad=$$(grep -l '#include.*lisp_internal\.h' src/*.c src/*.h 2>/dev/null | \
+		while read f; do \
+			case "$$f" in \
+				src/lisp_*.c) ;; \
+				*) echo "$$f" ;; \
+			esac; \
+		done || true); \
+	if [ -n "$$bad" ]; then \
+		echo "lisp-include-check: lisp_internal.h reached outside src/lisp_*.c:" >&2; \
+		echo "$$bad" | sed 's/^/  /' >&2; \
+		exit 1; \
+	fi; \
+	echo "lisp-include-check: fe.h/lisp_internal.h only in src/lisp_*.c"
 
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
@@ -569,7 +622,7 @@ EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mo
 EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
-EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/lisp.o $(OBJDIR)/keybind.o $(FE_OBJ) $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o $(OBJDIR)/keymap.o
+EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(LISP_OBJS) $(OBJDIR)/keybind.o $(FE_OBJ) $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o $(OBJDIR)/keymap.o
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/process.o
@@ -624,7 +677,13 @@ $(PERFOBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 $(PERFOBJDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 	$(CC) $(PERF_CFLAGS) -I$(OBJDIR) -c $< -o $@
 
-$(PERFOBJDIR)/lisp.o: $(OBJDIR)/lisp.h
+$(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
+$(PERFOBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h
 
 $(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
@@ -701,7 +760,7 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check header-check docs-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check check-unit check-pty check-regex-differential \
 	bench complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

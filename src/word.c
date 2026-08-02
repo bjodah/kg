@@ -52,7 +52,7 @@ static int word_point(int *filerow, erow **row, int *filecol)
  * therefore also just a one-byte separator, the same as any other.
  *
  * This is deliberately not Unicode-aware.  One Lisp thing-at-point helper
- * (bounds-of-thing-at-point 'word, src/lisp.c) treats every codepoint
+ * (bounds-of-thing-at-point 'word, src/lisp_word.c) treats every codepoint
  * from U+0080 up as a word constituent, so "héllo" is one word there and
  * two words ("h", "llo", with the accented byte(s) as separators) here.
  * Unifying the two is a separate, later change that needs Emacs oracle

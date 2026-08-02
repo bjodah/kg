@@ -180,16 +180,82 @@
    "branches_hit": 145,
    "branch_rate": 0.8841
   },
-  "src/lisp.c": {
-   "lines_found": 896,
-   "lines_hit": 805,
-   "line_rate": 0.8984,
-   "functions_found": 98,
-   "functions_hit": 97,
-   "function_rate": 0.9898,
-   "branches_found": 409,
-   "branches_hit": 323,
-   "branch_rate": 0.7897
+  "src/lisp_buffer.c": {
+   "lines_found": 166,
+   "lines_hit": 157,
+   "line_rate": 0.9458,
+   "functions_found": 26,
+   "functions_hit": 26,
+   "function_rate": 1.0,
+   "branches_found": 62,
+   "branches_hit": 51,
+   "branch_rate": 0.8226
+  },
+  "src/lisp_cmd.c": {
+   "lines_found": 108,
+   "lines_hit": 103,
+   "line_rate": 0.9537,
+   "functions_found": 14,
+   "functions_hit": 14,
+   "function_rate": 1.0,
+   "branches_found": 46,
+   "branches_hit": 38,
+   "branch_rate": 0.8261
+  },
+  "src/lisp_core.c": {
+   "lines_found": 223,
+   "lines_hit": 175,
+   "line_rate": 0.7848,
+   "functions_found": 21,
+   "functions_hit": 20,
+   "function_rate": 0.9524,
+   "branches_found": 100,
+   "branches_hit": 69,
+   "branch_rate": 0.69
+  },
+  "src/lisp_io.c": {
+   "lines_found": 177,
+   "lines_hit": 156,
+   "line_rate": 0.8814,
+   "functions_found": 15,
+   "functions_hit": 15,
+   "function_rate": 1.0,
+   "branches_found": 93,
+   "branches_hit": 68,
+   "branch_rate": 0.7312
+  },
+  "src/lisp_prelude.c": {
+   "lines_found": 16,
+   "lines_hit": 15,
+   "line_rate": 0.9375,
+   "functions_found": 3,
+   "functions_hit": 3,
+   "function_rate": 1.0,
+   "branches_found": 6,
+   "branches_hit": 5,
+   "branch_rate": 0.8333
+  },
+  "src/lisp_string.c": {
+   "lines_found": 139,
+   "lines_hit": 132,
+   "line_rate": 0.9496,
+   "functions_found": 12,
+   "functions_hit": 12,
+   "function_rate": 1.0,
+   "branches_found": 56,
+   "branches_hit": 48,
+   "branch_rate": 0.8571
+  },
+  "src/lisp_word.c": {
+   "lines_found": 67,
+   "lines_hit": 67,
+   "line_rate": 1.0,
+   "functions_found": 7,
+   "functions_hit": 7,
+   "function_rate": 1.0,
+   "branches_found": 46,
+   "branches_hit": 44,
+   "branch_rate": 0.9565
   },
   "src/localvars.c": {
    "lines_found": 808,

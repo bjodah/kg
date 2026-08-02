@@ -69,7 +69,31 @@ translation — but **nothing** from `fe.h` leaks into `src/lisp.h`.
 - `make check` (both `WITH_LISP=1` and `WITH_LISP=0`) green.
 - `make complexity-check`: every new file under 520 lines.
 - `make header-check`: `lisp_internal.h` compiles standalone.
-- New CI grep: `fe.h` appears only in `src/lisp_*.c`.
+- New CI grep: `fe.h` and `lisp_internal.h` appear only in `src/lisp_*.c`
+  (`fe.h` additionally in `lisp_internal.h` itself).
+
+### Phase 0 notes
+
+The line ranges in the table above are the planning estimate; the split
+differs where the estimate could not be exact:
+
+- The `WITH_LISP=0` half of the public API is the `#else` side of
+  `lisp_core.c`, exactly as in the pre-split file; `copy_result` sits
+  outside the guard because both configurations call it.  A
+  `WITH_LISP=0` build compiles only `lisp_core.c`.
+- `evaluate_prelude()` lives in `lisp_prelude.c` with the prelude string
+  it evaluates, keeping the string private to the module.
+- The table lists `format` under `lisp_string.c`, but its own line ranges
+  (L182–423) place the formatter with `message`/`insert`; it stays in
+  `lisp_io.c` so `native_message` need not export the formatter.
+- The Makefile derives `SRCS`, `EXTRA_lisp`, `FUZZ_SRCS` and the perf build
+  from one `LISP_SRCS` list.  The include rule is `make
+  lisp-include-check`, wired into `make check`, allowing `fe.h` and
+  `lisp_internal.h` only in `src/lisp_*.c` (`fe.h` additionally in
+  `lisp_internal.h` itself, which is a standalone header-check unit).
+- The per-file ceiling is scc's per-file metric (`SCC_FILE_COMPLEXITY_MAX`);
+  every new file sits well under it, and the scc and pmccabe totals are
+  unchanged by the split.
 
 ---
 

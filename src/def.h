@@ -565,8 +565,9 @@ int editor_row_char_to_byte(erow *row, int char_index);
  * last.  This is the only position dialect the editor uses.
  *
  * The three `editor_*_char_*` conversions below are a second dialect --
- * 0-based codepoint offsets, in `long` -- and belong to `src/lisp.c`,
- * which is where Emacs-shaped point arithmetic is spoken.  Nothing else
+ * 0-based codepoint offsets, in `long` -- and belong to the Lisp adapter
+ * (src/lisp_buffer.c), which is where Emacs-shaped point arithmetic is
+ * spoken.  Nothing else
  * may grow a use for them: two dialects that interleave is how a
  * coordinate bug gets written, and one of them is already the adapter at
  * the edge. */

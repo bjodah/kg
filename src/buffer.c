@@ -741,7 +741,7 @@ int buffer_position_to_row_col(
  * one character.  These helpers convert between the two on demand; nothing
  * here caches, so callers pay a walk of the rows they cross.
  *
- * This dialect is `src/lisp.c`'s and no other module's -- see the note on
+ * This dialect is the Lisp adapter's and no other module's -- see the note on
  * the flat byte positions above.  Anything inside the editor that needs a
  * position uses those. */
 

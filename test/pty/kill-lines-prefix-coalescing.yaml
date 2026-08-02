@@ -1,0 +1,25 @@
+# Characterizes C-u 3 C-k as one top-level command: key_kill_lines()
+# grows the kill-ring entry chunk by chunk internally (row content, then
+# the newline, repeated), but every chunk belongs to the same command's
+# kill, so the ring ends up holding the whole three-line span in one
+# entry regardless of how coalescing is decided between *separate*
+# commands.  C-y pastes the whole span back, reconstructing the
+# original buffer.  This case is unaffected by the coalescing fix in
+# the next commit -- it stays green before and after.
+name: kill-lines-prefix-coalescing
+filename: kill-lines-prefix-coalescing.txt
+initial: |
+  one
+  two
+  three
+  four
+keys:
+  - C-u
+  - '3'
+  - C-k
+  - C-y
+expected_saved: |
+  one
+  two
+  three
+  four

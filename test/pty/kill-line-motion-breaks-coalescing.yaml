@@ -1,0 +1,28 @@
+# Characterizes today's kill-ring coalescing defect: doc/kg.1 promises
+# only *consecutive* C-k's append, but editor_kill_line() appends
+# unconditionally, with no check that the previous top-level command was
+# also a kill.  C-n between the two C-k's is an unrelated motion and
+# should start a fresh kill-ring entry for the second C-k; instead the
+# second kill's text still lands on top of the first's.
+#
+# C-k empties "one", leaving an empty first row.  C-n moves to the
+# (still full) second row "two".  C-k there kills "two" into what should
+# be a fresh entry, but today's ring is still "one" and the kill grows
+# it to "onetwo".  C-y then pastes that combined entry rather than just
+# "two".  This is the case plan 05 calls out to fix; the follow-up
+# commit changes this file's expected_saved to "two".
+name: kill-line-motion-breaks-coalescing
+filename: kill-line-motion-breaks-coalescing.txt
+initial: |
+  one
+  two
+  three
+keys:
+  - C-k
+  - C-n
+  - C-k
+  - C-y
+expected_saved: |
+
+  onetwo
+  three

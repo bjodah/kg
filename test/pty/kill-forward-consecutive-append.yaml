@@ -1,0 +1,18 @@
+# Characterizes kill-ring coalescing for two immediately consecutive
+# C-k's: the man page promises this appends, and it does today.  First
+# C-k empties "one" (leaving an empty row), second C-k at end-of-line
+# joins with "two" by killing the newline -- both kills are consecutive
+# C-k's with nothing in between, so the ring holds "one" then "\n"
+# appended, i.e. "one\n", and C-y pastes that whole thing back.
+name: kill-forward-consecutive-append
+filename: kill-forward-consecutive-append.txt
+initial: |
+  one
+  two
+keys:
+  - C-k
+  - C-k
+  - C-y
+expected_saved: |
+  one
+  two

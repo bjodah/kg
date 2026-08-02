@@ -247,12 +247,6 @@ struct abuf {
 };
 #define ABUF_INIT { NULL, 0, 0, 0 }
 
-/* Kill ring (yank buffer) for copy/paste operations */
-struct kill_ring {
-	char *text; /* Killed/copied text */
-	int len; /* Length of text */
-};
-
 /* Single undo operation (recording one flat-position byte range change) */
 struct undo_op {
 	size_t position; /* flat byte position of the change */
@@ -363,7 +357,6 @@ struct editor_buffer {
 extern struct editor_config editor;
 extern int running;
 extern int kg_exit_status; /* Process exit status returned by main(). */
-extern struct kill_ring killring;
 extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
 extern int buf_count; /* number of active buffers */
@@ -993,12 +986,7 @@ void editor_capitalize_word(void);
 void editor_reflow_paragraph(void);
 void editor_comment_dwim(void);
 
-/* yank.c */
-void kill_ring_init(void);
-void kill_ring_free(void);
-void kill_ring_set(char *text, int len);
-void kill_ring_append(char *text, int len);
-char *kill_ring_get(void);
+/* yank.c (struct kill_ring and its own API are in yank.h) */
 void editor_set_mark(void);
 void editor_set_mark_silent(void);
 void editor_push_mark(void);

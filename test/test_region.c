@@ -1,6 +1,7 @@
 /* test_region.c — regression tests for region copy and kill */
 
 #include "../src/def.h"
+#include "../src/yank.h"
 #include "test.h"
 #include <limits.h>
 #include <stdio.h>
@@ -234,7 +235,7 @@ static void test_kill_and_yank_are_one_step_each(void)
 	free(text);
 	CHECK(bcur()->numrows == 1);
 	CHECK(bcur()->row[0].idx == 0);
-	CHECK(killring.len == 6);
+	CHECK(kill_ring_get_len() == 6);
 	CHECK(memcmp(kill_ring_get(), "\xE2\x82\xAC\nom", 6) == 0);
 	CHECK(bcur()->undostack.size == 1);
 	CHECK(bcur()->content_generation == generation + 1);
@@ -285,7 +286,7 @@ static void test_kill_and_yank_refused_when_read_only(void)
 	editor_insert_row(bcur(), 1, "omega", 5);
 	set_region(0, 1, 1, 3);
 	editor_copy_region();
-	CHECK(killring.len == 8);
+	CHECK(kill_ring_get_len() == 8);
 
 	bcur()->dirty = 0;
 	bcur()->readonly = 1;

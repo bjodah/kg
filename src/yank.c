@@ -7,85 +7,191 @@
 #include "def.h"
 #include "edit.h"
 #include "marker.h"
+#include "yank.h"
 
 /* Global kill ring */
-struct kill_ring killring = { NULL, 0 };
+struct kill_ring killring;
+
+/* How many more allocations this module's own entry storage may make
+ * before one of them is failed on purpose.  Negative is how the editor
+ * always runs: no seam.  See kg_yank_fail_alloc_after() in yank.h;
+ * mirrors edit_alloc_budget in buffer.c and decor_alloc_budget in
+ * decor.c, one seam per allocator. */
+static int yank_alloc_budget = -1;
+
+void kg_yank_fail_alloc_after(int n) { yank_alloc_budget = n; }
+
+static bool yank_alloc_ok(void)
+{
+	return yank_alloc_budget < 0 || yank_alloc_budget-- != 0;
+}
 
 /* Initialize the kill ring */
-void kill_ring_init(void)
-{
-	killring.text = NULL;
-	killring.len = 0;
-}
+void kill_ring_init(void) { memset(&killring, 0, sizeof(killring)); }
 
-/* Free the kill ring */
+/* Free every entry.  Explicitly zeroing each freed slot (rather than
+ * just resetting `count`) keeps the invariant kill_ring_get() relies on:
+ * every slot at or past `count` is always {NULL, 0}. */
 void kill_ring_free(void)
 {
-	if (killring.text) {
-		free(killring.text);
-		killring.text = NULL;
-		killring.len = 0;
+	int i;
+
+	for (i = 0; i < killring.count; i++) {
+		free(killring.entries[i].text);
+		killring.entries[i].text = NULL;
+		killring.entries[i].len = 0;
+	}
+	killring.count = 0;
+	killring.total_bytes = 0;
+}
+
+/* Drop the single oldest (last) entry. */
+static void kill_ring_evict_oldest(void)
+{
+	int last = killring.count - 1;
+
+	free(killring.entries[last].text);
+	killring.total_bytes -= killring.entries[last].len;
+	killring.entries[last].text = NULL;
+	killring.entries[last].len = 0;
+	killring.count--;
+}
+
+/* Evict oldest entries until adding one more of `incoming_len` bytes
+ * fits both caps.  The caller has already rejected an `incoming_len`
+ * that could never fit alone, so this always terminates with room:
+ * worst case it empties the ring (total_bytes reaches 0). */
+static void kill_ring_make_room(size_t incoming_len)
+{
+	while (killring.count > 0
+	    && (killring.count == KG_KILL_RING_MAX_ENTRIES
+		|| killring.total_bytes + incoming_len
+		    > KG_KILL_RING_MAX_BYTES)) {
+		kill_ring_evict_oldest();
 	}
 }
 
-/* Set the kill ring to new text (replaces existing content) */
-void kill_ring_set(char *text, int len)
+/* Publish `copy` (already allocated, already within the per-entry cap)
+ * as the new newest entry, evicting whatever must go first. */
+static void kill_ring_push_entry(char *copy, size_t len)
 {
-	int alloc_sz;
-
-	if (len <= 0) {
-		return;
-	}
-	if (!checked_add_int_size(&alloc_sz, len, 1)) {
-		return;
-	}
-
-	char *new_text = malloc(alloc_sz);
-	if (!new_text) {
-		return;
-	}
-
-	memcpy(new_text, text, len);
-	new_text[len] = '\0';
-	kill_ring_free();
-	killring.text = new_text;
-	killring.len = len;
+	kill_ring_make_room(len);
+	memmove(&killring.entries[1], &killring.entries[0],
+	    (size_t)killring.count * sizeof(killring.entries[0]));
+	killring.entries[0].text = copy;
+	killring.entries[0].len = len;
+	killring.count++;
+	killring.total_bytes += len;
 }
 
-/* Append text to the kill ring (for consecutive kills) */
-void kill_ring_append(char *text, int len)
+/* One allocation: `len` bytes of `text` plus a defensive trailing NUL. */
+static char *yank_dup(const char *text, size_t len)
 {
-	char *new_text;
-	int new_len;
-	int alloc_sz;
+	size_t alloc_sz;
+	char *copy;
 
-	if (len <= 0) {
+	if (!checked_add_size_t(&alloc_sz, len, 1)) {
+		return NULL;
+	}
+	copy = yank_alloc_ok() ? malloc(alloc_sz) : NULL;
+	if (!copy) {
+		return NULL;
+	}
+	memcpy(copy, text, len);
+	copy[len] = '\0';
+	return copy;
+}
+
+/* Start a new newest entry (replaces nothing; see yank.h). */
+void kill_ring_set(const char *text, size_t len)
+{
+	char *copy;
+
+	if (len == 0) {
 		return;
 	}
+	if (len > KG_KILL_RING_MAX_BYTES) {
+		return;
+	}
+	copy = yank_dup(text, len);
+	if (!copy) {
+		return;
+	}
+	kill_ring_push_entry(copy, len);
+}
 
-	if (!killring.text) {
+/* One allocation: `a` (`alen` bytes) followed by `b` (`blen` bytes) plus
+ * a defensive trailing NUL, `total` == alen + blen. */
+static char *kill_ring_concat(
+    const char *a, size_t alen, const char *b, size_t blen, size_t total)
+{
+	size_t alloc_sz;
+	char *combined;
+
+	if (!checked_add_size_t(&alloc_sz, total, 1)) {
+		return NULL;
+	}
+	combined = yank_alloc_ok() ? malloc(alloc_sz) : NULL;
+	if (!combined) {
+		return NULL;
+	}
+	memcpy(combined, a, alen);
+	memcpy(combined + alen, b, blen);
+	combined[total] = '\0';
+	return combined;
+}
+
+/* Replace the newest entry's bytes with `combined`/`new_len`, then shed
+ * older entries if growing it pushed the ring over the byte cap.
+ * `combined` is never itself oversize (the caller already checked), so
+ * shedding every other entry is guaranteed to make it fit. */
+static void kill_ring_replace_newest(char *combined, size_t new_len)
+{
+	free(killring.entries[0].text);
+	killring.total_bytes
+	    = killring.total_bytes - killring.entries[0].len + new_len;
+	killring.entries[0].text = combined;
+	killring.entries[0].len = new_len;
+	while (killring.count > 1
+	    && killring.total_bytes > KG_KILL_RING_MAX_BYTES) {
+		kill_ring_evict_oldest();
+	}
+}
+
+/* Append text to the newest entry (for consecutive kills) */
+void kill_ring_append(const char *text, size_t len)
+{
+	size_t old_len;
+	size_t new_len;
+	char *combined;
+
+	if (len == 0) {
+		return;
+	}
+	if (killring.count == 0) {
 		kill_ring_set(text, len);
 		return;
 	}
-
-	if (!checked_add_int_size(&new_len, killring.len, len)
-	    || !checked_add_int_size(&alloc_sz, new_len, 1)) {
+	old_len = killring.entries[0].len;
+	if (!checked_add_size_t(&new_len, old_len, len)) {
 		return;
 	}
-
-	new_text = realloc(killring.text, alloc_sz);
-	if (!new_text) {
+	if (new_len > KG_KILL_RING_MAX_BYTES) {
 		return;
 	}
-
-	memcpy(new_text + killring.len, text, len);
-	new_text[new_len] = '\0';
-	killring.text = new_text;
-	killring.len = new_len;
+	combined = kill_ring_concat(
+	    killring.entries[0].text, old_len, text, len, new_len);
+	if (!combined) {
+		return;
+	}
+	kill_ring_replace_newest(combined, new_len);
 }
 
-/* Get the kill ring text (returns NULL if empty) */
-char *kill_ring_get(void) { return killring.text; }
+/* Get the newest entry's bytes (returns NULL if the ring is empty) */
+char *kill_ring_get(void) { return killring.entries[0].text; }
+
+/* Get the newest entry's length (returns 0 if the ring is empty) */
+size_t kill_ring_get_len(void) { return killring.entries[0].len; }
 
 static int yank_current_row(void) { return editor_current_filerow_or_eof(); }
 
@@ -511,7 +617,9 @@ void editor_yank(void)
 	}
 	/* Mark the start of the yanked text, as Emacs does. */
 	editor_push_mark();
-	editor_insert_text_at_point(text, killring.len);
+	/* KG_KILL_RING_MAX_BYTES is well under INT_MAX, so this narrowing
+	 * is exact for every entry the ring can ever hold. */
+	editor_insert_text_at_point(text, (int)kill_ring_get_len());
 	editor_set_status_message("Yanked");
 }
 

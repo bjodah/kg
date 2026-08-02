@@ -15,6 +15,7 @@
 #include "marker.h"
 #include "perf.h"
 #include "syntax.h"
+#include "yank.h"
 
 #define KG_MAX_VIRTUAL_INSERT_GAP (64 * 1024)
 

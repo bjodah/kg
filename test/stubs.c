@@ -2,6 +2,7 @@
 
 #include "../src/cmd.h"
 #include "../src/def.h"
+#include "../src/yank.h"
 #include <stdarg.h>
 
 char test_status_message[512];
@@ -94,17 +95,18 @@ void buf_display_name(int idx, char *out, size_t outsize)
 	(void)idx;
 	(void)snprintf(out, outsize, "%s", buf_basename(bcur()->filename));
 }
-void kill_ring_set(char *text, int len)
+void kill_ring_set(const char *text, size_t len)
 {
 	(void)text;
 	(void)len;
 }
-void kill_ring_append(char *text, int len)
+void kill_ring_append(const char *text, size_t len)
 {
 	(void)text;
 	(void)len;
 }
 char *kill_ring_get(void) { return NULL; }
+size_t kill_ring_get_len(void) { return 0; }
 enum minibuf_result editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize)
 {

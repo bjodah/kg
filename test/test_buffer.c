@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "../src/edit.h"
+#include "../src/yank.h"
 #include "test.h"
 #include <dirent.h>
 #include <limits.h>
@@ -2132,8 +2133,8 @@ static void test_separator_edits_are_one_step_each(void)
 	text = buffer_text();
 	CHECK(strcmp(text, "alphaomega") == 0);
 	free(text);
-	CHECK(killring.len == 1);
-	CHECK(killring.text && killring.text[0] == '\n');
+	CHECK(kill_ring_get_len() == 1);
+	CHECK(kill_ring_get() && kill_ring_get()[0] == '\n');
 	CHECK(bcur()->undostack.size == 1);
 	editor_undo();
 	text = buffer_text();
@@ -2360,13 +2361,16 @@ static void test_kill_ring_append_overflow(void)
 	kill_ring_init();
 	kill_ring_set("hello", 5);
 
-	/* Try to append with a length that would overflow INT_MAX */
+	/* An append this large is rejected by the ring's byte cap long
+	 * before it would touch the (nonexistent) INT_MAX bytes of
+	 * "world" -- both the old int-overflow guard and today's
+	 * KG_KILL_RING_MAX_BYTES cap refuse it before any copy happens. */
 	kill_ring_append("world", INT_MAX);
 
 	/* Verify the original kill ring contents and length remain unchanged */
-	CHECK(killring.len == 5);
-	CHECK(killring.text != NULL);
-	CHECK(strcmp(killring.text, "hello") == 0);
+	CHECK(kill_ring_get_len() == 5);
+	CHECK(kill_ring_get() != NULL);
+	CHECK(strcmp(kill_ring_get(), "hello") == 0);
 
 	kill_ring_free();
 	teardown();

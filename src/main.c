@@ -47,6 +47,7 @@
 #include "lisp.h"
 #include "marker.h"
 #include "perf.h"
+#include "yank.h"
 
 struct editor_config editor;
 int running = 1;

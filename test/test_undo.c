@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "../src/edit.h"
+#include "../src/yank.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -215,9 +216,9 @@ static void test_kill_line_eol_kill_ring(void)
 
 	editor_kill_line();
 
-	CHECK(killring.len == 1);
-	CHECK(killring.text != NULL);
-	CHECK(killring.text && killring.text[0] == '\n');
+	CHECK(kill_ring_get_len() == 1);
+	CHECK(kill_ring_get() != NULL);
+	CHECK(kill_ring_get() && kill_ring_get()[0] == '\n');
 	kill_ring_free();
 	teardown();
 }

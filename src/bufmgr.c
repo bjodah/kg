@@ -25,6 +25,7 @@
 #include "marker.h"
 #include "perf.h"
 #include "syntax.h"
+#include "yank.h"
 
 /* Key sets the minibuffer and the pickers ask about.  A list rather than
  * a run of comparisons: see key_in_list(). */

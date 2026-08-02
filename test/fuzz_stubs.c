@@ -2,6 +2,7 @@
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
+#include "../src/yank.h"
 
 #include <fcntl.h>
 #include <stddef.h>
@@ -416,7 +417,7 @@ static void fuzz_yank(int fd)
 	    = editor.current_prefix.supplied ? editor.current_prefix.value : 1;
 
 	(void)fd;
-	if (n > 1 && killring.text && killring.len > 0) {
+	if (n > 1 && kill_ring_get_len() > 0) {
 		key_yank_repeated(n);
 		return;
 	}

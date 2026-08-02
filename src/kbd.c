@@ -19,6 +19,7 @@
 #include "keymap.h"
 #include "marker.h"
 #include "syntax.h"
+#include "yank.h"
 
 #define YANK_BATCH_MAX (8 * 1024 * 1024)
 
@@ -219,17 +220,14 @@ void key_kill_lines(int n)
  * caller has already established that the kill ring holds something. */
 void key_yank_repeated(int n)
 {
-	int total_len;
+	size_t entry_len = kill_ring_get_len();
+	size_t total_len;
 	char *combined;
 	int i;
 
 	editor_push_mark();
-	if (killring.len > INT_MAX / n) {
-		editor_set_status_message("Yank too large");
-		return;
-	}
-	total_len = n * killring.len;
-	if (total_len > YANK_BATCH_MAX) {
+	if (!checked_mul_size_t(&total_len, entry_len, (size_t)n)
+	    || total_len > YANK_BATCH_MAX) {
 		editor_set_status_message("Yank too large");
 		return;
 	}
@@ -239,10 +237,11 @@ void key_yank_repeated(int n)
 		return;
 	}
 	for (i = 0; i < n; i++) {
-		memcpy(
-		    combined + i * killring.len, killring.text, killring.len);
+		memcpy(combined + (size_t)i * entry_len, kill_ring_get(),
+		    entry_len);
 	}
-	editor_insert_text_at_point(combined, total_len);
+	/* total_len <= YANK_BATCH_MAX, well under INT_MAX. */
+	editor_insert_text_at_point(combined, (int)total_len);
 	free(combined);
 	editor_set_status_message("Yanked");
 }

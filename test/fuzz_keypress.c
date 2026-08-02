@@ -16,6 +16,7 @@
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
+#include "../src/yank.h"
 
 #include <stddef.h>
 #include <stdint.h>

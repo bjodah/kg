@@ -19,6 +19,7 @@
 #include "lisp.h"
 #include "marker.h"
 #include "syntax.h"
+#include "yank.h"
 
 static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;
@@ -1117,7 +1118,7 @@ static void cmd_yank(int fd)
 	int n = prefix_count();
 
 	(void)fd;
-	if (n > 1 && killring.text && killring.len > 0) {
+	if (n > 1 && kill_ring_get_len() > 0) {
 		key_yank_repeated(n);
 		return;
 	}

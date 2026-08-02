@@ -8,6 +8,7 @@
 #include "edit.h"
 #include "marker.h"
 #include "syntax.h"
+#include "yank.h"
 
 #define FILL_COLUMN 72
 

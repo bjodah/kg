@@ -1,0 +1,24 @@
+# M-g is a prefix map now, not goto-line directly: both spellings Emacs
+# accepts for goto-line, "M-g g" and "M-g M-g", have to reach it, and M-g
+# alone must not run anything by itself (it just waits for the next key).
+name: meta-g-prefix-goto-line
+filename: meta-g-prefix.txt
+initial: |-
+  alpha
+  beta
+  gamma
+keys:
+  - M-g
+  - g
+  - "2"
+  - RET
+  - X
+  - M-g
+  - M-g
+  - "1"
+  - RET
+  - Y
+expected_saved: |-
+  Yalpha
+  Xbeta
+  gamma

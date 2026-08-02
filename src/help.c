@@ -46,7 +46,7 @@ const char *kg_help_lines[]
 	      "read-only mode │",
 	      "│ M-r      window line    │ M-;      comment line   │ C-x C-c  "
 	      "quit           │",
-	      "│ M-g      goto line      │ M-\\/SPC  space cleanup │ M-p/M-n  i"
+	      "│ M-g g    goto line      │ M-\\/SPC  space cleanup │ M-p/M-n  i"
 	      "nput hist ±   │",
 	      "│ M-t      transpose word │ M-z      zap to char    │           "
 	      "              │",

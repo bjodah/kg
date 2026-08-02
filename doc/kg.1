@@ -445,7 +445,7 @@ Multiple files each open in their own buffer.
 .It C-End / M-\&> Ta Move to end of buffer
 .It M-m Ta Back to indentation on current line
 .It M-r Ta Cycle cursor through top/middle/bottom of window
-.It M-g Ta Go to line (prompts for line or line:col)
+.It M-g g / M-g M-g Ta Go to line (prompts for line or line:col)
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -1330,7 +1330,9 @@ in every buffer.
 .It goto-line
 Go to a specific line (prompts for line or line:col).
 Equivalent to
-.Ic M-g .
+.Ic M-g g
+or
+.Ic M-g M-g .
 .It help
 Show the built-in key binding help in a read-only buffer.
 Bound to
@@ -2392,11 +2394,22 @@ or enable it at startup by adding
 to the Lisp init file (see
 .Sx FILES ) .
 .Sh GOTO LINE
-.Ic M-g
+.Ic M-g g
+(or
+.Ic M-g M-g )
 prompts for a line number, optionally followed by a colon and a column
 number
 .Pq e.g. Ar 42:10 .
 The cursor is moved to that position and the view is centred vertically.
+.Pp
+.Ic M-g
+is a prefix map, in the Emacs style: further
+.Ic M-g Ar key
+bindings (e.g.
+.Ic M-g n Ns / Ns Ic M-g p
+for
+.Ic next-error Ns / Ns Ic previous-error )
+live under it rather than taking a key of their own.
 .Sh ENVIRONMENT
 .Nm
 uses the controlling terminal

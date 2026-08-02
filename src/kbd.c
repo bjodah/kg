@@ -394,7 +394,14 @@ static const struct {
 	{ "<prior>", "scroll-down-command" },
 	{ "C-l", "recenter-top-bottom" },
 	{ "M-r", "move-to-window-line-top-bottom" },
-	{ "M-g", "goto-line" },
+	/* M-g is a prefix, the way Emacs' M-g map is: both spellings below
+	 * reach goto-line, which is what M-g alone used to be bound to
+	 * directly.  Neither entry needs a bare "M-g" prefix declaration --
+	 * a leaf longer than one key already makes a shorter probe report
+	 * KEYMAP_PREFIX (see keymap.c's map_probe()) -- so M-g itself is
+	 * never bound to anything. */
+	{ "M-g g", "goto-line" },
+	{ "M-g M-g", "goto-line" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

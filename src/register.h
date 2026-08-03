@@ -33,12 +33,10 @@
 #ifndef KG_REGISTER_H
 #define KG_REGISTER_H
 
-#include "bufhandle.h"
-
-#include <stdbool.h>
 #include <stddef.h>
 
 struct editor_buffer;
+struct kg_buffer_handle;
 
 /* How many registers may be stored at once, how many bytes one text
  * register may hold, and how many bytes every text register may hold

@@ -1,7 +1,6 @@
 #ifndef KG_COMPILE_PARSE_H
 #define KG_COMPILE_PARSE_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* A pure, bounded parser for compiler-style "file:line[:column]"

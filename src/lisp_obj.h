@@ -18,9 +18,7 @@
  * unit and Fe is reachable only from src/lisp_*.c implementation files.
  */
 
-#include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 #include "bufhandle.h"
 #include "marker.h"

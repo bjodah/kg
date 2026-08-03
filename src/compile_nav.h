@@ -32,10 +32,11 @@
 #ifndef KG_COMPILE_NAV_H
 #define KG_COMPILE_NAV_H
 
-#include "bufhandle.h"
-#include "compile_parse.h"
-#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+struct compile_diag;
+struct kg_buffer_handle;
 
 /* Install this module's hooks into compile.c.  Called once, from
  * init_editor(). */

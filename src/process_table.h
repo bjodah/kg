@@ -33,9 +33,10 @@
  * that slot holds next. */
 
 #include "bufhandle.h"
-#include "process.h"
 #include "prochandle.h"
 #include <stddef.h>
+
+struct kg_spawn_request;
 
 /* Live processes this table tracks at once.  A finished process keeps its
  * slot -- and stays queryable -- until kg_process_table_release() (or, once

@@ -68,6 +68,47 @@ was missing (an edit at 1M rows, and a same-width duplicate-window case at
 1M rows) — without which the two questions this sub-plan exists to answer
 had no evidence at the only corpus size that could plausibly move them.
 
+**D is done (2026-08-03), and the campaign is closed.** One function,
+`win_text_width(struct editor_window *w)`, lives in `src/vgeom.c`
+(declared in `src/vgeom.h`, beside the other four operations that already
+take a window) rather than in a new `winmgr.h` — that header does not
+exist, and a two-line wrapper around `win_cells()` does not justify
+creating one.  Eight call sites that read a window's `w` field and derive
+a text width from it now go through it: `src/vgeom.c`'s five
+`get_total_visual_rows()`/`get_visual_row()`/`find_visual_row()`/
+`goto_visual_row_col()`/`vgeom_iter_init()`, `src/basic.c`'s and
+`src/display.c`'s cursor-placement code (both previously reimplemented
+`win_cells()`'s ternary inline instead of calling it), and
+`draw_window_rows()`'s call site in `editor_refresh_screen()` (previously
+passed the window's raw, unnormalized width).  `src/mode.c`'s own four
+`win_cells()` calls stay — they normalize a generic `int win_w` parameter
+a unit test calls directly with 0 and -5, not a window — so
+`win_cells()`'s only *window*-reading caller is the new seam.  See D's own
+status section for what it did not convert and why (there is no
+rectangle-specific `w->w` read in `src/rect.c` to convert; `draw_mode_line`
+is chrome, not text, and stays untouched), and for a real defect it found:
+`test/fuzz_stubs.c` did not link once `src/basic.c` started calling the
+seam, caught by `ci-09-fuzz-smoke` and fixed with a stub matching the
+pre-seam logic.
+
+`scc` is unchanged at **5439/5500** — every change in D is a value
+substitution or a one-line, branch-free wrapper, so nothing is added to
+score.  `pmccabe` is unchanged at its ceiling (91/110) and two functions
+*improved* (`editor_move_cursor` 62 -> 61, `editor_refresh_screen` 27 ->
+26) by replacing an inline ternary with a plain call; both banked with
+`make pmccabe-baseline`, which also banked pre-existing, already-passing
+symbols from A/B and unrelated recent commits that nobody had banked
+before (not a D regression — the baseline was already stale; see D's
+status section).  `make check` (32/32 unit, 405/405 PTY),
+`WITH_LISP=0`, `header-check`, `format-check`, `docs-check`,
+`coverage-check`, and a standalone `JOBS=8 .ci/run-ci-steps.sh --parallel`
+(twelve of twelve steps, run twice — the first run's sole failure was the
+fuzz-stub link gap, fixed before the second, fully green run) all pass.
+
+Phases 2 through 5 of Plan 07 are complete.  All four sub-plans landed
+without raising `SCC_COMPLEXITY_MAX` past 5500, closing at 5439 — 61
+points under the cap that D, the last claimant, did not need to spend.
+
 ## The binding constraint is complexity budget, not difficulty
 
 `scc` is at **5401 against `SCC_COMPLEXITY_MAX` = 5500** — 99 points for

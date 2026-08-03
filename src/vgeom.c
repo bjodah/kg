@@ -269,9 +269,14 @@ static void row_segment_of(struct editor_window *w, struct editor_buffer *b,
 	row_segment_of_idx(idx, b, win_w, target_vrow, out_row, out_segment);
 }
 
+/* Sub-plan D's seam: every operation below reads `w->w` only through
+ * here, so a caller keying the index or drawing from it can never see a
+ * different normalization than another. */
+int win_text_width(struct editor_window *w) { return win_cells(w->w); }
+
 int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b)
 {
-	int win_w = win_cells(w->w);
+	int win_w = win_text_width(w);
 	struct kg_vgeom_index *idx = vgeom_ensure(w, b, win_w);
 	int r, total;
 
@@ -287,7 +292,7 @@ int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b)
 int get_visual_row(
     struct editor_window *w, struct editor_buffer *b, int cy, int cx)
 {
-	int win_w = win_cells(w->w);
+	int win_w = win_text_width(w);
 	struct kg_vgeom_index *idx = vgeom_ensure(w, b, win_w);
 	int vrow;
 
@@ -320,7 +325,7 @@ int get_visual_row(
 void find_visual_row(struct editor_window *w, struct editor_buffer *b,
     int rowoff_visual, int target_y, int *logical_row, int *render_offset)
 {
-	int win_w = win_cells(w->w);
+	int win_w = win_text_width(w);
 	int row, segment;
 
 	row_segment_of(w, b, win_w, rowoff_visual + target_y, &row, &segment);
@@ -338,7 +343,7 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 {
 	struct editor_window *w = wcur();
 	struct editor_buffer *b = bcur();
-	int win_w = win_cells(w->w);
+	int win_w = win_text_width(w);
 	int row, segment;
 
 	row_segment_of(w, b, win_w, target_vrow, &row, &segment);
@@ -367,7 +372,7 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 void vgeom_iter_init(struct vgeom_iter *it, struct editor_window *w,
     struct editor_buffer *b, int start_vrow)
 {
-	int win_w = win_cells(w->w);
+	int win_w = win_text_width(w);
 	struct kg_vgeom_index *idx = vgeom_ensure(w, b, win_w);
 	int row, segment;
 

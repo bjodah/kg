@@ -354,6 +354,55 @@ static void test_vgeom_edit_invalidates_stale_index(void)
 	teardown();
 }
 
+/* Sub-plan D (doc/plans/2026-07-31-follow-ups/07-subplans/
+ * 07d-window-text-width-seam.md): win_text_width() subsumes win_cells()'s
+ * normalization for every window-width-reading caller, so a raw 0 or -5
+ * stored in w->w must answer exactly what win_cells() already promises --
+ * the same behavior several callers (src/basic.c, src/display.c,
+ * src/vgeom.c) quietly depended on before this seam existed. */
+static void test_win_text_width_normalizes_nonpositive(void)
+{
+	setup();
+	wcur()->w = 80;
+	CHECK(win_text_width(wcur()) == 80);
+	wcur()->w = 0;
+	CHECK(win_text_width(wcur()) == 1);
+	wcur()->w = -5;
+	CHECK(win_text_width(wcur()) == 1);
+	wcur()->w = 1;
+	CHECK(win_text_width(wcur()) == 1);
+	teardown();
+}
+
+/* The invariant a later line-number gutter would otherwise break
+ * silently: every geometry entry point keys on exactly win_text_width(w),
+ * not a value it renormalizes on its own.  Recomputing the total from the
+ * row-at-a-time primitive (visual_segments(), the same one src/display.c's
+ * draw loop and src/vgeom.c's index both bottom out at) using only the
+ * externally visible win_text_width(w) -- never reading wcur()->w directly
+ * -- and comparing it to get_total_visual_rows()'s own answer is what
+ * would catch a consumer that started normalizing w->w a second, different
+ * way. */
+static void test_win_text_width_is_the_single_geometry_key(void)
+{
+	int win_w, expect_total, r;
+
+	setup();
+	build_mixed_corpus();
+	wcur()->w = 0; /* degenerate on purpose: exercises the same
+			  normalization the index and the scan path must
+			  agree on. */
+
+	win_w = win_text_width(wcur());
+	CHECK(win_w == 1);
+
+	for (expect_total = 0, r = 0; r < bcur()->numrows; r++) {
+		expect_total += visual_segments(&bcur()->row[r], win_w);
+	}
+	CHECK(get_total_visual_rows(wcur(), bcur()) == expect_total);
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_vgeom_matches_scan_mixed_corpus_various_widths);
@@ -364,5 +413,7 @@ int main(void)
 	RUN(test_vgeom_iterator_starts_mid_buffer);
 	RUN(test_vgeom_window_free_is_safe_on_no_index);
 	RUN(test_vgeom_edit_invalidates_stale_index);
+	RUN(test_win_text_width_normalizes_nonpositive);
+	RUN(test_win_text_width_is_the_single_geometry_key);
 	return test_summary();
 }

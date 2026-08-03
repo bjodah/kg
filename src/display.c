@@ -332,7 +332,10 @@ static void vline_iter_begin(struct vgeom_iter *it, struct editor_window *w,
 }
 
 /* Render the text rows of one window into ab.
- * win_y, win_x, win_h, win_w describe the window's position/size.
+ * win_y, win_x, win_h, win_w describe the window's position/size; win_w
+ * is the caller's win_text_width(w) (src/vgeom.h), the one normalized
+ * text width every geometry, cursor-placement and rectangle/region
+ * consumer keys on.
  * rowoff/coloff/numrows/rows describe the buffer viewport.
  * is_active: the window currently has the user's focus; only this one
  * shows the visual-mark region overlay.
@@ -796,8 +799,9 @@ void editor_refresh_screen(void)
 		rowoff = vline ? w->rowoff_visual : w->rowoff;
 		coloff = w->coloff;
 
-		draw_window_rows(&ab, w, b, w->y, w->x, w->h, w->w, rowoff,
-		    coloff, numrows, rows, is_active, is_full_width, vline);
+		draw_window_rows(&ab, w, b, w->y, w->x, w->h, win_text_width(w),
+		    rowoff, coloff, numrows, rows, is_active, is_full_width,
+		    vline);
 
 		ml_row = w->y + w->h;
 		{
@@ -905,7 +909,7 @@ void editor_refresh_screen(void)
 		if (bcur()->visual_line_mode) {
 			int filerow = wcur()->rowoff + wcur()->cy;
 			int filecol = wcur()->coloff + wcur()->cx;
-			int win_w = w->w > 0 ? w->w : 1;
+			int win_w = win_text_width(w);
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;

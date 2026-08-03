@@ -184,6 +184,12 @@ void editor_find_regexp(int fd, int direction)
 void cmd_eval_print_last_sexp(void) { }
 void cmd_eval_last_sexp(int print_to_buffer) { (void)print_to_buffer; }
 
+/* src/basic.c calls this directly (src/vgeom.h); this target does not
+ * link src/vgeom.c, so it needs its own stub -- same normalization
+ * win_cells() gives the real one, since a caller cares about "never
+ * less than 1 cell", not which module answered. */
+int win_text_width(struct editor_window *w) { return w->w > 0 ? w->w : 1; }
+
 int get_visual_row(
     struct editor_window *w, struct editor_buffer *b, int cy, int cx)
 {

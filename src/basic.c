@@ -51,7 +51,7 @@ void editor_move_cursor(int key)
 
 	if (bcur()->visual_line_mode) {
 		struct editor_window *w = &winlist[win_current];
-		int win_w = w->w > 0 ? w->w : 1;
+		int win_w = win_text_width(w);
 		switch (key) {
 		case HOME_KEY: {
 			if (row) {

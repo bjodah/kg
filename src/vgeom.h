@@ -90,6 +90,17 @@ int render_offset_at_visual(erow *row, int target_vcol, int win_w);
  * off `vgeom`; the type stays opaque here on purpose.
  */
 
+/* The columns available to buffer text in `w`: win_cells()'s normalization
+ * applied to the window's own stored width (def.h's `w` field), so it
+ * never returns less than 1.  This is the *only* thing the geometry index
+ * below, the renderer, cursor placement and the rectangle/region overlay
+ * key on -- every one of them reads `w->w` through here rather than
+ * normalizing it again on its own, so a later line-number gutter has
+ * exactly one place to subtract from (doc/plans/2026-07-31-follow-ups/
+ * 07-subplans/07d-window-text-width-seam.md).  Today's body is
+ * `win_cells(w->w)` and nothing else. */
+int win_text_width(struct editor_window *w);
+
 /* Total visual (wrapped) rows `w` would show for `b` at `w`'s current
  * text width. */
 int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b);

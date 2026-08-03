@@ -34,8 +34,23 @@ document was wrong about (the `def.h` move funds no complexity at all,
 and `vgeom_window_free()` is not on the production path), and it hands B
 a corrected version of the assertion below.
 
-**Budget after A: 5438 of 5500, so 62 points for B, C and D.**  A cost
-+37 net, funded by nothing — see its status section.
+**B is done too** (`58b25f4`).  The draw loop places one iterator per
+window instead of asking `find_visual_row()` per screen row, and
+`vgeom_iter_next()` reads segment counts out of the prefix sums.  That is
+worth 4-5× fewer index lookups per repaint and 3-4% wall, which is the
+honest size of it: A collapsed the *cost* of a geometry query and B
+collapses *how many* are asked.  The pinned assertion is inverted and now
+reads `== 0` on a warm repaint.
+
+**Budget after A and B: 5439 of 5500, so 61 points for C and D.**  A cost
++37 net, funded by nothing — see its status section.  B cost +1.
+
+**`make complexity-check` is not the whole complexity gate.**  B was
+caught by `make pmccabe-check`, a *per-symbol* ratchet in `.ci/ci-01`
+that `scc` knows nothing about: two branches added inside
+`draw_window_rows()` took it from 67 to 69 against its baseline.  Neither
+this README nor any sub-plan's Gates list named that command.  **Run
+both.**
 
 ## The binding constraint is complexity budget, not difficulty
 

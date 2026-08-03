@@ -57,22 +57,30 @@ the state as of `96c408e`.
 
 ## One finding to refuse, one thing to check
 
-**1. `src/lisp_core.c` must keep `#include "lisp.h"`.**  IWYU is
-reasoning about symbol *use*, and `lisp_core.c` uses nothing *from*
-`lisp.h` — it *implements* it.  Dropping the include removes the only
-thing that checks the definitions against the declarations, so a signature
-could drift silently and `WITH_LISP=0`'s stubs would be the first to
-notice.  Suppress rather than obey:
+**1. ~~`src/lisp_core.c` must keep `#include "lisp.h"`.~~  Wrong — see the
+correction below.**  This section originally called for an
+`// IWYU pragma: keep` suppression, on the reasoning that `lisp_core.c`
+uses nothing *from* `lisp.h` because it *implements* it, so dropping the
+include would leave the definitions unchecked against the declarations.
 
-```c
-#include "lisp.h"  // IWYU pragma: keep
-```
+The premise was false, and checking it is what showed why.  `lisp_core.c`
+included `lisp.h` **twice**: once unconditionally at line 4, above
+`copy_result()`, and again at line 32 inside the `#ifdef KG_USE_LISP`
+block.  Same for `<stdio.h>` (lines 1 and 24) and `<string.h>` (lines 2
+and 26).  IWYU was flagging the redundant *inner* copies; the include
+that does the checking is the unconditional one at the top, and it stays.
 
-There is no existing `IWYU pragma` in `src/`, so this establishes the
-convention.  Comment *why* at the site, not just the pragma — the same
-rule every other suppression in this codebase follows.  Check whether any
-other "remove" in the table is the same case (a `.c` file being told to
-drop the header it implements) before applying it.
+So the finding is correct and gets applied, with a comment at the site
+saying why the second include is gone and the first is not.  **No
+`IWYU pragma` is needed anywhere in `src/`** — the convention this
+sub-plan expected to establish turned out not to be needed at all.
+
+The general lesson is worth more than the specific fix: verify *which*
+include a finding names before deciding to refuse it.  Confirming that
+all eleven of `lisp.h`'s declarations are defined in `lisp_core.c` was
+true and beside the point, because it said nothing about which of the two
+includes IWYU meant.  No other "remove" in the table is a `.c` file being
+told to drop a header it implements.
 
 **2. The by-value forward declarations are fine — the callers are what to
 watch.**  `compile_nav.h:55` takes `struct kg_buffer_handle` **by value**
@@ -134,3 +142,47 @@ change is exactly the kind that is hard to bisect when it is one blob.
 - Every header/`.c` pair moved together, so no caller is left without the
   complete type a forward declaration stopped providing.
 - No ratchet moved.
+
+---
+
+## Status — sub-plan F closed 2026-08-03
+
+**Done.**  ci-06 is green.  Four commits: `3428054` (headers), `ea2df3b`
+(the `src/lisp_*.c` group), `bf89533` (`compile_nav.c`,
+`process_table.c`, `register.c`), `adf2b7f` (the padding fix below).
+All 32 findings across 16 files are gone, none suppressed.  Verified with
+`.ci/ci-06-static-analysis.sh` exiting 0 with zero findings and all 55
+clang-tidy jobs run, then the full runner: every lane green except ci-05,
+which is sub-plan E's.
+
+### ci-06 is a sequence, and IWYU was a wall
+
+The one thing this sub-plan did not anticipate.
+`.ci/ci-06-static-analysis.sh` runs under `set -e` with IWYU first, then
+clang-analyzer, clang-tidy and cppcheck.  While IWYU had 32 findings the
+later tools **never ran at all** — so the lane's visible output
+understated the work, and "16 files of includes" was not the whole job.
+
+Clearing IWYU exposed a clang-analyzer
+`optin.performance.Padding` finding on `struct kg_process_table_entry`,
+which interleaved bools with pointers and 64-bit fields.  Fixing it is
+what actually turned the lane green, and it belongs to this slice rather
+than a follow-up because only this slice could see it.  The reorder is
+declaration-order only: the struct is file-local, has no positional
+initializers, and every `memcpy` in the file targets `e->output` rather
+than the struct.  Same shape as `46e77fd` for `src/tty.c`'s
+`struct meta_key`.
+
+**Do not size a lane from its visible failures when the script is a
+`set -e` sequence.**  The same reasoning applies to any other numbered
+step that chains tools this way.
+
+### One flake, not a regression
+
+The first full-runner pass showed ci-03 failing on the PTY case
+`lisp-process-cwd` (the child's output never arrived).  It passed 3/3
+isolated under the identical valgrind command, and ci-03 re-run whole
+passed 31/31 unit and 403/403 PTY.  Cause: two `run-ci-steps.sh
+--parallel` runs in two worktrees at once, each sizing
+`CI_PARALLEL_LANES` from `nproc` in ignorance of the other.  Stagger
+concurrent runners, or re-run a lone failing lane before believing it.

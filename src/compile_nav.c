@@ -2,12 +2,16 @@
 
 #include "compile_nav.h"
 
+#include "bufhandle.h"
+#include "cmd.h"
 #include "compile.h"
+#include "compile_parse.h"
 #include "decor.h"
 #include "def.h"
 #include "marker.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <sys/stat.h>
 

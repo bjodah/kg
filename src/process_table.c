@@ -9,11 +9,13 @@
 #include "def.h"
 #include "edit.h"
 #include "event.h"
+#include "process.h"
 #include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #define KG_PROCESS_READ_CHUNK 4096

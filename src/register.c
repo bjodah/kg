@@ -6,8 +6,10 @@
 
 #include "register.h"
 
+#include "bufhandle.h"
 #include "def.h"
 #include "edit.h"
+#include "keyevent.h"
 #include "marker.h"
 
 #include <stdlib.h>

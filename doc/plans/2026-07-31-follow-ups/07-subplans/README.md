@@ -18,6 +18,25 @@ win.  C is a measurement and a written decision, and is expected to
 *defer* rather than build.  D is small, and exists so a later line-number
 gutter has an unambiguous seam rather than a fourth definition of width.
 
+## Status (2026-08-03)
+
+**A is done** (`6539641`).  It took more of B's win than this README
+predicted: routing `find_visual_row()` through the index removes the
+per-screen-row walk even while the draw loop still calls it once per
+screen row, so `KG_PERF_VISUAL_PREFIX_VISIT` on `visual-line-100k` went
+13,699,181 → 100,001 and the unequal-width thrash went 2,900,031 →
+300,017 (vsplit) and 3,300,039 → 500,033 (four windows).  What is left in
+those two is one cold scan per row per *distinct width ever used*, which
+is Phase 1's acceptance, not thrash.
+
+Read A's status section before starting B: it records two things this
+document was wrong about (the `def.h` move funds no complexity at all,
+and `vgeom_window_free()` is not on the production path), and it hands B
+a corrected version of the assertion below.
+
+**Budget after A: 5438 of 5500, so 62 points for B, C and D.**  A cost
++37 net, funded by nothing — see its status section.
+
 ## The binding constraint is complexity budget, not difficulty
 
 `scc` is at **5401 against `SCC_COMPLEXITY_MAX` = 5500** — 99 points for
@@ -75,6 +94,11 @@ to anyone who has not read this:
    `KG_PERF_VISUAL_PREFIX_VISIT > win_h` — it **pins the current bad
    shape on purpose**, and its comment says so.  Sub-plan B inverts it.
    Inverting it is the deliverable; weakening it is not.
+   **After A this test still passes, but no longer for its stated
+   reason**: it measures a cold index, so what it now counts is the
+   single O(rows) rebuild rather than `win_h × numrows` restarts.  B has
+   to re-point it at a *warm* repaint first; flipping the comparison as
+   written would assert nothing.
 2. `CHECK(sizeof(erow) <= 64)` pins Phase 1's RSS cost.  Nothing in
    sub-plans A–D may add a field to `erow` — the index is view-owned
    precisely so it does not have to.

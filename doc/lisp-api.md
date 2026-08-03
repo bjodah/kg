@@ -292,19 +292,12 @@ END OLD-LEN)` — `START`/`END` are 1-based positions of the *new* text,
 deliberately no `post-command-hook`; its per-keystroke cost has not been
 measured.
 
-**`FN` must evaluate to an actual function value, not a quoted symbol
-naming one.** `add-hook` accepts a `FeTSymbol` as `FN` without
-resolving it — it stores exactly the object it was given — so
-`(add-hook 'my-hook 'my-fn)` registers the *symbol* `my-fn`, and running
-the hook later fails with "tried to call non-callable value" the first
-time it fires, not at registration time. Pass the function unquoted —
-`(add-hook 'my-hook my-fn)` — so Fe evaluates `my-fn` to its bound
-function value before `add-hook` ever sees it, exactly as
-`test/test_lisp.c`'s own hook test and every worked example in
-`README.md` do it. This is easy to get backwards coming from Emacs,
-where a quoted symbol *is* the normal way to name a hook function
-(Emacs resolves it through the function cell at call time); kg has one
-namespace and no such resolution step.
+**`FN` may be a function value or a quoted symbol naming one.**
+`(add-hook 'my-hook 'my-fn)` is the Emacs idiom and works here too. A
+symbol is resolved when the hook runs rather than when it is added, so
+redefining `my-fn` afterwards takes effect, and an unbound symbol is
+reported as an ordinary contained hook error naming it rather than
+crashing the hook run.
 
 ## Key bindings
 
@@ -441,10 +434,6 @@ Emacs' `defun` plus `(interactive)` making a command. `command-execute`
   lists with `while`.
 - A self-referential structure prints as far as the cycle, then
   `#<cycle>`, rather than looping forever.
-- `add-hook`'s `FN` must be an evaluated function value, not a quoted
-  symbol — see "Hooks" above; this is the single most likely thing to
-  come from Emacs muscle memory and be silently wrong until the hook
-  actually fires.
 - No source line numbers in error messages: a raised error names what
   failed, not where in the source it was written. Fe's reader does not
   carry position information through to evaluation; adding it is a

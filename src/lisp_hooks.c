@@ -62,6 +62,20 @@ static struct kg_hook *find_hook(const char *name)
 	return NULL;
 }
 
+/* A hook entry may hold a function value or a symbol naming one.
+ * (add-hook 'some-hook 'some-function) is *the* Emacs idiom, and kg's Lisp
+ * is Emacs-shaped, so it has to work.  Resolving here -- when the hook
+ * runs, rather than in add-hook -- is what makes redefining the function
+ * afterwards take effect, as it does in Emacs.  Callers must already be
+ * inside the guarded frame: an unbound symbol raises, and that is meant to
+ * become a contained hook error naming it, instead of the "tried to call
+ * non-callable value" a bare symbol produced when it used to reach
+ * FeCallWithOptions unresolved. */
+static FeObject *resolve_hook_function(FeContext *ctx, FeObject *fn)
+{
+	return FeGetType(fn) == FeTSymbol ? FeEvaluate(ctx, fn) : fn;
+}
+
 static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
     size_t arg_count, const char *hook_name)
 {
@@ -93,7 +107,8 @@ static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
 		return;
 	}
 	lisp_exec_enter(ctx);
-	(void)FeCallWithOptions(ctx, fn, args, arg_count, &eval_options);
+	(void)FeCallWithOptions(ctx, resolve_hook_function(ctx, fn), args,
+	    arg_count, &eval_options);
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(1);
 	state.frame = saved_frame;

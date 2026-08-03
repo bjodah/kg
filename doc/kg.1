@@ -283,14 +283,10 @@ and
 There is deliberately no
 .Li post-command-hook .
 .Li FN
-must be an evaluated function value, not a quoted symbol:
-.Li (add-hook 'my-hook my-fn) ,
-not
+may be a function value or a quoted symbol naming one, as in Emacs:
 .Li (add-hook 'my-hook 'my-fn) .
-.Li add-hook
-accepts a symbol without resolving it, so the quoted form registers
-without error and fails only the first time the hook runs, with
-"tried to call non-callable value".
+A symbol is resolved when the hook runs, not when it is added, so
+redefining the function afterwards takes effect.
 .Pp
 .Nm
 tracks up to 8 child processes at once, started from Lisp with

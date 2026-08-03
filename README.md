@@ -328,12 +328,10 @@ and `after-save-hook`. There is deliberately no `post-command-hook`: its
 per-keystroke cost has not been measured. A hook that is added twice runs
 twice, and a hook list holds at most 16 functions.
 
-`FN` has to be an evaluated function value, not a quoted symbol: `(add-hook
-'my-hook my-fn)`, not `(add-hook 'my-hook 'my-fn)`. `add-hook` accepts a
-symbol without resolving it, so the quoted form registers successfully and
-fails only the first time the hook runs, with "tried to call non-callable
-value" — Emacs muscle memory gets this backwards, since Emacs *does* resolve
-a quoted hook-function symbol through its function cell at call time.
+`FN` may be a function value or a quoted symbol naming one: `(add-hook
+'my-hook 'my-fn)` works, as it does in Emacs. A symbol is resolved when the
+hook runs, not when it is added, so redefining `my-fn` afterwards takes
+effect. An unbound symbol is reported as an ordinary hook error naming it.
 
 kg tracks up to 8 child processes at once, started from Lisp:
 

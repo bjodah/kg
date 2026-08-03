@@ -487,6 +487,16 @@ static void test_command_allow_list(void)
 	    == 0);
 	CHECK(test_command_calls == 2);
 	CHECK(strcmp(test_command_name, "version") == 0);
+	/* A read-only buffer refuses a command that edits it, and says so
+	 * as that rather than as "not allowed" -- the two verdicts are
+	 * different answers and a caller may want to tell them apart. */
+	bcur()->readonly = 1;
+	CHECK(kg_lisp_eval_string("(command-execute \"upcase-word\")", 31,
+		  result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "read-only") != nullptr);
+	CHECK(test_command_calls == 2);
+	bcur()->readonly = 0;
 	kg_lisp_shutdown();
 	teardown_editor();
 }
@@ -710,6 +720,13 @@ static void test_require_provide(void)
 	CHECK(eval_eq("(featurep 'pkg-a)", "nil"));
 	/* Recovers cleanly: an unrelated eval afterwards still works. */
 	CHECK(eval_eq("(+ 1 1)", "2"));
+	/* And the abandoned requiring stack is actually reset, not merely
+	 * unread: a later require of a fresh feature must load rather than
+	 * trip the cycle check on a name left behind by the longjmp. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/after-cycle.fe", root);
+	CHECK(write_text_file(path, "(provide 'after-cycle)\n") == 0);
+	CHECK(eval_eq("(require 'after-cycle)", "after-cycle"));
+	CHECK(eval_eq("(featurep 'after-cycle)", "t"));
 
 	/* An explicit FILENAME resolves instead of the feature's own
 	 * name. */
@@ -2399,6 +2416,22 @@ static void test_hooks(void)
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "nil"));
 
+	/* A quoted symbol is the Emacs idiom and must work.  It used to
+	 * register without error and then do nothing, because the symbol
+	 * reached FeCallWithOptions unresolved. */
+	CHECK(eval_ok("(add-hook 'before-save-hook 'my-hook)"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "t"));
+
+	/* Resolution happens when the hook runs, not when it is added, so
+	 * redefining the function afterwards takes effect -- as in Emacs. */
+	CHECK(eval_ok("(= hook-ran nil)"));
+	CHECK(eval_ok("(defun my-hook () (= hook-ran 'redefined))"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "redefined"));
+
+	CHECK(eval_ok("(remove-hook 'before-save-hook 'my-hook)"));
+
 	kg_lisp_shutdown();
 	teardown_editor();
 }
@@ -2441,6 +2474,23 @@ static void test_keymap_apis(void)
 	CHECK(eval_eq("(current-local-map)", "nil"));
 	keymap_set_active(mode, 1);
 	CHECK(eval_eq("(current-local-map)", "dired"));
+
+	/* define-key on a name no map answers to creates a major-mode map
+	 * rather than failing, and nil as the command unbinds. */
+	CHECK(eval_ok("(define-key 'fresh-mode-map \"C-c f\" 'goto-line)"));
+	CHECK(eval_eq("(lookup-key 'fresh-mode-map \"C-c f\")", "goto-line"));
+	CHECK(eval_ok("(define-key 'fresh-mode-map \"C-c f\" nil)"));
+	CHECK(eval_eq("(lookup-key 'fresh-mode-map \"C-c f\")", "nil"));
+
+	/* A sequence keymap_parse_sequence() cannot make sense of is
+	 * refused outright rather than half-registered. */
+	CHECK(eval_error_contains(
+	    "(define-key 'global-map \"not-a-key\" 'goto-line)",
+	    "cannot bind key sequence"));
+
+	/* An empty name is not a map, a key or a command. */
+	CHECK(eval_error_contains(
+	    "(define-key \"\" \"C-c f\" 'goto-line)", "invalid command name"));
 
 	kg_lisp_shutdown();
 	teardown_editor();

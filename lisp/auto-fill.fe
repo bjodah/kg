@@ -69,4 +69,4 @@
   "Break lines in the current buffer at `fill-column' as they are typed
 past it."
   (interactive)
-  (add-hook 'after-change-functions auto-fill--maybe-break t))
+  (add-hook 'after-change-functions 'auto-fill--maybe-break t))

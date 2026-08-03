@@ -37,7 +37,7 @@ config_files:
     (defun auto-fill-mode ()
       "Break lines at `fill-column' as they are typed past it."
       (interactive)
-      (add-hook 'after-change-functions auto-fill--maybe-break t))
+      (add-hook 'after-change-functions 'auto-fill--maybe-break t))
   .config/kg/init.fe: |
     (require 'auto-fill)
     (setq fill-column 10)

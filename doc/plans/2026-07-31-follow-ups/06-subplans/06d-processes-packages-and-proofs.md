@@ -350,6 +350,73 @@ real Lisp:
 - **Shutdown**: no child survives kg's exit.
 - Both `WITH_LISP` configurations.
 
+### Phase 7b notes — and what the full CI runner found
+
+The Lisp slice landed in `8656270..f1e8b97`, +133 scc, bringing Phase 7 to
+220 of its 230-unit row.  Requirements (a)–(d) are met:
+`lisp_process_event_cb()` calls `deliver_filter_output()` before
+`deliver_sentinel()` for both event kinds rather than relying on
+subscriber order; `set-process-filter` sets a flag the auto-append
+subscriber checks; `call_process_callback()` is `lisp_hooks.c`'s frame
+discipline verbatim; no native takes or returns a pid.
+
+**`make check` and every ratchet were green while five CI lanes were
+red.**  That is the finding worth keeping, and it is the second time in
+this plan that a slice passed the gates it ran and failed ones it did
+not.
+
+| Lane | Cause | Introduced by |
+|------|-------|---------------|
+| ci-03 gcc `-fanalyzer` | NULL deref of `binding_for()` | Phase 7b |
+| ci-11 `-funsigned-char` | reclaim test raced the kernel's reap order | Phase 7a |
+| ci-06 IWYU | `lisp_process.c` include list | Phase 7b |
+| ci-04 ASan | `lisp_search()` leaks its pattern on a raise | **Phase 3** |
+| ci-09 fuzz link | `lisp_obj.c`'s four undefined symbols | **Phase 2** |
+
+Those are fixed.  The two marked in bold were confirmed against the
+pre-Phase-7 commit (`0123432`), so Phases 2–6 of this plan were signed off
+with those lanes already failing.  **Running `make check` plus the
+ratchets is not sign-off.  `.ci/run-ci-steps.sh --parallel` is.**
+
+#### ci-06 (IWYU) is still red beyond Phase 7's share — open
+
+Fixing `lisp_process.c`'s own include list does not make the lane green.
+IWYU reports findings in sixteen files, including `src/register.[ch]`
+(Plan 05) and `src/compile_nav.[ch]`, `src/compile_parse.h` (older still),
+so the lane predates Plan 06 entirely.  The rest are the Lisp adapter's:
+`lisp_core.c`, `lisp_buffer.c`, `lisp_word.c`, `lisp_cmd.c`, `lisp_io.c`,
+`lisp_obj.[ch]`, `lisp_hooks.c`, `lisp_search.c`, `process_table.[ch]`.
+
+The work is mechanical but broad, and it is not all safe to apply blind —
+IWYU wants `#include "lisp.h"` dropped from `lisp_core.c`, which is the
+header the `WITH_LISP=0` stubs share, so each removal needs both
+configurations rebuilt behind it.  Three redundant `<stddef.h>` includes
+were removed as part of the Phase 7 fixes; the remaining thirteen files
+are a cleanup slice of their own and are not priced in Phase 7 or 8.
+
+#### ci-05 (MSan) is still red, and is not Phase 7's — open
+
+`test_lisp`'s `test_recursion_depth` asserts that `(deep 5000)` fails with
+Fe's `GC stack overflow`.  Under `-fsanitize=memory
+-fsanitize-memory-track-origins=2 -O0` the **C stack** goes first, at
+`fe/fe.c:1757` in `Evaluate`.  Confirmed red at `0123432` too, so it
+predates Phase 7.
+
+The cause is structural, not a test bug.  `fe/fe.c`'s own comment at the
+`GcStackSize` declaration says it: *"A self-recursive Fe call costs
+several slots, so this also bounds usable recursion depth, at roughly 450
+frames."*  Recursion is bounded **incidentally**, by how many GC slots a
+call happens to consume, not by depth — so the margin between Fe's limit
+and the real C stack is whatever the compiler's frame size makes it.  A
+build with fat frames (any sanitizer, `-O0`, a debug build) crashes where
+a release build errors.
+
+The fix is an explicit recursion-depth counter in `Evaluate`, bounded well
+below the point any plausible frame size can exhaust the stack, reported
+as an ordinary Fe error.  That is a `fe/` submodule change: fe's own
+numbered CI, `doc/fe-upstream.md`, and a pin move in a separate kg commit.
+It is not Phase 7 or Phase 8 work and is not priced in either row.
+
 ---
 
 ## Phase 8 — Package hygiene and proof packages

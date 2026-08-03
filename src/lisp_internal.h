@@ -246,6 +246,14 @@ FeObject *native_run_hooks(FeContext *context, FeObject *arguments);
 FeObject *native_define_key(FeContext *context, FeObject *arguments);
 FeObject *native_lookup_key(FeContext *context, FeObject *arguments);
 FeObject *native_current_local_map(FeContext *context, FeObject *arguments);
+FeObject *native_start_process(FeContext *context, FeObject *arguments);
+FeObject *native_start_shell_command(FeContext *context, FeObject *arguments);
+FeObject *native_process_live_p(FeContext *context, FeObject *arguments);
+FeObject *native_delete_process(FeContext *context, FeObject *arguments);
+FeObject *native_process_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_set_process_filter(FeContext *context, FeObject *arguments);
+FeObject *native_set_process_sentinel(FeContext *context, FeObject *arguments);
+FeObject *native_process_status(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

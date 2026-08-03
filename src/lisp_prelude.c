@@ -80,6 +80,14 @@ static const struct native_binding native_bindings[] = {
 	{ "define-key", native_define_key },
 	{ "lookup-key", native_lookup_key },
 	{ "current-local-map", native_current_local_map },
+	{ "start-process", native_start_process },
+	{ "start-shell-command", native_start_shell_command },
+	{ "process-live-p", native_process_live_p },
+	{ "delete-process", native_delete_process },
+	{ "process-buffer", native_process_buffer },
+	{ "set-process-filter", native_set_process_filter },
+	{ "set-process-sentinel", native_set_process_sentinel },
+	{ "process-status", native_process_status },
 };
 
 void register_natives(FeContext *context)

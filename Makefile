@@ -83,7 +83,8 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 LISP_SRCS = lisp_core.c
 ifeq ($(WITH_LISP),1)
 LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
-             lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c lisp_hooks.c
+             lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c lisp_hooks.c \
+             lisp_process.c
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
@@ -368,6 +369,7 @@ $(OBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_obj.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
+$(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDIR)/lisp_process.h $(OBJDIR)/process.h $(OBJDIR)/process_table.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
@@ -700,6 +702,7 @@ $(PERFOBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_obj.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
+$(PERFOBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDIR)/lisp_process.h $(OBJDIR)/process.h $(OBJDIR)/process_table.h
 $(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h
 
 $(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)

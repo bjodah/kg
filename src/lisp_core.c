@@ -34,6 +34,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp.h"
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
+#include "lisp_process.h"
 
 static_assert(FE_API_VERSION == 1);
 
@@ -234,6 +235,7 @@ int kg_lisp_init(void)
 	}
 	register_natives(context);
 	lisp_hooks_init(context);
+	lisp_process_init(context);
 	in_prelude = true;
 	evaluate_prelude(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
@@ -247,6 +249,7 @@ void kg_lisp_shutdown(void)
 		return;
 	}
 
+	lisp_process_shutdown(state.context);
 	lisp_hooks_shutdown(state.context);
 	release_lisp_commands();
 	FeCloseContext(state.context);

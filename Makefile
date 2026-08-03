@@ -92,7 +92,7 @@ SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) keybind.c mode.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c \
-       width.c dired.c perf.c process.c marker.c decor.c event.c
+       width.c dired.c perf.c process.c process_table.c marker.c decor.c event.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -121,7 +121,8 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
            $(TESTDIR)/test_describe $(TESTDIR)/test_marker \
            $(TESTDIR)/test_decor $(TESTDIR)/test_event \
-           $(TESTDIR)/test_register $(TESTDIR)/test_perf
+           $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
+           $(TESTDIR)/test_perf
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
 # be mixed with the src/*.o everything else links.  Its objects live in
@@ -151,7 +152,8 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
-	    $(OBJDIR)/event.c $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
+	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
+	    $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
@@ -208,9 +210,16 @@ PYTHON ?= $(shell for p in python3 python; do \
 KG_PTY_EMACS ?=
 PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # Source objects needed by tests (subset of OBJS, no main/tty/display/etc.)
+# process.o and process_table.o are here, not just on the EXTRA_ lists that
+# used to list process.o alone, because event.o now calls
+# kg_process_table_resolves() unconditionally (event_resolution()'s process
+# arm) -- every test that links event.o needs process_table.o, which in
+# turn needs process.o.  $^ in the link rule below dedupes, so an EXTRA_
+# list that also names process.o separately is harmless.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
-                 $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o
+                 $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
+                 $(OBJDIR)/process.o $(OBJDIR)/process_table.o
 TEST_RUNNER ?=
 KG_RUNNER ?=
 # Per-run machine-readable test results (gitignored).  Both layers write
@@ -664,6 +673,11 @@ EXTRA_event       := $(EXTRA_buffer) $(OBJDIR)/event.o
 # reach the region text and the insertion path, so it links the same
 # buffer-backed set as EXTRA_marker plus its own object.
 EXTRA_register    := $(EXTRA_buffer) $(OBJDIR)/register.o
+# The process table's drain subscriber commits into a real buffer via
+# kg_buffer_replace(), so this needs the same buffer-backed set EXTRA_event
+# does; process_table.o itself is already pulled in by TEST_SRCS_OBJS (see
+# its comment), named again here only for readability.
+EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table.o
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

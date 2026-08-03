@@ -27,7 +27,7 @@
  *     overflow summary -- precision is what queue pressure may cost a
  *     text edit, never the edit itself.
  *
- *   - Lifecycle events (open/kill/view/save/mode) reserve capacity before
+ *   - Lifecycle events (open/kill/view/save/mode/process) reserve capacity before
  *     the transition they describe: kg_event_reserve_lifecycle() first,
  *     then kg_event_publish_lifecycle() once the transition has happened,
  *     or kg_event_release_reservation() if it did not.  A refused
@@ -48,6 +48,7 @@
 
 #include "bufhandle.h"
 #include "cmd.h"
+#include "prochandle.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -84,11 +85,8 @@ enum kg_event_kind {
 	KG_EVENT_BEFORE_SAVE,
 	KG_EVENT_AFTER_SAVE,
 	KG_EVENT_MODE_CHANGED,
-	/* Process output/exit arrive through this same envelope once Plan 06
-	 * adds process descriptors; there is no producer or payload for them
-	 * yet, and no kind reserved for them here -- adding one is that
-	 * slice's, not this one's, to keep the union's cost off this
-	 * module's budget until it is needed. */
+	KG_EVENT_PROCESS_OUTPUT, /* this process has undelivered output queued */
+	KG_EVENT_PROCESS_EXIT, /* this process has been reaped */
 };
 
 /* An exact text change: the buffer, the byte where the replaced span
@@ -153,6 +151,27 @@ struct kg_event_mode_changed {
 	char name[KG_EVENT_MODE_NAME_MAX];
 };
 
+/* Shared by KG_EVENT_PROCESS_OUTPUT and KG_EVENT_PROCESS_EXIT.  Identity
+ * only -- no byte range and no text: a byte range would name storage the
+ * process table's bounded queue is free to have overwritten by delivery
+ * time, and text is what this header's opening contract forbids outright.
+ * A subscriber reads whatever the queue holds *at delivery* through
+ * src/process_table.h, which is also what makes several output events for
+ * one process collapse into one non-empty delivery for free.
+ *
+ * `buffer` is the process's target buffer, which may no longer resolve --
+ * a killed buffer does not stop its process or its sentinel.  `exited` and
+ * `code` are EXIT-only and zeroed for OUTPUT: `exited` true means the
+ * process called exit() and `code` is its exit code, false means it died
+ * of a signal and `code` is that signal's number, matching struct
+ * kg_process_status's own shape (process.h). */
+struct kg_event_process {
+	struct kg_process_handle process;
+	struct kg_buffer_handle buffer;
+	bool exited;
+	int code;
+};
+
 union kg_event_payload {
 	struct kg_event_buffer_changed changed;
 	struct kg_event_buffer_broad broad;
@@ -161,6 +180,7 @@ union kg_event_payload {
 	struct kg_event_before_save before_save;
 	struct kg_event_after_save after_save;
 	struct kg_event_mode_changed mode_changed;
+	struct kg_event_process process;
 };
 
 /* One envelope.  `seq` is this module's own publication-order counter --
@@ -199,6 +219,14 @@ struct kg_event kg_event_make_after_save(
  * display label, not an identity a consumer resolves by. */
 struct kg_event kg_event_make_mode_changed(
     struct kg_buffer_handle buffer, const char *mode_name);
+/* `buffer` is the process's target; `exited`/`code` are left at their
+ * zero value (false/0), matching an OUTPUT event's payload. */
+struct kg_event kg_event_make_process_output(
+    struct kg_process_handle process, struct kg_buffer_handle buffer);
+/* `exited`/`code` decode the reap the way struct kg_process_status does;
+ * see struct kg_event_process's comment for which is which. */
+struct kg_event kg_event_make_process_exit(struct kg_process_handle process,
+    struct kg_buffer_handle buffer, bool exited, int code);
 
 enum kg_event_enqueue_result {
 	KG_EVENT_QUEUED_EXACT, /* change event, entered the ring as itself */

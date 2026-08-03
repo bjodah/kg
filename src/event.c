@@ -5,6 +5,7 @@
 
 #include "event.h"
 #include "def.h" /* MAX_BUFFERS: the overflow table has one entry per slot */
+#include "process_table.h" /* kg_process_table_resolves(): event_resolution() */
 #include <stdio.h>
 #include <string.h>
 
@@ -149,6 +150,32 @@ struct kg_event kg_event_make_mode_changed(
 		snprintf(ev.payload.mode_changed.name,
 		    sizeof(ev.payload.mode_changed.name), "%s", mode_name);
 	}
+	return ev;
+}
+
+struct kg_event kg_event_make_process_output(
+    struct kg_process_handle process, struct kg_buffer_handle buffer)
+{
+	struct kg_event ev = { .kind = KG_EVENT_PROCESS_OUTPUT };
+
+	ev.payload.process = (struct kg_event_process) {
+		.process = process,
+		.buffer = buffer,
+	};
+	return ev;
+}
+
+struct kg_event kg_event_make_process_exit(struct kg_process_handle process,
+    struct kg_buffer_handle buffer, bool exited, int code)
+{
+	struct kg_event ev = { .kind = KG_EVENT_PROCESS_EXIT };
+
+	ev.payload.process = (struct kg_event_process) {
+		.process = process,
+		.buffer = buffer,
+		.exited = exited,
+		.code = code,
+	};
 	return ev;
 }
 
@@ -601,17 +628,31 @@ static struct kg_buffer_handle event_buffer_handle(const struct kg_event *ev)
 		return ev->payload.after_save.buffer;
 	case KG_EVENT_MODE_CHANGED:
 		return ev->payload.mode_changed.buffer;
+	case KG_EVENT_PROCESS_OUTPUT:
+	case KG_EVENT_PROCESS_EXIT:
+		/* Carried for the drain subscriber, but not what these two
+		 * kinds resolve on -- see event_resolution(). */
+		return ev->payload.process.buffer;
 	}
 	return (struct kg_buffer_handle) { 0 };
 }
 
-/* Live/gone is re-derived every delivery, from the handle, through the
- * same buf_resolve() a live caller would use -- never cached from publish
- * time, and never able to answer "live" for a slot a dead handle no
- * longer names, because that is exactly what buf_resolve() itself
- * refuses. */
+/* Live/gone is re-derived every delivery, never cached from publish time.
+ * For every buffer-identified kind this is buf_resolve() on the handle
+ * event_buffer_handle() reads out, the same call a live caller would make.
+ * A process event resolves on its *process* handle instead
+ * (kg_process_table_resolves(), src/process_table.h): that is the identity
+ * the drain subscriber dispatches on, and a KG_EVENT_PROCESS_EXIT for a
+ * since-released slot is still delivered as KG_EVENT_RESOLVED_GONE, the
+ * same way a KG_EVENT_BUFFER_KILLED is. */
 static enum kg_event_resolution event_resolution(const struct kg_event *ev)
 {
+	if (ev->kind == KG_EVENT_PROCESS_OUTPUT
+	    || ev->kind == KG_EVENT_PROCESS_EXIT) {
+		return kg_process_table_resolves(ev->payload.process.process)
+		    ? KG_EVENT_RESOLVED_LIVE
+		    : KG_EVENT_RESOLVED_GONE;
+	}
 	return buf_resolve(event_buffer_handle(ev)) ? KG_EVENT_RESOLVED_LIVE
 						    : KG_EVENT_RESOLVED_GONE;
 }

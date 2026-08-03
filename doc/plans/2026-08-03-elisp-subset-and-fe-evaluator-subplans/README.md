@@ -111,7 +111,151 @@ Two additions specific to this program:
   program reverses.  A phase that changes a row and does not rewrite it
   leaves the authoritative document lying.
 
+## Complexity price table (00A, 2026-08-04)
+
+Every row below is priced against the closest existing module, per
+00A's method.  Only two numbers in this table are *measured* rather than
+estimated: the "Phase 0 (fe)" row, which is the raise this slice actually
+landed, and the "split tax" component of Phase 3, which is the throwaway
+spike's result (see 00A's own document for the spike).  Everything else is
+an estimate from reading the parent plan's phase section against the
+shape of the nearest existing code, in the spirit of the follow-up
+program's Plan 06 table — a number to fund the next concretely-scoped
+piece of work against, not a prediction to be silently missed.  Phases
+6–10 are milestone 2 (parent §0.3) and are marked **provisional**: they
+are priced here because the sub-plan asks for a row per phase, but they
+are *not* funded by this slice's Decision, and should be re-priced when
+milestone 1 closes and hands back real measurements.
+
+Hard-cut design (parent §0.4) is priced throughout: no row below reserves
+complexity for a compatibility wrapper, an `=`-assignment lint/deprecation
+path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
+
+### fe tree (`SCC_COMPLEXITY_MAX`, all sources; measured 2026-08-04 baseline 210/210, `fe.c` 102/105 file cap)
+
+| Phase | What it builds | Priced against | Estimate | Status |
+|---|---|---|---|---|
+| 0 — freeze & baseline | Read-only arena counters: object/free slot counts, peak live objects, GC count, hooked into `MakeObject`/`CollectGarbage` | `GetDouble`/`GetNativeFn`-shaped trivial accessors, plus a few counter increments in existing functions | **+10** (measured raise, see Decision) | **Funded, this slice** |
+| 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | n/a |
+| 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing `PSet` single-pair path), `set` as an ordinary native, `=` repurposed from assignment to a `NUM_CMP_OP`-shaped double-equality arm | `EvaluatePrimitive`'s existing `PSet` arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` arms for the new `=` shape | **+20 to +30** (net of deleting the old assignment arm it replaces) | Not funded here — own Decision when its sub-plan lands |
+| 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | Provisional (milestone 1, not yet funded) |
+| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | Provisional (milestone 1) |
+| 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
+| 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Comparable in shape to Phase 3's control-flow weight | **+70 to +100** | Provisional (milestone 2) |
+| 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; mostly small per-site additions | **+20 to +30** | Provisional (milestone 2) |
+| 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | ~8 new core special forms at 4–6 pmccabe each, plus reader work | **+50 to +70** | Provisional (milestone 2) |
+| 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | `CollectGarbage`'s mark phase, rewritten | **+40 to +60** | Provisional (milestone 2) |
+| 10 — proofs | `.fe`/`.el` proof packages and fixtures | Not C; not scc-scanned | 0 | n/a |
+
+Milestone 1 (phases 0–5) sums to roughly **+270 to +330** fe points on top of
+today's 210 — more than doubling the cap before milestone 1 closes. That is
+the single most important number this table produces: **fe's cost is
+structural, not incremental**, because Phases 3, 5 and (in milestone 2) 6
+build subsystems fe.c has no ad hoc predecessor for, the same condition
+that forced kg's own 2026-08-02 re-baselining decision in the follow-up
+program.  Do not read the range above as a promise; it is what the "price
+every phase" method produces today, and Phase 3 in particular carries the
+widest uncertainty in the whole table.
+
+### kg tree (`SCC_COMPLEXITY_MAX`, `src` only; measured 2026-08-04 baseline 5439/5500, 61 headroom)
+
+| Phase | What it builds | Priced against | Estimate | Status |
+|---|---|---|---|---|
+| 0 — freeze & baseline | `test/lisp-compat/` manifest + checker | Python (`utils/`), not scc-scanned | 0 | n/a |
+| 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | Self-funding |
+| 2 — hard-cut `=`/`setq` | Deletes the prelude's `setq` macro; `.fe`→`.el` rename is not code; bare-name loader gets an extension check | `src/lisp_require.c` | **−2 to +5** | Likely self-funding |
+| 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | Provisional (milestone 1) |
+| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | Provisional (milestone 1) |
+| 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
+| 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+25 to +40** | Provisional (milestone 2) |
+| 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+55 to +65** | Provisional (milestone 2) |
+| 8 — init compat waves | `defcustom` validation + docstring storage (Wave D); no Customize UI | `src/lisp_prelude.c`/`src/lisp_require.c` | **+25 to +40** | Provisional (milestone 2) |
+| 9 — robustness | Arena-stat diagnostics command | small, new | **+10 to +15** | Provisional (milestone 2) |
+| 10 — proofs | Fixtures, PTY cases | Not `src/*.c` | 0 | n/a |
+
+Milestone 1 (phases 0–5) sums to roughly **+35 to +65** kg points — comfortably
+inside the existing 61-point headroom, and likely self-funding once Phase
+1's deletions and Phase 2's macro removal land.  **kg is not the
+constraint anywhere in this program; fe is, throughout.**
+
+## Decision — fe complexity caps raised for Phase 0, no fixed end-state cap set
+
+Taken 2026-08-04, closing sub-plan 00A.
+
+**The raise, and what it is not.**  `fe/Makefile`'s `SCC_COMPLEXITY_MAX`
+moves **210 → 220** and `SCC_FILE_COMPLEXITY_MAX` moves **105 → 112**,
+landed in the fe submodule (commit `2a045bf`, branch `analyzers-etc`) with
+kg's gitlink moved to match in a separate commit, per Rule 10.  This is a
+**raise with a named, immediate funding target**: it exists to let sub-plan
+00D land Phase 0's read-only arena counters (priced above at +10), which
+kg's own Phase 0 baseline cannot be taken without (parent §0's "ordering
+correction").  It is sized for that one piece of concretely-scoped work
+plus a small margin, not for the program.
+
+This is deliberately **not** the "raise with named repayment sources" shape
+the follow-ups README uses elsewhere (Plan 03's 200-unit loan against
+`search.c`/`cmd.c`/`localvars.c`): fe has no ad hoc predecessor code to
+delete in exchange, for the same reason the price table above shows every
+remaining phase as net-additive.  It is also not a "raise without funding"
+in the sense of covering unscoped future work — it funds exactly the next
+named deliverable (00D) and nothing past it.
+
+**No fixed end-state cap.**  The price table above sums milestone 1 to
+roughly +270 to +330 fe points — a number more than doubling today's cap —
+but this Decision does **not** set that as fe's future
+`SCC_COMPLEXITY_MAX`.  The follow-up program's 2026-08-02 Decision withdrew
+exactly this kind of promise (the 4223 ceiling) after two estimates were
+missed low and one cap sat silently red for a whole plan; repeating the
+mistake here, on a program whose central risk (the frame machine, Phase 3)
+carries the widest uncertainty this table has, would be worse, not better.
+**Every phase from Phase 2 onward gets its own dated Decision, in its own
+sub-plan, using this table's row as the starting estimate and this
+slice's measured 210/220 as the tree's actual state — re-measured, not
+assumed, per Rule 6.**  kg's caps are untouched: 5439/5500 stands, and the
+price table shows kg's milestone-1 total fitting inside existing headroom
+without a raise.
+
+**The translation-unit decision.**  Recommendation (b) from 00A's own
+document is confirmed: **split `fe.c` into more than one translation
+unit, decided now, executed in Phase 3**, with (a) — a bounded file-cap
+raise, exactly what this Decision does — as the interim fallback for
+commits before Phase 3.  The cost inventory in 00A's document (Makefile
+sites, `lisp-include-check`, fe's own `SOURCES`/`SCC_COMPLEXITY_PATHS`,
+`doc/fe-upstream.md`'s embedding paragraph, `WITH_LISP=0`) was verified
+site-by-site against this tree, by symbol rather than line number, and
+every site named there exists as described.
+
+**What the spike adds to that recommendation, and changes about its
+price.**  The throwaway spike (00A's document, "Spike") split the reader
+(`Read`, `ReadList`, `ReadAtom`, `ReadWrapped`, the rparen sentinel, plus
+`FeRead` itself and the private object/context layout the reader needs)
+into `fe_reader.c` behind a new `fe_internal.h`.  `make -C fe check` and
+kg's `make check` were both green.  `pmccabe`'s per-function sum was
+**exactly conserved across the split** (335 before, 335 after) — the
+authoritative, whole-file measure the fe Makefile's own comment already
+names as trustworthy. But **scc's total was not conserved**: it rose from
+210 to **252**, a +42 increase from a purely mechanical, behavior-free
+move. `fe.c`'s own file score barely moved (102 → 100); `fe_reader.c`
+alone scored 44. The fe Makefile's existing comment already flags why:
+scc's C parser desynchronizes on `fe.c`'s `'"'` character literals and
+undercounts keywords following the desync, so scc's total was never a
+true measurement of `fe.c`, only a floor. Extracting a quote-heavy region
+out of the file that was hiding it changes how much of the surrounding
+code the scanner sees. **The practical consequence for Phase 3's own
+Decision: budgeting the split as "moves file-cap points into a second
+file, net-neutral on the total" is wrong. A real split should expect scc's
+total to jump by tens of points from the split alone, before a single
+line of frame-machine logic is added**, and Phase 3's own price row above
+already includes that measured +42, not a placeholder.
+
 ## Status
 
-Not started (2026-08-04).  This directory was created with the parent
-plan's review.
+**00A complete, 2026-08-04.** All four deliverables land: the price table
+and this Decision (here); the fe.c translation-unit decision and cost
+inventory (confirmed in 00A's own document, `00a-budget-and-fe-structure.md`,
+cross-referenced from here); the spike (measured above, branch deleted,
+no trace left in either tree). `SCC_COMPLEXITY_MAX`/`SCC_FILE_COMPLEXITY_MAX`
+moved 210/105 → 220/112 in the fe submodule; kg's caps are unchanged.
+`make check` and `make WITH_LISP=0 clean all check` are green in kg;
+`make check`, `make complexity-check` and `make pmccabe-check` are green
+in fe. No language or editor behavior changed. Sub-plan 00B may start.

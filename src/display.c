@@ -316,6 +316,21 @@ static void flat_row_advance(
 	*idx = fr;
 }
 
+/* Place the visual-line row iterator at the window's top visual row, or
+ * leave it unused when the window is not wrapping.  One lower-bound
+ * search over the geometry index per window per repaint, replacing one
+ * per screen row.  Kept out of draw_window_rows() for the same reason
+ * flat_row_advance() is: that function carries a documented per-symbol
+ * complexity budget (.ci/pmccabe-baseline.json) and this `if` would count
+ * against it. */
+static void vline_iter_begin(struct vgeom_iter *it, struct editor_window *w,
+    struct editor_buffer *b, int rowoff, int visual_line_mode)
+{
+	if (visual_line_mode) {
+		vgeom_iter_init(it, w, b, rowoff);
+	}
+}
+
 /* Render the text rows of one window into ab.
  * win_y, win_x, win_h, win_w describe the window's position/size.
  * rowoff/coloff/numrows/rows describe the buffer viewport.
@@ -344,6 +359,12 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 	 * one O(row) lookup. */
 	int flat_row_idx = -1;
 	size_t flat_row_pos = 0;
+	/* One placement per window, not one search per screen row: see the
+	 * loop below.  Left uninitialized when !visual_line_mode, where it is
+	 * never touched. */
+	struct vgeom_iter vline_it;
+
+	vline_iter_begin(&vline_it, w, b, rowoff, visual_line_mode);
 
 	if (is_active && bcur()->mark_highlight) {
 		int p_row = wcur()->rowoff + wcur()->cy;
@@ -389,7 +410,13 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 		int fr;
 		int offset;
 		if (visual_line_mode) {
-			find_visual_row(w, b, rowoff, y, &fr, &offset);
+			/* The iterator fills both out-params past the end
+			 * too, with find_visual_row()'s own (numrows, 0):
+			 * the tilde/empty-row drawing below, and
+			 * flat_row_advance()'s non-decreasing-fr
+			 * assumption, both depend on that exact pair, and
+			 * it costs no branch here. */
+			(void)vgeom_iter_next(&vline_it, &fr, &offset);
 		} else {
 			fr = rowoff + y;
 			/* `offset` slices row->render, but coloff is a chars

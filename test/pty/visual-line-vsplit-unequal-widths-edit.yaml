@@ -1,0 +1,35 @@
+# Two windows on the same buffer at unequal widths -- an 80-column vertical
+# split gives 39 and 40 (win_reflow() hands the split remainder to the last
+# column group) -- each keep their own vgeom index, per sub-plan
+# 07-A/07-B's "two unequal widths do not evict each other" design.  This is
+# that design exercised through real keys and windows rather than a unit
+# test's direct index queries: C-n in the left (39-wide) pane lands one
+# visual row down, at chars offset 39, where L is inserted; C-x o switches
+# panes, and C-n in the right (40-wide) pane, still at row/col (0,0), asks
+# for visual row 1 of the *same* logical row -- but the buffer now holds L,
+# so that index is stale and must rebuild before answering.  A window that
+# read a cached answer built for the other window's width, or for the
+# content before L landed, would place R somewhere else; it lands right
+# after L, at chars offset 40, because 40 - 39 == 1 is exactly the width
+# difference plus the one byte L inserted.
+name: visual-line-vsplit-unequal-widths-edit
+filename: vsplit-visual.txt
+backend: tmux
+dimensions: [12, 80]
+initial: "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - C-x
+  - "3"
+  - C-n
+  - L
+  - C-x
+  - o
+  - C-n
+  - R
+expected_saved: "012345678901234567890123456789012345678LR9012345678901234567890123456789012345678901234567890123456789"
+expected_screen_contains:
+  - "012345678"
+  - "LR9012345"

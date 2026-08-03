@@ -24,6 +24,9 @@
 typedef struct erow erow;
 struct editor_window;
 struct editor_buffer;
+/* struct kg_vgeom_index is deliberately *not* forward-declared here: the
+ * pointer member in struct vgeom_iter below declares the tag on its own,
+ * and IWYU (.ci/ci-06) flags the redundant declaration. */
 
 /* ---- Per-row measurement (src/mode.c) -----------------------------------
  *
@@ -131,9 +134,18 @@ void vgeom_window_free(struct editor_window *w);
  * sub-plan B's draw loop, one lower-bound placement per window instead
  * of one per screen row.  Every field is private to src/vgeom.c; a
  * caller only ever declares one on the stack, the same shape
- * struct kg_decor_query (src/decor.h) already has. */
+ * struct kg_decor_query (src/decor.h) already has.
+ *
+ * `idx` is the index snapshot taken at vgeom_iter_init() -- NULL when
+ * the fallback scan path answered instead.  Caching it here, rather than
+ * asking vgeom_ensure() again per vgeom_iter_next() call, is what makes
+ * advancing the iterator a read of two prefix entries instead of a call
+ * to visual_segments(): see the .c file for why that is sound for the
+ * lifetime of one iterator (built once per repaint, never outliving the
+ * draw call that owns it). */
 struct vgeom_iter {
 	struct editor_buffer *b;
+	struct kg_vgeom_index *idx;
 	int win_w;
 	int row_count;
 	int cur_row;
@@ -146,9 +158,15 @@ void vgeom_iter_init(struct vgeom_iter *it, struct editor_window *w,
 
 /* Advance `it` by one wrap segment, filling `*out_row` (a logical row)
  * and `*out_render_offset` (that segment's starting render-byte offset,
- * as find_visual_row()'s render_offset out-param) and returning true; or
- * returning false, leaving both untouched, once the buffer's last visual
- * row is behind `it`. */
+ * as find_visual_row()'s render_offset out-param) and returning true.
+ * Once the buffer's last visual row is behind `it`, returns false and
+ * fills the pair with find_visual_row()'s own past-the-end answer --
+ * (numrows, 0) -- rather than a separate sentinel or untouched garbage,
+ * so a caller that draws blank rows past the end needs no branch of its
+ * own.  Reads the index's prefix sums directly when one is
+ * cached (O(1), no KG_PERF_VISUAL_PREFIX_VISIT visit at all); falls back
+ * to visual_segments() -- one visit per call -- only when `it->idx` is
+ * NULL. */
 bool vgeom_iter_next(
     struct vgeom_iter *it, int *out_row, int *out_render_offset);
 

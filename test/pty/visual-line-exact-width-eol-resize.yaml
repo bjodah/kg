@@ -1,0 +1,34 @@
+# Two shapes sub-plan 07-B's draw-loop rewrite has to keep byte-identical:
+# a row exactly as wide as the window (the "point at EOL on an exact-width
+# line" correction in visual_line_cursor_col(), mode.c) and a mid-session
+# resize, which forces a rebuild of the per-window geometry index at the
+# new width.
+#
+# The line is 20 columns in a 20-column window: one wrap segment.  C-e from
+# column 0 is not yet at true end-of-row, so END_KEY's "current segment"
+# branch takes it to the last cell of that segment (display column 19,
+# chars offset 19) rather than past it -- inserting Q there gives
+# "1234567890123456789Q0", Q landing before the row's last original digit.
+# RESIZE=10,10 then re-wraps the now-21-column row into three 10/10/1
+# segments without touching its bytes.  C-a returns to the start of the
+# current (now first) segment, and C-n one visual row down lands at chars
+# offset 10 -- the second segment's start -- where R is inserted.
+name: visual-line-exact-width-eol-resize
+filename: exact-eol.txt
+backend: tmux
+dimensions: [10, 20]
+initial: "12345678901234567890"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - C-e
+  - Q
+  - RESIZE=10,10
+  - C-a
+  - C-n
+  - R
+expected_saved: "1234567890R123456789Q0"
+expected_screen_contains:
+  - "1234567890"
+  - "R123456789"

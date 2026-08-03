@@ -291,11 +291,13 @@ static void test_vgeom_iterator_matches_find_visual_row(void)
 		find_visual_row(wcur(), bcur(), 0, y, &fr_expect, &off_expect);
 		more_got = vgeom_iter_next(&it, &fr_got, &off_got);
 
+		/* Compared on every step, past the end included: the
+		 * iterator fills both out-params there too, with exactly
+		 * find_visual_row()'s (numrows, 0), which is what lets
+		 * draw_window_rows() drop its own past-the-end branch. */
 		CHECK(more_got == more_expect);
-		if (more_got) {
-			CHECK(fr_got == fr_expect);
-			CHECK(off_got == off_expect);
-		}
+		CHECK(fr_got == fr_expect);
+		CHECK(off_got == off_expect);
 	}
 	teardown();
 }

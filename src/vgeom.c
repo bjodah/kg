@@ -215,20 +215,19 @@ static void row_segment_scan(struct editor_buffer *b, int win_w,
 }
 
 /* Visual row `target_vrow` (clamped to >= 0) as a logical row plus a
- * segment index within that row's wrap -- find_visual_row(),
- * goto_visual_row_col() and the iterator all want exactly this pair, so
- * it is the one place either walks the index or falls back to the scan.
- * `*out_row` is b->numrows, `*out_segment` 0, once `target_vrow` is at or
- * past the buffer's total visual rows. */
-static void row_segment_of(struct editor_window *w, struct editor_buffer *b,
-    int win_w, int target_vrow, int *out_row, int *out_segment)
+ * segment index within that row's wrap, given an already-resolved index
+ * snapshot `idx` (NULL meaning "no index; fall back to the scan").
+ * Split out from row_segment_of() below so the iterator's init can reuse
+ * one vgeom_ensure() result across the whole repaint instead of asking
+ * again per call.  `*out_row` is b->numrows, `*out_segment` 0, once
+ * `target_vrow` is at or past the buffer's total visual rows. */
+static void row_segment_of_idx(struct kg_vgeom_index *idx,
+    struct editor_buffer *b, int win_w, int target_vrow, int *out_row,
+    int *out_segment)
 {
-	struct kg_vgeom_index *idx;
-
 	if (target_vrow < 0) {
 		target_vrow = 0;
 	}
-	idx = vgeom_ensure(w, b, win_w);
 	if (!idx) {
 		row_segment_scan(b, win_w, target_vrow, out_row, out_segment);
 		return;
@@ -255,6 +254,19 @@ static void row_segment_of(struct editor_window *w, struct editor_buffer *b,
 		*out_row = pos;
 		*out_segment = target_vrow - idx->prefix[pos];
 	}
+}
+
+/* Visual row `target_vrow` as a logical row plus a segment index within
+ * that row's wrap -- find_visual_row() and goto_visual_row_col() want
+ * exactly this pair.  Resolves the index itself; the iterator below does
+ * not use this, since it needs the resolved index kept around rather than
+ * looked up fresh on every advance. */
+static void row_segment_of(struct editor_window *w, struct editor_buffer *b,
+    int win_w, int target_vrow, int *out_row, int *out_segment)
+{
+	struct kg_vgeom_index *idx = vgeom_ensure(w, b, win_w);
+
+	row_segment_of_idx(idx, b, win_w, target_vrow, out_row, out_segment);
 }
 
 int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b)
@@ -356,10 +368,12 @@ void vgeom_iter_init(struct vgeom_iter *it, struct editor_window *w,
     struct editor_buffer *b, int start_vrow)
 {
 	int win_w = win_cells(w->w);
+	struct kg_vgeom_index *idx = vgeom_ensure(w, b, win_w);
 	int row, segment;
 
-	row_segment_of(w, b, win_w, start_vrow, &row, &segment);
+	row_segment_of_idx(idx, b, win_w, start_vrow, &row, &segment);
 	it->b = b;
+	it->idx = idx;
 	it->win_w = win_w;
 	it->row_count = b->numrows;
 	it->cur_row = row;
@@ -372,13 +386,32 @@ bool vgeom_iter_next(
 	int segs;
 
 	if (it->cur_row >= it->row_count) {
+		/* find_visual_row()'s own past-the-end answer, not a
+		 * separate sentinel: every caller wants exactly this pair
+		 * there, and answering it here rather than at each call site
+		 * keeps that knowledge in one place -- draw_window_rows()
+		 * carries a documented per-symbol complexity budget and this
+		 * is one of the two branches that would otherwise sit in
+		 * it. */
+		*out_row = it->row_count;
+		*out_render_offset = 0;
 		return false;
 	}
 	*out_row = it->cur_row;
 	*out_render_offset = render_offset_at_visual(
 	    &it->b->row[it->cur_row], it->segment * it->win_w, it->win_w);
 
-	segs = visual_segments(&it->b->row[it->cur_row], it->win_w);
+	/* it->idx's prefix already holds this row's segment count -- the
+	 * difference of two consecutive entries -- so a warm iterator never
+	 * has to ask visual_segments() at all; only the fallback (no index)
+	 * pays for a call, and then once per screen row, same as before this
+	 * sub-plan. it->idx was resolved once in vgeom_iter_init() and is
+	 * reused for this iterator's whole lifetime, which never outlives the
+	 * one repaint that built it, so a rebuild cannot happen underneath it
+	 * mid-loop. */
+	segs = it->idx ? (int)(it->idx->prefix[it->cur_row + 1]
+			     - it->idx->prefix[it->cur_row])
+		       : visual_segments(&it->b->row[it->cur_row], it->win_w);
 	it->segment++;
 	if (it->segment >= segs) {
 		it->cur_row++;

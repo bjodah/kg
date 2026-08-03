@@ -762,23 +762,42 @@ static void test_erow_wrap_cache_size_cost(void)
 	CHECK(sizeof(erow) <= 64);
 }
 
-/* The prefix-summing walk's own shape, independent of whether a visit
- * rescans bytes: one cold repaint over `rows` lines, each fitting one
- * segment, visits more rows than the buffer has -- find_visual_row()
- * restarts from row zero for every one of the window's screen rows, so
- * row zero alone is visited once per screen row.  This is the shape a
- * later persistent prefix index (plan 07 phase 2) has to fix; phase 1's
- * width cache does not by itself change it. */
-static void test_visual_line_prefix_walk_restarts_per_screen_row(void)
+/* This assertion used to pin the bad shape on purpose (`> win_h`, "the
+ * shape a later persistent prefix index has to fix").  Sub-plan 07-B
+ * (doc/plans/2026-07-31-follow-ups/07-subplans/07b-one-traversal-draw.md,
+ * "The assertion that must be inverted") is where that comes due, and
+ * that document is the authorization for turning the `>` below into a
+ * bound in the other direction -- a reviewer should be able to find this
+ * sentence and that one together.
+ *
+ * It measured a *cold* repaint, which after sub-plan A no longer means
+ * what its old name said: A routes find_visual_row() through the index,
+ * so a cold call chain visits every row exactly once building the index
+ * (one visual_segments() call per row, from vgeom_rebuild()), not
+ * `win_h` times over.  That is a real cost, just not the one this test
+ * was written to catch, so the warm-up repaint below is deliberately
+ * excluded from the counters checked: it is what builds the index, and
+ * this test is about what a *second*, unchanged repaint costs once the
+ * index is warm.
+ *
+ * draw_window_rows() now places one vgeom_iter at the window's top
+ * visual row -- one lower-bound binary search over the index's prefix
+ * sums, no visual_segments() call at all -- and vgeom_iter_next() reads
+ * each row's segment count straight out of those prefix sums as it
+ * advances, rather than asking visual_segments() again per screen row.
+ * So a warm repaint's prefix visits are not just bounded by
+ * O(log rows + win_h), the shape sub-plan B named as the target: they
+ * are exactly zero, strictly inside that bound. */
+static void test_visual_line_prefix_visits_bounded_after_warmup(void)
 {
 	const int rows = 300;
 
 	setup_visual_line_rows(rows, 10); /* narrower than win_w: one segment */
+	refresh_quietly(); /* cold: builds the index, not under test here */
 
 	kg_perf_reset();
-	refresh_quietly();
-	CHECK(counter(KG_PERF_VISUAL_PREFIX_VISIT)
-	    > (unsigned long long)wcur()->h);
+	refresh_quietly(); /* warm repaint: what sub-plan B is judged on */
+	CHECK(counter(KG_PERF_VISUAL_PREFIX_VISIT) == 0);
 
 	bcur()->visual_line_mode = 0;
 	teardown();
@@ -979,7 +998,7 @@ int main(void)
 	RUN(test_visual_line_warm_repaint_scans_nothing);
 	RUN(test_visual_line_edit_misses_only_that_row);
 	RUN(test_visual_line_new_width_scans_each_row_once);
-	RUN(test_visual_line_prefix_walk_restarts_per_screen_row);
+	RUN(test_visual_line_prefix_visits_bounded_after_warmup);
 	RUN(test_vgeom_query_rebuilds_once_then_hits);
 	RUN(test_vgeom_edit_invalidates_and_rebuilds_once);
 	RUN(test_vgeom_two_widths_do_not_evict_each_other);

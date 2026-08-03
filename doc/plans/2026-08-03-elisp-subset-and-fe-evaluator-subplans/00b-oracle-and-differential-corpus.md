@@ -191,4 +191,71 @@ inventory edit a pin move, which rule 10 makes a two-commit dance.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.** Landed in fe (`analyzers-etc` branch,
+`7f3f424`/`f23f5e1`), pin moved in kg in a separate commit per Rule 10.
+
+Layout matches this document with one deviation: the Python tooling lives
+under `fe/utils/` (`run-emacs-oracle.py`, `run-fe-compat.py`,
+`check_compat_manifest.py`), not the `tools/` this document's Layout
+section suggested -- fe already has `utils/check_scc_complexity.py` and
+`utils/check_pmccabe_complexity.py`, and following that existing
+convention beat inventing a second one for the same kind of file. The
+record protocol landed with a fifth kind beyond the four the parent plan
+named -- `timeout`, structurally produced by the runner's own subprocess
+bound, never by parsing message text -- to make the "survives a
+non-terminating case" gate honest rather than assumed.
+
+Corpus: five cases, three `status: supported` (already agreeing:
+integer literal self-evaluation, small integral addition, and the
+void-function error, whose message already carries Emacs' condition name
+even though `condition_source` marks it a weaker, message-based claim
+until Phase 6) and two recorded as known, expected gaps rather than
+failures (`hash-tables`, `status: unsupported`, short-circuited by
+manifest before fe ever runs; `signal-and-quit`, `status: planned`,
+which also proves the Emacs shim's `condition-case` tells `quit` apart
+from `error`). `make -C fe compat` is green over exactly this set.
+
+Gates, each demonstrated and then reverted to a clean, agreeing
+tree -- none of the demonstration states below are checked in:
+
+* **Disagreement naming a feature id.** A scratch copy of the corpus with
+  `value-arith-add`'s snapshot hand-edited to `"printed": "999"` produced
+  `FAIL: value-arith-add (feature arith-add-integral, status supported):
+  oracle={'kind': 'value', ... 'printed': '999'} fe={'kind': 'value',
+  'printed': '3'}` and a nonzero exit; the scratch copy was discarded.
+* **Version-mismatch failure.** A scratch copy with
+  `value-literal-integer`'s snapshot's `emacs_version` hand-edited to
+  `"GNU Emacs 30.1 (a different build)"`: `run-emacs-oracle.py` refused to
+  overwrite it (`FAIL: ... refusing to overwrite (pass
+  --allow-version-change to intentionally re-pin)`), left the file
+  untouched, and `--allow-version-change` then re-pinned it cleanly.
+* **Missing Emacs / `--require-tools`.** `--emacs /nonexistent/emacs`
+  alone printed `SKIP: emacs (...)` and exited 0; with `--require-tools`
+  it printed `FAIL: missing tool: emacs (...)` and exited 1.
+* **`make -C fe check` without Emacs.** Re-run with `emacs` removed from
+  `PATH` and `KG_PTY_EMACS` unset: unaffected, still green (the existing
+  suite never touched Emacs; `compat` needs none either).
+* **Four record kinds plus the non-terminating case**, all structurally
+  classified: `value`, `condition` (both `condition_source: structured`
+  on the Emacs side and `message` on Fe's), `quit` (Emacs only, proven
+  distinct from `error` by `planned-quit-signal`), `unsupported`
+  (manifest-driven short-circuit, `hash-tables`), and the added `timeout`
+  kind for a case that does not return within the runner's bound.
+
+Complexity, both trees, start and end of this slice (no `.c`/`.h` files
+touched -- only JSON, Markdown, Python, and one `.el` shim, none of which
+`SCC_COMPLEXITY_PATHS` or `PMCCABE_PATHS` scan): fe `scc` 210/220 total,
+`fe.c` 102/112 file cap, `pmccabe` 197 symbols, worst 15/22, 0 new/gone/
+improved -- identical before and after. kg unchanged at 5439/5500 (no kg
+source touched this slice). `make check`, `make complexity-check
+pmccabe-check format-check`, and the full `.ci/run-ci-steps.sh` (all nine
+numbered stages, including the new `ci-09-compat.sh`) are green in fe. kg:
+`make check` and `make WITH_LISP=0 clean all check` green after the pin
+move.
+
+Not done, deliberately: the corpus stays at five cases (00C's job); no
+`test/lisp-compat/` sibling in kg (also 00C); the id-collision half of
+`check_compat_manifest.py`'s `--other-manifest` check is untested against
+a real second manifest, since kg's does not exist yet -- it degrades to a
+skip-with-a-note when the path is absent, verified by inspection rather
+than a fixture.

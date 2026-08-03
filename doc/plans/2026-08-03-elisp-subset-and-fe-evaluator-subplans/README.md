@@ -259,3 +259,17 @@ moved 210/105 → 220/112 in the fe submodule; kg's caps are unchanged.
 `make check` and `make WITH_LISP=0 clean all check` are green in kg;
 `make check`, `make complexity-check` and `make pmccabe-check` are green
 in fe. No language or editor behavior changed. Sub-plan 00B may start.
+
+**00B complete, 2026-08-04.** The Emacs-oracle differential corpus
+mechanism landed in fe (`compat/{README.md,features.json,cases/,oracle/}`,
+`utils/{run-emacs-oracle.py,run-fe-compat.py,check_compat_manifest.py}`,
+a new `.ci/ci-09-compat.sh`) at `f23f5e1` on `analyzers-etc`, with kg's
+pin moved in a separate green kg commit. Full detail, including the
+tooling-path deviation from this document's suggested `tools/` (fe's own
+`utils/` convention was followed instead) and every gate's demonstrated
+output, is in
+[00B's own Status section](00b-oracle-and-differential-corpus.md#status).
+Complexity in both trees is unchanged from 00A's landed numbers (fe
+210/220 total, `fe.c` 102/112 file cap, pmccabe 197 symbols/worst 15/22;
+kg 5439/5500) because this slice added no `.c`/`.h` files to either tree.
+No language behavior changed. Sub-plan 00C may start.

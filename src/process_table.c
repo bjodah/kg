@@ -24,24 +24,30 @@
  * very chatty child starves every other poll caller in the same call. */
 #define KG_PROCESS_TICK_BUDGET (64 * 1024)
 
+/* Field order is chosen by size/alignment, not by relatedness -- the
+ * pointer/size_t/uint64_t/handle fields first, then the four-and-under-byte
+ * fields, then every bool last, so the struct pads to what alignment
+ * actually needs (clang-analyzer-optin.performance.Padding; see commit
+ * 46e77fd for the same fix in src/tty.c's struct meta_key). Values are
+ * unchanged -- only the declaration order moved. */
 struct kg_process_table_entry {
-	bool active; /* slot claimed: running, or finished and unreleased */
+	char
+	    *output; /* KG_PROCESS_OUTPUT_MAX bytes, owned, malloc'd at spawn */
+	size_t output_len;
+	uint64_t finish_seq; /* set when reaped; orders reclaim eligibility */
+	struct kg_buffer_handle buffer;
 	uint32_t generation;
 	pid_t pid;
 	pid_t pgid;
 	int output_fd;
+	struct kg_process_status wait_status;
+	bool active; /* slot claimed: running, or finished and unreleased */
 	bool pipe_eof;
 	bool reaped;
-	struct kg_process_status wait_status;
-	struct kg_buffer_handle buffer;
-	char
-	    *output; /* KG_PROCESS_OUTPUT_MAX bytes, owned, malloc'd at spawn */
-	size_t output_len;
 	bool
 	    output_truncated; /* oldest bytes dropped since the last delivery */
 	bool exit_needs_publish; /* reaped, but KG_EVENT_PROCESS_EXIT is not
 				  * yet queued -- retried every poll */
-	uint64_t finish_seq; /* set when reaped; orders reclaim eligibility */
 	bool has_filter; /* a Lisp filter owns this process's output; see
 			  * kg_process_table_set_has_filter() */
 };

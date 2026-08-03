@@ -243,8 +243,17 @@ sub-plan B's `visual-line-exact-width-eol-resize` and
 fixtures that predate this slice.  Analytically: every one of the eight
 converted call sites fed `win_cells(w->w)` or its inline equivalent before
 this change and feeds `win_text_width(w) == win_cells(w->w)` after, by
-construction — there is no reachable state where the two differ, since
-`winmgr.c` never lets `w->w` fall below 6.
+construction.  Seven of the eight are therefore identities on their face.
+The eighth is `draw_window_rows()`'s call site, which used to pass the
+window's **raw** `w->w`, so it needs the extra step: `win_reflow()` clamps
+`winlist[i].w` to at least 1 (`src/winmgr.c`, `if (winlist[i].w < 1)`),
+which is precisely `win_cells()`'s own rule, and `win_init()` ends by
+calling `win_reflow()` — so `w->w >= 1` holds from initialization onward
+and `win_cells(w->w) == w->w` in every reachable state.  (An earlier draft
+of this section cited a floor of 6 instead.  That number is the *split*
+guard at `winmgr.c`'s `if (winlist[win_current].w < 6)`, which refuses to
+divide a window too narrow to split; it says nothing about how narrow a
+window can be, and is not what makes this substitution safe.)
 
 **Gates:**
 - `make complexity-check` and `make pmccabe-check`, start: 5439/5500 and

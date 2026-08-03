@@ -52,6 +52,22 @@ that `scc` knows nothing about: two branches added inside
 this README nor any sub-plan's Gates list named that command.  **Run
 both.**
 
+**C is done (2026-08-03), decision: defer both questions.**  See its own
+status section for the full matrix (including `--big`), the isolated
+per-edit rebuild cost (~5 ms at 100k rows, ~49 ms at 1M rows, quiet-tail-
+matched so the harness's own overhead cancels in the delta), and the
+duplicate-vector memory measurement (computed from `sizeof` and
+cross-checked against real peak RSS: ~27–29 MiB worst case at 1M rows
+against a ~251 MiB single-window baseline).  Budget unchanged at 5439/5500
+— C touched no `src/*.c`/`src/*.h` — so **61 points remain for D**.  C did
+touch `utils/bench.py`: it fixed a pre-existing, unrelated bench-case bug
+(`visual-line-pos-middle-100k` sent bare `M-g`, which commit `710e9ba`
+turned into a prefix map before sub-plan A landed, so the case has
+measured nothing since) and added two `--big` cases the existing matrix
+was missing (an edit at 1M rows, and a same-width duplicate-window case at
+1M rows) — without which the two questions this sub-plan exists to answer
+had no evidence at the only corpus size that could plausibly move them.
+
 ## The binding constraint is complexity budget, not difficulty
 
 `scc` is at **5401 against `SCC_COMPLEXITY_MAX` = 5500** — 99 points for

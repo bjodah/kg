@@ -190,9 +190,14 @@ CASES = {
 	# regression at one position does not hide inside the others.
 	"visual-line-pos-top-100k": ("lines-100k",
 				     ["\x1bx", "visual-line-mode\r", "\x18\x03"]),
+	# M-g is a prefix map, not goto-line directly (kbd.c's "M-g g" /
+	# "M-g M-g"), so the key script has to spell the full sequence or
+	# "50000\r" lands as literal self-insert instead of the goto-line
+	# minibuffer, which then leaves the modified-buffer save prompt
+	# unanswered and the process never exits.
 	"visual-line-pos-middle-100k": ("lines-100k",
 					["\x1bx", "visual-line-mode\r",
-					 "\x1bg", "50000\r", "\x18\x03"]),
+					 "\x1bg", "g", "50000\r", "\x18\x03"]),
 	"visual-line-pos-end-100k": ("lines-100k",
 				     ["\x1bx", "visual-line-mode\r", "\x1b>",
 				      "\x18\x03"]),
@@ -216,6 +221,24 @@ BIG_CASES = {
 	"visual-line-1m": ("lines-1m",
 			   ["\x1bx", "visual-line-mode\r", "\x1b>",
 			    "\x10" * 5, "\x18\x03"]),
+	# The 1M-line counterpart to visual-line-edit-100k: sub-plan 07-C's
+	# question is whether content_generation's O(rows) integer rebuild
+	# per edit is material, and the only corpus where that walk could
+	# plausibly be felt is this one -- the 100k-line matrix above has no
+	# case that both builds the index and then edits, at this row count.
+	"visual-line-edit-1m": ("lines-1m",
+				["\x1bx", "visual-line-mode\r", "\x1b>",
+				 "x", "\x18\x03", "y"]),
+	# The 1M-line counterpart to visual-line-hsplit-100k: two windows on
+	# the *same* buffer at the *same* width, which is exactly the
+	# duplicate-vector case sub-plan 07-C's memory question is about (the
+	# vsplit/4win cases above are unequal widths -- legitimately distinct
+	# keys, not the dedup opportunity a global (buffer,width) LRU would
+	# address).
+	"visual-line-hsplit-1m": ("lines-1m",
+				  ["\x1bx", "visual-line-mode\r",
+				   "\x18", "2", "\x0e" * 5,
+				   "\x18", "o", "\x0e" * 5, "\x18\x03"]),
 }
 
 

@@ -107,6 +107,46 @@ bool kg_process_table_query(
  * the same slot: the slot's generation is not reused. */
 bool kg_process_table_release(struct kg_process_handle handle);
 
+/* delete-process's escalation: SIGTERM to the process group, a bounded wait
+ * for the reap, SIGKILL and a second bounded wait if the first did not
+ * finish it, then kg_process_table_release().  Never blocks the editor
+ * indefinitely -- each wait is a fixed number of 1 ms ticks -- so a child
+ * that ignores both signals leaves the slot occupied (running) rather than
+ * hanging the caller; that shows up as a false return.  A handle that
+ * already names a finished, unreleased entry just releases it, matching
+ * kg_process_table_release() with no signal sent.  Refused (false, nothing
+ * changed) for a handle that does not resolve at all. */
+bool kg_process_table_terminate_and_release(struct kg_process_handle handle);
+
+/* Mark `handle`'s entry as filter-owned (or not).  While true, the drain
+ * subscriber this module registers leaves the queued output alone instead
+ * of auto-appending it to the target buffer -- src/lisp_process.c's own
+ * subscriber is the one that delivers it, to whatever Lisp filter function
+ * is set.  Refused (false) for a handle that does not resolve. */
+bool kg_process_table_set_has_filter(
+    struct kg_process_handle handle, bool has_filter);
+
+/* `handle`'s target buffer handle (process-buffer's answer, before
+ * resolving it to a live buffer or an object), or a handle naming nothing
+ * for one that does not resolve. */
+struct kg_buffer_handle kg_process_table_buffer(
+    struct kg_process_handle handle);
+
+/* Hand back `handle`'s queued output as an owned, NUL-terminated buffer
+ * (malloc'd; the caller frees it) and clear the queue -- the same
+ * "kg: output truncated" marker the auto-append path would write is
+ * prefixed here exactly once when the drop-oldest policy owes one.  `*len`
+ * gets the byte length, excluding the added NUL (the content itself may
+ * still embed one, same limitation FeMakeString(3) already has throughout
+ * the adapter).  Returns NULL, `*len` left at 0, and the queue untouched
+ * when nothing is queued, `handle` does not resolve, or allocation failed
+ * (so a later delivery gets another chance rather than losing the bytes).
+ * For a filter to consume queued output; the auto-append drain subscriber
+ * in this file does not use it, to keep its existing success/failure
+ * handling exactly as it was before this native-facing accessor existed. */
+char *kg_process_table_take_output(
+    struct kg_process_handle handle, size_t *len);
+
 /* Kill every tracked process's group, reap what a bounded wait can, and
  * release every slot regardless of whether it finished on its own.  Wired
  * into the same teardown compilation_shutdown() already runs from

@@ -40,6 +40,8 @@ struct kg_process_table_entry {
 	bool exit_needs_publish; /* reaped, but KG_EVENT_PROCESS_EXIT is not
 				  * yet queued -- retried every poll */
 	uint64_t finish_seq; /* set when reaped; orders reclaim eligibility */
+	bool has_filter; /* a Lisp filter owns this process's output; see
+			  * kg_process_table_set_has_filter() */
 };
 
 static struct kg_process_table_entry table[KG_PROCESS_TABLE_MAX];
@@ -136,6 +138,117 @@ bool kg_process_table_release(struct kg_process_handle handle)
 	}
 	release_entry(slot);
 	return true;
+}
+
+bool kg_process_table_set_has_filter(
+    struct kg_process_handle handle, bool has_filter)
+{
+	int slot = slot_of(handle);
+
+	if (slot < 0) {
+		return false;
+	}
+	table[slot].has_filter = has_filter;
+	return true;
+}
+
+struct kg_buffer_handle kg_process_table_buffer(struct kg_process_handle handle)
+{
+	int slot = slot_of(handle);
+
+	if (slot < 0) {
+		return (struct kg_buffer_handle) { -1, 0, 0 };
+	}
+	return table[slot].buffer;
+}
+
+/* delete-process's bounded wait for a reap after a signal: up to
+ * `max_iters` 1 ms ticks, matching kg_process_table_shutdown()'s own
+ * bound.  Reaping here (rather than leaving it to the next poll) is what
+ * lets kg_process_table_terminate_and_release() answer synchronously. */
+static bool wait_for_reap(struct kg_process_table_entry *e, int max_iters)
+{
+	for (int i = 0; i < max_iters && !e->reaped; i++) {
+		if (kg_process_reap(e->pid, &e->wait_status)) {
+			e->reaped = true;
+			e->finish_seq = next_finish_seq++;
+		} else {
+			usleep(1000);
+		}
+	}
+	return e->reaped;
+}
+
+#define KG_PROCESS_TERM_WAIT_ITERS 50
+#define KG_PROCESS_KILL_WAIT_ITERS 100
+
+bool kg_process_table_terminate_and_release(struct kg_process_handle handle)
+{
+	int slot = slot_of(handle);
+	struct kg_process_table_entry *e;
+
+	if (slot < 0) {
+		return false;
+	}
+	e = &table[slot];
+	if (!e->reaped) {
+		if (e->pgid > 0) {
+			kg_process_signal_group(e->pgid, SIGTERM);
+		}
+		if (!wait_for_reap(e, KG_PROCESS_TERM_WAIT_ITERS)
+		    && e->pgid > 0) {
+			kg_process_signal_group(e->pgid, SIGKILL);
+			wait_for_reap(e, KG_PROCESS_KILL_WAIT_ITERS);
+		}
+		if (!e->reaped) {
+			/* Never blocks indefinitely: a child that ignores
+			 * both signals stays running, and the slot with it,
+			 * rather than hang this call. */
+			return false;
+		}
+		kg_close_fd(&e->output_fd);
+		e->pipe_eof = true;
+		e->exit_needs_publish = false; /* about to release; nothing
+						* left to notify */
+	}
+	return kg_process_table_release(handle);
+}
+
+char *kg_process_table_take_output(struct kg_process_handle handle, size_t *len)
+{
+	static const char marker[] = "kg: output truncated\n";
+	int slot = slot_of(handle);
+	struct kg_process_table_entry *e;
+	size_t total, off = 0;
+	char *buf;
+
+	if (len) {
+		*len = 0;
+	}
+	if (slot < 0) {
+		return NULL;
+	}
+	e = &table[slot];
+	total = e->output_len + (e->output_truncated ? sizeof(marker) - 1 : 0);
+	if (total == 0) {
+		return NULL;
+	}
+	buf = malloc(total + 1);
+	if (!buf) {
+		return NULL; /* leave it queued for the next delivery */
+	}
+	if (e->output_truncated) {
+		memcpy(buf, marker, sizeof(marker) - 1);
+		off = sizeof(marker) - 1;
+	}
+	memcpy(buf + off, e->output, e->output_len);
+	buf[total] = '\0';
+	e->output_len = 0;
+	e->output_truncated = false;
+	if (len) {
+		*len = total;
+	}
+	return buf;
 }
 
 static int find_free_slot(void)
@@ -383,32 +496,47 @@ void kg_process_table_poll(void)
  * only thing that ever calls this -- one of src/main.c's three safe
  * points, never the poll call site. */
 
+/* The slot `ev` names, when this drain subscriber has anything to do for
+ * it: a process event, resolved (not KG_EVENT_RESOLVED_GONE), naming a
+ * live table entry that is not filter-owned (set-process-filter hands that
+ * case to src/lisp_process.c's own subscriber instead) and has output
+ * queued.  -1 otherwise.  Split out so process_drain_cb() itself stays a
+ * single pass over the two things it actually does: write the truncation
+ * marker, then the output. */
+static int process_drain_slot(
+    const struct kg_event *ev, enum kg_event_resolution resolution)
+{
+	int slot;
+
+	if (ev->kind != KG_EVENT_PROCESS_OUTPUT
+	    && ev->kind != KG_EVENT_PROCESS_EXIT) {
+		return -1;
+	}
+	if (resolution == KG_EVENT_RESOLVED_GONE) {
+		return -1;
+	}
+	slot = slot_of(ev->payload.process.process);
+	if (slot < 0 || table[slot].has_filter || table[slot].output_len == 0) {
+		return -1;
+	}
+	return slot;
+}
+
 static enum kg_event_cb_status process_drain_cb(
     const struct kg_event *ev, enum kg_event_resolution resolution, void *ctx)
 {
 	static const char truncation_marker[] = "kg: output truncated\n";
-	int slot;
+	int slot = process_drain_slot(ev, resolution);
 	struct kg_process_table_entry *e;
 	struct editor_buffer *b;
 	size_t end;
 	struct kg_edit edit;
 
 	(void)ctx;
-	if (ev->kind != KG_EVENT_PROCESS_OUTPUT
-	    && ev->kind != KG_EVENT_PROCESS_EXIT) {
-		return KG_EVENT_CB_CONTINUE;
-	}
-	if (resolution == KG_EVENT_RESOLVED_GONE) {
-		return KG_EVENT_CB_CONTINUE;
-	}
-	slot = slot_of(ev->payload.process.process);
 	if (slot < 0) {
 		return KG_EVENT_CB_CONTINUE;
 	}
 	e = &table[slot];
-	if (e->output_len == 0) {
-		return KG_EVENT_CB_CONTINUE;
-	}
 
 	b = buf_resolve(ev->payload.process.buffer);
 	if (!b) {

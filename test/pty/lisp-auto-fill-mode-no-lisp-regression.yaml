@@ -1,0 +1,27 @@
+# auto-fill-mode's Phase 8 non-regression requirement: with no package
+# requested (no config_files, no requires_feature: lisp), typing the same
+# "word word word" sequence that lisp-auto-fill-mode-break.yaml breaks at
+# column 10 stays one unbroken line here, both in a WITH_LISP=1 build
+# (nothing ever required or enabled auto-fill-mode) and in a WITH_LISP=0
+# build (there is no Lisp to run it with).  This case carries no
+# requires_feature, so it runs -- and must pass -- under both `make check`
+# and `make WITH_LISP=0 ... check`.
+name: lisp-auto-fill-mode-no-lisp-regression
+filename: auto-fill-no-lisp.txt
+initial: ""
+keys:
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+  - SPC
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+  - SPC
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+expected_saved: "word word word"

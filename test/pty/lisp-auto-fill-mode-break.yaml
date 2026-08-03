@@ -1,0 +1,63 @@
+# auto-fill-mode (lisp/auto-fill.fe), the Phase 8 proof package: an
+# isolated HOME plants the package under .config/kg/lisp/ and an init.fe
+# that requires and enables it with fill-column lowered to 10 so the test
+# stays small.  Typing "word word word" one keystroke at a time crosses
+# column 10 on the 11th character (the "w" starting the third word), and
+# auto-fill--maybe-break replaces the space after the second "word" with
+# a newline, leaving the third word's prefix on the new line to keep
+# growing.
+name: lisp-auto-fill-mode-break
+filename: auto-fill-break.txt
+requires_feature: lisp
+config_files:
+  .config/kg/lisp/auto-fill.fe: |
+    (provide 'auto-fill)
+    (defvar fill-column 70
+      "Column auto-fill-mode tries to keep lines at or under.")
+    (defun auto-fill--column-at (pos)
+      (goto-char pos)
+      (current-column))
+    (defun auto-fill--find-break (from to)
+      (save-excursion
+        (let ((pos from) (break-pos nil))
+          (while (and (< pos to) (<= (auto-fill--column-at pos) fill-column))
+            (if (eq (char-after pos) 32)
+                (setq break-pos pos))
+            (setq pos (1+ pos)))
+          break-pos)))
+    (defun auto-fill--maybe-break (buf start end old-len)
+      (when (< start end)
+        (with-current-buffer buf
+          (save-excursion
+            (when (< fill-column (auto-fill--column-at end))
+              (let* ((line (bounds-of-thing-at-point 'line))
+                     (break-pos (and line (auto-fill--find-break (car line) end))))
+                (when break-pos
+                  (replace-region break-pos (1+ break-pos) "\n"))))))))
+    (defun auto-fill-mode ()
+      "Break lines at `fill-column' as they are typed past it."
+      (interactive)
+      (add-hook 'after-change-functions auto-fill--maybe-break t))
+  .config/kg/init.fe: |
+    (require 'auto-fill)
+    (setq fill-column 10)
+    (auto-fill-mode)
+initial: ""
+keys:
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+  - SPC
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+  - SPC
+  - 'w'
+  - 'o'
+  - 'r'
+  - 'd'
+expected_saved: |-
+  word word
+  word

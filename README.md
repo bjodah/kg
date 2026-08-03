@@ -308,6 +308,22 @@ and `after-save-hook`. There is deliberately no `post-command-hook`: its
 per-keystroke cost has not been measured. A hook that is added twice runs
 twice, and a hook list holds at most 16 functions.
 
+Key bindings reach the same layered keymaps the built-in keys use:
+
+| Form | Result |
+| ---- | ------ |
+| `(define-key MAP KEY COMMAND)` | Bind `KEY` in `MAP`; a `nil` `COMMAND` unbinds |
+| `(lookup-key MAP KEY)` | What `MAP` alone says `KEY` means, or `nil` |
+| `(current-local-map)` | The active major-mode map, or `nil` |
+
+Map names are kg's own — `global`, `dired`, `compilation` — and the Emacs
+spellings `global-map` and `dired-mode-map` resolve to them. `lookup-key`
+reports what the named map says whether or not that map is currently
+active, which is not the same question as what the next keystroke will do.
+Unlike `global-set-key`, which only accepts `C-c <key>`, `define-key`
+takes any sequence the built-in maps could hold — so it can shadow a
+built-in binding, and `C-g` and `C-x C-c` are the keys to leave alone.
+
 Its word constituents include every codepoint from U+0080 up, so `héllo` and
 `漢字` come back whole. This is the one place that is true: the interactive
 word commands (`M-f`, `M-b`, `M-@`, `M-d`, `M-t`) are ASCII-only and stop at

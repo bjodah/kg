@@ -243,6 +243,9 @@ FeObject *native_with_current_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_add_hook(FeContext *context, FeObject *arguments);
 FeObject *native_remove_hook(FeContext *context, FeObject *arguments);
 FeObject *native_run_hooks(FeContext *context, FeObject *arguments);
+FeObject *native_define_key(FeContext *context, FeObject *arguments);
+FeObject *native_lookup_key(FeContext *context, FeObject *arguments);
+FeObject *native_current_local_map(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

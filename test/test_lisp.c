@@ -3,6 +3,7 @@
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/keybind.h"
+#include "../src/keymap.h"
 #include "../src/lisp.h"
 #include "test.h"
 #include <stdio.h>
@@ -2283,6 +2284,49 @@ static void test_hooks(void)
 	teardown_editor();
 }
 
+static void test_keymap_apis(void)
+{
+	struct keymap *global, *mode;
+
+	setup_editor();
+	/* The editor builds these in kbd.c, which this harness does not
+	 * link; without them every map name would be one define-key
+	 * invented on the spot, and the Emacs spellings below would have
+	 * nothing real to resolve to. */
+	keymap_reset();
+	global = keymap_create("global", KEYMAP_LAYER_GLOBAL);
+	mode = keymap_create("dired", KEYMAP_LAYER_MAJOR);
+	CHECK(global != nullptr && mode != nullptr);
+	keymap_set_active(mode, 0);
+	CHECK(kg_lisp_init() == 0);
+
+	/* The Emacs spelling "global-map" resolves to kg's "global". */
+	CHECK(eval_ok("(define-key 'global-map \"C-c k\" 'goto-line)"));
+	CHECK(eval_eq("(lookup-key 'global-map \"C-c k\")", "goto-line"));
+	CHECK(eval_eq("(lookup-key 'global \"C-c k\")", "goto-line"));
+	CHECK(eval_eq("(lookup-key 'global-map \"C-c q\")", "nil"));
+
+	/* lookup-key reports what one map says, not what the editor would
+	 * do now: an inactive mode map still answers for its own keys, and
+	 * does not answer for the global map's. */
+	CHECK(eval_ok("(define-key 'dired-mode-map \"C-c d\" 'goto-line)"));
+	CHECK(eval_eq("(lookup-key 'dired-mode-map \"C-c d\")", "goto-line"));
+	CHECK(eval_eq("(lookup-key 'dired-mode-map \"C-c k\")", "nil"));
+	CHECK(eval_eq("(lookup-key 'global-map \"C-c d\")", "nil"));
+
+	/* An unknown map name is nil rather than a map invented for it. */
+	CHECK(eval_eq("(lookup-key 'no-such-map \"C-c k\")", "nil"));
+
+	/* current-local-map names the active major-mode map, and nothing
+	 * when none is active. */
+	CHECK(eval_eq("(current-local-map)", "nil"));
+	keymap_set_active(mode, 1);
+	CHECK(eval_eq("(current-local-map)", "dired"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 int main(void)
 {
 	if (!kg_lisp_active()) {
@@ -2341,6 +2385,7 @@ int main(void)
 	RUN(test_save_excursion);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
+	RUN(test_keymap_apis);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_format_natives);

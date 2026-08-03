@@ -242,6 +242,31 @@ and
 There is deliberately no
 .Li post-command-hook .
 .Pp
+.Li (define-key MAP KEY COMMAND) ,
+.Li (lookup-key MAP KEY)
+and
+.Li (current-local-map)
+reach the same layered keymaps the built-in keys use.
+Map names are
+.Nm Ns 's
+own
+.Pq Li global , dired , compilation ,
+and the Emacs spellings
+.Li global-map
+and
+.Li dired-mode-map
+resolve to them.
+.Li lookup-key
+reports what the named map says whether or not it is active, which is not
+the same question as what the next keystroke will do.
+Unlike
+.Li global-set-key ,
+.Li define-key
+takes any sequence, so it can shadow a built-in binding;
+.Ic C-g
+and
+.Ic C-x C-c
+are the keys to leave alone.
 .Pp
 Upstream fe has no string operations; the string natives are provided by
 .Nm

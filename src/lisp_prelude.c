@@ -77,6 +77,9 @@ static const struct native_binding native_bindings[] = {
 	{ "add-hook", native_add_hook },
 	{ "remove-hook", native_remove_hook },
 	{ "run-hooks", native_run_hooks },
+	{ "define-key", native_define_key },
+	{ "lookup-key", native_lookup_key },
+	{ "current-local-map", native_current_local_map },
 };
 
 void register_natives(FeContext *context)

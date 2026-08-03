@@ -298,6 +298,54 @@ Each variable has a file-local safety decision: safe, unsafe, or
 
 ---
 
+## Phases 4–6 notes
+
+- **Fe cleanup runs under a fresh budget, not none.**  The first cut of
+  Fe's unwind cleared evaluation control outright so a body that had
+  exhausted its budget could still finish its cleanup.  That also removed
+  interrupt polling, so `(unwind-protect BODY (while t))` in an init file
+  hung the editor with no `C-g` escape — contradicting kg's own promise
+  that Lisp is bounded by a step budget and `C-g`.  Cleanup now gets a
+  *fresh* per-entry budget (`FeEvalOptions.cleanup_step_limit`, default
+  4096 steps) with the interrupt re-armed per entry, so budget exhaustion
+  in the body still leaves a working cleanup while a runaway cleanup
+  terminates.  The bound a host must tolerate between a raise and its
+  `error_fn` is `CleanupStackSize x cleanup_step_limit`; `fe/doc/c-api.md`
+  states it.
+- **`(run-hooks)` needed the frame saved, not just `frame_active`.**  A
+  hook gets its own guarded Fe frame, and the event subscriber refuses to
+  run one while `state.frame_active` — but the `run-hooks` native is
+  reached *from inside* a live frame and bypasses that guard.  Setting
+  `state.frame.error_jump` in place left the outer frame's jump target
+  naming a C frame that had already returned, so the first error after any
+  `(run-hooks ...)` longjmp'd into dead stack and killed the editor.
+  `run_one_hook_function()` now saves and restores the whole
+  `struct lisp_frame`.
+- **Phase 6 needed one piece of Plan 01 infrastructure that did not
+  exist.**  `keymap_lookup()` answers "what would the editor do now",
+  which is the wrong question for `(lookup-key MAP KEY)`: that asks what
+  one named map says, and must answer the same whether or not the map is
+  active.  There was no map-scoped entry point, so the first cut resolved
+  the map, ignored it, and returned the layered answer — a decorative
+  argument.  `keymap_lookup_in()` is the missing primitive (the static
+  `map_probe()` was already the whole implementation) and
+  `keymap_active_major()` is what lets `(current-local-map)` name a map
+  that exists rather than spelling `"<syntax>-mode-map"` from the buffer's
+  syntax, which for most syntaxes named no map at all.
+- **`keymap_create()` had to intern the name.**  It stored the `const
+  char *` it was handed.  Every built-in caller passes a string literal,
+  so this was invisible until `(define-key "my-mode-map" ...)` passed a
+  native's stack buffer and the map named itself out of dead stack.  The
+  same file already interned *command* names for exactly this reason;
+  map names now do the same.
+- **The Emacs-name aliasing must not recurse.**  `keymap_find()`
+  originally fell back by calling itself on the stripped name, so
+  `keymap_find("global")` with no `global` map yet recursed forever —
+  hanging `test_lisp` outright and, under `-Os`, spinning rather than
+  overflowing.  The suffix strip is one iterative pass, longest suffix
+  first, so `dired-mode-map` reaches `dired` rather than stopping at
+  `dired-mode`.
+
 ## Completion gate for sub-plan C
 
 - Fe unwind is tested in Fe's own suite; cleanup runs on every exit

@@ -7,6 +7,7 @@
 #include "../fe/fe.h"
 #include "cmd.h"
 #include "keybind.h"
+#include "keymap.h"
 #include "lisp_internal.h"
 
 /* ---- Types -----------------------------------------------------------
@@ -263,4 +264,99 @@ FeObject *native_unbind_key(FeContext *context, FeObject *arguments)
 		command_error(context, "key is not bound", sequence);
 	}
 	return FeNil(context);
+}
+
+FeObject *native_define_key(FeContext *context, FeObject *arguments)
+{
+	FeObject *map_obj = FeGetNextArgument(context, &arguments);
+	FeObject *key_obj = FeGetNextArgument(context, &arguments);
+	FeObject *cmd_obj = FeGetNextArgument(context, &arguments);
+	char map_name[64];
+	char sequence[64];
+	char command[LISP_COMMAND_NAME_MAX];
+	struct keymap *map;
+	int rc;
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, map_obj, map_name, sizeof(map_name));
+	copy_command_name(context, key_obj, sequence, sizeof(sequence));
+
+	map = keymap_find(map_name);
+	if (map == NULL) {
+		map = keymap_create(map_name, KEYMAP_LAYER_MAJOR);
+		if (map == NULL) {
+			FeHandleError(context, "keymap table full");
+		}
+	}
+
+	if (FeIsNil(cmd_obj)) {
+		(void)keymap_unbind(map, sequence);
+		return FeNil(context);
+	}
+
+	copy_command_name(context, cmd_obj, command, sizeof(command));
+	rc = keymap_bind(map, sequence, command);
+	if (rc != 0) {
+		FeHandleError(context, "cannot bind key sequence");
+	}
+	return FeNil(context);
+}
+
+FeObject *native_lookup_key(FeContext *context, FeObject *arguments)
+{
+	FeObject *map_obj = FeGetNextArgument(context, &arguments);
+	FeObject *key_obj = FeGetNextArgument(context, &arguments);
+	char map_name[64];
+	char sequence[64];
+	struct keymap *map;
+	struct key_event keys[KEYMAP_SEQUENCE_MAX];
+	int count;
+	struct keymap_match match;
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, map_obj, map_name, sizeof(map_name));
+	copy_command_name(context, key_obj, sequence, sizeof(sequence));
+
+	map = keymap_find(map_name);
+	if (map == NULL) {
+		return FeNil(context);
+	}
+
+	count = keymap_parse_sequence(sequence, keys, KEYMAP_SEQUENCE_MAX);
+	if (count <= 0) {
+		return FeNil(context);
+	}
+
+	/* The named map alone, not the active layers: (lookup-key MAP KEY)
+	 * asks what MAP says, and must answer the same whether or not MAP
+	 * happens to be in effect. */
+	keymap_lookup_in(map, keys, count, &match);
+	/* UNRESOLVED too: the sequence *is* bound, to a name no command
+	 * table entry answers to yet.  Emacs' lookup-key reports the symbol
+	 * a key is bound to without asking whether it is defined, and
+	 * hiding the binding here would make a typo look like no binding. */
+	if ((match.result == KEYMAP_COMMAND
+		|| match.result == KEYMAP_UNRESOLVED)
+	    && match.command != NULL) {
+		return FeMakeSymbol(context, match.command);
+	}
+	return FeNil(context);
+}
+
+/* (current-local-map): the active major-mode map, named the way kg names
+ * it, or nil when no mode map is in effect.  It reports a map that
+ * exists -- spelling a name from the buffer's syntax instead would
+ * usually name no map at all, and (define-key (current-local-map) ...)
+ * would then quietly create a map nothing consults. */
+FeObject *native_current_local_map(FeContext *context, FeObject *arguments)
+{
+	const struct keymap *map = keymap_active_major();
+	const char *name;
+
+	FeRequireNoArguments(context, arguments);
+	if (map == NULL) {
+		return FeNil(context);
+	}
+	name = keymap_name(map);
+	return name ? FeMakeSymbol(context, name) : FeNil(context);
 }

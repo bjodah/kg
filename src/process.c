@@ -128,13 +128,26 @@ static int spawn_process(
 	return 0;
 }
 
+/* Whether `req` names exactly one runnable thing.  Exactly one of
+ * argv/command is honoured, argv first; both set is a caller bug, refused
+ * before the pipe or the fork rather than guessed at.  An argv with no
+ * argv[0] is refused for a blunter reason: execvp(NULL, ...) dereferences
+ * the name to search PATH for it and dies on the spot, so an empty vector
+ * would fork a child whose only act is to segfault, and the caller would
+ * read that back as a program killed by SIGSEGV rather than as the bad
+ * request it is. */
+static bool spawn_request_is_runnable(const struct kg_spawn_request *req)
+{
+	if (req->argv) {
+		return req->command == NULL && req->argv[0] != NULL;
+	}
+	return req->command != NULL;
+}
+
 int kg_process_spawn(
     const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
 {
-	/* Exactly one of argv/command is honoured, argv first; both set is a
-	 * caller bug, refused before the pipe or the fork rather than
-	 * guessed at. */
-	if (req->argv && req->command) {
+	if (!spawn_request_is_runnable(req)) {
 		errno = EINVAL;
 		return -1;
 	}

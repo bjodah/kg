@@ -255,6 +255,59 @@ processes, or later deliveries — the same containment `run-hooks` got in
 `src/lisp_hooks.c`, including saving and restoring `state.frame`.  Copy
 that pattern; it is there because getting it wrong killed the editor.
 
+### Phase 7a notes — what the review of the C slice found
+
+The C infrastructure (tasks 1–4) landed in `22765f1..fe4217e`, +85 scc.
+Reviewing it produced four things worth keeping.
+
+1. **`execvp(NULL, ...)` segfaults**, confirmed by running it: glibc
+   dereferences the name to search `PATH` before it can fail.  An `argv`
+   whose first element is NULL therefore forked a child whose only act was
+   to die on SIGSEGV, which a caller would read back as "the program
+   crashed" rather than "the request was malformed".
+   `spawn_request_is_runnable()` now refuses it alongside the
+   argv-and-command case.  This matters for Phase 7b, which builds `argv`
+   out of Lisp arguments.
+
+2. **The tick budget and the pipe capacity are coupled, silently.**
+   `poll_entry()` closes the output fd as soon as the child is reaped,
+   where `compilation_poll()` instead waits for `pipe_eof && child_reaped`
+   and never closes on reap alone.  That looks like it should lose the
+   bytes still sitting in the pipe, and it does not — but only because
+   `KG_PROCESS_TICK_BUDGET` (64 KiB) is greater than or equal to the
+   default pipe capacity (64 KiB), so one poll always drains the pipe dry
+   before the reap check runs.  Two runs of a 5 MiB producer with a drain
+   between every poll delivered all 5 120 000 bytes.  **Lower the budget
+   or raise the pipe size and output starts disappearing with no
+   truncation marker.**  Left as-is with this note rather than
+   restructured; if either constant moves, adopt compile.c's condition.
+
+3. **Do not mistake the output cap for a bug.**  The same 5 MiB producer
+   polled *without* draining delivers exactly 262 165 bytes — 256 KiB plus
+   the 21-byte truncation marker.  That is `KG_PROCESS_OUTPUT_MAX` and the
+   drop-oldest policy working as specified.  A test for output fidelity
+   has to drain on every poll or it measures the cap instead.
+
+4. **Exit is published as soon as the child is reaped**, which for Phase
+   7b means an exit event can reach the queue while output events for the
+   same process are still ahead of it.  Ordering within one drain is
+   subscriber-registration order, so a sentinel registered before the
+   output-committing subscriber would run before the process's last output
+   was appended.  Emacs' contract is the other way round: the filter sees
+   everything before the sentinel fires.  **Phase 7b must flush a
+   process's remaining output before invoking its sentinel**, not rely on
+   registration order to arrange it.
+
+Separately, and not caused by this slice: `make fuzz-keypress` had been
+failing to link since Phase 2, because `src/lisp_obj.c` calls
+`win_buffer`, `win_shows_buffer`, `buf_create_named` and
+`buf_kill_buffer`, none of which `FUZZ_SRCS` provides.  `make check` does
+not build the fuzz targets, so every gate run at the time reported green
+and `.ci/ci-09` was the only thing that would have caught it.  Fixed with
+four stubs in `test/fuzz_stubs.c`, where `buf_open_file()` and
+`win_split_horizontal()` already live.  **A slice that adds a `src/*.c`
+must build the fuzz targets, not just `make check`.**
+
 ### Tasks — one commit each
 
 1. **Explicit-argv spawn** in `src/process.[ch]`.

@@ -470,8 +470,30 @@ static void test_exit_event_retried_not_dropped_under_ring_pressure(void)
 	kg_process_table_release(h);
 }
 
+/* An argv with no argv[0] is refused before the fork: execvp() would
+ * dereference the NULL name looking for it on PATH and die, turning a bad
+ * request into a child killed by SIGSEGV. */
+static void test_empty_argv_is_refused(void)
+{
+	struct kg_buffer_handle buf;
+	struct kg_process_handle h;
+	const char *argv[] = { NULL };
+	struct kg_spawn_request req = {
+		.argv = argv,
+		.nonblocking_output = true,
+		.stdin_fd = -1,
+		.stderr_to_output = true,
+	};
+
+	setup();
+	buf = buf_handle_of(bcur());
+	h = kg_process_table_spawn(&req, buf);
+	CHECK(!kg_process_table_resolves(h));
+}
+
 int main(void)
 {
+	RUN(test_empty_argv_is_refused);
 	RUN(test_generation_checked_handles);
 	RUN(test_slot_reuse_bumps_generation);
 	RUN(test_full_table_of_running_processes_refuses_spawn);

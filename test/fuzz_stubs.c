@@ -702,3 +702,36 @@ void editor_insert_file(int fd) { (void)fd; }
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
 void editor_kill_compilation(int fd) { (void)fd; }
+
+/* The buffer-manager and window-manager entry points src/lisp_obj.c reaches
+ * for.  bufmgr.c and winmgr.c are not in FUZZ_SRCS -- they would drag in
+ * fileio, display and the rest of the editor for a target whose whole input
+ * is a keypress stream -- so the four calls lisp_obj.c makes are stubbed
+ * here, the same way buf_open_file() and win_split_horizontal() above are.
+ * Answering "no such buffer, no such view" is the honest reply from a
+ * target that never opens one. */
+struct editor_buffer *win_buffer(const struct editor_window *w)
+{
+	(void)w;
+	return NULL;
+}
+
+int win_shows_buffer(
+    const struct editor_window *w, struct kg_buffer_handle handle)
+{
+	(void)w;
+	(void)handle;
+	return 0;
+}
+
+int buf_kill_buffer(struct kg_buffer_handle handle)
+{
+	(void)handle;
+	return 0;
+}
+
+struct kg_buffer_handle buf_create_named(const char *name)
+{
+	(void)name;
+	return (struct kg_buffer_handle) { 0 };
+}

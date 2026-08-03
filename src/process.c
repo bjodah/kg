@@ -74,7 +74,11 @@ int kg_pipe_cloexec(int fds[2])
 	close(p[0]);
 	close(p[1]);
 
-	execl("/bin/sh", "sh", "-c", req->command, (char *)NULL);
+	if (req->argv) {
+		execvp(req->argv[0], (char *const *)req->argv);
+	} else {
+		execl("/bin/sh", "sh", "-c", req->command, (char *)NULL);
+	}
 	_exit(127);
 }
 
@@ -83,6 +87,14 @@ int kg_process_spawn(
 {
 	int p[2];
 	pid_t pid;
+
+	/* Exactly one of argv/command is honoured, argv first; both set is a
+	 * caller bug, refused before the pipe or the fork rather than
+	 * guessed at. */
+	if (req->argv && req->command) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	if (kg_pipe_cloexec(p) < 0) {
 		return -1;

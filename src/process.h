@@ -1,18 +1,29 @@
 #ifndef KG_PROCESS_H
 #define KG_PROCESS_H
 
-/* Child processes kg starts on the user's behalf.  Every one of them is a
- * `/bin/sh -c` command whose output kg reads from a pipe: M-x compile
- * streams it into *compilation*, M-! and M-| collect it.  This module owns
- * the parts that are the same either way -- the CLOEXEC pipe, the fork, the
- * process group, the redirections, and reaping -- and nothing about how the
- * output is read, which is what actually differs between the callers. */
+/* Child processes kg starts on the user's behalf.  Most are a `/bin/sh -c`
+ * command whose output kg reads from a pipe: M-x compile streams it into
+ * *compilation*, M-! and M-| collect it.  A caller that already has an
+ * argv (a Lisp `start-process`, not yet `start-shell-command`) may exec it
+ * directly instead, with no shell in between.  This module owns the parts
+ * that are the same either way -- the CLOEXEC pipe, the fork, the process
+ * group, the redirections, and reaping -- and nothing about how the output
+ * is read, which is what actually differs between the callers. */
 
 #include <sys/types.h>
 
 struct kg_spawn_request {
-	/* Passed to /bin/sh -c, so the user's pipes and redirects work. */
+	/* Passed to /bin/sh -c, so the user's pipes and redirects work.
+	 * Ignored when `argv` is set. */
 	const char *command;
+	/* Explicit argv, NULL-terminated, or NULL to use `command`.  When
+	 * this is set the child is exec'd directly (via execvp(), so PATH
+	 * is searched but nothing else is): no shell, so no word splitting,
+	 * globbing, redirection or substitution can happen to an argument a
+	 * caller passed as one string.  A request with both `argv` and
+	 * `command` set is a caller bug and is refused by kg_process_spawn()
+	 * rather than guessed at. */
+	const char *const *argv;
 	/* chdir() here before exec, or NULL to inherit kg's directory. */
 	const char *directory;
 	/* The child's stdin: a descriptor to dup, or -1 for /dev/null. */
@@ -21,12 +32,17 @@ struct kg_spawn_request {
 	bool stderr_to_output;
 	/* O_NONBLOCK on the read end the caller gets back. */
 	bool nonblocking_output;
+	/* The child leads its own process group, so a signal reaches the
+	 * command's own children too.  Already the behaviour; named here
+	 * because delete-process depends on it. */
 };
 
-/* Start `req->command`.  On success returns 0, stores the child's pid and
- * the read end of its output pipe, and the child is a process group leader
- * whose id is that pid -- so kg_process_signal_group() reaches the command's
- * own children too.  Returns -1 with errno set from pipe() or fork().
+/* Start `req->command`, or `req->argv` when it is set (see its comment).
+ * On success returns 0, stores the child's pid and the read end of its
+ * output pipe, and the child is a process group leader whose id is that pid
+ * -- so kg_process_signal_group() reaches the command's own children too.
+ * Returns -1 with errno set: from pipe() or fork(), or EINVAL when `req`
+ * sets both `argv` and `command`, checked before either fork or pipe.
  *
  * Every other descriptor kg holds must already be CLOEXEC: the child is
  * exec'd immediately and closes only the fds named here. */

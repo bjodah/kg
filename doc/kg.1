@@ -77,12 +77,53 @@ On a load error the labelled diagnostic is shown in the status area and
 forms evaluated before the error remain applied.
 Init files and packages are trusted code: they run with the full
 privileges of the editor process.
+This is not a sandbox; see
+.Pa doc/lisp-api.md
+for the full reference (object lifetimes, position units, callback
+ordering, error handling) behind this section's narrative tour.
 Packages load explicitly with
 .Li (load "name") ,
 which resolves a bare name to
 .Pa <config>/kg/lisp/name.fe
 and treats names containing a slash as literal paths.
-Loading a file twice evaluates it twice.
+Loading a file twice with
+.Li load
+evaluates it twice;
+.Li (require FEATURE &optional FILENAME)
+loads at most once, a no-op when
+.Li (provide FEATURE)
+has already run, and errors ("cyclic require") when re-entered for a
+feature already mid-load.
+.Li (featurep FEATURE)
+asks without loading.
+.Li require
+resolves
+.Li FILENAME
+(or
+.Li FEATURE Ns 's
+own name) through
+.Li load-path ,
+a bounded array of directories \(em not a Fe list \(em defaulting to one
+entry,
+.Pa <config>/kg/lisp/ ,
+searched in order, first match wins;
+.Li (add-to-load-path DIR)
+prepends a directory so it is searched first.
+.Pa lisp/auto-fill.fe
+is a worked package: it
+.Li provide Ns s
+.Sq auto-fill ,
+and
+.Li (auto-fill-mode)
+after
+.Li (require 'auto-fill)
+breaks lines at
+.Li fill-column
+as they are typed past it, via
+.Li after-change-functions
+and one
+.Li replace-region
+call per break.
 .Pp
 Lisp code defines interactive commands the way Emacs does, with
 .Li defun
@@ -241,6 +282,15 @@ and
 .Li after-save-hook .
 There is deliberately no
 .Li post-command-hook .
+.Li FN
+must be an evaluated function value, not a quoted symbol:
+.Li (add-hook 'my-hook my-fn) ,
+not
+.Li (add-hook 'my-hook 'my-fn) .
+.Li add-hook
+accepts a symbol without resolving it, so the quoted form registers
+without error and fails only the first time the hook runs, with
+"tried to call non-callable value".
 .Pp
 .Nm
 tracks up to 8 child processes at once, started from Lisp with

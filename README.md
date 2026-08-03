@@ -210,10 +210,30 @@ remain applied.
 
 Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.fe` and treats names containing `/` as
-literal paths. Packages may load other packages; loading a file twice
-evaluates it twice (there is no require/provide). Init files and packages are
-trusted code with the full privileges of the editor process, bounded only by
-the evaluation step budget and `C-g` cancellation.
+literal paths. Packages may load other packages; loading a file twice with
+`load` evaluates it twice. Init files and packages are trusted code with the
+full privileges of the editor process, bounded only by the evaluation step
+budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**
+`doc/lisp-api.md` is the full reference (object lifetimes, position units,
+callback ordering, error handling); this section is the narrative tour.
+
+`require`/`provide`/`featurep` give a package a way to load at most once:
+
+| Form | Result |
+| ---- | ------ |
+| `(provide FEATURE)` | Register `FEATURE` (a symbol or string) as loaded; returns `FEATURE` |
+| `(require FEATURE &optional FILENAME)` | No-op if `FEATURE` is already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` and evaluates it, erroring if the feature is still not provided afterward |
+| `(featurep FEATURE)` | `t`/`nil`, without loading anything |
+| `(add-to-load-path DIR)` | Prepend `DIR` to the bounded load-path (searched before every directory already in it) |
+
+`load-path` defaults to one entry, `<config>/kg/lisp/`, and is a bounded
+C-side array rather than a Fe list a package could `(push ...)` onto directly
+— `add-to-load-path` is the mutator. `require` re-entered for a feature
+already mid-load is a "cyclic require" error naming it, independent of
+`load`'s own nesting depth limit. `lisp/auto-fill.fe` is a worked package
+using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
+at `fill-column` as they are typed past it, using `after-change-functions`
+and one `replace-region` call per break (one undo step).
 
 Buffer positions use Emacs' convention: a position is a 1-based codepoint
 offset, so `(point-min)` is 1, `(point-max)` is one past the last character,
@@ -307,6 +327,13 @@ start, end and the replaced length), `find-file-hook`, `before-save-hook`
 and `after-save-hook`. There is deliberately no `post-command-hook`: its
 per-keystroke cost has not been measured. A hook that is added twice runs
 twice, and a hook list holds at most 16 functions.
+
+`FN` has to be an evaluated function value, not a quoted symbol: `(add-hook
+'my-hook my-fn)`, not `(add-hook 'my-hook 'my-fn)`. `add-hook` accepts a
+symbol without resolving it, so the quoted form registers successfully and
+fails only the first time the hook runs, with "tried to call non-callable
+value" — Emacs muscle memory gets this backwards, since Emacs *does* resolve
+a quoted hook-function symbol through its function cell at call time.
 
 kg tracks up to 8 child processes at once, started from Lisp:
 
@@ -438,6 +465,8 @@ first surprise:
 
 - `=` is assignment, not numeric comparison — use `setq` to assign and `eq`
   or `is` to compare.
+- There is no `>` or `>=`; Fe defines `<` and `<=` only, so write `(> a b)`
+  as `(< b a)` (`lisp/auto-fill.fe` does this throughout).
 - `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
   Emacs says `nil`. Only pairs are compared by identity.
 - Every number is a double, and there is no character type: write

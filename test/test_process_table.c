@@ -225,7 +225,8 @@ static void test_spawn_reclaims_oldest_published_finished_entry(void)
 	CHECK(reclaimer.slot == handles[0].slot);
 	CHECK(!kg_process_table_resolves(handles[0]));
 	for (int i = 1; i < KG_PROCESS_TABLE_MAX; i++) {
-		CHECKF(kg_process_table_resolves(handles[i]), "slot %d kept", i);
+		CHECKF(
+		    kg_process_table_resolves(handles[i]), "slot %d kept", i);
 	}
 
 	kg_process_table_shutdown();
@@ -259,8 +260,8 @@ static void test_status_decoding_signal(void)
 	struct kg_buffer_handle buf;
 	struct kg_process_handle h;
 	struct kg_process_table_info info;
-	static const char *const argv[] = { "/bin/sh", "-c", "kill -TERM $$",
-		NULL };
+	static const char *const argv[]
+	    = { "/bin/sh", "-c", "kill -TERM $$", NULL };
 
 	setup();
 	buf = buf_handle(buf_current);
@@ -326,8 +327,7 @@ static void test_output_cap_drops_oldest_and_flags_truncation(void)
 	 * publish one OUTPUT event for the bytes already queued. */
 	res = kg_event_reserve_lifecycle();
 	CHECK(res.valid);
-	kg_event_publish_lifecycle(
-	    &res, kg_event_make_process_output(h, buf));
+	kg_event_publish_lifecycle(&res, kg_event_make_process_output(h, buf));
 
 	before_rows = bcur()->numrows;
 	kg_event_drain_safe();
@@ -358,8 +358,7 @@ static void test_output_cap_drops_oldest_and_flags_truncation(void)
 	kg_process_table_test_append_output(h, "more", 4);
 	res = kg_event_reserve_lifecycle();
 	CHECK(res.valid);
-	kg_event_publish_lifecycle(
-	    &res, kg_event_make_process_output(h, buf));
+	kg_event_publish_lifecycle(&res, kg_event_make_process_output(h, buf));
 	kg_event_drain_safe();
 
 	text = editor_rows_to_string(bcur()->row, bcur()->numrows, &len);
@@ -408,7 +407,7 @@ static void test_killed_buffer_discards_queued_output(void)
 	kg_event_publish_lifecycle(
 	    &res, kg_event_make_process_output(h, target));
 	kg_event_drain_safe(); /* must not crash, and must discard, not
-				 * write, the queued bytes */
+				* write, the queued bytes */
 
 	/* The process itself is unaffected: still tracked, and its
 	 * eventual exit still resolves once reaped. */

@@ -33,8 +33,8 @@
  * that slot holds next. */
 
 #include "bufhandle.h"
-#include "prochandle.h"
 #include "process.h"
+#include "prochandle.h"
 #include <stddef.h>
 
 /* Live processes this table tracks at once.  A finished process keeps its

@@ -32,11 +32,13 @@ struct kg_process_table_entry {
 	bool reaped;
 	struct kg_process_status wait_status;
 	struct kg_buffer_handle buffer;
-	char *output; /* KG_PROCESS_OUTPUT_MAX bytes, owned, malloc'd at spawn */
+	char
+	    *output; /* KG_PROCESS_OUTPUT_MAX bytes, owned, malloc'd at spawn */
 	size_t output_len;
-	bool output_truncated; /* oldest bytes dropped since the last delivery */
+	bool
+	    output_truncated; /* oldest bytes dropped since the last delivery */
 	bool exit_needs_publish; /* reaped, but KG_EVENT_PROCESS_EXIT is not
-				   * yet queued -- retried every poll */
+				  * yet queued -- retried every poll */
 	uint64_t finish_seq; /* set when reaped; orders reclaim eligibility */
 };
 

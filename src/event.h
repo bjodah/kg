@@ -27,13 +27,12 @@
  *     overflow summary -- precision is what queue pressure may cost a
  *     text edit, never the edit itself.
  *
- *   - Lifecycle events (open/kill/view/save/mode/process) reserve capacity before
- *     the transition they describe: kg_event_reserve_lifecycle() first,
- *     then kg_event_publish_lifecycle() once the transition has happened,
- *     or kg_event_release_reservation() if it did not.  A refused
- *     reservation means the caller's old state is still intact -- queue
- *     pressure may never silently drop a kill, attach or save transition
- *     no subscriber can observe.
+ *   - Lifecycle events (open/kill/view/save/mode/process) reserve capacity
+ * before the transition they describe: kg_event_reserve_lifecycle() first, then
+ * kg_event_publish_lifecycle() once the transition has happened, or
+ * kg_event_release_reservation() if it did not.  A refused reservation means
+ * the caller's old state is still intact -- queue pressure may never silently
+ * drop a kill, attach or save transition no subscriber can observe.
  *
  * Producers are wired throughout src/ (buffer.c, bufmgr.c, fileio.c,
  * syntax.c).  The rest of this header is Phase 5: a small subscriber
@@ -85,7 +84,8 @@ enum kg_event_kind {
 	KG_EVENT_BEFORE_SAVE,
 	KG_EVENT_AFTER_SAVE,
 	KG_EVENT_MODE_CHANGED,
-	KG_EVENT_PROCESS_OUTPUT, /* this process has undelivered output queued */
+	KG_EVENT_PROCESS_OUTPUT, /* this process has undelivered output queued
+				  */
 	KG_EVENT_PROCESS_EXIT, /* this process has been reaped */
 };
 

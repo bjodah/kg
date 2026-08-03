@@ -1,0 +1,41 @@
+# A handle to a released slot never resolves to whatever process claims
+# that slot next.  delete-process frees slot 0 (the first, and so far only,
+# slot claimed), and the very next spawn reclaims that same slot -- see
+# src/process_table.c's find_free_slot(), which scans from slot 0 -- with a
+# bumped generation.  The Lisp object made from the *old* handle must still
+# answer process-live-p nil even though its slot has a live successor.
+name: lisp-process-stale-handle
+filename: stale.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (let* ((b1 (get-buffer-create "s1"))
+             (p1 (start-shell-command "e1" b1 "true")))
+        (delete-process p1)
+        (setq stale-proc p1))
+      (let* ((b2 (get-buffer-create "s2"))
+             (p2 (start-shell-command "e2" b2 "true")))
+        (setq fresh-proc p2)))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "STALE-LIVE=%s FRESH-BUFFER-LIVE=%s"
+                (process-live-p stale-proc)
+                (buffer-live-p (process-buffer fresh-proc)))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: ""
+keys:
+  - C-c
+  - r
+  - C-e
+  - C-e
+  - C-c
+  - o
+expected_saved: |-
+  STALE-LIVE=nil FRESH-BUFFER-LIVE=t

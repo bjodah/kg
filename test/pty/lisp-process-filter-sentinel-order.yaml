@@ -1,0 +1,56 @@
+# Requirement (a): the filter sees every byte of a process's output before
+# its sentinel fires, even though exit is published as soon as the child is
+# reaped and can outrun a not-yet-delivered output event (see
+# process_table.c's Phase 7a notes).  Requirement (b): once a filter is
+# set, output stops landing in the process's own buffer -- the filter owns
+# it -- so process-buffer stays exactly as it started.
+name: lisp-process-filter-sentinel-order
+filename: order.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (let* ((target (get-buffer-create "proc-target"))
+             (proc (start-shell-command "e" target
+                     "echo one; echo two; echo three")))
+        (set-process-filter proc
+          (lambda (p s)
+            (with-current-buffer (get-buffer-create "proc-log")
+              (goto-char (point-max))
+              (insert s))))
+        (set-process-sentinel proc
+          (lambda (p e)
+            (with-current-buffer (get-buffer-create "proc-log")
+              (goto-char (point-max))
+              (insert (format "SENTINEL:%s" e)))))))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "LOG=[%s]TARGETLEN=%d"
+                (with-current-buffer (get-buffer-create "proc-log")
+                  (buffer-substring (point-min) (point-max)))
+                (with-current-buffer (get-buffer-create "proc-target")
+                  (- (point-max) (point-min))))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: ""
+keys:
+  - C-c
+  - r
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-c
+  - o
+expected_saved: |-
+  LOG=[one
+  two
+  three
+  SENTINEL:finished
+  ]TARGETLEN=0

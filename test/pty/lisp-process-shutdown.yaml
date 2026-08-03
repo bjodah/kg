@@ -1,0 +1,30 @@
+# kg_process_table_shutdown() is wired into editor_cleanup(), which runs
+# from atexit() before kg's process ever returns to the shell -- it kills
+# every tracked process's group and reaps what it can with a bounded wait,
+# never blocking the editor indefinitely.  This case quits kg with a still
+# -running child (a plain "sleep", so nothing here depends on the child
+# reacting to a signal) and checks that shutdown completes and kg exits
+# cleanly well inside the harness's normal timeout, rather than hanging on
+# a child that never exits on its own.  What this case cannot observe from
+# YAML alone is the *outside* proof (no zombie, no surviving process) --
+# that is what kg_process_table_shutdown()'s own bounded-wait loop and
+# test/test_process_table.c's table-level coverage stand for.
+name: lisp-process-shutdown
+filename: shutdown.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (start-shell-command "e" (get-buffer-create "longlived") "sleep 30"))
+    (global-set-key "C-c r" "run-it")
+initial: "quittest"
+keys:
+  - C-c
+  - r
+  - C-e
+expected_saved: |-
+  quittest

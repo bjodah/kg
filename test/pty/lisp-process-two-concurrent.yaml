@@ -1,0 +1,42 @@
+# Two children spawned from the same table produce their own output, both
+# get reaped, and neither's bytes land in the other's buffer -- each table
+# entry's output queue and target buffer are independent.
+name: lisp-process-two-concurrent
+filename: twoproc.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (let ((b1 (get-buffer-create "c1"))
+            (b2 (get-buffer-create "c2")))
+        (start-shell-command "e1" b1 "echo AAA")
+        (start-shell-command "e2" b2 "echo BBB")))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "1=[%s]2=[%s]"
+                (with-current-buffer (get-buffer "c1")
+                  (buffer-substring (point-min) (point-max)))
+                (with-current-buffer (get-buffer "c2")
+                  (buffer-substring (point-min) (point-max))))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: ""
+keys:
+  - C-c
+  - r
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-c
+  - o
+expected_saved: |-
+  1=[AAA
+  ]2=[BBB
+  ]

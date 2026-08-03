@@ -1,0 +1,38 @@
+# Killing a process's target buffer mid-run discards its output (nothing
+# left to append to) but leaves the process running, and its sentinel still
+# fires once it finishes -- process_table.h's "Process-buffer ownership"
+# policy.  No filter is set here, so this exercises the plain auto-append
+# drain subscriber's handling of a buffer that stopped resolving.
+name: lisp-process-killed-buffer
+filename: killedbuf.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (let* ((target (get-buffer-create "doomed"))
+             (proc (start-shell-command "e" target "sleep 0.3; echo late")))
+        (set-process-sentinel proc
+          (lambda (p e)
+            (goto-char (point-max))
+            (insert (format "SENTINEL:%s" e))))
+        (kill-buffer target)))
+    (global-set-key "C-c r" "run-it")
+initial: "start-"
+keys:
+  - C-e
+  - C-c
+  - r
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+expected_saved: |
+  start-SENTINEL:finished

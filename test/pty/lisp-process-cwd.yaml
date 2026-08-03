@@ -1,0 +1,30 @@
+# A spawned process's `directory` (src/process.h's kg_spawn_request field)
+# defaults to NULL, meaning "inherit kg's own directory" -- start-process
+# does not expose a directory argument of its own (not in the sub-plan's
+# natives table), so this pins that default rather than a caller-chosen
+# directory.  The tmux backend runs kg with the test runner's own cwd (the
+# repo root), unlike the pexpect backend's isolated temp directory, so the
+# proof reads a file that is only there because of the repo -- Makefile's
+# first line -- through a relative path the child can only resolve if it
+# started in that same directory.
+name: lisp-process-cwd
+filename: cwd.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: "marker\n"
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (start-process "e" (current-buffer) "/bin/head" "-n1" "Makefile")
+  - RET
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+expected_saved: |
+  marker
+  # Makefile for kg editor

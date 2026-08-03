@@ -1,0 +1,23 @@
+# start-process execs argv directly (no /bin/sh -c in between): shell
+# metacharacters in an argument survive as literal bytes in the child's
+# output, and no shell ever gets a chance to interpret the ";".
+name: lisp-process-argv-not-shell
+filename: argv.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (start-process "e" (current-buffer) "/bin/echo" "a; touch pwned")
+  - RET
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+expected_saved: |
+  a; touch pwned

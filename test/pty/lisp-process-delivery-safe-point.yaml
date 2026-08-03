@@ -1,0 +1,52 @@
+# Output produced while a prompt is open is delivered after the prompt
+# closes, not during it (src/event.h's kg_event_prompt_enter()/leave()):
+# mirrors test/pty/90d-compile-output-during-prompt.yaml for the Lisp
+# process table instead of compile.c's single-process state.  The process
+# targets a buffer the window never shows, so " world" landing exactly
+# where C-e left it in the *source* buffer is the proof that the prompt
+# and the edit it was holding open were undisturbed by the delivery.
+name: lisp-process-delivery-safe-point
+filename: promptproc.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (start-shell-command "e" (get-buffer-create "proclog")
+        "sleep 1; echo LATE"))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format " LOG=[%s]"
+                (with-current-buffer (get-buffer "proclog")
+                  (buffer-substring (point-min) (point-max))))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: "hello"
+keys:
+  - C-c
+  - r
+  # Hold a prompt open across the moment the child prints -- eight keys at
+  # 0.15 s is longer than the sleep, and a slower box only widens the
+  # window, never narrows it.
+  - M-x
+  - v
+  - e
+  - r
+  - s
+  - i
+  - o
+  - "n"
+  - C-g
+  - C-e
+  - " world"
+  - C-c
+  - o
+expected_saved: |-
+  hello world LOG=[LATE
+  ]
+expected_screen_contains:
+  - LATE

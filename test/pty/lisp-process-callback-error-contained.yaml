@@ -1,0 +1,58 @@
+# Requirement (c): a filter/sentinel error is reported through the status
+# line and contains to that one callback -- it must not stop other
+# subscribers, other processes, or later deliveries, and the editor must
+# still be usable afterward (the state.frame regression src/lisp_hooks.c's
+# comment warns about: getting the save/restore wrong here is what killed
+# the editor on the next error after an unrelated run-hooks).  This case
+# runs a normal after-change-functions hook first, then a process whose
+# filter deliberately raises, then a second process whose filter behaves,
+# then proves the editor is still alive by running one more Lisp form.
+# (Manually confirmed with a tmux capture mid-run: the status line reads
+# "Process filter error: void-function this-function-does-not-exist" right
+# after the raise; not asserted here because the later C-c o keystrokes
+# echo over the minibuffer before this case's one screen check runs.)
+name: lisp-process-callback-error-contained
+filename: errcontain.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.fe: |
+    (defun run-it ()
+      (interactive)
+      (add-hook 'after-change-functions (lambda (b s e l) nil))
+      (insert "x")
+      (let* ((ta (get-buffer-create "ta"))
+             (pa (start-shell-command "e" ta "echo boom")))
+        (set-process-filter pa
+          (lambda (p s) (this-function-does-not-exist s))))
+      (let* ((tb (get-buffer-create "tb"))
+             (pb (start-shell-command "e" tb "echo ok")))
+        (set-process-filter pb
+          (lambda (p s)
+            (with-current-buffer (get-buffer-create "log")
+              (goto-char (point-max))
+              (insert (format "B:%s" s)))))))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "LOG=[%s]-STILL-ALIVE"
+                (with-current-buffer (get-buffer-create "log")
+                  (buffer-substring (point-min) (point-max))))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: ""
+keys:
+  - C-c
+  - r
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-c
+  - o
+expected_saved: |-
+  xLOG=[B:ok
+  ]-STILL-ALIVE

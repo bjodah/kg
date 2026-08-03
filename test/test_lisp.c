@@ -1,6 +1,7 @@
 /* test_lisp.c - Fe interpreter lifecycle regression tests */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "../src/keybind.h"
 #include "../src/lisp.h"
 #include "test.h"
@@ -1143,6 +1144,375 @@ static void test_buffer_object_capacity(void)
 	teardown_editor();
 }
 
+/* ---- Editing natives: delete-region / replace-region ------------------ */
+
+static void test_delete_region(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	/* Order-insensitive, like buffer-substring: (delete-region 8 3)
+	 * deletes the same span as (delete-region 3 8). */
+	CHECK(eval_ok("(delete-region 8 3)"));
+	CHECK(bcur()->row[0].size == 6);
+	CHECK(memcmp(bcur()->row[0].chars, "heorld", 6) == 0);
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	CHECK(bcur()->row[0].size == 11);
+	CHECK(memcmp(bcur()->row[0].chars, "hello world", 11) == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_delete_region_utf8(void)
+{
+	setup_editor();
+	/* "caf\xC3\xA9" is 4 codepoints ('c', 'a', 'f', e-acute) in 5
+	 * bytes; deleting codepoint 4 removes both bytes of the e-acute
+	 * and nothing else. */
+	editor_insert_row(bcur(), 0, "caf\xC3\xA9", 5);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(delete-region 4 5)"));
+	CHECK(bcur()->row[0].size == 3);
+	CHECK(memcmp(bcur()->row[0].chars, "caf", 3) == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_delete_region_malformed_byte(void)
+{
+	setup_editor();
+	/* A malformed lead byte counts as one codepoint of its own (see
+	 * utf8_glyph_span_at() in def.h): "a\xFFb" is 3 codepoints in 3
+	 * bytes, and deleting codepoint 2 removes exactly the bad byte. */
+	editor_insert_row(bcur(), 0,
+	    "a\xFF"
+	    "b",
+	    3);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(delete-region 2 3)"));
+	CHECK(bcur()->row[0].size == 2);
+	CHECK(memcmp(bcur()->row[0].chars, "ab", 2) == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_delete_region_read_only_recovery(void)
+{
+	char result[128] = "";
+
+	setup_editor();
+	editor_insert_row(bcur(), 0, "original", 8);
+	bcur()->readonly = 1;
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(kg_lisp_eval_string(
+		  "(delete-region 1 4)", 20, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "buffer is read-only") != nullptr);
+	/* Refused before any partial work: not one byte moved. */
+	CHECK(bcur()->row[0].size == 8);
+	CHECK(memcmp(bcur()->row[0].chars, "original", 8) == 0);
+	CHECK(bcur()->undostack.size == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_replace_region(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(replace-region 1 6 \"goodbye\")"));
+	CHECK(bcur()->row[0].size == 13);
+	CHECK(memcmp(bcur()->row[0].chars, "goodbye world", 13) == 0);
+	/* One gateway call, one undo step -- never a delete plus an
+	 * insert. */
+	CHECK(bcur()->undostack.size == 1);
+	editor_undo();
+	CHECK(bcur()->row[0].size == 11);
+	CHECK(memcmp(bcur()->row[0].chars, "hello world", 11) == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_replace_region_read_only_recovery(void)
+{
+	char result[128] = "";
+
+	setup_editor();
+	editor_insert_row(bcur(), 0, "original", 8);
+	bcur()->readonly = 1;
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(kg_lisp_eval_string(
+		  "(replace-region 1 4 \"new\")", 27, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "buffer is read-only") != nullptr);
+	CHECK(bcur()->row[0].size == 8);
+	CHECK(memcmp(bcur()->row[0].chars, "original", 8) == 0);
+	CHECK(bcur()->undostack.size == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* kg_edit_fail_alloc_after() is the seam test_buffer.c's own
+ * refusal-is-atomic sweep uses to prove kg_buffer_replace() never
+ * publishes a partial edit; this is the thin Lisp wrapper's half of that
+ * proof, since neither native checks the gateway's return value (see
+ * native_insert(), which this follows). */
+static void test_replace_region_alloc_failure_is_atomic(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "alpha beta gamma", 17);
+	CHECK(kg_lisp_init() == 0);
+
+	kg_edit_fail_alloc_after(0);
+	CHECK(eval_ok("(replace-region 7 11 \"BETA\")"));
+	kg_edit_fail_alloc_after(-1);
+
+	CHECK(bcur()->row[0].size == 17);
+	CHECK(memcmp(bcur()->row[0].chars, "alpha beta gamma", 17) == 0);
+	CHECK(bcur()->undostack.size == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* ---- Search natives ---------------------------------------------------- */
+
+static void test_search_forward_backward(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "the cat sat on the mat", 22);
+	CHECK(kg_lisp_init() == 0);
+
+	/* search-forward moves point to the end of the match and returns
+	 * the new point, as Emacs' does. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(search-forward \"cat\")", "8"));
+	CHECK(eval_eq("(point)", "8"));
+	/* No second "cat" ahead of point: nil, and point does not move. */
+	CHECK(eval_eq("(search-forward \"cat\")", "nil"));
+	CHECK(eval_eq("(point)", "8"));
+
+	/* search-backward moves to the start of the match. */
+	CHECK(eval_ok("(goto-char (point-max))"));
+	CHECK(eval_eq("(search-backward \"at\")", "21"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_search_forward_bound(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "aaa bbb aaa", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char (point-min))"));
+	/* A bound before the second "aaa" hides it. */
+	CHECK(eval_eq("(search-forward \"aaa\" 9)", "4"));
+	CHECK(eval_eq("(search-forward \"aaa\" 9)", "nil"));
+	CHECK(eval_eq("(point)", "4"));
+	/* Without a bound the second occurrence is reachable. */
+	CHECK(eval_eq("(search-forward \"aaa\")", "12"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Fe's string reader drops a lone backslash before a non-escape character
+ * ('\n', '\r' and '\t' are the only real escapes; see Read()'s '"' case
+ * in fe.c), so a literal backslash inside a Fe string literal takes two
+ * source backslashes -- exactly like Emacs Lisp's own string syntax.
+ * `pattern` is written the way kg_regex_compile() sees it, one backslash
+ * per escape, e.g. "\\(a*\\)*b"; this doubles each of its backslashes
+ * before splicing it into `fmt`'s one %s, producing the Fe source that
+ * reads back to that same pattern -- so a test does not have to work out
+ * the double escaping by hand. */
+static void fe_regex_source(
+    char *out, size_t outsize, const char *fmt, const char *pattern)
+{
+	char quoted[200];
+	size_t i = 0, o = 0;
+
+	while (pattern[i] != '\0' && o + 2 < sizeof(quoted)) {
+		if (pattern[i] == '\\') {
+			quoted[o++] = '\\';
+		}
+		quoted[o++] = pattern[i++];
+	}
+	quoted[o] = '\0';
+	(void)snprintf(out, outsize, fmt, quoted);
+}
+
+static void test_re_search_and_match_data(void)
+{
+	char source[256];
+
+	setup_editor();
+	editor_insert_row(bcur(), 0, "foobar", 6);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char (point-min))"));
+	fe_regex_source(source, sizeof(source), "(re-search-forward \"%s\")",
+	    "\\(foo\\)bar");
+	CHECK(eval_eq(source, "7"));
+	CHECK(eval_eq("(match-beginning 0)", "1"));
+	CHECK(eval_eq("(match-end 0)", "7"));
+	CHECK(eval_eq("(match-beginning 1)", "1"));
+	CHECK(eval_eq("(match-end 1)", "4"));
+	/* Group 2 was never in the pattern. */
+	CHECK(eval_eq("(match-beginning 2)", "nil"));
+	CHECK(eval_eq("(match-end 2)", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_regex_too_complex_and_bad_pattern(void)
+{
+	char source[256];
+
+	setup_editor();
+	/* 24 "a"s with no "b": the classic catastrophic-backtracking shape
+	 * for "\(a*\)*b" trips this engine's step budget -- see
+	 * test_regex.c's test_exhausted_budget_is_not_no_match(), which
+	 * pins the exact boundary this reuses.  Too-complex is a distinct,
+	 * truthful error, never folded into "no match". */
+	editor_insert_row(bcur(), 0, "aaaaaaaaaaaaaaaaaaaaaaaa", 24);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char (point-min))"));
+	fe_regex_source(
+	    source, sizeof(source), "(re-search-forward \"%s\")", "\\(a*\\)*b");
+	CHECK(eval_error_contains(source, "too complex"));
+
+	/* An unclosed group is a bad pattern: a distinct error again, not
+	 * silently treated as "no match" either. */
+	fe_regex_source(source, sizeof(source), "(re-search-forward \"%s\")",
+	    "\\(unclosed");
+	CHECK(eval_error_contains(source, "invalid regexp"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_search_cancellation(void)
+{
+	char result[128] = "";
+	const char *source = "(search-forward \"zzz\")";
+
+	setup_editor();
+	editor_insert_row(bcur(), 0, "xxxx", 4);
+	editor_insert_row(bcur(), 1, "xxxx", 4);
+	editor_insert_row(bcur(), 2, "xxxx", 4);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(eval_ok("(goto-char (point-min))"));
+
+	/* C-g reaches a multi-row search through the same interrupt check
+	 * every long-running native polls; the row loop checks it once per
+	 * row; two non-matching rows are enough to trip a threshold of 2. */
+	interrupt_polls = 0;
+	kg_lisp_set_interrupt_check(cancel_evaluation);
+	CHECK(
+	    kg_lisp_eval_string(source, strlen(source), result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "evaluation cancelled") != nullptr);
+	kg_lisp_set_interrupt_check(nullptr);
+
+	/* Cancellation is distinct from "not found": an uninterrupted retry
+	 * reports nil, not another error. */
+	CHECK(eval_eq(source, "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* ---- Marker natives ----------------------------------------------------
+ * (make-marker) here starts at point in the exec buffer, per this
+ * sub-plan's own table -- not Emacs' make-marker, which starts detached
+ * (Emacs' point-marker is the one that starts at point).  Recorded as a
+ * naming mismatch worth revisiting in the Phase 3 notes. */
+
+static void test_markers(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char 7)"));
+	CHECK(eval_ok("(setq m (make-marker))"));
+	CHECK(eval_eq("(type-of m)", "marker"));
+	CHECK(eval_eq("(marker-position m)", "7"));
+	CHECK(eval_eq("(eq (marker-buffer m) (current-buffer))", "t"));
+	/* Unlike buffer objects, two markers are never eq. */
+	CHECK(eval_eq("(eq (make-marker) (make-marker))", "nil"));
+
+	/* An insertion strictly before the marker always pushes it
+	 * forward, whatever its gravity. */
+	CHECK(eval_ok("(goto-char 1)"));
+	CHECK(eval_ok("(insert \"XXXXX\")"));
+	CHECK(eval_eq("(marker-position m)", "12"));
+
+	/* set-marker moves the same marker object, including to a
+	 * different buffer, and returns it.  set-buffer only lasts for the
+	 * top-level form that calls it (see the struct kg_lisp_exec_ctx
+	 * comment in lisp_internal.h), so the buffer switch and the insert
+	 * it enables have to be one form. */
+	CHECK(eval_ok("(setq h (get-buffer-create \"scratch\"))"));
+	CHECK(eval_ok("(progn (set-buffer h) (insert \"abcdef\"))"));
+	CHECK(eval_eq("(eq (set-marker m 3 h) m)", "t"));
+	CHECK(eval_eq("(marker-position m)", "3"));
+	CHECK(eval_eq("(eq (marker-buffer m) h)", "t"));
+
+	/* A nil position detaches it: no position, no buffer. */
+	CHECK(eval_ok("(set-marker m nil)"));
+	CHECK(eval_eq("(marker-position m)", "nil"));
+	CHECK(eval_eq("(marker-buffer m)", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* A marker outlives the buffer it named -- not an error, unlike a dead
+ * buffer object -- and set-marker on one whose old buffer is gone still
+ * works, by simply creating a fresh underlying marker in the new
+ * buffer. */
+static void test_marker_survives_buffer_kill(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq h (get-buffer-create \"doomed\"))"));
+	/* set-buffer and make-marker have to share a form for the marker to
+	 * land in "doomed" rather than the window's own buffer -- see the
+	 * struct kg_lisp_exec_ctx comment in lisp_internal.h. */
+	CHECK(eval_ok("(progn (set-buffer h) (setq m (make-marker)))"));
+	CHECK(eval_ok("(kill-buffer h)"));
+
+	CHECK(eval_eq("(marker-position m)", "nil"));
+	CHECK(eval_eq("(marker-buffer m)", "nil"));
+
+	CHECK(eval_ok("(set-marker m 1)"));
+	CHECK(eval_eq("(marker-position m)", "1"));
+	CHECK(eval_eq("(eq (marker-buffer m) (current-buffer))", "t"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Indices count codepoints, so "héllo" is 5 characters in 6 bytes and
  * "漢字" is 2 characters in 6 bytes. */
 static void test_string_length_and_substring(void)
@@ -1826,6 +2196,93 @@ static void test_recursion_depth(void)
 	kg_lisp_shutdown();
 }
 
+static void test_save_excursion(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	/* 1. Body moves point, after return point is restored. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 1) (save-excursion (goto-char 7)) (point))",
+	    "1"));
+
+	/* 2. Body errors, point is restored. */
+	CHECK(eval_ok("(goto-char 3)"));
+	CHECK(eval_error_contains(
+	    "(save-excursion (goto-char 8) (car 1))", "expected pair"));
+	CHECK(eval_eq("(point)", "3"));
+
+	/* 3. Body inserts before saved point, restoration follows the marker.
+	 */
+	CHECK(eval_ok("(goto-char 7)"));
+	CHECK(eval_ok("(save-excursion (goto-char 1) (insert \"prefix \"))"));
+	CHECK(eval_eq("(point)", "14"));
+
+	/* 4. Body attempts to kill buffer (fails because modified). */
+	CHECK(eval_error_contains(
+	    "(save-excursion (kill-buffer (get-buffer \"bridge.txt\")))",
+	    "modified"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_with_current_buffer(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "main buffer", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq b2 (get-buffer-create \"buf2\"))"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	/* 1. Body operates on non-displayed buffer, displayed window unchanged.
+	 */
+	CHECK(eval_ok("(with-current-buffer b2 (insert \"hidden content\"))"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+	CHECK(eval_eq("(with-current-buffer b2 (buffer-substring 1 15))",
+	    "hidden content"));
+
+	/* 2. Body errors, context is restored. */
+	CHECK(eval_error_contains(
+	    "(with-current-buffer b2 (car 1))", "expected pair"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	/* 3. Buffer argument is dead/stale, error before body runs. */
+	/* Note: buf2 is dirty after insert, so kill-buffer with optional buffer
+	 * obj works or we clean it first */
+	CHECK(eval_ok("(setq b3 (get-buffer-create \"buf3\"))"));
+	CHECK(eval_ok("(kill-buffer b3)"));
+	CHECK(eval_error_contains(
+	    "(with-current-buffer b3 (insert \"hi\"))", "buffer is dead"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_hooks(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(= hook-ran nil)"));
+	CHECK(eval_ok("(defun my-hook () (= hook-ran t))"));
+	CHECK(eval_ok("(add-hook 'before-save-hook my-hook)"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "t"));
+
+	/* remove-hook */
+	CHECK(eval_ok("(= hook-ran nil)"));
+	CHECK(eval_ok("(remove-hook 'before-save-hook my-hook)"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 int main(void)
 {
 	if (!kg_lisp_active()) {
@@ -1867,6 +2324,23 @@ int main(void)
 	RUN(test_hidden_buffer_point_persists_across_frames);
 	RUN(test_frame_entry_overwrites_from_window_cursor);
 	RUN(test_buffer_object_capacity);
+	RUN(test_delete_region);
+	RUN(test_delete_region_utf8);
+	RUN(test_delete_region_malformed_byte);
+	RUN(test_delete_region_read_only_recovery);
+	RUN(test_replace_region);
+	RUN(test_replace_region_read_only_recovery);
+	RUN(test_replace_region_alloc_failure_is_atomic);
+	RUN(test_search_forward_backward);
+	RUN(test_search_forward_bound);
+	RUN(test_re_search_and_match_data);
+	RUN(test_regex_too_complex_and_bad_pattern);
+	RUN(test_search_cancellation);
+	RUN(test_markers);
+	RUN(test_marker_survives_buffer_kill);
+	RUN(test_save_excursion);
+	RUN(test_with_current_buffer);
+	RUN(test_hooks);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_format_natives);

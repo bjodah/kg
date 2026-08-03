@@ -1,0 +1,40 @@
+# save-excursion / with-current-buffer unwind forms:
+# save-excursion restores point after an edit inside its body, and
+# with-current-buffer edits a non-displayed buffer without moving point or
+# selecting a window.
+name: lisp-unwind-protect
+filename: unwind-test.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun unwind-test ()
+      (interactive)
+      (setq target (get-buffer-create "hidden-target"))
+      (with-current-buffer target
+        (insert "hidden text"))
+      (goto-char 1)
+      (save-excursion
+        (goto-char 6)
+        (insert " BEAUTIFUL"))
+      (insert "START "))
+initial: |-
+  hello world
+keys:
+  - C-c
+  - u
+config_files:
+  .config/kg/init.fe: |
+    (defun unwind-test ()
+      (interactive)
+      (setq target (get-buffer-create "hidden-target"))
+      (with-current-buffer target
+        (insert "hidden text"))
+      (goto-char 1)
+      (save-excursion
+        (goto-char 6)
+        (insert " BEAUTIFUL"))
+      (insert "START "))
+    (global-set-key "C-c u" "unwind-test")
+expected_saved: |-
+  START hello BEAUTIFUL world
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

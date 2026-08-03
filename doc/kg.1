@@ -181,6 +181,68 @@ and
 .Li backward-word ,
 which drive them, remain ASCII-only.
 .Pp
+Editing and search go through the same gateway every command does, so each
+of these is one undo step:
+.Li (delete-region START END) ,
+.Li (replace-region START END TEXT) ,
+.Li (search-forward STRING &optional BOUND) ,
+.Li (search-backward STRING &optional BOUND) ,
+.Li (re-search-forward PATTERN &optional BOUND) ,
+.Li (re-search-backward PATTERN &optional BOUND) ,
+.Li (match-beginning N) ,
+.Li (match-end N) ,
+.Li (make-marker) ,
+.Li (set-marker MARKER POS &optional BUF)
+and
+.Li (marker-position MARKER) / (marker-buffer MARKER) .
+None of the search natives wrap around the buffer the way
+.Ic C-s / C-r
+do, none fold case, and a match cannot span two lines.
+.Li re-search-backward Ns 's
+notion of the match in a line holding more than one is not Emacs' bounded
+backward search; see
+.Pa src/lisp_search.c
+for the exact rule.
+Match data (what
+.Li match-beginning
+and
+.Li match-end
+read) outlives the search that set it, the same way point outlives a
+.Li goto-char ,
+but
+.Li set-buffer
+lasts only for the top-level form that calls it: the next command starts
+again in the window's buffer, and
+.Li with-current-buffer
+is how to scope it explicitly.
+Point belongs to the buffer rather than to the running form, so a buffer
+remembers where Lisp left point in it even while no window shows it; only
+the buffer the form started in is synchronised back to the window, and
+only when the form returns without an error.
+.Pp
+.Li (save-excursion BODY...)
+and
+.Li (with-current-buffer BUF BODY...)
+restore what they saved on every exit, including an error or
+.Ic C-g .
+.Pp
+.Li (add-hook 'HOOK FN &optional LOCAL) ,
+.Li (remove-hook 'HOOK FN)
+and
+.Li (run-hooks 'HOOK)
+manage hooks, which run at a safe point after the event rather than inside
+the edit that caused it; one failing hook neither stops the others nor
+disturbs the form that was running.
+The hooks that exist are
+.Li after-change-functions ,
+.Li find-file-hook ,
+.Li before-save-hook
+and
+.Li after-save-hook .
+There is deliberately no
+.Li post-command-hook .
+.Pp
+.Pp
 Upstream fe has no string operations; the string natives are provided by
 .Nm
 itself, as is the prelude written in Fe and evaluated at startup.

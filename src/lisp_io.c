@@ -252,6 +252,85 @@ FeObject *native_insert(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
+/* Byte range [*beg, *end) of `b` spanned by two 1-based position
+ * arguments, order-insensitive like buffer-substring and Emacs' own
+ * delete-region. */
+static void lisp_region_arguments(FeContext *context, struct editor_buffer *b,
+    FeObject *beg_object, FeObject *end_object, size_t *beg, size_t *end)
+{
+	long beg_off = lisp_offset_argument(context, b, beg_object);
+	long end_off = lisp_offset_argument(context, b, end_object);
+
+	if (beg_off > end_off) {
+		long swap = beg_off;
+
+		beg_off = end_off;
+		end_off = swap;
+	}
+	*beg = lisp_byte_of_char_offset(b, beg_off);
+	*end = lisp_byte_of_char_offset(b, end_off);
+}
+
+/* (delete-region START END): the region becomes empty, as one gateway
+ * call and therefore one undo step.  Positions are 1-based codepoints and
+ * order-insensitive, like Emacs'.  Read-only is checked here rather than
+ * left to the gateway's silent refusal, so the error names what
+ * happened -- the same choice native_insert above already made, and this
+ * follows it for consistency rather than routing through a command
+ * descriptor's CMD_EDITS_BUFFER: a native is not a command, and nothing
+ * calls it through cmd_invoke(). */
+FeObject *native_delete_region(FeContext *context, FeObject *arguments)
+{
+	FeObject *beg_object = FeGetNextArgument(context, &arguments);
+	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t beg, end;
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region_arguments(context, b, beg_object, end_object, &beg, &end);
+	if (b->readonly) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (end != beg) {
+		struct kg_edit edit = kg_edit_user(b, beg, end, "", 0);
+
+		(void)kg_buffer_replace(&edit, NULL);
+	}
+	return FeNil(context);
+}
+
+/* (replace-region START END TEXT): the region becomes TEXT, as one
+ * gateway call and therefore one undo step -- never a delete followed by
+ * an insert, which the caller could already write and would cost two. */
+FeObject *native_replace_region(FeContext *context, FeObject *arguments)
+{
+	FeObject *beg_object = FeGetNextArgument(context, &arguments);
+	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	FeObject *text_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t beg, end, length;
+	char *text;
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region_arguments(context, b, beg_object, end_object, &beg, &end);
+	text = copy_fe_string(context, text_object, &length);
+	if (b->readonly) {
+		free(text);
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (length > INT_MAX) {
+		free(text);
+		FeHandleError(context, "string is too large to insert");
+	}
+	if (end != beg || length != 0) {
+		struct kg_edit edit = kg_edit_user(b, beg, end, text, length);
+
+		(void)kg_buffer_replace(&edit, NULL);
+	}
+	free(text);
+	return FeNil(context);
+}
+
 /* (buffer-name [buf]): the display name of the exec buffer, or of the
  * buffer object `arguments` names.  Extracted so the native body has no
  * branches of its own. */

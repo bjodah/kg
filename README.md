@@ -250,6 +250,64 @@ after a word still belongs to that word, and point between two words yields
 so it includes the line break; on the last line it ends at `(point-max)`.
 Any other symbol is an error rather than a silent `nil`.
 
+Editing and search go through the same gateway every command does, so each
+call below is one undo step:
+
+| Form | Result |
+| ---- | ------ |
+| `(delete-region START END)` | Delete the region; positions in either order |
+| `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit |
+| `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
+| `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match's start, or `nil` |
+| `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; an error on a bad or too-complex pattern |
+| `(re-search-backward PATTERN &optional BOUND)` | Regexp search backward; see the caveat below |
+| `(match-beginning N)` / `(match-end N)` | Group `N`'s bounds from the last search, or `nil` |
+| `(make-marker)` | A marker at point in the current buffer |
+| `(set-marker MARKER POS &optional BUF)` | Move `MARKER`; `POS` nil detaches it |
+| `(marker-position MARKER)` / `(marker-buffer MARKER)` | Where `MARKER` points, or `nil` if nowhere |
+
+None of the search natives wrap around the buffer, unlike `C-s`/`C-r`, and
+none of them fold case. A match cannot span two lines, the same limit
+incremental search has. `re-search-backward`'s notion of "the match" in a
+line that holds more than one is not Emacs' bounded backward search — see
+`src/lisp_search.c` for the exact rule. Search and `match-beginning`/
+`match-end` are separate top-level operations only in the sense that match
+data outlives the search that set it, the same way point outlives a
+`goto-char`. `set-buffer`, by contrast, lasts only for the top-level form
+that calls it: the next command starts again in the window's buffer. Use
+`with-current-buffer` to scope it explicitly.
+
+Point is a property of the buffer rather than of the running form, so a
+buffer remembers where Lisp left point in it even while no window shows
+it. Only the buffer the form started in is synchronised back to the
+window, and only when the form returns without an error — work in a
+buffer no window displays never moves a displayed cursor.
+
+These forms restore what they saved on every exit, including an error or
+`C-g`, because Fe now has real cleanup records behind them:
+
+| Form | Result |
+| ---- | ------ |
+| `(save-excursion BODY...)` | Restores point and the current buffer afterwards |
+| `(with-current-buffer BUF BODY...)` | Evaluates `BODY` with `BUF` current, then restores; never selects a window |
+
+Hooks let Lisp run when the editor does something. Callbacks run at a safe
+point after the event, never in the middle of the edit that caused it, and
+one failing hook neither stops the others nor disturbs the form that was
+running:
+
+| Form | Result |
+| ---- | ------ |
+| `(add-hook 'HOOK FN &optional LOCAL)` | Add `FN`; `LOCAL` restricts it to the current buffer |
+| `(remove-hook 'HOOK FN)` | Remove `FN` from `HOOK` |
+| `(run-hooks 'HOOK)` | Run `HOOK`'s functions now |
+
+The hooks that exist are `after-change-functions` (called with buffer,
+start, end and the replaced length), `find-file-hook`, `before-save-hook`
+and `after-save-hook`. There is deliberately no `post-command-hook`: its
+per-keystroke cost has not been measured. A hook that is added twice runs
+twice, and a hook list holds at most 16 functions.
+
 Its word constituents include every codepoint from U+0080 up, so `héllo` and
 `漢字` come back whole. This is the one place that is true: the interactive
 word commands (`M-f`, `M-b`, `M-@`, `M-d`, `M-t`) are ASCII-only and stop at

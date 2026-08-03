@@ -42,7 +42,7 @@ long lisp_char_offset_of(const struct editor_buffer *b, size_t byte)
 
 /* (row, byte column) of 0-based codepoint offset `off` in `b`, clamped to
  * the buffer the way editor_offset_to_rowcol() clamps for bcur(). */
-static void lisp_rowcol_of_char_offset(
+void lisp_rowcol_of_char_offset(
     const struct editor_buffer *b, long off, int *row, int *col)
 {
 	int i;
@@ -67,7 +67,7 @@ static void lisp_rowcol_of_char_offset(
 	}
 }
 
-static size_t lisp_byte_of_char_offset(const struct editor_buffer *b, long off)
+size_t lisp_byte_of_char_offset(const struct editor_buffer *b, long off)
 {
 	int row, col;
 
@@ -122,7 +122,7 @@ FeDouble lisp_finite(FeContext *context, FeObject *object)
 
 /* Clamp a 1-based position argument to [point-min, point-max] of `b` and
  * return the 0-based offset the buffer helpers expect. */
-static long lisp_offset_argument(
+long lisp_offset_argument(
     FeContext *context, const struct editor_buffer *b, FeObject *object)
 {
 	FeDouble value = lisp_finite(context, object);
@@ -497,4 +497,84 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
 	}
 	lisp_rowcol_of_char_offset(b, offset, &row, &col);
 	return FeMakeDouble(context, (FeDouble)lisp_char_at(b, row, col));
+}
+
+struct save_excursion_data {
+	struct kg_buffer_handle saved_buffer;
+	struct kg_marker_handle saved_point_marker;
+};
+
+static void cleanup_save_excursion(FeContext *ctx, void *ptr)
+{
+	struct save_excursion_data *data = ptr;
+	struct editor_buffer *b = buf_resolve(data->saved_buffer);
+
+	if (b != NULL) {
+		size_t pos;
+		lisp_exec_set_buffer(ctx, b);
+		if (kg_marker_resolve(data->saved_point_marker, &pos)
+		    == KG_MARKER_OK) {
+			(void)kg_marker_set_position(
+			    lisp_exec_point_marker(), pos);
+		}
+	}
+	kg_marker_delete(data->saved_point_marker);
+	free(data);
+}
+
+FeObject *native_save_excursion(FeContext *context, FeObject *arguments)
+{
+	FeObject *fn = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	struct save_excursion_data *data;
+	size_t byte_pos = lisp_exec_point_byte(context);
+
+	FeRequireNoArguments(context, arguments);
+	data = malloc(sizeof(*data));
+	if (data == NULL) {
+		FeHandleError(context, "out of memory");
+	}
+	data->saved_buffer = state.exec.buffer;
+	data->saved_point_marker
+	    = kg_marker_create(b, byte_pos, KG_MARKER_GRAV_RIGHT);
+	if (data->saved_point_marker.id == 0) {
+		free(data);
+		FeHandleError(context, "out of memory");
+	}
+	FeProtectWithCleanup(context, cleanup_save_excursion, data);
+	return FeCall(context, fn, NULL, 0);
+}
+
+struct with_current_buffer_data {
+	struct kg_buffer_handle saved_buffer;
+};
+
+static void cleanup_with_current_buffer(FeContext *ctx, void *ptr)
+{
+	struct with_current_buffer_data *data = ptr;
+	struct editor_buffer *b = buf_resolve(data->saved_buffer);
+
+	if (b != NULL) {
+		lisp_exec_set_buffer(ctx, b);
+	}
+	free(data);
+}
+
+FeObject *native_with_current_buffer(FeContext *context, FeObject *arguments)
+{
+	FeObject *buf_obj = FeGetNextArgument(context, &arguments);
+	FeObject *fn = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *target_b;
+	struct with_current_buffer_data *data;
+
+	FeRequireNoArguments(context, arguments);
+	target_b = lisp_buffer_resolve(context, buf_obj, "with-current-buffer");
+	data = malloc(sizeof(*data));
+	if (data == NULL) {
+		FeHandleError(context, "out of memory");
+	}
+	data->saved_buffer = state.exec.buffer;
+	FeProtectWithCleanup(context, cleanup_with_current_buffer, data);
+	lisp_exec_set_buffer(context, target_b);
+	return FeCall(context, fn, NULL, 0);
 }

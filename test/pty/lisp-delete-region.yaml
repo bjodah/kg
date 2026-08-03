@@ -1,0 +1,17 @@
+# (delete-region START END): positions are 1-based codepoints and
+# order-insensitive, like buffer-substring; the region becomes empty as
+# one gateway call.
+name: lisp-delete-region
+filename: lisp-delete-region.txt
+requires_feature: lisp
+initial: |-
+  hello world
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (delete-region 6 12)
+  - RET
+expected_saved: |-
+  hello
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

@@ -1,0 +1,25 @@
+# make-marker/set-marker/marker-position: a marker relocates through an
+# edit that lands before it, and (goto-char (marker-position m)) still
+# addresses the same logical text afterwards.
+name: lisp-marker
+filename: lisp-marker.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun marker-test ()
+      (interactive)
+      (goto-char 7)
+      (setq m (make-marker))
+      (goto-char 1)
+      (insert "XXXXX")
+      (goto-char (marker-position m))
+      (insert "|"))
+    (global-set-key "C-c t" "marker-test")
+initial: |-
+  hello world
+keys:
+  - C-c
+  - t
+expected_saved: |-
+  XXXXXhello |world
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

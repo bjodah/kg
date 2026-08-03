@@ -14,13 +14,15 @@
  * predicates need the real type tag.  `type_names` and `FeGetType` are
  * both public, so this stays kg-side. */
 
-/* The type name a value answers to: "buffer" for an adapter-owned editor
- * object, otherwise the Fe tag's own spelling. */
+/* The type name a value answers to: "buffer" or "marker" for an
+ * adapter-owned editor object, otherwise the Fe tag's own spelling. */
 static const char *lisp_type_name(FeContext *context, FeObject *object)
 {
-	(void)context;
-	if (lisp_object_is_buffer(object)) {
+	if (lisp_object_is_buffer(context, object)) {
 		return "buffer";
+	}
+	if (lisp_object_is_marker(context, object)) {
+		return "marker";
 	}
 	return type_names[FeGetType(object)];
 }

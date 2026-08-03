@@ -1,0 +1,17 @@
+# (replace-region START END TEXT): the region becomes TEXT as one gateway
+# call -- never a delete followed by an insert, which would be two undo
+# steps instead of one.
+name: lisp-replace-region
+filename: lisp-replace-region.txt
+requires_feature: lisp
+initial: |-
+  hello world
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (replace-region 1 6 "goodbye")
+  - RET
+expected_saved: |-
+  goodbye world
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

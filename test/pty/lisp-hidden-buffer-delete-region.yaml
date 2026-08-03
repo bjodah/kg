@@ -1,0 +1,32 @@
+# delete-region on a buffer no window shows leaves the displayed window's
+# point alone, exactly like insert (see lisp-hidden-buffer-edit.yaml).
+#
+# The command inserts "xyzXYZ" into a hidden buffer, deletes the "XYZ"
+# half with delete-region, reads the survivor back, then only afterwards
+# inserts into the display buffer.  If the hidden work had moved the
+# displayed point, the "!xyz" would land somewhere else in the saved file.
+name: lisp-hidden-buffer-delete-region
+filename: lisp-hidden-delete.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun edit-hidden ()
+      (interactive)
+      (let ((h (get-buffer-create "scratch")))
+        (set-buffer h)
+        (insert "xyzXYZ")
+        (delete-region 4 7)
+        (let ((text (buffer-substring (point-min) (point-max))))
+          (set-buffer (get-buffer "lisp-hidden-delete.txt"))
+          (insert (concat "!" text)))))
+    (global-set-key "C-c h" "edit-hidden")
+initial: |
+  abc
+keys:
+  - C-c
+  - h
+expected_saved: |
+  !xyzabc
+expected_screen_not_contains:
+  - "XYZ"
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

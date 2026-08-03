@@ -1,0 +1,19 @@
+# delete-region refuses a read-only buffer before any partial work: the
+# error names what happened (matching insert's own "buffer is read-only"),
+# and the buffer is byte-identical to what it was.
+name: lisp-delete-region-readonly
+filename: lisp-delete-region-readonly.txt
+args:
+  - -R
+requires_feature: lisp
+backend: tmux
+initial: unchanged
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (delete-region 1 3)
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - read-only

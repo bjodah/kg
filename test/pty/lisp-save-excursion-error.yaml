@@ -1,0 +1,24 @@
+# save-excursion restores point even when the body form signals an error.
+name: lisp-save-excursion-error
+filename: save-excursion-error.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun unwind-err-test ()
+      (interactive)
+      (goto-char 1)
+      (unwind-protect
+        (save-excursion
+          (goto-char 6)
+          (insert " MOVED")
+          (car 123))
+        (insert "FINISHED ")))
+    (global-set-key "C-c e" "unwind-err-test")
+initial: |-
+  hello world
+keys:
+  - C-c
+  - e
+expected_saved: |-
+  FINISHED hello MOVED world
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

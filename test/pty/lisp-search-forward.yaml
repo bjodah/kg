@@ -1,0 +1,25 @@
+# re-search-forward finds a regex match and moves point to its end;
+# match-beginning reads a capture group's start back out of the runtime
+# execution context's match data.
+name: lisp-search-forward
+filename: lisp-search.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.fe: |
+    (defun mark-match ()
+      (interactive)
+      (goto-char (point-min))
+      (if (re-search-forward "\\(bro\\)wn")
+          (progn
+            (goto-char (match-beginning 1))
+            (insert "["))
+        (insert "NOMATCH")))
+    (global-set-key "C-c m" "mark-match")
+initial: |-
+  the quick brown fox
+keys:
+  - C-c
+  - m
+expected_saved: |-
+  the quick [brown fox
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

@@ -89,9 +89,35 @@ struct FeObject *lisp_buffer_object(
 	return rec->wrapper;
 }
 
-bool lisp_object_is_buffer(struct FeObject *obj)
+/* The pool record `obj` wraps, or NULL when `obj` is not a live adapter
+ * object of `kind`: not a fex0 at all, the record is inactive or belongs
+ * to a different wrapper, or it is a live object of some *other* kind --
+ * a marker handed to a buffer-only native is exactly as much a type
+ * error as a string would be. */
+static struct kg_lisp_object *lisp_object_peek(
+    struct FeContext *ctx, struct FeObject *obj, enum kg_lisp_object_kind kind)
 {
-	return obj != NULL && FeGetType(obj) == FeTFex0;
+	struct kg_lisp_object *rec;
+
+	if (obj == NULL || FeGetType(obj) != FeTFex0) {
+		return NULL;
+	}
+	rec = FeToPtr(ctx, obj);
+	if (rec == NULL || !rec->active || rec->wrapper != obj
+	    || rec->kind != kind) {
+		return NULL;
+	}
+	return rec;
+}
+
+bool lisp_object_is_buffer(struct FeContext *ctx, struct FeObject *obj)
+{
+	return lisp_object_peek(ctx, obj, KG_LISP_OBJECT_BUFFER) != NULL;
+}
+
+bool lisp_object_is_marker(struct FeContext *ctx, struct FeObject *obj)
+{
+	return lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER) != NULL;
 }
 
 static void lisp_object_error(
@@ -103,31 +129,13 @@ static void lisp_object_error(
 	FeHandleError(ctx, message);
 }
 
-/* The pool record `obj` wraps, or NULL when `obj` is not a live adapter
- * object of this module's making: not a fex0, or the record is inactive
- * or belongs to a different wrapper. */
-static struct kg_lisp_object *lisp_object_peek(
-    struct FeContext *ctx, struct FeObject *obj)
-{
-	struct kg_lisp_object *rec;
-
-	if (!lisp_object_is_buffer(obj)) {
-		return NULL;
-	}
-	rec = FeToPtr(ctx, obj);
-	if (rec == NULL || !rec->active || rec->wrapper != obj) {
-		return NULL;
-	}
-	return rec;
-}
-
 struct editor_buffer *lisp_buffer_resolve(
     struct FeContext *ctx, struct FeObject *obj, const char *what)
 {
 	struct kg_lisp_object *rec;
 	struct editor_buffer *b;
 
-	rec = lisp_object_peek(ctx, obj);
+	rec = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_BUFFER);
 	if (rec == NULL) {
 		lisp_object_error(ctx, what, "expected a buffer");
 	}
@@ -141,12 +149,107 @@ struct editor_buffer *lisp_buffer_resolve(
 struct kg_buffer_handle lisp_object_buffer_handle(
     struct FeContext *ctx, struct FeObject *obj)
 {
-	struct kg_lisp_object *rec = lisp_object_peek(ctx, obj);
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_BUFFER);
 
 	if (rec == NULL || buf_resolve(rec->buffer) == NULL) {
 		return (struct kg_buffer_handle) { -1, 0, 0 };
 	}
 	return rec->buffer;
+}
+
+/* ---- Marker objects: the pool's second kind ---------------------------
+ * Unlike a buffer object, a marker object is never deduplicated -- Emacs'
+ * make-marker returns a fresh, non-eq marker every time, and set-marker
+ * moves the *same* Lisp object rather than handing back a different one,
+ * so identity has to live in the record, not be derived from what it
+ * currently points at. */
+
+struct FeObject *lisp_marker_object(struct FeContext *ctx,
+    struct editor_buffer *b, size_t pos, enum kg_marker_gravity gravity)
+{
+	struct kg_lisp_object *rec = find_free_record();
+	struct kg_marker_handle handle;
+
+	if (rec == NULL) {
+		FeHandleError(ctx, "too many buffer objects");
+	}
+	handle = kg_marker_create(b, pos, gravity);
+	if (handle.id == 0) {
+		FeHandleError(ctx, "out of memory");
+	}
+	rec->kind = KG_LISP_OBJECT_MARKER;
+	rec->marker = handle;
+	rec->active = true;
+	rec->wrapper = FeMakePtr(ctx, FeTFex0, rec);
+	return rec->wrapper;
+}
+
+struct kg_marker_handle lisp_marker_resolve(
+    struct FeContext *ctx, struct FeObject *obj, const char *what)
+{
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
+
+	if (rec == NULL) {
+		lisp_object_error(ctx, what, "expected a marker");
+	}
+	return rec->marker;
+}
+
+/* `rec`'s current gravity, or left (make-marker's and Emacs' own default
+ * insertion type) when it has never pointed anywhere to have one. */
+static enum kg_marker_gravity lisp_marker_current_gravity(
+    struct kg_lisp_object *rec)
+{
+	enum kg_marker_gravity gravity;
+
+	if (kg_marker_get_gravity(rec->marker, &gravity) == KG_MARKER_OK) {
+		return gravity;
+	}
+	return KG_MARKER_GRAV_LEFT;
+}
+
+void lisp_marker_set(struct FeContext *ctx, struct FeObject *obj,
+    struct editor_buffer *b, size_t pos)
+{
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
+	struct kg_buffer_handle handle = buf_handle_of(b);
+
+	if (rec == NULL) {
+		lisp_object_error(ctx, "set-marker", "expected a marker");
+	}
+	if (rec->marker.buffer.slot == handle.slot
+	    && rec->marker.buffer.id == handle.id
+	    && rec->marker.buffer.generation == handle.generation
+	    && kg_marker_set_position(rec->marker, pos) == KG_MARKER_OK) {
+		return;
+	}
+	{
+		enum kg_marker_gravity gravity
+		    = lisp_marker_current_gravity(rec);
+		struct kg_marker_handle moved;
+
+		kg_marker_delete(rec->marker);
+		moved = kg_marker_create(b, pos, gravity);
+		if (moved.id == 0) {
+			FeHandleError(ctx, "out of memory");
+		}
+		rec->marker = moved;
+	}
+}
+
+void lisp_marker_detach(struct FeContext *ctx, struct FeObject *obj)
+{
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
+
+	if (rec == NULL) {
+		lisp_object_error(ctx, "set-marker", "expected a marker");
+	}
+	kg_marker_delete(rec->marker);
+	rec->marker = (struct kg_marker_handle) { { -1, 0, 0 }, 0, 0 };
 }
 
 /* ---- Runtime execution context: the per-buffer point table -----------
@@ -465,4 +568,80 @@ FeObject *native_kill_buffer(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "kill-buffer: cannot kill buffer");
 	}
 	return FeNil(context);
+}
+
+/* ---- Marker natives ---------------------------------------------------
+ * (make-marker) follows this sub-plan's own table rather than Emacs':
+ * real make-marker returns a detached marker and point-marker is the one
+ * that starts at point.  Recorded as a naming mismatch worth revisiting
+ * in the Phase 3 notes rather than silently picking one. */
+
+FeObject *native_make_marker(FeContext *context, FeObject *arguments)
+{
+	struct editor_buffer *b = lisp_exec_buffer(context);
+
+	FeRequireNoArguments(context, arguments);
+	return lisp_marker_object(
+	    context, b, lisp_exec_point_byte(context), KG_MARKER_GRAV_LEFT);
+}
+
+/* (set-marker MARKER POSITION &optional BUFFER): POSITION nil detaches
+ * MARKER; otherwise it moves to POSITION (a 1-based codepoint offset) in
+ * BUFFER, defaulting to the exec buffer.  Returns MARKER, as in Emacs. */
+FeObject *native_set_marker(FeContext *context, FeObject *arguments)
+{
+	FeObject *marker_object = FeGetNextArgument(context, &arguments);
+	FeObject *position_object = FeGetNextArgument(context, &arguments);
+	FeObject *buffer_object = NULL;
+	struct editor_buffer *b;
+
+	if (!FeIsNil(arguments)) {
+		buffer_object = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	if (FeIsNil(position_object)) {
+		lisp_marker_detach(context, marker_object);
+		return marker_object;
+	}
+	b = buffer_object == NULL || FeIsNil(buffer_object)
+	    ? lisp_exec_buffer(context)
+	    : lisp_buffer_resolve(context, buffer_object, "set-marker");
+	lisp_marker_set(context, marker_object, b,
+	    lisp_byte_of_char_offset(
+		b, lisp_offset_argument(context, b, position_object)));
+	return marker_object;
+}
+
+/* (marker-position MARKER): the codepoint MARKER points at, or nil when
+ * it points nowhere -- never set, detached, or its buffer has died.  Not
+ * an error: a marker outlives the buffer it named, exactly as in Emacs. */
+FeObject *native_marker_position(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct kg_marker_handle handle;
+	struct editor_buffer *b;
+	size_t byte;
+
+	FeRequireNoArguments(context, arguments);
+	handle = lisp_marker_resolve(context, object, "marker-position");
+	b = buf_resolve(handle.buffer);
+	if (b == NULL || kg_marker_resolve(handle, &byte) != KG_MARKER_OK) {
+		return FeNil(context);
+	}
+	return lisp_position(context, lisp_char_offset_of(b, byte));
+}
+
+/* (marker-buffer MARKER): the buffer object MARKER points into, or nil
+ * when it points nowhere. */
+FeObject *native_marker_buffer(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct kg_marker_handle handle;
+
+	FeRequireNoArguments(context, arguments);
+	handle = lisp_marker_resolve(context, object, "marker-buffer");
+	if (buf_resolve(handle.buffer) == NULL) {
+		return FeNil(context);
+	}
+	return lisp_buffer_object(context, handle.buffer);
 }

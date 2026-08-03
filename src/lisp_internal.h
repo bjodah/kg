@@ -14,6 +14,7 @@
 #include "def.h"
 #include "lisp_obj.h"
 #include "marker.h"
+#include "regex.h"
 
 /* Adapter limits, shared by struct lisp_state and the modules that walk
  * its tables.  Macros rather than constexpr because struct lisp_state's
@@ -68,6 +69,18 @@ struct lisp_point_table {
 	struct kg_lisp_point_entry entries[MAX_BUFFERS];
 };
 
+/* The last successful search's capture data.  Outlives the frame so
+ * (re-search-forward ...) in one eval and (match-beginning 0) in the
+ * next work correctly -- the same treatment as per-buffer point.
+ * Not a global: only src/lisp_search.c reads or writes it, and
+ * lisp_internal.h is the private surface.  See Phase 3 notes. */
+struct kg_lisp_match_data {
+	bool valid;
+	struct kg_buffer_handle buffer;
+	int row;
+	struct kg_match match;
+};
+
 struct lisp_state {
 	void *arena;
 	FeContext *context;
@@ -86,6 +99,8 @@ struct lisp_state {
 	struct kg_lisp_exec_ctx exec;
 	/* Every buffer's runtime point, independent of any frame. */
 	struct lisp_point_table points;
+	/* The last search's captures (outlives the frame). */
+	struct kg_lisp_match_data match;
 	/* The bounded pool of Fe-visible editor objects. */
 	struct lisp_object_pool object_pool;
 	bool frame_active;
@@ -145,6 +160,17 @@ void lisp_exec_goto_char(const struct editor_buffer *b, long off);
 long lisp_buffer_char_length(const struct editor_buffer *b);
 /* 0-based codepoint offset of the flat byte position `byte` in `b`. */
 long lisp_char_offset_of(const struct editor_buffer *b, size_t byte);
+/* (row, byte column) of 0-based codepoint offset `off` in `b`, clamped to
+ * the buffer. */
+void lisp_rowcol_of_char_offset(
+    const struct editor_buffer *b, long off, int *row, int *col);
+/* Flat byte position of 0-based codepoint offset `off` in `b`. */
+size_t lisp_byte_of_char_offset(const struct editor_buffer *b, long off);
+/* A 1-based position argument (as Emacs positions read), clamped to
+ * [point-min, point-max] of `b`, as the 0-based codepoint offset the
+ * buffer helpers expect. */
+long lisp_offset_argument(
+    FeContext *context, const struct editor_buffer *b, FeObject *object);
 
 /* XDG config resolution (lisp_io.c). */
 int lisp_config_path(char *out, size_t outsize, const char *stem);
@@ -200,6 +226,23 @@ FeObject *native_get_buffer_create(FeContext *context, FeObject *arguments);
 FeObject *native_buffer_live_p(FeContext *context, FeObject *arguments);
 FeObject *native_set_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_kill_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_delete_region(FeContext *context, FeObject *arguments);
+FeObject *native_replace_region(FeContext *context, FeObject *arguments);
+FeObject *native_search_forward(FeContext *context, FeObject *arguments);
+FeObject *native_search_backward(FeContext *context, FeObject *arguments);
+FeObject *native_re_search_forward(FeContext *context, FeObject *arguments);
+FeObject *native_re_search_backward(FeContext *context, FeObject *arguments);
+FeObject *native_match_beginning(FeContext *context, FeObject *arguments);
+FeObject *native_match_end(FeContext *context, FeObject *arguments);
+FeObject *native_make_marker(FeContext *context, FeObject *arguments);
+FeObject *native_set_marker(FeContext *context, FeObject *arguments);
+FeObject *native_marker_position(FeContext *context, FeObject *arguments);
+FeObject *native_marker_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_save_excursion(FeContext *context, FeObject *arguments);
+FeObject *native_with_current_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_add_hook(FeContext *context, FeObject *arguments);
+FeObject *native_remove_hook(FeContext *context, FeObject *arguments);
+FeObject *native_run_hooks(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

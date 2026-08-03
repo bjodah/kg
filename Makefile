@@ -83,7 +83,7 @@ override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 LISP_SRCS = lisp_core.c
 ifeq ($(WITH_LISP),1)
 LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
-             lisp_io.c lisp_cmd.c lisp_obj.c
+             lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c lisp_hooks.c
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
@@ -151,7 +151,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
-	    $(OBJDIR)/event.c
+	    $(OBJDIR)/event.c $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
@@ -623,7 +623,7 @@ EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mo
 EXTRA_region       := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_shell        := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/shell.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o
 EXTRA_complete     := $(TESTDIR)/stubs.o          $(OBJDIR)/path.o $(TEST_SRCS_OBJS)
-EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_lispobj.o $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(LISP_OBJS) $(OBJDIR)/keybind.o $(FE_OBJ) $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o $(OBJDIR)/keymap.o
+EXTRA_lisp         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_lispobj.o $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(LISP_OBJS) $(OBJDIR)/keybind.o $(FE_OBJ) $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o $(OBJDIR)/keymap.o $(REGEX_OBJS)
 EXTRA_regex        := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS) $(REGEX_OBJS)
 EXTRA_localvars    := $(TESTDIR)/stubs.o          $(OBJDIR)/localvars.o $(TEST_SRCS_OBJS)
 EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/process.o
@@ -708,7 +708,7 @@ $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 
 $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(LISP_CONFIG)
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ $(FUZZ_SRCS) \
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
 
 $(FUZZBIN_DIRLOCALS): $(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c $(HDRS)

@@ -303,6 +303,171 @@ Depend on Plan 03 marker handles (already landed).
 - **Error rollback**: an error mid-operation leaves the buffer unchanged.
 - `WITH_LISP=0` builds and links.
 
+### Phase 3 notes
+
+- **Read-only policy disagrees with this document.**  The design section
+  above says editing natives refuse a read-only buffer "through the
+  `CMD_EDITS_BUFFER` flag on the command that called them, not by
+  checking read-only themselves."  That is not what `native_insert()`
+  (landed in an earlier phase) does, and it cannot be: `CMD_EDITS_BUFFER`
+  is read by `cmd_invoke()`, the one route a *command* takes
+  (`(command-execute ...)`, a key, M-x); a native called directly from
+  Lisp — `(insert ...)`, `(delete-region ...)` — never passes through
+  `cmd_invoke()` at all, so there is no descriptor to consult.
+  `kg_buffer_replace()` itself does refuse a `KG_EDIT_USER` edit on a
+  read-only buffer (`edit_valid()`'s `obeys_readonly` check), but it
+  reports the refusal only by leaving the buffer unchanged, with no
+  distinct error a native could surface.  `native_insert()` therefore
+  checks `b->readonly` itself before ever calling the gateway, so Lisp
+  gets a named error ("buffer is read-only") instead of a silent no-op.
+  `delete-region` and `replace-region` follow that precedent exactly,
+  for the same reason and the same message.  The design section's claim
+  is corrected by this note rather than by editing it out from under the
+  phase that wrote it.
+- **`undo-boundary` is deferred, not shipped.**  Emacs' `undo-boundary`
+  marks where one undo *group* ends so a later `undo` stops there instead
+  of continuing into the previous group — meaningful because Emacs
+  coalesces consecutive edits (ordinary self-insertion, for instance)
+  into one group until a boundary or a command boundary closes it.  kg's
+  Lisp editing natives have no such coalescing to bound: every
+  `(insert ...)`, `(delete-region ...)` or `(replace-region ...)` call is
+  already exactly one `kg_buffer_replace()` call and therefore already
+  exactly one undo record on its own (see `test_insert_and_undo`,
+  `test_delete_region`, `test_replace_region`).  A `(undo-boundary)` that
+  did nothing would not be honest about having a contract — it would look
+  like it participates in an undo-grouping scheme this adapter does not
+  have — so it is not implemented.  If a later phase adds an edit form
+  that spans more than one `kg_buffer_replace()` call (a multi-step
+  Lisp-driven refactor, say), that is the moment `undo-boundary` gets a
+  real meaning and should land with it.
+- **Match data could not stay literally frame-scoped and remain usable.**
+  The design section says match data "belongs to the runtime execution
+  context, not a global" and reads that as living inside
+  `struct kg_lisp_exec_ctx`, cleared on every frame entry like the exec
+  buffer selection.  That was tried first and failed its own test:
+  `(re-search-forward ...)` in one `M-x eval-expression` and
+  `(match-beginning 0)` in the next — two separate top-level forms, the
+  ordinary way anyone would use this interactively or from two lines of
+  a script — saw the second form's frame wipe the first's captures before
+  it could read them, because `lisp_exec_enter()` re-derives the frame
+  from scratch every time.  Point does not have this problem only
+  because it is *not* part of the frame either (the design section says
+  so directly) — it lives in `struct lisp_point_table`, a member of
+  `struct lisp_state` that outlives every frame.  Match data needed the
+  same treatment: `struct kg_lisp_match_data` is a sibling of
+  `struct lisp_point_table points` in `struct lisp_state`, addressed as
+  `state.match`, not nested in `struct kg_lisp_exec_ctx` and not cleared
+  at frame entry.  It is still not a bare file-scope global — nothing
+  outside `src/lisp_search.c` touches it, and `lisp_internal.h` is the
+  only place it is declared — so the design section's actual intent
+  ("not a stray global reachable from anywhere") holds; only the
+  frame-scoping half of the literal instruction turned out to be wrong,
+  and is corrected here rather than silently.  `set-buffer`, by contrast,
+  *is* correctly frame-scoped as designed: it has no persistence
+  mechanism analogous to point's window round-trip, so a command that
+  needs a buffer switch to survive more than one native call has to make
+  it and use it inside one top-level form (`(progn (set-buffer h)
+  (insert ...))`), exactly the requirement `with-current-buffer` (Phase 4)
+  exists to make convenient. `test_markers` and
+  `test_marker_survives_buffer_kill` in `test/test_lisp.c` both had this
+  bug in their first draft and needed the same `progn` fix once the
+  actual (correct) `set-buffer` scoping was understood.
+- **`re-search-backward`'s bound is a known, narrower approximation of
+  Emacs', not a bug to be silently patched over.**  Per the CLAUDE.md
+  warning this sub-plan was told to read,
+  `kg_regex_match_backward(rx, text, before, out)` already answers "the
+  last match in this text ending at or before `before`" with no lower
+  bound of its own.  Enforcing `re-search-backward`'s BOUND argument (the
+  lower limit) on top of that answer means checking whether that one
+  match's start is `>= limit`; if it is not, this implementation gives up
+  on the row rather than asking the engine for the *next* eligible match
+  between `limit` and the disqualified one — which Emacs would find and
+  this does not.  Doing that correctly would mean repeatedly re-invoking
+  `kg_regex_match_backward()` with a shrinking `before` and reconciling
+  overlapping candidates, which is real work with its own edge cases and
+  did not fit this phase's budget on top of everything else it already
+  built.  Documented in `src/lisp_search.c`'s comment on
+  `lisp_search_backward()`, in `README.md`, and in `doc/kg.1`, not just
+  here.
+- **Search cannot match across a row (a `\n`).**  kg's regex engine
+  matches within one `NUL`-terminated row at a time — the same
+  architecture `src/search.c`'s incremental search (`C-s`/`C-r`) already
+  has — so `search-forward`/`re-search-forward`/etc. inherit that limit
+  rather than lifting it.  A pattern that could only match by spanning a
+  line break (which Emacs' flat-buffer model allows) reports no match
+  here.  This is consistent with the rest of the editor rather than a
+  regression Phase 3 introduced.
+- **Case-fold-search is not implemented.**  Every search native here is
+  case-sensitive; Emacs' default (`case-fold-search` non-nil, folding
+  unless the search string has an upper-case letter) is not modeled.
+  `src/search.c`'s own incremental search has this logic
+  (`query_has_upper`/`fold`) but it is a UI nicety layered over the same
+  engine calls, not something these batch-search natives inherited for
+  free.  Deferred rather than half-implemented.
+- **`(make-marker)` follows this document's own table, not Emacs'.**  The
+  table above specifies "Create a marker at runtime point in the runtime
+  buffer," which is Emacs' `point-marker`, not its `make-marker` (which
+  creates a marker pointing nowhere until `set-marker` gives it a
+  position).  Implemented exactly as specified here rather than silently
+  switched to match Emacs, since the sub-plan is the authority being
+  implemented; flagged in a doc comment on `native_make_marker()` and
+  here so a later phase can decide whether to rename it, split it into
+  both forms, or leave it — Emacs code that assumes a detached
+  `make-marker` will be surprised.
+- **A mutation-gateway false positive, not a real one.**  Adding a `row`
+  field to `struct lisp_search_hit` and assigning it (`hit->row = row;`)
+  tripped `make gateway-check`'s textual `->row\s*=` probe, which exists
+  to catch direct writes to `struct editor_buffer`'s row array — this
+  was an unrelated local struct with a field that happened to share the
+  name.  Renamed the field to `found_row` rather than touching the probe
+  or the manifest: `make gateway-check` is unchanged (still 47 sites, the
+  manifest's existing allowance), and no new raw-mutation site was
+  introduced by this phase.
+- **`make pmccabe-check` has one pre-existing, unrelated failure on this
+  box**: `src/lisp_word.c:lisp_move_words` measures complexity 6 against
+  a recorded baseline of 5, in a file this phase never touched.
+  Reproduces identically on `14baba8` (the commit this phase started
+  from, `git stash`-verified before writing this note), so it predates
+  Phase 3 and is a `pmccabe` version/box drift of the kind
+  `utils/print-tool-versions.sh` exists to catch, not a regression to fix
+  here.
+- **Makefile wiring for the new module and the regex engine it needs**:
+  `lisp_search.c` joins `LISP_SRCS`; `EXTRA_lisp` (the Lisp unit-test
+  link line) gained `$(REGEX_OBJS)`, which it never needed before this
+  phase; and `FUZZ_SRCS` — which already compiled every `LISP_SRCS` file
+  as a source, so it now compiles `lisp_search.c` too — gained
+  `$(OBJDIR)/regex.c` and `fe/tiny-regex-c/re.c` plus `-Ife/tiny-regex-c`
+  on the `$(FUZZBIN)` recipe, the same pair `fuzz_regex`'s own recipe
+  already needed for the same reason.
+- **A second adapter object kind reused, not duplicated, Phase 2's
+  pool.**  `enum kg_lisp_object_kind` gained `KG_LISP_OBJECT_MARKER`, and
+  `struct kg_lisp_object` gained a `marker` field alongside `buffer`
+  (which kind is meaningful is `kind` itself).  `lisp_object_is_buffer()`
+  changed signature (it now needs a `FeContext *` to resolve the pool
+  record and check `kind`, not just the Fe type tag) — the one call site,
+  `lisp_cmd.c`'s `type-of`, was updated along with it, and gained the new
+  `lisp_object_is_marker()` twin.  Unlike a buffer object, a marker
+  object is never deduplicated: two `(make-marker)` calls are never `eq`,
+  matching Emacs, and `set-marker` mutates the pool record in place
+  (including replacing which buffer's `kg_marker_store` it names) so the
+  *same* Lisp-visible marker object is what moves.
+- Position conversion needed no new primitives beyond what `lisp_buffer.c`
+  already had from Phase 2 — `lisp_byte_of_char_offset()`,
+  `lisp_rowcol_of_char_offset()` and `lisp_offset_argument()` were
+  already exactly what editing and search needed, just `static` and
+  private to that file.  Un-staticked and declared in `lisp_internal.h`
+  rather than duplicated; `test_delete_region_utf8` and
+  `test_delete_region_malformed_byte` in `test/test_lisp.c` are this
+  phase's coverage of the malformed-byte-counts-as-one-codepoint rule
+  those functions already implemented.
+- scc: 4893 before this phase, 5002 after (+109 against a 120 allowance;
+  see the report for the per-file breakdown). `lisp_search.c` is a new
+  62-complexity file; `lisp_obj.c` grew from 100 to 136 (+36, the marker
+  kind and its four natives); `lisp_io.c` grew from 57 to 67 (+10,
+  delete-region/replace-region); `lisp_cmd.c` grew from 38 to 39 (+1,
+  `type-of`'s marker branch); `lisp_buffer.c` is unchanged at 55
+  (visibility-only edit). All well under the 520 per-file cap.
+
 ---
 
 ## Completion gate for sub-plan B

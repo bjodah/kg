@@ -14,6 +14,8 @@ struct native_binding {
 static const struct native_binding native_bindings[] = {
 	{ "message", native_message },
 	{ "insert", native_insert },
+	{ "delete-region", native_delete_region },
+	{ "replace-region", native_replace_region },
 	{ "buffer-name", native_buffer_name },
 	{ "load", native_load },
 	{ "global-set-key", native_bind_key },
@@ -60,6 +62,21 @@ static const struct native_binding native_bindings[] = {
 	{ "buffer-live-p", native_buffer_live_p },
 	{ "set-buffer", native_set_buffer },
 	{ "kill-buffer", native_kill_buffer },
+	{ "search-forward", native_search_forward },
+	{ "search-backward", native_search_backward },
+	{ "re-search-forward", native_re_search_forward },
+	{ "re-search-backward", native_re_search_backward },
+	{ "match-beginning", native_match_beginning },
+	{ "match-end", native_match_end },
+	{ "make-marker", native_make_marker },
+	{ "set-marker", native_set_marker },
+	{ "marker-position", native_marker_position },
+	{ "marker-buffer", native_marker_buffer },
+	{ "internal--save-excursion", native_save_excursion },
+	{ "internal--with-current-buffer", native_with_current_buffer },
+	{ "add-hook", native_add_hook },
+	{ "remove-hook", native_remove_hook },
+	{ "run-hooks", native_run_hooks },
 };
 
 void register_natives(FeContext *context)
@@ -249,6 +266,12 @@ static const char *const lisp_prelude[] = {
 	"(= pop (macro (place)\n"
 	"  (list 'prog1 (list 'car place)\n"
 	"    (list 'setq place (list 'cdr place)))))\n"
+	"(= save-excursion (macro body\n"
+	"  (list 'internal--save-excursion\n"
+	"    (cons 'lambda (cons nil body)))))\n"
+	"(= with-current-buffer (macro (buf . body)\n"
+	"  (list 'internal--with-current-buffer buf\n"
+	"    (cons 'lambda (cons nil body)))))\n"
 	/* --- quasiquote: `x , ,@ read as (quasiquote x) etc. --- */
 	"(= internal--qq (lambda (form)\n"
 	"  (if (atom form)\n"

@@ -32,6 +32,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "cmd.h"
 #include "def.h"
 #include "lisp.h"
+#include "lisp_hooks.h"
 #include "lisp_internal.h"
 
 static_assert(FE_API_VERSION == 1);
@@ -120,6 +121,7 @@ const FeEvalOptions eval_options = {
 	.poll_interval = lisp_poll_interval,
 	.interrupt = interrupt_evaluation,
 	.userdata = &state,
+	.cleanup_step_limit = lisp_step_limit,
 };
 
 char *copy_fe_string(FeContext *context, FeObject *object, size_t *length)
@@ -231,6 +233,7 @@ int kg_lisp_init(void)
 		return 1;
 	}
 	register_natives(context);
+	lisp_hooks_init(context);
 	in_prelude = true;
 	evaluate_prelude(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
@@ -244,6 +247,7 @@ void kg_lisp_shutdown(void)
 		return;
 	}
 
+	lisp_hooks_shutdown(state.context);
 	release_lisp_commands();
 	FeCloseContext(state.context);
 	free(state.arena);

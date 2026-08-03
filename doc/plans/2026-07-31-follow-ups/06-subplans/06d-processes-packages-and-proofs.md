@@ -3,145 +3,298 @@
 Phases 7 and 8 of Plan 06.  Requires sub-plan C (unwind for
 filters/sentinels, hooks for proof packages).
 
+**Complexity budget** (follow-ups README, "Decision — Plan 06 gets a
+measured budget, cap 5500"): Phase 7 = **230** scc units, Phase 8 = **90**.
+The tree stands at 5135 against the 5500 cap, so the two phases have 365
+units of room for 320 units of allowance.  A phase that overruns its row
+stops and reports; it does not spend the other phase's allowance.
+
+---
+
+## Corrections against repository reality — 2026-08-03
+
+The first draft of this sub-plan was written before Phases 2–6 landed and
+before anyone read `src/process.[ch]`, `src/event.[ch]` and `src/main.c`
+against it.  Nine of its statements are wrong or unbuildable.  Each is
+corrected in place below; they are collected here so a reader who knows
+the old draft can see what changed.
+
+1. **There is no `select`/`poll` loop to hook.**  kg blocks in `read()` on
+   stdin.  Asynchronous output reaches the editor through
+   `compilation_poll()`, a non-blocking drain called from the top of
+   `main.c`'s loop (`src/main.c:168`) and from `read_key_byte()`'s idle
+   path (`src/tty.c:552`).  The process table follows that pattern; it
+   does not introduce an event loop.
+2. **Commitment moves to the drain.**  The old draft had output committed
+   wherever it was read, which — because of `src/tty.c:552` — means
+   `kg_buffer_replace()` running inside `read_key_byte()`.  Polling now
+   only moves bytes from the fd into the per-process queue; every buffer
+   write and every Lisp callback happens at the event drain.
+3. **The event payload cannot carry the output text.**  `src/event.h`'s
+   opening contract forbids storing row text, filenames or any other
+   runtime value in an envelope.  The payload is identity only; the text
+   lives in the process table.
+4. **`event_resolution()` resolves a *buffer* handle** (`src/event.c:613`),
+   so process events need their own arm — see "Event integration".
+5. **The intent is spelled `KG_EDIT_INTERNAL`**, not
+   `KG_EDIT_INTERNAL_LIVE` (`src/edit.h:59`).  It is already documented as
+   covering "a process's output".
+6. **`struct kg_spawn_request` already exists** with `command`,
+   `directory`, `stdin_fd`, `stderr_to_output`, `nonblocking_output`.  The
+   draft's parallel `kg_process_spawn_opts` would duplicate five of its
+   six fields.  Extend the existing struct instead.
+7. **`conf-mode` is not buildable.**  It is priced against "Phase 6 mode
+   APIs (when available)", and those are exactly the part of Phase 6 that
+   stayed blocked: there is no mode registry, no `define-derived-mode` and
+   no `defvar`.  It is dropped, not deferred into this sub-plan.
+8. **`whitespace-mode` is not buildable either.**  It needs decorations
+   from Lisp; `grep decor src/lisp_*.c` finds nothing.  Decoration natives
+   are real work that no row of the budget table pays for.
+9. **Fe has no property lists**, so docstrings have nowhere to live
+   without a new bounded adapter table, and `src/describe.c` currently
+   describes keys, commands and bindings — not functions.
+
 ---
 
 ## Phase 7 — Bounded process table and Lisp process APIs
 
 ### Problem
 
-`src/process.[ch]` provides low-level fork/reap/signal primitives used
-by `compile.c` (async non-blocking) and `shell.c` (synchronous
-blocking).  There is no multi-process table, no process handle, no
-output streaming into the event queue, and no Lisp API for spawning
-processes.
+`src/process.[ch]` provides low-level fork/reap/signal primitives used by
+`compile.c` (async non-blocking) and `shell.c` (synchronous blocking).
+There is no multi-process table, no process handle, no output streaming
+into the event queue, and no Lisp API for spawning processes.
+
+### Non-goals
+
+- **`compile.c` and `shell.c` are not migrated onto the table.**  They
+  keep their own single-process state.  Migrating them is a follow-up
+  worth doing and is not what this budget row bought; a Lisp process API
+  is.
+- No PTY allocation.  Children get pipes.
+- No `process-send-string` / stdin writing.  Children get `/dev/null` on
+  stdin unless the caller passes a descriptor.
 
 ### Design
 
 #### Step 1 — Explicit argv vs. shell interpretation
 
-Add a spawn variant that distinguishes:
+Extend the existing `struct kg_spawn_request` rather than adding a second
+one:
 
 ```c
-struct kg_process_spawn_opts {
-    const char *const *argv;    /* explicit argv, or NULL for shell */
-    const char *shell_command;  /* only when argv is NULL */
-    const char *cwd;
-    int stdin_fd;               /* -1 for /dev/null */
-    int stdout_fd;              /* -1 for pipe to process table */
-    int stderr_fd;              /* -1 for merge with stdout */
-    bool new_process_group;
+struct kg_spawn_request {
+	/* Passed to /bin/sh -c ... -- ignored when `argv` is set. */
+	const char *command;
+	/* Explicit argv, NULL-terminated, or NULL to use `command`.  When
+	 * this is set the child is exec'd directly: no shell, so no word
+	 * splitting, globbing, redirection or substitution can happen to
+	 * an argument a caller passed as one string. */
+	const char *const *argv;
+	const char *directory;
+	int stdin_fd;
+	bool stderr_to_output;
+	bool nonblocking_output;
+	/* The child leads its own process group, so a signal reaches the
+	 * command's own children.  Already the behaviour; named here
+	 * because delete-process depends on it. */
 };
 ```
 
-Explicit `argv` is **never** interpreted by `/bin/sh`.
+Exactly one of `argv` and `command` is honoured, `argv` first.  A request
+with both is a caller bug and is refused rather than guessed at.
 
 #### Step 2 — Bounded process table
 
+New module `src/process_table.[ch]`.
+
 ```c
 #define KG_PROCESS_TABLE_MAX 8
+/* Bytes of not-yet-delivered output one process may hold.  Reached only
+ * when a process outruns the drain -- output is handed to the filter, or
+ * appended to the buffer, at every safe point. */
+#define KG_PROCESS_OUTPUT_MAX (256 * 1024)
+```
 
-struct kg_process_entry {
-    struct kg_process_handle handle;   /* generation-checked */
-    pid_t pid;
-    pid_t pgid;
-    int output_fd;
-    enum kg_process_status status;     /* running, exited, signalled */
-    int exit_code;
-    struct kg_buffer_handle target_buffer;
-    /* Queued output: bounded ring buffer */
-    char *output_queue;
-    size_t output_queue_len;
-    size_t output_queue_cap;           /* per-process cap */
-    /* Filter and sentinel roots (Phase 5 hooks) */
-    /* FeRoot *filter_root; */
-    /* FeRoot *sentinel_root; */
+The handle type goes in its own minimal header, `src/prochandle.h`,
+following `src/bufhandle.h`'s precedent: `event.h` needs the handle and
+must not be made to include the whole process table.
+
+```c
+struct kg_process_handle {
+	uint32_t slot;
+	uint32_t generation;
 };
 ```
 
+Entry state: handle, `pid`, `pgid`, `output_fd`, status, exit code or
+signal number, target buffer handle, the bounded output queue, and the
+filter/sentinel roots.
+
 **Policies:**
-- Slot reuse: a finished process keeps its terminal status queryable
-  until the slot is explicitly released or reused by a new spawn.
-- Output cap: per-process output queue cap (e.g. 1 MiB).  Overflow
-  truncates oldest output and appends a truncation message.
-- Process-buffer ownership: the process holds a buffer handle; if the
-  buffer is killed, output is discarded and the process keeps running
-  (can be deleted explicitly).
-- Cancellation escalation: `delete-process` sends SIGTERM to the
-  process group, waits briefly, then SIGKILL.
-- Shutdown cleanup: `kg_process_table_shutdown()` kills all children
-  and reaps.
-- Root release: filter and sentinel roots are released when the process
-  is deleted.
-- Output is committed through `kg_buffer_replace()` with
-  `KG_EDIT_INTERNAL_LIVE` intent.
+
+- **Slot reuse.**  A finished process keeps its terminal status queryable
+  until `delete-process` releases it, or until the table is full and the
+  oldest finished entry is reclaimed to make room.  A full table of
+  *running* processes refuses the spawn.
+- **Output cap.**  `KG_PROCESS_OUTPUT_MAX` per process.  Overflow drops
+  the **oldest** bytes and sets a truncation flag; the flag makes the next
+  delivery carry a `kg: output truncated` marker exactly once per overflow
+  run, so a filter cannot be told nothing happened.
+- **Process-buffer ownership.**  The process holds a buffer *handle*.  If
+  the buffer is killed the handle stops resolving, output is discarded,
+  and the process keeps running — it can still be deleted explicitly, and
+  its sentinel still fires.
+- **Cancellation escalation.**  `delete-process` sends SIGTERM to the
+  process group, polls the reap for a bounded number of attempts, then
+  sends SIGKILL.  It never blocks the editor indefinitely.
+- **Shutdown.**  `kg_process_table_shutdown()` kills every group and reaps
+  every child.  Wired into the same teardown that already runs at exit.
+- **Roots.**  Filter and sentinel roots are released when the entry is
+  released, and on shutdown.
+- **Commitment.**  Output reaches a buffer only through
+  `kg_buffer_replace()` with `KG_EDIT_INTERNAL` (`src/edit.h:59`), at the
+  end of the buffer, and only from the drain.
+
+#### Polling and commitment — where each half runs
+
+Two halves, deliberately split, because `compilation_poll()` is called
+from a place that is *not* a safe point:
+
+```
+kg_process_table_poll()      fd -> per-process bounded queue.  Non-blocking
+                             reads and reaps only: no buffer write, no Lisp,
+                             no allocation beyond the fixed queue.  Called
+                             next to compilation_poll() in main.c:168 AND
+                             from tty.c's idle path, so output keeps flowing
+                             while kg waits for a key.
+                             Publishes events; never delivers them.
+
+drain (subscriber)           queue -> filter, or queue -> buffer.  Runs only
+                             from kg_event_drain_safe(), i.e. only at
+                             main.c's three named safe points.  This is the
+                             only place kg_buffer_replace() and Fe are
+                             reached from.
+```
+
+That split is the whole reason a Lisp filter cannot observe a half-applied
+edit or run inside `read_key_byte()`.
 
 #### Event integration
 
-Add new event kinds to `src/event.h`:
+Add to `enum kg_event_kind` in `src/event.h` — the header already reserves
+the decision, saying the kinds are "that slice's ... to keep the union's
+cost off this module's budget until it is needed":
 
 ```c
-KG_EVENT_PROCESS_OUTPUT,   /* payload: process handle, byte range */
-KG_EVENT_PROCESS_EXIT,     /* payload: process handle, exit code */
+KG_EVENT_PROCESS_OUTPUT,   /* this process has undelivered output queued */
+KG_EVENT_PROCESS_EXIT,     /* this process has been reaped */
 ```
 
-Output arrives in the main poll loop (via `select`/`poll` on the output
-fd).  Events are published to the queue.  Filters and sentinels run only
-from the Phase 5 drain — never from inside `read_key_byte()`.
+```c
+struct kg_event_process {
+	struct kg_process_handle process;
+	struct kg_buffer_handle buffer;   /* target, may no longer resolve */
+	/* EXIT only; zeroed for OUTPUT. */
+	bool exited;
+	int code;                         /* exit code, or signal number */
+};
+```
+
+Identity only: **no byte range and no text**.  A byte range would name
+storage the queue is free to have overwritten by delivery time, and text
+is what `event.h`'s opening contract forbids outright.  The drain reads
+whatever the process's queue holds *at delivery* and empties it, which
+also makes several output events for one process collapse into one
+non-empty delivery for free.
+
+`event_resolution()` (`src/event.c:613`) resolves a buffer handle.  Give
+it a process arm: for both new kinds, resolution is whether the *process
+handle* still resolves, since that is the identity the subscriber
+dispatches on.  A `KG_EVENT_PROCESS_EXIT` for a process whose slot has
+been released is still delivered as `KG_EVENT_RESOLVED_GONE`, matching
+what `KG_EVENT_BUFFER_KILLED` already does.
+
+Both kinds are **lifecycle** events, not droppable change events: an exit
+that queue pressure swallowed would strand a sentinel forever.  They go
+through `kg_event_reserve_lifecycle()` / `kg_event_publish_lifecycle()`.
+A refused reservation for `KG_EVENT_PROCESS_OUTPUT` is harmless — the
+bytes stay queued and the next poll republishes — but a refused
+`KG_EVENT_PROCESS_EXIT` must be retried by the next poll rather than
+dropped, so the entry keeps an "exit not yet published" flag.
 
 #### Lisp API
 
 | Native | Semantics |
 |--------|-----------|
-| `(start-process name buffer program &rest args)` | Explicit argv spawn; returns process object |
-| `(start-shell-command name buffer command)` | Intentional `/bin/sh -c`; returns process object |
+| `(start-process name buffer program &rest args)` | Explicit argv spawn; returns a process object |
+| `(start-shell-command name buffer command)` | Intentional `/bin/sh -c`; returns a process object |
 | `(process-live-p proc)` | Generation check + status check |
-| `(delete-process proc)` | SIGTERM → wait → SIGKILL; release slot |
-| `(process-buffer proc)` | Return the target buffer object |
-| `(set-process-filter proc fn)` | Set the filter function (runs on output event) |
-| `(set-process-sentinel proc fn)` | Set the sentinel function (runs on exit event) |
-| `(process-status proc)` | Return `run`, `exit`, `signal` |
+| `(delete-process proc)` | SIGTERM → bounded wait → SIGKILL; release slot |
+| `(process-buffer proc)` | The target buffer object, or nil if it is gone |
+| `(set-process-filter proc fn)` | `fn` is called `(fn proc string)` at the drain |
+| `(set-process-sentinel proc fn)` | `fn` is called `(fn proc event-string)` at the drain |
+| `(process-status proc)` | `run`, `exit` or `signal` |
 
-Never expose a PID as identity.  The process handle is the only
-identity token.
+Process objects are `FeTFex0` values over pool records, exactly as buffer
+and marker objects are (`src/lisp_obj.[ch]`) — the same pool, a new record
+kind.  Reuse it; do not build a second pool.
 
-### Tasks
+**Never expose a PID as identity.**  The handle is the only identity
+token.  `process-status` reports what became of the child, not who it was.
 
-1. **Add explicit-argv spawn** to `src/process.[ch]`.  Test: spawn
-   `/bin/echo hello`, verify output without shell interpretation.
+**Filter semantics.**  When a filter is set, output is **not** appended to
+the process buffer — the filter owns it, as in Emacs.  Clearing the filter
+(`(set-process-filter proc nil)`) restores auto-append.  Say so in the
+docs; it is the one place a reader is most likely to assume Emacs
+behaviour and be right, so the code must actually match.
 
-2. **Build the process table** in `src/process_table.c` /
-   `src/process_table.h`.  Test: spawn, reap, slot reuse, full table
-   refusal.
+**Error containment.**  A filter or sentinel that errors is reported
+through the status line and does not stop the other subscribers, the other
+processes, or later deliveries — the same containment `run-hooks` got in
+`src/lisp_hooks.c`, including saving and restoring `state.frame`.  Copy
+that pattern; it is there because getting it wrong killed the editor.
 
-3. **Add event integration**: output fd polling, event publication.
-   Test: process produces output, event arrives, subscriber sees it.
+### Tasks — one commit each
 
-4. **Add Lisp natives** one per commit.
-
-5. **Add filter/sentinel support** (requires Phase 5 hooks).
-
-6. **Shutdown cleanup**: verify all children are reaped on `kg -Q` /
-   normal exit.
+1. **Explicit-argv spawn** in `src/process.[ch]`.
+2. **`src/prochandle.h`** and the table in `src/process_table.[ch]`:
+   spawn, poll, reap, release, shutdown, slot reuse, full-table refusal.
+3. **Event kinds, payload, resolution arm** in `src/event.[ch]`.
+4. **Poll wiring** in `main.c` and `tty.c`; drain subscriber that commits
+   output to the buffer (no Lisp yet).
+5. **Lisp natives** — process objects in the existing pool, then the eight
+   natives.
+6. **Filters and sentinels**, with `lisp_hooks.c`'s frame discipline.
+7. **Shutdown cleanup** and `WITH_LISP=0` non-regression.
 
 ### Tests
 
-- **Explicit argv**: `/bin/echo` without shell interpretation; verify
-  no shell metacharacter expansion.
-- **cwd**: process runs in the specified directory.
-- **Process groups / grandchildren**: SIGTERM to process group kills
-  grandchild.
-- **Two concurrent children**: both produce output; both are reaped.
-- **Output cap / queue overflow**: process produces > 1 MiB; truncation
-  message appears.
-- **Cancellation**: delete-process sends signals in order.
-- **Prompt idle delivery**: output event is delivered at the safe point,
-  not during a prompt.
-- **Stale handles / PID reuse**: old process handle does not resolve to
-  a new process with the same PID.
-- **Sentinel error / queued sentinel**: sentinel errors do not prevent
-  other sentinels; sentinel queued during another sentinel runs at the
-  next drain.
-- **Shutdown**: all processes are killed and reaped on exit.
+Native (`test/test_process_table.c`), for anything that is pure table
+logic: slot reuse, generation checking, full-table refusal, output cap and
+truncation flag, status decoding, exit-publication retry.
+
+PTY (`test/pty/`), for anything involving real children, real timing or
+real Lisp:
+
+- **Explicit argv is not a shell**: `(start-process "e" buf "/bin/echo" "a; touch pwned")`
+  writes the metacharacters literally and creates no file.
+- **`cwd`**: the child runs in the directory it was given.
+- **Process groups**: SIGTERM to the group reaps a grandchild.
+- **Two concurrent children**: both produce output, both are reaped, and
+  neither's output lands in the other's buffer.
+- **Output cap**: a child producing more than the cap yields exactly one
+  truncation marker per overflow run.
+- **Killed process buffer**: killing the buffer mid-run discards output,
+  leaves the process running, and still fires the sentinel.
+- **Stale handle / PID reuse**: a handle to a released slot never resolves
+  to the new occupant.
+- **Delivery is at a safe point**: output produced while a prompt is open
+  is delivered after the prompt closes, not during it.
+- **Filter and sentinel errors** are contained: a second process's
+  callbacks still run, and the editor survives an error raised *after* a
+  `(run-hooks)` in the same session (the `state.frame` regression).
+- **Shutdown**: no child survives kg's exit.
 - Both `WITH_LISP` configurations.
 
 ---
@@ -150,92 +303,111 @@ identity token.
 
 ### Problem
 
-kg has `load`, XDG init-file resolution, and a basic package directory
-search, but no `provide`/`require`, no load-path control, no
-docstrings, and no published API contract.
+kg has `load` (`src/lisp_io.c:425`), XDG init-file resolution, and a
+single hard-coded package directory (`<config>/kg/lisp/NAME.fe`).  There
+is no `provide`/`require`, no load-path control, no docstrings, and no
+published API contract.
+
+### Scope decision — this phase is over-subscribed at 90 units
+
+The original task list is: `provide`/`require`/`featurep`, bounded
+`load-path`, cycle detection, source line numbers in errors, docstrings
+plus `describe-function`, `doc/lisp-api.md`, and four proof packages.
+Two of the four packages are unbuildable (corrections 7 and 8 above), and
+docstrings need a bounded symbol→string table plus a `describe.c` entry
+point that does not exist.  Ninety units does not buy that.
+
+**What Phase 8 delivers:**
+
+1. `provide` / `require` / `featurep` with a bounded feature table.
+2. Bounded `load-path`, defaulting to `<config>/kg/lisp/`.
+3. Load-cycle detection.
+4. `doc/lisp-api.md`, versioned, covering the whole surface Phases 2–7
+   shipped.
+5. **`auto-fill-mode` as the proof package** — it is the one from the
+   original table that is buildable today: `after-change-functions` landed
+   in Phase 5, and column arithmetic and insertion are all it otherwise
+   needs.  It proves the hook path, one editing transaction per change,
+   and package loading through `require`.
+
+**What Phase 8 does not deliver, and why — record this in the plan, do
+not silently drop it:**
+
+- `whitespace-mode` — needs decoration natives (correction 8).
+- `conf-mode` — needs the Phase 6 mode registry (correction 7).
+- `grep` — optional in the original table; it is the natural second proof
+  package once Phase 7 lands, and is the first thing to add if Phase 7
+  comes in under its 230.
+- Docstrings and `describe-function` — needs a bounded symbol→docstring
+  table and a `describe.c` entry point.  Worth doing; not affordable here.
+- Source line numbers in errors — needs Fe to carry position information,
+  which is a submodule change with its own pin move.
+
+Each of these gets a row in the plan's status section naming what it
+needs, so the next slice can price it instead of rediscovering it.
 
 ### Design
 
-#### Package infrastructure
-
 | Feature | Semantics |
 |---------|-----------|
-| `(provide feature)` | Register a symbol as provided |
-| `(require feature &optional filename)` | Load if not already provided; error if still not provided after load |
+| `(provide feature)` | Register a symbol in the bounded feature table |
+| `(require feature &optional filename)` | No-op if already provided; else load `filename` or `feature` through `load-path`; error if the feature is still not provided afterwards |
 | `(featurep feature)` | Check without loading |
-| `load-path` | Bounded list of directories searched by `require` |
-| Load-cycle detection | Error if `require` is reentered for the same feature |
-| Source byte offsets | Error messages report file:line (Fe must provide line info) |
-| Docstrings | Optional string after `(defun name args doc ...)` — stored, queryable by `describe-function` |
+| `load-path` | Bounded list of directories `require` searches, in order |
+| Cycle detection | `require` re-entered for a feature already being loaded is an error naming the cycle, not a stack overflow |
 
-#### API documentation
+`load-path` is a bounded C-side array with `LISP_MAX_LOAD_PATH` entries,
+each `PATH_MAX`, manipulated by natives — not a Fe list, which the
+adapter would have to re-validate on every `require`.  `load`'s existing
+`LISP_MAX_LOAD_DEPTH` still caps nesting; cycle detection is about
+identity, not depth, and the two limits stay separate.
 
-Publish `doc/lisp-api.md` covering:
+### Proof package requirements
 
-- Supported forms and their Emacs analogues.
-- Object lifetimes and generation checking.
-- Position units (1-based codepoints externally, bytes internally).
-- Safe-point and callback ordering rules.
-- Error handling and budget limits.
-- Emacs differences (explicit, not aspirational).
-- Trust model: init files and packages are trusted code, not a sandbox.
+`auto-fill-mode` ships as `lisp/auto-fill.fe`, and gets:
 
-#### Proof packages (in order)
+- an isolated-HOME PTY test using `config_files:` to plant both the
+  package and an `init.fe` that `require`s it;
+- a test that typing past `fill-column` breaks the line, and that the
+  break is **one** undo step (the editing-transaction claim);
+- a `WITH_LISP=0` non-regression: the package is absent and the editor
+  behaves exactly as before.
 
-Each package gets:
-- Its own file under a `pkg/` or `lisp/` directory.
-- An isolated-HOME PTY test (using `config_files:` in the YAML).
-- A `WITH_LISP=0` non-regression test (the package is absent, the
-  editor works).
-
-| # | Package | Demonstrates | Dependencies |
-|---|---------|-------------|--------------|
-| 1 | **whitespace-mode** | Decorations + buffer-local option + mode hook | Phase 5 hooks, Plan 03 decorations |
-| 2 | **conf-mode** (small derived config mode) | Syntax/comment options + local keymap | Phase 6 mode APIs (when available) |
-| 3 | **auto-fill-mode** | `after-change-functions` + one editing transaction | Phase 4 unwind, Phase 5 hooks |
-| 4 | **grep** (optional) | Process-backed async grep | Phase 7 process table |
-
-**Rule:** if a proof package needs private C knowledge, improve the
-public adapter rather than adding a package-specific native.
-
-### Tasks
-
-1. **Add `provide` / `require` / `featurep`.**
-
-2. **Add bounded `load-path` management.**  Default: XDG config dir +
-   `~/.config/kg/lisp/`.
-
-3. **Add load-cycle detection.**
-
-4. **Add docstring storage and `describe-function` integration.**
-
-5. **Write `doc/lisp-api.md`.**
-
-6. **Implement proof packages in order**, each with its own PTY test.
+**Rule, unchanged and load-bearing:** if a proof package needs private C
+knowledge, improve the public adapter rather than adding a
+package-specific native.  A native named after the package is the signal
+that the adapter is missing something.
 
 ### Tests
 
-- `require` loads a file; second `require` is a no-op.
+- `require` loads a file; a second `require` is a no-op (assert the file
+  is evaluated once, not just that it did not error).
 - `require` of a file that does not `provide` → error.
-- Load-cycle detection: A requires B, B requires A → error.
-- Docstrings: `describe-function` shows the docstring.
-- Each proof package:
-  - PTY test with isolated HOME and `init.fe` that loads the package.
-  - `WITH_LISP=0` test verifying the package's absence is harmless.
-  - whitespace-mode: visible trailing-whitespace decoration.
-  - auto-fill: line breaks at fill-column after typing past it.
+- Cycle: A requires B, B requires A → error naming the cycle.
+- `featurep` is false before and true after.
+- `load-path` order decides which of two same-named files wins.
+- A `load-path` full of non-existent directories fails cleanly.
+- `auto-fill-mode`, as above.
 
 ---
 
 ## Completion gate for sub-plan D
 
-- Explicit-argv spawn never passes through `/bin/sh`.
-- Process table is bounded; handles are generation-checked.
-- Output is committed through the edit gateway; filters/sentinels run
-  from the event drain.
-- `provide`/`require`/`featurep` with load-cycle detection.
-- Versioned `doc/lisp-api.md` is published.
-- At least two proof packages (whitespace-mode and one other) are green
-  with isolated-HOME PTY tests.
-- Both Lisp configurations, native/PTY suites, docs check, static/
-  sanitizer lanes, and the full CI runner pass without ratchet raises.
+- Explicit-argv spawn never passes through `/bin/sh`, proven by a PTY case
+  in which shell metacharacters survive as literal bytes.
+- The process table is bounded, handles are generation-checked, and no PID
+  is ever exposed as identity.
+- Output is committed through the edit gateway with `KG_EDIT_INTERNAL`,
+  from the drain only; polling touches no buffer and no Lisp.
+- Filters and sentinels run only from the drain, and an error in one
+  contains to that callback.
+- No child survives kg's exit.
+- `provide`/`require`/`featurep` with bounded `load-path` and cycle
+  detection.
+- Versioned `doc/lisp-api.md` is published and covers Phases 2–7.
+- `auto-fill-mode` is green with an isolated-HOME PTY test and a
+  `WITH_LISP=0` non-regression.
+- What was cut is written down with what it needs, not silently absent.
+- Both Lisp configurations, native and PTY suites, `docs-check`,
+  `header-check`, `lisp-include-check`, `format-check`, the static and
+  sanitizer lanes, and the full CI runner pass **without ratchet raises**.

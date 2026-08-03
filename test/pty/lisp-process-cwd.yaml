@@ -20,6 +20,24 @@ keys:
   - RET
   - (start-process "e" (current-buffer) "/bin/head" "-n1" "Makefile")
   - RET
+  # Process output reaches the buffer only at a safe-point drain, and a
+  # keypress is what reaches one.  These are C-e (end-of-line: idempotent,
+  # edits nothing) purely to give the drain chances to run, so the count is
+  # a synchronisation budget rather than anything about the behaviour under
+  # test.  Five was not enough: under valgrind, with the parallel runner's
+  # other lanes competing, the child had not been reaped and drained inside
+  # the ~0.8 s that bought, and ci-03 failed with the process line missing
+  # while the same case passed 10/10 run on its own.
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
   - C-e
   - C-e
   - C-e

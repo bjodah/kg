@@ -29,6 +29,21 @@ initial: ""
 keys:
   - C-c
   - r
+  # A synchronisation budget, not part of the behaviour under test: output
+  # lands only at a safe-point drain and a keypress is what reaches one, so
+  # these idempotent C-e presses are just drain opportunities.  This case
+  # waits on two children rather than one, and five presses flaked under
+  # valgrind once the parallel runner's other lanes were competing.
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
   - C-e
   - C-e
   - C-e

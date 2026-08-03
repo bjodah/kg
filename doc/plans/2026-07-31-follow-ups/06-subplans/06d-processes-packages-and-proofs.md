@@ -531,3 +531,45 @@ that the adapter is missing something.
 - Both Lisp configurations, native and PTY suites, `docs-check`,
   `header-check`, `lisp-include-check`, `format-check`, the static and
   sanitizer lanes, and the full CI runner pass **without ratchet raises**.
+
+---
+
+## Status — sub-plan D closed 2026-08-03
+
+Phase 7 spent 220 of its 230 scc units, Phase 8 spent 41 of its 90.  The
+tree ends at 5400 against the 5500 cap, so Plan 06's budget held with no
+raise.
+
+Every completion-gate item above is met, with two clarifications:
+
+- "No child survives kg's exit" and the process-group rule are proven by
+  `test_delete_process_kills_the_whole_group` and
+  `test_shutdown_leaves_no_survivor` in `test/test_process_table.c`.  Both
+  fail when the group signal is replaced with `kill(e->pid, ...)`, which
+  is how they were checked — neither slice had written them.
+- `doc/lisp-api.md` covers Phases 2–**8**, including `require`/`provide`.
+
+### Still open, deliberately, with what each needs
+
+| Item | Needs |
+|------|-------|
+| ci-05 (MSan) | an explicit recursion-depth bound in `fe/fe.c`'s `Evaluate`; submodule change + pin move (see above) |
+| ci-06 (IWYU) | a cleanup slice over ~13 files, most predating Plan 06 (see above) |
+| whitespace-mode | decoration natives |
+| conf-mode | the Phase 6 mode registry (`define-derived-mode`, `defvar`) |
+| docstrings, `describe-function` | a bounded symbol→docstring table and a `describe.c` entry point |
+| source line numbers in errors | Fe carrying position information |
+| grep package | nothing — Phase 7 landed the process table it wanted |
+
+### The lesson this sub-plan paid for twice
+
+Both Phase 7 slices, and Phases 2–6 before them, passed `make check` and
+every ratchet while leaving CI lanes red — a fuzz target that had not
+linked since Phase 2, an ASan leak since Phase 3, and three lanes Phase 7
+broke itself.  `make check` builds neither the fuzz targets nor the
+sanitizer configurations, and `make docs-check` cannot see an
+undocumented Lisp API.
+
+**`.ci/run-ci-steps.sh --parallel` is the sign-off.  Run it at the start
+of a slice too, so a lane someone else left red is not mistaken for
+yours.**

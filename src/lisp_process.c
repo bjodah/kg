@@ -1,9 +1,10 @@
-#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "def.h"
 #include "event.h"
 #include "lisp_internal.h"
@@ -11,6 +12,7 @@
 #include "lisp_process.h"
 #include "process.h"
 #include "process_table.h"
+#include "prochandle.h"
 
 /* argv[0] (the program) plus up to this many more strings; one slot short
  * of LISP_MAX_PROCESS_ARGS is the NULL terminator kg_process_spawn() needs. */
@@ -407,6 +409,22 @@ FeObject *native_process_buffer(FeContext *context, FeObject *arguments)
 	return lisp_buffer_object(context, buffer);
 }
 
+/* binding_for() answers NULL only for a slot outside the table, which a
+ * handle that just resolved cannot name -- but that invariant lives in
+ * process_table.c, and gcc's analyzer (.ci/ci-03) is right to refuse to
+ * infer it across two translation units.  State it here, where the
+ * dereference is, rather than leave the next reader to reconstruct it. */
+static struct kg_process_binding *binding_for_live(
+    FeContext *context, struct kg_process_handle handle, const char *what)
+{
+	struct kg_process_binding *b = binding_for(handle);
+
+	if (b == NULL) {
+		FeHandleError(context, what);
+	}
+	return b;
+}
+
 static bool lisp_callable_or_nil(FeObject *fn)
 {
 	return fn != NULL
@@ -430,7 +448,7 @@ FeObject *native_set_process_filter(FeContext *context, FeObject *arguments)
 		FeHandleError(
 		    context, "set-process-filter: expected function or nil");
 	}
-	b = binding_for(handle);
+	b = binding_for_live(context, handle, "set-process-filter: no slot");
 	if (b->filter != NULL) {
 		FeReleaseRoot(context, b->filter);
 		b->filter = NULL;
@@ -458,7 +476,7 @@ FeObject *native_set_process_sentinel(FeContext *context, FeObject *arguments)
 		FeHandleError(
 		    context, "set-process-sentinel: expected function or nil");
 	}
-	b = binding_for(handle);
+	b = binding_for_live(context, handle, "set-process-sentinel: no slot");
 	if (b->sentinel != NULL) {
 		FeReleaseRoot(context, b->sentinel);
 		b->sentinel = NULL;

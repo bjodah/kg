@@ -1,4 +1,3 @@
-#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -22,7 +21,6 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

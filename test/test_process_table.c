@@ -24,6 +24,7 @@
 #include "../src/process.h"
 #include "../src/process_table.h"
 #include "test.h"
+#include <errno.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -186,32 +187,21 @@ static void test_spawn_reclaims_oldest_published_finished_entry(void)
 	setup();
 	buf = buf_handle(buf_current);
 
+	/* One at a time, each brought all the way to finished-and-published
+	 * before the next is spawned.  Spawning all eight and then waiting
+	 * would leave the *reap* order -- which is what finish_seq records,
+	 * and so which slot counts as oldest -- up to the kernel's
+	 * scheduling of eight concurrent children, while the assertion
+	 * below names slot 0 specifically.  That race is not theoretical:
+	 * this test failed under .ci/ci-11's -funsigned-char build, where
+	 * the timing shifted just enough for a later slot to be reaped
+	 * first. */
 	for (int i = 0; i < KG_PROCESS_TABLE_MAX; i++) {
+		struct kg_process_table_info info;
+
 		handles[i] = spawn_cmd("exit 0", buf);
 		CHECKF(kg_process_table_resolves(handles[i]), "slot %d", i);
-	}
-	/* Let every one finish and its exit event actually get queued
-	 * (poll() retries publish_exit() every call, and the ring has
-	 * plenty of room here). */
-	for (int i = 0; i < 2000; i++) {
-		struct kg_process_table_info info;
-		bool all_done = true;
-
-		kg_process_table_poll();
-		for (int j = 0; j < KG_PROCESS_TABLE_MAX; j++) {
-			if (!kg_process_table_query(handles[j], &info)
-			    || info.status == KG_PROCESS_RUNNING) {
-				all_done = false;
-			}
-		}
-		if (all_done) {
-			break;
-		}
-		usleep(1000);
-	}
-	for (int i = 0; i < KG_PROCESS_TABLE_MAX; i++) {
-		struct kg_process_table_info info;
-
+		poll_until_finished(handles[i], 5000);
 		CHECKF(kg_process_table_query(handles[i], &info)
 			&& info.status == KG_PROCESS_EXITED,
 		    "slot %d finished", i);
@@ -491,6 +481,89 @@ static void test_empty_argv_is_refused(void)
 	CHECK(!kg_process_table_resolves(h));
 }
 
+/* ---- process groups: the whole tree dies, not just the child ----------
+ * The completion gate says no child of kg's outlives it.  A shell that
+ * backgrounds a grandchild is what makes that a claim about a process
+ * *group* rather than about one pid: signalling only the child would leave
+ * the grandchild running, reparented to init, still holding kg's pipe.
+ * Both exits from the table are asserted, because they signal the group
+ * from different call sites.  Both assertions fail if the group signal is
+ * replaced by kill(e->pid, ...), which is how they were checked. */
+
+/* The pid a spawned shell printed for the grandchild it backgrounded, or 0
+ * if it never arrived.  Drains through the same drain the editor uses, then
+ * reads the pid back out of the target buffer's first row. */
+static pid_t grandchild_pid_from_buffer(struct kg_buffer_handle buf)
+{
+	struct editor_buffer *b;
+	pid_t pid = 0;
+
+	for (int i = 0; i < 3000 && pid <= 0; i++) {
+		kg_process_table_poll();
+		kg_event_drain_safe();
+		b = buf_resolve(buf);
+		if (b && b->numrows > 0 && b->row[0].size > 0) {
+			pid = (pid_t)strtol(b->row[0].chars, NULL, 10);
+		}
+		if (pid <= 0) {
+			usleep(1000);
+		}
+	}
+	return pid;
+}
+
+/* Whether `pid` is gone: kill(pid, 0) failing with ESRCH.  Polled, because
+ * the grandchild is reparented to init on the way out and init's reap is
+ * not synchronous with our signal. */
+static bool pid_is_gone(pid_t pid)
+{
+	for (int i = 0; i < 2000; i++) {
+		if (kill(pid, 0) < 0 && errno == ESRCH) {
+			return true;
+		}
+		usleep(1000);
+	}
+	return false;
+}
+
+static void test_delete_process_kills_the_whole_group(void)
+{
+	struct kg_buffer_handle buf;
+	struct kg_process_handle h;
+	pid_t grandchild;
+
+	setup();
+	buf = buf_handle_of(bcur());
+	/* The grandchild outlives the shell's own foreground work on
+	 * purpose: only a group signal reaches it. */
+	h = spawn_cmd("sleep 300 & echo $!; wait", buf);
+	CHECK(kg_process_table_resolves(h));
+	grandchild = grandchild_pid_from_buffer(buf);
+	CHECK(grandchild > 0);
+
+	CHECK(kg_process_table_terminate_and_release(h));
+	CHECK(!kg_process_table_resolves(h));
+	CHECK(pid_is_gone(grandchild));
+}
+
+static void test_shutdown_leaves_no_survivor(void)
+{
+	struct kg_buffer_handle buf;
+	struct kg_process_handle h;
+	pid_t grandchild;
+
+	setup();
+	buf = buf_handle_of(bcur());
+	h = spawn_cmd("sleep 300 & echo $!; wait", buf);
+	CHECK(kg_process_table_resolves(h));
+	grandchild = grandchild_pid_from_buffer(buf);
+	CHECK(grandchild > 0);
+
+	kg_process_table_shutdown();
+	CHECK(!kg_process_table_resolves(h));
+	CHECK(pid_is_gone(grandchild));
+}
+
 int main(void)
 {
 	RUN(test_empty_argv_is_refused);
@@ -504,5 +577,7 @@ int main(void)
 	RUN(test_output_cap_drops_oldest_and_flags_truncation);
 	RUN(test_killed_buffer_discards_queued_output);
 	RUN(test_exit_event_retried_not_dropped_under_ring_pressure);
+	RUN(test_delete_process_kills_the_whole_group);
+	RUN(test_shutdown_leaves_no_survivor);
 	return test_summary();
 }

@@ -248,6 +248,12 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	size_t match_byte;
 
 	pattern = copy_fe_string(context, pattern_object, &pattern_len);
+	/* Parked in state.scratch, the same way lisp_string.c and
+	 * lisp_buffer.c park theirs: lisp_search_bound() and
+	 * FeRequireNoArguments() below can both raise, and a raise longjmps
+	 * past every free() in this function.  .ci/ci-04's LeakSanitizer
+	 * caught exactly that. */
+	state.scratch = pattern;
 	bound_off = lisp_search_bound(context, b, &arguments, default_bound);
 	FeRequireNoArguments(context, arguments);
 
@@ -255,7 +261,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 		int status = kg_regex_compile(&rx, pattern, 0);
 
 		if (status == KG_REGEX_TOODEEP) {
-			free(pattern);
+			release_scratch();
 			FeHandleError(context, "regexp too complex to compile");
 		}
 		if (status != KG_REGEX_OK) {
@@ -263,7 +269,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 
 			(void)snprintf(message, sizeof(message),
 			    "invalid regexp: %s", pattern);
-			free(pattern);
+			release_scratch();
 			FeHandleError(context, message);
 		}
 	}
@@ -284,7 +290,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 		    bound_row, bound_col, regexp, &rx, pattern, pattern_len,
 		    &hit);
 	}
-	free(pattern);
+	release_scratch();
 
 	if (!found) {
 		return FeNil(context);

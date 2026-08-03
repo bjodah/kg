@@ -308,6 +308,43 @@ and `after-save-hook`. There is deliberately no `post-command-hook`: its
 per-keystroke cost has not been measured. A hook that is added twice runs
 twice, and a hook list holds at most 16 functions.
 
+kg tracks up to 8 child processes at once, started from Lisp:
+
+| Form | Result |
+| ---- | ------ |
+| `(start-process NAME BUFFER PROGRAM &rest ARGS)` | Exec `PROGRAM` with `ARGS` directly — no shell, so no word splitting, globbing or redirection touches an argument |
+| `(start-shell-command NAME BUFFER COMMAND)` | Run `COMMAND` through `/bin/sh -c`, the way `M-!` does |
+| `(process-live-p PROC)` | `t` while `PROC` is running, else `nil` |
+| `(delete-process PROC)` | `SIGTERM`, a bounded wait, then `SIGKILL` if it is still alive; releases the slot |
+| `(process-buffer PROC)` | `PROC`'s target buffer, or `nil` once it is gone |
+| `(set-process-filter PROC FN)` | `FN` is called `(FN PROC STRING)` with each chunk of output; `nil` restores the default of appending to `(process-buffer PROC)` |
+| `(set-process-sentinel PROC FN)` | `FN` is called `(FN PROC EVENT)` once the process exits, with `EVENT` a string such as `"finished\n"` |
+| `(process-status PROC)` | `'run`, `'exit` or `'signal` |
+
+`BUFFER` is a buffer object, a name (matching `get-buffer-create`'s own
+resolution: an existing buffer of that name, else a fresh one), or `nil` to
+discard the process's output. `NAME` is validated as a string but not
+otherwise used — there is no `process-name` yet. A process object is not a
+PID: it is a generation-checked handle into a bounded table the same way a
+buffer or marker is, so a handle to a process whose slot has since been
+reclaimed by a later one never resolves to that later process.
+
+Setting a filter stops output from landing in `process-buffer` — the filter
+owns it, exactly as in Emacs — and clearing it (`(set-process-filter PROC
+nil)`) resumes appending. Both callbacks run only at a safe point, after the
+process's own output and exit have been decided, and a filter always sees
+everything a process wrote before its sentinel runs, even when the exit
+itself was detected before the last chunk of output was delivered. A filter
+or sentinel that errors is reported in the status area and does not stop
+the other one, another process's callbacks, or later deliveries.
+
+Only pipes, not a pty: a child that behaves differently when it is not
+talking to a terminal behaves that way here too. Children get `/dev/null`
+on stdin; there is no `process-send-string`. Output is capped at 256 KiB
+per process — a child that produces more has its oldest bytes dropped, with
+a `kg: output truncated` line marking the gap — and every tracked process is
+killed and reaped when kg exits, so none outlives the editor.
+
 Key bindings reach the same layered keymaps the built-in keys use:
 
 | Form | Result |

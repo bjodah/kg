@@ -242,6 +242,57 @@ and
 There is deliberately no
 .Li post-command-hook .
 .Pp
+.Nm
+tracks up to 8 child processes at once, started from Lisp with
+.Li (start-process NAME BUFFER PROGRAM &rest ARGS)
+(exec'd directly, no shell) or
+.Li (start-shell-command NAME BUFFER COMMAND)
+(through
+.Pa /bin/sh Fl c ,
+the way
+.Ic M-!
+does).
+.Li (process-live-p PROC) ,
+.Li (delete-process PROC)
+(SIGTERM, a bounded wait, then SIGKILL),
+.Li (process-buffer PROC) ,
+.Li (set-process-filter PROC FN) ,
+.Li (set-process-sentinel PROC FN)
+and
+.Li (process-status PROC)
+(answering
+.Li run , exit
+or
+.Li signal )
+round out the API.
+.Li BUFFER
+is a buffer object, a name resolved the way
+.Li get-buffer-create
+resolves one, or
+.Li nil
+to discard the process's output; a process object is a generation-checked
+handle into the table, never a PID, so a handle to a reclaimed slot never
+resolves to whatever process claims it next.
+Setting a filter stops output from landing in
+.Li process-buffer
+\(em the filter owns it, exactly as in Emacs \(em and clearing it with
+.Li (set-process-filter PROC nil)
+resumes appending.
+Both callbacks run only at a safe point, and a filter always sees
+everything a process wrote before its sentinel runs; a filter or sentinel
+that errors is reported in the status area without stopping the other one,
+another process's callbacks, or later deliveries.
+Children get pipes, not a pty, and
+.Pa /dev/null
+on stdin; there is no
+.Li process-send-string .
+Output is capped at 256 KiB per process, oldest bytes dropped past that
+with a
+.Li kg: output truncated
+marker, and every tracked process is killed and reaped when
+.Nm
+exits.
+.Pp
 .Li (define-key MAP KEY COMMAND) ,
 .Li (lookup-key MAP KEY)
 and

@@ -1,14 +1,13 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
 #include "def.h"
-#include "edit.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
-#include "syntax.h"
 
 /* ---- Adapter-owned editor objects -------------------------------------
  * A buffer object is a FeTFex0 value wrapping a record in state.object_pool.

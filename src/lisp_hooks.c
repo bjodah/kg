@@ -1,13 +1,16 @@
-#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "def.h"
 #include "event.h"
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
+#include "lisp_obj.h"
 
 #define LISP_MAX_HOOKS 16
 #define LISP_MAX_HOOK_ENTRIES_PER_HOOK 16

@@ -3,15 +3,16 @@
 #include <limits.h>
 #include <math.h>
 #include <stdckdint.h>
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "def.h"
 #include "edit.h"
 #include "lisp_internal.h"
+#include "lisp_obj.h"
 
 /* ---- Formatting ------------------------------------------------------
  * `format` walks the format string a byte at a time and appends to a

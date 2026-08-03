@@ -1,11 +1,12 @@
-#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "def.h"
 #include "lisp_internal.h"
+#include "localvars.h"
+#include "marker.h"
 #include "regex.h"
 
 /* ---- search-forward/-backward, re-search-forward/-backward -----------

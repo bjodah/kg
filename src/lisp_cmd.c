@@ -1,4 +1,3 @@
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,8 +6,10 @@
 #include "../fe/fe.h"
 #include "cmd.h"
 #include "keybind.h"
+#include "keyevent.h"
 #include "keymap.h"
 #include "lisp_internal.h"
+#include "lisp_obj.h"
 
 /* ---- Types -----------------------------------------------------------
  * Fe's own `atom` only splits pairs from everything else, so the Emacs

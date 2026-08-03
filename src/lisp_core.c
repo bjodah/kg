@@ -21,17 +21,19 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 #include "../fe/fe.h"
 #include "cmd.h"
 #include "def.h"
-#include "lisp.h"
+/* lisp.h is already included, unconditionally, above -- this second
+ * #include is a no-op through the header guard.  Kept out rather than
+ * suppressed: the file still checks every KG_USE_LISP-gated definition
+ * below against lisp.h's declarations, via the top-of-file include. */
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
+#include "lisp_obj.h"
 #include "lisp_process.h"
 
 static_assert(FE_API_VERSION == 1);

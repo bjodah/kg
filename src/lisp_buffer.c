@@ -1,11 +1,13 @@
 #include <limits.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "def.h"
 #include "lisp_internal.h"
+#include "lisp_obj.h"
+#include "localvars.h"
 #include "marker.h"
 
 /* ---- Emacs-shaped buffer positions -----------------------------------

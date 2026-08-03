@@ -1,11 +1,12 @@
 #include <ctype.h>
-#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "../fe/fe.h"
 #include "def.h"
 #include "lisp_internal.h"
+#include "localvars.h"
+#include "marker.h"
 
 /* Move point by COUNT words; negative counts move backward.  The loop
  * stops as soon as point stops moving so a huge count cannot spin at the

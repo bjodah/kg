@@ -60,6 +60,7 @@ that could be done in the prelude was done there instead.
 | Optional argument-count checking, `FeSetStrictArity()` | `((lambda (x) x))` was nil, `((lambda () 1) 2)` was 1 and `((lambda (1) 5) 2)` was 5 | off by default, so kg is unaffected; `fe -a` turns it on and Fe's script suite runs a third time under it |
 | An unassigned symbol is `void-variable`, not `nil` | a typo was silently false; Fe's own `TODO.md` asked for this | `boundp` and `makunbound` are new primitives and `FeIsBound()` is a new API; kg's `defvar` asks `(boundp 'name)` rather than evaluating the name |
 | `FeCallWithOptions()` — a controlled `FeCall()` | kg ran Lisp commands through a source-string trampoline (`(internal--run-pending-command)`) solely to reach the evaluator's step-budget/interrupt/GC accounting; the trampoline is gone now that a callable can be invoked under the same options | one declaration in `fe.h` and a thin wrapper reusing `BeginEvaluationControl`/`EndEvaluationControl`; tested in `test_api.c`, no `FE_API_VERSION` bump (compatible addition) |
+| `unwind-protect` and `FeProtectWithCleanup()` — cleanup stack and host protection | Lisp `unwind-protect` and C `FeProtectWithCleanup` share a single LIFO registry; cleanups run on normal return, Lisp error, C-g interrupt, and step-budget exhaustion | new primitive `unwind-protect`, `FeProtectWithCleanup()` API in `fe.h`, fresh per-entry cleanup step budget and interrupt re-arming in `RunCleanupsAfterError` |
 
 ## The nested tiny-regex-c submodule
 
@@ -118,10 +119,9 @@ Deliberately **not** changed in `fe.c`, and why:
   would permanently retire `=`-as-assignment, and any stale `(= x 1)` would
   then silently compute a boolean. `setq` is the spelling to use; `=` stays
   assignment.
-- **Dynamic binding, `unwind-protect`, `condition-case`, vectors, hash tables,
+- **Dynamic binding, `condition-case`, vectors, hash tables,
   keyword arguments, a byte compiler.** All need new object types or a real
-  non-local exit mechanism in `Evaluate`. `fe/doc/unwind-design.md` is the
-  design for the exit mechanism; it is deliberately unimplemented.
+  non-local exit mechanism in `Evaluate`.
 - **Strict arity by default.** `FeSetStrictArity()` exists and kg does not call
   it. Turning it on would make every `(defun c (x) (interactive) …)` an arity
   error, because kg invokes interactive commands with zero arguments

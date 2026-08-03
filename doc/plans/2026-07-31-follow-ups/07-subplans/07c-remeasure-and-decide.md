@@ -232,8 +232,14 @@ would have to construct deliberately, wastes at most 7 duplicate vectors:
 7 × 3.815 MiB (computed) ≈ 26.7 MiB, or 7 × 4.148 MiB (measured) ≈ 29.0
 MiB.  Against that: one window's own baseline footprint for a 1M-row
 buffer is already 256,772 KiB ≈ 250.8 MiB (`visual-line-1m`'s peak RSS
-above), of which the row array alone (`row_array_bytes`) is 134,216,704
-bytes ≈ 128.0 MiB.  The worst-case duplication waste is therefore roughly
+above), of which the live row array is ≈ 64 MiB — 2^20 rows of capacity
+at `sizeof(erow)` 64, which is the next doubling above 1,000,001.  (Not
+128 MiB: `KG_PERF_ROW_ARRAY_BYTES` reads 134,216,704 here, but that
+counter is "bytes those reallocations *spanned*", the cumulative sum over
+every growth step, which for a doubling series is about twice the final
+array — it is not a live footprint, and nothing else in this document
+should be read as one either.)  The worst-case duplication waste is
+therefore roughly
 11% of one window's own footprint, in an arrangement most sessions never
 approach.  At 100k rows the same worst case is 7 × 0.382–0.617 MiB ≈
 2.7–4.3 MiB — trivial next to the ~28 MiB baseline.

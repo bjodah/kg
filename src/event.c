@@ -637,24 +637,29 @@ static struct kg_buffer_handle event_buffer_handle(const struct kg_event *ev)
 	return (struct kg_buffer_handle) { 0 };
 }
 
-/* Live/gone is re-derived every delivery, never cached from publish time.
- * For every buffer-identified kind this is buf_resolve() on the handle
+/* Whether `ev` resolves, as a bool -- event_resolution() below is just this
+ * cast to the enum, kept separate so its own complexity stays where it was
+ * before this had two identities to tell apart instead of one.  For every
+ * buffer-identified kind this is buf_resolve() on the handle
  * event_buffer_handle() reads out, the same call a live caller would make.
  * A process event resolves on its *process* handle instead
  * (kg_process_table_resolves(), src/process_table.h): that is the identity
  * the drain subscriber dispatches on, and a KG_EVENT_PROCESS_EXIT for a
- * since-released slot is still delivered as KG_EVENT_RESOLVED_GONE, the
- * same way a KG_EVENT_BUFFER_KILLED is. */
-static enum kg_event_resolution event_resolution(const struct kg_event *ev)
+ * since-released slot still resolves false, delivered as
+ * KG_EVENT_RESOLVED_GONE the same way a KG_EVENT_BUFFER_KILLED is. */
+static bool event_resolves(const struct kg_event *ev)
 {
 	if (ev->kind == KG_EVENT_PROCESS_OUTPUT
 	    || ev->kind == KG_EVENT_PROCESS_EXIT) {
-		return kg_process_table_resolves(ev->payload.process.process)
-		    ? KG_EVENT_RESOLVED_LIVE
-		    : KG_EVENT_RESOLVED_GONE;
+		return kg_process_table_resolves(ev->payload.process.process);
 	}
-	return buf_resolve(event_buffer_handle(ev)) ? KG_EVENT_RESOLVED_LIVE
-						    : KG_EVENT_RESOLVED_GONE;
+	return buf_resolve(event_buffer_handle(ev)) != NULL;
+}
+
+static enum kg_event_resolution event_resolution(const struct kg_event *ev)
+{
+	return event_resolves(ev) ? KG_EVENT_RESOLVED_LIVE
+				  : KG_EVENT_RESOLVED_GONE;
 }
 
 /* Run `ev` past every subscriber in `snap`, in the snapshot's order.  Each

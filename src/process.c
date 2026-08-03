@@ -35,6 +35,19 @@ int kg_pipe_cloexec(int fds[2])
 	return 0;
 }
 
+/* Exec `req` directly (argv) or through /bin/sh -c (command) -- the two
+ * ways a caller may ask for a child, chosen the same way
+ * kg_process_spawn() itself chose which to refuse.  Returns only on
+ * failure, the same as execvp()/execl() do. */
+static void exec_spawn_request(const struct kg_spawn_request *req)
+{
+	if (req->argv) {
+		execvp(req->argv[0], (char *const *)req->argv);
+	} else {
+		execl("/bin/sh", "sh", "-c", req->command, (char *)NULL);
+	}
+}
+
 /* The forked child, between fork() and exec.  Nothing here may allocate or
  * touch editor state; `p` is the output pipe, whose write end this end of
  * the fork owns. */
@@ -74,27 +87,18 @@ int kg_pipe_cloexec(int fds[2])
 	close(p[0]);
 	close(p[1]);
 
-	if (req->argv) {
-		execvp(req->argv[0], (char *const *)req->argv);
-	} else {
-		execl("/bin/sh", "sh", "-c", req->command, (char *)NULL);
-	}
+	exec_spawn_request(req);
 	_exit(127);
 }
 
-int kg_process_spawn(
+/* The pipe/fork/parent-side bookkeeping, unchanged by the argv-or-command
+ * decision -- kg_process_spawn() is the one place that decision is made, so
+ * pulling this out keeps its own complexity where it already was. */
+static int spawn_process(
     const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
 {
 	int p[2];
 	pid_t pid;
-
-	/* Exactly one of argv/command is honoured, argv first; both set is a
-	 * caller bug, refused before the pipe or the fork rather than
-	 * guessed at. */
-	if (req->argv && req->command) {
-		errno = EINVAL;
-		return -1;
-	}
 
 	if (kg_pipe_cloexec(p) < 0) {
 		return -1;
@@ -122,6 +126,19 @@ int kg_process_spawn(
 	*pid_out = pid;
 	*output_fd_out = p[0];
 	return 0;
+}
+
+int kg_process_spawn(
+    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+{
+	/* Exactly one of argv/command is honoured, argv first; both set is a
+	 * caller bug, refused before the pipe or the fork rather than
+	 * guessed at. */
+	if (req->argv && req->command) {
+		errno = EINVAL;
+		return -1;
+	}
+	return spawn_process(req, pid_out, output_fd_out);
 }
 
 /* The one place a raw wait status is taken apart: everything above this

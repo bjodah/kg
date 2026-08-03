@@ -78,9 +78,15 @@ counter (fe `87f0e1c`, pin moved in `e470ea6`) and closed ci-05; F
 applied the IWYU findings and the clang-analyzer padding fix behind them
 (`3428054`, `ea2df3b`, `bf89533`, `adf2b7f`) and closed ci-06.
 
-One piece of debt is *newly written down* rather than repaid:
-`fe/.ci/ci-03` fails on five pre-existing `-fanalyzer` fd-leak findings
-in `test_api.c`, and was already failing at the base commit `cc4ddca`.
-It is fe's, not kg's, and it wants a slice of its own.  Until then the
-honest gate for moving the pin is "no new findings against the base
-commit", which is what E verified.
+E also *found* a sixth red lane that was nobody's phase: `fe/.ci/ci-03`,
+failing on five pre-existing `-fanalyzer` fd-leak findings in
+`test_api.c` and already failing at the base commit `cc4ddca`.  That is
+fe's rather than kg's, and it forced E to move the pin against the weaker
+gate "no new findings against the base commit".
+
+**It is repaid** (fe `c41f251`, pinned by kg `729f201`): the two cleanup
+tests redirected `stderr` into a tmpfile inline, and `CHECK`'s early
+return abandoned the descriptor and the tempfile on any failed
+precondition.  One helper now owns both and releases them on every exit.
+fe's own numbered pipeline exits 0, so the stronger gate — fe's CI green
+before a pin moves — is real again rather than aspirational.

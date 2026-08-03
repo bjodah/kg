@@ -270,6 +270,13 @@ Verified by running that stage against a detached checkout of the base
 commit: five findings before, five after, unchanged.
 
 Every other fe stage (ci-01, 02, 04, 05, 06, 07, 08) passes with this
-change.  The honest gate for a pin move is therefore **"no new findings
-against the base commit"**, not "green" — and fe's ci-03 is now debt of
-its own, worth its own slice.
+change.  The honest gate for a pin move was therefore **"no new findings
+against the base commit"**, not "green".
+
+**Repaid the same day.**  fe `c41f251` fixes all five: the two cleanup
+tests each redirected `stderr` into a tmpfile inline, and `CHECK`'s
+early return abandoned the descriptor and the tempfile on any failed
+precondition.  One `CaptureStderr()` helper now owns the redirect, the
+body call and the restore and releases both on every exit.  fe's full
+pipeline exits 0, so the stronger gate is available again from kg
+`729f201` onward.

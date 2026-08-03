@@ -245,7 +245,7 @@ The recommendations identify the right work, with these ordering corrections:
 | [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–3 done; Phase 4 (session nesting) still deferred behind Plan 05's kill ring, and nothing depends on it** |
 | [05](05-emacs-affordances-delivery.md) | ... | **Introspection delivered; Bundles A, B, D and E remain** |
 | [06](06-runtime-and-lisp-extensibility.md) | ... | **Complete (2026-08-03). All nine phases plus both debt sub-plans (E: Fe recursion depth bound, closing ci-05; F: include hygiene, closing ci-06); scc under the 5500 cap and all twelve CI lanes green; see [06-subplans](06-subplans/)** |
-| [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started; Phase 2 is next** |
+| [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started and now split into four sub-plans, see [07-subplans](07-subplans/); sub-plan A (Phase 2) is next. Budget is the binding constraint: 99 scc points remain** |
 
 ## Dependency and delivery order
 

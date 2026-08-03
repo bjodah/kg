@@ -1,5 +1,13 @@
 # Plan 07 — Visual-line geometry cache and index
 
+**Phases 2–5 are broken out into [07-subplans/](07-subplans/)** (A: the
+prefix index and geometry API; B: the one-traversal draw loop; C:
+re-measure and decide; D: the window-text-width seam).  Read the
+sub-plans' README first — it carries the live complexity budget, the
+measured thrash numbers that decide sub-plan A's design, and the two
+existing `test/test_perf.c` assertions that must be moved deliberately
+rather than quietly.
+
 ## Status (2026-08-01, after phases 0-1)
 
 Phases 0 and 1 are done; phases 2-5 are not started.  The `visual-line-100k`
@@ -91,8 +99,18 @@ repaint, 6.8 s median versus 0.18 s with the mode off.  `make bench` writes to
 the gitignored `test/.results/bench.json`, so the figures recorded here are
 the durable baseline; re-run the case before claiming an improvement.  The feature is optional but
 user-reachable and its evidence gate is met.  Schedule it before optional Lisp
-packages once another migration/extraction has freed complexity; do not raise
-the 4223 cap.
+packages once another migration/extraction has freed complexity; ~~do not raise
+the 4223 cap~~.
+
+**That cap number is stale by three raises**, as is the status section's
+"`SCC_COMPLEXITY_MAX` moved to 4200".  The live figure is 5500, reached
+through written Decisions in the follow-ups README (4223 → 4450 → 4750 →
+5500), and the tree sits at 5401 — **99 points of headroom for all of
+phases 2–5**, with the README's named repayment sources already spent.
+The instruction survives its number: do not raise the cap for this plan.
+[07-subplans/README.md](07-subplans/README.md) names each sub-plan's
+funding, the largest being moving `src/mode.c`'s declarations out of
+`src/def.h`.
 
 Coordinate display changes with Plan 03 decorations and later line-number
 gutters.  All consumers must use the same width argument.

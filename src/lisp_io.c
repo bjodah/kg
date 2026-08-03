@@ -418,25 +418,51 @@ static char *read_whole_file(const char *path, size_t *size)
 	return buffer;
 }
 
+/* Evaluate the Lisp source at PATH, nested inside the caller's evaluation
+ * and inheriting its step budget.  Shared by (load ...) and (require ...),
+ * which differ only in how they resolve PATH: honours
+ * LISP_MAX_LOAD_DEPTH and keeps the buffer in state.load_buffers so a
+ * longjmp past this call is freed by the frame recovery that already
+ * walks that array. */
+void lisp_eval_file(FeContext *context, const char *path)
+{
+	char *buffer;
+	size_t size, slot;
+
+	if (state.load_depth >= LISP_MAX_LOAD_DEPTH) {
+		FeHandleError(context, "load depth limit exceeded");
+	}
+	buffer = read_whole_file(path, &size);
+	if (!buffer) {
+		char message[sizeof(state.error)];
+
+		copy_result(message, sizeof(message), state.error);
+		FeHandleError(context, message);
+	}
+	slot = state.load_depth;
+	state.load_buffers[slot] = buffer;
+	state.load_depth++;
+	(void)FeEvaluateString(context, path, buffer, size);
+	state.load_depth--;
+	state.load_buffers[slot] = nullptr;
+	free(buffer);
+}
+
 /* (load NAME): a name containing '/' is a literal path; a bare name
- * resolves to <config>/kg/lisp/NAME.fe.  Runs nested inside the caller's
- * evaluation, inheriting its step budget.  Loading twice evaluates twice;
- * there is no require/provide. */
+ * resolves to <config>/kg/lisp/NAME.fe.  Loading twice evaluates twice;
+ * there is no require/provide behaviour here -- see native_require for
+ * that. */
 FeObject *native_load(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	char path[PATH_MAX];
 	char stem[PATH_MAX];
-	char *name, *buffer;
-	size_t length, size, slot;
+	char *name;
+	size_t length;
 	int bad;
 
 	FeRequireNoArguments(context, arguments);
 	name = copy_fe_string(context, object, &length);
-	if (state.load_depth >= LISP_MAX_LOAD_DEPTH) {
-		free(name);
-		FeHandleError(context, "load depth limit exceeded");
-	}
 	if (strchr(name, '/')) {
 		bad = snprintf(path, sizeof(path), "%s", name) < 0
 		    || strlen(name) >= sizeof(path);
@@ -453,20 +479,6 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 		command_error(context, "cannot resolve package path", rejected);
 	}
 	free(name);
-
-	buffer = read_whole_file(path, &size);
-	if (!buffer) {
-		char message[sizeof(state.error)];
-
-		copy_result(message, sizeof(message), state.error);
-		FeHandleError(context, message);
-	}
-	slot = state.load_depth;
-	state.load_buffers[slot] = buffer;
-	state.load_depth++;
-	(void)FeEvaluateString(context, path, buffer, size);
-	state.load_depth--;
-	state.load_buffers[slot] = nullptr;
-	free(buffer);
+	lisp_eval_file(context, path);
 	return FeNil(context);
 }

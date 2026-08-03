@@ -23,6 +23,15 @@
 #define LISP_MAX_LOAD_DEPTH 8
 #define LISP_MAX_COMMANDS 32
 #define LISP_COMMAND_NAME_MAX 64
+/* provide/require/featurep (lisp_require.c).  Cycle detection is a
+ * separate bounded stack from LISP_MAX_LOAD_DEPTH: that macro caps how
+ * deeply (load ...)/(require ...) nest, this one caps how many features
+ * can be mid-require at once, which is the same number in practice but a
+ * different question -- identity, not depth. */
+#define LISP_MAX_FEATURES 32
+#define LISP_FEATURE_NAME_MAX 64
+#define LISP_MAX_LOAD_PATH 8
+#define LISP_MAX_REQUIRE_STACK 8
 
 /* A Lisp-defined command: the function object stays alive through its
  * root for the registration lifetime and is released on redefinition or
@@ -103,6 +112,25 @@ struct lisp_state {
 	struct kg_lisp_match_data match;
 	/* The bounded pool of Fe-visible editor objects. */
 	struct lisp_object_pool object_pool;
+	/* provide/require/featurep's feature table: names registered by
+	 * (provide ...), checked by (featurep ...) and (require ...). */
+	char features[LISP_MAX_FEATURES][LISP_FEATURE_NAME_MAX];
+	size_t feature_count;
+	/* Bounded load-path: C-side directories (require)'s search resolves,
+	 * in order.  Not a Fe list -- see lisp_require.c.  load_path_ready
+	 * marks whether the default <config>/kg/lisp/ entry has already been
+	 * seeded, which happens at most once regardless of call order between
+	 * (require ...) and (add-to-load-path ...). */
+	char load_path[LISP_MAX_LOAD_PATH][PATH_MAX];
+	size_t load_path_count;
+	bool load_path_ready;
+	/* Features currently mid-(require ...), innermost last: cycle
+	 * detection.  Reset to empty by frame recovery (release_frame_buffers
+	 * in lisp_core.c), same treatment load_depth gets, since a longjmp
+	 * abandons every nested require the same way it abandons every
+	 * nested load. */
+	char requiring[LISP_MAX_REQUIRE_STACK][LISP_FEATURE_NAME_MAX];
+	size_t requiring_depth;
 	bool frame_active;
 	bool initialized;
 };
@@ -174,6 +202,9 @@ long lisp_offset_argument(
 
 /* XDG config resolution (lisp_io.c). */
 int lisp_config_path(char *out, size_t outsize, const char *stem);
+/* Evaluate the Lisp source at PATH, honouring LISP_MAX_LOAD_DEPTH; shared
+ * by native_load and native_require (lisp_io.c). */
+void lisp_eval_file(FeContext *context, const char *path);
 
 /* The command registry (lisp_core.c). */
 struct lisp_command *find_lisp_command(const char *name);
@@ -254,6 +285,10 @@ FeObject *native_process_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_set_process_filter(FeContext *context, FeObject *arguments);
 FeObject *native_set_process_sentinel(FeContext *context, FeObject *arguments);
 FeObject *native_process_status(FeContext *context, FeObject *arguments);
+FeObject *native_provide(FeContext *context, FeObject *arguments);
+FeObject *native_require(FeContext *context, FeObject *arguments);
+FeObject *native_featurep(FeContext *context, FeObject *arguments);
+FeObject *native_add_to_load_path(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

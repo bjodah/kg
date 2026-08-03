@@ -17,6 +17,13 @@ static const struct native_binding native_bindings[] = {
 	{ "replace-region", native_replace_region },
 	{ "buffer-name", native_buffer_name },
 	{ "load", native_load },
+	{ "provide", native_provide },
+	{ "require", native_require },
+	{ "featurep", native_featurep },
+	/* kg's own name: load-path is a bounded C array, not a Fe list a
+	 * package could push onto with (setq load-path ...), so it needs a
+	 * native rather than the Emacs spelling. */
+	{ "add-to-load-path", native_add_to_load_path },
 	{ "global-set-key", native_bind_key },
 	{ "global-unset-key", native_unbind_key },
 	{ "point", native_point_offset },

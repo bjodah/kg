@@ -352,6 +352,10 @@ static void remove_config_root(const char *root)
 		"%s/kg/lisp/pkg-a.fe",
 		"%s/kg/lisp/pkg-b.fe",
 		"%s/kg/lisp/pkg-x.fe",
+		"%s/kg/lisp/counted.fe",
+		"%s/kg/lisp/quiet.fe",
+		"%s/kg/lisp/impl.fe",
+		"%s/kg/lisp/dup.fe",
 		"%s/direct.fe",
 		"%s/kg/lisp",
 		"%s/kg",
@@ -657,6 +661,121 @@ static int eval_eq(const char *source, const char *expected)
 		return 0;
 	}
 	return strcmp(result, expected) == 0;
+}
+
+/* provide/require/featurep: the bounded feature table, cycle detection,
+ * and require's FILENAME argument.  Load-path order and a load-path full
+ * of stale directories are separate tests below, since they need
+ * add-to-load-path and a second temp directory outside the config
+ * root. */
+static void test_require_provide(void)
+{
+	char root[64], path[512];
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(featurep 'counted)", "nil"));
+
+	/* A second require is a no-op: proven by a counter the file only
+	 * bumps when it actually runs, not just by the absence of an
+	 * error. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/counted.fe", root);
+	CHECK(write_text_file(path,
+		  "(setq counted-runs "
+		  "(if (boundp 'counted-runs) (+ counted-runs 1) 1))\n"
+		  "(provide 'counted)\n")
+	    == 0);
+	CHECK(eval_eq("(require 'counted)", "counted"));
+	CHECK(eval_eq("(featurep 'counted)", "t"));
+	CHECK(eval_eq("counted-runs", "1"));
+	CHECK(eval_eq("(require 'counted)", "counted"));
+	CHECK(eval_eq("counted-runs", "1"));
+
+	/* A file that never calls (provide ...) is an error naming the
+	 * feature that did not appear. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/quiet.fe", root);
+	CHECK(write_text_file(path, "(setq quiet-ran t)\n") == 0);
+	CHECK(eval_error_contains("(require 'quiet)", "quiet"));
+	CHECK(eval_eq("quiet-ran", "t"));
+
+	/* Cycle: pkg-a requires pkg-b, pkg-b requires pkg-a. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
+	CHECK(
+	    write_text_file(path, "(require 'pkg-b)\n(provide 'pkg-a)\n") == 0);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
+	CHECK(
+	    write_text_file(path, "(require 'pkg-a)\n(provide 'pkg-b)\n") == 0);
+	CHECK(eval_error_contains("(require 'pkg-a)", "pkg-a"));
+	CHECK(eval_eq("(featurep 'pkg-a)", "nil"));
+	/* Recovers cleanly: an unrelated eval afterwards still works. */
+	CHECK(eval_eq("(+ 1 1)", "2"));
+
+	/* An explicit FILENAME resolves instead of the feature's own
+	 * name. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/impl.fe", root);
+	CHECK(write_text_file(path, "(provide 'aliased)\n") == 0);
+	CHECK(eval_ok("(require 'aliased \"impl\")"));
+	CHECK(eval_eq("(featurep 'aliased)", "t"));
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+}
+
+static void test_load_path_order(void)
+{
+	char root[64], extra[64], path[512], source[600];
+	int length;
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/dup.fe", root);
+	CHECK(write_text_file(
+		  path, "(setq dup-source 'default)\n(provide 'dup)\n")
+	    == 0);
+
+	(void)snprintf(extra, sizeof(extra), "/tmp/kg-lisp-extra-XXXXXX");
+	CHECK(mkdtemp(extra) != nullptr);
+	(void)snprintf(path, sizeof(path), "%s/dup.fe", extra);
+	CHECK(
+	    write_text_file(path, "(setq dup-source 'extra)\n(provide 'dup)\n")
+	    == 0);
+
+	/* add-to-load-path prepends, so the directory just added is searched
+	 * before the default <config>/kg/lisp/ one -- the order that decides
+	 * which of the two same-named files (require 'dup) finds. */
+	length = snprintf(
+	    source, sizeof(source), "(add-to-load-path \"%s\")", extra);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(eval_ok(source));
+	CHECK(eval_ok("(require 'dup)"));
+	CHECK(eval_eq("dup-source", "extra"));
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+	(void)snprintf(path, sizeof(path), "%s/dup.fe", extra);
+	(void)remove(path);
+	(void)rmdir(extra);
+}
+
+static void test_load_path_missing_dirs(void)
+{
+	char root[64];
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	/* A load-path entry that does not exist fails the same access()
+	 * check a missing file would, so several stale directories in a row
+	 * are just several misses, not a crash. */
+	CHECK(eval_ok("(add-to-load-path \"/no/such/directory/at/all\")"));
+	CHECK(eval_error_contains(
+	    "(require 'never-provided-anywhere)", "never-provided-anywhere"));
+	CHECK(eval_eq("(+ 3 4)", "7"));
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
 }
 
 static void test_math_natives(void)
@@ -2347,6 +2466,9 @@ int main(void)
 	RUN(test_command_allow_list);
 	RUN(test_init_file);
 	RUN(test_load_package);
+	RUN(test_require_provide);
+	RUN(test_load_path_order);
+	RUN(test_load_path_missing_dirs);
 	RUN(test_define_and_run_command);
 	RUN(test_run_command_interrupt);
 	RUN(test_run_command_reentrancy);

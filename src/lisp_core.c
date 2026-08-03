@@ -86,6 +86,10 @@ static void release_frame_buffers(void)
 	}
 	free(state.scratch);
 	state.scratch = nullptr;
+	/* A longjmp abandons every nested (require ...) the same way it
+	 * abandons every nested (load ...) above; the requiring stack holds
+	 * no allocations, just names, so recovery is resetting the count. */
+	state.requiring_depth = 0;
 }
 
 void release_scratch(void)

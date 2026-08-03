@@ -235,6 +235,17 @@
    "branches_hit": 4,
    "branch_rate": 1.0
   },
+  "src/lisp_require.c": {
+   "lines_found": 107,
+   "lines_hit": 92,
+   "line_rate": 0.8598,
+   "functions_found": 12,
+   "functions_hit": 12,
+   "function_rate": 1.0,
+   "branches_found": 64,
+   "branches_hit": 46,
+   "branch_rate": 0.7188
+  },
   "src/lisp_string.c": {
    "lines_found": 139,
    "lines_hit": 132,

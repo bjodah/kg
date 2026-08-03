@@ -24,6 +24,7 @@
 
 #include "bufhandle.h"
 #include "marker.h"
+#include "prochandle.h"
 
 struct editor_buffer;
 struct FeContext;
@@ -33,6 +34,7 @@ struct FeObject;
 enum kg_lisp_object_kind {
 	KG_LISP_OBJECT_BUFFER = 0,
 	KG_LISP_OBJECT_MARKER = 1,
+	KG_LISP_OBJECT_PROCESS = 2,
 };
 
 /* One exposed editor object.  The Fe-visible value is a FeTFex0 wrapper
@@ -41,15 +43,18 @@ enum kg_lisp_object_kind {
  * wrapper.
  *
  * `buffer` is meaningful for KG_LISP_OBJECT_BUFFER; `marker` for
- * KG_LISP_OBJECT_MARKER.  Unlike a buffer object's handle, which never
- * changes once minted, a marker object's `marker` is mutable: set-marker
- * moves the same Lisp-visible marker, possibly to a different buffer's
- * kg_marker_store, so the record -- not just what it points at -- is what
- * (eq m1 m2) has to keep meaning the same marker. */
+ * KG_LISP_OBJECT_MARKER; `process` for KG_LISP_OBJECT_PROCESS.  Unlike a
+ * buffer object's handle, which never changes once minted, a marker
+ * object's `marker` is mutable: set-marker moves the same Lisp-visible
+ * marker, possibly to a different buffer's kg_marker_store, so the record
+ * -- not just what it points at -- is what (eq m1 m2) has to keep meaning
+ * the same marker.  A process object's handle never changes once minted,
+ * like a buffer object's. */
 struct kg_lisp_object {
 	enum kg_lisp_object_kind kind;
 	struct kg_buffer_handle buffer;
 	struct kg_marker_handle marker;
+	struct kg_process_handle process;
 	struct FeObject *wrapper; /* the Fe value; non-null iff active */
 	bool active;
 };
@@ -81,6 +86,9 @@ bool lisp_object_is_buffer(struct FeContext *ctx, struct FeObject *obj);
 
 /* Whether `obj` is a live marker object of this module's making. */
 bool lisp_object_is_marker(struct FeContext *ctx, struct FeObject *obj);
+
+/* Whether `obj` is a live process object of this module's making. */
+bool lisp_object_is_process(struct FeContext *ctx, struct FeObject *obj);
 
 /* The buffer `obj` names, raising on a non-buffer, a stale/foreign record
  * or a killed buffer.  `what` names the failing operation in the error. */
@@ -122,5 +130,34 @@ void lisp_marker_set(struct FeContext *ctx, struct FeObject *obj,
 /* Detach marker object `obj`: it points nowhere until set-marker moves it
  * again.  Raises when `obj` is not a marker object. */
 void lisp_marker_detach(struct FeContext *ctx, struct FeObject *obj);
+
+/* ---- Process objects: the pool's third kind ---------------------------
+ * Deduplicated like a buffer object -- (eq p1 p2) for two asks naming the
+ * same table slot and generation -- since a process, like a buffer, is a
+ * single long-lived thing a caller looks up repeatedly rather than
+ * something fresh minted every call the way a marker is. */
+
+/* The process object for `handle`, deduplicated so two asks for the same
+ * table entry answer with the same (eq) value.  Raises when the pool is
+ * exhausted. */
+struct FeObject *lisp_process_object(
+    struct FeContext *ctx, struct kg_process_handle handle);
+
+/* The process handle `obj` names, raising when `obj` is not a process
+ * object at all.  A handle naming a finished or released process is not
+ * itself an error -- src/process_table.h's own resolution answers that,
+ * matching lisp_marker_resolve()'s detached-marker precedent. */
+struct kg_process_handle lisp_process_resolve(
+    struct FeContext *ctx, struct FeObject *obj, const char *what);
+
+/* The buffer handle BUFFER-OR-NAME names, for start-process's and
+ * start-shell-command's BUFFER argument: a live buffer object resolves
+ * directly; a string is get-buffer-create's own name resolution (an
+ * existing buffer of that name, else a fresh one); nil answers a handle
+ * naming nothing, which is what a process spawned with no target buffer
+ * means -- its output is discarded, same as a killed process-buffer's.
+ * Raises when `object` is anything else, or buffer creation fails. */
+struct kg_buffer_handle lisp_buffer_or_name_or_nil(
+    struct FeContext *ctx, struct FeObject *object, const char *what);
 
 #endif /* KG_LISP_OBJ_H */

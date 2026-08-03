@@ -57,6 +57,24 @@ static struct kg_lisp_object *find_record_for(struct kg_buffer_handle handle)
 	return NULL;
 }
 
+static struct kg_lisp_object *find_process_record_for(
+    struct kg_process_handle handle)
+{
+	size_t i;
+
+	for (i = 0; i < LISP_MAX_OBJECTS; i++) {
+		struct kg_lisp_object *rec = &state.object_pool.objects[i];
+
+		if (rec->active && rec->wrapper != NULL
+		    && rec->kind == KG_LISP_OBJECT_PROCESS
+		    && rec->process.slot == handle.slot
+		    && rec->process.generation == handle.generation) {
+			return rec;
+		}
+	}
+	return NULL;
+}
+
 struct FeObject *lisp_object_gc(struct FeContext *ctx, struct FeObject *obj)
 {
 	if (FeGetType(obj) == FeTFex0) {
@@ -84,6 +102,25 @@ struct FeObject *lisp_buffer_object(
 	}
 	rec->kind = KG_LISP_OBJECT_BUFFER;
 	rec->buffer = handle;
+	rec->active = true;
+	rec->wrapper = FeMakePtr(ctx, FeTFex0, rec);
+	return rec->wrapper;
+}
+
+struct FeObject *lisp_process_object(
+    struct FeContext *ctx, struct kg_process_handle handle)
+{
+	struct kg_lisp_object *rec = find_process_record_for(handle);
+
+	if (rec != NULL) {
+		return rec->wrapper;
+	}
+	rec = find_free_record();
+	if (rec == NULL) {
+		FeHandleError(ctx, "too many process objects");
+	}
+	rec->kind = KG_LISP_OBJECT_PROCESS;
+	rec->process = handle;
 	rec->active = true;
 	rec->wrapper = FeMakePtr(ctx, FeTFex0, rec);
 	return rec->wrapper;
@@ -118,6 +155,11 @@ bool lisp_object_is_buffer(struct FeContext *ctx, struct FeObject *obj)
 bool lisp_object_is_marker(struct FeContext *ctx, struct FeObject *obj)
 {
 	return lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER) != NULL;
+}
+
+bool lisp_object_is_process(struct FeContext *ctx, struct FeObject *obj)
+{
+	return lisp_object_peek(ctx, obj, KG_LISP_OBJECT_PROCESS) != NULL;
 }
 
 static void lisp_object_error(
@@ -195,6 +237,18 @@ struct kg_marker_handle lisp_marker_resolve(
 		lisp_object_error(ctx, what, "expected a marker");
 	}
 	return rec->marker;
+}
+
+struct kg_process_handle lisp_process_resolve(
+    struct FeContext *ctx, struct FeObject *obj, const char *what)
+{
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_PROCESS);
+
+	if (rec == NULL) {
+		lisp_object_error(ctx, what, "expected a process");
+	}
+	return rec->process;
 }
 
 /* `rec`'s current gravity, or left (make-marker's and Emacs' own default
@@ -518,6 +572,32 @@ FeObject *native_get_buffer_create(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "too many open buffers");
 	}
 	return lisp_buffer_object(context, handle);
+}
+
+struct kg_buffer_handle lisp_buffer_or_name_or_nil(
+    FeContext *context, FeObject *object, const char *what)
+{
+	char name[PATH_MAX];
+	struct kg_buffer_handle handle;
+	int slot;
+
+	if (object == NULL || FeIsNil(object)) {
+		return (struct kg_buffer_handle) { -1, 0, 0 };
+	}
+	if (FeGetType(object) == FeTString) {
+		lisp_name_argument(context, object, name, sizeof(name));
+		slot = lisp_buffer_slot_by_name(name);
+		if (slot >= 0) {
+			return buf_handle(slot);
+		}
+		handle = buf_create_named(name);
+		if (handle.slot < 0) {
+			lisp_object_error(
+			    context, what, "too many open buffers");
+		}
+		return handle;
+	}
+	return buf_handle_of(lisp_buffer_resolve(context, object, what));
 }
 
 FeObject *native_buffer_live_p(FeContext *context, FeObject *arguments)

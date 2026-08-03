@@ -68,6 +68,7 @@ struct keymap_match {
 [[nodiscard]] struct keymap *keymap_create(
     const char *name, enum keymap_layer layer);
 [[nodiscard]] const char *keymap_name(const struct keymap *map);
+[[nodiscard]] struct keymap *keymap_find(const char *name);
 
 /* Binds `sequence` ("C-x C-s", "M-f", "C-c C-k") to a command name,
  * replacing any binding of exactly that sequence.  Returns 0, or
@@ -87,6 +88,15 @@ void keymap_set_active(struct keymap *map, int active);
 /* What `keys` means in the layers that are active now. */
 void keymap_lookup(
     const struct key_event *keys, int count, struct keymap_match *out);
+
+/* What `keys` means in `map` alone, whether or not `map` is active.  This
+ * is what `(lookup-key MAP KEY)` asks; keymap_lookup() answers the
+ * different question of what the editor would do right now. */
+void keymap_lookup_in(const struct keymap *map, const struct key_event *keys,
+    int count, struct keymap_match *out);
+
+/* The active major-mode map, or NULL when no mode map is in effect. */
+[[nodiscard]] const struct keymap *keymap_active_major(void);
 
 /* What `keys` would mean if `hidden` were not active: the binding the
  * layer that answered is standing in front of.  Asked by re-looking-up

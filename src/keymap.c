@@ -43,16 +43,28 @@ void keymap_reset(void)
 	names_used = 0;
 }
 
+static const char *intern(const char *name);
+
+/* The name is interned rather than borrowed, for the same reason command
+ * names are (see `names[]`): the built-in maps pass string literals, but a
+ * runtime `(define-key "my-mode-map" ...)` passes a stack buffer that is
+ * gone the moment the native returns, and a map holding that pointer names
+ * itself by reading dead stack. */
 struct keymap *keymap_create(const char *name, enum keymap_layer layer)
 {
 	struct keymap *map;
+	const char *owned;
 
 	if (!name || layer >= KEYMAP_LAYER_COUNT
 	    || map_count == keymap_max_maps) {
 		return nullptr;
 	}
+	owned = intern(name);
+	if (!owned) {
+		return nullptr;
+	}
 	map = &maps[map_count++];
-	map->name = name;
+	map->name = owned;
 	map->layer = layer;
 	map->active = 1;
 	return map;
@@ -61,6 +73,64 @@ struct keymap *keymap_create(const char *name, enum keymap_layer layer)
 const char *keymap_name(const struct keymap *map)
 {
 	return map ? map->name : nullptr;
+}
+
+/* Exact-name lookup: one pass, no aliasing. */
+static struct keymap *keymap_find_exact(const char *name, size_t length)
+{
+	int i;
+
+	for (i = 0; i < map_count; i++) {
+		if (strncmp(maps[i].name, name, length) == 0
+		    && maps[i].name[length] == '\0') {
+			return &maps[i];
+		}
+	}
+	return nullptr;
+}
+
+/* Whether `name` (of `length` bytes) ends with `suffix`. */
+static bool keymap_name_ends_with(
+    const char *name, size_t length, const char *suffix)
+{
+	size_t suffix_length = strlen(suffix);
+
+	return length > suffix_length
+	    && memcmp(name + length - suffix_length, suffix, suffix_length)
+	    == 0;
+}
+
+/* kg's maps are named "global", "dired", "compilation"; Emacs Lisp spells
+ * the same things "global-map" and "dired-mode-map".  Accept both by
+ * trying the name as given, then once more with an Emacs suffix removed --
+ * the longer suffix first, so "dired-mode-map" reaches "dired" rather than
+ * stopping at "dired-mode".  Deliberately iterative: an earlier version
+ * recursed on the stripped name, and `keymap_find("global")` with no
+ * "global" map created yet recursed on itself forever, which hung
+ * test_lisp and any `(define-key "global" ...)` evaluated before the
+ * built-in maps exist. */
+struct keymap *keymap_find(const char *name)
+{
+	static const char *const suffixes[] = { "-mode-map", "-map" };
+	size_t length;
+	struct keymap *map;
+	size_t i;
+
+	if (!name) {
+		return nullptr;
+	}
+	length = strlen(name);
+	map = keymap_find_exact(name, length);
+	if (map) {
+		return map;
+	}
+	for (i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
+		if (keymap_name_ends_with(name, length, suffixes[i])) {
+			return keymap_find_exact(
+			    name, length - strlen(suffixes[i]));
+		}
+	}
+	return nullptr;
 }
 
 void keymap_set_active(struct keymap *map, int active)
@@ -420,6 +490,50 @@ void keymap_lookup(
 		}
 		return;
 	}
+}
+
+/* What `keys` means in one named map, ignoring layers and whether that
+ * map is active.  keymap_lookup() answers "what would the editor do now",
+ * which is the wrong question for `(lookup-key MAP KEY)`: that asks what
+ * one map says, and must answer the same whether or not the map is
+ * currently in effect. */
+void keymap_lookup_in(const struct keymap *map, const struct key_event *keys,
+    int count, struct keymap_match *out)
+{
+	const struct keymap_entry *entry = nullptr;
+
+	out->result = KEYMAP_NO_MATCH;
+	out->command = nullptr;
+	out->id = CMD_ID_NONE;
+	out->map = nullptr;
+	if (!map || !keys || count <= 0 || count > KEYMAP_SEQUENCE_MAX) {
+		return;
+	}
+	out->result = map_probe((int)(map - maps), keys, count, &entry);
+	if (out->result != KEYMAP_COMMAND) {
+		return;
+	}
+	out->map = map;
+	out->command = entry->command;
+	out->id = cmd_id_by_name(entry->command);
+	if (out->id == CMD_ID_NONE) {
+		out->result = KEYMAP_UNRESOLVED;
+	}
+}
+
+/* The major-mode map that is active now, or NULL when none is: the honest
+ * answer to `(current-local-map)`, which must name a map that exists
+ * rather than a name spelled from the syntax. */
+const struct keymap *keymap_active_major(void)
+{
+	int i;
+
+	for (i = 0; i < map_count; i++) {
+		if (maps[i].layer == KEYMAP_LAYER_MAJOR && maps[i].active) {
+			return &maps[i];
+		}
+	}
+	return nullptr;
 }
 
 /* Deactivating the winner and asking again is the whole implementation:

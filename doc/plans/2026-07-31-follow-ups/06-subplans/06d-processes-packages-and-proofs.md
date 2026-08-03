@@ -553,8 +553,8 @@ Every completion-gate item above is met, with two clarifications:
 
 | Item | Needs |
 |------|-------|
-| ci-05 (MSan) | an explicit recursion-depth bound in `fe/fe.c`'s `Evaluate`; submodule change + pin move (see above) |
-| ci-06 (IWYU) | a cleanup slice over ~13 files, most predating Plan 06 (see above) |
+| ci-05 (MSan) | **now [sub-plan E](06e-fe-recursion-depth-bound.md)** — an explicit recursion-depth bound in `fe/fe.c`'s `Evaluate`, plus a pin move |
+| ci-06 (IWYU) | **now [sub-plan F](06f-include-hygiene.md)** — IWYU across 16 files, most predating Plan 06 |
 | whitespace-mode | decoration natives |
 | conf-mode | the Phase 6 mode registry (`define-derived-mode`, `defvar`) |
 | docstrings, `describe-function` | a bounded symbol→docstring table and a `describe.c` entry point |

@@ -244,7 +244,7 @@ The recommendations identify the right work, with these ordering corrections:
 | [03](03-markers-decorations-and-events.md) | ... | **Phases 0–5 done; Plan 03 complete, so 04's phase 3 and 06's event-dependent phases are unblocked** |
 | [04](04-window-handles-and-session-lifecycle.md) | ... | **Phases 0–3 done; Phase 4 (session nesting) still deferred behind Plan 05's kill ring, and nothing depends on it** |
 | [05](05-emacs-affordances-delivery.md) | ... | **Introspection delivered; Bundles A, B, D and E remain** |
-| [06](06-runtime-and-lisp-extensibility.md) | ... | **Phases 0–2 done (adapter split, `FeCallWithOptions`, buffer objects and the runtime execution context); Phase 3 next; see [06-subplans](06-subplans/)** |
+| [06](06-runtime-and-lisp-extensibility.md) | ... | **All nine phases done (2026-08-03), scc 5401 under the 5500 cap; two debt sub-plans open (E: Fe recursion bound / ci-05, F: include hygiene / ci-06); see [06-subplans](06-subplans/)** |
 | [07](07-visual-line-geometry-index.md) | ... | **Phases 0–1 done; Phases 2–5 not started; Phase 2 is next** |
 
 ## Dependency and delivery order

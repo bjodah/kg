@@ -123,6 +123,34 @@ scope should be re-derived from what 0–5 measures.
 Treat **Phases 0–5 as milestone 1** and the rest as planned-but-unfunded.
 §18's acceptance checklist is milestone 2's, not milestone 1's.
 
+## 0.4 There is no legacy compatibility constituency
+
+As of 2026-08-04, there are no known users of this Fe fork other than kg
+and no known user-written kg `init.fe` files in the wild.  Treat that as a
+binding design input, not as an invitation to build a migration system for
+hypothetical users.
+
+In this plan, **compatibility means compatibility with the pinned Emacs
+oracle**, not compatibility with the old Fe dialect or kg's current Lisp
+surface.  The consequences are deliberate:
+
+* language and C-API changes make one hard cut in their owning repository;
+* kg updates its Fe pin and all tracked callers together;
+* no one-release aliases, compatibility wrappers, dual evaluators,
+  load-time legacy lint, filename fallback or deprecation period are built;
+* `init.el` and bare-name `.el` package loading replace, rather than
+  supplement, `init.fe` and `.fe` at the Phase 2 dialect cutover.
+
+`FE_API_VERSION` and `FE_LANGUAGE_VERSION` still advance.  They are useful
+compile-time and test-time contracts between Fe and kg even when there is no
+third-party compatibility promise.
+
+Every repository commit still builds and passes its tests.  "Hard cut" means
+there is no released coexistence layer, not that deliberately broken commits
+are acceptable.  If evidence of external users appears before the first
+milestone ships, revisit this decision explicitly; do not prepay that cost
+without the evidence.
+
 ## 1. Outcome
 
 Evolve Fe into a robust, lexical, interpreted subset of Emacs Lisp suitable for:
@@ -156,7 +184,9 @@ These are fixed for the implementation plan.
 
 The language is a **defined lexical subset of Emacs Lisp**.
 
-A supported construct must behave like the pinned Emacs oracle. Constructs outside the subset must either:
+An Emacs-comparable supported construct must behave like the pinned Emacs
+oracle.  A `kg-policy` construct must behave like its documented, tested local
+contract.  Constructs outside the subset must either:
 
 * raise a clear unsupported-feature error; or
 * be recorded as an intentional, tested divergence.
@@ -167,7 +197,7 @@ Silently approximate behavior is not acceptable.
 
 The target is:
 
-* ordinary init-file definitions;
+* ordinary definitions in new kg init files;
 * common control and binding forms;
 * macros and higher-order functions;
 * hooks, keymaps, buffers, markers, processes, loading, and editor commands exposed by kg.
@@ -213,11 +243,12 @@ because "complete CI" means two different things in the two trees:
    ASan/UBSan, MSan, fuzz smoke, clang-analyzer and the complexity
    ratchets.  Minutes, not seconds, and this is the submodule's own green
    light before a pin moves.
-3. Update the kg submodule commit **in its own kg commit**, per the
-   follow-ups README's rule 10 and `doc/fe-upstream.md`'s update
-   procedure.
-4. Adapt kg’s prelude, adapter, tests, and documentation.
-5. In kg: `make check`, `make WITH_LISP=0 clean all check`, then
+3. In one green kg commit, update the Fe gitlink **and** adapt kg's prelude,
+   adapter, tests and documentation to the new contract.  "A separate kg
+   commit" in the follow-ups README's rule 10 means separate from Fe's
+   commit, not a pin-only commit that cannot build across a deliberate
+   language or ABI break.
+4. In kg: `make check`, `make WITH_LISP=0 clean all check`, then
    `JOBS=8 .ci/run-ci-steps.sh --parallel` (twelve steps; `ci-08` is the
    `WITH_LISP=0` lane and `ci-12` re-runs the submodules' fast suites).
    Poll it with `--status`, which never blocks.
@@ -238,7 +269,10 @@ Semantic or ABI changes must update:
 * Fe’s compatibility documentation;
 * kg’s documented required Fe version.
 
-Intermediate migration commits may temporarily expose both old and new internal spellings, but no release or documented compatibility point may retain assignment through `=`.
+There are no public compatibility aliases or wrappers.  Fe changes its
+surface, passes standalone CI, and kg adapts in the separate pin-update
+commit.  No release or documented compatibility point retains assignment
+through `=`.
 
 ## 4. Phase 0 — Freeze the contract and establish baselines
 
@@ -268,6 +302,20 @@ tools/
   run-fe-compat.py
 ```
 
+kg mirrors the data half for kg-owned surface:
+
+```text
+test/lisp-compat/
+  features.json
+  cases/
+  oracle/
+```
+
+The Emacs runner and record schema are reusable across both roots.  Fe's
+runner executes Fe-owned cases; kg's existing native/PTY harnesses execute
+kg-owned cases or name the assertion that already does.  Oracle snapshots
+for a kg-owned pure prelude form live in kg, not in the Fe submodule.
+
 **JSON, not TOML.** Every ratchet and every machine-readable artifact in
 both trees is JSON already — `.ci/coverage-baseline.json`,
 `.ci/mutation-gateway.json`, `.ci/pmccabe-baseline.json`,
@@ -275,14 +323,21 @@ both trees is JSON already — `.ci/coverage-baseline.json`,
 Python scripts under `utils/`.  A second serialisation format buys nothing
 and costs a parser in every consumer.
 
-**The manifest is two files, not one.** Roughly half the taxonomy below is
-kg's editor surface, which cannot run under `emacs -Q --batch` at all.  Fe
-owns `compat/features.json` for pure-language constructs; kg owns
-`test/lisp-compat/features.json` for its 78 natives and its prelude forms,
-referencing Fe feature ids by name.  A check asserts the two id spaces do
-not collide and that no kg entry claims an oracle result.  Putting kg's
-half inside a branch-pinned submodule would make every kg-side inventory
-change a pin move.
+**The manifest is two files, not one.** Ownership, not comparability, draws
+the boundary.  Fe owns `compat/features.json` for its core/library surface;
+kg owns `test/lisp-compat/features.json` for its 78 natives and prelude
+forms, referencing Fe feature ids by name where needed.  Putting kg's half
+inside a branch-pinned submodule would make every kg-side inventory change
+a pin move.
+
+Each entry says whether it is `emacs`-comparable or `kg-policy`.  Pure
+prelude definitions such as `let`, `defun` and the planned `defcustom` are
+still oracle-comparable even though kg owns them.  Editor primitives whose
+observable policy is kg-specific name a kg regression test and a rationale
+instead.  A check asserts that the two id spaces do not collide, that every
+`emacs` entry names an oracle case, and that every `kg-policy` entry names a
+kg test.  Do not turn "some kg APIs cannot run in batch Emacs" into "nothing
+kg owns may be checked against Emacs."
 
 `features.json` records, for each construct:
 
@@ -290,8 +345,10 @@ change a pin move.
 * category;
 * status: `supported`, `planned`, `divergent`, or `unsupported`;
 * implementation owner: `fe-core`, `fe-library`, or `kg`;
-* associated differential cases;
-* rationale for divergences.
+* comparison mode: `emacs` or `kg-policy`;
+* associated oracle or kg-policy cases;
+* kg regression test where kg owns the implementation;
+* rationale for divergences and `kg-policy` entries.
 
 Each pure-language case records:
 
@@ -362,7 +419,7 @@ Record:
 * representative command latency.
 
 **Use the machinery that exists.** kg already has exactly this apparatus
-and `CLAUDE.md` describes it: counters in `src/perf.h` compiled out unless
+and `AGENTS.md` describes it: counters in `src/perf.h` compiled out unless
 `KG_PERF_COUNTERS=1`, a separate `test/perfobj/` build that never mixes
 with `src/*.o`, a counting `kg` that writes JSON to `$KG_PERF_OUT`,
 `utils/bench.py` writing `test/.results/bench.json`, and `test/test_perf.c`
@@ -384,9 +441,13 @@ Phase 0 completes when:
 
 * compatibility cases can run against Emacs and Fe;
 * oracle snapshots are reproducible, and carry the oracle version;
+* kg-owned `comparison: emacs` entries have kg-local snapshots and a linked
+  native/PTY assertion;
 * every existing kg Lisp primitive or prelude construct appears in the
   feature inventory — all 31 Fe primitives, all 78 kg natives, all 54
   prelude definitions, with a status each;
+* `defcustom` is present as a Phase 8 `planned`, kg-owned,
+  `comparison: emacs` entry with its initial subset boundaries recorded;
 * baseline measurements are stored in machine-readable form;
 * the per-phase complexity budget table of §0.1 exists and is agreed.
 
@@ -410,12 +471,12 @@ kg/src/lisp_prelude_generated.inc
 
 `prelude.fe` becomes the canonical source.
 
-**`.fe` now, `.el` at the Phase 5 flag day.**  The plan originally named
+**`.fe` now, `.el` at the Phase 2 dialect cutover.**  The plan originally named
 this `prelude.el`.  On the day it is created the file contains 54
 `(= name value)` forms, which is not Emacs Lisp — it is Emacs Lisp's
 numeric comparison used as a statement.  `lisp/auto-fill.fe` already
-establishes `.fe` as the extension for kg Lisp, both files migrate in
-Phase 2 and both are renamed together at the flag day, when the claim the
+establishes `.fe` as the extension for kg Lisp.  Both files migrate off
+assignment `=` and are renamed together at the cutover, when the claim the
 extension makes becomes true.  A one-line `git mv` then is cheaper than a
 file that lies for four phases.
 
@@ -473,11 +534,14 @@ commit from the extraction, with its own test — not part of the
 * The three stale comments are corrected, and any behaviour change they
   licensed lands separately.
 
-## 6. Phase 2 — Introduce real assignment forms and migrate off assignment `=`
+## 6. Phase 2 — Hard-cut assignment and numeric `=`
 
 ### Purpose
 
-Prepare the clean `=` transition without overloading its meaning.
+Replace Fe's assignment spelling and give `=` its Emacs meaning in one
+versioned cut.  Fe already has numeric doubles, so numeric equality does not
+need to wait for Phase 5's integer object; that phase extends the operation to
+mixed integer/float values.
 
 Fe currently binds `=` to the assignment primitive, and kg’s `setq` macro expands back into it.
 
@@ -505,7 +569,12 @@ Implement `set` as an ordinary function.
 
 Its exact interaction with lexical bindings must be fixed by differential cases before implementation. It must follow the pinned Emacs oracle rather than simply aliasing `setq`.
 
-Temporarily retain assignment `=` only while tracked sources migrate.
+After Fe's tracked scripts migrate, replace `PSet` and the `=` assignment
+binding with numeric equality over the existing double type in the same Fe
+workstream.  Do not retain an assignment alias or an unbound transitional
+release.  Fix `=`'s arity, chained comparison and exceptional-float behavior
+with oracle cases now; Phase 5 adds mixed-type cases rather than redefining
+the operation again.
 
 **Condition names before conditions exist.**  Phases 2 and 5 require
 `wrong-number-of-arguments` and `arith-error`, but the condition system is
@@ -528,43 +597,44 @@ Replace assignment forms in:
 
 The prelude’s `setq` macro is then deleted.
 
-### Enforcement
+### Dialect and filename cutover
 
-Add a source check that rejects assignment-shaped `=` in tracked Fe and kg Lisp sources.
+The kg pin/adaptation commit is also the filename cutover:
 
-The check should allow numeric equality test cases once `=` changes meaning.
+* rename `lisp/prelude.fe` and `lisp/auto-fill.fe` to `.el`;
+* make startup load only `<config>/kg/init.el`;
+* make bare package names resolve to `.el` rather than `.fe`;
+* rename every tracked init/package fixture and update user documentation.
 
-### The hazard the enforcement check cannot reach
+This is a hard cut, not a preference order.  There is no `init.fe` fallback,
+`.fe` bare-name fallback, warning, or deprecation window (§0.4).  Literal
+paths passed to `load` remain literal; the cutover changes discovery and bare
+name resolution, not the ability to open an explicitly named file.
 
-`~/.kg/init.fe` and any package a user already wrote are **not tracked
-sources**.  `doc/fe-upstream.md` states the risk precisely and it is the
-stated reason `=` was left alone until now: after the flag day a stale
-`(= x 1)` does not fail, it silently computes a boolean and discards it.
+### Migration audit, not permanent migration machinery
 
-The enforcement check covers this repository.  For users, milestone 1 owes
-one of these, decided before Phase 5 and not after:
+Run a focused source audit over tracked Fe scripts, kg Lisp, fixtures and
+documentation before deleting assignment `=`.  Do not add a permanent
+syntax-shaped linter: after Phase 2, `(= SYMBOL VALUE)` can be a legitimate
+numeric comparison, so such a checker either rejects valid code or becomes
+dead migration infrastructure.
 
-1. **Tie the flag day to the filename.**  Move `init.el` preference and
-   the `init.fe` deprecation message — currently Wave D, *after* the flag
-   day — to land *with* it.  A user whose `init.fe` still loads gets one
-   message naming the dialect change; a user who has migrated to `init.el`
-   has already read the note.  This is the cheapest option and it costs
-   only an ordering change.
-2. A load-time lint that warns on `(= SYMBOL ...)` in a loaded file for
-   one release.
-3. Accept the silent breakage and document it.
-
-Option 1 is the recommendation.  Whatever is chosen, `FE_LANGUAGE_VERSION`
-bumps at the flag day and kg's documented required version moves with it.
+There is no untracked-user-file hazard to service (§0.4).  The one-time audit
+and the full tracked suites cover the cut; the differential cases pin the new
+numeric meaning.  Bump `FE_LANGUAGE_VERSION` for this hard cut.  Phase 5 bumps
+it again when integers change the numeric contract.
 
 ### Gate
 
-Before repurposing `=`:
+The phase completes when:
 
 * no production Lisp source uses it for assignment;
 * `setq` has differential tests for lexical and global assignment;
+* numeric `=` passes the double-only differential cases;
 * all Fe and kg tests are green;
-* no release is made from the temporary transitional state.
+* no assignment behavior remains reachable through `=` or an alias;
+* startup and bare-name loading have no legacy `.fe` fallback;
+* Fe's language version and kg's required version agree.
 
 ## 7. Phase 3 — Replace recursive evaluation with an explicit frame machine
 
@@ -630,14 +700,23 @@ Native functions may continue to call `FeHandleError()`. During evaluator-owned 
 
 Uncaught completions are translated back into the existing host callback behavior at the top-level API boundary.
 
-### Compatibility requirement
+### Regression requirement
 
-Run the complete preexisting Fe suite and a snapshot of legacy behavior through both:
+Do not build a second, test-only evaluator mode.  There are no external Fe
+users whose undocumented evaluator quirks need preserving (§0.4), and
+keeping both evaluators compilable would duplicate every primitive and GC
+change made while this phase is in flight.
 
-* the original recursive evaluator;
-* the new frame evaluator.
+Validate the replacement against:
 
-Keep the old evaluator behind a test-only build switch until the equivalence suite is complete, then delete it.
+* the complete preexisting Fe and kg suites;
+* every `supported` pure-language oracle snapshot;
+* focused frame-state, GC, cancellation and resource-exhaustion tests.
+
+An observed difference is either fixed or entered in the manifest as an
+intentional language change with an oracle case.  The recursive evaluator is
+deleted as the frame evaluator becomes the only implementation; it is never
+a supported runtime or test switch.
 
 ### Required stress tests
 
@@ -685,10 +764,10 @@ else.
 * no *Lisp-level* nesting consumes C stack: a measured C-stack high-water
   mark is flat across `(deep 10)`, `(deep 1000)` and `(deep 100000)`;
 * native re-entry depth has its own bound and its own error;
-* all legacy behavior is preserved, demonstrated by the dual-evaluator run
-  of `make -C fe check` — `test_api.c`, all 19 `scripts/*.fe` against their
+* all supported behavior is preserved, demonstrated by
+  `make -C fe check` — `test_api.c`, all 19 `scripts/*.fe` against their
   `tests/*.out`/`*.err`, and the strict-arity pass — plus kg's 64 Lisp PTY
-  cases and `test/test_lisp.c`;
+  cases, `test/test_lisp.c`, and the Phase 0 compatibility corpus;
 * no sanitizer build can produce a C-stack overflow from Lisp nesting; the
   MSan lane (`fe/.ci/ci-05`) is the binding one, since it crashed at
   `(deep 418)` before sub-plan 06E's counter existed;
@@ -855,7 +934,9 @@ Also cover:
 
 Bump `FE_API_VERSION`.
 
-Replace ambiguous host APIs with explicit value/function operations. Compatibility wrappers may exist in source for one release, but the public documentation must not leave `FeSet` semantically ambiguous.
+Replace ambiguous host APIs with explicit value/function operations and
+remove the ambiguous entry points in the same API-version change.  Do not
+add compatibility wrappers for consumers that do not exist (§0.4).
 
 ### Gate
 
@@ -864,11 +945,12 @@ Replace ambiguous host APIs with explicit value/function operations. Compatibili
 * `#'`, `funcall`, and `apply` pass the differential corpus;
 * kg commands continue to execute under the existing budget and interrupt controls.
 
-## 9. Phase 5 — Add integers and repurpose `=`
+## 9. Phase 5 — Add integers and complete numeric operations
 
 ### Purpose
 
-Complete the clean transition from Fe assignment syntax to Emacs numeric comparison.
+Add a distinct integer type and extend Phase 2's double-only numeric `=` plus
+the rest of the arithmetic/comparison surface to mixed numeric values.
 
 ### Object model
 
@@ -905,7 +987,7 @@ Implement Emacs-compatible behavior for the supported numeric subset:
 * `/`;
 * `1+`;
 * `1-`;
-* `=`;
+* `=` (extending Phase 2's double-only implementation);
 * `/=`;
 * `<`;
 * `<=`;
@@ -970,13 +1052,12 @@ Define and test separately:
 
 In particular, string content equality must not be confused with symbol or object identity.
 
-### Flag day
+### Numeric-model cutover
 
-After all assignment sources have migrated:
+After the integer implementation and kg conversion are ready:
 
-* change the primitive named `=` to numeric equality;
-* remove any assignment alias;
-* remove transitional checks;
+* extend `=` to integers and mixed numeric values and verify there is still
+  no assignment alias;
 * update language documentation and examples;
 * bump `FE_LANGUAGE_VERSION`.
 
@@ -1120,7 +1201,8 @@ Make ordinary function invocation obey the supported Emacs semantics.
 
 Strict lambda arity becomes unconditional.
 
-Remove or deprecate `FeSetStrictArity()` as part of the API-version transition.
+Remove `FeSetStrictArity()` as part of the API-version transition.  Do not
+retain a deprecated no-op or a lax-arity compatibility mode (§0.4).
 
 The dependency is already documented and is the whole reason kg does not
 call `FeSetStrictArity()` today: `doc/fe-upstream.md` records that turning
@@ -1255,13 +1337,37 @@ Improve:
 * `featurep`;
 * init-file discovery.
 
-During transition, keep supporting `init.fe`. After the core compatibility milestone, prefer `init.el` and document `init.fe` as a deprecated compatibility filename rather than silently changing startup behavior.
+Phase 2 already changed init and bare package discovery to `.el`.  This wave
+improves the resulting loader and its diagnostics; it does not add `.fe`
+fallbacks.
 
-**Ordering correction:** §6's hazard section moves the `init.el`
-preference and the `init.fe` deprecation message forward to land *with*
-the Phase 5 flag day, so that the one moment a user's existing `(= x 1)`
-silently changes meaning is also the one moment kg tells them the dialect
-moved.  The rest of Wave D stays here.
+#### `defcustom`, without pretending to implement Customize
+
+Add `defcustom` in the library/prelude layer in this wave.  Its useful first
+contract is deliberately smaller than Emacs' Custom subsystem:
+
+* `(defcustom SYMBOL STANDARD DOCSTRING KEYWORD VALUE ...)` initializes the
+  global only when it is unbound, does not evaluate `STANDARD` when already
+  bound, records the variable docstring, and returns `SYMBOL`;
+* the unevaluated standard form is not retained for later Customize resets,
+  and `defcustom` does not introduce Emacs-style dynamic binding; both are
+  explicit divergences of kg's lexical, no-Customize dialect;
+* the keyword tail must contain pairs and unknown keywords are errors;
+* common presentation-only metadata (`:type`, `:options`, repeatable
+  `:group`, `:tag`, `:link`, `:version`, and `:package-version`) is accepted
+  but is explicitly inert until kg has a Customize UI; this is a documented,
+  tested divergence rather than hidden approximation;
+* semantics-bearing metadata (`:initialize`, `:set`, `:get`, `:require`,
+  `:set-after`, `:risky`, `:safe`, and `:local`) is rejected clearly rather
+  than ignored.
+
+Fix exact expansion, evaluation-order, re-evaluation and malformed-keyword
+behavior with oracle cases before implementing the macro.  Keep it out of Fe
+core: without a Customize UI or general symbol property API, this is a
+declaration form over `defvar`, not a new evaluator primitive.  `defgroup`,
+`customize`, `custom-set-variables`, `setopt`, and general Custom metadata
+introspection remain out of the initial subset unless a proof workload makes
+one concrete.
 
 ### Wave E — Later data types
 
@@ -1371,9 +1477,9 @@ It must exercise:
 
 ### Proof 2 — Representative user init
 
-Create a tracked, isolated init fixture covering:
+Create a tracked, isolated `.config/kg/init.el` fixture covering:
 
-* `setq`, `defvar`, `defconst`;
+* `setq`, `defvar`, `defconst`, and the supported `defcustom` subset;
 * `defun` and interactive commands;
 * macros and backquote;
 * hooks;
@@ -1404,7 +1510,8 @@ The package may be written for kg, but its pure-language portions should also ru
 The initial program is complete when:
 
 * the three proofs pass;
-* all `supported` manifest entries pass against the oracle;
+* all `supported` `comparison: emacs` entries pass against the oracle;
+* all `supported` `comparison: kg-policy` entries pass their kg tests;
 * unsupported entries fail clearly;
 * intentional divergences are documented and tested;
 * kg starts and operates with both Lisp configurations;
@@ -1465,10 +1572,10 @@ requires.
 3. Add `FE_LANGUAGE_VERSION`.
 4. Add core `setq`.
 5. Add core `set`.
-6. Migrate Fe scripts from assignment `=`.
+6. Migrate Fe scripts and replace assignment `=` with double numeric equality.
 7. Add frame-stack types without using them.
 8. Implement behavior-equivalent frame evaluator.
-9. Add dual-evaluator equivalence tests.
+9. Add frame-state GC, cancellation and exhaustion tests.
 10. Remove recursive evaluator.
 11. Refactor symbol internals behind accessors.
 12. Add separate function cells.
@@ -1479,7 +1586,7 @@ requires.
 17. Add integer object type.
 18. Add integer reader and printer support.
 19. Add mixed numeric arithmetic.
-20. Repurpose `=` and add comparison family.
+20. Extend `=` to mixed numerics and add the comparison family.
 21. Separate `eq`, `equal`, and numeric equality.
 22. Add structured internal completions.
 23. Add host-visible completion categories.
@@ -1497,18 +1604,20 @@ requires.
 
 1. Extract `lisp/prelude.fe`.
 2. Add generated embedding and drift check.
-3. Switch prelude assignment to core `setq`.
+3. Update the Fe pin for the assignment cutover; migrate kg Lisp to core
+   `setq` and numeric `=`, rename prelude/package/fixtures to `.el`, and switch
+   init and bare-name loading to `.el` in the same green kg commit.
 4. Update the Fe submodule for the frame evaluator.
 5. Adapt to Fe API version changes.
 6. Rewrite `defun`/`defmacro` for function cells.
 7. Update command storage for Lisp-2.
-8. Update the Fe submodule for integers and numeric `=`.
-9. Adjust numeric formatting and equality tests.
+8. Update the Fe submodule for integers and mixed-numeric operations.
+9. Adjust integer, mixed-numeric formatting and equality tests.
 10. Add structured completion translation.
 11. Implement interactive argument metadata.
 12. Enable strict arity.
 13. Expand the compatibility fixture corpus.
-14. Add `init.el` preference with `init.fe` compatibility.
+14. Add variable docstrings and the supported `defcustom` subset.
 15. Add arena-stat diagnostics.
 16. Land the three proof workloads.
 17. Update `doc/lisp-api.md`, `doc/fe-upstream.md`, the man page, and README.
@@ -1529,6 +1638,8 @@ The following are excluded unless a proof workload establishes a concrete need:
 * advice;
 * overlays or text properties beyond kg’s separately designed decoration model;
 * unrestricted Emacs package compatibility;
+* the Customize UI, `custom-set-variables`, `setopt`, and general Custom
+  metadata/property APIs beyond Wave D's explicit `defcustom` subset;
 * sandboxing untrusted Lisp.
 
 ## 18. Final acceptance checklist
@@ -1549,6 +1660,8 @@ The program is complete when all of the following are true:
 * strict arity is unconditional.
 * interactive commands receive arguments from their specifications.
 * the prelude exists as ordinary Lisp source.
+* startup and bare-name package discovery use `.el` with no `.fe` fallback.
+* `defcustom` has its documented initialization and keyword-subset behavior.
 * supported features are listed in a machine-readable manifest.
 * every supported pure-language feature is tested against Emacs 31.
 * kg’s integration behavior is tested separately.

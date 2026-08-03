@@ -42,6 +42,18 @@ the language work, it is the last cheap moment to do it, and every later
 phase edits the prelude.  Doing it after Phase 2 would mean migrating 54
 definitions inside C string literals.
 
+## Compatibility direction
+
+The parent's §0.4 is binding for every sub-plan: there are no known external
+users of this Fe fork and no known user-written kg `init.fe` files.  Here,
+"compatibility" means agreement with the pinned Emacs oracle, not preservation
+of the old Fe/kg dialect.
+
+Price and implement only the hard cutovers the two repositories need.  Do not
+add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
+hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
+because they make the Fe↔kg contract checkable.
+
 ## Sequencing
 
 ```text
@@ -67,8 +79,9 @@ deleted, but if 00C slips, 01A can go first with no loss.
   counter build, a bench driver, five fuzz targets, twelve CI stages and
   four ratchets.  Fe has eight CI steps and three fuzz targets.  Every
   sub-plan below extends one of those.
-- **No `.el` filenames.**  Until the Phase 5 flag day the dialect is not
-  Emacs Lisp; see the parent's §5.
+- **No `.el` filenames yet.**  Phase 2 gives `=` its numeric meaning and makes
+  the dialect/filename cut at the same time.  There `.el` replaces `.fe`; it
+  is not a preference with a legacy fallback.  See the parent's §5 and §6.
 
 ## Rules
 
@@ -82,7 +95,9 @@ unchanged, and three of them do most of the work here:
   `make check` and `make WITH_LISP=0 clean all check`; a completed
   workstream ends with `.ci/run-ci-steps.sh --parallel`.
 - **Rule 10** — Fe changes land and pass in the submodule first, then the
-  parent pin moves in a separate kg commit.
+  parent pin and all kg adaptations move together in a separate, green kg
+  commit.  A deliberate API/language break must not create a pin-only commit
+  that cannot build.
 
 Two additions specific to this program:
 

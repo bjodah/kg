@@ -74,6 +74,13 @@ that will hurt, and the honest reading of each:
   spec parser, argument construction.  Priced against `lisp_cmd.c` (57)
   roughly doubling.
 
+Price the hard-cut design in the parent's §0.4.  Do **not** reserve complexity
+for compatibility wrappers, an assignment-`=` lint/deprecation path, a second
+evaluator, `.fe` filename fallback, or a lax-arity mode.  They have no users
+and are not deliverables.  `defcustom` is now a Wave D library/prelude form;
+include its validation and docstring storage in Phase 8's kg row, but do not
+price a Customize UI or a general property-list system.
+
 ### 2. A Decision, written where Decisions live
 
 The follow-up program keeps its Decisions in its own README with the date,
@@ -104,10 +111,12 @@ The options, with their real costs:
 
 **(a) Raise `SCC_FILE_COMPLEXITY_MAX`.**  Cheapest, and defensible for a
 single-file interpreter core — but it is the gate that keeps `fe.c` from
-becoming what `def.h` became in kg, which `CLAUDE.md` calls out by name.
+becoming what `def.h` became in kg, which `AGENTS.md` calls out by name.
 
 **(b) Split the core into more than one translation unit.**  This is a
-change to a documented interface, not just a build detail.
+change to a documented interface, not just a build detail.  There are no
+external embedders to carry forward, so every known build site can change
+atomically and no single-translation-unit compatibility target is needed.
 `doc/fe-upstream.md` states "kg compiles only `fe/fe.c` and its public
 header `fe/fe.h`" as the embedding contract.  A split moves:
 

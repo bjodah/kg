@@ -18,6 +18,12 @@ it must be able to say, of a construct that is not yet implemented, "this
 differs and that is intended" as distinctly as it says "this differs and
 that is a bug".
 
+The snapshots describe the **target Emacs contract**, not historical Fe
+behavior.  The parent's §0.4 removes any need for a legacy-output corpus or a
+dual-evaluator runner.  Current Fe divergences are useful starting facts in
+00C, but none becomes a preservation promise merely because Phase 0 recorded
+it.
+
 ## The oracle is already resolvable — do not add a second way
 
 kg's PTY harness already resolves Emacs as: `--emacs`, else
@@ -46,9 +52,22 @@ compat/
   cases/*.json
   oracle/*.json          # checked-in snapshots, version-stamped
 tools/
-  run-emacs-oracle.py
+  run-emacs-oracle.py   # accepts a corpus root; reused by kg
   run-fe-compat.py
 ```
+
+00C creates the kg-owned sibling:
+
+```text
+test/lisp-compat/
+  features.json
+  cases/*.json
+  oracle/*.json
+```
+
+Keeping kg-owned cases and snapshots in kg avoids a Fe pin move whenever a
+prelude form or editor primitive changes.  Sharing the schema and Emacs runner
+still gives both trees one protocol and one version-pin rule.
 
 **JSON, not TOML.**  Both trees are JSON throughout —
 `.ci/coverage-baseline.json`, `.ci/mutation-gateway.json`,
@@ -112,15 +131,19 @@ replacement, and `make -C fe check` keeps running both.
 Roughly half of the taxonomy in Phase 0's kg section — buffers, markers,
 keymaps, interactive commands, editor primitives — **cannot run under
 `emacs -Q --batch` against kg's semantics at all**, because the primitives
-are kg's, not Emacs'.  One manifest cannot serve both.
+are kg's or deliberately encode a different policy.  One manifest cannot
+serve both repositories, but ownership must not erase comparability.
 
-- Fe owns `compat/features.json`: pure-language constructs, oracle-
-  comparable, snapshot-backed.
+- Fe owns `compat/features.json`: its core/library constructs, normally
+  oracle-comparable and snapshot-backed.
 - kg owns `test/lisp-compat/features.json` (00C): its 78 natives and its
-  prelude forms, referencing Fe feature ids by name, with **no** oracle
-  result claimed.
-- A check asserts the id spaces do not collide and that no kg entry claims
-  an oracle answer.
+  prelude forms, referencing Fe feature ids by name.
+- Every entry declares `comparison: emacs` or `comparison: kg-policy`.
+  Pure kg-owned prelude definitions such as `let`, `defun` and the planned
+  `defcustom` use the former; genuinely kg-specific editor behavior uses the
+  latter and names its regression test and rationale.
+- A check asserts the id spaces do not collide, every `emacs` entry names an
+  oracle case, and every `kg-policy` entry names a kg test.
 
 Putting kg's half inside a branch-pinned submodule would make every kg
 inventory edit a pin move, which rule 10 makes a two-commit dance.
@@ -132,6 +155,8 @@ inventory edit a pin move, which rule 10 makes a two-commit dance.
 - `make -C fe compat-oracle` regenerates the snapshots against the
   resolved Emacs, and fails when the version differs from what is
   recorded.
+- The oracle runner accepts an explicit corpus root so 00C can wire a kg
+  `lisp-compat-oracle` target without copying the runner.
 - A new numbered step in `fe/.ci/` runs `compat`; the runner discovers
   steps by glob, so it joins with no runner change.  Do **not** add it to
   kg's `.ci` — kg reaches it through `ci-12-subprojects.sh`, which already
@@ -155,11 +180,12 @@ inventory edit a pin move, which rule 10 makes a two-commit dance.
 - It does not populate the corpus.  That is 00C, and the two are separated
   precisely so the schema is not designed around whichever twenty cases
   got written first.
-- It does not test kg.  kg's half is 00C's manifest plus the PTY harness
-  that already exists.
+- It does not execute kg.  00C links kg's existing native/PTY assertions to
+  these oracle snapshots for `comparison: emacs` entries and to kg-policy
+  expectations for the rest.
 - It does not compare backward regex matching, printing of cyclic
   structures, or anything else where kg's policy is deliberately not
-  Emacs'.  `CLAUDE.md`'s note on `kg_regex_match_backward()` is the
+  Emacs'.  `AGENTS.md`'s note on `kg_regex_match_backward()` is the
   precedent: where kg encodes its own policy, an oracle has to encode that
   policy too, which makes it a test, not an oracle.
 

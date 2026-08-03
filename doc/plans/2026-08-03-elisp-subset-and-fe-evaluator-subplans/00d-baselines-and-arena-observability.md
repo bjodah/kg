@@ -22,7 +22,7 @@ A baseline taken after the frame machine lands measures the frame machine.
 
 ## Half of this is free
 
-kg's performance apparatus already exists and `CLAUDE.md` describes its
+kg's performance apparatus already exists and `AGENTS.md` describes its
 discipline, which this sub-plan inherits rather than reinvents:
 
 - `src/perf.h` counters compile to nothing unless `KG_PERF_COUNTERS=1`,
@@ -93,6 +93,11 @@ useful number is not "does it fit" but *how much margin exists* before
 Phases 3–6 add frames, symbol cells and condition objects to every
 allocation path.
 
+The Phase 0 representative init necessarily uses the current `.fe` discovery
+path.  Phase 2 re-runs the same workload as `.el` after the hard cutover; it
+does not add or benchmark a legacy `.fe` fallback.  The performance corpus is
+evidence about evaluator cost, not a reason to preserve the old filename.
+
 **Size.** Binary size in both `WITH_LISP` configurations.  This program
 adds an integer type, a symbol layout, a frame machine and a condition
 system to an editor whose stated value is minimalism; the delta is worth
@@ -120,7 +125,7 @@ each case is evidence of, as the existing cases do.
 
 ## What this does not do
 
-- It does not add a timing gate to CI.  `CLAUDE.md` is explicit about why:
+- It does not add a timing gate to CI.  `AGENTS.md` is explicit about why:
   benchmark numbers taken while five sanitizer lanes drive PTYs measure
   the box, and a gate that flakes gets switched off.
 - It does not add the kg-visible arena diagnostic command.  That is Phase

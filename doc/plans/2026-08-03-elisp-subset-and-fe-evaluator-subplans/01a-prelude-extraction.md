@@ -34,14 +34,15 @@ src/lisp_prelude_generated.inc  checked in; CI verifies no-diff regeneration
 the day this file is created it contains 54 `(= name value)` forms — Emacs
 Lisp's numeric comparison used as a statement.  `lisp/auto-fill.fe`
 already establishes `.fe` for kg Lisp; both files rename together at the
-Phase 5 flag day, when the claim becomes true.  One `git mv` then beats a
-file that lies for four phases.
+Phase 2 dialect cutover, when the claim becomes true.  One `git mv` then
+beats a file that lies for four phases.  The rename is a replacement, with
+no `.fe` fallback or compatibility copy (parent §0.4).
 
 **The generator emits a byte array and an explicit length**, and must not
 depend on NUL termination — the prelude is fed to
 `FeEvaluateStringWithOptions(context, "prelude", text, len, &eval_options)`,
 which already takes a length.  Checking the `.inc` in keeps ordinary builds
-Python-free; `CLAUDE.md` records that the Makefile picks an interpreter
+Python-free; `AGENTS.md` records that the Makefile picks an interpreter
 with `pexpect` and `PyYAML` and that `PYTHON` overrides it, so the
 regeneration target uses the same resolution.
 
@@ -53,7 +54,7 @@ with kg-native stubs.  **Drop it.**  The prelude's later sections call
 `buffer-substring`, `internal--save-excursion` and
 `internal--with-current-buffer`.  Stubbing those means writing a second
 fake editor whose divergences from the real one become their own bug
-source — to test a code generator.  `CLAUDE.md` already draws this line:
+source — to test a code generator.  `AGENTS.md` already draws this line:
 if behaviour depends on real cursor movement, windows or saved-file
 output, it belongs in a PTY case, not a stubbed unit test.
 

@@ -31,8 +31,10 @@ The parent plan names four: `supported`, `planned`, `divergent`,
 `unsupported`.  Tighten what each *costs*, or the manifest becomes
 aspirational:
 
-- **`supported`** — has at least one differential case, and it passes.  A
-  `supported` entry with no case is a lie and the checker rejects it.
+- **`supported`** — has at least one passing case appropriate to its
+  comparison mode: an oracle case for `emacs`, a kg regression for
+  `kg-policy`.  A `supported` entry with no case is a lie and the checker
+  rejects it.
 - **`planned`** — names the phase that delivers it.  A `planned` entry
   with no phase is a wish.
 - **`divergent`** — has a case that *asserts the difference*, plus prose
@@ -46,6 +48,11 @@ aspirational:
 `make check`, and that is the right precedent: an expectation that
 silently starts passing must break the build.
 
+There is deliberately no `legacy` status.  The parent's §0.4 says the old
+Fe/kg dialect has no compatibility constituency.  A current divergence can
+become `planned` and then `supported`, or be deleted when its old spelling is
+removed; inventorying it does not promise to keep it working.
+
 ## The taxonomy
 
 The parent plan's ten categories are right; use them verbatim so the two
@@ -54,8 +61,17 @@ functions and macros; control flow; errors and non-local exits; sequences;
 loading; interactive commands; editor primitives.
 
 Ownership is `fe-core`, `fe-library` or `kg`, and it decides which
-manifest the entry lives in — Fe's `compat/features.json` for anything
-oracle-comparable, kg's `test/lisp-compat/features.json` for the rest.
+manifest the entry lives in.  Comparability is a separate field:
+`comparison: emacs` or `comparison: kg-policy`.  A kg-owned prelude macro
+can be pure and oracle-comparable; a kg editor native can implement an
+intentional local policy.  Conflating those axes would leave `defun`, `let`
+and the planned `defcustom` without an oracle merely because their source
+file lives in kg.
+
+Create `test/lisp-compat/cases/` and `test/lisp-compat/oracle/` beside the kg
+manifest.  They use 00B's schema and generic Emacs runner.  A kg-owned
+`comparison: emacs` case and its snapshot stay in kg; only a reference to a
+Fe-owned prerequisite crosses the manifest boundary.
 
 ## Divergences to record on day one
 
@@ -85,10 +101,31 @@ becomes a `divergent` or `unsupported` entry with a case:
 - Marker creation and exceptional floating-point formatting — the two the
   parent plan singles out as currently living only in test comments.
 
-## The kg manifest's extra column
+## Planned definitions to enter on day one
 
-kg entries cannot claim an oracle result, so they claim something else:
-the test that pins them.  Most already have one — 64 Lisp PTY cases and
+The inventory covers planned surface as well as current surface, so seed
+`defcustom` now as `planned`, owned by `kg` in the prelude/library layer,
+marked `comparison: emacs`, and delivered in Phase 8 Wave D.  Its cases must
+distinguish:
+
+- an unbound variable from an already bound one;
+- whether the standard form is evaluated in each case;
+- the returned symbol and stored docstring;
+- accepted inert presentation metadata (`:type`, `:options`, `:group`,
+  `:tag`, `:link`, `:version`, `:package-version`);
+- rejected semantics-bearing and unknown keywords;
+- the documented absence of dynamic binding, retained standard forms,
+  `setopt`, and a Customize UI.
+
+This entry prevents `defcustom` from becoming either a hand-waved synonym for
+`defvar` or an accidental commitment to all of Custom.
+
+## The kg manifest's extra obligations
+
+Every kg entry names the native or PTY test that pins kg's result.  An
+`emacs` entry also names the 00B oracle case whose snapshot supplies the
+expected semantics; a `kg-policy` entry instead carries the rationale for
+the divergence.  Most already have a kg test — 64 Lisp PTY cases and
 `test/test_lisp.c` — and the inventory is the moment to find the natives
 that have *none*.  Expect that list to be non-empty and treat it as this
 sub-plan's second deliverable: a named set of untested natives, either
@@ -105,7 +142,8 @@ already have.  It asserts:
 
 - schema validity of both manifests;
 - no id collides between them;
-- no kg entry claims an oracle result;
+- every `comparison: emacs` entry names an oracle case;
+- every `comparison: kg-policy` entry names a kg test and rationale;
 - every `supported` entry names a passing case;
 - every `planned` entry names a phase;
 - every `divergent` entry names a case and has prose;
@@ -119,12 +157,20 @@ Wire it into `make check` next to `docs-check`, which is the closest
 existing analogue: a dumb, structural check that a table and a document
 have not drifted apart.
 
+Also add `make lisp-compat-oracle` for kg's snapshots.  It uses 00B's Emacs
+resolution/version rules and is a regeneration/verification target, not part
+of ordinary `make check`; checked-in snapshots keep the normal suite
+self-contained.
+
 ## Gates
 
 - All 31 primitives, 78 natives and 54 prelude definitions have an entry.
+- `defcustom` has the planned entry and subset cases specified above.
 - The checker fails when a native is added without one.  Prove it by
   adding one temporarily.
 - Every `divergent` entry has a case asserting the difference.
+- Every kg-owned `comparison: emacs` entry has a kg-local case and
+  version-stamped oracle snapshot.
 - The list of natives with no test exists and each is either tested or
   recorded as a gap with an owner.
 - `make check` and `make WITH_LISP=0 clean all check` green; both

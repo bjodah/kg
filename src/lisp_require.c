@@ -1,10 +1,10 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "../fe/fe.h"
-#include "def.h"
 #include "lisp_internal.h"
 
 /* ---- provide/require/featurep, and the bounded load-path require

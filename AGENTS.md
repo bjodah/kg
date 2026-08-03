@@ -10,7 +10,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 
 ## Build and test
 - Build: `make` or `CC="ccache cc" make`
-- Run tests: `make check` (e.g. `make check 2>&1 | grep -E "^(FAIL|ERROR|XPASS)|# (FAIL|ERROR|TOTAL|PASS|SKIP|XFAIL|XPASS)" | head -30; echo "CHECK EXIT=${PIPESTATUS[0]}"`)
+- Run tests: `make check` (e.g. `make check 2>&1 | grep -E "^(FAIL|ERROR|XPASS)|# (FAIL|ERROR|TOTAL|PASS|SKIP|XFAIL|XPASS)" | head -30; echo "CHECK EXIT=${PIPESTATUS[0]}"`). Also run `make complexity-check` before and after larger chunks of work.
 - Clean binaries/objects: `make clean` or `make distclean`
 - `make check` now runs two layers:
   - native unit tests in `test/test_*.c`

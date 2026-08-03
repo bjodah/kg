@@ -126,9 +126,17 @@ Measure instead:
 3. Repeat under `.ci/ci-04`'s ASan/UBSan flags and under the default
    `-Os` build for comparison.
 4. Set `DefaultEvaluationDepth` to a value comfortably below
-   `min(N_msan, ...)` — aim for roughly half, and state the measured
+   `min(N_msan, ...)` — ~~aim for roughly half~~, and state the measured
    numbers in the commit message so the next person can re-derive the
    choice instead of re-measuring.
+
+**Both halves of step 4 were wrong; see the status section.**  "Roughly
+half" lands at ~218 against a floor of 200 that `test_recursion_depth`
+asserts, which is no margin at all.  And `DefaultEvaluationDepth` is not
+in the same units as `N`: the counter counts `Evaluate()` re-entries, of
+which one level of `(deep n)` costs about three.  Pick the number so the
+*Lisp* depth at which it fires sits between the floor and the measured
+ceiling, then convert.
 
 Emacs' `max-lisp-eval-depth` default (1600) is a reference point, not a
 target: kg's arena and Fe's frames are not Emacs'.  If the measurement
@@ -203,3 +211,65 @@ kg (separate commits, after the pin moves):
 - An `unwind-protect` cleanup still runs after a depth overflow.
 - `fe/doc/c-api.md`, `doc/fe-upstream.md` and `doc/lisp-api.md` all
   describe the bound; the pin moved in its own commit.
+
+---
+
+## Status — sub-plan E closed 2026-08-03
+
+**Done.**  ci-05 is green: 31/31 unit and 403/403 PTY under MSan.  fe
+`87f0e1c` carries the counter; kg `e470ea6` moves the pin.
+
+### The measurements
+
+Bare `fe`, `(deep n)`, 1 MiB arena (matching `KG_LISP_ARENA_SIZE`).
+Arena size verified irrelevant — 1 MiB and 64 MiB give the same ceiling,
+so this is purely the C stack.
+
+| build | largest N that completes | failure above it |
+|-------|--------------------------|------------------|
+| `clang -O2` | 450 | clean `GC stack overflow` |
+| ASan+UBSan, ci-04's flags | 450 | clean `GC stack overflow` |
+| MSan, ci-05's flags | **437** | C stack overflow, process dies |
+
+Deterministic: 437 passed 5/5 repeats, 438 failed.  kg's `test_lisp`,
+which adds adapter frames, crashed at 418.
+
+**The margin was 14 frames, about 3%** — the GC-slot bound fires in
+451..454, MSan's C stack gives out at 438.  That is the defect
+quantified, and it is much tighter than "whatever the compiler's frame
+size makes it" suggested.  ASan is not implicated; it is
+`-fsanitize-memory-track-origins=2` plus `-fsanitize-memory-param-retval`
+that inflate the frames.
+
+`DefaultEvaluationDepth = 1000` stops `(deep n)` between 330 and 340
+under MSan — under the 418 where kg's build crashed, and comfortably over
+the 200 the test asserts.
+
+### What this sub-plan missed: the macro arm
+
+`Evaluate()`'s `FeTMacro` case evaluates the expansion with
+`return Evaluate(...)`.  That is a tail call in Fe but **not in C**: the
+sanitizer lanes build with `-fno-optimize-sibling-calls`, and those are
+exactly the builds where the C stack binds, so the frame stays live.
+Decrementing the counter *before* that call — the obvious reading of
+"decrement on every return path" — let a macro whose expansion is another
+macro call recurse with `evaluation_depth` flat.  `(= m (macro () (list
+(quote m)))) (m)` crashed under MSan with the counter in place.
+
+The counter has to be held across the call and dropped after.  Covered by
+a test now.  **A depth bound is only as good as its worst uncounted
+path**, and a Lisp-level tail call is not a C-level one.
+
+### fe's own CI was already red
+
+The gates section calls fe's numbered CI "the submodule's real green
+light before a pin moves".  It could not be: `fe/.ci/ci-03` was **already
+failing at `cc4ddca`**, with five pre-existing gcc `-fanalyzer` fd-leak
+and malloc-leak findings in `test_api.c`'s `TestUnwindCleanupBudget`.
+Verified by running that stage against a detached checkout of the base
+commit: five findings before, five after, unchanged.
+
+Every other fe stage (ci-01, 02, 04, 05, 06, 07, 08) passes with this
+change.  The honest gate for a pin move is therefore **"no new findings
+against the base commit"**, not "green" — and fe's ci-03 is now debt of
+its own, worth its own slice.

@@ -2334,7 +2334,8 @@ static void test_recursion_depth(void)
 
 	CHECK(eval_ok("(defun deep (n) (if (<= n 0) 0 (+ 1 (deep (- n 1)))))"));
 	CHECK(eval_eq("(deep 200)", "200"));
-	CHECK(eval_error_contains("(deep 5000)", "evaluation depth limit exceeded"));
+	CHECK(eval_error_contains(
+	    "(deep 5000)", "evaluation depth limit exceeded"));
 	CHECK(eval_eq("(deep 200)", "200"));
 	CHECK(eval_ok("(+ 1 2)"));
 

@@ -15,6 +15,7 @@
 #include "compile.h"
 #include "def.h"
 #include "keyevent.h"
+#include "process_table.h"
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static unsigned char *pending_input;
@@ -552,6 +553,13 @@ static int read_key_byte(int fd, int idle)
 				changed |= autorevert_poll();
 				changed |= compilation_poll();
 				compilation_start_pending_restart();
+				/* Not part of `changed`: this only moves
+				 * bytes fd -> queue and publishes events, so
+				 * there is nothing here yet for a repaint to
+				 * show -- the drain that would change the
+				 * screen runs from a safe point, never from
+				 * this idle loop. */
+				kg_process_table_poll();
 				if (changed) {
 					editor_refresh_screen();
 				}

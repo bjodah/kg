@@ -48,6 +48,7 @@
 #include "lisp.h"
 #include "marker.h"
 #include "perf.h"
+#include "process_table.h"
 #include "register.h"
 #include "yank.h"
 
@@ -97,6 +98,7 @@ void init_editor(void)
 	update_window_size();
 	win_init();
 	compile_nav_install();
+	kg_process_table_init();
 	atexit(editor_cleanup);
 	/* Registered after editor_cleanup, so it runs before it: a position
 	 * register's marker is given back while its buffer is still there. */
@@ -168,11 +170,15 @@ int main(int argc, char **argv)
 		compilation_poll();
 		compilation_start_pending_restart();
 		autorevert_poll();
+		kg_process_table_poll();
 		/* Safe point: each of the non-command lifecycle actions
 		 * above (signal-driven resize, compilation polling,
-		 * autorevert) has either done nothing or fully completed --
-		 * none of them holds an edit transaction or the renderer
-		 * open across this call. */
+		 * autorevert, process-table polling) has either done nothing
+		 * or fully completed -- none of them holds an edit
+		 * transaction or the renderer open across this call.
+		 * kg_process_table_poll() itself never writes a buffer; its
+		 * drain subscriber runs from kg_event_drain_safe() below, not
+		 * from here. */
 		kg_event_drain_safe();
 		/* Windows first, then the frame: nothing is drawn from a
 		 * handle that has stopped resolving.  The top of the loop

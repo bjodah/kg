@@ -24,6 +24,7 @@
 #include "localvars.h"
 #include "marker.h"
 #include "perf.h"
+#include "process_table.h"
 #include "syntax.h"
 #include "yank.h"
 
@@ -2475,6 +2476,7 @@ void editor_cleanup(void)
 	}
 	cleaned_up = 1;
 	compilation_shutdown();
+	kg_process_table_shutdown();
 
 	/* Every slot owns its rows, filename, undo chain, marker store and
 	 * decoration store, and no copy of any of them lives elsewhere, so

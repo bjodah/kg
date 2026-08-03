@@ -173,12 +173,25 @@ Ordering rules that hold across every subscriber:
   the labelled diagnostic. Forms evaluated **before** the error remain
   applied — an init file or package that fails partway through still has
   its earlier `defun`s and `setq`s in effect.
-- **The interpreter's own recursion limit** is Fe's GC stack, which bounds
-  self-recursive calls to roughly 450 frames regardless of what the code
-  is doing; deeper recursion raises `GC stack overflow` rather than
-  crashing. Write list-walking code with `while`, not recursion — every
-  list helper the prelude defines (`length`, `reverse`, `mapcar`,
-  `assoc`, ...) does.
+- **The interpreter's own recursion limit** is an explicit depth counter
+  in Fe (`FeEvalOptions.max_depth`, defaulting to
+  `DefaultEvaluationDepth` = 1000 nested `Evaluate()` calls). It counts
+  evaluator re-entries rather than Lisp call frames — an ordinary
+  self-recursive function costs several per level — so in practice it
+  stops `(deep n)`-shaped recursion a little past 300 levels. Deeper
+  recursion raises `evaluation depth limit exceeded` rather than
+  crashing, and it is caught in every build: the counter, not Fe's GC
+  stack, is what fires first. Macro expansion is bounded by the same
+  counter, so a macro that expands into itself raises too.
+
+  Fe's GC stack still bounds recursion at roughly 450 frames as a side
+  effect of slot consumption, but that bound is incidental — it tracks GC
+  slots, not C stack, and under the sanitizer builds CI runs the real C
+  stack gave out first, crashing the editor instead of raising. That is
+  what the explicit counter exists to prevent.
+
+  Write list-walking code with `while`, not recursion — every list helper
+  the prelude defines (`length`, `reverse`, `mapcar`, `assoc`, ...) does.
 - **`load` nesting** (`(load ...)`, and the file `(require ...)`
   evaluates when a feature is not yet provided) is capped at
   `LISP_MAX_LOAD_DEPTH` = 8 levels, independent of the step budget.

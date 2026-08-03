@@ -2320,14 +2320,22 @@ static void test_cyclic_result(void)
 	kg_lisp_shutdown();
 }
 
-/* Fe's GC stack is what bounds recursion, not the C stack. */
+/* Recursion is bounded by Fe's explicit evaluation_depth counter, not by
+ * how many GC stack slots a call happens to consume: a build with fatter
+ * C frames than the release build (any sanitizer, -O0, a debug build)
+ * would otherwise overflow the real C stack before Fe's own bookkeeping
+ * noticed. `(deep 5000)` now raises a catchable error naming the depth
+ * limit instead of the accidental "GC stack overflow". The final eval_ok
+ * proves evaluation_depth is reset on error: a legal deep-but-smaller
+ * call right after the overflow must not still see it exhausted. */
 static void test_recursion_depth(void)
 {
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(eval_ok("(defun deep (n) (if (<= n 0) 0 (+ 1 (deep (- n 1)))))"));
 	CHECK(eval_eq("(deep 200)", "200"));
-	CHECK(eval_error_contains("(deep 5000)", "GC stack overflow"));
+	CHECK(eval_error_contains("(deep 5000)", "evaluation depth limit exceeded"));
+	CHECK(eval_eq("(deep 200)", "200"));
 	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();

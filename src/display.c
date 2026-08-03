@@ -12,10 +12,10 @@
 #include "decor.h"
 #include "def.h"
 #include "event.h"
-#include "localvars.h"
 #include "marker.h"
 #include "perf.h"
 #include "syntax.h"
+#include "vgeom.h"
 
 #ifndef ABUF_INIT
 #define ABUF_INIT { NULL, 0, 0, 0 }
@@ -324,10 +324,10 @@ static void flat_row_advance(
  * is_full_width: if true we can use \x1b[0K (erase to EOL) to clear the
  * rest of each row; if false (vertical split) we must space-pad to stay
  * within the window's column range. */
-static void draw_window_rows(struct abuf *ab, struct editor_buffer *b,
-    int win_y, int win_x, int win_h, int win_w, int rowoff, int coloff,
-    int numrows, erow *rows, int is_active, int is_full_width,
-    int visual_line_mode)
+static void draw_window_rows(struct abuf *ab, struct editor_window *w,
+    struct editor_buffer *b, int win_y, int win_x, int win_h, int win_w,
+    int rowoff, int coloff, int numrows, erow *rows, int is_active,
+    int is_full_width, int visual_line_mode)
 {
 	int y, j;
 	int region_active = 0;
@@ -389,8 +389,7 @@ static void draw_window_rows(struct abuf *ab, struct editor_buffer *b,
 		int fr;
 		int offset;
 		if (visual_line_mode) {
-			find_visual_row(
-			    rows, numrows, win_w, rowoff, y, &fr, &offset);
+			find_visual_row(w, b, rowoff, y, &fr, &offset);
 		} else {
 			fr = rowoff + y;
 			/* `offset` slices row->render, but coloff is a chars
@@ -722,8 +721,8 @@ void editor_refresh_screen(void)
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = wcur()->rowoff + wcur()->cy;
 		int filecol = wcur()->coloff + wcur()->cx;
-		int cursor_vrow = get_visual_row(
-		    bcur()->row, bcur()->numrows, w_act->w, filerow, filecol);
+		int cursor_vrow
+		    = get_visual_row(w_act, bcur(), filerow, filecol);
 		if (cursor_vrow < wcur()->rowoff_visual) {
 			wcur()->rowoff_visual = cursor_vrow;
 		} else if (cursor_vrow >= wcur()->rowoff_visual + w_act->h) {
@@ -770,8 +769,8 @@ void editor_refresh_screen(void)
 		rowoff = vline ? w->rowoff_visual : w->rowoff;
 		coloff = w->coloff;
 
-		draw_window_rows(&ab, b, w->y, w->x, w->h, w->w, rowoff, coloff,
-		    numrows, rows, is_active, is_full_width, vline);
+		draw_window_rows(&ab, w, b, w->y, w->x, w->h, w->w, rowoff,
+		    coloff, numrows, rows, is_active, is_full_width, vline);
 
 		ml_row = w->y + w->h;
 		{
@@ -782,17 +781,15 @@ void editor_refresh_screen(void)
 			int filecol = w->coloff + w->cx;
 			int cur_row;
 			if (vline) {
-				cur_row = get_visual_row(rows, numrows, w->w,
-					      filerow, filecol)
+				cur_row = get_visual_row(w, b, filerow, filecol)
 				    + 1;
 			} else {
 				cur_row = filerow + 1;
 			}
 			int cur_col = editor_display_col(
 			    rows, numrows, filerow, filecol);
-			int total_rows = vline
-			    ? get_total_visual_rows(b->row, b->numrows, w->w)
-			    : b->numrows;
+			int total_rows
+			    = vline ? get_total_visual_rows(w, b) : b->numrows;
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
 			    cur_row, cur_col, total_rows, wrowoff, w->h);
 		}
@@ -885,8 +882,8 @@ void editor_refresh_screen(void)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cursor_vrow = get_visual_row(bcur()->row,
-			    bcur()->numrows, win_w, filerow, filecol);
+			int cursor_vrow
+			    = get_visual_row(w, bcur(), filerow, filecol);
 			int screen_y = cursor_vrow - wcur()->rowoff_visual;
 			cx = (rcol % win_w) + 1;
 			ab_move_to(&ab, w->y + screen_y, w->x + cx - 1);

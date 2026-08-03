@@ -199,6 +199,32 @@ int win_shows_buffer(
 	return shown && shown == buf_resolve(handle);
 }
 
+/* Free `w`'s visual-line geometry index (src/vgeom.h), if it has one.
+ * Every window lifecycle transition below -- losing its buffer, gaining
+ * a different one, session teardown -- has to do this regardless of
+ * whether visual-line mode is ever used, so it cannot go through
+ * src/vgeom.c's own API without pulling that module's dependencies (the
+ * row-geometry primitives in src/mode.c, editor_cursor_goto()) into
+ * every test binary that merely manages windows.  A plain free() on the
+ * opaque pointer is safe without them: src/vgeom.c documents, at
+ * struct kg_vgeom_index's definition, that the index is exactly one
+ * malloc()'d block, so freeing it needs no knowledge of its layout. */
+static void window_vgeom_reset(struct editor_window *w)
+{
+	free(w->vgeom);
+	w->vgeom = NULL;
+}
+
+/* Every window's, at once: editor_cleanup()'s "session teardown" leg of
+ * the same lifetime rule, pulled out so that call is a single statement
+ * rather than a second loop counted against its own complexity budget. */
+static void window_vgeom_reset_all(void)
+{
+	for (int i = 0; i < MAX_WINDOWS; i++) {
+		window_vgeom_reset(&winlist[i]);
+	}
+}
+
 /* Hand the buffer a window is leaving the point that window had in it, so
  * the next view to visit that buffer can resume there.  Called whenever a
  * view detaches; this is the only writer of last_point. */
@@ -247,6 +273,13 @@ void buf_attach_view(struct editor_window *w, int slot)
 		return;
 	}
 	buf_remember_view(w);
+	/* `w` is provably switching to a different buffer here (see
+	 * buf_attach_prepare()'s win_shows_buffer() check above), so
+	 * whatever geometry index it had cached is for the buffer it is
+	 * about to stop showing.  buf_detach_view_commit() covers the
+	 * detach-then-attach path; this covers buf_select()'s direct
+	 * attach, which does not detach first. */
+	window_vgeom_reset(w);
 	w->buf = h;
 	w->cx = b->last_point.cx;
 	w->cy = b->last_point.cy;
@@ -272,6 +305,7 @@ static void buf_detach_view_commit(struct editor_window *w)
 	if (!buf_resolve(old)) {
 		buf_remember_view(w);
 		w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
+		window_vgeom_reset(w);
 		return;
 	}
 	res = kg_event_reserve_lifecycle();
@@ -280,6 +314,7 @@ static void buf_detach_view_commit(struct editor_window *w)
 	}
 	buf_remember_view(w);
 	w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
+	window_vgeom_reset(w);
 	kg_event_publish_lifecycle(
 	    &res, kg_event_make_view_detached(win_handle_of(w), old));
 }
@@ -2477,6 +2512,12 @@ void editor_cleanup(void)
 	cleaned_up = 1;
 	compilation_shutdown();
 	kg_process_table_shutdown();
+
+	/* Every window may own a visual-line geometry index (src/vgeom.h);
+	 * freeing it here is what the "session teardown" leg of its
+	 * lifetime rule means for a window that is never explicitly
+	 * detached before the process exits. */
+	window_vgeom_reset_all();
 
 	/* Every slot owns its rows, filename, undo chain, marker store and
 	 * decoration store, and no copy of any of them lives elsewhere, so

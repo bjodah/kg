@@ -190,6 +190,72 @@ work.
   `-DKG_DEBUG_COORDS=1`, which is what will catch a coordinate-space
   mistake at a new seam.
 
+## Status — sub-plan A closed (2026-08-03)
+
+Implemented as specified: `src/vgeom.[ch]`, the five declarations out of
+`def.h`, a per-window vector keyed on all four parts, `int32_t` entries
+accumulated and refused in `size_t`, fallback-not-error, free on detach /
+attach / split / teardown.
+
+**The measured effect, which is larger than this sub-plan claimed.**  The
+sub-plans README said A and B *together* were what collapse
+`KG_PERF_VISUAL_PREFIX_VISIT`, and A alone did nearly all of it, because
+routing `find_visual_row()` through the index removes the per-screen-row
+walk even while the draw loop still calls it once per screen row:
+
+| bench case | row scans before | after | prefix visits before | after |
+|---|---|---|---|---|
+| `visual-line-100k` | 100,001 | 100,001 | 13,699,181 | 100,001 |
+| `visual-line-hsplit-100k` | 100,001 | 100,001 | — | 200,002 |
+| `visual-line-vsplit-100k` | 2,900,031 | **300,017** | — | 300,003 |
+| `visual-line-4win-100k` | 3,300,039 | **500,033** | — | 500,005 |
+
+The residue is exactly Phase 1's stated acceptance and not thrash: one
+cold scan per row per *distinct width the session has ever used* — three
+for vsplit (80 before the split, then 39 and 40), five for the four-window
+case.  `vgeom_fallback` was 0 in every case; `vgeom_rebuild` was 1, 2, 3
+and 5, i.e. one per width, ever, rather than one per repaint switch.
+
+**Two things this document got wrong.**
+
+1. *The `def.h` move funds nothing.*  It is named here as "the plan's main
+   complexity funding", and it is worth doing for ownership — but `scc`
+   scores branches, and a declaration has none.  Measured per file:
+   `mode.c` −11, `vgeom.c` +46, `bufmgr.c` +1, `winmgr.c` +1, `def.h`
+   **0**.  Net **+37**, 5401 → 5438, leaving **62 points for B, C and D**.
+   B should be net-negative (it deletes a call site pattern from
+   `display.c`), C is measurement only, and D is small, so the budget
+   holds — but it holds without the funding this document promised.
+2. *`vgeom_window_free()` is not on the production path.*  The lifecycle
+   frees in `bufmgr.c` and `winmgr.c` are plain `free()`s on the opaque
+   pointer, because routing them through this module would link its
+   row-geometry and cursor-motion dependencies into the five test
+   binaries that link `bufmgr.o` merely to manage windows.  That is
+   sound — the index is exactly one `malloc()`'d block — but it is an
+   invariant now load-bearing in two files that cannot see the struct.
+   **Adding an owned pointer to `struct kg_vgeom_index` would leak
+   silently.**  The struct's comment says so at the definition.
+
+**One defect found in review, after the agent's own gates were green.**
+`get_visual_row()` disagreed with its own fallback for `cy < 0`: the
+index path returned the past-the-end total, the scan path 0.  Unreachable
+through the editor today — and that is the point, since only the
+differential test finds it.  `test/test_vgeom.c` now asks every query at a
+negative row and fails without the fix.
+
+**Deliberately left for B:**
+`test_visual_line_prefix_walk_restarts_per_screen_row()` still passes,
+but no longer for its stated reason.  It measures a *cold* index, so what
+it now counts is the single O(rows) rebuild, not the `win_h × numrows`
+restarts its comment describes.  B must re-point it at a **warm** repaint
+before inverting it; flipping the comparison as written would assert
+nothing.
+
+`vgeom_iter_next()` also still calls `visual_segments()` once per screen
+row rather than reading the two prefix entries it already has.  Correct,
+and O(1) either way thanks to Phase 1's width cache, but B owns the draw
+loop and should decide.
+
 ## Completion gate
 
 - Geometry answers are byte-for-byte the scan path's on every corpus

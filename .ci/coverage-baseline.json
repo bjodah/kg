@@ -532,6 +532,17 @@
    "branches_hit": 41,
    "branch_rate": 0.8542
   },
+  "src/vgeom.c": {
+   "lines_found": 146,
+   "lines_hit": 143,
+   "line_rate": 0.9795,
+   "functions_found": 15,
+   "functions_hit": 15,
+   "function_rate": 1.0,
+   "branches_found": 84,
+   "branches_hit": 72,
+   "branch_rate": 0.8571
+  },
   "src/width.c": {
    "lines_found": 75,
    "lines_hit": 75,

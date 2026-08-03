@@ -21,6 +21,7 @@
 #include "marker.h"
 #include "register.h"
 #include "syntax.h"
+#include "vgeom.h"
 #include "yank.h"
 
 static constexpr int lisp_expression_max = 512;
@@ -350,8 +351,8 @@ static void cmd_visual_line_mode(int fd)
 		 * byte offset before clearing coloff. */
 		wcur()->coloff = 0;
 		wcur()->cx = filecol;
-		wcur()->rowoff_visual = get_visual_row(
-		    bcur()->row, bcur()->numrows, w->w, filerow, filecol);
+		wcur()->rowoff_visual
+		    = get_visual_row(w, bcur(), filerow, filecol);
 	} else {
 		wcur()->rowoff = filerow > 10 ? filerow - 10 : 0;
 		wcur()->cy = filerow - wcur()->rowoff;

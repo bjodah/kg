@@ -275,6 +275,9 @@ struct kg_point {
 	int rowoff_visual;
 };
 
+/* Visual-line geometry index; see src/vgeom.h.  Opaque here on purpose. */
+struct kg_vgeom_index;
+
 /* Per-window viewport state. */
 #define MAX_WINDOWS 8
 struct editor_window {
@@ -304,6 +307,10 @@ struct editor_window {
 	int rowoff_visual; /* Visual row offset for visual-line-mode */
 	int desired_visual_col; /* goal column across vertical motion; -1 =
 				   unset. */
+	/* Lazily built visual-line geometry index, owned by this window
+	 * alone; NULL until first built.  See src/vgeom.h -- winmgr.c's
+	 * split path must NULL rather than copy this on a struct copy. */
+	struct kg_vgeom_index *vgeom;
 };
 
 /* Per-buffer state saved when switching away from a buffer. */
@@ -1032,17 +1039,6 @@ int undo_push_change(struct editor_buffer *b, size_t position, char *old_text,
 void editor_undo(void);
 void undo_mark_clean(void);
 bool undo_merge_at_top(struct editor_buffer *b, size_t position);
-
-/* mode.c */
-int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx);
-int visual_line_cursor_col(erow *row, int chars_col, int win_w);
-void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
-    int target_y, int *logical_row, int *render_offset);
-int visual_col_to_chars(erow *row, int target_vcol, int win_w);
-int visual_line_width(erow *row, int win_w);
-void goto_visual_row_col(int target_vrow, int target_rcol_in_segment);
-int chars_to_render_col(erow *row, int chars_col);
-int get_total_visual_rows(erow *rows, int numrows, int win_w);
 
 /* main.c */
 void init_editor(void);

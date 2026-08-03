@@ -2,6 +2,7 @@
 
 #include "../src/cmdstate.h"
 #include "../src/def.h"
+#include "../src/vgeom.h"
 #include "test.h"
 #include <limits.h>
 #include <stdio.h>
@@ -56,6 +57,11 @@ static void teardown(void)
 	free_all_rows();
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
+	/* Some tests build the visual-line geometry index (src/vgeom.h) on
+	 * wcur(); nothing else in this harness frees it between tests, so
+	 * the last test to build one would otherwise leave it for
+	 * LeakSanitizer to find at process exit. */
+	vgeom_window_free(wcur());
 }
 
 /* ---- Tests ---- */
@@ -241,9 +247,9 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	CHECK(editor_visual_col(&bcur()->row[0], 6) == 9);
 	CHECK(chars_to_render_col(&bcur()->row[0], 4) == 4);
 	CHECK(chars_to_render_col(&bcur()->row[0], 5) == 10);
-	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 4) == 3);
-	find_visual_row(bcur()->row, bcur()->numrows, 4, 0, 1, &logical_row,
-	    &render_offset);
+	wcur()->w = 4;
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 3);
+	find_visual_row(wcur(), bcur(), 0, 1, &logical_row, &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 6);
 	CHECK(visual_col_to_chars(&bcur()->row[0], 4, 4) == 4);
@@ -266,9 +272,9 @@ static void test_visual_wrap_moves_a_whole_escape_spelling(void)
 	CHECK(editor_visual_col(&bcur()->row[0], 9) == 9);
 	/* At win_w 10 the spelling does not fit in the one column left, so
 	 * it starts the second display row -- and that row starts at it. */
-	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 10) == 2);
-	find_visual_row(bcur()->row, bcur()->numrows, 10, 0, 1, &logical_row,
-	    &render_offset);
+	wcur()->w = 10;
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 2);
+	find_visual_row(wcur(), bcur(), 0, 1, &logical_row, &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 9);
 	teardown();
@@ -277,8 +283,9 @@ static void test_visual_wrap_moves_a_whole_escape_spelling(void)
 static void test_visual_rows_guard_zero_width(void)
 {
 	setup(1);
-	CHECK(get_visual_row(bcur()->row, bcur()->numrows, 0, 0, 2) == 2);
-	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 0) == 3);
+	wcur()->w = 0;
+	CHECK(get_visual_row(wcur(), bcur(), 0, 2) == 2);
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 3);
 	teardown();
 }
 
@@ -287,8 +294,9 @@ static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 	setup(0);
 	editor_insert_row(bcur(), 0, "12345678", 8);
 
-	CHECK(get_total_visual_rows(bcur()->row, bcur()->numrows, 8) == 1);
-	CHECK(get_visual_row(bcur()->row, bcur()->numrows, 8, 0, 8) == 0);
+	wcur()->w = 8;
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 1);
+	CHECK(get_visual_row(wcur(), bcur(), 0, 8) == 0);
 	CHECK(visual_line_cursor_col(&bcur()->row[0], 8, 8) == 7);
 	teardown();
 }
@@ -600,15 +608,15 @@ static void test_row_draw_stays_inside_the_window(void)
 	editor_insert_row(bcur(), 0, line, 60);
 
 	/* Byte 2 is the last byte of the first €. */
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 2, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 10, 0, 2,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
 	ab_free(&ab);
 
 	/* A glyph boundary is unaffected. */
 	ab = (struct abuf)ABUF_INIT;
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 3, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 10, 0, 3,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	CHECK(drawn_cells(&ab) == 10);
 	ab_free(&ab);
 	teardown();
@@ -676,8 +684,8 @@ static void test_decor_colors_a_match_span(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 0, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 10, 0, 0,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 10);
 	CHECK(n == 10);
 	for (int i = 0; i < 10; i++) {
@@ -708,7 +716,7 @@ static void test_decor_clips_at_left_viewport_edge(void)
 	    != 0);
 
 	/* coloff=5: the visible window is chars [5,10). */
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 5, 0, 5, bcur()->numrows,
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 5, 0, 5, bcur()->numrows,
 	    bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 5);
 	CHECK(n == 5);
@@ -739,7 +747,7 @@ static void test_decor_clips_at_right_viewport_edge(void)
 	    != 0);
 
 	/* win_w=4: the visible window is chars [0,4). */
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 4, 0, 0, bcur()->numrows,
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 4, 0, 0, bcur()->numrows,
 	    bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 4);
 	CHECK(n == 4);
@@ -772,8 +780,8 @@ static void test_decor_combines_overlapping_faces_by_priority(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 10, 0, 0, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 10, 0, 0,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 10);
 	CHECK(n == 10);
 	CHECK(colors[0] == -1 && colors[1] == -1);
@@ -804,7 +812,7 @@ static void test_decor_skips_empty_row(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 2, 8, 0, 0, bcur()->numrows,
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 2, 8, 0, 0, bcur()->numrows,
 	    bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 8);
 	CHECK(n == 5); /* row 1 is empty: nothing drawn for it at all */
@@ -834,8 +842,8 @@ static void test_decor_spans_a_tab_in_render_space(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 16, 0, 0,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 16);
 	CHECK(n == 9);
 	CHECK(colors[0] == -1); /* 'a' */
@@ -864,8 +872,8 @@ static void test_decor_spans_a_utf8_glyph(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 16, 0, 0,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 8);
 	CHECK(n == 4); /* 'a', 'é' (one glyph), 'w', 'b' */
 	CHECK(colors[0] == -1); /* 'a' */
@@ -898,8 +906,8 @@ static void test_decor_spans_a_malformed_byte(void)
 		  .id
 	    != 0);
 
-	draw_window_rows(&ab, bcur(), 1, 1, 1, 16, 0, 0, bcur()->numrows,
-	    bcur()->row, 0, 1, 0);
+	draw_window_rows(&ab, wcur(), bcur(), 1, 1, 1, 16, 0, 0,
+	    bcur()->numrows, bcur()->row, 0, 1, 0);
 	n = drawn_glyph_colors(&ab, colors, 8);
 	CHECK(n == 6); /* 'a', the four-cell "\xff" spelling, 'b' */
 	CHECK(colors[0] == -1); /* 'a' */

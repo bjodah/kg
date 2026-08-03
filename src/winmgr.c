@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bufhandle.h"
@@ -25,6 +26,31 @@ static const struct kg_slot_table win_slot_table = { winlist, MAX_WINDOWS,
 	sizeof(winlist[0]), offsetof(struct editor_window, active),
 	offsetof(struct editor_window, id),
 	offsetof(struct editor_window, generation) };
+
+/* Free `w`'s visual-line geometry index (src/vgeom.h), if it has one, and
+ * leave `w->vgeom` NULL.  A plain free() on the opaque pointer, not a
+ * call into src/vgeom.c: see src/bufmgr.c's window_vgeom_reset(), which
+ * this duplicates rather than shares, for why -- linking that module
+ * here would pull its row-geometry and cursor-motion dependencies into
+ * every test binary that merely manages windows, for a lifecycle
+ * transition every window goes through whether or not visual-line mode
+ * is ever used. */
+static void window_vgeom_reset(struct editor_window *w)
+{
+	free(w->vgeom);
+	w->vgeom = NULL;
+}
+
+/* Every window's, at once: win_init()'s guard against the memset just
+ * below it dropping a live index's pointer, pulled out so that call is a
+ * single statement rather than a second loop counted against its own
+ * complexity budget. */
+static void window_vgeom_reset_all(void)
+{
+	for (int i = 0; i < MAX_WINDOWS; i++) {
+		window_vgeom_reset(&winlist[i]);
+	}
+}
 
 /* Give `slot` a fresh window identity: bump its generation so any handle
  * taken on whatever was there stops resolving, then hand out the next id
@@ -345,6 +371,12 @@ void win_check_handles(void)
  * Called once from init_editor() after update_window_size(). */
 void win_init(void)
 {
+	/* A production session calls this once, before any window has a
+	 * geometry index to lose; a harness that reinitializes winlist[]
+	 * between runs (test/test_perf.c, test/test_winmgr.c) is the case
+	 * this actually guards -- the memset below would otherwise drop a
+	 * live index's pointer rather than free it. */
+	window_vgeom_reset_all();
 	memset(winlist, 0, sizeof(winlist));
 	win_current = 0;
 	win_count = 1;
@@ -417,6 +449,12 @@ void win_split_horizontal(void)
 	 * split is a new view and needs a name of its own. */
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
+	/* The struct copy just above copied the parent's vgeom pointer by
+	 * value, aliasing it; the new window is a new view, not a second
+	 * name for the parent's, so it gets a clean NULL here (never a
+	 * free -- the parent still owns and uses that vector) and lazily
+	 * builds its own on first query. */
+	winlist[slot].vgeom = NULL;
 	win_claim_slot(slot);
 	win_publish_split_attach(&winlist[slot]);
 
@@ -461,6 +499,9 @@ void win_split_vertical(void)
 	winlist[slot] = winlist[win_current];
 	winlist[slot].active = 1;
 	winlist[slot].col_group = max_cg + 1;
+	/* See the horizontal split's identical line: a struct copy aliases
+	 * the parent's vgeom pointer, and the new view must not share it. */
+	winlist[slot].vgeom = NULL;
 	win_claim_slot(slot);
 	win_publish_split_attach(&winlist[slot]);
 

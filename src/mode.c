@@ -1,6 +1,6 @@
 #include "def.h"
-#include "localvars.h"
 #include "perf.h"
+#include "vgeom.h"
 
 int chars_to_render_col(erow *row, int chars_col)
 {
@@ -26,8 +26,10 @@ int chars_to_render_col(erow *row, int chars_col)
 /* A window narrower than one cell cannot lay anything out.  Every
  * wrapping calculation below starts by taking its width through here, so
  * a zero or negative width is one line of arithmetic rather than eight
- * copies of the same guard. */
-static int win_cells(int win_w) { return win_w > 0 ? win_w : 1; }
+ * copies of the same guard.  Declared in vgeom.h: src/vgeom.c's index
+ * keys on the same normalized width, so it has to call this rather than
+ * repeat the rule. */
+int win_cells(int win_w) { return win_w > 0 ? win_w : 1; }
 
 /* A glyph wider than one cell cannot be split across a wrap, so Emacs
  * moves it whole to the next display row and leaves the edge cells
@@ -152,7 +154,12 @@ static int visual_segments_for_width(int width, int win_w)
 	return width > 0 ? 1 + (width - 1) / win_w : 1;
 }
 
-static int visual_segments(erow *row, int win_w)
+/* Declared in vgeom.h: src/vgeom.c's index rebuild calls this once per
+ * row, which is what makes KG_PERF_VISUAL_PREFIX_VISIT -- incremented
+ * here -- still mean "a row the O(rows) side of the geometry API
+ * visited" once that rebuild, rather than a per-screen-row walk, is the
+ * thing incrementing it. */
+int visual_segments(erow *row, int win_w)
 {
 	win_w = win_cells(win_w);
 	KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
@@ -163,8 +170,10 @@ static int visual_segments(erow *row, int win_w)
  * begins.  Advances a whole glyph at a time so a wrap never starts on a
  * continuation byte, and a double-width glyph pushed off the edge by
  * wrap_pad() starts the following display row rather than being split.
- * Zero-width glyphs stay with the base character they decorate. */
-static int render_offset_at_visual(erow *row, int target_vcol, int win_w)
+ * Zero-width glyphs stay with the base character they decorate.
+ * Declared in vgeom.h: src/vgeom.c's index consumers use it to turn a
+ * (row, segment) pair into the render_offset find_visual_row() reports. */
+int render_offset_at_visual(erow *row, int target_vcol, int win_w)
 {
 	int off = 0;
 	int vcol = 0;
@@ -180,46 +189,6 @@ static int render_offset_at_visual(erow *row, int target_vcol, int win_w)
 		off += utf8_glyph_span_at(row->render, row->rsize, off);
 	}
 	return off;
-}
-
-int get_visual_row(erow *rows, int numrows, int win_w, int cy, int cx)
-{
-	int vrow = 0;
-	int r;
-
-	win_w = win_cells(win_w);
-	for (r = 0; r < cy && r < numrows; r++) {
-		vrow += visual_segments(&rows[r], win_w);
-	}
-	if (cy < numrows) {
-		int rcol = visual_line_cursor_col(&rows[cy], cx, win_w);
-		vrow += rcol / win_w;
-	}
-	return vrow;
-}
-
-void find_visual_row(erow *rows, int numrows, int win_w, int rowoff_visual,
-    int target_y, int *logical_row, int *render_offset)
-{
-	int visual_row_count = 0;
-	int r;
-
-	win_w = win_cells(win_w);
-	for (r = 0; r < numrows; r++) {
-		int segments = visual_segments(&rows[r], win_w);
-		if (visual_row_count + segments > rowoff_visual + target_y) {
-			int segment
-			    = rowoff_visual + target_y - visual_row_count;
-
-			*logical_row = r;
-			*render_offset = render_offset_at_visual(
-			    &rows[r], segment * win_w, win_w);
-			return;
-		}
-		visual_row_count += segments;
-	}
-	*logical_row = numrows;
-	*render_offset = 0;
 }
 
 /* Byte offset into row->chars at wrapped display column `target_vcol`.
@@ -246,52 +215,8 @@ int visual_col_to_chars(erow *row, int target_vcol, int win_w)
 	}
 }
 
-void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
-{
-	int r;
-	int visual_row_count = 0;
-	int win_w = winlist[win_current].w;
-
-	win_w = win_cells(win_w);
-	if (target_vrow < 0) {
-		target_vrow = 0;
-	}
-	for (r = 0; r < bcur()->numrows; r++) {
-		/* One width query per row, not one for the width and a second
-		 * (through visual_segments()) to derive the segment count
-		 * from it -- the two used to ask the same row twice. */
-		int width = visual_line_width(&bcur()->row[r], win_w);
-		int segments = visual_segments_for_width(width, win_w);
-
-		KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
-		if (visual_row_count + segments > target_vrow) {
-			int segment_idx = target_vrow - visual_row_count;
-			int start_rcol = segment_idx * win_w;
-			int target_rcol = start_rcol + target_rcol_in_segment;
-			if (target_rcol > width) {
-				target_rcol = width;
-			}
-			int char_idx = visual_col_to_chars(
-			    &bcur()->row[r], target_rcol, win_w);
-			editor_cursor_goto(r, char_idx);
-			return;
-		}
-		visual_row_count += segments;
-	}
-	if (bcur()->numrows > 0) {
-		editor_cursor_goto(
-		    bcur()->numrows - 1, bcur()->row[bcur()->numrows - 1].size);
-	}
-}
-
-int get_total_visual_rows(erow *rows, int numrows, int win_w)
-{
-	int total = 0;
-	int r;
-
-	win_w = win_cells(win_w);
-	for (r = 0; r < numrows; r++) {
-		total += visual_segments(&rows[r], win_w);
-	}
-	return total;
-}
+/* get_visual_row(), find_visual_row(), get_total_visual_rows() and
+ * goto_visual_row_col() moved to src/vgeom.c: they are the O(rows) walks
+ * plan 07 phase 2 replaces with the persistent per-window prefix index,
+ * built from the row-at-a-time primitives above (visual_segments() in
+ * particular). */

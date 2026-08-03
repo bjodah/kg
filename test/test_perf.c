@@ -23,6 +23,7 @@
 #include "../src/edit.h"
 #include "../src/event.h"
 #include "../src/syntax.h"
+#include "../src/vgeom.h"
 #include "test.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -65,6 +66,11 @@ static void teardown(void)
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
 	undo_free();
+	/* win_init() (setup(), above) frees a stale index at the start of
+	 * the next test; this also frees it at the end of this one, so the
+	 * last test in the binary does not leave one for LeakSanitizer to
+	 * find at process exit. */
+	vgeom_window_free(wcur());
 }
 
 static unsigned long long counter(enum kg_perf_counter c)
@@ -778,6 +784,95 @@ static void test_visual_line_prefix_walk_restarts_per_screen_row(void)
 	teardown();
 }
 
+/* ---- Visual-line geometry index (src/vgeom.c), plan 07 phase 2 ---- */
+
+/* Sub-plan 07a's shape acceptance: a query builds the index once
+ * (REBUILD == 1, no HIT yet, since nothing existed to hit), and every
+ * later query against the same key hits it -- no further row visited at
+ * all, not even the O(log rows) some other design might still cost. */
+static void test_vgeom_query_rebuilds_once_then_hits(void)
+{
+	const int rows = 300;
+
+	setup_visual_line_rows(rows, 10);
+
+	kg_perf_reset();
+	CHECK(get_total_visual_rows(wcur(), bcur()) > 0);
+	CHECK(counter(KG_PERF_VGEOM_REBUILD) == 1);
+	CHECK(counter(KG_PERF_VGEOM_HIT) == 0);
+
+	kg_perf_reset();
+	(void)get_total_visual_rows(wcur(), bcur());
+	(void)get_visual_row(wcur(), bcur(), 10, 0);
+	(void)get_visual_row(wcur(), bcur(), 20, 0);
+	CHECK(counter(KG_PERF_VGEOM_REBUILD) == 0);
+	CHECK(counter(KG_PERF_VGEOM_HIT) == 3);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
+/* An edit bumps content_generation (src/buffer.c's buffer_note_change()),
+ * which is part of the index's key, so the next query after an edit has
+ * to rebuild -- but only once, not once per subsequent query. */
+static void test_vgeom_edit_invalidates_and_rebuilds_once(void)
+{
+	const int rows = 300;
+
+	setup_visual_line_rows(rows, 10);
+	(void)get_total_visual_rows(wcur(), bcur());
+
+	editor_row_insert_char(&bcur()->row[5], 0, 'x');
+
+	kg_perf_reset();
+	(void)get_total_visual_rows(wcur(), bcur());
+	CHECK(counter(KG_PERF_VGEOM_REBUILD) == 1);
+
+	kg_perf_reset();
+	(void)get_total_visual_rows(wcur(), bcur());
+	CHECK(counter(KG_PERF_VGEOM_REBUILD) == 0);
+	CHECK(counter(KG_PERF_VGEOM_HIT) == 1);
+
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
+/* The vsplit thrash sub-plan A's design exists to remove, as a counter
+ * assertion rather than only a bench number: two windows on one buffer
+ * at different widths (visual-line-vsplit-100k's 39/40 shape) each keep
+ * their own index, so repeatedly querying both in turn costs one rebuild
+ * per window -- ever -- not one per switch. */
+static void test_vgeom_two_widths_do_not_evict_each_other(void)
+{
+	const int rows = 50;
+	int i;
+
+	setup_visual_line_rows(rows, 22);
+
+	winlist[1] = winlist[0];
+	winlist[1].vgeom = NULL;
+	winlist[1].active = 1;
+	winlist[1].w = winlist[0].w > 1 ? winlist[0].w - 1 : winlist[0].w;
+	win_count = 2;
+
+	(void)get_total_visual_rows(&winlist[0], bcur());
+	(void)get_total_visual_rows(&winlist[1], bcur());
+
+	kg_perf_reset();
+	for (i = 0; i < 5; i++) {
+		(void)get_total_visual_rows(&winlist[0], bcur());
+		(void)get_total_visual_rows(&winlist[1], bcur());
+	}
+	CHECK(counter(KG_PERF_VGEOM_REBUILD) == 0);
+	CHECK(counter(KG_PERF_VGEOM_HIT) == (unsigned long long)2 * 5);
+
+	vgeom_window_free(&winlist[1]);
+	winlist[1].active = 0;
+	win_count = 1;
+	bcur()->visual_line_mode = 0;
+	teardown();
+}
+
 /* Historical aggregate case, kept for before/after continuity (see
  * doc/plans/2026-07-31-follow-ups/07-visual-line-geometry-index.md).
  * Before phase 1's cache, one repaint measured every row of the buffer
@@ -885,6 +980,9 @@ int main(void)
 	RUN(test_visual_line_edit_misses_only_that_row);
 	RUN(test_visual_line_new_width_scans_each_row_once);
 	RUN(test_visual_line_prefix_walk_restarts_per_screen_row);
+	RUN(test_vgeom_query_rebuilds_once_then_hits);
+	RUN(test_vgeom_edit_invalidates_and_rebuilds_once);
+	RUN(test_vgeom_two_widths_do_not_evict_each_other);
 	RUN(test_erow_wrap_cache_size_cost);
 	RUN(test_decor_query_examines_and_returns_by_row);
 	return test_summary();

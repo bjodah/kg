@@ -83,6 +83,23 @@ enum kg_perf_counter {
 	KG_PERF_VISUAL_PREFIX_VISIT, /* rows visited by a segment-summing walk
 				      */
 
+	/* Visual-line geometry index (src/vgeom.c), plan 07 phase 2's
+	 * per-window prefix vector.  HIT is a query the existing index
+	 * answered, with no row visited at all.  REBUILD is a (re)build --
+	 * a key mismatch and the O(rows) walk that repopulates the vector
+	 * are the same synchronous event, the same reasoning
+	 * KG_PERF_VISUAL_ROW_SCAN's own comment gives for not splitting
+	 * "miss" from "rebuild" there either; PREFIX_VISIT above still
+	 * counts every row a rebuild's walk visits.  FALLBACK is a rebuild
+	 * that could not happen at all -- allocation failure, or a total
+	 * that would not fit the API's int -- so the O(rows) scan path
+	 * answered directly and no index exists to hit next time either. */
+	KG_PERF_VGEOM_HIT, /* queries an existing, key-matching index answered
+			    */
+	KG_PERF_VGEOM_REBUILD, /* index (re)builds completed */
+	KG_PERF_VGEOM_FALLBACK, /* rebuilds abandoned; scan path answered
+				   instead */
+
 	/* Buffer identity (src/bufmgr.c). */
 	KG_PERF_HANDLE_STALE, /* handles that outlived the buffer they named */
 

@@ -6,7 +6,7 @@
 
 #include "cmdstate.h"
 #include "def.h"
-#include "localvars.h"
+#include "vgeom.h"
 
 static void cursor_advance_screen_col(void)
 {
@@ -85,8 +85,8 @@ void editor_move_cursor(int key)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cur_vrow = get_visual_row(bcur()->row,
-			    bcur()->numrows, win_w, filerow, filecol);
+			int cur_vrow
+			    = get_visual_row(w, bcur(), filerow, filecol);
 			if (cur_vrow > 0) {
 				goto_visual_row_col(cur_vrow - 1, rcol % win_w);
 			}
@@ -96,8 +96,8 @@ void editor_move_cursor(int key)
 			int rcol = row
 			    ? visual_line_cursor_col(row, filecol, win_w)
 			    : 0;
-			int cur_vrow = get_visual_row(bcur()->row,
-			    bcur()->numrows, win_w, filerow, filecol);
+			int cur_vrow
+			    = get_visual_row(w, bcur(), filerow, filecol);
 			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
 			return;
 		}

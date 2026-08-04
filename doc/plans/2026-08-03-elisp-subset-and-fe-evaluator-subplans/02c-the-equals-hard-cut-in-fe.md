@@ -221,4 +221,73 @@ same commit that moves the gitlink and adapts all callers.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**  Two Fe commits on `analyzers-etc` as specified —
+`9fe0220` (migrate every Fe-owned caller while assignment `=` still worked)
+and `841df63` (the cut, the version, the manifest transition and the
+documentation, atomically) — plus `5cc0acb`, a manifest-prose fix found in
+review.  Fe now has exactly one assignment spelling.  **kg's gitlink was
+deliberately not moved**; that is 02D's, and the reason is below.
+
+**Numeric `=`.**  `EvaluateNumericEqual()`, a static helper beside 02B's two,
+with a local `CheckNumericEqualOperand()` emitting `wrong-type-argument`
+rather than `CheckType()`'s generic text.  Zero arguments are rejected before
+anything is touched; `EvaluateList()` then evaluates the complete raw list
+left to right before any value is type-checked; the loop validates *and then*
+compares each remaining operand, so the `&&` short-circuits only the
+side-effect-free `first == next`, never the type check.  Plain C `==`, with
+the `#ifdef __clang__` `-Wfloat-equal` push/pop that `IsNearlyEqual()` already
+established.  `FeVersion` is `"2.0"`; `FE_LANGUAGE_VERSION 2` is in `fe.h`
+beside an unchanged `FE_API_VERSION 1`, because no C contract broke.
+
+**Verified against the binary, not only the suite.**  All ten of 02A's pinned
+answers reproduce exactly through `./fe`: `(= 1)`→`t`, `(= 1 1 1)`→`t`,
+`(= 1 1 2)`→`nil`, `(= 0.0 -0.0)`→`t`, NaN via `sqrt` →`nil`, `(=)`→
+`wrong-number-of-arguments`, `(= 1 "1")` and `(= 1 nil)`→`wrong-type-argument`,
+`(= never-bound 3)`→`void-variable`, and the evaluation-order expression →
+`(nil 3)` — the one that proves operands still run after the chain is known
+false.  `make compat` is **65 cases, 53 passed, 12 known gaps, 0 failed**
+(66→65 because `primitive-assign-eq` and its snapshot are deleted).  Fe's
+full nine-stage `.ci/run-ci-steps.sh` is green, as are `check`, `compat`,
+`complexity-check`, `pmccabe-check` and `format-check`.
+
+**The migration found a trap the plan's inventory could not have named.**
+`scripts/macros.fe`'s `++` and `push` build their expansions
+*programmatically* — `(list '= sym ...)`, not literal `(= ` text — so no text
+search reaches them.  Left alone they would still have parsed in commit 1 and
+then silently stopped advancing their counter the moment commit 2 landed,
+turning that file's own `(while (< i 10) ... (++ i))` into an infinite loop.
+Both were fixed by hand to build `'setq`.  This is the concrete case for the
+plan's insistence on classifying survivors rather than running a
+search-and-replace.  A second trap the plan's table predates: 10 of the 13
+`(= ` occurrences under `compat/cases/` are 02A's numeric-equality cases —
+they are the *spec* for this slice and had to survive untouched.
+
+Audit survivors after the cut (`git ls-files -z | xargs -0 grep -n '(= '`)
+are numeric-equality material only: 02A's nine case files plus the
+zero-arity oracle snapshot, `doc/language.md`'s new `(= number ...)`
+section, and `test_api.c`'s numeric test.  `PAssign` and
+`primitive-assign-eq` survive only inside `features.json` rationale prose
+describing the retirement — and one such string, on the `primitive-setq`
+row, still claimed the coexistence was live; `5cc0acb` corrects it.
+
+**Complexity, measured the way 02B's finding requires.**  `pmccabe`'s
+`fe.c` sum went **350 → 350 (commit 1 touches no C) → 356**, a net **+6**
+for deleting an inline switch arm and adding two named helpers, against a
+priced +20 to +30 for the whole of Phase 2.  scc did not move at all —
+214/220 total, `fe.c` 106/112 file — and that is the blind spot, not a
+refund: the deleted arm and the added helpers all sit past `fe.c:1010`.
+The named repayment therefore did not materialise as scc headroom and no
+cap was lowered.  `pmccabe-check` records 4 new symbols across 02B and 02C
+with 0 gone and 0 improved, worst function still `EvaluatePrimitive` at 15.
+
+**The intermediate state is real, and was observed.**  With Fe cut and kg's
+gitlink still at the pre-cut commit, kg's working tree builds against the new
+Fe while `lisp/prelude.fe`'s 54 top-level `(= NAME VALUE)` forms have become
+numeric comparisons whose results are discarded.  `src/kg` still builds and
+still reports `+lisp`, and a Lisp PTY case
+(`111-lisp-string-natives.yaml`) fails with an empty result where the
+prelude's definitions should be.  This is exactly the "builds but
+misbehaves at startup" state 02D's atomicity requirement and
+`FE_LANGUAGE_VERSION` exist to reject, confirmed rather than assumed.  **kg
+is knowingly red between this slice and 02D**, and 02D must land as one
+commit.

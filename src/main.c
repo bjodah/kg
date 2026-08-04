@@ -202,10 +202,13 @@ int main(int argc, char **argv)
 		 * mid-command. */
 		kg_event_drain_safe();
 	}
-	/* Nothing in a default build: KG_PERF_COUNTERS is off and this is a
-	 * no-op macro.  A counting build writes its counters to
-	 * $KG_PERF_OUT here, which is the only place that knows the session
-	 * is over. */
+	/* Nothing in a default build: KG_PERF_COUNTERS is off, and
+	 * kg_lisp_perf_snapshot() is a no-op with it off or Lisp inactive.
+	 * A counting build with Lisp active copies the Fe arena's final
+	 * state into the KG_PERF_LISP_* gauges just before the counters
+	 * that includes are written to $KG_PERF_OUT, which is the only
+	 * place that knows the session is over. */
+	kg_lisp_perf_snapshot();
 	kg_perf_dump();
 	return kg_exit_status;
 }

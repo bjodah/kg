@@ -273,3 +273,32 @@ Complexity in both trees is unchanged from 00A's landed numbers (fe
 210/220 total, `fe.c` 102/112 file cap, pmccabe 197 symbols/worst 15/22;
 kg 5439/5500) because this slice added no `.c`/`.h` files to either tree.
 No language behavior changed. Sub-plan 00C may start.
+
+**00D complete, 2026-08-04.** `FeGetArenaStats()` landed in fe
+(`fe.h`/`fe.c`, commit `512f45f` on `analyzers-etc`) -- a read-only
+accessor over eight counters already tracked at their one existing update
+site each, itself allocating nothing, tested directly for that property in
+`test_api.c`'s new `TestArenaStats`. fe's `SCC_COMPLEXITY_MAX` moved
+210 -> 214 of the 220 cap 00A's Decision funded for exactly this work (+4
+of +10, not overrun); `fe.c`'s file score moved 102 -> 106 of 112. kg's
+gitlink moved to `512f45f` in a separate commit carrying the adaptation:
+`src/lisp.h`/`src/lisp_core.c` expose `kg_lisp_arena_stats()` (Fe-free,
+`WITH_LISP=0`-stubbed) and `kg_lisp_perf_snapshot()`, which feeds nine new
+`KG_PERF_LISP_*` gauge counters (`src/perf.h`/`src/perf.c`, plus a new
+`KG_PERF_SET` gauge macro) including a direct wall-clock reading of
+prelude evaluation time (0.368 ms, `CLOCK_MONOTONIC`, gated behind `#if
+KG_PERF_COUNTERS`). kg's scc moved 5439 -> 5444 (+5 of 61 headroom, no
+raise). `utils/bench.py` gained nine Lisp cases (arena margin x3, Fe
+throughput shapes x4, command latency) plus `--kg-no-lisp`/`--binary-size`
+and a new `make bench-lisp-toggle` target for the with/without-Lisp and
+binary-size baseline items a single counting binary cannot produce;
+`test/test_perf.c` gained two Lisp shape assertions, both `WITH_LISP=0`-
+safe. Every parent-plan Phase 0 baseline item has a recorded number (full
+table in [00D's own Status section](00d-baselines-and-arena-observability.md#status),
+including the one item -- prelude time in isolation -- that looked headed
+for "not measurable" until the new counter closed it directly). `make
+check`, `make WITH_LISP=0 clean all check`, both complexity gates in both
+trees, and kg's `.ci/ci-03` (gcc `-fanalyzer` + valgrind) and `.ci/ci-04`
+(clang ASan/UBSan) are all green against this slice's final state. No
+language or editor behavior changed. Sub-plan 00C (independent of 00D) may
+proceed in parallel if not already underway; 01A still waits on 00C.

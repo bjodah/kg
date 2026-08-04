@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "lisp.h"
+#include "perf.h"
 
 /* Shared with the WITH_LISP=0 stubs and, through lisp_internal.h, with the
  * adapter modules, so it is defined outside either configuration. */
@@ -22,6 +23,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <stdarg.h>
 #include <stdckdint.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "../fe/fe.h"
@@ -241,7 +243,27 @@ int kg_lisp_init(void)
 	lisp_hooks_init(context);
 	lisp_process_init(context);
 	in_prelude = true;
+#if KG_PERF_COUNTERS
+	{
+		struct timespec before, after;
+
+		/* Wall-clock, not a counter: see KG_PERF_LISP_PRELUDE_NS's
+		 * comment in perf.h for why this one is not asserted
+		 * anywhere. clock_gettime() itself is not gated behind
+		 * KG_PERF_COUNTERS elsewhere in kg because nothing else here
+		 * needs wall time; guarding it keeps this the one place a
+		 * counting build pays for a syscall the shipped editor never
+		 * makes. */
+		clock_gettime(CLOCK_MONOTONIC, &before);
+		evaluate_prelude(context);
+		clock_gettime(CLOCK_MONOTONIC, &after);
+		KG_PERF_SET(KG_PERF_LISP_PRELUDE_NS,
+		    (after.tv_sec - before.tv_sec) * 1000000000LL
+			+ (after.tv_nsec - before.tv_nsec));
+	}
+#else
 	evaluate_prelude(context);
+#endif
 	FeRestoreGC(context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	return 0;
@@ -456,6 +478,43 @@ void kg_lisp_set_interrupt_check(int (*check)(void))
 
 int kg_lisp_active(void) { return 1; }
 
+int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
+{
+	FeArenaStats stats;
+
+	if (out == nullptr || !state.initialized) {
+		return 1;
+	}
+	stats = FeGetArenaStats(state.context);
+	out->total_slots = stats.total_slots;
+	out->free_slots = stats.free_slots;
+	out->peak_live_objects = stats.peak_live_objects;
+	out->collection_count = stats.collection_count;
+	out->peak_gc_stack_depth = stats.peak_gc_stack_depth;
+	out->peak_evaluation_depth = stats.peak_evaluation_depth;
+	out->peak_cleanup_stack_depth = stats.peak_cleanup_stack_depth;
+	out->allocation_failures = stats.allocation_failures;
+	return 0;
+}
+
+void kg_lisp_perf_snapshot(void)
+{
+	struct kg_lisp_arena_stats stats;
+
+	if (kg_lisp_arena_stats(&stats) != 0) {
+		return;
+	}
+	KG_PERF_SET(KG_PERF_LISP_ARENA_TOTAL_SLOTS, stats.total_slots);
+	KG_PERF_SET(KG_PERF_LISP_ARENA_FREE_SLOTS, stats.free_slots);
+	KG_PERF_SET(KG_PERF_LISP_ARENA_PEAK_LIVE, stats.peak_live_objects);
+	KG_PERF_SET(KG_PERF_LISP_GC_COUNT, stats.collection_count);
+	KG_PERF_SET(KG_PERF_LISP_PEAK_GC_STACK, stats.peak_gc_stack_depth);
+	KG_PERF_SET(KG_PERF_LISP_PEAK_EVAL_DEPTH, stats.peak_evaluation_depth);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PEAK_CLEANUP_STACK, stats.peak_cleanup_stack_depth);
+	KG_PERF_SET(KG_PERF_LISP_ALLOC_FAILURES, stats.allocation_failures);
+}
+
 #else
 
 static char disabled_error[64] = "lisp not compiled in";
@@ -514,5 +573,13 @@ const char *kg_lisp_command_name(int index)
 void kg_lisp_set_interrupt_check(int (*check)(void)) { (void)check; }
 
 int kg_lisp_active(void) { return 0; }
+
+int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
+{
+	(void)out;
+	return 1;
+}
+
+void kg_lisp_perf_snapshot(void) { }
 
 #endif /* KG_USE_LISP */

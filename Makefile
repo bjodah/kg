@@ -727,6 +727,36 @@ bench: $(PERF_KG)
 	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --json $(BENCH_OUT) \
 		$(BENCH_ARGS)
 
+# Not part of `bench` above, and not folded into it: this clean-rebuilds
+# both WITH_LISP configurations (restoring WITH_LISP=1, the default,
+# afterward), so it is slower and more disruptive than the fast path
+# `bench` is, and clobbers whatever src/*.o a plain `make` had left --
+# `bench` itself never touches src/*.o, only test/perfobj/*.o. It reports
+# the two baseline items `bench` cannot: kg startup time with vs. without
+# Lisp (wall time only -- a WITH_LISP=0 binary has no Lisp counters and
+# neither side here is a counting build, so it is not comparable to
+# `bench`'s own "startup" case; see utils/bench.py's --kg-no-lisp help)
+# and binary size in both configurations.
+BENCH_TOGGLE_DIR = $(TESTDIR)/.bench
+BENCH_TOGGLE_OUT ?= $(TESTDIR)/.results/bench-lisp-toggle.json
+
+bench-lisp-toggle:
+	@mkdir -p $(BENCH_TOGGLE_DIR) $(dir $(BENCH_TOGGLE_OUT))
+	$(MAKE) clean
+	$(MAKE) $(TARGET)
+	cp $(TARGET) $(BENCH_TOGGLE_DIR)/kg-with-lisp
+	$(MAKE) clean
+	$(MAKE) WITH_LISP=0 $(TARGET)
+	cp $(TARGET) $(BENCH_TOGGLE_DIR)/kg-no-lisp
+	$(MAKE) clean
+	$(MAKE) $(PERF_KG)
+	$(PYTHON) utils/bench.py --kg $(PERF_KG) --runs 3 \
+		--case startup --case startup-no-lisp \
+		--kg-no-lisp $(BENCH_TOGGLE_DIR)/kg-no-lisp \
+		--binary-size $(BENCH_TOGGLE_DIR)/kg-with-lisp=$(BENCH_TOGGLE_DIR)/kg-no-lisp \
+		--json $(BENCH_TOGGLE_OUT)
+	$(MAKE) $(TARGET)
+
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
@@ -788,7 +818,7 @@ uninstall:
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
 .PHONY: all clean distclean check header-check lisp-include-check docs-check check-unit check-pty check-regex-differential \
-	bench complexity complexity-check \
+	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \

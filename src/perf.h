@@ -113,6 +113,36 @@ enum kg_perf_counter {
 				    walk */
 	KG_PERF_DECOR_VISIBLE, /* of which intersected and were returned */
 
+	/* Fe arena/evaluator gauges (src/lisp_core.c's kg_lisp_perf_snapshot(),
+	 * called once from main.c right before kg_perf_dump()), read through
+	 * kg_lisp_arena_stats() --
+	 * doc/plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/00d-baselines-and-arena-observability.md.
+	 * Gauges, not running totals: KG_PERF_SET overwrites rather than
+	 * accumulates, which is what "the arena's state after whatever this
+	 * session just did" wants, not a sum across the session. A build
+	 * without Lisp, or one that never reached the snapshot call, leaves
+	 * these at their zero-initialised default -- indistinguishable from
+	 * "measured and zero", so a reader also checks kg -V for "+lisp"
+	 * before trusting a zero here. */
+	KG_PERF_LISP_ARENA_TOTAL_SLOTS, /* FeArenaStats.total_slots */
+	KG_PERF_LISP_ARENA_FREE_SLOTS, /* FeArenaStats.free_slots */
+	KG_PERF_LISP_ARENA_PEAK_LIVE, /* FeArenaStats.peak_live_objects */
+	KG_PERF_LISP_GC_COUNT, /* FeArenaStats.collection_count */
+	KG_PERF_LISP_PEAK_GC_STACK, /* FeArenaStats.peak_gc_stack_depth */
+	KG_PERF_LISP_PEAK_EVAL_DEPTH, /* FeArenaStats.peak_evaluation_depth */
+	KG_PERF_LISP_PEAK_CLEANUP_STACK, /* FeArenaStats.peak_cleanup_stack_depth
+					  */
+	KG_PERF_LISP_ALLOC_FAILURES, /* FeArenaStats.allocation_failures */
+	/* Wall-clock nanoseconds spent in evaluate_prelude() (CLOCK_MONOTONIC),
+	 * set once by kg_lisp_init(). A duration, not a count -- unlike every
+	 * other counter here it is not asserted anywhere, since a wall time
+	 * is not the same number twice on a loaded box (this file's own
+	 * header comment); it exists only to answer the "prelude evaluation
+	 * time in isolation" baseline item, in $KG_PERF_OUT's JSON, without
+	 * the pty-launch noise a `make bench` case's whole-process wall time
+	 * carries. */
+	KG_PERF_LISP_PRELUDE_NS,
+
 	KG_PERF_COUNTER_COUNT
 };
 
@@ -122,6 +152,10 @@ extern const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT];
 #define KG_PERF_INC(c) ((void)(kg_perf_counter[c]++))
 #define KG_PERF_ADD(c, n)                                                      \
 	((void)(kg_perf_counter[c] += (unsigned long long)(n)))
+/* Gauge assignment, for a counter that reports "the current value of
+ * something" (a snapshot) rather than "how many times something
+ * happened" -- overwrites instead of accumulating. */
+#define KG_PERF_SET(c, n) ((void)(kg_perf_counter[c] = (unsigned long long)(n)))
 
 void kg_perf_reset(void);
 unsigned long long kg_perf_read(enum kg_perf_counter c);
@@ -131,6 +165,7 @@ void kg_perf_dump(void);
 
 #define KG_PERF_INC(c) ((void)0)
 #define KG_PERF_ADD(c, n) ((void)0)
+#define KG_PERF_SET(c, n) ((void)0)
 #define kg_perf_reset() ((void)0)
 #define kg_perf_dump() ((void)0)
 

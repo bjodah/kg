@@ -22,6 +22,7 @@
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/event.h"
+#include "../src/lisp.h"
 #include "../src/syntax.h"
 #include "../src/vgeom.h"
 #include "test.h"
@@ -979,8 +980,169 @@ static void test_decor_query_examines_and_returns_by_row(void)
 	teardown();
 }
 
+/* A handful of forms shaped like an ordinary user init -- defvar, two
+ * defuns (one documented, one interactive), a hook, two key bindings and
+ * a small bounded recursion.  utils/bench.py's REPRESENTATIVE_INIT is the
+ * same text, so the two baselines (this shape assertion and `make
+ * bench`'s "lisp-arena-representative-init" case) describe one workload. */
+static const char lisp_representative_init[]
+    = "(defvar my-fill-column 100)"
+      "(defun my-greet (name) \"Say hello.\" (message \"hi %s\" name))"
+      "(defun my-count-words () (interactive) (message \"n/a\"))"
+      "(defun my-before-save-hook () (= my-fill-column my-fill-column))"
+      "(add-hook 'before-save-hook 'my-before-save-hook)"
+      "(global-set-key \"C-c g\" \"my-greet\")"
+      "(global-set-key \"C-c w\" \"my-count-words\")"
+      "(defun my-loop (n acc) (if (<= n 0) acc (my-loop (- n 1) (cons n "
+      "acc))))"
+      "(my-loop 25 nil)";
+
+/* Arena margin, not "does it fit": doc/plans/2026-08-03-elisp-subset-and-
+ * fe-evaluator-subplans/00d-baselines-and-arena-observability.md asks how
+ * much of the fixed 1 MiB arena remains free after the prelude, the
+ * prelude plus lisp/auto-fill.fe, and the prelude plus a representative
+ * init -- before Phases 3-6 add frames, symbol cells and condition
+ * objects to every allocation path.  Bounds here, not exact counts (this
+ * file's convention): a durable margin claim survives an unrelated
+ * prelude edit that shifts the exact object count by a few; a collapsed
+ * one does not, and that is the failure this guards.  collection_count
+ * staying exactly 0 is the one exact-count assertion, because "the
+ * prelude and a representative init fit without ever forcing a
+ * collection" is itself the property, not an approximation of it. */
+static void test_lisp_prelude_arena_margin(void)
+{
+	struct kg_lisp_arena_stats stats;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.total_slots > 0);
+	CHECK(stats.allocation_failures == 0);
+	CHECK(stats.collection_count == 0);
+	/* At least half the arena free after the prelude alone -- margin,
+	 * not a tight fit. */
+	CHECK(stats.free_slots * 2 > stats.total_slots);
+
+	CHECK(kg_lisp_load_file("lisp/auto-fill.fe") == 0);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.collection_count == 0);
+	CHECK(stats.free_slots * 2 > stats.total_slots);
+	kg_lisp_shutdown();
+
+	CHECK(kg_lisp_init() == 0);
+	{
+		char result[128] = "";
+
+		CHECK(kg_lisp_eval_string(lisp_representative_init,
+			  sizeof(lisp_representative_init) - 1, result,
+			  sizeof(result))
+		    == 0);
+	}
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.collection_count == 0);
+	CHECK(stats.free_slots * 2 > stats.total_slots);
+	/* A real init evaluates real forms: both peaks have moved off the
+	 * bare prelude's own (2, 0). */
+	CHECK(stats.peak_evaluation_depth > 2);
+	CHECK(stats.peak_cleanup_stack_depth == 0);
+	kg_lisp_shutdown();
+}
+
+/* Fe evaluation throughput shapes (list walk, arithmetic loop,
+ * macro-heavy expansion, deep call chain) -- the same four
+ * utils/bench.py's Lisp cases exercise interactively, run in-process here
+ * so a wrong result or a resource regression fails `make check` rather
+ * than only showing up in a `make bench` a developer chose to run.
+ *
+ * Each asserts its own exact result: unlike a rebuild's incidental object
+ * count, "this expression computed the right answer" is the property
+ * under test, not an approximation of it.  Where a shape's cost is
+ * GC-stack depth rather than result, the bound is against GcStackSize
+ * (4096) with margin, not a tight number -- see the list-walk comment for
+ * the measurement that picked 150. */
+static void test_lisp_evaluator_shapes(void)
+{
+	static constexpr size_t gc_stack_size = 4096;
+	char result[128];
+	struct kg_lisp_arena_stats stats;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+
+	/* List walk: `lw` is not tail-call optimised (Fe's recursive
+	 * evaluator does not flatten it), so every intermediate cons stays
+	 * live until the outermost call returns and GC-stack depth is
+	 * linear in recursion depth.  Measured directly: this expression's
+	 * peak_gc_stack_depth is 3914 of 4096 at n=300 and overflows by
+	 * n=400; 150 leaves roughly half the stack free while still being
+	 * a real multi-hundred-cell walk. */
+	CHECK(kg_lisp_init() == 0);
+	static const char list_walk[]
+	    = "(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
+	      "(length (lw 150 nil))";
+	result[0] = '\0';
+	CHECK(kg_lisp_eval_string(
+		  list_walk, sizeof(list_walk) - 1, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "150") == 0);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.peak_gc_stack_depth < gc_stack_size);
+	kg_lisp_shutdown();
+
+	/* Arithmetic loop: 20000 `while` iterations of scalar addition --
+	 * garbage per iteration (the `+`/`-` results), nothing retained, so
+	 * this is the shape furthest from list-walk's GC-stack pressure. */
+	CHECK(kg_lisp_init() == 0);
+	static const char arithmetic_loop[]
+	    = "(= i 0) (= acc 0) (while (< i 20000) (= acc (+ acc i)) "
+	      "(= i (+ i 1))) acc";
+	result[0] = '\0';
+	CHECK(kg_lisp_eval_string(arithmetic_loop, sizeof(arithmetic_loop) - 1,
+		  result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "199990000") == 0);
+	kg_lisp_shutdown();
+
+	/* Macro-heavy: fe.c:1863 (doc/fe-upstream.md) re-expands a macro on
+	 * every call rather than overwriting the call site, so 2000 calls
+	 * is 2000 expansions charged against the step budget, not one. */
+	CHECK(kg_lisp_init() == 0);
+	static const char macro_heavy[]
+	    = "(= m (macro (x) (list '+ x 1))) (= n 0) (= i 0) "
+	      "(while (< i 2000) (= n (m n)) (= i (+ i 1))) n";
+	result[0] = '\0';
+	CHECK(kg_lisp_eval_string(
+		  macro_heavy, sizeof(macro_heavy) - 1, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "2000") == 0);
+	kg_lisp_shutdown();
+
+	/* Deep call chain: 300 levels of non-tail self-recursion, well
+	 * under both the GC-stack ceiling and FeEvalOptions.max_depth's
+	 * default 1000 (measured peak_evaluation_depth 903 -- most of the
+	 * evaluator's own budget, none of the GC stack's). */
+	CHECK(kg_lisp_init() == 0);
+	static const char deep_call_chain[]
+	    = "(defun dc (n) (if (<= n 0) 0 (+ 1 (dc (- n 1))))) (dc 300)";
+	result[0] = '\0';
+	CHECK(kg_lisp_eval_string(deep_call_chain, sizeof(deep_call_chain) - 1,
+		  result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "300") == 0);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.peak_gc_stack_depth < gc_stack_size);
+	CHECK(stats.peak_evaluation_depth < 1000);
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
+	RUN(test_lisp_prelude_arena_margin);
+	RUN(test_lisp_evaluator_shapes);
 	RUN(test_load_row_array_growth);
 	RUN(test_load_highlight_is_final);
 	RUN(test_insert_row_array_growth);

@@ -989,6 +989,11 @@ static const char lisp_representative_init[]
     = "(defvar my-fill-column 100)"
       "(defun my-greet (name) \"Say hello.\" (message \"hi %s\" name))"
       "(defun my-count-words () (interactive) (message \"n/a\"))"
+      /* A numeric comparison on purpose, post-Phase-2 (= is chained
+       * numeric equality, not assignment) -- the return value is
+       * deliberately discarded, since a hook body just needs to do a
+       * trivial amount of work.  utils/bench.py keeps an equivalent
+       * comment for the same reason. */
       "(defun my-before-save-hook () (= my-fill-column my-fill-column))"
       "(add-hook 'before-save-hook 'my-before-save-hook)"
       "(global-set-key \"C-c g\" \"my-greet\")"

@@ -467,7 +467,17 @@ and
 .Pq Li setq
 and
 .Pq Li set
-are core Fe special forms, not prelude definitions;
+are core Fe special forms, not prelude definitions, and
+.Li =
+is numeric equality, chained over any number of arguments, alongside
+.Li <
+and
+.Li <= ;
+it was Fe's assignment operator in earlier versions of
+.Nm ,
+so Lisp written against those needs
+.Li setq
+instead;
 the control forms
 .Li (cond (TEST BODY ...) ...) ,
 .Li (when COND BODY ...) ,

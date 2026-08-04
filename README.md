@@ -432,10 +432,11 @@ surface is available before any init file runs. It is what makes kg's
 | Group | Forms |
 | ---- | ------ |
 | Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
-| Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `progn` |
+| Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
+| Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is plain `f` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
 
@@ -461,8 +462,11 @@ holding `nil` is bound — which is what `defvar` tests before initialising.
 Where it differs from Emacs Lisp, and these are worth knowing before the
 first surprise:
 
-- There is no `>` or `>=`; Fe defines `<` and `<=` only, so write `(> a b)`
-  as `(< b a)` (`lisp/auto-fill.el` does this throughout).
+- There is no `>` or `>=`; Fe defines `<`, `<=` and `=` only, so write
+  `(> a b)` as `(< b a)` (`lisp/auto-fill.el` does this throughout). `=`
+  is numeric equality, chained over any number of arguments as in Emacs —
+  it used to be Fe's assignment operator, and any Lisp written against
+  that older kg needs `setq` instead.
 - `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
   Emacs says `nil`. Only pairs are compared by identity.
 - Every number is a double, and there is no character type: write

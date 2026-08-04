@@ -30,19 +30,28 @@ endif
 endif
 ifeq ($(WITH_LISP),1)
 ifeq ($(wildcard fe/fe.c),)
+FE_SPLIT_MISSING = 1
+endif
+ifeq ($(wildcard fe/fe_eval.c),)
+FE_SPLIT_MISSING = 1
+endif
+ifeq ($(FE_SPLIT_MISSING),1)
 ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
 ifneq ($(MAKECMDGOALS),)
 SKIP_FE_CHECK = 1
 endif
 endif
 ifneq ($(SKIP_FE_CHECK),1)
-$(error fe/fe.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
+$(error fe/fe.c and/or fe/fe_eval.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
 endif
 endif
 override CFLAGS += -DKG_USE_LISP=1
 override LDLIBS += -lm
-FE_OBJ = $(OBJDIR)/fe.o
-FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o
+# The evaluator lives in its own translation unit since Fe sub-plan 03B
+# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h); a list so
+# every consumer below is a one-line change.
+FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o
+FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o
 endif
 
 ifeq ($(wildcard fe/tiny-regex-c/re.c),)
@@ -137,7 +146,7 @@ PERF_KG = $(PERFOBJDIR)/kg
 # binary, and instrumenting a second copy of every src/*.c would merge two
 # differently-compiled builds of the same source into one tracefile.  It
 # stays in the *link* flags so libgcov is still there for the objects that
-# were instrumented (fe.o).
+# were instrumented ($(FE_OBJ)).
 PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1
 PERF_SRC_OBJS = $(addprefix $(PERFOBJDIR)/,$(SRCS:.c=.o)) $(PERFOBJDIR)/regex.o
 PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
@@ -374,7 +383,10 @@ $(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDI
 $(OBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
-$(OBJDIR)/fe.o: fe/fe.c fe/fe.h
+$(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
+
+$(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check check-unit check-pty
@@ -485,7 +497,13 @@ lisp-include-check:
 		echo "$$bad" | sed 's/^/  /' >&2; \
 		exit 1; \
 	fi; \
-	echo "lisp-include-check: fe.h/lisp_internal.h only in src/lisp_*.c"
+	bad=$$(grep -l '#include.*fe_internal\.h' src/*.c src/*.h 2>/dev/null || true); \
+	if [ -n "$$bad" ]; then \
+		echo "lisp-include-check: fe_internal.h is private to fe/, reached from src/:" >&2; \
+		echo "$$bad" | sed 's/^/  /' >&2; \
+		exit 1; \
+	fi; \
+	echo "lisp-include-check: fe.h/lisp_internal.h only in src/lisp_*.c, fe_internal.h nowhere in src/"
 
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
@@ -843,11 +861,14 @@ $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_pars
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
 
-$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h
+$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
+	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
+
+$(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(OBJDIR)/fe.o $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
+	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(FUZZBINS) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR)
 

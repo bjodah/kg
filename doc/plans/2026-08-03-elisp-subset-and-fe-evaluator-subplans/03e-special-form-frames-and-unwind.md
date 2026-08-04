@@ -267,4 +267,264 @@ implementation and limits, not successful language answers.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-05.** fe `677b06b` on `analyzers-etc`, kg pin moved to
+match in its own separate commit. Every remaining special form (`if`,
+`and`, `or`, `while`, `let`, `setq`, `unwind-protect`, `do`) and primitive
+(`assert`/`not`/`atom`/`car`/`cdr`/`boundp`/`makunbound`,
+`cons`/`setcar`/`setcdr`/`is`/`<`/`<=`, `+`/`-`/`*`//`, `print`,
+`list`/`=`/`set`) is driven by the frame stack. `FeFrameTemporaryRecursive`
+and every recursive helper it was the last caller of --
+`EvaluatePrimitive`, `EvaluatePair`, `EvaluateList`, `DoList`,
+`EvaluateSetq`, `EvaluateSet`, `EvaluateNumericEqual`, the
+`EVAL_ARG`/`ARITH_OP`/`NUM_CMP_OP` macros -- are deleted (confirmed by
+`grep`, zero matches). `ArgsToEnv` and `Bind` survive unchanged, as
+ordinary non-frame helpers, per the plan. There is one evaluator, reached
+by one path, closing the parent plan's central requirement.
+
+**The frame-kind table, as landed.** Grouped by evaluation shape rather
+than by primitive, since a generic "evaluate every operand first" policy
+is not semantics-preserving for most of them: `FeFrameIf`, `FeFrameWhile`,
+`FeFrameAndOr`, `FeFrameLet`, `FeFrameSetq` and `FeFrameRelay`
+(`do`/`unwind-protect`'s body) are each their own small state machine;
+`FeFrameUnary` (7 primitives) and `FeFrameBinary` (6 primitives) share one
+kind per arity, dispatching the specific check/side-effect by the resolved
+primitive object at each delivery; `FeFrameArith` streams and validates
+every operand as it arrives; `FeFramePrint` streams too, interleaving
+output; `FeFrameEvalList` (`list`/`=`/`set`) is the one kind that batches
+its whole raw argument list first. `FeFrameImplicitBody` is a new,
+separate kind from `FeFrameBody` for a body pushed with no preceding
+pair-form dispatch of its own (`if`'s false branch when it has more than
+one form, `while`'s body, `do`) -- it reuses `FeFrameBody`'s own
+`ResumeBody` but completes through a lighter `CompleteImplicitBodyFrame`
+that does not touch `evaluation_depth`/`call_list`; see the first bug
+below for why that distinction is load-bearing. No new field was added to
+`FeEvalFrame`: every new kind's state reuses `fn`/`rest`/`accumulator`/
+`callee`/`bind` via the same `&unbound`-sentinel convention the 03C/03D
+call frames already established. `sizeof(FeEvalFrame)` stays **96 bytes**,
+`FeMinimumArenaSize()` stays **53832 bytes** -- neither primitive count
+nor object layout changed.
+
+**The order/error regression table (`TestPrimitiveOrder`) is the acceptance
+evidence for the "not semantics-preserving" warning**, per the sub-plan's
+own instruction that a shared frame kind must not become "more regular"
+than the recursive arms it replaces. Each conversion was designed by
+reading the original recursive arm's exact side-effect and validation
+order first, so the table pins behavior transcribed from that source, not
+inferred from the new implementation after the fact; it landed alongside
+the deletion in this slice's one commit rather than as a strictly separate
+prior commit. It pins `setcar`/`setcdr` validating operand 1 before
+operand 2 is evaluated, arithmetic validating as it streams versus
+`=`/`list`/`set`'s batch-then-validate, `<`/`<=` ignoring extra operands
+while `boundp`/`makunbound` reject them, `cons`'s left-to-right operand
+evaluation, `if`'s missing-form cases, and `let`'s `newenv == NULL`
+non-evaluation (a `let` as an `if`'s untaken-bind branch never evaluates
+its value form at all, however odd that looks -- exactly preserved).
+`TestSetqAndSet`, `TestNumericEqual` and `TestBinding` (03B/02B/02C-era)
+needed no changes; they already pinned `setq`/`set`/`=`'s own rules.
+
+**`unwind-protect`'s cleanup forms are a nested frame-machine run,
+implemented exactly as 03C decided.** `RunOneCleanupEntry` now calls
+`RunEvaluationBody` -- a second entry point sharing `RunEvaluation`'s own
+barrier/`setjmp` machinery and a newly factored `RunEvaluationLoop` (so
+there is exactly one loop implementing evaluation, not two that could
+drift) but pushing a body frame instead of an expression frame as its
+base -- in place of the old recursive `DoList`'s one nested `Evaluate()`
+call *per unwind form*. It is a nested run on the unused suffix of the
+*same* frame stack, above a saved barrier: not a second stack, and not
+the "single global run everything" call 03C's own document ruled out. A
+cleanup's own error still bypasses this nested barrier directly via
+`cleanup_catch`'s `longjmp`, exactly as it bypassed the old recursive
+`DoList`'s implicit one; `RunOneCleanupEntry`'s existing manual restores
+(frame index, `evaluator_catch`, `native_reentry_depth`, `call_list`) were
+unchanged by this slice and are still what put the context back together.
+`fe/tests/unwind-error.fe.err` -- the ten-line nested-`unwind-protect`
+backtrace the sub-plan calls "the acceptance test" -- is **byte-identical**,
+along with every one of 03A's nine `frame-trace-*.fe` goldens and all 28
+discovered `scripts/*.fe` cases across the plain, strict-arity (`-a`), and
+every sanitizer/valgrind lane's passes. No existing test expectation moved.
+
+**Two bugs found and fixed during this slice's own development,** both
+recorded in `fe/doc/implementation.md` so the mistake is not repeated:
+
+1. A frame pushed by something other than `FeFrameExpression`'s own
+   pair-form dispatch (`if`'s false branch, `while`'s body, `do`, a
+   cleanup's base frame) must not complete through `CompletePairFrame`:
+   it unconditionally decrements `evaluation_depth` and unlinks
+   `call_list`, and such a frame's push never incremented or linked
+   either. The first draft routed `FeFrameImplicitBody` through it
+   anyway, double-decrementing the (unsigned) counter until it wrapped to
+   a huge value and turned the very next pair-form entry anywhere into a
+   false "evaluation depth limit exceeded". Fixed by giving these frames
+   the lighter `CompleteImplicitBodyFrame` completion instead, which
+   touches neither field.
+2. **The structural concern the task handoff flagged was real, and it
+   moved the margin the wrong way on first landing, not just in theory.**
+   The initial `if`-false-branch conversion pushed *every* false branch
+   through the generic `FeFrameImplicitBody` wrapper, retaining a fourth
+   simultaneously-open frame per `(deep N)` level (the call, `if`, the
+   implicit body, and the arithmetic form waiting on its second operand)
+   where the 03A/03C/03D frame-storage Decision's arena sizing assumed
+   three. kg's 1 MiB arena's 1100-frame capacity then bound *physically*
+   at N ~ 274 -- long before the intended *logical* ceiling at N = 333 --
+   which is exactly the "margin gets thinner" failure mode the handoff
+   asked to watch for, and it was not hypothetical: it broke kg's own
+   `test/test_perf.c` `(dc 300)` deep-call-chain fixture, a real, existing,
+   checked test, discovered by running kg's suite against the
+   in-progress fe working tree rather than only fe's own tests. Root-caused
+   by bisecting `(deep N)` against a standalone fe reproducer (not through
+   kg) down to the exact N = 273/274 boundary, then computing that
+   1100 physical frames / 4 per level ~= 275. Fixed by special-casing
+   `ResumeIf`'s false branch: when it has exactly one form -- the common
+   shape, and the one the canonical chain uses -- push that form directly
+   (`bind = &frame->env`, exactly as the recursive `DoList`'s own `&env`
+   out-parameter threaded even for a lone body form) instead of through
+   `PushBodyFrame`. This restores three simultaneously-open frames per
+   level and the **exact** `(deep 332)`/`(deep 333)` boundary the
+   03A/03C/03D Decision derived and 03D's own retune confirmed. The margin
+   is not thinner after this slice; it is the same 1100/3 ~= 366-frame
+   headroom 03D already had over the 333-level logical ceiling.
+
+**A third wall, previously non-binding, is what actually stops
+`(deep 100000)`.** `GcStackSize` (4096) is a fixed-size array field of
+`FeContext` itself, never carved from the arena -- raising the arena or
+`max_depth` does not grow it. With bug 2's fix in place, the canonical
+chain's only remaining GC-stack retention per level is the *lambda-body*
+wrapper's `FePushGC(env)`/`FePushGC(rest)` pair (the `if` wrapper no
+longer runs for the common single-form case). Bisected empirically with
+`max_depth` raised well above each candidate N's own physical/logical
+need: **`(deep 1021)` succeeds, `(deep 1022)` raises "GC stack
+overflow"**. Under the *default* `max_depth` (1000) this never fires --
+the logical ceiling at N = 333 is reached hundreds of levels first, so
+every default-configured test (`TestEvaluationDepth`, kg's
+`test_recursion_depth`) is exactly where it already was -- it matters only
+once `max_depth` is deliberately raised past its default, which is
+precisely what asking for `(deep 100000)` does. This is 03E's honest
+answer to the parent plan's flatness gate: **the C-stack property that
+gate actually names is flat** (see below), but the literal `N = 100000` is
+not reached, blocked by a wall this slice's scope explicitly excludes
+fixing (no `GcStackSize` resize, no arena change). 03F, which owns the
+two-bounds redesign, is the right place to resolve it -- either enlarge
+the fixed array, or (following the same pattern that already moved every
+other piece of per-call state off the C stack into the arena-resident
+frame) retire `FePushGC`/`FeRestoreGC` from the lambda-body wrapper in
+favor of a frame-owned root.
+
+**The flatness measurement, at the largest N this tree can actually
+run.** `TestFullDeepFlatness` (new) runs the canonical
+`(defun deep (n) (if (<= n 0) (stack-probe) (+ 1 (deep (- n 1)))))` at
+N = 340 (comfortably past both the legacy 332/333 boundary and the
+GC-stack bound's safety margin) in a 300 MiB malloc'd arena with
+`max_depth` raised to `peak_frames * 2`. The C-stack high-water mark is
+**flat**: probe address delta **80 bytes**, under the same < 2 KiB budget
+03D's own probes used, where the pre-Phase-3 baseline grew tens of
+kilobytes over a comparable depth. `peak_evaluation_depth` measured
+**1023** against a predicted **1022** (`3*340+2`, +1 for the trailing
+`stack-probe` native call itself being one more pair-form entry -- the
+same offset `TestEvaluationStackProbe`'s own probe-carrying `deep`
+produces, not a formula error). This is the property the parent plan's
+gate actually names ("a measured C-stack high-water mark is flat") and it
+is what 03D's own probes could not yet claim, because `if` and arithmetic
+still recursed through the temporary path. `(deep 100000)` at the literal
+value remains blocked by the `GcStackSize` wall above, which is why this
+is not asserted at N = 100000; 03F inherits both the remeasurement (this
+Status's numbers) and the decision about how to raise the ceiling.
+
+**Tests added, `fe/test_api.c`.** `TestResumableFrameGC` grows by 11 rows
+(if, and-or, while, let, setq, unary, binary, arith, eval-list, relay)
+beside 03D's existing 7, each forcing a collection while that specific
+frame kind is suspended and asserting both the correct result and that
+`collection_count` moved. `TestCleanupRunGC` (new): GC during an actual
+cleanup *drain* (`RunEvaluationBody`'s own synthetic frame, entered only
+once a cleanup is running after an error) as distinct from
+`unwind-protect`'s protected body (the "relay" row above) -- a lexical
+binding from the body, reachable only through the environment
+`unwind-protect` captured, survives collections forced inside the cleanup
+itself. `TestPrimitiveOrder` (new, described above). `TestResumableFrameBudget`
+/ `TestResumableFrameCancel` (new): one shared 11-state table, each row a
+form that suspends a specific frame kind on an unbounded inner
+`(while t 1)`, run once under a tiny step budget and once under a host
+interrupt, asserting the existing external message and full context reuse
+afterward. `TestMixedCleanupLIFO` (new): native (`FeProtectWithCleanup`,
+via `with-resource`) and Lisp (`unwind-protect`) cleanups interleaved both
+ways, proving the registry is one shared LIFO stack regardless of kind --
+only one direction was exercised before (`TestUnwindHostAPI` native-only,
+`TestUnwindLisp` Lisp-only). `TestFullDeepFlatness` (new, described above).
+
+**Complexity and coverage, measured 2026-08-05, idle tree.**
+`make -C fe complexity-check`: scc **388/420** total (03D closed at 351),
+max file `fe_eval.c` well under the 240 cap. `make -C fe pmccabe-check`:
+**600/630** total, **231** symbols (03D closed at 566/221 -- 10 new
+symbols net, mostly the new `ResumeX` functions minus the deleted
+recursive helpers), max function complexity **14** (`Read`,
+`RunEvaluationLoop` -- both under the 22 per-function cap). The per-symbol
+baseline was re-banked once, honestly, after the frames-per-level fix
+above: `ResumeIf` grew from complexity 5 to 7 (+2) picking up the
+single-form special case, banked via `make pmccabe-baseline` rather than
+hidden -- the only baseline change this slice made. `make -C fe coverage`
+(fresh, `CC="ccache gcc"`): lines **90.6%** (4546/5020), functions
+**95.3%** (361/379), branches **64.7%** (1954/3022), against the 80% line
+floor (03D was 90.0%/95.0%/64.7% -- coverage improved, not merely held,
+despite adding the phase's largest slice of code).
+
+**Gates run.** fe: `make -C fe check` (native `test_api` suite plus all
+28 `scripts/*.fe` cases x 3 passes, plain and `-a`), `complexity-check`,
+`pmccabe-check`, `format-check`, the fresh coverage run above, and the
+**full nine-stage `.ci/run-ci-steps.sh`** from an idle tree -- ci-01
+(complexity), ci-02 (coverage), ci-03 (gcc `-fanalyzer` + Valgrind, with
+`ulimit -s unlimited` for the pre-existing `TestRootsAndCalls` fixture,
+per 03D's own note), ci-04 (ASan/UBSan), **ci-05 (MSan, the binding
+lane)**, ci-06 (fuzz smoke), ci-07 (static analysis -- IWYU, clang-tidy,
+cppcheck, clang analyzer; three genuine `constParameterPointer`/
+`constVariablePointer` cppcheck findings in the new code were fixed, not
+suppressed), ci-08 (format), ci-09 (compat, 65 cases: 53 passed, 12
+known gaps unchanged, 0 failed) -- **all green** in one uninterrupted run.
+Two transient, unrelated failures were seen and ruled out during this
+slice's own iteration, each in a *different* script (`fib.fe`, then
+`io-delimiter.fe`) under ci-03's Valgrind lane while this sandbox had
+heavy unrelated concurrent activity (multiple standalone bisection
+reproducers built for the investigation above, running alongside the CI
+script); a focused rerun of ci-03 alone passed cleanly both times, and the
+final clean run reported here had nothing else running concurrently.
+
+kg: `make check` **32/32** native and **406/406** PTY;
+`make WITH_LISP=0 clean all check` **32/32** and **337 pass + 69 expected
+skips** -- both exactly the audited starting counts, unchanged, since this
+slice adds no kg source beyond the pin move and `doc/fe-upstream.md`.
+`.ci/run-ci-steps.sh --parallel` is **11/12** green: ci-03's single
+`lisp-process-argv-not-shell` PTY failure (405/406) is the documented
+standing valgrind-lane flake class (`lisp-process-*`), and a standalone
+`ci-03` rerun passes **32/32 native and 406/406 PTY**, so it is accepted
+per the documented policy (a lone `lisp-process-*` failure is a flake
+until a standalone rerun says otherwise).
+
+**What this slice's own document did not anticipate:**
+
+1. The frames-per-level regression (bug 2 above) was not a theoretical
+   risk description turned true in the abstract -- it broke a real,
+   already-checked kg test on first landing. The fix is a required part
+   of the frame design, not optional polish: without it, this slice
+   cannot land without either an arena/split change the set's own rules
+   forbid, or a silently narrower safety margin than 03D shipped with.
+2. `GcStackSize` turning out to be the actual reason `(deep 100000)` is
+   unreachable -- rather than the physical frame capacity the 03A/03D
+   arena-sizing arithmetic was built around -- was not predicted by any
+   prior sub-plan. It went unnoticed through 03A/03C/03D because no prior
+   slice ever raised `max_depth` far enough past its default to reach it;
+   03D's own probes stayed at N <= 200, deliberately, since raising
+   `max_depth` before `if`/arithmetic were flattened would have measured
+   the temporary path, not the frame machine.
+3. `doc/plans/.../03e-...md`'s own list of frame kinds undercounted by
+   one: `FeFrameImplicitBody` (distinct from `FeFrameBody`) was not
+   anticipated in the spec's frame-kind table, and turned out to be
+   necessary specifically because of bug 1 above -- a generic "reuse
+   `FeFrameBody`" plan does not survive contact with the fact that only
+   *some* body pushes have a preceding `EnterEvaluationDepth` to balance.
+
+Sub-plan 03F may start: it inherits the two real bounds to publish
+(logical `evaluation_depth` and physical frame capacity, now cleanly
+separated in practice though not yet in the public API), the
+`native_reentry_depth` split, the `GcStackSize` finding above as a
+concrete decision to make, and the `(deep 100000)` fixture sizing
+(~275 MiB, unchanged from 03D's provisional estimate since the frame
+layout did not change) to turn into a permanent, gated assertion once
+its own blocker is resolved.

@@ -836,6 +836,62 @@ to both scc and pmccabe as this Decision's actual caps.  Total funded
 Phase 3 scc cost: 220 → 420 (+200); pmccabe: 500 → 630 (+130, all of it
 unspent substance headroom, since 03B's own cost is zero).
 
+**03E measured actuals and Decision revisit (2026-08-05, final frame-layout
+follow-up).**  With every special form and primitive converted and the
+temporary recursive dispatch deleted, `FeEvalFrame` stays **96 bytes** — no
+new struct field, since every new frame kind's state reuses the existing
+`fn`/`rest`/`accumulator`/`callee`/`bind` fields via the same
+`&unbound`-sentinel convention 03C/03D's call frames already established —
+so `FeMinimumArenaSize()` (**53832** bytes) and kg's 1 MiB arena's **1100
+frames / 56210 object slots** are all unchanged from 03D's numbers. This
+Decision's own §1 ("kg keeps its exact observable behaviour") required a
+real fix to hold, not just a measurement: 03E's first landing of the
+`if`-false-branch conversion pushed every false branch through a generic
+implicit-body wrapper, retaining a **fourth** simultaneously-open frame per
+`(deep N)` level (the call, `if`, the implicit body, the arithmetic form
+waiting on its second operand) against the **three** this Decision's whole
+arena-sizing arithmetic assumes. 1100 physical frames ÷ 4 ≈ 275, so the
+*physical* wall bound before the *logical* one (333) — not a theoretical
+risk, but an actual regression in kg's own `test/test_perf.c` `(dc 300)`
+fixture, caught by running kg's suite against the in-progress fe tree.
+Fixed by special-casing the single-else-form shape (the common one, and the
+one the canonical chain uses) to push that form directly instead of through
+the wrapper, restoring exactly three frames per level and the exact
+`(deep 332)`/`(deep 333)` boundary — the margin this Decision's §1 promised
+is preserved, not merely re-measured after moving. Full derivation and the
+fix itself are in 03E's own Status section
+([03e-special-form-frames-and-unwind.md](03e-special-form-frames-and-unwind.md#status)).
+
+**The `(deep 100000)` gate is not reached, and the reason is a wall this
+Decision never modeled: `GcStackSize`.**  §3 above prices the *frame*
+region's cost for `peak_depth(100000) = 300002` frames at ≈275 MiB and
+calls it "the gate's actual cost" — but `GcStackSize` (4096), a fixed array
+field of `FeContext` that is never carved from the arena, binds first once
+`max_depth` is raised far enough to matter: the lambda-body wrapper alone
+retains two GC-stack entries per still-open level (the `if` wrapper's own
+entries are gone with the fix above, for the common single-form case), and
+bisection against a standalone fe reproducer finds `(deep 1021)` succeeds
+while `(deep 1022)` raises "GC stack overflow" — three orders of magnitude
+short of 100000, and unrelated to arena size at all. This was never visible
+before 03E because no earlier slice raised `max_depth` far enough past its
+default (1000) to reach it; the canonical chain's logical ceiling at 333
+sits comfortably below 1021 under the default configuration, so nothing
+about kg's or fe's existing default-configured behaviour moved. 03E records
+this as a finding for 03F rather than fixing it (`GcStackSize` resizing and
+the arena question are both explicitly out of this set's "no arena-size
+change" scope); the ≈275 MiB fixture-sizing estimate above is otherwise
+unchanged (the frame layout that estimate depends on did not change) and
+remains what 03F needs once `GcStackSize`'s own resolution unblocks it.
+
+**Flatness, the property the parent plan's gate actually names, is real** —
+measured at the largest N this tree can currently run end to end (N = 340,
+comfortably clear of both the legacy 332/333 boundary and the GC-stack
+bound's margin): the C-stack high-water mark is flat, delta 80 bytes,
+against tens of kilobytes of growth over a comparable depth before Phase 3.
+`(deep 100000)` at the literal value is what remains blocked, by the
+`GcStackSize` wall above, not by anything this Decision's arena-sizing
+arithmetic got wrong.
+
 ### kg
 
 **Unchanged.**  kg is at 5444/5500 (61 points shy of the follow-up
@@ -1174,3 +1230,58 @@ that restored the legacy logical `(deep N)` wall at 332/333, and the
 Decision section above.  Special forms and the full `(deep 100000)`
 flat-`deep` measurement remain 03E/03F; no full-`deep` claim is made.
 Sub-plan 03E may start.
+
+**03E complete, 2026-08-05, and with it Phase 3's evaluator conversion.**
+fe `677b06b` on `analyzers-etc`, kg pin moved to match in its own separate
+commit.  Every remaining special form and primitive is now a frame
+continuation; `FeFrameTemporaryRecursive` and every recursive helper it was
+the last caller of (`EvaluatePrimitive`, `EvaluatePair`, `EvaluateList`,
+`DoList`, `EvaluateSetq`, `EvaluateSet`, `EvaluateNumericEqual`, the
+`EVAL_ARG`/`ARITH_OP`/`NUM_CMP_OP` macros) are deleted — one evaluator,
+reached by one path.  `unwind-protect` cleanups run through a new
+`RunEvaluationBody` entry point, a nested run on the unused suffix of the
+same frame stack per 03C's decision, replacing the old recursive `DoList`'s
+one-nested-`Evaluate()`-call-per-form.  Every existing golden is
+byte-identical, including `tests/unwind-error.fe.err` and all nine 03A
+`frame-trace-*.fe` scripts — no test expectation moved.  `FeEvalFrame`
+stays 96 bytes and `FeMinimumArenaSize()` stays 53832 bytes: no new struct
+field, every new kind reusing existing frame fields via the established
+sentinel convention.  Two bugs were found and fixed during this slice's own
+development (both recorded in `fe/doc/implementation.md` and in 03E's own
+Status): a double-decrement of `evaluation_depth` for frames pushed outside
+`FeFrameExpression`'s own dispatch (fixed by a new, separately-completing
+`FeFrameImplicitBody` kind), and — the structural concern this set's own
+review flagged, confirmed real — a frames-per-level regression (4 retained
+per `(deep N)` level instead of the assumed 3) that broke kg's own
+`test/test_perf.c` `(dc 300)` fixture before being caught and fixed by
+special-casing `if`'s common single-else-form shape, restoring the exact
+`(deep 332)`/`(deep 333)` boundary 03A/03C/03D derived.  The parent plan's
+actual flatness property — a flat C-stack high-water mark — is demonstrated
+at N = 340 (delta 80 bytes); the literal `(deep 100000)` is not reached,
+blocked by a third, previously non-binding wall this slice discovered and
+recorded rather than fixed (`GcStackSize`, 4096, a fixed array field never
+carved from the arena: `(deep 1021)` succeeds, `(deep 1022)` raises "GC
+stack overflow" once `max_depth` is raised far enough to matter, never
+under the default configuration).  Full detail, including the primitive
+evaluation-order regression table and the complete new-test inventory, is
+in `03e`'s own Status section
+([03e-special-form-frames-and-unwind.md](03e-special-form-frames-and-unwind.md#status)).
+fe complexity: scc 388/420 total (03D closed at 351), pmccabe 600/630 total
+across 231 symbols (03D closed at 566/221), max function complexity 14.
+Coverage 90.6% lines / 95.3% functions / 64.7% branches against the 80%
+floor (improved from 03D's 90.0%/95.0%/64.7%).  `make -C fe check`,
+`complexity-check`, `pmccabe-check`, `format-check`, a fresh `coverage` run,
+and the full nine-stage `.ci/run-ci-steps.sh` (coverage, gcc analyzer +
+Valgrind, ASan/UBSan, **MSan**, fuzz smoke, static analysis, format,
+compat) are all green in fe from an idle tree.  kg: `make check` 32/406,
+`make WITH_LISP=0 clean all check` 337 pass + 69 skip, both exactly the
+audited starting counts since this slice adds no kg source beyond the pin
+move and `doc/fe-upstream.md`'s divergence-table update; `.ci/run-ci-steps.sh
+--parallel` is 11/12 green, the sole failure a single `lisp-process-*`
+PTY case under ci-03's Valgrind lane (the documented standing flake class),
+accepted after a standalone `ci-03` rerun passed 32/32 and 406/406.  No language or
+editor behaviour changed.  Sub-plan 03F may start: it inherits the
+`GcStackSize` finding as a concrete decision to make, the two-bounds public
+API, and the `(deep 100000)` fixture (~275 MiB, unchanged since the frame
+layout did not change) to turn into a permanent gated assertion once its
+own blocker is resolved.

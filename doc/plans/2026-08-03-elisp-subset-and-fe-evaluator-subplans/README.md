@@ -343,3 +343,43 @@ green except a pre-existing, unrelated `ci-06` (IWYU) finding on
 `src/lisp_core.c`'s unused `#include <time.h>`, introduced by the prior
 00D slice's commit and not touched by this one -- reported, not fixed.
 No language or editor behavior changed. Sub-plan 01A may start.
+
+**01A complete, 2026-08-04, and with it this first sub-plan set.**  kg's
+prelude is a real Lisp source file: `lisp/prelude.fe` (54 definitions) is
+canonical, `utils/embed_lisp.py` generates the checked-in
+`src/lisp_prelude_generated.inc`, and `src/lisp_prelude.c` drops from 377
+lines to 126 with no hand-maintained Lisp left in a C string literal.
+Behaviour-neutrality was proved rather than asserted, by un-escaping the
+old array out of git and diffing it against the new file: 202 code lines
+each, identical.  Two new targets, `lisp-prelude-generate` and
+`lisp-prelude-check` (the latter inside `make check`, beside `docs-check`
+and `header-check`), keep the file and the generated copy in step, and
+`test_prelude_source_file` pins the definitions *and their order* --
+asserting `internal--let` still answers `primitive`, which is what breaks
+first if anything ever reorders the forms.  Both gates were proven to
+fail, on a perturbation that was then reverted.  The prelude header's two
+false claims (the obsolete "no macro may expand to bare nil" rule, and
+"macros expand exactly once per call site") are corrected against `fe.c`'s
+actual `FeTMacro` arm; the four `(list 'quote nil)` workarounds they
+licensed are left in place, per this sub-plan's own "if in doubt" route,
+since removing them changes evaluated code and Phase 2 rewrites all four
+forms anyway.  kg scc 5444 -> **5443**, with `evaluate_prelude`'s pmccabe
+2 -> 1 banked; fe unchanged at 214/220.  `make check` 32 native suites and
+405 PTY cases and `make WITH_LISP=0 clean all check` 337 pass + 68 skip
+are green, as are `header-check`, `format-check`, `docs-check`,
+`lisp-compat-check` and `coverage-check`.  Full detail, including the one
+prediction this document got wrong about the coverage ratchet, is in
+[01A's own Status section](01a-prelude-extraction.md#status).
+
+The `ci-06` IWYU finding 00C reported -- `src/lisp_core.c`'s unconditional
+`#include <time.h>`, whose only use is behind `#if KG_PERF_COUNTERS` -- was
+fixed in its own commit before this slice, so `.ci/ci-06-static-analysis.sh`
+exits 0 again.
+
+**Phase 0 and Phase 1's extraction are done.**  The contract is frozen and
+measurable: there is an oracle mechanism, a 180-entry two-repository
+feature inventory, a recorded performance and arena baseline, a priced
+per-phase complexity table with a dated Decision, and a prelude that can
+be diffed.  Nothing in the language changed, which is the point.  Phase 2
+-- `setq`, `set`, and the `=` cutover -- is the next set, and it is the
+first that alters behaviour.

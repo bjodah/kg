@@ -161,4 +161,72 @@ nothing, and the four sites are rewritten again in Phase 2 anyway.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**
+
+`lisp/prelude.fe` is the canonical source (54 definitions, 10807 bytes),
+`utils/embed_lisp.py` is the generator, and
+`src/lisp_prelude_generated.inc` is the checked-in byte array it emits.
+`src/lisp_prelude.c` went from 377 lines to 126: the three C string
+literals are gone and `evaluate_prelude()` now passes the generated array
+and its `sizeof`-derived length straight to
+`FeEvaluateStringWithOptions()`, so nothing depends on NUL termination.
+
+**Behaviour-neutrality was checked, not assumed.**  The old array's
+literals were un-escaped and concatenated out of `HEAD:src/lisp_prelude.c`
+and compared against the new file with comments stripped: 202 code lines
+on each side, identical.  The extraction changes no evaluated byte.
+
+**Gates, and how each was demonstrated:**
+
+- `make lisp-prelude-check` (new, in `make check` beside `docs-check` and
+  `header-check`) regenerates into a temporary file and compares.  Proven
+  to fail: appending one definition to `lisp/prelude.fe` without
+  regenerating gave "src/lisp_prelude_generated.inc is stale" and a
+  non-zero exit.  `make lisp-prelude-generate` is the refresh target.
+- `test_prelude_source_file` (`test/test_lisp.c`) reads `lisp/prelude.fe`
+  from disk, extracts the 54 top-level `(= NAME ...)` forms in order, and
+  asserts each one's type against the running editor -- `lambda`, `macro`,
+  or `primitive` for the four aliases -- plus the count.  Proven to fail
+  on the same perturbation (`count < PRELUDE_DEFS`).
+- **Order is tested through its consequence, not just its spelling.**  The
+  first definition must be `internal--let` and it must answer `primitive`;
+  if a generator ever reordered forms so the alias were taken after the
+  `let` macro shadowed the name, `internal--let` would answer `macro` and
+  the test fails.  `(reverse '(1 2 3))` is asserted as the behavioural
+  half of the same property.  The test deliberately does **not** re-load
+  the file into a booted context: a second evaluation is not idempotent,
+  for precisely this reason, and that is documented at the test.
+- 00C's `utils/check_lisp_compat.py` was updated to scan `lisp/prelude.fe`
+  rather than un-escape C literals, still finds exactly 54, and still
+  fails (1 problem, 55 definitions found) when a definition is added
+  without a manifest entry.
+
+**The stale comments.**  Verified against `fe.c`'s `FeTMacro` arm before
+rewriting: the expansion is no longer copied over the call site, so old
+rule 2 ("no macro may expand to bare nil") is obsolete, and macros expand
+on *every* invocation, so "expand exactly once per call site" was never
+true of Fe.  The header now states two rules, records the third as
+withdrawn with its reason, and keeps `equal`'s own note that it is the
+deliberate spine-recursion exception.
+
+**The four `(list 'quote nil)` workarounds are left in place**, taking
+this document's own "if in doubt" route.  They are vestigial rather than
+wrong, removing them changes evaluated code, and all four forms are
+rewritten again at the Phase 2 dialect cutover; the header now says so
+instead of implying they are load-bearing.  No behaviour-changing commit
+was needed in this slice.
+
+**Measurements.**  kg scc 5444 → **5443**; `src/lisp_prelude.c`'s pmccabe
+`evaluate_prelude` 2 → 1, banked with `make pmccabe-baseline` (1246
+symbols, max 91).  fe unchanged at 214/220.  `make check` 32 native suites
+and 405 PTY cases, zero failures; `make WITH_LISP=0 clean all check` 337
+pass + 68 skip; `header-check`, `format-check`, `docs-check`,
+`lisp-compat-check` all green.
+
+**One expectation in this document was wrong.**  It predicted
+`.ci/coverage-baseline.json` would need rebanking because
+`src/lisp_prelude.c`'s line count "changes substantially".  It does not:
+the file's coverage entry is 11/11 lines and 2/2 functions both before and
+after, because the 251 removed lines were the *contents of C string
+literals*, which gcov never counted as executable lines in the first
+place.  `make coverage-check` passes unchanged and nothing was rebanked.

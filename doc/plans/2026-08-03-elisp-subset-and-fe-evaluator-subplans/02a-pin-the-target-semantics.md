@@ -1,148 +1,209 @@
-# 02A — Pin `setq`, `set` and numeric `=` against the oracle, before implementing any of them
+# 02A — Pin `setq`, `set` and numeric `=` before implementing them
 
 Parent: [Phase 2](../2026-08-03-elisp-subset-and-fe-evaluator.md#6-phase-2--hard-cut-assignment-and-numeric-),
-oracle work in both trees.
+Fe compatibility-corpus work followed by a kg gitlink update.
 
-**Prerequisites:** none beyond the first set.  This is Phase 2's first
-slice and it writes no C.
+**Prerequisites:** none beyond the completed first set.  This is Phase 2's
+first slice.  It writes JSON and Lisp case strings, but no C or header.
 
-## Why this exists
+## Outcome
 
-The parent plan says one thing about `set` that decides the shape of this
-whole phase:
+Land the Emacs 31 answers that 02B and 02C must implement.  The new cases
+belong in Fe's corpus because all three constructs will be Fe-core constructs:
 
-> Its exact interaction with lexical bindings must be fixed by
-> differential cases **before implementation**.  It must follow the pinned
-> Emacs oracle rather than simply aliasing `setq`.
+- `fe/compat/features.json` — three planned feature rows;
+- `fe/compat/cases/*.json` — one small observable per case;
+- `fe/compat/oracle/*.json` — version-stamped Emacs answers, generated only
+  by the existing runner.
 
-That sentence is not specific to `set`.  Phase 2 changes what `=` *means*,
-and the only reason the change is checkable at all is that Phase 0 built a
-mechanism to ask Emacs what the answer should be.  Using it after the
-implementation exists turns it into a rubber stamp on whatever got
-written; using it first makes the implementation a fill-in-the-blanks
-exercise against recorded answers.
+Do **not** duplicate these cases under `test/lisp-compat/`.  kg's existing
+`prelude-setq` row describes the temporary kg macro, not the future core form,
+and remains unchanged until 02D deletes that macro.  Ownership is the reason
+the two corpora exist.
 
-This slice is cheap, it is the last moment the answers are unbiased, and
-it costs **zero complexity in both trees** — it adds JSON and Lisp, not C.
+After the Fe data commit passes, move kg's gitlink in a separate commit and
+run kg's structural checker.  Rule 10 still applies to data-only submodule
+changes.
 
-## The machinery already exists — use it, do not extend it
+## Oracle answers already resolved for the implementation contract
 
-Phase 0 delivered exactly what this slice needs, and it is worth naming
-the parts so this document does not re-specify them:
+The non-obvious answers were checked with the pinned GNU Emacs 31.0.90 using
+lexical evaluation (`eval`'s `LEXICAL` argument):
 
-- `fe/compat/{features.json,cases/,oracle/}` and
-  `test/lisp-compat/{features.json,cases/,oracle/}`, sharing one schema.
-- `fe/utils/run-emacs-oracle.py`, which takes an explicit `--corpus-root`,
-  so kg's corpus drives the same runner.
-- `fe/utils/run-fe-compat.py`, which runs cases against the standalone
-  `fe` binary and reports a `status`-keyed **known gap** distinctly from a
-  failure.
-- `make -C fe compat` (snapshot-only, no Emacs needed),
-  `make -C fe compat-oracle` and `make lisp-compat-oracle` (regenerate,
-  and **fail loudly** when the oracle version differs).
-- `utils/check_lisp_compat.py` in `make check`, which asserts every entry
-  is well-formed and every source-level definition is claimed exactly once.
+- `setq` updates the innermost lexical value binding when one exists; without
+  one, it writes the symbol's global value cell.
+- `set` always writes the symbol's global value cell.  A lexical binding of
+  the same spelling is neither read nor changed.  In a lexical `x = 1`,
+  `(set 'x 2)` returns `2`, the lexical `x` remains `1`, and the global `x`
+  becomes `2`.
+- `setq` processes complete pairs before diagnosing a dangling final symbol;
+  those earlier assignments stand.  By contrast, `set`'s fixed arity is
+  rejected before any supplied argument form is evaluated.
+- For an arity-correct ordinary call, `set` and numeric `=` evaluate all
+  argument forms left to right before validating their types.  A type error
+  in an early value therefore does not erase side effects from later argument
+  forms.
+- `(=)` signals `wrong-number-of-arguments`; `(= 1)` returns `t`.  Two or
+  more arguments are compared as one chain.
+- Numeric `=` evaluates every argument left to right even after the result is
+  already known to be false, because it is an ordinary function in Emacs.
 
-**Add cases and manifest entries.  Add no runner, no format, no target.**
+02A's checked-in snapshots remain the authority.  These prose answers are
+included so a junior implementing 02B does not have to rediscover which
+binding cell `set` means.
 
-## The status transition this slice performs
+## Use the machinery as it exists
 
-Every construct below gets a manifest entry now, and the entry's `status`
-is what carries Phase 2's progress:
+The relevant paths and commands are:
 
-| Construct | Status entering 02A | Status leaving Phase 2 |
+- `fe/compat/{features.json,cases/,oracle/}`;
+- `fe/utils/run-emacs-oracle.py` and `fe/utils/run-fe-compat.py`;
+- `make -C fe compat-oracle` to generate/verify every Fe snapshot;
+- `make -C fe compat` to replay Fe against checked-in snapshots;
+- `utils/check_lisp_compat.py`, run by kg's `make lisp-compat-check`, to
+  verify both manifests and their source-name coverage.
+
+The case schema is deliberately small: `id`, `setup`, `expr`, and `note`.
+Each runner uses a fresh process per case.  Do not write a case that depends
+on globals left by a preceding case, and do not add a runner, schema field,
+Make target, or source linter.
+
+## Manifest edits and `source_name` ownership
+
+Add Fe-owned, `comparison: "emacs"`, `status: "planned"` rows for core
+`setq`, `set`, and numeric `=`.  Name Phase 2 in each rationale, as
+`utils/check_lisp_compat.py` requires for every planned row.
+Use the stable ids `primitive-setq`, `primitive-set`, and
+`primitive-numeric-eq`; name their case files `<feature>-<property>.json`
+from the property labels below so later status transitions do not rename ids.
+
+Use these `source_name` transitions; they prevent the inventory checker from
+reporting either a duplicate or a source construct that does not exist yet:
+
+| Feature | 02A `source_name` | Later transition |
 |---|---|---|
-| `setq` (core special form) | `planned`, phase 2 | `supported` |
-| `set` (function) | `planned`, phase 2 | `supported` |
-| `=` as numeric comparison | `planned`, phase 2 | `supported` |
-| `=` as assignment | `divergent`, with a case asserting the difference | **entry deleted** |
-| kg's prelude `setq` macro | `supported` today | **entry deleted** with the macro |
+| new core `setq` | `null` | `"setq"` in 02B, when `primitive_names[]` gains it |
+| new core `set` | `null` | `"set"` in 02B |
+| numeric `=` | `null` | `"="` in 02C |
+| existing `primitive-assign-eq` | remains `"="` | delete the row, its case, and its snapshot in 02C |
+| kg `prelude-setq` | remains `"setq"` in kg's manifest | delete the row, case, and snapshot in 02D |
 
-The last two rows are the ones to get right.  00C's inventory deliberately
-has no `legacy` status: a divergence that gets removed loses its entry
-rather than acquiring a promise.  `utils/check_lisp_compat.py` enforces
-that every source-level definition is claimed, so deleting the prelude's
-`setq` macro in 02D **must** delete its entry in the same commit or `make
-check` fails — which is the intended coupling, not an obstacle.
+Do not give both meanings of `=` the same `source_name`, and do not delete
+the existing divergence before the assignment primitive is actually gone.
 
-## What the cases must pin
+## Case matrix
 
-### `setq`
+Use separate, narrowly named case files so a failure says which rule moved.
+Several case ids may be listed in one feature row; Fe's oracle target walks
+all files, not only the first case.
 
-The parent plan lists the required behaviour, and every line of it is a
-case:
+### Core `setq`
 
-- zero arguments returns `nil`;
-- arguments occur in symbol/value pairs;
-- an odd argument count raises `wrong-number-of-arguments`;
-- values are evaluated **left to right** — pin this with a case whose
-  second value observes the first assignment;
-- an existing lexical binding is updated;
-- otherwise the global value cell is updated;
-- the final assigned value is returned.
+Record at least these observables:
 
-Add the ones the list implies but does not say: `setq` on a symbol that is
-currently unbound; `setq` inside a `let` body assigning the `let`'s own
-variable, then read after the `let` exits; a `setq` whose value form
-signals.
+| Property | Representative expression | Oracle result |
+|---|---|---|
+| zero pairs | `(setq)` | `nil` |
+| left-to-right and final value | `(setq a 1 b a)` | `1` |
+| lexical update, global untouched | `((lambda () (setq x 9) (list ((lambda (x) (setq x 2) x) 1) x)))` | `(2 9)` |
+| new global | `(setq fresh 7)` | `7` |
+| odd form count | `(setq a 1 b)` | `wrong-number-of-arguments`; `a` was assigned before the error |
+| target must be a symbol | `(setq 1 2)` | `wrong-type-argument` |
+| value error propagates | `(setq a missing-value)` | `void-variable` |
+
+The lexical case proves both halves of the rule in one isolated process.
+Do not use kg's prelude in these cases; standalone Fe is the implementation
+under test after 02B.
 
 ### `set`
 
-This is the one the parent plan singles out, so treat its case list as the
-deliverable rather than a formality.  At minimum: `set` with a quoted
-symbol versus `setq` with a bare one; `set` on a symbol that has a lexical
-binding in scope (**the case that decides the implementation** — do not
-guess it, record it); `set` on an unbound symbol; `set`'s return value;
-`set` with a non-symbol first argument; `set` with wrong arity.
+Record:
 
-Emacs' answer here is not obvious, and "obvious" is precisely what this
-slice exists to replace with a recording.
+| Property | Representative expression | Oracle result |
+|---|---|---|
+| symbol argument is evaluated and value returned | `(set 'fresh 7)` | `7` |
+| ignores lexical binding and writes global | `((lambda () (setq x 9) (list ((lambda (x) (list (set 'x 2) x)) 1) x)))` | `((2 1) 2)` |
+| first value must be a symbol | `(set 1 2)` | `wrong-type-argument` |
+| exact arity | `(set 'x)` and `(set 'x 1 2)` | `wrong-number-of-arguments` |
 
-### Numeric `=`
+The lexical case is the regression that must fail if a later cleanup aliases
+`set` to `setq` or calls `GetBound(..., env)` instead of the global setter.
 
-- arity: `(=)`, `(= 1)`, and the chained `(= 1 1 1)` / `(= 1 1 2)`;
-- exceptional floats: `(= 0.0 -0.0)`, and NaN compared with itself;
-- type errors: `(= 1 "1")`, `(= 1 nil)`;
-- and the case that *documents the cut*: `(= x 3)` where `x` is unbound,
-  which is an error after Phase 2 and was an assignment before it.
+### Numeric `=` over Fe's existing doubles
 
-Phase 5 adds mixed integer/float cases; the parent plan is explicit that
-Phase 5 **extends** this operation rather than redefining it, so write
-these cases so an integer case slots in beside them.
+Record:
 
-## The condition-name trap, stated once
+| Property | Representative expression | Oracle result |
+|---|---|---|
+| minimum arity | `(=)` / `(= 1)` | `wrong-number-of-arguments` / `t` |
+| chain, true and false | `(= 1 1 1)` / `(= 1 1 2)` | `t` / `nil` |
+| all operands are evaluated | the expression below | `(nil 3)` |
+| signed zero | `(= 0.0 -0.0)` | `t` |
+| NaN | `(= (sqrt -1) (sqrt -1))` | `nil` |
+| wrong type | `(= 1 "1")` and `(= 1 nil)` | `wrong-type-argument` |
+| documents the hard cut | `(= never-bound 3)` | `void-variable` |
 
-Phases 2 and 5 need `wrong-number-of-arguments` and `arith-error`, but the
-condition system is **Phase 6**.  Until then these are *names carried in
-`FeHandleError()`'s message*, not signalable symbols.
+Use `(sqrt -1)` for NaN.  Fe's reader does not accept Emacs' printed
+`0.0e+NaN` token, while both runtimes already provide `sqrt`; testing the
+reader here would conflate Phase 2 with a separate reader divergence.
 
-00B already encoded this: a fe-side condition record carries
-`"condition_source": "message"` and the comparator treats it as a weaker
-claim than the oracle's `"structured"`.  Use that field; do not strengthen
-it.  **No case in this slice may assert a catchable condition object**, and
-a case that wants to must be written as `planned` against Phase 6 instead.
+```lisp
+((lambda ()
+   (setq seen 0)
+   (list (= 1
+            ((lambda () (setq seen 2) 2))
+            ((lambda () (setq seen 3) 3)))
+         seen)))
+```
 
-## Gates
+The evaluation-order expression must use only names standalone Fe has by
+02B (`lambda`, `setq`, `list`, `=`); do not use kg's `progn` prelude macro.
 
-- Every construct in the table above has a manifest entry with the right
-  status and, for `planned` entries, a named phase.
-- Every case has a version-stamped oracle snapshot, regenerated
-  reproducibly, and regeneration against a different Emacs build fails.
-- `make -C fe compat` and `make check` are green **with the new cases
-  reporting as known gaps**, not as failures — that is the mechanism
-  working, and it is what lets 02B/02C flip statuses one at a time.
-- `set`'s lexical-binding interaction is recorded from the oracle, and the
-  recorded answer is written into the sub-plan as prose, so 02B implements
-  against a stated rule rather than re-deriving it.
-- No `.c` or `.h` file in either tree changes.  Complexity is unmoved in
-  both trees; say so with measured numbers rather than assuming it.
+Phase 5 will add integer/mixed-number cases beside these.  Do not add a case
+whose expected answer Phase 5 intentionally changes.
+
+## Error records before the condition system
+
+Phase 2 needs the message names `wrong-number-of-arguments` and
+`wrong-type-argument`.  `arith-error` belongs to Phase 5 overflow work, not
+numeric equality.  Structured conditions arrive only in Phase 6.
+
+The Emacs snapshot therefore has `condition_source: "structured"`, while Fe
+will eventually report `condition_source: "message"`; the comparator requires
+the oracle's condition name to appear in Fe's `FeHandleError()` text.  This is
+an implementation requirement for 02B/02C: existing generic messages such as
+`too few arguments` and `expected double` are not sufficient for these new
+supported features.
+
+Do not assert a catchable condition object, exact Emacs error data, or a
+condition hierarchy in this slice.
+
+## Focused procedure and gates
+
+1. From an idle tree, record both complexity gates in both repositories.
+   They must not move because no scanned C changes.
+2. Add the Fe manifest rows and case files with `status: "planned"`.
+3. Run `make -C fe compat-oracle`; review the generated records, especially
+   lexical `set`, unary `=`, and NaN.  Do not use
+   `--allow-version-change` unless the pinned oracle was intentionally moved.
+4. Run `make -C fe compat`.  Every new case must be reported as a known gap,
+   not a failure; all previously supported cases still pass.
+5. Run `make -C fe check`, then land the Fe data commit.
+6. Move kg's gitlink and run `make lisp-compat-check` and `make check`.
+7. Re-run both complexity gates in both trees and record unchanged measured
+   values in the commit message.
+
+No native unit or PTY test is added here: no runtime behavior changes.  The
+oracle snapshots are the deliverable, and running interactive editor tests
+would not test anything this slice owns.
 
 ## What this does not do
 
-- It does not implement `setq`, `set` or numeric `=`.
-- It does not delete or alter assignment `=`; that is 02C.
-- It does not rename a single file; that is 02D.
-- It does not add a case for anything Phase 5 will change the answer to.
+- It does not implement any of the three constructs.
+- It does not alter or delete assignment `=`.
+- It does not modify kg's prelude-setq case or rename a file.
+- It does not add integers, reader syntax for NaN, structured conditions, or
+  migration infrastructure.
 
 ## Status
 

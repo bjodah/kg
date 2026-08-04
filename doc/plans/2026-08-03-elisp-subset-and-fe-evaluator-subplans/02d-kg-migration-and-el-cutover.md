@@ -1,164 +1,278 @@
-# 02D — kg's migration to `setq`, and the `.el` dialect cutover
+# 02D — Move kg to language version 2 and cut its Lisp files to `.el`
 
 Parent: [Phase 2](../2026-08-03-elisp-subset-and-fe-evaluator.md#6-phase-2--hard-cut-assignment-and-numeric-),
-kg migration and the dialect/filename cutover.
+one atomic kg adaptation commit.
 
-**Prerequisites:** [02C](02c-the-equals-hard-cut-in-fe.md).  kg cannot move
-its pin until fe's cut has landed and passed in the submodule (Rule 10).
+**Prerequisite:** [02C](02c-the-equals-hard-cut-in-fe.md).  Fe language
+version 2 and its standalone CI must be green before kg's gitlink moves.
 
-## Why this is one slice and not two
+## Outcome and atomicity
 
-The parent plan puts the filename cutover **in the same commit** as the
-pin move, and that is not an aesthetic preference.  The moment kg's pin
-moves to a fe where `=` is comparison, kg's prelude — 54 `(= name value)`
-forms — stops being a program and becomes 54 comparisons whose results are
-discarded.  There is no intermediate state where kg builds and works.  So
-the pin move, the prelude rewrite, the rename and the loader change are
-one atomic kg commit, and Rule 10's "a deliberate API/language break must
-not create a pin-only commit that cannot build" is exactly this case.
+One kg commit must contain all of the following:
 
-That makes this the largest single commit in Phase 2.  It is worth
-staging the work locally in pieces and squashing, rather than pretending
-it can land incrementally.
+- the Fe gitlink move;
+- kg's compile-time assertion of the new language version;
+- every kg-owned assignment migration;
+- deletion of the prelude `setq` macro;
+- the prelude/package `.fe` to `.el` renames and generated include refresh;
+- startup, `load`, and `require` discovery changes;
+- fixtures, tests, contributor guidance, and user documentation.
 
-## The measured surface
+The moment the gitlink moves, kg's old prelude would execute 54 numeric
+comparisons instead of definitions.  A pin-only commit therefore builds but
+misbehaves at startup, which is exactly the hidden half-applied state
+`FE_LANGUAGE_VERSION` exists to reject.  Stage the pieces locally in any
+order, but do not land or hand off a partially adapted commit.
 
-Every site below was located in this tree.  Symbols are authoritative;
-line numbers will drift.
+## Corrected kg migration surface
 
-**Lisp source (the assignment migration):**
+The old “54 kg sites” number counts only top-level forms in
+`lisp/prelude.fe`.  The audited implementation and test surface also contains
+assignment source embedded in C and Python:
 
-| File | `(= ...)` sites |
+| Path | Action |
 |---|---|
-| `lisp/prelude.fe` | **54** |
-| `lisp/auto-fill.fe` | **0** — already `defvar`/`defun`/`setq` |
+| `lisp/prelude.fe` | rename to `prelude.el`; delete the top-level `setq` macro and rewrite the other 53 top-level definitions from `=` to core `setq` |
+| `lisp/auto-fill.fe` | rename to `auto-fill.el` and fix its file-header spelling; it already uses `setq`, so do not mechanically rewrite its Lisp |
+| `test/test_lisp.c` | migrate five hook-test assignments; update the prelude scanner and all config/package fixtures |
+| `test/test_perf.c` | migrate the nine assignments in the arithmetic-loop and macro-heavy evaluator shapes; rename the auto-fill path |
+| `utils/bench.py` | make the same nine evaluator-shape migrations and change planted init files to `.config/kg/init.el` |
+| `src/lisp_prelude_generated.inc` | regenerate; never edit by hand |
 
-`auto-fill.fe` needs the *rename* but not the migration, which is a small
-piece of good news: 01A's decision to keep it on `.fe` cost nothing.
+The representative before-save hook in both `test/test_perf.c` and
+`utils/bench.py` contains `(= my-fill-column my-fill-column)`.  That is a
+valid numeric comparison after 02C, its return is discarded, and it should
+remain as the audit's documented legitimate survivor rather than being
+blindly rewritten.
 
-**The prelude's `setq` macro is deleted here.**  It exists only to expand
-into assignment `=`; once `setq` is a core special form (02B), the macro
-shadows a better implementation with a worse one.  Deleting it also
-deletes one of the four `(list 'quote nil)` workarounds 01A deliberately
-left in place.
+## File-by-file implementation
 
-**C sites that spell `.fe`:**
+### 1. Pin and version contract
 
-- `src/lisp_core.c` — `lisp_config_path(..., "init.fe")`, the init-file
-  discovery path.
-- `src/lisp_require.c` — the `"%s/%s.fe"` candidate builder for bare-name
-  package resolution, plus two comments that spell the pattern.
-- `src/lisp_io.c` — the `"lisp/%s.fe"` stem and its `sizeof("lisp/.fe")`
-  bound.  **Note the sizeof**: `.el` and `.fe` are the same length, so this
-  bound does not change size, which is exactly the kind of thing that
-  silently stays right and should be checked rather than assumed.
-- `src/syntax.c` — `LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp" }`.
+- Move the `fe/` gitlink to the exact green 02C commit.
+- In `src/lisp_core.c`, keep `static_assert(FE_API_VERSION == 1)` and add
+  `static_assert(FE_LANGUAGE_VERSION == 2)` beside it, inside the Lisp-enabled
+  build.  `WITH_LISP=0` must not acquire an Fe header dependency.
+- Update `doc/fe-upstream.md` to state both required versions, make the update
+  checklist verify both, replace the “`=` deliberately remains assignment”
+  item with the landed core `setq`/`set`/numeric-`=` divergence, and describe
+  the hard-cut rationale accurately.
 
-**Everything else:** `Makefile`'s `lisp-prelude-generate` /
-`lisp-prelude-check` targets (four spellings of `lisp/prelude.fe`),
-`utils/embed_lisp.py`'s docstring, `utils/check_lisp_compat.py`'s
-`LISP_PRELUDE_FE`, `test/test_lisp.c`'s `test_prelude_source_file` (which
-opens the file by name), `src/lisp_prelude.c`'s header comment, **52 PTY
-YAML cases** that reference `.fe`, `README.md`, `doc/kg.1`,
-`doc/lisp-api.md`, and `doc/TODO.md`.
+Do not bump `FE_API_VERSION` in kg or add a runtime version branch; compile
+time plus the pinned gitlink is the contract.
 
-## `syntax.c` is the one that is not a rename
+### 2. Canonical prelude and package files
 
-Adding `.el` to `LISP_HL_extensions[]` is **user-visible behaviour**: it
-changes which files get Lisp highlighting.  Rule 7 and `make docs-check`
-apply — `README.md`, `doc/kg.1` and, if any binding or help text mentions
-it, `src/help.c`.
+Use `git mv`:
 
-Decide and state whether `.fe` stays in that list.  The honest answer is
-that it should **go**: §0.4 says there are no user files to service, and a
-highlighting entry for a dialect kg no longer speaks is exactly the "dead
-migration infrastructure" the parent plan warns against.  If it stays,
-that is a decision with a reason, not an oversight.
+```text
+lisp/prelude.fe   -> lisp/prelude.el
+lisp/auto-fill.fe -> lisp/auto-fill.el
+```
 
-## Hard cut means hard cut
+In `prelude.el`:
 
-The parent plan enumerates this and it should not be softened:
+- keep `internal--let` as the first definition;
+- delete the complete top-level `setq` macro definition, including its obsolete
+  `(list 'quote nil)` workaround;
+- rewrite each remaining column-zero `(= NAME VALUE)` definition as
+  `(setq NAME VALUE)` without reordering definitions;
+- update the header comments: core `setq` is now the bootstrap assignment
+  form, macros still expand on every invocation, and the canonical filename is
+  `.el`.
 
-- rename `lisp/prelude.fe` → `lisp/prelude.el` and
-  `lisp/auto-fill.fe` → `lisp/auto-fill.el`;
-- startup loads only `<config>/kg/init.el`;
-- bare package names resolve to `.el`;
-- rename every tracked init/package fixture and update user documentation.
+The final prelude has **53**, not 54, top-level definitions.  Nested generated
+forms such as `(list 'setq ...)` remain `setq`; do not confuse them with the
+deleted macro definition.
 
-**No `init.fe` fallback, no `.fe` bare-name fallback, no warning, no
-deprecation window.**  A literal path passed to `load` stays literal — the
-cutover changes *discovery and bare-name resolution*, not the ability to
-open a file somebody names explicitly.  Do not "helpfully" try `.fe` when
-`.el` is missing; that is the fallback, wearing a different hat.
+Update every producer/consumer of the canonical file:
 
-## Ordering trap inherited from 01A
+- `Makefile` — both prelude targets, comments, diagnostics, and input path;
+- `utils/embed_lisp.py` — module docstring, usage text, generated header text,
+  and every hard-coded `lisp/prelude.fe` spelling;
+- `src/lisp_prelude.c` — canonical-source comment;
+- `utils/check_lisp_compat.py` — rename the path constant, scan column-zero
+  `(setq NAME ...)` forms, and update 54/`=` prose to 53/`setq`;
+- `test/lisp-compat/README.md` — source-inventory count and spelling;
+- `test/test_lisp.c:test_prelude_source_file` — `.el` paths, parser prefix,
+  `PRELUDE_DEFS 53`, and comments.  Preserve both ordering assertions and the
+  behavioral proof that `internal--let` is still a primitive;
+- `src/lisp_prelude_generated.inc` — refresh only with
+  `make lisp-prelude-generate` after all source/comment changes.
 
-`lisp/prelude.fe`'s ordering is load-bearing, and `test_prelude_source_file`
-asserts it through its consequence: the first definition must be
-`internal--let` and it must answer `primitive`.  That test opens the file
-**by name**, so it breaks at the rename and must be updated in the same
-commit.
+### 3. Manifest retirement of kg's macro
 
-More importantly: the migration rewrites all 54 definitions.  Rule 1 —
-"an alias of a primitive must be taken before anything shadows that name"
-— is exactly as load-bearing after the rewrite as before, and a
-search-and-replace that reorders nothing is fine, while any tidying that
-reorders is not.  The test is the guard; do not weaken it to make the
-rename pass.
+In `test/lisp-compat/features.json`, delete the `prelude-setq` feature row.
+Also delete both files it owns:
 
-## Version agreement
+```text
+test/lisp-compat/cases/prelude-setq.json
+test/lisp-compat/oracle/prelude-setq.json
+```
 
-02C introduced `FE_LANGUAGE_VERSION`.  kg asserts the version it requires
-at compile time, the way `src/lisp_core.c` already does
-`static_assert(FE_API_VERSION == 1)`.  That assertion is what makes a
-half-applied cutover a build failure instead of a runtime mystery, so it
-lands in the same commit as the pin move.
+Deleting only the row leaves an orphan case; deleting only the source macro
+leaves a stale `source_name`.  `make lisp-compat-check` must see the new core
+Fe `setq` row, 53 kg prelude definitions, and no kg-owned `setq` definition.
 
-## Budget
+Update `test/lisp-compat/cases/native-load.json` to describe a bare `.el`
+resolution (prefer `(load "path")`); it is a `kg-policy` record linked to the
+native regression test, not an Emacs-executed filesystem case.
 
-00A's kg row for Phase 2: **−2 to +5**, likely self-funding, priced
-against `src/lisp_require.c`.  Deleting the prelude's `setq` macro and one
-`(list 'quote nil)` workaround should pay for the loader's extension
-check.
+### 4. Discovery and literal-path behavior
 
-kg entered Phase 2 at **5443 of 5500**.  This row is not the risk; if it
-overruns, something has been built that this slice did not intend to
-build, and the right response is to stop and report rather than spend
-Phase 3's allowance.
+Edit all three independent discovery paths:
 
-If 02B raised fe's cap against 02D's macro deletion as named funding,
-report the measured repayment here.
+- `src/lisp_core.c:kg_lisp_load_init()` — request only `init.el`;
+- `src/lisp_io.c:native_load()` — a bare name becomes
+  `<config>/kg/lisp/NAME.el`; update the `snprintf` format, the
+  `sizeof("lisp/.el")` bound, and comments;
+- `src/lisp_require.c:candidate_readable()` and
+  `resolve_require_path()` — search each load-path directory for `STEM.el`;
+  update formats and comments.
 
-## Gates
+`.el` and `.fe` have equal byte length, so the existing bounds may remain
+numerically correct.  Still update the literal in each `sizeof`: it documents
+what is being bounded and protects a later extension change.
 
-- No production Lisp in either repository uses `=` for assignment.
-- The prelude's `setq` macro is gone, **and its manifest entry with it** —
-  `utils/check_lisp_compat.py` fails otherwise, which is the intended
-  coupling.
-- `lisp/prelude.el` and `lisp/auto-fill.el` exist; no `.fe` remains under
-  `lisp/`.
-- Startup discovers only `init.el`; bare names resolve only to `.el`;
-  a literal `.fe` path passed to `load` still opens.
-- `make lisp-prelude-check` still proves the file and the generated `.inc`
-  agree, through the rename.
-- `test_prelude_source_file` still passes, still asserts the order, and
-  still asserts `internal--let` answers `primitive`.
-- 02A's kg-side cases pass; statuses updated; deleted constructs' entries
-  deleted.
-- `README.md`, `doc/kg.1`, `doc/lisp-api.md`, `doc/TODO.md` and the 52 PTY
-  cases are updated; `make docs-check` green.
-- `make check` and `make WITH_LISP=0 clean all check` green; both
-  complexity gates green in both trees.
-- Phase 2 ends here, so it ends with `.ci/run-ci-steps.sh --parallel`
-  (Rule 9), from an **idle tree** — a concurrent build has already
-  produced one false reading in this program.
+Names containing `/` stay literal in both `load` and `require`.  Do not append
+an extension, probe `.fe`, warn, or fall back.  The hard cut is discovery-only:
+an explicit `(load "/tmp/example.fe")` must continue to work.
+
+Update the incidental active comment in `src/lisp_cmd.c` from `init.fe` to
+`init.el`; avoid leaving source comments teaching the retired filename.
+
+### 5. Syntax selection
+
+In `src/syntax.c`, replace `.fe` with `.el` in `LISP_HL_extensions[]`; retain
+the generic `.lisp` and `.lsp` entries.  `.fe` must not remain as migration
+infrastructure.
+
+Add focused selection tests in `test/test_syntax.c` in the style of the YAML
+extension tests:
+
+- `config.el` selects `syntax_find_by_name("Lisp")`;
+- `config.fe` leaves an otherwise-null syntax unchanged.
+
+This is a pure registry lookup and belongs in the native syntax suite.  Do not
+add a tmux screen assertion for highlighting colors.
+
+### 6. Native, PTY, performance, and benchmark fixtures
+
+`test/test_lisp.c` owns the detailed loader contract.  Rename discovered
+fixtures to `.el` and add/retain these explicit assertions:
+
+- an `init.fe` with no `init.el` is ignored; adding `init.el` then loads it;
+- a real `NAME.fe` does not satisfy bare `(load "NAME")`, whose error names
+  `NAME.el`;
+- a real `NAME.fe` in a load-path directory does not satisfy bare
+  `(require 'NAME)`;
+- positive bare `load`/`require`, nested packages, cycles, aliases, and
+  load-path order use `.el`;
+- one slash-containing explicit file remains named `direct.fe` and succeeds
+  through both `(load "/.../direct.fe")` and
+  `(require 'direct-feature "/.../direct.fe")` (have it call
+  `(provide 'direct-feature)`), proving neither literal path was banned.  Run
+  `require` first while the feature is absent; otherwise an earlier `load`
+  provides it and `require` returns without exercising path resolution.
+
+Update `remove_config_root()` for every new/renamed fixture so the native test
+does not leak temporary files.
+
+There are **52 PTY YAML files with 61 `.fe` spellings** in the audited tree.
+Update init/package paths, `filename:` values, expected error text, and case
+comments deliberately.  A `filename:` extension selects Lisp behavior and
+syntax, so it is not cosmetic.  Keep one explicit `.fe` literal-path test in
+the native suite; do not preserve `.fe` discovery fixtures in PTY cases.
+
+Update `test/test_perf.c` and `utils/bench.py` together so their documented
+representative workload remains identical.  Smoke the modified benchmark
+paths once:
+
+```sh
+make bench BENCH_ARGS='--runs 1 --case lisp-arena-auto-fill --case lisp-arena-representative-init --case lisp-arithmetic-loop --case lisp-macro-heavy'
+```
+
+This is a reachability/counter smoke, not a wall-clock acceptance gate; the
+counter shape assertions in `test/test_perf.c` remain the stable performance
+evidence and run inside `make check`.
+
+### 7. User and contributor documentation
+
+Update active material, not only the four user documents named originally:
+
+- `README.md`, `doc/kg.1`, and `doc/lisp-api.md` — `init.el`, `.el` package
+  resolution, `setq`/`set`, numeric `=`, the no-fallback rule, and the worked
+  `auto-fill.el`/init examples;
+- `doc/TODO.md` — mark the assignment-`=` and `.fe` limitations as resolved
+  rather than leaving them listed as live debt;
+- `doc/WISHLIST.md` — rename the active “first shipped package” wording;
+- `AGENTS.md` and `CLAUDE.md` — PTY fixture guidance must plant `init.el` and
+  `.el` packages;
+- `doc/fe-upstream.md` — version and divergence updates from step 1.
+
+No keybinding or built-in help row changes, so do **not** edit `src/help.c`.
+Still run `make docs-check`; it is a narrow help/man-page drift checker, not
+proof that the filename prose was reviewed.
+
+Historical completed plans and Fe's own `scripts/*.fe` are not a global
+search-and-replace target.  Update this sub-plan set's live status when the
+work lands, but preserve historical text where `.fe` accurately names a file
+that existed at that phase.
+
+## Audit before testing
+
+Run a tracked-source search, then classify rather than blindly eliminate
+every result:
+
+- assignment-shaped `(= ...)` in `lisp/`, `test/`, `utils/`, active docs, and
+  generated output — only intentional numeric comparisons may survive;
+- `.fe` in runtime source, active docs, tests, and tooling — permitted
+  survivors are Fe's standalone artifacts, historical plan prose, and the
+  explicit literal-path regression;
+- `prelude-setq`, old path constants, and `PRELUDE_DEFS 54` — no live survivor;
+- `FE_LANGUAGE_VERSION` — exactly Fe's definition/documentation and kg's
+  required-version assertion, with value 2.
+
+Record the classified survivors in the commit message.  Do not add a permanent
+syntax linter for assignment or `.fe`: both numeric `=` and explicit literal
+`.fe` paths are valid after the cut.
+
+## Verification sequence
+
+From an idle tree:
+
+1. Before editing, run `make complexity-check`, `make pmccabe-check`, and the
+   same two commands under `fe/`.
+2. After the pin and source migration, run `make lisp-prelude-generate`, then
+   `make lisp-prelude-check` and `make lisp-compat-check` as early focused
+   drift checks.
+3. Run the focused native suites (`test/test_lisp`, `test/test_syntax`, and
+   `test/test_perf`) through the Makefile's normal unit runner, plus one or two
+   representative Lisp PTY cases while iterating.  Do not hand-run test
+   binaries with an ad hoc link line.
+4. Run `make -C fe compat` to re-prove the core Phase 2 cases at the pinned
+   commit; kg's ordinary `make check` does not invoke that target.
+5. Run `make check` and `make WITH_LISP=0 clean all check`.
+6. Re-run both complexity gates in both trees and record measured deltas.  The
+   revised kg Phase 2 estimate is zero scc change: the macro now lives in Lisp
+   source, while the C edits are string literals and a static assertion.  Stop
+   and report any material increase; it means fallback/control-flow logic or
+   another out-of-scope branch entered the slice.
+7. Regenerate `compile_commands.json` before relying on the static-analysis
+   lane, then finish Phase 2 with `.ci/run-ci-steps.sh --parallel`; poll with
+   `--status`.
+
+The phase is green only when the no-fallback negative tests pass, the explicit
+literal `.fe` load still passes, the generated include matches `prelude.el`,
+both Lisp build configurations pass, and all twelve CI stages pass.
 
 ## What this does not do
 
-- It does not change what `=` means; 02C did that.
-- It does not add integers, a condition system, or strict arity.
-- It does not rename `.fe` anywhere outside kg's own `lisp/` and fixtures.
-  fe's `scripts/*.fe` are fe's own dialect artefacts and stay as they are.
+- It does not alter Fe's numeric semantics or language version; 02C did that.
+- It does not rename Fe's `scripts/*.fe` or ban explicit `.fe` paths.
+- It does not add a fallback, warning, config migrator, permanent linter,
+  integer type, condition system, or strict-arity work.
+- It does not use benchmark wall time or terminal color screenshots as a gate.
 
 ## Status
 

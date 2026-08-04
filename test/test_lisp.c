@@ -1148,8 +1148,8 @@ static void test_buffer_objects(void)
 	CHECK(eval_eq("(length (buffer-list))", "2"));
 	CHECK(eval_eq("(eq (car (buffer-list)) (current-buffer))", "t"));
 	CHECK(eval_eq("(if (memq h (buffer-list)) t nil)", "t"));
-	CHECK(eval_eq("(if (memq (current-buffer) (cdr (buffer-list))) t nil)",
-	    "nil"));
+	CHECK(eval_eq(
+	    "(if (memq (current-buffer) (cdr (buffer-list))) t nil)", "nil"));
 
 	/* Hidden-buffer editing: insert lands there and the displayed
 	 * window's point does not move; the edit is one undo record in the

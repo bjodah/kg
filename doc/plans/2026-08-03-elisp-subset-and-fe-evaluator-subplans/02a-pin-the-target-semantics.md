@@ -207,4 +207,44 @@ would not test anything this slice owns.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**  Fe commit `ecb1110` on `analyzers-etc` adds the
+three planned rows (`primitive-setq`, `primitive-set`,
+`primitive-numeric-eq`, all `comparison: emacs`, `owner: fe-core`,
+`source_name: null`) and **22 cases** with version-stamped snapshots from the
+pinned GNU Emacs 31.0.90; kg's gitlink moved in `bbdb608`.  No C or header
+changed in either tree, and neither complexity gate moved: fe scc 214/220
+(`fe.c` 106/112), pmccabe 198 symbols; kg scc 5443/5500, pmccabe 1246
+symbols; 0 new/gone/improved in both.
+
+**Every one of the 22 oracle answers matched this document's predicted
+table** — including the four most easily got wrong by hand: `setq` updates
+the innermost lexical binding and leaves the global cell alone (`(2 9)`),
+`set` writes the global cell straight through a same-named lexical binding
+(`((2 1) 2)`), `0.0 = -0.0` is `t`, and NaN is not `=` to itself.  Nothing
+had to be argued after the fact, which is the whole reason this slice came
+first.
+
+Two properties the single-expression protocol structurally cannot record are
+written into the case notes rather than left implied: that `a` survives the
+error in `(setq a 1 b)`, and that a `set` arity error evaluates no argument.
+Both are handed to 02B's native test matrix, which already lists them.
+
+`make -C fe compat` reports all 22 as known gaps and 0 failures (66 cases, 31
+passed, 35 known gaps); `make lisp-compat-check` sees 183 features across both
+manifests; `make check` is 32 native / 405 PTY.
+
+**One defect found and fixed on the way through** (fe `cf36951`, kg pin
+`61363f9`): `make -C fe compat-oracle`'s full run could not finish, and had
+not been able to since the corpus outgrew 00B's five proof-of-mechanism
+cases.  The runner enumerated by globbing `cases/*.json` rather than reading
+`features.json`, so it ran Emacs over the six `comparison: kg-policy` cases
+that have no oracle answer by design, and aborted on `primitive-print` —
+whose expression writes to stdout, breaking the shim's one-record-per-line
+protocol.  02A itself worked around it with `--case`; the fix makes the
+documented target usable for 02B–02D.  kg's `make lisp-compat-oracle` drives
+the same runner and had the same failure latent in it.  The full runs now
+complete with **no snapshot changed** — fe 60 unchanged / 6 not compared, kg
+53 unchanged / 83 not compared — which re-verifies every checked-in snapshot
+in both corpora, 02A's included, against the pinned oracle.  The `oracle/`
+directories already held exactly the 60 and 53 files the manifest rule
+selects, so the data was right and only the enumeration was wrong.

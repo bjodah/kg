@@ -23,8 +23,10 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <stdarg.h>
 #include <stdckdint.h>
 #include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
+#if KG_PERF_COUNTERS
+#include <time.h>
+#endif
 
 #include "../fe/fe.h"
 #include "cmd.h"

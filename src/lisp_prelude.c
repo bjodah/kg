@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include "../fe/fe.h"
 #include "lisp_internal.h"
 

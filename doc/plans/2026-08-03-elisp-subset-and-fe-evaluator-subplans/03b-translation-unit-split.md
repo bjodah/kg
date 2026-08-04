@@ -230,4 +230,126 @@ which is exactly what that table is for.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.** fe `d66d2bf` on `analyzers-etc`, kg pin moved to
+`d66d2bf` together with the full build ripple in one commit (`6593bfc` on
+`stricter-emacs-adherence`), exactly as Rule 10 requires — a pin-only kg
+commit here would not have linked.
+
+**The cut matched 03A's spike to the unit, not just approximately.**
+`ClearEvaluationControl`/`BeginEvaluationControl`/`EndEvaluationControl`/
+`EvaluationStep`/`EnterEvaluationDepth`, the cleanup registry
+(`PushCleanup`, `SaveCleanupErrorMessage`, `RunOneCleanupEntry`,
+`RunCleanupsDownTo`, `RunCleanupsAfterError`, `FeProtectWithCleanup`),
+`FeHandleError` (moved with the registry, per this document's own
+recommendation), the evaluator (`Evaluate`, `EvaluateHead`,
+`EvaluatePrimitive`, `EvaluateList`, `DoList`, `Bind`, `ArgsToEnv`,
+`EvaluateSetq`, `EvaluateSet`, `EvaluateNumericEqual`,
+`CheckNumericEqualOperand`, `HandleVoidSymbol`, `HandleNonCallable`, the
+`EVAL_ARG`/`ARITH_OP`/`NUM_CMP_OP` macros), and the entry points
+(`FeEvaluate`, `FeCall`, `FeCallWithOptions`, `FeEvaluateWithOptions`)
+moved into `fe_eval.c`, in their original relative order, with no
+reordering and no renaming. `FeCreateRoot`/`FeGetRoot`/`FeReleaseRoot` sit
+physically between `FeEvaluate` and `FeCall` in the original file and
+stayed in `fe.c`, per the document's own "keep root management" implication
+even though they are not named among the entry points — the diff shows
+this as two moved regions, not one contiguous block, which is worth
+recording since the document's prose reads as if the cut were contiguous.
+
+| Measure | Before | After |
+|---|---|---|
+| pmccabe total (`PMCCABE_PATHS`) | 500 / 202 symbols | **500 / 202 symbols — exactly conserved** |
+| pmccabe `fe.c` | 356 / 135 symbols | **252 / 106 symbols** |
+| pmccabe `fe_eval.c` | — | **104 / 29 symbols** |
+| scc total (`SCC_COMPLEXITY_PATHS`) | 214 | **286 (+72)** |
+| scc `fe.c` | 106 | **70** |
+| scc `fe_eval.c` | — | **108** |
+
+Every one of these six numbers lands exactly on 03A's spike measurement
+(same document, "Decision" section) — not close, identical, including
+which 29 symbols moved and their individual per-function values (verified
+symbol-by-symbol against `.ci/pmccabe-baseline.json`'s diff: 29 keys
+renamed `fe.c:X` → `fe_eval.c:X`, zero value changes). No cap was raised;
+both caps 03A funded ahead of this slice (`SCC_COMPLEXITY_MAX` 420,
+`SCC_FILE_COMPLEXITY_MAX` 240, `PMCCABE_TOTAL_MAX` 630) absorbed the move
+with headroom to spare (`fe_eval.c` at 108/240 file score, the core pair at
+500/630 pmccabe).
+
+**`fe_internal.h`** carries the object layout (`Value`, `struct FeObject`,
+the `ConsCell`/`GcMarkBit`/arena-size `enum`, `struct FeCleanupEntry`),
+`CAR`/`CDR`/`TAG`/`DOUBLE`/`PRIM`/`NATIVE_FN`/`STRING_BUFFER`, the
+`Primitive` enum, `struct FeContext`'s full body, and the small
+cross-TU surface: `GetDouble`, `GetNativeFn`, `SetType`, `CheckType`,
+`GetBound`, `MakeObject`, `Equal`, `IsNamedSymbol`, `Format`, `unbound`
+(all of which lost `static`, with `unbound`'s existing comment kept beside
+its definition, not weakened), and `BeginEvaluationControl`/
+`EndEvaluationControl`/`EvaluationStep`. `fe/test_internal_header.c`
+compiles it standalone via `#include "fe_internal.h"` and a trivial `main`,
+syntax-checked with both `CORE_GCC` and `CORE_CLANG` inside `test-header`.
+Built from real compiler/linker errors, as instructed — nothing was pasted
+in speculatively.
+
+**What this document did not anticipate:**
+
+1. **`GetBound` calls `EvaluationStep`, so the cross-TU traffic runs both
+   ways, not one.** The document frames the new cross-TU surface as "the
+   evaluation-control helpers the kept reader/writer wrappers call"
+   (`BeginEvaluationControl`/`EndEvaluationControl`, for
+   `FeEvaluateStringWithOptions`/`FeEvaluateFileWithOptions`). It does not
+   mention that `GetBound` — an *accessor* staying in `fe.c` per this same
+   document's list — itself calls `EvaluationStep` on every environment-list
+   step, which is *also* moving to `fe_eval.c`. `EvaluationStep` therefore
+   had to lose `static` and gain a header declaration for `fe.c`'s own sake,
+   not only for the kept wrappers'. Building from compiler errors (as
+   instructed) caught this immediately; a plan written from reading the
+   code rather than compiling the cut would not have.
+2. **The split created one real IWYU finding, caught only by the full CI
+   runner.** `fe.c` no longer uses `jmp_buf` directly once `RunOneCleanupEntry`
+   and `struct FeContext`'s `cleanup_catch` field left for `fe_eval.c`/
+   `fe_internal.h` — `fe_internal.h` already pulls in `<setjmp.h>` for the
+   struct definition — so `fe.c`'s own `#include <setjmp.h>` became dead
+   weight. `make check` does not run IWYU; this only showed up in
+   `.ci/ci-07-static-analysis.sh` inside the full `.ci/run-ci-steps.sh`,
+   exactly the class of failure this document's own "Build ripple" section
+   warns about via the Plan 07-D precedent, just manifesting through IWYU
+   rather than a fuzz link this time. Fixed by dropping the now-redundant
+   include; no other IWYU, clang-analyzer, cppcheck or clang-tidy finding
+   appeared in either tree.
+3. **A pre-existing, unrelated kg `ci-07-format-check` failure was already
+   on the tree before this slice started**, traced (via a throwaway
+   `git worktree add` at sub-plan 02E's landing commit `37be96a`) to
+   `test/test_lisp.c:1151`, a `CHECK(eval_eq(...))` call clang-format wants
+   reflowed. Neither 03A nor 03B touched that file. Reported here, not
+   fixed, per the same convention 00C's Status section set for an analogous
+   pre-existing `ci-06` finding.
+
+**Gates, fe:** `make -C fe check` (`test_api`, `example_host`, all 28
+`scripts/*.fe` cases including 03A's nine `frame-trace-*.fe` goldens, the
+`-a` strict-arity re-run, byte-identical throughout), `complexity-check`
+(286/420 total, 108/240 file cap), `pmccabe-check` (500/630 total, 15/22
+worst function, baseline re-recorded via `make pmccabe-baseline`: 29
+symbols moved, 0 new/gone/improved beyond the move), `format-check`, and
+the full nine-stage `.ci/run-ci-steps.sh` (complexity, coverage at 88.9%
+lines / 65.2% branches against an 80% floor, gcc `-fanalyzer` + Valgrind,
+clang ASan/UBSan, clang MSan, fuzz smoke with all three targets linking
+both `fe.c` and `fe_eval.c`, IWYU/clang-analyzer/cppcheck/clang-tidy,
+format, and the Emacs-compat corpus at 53 passed / 12 known gaps / 0
+failed) are all green.
+
+**Gates, kg:** `make check` (32 native / 406 PTY, all passing),
+`make WITH_LISP=0 clean all check` (337 pass + 69 skip), `make
+complexity-check` (5444/5500, unchanged — no `src/*.c` touched), `make
+pmccabe-check` (1246 symbols, 0 new/gone/improved), and
+`.ci/run-ci-steps.sh --parallel` from an idle tree (11 of 12 stages green;
+the sole `ci-07-format-check` failure is the pre-existing, unrelated
+`test_lisp.c` finding above). `lisp-include-check`'s new `fe_internal.h`
+prohibition was proven to fire on a temporary, reverted violation
+(`src/lisp_internal.h` given a one-line `#include "../fe/fe_internal.h"`,
+reverted after confirming the failure) before being trusted clean. Every
+one of the eleven kg build sites was confirmed by grepping the actual
+build/link command lines, not just reading the Makefile: `$(TARGET)`,
+every `EXTRA_*`/`test_perf`/`PERF_KG` link line, and — the trap this
+document names by Plan 07-D's precedent — `test/fuzz_keypress`'s link
+line, built explicitly and confirmed to name both `test/fe_fuzz.o` and
+`test/fe_eval_fuzz.o`.
+
+No language or editor behaviour changed. Sub-plan 03C may start.

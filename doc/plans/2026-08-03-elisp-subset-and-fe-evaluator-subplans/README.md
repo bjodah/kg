@@ -1047,3 +1047,29 @@ a fresh `coverage` run (88.9% lines, 65.2% branches, 80% floor) are
 green in fe; kg's `make check` and `make WITH_LISP=0 clean all check`
 are green after the pin move.  No language or editor behaviour
 changed.  Sub-plan 03B may start.
+
+**03B complete, 2026-08-04.**  fe `d66d2bf`, kg pin `6593bfc` (pin move plus
+the full eleven-site build ripple and a `lisp-include-check` extension, in
+one commit that builds — a pin-only commit would not have linked, per Rule
+10).  `fe.c` split into `fe.c` + `fe_eval.c` behind a private
+`fe_internal.h`, exactly the cut 03A's spike priced: pmccabe conserved
+exactly (500/202 symbols before and after), scc up +72 (214 → 286) as
+funded, and every per-file number — `fe.c` pmccabe 356→252, `fe_eval.c`
+104/29, `fe.c` scc 106→70, `fe_eval.c` scc 108 — lands exactly on 03A's
+measured prediction, not merely close to it.  No cap raised.  Full detail,
+including two things this slice found that its own document did not
+anticipate (`GetBound`, an accessor kept in `fe.c`, itself calls the
+moving `EvaluationStep`, so the new cross-TU surface runs both directions,
+not only through the kept wrappers; and the split left `fe.c` with a dead
+`#include <setjmp.h>`, an IWYU finding only the full CI runner catches) and
+a pre-existing, unrelated kg `ci-07-format-check` failure traced to
+sub-plan 02E's `test_lisp.c` (reported, not fixed), is in `03b`'s own
+Status section.  `make -C fe check`, `complexity-check`, `pmccabe-check`,
+`format-check` and the full nine-stage `.ci/run-ci-steps.sh` (coverage,
+gcc analyzer + Valgrind, ASan/UBSan, MSan, fuzz smoke with all three
+targets linking both new objects, static analysis, format, compat) are
+green in fe; kg's `make check` (32/406), `make WITH_LISP=0 clean all
+check` (337/69), both complexity gates, and `.ci/run-ci-steps.sh
+--parallel` (11 of 12 stages; the sole failure is the pre-existing,
+unrelated one above) are green.  No language or editor behaviour changed.
+Sub-plan 03C may start.

@@ -37,10 +37,10 @@ so the four slices are ordered so that each one lands green on its own.
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [02A](02a-pin-the-target-semantics.md) | 2 | Record what `setq`, `set` and numeric `=` must do, from the oracle, before any of them is written | none — **this is first** |
-| [02B](02b-setq-and-set-in-fe-core.md) | 2 | `setq` as a core special form, `set` as a function; assignment `=` still works | 02A (its recorded answers are the spec) |
-| [02C](02c-the-equals-hard-cut-in-fe.md) | 2 | Migrate every Fe-owned caller (not only 99 script forms), delete assignment `=`, add chained numeric `=`, and publish language version 2 | 02B |
-| [02D](02d-kg-migration-and-el-cutover.md) | 2 | Migrate kg source/fixtures/benchmarks, delete the prelude `setq` macro, move the pin, and cut discovery to `.el` in one atomic commit | 02C |
+| [02A](02a-pin-the-target-semantics.md) ✅ | 2 | Record what `setq`, `set` and numeric `=` must do, from the oracle, before any of them is written | none — **this is first** |
+| [02B](02b-setq-and-set-in-fe-core.md) ✅ | 2 | `setq` as a core special form, `set` as a function; assignment `=` still works | 02A (its recorded answers are the spec) |
+| [02C](02c-the-equals-hard-cut-in-fe.md) ✅ | 2 | Migrate every Fe-owned caller (not only 99 script forms), delete assignment `=`, add chained numeric `=`, and publish language version 2 | 02B |
+| [02D](02d-kg-migration-and-el-cutover.md) ✅ | 2 | Migrate kg source/fixtures/benchmarks, delete the prelude `setq` macro, move the pin, and cut discovery to `.el` in one atomic commit | 02C |
 
 **02A is genuinely first, for the same structural reason 00A was.**  The
 parent plan says `set`'s interaction with lexical bindings "must be fixed
@@ -194,7 +194,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 |---|---|---|---|---|
 | 0 — freeze & baseline | Read-only arena counters: object/free slot counts, peak live objects, GC count, hooked into `MakeObject`/`CollectGarbage` | `GetDouble`/`GetNativeFn`-shaped trivial accessors, plus a few counter increments in existing functions | **+10** (measured raise, see Decision) | **Landed. Actual +4** (210 -> 214), so 6 of the 10 funded points are unspent |
 | 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | **Landed. Actual 0**, as predicted |
-| 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Next.** 02B spends, 02C measures the refund; 02B carries the Decision only if the smallest implementation crosses a cap |
+| 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Landed. Actual +6, and scc could not see it.** No cap crossed, so no Decision. scc stayed at 214/220 through both slices; `pmccabe`'s `fe.c` sum went 340 -> 350 (02B) -> 356 (02C), which is the real number. Phase 2's code sits past `fe.c:1010`, where scc's parser desyncs -- see the Phase 2 Status below |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | Provisional (milestone 1, not yet funded) |
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | Provisional (milestone 1) |
 | 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
@@ -220,7 +220,7 @@ widest uncertainty in the whole table.
 |---|---|---|---|---|
 | 0 — freeze & baseline | `test/lisp-compat/` manifest + checker | Python (`utils/`), not scc-scanned | 0 | n/a |
 | 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | **Landed. Actual −1** (5444 → 5443).  The estimate also assumed the 4 `(list 'quote nil)` workarounds would go; 01A left them, since removing them changes evaluated code and Phase 2 rewrites all four forms anyway |
-| 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Next (02D).**  The prelude is no longer C source, so its deletion does not repay scc; stop if runtime fallback logic or another branch makes this materially positive |
+| 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Landed. Actual +1** (5443 -> 5444), the `static_assert` line; the estimate held. pmccabe unchanged at 1246 symbols, 0 new/gone/improved |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | Provisional (milestone 1) |
 | 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | Provisional (milestone 1) |
 | 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
@@ -454,16 +454,84 @@ visible once the compile database was regenerated.  Twelve kg commits on
 `c43fc1a`.  The five sub-plan documents were removed at that point; this
 Status section and those commits are the record.
 
-**02A–02D, Phase 2, are not started (2026-08-04).**
+## Status — Phase 2
 
-Two gaps are carried forward from the first set rather than closed inside
-it, and neither blocks Phase 2:
+**02A complete, 2026-08-04.**  Fe `ecb1110`, kg pin `bbdb608`.  Three
+planned rows and 22 version-stamped Emacs 31.0.90 snapshots for `setq`,
+`set` and numeric `=`.  **Every one matched this set's predicted table**,
+so nothing had to be argued after the fact — which is the whole reason the
+slice went first.  A defect was found and fixed on the way through (fe
+`cf36951`, kg `61363f9`): `make -C fe compat-oracle`'s full run had been
+broken since the corpus outgrew 00B's five cases, because it enumerated by
+globbing `cases/` instead of reading `features.json` and so ran Emacs over
+the six `kg-policy` cases that have no oracle answer, aborting on
+`primitive-print`.  kg's `make lisp-compat-oracle` had the same failure
+latent.  Both full runs now complete with no snapshot changed.  Detail in
+`02a-pin-the-target-semantics.md`.
 
-- Three kg natives — `buffer-list`, `re-search-backward`,
-  `process-status` — have no test.  They are recorded in
-  `test/lisp-compat/features.json` as gaps with an owner, not quietly
-  covered.
-- The four `(list 'quote nil)` prelude workarounds survive.  01A took its
-  own "if in doubt" route: they are vestigial rather than wrong, removing
-  them changes evaluated code, and Phase 2 rewrites all four forms.  02D
-  deletes one of them as a side effect of deleting the `setq` macro.
+**02B complete, 2026-08-04.**  Fe `fb3e536` (+ `79a449f`), kg pin `fdd9f65`
+(+ `f5e75a2`).  `setq` and `set` as core forms via two small static helpers;
+assignment `=` still working; kg unchanged.  All five worked examples were
+re-run through `./fe` and match the pinned snapshots, including `(2 9)` and
+`((2 1) 2)`.  `make -C fe compat` 43 passed, up from 31.
+
+**02C complete, 2026-08-04.**  Fe `9fe0220` then `841df63`, exactly the two
+commits specified, plus `5cc0acb` from review.  One assignment spelling
+left; `=` is chained numeric equality; `FeVersion` 2.0 and
+`FE_LANGUAGE_VERSION 2` with `FE_API_VERSION` correctly unchanged.  All ten
+pinned numeric answers reproduce through `./fe`.  The migration found what
+no text search could: `scripts/macros.fe`'s `++` and `push` build their
+expansions *programmatically* as `(list '= sym ...)`, and left alone would
+have turned that file's own loop into an infinite one the moment the cut
+landed.
+
+**02D complete, 2026-08-04, and with it Phase 2.**  kg `1e3ab2a`, one
+atomic 81-file commit, plus `32070b1` from review.  53-definition
+`lisp/prelude.el`, three discovery paths cut to `.el` with no fallback, 52
+PTY files converted, and the negative tests that are the actual deliverable
+— including the `direct.fe` literal-path carve-out proving the cut is
+discovery-only.  All twelve CI stages green.
+
+### What Phase 2 cost, and the number that turned out not to mean anything
+
+kg's estimate was zero scc and kg moved **5443 → 5444**, the one point being
+a `static_assert`.  That prediction held exactly.
+
+Fe's did not, and the reason is worth more than the estimate was.  Fe was
+priced at **+20 to +30** and **scc did not move at all** — 214/220 before
+02B and 214/220 after 02C, across two new special forms, a new primitive, a
+deleted arm and a chained comparator.  Measured during 02B's review:
+`pmccabe`'s whole-file sum for `fe.c` went **340 → 350 → 356**.  `fe.c`'s
+first `'"'` character literal is at line 1010; scc's C parser desynchronizes
+there and undercounts afterwards, and every line Phase 2 wrote sits past it.
+
+So the +6 net that Phase 2 actually cost fe is a pmccabe number, and fe's
+scc ratchet is not measuring the file the work happens in.  This is 00A's
+spike seen from the other side — it found that *extracting* a quote-heavy
+region **raised** scc by 42 with no behaviour change — and the two together
+say the same thing: **fe's scc total is a floor, not a measurement.**
+Phases 3–5 are priced in that unit.  Phase 3's Decision is where this has
+to be settled, since Phase 3 is both the largest estimate in the table and
+the slice that moves the desync by splitting the file; a pmccabe-sum ratchet
+for `fe.c` is the obvious candidate and is deliberately not added here.
+
+### Carried forward
+
+- Three kg natives — `buffer-list`, `re-search-backward`, `process-status`
+  — still have no test, recorded as gaps with an owner in
+  `test/lisp-compat/features.json`.
+- The three surviving `(list 'quote nil)` prelude workarounds.  02D deleted
+  the fourth with the `setq` macro, as predicted; the rest are vestigial
+  rather than wrong.
+- **Two `(= X Y)` forms are now legitimate numeric comparisons kept on
+  purpose** (`test/test_perf.c` and `utils/bench.py`, both
+  `(= my-fill-column my-fill-column)`).  Anyone auditing for stale
+  assignment will find them; they are documented survivors, not misses.
+
+The first two of those came into Phase 2 from the first set and were not
+closed by it; neither blocked it.  01A took its own "if in doubt" route on
+the workarounds — vestigial rather than wrong, and removing them changes
+evaluated code.
+
+**Phase 3 — the frame machine — is the next set, and it is the largest
+single risk in the program.**

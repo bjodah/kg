@@ -276,4 +276,70 @@ both Lisp build configurations pass, and all twelve CI stages pass.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04, and with it Phase 2.**  One kg commit, `1e3ab2a`,
+81 files, exactly as the atomicity requirement demands — plus `32070b1`, a
+user-documentation gap found in review.  kg's gitlink is at fe `5cc0acb`.
+
+**What landed.**  Gitlink move and `static_assert(FE_LANGUAGE_VERSION == 2)`
+beside the unchanged `FE_API_VERSION == 1`, both inside `src/lisp_core.c`'s
+`#ifdef KG_USE_LISP` so `WITH_LISP=0` acquires no Fe header dependency.
+`lisp/prelude.fe` → `lisp/prelude.el`, **54 → 53 top-level definitions**
+with the `setq` macro and its `(list 'quote nil)` workaround deleted, the
+remaining 53 rewritten `=` → `setq` in place, and `internal--let` still
+first.  `lisp/auto-fill.fe` → `.el` (header spelling only; its Lisp already
+used `setq`).  All three discovery paths cut to `.el` with the `sizeof`
+literals updated, `src/syntax.c`'s `LISP_HL_extensions[]` likewise, the
+`prelude-setq` row and both files it owned deleted, 52 PTY YAML files / 61
+spellings converted, and every producer/consumer — `Makefile`,
+`utils/embed_lisp.py`, `utils/check_lisp_compat.py` (now scanning
+column-zero `(setq NAME ...)`), `test/lisp-compat/README.md`,
+`test_prelude_source_file` with `PRELUDE_DEFS 53` — moved with them.
+
+**The negative tests are the deliverable, not the renames.**  An `init.fe`
+with no `init.el` is ignored and adding `init.el` then loads; a real
+`legacy.fe` does not satisfy bare `(load "legacy")` and the error names
+`legacy.el`; a real `oldstyle.fe` does not satisfy bare `(require
+'oldstyle)`.  Against those, the literal-path carve-out: `direct.fe` is
+reached through both `(require 'direct-feature "…/direct.fe")` and
+`(load "…/direct.fe")`, with `require` run first while the feature is
+absent so path resolution is actually exercised.  `remove_config_root()`
+covers every new fixture, and a latent `after-cycle.fe` cleanup leak was
+fixed in passing.  Two `test_syntax.c` cases pin that `config.el` selects
+Lisp and `config.fe` leaves syntax unchanged.
+
+**Survivors, classified.**  Two `(= my-fill-column my-fill-column)` pairs —
+one in `test/test_perf.c`, one in `utils/bench.py` — kept deliberately as
+the documented legitimate numeric comparisons, keeping both files'
+representative workload identical.  `.fe` survives only in Fe's own
+artifacts, the three negative-test fixtures, the `direct.fe` regression, and
+prose describing the cut.  No `prelude-setq` and no `PRELUDE_DEFS 54`.
+
+**Gates.**  `make check` 32 native / 405 PTY; `make WITH_LISP=0 clean all
+check` 32 native / 337 pass + 68 skip — both re-run independently, both
+matching the documented baselines exactly.  `make lisp-compat-check` 181
+features (183 − kg's `prelude-setq` − fe's `primitive-assign-eq`), 53 kg
+prelude definitions.  kg scc **5443 → 5444**, the predicted zero within one
+point — the `static_assert` line — with pmccabe unchanged at 1246 symbols,
+0 new/gone/improved, and no cap touched in either tree.  **All twelve CI
+stages pass** from an idle tree against a freshly regenerated
+`compile_commands.json`; `ci-06` passed on the real translation unit, which
+is the trap the set's rules call out twice.
+
+**One CI failure was investigated rather than re-run away.**  The first
+full parallel run failed `ci-03` on `90c-compile-no-final-newline`, a tmux
+screen assertion waiting for a compile subprocess.  It has no Lisp content,
+02D does not touch it, and it passed 3/3 in isolation under the same
+valgrind runner and then in a solo `ci-03` at 405/405 — a timing flake
+under eight valgrind-slowed PTY jobs plus eleven other lanes, the failure
+mode `CI_PARALLEL_LANES` exists for.  Not a Phase 2 regression.
+
+**Documentation reviewed, not just renamed.**  `doc/fe-upstream.md` states
+both required versions, its update checklist verifies both, and the "`=`
+deliberately remains assignment" divergence row is replaced by the landed
+one.  Review caught the opposite failure elsewhere: `README.md` and
+`doc/kg.1` had *removed* the "`=` is assignment" caveats — correct, since it
+no longer diverges — without ever saying what `=` means now, and the
+README's form table listed neither `=` nor `set`.  `32070b1` adds a Numbers
+row, `set` to the Binding row, and an explicit upgrade note in both
+documents.  §0.4's "nobody to warn" licenses skipping compatibility
+machinery; it does not license silence about what changed.

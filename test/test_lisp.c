@@ -2342,6 +2342,128 @@ static void test_recursion_depth(void)
 	kg_lisp_shutdown();
 }
 
+/* Sub-plan 01A's second test path: lisp/prelude.fe is the canonical source
+ * and src/lisp_prelude_generated.inc is a generated copy of it that kg
+ * evaluates at startup.  `make lisp-prelude-check` proves those two files
+ * agree byte for byte; this proves the *file* and the *running editor*
+ * agree definition for definition, and that the definitions are in the
+ * order the prelude's first rule requires.
+ *
+ * It deliberately does not re-load the file into a booted context.  A
+ * second evaluation is not idempotent, for exactly the reason rule 1
+ * exists: `(= internal--let let)` aliases Fe's raw `let` primitive before
+ * the Emacs `let` macro shadows that name, so re-running it where the
+ * macro already exists would bind internal--let to the macro and break
+ * every list-library function that uses it.  That hazard is what the type
+ * assertions below detect -- internal--let must answer `primitive`, not
+ * `macro`, so a generator that ever reordered or dropped forms fails here
+ * rather than silently shipping a broken prelude.
+ *
+ * Arity is not asserted separately: kg's Lisp surface has no func-arity
+ * and a lambda's printed form carries no parameter list, so each
+ * definition's type plus the byte-identity check above is what is
+ * actually observable. */
+#define PRELUDE_DEFS 54
+
+static void test_prelude_source_file(void)
+{
+	static char names[PRELUDE_DEFS][64];
+	static char types[PRELUDE_DEFS][16];
+	static char text[65536];
+	const char *paths[] = { "lisp/prelude.fe", "../lisp/prelude.fe" };
+	FILE *fp = nullptr;
+	size_t len = 0, count = 0, i, let_index = PRELUDE_DEFS;
+	char *line;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		fp = fopen(paths[i], "r");
+		if (fp != nullptr) {
+			break;
+		}
+	}
+	CHECK(fp != nullptr);
+	if (fp == nullptr) {
+		return;
+	}
+	len = fread(text, 1, sizeof(text) - 1, fp);
+	fclose(fp);
+	text[len] = '\0';
+	/* The whole file has to have fit, or the scan below reports a short
+	 * count for a reason that has nothing to do with the prelude. */
+	CHECK(len > 0 && len < sizeof(text) - 1);
+
+	/* A definition is "(= NAME " in column 0; every continuation line in
+	 * the file is indented, so nothing nested is ever found here. */
+	for (line = text; line != nullptr; line = strchr(line, '\n')) {
+		const char *name_start, *value_start;
+		size_t name_len;
+
+		if (line[0] == '\n') {
+			line++;
+		}
+		if (strncmp(line, "(= ", 3) != 0) {
+			continue;
+		}
+		CHECK(count < PRELUDE_DEFS);
+		if (count >= PRELUDE_DEFS) {
+			break;
+		}
+		name_start = line + 3;
+		name_len = strcspn(name_start, " )\n");
+		CHECK(name_len > 0 && name_len < sizeof(names[0]));
+		memcpy(names[count], name_start, name_len);
+		names[count][name_len] = '\0';
+
+		/* The declared shape decides the type the editor must report:
+		 * a lambda form is a lambda, a macro form is a macro, and the
+		 * four bare-symbol forms are aliases of Fe primitives. */
+		value_start = name_start + name_len;
+		value_start += strspn(value_start, " ");
+		if (strncmp(value_start, "(lambda", 7) == 0) {
+			strcpy(types[count], "lambda");
+		} else if (strncmp(value_start, "(macro", 6) == 0) {
+			strcpy(types[count], "macro");
+		} else {
+			strcpy(types[count], "primitive");
+		}
+
+		if (strcmp(names[count], "let") == 0) {
+			let_index = count;
+		}
+		count++;
+	}
+
+	/* The count is pinned: a definition added or lost without an
+	 * accompanying manifest entry is 00C's checker's business, but one
+	 * added or lost without anyone noticing at all is this test's. */
+	CHECK(count == PRELUDE_DEFS);
+
+	/* Rule 1, structurally: the primitive alias comes first, and the
+	 * macro that shadows the name it aliased comes after it. */
+	CHECK(strcmp(names[0], "internal--let") == 0);
+	CHECK(let_index > 0 && let_index < PRELUDE_DEFS);
+	CHECK(strcmp(types[let_index], "macro") == 0);
+
+	CHECK(kg_lisp_init() == 0);
+	for (i = 0; i < count; i++) {
+		char source[128];
+
+		(void)snprintf(
+		    source, sizeof(source), "(type-of %s)", names[i]);
+		if (!eval_eq(source, types[i])) {
+			fprintf(stderr,
+			    "prelude definition %zu (%s): expected type %s\n",
+			    i, names[i], types[i]);
+			CHECK(0);
+		}
+	}
+	/* Rule 1 again, behaviourally this time: internal--let is still Fe's
+	 * one-binding primitive, so the list library it carries still works. */
+	CHECK(eval_eq("(reverse '(1 2 3))", "(3 2 1)"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_save_excursion(void)
 {
 	setup_editor();
@@ -2583,5 +2705,6 @@ int main(void)
 	RUN(test_void_variable);
 	RUN(test_cyclic_result);
 	RUN(test_recursion_depth);
+	RUN(test_prelude_source_file);
 	return test_summary();
 }

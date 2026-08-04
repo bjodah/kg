@@ -17,8 +17,7 @@ Three things, in order:
 2. The check that keeps the inventory alive: every one of Fe's 31
    primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
    kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 54
-   prelude definitions (src/lisp_prelude.c's lisp_prelude[] -- the
-   top-level "(= NAME ...)" forms across its three string literals)
+   prelude definitions (lisp/prelude.fe's top-level "(= NAME ...)" forms)
    appears in exactly one feature entry's "source_name" field, across the
    two manifests combined. A native or prelude definition added without a
    manifest entry fails this.
@@ -38,6 +37,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FE_C = ROOT / "fe" / "fe.c"
 LISP_PRELUDE_C = ROOT / "src" / "lisp_prelude.c"
+LISP_PRELUDE_FE = ROOT / "lisp" / "prelude.fe"
 FE_MANIFEST = ROOT / "fe" / "compat" / "features.json"
 KG_MANIFEST = ROOT / "test" / "lisp-compat" / "features.json"
 FE_CHECKER = ROOT / "fe" / "utils" / "check_compat_manifest.py"
@@ -80,29 +80,20 @@ def parse_kg_natives() -> set[str]:
 
 
 def parse_kg_prelude_defs() -> set[str]:
-	"""54 top-level "(= NAME ...)" definitions from lisp_prelude[]'s three
-	string literals in src/lisp_prelude.c.
+	"""54 top-level "(= NAME ...)" definitions from lisp/prelude.fe.
 
-	The array holds C string literals; every one of the 54 definitions is
-	a top-level form starting "(= NAME " right after a literal's own start
-	or a newline inside one (never nested -- the prelude's own bodies use
-	`setq`/`internal--let` for internal assignment, not bare `=`, once
-	`setq` exists partway through the file, and nothing before that point
-	nests a second "(= ..." inside the first). This is the same
-	comment-stripped, literal-concatenating extraction used throughout
-	this slice's own case-generation scratch work, cross-checked by hand
-	against a full standalone-fe evaluation of the extracted text.
+	Sub-plan 01A moved these out of three C string literals in
+	src/lisp_prelude.c and into a real Lisp source file, so this reads the
+	file rather than un-escaping C. A definition is a form starting "(= "
+	in column 0; nothing nested is ever in column 0, because every
+	continuation line in the file is indented.
 	"""
-	text = strip_c_comments(LISP_PRELUDE_C.read_text(encoding="utf-8"))
-	block = re.search(
-		r"static const char \*const lisp_prelude\[\] = \{(.*?)\n\};",
-		text, re.S)
-	if not block:
+	text = LISP_PRELUDE_FE.read_text(encoding="utf-8")
+	names = set(re.findall(r"(?m)^\(= (\S+)", text))
+	if not names:
 		raise SystemExit(
-			"FAIL: could not find lisp_prelude[] in src/lisp_prelude.c")
-	literals = re.findall(r'"((?:[^"\\]|\\.)*)"', block.group(1))
-	decoded = "".join(literals).encode().decode("unicode_escape")
-	return set(re.findall(r"(?:^|\n)\(= (\S+)", decoded))
+			"FAIL: no top-level (= NAME ...) forms in lisp/prelude.fe")
+	return names
 
 
 def load_manifest(path: Path) -> dict:
@@ -159,7 +150,7 @@ def check_source_coverage(fe_data: dict, kg_data: dict) -> list[str]:
 	*within the manifest that owns it*, not as one name flattened across
 	both files: fe's raw `let` primitive and kg's prelude `let` macro that
 	shadows it are two different source declarations (fe.c's
-	primitive_names[] vs src/lisp_prelude.c's lisp_prelude[]) that happen
+	primitive_names[] vs lisp/prelude.fe) that happen
 	to share a spelling, and both legitimately get their own entry, in
 	their own manifest -- see fe/compat/features.json's primitive-let and
 	test/lisp-compat/features.json's prelude-let. Flattening all three

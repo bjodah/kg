@@ -377,7 +377,7 @@ $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -394,6 +394,29 @@ docs-check:
 # not part of this or ordinary `make check`.
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
+
+# Phase 1 sub-plan 01A: lisp/prelude.fe is the canonical prelude source and
+# src/lisp_prelude_generated.inc is a checked-in, byte-for-byte copy of it,
+# so an ordinary build needs no Python.  These two targets are the drift
+# check that keeps the pair honest -- the same structural no-drift shape as
+# docs-check and header-check, which is why they sit beside them in `check`.
+# Regeneration writes into a temporary file and compares, so the check never
+# rewrites the tree it is checking.
+lisp-prelude-generate:
+	@$(PYTHON) utils/embed_lisp.py lisp/prelude.fe \
+		src/lisp_prelude_generated.inc
+
+lisp-prelude-check:
+	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
+	$(PYTHON) utils/embed_lisp.py lisp/prelude.fe "$$tmp" >/dev/null && \
+	if cmp -s "$$tmp" src/lisp_prelude_generated.inc; then \
+		echo "lisp-prelude-check: src/lisp_prelude_generated.inc matches lisp/prelude.fe"; \
+	else \
+		echo "lisp-prelude-check: src/lisp_prelude_generated.inc is stale" >&2; \
+		echo "  lisp/prelude.fe changed without running 'make lisp-prelude-generate'." >&2; \
+		diff -u src/lisp_prelude_generated.inc "$$tmp" | head -20 >&2; \
+		exit 1; \
+	fi
 
 # Regenerates/verifies test/lisp-compat/oracle/*.json against the resolved
 # Emacs, reusing fe/utils/run-emacs-oracle.py directly rather than copying
@@ -850,7 +873,7 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

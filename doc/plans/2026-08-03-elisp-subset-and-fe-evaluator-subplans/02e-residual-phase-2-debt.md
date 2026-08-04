@@ -210,4 +210,99 @@ the checked-in unit expectations, and no language answer is changing.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**  All three items closed in three focused kg
+commits, no fe change, no pin move.  `make check` (32 native / 406 PTY,
+one more PTY than the 32/405 baseline, exactly the "item 1 adds one PTY"
+the Gates section predicted), `make WITH_LISP=0 clean all check` (337
+pass + 69 skip, one more skip than baseline -- `lisp-process-status.yaml`
+is `requires_feature: lisp`), `make lisp-compat-check` (181 features
+across both manifests, 0 problems) and `make lisp-prelude-check` are all
+green from an idle, fully clean tree at the final commit.  Complexity is
+unmoved on both ratchets, measured before starting this slice and again
+at the end: kg scc **5444/5500** (unchanged), kg pmccabe **1246 symbols
+recorded, 1246 measured, 0 new, 0 gone, 0 improved** (unchanged); fe is
+untouched at **214/220** (`fe.c` 106/112).  None of it needed
+`.ci/run-ci-steps.sh`, per this slice's own scope.
+
+**Item 1 (`37be96a`).**  None of the three natives was broken -- 00C's
+2026-08-04 judgement holds unrevisited, exactly as this document
+predicted.  `buffer-list` and `re-search-backward` each got two to six
+focused `CHECK()`s added to the existing real-editor `test_lisp.c`
+fixtures named in the "Files this slice owns" table, no new test
+function for the former, one new `test_re_search_backward` function for
+the latter (a second gap on the same native fixture would have padded an
+unrelated test with an unrelated concern).  `re-search-backward`'s
+hand-derived offsets (second `\(foo\)bar` match in "foobar foobar",
+searched backward from `point-max`: return value and `match-beginning 0`
+both 8, `match-end 0` 14, group 1 8/11) passed on the first build, which
+is itself a small piece of evidence that `kg_regex_match_backward()`'s
+documented "last match ending at or before the limit" policy is exactly
+what the code does.  `process-status` got the new PTY case
+`test/pty/lisp-process-status.yaml`: one child immediately queried while
+still running (`'run`, read synchronously right after
+`start-shell-command`, no drain needed), two children whose sentinels
+read `(process-status p)` off their own first argument once terminated
+(`'exit` from `true`, `'signal` from `kill -KILL $$`) -- sidestepping any
+question about whether a `let*`-bound process handle is visible inside a
+later sentinel closure, since the sentinel's own first argument already
+names the process. 8/8 runs green (3 required by the operating rules,
+5 more for margin), `--jobs 1`.  All three manifest entries moved
+`unsupported` → `supported` with `kg_test` naming the real test and
+`rationale` cleared to `null`; the three case-file `note` fields drop
+"untested" wording and name the owning test, per the slice's own "do not
+change expressions" instruction.
+
+**Item 2 (`336afcf`).**  Ran the actual experiment rather than asserting
+an outcome: replaced all three surviving `(list 'quote nil)` forms (in
+`cond`, `defvar`, `interactive`) with bare `nil`, regenerated, and checked
+all four things the sub-plan named.  All four held --
+`make check` at the newly-discovered 32/406, `test_prelude_source_file`'s
+ordering pin, `make lisp-prelude-check` green with the generated `.inc`
+containing only those three substitutions (confirmed by decoding both the
+old and new checked-in byte arrays back to Lisp source and diffing that,
+not the checked-in file's own diff -- a flat `unsigned char[]` printed 16
+bytes/line reflows its *entire remainder* on any length change, so a
+three-line source diff is a several-hundred-line diff in the `.inc`;
+01A's own Status section anticipated exactly this by decoding for its
+proof, and this slice reused that method rather than trusting `git diff`
+on the generated file) -- and the three named behaviours already pinned
+in `test_prelude_forms`/`test_definition_forms` (`(cond)` is nil,
+`defvar` does not reassign an already-bound variable, top-level
+`(interactive)` reads as nil), unchanged by the swap and requiring no new
+assertion.  So the workarounds are gone, not kept: `lisp/prelude.el`'s
+header now states the four-workaround history and the four things that
+were checked, replacing the "vestigial rather than wrong" hedge 01A left.
+
+**Item 3 (`5644f14`).**  One comment above the form at each site
+(`test/test_perf.c`, `utils/bench.py`), worded equivalently so a later
+`grep -rn '(= '` audit finds both, exactly as specified.  The Lisp
+workload string itself is byte-for-byte unchanged at both sites --
+verified by diff, since a changed workload would have silently moved
+`lisp-arena-representative-init`'s baseline.
+
+### What this document got wrong
+
+Nothing in the three items' outcomes: the baseline counts, the "item 1
+adds one PTY" prediction, the "no scc movement expected" prediction, and
+the open-ended item 2 experiment (which the document explicitly refused
+to prejudge) all came out exactly as written or exactly as left open.
+
+One thing the document didn't anticipate, found while iterating on item
+2: **`make`'s dependency graph does not know `src/lisp_prelude.o` depends
+on `src/lisp_prelude_generated.inc`.**  There is no `-MMD`/`-MP` or
+`%.d`-style auto-dependency tracking in this Makefile, so
+`make lisp-prelude-generate` followed by a bare `make`/`make check` can
+report a fully green run against a *stale* `src/kg` that never recompiled
+`lisp_prelude.c` -- `lisp-prelude-check` validates the generated file
+against the source, not that the running binary embeds it. It cost
+nothing here (a `make clean` was already the right move to re-baseline
+complexity across the slice, and the discrepancy was only a header
+comment's byte count, not an evaluated form), but the same gap would
+silently pass a `make check` after a *behaviour*-changing prelude edit
+run without an intervening `make clean` or a touch of the generated file.
+Not fixed here -- out of this slice's scope -- but worth a line for
+whichever future slice next edits `lisp/prelude.el` under time pressure.
+
+**Phase 3 -- the frame machine -- remains the next set**, per the set
+README's Grouping and Sequencing sections; `03a` is unaffected by
+anything in this slice and was already clear to start in parallel.

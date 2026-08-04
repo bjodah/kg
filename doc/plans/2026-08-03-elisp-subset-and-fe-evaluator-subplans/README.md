@@ -693,6 +693,20 @@ optimum; 03C may retune it once real frame kinds exist to measure against
    because both depths sit far inside physical capacity (`peak_depth(200) =
    602`, `peak_depth(5000) = 15002`, both `< 2563`, and the logical check at
    1000 catches the 5000 case first exactly as it does today).
+
+   **And the object-slot cut is measured against kg, not assumed.**  The
+   −20.3% above is the one number in this Decision that could bite kg
+   silently, so it was checked against 00D's own counters rather than
+   argued: `utils/bench.py --case lisp-arena-representative-init` on the
+   counting build reports `lisp_arena_peak_live` **3132** of
+   `lisp_arena_total_slots` **63071** (5.0%), `lisp_gc_count` 0 and
+   `lisp_alloc_failures` 0 for kg's representative init corpus.  Against
+   the post-partition 50254 slots that is **6.2%** — a 16× margin, and the
+   same run's `lisp_peak_eval_depth` of **53** sits at 2% of the 2563-frame
+   capacity.  kg's real workload is nowhere near either ceiling; the
+   partition costs it headroom it demonstrably does not use.  This is the
+   arena-margin finding the set README's "no arena-size change in kg" rule
+   asks for, and it says the 1 MiB arena needs no change.
 2. **fe's 64 KiB fixtures still open**, with real but survivable headroom
    loss (1099 vs. 1631 object slots).  No existing `test_api.c` case is
    known to need more than that inside `TestArenaSize` — every depth-facing

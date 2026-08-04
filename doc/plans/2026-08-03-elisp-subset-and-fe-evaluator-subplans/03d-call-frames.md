@@ -1,4 +1,4 @@
-# 03D — Call frames: where the C stack actually stops growing
+# 03D — Call frames and the bounded native boundary
 
 Parent: [Phase 3](../2026-08-03-elisp-subset-and-fe-evaluator.md#7-phase-3--replace-recursive-evaluation-with-an-explicit-frame-machine).
 Fe-only; kg's pin moves with it.
@@ -10,11 +10,29 @@ Fe-only; kg's pin moves with it.
 The five frame kinds that make up a call are driven by the frame stack:
 call-head resolution, argument evaluation, lambda application, sequential
 body evaluation, and macro expansion — plus the native-call boundary, which
-is a frame kind whose whole job is that it *is* still C recursion and has
-to be accounted for.
+is the frame kind that marks the only place a callback may synchronously
+start another evaluator run.  An ordinary native invocation adds one fixed
+C activation; only nested native re-entry can make those activations grow.
 
-This is the slice where `(deep N)` stops consuming C stack.  03A's probe is
-the evidence, and its number is the deliverable.
+This slice makes a **call-only** Lisp chain stop consuming C stack.  The
+canonical `(deep N)` from 03A still contains `if`, arithmetic and assignment
+special forms, so it cannot be the flat-stack acceptance case until 03E.
+Claiming the full property here would test through the temporary recursive
+path this slice intentionally leaves in place.
+
+## Files this slice owns
+
+| File | Change |
+|---|---|
+| `fe/fe_eval.c` | Add call-head, argument-list, body, lambda, macro and native resumption frames; delete the corresponding recursive evaluator paths. |
+| `fe/fe_internal.h` | Add only the frame variants/state actually used by those handlers. |
+| `fe/test_api.c` | Generated finite call-chain probe, macro exhaustion/recovery, native re-entry/error and per-state GC tests. |
+| `fe/doc/implementation.md` | Record which evaluator paths are iterative and which special-form path is still temporary. |
+| the 03A Decision/this Status | Record frame peaks, C-stack deltas and the native-boundary benchmark comparison. |
+
+`fe/fe.c`, `fe.h`, reader/file entry points and kg runtime source do not
+move in this slice.  The ordinary separate, green Fe pin commit in kg still
+applies; final two-bound documentation waits for 03F.
 
 ## The frame kinds
 
@@ -31,6 +49,13 @@ the evidence, and its number is the deliverable.
 evaluate, so they stay ordinary functions called from the lambda frame.
 Resist converting them for symmetry; each frame kind is a permanent cost in
 both complexity and coverage.
+
+Preserve their existing `EvaluationStep()` placement while doing so:
+`EvaluateList` charges before each argument, `DoList` before each body form,
+and `ArgsToEnv` before each parameter walk.  A frame transition is not a
+step.  Run `TestEvaluationControl` unchanged after every conversion, then
+add a focused budget case for the newly resumed state rather than resetting
+all expected step counts to fit the implementation.
 
 ## The three hard parts
 
@@ -81,25 +106,34 @@ So the native frame kind's job is:
 
 - call the native with the same signature it has today — `FeNativeFn` is
   public API and does not change;
-- **capture an error raised inside it at the boundary** and convert it into
-  the evaluator's internal completion state, rather than letting it unwind
-  past the frame machine;
+- let an error raised inside it reach 03C's nearest active run catch and
+  become the evaluator's internal completion state, rather than reach the
+  host while frames are live;
 - **count the re-entry**, because a native that calls back into evaluation
   starts a nested frame-machine run on a fresh C frame.
 
-That counter is what `evaluation_depth` becomes.  Its limit is a small
-number — native re-entry is rare and shallow — rather than today's 1000.
-03F names it, gives it its own error, and rewrites the docs; this slice
-only has to make sure the boundary is a single, identifiable place where
-that counting can go.
+Introduce a private `native_reentry_depth` counter at this boundary now.
+Until 03F, cap it with the ambient legacy `max_depth`/default and report the
+old `evaluation depth limit exceeded` text, so no public expectation moves
+mid-migration.  Keep 03C's separate logical pair-depth compatibility
+counter for the old statistic.  03F gives native re-entry its own public
+option, measured smaller default, statistic and error; it must not first
+discover where to increment it.
 
-**Capturing `FeHandleError` at the native boundary is the delicate bit.**
-It does not return; it either `longjmp`s to `cleanup_catch` or reaches the
-host's `error_fn`.  Converting it into a completion means the boundary
-needs its own `setjmp`, in the same style `RunOneCleanupEntry` already
-uses.  That is a real cost — a `jmp_buf` per native call is not free — so
-measure it: `make bench` in kg has Fe throughput cases, and this is the
-slice that could move them.
+**Do not install a `setjmp` for every ordinary native call.**  03C already
+put one at each `RunEvaluation` barrier.  A native invoked by that loop is
+inside the lifetime of that catch; a direct `FeHandleError()` unwinds its C
+activation to the loop, while a native that calls `FeCall*` creates one
+nested run and therefore one nested catch.  Save and restore both the
+active catch pointer and the native-reentry counter at that boundary.  A
+`jmp_buf` must remain an automatic in the live `RunEvaluation` invocation;
+never copy one into a frame or keep its address after that invocation
+returns.
+
+Benchmark the nested-native cases because a nested run now pays `setjmp`,
+but do not describe or optimize a per-native cost that the design does not
+have.  Direct calls to public helpers such as `FeCar()` outside an evaluator
+run must continue to reach the host error callback directly.
 
 ### 3. `newenv` is `let`'s environment threading, and it is not a call
 
@@ -130,29 +164,51 @@ flatten it and by how much — is worth more in the Status than a single
 final figure, because it is what tells the next reader where the C stack
 was actually going.
 
+The probe for this slice is generated by `fe/test_api.c`, not written as a
+100000-form checked-in fixture.  Build a finite chain such as
+`f0 -> f1 -> ... -> stack-probe` from zero-argument lambdas, size its arena
+from the generated source plus the 03A frame/object formula, and compare the
+callback frame address with the direct probe.  Use depths that fit routine
+CI (record the chosen maximum and observed peak frames); the 100000-deep
+mixed-form gate belongs to 03E/03F.  A self-recursing lambda is useful for
+frame exhaustion but cannot measure the deepest successful address because
+it never reaches the probe.
+
 ## Tests owned by this slice
 
 From the parent plan's required-stress list, the ones this slice's frame
 kinds make testable:
 
-- **deep lambda call chains** — `(deep N)` for N well past today's limits,
-  with the probe flat;
+- **a generated, finite lambda call chain** well past today's C-stack-safe
+  depth, with the probe flat and the result correct; do not use `(deep N)`
+  yet;
 - **recursively expanding macros** — bounded by the frame limit, raising
-  deterministically, context reusable afterwards;
-- **native re-entry into evaluation** — a native that calls back in, with
-  an error raised on the inner side and caught correctly on the outer;
+  deterministically, context reusable afterwards.  Put the transitional
+  logical `max_depth` above physical capacity so this actually reaches the
+  frame push check, as in 03C's exhaustion test;
+- **native re-entry into evaluation** — a test native recursively calls
+  `FeCallWithOptions` under an explicitly small legacy `max_depth`, first
+  up to the temporary allowed bound and then one beyond it; assert the old
+  transitional error, original trace, cleanup execution and successful
+  context reuse.  Do not drive the default 1000 nested C calls just to test
+  an off-by-one;
 - **GC during every resumable frame state** this slice adds, extending
-  03C's mechanism;
+  03C's mechanism.  Use a table of state/setup/expected-result cases and
+  assert `collection_count` moved; do not duplicate the whole evaluator
+  suite once per state;
 - **error recovery followed by successful reuse of the context**, at each
-  new frame kind.
+  distinct error/unwind route, not mechanically once per enum value.
 
 Plus the ones that already exist and must not move: 03A's backtrace
-goldens, `test_api.c`'s depth/budget/cleanup tests, all 19 `scripts/*.fe`,
-and the strict-arity pass.
+goldens, `test_api.c`'s depth/budget/cleanup tests, every discovered
+`scripts/*.fe` case, and the strict-arity pass.  Do not hard-code the script
+count: 03A adds cases before this slice.
 
-kg's suite is the other half of the evidence, and it is not optional: 69
-Lisp PTY cases, `test/test_lisp.c`, and the compatibility corpus.  Run them
-on the pin commit.
+kg's suite is the other half of the evidence, and it is not optional:
+`test/test_lisp.c`, all discovered Lisp PTY cases, and the compatibility
+corpus.  Run them on the pin commit.  Do not regenerate Emacs oracle
+snapshots; a byte change is a regression to explain, not a new expected
+answer.
 
 ## Gates
 
@@ -168,21 +224,26 @@ check`, and `.ci/run-ci-steps.sh --parallel` — the `lisp-process-*` cases
 under valgrind are the standing flake class and a lone failure there is a
 flake until a standalone `ci-03` re-run says otherwise.
 
-`make bench` (kg, against a counting build) for the native-boundary
-`setjmp` cost.  It is not a CI gate and must not become one; it is evidence
-for the Status.
+`make bench` (kg, against a counting build) before and after, with particular
+attention to cases that execute nested editor natives.  It is not a CI gate
+and must not become one; record counters first and medians/p95 second, and
+do not fail the slice on a noisy wall-clock delta alone.
 
 ## What this does not do
 
 - **No special forms.**  `if`, `and`, `or`, `while`, `let`,
   `unwind-protect` and the assignment forms are 03E.
-- **No bound changes.**  `evaluation_depth` still counts `Evaluate()`
-  re-entries and still says `evaluation depth limit exceeded`; the frame
-  bound from 03C is a separate, already-existing limit.  03F is where they
-  are named and separated.
-- **No deletions.**  The temporary recursive path is still reachable for
-  everything not converted here.
+- **No public bound changes.**  Preserve the old option and message while
+  maintaining 03C's logical pair-form depth at semantic expression
+  enter/leave points.  Do not keep incrementing it only around now-deleted
+  recursive helpers; 03F is where the two real bounds receive public fields
+  and messages.
+- **No deletion of the temporary dispatch.**  Delete call-specific
+  recursive helpers only after their callers have moved, but keep the one
+  temporary path reachable for everything 03E has not converted.
 - **No public API change.**
+- **No full `(deep 100000)` claim.**  Special-form recursion remains until
+  03E; testing only call frames cannot establish the phase gate.
 
 ## Status
 

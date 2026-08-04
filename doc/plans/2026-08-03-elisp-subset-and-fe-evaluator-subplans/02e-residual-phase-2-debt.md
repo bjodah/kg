@@ -20,6 +20,19 @@ by it.  Neither blocked anything, which is exactly why they are still open;
 this slice exists so that Phase 3 — the largest slice in the program — does
 not start with an inherited to-do list attached to it.
 
+## Files this slice owns
+
+| File | Change |
+|---|---|
+| `test/test_lisp.c` | Extend the existing real-editor fixtures for `buffer-list` and backward regexp search. |
+| `test/pty/lisp-process-status.yaml` | Exercise live, normally exited and signalled process states through real tmux-backed children. |
+| `test/lisp-compat/features.json` and the three matching `cases/*.json` notes | Close the recorded gaps and remove stale “untested” prose without changing the case expressions. |
+| `lisp/prelude.el` and `src/lisp_prelude_generated.inc` | Settle the three quote-nil workarounds; the include changes only through the generator. |
+| `test/test_perf.c` and `utils/bench.py` | Add matching intent comments above the two deliberate numeric comparisons. |
+
+No production native implementation changes unless one of the new tests
+finds a real defect; such a fix is its own focused commit.
+
 ## Item 1 — the three untested kg natives
 
 `test/lisp-compat/features.json` records three natives whose `kg_test`
@@ -37,25 +50,43 @@ that judgement is not being revisited here.  What is missing is a test that
 would notice if one broke.
 
 **Write the cheapest test that actually exercises the native**, per the
-project's own rule about which harness to use:
+project's own rule about which harness to use.  The harness question is
+settled by the current tree; do not rediscover it while implementing:
 
-- `buffer-list` returns real buffer objects, so it needs real buffers.  A
-  `test/pty/*.yaml` case that visits two files and asserts on a
-  `buffer-list`-derived string is the honest one; a unit test against the
-  `stubs_lispobj.o` stub would assert the stub.
-- `re-search-backward` is pure logic over a buffer's text.  `test_lisp.c`
-  can drive it if the fixture buffer is real there; if the existing Lisp
-  unit harness cannot produce buffer text, use a PTY case rather than
-  widening the stub set.
-- `process-status` needs a live child, and the project notes are explicit
-  that real-child async output needs `backend: tmux`.  Expect this one to
-  be the slowest and the only one that can flake; if it joins the standing
-  `lisp-process-*` flake class, say so in the Status rather than tuning
-  delays until it is quiet.
+- Extend `test/test_lisp.c:test_buffer_objects` for `buffer-list`.  That
+  test already uses `setup_editor()` plus the real buffer manager, creates
+  a hidden buffer with `get-buffer-create`, and compares real Fe buffer
+  objects.  Assert all three parts of the native's contract: the current
+  buffer is first, each live buffer occurs once, and the created hidden
+  buffer is present.  Do not add a PTY case merely because the result type
+  is an editor object; this unit fixture is not `stubs_lispobj.o`'s fake.
+- Extend `test/test_lisp.c:test_re_search_and_match_data` for
+  `re-search-backward`.  Give the row at least two possible matches, start
+  at `point-max`, and assert the chosen match's start plus group 0/1
+  `match-beginning`/`match-end`.  Add a bound/no-match assertion that point
+  and the previous match data behave exactly as the current
+  `lisp_search()` contract says.  This deliberately pins kg's
+  `kg_regex_match_backward()` selection policy; it is not an Emacs
+  differential case.
+- Add `test/pty/lisp-process-status.yaml`, `backend: tmux`, for
+  `process-status`.  Record `'run` immediately for a deliberately
+  long-lived child, and record `'exit` and `'signal` from sentinels for a
+  normally exiting child and a self-signalling child.  Have a later bound
+  command insert those saved symbols into the case's file, following
+  `lisp-process-filter-sentinel-order.yaml`'s safe-point/drain pattern.
+  Keep `key_delay` and the finite number of drain keypresses explicit.  Do
+  not use a blind `sleep` in the harness or assert callback order unless
+  the case actually needs it.
 
-Then **replace each `GAP:` string with the real test's path**, so
-`utils/check_lisp_compat.py` keeps carrying an accurate inventory.  Do not
-delete the entries; they are the census.
+Then update the same three entries in
+`test/lisp-compat/features.json`: replace `kg_test`, change `status` from
+`unsupported` to `supported`, and clear the gap-only `rationale` to `null`.
+Remove “untested” wording from the matching case-file `note` fields and
+name the owning kg test there; do not change their expressions or pretend
+the kg-policy JSON is an executable editor fixture.  Do not delete the
+entries or their `cases`; they are the census.  Run
+`make lisp-compat-check` after editing -- it validates the complete entry,
+not just the path string.
 
 If a native turns out to be broken after all, that is a finding, not a
 scope expansion: fix it in its own commit, with the test that found it, and
@@ -79,15 +110,26 @@ fourth (in the now-deleted `setq` macro).
 
 **Decide, once, with evidence, and write the answer into the file.**  The
 evidence is one experiment, not an argument: replace each `(list 'quote
-nil)` with bare `nil`, and check that
+nil)` with bare `nil`, run `make lisp-prelude-generate`, and check that
 
-- `make check` is green (32 native suites, 405 PTY cases);
-- `test_prelude_source_file`'s definition-order pin still holds;
-- `make lisp-prelude-check` regenerates identically; and
+- `make check` is green at the runner's newly discovered count (the
+  pre-slice baseline is 32 native suites / 405 PTY cases, and item 1 adds
+  one PTY);
+- `test/test_lisp.c:test_prelude_source_file`'s definition-order pin still
+  holds;
+- `make lisp-prelude-check` reports the generated include current, and the
+  diff of `src/lisp_prelude_generated.inc` contains only those three source
+  substitutions; and
 - the specific behaviours these guard still hold — `(cond)` with no
   matching clause is nil, `defvar` on an already-bound variable does not
   reassign, and a top-level `(interactive)` is inert **and** returns
   something that a surrounding `progn` treats as nil.
+
+The named behaviour checks already exist in
+`test/test_lisp.c:test_prelude_forms` and `test_definition_forms`; extend
+those functions only if the experiment exposes a missing assertion.  In
+particular, do not create three duplicate PTY cases for pure prelude
+semantics.
 
 If all four hold, delete the workarounds and rewrite the header paragraph
 to say they are gone.  If any fails, keep the workaround, and replace the
@@ -115,13 +157,16 @@ the benchmark needs.  It is not a missed assignment migration, and the set
 README says so, but the README is not where someone auditing
 `grep -rn '(= '` will look.
 
-Add a one-line comment at each site saying it is a comparison on purpose.
-That is the whole item.
+Add a one-line comment immediately above the form at each site saying it is
+a numeric comparison on purpose and that the return value is deliberately
+discarded.  Keep the two comments equivalent so a later text audit finds
+both.  That is the whole item; do not change the benchmark workload.
 
 ## Tests owned by this slice
 
-- The three new native tests above (one per gap), each named for the
-  native it covers.
+- Two focused assertions in existing `test/test_lisp.c` tests and one new
+  `test/pty/lisp-process-status.yaml` case, together covering one native
+  per gap.
 - No new test for items 2 and 3: item 2's proof is the existing suite plus
   the four behaviour checks listed, and item 3 is a comment.
 
@@ -145,6 +190,10 @@ measured 2026-08-04.  Fe is untouched at **214/220**.
 This slice does **not** need `.ci/run-ci-steps.sh --parallel` on its own;
 it is not a workstream.  It is, however, a fine thing to fold into the
 first full run Phase 3 does.
+
+Do **not** run or regenerate the Emacs oracle snapshots.  All three natives
+are `comparison: kg-policy`, the prelude experiment is already covered by
+the checked-in unit expectations, and no language answer is changing.
 
 ## What this does not do
 

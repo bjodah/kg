@@ -7,13 +7,17 @@ against the same tree on 2026-08-04, and this Phase 3 set was written
 against the tree as it stands after Phase 2 closed.  Read the parent's §0
 (verified baseline), §0.1 (the two complexity ratchets), §0.2 (the
 translation-unit decision) and §0.3 (scope honesty) before any of these;
-they are the facts these documents assume.
+they are the facts these documents assume.  Where the parent's Phase 3
+section still names the pre-Phase-2 script/PTY counts or leaves a mechanism
+at requirement level, this implementation-audited set controls; do not edit
+tests back to those older counts.
 
 Measured on the audited tree, 2026-08-04, and re-measured rather than
 carried forward per Rule 6: kg **5444/5500** scc, **32 native / 405 PTY**
 (**337 pass + 68 skip** under `WITH_LISP=0`), **69** Lisp PTY cases; fe
 **214/220** scc with `fe.c` at **106/112**, `fe.c`'s pmccabe sum **356
-across 135 symbols** (worst function `EvaluatePrimitive` at 15), and
+across 135 symbols** (worst function `EvaluatePrimitive` at 15), all
+`PMCCABE_PATHS` **500 across 202 symbols**, and
 `FeMinimumArenaSize()` **43536 bytes** against kg's 1 MiB arena.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
@@ -75,8 +79,8 @@ argument.
 | [03A](03a-measure-and-fund-the-frame-machine.md) | 3 | The C-stack probe, backtrace characterization, a split-proof complexity ratchet, the frame-storage sizing answer, and Phase 3's dated Decision | none — **this is first** |
 | [03B](03b-translation-unit-split.md) | 3 | `fe.c` → `fe.c` + `fe_eval.c` behind a private `fe_internal.h`; the eleven kg build sites and the `doc/fe-upstream.md` promise | 03A (the spike must have priced this exact cut) |
 | [03C](03c-frame-substrate.md) | 3 | Evaluator state, bounded context-owned frame stack, GC rooting, checkpoints and the call trace off the C stack; leaf paths only | 03B |
-| [03D](03d-call-frames.md) | 3 | Head resolution, arguments, lambda, body, macro expansion, and the native-re-entry boundary — where `(deep N)` stops consuming C stack | 03C |
-| [03E](03e-special-form-frames-and-unwind.md) | 3 | `if`/`and`/`or`/`while`/`let`/`setq`/`set`/`unwind-protect`, cleanup checkpoints in frames, and deleting the recursive path | 03D |
+| [03D](03d-call-frames.md) | 3 | Head resolution, arguments, lambda, body, macro expansion, and the native-re-entry boundary; pure call chains become flat | 03C |
+| [03E](03e-special-form-frames-and-unwind.md) | 3 | `if`/`and`/`or`/`while`/`let`/`setq`/`set`/`unwind-protect`, frame-aware cleanup, deleting the recursive path, and the first full flat-`deep` result | 03D |
 | [03F](03f-two-bounds-the-api-break-and-the-kg-pin.md) | 3 | Split `evaluation_depth` into two bounds, rename the `FeEvalOptions`/`FeArenaStats` fields, `FE_API_VERSION` 2, every stale document, and kg | 03E |
 
 **03A is genuinely first, for the same structural reason 00A and 02A
@@ -101,12 +105,40 @@ helpers are reached *from a frame* and deleted as their frame kinds land.
 03E's deletion checklist is what closes that out; anything left on it at
 the end of 03E is either used or dead.
 
+Do not confuse the two flatness milestones.  03D proves a generated finite
+chain containing only calls no longer grows the C stack.  The canonical
+`(deep N)` also contains `if` and arithmetic; it cannot go flat until 03E
+converts those special-form/primitive continuations.  03F does not finish
+evaluator logic: it publishes the already-working bounds and makes the
+100000-depth measurement a permanent assertion.
+
 **03F is last because it is the only slice that edits an existing
 expectation.**  Bounds, error strings, public field names and
 `test_recursion_depth` all move there, together with the version bump and
 the kg pin.  A pin-only commit is impossible by construction:
 `src/lisp_core.c`'s `static_assert(FE_API_VERSION == 1)` fires, which is
 exactly the state that assertion exists to make impossible.
+
+## Handoff contract
+
+Give one engineer one row at a time.  The linked sub-plan's “Files this
+slice owns”, test list and “does not do” section are part of the acceptance
+criteria, not suggestions.
+
+| Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
+|---|---|---|---|
+| 02E | kg `test/test_lisp.c`, one tmux PTY, compat manifest, prelude/comments | two existing unit fixtures, one real-child status case, generated-prelude identity | no new oracle answer; no PTY for pure prelude/native logic |
+| 03A | Fe test/scripts, pmccabe checker/Makefile, Decision docs | pre-change stack measurements, semantic trace goldens, failing total-budget perturbation | no evaluator implementation; no Emacs differential |
+| 03B | `fe.c`/`fe_eval.c`/private header and both build systems | byte-identical Fe goldens, conserved pmccabe total, full Fe/kg build lanes | no behavioural test or golden rewrite |
+| 03C | frame storage/loop/root/error substrate, arena docs | exact step pins, forced-GC roots, physical exhaustion/reuse, unchanged trace | no claim that leaf conversion makes full recursion flat; no PTY |
+| 03D | call/lambda/macro/native frames | generated pure-call-chain flatness, macro exhaustion, nested-native error/reuse, per-state GC | no `(deep 100000)` claim; no special-form migration |
+| 03E | remaining primitive/special-form continuations and unwind | primitive order table, every distinct resumption under GC/budget/cancel, cleanup LIFO/failure, full probe observation | no strict-arity changes and no internal-state PTYs/oracle regeneration |
+| 03F | public Fe fields/version/stats, kg mirrors/perf/tests/docs | exact two-bound edges, permanent 100000 probe gate, kg frame exhaustion/recovery, full runners | no language additions, arena increase or compatibility alias |
+
+For all rows, current suite counts are a starting census, not literals to
+assert: 02E and 03A intentionally add cases.  Focused tests run while
+iterating; the full Fe runner closes the Fe workstream before the final pin,
+and kg's full parallel runner closes Phase 3.
 
 ## Compatibility direction
 
@@ -140,10 +172,10 @@ it is the wrong one.
                              03C  frame substrate, GC rooting, leaf paths
                                   │
                                   v
-                             03D  call frames  ── C stack stops growing here
+                             03D  call frames  ── pure call chain is flat
                                   │
                                   v
-                             03E  special forms, unwind-protect, deletion
+                             03E  special forms, unwind, deletion ── full Lisp flat
                                   │
                                   v
                              03F  two bounds, FE_API_VERSION 2, kg sources
@@ -159,7 +191,9 @@ nothing Phase 3 touches, and exists so that the program's largest slice
 does not start with an inherited to-do list attached to it.
 
 Every fe slice moves kg's pin in its own separate green kg commit (Rule
-10).  Only 03F changes kg *sources*.
+10).  03B changes kg build rules, 03C may update the arena-layout source
+comment and documentation, and 03F is the only slice that changes kg's Fe
+API mirror, counters or runtime-facing expectations.
 
 ## What this set deliberately does not do
 
@@ -167,7 +201,10 @@ Every fe slice moves kg's pin in its own separate green kg commit (Rule
   every slice's correctness argument depends on that: existing goldens,
   existing `test_api.c` expectations, existing PTY cases, unedited.  The
   one exception is 03F, whose edits are bounded to the bound names, the
-  error strings and the field names — and if a `comparison: emacs` compat
+  error strings, resource ceilings/statistics and field names.  “Neutral”
+  means successful programs retain values, side effects, ordering and
+  diagnostics below those explicit ceilings; it does not pretend a new
+  physical frame limit is unobservable.  If a `comparison: emacs` compat
   case moves in any slice, that is a finding to record in the manifest with
   an oracle case, not a golden to update.
 - **No second evaluator, and no evaluator mode switch.**  The parent plan
@@ -180,11 +217,14 @@ Every fe slice moves kg's pin in its own separate green kg commit (Rule
   and budget-exhaustion stay *internal and unreachable*.  Nothing about
   them may appear in `fe.h`, in an error message, or in the compat
   manifest — an unreachable enumerator in a private header is cheap, a
-  host-visible one is a promise.  Conditions are Phase 6.
-- **No Lisp-2, no integers.**  Phases 4 and 5.  In particular 03E must not
-  restructure `ARITH_OP`/`NUM_CMP_OP` beyond what a frame-driven argument
-  list requires: those macros are the template Phase 5 extends for
-  mixed-type arithmetic.
+  host-visible one is a promise.  Existing interrupt and step-limit failures
+  continue to travel as ordinary errors in Phase 3; they do not make the
+  future `quit`/`budget exhaustion` variants public or reachable yet.
+  Conditions are Phase 6.
+- **No Lisp-2, no integers.**  Phases 4 and 5.  03E may replace
+  `ARITH_OP`/`NUM_CMP_OP` only as required for resumable evaluation, while
+  preserving their per-operand type-check and extra-argument behaviour;
+  it must not pre-empt Phase 5's mixed-type arithmetic design.
 - **No third translation unit.**  03B extracts the evaluator and stops.
   The reader stays in `fe.c` with its `'"'` literals and its scc desync;
   after 03A the ratchet that matters for the core is blind to none of it.
@@ -228,10 +268,13 @@ One more, learned the hard way during Phase 2 and binding on this set:
   measurement and `scc`'s total is a floor.**  Phase 2 added two special
   forms, a primitive and a chained comparator, deleted an arm, and scc
   moved by exactly zero.  03A makes this structural by adding a pmccabe
-  total ratchet — the measure a translation-unit split conserves — and
+  total **funded budget** — the measure a translation-unit split conserves
+  — beside the existing per-symbol ratchet, and
   Phase 3's Decision records which gate is authoritative for the core from
-  then on.  Do not price, report or bank a Phase 3 change in scc units
-  without the pmccabe number beside it.
+  then on.  The audited starting total is **500 across 202 symbols**;
+  `make pmccabe-baseline` may migrate per-symbol path keys but may not raise
+  the Makefile's total budget.  Do not price, report or bank a Phase 3
+  change in scc units without the pmccabe number beside it.
 
 Two more, learned the hard way during the first set:
 
@@ -239,7 +282,10 @@ Two more, learned the hard way during the first set:
   391 PTY cases where the tree has 32 and 405, because two `make`
   invocations were clobbering each other's objects.  The real numbers are
   **32 native / 405 PTY**, and **337 pass + 68 skip** under `WITH_LISP=0`.
-  Anything else means contention until proven otherwise.
+  These are the 2026-08-04 starting baseline; later slices deliberately add
+  tests, so compare the runner's discovered total with the prior slice
+  rather than demanding these numbers forever.  An unexplained decrease or
+  an early mismatch still means contention until proven otherwise.
 - **A CI lane run against a stale `compile_commands.json` is not
   evidence.**  `ci-06` passed on a single-lane run that was analysing the
   pre-change translation unit, and then failed in the full parallel run on

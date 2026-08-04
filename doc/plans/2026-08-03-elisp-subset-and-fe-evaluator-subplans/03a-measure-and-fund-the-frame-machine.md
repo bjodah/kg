@@ -30,6 +30,20 @@ At the end of this slice, before one line of frame-machine logic exists:
 
 No language behaviour changes.  No evaluator code changes.
 
+## Files this slice owns
+
+| File | Why it changes |
+|---|---|
+| `fe/test_api.c` | Add the probe native, dynamic large-arena fixture, and the pre-change measurement/reporting test. |
+| `fe/scripts/frame-trace-*.fe` and matching `fe/tests/*.out`/`*.err` | Pin the existing semantic call trace before its C-stack representation disappears. |
+| `fe/utils/check_pmccabe_complexity.py` | Teach the existing checker to enforce a funded whole-program total as well as per-symbol limits. |
+| `fe/Makefile` | Pass the total cap to the checker and document why pmccabe, not scc, is authoritative for the evaluator. |
+| `fe/.ci/pmccabe-baseline.json` | Record the re-measured symbol set; do not use it as an unreviewed way to raise the funded total. |
+| this sub-plan and the set `README.md` | Record the measurements and the dated storage/complexity/backtrace Decision. |
+
+There is no production `fe.c`/`fe.h` change in the landed slice.  The
+throwaway split spike is the only exception, and is deleted before commit.
+
 ## 1. The C-stack probe
 
 ### Why it cannot be deferred
@@ -44,13 +58,19 @@ measurements, and a crash point cannot show that a number stopped growing.
 
 ### Shape
 
-A native registered by the test binary that records the address of one of
-its own automatics, invoked from the deepest point of a Lisp recursion:
+A native registered by `test_api` records its own actual C frame address,
+invoked from the deepest point of a Lisp recursion:
 
 ```c
-// Records (uintptr_t)&probe_local into test-owned state.
+// Requires no args, records (uintptr_t)__builtin_frame_address(0), then
+// returns FeMakeDouble(ctx, 0) so `deep` can add while unwinding.
 static FeObject* StackProbe(FeContext* ctx, FeObject* args);
 ```
+
+Record the address before constructing the return object.  Returning zero
+is part of the fixture: `(deep n)` must also assert the result is `n`, so a
+probe that ran at the wrong semantic point cannot still satisfy the stack
+assertion by accident.
 
 driven by
 
@@ -58,34 +78,59 @@ driven by
 (defun deep (n) (if (<= n 0) (stack-probe) (+ 1 (deep (- n 1)))))
 ```
 
-The measurement is `|probe_address - reference_address|`, where the
-reference is an automatic in the test function that starts the evaluation.
-Today that difference grows linearly in `n`; after Phase 3 it must be
-constant to within one frame's worth of slop.
+Measure **the same native against itself**: first call `(stack-probe)` at
+depth zero, then compare that callback frame address with the address seen
+at depth `n`.  Do not use an automatic in the outer test function as the
+reference; that mixes the fixed test-to-evaluator call path into the number
+and makes compiler layout changes look like evaluator growth.  Convert the
+pointers to `uintptr_t` and take an integer absolute difference, so stack
+growth direction does not matter.
 
-This is portable, needs no platform interfaces, costs one native and one
-test, and — importantly — it measures the property the gate names rather
-than a proxy for it.
+Use `__builtin_frame_address(0)`, not the address of a `volatile` local.
+AddressSanitizer may place an address-taken local on its fake stack, which
+would make the ASan row a heap-layout measurement rather than a C-stack
+measurement.  GCC and Clang both support the depth-zero builtin, and the
+indirect `FeNativeFn` call keeps the probe as a real frame.  This is
+deliberately a supported-toolchain measurement, not a claim of ISO-C
+portability; do not request a nonzero builtin depth, which is the unsafe and
+warning-prone form.
+
+Today the delta grows linearly in `n`; after Phase 3 the deltas at the three
+gate depths must differ only by a small, recorded tolerance.  Pick the
+tolerance from repeated post-change runs under the default and sanitizer
+builds; do not call an unexplained constant "one frame's worth".
+
+This needs no platform stack-introspection API, costs one test-only native
+and one test, and — importantly — measures the property the gate names
+rather than a crash-point proxy.
 
 ### What to record now
 
-Run it at `n` = 10, 100, 400 and whatever the largest value is that the
-current recursive evaluator survives in each of the default, ASan/UBSan and
-MSan builds, and write the table into this document's Status.  Expect the
-per-level cost to differ substantially between builds; that difference is
-the whole reason `DefaultEvaluationDepth` exists, and it is why the
-post-Phase-3 gate has to be "flat", not "under N bytes".
+Run it at `n` = 10, 100, 200 and the largest value the current recursive
+evaluator survives in each of the default, ASan/UBSan and MSan builds, and
+write the table into this document's Status.  Discover the last value by a
+bounded search below the configured depth error; do not deliberately drive
+a sanitizer process into a host-stack crash.  Record both the address delta
+and the observed Fe error.  Expect the per-level cost to differ substantially
+between builds; that difference is the whole reason
+`DefaultEvaluationDepth` exists, and it is why the post-Phase-3 gate has to
+be "flat", not "under N bytes".
 
 `(deep 100000)` will not run today.  Record that it does not, and at what
-`n` and with which error each build stops.  That is the row Phase 3 has to
-change.
+`n` and with which Fe error each build stops.  That is the row Phase 3 has
+to change.  The post-change large run belongs in a dynamically allocated
+arena in `test_api.c`; `./fe -s` cannot run it because the standalone
+interpreter does not register the test-only `stack-probe` native.
 
 ### How it enters CI
 
-**Not as a gate yet.**  It lands as a test that prints and records, and
-whose only assertion is the weak one that it ran.  03F turns it into the
-gate, once there is something to gate.  A gate that asserts the pre-change
-behaviour would have to be edited by the change, which makes it decoration.
+**Not as a flatness gate yet.**  It lands in `TestEvaluationStackProbe` with
+only durable assertions: the shallow probe was invoked, the reported
+address is nonzero, and the expected pre-change depth error is recovered
+without poisoning the context.  It prints the measurement rows.  03F adds
+the flatness assertion and the dynamically sized 100000-depth run.  Do not
+assert linear growth now; a test designed to fail when the implementation
+improves is decoration.
 
 ## 2. Characterizing the backtrace
 
@@ -111,13 +156,24 @@ stack of its own), and its *printed output must not change*, because those
 golden files are compared byte-for-byte by `test.sh`.
 
 The existing goldens cover this surface unevenly: they are whatever
-backtraces the existing scripts happen to produce.  **Add scripts that
-raise an error from inside each frame kind Phase 3 will introduce** — an
-argument list, a lambda body, a macro expansion, a `while` body, an `if`
-branch, a native call, and a nested `unwind-protect` — with their exact
-`tests/*.err` files.  Each is a few lines; together they are the
-characterization that lets 03C..03E claim "backtraces unchanged" with
-evidence.
+backtraces the existing scripts happen to produce.  Add small
+`scripts/frame-trace-*.fe` programs for these **semantic evaluation
+contexts**: an error in a call head, a later argument, a lambda body, a
+macro body, the resulting macro expansion, a selected `if` branch, a
+`while` body, an existing Fex native call, and nested
+`unwind-protect`.  Say "semantic contexts", not "one per frame kind": the
+current trace contains pair forms entered by `Evaluate()`, while several
+future resumption frames are intentionally invisible to users.  Internal
+frame names must never leak into the golden.
+
+Every new script needs both `tests/<name>.out` **and**
+`tests/<name>.err`; `test.sh` compares both files even when stdout is
+empty.  Keep one intentional error per script, because the standalone
+interpreter transfers control at the first one.  Generate the initial
+goldens from the unmodified recursive evaluator, inspect them, then commit
+them as literal byte-for-byte characterization.  Do not hand-author what
+the trace "should" look like and do not compare these Fe diagnostics with
+Emacs.
 
 Two facts worth writing into the commit message, because they will
 otherwise be rediscovered under time pressure:
@@ -132,6 +188,14 @@ otherwise be rediscovered under time pressure:
   ignores it; `fe/main.c` does not.  Changing what it points at is
   therefore invisible to kg and immediately visible to fe's own suite,
   which is the right way round.
+
+The characterization also creates a design obligation for 03C: retain
+only semantic pair-form entries and keep their `FeObject*` chain valid
+until `error_fn` returns or transfers control, including while error-path
+cleanups run.  The storage choice for that chain is part of this slice's
+Decision (§4), because preserving a 100000-deep trace can cost material
+memory and cannot be solved by allocating Fe objects after an out-of-memory
+error.
 
 ## 3. Fe's complexity ratchet has to survive a split
 
@@ -158,21 +222,38 @@ machine's cost inseparable.
 
 ### Deliverable
 
-Add a **pmccabe total ratchet** to fe's Makefile, beside the existing
-per-function one:
+Add a **pmccabe total budget** to fe's existing check, beside the
+per-function ratchet:
 
-- a summed-complexity number over `PMCCABE_PATHS` with a recorded maximum,
-  checked by the existing `utils/` script family (extend
-  `check_pmccabe_complexity.py` rather than adding a script);
-- baselined at the measured value, and moved by the same
-  `make pmccabe-baseline` route that already exists;
-- documented in the Makefile comment block that already explains why scc
+- extend `utils/check_pmccabe_complexity.py` with required
+  `--max-total`; sum the parsed functions it already holds and fail when
+  the sum exceeds the cap;
+- add `PMCCABE_TOTAL_MAX` to `fe/Makefile` and pass it from both
+  `pmccabe-check` and `pmccabe-baseline`; the latter may rewrite the
+  per-symbol manifest but must **not** silently rewrite the funded total
+  in the Makefile;
+- move the absolute `--max-function` and new total checks before the
+  script's current `if args.write_baseline` early return, so
+  `make pmccabe-baseline` refuses to write a manifest for a tree outside
+  either funded envelope; baseline regeneration is not an escape hatch;
+- print `measured/limit` in ordinary `pmccabe-check` output and prove the
+  check fails with a temporary one-point-lower cap, then revert it; and
+- document it in the Makefile comment block that already explains why scc
   is untrustworthy here, so the two comments are one story.
 
+Keep the two concepts separate.  `.ci/pmccabe-baseline.json` is the
+per-symbol no-regression manifest; `PMCCABE_TOTAL_MAX` is the explicit,
+reviewed funding envelope for net-new Phase 3 functions.  If the manifest's
+current schema is extended to record the measured total for reporting,
+that field is informational and `make pmccabe-baseline` still cannot raise
+the Makefile cap.
+
 Measured on the audited tree: `fe.c` alone sums to **356 across 135
-symbols**, worst function `EvaluatePrimitive` at **15**.  Take the
-whole-`PMCCABE_PATHS` number as part of this slice and use it as the
-baseline.
+symbols**, worst function `EvaluatePrimitive` at **15**; all
+`PMCCABE_PATHS` sum to **500 across 202 symbols**.  Re-measure both in the
+slice.  Use 500 as the starting point for the Decision, not as the Phase 3
+ceiling: a 500 ceiling would reject the first new frame handler and leave
+the funded phase nowhere to land.
 
 ### Do not delete the scc gate
 
@@ -197,17 +278,23 @@ Measured on the audited tree:
 - The gate asks for `(deep 100000)`.
 
 A frame holding the several `FeObject*` a resumable evaluation needs will
-not be smaller than about 48 bytes.  100 000 frames is therefore **~4.8 MB
-— larger than kg's entire arena**, and about 110× today's whole
-`FeContext`.  Three consequences, all of which have to be decided here and
-not discovered in 03C:
+not be smaller than about 48 bytes.  100 000 frames is therefore **at
+least** ~4.8 MB — larger than kg's entire arena — and `(deep 100000)` may
+need more than one simultaneously live resumption frame per Lisp call.
+Treat 4.8 MB as a lower bound, not a sizing answer.  The throwaway sizing
+spike must write down a draft `FeEvalFrame` union, its `sizeof`/`alignof`,
+and the measured peak frames-per-`deep` level before choosing a partition.
+Three consequences, all of which have to be decided here and not
+discovered in 03C:
 
 1. **A fixed frame array inside `FeContext` cannot be sized for the
    gate.**  Sizing it for 100 000 frames would make `FeMinimumArenaSize()`
    larger than kg's arena, breaking kg outright; sizing it for, say, 4096
    frames makes the gate's `(deep 100000)` unreachable.
 2. **The gate's `(deep 100000)` is an fe-side measurement**, taken with
-   `./fe -s <large>`, not a kg one.  Say so in Phase 3's gate wording.
+   `test_api.c`'s dynamically allocated arena, not a kg one.  The
+   standalone `./fe -s <large>` process cannot call the test-only probe
+   native.  Say so in Phase 3's gate wording.
    What kg needs is the weaker and more useful property: deep Lisp nesting
    is bounded by a *configured frame limit* that raises a deterministic
    error, never by the C stack.
@@ -220,11 +307,13 @@ not discovered in 03C:
 
 ### Decide, with the numbers, between
 
-- **(a) Frames in a context-resident array**, sized proportionally to the
-  arena the host provided, with the frame limit derived from it.  Simple,
-  no allocation, GC-root is a contiguous scan.  `FeMinimumArenaSize()`
-  grows; `doc/fe-upstream.md` already documents one such growth (the
-  `GcStackSize` 512 → 4096 row) and the shape of that note is the model.
+- **(a) Frames in an arena-resident, context-owned array**, carved from the
+  caller's arena at `FeOpenContext()` time and sized by an explicit
+  partition formula.  This does **not** mean a compile-time array member in
+  `struct FeContext`; that was ruled out above.  It means `FeContext` holds
+  a pointer/capacity/index into a region of the same fixed host allocation,
+  with the remaining aligned bytes becoming `FeObject` slots.  Simple, no
+  heap allocation, and GC rooting is a contiguous scan.
 - **(b) Frames as arena objects**, so the collector already knows about
   them and depth is bounded by arena size.  No new sizing constant, but
   every frame push is an allocation that can trigger a collection *during
@@ -234,10 +323,45 @@ not discovered in 03C:
   size it.
 
 **Recommendation: (a).**  It preserves "core object allocation must not
-move to the heap", keeps GC marking a flat loop over live frames, and puts
-the bound where `FeEvalOptions` can already reach it.  Write the chosen
-option and the rejected ones into the Decision; 03C implements it and does
-not revisit it.
+move to the heap" and keeps GC marking a flat loop over live frames.  The
+Decision must make the following numeric details explicit so 03C is an
+implementation, not another design exercise:
+
+1. the exact arena-partition formula, minimum guaranteed frame capacity,
+   alignment/padding rule, and minimum object-slot reserve needed to install
+   the core;
+2. the resulting `FeMinimumArenaSize()`, object-slot count, frame capacity,
+   and percentage headroom for both Fe's 64 KiB test arena and kg's 1 MiB
+   arena;
+3. the arena size to be used by the fe-side `(deep 100000)` probe and the
+   **derived conservative peak-frame bound** from the draft state diagram,
+   including checked overflow arithmetic rather than a guessed
+   `100000 * sizeof(frame)`; 03E records the actual peak and reconciles it;
+4. the distinction between physical capacity and a caller's lower
+   `max_frames` option: zero selects physical capacity, a nonzero value is
+   an additional ceiling, and the effective limit is the smaller of the
+   two; and
+5. reserved capacity, or another explicit mechanism, that lets error-path
+   cleanups run after frame exhaustion without overwriting the original
+   call trace.
+
+The same Decision settles call-trace storage.  It must preserve the public
+`FeErrorFn(..., FeObject *call_trace)` ABI, allocate no arena object on the
+error path, keep the original trace stable while cleanups run, and never
+print internal resumption frames.  An embedded trace cell in semantic
+expression frames is the simplest starting design, but accept it only if
+the cleanup-at-capacity case above is demonstrated; otherwise choose and
+price a separate context-owned trace region.  03C implements the recorded
+choice and does not revisit it.
+
+The peak-frame multiplier cannot be a post-implementation measurement in a
+slice that lands no evaluator.  Derive a conservative upper bound from the
+draft state diagram (maximum simultaneously live expression/call/special-
+form continuations per one `deep` level) and, if the sizing spike implements
+enough handlers to observe it, record that observation separately.  Use the
+derived bound for checked arena sizing in 03C; 03D/03E replace it with the
+actual peak statistic and must fail/revisit the Decision if the estimate was
+too small.  Do not describe a guessed or unimplemented peak as measured.
 
 ## 5. The split spike
 
@@ -266,6 +390,13 @@ spot being paid off, not new complexity** — the pmccabe total is the check
 on that claim, and it must be conserved to within the noise of moving
 static declarations around.
 
+The draft frame-union sizing work in §4 may live on the same throwaway
+branch, but it must not be mixed into the split measurements in steps 1–3.
+Take the before/after split numbers first, commit or tag that spike state
+locally, then add the draft structs and measure `sizeof`/`alignof` and the
+candidate partition separately.  Otherwise the supposedly mechanical
+split price includes unreviewed frame storage again.
+
 ## The Decision this slice must write
 
 Into the set README, dated, in the shape 00A's Decision established:
@@ -274,11 +405,14 @@ Into the set README, dated, in the shape 00A's Decision established:
   Phase 3, funded by the spike's *measured* split cost plus the frame
   machine's estimate — and stated as funding named deliverables (03B, then
   03C–03E), not the program.
-- The new pmccabe total baseline and the statement that **it is the
-  authoritative measure for the core**, with scc retained as the
-  new-file/`fex_*` net.
-- The frame-storage choice from §4, with the arena numbers that produced
-  it.
+- The new `PMCCABE_TOTAL_MAX`, starting from the re-measured 500 total and
+  funding the named frame-machine work, plus the statement that **it is
+  the authoritative aggregate measure for the core**.  Retain the
+  per-symbol manifest and scc's new-file/`fex_*` net.
+- The frame-storage and call-trace choices from §4, with the exact arena,
+  frame size/alignment, derived peak-depth bound, cleanup reserve and
+  object-headroom numbers that produced them; label any prototype-observed
+  peak separately from the conservative design bound.
 - The restatement of Phase 3's gate wording that §4.2 forces: which
   measurements are fe-side, which are kg-side.
 - kg's caps: unchanged.  kg is at **5444/5500** and the price table puts
@@ -291,8 +425,9 @@ re-measured tree state.**  This is Phase 3's.
 ## Tests owned by this slice
 
 - The C-stack probe test and its recorded table (assertion: it ran).
-- Seven-ish new `scripts/*.fe` + `tests/*.err` pairs, one per frame kind
-  whose backtrace 03C–03E must preserve.
+- The named `scripts/frame-trace-*.fe` cases and both of each case's
+  `tests/*.out`/`*.err` goldens, covering the semantic contexts listed in
+  §2.
 - No test for the ratchet beyond proving it fails on a deliberate,
   reverted perturbation — the same demonstration 00C and 01A used for
   their gates, and the only thing that distinguishes a ratchet from a
@@ -301,7 +436,7 @@ re-measured tree state.**  This is Phase 3's.
 ## Gates
 
 `make -C fe check`, `make -C fe complexity-check`, `make -C fe
-pmccabe-check` and the new total check.  kg is unaffected except for the
+pmccabe-check` (which now includes the total).  kg is unaffected except for the
 pin, which moves in its own commit per Rule 10; kg's `make check` and
 `make WITH_LISP=0 clean all check` confirm the no-op.
 
@@ -318,6 +453,9 @@ are most likely to break later and a fresh reading is cheap.
 - **No gate flip.**  The probe records; 03F gates.
 - **No new fe API.**  `FeEvalOptions` and `FeArenaStats` change in 03F,
   with the version bump, not here.
+- **No PTY or Emacs-oracle test for the new mechanisms.**  Stack addresses,
+  Fe backtraces and complexity totals are Fe implementation policy.  The
+  deterministic native/golden tests above are their correct layer.
 
 ## Status
 

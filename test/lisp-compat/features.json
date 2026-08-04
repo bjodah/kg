@@ -434,14 +434,14 @@
   {
    "id": "native-buffer-list",
    "category": "editor-primitives",
-   "status": "unsupported",
+   "status": "supported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
     "native-buffer-list"
    ],
-   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
-   "rationale": "Registered and implemented (src/lisp_obj.c) but exercised by no native or PTY test today -- the one apparent hit in an earlier naive text sweep of test/pty/*.yaml turned out to be the unrelated \"buffer-list\" keymap name in describe-key-shadowed-mode-binding.yaml, not this native. Untested gap, not a broken-native finding: recorded in this slice's untested-natives list with owner kg (follow-up test-writing slice).",
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
    "source_name": "buffer-list"
   },
   {
@@ -551,14 +551,14 @@
   {
    "id": "native-re-search-backward",
    "category": "editor-primitives",
-   "status": "unsupported",
+   "status": "supported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
     "native-re-search-backward"
    ],
-   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
-   "rationale": "Untested gap, not a broken-native finding: the native itself is a straightforward mirror of re-search-forward's already-tested machinery (kg_regex_match_backward(), whose own backward-selection policy AGENTS.md documents as kg's own, not Emacs'), it is just never called from test/test_lisp.c or any test/pty/*.yaml case. Recorded in this slice's untested-natives list with owner kg (follow-up test-writing slice); status is 'unsupported' here only in the sense that this manifest's per-status contract requires a passing case for 'supported' and none exists yet -- the construct itself is not believed broken.",
+   "kg_test": "test/test_lisp.c:test_re_search_backward",
+   "rationale": null,
    "source_name": "re-search-backward"
   },
   {
@@ -837,14 +837,14 @@
   {
    "id": "native-process-status",
    "category": "editor-primitives",
-   "status": "unsupported",
+   "status": "supported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
     "native-process-status"
    ],
-   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
-   "rationale": "Untested gap, not a broken-native finding, same shape as re-search-backward above. Recorded in the untested-natives list with owner kg (follow-up test-writing slice).",
+   "kg_test": "test/pty/lisp-process-status.yaml",
+   "rationale": null,
    "source_name": "process-status"
   },
   {

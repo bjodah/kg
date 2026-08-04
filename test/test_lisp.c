@@ -1143,6 +1143,14 @@ static void test_buffer_objects(void)
 	CHECK(eval_eq("(eq h (get-buffer-create \"hidden\"))", "t"));
 	CHECK(eval_eq("(buffer-live-p h)", "t"));
 
+	/* buffer-list: current buffer first, every live buffer exactly once,
+	 * the just-created hidden buffer present. */
+	CHECK(eval_eq("(length (buffer-list))", "2"));
+	CHECK(eval_eq("(eq (car (buffer-list)) (current-buffer))", "t"));
+	CHECK(eval_eq("(if (memq h (buffer-list)) t nil)", "t"));
+	CHECK(eval_eq("(if (memq (current-buffer) (cdr (buffer-list))) t nil)",
+	    "nil"));
+
 	/* Hidden-buffer editing: insert lands there and the displayed
 	 * window's point does not move; the edit is one undo record in the
 	 * hidden buffer and none in the display buffer's chain. */
@@ -1572,6 +1580,45 @@ static void test_re_search_and_match_data(void)
 	/* Group 2 was never in the pattern. */
 	CHECK(eval_eq("(match-beginning 2)", "nil"));
 	CHECK(eval_eq("(match-end 2)", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* re-search-backward: two possible matches on the row, searching from
+ * point-max must pick the later one (kg_regex_match_backward()'s own
+ * "last match ending at or before the limit" policy, src/regex.c), and a
+ * no-match search afterwards must not disturb point or the previous
+ * match data -- lisp_search() only writes state.match and moves the
+ * marker on a found match. */
+static void test_re_search_backward(void)
+{
+	char source[256];
+
+	setup_editor();
+	editor_insert_row(bcur(), 0, "foobar foobar", 13);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char (point-max))"));
+	fe_regex_source(source, sizeof(source), "(re-search-backward \"%s\")",
+	    "\\(foo\\)bar");
+	/* The second "foobar" (0-based [7,13)), not the first: the closer
+	 * match to the starting point wins. */
+	CHECK(eval_eq(source, "8"));
+	CHECK(eval_eq("(point)", "8"));
+	CHECK(eval_eq("(match-beginning 0)", "8"));
+	CHECK(eval_eq("(match-end 0)", "14"));
+	CHECK(eval_eq("(match-beginning 1)", "8"));
+	CHECK(eval_eq("(match-end 1)", "11"));
+
+	/* No match: nil, and point plus the previous match data are left
+	 * exactly as the successful search above left them. */
+	fe_regex_source(
+	    source, sizeof(source), "(re-search-backward \"%s\")", "zzz");
+	CHECK(eval_eq(source, "nil"));
+	CHECK(eval_eq("(point)", "8"));
+	CHECK(eval_eq("(match-beginning 0)", "8"));
+	CHECK(eval_eq("(match-end 0)", "14"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -2745,6 +2792,7 @@ int main(void)
 	RUN(test_search_forward_backward);
 	RUN(test_search_forward_bound);
 	RUN(test_re_search_and_match_data);
+	RUN(test_re_search_backward);
 	RUN(test_regex_too_complex_and_bad_pattern);
 	RUN(test_search_cancellation);
 	RUN(test_markers);

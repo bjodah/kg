@@ -1,0 +1,67 @@
+# process-status: the three states native_process_status()'s switch answers
+# (src/lisp_process.c) through real, distinct children -- 'run for one
+# still alive when asked synchronously, and 'exit/'signal read back from
+# each child's own sentinel argument once it has actually terminated, per
+# lisp-process-filter-sentinel-order.yaml's safe-point/drain pattern (a
+# keypress is what reaches a drain; there is no blind sleep here).
+name: lisp-process-status
+filename: procstatus.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.15
+config_files:
+  .config/kg/init.el: |
+    (defun run-it ()
+      (interactive)
+      (let* ((tr (get-buffer-create "run-target"))
+             (te (get-buffer-create "exit-target"))
+             (ts (get-buffer-create "signal-target"))
+             (pr (start-shell-command "r" tr "sleep 3600")))
+        (with-current-buffer (get-buffer-create "status-log")
+          (goto-char (point-max))
+          (insert (format "RUN:%s " (process-status pr))))
+        (set-process-sentinel (start-shell-command "e" te "true")
+          (lambda (p e)
+            (with-current-buffer (get-buffer-create "status-log")
+              (goto-char (point-max))
+              (insert (format "EXIT:%s " (process-status p))))))
+        (set-process-sentinel (start-shell-command "s" ts "kill -KILL $$")
+          (lambda (p e)
+            (with-current-buffer (get-buffer-create "status-log")
+              (goto-char (point-max))
+              (insert (format "SIGNAL:%s" (process-status p))))))))
+    (defun report-it ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (with-current-buffer (get-buffer-create "status-log")
+                (buffer-substring (point-min) (point-max)))))
+    (global-set-key "C-c r" "run-it")
+    (global-set-key "C-c o" "report-it")
+initial: ""
+keys:
+  - C-c
+  - r
+  # A synchronisation budget, not part of the behaviour under test: output
+  # and sentinels land only at a safe-point drain and a keypress is what
+  # reaches one, following lisp-process-two-concurrent.yaml's own count for
+  # two children under a loaded parallel runner (this case has three).
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-c
+  - o
+expected_saved: |-
+  RUN:run EXIT:exit SIGNAL:signal

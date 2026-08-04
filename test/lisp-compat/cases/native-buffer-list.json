@@ -2,5 +2,5 @@
  "id": "native-buffer-list",
  "setup": [],
  "expr": "(buffer-list)",
- "note": "Reads kg's buffer slot table, current buffer first per src/lisp_obj.c's own comment."
+ "note": "Reads kg's buffer slot table, current buffer first per src/lisp_obj.c's own comment. Exercised by test/test_lisp.c:test_buffer_objects."
 }

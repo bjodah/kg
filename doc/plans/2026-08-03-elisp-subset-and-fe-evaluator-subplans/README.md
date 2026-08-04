@@ -429,6 +429,349 @@ total to jump by tens of points from the split alone, before a single
 line of frame-machine logic is added**, and Phase 3's own price row above
 already includes that measured +42, not a placeholder.
 
+## Decision — Phase 3 complexity caps and the frame-storage answer (03A, 2026-08-04)
+
+Taken 2026-08-04, closing sub-plan 03A.  Re-measured against the tree as it
+stood after Phase 2 closed, per Rule 6: kg **5444/5500** unaffected (this
+slice touches no `src/*.c`), fe **214/220** with `fe.c` at **106/112**,
+pmccabe **500 across 202 symbols**, `fe.c` alone **356 across 135 symbols**,
+worst function `EvaluatePrimitive` at **15**.
+
+### The evaluator split, measured for real
+
+00A's spike extracted the *reader*; Phase 3 needs the *evaluator* out, and
+03A's own document is explicit that the two are different measurements
+because the evaluator sits entirely past `fe.c`'s `'"'`-literal scc desync
+(line 1010) while the reader straddles it.  A throwaway branch
+(`03a-spike-eval-split`, off `analyzers-etc` at `5cc0acb`, deleted after
+measuring) executed exactly 03B's cut: `ClearEvaluationControl`,
+`BeginEvaluationControl`/`EndEvaluationControl`, `EvaluationStep`,
+`EnterEvaluationDepth`, the cleanup registry (`PushCleanup`,
+`SaveCleanupErrorMessage`, `RunOneCleanupEntry`, `RunCleanupsDownTo`,
+`RunCleanupsAfterError`, `FeProtectWithCleanup`), `FeHandleError` (moved
+with the cleanup registry per 03B's own recommendation), the evaluator
+proper (`Evaluate`, `EvaluateHead`, `EvaluatePrimitive`, `EvaluateList`,
+`DoList`, `Bind`, `ArgsToEnv`, `EvaluateSetq`, `EvaluateSet`,
+`EvaluateNumericEqual`, `CheckNumericEqualOperand`, `HandleVoidSymbol`,
+`HandleNonCallable`, the `EVAL_ARG`/`ARITH_OP`/`NUM_CMP_OP` macros), and the
+evaluator entry points (`FeEvaluate`, `FeCall`, `FeCallWithOptions`,
+`FeEvaluateWithOptions`) into a new `fe_eval.c` behind a private
+`fe_internal.h`, leaving the reader, writer, `FeGetRoot`/`FeCreateRoot`/
+`FeReleaseRoot`, and the kept wrappers (`EvaluateInput`,
+`FeEvaluateString*`, `FeEvaluateFile*`) in `fe.c`, exactly as 03B's document
+specifies.  `unbound` lost `static` (its address is compared across both
+files); the accessors 03B's document names (`GetDouble`, `GetNativeFn`,
+`SetType`, `CheckType`, `GetBound`, `MakeObject`, `Equal`, `IsNamedSymbol`,
+`Format`) lost `static` and gained declarations in `fe_internal.h` instead.
+
+| Measure | Before spike | After spike (evaluator extracted) |
+|---|---|---|
+| `pmccabe` total (`PMCCABE_PATHS`) | 500 / 202 symbols | **500 / 202 symbols — exactly conserved** |
+| `pmccabe` `fe.c` | 356 / 135 symbols | 252 / 106 symbols |
+| `pmccabe` `fe_eval.c` | — | 104 / 29 symbols |
+| `scc` total (`SCC_COMPLEXITY_PATHS`) | 214 | **286 (+72)** |
+| `scc` `fe.c` | 106 | 70 |
+| `scc` `fe_eval.c` | — | **108** |
+
+**pmccabe is conserved exactly, again** — 500 before, 500 after, split
+106+29=135 fewer/29 more symbols between the two files but the same 356
+points that were `fe.c`'s alone before, now split 252 (`fe.c`) + 104
+(`fe_eval.c`).  This is the second data point (after 00A's reader spike)
+for "pmccabe is conserved across a translation-unit split; scc is not."
+
+**scc's total jumped +72 — more than 00A's +42, as 03A's document
+predicted.**  The evaluator was almost entirely invisible to scc before
+(the whole 1443-line evaluator region contributed only part of `fe.c`'s 106
+points, most of which is reader/writer code above the desync); once it is
+its own file with no `'"'` desync ahead of it, scc counts it honestly:
+`fe_eval.c` alone scores 108.  `fe.c`'s own score fell to 70 (some of its
+106 was evaluator-adjacent glue that left with the move).  **`fe_eval.c`
+scores 108 of the *old* 112 file cap before a single frame-machine line
+exists** — four points of headroom for the phase priced in the table above
+at +60 to +100 substance.  This is the numeric confirmation of the price
+table's warning: the file cap, not the total, is what forces the split,
+and the split alone nearly exhausts it.
+
+`make -C fe check` and kg's `make check` (32 native / 406 PTY, all passing
+— 02E's independent slice had already added one PTY case to the idle-tree
+baseline by the time this measurement ran) were both green on the spike,
+confirmed with a temporary, uncommitted two-line change to kg's `Makefile`
+(`FE_OBJ` as a two-object list, `$(OBJDIR)/fe_eval.o`'s build rule) that was
+reverted before the branch was deleted.  Both `fe.c`/`fe_eval.c` compiled
+clean under `-Weverything -Werror` in both translation units.
+
+### The complexity caps this raises
+
+Both re-measured totals above (`500/202`, `214/220`) are the *pre-spike*,
+currently-landed state — nothing in the split or the frame machine has
+landed for real, so both caps below are raised **ahead of the work they
+fund**, exactly as 00A's own Decision raised 210/105 → 220/112 ahead of
+sub-plan 00D landing.
+
+- **`PMCCABE_TOTAL_MAX`: 500 → 630.**  03B's split costs this budget
+  nothing (conserved exactly, measured above).  03C–03E's substance is
+  estimated by roughly doubling `fe_eval.c`'s own *measured* evaluator
+  weight — 104 points across 29 symbols, the real number, not the stale
+  35–45 cross-file estimate the price table used before this slice — for
+  +100 to +140, landing the total at 600–640.  Funded at **630**, near the
+  top of that range with a small margin, not the program's full
+  uncertainty range.  This is now **the authoritative aggregate measure
+  for the core** (`fe.c` + `fe_eval.c`); the per-symbol
+  `.ci/pmccabe-baseline.json` manifest and scc's total/file ratchets are
+  retained as secondary checks (an unbudgeted new file, or complexity in
+  the `fex_*` files where no desync applies).  `utils/check_pmccabe_complexity.py`
+  now takes a required `--max-total`, sums the parsed functions, and fails
+  before `--write-baseline` can run if either the per-function or the
+  total budget is exceeded — `make pmccabe-baseline` cannot launder a tree
+  that is over either budget into a clean-looking manifest.  Proved by
+  temporarily setting `PMCCABE_TOTAL_MAX=499` (one below the measured
+  500): both `make pmccabe-check` and `make pmccabe-baseline` failed with
+  `FAIL: total complexity 500 exceeds funded budget 499 (+1)`, the
+  baseline file was left untouched by the refused `pmccabe-baseline` run,
+  and both commands passed again once the override was removed.  The
+  per-symbol baseline was also re-recorded in this slice (`make
+  pmccabe-baseline`, 198 → 202 symbols), banking the four Phase-2 symbols
+  (`EvaluateSetq`, `EvaluateSet`, `EvaluateNumericEqual`,
+  `CheckNumericEqualOperand`) that had drifted un-ratcheted since 02B/02C.
+- **`SCC_COMPLEXITY_MAX`: 220 → 420.  `SCC_FILE_COMPLEXITY_MAX`: 112 → 240.**
+  The total funds the measured split cost (214 → 286, +72) plus the same
+  +100 to +140 substance estimate used for pmccabe's total (scc and
+  pmccabe move in the same rough proportion here because both counts came
+  from the same spike).  The file cap funds `fe_eval.c` specifically:
+  108 today, +100 to +140 substance → 208–248, funded at 240.  Both are a
+  single shared constant across every file scc scans (unchanged
+  infrastructure); the practical effect is that `fex_*.c` files also gain
+  headroom they do not need, which is an accepted, deliberate trade for
+  not building a second complexity-checking mechanism this program does
+  not otherwise need.  scc's total and file caps remain in force — not
+  deleted — because they still catch what pmccabe cannot: an entirely new
+  unbudgeted file, or runaway complexity in `fex_re.c`/`fex_io.c`/
+  `fex_process.c`, none of which sit past any desync.
+
+### The C-stack probe: what "before" looks like
+
+`TestEvaluationStackProbe` (`fe/test_api.c`) registers a `stack-probe`
+native that records `(uintptr_t)__builtin_frame_address(0)`, driven by
+`(defun deep (n) (if (<= n 0) (stack-probe) (+ 1 (deep (- n 1)))))`.  It
+measures the same native against itself — a bare `(stack-probe)` call as
+the depth-zero reference, then `(deep n)` for n = 10, 100, 200 — and prints
+the address delta.  It also proves the existing depth-limit error recovers
+cleanly (a tight explicit `max_depth`, matching `TestEvaluationDepth`'s own
+pattern) without poisoning the context, and asserts `(deep n)` evaluates to
+`n` at each depth, so the probe cannot be silently running at the wrong
+semantic point.  It is a recording test, not a flatness gate — 03F adds
+that assertion and the dynamically sized 100000-depth run.
+
+| Build | n=10 Δbytes | n=100 Δbytes | n=200 Δbytes | ≈bytes/level |
+|---|---|---|---|---|
+| default (`clang`, no `-O`, per fe's own `CFLAGS`) | 24288 | 231648 | 462048 | ~2305 |
+| ASan/UBSan (`ci-04` flags, `-O1 -fno-omit-frame-pointer`) | 12576 | 119136 | 237536 | ~1185 |
+| MSan (`ci-05` flags, `-O1 -fno-omit-frame-pointer`) | 19376 | 183536 | 365936 | ~1825 |
+
+All three grow linearly in `n`, confirming the property the Phase 3 gate
+names (a measured C-stack high-water mark that grows with Lisp nesting)
+exists to measure and will need to stop being true.
+
+Manually swept (not part of the automated test, to keep `make check`
+deterministic and fast on every build) with `./fe -s <arena-size>` and a
+bounded search that never approaches an uncontrolled host-stack crash,
+because sub-plan 06E's `evaluation_depth` counter already intercepts every
+build well before either the GC-stack (4096 slots) or the real C stack is
+threatened:
+
+- With fe's default 64 KiB arena (`main.c`'s default and `test_api.c`'s
+  `TestArenaSize`): `(deep 294)` succeeds, `(deep 295)` raises `out of
+  memory` — object-slot exhaustion, identical across default, ASan/UBSan
+  and MSan builds.
+- With an arena of 128 KiB or larger (object exhaustion no longer the
+  binding constraint): `(deep 332)` succeeds, `(deep 333)` raises
+  `evaluation depth limit exceeded` — `DefaultEvaluationDepth`'s 1000-unit
+  ceiling — identical across all three builds, with **no host-stack crash
+  in any of them**.
+- `(deep 100000)` does not run in any build or arena size tried, and was
+  not pushed toward one: reaching it would need both `max_depth` raised far
+  past 1000 and an arena sized in the tens of megabytes, which is exactly
+  the "drive a sanitizer process into a host-stack crash" 03A's document
+  warns against chasing by hand.  §4 below computes what it actually needs.
+
+**What 03A's own document got wrong here.**  Its own "why it cannot be
+deferred" section cites two anecdotes — GC-stack overflow past `(deep
+452)`, an MSan crash at `(deep 418)` — as the closest existing evidence.
+Both are *pre-06E* facts, from before `evaluation_depth` existed.  Neither
+reproduces on this tree: 06E's counter already caught up with them, and
+today all three builds hit the *same* clean, catchable boundary (332/333)
+regardless of sanitizer, well inside both the old GC-stack accident (4096
+slots) and any real C-stack limit.  That is good news — kg's users are not
+sitting on a live crash bug — but it means the "before" picture is not the
+crash-adjacent one the document expected; it is a flat, safe wall at
+n=332/333 today, and Phase 3's job is to move that wall out to 100000
+without changing what happens below it.
+
+### Where frames live, and how many fit
+
+Measured (not guessed) on a throwaway draft `FeEvalFrame`, compiled
+standalone against `fe_internal.h`'s real object layout — kept off the
+split-measurement branch per 03A's document ("must not be mixed into the
+split measurements"), on its own disposable file, never wired into
+`fe.c`/`fe_eval.c`:
+
+```c
+typedef struct FeEvalFrame {
+  FeFrameKind kind;          // 14 draft kinds: call/args/dispatch, lambda
+                              // and macro body, macro expansion, if/and/or/
+                              // while/let/setq, unwind-protect, native re-entry
+  FeObject* expr;             // the form this frame is evaluating
+  FeObject* env;               // lexical environment
+  FeObject* rest;               // remaining args/body forms
+  FeObject* accumulator;         // partial result / builder
+  FeObject* callee;               // resolved call head, when applicable
+  size_t gc_checkpoint;             // FeSaveGC() snapshot to restore to
+  size_t cleanup_checkpoint;         // cleanup_stack_index snapshot
+  FeObject trace_cell;                // embedded call-trace cell (below)
+} FeEvalFrame;
+```
+
+`sizeof(FeEvalFrame) = 80`, `alignof = 8` — compiler-measured, `clang
+-std=c2x`, same object layout `fe_internal.h` gives both real translation
+units.  80 and `sizeof(FeObject)` (16) are both multiples of their shared
+alignment (8), so a frame region followed immediately by an object region
+needs no inter-region padding.
+
+**Peak frames per `(deep n)` level: 3, derived and cross-validated, not
+guessed.**  Walking the grammar's live-nesting structure — which pair-form
+`Evaluate()` calls are still *open*, waiting on a nested one, at the
+instant `n` reaches 0 — for one level of `(if (<= n 0) BASE (+ 1 (deep (-
+n 1))))`, exactly three stay open simultaneously: the call to `deep`
+itself, the `if`, and the `+` waiting on its second argument.  (`(<= n 0)`
+and `(- n 1)` both close before the next nested pair-form opens, so they do
+not add to the *simultaneous* peak, only to the total evaluation count.)
+That gives `peak_depth(N) = 3N + c` for a small constant `c`.  This is
+independently cross-checked against §1's own empirical boundary: with
+`DefaultEvaluationDepth = 1000`, `evaluation_depth` is *exactly* this same
+live-nesting count today (it increments on every pair-form `Evaluate()`
+entry and decrements on return), so `peak_depth(N) = 3N + 2` predicts
+failure starting at `N = 333` (3·333+2 = 1001 > 1000) and success through
+`N = 332` (3·332+2 = 998 ≤ 1000) — which is exactly the measured 332/333
+boundary in §1.  The derivation and the measurement agree to the unit.
+
+**Partition formula (recommendation (a), confirmed).**  `FeContext` gains a
+pointer/capacity/index into a frame region carved from the same
+host-provided arena (never a compile-time array member, and never a
+separate allocation):
+
+```
+FeMinimumArenaSize() = sizeof(FeContext)                  // ~39464 (was 39440;
+                                                            // +24 for a frame
+                                                            // pointer + 2
+                                                            // size_t fields)
+                      + GetCoreObjectCount() * sizeof(FeObject)   // 256 * 16 = 4096, unchanged
+                      + MinFrameCapacity * sizeof(FeEvalFrame)    // 64 * 80 = 5120
+                      = 48680 bytes   (was 43536; +5144, +11.8%)
+
+remainder = size - FeMinimumArenaSize()
+frame_bonus_bytes = floor(remainder * 0.20)          // 20% of everything above the floor
+frame_capacity = MinFrameCapacity + frame_bonus_bytes / sizeof(FeEvalFrame)
+object_slots = 256 + (remainder - frame_bonus_bytes) / sizeof(FeObject)
+```
+
+`MinFrameCapacity = 64` supports `peak_depth` through `N ≈ 20` in the
+*smallest legal* arena — comfortably above what fe's own `max_depth`-tight
+test fixtures use (5, per `TestEvaluationDepth`'s pattern, reused by the
+new probe test).  The 20% split is a starting point, not a derived
+optimum; 03C may retune it once real frame kinds exist to measure against
+(see the caveat below).
+
+| Arena | Size | Frame capacity | `peak_depth` reach | Object slots | vs. today |
+|---|---|---|---|---|---|
+| fe `TestArenaSize` | 64 KiB (65536 B) | 106 frames | N ≈ 34 | 1099 | 1631 today, **−32.6%** |
+| kg `KG_LISP_ARENA_SIZE` | 1 MiB (1048576 B) | 2563 frames | N ≈ 853 | 50254 | 63071 today, **−20.3%** |
+
+1. **kg keeps its exact observable behaviour.**  2563 physical frames is
+   2.56× `DefaultEvaluationDepth`'s 1000 (a 156% margin), so the existing
+   *logical* 1000-unit ceiling fires first, unchanged — `test_recursion_depth`
+   (`(deep 5000)` raises, `(deep 200)` still works) stays green **unedited**,
+   because both depths sit far inside physical capacity (`peak_depth(200) =
+   602`, `peak_depth(5000) = 15002`, both `< 2563`, and the logical check at
+   1000 catches the 5000 case first exactly as it does today).
+2. **fe's 64 KiB fixtures still open**, with real but survivable headroom
+   loss (1099 vs. 1631 object slots).  No existing `test_api.c` case is
+   known to need more than that inside `TestArenaSize` — every depth-facing
+   test already uses an explicit tight `max_depth` — but 03C owns
+   re-verifying this once the partition is real, per its own gates
+   (`TestContextCreation`'s exact-size boundary loop, `TestArenaStats`'s
+   exact-fit case).  If either regresses, retune the fraction/floor before
+   loosening a test.
+3. **The gate's `(deep 100000)` is fe-side only, and here is what it
+   actually costs.**  `peak_depth(100000) = 300002` frames = 24,000,160
+   bytes (22.9 MiB) of frame region alone — not `100000 * sizeof(frame)`
+   (7.7 MiB), which would undercount by the derived ×3 multiplier.  Solving
+   the same 20%-split formula backward for a dynamically `malloc`'d arena
+   that gives *at least* 300002 frames: **≈114.5 MiB**, rounded up to a
+   **128 MiB** fixture for 03F's eventual dynamically-allocated `test_api.c`
+   arena.  Large, but a one-time throwaway test allocation, not a
+   constraint on kg or on fe's default footprint.  **kg's arena is
+   untouched by this number** — nothing about `(deep 100000)` is a kg-side
+   requirement (point 4 below).
+4. **Restated gate wording** (03A's document asks for this explicitly): the
+   parent plan's flatness property — *"a measured C-stack high-water mark
+   is flat across `(deep 10)`, `(deep 1000)`, and `(deep 100000)`"* — is an
+   **fe-side measurement**, taken by `test_api.c`'s dynamically sized
+   arena.  kg is not expected to run `(deep 100000)`, and `./fe -s
+   <large>` cannot either (the standalone interpreter never registers the
+   test-only `stack-probe` native).  What kg's own tests assert is the
+   weaker, host-relevant property: deep Lisp nesting is bounded by a
+   **configured frame limit** that raises a deterministic, catchable error
+   — never the C stack, and never arena exhaustion either, since the
+   logical ceiling is sized to fire first (point 1).
+5. **`max_frames` option**: `effective_frame_limit = (max_frames == 0) ?
+   physical_frame_capacity : min(max_frames, physical_frame_capacity)` —
+   zero selects the arena-derived physical capacity above; a nonzero value
+   is an additional, caller-chosen ceiling never allowed to exceed it.
+6. **Cleanup reserve**: physical frame storage is `frame_capacity +
+   CleanupFrameReserve` (**32** frames, chosen the way `CleanupStackSize`
+   (256) was — generously, not slot-matched to anything).  Ordinary pushes
+   are checked against `frame_capacity`; once that ceiling is hit and an
+   error is raised, cleanup-triggered pushes (running `unwind-protect`
+   forms during unwind) may use the reserve, so a cleanup does not itself
+   fail from frame exhaustion immediately after the body did.
+
+**Call-trace storage: the embedded cell (adopted).**  `FeEvalFrame` above
+already carries a plain, non-pointer `FeObject trace_cell` — the same
+`CAR`/`CDR` shape as today's stack-allocated `FeObject cl`, but living in
+context-owned frame storage instead of a C automatic.  `FeHandleError`
+materializes the chain the host callback receives by walking live
+*semantic* frames (excluding whichever kinds later turn out to be purely
+internal resumption bookkeeping — 03C's own document already requires
+this) and linking their `trace_cell`s, writing only into cells that already
+exist: no arena allocation on the error path, satisfying `fe.h`'s existing
+`FeErrorFn(..., FeObject *call_trace)` ABI unchanged.  This was accepted
+per 03C's own condition ("accept only if the cleanup-at-capacity case is
+demonstrated") because the arithmetic above already prices it in: the
+32-frame cleanup reserve exists precisely so a cleanup that runs after
+frame exhaustion can still push its own frames (and populate their own
+trace cells) without touching — and so without corrupting — the original
+error's already-linked chain, which references only frames at or below the
+index captured when the error fired. 03C implements the exact snapshot
+timing; this Decision fixes the representation and the reason a separate
+parallel trace region was not needed.
+
+**What this changes about the price table's Phase 3 row.**  The "+42
+(measured split tax)" placeholder is superseded by the real number: +72
+scc (measured) with pmccabe conserved at 0.  The "+60 to +100" substance
+estimate is superseded by the pmccabe-anchored +100 to +140 above, applied
+to both scc and pmccabe as this Decision's actual caps.  Total funded
+Phase 3 scc cost: 220 → 420 (+200); pmccabe: 500 → 630 (+130, all of it
+unspent substance headroom, since 03B's own cost is zero).
+
+### kg
+
+**Unchanged.**  kg is at 5444/5500 (61 points shy of the follow-up
+program's own headroom accounting, unaffected since this slice adds no
+`.c`/`.h` file to `src/`); the price table's own Phase 3 kg estimate
+(+10 to +15) stands, funded from existing headroom, no raise needed.  The
+only kg-side change in this slice is the pin move itself, in its own
+green commit per Rule 10.
+
 ## Status
 
 **00A complete, 2026-08-04.** All four deliverables land: the price table
@@ -664,4 +1007,29 @@ them, and `03a` must land before any of the rest.
 
 ## Status — Phase 3
 
-Not started.
+**03A complete, 2026-08-04.**  fe `1c87e49`/`7181444`/`86e9fea` on
+`analyzers-etc`, kg pin moved to `86e9fea` in its own commit.  All five
+outcomes landed: the C-stack probe and its pre-change measurement table
+(default/ASan-UBSan/MSan builds, linear per-level growth, and the
+332/333 depth-limit boundary every build now shares safely); nine
+`frame-trace-*.fe` characterization scripts with byte-for-byte goldens
+generated from the unmodified recursive evaluator; a funded pmccabe
+total budget (`PMCCABE_TOTAL_MAX`, 500 → 630) proved to fail on a
+reverted perturbation, alongside a re-recorded per-symbol baseline
+(198 → 202 symbols); the frame-storage sizing Decision above, with a
+compiler-measured `sizeof(FeEvalFrame)` (80 bytes) and a peak-frame
+multiplier (3 per `deep` level) that is derived from the grammar and
+independently cross-validated against the probe's own empirical
+332/333 boundary; and the throwaway split spike that priced all of the
+above, measured and then deleted with no trace in either tree (`git
+log`/`git branch` confirmed clean on both).  Full detail, including
+what this slice's own document did not anticipate, is in `03a`'s own
+Status section (`03a-measure-and-fund-the-frame-machine.md`).  fe
+complexity: 214/420 total (was 214/220 — cap raised, actual unchanged),
+`fe.c` 106/240 file cap, pmccabe 500/630 total (was 500 with no total
+cap), 202 baselined symbols.  kg: unchanged at 5444/5500, no `src/*.c`
+touched.  `make -C fe check`, `complexity-check`, `pmccabe-check`, and
+a fresh `coverage` run (88.9% lines, 65.2% branches, 80% floor) are
+green in fe; kg's `make check` and `make WITH_LISP=0 clean all check`
+are green after the pin move.  No language or editor behaviour
+changed.  Sub-plan 03B may start.

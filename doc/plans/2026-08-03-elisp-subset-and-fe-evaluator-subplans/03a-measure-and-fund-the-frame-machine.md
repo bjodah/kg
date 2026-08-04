@@ -459,4 +459,106 @@ are most likely to break later and a fresh reading is cheap.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**  All five outcomes landed in fe on `analyzers-etc`,
+three commits: `1c87e49` (the C-stack probe, outcome 1), `7181444` (the
+backtrace characterization, outcome 2), `86e9fea` (the pmccabe total budget
+plus the re-recorded per-symbol baseline, outcome 3).  Outcomes 4 and 5 (the
+frame-storage Decision and the throwaway split spike that fed it) produced
+no commit by design: the spike branch (`03a-spike-eval-split`, off
+`analyzers-etc` at `5cc0acb`) was measured, kg's `make check` was confirmed
+green against it via a temporary, uncommitted two-line kg `Makefile` patch,
+and both the branch and the kg patch were deleted.  `git log`/`git branch`
+on both trees confirm no trace survives.  kg's own gitlink was moved in a
+separate commit, per Rule 10, once fe's three commits were green.
+
+The full measurement tables, the derived peak-frame arithmetic, and the
+dated Decision this slice's outcomes 3–5 produce are recorded in the set
+`README.md`, not duplicated here — that is where every later Phase 3 slice
+will look for the funded caps and the frame-storage answer, matching how
+00A's Decision lives in the README rather than in `00a`'s own now-deleted
+document.
+
+**Gates, all green from an idle tree:**
+
+- `make -C fe check` — 19 script cases × 3 (default, release, `-a`) plus
+  `one-liner`, all passing, including the 9 new `frame-trace-*.fe` cases
+  and `TestEvaluationStackProbe`'s printed measurement rows.
+- `make -C fe complexity-check` — scc 214/420 total, 106/240 max file
+  (both well inside the caps this slice raised; nothing about scc's
+  *measurement* changed, only its funded ceiling).
+- `make -C fe pmccabe-check` — 500/630 total, max function 15/22, baseline
+  202/202 symbols, 0 new/gone/improved.
+- `make -C fe coverage` (fresh run, fe's `.ci/ci-02`) — 88.9% line coverage
+  (3544/3987), 94.4% function coverage (305/323), 65.2% branch coverage
+  (1597/2449), against an 80% line floor.  Nothing in this slice was
+  expected to move it, and nothing did by more than the noise of the new
+  `frame-trace-*.fe`/probe-test lines themselves adding a handful of
+  covered lines.
+- kg's `make check` and `make WITH_LISP=0 clean all check` — green after
+  the pin move (see kg commit, below); this slice's fe changes add no new
+  kg-visible primitive, native, or field, so both runs are a no-op
+  confirmation, not new coverage.
+
+**Commits:**
+
+- fe, `analyzers-etc`: `1c87e49`, `7181444`, `86e9fea`.
+- kg, `stricter-emacs-adherence`: pin move to `86e9fea`, its own commit,
+  green (`make check` and `make WITH_LISP=0 clean all check`), touching
+  only the gitlink — no `src/*.c` change, since this slice adds no fe API
+  kg consumes.
+
+**What this document did not anticipate:**
+
+- **The pre-06E crash anecdotes this document's own §1 opens with do not
+  reproduce.**  "GC-stack overflow past `(deep 452)`" and "MSan crashed at
+  `(deep 418)`" are both *pre-sub-plan-06E* facts — from before
+  `evaluation_depth` existed as a guard.  On this tree, all three builds
+  (default, ASan/UBSan, MSan) hit the *same* clean, catchable
+  `evaluation depth limit exceeded` boundary at `(deep 332)`/`(deep 333)`,
+  with no host-stack crash in any of them.  The "before" picture this
+  slice had to characterize turned out to already be a flat, safe wall at
+  n≈333, not a crash-adjacent one — good news for today's users, but it
+  means the probe's real job is proving growth exists *below* that wall
+  (which it does, linearly) rather than finding where a crash currently
+  sits.
+- **The peak-frame multiplier turned out to be independently checkable,
+  not just derivable.**  §4 warns "the peak-frame multiplier cannot be a
+  post-implementation measurement" and asks for a derived bound.  It did
+  not anticipate that the derivation (3 simultaneously-open pair-forms per
+  `deep` level: the call, the `if`, the `+`) could be cross-validated
+  *exactly* against §1's own empirical depth-limit boundary, because
+  `evaluation_depth` already counts the same live-nesting quantity a frame
+  stack would.  That agreement (predicted 3·333+2=1001>1000, measured
+  boundary at exactly 333) is stronger evidence than either the derivation
+  or the empirical boundary alone, and this document did not predict that
+  the two measurements taken for different outcomes (1 and 4) would turn
+  out to validate each other.
+- **A fixed frame-capacity floor sized for kg's needs breaks fe's own test
+  arena outright.**  The first partition formula tried (a flat
+  `MinFrameCapacity` sized so kg's arena gets several thousand frames)
+  requires more bytes than fe's entire 64 KiB `TestArenaSize`, which would
+  have made every `test_api.c` fixture fail to open a context at all.  The
+  document's own "one plausible answer does not fit in kg's arena" framing
+  undersold the risk: the naive fix does not fit in *fe's own test arena*
+  either, and the arena-relative (percentage-of-remainder) formula this
+  slice recommends exists because of that finding, not because it was the
+  first idea.
+- **`kg's make check` reported 406 PTY cases, not the audited 405.**  The
+  set README's baseline (405 PTY, taken 2026-08-04 before this slice) was
+  current when read; by the time this slice's kg gate ran, sub-plan 02E
+  (running independently, per the Grouping table) had already landed a
+  case.  Recorded as expected drift from a parallel, independent slice,
+  not a measurement error in this one — per the README's own "compare the
+  runner's discovered total with the prior slice rather than demanding
+  these numbers forever."
+- **The embedded call-trace cell was not obviously the cheaper choice
+  going in.**  03C's own document poses it as "accept only if the
+  cleanup-at-capacity case is demonstrated," suggesting the separate
+  context-owned trace region might be needed instead.  Once the 32-frame
+  cleanup reserve was priced (needed anyway, for the unrelated reason that
+  ordinary pushes must not exhaust the same region cleanups need), the
+  embedded cell's condition was already satisfied for free, and pricing a
+  second, separate trace region turned out to be unnecessary extra
+  surface -- worth noting since the document treats this as an open
+  question this slice would need to resolve with new arithmetic, not as a
+  side effect of arithmetic already needed elsewhere.

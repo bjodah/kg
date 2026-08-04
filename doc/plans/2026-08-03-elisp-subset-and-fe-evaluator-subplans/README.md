@@ -302,3 +302,44 @@ trees, and kg's `.ci/ci-03` (gcc `-fanalyzer` + valgrind) and `.ci/ci-04`
 (clang ASan/UBSan) are all green against this slice's final state. No
 language or editor behavior changed. Sub-plan 00C (independent of 00D) may
 proceed in parallel if not already underway; 01A still waits on 00C.
+
+**00C complete, 2026-08-04.** The manifest: fe's half
+(`fe/compat/features.json`, fe commit `c43fc1a` on `analyzers-etc`, kg pin
+moved separately) grew from 00B's 5 proof-of-mechanism entries to 44 --
+Fe's 31 primitives + 1 alias, plus 12 fe-owned cross-cutting divergences
+from the parent sub-plan's day-one list (`#'`-as-identity, no integers,
+`?a` unsupported, lax arity, the bounded writer, the already-agreeing
+void-variable case, one-namespace `boundp`). kg's half
+(`test/lisp-compat/features.json`, new) has 136 entries -- kg's 78
+natives and 54 prelude definitions, plus `defcustom` (planned, Phase 8
+Wave D) and three kg-owned cross-cutting divergences
+(`one-namespace-clobber`, `macro-expand-every-invocation`,
+`format-exceptional-float`). Every `comparison: emacs` entry in both
+manifests (38 + 53 = 91 total) carries a real, version-stamped snapshot
+generated and verified against `/opt-3/emacs-31-lucid/bin/emacs` during
+this slice, including cross-checking all 35 initially-expected-to-agree
+kg prelude definitions by evaluating the exact extracted `lisp_prelude[]`
+source under standalone `fe` side by side with real Emacs. Two divergent
+entries (`native-string-to-char`, `native-type-of`) were found this way,
+not assumed from the parent's list. `utils/check_lisp_compat.py`
+(new, wired into `make check` next to `docs-check`) adds the check that
+keeps the inventory alive: every Fe primitive/alias, kg native, and kg
+prelude definition parsed directly out of `fe/fe.c`/`src/lisp_prelude.c`
+must be claimed by exactly one feature entry's new `source_name` field --
+proven to fail on a temporary, reverted native addition. `make
+lisp-compat-oracle` regenerates/verifies kg's snapshots, reusing
+`fe/utils/run-emacs-oracle.py` directly. Three untested natives
+(`buffer-list`, `re-search-backward`, `process-status`) are recorded as
+gaps with an owner, not fixed; no native was found broken. One real
+mechanism gap in 00B's own `run-fe-compat.py` (no branch for
+`comparison: kg-policy`) was fixed in the same fe commit, since it
+blocked `make -C fe compat` outright rather than being a native
+discovered broken. `make check` (32/405), `make WITH_LISP=0 clean all
+check` (337/68), and both complexity gates in both trees are green and
+unchanged (kg 5444/5500, fe 214/220, `fe.c` 106/112) -- this slice adds
+no `.c`/`.h` files to either tree. fe's full nine-stage
+`.ci/run-ci-steps.sh` is green; kg's twelve-stage `--parallel` run is
+green except a pre-existing, unrelated `ci-06` (IWYU) finding on
+`src/lisp_core.c`'s unused `#include <time.h>`, introduced by the prior
+00D slice's commit and not touched by this one -- reported, not fixed.
+No language or editor behavior changed. Sub-plan 01A may start.

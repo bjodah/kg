@@ -6,41 +6,62 @@ reviewed and corrected 2026-08-04.  Read the parent's §0 (verified
 baseline), §0.1 (the two complexity ratchets) and §0.3 (scope honesty)
 before any of these; they are the facts these documents assume.
 
-This first set covers **Phase 0** and the extraction half of **Phase 1** —
-everything that has to exist before a single line of Fe's evaluator,
-symbol table or numeric tower changes.  Nothing here changes language
-behaviour.  That is the point: Phase 0 exists to make the difference
-between "compatibility work", "a regression" and "a documented divergence"
-mechanically decidable, and Phase 1's extraction exists so that the
-migration in Phase 2 is a Lisp diff rather than a diff of escaped C string
-literals.
+**The first set — Phase 0 and Phase 1's extraction — is complete
+(2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
+they landed; the Status section at the foot of this file is the surviving
+record, and the commits it names carry the detail.  What that set built is
+the ground this one stands on: an oracle mechanism, a 180-entry
+two-repository feature inventory with a checker in `make check`, recorded
+performance and arena baselines, a priced per-phase complexity table with
+a dated Decision, and a prelude that is a Lisp file rather than three C
+string literals.
+
+**This set covers Phase 2 — the hard cut.**  `setq` and `set` become real,
+`=` stops being assignment and becomes numeric comparison, and kg's Lisp
+becomes `.el`.  It is the first set that changes language behaviour, and
+every one of its slices is observable to anyone who writes kg Lisp.
+
+The through-line is that Phase 2 is a *sequencing* problem more than an
+implementation one.  The parent plan's own observation is that
+`EvaluatePrimitive`'s existing `PSet` arm already is single-pair `setq`,
+so the new code is small; what is hard is that the old spelling and the
+new one cannot both be reachable at the end, 99 fe sites and 54 kg sites
+have to move, and the kg cutover has no intermediate state where the
+editor builds and works.  The four slices are ordered so that each one
+lands green on its own.
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [00A](00a-budget-and-fe-structure.md) | 0 | Price every phase; decide both complexity caps and whether `fe.c` splits into more than one translation unit | none — **this is first** |
-| [00B](00b-oracle-and-differential-corpus.md) | 0 | Fe's `compat/` corpus, the `emacs -Q --batch` runner, versioned snapshots | 00A (for its own budget row) |
-| [00C](00c-feature-inventory.md) | 0 | The manifest: 31 Fe primitives, 78 kg natives, 54 prelude definitions, each with a status | 00B (needs the record format) |
-| [00D](00d-baselines-and-arena-observability.md) | 0 | Baselines through the counters that already exist, plus the minimal Fe arena statistics needed to take them at all | 00A; may land beside 00B |
-| [01A](01a-prelude-extraction.md) | 1 | `lisp/prelude.fe` becomes the canonical source; generator, drift check, stale-comment cleanup | none technically, but land after 00C so the inventory is written against the file |
+| [02A](02a-pin-the-target-semantics.md) | 2 | Record what `setq`, `set` and numeric `=` must do, from the oracle, before any of them is written | none — **this is first** |
+| [02B](02b-setq-and-set-in-fe-core.md) | 2 | `setq` as a core special form, `set` as a function; assignment `=` still works | 02A (its recorded answers are the spec) |
+| [02C](02c-the-equals-hard-cut-in-fe.md) | 2 | Migrate fe's 99 sites, delete the `PSet` assignment arm, bind `=` to numeric equality, add `FE_LANGUAGE_VERSION` | 02B |
+| [02D](02d-kg-migration-and-el-cutover.md) | 2 | kg's 54 sites, delete the prelude `setq` macro, pin move, and the `.fe` → `.el` cutover, in one atomic commit | 02C |
 
-**00A is genuinely first.**  Fe measures 210 against a cap of 210 and
-`fe.c` measures 102 against a file cap of 105.  Every other sub-plan here
-adds code to one tree or the other, and `.ci/ci-12-subprojects.sh` runs
-fe's complexity gate from kg's tree, so the first commit that adds a
-function to `fe.c` turns kg's CI red.  This is not a theoretical
-constraint; it is the state of the tree today.
+**02A is genuinely first, for the same structural reason 00A was.**  The
+parent plan says `set`'s interaction with lexical bindings "must be fixed
+by differential cases **before implementation**", and that instruction
+generalises: Phase 0 built an oracle so that Phase 2's answers could be
+recorded rather than argued.  Recording them after the code exists makes
+the corpus a rubber stamp on whatever was written.  02A costs zero
+complexity in both trees — it adds JSON and Lisp, not C.
 
-00B and 00C are the substance of Phase 0.  00D is smaller than it looks
-because kg's performance apparatus already exists and only needs Lisp
-cases — except for its one real deliverable, the Fe-side arena counters,
-without which four of the eight baseline items cannot be measured at all.
+**02B and 02C are one hard cut split across two commits, deliberately.**
+`setq` lands while assignment `=` still works, so that fe's 99 tracked
+assignment sites can migrate against a form that already exists.  The two
+spellings coexist for exactly two slices, inside one repository, with no
+release between them.  That is a sequencing choice, not a compatibility
+promise — §0.4 forbids aliases for users, not landing a replacement before
+deleting what it replaces.
 
-01A is included in this first set because it is genuinely independent of
-the language work, it is the last cheap moment to do it, and every later
-phase edits the prelude.  Doing it after Phase 2 would mean migrating 54
-definitions inside C string literals.
+**02D cannot be incremental.**  The moment kg's pin moves to a fe where
+`=` is comparison, kg's prelude stops being a program and becomes 54
+comparisons whose results are discarded.  There is no intermediate state
+where kg builds and works, so the pin move, the prelude rewrite, the
+`setq`-macro deletion, the rename and the loader change are one commit.
+Rule 10's "a deliberate API/language break must not create a pin-only
+commit that cannot build" is written for exactly this case.
 
 ## Compatibility direction
 
@@ -57,31 +78,46 @@ because they make the Fe↔kg contract checkable.
 ## Sequencing
 
 ```text
-00A  budget + TU decision ──┬──> 00B oracle/corpus ──> 00C inventory ──> 01A prelude extraction
-                            └──> 00D baselines + arena counters
+02A  pin semantics from the oracle ──> 02B  setq + set in fe core
+                                            │
+                                            v
+                                       02C  the = cut in fe, FE_LANGUAGE_VERSION
+                                            │
+                                            v
+                                       02D  kg migration + .el cutover (pin moves here)
 ```
 
-00A gates everything because it produces the numbers.  00C depends on 00B
-only for the record format — the inventory can be *drafted* in parallel.
-01A is placed last in this set so the inventory it feeds is written against
-`lisp/prelude.fe` rather than against a C array that is about to be
-deleted, but if 00C slips, 01A can go first with no loss.
+Strictly linear, unlike the first set.  Every arrow is a real dependency:
+02B implements against 02A's recordings, 02C cannot migrate 99 call sites
+to a `setq` that does not exist, and 02D cannot move kg's pin before fe's
+cut has landed and passed in the submodule (Rule 10).
+
+The one thing that *can* proceed in parallel is 02A's case-writing for
+numeric `=`, which does not depend on `setq` existing anywhere.
 
 ## What this set deliberately does not do
 
-- **No language behaviour changes.**  Not `setq`, not the `=` migration,
-  not a single new primitive.  Phase 0's whole value is that it is
-  measured against an unchanged language.
-- **No evaluator work.**  The frame machine is Phase 3 and is the largest
-  single risk in the program; it does not start before its budget row
-  exists and the translation-unit question is answered.
-- **No new test harness.**  kg has a PTY harness, a native harness, a perf
-  counter build, a bench driver, five fuzz targets, twelve CI stages and
-  four ratchets.  Fe has eight CI steps and three fuzz targets.  Every
-  sub-plan below extends one of those.
-- **No `.el` filenames yet.**  Phase 2 gives `=` its numeric meaning and makes
-  the dialect/filename cut at the same time.  There `.el` replaces `.fe`; it
-  is not a preference with a legacy fallback.  See the parent's §5 and §6.
+- **No integers.**  `=` compares the doubles Fe already has.  Phase 5 adds
+  `FeTInteger` and extends `=` to mixed types; the parent plan is explicit
+  that Phase 5 *extends* this operation rather than redefining it, so 02A's
+  cases must be written so an integer case slots in beside them.
+- **No condition system.**  Phase 2 needs the *names*
+  `wrong-number-of-arguments` and `arith-error`, but conditions are Phase
+  6.  Until then those are names carried in `FeHandleError()`'s message,
+  and **no case may assert a catchable condition object**.  00B's schema
+  already encodes the weakness: a fe-side condition record carries
+  `"condition_source": "message"`.
+- **No evaluator work.**  The frame machine is Phase 3, it is the largest
+  single risk in the program, and 00A's spike measured its split tax at
+  **+42 scc before any frame-machine logic is written**.  Phase 2 must not
+  quietly start it — "add `setq`" is not licence to redesign binding.
+- **No permanent migration machinery.**  A one-time audit before the cut,
+  recorded in a commit message.  Not a linter: after Phase 2,
+  `(= SYMBOL VALUE)` is a legitimate numeric comparison, so a
+  syntax-shaped checker either rejects valid code or becomes dead
+  infrastructure.
+- **No fallbacks.**  No `init.fe`, no `.fe` bare-name resolution, no
+  warning, no deprecation window.  §0.4: there is nobody to warn.
 
 ## Rules
 
@@ -89,8 +125,9 @@ The follow-up program's rules (`../2026-07-31-follow-ups/README.md`) apply
 unchanged, and three of them do most of the work here:
 
 - **Rule 6** — no ratchet is raised for routine work; record scc before and
-  after; bank a decrease when one lands.  00A is where the non-routine
-  exception is written down.
+  after; bank a decrease when one lands.  The Decision below is where the
+  non-routine exception is written down, and every phase from 2 onward
+  adds its own dated Decision there rather than borrowing that one.
 - **Rule 9** — each commit runs its focused suite; each phase ends with
   `make check` and `make WITH_LISP=0 clean all check`; a completed
   workstream ends with `.ci/run-ci-steps.sh --parallel`.
@@ -109,7 +146,21 @@ Two additions specific to this program:
 - **Every phase touches `doc/fe-upstream.md`'s divergence table.**  That
   table currently documents, as deliberate decisions, most of what this
   program reverses.  A phase that changes a row and does not rewrite it
-  leaves the authoritative document lying.
+  leaves the authoritative document lying.  Phase 2 alone invalidates the
+  rows for assignment `=` and one-namespace `setq`.
+
+Two more, learned the hard way during the first set:
+
+- **Measure from an idle tree.**  A slice reported 31 native suites and
+  391 PTY cases where the tree has 32 and 405, because two `make`
+  invocations were clobbering each other's objects.  The real numbers are
+  **32 native / 405 PTY**, and **337 pass + 68 skip** under `WITH_LISP=0`.
+  Anything else means contention until proven otherwise.
+- **A CI lane run against a stale `compile_commands.json` is not
+  evidence.**  `ci-06` passed on a single-lane run that was analysing the
+  pre-change translation unit, and then failed in the full parallel run on
+  a missing `<stddef.h>`.  Regenerate the compile DB before believing that
+  lane.
 
 ## Complexity price table (00A, 2026-08-04)
 
@@ -135,9 +186,9 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 
 | Phase | What it builds | Priced against | Estimate | Status |
 |---|---|---|---|---|
-| 0 — freeze & baseline | Read-only arena counters: object/free slot counts, peak live objects, GC count, hooked into `MakeObject`/`CollectGarbage` | `GetDouble`/`GetNativeFn`-shaped trivial accessors, plus a few counter increments in existing functions | **+10** (measured raise, see Decision) | **Funded, this slice** |
-| 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | n/a |
-| 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing `PSet` single-pair path), `set` as an ordinary native, `=` repurposed from assignment to a `NUM_CMP_OP`-shaped double-equality arm | `EvaluatePrimitive`'s existing `PSet` arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` arms for the new `=` shape | **+20 to +30** (net of deleting the old assignment arm it replaces) | Not funded here — own Decision when its sub-plan lands |
+| 0 — freeze & baseline | Read-only arena counters: object/free slot counts, peak live objects, GC count, hooked into `MakeObject`/`CollectGarbage` | `GetDouble`/`GetNativeFn`-shaped trivial accessors, plus a few counter increments in existing functions | **+10** (measured raise, see Decision) | **Landed. Actual +4** (210 -> 214), so 6 of the 10 funded points are unspent |
+| 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | **Landed. Actual 0**, as predicted |
+| 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing `PSet` single-pair path), `set` as an ordinary native, `=` repurposed from assignment to a `NUM_CMP_OP`-shaped double-equality arm | `EvaluatePrimitive`'s existing `PSet` arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` arms for the new `=` shape | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Next.** 02B spends, 02C refunds; 02B carries the Decision, since fe has only 6 points of headroom before the refund arrives |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | Provisional (milestone 1, not yet funded) |
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | Provisional (milestone 1) |
 | 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
@@ -162,8 +213,8 @@ widest uncertainty in the whole table.
 | Phase | What it builds | Priced against | Estimate | Status |
 |---|---|---|---|---|
 | 0 — freeze & baseline | `test/lisp-compat/` manifest + checker | Python (`utils/`), not scc-scanned | 0 | n/a |
-| 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | Self-funding |
-| 2 — hard-cut `=`/`setq` | Deletes the prelude's `setq` macro; `.fe`→`.el` rename is not code; bare-name loader gets an extension check | `src/lisp_require.c` | **−2 to +5** | Likely self-funding |
+| 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | **Landed. Actual −1** (5444 → 5443).  The estimate also assumed the 4 `(list 'quote nil)` workarounds would go; 01A left them, since removing them changes evaluated code and Phase 2 rewrites all four forms anyway |
+| 2 — hard-cut `=`/`setq` | Deletes the prelude's `setq` macro; `.fe`→`.el` rename is not code; bare-name loader gets an extension check | `src/lisp_require.c` | **−2 to +5** | **Next (02D).**  Deleting the prelude `setq` macro and one `(list 'quote nil)` workaround should pay for the loader's extension check |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | Provisional (milestone 1) |
 | 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | Provisional (milestone 1) |
 | 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
@@ -268,7 +319,8 @@ pin moved in a separate green kg commit. Full detail, including the
 tooling-path deviation from this document's suggested `tools/` (fe's own
 `utils/` convention was followed instead) and every gate's demonstrated
 output, is in
-[00B's own Status section](00b-oracle-and-differential-corpus.md#status).
+00B's own Status section (`00b-oracle-and-differential-corpus.md`,
+removed on completion -- see git history and commit `0df3b82`).
 Complexity in both trees is unchanged from 00A's landed numbers (fe
 210/220 total, `fe.c` 102/112 file cap, pmccabe 197 symbols/worst 15/22;
 kg 5439/5500) because this slice added no `.c`/`.h` files to either tree.
@@ -294,7 +346,8 @@ and a new `make bench-lisp-toggle` target for the with/without-Lisp and
 binary-size baseline items a single counting binary cannot produce;
 `test/test_perf.c` gained two Lisp shape assertions, both `WITH_LISP=0`-
 safe. Every parent-plan Phase 0 baseline item has a recorded number (full
-table in [00D's own Status section](00d-baselines-and-arena-observability.md#status),
+table in `00d-baselines-and-arena-observability.md`, removed on completion -- see
+git history and commit `bfa9d7e`,
 including the one item -- prelude time in isolation -- that looked headed
 for "not measurable" until the new counter closed it directly). `make
 check`, `make WITH_LISP=0 clean all check`, both complexity gates in both
@@ -369,7 +422,8 @@ forms anyway.  kg scc 5444 -> **5443**, with `evaluate_prelude`'s pmccabe
 are green, as are `header-check`, `format-check`, `docs-check`,
 `lisp-compat-check` and `coverage-check`.  Full detail, including the one
 prediction this document got wrong about the coverage ratchet, is in
-[01A's own Status section](01a-prelude-extraction.md#status).
+01A's own Status section (`01a-prelude-extraction.md`, removed on
+completion -- see git history and commits `440df9c`/`c73cea4`).
 
 The `ci-06` IWYU finding 00C reported -- `src/lisp_core.c`'s unconditional
 `#include <time.h>`, whose only use is behind `#if KG_PERF_COUNTERS` -- was
@@ -383,3 +437,27 @@ per-phase complexity table with a dated Decision, and a prelude that can
 be diffed.  Nothing in the language changed, which is the point.  Phase 2
 -- `setq`, `set`, and the `=` cutover -- is the next set, and it is the
 first that alters behaviour.
+
+**The first set closed green, 2026-08-04.**  All twelve CI stages passed
+from an idle tree (`.ci/run-ci-steps.sh --parallel`), after two defects
+the slices themselves had left behind were fixed: `src/lisp_core.c`'s
+unconditional `#include <time.h>` (`4844a0d`) and `src/lisp_prelude.c`'s
+missing `<stddef.h>` (`60c43ae`), both IWYU findings, the second only
+visible once the compile database was regenerated.  Twelve kg commits on
+`stricter-emacs-adherence` and four fe commits on `analyzers-etc`, pin at
+`c43fc1a`.  The five sub-plan documents were removed at that point; this
+Status section and those commits are the record.
+
+**02A–02D, Phase 2, are not started (2026-08-04).**
+
+Two gaps are carried forward from the first set rather than closed inside
+it, and neither blocks Phase 2:
+
+- Three kg natives — `buffer-list`, `re-search-backward`,
+  `process-status` — have no test.  They are recorded in
+  `test/lisp-compat/features.json` as gaps with an owner, not quietly
+  covered.
+- The four `(list 'quote nil)` prelude workarounds survive.  01A took its
+  own "if in doubt" route: they are vestigial rather than wrong, removing
+  them changes evaluated code, and Phase 2 rewrites all four forms.  02D
+  deletes one of them as a side effect of deleting the `setq` macro.

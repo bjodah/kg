@@ -1,0 +1,6 @@
+{
+ "id": "native-re-search-backward",
+ "setup": [],
+ "expr": "(re-search-backward \"x+\")",
+ "note": "Registered and implemented (src/lisp_prelude.c, src/lisp_search.c) but exercised by no native or PTY test today."
+}

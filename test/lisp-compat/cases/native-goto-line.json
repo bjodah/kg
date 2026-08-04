@@ -1,0 +1,6 @@
+{
+ "id": "native-goto-line",
+ "setup": [],
+ "expr": "(goto-line 2)",
+ "note": "Mutates kg's current buffer's cursor state, addressed by kg's row model."
+}

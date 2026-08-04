@@ -1,0 +1,6 @@
+{
+ "id": "macro-expand-every-invocation",
+ "setup": [],
+ "expr": "(let ((n 0)) (defmacro bump () (setq n (+ n 1)) (list 'quote n)) (list (bump) (bump)))",
+ "note": "kg's macros re-expand on every call site invocation rather than expanding once and caching the expansion (fe.c:1863 no longer copies the expansion over the call site, and does not memoize it either), so a macro whose *expansion-time* code has side effects runs those side effects once per call, charged against the evaluator's step budget each time."
+}

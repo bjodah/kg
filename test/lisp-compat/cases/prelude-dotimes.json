@@ -1,0 +1,6 @@
+{
+ "id": "prelude-dotimes",
+ "setup": [],
+ "expr": "(let ((r nil)) (dotimes (i 3 r) (setq r (cons i r))))",
+ "note": "Matches Emacs."
+}

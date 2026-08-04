@@ -1,0 +1,6 @@
+{
+ "id": "native-symbolp",
+ "setup": [],
+ "expr": "(symbolp 'a)",
+ "note": "Matches Emacs."
+}

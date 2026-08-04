@@ -1,0 +1,6 @@
+{
+ "id": "native-format",
+ "setup": [],
+ "expr": "(format \"%d apples, %s\" 3 \"please\")",
+ "note": "test_format_natives' own header comment: 'Every expectation here was measured against Emacs 31, except the two noted places' (the exceptional-float cases, tracked separately as format-exceptional-float below)."
+}

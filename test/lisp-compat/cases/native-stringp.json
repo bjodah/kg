@@ -1,0 +1,6 @@
+{
+ "id": "native-stringp",
+ "setup": [],
+ "expr": "(stringp \"a\")",
+ "note": "Matches Emacs."
+}

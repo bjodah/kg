@@ -1,0 +1,6 @@
+{
+ "id": "native-numberp",
+ "setup": [],
+ "expr": "(numberp 1)",
+ "note": "Matches Emacs."
+}

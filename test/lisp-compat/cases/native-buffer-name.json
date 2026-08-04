@@ -1,0 +1,6 @@
+{
+ "id": "native-buffer-name",
+ "setup": [],
+ "expr": "(buffer-name)",
+ "note": "Reads kg's current-buffer state."
+}

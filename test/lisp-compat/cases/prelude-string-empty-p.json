@@ -1,0 +1,6 @@
+{
+ "id": "prelude-string-empty-p",
+ "setup": [],
+ "expr": "(string-empty-p \"\")",
+ "note": "kg-only helper, `(lambda (s) (string= s \"\"))`. Not a built-in Emacs function without loading subr-x (`(require (quote subr-x))`), so not guaranteed present in a plain `emacs -Q --batch` oracle run."
+}

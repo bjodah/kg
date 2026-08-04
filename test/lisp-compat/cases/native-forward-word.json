@@ -1,0 +1,6 @@
+{
+ "id": "native-forward-word",
+ "setup": [],
+ "expr": "(forward-word)",
+ "note": "Mutates kg's cursor using kg's own word-motion classification (src/word.c)."
+}

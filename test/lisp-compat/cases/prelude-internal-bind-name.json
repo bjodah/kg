@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-bind-name",
+ "setup": [],
+ "expr": "(internal--bind-name (list 'x 5))",
+ "note": "Private helper backing let/let*: extracts a binding spec's name, accepting both a bare symbol and a (SYM VALUE) pair."
+}

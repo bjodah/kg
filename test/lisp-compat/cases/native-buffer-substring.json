@@ -1,0 +1,6 @@
+{
+ "id": "native-buffer-substring",
+ "setup": [],
+ "expr": "(buffer-substring 1 3)",
+ "note": "Reads kg's current buffer text."
+}

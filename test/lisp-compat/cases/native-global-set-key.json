@@ -1,0 +1,6 @@
+{
+ "id": "native-global-set-key",
+ "setup": [],
+ "expr": "(global-set-key \"C-c x\" (quote some-command))",
+ "note": "kg's own keymap/keybind representation, not Emacs' kbd/keymap objects."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-get-buffer-create",
+ "setup": [],
+ "expr": "(get-buffer-create \"name\")",
+ "note": "Reads/mutates kg's buffer slot table."
+}

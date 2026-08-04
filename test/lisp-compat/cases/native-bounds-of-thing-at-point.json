@@ -1,0 +1,6 @@
+{
+ "id": "native-bounds-of-thing-at-point",
+ "setup": [],
+ "expr": "(bounds-of-thing-at-point 'word)",
+ "note": "Reads kg's buffer text and kg's own (smaller) set of supported \"thing\" types, not Emacs' thingatpt.el."
+}

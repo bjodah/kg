@@ -1,0 +1,6 @@
+{
+ "id": "prelude-let-star",
+ "setup": [],
+ "expr": "(let* ((a 1) (b (+ a 1))) (list a b))",
+ "note": "Sequential binding; matches Emacs' let* (each value form sees the previous bindings)."
+}

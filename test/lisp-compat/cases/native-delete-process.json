@@ -1,0 +1,6 @@
+{
+ "id": "native-delete-process",
+ "setup": [],
+ "expr": "(delete-process proc)",
+ "note": "Mutates kg's process table."
+}

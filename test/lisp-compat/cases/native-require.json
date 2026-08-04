@@ -1,0 +1,6 @@
+{
+ "id": "native-require",
+ "setup": [],
+ "expr": "(require 'a-feature)",
+ "note": "Same kg-owned feature table as provide."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-push",
+ "setup": [],
+ "expr": "(let ((s (list 1 2))) (push 0 s) s)",
+ "note": "Matches Emacs."
+}

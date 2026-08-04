@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-dolist",
+ "setup": [],
+ "expr": "(internal--dolist (list 1 2 3) (lambda (x) x))",
+ "note": "Private helper backing dolist: applies a callback to each list element, iteratively (not over the list spine recursively, per src/lisp_prelude.c's rule 3)."
+}

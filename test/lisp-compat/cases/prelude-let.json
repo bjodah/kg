@@ -1,0 +1,6 @@
+{
+ "id": "prelude-let",
+ "setup": [],
+ "expr": "(let ((a 1) (b 2)) (+ a b))",
+ "note": "Parallel binding via immediate lambda application; matches Emacs' let (the bindings' value forms see the outer environment, not each other)."
+}

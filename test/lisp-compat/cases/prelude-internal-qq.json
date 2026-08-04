@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-qq",
+ "setup": [],
+ "expr": "(internal--qq 5)",
+ "note": "Private helper backing quasiquote's per-form expansion."
+}

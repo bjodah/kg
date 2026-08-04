@@ -1,0 +1,6 @@
+{
+ "id": "prelude-reverse",
+ "setup": [],
+ "expr": "(reverse (list 1 2 3))",
+ "note": "Matches Emacs."
+}

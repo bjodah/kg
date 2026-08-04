@@ -1,0 +1,6 @@
+{
+ "id": "native-char-after",
+ "setup": [],
+ "expr": "(char-after 1)",
+ "note": "Reads kg's current buffer text at a position."
+}

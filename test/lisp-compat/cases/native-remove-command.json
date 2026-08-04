@@ -1,0 +1,6 @@
+{
+ "id": "native-remove-command",
+ "setup": [],
+ "expr": "(remove-command 'name)",
+ "note": "Same kg-owned command registry as define-command."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-string-length",
+ "setup": [],
+ "expr": "(string-length \"abc\")",
+ "note": "Every expectation in test_string_length_and_substring was measured against Emacs 31 (the test file's own header comment), including UTF-8 codepoint counting."
+}

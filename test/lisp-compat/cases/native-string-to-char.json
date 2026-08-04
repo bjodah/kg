@@ -1,0 +1,6 @@
+{
+ "id": "native-string-to-char",
+ "setup": [],
+ "expr": "(string-to-char \"\")",
+ "note": "kg's (string-to-char \"\") returns nil (\"no character\"); Emacs' returns 0 (aref of an empty string position 0 is documented as returning 0, not signaling or returning nil)."
+}

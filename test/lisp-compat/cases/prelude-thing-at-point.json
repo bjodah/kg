@@ -1,0 +1,6 @@
+{
+ "id": "prelude-thing-at-point",
+ "setup": [],
+ "expr": "(thing-at-point 'word)",
+ "note": "Thin wrapper over kg's own bounds-of-thing-at-point native and buffer-substring; kg supports a small, fixed set of \"thing\" types where Emacs' thingatpt.el supports many, extensibly, and returns a matched substring plus properties Emacs' does not."
+}

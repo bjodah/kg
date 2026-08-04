@@ -1,0 +1,6 @@
+{
+ "id": "native-provide",
+ "setup": [],
+ "expr": "(provide 'a-feature)",
+ "note": "Feature registration is kg's own table, not comparable to a fresh emacs -Q's `features` list without replicating kg's package loader state."
+}

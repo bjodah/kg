@@ -1,0 +1,6 @@
+{
+ "id": "native-match-beginning",
+ "setup": [],
+ "expr": "(match-beginning 0)",
+ "note": "Reads kg's last-search match data."
+}

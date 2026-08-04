@@ -1,0 +1,6 @@
+{
+ "id": "native-current-local-map",
+ "setup": [],
+ "expr": "(current-local-map)",
+ "note": "Reads kg's own per-mode keymap state."
+}

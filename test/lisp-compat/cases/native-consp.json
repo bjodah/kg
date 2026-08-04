@@ -1,0 +1,6 @@
+{
+ "id": "native-consp",
+ "setup": [],
+ "expr": "(consp (cons 1 2))",
+ "note": "Matches Emacs."
+}

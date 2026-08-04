@@ -1,0 +1,6 @@
+{
+ "id": "native-current-buffer",
+ "setup": [],
+ "expr": "(current-buffer)",
+ "note": "Reads kg's window/buffer slot table."
+}

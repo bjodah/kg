@@ -1,0 +1,6 @@
+{
+ "id": "prelude-unless",
+ "setup": [],
+ "expr": "(unless nil 1 2 3)",
+ "note": "Matches Emacs."
+}

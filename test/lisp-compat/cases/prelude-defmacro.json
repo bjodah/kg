@@ -1,0 +1,6 @@
+{
+ "id": "prelude-defmacro",
+ "setup": [],
+ "expr": "(progn (defmacro dbl (x) (list '+ x x)) (dbl 21))",
+ "note": "Matches Emacs for the basic case (kg's macros re-expand on every call, a performance difference tracked separately as macro-expand-every-invocation, not a per-call correctness one for a pure macro like this)."
+}

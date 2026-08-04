@@ -1,0 +1,6 @@
+{
+ "id": "native-add-hook",
+ "setup": [],
+ "expr": "(add-hook 'some-hook (lambda () 1))",
+ "note": "Mutates kg's own hook-variable table."
+}

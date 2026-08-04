@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-first",
+ "setup": [],
+ "expr": "(internal--first 1 2 3)",
+ "note": "Private helper backing prog1: returns its first argument, ignoring the rest (which is what already evaluated them for their side effects, since Fe evaluates all arguments before calling a lambda)."
+}

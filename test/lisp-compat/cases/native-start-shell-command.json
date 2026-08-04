@@ -1,0 +1,6 @@
+{
+ "id": "native-start-shell-command",
+ "setup": [],
+ "expr": "(start-shell-command \"cmd\" (current-buffer) \"true\")",
+ "note": "Same kg process table as start-process, via a shell."
+}

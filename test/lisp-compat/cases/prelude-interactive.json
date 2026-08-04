@@ -1,0 +1,6 @@
+{
+ "id": "prelude-interactive",
+ "setup": [],
+ "expr": "(interactive)",
+ "note": "Inert macro expanding to (quote nil): a stray top-level (interactive) is harmless, and inside a defun body it is stripped and instead registers the enclosing defun as a kg command (see internal--has-interactive/internal--strip-interactive, and native-define-command). Emacs' `interactive` is a special form with a rich argument-spec mini-language (code letters, prompts) that supplies a command's arguments from the minibuffer/prefix-arg/region; kg's has none of that yet."
+}

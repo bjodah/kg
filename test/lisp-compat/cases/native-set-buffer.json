@@ -1,0 +1,6 @@
+{
+ "id": "native-set-buffer",
+ "setup": [],
+ "expr": "(set-buffer (current-buffer))",
+ "note": "Mutates kg's per-form current-buffer context (struct kg_lisp_exec_ctx)."
+}

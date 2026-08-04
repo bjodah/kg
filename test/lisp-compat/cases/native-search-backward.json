@@ -1,0 +1,6 @@
+{
+ "id": "native-search-backward",
+ "setup": [],
+ "expr": "(search-backward \"x\")",
+ "note": "Searches kg's current buffer text backward."
+}

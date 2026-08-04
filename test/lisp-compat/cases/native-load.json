@@ -1,0 +1,6 @@
+{
+ "id": "native-load",
+ "setup": [],
+ "expr": "(load \"path.fe\")",
+ "note": "kg's loader resolves against kg's own load-path array and buffer/package state, not a filesystem-agnostic Lisp-only operation."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-progn",
+ "setup": [],
+ "expr": "(progn 1 2 3)",
+ "note": "Alias of Fe's `do` primitive under Emacs' name; sequencing and return-the-last-value both agree with Emacs."
+}

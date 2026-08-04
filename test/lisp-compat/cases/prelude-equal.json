@@ -1,0 +1,6 @@
+{
+ "id": "prelude-equal",
+ "setup": [],
+ "expr": "(equal (list 1 2) (list 1 2))",
+ "note": "Matches Emacs for lists (structural equality; kg's equal falls back to `is` for non-pairs, matching Emacs' eq fallback for atoms other than numbers/strings, which Emacs' equal also compares by value -- not exercised by this minimal case)."
+}

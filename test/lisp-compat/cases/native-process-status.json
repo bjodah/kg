@@ -1,0 +1,6 @@
+{
+ "id": "native-process-status",
+ "setup": [],
+ "expr": "(process-status proc)",
+ "note": "Registered and implemented (src/lisp_process.c's lisp_process_resolve, src/process_table.h's collapsed three-state model) but exercised by no native or PTY test today."
+}

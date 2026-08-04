@@ -1,0 +1,6 @@
+{
+ "id": "native-set-process-sentinel",
+ "setup": [],
+ "expr": "(set-process-sentinel proc (lambda (p e) e))",
+ "note": "Mutates kg's process callback table."
+}

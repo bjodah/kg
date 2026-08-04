@@ -1,0 +1,6 @@
+{
+ "id": "prelude-quasiquote",
+ "setup": [],
+ "expr": "`(1 ,(+ 1 1) ,@(list 3 4))",
+ "note": "Backquote/unquote/unquote-splicing all match Emacs, including splicing a list into the middle of a literal list."
+}

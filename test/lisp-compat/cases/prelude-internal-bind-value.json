@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-bind-value",
+ "setup": [],
+ "expr": "(internal--bind-value (list 'x 5))",
+ "note": "Private helper backing let/let*: extracts a binding spec's value form (nil for a bare symbol)."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-strip-interactive",
+ "setup": [],
+ "expr": "(internal--strip-interactive (list (list 'interactive) 1))",
+ "note": "Private helper backing defun: removes (interactive ...) forms from a body before wrapping it in a lambda."
+}

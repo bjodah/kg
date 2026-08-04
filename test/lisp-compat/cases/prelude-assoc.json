@@ -1,0 +1,6 @@
+{
+ "id": "prelude-assoc",
+ "setup": [],
+ "expr": "(assoc 'b (list (cons 'a 1) (cons 'b 2)))",
+ "note": "Matches Emacs (equal-based key lookup)."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-start-process",
+ "setup": [],
+ "expr": "(start-process \"p\" (current-buffer) \"true\")",
+ "note": "Spawns a real OS subprocess through kg's process table (src/process.c, src/process_table.c); nothing an Emacs batch oracle case could run identically."
+}

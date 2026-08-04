@@ -1,0 +1,6 @@
+{
+ "id": "native-functionp",
+ "setup": [],
+ "expr": "(functionp 'car)",
+ "note": "Matches Emacs for the basic case; kg's own callable taxonomy (native-fn, primitive, lambda) is broader than Emacs' but functionp collapses all of them to t as Emacs' does for its own callable types."
+}

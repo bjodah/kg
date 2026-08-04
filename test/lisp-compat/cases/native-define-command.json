@@ -1,0 +1,6 @@
+{
+ "id": "native-define-command",
+ "setup": [],
+ "expr": "(define-command 'name (lambda () 1))",
+ "note": "Emacs defines commands with defun plus (interactive); kg keeps a name -> function registry (src/lisp_prelude.c's own comment), so this has no Emacs analogue."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-defun",
+ "setup": [],
+ "expr": "(progn (defun sq (x) (* x x)) (sq 5))",
+ "note": "Basic non-interactive defun (return value, callability) matches Emacs; kg's additional (interactive) handling registers a kg command, which has no Emacs analogue and is not exercised by this case."
+}

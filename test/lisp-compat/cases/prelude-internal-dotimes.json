@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-dotimes",
+ "setup": [],
+ "expr": "(internal--dotimes 3 (lambda (i) i))",
+ "note": "Private helper backing dotimes."
+}

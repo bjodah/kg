@@ -1,0 +1,6 @@
+{
+ "id": "native-kill-buffer",
+ "setup": [],
+ "expr": "(kill-buffer (current-buffer))",
+ "note": "Mutates kg's buffer slot table/lifecycle."
+}

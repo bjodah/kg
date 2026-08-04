@@ -1,0 +1,6 @@
+{
+ "id": "native-set-marker",
+ "setup": [],
+ "expr": "(set-marker (make-marker) 3)",
+ "note": "Mutates a kg marker's position/buffer."
+}

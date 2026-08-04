@@ -1,0 +1,6 @@
+{
+ "id": "native-line-number-at-pos",
+ "setup": [],
+ "expr": "(line-number-at-pos)",
+ "note": "Reads kg's row model."
+}

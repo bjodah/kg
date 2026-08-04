@@ -1,0 +1,6 @@
+{
+ "id": "prelude-mapcar",
+ "setup": [],
+ "expr": "(mapcar (lambda (x) (* x x)) (list 1 2 3))",
+ "note": "Matches Emacs."
+}

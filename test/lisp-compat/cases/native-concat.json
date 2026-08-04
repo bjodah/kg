@@ -1,0 +1,6 @@
+{
+ "id": "native-concat",
+ "setup": [],
+ "expr": "(concat \"a\" \"\" \"bc\" \"d\")",
+ "note": "Matches Emacs for string arguments (kg's concat is string-only; Emacs' concat also accepts lists/vectors, which kg's does not -- not exercised by this minimal case)."
+}

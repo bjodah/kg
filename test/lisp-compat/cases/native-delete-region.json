@@ -1,0 +1,6 @@
+{
+ "id": "native-delete-region",
+ "setup": [],
+ "expr": "(delete-region 1 3)",
+ "note": "Buffer/region mutation; kg-policy per 00b's split."
+}

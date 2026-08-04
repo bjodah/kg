@@ -1,0 +1,6 @@
+{
+ "id": "prelude-save-excursion",
+ "setup": [],
+ "expr": "(save-excursion (goto-char (point-max)))",
+ "note": "Wraps kg's internal--save-excursion native; restores kg's current buffer's point after BODY, whatever BODY does to it, including a non-local exit."
+}

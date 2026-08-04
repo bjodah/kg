@@ -1,0 +1,6 @@
+{
+ "id": "native-internal-save-excursion",
+ "setup": [],
+ "expr": "(internal--save-excursion (lambda () (point)))",
+ "note": "The native kg's `save-excursion` prelude macro (test/lisp-compat's own prelude-save-excursion entry) expands to; not meant to be called directly by user code, but a real, tested native in its own right."
+}

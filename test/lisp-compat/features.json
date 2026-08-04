@@ -1,0 +1,1774 @@
+{
+ "schema": "fe-compat-features/1",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 54 prelude definitions (lisp_prelude[]'s three string literals), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 31 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "features": [
+  {
+   "id": "native-message",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-message"
+   ],
+   "kg_test": "test/test_lisp.c:test_message_arity",
+   "rationale": null,
+   "source_name": "message"
+  },
+  {
+   "id": "native-insert",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-insert"
+   ],
+   "kg_test": "test/test_lisp.c:test_insert_and_undo",
+   "rationale": null,
+   "source_name": "insert"
+  },
+  {
+   "id": "native-delete-region",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-delete-region"
+   ],
+   "kg_test": "test/test_lisp.c:test_delete_region",
+   "rationale": null,
+   "source_name": "delete-region"
+  },
+  {
+   "id": "native-replace-region",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-replace-region"
+   ],
+   "kg_test": "test/test_lisp.c:test_replace_region",
+   "rationale": null,
+   "source_name": "replace-region"
+  },
+  {
+   "id": "native-buffer-name",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-buffer-name"
+   ],
+   "kg_test": "test/test_lisp.c:test_goto_line_and_buffer_name",
+   "rationale": null,
+   "source_name": "buffer-name"
+  },
+  {
+   "id": "native-load",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-load"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_file",
+   "rationale": null,
+   "source_name": "load"
+  },
+  {
+   "id": "native-provide",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-provide"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": null,
+   "source_name": "provide"
+  },
+  {
+   "id": "native-require",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-require"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": null,
+   "source_name": "require"
+  },
+  {
+   "id": "native-featurep",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-featurep"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": null,
+   "source_name": "featurep"
+  },
+  {
+   "id": "native-add-to-load-path",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-add-to-load-path"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_path_order",
+   "rationale": null,
+   "source_name": "add-to-load-path"
+  },
+  {
+   "id": "native-global-set-key",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-global-set-key"
+   ],
+   "kg_test": "test/test_lisp.c:test_key_bindings",
+   "rationale": null,
+   "source_name": "global-set-key"
+  },
+  {
+   "id": "native-global-unset-key",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-global-unset-key"
+   ],
+   "kg_test": "test/test_lisp.c:test_key_bindings",
+   "rationale": null,
+   "source_name": "global-unset-key"
+  },
+  {
+   "id": "native-point",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-point"
+   ],
+   "kg_test": "test/test_lisp.c:test_point_offsets",
+   "rationale": null,
+   "source_name": "point"
+  },
+  {
+   "id": "native-point-min",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-point-min"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
+   "source_name": "point-min"
+  },
+  {
+   "id": "native-point-max",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-point-max"
+   ],
+   "kg_test": "test/test_lisp.c:test_char_after",
+   "rationale": null,
+   "source_name": "point-max"
+  },
+  {
+   "id": "native-goto-char",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-goto-char"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_point_sync",
+   "rationale": null,
+   "source_name": "goto-char"
+  },
+  {
+   "id": "native-goto-line",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-goto-line"
+   ],
+   "kg_test": "test/test_lisp.c:test_goto_line_and_buffer_name",
+   "rationale": null,
+   "source_name": "goto-line"
+  },
+  {
+   "id": "native-line-number-at-pos",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-line-number-at-pos"
+   ],
+   "kg_test": "test/test_lisp.c:test_goto_line_and_buffer_name",
+   "rationale": null,
+   "source_name": "line-number-at-pos"
+  },
+  {
+   "id": "native-current-column",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-current-column"
+   ],
+   "kg_test": "test/test_lisp.c:test_current_column_tab",
+   "rationale": null,
+   "source_name": "current-column"
+  },
+  {
+   "id": "native-mark",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-mark"
+   ],
+   "kg_test": "test/test_lisp.c:test_mark_and_region",
+   "rationale": null,
+   "source_name": "mark"
+  },
+  {
+   "id": "native-set-mark",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-set-mark"
+   ],
+   "kg_test": "test/test_lisp.c:test_mark_and_region",
+   "rationale": null,
+   "source_name": "set-mark"
+  },
+  {
+   "id": "native-deactivate-mark",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-deactivate-mark"
+   ],
+   "kg_test": "test/test_lisp.c:test_mark_and_region",
+   "rationale": null,
+   "source_name": "deactivate-mark"
+  },
+  {
+   "id": "native-region-beginning",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-region-beginning"
+   ],
+   "kg_test": "test/test_lisp.c:test_mark_and_region",
+   "rationale": null,
+   "source_name": "region-beginning"
+  },
+  {
+   "id": "native-region-end",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-region-end"
+   ],
+   "kg_test": "test/test_lisp.c:test_mark_and_region",
+   "rationale": null,
+   "source_name": "region-end"
+  },
+  {
+   "id": "native-buffer-substring",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-buffer-substring"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_substring",
+   "rationale": null,
+   "source_name": "buffer-substring"
+  },
+  {
+   "id": "native-char-after",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-char-after"
+   ],
+   "kg_test": "test/test_lisp.c:test_char_after",
+   "rationale": null,
+   "source_name": "char-after"
+  },
+  {
+   "id": "native-forward-word",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-forward-word"
+   ],
+   "kg_test": "test/test_lisp.c:test_word_motion",
+   "rationale": null,
+   "source_name": "forward-word"
+  },
+  {
+   "id": "native-backward-word",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-backward-word"
+   ],
+   "kg_test": "test/test_lisp.c:test_word_motion",
+   "rationale": null,
+   "source_name": "backward-word"
+  },
+  {
+   "id": "native-bounds-of-thing-at-point",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-bounds-of-thing-at-point"
+   ],
+   "kg_test": "test/test_lisp.c:test_thing_at_point",
+   "rationale": null,
+   "source_name": "bounds-of-thing-at-point"
+  },
+  {
+   "id": "native-command-execute",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-command-execute"
+   ],
+   "kg_test": "test/test_lisp.c:test_command_allow_list",
+   "rationale": null,
+   "source_name": "command-execute"
+  },
+  {
+   "id": "native-define-command",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-define-command"
+   ],
+   "kg_test": "test/test_lisp.c:test_define_and_run_command",
+   "rationale": null,
+   "source_name": "define-command"
+  },
+  {
+   "id": "native-remove-command",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-remove-command"
+   ],
+   "kg_test": "test/test_lisp.c:test_define_and_run_command",
+   "rationale": null,
+   "source_name": "remove-command"
+  },
+  {
+   "id": "native-current-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-current-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
+   "source_name": "current-buffer"
+  },
+  {
+   "id": "native-buffer-list",
+   "category": "editor-primitives",
+   "status": "unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-buffer-list"
+   ],
+   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
+   "rationale": "Registered and implemented (src/lisp_obj.c) but exercised by no native or PTY test today -- the one apparent hit in an earlier naive text sweep of test/pty/*.yaml turned out to be the unrelated \"buffer-list\" keymap name in describe-key-shadowed-mode-binding.yaml, not this native. Untested gap, not a broken-native finding: recorded in this slice's untested-natives list with owner kg (follow-up test-writing slice).",
+   "source_name": "buffer-list"
+  },
+  {
+   "id": "native-get-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-get-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
+   "source_name": "get-buffer"
+  },
+  {
+   "id": "native-get-buffer-create",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-get-buffer-create"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
+   "source_name": "get-buffer-create"
+  },
+  {
+   "id": "native-buffer-live-p",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-buffer-live-p"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_objects",
+   "rationale": null,
+   "source_name": "buffer-live-p"
+  },
+  {
+   "id": "native-set-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-set-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_buffer_point_sync",
+   "rationale": null,
+   "source_name": "set-buffer"
+  },
+  {
+   "id": "native-kill-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-kill-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_kill_buffer",
+   "rationale": null,
+   "source_name": "kill-buffer"
+  },
+  {
+   "id": "native-search-forward",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-search-forward"
+   ],
+   "kg_test": "test/test_lisp.c:test_search_forward_backward",
+   "rationale": null,
+   "source_name": "search-forward"
+  },
+  {
+   "id": "native-search-backward",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-search-backward"
+   ],
+   "kg_test": "test/test_lisp.c:test_search_forward_backward",
+   "rationale": null,
+   "source_name": "search-backward"
+  },
+  {
+   "id": "native-re-search-forward",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-re-search-forward"
+   ],
+   "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
+   "rationale": null,
+   "source_name": "re-search-forward"
+  },
+  {
+   "id": "native-re-search-backward",
+   "category": "editor-primitives",
+   "status": "unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-re-search-backward"
+   ],
+   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
+   "rationale": "Untested gap, not a broken-native finding: the native itself is a straightforward mirror of re-search-forward's already-tested machinery (kg_regex_match_backward(), whose own backward-selection policy AGENTS.md documents as kg's own, not Emacs'), it is just never called from test/test_lisp.c or any test/pty/*.yaml case. Recorded in this slice's untested-natives list with owner kg (follow-up test-writing slice); status is 'unsupported' here only in the sense that this manifest's per-status contract requires a passing case for 'supported' and none exists yet -- the construct itself is not believed broken.",
+   "source_name": "re-search-backward"
+  },
+  {
+   "id": "native-match-beginning",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-match-beginning"
+   ],
+   "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
+   "rationale": null,
+   "source_name": "match-beginning"
+  },
+  {
+   "id": "native-match-end",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-match-end"
+   ],
+   "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
+   "rationale": null,
+   "source_name": "match-end"
+  },
+  {
+   "id": "native-make-marker",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-make-marker"
+   ],
+   "kg_test": "test/test_lisp.c:test_markers",
+   "rationale": "Naming mismatch against Emacs, recorded directly in test_lisp.c's own comment ('not Emacs' make-marker, which starts detached ... Recorded as a naming mismatch worth revisiting'). Not fixed in this slice (scope discipline); a real fix is a Phase 8+ prelude/library wave, not language core, so no phase is named yet.",
+   "source_name": "make-marker"
+  },
+  {
+   "id": "native-set-marker",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-set-marker"
+   ],
+   "kg_test": "test/test_lisp.c:test_markers",
+   "rationale": null,
+   "source_name": "set-marker"
+  },
+  {
+   "id": "native-marker-position",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-marker-position"
+   ],
+   "kg_test": "test/test_lisp.c:test_markers",
+   "rationale": null,
+   "source_name": "marker-position"
+  },
+  {
+   "id": "native-marker-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-marker-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_markers",
+   "rationale": null,
+   "source_name": "marker-buffer"
+  },
+  {
+   "id": "native-internal-save-excursion",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-internal-save-excursion"
+   ],
+   "kg_test": "test/test_lisp.c:test_save_excursion",
+   "rationale": "No test names this native by its own name (see this slice's untested-natives sweep), but it is exercised on every call the save-excursion macro's own test makes -- the macro is a one-line wrapper around it. Recorded as tested-via-wrapper rather than a gap.",
+   "source_name": "internal--save-excursion"
+  },
+  {
+   "id": "native-internal-with-current-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-internal-with-current-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_with_current_buffer",
+   "rationale": "Tested-via-wrapper, same shape as internal--save-excursion above: with-current-buffer's own test exercises this native on every call.",
+   "source_name": "internal--with-current-buffer"
+  },
+  {
+   "id": "native-add-hook",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-add-hook"
+   ],
+   "kg_test": "test/test_lisp.c:test_hooks",
+   "rationale": null,
+   "source_name": "add-hook"
+  },
+  {
+   "id": "native-remove-hook",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-remove-hook"
+   ],
+   "kg_test": "test/test_lisp.c:test_hooks",
+   "rationale": null,
+   "source_name": "remove-hook"
+  },
+  {
+   "id": "native-run-hooks",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-run-hooks"
+   ],
+   "kg_test": "test/test_lisp.c:test_hooks",
+   "rationale": null,
+   "source_name": "run-hooks"
+  },
+  {
+   "id": "native-define-key",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-define-key"
+   ],
+   "kg_test": "test/test_lisp.c:test_keymap_apis",
+   "rationale": null,
+   "source_name": "define-key"
+  },
+  {
+   "id": "native-lookup-key",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-lookup-key"
+   ],
+   "kg_test": "test/test_lisp.c:test_keymap_apis",
+   "rationale": null,
+   "source_name": "lookup-key"
+  },
+  {
+   "id": "native-current-local-map",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-current-local-map"
+   ],
+   "kg_test": "test/test_lisp.c:test_keymap_apis",
+   "rationale": null,
+   "source_name": "current-local-map"
+  },
+  {
+   "id": "native-start-process",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-start-process"
+   ],
+   "kg_test": "test/pty/lisp-process-cwd.yaml",
+   "rationale": null,
+   "source_name": "start-process"
+  },
+  {
+   "id": "native-start-shell-command",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-start-shell-command"
+   ],
+   "kg_test": "test/pty/lisp-process-callback-error-contained.yaml",
+   "rationale": null,
+   "source_name": "start-shell-command"
+  },
+  {
+   "id": "native-process-live-p",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-process-live-p"
+   ],
+   "kg_test": "test/pty/lisp-process-stale-handle.yaml",
+   "rationale": null,
+   "source_name": "process-live-p"
+  },
+  {
+   "id": "native-delete-process",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-delete-process"
+   ],
+   "kg_test": "test/pty/lisp-process-stale-handle.yaml",
+   "rationale": null,
+   "source_name": "delete-process"
+  },
+  {
+   "id": "native-process-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-process-buffer"
+   ],
+   "kg_test": "test/pty/lisp-process-filter-sentinel-order.yaml",
+   "rationale": null,
+   "source_name": "process-buffer"
+  },
+  {
+   "id": "native-set-process-filter",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-set-process-filter"
+   ],
+   "kg_test": "test/pty/lisp-process-callback-error-contained.yaml",
+   "rationale": null,
+   "source_name": "set-process-filter"
+  },
+  {
+   "id": "native-set-process-sentinel",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-set-process-sentinel"
+   ],
+   "kg_test": "test/pty/lisp-process-filter-sentinel-order.yaml",
+   "rationale": null,
+   "source_name": "set-process-sentinel"
+  },
+  {
+   "id": "native-process-status",
+   "category": "editor-primitives",
+   "status": "unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-process-status"
+   ],
+   "kg_test": "GAP: no native or PTY test exercises this today (untested-natives list, recorded 2026-08-04 by sub-plan 00C; owner kg, no phase assigned -- a follow-up test-writing slice, not fixed here per scope discipline)",
+   "rationale": "Untested gap, not a broken-native finding, same shape as re-search-backward above. Recorded in the untested-natives list with owner kg (follow-up test-writing slice).",
+   "source_name": "process-status"
+  },
+  {
+   "id": "native-string-length",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-string-length"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": null,
+   "source_name": "string-length"
+  },
+  {
+   "id": "native-substring",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-substring"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": null,
+   "source_name": "substring"
+  },
+  {
+   "id": "native-concat",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-concat"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": null,
+   "source_name": "concat"
+  },
+  {
+   "id": "native-format",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-format"
+   ],
+   "kg_test": "test/test_lisp.c:test_format_natives",
+   "rationale": null,
+   "source_name": "format"
+  },
+  {
+   "id": "format-exceptional-float",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "format-exceptional-float"
+   ],
+   "kg_test": "test/test_lisp.c:test_format_natives",
+   "rationale": "One of the two exceptions test_format_natives' header comment calls out by name: 'kg has no bignums to print NaN or an infinity into, so unlike Emacs, which writes \"nan\" and \"inf\", %d refuses them.' %s/%S/%e/%f/%g already print \"inf\"/\"-inf\" and agree with Emacs there (see native-format's case); only the %d integer directive diverges.",
+   "source_name": null
+  },
+  {
+   "id": "native-string-equal",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-string-equal"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": null,
+   "source_name": "string="
+  },
+  {
+   "id": "native-char-to-string",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-char-to-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_char_string_round_trip",
+   "rationale": null,
+   "source_name": "char-to-string"
+  },
+  {
+   "id": "native-string-to-char",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-string-to-char"
+   ],
+   "kg_test": "test/test_lisp.c:test_char_string_round_trip",
+   "rationale": "Verified directly against the pinned oracle: (string-to-char \"\") is 0 in GNU Emacs 31.0.90, not nil. kg's non-empty-string case (e.g. (string-to-char \"abc\") = 97) already agrees with Emacs; only the empty-string edge case diverges. Not fixed in this slice (scope discipline).",
+   "source_name": "string-to-char"
+  },
+  {
+   "id": "native-type-of",
+   "category": "values-and-equality",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-type-of"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": "kg's type-of vocabulary is its own (\"pair\" not 'cons, \"native-fn\"/\"primitive\"/\"lambda\"/\"macro\" for kg's and Fe's own callable types, \"nil\" for nil where Emacs' type-of returns 'symbol) because it exposes Fe's/kg's actual object representation rather than Emacs' type lattice. This is expected to persist even after Phase 5 adds real integers (that closes the 'double' vs 'integer' gap for numbers specifically, not the whole vocabulary), so it is not tied to a specific phase and stays divergent rather than planned.",
+   "source_name": "type-of"
+  },
+  {
+   "id": "native-stringp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-stringp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "stringp"
+  },
+  {
+   "id": "native-symbolp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-symbolp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "symbolp"
+  },
+  {
+   "id": "native-numberp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-numberp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "numberp"
+  },
+  {
+   "id": "native-consp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-consp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "consp"
+  },
+  {
+   "id": "native-functionp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "native-functionp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "functionp"
+  },
+  {
+   "id": "prelude-internal-let",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-let"
+   ],
+   "kg_test": "test/test_lisp.c:test_elisp_if",
+   "rationale": null,
+   "source_name": "internal--let"
+  },
+  {
+   "id": "prelude-progn",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-progn"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "progn"
+  },
+  {
+   "id": "prelude-null",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-null"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "null"
+  },
+  {
+   "id": "prelude-eq",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-eq"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "eq"
+  },
+  {
+   "id": "prelude-function",
+   "category": "functions-and-macros",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-function"
+   ],
+   "kg_test": "test/test_lisp.c:test_define_and_run_command",
+   "rationale": "Directly related to the #' divergence tracked in fe's own manifest (reader-sharp-quote-identity): kg's `function` only coincidentally behaves right for `(function car)` used as a plain reference to a primitive, because evaluating `car` happens to yield the same primitive object either way for a *primitive*; it clearly diverges once the return value itself is compared (a primitive object vs. the symbol car), which is exactly what this case shows. Not fixed in this slice; a real `function` needs the reader-level `#'` fix that lives in fe's manifest, so this entry does not name its own phase.",
+   "source_name": "function"
+  },
+  {
+   "id": "prelude-setq",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-setq"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "This is the manifest expressing exactly the nuance the parent plan calls for: the primitive kg's setq is built on (Fe's `=`) is a recorded divergence from Emacs, but the kg-owned macro layered on top of it already matches Emacs' setq contract today, before Phase 2 makes `setq` a core special form. Two axes, two independent verdicts, same underlying primitive.",
+   "source_name": "setq"
+  },
+  {
+   "id": "prelude-1-plus",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-1-plus"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "1+"
+  },
+  {
+   "id": "prelude-1-minus",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-1-minus"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "1-"
+  },
+  {
+   "id": "prelude-caar",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-caar"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "caar"
+  },
+  {
+   "id": "prelude-cadr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-cadr"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "cadr"
+  },
+  {
+   "id": "prelude-cddr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-cddr"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "cddr"
+  },
+  {
+   "id": "prelude-listp",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-listp"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": "listp"
+  },
+  {
+   "id": "prelude-reverse",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-reverse"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "reverse"
+  },
+  {
+   "id": "prelude-internal-append2",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-append2"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": "No test calls this by name (see this slice's untested-natives-and-prelude sweep), but append's own test exercises it on every multi-list append. Tested-via-wrapper, not a gap.",
+   "source_name": "internal--append2"
+  },
+  {
+   "id": "prelude-append",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-append"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "append"
+  },
+  {
+   "id": "prelude-length",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-length"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "length"
+  },
+  {
+   "id": "prelude-nthcdr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-nthcdr"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "nthcdr"
+  },
+  {
+   "id": "prelude-nth",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-nth"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "nth"
+  },
+  {
+   "id": "prelude-last",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-last"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "last"
+  },
+  {
+   "id": "prelude-equal",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-equal"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "equal"
+  },
+  {
+   "id": "prelude-mapcar",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-mapcar"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "mapcar"
+  },
+  {
+   "id": "prelude-member",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-member"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "member"
+  },
+  {
+   "id": "prelude-memq",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-memq"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "memq"
+  },
+  {
+   "id": "prelude-assoc",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-assoc"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": "assoc"
+  },
+  {
+   "id": "prelude-cond",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-cond"
+   ],
+   "kg_test": "test/test_lisp.c:test_prelude_forms",
+   "rationale": null,
+   "source_name": "cond"
+  },
+  {
+   "id": "prelude-when",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-when"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": null,
+   "source_name": "when"
+  },
+  {
+   "id": "prelude-unless",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-unless"
+   ],
+   "kg_test": "test/test_lisp.c:test_prelude_forms",
+   "rationale": null,
+   "source_name": "unless"
+  },
+  {
+   "id": "prelude-internal-first",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-first"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Tested-via-wrapper: prog1's own test exercises this on every call.",
+   "source_name": "internal--first"
+  },
+  {
+   "id": "prelude-prog1",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-prog1"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "prog1"
+  },
+  {
+   "id": "prelude-internal-bind-name",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-bind-name"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Tested-via-wrapper: let/let*'s own tests exercise this on every binding.",
+   "source_name": "internal--bind-name"
+  },
+  {
+   "id": "prelude-internal-bind-value",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-bind-value"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Tested-via-wrapper, same as internal--bind-name.",
+   "source_name": "internal--bind-value"
+  },
+  {
+   "id": "prelude-let",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-let"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "let"
+  },
+  {
+   "id": "prelude-let-star",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-let-star"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "let*"
+  },
+  {
+   "id": "prelude-internal-dolist",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-dolist"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Tested-via-wrapper: dolist's own tests exercise this on every iteration.",
+   "source_name": "internal--dolist"
+  },
+  {
+   "id": "prelude-dolist",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-dolist"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "dolist"
+  },
+  {
+   "id": "prelude-internal-dotimes",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-dotimes"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Tested-via-wrapper: dotimes' own tests exercise this on every iteration.",
+   "source_name": "internal--dotimes"
+  },
+  {
+   "id": "prelude-dotimes",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-dotimes"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "dotimes"
+  },
+  {
+   "id": "prelude-push",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-push"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "push"
+  },
+  {
+   "id": "prelude-pop",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-pop"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": null,
+   "source_name": "pop"
+  },
+  {
+   "id": "prelude-save-excursion",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-save-excursion"
+   ],
+   "kg_test": "test/test_lisp.c:test_save_excursion",
+   "rationale": null,
+   "source_name": "save-excursion"
+  },
+  {
+   "id": "prelude-with-current-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-with-current-buffer"
+   ],
+   "kg_test": "test/test_lisp.c:test_with_current_buffer",
+   "rationale": null,
+   "source_name": "with-current-buffer"
+  },
+  {
+   "id": "prelude-internal-qq",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-qq"
+   ],
+   "kg_test": "test/test_lisp.c:test_quasiquote",
+   "rationale": "Tested-via-wrapper: quasiquote's own tests exercise this on every backquoted form.",
+   "source_name": "internal--qq"
+  },
+  {
+   "id": "prelude-internal-qq-list",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-qq-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_quasiquote",
+   "rationale": "Tested-via-wrapper, same as internal--qq.",
+   "source_name": "internal--qq-list"
+  },
+  {
+   "id": "prelude-quasiquote",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-quasiquote"
+   ],
+   "kg_test": "test/test_lisp.c:test_quasiquote",
+   "rationale": null,
+   "source_name": "quasiquote"
+  },
+  {
+   "id": "prelude-internal-interactive-p",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-interactive-p"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Tested-via-wrapper: defun's own interactive-detection tests exercise this.",
+   "source_name": "internal--interactive-p"
+  },
+  {
+   "id": "prelude-internal-has-interactive",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-has-interactive"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Tested-via-wrapper, same as internal--interactive-p.",
+   "source_name": "internal--has-interactive"
+  },
+  {
+   "id": "prelude-internal-strip-interactive",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-strip-interactive"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Tested-via-wrapper, same as internal--interactive-p.",
+   "source_name": "internal--strip-interactive"
+  },
+  {
+   "id": "prelude-defun",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-defun"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": null,
+   "source_name": "defun"
+  },
+  {
+   "id": "prelude-defmacro",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-defmacro"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": null,
+   "source_name": "defmacro"
+  },
+  {
+   "id": "prelude-defvar",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-defvar"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": null,
+   "source_name": "defvar"
+  },
+  {
+   "id": "prelude-defconst",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-defconst"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": null,
+   "source_name": "defconst"
+  },
+  {
+   "id": "prelude-interactive",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-interactive"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "kg-policy rather than a divergent comparison against Emacs' (interactive) because the two are not close enough in shape for a single shared case to say anything meaningful (Emacs' interactive-spec parsing is Phase 7 territory, 'honest interactive argument handling', milestone 2 -- see the parent plan's phase list); this entry is the placeholder that phase will replace.",
+   "source_name": "interactive"
+  },
+  {
+   "id": "prelude-string-empty-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-string-empty-p"
+   ],
+   "kg_test": "test/test_lisp.c:test_prelude_forms",
+   "rationale": null,
+   "source_name": "string-empty-p"
+  },
+  {
+   "id": "prelude-thing-at-point",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-thing-at-point"
+   ],
+   "kg_test": "test/test_lisp.c:test_thing_at_point",
+   "rationale": null,
+   "source_name": "thing-at-point"
+  },
+  {
+   "id": "one-namespace-clobber",
+   "category": "bindings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "one-namespace-clobber"
+   ],
+   "kg_test": "test/test_lisp.c:test_binding_forms",
+   "rationale": "Verified directly against the pinned oracle during this slice: kg (fe with kg's prelude loaded) gives ((lambda nil 9) 9), Emacs gives (7 9). This is the parent plan's own headline example ('(setq f 7) then (defun f () 9) clobber each other') and the reason Phase 4 ('Replace Fe's Lisp-1 name resolution with Lisp-2 value and function namespaces') exists; it is milestone 1 but not yet funded/started by this slice.",
+   "source_name": null
+  },
+  {
+   "id": "macro-expand-every-invocation",
+   "category": "functions-and-macros",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "macro-expand-every-invocation"
+   ],
+   "kg_test": "test/fe/test_api.c:TestMacroExpansion (Fe-side); no kg-side test names this exact re-expansion-side-effect property today",
+   "rationale": "kg-policy rather than an Emacs-comparable divergence: Emacs macro-expands once (or once per compilation unit under byte-compilation) and the difference is a performance/step-budget property of kg's own evaluator, not a value Emacs and kg could disagree on for a pure macro -- a macro whose expansion has side effects like this one is deliberately pathological, written to demonstrate the property, not typical kg or Emacs code. Recorded per the parent sub-plan's explicit divergences-to-record-on-day-one list ('Macros expand on every invocation, charged to the step budget').",
+   "source_name": null
+  },
+  {
+   "id": "defcustom",
+   "category": "loading",
+   "status": "planned",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "defcustom"
+   ],
+   "kg_test": "test/test_lisp.c (not yet written -- Phase 8 Wave D delivers defcustom and its test together)",
+   "rationale": "Phase 8 Wave D (parent plan's init-compat-waves phase, milestone 2): owned by kg, prelude/library layer, comparison emacs. Delivered as a prelude macro over kg's existing defvar-shaped boundp/setq machinery, not a port of Custom. Its eventual cases must distinguish: an unbound variable from an already-bound one (same first-defvar-wins contract as defvar); whether the standard-value form is evaluated in each of those two cases; the returned symbol and the stored docstring; accepted, inert presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) that kg stores but never interprets; rejected semantics-bearing or unknown keywords (kg is not silently accepting an arbitrary keyword and pretending it did something); and the documented absence of dynamic binding, retained standard forms, setopt, and any Customize UI. This entry exists specifically so defcustom does not become either a hand-waved synonym for defvar or an accidental commitment to all of Custom.",
+   "source_name": null
+  }
+ ]
+}

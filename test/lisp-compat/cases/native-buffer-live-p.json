@@ -1,0 +1,6 @@
+{
+ "id": "native-buffer-live-p",
+ "setup": [],
+ "expr": "(buffer-live-p (current-buffer))",
+ "note": "Reads kg's generation-checked buffer handle validity."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-type-of",
+ "setup": [],
+ "expr": "(type-of 1)",
+ "note": "kg's type-of returns \"double\" for every number (kg has one numeric type); Emacs' type-of returns 'integer for a fixnum-valued literal like 1."
+}

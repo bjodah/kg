@@ -1,0 +1,6 @@
+{
+ "id": "prelude-nthcdr",
+ "setup": [],
+ "expr": "(nthcdr 1 (list 10 20 30))",
+ "note": "Matches Emacs."
+}

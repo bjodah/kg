@@ -1,0 +1,6 @@
+{
+ "id": "native-char-to-string",
+ "setup": [],
+ "expr": "(char-to-string 97)",
+ "note": "Matches Emacs' char-to-string across ASCII, multi-byte, and out-of-range/surrogate error cases (test_char_string_round_trip)."
+}

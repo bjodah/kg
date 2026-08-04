@@ -1,0 +1,6 @@
+{
+ "id": "native-current-column",
+ "setup": [],
+ "expr": "(current-column)",
+ "note": "Reads kg's row/display-column model (tab expansion, etc)."
+}

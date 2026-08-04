@@ -1,0 +1,6 @@
+{
+ "id": "prelude-memq",
+ "setup": [],
+ "expr": "(memq 'b (list 'a 'b 'c))",
+ "note": "Matches Emacs (eq-based membership)."
+}

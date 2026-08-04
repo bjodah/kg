@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-has-interactive",
+ "setup": [],
+ "expr": "(internal--has-interactive (list (list 'interactive)))",
+ "note": "Private helper backing defun: true when any body form is (interactive ...)."
+}

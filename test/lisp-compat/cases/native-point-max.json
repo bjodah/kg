@@ -1,0 +1,6 @@
+{
+ "id": "native-point-max",
+ "setup": [],
+ "expr": "(point-max)",
+ "note": "Reads kg's current buffer bounds."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-interactive-p",
+ "setup": [],
+ "expr": "(internal--interactive-p (list 'interactive))",
+ "note": "Private helper backing defun's (interactive) detection: true when a body form is literally (interactive ...)."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-with-current-buffer",
+ "setup": [],
+ "expr": "(with-current-buffer (current-buffer) (point))",
+ "note": "Wraps kg's internal--with-current-buffer native."
+}

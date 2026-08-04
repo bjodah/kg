@@ -1,0 +1,6 @@
+{
+ "id": "prelude-pop",
+ "setup": [],
+ "expr": "(let ((s (list 1 2))) (list (pop s) s))",
+ "note": "Matches Emacs."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-process-live-p",
+ "setup": [],
+ "expr": "(process-live-p proc)",
+ "note": "Reads kg's process table liveness."
+}

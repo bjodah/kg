@@ -1,0 +1,6 @@
+{
+ "id": "prelude-last",
+ "setup": [],
+ "expr": "(last (list 1 2 3))",
+ "note": "Matches Emacs (single-argument form; kg's last has no N argument, which Emacs' does)."
+}

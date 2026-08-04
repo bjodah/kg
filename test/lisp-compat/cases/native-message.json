@@ -1,0 +1,6 @@
+{
+ "id": "native-message",
+ "setup": [],
+ "expr": "(message \"hi %s\" \"there\")",
+ "note": "kg's message formats its argument(s) (like Emacs' (message FORMAT &rest ARGS)) and writes to kg's own status/echo line (test_status_message in the native test harness), not to Emacs' minibuffer/echo-area machinery or stdout."
+}

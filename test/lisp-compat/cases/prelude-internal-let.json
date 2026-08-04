@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-let",
+ "setup": [],
+ "expr": "(internal--let x 5)",
+ "note": "The raw Fe `let` primitive under kg's alias name, kept reachable after kg's own multi-binding `let` macro (below) shadows the name `let`. Not meant for user code."
+}

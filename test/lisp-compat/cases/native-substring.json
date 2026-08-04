@@ -1,0 +1,6 @@
+{
+ "id": "native-substring",
+ "setup": [],
+ "expr": "(substring \"hello\" 1 3)",
+ "note": "Negative indices, nil-as-default-end, and out-of-range clamping all match Emacs (test_string_length_and_substring's own comments say so explicitly for the negative-index cases)."
+}

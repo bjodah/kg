@@ -1,0 +1,6 @@
+{
+ "id": "native-get-buffer",
+ "setup": [],
+ "expr": "(get-buffer \"name\")",
+ "note": "Reads kg's buffer slot table by name."
+}

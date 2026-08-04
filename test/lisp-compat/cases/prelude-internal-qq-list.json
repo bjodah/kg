@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-qq-list",
+ "setup": [],
+ "expr": "(internal--qq-list (list 1 2))",
+ "note": "Private helper backing quasiquote's list-splicing expansion."
+}

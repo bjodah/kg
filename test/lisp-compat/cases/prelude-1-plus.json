@@ -1,0 +1,6 @@
+{
+ "id": "prelude-1-plus",
+ "setup": [],
+ "expr": "(1+ 5)",
+ "note": "Matches Emacs."
+}

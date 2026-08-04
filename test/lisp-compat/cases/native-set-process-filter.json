@@ -1,0 +1,6 @@
+{
+ "id": "native-set-process-filter",
+ "setup": [],
+ "expr": "(set-process-filter proc (lambda (p s) s))",
+ "note": "Mutates kg's process callback table."
+}

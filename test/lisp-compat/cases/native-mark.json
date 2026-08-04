@@ -1,0 +1,6 @@
+{
+ "id": "native-mark",
+ "setup": [],
+ "expr": "(mark)",
+ "note": "Reads kg's active-mark state."
+}

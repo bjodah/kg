@@ -1,0 +1,6 @@
+{
+ "id": "native-region-beginning",
+ "setup": [],
+ "expr": "(region-beginning)",
+ "note": "Reads kg's mark/point region."
+}

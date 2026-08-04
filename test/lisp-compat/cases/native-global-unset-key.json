@@ -1,0 +1,6 @@
+{
+ "id": "native-global-unset-key",
+ "setup": [],
+ "expr": "(global-unset-key \"C-c x\")",
+ "note": "kg's own keymap representation."
+}

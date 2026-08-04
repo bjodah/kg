@@ -1,0 +1,6 @@
+{
+ "id": "prelude-member",
+ "setup": [],
+ "expr": "(member 2 (list 1 2 3))",
+ "note": "Matches Emacs (equal-based membership)."
+}

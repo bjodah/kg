@@ -1,0 +1,6 @@
+{
+ "id": "native-command-execute",
+ "setup": [],
+ "expr": "(command-execute 'some-command)",
+ "note": "Runs kg's own command registry/invocation route (cmd_invoke()), not Emacs' command loop."
+}

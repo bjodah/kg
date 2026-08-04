@@ -1,0 +1,6 @@
+{
+ "id": "native-backward-word",
+ "setup": [],
+ "expr": "(backward-word)",
+ "note": "Mutates kg's cursor using kg's own word-motion classification."
+}

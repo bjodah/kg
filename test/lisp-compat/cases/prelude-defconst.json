@@ -1,0 +1,6 @@
+{
+ "id": "prelude-defconst",
+ "setup": [],
+ "expr": "(progn (defconst dc1 7) dc1)",
+ "note": "Matches Emacs' basic defconst (always (re)assigns, unlike defvar). kg has no enforcement that a defconst is never reassigned by ordinary setq, which Emacs also does not enforce at runtime, so this is not a divergence."
+}

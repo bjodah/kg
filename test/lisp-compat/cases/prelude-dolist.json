@@ -1,0 +1,6 @@
+{
+ "id": "prelude-dolist",
+ "setup": [],
+ "expr": "(let ((r nil)) (dolist (x (list 1 2 3) r) (setq r (cons x r))))",
+ "note": "Matches Emacs."
+}

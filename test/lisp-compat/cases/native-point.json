@@ -1,0 +1,6 @@
+{
+ "id": "native-point",
+ "setup": [],
+ "expr": "(point)",
+ "note": "Reads kg's current buffer's cursor state."
+}

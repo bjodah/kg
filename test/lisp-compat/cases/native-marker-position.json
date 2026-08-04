@@ -1,0 +1,6 @@
+{
+ "id": "native-marker-position",
+ "setup": [],
+ "expr": "(marker-position (make-marker))",
+ "note": "Reads a kg marker's position."
+}

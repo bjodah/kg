@@ -1,0 +1,6 @@
+{
+ "id": "native-lookup-key",
+ "setup": [],
+ "expr": "(lookup-key (current-local-map) \"C-c x\")",
+ "note": "kg's own keymap object representation."
+}

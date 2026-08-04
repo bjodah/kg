@@ -1,0 +1,6 @@
+{
+ "id": "prelude-cddr",
+ "setup": [],
+ "expr": "(cddr (list 1 2 3))",
+ "note": "Matches Emacs."
+}

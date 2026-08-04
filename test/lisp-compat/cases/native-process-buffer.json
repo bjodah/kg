@@ -1,0 +1,6 @@
+{
+ "id": "native-process-buffer",
+ "setup": [],
+ "expr": "(process-buffer proc)",
+ "note": "Reads kg's process table."
+}

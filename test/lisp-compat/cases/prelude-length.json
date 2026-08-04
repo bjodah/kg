@@ -1,0 +1,6 @@
+{
+ "id": "prelude-length",
+ "setup": [],
+ "expr": "(length (list 1 2 3))",
+ "note": "Matches Emacs for lists and strings (kg's length dispatches to string-length for strings, matched separately by that entry)."
+}

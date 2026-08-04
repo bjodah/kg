@@ -1,0 +1,6 @@
+{
+ "id": "native-featurep",
+ "setup": [],
+ "expr": "(featurep 'a-feature)",
+ "note": "Same kg-owned feature table as provide/require."
+}

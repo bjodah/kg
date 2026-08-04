@@ -1,0 +1,6 @@
+{
+ "id": "native-run-hooks",
+ "setup": [],
+ "expr": "(run-hooks 'some-hook)",
+ "note": "Runs kg's own hook-variable table."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-string-equal",
+ "setup": [],
+ "expr": "(string= \"abc\" \"abc\")",
+ "note": "Matches Emacs' string= for string arguments."
+}

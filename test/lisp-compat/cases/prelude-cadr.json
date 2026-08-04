@@ -1,0 +1,6 @@
+{
+ "id": "prelude-cadr",
+ "setup": [],
+ "expr": "(cadr (list 1 2 3))",
+ "note": "Matches Emacs."
+}

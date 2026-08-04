@@ -1,0 +1,6 @@
+{
+ "id": "native-goto-char",
+ "setup": [],
+ "expr": "(goto-char 3)",
+ "note": "Mutates kg's current buffer's cursor state."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "native-insert",
+ "setup": [],
+ "expr": "(insert \"text\")",
+ "note": "Mutates kg's current buffer at point through kg's own row/undo machinery; buffer state cannot be set up identically under emacs -Q --batch for a generic case (00b's split)."
+}

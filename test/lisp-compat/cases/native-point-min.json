@@ -1,0 +1,6 @@
+{
+ "id": "native-point-min",
+ "setup": [],
+ "expr": "(point-min)",
+ "note": "Reads kg's current buffer bounds."
+}

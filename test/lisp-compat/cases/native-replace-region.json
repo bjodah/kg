@@ -1,0 +1,6 @@
+{
+ "id": "native-replace-region",
+ "setup": [],
+ "expr": "(replace-region 1 3 \"xy\")",
+ "note": "Buffer/region mutation; kg-policy per 00b's split."
+}

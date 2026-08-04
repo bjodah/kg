@@ -1,0 +1,6 @@
+{
+ "id": "native-match-end",
+ "setup": [],
+ "expr": "(match-end 0)",
+ "note": "Reads kg's last-search match data."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-listp",
+ "setup": [],
+ "expr": "(listp (list 1))",
+ "note": "Matches Emacs (and (listp 5) is nil in both, per the same definition)."
+}

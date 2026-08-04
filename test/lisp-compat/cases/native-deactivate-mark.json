@@ -1,0 +1,6 @@
+{
+ "id": "native-deactivate-mark",
+ "setup": [],
+ "expr": "(deactivate-mark)",
+ "note": "Mutates kg's active-mark state."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "prelude-null",
+ "setup": [],
+ "expr": "(null nil)",
+ "note": "Alias of Fe's `not` primitive under Emacs' name for a nil test."
+}

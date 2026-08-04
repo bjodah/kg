@@ -1,0 +1,6 @@
+{
+ "id": "native-search-forward",
+ "setup": [],
+ "expr": "(search-forward \"x\")",
+ "note": "Searches kg's current buffer text via kg's own search implementation (src/search.c)."
+}

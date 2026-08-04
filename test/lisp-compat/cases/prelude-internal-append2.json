@@ -1,0 +1,6 @@
+{
+ "id": "prelude-internal-append2",
+ "setup": [],
+ "expr": "(internal--append2 (list 1 2) (list 3 4))",
+ "note": "Private two-list helper that `append` (below) folds over; not meant for user code."
+}

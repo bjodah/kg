@@ -1,0 +1,6 @@
+{
+ "id": "native-remove-hook",
+ "setup": [],
+ "expr": "(remove-hook 'some-hook (lambda () 1))",
+ "note": "Mutates kg's own hook-variable table."
+}

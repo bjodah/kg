@@ -1,0 +1,6 @@
+{
+ "id": "native-re-search-forward",
+ "setup": [],
+ "expr": "(re-search-forward \"x+\")",
+ "note": "Regex search over kg's current buffer text via kg's own regex engine (fe/tiny-regex-c), whose forward matching AGENTS.md already documents as differentially tested against Emacs at the regex-engine level (make check-regex-differential), not at this Lisp-native level."
+}

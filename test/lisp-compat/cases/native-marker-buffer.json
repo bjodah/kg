@@ -1,0 +1,6 @@
+{
+ "id": "native-marker-buffer",
+ "setup": [],
+ "expr": "(marker-buffer (make-marker))",
+ "note": "Reads a kg marker's buffer."
+}

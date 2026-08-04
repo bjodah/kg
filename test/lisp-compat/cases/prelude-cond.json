@@ -1,0 +1,6 @@
+{
+ "id": "prelude-cond",
+ "setup": [],
+ "expr": "(cond (nil 1) (nil 2) (t 3))",
+ "note": "Matches Emacs."
+}

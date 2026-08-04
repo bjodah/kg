@@ -1,0 +1,6 @@
+{
+ "id": "native-define-key",
+ "setup": [],
+ "expr": "(define-key (current-local-map) \"C-c x\" (quote cmd))",
+ "note": "kg's own keymap object representation, not Emacs' keymap vectors/char-tables."
+}

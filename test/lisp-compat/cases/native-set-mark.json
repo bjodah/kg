@@ -1,0 +1,6 @@
+{
+ "id": "native-set-mark",
+ "setup": [],
+ "expr": "(set-mark 1)",
+ "note": "Mutates kg's active-mark state."
+}

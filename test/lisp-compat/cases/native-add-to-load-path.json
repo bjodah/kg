@@ -1,0 +1,6 @@
+{
+ "id": "native-add-to-load-path",
+ "setup": [],
+ "expr": "(add-to-load-path \"/some/dir\")",
+ "note": "kg's own name: load-path is a bounded C array (src/lisp_prelude.c's own comment), not a Fe list a package could push onto with (setq load-path ...), so it needs a native rather than the Emacs spelling `(setq load-path ...)`."
+}

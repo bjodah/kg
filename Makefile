@@ -377,13 +377,46 @@ $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
 # one -- it is what catches a binding added to src/help.c and nowhere else.
 docs-check:
 	@$(PYTHON) utils/check_help_drift.py
+
+# Phase 0 sub-plan 00C's manifest: every Fe primitive (fe/fe.c), kg native
+# and kg prelude definition (src/lisp_prelude.c) must appear in exactly one
+# of fe/compat/features.json or test/lisp-compat/features.json.  Pure
+# structure -- it runs no Fe, no kg, no Emacs -- docs-check's closest
+# analogue, so it sits next to it.  Snapshot regeneration/verification
+# against a real Emacs is the separate `lisp-compat-oracle` target below,
+# not part of this or ordinary `make check`.
+lisp-compat-check:
+	@$(PYTHON) utils/check_lisp_compat.py
+
+# Regenerates/verifies test/lisp-compat/oracle/*.json against the resolved
+# Emacs, reusing fe/utils/run-emacs-oracle.py directly rather than copying
+# it (00B's runner takes the corpus root as its first argument specifically
+# so kg does not need its own copy).  Same resolution order as the PTY
+# harness: --emacs, then $KG_PTY_EMACS, then `emacs` on PATH, then the
+# /opt-3 pin; missing Emacs SKIPs unless --require-tools is passed via
+# LISP_COMPAT_ORACLE_ARGS.  A regeneration/verification target, not part of
+# ordinary `make check` -- checked-in snapshots keep the normal suite
+# Emacs-free, exactly as in fe/.
+#
+# Restricted with --case to exactly the comparison=emacs entries: the
+# runner (generic over any corpus root, per 00B) processes every
+# cases/*.json file it is given regardless of the manifest's comparison
+# field, and a kg-policy case has no oracle snapshot by design (this
+# manifest's own README), so an unrestricted run would create dozens of
+# snapshot files nothing ever checks or wants committed.
+lisp-compat-oracle:
+	$(PYTHON) fe/utils/run-emacs-oracle.py test/lisp-compat \
+		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
+		$$($(PYTHON) -c "import json; d = json.load(open('test/lisp-compat/features.json')); \
+			print(' '.join('--case ' + f['cases'][0] for f in d['features'] if f['comparison'] == 'emacs'))") \
+		$(LISP_COMPAT_ORACLE_ARGS)
 
 # Compile each src/*.h as the first thing in its own translation unit.
 # The trailing declaration is there so a header that legitimately expands
@@ -817,7 +850,7 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

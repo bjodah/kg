@@ -247,4 +247,175 @@ do not fail the slice on a noisy wall-clock delta alone.
 
 ## Status
 
-Not started.
+**Implementation complete, 2026-08-04.**  The five call frame kinds plus the
+native boundary are driven by the frame stack in `fe/fe_eval.c`:
+`FeFrameCallHead` (computed head resolution), `FeFrameCallArguments` (argument
+evaluation), `FeFrameLambda` (application; a synchronous transition to the body
+frame after `ArgsToEnv`, which stays an ordinary allocating helper as the plan
+requires), `FeFrameBody` (sequential body with the `let`/`newenv` threading),
+`FeFrameMacro` (macro body) and `FeFrameMacroExpansion` (expansion
+re-evaluation after the call's cleanup/GC/trace checkpoints are restored), plus
+`FeFrameNative` (the native-call boundary with the private
+`native_reentry_depth` counter).  `FeFrameTemporaryRecursive` remains reachable
+only by the special forms and primitive operand evaluation 03E still owns.
+`FeEvalFrame` grew 80 → **96 bytes** (the added `bind`/`fn` fields,
+`fe_internal.h`), `alignof` 8; `FeMinimumArenaSize()` is **53832** bytes.  No
+public API, option, error text or statistic changed; the plan's "no special
+forms, no `(deep 100000)` claim" exclusions are honoured.
+
+**The observed conversion curve** (probe tests in `fe/test_api.c`; the 03A
+pre-change deltas this is flat against were ~1185–2305 bytes/level growing
+linearly in `n`):
+
+| Conversion | Probe | Frames at depth | Measured delta |
+|---|---|---|---|
+| call-head resolution | `TestCallHeadProbe` | depth 150, ~151 | **0 bytes** |
+| argument evaluation | `TestArgumentProbe` | depth 150, ~300 | **0 bytes** |
+| lambda body / sequential body | `TestLambdaBodyChain` (generated finite zero-arg `f0 -> f1 -> ... -> stack-probe` chain) | depth 200, ~202 | **0 bytes** |
+
+Each probe compares the callback frame address against its own depth-zero
+baseline and asserts the deepest (high-water) address differs by < 2 KiB; the
+pre-frame code measured tens of KB of growth over the same depths.  Frame
+capacity measured from the live partition: **1100 frames / 56210 object slots
+in kg's 1 MiB arena** and **72 frames / 716 object slots in the macro/GC test
+arena** (`FeMinimumArenaSize() + 8 KiB`, 62024 bytes).  These are the 10%
+split; the 8% -> 10% retune that the frame-capacity regression forced, and
+the object-slot cost it carries, are recorded in the set README's 03A
+Decision follow-up.  The self-expanding-macro exhaustion test peaks at **72
+live frames** (the 73rd push is refused) with the old `evaluation depth limit
+exceeded` text, the original macro-call trace, and a context reusable
+afterwards, exactly as 03C's physical-exhaustion test does.
+
+**The canonical `(deep N)` wall returned to the legacy logical bound.**  In
+kg's 1 MiB arena the same chain 03A measured — `(defun deep (n) (if (<= n 0)
+0 (+ 1 (deep (- n 1)))))` — succeeds at **332** and fails at **333**, exactly
+the 03A/03C numbers for the same chain.  The first landing of these call
+frames put the wall at **296/297**: the draft's 80-byte frame estimate was
+low, the landed frame is 96 bytes, and at the 8% split the 892-frame capacity
+at ≈3 frames per `deep` level ran out before the logical
+`DefaultEvaluationDepth` 1000 ceiling (peak 3N+2 → the old 332/333 wall)
+would — 03A's "estimate too small" case, with the physical push check raising
+the same transitional `evaluation depth limit exceeded` text.  The partition
+retune in `fe_internal.h` — `FrameArenaPercent` 8% -> 10%, the minimal change
+that clears the wall — raises kg's 1 MiB arena to **1100 physical frames**,
+above the logical ceiling, and the legacy logical limit is binding again:
+`(deep 300)` returns 300 (kg's `test_perf` deep-call-chain fixture), `(deep
+200)` returns 200, `(deep 5000)` raises, then `(deep 200)` works again, so
+kg's `test_recursion_depth` expectations are unchanged. The cost is object
+slots: the frame share grows from 8% to 10% of the bytes beyond the minimum,
+so the 1 MiB arena's object capacity drops from the actual 03C baseline of
+57542 to **56210** slots (−1332, ≈2.3% of capacity, roughly half of the ~2590
+objects kg's prelude itself keeps live at startup) against a still-ample free
+margin (53078 slots free at the end of kg's representative init).  The dated
+Decision revisit is recorded in the set
+README's 03A Decision section; 03E/03F remain the place the frame layout and
+the two bounds get re-evaluated.
+
+**Native shared-limit semantics.**  `native_reentry_depth` is capped by the
+ambient legacy `evaluation_depth_limit`/`DefaultEvaluationDepth` and reports
+the old message until 03F.  With the shared ceiling the two counters track the
+same nesting for a zero-argument re-entering chain: `max_depth` 8 admits
+exactly 8 activations (the deepest returns its own level as the result), the
+9th raises; 16 admits 16, the 17th raises.  Registered cleanups run on both
+the ordinary return and the error path, and a fresh re-entry through the same
+boundary succeeds after recovery.  The owning-nested-call regression
+(`TestNativeOwningReentry`) proves the `FeFrameNative` resume restores *both*
+`native_reentry_depth` and `evaluation_depth` to their pre-call values, since
+an owning `FeCallWithOptions` runs `EndEvaluationControl` and clears the whole
+control record while the enclosing frames are still live.
+
+**GC during every resumable frame state** is now one compact table,
+`TestResumableFrameGC` in `fe/test_api.c`, replacing the per-test GC blocks
+that used to live inside the argument/body/macro/native tests.  Each row names
+the suspended frame kind, the form that suspends it, the expected rendered
+result, and asserts `collection_count` moved with the frame still able to
+resume:
+
+| State | Setup (abridged) | Expected |
+|---|---|---|
+| call-head *(new)* | computed head `(do ... (fn (x) x))` collecting in `(… 42)` | `42` |
+| argument | third-argument `do`-`while` loop collecting over `((fn (x y z) (list x y z)) 1 2 …)` | `(1 2 2000)` |
+| lambda/body | body-form `do`-`while` collecting, final form reads `n` | `2000` |
+| macro-body | macro body's `let v` + collecting `while`, final form reads `v` | `7` |
+| macro-expansion *(new)* | macro body returns the collecting `do` form as its expansion, which does the collecting after the body handed off | `2000` |
+| native | `gc-native` holds its argument across a nested collecting evaluation and one nested `FeCallWithOptions` | `(1 2 3)` |
+
+The two rows the plan required but the implementation previously lacked —
+suspended **call-head** and **macro-expansion** — are the new ones; the other
+four re-home the assertions the deleted per-test GC blocks made, so the step,
+error, trace and flatness tests in each of those functions are unchanged.
+
+**Complexity and coverage, currently evidenced** (measured 2026-08-04, idle
+tree):
+
+- `make -C fe complexity-check`: scc **351/420** total (03B closed at 286; the
+  +65 is the frame substance), max file `fe_eval.c` **168/240**.
+- `make -C fe pmccabe-check`: **566/221 symbols** of the 630 total, max
+  function `EvaluatePrimitive` **15/22**, baseline 202 recorded vs 221
+  measured (**20 new, 1 gone, 2 improved** — the new frame handlers are the
+  20).
+- `make -C fe coverage` (fresh, `CC="ccache gcc"` per `.ci/ci-02`): lines
+  **90.0%** (4151/4613), functions **95.0%** (343/361), branches **64.7%**
+  (1829/2827), against the 80% line floor.
+
+**Tests and gates run.**  fe: `make -C fe check` (the native
+`test_api` suite including the three probes and the frame-state GC table,
+plus all 28 `scripts/*.fe` cases × 3 passes), `complexity-check`,
+`pmccabe-check`, `format-check`, the fresh coverage run above, and fe's full
+numbered runner in all nine stages — ci-03 (gcc `-fanalyzer` + Valgrind),
+ci-04 (ASan/UBSan), **ci-05 (MSan, the binding lane**: it is the
+`-fno-optimize-sibling-calls` build that makes the flat-stack claim honest),
+ci-06 (fuzz smoke), ci-07 (static analysis), ci-08 (format), ci-09 (compat)
+— all pass.  One environment note, not a slice defect: the combined runner's
+first ci-04 attempt hit the machine's default 8 MiB stack limit inside the
+pre-existing `TestRootsAndCalls` deep-recursion fixture, and ci-04 passed
+cleanly once the lane ran with an unlimited stack limit.  kg: `make check`
+**32/32** native and **406/406** PTY; `make WITH_LISP=0 clean all check`
+**32/32** and **337 pass + 69 expected skips**.  kg's
+`.ci/run-ci-steps.sh --parallel` is **11/12** green: ci-03's single
+`lisp-process-cwd` PTY failure (405/406) is the documented standing
+valgrind-lane flake class, and a standalone `ci-03` rerun passes **32/32 and
+406/406**, so it is accepted per the documented policy (a lone
+`lisp-process-*` failure is a flake until a standalone rerun says otherwise).
+The plan's `make bench` comparison ran from a detached 03C-baseline worktree
+against the current counting build; it is not a CI gate and is recorded
+below.
+
+**Bench (counting build; 03C baseline detached worktree → current).**  The
+wall-clock medians are flat to within noise — both runs are the same counting
+configuration, so the numbers are comparable with each other but not with a
+release build:
+
+| Case | 03C median (ms) | current median (ms) |
+|---|---|---|
+| startup | 113.07 | 112.85 |
+| lisp-list-walk | 234.41 | 234.13 |
+| lisp-arithmetic-loop | 239.06 | 239.73 |
+| lisp-macro-heavy | 235.13 | 234.90 |
+| lisp-deep-call-chain | 234.02 | 233.96 |
+| lisp-command-latency | 233.14 | 233.19 |
+
+Counters first, per the set's perf policy.  The resumable frames cut
+GC-stack pressure exactly where the recursive evaluator used to spend it:
+`lisp_peak_gc_stack` drops **339→138** (representative init), **2711→1509**
+(deep call chain) and **1964→763** (list walk).  Everything that should not
+move does not: `lisp_arena_peak_live` is unchanged (3132/4167/4033),
+`lisp_gc_count` and `lisp_alloc_failures` stay 0, and the peak eval depths
+are unchanged (53/903/304).  The arena-slot comparison against the actual
+03C baseline is **57542 → 56210 total slots** (−1332, ≈2.3%), with **53078
+slots free** at the end of kg's representative init.
+
+**What remains for 03E/03F:** the special forms (`if`, `and`, `or`, `while`,
+`let`, `setq`/`set`, `unwind-protect`), frame-aware cleanup unwinding, the
+deletion of the temporary recursive dispatch, and with them the full
+`(deep 100000)` flat-stack measurement and its permanent gate.  03F must also
+**remeasure the `(deep 100000)` fixture size against the final frame layout**:
+03A's 128 MiB estimate (§3 of its Decision) solved the 20%-split formula at
+the draft 80-byte frame and is insufficient at the retuned 10% split and
+96-byte frame, where the same derivation is ≈**275 MiB** (300002 frames × 96
+bytes = 28,800,192 bytes of frame region; at 10% of the remainder that is
+287,994,312 bytes of arena, 274.65 MiB — see the set README's 03D follow-up;
+provisional until 03E/03F fix the frame layout).  This slice explicitly
+claims no full-`deep` property: the canonical `(deep N)` still contains `if`
+and arithmetic continuations that run on the temporary path, and its restored
+332/333 logical wall is a transitional fact, not the phase gate.

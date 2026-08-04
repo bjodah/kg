@@ -684,6 +684,62 @@ API and standalone arenas to 1 MiB. The formula and table below remain this
 03A decision's provisional price model; [03C's status](03c-frame-substrate.md#status)
 records the implemented configuration.
 
+**03D measured actuals and Decision revisit (2026-08-04, retune follow-up).**
+With the call frames landed, the draft's `sizeof(FeEvalFrame) = 80` is now 96
+bytes — the `bind`/`fn` fields the resumable call frames added — and the
+implemented arena numbers at the retuned 10% split are:
+`FeMinimumArenaSize()` **53832** bytes; **1100 frames / 56210 object slots**
+in kg's 1 MiB arena; **72 frames / 716 object slots** in the macro/GC test
+arena (`FeMinimumArenaSize() + 8 KiB`, 62024 bytes), with the
+self-expanding-macro exhaustion peak at 72 live frames (the 73rd push
+refused).
+
+**The partition was retuned from 8% to 10% after the first landing broke the
+legacy limit.**  03A's Decision §4 "estimate too small" case came true twice
+in a row.  First, 03D's landed frame is 96 bytes against the draft's 80, so
+the 8% split that 03C chose gave kg's 1 MiB arena only **892 frames**; at ≈3
+frames per `deep` level the canonical chain — `(defun deep (n) (if (<= n 0) 0
+(+ 1 (deep (- n 1)))))` — hit the *physical* frame wall at **296/297** before
+the logical `DefaultEvaluationDepth` 1000 ceiling (peak 3N+2 → the 332/333
+wall) could fire.  The 8% split no longer preserved the legacy limit, so the
+acceptance of that physical-first behaviour is withdrawn: `FrameArenaPercent`
+moved 8% -> 10% (the minimal retune that clears the wall), kg's 1 MiB arena
+now holds **1100 frames**, and the logical limit is binding again — the chain
+succeeds at **332** and fails at **333**, exactly the 03A/03C numbers.  kg's
+`test_perf` deep-call-chain fixture (`(deep 300)` returns 300) and
+`test_recursion_depth` (`(deep 200)` returns 200, `(deep 5000)` raises, then
+`(deep 200)` works again) are both green against the retune.  The physical
+push check still raises the same transitional `evaluation depth limit
+exceeded` text; no public API, option, error string or statistic moves
+mid-migration, exactly as 03D's "no public bound changes" requires.  The
+object-slot cost is stated honestly: the frame share grows from 8% to 10% of
+the bytes beyond the minimum, so the 1 MiB arena's object capacity drops from
+the actual 03C baseline of 57542 to **56210** slots (−1332, ≈2.3% of capacity)
+— roughly half of the ~2590 objects kg's prelude itself keeps live at startup,
+against a still-ample free margin (53078 slots free at the end of kg's
+representative init).  **03E/03F are the place to
+re-evaluate the frame layout and the two bounds**: 03E deletes the temporary
+recursive paths that consume part of the ≈3 frames per `deep` level, and 03F
+publishes the real frame and native re-entry bounds and must re-measure the
+peak against the final frame layout before fixing any size.
+
+**The `(deep 100000)` fixture size is no longer 128 MiB.**  03A's §3
+estimate solved the 20%-split formula at the draft 80-byte frame.  At the
+retuned 10% split and 96-byte frame the same derivation is **≈275 MiB**
+(300002 frames × 96 bytes = 28,800,192 bytes (27.5 MiB) of frame region;
+at 10% of the remainder that is 287,994,312 bytes (274.65 MiB) of arena).
+Treat that as **provisional**: it is a rough re-derivation of the historical
+§3 arithmetic, not a measured number, and it will move again when 03E/03F
+change the frame layout and the per-`deep` frame count.  **03F must remeasure
+the real peak before sizing its dynamically allocated fixture.**  kg's arena
+is still untouched by this number — `(deep 100000)` remains an fe-side,
+throwaway test allocation.
+
+The 03A draft rows for the 20% split (2563/106 frames at 1 MiB/64 KiB) are
+superseded by these measured numbers; the provisional formula and the
+historical 128 MiB §3 paragraph above are retained as the 03A Decision, not
+rewritten.
+
 | Arena | Size | Frame capacity | `peak_depth` reach | Object slots | vs. today |
 |---|---|---|---|---|---|
 | fe `TestArenaSize` | 64 KiB (65536 B) | 106 frames | N ≈ 34 | 1099 | 1631 today, **−32.6%** |
@@ -1076,3 +1132,45 @@ check` (337/69), both complexity gates, and `.ci/run-ci-steps.sh
 --parallel` (11 of 12 stages; the sole failure is the pre-existing,
 unrelated one above) are green.  No language or editor behaviour changed.
 Sub-plan 03C may start.
+
+**03D complete, 2026-08-04.**  fe implementation in `fe_eval.c`/`fe_internal.h`
+(fe changes uncommitted at this writing; the pin moves in kg's separate green
+commit per Rule 10), test work in `fe/test_api.c`, docs in
+`fe/doc/implementation.md` and this file.  The five call frame kinds plus the
+native boundary are driven
+by the frame stack — call-head resolution, argument evaluation, lambda
+application (a synchronous transition to the body frame; `ArgsToEnv` stays an
+ordinary helper as the plan requires), sequential body, macro body, macro
+expansion, and the native-call boundary with the private
+`native_reentry_depth` counter — while `FeFrameTemporaryRecursive` is reached
+only by the special forms 03E still owns.  `FeEvalFrame` grew 80 → 96 bytes;
+`FeMinimumArenaSize()` is 53832 bytes; at the retuned 10% partition kg's 1 MiB
+arena holds **1100 frames / 56210 object slots** (actual 03C baseline 57542,
+−1332, ≈2.3%).  Measured conversion curve,
+frame-capacity actuals, the compact six-row "GC during every resumable frame
+state" table (adding the previously missing call-head and macro-expansion
+rows), the native shared-limit semantics, and the current complexity/coverage
+numbers are in `03d`'s own Status.  scc 351/420 (03B closed at 286), pmccabe
+566/221 symbols of 630 (03B closed at 500/202), coverage 90.0% lines / 95.0%
+functions / 64.7% branches against the 80% floor, `make -C fe check` (native
+suite plus 28 scripts × 3), both complexity/format gates, and fe's full
+numbered runner in all nine stages — ci-04 (ASan/UBSan, after the
+pre-existing 8 MiB `TestRootsAndCalls` stack overflow was cleared by running
+with an unlimited stack limit), ci-05 (MSan, the binding lane), ci-03
+(Valgrind/analyzer), fuzz smoke, static analysis, format, compat — are
+green.  kg: `make check` **32/32 and 406/406**, `make WITH_LISP=0 clean all
+check` **32/32 and 337 pass + 69 expected skips**, and `.ci/run-ci-steps.sh
+--parallel` is **11/12** green (ci-03's one `lisp-process-cwd` PTY flake,
+405/406, accepted per the documented policy after a standalone `ci-03` rerun
+passed 32/32 and 406/406).  The before/after `make bench` comparison
+(03C-baseline detached worktree vs current counting build) is flat to noise
+and its counter evidence — peak GC stack 339→138 / 2711→1509 / 1964→763,
+peak live, gc_count, allocation failures and peak eval depths unchanged — is
+in `03d`'s Status.  No public
+API, option, error text or statistic changed.  The 03A Decision revisit this
+slice requires — the 96-byte frame accepted, the 8% -> 10% partition retune
+that restored the legacy logical `(deep N)` wall at 332/333, and the
+`(deep 100000)` sizing corrected to ≈275 MiB provisional — is recorded in the
+Decision section above.  Special forms and the full `(deep 100000)`
+flat-`deep` measurement remain 03E/03F; no full-`deep` claim is made.
+Sub-plan 03E may start.

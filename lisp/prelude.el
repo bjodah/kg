@@ -33,12 +33,18 @@
 ;;; compared nil by address, so the copy was a nil-shaped truthy object.
 ;;; Fe no longer copies the expansion (see the FeTMacro arm of Evaluate in
 ;;; fe/fe.c, and doc/fe-upstream.md, which lists the fix as shipped), so
-;;; the rule is obsolete.  Three `(list 'quote nil)' workarounds it
-;;; licensed -- in `cond', `defvar' and `interactive' -- are vestigial
-;;; rather than wrong and are left in place, since removing them changes
-;;; evaluated code.  The fourth, in this file's own `setq' macro, is gone:
-;;; the Phase 2 dialect cutover deleted that macro outright now that core
-;;; `setq' is a real Fe special form.
+;;; the rule is gone, and so are the four `(list 'quote nil)' workarounds
+;;; it licensed.  The first three -- in `cond', `defvar' and `interactive'
+;;; -- were replaced with bare `nil' on 2026-08-04 (sub-plan 02E), proven
+;;; rather than assumed: `make check' at its full discovered count,
+;;; `test_prelude_source_file''s ordering pin, `make lisp-prelude-check',
+;;; and the named behaviours these three forms guard (`(cond)' is nil,
+;;; `defvar' on an already-bound variable does not reassign, a top-level
+;;; `(interactive)' is inert and reads as nil to a surrounding `progn')
+;;; all held with the replacement in place.  The fourth, in this file's
+;;; own `setq' macro, was already gone: the Phase 2 dialect cutover
+;;; deleted that macro outright now that core `setq' is a real Fe special
+;;; form.
 ;;;
 ;;; Macros expand on *every* invocation, and each expansion is charged
 ;;; against the evaluation step budget.  That is a performance property,
@@ -138,7 +144,7 @@
       (list 'if (car (car clauses))
         (cons 'progn (cdr (car clauses)))
         (cons 'cond (cdr clauses)))
-    (list 'quote nil))))
+    nil)))
 (setq when (macro (test . body)
   (list 'if test (cons 'progn body))))
 (setq unless (macro (test . body)
@@ -257,13 +263,13 @@
 (setq defvar (macro (name . rest)
   (list 'progn
     (list 'if (list 'boundp (list 'quote name))
-      (list 'quote nil)
+      nil
       (list 'setq name (car rest)))
     (list 'quote name))))
 (setq defconst (macro (name . rest)
   (list 'progn (list 'setq name (car rest)) (list 'quote name))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
-(setq interactive (macro args (list 'quote nil)))
+(setq interactive (macro args nil))
 ;; --- editor helpers ---
 (setq string-empty-p (lambda (s) (string= s "")))
 (setq thing-at-point (lambda (thing)

@@ -373,4 +373,21 @@ later.
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.** `FeEvalFrame` is the 80-byte, arena-resident
+context stack selected in 03A. `RunEvaluation()` is the single evaluator
+entry/run barrier: it evaluates atoms, symbols and primitive `quote` directly,
+and reaches the remaining recursive evaluator through the explicitly temporary
+frame path. Frames and pending Lisp-cleanup entries are GC roots; errors copy
+their message/trace to context-owned storage before the outer barrier invokes
+the host callback.
+
+03A allowed 03C to retune the remainder split after real state existed. The
+required 1024-byte pending-error buffer made its provisional 20% split leave
+too little object headroom, so the landed split assigns 8% of bytes above the
+floor to frames, retaining the 64-frame floor and 32-frame cleanup reserve.
+The fixed API test arena is 1 MiB so the pre-existing 200-level C-stack probe
+remains below that physical wall; minimum-size boundary coverage remains in
+`TestContextCreation`. The frame tests pin quote rebinding/extra arguments,
+forced collection through a temporary frame, physical exhaustion and context
+reuse. The existing four-step `(+ 1 2)` boundary and trace goldens remain
+unchanged.

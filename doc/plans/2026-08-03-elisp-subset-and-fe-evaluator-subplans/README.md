@@ -654,7 +654,7 @@ failure starting at `N = 333` (3·333+2 = 1001 > 1000) and success through
 `N = 332` (3·332+2 = 998 ≤ 1000) — which is exactly the measured 332/333
 boundary in §1.  The derivation and the measurement agree to the unit.
 
-**Partition formula (recommendation (a), confirmed).**  `FeContext` gains a
+**Partition formula (03A recommendation (a), superseded in 03C).**  `FeContext` gains a
 pointer/capacity/index into a frame region carved from the same
 host-provided arena (never a compile-time array member, and never a
 separate allocation):
@@ -677,9 +677,12 @@ object_slots = 256 + (remainder - frame_bonus_bytes) / sizeof(FeObject)
 `MinFrameCapacity = 64` supports `peak_depth` through `N ≈ 20` in the
 *smallest legal* arena — comfortably above what fe's own `max_depth`-tight
 test fixtures use (5, per `TestEvaluationDepth`'s pattern, reused by the
-new probe test).  The 20% split is a starting point, not a derived
-optimum; 03C may retune it once real frame kinds exist to measure against
-(see the caveat below).
+new probe test). The 20% split was a starting point, not a derived optimum.
+**03C's landed implementation retuned it to 8%** after accounting for the
+pending-error buffer and its object-headroom test; it also raised Fe's fixed
+API and standalone arenas to 1 MiB. The formula and table below remain this
+03A decision's provisional price model; [03C's status](03c-frame-substrate.md#status)
+records the implemented configuration.
 
 | Arena | Size | Frame capacity | `peak_depth` reach | Object slots | vs. today |
 |---|---|---|---|---|---|

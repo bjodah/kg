@@ -51,10 +51,10 @@ static_assert(FE_LANGUAGE_VERSION == 2);
 #define KG_LISP_STEP_LIMIT (1U << 20)
 #endif
 
-/* The arena holds the whole Fe context, whose 4096-slot GC stack alone is
- * about 36 KiB, and the prelude then costs about 33 KiB of objects.  An
- * override below ~68 KiB therefore fails to start; the default leaves ~93%
- * of the arena for user code. */
+/* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
+ * arena-resident evaluator frames. FeMinimumArenaSize() is now roughly
+ * 50 KiB, so an override below ~72 KiB fails to start; the default's 1 MiB
+ * still leaves roughly 95% of the arena for objects and frame growth. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;

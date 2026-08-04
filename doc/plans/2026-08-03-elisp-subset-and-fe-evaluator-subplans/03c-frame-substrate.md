@@ -373,8 +373,11 @@ later.
 
 ## Status
 
-**Complete, 2026-08-04.** `FeEvalFrame` is the 80-byte, arena-resident
-context stack selected in 03A. `RunEvaluation()` is the single evaluator
+**Complete, 2026-08-04.** `FeEvalFrame` is the arena-resident context stack
+selected in 03A, 80 bytes as this slice landed it and **96 bytes after 03D
+added the `bind`/`fn` fields** — see 03D's Status and the set README's 03A
+Decision follow-up, which supersede every frame-size and capacity number
+below. `RunEvaluation()` is the single evaluator
 entry/run barrier: it evaluates atoms, symbols and primitive `quote` directly,
 and reaches the remaining recursive evaluator through the explicitly temporary
 frame path. Frames and pending Lisp-cleanup entries are GC roots; errors copy

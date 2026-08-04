@@ -182,6 +182,15 @@ cannot decide whether it is stale assignment.
 ## Complexity repayment and gates
 
 Measure scc and pmccabe before commit 1, after commit 1, and after commit 2.
+
+**Use `pmccabe`'s per-file sum for `fe.c`, not scc, as the repayment
+number.**  02B measured this: its whole diff moved `fe.c`'s pmccabe sum
+340 → 350 and moved scc by exactly zero, because scc's parser
+desynchronizes on `fe.c`'s first `'"'` literal (line 1010) and Phase 2's
+code lives past it.  Deleting `PAssign` will show ~0 on scc for the same
+reason.  Record the pmccabe delta from 350, say plainly that scc did not
+move, and do not report a zero-scc result as evidence the cut was free.
+See 02B's Status for the full finding.
 If 02B required a reviewed cap raise, state exactly how many total/file/
 function points the deleted arm returned.  Lower a cap only when the final
 measurement provides durable headroom; otherwise record why the named

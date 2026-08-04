@@ -184,4 +184,64 @@ The Fe commit message must say why two assignment spellings coexist and that
 
 ## Status
 
-Not started.
+**Complete, 2026-08-04.**  Fe commit `fb3e536` on `analyzers-etc` (plus
+`79a449f`, a documentation correction found in review); kg gitlink moved in
+`fdd9f65` and `f5e75a2`.  Standalone Fe has `setq` and `set`; assignment `=`
+still works, unchanged, and kg's behaviour is untouched — its prelude macro
+still shadows the new core `setq`, as this slice intends.
+
+**Shape.**  The old `PSet` enumerator (which spelled `=`) is renamed
+`PAssign`, its arm unchanged; `PSetq` and `PSet` are new, the latter now
+meaning Emacs' `set`.  That identifier reuse was the slice's main hazard and
+it landed cleanly.  Two small static helpers before `EvaluatePrimitive()`
+carry the logic — `EvaluateSetq()` (pmccabe 5) and `EvaluateSet()` (5) —
+rather than inline switch arms, so `EvaluatePrimitive()` stays at its
+existing 15 and validation is not compressed to buy a gate.
+`FeOpenContext()`/`GetCoreObjectCount()` needed no edit: both already
+iterate to `PSentinel`.  No new environment helper, no C API change, no
+`fe.h` edit.  GC discipline is the surrounding arms': `MakeObject()` pushes
+every new object onto the GC stack, `GetBound()` allocates nothing, and
+`FeSet()` cannot allocate, so nothing is reachable-only through a C local
+across an allocation.
+
+**The semantics were checked against the binary, not just the suite.**  All
+five worked examples in `doc/language.md` were re-run through `./fe` and
+match 02A's pinned snapshots exactly, including the two that matter most:
+`((lambda () (setq x 9) (list ((lambda (x) (setq x 2) x) 1) x)))` is `(2 9)`
+and the same shape with `(set 'x 2)` is `((2 1) 2)`.  `make -C fe compat` is
+66 cases, **43 passed** (up from 31), 23 known gaps, 0 failed — all 12
+`setq`/`set` cases converted from gap to pass, with numeric `=` and
+`primitive-assign-eq` still gaps owned by 02C.  Fe's full nine-stage
+`.ci/run-ci-steps.sh` is green.  kg: `make check` 32/405, `make WITH_LISP=0
+clean all check` 337 pass + 68 skip, `make lisp-compat-check` 183 features /
+0 problems, now reporting 34 fe primitives/aliases.
+
+### The complexity hold point was not reached — and the reason matters
+
+Neither fe gate moved: **scc 214/220 total and `fe.c` 106/112 file, both
+byte-identical before and after**, against a priced estimate of +20 to +30.
+That is not the code being cheap.  Measured during review: **`pmccabe`'s
+whole-file sum for `fe.c` rose 340 → 350** across the same diff, and
+`pmccabe-check` recorded the two new symbols.  scc reported zero.
+
+This is 00A's spike finding seen from the other side, and it is now
+quantified.  `fe.c`'s first `'"'` character literal is at line 1010; scc's C
+parser desynchronizes there and undercounts keywords afterwards.  All of
+Phase 2's new code sits near line 1663 — **past the desync, therefore
+invisible to scc**.  The consequence for the rest of this program:
+
+- **`fe`'s scc ratchet cannot price work added below `fe.c:1010`.**  The
+  price table's fe column is denominated in a unit that does not measure the
+  file the work happens in.  It is a floor that happens not to move, not a
+  budget that was respected.
+- **02C must measure its repayment with `pmccabe`'s per-file sum**, not scc.
+  Deleting `PAssign` will likewise show ~0 on scc; the honest number is the
+  pmccabe delta from 350.
+- Phase 3's split is where this stops being latent: extracting a quote-heavy
+  region *raises* scc by tens of points with no behaviour change (00A
+  measured +42), because it moves code back into the scanner's view.  Phase
+  3's Decision should settle whether fe tracks a pmccabe sum ratchet
+  instead.  That is not Phase 2's to add.
+
+No cap was raised, no baseline-writing target was run, and no Decision was
+needed — but "the gate was green" is the wrong summary of why.

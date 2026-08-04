@@ -5,7 +5,7 @@ name: lisp-search-forward
 filename: lisp-search.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun mark-match ()
       (interactive)
       (goto-char (point-min))

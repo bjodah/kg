@@ -450,7 +450,7 @@ void lisp_eval_file(FeContext *context, const char *path)
 }
 
 /* (load NAME): a name containing '/' is a literal path; a bare name
- * resolves to <config>/kg/lisp/NAME.fe.  Loading twice evaluates twice;
+ * resolves to <config>/kg/lisp/NAME.el.  Loading twice evaluates twice;
  * there is no require/provide behaviour here -- see native_require for
  * that. */
 FeObject *native_load(FeContext *context, FeObject *arguments)
@@ -468,8 +468,8 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 		bad = snprintf(path, sizeof(path), "%s", name) < 0
 		    || strlen(name) >= sizeof(path);
 	} else {
-		bad = snprintf(stem, sizeof(stem), "lisp/%s.fe", name) < 0
-		    || length + sizeof("lisp/.fe") > sizeof(stem)
+		bad = snprintf(stem, sizeof(stem), "lisp/%s.el", name) < 0
+		    || length + sizeof("lisp/.el") > sizeof(stem)
 		    || lisp_config_path(path, sizeof(path), stem);
 	}
 	if (bad) {

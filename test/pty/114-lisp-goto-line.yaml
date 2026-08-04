@@ -6,7 +6,7 @@ name: lisp-goto-line
 filename: lisp-gotoline.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun mark-lines ()
       (interactive)
       (goto-line 2)

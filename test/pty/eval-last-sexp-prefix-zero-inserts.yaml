@@ -3,7 +3,7 @@
 # in Emacs, so C-u 0 C-x C-e prints the value into the buffer just as
 # C-u C-x C-e does.
 name: eval-last-sexp-prefix-zero-inserts
-filename: eval-prefix-zero.fe
+filename: eval-prefix-zero.el
 requires_feature: lisp
 initial: (+ 3 2)
 keys:

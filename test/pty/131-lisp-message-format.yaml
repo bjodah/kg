@@ -4,7 +4,7 @@ name: lisp-message-format
 filename: lisp-message-format.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun say-where ()
       "Report point and the buffer name in the status area."
       (interactive)

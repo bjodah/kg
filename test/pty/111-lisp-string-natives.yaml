@@ -8,7 +8,7 @@ name: lisp-string-natives
 filename: lisp-strings.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun describe-word ()
       "Append a description of the first word of the buffer."
       (interactive)

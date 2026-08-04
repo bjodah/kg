@@ -3,7 +3,7 @@ name: lisp-save-excursion-error
 filename: save-excursion-error.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun unwind-err-test ()
       (interactive)
       (goto-char 1)

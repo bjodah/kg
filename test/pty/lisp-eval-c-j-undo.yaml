@@ -1,5 +1,5 @@
 name: lisp-eval-c-j-undo
-filename: undo.fe
+filename: undo.el
 requires_feature: lisp
 initial: (+ 3 2)
 keys:

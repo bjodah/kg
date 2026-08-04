@@ -1,5 +1,5 @@
 name: lisp-eval-c-j-incomplete
-filename: incomplete.fe
+filename: incomplete.el
 requires_feature: lisp
 backend: tmux
 initial: (+ 1 2

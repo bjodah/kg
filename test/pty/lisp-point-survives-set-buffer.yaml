@@ -10,7 +10,7 @@ name: lisp-point-survives-set-buffer
 filename: point-roundtrip.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun roundtrip ()
       (interactive)
       (goto-char 4)

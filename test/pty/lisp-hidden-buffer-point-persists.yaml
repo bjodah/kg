@@ -13,7 +13,7 @@ name: lisp-hidden-buffer-point-persists
 filename: hidden-point-persist.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun step1 ()
       (interactive)
       (set-buffer (get-buffer-create "scratch"))

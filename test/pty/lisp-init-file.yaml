@@ -2,7 +2,7 @@ name: lisp-init-file
 filename: lisp-init.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: '(insert "boot")'
+  .config/kg/init.el: '(insert "boot")'
 initial: ""
 keys: []
 expected_saved: boot

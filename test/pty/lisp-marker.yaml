@@ -5,7 +5,7 @@ name: lisp-marker
 filename: lisp-marker.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun marker-test ()
       (interactive)
       (goto-char 7)

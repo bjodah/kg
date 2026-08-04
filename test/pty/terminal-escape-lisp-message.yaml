@@ -12,7 +12,7 @@ filename: escmsg.txt
 backend: tmux
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: "(defun shout ()\n  \"Say something the terminal must not act on.\"\n  (interactive)\n  (message \"say \x1b[31mred\x1b]0;renamed\x07 done\"))\n(global-set-key \"C-c s\" \"shout\")\n"
+  .config/kg/init.el: "(defun shout ()\n  \"Say something the terminal must not act on.\"\n  (interactive)\n  (message \"say \x1b[31mred\x1b]0;renamed\x07 done\"))\n(global-set-key \"C-c s\" \"shout\")\n"
 initial: |
   hello
 keys:

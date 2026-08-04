@@ -5,7 +5,7 @@ name: lisp-format-insert
 filename: lisp-format.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun report ()
       "Append a formatted report line."
       (interactive)

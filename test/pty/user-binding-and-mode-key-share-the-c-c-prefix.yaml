@@ -12,7 +12,7 @@ backend: tmux
 dimensions: [14, 70]
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: '(global-set-key "C-c u" "upcase-word")'
+  .config/kg/init.el: '(global-set-key "C-c u" "upcase-word")'
 initial: "pick abc123 first commit\npick def456 second commit\n"
 keys:
   - C-c

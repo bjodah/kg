@@ -8,7 +8,7 @@ name: lisp-hidden-buffer-edit
 filename: lisp-hidden.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun edit-hidden ()
       (interactive)
       (let ((h (get-buffer-create "scratch")))

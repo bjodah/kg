@@ -41,6 +41,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_process.h"
 
 static_assert(FE_API_VERSION == 1);
+static_assert(FE_LANGUAGE_VERSION == 2);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -389,7 +390,7 @@ int kg_lisp_load_init(void)
 	if (!state.initialized) {
 		return 0;
 	}
-	if (lisp_config_path(path, sizeof(path), "init.fe")) {
+	if (lisp_config_path(path, sizeof(path), "init.el")) {
 		return 0;
 	}
 	if (access(path, F_OK) != 0) {

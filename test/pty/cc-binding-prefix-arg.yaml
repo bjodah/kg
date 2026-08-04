@@ -9,7 +9,7 @@ name: cc-binding-prefix-arg
 filename: cc-prefix.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (global-set-key "C-c s" "shell-command")
 initial: ""
 keys:

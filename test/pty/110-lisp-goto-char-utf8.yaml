@@ -5,7 +5,7 @@ name: lisp-goto-char-utf8
 filename: lisp-gotochar.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun brace-line ()
       (interactive)
       (goto-char 3)

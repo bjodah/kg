@@ -107,7 +107,7 @@ FeObject *native_functionp(FeContext *context, FeObject *arguments)
  * nothing else; this native only translates the verdict into a Fe error.
  * Explicit empty prefix: a Lisp-invoked command has no keystroke of its
  * own, so it must not inherit whatever prefix arg was left over from the
- * keystroke that triggered this Lisp call (or none at all, e.g. init.fe
+ * keystroke that triggered this Lisp call (or none at all, e.g. init.el
  * running at startup). */
 FeObject *native_command(FeContext *context, FeObject *arguments)
 {

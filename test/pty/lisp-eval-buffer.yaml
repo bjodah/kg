@@ -1,5 +1,5 @@
 name: lisp-eval-buffer
-filename: lisp-buffer.fe
+filename: lisp-buffer.el
 requires_feature: lisp
 backend: tmux
 initial: (+ 4 5)

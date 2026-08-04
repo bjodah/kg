@@ -1,5 +1,5 @@
 name: lisp-eval-c-j-scrolled
-filename: test.fe
+filename: test.el
 requires_feature: lisp
 dimensions: [5, 40]
 initial: |-

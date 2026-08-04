@@ -159,7 +159,7 @@ ordered by value vs implementation effort.
 - [ ] **Toggle line numbers**: `M-x linum-mode` or similar.  Frequent
       ask, low cost.
 
-- [x] **Minimal config file**: `~/.config/kg/init.fe` — done; see the Lisp
+- [x] **Minimal config file**: `~/.config/kg/init.el` — done; see the Lisp
       section in README.md (init files, `(load ...)`, `define-command`,
       `global-set-key`). What exists now:
       - an Emacs-shaped position and mark API (`point`, `goto-char`,
@@ -175,7 +175,7 @@ ordered by value vs implementation effort.
         is a format function like its Emacs namesake
       - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
         `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
-        lists, `setq`, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
+        lists, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
         `dotimes`, `quasiquote`, the list library (`length`, `nth`,
         `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `assoc`, `member`,
         `memq`, `push`, `pop`), `equal`, `string-empty-p`,
@@ -190,12 +190,11 @@ ordered by value vs implementation effort.
         rarely need to be typed
       - the fe submodule carries elisp `if`, `lambda` as the primitive's
         name, the `` ` ``/`,`/`,@`/`#'` reader macros, `void-function`
-        errors and a 4096-slot GC stack; see `doc/fe-upstream.md`
+        errors, core `setq` (lexical-aware) and `set` (always the global
+        cell), left-to-right chained numeric `=`, and a 4096-slot GC
+        stack; see `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
-      - `=` still means assignment rather than numeric comparison.  Making
-        it numeric is a one-line prelude change but silently changes the
-        meaning of any stale `(= x v)`, so it wants its own release
       - no docstring registry / `documentation`; docstrings are inert
       - no `error`, so Lisp cannot signal with a message of its own.
         Now that `format` exists it is a handful of lines, but it lands

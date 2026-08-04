@@ -9,7 +9,7 @@ args:
 requires_feature: lisp
 backend: tmux
 config_files:
-  .config/kg/init.fe: '(global-set-key "C-c u" "upcase-word")'
+  .config/kg/init.el: '(global-set-key "C-c u" "upcase-word")'
 initial: abc
 keys:
   - C-c

@@ -1,5 +1,5 @@
 name: lisp-eval-c-j
-filename: scratch.fe
+filename: scratch.el
 requires_feature: lisp
 initial: ""
 keys:

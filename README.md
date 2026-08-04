@@ -202,14 +202,14 @@ s-expression before point (in `*scratch*` and Lisp Interaction/Lisp buffers
 labelled errors are shown in the status area. A build made with `WITH_LISP=0`
 keeps all commands available and reports that Lisp was not compiled in.
 
-On startup kg loads `$XDG_CONFIG_HOME/kg/init.fe` (falling back to
-`~/.config/kg/init.fe`); a missing file is normal, and `-Q` skips loading
+On startup kg loads `$XDG_CONFIG_HOME/kg/init.el` (falling back to
+`~/.config/kg/init.el`); a missing file is normal, and `-Q` skips loading
 entirely so a broken configuration can be repaired. Load errors show the
 labelled diagnostic in the status area; forms evaluated before the error
 remain applied.
 
 Extension packages load explicitly with `(load "name")`, which resolves a
-bare name to `<config>/kg/lisp/name.fe` and treats names containing `/` as
+bare name to `<config>/kg/lisp/name.el` and treats names containing `/` as
 literal paths. Packages may load other packages; loading a file twice with
 `load` evaluates it twice. Init files and packages are trusted code with the
 full privileges of the editor process, bounded only by the evaluation step
@@ -230,7 +230,7 @@ callback ordering, error handling); this section is the narrative tour.
 C-side array rather than a Fe list a package could `(push ...)` onto directly
 — `add-to-load-path` is the mutator. `require` re-entered for a feature
 already mid-load is a "cyclic require" error naming it, independent of
-`load`'s own nesting depth limit. `lisp/auto-fill.fe` is a worked package
+`load`'s own nesting depth limit. `lisp/auto-fill.el` is a worked package
 using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
 at `fill-column` as they are typed past it, using `after-change-functions`
 and one `replace-region` call per break (one undo step).
@@ -426,8 +426,8 @@ have no integer to print, so `%d` refuses them where Emacs writes `nan` and
 `inf`.
 
 kg also evaluates a prelude at startup, written in Fe, so the Emacs Lisp
-surface is available before any init file runs. It is what makes an `init.fe`
-read like an `init.el`.
+surface is available before any init file runs. It is what makes kg's
+`init.el` read like Emacs'.
 
 | Group | Forms |
 | ---- | ------ |
@@ -461,10 +461,8 @@ holding `nil` is bound — which is what `defvar` tests before initialising.
 Where it differs from Emacs Lisp, and these are worth knowing before the
 first surprise:
 
-- `=` is assignment, not numeric comparison — use `setq` to assign and `eq`
-  or `is` to compare.
 - There is no `>` or `>=`; Fe defines `<` and `<=` only, so write `(> a b)`
-  as `(< b a)` (`lisp/auto-fill.fe` does this throughout).
+  as `(< b a)` (`lisp/auto-fill.el` does this throughout).
 - `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
   Emacs says `nil`. Only pairs are compared by identity.
 - Every number is a double, and there is no character type: write
@@ -516,7 +514,7 @@ under its own symbol. The registry underneath is reachable directly as
 `(define-command NAME FUNCTION)`, which takes a symbol or a string, and
 `remove-command` undoes it.
 
-A worked `init.fe` — select the word under the cursor, the way you would
+A worked `init.el` — select the word under the cursor, the way you would
 write it in Emacs:
 
 ```lisp

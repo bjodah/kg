@@ -66,9 +66,9 @@ reports
 On startup
 .Nm
 loads the Lisp init file
-.Pa $XDG_CONFIG_HOME/kg/init.fe ,
+.Pa $XDG_CONFIG_HOME/kg/init.el ,
 falling back to
-.Pa ~/.config/kg/init.fe ,
+.Pa ~/.config/kg/init.el ,
 unless
 .Fl Q
 is given.
@@ -84,7 +84,7 @@ ordering, error handling) behind this section's narrative tour.
 Packages load explicitly with
 .Li (load "name") ,
 which resolves a bare name to
-.Pa <config>/kg/lisp/name.fe
+.Pa <config>/kg/lisp/name.el
 and treats names containing a slash as literal paths.
 Loading a file twice with
 .Li load
@@ -109,7 +109,7 @@ entry,
 searched in order, first match wins;
 .Li (add-to-load-path DIR)
 prepends a directory so it is searched first.
-.Pa lisp/auto-fill.fe
+.Pa lisp/auto-fill.el
 is a worked package: it
 .Li provide Ns s
 .Sq auto-fill ,
@@ -459,12 +459,15 @@ It defines the definition forms
 .Li defconst
 and
 .Li interactive ;
-the binding and assignment forms
+the binding forms
 .Li (let ((VAR VALUE) ...) BODY ...) ,
 .Li let* ,
-.Li (setq VAR VALUE ...)
 and
 .Li progn ;
+.Pq Li setq
+and
+.Pq Li set
+are core Fe special forms, not prelude definitions;
 the control forms
 .Li (cond (TEST BODY ...) ...) ,
 .Li (when COND BODY ...) ,
@@ -541,12 +544,6 @@ are the corresponding predicates, and
 reports whether a name has a value.
 .Pp
 kg's Lisp differs from Emacs Lisp in ways worth knowing:
-.Li =
-is assignment, not numeric comparison, so use
-.Li is
-or
-.Li eq
-to compare;
 .Li eq
 compares numbers and strings by value, and only pairs by identity;
 every number is a double;
@@ -2748,12 +2745,12 @@ are handled gracefully.
 .Bl -tag -width Ds
 .It Pa /dev/tty
 Terminal device used for raw-mode I/O.
-.It Pa $XDG_CONFIG_HOME/kg/init.fe
+.It Pa $XDG_CONFIG_HOME/kg/init.el
 Lisp init file, loaded at startup unless
 .Fl Q
 is given.
 Falls back to
-.Pa ~/.config/kg/init.fe .
+.Pa ~/.config/kg/init.el .
 .It Pa $XDG_CONFIG_HOME/kg/lisp/
 Package directory searched by
 .Li (load "name") .

@@ -1,5 +1,5 @@
 name: lisp-math-functions
-filename: demo-math.fe
+filename: demo-math.el
 requires_feature: lisp
 initial: |
   (sin 0)

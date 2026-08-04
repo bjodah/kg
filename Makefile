@@ -395,7 +395,7 @@ docs-check:
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
 
-# Phase 1 sub-plan 01A: lisp/prelude.fe is the canonical prelude source and
+# Phase 1 sub-plan 01A: lisp/prelude.el is the canonical prelude source and
 # src/lisp_prelude_generated.inc is a checked-in, byte-for-byte copy of it,
 # so an ordinary build needs no Python.  These two targets are the drift
 # check that keeps the pair honest -- the same structural no-drift shape as
@@ -403,17 +403,17 @@ lisp-compat-check:
 # Regeneration writes into a temporary file and compares, so the check never
 # rewrites the tree it is checking.
 lisp-prelude-generate:
-	@$(PYTHON) utils/embed_lisp.py lisp/prelude.fe \
+	@$(PYTHON) utils/embed_lisp.py lisp/prelude.el \
 		src/lisp_prelude_generated.inc
 
 lisp-prelude-check:
 	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
-	$(PYTHON) utils/embed_lisp.py lisp/prelude.fe "$$tmp" >/dev/null && \
+	$(PYTHON) utils/embed_lisp.py lisp/prelude.el "$$tmp" >/dev/null && \
 	if cmp -s "$$tmp" src/lisp_prelude_generated.inc; then \
-		echo "lisp-prelude-check: src/lisp_prelude_generated.inc matches lisp/prelude.fe"; \
+		echo "lisp-prelude-check: src/lisp_prelude_generated.inc matches lisp/prelude.el"; \
 	else \
 		echo "lisp-prelude-check: src/lisp_prelude_generated.inc is stale" >&2; \
-		echo "  lisp/prelude.fe changed without running 'make lisp-prelude-generate'." >&2; \
+		echo "  lisp/prelude.el changed without running 'make lisp-prelude-generate'." >&2; \
 		diff -u src/lisp_prelude_generated.inc "$$tmp" | head -20 >&2; \
 		exit 1; \
 	fi

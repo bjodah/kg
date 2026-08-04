@@ -15,7 +15,7 @@ requires_feature: lisp
 config_files:
   b.txt: |
     BBBBB
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun kill-displayed ()
       (interactive)
       (setq doomed (current-buffer))

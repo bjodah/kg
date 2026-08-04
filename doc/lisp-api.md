@@ -141,7 +141,7 @@ Ordering rules that hold across every subscriber:
   the one the active window shows. A callback that inspects or moves
   point at a position other than where it means to leave it needs its
   own `save-excursion`; nothing restores point automatically just
-  because a callback returned. (`lisp/auto-fill.fe`'s
+  because a callback returned. (`lisp/auto-fill.el`'s
   `auto-fill--maybe-break` is a worked example of getting this wrong and
   then right: its `auto-fill--column-at` helper moves point on purpose
   to answer "what column would this position be at", and every caller of
@@ -381,7 +381,7 @@ like a missing file would.
 
 `require`'s `FILENAME` argument, like a bare `load` name, is a literal
 path when it contains `/` and otherwise a stem resolved to
-`DIR/FILENAME.fe` in each `load-path` directory in order, first match
+`DIR/FILENAME.el` in each `load-path` directory in order, first match
 wins — which is what makes "load-path order decides which of two
 same-named files wins" a real, testable property
 (`test/test_lisp.c`'s `test_load_path_order`) rather than an
@@ -430,8 +430,6 @@ Emacs' `defun` plus `(interactive)` making a command. `command-execute`
 
 ## Explicit differences from Emacs Lisp
 
-- **`=` is assignment**, not numeric comparison — use `setq` to assign
-  and `eq` to compare numbers, or `is` for pointer identity on pairs.
 - **There is no `>` or `>=`.** Fe defines `<` and `<=` only; write `(>
   a b)` as `(< b a)`.
 - `eq` compares numbers and strings **by value**, so `(eq "a" "a")` is

@@ -14,12 +14,13 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(31 primitives, 1 alias, plus the handful of fe-owned divergences that
+(33 primitives, 1 alias, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
 (this directory) owns kg's 78 natives (`native_bindings[]`,
-`src/lisp_prelude.c`) and kg's 54 prelude definitions (the three
-`lisp_prelude[]` string literals) -- kg-owned, even though most of the
-prelude definitions are themselves oracle-comparable Emacs Lisp forms
+`src/lisp_prelude.c`) and kg's 53 prelude definitions
+(`lisp/prelude.el`'s top-level `(setq NAME ...)` forms) -- kg-owned, even
+though most of the prelude definitions are themselves oracle-comparable
+Emacs Lisp forms
 (`let`, `defun`, `cond`, `mapcar`, ...). Putting kg's half inside the
 branch-pinned `fe/` submodule would make every kg-side inventory edit a
 Rule-10 two-commit dance for no reason; keeping it in kg keeps that free.
@@ -40,7 +41,7 @@ the native/PTY test named in `kg_test`, not by an Emacs snapshot.
 ```text
 test/lisp-compat/
   README.md          this file
-  features.json       the manifest: 78 kg natives + 54 prelude definitions
+  features.json       the manifest: 78 kg natives + 53 prelude definitions
                        (plus a handful of kg-owned cross-cutting
                        divergences and the planned defcustom entry), each
                        with a status, an owner, a comparison mode, and the
@@ -100,13 +101,12 @@ all. Instead:
    `--other-manifest` pointed at its sibling, reusing 00B's schema
    validation and id-collision check rather than reimplementing it.
 2. Parses `fe/fe.c`'s `primitive_names[]`/`primitive_aliases[]` and
-   `src/lisp_prelude.c`'s `native_bindings[]` and the 54 `(= name ...)`
-   top-level forms across `lisp_prelude[]`'s three string literals, and
-   checks every one of the resulting 31 + 1 + 78 + 54 source names is
-   claimed by exactly one feature entry's `"source_name"` field, across
-   both manifests combined. This is the check that keeps the inventory
-   from rotting: a native or prelude definition added without a manifest
-   entry fails `make check`.
+   `src/lisp_prelude.c`'s `native_bindings[]` and the 53 `(setq name ...)`
+   top-level forms in `lisp/prelude.el`, and checks every one of the
+   resulting 33 + 1 + 78 + 53 source names is claimed by exactly one
+   feature entry's `"source_name"` field, across both manifests combined.
+   This is the check that keeps the inventory from rotting: a native or
+   prelude definition added without a manifest entry fails `make check`.
 3. Checks the `defcustom` entry exists with the shape 00C's gate
    requires.
 4. Checks every `status: planned` entry's `rationale` names a phase

@@ -16,8 +16,8 @@ Three things, in order:
    --other-manifest so the two id spaces are also checked for collisions.
 2. The check that keeps the inventory alive: every one of Fe's 33
    primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
-   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 54
-   prelude definitions (lisp/prelude.fe's top-level "(= NAME ...)" forms)
+   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 53
+   prelude definitions (lisp/prelude.el's top-level "(setq NAME ...)" forms)
    appears in exactly one feature entry's "source_name" field, across the
    two manifests combined. A native or prelude definition added without a
    manifest entry fails this.
@@ -37,7 +37,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FE_C = ROOT / "fe" / "fe.c"
 LISP_PRELUDE_C = ROOT / "src" / "lisp_prelude.c"
-LISP_PRELUDE_FE = ROOT / "lisp" / "prelude.fe"
+LISP_PRELUDE_EL = ROOT / "lisp" / "prelude.el"
 FE_MANIFEST = ROOT / "fe" / "compat" / "features.json"
 KG_MANIFEST = ROOT / "test" / "lisp-compat" / "features.json"
 FE_CHECKER = ROOT / "fe" / "utils" / "check_compat_manifest.py"
@@ -80,19 +80,22 @@ def parse_kg_natives() -> set[str]:
 
 
 def parse_kg_prelude_defs() -> set[str]:
-	"""54 top-level "(= NAME ...)" definitions from lisp/prelude.fe.
+	"""53 top-level "(setq NAME ...)" definitions from lisp/prelude.el.
 
 	Sub-plan 01A moved these out of three C string literals in
 	src/lisp_prelude.c and into a real Lisp source file, so this reads the
-	file rather than un-escaping C. A definition is a form starting "(= "
-	in column 0; nothing nested is ever in column 0, because every
-	continuation line in the file is indented.
+	file rather than un-escaping C. Sub-plan 02D's dialect cutover deleted
+	the kg-owned `setq` macro (built on assignment `=`) and rewrote the
+	remaining 53 definitions from `=` to core `setq`, so the definitions
+	this now looks for are column-zero "(setq NAME ...)" forms; nothing
+	nested is ever in column 0, because every continuation line in the
+	file is indented.
 	"""
-	text = LISP_PRELUDE_FE.read_text(encoding="utf-8")
-	names = set(re.findall(r"(?m)^\(= (\S+)", text))
+	text = LISP_PRELUDE_EL.read_text(encoding="utf-8")
+	names = set(re.findall(r"(?m)^\(setq (\S+)", text))
 	if not names:
 		raise SystemExit(
-			"FAIL: no top-level (= NAME ...) forms in lisp/prelude.fe")
+			"FAIL: no top-level (setq NAME ...) forms in lisp/prelude.el")
 	return names
 
 
@@ -150,7 +153,7 @@ def check_source_coverage(fe_data: dict, kg_data: dict) -> list[str]:
 	*within the manifest that owns it*, not as one name flattened across
 	both files: fe's raw `let` primitive and kg's prelude `let` macro that
 	shadows it are two different source declarations (fe.c's
-	primitive_names[] vs lisp/prelude.fe) that happen
+	primitive_names[] vs lisp/prelude.el) that happen
 	to share a spelling, and both legitimately get their own entry, in
 	their own manifest -- see fe/compat/features.json's primitive-let and
 	test/lisp-compat/features.json's prelude-let. Flattening all three

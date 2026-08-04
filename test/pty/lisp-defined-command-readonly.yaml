@@ -13,7 +13,7 @@ args:
 requires_feature: lisp
 backend: tmux
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun insert-hi () (interactive) (insert "hi"))
 initial: unchanged
 keys:

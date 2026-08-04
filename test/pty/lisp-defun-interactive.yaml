@@ -7,7 +7,7 @@ name: lisp-defun-interactive
 filename: lisp-defun.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defmacro insert-all (&rest parts)
       `(dolist (part (list ,@parts)) (insert part)))
     (defun greet (&optional who)

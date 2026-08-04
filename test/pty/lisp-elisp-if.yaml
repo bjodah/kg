@@ -4,7 +4,7 @@
 # evaluated as a *condition* and the fourth never reached, leaving probe at
 # 2 rather than 3.
 name: lisp-elisp-if
-filename: elisp-if.fe
+filename: elisp-if.el
 requires_feature: lisp
 initial: ""
 keys:

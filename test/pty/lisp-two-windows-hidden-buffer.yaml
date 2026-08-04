@@ -14,7 +14,7 @@ backend: tmux
 dimensions: [12, 40]
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun edit-shared ()
       (interactive)
       (let ((h (get-buffer-create "scratch")))

@@ -159,21 +159,21 @@ FeObject *native_add_to_load_path(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* PATH_MAX candidate = "DIR/STEM.fe"; true and filled in when that file
+/* PATH_MAX candidate = "DIR/STEM.el"; true and filled in when that file
  * is at least readable.  A directory that does not exist fails the same
  * access() call a missing file would, so a load-path full of stale
  * directories is just several misses in a row, not a special case. */
 static bool candidate_readable(
     const char *dir, const char *stem, char *out, size_t outsize)
 {
-	int n = snprintf(out, outsize, "%s/%s.fe", dir, stem);
+	int n = snprintf(out, outsize, "%s/%s.el", dir, stem);
 
 	return n >= 0 && (size_t)n < outsize && access(out, R_OK) == 0;
 }
 
 /* Resolve STEM to a file path: a name containing '/' is literal, exactly
  * as (load ...) treats one; otherwise search the load-path in order for
- * "STEM.fe", first match wins. */
+ * "STEM.el", first match wins. */
 static void resolve_require_path(
     FeContext *context, const char *stem, char *out, size_t outsize)
 {

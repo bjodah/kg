@@ -12,7 +12,7 @@ backend: tmux
 dimensions: [24, 80]
 key_delay: 0.15
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun run-it ()
       (interactive)
       (start-shell-command "e" (get-buffer-create "proclog")

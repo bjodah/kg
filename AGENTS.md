@@ -317,6 +317,6 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   it as a sandbox.
 - PTY YAML supports `requires_feature: lisp` (skipped when `kg -V` reports
   `-lisp`) and `config_files:` mapping HOME-relative paths to contents for
-  planting `init.fe`/packages inside the isolated case HOME.
+  planting `init.el`/packages inside the isolated case HOME.
 - User key bindings go through `src/keybind.c`, the single canonical
   key-sequence parser; only "C-c <key>" sequences are bindable.

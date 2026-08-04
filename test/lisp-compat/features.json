@@ -1095,19 +1095,6 @@
    "source_name": "function"
   },
   {
-   "id": "prelude-setq",
-   "category": "bindings",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "emacs",
-   "cases": [
-    "prelude-setq"
-   ],
-   "kg_test": "test/test_lisp.c:test_binding_forms",
-   "rationale": "This is the manifest expressing exactly the nuance the parent plan calls for: the primitive kg's setq is built on (Fe's `=`) is a recorded divergence from Emacs, but the kg-owned macro layered on top of it already matches Emacs' setq contract today, before Phase 2 makes `setq` a core special form. Two axes, two independent verdicts, same underlying primitive.",
-   "source_name": "setq"
-  },
-  {
    "id": "prelude-1-plus",
    "category": "values-and-equality",
    "status": "supported",

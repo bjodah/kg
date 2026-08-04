@@ -7,7 +7,7 @@ name: lisp-select-current-word-no-word
 filename: lisp-thing-none.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun select-current-word ()
       "Select the word under point, or say there is none."
       (interactive)

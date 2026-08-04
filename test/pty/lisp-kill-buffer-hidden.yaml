@@ -13,7 +13,7 @@ name: lisp-kill-buffer-hidden
 filename: lisp-kill.txt
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun kill-test ()
       (interactive)
       (let ((d (get-buffer-create "doomed")))

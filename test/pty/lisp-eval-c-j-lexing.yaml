@@ -1,5 +1,5 @@
 name: lisp-eval-c-j-lexing
-filename: forms.fe
+filename: forms.el
 requires_feature: lisp
 initial: |-
   (progn "a\")("                  ; ignored ) ( " \

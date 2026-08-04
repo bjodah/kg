@@ -1,6 +1,0 @@
-{
- "id": "prelude-setq",
- "setup": [],
- "expr": "(setq a 1 b 2 c 3)",
- "note": "Built on Fe's raw `=` assignment primitive (itself the central divergence, tracked in fe's manifest as primitive-assign-eq), kg's setq macro already implements Emacs' multi-pair setq semantics on top of it: pairs of symbol/value forms, left-to-right evaluation, and returning the last assigned *value* (not nil, and not the symbol) -- verified directly: (setq a 1 b 2 c 3) is 3 in both languages."
-}

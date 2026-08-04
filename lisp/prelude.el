@@ -1,4 +1,4 @@
-;;; prelude.fe --- kg's Lisp prelude: the Emacs Lisp surface built on Fe.
+;;; prelude.el --- kg's Lisp prelude: the Emacs Lisp surface built on Fe.
 ;;;
 ;;; This is the canonical source.  It is NOT a runtime dependency: kg
 ;;; embeds a byte-for-byte copy of this file (src/lisp_prelude_generated.inc,
@@ -33,11 +33,12 @@
 ;;; compared nil by address, so the copy was a nil-shaped truthy object.
 ;;; Fe no longer copies the expansion (see the FeTMacro arm of Evaluate in
 ;;; fe/fe.c, and doc/fe-upstream.md, which lists the fix as shipped), so
-;;; the rule is obsolete.  The four `(list 'quote nil)' workarounds it
-;;; licensed -- in `cond', `setq', `defvar' and `interactive' -- are
-;;; vestigial rather than wrong; they are left in place here because
-;;; removing them changes evaluated code, and all four forms are rewritten
-;;; again at the Phase 2 dialect cutover.
+;;; the rule is obsolete.  Three `(list 'quote nil)' workarounds it
+;;; licensed -- in `cond', `defvar' and `interactive' -- are vestigial
+;;; rather than wrong and are left in place, since removing them changes
+;;; evaluated code.  The fourth, in this file's own `setq' macro, is gone:
+;;; the Phase 2 dialect cutover deleted that macro outright now that core
+;;; `setq' is a real Fe special form.
 ;;;
 ;;; Macros expand on *every* invocation, and each expansion is charged
 ;;; against the evaluation step budget.  That is a performance property,
@@ -45,48 +46,39 @@
 ;;; expansion happened once per call site, which was never true of Fe.
 ;;;
 ;;; The prelude bootstraps itself with the primitives it is about to wrap:
-;;; definitions use `=' rather than the `setq' and `defun' defined further
-;;; down, so nothing here depends on an expansion happening first.
+;;; definitions use Fe's core `setq' special form, not the `defun' macro
+;;; defined further down, so nothing here depends on an expansion
+;;; happening before `defun' itself exists.
 
 ;; Emacs spellings for Fe primitives.  `internal--let' keeps Fe's
 ;; one-binding `let' reachable after the Emacs `let' shadows it; the
 ;; function bodies below use it.
-(= internal--let let)
-(= progn do)
-(= null not)
-(= eq is)
-(= function (lambda (f) f))
-;; (setq A 1 B 2 ...): Fe's `=' silently drops the extra pairs, and it
-;; returns nil where Emacs returns the value just assigned.
-(= setq (macro pairs
-  (if (null pairs)
-      (list 'quote nil)
-    (if (null (cdr (cdr pairs)))
-        (list 'do (list '= (car pairs) (car (cdr pairs)))
-          (car pairs))
-      (list 'do (list '= (car pairs) (car (cdr pairs)))
-        (cons 'setq (cdr (cdr pairs))))))))
-(= 1+ (lambda (n) (+ n 1)))
-(= 1- (lambda (n) (- n 1)))
-(= caar (lambda (x) (car (car x))))
-(= cadr (lambda (x) (car (cdr x))))
-(= cddr (lambda (x) (cdr (cdr x))))
-(= listp (lambda (x) (if (null x) t (consp x))))
+(setq internal--let let)
+(setq progn do)
+(setq null not)
+(setq eq is)
+(setq function (lambda (f) f))
+(setq 1+ (lambda (n) (+ n 1)))
+(setq 1- (lambda (n) (- n 1)))
+(setq caar (lambda (x) (car (car x))))
+(setq cadr (lambda (x) (car (cdr x))))
+(setq cddr (lambda (x) (cdr (cdr x))))
+(setq listp (lambda (x) (if (null x) t (consp x))))
 ;; --- list library, all iterative ---
-(= reverse (lambda (lst)
+(setq reverse (lambda (lst)
   (internal--let res nil)
   (while lst
     (setq res (cons (car lst) res))
     (setq lst (cdr lst)))
   res))
-(= internal--append2 (lambda (a b)
+(setq internal--append2 (lambda (a b)
   (internal--let res b)
   (internal--let r (reverse a))
   (while r
     (setq res (cons (car r) res))
     (setq r (cdr r)))
   res))
-(= append (lambda lists
+(setq append (lambda lists
   (internal--let r (reverse lists))
   (internal--let res (car r))
   (setq r (cdr r))
@@ -94,7 +86,7 @@
     (setq res (internal--append2 (car r) res))
     (setq r (cdr r)))
   res))
-(= length (lambda (x)
+(setq length (lambda (x)
   (if (stringp x)
       (string-length x)
     (internal--let n 0)
@@ -102,69 +94,69 @@
       (setq n (+ n 1))
       (setq x (cdr x)))
     n)))
-(= nthcdr (lambda (n lst)
+(setq nthcdr (lambda (n lst)
   (while (and (< 0 n) lst)
     (setq n (- n 1))
     (setq lst (cdr lst)))
   lst))
-(= nth (lambda (n lst) (car (nthcdr n lst))))
-(= last (lambda (lst)
+(setq nth (lambda (n lst) (car (nthcdr n lst))))
+(setq last (lambda (lst)
   (while (cdr lst) (setq lst (cdr lst)))
   lst))
 ;; Structural on lists; Fe's `is' compares pairs by identity.  Only the
 ;; car descends, so the spine cost is a loop, not a frame.
-(= equal (lambda (a b)
+(setq equal (lambda (a b)
   (internal--let same t)
   (while (and same (consp a) (consp b))
     (if (equal (car a) (car b)) nil (setq same nil))
     (setq a (cdr a))
     (setq b (cdr b)))
   (and same (not (consp a)) (not (consp b)) (is a b))))
-(= mapcar (lambda (f lst)
+(setq mapcar (lambda (f lst)
   (internal--let res nil)
   (while lst
     (setq res (cons (f (car lst)) res))
     (setq lst (cdr lst)))
   (reverse res)))
-(= member (lambda (elt lst)
+(setq member (lambda (elt lst)
   (while (and lst (not (equal elt (car lst))))
     (setq lst (cdr lst)))
   lst))
-(= memq (lambda (elt lst)
+(setq memq (lambda (elt lst)
   (while (and lst (not (eq elt (car lst))))
     (setq lst (cdr lst)))
   lst))
-(= assoc (lambda (key alist)
+(setq assoc (lambda (key alist)
   (internal--let hit nil)
   (while (and alist (null hit))
     (if (equal key (car (car alist))) (setq hit (car alist)))
     (setq alist (cdr alist)))
   hit))
 ;; --- control macros ---
-(= cond (macro clauses
+(setq cond (macro clauses
   (if clauses
       (list 'if (car (car clauses))
         (cons 'progn (cdr (car clauses)))
         (cons 'cond (cdr clauses)))
     (list 'quote nil))))
-(= when (macro (test . body)
+(setq when (macro (test . body)
   (list 'if test (cons 'progn body))))
-(= unless (macro (test . body)
+(setq unless (macro (test . body)
   (cons 'if (cons test (cons nil body)))))
-(= internal--first (lambda args (car args)))
-(= prog1 (macro (first . body)
+(setq internal--first (lambda args (car args)))
+(setq prog1 (macro (first . body)
   (cons 'internal--first (cons first body))))
 ;; --- binding forms ---
-(= internal--bind-name (lambda (b) (if (atom b) b (car b))))
-(= internal--bind-value (lambda (b)
+(setq internal--bind-name (lambda (b) (if (atom b) b (car b))))
+(setq internal--bind-value (lambda (b)
   (if (atom b) nil (car (cdr b)))))
 ;; Parallel, via immediate application: the value forms are evaluated
 ;; as arguments, in the environment outside the new bindings.
-(= let (macro (bindings . body)
+(setq let (macro (bindings . body)
   (cons (cons 'lambda
           (cons (mapcar internal--bind-name bindings) body))
     (mapcar internal--bind-value bindings))))
-(= let* (macro (bindings . body)
+(setq let* (macro (bindings . body)
   (internal--let forms nil)
   (while bindings
     (setq forms (cons (list 'internal--let
@@ -174,44 +166,44 @@
     (setq bindings (cdr bindings)))
   (cons 'progn (internal--append2 (reverse forms) body))))
 ;; --- iteration macros ---
-(= internal--dolist (lambda (items body)
+(setq internal--dolist (lambda (items body)
   (while items
     (body (car items))
     (setq items (cdr items)))))
-(= dolist (macro (spec . body)
+(setq dolist (macro (spec . body)
   (list 'progn
     (list 'internal--dolist (car (cdr spec))
       (cons 'lambda (cons (list (car spec)) body)))
     (car (cdr (cdr spec))))))
-(= internal--dotimes (lambda (count body)
+(setq internal--dotimes (lambda (count body)
   (internal--let i 0)
   (while (< i count)
     (body i)
     (setq i (+ i 1)))))
-(= dotimes (macro (spec . body)
+(setq dotimes (macro (spec . body)
   (list 'progn
     (list 'internal--dotimes (car (cdr spec))
       (cons 'lambda (cons (list (car spec)) body)))
     (car (cdr (cdr spec))))))
-(= push (macro (item place)
+(setq push (macro (item place)
   (list 'setq place (list 'cons item place))))
-(= pop (macro (place)
+(setq pop (macro (place)
   (list 'prog1 (list 'car place)
     (list 'setq place (list 'cdr place)))))
-(= save-excursion (macro body
+(setq save-excursion (macro body
   (list 'internal--save-excursion
     (cons 'lambda (cons nil body)))))
-(= with-current-buffer (macro (buf . body)
+(setq with-current-buffer (macro (buf . body)
   (list 'internal--with-current-buffer buf
     (cons 'lambda (cons nil body)))))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
-(= internal--qq (lambda (form)
+(setq internal--qq (lambda (form)
   (if (atom form)
       (list 'quote form)
     (if (eq (car form) 'unquote)
         (car (cdr form))
       (internal--qq-list form)))))
-(= internal--qq-list (lambda (form)
+(setq internal--qq-list (lambda (form)
   (internal--let segs nil)
   (while (consp form)
     (internal--let e (car form))
@@ -221,21 +213,21 @@
     (setq form (cdr form)))
   (if form (setq segs (cons (internal--qq form) segs)))
   (cons 'append (reverse segs))))
-(= quasiquote (macro (form) (internal--qq form)))
+(setq quasiquote (macro (form) (internal--qq form)))
 ;; --- definition forms ---
 ;; Argument lists go to Fe unchanged: its binder reads &optional and
 ;; &rest itself, as well as its own dotted and bare-symbol forms.  kg
 ;; used to lower "(a &optional b &rest r)" to "(a b . r)" here, which
 ;; worked only because the binder accepted any argument count.
-(= internal--interactive-p (lambda (form)
+(setq internal--interactive-p (lambda (form)
   (if (atom form) nil (eq (car form) 'interactive))))
-(= internal--has-interactive (lambda (body)
+(setq internal--has-interactive (lambda (body)
   (internal--let hit nil)
   (while body
     (if (internal--interactive-p (car body)) (setq hit t))
     (setq body (cdr body)))
   hit))
-(= internal--strip-interactive (lambda (body)
+(setq internal--strip-interactive (lambda (body)
   (internal--let out nil)
   (while body
     (if (internal--interactive-p (car body))
@@ -246,7 +238,7 @@
 ;; A body form (interactive) registers the function as a command, the
 ;; way Emacs makes a defun interactive; define-command takes the
 ;; symbol.  defun returns the name, as Emacs does.
-(= defun (macro (name params . body)
+(setq defun (macro (name params . body)
   (internal--let f (cons 'lambda (cons params
                      (internal--strip-interactive body))))
   (if (internal--has-interactive body)
@@ -254,7 +246,7 @@
         (list 'define-command (list 'quote name) name)
         (list 'quote name))
     (list 'progn (list 'setq name f) (list 'quote name)))))
-(= defmacro (macro (name params . body)
+(setq defmacro (macro (name params . body)
   (list 'progn
     (list 'setq name
       (cons 'macro (cons params body)))
@@ -262,18 +254,18 @@
 ;; Fe distinguishes an unassigned symbol from one holding nil, so
 ;; defvar asks boundp rather than reading the variable -- which would
 ;; now raise void-variable -- and a variable holding nil stays nil.
-(= defvar (macro (name . rest)
+(setq defvar (macro (name . rest)
   (list 'progn
     (list 'if (list 'boundp (list 'quote name))
       (list 'quote nil)
       (list 'setq name (car rest)))
     (list 'quote name))))
-(= defconst (macro (name . rest)
+(setq defconst (macro (name . rest)
   (list 'progn (list 'setq name (car rest)) (list 'quote name))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
-(= interactive (macro args (list 'quote nil)))
+(setq interactive (macro args (list 'quote nil)))
 ;; --- editor helpers ---
-(= string-empty-p (lambda (s) (string= s "")))
-(= thing-at-point (lambda (thing)
+(setq string-empty-p (lambda (s) (string= s "")))
+(setq thing-at-point (lambda (thing)
   (internal--let bounds (bounds-of-thing-at-point thing))
   (if bounds (buffer-substring (car bounds) (cdr bounds)))))

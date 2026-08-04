@@ -10,7 +10,13 @@ written into prose only goes stale, as it did before this document was
 rewritten.
 
 The supported embedding interface is `FE_API_VERSION 1`; `src/lisp_core.c`
-asserts it at compile time.
+asserts it at compile time. Fe's *language* — its evaluated behaviour,
+independent of the C embedding contract — is versioned separately as
+`FE_LANGUAGE_VERSION 2`, which `src/lisp_core.c` also asserts at compile
+time, beside the API assertion. The two move independently: language
+version 2 is the `setq`/`set`/numeric-`=` hard cut below, which broke no
+C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
+through it.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
@@ -31,7 +37,10 @@ To update Fe:
    branch you are moving the pin to).
 2. Review the complete submodule diff, including the kg-side divergences
    listed below — they live on that branch and must survive the update.
-3. Confirm `FE_API_VERSION` and adapt kg if it changed.
+3. Confirm both `FE_API_VERSION` and `FE_LANGUAGE_VERSION` and adapt kg if
+   either changed — an API change means adapting kg's C call sites, a
+   language change means auditing kg's Lisp sources exactly as sub-plan
+   02D did for language version 2.
 4. Rerun `fe/test.sh` (or `make -C fe check`) and kg's full CI pipeline,
    including `.ci/ci-08-with-lisp-0.sh`.
 5. Commit the submodule pointer in the superproject so the recorded SHA moves
@@ -63,6 +72,7 @@ that could be done in the prelude was done there instead.
 | `unwind-protect` and `FeProtectWithCleanup()` — cleanup stack and host protection | Lisp `unwind-protect` and C `FeProtectWithCleanup` share a single LIFO registry; cleanups run on normal return, Lisp error, C-g interrupt, and step-budget exhaustion | new primitive `unwind-protect`, `FeProtectWithCleanup()` API in `fe.h`, fresh per-entry cleanup step budget and interrupt re-arming in `RunCleanupsAfterError` |
 | An explicit `evaluation_depth` counter bounds recursion, checked on every pair-form `Evaluate()`, in addition to `GcStackSize` | The GC stack bounds recursion only by accident, via how many slots a call happens to consume; a build with fatter per-call C frames than the default build (any sanitizer, `-O0`, a debug build) could exhaust the real C stack before the GC stack noticed, crashing instead of raising a catchable error — confirmed under `.ci/ci-05`'s MSan flags, which crash at `(deep 418)` where the default build and `.ci/ci-04`'s ASan/UBSan flags both still raise `GC stack overflow` past `(deep 452)`. `evaluation depth limit exceeded` now fires first, deterministically, in every build. | `FeContext.evaluation_depth`/`evaluation_depth_limit`, `FeEvalOptions.max_depth` (0 selects `DefaultEvaluationDepth` = 1000, measured and explained where it is declared in `fe.c`), reset in `FeHandleError` alongside `call_list`, and held across `Evaluate()`'s macro arm rather than released before it — that arm is a tail call in Fe but not in C, so releasing early let a self-expanding macro recurse with the counter flat; kg's `test_recursion_depth` now expects the new error instead of `GC stack overflow` |
 | `FeGetArenaStats()` — read-only arena/evaluator statistics | Neither Fe nor kg had any way to answer "how close is the fixed arena to full", which sub-plan [00D](plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/00d-baselines-and-arena-observability.md) of kg's Emacs-subset program needs as a Phase 0 baseline, ahead of the Phase 9 diagnostic surface this pulls forward from | `FeArenaStats` struct and accessor in `fe.h`/`fe.c` (total/free slots, peak live objects, collection count, peak GC-stack/evaluation/cleanup-stack depth, allocation failures); seven new `FeContext` counter fields updated at their existing sites (`MakeObject`, `CollectGarbage`, `FePushGC`, `EnterEvaluationDepth`, `PushCleanup`); allocates nothing itself. No kg-visible command yet — that is Phase 9. |
+| Core `setq`/`set`, and `=` cut from assignment to left-to-right chained numeric equality — `FE_LANGUAGE_VERSION` 1 → 2 | Emacs' `setq` updates the innermost lexical binding (writing a new global otherwise) and `set` always writes the global cell straight through a same-named lexical binding; neither is `=`, which Emacs uses for numeric comparison. Sub-plans [02A](plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/02a-pin-the-target-semantics.md)–[02D](plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/02d-kg-migration-and-el-cutover.md) pinned the oracle answers, landed both new forms beside the old assignment `=` for one coexistence window, then cut it: kg's own prelude `setq` macro (built on the old assignment primitive) is gone, replaced by the core special form, and every kg-owned `(= NAME VALUE)` became `(setq NAME VALUE)`. There is no assignment-`=` compatibility alias — §0.4 of the parent plan: no known external users, so no reason to keep the old spelling reachable. | Fe: new `PSetq`/`PSet` enums and `EvaluateSetq()`/`EvaluateSet()`, the old assignment enum and switch arm deleted, a chained `EvaluateNumericEqual()` replacing the old two-argument `=`; `FeVersion` `"1.1"` → `"2.0"`; `fe/doc/language.md` rewritten. kg: gitlink move, `FE_LANGUAGE_VERSION == 2` compile-time assertion beside `FE_API_VERSION == 1`, `lisp/prelude.el`'s `setq` macro definition deleted and its remaining 53 top-level forms rewritten from `=` to `setq`, `.fe` discovery (init file, bare `load`/`require`) cut to `.el` with no fallback — an explicit `.fe` *path* (containing `/`) still loads, since the cut is discovery-only |
 
 ## The nested tiny-regex-c submodule
 
@@ -117,10 +127,6 @@ Deliberately **not** changed in `fe.c`, and why:
   no character type, so `?é` would silently read as the first UTF-8 byte —
   reintroducing exactly the silent wrongness `#'` was fixed to remove.
   `(string-to-char "é")` is exact and already available.
-- **`=` as numeric comparison.** Possible (it is an ordinary global), but it
-  would permanently retire `=`-as-assignment, and any stale `(= x 1)` would
-  then silently compute a boolean. `setq` is the spelling to use; `=` stays
-  assignment.
 - **Dynamic binding, `condition-case`, vectors, hash tables,
   keyword arguments, a byte compiler.** All need new object types or a real
   non-local exit mechanism in `Evaluate`.

@@ -572,7 +572,7 @@ char *MD_HL_keywords[] = { NULL };
 char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
 
 /* Lisp */
-char *LISP_HL_extensions[] = { ".fe", ".lisp", ".lsp", NULL };
+char *LISP_HL_extensions[] = { ".el", ".lisp", ".lsp", NULL };
 /* kg's Lisp, which is Emacs-shaped; "let*" precedes "let" because the
  * first match wins. */
 char *LISP_HL_keywords[] = { "defun", "defmacro", "defvar", "defconst",

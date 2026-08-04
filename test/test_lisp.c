@@ -67,7 +67,7 @@ static void test_disabled(void)
 	CHECK(kg_lisp_init() != 0);
 	CHECK(kg_lisp_eval_string("(+ 1 2)", 7, result, sizeof(result)) != 0);
 	CHECK(strstr(result, "not compiled in") != nullptr);
-	CHECK(kg_lisp_load_file("unused.fe") != 0);
+	CHECK(kg_lisp_load_file("unused.el") != 0);
 	CHECK(strstr(kg_lisp_last_error(), "not compiled in") != nullptr);
 	CHECK(kg_lisp_load_init() == 0);
 	kg_lisp_set_interrupt_check(nullptr);
@@ -162,9 +162,9 @@ static void test_load_file(void)
 static void test_load_file_error(void)
 {
 	CHECK(kg_lisp_init() == 0);
-	CHECK(kg_lisp_load_file("/tmp/kg-lisp-missing/no-file.fe") != 0);
+	CHECK(kg_lisp_load_file("/tmp/kg-lisp-missing/no-file.el") != 0);
 	CHECK(strstr(kg_lisp_last_error(), "cannot open") != nullptr);
-	CHECK(strstr(kg_lisp_last_error(), "no-file.fe") != nullptr);
+	CHECK(strstr(kg_lisp_last_error(), "no-file.el") != nullptr);
 	kg_lisp_shutdown();
 }
 
@@ -348,15 +348,20 @@ static void remove_config_root(const char *root)
 {
 	static const char *const entries[] = {
 		"%s/kg/init.fe",
-		"%s/kg/lisp/pkg.fe",
-		"%s/kg/lisp/pkg-a.fe",
-		"%s/kg/lisp/pkg-b.fe",
-		"%s/kg/lisp/pkg-x.fe",
-		"%s/kg/lisp/counted.fe",
-		"%s/kg/lisp/quiet.fe",
-		"%s/kg/lisp/impl.fe",
-		"%s/kg/lisp/dup.fe",
+		"%s/kg/init.el",
+		"%s/kg/lisp/legacy.fe",
+		"%s/kg/lisp/pkg.el",
+		"%s/kg/lisp/pkg-a.el",
+		"%s/kg/lisp/pkg-b.el",
+		"%s/kg/lisp/pkg-x.el",
+		"%s/kg/lisp/oldstyle.fe",
+		"%s/kg/lisp/counted.el",
+		"%s/kg/lisp/quiet.el",
+		"%s/kg/lisp/after-cycle.el",
+		"%s/kg/lisp/impl.el",
+		"%s/kg/lisp/dup.el",
 		"%s/direct.fe",
+		"%s/literal.el",
 		"%s/kg/lisp",
 		"%s/kg",
 		"%s",
@@ -381,7 +386,17 @@ static void test_init_file(void)
 	/* Missing init file is normal. */
 	CHECK(kg_lisp_load_init() == 0);
 
+	/* An init.fe with no init.el alongside it is ignored: discovery is
+	 * .el-only, with no probing of the retired extension. */
 	(void)snprintf(path, sizeof(path), "%s/kg/init.fe", root);
+	CHECK(write_text_file(path, "(setq init-loaded 99)\n") == 0);
+	CHECK(kg_lisp_load_init() == 0);
+	CHECK(kg_lisp_eval_string("init-loaded", 11, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(kg_lisp_last_error(), "void-variable") != nullptr);
+
+	/* Adding init.el is then loaded. */
+	(void)snprintf(path, sizeof(path), "%s/kg/init.el", root);
 	CHECK(write_text_file(path, "(setq init-loaded 42)\n") == 0);
 	CHECK(kg_lisp_load_init() == 0);
 	CHECK(kg_lisp_eval_string("init-loaded", 11, result, sizeof(result))
@@ -392,7 +407,7 @@ static void test_init_file(void)
 	 * before the failure remain applied. */
 	CHECK(write_text_file(path, "(setq init-partial 1)\n(car 1)\n") == 0);
 	CHECK(kg_lisp_load_init() != 0);
-	CHECK(strstr(kg_lisp_last_error(), "init.fe") != nullptr);
+	CHECK(strstr(kg_lisp_last_error(), "init.el") != nullptr);
 	CHECK(kg_lisp_eval_string("init-partial", 12, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(result, "1") == 0);
@@ -409,8 +424,20 @@ static void test_load_package(void)
 	CHECK(setup_config_root(root, sizeof(root)) == 0);
 	CHECK(kg_lisp_init() == 0);
 
-	/* Bare names resolve to <config>/kg/lisp/NAME.fe. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg.fe", root);
+	/* A real NAME.fe on disk does not satisfy bare (load "NAME"): no
+	 * fallback probes the retired extension, and the error names the
+	 * .el path discovery actually looked for. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/legacy.fe", root);
+	CHECK(write_text_file(path, "(setq legacy-value 9)\n") == 0);
+	CHECK(
+	    kg_lisp_eval_string("(load \"legacy\")", 15, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "legacy.el") != nullptr);
+	CHECK(kg_lisp_eval_string("(+ 1 1)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "2") == 0);
+
+	/* Bare names resolve to <config>/kg/lisp/NAME.el. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg.el", root);
 	CHECK(write_text_file(path, "(setq pkg-value 7)\n") == 0);
 	CHECK(kg_lisp_eval_string("(load \"pkg\")", 12, result, sizeof(result))
 	    == 0);
@@ -421,16 +448,16 @@ static void test_load_package(void)
 	CHECK(
 	    kg_lisp_eval_string("(load \"absent\")", 15, result, sizeof(result))
 	    != 0);
-	CHECK(strstr(result, "absent.fe") != nullptr);
+	CHECK(strstr(result, "absent.el") != nullptr);
 	CHECK(kg_lisp_eval_string("(+ 1 1)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "2") == 0);
 
 	/* Packages may load packages. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.el", root);
 	CHECK(
 	    write_text_file(path, "(load \"pkg-b\")\n(setq a-after b-value)\n")
 	    == 0);
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.el", root);
 	CHECK(write_text_file(path, "(setq b-value 5)\n") == 0);
 	CHECK(
 	    kg_lisp_eval_string("(load \"pkg-a\")", 14, result, sizeof(result))
@@ -439,7 +466,7 @@ static void test_load_package(void)
 	CHECK(strcmp(result, "5") == 0);
 
 	/* Load cycles hit the depth limit and recover. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-x.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-x.el", root);
 	CHECK(write_text_file(path, "(load \"pkg-x\")\n") == 0);
 	CHECK(
 	    kg_lisp_eval_string("(load \"pkg-x\")", 14, result, sizeof(result))
@@ -448,15 +475,17 @@ static void test_load_package(void)
 	CHECK(kg_lisp_eval_string("(+ 2 2)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "4") == 0);
 
-	/* Names containing '/' are literal paths. */
-	(void)snprintf(path, sizeof(path), "%s/direct.fe", root);
-	CHECK(write_text_file(path, "(setq direct-value 3)\n") == 0);
+	/* Names containing '/' are literal paths, independent of extension:
+	 * this is a bare .el literal, not the .fe regression -- see
+	 * test_require_provide's direct.fe case for that. */
+	(void)snprintf(path, sizeof(path), "%s/literal.el", root);
+	CHECK(write_text_file(path, "(setq literal-value 3)\n") == 0);
 	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
 	CHECK(length > 0 && (size_t)length < sizeof(source));
 	CHECK(
 	    kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))
 	    == 0);
-	CHECK(kg_lisp_eval_string("direct-value", 12, result, sizeof(result))
+	CHECK(kg_lisp_eval_string("literal-value", 13, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(result, "3") == 0);
 
@@ -680,7 +709,8 @@ static int eval_eq(const char *source, const char *expected)
  * root. */
 static void test_require_provide(void)
 {
-	char root[64], path[512];
+	char root[64], path[512], source[600];
+	int length;
 
 	CHECK(setup_config_root(root, sizeof(root)) == 0);
 	CHECK(kg_lisp_init() == 0);
@@ -690,7 +720,7 @@ static void test_require_provide(void)
 	/* A second require is a no-op: proven by a counter the file only
 	 * bumps when it actually runs, not just by the absence of an
 	 * error. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/counted.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/counted.el", root);
 	CHECK(write_text_file(path,
 		  "(setq counted-runs "
 		  "(if (boundp 'counted-runs) (+ counted-runs 1) 1))\n"
@@ -704,16 +734,24 @@ static void test_require_provide(void)
 
 	/* A file that never calls (provide ...) is an error naming the
 	 * feature that did not appear. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/quiet.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/quiet.el", root);
 	CHECK(write_text_file(path, "(setq quiet-ran t)\n") == 0);
 	CHECK(eval_error_contains("(require 'quiet)", "quiet"));
 	CHECK(eval_eq("quiet-ran", "t"));
 
+	/* A real NAME.fe in a load-path directory does not satisfy bare
+	 * (require 'NAME): the error names the feature, with no fallback
+	 * to the retired extension. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/oldstyle.fe", root);
+	CHECK(write_text_file(path, "(provide 'oldstyle)\n") == 0);
+	CHECK(eval_error_contains("(require 'oldstyle)", "oldstyle"));
+	CHECK(eval_eq("(featurep 'oldstyle)", "nil"));
+
 	/* Cycle: pkg-a requires pkg-b, pkg-b requires pkg-a. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-a.el", root);
 	CHECK(
 	    write_text_file(path, "(require 'pkg-b)\n(provide 'pkg-a)\n") == 0);
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/pkg-b.el", root);
 	CHECK(
 	    write_text_file(path, "(require 'pkg-a)\n(provide 'pkg-b)\n") == 0);
 	CHECK(eval_error_contains("(require 'pkg-a)", "pkg-a"));
@@ -723,17 +761,38 @@ static void test_require_provide(void)
 	/* And the abandoned requiring stack is actually reset, not merely
 	 * unread: a later require of a fresh feature must load rather than
 	 * trip the cycle check on a name left behind by the longjmp. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/after-cycle.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/after-cycle.el", root);
 	CHECK(write_text_file(path, "(provide 'after-cycle)\n") == 0);
 	CHECK(eval_eq("(require 'after-cycle)", "after-cycle"));
 	CHECK(eval_eq("(featurep 'after-cycle)", "t"));
 
 	/* An explicit FILENAME resolves instead of the feature's own
 	 * name. */
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/impl.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/impl.el", root);
 	CHECK(write_text_file(path, "(provide 'aliased)\n") == 0);
 	CHECK(eval_ok("(require 'aliased \"impl\")"));
 	CHECK(eval_eq("(featurep 'aliased)", "t"));
+
+	/* Literal-path regression: an explicit '/'-containing filename is
+	 * never extension-probed, so a real .fe file stays reachable through
+	 * both load and require's own FILENAME argument -- the hard cut is
+	 * discovery-only.  require runs first, while the feature is still
+	 * absent: an earlier load would already provide it and require would
+	 * return without exercising path resolution at all. */
+	(void)snprintf(path, sizeof(path), "%s/direct.fe", root);
+	CHECK(write_text_file(
+		  path, "(setq direct-value 3)\n(provide 'direct-feature)\n")
+	    == 0);
+	CHECK(eval_eq("(featurep 'direct-feature)", "nil"));
+	length = snprintf(
+	    source, sizeof(source), "(require 'direct-feature \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(eval_eq(source, "direct-feature"));
+	CHECK(eval_eq("(featurep 'direct-feature)", "t"));
+	CHECK(eval_eq("direct-value", "3"));
+	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(eval_ok(source));
 
 	kg_lisp_shutdown();
 	remove_config_root(root);
@@ -747,14 +806,14 @@ static void test_load_path_order(void)
 	CHECK(setup_config_root(root, sizeof(root)) == 0);
 	CHECK(kg_lisp_init() == 0);
 
-	(void)snprintf(path, sizeof(path), "%s/kg/lisp/dup.fe", root);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/dup.el", root);
 	CHECK(write_text_file(
 		  path, "(setq dup-source 'default)\n(provide 'dup)\n")
 	    == 0);
 
 	(void)snprintf(extra, sizeof(extra), "/tmp/kg-lisp-extra-XXXXXX");
 	CHECK(mkdtemp(extra) != nullptr);
-	(void)snprintf(path, sizeof(path), "%s/dup.fe", extra);
+	(void)snprintf(path, sizeof(path), "%s/dup.el", extra);
 	CHECK(
 	    write_text_file(path, "(setq dup-source 'extra)\n(provide 'dup)\n")
 	    == 0);
@@ -771,7 +830,7 @@ static void test_load_path_order(void)
 
 	kg_lisp_shutdown();
 	remove_config_root(root);
-	(void)snprintf(path, sizeof(path), "%s/dup.fe", extra);
+	(void)snprintf(path, sizeof(path), "%s/dup.el", extra);
 	(void)remove(path);
 	(void)rmdir(extra);
 }
@@ -2342,7 +2401,7 @@ static void test_recursion_depth(void)
 	kg_lisp_shutdown();
 }
 
-/* Sub-plan 01A's second test path: lisp/prelude.fe is the canonical source
+/* Sub-plan 01A's second test path: lisp/prelude.el is the canonical source
  * and src/lisp_prelude_generated.inc is a generated copy of it that kg
  * evaluates at startup.  `make lisp-prelude-check` proves those two files
  * agree byte for byte; this proves the *file* and the *running editor*
@@ -2351,26 +2410,31 @@ static void test_recursion_depth(void)
  *
  * It deliberately does not re-load the file into a booted context.  A
  * second evaluation is not idempotent, for exactly the reason rule 1
- * exists: `(= internal--let let)` aliases Fe's raw `let` primitive before
- * the Emacs `let` macro shadows that name, so re-running it where the
- * macro already exists would bind internal--let to the macro and break
- * every list-library function that uses it.  That hazard is what the type
- * assertions below detect -- internal--let must answer `primitive`, not
- * `macro`, so a generator that ever reordered or dropped forms fails here
- * rather than silently shipping a broken prelude.
+ * exists: `(setq internal--let let)` aliases Fe's raw `let` primitive
+ * before the Emacs `let` macro shadows that name, so re-running it where
+ * the macro already exists would bind internal--let to the macro and
+ * break every list-library function that uses it.  That hazard is what
+ * the type assertions below detect -- internal--let must answer
+ * `primitive`, not `macro`, so a generator that ever reordered or dropped
+ * forms fails here rather than silently shipping a broken prelude.
  *
  * Arity is not asserted separately: kg's Lisp surface has no func-arity
  * and a lambda's printed form carries no parameter list, so each
  * definition's type plus the byte-identity check above is what is
- * actually observable. */
-#define PRELUDE_DEFS 54
+ * actually observable.
+ *
+ * Sub-plan 02D's dialect cutover deleted the kg-owned `setq` macro (built
+ * on assignment `=`) and rewrote the remaining 53 definitions from `=' to
+ * core `setq'; the scan below looks for column-zero "(setq NAME " forms
+ * accordingly. */
+#define PRELUDE_DEFS 53
 
 static void test_prelude_source_file(void)
 {
 	static char names[PRELUDE_DEFS][64];
 	static char types[PRELUDE_DEFS][16];
 	static char text[65536];
-	const char *paths[] = { "lisp/prelude.fe", "../lisp/prelude.fe" };
+	const char *paths[] = { "lisp/prelude.el", "../lisp/prelude.el" };
 	FILE *fp = nullptr;
 	size_t len = 0, count = 0, i, let_index = PRELUDE_DEFS;
 	char *line;
@@ -2392,8 +2456,8 @@ static void test_prelude_source_file(void)
 	 * count for a reason that has nothing to do with the prelude. */
 	CHECK(len > 0 && len < sizeof(text) - 1);
 
-	/* A definition is "(= NAME " in column 0; every continuation line in
-	 * the file is indented, so nothing nested is ever found here. */
+	/* A definition is "(setq NAME " in column 0; every continuation line
+	 * in the file is indented, so nothing nested is ever found here. */
 	for (line = text; line != nullptr; line = strchr(line, '\n')) {
 		const char *name_start, *value_start;
 		size_t name_len;
@@ -2401,14 +2465,14 @@ static void test_prelude_source_file(void)
 		if (line[0] == '\n') {
 			line++;
 		}
-		if (strncmp(line, "(= ", 3) != 0) {
+		if (strncmp(line, "(setq ", 6) != 0) {
 			continue;
 		}
 		CHECK(count < PRELUDE_DEFS);
 		if (count >= PRELUDE_DEFS) {
 			break;
 		}
-		name_start = line + 3;
+		name_start = line + 6;
 		name_len = strcspn(name_start, " )\n");
 		CHECK(name_len > 0 && name_len < sizeof(names[0]));
 		memcpy(names[count], name_start, name_len);
@@ -2535,14 +2599,14 @@ static void test_hooks(void)
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(eval_ok("(= hook-ran nil)"));
-	CHECK(eval_ok("(defun my-hook () (= hook-ran t))"));
+	CHECK(eval_ok("(setq hook-ran nil)"));
+	CHECK(eval_ok("(defun my-hook () (setq hook-ran t))"));
 	CHECK(eval_ok("(add-hook 'before-save-hook my-hook)"));
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "t"));
 
 	/* remove-hook */
-	CHECK(eval_ok("(= hook-ran nil)"));
+	CHECK(eval_ok("(setq hook-ran nil)"));
 	CHECK(eval_ok("(remove-hook 'before-save-hook my-hook)"));
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "nil"));
@@ -2556,8 +2620,8 @@ static void test_hooks(void)
 
 	/* Resolution happens when the hook runs, not when it is added, so
 	 * redefining the function afterwards takes effect -- as in Emacs. */
-	CHECK(eval_ok("(= hook-ran nil)"));
-	CHECK(eval_ok("(defun my-hook () (= hook-ran 'redefined))"));
+	CHECK(eval_ok("(setq hook-ran nil)"));
+	CHECK(eval_ok("(defun my-hook () (setq hook-ran 'redefined))"));
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "redefined"));
 

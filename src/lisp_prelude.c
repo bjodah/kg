@@ -111,7 +111,7 @@ void register_natives(FeContext *context)
  * written in Fe and evaluated at startup so it is available before any
  * init file runs.
  *
- * lisp/prelude.fe is the canonical source; the array below is a generated,
+ * lisp/prelude.el is the canonical source; the array below is a generated,
  * byte-for-byte copy of it (utils/embed_lisp.py, `make lisp-prelude-check`
  * proves the two agree).  The rules the prelude's definitions must follow
  * -- ordering, recursion, macro-expansion semantics -- are documented once,

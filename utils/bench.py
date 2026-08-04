@@ -128,11 +128,11 @@ REPRESENTATIVE_INIT = (
 def home_files_auto_fill():
 	lisp_dir = repo_root() / "lisp"
 	init = (f'(add-to-load-path "{lisp_dir}")' "(require 'auto-fill)")
-	return {".config/kg/init.fe": init}
+	return {".config/kg/init.el": init}
 
 
 def home_files_representative_init():
-	return {".config/kg/init.fe": REPRESENTATIVE_INIT}
+	return {".config/kg/init.el": REPRESENTATIVE_INIT}
 
 
 CORPORA = {
@@ -156,7 +156,7 @@ CASES = {
 	# ---- Lisp / Fe evaluator (sub-plan 00D) ----
 	# Every case here runs with `-Q` (no init file) unless it supplies
 	# `home_files`, in which case `run_once()` drops `-Q` so kg actually
-	# loads `$HOME/.config/kg/init.fe` -- see normalize_case().
+	# loads `$HOME/.config/kg/init.el` -- see normalize_case().
 	#
 	# "startup" above already gives "prelude alone" arena numbers for
 	# free now that kg_lisp_perf_snapshot() (src/lisp_core.c) runs before
@@ -202,14 +202,14 @@ CASES = {
 	], None, {"lisp_peak_eval_depth": 2}),
 	"lisp-arithmetic-loop": (None, [
 		"\x1b:",
-		"(= i 0) (= acc 0) (while (< i 20000) (= acc (+ acc i)) "
-		"(= i (+ i 1))) acc\r",
+		"(setq i 0) (setq acc 0) (while (< i 20000) (setq acc (+ acc i)) "
+		"(setq i (+ i 1))) acc\r",
 		"\x18\x03",
 	], None, {"lisp_peak_eval_depth": 2}),
 	"lisp-macro-heavy": (None, [
 		"\x1b:",
-		"(= m (macro (x) (list '+ x 1))) (= n 0) (= i 0) "
-		"(while (< i 2000) (= n (m n)) (= i (+ i 1))) n\r",
+		"(setq m (macro (x) (list '+ x 1))) (setq n 0) (setq i 0) "
+		"(while (< i 2000) (setq n (m n)) (setq i (+ i 1))) n\r",
 		"\x18\x03",
 	], None, {"lisp_peak_eval_depth": 2}),
 	"lisp-deep-call-chain": (None, [
@@ -490,7 +490,7 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 	"""Run one case `runs` times and report wall time, RSS and counters.
 
 	`home_files` (relative path -> content) plants files under a fresh
-	$HOME before every run -- e.g. `.config/kg/init.fe` -- and, when
+	$HOME before every run -- e.g. `.config/kg/init.el` -- and, when
 	given, `-Q` is dropped so kg actually loads it; every other case
 	still runs `-Q`, isolated, the way every case did before sub-plan
 	00D. `assert_gt` (counter name -> minimum) raises if the counter

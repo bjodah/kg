@@ -2,7 +2,7 @@ name: electric-paren-via-config
 filename: prog.c
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: "(command-execute 'electric-pair-mode)"
+  .config/kg/init.el: "(command-execute 'electric-pair-mode)"
 initial: |
   int main
 keys:

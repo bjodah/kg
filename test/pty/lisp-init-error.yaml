@@ -3,11 +3,11 @@ filename: lisp-init-error.txt
 requires_feature: lisp
 backend: tmux
 config_files:
-  .config/kg/init.fe: "(car 1)"
+  .config/kg/init.el: "(car 1)"
 initial: ""
 keys:
   - ok
 expected_saved: ok
 expected_screen_contains:
   - "Init file error"
-  - "init.fe"
+  - "init.el"

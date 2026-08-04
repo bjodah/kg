@@ -686,6 +686,25 @@ static void test_gitcommit_detect_basename_only(void)
 	teardown();
 }
 
+/* Sub-plan 02D's dialect cutover: kg's Lisp is .el, and .fe (Fe's own
+ * standalone dialect) is no longer a Lisp-mode extension in kg -- a pure
+ * registry lookup, so no tmux screen assertion is needed here. */
+static void test_lisp_el_extension_selects(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "config.el");
+	CHECK(bcur()->syntax == syntax_find_by_name("Lisp"));
+	teardown();
+}
+
+static void test_lisp_fe_extension_unchanged(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "config.fe");
+	CHECK(bcur()->syntax == NULL);
+	teardown();
+}
+
 /* Markdown blank line inside a fence regression test */
 static void test_md_blank_line_in_fence(void)
 {
@@ -1341,6 +1360,8 @@ int main(void)
 	RUN(test_gitrebase_merge_hash);
 	RUN(test_gitrebase_flags_end);
 	RUN(test_gitcommit_detect_basename_only);
+	RUN(test_lisp_el_extension_selects);
+	RUN(test_lisp_fe_extension_unchanged);
 	RUN(test_md_blank_line_in_fence);
 	RUN(test_custom_highlighter_pointer);
 	RUN(test_editor_set_syntax_rebuilds);

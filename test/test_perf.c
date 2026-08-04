@@ -1000,7 +1000,7 @@ static const char lisp_representative_init[]
 /* Arena margin, not "does it fit": doc/plans/2026-08-03-elisp-subset-and-
  * fe-evaluator-subplans/00d-baselines-and-arena-observability.md asks how
  * much of the fixed 1 MiB arena remains free after the prelude, the
- * prelude plus lisp/auto-fill.fe, and the prelude plus a representative
+ * prelude plus lisp/auto-fill.el, and the prelude plus a representative
  * init -- before Phases 3-6 add frames, symbol cells and condition
  * objects to every allocation path.  Bounds here, not exact counts (this
  * file's convention): a durable margin claim survives an unrelated
@@ -1026,7 +1026,7 @@ static void test_lisp_prelude_arena_margin(void)
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 
-	CHECK(kg_lisp_load_file("lisp/auto-fill.fe") == 0);
+	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.collection_count == 0);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
@@ -1098,8 +1098,8 @@ static void test_lisp_evaluator_shapes(void)
 	 * this is the shape furthest from list-walk's GC-stack pressure. */
 	CHECK(kg_lisp_init() == 0);
 	static const char arithmetic_loop[]
-	    = "(= i 0) (= acc 0) (while (< i 20000) (= acc (+ acc i)) "
-	      "(= i (+ i 1))) acc";
+	    = "(setq i 0) (setq acc 0) (while (< i 20000) (setq acc (+ acc i)) "
+	      "(setq i (+ i 1))) acc";
 	result[0] = '\0';
 	CHECK(kg_lisp_eval_string(arithmetic_loop, sizeof(arithmetic_loop) - 1,
 		  result, sizeof(result))
@@ -1112,8 +1112,8 @@ static void test_lisp_evaluator_shapes(void)
 	 * is 2000 expansions charged against the step budget, not one. */
 	CHECK(kg_lisp_init() == 0);
 	static const char macro_heavy[]
-	    = "(= m (macro (x) (list '+ x 1))) (= n 0) (= i 0) "
-	      "(while (< i 2000) (= n (m n)) (= i (+ i 1))) n";
+	    = "(setq m (macro (x) (list '+ x 1))) (setq n 0) (setq i 0) "
+	      "(while (< i 2000) (setq n (m n)) (setq i (+ i 1))) n";
 	result[0] = '\0';
 	CHECK(kg_lisp_eval_string(
 		  macro_heavy, sizeof(macro_heavy) - 1, result, sizeof(result))

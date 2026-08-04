@@ -1,4 +1,4 @@
-;;; auto-fill.fe --- proof package for kg's require/load-path work.
+;;; auto-fill.el --- proof package for kg's require/load-path work.
 ;;;
 ;;; Provides `auto-fill-mode', a buffer-local `after-change-functions'
 ;;; hook that breaks a line once it grows past `fill-column', the way

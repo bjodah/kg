@@ -8,7 +8,7 @@ filename: describe-removed.txt
 backend: tmux
 requires_feature: lisp
 config_files:
-  .config/kg/init.fe: |
+  .config/kg/init.el: |
     (defun soon-gone ()
       (interactive)
       (insert "x"))

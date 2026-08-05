@@ -157,10 +157,11 @@ char *copy_fe_string(FeContext *context, FeObject *object, size_t *length)
 
 /* Resolve a function designator to the object it names, the Lisp-2 rule:
  * a symbol reads its function cell (FeGetFunction, which follows defalias
- * indirection and yields nil for an empty cell) and any other object
- * passes through unchanged.  The value cell is never consulted, so a name
- * bound only as a value resolves to nothing.  Shared by hooks, process
- * filters/sentinels and functionp. */
+ * indirection and yields nil for an empty cell, and nil -- rather than an
+ * error -- for a cyclic alias chain) and any other object passes through
+ * unchanged.  The value cell is never consulted, so a name bound only as a
+ * value resolves to nothing.  Shared by hooks, process filters/sentinels
+ * and functionp. */
 FeObject *lisp_function_designator(FeContext *context, FeObject *object)
 {
 	return FeGetType(object) == FeTSymbol ? FeGetFunction(context, object)
@@ -200,12 +201,24 @@ static void describe_callable_failure(FeContext *context, const char *condition,
  * "tried to call non-callable value".
  *
  * Returns the callable, or nullptr with `diagnostic` filled in with the
- * message to report: `void-function NAME` for an empty function cell, and
- * `invalid-function NAME` for a cell holding something FeCall will not
- * call (a macro, or a primitive -- Fe calls those only from call
- * position).  The one raise left is FeGetFunction's own
- * `cyclic-function-indirection`, which has the same containment problem
- * and needs a no-error resolver Fe does not expose. */
+ * message to report: `void-function NAME` for a designator chain that
+ * resolves to nothing, and `invalid-function NAME` for a cell holding
+ * something FeCall will not call (a macro, or a primitive -- Fe calls
+ * those only from call position).  Resolution itself no longer raises at
+ * all: the last hole was FeGetFunction's `cyclic-function-indirection`,
+ * and fe's host-facing resolver now answers nil for a cycle instead,
+ * precisely because a C caller has no frame for the longjmp to land in.
+ * (copy_fe_string, spelling the name into the message, can still raise on
+ * an allocation failure -- an out-of-memory path, not a designator one.)
+ *
+ * `void-function NAME` covers the cycle too, and deliberately.  A cycle
+ * and a chain that dies in an empty cell are both nil from
+ * FeGetFunction, and the one thing that could separate them here --
+ * FeIsFBound -- cannot: `(fset 'a 'b)` with `b` unbound has a non-empty
+ * cell as surely as `(fset 'x 'x)` does, so it would rename Fe's own
+ * `void-function a` for a dead chain.  Naming the condition kg can prove
+ * beats naming one it cannot, and either way the name reported is the one
+ * the program wrote, as Emacs reports it. */
 FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
     char *diagnostic, size_t diagnostic_size)
 {

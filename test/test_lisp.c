@@ -2235,15 +2235,18 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(functionp 'while)", "nil"));
 	CHECK(eval_eq("(functionp 'when)", "nil"));
 	CHECK(eval_eq("(functionp 'let)", "nil"));
-	/* Recorded divergence, not a kg policy: Emacs' functionp answers nil
-	 * for a cyclic alias chain, because it resolves with
-	 * indirect-function's noerror argument.  Fe exposes no no-error
-	 * resolver, so the cycle raises here instead.  Pinned so the day a
-	 * condition system lands (Phase 6) this changes visibly rather than
-	 * silently. */
+	/* A cyclic alias chain is answered, not raised at: functionp
+	 * resolves the designator with fe's host-facing FeGetFunction, which
+	 * yields nil for a cycle, and nil is not a function.  Emacs answers
+	 * nil here too -- by a different route, since its own fset refuses
+	 * to build the cycle in the first place. */
 	CHECK(eval_ok("(fset 'cyc 'cyc)"));
+	CHECK(eval_eq("(functionp 'cyc)", "nil"));
+	/* Contained, not merely quiet: the interpreter is still usable, and
+	 * calling the name is still an error rather than a crash. */
+	CHECK(eval_eq("(+ 1 2)", "3"));
 	CHECK(eval_error_contains(
-	    "(functionp 'cyc)", "cyclic-function-indirection"));
+	    "(funcall 'cyc)", "cyclic-function-indirection"));
 	/* fboundp reads the raw cell and follows nothing, so it answers for
 	 * the same name without raising -- the "never errors" doc/lisp-api.md
 	 * claims for it. */
@@ -2837,6 +2840,31 @@ static void test_hooks(void)
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(strstr(test_status_message, "invalid-function cond") != nullptr);
 	CHECK(eval_ok("(remove-hook 'before-save-hook 'cond)"));
+	CHECK(eval_ok("(+ 1 2)"));
+
+	/* A cyclic alias chain was the last uncontained one: resolving the
+	 * designator raised `cyclic-function-indirection' from a C frame
+	 * that had already returned by the time the handler longjmped, so
+	 * this case segfaulted rather than reporting anything.  fe's
+	 * host-facing resolver answers nil for a cycle now, which lands the
+	 * hook in the same reported-not-raised path an empty cell takes.
+	 * `void-function' is the condition it lands under, deliberately: a
+	 * cycle and a dead multi-link chain are both nil from the resolver
+	 * and nothing available here separates them (see
+	 * lisp_callable_designator). */
+	CHECK(eval_ok("(fset 'cyc-hook 'cyc-hook)"));
+	CHECK(eval_ok("(add-hook 'before-save-hook 'cyc-hook)"));
+	test_status_message[0] = '\0';
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(strstr(test_status_message, "Hook error") != nullptr);
+	CHECK(strstr(test_status_message, "void-function cyc-hook") != nullptr);
+	CHECK(eval_ok("(remove-hook 'before-save-hook 'cyc-hook)"));
+	CHECK(eval_ok("(+ 1 2)"));
+	/* Calling the same name still raises, and is caught as an error
+	 * rather than taking the editor down: only the *host*-side resolver
+	 * stopped raising. */
+	CHECK(eval_error_contains(
+	    "(funcall 'cyc-hook)", "cyclic-function-indirection"));
 	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();

@@ -87,9 +87,11 @@ FeObject *native_symbolp(FeContext *context, FeObject *arguments)
  * functions, and so are the primitives whose operands are evaluated before
  * they act, but macros and special forms (`if', `quote', `let') are not --
  * the answer Emacs gives.  Spelling the type check out here instead is what
- * made (functionp 'if) t.  A cyclic alias chain raises
- * `cyclic-function-indirection' where Emacs answers nil; see
- * doc/lisp-api.md. */
+ * made (functionp 'if) t.  Resolving first is also what keeps a cyclic
+ * alias chain from erroring here: fe's host-facing FeGetFunction answers
+ * nil for one, and FeIsFunction is then asked about that nil rather than
+ * about the symbol -- asking it about the symbol would walk the cycle
+ * itself and raise. */
 FeObject *native_functionp(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);

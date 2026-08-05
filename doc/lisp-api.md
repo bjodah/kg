@@ -506,12 +506,14 @@ symbol is followed through its function cell, so `(functionp 'car)` is
 are not functions**, as in Emacs — `(functionp 'if)`, `(functionp 'let)`
 and `(functionp 'when)` are all `nil`, however callable those names look
 in head position — while a closure, an editor native and a
-function-shaped primitive are all `t`. One divergence: a *cyclic* alias
-chain (`(fset 'x 'x)`) makes `functionp` raise
-`cyclic-function-indirection` where Emacs answers `nil`, because Emacs
-resolves it with `indirect-function`'s no-error argument and Fe exposes
-no such resolver. `fboundp` is unaffected — it reads the raw cell and
-follows nothing, so it never errors.
+function-shaped primitive are all `t`. A *cyclic* alias chain
+(`(fset 'x 'x)`) is answered rather than raised at: `(functionp 'x)` is
+`nil` and `(fboundp 'x)` is `t`, since the cell does hold something.
+*Calling* the name is what raises `cyclic-function-indirection` —
+`(x)`, `(funcall 'x)` — and a cyclic name used as a hook or a process
+callback is reported like any other unresolvable one, as
+`void-function x`. (Emacs reaches the same `nil` by a different route:
+its `fset` refuses to build the cycle at all.)
 
 kg's own prelude is written against these rules: its top-level
 definitions are installed with `defalias` into function cells, the

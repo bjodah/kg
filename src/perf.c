@@ -50,8 +50,10 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_LISP_ARENA_PEAK_LIVE] = "lisp_arena_peak_live",
 	[KG_PERF_LISP_GC_COUNT] = "lisp_gc_count",
 	[KG_PERF_LISP_PEAK_GC_STACK] = "lisp_peak_gc_stack",
-	[KG_PERF_LISP_PEAK_EVAL_DEPTH] = "lisp_peak_eval_depth",
+	[KG_PERF_LISP_FRAME_CAPACITY] = "lisp_frame_capacity",
+	[KG_PERF_LISP_PEAK_FRAME_DEPTH] = "lisp_peak_frame_depth",
 	[KG_PERF_LISP_PEAK_CLEANUP_STACK] = "lisp_peak_cleanup_stack",
+	[KG_PERF_LISP_PEAK_NATIVE_REENTRY] = "lisp_peak_native_reentry",
 	[KG_PERF_LISP_ALLOC_FAILURES] = "lisp_alloc_failures",
 	[KG_PERF_LISP_PRELUDE_NS] = "lisp_prelude_ns",
 };

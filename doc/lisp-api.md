@@ -173,22 +173,37 @@ Ordering rules that hold across every subscriber:
   the labelled diagnostic. Forms evaluated **before** the error remain
   applied — an init file or package that fails partway through still has
   its earlier `defun`s and `setq`s in effect.
-- **The interpreter's own recursion limit** is an explicit depth counter
-  in Fe (`FeEvalOptions.max_depth`, defaulting to
-  `DefaultEvaluationDepth` = 1000 nested `Evaluate()` calls). It counts
-  evaluator re-entries rather than Lisp call frames — an ordinary
-  self-recursive function costs several per level — so in practice it
-  stops `(deep n)`-shaped recursion a little past 300 levels. Deeper
-  recursion raises `evaluation depth limit exceeded` rather than
-  crashing, and it is caught in every build: the counter, not Fe's GC
-  stack, is what fires first. Macro expansion is bounded by the same
-  counter, so a macro that expands into itself raises too.
+- **The interpreter's own recursion limit is two separate bounds**, not
+  one. Fe's frame machine (sub-plan 03F) roots Lisp nesting — nested
+  calls, nested special forms, self-expanding macros, deep argument
+  lists — in the context-owned arena rather than in C recursion, so it
+  costs a constant amount of C stack no matter how deep it goes:
+  - **Lisp nesting** (`FeEvalOptions.max_frames`, 0 selecting the arena's
+    own `frame_capacity`) counts live evaluator frames, not Lisp call
+    frames one-for-one — an ordinary self-recursive function costs
+    roughly 3 frames per level (`if`, the arithmetic, and the recursive
+    call each open one), so in practice it stops `(deep n)`-shaped
+    recursion a few hundred levels in. kg's default 1 MiB arena measures
+    `frame_capacity` 1100; exceeding it raises
+    `evaluation frame limit exceeded`. Macro expansion is bounded by the
+    same limit, so a macro that expands into itself raises too.
+  - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
+    `DefaultNativeReentry` = 32) counts nested evaluator runs a native
+    starts synchronously, one below another — e.g.
+    `internal--with-current-buffer` calling `FeCall` on a body that
+    itself calls `internal--save-excursion`. Unlike Lisp nesting, each
+    level here *is* a real C-stack bound (the native's own C activation,
+    `FeCall`, and the nested run's barrier), so the default is a small
+    number derived from kg's own corpus rather than a large one.
+    Exceeding it raises `native evaluation re-entry limit exceeded`.
+    Calling a native from Lisp is not itself re-entry; only that native
+    synchronously starting another evaluation is, so ordinary Lisp
+    nesting through natives never counts against this bound.
 
-  Fe's GC stack still bounds recursion at roughly 450 frames as a side
-  effect of slot consumption, but that bound is incidental — it tracks GC
-  slots, not C stack, and under the sanitizer builds CI runs the real C
-  stack gave out first, crashing the editor instead of raising. That is
-  what the explicit counter exists to prevent.
+  Both are caught in every build, including every sanitizer lane: the
+  frame machine keeps the real C stack flat, so it is never what fires
+  first for Lisp nesting the way Fe's GC stack (`GcStackSize` = 4096) or
+  the real C stack could before sub-plan 03F.
 
   Write list-walking code with `while`, not recursion — every list helper
   the prelude defines (`length`, `reverse`, `mapcar`, `assoc`, ...) does.

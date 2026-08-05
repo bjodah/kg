@@ -37,8 +37,20 @@ struct kg_lisp_arena_stats {
 	size_t peak_live_objects;
 	size_t collection_count;
 	size_t peak_gc_stack_depth;
-	size_t peak_evaluation_depth;
+	/* Host-usable evaluator frame capacity (Lisp nesting), excluding
+	 * Fe's private cleanup reserve -- the same ceiling
+	 * FeEvalOptions.max_frames of 0 selects. */
+	size_t frame_capacity;
+	/* High-water mark of simultaneously live ordinary evaluator frames;
+	 * always <= frame_capacity for a run that never triggers the
+	 * cleanup reserve. */
+	size_t peak_frame_depth;
 	size_t peak_cleanup_stack_depth;
+	/* High-water mark of nested evaluator runs started synchronously
+	 * from a native (bound: FeEvalOptions.max_native_reentry); zero for
+	 * a program that never re-enters through a native, no matter how
+	 * deep its Lisp nesting. */
+	size_t peak_native_reentry;
 	size_t allocation_failures;
 };
 

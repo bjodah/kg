@@ -2426,22 +2426,60 @@ static void test_cyclic_result(void)
 	kg_lisp_shutdown();
 }
 
-/* Recursion is bounded by Fe's explicit evaluation_depth counter, not by
- * how many GC stack slots a call happens to consume: a build with fatter
- * C frames than the release build (any sanitizer, -O0, a debug build)
- * would otherwise overflow the real C stack before Fe's own bookkeeping
- * noticed. `(deep 5000)` now raises a catchable error naming the depth
- * limit instead of the accidental "GC stack overflow". The final eval_ok
- * proves evaluation_depth is reset on error: a legal deep-but-smaller
- * call right after the overflow must not still see it exhausted. */
+/* Lisp nesting is bounded by Fe's frame stack, not by how many GC stack
+ * slots or how much C stack a call happens to consume (sub-plan 03F split
+ * the old single evaluation_depth counter into two: this is the
+ * `max_frames`/`frame_capacity` bound, "Lisp nesting"; native re-entry has
+ * its own bound and error, exercised in fe/test_api.c, not here).
+ * `(deep N)` now raises "evaluation frame limit exceeded" once N's frames
+ * exceed the arena's frame capacity, instead of the accidental
+ * "GC stack overflow" the pre-frame-machine evaluator could hit.
+ *
+ * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
+ * 1100, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * frames per recursion level for this chain's shape (`if`, `+`, and the
+ * recursive call each open a frame). `(deep 1000000)` therefore asks for
+ * roughly 3 million frames against a 1100-frame arena, more than 2700x
+ * over capacity -- demonstrably above it without depending on the private
+ * Fe frame-size struct or reverse-engineering the arena layout, only on
+ * the public frame_capacity/peak_frame_depth counters this file already
+ * asserts through. (frame_capacity itself is arena-derived and not
+ * asserted to a specific number here, since a KG_LISP_ARENA_SIZE override
+ * or a Fe-side frame-size change would move it without changing this
+ * test's property.)
+ *
+ * The probe below also confirms 03C's requirement empirically: after the
+ * error, allocation_failures is still 0 and peak_frame_depth sits exactly
+ * at frame_capacity -- the frame bound fired before the arena was ever
+ * asked for an object it didn't have, so deep recursion raises a clean
+ * evaluator error rather than an allocation failure.
+ *
+ * The final eval_ok calls are the property that actually matters: a
+ * bounded, host-recoverable error leaves state.context reusable, so a
+ * legal deep-but-smaller call right after the overflow must not still see
+ * the limit, or any other, exhausted. */
 static void test_recursion_depth(void)
 {
+	struct kg_lisp_arena_stats before, after;
+
 	CHECK(kg_lisp_init() == 0);
 
 	CHECK(eval_ok("(defun deep (n) (if (<= n 0) 0 (+ 1 (deep (- n 1)))))"));
 	CHECK(eval_eq("(deep 200)", "200"));
+	CHECK(kg_lisp_arena_stats(&before) == 0);
+	/* 200 real recursion levels already cost the majority of a
+	 * default-sized arena's frame capacity; confirms the 3-frames-per-
+	 * level shape this comment's derivation relies on stays in that
+	 * ballpark rather than silently becoming O(1) or O(N^2). */
+	CHECK(before.peak_frame_depth > 200 * 2);
+	CHECK(before.peak_frame_depth < before.frame_capacity);
+
 	CHECK(eval_error_contains(
-	    "(deep 5000)", "evaluation depth limit exceeded"));
+	    "(deep 1000000)", "evaluation frame limit exceeded"));
+	CHECK(kg_lisp_arena_stats(&after) == 0);
+	CHECK(after.allocation_failures == 0);
+	CHECK(after.peak_frame_depth == after.frame_capacity);
+
 	CHECK(eval_eq("(deep 200)", "200"));
 	CHECK(eval_ok("(+ 1 2)"));
 

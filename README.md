@@ -474,8 +474,14 @@ first surprise:
 - `t` is an ordinary assignable global.
 - There is no `unwind-protect` or `condition-case`, no dynamic binding, no
   vectors or hash tables.
-- Recursion is bounded at roughly 450 frames by the interpreter's
-  garbage-collector stack, so walk long lists with `while`, not recursion.
+- Lisp nesting (recursive calls, nested special forms, self-expanding
+  macros) is bounded by the interpreter's frame stack, not by C or
+  garbage-collector recursion — kg's default arena holds roughly 365
+  levels of ordinary self-recursion, so walk long lists with `while`, not
+  recursion. A native re-entering the evaluator synchronously (as
+  `save-excursion` and `with-current-buffer` do) has its own, much
+  smaller bound (32 nested re-entries), since each level there is a real
+  C stack frame.
 - A structure that refers to itself prints as far as the cycle and then
   `#<cycle>`, rather than being printed forever.
 

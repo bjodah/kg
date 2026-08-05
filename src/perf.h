@@ -129,9 +129,12 @@ enum kg_perf_counter {
 	KG_PERF_LISP_ARENA_PEAK_LIVE, /* FeArenaStats.peak_live_objects */
 	KG_PERF_LISP_GC_COUNT, /* FeArenaStats.collection_count */
 	KG_PERF_LISP_PEAK_GC_STACK, /* FeArenaStats.peak_gc_stack_depth */
-	KG_PERF_LISP_PEAK_EVAL_DEPTH, /* FeArenaStats.peak_evaluation_depth */
+	KG_PERF_LISP_FRAME_CAPACITY, /* FeArenaStats.frame_capacity */
+	KG_PERF_LISP_PEAK_FRAME_DEPTH, /* FeArenaStats.peak_frame_depth */
 	KG_PERF_LISP_PEAK_CLEANUP_STACK, /* FeArenaStats.peak_cleanup_stack_depth
 					  */
+	KG_PERF_LISP_PEAK_NATIVE_REENTRY, /* FeArenaStats.peak_native_reentry
+					   */
 	KG_PERF_LISP_ALLOC_FAILURES, /* FeArenaStats.allocation_failures */
 	/* Wall-clock nanoseconds spent in evaluate_prelude() (CLOCK_MONOTONIC),
 	 * set once by kg_lisp_init(). A duration, not a count -- unlike every

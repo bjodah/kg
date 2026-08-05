@@ -40,7 +40,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_obj.h"
 #include "lisp_process.h"
 
-static_assert(FE_API_VERSION == 1);
+static_assert(FE_API_VERSION == 2);
 static_assert(FE_LANGUAGE_VERSION == 2);
 
 #ifndef KG_LISP_ARENA_SIZE
@@ -494,8 +494,10 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 	out->peak_live_objects = stats.peak_live_objects;
 	out->collection_count = stats.collection_count;
 	out->peak_gc_stack_depth = stats.peak_gc_stack_depth;
-	out->peak_evaluation_depth = stats.peak_evaluation_depth;
+	out->frame_capacity = stats.frame_capacity;
+	out->peak_frame_depth = stats.peak_frame_depth;
 	out->peak_cleanup_stack_depth = stats.peak_cleanup_stack_depth;
+	out->peak_native_reentry = stats.peak_native_reentry;
 	out->allocation_failures = stats.allocation_failures;
 	return 0;
 }
@@ -512,9 +514,12 @@ void kg_lisp_perf_snapshot(void)
 	KG_PERF_SET(KG_PERF_LISP_ARENA_PEAK_LIVE, stats.peak_live_objects);
 	KG_PERF_SET(KG_PERF_LISP_GC_COUNT, stats.collection_count);
 	KG_PERF_SET(KG_PERF_LISP_PEAK_GC_STACK, stats.peak_gc_stack_depth);
-	KG_PERF_SET(KG_PERF_LISP_PEAK_EVAL_DEPTH, stats.peak_evaluation_depth);
+	KG_PERF_SET(KG_PERF_LISP_FRAME_CAPACITY, stats.frame_capacity);
+	KG_PERF_SET(KG_PERF_LISP_PEAK_FRAME_DEPTH, stats.peak_frame_depth);
 	KG_PERF_SET(
 	    KG_PERF_LISP_PEAK_CLEANUP_STACK, stats.peak_cleanup_stack_depth);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PEAK_NATIVE_REENTRY, stats.peak_native_reentry);
 	KG_PERF_SET(KG_PERF_LISP_ALLOC_FAILURES, stats.allocation_failures);
 }
 

@@ -167,67 +167,112 @@ CASES = {
 	# free now that kg_lisp_perf_snapshot() (src/lisp_core.c) runs before
 	# every exit's kg_perf_dump(); this case exists anyway under a name a
 	# reader looking for "the prelude-alone baseline" will find.
-	# assert_gt is 2 (not 0): 2 is exactly the prelude's own
-	# lisp_peak_eval_depth, measured directly in
-	# test/test_perf.c's test_lisp_prelude_arena_margin. A case whose key
-	# script silently failed to reach the evaluator at all -- the sub-plan
-	# 07C trap, a key that turned out to be a prefix map -- still shows
-	# that same value, not zero, so the threshold has to be the baseline's
-	# own reading rather than 0.
-	# This case *is* the baseline lisp_peak_eval_depth == 2 reading, so
-	# it cannot assert against that threshold the way the cases below
-	# do; asserting total_slots instead still catches "Lisp inactive or
-	# the snapshot never ran", which would read 0.
+	#
+	# Sub-plan 03F split the old single lisp_peak_eval_depth counter into
+	# lisp_peak_frame_depth (Lisp nesting) and lisp_peak_native_reentry
+	# (native re-entry); re-measured against test/perfobj/kg on this box:
+	# the prelude alone is peak_frame_depth 2 (matching
+	# test/test_perf.c's test_lisp_prelude_arena_margin) and
+	# peak_native_reentry 0. That 2 is exactly the reading a case whose
+	# key script silently failed to reach the evaluator at all would also
+	# show -- the sub-plan 07C trap, a key that turned out to be a prefix
+	# map -- so a threshold has to clear that baseline, not just be
+	# nonzero.
+	#
+	# frame_depth does not clear it by a useful margin for every shape
+	# below: `while`-loop bodies do not grow frame nesting per iteration
+	# (that lack of growth is the frame machine's own property), so
+	# lisp-arithmetic-loop and lisp-macro-heavy read frame_depth 5 and 6
+	# respectively regardless of whether the loop ran 20000/2000 times or
+	# broke after 3 -- exactly the silent-no-op failure this assertion
+	# exists to catch. Each such case below picks a counter that actually
+	# scales with its iteration count instead: lisp_gc_count (the
+	# arithmetic loop's own garbage forces one collection; nothing else
+	# here does) and lisp_arena_peak_live (2000 macro expansions leave
+	# thousands of live cells; a handful of iterations would not).
+	#
+	# This case *is* the baseline peak_frame_depth == 2 reading, so it
+	# cannot assert against that threshold the way the cases below do;
+	# asserting total_slots instead still catches "Lisp inactive or the
+	# snapshot never ran", which would read 0.
 	"lisp-arena-prelude": (None, ["\x18\x03"], None,
 			       {"lisp_arena_total_slots": 0}),
+	# Loading lisp/auto-fill.el nests deeper than the bare prelude
+	# (measured peak_frame_depth 14) and, unlike the cases below,
+	# actually exercises native re-entry while doing it (measured
+	# peak_native_reentry 1) -- frame_depth alone is a fine signal here.
 	"lisp-arena-auto-fill": (None, ["\x18\x03"], home_files_auto_fill(),
-				 {"lisp_peak_eval_depth": 2}),
+				 {"lisp_peak_frame_depth": 5}),
+	# A representative init evaluates real, moderately nested forms
+	# (measured peak_frame_depth 54).
 	"lisp-arena-representative-init": (
 		None, ["\x18\x03"], home_files_representative_init(),
-		{"lisp_peak_eval_depth": 2}),
+		{"lisp_peak_frame_depth": 20}),
 	# Fe evaluation throughput on representative shapes.  Each sends
 	# `M-:` (eval-expression), the expression as literal self-insert text
 	# in the minibuffer, then RET; the buffer itself is never modified,
 	# so `C-x C-c` exits without a save prompt.
 	# 150, not a rounder/bigger number: `lw` is not tail-call optimised
-	# (Fe's evaluator does not flatten it, and Phase 3's frame machine is
-	# the piece of this program that will change that), so its GC-stack
-	# cost is linear in recursion depth and every intermediate cons stays
-	# live until the outermost call returns. Measured directly: this
-	# expression's peak_gc_stack_depth is 3914 of the 4096-slot ceiling
-	# at n=300, and overflows by n=400. n=150 leaves comfortable margin
-	# (about half the stack) while still being a real multi-hundred-cell
-	# walk; see test/test_perf.c's identical expression for the same
-	# margin as a shape assertion.
+	# (Fe's evaluator does not flatten it, and the frame machine still
+	# roots every intermediate cons the same way the old recursive
+	# evaluator's GC stack did), so its GC-stack cost is linear in
+	# recursion depth and every intermediate cons stays live until the
+	# outermost call returns. Measured directly: this expression's
+	# peak_gc_stack_depth is 3914 of the 4096-slot ceiling at n=300, and
+	# overflows by n=400. n=150 leaves comfortable margin (about half the
+	# stack) while still being a real multi-hundred-cell walk; see
+	# test/test_perf.c's identical expression for the same margin as a
+	# shape assertion. peak_frame_depth is 305 for n=150 (~2 frames per
+	# recursion level: `lw`'s body is one `if` wrapping the recursive
+	# call, no extra arithmetic frame) -- comfortably above the 2/5/6
+	# baselines above, so it is still the right signal here.
 	"lisp-list-walk": (None, [
 		"\x1b:",
 		"(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
 		"(length (lw 150 nil))\r",
 		"\x18\x03",
-	], None, {"lisp_peak_eval_depth": 2}),
+	], None, {"lisp_peak_frame_depth": 200}),
+	# Iterative, not recursive: peak_frame_depth stays flat at 5
+	# regardless of 20000 vs. 3 iterations, so it cannot be the signal
+	# (see the block comment above). What does scale with the iteration
+	# count is the garbage the loop's own `+`/`-` results leave behind:
+	# measured lisp_gc_count 1 here, the only case in this file that
+	# forces a collection, against 0 everywhere else including a
+	# truncated run of the same script.
 	"lisp-arithmetic-loop": (None, [
 		"\x1b:",
 		"(setq i 0) (setq acc 0) (while (< i 20000) (setq acc (+ acc i)) "
 		"(setq i (+ i 1))) acc\r",
 		"\x18\x03",
-	], None, {"lisp_peak_eval_depth": 2}),
+	], None, {"lisp_gc_count": 0}),
+	# Also iterative (peak_frame_depth 6, same non-signal as the
+	# arithmetic loop above): fe.c re-expands a `macro` on every call
+	# (doc/fe-upstream.md) rather than rewriting the call site, so 2000
+	# calls leave 2000 expansions' worth of garbage live at once --
+	# measured lisp_arena_peak_live 20638, against 2590 for the bare
+	# prelude and low thousands for every other case here. A truncated
+	# run would peak far below this threshold.
 	"lisp-macro-heavy": (None, [
 		"\x1b:",
 		"(setq m (macro (x) (list '+ x 1))) (setq n 0) (setq i 0) "
 		"(while (< i 2000) (setq n (m n)) (setq i (+ i 1))) n\r",
 		"\x18\x03",
-	], None, {"lisp_peak_eval_depth": 2}),
+	], None, {"lisp_arena_peak_live": 10000}),
+	# Deep call chain: 300 levels of non-tail self-recursion; measured
+	# peak_frame_depth 904 (~3 frames per level: `if`, `+`, and the
+	# recursive call each open one -- see test/test_perf.c's identical
+	# expression), comfortably above frame_capacity's other consumers.
 	"lisp-deep-call-chain": (None, [
 		"\x1b:",
 		"(defun dc (n) (if (<= n 0) 0 (+ 1 (dc (- n 1))))) (dc 300)\r",
 		"\x18\x03",
-	], None, {"lisp_peak_eval_depth": 2}),
+	], None, {"lisp_peak_frame_depth": 500}),
 	# Representative command latency: the minibuffer round trip and eval
 	# dispatch on a trivial expression, with none of the above shapes'
 	# own cost mixed in. Deliberately as shallow as the prelude's own
 	# deepest call (nesting 2), so -- unlike the shapes above --
-	# lisp_peak_eval_depth cannot be the non-trivial-execution signal
-	# here; total_slots merely confirms Lisp ran at all.
+	# peak_frame_depth cannot be the non-trivial-execution signal here;
+	# total_slots merely confirms Lisp ran at all.
 	"lisp-command-latency": (None, ["\x1b:", "(+ 1 2)\r", "\x18\x03"],
 				 None, {"lisp_arena_total_slots": 0}),
 	"open-lines-10k": ("lines-10k", ["\x18\x03"]),

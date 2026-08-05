@@ -1030,6 +1030,12 @@ static void test_lisp_prelude_arena_margin(void)
 	/* At least half the arena free after the prelude alone -- margin,
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
+	/* frame_capacity is a fixed property of the arena layout, not the
+	 * workload; asserted nonzero and stable here (measured 1100 on this
+	 * build) rather than to a specific number, per the same
+	 * bound-not-count convention as the slot counts above. */
+	CHECK(stats.frame_capacity > 0);
+	CHECK(stats.peak_frame_depth <= stats.frame_capacity);
 
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
@@ -1049,9 +1055,11 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.collection_count == 0);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
-	/* A real init evaluates real forms: both peaks have moved off the
-	 * bare prelude's own (2, 0). */
-	CHECK(stats.peak_evaluation_depth > 2);
+	/* A real init evaluates real forms: peak_frame_depth has moved off
+	 * the bare prelude's own baseline of 2 (measured: prelude alone is
+	 * peak_frame_depth 2, the representative init above is 54 on this
+	 * build -- both well under frame_capacity). */
+	CHECK(stats.peak_frame_depth > 2);
 	CHECK(stats.peak_cleanup_stack_depth == 0);
 	kg_lisp_shutdown();
 }
@@ -1126,10 +1134,15 @@ static void test_lisp_evaluator_shapes(void)
 	CHECK(strcmp(result, "2000") == 0);
 	kg_lisp_shutdown();
 
-	/* Deep call chain: 300 levels of non-tail self-recursion, well
-	 * under both the GC-stack ceiling and FeEvalOptions.max_depth's
-	 * default 1000 (measured peak_evaluation_depth 903 -- most of the
-	 * evaluator's own budget, none of the GC stack's). */
+	/* Deep call chain: 300 levels of non-tail self-recursion, well under
+	 * both the GC-stack ceiling and the arena's own frame_capacity
+	 * (measured peak_frame_depth 904 of frame_capacity 1100 on this
+	 * build -- about 3 frames per recursion level for this chain's
+	 * shape: the `if`, the `+`, and the recursive call each open one).
+	 * Asserted against frame_capacity rather than a hardcoded number so
+	 * this stays meaningful if KG_LISP_ARENA_SIZE, or Fe's per-frame
+	 * arena partition, ever changes; the assertion is what
+	 * test_recursion_depth's comment (test_lisp.c) also measures. */
 	CHECK(kg_lisp_init() == 0);
 	static const char deep_call_chain[]
 	    = "(defun dc (n) (if (<= n 0) 0 (+ 1 (dc (- n 1))))) (dc 300)";
@@ -1140,7 +1153,7 @@ static void test_lisp_evaluator_shapes(void)
 	CHECK(strcmp(result, "300") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.peak_gc_stack_depth < gc_stack_size);
-	CHECK(stats.peak_evaluation_depth < 1000);
+	CHECK(stats.peak_frame_depth < stats.frame_capacity);
 	kg_lisp_shutdown();
 }
 

@@ -237,6 +237,48 @@ kg: pin move in its own green commit (the manifest gains nothing yet —
 new fe cases claim no kg-owned names).  Complexity: the raise itself,
 proved live.
 
+## Landed — 2026-08-05
+
+All five Decisions and the funding raise are recorded in the set README's
+dated Decision section; this document's predictions are the record the
+README summarises.  What actually happened, slice-close:
+
+- **The corpus held, prediction for prediction.**  42 `num-*.json` cases
+  and their version-stamped Emacs 31.0.90 snapshots landed in
+  `fe/compat/` as `planned` entries (the answer table's 41 rows; C3 and
+  Z1 each split into a value case and an error case, and P1 is covered by
+  the existing `reader-no-integers` case, not duplicated).  `make -C fe
+  compat-oracle` wrote exactly those 42 snapshots and **regenerated
+  nothing** (83 unchanged, 0 failed); `make -C fe compat` is green at
+  **132 case(s), 76 passed, 56 known gap(s), 0 failed**.  The ones worth
+  doubting were confirmed: `(/= 1 2 3)` → `wrong-number-of-arguments`,
+  `(eql 0.0 -0.0)` → `nil`, `(sqrt -1)` → `-0.0e+NaN`, A8 → bignum
+  `18446744073709551616`.  The kg-side `lisp-compat-check` also demanded
+  each planned rationale name a phase, which the rationales now do.
+- **The funding landed as priced.**  `fe/Makefile`: `SCC_COMPLEXITY_MAX`
+  480 → 540, `SCC_FILE_COMPLEXITY_MAX` 300 → 340, `PMCCABE_TOTAL_MAX`
+  690 → 760, each proved live with the temporary-lowering trick
+  (`SCC_COMPLEXITY_MAX=458` fails on 459, `SCC_FILE_COMPLEXITY_MAX=275`
+  on `fe_eval.c`'s 276, `PMCCABE_TOTAL_MAX=659` on 660, and
+  `pmccabe-baseline` refuses to launder the over-budget tree).  kg
+  re-measured at **5450/5500** — 50 points, no raise, and this slice adds
+  no `src/*.c` to either tree.
+- **The three spikes measured, then deleted (only /tmp copies remain).**
+  `sizeof(Value)` stays **8** with `int64_t i` on both gcc and clang;
+  the exact-step arithmetic pins are five, led by `"(+ 1 2)"` at exactly
+  4 steps (`test_api.c:672-688`), all numeric-form-carrying, all to
+  survive 05C/05D unedited; and the seven planned primitive names cost
+  **+43 objects / +688 B** (`GetCoreObjectCount()` 367 → 410,
+  `FeMinimumArenaSize()` 55616 → 56304 B, kg 1 MiB 1098/56221 →
+  1097/56225), the 04A finding in the same direction: the extra core
+  objects ride inside the grown minimum, so the open-slot delta is +4,
+  not −43, and one frame is lost to rounding.
+- **No implementation, no status flips, no regeneration of existing
+  snapshots, no kg manifest or prelude edits.**  fe's only diffs are
+  `compat/` (cases, oracle, `features.json`) and the `Makefile` caps;
+  kg's only source diff is the set README plus this document.  The kg pin
+  moves to fe `59db1b9` in its own green commit, per Rule 10.
+
 ## What this does not do
 
 - **No implementation.**  Not one reader, printer, or arithmetic line.

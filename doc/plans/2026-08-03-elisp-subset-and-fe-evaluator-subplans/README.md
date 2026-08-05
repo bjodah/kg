@@ -101,9 +101,10 @@ tree, shape the slices:
   prelude alias of `is` today) lands with 05D's cut, `numberp` (a kg
   native) must never become an fe primitive at all, and the collision
   table in 05A is the authority.
-- **Both fe gates are nearly spent again**: 23 scc and 32 pmccabe points
+- **Both fe gates are nearly spent again**: 21 scc and 30 pmccabe points
   of headroom against a row priced +50 to +70, so the funding Decision
-  comes first, for the fourth time.
+  comes first, for the fourth time — and 05A lands it (its Decision
+  section, below).
 
 So the set front-loads one oracle-and-decision slice (05A: ~40 predicted
 answers, five Decisions, the funded raise), lands the dormant
@@ -343,7 +344,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Landed. Actual +6, and scc could not see it.** No cap crossed, so no Decision. scc stayed at 214/220 through both slices; `pmccabe`'s `fe.c` sum went 340 -> 350 (02B) -> 356 (02C), which is the real number. Phase 2's code sits past `fe.c:1010`, where scc's parser desyncs -- see the Phase 2 Status below |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Next — and the unit is wrong.** The +42 is 00A's *reader* extraction; Phase 3 extracts the *evaluator*, which sits entirely below `fe.c:1010` and is therefore invisible to scc today. Expect a larger jump from un-blinding a bigger region, and expect it to be a blind spot being paid off rather than new complexity. 03A re-prices this from a spike of the real cut and settles the measurement unit before 03B lands |
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
-| 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Next.  Exceeds both fe gates' measured headroom (23 scc, 32 pmccabe)** — 05A's Decision funds it before 05B lands, the 00A/03A/04A pattern |
+| 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Funded by 05A's Decision, 2026-08-05** — the landed raise is the top of this row: scc 480→540, file 300→340, pmccabe 690→760, funding 05B–05D by name. Measured starting state 459/480 (`fe_eval.c` 276/300) and 660/690 — exactly the 21/30 points of headroom the row warned about; actuals stay put until 05B lands |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Comparable in shape to Phase 3's control-flow weight | **+70 to +100** | Provisional (milestone 2) |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; mostly small per-site additions | **+20 to +30** | Provisional (milestone 2) |
 | 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | ~8 new core special forms at 4–6 pmccabe each, plus reader work | **+50 to +70** | Provisional (milestone 2) |
@@ -369,7 +370,7 @@ widest uncertainty in the whole table.
 | 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Landed. Actual +1** (5443 -> 5444), the `static_assert` line; the estimate held. pmccabe unchanged at 1246 symbols, 0 new/gone/improved |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | **Next, and likely an overestimate.** 03F's kg-side inventory is two `static_assert`s, a field rename through `lisp.h`/`perf.h`/`lisp_core.c`, a test expectation and a bench label. Eleven Makefile sites (03B) are not scc-scanned. Expect ~0 |
 | 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Landed at ~0** — scc unchanged at 5444 at phase close; the post-close review fixes (designator-diagnostic seam, `functionp` via `FeIsFunction`) added **+6 → 5450/5500** |
-| 5 — integers | The `lisp_position()`/`lisp_finite()` funnel becomes integer-typed, `format`'s two type gates widen, `numberp` goes two-tag, the prelude equality family is rewritten | `src/lisp_buffer.c`/`lisp_io.c`/`lisp_cmd.c` seams | **+15 to +25** | **Next, and likely an overestimate** — the funnel audit found 7 constructor sites + 2 gates + 1 predicate, not the parent's scattered ten; 50 points of measured headroom (5450/5500), no raise expected |
+| 5 — integers | The `lisp_position()`/`lisp_finite()` funnel becomes integer-typed, `format`'s two type gates widen, `numberp` goes two-tag, the prelude equality family is rewritten | `src/lisp_buffer.c`/`lisp_io.c`/`lisp_cmd.c` seams | **+15 to +25** | **Confirmed by 05A's measurement, 2026-08-05, no raise.** Re-measured **5450/5500** — 50 points of headroom against +15 to +25; the funnel audit (7 constructor sites + 2 gates + 1 predicate, not the parent's scattered ten) stands, and 05E re-measures at close |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+25 to +40** | Provisional (milestone 2) |
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+55 to +65** | Provisional (milestone 2) |
 | 8 — init compat waves | `defcustom` validation + docstring storage (Wave D); no Customize UI | `src/lisp_prelude.c`/`src/lisp_require.c` | **+25 to +40** | Provisional (milestone 2) |
@@ -1059,6 +1060,233 @@ baseline is untouched (this slice adds no code).  **kg needs no raise**:
 estimate, and this slice adds no `src/*.c` to either tree — the only kg
 change is the pin move in its own green commit per Rule 10.
 
+## Decision — Phase 5's numeric target, measured and funded (05A, 2026-08-05)
+
+Taken 2026-08-05, closing sub-plan 05A.  Re-measured against the tree as
+it stands after Phase 4 closed and its post-close review fixes landed, per
+Rule 6: fe scc **459/480** total with `fe_eval.c` at **276/300** file cap;
+pmccabe **660/690** across **248 symbols**, worst function **14**
+(`DispatchPrimitive`, `RunEvaluationLoop`); kg **5450/5500** (50 points of
+headroom — the plan's 5444/56 predates the review fixes, this is the
+re-measured number); `FeMinimumArenaSize()` **55616 B**; kg's 1 MiB arena
+**1098 frames / 56221 object slots** at open.  Both fe gates have **21 and
+30 points** of headroom against a phase priced **+50 to +70** — the funding
+Decision comes first, for the fourth time, and the five semantic Decisions
+below pin everything 05B–05D must not re-litigate.
+
+### The corpus: every prediction held
+
+The answer table's 41 rows became **42 case files** in `fe/compat/cases/`
+— C3 and Z1 split into a value case and an error case each, and P1
+(`42.0` → `42.0`) is deliberately *not* duplicated because the existing
+`reader-no-integers` case already carries that exact snapshot — all
+`planned` in `fe/compat/features.json`, each rationale naming Phase 5 and
+the implementing slice.  Their version-stamped Emacs 31.0.90 snapshots are
+checked in under `fe/compat/oracle/`, and `make -C fe compat` is green:
+**132 case(s), 76 passed, 56 known gap(s), 0 failed**, the new `num-*`
+entries replaying as gaps against the double-only fe exactly as designed
+(some "agree early": `num-symbol-partial-exponent` because fe's `strtod`
+also reads `1e` as a symbol-like token, `num-integer-past-2^53` because the
+integral-shortcut printer rounds the double to the same digits).  `make -C
+fe compat-oracle` wrote the 42 new snapshots and changed nothing else —
+**83 unchanged, 0 failed** — the "new snapshots only" gate.  **No
+prediction was corrected by the oracle**, including the ones worth
+doubting: `(/= 1 2 3)` really is `wrong-number-of-arguments` (binary `/=`
+confirmed against the chained `=`), `(eql 0.0 -0.0)` really is `nil`
+(Emacs' float `eql` is bit-level for signed zero), `(sqrt -1)` prints
+`-0.0e+NaN` as its exact spelling, and int64 overflow really is the bignum
+`18446744073709551616` in modern Emacs (A8, the divergence row).  The one
+measurement surprise was the arena arithmetic below — an *fe-side* number,
+not an oracle answer.
+
+### Decision 1 — representation: `FeTInteger`, `int64_t`, enum placement (a)
+
+`FeTInteger`, payload `int64_t i` in the `Value` union
+(`fe_internal.h:79-85`), is adopted, with enum placement **(a): insert
+`FeTInteger` immediately after `FeTDouble`**, so the public `FeType` reads
+sanely for the next decade and the ABI-visible renumbering of `FeTPtr` and
+everything after it rides the phase's own version bump (05D's
+`FE_API_VERSION` 3 → 4, per 05D's plan).  The spike measured the two facts
+that make this free: `sizeof(Value)` is **exactly 8 bytes on both CI
+compilers** (gcc and clang) with `int64_t i` added — zero object growth —
+and the tag field still has headroom (`FeTSentinel` moves 14 → 15 of the
+32 tag values).  Placement (a) is compile-checked by the existing
+`static_assert(FeTFex0 > FeTPtr)` (`fe.c:134`) and the exhaustive switches,
+including Fex's `FexGC` (`fex.c:15-36`, no `default:`, ends in `abort()`),
+which gains the integer leaf arm in 05B exactly as a double marks (a
+non-pair leaf).  The accompanying slots land in 05B: `type_names[]`
+`"integer"` (which makes kg's `type-of` return it with zero kg code change,
+flipping `native-type-of`), a `WriteObject` arm printing `%PRId64`, and the
+Fex type-name registration offsets.  GC needs nothing — an integer is a
+leaf.  No new interned symbols in 05B, so `FeMinimumArenaSize()` does not
+move there; it moves in 05C with the new primitive names, and the measured
+figure is in the spike table below.
+
+### Decision 2 — the equality family, and who owns each name
+
+The manifest-disjointness constraint shapes everything: every fe primitive
+name, kg native name and kg prelude definition must be claimed exactly once
+across both manifests, so a new fe primitive whose name kg owns cannot land
+before the kg-side deletion.  The audit confirms the plan's table and it is
+adopted unchanged:
+
+| Name | Today | Target | Slice |
+|---|---|---|---|
+| `is` | fe primitive; doubles ≈-equal (`IsNearlyEqual`), strings by content, else identity | stays, as fe's own broad comparator; extended to integers per this Decision — **keep the epsilon behaviour** (fe's own scripts are the constituency), recorded as a sentence in `fe/doc/language.md`; kg docs present it as fe-native, not an Emacs form | 05C |
+| `eq` | kg prelude alias of `is` (`lisp/prelude.el:67`) | fe core primitive: pointer identity *or* both-integers-equal (E1 is load-bearing for kg's `memq`, `auto-fill.el:39`, PTY `111-lisp-string-natives`) | **05D** (collision: prelude alias deleted in 05E's pin commit) |
+| `eql` | does not exist | fe core primitive beside `eq`: `eq`, or same-type numbers equal by bits for floats / value for integers | 05D |
+| `equal` | kg prelude lambda whose atom tail is `(is a b)` | prelude rewrite: spine loop unchanged; atom tail strings → `string=`, numbers → `eql`, else `eq` | 05E |
+| `string=` | kg native (`src/lisp_string.c:168`), byte equality | unchanged | — |
+| `=` `<` `<=` | fe primitives (double-only) | extended in place | 05C |
+| `>` `>=` `/=` | do not exist anywhere | fe core primitives | 05C |
+| `numberp` | kg native (`src/lisp_cmd.c:60`) | stays kg-native, widened to two tags; fe must **not** add a `numberp` primitive | 05E |
+| `integerp` `floatp` | do not exist | fe core primitives | 05C |
+| `zerop` | does not exist | kg prelude one-liner over `=` (no fe spend) | 05E |
+| `1+` `1-` | kg prelude lambdas | untouched — integer-preserving automatically once `+` is | — |
+
+`Equal()`'s epsilon comparison for doubles (`fe.c:365-383`) is **not** a
+template for `eq`/`eql`/`=` — those are all exact; only `is` keeps its
+epsilon behaviour, and the oracle cases pin the exact members (E1–E6).
+The collision consequence is already wired into the sequencing: `eq` cannot
+land in 05C (the manifest checker would fire against the prelude alias), so
+it waits for 05D's cut, and 05E deletes the alias in the same commit that
+moves kg's pin.
+
+### Decision 3 — reader grammar
+
+`ReadAtom`'s bare `strtod` (`fe.c:958-961`) is replaced (05D) by an Emacs
+number lexer: **integer** = optional sign, digits, optional trailing dot
+(R2); **float** = digits with a fractional part and/or exponent (R3, R5);
+the Emacs nonfinite spellings `1.0e+INF` / `0.0e+NaN` read as nonfinite
+floats **iff** the printer emits them (Decision 4 — read/print
+round-tripping stays an invariant); **everything else is a symbol**, which
+un-numbers `0x10`, `inf`, `nan`, `1e` (R6–R8).  Integer literals that
+overflow int64 read as a **double** (the pre-bignum Emacs behaviour), a
+recorded divergence row against modern Emacs' bignum — the alternative, a
+read error, would punish pasted constants.  The oracle pins every branch:
+R2–R5 the two numeric shapes, R6–R8 the three symbol escapes, R9 the int64
+exactness boundary, R10 signed zero.
+
+### Decision 4 — printer representation
+
+Integers print `%PRId64`.  Floats print the **shortest representation that
+reads back to the same value**, always with a `.` or exponent — the
+standard `%.{1..17}g`-until-`strtod`-round-trips loop in `EmitDouble`'s
+successor, deterministic and locale-independent (~10 lines).  Nonfinite
+floats adopt Emacs' `1.0e+INF` / `-1.0e+INF` / `-0.0e+NaN` spellings
+(P3–P5), retiring the kg.1 §format divergence whose rationale ("fe has only
+one number type") this phase deletes.  The old integral-double shortcut
+(`fe.c:594-604`) dies with the cut: after 05D a bare `42` *is* an integer
+and `42.0` prints as `42.0` (P1, already pinned by `reader-no-integers`).
+
+### Decision 5 — error policy
+
+All message-level until Phase 6, matching the standing rule: `arith-error`
+for integer division by zero (A5) and for int64 overflow (A8 — a
+**recorded kg-policy divergence**: Emacs promotes to bignum, fe refuses;
+use `__builtin_*_overflow`, never UB).  Comparison and arithmetic type
+errors say `wrong-type-argument` (C5), replacing the `expected double, got
+X` texts — `CheckNumericEqualOperand`'s comment (`fe_eval.c:390-392`)
+explains why the oracle comparator needs the Emacs name; the whole numeric
+family now follows it.  `CheckType`'s general message survives everywhere
+else.
+
+### The funded caps
+
+Both fe gates had exactly **21 and 30 points** of headroom against a phase
+priced +50 to +70, so `fe/Makefile` raises all three by the top of that
+range, funding 05B–05D by name: **`SCC_COMPLEXITY_MAX` 480 → 540**,
+**`SCC_FILE_COMPLEXITY_MAX` 300 → 340** (funding `fe_eval.c`, at 276 today,
+where the tower arms and the seven new primitive names land), and
+**`PMCCABE_TOTAL_MAX` 690 → 760** — pmccabe remains the authoritative unit
+for the core per 03A's Decision; both units are priced and reported anyway.
+The gates were proved live against the raised values with 03A's
+temporary-lowering trick: `SCC_COMPLEXITY_MAX=458` fails on 459,
+`SCC_FILE_COMPLEXITY_MAX=275` fails on `fe_eval.c`'s 276,
+`PMCCABE_TOTAL_MAX=659` fails on 660 (and `make pmccabe-baseline` refuses
+to launder the over-budget tree, leaving the manifest untouched), and the
+raised caps pass (459/540 scc, 276/340 file, 660/760 pmccabe).  The
+per-symbol pmccabe baseline is untouched (this slice adds no code).  **kg
+needs no raise**: 5450/5500 re-measured, 50 points of headroom against its
++15 to +25 estimate, and this slice adds no `src/*.c` to either tree — the
+only kg change is the pin move in its own green commit per Rule 10.
+
+### The data spikes (throwaway, deleted before commit)
+
+Three throwaway files, kept off the tree, measured rather than asserted —
+the 00A/03A/04A pattern:
+
+**`sizeof(Value) == 8` with `int64_t i`, on both CI compilers.**  A
+standalone TU replicating the union exactly as `fe_internal.h:79-85`
+defines it plus the proposed member: gcc and clang both report
+`sizeof(Value) = 8` today and `8` with `int64_t i`, alignment 8 unchanged.
+Zero object growth — the plan's claim, now compiler-measured.
+
+**The exact-step pins (the arithmetic step-accounting exposure).**
+`TestEvaluationControl` pins `"(+ 1 2)"` at **exactly 4 steps**
+(`test_api.c:672-688`: step_limit 3 fails, 4 succeeds) — the headline
+pin, a numeric form, which 05C carries forward **unedited** as its guard
+that the tower does not change arithmetic's step accounting.  The other
+exact-step pins are the tight/ok pairs in the three frame tests:
+`(add-exactly 1 2)` exactly **6** (`:3084/:3089`), `((fn (x) x) 1)` exactly
+**9** (`:3102/:3107`), `((fn (x) (let y 1) (list x y)) 5)` exactly **20**
+(`:3254/:3258`), and `(m)` with `(macro () 5)` exactly **5**
+(`:3465/:3469`).  All five carry numeric literals as arguments or in their
+bodies; their step charge is per form/symbol/argument — never per numeric
+type — so the tower must keep the charge identical for integer operands,
+and all five pins survive 05C/05D unedited.  (The plan's cited line numbers
+3074/3088/3236/3448 map to these same tests; the tree has drifted a few
+lines since the plan was written.)
+
+**Arena deltas for the planned primitive names** (`>`, `>=`, `/=`,
+`integerp`, `floatp` from 05C; `eq`, `eql` from 05D).  A spike that
+`#include`d `fe.c` ran the real static `GetCoreObjectCount`/
+`GetMinimumArenaSize`/`GetSymbolObjectCount` against the real name arrays
+(no code change), with a replica of `InitializeArenaLayout`'s partition
+cross-checked byte-exact against the real `OpenContext` on both the 1 MiB
+and 64 KiB arenas (MATCH on frame capacity and object count for each), and
+projected the seven names through the same arithmetic the primitive loop
+applies:
+
+| Quantity | Today | With the 7 names |
+|---|---|---|
+| objects per name | — | `1 + 5 + (len-1)/7`; **6 objects (96 B)** for `>` `>=` `/=` `floatp` `eq` `eql`, **7 (112 B)** for `integerp` (its 8-char name crosses the 7-char string-cell boundary) |
+| `GetCoreObjectCount()` | **367** | **410** (+43) |
+| `FeMinimumArenaSize()` | **55616 B** | **56304 B** (+688 = 43 × 16) |
+| kg 1 MiB arena | **1098 frames / 56221 slots** | **1097 frames / 56225 slots** (frames −1, slots +4) |
+| fe 64 KiB fuzz arena | **74 frames / 925 slots** | **73 frames / 929 slots** (frames −1, slots +4) |
+
+The plan's "≈96 bytes per name" prediction holds exactly, and the same
+finding as 04A recurs, in the same direction: the extra core objects ride
+*inside* the grown minimum, so against a fixed arena the open-slot delta is
+**+4, not −43**, and one frame is lost to the rounding of the smaller
+remainder.  `OpenContext(FeMinimumArenaSize())` still opens at the exact
+boundary and `TestContextCreation` adapts by construction, so the constant
+to watch is the minimum itself: **55616 → 56304 B**, recorded for 05C to
+carry through `lisp-compat-check` the way 04A's arena figure was.
+
+### Parent-plan corrections (recorded)
+
+Verified against the audited tree, 2026-08-05, controlling over the parent
+plan's Phase 5 section and the set README's earlier claims:
+
+- **"ten call sites" undersells the funnel.**  There are exactly 10 raw
+  `FeMakeDouble`/`FeToDouble` lines in `src/lisp_*.c`, but 13
+  position-returning natives share one constructor, `lisp_position()`
+  (`src/lisp_buffer.c:181`), and every numeric *argument* funnels through
+  `lisp_finite()` (`src/lisp_buffer.c:115`).  The kg cutover is a handful
+  of choke-point edits plus two `format` type gates (`src/lisp_io.c:82`,
+  `:115`) — smaller than the parent feared, and 05E's checklist is written
+  from the funnel, not the grep.
+- **`ARITH_OP`/`NUM_CMP_OP` no longer exist** — deleted with the recursive
+  evaluator (03E); only their names in comments survive.  The tower extends
+  `ResumeArith`/`ResumeBinary`/the `PNumericEqual` arm, not macros.
+- **§0.2's "split fe.c" is long settled** (03B).
+- **`=` is already chained-numeric** with `wrong-number-of-arguments` and
+  `wrong-type-argument` pinned (Phase 2, plus the zero-operand identities
+  `(+)`→0, `(*)`→1, `(-)`→0, `(/)`→error).  The parent's `(= 3 2)`/
+  `(setq x 3)` acceptance cases pass today.
+
 ## Status
 
 **00A complete, 2026-08-04.** All four deliverables land: the price table
@@ -1738,3 +1966,29 @@ parallel runner.  The lesson, recorded for the next set: **a slice's
 "context reuse after error" tests must include the zero-operand and
 empty-list degenerate of every new form** — all four fe defects lived in
 degenerate inputs the happy-path suites never spelled.
+
+## Status — Phase 5
+
+**05A complete, 2026-08-05.**  fe `59db1b9` on `analyzers-etc` (compat
+corpus, caps — see below), with kg's pin moved to it in this companion
+green commit per Rule 10.  The 42 planned `num-*` cases and their version-stamped Emacs
+31.0.90 snapshots landed in `fe/compat/` — one per answer-table row, C3/Z1
+split into value+error cases, P1 covered by the existing
+`reader-no-integers` case — every prediction held (including `(/= 1 2 3)`
+→ `wrong-number-of-arguments`, `(eql 0.0 -0.0)` → `nil`, `(sqrt -1)` →
+`-0.0e+NaN`, A8 → bignum).  The five Decisions (representation/enum
+placement (a), the equality-family ownership table, reader grammar,
+printer representation, error policy) and the funding raise are in the
+Decision section above: `SCC_COMPLEXITY_MAX` 480 → 540,
+`SCC_FILE_COMPLEXITY_MAX` 300 → 340, `PMCCABE_TOTAL_MAX` 690 → 760, each
+proved live with 03A's temporary-lowering trick (458 fails on 459, 275 on
+276, 659 on 660).  The three throwaway spikes measured the free
+representation (`sizeof(Value)` stays 8 with `int64_t i`, both CI
+compilers), the exact-step arithmetic pins (five, led by `(+ 1 2)` at
+exactly 4 steps, all numeric-form-carrying, all to survive 05C/05D
+unedited), and the arena delta for the seven planned primitive names
+(core 367 → 410, `FeMinimumArenaSize()` 55616 → 56304 B, kg 1 MiB
+1098/56221 → 1097/56225).  `make -C fe check`, `complexity-check`,
+`pmccabe-check` and `compat` are green; `make -C fe compat-oracle` wrote
+42 snapshots and regenerated nothing.  No language or editor behaviour
+changed.  Sub-plan 05B may start.

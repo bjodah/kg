@@ -876,6 +876,14 @@ static void test_math_natives(void)
 	CHECK(eval_eq("(round -2.5)", "-2"));
 	CHECK(eval_eq("(floor -7 2)", "-4"));
 
+	/* Integer division by zero is an arith-error, as in Emacs; the
+	 * float spelling (/ 1.0 0) is what produces the nonfinite values
+	 * test_format_natives exercises. */
+	CHECK(eval_error_contains("(/ 1 0)", "arith-error"));
+	CHECK(eval_error_contains("(/ 0)", "arith-error"));
+	CHECK(eval_error_contains("(/ 5 0)", "arith-error"));
+	CHECK(eval_eq("(/ 1.0 0)", "1.0e+INF"));
+
 	kg_lisp_shutdown();
 }
 
@@ -908,6 +916,13 @@ static void test_point_offsets(void)
 
 	CHECK(eval_eq("(point-min)", "1"));
 	CHECK(eval_eq("(point-max)", "13"));
+
+	/* Every position and count is an integer now, not a double. */
+	CHECK(eval_eq("(type-of (point-min))", "integer"));
+	CHECK(eval_eq("(type-of (point))", "integer"));
+	CHECK(eval_eq("(type-of (point-max))", "integer"));
+	CHECK(eval_eq("(type-of (line-number-at-pos))", "integer"));
+	CHECK(eval_eq("(type-of (current-column))", "integer"));
 
 	/* Every position round-trips, and offsets count codepoints even though
 	 * the stored column is a byte index. */
@@ -966,6 +981,8 @@ static void test_char_after(void)
 	CHECK(eval_eq("(progn (goto-char 6) (char-after))", "233"));
 	CHECK(eval_eq("(progn (goto-char 6) (char-after nil))", "233"));
 	CHECK(eval_eq("(progn (goto-char (point-max)) (char-after))", "nil"));
+	/* A char code is an integer now, not a double. */
+	CHECK(eval_eq("(type-of (char-after 1))", "integer"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -1769,6 +1786,9 @@ static void test_string_length_and_substring(void)
 	CHECK(eval_eq("(string-length \"h\xc3\xa9llo\")", "5"));
 	CHECK(eval_eq("(string-length \"\xe6\xbc\xa2\xe5\xad\x97\")", "2"));
 	CHECK(eval_error_contains("(string-length 1)", "expected string"));
+	/* Lengths and char codes are integers now, not doubles. */
+	CHECK(eval_eq("(type-of (string-length \"abc\"))", "integer"));
+	CHECK(eval_eq("(type-of (string-to-char \"abc\"))", "integer"));
 
 	CHECK(eval_eq("(substring \"h\xc3\xa9llo\" 1)", "\xc3\xa9llo"));
 	CHECK(eval_eq("(substring \"h\xc3\xa9llo\" 1 3)", "\xc3\xa9l"));
@@ -1849,41 +1869,48 @@ static void test_format_natives(void)
 	CHECK(eval_eq("(format \"%d\" 42.9)", "42"));
 	CHECK(eval_eq("(format \"%d\" -3.7)", "-3"));
 	CHECK(eval_eq("(format \"%d\" -0.5)", "0"));
-	/* Either side of the int64 fast path, whose guard keeps the cast
-	 * defined; the wide values are exact, as they are in Emacs. */
-	CHECK(eval_eq("(format \"%d\" 9007199254740993)", "9007199254740992"));
+	/* An integer argument prints its own value exactly -- the int64 path
+	 * bypasses the double, so 2^53 + 1 is no longer rounded on the way
+	 * in.  The double fast path's guard keeps the cast defined; the wide
+	 * float values are exact, as they are in Emacs. */
+	CHECK(eval_eq("(format \"%d\" 9007199254740993)", "9007199254740993"));
 	CHECK(eval_eq("(format \"%d\" 1e19)", "10000000000000000000"));
 	CHECK(eval_eq("(format \"%d\" -1e19)", "-10000000000000000000"));
 	CHECK(eval_eq("(string-length (format \"%d\" 1e300))", "301"));
 	CHECK(eval_eq("(substring (format \"%d\" 1e300) 0 4)", "1000"));
 	/* kg has no bignums to print NaN or an infinity into, so unlike
-	 * Emacs, which writes "nan" and "inf", %d refuses them. */
-	CHECK(eval_error_contains("(format \"%d\" (/ 1 0))", "finite"));
+	 * Emacs, which writes "nan" and "inf", %d refuses them.  The float
+	 * is spelled (/ 1.0 0): (/ 1 0) is integer division by zero and an
+	 * arith-error, so it never reaches format at all. */
+	CHECK(eval_error_contains("(format \"%d\" (/ 1.0 0))", "finite"));
 	CHECK(eval_error_contains(
-	    "(format \"%d\" (- (/ 1 0) (/ 1 0)))", "finite"));
-	/* %s and %S spell these the C way, not as Emacs' readable float
-	 * syntax "-0.0e+NaN" and "1.0e+INF".  Deliberate: fe has one number
-	 * type, so kg prints 42.0 as "42" already, and float syntax for the
-	 * exceptional values alone would be the odd case out. */
-	CHECK(eval_eq("(format \"%s\" (/ 1 0))", "inf"));
-	CHECK(eval_eq("(format \"%S\" (/ 1 0))", "inf"));
-	CHECK(eval_eq("(format \"%s\" (- 0 (/ 1 0)))", "-inf"));
+	    "(format \"%d\" (- (/ 1.0 0) (/ 1.0 0)))", "finite"));
+	/* %s and %S are fe's printer, so the exceptional floats now wear
+	 * fe's readable spelling, the same "1.0e+INF"/"-0.0e+NaN" family
+	 * Emacs writes; the C-style "inf" is what %d and the float
+	 * conversions below produce. */
+	CHECK(eval_eq("(format \"%s\" (/ 1.0 0))", "1.0e+INF"));
+	CHECK(eval_eq("(format \"%S\" (/ 1.0 0))", "1.0e+INF"));
+	CHECK(eval_eq("(format \"%s\" (- 0 (/ 1.0 0)))", "-1.0e+INF"));
 
 	/* %e, %f and %g are C's conversions, which is exactly what Emacs
-	 * uses; every one of these was checked against Emacs 31. */
+	 * uses; every one of these was checked against Emacs 31.  An integer
+	 * argument widens through FeToDouble, so (format "%e" 42) formats
+	 * the way it does in Emacs. */
 	CHECK(eval_eq("(format \"%e\" 1.5)", "1.500000e+00"));
 	CHECK(eval_eq("(format \"%e\" 42)", "4.200000e+01"));
 	CHECK(eval_eq("(format \"%e\" 1e300)", "1.000000e+300"));
 	CHECK(eval_eq("(format \"%f\" 1.5)", "1.500000"));
 	CHECK(eval_eq("(format \"%f\" -2.25)", "-2.250000"));
+	CHECK(eval_eq("(format \"%f\" 42)", "42.000000"));
 	CHECK(eval_eq("(format \"%g\" 1.5)", "1.5"));
 	CHECK(eval_eq("(format \"%g\" 0)", "0"));
 	CHECK(eval_eq("(format \"%g\" 1e300)", "1e+300"));
 	/* Unlike %d, the float conversions have a rendering for the
 	 * exceptional values, so they print them instead of raising. */
-	CHECK(eval_eq("(format \"%e\" (/ 1 0))", "inf"));
-	CHECK(eval_eq("(format \"%f\" (- 0 (/ 1 0)))", "-inf"));
-	CHECK(eval_eq("(format \"%g\" (/ 1 0))", "inf"));
+	CHECK(eval_eq("(format \"%e\" (/ 1.0 0))", "inf"));
+	CHECK(eval_eq("(format \"%f\" (- 0 (/ 1.0 0)))", "-inf"));
+	CHECK(eval_eq("(format \"%g\" (/ 1.0 0))", "inf"));
 	CHECK(eval_error_contains("(format \"%f\" \"x\")", "argument type"));
 	/* %f of DBL_MAX is the longest thing the buffer must hold. */
 	CHECK(eval_eq("(string-length (format \"%f\" 1e300))", "308"));
@@ -2189,7 +2216,8 @@ static void test_type_predicates(void)
 
 	CHECK(eval_eq("(type-of \"a\")", "string"));
 	CHECK(eval_eq("(type-of 'a)", "symbol"));
-	CHECK(eval_eq("(type-of 1)", "double"));
+	CHECK(eval_eq("(type-of 1)", "integer"));
+	CHECK(eval_eq("(type-of 1.0)", "double"));
 	CHECK(eval_eq("(type-of (cons 1 2))", "pair"));
 	CHECK(eval_eq("(type-of nil)", "nil"));
 	/* The callables live in function cells now, so the type probe reads
@@ -2202,6 +2230,7 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(stringp \"a\")", "t"));
 	CHECK(eval_eq("(stringp 'a)", "nil"));
 	CHECK(eval_eq("(numberp 1)", "t"));
+	CHECK(eval_eq("(numberp 1.5)", "t"));
 	CHECK(eval_eq("(numberp \"1\")", "nil"));
 	CHECK(eval_eq("(consp (cons 1 2))", "t"));
 	CHECK(eval_eq("(consp nil)", "nil"));

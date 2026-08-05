@@ -56,10 +56,14 @@ FeObject *native_stringp(FeContext *context, FeObject *arguments)
 	return lisp_type_is(context, arguments, FeTString);
 }
 
-/* Every number is a double, so this is also Emacs' numberp. */
+/* A number is an integer or a double, so this is also Emacs' numberp. */
 FeObject *native_numberp(FeContext *context, FeObject *arguments)
 {
-	return lisp_type_is(context, arguments, FeTDouble);
+	FeObject *object = FeGetNextArgument(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	return FeMakeBool(context,
+	    FeGetType(object) == FeTInteger || FeGetType(object) == FeTDouble);
 }
 
 FeObject *native_consp(FeContext *context, FeObject *arguments)

@@ -64,7 +64,6 @@
 (defalias 'internal--let (symbol-function 'let))
 (defalias 'progn (symbol-function 'do))
 (defalias 'null (symbol-function 'not))
-(defalias 'eq (symbol-function 'is))
 (defalias '1+ (lambda (n) (+ n 1)))
 (defalias '1- (lambda (n) (- n 1)))
 (defalias 'caar (lambda (x) (car (car x))))
@@ -110,15 +109,22 @@
 (defalias 'last (lambda (lst)
   (while (cdr lst) (setq lst (cdr lst)))
   lst))
-;; Structural on lists; Fe's `is' compares pairs by identity.  Only the
-;; car descends, so the spine cost is a loop, not a frame.
+;; Structural on lists, then Emacs' atom rule: strings compare by
+;; content, numbers by eql, everything else by identity.  Only the car
+;; descends, so the spine cost is a loop, not a frame.
 (defalias 'equal (lambda (a b)
   (internal--let same t)
   (while (and same (consp a) (consp b))
     (if (equal (car a) (car b)) nil (setq same nil))
     (setq a (cdr a))
     (setq b (cdr b)))
-  (and same (not (consp a)) (not (consp b)) (is a b))))
+  (and same (not (consp a)) (not (consp b))
+    (if (and (stringp a) (stringp b))
+        (string= a b)
+      (if (and (numberp a) (numberp b))
+          (eql a b)
+        (eq a b))))))
+(defalias 'zerop (lambda (n) (= n 0)))
 (defalias 'mapcar (lambda (f lst)
   (internal--let res nil)
   (while lst

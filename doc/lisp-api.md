@@ -428,7 +428,7 @@ so no result is ever cut mid-glyph:
 | `(string= A B)` | `t` when equal |
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
-| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%%`; no field widths, no `%c`/`%x`/`%o`; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%%`; `%d` and the float conversions accept either number type (`%d` prints an integer exactly, truncates a float, and raises on NaN or an infinity); no field widths, no `%c`/`%x`/`%o`; extra arguments ignored, a missing one or an unknown specifier raises |
 
 kg evaluates a prelude (`lisp/prelude.el`, embedded into the binary as
 `src/lisp_prelude_generated.inc`), written in Fe, at startup
@@ -442,14 +442,15 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Binding | `let` `let*` `setq` `progn` |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
+| Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
 
 The table is the whole startup surface, not only what the prelude adds:
-the nine forms in `Functions`, like `setq` in `Binding`, are core Fe
-special forms and primitives rather than prelude definitions.
+the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
+core Fe special forms and primitives rather than prelude definitions.
 
 `defun` strips a body `(interactive)` form and registers the function as
 a command under its own name (`define-command` underneath), the same as
@@ -524,21 +525,26 @@ primitive's function cell.
 
 ## Explicit differences from Emacs Lisp
 
-- **There is no `>` or `>=`.** Fe defines `<` and `<=` only; write `(>
-  a b)` as `(< b a)`.
-- `eq` compares numbers and strings **by value**, so `(eq "a" "a")` is
-  `t` where Emacs says `nil`; only pairs are compared by identity (`is`).
-- Every number is a double; there is no character type — write
-  `(string-to-char "a")` rather than `?a`.
+- `eq` is Emacs' `eq`: `(eq 3 3)` is `t` (fixnum equality — integers
+  compare by value) but two separately-read equal strings, and two
+  float objects, are `nil`. Fe's own broad comparator remains available
+  as `is` — doubles approximately by value (its own epsilon), integers
+  exactly, strings by content, everything else by identity — but `is`
+  is fe-native, not an Emacs form.
+- Numbers are signed 64-bit integers or doubles — **no bignums**. Integer
+  arithmetic that overflows, and integer division by zero, raise an
+  `arith-error` message rather than promoting or wrapping. There is no
+  character type — write `(string-to-char "a")` rather than `?a`.
 - `t` is an ordinary assignable global, not a self-evaluating constant.
 - **No `condition-case`, no dynamic binding, no vectors, no hash tables,
   no property lists.** (`unwind-protect` does exist — see above — but it
   runs cleanups rather than catching. No property lists is
   why there are no docstring-backed `describe-function`-style natives
   yet — see below.) The namespace diagnostics `void-function`,
-  `void-variable` and `cyclic-function-indirection` are names carried in
-  the error *message*, not catchable condition objects — there is no
-  `condition-case` to catch them with (Phase 6).
+  `void-variable` and `cyclic-function-indirection`, and the numeric
+  `arith-error`, are names carried in the error *message*, not catchable
+  condition objects — there is no `condition-case` to catch them with
+  (Phase 6).
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A

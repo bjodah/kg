@@ -1,5 +1,6 @@
 #include <limits.h>
 #include <stdckdint.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,7 +61,7 @@ FeObject *native_string_length(FeContext *context, FeObject *arguments)
 	text = lisp_string_argument(context, object, &length);
 	chars = lisp_utf8_length(text, length);
 	release_scratch();
-	return FeMakeDouble(context, (FeDouble)chars);
+	return FeMakeInteger(context, (int64_t)chars);
 }
 
 /* An Emacs substring index: 0-based in codepoints, negative counts back
@@ -256,5 +257,5 @@ FeObject *native_string_to_char(FeContext *context, FeObject *arguments)
 	if (codepoint < 0) {
 		return FeNil(context);
 	}
-	return FeMakeDouble(context, (FeDouble)codepoint);
+	return FeMakeInteger(context, (int64_t)codepoint);
 }

@@ -187,8 +187,8 @@ static enum kg_event_cb_status lisp_event_subscriber(
 			    ctx, ev->payload.changed.buffer);
 			args[1] = lisp_position(ctx, start_off);
 			args[2] = lisp_position(ctx, end_off);
-			args[3] = FeMakeDouble(
-			    ctx, (FeDouble)ev->payload.changed.old_len);
+			args[3] = FeMakeInteger(
+			    ctx, (int64_t)ev->payload.changed.old_len);
 			run_hook_list(
 			    ctx, "after-change-functions", b, args, 4);
 			FeRestoreGC(ctx, gc);

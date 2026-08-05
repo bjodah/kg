@@ -1077,6 +1077,18 @@ Required acceptance cases include:
 * all tracked Lisp sources use `setq`, `set`, or definition forms;
 * Fe and kg documentation contain no old assignment examples.
 
+> **Closed 2026-08-05, and with it milestone 1.**  Phase 5 delivered
+> integers end to end: `FeTInteger` (`int64_t`), Emacs integer lexing and
+> float printing, `eq`/`eql`, the widened comparison family, and kg's
+> position/`format`/`numberp` funnel converted in one atomic Rule-10
+> commit.  The phase's per-slice actuals, what the plan got wrong (the
+> complexity row under-priced; the caps closed at 2/10/8 points from
+> full), and the milestone-2 re-pricing this milestone owed are recorded
+> in the [sub-plan set's Status and price table](2026-08-03-elisp-subset-and-fe-evaluator-subplans/README.md).
+> §0.3's "re-derive milestone 2 from what 0–5 measures" is now the
+> operating instruction, not a prediction: Phase 6's 06A Decision must
+> raise the fe caps before any of its sub-plans are written.
+
 ## 10. Phase 6 — Structured errors and non-local exits
 
 ### Purpose

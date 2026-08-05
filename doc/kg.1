@@ -408,49 +408,35 @@ bare and a list prints as a list;
 .Li %S
 is the same with strings quoted;
 .Li %d
-truncates a number toward zero;
+accepts either number type, printing an integer exactly and truncating a
+float toward zero;
 .Li %e , %f
 and
 .Li %g
-are the C floating-point conversions, as they are in Emacs; and
+are the C floating-point conversions, accepting either number type as
+they do in Emacs; and
 .Li %%
 is a literal per cent.
 There are no field widths, precisions or flags, and no other specifiers.
 Extra arguments are ignored, as in Emacs, while a missing argument, an
 unknown specifier and a format string that ends inside one all raise an
 error.
-Every number is a double, so
+NaN and the infinities have no integer to print, so
 .Li %d
-prints the exact integer value of one, matching what Emacs prints from a
-bignum; NaN and the infinities have no integer to print, so
-.Li %d
-refuses them, where
+refuses them;
 .Li %e , %f
 and
 .Li %g
-print them as the C library spells them.
-.Pp
+print them the way C spells them, which is the spelling Emacs uses for
+those specifiers too;
 .Li %s
 and
 .Li %S
-spell those two the C way as well, as
-.Li -nan
-and
-.Li inf ,
-rather than the
-.Li -0.0e+NaN
-and
+print them in the interpreter's own readable float syntax, as
 .Li 1.0e+INF
-Emacs writes.
-That is a deliberate divergence: those Emacs spellings are its readable
-float syntax, but fe has only one number type, so kg already prints 42.0
-as
-.Li 42
-rather than
-.Li 42.0 .
-Adopting Emacs float syntax for the exceptional values alone, in an
-interpreter that prints every other number in integer syntax, would be
-inconsistent rather than more faithful.
+and
+.Li -0.0e+NaN ,
+matching Emacs.
 .Pp
 The prelude is available before any init file is loaded.
 It defines the definition forms
@@ -471,9 +457,13 @@ and
 are core Fe special forms, not prelude definitions, and
 .Li =
 is numeric equality, chained over any number of arguments, alongside
-.Li <
+.Li < ,
+.Li <= ,
+.Li > ,
+.Li >=
 and
-.Li <= ;
+.Li /=
+(the whole comparison family is core Fe, not prelude definitions);
 it was Fe's assignment operator in earlier versions of
 .Nm ,
 so Lisp written against those needs
@@ -509,7 +499,11 @@ and
 the predicates and comparisons
 .Li null ,
 .Li eq ,
-.Li equal
+.Li eql ,
+.Li equal ,
+.Li zerop ,
+.Li integerp ,
+.Li floatp
 and
 .Li listp ;
 the namespace forms
@@ -579,13 +573,16 @@ Call a function held in a variable with
 .Pp
 .Li type-of
 returns the type as a symbol, one of
-.Li pair , nil , double , symbol , string , lambda , macro , primitive
+.Li pair , nil , integer , double , symbol , string , lambda , macro ,
+primitive
 or
 .Li native-fn ,
 and
 .Li stringp ,
 .Li symbolp ,
 .Li numberp ,
+.Li integerp ,
+.Li floatp ,
 .Li consp
 and
 .Li functionp
@@ -595,8 +592,12 @@ reports whether a name has a value.
 .Pp
 kg's Lisp differs from Emacs Lisp in ways worth knowing:
 .Li eq
-compares numbers and strings by value, and only pairs by identity;
-every number is a double;
+is Emacs' eq: integers compare by value, while separately-read equal
+strings and float objects do not;
+numbers are signed 64-bit integers or doubles, so integer overflow and
+integer division by zero raise an
+.Li arith-error
+message rather than promoting to a bignum;
 .Li t
 is an ordinary assignable global;
 values and functions live in separate namespaces as in Emacs, so call
@@ -614,7 +615,9 @@ the namespace diagnostics
 .Li void-function ,
 .Li void-variable
 and
-.Li cyclic-function-indirection
+.Li cyclic-function-indirection ,
+and the numeric
+.Li arith-error ,
 are error-message text, not condition objects;
 a macro's function cell holds fe's own macro object, not Emacs'
 .Li (macro . FUNCTION)

@@ -44,17 +44,17 @@ keys:
   - C-j
 expected_saved: |
   (sin 0)
-  0
+  0.0
   (cos 0)
-  1
+  1.0
   (expt 2 8)
   256
   (sqrt 16)
-  4
+  4.0
   (atan 1 1)
-  0.7853982
+  0.7853981633974483
   (log (exp 1))
-  1
+  1.0
   (floor 7.5 2)
   3
   (ceiling -7 2)

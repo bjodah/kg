@@ -1,6 +1,0 @@
-{
- "id": "prelude-eq",
- "setup": [],
- "expr": "(eq 'a 'a)",
- "note": "Alias of Fe's `is` primitive under Emacs' name."
-}

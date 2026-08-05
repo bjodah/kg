@@ -413,17 +413,20 @@ before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values
 above `U+10FFFF` so the result is always well-formed text; it is the inverse
 of `char-after`, which returns a number.
 
-`format` takes the four specifiers Emacs Lisp reaches for most. `%s` prints
+`format` takes the specifiers Emacs Lisp reaches for most. `%s` prints
 an object the way the interpreter prints it — a string bare, a list as a
 list, `nil` as `nil` — and `%S` is the same with strings quoted; `%d`
-truncates a number toward zero. There are no field widths, precisions or
-flags, and no `%c`, `%x`, `%o`, `%e` or `%f`. Extra arguments are ignored,
-as in Emacs, while a missing argument, an unknown specifier and a format
-string ending inside one are all errors. Every number is a double, so `%d`
-prints the exact integer value of one, which for `1e19` is the same
-`10000000000000000000` Emacs prints from a bignum; NaN and the infinities
-have no integer to print, so `%d` refuses them where Emacs writes `nan` and
-`inf`.
+accepts either number type, printing an integer exactly and truncating a
+float toward zero; and `%e`, `%f` and `%g` are the C floating-point
+conversions, accepting either number type as they do in Emacs. There are
+no field widths, precisions or flags, and no `%c`, `%x` or `%o`. Extra
+arguments are ignored, as in Emacs, while a missing argument, an unknown
+specifier and a format string ending inside one are all errors. NaN and
+the infinities have no integer to print, so `%d` refuses them (where
+Emacs writes `nan` and `inf`); `%e`/`%f`/`%g` print them the way C does,
+which is the spelling Emacs uses for those specifiers too; and `%s`/`%S`
+print them in the interpreter's own readable float syntax — `1.0e+INF`
+and `-0.0e+NaN` — exactly as Emacs does.
 
 kg also evaluates a prelude at startup, written in Fe, so the Emacs Lisp
 surface is available before any init file runs. It is what makes kg's
@@ -435,15 +438,16 @@ surface is available before any init file runs. It is what makes kg's
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
-| Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` |
+| Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
 
 Argument lists take `&optional` and `&rest`; a missing argument is `nil` and an
 extra one is dropped. `length` also counts the codepoints of a string. `equal`
-is structural on lists, where Fe's `is` compares pairs by identity.
+is structural on lists and type-honest at the leaves — strings by content,
+numbers by value, everything else by identity.
 
 A name that has never been assigned is an error rather than `nil`, so a typo
 says `void-variable NAME` instead of quietly being false. `(boundp 'NAME)` asks
@@ -468,24 +472,27 @@ when the name has a value.
 Where it differs from Emacs Lisp, and these are worth knowing before the
 first surprise:
 
-- There is no `>` or `>=`; Fe defines `<`, `<=` and `=` only, so write
-  `(> a b)` as `(< b a)` (`lisp/auto-fill.el` does this throughout). `=`
-  is numeric equality, chained over any number of arguments as in Emacs —
-  it used to be Fe's assignment operator, and any Lisp written against
-  that older kg needs `setq` instead.
-- `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
-  Emacs says `nil`. Only pairs are compared by identity.
+- `=` is numeric equality, chained over any number of arguments as in
+  Emacs — it used to be Fe's assignment operator, and any Lisp written
+  against that older kg needs `setq` instead.
+- `eq` is Emacs' `eq`: `(eq 3 3)` is `t` because integers compare by
+  value, while two separately-read equal strings and two float objects
+  are `nil`. Fe's own broad comparator remains available as `is`, but
+  `is` is fe-native, not an Emacs form.
 - Values and functions live in separate namespaces, as in Emacs: call position
   reads only the function cell, so a function held in a variable is called
   with `(funcall f ...)` and `#'f` is `(function f)`.
-- Every number is a double, and there is no character type: write
-  `(string-to-char "a")` rather than `?a`.
+- Numbers are signed 64-bit integers or doubles — there are no bignums —
+  and there is no character type: write `(string-to-char "a")` rather
+  than `?a`. Integer arithmetic that overflows, and integer division by
+  zero, raise an `arith-error` message instead of promoting or wrapping.
 - `t` is an ordinary assignable global.
 - There is no `condition-case`, no dynamic binding, no vectors or hash
   tables; `unwind-protect` does exist, but it runs its cleanup forms as an
   error passes through rather than catching it. The namespace diagnostics
-  `void-function`, `void-variable` and `cyclic-function-indirection` are
-  error-message text, not condition objects.
+  `void-function`, `void-variable` and `cyclic-function-indirection`, and
+  the numeric `arith-error`, are names in the error message, not
+  condition objects.
 - A macro's function cell holds fe's own macro object, not Emacs'
   `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding

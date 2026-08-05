@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -180,7 +181,7 @@ long lisp_optional_count(FeContext *context, FeObject **arguments)
 
 FeObject *lisp_position(FeContext *context, long offset)
 {
-	return FeMakeDouble(context, (FeDouble)offset + 1);
+	return FeMakeInteger(context, (int64_t)offset + 1);
 }
 
 FeObject *native_point_offset(FeContext *context, FeObject *arguments)
@@ -261,7 +262,7 @@ FeObject *native_line_number(FeContext *context, FeObject *arguments)
 	FeRequireNoArguments(context, arguments);
 	buffer_position_to_row_col(
 	    b, lisp_exec_point_byte(context), &row, &col);
-	return FeMakeDouble(context, (FeDouble)row + 1);
+	return FeMakeInteger(context, (int64_t)row + 1);
 }
 
 /* Emacs' current-column is a display column, so tabs expand. */
@@ -278,7 +279,7 @@ FeObject *native_current_column(FeContext *context, FeObject *arguments)
 		    b, lisp_exec_point_byte(context), &row, &col);
 		col_out = editor_visual_col(&b->row[row], col);
 	}
-	return FeMakeDouble(context, (FeDouble)col_out);
+	return FeMakeInteger(context, (int64_t)col_out);
 }
 
 FeObject *native_mark(FeContext *context, FeObject *arguments)
@@ -498,7 +499,7 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
 		return FeNil(context);
 	}
 	lisp_rowcol_of_char_offset(b, offset, &row, &col);
-	return FeMakeDouble(context, (FeDouble)lisp_char_at(b, row, col));
+	return FeMakeInteger(context, (int64_t)lisp_char_at(b, row, col));
 }
 
 struct save_excursion_data {

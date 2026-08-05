@@ -65,9 +65,11 @@ static void format_puts(
 	}
 }
 
-/* %d, on an interpreter whose only number is a double: truncate toward
- * zero and print the exact integer.  Casting a double outside int64 range
- * to int64_t is undefined, so the fast path uses the guard fe's own
+/* %d, on an interpreter with two number types: an integer prints its own
+ * exact value -- the int64 path, which is what makes (format "%d"
+ * 9007199254740993) come out exactly -- and a double truncates toward zero
+ * and prints the exact integer.  Casting a double outside int64 range to
+ * int64_t is undefined, so the double fast path uses the guard fe's own
  * printer uses and "%.0f" prints the rest, which is exact because a double
  * that large is already an integer.  That matches Emacs, which prints
  * every finite value in full via bignums.  NaN and the infinities have no
@@ -79,6 +81,12 @@ static void format_integer(
 	char digits[320];
 	FeDouble value;
 
+	if (FeGetType(object) == FeTInteger) {
+		(void)snprintf(digits, sizeof(digits), "%" PRId64,
+		    FeToInteger(context, object));
+		format_puts(context, out, digits);
+		return;
+	}
 	if (FeGetType(object) != FeTDouble) {
 		FeHandleError(context,
 		    "format specifier %d does not match argument type");
@@ -97,12 +105,15 @@ static void format_integer(
 	format_puts(context, out, digits);
 }
 
-/* %e, %f and %g hand the double straight to snprintf, which is what Emacs
- * does too — its float conversions are C's, right down to spelling the
- * exceptional values "nan", "-nan" and "inf".  Unlike %d these have a
- * perfectly good floating-point rendering, so they print rather than
- * raise.  The spec is switched on rather than pasted into the format
- * string, to keep the conversion a literal. */
+/* %e, %f and %g hand the value straight to snprintf, which is what Emacs
+ * does too -- its float conversions are C's, right down to spelling the
+ * exceptional values "nan", "-nan" and "inf".  An integer widens through
+ * FeToDouble, so (format "%e" 42) works as it does in Emacs; only the
+ * double has a special spelling to C, which is why the gate is two-tag
+ * rather than "not a number".  Unlike %d these have a perfectly good
+ * floating-point rendering, so they print rather than raise.  The spec is
+ * switched on rather than pasted into the format string, to keep the
+ * conversion a literal. */
 static void format_float(
     FeContext *context, struct format_buffer *out, char spec, FeObject *object)
 {
@@ -112,7 +123,7 @@ static void format_float(
 	char message[64];
 	FeDouble value;
 
-	if (FeGetType(object) != FeTDouble) {
+	if (FeGetType(object) != FeTDouble && FeGetType(object) != FeTInteger) {
 		(void)snprintf(message, sizeof(message),
 		    "format specifier %%%c does not match argument type", spec);
 		FeHandleError(context, message);

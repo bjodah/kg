@@ -2,5 +2,5 @@
  "id": "format-exceptional-float",
  "setup": [],
  "expr": "(format \"%d\" (/ 1.0 0))",
- "note": "kg has no bignum type to print an infinity or NaN into via %d, so it refuses rather than printing \"inf\"/\"nan\" the way Emacs does (test_format_natives' own comment, verified against (format \"%d\" (/ 1 0)) there -- kg has no int/float distinction yet, so (/ 1.0 0) is the same object and takes the same path)."
+ "note": "05E: kg still refuses %d of the nonfinite float (/ 1.0 0) -- no bignum to print an infinity or NaN into -- but only for the float reason now. (/ 1 0) no longer shares this path: it is integer division and raises arith-error before format sees it."
 }

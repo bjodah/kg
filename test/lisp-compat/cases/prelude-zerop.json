@@ -1,0 +1,6 @@
+{
+ "id": "prelude-zerop",
+ "setup": [],
+ "expr": "(zerop 0)",
+ "note": "05E adds zerop as a one-liner over fe's numeric `=`: t exactly for a numeric zero, integer or float, matching Emacs."
+}

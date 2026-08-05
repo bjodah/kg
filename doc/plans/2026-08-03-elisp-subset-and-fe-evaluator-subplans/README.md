@@ -2,23 +2,25 @@
 
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
-reviewed and corrected 2026-08-04; the Phase 2 set was implementation-audited
-against the same tree on 2026-08-04, and this Phase 3 set was written
-against the tree as it stands after Phase 2 closed.  Read the parent's §0
-(verified baseline), §0.1 (the two complexity ratchets), §0.2 (the
-translation-unit decision) and §0.3 (scope honesty) before any of these;
-they are the facts these documents assume.  Where the parent's Phase 3
-section still names the pre-Phase-2 script/PTY counts or leaves a mechanism
-at requirement level, this implementation-audited set controls; do not edit
-tests back to those older counts.
+reviewed and corrected 2026-08-04; each sub-plan set since has been
+implementation-audited against the tree it starts from, and this Phase 4
+set was written against the tree as it stands after Phase 3 closed
+(2026-08-05).  Read the parent's §0 (verified baseline), §0.1 (the two
+complexity ratchets), §0.3 (scope honesty) and §0.4 (no legacy
+constituency) before any of these; they are the facts these documents
+assume.  Where the parent's Phase 4 section names stale facts — 54
+prelude definitions where the tree has 53, 64 Lisp PTY cases where it has
+69, 22 macros where it has 18, and the claim that Lisp-2 makes
+`internal--let` unnecessary, which 04A's §4 corrects — this
+implementation-audited set controls.
 
-Measured on the audited tree, 2026-08-04, and re-measured rather than
-carried forward per Rule 6: kg **5444/5500** scc, **32 native / 405 PTY**
-(**337 pass + 68 skip** under `WITH_LISP=0`), **69** Lisp PTY cases; fe
-**214/220** scc with `fe.c` at **106/112**, `fe.c`'s pmccabe sum **356
-across 135 symbols** (worst function `EvaluatePrimitive` at 15), all
-`PMCCABE_PATHS` **500 across 202 symbols**, and
-`FeMinimumArenaSize()` **43536 bytes** against kg's 1 MiB arena.
+Measured on the audited tree, 2026-08-05, and re-measured rather than
+carried forward per Rule 6: kg **5444/5500** scc, **32 native / 406 PTY**
+(**337 pass + 69 skip** under `WITH_LISP=0`), **69** Lisp PTY cases; fe
+**391/420** scc with `fe.c` at **73** and `fe_eval.c` at **208/240**,
+pmccabe **601/630 across 230 symbols** (worst functions `Read` and
+`RunEvaluationLoop` at 14), and `FeMinimumArenaSize()` **53840 bytes**,
+kg's 1 MiB arena partitioning to **1100 frames / 56210 object slots**.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -37,87 +39,91 @@ ground this one stands on: `setq` and `set` are core Fe forms, `=` is
 chained numeric equality, `FE_LANGUAGE_VERSION` is 2, and kg's Lisp is
 `.el`.
 
-**This set covers Phase 3 — the frame machine — plus Phase 2's residual
-debt.**  Phase 3 replaces recursive evaluation with an explicit frame
-machine.  It is behaviour-neutral by design, it is the largest single risk
-in the program, and it is the only phase so far whose gate is a
-*measurement* rather than an assertion about output.
+**The third set — Phase 3's frame machine, plus Phase 2's residual debt —
+is complete (2026-08-05).**  Its seven documents (`02e`, `03a`–`03f`)
+were removed once the workstream was accepted; the Phase 3 Status section
+below is the surviving record.  What that set changed is the ground this
+one stands on: the recursive evaluator is gone, Lisp nesting consumes
+frames in the context-owned arena and a constant amount of C stack, the
+evaluator lives in `fe_eval.c` behind a private `fe_internal.h`,
+`FE_API_VERSION` is 2, and pmccabe's funded total is the authoritative
+complexity measure for the core.
 
-The through-line is that Phase 3 is a *measurement* problem before it is an
-implementation one.  Three of its facts were established while auditing
-this tree, and each one changes what the slices have to do:
+**This set covers Phase 4 — Lisp-2 namespaces.**  It separates variable
+bindings from callable definitions: every interned symbol gains a
+function cell, call position resolves through it, `#'x` becomes
+`(function x)`, and `funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/
+`fmakunbound`/`defalias` become real.  It is the first *language* cut
+since Phase 2, and it is a two-repository cut: fe changes what a symbol
+is, and kg's prelude — 53 definitions, all written into value cells — is
+rewritten against it.
 
-- **Nothing in either tree can take the gate's measurement.**  The gate
-  says a C-stack high-water mark must be flat across `(deep 10)`,
-  `(deep 1000)` and `(deep 100000)`; the closest existing evidence is two
-  crash points, and a crash point cannot show that a number stopped
-  growing.  The instrument has to exist before the change, or the change
-  writes its own gate.
-- **fe's complexity ratchet cannot survive the file split.**  00A's spike
-  measured pmccabe conserved exactly (335 → 335) and scc *up 42* across a
-  purely mechanical move.  Phase 3 both splits the file and has the
-  program's largest complexity estimate; measured in scc those two costs
-  are inseparable.
-- **One plausible frame design does not fit in kg's arena.**  A frame stack
-  sized for the gate's `(deep 100000)` is roughly 4.8 MB against kg's 1 MiB
-  arena and today's 43536-byte `FeMinimumArenaSize()`.  That is a design
-  decision with a numeric answer, and it has to be taken before the
-  substrate is written, not discovered inside it.
+The through-line is that Phase 4 is a *migration* problem before it is an
+implementation one.  Three facts, established by auditing this tree,
+shape the slices:
 
-So the set front-loads one measurement-and-decision slice, lands the
-mechanical split on its own so its cost is attributable, migrates frame
-kinds in two groups behind existing test expectations, and changes bounds,
-API and documentation last — deliberately, so that every slice before the
-last can use "no existing test expectation changed" as its correctness
-argument.
+- **A missed migration site fails at run time, not at load time.**  The
+  prelude has 47 intra-prelude head-position uses of prelude-defined
+  names, three sites that call a *parameter* in head position, and two
+  that pass functions by value; kg's C reads a symbol's value cell as a
+  callable in exactly one place (`resolve_hook_function`,
+  `src/lisp_hooks.c`).  Nothing fails until whichever command first runs
+  `dolist` after a missed `funcall`.  The 69 Lisp PTY cases are the net,
+  and the slices are ordered so the cut lands against machinery that is
+  already fully tested.
+- **Both fe complexity gates have exactly 29 points of headroom** against
+  a phase priced at +40 to +60, and `RunEvaluationLoop` — the function
+  the phase must fork — is already at 14 of the 22 per-function cap.  The
+  funding Decision has to come first, again.
+- **The oracle already knows some answers.**  The `one-namespace-boundp`
+  and `reader-sharp-quote-identity` snapshots have recorded the Lisp-2
+  target since 00C; the phase's job is to make them flip from divergent
+  to supported without regenerating them.  The rest of the answer key —
+  seventeen predicted cases — is 04A's to pin before implementation.
+
+So the set front-loads one oracle-and-decision slice, lands the symbol
+representation alone behind accessors, builds the whole function
+namespace additively behind a transitional fallback so nothing observable
+moves, cuts fe over in one fe-only slice, and lands kg's pin, prelude,
+natives, tests and documents in one atomic commit — deliberately, so that
+every slice before the last two can use "no existing test expectation
+changed" as its correctness argument, and the cut itself is two
+reviewable diffs instead of one big bang.
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [02E](02e-residual-phase-2-debt.md) | 2 | Test the three untested kg natives, settle the three `(list 'quote nil)` prelude workarounds, comment the two `(= X Y)` survivors | none — runs in parallel with 03A |
-| [03A](03a-measure-and-fund-the-frame-machine.md) | 3 | The C-stack probe, backtrace characterization, a split-proof complexity ratchet, the frame-storage sizing answer, and Phase 3's dated Decision | none — **this is first** |
-| [03B](03b-translation-unit-split.md) | 3 | `fe.c` → `fe.c` + `fe_eval.c` behind a private `fe_internal.h`; the eleven kg build sites and the `doc/fe-upstream.md` promise | 03A (the spike must have priced this exact cut) |
-| [03C](03c-frame-substrate.md) | 3 | Evaluator state, bounded context-owned frame stack, GC rooting, checkpoints and the call trace off the C stack; leaf paths only | 03B |
-| [03D](03d-call-frames.md) | 3 | Head resolution, arguments, lambda, body, macro expansion, and the native-re-entry boundary; pure call chains become flat | 03C |
-| [03E](03e-special-form-frames-and-unwind.md) | 3 | `if`/`and`/`or`/`while`/`let`/`setq`/`set`/`unwind-protect`, frame-aware cleanup, deleting the recursive path, and the first full flat-`deep` result | 03D |
-| [03F](03f-two-bounds-the-api-break-and-the-kg-pin.md) | 3 | Split `evaluation_depth` into two bounds, rename the `FeEvalOptions`/`FeArenaStats` fields, `FE_API_VERSION` 2, every stale document, and kg | 03E |
+| [04A](04a-pin-the-lisp2-target-and-fund-the-phase.md) | 4 | The Lisp-2 differential corpus, the symbol-layout decision with measured arena arithmetic, the host-API table, the migration mechanics, and Phase 4's dated Decision | none — **this is first** |
+| [04B](04b-symbol-cells-behind-accessors.md) | 4 | Symbol internals behind accessors; the function cell exists, rooted and priced, read by nothing | 04A |
+| [04C](04c-the-function-namespace-additively.md) | 4 | `function`/`fset`/`symbol-function`/`symbol-value`/`fboundp`/`fmakunbound`/`defalias`/`funcall`/`apply`, and function-cell-first head resolution behind a transitional value fallback | 04B |
+| [04D](04d-the-namespace-cut.md) | 4 | The cut: bootstrap to function cells, fallback deleted, `#'` reads as `(function x)`, fe scripts migrated, `FE_LANGUAGE_VERSION` 3 and `FE_API_VERSION` 3 — **no kg pin move** | 04C |
+| [04E](04e-the-kg-cutover.md) | 4 | The pin plus every kg adaptation in one atomic commit: prelude rewrite, hooks/process/`functionp` designators, both spelling parsers, tests, manifests, docs; closes the phase | 04D |
 
-**03A is genuinely first, for the same structural reason 00A and 02A
-were.**  Phase 0 built an oracle so Phase 2's answers could be recorded
-rather than argued; Phase 3 needs the same discipline applied to a
-measurement.  A gate whose instrument is written by the slice that has to
-pass it is not a gate.  03A also carries the two decisions — how fe's
-complexity is measured from here, and where frames live — that 03B and 03C
-would otherwise each take unilaterally, in the middle of a diff.
+**04A is genuinely first, for the same structural reason 00A, 02A and 03A
+were.**  Phase 4's semantics are an oracle question, its symbol layout is
+an arena-arithmetic question, and its complexity cost exceeds both fe
+gates' headroom.  All three answers exist before any implementation
+slice, or the implementation slices answer them unilaterally, in the
+middle of a diff.
 
-**03B is mechanical and lands alone on purpose.**  It changes no branch and
-no test expectation; its correctness argument is that the pmccabe total is
-conserved and every golden file is byte-identical.  Landing it inside a
-frame-machine commit would make both costs one number and neither
-reviewable.
+**04B is mechanical and lands alone on purpose**, like 03B: its
+correctness argument is byte-identical goldens and unchanged test
+expectations, which is only checkable while nothing else moves.
 
-**03C, 03D and 03E are one migration split at green review points.**  The
-partially-migrated evaluator they pass between them is **not** the "second,
-test-only evaluator mode" the parent plan forbids: one `Evaluate()`, one
-entry point, no build flag or runtime switch, and the surviving recursive
-helpers are reached *from a frame* and deleted as their frame kinds land.
-03E's deletion checklist is what closes that out; anything left on it at
-the end of 03E is either used or dead.
+**04C is additive behind a documented transitional fallback** — the 02B
+precedent.  Function-cell-first resolution with a value-cell fallback is
+an in-workstream state, never a released coexistence layer; it exists so
+the new machinery is complete and tested before the cut, and 04D deletes
+it.
 
-Do not confuse the two flatness milestones.  03D proves a generated finite
-chain containing only calls no longer grows the C stack.  The canonical
-`(deep N)` also contains `if` and arithmetic; it cannot go flat until 03E
-converts those special-form/primitive continuations.  03F does not finish
-evaluator logic: it publishes the already-working bounds and makes the
-100000-depth measurement a permanent assertion.
-
-**03F is last because it is the only slice that edits an existing
-expectation.**  Bounds, error strings, public field names and
-`test_recursion_depth` all move there, together with the version bump and
-the kg pin.  A pin-only commit is impossible by construction:
-`src/lisp_core.c`'s `static_assert(FE_API_VERSION == 1)` fires, which is
-exactly the state that assertion exists to make impossible.
+**04D and 04E are the two halves of one Rule-10 delivery**, exactly as
+02C/02D were for the Phase 2 cut.  04D cuts fe over and closes the fe
+workstream with the full nine-stage runner; it deliberately does not move
+kg's pin, because a pin-only commit cannot build
+(`static_assert(FE_API_VERSION == 2)` fires and the prelude would break
+at startup).  04E is that pin, with every kg adaptation in the same green
+commit.
 
 ## Handoff contract
 
@@ -127,18 +133,15 @@ criteria, not suggestions.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 02E | kg `test/test_lisp.c`, one tmux PTY, compat manifest, prelude/comments | two existing unit fixtures, one real-child status case, generated-prelude identity | no new oracle answer; no PTY for pure prelude/native logic |
-| 03A | Fe test/scripts, pmccabe checker/Makefile, Decision docs | pre-change stack measurements, semantic trace goldens, failing total-budget perturbation | no evaluator implementation; no Emacs differential |
-| 03B | `fe.c`/`fe_eval.c`/private header and both build systems | byte-identical Fe goldens, conserved pmccabe total, full Fe/kg build lanes | no behavioural test or golden rewrite |
-| 03C | frame storage/loop/root/error substrate, arena docs | exact step pins, forced-GC roots, physical exhaustion/reuse, unchanged trace | no claim that leaf conversion makes full recursion flat; no PTY |
-| 03D | call/lambda/macro/native frames | generated pure-call-chain flatness, macro exhaustion, nested-native error/reuse, per-state GC | no `(deep 100000)` claim; no special-form migration |
-| 03E | remaining primitive/special-form continuations and unwind | primitive order table, every distinct resumption under GC/budget/cancel, cleanup LIFO/failure, full probe observation | no strict-arity changes and no internal-state PTYs/oracle regeneration |
-| 03F | public Fe fields/version/stats, kg mirrors/perf/tests/docs | exact two-bound edges, permanent 100000 probe gate, kg frame exhaustion/recovery, full runners | no language additions, arena increase or compatibility alias |
+| 04A | fe compat manifest/cases/snapshots, fe Makefile caps, Decision docs | version-stamped answers for the seventeen predicted cases, the measured layout spike, funded caps proved against the current tree | no implementation, no status flips, no kg edits |
+| 04B | fe symbol layout/accessors, arena arithmetic, one new test | byte-identical goldens, unchanged step pins, forced-GC survival of the dormant cell, re-verified arena boundary tests | no lookup change; no public API; no observable behaviour |
+| 04C | fe primitives/head-resolution helper/funcall-apply path, new scripts, compat flips for the additive family | all existing goldens and trace pins unedited, per-state GC coverage of any new resumable boundary, strict-arity pass byte-identical | no cut, no bootstrap move, no `#'` change, no kg source |
+| 04D | fe bootstrap/reader/writer/scripts/versions/fuzz | the two long-pinned snapshots flip to supported un-regenerated, 03A trace goldens byte-identical, full nine-stage fe runner | no kg pin, no kg source, no compatibility residue |
+| 04E | kg pin, prelude, hooks/process/functionp, both spelling parsers, tests, manifests, docs | 69 Lisp PTY cases unedited, the coexistence headline `(7 9)`, `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner | no PTY expectation edits, no oracle regeneration, no `internal--let` deletion |
 
 For all rows, current suite counts are a starting census, not literals to
-assert: 02E and 03A intentionally add cases.  Focused tests run while
-iterating; the full Fe runner closes the Fe workstream before the final pin,
-and kg's full parallel runner closes Phase 3.
+assert.  Focused tests run while iterating; the full Fe runner closes the
+Fe workstream at 04D, and kg's full parallel runner closes Phase 4 at 04E.
 
 ## Compatibility direction
 
@@ -152,85 +155,72 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 3 this cuts one specific way.  kg is the only host, so the
-`FeEvalOptions`/`FeArenaStats` field renames in 03F cost nothing to keep
-compatible and are worth a great deal: renaming a field whose *meaning*
-changed turns a silent behaviour difference into a compile error, and kg's
-`FE_API_VERSION` assertion is already positioned to catch it.  Keeping
-`max_depth` under a changed meaning would be the compatibility gesture, and
-it is the wrong one.
+For Phase 4 this cuts one specific way.  The transitional value-cell
+fallback (04C) is scaffolding inside the workstream, deleted by 04D
+before any pin a release could see; it is not a compatibility mode and
+must never grow a flag.  `FeDefineNative` keeps its name while its
+meaning changes — the `FE_API_VERSION` 2 → 3 bump plus kg's
+`static_assert` is the tripwire that turns the silent difference into a
+compile error, the same reasoning 03F applied to its field renames.  And
+the prelude cutover is atomic with the pin: there is no release in which
+kg's `defun` writes a value cell against a Lisp-2 fe, or vice versa.
 
 ## Sequencing
 
 ```text
-02E  residual Phase 2 debt (kg only, independent)
-
-
-03A  measure and decide ──> 03B  the fe.c split (pin moves)
-                                  │
-                                  v
-                             03C  frame substrate, GC rooting, leaf paths
-                                  │
-                                  v
-                             03D  call frames  ── pure call chain is flat
-                                  │
-                                  v
-                             03E  special forms, unwind, deletion ── full Lisp flat
-                                  │
-                                  v
-                             03F  two bounds, FE_API_VERSION 2, kg sources
+04A  pin the target and fund ──> 04B  symbol cells behind accessors (pin moves)
+                                      │
+                                      v
+                                 04C  the function namespace, additively (pin moves)
+                                      │
+                                      v
+                                 04D  the cut, fe-only ── fe workstream closes, NO pin
+                                      │
+                                      v
+                                 04E  the kg cutover ── pin + prelude + docs, one commit
 ```
 
-Strictly linear within Phase 3.  Every arrow is a real dependency: 03B
-lands a cut 03A's spike has already priced, 03C needs somewhere for the
-frame machine to grow, 03D consumes 03C's frames, 03E consumes 03D's, and
-03F must not define bounds for a half-built machine.
+Strictly linear, and nothing runs in parallel with it: every slice edits
+either the symbol representation or the things that read it.  Every arrow
+is a real dependency: 04B implements the layout 04A measured, 04C reads
+the cell 04B landed, 04D deletes the fallback 04C shipped behind, and 04E
+adapts kg to the contract 04D versioned.
 
-02E is the only thing that can proceed in parallel.  It is kg-only, touches
-nothing Phase 3 touches, and exists so that the program's largest slice
-does not start with an inherited to-do list attached to it.
-
-Every fe slice moves kg's pin in its own separate green kg commit (Rule
-10).  03B changes kg build rules, 03C may update the arena-layout source
-comment and documentation, and 03F is the only slice that changes kg's Fe
-API mirror, counters or runtime-facing expectations.
+The pin discipline differs mid-set, and deliberately: 04B and 04C move
+kg's pin in their own trivial green commits (Rule 10), 04D moves nothing,
+and 04E is the pin — the same two-halves shape 02C/02D used for the
+Phase 2 cut.
 
 ## What this set deliberately does not do
 
-- **No language behaviour change.**  Phase 3 is behaviour-neutral, and
-  every slice's correctness argument depends on that: existing goldens,
-  existing `test_api.c` expectations, existing PTY cases, unedited.  The
-  one exception is 03F, whose edits are bounded to the bound names, the
-  error strings, resource ceilings/statistics and field names.  “Neutral”
-  means successful programs retain values, side effects, ordering and
-  diagnostics below those explicit ceilings; it does not pretend a new
-  physical frame limit is unobservable.  If a `comparison: emacs` compat
-  case moves in any slice, that is a finding to record in the manifest with
-  an oracle case, not a golden to update.
-- **No second evaluator, and no evaluator mode switch.**  The parent plan
-  forbids a test-only recursive mode kept alive alongside the frame
-  machine, because it would duplicate every primitive and GC change made
-  while the phase is in flight.  A partially-migrated single evaluator is
-  a different thing, and the distinction is written into 03C.
-- **No condition system.**  03C introduces the five internal completion
-  kinds because the frame loop's shape depends on them, but throw, quit
-  and budget-exhaustion stay *internal and unreachable*.  Nothing about
-  them may appear in `fe.h`, in an error message, or in the compat
-  manifest — an unreachable enumerator in a private header is cheap, a
-  host-visible one is a promise.  Existing interrupt and step-limit failures
-  continue to travel as ordinary errors in Phase 3; they do not make the
-  future `quit`/`budget exhaustion` variants public or reachable yet.
-  Conditions are Phase 6.
-- **No Lisp-2, no integers.**  Phases 4 and 5.  03E may replace
-  `ARITH_OP`/`NUM_CMP_OP` only as required for resumable evaluation, while
-  preserving their per-operand type-check and extra-argument behaviour;
-  it must not pre-empt Phase 5's mixed-type arithmetic design.
-- **No third translation unit.**  03B extracts the evaluator and stops.
-  The reader stays in `fe.c` with its `'"'` literals and its scc desync;
-  after 03A the ratchet that matters for the core is blind to none of it.
-- **No arena-size change in kg.**  If `FeMinimumArenaSize()` growth makes
-  kg's 1 MiB uncomfortable, that is a finding to report with numbers, not a
-  constant to quietly raise.
+- **No condition system.**  `void-function`, `void-variable` and
+  `cyclic-function-indirection` are names carried in the
+  `FeHandleError()` message, not signalable conditions; no test or compat
+  case may assert a catchable condition object.  Conditions are Phase 6.
+- **No integers, no strict arity, no interactive arguments.**  Phases 5
+  and 7.  The new forms' arity behaviour is pinned by oracle cases, but
+  lambda arity itself stays as it is.
+- **No local function bindings.**  `flet`/`labels`-shaped forms are
+  deferred until there is a concrete need, per the parent's §8; call
+  position resolves through the *global* function cell, and a `let`
+  binding does not shadow it — that is the point.
+- **No `let`-into-core and no `internal--let` deletion.**  Phase 8
+  Wave A.  The parent plan's claim that Lisp-2 makes `internal--let`
+  unnecessary is wrong — the Emacs `let` macro and Fe's `let` primitive
+  now collide in the *function* namespace instead of the value namespace —
+  and 04A's Decision records the correction so 04E does not rediscover it
+  at run time.
+- **No compatibility residue.**  No value-cell fallback surviving 04D, no
+  `#'`-identity alias, no dual prelude, no migration lint for configs
+  that do not exist (§0.4).  Version numbers still move because they make
+  the Fe↔kg contract checkable.
+- **No Emacs macro representation.**  fe keeps `FeTMacro`; Emacs'
+  `(macro . FUNCTION)` cons is a recorded, tested representation
+  divergence, observable only through `symbol-function` of a macro.
+- **No arena-size change in kg.**  The +1-object-per-symbol cost is
+  measured against kg's recorded margins in 04A; if it ever looks
+  uncomfortable, that is a finding to report with numbers, not a constant
+  to quietly raise.
 
 ## Rules
 
@@ -320,7 +310,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | **Landed. Actual 0**, as predicted |
 | 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Landed. Actual +6, and scc could not see it.** No cap crossed, so no Decision. scc stayed at 214/220 through both slices; `pmccabe`'s `fe.c` sum went 340 -> 350 (02B) -> 356 (02C), which is the real number. Phase 2's code sits past `fe.c:1010`, where scc's parser desyncs -- see the Phase 2 Status below |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Next — and the unit is wrong.** The +42 is 00A's *reader* extraction; Phase 3 extracts the *evaluator*, which sits entirely below `fe.c:1010` and is therefore invisible to scc today. Expect a larger jump from un-blinding a bigger region, and expect it to be a blind spot being paid off rather than new complexity. 03A re-prices this from a spike of the real cut and settles the measurement unit before 03B lands |
-| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | Provisional (milestone 1) |
+| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Next.** Exceeds both fe gates' measured headroom (29 scc, 29 pmccabe); 04A re-prices against the real tree (`funcall`/`apply` are evaluator work, `RunEvaluationLoop` is at 14/22) and funds it with Phase 4's own Decision |
 | 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Comparable in shape to Phase 3's control-flow weight | **+70 to +100** | Provisional (milestone 2) |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; mostly small per-site additions | **+20 to +30** | Provisional (milestone 2) |
@@ -346,7 +336,7 @@ widest uncertainty in the whole table.
 | 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | **Landed. Actual −1** (5444 → 5443).  The estimate also assumed the 4 `(list 'quote nil)` workarounds would go; 01A left them, since removing them changes evaluated code and Phase 2 rewrites all four forms anyway |
 | 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Landed. Actual +1** (5443 -> 5444), the `static_assert` line; the estimate held. pmccabe unchanged at 1246 symbols, 0 new/gone/improved |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | **Next, and likely an overestimate.** 03F's kg-side inventory is two `static_assert`s, a field rename through `lisp.h`/`perf.h`/`lisp_core.c`, a test expectation and a bench label. Eleven Makefile sites (03B) are not scc-scanned. Expect ~0 |
-| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | Provisional (milestone 1) |
+| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Next, and likely an overestimate.** The audit found one C-side value-cell read (`lisp_hooks.c:resolve_hook_function`), `functionp` designators, a `lisp_process.c` alignment and two version asserts; 56 points of measured headroom, no raise expected |
 | 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+25 to +40** | Provisional (milestone 2) |
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+55 to +65** | Provisional (milestone 2) |
@@ -681,8 +671,9 @@ new probe test). The 20% split was a starting point, not a derived optimum.
 **03C's landed implementation retuned it to 8%** after accounting for the
 pending-error buffer and its object-headroom test; it also raised Fe's fixed
 API and standalone arenas to 1 MiB. The formula and table below remain this
-03A decision's provisional price model; [03C's status](03c-frame-substrate.md#status)
-records the implemented configuration.
+03A decision's provisional price model; 03C's Status records the
+implemented configuration (document removed on completion — see git
+history).
 
 **03D measured actuals and Decision revisit (2026-08-04, retune follow-up).**
 With the call frames landed, the draft's `sizeof(FeEvalFrame) = 80` is now 96
@@ -860,7 +851,8 @@ the wrapper, restoring exactly three frames per level and the exact
 `(deep 332)`/`(deep 333)` boundary — the margin this Decision's §1 promised
 is preserved, not merely re-measured after moving. Full derivation and the
 fix itself are in 03E's own Status section
-([03e-special-form-frames-and-unwind.md](03e-special-form-frames-and-unwind.md#status)).
+(`03e-special-form-frames-and-unwind.md`, removed on completion — see git
+history).
 
 **The `(deep 100000)` gate is not reached, and the reason is a wall this
 Decision never modeled: `GcStackSize`.**  §3 above prices the *frame*
@@ -1129,10 +1121,10 @@ closed by it; neither blocked it.  01A took its own "if in doubt" route on
 the workarounds — vestigial rather than wrong, and removing them changes
 evaluated code.
 
-**Phase 3 — the frame machine — is the next set, and it is the largest
-single risk in the program.**  Its seven documents (`02e`, `03a`–`03f`) are
-in this directory; the Grouping and Sequencing sections above describe
-them, and `03a` must land before any of the rest.
+**Phase 3 — the frame machine — was the next set, and it was the largest
+single risk in the program.**  Its seven documents (`02e`, `03a`–`03f`)
+were removed once the workstream closed; the Phase 3 Status below and the
+commits are the record.
 
 ## Status — Phase 3
 
@@ -1153,7 +1145,8 @@ independently cross-validated against the probe's own empirical
 above, measured and then deleted with no trace in either tree (`git
 log`/`git branch` confirmed clean on both).  Full detail, including
 what this slice's own document did not anticipate, is in `03a`'s own
-Status section (`03a-measure-and-fund-the-frame-machine.md`).  fe
+Status section (`03a-measure-and-fund-the-frame-machine.md`, removed on
+completion — see git history).  fe
 complexity: 214/420 total (was 214/220 — cap raised, actual unchanged),
 `fe.c` 106/240 file cap, pmccabe 500/630 total (was 500 with no total
 cap), 202 baselined symbols.  kg: unchanged at 5444/5500, no `src/*.c`
@@ -1264,8 +1257,7 @@ carved from the arena: `(deep 1021)` succeeds, `(deep 1022)` raises "GC
 stack overflow" once `max_depth` is raised far enough to matter, never
 under the default configuration).  Full detail, including the primitive
 evaluation-order regression table and the complete new-test inventory, is
-in `03e`'s own Status section
-([03e-special-form-frames-and-unwind.md](03e-special-form-frames-and-unwind.md#status)).
+in `03e`'s own Status section (removed on completion — see git history).
 fe complexity: scc 388/420 total (03D closed at 351), pmccabe 600/630 total
 across 231 symbols (03D closed at 566/221), max function complexity 14.
 Coverage 90.6% lines / 95.3% functions / 64.7% branches against the 80%
@@ -1400,4 +1392,6 @@ than measured.  The set's own lesson, earned five times: **a bound you did not
 derive is a bound that moves.**
 
 Phase 4 (Lisp-2 namespaces) may start; its price row assumes the frame
-machine exists, and it now does.
+machine exists, and it now does.  Its five documents (`04a`–`04e`) are in
+this directory; the Grouping and Sequencing sections above describe them,
+and `04a` must land before any of the rest.

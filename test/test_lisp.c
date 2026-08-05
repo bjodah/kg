@@ -1263,6 +1263,57 @@ static void test_buffer_point_sync(void)
 	teardown_editor();
 }
 
+/* lisp_finite() is the seam every numeric argument of a kg native crosses,
+ * and it used to hand the type check to FeToDouble, whose failure text is
+ * "expected double, got string" -- fe's own wording, naming neither Emacs'
+ * condition nor either of kg's two number types since 05D.  It now tags the
+ * operand itself and raises Emacs' wrong-type-argument, message-level for
+ * now (Phase 6 makes it a structured condition).  A NaN passes the tag test
+ * and is still refused on its value, with its own text; nothing about the
+ * accepted values moved. */
+static void test_numeric_argument_seam(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "one two", 7);
+	CHECK(kg_lisp_init() == 0);
+
+	/* Every native that reads a position or a count through the seam. */
+	CHECK(eval_error_contains("(goto-char \"x\")", "wrong-type-argument"));
+	CHECK(eval_error_contains("(goto-line \"x\")", "wrong-type-argument"));
+	CHECK(
+	    eval_error_contains("(forward-word \"x\")", "wrong-type-argument"));
+	CHECK(eval_error_contains(
+	    "(char-to-string \"x\")", "wrong-type-argument"));
+	CHECK(eval_error_contains(
+	    "(substring \"abcd\" \"1\" 2)", "wrong-type-argument"));
+	/* Not only strings: a symbol, a list, nil and an adapter object are
+	 * the same verdict, where each used to name a raw fe type tag. */
+	CHECK(eval_error_contains("(goto-char 'a)", "wrong-type-argument"));
+	CHECK(
+	    eval_error_contains("(goto-char (list 1))", "wrong-type-argument"));
+	CHECK(eval_error_contains("(goto-char nil)", "wrong-type-argument"));
+	CHECK(eval_error_contains(
+	    "(goto-char (make-marker))", "wrong-type-argument"));
+	/* The retired text is gone, not merely joined. */
+	CHECK(eval_error_contains("(goto-char \"x\")", "wrong-type-argument"));
+	CHECK(!eval_error_contains("(goto-char \"x\")", "expected double"));
+
+	/* A NaN keeps its own message, and an infinity still clamps rather
+	 * than raising -- both unchanged by the tag check in front. */
+	CHECK(
+	    eval_error_contains("(goto-char (- (/ 1.0 0) (/ 1.0 0)))", "NaN"));
+	CHECK(eval_ok("(goto-char (/ 1.0 0))"));
+
+	/* Both number tags are accepted, and an integer still widens. */
+	CHECK(eval_ok("(goto-char 3)"));
+	CHECK(eval_eq("(point)", "3"));
+	CHECK(eval_ok("(goto-char 5.0)"));
+	CHECK(eval_eq("(point)", "5"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Point is a property of the buffer, not of the frame that happens to be
  * looking at it: (goto-char N), set-buffer away to a hidden buffer and
  * straight back within the same frame, must still see N.  Native-test
@@ -2190,6 +2241,15 @@ static void test_list_library(void)
 	CHECK(eval_eq("(equal (list 1) 1)", "nil"));
 	CHECK(eval_eq("(equal \"ab\" \"ab\")", "t"));
 	CHECK(eval_eq("(equal nil nil)", "t"));
+	/* 05E replaced the fe-native `is` tail with an eql leaf rule, so a
+	 * number leaf agrees only when it is the same type *and* the same
+	 * value: (equal 1 1.0) is nil, where `is` said t.  Emacs 31.0.90
+	 * answers the same, and test/lisp-compat's equal-number-leaves pins
+	 * it against a snapshot of that. */
+	CHECK(eval_eq("(equal 1 1.0)", "nil"));
+	CHECK(eval_eq("(equal 1.0 1.0)", "t"));
+	CHECK(eval_eq("(equal 1 1)", "t"));
+	CHECK(eval_eq("(equal (list 1) (list 1.0))", "nil"));
 	CHECK(eval_eq("(eq 'a 'a)", "t"));
 	CHECK(eval_eq("(null nil)", "t"));
 	CHECK(eval_eq("(1+ 1)", "2"));
@@ -2285,6 +2345,64 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(listp 1)", "nil"));
 	CHECK(eval_error_contains("(stringp)", "too few arguments"));
 	CHECK(eval_error_contains("(type-of 1 2)", "too many arguments"));
+
+	kg_lisp_shutdown();
+}
+
+/* The fe-side numeric corrections kg's Phase 5 review put on the pin,
+ * asserted through kg's own Lisp because kg is where some of them are
+ * reachable at all: kg links core fe *without* Fex, so the `floor`,
+ * `ceiling`, `round` and `truncate` running here are fe's own, where the
+ * standalone fe interpreter's are Fex's shadowing definitions.  A NaN
+ * operand used to reach an out-of-range double-to-int64 conversion on
+ * exactly this path -- undefined behaviour observable only from a host
+ * like kg -- so these cases are the evidence for that fix, not a
+ * duplicate of fe's suite.  Every comparator expectation below was run
+ * against Emacs 31.0.90, which answers the same. */
+static void test_numeric_core_error_rules(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* Rounding: a NaN operand, and a zero divisor in the two-argument
+	 * form, are arith-error rather than a UB conversion or a silent
+	 * value.  The NaN is spelled (/ 0.0 0) because (/ 0 0) is integer
+	 * division and raises before the rounding native ever runs. */
+	CHECK(eval_error_contains("(floor (/ 0.0 0))", "arith-error"));
+	CHECK(eval_error_contains("(ceiling (/ 0.0 0))", "arith-error"));
+	CHECK(eval_error_contains("(round (/ 0.0 0))", "arith-error"));
+	CHECK(eval_error_contains("(truncate (/ 0.0 0))", "arith-error"));
+	CHECK(eval_error_contains("(floor 0 0)", "arith-error"));
+	CHECK(eval_error_contains("(round 0 0)", "arith-error"));
+	/* Contained, not merely quiet: the ordinary answers are unchanged
+	 * and the interpreter is still usable afterwards. */
+	CHECK(eval_eq("(floor 3.7)", "3"));
+	CHECK(eval_eq("(floor 7 2)", "3"));
+	CHECK(eval_eq("(ceiling 3.2)", "4"));
+	CHECK(eval_eq("(round 3.5)", "4"));
+
+	/* One operand is t with no type check at all -- Emacs' pair loop has
+	 * no pair to run, so it never asks what the operand is. */
+	CHECK(eval_eq("(= \"a\")", "t"));
+	CHECK(eval_eq("(< t)", "t"));
+	CHECK(eval_eq("(= 3)", "t"));
+	/* A chain stops at the first false pair, so an operand past a
+	 * settled answer is never type-checked; one that is still reachable
+	 * is.  Both operand forms were evaluated before either arm ran, so
+	 * short-circuiting erases no side effect. */
+	CHECK(eval_eq("(< 2 1 \"a\")", "nil"));
+	CHECK(eval_error_contains("(< 1 2 \"a\")", "wrong-type-argument"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* `is` is fe's own broad comparator, not an Emacs form: it regained
+	 * its epsilon tolerance across the two number tags, where `eql` --
+	 * which is what `equal`'s leaves use -- stays type-honest. */
+	CHECK(eval_eq("(is 1 1.0)", "t"));
+	CHECK(eval_eq("(eql 1 1.0)", "nil"));
+
+	/* The reader wants an explicit sign in a nonfinite exponent, so this
+	 * is a symbol again rather than a number. */
+	CHECK(eval_eq("(type-of '1eINF)", "symbol"));
+	CHECK(eval_eq("(type-of '1.0e+INF)", "double"));
 
 	kg_lisp_shutdown();
 }
@@ -2531,10 +2649,10 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1098, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * 1097, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
  * frames per recursion level for this chain's shape (`if`, `+`, and the
  * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1098-frame arena, more than 2700x
+ * roughly 3 million frames against a 1097-frame arena, more than 2700x
  * over capacity -- demonstrably above it without depending on the private
  * Fe frame-size struct or reverse-engineering the arena layout, only on
  * the public frame_capacity/peak_frame_depth counters this file already
@@ -3058,6 +3176,7 @@ int main(void)
 	RUN(test_kill_buffer);
 	RUN(test_buffer_stale_slot);
 	RUN(test_buffer_point_sync);
+	RUN(test_numeric_argument_seam);
 	RUN(test_point_survives_set_buffer);
 	RUN(test_hidden_buffer_point_persists_across_frames);
 	RUN(test_frame_entry_overwrites_from_window_cursor);
@@ -3091,6 +3210,7 @@ int main(void)
 	RUN(test_elisp_if);
 	RUN(test_list_library);
 	RUN(test_type_predicates);
+	RUN(test_numeric_core_error_rules);
 	RUN(test_binding_forms);
 	RUN(test_definition_forms);
 	RUN(test_quasiquote);

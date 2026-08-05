@@ -1,0 +1,6 @@
+{
+ "id": "format-integer-through-float-spec",
+ "setup": [],
+ "expr": "(format \"%e\" 42)",
+ "note": "05E widened format's %e/%f/%g gate from one number tag to two, so an integer argument reaches C's float conversion by widening through FeToDouble -- which is what Emacs does. Pinned against Emacs because the claim 05E made was an Emacs-agreement claim, not a kg-policy one."
+}

@@ -644,7 +644,7 @@
   "src/lisp_buffer.c:lisp_exec_goto_line": 3,
   "src/lisp_buffer.c:lisp_exec_point_byte": 2,
   "src/lisp_buffer.c:lisp_exec_point_char": 1,
-  "src/lisp_buffer.c:lisp_finite": 2,
+  "src/lisp_buffer.c:lisp_finite": 4,
   "src/lisp_buffer.c:lisp_offset_argument": 3,
   "src/lisp_buffer.c:lisp_optional_count": 5,
   "src/lisp_buffer.c:lisp_optional_offset": 3,

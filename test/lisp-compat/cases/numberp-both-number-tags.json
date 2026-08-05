@@ -1,0 +1,6 @@
+{
+ "id": "numberp-both-number-tags",
+ "setup": [],
+ "expr": "(list (numberp 1.5) (numberp 1) (numberp \"1\"))",
+ "note": "05E gave kg two number tags, so numberp has to answer t for both and nil for a string that merely looks like one. The float arm is the half native-numberp's own case does not reach; a numeric-looking string is the negative that shows numberp is not parsing."
+}

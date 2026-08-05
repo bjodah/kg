@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 52 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 42 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 52 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 49 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -954,15 +954,54 @@
   {
    "id": "native-type-of",
    "category": "values-and-equality",
-   "status": "supported",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "native-type-of"
    ],
    "kg_test": "test/test_lisp.c:test_type_predicates",
-   "rationale": "05E's numeric cut closes the number gap: `(type-of 1)` reads fe's type_names[], which spells the new integer tag 'integer', matching the pinned Emacs snapshot. The rest of kg's vocabulary is still kg's own ('pair' not 'cons, 'nil' for nil, fe's callable kinds), but this case only ever pinned the number spelling, so it moves to supported with the integer cut.",
+   "rationale": "Half of the number gap closed at 05E and half did not, so this stays divergent. `(type-of 1)` now reads fe's type_names[] entry for the new integer tag and answers `integer`, matching the pinned Emacs snapshot -- that is the case this entry's expr pins. But `(type-of 1.0)` answers `double` where Emacs answers `float`, and a float spelling is a number spelling, so calling the number gap closed was wrong: fe deliberately did not rename the type (the message ripple through fe's own errors, docs and manifest was out of scope for 05C-05E, recorded fe-side too). The rest of kg's vocabulary is likewise its own: `pair` for Emacs' `cons`, `nil` for nil's `symbol`, fe's callable kinds (`lambda`, `primitive`, `native-fn`, `macro`) for Emacs' `function`/`subr`, and a process wrapper answering the raw `fex0` tag.",
    "source_name": "type-of"
+  },
+  {
+   "id": "format-integer-through-float-spec",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "format-integer-through-float-spec"
+   ],
+   "kg_test": "test/test_lisp.c:test_format_natives",
+   "rationale": null,
+   "source_name": null
+  },
+  {
+   "id": "numberp-both-number-tags",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "numberp-both-number-tags"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": null,
+   "source_name": null
+  },
+  {
+   "id": "equal-number-leaves",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "equal-number-leaves"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": null,
+   "source_name": null
   },
   {
    "id": "native-stringp",

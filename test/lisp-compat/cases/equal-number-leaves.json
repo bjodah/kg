@@ -1,0 +1,6 @@
+{
+ "id": "equal-number-leaves",
+ "setup": [],
+ "expr": "(list (equal 1 1.0) (equal 1.0 1.0) (equal \"ab\" \"ab\"))",
+ "note": "05E replaced equal's fe-native `is` tail with an eql leaf rule, so a number leaf is equal only when it is the same type and the same value -- (equal 1 1.0) is nil, where fe's `is` said t. The string leaf rides along to show the tail did not become bare eq."
+}

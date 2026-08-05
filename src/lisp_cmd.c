@@ -30,8 +30,13 @@ static const char *lisp_type_name(FeContext *context, FeObject *object)
 }
 
 /* (type-of OBJECT): the type as a symbol, spelled the way Fe's printer
- * spells it: pair, nil, double, symbol, string, lambda, macro, primitive
- * or native-fn. */
+ * spells it -- pair, nil, integer, double, symbol, string, lambda, macro,
+ * primitive or native-fn -- or one of the two names lisp_type_name() adds
+ * above for an adapter-owned object, buffer and marker.  Only `integer`
+ * agrees with Emacs; `double` is Emacs' `float`, `pair` its `cons`, and
+ * `nil` its `symbol` (test/lisp-compat/features.json's native-type-of
+ * records the gap).  A process wrapper is the one adapter object with no
+ * name of its own, so it still answers fe's raw `fex0` tag. */
 FeObject *native_type_of(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);

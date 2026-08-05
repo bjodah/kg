@@ -113,10 +113,24 @@ void lisp_exec_goto_char(const struct editor_buffer *b, long off)
 	    lisp_exec_point_marker(), lisp_byte_of_char_offset(b, off));
 }
 
+/* The one seam every numeric argument of a kg native crosses.  It asks
+ * the type itself rather than letting FeToDouble do it, because fe's own
+ * failure text is "expected double, got string" -- a Fe implementation
+ * detail that names neither Emacs' condition nor, since 05D, either of
+ * kg's two number types.  Both tags are accepted (an integer widens the
+ * way FeToDouble widens it); anything else is Emacs' wrong-type-argument,
+ * spelled message-level here exactly as fe's own numeric family spells
+ * it, and made a structured condition by Phase 6.  A NaN passes the tag
+ * test and is rejected on its value instead, keeping its own text. */
 FeDouble lisp_finite(FeContext *context, FeObject *object)
 {
-	FeDouble value = FeToDouble(context, object);
+	FeType type = FeGetType(object);
+	FeDouble value;
 
+	if (type != FeTDouble && type != FeTInteger) {
+		FeHandleError(context, "wrong-type-argument");
+	}
+	value = FeToDouble(context, object);
 	if (value != value) {
 		FeHandleError(context, "argument must not be NaN");
 	}

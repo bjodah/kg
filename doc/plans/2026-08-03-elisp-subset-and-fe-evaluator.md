@@ -1107,6 +1107,49 @@ problem that motivated them.  This phase's first task is to read it and
 record where the shipped `unwind-protect` took a narrower shape than the
 design assumed; its last is to update it in place.
 
+> **Read and reconciled 2026-08-05 by sub-plan 06A** (the set README's
+> Status records the Decisions).  Four facts this section and its design
+> doc named as open work are already half-built, and one design-doc claim
+> about the oracle was wrong:
+>
+> - **The completion kinds already exist.**  `FeCompletion`
+>   (`fe_internal.h:371`) declares all five; only `Normal` and `Error` are
+>   ever assigned, and the enum today is a one-bit "draining?" flag read at
+>   `AllocateFrame`'s `CleanupFrameReserve` gate (`fe_eval.c:656`).  Phase 6
+>   makes the other three values true; it does not add the enum, and the
+>   reserve gate silently widens to them the moment they are assigned (a
+>   live coupling 06B asserts rather than leaves accidental).
+> - **The checkpointed cleanup drain already exists.**  `RunCleanupsDownTo`
+>   (`fe_eval.c:132`) is live and called by every completing pair frame;
+>   only the drain-to-zero `RunCleanupsAfterError` is what a `catch` frame
+>   has to displace (06C).  The design doc's "this has to change" paragraph
+>   was half-built.
+> - **The design doc's "Emacs discards" claim is false.**  Measured against
+>   the pinned Emacs 31.0.90, a raising cleanup's error *replaces* the
+>   in-flight one (`(condition-case e (unwind-protect (error "orig") (error
+>   "cleanup")) (error e))` → `(error cleanup)`), and a cleanup's `throw`
+>   likewise wins.  06A Decision 4 settles the policy as match-Emacs and
+>   06D implements it, rewriting fe's current third behaviour (stderr print,
+>   keep the original) and the three `test_api.c` assertions that pin it.
+> - **Phase 5's residue:** `arith-error` and int64-overflow joined the
+>   message-level condition names (`num-div-zero`, `num-overflow-bignum`);
+>   the "names carried in the message, not signalable symbols" rule below
+>   already covers them, and 06A records them in the design doc.
+> - **Two names in the Conditions list below have zero producers today.**
+>   `args-out-of-range` and `file-error` have no fe raise site (the
+>   2026-08-05 census: 27 condition-named sites across 8 names, 70 bare
+>   prose).  They enter the static hierarchy anyway — kg's `substring`/file
+>   natives are their eventual producers — but no fe test can exercise them
+>   until a producer exists, and the 06A cond-* corpus does not pretend
+>   otherwise.
+> - **Two scope guards for the wiring.**  A Lisp-callable `signal`/`error`
+>   cannot be an ordinary native: `FeHandleError` never returns, so the
+>   raise *is* the primitive's behaviour — they are evaluate-arguments-
+>   then-raise forms (06D).  And `(/ 1.0 0)` is `1.0e+INF` in Emacs, not
+>   `arith-error` — Phase 5 already matches, and Phase 6 must not "improve"
+>   float division into an error while making `arith-error` a real
+>   condition.
+
 ### Completion representation
 
 Use explicit completion kinds:
@@ -1147,11 +1190,26 @@ Initial conditions should include:
 * evaluator-stack exhaustion;
 * arena exhaustion.
 
+**06A's census:** `args-out-of-range` and `file-error` are in this list but
+have no fe raise site today — they enter the static hierarchy anyway (kg's
+`substring`/file natives are their eventual producers), and no fe test can
+exercise them until a producer exists.  The evaluator-stack and arena
+exhaustion conditions are fe's own residents, spelled
+`evaluation-stack-exhaustion` and `arena-exhaustion` per 06A Decision 1,
+rather than Emacs' nearest analogues.
+
 Add:
 
 * `signal`;
 * `error`;
 * `condition-case`.
+
+**06A:** `signal` and `error` are not ordinary natives — `FeHandleError`
+never returns, so the raise *is* the primitive's behaviour, an
+evaluate-arguments-then-raise form spelled as an EvalList-shaped arm whose
+completion never delivers (06D).  `condition-case` is a special form whose
+handlers reuse 06C's catch machinery; `:success` handlers and `handler-bind`
+are recorded exclusions with their measured Emacs answers.
 
 ### Catch and throw
 
@@ -1161,6 +1219,14 @@ Implement:
 * `throw`.
 
 Tags compare according to Emacs semantics, fixed by differential cases.
+**06A pinned the rule as `eq`, not `eql`/`equal`** (the `cond-ct5-*`
+oracle rows): an equal fixnum matches, floats and strings do not, a shared
+cons matches while two fresh conses do not — Phase 5's integer `eq` is
+load-bearing.  The native re-entry boundary stays a wall: a throw finds no
+catch below the current run's `base`, raises `no-catch` in that run, and
+its containment follows the ordinary nested-error rules — a recorded
+divergence (06C), because C activations between a nested run and an outer
+catch are live.
 
 ### Quit and budget behavior
 

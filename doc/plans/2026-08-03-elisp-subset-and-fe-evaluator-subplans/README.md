@@ -375,7 +375,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Landed.** Actual **+177 scc / +101 pmccabe** (214 → 391, 500 → 601) — the scc overshoot is exactly the blind-spot payoff the row predicted (the evaluator sat below `fe.c:1010`'s desync and was un-blinded by 03B's split; +72 of the +177 is the measured split tax), while pmccabe — the unit 03A established as authoritative — landed inside the substance estimate. Caps raised by 03A's Decision: scc 220→420, file 112→240, pmccabe 500→630 |
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
 | 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Landed, and over its funding at the top of the raise.** Funded by 05A's Decision (scc 480→540, file 300→340, pmccabe 690→760).  Actuals across 05B–05D: scc 459→**538**, `fe_eval.c` 276→**330**, pmccabe 660→**752** (+79/+92 — scc went 19 points past the funded amount, pmccabe 22 past, and the caps now sit at **2/10/8 points from full**).  Per slice: 05B +1/+3 (the "nearly free" prediction held), 05C the tower's bulk +70/+58, 05D +8/+31.  The row's mid was a floor, not an estimate.  **kg needs no raise**: 5457/5500 at 05E close (+7), pmccabe +1 on each of `format_integer`, `format_float`, `native_numberp` — banked into the baseline in 05E's commit |
-| 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Next** — **cannot land inside current caps**; the core has 2 scc / 8 pmccabe / 10 file-cap points free. Phase 6's 06A must raise all three fe caps — `SCC_COMPLEXITY_MAX` (the tightest, at 2 points), `PMCCABE_TOTAL_MAX` and the `fe_eval.c` file cap — first, funded by name, before any implementation |
+| 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Funded by 06A's Decision** (2026-08-05) — **cannot land before it**, and no longer before anything: the core was at 2 scc / 8 pmccabe / 10 file-cap points free, and 06A raised all three caps by the top of the row — `SCC_COMPLEXITY_MAX` 540→**680** (the tightest, at 2 points, which the price table's own instruction forgot to name), `SCC_FILE_COMPLEXITY_MAX` 340→**420**, `PMCCABE_TOTAL_MAX` 760→**900** — proved live by temporary lowering on 06A's tree. The measured starting state the raise is anchored to is 533/540, `fe_eval.c` 326/340, pmccabe 751/760; the 06B–06D actuals are recorded per slice in the Status section as they land |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms (the arithmetic cost rate) | **+30 to +45** (re-priced 2026-08-05) | Provisional (milestone 2) — like 6, needs the cap raise 06A (or its own 07A) must make; the lower end still exceeds today's headroom |
 | 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | Phase 4's *measured* +59 pmccabe for nine primitives plus a namespace cut, against ~8 core special forms plus reader work | **+50 to +80** (re-priced 2026-08-05) | Provisional (milestone 2) — Wave A alone is the size of Phase 4; the row's old top was a floor. Needs the 06A/08A raise before it |
 | 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase | **+30 to +50** (re-priced 2026-08-05) | Provisional (milestone 2) |
@@ -1331,6 +1331,178 @@ plan's Phase 5 section and the set README's earlier claims:
   `(+)`→0, `(*)`→1, `(-)`→0, `(/)`→error).  The parent's `(= 3 2)`/
   `(setq x 3)` acceptance cases pass today.
 
+## Decision — Phase 6's completion target, pinned and funded (06A, 2026-08-05)
+
+Taken 2026-08-05, closing sub-plan 06A.  Re-measured at slice start per
+Rule 6: fe scc **533/540** (`fe_eval.c` **326/340**, `fe.c` 96) and pmccabe
+**751/760 across 263 symbols**, worst function 14; kg **5461/5500** (39
+points of headroom).  All three fe gates sit within a row re-priced **+80 to
++120** (anchored to Phase 3's *measured* +101 pmccabe as the closest
+control-flow comparable, the condition hierarchy having no predecessor), so
+the funding Decision comes first, for the fifth time -- and it names all
+three caps, including the scc total the price table's own instruction
+forgot, which is the *tightest* at 2 points free.
+
+### The corpus: the measured answer table, frozen
+
+39 `cond-*` case files plus version-stamped Emacs 31.0.90 snapshots landed
+as `planned` in `fe/compat/`, one per load-bearing measurement of the
+audit's answer table (CC1-CC11, CT1-CT7, S1-S4, U1-U3, Q1, H1-H2, plus the
+three data-shape rows), the multi-measurement rows expanded to one case
+each (CC10's three quit-catchability answers, CT5's four tag-`eq` answers,
+U1's three paths), and every rationale naming Phase 6 and the implementing
+slice.  `make -C fe compat` is green: **181 case(s), 119 passed, 62 known
+gap(s), 0 failed**, the new `cond-*` entries replaying as gaps against the
+featureless fe exactly as designed (one "agrees early": `cond-q1`'s
+`void-function error` message contains the oracle's condition name).
+`make -C fe compat-oracle` wrote the 39 new snapshots and nothing else --
+**174 unchanged, 0 failed** -- the "new snapshots only" gate.  **No
+prediction was corrected by the oracle**; snapshot generation confirmed the
+audited table.  The one spelling worth recording: CC2's pinned answer is
+`(error "boom")` -- the table's `(error boom)` shorthand dropped the string
+quotes, and the case note says so.
+
+### Decision 1 — the condition object and the static hierarchy
+
+A condition is the cons `(SYMBOL . DATA-LIST)` constructed at signal time
+-- the shape fe already almost spells in its message text -- pinned by the
+`condition-object` data rows (`(car 5)` → `(wrong-type-argument listp 5)`,
+`(/ 1 0)` → `(arith-error)` with no data, `(error "fmt %d" 7)` →
+`(error "fmt 7")` formatted at signal time).  The hierarchy is a **static
+table in fe** (parent: "without requiring general symbol properties"): an
+array mapping condition symbol → parent chain, initialised at bootstrap
+with the parent's initial list (`error`, `wrong-type-argument`,
+`wrong-number-of-arguments`, `void-variable`, `void-function`,
+`args-out-of-range`, `arith-error`, `file-error`) plus fe's own residents
+(`cyclic-function-indirection`, `invalid-function`, `no-catch`) and the two
+resource conditions the parent names: `evaluation-stack-exhaustion` and
+`arena-exhaustion` (Emacs' nearest analogues are `excessive-lisp-nesting` and
+nothing).  Every chain is depth ≤ 2
+(`X → error`); Emacs' one deeper chain (`overflow-error → range-error →
+arith-error`) is out of scope until a producer needs it.  `quit`/`budget`
+do **not** appear -- they are completion kinds, not signalable symbols, and
+`(signal 'quit nil)` constructs an ordinary *condition* named `quit` (the
+real C-g path is a distinct completion).  **Where the table lives is the
+open question, to be measured rather than asserted**: `fe.c` bootstrap vs a
+new `fe_cond.c` -- §0.2's split precedent (03B: +72 scc, pmccabe conserved)
+says the split tax is real, and the scc raise above absorbs it if the
+choice lands that way; 06D decides with a measurement, per this slice's
+funding note.
+
+### Decision 2 — what `FeHandleError`'s 97 sites become
+
+The census: 27 sites already spell an Emacs condition name at the head of
+their message (9 `wrong-number-of-arguments`, 9 `arith-error`, 5
+`wrong-type-argument`, 3 `void-function`, …); 70 are bare prose; 2 are
+computed (`CheckType`'s `expected %s, got %s`).  The condition-named sites
+become structured signals of that condition; the prose sites become
+`(error "prose")` -- Emacs' own shape for `(error "…")` -- with **no mass
+rewording** (§0.4 has no legacy constituency, but 30 goldens and 109 kg
+test assertions pin the prose; the message *text* survives as the
+condition's rendered form through the existing label/offset formatter every
+golden embeds).  `CheckType` becomes a `wrong-type-argument` producer.
+kg's 112 raise sites stay prose-`error` in Phase 6 -- they gain nothing
+from classification until kg Lisp can catch (06E) -- recorded in TODO, not
+in scope.
+
+### Decision 3 — condition-case scope
+
+Handlers by symbol, by list, and `t`; nil and non-nil `var`; the handler
+body as an implicit progn; unmatched re-signal; and quit catchable only by
+name or `t`, never by `error` (the measured Emacs rule, pinned by the
+`cond-cc10*` rows).  **`:success` (CC11) is deliberately deferred** --
+recorded as a divergence row with its measured answer `(succ 5)`: it is new
+in Emacs 24.1+ and nothing in kg's target init-file corpus uses it (verify
+against Phase 8's wave list before recording it as anything else).
+`(debug error)` handler specs are accepted and treated as `error` (Emacs
+semantics without a debugger).  `ignore-errors` joins the kg prelude in
+06E, not fe.
+
+### Decision 4 — the cleanup-raise policy
+
+Three candidate behaviours were on the table: fe today (print to stderr and
+continue with the original), the design doc's claim (discard silently),
+Emacs (the new error replaces).  **Match Emacs -- the new error replaces the
+in-flight completion**, because the phase's whole point is that handlers can
+rely on Emacs semantics, and the divergence is observable from Lisp
+(`condition-case` around a failing cleanup).  The oracle is pinned by
+`cond-u2`: `(error "cleanup")` wins over `(error "orig")`, and a cleanup's
+`throw` likewise wins over an in-flight throw.  The design doc's "Emacs
+discards" claim is false (measured), and `fe/doc/unwind-design.md` is
+corrected in this slice.  06D rewrites the three `test_api.c` stderr
+assertions (the `CHECK(strstr(captured, "cleanup error") ...)` family,
+`:3086/:3155/:3204`) and `error_fn`'s never-sees-cleanup-failures contract
+with it.  `cond-u3` pins the ordering half: nested unwind-protect runs
+innermost-first.
+
+### Decision 5 — the host API and the standalone channel
+
+The additive host surface (the parent requires a migration path): keep
+`FeErrorFn` as-is for existing hosts; add `FeGetCompletion(ctx)` +
+`FeGetCondition(ctx)` (kind + condition object valid for the duration of
+the callback), so kg's `handle_error` upgrades by reading, not by re-signing.
+Quit and budget reach the host as distinct kinds and are **not** catchable
+by `condition-case`-by-`error`.  The standalone `fe` binary needs a
+structured error channel for the compat runner: today `run-fe-compat.py`
+derives "condition" purely from the exit code and greps the message
+(`condition_source: "message"`); 06D gives the binary a way to print the
+condition symbol so `condition_source` becomes `"structured"` and
+`planned-quit-signal`'s checked-in `{"kind": "quit"}` oracle becomes
+matchable.  The exact printing contract is decided in 06D so the runner and
+the binary move together.
+
+### The funded caps
+
+Measured at slice start (above): fe scc 533/540 with `fe_eval.c` at
+326/340, pmccabe 751/760 across 263 symbols.  The row prices **+80 to
++120**, anchored to Phase 3's measured +101 control-flow weight, so
+`fe/Makefile` raises all three by the top of that range, funding 06B-06D by
+name: **`SCC_COMPLEXITY_MAX` 540 → 680**, **`SCC_FILE_COMPLEXITY_MAX` 340 →
+420** (funding `fe_eval.c`, at 326 today, where the catch frame, the
+handler arms and the raise-site cut land), and **`PMCCABE_TOTAL_MAX` 760 →
+900** -- pmccabe remains the authoritative unit for the core per 03A's
+Decision; both units are priced and reported anyway.  The gates were proved
+live against the raised values with the 03A/05A temporary-lowering trick,
+run on this slice's tree:
+`SCC_COMPLEXITY_MAX=532` fails on 533, `SCC_FILE_COMPLEXITY_MAX=325` fails
+on `fe_eval.c`'s 326, `PMCCABE_TOTAL_MAX=750` fails on 751 ("total
+complexity 751 exceeds funded budget 750 (+1)"), and `make pmccabe-baseline`
+refuses to launder the over-budget tree (exit 2, `.ci/pmccabe-baseline.json`
+untouched); the raised caps pass (533/680 scc, 326/420 file, 751/900
+pmccabe).  The per-symbol pmccabe baseline is untouched (this slice adds no
+code).  **kg needs no raise**: 5461/5500 re-measured, 39 points of headroom
+against a +15 to +30 row, and this slice adds no `src/*.c` to either tree.
+
+### Parent-plan and design-doc corrections (recorded)
+
+The six-item corrections list from the phase doc, verified against the
+audited tree and the pinned Emacs 31.0.90: `fe/doc/unwind-design.md`'s
+"Emacs discards" claim is false (Decision 4's oracle); the completion enum
+already exists three-fifths dead (`FeCompletion`, `fe_internal.h:371`) and
+the `CleanupFrameReserve` gate (`fe_eval.c:656`) is a live coupling 06B
+asserts rather than leaves accidental; the checkpointed drain
+`RunCleanupsDownTo` (`fe_eval.c:132`) already exists and 06C unwinds on it;
+`args-out-of-range` and `file-error` have zero producers today and enter
+the static hierarchy anyway (no fe test can exercise them until a producer
+exists); a Lisp-callable `signal`/`error` cannot be an ordinary native (the
+raise *is* the primitive's behaviour -- an evaluate-then-raise form); and
+`(/ 1.0 0)` is `1.0e+INF`, not `arith-error` -- Phase 5 already matches and
+the phase must not "improve" float division while wiring `arith-error` up
+as a real condition.  Both the parent plan's Phase 6 section and the design
+doc are corrected in this slice; the design doc also records Phase 5's
+residue for the first time (`arith-error` and int64-overflow at message
+level) and points its token/cancel cleanup registry (order-of-work item 2)
+at Phase 9's robustness scope.  The existing `errors-and-non-local-exits`
+rows were audited: `signal-and-quit`'s rationale already names Phase 6 and
+stays `planned` until 06D; `void-function-error`'s
+`condition_source: "message"` note is the thing 06D upgrades to
+`"structured"`.  **Feature-name noncollision re-verified at slice start**:
+the five names Phase 6 adds (`catch`, `throw`, `condition-case`, `signal`,
+`error`) collide with no kg native, no kg prelude definition, and no
+manifest id on either side -- the disjointness checker is the tripwire at
+the eventual pin, and this verification is recorded here per the phase
+doc.  kg: **nothing** -- no pin, no source.
+
 ## Status
 
 **00A complete, 2026-08-04.** All four deliverables land: the price table
@@ -2267,3 +2439,29 @@ enough — every behaviour a comment attributes to Emacs must have an
 oracle case, because two of the four semantic defects lived in
 comments confidently asserting the opposite of a measurement no one
 had made.**
+
+## Status — Phase 6 (06A)
+
+**06A complete, 2026-08-05.**  The completion target is pinned and the
+phase is funded; no behaviour changed.  The audit's answer table landed as
+**39 `planned` `cond-*` cases with fresh Emacs 31.0.90 snapshots** in
+`fe/compat/` (the multi-measurement rows CC10/CT5/U1 expanded to one case
+per answer, plus the three data-shape rows), every rationale naming Phase 6
+and its implementing slice, and `make -C fe compat` is green (**181 cases,
+119 passed, 62 known gaps, 0 failed**) with `compat-oracle` writing the 39
+new snapshots and changing no existing one (**174 unchanged**).  The five
+Decisions -- the condition object and static hierarchy, the fate of
+`FeHandleError`'s 97 sites, condition-case scope with `:success` deferred,
+the cleanup-raise policy as match-Emacs, and the host API / structured
+channel -- and the funding Decision are recorded in the Decision section
+above, with the three-cap raise **540 → 680 / 340 → 420 / 760 → 900** proved
+live by the temporary-lowering trick on this slice's tree.  `fe/doc/
+unwind-design.md` is corrected (the false "Emacs discards" claim, the
+half-built enum and checkpointed drain, Phase 5's message-level residue,
+the token/cancel registry pointer at Phase 9), and the parent plan's Phase
+6 section carries the 06A reconciliation block.  `make -C fe check` (three
+passes, goldens byte-identical), `complexity-check` and `pmccabe-check` at
+the new caps, `format-check` and `compat` are all green.  The existing
+`errors-and-non-local-exits` rows stay as they are (`signal-and-quit`
+`planned` until 06D, `void-function-error`'s message-source note the thing
+06D upgrades).  Sub-plan 06B may start.

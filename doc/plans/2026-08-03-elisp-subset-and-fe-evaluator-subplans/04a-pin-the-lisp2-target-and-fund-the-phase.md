@@ -34,8 +34,9 @@ At the end of this slice, before one line of namespace logic exists:
 5. A dated **Decision** in the set README funds the phase in both trees,
    re-measured per Rule 6.
 
-No behaviour changes anywhere.  Every new manifest entry is `planned`;
-every existing `divergent` entry stays divergent.
+No behaviour changes anywhere.  Every new Emacs-comparison manifest entry is
+`planned`; the one new `kg-policy` macro-representation entry is deliberately
+`divergent`.  Every existing `divergent` entry stays divergent.
 
 ## Files this slice owns
 
@@ -87,6 +88,25 @@ the target**: `one-namespace-boundp` (`(boundp 'car)` → `nil`) and
 `reader-sharp-quote-identity` (`(quote #'car)` → printed `#'car`).  Do not
 touch them here; 04D flips them.  kg's own `one-namespace-clobber` and
 `prelude-function` entries flip in 04E.
+
+**Corpus outcome (recorded here; the manifest, cases and snapshots landed
+with this slice's tree).**  Every one of the seventeen predicted answers
+held against the version-stamped Emacs 31.0.90 (`... of 2026-07-09`)
+snapshots now checked in under `fe/compat/oracle/`: the headline
+`lisp2-value-function-coexist` → `(7 9)`, `lisp2-apply-spread` → `10`,
+`lisp2-fboundp-primitive` → `t`, `lisp2-funcall-designator` → `9`,
+`lisp2-defalias-symbol` → `1` with `lisp2-defalias-return-value` → `first`
+(defalias's own return value), the two `void-function` messages and
+`void-variable car` recorded as structured oracle conditions, and the
+`functionp`/`symbol-value` splits.  `make -C fe compat` replays them as
+planned gaps against the current one-namespace fe: **86 case(s), 54
+passed, 32 known gap(s), 0 failed**.  The three data questions are settled
+by the same data: the roundtrip cases compare behaviour, not printed
+closures; `#'` printing is Emacs' `#'car` (snapshot confirmed), so the
+open question is fe's writer, and 04D records whether it owes the
+`(function X)` → `#'X` abbreviation; and `lisp2-macro-representation` is
+checked in as `kg-policy`, pinning `FeTMacro` so 04C need not imitate the
+`(macro . FUNCTION)` cons.
 
 Three questions the corpus must settle *as data*, because the answer
 constrains implementation:
@@ -146,13 +166,52 @@ compile-and-measure spike:
 
 The arithmetic to verify in the spike, not assert:
 
-| Quantity | Today | Under (a), predicted |
-|---|---|---|
-| objects per symbol | `4 + (len-1)/7` | `5 + (len-1)/7` |
-| `GetCoreObjectCount()` | 256 | ≈307 (+51: `t`, 33 primitives, `fn`, 16 math names) |
-| `FeMinimumArenaSize()` | 53840 B | ≈54656 B (+816) |
-| kg 1 MiB arena | 1100 frames / 56210 slots | frames unchanged, ≈−50 slots at open, plus one object per interned symbol at runtime |
-| fe 64 KiB fuzz arena | — | re-measure; this is the tightest arena in the tree |
+| Quantity | Today | Under (a), predicted | Under (a), measured (2026-08-05) |
+|---|---|---|---|
+| objects per symbol | `4 + (len-1)/7` | `5 + (len-1)/7` | `5 + (len-1)/7` — the inner `(name . function)` cons, **+1 exactly** |
+| `GetCoreObjectCount()` | 256 | ≈307 (+51: `t`, 33 primitives, `fn`, 16 math names) | **307** (+51), exactly as predicted |
+| `FeMinimumArenaSize()` | 53840 B | ≈54656 B (+816) | **54656 B** (+816 = 51 × 16), exactly as predicted |
+| kg 1 MiB arena | 1100 frames / 56209 slots | frames unchanged, ≈−50 slots at open, plus one object per interned symbol at runtime | **1099 frames / 56215 slots** (frames −1, slots +6 at open) — see the correction below |
+| fe 64 KiB fuzz arena | 76 frames / 913 slots | re-measure; this is the tightest arena in the tree | **75 frames / 919 slots** (frames −1, slots +6) |
+
+**Spike outcome, measured not asserted.**  A throwaway `spike_04a_layout.c`
+compiled `#include "fe.c"` into one TU so the static `GetSymbolObjectCount`,
+`GetCoreObjectCount` and `GetMinimumArenaSize` ran against the *real*
+primitive/math-name arrays and the *real* object layout
+(`sizeof(FeObject)=16`, `sizeof(FeEvalFrame)=96`, `sizeof(FeArena)=40528`),
+with a replica of `InitializeArenaLayout`'s partition arithmetic that was
+cross-checked byte-exact against the real `OpenContext` on both the 64 KiB
+and 1 MiB arenas (MATCH on frame capacity and object count for each).  The
+spike was deleted before commit, like 00A's and 03A's.  It settles the
+candidates in favour of **(a)** — `CDR(sym) = ((name . function) . value)`,
++1 cons per interned symbol, GC untouched — and it corrected the table's
+kg row, which is a finding, not a failure: the **≈−50 slots at open** was
+wrong in direction.  The 51 extra core objects ride *inside* the grown
+minimum (which grows by exactly 51 × 16 = 816 B), so the open-slot delta
+against a fixed 1 MiB arena is **+6, not −50**; the frame share of the
+slightly smaller remainder rounds down one frame (1100 → 1099).  The
+"today" slot count is also corrected from 56210 to **56209**: the README's
+56210 was computed against the pre-03F 53832-byte minimum, and the 03F
+tree's minimum is 53840, which the spike and kg's own counters agree on.
+`OpenContext(FeMinimumArenaSize())` still opens at the exact boundary, and
+`TestContextCreation`'s boundary loop adapts by construction.
+
+**The runtime cost is measured against kg, not cited from 00D.**  A
+second throwaway host (`spike_04a_host.c`, deleted) mimicked kg's startup
+shape — 1 MiB arena, the 78 native names, `lisp/prelude.el`, then the
+`lisp-arena-representative-init` forms — with no-op native stubs (only the
+names matter: interning is layout, not behaviour).  It reports **228
+distinct interned symbols** at the end of the representative init
+(`total_slots=56209`, `peak_live=3155`, `frame_capacity=1100`, gc 0,
+allocation failures 0).  Under (a) each is +1 object, so peak live ≈ 3155
++ 228 ≈ **3383 of 56215 slots (6.0%)**, a ≈16× margin.  The real counting kg,
+re-run for this Decision
+(`utils/bench.py --case lisp-arena-representative-init`) reports
+`lisp_arena_peak_live` **3157** against `lisp_arena_total_slots` **56209**
+(5.6%), `lisp_gc_count` 0, `lisp_alloc_failures` 0, `lisp_frame_capacity`
+1100 — the re-run number, not the old one.  The fuzz arena is the tightest
+in the tree and stays comfortably open: 75 frames / 919 slots under (a),
+against the current 76 / 913.
 
 kg's measured margin makes the runtime cost ignorable in advance
 (`lisp_arena_peak_live` 3132 against ~56k slots, per 00D's counters), but
@@ -249,6 +308,19 @@ Decision); price and report in both units anyway.  kg's estimate (+15 to
 +25 against 56 points of measured headroom — re-measure it) needs no
 raise; say so.
 
+**Landed in this slice** (measured starting state confirmed above,
+re-measured per Rule 6; both gates had exactly 29 points of headroom
+against a phase priced +40 to +60): `SCC_COMPLEXITY_MAX` **420 → 480**,
+`SCC_FILE_COMPLEXITY_MAX` **240 → 300**, `PMCCABE_TOTAL_MAX` **630 →
+690** — each by +60, the top of the row, funding 04B–04D by name, recorded
+in `fe/Makefile`'s rationale comment and the set README's dated Decision.
+The three gates were proved live against the raised values with the same
+temporary-lowering trick 03A used: `SCC_FILE_COMPLEXITY_MAX=207` fails on
+`fe_eval.c`'s 208, `PMCCABE_TOTAL_MAX=600` fails on 601, and the raised
+caps pass (391/480, 601/690).  kg needs no raise: 5444/5500 re-measured,
+56 points of headroom against +15 to +25, and this slice adds no `src/*.c`
+to either tree.
+
 ## The Decision this slice must write
 
 Into the set README, dated, in the shape 00A/03A established:
@@ -268,9 +340,9 @@ Into the set README, dated, in the shape 00A/03A established:
 
 - The new compat cases and their version-stamped snapshots, verified by
   `make -C fe compat` (checked-in snapshots, no Emacs needed) and a full
-  `make -C fe compat-oracle` run that regenerates nothing unexpectedly —
-  02A's own gate, including the id-collision and schema checks in both
-  manifests.
+  `make -C fe compat-oracle` run that regenerates nothing unexpectedly.
+  `make lisp-compat-check` runs the cross-manifest id-collision check;
+  02A's schema checks run in the respective manifest gates.
 - No fe unit test changes: nothing executable changed.
 
 ## Gates
@@ -286,8 +358,10 @@ caps), per Rule 10.
 - **No implementation.**  Not one primitive, not one accessor, not one
   reader change.  The spike is deleted.
 - **No status flips.**  Every existing `divergent` entry stays divergent;
-  every new entry is `planned`.  Flips happen in the slice that lands the
-  behaviour, with the flip as its evidence.
+  every new Emacs-comparison entry is `planned`, while the new
+  `kg-policy` macro-representation entry is deliberately divergent.  Flips
+  happen in the slice that lands the behaviour, with the flip as its
+  evidence.
 - **No kg-side manifest or prelude edits.**  kg's entries move in 04E,
   with the code they describe.
 - **No Emacs-oracle regeneration of unrelated snapshots.**  The version

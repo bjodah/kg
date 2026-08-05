@@ -20,7 +20,9 @@ carried forward per Rule 6: kg **5444/5500** scc, **32 native / 406 PTY**
 **391/420** scc with `fe.c` at **73** and `fe_eval.c` at **208/240**,
 pmccabe **601/630 across 230 symbols** (worst functions `Read` and
 `RunEvaluationLoop` at 14), and `FeMinimumArenaSize()` **53840 bytes**,
-kg's 1 MiB arena partitioning to **1100 frames / 56210 object slots**.
+kg's 1 MiB arena partitioning to **1100 frames / 56209 object slots** (the
+audited 56210 was computed against the pre-03F 53832-byte minimum; 04A's
+spike re-measured it as 56209, which kg's own counters confirm).
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -310,7 +312,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | **Landed. Actual 0**, as predicted |
 | 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Landed. Actual +6, and scc could not see it.** No cap crossed, so no Decision. scc stayed at 214/220 through both slices; `pmccabe`'s `fe.c` sum went 340 -> 350 (02B) -> 356 (02C), which is the real number. Phase 2's code sits past `fe.c:1010`, where scc's parser desyncs -- see the Phase 2 Status below |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Next — and the unit is wrong.** The +42 is 00A's *reader* extraction; Phase 3 extracts the *evaluator*, which sits entirely below `fe.c:1010` and is therefore invisible to scc today. Expect a larger jump from un-blinding a bigger region, and expect it to be a blind spot being paid off rather than new complexity. 03A re-prices this from a spike of the real cut and settles the measurement unit before 03B lands |
-| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Next.** Exceeds both fe gates' measured headroom (29 scc, 29 pmccabe); 04A re-prices against the real tree (`funcall`/`apply` are evaluator work, `RunEvaluationLoop` is at 14/22) and funds it with Phase 4's own Decision |
+| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Funded by 04A's Decision, 2026-08-05** — the landed raise is exactly the top of this row: scc 420→480, file 240→300, pmccabe 630→690, funding 04B–04D by name.  Re-priced against the real tree (`funcall`/`apply` are evaluator work, `RunEvaluationLoop` is at 14/22, 04B's accessor layer near-free in pmccabe); the measured starting state (391/420, 601/630, 208/240) is unchanged from the audited baseline, and both gates had exactly the 29 points of headroom this row warned about |
 | 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Comparable in shape to Phase 3's control-flow weight | **+70 to +100** | Provisional (milestone 2) |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; mostly small per-site additions | **+20 to +30** | Provisional (milestone 2) |
@@ -336,7 +338,7 @@ widest uncertainty in the whole table.
 | 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | **Landed. Actual −1** (5444 → 5443).  The estimate also assumed the 4 `(list 'quote nil)` workarounds would go; 01A left them, since removing them changes evaluated code and Phase 2 rewrites all four forms anyway |
 | 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Landed. Actual +1** (5443 -> 5444), the `static_assert` line; the estimate held. pmccabe unchanged at 1246 symbols, 0 new/gone/improved |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | **Next, and likely an overestimate.** 03F's kg-side inventory is two `static_assert`s, a field rename through `lisp.h`/`perf.h`/`lisp_core.c`, a test expectation and a bench label. Eleven Makefile sites (03B) are not scc-scanned. Expect ~0 |
-| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Next, and likely an overestimate.** The audit found one C-side value-cell read (`lisp_hooks.c:resolve_hook_function`), `functionp` designators, a `lisp_process.c` alignment and two version asserts; 56 points of measured headroom, no raise expected |
+| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Confirmed by 04A's measurement, 2026-08-05, no raise.**  Re-measured 5444/5500 — 56 points of headroom, inside which the +15 to +25 estimate fits; the audit's C-side inventory (one value-cell read in `lisp_hooks.c:resolve_hook_function`, `functionp` designators, a `lisp_process.c` alignment, two version asserts) stands |
 | 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+25 to +40** | Provisional (milestone 2) |
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+55 to +65** | Provisional (milestone 2) |
@@ -892,6 +894,140 @@ program's own headroom accounting, unaffected since this slice adds no
 (+10 to +15) stands, funded from existing headroom, no raise needed.  The
 only kg-side change in this slice is the pin move itself, in its own
 green commit per Rule 10.
+
+## Decision — Phase 4's Lisp-2 target, measured and funded (04A, 2026-08-05)
+
+Taken 2026-08-05, closing sub-plan 04A.  Re-measured against the tree as
+it stands after Phase 3 closed (fe `60e4c9e`, kg `3e3c946`), per Rule 6:
+fe scc **391/420** total with `fe_eval.c` at **208/240** file cap; pmccabe
+**601/630** across **230 symbols**, worst function **14** (`Read`,
+`RunEvaluationLoop`); kg **5444/5500** (56 points of headroom).  Both fe
+gates have exactly **29 points** of headroom against a phase priced
+**+40 to +60** — the funding Decision comes first, again.
+
+### The corpus: every prediction held
+
+The seventeen predicted cases and their version-stamped Emacs 31.0.90
+(`... of 2026-07-09`) snapshots are landed in `fe/compat/` as `planned`
+entries (`source_name: null` until the primitives exist), and `make -C fe
+compat` is green: **86 case(s), 54 passed, 32 known gap(s), 0 failed**,
+the planned `lisp2-*` entries replaying as gaps against the current
+one-namespace fe exactly as designed.  **No prediction was corrected by
+the oracle** — every answer matched the predicted table, including the
+headline `lisp2-value-function-coexist` → `(7 9)`, `lisp2-apply-spread` →
+`10`, `lisp2-fboundp-primitive` → `t`, `lisp2-funcall-designator` → `9`,
+the two `void-function`/`void-variable` messages, and
+`lisp2-defalias-return-value` → `first`.  The three §1 data questions are
+settled by that data: the roundtrip cases compare *behaviour*, not printed
+closures; Emacs prints `(function car)` as `#'car` (snapshot confirmed),
+leaving the writer-abbreviation question recorded for 04D; and
+`lisp2-macro-representation` is checked in as `kg-policy`, pinning
+`FeTMacro` so 04C does not imitate the `(macro . FUNCTION)` cons.  The two
+existing divergent entries (`one-namespace-boundp`,
+`reader-sharp-quote-identity`) are untouched and flip in 04D/04E.
+
+### The symbol layout: candidate (a), measured
+
+Two throwaway spikes (deleted before commit, like 00A's and 03A's)
+measured, not asserted.  A layout spike that `#include`d `fe.c` into one
+TU ran the real static `GetSymbolObjectCount`/`GetCoreObjectCount`/
+`GetMinimumArenaSize` against the real object layout
+(`sizeof(FeObject)=16`, `sizeof(FeEvalFrame)=96`), with a replica of
+`InitializeArenaLayout`'s partition cross-checked byte-exact against the
+real `OpenContext` on both the 64 KiB and 1 MiB arenas.  **Candidate (a)
+is adopted**: `CDR(sym) = ((name . function) . value)`, +1 cons per
+interned symbol, GC untouched, value path untouched.
+
+| Quantity | Today | Under (a) |
+|---|---|---|
+| objects per symbol | `4 + (len-1)/7` | `5 + (len-1)/7` (+1) |
+| `GetCoreObjectCount()` | **256** | **307** (+51) |
+| `FeMinimumArenaSize()` | **53840 B** | **54656 B** (+816) |
+| kg 1 MiB arena | **1100 frames / 56209 slots** | **1099 frames / 56215 slots** (frames −1, slots +6) |
+| fe 64 KiB fuzz arena | **76 frames / 913 slots** | **75 frames / 919 slots** (frames −1, slots +6) |
+
+The plan's own prediction of "frames unchanged, ≈−50 slots at open" was
+**wrong in direction**, and the correction is a finding, not a failure:
+the 51 extra core objects ride *inside* the grown minimum (which grows by
+exactly 51 × 16 = 816 B), so the open-slot delta against a fixed 1 MiB
+arena is **+6, not −50**, and one frame is lost to the rounding of the
+smaller frame share.  The "today" slot count is also corrected from the
+README's carried 56210 to **56209** (56210 was computed against the
+pre-03F 53832-byte minimum).  `OpenContext(FeMinimumArenaSize())` still
+opens at the exact boundary and `TestContextCreation` adapts by
+construction, so the constant to watch is the minimum itself.
+
+**The runtime cost is measured against kg, not cited.**  A second
+spike mimicked kg's startup shape (1 MiB arena, the 78 native names,
+`lisp/prelude.el`, the `lisp-arena-representative-init` forms, no-op
+native bodies) and measured **228 distinct interned symbols** at the end
+of the representative init, each +1 object under (a): peak live ≈ 3155 +
+228 ≈ **3383 of 56215 slots (6.0%)**, a ≈16× margin.  The real counting
+kg was re-run for this Decision — `utils/bench.py --case
+lisp-arena-representative-init` reports `lisp_arena_peak_live` **3157**
+against `lisp_arena_total_slots` **56209** (5.6%), `lisp_gc_count` 0,
+`lisp_alloc_failures` 0, `lisp_frame_capacity` 1100.  The re-run number,
+not the old one, is what the "no arena-size change in kg" rule is
+measured against, and it says the 1 MiB arena needs no change.
+
+### The host C API: nothing removed
+
+kg calls no global-binding API today — no `FeSet`, no `FeIsBound`
+anywhere in `src/`; its binding traffic is `FeDefineNative` (78 natives)
+plus one `FeEvaluate` of a bare symbol in
+`src/lisp_hooks.c:resolve_hook_function`.  `FeSet`/`FeIsBound` keep their
+Emacs value-namespace meaning; `FeSetFunction`/`FeGetFunction`/
+`FeIsFBound` are new in 04C, `FeGetFunction` following function-cell
+symbol indirection the way call-position lookup does; `FeDefineNative`
+keeps its name while its meaning changes in 04D (it registers into the
+function cell), made safe by the `FE_API_VERSION` 2 → 3 bump plus kg's
+`static_assert`; `FeCall`/`FeCallWithOptions`/roots are untouched.  The
+parent plan's "remove the ambiguous entry points" clause resolves to
+**nothing removed** — after the split, `FeSet` is unambiguously the value
+namespace.  Function-cell contents may be a symbol (a designator, per the
+`defalias`-late-binding case); call-position lookup follows the chain
+iteratively, charged against the step budget, so a cycle dies with a
+`cyclic-function-indirection` message rather than hanging.
+
+### The migration mechanics
+
+1. **Transitional head-resolution rule (04C)**: symbol in call position
+   resolves through the function cell first, falling back to today's
+   `GetBound` path — the 02B precedent, deleted by 04D, never a released
+   coexistence layer.
+2. **Prelude spelling (04E)**: the 53 column-zero `(setq NAME ...)` forms
+   become `(defalias 'NAME ...)`; the two kg parsers that read that shape
+   (`utils/check_lisp_compat.py`'s `parse_kg_prelude_defs`, and
+   `test/test_lisp.c:test_prelude_source_file`) move in the same commit.
+3. **`internal--let` survives** — the parent plan's §8 claim that Lisp-2
+   makes it unnecessary is wrong: the Emacs `let` macro and Fe's one-binding
+   `let` primitive are *both* function-namespace residents, so the
+   redefinition still clobbers the cell the bodies need.  It becomes
+   `(defalias 'internal--let (symbol-function 'let))` evaluated before the
+   redefinition, and is deleted in Phase 8 Wave A.
+4. **Bootstrap staging**: 04C leaves primitives/`fn`/math natives in value
+   cells (the fallback finds them); 04D moves them to function cells,
+   leaving `t`, `pi`, `e` as values; `(boundp 'car)` flips at 04D to the
+   pinned snapshot.
+
+### The funded caps
+
+Both fe gates had exactly 29 points of headroom against a phase priced
++40 to +60, so `fe/Makefile` raises all three by the top of that range,
+funding 04B–04D by name: **`SCC_COMPLEXITY_MAX` 420 → 480**,
+**`SCC_FILE_COMPLEXITY_MAX` 240 → 300** (funding `fe_eval.c`, at 208
+today, where the nine primitives, `funcall`/`apply`, the
+`RunEvaluationLoop` head-resolution helper and designator resolution
+land), and **`PMCCABE_TOTAL_MAX` 630 → 690** — pmccabe remains the
+authoritative unit for the core per 03A's Decision; both units are priced
+and reported anyway.  The gates were proved live against the raised
+values with 03A's temporary-lowering trick: `SCC_FILE_COMPLEXITY_MAX=207`
+fails on `fe_eval.c`'s 208, `PMCCABE_TOTAL_MAX=600` fails on 601, and the
+raised caps pass (391/480 scc, 601/690 pmccabe).  The per-symbol pmccabe
+baseline is untouched (this slice adds no code).  **kg needs no raise**:
+5444/5500 re-measured, 56 points of headroom against its +15 to +25
+estimate, and this slice adds no `src/*.c` to either tree — the only kg
+change is the pin move in its own green commit per Rule 10.
 
 ## Status
 

@@ -3,26 +3,29 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this Phase 5
-set was written against the tree as it stands after Phase 4 closed and
-its post-close review fixes landed (2026-08-05).  Read the parent's §0
-(verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
-honesty) and §0.4 (no legacy constituency) before any of these; they are
-the facts these documents assume.  Where the parent's Phase 5 section
-names stale facts — "ten call sites" where the tree funnels 13 natives
-through one `lisp_position()` constructor and every numeric argument
-through `lisp_finite()`, the `ARITH_OP`/`NUM_CMP_OP` macros that died
-with the recursive evaluator in 03E, and §0.2's fe.c split that 03B
-settled — 05A's corrections control.
+implementation-audited against the tree it starts from, and this Phase 6
+set was written against the tree as it stands after Phase 5 closed
+milestone 1 and its post-close review fixes landed (2026-08-05).  Read
+the parent's §0 (verified baseline), §0.1 (the two complexity ratchets),
+§0.3 (scope honesty) and §0.4 (no legacy constituency) before any of
+these; they are the facts these documents assume.  Where the parent's
+Phase 6 section and `fe/doc/unwind-design.md` name stale or wrong facts
+— the design doc's "Emacs discards" claim about a raising cleanup that
+the measured oracle contradicts, the completion enum that already exists
+three-fifths dead, the checkpointed cleanup drain that already exists,
+and the two named conditions with zero producers — 06A's corrections
+control.
 
 Measured on the audited tree, 2026-08-05 (post-review), and re-measured
-rather than carried forward per Rule 6: kg **5450/5500** scc, **32
-native / 406 PTY** (**337 pass + 69 skip** under `WITH_LISP=0`), **70**
-Lisp PTY cases; fe **459/480** scc with `fe.c` at **73** and `fe_eval.c`
-at **276/300**, pmccabe **660/690 across 248 symbols** (worst functions
-`DispatchPrimitive` and `RunEvaluationLoop` at 14), and
-`FeMinimumArenaSize()` **55616 bytes**, kg's 1 MiB arena partitioning to
-**1098 frames / 56221 object slots**.
+rather than carried forward per Rule 6: kg **5461/5500** scc, **32
+native / 406 PTY** (**337 pass + 69 skip** under `WITH_LISP=0`), **69**
+PTY cases gated on `requires_feature: lisp`; fe — after the post-close
+review fixes, which came in scc-negative — **533/540** scc with `fe.c`
+at **96** and `fe_eval.c` at **326/340**, pmccabe **751/760 across 263
+symbols** (worst function `RunEvaluationLoop` at 14), and
+`FeMinimumArenaSize()` **56304 bytes**, kg's 1 MiB arena partitioning
+to **1097 frames / 56225 object slots**.  06A re-measures at its start,
+as every A-slice does.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -65,91 +68,108 @@ behind is the ground later phases stand on: `FeDefineNative` writes the
 function cell, `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 3, and the
 prelude's 52 definitions are spelled `defalias`.
 
-**This set — Phase 5, integers and the numeric surface — is complete
-(2026-08-05).**  Its five documents (`05a`–`05e`) are in this directory;
-the Grouping and Sequencing sections below describe them, and `05a` led
-as planned.  Phase 5 closed milestone 1, which carried the obligation the
-price table wrote down for itself: **the provisional milestone-2 rows
-(Phases 6–9) are re-priced below against real post-milestone-1
-measurements**, before any Phase 6 sub-plan is written, exactly as this
-paragraph promised.
+**The fifth set — Phase 5, integers and the numeric surface — is
+complete (2026-08-05), and with it milestone 1.**  Its five documents
+(`05a`–`05e`) were removed once the workstream was accepted; the Phase 5
+Status section below is the surviving record.  What that set changed is
+the ground this one stands on: `FeTInteger` is a real type, `42` reads
+as an integer and `42.0` prints as `42.0`, division truncates,
+`arith-error` names overflow and zero-divide at message level, `eq`/
+`eql` are Emacs', kg's positions are integers end to end, and
+`FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 4.  Closing milestone 1
+triggered the price table's own obligation: the provisional milestone-2
+rows (Phases 6–9) are re-priced below against real post-milestone-1
+measurements.
 
-The through-line is that Phase 5 is a *text-changing* phase, which
-inverts Phase 4's discipline.  Four facts, established by auditing this
-tree, shape the slices:
+**This set — Phase 6, structured errors and non-local exits — is next.**
+Its five documents (`06a`–`06e`) are in this directory; the Grouping and
+Sequencing sections below describe them, and `06a` leads as every
+A-slice has.
 
-- **The phase deliberately changes what programs print**, so "no
-  expectation edits" — Phase 4's red-flag rule — becomes "only the
-  *enumerated* expectation edits, each justified by a pinned oracle
-   answer".  The audit found the full allowlist in advance: five lines of
-  one PTY case (`lisp-math-functions.yaml`), one `test_lisp.c` breakage
-  table dominated by the `(/ 1 0)` family, one compat flip
-  (`reader-no-integers`, whose snapshot has recorded the target since
-  00C), and 150 000 lines of fe's `mandelbrot` golden that must **not**
-  change because the script migrates to explicit float spellings
-  instead.  An edit outside the list is a finding.
-- **kg's numeric boundary is a funnel, not a scatter.**  13
-  position-returning natives share `lisp_position()`
-  (`src/lisp_buffer.c:181`), every numeric argument goes through
-  `lisp_finite()`, and exactly three `FeGetType == FeTDouble` checks
-  exist in all of `src/` (two `format` gates, `numberp`).  The kg
-  cutover is smaller than the parent plan feared, and 05E's checklist is
-  written from the funnel.
-- **The manifest disjointness rule dictates slice boundaries.**  Every
-  fe primitive, kg native and prelude definition name must be claimed
-  exactly once across both manifests, so a new fe primitive whose name
-  kg currently owns cannot land before the kg-side deletion: `eq` (a
-  prelude alias of `is` today) lands with 05D's cut, `numberp` (a kg
-  native) must never become an fe primitive at all, and the collision
-  table in 05A is the authority.
-- **Both fe gates are nearly spent again**: 21 scc and 30 pmccabe points
-  of headroom against a row priced +50 to +70, so the funding Decision
-  comes first, for the fourth time — and 05A lands it (its Decision
-  section, below).
+The through-line is that Phase 6 is a *control-flow* phase built on
+machinery that mostly already exists, aimed at semantics the oracle has
+already answered.  Four facts, established by auditing this tree, shape
+the slices:
 
-So the set front-loads one oracle-and-decision slice (05A: ~40 predicted
-answers, five Decisions, the funded raise), lands the dormant
-representation (05B), builds the whole tower against the host-API seam
-while the reader still speaks only doubles (05C), cuts reader, printer,
-`eq`/`eql` and the versions in one fe-only slice (05D), and lands kg's
-pin, funnel edits, equality rewrite, enumerated expectations and
-documents in one atomic commit that also closes the milestone (05E).
+- **The substrate is half-built and documented as such.**
+  `FeCompletion` exists with five kinds, three never assigned; the
+  checkpointed cleanup drain (`RunCleanupsDownTo`) exists beside the
+  drain-to-zero one; `unwind-protect` ships on a LIFO registry whose
+  design doc (`fe/doc/unwind-design.md`) names, in order, exactly the
+  work this phase does — completion kinds to the host, then
+  `catch`/`throw` with drain-to-checkpoint, then `condition-case`.  The
+  phase extends that design; it re-derives nothing.  One correction
+  controls: the design doc's claim that Emacs discards a raising
+  cleanup's error is **false** (measured: the new error replaces the
+  in-flight one), and 06A's Decision 4 settles the policy against the
+  real oracle.
+- **The message text is load-bearing and must not move.**  30 fe
+  goldens, 109 kg test string assertions, and 8 PTY screen assertions
+  pin today's error prose; the audit counted **285 kg-side sites** that
+  touch error text one way or another.  So conditions land *behind* the
+  existing rendering — a condition object whose printed message is
+  byte-identical to today's — and the phase's expectation discipline is
+  Phase 4's again: **additions only**, no existing expectation edits.
+- **Errors are already half-classified.**  27 fe raise sites spell an
+  Emacs condition name at the head of their message (Phases 4–5 put
+  them there deliberately); 70 are bare prose, which is Emacs' own
+  `(error "text")` shape; kg's 112 raise sites are all prose and stay
+  that way (06A Decision 2 records the deferral).  The condition
+  hierarchy the parent asks for is static, small, and measured: every
+  chain Phase 6 needs is depth ≤ 2, and `quit` is not under `error`.
+- **The fe gates are spent**: 7 scc, 14 file and 9 pmccabe points of
+  headroom (post-review-fix; the review round came in negative) against
+  a row re-priced **+80 to +120**, so the funding Decision comes first,
+  for the fifth time — and it must name all three caps, including the
+  scc total the price table's own instruction forgot.
+
+So the set front-loads one oracle-and-decision slice (06A: the measured
+answer table, five Decisions, the funded raise, the design-doc
+reconciliation), makes the dormant completion kinds true and
+host-readable (06B), builds the mid-stack unwind — `catch`/`throw` —
+that no shipped path has ever needed (06C), cuts errors over to
+condition objects with `signal`/`error`/`condition-case` in one fe-only
+slice (06D), and lands kg's pin, the quit/error/budget classification
+at every recovery seam, `ignore-errors`, the new manifest category and
+the documents in one atomic commit that closes the phase (06E).
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [05A](05a-pin-the-numeric-target-and-fund-the-phase.md) | 5 | The numeric oracle corpus (~40 cases), five Decisions — representation/enum placement, the equality-family ownership table, reader grammar, printer representation, error policy — and the funded cap raise | none — **this is first** |
-| [05B](05b-the-integer-object-dormant.md) | 5 | `FeTInteger` exists: host-constructible, printable, typed, collected, producible by no Lisp program | 05A |
-| [05C](05c-the-numeric-tower.md) | 5 | Integer-preserving arithmetic, truncating division, `arith-error` on overflow/zero-divide, chained `<`/`<=`/`>`/`>=`, binary `/=`, `integerp`/`floatp`, per-function math-native return types — all against a reader that still speaks only doubles | 05B |
-| [05D](05d-the-numeric-cut.md) | 5 | The cut: Emacs number lexing replaces `strtod`, floats print `42.0`/shortest-round-trip/nonfinite spellings, `eq`/`eql` land, scripts migrate, `FE_LANGUAGE_VERSION` 4 and `FE_API_VERSION` 4 — **no kg pin move** | 05C |
-| [05E](05e-the-kg-cutover.md) | 5 | The pin plus every kg adaptation in one atomic commit: the `lisp_position()` funnel, `format`'s gates, `numberp`, the prelude equality rewrite, the enumerated expectation allowlist, docs; closes the phase **and milestone 1**, triggering the milestone-2 re-pricing | 05D |
+| [06A](06a-pin-the-completion-target-and-fund-the-phase.md) | 6 | The completion/condition oracle corpus (28 load-bearing rows measured in advance), five Decisions — the condition object and static hierarchy, the fate of every raise site, condition-case scope, the cleanup-raise policy, the host API and structured compat channel — the funded three-cap raise, and the `unwind-design.md` reconciliation | none — **this is first** |
+| [06B](06b-completion-kinds-reach-the-host.md) | 6 | `FeCompletionQuit`/`Budget` become true at their producers and host-readable through additive accessors; no Lisp-observable change, every golden byte-identical | 06A |
+| [06C](06c-catch-and-throw.md) | 6 | The mid-stack unwind: a checkpoint-carrying catch frame, `eq` tag matching, drain-to-checkpoint on the throw path, `no-catch` at message level, the native-reentry containment rule as a recorded divergence | 06B |
+| [06D](06d-conditions-signal-and-condition-case.md) | 6 | The cut: condition objects behind byte-identical messages, the static hierarchy, `signal`/`error` as evaluate-then-raise forms, `condition-case` reusing the catch machinery, the structured compat channel, the cleanup-raise policy, `FE_LANGUAGE_VERSION` 5 and `FE_API_VERSION` 5 — **no kg pin move** | 06C |
+| [06E](06e-the-kg-cutover.md) | 6 | The pin plus every kg adaptation in one atomic commit: quit/error/budget classified at all six recovery seams, kg's own quit producer converted, `ignore-errors` in the prelude, the new `errors-and-non-local-exits` manifest category, additions-only expectations, docs; closes the phase | 06D |
 
-**05A is genuinely first, for the same structural reason 00A, 02A, 03A
-and 04A were.**  Phase 5's semantics are ~40 independent oracle
-questions, its representation is a union-and-enum question with an ABI
-consequence, its equality family is a name-ownership question the
-manifest checker enforces, and its complexity cost exceeds both fe
-gates' headroom.  All of it must exist before any implementation slice.
+**06A is genuinely first, for the same structural reason 00A through 05A
+were.**  Phase 6's semantics are dozens of independent oracle questions
+(all measured during the audit — the snapshots confirm rather than
+discover), its cleanup-raise policy contradicts the design doc's belief
+about the oracle, its five new names are a manifest-ownership question,
+and its complexity cost exceeds the fe gates' headroom by an order of
+magnitude.  All of it must exist before any implementation slice.
 
-**05B is mechanical and lands alone on purpose**, like 03B/04B: its
-correctness argument is byte-identical goldens and a type no Lisp
-program can produce.
+**06B is small and lands alone on purpose**, like 03B/04B/05B: the
+parent's own "Order of work" item 1, independent and additive — but not
+free of design, because assigning the dead completion kinds silently
+widens the `CleanupFrameReserve` gate to them, which 06B must turn from
+an accident into an asserted behaviour.
 
-**05C builds the tower against the host-API seam** — the 04C precedent
-with a twist: instead of a transitional fallback that later dies, the
-"fallback" is simply the unchanged reader, so there is nothing to
-delete, only a lexer to replace.  Its tests drive integers in through
-`FeMakeInteger` because no source text can spell one yet, and those
-tests survive 05D unedited — that is their point.
+**06C is the phase's genuinely new machinery.**  Every unwind today
+runs to the host; a catch that stops partway is the first mid-stack
+resume, and its checkpoint set is derived from the three existing
+restore sites rather than invented.  The native-reentry boundary stays
+a wall (C activations cannot be popped by assignment — the 03F census
+lesson), recorded as an honest divergence with a containment test.
 
-**05D and 05E are the two halves of one Rule-10 delivery**, exactly as
-02C/02D and 04D/04E were.  05D cuts fe over and closes the fe
+**06D and 06E are the two halves of one Rule-10 delivery**, exactly as
+04D/04E and 05D/05E were.  06D cuts fe over and closes the fe
 workstream with the full nine-stage runner; it deliberately does not
-move kg's pin — a pin-only commit cannot pass `lisp-compat-check` (the
-new `eq` primitive collides with kg's prelude alias until 05E deletes
-it) and every kg-side numeric expectation shifts.  05E is that pin,
-with every kg adaptation in the same green commit.
+move kg's pin — the version asserts fire, and kg's seams have not yet
+learned to classify completions.  06E is that pin, with every kg
+adaptation in the same green commit.
 
 ## Handoff contract
 
@@ -161,16 +181,16 @@ section then records what each slice actually delivered.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 05A | fe compat manifest/cases/snapshots, fe Makefile caps, Decision docs | version-stamped answers for the predicted case table, the union/enum spike, the collision table, funded caps proved live | no implementation, no status flips, no kg edits beyond the pin |
-| 05B | fe `Value` union/type enum/constructors/writer arm/Fex GC arm, one new test, the fuzz reach-ahead | byte-identical goldens, no Lisp-observable change, `sizeof(Value)` asserted, forced-GC survival of an integer | no reader/printer change, no arithmetic, no version move |
-| 05C | fe arithmetic/comparison resume arms, five new primitives, math-native return types, compat flips for the tower rows | `TestEvaluationControl`'s 4-step pin unedited, trace goldens byte-identical, host-API-driven tower tests, fuzzed overflow paths | no reader/printer change, no `eq`/`eql`, no version move, no kg source |
-| 05D | fe reader lexer/printer/`eq`/`eql`/scripts/versions/fuzz dict | `reader-no-integers` flips supported un-regenerated, `mandelbrot` golden byte-identical via script migration, 05C's tower tests unedited, full nine-stage fe runner | no kg pin, no kg source, no compatibility residue |
-| 05E | kg pin, the `lisp_position`/`format`/`numberp` funnel, prelude equality rewrite, enumerated expectations, manifests, docs | the expectation allowlist and nothing outside it, `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner, the milestone-2 re-pricing | no new kg natives, no clamp-policy change, no oracle regeneration |
+| 06A | fe compat manifest/cases/snapshots, fe Makefile caps, `unwind-design.md`, Decision docs | fresh snapshots confirming the measured answer table, the funded three-cap raise proved live, the design doc corrected against the real oracle | no implementation, no status flips, no kg edits |
+| 06B | fe completion assignments, additive host accessors, `TestCompletionKinds` | byte-identical goldens and message strings, `TestEvaluationControl` unedited, the frame-reserve coupling asserted, `example_host.c` recompiling unedited | no condition objects, no catch/throw, no `FeErrorFn` change |
+| 06C | fe catch frame kind, the throw unwind, two new primitives, fuzz builders | forced-GC across the unwind, the 28 step pins unedited, the containment divergence tested and recorded, tight-`max_frames` throw | no condition objects, no condition-case, no cross-boundary throw |
+| 06D | fe condition objects/hierarchy/`signal`/`error`/`condition-case`, the structured compat channel, cleanup-raise policy, versions | byte-identical messages at every existing site, the parent's five-kinds gate matrix, `condition_source` upgrades, full nine-stage fe runner | no kg pin, no kg source, no `:success`/`handler-bind`, no residue |
+| 06E | kg pin, the six recovery seams, `lisp_search`'s quit producer, `ignore-errors`, the new manifest category, docs | additions-only expectations (every existing case unedited), `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner | no signature change to `kg_lisp_eval_string`, no prose-site reclassification, no new kg natives |
 
 For all rows, current suite counts are a starting census, not literals to
 assert.  Run focused tests while iterating; the full Fe runner closes the
-Fe workstream at 05D, and kg's full parallel runner closes Phase 5 — and
-milestone 1 — at 05E.
+Fe workstream at 06D, and kg's full parallel runner closes Phase 6 at
+06E.
 
 ## Compatibility direction
 
@@ -184,77 +204,86 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 5 this cuts one specific way.  There is no dual reader, no
-old-printer mode, and no release in which `42` reads as a double against
-a kg that expects integers — the reader/printer cut and the kg funnel
-move as 05D + 05E, one Rule-10 pair.  Where fe cannot or should not
-match Emacs, the divergence is *recorded*, not papered over: int64
-instead of bignums (overflow is an `arith-error`-style message), `is`
-stays fe's own broad comparator rather than pretending to be an Emacs
-form, and out-of-range integer literals take the pre-bignum Emacs
-behaviour with a divergence row saying so.  Version numbers move once,
-at the cut, because they make the Fe↔kg contract checkable — kg's
-`static_assert(FE_API_VERSION == 3)` firing at the 05E pin is the
-designed tripwire, as it was in 03F and 04D.
+For Phase 6 this cuts one specific way.  There is no message-only error
+mode, no flag restoring the old cleanup-raise policy, and no release in
+which fe signals condition objects against a kg that cannot classify
+completions — the cut and the kg seams move as 06D + 06E, one Rule-10
+pair.  Where fe cannot or should not match Emacs, the divergence is
+*recorded*, not papered over: a throw does not cross the native
+re-entry boundary (C activations are live; containment is the honest
+behaviour, tested), budget exhaustion is catchable by nothing (Emacs
+has no budget concept), `:success` handlers and `handler-bind` are
+deferred with their measured Emacs answers on file, and the condition
+hierarchy is static C data rather than symbol properties.  Version
+numbers move once, at the cut — kg's
+`static_assert(FE_API_VERSION == 4)` firing at the 06E pin is the
+designed tripwire, as it was in 03F, 04D and 05D.
 
 ## Sequencing
 
 ```text
-05A  pin the target and fund ──> 05B  the integer object, dormant (pin moves)
+06A  pin the target and fund ──> 06B  completion kinds reach the host (pin moves)
                                       │
                                       v
-                                 05C  the numeric tower, host-API seam (pin moves)
+                                 06C  catch and throw, mid-stack unwind (pin moves)
                                       │
                                       v
-                                 05D  the cut, fe-only ── fe workstream closes, NO pin
+                                 06D  conditions + signal + condition-case, fe-only
+                                      ── fe workstream closes, NO pin
                                       │
                                       v
-                                 05E  the kg cutover ── pin + funnel + prelude + docs,
-                                      one commit; closes the phase and milestone 1
+                                 06E  the kg cutover ── pin + seams + prelude + docs,
+                                      one commit; closes the phase
 ```
 
 Strictly linear, and nothing runs in parallel with it: every slice edits
-either the numeric representation or the things that read it.  Every
-arrow is a real dependency: 05B implements the representation 05A
-measured, 05C dispatches on the type 05B landed, 05D feeds the tower
-05C built, and 05E adapts kg to the contract 05D versioned.
+either the completion machinery or the things that read it.  Every arrow
+is a real dependency: 06B assigns the kinds 06A's Decisions shaped, 06C
+unwinds on the completion 06B made true, 06D's handlers reuse the
+mid-stack machinery 06C built, and 06E adapts kg to the contract 06D
+versioned.
 
-The pin discipline is the Phase 4 shape verbatim: 05B and 05C move kg's
-pin in their own trivial green commits (05C's carries the five new
-primitive names through `lisp-compat-check` and the moved minimum-arena
-figure), 05D moves nothing, and 05E is the pin.
+The pin discipline is the Phase 4/5 shape verbatim: 06B and 06C move
+kg's pin in their own trivial green commits (06C's carries `catch` and
+`throw` through `lisp-compat-check` and the moved minimum-arena
+figure), 06D moves nothing, and 06E is the pin.
 
 ## What this set deliberately does not do
 
-- **No bignums.**  Integers are `int64_t`; arithmetic overflow and
-  out-of-range literals are recorded divergences against Emacs' bignum
-  behaviour, with `arith-error`-style messages, not silent wraps.
-- **No condition system.**  `arith-error`, like `void-function` before
-  it, is a name carried in the `FeHandleError()` message, not a
-  signalable condition; no test or compat case may assert a catchable
-  condition object.  Conditions are Phase 6, and this phase's overflow
-  and zero-divide errors are their first customers.
-- **No `number-to-string`/`string-to-number`, no `min`/`max`/`abs`/
-  `mod`, no `?a` character literals, no `#x`/`#o`/`#b` radix syntax.**
-  None are in the parent's Phase 5 list; the first package that needs
-  one is Phase 8's evidence for adding it.
-- **No clamp-policy changes in kg.**  `goto-char`'s clamping,
-  `lisp_optional_count`'s saturation and `goto-line`'s bounds are
-  documented Emacs-matching behaviour and keep their shapes with
-  integer inputs.
-- **No Fex changes beyond the GC arm.**  Fex's math natives
-  (`fex_math.c`) keep their own semantics; the standalone `fe` binary's
-  Fex shadowing of `floor`/`ceiling`/`log`/`round`/`truncate` is a
-  recorded fact 05C works around in its tests, not a thing to fix.
-- **No strict arity, no interactive arguments.**  Phase 7.  `/=`'s
-  binary-only arity and the chained comparators' behaviour are pinned by
-  oracle cases, but lambda arity stays lax.
-- **No compatibility residue.**  No dual reader, no old-printer flag, no
-  `is`-aliased `eq` reachable after the cut (§0.4).  Version numbers
-  still move because they make the Fe↔kg contract checkable.
-- **No re-litigation of recorded Phase 4 residue.**  `FeTMacro`,
-  `internal--let`, and the message-level condition rule all stand as the
-  Phase 4 Status recorded them.
+- **No `:success` handlers, no `handler-bind`, no
+  `signal-hook-function`, no debugger.**  Each is a recorded exclusion
+  with its measured Emacs answer; nothing in kg's target init-file
+  corpus needs them, and the first package that does is Phase 8's
+  evidence.
+- **No Lisp-visible `error-conditions`/`get`.**  The hierarchy is
+  static C data; general symbol properties are a later phase's question
+  if any corpus ever needs them.
+- **No re-classification of kg's 112 prose raise sites.**  They raise
+  `(error "text")`-shaped conditions, which is Emacs' own shape for
+  prose errors; classifying the funnel sites (`wrong-type-argument`
+  from `lisp_finite`, `args-out-of-range` from the string indexes) is
+  recorded follow-up work, not this phase's.
+- **No throw across the native re-entry boundary.**  Contained, tested,
+  recorded as a divergence — the C activations between a nested run and
+  an outer catch are live, and pretending otherwise is the class of bug
+  03F exists to prevent.
+- **No token/cancel cleanup registry, no Fex migration to it**
+  (`unwind-design.md` item 2).  It is Fex's resource problem, not this
+  phase's control-flow problem; Phase 9's robustness scope is its
+  natural home and the design doc now points there.
+- **No `kg_lisp_eval_string` signature change.**  The completion kind
+  is internal state kg's seams read; a structured embedder API is
+  Phase 9's observability work if anything's.
+- **No strict arity, no interactive arguments.**  Phase 7.  `throw`'s
+  exact-2 arity and `signal`'s 1-or-2 are pinned by oracle cases, but
+  lambda arity stays lax.
+- **No compatibility residue.**  No message-only mode, no old
+  cleanup-raise flag (§0.4).  Version numbers still move because they
+  make the Fe↔kg contract checkable.
+- **No re-litigation of recorded Phase 4/5 residue.**  `FeTMacro`,
+  `internal--let`, int64-not-bignum, `is`'s tolerant comparator, and
+  the `double`-vs-`float` type-of spelling all stand as their Status
+  sections record them.
 
 ## Rules
 
@@ -346,7 +375,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Landed.** Actual **+177 scc / +101 pmccabe** (214 → 391, 500 → 601) — the scc overshoot is exactly the blind-spot payoff the row predicted (the evaluator sat below `fe.c:1010`'s desync and was un-blinded by 03B's split; +72 of the +177 is the measured split tax), while pmccabe — the unit 03A established as authoritative — landed inside the substance estimate. Caps raised by 03A's Decision: scc 220→420, file 112→240, pmccabe 500→630 |
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
 | 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Landed, and over its funding at the top of the raise.** Funded by 05A's Decision (scc 480→540, file 300→340, pmccabe 690→760).  Actuals across 05B–05D: scc 459→**538**, `fe_eval.c` 276→**330**, pmccabe 660→**752** (+79/+92 — scc went 19 points past the funded amount, pmccabe 22 past, and the caps now sit at **2/10/8 points from full**).  Per slice: 05B +1/+3 (the "nearly free" prediction held), 05C the tower's bulk +70/+58, 05D +8/+31.  The row's mid was a floor, not an estimate.  **kg needs no raise**: 5457/5500 at 05E close (+7), pmccabe +1 on each of `format_integer`, `format_float`, `native_numberp` — banked into the baseline in 05E's commit |
-| 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | Provisional (milestone 2) — **cannot land inside current caps**; the core has 8 pmccabe / 10 file-cap points free. Phase 6's 06A must raise `PMCCABE_TOTAL_MAX` and the `fe_eval.c` file cap first, funded by name, before any implementation |
+| 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Next** — **cannot land inside current caps**; the core has 2 scc / 8 pmccabe / 10 file-cap points free. Phase 6's 06A must raise all three fe caps — `SCC_COMPLEXITY_MAX` (the tightest, at 2 points), `PMCCABE_TOTAL_MAX` and the `fe_eval.c` file cap — first, funded by name, before any implementation |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms (the arithmetic cost rate) | **+30 to +45** (re-priced 2026-08-05) | Provisional (milestone 2) — like 6, needs the cap raise 06A (or its own 07A) must make; the lower end still exceeds today's headroom |
 | 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | Phase 4's *measured* +59 pmccabe for nine primitives plus a namespace cut, against ~8 core special forms plus reader work | **+50 to +80** (re-priced 2026-08-05) | Provisional (milestone 2) — Wave A alone is the size of Phase 4; the row's old top was a floor. Needs the 06A/08A raise before it |
 | 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase | **+30 to +50** (re-priced 2026-08-05) | Provisional (milestone 2) |
@@ -383,11 +412,15 @@ that the original ranges did.
 | 9 — robustness | Arena-stat diagnostics command | small, new | **+5 to +15** (re-priced 2026-08-05) | Provisional (milestone 2) — Phase 0's 00D already built the read-only stats surface, so this is a small command on top of it |
 | 10 — proofs | Fixtures, PTY cases | Not `src/*.c` | 0 | n/a |
 
-Milestone 1 (phases 0–5) landed at **+13 kg points** (5444 → 5457,
+Milestone 1 (phases 0–5) landed at **+13 kg points** (5444 → 5457 —
+counted from where the tree stood after the Phase 0 set's own kg
+scaffolding moved the 2026-08-04 header baseline 5439 → 5444; +18
+against the header figure,
 including the Phase 4 review's +6), a small fraction of the +35 to +65
 this table predicted — kg phases consistently cost a seam, not a
-subsystem, because the numeric surface is fe's.  At 5457/5500 the tree
-still holds **43 points** of headroom, which is enough for Phase 6's
+subsystem, because the numeric surface is fe's.  At 5457/5500 at close
+(5461 after the post-close review's +4 — the addendum below) the tree
+still holds **39 points** of headroom, which is enough for Phase 6's
 small share and Phase 7's parser alone; Phase 7 and 8 together are the
 first kg rows that would need their own Decision.  **kg is not the
 constraint anywhere in this program; fe is, throughout** — milestone 2
@@ -1859,7 +1892,7 @@ asserted by `(boundp 'insert)` → `nil` / `(fboundp 'insert)` → `t`; both
 spelling parsers moved in step; and the docs (`doc/fe-upstream.md`,
 `doc/lisp-api.md`, `README.md`, `doc/kg.1`) and both compat manifests tell
 the Lisp-2 truth.  **No PTY expectation was edited and no oracle snapshot
- regenerated** — the 70 Lisp PTY cases and every pinned snapshot passed
+ regenerated** — the 69 Lisp-gated PTY cases and every pinned snapshot passed
 as-is, which is the slice's whole point.  `make check` **32/406**;
 `make WITH_LISP=0 clean all check` **32 native, 337 pass + 69 skip** (from
 the CI lane); both complexity gates green — kg scc **5444/5500,
@@ -2037,7 +2070,7 @@ the top of the row.  `make -C fe check`, `complexity-check`,
 predicate/math rows flipping to `supported`) and fuzz smoke are green.
 No kg source changed.  Sub-plan 05D may start.
 
-**05D complete, 2026-08-05 — and with it the fe workstream.**  fe
+**05D complete, 2026-08-05.**  fe
 `17ac959` on `analyzers-etc`, **no kg pin move**, the 04D shape: the cut
 landed in fe, passed its full standalone CI, and left kg on 05C by
 design — the short window where fe spoke integers and kg did not was
@@ -2064,7 +2097,12 @@ had already overspent its funding — see below).  `FeMinimumArenaSize()`
 the pin.
 
 **05E complete, 2026-08-05 — and with it Phase 5 and milestone 1.**
-kg pin moved to fe `17ac959` with every kg adaptation in **one atomic
+kg pin moved to fe `66ff904` — one commit past 05D's `17ac959`, added
+minutes before the pin because 05D left `eq`/`eql` unclaimed in fe's
+manifest and kg's `lisp-compat-check` is the only gate that notices;
+that follow-up, not `17ac959`, closed the fe workstream, and the gate
+gap it exposed is recorded in the post-close review below — with every
+kg adaptation in **one atomic
 commit** per Rule 10: `lisp_position()`'s funnel returns integers
 (`point`, `point-min`/`point-max`, `line-number-at-pos`,
 `current-column`, `char-after`, `string-length`, `string-to-char`, the
@@ -2109,6 +2147,12 @@ per-symbol baseline in the same commit.  `make check`,
   `lisp-math-functions.yaml` change set six lines, but its own enumeration
   names five (`sin`, `cos`, `sqrt`, `atan`, and `log`); those five changed
   and `expt` stayed `256` as required.
+- **The prelude count arithmetic cancelled.**  05E said "count drops
+  52 → 51" from deleting the `eq` alias, and separately added `zerop`;
+  the two cancel and the tree landed at 52.  Both spelling parsers were
+  already right at 52 and needed no edit — the plan's "move in step"
+  happened by cancellation, and the disjointness tripwire (the real
+  guard) fired as designed.
 - **Everything else the plan named, held.**  Every oracle prediction
   from 05A through 05D, the exact-step pins, the `mandelbrot` golden
   byte-identical via script migration, `TestNumericTower` surviving 05D
@@ -2120,9 +2164,10 @@ per-symbol baseline in the same commit.  `make check`,
 - **The milestone-2 re-pricing this paragraph's parent promised is
   done, above.**  Phases 6–9 are re-priced against measured milestone-1
   comparables; the fe rows start from the reality that the caps are
-  nearly full, so Phase 6's 06A Decision must raise
-  `PMCCABE_TOTAL_MAX` and the `fe_eval.c` file cap before any Phase 6
-  sub-plan is written, and Phase 8's Wave A is priced as the size of
+  nearly full, so Phase 6's 06A Decision must raise all three fe caps —
+  `SCC_COMPLEXITY_MAX` (2 points free, the tightest),
+  `PMCCABE_TOTAL_MAX` and the `fe_eval.c` file cap — before any Phase 6
+  implementation, and Phase 8's Wave A is priced as the size of
   Phase 4.
 - **No `number-to-string`/`string-to-number`, no `min`/`max`/`abs`/
   `mod`, no `?a`, no radix syntax, no bignums** — 05A's standing
@@ -2145,3 +2190,80 @@ text changes exactly the enumerated allowlist.  Milestone 2 (Phases
 6–10) is now planned-but-unfunded with measured prices instead of
 estimated ones, and the first obligation it carries is Phase 6's own
 Decision to raise the caps it cannot otherwise fit in.
+
+### Post-close review, 2026-08-05
+
+Three independent adversarial reviews ran against the closed phase —
+fe implementation, kg cutover, documentation/manifest truthfulness —
+plus a differential sweep against the live oracle.  The kg cutover
+held: no crash, no wrong result, every semantic answer byte-identical
+to Emacs, +7 scc against a +15–25 row, the expectation edits exactly
+the allowlist.  All 126 existing oracle snapshots regenerated
+byte-identically, the float printer matched Emacs on 325 randomized
+doubles, and the goldens the plan said must not move did not.  What
+did not hold was, once again, the degenerate tail — and one behaviour
+class 05A never asked the oracle about:
+
+- **NaN through the new rounding family was undefined behaviour**
+  (`IntegerRound`'s range guard passes NaN; UBSan-confirmed,
+  silently `INT64_MIN`), reachable only from kg (Fex shadows the
+  names in the standalone binary) and exercised by no gate; `(floor
+  0 0)` — the divide-by-zero degenerate the Phase 4 lesson names —
+  was silently wrong the same way.  Fixed in fe `c0e0ad8`: NaN and
+  zero divisors raise `arith-error`, tested across all four functions
+  and both operand types.
+- **`1eINF`/`1eNaN` read as nonfinite floats**; Emacs requires the
+  explicit `+` and reads them as symbols.  Fixed in fe `a86fe0d`.
+- **Two comparator behaviours contradicted the oracle while their
+  comments claimed to match it**: a single operand type-checked where
+  Emacs answers `t` unconditionally, and chains did not short-circuit
+  where Emacs stops at the first false pair (`(< 2 1 "a")` → `nil`
+  there, an error here).  Fixed in fe `4b22170`/`e351b67` — deleting
+  the checker paid for the whole review in scc, and six new oracle
+  cases pin both shapes.
+- **`is` silently lost its epsilon across int/float**, and the
+  regression was papered over by editing `scripts/math.fe`'s
+  assertion — the exact "a golden that moves is a finding, not a
+  refresh" case 05C's own text warns about.  Fixed in fe `90b7b41`;
+  the script edit is reverted and the golden byte-identical.
+- **fe had no gate requiring primitives to be claimed in its own
+  manifest** — which is why 05D shipped `eq`/`eql` unclaimed and
+  `66ff904` had to patch it six minutes before kg's pin.
+  `check_compat_manifest.py` now parses `primitive_names[]` itself
+  (fe `edc3161`); the fuzz grammar gained int64 sentinels so the
+  overflow arms it advertised are actually reachable (`1409c48`,
+  coverage-verified); five compat rationales were rewritten to say
+  what is true now (`881f6a0`), including `num-type-of`'s honest
+  statement of the surviving `double`-vs-`float` spelling gap.
+- **kg's side of the same honesty debt**: `native-type-of` had
+  flipped to `supported` while `(type-of 1.0)` still answers `double`
+  — the manifest's only record of that live divergence, deleted in
+  the phase whose purpose was closing divergences; the editor still
+  said `expected double, got string` at its argument seam
+  (`lisp_finite` now raises `wrong-type-argument`, message-level);
+  `auto-fill.el`'s header still claimed fe has no `>`; and a tail of
+  stale figures (1098-vs-1097 frames, "42 primitives", the 05C arena
+  misattribution in `doc/fe-upstream.md`, `eq` still listed as a
+  prelude alias) disagreed between documents that were both rewritten
+  by 05E.  Fixed in kg `c68c877` (the pin move to `e351b67` plus every
+  behaviour-coupled adaptation: the seam, the manifest flip-back, the
+  new tests that pin fe's NaN/comparator fixes from kg — the only host
+  that reaches the unshadowed core) and `a8da121` (the documentation
+  corrections), which also add the oracle-backed claims 05E promised
+  but did not land (the widened `%e`-of-integer gate, `numberp`'s
+  float tag, `equal`'s number leaves; kg manifest 135 → 138) and
+  document the measured step-budget cost of 05E's `equal` atom-tail
+  rewrite — re-measured during the fix at **20.0%** less reachable
+  list length (7489 vs 9361 elements under the default budget),
+  sharper than the review's ~15% estimate.
+
+Cost of the review round: fe **−5 scc / −1 pmccabe** (533/540,
+751/760 — the deleted comparator checker outweighed the new guards),
+kg **+4 scc** (5461/5500; `lisp_finite`'s type gate, pmccabe 2 → 4
+banked).  fe's nine-stage runner is green at `e351b67`; kg's full
+parallel runner closed the round.  The lesson, recorded beside
+Phase 4's: **"context reuse after error" degenerates are still not
+enough — every behaviour a comment attributes to Emacs must have an
+oracle case, because two of the four semantic defects lived in
+comments confidently asserting the opposite of a measurement no one
+had made.**

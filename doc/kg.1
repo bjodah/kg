@@ -496,16 +496,21 @@ the list library
 .Li 1+
 and
 .Li 1- ;
-the predicates and comparisons
+the predicates
 .Li null ,
+.Li equal ,
+.Li zerop
+and
+.Li listp ,
+beside
 .Li eq ,
 .Li eql ,
-.Li equal ,
-.Li zerop ,
-.Li integerp ,
-.Li floatp
+.Li integerp
 and
-.Li listp ;
+.Li floatp ,
+which like
+.Li setq
+are core Fe primitives rather than prelude definitions;
 the namespace forms
 .Li (function F) ,
 .Li (funcall F ...) ,
@@ -625,7 +630,7 @@ cons (visible only through
 .Li (symbol-function \(aqa-macro) ) ;
 and Lisp nesting (recursive calls, nested special forms, self-expanding
 macros) is bounded by the interpreter's frame stack, not by C or
-garbage-collector recursion — kg's default arena holds roughly 365
+garbage-collector recursion — kg's default arena holds roughly 364
 levels of ordinary self-recursion.
 A native re-entering the evaluator synchronously, as
 .Li save-excursion

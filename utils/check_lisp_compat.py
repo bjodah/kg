@@ -14,7 +14,7 @@ Three things, in order:
 1. Reuse (not reimplement) fe/utils/check_compat_manifest.py's schema and
    per-entry validation for both manifests, each pointed at the other via
    --other-manifest so the two id spaces are also checked for collisions.
-2. The check that keeps the inventory alive: every one of Fe's 42
+2. The check that keeps the inventory alive: every one of Fe's 49
    primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
    kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 52
    prelude definitions (lisp/prelude.el's top-level "(defalias 'NAME ...)"
@@ -48,7 +48,7 @@ def strip_c_comments(text: str) -> str:
 
 
 def parse_fe_primitives() -> set[str]:
-	"""42 primitive names plus the 1 alias ('fn' -> 'lambda') from fe.c."""
+	"""49 primitive names plus the 1 alias ('fn' -> 'lambda') from fe.c."""
 	text = strip_c_comments(FE_C.read_text(encoding="utf-8"))
 	names_block = re.search(
 		r"static const char\* primitive_names\[\] = \{(.*?)\};", text, re.S)

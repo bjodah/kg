@@ -438,7 +438,7 @@ surface is available before any init file runs. It is what makes kg's
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
@@ -446,8 +446,9 @@ surface is available before any init file runs. It is what makes kg's
 
 Argument lists take `&optional` and `&rest`; a missing argument is `nil` and an
 extra one is dropped. `length` also counts the codepoints of a string. `equal`
-is structural on lists and type-honest at the leaves — strings by content,
-numbers by value, everything else by identity.
+is structural on lists and compares the leaves with `eql` — strings by
+content, numbers only when they are the same type *and* the same value, so
+`(equal 1 1.0)` is `nil`, and everything else by identity.
 
 A name that has never been assigned is an error rather than `nil`, so a typo
 says `void-variable NAME` instead of quietly being false. `(boundp 'NAME)` asks
@@ -497,7 +498,7 @@ first surprise:
   `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding
   macros) is bounded by the interpreter's frame stack, not by C or
-  garbage-collector recursion — kg's default arena holds roughly 365
+  garbage-collector recursion — kg's default arena holds roughly 364
   levels of ordinary self-recursion, so walk long lists with `while`, not
   recursion. A native re-entering the evaluator synchronously (as
   `save-excursion` and `with-current-buffer` do) has its own, much

@@ -14,7 +14,7 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(42 primitives, 1 alias, plus the handful of fe-owned divergences that
+(49 primitives, 1 alias, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
 (this directory) owns kg's 78 natives (`native_bindings[]`,
 `src/lisp_prelude.c`) and kg's 52 prelude definitions
@@ -103,7 +103,7 @@ all. Instead:
 2. Parses `fe/fe.c`'s `primitive_names[]`/`primitive_aliases[]` and
    `src/lisp_prelude.c`'s `native_bindings[]` and the 52 `(defalias 'name ...)`
    top-level forms in `lisp/prelude.el`, and checks every one of the
-   resulting 42 + 1 + 78 + 52 source names is claimed by exactly one
+   resulting 49 + 1 + 78 + 52 source names is claimed by exactly one
    feature entry's `"source_name"` field, across both manifests combined.
    This is the check that keeps the inventory from rotting: a native or
    prelude definition added without a manifest entry fails `make check`.

@@ -20,8 +20,11 @@
 ;; The display column of buffer position POS.  Moves point to get it --
 ;; current-column has no by-position form -- so every caller wraps its
 ;; own use of this in save-excursion; it is not safe to call bare.  Fe has
-;; no `>'; write it as flipped `<' throughout this file rather than
-;; defining one just for this package.
+;; had `>' since sub-plan 05C, but every comparison in this file stays
+;; written as a flipped `<': the package is the byte-for-byte source that
+;; test/pty/lisp-auto-fill-mode-break.yaml plants in its own HOME, so
+;; respelling the code here would have to be a matched edit in the case
+;; for no behavioural gain.
 (defun auto-fill--column-at (pos)
   (goto-char pos)
   (current-column))

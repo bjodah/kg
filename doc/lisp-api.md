@@ -162,7 +162,14 @@ Ordering rules that hold across every subscriber:
   a runaway evaluation. Both are enforced by the same `FeEvalOptions`
   (`eval_options` in `src/lisp_core.c`) every entry point —
   `eval-expression`, `eval-buffer`, `C-j`, a Lisp-defined command, a hook
-  callback, a process callback — shares.
+  callback, a process callback — shares. The budget is what bounds
+  `equal` on a long list, and 05E's type-honest leaf comparison — `eql`
+  rather than fe's broad `is` — made that bound tighter: measured on the
+  default budget, `(equal l l)`
+  succeeds on a flat 7489-element list and exhausts at 7490, where the
+  pre-05E `is`-tailed definition reached 9361 — 20% less reachable list
+  length for the same budget. Nesting depth is unaffected, since `equal`
+  walks the spine iteratively and only recurses per element.
 - **A raised error unwinds the whole top-level call**, not just the
   innermost form. kg's Lisp has no `condition-case`: nothing in Lisp
   catches an error partway, and `unwind-protect` (below) runs its cleanup
@@ -186,7 +193,7 @@ Ordering rules that hold across every subscriber:
     roughly 3 frames per level (`if`, the arithmetic, and the recursive
     call each open one), so in practice it stops `(deep n)`-shaped
     recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1098; exceeding it raises
+    `frame_capacity` 1097; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -518,7 +525,7 @@ its `fset` refuses to build the cycle at all.)
 
 kg's own prelude is written against these rules: its top-level
 definitions are installed with `defalias` into function cells, the
-primitive aliases (`progn`, `null`, `eq`, ...) capture the primitive's
+primitive aliases (`progn` and `null`) capture the primitive's
 own function cell with `(defalias 'progn (symbol-function 'do))`, and
 `internal--let` is pinned *before* the Emacs `let` macro overwrites the
 primitive's function cell.

@@ -3,26 +3,26 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this Phase 4
-set was written against the tree as it stands after Phase 3 closed
-(2026-08-05).  Read the parent's §0 (verified baseline), §0.1 (the two
-complexity ratchets), §0.3 (scope honesty) and §0.4 (no legacy
-constituency) before any of these; they are the facts these documents
-assume.  Where the parent's Phase 4 section names stale facts — 54
-prelude definitions where the tree has 53, 64 Lisp PTY cases where it has
-69, 22 macros where it has 18, and the claim that Lisp-2 makes
-`internal--let` unnecessary, which 04A's §4 corrects — this
-implementation-audited set controls.
+implementation-audited against the tree it starts from, and this Phase 5
+set was written against the tree as it stands after Phase 4 closed and
+its post-close review fixes landed (2026-08-05).  Read the parent's §0
+(verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
+honesty) and §0.4 (no legacy constituency) before any of these; they are
+the facts these documents assume.  Where the parent's Phase 5 section
+names stale facts — "ten call sites" where the tree funnels 13 natives
+through one `lisp_position()` constructor and every numeric argument
+through `lisp_finite()`, the `ARITH_OP`/`NUM_CMP_OP` macros that died
+with the recursive evaluator in 03E, and §0.2's fe.c split that 03B
+settled — 05A's corrections control.
 
-Measured on the audited tree, 2026-08-05, and re-measured rather than
-carried forward per Rule 6: kg **5444/5500** scc, **32 native / 406 PTY**
-(**337 pass + 69 skip** under `WITH_LISP=0`), **69** Lisp PTY cases; fe
-**391/420** scc with `fe.c` at **73** and `fe_eval.c` at **208/240**,
-pmccabe **601/630 across 230 symbols** (worst functions `Read` and
-`RunEvaluationLoop` at 14), and `FeMinimumArenaSize()` **53840 bytes**,
-kg's 1 MiB arena partitioning to **1100 frames / 56209 object slots** (the
-audited 56210 was computed against the pre-03F 53832-byte minimum; 04A's
-spike re-measured it as 56209, which kg's own counters confirm).
+Measured on the audited tree, 2026-08-05 (post-review), and re-measured
+rather than carried forward per Rule 6: kg **5450/5500** scc, **32
+native / 406 PTY** (**337 pass + 69 skip** under `WITH_LISP=0`), **70**
+Lisp PTY cases; fe **459/480** scc with `fe.c` at **73** and `fe_eval.c`
+at **276/300**, pmccabe **660/690 across 248 symbols** (worst functions
+`DispatchPrimitive` and `RunEvaluationLoop` at 14), and
+`FeMinimumArenaSize()` **55616 bytes**, kg's 1 MiB arena partitioning to
+**1098 frames / 56221 object slots**.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -65,96 +65,110 @@ behind is the ground later phases stand on: `FeDefineNative` writes the
 function cell, `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 3, and the
 prelude's 52 definitions are spelled `defalias`.
 
-The through-line was that Phase 4 was a *migration* problem before it was
-an implementation one.  Three facts, established by auditing this tree,
-shaped the slices:
+**This set — Phase 5, integers and the numeric surface — is next.**  Its
+five documents (`05a`–`05e`) are in this directory; the Grouping and
+Sequencing sections below describe them, and `05a` must land before any
+of the rest.  Phase 5 closes milestone 1, which carries an obligation the
+price table wrote down for itself: when 05E closes the phase, the
+provisional milestone-2 rows (Phases 6–9) are re-priced against real
+measurements before any Phase 6 sub-plan is written.
 
-- **A missed migration site fails at run time, not at load time.**  The
-  prelude has 47 intra-prelude head-position uses of prelude-defined
-  names, three sites that call a *parameter* in head position, and two
-  that pass functions by value; kg's C reads a symbol's value cell as a
-  callable in exactly one place (`resolve_hook_function`,
-  `src/lisp_hooks.c`).  Nothing fails until whichever command first runs
-  `dolist` after a missed `funcall`.  The 69 Lisp PTY cases were the net,
-  and the slices were ordered so the cut landed against machinery that was
-  already fully tested.
-- **Both fe complexity gates have exactly 29 points of headroom** against
-  a phase priced at +40 to +60, and `RunEvaluationLoop` — the function
-  the phase had to fork — was already at 14 of the 22 per-function cap.
-  The funding Decision had to come first, again.
-- **The oracle already knew some answers.**  The `one-namespace-boundp`
-  and `reader-sharp-quote-identity` snapshots had recorded the Lisp-2
-  target since 00C; the phase's job was to make them flip from divergent
-  to supported without regenerating them.  The rest of the answer key —
-  seventeen predicted cases — was 04A's to pin before implementation.
+The through-line is that Phase 5 is a *text-changing* phase, which
+inverts Phase 4's discipline.  Four facts, established by auditing this
+tree, shape the slices:
 
-So the set front-loaded one oracle-and-decision slice, landed the symbol
-representation alone behind accessors, built the whole function
-namespace additively behind a transitional fallback so nothing observable
-moved, cut fe over in one fe-only slice, and landed kg's pin, prelude,
-natives, tests and documents in one atomic commit — deliberately, so that
-every slice before the last two could use "no existing test expectation
-changed" as its correctness argument, and the cut itself was two
-reviewable diffs instead of one big bang.
+- **The phase deliberately changes what programs print**, so "no
+  expectation edits" — Phase 4's red-flag rule — becomes "only the
+  *enumerated* expectation edits, each justified by a pinned oracle
+  answer".  The audit found the full allowlist in advance: six lines of
+  one PTY case (`lisp-math-functions.yaml`), one `test_lisp.c` breakage
+  table dominated by the `(/ 1 0)` family, one compat flip
+  (`reader-no-integers`, whose snapshot has recorded the target since
+  00C), and 150 000 lines of fe's `mandelbrot` golden that must **not**
+  change because the script migrates to explicit float spellings
+  instead.  An edit outside the list is a finding.
+- **kg's numeric boundary is a funnel, not a scatter.**  13
+  position-returning natives share `lisp_position()`
+  (`src/lisp_buffer.c:181`), every numeric argument goes through
+  `lisp_finite()`, and exactly three `FeGetType == FeTDouble` checks
+  exist in all of `src/` (two `format` gates, `numberp`).  The kg
+  cutover is smaller than the parent plan feared, and 05E's checklist is
+  written from the funnel.
+- **The manifest disjointness rule dictates slice boundaries.**  Every
+  fe primitive, kg native and prelude definition name must be claimed
+  exactly once across both manifests, so a new fe primitive whose name
+  kg currently owns cannot land before the kg-side deletion: `eq` (a
+  prelude alias of `is` today) lands with 05D's cut, `numberp` (a kg
+  native) must never become an fe primitive at all, and the collision
+  table in 05A is the authority.
+- **Both fe gates are nearly spent again**: 23 scc and 32 pmccabe points
+  of headroom against a row priced +50 to +70, so the funding Decision
+  comes first, for the fourth time.
+
+So the set front-loads one oracle-and-decision slice (05A: ~40 predicted
+answers, five Decisions, the funded raise), lands the dormant
+representation (05B), builds the whole tower against the host-API seam
+while the reader still speaks only doubles (05C), cuts reader, printer,
+`eq`/`eql` and the versions in one fe-only slice (05D), and lands kg's
+pin, funnel edits, equality rewrite, enumerated expectations and
+documents in one atomic commit that also closes the milestone (05E).
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| 04A | 4 | The Lisp-2 differential corpus, the symbol-layout decision with measured arena arithmetic, the host-API table, the migration mechanics, and Phase 4's dated Decision | none — **this is first** |
-| 04B | 4 | Symbol internals behind accessors; the function cell exists, rooted and priced, read by nothing | 04A |
-| 04C | 4 | `function`/`fset`/`symbol-function`/`symbol-value`/`fboundp`/`fmakunbound`/`defalias`/`funcall`/`apply`, and function-cell-first head resolution behind a transitional value fallback | 04B |
-| 04D | 4 | The cut: bootstrap to function cells, fallback deleted, `#'` reads as `(function x)`, fe scripts migrated, `FE_LANGUAGE_VERSION` 3 and `FE_API_VERSION` 3 — **no kg pin move** | 04C |
-| 04E | 4 | The pin plus every kg adaptation in one atomic commit: prelude rewrite, hooks/process/`functionp` designators, both spelling parsers, tests, manifests, docs; closes the phase | 04D |
+| [05A](05a-pin-the-numeric-target-and-fund-the-phase.md) | 5 | The numeric oracle corpus (~40 cases), five Decisions — representation/enum placement, the equality-family ownership table, reader grammar, printer representation, error policy — and the funded cap raise | none — **this is first** |
+| [05B](05b-the-integer-object-dormant.md) | 5 | `FeTInteger` exists: host-constructible, printable, typed, collected, producible by no Lisp program | 05A |
+| [05C](05c-the-numeric-tower.md) | 5 | Integer-preserving arithmetic, truncating division, `arith-error` on overflow/zero-divide, chained `<`/`<=`/`>`/`>=`, binary `/=`, `integerp`/`floatp`, per-function math-native return types — all against a reader that still speaks only doubles | 05B |
+| [05D](05d-the-numeric-cut.md) | 5 | The cut: Emacs number lexing replaces `strtod`, floats print `42.0`/shortest-round-trip/nonfinite spellings, `eq`/`eql` land, scripts migrate, `FE_LANGUAGE_VERSION` 4 and `FE_API_VERSION` 4 — **no kg pin move** | 05C |
+| [05E](05e-the-kg-cutover.md) | 5 | The pin plus every kg adaptation in one atomic commit: the `lisp_position()` funnel, `format`'s gates, `numberp`, the prelude equality rewrite, the enumerated expectation allowlist, docs; closes the phase **and milestone 1**, triggering the milestone-2 re-pricing | 05D |
 
-The five sub-plan documents this table names were removed once the
-workstream was accepted — see git history; the Phase 4 Status section below
-is the surviving record of what each slice delivered.
+**05A is genuinely first, for the same structural reason 00A, 02A, 03A
+and 04A were.**  Phase 5's semantics are ~40 independent oracle
+questions, its representation is a union-and-enum question with an ABI
+consequence, its equality family is a name-ownership question the
+manifest checker enforces, and its complexity cost exceeds both fe
+gates' headroom.  All of it must exist before any implementation slice.
 
-**04A was genuinely first, for the same structural reason 00A, 02A and 03A
-were.**  Phase 4's semantics are an oracle question, its symbol layout is
-an arena-arithmetic question, and its complexity cost exceeds both fe
-gates' headroom.  All three answers had to exist before any implementation
-slice, or the implementation slices would answer them unilaterally, in the
-middle of a diff.
+**05B is mechanical and lands alone on purpose**, like 03B/04B: its
+correctness argument is byte-identical goldens and a type no Lisp
+program can produce.
 
-**04B was mechanical and landed alone on purpose**, like 03B: its
-correctness argument was byte-identical goldens and unchanged test
-expectations, which is only checkable while nothing else moves.
+**05C builds the tower against the host-API seam** — the 04C precedent
+with a twist: instead of a transitional fallback that later dies, the
+"fallback" is simply the unchanged reader, so there is nothing to
+delete, only a lexer to replace.  Its tests drive integers in through
+`FeMakeInteger` because no source text can spell one yet, and those
+tests survive 05D unedited — that is their point.
 
-**04C was additive behind a documented transitional fallback** — the 02B
-precedent.  Function-cell-first resolution with a value-cell fallback was
-an in-workstream state, never a released coexistence layer; it existed so
-the new machinery was complete and tested before the cut, and 04D deleted
-it.
-
-**04D and 04E were the two halves of one Rule-10 delivery**, exactly as
-02C/02D were for the Phase 2 cut.  04D cut fe over and closed the fe
-workstream with the full nine-stage runner; it deliberately did not move
-kg's pin, because a pin-only commit cannot build
-(`static_assert(FE_API_VERSION == 2)` fires and the prelude would break
-at startup).  04E was that pin, with every kg adaptation in the same green
-commit.
+**05D and 05E are the two halves of one Rule-10 delivery**, exactly as
+02C/02D and 04D/04E were.  05D cuts fe over and closes the fe
+workstream with the full nine-stage runner; it deliberately does not
+move kg's pin — a pin-only commit cannot pass `lisp-compat-check` (the
+new `eq` primitive collides with kg's prelude alias until 05E deletes
+it) and every kg-side numeric expectation shifts.  05E is that pin,
+with every kg adaptation in the same green commit.
 
 ## Handoff contract
 
-The slices were handed one engineer one row at a time; each sub-plan's
-“Files this slice owns”, test list and “does not do” section were part of
+Hand the slices to one engineer one row at a time; each sub-plan's
+"Files this slice owns", test list and "does not do" section are part of
 the acceptance criteria, not suggestions.  The five documents are removed
-on completion — see git history; the Phase 4 Status below records what each
-slice actually delivered against those criteria.
+on completion, once the reviewer accepts the workstream; the Status
+section then records what each slice actually delivered.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 04A | fe compat manifest/cases/snapshots, fe Makefile caps, Decision docs | version-stamped answers for the seventeen predicted cases, the measured layout spike, funded caps proved against the current tree | no implementation, no status flips, no kg edits |
-| 04B | fe symbol layout/accessors, arena arithmetic, one new test | byte-identical goldens, unchanged step pins, forced-GC survival of the dormant cell, re-verified arena boundary tests | no lookup change; no public API; no observable behaviour |
-| 04C | fe primitives/head-resolution helper/funcall-apply path, new scripts, compat flips for the additive family | all existing goldens and trace pins unedited, per-state GC coverage of any new resumable boundary, strict-arity pass byte-identical | no cut, no bootstrap move, no `#'` change, no kg source |
-| 04D | fe bootstrap/reader/writer/scripts/versions/fuzz | the two long-pinned snapshots flip to supported un-regenerated, 03A trace goldens byte-identical, full nine-stage fe runner | no kg pin, no kg source, no compatibility residue |
-| 04E | kg pin, prelude, hooks/process/functionp, both spelling parsers, tests, manifests, docs | 69 Lisp PTY cases unedited, the coexistence headline `(7 9)`, `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner | no PTY expectation edits, no oracle regeneration, no `internal--let` deletion |
+| 05A | fe compat manifest/cases/snapshots, fe Makefile caps, Decision docs | version-stamped answers for the predicted case table, the union/enum spike, the collision table, funded caps proved live | no implementation, no status flips, no kg edits beyond the pin |
+| 05B | fe `Value` union/type enum/constructors/writer arm/Fex GC arm, one new test, the fuzz reach-ahead | byte-identical goldens, no Lisp-observable change, `sizeof(Value)` asserted, forced-GC survival of an integer | no reader/printer change, no arithmetic, no version move |
+| 05C | fe arithmetic/comparison resume arms, five new primitives, math-native return types, compat flips for the tower rows | `TestEvaluationControl`'s 4-step pin unedited, trace goldens byte-identical, host-API-driven tower tests, fuzzed overflow paths | no reader/printer change, no `eq`/`eql`, no version move, no kg source |
+| 05D | fe reader lexer/printer/`eq`/`eql`/scripts/versions/fuzz dict | `reader-no-integers` flips supported un-regenerated, `mandelbrot` golden byte-identical via script migration, 05C's tower tests unedited, full nine-stage fe runner | no kg pin, no kg source, no compatibility residue |
+| 05E | kg pin, the `lisp_position`/`format`/`numberp` funnel, prelude equality rewrite, enumerated expectations, manifests, docs | the expectation allowlist and nothing outside it, `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner, the milestone-2 re-pricing | no new kg natives, no clamp-policy change, no oracle regeneration |
 
-For all rows, current suite counts were a starting census, not literals to
-assert.  Focused tests ran while iterating; the full Fe runner closed the
-Fe workstream at 04D, and kg's full parallel runner closed Phase 4 at 04E.
+For all rows, current suite counts are a starting census, not literals to
+assert.  Run focused tests while iterating; the full Fe runner closes the
+Fe workstream at 05D, and kg's full parallel runner closes Phase 5 — and
+milestone 1 — at 05E.
 
 ## Compatibility direction
 
@@ -168,72 +182,77 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 4 this cuts one specific way.  The transitional value-cell
-fallback (04C) is scaffolding inside the workstream, deleted by 04D
-before any pin a release could see; it is not a compatibility mode and
-must never grow a flag.  `FeDefineNative` keeps its name while its
-meaning changes — the `FE_API_VERSION` 2 → 3 bump plus kg's
-`static_assert` is the tripwire that turns the silent difference into a
-compile error, the same reasoning 03F applied to its field renames.  And
-the prelude cutover is atomic with the pin: there is no release in which
-kg's `defun` writes a value cell against a Lisp-2 fe, or vice versa.
+For Phase 5 this cuts one specific way.  There is no dual reader, no
+old-printer mode, and no release in which `42` reads as a double against
+a kg that expects integers — the reader/printer cut and the kg funnel
+move as 05D + 05E, one Rule-10 pair.  Where fe cannot or should not
+match Emacs, the divergence is *recorded*, not papered over: int64
+instead of bignums (overflow is an `arith-error`-style message), `is`
+stays fe's own broad comparator rather than pretending to be an Emacs
+form, and out-of-range integer literals take the pre-bignum Emacs
+behaviour with a divergence row saying so.  Version numbers move once,
+at the cut, because they make the Fe↔kg contract checkable — kg's
+`static_assert(FE_API_VERSION == 3)` firing at the 05E pin is the
+designed tripwire, as it was in 03F and 04D.
 
 ## Sequencing
 
 ```text
-04A  pin the target and fund ──> 04B  symbol cells behind accessors (pin moves)
+05A  pin the target and fund ──> 05B  the integer object, dormant (pin moves)
                                       │
                                       v
-                                 04C  the function namespace, additively (pin moves)
+                                 05C  the numeric tower, host-API seam (pin moves)
                                       │
                                       v
-                                 04D  the cut, fe-only ── fe workstream closes, NO pin
+                                 05D  the cut, fe-only ── fe workstream closes, NO pin
                                       │
                                       v
-                                 04E  the kg cutover ── pin + prelude + docs, one commit
+                                 05E  the kg cutover ── pin + funnel + prelude + docs,
+                                      one commit; closes the phase and milestone 1
 ```
 
-Strictly linear, and nothing ran in parallel with it: every slice edits
-either the symbol representation or the things that read it.  Every arrow
-was a real dependency: 04B implemented the layout 04A measured, 04C read
-the cell 04B landed, 04D deleted the fallback 04C shipped behind, and 04E
-adapted kg to the contract 04D versioned.
+Strictly linear, and nothing runs in parallel with it: every slice edits
+either the numeric representation or the things that read it.  Every
+arrow is a real dependency: 05B implements the representation 05A
+measured, 05C dispatches on the type 05B landed, 05D feeds the tower
+05C built, and 05E adapts kg to the contract 05D versioned.
 
-The pin discipline differed mid-set, and deliberately: 04B and 04C moved
-kg's pin in their own trivial green commits (Rule 10), 04D moved nothing,
-and 04E was the pin — the same two-halves shape 02C/02D used for the
-Phase 2 cut.
+The pin discipline is the Phase 4 shape verbatim: 05B and 05C move kg's
+pin in their own trivial green commits (05C's carries the five new
+primitive names through `lisp-compat-check` and the moved minimum-arena
+figure), 05D moves nothing, and 05E is the pin.
 
 ## What this set deliberately does not do
 
-- **No condition system.**  `void-function`, `void-variable` and
-  `cyclic-function-indirection` are names carried in the
-  `FeHandleError()` message, not signalable conditions; no test or compat
-  case may assert a catchable condition object.  Conditions are Phase 6.
-- **No integers, no strict arity, no interactive arguments.**  Phases 5
-  and 7.  The new forms' arity behaviour is pinned by oracle cases, but
-  lambda arity itself stays as it is.
-- **No local function bindings.**  `flet`/`labels`-shaped forms are
-  deferred until there is a concrete need, per the parent's §8; call
-  position resolves through the *global* function cell, and a `let`
-  binding does not shadow it — that is the point.
-- **No `let`-into-core and no `internal--let` deletion.**  Phase 8
-  Wave A.  The parent plan's claim that Lisp-2 makes `internal--let`
-  unnecessary is wrong — the Emacs `let` macro and Fe's `let` primitive
-  now collide in the *function* namespace instead of the value namespace —
-  and 04A's Decision records the correction so 04E does not rediscover it
-  at run time.
-- **No compatibility residue.**  No value-cell fallback surviving 04D, no
-  `#'`-identity alias, no dual prelude, no migration lint for configs
-  that do not exist (§0.4).  Version numbers still move because they make
-  the Fe↔kg contract checkable.
-- **No Emacs macro representation.**  fe keeps `FeTMacro`; Emacs'
-  `(macro . FUNCTION)` cons is a recorded, tested representation
-  divergence, observable only through `symbol-function` of a macro.
-- **No arena-size change in kg.**  The +1-object-per-symbol cost is
-  measured against kg's recorded margins in 04A; if it ever looks
-  uncomfortable, that is a finding to report with numbers, not a constant
-  to quietly raise.
+- **No bignums.**  Integers are `int64_t`; arithmetic overflow and
+  out-of-range literals are recorded divergences against Emacs' bignum
+  behaviour, with `arith-error`-style messages, not silent wraps.
+- **No condition system.**  `arith-error`, like `void-function` before
+  it, is a name carried in the `FeHandleError()` message, not a
+  signalable condition; no test or compat case may assert a catchable
+  condition object.  Conditions are Phase 6, and this phase's overflow
+  and zero-divide errors are their first customers.
+- **No `number-to-string`/`string-to-number`, no `min`/`max`/`abs`/
+  `mod`, no `?a` character literals, no `#x`/`#o`/`#b` radix syntax.**
+  None are in the parent's Phase 5 list; the first package that needs
+  one is Phase 8's evidence for adding it.
+- **No clamp-policy changes in kg.**  `goto-char`'s clamping,
+  `lisp_optional_count`'s saturation and `goto-line`'s bounds are
+  documented Emacs-matching behaviour and keep their shapes with
+  integer inputs.
+- **No Fex changes beyond the GC arm.**  Fex's math natives
+  (`fex_math.c`) keep their own semantics; the standalone `fe` binary's
+  Fex shadowing of `floor`/`ceiling`/`log`/`round`/`truncate` is a
+  recorded fact 05C works around in its tests, not a thing to fix.
+- **No strict arity, no interactive arguments.**  Phase 7.  `/=`'s
+  binary-only arity and the chained comparators' behaviour are pinned by
+  oracle cases, but lambda arity stays lax.
+- **No compatibility residue.**  No dual reader, no old-printer flag, no
+  `is`-aliased `eq` reachable after the cut (§0.4).  Version numbers
+  still move because they make the Fe↔kg contract checkable.
+- **No re-litigation of recorded Phase 4 residue.**  `FeTMacro`,
+  `internal--let`, and the message-level condition rule all stand as the
+  Phase 4 Status recorded them.
 
 ## Rules
 
@@ -323,8 +342,8 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 1 — prelude extraction | fe untouched (kg-only phase) | — | 0 | **Landed. Actual 0**, as predicted |
 | 2 — hard-cut `=`/`setq` | `setq` as a core special form (pair iteration over the existing assignment path), `set` as an ordinary-semantics primitive using the global setter, and a left-to-right chained double `=` arm | `EvaluatePrimitive`'s existing assignment arm (part of its 15 pmccabe today); `PLess`/`PLessEqual` as type-checking references, but not as an arity/iteration template | **+20 to +30** (net of deleting the old assignment arm it replaces) | **Landed. Actual +6, and scc could not see it.** No cap crossed, so no Decision. scc stayed at 214/220 through both slices; `pmccabe`'s `fe.c` sum went 340 -> 350 (02B) -> 356 (02C), which is the real number. Phase 2's code sits past `fe.c:1010`, where scc's parser desyncs -- see the Phase 2 Status below |
 | 3 — frame machine | Explicit evaluator frame stack, 12+ frame kinds, resumable state, GC-stack/cleanup checkpoint migration into frames, `fe.c` split into ≥2 translation units (recommended, §0.2/§3 below) | Today's recursive core (`Evaluate`, `EvaluatePrimitive` 15, `ArgsToEnv` 13, `DoList`, `EvaluateList`, `EvaluateHead`, `GetBound` ≈ 35–45 pmccabe combined) roughly doubled, **plus** the measured +42 split tax | **+42 (measured split tax) + 60–100 (frame-machine substance) ≈ +100 to +140** | **Next — and the unit is wrong.** The +42 is 00A's *reader* extraction; Phase 3 extracts the *evaluator*, which sits entirely below `fe.c:1010` and is therefore invisible to scc today. Expect a larger jump from un-blinding a bigger region, and expect it to be a blind spot being paid off rather than new complexity. 03A re-prices this from a spike of the real cut and settles the measurement unit before 03B lands |
-| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Funded by 04A's Decision, 2026-08-05** — the landed raise is exactly the top of this row: scc 420→480, file 240→300, pmccabe 630→690, funding 04B–04D by name.  Re-priced against the real tree (`funcall`/`apply` are evaluator work, `RunEvaluationLoop` is at 14/22, 04B's accessor layer near-free in pmccabe); the measured starting state (391/420, 601/630, 208/240) is unchanged from the audited baseline, and both gates had exactly the 29 points of headroom this row warned about |
-| 5 — integers | `FeTInteger`, reader/printer int-vs-float branches, `ARITH_OP`/`NUM_CMP_OP` macro-generated arms extended for mixed types, `eq`/`eql`/`equal`/`=` split apart | Fe's existing arithmetic/comparison macro family, roughly doubled for the mixed-type cases | **+50 to +70** | Provisional (milestone 1) |
+| 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
+| 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Next.  Exceeds both fe gates' measured headroom (23 scc, 32 pmccabe)** — 05A's Decision funds it before 05B lands, the 00A/03A/04A pattern |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Comparable in shape to Phase 3's control-flow weight | **+70 to +100** | Provisional (milestone 2) |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; mostly small per-site additions | **+20 to +30** | Provisional (milestone 2) |
 | 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | ~8 new core special forms at 4–6 pmccabe each, plus reader work | **+50 to +70** | Provisional (milestone 2) |
@@ -349,8 +368,8 @@ widest uncertainty in the whole table.
 | 1 — prelude extraction | Deletes 4 `(list 'quote nil)` workarounds and 2 stale comment claims in `src/lisp_prelude.c`; generator is Python | `src/lisp_prelude.c` | **−3 to −5** (net decrease) | **Landed. Actual −1** (5444 → 5443).  The estimate also assumed the 4 `(list 'quote nil)` workarounds would go; 01A left them, since removing them changes evaluated code and Phase 2 rewrites all four forms anyway |
 | 2 — hard-cut `=`/`setq` | Deletes a Lisp-source macro, renames `.fe`→`.el`, changes discovery string literals, and adds one compile-time language-version assertion; no new loader branch | existing `src/lisp_core.c`/`lisp_io.c`/`lisp_require.c` seams | **0 expected** | **Landed. Actual +1** (5443 -> 5444), the `static_assert` line; the estimate held. pmccabe unchanged at 1246 symbols, 0 new/gone/improved |
 | 3 — frame machine | Adapts `src/lisp_core.c` call sites to the new Fe API version; no new kg-side control flow | `src/lisp_core.c` | **+10 to +15** | **Next, and likely an overestimate.** 03F's kg-side inventory is two `static_assert`s, a field rename through `lisp.h`/`perf.h`/`lisp_core.c`, a test expectation and a bench label. Eleven Makefile sites (03B) are not scc-scanned. Expect ~0 |
-| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Confirmed by 04A's measurement, 2026-08-05, no raise.**  Re-measured 5444/5500 — 56 points of headroom, inside which the +15 to +25 estimate fits; the audit's C-side inventory (one value-cell read in `lisp_hooks.c:resolve_hook_function`, `functionp` designators, a `lisp_process.c` alignment, two version asserts) stands |
-| 5 — integers | ~10 `FeMakeDouble` call sites become type-aware; printer/formatting glue | `src/lisp_buffer.c`/`lisp_word.c`/`lisp_search.c` | **+15 to +25** | Provisional (milestone 1) |
+| 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Landed at ~0** — scc unchanged at 5444 at phase close; the post-close review fixes (designator-diagnostic seam, `functionp` via `FeIsFunction`) added **+6 → 5450/5500** |
+| 5 — integers | The `lisp_position()`/`lisp_finite()` funnel becomes integer-typed, `format`'s two type gates widen, `numberp` goes two-tag, the prelude equality family is rewritten | `src/lisp_buffer.c`/`lisp_io.c`/`lisp_cmd.c` seams | **+15 to +25** | **Next, and likely an overestimate** — the funnel audit found 7 constructor sites + 2 gates + 1 predicate, not the parent's scattered ten; 50 points of measured headroom (5450/5500), no raise expected |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+25 to +40** | Provisional (milestone 2) |
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+55 to +65** | Provisional (milestone 2) |
 | 8 — init compat waves | `defcustom` validation + docstring storage (Wave D); no Customize UI | `src/lisp_prelude.c`/`src/lisp_require.c` | **+25 to +40** | Provisional (milestone 2) |
@@ -1647,6 +1666,75 @@ needed no raise — scc is **unchanged at 5444/5500**, and the only pmccabe
 movement is the one new helper and one improvement banked above.  What the
 plan got wrong — the stale 53/54 and 18/22 counts, the `internal--let`
 sentence, the `(function NAME)` handoff — is collected above; none of it
-reached shipped behaviour.  Phase 5 (integers) is the next set, milestone
-1 and provisional in the price table, on the ground this phase left
-behind.
+reached shipped behaviour.  Phase 5 (integers) is the next set, on the
+ground this phase left behind.
+
+### Post-close review, 2026-08-05
+
+Three independent adversarial reviews ran against the closed phase — one
+over the fe commits, one over the kg cutover, one over documentation and
+manifest truthfulness — and the phase's own gates had caught none of
+what they found, which is the finding worth keeping:
+
+- **The funcall/apply arm shipped a reachable segfault.**  `(funcall (+))`
+  dereferenced a wild pointer, because zero-operand arithmetic returned
+  the `&unbound` sentinel and the EvalList delivery logic silently drops
+  it — an invariant the arm's own comment asserted and no test checked.
+  `(apply '+ '())` aborted the process the same way.  Fixed in fe
+  `74395f3` by giving zero-operand arithmetic Emacs' identities (`(+)` →
+  0, `(*)` → 1, `(-)` → 0, `(/)` → `wrong-number-of-arguments`) plus a
+  defensive guard in the arm.  The same commit fixed `void-function`
+  naming the wrong symbol through alias chains under `funcall` (the
+  `dead` out-parameter's only consumer was the one that got it wrong),
+  taught `funcall`/`apply` to reject macros and special forms with
+  `invalid-function` (they previously mis-executed on quote-wrapped
+  operands) behind a new additive `FeIsFunction()` API, and cut `apply`'s
+  GC-stack cost from 4 slots per spread element to O(1) — a 1024-element
+  spread died where a 4000-argument direct call worked.  fe `c4f50f9`
+  repointed four compat rationales whose stated blockers had landed.
+- **kg's designator seams could crash, and the docs promised otherwise.**
+  A hook, filter or sentinel named by a symbol with an empty function
+  cell produced an *anonymous* "tried to call non-callable value" where
+  three documents promised a contained error naming the symbol — and the
+  investigation found the promise was unkeepable by raising: an error
+  raised at the seam, outside a nested evaluator run, longjmps into a
+  returned frame (a pre-existing segfault, confirmed empirically).  kg
+  `b4c5ddc` moved the pin and made the seam *report* instead of raise
+  (`lisp_callable_designator`, `src/lisp_core.c`), naming the symbol in
+  a contained `void-function`/`invalid-function` hook error; it also
+  switched `functionp` to `FeIsFunction` so `(functionp 'if)` is `nil`
+  as in Emacs, fixed `defun`'s interactive branch evaluating its lambda
+  twice (the function cell and the command registry held two different
+  closures), and repaired the small test/comment debts the review
+  listed.  kg `cf70a79` rebuilt `let`'s expansion with a loop instead of
+  two `mapcar`+`#'` passes — measured 2.92 s → 1.92 s over 200k
+  two-binding expansions, expansion byte-identical.
+- **The docs audit** (kg `24609d5`) caught the arena-figure
+  self-contradiction in `doc/fe-upstream.md`, a four-document claim that
+  kg's Lisp has no `unwind-protect` (it does), a stale GC-stack
+  recursion bound in the document that declares itself authoritative,
+  and the nine namespace forms mis-attributed to the prelude.
+- **The seam fix left one hole, closed last.**  `b4c5ddc`'s
+  report-not-raise seam still crashed on a *cyclic* designator chain
+  (`(fset 'x 'x)` + `add-hook` + a save), because the only resolver a C
+  host has, `FeGetFunction`, raised `cyclic-function-indirection` — the
+  exact containment problem the rest of the seam had just been cured of.
+  Emacs offers no behaviour to copy here: its `fset` refuses to *build*
+  the cycle, so `indirect-function` never sees one.  fe `b864278` makes
+  `FeGetFunction` answer nil for a cycle as a documented host-API design
+  choice (call position, `funcall` and `apply` still raise); kg
+  `47e741b` moves the pin, pins the contained behaviour in `test_hooks`
+  (the old pin dies with SIGSEGV on that case; the new one reports
+  `void-function` and carries on — a cycle and a dead multi-link chain
+  are indistinguishable at the seam, deliberately), and flips the
+  `functionp`-on-a-cycle pin from divergence to Emacs match (`nil`,
+  because `functionp` now asks `FeIsFunction` about the resolved value,
+  not the symbol).
+
+Cost: fe +18 scc / +17 pmccabe (459/480, 660/690 — still inside 04A's
+funding, no cap raised), kg +6 scc (5450/5500).  All gates re-green on
+both sides, including fe's nine-stage runner three times and kg's full
+parallel runner.  The lesson, recorded for the next set: **a slice's
+"context reuse after error" tests must include the zero-operand and
+empty-list degenerate of every new form** — all four fe defects lived in
+degenerate inputs the happy-path suites never spelled.

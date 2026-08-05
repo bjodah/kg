@@ -341,4 +341,70 @@ machine exists.
 
 ## Status
 
-Not started.
+**In progress — the blocker is cleared, the slice's own content is not
+started.**
+
+**Landed, 2026-08-05.**  fe `675bcec`, kg pin `e465d21`.  One thing only:
+the GC stack no longer grows with Lisp nesting.
+
+03E handed this slice a blocker — the literal `(deep 100000)` this document
+turns into a permanent gate did not run, and the wall was neither the frame
+stack nor the arena but `GcStackSize` (4096), a fixed `FeContext` array no
+arena size can grow.  03E measured the chain dying at 1021 levels and named
+two candidate resolutions.  The second one was right, and cheaper than
+either party expected: **the per-level retention was pure redundancy.**
+Every completed frame did `FeRestoreGC(checkpoint); FePushGC(result)`, but
+an intermediate result is delivered straight into the frame below's
+`callee` with no allocation in between, and every frame field is already an
+exhaustive mark-phase root.  Only the run's own result needs a push, once,
+at the barrier.  Enlarging the array — 03E's other candidate — was never
+viable and did not have to be tried: ~400 000 slots at 8 bytes is ~3.2 MB
+added to `FeMinimumArenaSize()`, larger than kg's whole 1 MiB arena, the
+same arithmetic that ruled out a fixed frame array in 03A's Decision §4.1.
+
+Measured after: `(deep 100000)` runs, and `peak_gc_stack_depth` is **14 at
+every depth measured — 1000, 10000 and 100000** — where it was `2N + 9`
+before.  `TestGcStackConstantInNesting` pins it as a *constant* rather than
+a threshold, so a regression surfaces however small its per-level cost is;
+it was proved to fail (209 vs 2009) on a reintroduced per-level push and to
+pass again on revert.  Behaviour-neutral: every script and backtrace golden
+byte-identical, fe's ci-03 (gcc `-fanalyzer` + valgrind), ci-04
+(ASan/UBSan) and ci-05 (MSan) green — the three lanes that would notice a
+frame holding a collected object — and kg green at 32 native / 406 PTY with
+no kg source change.  Complexity unmoved: fe scc **388/420**, pmccabe
+**600/231 symbols of 630**.
+
+**What this cost on the way, recorded because the next person will hit it.**
+An earlier attempt at the same fix also wrapped the `FeCons` in
+`ResumeArguments` in a save/restore pair.  That one is **unsafe** — it
+breaks `scripts/fib.fe` and `scripts/life.fe` with `expected pair, got
+free` — *and* buys nothing, since the argument accumulator was never the
+per-level cost.  Bisected hunk by hunk; the safe set is exactly the two
+frame-completion helpers plus the one barrier push.  Do not reintroduce it.
+
+### Still open — all of this document's actual content
+
+Nothing in "The two bounds", "The API break", "kg's ripple" or "Documents
+rewritten in the same commit" has been started.  Specifically: `max_frames`
+/`max_native_reentry` and their distinct errors; the `FeArenaStats` renames
+and new fields; `FE_API_VERSION` 2 and `FeVersion` "3.0"; the native
+re-entry default derived from kg's corpus; `test_recursion_depth`'s
+measured rework; kg's `lisp.h`/`lisp_core.c`/`perf.*`/`test_perf.c`/
+`bench.py`/docs ripple; fe's `c-api.md`/`implementation.md`/
+`unwind-design.md`; the permanent flatness gate at 10/1000/100000; and the
+full runners in both trees.
+
+Two things this document should absorb when that work starts:
+
+- **`TestFullDeepFlatness` is now under-ambitious.**  It runs at N = 340
+  because 1021 was the ceiling.  The ceiling is gone, so the permanent gate
+  this document specifies can and should assert the real 10/1000/100000
+  triple.
+- **Make the two-limit relationship structural.**  "The logical limit fires
+  before the physical frame wall" still holds only by a ~10% margin (1100
+  frames against a 1000 default) and only because the canonical chain costs
+  ≈3 frames per level, roughly matching its logical depth count.  The 8%
+  split already broke this once mid-Phase-3.  This slice deletes the
+  transitional logical counter and publishes the real bounds, so it is the
+  place to derive the relationship rather than leave two independent
+  numbers that happen to be close.

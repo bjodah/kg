@@ -1,6 +1,0 @@
-{
- "id": "prelude-function",
- "setup": [],
- "expr": "(function car)",
- "note": "kg's `function` is a plain identity lambda: `(function car)` evaluates its argument (the primitive object car is bound to) and returns that object, printed \"[primitive]\". Emacs' `function` is a special form that does not evaluate its argument; `(function car)` returns the symbol car, printed \"car\"."
-}

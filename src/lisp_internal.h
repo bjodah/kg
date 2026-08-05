@@ -147,6 +147,11 @@ void copy_result(char *result, size_t result_size, const char *text);
     FeContext *context, const char *prefix, const char *name);
 void release_scratch(void);
 char *copy_fe_string(FeContext *context, FeObject *object, size_t *length);
+/* Resolve a function designator to the object it names (lisp_core.c): a
+ * symbol reads its function cell, anything else passes through unchanged.
+ * Shared by hooks, process filters/sentinels and functionp, which used to
+ * spell the lookup out at three call sites. */
+FeObject *lisp_function_designator(FeContext *context, FeObject *object);
 
 /* ---- Runtime execution context (lisp_obj.c) -------------------------- */
 

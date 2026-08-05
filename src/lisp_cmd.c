@@ -79,16 +79,19 @@ FeObject *native_symbolp(FeContext *context, FeObject *arguments)
 }
 
 /* True for closures, natives and primitives alike; a macro is not a
- * function, as in Emacs. */
+ * function, as in Emacs.  A symbol is a function designator: it resolves
+ * through its function cell (lisp_function_designator), so (functionp
+ * 'car) is t and a name bound only in the value namespace is not a
+ * function. */
 FeObject *native_functionp(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	FeType type;
 
 	FeRequireNoArguments(context, arguments);
-	type = FeGetType(object);
+	object = lisp_function_designator(context, object);
 	return FeMakeBool(context,
-	    type == FeTFn || type == FeTNativeFn || type == FeTPrimitive);
+	    FeGetType(object) == FeTFn || FeGetType(object) == FeTNativeFn
+		|| FeGetType(object) == FeTPrimitive);
 }
 
 [[noreturn]] void command_error(

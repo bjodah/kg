@@ -1,15 +1,16 @@
 # kg Lisp API reference
 
-**Document version 1.** Covers the whole Lisp surface Plan 06 (Phases
+**Document version 2.** Covers the whole Lisp surface Plan 06 (Phases
 2-8) shipped: buffers, markers, editing, search, save-excursion /
-with-current-buffer, hooks, keymaps, processes, and provide / require /
-load-path. Bump this number when the surface changes materially (a new
-native, a changed contract, a changed limit); a wording fix does not need
-a bump. `README.md`'s "Lisp" section is the narrative introduction and
-worked examples; this document is the reference: object lifetimes,
-position units, ordering rules, error handling, and every difference
-from Emacs Lisp in one place. Where the two disagree on a detail, this
-document is authoritative — it is closer to the code.
+with-current-buffer, hooks, keymaps, processes, the function/value
+namespaces, and provide / require / load-path. Bump this number when the
+surface changes materially (a new native, a changed contract, a changed
+limit); a wording fix does not need a bump. `README.md`'s "Lisp" section
+is the narrative introduction and worked examples; this document is the
+reference: object lifetimes, position units, ordering rules, error
+handling, and every difference from Emacs Lisp in one place. Where the
+two disagree on a detail, this document is authoritative — it is closer
+to the code.
 
 ## Trust model — read this first
 
@@ -184,7 +185,7 @@ Ordering rules that hold across every subscriber:
     roughly 3 frames per level (`if`, the arithmetic, and the recursive
     call each open one), so in practice it stops `(deep n)`-shaped
     recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1099; exceeding it raises
+    `frame_capacity` 1098; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -322,10 +323,11 @@ measured.
 
 **`FN` may be a function value or a quoted symbol naming one.**
 `(add-hook 'my-hook 'my-fn)` is the Emacs idiom and works here too. A
-symbol is resolved when the hook runs rather than when it is added, so
-redefining `my-fn` afterwards takes effect, and an unbound symbol is
-reported as an ordinary contained hook error naming it rather than
-crashing the hook run.
+symbol is resolved through the *function namespace* when the hook runs
+rather than when it is added, so redefining `my-fn` afterwards takes
+effect, and a symbol whose function cell is empty is reported as an
+ordinary contained hook error naming it rather than crashing the hook
+run.
 
 ## Key bindings
 
@@ -434,7 +436,8 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
-| Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` reads as plain `f` |
+| Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
+| Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
 
 `defun` strips a body `(interactive)` form and registers the function as
@@ -442,6 +445,56 @@ a command under its own name (`define-command` underneath), the same as
 Emacs' `defun` plus `(interactive)` making a command. `command-execute`
 (and `M-x`) can then run it, subject to the same `CMD_LISP_CALLABLE` /
 `CMD_EDITS_BUFFER` verdicts as every built-in command.
+
+## Namespaces: function and value cells
+
+Fe is Lisp-2, like Emacs: every symbol has two independent cells — a
+*value cell*, which bare-symbol evaluation reads and `setq`/`defvar`/`set`
+write, and a *function cell*, which call position resolves and
+`defun`/`defalias`/`fset` write. The two never shadow each other:
+
+```lisp
+(setq f 7)
+(defun f () 9)
+(list f (f))                ;; => (7 9)
+```
+
+A name in call position resolves its function cell only: calling a name
+whose function cell is empty is `void-function NAME`, even when the name
+has a value. Bare-symbol evaluation reads the value cell only, so a name
+that has never been assigned a value is `void-variable NAME` regardless
+of its function cell. Ask which namespace a name has with
+`(fboundp 'NAME)` (function cell) and `(boundp 'NAME)` (value cell);
+remove from either with `(fmakunbound 'NAME)` and `(makunbound 'NAME)`;
+read the two cells directly with `(symbol-function 'NAME)` and
+`(symbol-value 'NAME)`.
+
+| Form | Result |
+| ---- | ------ |
+| `(function F)` / `#'F` | The function designator, without evaluating `F`: a symbol is returned as-is, a `(lambda ...)` form becomes the closure. `#'` is the reader's abbreviation for `(function ...)` |
+| `(funcall F &rest ARGS)` | Call function object or designator `F` with `ARGS` |
+| `(apply F &rest ARGS LIST)` | Like `funcall`, with the final operand a list whose elements are appended as arguments |
+| `(fset 'NAME FN)` | Write `FN` into `NAME`'s function cell |
+| `(defalias 'NAME FN)` | Emacs' spelling for installing `FN` in `NAME`'s function cell; the cell may hold a symbol, which is resolved at call time, so a `defalias` chain is late-bound |
+| `(fboundp 'NAME)` | `t` if `NAME`'s function cell holds anything, else `nil` — never consults the value cell, never errors |
+| `(symbol-function 'NAME)` | `NAME`'s function cell, without resolving a designator (`void-function` when empty) |
+| `(symbol-value 'NAME)` | `NAME`'s value cell, without evaluating it (`void-variable` when empty) |
+| `(fmakunbound 'NAME)` | Empty `NAME`'s function cell |
+
+Because call position reads only the function cell, a function held in a
+*variable* must be called with `funcall`:
+
+```lisp
+(mapcar #'car lst)          ;; head-position designator: fine
+(let ((f #'car)) (funcall f lst))   ;; a value is not callable
+```
+
+kg's own prelude is written against these rules: its top-level
+definitions are installed with `defalias` into function cells, the
+primitive aliases (`progn`, `null`, `eq`, ...) capture the primitive's
+own function cell with `(defalias 'progn (symbol-function 'do))`, and
+`internal--let` is pinned *before* the Emacs `let` macro overwrites the
+primitive's function cell.
 
 ## Explicit differences from Emacs Lisp
 
@@ -455,7 +508,16 @@ Emacs' `defun` plus `(interactive)` making a command. `command-execute`
 - **No `unwind-protect`, no `condition-case`, no dynamic binding, no
   vectors, no hash tables, no property lists.** (No property lists is
   why there are no docstring-backed `describe-function`-style natives
-  yet — see below.)
+  yet — see below.) The namespace diagnostics `void-function`,
+  `void-variable` and `cyclic-function-indirection` are names carried in
+  the error *message*, not catchable condition objects — there is no
+  `condition-case` to catch them with (Phase 6).
+- **A macro's function cell holds fe's own macro object**, not Emacs'
+  `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
+  `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A
+  recorded, tested representation divergence (fe's manifest pins it as a
+  `kg-policy` entry, `lisp2-macro-representation`), observable only
+  through `symbol-function` of a macro.
 - Recursion is bounded at roughly 450 frames by Fe's GC stack; walk long
   lists with `while`.
 - A self-referential structure prints as far as the cycle, then

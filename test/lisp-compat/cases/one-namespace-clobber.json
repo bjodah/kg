@@ -2,5 +2,5 @@
  "id": "one-namespace-clobber",
  "setup": [],
  "expr": "(list (progn (setq f 7) (defun f () 9) f) (f))",
- "note": "kg's setq and defun both write through Fe's single per-symbol value cell (fe.c: a symbol is (name . value)), so defun after setq clobbers the plain value: kg evaluates to ((lambda nil 9) 9) -- f now holds the closure object itself. Emacs keeps separate value and function cells (Lisp-2): (list ... f (f)) is (7 9) -- f's value (7) survives defun, which only changed its function cell."
+ "note": "Since the 04E cutover kg runs on Lisp-2 fe and matches Emacs: setq writes the value cell and defun the function cell, so (setq f 7) then (defun f () 9) coexist -- (list ... f (f)) is (7 9), f's value surviving defun, which only changed its function cell. Pre-cut kg shared one per-symbol value cell (fe.c: a symbol was (name . value)), defun clobbered the plain value, and kg answered ((lambda nil 9) 9)."
 }

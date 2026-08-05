@@ -69,14 +69,14 @@ static struct kg_hook *find_hook(const char *name)
  * (add-hook 'some-hook 'some-function) is *the* Emacs idiom, and kg's Lisp
  * is Emacs-shaped, so it has to work.  Resolving here -- when the hook
  * runs, rather than in add-hook -- is what makes redefining the function
- * afterwards take effect, as it does in Emacs.  Callers must already be
- * inside the guarded frame: an unbound symbol raises, and that is meant to
- * become a contained hook error naming it, instead of the "tried to call
- * non-callable value" a bare symbol produced when it used to reach
- * FeCallWithOptions unresolved. */
+ * afterwards take effect, as it does in Emacs.  The resolution itself is
+ * the shared Lisp-2 designator rule (lisp_function_designator); callers
+ * must already be inside the guarded frame: an empty function cell resolves
+ * to nil, and the "tried to call non-callable value" FeCallWithOptions then
+ * raises is meant to become a contained hook error, not a crash. */
 static FeObject *resolve_hook_function(FeContext *ctx, FeObject *fn)
 {
-	return FeGetType(fn) == FeTSymbol ? FeEvaluate(ctx, fn) : fn;
+	return lisp_function_designator(ctx, fn);
 }
 
 static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,

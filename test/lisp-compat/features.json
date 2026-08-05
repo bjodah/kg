@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 54 prelude definitions (lisp_prelude[]'s three string literals), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 31 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 52 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 42 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -1082,19 +1082,6 @@
    "source_name": "eq"
   },
   {
-   "id": "prelude-function",
-   "category": "functions-and-macros",
-   "status": "divergent",
-   "owner": "kg",
-   "comparison": "emacs",
-   "cases": [
-    "prelude-function"
-   ],
-   "kg_test": "test/test_lisp.c:test_define_and_run_command",
-   "rationale": "Directly related to the #' divergence tracked in fe's own manifest (reader-sharp-quote-identity): kg's `function` only coincidentally behaves right for `(function car)` used as a plain reference to a primitive, because evaluating `car` happens to yield the same primitive object either way for a *primitive*; it clearly diverges once the return value itself is compared (a primitive object vs. the symbol car), which is exactly what this case shows. Not fixed in this slice; a real `function` needs the reader-level `#'` fix that lives in fe's manifest, so this entry does not name its own phase.",
-   "source_name": "function"
-  },
-  {
    "id": "prelude-1-plus",
    "category": "values-and-equality",
    "status": "supported",
@@ -1721,14 +1708,14 @@
   {
    "id": "one-namespace-clobber",
    "category": "bindings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "one-namespace-clobber"
    ],
    "kg_test": "test/test_lisp.c:test_binding_forms",
-   "rationale": "Verified directly against the pinned oracle during this slice: kg (fe with kg's prelude loaded) gives ((lambda nil 9) 9), Emacs gives (7 9). This is the parent plan's own headline example ('(setq f 7) then (defun f () 9) clobber each other') and the reason Phase 4 ('Replace Fe's Lisp-1 name resolution with Lisp-2 value and function namespaces') exists; it is milestone 1 but not yet funded/started by this slice.",
+   "rationale": "The 04E cutover: kg now runs on the Lisp-2 fe, so defun writes the function cell and setq the value cell, and the parent plan's own headline example '(setq f 7) then (defun f () 9)' coexists -- (list f (f)) is (7 9), matching the pinned Emacs snapshot. Pre-cut kg shared one cell per symbol (fe.c: a symbol was (name . value)) and answered ((lambda nil 9) 9), which is what Phase 4 replaced.",
    "source_name": null
   },
   {

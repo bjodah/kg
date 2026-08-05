@@ -16,10 +16,10 @@ Three things, in order:
    --other-manifest so the two id spaces are also checked for collisions.
 2. The check that keeps the inventory alive: every one of Fe's 42
    primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
-   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 53
-   prelude definitions (lisp/prelude.el's top-level "(setq NAME ...)" forms)
-   appears in exactly one feature entry's "source_name" field, across the
-   two manifests combined. A native or prelude definition added without a
+   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 52
+   prelude definitions (lisp/prelude.el's top-level "(defalias 'NAME ...)"
+   forms) appears in exactly one feature entry's "source_name" field, across
+   the two manifests combined. A native or prelude definition added without a
    manifest entry fails this.
 3. Two rules 00B's own checker did not need yet: every status="planned"
    entry's rationale names a phase ("Phase <digit>"), and the "defcustom"
@@ -80,22 +80,25 @@ def parse_kg_natives() -> set[str]:
 
 
 def parse_kg_prelude_defs() -> set[str]:
-	"""53 top-level "(setq NAME ...)" definitions from lisp/prelude.el.
+	"""52 top-level "(defalias 'NAME ...)" definitions from lisp/prelude.el.
 
 	Sub-plan 01A moved these out of three C string literals in
 	src/lisp_prelude.c and into a real Lisp source file, so this reads the
-	file rather than un-escaping C. Sub-plan 02D's dialect cutover deleted
+	file rather than un-escaping C.  Sub-plan 02D's dialect cutover deleted
 	the kg-owned `setq` macro (built on assignment `=`) and rewrote the
-	remaining 53 definitions from `=` to core `setq`, so the definitions
-	this now looks for are column-zero "(setq NAME ...)" forms; nothing
-	nested is ever in column 0, because every continuation line in the
-	file is indented.
+	definitions from `=` to core `setq`, making them column-zero
+	"(setq NAME ...)" forms.  Sub-plan 04E's Lisp-2 cut retargeted the
+	function cell and respelled them "(defalias 'NAME ...)", deleting the
+	identity-lambda `function` alias in the same move -- which is why the
+	count is 52, not 53.  Nothing nested is ever in column 0, because every
+	continuation line in the file is indented.
 	"""
 	text = LISP_PRELUDE_EL.read_text(encoding="utf-8")
-	names = set(re.findall(r"(?m)^\(setq (\S+)", text))
+	names = set(re.findall(r"(?m)^\(defalias '(\S+)", text))
 	if not names:
 		raise SystemExit(
-			"FAIL: no top-level (setq NAME ...) forms in lisp/prelude.el")
+			"FAIL: no top-level (defalias 'NAME ...) forms in "
+			"lisp/prelude.el")
 	return names
 
 

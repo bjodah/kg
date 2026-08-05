@@ -1125,7 +1125,7 @@ static void test_lisp_evaluator_shapes(void)
 	 * is 2000 expansions charged against the step budget, not one. */
 	CHECK(kg_lisp_init() == 0);
 	static const char macro_heavy[]
-	    = "(setq m (macro (x) (list '+ x 1))) (setq n 0) (setq i 0) "
+	    = "(defmacro m (x) (list '+ x 1)) (setq n 0) (setq i 0) "
 	      "(while (< i 2000) (setq n (m n)) (setq i (+ i 1))) n";
 	result[0] = '\0';
 	CHECK(kg_lisp_eval_string(

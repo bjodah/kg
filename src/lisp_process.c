@@ -104,6 +104,12 @@ static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
 		return;
 	}
 	lisp_exec_enter(ctx);
+	/* A filter or sentinel may be a symbol designator: resolve it now that
+	 * the callback runs, exactly as hooks do, so redefining the named
+	 * function afterwards takes effect.  An empty cell resolves to nil,
+	 * and FeCallWithOptions' contained "tried to call non-callable value"
+	 * is the honest failure. */
+	fn = lisp_function_designator(ctx, fn);
 	(void)FeCallWithOptions(ctx, fn, args, argc, &eval_options);
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(1);

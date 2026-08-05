@@ -51,18 +51,23 @@ evaluator lives in `fe_eval.c` behind a private `fe_internal.h`,
 `FE_API_VERSION` is 2, and pmccabe's funded total is the authoritative
 complexity measure for the core.
 
-**This set covers Phase 4 — Lisp-2 namespaces.**  It separates variable
-bindings from callable definitions: every interned symbol gains a
-function cell, call position resolves through it, `#'x` becomes
-`(function x)`, and `funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/
-`fmakunbound`/`defalias` become real.  It is the first *language* cut
-since Phase 2, and it is a two-repository cut: fe changes what a symbol
-is, and kg's prelude — 53 definitions, all written into value cells — is
-rewritten against it.
+**The fourth set — Phase 4, Lisp-2 namespaces — is complete
+(2026-08-05).**  Its five documents (`04a`–`04e`) were removed once the
+workstream was accepted; the Phase 4 Status section below is the surviving
+record.  The set separated variable bindings from callable definitions:
+every interned symbol gained a function cell, call position resolves
+through it, `#'x` reads as `(function x)`, and `funcall`/`apply`/
+`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias` are real.  It
+was the first *language* cut since Phase 2, and it was a two-repository
+cut: fe changed what a symbol is, and kg's prelude — 53 definitions, all
+written into value cells — was rewritten against it.  What the set left
+behind is the ground later phases stand on: `FeDefineNative` writes the
+function cell, `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 3, and the
+prelude's 52 definitions are spelled `defalias`.
 
-The through-line is that Phase 4 is a *migration* problem before it is an
-implementation one.  Three facts, established by auditing this tree,
-shape the slices:
+The through-line was that Phase 4 was a *migration* problem before it was
+an implementation one.  Three facts, established by auditing this tree,
+shaped the slices:
 
 - **A missed migration site fails at run time, not at load time.**  The
   prelude has 47 intra-prelude head-position uses of prelude-defined
@@ -70,68 +75,74 @@ shape the slices:
   that pass functions by value; kg's C reads a symbol's value cell as a
   callable in exactly one place (`resolve_hook_function`,
   `src/lisp_hooks.c`).  Nothing fails until whichever command first runs
-  `dolist` after a missed `funcall`.  The 69 Lisp PTY cases are the net,
-  and the slices are ordered so the cut lands against machinery that is
+  `dolist` after a missed `funcall`.  The 69 Lisp PTY cases were the net,
+  and the slices were ordered so the cut landed against machinery that was
   already fully tested.
 - **Both fe complexity gates have exactly 29 points of headroom** against
   a phase priced at +40 to +60, and `RunEvaluationLoop` — the function
-  the phase must fork — is already at 14 of the 22 per-function cap.  The
-  funding Decision has to come first, again.
-- **The oracle already knows some answers.**  The `one-namespace-boundp`
-  and `reader-sharp-quote-identity` snapshots have recorded the Lisp-2
-  target since 00C; the phase's job is to make them flip from divergent
+  the phase had to fork — was already at 14 of the 22 per-function cap.
+  The funding Decision had to come first, again.
+- **The oracle already knew some answers.**  The `one-namespace-boundp`
+  and `reader-sharp-quote-identity` snapshots had recorded the Lisp-2
+  target since 00C; the phase's job was to make them flip from divergent
   to supported without regenerating them.  The rest of the answer key —
-  seventeen predicted cases — is 04A's to pin before implementation.
+  seventeen predicted cases — was 04A's to pin before implementation.
 
-So the set front-loads one oracle-and-decision slice, lands the symbol
-representation alone behind accessors, builds the whole function
+So the set front-loaded one oracle-and-decision slice, landed the symbol
+representation alone behind accessors, built the whole function
 namespace additively behind a transitional fallback so nothing observable
-moves, cuts fe over in one fe-only slice, and lands kg's pin, prelude,
+moved, cut fe over in one fe-only slice, and landed kg's pin, prelude,
 natives, tests and documents in one atomic commit — deliberately, so that
-every slice before the last two can use "no existing test expectation
-changed" as its correctness argument, and the cut itself is two
+every slice before the last two could use "no existing test expectation
+changed" as its correctness argument, and the cut itself was two
 reviewable diffs instead of one big bang.
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [04A](04a-pin-the-lisp2-target-and-fund-the-phase.md) | 4 | The Lisp-2 differential corpus, the symbol-layout decision with measured arena arithmetic, the host-API table, the migration mechanics, and Phase 4's dated Decision | none — **this is first** |
-| [04B](04b-symbol-cells-behind-accessors.md) | 4 | Symbol internals behind accessors; the function cell exists, rooted and priced, read by nothing | 04A |
-| [04C](04c-the-function-namespace-additively.md) | 4 | `function`/`fset`/`symbol-function`/`symbol-value`/`fboundp`/`fmakunbound`/`defalias`/`funcall`/`apply`, and function-cell-first head resolution behind a transitional value fallback | 04B |
-| [04D](04d-the-namespace-cut.md) | 4 | The cut: bootstrap to function cells, fallback deleted, `#'` reads as `(function x)`, fe scripts migrated, `FE_LANGUAGE_VERSION` 3 and `FE_API_VERSION` 3 — **no kg pin move** | 04C |
-| [04E](04e-the-kg-cutover.md) | 4 | The pin plus every kg adaptation in one atomic commit: prelude rewrite, hooks/process/`functionp` designators, both spelling parsers, tests, manifests, docs; closes the phase | 04D |
+| 04A | 4 | The Lisp-2 differential corpus, the symbol-layout decision with measured arena arithmetic, the host-API table, the migration mechanics, and Phase 4's dated Decision | none — **this is first** |
+| 04B | 4 | Symbol internals behind accessors; the function cell exists, rooted and priced, read by nothing | 04A |
+| 04C | 4 | `function`/`fset`/`symbol-function`/`symbol-value`/`fboundp`/`fmakunbound`/`defalias`/`funcall`/`apply`, and function-cell-first head resolution behind a transitional value fallback | 04B |
+| 04D | 4 | The cut: bootstrap to function cells, fallback deleted, `#'` reads as `(function x)`, fe scripts migrated, `FE_LANGUAGE_VERSION` 3 and `FE_API_VERSION` 3 — **no kg pin move** | 04C |
+| 04E | 4 | The pin plus every kg adaptation in one atomic commit: prelude rewrite, hooks/process/`functionp` designators, both spelling parsers, tests, manifests, docs; closes the phase | 04D |
 
-**04A is genuinely first, for the same structural reason 00A, 02A and 03A
+The five sub-plan documents this table names were removed once the
+workstream was accepted — see git history; the Phase 4 Status section below
+is the surviving record of what each slice delivered.
+
+**04A was genuinely first, for the same structural reason 00A, 02A and 03A
 were.**  Phase 4's semantics are an oracle question, its symbol layout is
 an arena-arithmetic question, and its complexity cost exceeds both fe
-gates' headroom.  All three answers exist before any implementation
-slice, or the implementation slices answer them unilaterally, in the
+gates' headroom.  All three answers had to exist before any implementation
+slice, or the implementation slices would answer them unilaterally, in the
 middle of a diff.
 
-**04B is mechanical and lands alone on purpose**, like 03B: its
-correctness argument is byte-identical goldens and unchanged test
+**04B was mechanical and landed alone on purpose**, like 03B: its
+correctness argument was byte-identical goldens and unchanged test
 expectations, which is only checkable while nothing else moves.
 
-**04C is additive behind a documented transitional fallback** — the 02B
-precedent.  Function-cell-first resolution with a value-cell fallback is
-an in-workstream state, never a released coexistence layer; it exists so
-the new machinery is complete and tested before the cut, and 04D deletes
+**04C was additive behind a documented transitional fallback** — the 02B
+precedent.  Function-cell-first resolution with a value-cell fallback was
+an in-workstream state, never a released coexistence layer; it existed so
+the new machinery was complete and tested before the cut, and 04D deleted
 it.
 
-**04D and 04E are the two halves of one Rule-10 delivery**, exactly as
-02C/02D were for the Phase 2 cut.  04D cuts fe over and closes the fe
-workstream with the full nine-stage runner; it deliberately does not move
+**04D and 04E were the two halves of one Rule-10 delivery**, exactly as
+02C/02D were for the Phase 2 cut.  04D cut fe over and closed the fe
+workstream with the full nine-stage runner; it deliberately did not move
 kg's pin, because a pin-only commit cannot build
 (`static_assert(FE_API_VERSION == 2)` fires and the prelude would break
-at startup).  04E is that pin, with every kg adaptation in the same green
+at startup).  04E was that pin, with every kg adaptation in the same green
 commit.
 
 ## Handoff contract
 
-Give one engineer one row at a time.  The linked sub-plan's “Files this
-slice owns”, test list and “does not do” section are part of the acceptance
-criteria, not suggestions.
+The slices were handed one engineer one row at a time; each sub-plan's
+“Files this slice owns”, test list and “does not do” section were part of
+the acceptance criteria, not suggestions.  The five documents are removed
+on completion — see git history; the Phase 4 Status below records what each
+slice actually delivered against those criteria.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
@@ -141,9 +152,9 @@ criteria, not suggestions.
 | 04D | fe bootstrap/reader/writer/scripts/versions/fuzz | the two long-pinned snapshots flip to supported un-regenerated, 03A trace goldens byte-identical, full nine-stage fe runner | no kg pin, no kg source, no compatibility residue |
 | 04E | kg pin, prelude, hooks/process/functionp, both spelling parsers, tests, manifests, docs | 69 Lisp PTY cases unedited, the coexistence headline `(7 9)`, `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner | no PTY expectation edits, no oracle regeneration, no `internal--let` deletion |
 
-For all rows, current suite counts are a starting census, not literals to
-assert.  Focused tests run while iterating; the full Fe runner closes the
-Fe workstream at 04D, and kg's full parallel runner closes Phase 4 at 04E.
+For all rows, current suite counts were a starting census, not literals to
+assert.  Focused tests ran while iterating; the full Fe runner closed the
+Fe workstream at 04D, and kg's full parallel runner closed Phase 4 at 04E.
 
 ## Compatibility direction
 
@@ -182,15 +193,15 @@ kg's `defun` writes a value cell against a Lisp-2 fe, or vice versa.
                                  04E  the kg cutover ── pin + prelude + docs, one commit
 ```
 
-Strictly linear, and nothing runs in parallel with it: every slice edits
+Strictly linear, and nothing ran in parallel with it: every slice edits
 either the symbol representation or the things that read it.  Every arrow
-is a real dependency: 04B implements the layout 04A measured, 04C reads
-the cell 04B landed, 04D deletes the fallback 04C shipped behind, and 04E
-adapts kg to the contract 04D versioned.
+was a real dependency: 04B implemented the layout 04A measured, 04C read
+the cell 04B landed, 04D deleted the fallback 04C shipped behind, and 04E
+adapted kg to the contract 04D versioned.
 
-The pin discipline differs mid-set, and deliberately: 04B and 04C move
-kg's pin in their own trivial green commits (Rule 10), 04D moves nothing,
-and 04E is the pin — the same two-halves shape 02C/02D used for the
+The pin discipline differed mid-set, and deliberately: 04B and 04C moved
+kg's pin in their own trivial green commits (Rule 10), 04D moved nothing,
+and 04E was the pin — the same two-halves shape 02C/02D used for the
 Phase 2 cut.
 
 ## What this set deliberately does not do
@@ -1527,7 +1538,115 @@ about when a result is rooted.  Every one of them was a bound asserted rather
 than measured.  The set's own lesson, earned five times: **a bound you did not
 derive is a bound that moves.**
 
-Phase 4 (Lisp-2 namespaces) may start; its price row assumes the frame
-machine exists, and it now does.  Its five documents (`04a`–`04e`) are in
-this directory; the Grouping and Sequencing sections above describe them,
-and `04a` must land before any of the rest.
+Phase 4 (Lisp-2 namespaces) followed, its price row counting on the frame
+machine this phase left in place; it is now complete, and its five
+documents (`04a`–`04e`) were removed once the workstream closed — the
+Phase 4 Status section below is the surviving record.
+
+## Status — Phase 4
+
+**04A complete, 2026-08-05.**  fe `6807741` on `analyzers-etc`, kg pin
+`3c7e278`.  The seventeen predicted cases and their version-stamped Emacs
+31.0.90 snapshots landed in `fe/compat/` as `planned` entries; every
+prediction held, including the headline `lisp2-value-function-coexist` →
+`(7 9)`.  The layout spike adopted candidate (a),
+`CDR(sym) = ((name . function) . value)`, +1 cons per interned symbol, GC
+untouched, and corrected the plan's own "≈−50 slots at open" prediction —
+the +51 core objects ride *inside* the grown minimum, so the open-slot
+delta is **+6** and one frame is lost to rounding.  The dated Decision
+(above) funded the phase: `SCC_COMPLEXITY_MAX` 420 → 480,
+`SCC_FILE_COMPLEXITY_MAX` 240 → 300, `PMCCABE_TOTAL_MAX` 630 → 690, each
+proved live with 03A's temporary-lowering trick.  No behaviour changed.
+
+**04B complete, 2026-08-05.**  fe `c865251` then `28d1f49`, kg pin
+`d9fba6c`.  Symbol layout behind accessors (`SymbolName`,
+`SymbolBindingCell`, `SymbolFunction`, `SetSymbolFunction`), then the
+layout change: the function cell exists, rooted and priced, read by
+nothing.  All goldens byte-identical; `TestSymbolCells` pins the dormant
+cell (roundtrip plus forced-GC survival).  `FeMinimumArenaSize()` 54656
+bytes; kg's 1 MiB arena 1099 frames / 56215 slots at open.
+
+**04C complete, 2026-08-05.**  fe `e6ad221`, kg pin `5cb78a3` (pin plus
+the compat-manifest/checker surface that slice's plan required).  The nine
+primitives (`function`, `fset`, `defalias`, `symbol-function`,
+`symbol-value`, `fboundp`, `fmakunbound`, `funcall`, `apply`), designator
+chains, and function-cell-first head resolution behind the transitional
+value fallback — additive, so every existing script, golden and
+expectation stayed unchanged, which was the slice's correctness argument.
+The additive family's compat entries flipped to `supported`;
+`one-namespace-boundp`/`reader-sharp-quote-identity` stayed divergent for
+04D.
+
+**04D complete, 2026-08-05.**  fe `b69ff50`, **no kg pin move** — kg
+stayed on `e6ad221`, and the short fe-only window where fe was Lisp-2
+against an 04C-pinned kg existed exactly as the plan said it would.  The
+cut: bootstrap callables to function cells, fallback deleted, `#'x` reads
+as `(function x)`, the writer prints `(function X)` as `#'X`,
+`FE_API_VERSION`/`FE_LANGUAGE_VERSION` 2 → 3, `FeVersion` "3.0" → "4.0".
+Both long-pinned snapshots (`one-namespace-boundp`,
+`reader-sharp-quote-identity`) flip to `supported` un-regenerated, the
+evidence 00C recorded the target for.  fe's full nine-stage
+`.ci/run-ci-steps.sh` green.
+
+**04E complete, 2026-08-05, and with it Phase 4.**  kg pin → `b69ff50`,
+Fe 4.0 with `FE_API_VERSION`/`FE_LANGUAGE_VERSION` 3, and every kg
+adaptation in one atomic commit per Rule 10.  The final state: Lisp-2
+namespaces end to end — the prelude's **52 definitions** spelled
+`(defalias 'NAME ...)`; the three head-position parameter calls are
+`funcall`; hooks and process callbacks resolve designators through the
+shared `lisp_function_designator` (`FeGetFunction`); `functionp` learned
+designators; the two compile-time asserts read `FE_API_VERSION == 3` /
+`FE_LANGUAGE_VERSION == 3`; natives register into the function cell,
+asserted by `(boundp 'insert)` → `nil` / `(fboundp 'insert)` → `t`; both
+spelling parsers moved in step; and the docs (`doc/fe-upstream.md`,
+`doc/lisp-api.md`, `README.md`, `doc/kg.1`) and both compat manifests tell
+the Lisp-2 truth.  **No PTY expectation was edited and no oracle snapshot
+ regenerated** — the 70 Lisp PTY cases and every pinned snapshot passed
+as-is, which is the slice's whole point.  `make check` **32/406**;
+`make WITH_LISP=0 clean all check` **32 native, 337 pass + 69 skip** (from
+the CI lane); both complexity gates green — kg scc **5444/5500,
+unchanged**, and pmccabe **1246 recorded, 1 new** (`lisp_function_designator`)
+**and 1 improved** (`resolve_hook_function` 2 → 1).  `.ci/run-ci-steps.sh
+--parallel` is green from an idle tree; the one failure in the first run
+was `ci-07-format-check` on `src/lisp_core.c`'s designator helper, fixed
+since, and `make format-check` passes.
+
+### What the plan got wrong, collected
+
+- **53 definitions, not the parent plan's 54; 18 macros, not 22.**  The
+  audited tree's numbers, which 04A recorded and 04E's `defalias` spelling
+  keeps (52 after the identity lambda the real `function` special form
+  replaced is deleted).
+- **`internal--let` remains**, contra the parent plan's §8 claim: the
+  Emacs `let` macro and Fe's one-binding `let` primitive are *both*
+  function-namespace residents, so the redefinition still clobbers the cell
+  the bodies need.  It is `(defalias 'internal--let (symbol-function
+  'let))` evaluated before the redefinition, and is deleted in Phase 8
+  Wave A.
+- **The plan's literal `(function NAME)` command handoff is invalid.**
+  `define-command` requires a function object and rejects a bare symbol, so
+  `defun`'s interactive branch passes the closure itself —
+  `(define-command 'NAME f)` — not `(function NAME)`/`#'NAME` as the plan
+  spelled it.
+
+### Carried forward
+
+- Arity stays lax for lambdas (Phase 7); the new forms' arity is pinned by
+  the oracle cases only.
+- `void-function`, `void-variable` and `cyclic-function-indirection` remain
+  message-level names, not signalable conditions (Phase 6).
+- No local function bindings (`flet`/`labels`); a `let` binding does not
+  shadow call position — the point of the cut.
+- fe keeps `FeTMacro`; the `(macro . FUNCTION)` cons divergence is recorded
+  (`lisp2-macro-representation`, `kg-policy`).
+
+**Phase 4 is closed.**  Against the price table: fe was funded +60 on all
+three gates and the actuals landed inside them (scc 441/480, pmccabe
+643/690); kg was estimated +15 to +25 against 56 points of headroom and
+needed no raise — scc is **unchanged at 5444/5500**, and the only pmccabe
+movement is the one new helper and one improvement banked above.  What the
+plan got wrong — the stale 53/54 and 18/22 counts, the `internal--let`
+sentence, the `(function NAME)` handoff — is collected above; none of it
+reached shipped behaviour.  Phase 5 (integers) is the next set, milestone
+1 and provisional in the price table, on the ground this phase left
+behind.

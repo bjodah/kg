@@ -40,8 +40,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_obj.h"
 #include "lisp_process.h"
 
-static_assert(FE_API_VERSION == 2);
-static_assert(FE_LANGUAGE_VERSION == 2);
+static_assert(FE_API_VERSION == 3);
+static_assert(FE_LANGUAGE_VERSION == 3);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -153,6 +153,18 @@ char *copy_fe_string(FeContext *context, FeObject *object, size_t *length)
 	}
 	text[*length] = '\0';
 	return text;
+}
+
+/* Resolve a function designator to the object it names, the Lisp-2 rule:
+ * a symbol reads its function cell (FeGetFunction, which follows defalias
+ * indirection and yields nil for an empty cell) and any other object
+ * passes through unchanged.  The value cell is never consulted, so a name
+ * bound only as a value resolves to nothing.  Shared by hooks, process
+ * filters/sentinels and functionp. */
+FeObject *lisp_function_designator(FeContext *context, FeObject *object)
+{
+	return FeGetType(object) == FeTSymbol ? FeGetFunction(context, object)
+					      : object;
 }
 
 struct lisp_command *find_lisp_command(const char *name)

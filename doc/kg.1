@@ -141,10 +141,11 @@ and binds them with
 .Pp
 A body form
 .Li (interactive)
-is stripped from the function and registers it under its own symbol.
+is stripped from the function and registers it under its own symbol,
+through the function cell.
 The underlying registry is also reachable directly as
 .Li (define-command NAME FUNCTION) ,
-which takes a symbol or a string.
+where NAME is a symbol or a string and FUNCTION a function value.
 Defined commands appear in M-x completion and run under the normal
 evaluation budget;
 .Li remove-command
@@ -511,6 +512,21 @@ the predicates and comparisons
 .Li equal
 and
 .Li listp ;
+the namespace forms
+.Li (function F) ,
+.Li (funcall F ...) ,
+.Li (apply F ... LIST) ,
+.Li fboundp ,
+.Li symbol-function ,
+.Li symbol-value ,
+.Li fset ,
+.Li defalias
+and
+.Li fmakunbound ,
+with the reader spelling
+.Li #\(aqf
+for
+.Li (function f) ;
 .Li quasiquote ,
 which the reader writes as a backquote; and
 .Li (string-empty-p S)
@@ -536,6 +552,28 @@ asks whether a name has a value,
 takes it away, and a variable holding nil is bound, which is what
 .Li defvar
 tests before initialising.
+Values and functions live in separate namespaces, as in Emacs:
+.Li defun ,
+.Li defalias
+and
+.Li fset
+write the function cell and
+.Li setq
+and
+.Li defvar
+the value cell, so
+.Li (setq f 7)
+then
+.Li (defun f () 9)
+coexist —
+.Li (list f (f))
+is
+.Li (7 9) —
+and calling a name whose function cell is empty is
+.Li void-function NAME ,
+even when the name has a value.
+Call a function held in a variable with
+.Li (funcall f ...) .
 .Pp
 .Li type-of
 returns the type as a symbol, one of
@@ -559,6 +597,8 @@ compares numbers and strings by value, and only pairs by identity;
 every number is a double;
 .Li t
 is an ordinary assignable global;
+values and functions live in separate namespaces as in Emacs, so call
+position reads only the function cell;
 character literals such as
 .Li ?a
 are not read, so use
@@ -566,7 +606,17 @@ are not read, so use
 there is no
 .Li unwind-protect
 or
-.Li condition-case ;
+.Li condition-case ,
+and the namespace diagnostics
+.Li void-function ,
+.Li void-variable
+and
+.Li cyclic-function-indirection
+are error-message text, not condition objects;
+a macro's function cell holds fe's own macro object, not Emacs'
+.Li (macro . FUNCTION)
+cons (visible only through
+.Li (symbol-function \(aqa-macro) ) ;
 and Lisp nesting (recursive calls, nested special forms, self-expanding
 macros) is bounded by the interpreter's frame stack, not by C or
 garbage-collector recursion — kg's default arena holds roughly 365

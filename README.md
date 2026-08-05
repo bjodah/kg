@@ -437,7 +437,7 @@ surface is available before any init file runs. It is what makes kg's
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` |
-| Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is plain `f` |
+| Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
 
 Argument lists take `&optional` and `&rest`; a missing argument is `nil` and an
@@ -448,6 +448,11 @@ A name that has never been assigned is an error rather than `nil`, so a typo
 says `void-variable NAME` instead of quietly being false. `(boundp 'NAME)` asks
 whether a name has a value, `(makunbound 'NAME)` takes it away, and a variable
 holding `nil` is bound — which is what `defvar` tests before initialising.
+Values and functions live in separate namespaces, as in Emacs: `defun`,
+`defalias` and `fset` write the function cell, `setq`/`defvar` the value cell,
+so `(setq f 7)` then `(defun f () 9)` coexist — `(list f (f))` is `(7 9)` —
+and calling a name whose function cell is empty is `void-function NAME` even
+when the name has a value.
 
 ```lisp
 (defun initialise (words)
@@ -469,11 +474,18 @@ first surprise:
   that older kg needs `setq` instead.
 - `eq` compares numbers and strings by value, so `(eq "a" "a")` is `t` where
   Emacs says `nil`. Only pairs are compared by identity.
+- Values and functions live in separate namespaces, as in Emacs: call position
+  reads only the function cell, so a function held in a variable is called
+  with `(funcall f ...)` and `#'f` is `(function f)`.
 - Every number is a double, and there is no character type: write
   `(string-to-char "a")` rather than `?a`.
 - `t` is an ordinary assignable global.
 - There is no `unwind-protect` or `condition-case`, no dynamic binding, no
-  vectors or hash tables.
+  vectors or hash tables. The namespace diagnostics `void-function`,
+  `void-variable` and `cyclic-function-indirection` are error-message text,
+  not condition objects.
+- A macro's function cell holds fe's own macro object, not Emacs'
+  `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding
   macros) is bounded by the interpreter's frame stack, not by C or
   garbage-collector recursion — kg's default arena holds roughly 365
@@ -520,9 +532,10 @@ Packages define interactive commands the way Emacs does, with `defun` plus
 ```
 
 An `(interactive)` body form is stripped from the function and registers it
-under its own symbol. The registry underneath is reachable directly as
-`(define-command NAME FUNCTION)`, which takes a symbol or a string, and
-`remove-command` undoes it.
+under its own symbol, through the function cell. The registry underneath is
+reachable directly as `(define-command NAME FUNCTION)`, where `NAME` is a
+symbol or a string and `FUNCTION` a function value; `remove-command` undoes
+it.
 
 A worked `init.el` — select the word under the cursor, the way you would
 write it in Emacs:

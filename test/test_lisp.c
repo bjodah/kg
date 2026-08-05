@@ -2,9 +2,11 @@
 
 #include "../src/def.h"
 #include "../src/edit.h"
+#include "../src/event.h"
 #include "../src/keybind.h"
 #include "../src/keymap.h"
 #include "../src/lisp.h"
+#include "../src/process_table.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -2190,10 +2192,12 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(type-of 1)", "double"));
 	CHECK(eval_eq("(type-of (cons 1 2))", "pair"));
 	CHECK(eval_eq("(type-of nil)", "nil"));
-	CHECK(eval_eq("(type-of car)", "primitive"));
-	CHECK(eval_eq("(type-of insert)", "native-fn"));
+	/* The callables live in function cells now, so the type probe reads
+	 * the cell through a designator, never a bare value read. */
+	CHECK(eval_eq("(type-of (symbol-function 'car))", "primitive"));
+	CHECK(eval_eq("(type-of (symbol-function 'insert))", "native-fn"));
 	CHECK(eval_eq("(type-of (lambda (x) x))", "lambda"));
-	CHECK(eval_eq("(type-of cond)", "macro"));
+	CHECK(eval_eq("(type-of (symbol-function 'cond))", "macro"));
 
 	CHECK(eval_eq("(stringp \"a\")", "t"));
 	CHECK(eval_eq("(stringp 'a)", "nil"));
@@ -2206,9 +2210,18 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(symbolp nil)", "t"));
 	CHECK(eval_eq("(symbolp \"a\")", "nil"));
 	CHECK(eval_eq("(functionp (lambda (x) x))", "t"));
-	CHECK(eval_eq("(functionp car)", "t"));
-	CHECK(eval_eq("(functionp insert)", "t"));
-	CHECK(eval_eq("(functionp cond)", "nil"));
+	/* A symbol is a function designator: it resolves through its function
+	 * cell, so (functionp 'car) is t, a macro is not a function, and a
+	 * name with an empty cell is not one either. */
+	CHECK(eval_eq("(functionp 'car)", "t"));
+	CHECK(eval_eq("(functionp 'insert)", "t"));
+	/* A native registers in the function namespace only: the value cell is
+	 * never touched, so (boundp 'insert) is nil while (fboundp 'insert) is
+	 * t -- the Lisp-2 split observable on a real kg native. */
+	CHECK(eval_eq("(boundp 'insert)", "nil"));
+	CHECK(eval_eq("(fboundp 'insert)", "t"));
+	CHECK(eval_eq("(functionp 'cond)", "nil"));
+	CHECK(eval_eq("(functionp 'no-such-function)", "nil"));
 	CHECK(eval_eq("(functionp 1)", "nil"));
 	CHECK(eval_eq("(listp nil)", "t"));
 	CHECK(eval_eq("(listp (cons 1 2))", "t"));
@@ -2243,9 +2256,11 @@ static void test_binding_forms(void)
 	/* setq inside a let reaches an outer variable. */
 	CHECK(eval_eq(
 	    "(progn (setq outer 0) (let ((q 1)) (setq outer 7)) outer)", "7"));
-	/* Closures capture the let bindings. */
+	/* Closures capture the let bindings.  The closure is a value, so the
+	 * call goes through funcall: call position resolves function cells,
+	 * and a bare (mk 5) would now be void-function. */
 	CHECK(eval_eq("(progn (setq mk (let ((n 10)) (lambda (x) (+ x n))))"
-		      " (mk 5))",
+		      " (funcall mk 5))",
 	    "15"));
 
 	/* setq takes any number of pairs and returns the last value. */
@@ -2263,6 +2278,12 @@ static void test_binding_forms(void)
 	CHECK(eval_eq("(dotimes (i 2) i)", "nil"));
 	CHECK(eval_eq("(dotimes (i 2 'done) i)", "done"));
 	CHECK(eval_eq("(dolist (x (list 1 2) 'done) x)", "done"));
+
+	/* The phase's headline assertion: the value and function namespaces
+	 * coexist under one name, as in Emacs -- defun writes the function
+	 * cell and leaves the value cell alone. */
+	CHECK(
+	    eval_eq("(progn (setq f 7) (defun f () 9) (list f (f)))", "(7 9)"));
 
 	kg_lisp_shutdown();
 }
@@ -2355,9 +2376,11 @@ static void test_quasiquote(void)
 	CHECK(eval_eq("(not `())", "t"));
 	/* Backticks and commas inside strings stay inert. */
 	CHECK(eval_eq("\"a, b `c` ,@d\"", "a, b `c` ,@d"));
-	/* #'x is plain x, since Fe has one namespace. */
+	/* #'x reads as (function x), the Lisp-2 quote of a function name:
+	 * it evaluates to the symbol designator, resolved when the call
+	 * happens. */
 	CHECK(eval_eq("(mapcar #'car (list (list 1 2) (list 3 4)))", "(1 3)"));
-	CHECK(eval_eq("(function car)", "[primitive]"));
+	CHECK(eval_eq("(function car)", "car"));
 
 	/* A macro written with backquote. */
 	CHECK(eval_ok("(defmacro unless2 (test . body)"
@@ -2376,6 +2399,10 @@ static void test_void_function(void)
 	CHECK(eval_error_contains(
 	    "(no-such-function 1)", "void-function no-such-function"));
 	CHECK(eval_error_contains("(1 2)", "non-callable"));
+	/* The Lisp-2 message reality: a name with only a value binding is
+	 * void-function in call position -- call position sees the function
+	 * cell and nothing else. */
+	CHECK(eval_error_contains("(progn (setq v 7) (v))", "void-function v"));
 	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();
@@ -2398,6 +2425,11 @@ static void test_void_variable(void)
 	CHECK(eval_eq("no-such-variable", "nil"));
 	CHECK(eval_eq("(makunbound 'no-such-variable)", "no-such-variable"));
 	CHECK(eval_eq("(boundp 'no-such-variable)", "nil"));
+
+	/* The mirror image: a name with only a function binding is
+	 * void-variable in value position -- the namespaces are separate. */
+	CHECK(eval_ok("(defalias 'fn-only (lambda () 1))"));
+	CHECK(eval_error_contains("fn-only", "void-variable fn-only"));
 
 	/* boundp sees lexical bindings too. */
 	CHECK(eval_eq("((lambda (p) (boundp 'p)) 1)", "t"));
@@ -2495,13 +2527,13 @@ static void test_recursion_depth(void)
  *
  * It deliberately does not re-load the file into a booted context.  A
  * second evaluation is not idempotent, for exactly the reason rule 1
- * exists: `(setq internal--let let)` aliases Fe's raw `let` primitive
- * before the Emacs `let` macro shadows that name, so re-running it where
- * the macro already exists would bind internal--let to the macro and
- * break every list-library function that uses it.  That hazard is what
- * the type assertions below detect -- internal--let must answer
- * `primitive`, not `macro`, so a generator that ever reordered or dropped
- * forms fails here rather than silently shipping a broken prelude.
+ * exists: `(defalias 'internal--let (symbol-function 'let))` captures Fe's
+ * raw `let` primitive before the Emacs `let` macro shadows that name, so
+ * re-running it where the macro already exists would bind internal--let to
+ * the macro and break every list-library function that uses it.  That
+ * hazard is what the type assertions below detect -- internal--let must
+ * answer `primitive`, not `macro`, so a generator that ever reordered or
+ * dropped forms fails here rather than silently shipping a broken prelude.
  *
  * Arity is not asserted separately: kg's Lisp surface has no func-arity
  * and a lambda's printed form carries no parameter list, so each
@@ -2510,9 +2542,13 @@ static void test_recursion_depth(void)
  *
  * Sub-plan 02D's dialect cutover deleted the kg-owned `setq` macro (built
  * on assignment `=`) and rewrote the remaining 53 definitions from `=' to
- * core `setq'; the scan below looks for column-zero "(setq NAME " forms
- * accordingly. */
-#define PRELUDE_DEFS 53
+ * core `setq'; the scan below looked for column-zero "(setq NAME " forms.
+ * Sub-plan 04E's Lisp-2 cut retargeted the function cell: the forms are
+ * column-zero "(defalias 'NAME ...)" now, the deleted identity-lambda
+ * `function` alias dropped the count to 52, and the type assertion reads
+ * the function cell -- `(type-of (symbol-function 'NAME))` -- because the
+ * names live there, not in the value namespace. */
+#define PRELUDE_DEFS 52
 
 static void test_prelude_source_file(void)
 {
@@ -2541,8 +2577,8 @@ static void test_prelude_source_file(void)
 	 * count for a reason that has nothing to do with the prelude. */
 	CHECK(len > 0 && len < sizeof(text) - 1);
 
-	/* A definition is "(setq NAME " in column 0; every continuation line
-	 * in the file is indented, so nothing nested is ever found here. */
+	/* A definition is "(defalias 'NAME " in column 0; every continuation
+	 * line in the file is indented, so nothing nested is ever found. */
 	for (line = text; line != nullptr; line = strchr(line, '\n')) {
 		const char *name_start, *value_start;
 		size_t name_len;
@@ -2550,14 +2586,14 @@ static void test_prelude_source_file(void)
 		if (line[0] == '\n') {
 			line++;
 		}
-		if (strncmp(line, "(setq ", 6) != 0) {
+		if (strncmp(line, "(defalias '", 11) != 0) {
 			continue;
 		}
 		CHECK(count < PRELUDE_DEFS);
 		if (count >= PRELUDE_DEFS) {
 			break;
 		}
-		name_start = line + 6;
+		name_start = line + 11;
 		name_len = strcspn(name_start, " )\n");
 		CHECK(name_len > 0 && name_len < sizeof(names[0]));
 		memcpy(names[count], name_start, name_len);
@@ -2565,7 +2601,8 @@ static void test_prelude_source_file(void)
 
 		/* The declared shape decides the type the editor must report:
 		 * a lambda form is a lambda, a macro form is a macro, and the
-		 * four bare-symbol forms are aliases of Fe primitives. */
+		 * four (symbol-function 'PRIM) forms are aliases of Fe
+		 * primitives. */
 		value_start = name_start + name_len;
 		value_start += strspn(value_start, " ");
 		if (strncmp(value_start, "(lambda", 7) == 0) {
@@ -2597,8 +2634,10 @@ static void test_prelude_source_file(void)
 	for (i = 0; i < count; i++) {
 		char source[128];
 
-		(void)snprintf(
-		    source, sizeof(source), "(type-of %s)", names[i]);
+		/* The definitions live in function cells, so the type probe
+		 * reads the cell: a bare name in value position is void now. */
+		(void)snprintf(source, sizeof(source),
+		    "(type-of (symbol-function '%s))", names[i]);
 		if (!eval_eq(source, types[i])) {
 			fprintf(stderr,
 			    "prelude definition %zu (%s): expected type %s\n",
@@ -2684,8 +2723,11 @@ static void test_hooks(void)
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
 
+	/* The value form: a closure handed over directly.  (A defun'd name
+	 * would be void as a value -- its function lives in the function
+	 * cell, so a bare my-hook read would be void-variable.) */
 	CHECK(eval_ok("(setq hook-ran nil)"));
-	CHECK(eval_ok("(defun my-hook () (setq hook-ran t))"));
+	CHECK(eval_ok("(setq my-hook (lambda () (setq hook-ran t)))"));
 	CHECK(eval_ok("(add-hook 'before-save-hook my-hook)"));
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "t"));
@@ -2696,9 +2738,11 @@ static void test_hooks(void)
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "nil"));
 
-	/* A quoted symbol is the Emacs idiom and must work.  It used to
-	 * register without error and then do nothing, because the symbol
-	 * reached FeCallWithOptions unresolved. */
+	/* The quoted-designator form is the Emacs idiom: the symbol is
+	 * stored and resolved through its function cell when the hook runs.
+	 * It used to register without error and then do nothing, because
+	 * the symbol reached FeCallWithOptions unresolved. */
+	CHECK(eval_ok("(defun my-hook () (setq hook-ran t))"));
 	CHECK(eval_ok("(add-hook 'before-save-hook 'my-hook)"));
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "t"));
@@ -2711,6 +2755,58 @@ static void test_hooks(void)
 	CHECK(eval_eq("hook-ran", "redefined"));
 
 	CHECK(eval_ok("(remove-hook 'before-save-hook 'my-hook)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* A process filter named by a quoted symbol must resolve through its
+ * function cell when the callback runs.  set-process-filter always
+ * accepted symbols, but nothing ever resolved them, so the callback
+ * silently never ran; the function-cell-only rule is the same one hooks
+ * and functionp follow.  The value namespace is not consulted. */
+static void test_process_callback_designator(void)
+{
+	int i;
+
+	setup_editor();
+	kg_process_table_init();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq filter-ran nil)"));
+	CHECK(
+	    eval_ok("(defalias 'p-filter (lambda (p s) (setq filter-ran t)))"));
+	CHECK(eval_ok(
+	    "(setq proc (start-shell-command \"filt\" nil \"echo hi\"))"));
+	CHECK(eval_ok("(set-process-filter proc 'p-filter)"));
+
+	/* Drive the child to completion the way the editor's main loop
+	 * would: poll the process table and drain the published events. */
+	for (i = 0; i < 2000 && !eval_eq("filter-ran", "t"); i++) {
+		kg_process_table_poll();
+		kg_event_drain_safe();
+		usleep(1000);
+	}
+	CHECK(eval_eq("filter-ran", "t"));
+
+	/* A name bound only as a value has an empty function cell, so its
+	 * designator resolves to nil and the callback never runs. */
+	CHECK(eval_ok("(setq filter-ran nil)"));
+	CHECK(
+	    eval_ok("(setq only-value (lambda (p s) (setq filter-ran 'ran)))"));
+	CHECK(eval_ok(
+	    "(setq proc2 (start-shell-command \"filt2\" nil \"echo yo\"))"));
+	CHECK(eval_ok("(set-process-filter proc2 'only-value)"));
+
+	for (i = 0; i < 2000; i++) {
+		kg_process_table_poll();
+		kg_event_drain_safe();
+		usleep(1000);
+		if (eval_eq("filter-ran", "t")) {
+			break;
+		}
+	}
+	CHECK(eval_eq("filter-ran", "nil"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -2838,6 +2934,7 @@ int main(void)
 	RUN(test_save_excursion);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
+	RUN(test_process_callback_designator);
 	RUN(test_keymap_apis);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);

@@ -9,19 +9,22 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 2`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 3`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 2`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 3`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
-version 2 is the `setq`/`set`/numeric-`=` hard cut below, which broke no
+version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
-through it; `FE_API_VERSION` only later moved 1 → 2 for sub-plan 03F's
+through it; `FE_API_VERSION` later moved 1 → 2 for sub-plan 03F's
 `FeEvalOptions`/`FeArenaStats` rename below, a C-contract break with no
 language-behaviour change of its own, so `FE_LANGUAGE_VERSION` did not
-move with it. `FeVersion` is `"3.0"`, bumped alongside the API version
-even though the language axis stayed at 2 — it is Fe's own next breaking
-release, not a language-version mirror.
+move with it. Both moved 2 → 3 together in sub-plan 04D's Lisp-2
+namespace cut below, which changed a C contract *and* a language
+behaviour in the same slice: `FeDefineNative`'s target cell and the
+call-position/`#'` rules moved together. `FeVersion` is `"4.0"`, bumped
+with that same break — it is Fe's own next breaking release, not a
+language-version mirror.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
@@ -67,10 +70,9 @@ that could be done in the prelude was done there instead.
 | `if` is Emacs Lisp's `(if COND THEN ELSE...)`, with the trailing forms an implicit `do` | Upstream read them as an alternating elif chain, so `(if c a b1 b2)` silently evaluated `b1` as a *condition* and never ran `b2`. Two forms cannot coexist in one language; the elisp one wins. | `scripts/concatenate.fe` and `scripts/life.fe` were rewritten as nested `if`s; `doc/language.md` updated |
 | The `fn` primitive's canonical name is `lambda`; `fn` remains bound to the same primitive | `(lambda (x) …)` is what elisp users write, and closures now *print* as `(lambda …)` rather than `(fn …)` | one entry in `primitive_names`, a `primitive_aliases` table, `type_names[FeTFn]`, one string in `FeWrite` |
 | Reader macros `` `x ``, `,x`, `,@x` read as `(quasiquote x)`, `(unquote x)`, `(unquote-splicing x)` | Backquote is the difference between writing macros and fighting them. The *semantics* stay in kg's prelude; only the punctuation had to move into the reader. | `` ` `` and `,` became symbol delimiters (nothing in fe or kg used them inside symbols) |
-| Reader macro `#'x` reads as plain `x` | Upstream read `#'car` as a symbol named `#'car`, which evaluated to `nil` *silently*. Fe has one namespace, so the elisp function quote is the identity. | `#` stays an ordinary symbol character; only the two-character `#'` is special |
 | Calling a non-function whose head is a symbol raises `void-function NAME` | Upstream's `tried to call non-callable value` never said which name was unbound | one helper in `Evaluate` |
 | `GcStackSize` 512 → 4096 | The GC stack, not the C stack, bounded recursion upstream: it died at about 70 frames, too few to write ordinary list code. That stopped being true of Lisp nesting at all once the frame machine replaced the recursive evaluator (see the dedicated frame-machine row below) — every completed frame used to retain two redundant entries on this stack (`FePushGC(env)`/`FePushGC(rest)`) until its whole activation unwound, which still made `(deep 1021)` the practical ceiling before `(deep 1022)` raised `GC stack overflow`. The fix (`675bcec`, kg pin `e465d21`) found that retention was pure redundancy — every completed frame's result is delivered straight into the frame below's `callee` with no allocation in between, and every frame field is already an exhaustive mark-phase root, so only the run's own result needs a push, once, at the barrier. Measured after: `peak_gc_stack_depth` is a **constant 14** at every nesting depth tested — 10, 1000 and 100000 (`TestGcStackConstantInNesting` in `fe/test_api.c` pins it as a constant, not a threshold) — where it used to be `2N + 9`. 4096 remains generous headroom for the reader's and writer's own native C recursion, which does still consume this stack, but it is no longer a Lisp-recursion bound of any kind, designed or accidental; sub-plan 03F's two bounds (see below) are what actually limit Lisp nesting and native re-entry now. | `FeMinimumArenaSize()` is now 53840 bytes (up from 36784 once `boundp`/`makunbound` were added, pre-frame-substrate; the frame substrate's arena-resident 64-frame floor (`MinFrameCapacity`) plus 32-frame cleanup reserve (`CleanupFrameReserve`), each a 96-byte `FeEvalFrame`, account for the rest — see the kg-side sub-plan set's 03A Decision and its 03D follow-up for the retune history). A `KG_LISP_ARENA_SIZE` override below `FeMinimumArenaSize()` fails to open a context; kg's default 1 MiB arena partitions to `frame_capacity` 1100 under `FrameArenaPercent`'s 10% split of the remainder. |
-| The additive function namespace (sub-plan 04C) | Phase 4 now gives symbols independent function and value cells without moving bootstrap definitions yet: function-cell lookup falls back to the value cell until 04D makes the cut | `CDR(sym) = ((name . function) . value)` remains private behind `SymbolName`, `SymbolBindingCell`, `SymbolFunction`, and `SetSymbolFunction`; `FeSetFunction`/`FeGetFunction`/`FeIsFBound` and nine primitives (`function`, `fset`, `defalias`, `symbol-function`, `symbol-value`, `fboundp`, `fmakunbound`, `funcall`, `apply`) use it. The new primitive symbols raise `FeMinimumArenaSize()` to **55616 bytes** (from 54656); kg's 1 MiB arena must be remeasured with this pin. |
+| Lisp-2 value and function namespaces (sub-plans 04B–04D) | Phase 4 of kg's Emacs-subset program replaces Fe's single per-symbol cell with the two Emacs namespaces. 04B made the representation (a function cell beside the value cell), 04C added the accessors and the nine primitives behind a transitional value-cell fallback so existing lookup kept working, and 04D cut: the bootstrap callables moved into function cells, the fallback is deleted, call position resolves a symbol's function cell *only* (an empty cell is `void-function NAME` even when the value cell is full), `#'x` reads as `(function x)`, and `FeDefineNative` now registers into the function cell. | `CDR(sym) = ((name . function) . value)` is private behind `SymbolName`, `SymbolBindingCell`, `SymbolFunction`, and `SetSymbolFunction`; `FeSetFunction`/`FeGetFunction`/`FeIsFBound` and nine primitives (`function`, `fset`, `defalias`, `symbol-function`, `symbol-value`, `fboundp`, `fmakunbound`, `funcall`, `apply`); the writer prints `(function X)` as `#'X`; fe keeps its own `FeTMacro` rather than Emacs' `(macro . FUNCTION)` cons — a recorded, tested representation divergence observable only through `symbol-function` of a macro (the manifest's `lisp2-macro-representation` is `kg-policy`, not an Emacs-comparison gap). `FeVersion` `"3.0"` → `"4.0"` and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` 2 → 3 together. The new primitive symbols raise `FeMinimumArenaSize()` to **55616 bytes** (from 54656); kg's 1 MiB arena measures **1098 frames / 56221 object slots**. |
 | `FeToString(dst, 0)` writes nothing and returns 0 | `size - 1` underflowed, so a zero-size destination received the whole rendering plus a terminator past it | the contract is now written down: bytes stored, never more than `size - 1`, always terminated. No snprintf-style required length, because measuring is unbounded on a cyclic object |
 | Malformed dotted lists are syntax errors | `'(a . b c)` read as `(a c)`, `'(a . b . c)` as `(a . c)` and `'(. a)` as `a`, all silently | three new reader diagnostics; `(a .)` says `missing value after '.'` instead of `stray ')'` |
 | A macro expands on every call instead of overwriting its call site | copying the expansion over the call site cloned it, and `nil` and interned symbols are compared by address: a macro expanding to `nil` produced a truthy nil, and one expanding to a symbol missed every lexical binding | one expansion per invocation, charged against the step budget; kg's "a macro expands once per call site" caveat is gone from `README.md` and `doc/kg.1` |
@@ -139,8 +141,8 @@ Deliberately **not** changed in `fe.c`, and why:
   only learns the punctuation.
 - **`?a` character literals.** `FeReadFn` yields one byte at a time and Fe has
   no character type, so `?é` would silently read as the first UTF-8 byte —
-  reintroducing exactly the silent wrongness `#'` was fixed to remove.
-  `(string-to-char "é")` is exact and already available.
+  reintroducing exactly the silent-wrongness class the `#'` reader macro's
+  rewrite removed. `(string-to-char "é")` is exact and already available.
 - **Dynamic binding, `condition-case`, vectors, hash tables,
   keyword arguments, a byte compiler.** All need new object types or a real
   non-local exit mechanism in `Evaluate`.

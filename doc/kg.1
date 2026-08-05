@@ -523,7 +523,9 @@ the namespace forms
 .Li defalias
 and
 .Li fmakunbound ,
-with the reader spelling
+which like
+.Li setq
+are core Fe forms, not prelude definitions, with the reader spelling
 .Li #\(aqf
 for
 .Li (function f) ;
@@ -604,10 +606,11 @@ character literals such as
 are not read, so use
 .Li (string-to-char "a") ;
 there is no
-.Li unwind-protect
-or
 .Li condition-case ,
-and the namespace diagnostics
+so nothing in Lisp catches an error, though
+.Li unwind-protect
+does run its cleanup forms as one passes through;
+the namespace diagnostics
 .Li void-function ,
 .Li void-variable
 and

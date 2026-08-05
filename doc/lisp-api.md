@@ -164,8 +164,9 @@ Ordering rules that hold across every subscriber:
   `eval-expression`, `eval-buffer`, `C-j`, a Lisp-defined command, a hook
   callback, a process callback — shares.
 - **A raised error unwinds the whole top-level call**, not just the
-  innermost form. kg's Lisp has no `unwind-protect` and no
-  `condition-case`: nothing in Lisp catches an error partway. Recovery
+  innermost form. kg's Lisp has no `condition-case`: nothing in Lisp
+  catches an error partway, and `unwind-protect` (below) runs its cleanup
+  forms as the error passes through without stopping it. Recovery
   is entirely the adapter's: `setjmp`/`longjmp` back to whichever C entry
   point (`kg_lisp_eval_string`, `kg_lisp_load_file`,
   `kg_lisp_run_command`, or a hook/process callback's own frame) started
@@ -284,18 +285,23 @@ the same way point outlives a `goto-char`: it is a piece of per-session
 state (`struct kg_lisp_match_data`), not something scoped to one
 top-level form.
 
-## save-excursion and with-current-buffer
+## save-excursion, with-current-buffer and unwind-protect
 
 | Form | Result |
 | ---- | ------ |
 | `(save-excursion BODY...)` | Restores point and the current buffer on every exit, including an error or `C-g` |
 | `(with-current-buffer BUF BODY...)` | Evaluates `BODY` with `BUF` current, then restores; never selects a window |
+| `(unwind-protect BODY CLEANUP...)` | Evaluates `BODY`, then `CLEANUP...` as an implicit `progn` on every exit — normal return, error, `C-g`, or step-budget exhaustion; the value is `BODY`'s, the cleanups' are discarded |
 
-Both are built on Fe's cleanup registry (`FeProtectWithCleanup`), so
-"every exit" is not an approximation: a raised error or an interrupt
-inside `BODY` still restores what was saved, the same guarantee
-`unwind-protect` would give if kg's Lisp had one. Nesting is fine;
-each restores exactly what it saved, in the reverse order it was saved.
+All three are the same mechanism: Fe's cleanup registry
+(`FeProtectWithCleanup`), which the first two reach from C and
+`unwind-protect` (a core Fe special form, not a prelude definition)
+exposes to Lisp directly. So "every exit" is not an approximation: a
+raised error or an interrupt inside `BODY` still restores what was
+saved, or runs `CLEANUP`. Nesting is fine; each restores exactly what it
+saved, in the reverse order it was saved. A cleanup form that itself
+raises is reported directly rather than replacing the error already
+unwinding, and the cleanups still pending after it run anyway.
 
 `save-excursion` restoring "point" means restoring the *buffer's*
 remembered point (see "Point is per-buffer" above) to what it was when
@@ -424,7 +430,8 @@ so no result is ever cut mid-glyph:
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
 | `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%%`; no field widths, no `%c`/`%x`/`%o`; extra arguments ignored, a missing one or an unknown specifier raises |
 
-kg evaluates a prelude (`src/lisp_prelude.c`), written in Fe, at startup
+kg evaluates a prelude (`lisp/prelude.el`, embedded into the binary as
+`src/lisp_prelude_generated.inc`), written in Fe, at startup
 before any init file runs — this is what makes `defun`, `let`, `cond`,
 `dolist` and the rest available at all, since upstream Fe has only
 `lambda`, one-binding `let`, `if` and `while`:
@@ -439,6 +446,10 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
+
+The table is the whole startup surface, not only what the prelude adds:
+the nine forms in `Functions`, like `setq` in `Binding`, are core Fe
+special forms and primitives rather than prelude definitions.
 
 `defun` strips a body `(interactive)` form and registers the function as
 a command under its own name (`define-command` underneath), the same as
@@ -471,7 +482,7 @@ read the two cells directly with `(symbol-function 'NAME)` and
 
 | Form | Result |
 | ---- | ------ |
-| `(function F)` / `#'F` | The function designator, without evaluating `F`: a symbol is returned as-is, a `(lambda ...)` form becomes the closure. `#'` is the reader's abbreviation for `(function ...)` |
+| `(function F)` / `#'F` | The function designator, without evaluating `F`: a symbol is returned as-is, a `(lambda ...)` form becomes the closure. `#'` is the reader's abbreviation for `(function ...)`, and the writer prints a `(function X)` form back as `#'X` — which is what `M-:` / `eval-expression` shows |
 | `(funcall F &rest ARGS)` | Call function object or designator `F` with `ARGS` |
 | `(apply F &rest ARGS LIST)` | Like `funcall`, with the final operand a list whose elements are appended as arguments |
 | `(fset 'NAME FN)` | Write `FN` into `NAME`'s function cell |
@@ -505,8 +516,9 @@ primitive's function cell.
 - Every number is a double; there is no character type — write
   `(string-to-char "a")` rather than `?a`.
 - `t` is an ordinary assignable global, not a self-evaluating constant.
-- **No `unwind-protect`, no `condition-case`, no dynamic binding, no
-  vectors, no hash tables, no property lists.** (No property lists is
+- **No `condition-case`, no dynamic binding, no vectors, no hash tables,
+  no property lists.** (`unwind-protect` does exist — see above — but it
+  runs cleanups rather than catching. No property lists is
   why there are no docstring-backed `describe-function`-style natives
   yet — see below.) The namespace diagnostics `void-function`,
   `void-variable` and `cyclic-function-indirection` are names carried in
@@ -518,7 +530,8 @@ primitive's function cell.
   recorded, tested representation divergence (fe's manifest pins it as a
   `kg-policy` entry, `lisp2-macro-representation`), observable only
   through `symbol-function` of a macro.
-- Recursion is bounded at roughly 450 frames by Fe's GC stack; walk long
+- Recursion is bounded by the interpreter's two frame limits, not by
+  Fe's GC stack — see "Error handling and budget limits" above; walk long
   lists with `while`.
 - A self-referential structure prints as far as the cycle, then
   `#<cycle>`, rather than looping forever.
@@ -556,7 +569,8 @@ missing:
 | Concern | Module |
 | ---- | ---- |
 | Interpreter lifecycle, `WITH_LISP=0` stubs | `src/lisp_core.c` |
-| Natives bound at startup, the Fe-written prelude | `src/lisp_prelude.c` |
+| Natives bound at startup | `src/lisp_prelude.c` |
+| The Fe-written prelude itself | `lisp/prelude.el`, embedded as `src/lisp_prelude_generated.inc` |
 | Position/codepoint conversions, buffer/mark/point natives | `src/lisp_buffer.c` |
 | Word motion, `bounds-of-thing-at-point` | `src/lisp_word.c` |
 | `load`, `require`/`provide`/`featurep`/load-path, XDG config resolution, `format`, `message`, `insert`, region edits | `src/lisp_io.c`, `src/lisp_require.c` |

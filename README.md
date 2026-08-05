@@ -435,7 +435,8 @@ surface is available before any init file runs. It is what makes kg's
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
+| Predicates | `null` `eq` `equal` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` |
+| Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
@@ -480,10 +481,11 @@ first surprise:
 - Every number is a double, and there is no character type: write
   `(string-to-char "a")` rather than `?a`.
 - `t` is an ordinary assignable global.
-- There is no `unwind-protect` or `condition-case`, no dynamic binding, no
-  vectors or hash tables. The namespace diagnostics `void-function`,
-  `void-variable` and `cyclic-function-indirection` are error-message text,
-  not condition objects.
+- There is no `condition-case`, no dynamic binding, no vectors or hash
+  tables; `unwind-protect` does exist, but it runs its cleanup forms as an
+  error passes through rather than catching it. The namespace diagnostics
+  `void-function`, `void-variable` and `cyclic-function-indirection` are
+  error-message text, not condition objects.
 - A macro's function cell holds fe's own macro object, not Emacs'
   `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding

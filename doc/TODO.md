@@ -189,10 +189,17 @@ ordered by value vs implementation effort.
         `(interactive)` inside a `defun` writes to that registry, so they
         rarely need to be typed
       - the fe submodule carries elisp `if`, `lambda` as the primitive's
-        name, the `` ` ``/`,`/`,@`/`#'` reader macros, `void-function`
-        errors, core `setq` (lexical-aware) and `set` (always the global
-        cell), left-to-right chained numeric `=`, and a 4096-slot GC
-        stack; see `doc/fe-upstream.md`
+        name, the `` ` ``/`,`/`,@`/`#'` reader macros (`#'f` reads as
+        `(function f)`, and the writer prints one back as `#'f`),
+        Lisp-2 namespaces — a separate value and function cell per
+        symbol, with call position resolving the function cell only, and
+        the nine namespace forms `function`, `funcall`, `apply`,
+        `fboundp`, `symbol-function`, `symbol-value`, `fset`, `defalias`
+        and `fmakunbound` as core forms rather than prelude
+        definitions — `void-function` errors, `unwind-protect`, core
+        `setq` (lexical-aware) and `set` (always the global cell),
+        left-to-right chained numeric `=`, and a 4096-slot GC stack; see
+        `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
       - no docstring registry / `documentation`; docstrings are inert

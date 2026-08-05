@@ -78,20 +78,25 @@ FeObject *native_symbolp(FeContext *context, FeObject *arguments)
 	return FeMakeBool(context, type == FeTSymbol || type == FeTNil);
 }
 
-/* True for closures, natives and primitives alike; a macro is not a
- * function, as in Emacs.  A symbol is a function designator: it resolves
- * through its function cell (lisp_function_designator), so (functionp
- * 'car) is t and a name bound only in the value namespace is not a
- * function. */
+/* A symbol is a function designator: it resolves through its function cell
+ * (lisp_function_designator), so (functionp 'car) is t and a name bound
+ * only in the value namespace is not a function.  The verdict on the
+ * resolved object is Fe's own FeIsFunction, which is the classification
+ * funcall and apply reject an `invalid-function' operand by, so kg's
+ * predicate and the interpreter cannot disagree: closures and natives are
+ * functions, and so are the primitives whose operands are evaluated before
+ * they act, but macros and special forms (`if', `quote', `let') are not --
+ * the answer Emacs gives.  Spelling the type check out here instead is what
+ * made (functionp 'if) t.  A cyclic alias chain raises
+ * `cyclic-function-indirection' where Emacs answers nil; see
+ * doc/lisp-api.md. */
 FeObject *native_functionp(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 
 	FeRequireNoArguments(context, arguments);
 	object = lisp_function_designator(context, object);
-	return FeMakeBool(context,
-	    FeGetType(object) == FeTFn || FeGetType(object) == FeTNativeFn
-		|| FeGetType(object) == FeTPrimitive);
+	return FeMakeBool(context, FeIsFunction(context, object));
 }
 
 [[noreturn]] void command_error(

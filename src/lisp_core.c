@@ -167,6 +167,64 @@ FeObject *lisp_function_designator(FeContext *context, FeObject *object)
 					      : object;
 }
 
+static void describe_callable_failure(FeContext *context, const char *condition,
+    FeObject *object, char *diagnostic, size_t diagnostic_size)
+{
+	size_t length;
+	char *name;
+
+	if (FeGetType(object) != FeTSymbol) {
+		copy_result(diagnostic, diagnostic_size,
+		    "tried to call non-callable value");
+		return;
+	}
+	name = copy_fe_string(context, object, &length);
+	(void)snprintf(diagnostic, diagnostic_size, "%s %s", condition, name);
+	free(name);
+}
+
+/* The same rule at a call site the *host* makes -- a hook, a process
+ * filter, a sentinel -- reporting rather than raising when the designator
+ * names nothing callable.
+ *
+ * Reporting, and not FeHandleError, is forced by where this runs.  It runs
+ * before FeCall has started a nested evaluator run, so Fe's innermost
+ * catch still belongs to whatever run sits *below* this C frame -- the
+ * `(run-hooks ...)` call's own, when a hook runs from Lisp rather than
+ * from an editor event.  A raise here unwinds past the caller's guarded
+ * frame before the host error handler ever sees it, and that handler then
+ * longjmps into a C frame that has already returned; only an error raised
+ * inside the run FeCall starts is contained by the caller's setjmp.  That
+ * is why the promised "contained hook error" was, on the (run-hooks) path,
+ * a segfault -- for an empty function cell and equally for Fe's own
+ * "tried to call non-callable value".
+ *
+ * Returns the callable, or nullptr with `diagnostic` filled in with the
+ * message to report: `void-function NAME` for an empty function cell, and
+ * `invalid-function NAME` for a cell holding something FeCall will not
+ * call (a macro, or a primitive -- Fe calls those only from call
+ * position).  The one raise left is FeGetFunction's own
+ * `cyclic-function-indirection`, which has the same containment problem
+ * and needs a no-error resolver Fe does not expose. */
+FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
+    char *diagnostic, size_t diagnostic_size)
+{
+	FeObject *resolved = lisp_function_designator(context, object);
+	FeType type = FeGetType(resolved);
+
+	if (FeIsNil(resolved)) {
+		describe_callable_failure(context, "void-function", object,
+		    diagnostic, diagnostic_size);
+		return nullptr;
+	}
+	if (type != FeTFn && type != FeTNativeFn) {
+		describe_callable_failure(context, "invalid-function", object,
+		    diagnostic, diagnostic_size);
+		return nullptr;
+	}
+	return resolved;
+}
+
 struct lisp_command *find_lisp_command(const char *name)
 {
 	size_t i;

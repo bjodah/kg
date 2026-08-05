@@ -248,12 +248,19 @@
 ;; A body form (interactive) registers the function as a command, the
 ;; way Emacs makes a defun interactive; define-command takes the
 ;; function itself.  defun returns the name, as Emacs does.
+;; The command registry gets the object the function cell now holds,
+;; read back with symbol-function *after* the defalias, rather than a
+;; second evaluation of the same lambda form: interpolating `f' into
+;; both calls evaluated it twice and built two separate closures, so
+;; the name and the command it registered were two distinct functions
+;; that merely behaved alike.
 (defalias 'defun (macro (name params . body)
   (internal--let f (cons 'lambda (cons params
                      (internal--strip-interactive body))))
   (if (internal--has-interactive body)
       (list 'progn (list 'defalias (list 'quote name) f)
-        (list 'define-command (list 'quote name) f)
+        (list 'define-command (list 'quote name)
+          (list 'symbol-function (list 'quote name)))
         (list 'quote name))
     (list 'progn (list 'defalias (list 'quote name) f)
       (list 'quote name)))))

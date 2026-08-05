@@ -131,6 +131,18 @@ def _claims_in(data: dict, manifest_path: Path) -> dict[str, list[str]]:
 
 def _check_pool(pool_name: str, expected_names: set[str],
 		 claims: dict[str, list[str]]) -> list[str]:
+	"""Coverage, not uniqueness: every name in the pool has to be claimed
+	by at least one entry, and no entry may claim a name that is not in
+	the pool.  More than one entry per name is legitimate -- one source
+	declaration can have several separately pinned behaviours, each with
+	its own case and its own oracle snapshot, which is how fe's manifest
+	splits `funcall` into `lisp2-funcall-designator` (a symbol operand is
+	resolved through its function cell) and `lisp2-funcall-callable-kind`
+	(a macro or special-form operand is `invalid-function`).  This check
+	insisted on exactly one until that split landed; the invariant it
+	exists for -- a primitive, native or prelude definition added without
+	a manifest entry -- is the "no entry" clause alone.
+	"""
 	errors = []
 	for name in sorted(expected_names):
 		locs = claims.get(name, [])
@@ -138,10 +150,6 @@ def _check_pool(pool_name: str, expected_names: set[str],
 			errors.append(
 				f"{pool_name} {name!r} has no feature entry naming it "
 				f"as source_name")
-		elif len(locs) > 1:
-			errors.append(
-				f"{pool_name} {name!r} is claimed by more than one "
-				f"feature entry: {locs}")
 	unknown = set(claims) - expected_names
 	for name in sorted(unknown):
 		errors.append(

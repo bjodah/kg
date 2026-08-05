@@ -2223,6 +2223,31 @@ static void test_type_predicates(void)
 	CHECK(eval_eq("(functionp 'cond)", "nil"));
 	CHECK(eval_eq("(functionp 'no-such-function)", "nil"));
 	CHECK(eval_eq("(functionp 1)", "nil"));
+	/* Emacs' answer for a special form is nil -- `if' is not a function,
+	 * however callable its name looks -- and the same for a macro
+	 * whichever namespace it came from.  kg asks Fe's FeIsFunction,
+	 * which is the classification funcall and apply reject an
+	 * `invalid-function' operand by, so the predicate and the
+	 * interpreter agree; the hand-rolled type check this replaced said t
+	 * for every primitive, `if' included. */
+	CHECK(eval_eq("(functionp 'if)", "nil"));
+	CHECK(eval_eq("(functionp 'quote)", "nil"));
+	CHECK(eval_eq("(functionp 'while)", "nil"));
+	CHECK(eval_eq("(functionp 'when)", "nil"));
+	CHECK(eval_eq("(functionp 'let)", "nil"));
+	/* Recorded divergence, not a kg policy: Emacs' functionp answers nil
+	 * for a cyclic alias chain, because it resolves with
+	 * indirect-function's noerror argument.  Fe exposes no no-error
+	 * resolver, so the cycle raises here instead.  Pinned so the day a
+	 * condition system lands (Phase 6) this changes visibly rather than
+	 * silently. */
+	CHECK(eval_ok("(fset 'cyc 'cyc)"));
+	CHECK(eval_error_contains(
+	    "(functionp 'cyc)", "cyclic-function-indirection"));
+	/* fboundp reads the raw cell and follows nothing, so it answers for
+	 * the same name without raising -- the "never errors" doc/lisp-api.md
+	 * claims for it. */
+	CHECK(eval_eq("(fboundp 'cyc)", "t"));
 	CHECK(eval_eq("(listp nil)", "t"));
 	CHECK(eval_eq("(listp (cons 1 2))", "t"));
 	CHECK(eval_eq("(listp 1)", "nil"));
@@ -2381,6 +2406,12 @@ static void test_quasiquote(void)
 	 * happens. */
 	CHECK(eval_eq("(mapcar #'car (list (list 1 2) (list 3 4)))", "(1 3)"));
 	CHECK(eval_eq("(function car)", "car"));
+	/* #' over a lambda *form* is the other half of the reader
+	 * abbreviation: (function (lambda ...)) evaluates the form to the
+	 * closure, so the funcall below has a real function to call and not
+	 * a quoted list. */
+	CHECK(eval_eq("(funcall #'(lambda (n) (+ n 1)) 41)", "42"));
+	CHECK(eval_eq("(functionp #'(lambda (n) n))", "t"));
 
 	/* A macro written with backquote. */
 	CHECK(eval_ok("(defmacro unless2 (test . body)"
@@ -2468,10 +2499,10 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1100, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * 1098, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
  * frames per recursion level for this chain's shape (`if`, `+`, and the
  * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1100-frame arena, more than 2700x
+ * roughly 3 million frames against a 1098-frame arena, more than 2700x
  * over capacity -- demonstrably above it without depending on the private
  * Fe frame-size struct or reverse-engineering the arena layout, only on
  * the public frame_capacity/peak_frame_depth counters this file already
@@ -2609,8 +2640,20 @@ static void test_prelude_source_file(void)
 			strcpy(types[count], "lambda");
 		} else if (strncmp(value_start, "(macro", 6) == 0) {
 			strcpy(types[count], "macro");
-		} else {
+		} else if (strncmp(value_start, "(symbol-function '", 18)
+		    == 0) {
 			strcpy(types[count], "primitive");
+		} else {
+			/* Not a fallback: those three are the whole
+			 * vocabulary this file defines things with, and a
+			 * fourth shape has to be classified deliberately
+			 * rather than silently called a primitive. */
+			fprintf(stderr,
+			    "prelude definition '%s' has an unrecognised value "
+			    "shape: %.40s\n",
+			    names[count], value_start);
+			CHECK(0);
+			break;
 		}
 
 		if (strcmp(names[count], "let") == 0) {
@@ -2754,7 +2797,47 @@ static void test_hooks(void)
 	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
 	CHECK(eval_eq("hook-ran", "redefined"));
 
+	/* ... and removing by the same designator really removes it: the
+	 * proof is that the next run leaves the flag alone. */
+	CHECK(eval_ok("(setq hook-ran nil)"));
 	CHECK(eval_ok("(remove-hook 'before-save-hook 'my-hook)"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "nil"));
+
+	/* A symbol whose function cell is empty is a contained hook error
+	 * that names the symbol -- what README.md and doc/lisp-api.md
+	 * promise.  Resolving the designator before FeCallWithOptions sees
+	 * it used to turn this into Fe's anonymous "tried to call
+	 * non-callable value". */
+	CHECK(eval_ok("(add-hook 'before-save-hook 'never-defined-hook-fn)"));
+	test_status_message[0] = '\0';
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(strstr(test_status_message, "Hook error") != nullptr);
+	CHECK(strstr(test_status_message, "void-function") != nullptr);
+	CHECK(strstr(test_status_message, "never-defined-hook-fn") != nullptr);
+	/* Contained: the interpreter is still usable, and defining the name
+	 * afterwards makes the very same hook entry work, since resolution
+	 * happens when the hook runs. */
+	CHECK(eval_ok("(+ 1 2)"));
+	CHECK(
+	    eval_ok("(defun never-defined-hook-fn () (setq hook-ran 'late))"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("hook-ran", "late"));
+	CHECK(
+	    eval_ok("(remove-hook 'before-save-hook 'never-defined-hook-fn)"));
+
+	/* A cell holding something Fe will not call from the host side -- a
+	 * macro, or a primitive -- is named too, and is equally contained.
+	 * Both diagnostics used to reach FeCall's own guard, which raises
+	 * from a point the guarded frame above does not catch when the hook
+	 * runs from a (run-hooks) inside a live evaluator run: the editor
+	 * died there rather than printing anything. */
+	CHECK(eval_ok("(add-hook 'before-save-hook 'cond)"));
+	test_status_message[0] = '\0';
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(strstr(test_status_message, "invalid-function cond") != nullptr);
+	CHECK(eval_ok("(remove-hook 'before-save-hook 'cond)"));
+	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -2789,9 +2872,12 @@ static void test_process_callback_designator(void)
 	}
 	CHECK(eval_eq("filter-ran", "t"));
 
-	/* A name bound only as a value has an empty function cell, so its
-	 * designator resolves to nil and the callback never runs. */
+	/* A name bound only as a value has an empty function cell, so the
+	 * callback never runs -- and says so by name, as a contained
+	 * "Process filter error: void-function only-value" on the status
+	 * line rather than Fe's anonymous non-callable complaint. */
 	CHECK(eval_ok("(setq filter-ran nil)"));
+	test_status_message[0] = '\0';
 	CHECK(
 	    eval_ok("(setq only-value (lambda (p s) (setq filter-ran 'ran)))"));
 	CHECK(eval_ok(
@@ -2807,6 +2893,9 @@ static void test_process_callback_designator(void)
 		}
 	}
 	CHECK(eval_eq("filter-ran", "nil"));
+	CHECK(strstr(test_status_message, "Process filter error") != nullptr);
+	CHECK(strstr(test_status_message, "void-function") != nullptr);
+	CHECK(strstr(test_status_message, "only-value") != nullptr);
 
 	kg_lisp_shutdown();
 	teardown_editor();

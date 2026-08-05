@@ -1,0 +1,6 @@
+{
+ "id": "lisp2-functionp-special-form",
+ "setup": [],
+ "expr": "(list (functionp 'car) (functionp 'if) (functionp 'when) (functionp 'insert))",
+ "note": "functionp asks about the resolved callable, and Emacs answers nil for a special form and for a macro however callable their names look in head position: only `car' (a function-shaped built-in) and `insert' (likewise) are functions here. kg answers with Fe's FeIsFunction, which is the same classification funcall and apply reject an `invalid-function' operand by; the hand-rolled type check it replaced said t for every primitive, so (functionp 'if) was t."
+}

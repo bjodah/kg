@@ -85,6 +85,7 @@ static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
 	struct lisp_frame saved_frame;
 	bool prev_frame_active;
 	size_t gc;
+	char diagnostic[LISP_CALLABLE_DIAGNOSTIC_MAX];
 
 	if (fn == NULL || FeIsNil(fn)) {
 		return;
@@ -103,13 +104,22 @@ static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
 		    "Process %s error: %s", what, state.error);
 		return;
 	}
-	lisp_exec_enter(ctx);
 	/* A filter or sentinel may be a symbol designator: resolve it now that
 	 * the callback runs, exactly as hooks do, so redefining the named
-	 * function afterwards takes effect.  An empty cell resolves to nil,
-	 * and FeCallWithOptions' contained "tried to call non-callable value"
-	 * is the honest failure. */
-	fn = lisp_function_designator(ctx, fn);
+	 * function afterwards takes effect.  An empty cell is reported, not
+	 * raised -- see lisp_callable_designator -- so the status line names
+	 * which function was missing instead of Fe complaining about an
+	 * anonymous non-callable value. */
+	fn = lisp_callable_designator(ctx, fn, diagnostic, sizeof(diagnostic));
+	if (fn == NULL) {
+		FeRestoreGC(ctx, gc);
+		state.frame = saved_frame;
+		state.frame_active = prev_frame_active;
+		editor_set_status_message(
+		    "Process %s error: %s", what, diagnostic);
+		return;
+	}
+	lisp_exec_enter(ctx);
 	(void)FeCallWithOptions(ctx, fn, args, argc, &eval_options);
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(1);

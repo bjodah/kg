@@ -500,6 +500,19 @@ Because call position reads only the function cell, a function held in a
 (let ((f #'car)) (funcall f lst))   ;; a value is not callable
 ```
 
+`(functionp F)` asks about what `F` resolves to, not about `F` itself: a
+symbol is followed through its function cell, so `(functionp 'car)` is
+`t` and a name bound only as a value is `nil`. **Special forms and macros
+are not functions**, as in Emacs — `(functionp 'if)`, `(functionp 'let)`
+and `(functionp 'when)` are all `nil`, however callable those names look
+in head position — while a closure, an editor native and a
+function-shaped primitive are all `t`. One divergence: a *cyclic* alias
+chain (`(fset 'x 'x)`) makes `functionp` raise
+`cyclic-function-indirection` where Emacs answers `nil`, because Emacs
+resolves it with `indirect-function`'s no-error argument and Fe exposes
+no such resolver. `fboundp` is unaffected — it reads the raw cell and
+follows nothing, so it never errors.
+
 kg's own prelude is written against these rules: its top-level
 definitions are installed with `defalias` into function cells, the
 primitive aliases (`progn`, `null`, `eq`, ...) capture the primitive's

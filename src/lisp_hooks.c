@@ -70,19 +70,24 @@ static struct kg_hook *find_hook(const char *name)
  * is Emacs-shaped, so it has to work.  Resolving here -- when the hook
  * runs, rather than in add-hook -- is what makes redefining the function
  * afterwards take effect, as it does in Emacs.  The resolution itself is
- * the shared Lisp-2 designator rule (lisp_function_designator); callers
- * must already be inside the guarded frame: an empty function cell resolves
- * to nil, and the "tried to call non-callable value" FeCallWithOptions then
- * raises is meant to become a contained hook error, not a crash. */
-static FeObject *resolve_hook_function(FeContext *ctx, FeObject *fn)
+ * the shared Lisp-2 designator rule (lisp_callable_designator), which
+ * reports rather than raises: an empty function cell becomes the contained
+ * hook error `void-function NAME` that README.md and doc/lisp-api.md
+ * promise, instead of the anonymous "tried to call non-callable value"
+ * FeCall used to produce -- and which, reached from a `(run-hooks ...)`
+ * inside a live evaluator run, was not contained at all but a segfault. */
+static FeObject *resolve_hook_function(
+    FeContext *ctx, FeObject *fn, char *diagnostic, size_t diagnostic_size)
 {
-	return lisp_function_designator(ctx, fn);
+	return lisp_callable_designator(ctx, fn, diagnostic, diagnostic_size);
 }
 
 static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
     size_t arg_count, const char *hook_name)
 {
 	FeObject *fn = FeGetRoot(root);
+	FeObject *target;
+	char diagnostic[LISP_CALLABLE_DIAGNOSTIC_MAX];
 
 	if (fn == NULL || FeIsNil(fn)) {
 		return;
@@ -109,9 +114,17 @@ static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
 		    "Hook error (%s): %s", hook_name, state.error);
 		return;
 	}
+	target = resolve_hook_function(ctx, fn, diagnostic, sizeof(diagnostic));
+	if (target == NULL) {
+		FeRestoreGC(ctx, gc);
+		state.frame = saved_frame;
+		state.frame_active = prev_frame_active;
+		editor_set_status_message(
+		    "Hook error (%s): %s", hook_name, diagnostic);
+		return;
+	}
 	lisp_exec_enter(ctx);
-	(void)FeCallWithOptions(ctx, resolve_hook_function(ctx, fn), args,
-	    arg_count, &eval_options);
+	(void)FeCallWithOptions(ctx, target, args, arg_count, &eval_options);
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(1);
 	state.frame = saved_frame;

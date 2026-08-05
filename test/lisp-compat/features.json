@@ -1030,6 +1030,19 @@
    "source_name": "functionp"
   },
   {
+   "id": "lisp2-functionp-special-form",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "lisp2-functionp-special-form"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": "The Lisp-2 cutover's functionp: kg answers with Fe's FeIsFunction, the same classification funcall and apply reject an `invalid-function' operand by, so a special form and a macro are not functions -- Emacs' own answer. The hand-rolled FeTFn/FeTNativeFn/FeTPrimitive check it replaced said t for every primitive, which made (functionp 'if) t. A separate entry from native-functionp because that one's case pins the plain (functionp 'car) answer and this manifest's oracle target regenerates one case per entry.",
+   "source_name": null
+  },
+  {
    "id": "prelude-internal-let",
    "category": "bindings",
    "status": "supported",

@@ -152,6 +152,14 @@ char *copy_fe_string(FeContext *context, FeObject *object, size_t *length);
  * Shared by hooks, process filters/sentinels and functionp, which used to
  * spell the lookup out at three call sites. */
 FeObject *lisp_function_designator(FeContext *context, FeObject *object);
+/* The host-call-site form of the same rule (lisp_core.c): resolves as
+ * above, then answers whether FeCall can call the result.  Returns nullptr
+ * with `diagnostic` set to `void-function NAME` / `invalid-function NAME`
+ * instead of raising, because a raise from this point is not contained by
+ * the caller's guarded frame -- see the definition's comment. */
+FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
+    char *diagnostic, size_t diagnostic_size);
+#define LISP_CALLABLE_DIAGNOSTIC_MAX 128
 
 /* ---- Runtime execution context (lisp_obj.c) -------------------------- */
 

@@ -1285,3 +1285,119 @@ editor behaviour changed.  Sub-plan 03F may start: it inherits the
 API, and the `(deep 100000)` fixture (~275 MiB, unchanged since the frame
 layout did not change) to turn into a permanent gated assertion once its
 own blocker is resolved.
+
+**03F complete, 2026-08-05, and with it Phase 3.**  fe `f1c0dde` and
+`60e4c9e` on `analyzers-etc`; kg pin and every kg adaptation in one commit,
+`50439c7`, per Rule 10 — a pin-only commit could not compile, which is
+exactly what `static_assert(FE_API_VERSION == 1)` was added to guarantee.
+
+The slice landed in three parts, and only the first was on its own document's
+list.
+
+*The blocker 03E handed over* (fe `675bcec`, kg pin `e465d21`, recorded
+earlier in `03f`'s own Status): `GcStackSize` was not enlarged — 03E's other
+candidate, ~3.2 MB added to `FeMinimumArenaSize()`, was never viable — because
+the per-level retention turned out to be pure redundancy.  Only the run's own
+result needs a `FePushGC`, once, at the barrier.  `(deep 100000)` runs, and
+`peak_gc_stack_depth` is a **constant 14** at every depth measured.
+
+*The document's own content.*  `FeEvalOptions.max_depth` split into
+`max_frames` and `max_native_reentry`; `FeArenaStats.peak_evaluation_depth`
+into `frame_capacity`, `peak_frame_depth` and `peak_native_reentry`;
+`FE_API_VERSION` 1 → 2 and `FeVersion` "2.0" → "3.0" with
+`FE_LANGUAGE_VERSION` held at 2; the two distinct error texts; and the
+permanent flatness gate, which asserts a C-stack high-water **delta of 0
+bytes** at N = 10, 1000 and 100000 (`peak_frame_depth` 300004 at the
+deepest).  `DefaultNativeReentry` is 32: 10× the deepest nesting found in
+kg's corpus (3 — `with-current-buffer` wrapping `save-excursion` under a hook
+or process callback), ~1 KiB of C stack per level under ci-05's MSan flags,
+so ~32 KiB against a default 8 MiB stack.
+
+**The two-limit relationship was made structural by deleting one of the two
+limits.**  This document asked 03F to "derive the relationship rather than
+leave two independent numbers that happen to be close".  The honest answer
+was that the second number had no remaining job: with Lisp nesting rooted in
+the arena, the physical frame wall is the only wall, and `DefaultEvaluationDepth`
+went with the counter it bounded.  The ~10% margin that 03D's retune already
+broke once cannot recur, because there is nothing left for it to be a margin
+against.
+
+*What the slice found that no document predicted.*  fe's `ci-06` fuzz lane
+caught a **use-after-free introduced by this set's own `675bcec`**.
+`ResumeBinary` cleared `frame->callee` — the second operand's only collector
+root — before `PCons`'s `FeCons` allocated, so a collection landing on that
+allocation produced a pair with a freed cdr, which the writer reached as
+`FeTFree` and aborted on.  `675bcec`'s claim that an intermediate result is
+"delivered straight into the frame below's `callee` with no allocation in
+between" was true of the delivery path and wrong about this one, which clears
+the field first.  The per-level GC-stack pushes it removed had been masking
+the hazard.  Fixed in `f1c0dde` with the rule stated where it was broken: a
+frame field stays live until the last operation that might allocate has
+finished with it.
+
+Two things about that finding are worth carrying forward.  It was reachable
+only through the fuzz lane — `make check`, ci-03, ci-04 and ci-05 were all
+green on the broken tree, because the trigger needs the fuzz harness's 64 KiB
+arena to collect often enough to land on that exact allocation.  **A green
+`make check` and three sanitizer lanes are not evidence that a GC-rooting
+change is safe.**  And no deterministic `test_api.c` case could pin it: the
+trigger depends on accumulated arena state across many expressions, and a
+sweep of arena sizes and allocation phases would not reproduce it in
+isolation.  The durable guard is therefore the input itself, in a new tracked
+`fe/fuzz/seeds/` directory replayed by `make fuzz-*-smoke`, because
+`fuzz/corpus/` is gitignored and any guard living there dies at the next
+clean checkout.
+
+*Measured, and the number this set should watch.*  kg's arena holds
+`frame_capacity` **1100** frames; the canonical chain costs ~3.02 frames per
+level, so usable ordinary recursion is about **365 levels** — up from the 333
+the deleted logical counter allowed, not down.  But `test_perf.c`'s `(dc 300)`
+fixture peaks at **904 of 1100 frames, 82% of capacity**.  Frames per level
+now converts directly and solely into user-visible recursion depth, with no
+second bound masking it, so any future change that retains one more frame per
+level is a proportional cut in every host's recursion depth *and* would put
+that fixture over the wall.  03E already hit exactly this once.  It is
+recorded in `fe/doc/implementation.md` at the `if` single-else-form special
+case that exists to prevent it.
+
+`bench.py` could not take the rename mechanically, and that is a finding
+about the frame machine rather than about the benchmark.  Its nontrivial
+cases asserted `lisp_peak_eval_depth > 2` to prove the key script really
+reached the evaluator; frame depth does not scale with iteration count,
+because a `while` body does not grow frame nesting per pass — that flatness
+*is* the frame machine's property.  `lisp-arithmetic-loop` and
+`lisp-macro-heavy` read the same 5 and 6 whether the loop ran 20000 times or
+broke after 3, which is precisely the silent no-op the assertion exists to
+catch.  Those cases moved to `lisp_gc_count` and `lisp_arena_peak_live`.
+
+Complexity: fe scc **391/420** (03E closed at 388), pmccabe **601/630** across
+230 symbols (03E closed at 600/231); the API split cost +3 and +1, and only
+`AllocateFrame` and `RunEvaluation` rose.  kg unmoved at **5444/5500**.
+
+Gates: fe's full nine-stage `.ci/run-ci-steps.sh` green from a clean tree and
+a wiped fuzz corpus (ci-04 needs `ulimit -s unlimited` for the pre-existing
+`TestRootsAndCalls` fixture — verified pre-existing by running the same lane
+on the stashed baseline).  kg `make check` **32/406**, `make WITH_LISP=0 clean
+all check` **337 pass + 69 skip**, and `.ci/run-ci-steps.sh --parallel`.  No
+language or editor behaviour changed; every script, backtrace and compat
+golden is byte-identical.
+
+**Phase 3 is closed.**  Against the price table's `+42 measured split tax +
+60–100 substance ≈ +100 to +140 scc` row: fe scc went 214 → 391, **+177**, and
+pmccabe — the unit 03A established as authoritative for the core — went 500 →
+601, **+101**, inside the estimate.  The scc overshoot is the blind spot being
+paid off that the row itself predicted: the evaluator sat below `fe.c:1010`,
+where scc's parser desyncs, so extracting it un-blinded complexity that was
+always there.  Both units are now recorded; pmccabe is the one that means
+something.
+
+What the plan got wrong, collected: the frame size (80 → 96 bytes, 03D); the
+arena partition (20% → 8% → 10%, with the 8% step breaking a kg fixture); the
+frames-per-level assumption (3, briefly 4, 03E); the `GcStackSize` wall, which
+no document anticipated at all until 03E hit it; and `675bcec`'s reasoning
+about when a result is rooted.  Every one of them was a bound asserted rather
+than measured.  The set's own lesson, earned five times: **a bound you did not
+derive is a bound that moves.**
+
+Phase 4 (Lisp-2 namespaces) may start; its price row assumes the frame
+machine exists, and it now does.

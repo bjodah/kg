@@ -341,70 +341,61 @@ machine exists.
 
 ## Status
 
-**In progress — the blocker is cleared, the slice's own content is not
-started.**
+**Complete, 2026-08-05.**  fe `675bcec` (the blocker), `f1c0dde` (a
+use-after-free found on the way) and `60e4c9e` (this document's content) on
+`analyzers-etc`; kg pin plus every kg adaptation in one commit, `50439c7`,
+per Rule 10.
 
-**Landed, 2026-08-05.**  fe `675bcec`, kg pin `e465d21`.  One thing only:
-the GC stack no longer grows with Lisp nesting.
+The full record — what landed, what the plan got wrong, the measured
+headroom, and Phase 3's close against its price row — is in the set
+README's "Status — Phase 3".  Three things belong here specifically.
 
-03E handed this slice a blocker — the literal `(deep 100000)` this document
-turns into a permanent gate did not run, and the wall was neither the frame
-stack nor the arena but `GcStackSize` (4096), a fixed `FeContext` array no
-arena size can grow.  03E measured the chain dying at 1021 levels and named
-two candidate resolutions.  The second one was right, and cheaper than
-either party expected: **the per-level retention was pure redundancy.**
-Every completed frame did `FeRestoreGC(checkpoint); FePushGC(result)`, but
-an intermediate result is delivered straight into the frame below's
-`callee` with no allocation in between, and every frame field is already an
-exhaustive mark-phase root.  Only the run's own result needs a push, once,
-at the barrier.  Enlarging the array — 03E's other candidate — was never
-viable and did not have to be tried: ~400 000 slots at 8 bytes is ~3.2 MB
-added to `FeMinimumArenaSize()`, larger than kg's whole 1 MiB arena, the
-same arithmetic that ruled out a fixed frame array in 03A's Decision §4.1.
+**The two bounds shipped as specified**, with one deliberate deviation this
+document invited: it asked 03F to "derive the relationship rather than leave
+two independent numbers that happen to be close", and the answer was to
+delete the second number.  `DefaultEvaluationDepth` and the transitional
+logical counter are gone; the physical frame wall is the only bound on Lisp
+nesting, so the ~10% margin cannot recur.  `DefaultNativeReentry` is **32**,
+derived as this document required: deepest corpus nesting **3**
+(`with-current-buffer` wrapping `save-excursion` under a hook or process
+callback), 10x margin, ~1 KiB of C stack per level measured under ci-05's
+flags.
 
-Measured after: `(deep 100000)` runs, and `peak_gc_stack_depth` is **14 at
-every depth measured — 1000, 10000 and 100000** — where it was `2N + 9`
-before.  `TestGcStackConstantInNesting` pins it as a *constant* rather than
-a threshold, so a regression surfaces however small its per-level cost is;
-it was proved to fail (209 vs 2009) on a reintroduced per-level push and to
-pass again on revert.  Behaviour-neutral: every script and backtrace golden
-byte-identical, fe's ci-03 (gcc `-fanalyzer` + valgrind), ci-04
-(ASan/UBSan) and ci-05 (MSan) green — the three lanes that would notice a
-frame holding a collected object — and kg green at 32 native / 406 PTY with
-no kg source change.  Complexity unmoved: fe scc **388/420**, pmccabe
-**600/231 symbols of 630**.
+**Native re-entry is counted correctly for the first time.**  03D's counter
+incremented on every native activation.  This document's definition — "calling
+a native from Lisp is not by itself re-entry; only that native synchronously
+entering evaluation is" — is now implemented structurally rather than by
+convention: `RunEvaluation` increments when its own frame stack was already
+non-empty at entry, the one condition that can hold only if a native below on
+the C stack started this run.  Top-level host calls see an empty stack;
+cleanup drains go through `RunEvaluationBody` and are excluded.  No second
+counter.
 
-**What this cost on the way, recorded because the next person will hit it.**
-An earlier attempt at the same fix also wrapped the `FeCons` in
-`ResumeArguments` in a save/restore pair.  That one is **unsafe** — it
-breaks `scripts/fib.fe` and `scripts/life.fe` with `expected pair, got
-free` — *and* buys nothing, since the argument accumulator was never the
-per-level cost.  Bisected hunk by hunk; the safe set is exactly the two
-frame-completion helpers plus the one barrier push.  Do not reintroduce it.
+**The permanent flatness gate is stronger than this document asked for.**  It
+specified 10/1000/100000 "within the numeric tolerance already measured".  The
+measured delta is **0 bytes** at all three depths, with `peak_frame_depth`
+300004 at N=100000.  `TestFullDeepFlatness` was folded into it rather than
+kept: its N=340 and its entire comment block existed only because of the
+`GcStackSize` ceiling that `675bcec` removed.
 
-### Still open — all of this document's actual content
+### Carried forward
 
-Nothing in "The two bounds", "The API break", "kg's ripple" or "Documents
-rewritten in the same commit" has been started.  Specifically: `max_frames`
-/`max_native_reentry` and their distinct errors; the `FeArenaStats` renames
-and new fields; `FE_API_VERSION` 2 and `FeVersion` "3.0"; the native
-re-entry default derived from kg's corpus; `test_recursion_depth`'s
-measured rework; kg's `lisp.h`/`lisp_core.c`/`perf.*`/`test_perf.c`/
-`bench.py`/docs ripple; fe's `c-api.md`/`implementation.md`/
-`unwind-design.md`; the permanent flatness gate at 10/1000/100000; and the
-full runners in both trees.
+- **`(dc 300)` peaks at 904 of kg's 1100 frames — 82% of capacity.**  Usable
+  ordinary recursion is ~365 levels (up from 333).  With the logical counter
+  gone, frames per level converts directly and solely into user-visible
+  recursion depth: one more retained frame per level is a proportional cut
+  *and* would put that fixture over the wall.  03E hit exactly this once.
+- **A green `make check` plus ci-03/04/05 is not evidence that a GC-rooting
+  change is safe.**  All four were green on the tree carrying `675bcec`'s
+  use-after-free; only the fuzz lane's 64 KiB arena collects often enough to
+  reach it.  Run ci-06 (fe) / ci-09 (kg) before believing a rooting change.
+- **`fe/fuzz/seeds/` is new and is the durable half of the fuzz guard.**
+  `fuzz/corpus/` is gitignored, so anything it discovers dies at the next
+  clean checkout.  A fuzz artifact that turns out to be a genuine bug belongs
+  in `seeds/`, named after the defect.
 
-Two things this document should absorb when that work starts:
+### Not done here, deliberately
 
-- **`TestFullDeepFlatness` is now under-ambitious.**  It runs at N = 340
-  because 1021 was the ceiling.  The ceiling is gone, so the permanent gate
-  this document specifies can and should assert the real 10/1000/100000
-  triple.
-- **Make the two-limit relationship structural.**  "The logical limit fires
-  before the physical frame wall" still holds only by a ~10% margin (1100
-  frames against a 1000 default) and only because the canonical chain costs
-  ≈3 frames per level, roughly matching its logical depth count.  The 8%
-  split already broke this once mid-Phase-3.  This slice deletes the
-  transitional logical counter and publishes the real bounds, so it is the
-  place to derive the relationship rather than leave two independent
-  numbers that happen to be close.
+The seven sub-plan documents are **not** deleted: this document says that
+waits on the reviewer accepting the completed workstream.  The set README's
+Status and the commits are the record when they go.

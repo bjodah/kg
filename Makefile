@@ -299,18 +299,22 @@ SCC_COMPLEXITY_PATHS ?= src
 # prompt seam in 07D/07E. The idle-tree measurement is 5489, so the raise is
 # 171 points above the floor against the audited +110..170 scc price; the
 # per-file and pmccabe ratchets remain unchanged and are reported per slice.
-# Raised 5660 -> 5760 by the Phase 7 review-fix cycle (2026-08-06). 07A's
-# 5660 funded the interactive work as planned; it did not fund repairing it.
-# The fixes are structural rather than additive -- a per-activation command
-# scope that survives an Fe unwind, a real wrong-type-argument raise instead
-# of prose, a non-allocating numeric classifier, an uncapped raw universal
-# list, and the bufmgr regressions -- and each of them replaces a wrong
-# cheap thing with a right dearer one. Helpers were split before this was
-# raised (lisp_command_activate, universal_raw_value, cmd_scope_save/restore,
-# the classifier, path_handle_erase's arms); the per-file cap 520 and the
-# pmccabe ceilings are unchanged. The measured actual is recorded in the
-# final commit of the cycle.
-SCC_COMPLEXITY_MAX ?= 5760
+# Raised 5660 -> 5730 by the Phase 7 review-fix cycle (2026-08-06). 07A's
+# 5660 funded the interactive work as planned; it did not fund repairing it,
+# and the phase had already spent 5489 -> 5656 of it (07D +89, 07E +78
+# against its own +30..50 price). The fixes are structural rather than
+# additive -- a per-activation command scope that survives an Fe unwind, a
+# real wrong-type-argument raise instead of prose, a non-allocating numeric
+# classifier, an uncapped raw universal list, one buffer-name policy enum
+# where three booleans had merged, and a truthful commandp -- and each
+# replaces a wrong cheap thing with a right dearer one. Helpers were split
+# before this was raised (lisp_command_activate, universal_raw_value,
+# cmd_scope_save/restore, scan_digits/scan_exponent, buf_name_take,
+# expand_dir_or_empty, dired_prefill_expanded). Measured actual at the end
+# of the cycle: 5714, so this leaves 16 points of rounding room, not room
+# for unrelated growth. The per-file cap 520 and the pmccabe ceilings are
+# unchanged.
+SCC_COMPLEXITY_MAX ?= 5730
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

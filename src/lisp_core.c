@@ -1,6 +1,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* def.h for ascii_is_space/ascii_is_digit, which the numeric classifier
+ * at the foot of this file uses and which is compiled in both build
+ * configurations; the KG_USE_LISP half below includes it again through
+ * its own guard. */
+#include "def.h"
 #include "lisp.h"
 #include "perf.h"
 

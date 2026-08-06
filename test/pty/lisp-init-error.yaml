@@ -2,12 +2,26 @@ name: lisp-init-error
 filename: lisp-init-error.txt
 requires_feature: lisp
 backend: tmux
+# The init file is deliberately multi-line and comment-prefixed: a
+# one-line init cannot tell a real line counter from a hardcoded 1, and
+# fe's top-form line latch used to report the line of the comment that
+# preceded a form rather than the form's own.  The failing form is line
+# 6 of the file.
 config_files:
-  .config/kg/init.el: "(car 1)"
+  .config/kg/init.el: |
+    ;;; init.el --- a broken init file.
+    ;;
+    ;; Two comment lines, then two good forms, then the error.
+    (setq init-error-first 1)
+    (setq init-error-second 2)
+    (car 1)
+    (setq init-error-unreached 3)
 initial: ""
 keys:
   - ok
 expected_saved: ok
 expected_screen_contains:
   - "Init file error"
+  - "init.el:6"
+expected_screen_not_contains:
   - "init.el:1"

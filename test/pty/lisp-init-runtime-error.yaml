@@ -1,0 +1,27 @@
+name: lisp-init-runtime-error
+filename: lisp-init-runtime-error.txt
+requires_feature: lisp
+backend: tmux
+# 08E's second loader-diagnostic contract, which had no PTY case: an
+# error raised at *run* time -- inside a function defined earlier in the
+# file, called from a later top-level form -- carries the position of the
+# top-level form that was running, not the position of the definition.
+# The call is line 8; the defun that raises spans lines 5 to 6.
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- an init file that fails at run time.
+    ;;
+    ;; The definition reads and evaluates cleanly; the call does not.
+    (setq runtime-error-first 1)
+    (defun runtime-error-boom ()
+      (car 1))
+    (setq runtime-error-second 2)
+    (runtime-error-boom)
+    (setq runtime-error-unreached 3)
+initial: ""
+keys:
+  - ok
+expected_saved: ok
+expected_screen_contains:
+  - "Init file error"
+  - "init.el:8"

@@ -3811,11 +3811,25 @@ static void test_phase8_library(void)
 		      " \"doc\" (declare (something ignored)) x)"
 		      " (phase8-declared-macro 8))",
 	    "8"));
+	/* What the Phase 8 prelude batch costs the fixed arena.  The
+	 * assertion this replaces -- after.peak_live >= before.peak_live --
+	 * was a tautology: peak_live_objects is a high-water mark, so it can
+	 * never fall.  The claim worth making is margin, the same one
+	 * test_perf.c's prelude case makes: after the whole prelude and
+	 * every form above it, more than half the arena is still free and
+	 * the high-water mark is a small fraction of it.  Measured on this
+	 * build via kg_lisp_arena_stats(): 56223 object slots, peak_live
+	 * 5171 after the prelude alone, 6696 after the 08A init corpus on
+	 * top of it, 7224 with lisp/auto-fill.el as well -- 12.8% of the
+	 * arena for everything kg ships. */
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
-	CHECK(after.peak_live_objects >= before.peak_live_objects);
+	CHECK(after.free_slots * 2 > after.total_slots);
+	CHECK(after.peak_live_objects * 4 < after.total_slots);
+	CHECK(after.free_slots <= before.free_slots);
+	CHECK(after.allocation_failures == 0);
 	kg_lisp_shutdown();
 }
 

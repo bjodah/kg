@@ -2167,8 +2167,8 @@
     "phase8-diagnostic-load-location",
     "phase8-diagnostic-runtime-location"
    ],
-   "kg_test": "test/pty/lisp-init-error.yaml",
-   "rationale": "08E: loader errors surface Fe's source label and 1-based top-level line in the init status message; missing files name the resolved path. Sub-form precision remains deferred.",
+   "kg_test": "test/pty/lisp-init-error.yaml, test/pty/lisp-init-runtime-error.yaml, test/test_lisp.c:test_load_package",
+   "rationale": "08E: loader errors surface Fe's source label and 1-based top-level line in the init status message, for a read-time error and for one raised at run time inside a function called from a later top-level form; missing files name the resolved path, with or without an explicit .el suffix. Sub-form precision remains deferred.",
    "source_name": null
   },
   {

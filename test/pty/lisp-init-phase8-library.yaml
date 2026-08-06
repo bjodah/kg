@@ -1,42 +1,94 @@
 name: lisp-init-phase8-library
 filename: phase8-init.txt
 requires_feature: lisp
+# Sub-plan 08A's representative init.el, reconstructed construct for
+# construct from its own description: setq, setq-default, defvar,
+# defconst, two interactive defuns, global-set-key, add-hook, dolist, an
+# alist lookup, mapc, mapconcat, custom-set-variables, a ?x literal, #x
+# radix, and a require of a library planted beside it.  08A measured 11
+# of 26 top-level forms failing on kg at the Phase 7 close; every one of
+# them is here, and the second command reports every value the file
+# computed so the case observes them rather than only observing that the
+# file loaded.
 config_files:
+  .config/kg/lisp/phase8-pkg.el: |
+    (setq phase8-pkg-value "pkg")
+    (provide 'phase8-pkg)
   .config/kg/init.el: |
+    ;;; init.el --- a representative kg init file.
+    ;;
+    ;; The leading comment block is deliberate: fe's top-form line latch
+    ;; used to report a comment's line for the form that followed it.
+    (setq phase8-name "boot")
     (setq-default phase8-default 1)
     (setq-local phase8-local 2)
     (defvar phase8-declared "declared" "A declaration.")
     (defconst phase8-constant 3 "A constant.")
-    (defun phase8-command ()
-      "A command from the 08D init file."
-      (declare (indent 0))
-      (interactive)
-      (insert "boot"))
-    (global-set-key (kbd "C-c k") 'phase8-command)
-    (setq phase8-list '(one two))
-    (add-to-list 'phase8-list 'zero)
-    (setq phase8-copy (nreverse (list 1 2 3)))
-    (setq phase8-joined (mapconcat (lambda (x) x) '("a" "b") ":"))
-    (setq phase8-assoc (assq 'a '((a . 1))))
-    (setq phase8-doc (documentation 'phase8-command))
-    (setq phase8-answer (prog2 0 (max 4 2) 9))
-    (setq phase8-answer (min phase8-answer 4))
-    (setq phase8-id (identity phase8-answer))
-    (setq phase8-filtered (delete 'x (list 'x 'y)))
-    (setq phase8-removed (delq 'y (list 'y 'z)))
-    (setq phase8-reversed (nreverse (list "a" "b")))
-    (setq phase8-lone (cond (5)))
-    (setq phase8-dotted `(head . ,phase8-answer))
-    (setq phase8-nested `(outer `(inner ,phase8-answer)))
-    (setq phase8-key (kbd "C-c z"))
+    (setq phase8-sum 0)
+    (setq phase8-changes 0)
+    (dolist (n '(1 2 3)) (setq phase8-sum (+ phase8-sum n)))
+    (setq phase8-alist '((a . 1) (b . 2)))
+    (setq phase8-assoc (cdr (assq 'b phase8-alist)))
+    (setq phase8-seen nil)
+    (mapc (lambda (x) (setq phase8-seen (cons x phase8-seen))) '("x" "y"))
+    (setq phase8-joined (mapconcat #'identity (reverse phase8-seen) ":"))
+    (setq phase8-char ?x)
+    (setq phase8-radix #x10)
+    (require 'phase8-pkg)
     (defcustom phase8-fill-column 72
       "Column beyond which to break lines."
       :type 'integer :group 'editing)
     (custom-set-variables '(phase8-fill-column 80))
-    (setq phase8-format (format "at %-8s col %d %c" "boot" 3 187))
-    (setq phase8-result (list phase8-default phase8-local phase8-answer))
+    (setq phase8-list '(one two))
+    (add-to-list 'phase8-list 'zero)
+    (setq phase8-copy (nreverse (list 1 2 3)))
+    (setq phase8-dotted `(head . ,phase8-radix))
+    (setq phase8-nested `(outer `(inner ,phase8-radix)))
+    (setq phase8-lone (cond (5)))
+    (setq phase8-key (kbd "C-c z"))
+    (setq phase8-format (format "at %-8s col %d %c" phase8-name 3 187))
+    (defun phase8-command ()
+      "A command from the 08D init file."
+      (declare (indent 0))
+      (interactive)
+      (insert phase8-name))
+    (defun phase8-report ()
+      "Insert every value the init file computed."
+      (interactive)
+      (insert (mapconcat #'identity
+        (list phase8-declared
+              (number-to-string phase8-default)
+              (number-to-string phase8-local)
+              (number-to-string phase8-constant)
+              (number-to-string phase8-sum)
+              (number-to-string phase8-assoc)
+              phase8-joined
+              (number-to-string phase8-char)
+              (number-to-string phase8-radix)
+              phase8-pkg-value
+              (number-to-string phase8-fill-column)
+              (format "%S" phase8-list)
+              (format "%S" phase8-copy)
+              (format "%S" phase8-dotted)
+              (format "%S" phase8-nested)
+              (number-to-string phase8-lone)
+              phase8-key
+              phase8-format
+              (documentation 'phase8-command)
+              (number-to-string phase8-changes))
+        "|")))
+    (global-set-key (kbd "C-c k") 'phase8-command)
+    (global-set-key (kbd "C-c r") 'phase8-report)
+    (add-hook 'after-change-functions
+      (lambda (buf beg end oldlen)
+        (setq phase8-changes (+ phase8-changes 1))))
 initial: ""
 keys:
   - C-c
   - k
-expected_saved: boot
+  - RET
+  - C-c
+  - r
+expected_saved: |-
+  boot
+  declared|1|2|3|6|2|x:y|120|16|pkg|80|(zero one two)|(3 2 1)|(head . 16)|(outer (quasiquote (inner (unquote phase8-radix))))|5|C-c z|at boot     col 3 »|A command from the 08D init file.|2

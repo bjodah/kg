@@ -621,6 +621,69 @@ static void test_define_and_run_command(void)
  * defalias-then-define-command, reading the cell back with
  * (symbol-function 'name) for the second step, so a define-command that
  * could not find a slot had already replaced the function. */
+/* 07E §2's numeric classifier, driven directly: it is pure, so this is
+ * the seam a native test can reach.  The `n`/`N` reader used to hand the
+ * typed text straight to strtoimax and then to strtod and read the answer
+ * off `end` and `errno`, which accepted far too much -- every NONE case
+ * below was a silently accepted number before, and the empty one was 0
+ * (with the keystrokes after it falling into the buffer). */
+static void test_number_token_classifier(void)
+{
+	/* Integers, including fe's `5.` spelling. */
+	CHECK(kg_number_token_classify("0") == KG_NUMBER_TOKEN_INTEGER);
+	CHECK(kg_number_token_classify("42") == KG_NUMBER_TOKEN_INTEGER);
+	CHECK(kg_number_token_classify("-42") == KG_NUMBER_TOKEN_INTEGER);
+	CHECK(kg_number_token_classify("+42") == KG_NUMBER_TOKEN_INTEGER);
+	CHECK(kg_number_token_classify("5.") == KG_NUMBER_TOKEN_INTEGER);
+	/* ... and only trailing/leading ASCII whitespace beside them. */
+	CHECK(kg_number_token_classify("  7  ") == KG_NUMBER_TOKEN_INTEGER);
+	CHECK(kg_number_token_classify("7\t") == KG_NUMBER_TOKEN_INTEGER);
+
+	/* Floats: fraction and exponent forms. */
+	CHECK(kg_number_token_classify("5.0") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify(".5") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("-.5") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("1e3") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("1E3") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("1e-3") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("1.5e+10") == KG_NUMBER_TOKEN_FLOAT);
+	CHECK(kg_number_token_classify("1.e3") == KG_NUMBER_TOKEN_FLOAT);
+
+	/* Nothing at all, which used to be the integer 0. */
+	CHECK(kg_number_token_classify("") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("   ") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("\t\n") == KG_NUMBER_TOKEN_NONE);
+
+	/* Not numbers, all of which the two converters between them
+	 * accepted: strtod reads inf/nan and hex, and strtoimax stopped at
+	 * the `x` and reported a clean 0. */
+	CHECK(kg_number_token_classify("inf") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("-inf") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("nan") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("NaN") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("infinity") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("0x10") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("1e+INF") == KG_NUMBER_TOKEN_NONE);
+
+	/* Trailing and interior junk, and a second token. */
+	CHECK(kg_number_token_classify("12abc") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("1.2.3") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("1 2") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("1e") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("1e+") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("+") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify("-") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify(".") == KG_NUMBER_TOKEN_NONE);
+	CHECK(kg_number_token_classify(".e3") == KG_NUMBER_TOKEN_NONE);
+	/* No Lisp is evaluated to decide: a form is not a number. */
+	CHECK(kg_number_token_classify("(+ 1 2)") == KG_NUMBER_TOKEN_NONE);
+
+	/* Overflow is still an integer *token*; the reader turns it into a
+	 * double, as an integer literal past int64 does in fe's reader. */
+	CHECK(kg_number_token_classify("99999999999999999999")
+	    == KG_NUMBER_TOKEN_INTEGER);
+}
+
 static void test_defun_redefinition_is_atomic(void)
 {
 	char name[32];
@@ -3638,6 +3701,9 @@ static void test_keymap_apis(void)
 
 int main(void)
 {
+	/* Pure and Fe-free, so it is the same function and the same answers
+	 * in a WITH_LISP=0 build: run it before the early return. */
+	RUN(test_number_token_classifier);
 	if (!kg_lisp_active()) {
 		RUN(test_disabled);
 		return test_summary();

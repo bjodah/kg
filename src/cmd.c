@@ -731,7 +731,15 @@ static void cmd_dired(int fd)
 	}
 	if (!path[0]) {
 		editor_prompt_prefill_dir(path, sizeof(path));
-		editor_path_expand_tilde(path, sizeof(path));
+		/* If $HOME plus the prefill does not fit, `path` is still a
+		 * literal "~..." that names nothing; fall through to "." with
+		 * the reason said out loud rather than listing whatever a
+		 * directory called "~" happens to hold.  The return value
+		 * used to be discarded here. */
+		if (editor_path_expand_tilde(path, sizeof(path)) != 0) {
+			editor_set_status_message("Path too long");
+			path[0] = '\0';
+		}
 	}
 	if (!path[0]) {
 		snprintf(path, sizeof(path), ".");

@@ -714,35 +714,31 @@ static FeObject *read_interactive_number(
 	char text[256];
 
 	for (;;) {
-		text[0] = '\0';
-		enum minibuf_result result
-		    = editor_read_line(fd, prompt, text, sizeof(text));
-		check_interactive_prompt(context, result, "n");
-		{
-			char *end;
-			errno = 0;
-			intmax_t integer = strtoimax(text, &end, 10);
+		enum minibuf_result result;
+		enum kg_number_token kind;
 
-			if (*end == '.'
-			    && (end[1] == '\0'
-				|| isspace((unsigned char)end[1]))) {
-				end++;
-			}
-			while (isspace((unsigned char)*end)) {
-				end++;
-			}
-			if (*end == '\0' && errno != ERANGE) {
-				return FeMakeInteger(context, integer);
-			}
+		text[0] = '\0';
+		result = editor_read_line(fd, prompt, text, sizeof(text));
+		check_interactive_prompt(context, result, "n");
+		kind = kg_number_token_classify(text);
+		if (kind == KG_NUMBER_TOKEN_INTEGER) {
+			intmax_t integer;
+
 			errno = 0;
-			FeDouble value = strtod(text, &end);
-			while (isspace((unsigned char)*end)) {
-				end++;
+			integer = strtoimax(text, nullptr, 10);
+			/* Past int64 it becomes a double, as an integer
+			 * literal does in fe's own reader; kg has no
+			 * bignums, which is already a recorded divergence. */
+			if (errno != ERANGE) {
+				return FeMakeInteger(
+				    context, (int64_t)integer);
 			}
-			if (*end == '\0' && errno != ERANGE) {
-				return FeMakeDouble(context, value);
-			}
+			return FeMakeDouble(context, strtod(text, nullptr));
 		}
+		if (kind == KG_NUMBER_TOKEN_FLOAT) {
+			return FeMakeDouble(context, strtod(text, nullptr));
+		}
+		editor_set_status_message("Please enter a number.");
 	}
 }
 
@@ -780,8 +776,9 @@ static FeObject *read_interactive_buffer(
     FeContext *context, int fd, char code, const char *prompt)
 {
 	char text[PATH_MAX];
-	enum minibuf_result result = buf_read_name(
-	    fd, prompt, text, sizeof(text), code == 'B', code == 'b');
+	enum minibuf_result result
+	    = buf_read_name(fd, prompt, text, sizeof(text),
+		code == 'B' ? BUF_NAME_ANY : BUF_NAME_EXISTING, nullptr);
 
 	check_interactive_prompt(context, result, "buffer");
 	return FeMakeString(context, text);
@@ -1369,3 +1366,64 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 void kg_lisp_perf_snapshot(void) { }
 
 #endif /* KG_USE_LISP */
+
+/* Outside both halves: the numeric classifier is pure C with no Fe in it,
+ * so it is compiled once and is the same function in a WITH_LISP=0 build.
+ *
+ * The grammar is deliberately checked *before* strtoimax/strtod rather
+ * than after, because those two accept far more than a number prompt
+ * should and report it only through a combination of `end` and `errno`
+ * that is easy to read wrong -- which is what happened: an empty answer
+ * became 0 (and the keystrokes after it fell into the buffer), whitespace
+ * alone became 0, and `inf`, `nan` and `0x10` were all accepted, the last
+ * as 16.  ascii_is_* rather than <ctype.h> because this grammar is ASCII
+ * by definition and kg never calls setlocale(). */
+enum kg_number_token kg_number_token_classify(const char *text)
+{
+	const char *p = text;
+	bool integral;
+	bool fraction = false;
+
+	while (ascii_is_space(*p)) {
+		p++;
+	}
+	if (*p == '+' || *p == '-') {
+		p++;
+	}
+	integral = ascii_is_digit(*p);
+	while (ascii_is_digit(*p)) {
+		p++;
+	}
+	if (*p == '.') {
+		p++;
+		fraction = ascii_is_digit(*p);
+		while (ascii_is_digit(*p)) {
+			p++;
+		}
+	}
+	/* `+`, `-`, `.`, `e5` and `.e3` have no digits anywhere. */
+	if (!integral && !fraction) {
+		return KG_NUMBER_TOKEN_NONE;
+	}
+	if (*p == 'e' || *p == 'E') {
+		p++;
+		if (*p == '+' || *p == '-') {
+			p++;
+		}
+		if (!ascii_is_digit(*p)) {
+			return KG_NUMBER_TOKEN_NONE; /* `1e`, `1e+` */
+		}
+		while (ascii_is_digit(*p)) {
+			p++;
+		}
+		fraction = true; /* an exponent makes it a float, as in fe */
+	}
+	while (ascii_is_space(*p)) {
+		p++;
+	}
+	if (*p != '\0') {
+		return KG_NUMBER_TOKEN_NONE; /* `0x10`, `5.x`, `1 2`, `1.2.3` */
+	}
+	/* `5` and `5.` are integers; `5.0`, `.5` and `1e3` are floats. */
+	return fraction ? KG_NUMBER_TOKEN_FLOAT : KG_NUMBER_TOKEN_INTEGER;
+}

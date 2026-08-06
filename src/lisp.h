@@ -84,4 +84,25 @@ struct kg_lisp_arena_stats {
  * build's $KG_PERF_OUT JSON reports the arena's state at exit. */
 void kg_lisp_perf_snapshot(void);
 
+/* What one line of typed text is, as a number.  The classifier behind the
+ * interactive `n` and `N` codes (07E §2), declared here rather than kept
+ * private to the adapter because it is pure, allocates nothing, touches
+ * no Fe state, and is therefore the one part of that seam a native test
+ * can drive directly.  Defined in both build configurations. */
+enum kg_number_token {
+	KG_NUMBER_TOKEN_NONE, /* not a number at all: re-prompt */
+	KG_NUMBER_TOKEN_INTEGER,
+	KG_NUMBER_TOKEN_FLOAT,
+};
+
+/* Classify `text` as a whole.  It is a number only if the entire string is
+ * one decimal token, optionally surrounded by ASCII whitespace: no
+ * trailing junk, no second token, and no Lisp is evaluated to find out.
+ * The grammar is fe.c's ClassifyNumber -- optional sign, digits, optional
+ * fraction, optional exponent, with `5.` an integer and `.5` a float --
+ * minus fe's `1e+INF`/`1e+NaN` spellings, which a prompt asking for a
+ * number has no business accepting.  `0x10`, `inf`, `nan`, `1e`, the empty
+ * string and whitespace alone are all KG_NUMBER_TOKEN_NONE. */
+[[nodiscard]] enum kg_number_token kg_number_token_classify(const char *text);
+
 #endif /* KG_LISP_H */

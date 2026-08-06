@@ -1,0 +1,29 @@
+# Editing in the middle of a typed path leaves the cursor where the edit
+# happened.  path_handle_erase() hoisted `*cursor = *len` out of its two
+# at-end-of-line arms, so every mid-path backspace snapped the cursor to
+# end of line and the next character typed landed there instead.
+#
+# C-x C-f types "mid-erase.txt", walks back over "txt", erases the '.',
+# and types '-' in its place.  The buffer kg opens is therefore
+# "mid-erase-txt", which its own status line names; with the cursor
+# snapping to end of line it was "mid-erasetxt-".  start.txt is left
+# alone, which is what the saved comparison checks.
+name: path-prompt-midline-erase
+filename: start.txt
+backend: tmux
+initial: "hello\n"
+keys:
+  - C-x
+  - C-f
+  - "mid-erase.txt"
+  - C-b
+  - C-b
+  - C-b
+  - C-?
+  - "-"
+  - RET
+expected_screen_contains:
+  - "mid-erase-txt"
+expected_screen_not_contains:
+  - "mid-erasetxt"
+expected_saved: "hello\n"

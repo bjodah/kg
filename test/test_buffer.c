@@ -2,6 +2,7 @@
 
 #include "../src/def.h"
 #include "../src/edit.h"
+#include "../src/event.h"
 #include "../src/yank.h"
 #include "test.h"
 #include <dirent.h>
@@ -3042,6 +3043,214 @@ static void test_minibuf_delete_backward_drains_overflow(void)
 	CHECK(buf[0] == 'a');
 }
 
+extern const struct key_event *test_key_script;
+extern int test_key_script_len;
+extern int test_key_script_pos;
+
+static void play_keys(const struct key_event *keys, int n)
+{
+	test_key_script = keys;
+	test_key_script_len = n;
+	test_key_script_pos = 0;
+}
+
+#define PLAY(keys) play_keys((keys), (int)(sizeof(keys) / sizeof((keys)[0])))
+
+static struct key_event kev(int base, int mods)
+{
+	return (struct key_event) { base, (uint8_t)mods };
+}
+
+/* editor_read_line_path()'s overflow counter must be retired when the
+ * typed text shrinks back under the cap, on the at-end-of-line erase arms
+ * as well as the mid-line one.  Nothing retired it there, so one overlong
+ * answer refused every later answer that fitted -- the inverse of the bug
+ * the enum minibuf_result change was made to fix.
+ *
+ * The buffer is deliberately tiny, so three characters overflow it. */
+static void test_path_prompt_overflow_is_retired(void)
+{
+	char path[4];
+	struct key_event too_long[] = {
+		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
+		kev(KEY_BASE_RET, 0)
+	};
+	struct key_event corrected[] = {
+		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
+		/* Two backspaces: the first retires the refusal, the second
+		 * deletes a stored character. */
+		kev(KEY_BASE_DEL, 0), kev(KEY_BASE_DEL, 0),
+		kev(KEY_BASE_RET, 0)
+	};
+
+	setup();
+	path[0] = '\0';
+	PLAY(too_long);
+	CHECK(editor_read_line_path(0, "P: ", path, (int)sizeof(path))
+	    == MINIBUF_OVERFLOW);
+	/* A truncated prefix is never delivered as if it were the answer. */
+	CHECK(!kg_event_prompt_active());
+
+	path[0] = '\0';
+	PLAY(corrected);
+	CHECK(editor_read_line_path(0, "P: ", path, (int)sizeof(path))
+	    == MINIBUF_ACCEPTED);
+	CHECK(strcmp(path, "ab") == 0);
+	CHECK(!kg_event_prompt_active());
+
+	play_keys(NULL, 0);
+	teardown();
+}
+
+/* Backspacing in the middle of a typed path must leave the cursor where
+ * the deletion happened.  Hoisting `*cursor = *len` out of the two
+ * at-end-of-line arms of path_handle_erase() snapped it to end of line
+ * after every mid-line erase, so the next character typed landed at the
+ * far end of the path instead of where the user was editing. */
+static void test_path_prompt_midline_erase_keeps_cursor(void)
+{
+	char path[64];
+	struct key_event keys[] = {
+		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
+		/* Back over "cd", erase the 'b', type 'X' in its place. */
+		kev('b', KEY_MOD_CTRL), kev('b', KEY_MOD_CTRL),
+		kev(KEY_BASE_DEL, 0), kev('X', 0),
+		kev(KEY_BASE_RET, 0)
+	};
+
+	setup();
+	path[0] = '\0';
+	PLAY(keys);
+	CHECK(editor_read_line_path(0, "P: ", path, (int)sizeof(path))
+	    == MINIBUF_ACCEPTED);
+	CHECK(strcmp(path, "aXcd") == 0);
+	CHECK(!kg_event_prompt_active());
+	play_keys(NULL, 0);
+	teardown();
+}
+
+/* The buffer-name read is a read: it returns a display name and leaves
+ * buf_current alone, which is what lets the Lisp `b`/`B` codes construct
+ * an argument without switching buffers as a side effect.  The three
+ * modes' accept policies are pinned here too, because C-x b and the two
+ * Lisp codes share one picker and their policies had merged. */
+static void test_buf_read_name_modes(void)
+{
+	char name[128];
+	int picked = -1;
+	int start;
+	struct key_event blank_ret[] = { kev(KEY_BASE_RET, 0) };
+	struct key_event miss_ret[]
+	    = { kev('z', 0), kev('q', 0), kev(KEY_BASE_RET, 0) };
+	struct key_event miss_then_cancel[] = { kev('z', 0), kev('q', 0),
+		kev(KEY_BASE_RET, 0), kev('g', KEY_MOD_CTRL) };
+
+	setup();
+	start = buf_current;
+
+	/* `b`: blank means the current buffer, and nothing is selected. */
+	PLAY(blank_ret);
+	CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
+		  BUF_NAME_EXISTING, &picked)
+	    == MINIBUF_ACCEPTED);
+	CHECK(buf_current == start);
+	CHECK(picked == start);
+	CHECK(!kg_event_prompt_active());
+
+	/* `B`: a typed name matching nothing is accepted verbatim, and
+	 * names no existing buffer. */
+	PLAY(miss_ret);
+	CHECK(buf_read_name(
+		  0, "B: ", name, (int)sizeof(name), BUF_NAME_ANY, &picked)
+	    == MINIBUF_ACCEPTED);
+	CHECK(strcmp(name, "zq") == 0);
+	CHECK(picked == -1);
+	CHECK(buf_current == start);
+
+	/* `b`: the same miss re-prompts instead, so the read only ends when
+	 * the script's C-g arrives. */
+	PLAY(miss_then_cancel);
+	CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
+		  BUF_NAME_EXISTING, &picked)
+	    == MINIBUF_CANCELLED);
+	CHECK(buf_current == start);
+	CHECK(!kg_event_prompt_active());
+
+	/* C-x b: the same miss closes the prompt having chosen nothing.
+	 * Sharing `b`'s re-prompt made C-x b loop forever on RET. */
+	PLAY(miss_ret);
+	CHECK(buf_read_name(
+		  0, "B: ", name, (int)sizeof(name), BUF_NAME_SELECT, &picked)
+	    == MINIBUF_CANCELLED);
+	CHECK(picked == -1);
+	CHECK(buf_current == start);
+	CHECK(!kg_event_prompt_active());
+
+	play_keys(NULL, 0);
+	teardown();
+}
+
+/* The picker's query cap is a refusal, not a truncation, and the refusal
+ * is retired when the query shrinks back under it.  Nothing cleared the
+ * flag before, so one overlong query left C-x b permanently inert: every
+ * later answer, however short, came back MINIBUF_OVERFLOW. */
+static void test_buf_read_name_overflow_is_retired(void)
+{
+	char name[128];
+	struct key_event keys[BUF_NAME_QUERY_MAX + 4];
+	int i;
+
+	setup();
+	for (i = 0; i < BUF_NAME_QUERY_MAX + 2; i++) {
+		keys[i] = kev('a', 0);
+	}
+	keys[BUF_NAME_QUERY_MAX + 2] = kev(KEY_BASE_RET, 0);
+	keys[BUF_NAME_QUERY_MAX + 3] = kev(KEY_BASE_RET, 0);
+
+	play_keys(keys, BUF_NAME_QUERY_MAX + 3);
+	CHECK(buf_read_name(
+		  0, "B: ", name, (int)sizeof(name), BUF_NAME_ANY, NULL)
+	    == MINIBUF_OVERFLOW);
+	CHECK(!kg_event_prompt_active());
+
+	/* Three backspaces retire the three refused keystrokes, and the
+	 * fourth deletes a stored one; the answer then fits. */
+	{
+		struct key_event fixed[BUF_NAME_QUERY_MAX + 8];
+		int n = 0;
+
+		for (i = 0; i < BUF_NAME_QUERY_MAX + 2; i++) {
+			fixed[n++] = kev('a', 0);
+		}
+		for (i = 0; i < 4; i++) {
+			fixed[n++] = kev(KEY_BASE_DEL, 0);
+		}
+		fixed[n++] = kev(KEY_BASE_RET, 0);
+		play_keys(fixed, n);
+		CHECK(buf_read_name(
+			  0, "B: ", name, (int)sizeof(name), BUF_NAME_ANY, NULL)
+		    == MINIBUF_ACCEPTED);
+		CHECK((int)strlen(name) == BUF_NAME_QUERY_MAX - 2);
+	}
+	CHECK(!kg_event_prompt_active());
+
+	play_keys(NULL, 0);
+	teardown();
+}
+
+/* "No other buffers." is structurally this prompt starting and
+ * immediately finishing, so it must still be one balanced
+ * enter/leave pair; the early return had stopped emitting either when
+ * the read itself moved into buf_read_name(). */
+static void test_buf_select_interactive_no_other_buffers(void)
+{
+	setup();
+	CHECK(!kg_event_prompt_active());
+	buf_select_interactive(0);
+	CHECK(!kg_event_prompt_active());
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -3053,6 +3262,11 @@ int main(void)
 	RUN(test_editor_rows_to_string_overflow);
 	RUN(test_kill_ring_append_overflow);
 	RUN(test_minibuf_delete_backward_drains_overflow);
+	RUN(test_path_prompt_overflow_is_retired);
+	RUN(test_path_prompt_midline_erase_keeps_cursor);
+	RUN(test_buf_read_name_modes);
+	RUN(test_buf_read_name_overflow_is_retired);
+	RUN(test_buf_select_interactive_no_other_buffers);
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
 	RUN(test_rows_to_string_trailing_empty_row);

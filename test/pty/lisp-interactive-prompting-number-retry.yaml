@@ -9,6 +9,9 @@ config_files:
     (defun exponent-number (value)
       (interactive "nExponent: ")
       (insert (format "%s" value)))
+    (defun strict-number (value)
+      (interactive "nStrict: ")
+      (insert (format "%s" value)))
 initial: ""
 keys:
   - M-x
@@ -23,4 +26,22 @@ keys:
   - RET
   - "1e2"
   - RET
-expected_saved: "12100.0"
+  # Everything the raw strtoimax/strtod pair used to accept re-prompts
+  # instead: an empty answer (which became the integer 0, and let the
+  # following keystrokes fall into the buffer), whitespace alone, `inf`,
+  # `nan` and `0x10` (which became 16).  Only the final `-3` is taken.
+  - M-x
+  - strict-number
+  - RET
+  - RET
+  - SPC
+  - RET
+  - "inf"
+  - RET
+  - "nan"
+  - RET
+  - "0x10"
+  - RET
+  - "-3"
+  - RET
+expected_saved: "12100.0-3"

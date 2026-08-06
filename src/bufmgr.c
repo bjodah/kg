@@ -1336,17 +1336,31 @@ static void path_handle_erase(int fd, struct key_event c, char *buf,
     int bufsize, int *cursor, int *len, int *overflow, int *sel)
 {
 	if (*cursor < *len) {
+		/* Mid-line: minibuf_edit_key has already moved the cursor
+		 * back over the deleted glyph, and it must stay there.
+		 * Hoisting `*cursor = *len` out of the two at-end arms below
+		 * snapped it to end of line after every mid-path erase, so
+		 * the next typed character landed at the far end. */
 		minibuf_edit_key(fd, c, buf, bufsize, cursor, len, overflow);
+	} else if (*overflow > 0) {
+		/* Retire a refused insertion before deleting anything --
+		 * exactly what minibuf_delete_backward does, and what the
+		 * two arms below did not.  The count means "your answer did
+		 * not fit"; backing up over the characters that did not fit
+		 * has to clear it, or the next answer is refused for the
+		 * previous one's overrun even though it fits. */
+		(*overflow)--;
 	} else if (*len > 0 && buf[*len - 1] == '/') {
 		buf[--*len] = '\0';
 		while (*len > 0 && buf[*len - 1] != '/') {
 			buf[--*len] = '\0';
 		}
+		*cursor = *len;
 	} else if (*len > 0) {
 		*len = utf8_glyph_start_before(buf, *len, *len);
 		buf[*len] = '\0';
+		*cursor = *len;
 	}
-	*cursor = *len;
 	*sel = 0;
 }
 
@@ -1381,10 +1395,21 @@ static enum path_accept_action path_handle_accept(char *buf, int bufsize,
 			return PATH_ACCEPT_DESCEND;
 		}
 	}
+	/* Every overflow exit says so in the echo area, and prompt_done()
+	 * keeps that message (it clears only on cancellation).  The
+	 * interactive callers then act on the non-ACCEPTED result by doing
+	 * nothing, so C-x C-f dismisses with a visible reason rather than
+	 * either opening a truncated path -- which is what losing the
+	 * counter used to do -- or raising at the user. */
 	if (editor_path_expand_tilde(buf, bufsize)) {
+		editor_set_status_message("Path too long");
 		return PATH_ACCEPT_OVERFLOW;
 	}
-	return overflow > 0 ? PATH_ACCEPT_OVERFLOW : PATH_ACCEPT_DONE;
+	if (overflow > 0) {
+		editor_set_status_message("Path too long");
+		return PATH_ACCEPT_OVERFLOW;
+	}
+	return PATH_ACCEPT_DONE;
 }
 
 static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
@@ -1688,6 +1713,24 @@ enum buf_name_action {
 	BUF_NAME_CONTINUE,
 	BUF_NAME_ACCEPTED,
 	BUF_NAME_OVERFLOW,
+	/* BUF_NAME_SELECT only: RET on a query that matches nothing closes
+	 * the prompt having chosen nothing, which is what C-x b has always
+	 * done.  Distinct from ACCEPTED so no caller can mistake the empty
+	 * answer for a name. */
+	BUF_NAME_DISMISSED,
+};
+
+/* One redraw's filtered view of the buffer ring, as the accept path needs
+ * it.  `ring_pos` maps a filtered index back to its place in `order`, and
+ * therefore to a buflist index -- which is what makes an exact answer
+ * possible where re-scanning for the returned display name is not. */
+struct buf_name_view {
+	int n;
+	int matches;
+	int sel;
+	const int *order;
+	const int *ring_pos;
+	const char *const *names;
 };
 
 static enum buf_name_action buf_name_accept_query(
@@ -1700,58 +1743,77 @@ static enum buf_name_action buf_name_accept_query(
 	return BUF_NAME_ACCEPTED;
 }
 
-static enum buf_name_action buf_name_accept(struct key_event c,
-    const char *query, int n, int matches, int sel, const int *order,
-    const char *const *names, char *out, int outsize, int allow_new,
-    int blank_current, int overflow)
+/* Answer with the display name of buflist entry `idx`, and report the
+ * index itself. */
+static enum buf_name_action buf_name_take(
+    int idx, char *out, int outsize, int *picked)
 {
-	const char *answer;
-	int idx;
+	char display[128];
+
+	buf_display_name(idx, display, sizeof(display));
+	if ((int)strlen(display) >= outsize) {
+		return BUF_NAME_OVERFLOW;
+	}
+	strcpy(out, display);
+	*picked = idx;
+	return BUF_NAME_ACCEPTED;
+}
+
+static enum buf_name_action buf_name_accept(struct key_event c,
+    const char *query, const struct buf_name_view *view, char *out,
+    int outsize, enum buf_name_mode mode, int overflow, int *picked)
+{
+	const int meta_ret = KEY_IS(c, KEY_BASE_RET, KEY_MOD_META);
 
 	editor.echo_cursor_col = 0;
 	editor_set_status_message("");
-	if (overflow) {
+	*picked = -1;
+	if (overflow > 0) {
 		return BUF_NAME_OVERFLOW;
 	}
-	if (query[0] == '\0' && blank_current) {
-		buf_display_name(buf_current, out, (size_t)outsize);
-		return BUF_NAME_ACCEPTED;
-	}
-	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META) && allow_new
-	    && query[0] != '\0') {
-		return buf_name_accept_query(query, out, outsize);
-	}
-	if (matches > 0) {
-		answer = names[sel];
-		if ((int)strlen(answer) >= outsize) {
-			return BUF_NAME_OVERFLOW;
-		}
-		strcpy(out, answer);
-		return BUF_NAME_ACCEPTED;
-	}
-	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META) && !allow_new) {
+	/* M-RET is `B`'s explicit-literal escape and nothing else's.  In the
+	 * other two modes it is not an accept key at all -- C-x b ignored it
+	 * before this picker was shared, and must go on ignoring it. */
+	if (meta_ret && mode != BUF_NAME_ANY) {
 		return BUF_NAME_CONTINUE;
 	}
-	if (query[0] == '\0') {
-		idx = n > 0 ? order[0] : buf_current;
-		buf_display_name(idx, out, (size_t)outsize);
-		return BUF_NAME_ACCEPTED;
+	if (query[0] == '\0' && mode == BUF_NAME_EXISTING) {
+		return buf_name_take(buf_current, out, outsize, picked);
 	}
-	if (allow_new) {
+	if (meta_ret && query[0] != '\0') {
 		return buf_name_accept_query(query, out, outsize);
 	}
-	return BUF_NAME_CONTINUE;
+	if (view->matches > 0) {
+		return buf_name_take(view->order[view->ring_pos[view->sel]],
+		    out, outsize, picked);
+	}
+	if (query[0] == '\0') {
+		/* The ring is built from buf_current + 1 through
+		 * buf_current itself, so order[0] is the first *other*
+		 * buffer when one exists and buf_current when none does --
+		 * exactly 07E's default for `B`, with no separate fallback
+		 * to reach.  n is never 0 for the same reason. */
+		return buf_name_take(view->order[0], out, outsize, picked);
+	}
+	if (mode == BUF_NAME_ANY) {
+		return buf_name_accept_query(query, out, outsize);
+	}
+	/* A query naming no buffer: `b` re-prompts, which is the Lisp code's
+	 * contract; C-x b closes, which is what it always did.  Answering
+	 * CONTINUE for both left C-x b re-prompting forever. */
+	return mode == BUF_NAME_EXISTING ? BUF_NAME_CONTINUE
+					 : BUF_NAME_DISMISSED;
 }
 
 static int buf_name_insert_key(
     int fd, struct key_event c, char *query, int *qlen, int *overflow, int *sel)
 {
 	if (c.mods == 0 && ascii_is_print(c.base)) {
-		if (*qlen < 64 - 1) {
+		if (*qlen < BUF_NAME_QUERY_MAX - 1) {
 			query[(*qlen)++] = (char)c.base;
 			query[*qlen] = '\0';
 		} else {
-			*overflow = 1;
+			(*overflow)++;
 		}
 		*sel = 0;
 		return 1;
@@ -1760,13 +1822,13 @@ static int buf_name_insert_key(
 		char seq[4];
 		int n = editor_read_utf8_seq(fd, (int)c.base, seq);
 
-		if (n > 0 && *qlen + n < 64 - 1) {
+		if (n > 0 && *qlen + n < BUF_NAME_QUERY_MAX - 1) {
 			memcpy(query + *qlen, seq, (size_t)n);
 			*qlen += n;
 			query[*qlen] = '\0';
 			*sel = 0;
 		} else if (n > 0) {
-			*overflow = 1;
+			(*overflow)++;
 		}
 		return 1;
 	}
@@ -1774,12 +1836,17 @@ static int buf_name_insert_key(
 }
 
 static int buf_name_handle_key(int fd, struct key_event c, char *query,
-    int *qlen, int *sel, int matches, int *overflow, int n, const int *order,
-    const char *const *names, char *out, int outsize, int allow_new,
-    int blank_current)
+    int *qlen, int *overflow, int *sel, const struct buf_name_view *view,
+    char *out, int outsize, enum buf_name_mode mode, int *picked)
 {
 	if (KEY_IN_LIST(erase_keys, c)) {
-		if (*qlen > 0) {
+		/* Retire a refused keystroke before deleting a real one, as
+		 * minibuf_delete_backward does.  Nothing cleared this count
+		 * before, so one overlong query made the picker permanently
+		 * inert: every later answer, however short, was OVERFLOW. */
+		if (*overflow > 0) {
+			(*overflow)--;
+		} else if (*qlen > 0) {
 			*qlen = utf8_glyph_start_before(query, *qlen, *qlen);
 			query[*qlen] = '\0';
 		}
@@ -1787,23 +1854,29 @@ static int buf_name_handle_key(int fd, struct key_event c, char *query,
 		return -2;
 	}
 	if (KEY_IN_LIST(picker_next_keys, c)) {
-		buf_picker_cycle(sel, matches, 1);
+		buf_picker_cycle(sel, view->matches, 1);
 		return -2;
 	}
 	if (KEY_IN_LIST(picker_prev_keys, c)) {
-		buf_picker_cycle(sel, matches, -1);
+		buf_picker_cycle(sel, view->matches, -1);
 		return -2;
 	}
 	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META)
 	    || KEY_IS(c, KEY_BASE_RET, 0)) {
-		enum buf_name_action action
-		    = buf_name_accept(c, query, n, matches, *sel, order, names,
-			out, outsize, allow_new, blank_current, *overflow);
-		if (action != BUF_NAME_CONTINUE) {
-			return action == BUF_NAME_ACCEPTED ? MINIBUF_ACCEPTED
-							   : MINIBUF_OVERFLOW;
+		enum buf_name_action action = buf_name_accept(
+		    c, query, view, out, outsize, mode, *overflow, picked);
+
+		if (action == BUF_NAME_CONTINUE) {
+			return -2;
 		}
-		return -2;
+		if (action == BUF_NAME_OVERFLOW) {
+			return MINIBUF_OVERFLOW;
+		}
+		if (action == BUF_NAME_DISMISSED) {
+			out[0] = '\0';
+			return MINIBUF_CANCELLED;
+		}
+		return MINIBUF_ACCEPTED;
 	}
 	if (KEY_IN_LIST(cancel_keys, c)) {
 		editor.echo_cursor_col = 0;
@@ -1818,18 +1891,23 @@ static int buf_name_handle_key(int fd, struct key_event c, char *query,
  * only returns text: selecting or creating the named buffer belongs to the
  * eventual command body, not argument construction. */
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
-    int outsize, int allow_new, int blank_current)
+    int outsize, enum buf_name_mode mode, int *picked)
 {
 	const int plen = (int)strlen(prompt);
 	int order[MAX_BUFFERS], n = 0;
-	char query[64];
+	char query[BUF_NAME_QUERY_MAX];
 	int qlen = 0, sel = 0;
 	int overflow = 0;
+	int discard = -1;
 	int i;
 	struct key_event c;
 	char msg[512];
 	int off, sel_off;
 
+	if (picked == NULL) {
+		picked = &discard;
+	}
+	*picked = -1;
 	query[0] = '\0';
 	if (out == NULL || outsize < 2) {
 		return MINIBUF_OVERFLOW;
@@ -1887,9 +1965,10 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
+			struct buf_name_view view = { n, matches, sel, order,
+				ring_pos, names };
 			int result = buf_name_handle_key(fd, c, query, &qlen,
-			    &sel, matches, &overflow, n, order, names, out,
-			    outsize, allow_new, blank_current);
+			    &overflow, &sel, &view, out, outsize, mode, picked);
 			if (result != -2) {
 				kg_event_prompt_leave();
 				return (enum minibuf_result)result;
@@ -1903,6 +1982,7 @@ void buf_select_interactive(int fd)
 {
 	char name[128];
 	int other = 0;
+	int picked = -1;
 
 	for (int i = 0; i < MAX_BUFFERS; i++) {
 		if (i != buf_current && buflist[i].active) {
@@ -1911,23 +1991,25 @@ void buf_select_interactive(int fd)
 		}
 	}
 	if (!other) {
+		/* Structurally this prompt starting and immediately
+		 * finishing, so it is still one balanced pair -- which the
+		 * early return had stopped emitting when the read moved into
+		 * buf_read_name(). */
+		kg_event_prompt_enter();
 		editor_set_status_message("No other buffers.");
+		kg_event_prompt_leave();
 		return;
 	}
 
-	if (buf_read_name(fd, "Buffer: ", name, sizeof(name), 0, 0)
-	    == MINIBUF_ACCEPTED) {
-		for (int i = 0; i < MAX_BUFFERS; i++) {
-			char display[128];
-			if (!buflist[i].active) {
-				continue;
-			}
-			buf_display_name(i, display, sizeof(display));
-			if (strcmp(display, name) == 0) {
-				(void)buf_select(i);
-				return;
-			}
-		}
+	/* Select by the index the picker reports, not by re-scanning for the
+	 * returned text: display names are disambiguated by one parent
+	 * directory and can still collide, and the first match then wins
+	 * over the entry the user actually highlighted. */
+	if (buf_read_name(fd, "Buffer: ", name, sizeof(name), BUF_NAME_SELECT,
+		&picked)
+		== MINIBUF_ACCEPTED
+	    && picked >= 0) {
+		(void)buf_select(picked);
 	}
 }
 

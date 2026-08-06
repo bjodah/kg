@@ -27,10 +27,23 @@ void editor_set_status_emphasis(int start, int len)
 }
 void editor_refresh_screen(void) { }
 void key_reset_pending_sequence(void) { }
+
+/* A scripted keystroke queue, so a test can drive the minibuffer and
+ * picker read loops (buf_read_name(), editor_read_line_path()) that
+ * otherwise sit in editor_read_key() forever.  test_key_script is set by
+ * the test; when it runs out, C-g is returned so a loop always terminates
+ * rather than hanging the suite. */
+const struct key_event *test_key_script;
+int test_key_script_len;
+int test_key_script_pos;
+
 struct key_event editor_read_key(int fd)
 {
 	(void)fd;
-	return (struct key_event) { 0, 0 };
+	if (test_key_script != NULL && test_key_script_pos < test_key_script_len) {
+		return test_key_script[test_key_script_pos++];
+	}
+	return (struct key_event) { 'g', KEY_MOD_CTRL };
 }
 int editor_read_raw_byte(int fd)
 {

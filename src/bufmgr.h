@@ -8,9 +8,38 @@ enum minibuf_result {
 	MINIBUF_OVERFLOW = 1,
 };
 
-/* Read a buffer display name without changing the selected buffer.  When
- * allow_new is false, only an existing name is accepted. */
+/* Which of the three buffer-name reads is being made.  C-x b and the Lisp
+ * `b` and `B` interactive codes share one picker but not one policy, and
+ * spelling the differences as separate boolean parameters is how C-x b
+ * silently acquired `b`'s re-prompt-on-a-miss (which made C-x b RET on a
+ * non-matching query loop forever) and `B`'s M-RET accept. */
+enum buf_name_mode {
+	/* C-x b.  RET always closes the prompt; a query matching nothing
+	 * selects nothing, and blank takes the first ring candidate. */
+	BUF_NAME_SELECT,
+	/* Lisp `b`.  Only an existing display name is accepted, a miss
+	 * re-prompts, and blank means the current buffer. */
+	BUF_NAME_EXISTING,
+	/* Lisp `B`.  A typed name that matches nothing is accepted, M-RET
+	 * accepts typed text literally even when a completion exists, and
+	 * blank takes the first "other buffer" candidate. */
+	BUF_NAME_ANY,
+};
+
+/* The longest buffer-name query the picker will accept.  Typing past it
+ * is refused rather than truncated, and the refusal is retired as soon as
+ * the query shrinks back under the cap. */
+#define BUF_NAME_QUERY_MAX 64
+
+/* Read a buffer display name without changing the selected buffer.
+ *
+ * `picked`, when not NULL, receives the buflist index the answer names,
+ * or -1 when the answer is a name no buffer has (BUF_NAME_ANY only).
+ * A caller that means to select the answer must use it: display names are
+ * disambiguated by one parent directory and can still collide, so
+ * resolving the returned text by scanning for the first match can select
+ * a different buffer than the one the user highlighted. */
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
-    int outsize, int allow_new, int blank_current);
+    int outsize, enum buf_name_mode mode, int *picked);
 
 #endif /* KG_BUFMGR_H */

@@ -155,7 +155,16 @@ void editor_path_split(
 	}
 	memcpy(dir, path, dlen);
 	dir[dlen] = '\0';
-	editor_path_expand_tilde(dir, dsize);
+	if (editor_path_expand_tilde(dir, dsize) != 0) {
+		/* $HOME plus the rest does not fit, so `dir` still begins
+		 * with a literal '~'.  Scanning that would either find
+		 * nothing or -- if a directory really is named "~" -- find
+		 * the wrong thing, so answer "no directory" instead.  The
+		 * return value used to be discarded here. */
+		dir[0] = '\0';
+		snprintf(file, fsize, "%s", buf_basename(path));
+		return;
+	}
 	snprintf(file, fsize, "%s", buf_basename(path));
 }
 

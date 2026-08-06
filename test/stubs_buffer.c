@@ -119,14 +119,15 @@ void local_settings_merge(
 	(void)src;
 }
 
+/* The real split's outputs must always be NUL-terminated; a stub that
+ * writes nothing hands path_prompt_redraw() an uninitialized buffer,
+ * which valgrind and MSan reject (and plain builds pass by stack
+ * luck). Keep the contract, skip the tilde/opendir behaviour. */
 void editor_path_split(
     const char *path, char *dir, int dsize, char *file, int fsize)
 {
-	(void)path;
-	(void)dir;
-	(void)dsize;
-	(void)file;
-	(void)fsize;
+	snprintf(dir, dsize, "./");
+	snprintf(file, fsize, "%s", path);
 }
 int editor_path_complete_entries(const char *dir, const char *prefix,
     struct path_entry *entries, int max, char *lcp, int lcp_size)

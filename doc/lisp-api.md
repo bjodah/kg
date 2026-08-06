@@ -473,7 +473,7 @@ so no result is ever cut mid-glyph:
 | `(string= A B)` | `t` when equal |
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
-| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, and refuses 0 where Emacs writes a NUL byte; Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
 
 kg evaluates a prelude (`lisp/prelude.el`, embedded into the binary as
 `src/lisp_prelude_generated.inc`), written in Fe, at startup
@@ -488,12 +488,12 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
-| Small library | `identity` `prog2` `max` `min` `documentation` `setq-default` `setq-local` `kbd` |
+| Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `setq-default` `setq-local` `kbd` |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
@@ -661,14 +661,18 @@ primitive's function cell.
   arithmetic that overflows, and integer division by zero, raise an
   `arith-error` message rather than promoting or wrapping. Character
   literals such as `?a` read as their codepoint numbers.
-- `t`, `nil` and keyword symbols are protected constants; keywords are
-  self-evaluating. A lambda parameter may still shadow `t`, matching the
-  measured lexical oracle.
+- `t`, `nil` and keyword symbols are protected constants: `setq`, `set`,
+  a `let`/`let*` binding name, `fset` and `defalias` all refuse them with
+  the `setting-constant` condition. Keywords are self-evaluating, and
+  `(keywordp X)` answers whether a symbol is one — `:` alone included. A
+  lambda parameter may still shadow `t`, matching the measured lexical
+  oracle; unlike Emacs, one named `nil` or a keyword is refused rather
+  than bound (a divergence recorded in fe's own compat corpus).
 - **`condition-case` exists; `catch`/`throw` exist; `signal`/`error`
   exist.** Conditions have a static hierarchy: `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
-  `arith-error`, `args-out-of-range`, `file-error`, and `no-catch` are
-  all under `error`; `quit` is a separate branch not under `error` and
+  `arith-error`, `args-out-of-range`, `file-error`, `setting-constant`,
+  and `no-catch` are all under `error`; `quit` is a separate branch not under `error` and
   is not catchable by `(error …)` handlers. `(signal 'ARITH-ERROR DATA)`
   raises a condition object `(ARITH-ERROR . DATA)`; `(error "fmt" ARGS)`
   formats at signal time and raises `(error "formatted-text")`.
@@ -694,10 +698,15 @@ primitive's function cell.
   lists with `while`.
 - A self-referential structure prints as far as the cycle, then
   `#<cycle>`, rather than looping forever.
-- No source line numbers in error messages: a raised error names what
-  failed, not where in the source it was written. Fe's reader does not
-  carry position information through to evaluation; adding it is a
-  `fe/` submodule change with its own pin move, not a kg-side one.
+- Source positions are per top-level form, not per sub-form. An error
+  raised while loading a file carries its source label and the 1-based
+  line of the top-level form that was running (`init.el:7: ...`), which
+  is what "Error handling and budget limits" above describes; it does not
+  narrow to the sub-form, the column, or the position inside a function
+  called from that form. A read error reports a byte offset rather than a
+  line, since `FeReadString` has no label to count lines against. An
+  expression evaluated interactively (`M-:`, `C-j`) carries no position
+  at all — there is no file to name.
 - Docstrings are retained by `defun`, `defmacro`, `defvar` and
   `defconst`; the prelude's `(documentation 'NAME)` returns the captured
   string. This is an alist-backed query, not a property-list or

@@ -56,11 +56,18 @@
 ;;; defined further down, so nothing here depends on an expansion
 ;;; happening before `defun' itself exists.
 
-;; Emacs spellings for Fe primitives.  `internal--let' keeps Fe's
-;; one-binding `let' reachable after the Emacs `let' shadows it; the
-;; function bodies below use it.  `defalias' stores the captured
-;; primitive itself -- not a symbol designator -- so the later
-;; redefinition of `let' cannot reach it through the cell it aliased.
+;; Emacs spellings for Fe primitives.  `internal--let' keeps Fe's own
+;; `let' primitive reachable after the Emacs `let' macro shadows it; the
+;; function bodies below use it, in its one-binding `(internal--let NAME
+;; VALUE)' spelling.  That spelling is now a subset of what the primitive
+;; accepts -- Phase 8's fe work gave the primitive Emacs' binding lists
+;; too -- but the macro below still shadows the name, because the
+;; primitive introduces its binding into the *enclosing* body rather than
+;; over a body of its own, and because it does not refuse `t', `nil' or a
+;; keyword in binding position, which Emacs' `let' does and the macro
+;; does.  `defalias' stores the captured primitive itself -- not a symbol
+;; designator -- so the later redefinition of `let' cannot reach it
+;; through the cell it aliased.
 (defalias 'internal--let (symbol-function 'let))
 (defalias 'progn (symbol-function 'do))
 (defalias 'null (symbol-function 'not))

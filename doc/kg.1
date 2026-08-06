@@ -434,12 +434,23 @@ Numeric and string conversions accept field widths, precision, and the
 .Li -
 and
 .Li 0
-flags.  The additional conversions are
+flags.  Emacs' remaining flags
+.Li + ,
+a space and
+.Li # ,
+and its
+.Li N$
+field numbers, are not accepted: each raises
+.Li invalid format operation
+rather than being read as something else.  The additional conversions are
 .Li %c , %x , %X
 and
 .Li %o ;
 .Li %c
-renders a valid codepoint as UTF-8.
+renders a valid codepoint as UTF-8, and refuses 0, where Emacs writes a
+NUL byte \(em nothing
+.Nm
+stores in a string may contain one.
 Extra arguments are ignored, as in Emacs, while a missing argument, an
 unknown specifier and a format string that ends inside one all raise an
 error.
@@ -478,11 +489,15 @@ provided.  A
 .Li declare
 form immediately after a definition's optional docstring is an accepted
 no-op.
-It defines the definition forms
+.Pp
+The prelude defines the definition forms
 .Li defun ,
 .Li defmacro ,
 .Li defvar ,
-.Li defconst
+.Li defconst ,
+.Li defcustom ,
+.Li custom-set-variables ,
+.Li declare
 and
 .Li interactive ;
 the binding forms
@@ -537,17 +552,51 @@ the list library
 .Li reverse ,
 .Li append ,
 .Li mapcar ,
+.Li mapc ,
+.Li mapconcat ,
 .Li assoc ,
+.Li assq ,
 .Li member ,
 .Li memq ,
 .Li push ,
 .Li pop ,
+.Li nreverse ,
+.Li delq ,
+.Li delete ,
+.Li add-to-list ,
 .Li caar ,
 .Li cadr ,
 .Li cddr ,
 .Li 1+
 and
 .Li 1- ;
+the small library
+.Li identity ,
+.Li prog2 ,
+.Li max ,
+.Li min ,
+.Li documentation ,
+.Li number-to-string ,
+.Li string-to-list ,
+.Li setq-default ,
+.Li setq-local
+and
+.Li kbd
+\(em
+.Li setq-default
+and
+.Li setq-local
+are documented aliases of
+.Li setq ,
+since
+.Nm
+has no buffer-local variable namespace, and
+.Li kbd
+accepts only the
+.Li C-c
+key grammar
+.Li global-set-key
+can parse;
 the predicates
 .Li null ,
 .Li equal ,
@@ -562,7 +611,8 @@ and
 .Li floatp ,
 which like
 .Li setq
-are core Fe primitives rather than prelude definitions;
+are core Fe primitives rather than prelude definitions, as is
+.Li keywordp ;
 the namespace forms
 .Li (function F) ,
 .Li (funcall F ...) ,
@@ -655,19 +705,38 @@ numbers are signed 64-bit integers or doubles, so integer overflow and
 integer division by zero raise an
 .Li arith-error
 message rather than promoting to a bignum;
-.Li t
-is an ordinary assignable global;
+.Li t ,
+.Li nil
+and keyword symbols are protected constants, refused by
+.Li setq ,
+.Li set ,
+a
+.Li let
+binding name,
+.Li fset
+and
+.Li defalias
+with the
+.Li setting-constant
+condition, and keywords are self-evaluating, which
+.Li keywordp
+reports \(em a lambda parameter may still shadow
+.Li t ,
+as in Emacs;
 values and functions live in separate namespaces as in Emacs, so call
 position reads only the function cell;
 character literals such as
 .Li ?a
-are not read, so use
-.Li (string-to-char "a") ;
+read as their codepoint numbers, and
+.Li #x , #o
+and
+.Li #b
+read radix integers;
 .Li condition-case
 and
 .Li catch / throw
 exist with a static condition hierarchy:
-.Li wrong-type-argument , void-function , arith-error
+.Li wrong-type-argument , void-function , arith-error , setting-constant
 and others are under
 .Li error ;
 .Li quit

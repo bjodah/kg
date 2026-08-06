@@ -1,0 +1,6 @@
+{
+ "id": "phase8-format-strictness",
+ "setup": [],
+ "expr": "(list \"%+d\" \"% d\" \"%#x\" \"%1$s\" \"(format \\\"%c\\\" 0)\")",
+ "note": "kg-policy: the format spellings kg refuses that Emacs accepts. The +, space and # flags and N$ field numbers raise `invalid format operation`; (format \"%c\" 0) raises where Emacs writes a NUL byte, because nothing kg stores in a string may contain one. The expr is the list of rejected spellings as text, in phase8-reader-policy-rejections' shape, since an error message has no Emacs answer to compare against."
+}

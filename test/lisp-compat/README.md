@@ -1,10 +1,10 @@
 # kg's half of the Emacs-oracle compatibility manifest
 
-This is kg's sibling of `fe/compat/`, built by sub-plan
-[00C](../../doc/plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/00c-feature-inventory.md)
-on top of the mechanism sub-plan
-[00B](../../doc/plans/2026-08-03-elisp-subset-and-fe-evaluator-subplans/00b-oracle-and-differential-corpus.md)
-built in the `fe/` submodule. Read `fe/compat/README.md` first: the record
+This is kg's sibling of `fe/compat/`, built by sub-plan 00C of
+[the elisp-subset plan](../../doc/plans/2026-08-03-elisp-subset-and-fe-evaluator.md)
+on top of the mechanism sub-plan 00B built in the `fe/` submodule. (Both
+sub-plan documents are retired and deleted; the plan itself, and its
+sub-plan directory's README, are what survive them.) Read `fe/compat/README.md` first: the record
 protocol, the case/oracle-snapshot schema, the Emacs resolution and
 version-pinning rules, and the four (now five, with `timeout`) record
 kinds are defined there once and reused here verbatim. This file only
@@ -14,11 +14,11 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(54 primitives, 1 alias, plus the handful of fe-owned divergences that
+(55 primitives, 1 alias, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
 (this directory) owns kg's 81 natives (`native_bindings[]`,
-`src/lisp_prelude.c`) and kg's 70 prelude definitions
-(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 70) -- kg-owned,
+`src/lisp_prelude.c`) and kg's prelude definitions
+(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 77) -- kg-owned,
 even though most of the prelude definitions are themselves oracle-comparable
 Emacs Lisp forms
 (`let`, `defun`, `cond`, `mapcar`, ...). Putting kg's half inside the
@@ -41,9 +41,9 @@ the native/PTY test named in `kg_test`, not by an Emacs snapshot.
 ```text
 test/lisp-compat/
   README.md          this file
-  features.json       the manifest: 81 kg natives + 70 prelude definitions
+  features.json       the manifest: 81 kg natives + 77 prelude definitions
                        (plus a handful of kg-owned cross-cutting
-                       divergences and the planned defcustom entry), each
+                       divergences and the defcustom entry), each
                        with a status, an owner, a comparison mode, and the
                        case(s)/kg_test that back it
   cases/*.json         one file per case, fe/compat's exact schema
@@ -101,14 +101,17 @@ all. Instead:
    `--other-manifest` pointed at its sibling, reusing 00B's schema
    validation and id-collision check rather than reimplementing it.
 2. Parses `fe/fe.c`'s `primitive_names[]`/`primitive_aliases[]` and
-   `src/lisp_prelude.c`'s `native_bindings[]` and the 52 `(defalias 'name ...)`
+   `src/lisp_prelude.c`'s `native_bindings[]` and the `(defalias 'name ...)`
    top-level forms in `lisp/prelude.el`, and checks every one of the
-   resulting 49 + 1 + 78 + 52 source names is claimed by exactly one
+   resulting 55 + 1 + 81 + 77 source names is claimed by at least one
    feature entry's `"source_name"` field, across both manifests combined.
+   (The counts are re-derived from the sources on every run and printed;
+   they are written here only so a reader knows the order of magnitude.)
    This is the check that keeps the inventory from rotting: a native or
    prelude definition added without a manifest entry fails `make check`.
 3. Checks the `defcustom` entry exists with the shape 00C's gate
-   requires.
+   requires -- the entry is `supported` since 08E implemented the macro,
+   and the gate now reads the case distinctions out of its rationale.
 4. Checks every `status: planned` entry's `rationale` names a phase
    (`Phase <digit>`), extending `fe/utils/check_compat_manifest.py`'s own
    rule set by one clause 00B's version did not need yet.

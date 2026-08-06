@@ -197,19 +197,22 @@ ordered by value vs implementation effort.
         codepoint offsets
       - string natives (`string-length`, `substring`, `concat`, `string=`,
         `char-to-string`, `string-to-char`, `format`), which upstream fe
-        lacks; `format` covers widths, `%c`, `%x`, `%X`, `%o` and `%%`, and `message`
-        is a format function like its Emacs namesake
+        lacks; `format` covers `%s`, `%S`, `%d`, `%e`, `%f`, `%g` and
+        `%%`, and since Phase 8 also `%c`, `%o`, `%x`, `%X` and the
+        `-`/`0` flag, field width and precision that go with them; and
+        `message` is a format function like its Emacs namesake
       - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
-        `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
+        `defvar`, `defconst`, `defcustom`, `custom-set-variables`,
+        `declare`, `interactive`, `let`/`let*` with elisp binding
         lists, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
         `dotimes`, `quasiquote`, the list library (`length`, `nth`,
-         `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `mapc`, `mapconcat`,
-         `assoc`, `assq`, `member`, `memq`, `push`, `pop`, `nreverse`, `delq`,
-         `delete`, `add-to-list`), `equal`, `string-empty-p`,
-         `thing-at-point`, `identity`, `prog2`, `max`, `min`, `defcustom`,
-         `custom-set-variables`, `declare`,
-         `documentation`, `setq-default`, `setq-local` and `kbd`;
-         `&optional` and `&rest` in argument lists
+        `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `mapc`,
+        `mapconcat`, `assoc`, `assq`, `member`, `memq`, `push`, `pop`,
+        `nreverse`, `delq`, `delete`, `add-to-list`), `equal`,
+        `string-empty-p`, `thing-at-point`, `identity`, `prog2`, `max`,
+        `min`, `documentation`, `number-to-string`, `string-to-list`,
+        `setq-default`, `setq-local` and `kbd`;
+        `&optional` and `&rest` in argument lists
       - type natives `type-of`, `stringp`, `symbolp`, `numberp`, `consp`,
         `functionp`
       - Emacs names throughout the editor bridge (`insert`, `message`,
@@ -256,6 +259,37 @@ ordered by value vs implementation effort.
         (`catch-throw-reachability`, the other divergence 06E left)
       - token/cancel cleanup registry (Phase 9's robustness scope;
         currently `unwind-design.md` item 2, belongs to that phase)
+      - Phase 8 deferrals, each measured absent at the phase close and
+        each an init-file compatibility gap rather than a nicety:
+        - no `string-match`/`match-string` over a string; kg's regexp
+          surface is buffer-search only (`re-search-forward` and friends)
+        - no `symbol-name`, `intern` or `intern-soft`, so a program
+          cannot compute a name and a keyword cannot be turned back into
+          text
+        - no vectors, and no `#:` uninterned-symbol syntax: both are
+          named read errors rather than misreadings, recorded as
+          `phase8-reader-unsupported-syntax`.  A vector needs an object
+          type the fe core does not have
+        - `load-path` is still a C array; `(add-to-list 'load-path ...)`
+          cannot reach it, and `add-to-load-path` is kg's spelling
+        - source positions are per top-level form only.  A read error
+          reports a byte offset rather than a line, because
+          `FeReadString` has no label to count lines against, and an
+          error inside a function reports the top-level form that called
+          it rather than the sub-form that raised
+        - no `read`, `read-string`, `read-from-string` or any other
+          `read-*` entry point; `(interactive "...")` codes are the only
+          way to prompt
+        - Customize is a declaration, not a system: no `defgroup`,
+          `setopt`, `custom-file`, saved state or UI.  `defcustom` is a
+          `defvar` that records a docstring and accepts inert
+          presentation keywords, and `custom-set-variables` is a
+          `setq` over quoted `(SYMBOL VALUE)` pairs
+        - no `format-message` (Emacs' curved-quote translation), and
+          `%S` has no print-depth or print-length control -- fe's writer
+          truncates with `#<deep>`/`#<truncated>` on its own budgets
+        - no `*Messages*` ring: `message` writes the status line and the
+          text is gone when the next message replaces it
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist
       - grow the `command-execute` allow-list deliberately (policy per

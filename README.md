@@ -425,7 +425,7 @@ lists the few changes that did have to be made there, and why.
 | `(string= A B)` | `t` when the strings are equal, else `nil` |
 | `(char-to-string N)` | One-character string for codepoint `N` |
 | `(string-to-char S)` | First codepoint of `S` as a number, `nil` for `""` |
-| `(format FORMAT ARG ...)` | Substitutes `%s`, `%S`, `%d`, `%e`, `%f` and `%g`; `%%` is a literal per cent |
+| `(format FORMAT ARG ...)` | Substitutes `%s`, `%S`, `%d`, `%o`, `%x`, `%X`, `%c`, `%e`, `%f` and `%g`, each with an optional `-`/`0` flag, field width and precision; `%%` is a literal per cent |
 
 `substring` clamps out-of-range indices instead of signalling, and a `TO`
 before `FROM` yields `""`. `char-to-string` rejects 0, surrogates and values
@@ -437,8 +437,17 @@ an object the way the interpreter prints it — a string bare, a list as a
 list, `nil` as `nil` — and `%S` is the same with strings quoted; `%d`
 accepts either number type, printing an integer exactly and truncating a
 float toward zero; and `%e`, `%f` and `%g` are the C floating-point
-conversions, accepting either number type as they do in Emacs. There are
-no field widths, precisions or flags, and no `%c`, `%x` or `%o`. Extra
+conversions, accepting either number type as they do in Emacs. `%o`, `%x`
+and `%X` print an integer in octal or hexadecimal, with an explicit sign
+in front of the magnitude rather than C's two's-complement rendering, and
+`%c` writes one codepoint as UTF-8. Every specifier takes an optional
+`-` (left-align) or `0` (zero-fill) flag, a field width and a precision,
+with the same meanings as in Emacs: a precision is a digit count for `%d`,
+`%o` and `%x`, decimal places for `%e`, `%f` and `%g`, and a maximum
+character count for `%s`, `%S` and `%c`. Emacs' remaining flags — `+`,
+a space, `#` — and its `N$` field numbers are not accepted, and
+`(format "%c" 0)` is an error here where Emacs writes a NUL byte, because
+nothing kg stores in a string may contain one. Extra
 arguments are ignored, as in Emacs, while a missing argument, an unknown
 specifier and a format string ending inside one are all errors. NaN and
 the infinities have no integer to print, so `%d` refuses them (where
@@ -453,17 +462,17 @@ surface is available before any init file runs. It is what makes kg's
 
 | Group | Forms |
 | ---- | ------ |
-| Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
+| Definitions | `defun` `defmacro` `defvar` `defconst` `defcustom` `custom-set-variables` `declare` `interactive` `lambda` |
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `keywordp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
-| Small library | `identity` `prog2` `max` `min` `documentation` `setq-default` `setq-local` `kbd` |
+| Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `setq-default` `setq-local` `kbd` |
 
 Argument lists are strict: too few or too many arguments raise
 `wrong-number-of-arguments`. `&optional` parameters bind `nil` when omitted,
@@ -510,13 +519,18 @@ first surprise:
   and character literals such as `?a` read as their codepoint numbers.
   Integer arithmetic that overflows, and integer division by zero, raise
   an `arith-error` message instead of promoting or wrapping.
-- `t`, `nil` and keyword symbols are protected constants and keywords are
-  self-evaluating. A lambda parameter may still shadow `t`.
+- `t`, `nil` and keyword symbols are protected constants: `setq`, `set`, a
+  `let` or `let*` binding name, `fset` and `defalias` all refuse them with
+  the `setting-constant` condition. Keywords are self-evaluating, so
+  `:foo` is `:foo` and `(keywordp :foo)` is `t` (`:` alone is a keyword
+  too). A lambda parameter may still shadow `t`, as in Emacs; unlike
+  Emacs, one named `nil` or a keyword is refused rather than bound.
 - `condition-case`, `catch`/`throw`, `signal`, and `error` exist; `quit`
   (from `C-g`) is catchable by name but not by `(error …)`, and budget
   exhaustion is catchable by nothing. Conditions use a static
-  hierarchy: `wrong-type-argument`, `void-function`, `arith-error` and
-  others are under `error`; `quit` is a separate branch.
+  hierarchy: `wrong-type-argument`, `void-function`, `arith-error`,
+  `setting-constant` and others are under `error`; `quit` is a separate
+  branch.
   `unwind-protect` runs its cleanup forms on any non-local exit — a
   normal return, an error, a `throw`, `C-g`, or budget exhaustion.
   `save-excursion` and `with-current-buffer` are transparent to the

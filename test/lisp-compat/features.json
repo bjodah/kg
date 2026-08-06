@@ -2158,6 +2158,19 @@
    "source_name": null
   },
   {
+   "id": "phase8-format-strictness",
+   "category": "formatting",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-format-strictness"
+   ],
+   "kg_test": "test/test_lisp.c:test_format_natives",
+   "rationale": "Emacs accepts the +, space and # flags and N$ field numbers; kg raises `invalid format operation` for each rather than reading them as something else. (format \"%c\" 0) raises where Emacs writes a NUL byte, because nothing kg stores in a string may contain one -- the same rule fe's reader applies to a string escape decoding to 0. Recorded rather than fixed: Phase 8 scoped format to the directives an init file uses.",
+   "source_name": null
+  },
+  {
    "id": "phase8-loader-diagnostics",
    "category": "errors-and-non-local-exits",
    "status": "supported",

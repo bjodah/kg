@@ -463,9 +463,14 @@ lisp-prelude-check:
 		exit 1; \
 	fi
 
-# Audit utility for feeding a fixed init corpus to an external driver.  It
-# is intentionally outside TESTBINS: it checks source framing and emits the
-# source forms, but does not claim to be a second Lisp evaluator.
+# Audit utility for feeding a fixed init corpus to an external driver: it
+# links the editor's own objects and calls kg_lisp_eval_string(), so it
+# really is kg's evaluator, minus the terminal.  It is intentionally
+# outside TESTBINS all the same -- it asserts nothing, prints whatever
+# each file evaluates to, and exists so a question about kg's Lisp is a
+# one-second experiment rather than a PTY case.  What it cannot answer is
+# anything that needs a real buffer, window or keystroke; those are
+# test/pty/*.yaml.
 kgbatch: test/kgbatch
 
 test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(LISP_CONFIG) \

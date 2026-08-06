@@ -2310,6 +2310,19 @@ static void test_format_natives(void)
 	    "(format \"%q\" 1)", "invalid format operation %q"));
 	CHECK(eval_error_contains("(format \"50%\")", "middle of format"));
 	CHECK(eval_error_contains("(format 1)", "expected string"));
+	/* The spellings Emacs accepts and kg refuses, recorded rather than
+	 * quietly misread (manifest row phase8-format-strictness): Emacs'
+	 * remaining flags and its N$ field numbers, and %c of 0, which
+	 * Emacs writes as a NUL byte and kg cannot store in a string. */
+	CHECK(eval_error_contains(
+	    "(format \"%+d\" 1)", "invalid format operation"));
+	CHECK(eval_error_contains(
+	    "(format \"% d\" 1)", "invalid format operation"));
+	CHECK(eval_error_contains(
+	    "(format \"%#x\" 255)", "invalid format operation"));
+	CHECK(eval_error_contains(
+	    "(format \"%1$s\" 1)", "invalid format operation"));
+	CHECK(eval_error_contains("(format \"%c\" 0)", "out of range"));
 	/* Recovery after any of those leaves the interpreter usable. */
 	CHECK(eval_eq("(format \"%s\" 'ok)", "ok"));
 

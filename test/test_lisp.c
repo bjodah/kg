@@ -613,6 +613,56 @@ static void test_define_and_run_command(void)
 	teardown_editor();
 }
 
+/* 07D item 3: a failed registration leaves both the old command and the
+ * old function cell intact, and the command root and the function cell
+ * hold one closure rather than two evaluations that merely behave alike.
+ *
+ * The probe is the command table filling up.  `defun` used to expand to
+ * defalias-then-define-command, reading the cell back with
+ * (symbol-function 'name) for the second step, so a define-command that
+ * could not find a slot had already replaced the function. */
+static void test_defun_redefinition_is_atomic(void)
+{
+	char name[32];
+	char form[128];
+	int i;
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* An ordinary, non-interactive function first. */
+	CHECK(eval_ok("(defun old-fn () 111)"));
+	CHECK(eval_eq("(old-fn)", "111"));
+	CHECK(kg_lisp_command_exists("old-fn") == 0);
+
+	/* Fill the 32-slot command table with other names. */
+	for (i = 0; i < 32; i++) {
+		(void)snprintf(name, sizeof(name), "filler-%d", i);
+		(void)snprintf(form, sizeof(form),
+		    "(define-command \"%s\" (lambda () 0))", name);
+		CHECK(eval_ok(form));
+	}
+	CHECK(eval_error_contains(
+	    "(define-command \"one-more\" (lambda () 0))", "too many"));
+
+	/* Redefining old-fn interactively must now fail -- and fail whole. */
+	CHECK(eval_error_contains(
+	    "(defun old-fn () (interactive) 222)", "too many"));
+	CHECK(eval_eq("(old-fn)", "111"));
+	CHECK(kg_lisp_command_exists("old-fn") == 0);
+
+	/* With a slot free again it succeeds, and the command and the
+	 * function cell are the same object -- `eq`, not merely equal. */
+	CHECK(eval_ok("(remove-command \"filler-0\")"));
+	CHECK(eval_ok("(defun old-fn () (interactive) 222)"));
+	CHECK(eval_eq("(old-fn)", "222"));
+	CHECK(kg_lisp_command_exists("old-fn") == 1);
+	CHECK(kg_lisp_run_command("old-fn", 0) == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_run_command_interrupt(void)
 {
 	setup_editor();
@@ -2618,7 +2668,7 @@ static void test_definition_forms(void)
 	CHECK(eval_ok("(defun documented (x) \"Doc.\" (+ x 1))"));
 	CHECK(eval_eq("(documented 1)", "2"));
 	CHECK(eval_ok("(defun onlydoc (x) \"Just a doc.\")"));
-	CHECK(eval_eq("(onlydoc 1)", "nil"));
+	CHECK(eval_eq("(onlydoc 1)", "Just a doc."));
 
 	CHECK(eval_eq(
 	    "(defmacro twice (form) (list 'progn form form))", "twice"));
@@ -2657,6 +2707,18 @@ static void test_definition_forms(void)
 	CHECK(eval_ok("(defun doc-empty-lisp () \"Doc\" (interactive))"));
 	CHECK(kg_lisp_command_exists("doc-empty-lisp"));
 	CHECK(kg_lisp_run_command("doc-empty-lisp", 0) == 0);
+	/* A docstring plus a declaration and no executable form is nil, not
+	 * the docstring: the declaration is removed after the docstring and
+	 * the empty body becomes (nil).  07D item 1, Emacs-confirmed. */
+	CHECK(eval_eq("(doc-empty-lisp)", "nil"));
+	/* A declaration with no docstring behaves the same way ... */
+	CHECK(eval_ok("(defun decl-only-lisp () (interactive))"));
+	CHECK(eval_eq("(decl-only-lisp)", "nil"));
+	/* ... and a string *after* the declaration is an ordinary body form,
+	 * so it is the value.  Only the string in the Emacs docstring
+	 * position, with a form after it, is documentation. */
+	CHECK(eval_ok("(defun decl-then-lisp () (interactive) \"tail\")"));
+	CHECK(eval_eq("(decl-then-lisp)", "tail"));
 	/* A defun without (interactive) registers nothing. */
 	CHECK(eval_ok("(defun quiet-lisp () (message \"no\"))"));
 	CHECK(!kg_lisp_command_exists("quiet-lisp"));
@@ -3600,6 +3662,7 @@ int main(void)
 	RUN(test_load_path_order);
 	RUN(test_load_path_missing_dirs);
 	RUN(test_define_and_run_command);
+	RUN(test_defun_redefinition_is_atomic);
 	RUN(test_run_command_interrupt);
 	RUN(test_run_command_reentrancy);
 	RUN(test_command_prefix_delivery);

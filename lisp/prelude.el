@@ -256,7 +256,13 @@
   (internal--let doc nil)
   (internal--let declaration nil)
   (internal--let spec nil)
-  (if (and body (internal--docstring-p (car body)))
+  ;; A lone leading string is the *body*, not a docstring: Emacs answers
+  ;; "Just a doc." for (defun onlydoc (x) "Just a doc."), and stripping it
+  ;; here made the function return nil.  A string is documentation only
+  ;; when at least one further form follows it -- which still leaves
+  ;; (defun f () "Doc" (interactive)) returning nil, since the declaration
+  ;; is removed after the docstring and the empty body becomes (nil).
+  (if (and body (cdr body) (internal--docstring-p (car body)))
       (progn (setq doc (car body)) (setq body (cdr body))))
   (if (internal--has-interactive body)
       (progn
@@ -267,10 +273,18 @@
         (setq spec (car (cdr declaration)))
         (if (and spec (not (stringp spec)))
             (setq spec (cons 'lambda (cons nil (list spec)))))
-        (list 'progn
-          (list 'defalias (list 'quote name) f)
+        ;; One evaluation, command root first, function cell last (07D
+        ;; item 3).  The old expansion defalias'd and then read the cell
+        ;; back with (symbol-function 'name) for define-command: two
+        ;; reads of one name, and a define-command failure -- a full
+        ;; 32-slot command table -- left the new function installed under
+        ;; a name that is no longer a command.  Binding the closure once
+        ;; makes the command root and the function cell the same object,
+        ;; and puts the step that can fail before the step that cannot.
+        (list 'let (list (list 'internal--defun-fn f))
           (list 'define-command (list 'quote name)
-            (list 'symbol-function (list 'quote name)) spec doc)
+            'internal--defun-fn spec doc)
+          (list 'defalias (list 'quote name) 'internal--defun-fn)
           (list 'quote name)))
     (progn
       (if (null body) (setq body (list nil)))

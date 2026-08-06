@@ -2,5 +2,5 @@
  "id": "defcustom",
  "setup": [],
  "expr": "(defcustom my-var 5 \"docstring\" :type 'integer)",
- "note": "Not yet implemented in either Fe or kg's prelude; (defcustom ...) is void-function in kg today. Emacs' defcustom defines and returns the symbol, evaluates the standard-value form when the variable is not already bound (leaving an already-bound variable alone, like defvar), stores the docstring, and records the presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) without engaging Custom's UI or any dynamic-binding machinery kg does not have."
+ "note": "08E: kg's prelude implements defcustom as a defvar-shaped declaration. It returns the symbol, evaluates the standard-value form only when unbound, stores the docstring, and accepts presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) without Custom state or a UI."
 }

@@ -9,6 +9,7 @@ config_files:
     (defconst phase8-constant 3 "A constant.")
     (defun phase8-command ()
       "A command from the 08D init file."
+      (declare (indent 0))
       (interactive)
       (insert "boot"))
     (global-set-key (kbd "C-c k") 'phase8-command)
@@ -28,6 +29,11 @@ config_files:
     (setq phase8-dotted `(head . ,phase8-answer))
     (setq phase8-nested `(outer `(inner ,phase8-answer)))
     (setq phase8-key (kbd "C-c z"))
+    (defcustom phase8-fill-column 72
+      "Column beyond which to break lines."
+      :type 'integer :group 'editing)
+    (custom-set-variables '(phase8-fill-column 80))
+    (setq phase8-format (format "at %-8s col %d %c" "boot" 3 187))
     (setq phase8-result (list phase8-default phase8-local phase8-answer))
 initial: ""
 keys:

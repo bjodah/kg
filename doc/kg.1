@@ -73,7 +73,9 @@ unless
 .Fl Q
 is given.
 A missing init file is normal.
-On a load error the labelled diagnostic is shown in the status area and
+On a load error the
+.Li FILE:LINE
+diagnostic is shown in the status area and
 forms evaluated before the error remain applied.
 Init files and packages are trusted code: they run with the full
 privileges of the editor process.
@@ -425,7 +427,16 @@ are the C floating-point conversions, accepting either number type as
 they do in Emacs; and
 .Li %%
 is a literal per cent.
-There are no field widths, precisions or flags, and no other specifiers.
+Numeric and string conversions accept field widths, precision, and the
+.Li -
+and
+.Li 0
+flags.  The additional conversions are
+.Li %c , %x , %X
+and
+.Li %o ;
+.Li %c
+renders a valid codepoint as UTF-8.
 Extra arguments are ignored, as in Emacs, while a missing argument, an
 unknown specifier and a format string that ends inside one all raise an
 error.
@@ -447,6 +458,23 @@ and
 matching Emacs.
 .Pp
 The prelude is available before any init file is loaded.
+.Pp
+.Li defcustom
+is a declaration over
+.Li defvar :
+it initializes only an unbound global, records its docstring, and accepts
+the inert presentation keywords
+.Li :type , :options , :group , :tag , :link , :version
+and
+.Li :package-version .
+.Li custom-set-variables
+accepts only quoted
+.Li (SYMBOL VALUE)
+entries.  Customize state, semantic metadata and a Customize UI are not
+provided.  A
+.Li declare
+form immediately after a definition's optional docstring is an accepted
+no-op.
 It defines the definition forms
 .Li defun ,
 .Li defmacro ,

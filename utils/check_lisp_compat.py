@@ -239,12 +239,11 @@ def check_defcustom(kg_data: dict) -> list[str]:
 	errors = []
 	entries = [f for f in kg_data.get("features", []) if f.get("id") == "defcustom"]
 	if not entries:
-		return ["test/lisp-compat/features.json: no 'defcustom' entry "
-			"(00C's gate requires one, status=planned)"]
+		return ["test/lisp-compat/features.json: no 'defcustom' entry"]
 	entry = entries[0]
-	if entry.get("status") != "planned":
+	if entry.get("status") != "supported":
 		errors.append(f"defcustom: status is {entry.get('status')!r}, "
-			      f"expected 'planned'")
+			      f"expected 'supported'")
 	if entry.get("owner") != "kg":
 		errors.append(f"defcustom: owner is {entry.get('owner')!r}, "
 			      f"expected 'kg'")

@@ -197,7 +197,7 @@ ordered by value vs implementation effort.
         codepoint offsets
       - string natives (`string-length`, `substring`, `concat`, `string=`,
         `char-to-string`, `string-to-char`, `format`), which upstream fe
-        lacks; `format` covers `%s`, `%S`, `%d` and `%%`, and `message`
+        lacks; `format` covers widths, `%c`, `%x`, `%X`, `%o` and `%%`, and `message`
         is a format function like its Emacs namesake
       - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
         `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
@@ -206,7 +206,8 @@ ordered by value vs implementation effort.
          `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `mapc`, `mapconcat`,
          `assoc`, `assq`, `member`, `memq`, `push`, `pop`, `nreverse`, `delq`,
          `delete`, `add-to-list`), `equal`, `string-empty-p`,
-         `thing-at-point`, `identity`, `prog2`, `max`, `min`,
+         `thing-at-point`, `identity`, `prog2`, `max`, `min`, `defcustom`,
+         `custom-set-variables`, `declare`,
          `documentation`, `setq-default`, `setq-local` and `kbd`;
          `&optional` and `&rest` in argument lists
       - type natives `type-of`, `stringp`, `symbolp`, `numberp`, `consp`,

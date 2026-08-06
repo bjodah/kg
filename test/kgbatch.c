@@ -41,7 +41,8 @@ static int evaluate_file(const char *path)
 		return 1;
 	}
 	source[length] = '\0';
-	if (kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))) {
+	if (kg_lisp_eval_string(
+		source, (size_t)length, result, sizeof(result))) {
 		fprintf(stderr, "%s: %s\n", path, result);
 		free(source);
 		return 1;
@@ -61,11 +62,13 @@ int main(int argc, char **argv)
 		return 2;
 	}
 	if (kg_lisp_init()) {
-		fprintf(stderr, "cannot initialize Lisp: %s\n", kg_lisp_last_error());
+		fprintf(stderr, "cannot initialize Lisp: %s\n",
+		    kg_lisp_last_error());
 		return 1;
 	}
-	for (i = 1; i < argc; i++)
+	for (i = 1; i < argc; i++) {
 		status |= evaluate_file(argv[i]);
+	}
 	kg_lisp_shutdown();
 	return status;
 }

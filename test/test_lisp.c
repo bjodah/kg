@@ -2260,6 +2260,21 @@ static void test_format_natives(void)
 	CHECK(eval_eq("(format \"%g\" 1.5)", "1.5"));
 	CHECK(eval_eq("(format \"%g\" 0)", "0"));
 	CHECK(eval_eq("(format \"%g\" 1e300)", "1e+300"));
+	CHECK(eval_eq("(format \"%-5d|\" 3)", "3    |"));
+	CHECK(eval_eq("(format \"%05.2f\" 1.5)", "01.50"));
+	CHECK(eval_eq("(format \"%05d\" -3)", "-0003"));
+	CHECK(eval_eq("(format \"%05.2d\" -3)", "  -03"));
+	CHECK(eval_eq("(format \"%c\" 65)", "A"));
+	CHECK(eval_eq("(format \"%c\" 233)", "\xc3\xa9"));
+	CHECK(eval_eq("(format \"%c\" 128169)", "\xf0\x9f\x92\xa9"));
+	CHECK(eval_eq("(format \"%x %X %o\" 255 255 15)", "ff FF 17"));
+	CHECK(eval_eq("(format \"%x %X %o\" -15 -15 -15)", "-f -F -17"));
+	CHECK(eval_eq("(format \"%-5s|\" \"x\")", "x    |"));
+	CHECK(eval_eq("(format \"%.3s\" \"hello\")", "hel"));
+	CHECK(eval_eq("(format \"%3.1s\" \"\xc3\xa9x\")", "  \xc3\xa9"));
+	CHECK(eval_eq("(format \"%-3.1s\" \"\xc3\xa9x\")", "\xc3\xa9  "));
+	CHECK(eval_error_contains(
+	    "(format \"%999999999999d\" 1)", "field is too large"));
 	/* Unlike %d, the float conversions have a rendering for the
 	 * exceptional values, so they print them instead of raising. */
 	CHECK(eval_eq("(format \"%e\" (/ 1.0 0))", "inf"));
@@ -3382,7 +3397,7 @@ static void test_quit_uncaught(void)
 	teardown_editor();
 }
 
-#define PRELUDE_DEFS 70
+#define PRELUDE_DEFS 75
 
 static void test_prelude_source_file(void)
 {
@@ -3505,32 +3520,66 @@ static void test_phase8_library(void)
 	CHECK(kg_lisp_init() == 0);
 	CHECK(eval_eq("(assq 'a '((a . 1) (b . 2)))", "(a . 1)"));
 	CHECK(eval_eq("(mapc (lambda (x) x) '(1 2 3))", "(1 2 3)"));
-	CHECK(eval_eq("(mapconcat (lambda (x) x) '(\"1\" \"2\" \"3\") \",\")",
-	    "1,2,3"));
+	CHECK(eval_eq(
+	    "(mapconcat (lambda (x) x) '(\"1\" \"2\" \"3\") \",\")", "1,2,3"));
 	CHECK(eval_eq("(progn (setq x (list 1 2 3)) (nreverse x))", "(3 2 1)"));
 	CHECK(eval_eq("(delq 2 (list 1 2 1))", "(1 1)"));
 	CHECK(eval_eq("(delete '(a) (list '(a) '(b)))", "((b))"));
-	CHECK(eval_eq("(progn (setq x '(2 1)) (add-to-list 'x 3) x)",
-	    "(3 2 1)"));
+	CHECK(
+	    eval_eq("(progn (setq x '(2 1)) (add-to-list 'x 3) x)", "(3 2 1)"));
 	CHECK(eval_eq("(identity 7)", "7"));
 	CHECK(eval_eq("(prog2 1 2 3)", "2"));
 	CHECK(eval_eq("(max 1 4 2)", "4"));
 	CHECK(eval_eq("(min 1 4 2)", "1"));
 	CHECK(eval_eq("(progn (makunbound 'no-value) (defvar no-value) "
-	    "(boundp 'no-value))", "nil"));
+		      "(boundp 'no-value))",
+	    "nil"));
 	CHECK(eval_eq("(progn (defun documented () \"A doc.\" nil) "
-	    "(documentation 'documented))", "A doc."));
+		      "(documentation 'documented))",
+	    "A doc."));
 	CHECK(eval_eq("(progn (defvar documented-var 1 \"A variable.\") "
-	    "(documentation 'documented-var))", "A variable."));
+		      "(documentation 'documented-var))",
+	    "A variable."));
 	CHECK(eval_eq("(progn (defconst documented-const 1 \"A constant.\") "
-	    "(documentation 'documented-const))", "A constant."));
+		      "(documentation 'documented-const))",
+	    "A constant."));
 	CHECK(eval_eq("(progn (setq-default answer 8) answer)", "8"));
 	CHECK(eval_eq("(progn (setq-local answer 9) answer)", "9"));
 	CHECK(eval_eq("(kbd \"C-c k\")", "C-c k"));
 	CHECK(eval_error_contains("(kbd \"M-x\")", "cannot bind key sequence"));
+	CHECK(eval_eq("(progn (makunbound 'phase8-custom)"
+		      " (defcustom phase8-custom (+ 2 3) \"custom doc\""
+		      " :type 'integer :group 'editing))",
+	    "phase8-custom"));
+	CHECK(eval_eq("phase8-custom", "5"));
+	CHECK(eval_eq("(documentation 'phase8-custom)", "custom doc"));
+	CHECK(eval_ok(
+	    "(progn (setq phase8-custom 9)"
+	    " (defcustom phase8-custom (error \"evaluated\") \"doc\"))"));
+	CHECK(eval_eq("phase8-custom", "9"));
+	CHECK(eval_ok("(custom-set-variables '(phase8-custom 11))"));
+	CHECK(eval_eq("phase8-custom", "11"));
+	CHECK(eval_error_contains(
+	    "(custom-set-variables '(phase8-custom 12 :type integer))",
+	    "entry must be"));
+	CHECK(eval_error_contains(
+	    "(defcustom phase8-bad 1 \"doc\" :initialize t)",
+	    "semantic keyword"));
+	CHECK(eval_error_contains(
+	    "(defcustom phase8-bad 1 \"doc\" :unknown t)", "unknown keyword"));
+	CHECK(eval_error_contains(
+	    "(defcustom phase8-bad 1 \"doc\" :type)", "keyword tail"));
+	CHECK(!eval_ok("(custom-set-variables '(\"x\" 12))"));
+	CHECK(eval_eq("(progn (defun phase8-declared () \"doc\""
+		      " (declare (something ignored)) 7) (phase8-declared))",
+	    "7"));
+	CHECK(eval_eq("(progn (defmacro phase8-declared-macro (x)"
+		      " \"doc\" (declare (something ignored)) x)"
+		      " (phase8-declared-macro 8))",
+	    "8"));
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
-	    "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
+		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
 	CHECK(after.peak_live_objects >= before.peak_live_objects);
 	kg_lisp_shutdown();

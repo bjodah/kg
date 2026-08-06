@@ -200,7 +200,10 @@ Ordering rules that hold across every subscriber:
   `(error …)`; budget exhaustion is catchable by nothing — it always
   reaches the host.  Forms evaluated **before** the error remain
   applied — an init file or package that fails partway through still has
-  its earlier `defun`s and `setq`s in effect.
+  its earlier `defun`s and `setq`s in effect. Errors raised while loading a
+  file include its source label and the 1-based line of the top-level form,
+  for example `init.el:7: ...`; missing files name the resolved path tried.
+  Sub-form columns are intentionally not reported.
 - **The interpreter's own recursion limit is two separate bounds**, not
   one. Fe's frame machine (sub-plan 03F) roots Lisp nesting — nested
   calls, nested special forms, self-expanding macros, deep argument
@@ -470,7 +473,7 @@ so no result is ever cut mid-glyph:
 | `(string= A B)` | `t` when equal |
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
-| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%%`; `%d` and the float conversions accept either number type (`%d` prints an integer exactly, truncates a float, and raises on NaN or an infinity); no field widths, no `%c`/`%x`/`%o`; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint; extra arguments ignored, a missing one or an unknown specifier raises |
 
 kg evaluates a prelude (`lisp/prelude.el`, embedded into the binary as
 `src/lisp_prelude_generated.inc`), written in Fe, at startup
@@ -480,7 +483,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 
 | Group | Forms |
 | ---- | ------ |
-| Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
+| Definitions | `defun` `defmacro` `defvar` `defconst` `defcustom` `custom-set-variables` `declare` `interactive` `lambda` |
 | Binding | `let` `let*` `setq` `progn` |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |

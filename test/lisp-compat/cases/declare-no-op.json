@@ -1,0 +1,6 @@
+{
+ "id": "declare-no-op",
+ "setup": [],
+ "expr": "(progn (defun declare-case () \"doc\" (declare (indent 0)) 7) (defmacro declare-macro (x) \"doc\" (declare (indent 0)) x) (list (declare-case) (declare-macro 8)))",
+ "note": "08E: declare immediately after the optional docstring is accepted as inert metadata in defun and defmacro."
+}

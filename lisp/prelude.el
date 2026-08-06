@@ -372,6 +372,8 @@
   ;; is removed after the docstring and the empty body becomes (nil).
   (if (and body (cdr body) (internal--docstring-p (car body)))
       (progn (setq doc (car body)) (setq body (cdr body))))
+  (if (and body (internal--declare-p (car body)))
+      (setq body (cdr body)))
   (if (internal--has-interactive body)
       (progn
         (setq declaration (car body))
@@ -403,6 +405,10 @@
         (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
         (list 'quote name))))))
 (defalias 'defmacro (macro (name params . body)
+  (if (and body (internal--docstring-p (car body)))
+      (setq body (cdr body)))
+  (if (and body (internal--declare-p (car body)))
+      (setq body (cdr body)))
   (list 'progn
     (list 'defalias (list 'quote name)
       (cons 'macro (cons params body)))
@@ -430,8 +436,44 @@
   (list 'progn (list 'setq name (car rest))
     (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
     (list 'quote name))))
+(defalias 'internal--custom-presentation-keyword-p (lambda (key)
+  (or (eq key :type) (eq key :options) (eq key :group)
+      (eq key :tag) (eq key :link) (eq key :version)
+      (eq key :package-version))))
+(defalias 'internal--custom-semantics-keyword-p (lambda (key)
+  (or (eq key :initialize) (eq key :set) (eq key :get)
+      (eq key :require) (eq key :set-after) (eq key :risky)
+      (eq key :safe) (eq key :local))))
+;; This is a declaration over `defvar', not a Customize state
+;; implementation. Presentation metadata is deliberately inert.
+(defalias 'defcustom (macro (name standard doc . keywords)
+  (internal--let tail keywords)
+  (while tail
+    (if (or (null (cdr tail)) (not (keywordp (car tail))))
+        (error "defcustom: keyword tail must contain pairs")
+      (if (internal--custom-semantics-keyword-p (car tail))
+          (error "defcustom: semantic keyword is unsupported")
+        (if (not (internal--custom-presentation-keyword-p (car tail)))
+            (error "defcustom: unknown keyword")))
+      (setq tail (cdr (cdr tail)))))
+  (list 'defvar name standard doc)))
+(defalias 'custom-set-variables (macro entries
+  (internal--let forms nil)
+  (while entries
+    (internal--let entry (car entries))
+    (if (or (not (consp entry)) (not (eq (car entry) 'quote)))
+        (error "custom-set-variables: entries must be quoted pairs")
+      (internal--let pair (car (cdr entry)))
+      (if (or (not (consp pair)) (not (consp (cdr pair)))
+              (cdr (cdr pair)) (not (symbolp (car pair))))
+          (error "custom-set-variables: entry must be (SYMBOL VALUE)")
+        (setq forms (cons (list 'setq (car pair) (car (cdr pair))) forms)))
+    (setq entries (cdr entries))))
+  (cons 'progn (reverse forms))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
 (defalias 'interactive (macro args nil))
+(defalias 'internal--declare-p (lambda (form)
+  (and (consp form) (eq (car form) 'declare))))
 (defalias 'ignore-errors (macro body
   (cons 'condition-case (cons nil (cons (cons 'progn body) '((error nil)))))))
 (defalias 'setq-default (symbol-function 'setq))

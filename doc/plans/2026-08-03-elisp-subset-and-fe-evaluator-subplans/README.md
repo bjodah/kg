@@ -110,10 +110,9 @@ overflow-is-error, nested `(command-execute …)` runs inside the active
 evaluator, and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 6
 (`FeVersion` "7.0").
 
-**This set — Phase 8, the first init-file compatibility wave — is
-next.**  Its five documents (`08a`–`08e`) are in this directory; the
-Grouping and Sequencing sections below describe them, and `08a` leads
-as every A-slice has.
+**The eighth set — Phase 8, the first init-file compatibility wave — is
+complete (2026-08-06).** Its five documents (`08a`–`08e`) were removed
+after acceptance; the Phase 8 Status section below is the surviving record.
 
 The through-line is that Phase 8 makes a real `init.el` load — and
 tell the truth when it cannot.  Four facts, established by auditing
@@ -401,7 +400,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Landed, and over its funding at the top of the raise.** Funded by 05A's Decision (scc 480→540, file 300→340, pmccabe 690→760).  Actuals across 05B–05D: scc 459→**538**, `fe_eval.c` 276→**330**, pmccabe 660→**752** (+79/+92 — scc went 19 points past the funded amount, pmccabe 22 past, and the caps now sit at **2/10/8 points from full**).  Per slice: 05B +1/+3 (the "nearly free" prediction held), 05C the tower's bulk +70/+58, 05D +8/+31.  The row's mid was a floor, not an estimate.  **kg needs no raise**: 5457/5500 at 05E close (+7), pmccabe +1 on each of `format_integer`, `format_float`, `native_numberp` — banked into the baseline in 05E's commit |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Funded by 06A's Decision** (2026-08-05) — **cannot land before it**, and no longer before anything: the core was at 2 scc / 8 pmccabe / 10 file-cap points free, and 06A raised all three caps by the top of the row — `SCC_COMPLEXITY_MAX` 540→**680** (the tightest, at 2 points, which the price table's own instruction forgot to name), `SCC_FILE_COMPLEXITY_MAX` 340→**420**, `PMCCABE_TOTAL_MAX` 760→**900** — proved live by temporary lowering on 06A's tree. The measured starting state the raise is anchored to is 533/540, `fe_eval.c` 326/340, pmccabe 751/760; the 06B–06D actuals are recorded per slice in the Status section as they land |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Landed 2026-08-06, inside the fe band and past the kg band once the review fixes are counted.** fe: scc 654 → 694 at 07B, **670** after the review's fix cycle (net **+16**, well under the +50..80 — the review deleted more than the arity checks added); pmccabe 863 → **886** (+23) across 299 symbols; no cap re-raised beyond 07A's 760/520/980. kg: 5489 → 5656 across 07C/07D/07E (**+0/+89/+78** per slice — 07E 56% past its +30..50 price), then **+58** of review-fix work to **5714**; the 5660 cap was re-set to **5730** at its measured actual in the fix cycle's closing commit. Details in the Phase 7 Status |
-| 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Sub-plan set written 2026-08-06** (`08a`–`08e`); 08A's Decision funds it at slice start from re-measured floors (fe 670/760 and `fe.c` 100/520 leave 08B+08C inside the standing caps on today's numbers; kg 5714/5730 needs a raise for the +40..90 — 08A prices it). The parent's old Wave A "move into core" scope is corrected by 08A: eight of twelve items already exist as non-fragile prelude macros |
+| 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Closed 2026-08-06.** Fe remains untouched in this slice; kg measured **5765 scc / 520 max-file** against the funded 5804/520 gates. The prelude batch plus `defcustom`, `custom-set-variables`, `declare`, and the formatter landed; `make lisp-compat-check`, the 08D/08E PTY cases, and the Emacs oracle verification are green. |
 | 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase | **+30 to +50** (re-priced 2026-08-05) | Provisional (milestone 2) |
 | 10 — proofs | `.fe`/`.el` proof packages and fixtures | Not C; not scc-scanned | 0 | n/a |
 
@@ -2813,3 +2812,32 @@ cleanup mid-close deleted the unconditional `def.h` include the
 `9697f6e`).  Final green light: `JOBS=8 .ci/run-ci-steps.sh
 --parallel` **12/12 PASS** on kg at `9697f6e` with the pin at
 `a14b43b`, all nine fe stages green standalone.
+
+## Status — Phase 8
+
+Closed 2026-08-06 in the kg tree without changing either Fe submodule. 08A's
+5714 scc start was re-measured at the close as **5794**, with the existing
+**520** maximum file score still at the funded limit of 520 and the 5804 total
+cap unbreached. The formatter functions increased pmccabe by
+65 points in aggregate; `.ci/pmccabe-baseline.json` was re-measured with the
+documented regression override, with the global 110-symbol cap still at 91.
+The 08D prelude batch remained a source-complexity-free change;
+the C-side formatter accounted for the measured increase. The arena and Fe
+pin actuals remain the 08D record because 08E adds no Fe surface or pin move.
+
+08E delivered the inert `defcustom`/`custom-set-variables` subset, both
+definition-macro `declare` positions, `%c` UTF-8 and `%x`/`%X`/`%o` formatting
+with widths, flags and precision, and loader status diagnostics retaining
+`FILE:LINE`. The full init corpus now loads and its command remains runnable.
+Lisp command docstrings remain available through `(documentation ...)` but
+are not added to `describe-command`: that C renderer reads the command-table
+summary, while the Lisp command roots are private to the adapter and exposing
+them would require a new cross-module API. This is recorded rather than
+silently presenting a stale summary.
+
+The plan's second-set candidates remain deferred: `string-match`,
+`symbol-name`/`intern`, vectors, a Lisp `load-path` variable, sub-form source
+precision, and public `read-*` functions. Customize UI/state, `defgroup`,
+`setopt`, `custom-file`, `format-message`, `%S` print-depth work and a message
+ring remain explicitly out of scope. The five slice documents were removed
+after reviewer acceptance; this status is the surviving closure record.

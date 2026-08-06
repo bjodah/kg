@@ -10,4 +10,4 @@ keys:
 expected_saved: ok
 expected_screen_contains:
   - "Init file error"
-  - "init.el"
+  - "init.el:1"

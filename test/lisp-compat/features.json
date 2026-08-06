@@ -1850,17 +1850,17 @@
    "source_name": null
   },
   {
-   "id": "defcustom",
-   "category": "loading",
-   "status": "planned",
+    "id": "defcustom",
+    "category": "loading",
+    "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "defcustom"
    ],
-   "kg_test": "test/test_lisp.c (not yet written -- Phase 8 Wave D delivers defcustom and its test together)",
-   "rationale": "Phase 8 Wave D (parent plan's init-compat-waves phase, milestone 2): owned by kg, prelude/library layer, comparison emacs. Delivered as a prelude macro over kg's existing defvar-shaped boundp/setq machinery, not a port of Custom. Its eventual cases must distinguish: an unbound variable from an already-bound one (same first-defvar-wins contract as defvar); whether the standard-value form is evaluated in each of those two cases; the returned symbol and the stored docstring; accepted, inert presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) that kg stores but never interprets; rejected semantics-bearing or unknown keywords (kg is not silently accepting an arbitrary keyword and pretending it did something); and the documented absence of dynamic binding, retained standard forms, setopt, and any Customize UI. This entry exists specifically so defcustom does not become either a hand-waved synonym for defvar or an accidental commitment to all of Custom.",
-   "source_name": null
+    "kg_test": "test/test_lisp.c:test_phase8_library, test/pty/lisp-init-phase8-library.yaml",
+    "rationale": "Phase 8, 08E: prelude declaration over defvar. It distinguishes an unbound variable from a bound one, does not evaluate the standard form when bound, records the docstring, and accepts inert presentation keywords (:type, :options, :group, :tag, :link, :version, :package-version). Unknown keyword and semantic keyword forms are rejected. No Custom state, retained standard form, dynamic binding, setopt or Customize UI is provided.",
+    "source_name": "defcustom"
   },
   {
    "id": "arity-strict",
@@ -2014,6 +2014,50 @@
     "source_name": null
    },
    {
+    "id": "declare-no-op",
+    "category": "functions-and-macros",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["declare-no-op"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "08E accepts and removes a declare form only in the definition macro's optional-docstring position; unknown declaration specs are inert, matching the measured subset.",
+   "source_name": "internal--declare-p"
+   },
+   {
+    "id": "custom-set-variables",
+    "category": "loading",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["defcustom"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "08E's measured subset applies quoted global (SYMBOL VALUE) entries and rejects extra Custom metadata.",
+    "source_name": "custom-set-variables"
+   },
+   {
+    "id": "custom-presentation-keyword-p",
+    "category": "loading",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["defcustom"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "Phase 8 internal defcustom validator for the inert presentation keyword subset; it is not Customize state.",
+    "source_name": "internal--custom-presentation-keyword-p"
+   },
+   {
+    "id": "custom-semantics-keyword-p",
+    "category": "loading",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["defcustom"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "Phase 8 internal defcustom validator for rejected semantic keywords rather than ignored Customize state.",
+    "source_name": "internal--custom-semantics-keyword-p"
+   },
+   {
     "id": "phase8-reader-compatibility",
     "category": "reader-and-literals",
     "status": "planned",
@@ -2070,28 +2114,28 @@
    {
     "id": "phase8-format-contract",
     "category": "formatting",
-    "status": "planned",
+    "status": "supported",
     "owner": "kg",
     "comparison": "emacs",
     "cases": [
      "phase8-format-directives"
     ],
-    "kg_test": "test/test_lisp.c (08E: format directive tests)",
-   "rationale": "Phase 8, 08A Table D's format rows are pure oracle comparisons; loader and source-position diagnostics remain kg-policy decisions in 08E.",
+    "kg_test": "test/test_lisp.c:test_format_natives, test/lisp-compat/oracle/phase8-format-directives.json",
+    "rationale": "08E implements the Table D matrix: %c UTF-8, %x/%X/%o, and width, flag and precision handling for numeric and string conversions.",
    "source_name": null
    },
    {
     "id": "phase8-loader-diagnostics",
     "category": "errors-and-non-local-exits",
-    "status": "planned",
+    "status": "supported",
     "owner": "kg",
     "comparison": "kg-policy",
     "cases": [
      "phase8-diagnostic-load-location",
      "phase8-diagnostic-runtime-location"
     ],
-     "kg_test": "test/pty/lisp-init-error.yaml (08E: source-position diagnostics)",
-    "rationale": "Phase 8, 08A Table D. These are kg's own loader diagnostic shape, so they are pinned by the later PTY test rather than an Emacs snapshot.",
+     "kg_test": "test/pty/lisp-init-error.yaml",
+     "rationale": "08E: loader errors surface Fe's source label and 1-based top-level line in the init status message; missing files name the resolved path. Sub-form precision remains deferred.",
     "source_name": null
    },
   {

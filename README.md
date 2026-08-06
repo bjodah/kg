@@ -226,6 +226,15 @@ budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**
 `doc/lisp-api.md` is the full reference (object lifetimes, position units,
 callback ordering, error handling); this section is the narrative tour.
 
+`defcustom` is the declaration subset: it initializes an unbound global like
+`defvar`, records its docstring, returns the variable symbol, and accepts inert
+presentation keywords (`:type`, `:options`, `:group`, `:tag`, `:link`,
+`:version`, and `:package-version`). `custom-set-variables` accepts only
+quoted `(SYMBOL VALUE)` entries. Customize state and semantic keywords are not
+implemented. `declare` immediately after a definition's optional docstring is
+an accepted no-op. Load errors report `FILE:LINE: CONDITION` in the status
+line; missing files name the resolved path.
+
 `require`/`provide`/`featurep` give a package a way to load at most once:
 
 | Form | Result |

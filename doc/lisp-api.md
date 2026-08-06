@@ -698,9 +698,15 @@ primitive's function cell.
   failed, not where in the source it was written. Fe's reader does not
   carry position information through to evaluation; adding it is a
   `fe/` submodule change with its own pin move, not a kg-side one.
-- Docstrings are retained by `defun`, `defvar` and `defconst`; the
-  prelude's `(documentation 'NAME)` returns the captured string. This is
-  an alist-backed query, not a property-list or `describe-function` UI.
+- Docstrings are retained by `defun`, `defmacro`, `defvar` and
+  `defconst`; the prelude's `(documentation 'NAME)` returns the captured
+  string. This is an alist-backed query, not a property-list or
+  `describe-function` UI. One divergence rides on that: because the store
+  is a single name-keyed alist, `(documentation 'VARIABLE)` answers a
+  variable's docstring here, where Emacs reserves `documentation` for
+  functions and answers a variable through
+  `(documentation-property 'VARIABLE 'variable-documentation)`, which kg
+  does not have.
 
 ## What is not here, and why
 

@@ -3567,6 +3567,35 @@ static void test_phase8_library(void)
 	CHECK(eval_eq("(progn (defconst documented-const 1 \"A constant.\") "
 		      "(documentation 'documented-const))",
 	    "A constant."));
+	/* (defvar SYMBOL &optional VALUE DOCSTRING): a lone string is the
+	 * VALUE, not a docstring.  Emacs 31.0.90 answers "hello" for the
+	 * first row; kg left dv1 unbound because a single string argument
+	 * was classified as documentation and no setq was emitted.  Only
+	 * the second element is ever documentation. */
+	CHECK(eval_eq("(progn (makunbound 'dv1) (defvar dv1 \"hello\") dv1)",
+	    "hello"));
+	CHECK(eval_eq("(progn (makunbound 'dv2) (defvar dv2 \"v\" \"doc\")"
+		      " (list dv2 (documentation 'dv2)))",
+	    "(\"v\" \"doc\")"));
+	CHECK(eval_eq("(progn (makunbound 'dv3) (defvar dv3) (boundp 'dv3))",
+	    "nil"));
+	CHECK(eval_eq("(progn (makunbound 'dv4) (defvar dv4 1) dv4)", "1"));
+	/* And the rule defvar exists for: an already-bound variable keeps
+	 * its value, whatever the declaration says. */
+	CHECK(eval_eq("(progn (setq dv5 9) (defvar dv5 1) dv5)", "9"));
+	/* defmacro takes defun's lone-string rule -- a string is
+	 * documentation only when a further form follows it -- and routes
+	 * the docstring to internal--doc-put.  Emacs answers
+	 * "just a string" and "doc" for these two. */
+	CHECK(eval_eq("(progn (defmacro dm1 (x) \"just a string\") (dm1 3))",
+	    "just a string"));
+	CHECK(eval_eq("(progn (defmacro dm2 (x) \"doc\" (list '+ x 1))"
+		      " (list (dm2 3) (documentation 'dm2)))",
+	    "(4 \"doc\")"));
+	CHECK(eval_eq("(progn (defmacro dm3 (x) (list '+ x 1)) (dm3 3))", "4"));
+	CHECK(eval_eq("(progn (defmacro dm4 (x) \"d\" (declare (indent 0))"
+		      " (list '+ x 1)) (list (dm4 3) (documentation 'dm4)))",
+	    "(4 \"d\")"));
 	CHECK(eval_eq("(progn (setq-default answer 8) answer)", "8"));
 	CHECK(eval_eq("(progn (setq-local answer 9) answer)", "9"));
 	CHECK(eval_eq("(kbd \"C-c k\")", "C-c k"));

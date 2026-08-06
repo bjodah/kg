@@ -423,25 +423,38 @@
         (list 'internal--remove-command-if-present (list 'quote name))
         (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
         (list 'quote name))))))
+;; The same lone-string rule `defun' takes: a string is documentation
+;; only when at least one further form follows it, because otherwise it
+;; is the body.  Emacs answers "just a string" for
+;; (defmacro m (x) "just a string") then (m 3); stripping it here made
+;; the expansion nil.  The docstring goes to internal--doc-put like
+;; `defun''s, so (documentation 'the-macro) answers.
 (defalias 'defmacro (macro (name params . body)
-  (if (and body (internal--docstring-p (car body)))
-      (setq body (cdr body)))
+  (internal--let doc nil)
+  (if (and body (cdr body) (internal--docstring-p (car body)))
+      (progn (setq doc (car body)) (setq body (cdr body))))
   (if (and body (internal--declare-p (car body)))
       (setq body (cdr body)))
+  (if (null body) (setq body (list nil)))
   (list 'progn
     (list 'defalias (list 'quote name)
       (cons 'macro (cons params body)))
+    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
     (list 'quote name))))
 ;; Fe distinguishes an unassigned symbol from one holding nil, so
 ;; defvar asks boundp rather than reading the variable -- which would
 ;; now raise void-variable -- and a variable holding nil stays nil.
+;; (defvar SYMBOL &optional VALUE DOCSTRING): the value is (car rest)
+;; whenever rest is non-nil, even when it is a string.  Emacs answers
+;; "hello" for (progn (defvar dv "hello") dv); classifying a lone string
+;; as the docstring left dv unbound.  Only the SECOND element is ever
+;; documentation.
 (defalias 'defvar (macro (name . rest)
-  (internal--let value-present
-    (and rest (or (not (stringp (car rest))) (cdr rest))))
+  (internal--let value-present (if rest t nil))
   (internal--let doc
     (if (and (cdr rest) (stringp (car (cdr rest))))
         (car (cdr rest))
-      (if (and rest (stringp (car rest))) (car rest) nil)))
+      nil))
   (list 'progn
     (list 'if (list 'boundp (list 'quote name))
       nil

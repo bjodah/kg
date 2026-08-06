@@ -413,8 +413,49 @@ static void test_picker_filter_no_match(void)
 	CHECK(names[0] == NULL);
 }
 
+/* editor_path_expand_tilde() reports rather than truncates when $HOME
+ * plus the rest does not fit, and editor_path_split() answers "no
+ * directory" rather than handing opendir a name that still begins with a
+ * literal '~' -- which would find nothing, or find a directory really
+ * called "~".  That return value used to be discarded at both remaining
+ * call sites. */
+static void test_expand_tilde_reports_overflow(void)
+{
+	char buf[8];
+	char dir[8];
+	char file[64];
+	const char *home = getenv("HOME");
+
+	CHECK(home != NULL && home[0] != '\0');
+
+	/* No leading tilde, or a "~user/" form: nothing to expand, no
+	 * failure either. */
+	snprintf(buf, sizeof(buf), "/tmp/x");
+	CHECK(editor_path_expand_tilde(buf, (int)sizeof(buf)) == 0);
+	CHECK(strcmp(buf, "/tmp/x") == 0);
+	snprintf(buf, sizeof(buf), "~usr/a");
+	CHECK(editor_path_expand_tilde(buf, (int)sizeof(buf)) == 0);
+	CHECK(strcmp(buf, "~usr/a") == 0);
+
+	/* $HOME is longer than eight bytes on any real system, so this one
+	 * cannot fit: it reports 1 and leaves the buffer untouched. */
+	if ((int)strlen(home) + 2 > (int)sizeof(buf)) {
+		snprintf(buf, sizeof(buf), "~/a");
+		CHECK(editor_path_expand_tilde(buf, (int)sizeof(buf)) == 1);
+		CHECK(strcmp(buf, "~/a") == 0);
+
+		/* ... and the split's directory half is emptied, so the
+		 * caller scans nothing rather than the wrong thing. */
+		editor_path_split(
+		    "~/sub/name", dir, (int)sizeof(dir), file, (int)sizeof(file));
+		CHECK(dir[0] == '\0');
+		CHECK(strcmp(file, "name") == 0);
+	}
+}
+
 int main(void)
 {
+	RUN(test_expand_tilde_reports_overflow);
 	RUN(test_multiple_matches_lcp);
 	RUN(test_three_matches_lcp_two_chars);
 	RUN(test_single_file_match);

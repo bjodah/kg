@@ -3129,6 +3129,33 @@ static void test_path_prompt_midline_erase_keeps_cursor(void)
 	teardown();
 }
 
+/* Tab and the pick-list cycle keys are ordinary keys of this read loop
+ * and must leave it running and the prompt balanced.
+ *
+ * The completion itself is not what is under test here: this binary
+ * stubs editor_path_complete_entries and editor_picker_filter (path.o is
+ * deliberately not linked, see stubs_buffer.c), so the pick-list is
+ * always empty and Tab has nothing to extend to. What a real directory
+ * does with Tab belongs to the PTY suite; what belongs here is that
+ * neither key is mistaken for an accept or a cancel. */
+static void test_path_prompt_tab_and_cycle(void)
+{
+	char path[PATH_MAX];
+	struct key_event keys[] = { kev(KEY_BASE_TAB, 0),
+		kev(KEY_BASE_RIGHT, 0), kev(KEY_BASE_LEFT, 0), kev('x', 0),
+		kev(KEY_BASE_RET, 0) };
+
+	setup();
+	snprintf(path, sizeof(path), "/tmp/ab");
+	PLAY(keys);
+	CHECK(editor_read_line_path(0, "P: ", path, (int)sizeof(path))
+	    == MINIBUF_ACCEPTED);
+	CHECK(strcmp(path, "/tmp/abx") == 0);
+	CHECK(!kg_event_prompt_active());
+	play_keys(NULL, 0);
+	teardown();
+}
+
 /* The buffer-name read is a read: it returns a display name and leaves
  * buf_current alone, which is what lets the Lisp `b`/`B` codes construct
  * an argument without switching buffers as a side effect.  The three
@@ -3175,6 +3202,21 @@ static void test_buf_read_name_modes(void)
 	    == MINIBUF_CANCELLED);
 	CHECK(buf_current == start);
 	CHECK(!kg_event_prompt_active());
+
+	/* Left/Right cycle the filtered set without accepting, and the
+	 * selection is what RET then takes -- one candidate forward from
+	 * the default and one back is the default again. */
+	{
+		struct key_event cycled[] = { kev(KEY_BASE_RIGHT, 0),
+			kev(KEY_BASE_LEFT, 0), kev(KEY_BASE_RET, 0) };
+
+		PLAY(cycled);
+		CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
+			  BUF_NAME_SELECT, &picked)
+		    == MINIBUF_ACCEPTED);
+		CHECK(picked >= 0);
+		CHECK(buf_current == start);
+	}
 
 	/* C-x b: the same miss closes the prompt having chosen nothing.
 	 * Sharing `b`'s re-prompt made C-x b loop forever on RET. */
@@ -3264,6 +3306,7 @@ int main(void)
 	RUN(test_minibuf_delete_backward_drains_overflow);
 	RUN(test_path_prompt_overflow_is_retired);
 	RUN(test_path_prompt_midline_erase_keeps_cursor);
+	RUN(test_path_prompt_tab_and_cycle);
 	RUN(test_buf_read_name_modes);
 	RUN(test_buf_read_name_overflow_is_retired);
 	RUN(test_buf_select_interactive_no_other_buffers);

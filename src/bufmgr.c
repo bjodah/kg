@@ -1915,11 +1915,11 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 
 	/* See editor_read_line_with_history()'s comment: this is a
 	 * minibuffer read too (its query line), across a loop that may run
-	 * for many keystrokes before Enter or C-g -- including the "No
-	 * other buffers." early return just below, which never opens the
-	 * loop but is still, structurally, this prompt starting and
-	 * immediately finishing. Balanced at each of this function's three
-	 * returns, since it does not funnel through prompt_done(). */
+	 * for many keystrokes before Enter or C-g.  Balanced at the loop's
+	 * one exit, since this function does not funnel through
+	 * prompt_done(); the refusal above returns before the pair opens.
+	 * ("No other buffers." used to be an early return here and is
+	 * buf_select_interactive's now, where it emits its own pair.) */
 	kg_event_prompt_enter();
 
 	/* Build ring starting from the buffer after current (most natural

@@ -608,6 +608,29 @@ static void test_define_and_run_command(void)
 	    "(define-command \"version\" (lambda () 1))", "built-in"));
 	CHECK(eval_error_contains(
 	    "(define-command \"x\" 1)", "requires a function"));
+	/* The optional third and fourth arguments are validated too: a spec
+	 * is nil, a string, or a zero-argument function, and documentation
+	 * is nil or a string. */
+	CHECK(eval_error_contains("(define-command \"x\" (lambda () 1) 5)",
+	    "requires a string or function spec"));
+	CHECK(eval_error_contains(
+	    "(define-command \"x\" (lambda () 1) nil 5)",
+	    "documentation requires a string"));
+	/* ... and both optional arguments really are optional. */
+	CHECK(eval_ok("(define-command \"two-arg\" (lambda () 1))"));
+	CHECK(eval_ok("(remove-command \"two-arg\")"));
+
+	/* lookup-key answers nil rather than raising for a map nothing is
+	 * called, and for a sequence that does not parse. */
+	CHECK(eval_eq("(lookup-key \"no-such-map\" \"C-c i\")", "nil"));
+	CHECK(eval_eq("(lookup-key \"global\" \"C-c C-c C-c C-c C-c\")", "nil"));
+
+	/* global-unset-key tells an unbindable sequence from an unbound
+	 * one, and names the sequence in both messages. */
+	CHECK(eval_error_contains("(global-unset-key \"C-x i\")",
+	    "only \"C-c <key>\" is bindable"));
+	CHECK(eval_error_contains(
+	    "(global-unset-key \"C-c q\")", "key is not bound"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -682,6 +705,43 @@ static void test_number_token_classifier(void)
 	 * double, as an integer literal past int64 does in fe's reader. */
 	CHECK(kg_number_token_classify("99999999999999999999")
 	    == KG_NUMBER_TOKEN_INTEGER);
+}
+
+/* 07E: prompting is refused outside a real key/M-x command context.
+ *
+ * These tests have no terminal, so cmd_prompt_fd() answers -1 -- which
+ * is exactly the shape of loading an init file, running a hook, or
+ * running a process filter: a live Lisp frame with no command fd behind
+ * it.  Guessing from state.frame_active, which is true in all of those,
+ * is what the slice was told not to do, and this is the observable
+ * difference.  The command body must not run either. */
+static void test_interactive_prompt_context_refusal(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq ran nil)"));
+	CHECK(eval_ok("(defun asks (v) (interactive \"sV: \") (setq ran v))"));
+	CHECK(kg_lisp_run_command("asks", 0) == 0);
+	CHECK(strstr(test_status_message,
+		  "interactive prompt is not available here")
+	    != nullptr);
+	CHECK(eval_eq("ran", "nil"));
+
+	/* Reached from Lisp, the same refusal is an ordinary condition the
+	 * calling program can catch, and still does not run the body. */
+	CHECK(eval_eq("(condition-case e (command-execute 'asks)"
+		      "  (error 'refused))",
+	    "refused"));
+	CHECK(eval_eq("ran", "nil"));
+
+	/* A command that needs no prompt is unaffected. */
+	CHECK(eval_ok("(defun quiet () (interactive) (setq ran 'yes))"));
+	CHECK(kg_lisp_run_command("quiet", 0) == 0);
+	CHECK(eval_eq("ran", "yes"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
 }
 
 static void test_defun_redefinition_is_atomic(void)
@@ -850,6 +910,17 @@ static void test_command_prefix_delivery(void)
 	 * five bare C-u is (1024) in Emacs and was (1000) here. */
 	CHECK(test_run_command_with_prefix("raw1", five_cu) == CMD_RAN);
 	CHECK(eval_eq("seen", "(1024)"));
+
+	/* Emacs would use a bignum past int64; the raw list saturates at the
+	 * largest representable power of 4 instead, which needs 32
+	 * consecutive C-u and is a recorded limit rather than a wrap. */
+	{
+		struct command_prefix many
+		    = { 1, 1000, PREFIX_RAW_UNIVERSAL, 40 };
+
+		CHECK(test_run_command_with_prefix("raw1", many) == CMD_RAN);
+		CHECK(eval_eq("(car seen)", "4611686018427387904"));
+	}
 
 	/* `p` is prefix-numeric-value of the same raw form. */
 	CHECK(test_run_command_with_prefix("num", none) == CMD_RAN);
@@ -3744,6 +3815,7 @@ int main(void)
 	RUN(test_load_path_missing_dirs);
 	RUN(test_define_and_run_command);
 	RUN(test_defun_redefinition_is_atomic);
+	RUN(test_interactive_prompt_context_refusal);
 	RUN(test_run_command_interrupt);
 	RUN(test_run_command_reentrancy);
 	RUN(test_command_prefix_delivery);

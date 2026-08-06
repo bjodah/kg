@@ -3,8 +3,9 @@
 
 /* def.h for ascii_is_space/ascii_is_digit, which the numeric classifier
  * at the foot of this file uses and which is compiled in both build
- * configurations; the KG_USE_LISP half below includes it again through
- * its own guard. */
+ * configurations; the KG_USE_LISP half checks its own gated definitions
+ * against it through the same top-of-file include. */
+#include "def.h"
 #include "lisp.h"
 #include "perf.h"
 
@@ -37,7 +38,6 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "../fe/fe.h"
 #include "bufmgr.h"
 #include "cmd.h"
-#include "def.h"
 #include "event.h"
 /* lisp.h is already included, unconditionally, above -- this second
  * #include is a no-op through the header guard.  Kept out rather than

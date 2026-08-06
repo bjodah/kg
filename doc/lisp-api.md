@@ -215,7 +215,7 @@ Ordering rules that hold across every subscriber:
     roughly 3 frames per level (`if`, the arithmetic, and the recursive
     call each open one), so in practice it stops `(deep n)`-shaped
     recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1097; exceeding it raises
+    `frame_capacity` 1096; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting

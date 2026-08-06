@@ -1031,7 +1031,7 @@ static void test_lisp_prelude_arena_margin(void)
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* frame_capacity is a fixed property of the arena layout, not the
-	 * workload; asserted nonzero and stable here (measured 1097 on this
+	 * workload; asserted nonzero and stable here (measured 1096 on this
 	 * build) rather than to a specific number, per the same
 	 * bound-not-count convention as the slot counts above. */
 	CHECK(stats.frame_capacity > 0);
@@ -1136,7 +1136,7 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* Deep call chain: 300 levels of non-tail self-recursion, well under
 	 * both the GC-stack ceiling and the arena's own frame_capacity
-	 * (measured peak_frame_depth 904 of frame_capacity 1097 on this
+	 * (measured peak_frame_depth 904 of frame_capacity 1096 on this
 	 * build -- about 3 frames per recursion level for this chain's
 	 * shape: the `if`, the `+`, and the recursive call each open one).
 	 * Asserted against frame_capacity rather than a hardcoded number so

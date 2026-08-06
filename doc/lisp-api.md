@@ -568,6 +568,11 @@ primitive's function cell.
 
 ## Explicit differences from Emacs Lisp
 
+- **Function arity is strict.** Calls with too few or too many arguments raise
+  `wrong-number-of-arguments` with data `(FUNCTION NARGS)`. `&optional`
+  parameters bind `nil` when omitted, and `&rest` collects the remaining
+  arguments into a fresh list. Native helper checks use the same condition
+  while preserving their existing rendered error text.
 - `eq` is Emacs' `eq`: `(eq 3 3)` is `t` (fixnum equality — integers
   compare by value) but two separately-read equal strings, and two
   float objects, are `nil`. Fe's own broad comparator remains available

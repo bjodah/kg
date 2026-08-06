@@ -1,0 +1,6 @@
+{
+ "id": "arity-strict",
+ "setup": [],
+ "expr": "(condition-case e (funcall (lambda (x) x)) (wrong-number-of-arguments (list (car e) (car (cdr (cdr e))))))",
+ "note": "07C: strict lambda arity is unconditional in the pinned Fe used by kg; the condition records the actual argument count."
+}

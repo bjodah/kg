@@ -40,8 +40,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_obj.h"
 #include "lisp_process.h"
 
-static_assert(FE_API_VERSION == 5);
-static_assert(FE_LANGUAGE_VERSION == 5);
+static_assert(FE_API_VERSION == 6);
+static_assert(FE_LANGUAGE_VERSION == 6);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)

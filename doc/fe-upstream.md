@@ -9,10 +9,10 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 5`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 6`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 5`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 6`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
 version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
@@ -93,7 +93,8 @@ that could be done in the prelude was done there instead.
 | A macro expands on every call instead of overwriting its call site | copying the expansion over the call site cloned it, and `nil` and interned symbols are compared by address: a macro expanding to `nil` produced a truthy nil, and one expanding to a symbol missed every lexical binding | one expansion per invocation, charged against the step budget; kg's "a macro expands once per call site" caveat is gone from `README.md` and `doc/kg.1` |
 | The writer is bounded and terminates on cycles | `(setcdr x x)` then rendering hung kg with no C-g escape: `M-:`, `eval-buffer`, `C-j`, `format`'s `%s`/`%S` all render | `#<cycle>`, `#<deep>` and `#<truncated>` are stable output; `FeWriteWithOptions()` carries the budgets and reports completion; the writer no longer allocates, and spends the step budget while an evaluation is active |
 | `&optional` and `&rest` in parameter lists | Emacs Lisp spells them that way, and kg had to delete `&optional` from every arglist because the binder could not see it | `internal--arglist` is gone from kg's prelude; `&optional` and `&rest` cannot be parameter names |
-| Optional argument-count checking, `FeSetStrictArity()` | `((lambda (x) x))` was nil, `((lambda () 1) 2)` was 1 and `((lambda (1) 5) 2)` was 5 | off by default, so kg is unaffected; `fe -a` turns it on and Fe's script suite runs a third time under it |
+| Strict argument-count checking (sub-plan 07B) | `((lambda (x) x))` and `((lambda () 1) 2)` now raise `wrong-number-of-arguments`; `&optional` binds nil and `&rest` collects remaining arguments | unconditional in Fe; `FeSetStrictArity()`/`FeGetStrictArity()` and the `-a` mode are removed. `FeVersion` is `"7.0"`, `FeMinimumArenaSize()` is 56856 bytes, and kg's default 1 MiB arena measures 1097 frames / 56225 object slots at this pin |
+| `after-change-functions` callback shape | Emacs calls callbacks with `(BEG END PRE-LENGTH)`; kg passes `(BUFFER BEG END OLD-LEN)` | deliberate kg divergence, retained until the Phase 8 init-file compatibility work |
 | An unassigned symbol is `void-variable`, not `nil` | a typo was silently false; Fe's own `TODO.md` asked for this | `boundp` and `makunbound` are new primitives and `FeIsBound()` is a new API; kg's `defvar` asks `(boundp 'name)` rather than evaluating the name |
 | `FeCallWithOptions()` — a controlled `FeCall()` | kg ran Lisp commands through a source-string trampoline (`(internal--run-pending-command)`) solely to reach the evaluator's step-budget/interrupt/GC accounting; the trampoline is gone now that a callable can be invoked under the same options | one declaration in `fe.h` and a thin wrapper reusing `BeginEvaluationControl`/`EndEvaluationControl`; tested in `test_api.c`, no `FE_API_VERSION` bump (compatible addition) |
 | `unwind-protect` and `FeProtectWithCleanup()` — cleanup stack and host protection | Lisp `unwind-protect` and C `FeProtectWithCleanup` share a single LIFO registry; cleanups run on normal return, Lisp error, C-g interrupt, and step-budget exhaustion | new primitive `unwind-protect`, `FeProtectWithCleanup()` API in `fe.h`, fresh per-entry cleanup step budget and interrupt re-arming in `RunCleanupsAfterError` |
@@ -161,8 +162,7 @@ Deliberately **not** changed in `fe.c`, and why:
 - **Dynamic binding, vectors, hash tables,
   keyword arguments, a byte compiler.** All need new object types beyond
   what the current core provides.
-- **Strict arity by default.** `FeSetStrictArity()` exists and kg does not call
-  it. Turning it on would make every `(defun c (x) (interactive) …)` an arity
-  error, because kg invokes interactive commands with zero arguments
-  (`FeCallWithOptions(ctx, cmd, nullptr, 0, &opts)`). It becomes possible once
-  commands are invoked with their arguments.
+- **Strict arity by default.** The 07B pin makes lambda, macro, primitive and
+  native-helper arity checks unconditional. Required-argument interactive
+  commands currently raise `wrong-number-of-arguments` when kg invokes them
+  with no constructed arguments; 07D adds interactive argument construction.

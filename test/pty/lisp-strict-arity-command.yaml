@@ -1,0 +1,16 @@
+name: lisp-strict-arity-command
+filename: lisp-strict-arity.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun bad (x)
+      (interactive)
+      (insert x))
+initial: ""
+keys:
+  - M-x
+  - bad
+  - RET
+expected_saved: ""
+expected_screen_contains:
+  - wrong-number-of-arguments

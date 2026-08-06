@@ -1861,8 +1861,21 @@
    "rationale": "Phase 8 Wave D (parent plan's init-compat-waves phase, milestone 2): owned by kg, prelude/library layer, comparison emacs. Delivered as a prelude macro over kg's existing defvar-shaped boundp/setq machinery, not a port of Custom. Its eventual cases must distinguish: an unbound variable from an already-bound one (same first-defvar-wins contract as defvar); whether the standard-value form is evaluated in each of those two cases; the returned symbol and the stored docstring; accepted, inert presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) that kg stores but never interprets; rejected semantics-bearing or unknown keywords (kg is not silently accepting an arbitrary keyword and pretending it did something); and the documented absence of dynamic binding, retained standard forms, setopt, and any Customize UI. This entry exists specifically so defcustom does not become either a hand-waved synonym for defvar or an accidental commitment to all of Custom.",
    "source_name": null
    },
-   {
-    "id": "phase7-interactive-declaration",
+    {
+     "id": "arity-strict",
+     "category": "functions-and-macros",
+     "status": "supported",
+     "owner": "kg",
+     "comparison": "emacs",
+     "cases": [
+      "arity-strict"
+     ],
+     "kg_test": "test/test_lisp.c:test_strict_arity",
+     "rationale": "07C pins Fe's unconditional strict arity in the full kg host: too few lambda arguments raise wrong-number-of-arguments with the actual count in condition data, while optional and rest parameters retain their defined bindings.",
+     "source_name": null
+    },
+    {
+     "id": "phase7-interactive-declaration",
     "category": "interactive-commands",
     "status": "planned",
     "owner": "kg",

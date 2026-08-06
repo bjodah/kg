@@ -2536,6 +2536,43 @@ static void test_definition_forms(void)
 	teardown_editor();
 }
 
+static void test_strict_arity(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq(
+	    "(condition-case e (funcall (lambda (x) x)) "
+	    "(wrong-number-of-arguments (list (car e) (car (cdr (cdr e))))))",
+	    "(wrong-number-of-arguments 0)"));
+	CHECK(
+	    eval_eq("(condition-case e "
+		    "(progn (defun needs-two (a b) (list a b)) (needs-two 1)) "
+		    "(wrong-number-of-arguments (car e)))",
+		"wrong-number-of-arguments"));
+	CHECK(eval_eq("(condition-case e "
+		      "(progn (defmacro needs-form (x) x) (needs-form 1 2)) "
+		      "(wrong-number-of-arguments (car e)))",
+	    "wrong-number-of-arguments"));
+	CHECK(eval_eq("(progn (defun optional-rest (a &optional b &rest r) "
+		      "(list a b r)) (optional-rest 1))",
+	    "(1 nil nil)"));
+	CHECK(eval_eq("(progn (defun optional-rest-2 (a &optional b &rest r) "
+		      "(list a b r)) (optional-rest-2 1 2 3 4))",
+	    "(1 2 (3 4))"));
+	CHECK(eval_eq("(condition-case e (message) "
+		      "(wrong-number-of-arguments (car e)))",
+	    "wrong-number-of-arguments"));
+	CHECK(eval_error_contains("(message)", "too few arguments"));
+	CHECK(eval_eq("(condition-case e (goto-char 1 2) "
+		      "(wrong-number-of-arguments (car e)))",
+	    "wrong-number-of-arguments"));
+	CHECK(eval_error_contains("(goto-char 1 2)", "too many arguments"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_quasiquote(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -3485,6 +3522,7 @@ int main(void)
 	RUN(test_numeric_core_error_rules);
 	RUN(test_binding_forms);
 	RUN(test_definition_forms);
+	RUN(test_strict_arity);
 	RUN(test_quasiquote);
 	RUN(test_void_function);
 	RUN(test_void_variable);

@@ -445,8 +445,10 @@ surface is available before any init file runs. It is what makes kg's
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
 
-Argument lists take `&optional` and `&rest`; a missing argument is `nil` and an
-extra one is dropped. `length` also counts the codepoints of a string. `equal`
+Argument lists are strict: too few or too many arguments raise
+`wrong-number-of-arguments`. `&optional` parameters bind `nil` when omitted,
+and `&rest` collects remaining arguments into a fresh list. `length` also counts
+the codepoints of a string. `equal`
 is structural on lists and compares the leaves with `eql` — strings by
 content, numbers only when they are the same type *and* the same value, so
 `(equal 1 1.0)` is `nil`, and everything else by identity.

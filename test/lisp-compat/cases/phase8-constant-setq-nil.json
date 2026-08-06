@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-setq-nil",
+ "setup": [],
+ "expr": "(condition-case e (setq nil 1) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: assigning nil signals setting-constant."
+}

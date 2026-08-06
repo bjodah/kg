@@ -1,0 +1,6 @@
+{
+ "id": "phase8-diagnostic-load-location",
+ "setup": [],
+ "expr": "(load \"phase8-missing-init.el\")",
+ "note": "08A Table D: kg-policy contract requires a load failure to name the file and a real source line; no batch Emacs snapshot is meaningful for kg's diagnostic surface."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-delete",
+ "setup": [],
+ "expr": "(let ((needle (list 1)) (items (list (list 1) (list 2)))) (list (delq needle items) (delete needle (list (list 1) (list 2)))))",
+ "note": "08A Table L: structurally equal but non-identical list values distinguish delq identity comparison from delete equal comparison."
+}

@@ -1993,7 +1993,107 @@
    "kg_test": "test/pty/lisp-interactive-prompting.yaml, test/pty/lisp-interactive-prompting-codes.yaml",
    "rationale": "Empty prefill, exactly the accepted bytes back including the empty string, no history ring, and the clause tail verbatim as the prompt.",
    "source_name": null
-  },
+   },
+   {
+    "id": "phase8-constants-and-keywords",
+    "category": "bindings",
+    "status": "planned",
+    "owner": "fe-core",
+    "comparison": "emacs",
+    "cases": [
+     "phase8-constant-setq-t",
+     "phase8-constant-setq-nil",
+     "phase8-constant-setq-keyword",
+     "phase8-constant-let-t",
+     "phase8-constant-let-nil",
+     "phase8-constant-lambda-t",
+     "phase8-keyword-values"
+    ],
+    "kg_test": "fe/test_api.c (08B: constant protection and keyword evaluation)",
+    "rationale": "Phase 8, 08A Table C. These are fresh oracle pins for 08B; implementation remains intentionally absent in this slice.",
+    "source_name": null
+   },
+   {
+    "id": "phase8-reader-compatibility",
+    "category": "reader-and-literals",
+    "status": "planned",
+    "owner": "fe-core",
+    "comparison": "emacs",
+    "cases": [
+     "phase8-reader-char-escapes",
+     "phase8-reader-char-modifiers",
+     "phase8-reader-char-unicode",
+     "phase8-reader-radix",
+     "phase8-reader-string-escapes",
+     "phase8-reader-vector",
+     "phase8-reader-uninterned-symbol",
+     "phase8-reader-dotted-backquote",
+     "phase8-reader-nested-backquote"
+    ],
+    "kg_test": "fe/test_api.c (08C: reader syntax and escape table)",
+    "rationale": "Phase 8, 08A Table R. The snapshots freeze the measured reader contract before reject and implementation work; no status is promoted by this pinning slice.",
+    "source_name": null
+   },
+   {
+    "id": "phase8-reader-rejection-policy",
+    "category": "reader-and-literals",
+    "status": "planned",
+    "owner": "fe-core",
+    "comparison": "kg-policy",
+    "cases": [
+     "phase8-reader-policy-rejections"
+    ],
+    "kg_test": "fe/test_api.c (08C: reject unsupported reader syntax)",
+    "rationale": "Phase 8, 08A Table R. Unsupported vectors, uninterned-symbol syntax, symbol escapes, and unknown string escapes must fail clearly rather than be silently misread; this policy row has no Emacs snapshot.",
+    "source_name": null
+   },
+   {
+    "id": "phase8-library-contracts",
+    "category": "functions-and-lists",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "phase8-library-mapc-mapconcat",
+     "phase8-library-list-edges",
+     "phase8-library-nreverse",
+     "phase8-library-delete",
+     "phase8-library-add-to-list",
+     "phase8-library-defvar",
+     "phase8-library-defvar-valued",
+     "phase8-library-max-min-errors"
+    ],
+    "kg_test": "test/test_lisp.c (08D: prelude library contract tests)",
+    "rationale": "Phase 8, 08A Table L. These cases pin absent and divergent library contracts for the later prelude batch; no prelude change belongs here.",
+    "source_name": null
+   },
+   {
+    "id": "phase8-format-contract",
+    "category": "formatting",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "phase8-format-directives"
+    ],
+    "kg_test": "test/test_lisp.c (08E: format directive tests)",
+   "rationale": "Phase 8, 08A Table D's format rows are pure oracle comparisons; loader and source-position diagnostics remain kg-policy decisions in 08E.",
+   "source_name": null
+   },
+   {
+    "id": "phase8-loader-diagnostics",
+    "category": "errors-and-non-local-exits",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": [
+     "phase8-diagnostic-load-location",
+     "phase8-diagnostic-runtime-location"
+    ],
+     "kg_test": "test/pty/lisp-init-error.yaml (08E: source-position diagnostics)",
+    "rationale": "Phase 8, 08A Table D. These are kg's own loader diagnostic shape, so they are pinned by the later PTY test rather than an Emacs snapshot.",
+    "source_name": null
+   },
   {
    "id": "phase7-interactive-code-n",
    "category": "interactive-commands",

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-let-t",
+ "setup": [],
+ "expr": "(condition-case e (let ((t 1)) t) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: let binding of t signals at bind time."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-string-escapes",
+ "setup": [],
+ "expr": "(list \"\\x41\" \"\\101\" \"\\e\" \"\\d\" \"\\s\")",
+ "note": "08A Table R: string escape spellings are pinned before the reader work."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-char-modifiers",
+ "setup": [],
+ "expr": "(list ?\\C-a ?\\M-a)",
+ "note": "08A Table R: measured control and meta character modifiers."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-format-directives",
+ "setup": [],
+ "expr": "(list (format \"%-5d|\" 3) (format \"%05.2f\" 1.5) (string-to-list (format \"%c\" 233)) (format \"%x\" 255) (format \"%X\" 255) (format \"%o\" 15))",
+ "note": "08A Table D: measured format width, precision, character, and radix directives; string-to-list makes the %c 233 character value explicit without putting a non-UTF-8 unibyte string on the oracle protocol."
+}

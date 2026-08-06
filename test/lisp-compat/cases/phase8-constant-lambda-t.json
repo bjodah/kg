@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-lambda-t",
+ "setup": [],
+ "expr": "(condition-case e ((lambda (t) t) 1) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: lambda parameter binding of t signals setting-constant."
+}

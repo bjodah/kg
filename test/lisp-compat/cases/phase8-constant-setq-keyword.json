@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-setq-keyword",
+ "setup": [],
+ "expr": "(condition-case e (setq :kw 1) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: keyword symbols are protected constants."
+}

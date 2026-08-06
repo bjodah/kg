@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-vector",
+ "setup": [],
+ "expr": "[1 2 3]",
+ "note": "08A Table R: Emacs reads this as a vector; kg's Phase 8 policy is to reject vectors rather than misread them."
+}

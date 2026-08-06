@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-add-to-list",
+ "setup": ["(setq phase8-x '(2 1))"],
+ "expr": "(list (add-to-list 'phase8-x 3) phase8-x (add-to-list 'phase8-x 4 t) phase8-x)",
+ "note": "08A Table L: add-to-list puts a new value at the front by default and a distinct new value at the end with APPEND."
+}

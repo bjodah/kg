@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-list-edges",
+ "setup": [],
+ "expr": "(list (assq 'a '((a . 1) (b . 2))) (identity 7) (prog2 1 2 3) (max 1 4 2) (min 1 4 2) (cond (5)))",
+ "note": "08A Table L: absent library functions and the measured cond lone-clause result."
+}

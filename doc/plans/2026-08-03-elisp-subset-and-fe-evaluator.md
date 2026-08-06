@@ -1366,6 +1366,34 @@ An interactive function with required arguments and no usable interactive specif
 
 After the architectural phases, expand the language in corpus-driven waves.
 
+#### Correction block — 2026-08-06 (Phase 8 sub-plan 08A)
+
+The Phase 7 close audit found that the original Wave A-D description was
+substantially stale. The following corrections are binding for Phase 8 and
+replace the corresponding assumptions below:
+
+1. Wave A's "move into Fe core" premise is inverted: eight of its twelve
+   items already exist and agree with Emacs as prelude macros; constant
+   protection and keyword self-evaluation are the actual Fe-core work.
+2. The old one-binding Fe `let` bullet was satisfied before this plan was
+   written (b37bb20, 2026-07-28).
+3. Wave A underweights its highest-severity item: assignable `t` can silently
+   corrupt the language for the rest of a session.
+4. Wave B is approximately 60% complete and omits the first init-file needs:
+   `setq-default`, `kbd`, `identity`, `symbol-name`, and related library
+   edges.
+5. "Retain iterative implementations" is already prelude rule 2; its stated
+   reason is stale because the bound is the 1097-frame arena, not the GC
+   stack.
+6. Wave C's `#'` bullet landed in 04D, and its keyword bullet duplicates Wave
+   A's keyword work.
+7. Wave C's character-literal deferral rationale is dead now that Phase 5 has
+   integer values.
+8. Wave D's add-list (`load`/`require`/`provide`/`featurep`/init discovery)
+   already exists. The real gaps are diagnostics (`path:BYTEOFF` pretending
+   to be a line, with no runtime positions), dropped docstrings, and
+   `declare`.
+
 ### Wave A — Core forms and symbols
 
 Move commonly required semantics into Fe core where macro approximations are fragile:

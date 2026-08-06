@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-mapc-mapconcat",
+ "setup": [],
+ "expr": "(list (mapc #'identity '(1 2 3)) (mapconcat #'number-to-string '(1 2 3)) (mapconcat #'number-to-string '(1 2 3) \",\"))",
+ "note": "08A Table L: mapc returns its LIST argument and mapconcat accepts both its optional two-argument form and its three-argument separator form."
+}

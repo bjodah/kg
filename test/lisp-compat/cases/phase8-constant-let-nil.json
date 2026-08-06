@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-let-nil",
+ "setup": [],
+ "expr": "(condition-case e (let ((nil 1)) 1) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: let binding of nil signals setting-constant at bind time."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-dotted-backquote",
+ "setup": [],
+ "expr": "(let ((x 2)) `(1 . ,x))",
+ "note": "08A Table R: dotted backquote evaluates the unquoted tail."
+}

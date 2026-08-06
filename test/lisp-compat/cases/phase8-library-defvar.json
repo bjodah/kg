@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-defvar",
+ "setup": [],
+ "expr": "(progn (makunbound 'x) (list (boundp 'x) (defvar x) (boundp 'x)))",
+ "note": "08A Table L: the exact unbound (defvar x) form declares x without binding it; boundp remains nil."
+}

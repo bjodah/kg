@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-char-escapes",
+ "setup": [],
+ "expr": "(list ?a ?\\n ?\\t ?\\e ?\\\\ ?\\s ?\\d)",
+ "note": "08A Table R: measured character escape values."
+}

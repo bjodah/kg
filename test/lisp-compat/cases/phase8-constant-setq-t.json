@@ -1,0 +1,6 @@
+{
+ "id": "phase8-constant-setq-t",
+ "setup": [],
+ "expr": "(condition-case e (setq t nil) (setting-constant (list (car e) (car (cdr e)))))",
+ "note": "08A Table C: assigning t signals setting-constant and leaves the constant protected."
+}

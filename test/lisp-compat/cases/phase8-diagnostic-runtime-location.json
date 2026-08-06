@@ -1,0 +1,6 @@
+{
+ "id": "phase8-diagnostic-runtime-location",
+ "setup": [],
+ "expr": "(load \"phase8-runtime-error.el\")",
+ "note": "08A Table D: kg-policy contract requires a runtime error in a loaded file to retain its top-level source line."
+}

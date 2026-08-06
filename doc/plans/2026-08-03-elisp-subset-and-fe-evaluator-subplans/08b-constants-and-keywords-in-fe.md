@@ -20,7 +20,10 @@ The single most dangerous silent corruption in the language is closed:
 
 Today the first line succeeds and `(if t 1 2)` answers 2 for the rest of
 the session. After this slice, `t`, `nil`, and every keyword symbol are
-constants in every binding position, with Emacs' condition.
+constants in the value-binding positions covered by Table C, with Emacs'
+condition. The pinned Emacs 31 lexical oracle permits a lambda parameter named
+`t` to shadow the constant, so that row is not a constant-protection
+requirement.
 
 ## Mechanics
 
@@ -36,13 +39,11 @@ constants in every binding position, with Emacs' condition.
    gives a keyword a value cell pointing at itself at intern time. After
    that, evaluation needs no special case, and `(eq :a ':a)` is `t` by
    interning.
-4. **Every binding position enforces**: `setq`, `set`, `let`/`let*`
-   binding construction (`internal--let` and whatever core path binds),
-   lambda-list binding (`ArgsToEnv` — a parameter named `t` errors at
-   bind time), `defalias`/function-cell writes for `nil`/`t`/keywords,
-   and `catch`-style internals if any bind user-named symbols. The 08A
-   table's `((lambda (t) t) 1)` row is the regression test for the
-   lambda path.
+4. **Value binding positions enforce**: `setq`, `set`, `let`/`let*` binding
+   construction (`internal--let` and whatever core path binds),
+   `defalias`/function-cell writes for `nil`/`t`/keywords, and catch-style
+   internals if any bind user-named symbols. Lambda parameters are the
+   measured exception: the pinned lexical oracle allows `t` to be shadowed.
 5. **`nil`'s existing rejection changes condition**: today it raises
    `wrong-type-argument (symbolp nil)`; Table C says `setting-constant`.
    One condition for all three classes.
@@ -59,10 +60,11 @@ constants in every binding position, with Emacs' condition.
 
 ## Tests owned by this slice
 
-- `test_api.c`: every Table C row; assignment via `setq`, `set`, and
-  let/lambda binding; keyword self-evaluation with and without quote;
-  `keywordp`; `setting-constant` caught by `condition-case` with the
-  right data; constancy survives GC (intern, collect, assign).
+- `test_api.c`: every Table C row; assignment via `setq`, `set`, and let
+  binding; the measured lambda-shadowing row; keyword self-evaluation with
+  and without quote; `keywordp`; `setting-constant` caught by
+  `condition-case` with the right data; constancy survives GC (intern,
+  collect, assign).
 - Script suite: a `constants.fe` exercising the user-visible surface.
 - Compat: flip 08A's Table C rows to runnable cases; fresh snapshots via
   the runner for new case names only.
@@ -72,8 +74,9 @@ constants in every binding position, with Emacs' condition.
 
 ## Documentation
 
-`doc/language.md`: constants section (which symbols, which condition,
-every binding position). `doc/c-api.md`: the language-version paragraph.
+`doc/language.md`: constants section (which symbols, which condition, and the
+value-binding positions protected). `doc/c-api.md`: the language-version
+paragraph.
 `compat/features.json`: rows per Table C.
 
 ## Gates

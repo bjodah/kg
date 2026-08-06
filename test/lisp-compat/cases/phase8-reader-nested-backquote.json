@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-nested-backquote",
+ "setup": [],
+ "expr": "(let ((x 2)) `(outer `(inner ,x)))",
+ "note": "08A Table R: nested backquote preserves unquote depth."
+}

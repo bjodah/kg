@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-policy-rejections",
+ "setup": [],
+ "expr": "(list \"[1 2 3]\" \"#:sym\" \"a\\\\ b\" \"\\\\q\")",
+ "note": "08A Table R kg-policy pin: vectors, uninterned-symbol syntax, symbol escapes, and unknown string escapes are rejected rather than silently misread; this case is not an Emacs comparison."
+}

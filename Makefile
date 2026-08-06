@@ -314,7 +314,14 @@ SCC_COMPLEXITY_PATHS ?= src
 # of the cycle: 5714, so this leaves 16 points of rounding room, not room
 # for unrelated growth. The per-file cap 520 and the pmccabe ceilings are
 # unchanged.
-SCC_COMPLEXITY_MAX ?= 5730
+# Raised 5730 -> 5804 by Phase 8 sub-plan 08A (2026-08-06), funding the
+# measured +40..90 scc C-side band for 08D/08E. The re-measured idle tree is
+# 5714, so 5804 is the top of that band above the actual floor, not a general
+# allowance for unrelated growth. Proof on the same tree: setting
+# SCC_COMPLEXITY_MAX=5713 makes complexity-check fail on 5714, while the
+# raised 5804 setting passes. This temporary-lowering proof is deliberately
+# uncommitted; the command and its output are recorded in 08A's funding note.
+SCC_COMPLEXITY_MAX ?= 5804
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

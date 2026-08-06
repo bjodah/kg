@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-max-min-errors",
+ "setup": [],
+ "expr": "(list (condition-case e (max 1 'x) (wrong-type-argument (list (car e) (car (cdr e))))) (condition-case e (min 1 'x) (wrong-type-argument (list (car e) (car (cdr e))))))",
+ "note": "08A Table L: max and min are variadic numeric functions and signal wrong-type-argument for a non-number."
+}

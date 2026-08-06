@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-radix",
+ "setup": [],
+ "expr": "(list #x10 #o17 #b101 #xff)",
+ "note": "08A Table R: hexadecimal, octal, binary, and hexadecimal radix literals."
+}

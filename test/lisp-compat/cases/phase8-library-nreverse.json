@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-nreverse",
+ "setup": [],
+ "expr": "(let ((x (list 1 2))) (list (nreverse x) x))",
+ "note": "08A Table L: nreverse mutates the list and returns its new head."
+}

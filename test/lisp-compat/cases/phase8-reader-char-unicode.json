@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-char-unicode",
+ "setup": [],
+ "expr": "?é",
+ "note": "08A Table R: a UTF-8 character literal evaluates to its character code."
+}

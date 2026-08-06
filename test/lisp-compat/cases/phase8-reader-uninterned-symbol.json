@@ -1,0 +1,6 @@
+{
+ "id": "phase8-reader-uninterned-symbol",
+ "setup": [],
+ "expr": "(let ((x '#:sym)) (list (symbolp x) (symbol-name x) (eq x x) (intern-soft (symbol-name x))))",
+ "note": "08A Table R: quoting #:sym lets the oracle inspect the pinned Emacs 31 reader result; it produces the interned symbol sym (intern-soft returns sym), not an uninterned object."
+}

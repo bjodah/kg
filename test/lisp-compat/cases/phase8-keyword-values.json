@@ -1,0 +1,6 @@
+{
+ "id": "phase8-keyword-values",
+ "setup": [],
+ "expr": "(list :foo (keywordp :foo) (keywordp 'foo) (eq :a ':a))",
+ "note": "08A Table C: keywords self-evaluate, keywordp distinguishes them, and quoting interns the same symbol."
+}

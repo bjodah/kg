@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-defvar-valued",
+ "setup": [],
+ "expr": "(progn (makunbound 'phase8-valued) (defvar phase8-valued 1) (list (boundp 'phase8-valued) phase8-valued))",
+ "note": "08A Table L: retained valued defvar probe for first-definition binding behavior."
+}

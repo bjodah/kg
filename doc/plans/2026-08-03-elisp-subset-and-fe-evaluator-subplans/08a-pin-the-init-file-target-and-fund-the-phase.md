@@ -39,7 +39,7 @@ snapshot.
 | `(setq :kw 1)` | `setting-constant :kw` |
 | `(let ((t 1)) t)` | `setting-constant t` |
 | `(let ((nil 1)) 1)` | `setting-constant nil` |
-| `((lambda (t) t) 1)` | `setting-constant t` (Emacs 31: constant as parameter errors at bind) |
+| `((lambda (t) t) 1)` | `1` (a lambda parameter may shadow `t` under the pinned lexical oracle) |
 | `:foo` | `:foo` (self-evaluating) |
 | `(keywordp :foo)` / `(keywordp 'foo)` | `t` / `nil` |
 | `(eq :a ':a)` | `t` |
@@ -53,9 +53,9 @@ snapshot.
 | `?é` (UTF-8) | 233 | symbol |
 | `?\C-a` `?\M-a` | 1, 134217825 | symbol |
 | `#x10` `#o17` `#b101` `#xff` | 16 15 5 255 | symbols |
-| `"\x41" "\101" "\e" "\d" "\s"` | `"A" "A" "\e" "\d"` (`\s`=space in strings? measure) | backslash silently dropped: `"x41"` … |
+| `"\x41" "\101" "\e" "\d" "\s"` | `"A" "A" "\x1b" "\x7f" " "` | backslash silently dropped: `"x41"` … |
 | `[1 2 3]` | a vector | three symbols `[1` `2` `3]` |
-| `#:sym` | uninterned symbol | symbol named `#:sym` |
+| `#:sym` | quoted/read result is the interned symbol `sym`; evaluating it signals `void-variable` | symbol named `#:sym` |
 | `` `(1 . ,(+ 1 1)) `` | `(1 . 2)` | `(1 unquote (+ 1 1))` |
 | nested backquote | correct depth | inner unquote evaluated at wrong depth |
 
@@ -172,6 +172,48 @@ start — Rule 6):
   frames / 56223 slots**; the prelude batch costs live slots, not C
   bytes — record before/after `kg_lisp_arena_stats()` peaks in 08D
   (the audit's prototype measured +718 peak live).
+
+## Slice-start remeasurement — 2026-08-06
+
+The required Rule 6 remeasurement was run against the checkout at the start
+of this slice, not copied from the Phase 7 close:
+
+| tree/measure | result | command or tool |
+|---|---:|---|
+| kg scc total | **5714**, max file **479** (the standing file cap is 520) | `make complexity-check`, scc 3.7.0 |
+| fe scc total | **670**, `fe_eval.c` **453**, `fe.c` **100** | `make -C fe complexity-check` |
+| fe pmccabe | **886 / 299 symbols**, max function **15** | `make -C fe pmccabe-check` |
+| Emacs oracle | **GNU Emacs 31.0.90**, build 1, 2026-07-09 | `/opt-3/emacs-31-lucid/bin/emacs -Q --batch` |
+
+The kg scc cap is therefore funded at **5804**: the measured floor 5714 plus
+the top of the stated +40..90 C-side band. The fe measurements remain inside
+760/520/980, so neither fe cap moves in this documentation-only slice. The kg
+temporary-lowering proof was run live and is repeatable without a fixture:
+
+```
+$ SCC_COMPLEXITY_MAX=5713 make complexity-check
+FAIL: total complexity 5714 exceeds limit 5713
+$ SCC_COMPLEXITY_MAX=5804 make complexity-check
+scc total complexity: 5714 (limit 5804)
+```
+
+The raised value is also the checked-in default in `Makefile`; the exact proof
+is repeated in its dated comment. This command-level proof follows the
+project's existing complexity convention: `complexity-check` consumes the
+live scc output, rather than a hand-maintained fixture that could drift from
+the source tree.
+
+## Corpus spelling audit — 2026-08-06
+
+The init-facing Lisp corpus was searched before pinning. `lisp/prelude.el`
+contains no executable `?`, `[`, radix `#`, or keyword literal spellings;
+its only `#'` hit is in a comment describing function designators. The only
+other source-tree bracket hit in `lisp/*.el` is a prose interval in
+`lisp/auto-fill.el`. The new oracle cases intentionally contain every
+spelling 08C must handle: `?` character and modifier literals, `#x`/`#o`/
+`#b`, escaped strings, and `:foo` keyword values. No existing kg case was
+rewritten or silently reinterpreted; the two diagnostic cases are explicitly
+kg-policy and have no Emacs snapshot.
 
 ## What 08A does not do
 

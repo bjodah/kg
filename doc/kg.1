@@ -713,7 +713,7 @@ so a literal per cent in a message has to be written
 Built-in editor commands run with
 .Li (command-execute \(aqname) ,
 which takes a quoted symbol as in Emacs or equivalently a string, never
-passes a prefix argument, and is limited to the commands
+passes a prefix argument outside dispatch, and is limited to the commands
 .Nm
 allows Lisp to call.
 .Li define-command
@@ -731,7 +731,21 @@ read-only buffer refuses it before it runs, exactly as it refuses
 .Ic M-x upcase-word ;
 a
 .Li defun
-has no way yet to declare otherwise.
+recognises only an
+.Li (interactive ...)
+form immediately after an optional docstring.  The supported non-prompting
+codes are
+.Li p ,
+.Li P
+and
+.Li r ;
+they deliver the numeric prefix, raw prefix, and sorted region bounds.  The
+raw value is temporarily available as
+.Li current-prefix-arg ,
+and
+.Li prefix-numeric-value
+converts it.  String prompts are parsed but prompting is deferred; command
+argument construction is strict and capped at 16 arguments.
 .Pp
 If no files are given,
 .Nm

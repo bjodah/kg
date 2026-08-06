@@ -81,10 +81,11 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 }
 int cmd_execute_named(const char *name, int fd)
 {
-	struct command_context ctx = { fd, { 0, 0 }, CMD_ORIGIN_KEY };
+	struct command_context ctx = { fd, { 0, 0, 0 }, CMD_ORIGIN_KEY };
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
+const struct command_prefix *cmd_active_prefix(void) { return nullptr; }
 command_id cmd_id_by_name(const char *name)
 {
 	const struct named_cmd *cmd = cmd_lookup(name);
@@ -95,7 +96,7 @@ command_id cmd_id_by_name(const char *name)
 command_id cmd_runtime_define(const char *name)
 {
 	(void)name;
-	return CMD_ID_NONE;
+	return CMD_ID_RUNTIME_BASE + 1;
 }
 void cmd_runtime_remove(const char *name) { (void)name; }
 

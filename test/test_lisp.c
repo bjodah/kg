@@ -535,7 +535,6 @@ static void test_command_allow_list(void)
 static int eval_ok(const char *source)
 {
 	char result[256] = "";
-
 	return kg_lisp_eval_string(
 		   source, strlen(source), result, sizeof(result))
 	    == 0;
@@ -2468,6 +2467,11 @@ static void test_binding_forms(void)
 static void test_definition_forms(void)
 {
 	CHECK(kg_lisp_init() == 0);
+	CHECK(eval_eq("(prefix-numeric-value nil)", "1"));
+	CHECK(eval_eq("(prefix-numeric-value '(16))", "16"));
+	CHECK(eval_eq("(prefix-numeric-value '-)", "-1"));
+	CHECK(eval_error_contains(
+	    "(prefix-numeric-value '(1 2))", "wrong-type-argument"));
 
 	/* defun returns the symbol, as Emacs does. */
 	CHECK(eval_eq("(defun square (x) (* x x))", "square"));
@@ -2496,7 +2500,7 @@ static void test_definition_forms(void)
 	CHECK(eval_ok("(defun documented (x) \"Doc.\" (+ x 1))"));
 	CHECK(eval_eq("(documented 1)", "2"));
 	CHECK(eval_ok("(defun onlydoc (x) \"Just a doc.\")"));
-	CHECK(eval_eq("(onlydoc 1)", "Just a doc."));
+	CHECK(eval_eq("(onlydoc 1)", "nil"));
 
 	CHECK(eval_eq(
 	    "(defmacro twice (form) (list 'progn form form))", "twice"));
@@ -2528,9 +2532,16 @@ static void test_definition_forms(void)
 	CHECK(strcmp(kg_lisp_command_name(0), "greet-lisp") == 0);
 	CHECK(kg_lisp_run_command("greet-lisp", 0) == 0);
 	CHECK(strcmp(test_status_message, "hi") == 0);
+	CHECK(eval_eq("(defun greet-lisp () 9)", "greet-lisp"));
+	CHECK(!kg_lisp_command_exists("greet-lisp"));
+	CHECK(eval_ok("(defun late-lisp () 7 (interactive))"));
+	CHECK(!kg_lisp_command_exists("late-lisp"));
+	CHECK(eval_ok("(defun doc-empty-lisp () \"Doc\" (interactive))"));
+	CHECK(kg_lisp_command_exists("doc-empty-lisp"));
+	CHECK(kg_lisp_run_command("doc-empty-lisp", 0) == 0);
 	/* A defun without (interactive) registers nothing. */
 	CHECK(eval_ok("(defun quiet-lisp () (message \"no\"))"));
-	CHECK(kg_lisp_command_name(1) == nullptr);
+	CHECK(!kg_lisp_command_exists("quiet-lisp"));
 
 	kg_lisp_shutdown();
 	teardown_editor();

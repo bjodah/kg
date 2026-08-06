@@ -231,6 +231,7 @@ struct editor_config {
 	int prefix_supplied; /* 1 if a numeric argument sequence was typed. */
 	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit
 				 replaces 4. */
+	int prefix_raw_kind;
 	struct command_prefix
 	    current_prefix; /* Prefix arg of the active command. */
 	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */

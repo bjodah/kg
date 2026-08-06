@@ -1633,38 +1633,14 @@
    "status": "supported",
    "owner": "kg",
    "comparison": "kg-policy",
-   "cases": [
-    "prelude-internal-interactive-p"
+    "cases": [
+     "prelude-internal-interactive-p",
+     "prelude-internal-has-interactive",
+     "prelude-internal-strip-interactive"
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
    "rationale": "Tested-via-wrapper: defun's own interactive-detection tests exercise this.",
    "source_name": "internal--interactive-p"
-  },
-  {
-   "id": "prelude-internal-has-interactive",
-   "category": "functions-and-macros",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "prelude-internal-has-interactive"
-   ],
-   "kg_test": "test/test_lisp.c:test_definition_forms",
-   "rationale": "Tested-via-wrapper, same as internal--interactive-p.",
-   "source_name": "internal--has-interactive"
-  },
-  {
-   "id": "prelude-internal-strip-interactive",
-   "category": "functions-and-macros",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "prelude-internal-strip-interactive"
-   ],
-   "kg_test": "test/test_lisp.c:test_definition_forms",
-   "rationale": "Tested-via-wrapper, same as internal--interactive-p.",
-   "source_name": "internal--strip-interactive"
   },
   {
    "id": "prelude-defun",
@@ -1705,8 +1681,8 @@
    "rationale": null,
    "source_name": "defvar"
   },
-  {
-   "id": "prelude-defconst",
+   {
+    "id": "prelude-defconst",
    "category": "bindings",
    "status": "supported",
    "owner": "kg",
@@ -1716,23 +1692,49 @@
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
    "rationale": null,
-   "source_name": "defconst"
-  },
-  {
-   "id": "prelude-interactive",
-   "category": "functions-and-macros",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "prelude-interactive"
-   ],
-   "kg_test": "test/test_lisp.c:test_definition_forms",
-   "rationale": "kg-policy rather than a divergent comparison against Emacs' (interactive) because the two are not close enough in shape for a single shared case to say anything meaningful (Emacs' interactive-spec parsing is Phase 7 territory, 'honest interactive argument handling', milestone 2 -- see the parent plan's phase list); this entry is the placeholder that phase will replace.",
-   "source_name": "interactive"
-  },
-  {
-   "id": "prelude-string-empty-p",
+    "source_name": "defconst"
+   },
+   {
+    "id": "prelude-internal-docstring-p",
+    "category": "functions-and-macros",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": [
+     "interactive-declaration-placement"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Tested through defun declaration placement.",
+    "source_name": "internal--docstring-p"
+   },
+   {
+    "id": "prelude-internal-has-interactive",
+    "category": "functions-and-macros",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": [
+     "prelude-internal-has-interactive"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Tested through defun declaration placement.",
+    "source_name": "internal--has-interactive"
+   },
+   {
+    "id": "prelude-interactive-declaration",
+    "category": "functions-and-macros",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": [
+     "prelude-interactive"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Replaces the old inert interactive placeholder with declaration metadata and argument construction.",
+    "source_name": "interactive"
+   },
+   {
+    "id": "prelude-string-empty-p",
    "category": "sequences",
    "status": "supported",
    "owner": "kg",
@@ -1874,10 +1876,36 @@
      "rationale": "07C pins Fe's unconditional strict arity in the full kg host: too few lambda arguments raise wrong-number-of-arguments with the actual count in condition data, while optional and rest parameters retain their defined bindings.",
      "source_name": null
     },
-    {
-     "id": "phase7-interactive-declaration",
+   {
+    "id": "native-prefix-numeric-value",
+      "category": "interactive-commands",
+      "status": "supported",
+      "owner": "kg",
+      "comparison": "emacs",
+      "cases": [
+       "interactive-raw-prefix"
+      ],
+      "kg_test": "test/test_lisp.c:test_definition_forms",
+      "rationale": "Strict conversion of nil, integer, one-element universal lists and minus.",
+    "source_name": "prefix-numeric-value"
+   },
+   {
+    "id": "native-internal-remove-command-if-present",
     "category": "interactive-commands",
-    "status": "planned",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": [
+     "interactive-empty-spec-redefinition"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Internal no-op synchronization used by defun redefinition.",
+    "source_name": "internal--remove-command-if-present"
+   },
+     {
+      "id": "phase7-interactive-declaration",
+    "category": "interactive-commands",
+    "status": "supported",
     "owner": "kg",
     "comparison": "emacs",
     "cases": [
@@ -1885,20 +1913,20 @@
      "interactive-empty-spec-redefinition"
     ],
     "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Phase 7, 07A rows I10/I11: declaration placement, nil/empty specifications, and command-status redefinition are planned metadata contracts for 07D.",
+    "rationale": "07D implements declaration placement, nil/empty specifications, and command-status redefinition.",
     "source_name": null
    },
    {
     "id": "phase7-interactive-prefix",
     "category": "interactive-commands",
-    "status": "planned",
+    "status": "supported",
     "owner": "kg",
     "comparison": "emacs",
     "cases": [
      "interactive-raw-prefix"
     ],
     "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Phase 7, 07A row I12: raw prefix values reach Lisp without collapsing repeated universal arguments or minus forms. Planned for 07D.",
+    "rationale": "07D delivers raw prefix values without collapsing repeated universal arguments or minus forms.",
     "source_name": null
    },
    {
@@ -1917,7 +1945,7 @@
    {
     "id": "phase7-interactive-command-execute",
     "category": "interactive-commands",
-    "status": "planned",
+    "status": "supported",
     "owner": "kg",
     "comparison": "emacs",
     "cases": [
@@ -1925,7 +1953,7 @@
      "interactive-form-lexical-capture"
     ],
     "kg_test": "test/test_lisp.c:test_command_allow_list",
-    "rationale": "Phase 7, 07A rows I14/I15: Lisp-defined command execution must construct interactive arguments in the closure's lexical environment. Planned for 07D.",
+    "rationale": "07D constructs interactive arguments in the closure's lexical environment and supports nested command-execute.",
     "source_name": null
    }
  ]

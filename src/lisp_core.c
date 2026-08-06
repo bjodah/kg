@@ -302,10 +302,14 @@ static void release_lisp_commands(void)
 
 	for (i = 0; i < LISP_MAX_COMMANDS; i++) {
 		if (state.commands[i].name[0]) {
-			FeReleaseRoot(state.context, state.commands[i].root);
+			FeReleaseRoot(state.context, state.commands[i].function_root);
+			FeReleaseRoot(state.context, state.commands[i].interactive_root);
+			FeReleaseRoot(state.context, state.commands[i].documentation_root);
 			cmd_runtime_remove(state.commands[i].name);
 			state.commands[i].name[0] = '\0';
-			state.commands[i].root = nullptr;
+			state.commands[i].function_root = nullptr;
+			state.commands[i].interactive_root = nullptr;
+			state.commands[i].documentation_root = nullptr;
 		}
 	}
 }
@@ -371,6 +375,7 @@ int kg_lisp_init(void)
 		return 1;
 	}
 	register_natives(context);
+	FeSet(context, FeMakeSymbol(context, "current-prefix-arg"), FeNil(context));
 	lisp_hooks_init(context);
 	lisp_process_init(context);
 	in_prelude = true;
@@ -572,10 +577,148 @@ void lisp_settle_completion(void)
 	state.error_kind = FeCompletionNormal;
 }
 
+static void cleanup_prefix_binding(FeContext *context, void *ptr)
+{
+	struct lisp_prefix_binding *binding = ptr;
+
+	(void)context;
+	if (!binding->active) {
+		return;
+	}
+	FeSet(binding->context, binding->symbol, FeGetRoot(binding->old_root));
+	FeReleaseRoot(binding->context, binding->old_root);
+	FeReleaseRoot(binding->context, binding->new_root);
+	binding->active = 0;
+	if (state.prefix_binding == binding) {
+		state.prefix_binding = nullptr;
+	}
+	free(binding);
+}
+
+[[noreturn]] static void interactive_error(FeContext *context, const char *text)
+{
+	FeHandleError(context, text);
+}
+
+static int interactive_add_prefix(FeContext *context,
+	FeObject *raw, FeObject **args, int *argc, char code)
+{
+	if (code == 'p') {
+		args[(*argc)++] = FeMakeInteger(
+		    context, lisp_prefix_number(context, raw));
+		return 0;
+	}
+	if (code == 'P') {
+		args[(*argc)++] = raw;
+		return 0;
+	}
+	if (code == 'r') {
+		if (*argc > LISP_INTERACTIVE_MAX_ARGS - 2) {
+			interactive_error(context, "too many interactive arguments");
+		}
+		FeObject *empty = FeNil(context);
+		args[(*argc)++] = native_region_beginning(context, empty);
+		args[(*argc)++] = native_region_end(context, empty);
+		return 0;
+	}
+	/* This is the complete measured Emacs code set.  Only p/P/r are
+	 * implemented here; the rest are valid but deliberately deferred to 07E
+	 * or a later metadata slice. */
+	if (strchr("abBcCdDefFGikKmMnNpPrRsSUVvXxZz", code) != nullptr) {
+		char message[64];
+		(void)snprintf(message, sizeof(message),
+		    "unsupported interactive code %c", code);
+		interactive_error(context, message);
+	}
+	{
+		char message[64];
+		(void)snprintf(message, sizeof(message),
+		    "invalid interactive code %c", code);
+		interactive_error(context, message);
+	}
+}
+
+static int interactive_string_args(FeContext *context, FeObject *spec,
+	FeObject *raw, FeObject **args)
+{
+	char *text;
+	const char *clause;
+	const char *next;
+	size_t length;
+	int argc = 0;
+
+	text = copy_fe_string(context, spec, &length);
+	clause = text;
+	if (*text == '\0') {
+		free(text);
+		return 0;
+	}
+	while (*clause) {
+		next = strchr(clause, '\n');
+		if (next != nullptr && next == clause) {
+			free(text);
+			interactive_error(context, "invalid empty interactive clause");
+		}
+		if (argc >= LISP_INTERACTIVE_MAX_ARGS) {
+			free(text);
+			interactive_error(context, "too many interactive arguments");
+		}
+		if (interactive_add_prefix(context, raw, args, &argc, *clause)
+		    != 0) {
+			free(text);
+			return argc;
+		}
+		if (next == nullptr) {
+			break;
+		}
+		clause = next + 1;
+		if (*clause == '\0') {
+			free(text);
+			interactive_error(context, "invalid empty interactive clause");
+		}
+	}
+	free(text);
+	return argc;
+}
+
+static int interactive_form_args(FeContext *context, struct lisp_command *cmd,
+	FeObject **args)
+{
+	FeObject *value;
+	FeRoot *value_root;
+	int argc = 0;
+
+	value = FeCallWithOptions(context, FeGetRoot(cmd->interactive_root),
+	    nullptr, 0, &eval_options);
+	value_root = FeCreateRoot(context, value);
+	while (!FeIsNil(value)) {
+		if (FeGetType(value) != FeTPair) {
+			FeReleaseRoot(context, value_root);
+			FeHandleError(context, "wrong-type-argument listp");
+		}
+		if (argc == LISP_INTERACTIVE_MAX_ARGS) {
+			FeReleaseRoot(context, value_root);
+			FeHandleError(context, "too many interactive arguments");
+		}
+		args[argc++] = FeCar(context, value);
+		value = FeCdr(context, value);
+	}
+	FeReleaseRoot(context, value_root);
+	return argc;
+}
+
 int kg_lisp_run_command(const char *name, int fd)
 {
 	char command_name[LISP_COMMAND_NAME_MAX];
 	struct lisp_command *cmd;
+	const struct command_prefix *prefix = cmd_active_prefix();
+	FeObject *args[LISP_INTERACTIVE_MAX_ARGS];
+	FeObject *prefix_object, *symbol, *form, *quoted;
+	FeObject *parts[2];
+	FeRoot *prefix_root, *old_root;
+	struct lisp_prefix_binding *binding;
+	int argc = 0;
+	int nested;
 
 	(void)fd;
 	if (!state.initialized || name == nullptr) {
@@ -585,10 +728,7 @@ int kg_lisp_run_command(const char *name, int fd)
 	if (!cmd) {
 		return 1;
 	}
-	if (state.frame_active) {
-		editor_set_status_message("Lisp is busy");
-		return 0;
-	}
+	nested = state.frame_active;
 
 	/* The command may remove or redefine itself before raising, so keep a
 	 * stable copy of the registered name for the diagnostic below; a
@@ -600,6 +740,9 @@ int kg_lisp_run_command(const char *name, int fd)
 	state.frame.gc_checkpoint = FeSaveGC(state.context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
+		if (state.prefix_binding != nullptr) {
+			cleanup_prefix_binding(state.context, state.prefix_binding);
+		}
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		release_frame_buffers();
@@ -614,11 +757,44 @@ int kg_lisp_run_command(const char *name, int fd)
 		return 0;
 	}
 	lisp_exec_enter(state.context);
-
-	/* Call the rooted function directly so the FeCall runs under the
-	 * normal step budget and interrupt polling. */
-	(void)FeCallWithOptions(
-	    state.context, FeGetRoot(cmd->root), nullptr, 0, &eval_options);
+	symbol = FeMakeSymbol(state.context, "current-prefix-arg");
+	parts[0] = FeMakeSymbol(state.context, "quote");
+	parts[1] = symbol;
+	quoted = FeMakeList(state.context, parts, 2);
+	parts[0] = FeMakeSymbol(state.context, "symbol-value");
+	parts[1] = quoted;
+	form = FeMakeList(state.context, parts, 2);
+	old_root = FeCreateRoot(state.context,
+	    FeEvaluateWithOptions(state.context, form, &eval_options));
+	prefix_object = lisp_prefix_object(state.context, prefix);
+	prefix_root = FeCreateRoot(state.context, prefix_object);
+	FeSet(state.context, symbol, FeGetRoot(prefix_root));
+	binding = calloc(1, sizeof(*binding));
+	if (binding == nullptr) {
+		FeReleaseRoot(state.context, old_root);
+		FeReleaseRoot(state.context, prefix_root);
+		FeHandleError(state.context, "out of memory");
+	}
+	binding->context = state.context;
+	binding->symbol = symbol;
+	binding->old_root = old_root;
+	binding->new_root = prefix_root;
+	binding->active = 1;
+	state.prefix_binding = binding;
+	if (nested) {
+		FeProtectWithCleanup(state.context, cleanup_prefix_binding, binding);
+	}
+	if (cmd->interactive_kind == LISP_INTERACTIVE_STRING) {
+		argc = interactive_string_args(state.context,
+		    FeGetRoot(cmd->interactive_root), prefix_object, args);
+	} else if (cmd->interactive_kind == LISP_INTERACTIVE_FORM) {
+		argc = interactive_form_args(state.context, cmd, args);
+	}
+	(void)FeCallWithOptions(state.context, FeGetRoot(cmd->function_root), args,
+	    (size_t)argc, &eval_options);
+	if (!nested) {
+		cleanup_prefix_binding(state.context, binding);
+	}
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	lisp_exec_leave(1);

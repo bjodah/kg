@@ -57,10 +57,12 @@ static const struct native_binding native_bindings[] = {
 	{ "consp", native_consp },
 	{ "functionp", native_functionp },
 	{ "command-execute", native_command },
+	{ "prefix-numeric-value", native_prefix_numeric_value },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a
 	 * name -> function registry, so these two have no Emacs analogue. */
 	{ "define-command", native_define_command },
 	{ "remove-command", native_remove_command },
+	{ "internal--remove-command-if-present", native_remove_command_if_present },
 	{ "current-buffer", native_current_buffer },
 	{ "buffer-list", native_buffer_list },
 	{ "get-buffer", native_get_buffer },

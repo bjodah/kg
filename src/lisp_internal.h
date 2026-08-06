@@ -33,19 +33,38 @@
 #define LISP_FEATURE_NAME_MAX 64
 #define LISP_MAX_LOAD_PATH 8
 #define LISP_MAX_REQUIRE_STACK 8
+#define LISP_INTERACTIVE_MAX_ARGS 16
+
+enum lisp_interactive_kind {
+	LISP_INTERACTIVE_NONE,
+	LISP_INTERACTIVE_STRING,
+	LISP_INTERACTIVE_FORM,
+};
 
 /* A Lisp-defined command: the function object stays alive through its
  * root for the registration lifetime and is released on redefinition or
  * removal. */
 struct lisp_command {
 	char name[LISP_COMMAND_NAME_MAX]; /* empty marks a free slot */
-	struct FeRoot *root;
+	struct FeRoot *function_root;
+	struct FeRoot *interactive_root;
+	struct FeRoot *documentation_root;
+	enum lisp_interactive_kind interactive_kind;
 };
 
 struct lisp_frame {
 	jmp_buf error_jump;
 	size_t gc_checkpoint;
 };
+
+struct lisp_prefix_binding {
+	FeContext *context;
+	FeObject *symbol;
+	struct FeRoot *old_root;
+	struct FeRoot *new_root;
+	int active;
+};
+
 
 /* The runtime execution context for one frame: which buffer Lisp code is
  * working in.  Separate from the active-window globals; hidden-buffer
@@ -141,6 +160,7 @@ struct lisp_state {
 	char requiring[LISP_MAX_REQUIRE_STACK][LISP_FEATURE_NAME_MAX];
 	size_t requiring_depth;
 	bool frame_active;
+	struct lisp_prefix_binding *prefix_binding;
 	bool initialized;
 };
 
@@ -277,8 +297,12 @@ FeObject *native_numberp(FeContext *context, FeObject *arguments);
 FeObject *native_consp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
+FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
+FeObject *lisp_prefix_object(FeContext *context, const struct command_prefix *prefix);
+int64_t lisp_prefix_number(FeContext *context, FeObject *object);
 FeObject *native_define_command(FeContext *context, FeObject *arguments);
 FeObject *native_remove_command(FeContext *context, FeObject *arguments);
+FeObject *native_remove_command_if_present(FeContext *context, FeObject *arguments);
 FeObject *native_bind_key(FeContext *context, FeObject *arguments);
 FeObject *native_unbind_key(FeContext *context, FeObject *arguments);
 FeObject *native_current_buffer(FeContext *context, FeObject *arguments);

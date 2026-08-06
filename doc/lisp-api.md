@@ -495,11 +495,30 @@ The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
 core Fe special forms and primitives rather than prelude definitions.
 
-`defun` strips a body `(interactive)` form and registers the function as
-a command under its own name (`define-command` underneath), the same as
-Emacs' `defun` plus `(interactive)` making a command. `command-execute`
-(and `M-x`) can then run it, subject to the same `CMD_LISP_CALLABLE` /
-`CMD_EDITS_BUFFER` verdicts as every built-in command.
+`defun` recognises only an `(interactive ...)` form immediately after its
+optional docstring. That declaration is removed from the body and registers
+the closure as a command; a later form remains ordinary code. A docstring
+followed by an empty declaration body gets an implicit `nil` body. The
+declaration's nil/empty spec supplies no arguments; string specs split
+newline-delimited clauses and this slice supports `p`, `P`, and `r` (prompt
+text is parsed but prompting is 07E). An interactive command receives at most
+16 arguments and strict arity reports missing arguments instead of padding
+them with nil. `p` receives `prefix-numeric-value`, `P` receives the raw
+prefix, and `r` receives sorted region bounds.
+
+`current-prefix-arg` is temporarily bound during a command. Its raw values
+are nil, an integer, a one-element list for a universal prefix, or the symbol
+`-`; `(prefix-numeric-value X)` converts these forms and rejects malformed
+values. `P` is `eq` to that temporary value. This is a command-boundary value
+binding, not general dynamic binding, so a lexical variable named
+`current-prefix-arg` shadows it.
+
+`command-execute` uses the same metadata and evaluator, including nested calls;
+an inner call inherits the active command's prefix. `define-command` is the
+kg-owned extension `(define-command NAME FUNCTION &optional SPEC DOC)`; its
+spec is nil, a string, or a zero-argument function, and documentation is nil or
+a string. Interactive definitions replace their function, spec and document
+atomically; redefining without a declaration removes command status.
 
 ## Namespaces: function and value cells
 

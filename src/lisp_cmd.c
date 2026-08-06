@@ -131,8 +131,10 @@ FeObject *native_functionp(FeContext *context, FeObject *arguments)
 FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
+	const struct command_prefix *active = cmd_active_prefix();
 	struct command_context ctx
-	    = { STDIN_FILENO, { 0, 0 }, CMD_ORIGIN_LISP };
+	    = { STDIN_FILENO, active ? *active : (struct command_prefix){ 0 },
+		CMD_ORIGIN_LISP };
 	char rejected[512];
 	char *name;
 	size_t length;
@@ -153,6 +155,60 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
+FeObject *lisp_prefix_object(FeContext *context, const struct command_prefix *prefix)
+{
+	FeObject *item;
+
+	if (prefix == nullptr || !prefix->supplied || prefix->raw_kind == 0) {
+		return FeNil(context);
+	}
+	if (prefix->raw_kind == 1) {
+		return FeMakeInteger(context, prefix->value);
+	}
+	if (prefix->raw_kind == 3) {
+		return FeMakeSymbol(context, "-");
+	}
+	item = FeMakeInteger(context, prefix->value);
+	return FeMakeList(context, &item, 1);
+}
+
+int64_t lisp_prefix_number(FeContext *context, FeObject *object)
+{
+	int64_t value;
+
+	if (FeIsNil(object)) {
+		return 1;
+	}
+	if (FeGetType(object) == FeTInteger) {
+		return FeToInteger(context, object);
+	}
+	if (FeGetType(object) == FeTSymbol
+	    && FeGetType(FeMakeSymbol(context, "-")) == FeTSymbol) {
+		char text[8];
+		(void)FeToString(context, object, text, sizeof(text));
+		if (strcmp(text, "-") == 0) {
+			return -1;
+		}
+	}
+	if (FeGetType(object) == FeTPair) {
+		FeObject *first = FeCar(context, object);
+		FeObject *rest = FeCdr(context, object);
+		if (FeGetType(first) == FeTInteger && FeIsNil(rest)) {
+			value = FeToInteger(context, first);
+			return value;
+		}
+	}
+	FeHandleError(context, "wrong-type-argument prefix-numeric-value");
+}
+
+FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	return FeMakeInteger(context, lisp_prefix_number(context, object));
+}
+
 /* Copy a command-name argument into a bounded stack buffer so no heap
  * allocation is live when a later step raises a Fe error. */
 static void copy_command_name(
@@ -170,21 +226,39 @@ static void copy_command_name(
 	free(name);
 }
 
-/* (define-command NAME FN): registers FN as an interactive command
- * visible to M-x and key bindings.  Redefinition releases the previous
- * function's root. */
+/* (define-command NAME FN &optional SPEC DOC): the explicit kg extension
+ * behind defun's interactive declaration.  All replacement roots are made
+ * before the old descriptor is changed, so a bounded-table failure is atomic.
+ */
 FeObject *native_define_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *name_object = FeGetNextArgument(context, &arguments);
 	FeObject *fn = FeGetNextArgument(context, &arguments);
+	FeObject *spec = FeNil(context);
+	FeObject *doc = FeNil(context);
 	struct lisp_command *cmd;
 	char name[LISP_COMMAND_NAME_MAX];
-	FeRoot *root;
+	FeRoot *function_root, *interactive_root, *documentation_root;
+	enum lisp_interactive_kind kind = LISP_INTERACTIVE_NONE;
+	command_id id;
 	size_t i;
 
+	if (!FeIsNil(arguments)) {
+		spec = FeGetNextArgument(context, &arguments);
+	}
+	if (!FeIsNil(arguments)) {
+		doc = FeGetNextArgument(context, &arguments);
+	}
 	FeRequireNoArguments(context, arguments);
 	if (FeGetType(fn) != FeTFn && FeGetType(fn) != FeTNativeFn) {
 		FeHandleError(context, "define-command requires a function");
+	}
+	if (!FeIsNil(spec) && FeGetType(spec) != FeTString
+	    && FeGetType(spec) != FeTFn && FeGetType(spec) != FeTNativeFn) {
+		FeHandleError(context, "define-command requires a string or function spec");
+	}
+	if (!FeIsNil(doc) && FeGetType(doc) != FeTString) {
+		FeHandleError(context, "define-command documentation requires a string");
 	}
 	copy_command_name(context, name_object, name, sizeof(name));
 	if (cmd_lookup(name) != nullptr) {
@@ -203,18 +277,31 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	if (!cmd) {
 		FeHandleError(context, "too many Lisp commands");
 	}
-	/* Create the new root before releasing the old one so a failed
-	 * creation leaves the previous definition intact. */
-	root = FeCreateRoot(context, fn);
+	if (!FeIsNil(spec)) {
+		kind = FeGetType(spec) == FeTString ? LISP_INTERACTIVE_STRING
+							: LISP_INTERACTIVE_FORM;
+	}
+	function_root = FeCreateRoot(context, fn);
+	interactive_root = FeCreateRoot(context, spec);
+	documentation_root = FeCreateRoot(context, doc);
+	id = cmd_runtime_define(name);
+	if (id == CMD_ID_NONE) {
+		FeReleaseRoot(context, function_root);
+		FeReleaseRoot(context, interactive_root);
+		FeReleaseRoot(context, documentation_root);
+		FeHandleError(context, "too many Lisp commands");
+	}
 	if (cmd->name[0]) {
-		FeReleaseRoot(context, cmd->root);
+		FeReleaseRoot(context, cmd->function_root);
+		FeReleaseRoot(context, cmd->interactive_root);
+		FeReleaseRoot(context, cmd->documentation_root);
 	}
 	strcpy(cmd->name, name);
-	cmd->root = root;
-	/* The registry hands out the identity; this table only holds the
-	 * function.  Redefining keeps the identity, so a command that
-	 * repeats itself does not lose its place when its body changes. */
-	(void)cmd_runtime_define(name);
+	cmd->function_root = function_root;
+	cmd->interactive_root = interactive_root;
+	cmd->documentation_root = documentation_root;
+	cmd->interactive_kind = kind;
+	/* The registry hands out the identity; redefining keeps it. */
 	return FeNil(context);
 }
 
@@ -231,11 +318,40 @@ FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 	if (!cmd) {
 		command_error(context, "no such Lisp command", name);
 	}
-	FeReleaseRoot(context, cmd->root);
+	FeReleaseRoot(context, cmd->function_root);
+	FeReleaseRoot(context, cmd->interactive_root);
+	FeReleaseRoot(context, cmd->documentation_root);
 	cmd->name[0] = '\0';
-	cmd->root = nullptr;
+	cmd->function_root = nullptr;
+	cmd->interactive_root = nullptr;
+	cmd->documentation_root = nullptr;
+	cmd->interactive_kind = LISP_INTERACTIVE_NONE;
 	/* Frees the identity too: defining this name again is a different
 	 * command, and any state the old one owned is dropped. */
+	cmd_runtime_remove(name);
+	return FeNil(context);
+}
+
+FeObject *native_remove_command_if_present(FeContext *context, FeObject *arguments)
+{
+	FeObject *name_object = FeGetNextArgument(context, &arguments);
+	struct lisp_command *cmd;
+	char name[LISP_COMMAND_NAME_MAX];
+
+	FeRequireNoArguments(context, arguments);
+	copy_command_name(context, name_object, name, sizeof(name));
+	cmd = find_lisp_command(name);
+	if (cmd == nullptr) {
+		return FeNil(context);
+	}
+	FeReleaseRoot(context, cmd->function_root);
+	FeReleaseRoot(context, cmd->interactive_root);
+	FeReleaseRoot(context, cmd->documentation_root);
+	cmd->name[0] = '\0';
+	cmd->function_root = nullptr;
+	cmd->interactive_root = nullptr;
+	cmd->documentation_root = nullptr;
+	cmd->interactive_kind = LISP_INTERACTIVE_NONE;
 	cmd_runtime_remove(name);
 	return FeNil(context);
 }

@@ -246,39 +246,38 @@
 ;; worked only because the binder accepted any argument count.
 (defalias 'internal--interactive-p (lambda (form)
   (if (atom form) nil (eq (car form) 'interactive))))
+(defalias 'internal--docstring-p (lambda (form) (stringp form)))
 (defalias 'internal--has-interactive (lambda (body)
-  (internal--let hit nil)
-  (while body
-    (if (internal--interactive-p (car body)) (setq hit t))
-    (setq body (cdr body)))
-  hit))
-(defalias 'internal--strip-interactive (lambda (body)
-  (internal--let out nil)
-  (while body
-    (if (internal--interactive-p (car body))
-        nil
-      (setq out (cons (car body) out)))
-    (setq body (cdr body)))
-  (reverse out)))
-;; A body form (interactive) registers the function as a command, the
-;; way Emacs makes a defun interactive; define-command takes the
-;; function itself.  defun returns the name, as Emacs does.
-;; The command registry gets the object the function cell now holds,
-;; read back with symbol-function *after* the defalias, rather than a
-;; second evaluation of the same lambda form: interpolating `f' into
-;; both calls evaluated it twice and built two separate closures, so
-;; the name and the command it registered were two distinct functions
-;; that merely behaved alike.
+  (if body (internal--interactive-p (car body)) nil)))
+;; Only the declaration immediately after the optional docstring is metadata.
+;; A non-string descriptor is wrapped as a closure in the command's lexical
+;; environment and evaluated at invocation time.
 (defalias 'defun (macro (name params . body)
-  (internal--let f (cons 'lambda (cons params
-                     (internal--strip-interactive body))))
+  (internal--let doc nil)
+  (internal--let declaration nil)
+  (internal--let spec nil)
+  (if (and body (internal--docstring-p (car body)))
+      (progn (setq doc (car body)) (setq body (cdr body))))
   (if (internal--has-interactive body)
+      (progn
+        (setq declaration (car body))
+        (setq body (cdr body))
+        (if (null body) (setq body (list nil)))
+        (internal--let f (cons 'lambda (cons params body)))
+        (setq spec (car (cdr declaration)))
+        (if (and spec (not (stringp spec)))
+            (setq spec (cons 'lambda (cons nil (list spec)))))
+        (list 'progn
+          (list 'defalias (list 'quote name) f)
+          (list 'define-command (list 'quote name)
+            (list 'symbol-function (list 'quote name)) spec doc)
+          (list 'quote name)))
+    (progn
+      (if (null body) (setq body (list nil)))
+      (internal--let f (cons 'lambda (cons params body)))
       (list 'progn (list 'defalias (list 'quote name) f)
-        (list 'define-command (list 'quote name)
-          (list 'symbol-function (list 'quote name)))
-        (list 'quote name))
-    (list 'progn (list 'defalias (list 'quote name) f)
-      (list 'quote name)))))
+        (list 'internal--remove-command-if-present (list 'quote name))
+        (list 'quote name))))))
 (defalias 'defmacro (macro (name params . body)
   (list 'progn
     (list 'defalias (list 'quote name)

@@ -2,5 +2,5 @@
  "id": "interactive-empty-spec-redefinition",
  "setup": [],
  "expr": "(progn (defun empty () (interactive) 1) (defun empty () 2) (list (commandp 'empty) (empty)))",
- "note": "07A I11: empty and nil specs supply zero arguments, and redefining without interactive immediately removes command status. Planned kg gap for 07D."
+ "note": "07D: empty and nil specs supply zero arguments, and redefining without interactive immediately removes command status."
 }

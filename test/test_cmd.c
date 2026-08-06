@@ -165,7 +165,7 @@ static void test_lookup_edges(void)
 static int run(const char *name, enum command_origin origin)
 {
 	struct command_context ctx
-	    = { 0, { 0, 0 }, origin }; /* fd 0, no prefix argument */
+	    = { 0, { 0, 0, 0 }, origin }; /* fd 0, no prefix argument */
 
 	return cmd_invoke(name, &ctx);
 }

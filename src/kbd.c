@@ -90,13 +90,16 @@ static int handle_universal_arg(struct key_event c)
 	if (!editor.prefix_pending) {
 		int meta = prefix_meta_digit(c);
 
-		if (!KEY_IS(c, 'u', KEY_MOD_CTRL) && meta < 0) {
+		if (!KEY_IS(c, 'u', KEY_MOD_CTRL) && meta < 0
+		    && !KEY_IS(c, '-', KEY_MOD_META)) {
 			return 0;
 		}
 		editor.prefix_pending = 1;
 		editor.prefix_supplied = 1;
-		editor.prefix_arg = meta < 0 ? 4 : meta;
-		editor.prefix_no_digits = meta < 0;
+		editor.prefix_raw_kind = KEY_IS(c, '-', KEY_MOD_META)
+		    ? 3 : (meta < 0 ? 2 : 1);
+		editor.prefix_arg = meta < 0 ? 4 : (KEY_IS(c, '-', KEY_MOD_META) ? -1 : meta);
+		editor.prefix_no_digits = meta < 0 && !KEY_IS(c, '-', KEY_MOD_META);
 		if (meta < 0) {
 			editor_set_status_message("C-u");
 		} else {
@@ -106,14 +109,23 @@ static int handle_universal_arg(struct key_event c)
 	}
 
 	if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
+		editor.prefix_raw_kind = 2;
 		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
 		prefix_echo(c, editor.prefix_arg);
 		return 1;
 	}
 	if (digit >= 0) {
-		editor.prefix_arg = editor.prefix_no_digits
-		    ? digit
-		    : prefix_arg_mul_add(editor.prefix_arg, 10, digit);
+		if (editor.prefix_raw_kind == 3) {
+			editor.prefix_raw_kind = 1;
+			editor.prefix_arg = -digit;
+		} else if (editor.prefix_arg < 0) {
+			editor.prefix_arg = -prefix_arg_mul_add(-editor.prefix_arg, 10, digit);
+		} else {
+			editor.prefix_raw_kind = 1;
+			editor.prefix_arg = editor.prefix_no_digits
+			    ? digit
+			    : prefix_arg_mul_add(editor.prefix_arg, 10, digit);
+		}
 		editor.prefix_no_digits = 0;
 		prefix_echo(c, editor.prefix_arg);
 		return 1;
@@ -123,12 +135,14 @@ static int handle_universal_arg(struct key_event c)
 		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
 		editor.prefix_no_digits = 0;
+		editor.prefix_raw_kind = 0;
 		editor_set_status_message("");
 		return 1;
 	}
 
 	editor.prefix_pending = 0;
 	editor.prefix_no_digits = 0;
+	editor.prefix_raw_kind = 0;
 	return 0;
 }
 
@@ -801,6 +815,7 @@ void editor_process_keypress(int fd)
 	struct command_prefix prefix;
 	prefix.supplied = editor.prefix_supplied;
 	prefix.value = editor.prefix_arg;
+	prefix.raw_kind = editor.prefix_raw_kind;
 	editor.current_prefix = prefix;
 
 	if (prefix.supplied) {

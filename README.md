@@ -541,9 +541,10 @@ e.g. enabling electric bracket pairing (off by default):
 (command-execute 'electric-pair-mode)
 ```
 
-`command-execute` runs one of the built-in editor commands kg allows Lisp to
-call, named by a quoted symbol as in Emacs or equivalently by a string, and
-always without a prefix argument.
+`command-execute` runs a built-in or Lisp-defined command named by a quoted
+symbol as in Emacs or equivalently by a string. Nested calls use the same
+evaluator and inherit the active command's prefix; outside dispatch they use
+an empty prefix.
 
 Which commands those are, and which of them a read-only buffer refuses, is
 one table in the editor — the same one M-x and every key binding consult, so
@@ -562,11 +563,17 @@ Packages define interactive commands the way Emacs does, with `defun` plus
 (global-set-key "C-c d" "insert-date")
 ```
 
-An `(interactive)` body form is stripped from the function and registers it
-under its own symbol, through the function cell. The registry underneath is
-reachable directly as `(define-command NAME FUNCTION)`, where `NAME` is a
-symbol or a string and `FUNCTION` a function value; `remove-command` undoes
-it.
+Only an `(interactive ...)` form immediately after an optional docstring is a
+declaration. It is removed from the body and registers the closure under its
+own symbol; a later form is ordinary code. The declaration supplies command
+arguments: `p` is the numeric prefix, `P` the raw prefix, and `r` the sorted
+region bounds. String prompts are parsed but prompting is deferred to 07E.
+Arguments are strict and capped at 16, with no nil padding. The raw
+`current-prefix-arg` binding is temporary, and `(prefix-numeric-value X)`
+converts its nil, integer, universal-list, or `-` forms. The registry is also
+reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;
+the spec is nil, a string, or a zero-argument function, and documentation is
+nil or a string. `remove-command` undoes the registration.
 
 A worked `init.el` — select the word under the cursor, the way you would
 write it in Emacs:

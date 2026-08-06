@@ -4,6 +4,14 @@ The dependency-ordered implementation program for the next architecture and
 feature work is [doc/plans/2026-07-31-follow-ups](plans/2026-07-31-follow-ups/README.md).
 This file remains the broader feature and technical-debt inventory.
 
+## Lisp Interactive Follow-up
+
+- [ ] **07E interactive prompting**: add `n`/`N`, `s`, `f`/`F`, and `b`/`B`
+      minibuffer argument construction, including cancellation and overflow
+      diagnostics. Valid deferred modifiers, keyboard-macro strings,
+      `interactive-form`/documentation reflection, and `CMD_REPEATS` remain
+      explicitly deferred; there is no generic unsupported-interactive gap.
+
 ## Missing Mg features
 
 Features and keybindings present in Mg but missing from kg, roughly

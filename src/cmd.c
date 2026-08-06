@@ -1712,7 +1712,14 @@ static command_id runtime_id_of(const char *name)
  * missing CMD_LISP_CALLABLE keeps (command-execute ...) restricted to
  * built-ins, exactly as the allow-list it replaced did. */
 static const struct named_cmd lisp_defined_command
-    = { NULL, NULL, CMD_EDITS_BUFFER, NULL };
+	= { NULL, NULL, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE, NULL };
+
+static const struct command_context *active_context;
+
+const struct command_prefix *cmd_active_prefix(void)
+{
+	return active_context ? &active_context->prefix : NULL;
+}
 
 static int cmd_static_count(void)
 {
@@ -1851,6 +1858,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	const struct named_cmd *cmd = cmd_lookup(name);
 	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
 	struct command_prefix saved;
+	const struct command_context *saved_context;
 	command_id outer;
 	int repeat;
 
@@ -1872,6 +1880,8 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 		return CMD_READ_ONLY;
 	}
 	saved = editor.current_prefix;
+	saved_context = active_context;
+	active_context = ctx;
 	editor.current_prefix = ctx->prefix;
 	/* An explicit zero is a real count: C-u 0 C-f moves nowhere. */
 	repeat = (cmd->flags & CMD_REPEATS) && ctx->prefix.supplied
@@ -1889,6 +1899,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	}
 	cmd_state_end_command(outer);
 	editor.current_prefix = saved;
+	active_context = saved_context;
 	return CMD_RAN;
 }
 

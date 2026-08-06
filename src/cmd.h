@@ -14,6 +14,7 @@
 struct command_prefix {
 	int supplied;
 	int value;
+	int raw_kind; /* 0 nil, 1 integer, 2 universal list, 3 minus */
 };
 
 /* A command's identity, handed out by the registry and by nothing else.
@@ -127,5 +128,6 @@ void cmd_fast_path_end(command_id outer);
  * different command.  Returns CMD_ID_NONE when no slot is free. */
 command_id cmd_runtime_define(const char *name);
 void cmd_runtime_remove(const char *name);
+const struct command_prefix *cmd_active_prefix(void);
 
 #endif /* KG_CMD_H */

@@ -2,5 +2,5 @@
  "id": "interactive-raw-prefix",
  "setup": [],
  "expr": "(list current-prefix-arg)",
- "note": "07A I12: the command boundary preserves raw prefix forms, including nil, universal arguments, digits, and minus. Planned kg gap for 07D."
+ "note": "07D: the command boundary preserves raw prefix forms, including nil, universal arguments, digits, and minus."
 }

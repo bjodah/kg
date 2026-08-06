@@ -1,0 +1,6 @@
+{
+ "id": "prelude-ignore-errors",
+ "setup": [],
+ "expr": "(list (ignore-errors (+ 1 2)) (ignore-errors (/ 1 0)))",
+ "note": "Evaluates body forms in sequence; returns last form's value on success, or nil if an error occurs."
+}

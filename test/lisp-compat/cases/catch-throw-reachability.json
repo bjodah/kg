@@ -1,0 +1,6 @@
+{
+ "id": "catch-throw-reachability",
+ "setup": [],
+ "expr": "(catch 'tag (save-excursion (throw 'tag 'escaped)))",
+ "note": "Non-local exits through catch/throw unwind native protective frames."
+}

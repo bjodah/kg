@@ -124,15 +124,28 @@ Ordering rules that hold across every subscriber:
   sentinel, regardless of subscriber registration order. This is the one
   place ordering is enforced structurally rather than left to
   registration sequence, because it is also Emacs' contract.
-- **A callback that errors is contained to itself.** The error is
-  reported through the status line (`Hook error: ...` / a process
+- **A callback that errors is contained to itself; a callback that is
+  cancelled is not.** Those are two different completions and the seam
+  treats them differently on purpose. An *error* — and a `throw` that
+  names a `catch` outside the callback, which arrives as `(no-catch TAG
+  VALUE)`, since the containment boundary is a catch wall too — is
+  reported through the status line (`Hook error (NAME): ...` / a process
   callback's own labelled message) and does not stop the remaining
   subscribers for that event, other events in the same drain, other
-  processes' callbacks, or any later delivery. Each callback gets its
-  own saved/restored Lisp frame (`state.frame`, the same discipline
-  `src/lisp_hooks.c`'s `run_one_hook_function` established and
-  `src/lisp_process.c`'s process callbacks copy verbatim) so one bad
-  callback cannot corrupt the frame the next one runs in.
+  processes' callbacks, or any later delivery. A *`quit`* (`C-g`) or a
+  *budget exhaustion* is re-signalled instead of swallowed: it abandons
+  the rest of the hook list or the rest of that event's delivery and
+  cancels the enclosing evaluation, reporting as `Quit` or as the
+  budget's own message. Containment must never be able to eat a `C-g`.
+  The containment itself is Fe's protected call
+  (`FeTryCallWithOptions`), whose `setjmp` lives inside Fe in a frame
+  that is live for the length of the call; the host `setjmp` this
+  replaced was a longjmp target Fe had already unwound past, which is
+  undefined and in practice corrupted the GC stack. `src/lisp_hooks.c`
+  and `src/lisp_process.c` each keep exactly one guarded frame, at the
+  event-subscriber level, for what a protected call deliberately does
+  not contain: a raise from kg's own bookkeeping around the call, and
+  the re-signalled quit.
 - **Point is per-buffer, not per-callback.** Every top-level Lisp
   evaluation — including each individual hook or process-callback
   invocation — re-syncs its notion of "point" for the active buffer from
@@ -170,16 +183,22 @@ Ordering rules that hold across every subscriber:
   pre-05E `is`-tailed definition reached 9361 — 20% less reachable list
   length for the same budget. Nesting depth is unaffected, since `equal`
   walks the spine iteratively and only recurses per element.
-- **A raised error unwinds the whole top-level call**, not just the
-  innermost form. kg's Lisp has no `condition-case`: nothing in Lisp
-  catches an error partway, and `unwind-protect` (below) runs its cleanup
-  forms as the error passes through without stopping it. Recovery
-  is entirely the adapter's: `setjmp`/`longjmp` back to whichever C entry
-  point (`kg_lisp_eval_string`, `kg_lisp_load_file`,
-  `kg_lisp_run_command`, or a hook/process callback's own frame) started
-  the evaluation, which then frees whatever it was holding (load buffers,
-  scratch allocations, the require cycle-detection stack) and reports
-  the labelled diagnostic. Forms evaluated **before** the error remain
+- **A raised error unwinds the whole top-level call** unless caught by
+  `condition-case`: `(condition-case VAR BODY (CONDITION HANDLER...) …)`
+  catches errors of the named condition (or its sub-conditions in the
+  static hierarchy) and runs the first matching handler as an implicit
+  `progn`; unmatched conditions re-signal unchanged. `unwind-protect`
+  runs its cleanup forms when any non-local exit — error, `throw`, or
+  `quit` — passes through, innermost-first. Recovery at the C boundary
+  (`kg_lisp_eval_string`, `kg_lisp_load_file`, `kg_lisp_run_command`, or
+  a hook/process callback's own frame) frees whatever it was holding
+  (load buffers, scratch allocations, the require cycle-detection stack)
+  and reports the labelled diagnostic.   A `quit` (from `C-g` or
+  `(signal 'quit nil)`) reports as `Quit`; a budget exhaustion keeps its
+  explicit message; an ordinary error keeps today's format verbatim.
+  `quit` is catchable by `(quit …)` and `(t)` handlers but not by
+  `(error …)`; budget exhaustion is catchable by nothing — it always
+  reaches the host.  Forms evaluated **before** the error remain
   applied — an init file or package that fails partway through still has
   its earlier `defun`s and `setq`s in effect.
 - **The interpreter's own recursion limit is two separate bounds**, not
@@ -296,9 +315,9 @@ top-level form.
 
 | Form | Result |
 | ---- | ------ |
-| `(save-excursion BODY...)` | Restores point and the current buffer on every exit, including an error or `C-g` |
+| `(save-excursion BODY...)` | Restores point and the current buffer on every exit, including an error, a `throw` or `C-g` |
 | `(with-current-buffer BUF BODY...)` | Evaluates `BODY` with `BUF` current, then restores; never selects a window |
-| `(unwind-protect BODY CLEANUP...)` | Evaluates `BODY`, then `CLEANUP...` as an implicit `progn` on every exit — normal return, error, `C-g`, or step-budget exhaustion; the value is `BODY`'s, the cleanups' are discarded |
+| `(unwind-protect BODY CLEANUP...)` | Evaluates `BODY`, then `CLEANUP...` as an implicit `progn` on every exit — normal return, error, `throw`, `C-g`, or step-budget exhaustion; the value is `BODY`'s, the cleanups' are discarded |
 
 All three are the same mechanism: Fe's cleanup registry
 (`FeProtectWithCleanup`), which the first two reach from C and
@@ -309,6 +328,22 @@ saved, or runs `CLEANUP`. Nesting is fine; each restores exactly what it
 saved, in the reverse order it was saved. A cleanup form that itself
 raises is reported directly rather than replacing the error already
 unwinding, and the cleanups still pending after it run anyway.
+
+`save-excursion` and `with-current-buffer` are *transparent* to the
+evaluation that encloses them: an error raised inside either body
+reaches a `condition-case` written around the form, carrying its
+original condition symbol, and the restore has already run by the time
+the handler does. (They are natives that run the body as a thunk, and
+they get that transparency from Fe's protected call plus `FeResignal` —
+`lisp_call_body` in `src/lisp_core.c` — which puts the completion back
+in flight in the enclosing run instead of transferring it straight to
+kg's outermost barrier.) `throw` is the one exception, and a recorded
+divergence from Emacs: Fe walls the throw search at a native re-entry
+boundary, so a `throw` out of either body finds no catch, becomes
+`(no-catch TAG VALUE)` — which an enclosing `condition-case` still
+handles, and which still runs the restore — and does *not* reach the
+`catch` that names the tag. `test/lisp-compat/features.json`'s
+`catch-throw-reachability` row is where that is written down.
 
 `save-excursion` restoring "point" means restoring the *buffer's*
 remembered point (see "Point is per-buffer" above) to what it was when
@@ -448,6 +483,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
 | Binding | `let` `let*` `setq` `progn` |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
+| Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
@@ -543,15 +579,27 @@ primitive's function cell.
   `arith-error` message rather than promoting or wrapping. There is no
   character type — write `(string-to-char "a")` rather than `?a`.
 - `t` is an ordinary assignable global, not a self-evaluating constant.
-- **No `condition-case`, no dynamic binding, no vectors, no hash tables,
-  no property lists.** (`unwind-protect` does exist — see above — but it
-  runs cleanups rather than catching. No property lists is
-  why there are no docstring-backed `describe-function`-style natives
-  yet — see below.) The namespace diagnostics `void-function`,
-  `void-variable` and `cyclic-function-indirection`, and the numeric
-  `arith-error`, are names carried in the error *message*, not catchable
-  condition objects — there is no `condition-case` to catch them with
-  (Phase 6).
+- **`condition-case` exists; `catch`/`throw` exist; `signal`/`error`
+  exist.** Conditions have a static hierarchy: `wrong-type-argument`,
+  `wrong-number-of-arguments`, `void-function`, `void-variable`,
+  `arith-error`, `args-out-of-range`, `file-error`, and `no-catch` are
+  all under `error`; `quit` is a separate branch not under `error` and
+  is not catchable by `(error …)` handlers. `(signal 'ARITH-ERROR DATA)`
+  raises a condition object `(ARITH-ERROR . DATA)`; `(error "fmt" ARGS)`
+  formats at signal time and raises `(error "formatted-text")`.
+  `throw` finds the innermost matching `catch` by `eq` tag and unwinds
+  `unwind-protect` cleanups on the way; an uncaught `throw` signals
+  `(no-catch TAG VALUE)`. `ignore-errors` is a one-line macro over
+  `condition-case`. **kg's own editor natives still signal a plain
+  `error`** whose message happens to read like a condition name, so
+  `(condition-case e (goto-char "x") (error …))` catches while
+  `(… (wrong-type-argument …))` does not; classifying kg's ~78 natives
+  is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
+  natives are already classified, which is why `(car 1)` *does* match a
+  `wrong-type-argument` handler.
+- **No dynamic binding, no vectors, no hash tables, no property
+  lists.** No property lists is why there are no docstring-backed
+  `describe-function`-style natives yet — see below.
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A

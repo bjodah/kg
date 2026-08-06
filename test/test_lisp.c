@@ -183,7 +183,7 @@ static void test_interrupt(void)
 	kg_lisp_set_interrupt_check(cancel_evaluation);
 	CHECK(kg_lisp_eval_string("(while t 1)", 11, result, sizeof(result))
 	    != 0);
-	CHECK(strstr(result, "evaluation cancelled") != nullptr);
+	CHECK(strcmp(result, "Quit") == 0);
 	kg_lisp_set_interrupt_check(nullptr);
 	CHECK(kg_lisp_eval_string("(+ 2 3)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "5") == 0);
@@ -613,15 +613,17 @@ static void test_run_command_interrupt(void)
 	interrupt_polls = 0;
 	kg_lisp_set_interrupt_check(cancel_evaluation);
 	CHECK(kg_lisp_run_command("spin", 0) == 0);
-	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
-	CHECK(strstr(test_status_message, "evaluation cancelled") != nullptr);
-	CHECK(strstr(test_status_message, "spin") != nullptr);
+	CHECK(strcmp(test_status_message, "Quit") == 0);
 	kg_lisp_set_interrupt_check(nullptr);
 
 	/* A cancelled run leaves the interpreter usable, and without the
-	 * interrupt the same command now exhausts the step budget. */
+	 * interrupt the same command now exhausts the step budget.  That
+	 * report names the command, which is what tells a user *which* of
+	 * their commands ran away; the quit above deliberately does not,
+	 * because "Quit" is the whole message Emacs shows for a C-g. */
 	CHECK(kg_lisp_run_command("spin", 0) == 0);
 	CHECK(strstr(test_status_message, "step limit") != nullptr);
+	CHECK(strstr(test_status_message, "Lisp error: spin:") != nullptr);
 	CHECK(eval_ok("(+ 1 1)"));
 
 	kg_lisp_shutdown();
@@ -1742,7 +1744,7 @@ static void test_search_cancellation(void)
 	CHECK(
 	    kg_lisp_eval_string(source, strlen(source), result, sizeof(result))
 	    != 0);
-	CHECK(strstr(result, "evaluation cancelled") != nullptr);
+	CHECK(strcmp(result, "Quit") == 0);
 	kg_lisp_set_interrupt_check(nullptr);
 
 	/* Cancellation is distinct from "not found": an uninterrupted retry
@@ -2729,7 +2731,277 @@ static void test_recursion_depth(void)
  * `function` alias dropped the count to 52, and the type assertion reads
  * the function cell -- `(type-of (symbol-function 'NAME))` -- because the
  * names live there, not in the value namespace. */
-#define PRELUDE_DEFS 52
+static void test_condition_case_native_error(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(goto-char 5)"));
+	/* goto-char with invalid string type raises wrong-type-argument;
+	 * condition-case catches it, point stays at 5, buffer survives. */
+	CHECK(eval_eq(
+	    "(condition-case e (goto-char \"x\") (error 'caught))", "caught"));
+	CHECK(eval_eq("(point)", "5"));
+	CHECK(eval_eq("(buffer-name)", "bridge.txt"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_catch_throw_unwind(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* throw unwinds through unwind-protect cleanups in innermost-first
+	 * order */
+	CHECK(eval_ok("(setq trail nil)"));
+	CHECK(eval_eq("(catch 'exit "
+		      "  (unwind-protect "
+		      "    (unwind-protect "
+		      "      (throw 'exit 'done) "
+		      "      (setq trail (cons 'inner trail))) "
+		      "    (setq trail (cons 'outer trail))))",
+	    "done"));
+	CHECK(eval_eq("trail", "(outer inner)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Sub-plan 06E.  save-excursion and with-current-buffer run a body between
+ * a save and a restore, and both used FeCall to do it -- which starts a
+ * *nested* evaluator run whose completions transfer to kg's own outermost
+ * barrier, past every condition-case that lexically encloses the form.  The
+ * protected call plus FeResignal (lisp_call_body) puts the completion back
+ * in flight in the enclosing run instead, which is what these pin.
+ *
+ * `throw` is the deliberate exception, and the last two blocks pin it as
+ * what it is rather than as what Emacs answers: Fe walls the throw search
+ * at a native re-entry boundary by design, so a throw out of either body
+ * finds no catch and becomes `(no-catch TAG VALUE)` -- an ordinary error an
+ * enclosing condition-case handles, and one whose unwinding still runs the
+ * C restore.  test/lisp-compat/features.json's catch-throw-reachability row
+ * carries the same statement as a divergence. */
+static void test_wrapping_native_transparency(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	/* 1. An error inside save-excursion reaches the enclosing
+	 * condition-case, and the restore has already run when it does. */
+	CHECK(eval_ok("(goto-char 3)"));
+	CHECK(eval_eq("(condition-case e"
+		      "   (save-excursion (goto-char 8) (error \"boom\"))"
+		      "   (error 'caught))",
+	    "caught"));
+	CHECK(eval_eq("(point)", "3"));
+
+	/* 2. The handler sees the original condition, not a re-wrapped one. */
+	CHECK(eval_eq("(condition-case e"
+		      "   (save-excursion (car 1))"
+		      "   (wrong-type-argument 'by-symbol))",
+	    "by-symbol"));
+
+	/* 3. A throw out of the body is contained as no-catch -- and the
+	 * restore ran on that path too. */
+	CHECK(eval_ok("(goto-char 3)"));
+	CHECK(eval_eq("(condition-case e"
+		      "   (catch 'tag"
+		      "     (save-excursion (goto-char 8) (throw 'tag 'gone)))"
+		      "   (error (car e)))",
+	    "no-catch"));
+	CHECK(eval_eq("(point)", "3"));
+
+	/* 4. with-current-buffer answers the same three ways, and restores
+	 * the selected buffer on each of them. */
+	CHECK(eval_ok("(setq b2 (get-buffer-create \"wrap2\"))"));
+	CHECK(eval_eq("(condition-case e"
+		      "   (with-current-buffer b2 (error \"boom\"))"
+		      "   (error 'caught))",
+	    "caught"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+	CHECK(eval_eq("(condition-case e"
+		      "   (catch 'tag (with-current-buffer b2"
+		      "     (throw 'tag 'gone)))"
+		      "   (error (car e)))",
+	    "no-catch"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	/* 5. A body that completes normally is unaffected by any of this. */
+	CHECK(eval_eq("(with-current-buffer b2 (buffer-name))", "wrap2"));
+	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Sub-plan 06E, and the honest half of the compat manifest's
+ * condition-case-native-errors row.  kg's own editor natives still raise
+ * prose through FeHandleError -- 06A's Decision 2 deferred classifying them
+ * -- so the condition they carry is plain `error` whose message happens to
+ * read "wrong-type-argument".  A generic handler therefore catches them and
+ * a handler naming the specific symbol does not, which is a divergence from
+ * Emacs and is written down as one. */
+static void test_condition_case_kg_native_conditions(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	/* A generic (error ...) handler catches a kg native's raise. */
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") (error 'generic))",
+	    "generic"));
+	/* The symbol the *message* names does not match, because the
+	 * condition object is `(error "wrong-type-argument")`. */
+	CHECK(eval_error_contains(
+	    "(condition-case e (goto-char \"x\") (wrong-type-argument 'sym))",
+	    "wrong-type-argument"));
+	CHECK(eval_eq(
+	    "(condition-case e (goto-char \"x\") (error (car e)))", "error"));
+	/* Fe's own natives, by contrast, already carry classified
+	 * conditions -- so this is a kg-side gap, not a Lisp-wide one. */
+	CHECK(eval_eq(
+	    "(condition-case e (car 1) (wrong-type-argument 'sym))", "sym"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Sub-plan 06E.  Hook containment swallows a hook's *error* and carries on
+ * with the next hook; it must not swallow a quit, or C-g would be eaten by
+ * whichever hook happened to be running when it arrived.  The quit is put
+ * back in flight with FeResignal and cancels the whole evaluation. */
+static void test_hook_quit_is_not_contained(void)
+{
+	char result[128] = "";
+	static const char *src = "(progn (run-hooks 'spin-hook) 'survived)";
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq after-ran nil)"));
+	CHECK(eval_ok("(add-hook 'spin-hook (lambda () (while t 1)))"));
+	CHECK(eval_ok("(add-hook 'spin-hook (lambda () (setq after-ran t)))"));
+
+	interrupt_polls = 0;
+	kg_lisp_set_interrupt_check(cancel_evaluation);
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) != 0);
+	kg_lisp_set_interrupt_check(nullptr);
+	/* Reported as the cancellation it is, not as a hook error, and the
+	 * hooks after it never ran. */
+	CHECK(strcmp(result, "Quit") == 0);
+	CHECK(strstr(test_status_message, "Hook error") == nullptr);
+	CHECK(eval_eq("after-ran", "nil"));
+	/* The interpreter is still usable afterwards. */
+	CHECK(eval_eq("(+ 1 1)", "2"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_hook_throw_containment(void)
+{
+	char result[128] = "";
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(
+	    eval_ok("(add-hook 'my-test-hook (lambda () (throw 'tag 'val)))"));
+	const char *src = "(catch 'tag (run-hooks 'my-test-hook))";
+	int rc = kg_lisp_eval_string(src, strlen(src), result, sizeof(result));
+
+	/* The hook's throw cannot reach the catch outside (run-hooks): the
+	 * protected call's barrier is a catch wall, so the throw finds no
+	 * catch inside the hook's own run and is contained as no-catch.  The
+	 * enclosing evaluation survives -- it is the whole point of hook
+	 * containment -- and the status line says which hook failed and
+	 * why. */
+	CHECK(rc == 0);
+	CHECK(strcmp(result, "nil") == 0);
+	CHECK(strstr(test_status_message, "Hook error (my-test-hook)")
+	    != nullptr);
+	CHECK(strstr(test_status_message, "no-catch") != nullptr);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_signal(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* signal arith-error caught by arith-error handler */
+	CHECK(eval_eq("(condition-case e (signal 'arith-error '(1)) "
+		      "(arith-error (car e)))",
+	    "arith-error"));
+
+	/* signal arith-error caught by parent error handler */
+	CHECK(eval_eq(
+	    "(condition-case e (signal 'arith-error '(1)) (error (car e)))",
+	    "arith-error"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_ignore_errors(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* ignore-errors returns value on success, nil on error */
+	CHECK(eval_eq("(ignore-errors (+ 1 2))", "3"));
+	CHECK(eval_eq("(ignore-errors (/ 1 0))", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_condition_case_reentry(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* condition-case inside hook inside condition-case */
+	CHECK(eval_ok("(add-hook 'before-save-hook "
+		      "  (lambda () (condition-case nil (/ 1 0) (error "
+		      "'hook-caught))))"));
+	CHECK(eval_eq("(condition-case nil (progn (run-hooks "
+		      "'before-save-hook) 'ok) (error 'outer-caught))",
+	    "ok"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_quit_uncaught(void)
+{
+	char result[128] = "";
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* signal quit is caught by quit handler, but NOT by error handler */
+	CHECK(
+	    eval_eq("(condition-case e (signal 'quit nil) (quit 'caught-quit))",
+		"caught-quit"));
+
+	const char *src
+	    = "(condition-case e (signal 'quit nil) (error 'caught-error))";
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) != 0);
+	CHECK(strcmp(result, "Quit") == 0);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+#define PRELUDE_DEFS 53
 
 static void test_prelude_source_file(void)
 {
@@ -3218,6 +3490,16 @@ int main(void)
 	RUN(test_void_variable);
 	RUN(test_cyclic_result);
 	RUN(test_recursion_depth);
+	RUN(test_condition_case_native_error);
+	RUN(test_catch_throw_unwind);
+	RUN(test_wrapping_native_transparency);
+	RUN(test_condition_case_kg_native_conditions);
+	RUN(test_hook_quit_is_not_contained);
+	RUN(test_hook_throw_containment);
+	RUN(test_signal);
+	RUN(test_ignore_errors);
+	RUN(test_condition_case_reentry);
+	RUN(test_quit_uncaught);
 	RUN(test_prelude_source_file);
 	return test_summary();
 }

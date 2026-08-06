@@ -7,6 +7,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 #include "lisp_process.h"
@@ -72,38 +73,31 @@ static struct kg_process_binding *binding_for(struct kg_process_handle handle)
 	return b;
 }
 
-/* Copy of src/lisp_hooks.c's run_one_hook_function(): a filter or sentinel
- * gets its own guarded frame, entered from inside the live frame the
- * drain's own safe point runs under, so the outer frame's error_jump and
- * checkpoint have to be saved and restored around it exactly as a hook's
- * does -- getting that wrong is what the comment there says killed the
- * editor on the next error after a run-hooks. */
+/* Copy of src/lisp_hooks.c's run_one_hook_function(), and for the same
+ * reason: containment belongs inside Fe, in a frame that is live for the
+ * length of the call, not in a host setjmp that Fe's own transfer has
+ * already unwound past.  FeTryCallWithOptions() returns the completion
+ * instead of throwing it, so a broken filter or sentinel is reported and
+ * swallowed here -- the semantics this seam always promised -- while a quit
+ * or a budget completion is put back in flight with FeResignal() rather
+ * than swallowed, exactly as the hook seam does it.  The landing site for
+ * that is the guarded frame the event callback below owns; a filter or a
+ * sentinel only ever runs from there, since the subscriber declines to run
+ * while a Lisp frame is active. */
 static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
     size_t argc, const char *what)
 {
 	FeObject *fn = FeGetRoot(root);
-	struct lisp_frame saved_frame;
-	bool prev_frame_active;
+	FeObject *value;
+	FeCompletion kind;
 	size_t gc;
 	char diagnostic[LISP_CALLABLE_DIAGNOSTIC_MAX];
 
 	if (fn == NULL || FeIsNil(fn)) {
 		return;
 	}
-	saved_frame = state.frame;
-	prev_frame_active = state.frame_active;
 	gc = FeSaveGC(ctx);
-	state.error[0] = '\0';
-	state.frame_active = true;
-	if (setjmp(state.frame.error_jump) != 0) {
-		FeRestoreGC(ctx, gc);
-		state.frame = saved_frame;
-		state.frame_active = prev_frame_active;
-		release_scratch();
-		editor_set_status_message(
-		    "Process %s error: %s", what, state.error);
-		return;
-	}
+	value = FeNil(ctx);
 	/* A filter or sentinel may be a symbol designator: resolve it now that
 	 * the callback runs, exactly as hooks do, so redefining the named
 	 * function afterwards takes effect.  An empty cell is reported, not
@@ -113,18 +107,25 @@ static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
 	fn = lisp_callable_designator(ctx, fn, diagnostic, sizeof(diagnostic));
 	if (fn == NULL) {
 		FeRestoreGC(ctx, gc);
-		state.frame = saved_frame;
-		state.frame_active = prev_frame_active;
 		editor_set_status_message(
 		    "Process %s error: %s", what, diagnostic);
 		return;
 	}
 	lisp_exec_enter(ctx);
-	(void)FeCallWithOptions(ctx, fn, args, argc, &eval_options);
+	if (FeTryCallWithOptions(ctx, fn, args, argc, &eval_options, &value)) {
+		FeRestoreGC(ctx, gc);
+		lisp_exec_leave(1);
+		return;
+	}
+	kind = FeGetCompletion(ctx);
 	FeRestoreGC(ctx, gc);
-	lisp_exec_leave(1);
-	state.frame = saved_frame;
-	state.frame_active = prev_frame_active;
+	lisp_exec_leave(0);
+	release_scratch();
+	if (kind == FeCompletionQuit || kind == FeCompletionBudget) {
+		FeResignal(ctx);
+	}
+	editor_set_status_message(
+	    "Process %s error: %s", what, FeGetCompletionMessage(ctx));
 }
 
 /* Flush whatever output `handle` still has queued to its filter, if one is
@@ -153,6 +154,12 @@ static void deliver_filter_output(FeContext *ctx,
 
 		args[0] = lisp_process_object(ctx, handle);
 		args[1] = FeMakeString(ctx, text);
+		/* The Fe string owns a copy; drop the C buffer before the
+		 * callback runs, because a quit or budget completion inside
+		 * the filter is re-signalled rather than swallowed and
+		 * leaves this frame by longjmp. */
+		free(text);
+		text = NULL;
 		call_process_callback(ctx, b->filter, args, 2, "filter");
 		FeRestoreGC(ctx, gc);
 	}
@@ -200,6 +207,48 @@ static void deliver_sentinel(FeContext *ctx, struct kg_process_handle handle,
 	FeRestoreGC(ctx, gc);
 }
 
+/* The guarded frame for one process event, and the only one on this path:
+ * the subscriber below runs only when no Lisp frame is active, so there is
+ * no enclosing evaluator run and no live host frame -- and Fe's error
+ * callback aborts without one.  It catches what the protected call in
+ * call_process_callback() deliberately does not contain: a raise from kg's
+ * own bookkeeping around the call, and the quit or budget completion that
+ * seam re-signals instead of swallowing.  Either abandons the rest of this
+ * event's delivery, which is the point; an ordinary filter or sentinel
+ * error does not. */
+static void deliver_process_event(FeContext *ctx,
+    struct kg_process_handle handle, struct kg_process_binding *b, bool exited)
+{
+	size_t gc = FeSaveGC(ctx);
+
+	state.error[0] = '\0';
+	state.frame.gc_checkpoint = gc;
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(ctx, gc);
+		lisp_exec_leave(0);
+		lisp_settle_completion();
+		if (state.last_error_kind == KG_LISP_ERROR_QUIT) {
+			editor_set_status_message("Quit");
+		} else {
+			editor_set_status_message(
+			    "Process error: %s", state.error);
+		}
+		state.frame_active = false;
+		release_scratch();
+		return;
+	}
+	/* Requirement (a): every remaining byte reaches the filter before the
+	 * sentinel runs, for both event kinds -- an EXIT is not assumed to
+	 * follow an already-delivered OUTPUT event for the same bytes. */
+	deliver_filter_output(ctx, handle, b);
+	if (exited) {
+		deliver_sentinel(ctx, handle, b);
+	}
+	FeRestoreGC(ctx, gc);
+	state.frame_active = false;
+}
+
 static enum kg_event_cb_status lisp_process_event_cb(const struct kg_event *ev,
     enum kg_event_resolution resolution, void *user_ctx)
 {
@@ -222,13 +271,8 @@ static enum kg_event_cb_status lisp_process_event_cb(const struct kg_event *ev,
 	if (b == NULL) {
 		return KG_EVENT_CB_CONTINUE;
 	}
-	/* Requirement (a): every remaining byte reaches the filter before the
-	 * sentinel runs, for both event kinds -- an EXIT is not assumed to
-	 * follow an already-delivered OUTPUT event for the same bytes. */
-	deliver_filter_output(ctx, handle, b);
-	if (ev->kind == KG_EVENT_PROCESS_EXIT) {
-		deliver_sentinel(ctx, handle, b);
-	}
+	deliver_process_event(
+	    ctx, handle, b, ev->kind == KG_EVENT_PROCESS_EXIT);
 	return KG_EVENT_CB_CONTINUE;
 }
 

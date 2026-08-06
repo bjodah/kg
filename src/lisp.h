@@ -11,6 +11,23 @@ void kg_lisp_shutdown(void);
 /* Loads the resolved init file; missing files are normal and succeed. */
 [[nodiscard]] int kg_lisp_load_init(void);
 [[nodiscard]] const char *kg_lisp_last_error(void);
+
+/* Why the last evaluation failed, as a kind rather than as text.  Fe's
+ * FeCompletion, mirrored here because lisp.h stays free of fe.h (the
+ * boundary lisp_internal.h enforces): a caller telling a cancelled
+ * evaluation from a genuine error reads this instead of comparing the
+ * message string, which is what sub-plan 06A's Decision 5 added the
+ * completion accessors for.  Valid until the next evaluation; NONE after
+ * one that succeeded, and in every WITH_LISP=0 build. */
+enum kg_lisp_error_kind {
+	KG_LISP_ERROR_NONE = 0,
+	KG_LISP_ERROR_ERROR, /* an ordinary signalled condition */
+	KG_LISP_ERROR_QUIT, /* C-g, or (signal 'quit nil) */
+	KG_LISP_ERROR_BUDGET, /* a step/frame/re-entry ceiling */
+};
+
+[[nodiscard]] enum kg_lisp_error_kind kg_lisp_last_error_kind(void);
+
 /* Runs a Lisp-defined command: 0 when the name is known (errors are
  * shown in the status area), nonzero when no such command exists. */
 [[nodiscard]] int kg_lisp_run_command(const char *name, int fd);

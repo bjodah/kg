@@ -1,0 +1,6 @@
+{
+ "id": "signal-from-kg",
+ "setup": [],
+ "expr": "(condition-case err (signal 'arith-error '(division-by-zero)) (error err))",
+ "note": "Explicit signal raises a condition object catchable by handler matching its parent in the hierarchy."
+}

@@ -1,0 +1,48 @@
+# Sub-plan 06E.  C-g must cancel a running Lisp evaluation and say so, and
+# it must say `Quit` rather than an error: src/cmd.c reads the completion
+# *kind* the adapter latched (kg_lisp_last_error_kind) instead of comparing
+# the reported message to the string "Quit".
+#
+# Timing, deliberately, and why this is not flaky.  The keys are queued in
+# the pty: `C-c` `s` starts the command and the `C-g` lands one key_delay
+# (0.05 s, the floor CLAUDE.md sets -- below 0.03 kg reads the burst as a
+# paste) later, where kg's interrupt poll finds it.  The race the case has
+# to avoid is the *step budget* finishing the loop before that: a bare
+# `(while t 1)` exhausts 2^20 steps in ~10 ms on an idle box, which is
+# faster than the C-g arrives.  So the loop's body is a 400-character
+# `concat`, which makes each step slow rather than making the loop longer:
+# measured, it runs ~900 ms before the budget fires, ~18x the window the
+# C-g needs, and every slower configuration (a sanitizer lane, valgrind, a
+# loaded box) widens that margin rather than narrowing it.  The run itself
+# still ends at the C-g, ~0.1 s in, not at the budget.
+#
+# tmux, because the assertion is a status-line one: the saved file is
+# unchanged, which is the other half of "the command was cancelled".
+name: lisp-quit-cancels-evaluation
+filename: lisp-quit.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 60]
+config_files:
+  .config/kg/init.el: |
+    (defun pad (n)
+      (let ((r ""))
+        (dotimes (i n) (setq r (concat r "x")))
+        r))
+    (setq spin-pad (pad 400))
+    (defun spin ()
+      "Loop until cancelled or until the step budget stops it."
+      (interactive)
+      (while t (concat spin-pad spin-pad)))
+    (global-set-key "C-c s" "spin")
+initial: "before"
+keys:
+  - C-c
+  - s
+  - C-g
+expected_saved: "before"
+expected_screen_contains:
+  - "Quit"
+expected_screen_not_contains:
+  - "step limit"
+  - "Lisp error"

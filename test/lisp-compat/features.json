@@ -766,7 +766,7 @@
     "native-start-shell-command"
    ],
    "kg_test": "test/pty/lisp-process-callback-error-contained.yaml",
-   "rationale": null,
+   "rationale": "Process filter and sentinel callbacks get their own guarded frame: an error or throw in a callback is contained and reported on the status line, leaving the main editor loop intact.",
    "source_name": "start-shell-command"
   },
   {
@@ -909,7 +909,7 @@
     "format-exceptional-float"
    ],
    "kg_test": "test/test_lisp.c:test_format_natives",
-   "rationale": "05E's numeric cut leaves one float reason where the old entry had two: `%d` of the nonfinite float `(/ 1.0 0)` still refuses (kg has no bignum to print an infinity or NaN into), now solely because the operand is a nonfinite float -- not because kg had no int/float distinction to make in the first place. `(/ 1 0)` no longer shares this path: it is an integer division and raises arith-error before format ever sees it.",
+   "rationale": "05E's numeric cut leaves one float reason where the old entry had two: `%d` of the nonfinite float `(/ 1.0 0)` still refuses (kg has no bignum to print an infinity or NaN into), now solely because the operand is a nonfinite float -- not because kg had no int/float distinction to make in the first place. `(/ 1 0)` no longer shares this path: Phase 6 condition handling raises an arith-error condition object before format ever sees it.",
    "source_name": null
   },
   {
@@ -1756,6 +1756,71 @@
    "kg_test": "test/test_lisp.c:test_thing_at_point",
    "rationale": null,
    "source_name": "thing-at-point"
+  },
+  {
+   "id": "prelude-ignore-errors",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-ignore-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_ignore_errors",
+   "rationale": null,
+   "source_name": "ignore-errors"
+  },
+  {
+   "id": "condition-case-native-errors",
+   "category": "errors-and-non-local-exits",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "condition-case-native-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_condition_case_kg_native_conditions",
+   "rationale": "Emacs answers `wrong-type-argument`; kg answers a `(error \"wrong-type-argument\")` whose car is `error`, so the handler naming the specific symbol never matches and only a generic `(error ...)` handler catches it. kg's own editor natives still raise prose through FeHandleError: sub-plan 06A's Decision 2 scoped this phase to Fe's conditions and deferred classifying kg's ~78 natives to the follow-up that gives each one its Emacs condition symbol and data. Fe's own natives are already classified, which is why `(car 1)` does match a `wrong-type-argument` handler -- the gap is kg-side and native-by-native. The kg_test pins both halves of the true behaviour.",
+   "source_name": null
+  },
+  {
+   "id": "catch-throw-reachability",
+   "category": "errors-and-non-local-exits",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "catch-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_wrapping_native_transparency",
+   "rationale": "Emacs answers `escaped`; kg raises `(no-catch tag escaped)`. `save-excursion` and `with-current-buffer` are natives that call the body as a thunk, and Fe walls the throw search at a native re-entry boundary by design (fe/compat/features.json's throw row calls it \"a tested wall\"), so a throw out of the body finds no catch and is converted there. Sub-plan 06E's protected call (FeTryCallWithOptions plus FeResignal, src/lisp_core.c's lisp_call_body) made these two forms transparent to `condition-case` and to quit, and the unwind still runs their C restore, but it cannot make them transparent to `throw`: the resignalled completion is the no-catch error, not the throw. Closing this means expanding both forms to Lisp `unwind-protect` in lisp/prelude.el so no native frame stands between the throw and its catch; until then the divergence is what the kg_test pins.",
+   "source_name": null
+  },
+  {
+   "id": "signal-from-kg",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "signal-from-kg"
+   ],
+   "kg_test": "test/test_lisp.c:test_signal",
+   "rationale": null,
+   "source_name": null
+  },
+  {
+   "id": "quit-non-catchability",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "quit-non-catchability"
+   ],
+   "kg_test": "test/test_lisp.c:test_quit_uncaught",
+   "rationale": null,
+   "source_name": null
   },
   {
    "id": "one-namespace-clobber",

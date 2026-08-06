@@ -112,7 +112,8 @@ static int lisp_search_forward(FeContext *ctx, struct editor_buffer *b,
 		int rc;
 
 		if (state.interrupt_check && state.interrupt_check()) {
-			FeHandleError(ctx, "evaluation cancelled");
+			FeRaiseCompletion(
+			    ctx, FeCompletionQuit, "evaluation cancelled");
 		}
 		rc = lisp_search_row_forward(&b->row[row], from_col, limit_col,
 		    regexp, rx, needle, needle_len, hit);
@@ -183,7 +184,8 @@ static int lisp_search_backward(FeContext *ctx, struct editor_buffer *b,
 		int limit_col = (row == bound_row) ? bound_col : 0;
 
 		if (state.interrupt_check && state.interrupt_check()) {
-			FeHandleError(ctx, "evaluation cancelled");
+			FeRaiseCompletion(
+			    ctx, FeCompletionQuit, "evaluation cancelled");
 		}
 		if (before_col < limit_col) {
 			continue;

@@ -14,9 +14,9 @@ Three things, in order:
 1. Reuse (not reimplement) fe/utils/check_compat_manifest.py's schema and
    per-entry validation for both manifests, each pointed at the other via
    --other-manifest so the two id spaces are also checked for collisions.
-2. The check that keeps the inventory alive: every one of Fe's 49
+2. The check that keeps the inventory alive: every one of Fe's 54
    primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
-   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 52
+   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 53
    prelude definitions (lisp/prelude.el's top-level "(defalias 'NAME ...)"
    forms) appears in exactly one feature entry's "source_name" field, across
    the two manifests combined. A native or prelude definition added without a
@@ -48,7 +48,7 @@ def strip_c_comments(text: str) -> str:
 
 
 def parse_fe_primitives() -> set[str]:
-	"""49 primitive names plus the 1 alias ('fn' -> 'lambda') from fe.c."""
+	"""54 primitive names plus the 1 alias ('fn' -> 'lambda') from fe.c."""
 	text = strip_c_comments(FE_C.read_text(encoding="utf-8"))
 	names_block = re.search(
 		r"static const char\* primitive_names\[\] = \{(.*?)\};", text, re.S)
@@ -80,7 +80,7 @@ def parse_kg_natives() -> set[str]:
 
 
 def parse_kg_prelude_defs() -> set[str]:
-	"""52 top-level "(defalias 'NAME ...)" definitions from lisp/prelude.el.
+	"""53 top-level "(defalias 'NAME ...)" definitions from lisp/prelude.el.
 
 	Sub-plan 01A moved these out of three C string literals in
 	src/lisp_prelude.c and into a real Lisp source file, so this reads the
@@ -89,9 +89,9 @@ def parse_kg_prelude_defs() -> set[str]:
 	definitions from `=` to core `setq`, making them column-zero
 	"(setq NAME ...)" forms.  Sub-plan 04E's Lisp-2 cut retargeted the
 	function cell and respelled them "(defalias 'NAME ...)", deleting the
-	identity-lambda `function` alias in the same move -- which is why the
-	count is 52, not 53.  Nothing nested is ever in column 0, because every
-	continuation line in the file is indented.
+	identity-lambda `function` alias (count 52).  Sub-plan 06E added
+	`ignore-errors` (count 53).  Nothing nested is ever in column 0, because
+	every continuation line in the file is indented.
 	"""
 	text = LISP_PRELUDE_EL.read_text(encoding="utf-8")
 	names = set(re.findall(r"(?m)^\(defalias '(\S+)", text))

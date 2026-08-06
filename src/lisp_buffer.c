@@ -559,7 +559,7 @@ FeObject *native_save_excursion(FeContext *context, FeObject *arguments)
 		FeHandleError(context, "out of memory");
 	}
 	FeProtectWithCleanup(context, cleanup_save_excursion, data);
-	return FeCall(context, fn, NULL, 0);
+	return lisp_call_body(context, fn);
 }
 
 struct with_current_buffer_data {
@@ -593,5 +593,5 @@ FeObject *native_with_current_buffer(FeContext *context, FeObject *arguments)
 	data->saved_buffer = state.exec.buffer;
 	FeProtectWithCleanup(context, cleanup_with_current_buffer, data);
 	lisp_exec_set_buffer(context, target_b);
-	return FeCall(context, fn, NULL, 0);
+	return lisp_call_body(context, fn);
 }

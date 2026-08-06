@@ -8,6 +8,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "lisp.h"
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
@@ -82,53 +83,75 @@ static FeObject *resolve_hook_function(
 	return lisp_callable_designator(ctx, fn, diagnostic, diagnostic_size);
 }
 
+/* Containment lives inside Fe now, not in a setjmp of kg's own.
+ *
+ * (run-hooks) reaches this from *inside* a live evaluator run, and
+ * FeCall/FeCallWithOptions transfer a nested run's completion to the
+ * *enclosing* run's barrier -- past this C frame.  A host setjmp here was
+ * therefore a longjmp target that Fe had already unwound past by the time
+ * the host error callback ran: undefined behaviour, and in practice the
+ * corrupted GC stack the hook-containment test used to report.  Fe's
+ * FeTryCallWithOptions() puts the setjmp inside Fe, in a frame that is live
+ * for exactly as long as the call, and *returns* the completion instead of
+ * throwing it: on false the callee's cleanups have run, its frames and GC
+ * entries are gone, this frame was never unwound, and the accessors
+ * describe what happened.  Its barrier is a catch wall too, so a hook that
+ * throws to a tag it does not itself catch is contained here as `no-catch`
+ * rather than escaping into whatever catch the editor's own evaluation had
+ * open.
+ *
+ * A hook error is swallowed -- a broken hook in a user's init file must not
+ * take the editor's evaluation down with it -- but a quit or a budget
+ * completion is not a hook error and is put back in flight with
+ * FeResignal(): C-g must cancel the whole evaluation, never be eaten by the
+ * containment of whichever hook happened to be running when it arrived.
+ * The enclosing landing site is Fe's own barrier on the (run-hooks) path,
+ * and run_hook_list_guarded()'s frame on the editor-event path. */
 static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
     size_t arg_count, const char *hook_name)
 {
 	FeObject *fn = FeGetRoot(root);
 	FeObject *target;
+	FeObject *value;
+	FeCompletion kind;
 	char diagnostic[LISP_CALLABLE_DIAGNOSTIC_MAX];
+	struct kg_lisp_exec_ctx saved_exec;
+	size_t gc;
 
 	if (fn == NULL || FeIsNil(fn)) {
 		return;
 	}
 
-	/* A hook gets its own guarded frame, and (run-hooks) reaches this
-	 * from *inside* a live frame -- so the caller's error_jump and its
-	 * checkpoint have to be saved and put back.  Overwriting
-	 * state.frame in place left the outer frame's error_jump naming a
-	 * stack frame that had already returned, so the next error after a
-	 * (run-hooks) longjmp'd into dead stack and killed the editor. */
-	struct lisp_frame saved_frame = state.frame;
-	bool prev_frame_active = state.frame_active;
-	size_t gc = FeSaveGC(ctx);
+	saved_exec = state.exec;
+	gc = FeSaveGC(ctx);
+	value = FeNil(ctx);
 
-	state.error[0] = '\0';
-	state.frame_active = true;
-	if (setjmp(state.frame.error_jump) != 0) {
-		FeRestoreGC(ctx, gc);
-		state.frame = saved_frame;
-		state.frame_active = prev_frame_active;
-		release_scratch();
-		editor_set_status_message(
-		    "Hook error (%s): %s", hook_name, state.error);
-		return;
-	}
 	target = resolve_hook_function(ctx, fn, diagnostic, sizeof(diagnostic));
 	if (target == NULL) {
 		FeRestoreGC(ctx, gc);
-		state.frame = saved_frame;
-		state.frame_active = prev_frame_active;
 		editor_set_status_message(
 		    "Hook error (%s): %s", hook_name, diagnostic);
+		state.exec = saved_exec;
 		return;
 	}
 	lisp_exec_enter(ctx);
-	(void)FeCallWithOptions(ctx, target, args, arg_count, &eval_options);
+	if (FeTryCallWithOptions(
+		ctx, target, args, arg_count, &eval_options, &value)) {
+		FeRestoreGC(ctx, gc);
+		lisp_exec_leave(1);
+		state.exec = saved_exec;
+		return;
+	}
+	kind = FeGetCompletion(ctx);
 	FeRestoreGC(ctx, gc);
-	lisp_exec_leave(1);
-	state.frame = saved_frame;
-	state.frame_active = prev_frame_active;
+	lisp_exec_leave(0);
+	state.exec = saved_exec;
+	release_scratch();
+	if (kind == FeCompletionQuit || kind == FeCompletionBudget) {
+		FeResignal(ctx);
+	}
+	editor_set_status_message(
+	    "Hook error (%s): %s", hook_name, FeGetCompletionMessage(ctx));
 }
 
 static void run_hook_list(FeContext *ctx, const char *hook_name,
@@ -157,6 +180,44 @@ static void run_hook_list(FeContext *ctx, const char *hook_name,
 		}
 		run_one_hook_function(ctx, e->root, args, arg_count, hook_name);
 	}
+}
+
+/* The editor-event entry point, and the one place on that path that owns a
+ * guarded frame.  The subscriber below runs only when no Lisp frame is
+ * active (it returns early otherwise), so there is no enclosing evaluator
+ * run and no live host frame -- and Fe's error callback aborts without one.
+ * This supplies it: one frame for the whole hook list rather than one per
+ * hook function, which is what the per-hook setjmp got wrong.  It catches
+ * what FeTryCallWithOptions() deliberately does not contain: a raise from
+ * kg's own bookkeeping around the call (lisp_exec_enter on a buffer that
+ * died), and the quit or budget completion run_one_hook_function() puts
+ * back in flight rather than swallowing.  Either one abandons the rest of
+ * the hook list, which is the point -- an ordinary hook error does not. */
+static void run_hook_list_guarded(FeContext *ctx, const char *hook_name,
+    struct editor_buffer *b, FeObject **args, size_t arg_count)
+{
+	size_t gc = FeSaveGC(ctx);
+
+	state.error[0] = '\0';
+	state.frame.gc_checkpoint = gc;
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(ctx, gc);
+		lisp_exec_leave(0);
+		lisp_settle_completion();
+		if (state.last_error_kind == KG_LISP_ERROR_QUIT) {
+			editor_set_status_message("Quit");
+		} else {
+			editor_set_status_message(
+			    "Hook error (%s): %s", hook_name, state.error);
+		}
+		state.frame_active = false;
+		release_scratch();
+		return;
+	}
+	run_hook_list(ctx, hook_name, b, args, arg_count);
+	FeRestoreGC(ctx, gc);
+	state.frame_active = false;
 }
 
 static enum kg_event_cb_status lisp_event_subscriber(
@@ -189,7 +250,7 @@ static enum kg_event_cb_status lisp_event_subscriber(
 			args[2] = lisp_position(ctx, end_off);
 			args[3] = FeMakeInteger(
 			    ctx, (int64_t)ev->payload.changed.old_len);
-			run_hook_list(
+			run_hook_list_guarded(
 			    ctx, "after-change-functions", b, args, 4);
 			FeRestoreGC(ctx, gc);
 		}
@@ -200,7 +261,8 @@ static enum kg_event_cb_status lisp_event_subscriber(
 		    = buf_resolve(ev->payload.buffer_life.buffer);
 
 		if (b != NULL) {
-			run_hook_list(ctx, "find-file-hook", b, NULL, 0);
+			run_hook_list_guarded(
+			    ctx, "find-file-hook", b, NULL, 0);
 		}
 		break;
 	}
@@ -209,7 +271,8 @@ static enum kg_event_cb_status lisp_event_subscriber(
 		    = buf_resolve(ev->payload.before_save.buffer);
 
 		if (b != NULL) {
-			run_hook_list(ctx, "before-save-hook", b, NULL, 0);
+			run_hook_list_guarded(
+			    ctx, "before-save-hook", b, NULL, 0);
 		}
 		break;
 	}
@@ -219,7 +282,7 @@ static enum kg_event_cb_status lisp_event_subscriber(
 			    = buf_resolve(ev->payload.after_save.buffer);
 
 			if (b != NULL) {
-				run_hook_list(
+				run_hook_list_guarded(
 				    ctx, "after-save-hook", b, NULL, 0);
 			}
 		}

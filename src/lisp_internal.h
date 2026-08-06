@@ -12,6 +12,7 @@
 
 #include "../fe/fe.h"
 #include "def.h"
+#include "lisp.h"
 #include "lisp_obj.h"
 #include "marker.h"
 #include "regex.h"
@@ -95,6 +96,14 @@ struct lisp_state {
 	FeContext *context;
 	struct lisp_frame frame;
 	char error[1024];
+	/* The in-flight completion kind: written by the Fe error callback,
+	 * read by the seam handling it, and disarmed by
+	 * lisp_settle_completion() once that seam is done. */
+	FeCompletion error_kind;
+	/* ... whose fe-free mirror this is, latched for
+	 * kg_lisp_last_error_kind() so a caller outside the adapter tells a
+	 * quit from an error by kind and not by reading the message. */
+	enum kg_lisp_error_kind last_error_kind;
 	int (*interrupt_check)(void);
 	/* Source buffers owned by in-flight (load ...) calls.  Fe errors
 	 * longjmp past the natives, so frame recovery frees the leftovers. */
@@ -160,6 +169,15 @@ FeObject *lisp_function_designator(FeContext *context, FeObject *object);
 FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
     char *diagnostic, size_t diagnostic_size);
 #define LISP_CALLABLE_DIAGNOSTIC_MAX 128
+/* The body-thunk call a *wrapping* native makes (lisp_core.c): one that has
+ * already registered its restore with FeProtectWithCleanup and now runs the
+ * body between the save and that restore.  Transparent to the enclosing
+ * run -- see the definition for why FeCall was not. */
+FeObject *lisp_call_body(FeContext *context, FeObject *body);
+/* Latch state.error_kind into state.last_error_kind and disarm it
+ * (lisp_core.c).  Called by every seam that has finished handling a
+ * completion, so none of them leaves a stale kind behind. */
+void lisp_settle_completion(void);
 
 /* ---- Runtime execution context (lisp_obj.c) -------------------------- */
 

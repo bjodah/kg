@@ -437,6 +437,7 @@ surface is available before any init file runs. It is what makes kg's
 | Definitions | `defun` `defmacro` `defvar` `defconst` `interactive` `lambda` |
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
+| Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
@@ -488,12 +489,30 @@ first surprise:
   than `?a`. Integer arithmetic that overflows, and integer division by
   zero, raise an `arith-error` message instead of promoting or wrapping.
 - `t` is an ordinary assignable global.
-- There is no `condition-case`, no dynamic binding, no vectors or hash
-  tables; `unwind-protect` does exist, but it runs its cleanup forms as an
-  error passes through rather than catching it. The namespace diagnostics
-  `void-function`, `void-variable` and `cyclic-function-indirection`, and
-  the numeric `arith-error`, are names in the error message, not
-  condition objects.
+- `condition-case`, `catch`/`throw`, `signal`, and `error` exist; `quit`
+  (from `C-g`) is catchable by name but not by `(error …)`, and budget
+  exhaustion is catchable by nothing. Conditions use a static
+  hierarchy: `wrong-type-argument`, `void-function`, `arith-error` and
+  others are under `error`; `quit` is a separate branch.
+  `unwind-protect` runs its cleanup forms on any non-local exit — a
+  normal return, an error, a `throw`, `C-g`, or budget exhaustion.
+  `save-excursion` and `with-current-buffer` are transparent to the
+  enclosing evaluation: an error inside either body reaches a
+  `condition-case` written around the form, with its original condition,
+  and the restore has already run. A hook or process-callback boundary
+  *contains* instead: an error there, and a `throw` naming a `catch`
+  outside the callback, are reported and swallowed so one broken hook
+  cannot take the editor's evaluation down — but a `C-g` or a budget
+  exhaustion is never contained, and cancels the whole evaluation. A
+  `throw` out of `save-excursion`, `with-current-buffer` or a callback
+  does not reach the `catch` that names its tag (kg's native-reentry
+  wall — recorded as a divergence from Emacs); it becomes
+  `(no-catch TAG VALUE)`, which an enclosing `condition-case` handles.
+  kg's own editor natives still signal a plain `error` whose message
+  happens to read like a condition name, so a handler naming the
+  specific symbol does not match one of them; classifying them is the
+  follow-up this phase deferred. `ignore-errors` is a one-line macro
+  over `condition-case`.
 - A macro's function cell holds fe's own macro object, not Emacs'
   `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding

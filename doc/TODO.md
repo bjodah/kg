@@ -198,15 +198,35 @@ ordered by value vs implementation effort.
         and `fmakunbound` as core forms rather than prelude
         definitions — `void-function` errors, `unwind-protect`, core
         `setq` (lexical-aware) and `set` (always the global cell),
-        left-to-right chained numeric `=`, and a 4096-slot GC stack; see
+        left-to-right chained numeric `=`, and a 4096-slot GC stack; and
+        from Phase 6, condition objects `(SYMBOL . DATA)` with a static
+        hierarchy plus the forms that raise and catch them — `catch`,
+        `throw`, `condition-case`, `signal` and `error` as core forms,
+        with `ignore-errors` the prelude's macro over the last of them —
+        and the host-side completion surface kg's seams are built on:
+        `FeGetCompletion`/`FeGetCondition`/`FeGetCompletionMessage`, the
+        protected call `FeTryCallWithOptions` and `FeResignal`; see
         `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
       - no docstring registry / `documentation`; docstrings are inert
-      - no `error`, so Lisp cannot signal with a message of its own.
-        Now that `format` exists it is a handful of lines, but it lands
-        on the error path (`FeHandleError` longjmps out of the native),
-        so it wants its own change
+      - no call-trace exposure through the host error callback
+        (the `call_trace` parameter to `handle_error` is discarded;
+        exposing structured call traces is a debugger-shaped feature)
+      - re-classification of kg's 112 prose raise sites into named
+        condition objects (deferred per 06A Decision 2; most raise
+        `(error "text")` which is Emacs' own shape for prose errors).
+        Until it lands, `(condition-case e (goto-char "x")
+        (wrong-type-argument …))` does *not* match, which
+        `test/lisp-compat/features.json`'s
+        `condition-case-native-errors` row records as a divergence
+      - `save-excursion`/`with-current-buffer` expanded to Lisp
+        `unwind-protect` in `lisp/prelude.el`, so a `throw` out of
+        either body reaches the `catch` that names its tag instead of
+        stopping at Fe's native re-entry wall as `no-catch`
+        (`catch-throw-reachability`, the other divergence 06E left)
+      - token/cancel cleanup registry (Phase 9's robustness scope;
+        currently `unwind-design.md` item 2, belongs to that phase)
       - no dotted unquote (`` `(a . ,b) ``) and no nested quasiquote
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist

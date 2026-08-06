@@ -40,8 +40,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_obj.h"
 #include "lisp_process.h"
 
-static_assert(FE_API_VERSION == 4);
-static_assert(FE_LANGUAGE_VERSION == 4);
+static_assert(FE_API_VERSION == 5);
+static_assert(FE_LANGUAGE_VERSION == 5);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -52,9 +52,11 @@ static_assert(FE_LANGUAGE_VERSION == 4);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() is now roughly
- * 50 KiB, so an override below ~72 KiB fails to start; the default's 1 MiB
- * still leaves roughly 95% of the arena for objects and frame growth. */
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 56856
+ * bytes (~55.5 KiB) at the pinned Fe, so an override much below ~64 KiB
+ * fails to start; the default's 1 MiB still leaves roughly 95% of the
+ * arena for objects and frame growth -- 56225 object slots and a
+ * 1097-frame evaluator stack, as kg_lisp_arena_stats() reports them. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
@@ -114,6 +116,7 @@ void release_scratch(void)
 	if (lisp == nullptr || !lisp->frame_active) {
 		abort();
 	}
+	lisp->error_kind = FeGetCompletion(context);
 	copy_result(lisp->error, sizeof(lisp->error), message);
 	longjmp(lisp->frame.error_jump, 1);
 }
@@ -236,6 +239,48 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
 		return nullptr;
 	}
 	return resolved;
+}
+
+/* The body-thunk call every *wrapping* native makes -- save-excursion and
+ * with-current-buffer today: run `body` between a save that has already
+ * been registered with FeProtectWithCleanup and the restore that registry
+ * will perform, and leave the enclosing run able to see whatever the body
+ * did.
+ *
+ * FeCall was not that.  It transfers a nested run's completion to the
+ * *enclosing* run's barrier, past this native's C frame -- and kg's
+ * outermost barrier is the seam's own error_jump, so an error raised inside
+ * (save-excursion ...) skipped every condition-case that lexically enclosed
+ * the form and surfaced at top level instead.  FeTryCallWithOptions returns
+ * the completion rather than throwing it, and FeResignal puts it back in
+ * flight in the enclosing run with its kind, its condition object and its
+ * message intact, so that condition-case matches on the original condition
+ * symbol, and a quit or a budget completion still cancels the whole
+ * evaluation.
+ *
+ * The C restore is deliberately not run here.  It is registered, and
+ * FeResignal's own cleanup drain runs it exactly once on the way out --
+ * before the handler, which is the order Emacs gives unwind-protect.
+ * Running it by hand as well would restore twice.
+ *
+ * What this still cannot make transparent is `throw`.  Fe walls the throw
+ * search at a native re-entry boundary by design (fe's own compat manifest
+ * calls it "a tested wall"), so a throw inside the body finds no catch and
+ * becomes the condition `(no-catch TAG VALUE)` -- which resignals as an
+ * ordinary error an enclosing condition-case can handle, but which the
+ * `catch` that names the tag does not receive.  That divergence is written
+ * down in test/lisp-compat/features.json's catch-throw-reachability row;
+ * closing it means expanding these two forms to Lisp `unwind-protect` in
+ * the prelude, so that no native frame stands between the throw and its
+ * catch at all. */
+FeObject *lisp_call_body(FeContext *context, FeObject *body)
+{
+	FeObject *value = FeNil(context);
+
+	if (FeTryCallWithOptions(context, body, nullptr, 0, nullptr, &value)) {
+		return value;
+	}
+	FeResignal(context);
 }
 
 struct lisp_command *find_lisp_command(const char *name)
@@ -386,6 +431,7 @@ int kg_lisp_eval_string(
 	}
 
 	state.error[0] = '\0';
+	state.last_error_kind = KG_LISP_ERROR_NONE;
 	state.frame.gc_checkpoint = FeSaveGC(state.context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
@@ -393,7 +439,12 @@ int kg_lisp_eval_string(
 		state.frame_active = false;
 		release_frame_buffers();
 		lisp_exec_leave(0);
-		copy_result(result, result_size, state.error);
+		lisp_settle_completion();
+		if (state.last_error_kind == KG_LISP_ERROR_QUIT) {
+			copy_result(result, result_size, "Quit");
+		} else {
+			copy_result(result, result_size, state.error);
+		}
 		return 1;
 	}
 	lisp_exec_enter(state.context);
@@ -437,6 +488,7 @@ int kg_lisp_load_file(const char *path)
 	}
 
 	state.error[0] = '\0';
+	state.last_error_kind = KG_LISP_ERROR_NONE;
 	state.frame.gc_checkpoint = FeSaveGC(state.context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
@@ -445,6 +497,10 @@ int kg_lisp_load_file(const char *path)
 		release_frame_buffers();
 		lisp_exec_leave(0);
 		(void)fclose(file);
+		lisp_settle_completion();
+		if (state.last_error_kind == KG_LISP_ERROR_QUIT) {
+			copy_result(state.error, sizeof(state.error), "Quit");
+		}
 		return 1;
 	}
 	lisp_exec_enter(state.context);
@@ -484,6 +540,38 @@ int kg_lisp_load_init(void)
 
 const char *kg_lisp_last_error(void) { return state.error; }
 
+enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
+{
+	return state.last_error_kind;
+}
+
+/* Latch Fe's completion kind into lisp.h's fe-free mirror, then disarm the
+ * in-flight kind.  Every seam that has finished handling a completion calls
+ * this, and that is the point: the latch is what cmd.c reads instead of
+ * comparing the reported message to the string "Quit" (sub-plan 06A's
+ * Decision 5 is explicit that a host tells quit from an error by kind, not
+ * by parsing text), and the disarm keeps a later handler from acting on a
+ * stale kind.  The hook and process seams already disarmed and these three
+ * did not, which is the asymmetry this removes. */
+void lisp_settle_completion(void)
+{
+	/* Exhaustive over FeCompletion, which is why it is a table and not a
+	 * switch with a default: a kind Fe adds is an FE_API_VERSION move,
+	 * and the static_assert at the top of this file is what fails then.
+	 * Throw mirrors as an error because it only ever reaches a host as
+	 * the `no-catch` condition it becomes at a barrier. */
+	static const enum kg_lisp_error_kind mirror[] = {
+		[FeCompletionNormal] = KG_LISP_ERROR_NONE,
+		[FeCompletionError] = KG_LISP_ERROR_ERROR,
+		[FeCompletionQuit] = KG_LISP_ERROR_QUIT,
+		[FeCompletionThrow] = KG_LISP_ERROR_ERROR,
+		[FeCompletionBudget] = KG_LISP_ERROR_BUDGET,
+	};
+
+	state.last_error_kind = mirror[state.error_kind];
+	state.error_kind = FeCompletionNormal;
+}
+
 int kg_lisp_run_command(const char *name, int fd)
 {
 	char command_name[LISP_COMMAND_NAME_MAX];
@@ -508,6 +596,7 @@ int kg_lisp_run_command(const char *name, int fd)
 	memcpy(command_name, cmd->name, sizeof(command_name));
 
 	state.error[0] = '\0';
+	state.last_error_kind = KG_LISP_ERROR_NONE;
 	state.frame.gc_checkpoint = FeSaveGC(state.context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
@@ -515,8 +604,13 @@ int kg_lisp_run_command(const char *name, int fd)
 		state.frame_active = false;
 		release_frame_buffers();
 		lisp_exec_leave(0);
-		editor_set_status_message(
-		    "Lisp error: %s: %s", command_name, state.error);
+		lisp_settle_completion();
+		if (state.last_error_kind == KG_LISP_ERROR_QUIT) {
+			editor_set_status_message("Quit");
+		} else {
+			editor_set_status_message(
+			    "Lisp error: %s: %s", command_name, state.error);
+		}
 		return 0;
 	}
 	lisp_exec_enter(state.context);
@@ -641,6 +735,11 @@ int kg_lisp_load_file(const char *path)
 int kg_lisp_load_init(void) { return 0; }
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
+
+enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
+{
+	return KG_LISP_ERROR_NONE;
+}
 
 int kg_lisp_run_command(const char *name, int fd)
 {

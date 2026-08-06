@@ -1,0 +1,29 @@
+# Sub-plan 06E.  An init file is allowed to *handle* its own failures:
+# a form that raises inside a condition-case must not abort the rest of
+# the file, and the editor must come up with everything the file defined
+# after the recovered form.  The raise is deliberately one of kg's own
+# editor natives, which still signal a plain `error` -- so the generic
+# handler is the one that matches, and that is what this pins.
+name: lisp-init-condition-case-boots
+filename: lisp-init-cc.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (setq init-status
+      (condition-case err
+          (progn (goto-char "not a position") 'unreachable)
+        (error 'recovered)))
+    (defun show-init-status ()
+      "Append what the init file's condition-case caught."
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "%s" init-status)))
+    (global-set-key "C-c s" "show-init-status")
+initial: "boot:"
+keys:
+  - C-c
+  - s
+  - SPC
+  - o
+  - k
+expected_saved: "boot:recovered ok"

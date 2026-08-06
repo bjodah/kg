@@ -1,0 +1,6 @@
+{
+ "id": "quit-non-catchability",
+ "setup": [],
+ "expr": "(condition-case err (signal 'quit nil) (error 'caught-error) (quit 'caught-quit))",
+ "note": "Quit is catchable by a quit handler or t, but not by error."
+}

@@ -297,6 +297,8 @@
   (list 'progn (list 'setq name (car rest)) (list 'quote name))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
 (defalias 'interactive (macro args nil))
+(defalias 'ignore-errors (macro body
+  (cons 'condition-case (cons nil (cons (cons 'progn body) '((error nil)))))))
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
 (defalias 'thing-at-point (lambda (thing)

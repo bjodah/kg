@@ -1,0 +1,6 @@
+{
+ "id": "condition-case-native-errors",
+ "setup": [],
+ "expr": "(condition-case err (goto-char \"invalid\") (wrong-type-argument (car err)))",
+ "note": "Catches native editor errors via condition-case and extracts the condition symbol."
+}

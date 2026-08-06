@@ -102,10 +102,19 @@ static void cmd_insert_register(int fd) { editor_insert_register(fd); }
 /* Save current buffer to its file. */
 static void cmd_save_buffer(int fd) { editor_save(fd); }
 
+/* A cancelled evaluation is told from a failed one by the completion kind
+ * the adapter latched (kg_lisp_last_error_kind), never by comparing the
+ * reported text to "Quit": sub-plan 06A's Decision 5 added the kind
+ * precisely so a host stops classifying by message string, and a Lisp
+ * program is free to (error "Quit") without being mistaken for a C-g. */
 static void display_lisp_result(int error, const char *result)
 {
 	if (error) {
-		editor_set_status_message("Lisp error: %s", result);
+		if (kg_lisp_last_error_kind() == KG_LISP_ERROR_QUIT) {
+			editor_set_status_message("Quit");
+		} else {
+			editor_set_status_message("Lisp error: %s", result);
+		}
 	} else {
 		editor_set_status_message("%s", result);
 	}

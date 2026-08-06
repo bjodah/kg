@@ -477,6 +477,19 @@ the control forms
 .Li (dolist (VAR LIST &optional RESULT) BODY ...)
 and
 .Li (dotimes (VAR COUNT &optional RESULT) BODY ...) ;
+the non-local exits
+.Li (catch TAG BODY ...) ,
+.Li (throw TAG VALUE) ,
+.Li (condition-case VAR BODY (CONDITION HANDLER ...) ...) ,
+.Li (signal \(aqSYMBOL DATA) ,
+.Li (error "FORMAT" ARG ...) ,
+.Li (unwind-protect BODY CLEANUP ...)
+and
+.Li (ignore-errors BODY ...)
+(all core Fe forms except
+.Li ignore-errors ,
+the prelude's macro over
+.Li condition-case ) ;
 the list library
 .Li length ,
 .Li nth ,
@@ -611,11 +624,53 @@ character literals such as
 .Li ?a
 are not read, so use
 .Li (string-to-char "a") ;
-there is no
-.Li condition-case ,
-so nothing in Lisp catches an error, though
+.Li condition-case
+and
+.Li catch / throw
+exist with a static condition hierarchy:
+.Li wrong-type-argument , void-function , arith-error
+and others are under
+.Li error ;
+.Li quit
+is a separate branch not catchable by
+.Li (error \&...) ;
 .Li unwind-protect
-does run its cleanup forms as one passes through;
+runs its cleanup forms on any non-local exit \(em a normal return, an
+error, a
+.Li throw ,
+.Li C-g ,
+or budget exhaustion;
+.Li save-excursion
+and
+.Li with-current-buffer
+are transparent to the enclosing evaluation, so an error inside either
+body reaches a
+.Li condition-case
+written around the form with its original condition and the restore
+already run, while a hook or process-callback boundary contains an error
+(and a
+.Li throw
+naming a catch outside the callback) rather than letting one broken hook
+stop the editor's evaluation \(em though a
+.Li C-g
+or a budget exhaustion is never contained and cancels the whole
+evaluation;
+a
+.Li throw
+out of
+.Li save-excursion ,
+.Li with-current-buffer
+or a callback does not reach the catch that names its tag (kg's
+native-reentry wall) but becomes
+.Li (no-catch TAG VALUE) ,
+which an enclosing
+.Li condition-case
+handles;
+kg's own editor natives still signal a plain
+.Li error
+whose message reads like a condition name, so a handler naming the
+specific symbol does not match one of them \(em classifying them is the
+follow-up this phase deferred;
 the namespace diagnostics
 .Li void-function ,
 .Li void-variable
@@ -623,7 +678,7 @@ and
 .Li cyclic-function-indirection ,
 and the numeric
 .Li arith-error ,
-are error-message text, not condition objects;
+are now catchable condition objects;
 a macro's function cell holds fe's own macro object, not Emacs'
 .Li (macro . FUNCTION)
 cons (visible only through

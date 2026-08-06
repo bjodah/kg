@@ -3,28 +3,27 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this Phase 7
-set was written against the tree as it stands after Phase 6 closed and
+implementation-audited against the tree it starts from, and this Phase 8
+set was written against the tree as it stands after Phase 7 closed and
 its acceptance-review fixes landed (2026-08-06).  Read the parent's §0
 (verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
 honesty) and §0.4 (no legacy constituency) before any of these; they
-are the facts these documents assume.  Where the parent's Phase 7
-section names a stale or wrong fact — above all its ordering premise,
-that strict arity cannot be enabled before interactive arguments land,
-which the audit *measured* to be false on today's corpus — 07A's
-corrections control.
+are the facts these documents assume.  Where the parent's Phase 8
+section names a stale or wrong fact — and the audit measured eight such
+facts, starting with Wave A's inverted "move into Fe core" premise —
+08A's corrections control.
 
-Measured on the audited tree, 2026-08-06 (post-review, at the Phase 6
+Measured on the audited tree, 2026-08-06 (post-review, at the Phase 7
 close), and re-measured rather than carried forward per Rule 6: kg
-**5489/5500** scc — eleven points of headroom, the tightest this
-program has been — **32 native / 408 PTY** (**337 pass + 71 skip**
-under `WITH_LISP=0`), **71** PTY cases gated on
-`requires_feature: lisp`; fe **654/680** scc with `fe.c` at **97** and
-`fe_eval.c` at **440/460**, pmccabe **863/900 across 292 symbols**
-(worst function `DispatchPrimitive` at 15), and `FeMinimumArenaSize()`
-**56856 bytes**, kg's 1 MiB arena partitioning to **1097 frames /
-56225 object slots**.  07A re-measures at its start, as every A-slice
-does.
+**5714/5730** scc (the cap moved 5660 → 5730 in the review-fix cycle,
+at its measured actual), **32 native / 427 PTY** (**341 pass + 86
+skip** under `WITH_LISP=0`); fe **670/760** scc with `fe.c` at **100**
+and `fe_eval.c` at **453/520**, pmccabe **886/980 across 299 symbols**,
+and `FeMinimumArenaSize()` **56880 bytes**, kg's 1 MiB arena
+partitioning to **1097 frames / 56223 object slots**.  The compat
+manifests carry **300 features across both repositories** (fe 136, kg
+164; census 55 fe primitives/aliases, 81 kg natives, 53 prelude
+definitions).  08A re-measures at its start, as every A-slice does.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -95,90 +94,101 @@ evaluation contains or re-signals through `FeTryCallWithOptions`/
 `save-excursion`/`with-current-buffer` are transparent to
 `condition-case`, and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 5.
 
-**This set — Phase 7, strict arity and interactive command arguments —
-is next.**  Its five documents (`07a`–`07e`) are in this directory; the
-Grouping and Sequencing sections below describe them, and `07a` leads
+**The seventh set — Phase 7, strict arity and interactive command
+arguments — is complete (2026-08-06).**  Its five documents
+(`07a`–`07e`) were removed once the workstream was accepted; the
+Phase 7 Status section below is the surviving record, including an
+acceptance review that rejected the delivery on both sides of the pin
+and sent it back for a two-repository fix cycle.  What that set changed
+is the ground this one stands on: an argument list is a contract
+(`wrong-number-of-arguments` with `(FUNCTION NARGS)` data,
+unconditionally), `(interactive …)` is real command metadata driving
+`p`/`P`/`r`/FORM argument construction, the raw prefix (`C-u`, digits,
+`M--`) reaches Lisp as `current-prefix-arg`, the first Lisp→minibuffer
+seam prompts for `n`/`N`/`s`/`f`/`F`/`b`/`B` with cancel-is-quit and
+overflow-is-error, nested `(command-execute …)` runs inside the active
+evaluator, and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 6
+(`FeVersion` "7.0").
+
+**This set — Phase 8, the first init-file compatibility wave — is
+next.**  Its five documents (`08a`–`08e`) are in this directory; the
+Grouping and Sequencing sections below describe them, and `08a` leads
 as every A-slice has.
 
-The through-line is that Phase 7 makes ordinary invocation mean what it
-says — an argument list is a contract, not a suggestion — and then
-makes the editor able to *supply* arguments to commands.  Four facts,
-established by auditing this tree (the full A–H audit is condensed into
-07A), shape the slices:
+The through-line is that Phase 8 makes a real `init.el` load — and
+tell the truth when it cannot.  Four facts, established by auditing
+this tree (the audit's 30-line representative init file and per-item
+inventory are condensed into 08A), shape the slices:
 
-- **Strict arity is already landable.**  The parent says interactive
-  arguments must come first; the audit patched
-  `FeSetStrictArity(true)` into `kg_lisp_init` and measured 406/406
-  PTY and every native suite green, because every Lisp-defined command
-  in the corpus takes zero required parameters.  The constraint is
-  forward-compatibility only, so the cheap sequence is fe-first with a
-  no-adaptation pin (07A Decision 1), and the parent's premise is
-  corrected in writing.
-- **The binder is one function and it is half-strict already.**
-  `ArgsToEnv` handles `&optional`/`&rest` correctly today (measured:
-  binding, nil-fill and per-call rest freshness all match Emacs); what
-  the flag gates is only the too-few/too-many raises, and the two Fe
-  rest spellings (bare symbol, dotted tail) are deliberately variadic
-  and stay.  The real spread is in the *primitives*: a census found
-  the unary/binary resume families silently ignoring extras, `(if)`
-  answering nil, and `(and)` answering nil where Emacs answers `t` —
-  a wrong answer, not a missing check.
-- **Interactive is a strip today.**  kg's prelude `defun` discards the
-  `(interactive …)` spec; commands are invoked with a hard-wired zero
-  arguments; the registry stores a name and a root and nothing else;
-  `C-u` exists in C but collapses to a plain integer before dispatch
-  and never reaches Lisp; and none of the 78 natives can prompt.  The
-  corpus contains not one spec string — the whole feature is
-  greenfield, which is why it is two slices (07D metadata and
-  non-prompting codes, 07E the minibuffer seam).
-- **kg's gate is nearly spent**: 11 scc points of headroom against a
-  half that adds a metadata struct, a spec parser, an argument builder
-  and prompting natives.  The funding Decision comes first, for the
-  sixth time — kg's first raise of this program (5500 → 5660), priced
-  and proved live in 07A.
+- **Parent §12 is measured ~60% stale.**  Eight of Wave A's twelve
+  items and ten of Wave B's seventeen already exist and agree with the
+  pinned Emacs — most as prelude macros that are not fragile — and
+  Wave D's "add" list (`load`/`require`/`provide`/`featurep`/init
+  discovery) exists in full.  The set scopes the measured remainder,
+  not the parent's wave lists; 08A records the eight corrections.
+- **The worst gap is one nobody listed prominently: `t` is
+  assignable.**  `(setq t nil)` succeeds and `(if t 1 2)` answers 2
+  for the rest of the session — one init-file line silently corrupts
+  the language.  Keywords do not self-evaluate either.  These two are
+  the only genuine fe-core items in Wave A, and they are 08B.
+- **The reader misreads instead of rejecting.**  `?x`, `#xff`,
+  `[1 2 3]`, `#:sym` and unknown string escapes all parse today as
+  innocent-looking wrong values, violating §12's own rule; the audit's
+  init file dies at `(setq my/char ?x)` with `void-variable ?x`.  The
+  recorded rationale for deferring char literals ("Fe has no character
+  type") died with Phase 5's integers.  08C rejects first, then
+  implements the measured subset, and makes `file:LINE` positions
+  honest.
+- **The library remainder is free.**  scc counts neither
+  `lisp/prelude.el` nor its generated `.inc`; the audit prototyped the
+  entire Wave B remainder, the `cond` and backquote fixes, and a
+  plist-free `documentation` at a measured **+0 scc** — the cost is
+  arena slots (~1.3%) and one `PRELUDE_DEFS` literal.  The audit's
+  init file dies on line 3 (`setq-default`) with ten more failures
+  behind it; every one is in this set's scope.
 
-So the set front-loads one oracle-and-decision slice (07A: the measured
-arity/interactive answer table, the six Decisions, the two-repository
-funding), cuts fe over to unconditional strict arity with
-`wrong-number-of-arguments` condition objects and the primitive-census
-fixes (07B), lands the pin as an atomic no-adaptation kg commit that
-proves the corpus green under strictness (07C), builds the interactive
-metadata and delivers `p`/`P`/`r`/FORM arguments (07D), and opens the
-first Lisp→minibuffer seam for the prompting letters, closing the phase
-(07E).
+So the set front-loads one oracle-and-decision slice (08A: the
+constants/reader/library/diagnostics answer tables, seven Decisions,
+the eight parent corrections, the two-repository funding), protects
+the constants and interns self-evaluating keywords in fe (08B), makes
+the reader honest — reject, then implement escapes, char literals and
+radix, then report real line numbers (08C), moves the phase's single
+pin and lands the zero-cost prelude library with the init file as the
+headline PTY case (08D), and finishes with `defcustom`, `format`
+widths/`%c`, loader diagnostics and the phase close (08E).
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [07A](07a-pin-the-arity-target-and-fund-the-phase.md) | 7 | The measured arity/interactive oracle corpus (lambda arity and the `(FUNCTION NARGS)` condition object, lambda-list shapes, the variadic/primitive contracts, the interactive letter semantics), six Decisions — ordering, the condition and its data, malformed lambda lists, primitive arity, the API break and versions, the interactive scope split — and the two-repository funding, including kg's first cap raise | none — **this is first** |
-| [07B](07b-strict-arity-in-fe.md) | 7 | Unconditional strict arity in `ArgsToEnv` with `wrong-number-of-arguments` condition objects; the primitive census closed (silent extras, `(if)`, `(and)` → `t`, `signal` 1–2); `invalid-function` for the malformed lists; `FeSetStrictArity`/`-a`/third pass removed; `scripts/arity.fe`; API/LANGUAGE 6, `FeVersion "7.0"`; fuzz lambda-list builders | 07A |
-| [07C](07c-the-strict-pin.md) | 7 | The pin as one atomic kg commit needing **no runtime adaptation and no expectation edit** — Decision 1's measured bet, proved by the suites passing unedited; version asserts 6/6; new strictness tests; docs stop calling strict arity blocked | 07B |
-| [07D](07d-interactive-metadata-and-arguments.md) | 7 | kg-only: the spec survives `defun`, `define-command` grows a third argument, the registry roots the spec, the argument builder delivers the no-arg spec, `p`, `P`, `r` and `(interactive FORM)`; the raw prefix reaches Lisp; Lisp commands become `command-execute`-able | 07C |
-| [07E](07e-prompting-codes-and-the-phase-close.md) | 7 | kg-only: the first Lisp→minibuffer seam — `n`/`N`, `s`, `f`/`F`, `b`/`B` with cancel-is-quit and overflow-is-error contracts; closes the phase | 07D |
+| [08A](08a-pin-the-init-file-target-and-fund-the-phase.md) | 8 | The measured init-file oracle corpus (constants/keywords, reader syntax, the library remainder's contracts, diagnostics), seven Decisions — fe-core constant protection, reject-before-implement reader policy, prelude-first library, `setq-default` as documented alias, `load-path` stays C, honest line numbers, `defcustom` deferred to 08E — the eight parent-§12 corrections, and the two-repository funding | none — **this is first** |
+| [08B](08b-constants-and-keywords-in-fe.md) | 8 | fe-only: `setting-constant` for `t`/`nil`/keywords at every binding position (`setq`/`set`/`let`/lambda lists), keywords self-evaluate at intern time, `keywordp`; `FE_LANGUAGE_VERSION` 7 | 08A |
+| [08C](08c-an-honest-reader.md) | 8 | fe-only: reject arms for every misread syntax first, then the shared escape table, UTF-8 `?` char literals, `#x`/`#o`/`#b` radix integers, and real `file:LINE` positions for read *and* runtime errors; `FeVersion` "8.0" | 08B |
+| [08D](08d-the-pin-and-the-free-library.md) | 8 | kg: the phase's single pin move (with a measured, not hoped, adaptation audit — the reject arms and keyword self-eval are the risks), then the zero-scc prelude batch: the Wave B remainder, the `cond` and backquote fixes, `documentation`, docstring capture, `setq-default`/`kbd`; the `kgbatch` harness lands; the 30-line init file loads in a PTY case | 08C |
+| [08E](08e-defcustom-format-and-the-phase-close.md) | 8 | kg-only: `defcustom` per the parent's contract, `custom-set-variables` subset, `format` widths/`%c`/`%x`/`%o`, loader diagnostics surfacing `file:LINE`, `declare` no-op; closes the phase | 08D |
 
-**07A is genuinely first, for the same structural reason 00A through 06A
-were.**  Phase 7's semantics are dozens of independent oracle questions
-(all measured during the audit — the snapshots confirm rather than
-discover), its ordering premise contradicts the parent plan's text, its
-condition data shape is a decision with a comparator consequence, and
-kg's complexity cost exceeds the gate's 11-point headroom several times
-over.  All of it must exist before any implementation slice.
+**08A is genuinely first, for the same structural reason 00A through
+07A were.**  Phase 8's semantics are dozens of independent oracle
+questions (the audit measured most — 08A's snapshots pin rather than
+discover), parent §12 needs eight corrections recorded before anyone
+implements from its text, the reader policy and the constant-protection
+condition are decisions with comparator consequences, and both trees'
+funding must be settled — kg closed Phase 7 at 5714/5730.
 
-**07B and 07C are the two halves of one Rule-10 delivery** — but unlike
-06D/06E, the kg half is *designed to be empty*: the pin plus the version
-asserts plus new tests, with the suites' unedited pass as the evidence
-Decision 1's measurement still holds.  If 07C needs a runtime
-adaptation, that is a finding about the corpus, not a patch to make.
+**08B and 08C are the fe half, and they are ordered** — keywords must
+read and evaluate (08B) before the reader slice (08C) pins escape
+forms that produce them.  Both are language-visible; the language
+version moves once, at 08B, and `FeVersion` at 08C.
 
-**07D is the phase's genuinely new kg machinery** — the first time a
-`(defun … (interactive "p") …)` means what it means in Emacs.  It is
-deliberately the non-prompting half: every letter it implements can be
-tested through the existing PTY harness without new UI seams.
+**08D is the pin plus the free library** — one slice because the
+prelude batch is only testable against the pinned fe.  Its
+no-adaptation bet is *not* assumed (07C's was measured; this one has
+known risks — any kg corpus line relying on a misreading breaks at the
+pin), which is why 08A's verification pass audits the corpus for `?`,
+`[`, `#` and `:name` spellings first.
 
-**07E opens the minibuffer seam last**, when the metadata, prefix model
-and argument builder it depends on are already proven, and carries the
-phase close.
+**08E closes**, carrying the smallest new-machinery load (a prelude
+macro, `format` directives, a diagnostics surface) and the phase close.
 
 ## Handoff contract
 
@@ -190,16 +200,16 @@ section then records what each slice actually delivered.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 07A | fe compat manifest/cases/snapshots, both Makefiles' caps, Decision docs, parent §11 correction | fresh snapshots confirming the measured answer table (landing as known gaps), both funded raises proved live, the ordering premise corrected in writing | no implementation, no status flips, no pin |
-| 07B | fe `ArgsToEnv`, the resume families' arity checks, `FeGetNextArgument`/`FeRequireNoArguments` conditions, `main.c`/`test.sh`, versions, fuzz | message prose byte-identical while condition symbols move, `scripts/arity.fe` + goldens replacing the third pass, full nine-stage fe runner | no kg pin, no kg source, no interactive work |
-| 07C | kg pin, version asserts, new strictness tests, `fe-upstream.md` rows, docs | **every existing expectation unedited** — the suites' green pass is the slice's central evidence | no runtime adaptation, no prelude change, no interactive work |
-| 07D | kg prelude `defun`/`define-command`, the command registry, the argument builder, prefix plumbing, `p`/`P`/`r`/FORM | I-row semantics pinned native- and PTY-side, `lisp-prelude-check` in step, the manifest's `prelude-interactive` placeholder replaced | no prompting letters, no `CMD_REPEATS`, no new fe surface |
-| 07E | kg minibuffer seam, `n`/`N`/`s`/`f`/`F`/`b`/`B`, `editor_read_line_path`'s result contract, docs | cancel-is-quit and overflow-is-error pinned, prompting refused outside command context, full parallel runner; closes the phase | no completion UI, no `read-string` family unless the row holds, no new fe surface |
+| 08A | fe/kg compat manifests/cases/snapshots, both Makefiles' caps, Decision docs, parent §12 correction block, the corpus spelling audit | fresh snapshots pinning the four answer tables (landing as known gaps), both funded raises proved live, the eight corrections recorded, the `?`/`[`/`#`/keyword corpus audit filed for 08D | no implementation, no status flips, no pin |
+| 08B | fe `FeMakeSymbol`, the assignment/binding paths, the condition hierarchy, `keywordp`, versions, fuzz atoms | every Table C row native- and compat-pinned, constancy at every binding position, reachability counts for the new fuzz atoms, full nine-stage fe runner | no reader work, no kg edits, no pin |
+| 08C | fe `Read`/`ReadAtom`, the escape table, line accounting in `ReadEvaluatedFile`/`EvaluateInput`, versions, fuzz dictionary | reject-before-implement (misreads become named errors first, in their own commit), every Table R row both ways, line-number tests at known lines, full nine-stage fe runner | no vectors, no printer change, no kg edits, no pin |
+| 08D | kg pin + `doc/fe-upstream.md`, `lisp/prelude.el` + `PRELUDE_DEFS`, `test/kgbatch.c`, manifests | the adaptation audit's outcome recorded (measured, not hoped), per-function Table L contracts, the init file loading end-to-end in a PTY case, arena peaks before/after in the commit body, **≈+0 scc verified** | no `defcustom`, no `format` work, no new C natives beyond a checked `commandp` gap |
+| 08E | kg `defcustom`/`custom-set-variables` prelude macros, `src/lisp_io.c` `format`, loader diagnostics, `declare`, docs | the 08A-pinned defcustom/format oracle rows, the broken-init `file:LINE` PTY case, the full 30-line init file verbatim, full parallel runner; closes the phase | no Customize UI/state, no `message` ring, no new fe surface |
 
 For all rows, current suite counts are a starting census, not literals to
 assert.  Run focused tests while iterating; the full Fe runner closes the
-Fe workstream at 07B, and kg's full parallel runner closes Phase 7 at
-07E.
+Fe workstream at 08C, and kg's full parallel runner closes Phase 8 at
+08E.
 
 ## Compatibility direction
 
@@ -213,84 +223,90 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 7 this cuts one specific way.  There is no lax-arity mode, no
-deprecated `FeSetStrictArity` no-op, no surviving `-a` flag, and no
-release in which fe is strict against a kg whose corpus has not been
-proven arity-correct — the cut and the pin move as 07B + 07C, one
-Rule-10 pair whose kg half is deliberately empty.  Where fe cannot or
-should not match Emacs, the divergence is *recorded*, not papered over:
-the two Fe rest spellings stay legal and arity-exempt, fe stays
-stricter than Emacs on garbage lambda lists Emacs merely tolerates,
-`print` keeps its Fe contract, kg's `after-change-functions` keeps its
-four-argument shape with a first-class divergence row, and the
-`(FUNCTION NARGS)` data's FUNCTION rendering differs from Emacs'
-`#[…]` form.  Version numbers move once, at the cut — kg's
-`static_assert(FE_API_VERSION == 5)` firing at the 07C pin is the
-designed tripwire, as it was in 03F, 04D, 05D and 06D.
+For Phase 8 this cuts one specific way.  Constant protection and
+keyword self-evaluation are hard cuts — no mode in which `t` is still
+assignable, no keyword-as-ordinary-symbol fallback — and the reader
+*rejects* what it does not implement rather than preserving today's
+misreadings for any hypothetical script that relied on them.  Where kg
+cannot or should not match Emacs, the divergence is *recorded*, not
+papered over: `setq-default`/`setq-local` are documented aliases in a
+dialect with no buffer-local variables, `load-path` stays a C array
+with `add-to-load-path` as kg's spelling, `(defvar x)`'s no-value form
+follows 08A's measured decision, symbol escapes and vectors stay
+rejected, and prompts/`format` follow the measured Emacs rows or say
+why not.  Version numbers move once each — `FE_LANGUAGE_VERSION` at
+08B, `FeVersion` at 08C — and kg's `static_assert` tripwire fires at
+the 08D pin, as it did in 03F, 04D, 05D, 06D and 07C.
 
 ## Sequencing
 
 ```text
-07A  pin the target and fund ──> 07B  strict arity in fe, fe-only
-                                      ── fe workstream closes, NO pin
-                                      │
-                                      v
-                                 07C  the strict pin ── one kg commit,
-                                      designed to need no adaptation
-                                      │
-                                      v
-                                 07D  interactive metadata + p/P/r/FORM,
-                                      kg-only, no pin
-                                      │
-                                      v
-                                 07E  the prompting letters, kg-only,
-                                      no pin; closes the phase
+08A  pin the target, correct §12, fund ──> 08B  constants + keywords,
+                                                fe-only, LANGUAGE 7
+                                                │
+                                                v
+                                           08C  the honest reader,
+                                                fe-only, "8.0"
+                                                ── fe workstream closes,
+                                                   NO pin
+                                                │
+                                                v
+                                           08D  the pin + the free
+                                                library, kg
+                                                │
+                                                v
+                                           08E  defcustom, format,
+                                                diagnostics, kg-only,
+                                                no pin; closes the phase
 ```
 
-Strictly linear, and nothing runs in parallel with it: 07B and 07D
-both rewrite invocation, one per repository, and 07E extends 07D's
-builder.  Every arrow is a real dependency: 07B implements the
-contract 07A's cases pinned, 07C proves the corpus against 07B's
-strictness, 07D builds arguments for the calls 07C made strict, and
-07E prompts for the arguments 07D could not construct silently.
+Strictly linear, and nothing runs in parallel with it: 08B and 08C
+both change what a source file means, 08D's prelude batch is only
+testable against their pin, and 08E's macros need 08D's keywords and
+library.  Every arrow is a real dependency: 08B implements Table C,
+08C implements Table R on top of keyword interning, 08D proves the
+corpus against both and lands the library Table L pinned, and 08E
+spends what 08D landed.
 
-The pin discipline differs from Phase 4/5/6 deliberately: exactly one
-pin move in the whole set (07C), because the fe half is one slice and
-the kg half is greenfield kg machinery with no fe dependency.
+The pin discipline repeats 07's deliberately: exactly one pin move in
+the whole set (08D), because the fe half is two slices that land
+together and the kg half is prelude machinery with no further fe
+dependency.
 
 ## What this set deliberately does not do
 
-- **No `func-arity`, no `interactive-form` reflection, no
-  keyboard-macro strings as commands.**  Recorded exclusions with
-  their measured Emacs answers; the first init file that needs one is
-  Phase 8's evidence.
-- **No `max`/`min` primitives.**  Their Emacs arity is measured and on
-  file, but nothing produces them; adding primitives is not this
-  phase's job.
-- **No interactive letters beyond the ten in scope** (`p P r n N s
-  f F b B` plus the nil spec and FORM).  `d m S x X M @ ^ *` and the
-  rest are valid Emacs letters recorded as deferred, and an unknown
-  letter fails naming itself.
-- **No completion UI, no history rings, no `completing-read`, no
-  `y-or-n-p`.**  07E's seam is a prompt, not a UI framework.
-- **No `CMD_REPEATS` for Lisp commands.**  A prefix reaches an
-  interactive command as its argument, per Emacs — never as a
-  repetition count; the divergence from kg built-ins is documented.
-- **No `after-change-functions` signature change.**  kg's
-  four-argument buffer-first shape stays, as a first-class divergence
-  row; Emacs' three-argument shape is Phase 8's question.
-- **No re-classification of kg's 112 prose raise sites** — still
-  Phase 6's recorded deferral; 07B reclassifies only the two shared
-  argument-walking helpers, keeping their prose byte-identical.
-- **No compatibility residue.**  No lax-arity mode, no `-a` flag, no
-  deprecated no-ops (§0.4).  Version numbers still move because they
-  make the Fe↔kg contract checkable.
-- **No re-litigation of recorded Phase 4/5/6 residue.**  `FeTMacro`,
+- **No Wave E data types.**  Vectors, hash tables, symbol property
+  lists, character tables, mutable strings, embedded NUL, bignums —
+  each enters only with a concrete init-file use case and its own
+  oracle corpus, per the parent's own rule.  `documentation` lands
+  *without* property lists (the audit proved the recorded dependency
+  false).
+- **No Customize.**  `defcustom` is a declaration form over `defvar`
+  with inert presentation keywords and rejected semantics-bearing
+  ones; no `defgroup`, `setopt`, `custom-file`, Custom state or UI.
+- **No regexp Lisp surface** (`string-match`/`match-string`/
+  `save-match-data`), **no `symbol-name`/`intern`/`elt`/`sort`**, and
+  **no `read-*` family** — all recorded second-set candidates with the
+  07E carry-overs, waiting on corpus evidence.
+- **No `load-path` as a Lisp variable** and no init-discovery change;
+  `add-to-load-path` stays kg's spelling, recorded.
+- **No printer changes.**  Char literals are read syntax only; `?a`
+  prints as 97, exactly as in Emacs.
+- **No sub-form source precision.**  `file:LINE` names the top-level
+  form; finer positions are recorded future work.
+- **No `after-change-functions` signature change** — still the
+  recorded divergence row; nothing in this set's corpus forces the
+  question.
+- **No compatibility residue.**  No assignable-`t` mode, no
+  keyword-as-variable fallback, no misreading preserved for
+  hypothetical scripts (§0.4).
+- **No re-litigation of recorded Phase 4–7 residue.**  `FeTMacro`,
   `internal--let`, int64-not-bignum, `is`'s tolerant comparator, the
-  `double`-vs-`float` type-of spelling, the native re-entry walls and
-  the two divergent kg manifest rows (`catch-throw-reachability`,
-  `condition-case-native-errors`) all stand as their Status sections
-  record them.
+  native re-entry walls, the two divergent kg manifest rows
+  (`catch-throw-reachability`, `condition-case-native-errors`), the
+  `(FUNCTION NARGS)` rendering divergence, the 16-argument interactive
+  bound and the deferred interactive codes/modifiers all stand as
+  their Status sections record them.
 
 ## Rules
 
@@ -353,7 +369,7 @@ Two more, learned the hard way during the first set:
   a missing `<stddef.h>`.  Regenerate the compile DB before believing that
   lane.
 
-## Complexity price table (00A, updated by 07A, 2026-08-06)
+## Complexity price table (00A, updated at the Phase 7 close, 2026-08-06)
 
 Every row below is priced against the closest existing module, per
 00A's method.  Only two numbers in this table are *measured* rather than
@@ -384,8 +400,8 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
 | 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Landed, and over its funding at the top of the raise.** Funded by 05A's Decision (scc 480→540, file 300→340, pmccabe 690→760).  Actuals across 05B–05D: scc 459→**538**, `fe_eval.c` 276→**330**, pmccabe 660→**752** (+79/+92 — scc went 19 points past the funded amount, pmccabe 22 past, and the caps now sit at **2/10/8 points from full**).  Per slice: 05B +1/+3 (the "nearly free" prediction held), 05C the tower's bulk +70/+58, 05D +8/+31.  The row's mid was a floor, not an estimate.  **kg needs no raise**: 5457/5500 at 05E close (+7), pmccabe +1 on each of `format_integer`, `format_float`, `native_numberp` — banked into the baseline in 05E's commit |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Funded by 06A's Decision** (2026-08-05) — **cannot land before it**, and no longer before anything: the core was at 2 scc / 8 pmccabe / 10 file-cap points free, and 06A raised all three caps by the top of the row — `SCC_COMPLEXITY_MAX` 540→**680** (the tightest, at 2 points, which the price table's own instruction forgot to name), `SCC_FILE_COMPLEXITY_MAX` 340→**420**, `PMCCABE_TOTAL_MAX` 760→**900** — proved live by temporary lowering on 06A's tree. The measured starting state the raise is anchored to is 533/540, `fe_eval.c` 326/340, pmccabe 751/760; the 06B–06D actuals are recorded per slice in the Status section as they land |
-| 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Sub-plan set written 2026-08-06** (`07a`–`07e`); 07A's Decision funds it — fe's three caps move 680 → 760 / 460 → 520 / 900 → 980, and kg gets its **first** raise of this program, `SCC_COMPLEXITY_MAX` 5500 → 5660 against a measured 5489 floor. Actuals go to the Status section per slice |
-| 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | Phase 4's *measured* +59 pmccabe for nine primitives plus a namespace cut, against ~8 core special forms plus reader work | **+50 to +80** (re-priced 2026-08-05) | Provisional (milestone 2) — Wave A alone is the size of Phase 4; the row's old top was a floor. Needs the 06A/08A raise before it |
+| 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Landed 2026-08-06, inside the fe band and past the kg band once the review fixes are counted.** fe: scc 654 → 694 at 07B, **670** after the review's fix cycle (net **+16**, well under the +50..80 — the review deleted more than the arity checks added); pmccabe 863 → **886** (+23) across 299 symbols; no cap re-raised beyond 07A's 760/520/980. kg: 5489 → 5656 across 07C/07D/07E (**+0/+89/+78** per slice — 07E 56% past its +30..50 price), then **+58** of review-fix work to **5714**; the 5660 cap was re-set to **5730** at its measured actual in the fix cycle's closing commit. Details in the Phase 7 Status |
+| 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Sub-plan set written 2026-08-06** (`08a`–`08e`); 08A's Decision funds it at slice start from re-measured floors (fe 670/760 and `fe.c` 100/520 leave 08B+08C inside the standing caps on today's numbers; kg 5714/5730 needs a raise for the +40..90 — 08A prices it). The parent's old Wave A "move into core" scope is corrected by 08A: eight of twelve items already exist as non-fragile prelude macros |
 | 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase | **+30 to +50** (re-priced 2026-08-05) | Provisional (milestone 2) |
 | 10 — proofs | `.fe`/`.el` proof packages and fixtures | Not C; not scc-scanned | 0 | n/a |
 
@@ -416,8 +432,8 @@ that the original ranges did.
 | 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Landed at ~0** — scc unchanged at 5444 at phase close; the post-close review fixes (designator-diagnostic seam, `functionp` via `FeIsFunction`) added **+6 → 5450/5500** |
 | 5 — integers | The `lisp_position()`/`lisp_finite()` funnel becomes integer-typed, `format`'s two type gates widen, `numberp` goes two-tag, the prelude equality family is rewritten | `src/lisp_buffer.c`/`lisp_io.c`/`lisp_cmd.c` seams | **+15 to +25** | **Landed well under the estimate.** 05A confirmed **5450/5500** (50 points of headroom, no raise); 05E's close re-measure is **5457/5500** — **+7** against +15 to +25, inside existing headroom, no raise.  pmccabe: three functions +1 each (`format_integer` 5→6, `format_float` 3→4, `native_numberp` 1→2), banked into the per-symbol baseline in 05E's commit.  The funnel audit (7 constructor sites + 2 gates + 1 predicate) stands |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+15 to +30** (re-priced 2026-08-05) | Provisional (milestone 2) — kg landed at ~0/+7 on Phases 4–5, so the old +25 to +40 top was anchored to nothing; the error boundary is a small seam |
-| 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction, nested command execution and prompt seam | `src/lisp_cmd.c` (57), with the 07A audit's greenfield machinery estimate | **+110 to +170 scc** (07A, 2026-08-06) | **Funded by 07A's Decision** — kg raises `SCC_COMPLEXITY_MAX` 5500→**5660** against the measured 5489 floor; per-file and pmccabe ratchets remain live and actuals are recorded per slice |
-| 8 — init compat waves | `defcustom` validation + docstring storage (Wave D); no Customize UI | `src/lisp_prelude.c`/`src/lisp_require.c` | **+20 to +35** (re-priced 2026-08-05) | Provisional (milestone 2) |
+| 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction, nested command execution and prompt seam | `src/lisp_cmd.c` (57), with the 07A audit's greenfield machinery estimate | **+110 to +170 scc** (07A, 2026-08-06) | **Landed at +167 for the slices plus +58 for the review-fix cycle: 5489 → 5714.**  Per slice: 07C +0 (the no-adaptation bet held), 07D +89 (priced +80..120), 07E **+78 against +30..50** — the one materially missed price of the phase.  The 5660 cap was re-set to **5730** at the fix cycle's measured actual (dated Makefile comment, reasons in `7468c9a`) |
+| 8 — init compat waves | `defcustom`/`custom-set-variables` prelude macros, `format` widths/`%c`/`%x`/`%o` in `src/lisp_io.c`, loader diagnostics surfacing `file:LINE`, pin adaptations, a possible `commandp`-class native | `src/lisp_io.c`'s existing directive switch; the 08D prelude batch measured ≈+0 | **+40 to +90 scc** (re-priced by the 08 set, 2026-08-06) | **Sub-plan set written**; 08A funds the raise past 5730 at slice start from the re-measured floor |
 | 9 — robustness | Arena-stat diagnostics command | small, new | **+5 to +15** (re-priced 2026-08-05) | Provisional (milestone 2) — Phase 0's 00D already built the read-only stats surface, so this is a small command on top of it |
 | 10 — proofs | Fixtures, PTY cases | Not `src/*.c` | 0 | n/a |
 
@@ -434,6 +450,11 @@ small share and Phase 7's parser alone; Phase 7 and 8 together are the
 first kg rows that would need their own Decision.  **kg is not the
 constraint anywhere in this program; fe is, throughout** — milestone 2
 starts with the fe caps nearly spent, which is the finding above.
+(Phase 7 then falsified that closing claim's second half: its
+interactive machinery was the first kg-heavy phase, +225 kg points
+against fe's net +16, and kg's cap moved twice — 5500 → 5660 → 5730 —
+while fe's three caps absorbed the phase with room to spare.  Both
+trees now carry funded Decisions per phase; neither is "free".)
 
 ## Decision — fe complexity caps raised for Phase 0, no fixed end-state cap set
 
@@ -2606,23 +2627,189 @@ Lessons banked: a containment seam is fe's to own, never a host
 enumerate the assertion edits it implies; and landing exactly on a
 cap is a finding, not a success.
 
-### Phase 7 prompting close, 2026-08-06
+## Status — Phase 7
 
-07E is implemented in the kg tree: path overflow uses the minibuffer result
-contract, `s`/`n`/`N`/`f`/`F`/`b`/`B` share the Lisp argument-builder seam,
-buffer-name reads do not select a buffer, and prompt availability is checked
-through the active command context. The focused prompting PTY matrix passes;
-the full `make check` run passes all 32 native and 416 PTY cases, and header,
-docs, prelude, and compatibility checks pass. The compatibility manifest now
-records prompting metadata while PTY coverage owns terminal value delivery.
+Complete, 2026-08-06.  Five slices as planned, then an acceptance
+review that **rejected the delivery on both sides of the pin despite
+every gate being green**, and a two-repository fix cycle that closed
+it for real.  The implementation commits: 07A `abfc384` (kg) +
+`7452143` (fe), 07B `035614d` (fe), 07C `f7955b7`, 07D `718157f`,
+07E `d062e63`.  The fix cycle: fe `b6bf07d`..`e576a0b` (11 commits),
+kg `68ad2f0`..`7468c9a` (8 commits, including the pin move to
+`e576a0b`).
 
-Measured kg complexity is **5649/5660 scc** with the current 07D+07E tree;
-`make complexity-check` and `make pmccabe-check` pass without baseline changes.
-The full native/PTY checks and the `WITH_LISP=0` matrix pass (the latter skips
-the 73 Lisp cases by design). Coverage after the new cases is 85.57% lines
-and 96.64% functions; the coverage baseline was regenerated for the new
-prompt/control-flow surface and is recorded here as a phase-close floor, not
-a claim of full branch coverage. Remaining close evidence is the full
-parallel runner; deferred valid codes/modifiers,
-prompt interpolation, public `read-*` APIs, completion/history framework,
-`interactive` reflection/MODES, and Fe changes remain out of scope.
+What shipped, at close: unconditional strict arity with
+`wrong-number-of-arguments` `(FUNCTION NARGS)` data and a full
+53-primitive arity table (`FeSetStrictArity`/`-a` removed without
+residue); `(interactive …)` as real command metadata with the
+declaration recognised only in Emacs' position; argument construction
+for nil/`p`/`P`/`r`/FORM and the prompting letters
+`n`/`N`/`s`/`f`/`F`/`b`/`B` behind one seam with cancel-is-quit and
+overflow-is-error; the raw prefix (`nil`, integers, `(4)`/`(16)`/…,
+`-`) delivered as a command-boundary `current-prefix-arg` binding;
+nested `(command-execute …)` executing inside the active evaluator via
+`FeTryCallWithOptions`/`FeResignal` and returning the command's value;
+`editor_read_line_path` returning `enum minibuf_result` end-to-end;
+and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` 6, `FeVersion` "7.0".
+
+### Per-slice actuals
+
+- **07A** — the oracle tables and funding landed as written; two of
+  its snapshot families were later falsified by 07B and restored by
+  the review (below).  Funded fe 680→760/460→520/900→980 and kg
+  5500→5660; the kg figure it argued from (5489) was the true floor.
+- **07B** (`035614d`) — scc 654→694, and the review found the
+  delivery's worst defects here: an argument-list copy no plan asked
+  for overflowed the GC root stack (~1400 args → SIGSEGV of the
+  embedded interpreter, invisible to nine green CI stages), and four
+  oracle snapshots were hand-edited to fe's own printer output with
+  two more cases rewritten (`progn`→`do`) under retained snapshots —
+  the same falsification mode Phase 6's review caught, despite 07A
+  Decision 2 prescribing the correct handling in advance.  Also:
+  improper lists misrouted into the arity path with `FUNCTION`=nil,
+  `apply` minimum 2 and `lambda` requiring a body against both the
+  census and Emacs, a doc example that raised, three owed test
+  families absent, an uncommented nine-primitive message-policy
+  split, silent upward pmccabe re-banks, and a fuzz seed claiming
+  coverage it measured at zero of 24 buckets.
+- **07C** (`f7955b7`) — **+0 scc, the no-adaptation bet held**: the
+  only `src/` change is the two version asserts, no expectation
+  edited, suites green across the pin.  The one honest slice of the
+  delivery.
+- **07D** (`718157f`) — +89 scc (priced +80..120).  Semantically the
+  headline was dead on arrival: `raw_kind` was zeroed on the
+  prefix-commit path, so `C-u 5 M-x cmd` passed 1 to every Lisp
+  command — none of the slice's eight enumerated PTY cases existed to
+  catch it.  Nested `command-execute` aborted the editor (unbalanced
+  global recovery frame).  A lone-docstring `defun` regressed against
+  Emacs *with the existing test edited to the wrong answer*, and
+  redefinition ran defalias-before-registration, inverting the plan's
+  atomicity ordering.
+- **07E** (`d062e63`) — +78 scc against a +30..50 price, the phase's
+  one materially missed estimate.  The prompting codes and `f`/`F`/
+  `b`/`B` contracts were faithful (the review verified all six
+  `buf_read_name` sub-clauses live), but the `bufmgr.c` carve-out —
+  contracted behaviour-preserving — shipped four regressions
+  (mid-line erase cursor snap; `C-x b` RET no longer dismissing;
+  sticky overflow making `C-x b` and path prompts permanently inert;
+  M-RET as an undocumented new accept), the numeric prompt accepted
+  `""`→0/`inf`/`0x10` via raw `strtod`, multi-clause prompts leaked
+  the rest of the spec into the minibuffer, and the coverage baseline
+  was regenerated over three per-file floor regressions in an
+  empty-bodied commit.  Zero of the slice's owed native tests
+  existed.
+
+### The acceptance review, 2026-08-06
+
+Three adversarial reviews (fe, kg, docs) plus the Phase 8 fact audit,
+all against the pinned Emacs.  Verdicts: fe **not landable** (2
+critical, 5 major, 12 minor), kg **reject** (2 critical, 7 high, 7
+medium, 11 low), docs 15 findings (2 severe).  The common cause,
+named by every reviewer: **the tests each sub-plan enumerated were
+not written** — 07D shipped zero of its PTY obligations, 07E zero of
+its native ones, and every green gate measured something other than
+the new semantics.  A second systemic hole: kg's PTY harness only
+checked exit status for cases that declared `expected_exit_code`, so
+ASan/LSan reports in the lanes never failed CI.
+
+The fe fixes (`b6bf07d`..`e576a0b`) closed all 19 findings — GC-root
+reserve + allocation-free overflow raise, snapshots restored from
+`7452143` with NARGS extracted Lisp-side and the rendering divergence
+recorded, census minimums corrected, uniform primitive arity policy,
+the owed test families (including a re-entering native and a
+forced-GC sweep), honest fuzz seeds with reachability counts, honest
+pmccabe re-banking with a new refuse-silent-increases guard — and
+surfaced three pre-existing bugs: `RaiseCondition` could produce an
+*uncatchable* condition under memory pressure (a handler naming the
+right condition missed it), `ResumeEvalList` had the same per-operand
+GC-stack growth (`(list 1 … 4000)` overflowed on the old base too),
+and `((lambda (x)) 1)` answered `(1)` via a stale accumulator.  fe
+closed at scc **670/760**, `fe_eval.c` **453/520**, pmccabe
+**886/980** across 299 symbols — the fix cycle *deleted* more than
+the arity checks had added.
+
+The kg fixes (`68ad2f0`..`7468c9a`) closed all 28 + 6 doc findings:
+prefix delivery restored (and two further latent defects found by the
+newly-written cases — `M--` never reached kg at all because `'-'` was
+missing from the tty meta-key table, and its effective value was 4,
+not −1, via a dead ternary arm); the nested path rebuilt frameless on
+`FeTryCallWithOptions`; the docstring and atomicity regressions
+reverted to Emacs' answers; a real numeric-token classifier; the four
+`bufmgr.c` regressions undone behind an explicit `buf_name_mode`
+enum; FORM arguments rooted; the leak class fixed *after* arming the
+PTY harness to require clean exits on every case (which turned ci-04
+red on three real leaks, including a prefix-binding stack the review
+had missed); the hand-written oracle snapshot deleted and an
+orphan-snapshot check added to `check_lisp_compat.py`; `commandp`
+implemented; the manifest and interactive docs made truthful
+(including the man page's roff-broken code list); and coverage
+recovered above the pre-07E floors before re-banking.  kg closed at
+**5714/5730** (cap re-set at its measured actual), **32 native / 427
+PTY** (11 new cases), `WITH_LISP=0` **341 pass / 86 skip**, coverage
+**86.0% lines / 96.9% functions / 74.1% branches** — all three totals
+above the delivery's.
+
+### What the plan got wrong, collected
+
+- **Enumerated tests are acceptance criteria, and nothing enforced
+  them.**  Both kg slices shipped with their test sections unmet and
+  every gate green; the four worst defects were each one prescribed
+  case away from impossible.  The handoff-contract table now exists
+  precisely to be checked row-by-row at review, and the review did —
+  but only the review.  A future set should make the owed-test list
+  mechanically checkable where it can be (case names in the plan
+  grep-able against the tree).
+- **07E's price (+30..50) missed by 56%** — the `bufmgr.c` extraction
+  was priced as a carve-out and executed as a rewrite.
+- **The close note carried figures forward** (5649 for a measured
+  5656, 73 skips for 79, the previous pin's arena numbers) — Rule 6
+  violated in the phase's own record, in a note filed inside Phase
+  6's Status; this section replaces it.
+- **Snapshot falsification recurred** despite the Phase 6 lesson and
+  a Decision prescribing the correct mechanism.  The countermeasure
+  is now partly structural: fe's baseline tool refuses silent
+  increases, kg's compat checker refuses orphan snapshots, and an
+  edit to an existing snapshot in an implementation commit is a
+  reviewable red flag by convention.
+- **An unplanned semantic addition in a "checks-only" slice**
+  (07B's argument-list copy) caused the worst crash of the program to
+  date.  The 06E lesson generalises: a slice whose contract is
+  "checks and raises" must not also change evaluation order or data
+  flow unannounced.
+
+### Carried forward
+
+- Deferred interactive codes (`d m S x X` …) and modifiers
+  (`* @ ^` — now reported "unsupported", not "invalid"), prompt `%`
+  interpolation, `interactive` MODES (ignored, recorded), reflection
+  (`interactive-form`/`func-arity`/`documentation` for commands —
+  the stored docstring is still write-only), keyboard-macro strings,
+  `CMD_REPEATS`.
+- The `read-*` family (`read-string`, `read-number`,
+  `read-file-name`, `read-buffer`, `y-or-n-p`) — the seam exists;
+  the public functions wait for Phase 8+ corpus evidence.
+- The 16-argument `LISP_INTERACTIVE_MAX_ARGS` bound; the
+  `(FUNCTION NARGS)` rendering divergence (fe prints
+  `(lambda …)`/`(quote …)` where Emacs prints `#[…]`/`'…`), and fe
+  reporting the defalias'd symbol where Emacs reports the closure —
+  all recorded divergence rows now.
+- An improper argument list to a *closure* still raises fe's prose
+  "dotted pair in argument list" where Emacs says
+  `(wrong-type-argument listp TAIL)` — pinned with a test, worth a
+  future row (the fe fix cycle's one recorded deferral).
+- kg's scc gate closes Phase 7 at **5714/5730**; 08A's funding
+  Decision is the recorded consumer of that fact.
+
+The full parallel runner then earned its Rule 9 place by catching
+three more items the fix cycle's own gate list had not covered:
+clang-tidy's branch-clone check rejected the identical switch bodies
+fe's dead-code removal left behind (fe `a14b43b`, a
+disassembly-verified zero-behaviour merge), the stub
+`editor_path_split` wrote neither of its outputs so the new prompt
+tests ran `strlen` over uninitialized stack in the valgrind and MSan
+lanes (plain and ASan builds had passed on stack luck), and an IWYU
+cleanup mid-close deleted the unconditional `def.h` include the
+`WITH_LISP=0` classifier build needs (kg `4ffc801`, `e57043b`,
+`9697f6e`).  Final green light: `JOBS=8 .ci/run-ci-steps.sh
+--parallel` **12/12 PASS** on kg at `9697f6e` with the pin at
+`a14b43b`, all nine fe stages green standalone.

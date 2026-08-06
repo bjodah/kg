@@ -321,7 +321,14 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=5713 makes complexity-check fail on 5714, while the
 # raised 5804 setting passes. This temporary-lowering proof is deliberately
 # uncommitted; the command and its output are recorded in 08A's funding note.
-SCC_COMPLEXITY_MAX ?= 5804
+# Raised 5804 -> 5860 by Phase 9 sub-plan 09A Decision 7 (2026-08-06), funding
+# 09D's arena-diagnostics command, its renderer and the exhaustion coverage at
+# the audited +5..15 scc price. The re-measured idle tree is 5798, so +15
+# breaches at 5813 and 5860 leaves the band's top plus rounding room, not a
+# general allowance for unrelated growth. Proof on the same tree:
+# SCC_COMPLEXITY_MAX=5797 makes complexity-check fail on 5798, while 5798
+# passes. 09D re-sets this to the measured actual at the phase close.
+SCC_COMPLEXITY_MAX ?= 5860
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

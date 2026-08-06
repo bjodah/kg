@@ -780,15 +780,28 @@ static bool lisp_has_el_suffix(const char *name, size_t length)
 	    && strcmp(name + length - suffix_length, suffix) == 0;
 }
 
+/* <config>/kg/lisp/NAME.el for a bare package name, with the suffix the
+ * name already carries accepted rather than doubled.  Nonzero when no
+ * config base is set or the path would not fit. */
+static int lisp_package_path(
+    char *path, size_t size, const char *name, size_t length)
+{
+	const char *suffix = lisp_has_el_suffix(name, length) ? "" : ".el";
+	char stem[PATH_MAX];
+	int written = snprintf(stem, sizeof(stem), "lisp/%s%s", name, suffix);
+
+	return written < 0 || (size_t)written >= sizeof(stem)
+	    || lisp_config_path(path, size, stem);
+}
+
 /* (load NAME): a name containing '/' is a literal path; a bare name
- * resolves to <config>/kg/lisp/NAME.el, with the suffix already present
- * accepted rather than doubled.  Loading twice evaluates twice; there is
- * no require/provide behaviour here -- see native_require for that. */
+ * resolves through lisp_package_path above.  Loading twice evaluates
+ * twice; there is no require/provide behaviour here -- see native_require
+ * for that. */
 FeObject *native_load(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	char path[PATH_MAX];
-	char stem[PATH_MAX];
 	char *name;
 	size_t length;
 	int bad;
@@ -798,14 +811,8 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 	if (strchr(name, '/')) {
 		bad = snprintf(path, sizeof(path), "%s", name) < 0
 		    || strlen(name) >= sizeof(path);
-	} else if (lisp_has_el_suffix(name, length)) {
-		bad = snprintf(stem, sizeof(stem), "lisp/%s", name) < 0
-		    || length + sizeof("lisp/") > sizeof(stem)
-		    || lisp_config_path(path, sizeof(path), stem);
 	} else {
-		bad = snprintf(stem, sizeof(stem), "lisp/%s.el", name) < 0
-		    || length + sizeof("lisp/.el") > sizeof(stem)
-		    || lisp_config_path(path, sizeof(path), stem);
+		bad = lisp_package_path(path, sizeof(path), name, length);
 	}
 	if (bad) {
 		char rejected[512];

@@ -1372,19 +1372,26 @@ The Phase 7 close audit found that the original Wave A-D description was
 substantially stale. The following corrections are binding for Phase 8 and
 replace the corresponding assumptions below:
 
-1. Wave A's "move into Fe core" premise is inverted: eight of its twelve
-   items already exist and agree with Emacs as prelude macros; constant
-   protection and keyword self-evaluation are the actual Fe-core work.
-2. The old one-binding Fe `let` bullet was satisfied before this plan was
-   written (b37bb20, 2026-07-28).
+1. Wave A's "move into Fe core" premise is inverted: ten of its twelve
+   items already exist and agree with Emacs — seven as prelude macros
+   (`let`, `let*`, `progn`, `prog1`, `cond`, `defvar`, `defconst`) and
+   three as fe primitives (`while`, `and`, `or`); constant protection
+   and keyword self-evaluation are the only genuine Fe-core work.
+   *(Count corrected at the Phase 8 close: the original "eight … as
+   prelude macros" was miscounted and mislabeled.)*
+2. The old one-binding Fe `let` bullet was satisfied *in kg* before
+   this plan was written (kg commit b37bb20, 2026-07-28, a prelude
+   `let` macro shadowing the primitive — not an fe commit).  Fe core
+   kept `(let SYM VALUE)` until 08B added Emacs binding lists.
+   *(Attribution corrected at the Phase 8 close.)*
 3. Wave A underweights its highest-severity item: assignable `t` can silently
    corrupt the language for the rest of a session.
 4. Wave B is approximately 60% complete and omits the first init-file needs:
    `setq-default`, `kbd`, `identity`, `symbol-name`, and related library
    edges.
 5. "Retain iterative implementations" is already prelude rule 2; its stated
-   reason is stale because the bound is the 1097-frame arena, not the GC
-   stack.
+   reason is stale because the bound is the frame arena (measured 1096
+   frames in kg's 1 MiB arena at the Phase 8 close), not the GC stack.
 6. Wave C's `#'` bullet landed in 04D, and its keyword bullet duplicates Wave
    A's keyword work.
 7. Wave C's character-literal deferral rationale is dead now that Phase 5 has

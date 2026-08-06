@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-setq-aliases",
+ "setup": [],
+ "expr": "(progn (setq-default phase8-alias-a 8) (setq-local phase8-alias-b 9) (list phase8-alias-a phase8-alias-b))",
+ "note": "kg-policy: kg has no buffer-local variable namespace, so setq-default and setq-local are documented aliases of setq. Emacs would answer the same two values here but for different reasons, which is why this row is not compared."
+}

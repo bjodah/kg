@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-string-to-list",
+ "setup": [],
+ "expr": "(list (string-to-list \"abé\") (string-to-list \"\"))",
+ "note": "Codepoints, not bytes, and nil for the empty string; the %c row of Table D is checked through this."
+}

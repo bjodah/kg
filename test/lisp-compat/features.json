@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 81 native_bindings[] (src/lisp_prelude.c) and 53 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 54 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 81 native_bindings[] (src/lisp_prelude.c) and 77 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 54 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -1374,9 +1374,10 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "prelude-cond"
+    "prelude-cond",
+    "phase8-library-cond-bodyless"
    ],
-   "kg_test": "test/test_lisp.c:test_prelude_forms",
+   "kg_test": "test/test_lisp.c:test_prelude_forms, test/test_lisp.c:test_phase8_library",
    "rationale": null,
    "source_name": "cond"
   },
@@ -1850,17 +1851,17 @@
    "source_name": null
   },
   {
-    "id": "defcustom",
-    "category": "loading",
-    "status": "supported",
+   "id": "defcustom",
+   "category": "loading",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "defcustom"
    ],
-    "kg_test": "test/test_lisp.c:test_phase8_library, test/pty/lisp-init-phase8-library.yaml",
-    "rationale": "Phase 8, 08E: prelude declaration over defvar. It distinguishes an unbound variable from a bound one, does not evaluate the standard form when bound, records the docstring, and accepts inert presentation keywords (:type, :options, :group, :tag, :link, :version, :package-version). Unknown keyword and semantic keyword forms are rejected. No Custom state, retained standard form, dynamic binding, setopt or Customize UI is provided.",
-    "source_name": "defcustom"
+   "kg_test": "test/test_lisp.c:test_phase8_library, test/pty/lisp-init-phase8-library.yaml",
+   "rationale": "Phase 8, 08E: prelude declaration over defvar. It distinguishes an unbound variable from a bound one, does not evaluate the standard form when bound, records the docstring, and accepts inert presentation keywords (:type, :options, :group, :tag, :link, :version, :package-version). Unknown keyword and semantic keyword forms are rejected. No Custom state, retained standard form, dynamic binding, setopt or Customize UI is provided.",
+   "source_name": "defcustom"
   },
   {
    "id": "arity-strict",
@@ -1993,151 +1994,183 @@
    "kg_test": "test/pty/lisp-interactive-prompting.yaml, test/pty/lisp-interactive-prompting-codes.yaml",
    "rationale": "Empty prefill, exactly the accepted bytes back including the empty string, no history ring, and the clause tail verbatim as the prompt.",
    "source_name": null
-   },
-   {
-    "id": "phase8-constants-and-keywords",
-    "category": "bindings",
-    "status": "planned",
-    "owner": "fe-core",
-    "comparison": "emacs",
-    "cases": [
-     "phase8-constant-setq-t",
-     "phase8-constant-setq-nil",
-     "phase8-constant-setq-keyword",
-     "phase8-constant-let-t",
-     "phase8-constant-let-nil",
-     "phase8-constant-lambda-t",
-     "phase8-keyword-values"
-    ],
-    "kg_test": "fe/test_api.c (08B: constant protection and keyword evaluation)",
-    "rationale": "Phase 8, 08A Table C. These are fresh oracle pins for 08B; implementation remains intentionally absent in this slice.",
-    "source_name": null
-   },
-   {
-    "id": "declare-no-op",
-    "category": "functions-and-macros",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["declare-no-op"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "08E accepts and removes a declare form only in the definition macro's optional-docstring position; unknown declaration specs are inert, matching the measured subset.",
-   "source_name": "internal--declare-p"
-   },
-   {
-    "id": "custom-set-variables",
-    "category": "loading",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["defcustom"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "08E's measured subset applies quoted global (SYMBOL VALUE) entries and rejects extra Custom metadata.",
-    "source_name": "custom-set-variables"
-   },
-   {
-    "id": "custom-presentation-keyword-p",
-    "category": "loading",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["defcustom"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "Phase 8 internal defcustom validator for the inert presentation keyword subset; it is not Customize state.",
-    "source_name": "internal--custom-presentation-keyword-p"
-   },
-   {
-    "id": "custom-semantics-keyword-p",
-    "category": "loading",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["defcustom"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "Phase 8 internal defcustom validator for rejected semantic keywords rather than ignored Customize state.",
-    "source_name": "internal--custom-semantics-keyword-p"
-   },
-   {
-    "id": "phase8-reader-compatibility",
-    "category": "reader-and-literals",
-    "status": "planned",
-    "owner": "fe-core",
-    "comparison": "emacs",
-    "cases": [
-     "phase8-reader-char-escapes",
-     "phase8-reader-char-modifiers",
-     "phase8-reader-char-unicode",
-     "phase8-reader-radix",
-     "phase8-reader-string-escapes",
-     "phase8-reader-vector",
-     "phase8-reader-uninterned-symbol",
-     "phase8-reader-dotted-backquote",
-     "phase8-reader-nested-backquote"
-    ],
-    "kg_test": "fe/test_api.c (08C: reader syntax and escape table)",
-    "rationale": "Phase 8, 08A Table R. The snapshots freeze the measured reader contract before reject and implementation work; no status is promoted by this pinning slice.",
-    "source_name": null
-   },
-   {
-    "id": "phase8-reader-rejection-policy",
-    "category": "reader-and-literals",
-    "status": "planned",
-    "owner": "fe-core",
-    "comparison": "kg-policy",
-    "cases": [
-     "phase8-reader-policy-rejections"
-    ],
-    "kg_test": "fe/test_api.c (08C: reject unsupported reader syntax)",
-    "rationale": "Phase 8, 08A Table R. Unsupported vectors, uninterned-symbol syntax, symbol escapes, and unknown string escapes must fail clearly rather than be silently misread; this policy row has no Emacs snapshot.",
-    "source_name": null
-   },
-   {
-    "id": "phase8-library-contracts",
-    "category": "functions-and-lists",
-    "status": "planned",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "phase8-library-mapc-mapconcat",
-     "phase8-library-list-edges",
-     "phase8-library-nreverse",
-     "phase8-library-delete",
-     "phase8-library-add-to-list",
-     "phase8-library-defvar",
-     "phase8-library-defvar-valued",
-     "phase8-library-max-min-errors"
-    ],
-    "kg_test": "test/test_lisp.c (08D: prelude library contract tests)",
-    "rationale": "Phase 8, 08A Table L. These cases pin absent and divergent library contracts for the later prelude batch; no prelude change belongs here.",
-    "source_name": null
-   },
-   {
-    "id": "phase8-format-contract",
-    "category": "formatting",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "phase8-format-directives"
-    ],
-    "kg_test": "test/test_lisp.c:test_format_natives, test/lisp-compat/oracle/phase8-format-directives.json",
-    "rationale": "08E implements the Table D matrix: %c UTF-8, %x/%X/%o, and width, flag and precision handling for numeric and string conversions.",
+  },
+  {
+   "id": "phase8-constants-and-keywords",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-constant-setq-t",
+    "phase8-constant-setq-nil",
+    "phase8-constant-setq-keyword",
+    "phase8-constant-let-t",
+    "phase8-constant-let-nil",
+    "phase8-constant-lambda-t",
+    "phase8-keyword-values"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_constants_and_keywords",
+   "rationale": "08B implements Table C in fe core: nil, t and every keyword symbol refuse assignment with setting-constant, keywords self-evaluate, keywordp is a primitive. kg's prelude let checks the three binding names itself, because a let compiles into a lambda application and fe lets a lambda parameter named t shadow (which is Emacs-true for a lambda and not for a let).",
    "source_name": null
-   },
-   {
-    "id": "phase8-loader-diagnostics",
-    "category": "errors-and-non-local-exits",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": [
-     "phase8-diagnostic-load-location",
-     "phase8-diagnostic-runtime-location"
-    ],
-     "kg_test": "test/pty/lisp-init-error.yaml",
-     "rationale": "08E: loader errors surface Fe's source label and 1-based top-level line in the init status message; missing files name the resolved path. Sub-form precision remains deferred.",
-    "source_name": null
-   },
+  },
+  {
+   "id": "declare-no-op",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "declare-no-op"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "08E accepts and removes a declare form only in the definition macro's optional-docstring position; unknown declaration specs are inert, matching the measured subset.",
+   "source_name": "internal--declare-p"
+  },
+  {
+   "id": "custom-set-variables",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "defcustom"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "08E's measured subset applies quoted global (SYMBOL VALUE) entries and rejects extra Custom metadata.",
+   "source_name": "custom-set-variables"
+  },
+  {
+   "id": "custom-presentation-keyword-p",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "defcustom"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "Phase 8 internal defcustom validator for the inert presentation keyword subset; it is not Customize state.",
+   "source_name": "internal--custom-presentation-keyword-p"
+  },
+  {
+   "id": "custom-semantics-keyword-p",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "defcustom"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "Phase 8 internal defcustom validator for rejected semantic keywords rather than ignored Customize state.",
+   "source_name": "internal--custom-semantics-keyword-p"
+  },
+  {
+   "id": "phase8-reader-compatibility",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-reader-char-escapes",
+    "phase8-reader-char-modifiers",
+    "phase8-reader-char-unicode",
+    "phase8-reader-radix",
+    "phase8-reader-string-escapes",
+    "phase8-reader-dotted-backquote"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals, test/test_lisp.c:test_quasiquote",
+   "rationale": "08C implements Table R's readable half: character literals with the measured control rule, #x/#o/#b radix integers, the shared string escape table, and dotted backquote. Each row is byte-identical to the pinned oracle. The rows Emacs reads and fe deliberately does not are in phase8-reader-unsupported-syntax; the printed-symbol difference in a nested backquote is in phase8-reader-backquote-symbol-names.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-reader-unsupported-syntax",
+   "category": "reader-and-literals",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-reader-vector",
+    "phase8-reader-uninterned-symbol"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "Emacs reads both spellings; fe raises a named read error instead, because a vector needs an object type the core does not have and #: needs uninterned symbols. The snapshots are the measured Emacs answers these rows diverge from -- [1 2 3] and (t \"sym\" t sym) -- not what kg does.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-reader-backquote-symbol-names",
+   "category": "reader-and-literals",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-reader-nested-backquote"
+   ],
+   "kg_test": "test/test_lisp.c:test_quasiquote",
+   "rationale": "fe's reader spells the two backquote reader macros `quasiquote' and `unquote' where Emacs spells them ` and , (doc/fe-upstream.md's reader-macro row). The structure and the evaluated value agree -- an unquote in cdr position is a dotted tail in both -- so only an unevaluated nested backquote prints differently, which is what this snapshot records.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-reader-rejection-policy",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-reader-policy-rejections"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "08C's reject-before-implement rule, delivered: vectors, uninterned-symbol syntax, symbol escapes and unknown string escapes are named read errors rather than silent misreadings. kg-policy because the answer is an error message, which Emacs has no comparable spelling for.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-library-contracts",
+   "category": "functions-and-lists",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-mapc-mapconcat",
+    "phase8-library-list-edges",
+    "phase8-library-nreverse",
+    "phase8-library-delete",
+    "phase8-library-add-to-list",
+    "phase8-library-defvar",
+    "phase8-library-defvar-valued",
+    "phase8-library-max-min-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "08D implements Table L in lisp/prelude.el: mapc, mapconcat with its optional separator, assq, nreverse, delq, delete, add-to-list with APPEND, identity, prog2, max/min and their error conditions, and defvar's value/docstring split. Every case here answers what the pinned oracle answers.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-format-contract",
+   "category": "formatting",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-format-directives"
+   ],
+   "kg_test": "test/test_lisp.c:test_format_natives, test/lisp-compat/oracle/phase8-format-directives.json",
+   "rationale": "08E implements the Table D matrix: %c UTF-8, %x/%X/%o, and width, flag and precision handling for numeric and string conversions.",
+   "source_name": null
+  },
+  {
+   "id": "phase8-loader-diagnostics",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-diagnostic-load-location",
+    "phase8-diagnostic-runtime-location"
+   ],
+   "kg_test": "test/pty/lisp-init-error.yaml",
+   "rationale": "08E: loader errors surface Fe's source label and 1-based top-level line in the init status message; missing files name the resolved path. Sub-form precision remains deferred.",
+   "source_name": null
+  },
   {
    "id": "phase7-interactive-code-n",
    "category": "interactive-commands",
@@ -2280,193 +2313,253 @@
    "kg_test": "test/test_buffer.c:test_buf_select_interactive_no_other_buffers, test/test_buffer.c:test_buf_read_name_modes",
    "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone.",
    "source_name": null
-   },
-   {
-    "id": "phase8-library-doc-put",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["phase8-library-documentation"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "Internal docstring storage helper used by defun, defvar and defconst.",
-    "source_name": "internal--doc-put"
-   },
-   {
-    "id": "phase8-library-assq",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "assq"
-   },
-   {
-    "id": "phase8-library-mapc",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-mapc-mapconcat"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "mapc"
-   },
-   {
-    "id": "phase8-library-mapconcat",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-mapc-mapconcat"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "mapconcat"
-   },
-   {
-    "id": "phase8-library-nreverse",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-nreverse"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "nreverse"
-   },
-   {
-    "id": "phase8-library-delq",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "delq"
-   },
-   {
-    "id": "phase8-library-delete",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-delete"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "delete"
-   },
-   {
-    "id": "phase8-library-add-to-list",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-add-to-list"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "add-to-list"
-   },
-   {
-    "id": "phase8-library-identity",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "identity"
-   },
-   {
-    "id": "phase8-library-prog2",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "prog2"
-   },
-   {
-    "id": "phase8-library-max",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "max"
-   },
-   {
-    "id": "phase8-library-min",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": null,
-    "source_name": "min"
-   },
-   {
-    "id": "phase8-library-documentation",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["phase8-library-documentation"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "Docstrings are stored in a bounded prelude alist rather than Fe property lists.",
-    "source_name": "documentation"
-   },
-   {
-    "id": "phase8-library-qq-dotted",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": ["phase8-reader-dotted-backquote"],
-    "kg_test": "test/test_lisp.c:test_quasiquote",
-    "rationale": null,
-    "source_name": "internal--qq-dotted"
-   },
-   {
-    "id": "phase8-library-setq-default",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
-    "source_name": "setq-default"
-   },
-   {
-    "id": "phase8-library-setq-local",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["phase8-library-list-edges"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
-    "source_name": "setq-local"
-   },
-   {
-    "id": "phase8-library-kbd",
-    "category": "prelude",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": ["phase8-library-kbd"],
-    "kg_test": "test/test_lisp.c:test_phase8_library",
-    "rationale": "kbd accepts only the C-c key grammar that kg's user key binding entry point can parse.",
-    "source_name": "kbd"
-   }
+  },
+  {
+   "id": "phase8-library-doc-put",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-library-documentation"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "Internal docstring storage helper used by defun, defvar and defconst.",
+   "source_name": "internal--doc-put"
+  },
+  {
+   "id": "phase8-library-assq",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-list-edges"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "assq"
+  },
+  {
+   "id": "phase8-library-mapc",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-mapc-side-effect"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "mapc answers its LIST argument, not the collected results; only a side effect distinguishes it from mapcar, which is what its case exercises.",
+   "source_name": "mapc"
+  },
+  {
+   "id": "phase8-library-mapconcat",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-mapc-mapconcat"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "mapconcat"
+  },
+  {
+   "id": "phase8-library-number-to-string",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-number-to-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "number-to-string"
+  },
+  {
+   "id": "phase8-library-string-to-list",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-string-to-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "string-to-list"
+  },
+  {
+   "id": "phase8-library-nreverse",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-nreverse"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "nreverse"
+  },
+  {
+   "id": "phase8-library-delq",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-delete"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "delq"
+  },
+  {
+   "id": "phase8-library-delete",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-delete"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "delete"
+  },
+  {
+   "id": "phase8-library-add-to-list",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-add-to-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "add-to-list"
+  },
+  {
+   "id": "phase8-library-identity",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-list-edges"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "identity"
+  },
+  {
+   "id": "phase8-library-prog2",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-list-edges"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "prog2"
+  },
+  {
+   "id": "phase8-library-max",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-list-edges"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "max"
+  },
+  {
+   "id": "phase8-library-min",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-library-list-edges"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": null,
+   "source_name": "min"
+  },
+  {
+   "id": "phase8-library-documentation",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-library-documentation"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "Docstrings are stored in a bounded prelude alist rather than Fe property lists.",
+   "source_name": "documentation"
+  },
+  {
+   "id": "phase8-library-qq-dotted",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase8-reader-dotted-backquote"
+   ],
+   "kg_test": "test/test_lisp.c:test_quasiquote",
+   "rationale": null,
+   "source_name": "internal--qq-dotted"
+  },
+  {
+   "id": "phase8-library-setq-default",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-library-setq-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+   "source_name": "setq-default"
+  },
+  {
+   "id": "phase8-library-setq-local",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-library-setq-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+   "source_name": "setq-local"
+  },
+  {
+   "id": "phase8-library-kbd",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase8-library-kbd"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_library",
+   "rationale": "kbd accepts only the C-c key grammar that kg's user key binding entry point can parse.",
+   "source_name": "kbd"
+  }
  ]
 }

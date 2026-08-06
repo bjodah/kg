@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-mapc-side-effect",
+ "setup": [],
+ "expr": "(let ((acc nil)) (list (mapc (lambda (x) (setq acc (cons x acc))) '(1 2 3)) acc (mapcar (lambda (x) (* x 2)) '(1 2 3))))",
+ "note": "08A Table L: mapc is distinguishable from mapcar only through a side effect -- it answers its LIST argument, not the collected results."
+}

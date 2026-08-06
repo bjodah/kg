@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-number-to-string",
+ "setup": [],
+ "expr": "(list (number-to-string 3) (number-to-string 1.0) (number-to-string 1.5) (number-to-string -0.0))",
+ "note": "08A Table L follow-up: number-to-string's integer and float syntaxes, which mapconcat over a list of numbers needs."
+}

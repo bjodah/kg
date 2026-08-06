@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-cond-bodyless",
+ "setup": [],
+ "expr": "(list (cond (5)) (cond (nil 1) (2)) (cond (nil 1)) (cond))",
+ "note": "08A Table L: a cond clause with no body answers the value of its own test."
+}

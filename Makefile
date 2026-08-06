@@ -494,7 +494,7 @@ lisp-compat-oracle:
 	$(PYTHON) fe/utils/run-emacs-oracle.py test/lisp-compat \
 		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
 		$$($(PYTHON) -c "import json; d = json.load(open('test/lisp-compat/features.json')); \
-			print(' '.join('--case ' + f['cases'][0] for f in d['features'] if f['comparison'] == 'emacs'))") \
+			print(' '.join('--case ' + c for f in d['features'] if f['comparison'] == 'emacs' for c in f['cases']))") \
 		$(LISP_COMPAT_ORACLE_ARGS)
 
 # Compile each src/*.h as the first thing in its own translation unit.

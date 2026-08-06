@@ -299,7 +299,18 @@ SCC_COMPLEXITY_PATHS ?= src
 # prompt seam in 07D/07E. The idle-tree measurement is 5489, so the raise is
 # 171 points above the floor against the audited +110..170 scc price; the
 # per-file and pmccabe ratchets remain unchanged and are reported per slice.
-SCC_COMPLEXITY_MAX ?= 5660
+# Raised 5660 -> 5760 by the Phase 7 review-fix cycle (2026-08-06). 07A's
+# 5660 funded the interactive work as planned; it did not fund repairing it.
+# The fixes are structural rather than additive -- a per-activation command
+# scope that survives an Fe unwind, a real wrong-type-argument raise instead
+# of prose, a non-allocating numeric classifier, an uncapped raw universal
+# list, and the bufmgr regressions -- and each of them replaces a wrong
+# cheap thing with a right dearer one. Helpers were split before this was
+# raised (lisp_command_activate, universal_raw_value, cmd_scope_save/restore,
+# the classifier, path_handle_erase's arms); the per-file cap 520 and the
+# pmccabe ceilings are unchanged. The measured actual is recorded in the
+# final commit of the cycle.
+SCC_COMPLEXITY_MAX ?= 5760
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

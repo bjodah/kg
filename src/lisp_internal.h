@@ -160,6 +160,10 @@ struct lisp_state {
 	size_t requiring_depth;
 	bool frame_active;
 	struct lisp_prefix_binding *prefix_binding;
+	/* The value the command activation in flight produced, handed to
+	 * (command-execute ...) by lisp_take_command_value().  See that
+	 * function for why this is a bare pointer and not a root. */
+	FeObject *command_value;
 	bool initialized;
 };
 
@@ -193,6 +197,10 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * body between the save and that restore.  Transparent to the enclosing
  * run -- see the definition for why FeCall was not. */
 FeObject *lisp_call_body(FeContext *context, FeObject *body);
+/* Raise Emacs' (wrong-type-argument PREDICATE VALUE) as a real condition a
+ * handler naming wrong-type-argument can catch (lisp_core.c). */
+[[noreturn]] void lisp_raise_wrong_type(
+    FeContext *context, const char *predicate, FeObject *value);
 /* Latch state.error_kind into state.last_error_kind and disarm it
  * (lisp_core.c).  Called by every seam that has finished handling a
  * completion, so none of them leaves a stale kind behind. */
@@ -299,6 +307,10 @@ FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);
+/* Read and clear the value the command activation just finished produced
+ * (lisp_core.c).  Nothing may allocate between the activation returning and
+ * this call -- see the definition. */
+FeObject *lisp_take_command_value(FeContext *context);
 int64_t lisp_prefix_number(FeContext *context, FeObject *object);
 FeObject *native_define_command(FeContext *context, FeObject *arguments);
 FeObject *native_remove_command(FeContext *context, FeObject *arguments);

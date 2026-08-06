@@ -17,6 +17,15 @@
 extern char test_status_message[512];
 extern char test_command_name[128];
 extern int test_command_calls;
+/* stubs_noyank.c's cmd_invoke() reaches Lisp commands through these,
+ * because it is also linked into binaries with no Lisp objects at all.
+ * Installed by main() below, which is what makes (command-execute
+ * 'lisp-cmd) a real nested activation in these tests rather than the
+ * CMD_UNKNOWN the stub answered before. */
+extern int (*test_lisp_command_exists)(const char *name);
+extern int (*test_lisp_command_run)(const char *name, int fd);
+extern int test_run_command_with_prefix(
+    const char *name, struct command_prefix prefix);
 
 /* word.o is linked for forward-word/backward-word, and basic.o for the
  * window-cycle commands; their interactive primitives drag in terminal
@@ -532,6 +541,9 @@ static void test_command_allow_list(void)
 	teardown_editor();
 }
 
+/* Defined below, beside the tests that use it most. */
+static int eval_eq(const char *source, const char *expected);
+
 static int eval_ok(const char *source)
 {
 	char result[256] = "";
@@ -634,22 +646,128 @@ static void test_run_command_reentrancy(void)
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
 
-	/* A Lisp-defined command cannot re-enter another from Lisp origin:
-	 * lisp_defined_command is not CMD_LISP_CALLABLE, so command-execute
-	 * refuses it before any nested run.  There is no callback queue. */
-	CHECK(eval_ok("(define-command \"inner\""
-		      " (lambda () (message \"inner-ran\")))"));
-	CHECK(eval_ok("(define-command \"outer\""
-		      " (lambda () (command-execute 'inner)))"));
+	/* A Lisp-defined command IS CMD_LISP_CALLABLE, so (command-execute
+	 * 'inner) is a real nested activation.  The outer command has a live
+	 * top-level frame; the nested one must build and call inside that
+	 * evaluator rather than installing a frame of its own.  Overwriting
+	 * the single state.frame here -- and clearing frame_active on the way
+	 * out, while the outer command was still running -- is what made the
+	 * outer command's next buffer operation abort(). */
+	CHECK(eval_ok("(defun inner () (interactive) 1)"));
+	CHECK(eval_ok("(defun outer ()"
+		      "  (interactive)"
+		      "  (setq outer-saw (command-execute 'inner))"
+		      "  (insert \"after\")"
+		      "  (message \"outer-done\"))"));
 	CHECK(kg_lisp_run_command("outer", 0) == 0);
-	CHECK(strstr(test_status_message, "Lisp error") != nullptr);
-	CHECK(strstr(test_status_message, "outer") != nullptr);
-	CHECK(strstr(test_status_message, "command is not allowed") != nullptr);
-	CHECK(strstr(test_status_message, "inner") != nullptr);
-	/* The nested command never ran, and an independent later invocation
-	 * works normally. */
-	CHECK(kg_lisp_run_command("inner", 0) == 0);
-	CHECK(strcmp(test_status_message, "inner-ran") == 0);
+	/* command-execute returns the command's value, as Emacs does and as
+	 * the checked-in oracle snapshot says. */
+	CHECK(eval_eq("outer-saw", "1"));
+	/* The outer command kept running after the nested one returned: a
+	 * buffer operation past the nested call is exactly what used to
+	 * raise "current buffer is dead" and abort. */
+	CHECK(strcmp(test_status_message, "outer-done") == 0);
+	CHECK(strstr(bcur()->row[0].chars, "after") != nullptr);
+
+	/* A nested failure propagates into the surrounding evaluator, so the
+	 * outer command's own condition-case catches it and the outer
+	 * command completes normally. */
+	CHECK(eval_ok("(defun boom () (interactive) (car 1 2))"));
+	CHECK(eval_ok("(defun guarded ()"
+		      "  (interactive)"
+		      "  (setq guarded-saw"
+		      "    (condition-case e (command-execute 'boom)"
+		      "      (wrong-number-of-arguments 'caught)))"
+		      "  (message \"guarded-done\"))"));
+	CHECK(kg_lisp_run_command("guarded", 0) == 0);
+	CHECK(eval_eq("guarded-saw", "caught"));
+	CHECK(strcmp(test_status_message, "guarded-done") == 0);
+
+	/* Uncaught, the nested failure is reported against the *outer*
+	 * command, whose frame is the one that recovers. */
+	CHECK(eval_ok("(defun bare () (interactive) (command-execute 'boom))"));
+	CHECK(kg_lisp_run_command("bare", 0) == 0);
+	CHECK(strstr(test_status_message, "Lisp error: bare:") != nullptr);
+	/* and the interpreter is usable afterwards. */
+	CHECK(eval_ok("(+ 1 1)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* 07D's prefix delivery, end to end through cmd_invoke: the raw form a
+ * keystroke committed must reach `P`, `p` and current-prefix-arg.
+ *
+ * The regression these pin is that handle_pending_universal_arg() cleared
+ * editor.prefix_raw_kind on the *commit* path, before the dispatcher
+ * copied it, so every Lisp command saw raw nil however the argument was
+ * spelled: P nil, p 1, current-prefix-arg nil. */
+static void test_command_prefix_delivery(void)
+{
+	struct command_prefix none = { 0, 0, PREFIX_RAW_NONE, 0 };
+	struct command_prefix five = { 1, 5, PREFIX_RAW_INTEGER, 0 };
+	struct command_prefix minus = { 1, -1, PREFIX_RAW_MINUS, 0 };
+	struct command_prefix one_cu = { 1, 4, PREFIX_RAW_UNIVERSAL, 1 };
+	struct command_prefix two_cu = { 1, 16, PREFIX_RAW_UNIVERSAL, 2 };
+	struct command_prefix five_cu = { 1, 1000, PREFIX_RAW_UNIVERSAL, 5 };
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(defun raw () (interactive \"P\") (setq seen p))"));
+	CHECK(eval_ok("(defun num (n) (interactive \"p\") (setq seen n))"));
+	/* `P` is the argument, and it is `eq` to current-prefix-arg during
+	 * the body -- one rooted object, never two. */
+	CHECK(eval_ok("(defun both (x)"
+		      "  (interactive \"P\")"
+		      "  (setq seen (eq x current-prefix-arg)))"));
+
+	CHECK(eval_ok("(defun raw1 (x) (interactive \"P\") (setq seen x))"));
+	CHECK(test_run_command_with_prefix("raw1", none) == CMD_RAN);
+	CHECK(eval_eq("seen", "nil"));
+	CHECK(test_run_command_with_prefix("raw1", five) == CMD_RAN);
+	CHECK(eval_eq("seen", "5"));
+	CHECK(test_run_command_with_prefix("raw1", minus) == CMD_RAN);
+	CHECK(eval_eq("seen", "-"));
+	CHECK(test_run_command_with_prefix("raw1", one_cu) == CMD_RAN);
+	CHECK(eval_eq("seen", "(4)"));
+	CHECK(test_run_command_with_prefix("raw1", two_cu) == CMD_RAN);
+	CHECK(eval_eq("seen", "(16)"));
+	/* The 1000 cap is the *effective* integer's, not the raw list's:
+	 * five bare C-u is (1024) in Emacs and was (1000) here. */
+	CHECK(test_run_command_with_prefix("raw1", five_cu) == CMD_RAN);
+	CHECK(eval_eq("seen", "(1024)"));
+
+	/* `p` is prefix-numeric-value of the same raw form. */
+	CHECK(test_run_command_with_prefix("num", none) == CMD_RAN);
+	CHECK(eval_eq("seen", "1"));
+	CHECK(test_run_command_with_prefix("num", five) == CMD_RAN);
+	CHECK(eval_eq("seen", "5"));
+	CHECK(test_run_command_with_prefix("num", minus) == CMD_RAN);
+	CHECK(eval_eq("seen", "-1"));
+	CHECK(test_run_command_with_prefix("num", two_cu) == CMD_RAN);
+	CHECK(eval_eq("seen", "16"));
+
+	CHECK(test_run_command_with_prefix("both", two_cu) == CMD_RAN);
+	CHECK(eval_eq("seen", "t"));
+
+	/* Each command builds its own raw list, so mutating one cannot be
+	 * seen by the next invocation. */
+	CHECK(eval_ok("(defun grab (x) (interactive \"P\") (setq kept x))"));
+	CHECK(test_run_command_with_prefix("grab", one_cu) == CMD_RAN);
+	CHECK(eval_ok("(setcar kept 99)"));
+	CHECK(test_run_command_with_prefix("grab", one_cu) == CMD_RAN);
+	CHECK(eval_eq("kept", "(4)"));
+
+	/* current-prefix-arg is restored after a normal exit, and the prior
+	 * global is read rather than assumed nil. */
+	CHECK(eval_ok("(setq current-prefix-arg 'outside)"));
+	CHECK(test_run_command_with_prefix("raw1", five) == CMD_RAN);
+	CHECK(eval_eq("current-prefix-arg", "outside"));
+	/* ... and after an error exit. */
+	CHECK(eval_ok("(defun bang () (interactive) (car 1 2))"));
+	CHECK(test_run_command_with_prefix("bang", five) == CMD_RAN);
+	CHECK(eval_eq("current-prefix-arg", "outside"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -3462,6 +3580,8 @@ int main(void)
 		RUN(test_disabled);
 		return test_summary();
 	}
+	test_lisp_command_exists = kg_lisp_command_exists;
+	test_lisp_command_run = kg_lisp_run_command;
 
 	RUN(test_lifecycle);
 	RUN(test_eval_and_recovery);
@@ -3482,6 +3602,7 @@ int main(void)
 	RUN(test_define_and_run_command);
 	RUN(test_run_command_interrupt);
 	RUN(test_run_command_reentrancy);
+	RUN(test_command_prefix_delivery);
 	RUN(test_key_bindings);
 	RUN(test_math_natives);
 	RUN(test_point_offsets);

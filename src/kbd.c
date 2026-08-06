@@ -86,20 +86,21 @@ static void prefix_echo(struct key_event c, int value)
 static int handle_pending_universal_arg(struct key_event c, int digit)
 {
 	if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
-		editor.prefix_raw_kind = 2;
+		editor.prefix_raw_kind = PREFIX_RAW_UNIVERSAL;
+		editor.prefix_universal_count++;
 		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
 		prefix_echo(c, editor.prefix_arg);
 		return 1;
 	}
 	if (digit >= 0) {
-		if (editor.prefix_raw_kind == 3) {
-			editor.prefix_raw_kind = 1;
+		if (editor.prefix_raw_kind == PREFIX_RAW_MINUS) {
+			editor.prefix_raw_kind = PREFIX_RAW_INTEGER;
 			editor.prefix_arg = -digit;
 		} else if (editor.prefix_arg < 0) {
 			editor.prefix_arg = -prefix_arg_mul_add(
 			    -editor.prefix_arg, 10, digit);
 		} else {
-			editor.prefix_raw_kind = 1;
+			editor.prefix_raw_kind = PREFIX_RAW_INTEGER;
 			editor.prefix_arg = editor.prefix_no_digits
 			    ? digit
 			    : prefix_arg_mul_add(editor.prefix_arg, 10, digit);
@@ -113,14 +114,20 @@ static int handle_pending_universal_arg(struct key_event c, int digit)
 		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
 		editor.prefix_no_digits = 0;
-		editor.prefix_raw_kind = 0;
+		editor.prefix_raw_kind = PREFIX_RAW_NONE;
+		editor.prefix_universal_count = 0;
 		editor_set_status_message("");
 		return 1;
 	}
 
+	/* This key ends the argument and is the command it applies to, so the
+	 * accumulated prefix is *committed*, not discarded: the dispatcher
+	 * below copies supplied/value/raw_kind into the command prefix and
+	 * clears all three there.  Clearing raw_kind here instead made every
+	 * Lisp command see a nil raw prefix -- P nil, p 1 -- however the user
+	 * spelled the argument. */
 	editor.prefix_pending = 0;
 	editor.prefix_no_digits = 0;
-	editor.prefix_raw_kind = 0;
 	return 0;
 }
 
@@ -134,11 +141,22 @@ static int start_universal_arg(struct key_event c)
 	}
 	editor.prefix_pending = 1;
 	editor.prefix_supplied = 1;
-	editor.prefix_raw_kind
-	    = KEY_IS(c, '-', KEY_MOD_META) ? 3 : (meta < 0 ? 2 : 1);
-	editor.prefix_arg
-	    = meta < 0 ? 4 : (KEY_IS(c, '-', KEY_MOD_META) ? -1 : meta);
-	editor.prefix_no_digits = meta < 0 && !KEY_IS(c, '-', KEY_MOD_META);
+	editor.prefix_raw_kind = KEY_IS(c, '-', KEY_MOD_META)
+	    ? PREFIX_RAW_MINUS
+	    : (meta < 0 ? PREFIX_RAW_UNIVERSAL : PREFIX_RAW_INTEGER);
+	editor.prefix_universal_count
+	    = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL ? 1 : 0;
+	/* Three starts, three effective values: bare M-- is -1, a Meta digit
+	 * is that digit, and C-u is 4.  Written as one nested ternary the
+	 * M-- arm was unreachable -- `meta` is -1 for M-- too, so the outer
+	 * test took the C-u branch and M-- C-f moved four characters
+	 * *forward*. */
+	if (editor.prefix_raw_kind == PREFIX_RAW_MINUS) {
+		editor.prefix_arg = -1;
+	} else {
+		editor.prefix_arg = meta < 0 ? 4 : meta;
+	}
+	editor.prefix_no_digits = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL;
 	if (meta < 0) {
 		editor_set_status_message("C-u");
 	} else {
@@ -828,12 +846,15 @@ void editor_process_keypress(int fd)
 	prefix.supplied = editor.prefix_supplied;
 	prefix.value = editor.prefix_arg;
 	prefix.raw_kind = editor.prefix_raw_kind;
+	prefix.universal_count = editor.prefix_universal_count;
 	editor.current_prefix = prefix;
 
 	if (prefix.supplied) {
 		editor.prefix_supplied = 0;
 		editor.prefix_arg = 0;
 		editor.prefix_pending = 0;
+		editor.prefix_raw_kind = PREFIX_RAW_NONE;
+		editor.prefix_universal_count = 0;
 		editor_set_status_message("");
 		n = prefix.value;
 	} else {

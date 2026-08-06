@@ -10,11 +10,48 @@
 
 #include <stdint.h>
 
+/* Which of Emacs' four raw prefix forms the user typed.
+ *
+ * `value` below is the *effective* integer every built-in consumer has
+ * always used (bounded, C-u collapsed to 4/16/...); this says what the
+ * raw `current-prefix-arg` a Lisp command sees should be built from.
+ * Sub-plan 07A Decision 6 asks for the distinction to be a type rather
+ * than the bare 0/1/2/3 it was first written as. */
+enum prefix_raw_kind {
+	PREFIX_RAW_NONE = 0, /* no prefix typed: raw nil, effective 1 */
+	PREFIX_RAW_INTEGER, /* C-u DIGITS, M-DIGITS, M-- DIGITS: raw N */
+	PREFIX_RAW_UNIVERSAL, /* bare C-u, C-u C-u, ...: raw (4), (16), ... */
+	PREFIX_RAW_MINUS, /* bare M--: raw symbol `-', effective -1 */
+};
+
 /* Prefix argument context for commands */
 struct command_prefix {
 	int supplied;
 	int value;
-	int raw_kind; /* 0 nil, 1 integer, 2 universal list, 3 minus */
+	enum prefix_raw_kind raw_kind;
+	/* How many bare C-u were typed, and only meaningful when raw_kind is
+	 * PREFIX_RAW_UNIVERSAL.  `value` above is capped at 1000 for the
+	 * built-in repeat consumers, but Emacs' raw `(4)`/`(16)`/`(64)`/…
+	 * list is not capped -- C-u C-u C-u C-u C-u is `(1024)` there and was
+	 * `(1000)` here.  The count is what survives the cap. */
+	int universal_count;
+};
+
+/* Who, if anyone, is the command currently dispatching. */
+struct active_command {
+	struct command_prefix prefix;
+	bool present;
+};
+
+/* Everything cmd_invoke() saves and restores around one command, as a
+ * value.  A Lisp completion raised inside a command reached through
+ * (command-execute ...) longjmps past cmd_invoke's own restore, so that
+ * native saves this before the call and puts it back through an Fe
+ * cleanup, which runs on the unwind as well as on the ordinary return. */
+struct command_scope {
+	struct active_command context;
+	struct command_prefix ambient;
+	int prompt_fd;
 };
 
 /* A command's identity, handed out by the registry and by nothing else.
@@ -129,6 +166,9 @@ void cmd_fast_path_end(command_id outer);
 command_id cmd_runtime_define(const char *name);
 void cmd_runtime_remove(const char *name);
 const struct command_prefix *cmd_active_prefix(void);
+/* Save/restore the dispatch scope above; see struct command_scope. */
+[[nodiscard]] struct command_scope cmd_scope_save(void);
+void cmd_scope_restore(struct command_scope scope);
 int cmd_prompt_fd(void);
 void cmd_prompt_block(void);
 void cmd_prompt_unblock(void);

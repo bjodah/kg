@@ -1,0 +1,60 @@
+# 07D's outcome, verbatim: `C-u 5 M-x step` advances five and plain
+# `M-x step` advances one, and a `P` command sees the raw form the
+# keystroke actually committed.
+#
+# The regression this pins is that handle_pending_universal_arg() cleared
+# editor.prefix_raw_kind on the *commit* path -- before key dispatch copied
+# it into the command prefix -- so lisp_prefix_object() always read
+# PREFIX_RAW_NONE.  Every Lisp command got P nil and p 1 however the user
+# spelled the argument, and the whole of prefix delivery was dead while
+# every gate stayed green.  Both commands therefore insert the value they
+# were *given*, not a constant.
+name: lisp-interactive-prefix-p-and-P
+filename: prefix-p.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun step (n)
+      (interactive "p")
+      (goto-char (+ (point) n)))
+    (defun show-p (n)
+      (interactive "p")
+      (insert (format "p=%S;" n)))
+    (defun show-raw (arg)
+      (interactive "P")
+      (insert (format "P=%S;" arg)))
+initial: "abcdefghij"
+keys:
+  # The plan's own example first, on the untouched buffer: goto-char
+  # (+ (point) n).  From position 1, `M-x step` lands on 2 and
+  # `C-u 5 M-x step` on 7, so X marks column 7.
+  - C-Home
+  - M-x
+  - step
+  - RET
+  - C-u
+  - "5"
+  - M-x
+  - step
+  - RET
+  - X
+  # Then the delivered values themselves, appended at end of buffer.
+  - C-End
+  - M-x
+  - show-p
+  - RET
+  - C-u
+  - "5"
+  - M-x
+  - show-p
+  - RET
+  - M-x
+  - show-raw
+  - RET
+  # C-u 5 is the integer 5, not a (4)-style universal list.
+  - C-u
+  - "5"
+  - M-x
+  - show-raw
+  - RET
+expected_saved: "abcdefXghijp=1;p=5;P=nil;P=5;"

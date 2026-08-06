@@ -1,0 +1,45 @@
+# 07D's `r`: two sorted 1-based Lisp positions, over an active region and
+# over an empty one.  The command inserts the positions it was handed, so
+# a wrong pair or a swapped pair fails rather than passing on a constant.
+name: lisp-interactive-region-code
+filename: region-code.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun show-region (begin end)
+      (interactive "r")
+      (goto-char (point-max))
+      (insert (format "[%S %S]" begin end)))
+initial: "abcdefghij"
+keys:
+  # Mark at 1, point at 5: the region is (1 5), sorted.
+  - C-Home
+  - C-SPC
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - M-x
+  - show-region
+  - RET
+  # Mark and point together: an empty region is permitted, and both
+  # positions are the same.  Mark is set at end of buffer, which is where
+  # the previous insertion left point.
+  - C-End
+  - C-SPC
+  - M-x
+  - show-region
+  - RET
+  # Point before mark: the pair is still sorted, so begin < end even
+  # though point is the smaller of the two.
+  - C-Home
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-SPC
+  - C-Home
+  - M-x
+  - show-region
+  - RET
+expected_saved: "abcdefghij[1 5][16 16][1 5]"

@@ -1,0 +1,27 @@
+# 07D: `r` reuses the region native's mark-not-set error, and the command
+# body does not run.  Nothing is set here before the first invocation, so
+# `show-region` is refused; the second invocation, after C-SPC, proves the
+# refusal was about the mark and not about the command.
+#
+# tmux-backed so the refusal itself is asserted on screen, rather than
+# inferred from the saved file alone.
+name: lisp-interactive-region-no-mark
+filename: region-no-mark.txt
+backend: tmux
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun show-region (begin end)
+      (interactive "r")
+      (goto-char (point-max))
+      (insert (format "[%S %S]" begin end)))
+initial: "abcdefghij"
+keys:
+  - M-x
+  - show-region
+  - RET
+expected_screen_contains:
+  - "mark"
+expected_screen_not_contains:
+  - "[1 "
+expected_saved: "abcdefghij"

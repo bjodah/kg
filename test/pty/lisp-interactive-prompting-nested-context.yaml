@@ -1,4 +1,16 @@
-name: lisp-interactive-prompting-nested-command-refusal
+# 07E's prompt context rule, in both directions.
+#
+# A Lisp command reached by nested (command-execute ...) *during* a command
+# may prompt, once the outer M-x prompt has closed: `outer-command` runs
+# from M-x, calls `inner-prompt`, and the "Inner: " read succeeds, so
+# "nested" is inserted.  The same command reached from M-: has no command
+# fd at all and is refused before reading anything, so nothing more is
+# inserted and the buffer is left with exactly one insertion.
+#
+# Before the review this case asserted the buffer *unchanged*, which the
+# nested activation crash (a second setjmp over the outer command's frame)
+# and the "Lisp is busy" pseudo-success made true for the wrong reason.
+name: lisp-interactive-prompting-nested-context
 filename: prompt-nested.txt
 requires_feature: lisp
 config_files:
@@ -22,4 +34,4 @@ keys:
   - "M-:"
   - "(command-execute 'ask-from-eval)"
   - RET
-expected_saved: start
+expected_saved: nestedstart

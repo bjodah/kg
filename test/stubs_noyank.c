@@ -60,12 +60,55 @@ const struct named_cmd *cmd_descriptor_at(int index)
 	return index >= 0 && stub_cmdtable[index].name ? &stub_cmdtable[index]
 						       : nullptr;
 }
+/* The descriptor a Lisp-defined command gets, mirroring cmd.c's own: it is
+ * CMD_LISP_CALLABLE, so (command-execute 'lisp-cmd) reaches the nested
+ * activation path rather than being refused before it.  Without this the
+ * stub answered CMD_UNKNOWN for every Lisp command and no native test could
+ * reach that path at all -- which is how the nested-activation crash
+ * shipped green. */
+static const struct named_cmd stub_lisp_command
+    = { nullptr, nullptr, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE, nullptr };
+
+/* This file is linked into test binaries that carry no Lisp objects at
+ * all (test_undo, test_word, test_region, ...), so the adapter is reached
+ * through hooks a test installs rather than by naming its symbols here.
+ * test/test_lisp.c points both at kg_lisp_command_exists/run_command. */
+int (*test_lisp_command_exists)(const char *name);
+int (*test_lisp_command_run)(const char *name, int fd);
+
+/* The dispatch scope, as cmd.c holds it: a copy, saved and restored around
+ * each command so a nested invocation sees its own. */
+static struct active_command stub_active;
+static int stub_prompt_fd = -1;
+
+const struct command_prefix *cmd_active_prefix(void)
+{
+	return stub_active.present ? &stub_active.prefix : nullptr;
+}
+struct command_scope cmd_scope_save(void)
+{
+	struct command_scope scope
+	    = { stub_active, editor.current_prefix, stub_prompt_fd };
+
+	return scope;
+}
+void cmd_scope_restore(struct command_scope scope)
+{
+	stub_active = scope.context;
+	editor.current_prefix = scope.ambient;
+	stub_prompt_fd = scope.prompt_fd;
+}
 int cmd_invoke(const char *name, const struct command_context *ctx)
 {
 	const struct named_cmd *cmd = cmd_lookup(name);
+	struct command_scope saved;
 
 	if (!cmd) {
-		return CMD_UNKNOWN;
+		if (test_lisp_command_exists == nullptr
+		    || !test_lisp_command_exists(name)) {
+			return CMD_UNKNOWN;
+		}
+		cmd = &stub_lisp_command;
 	}
 	if (ctx->origin == CMD_ORIGIN_LISP
 	    && !(cmd->flags & CMD_LISP_CALLABLE)) {
@@ -77,15 +120,30 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	test_command_calls++;
 	(void)snprintf(
 	    test_command_name, sizeof(test_command_name), "%s", name);
+	saved = cmd_scope_save();
+	stub_active = (struct active_command) { ctx->prefix, true };
+	stub_prompt_fd = ctx->fd;
+	editor.current_prefix = ctx->prefix;
+	if (cmd == &stub_lisp_command && test_lisp_command_run != nullptr) {
+		(void)test_lisp_command_run(name, ctx->fd);
+	}
+	cmd_scope_restore(saved);
 	return CMD_RAN;
 }
 int cmd_execute_named(const char *name, int fd)
 {
-	struct command_context ctx = { fd, { 0, 0, 0 }, CMD_ORIGIN_KEY };
+	struct command_context ctx = { fd, { 0, 0, 0, 0 }, CMD_ORIGIN_KEY };
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
-const struct command_prefix *cmd_active_prefix(void) { return nullptr; }
+/* Run `name` the way key dispatch does: with a published active context,
+ * so cmd_active_prefix() answers and a Lisp command receives its prefix. */
+int test_run_command_with_prefix(const char *name, struct command_prefix prefix)
+{
+	struct command_context ctx = { 0, prefix, CMD_ORIGIN_MX };
+
+	return cmd_invoke(name, &ctx);
+}
 command_id cmd_id_by_name(const char *name)
 {
 	const struct named_cmd *cmd = cmd_lookup(name);

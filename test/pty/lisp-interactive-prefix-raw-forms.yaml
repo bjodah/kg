@@ -1,0 +1,74 @@
+# Every raw prefix form 07D enumerates, observed through `P`, and the
+# effective integer the same form produces through `p`.
+#
+# `C-u` and `C-u 4` are the pair that proves the raw kind is carried and
+# not reconstructed from the number: both are effectively 4, and Emacs
+# distinguishes them as `(4)` and `4`.  `C-u C-u` is `(16)`, bare `M--` is
+# the symbol `-` (effective -1), and `M-- 5` is the integer -5.
+#
+# The commands insert what they received; nothing here is a constant.
+name: lisp-interactive-prefix-raw-forms
+filename: prefix-raw-forms.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun show-raw (arg)
+      (interactive "P")
+      (insert (format "%S," arg)))
+    (defun show-num (n)
+      (interactive "p")
+      (insert (format "%S;" n)))
+initial: ""
+keys:
+  # Bare C-u: raw (4), effective 4.
+  - C-u
+  - M-x
+  - show-raw
+  - RET
+  - C-u
+  - M-x
+  - show-num
+  - RET
+  # C-u 4: the same effective 4, but the raw form is the integer.
+  - C-u
+  - "4"
+  - M-x
+  - show-raw
+  - RET
+  - C-u
+  - "4"
+  - M-x
+  - show-num
+  - RET
+  # C-u C-u: raw (16).
+  - C-u
+  - C-u
+  - M-x
+  - show-raw
+  - RET
+  - C-u
+  - C-u
+  - M-x
+  - show-num
+  - RET
+  # Bare M--: the symbol `-`, effective -1.
+  - M--
+  - M-x
+  - show-raw
+  - RET
+  - M--
+  - M-x
+  - show-num
+  - RET
+  # M-- 5: the integer -5.
+  - M--
+  - "5"
+  - M-x
+  - show-raw
+  - RET
+  - M--
+  - "5"
+  - M-x
+  - show-num
+  - RET
+expected_saved: "(4),4;4,4;(16),16;-,-1;-5,-5;"

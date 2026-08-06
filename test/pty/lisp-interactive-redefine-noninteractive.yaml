@@ -1,0 +1,37 @@
+# 07D item 3, the third redefinition direction: interactive ->
+# noninteractive writes the new function and unregisters the command, so
+# the name disappears from M-x while the *function* stays callable.
+#
+# `zzflip` is defined interactively in init.el and immediately redefined
+# without a declaration.  M-x zzflip must therefore find no such command
+# -- the echo area says so, and neither body runs -- while (zzflip) from
+# M-: still runs the *new* body.  The name is deliberately one no built-in
+# command shares a prefix with, since the M-x picker would otherwise run
+# whatever it did match.
+name: lisp-interactive-redefine-noninteractive
+filename: redefine.txt
+backend: tmux
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun zzflip ()
+      (interactive)
+      (insert "interactive-body"))
+    (defun zzflip ()
+      (insert "plain-body"))
+initial: ""
+keys:
+  # The function cell holds the new, noninteractive body ...
+  - "M-:"
+  - "(zzflip)"
+  - RET
+  # ... and the command registration is gone, which the picker says last
+  # so its message is the one still on screen.
+  - M-x
+  - zzflip
+  - RET
+expected_screen_contains:
+  - "No command"
+expected_screen_not_contains:
+  - "interactive-body"
+expected_saved: "plain-body"

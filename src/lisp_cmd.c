@@ -119,6 +119,32 @@ FeObject *native_functionp(FeContext *context, FeObject *arguments)
 	FeHandleError(context, message);
 }
 
+/* Defined below, beside its other callers. */
+static void copy_command_name(
+    FeContext *context, FeObject *object, char *out, size_t outsize);
+
+/* The dispatch scopes (command-execute ...) activations have saved, in
+ * stable storage because the Fe cleanup that restores one runs after the
+ * C frame that pushed it has already been unwound past -- which is the
+ * whole reason the cleanup exists.  Bounded by fe's native re-entry limit
+ * (32) with headroom; a deeper nest is refused before anything is saved.
+ *
+ * Cleanups run exactly once and last-in-first-out, so these pop in the
+ * order they were pushed and a plain stack is enough. */
+#define COMMAND_SCOPE_MAX 64
+static struct command_scope scope_stack[COMMAND_SCOPE_MAX];
+static unsigned scope_depth;
+
+static void restore_command_scope(FeContext *context, void *data)
+{
+	(void)context;
+	(void)data;
+	if (scope_depth == 0) {
+		return;
+	}
+	cmd_scope_restore(scope_stack[--scope_depth]);
+}
+
 static void report_command_result(
     FeContext *context, int result, const char *name)
 {
@@ -135,10 +161,19 @@ static void report_command_result(
  * either.  Which commands may be reached this way, and which of them refuse
  * a read-only buffer, is cmd.c's CMD_LISP_CALLABLE/CMD_EDITS_BUFFER and
  * nothing else; this native only translates the verdict into a Fe error.
- * Explicit empty prefix: a Lisp-invoked command has no keystroke of its
- * own, so it must not inherit whatever prefix arg was left over from the
- * keystroke that triggered this Lisp call (or none at all, e.g. init.el
- * running at startup). */
+ *
+ * The prefix is *inherited* from the active command context when there is
+ * one, which is Emacs' default for command-execute, and is empty otherwise
+ * -- an init file, a hook or a process filter has no keystroke of its own.
+ * cmd_active_prefix() answering NULL outside dispatch is what makes that
+ * distinction, so editor.current_prefix's stale keystroke value is never
+ * read here (07D).
+ *
+ * The name is copied into a bounded stack buffer before cmd_invoke runs,
+ * for the same reason copy_command_name() exists below: cmd_invoke can now
+ * reach a Lisp command, and a completion raised inside it longjmps past
+ * any free() on this frame.  A heap copy held across it is a leak, which
+ * is what the review's ASan run reported. */
 FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
@@ -146,19 +181,45 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	struct command_context ctx = { cmd_prompt_fd(),
 		active ? *active : (struct command_prefix) { 0 },
 		CMD_ORIGIN_LISP };
-	char rejected[512];
-	char *name;
-	size_t length;
+	char name[512];
+	FeObject *value;
 	int rc;
 
 	FeRequireNoArguments(context, arguments);
-	name = copy_fe_string(context, object, &length);
-	(void)length;
+	copy_command_name(context, object, name, sizeof(name));
+	if (scope_depth >= COMMAND_SCOPE_MAX) {
+		FeHandleError(context, "command-execute nested too deeply");
+	}
+	scope_stack[scope_depth++] = cmd_scope_save();
+	FeProtectWithCleanup(context, restore_command_scope, nullptr);
 	rc = cmd_invoke(name, &ctx);
-	(void)snprintf(rejected, sizeof(rejected), "%s", name);
-	free(name);
-	report_command_result(context, rc, rejected);
-	return FeNil(context);
+	/* Take the value before anything else: it is unrooted, and only the
+	 * absence of allocation between the call and here keeps it alive. */
+	value = lisp_take_command_value(context);
+	report_command_result(context, rc, name);
+	return value;
+}
+
+/* The raw `(4)`/`(16)`/`(64)`/… a run of bare C-u produces.
+ *
+ * `prefix->value` is capped at 1000 for the repeat consumers, so reading it
+ * here made C-u C-u C-u C-u C-u `(1000)` where Emacs says `(1024)`: the
+ * effective-integer cap had leaked into the raw form, which has none.  The
+ * count of presses is what survives the cap, so 4^count is computed from
+ * it.  Emacs would use a bignum past int64; the loop stops at the largest
+ * representable power of 4 instead, which needs 32 consecutive C-u. */
+static int64_t universal_raw_value(const struct command_prefix *prefix)
+{
+	int64_t value = 4;
+	int i;
+
+	for (i = 1; i < prefix->universal_count; i++) {
+		if (value > INT64_MAX / 4) {
+			return value;
+		}
+		value *= 4;
+	}
+	return value;
 }
 
 FeObject *lisp_prefix_object(
@@ -166,16 +227,17 @@ FeObject *lisp_prefix_object(
 {
 	FeObject *item;
 
-	if (prefix == nullptr || !prefix->supplied || prefix->raw_kind == 0) {
+	if (prefix == nullptr || !prefix->supplied
+	    || prefix->raw_kind == PREFIX_RAW_NONE) {
 		return FeNil(context);
 	}
-	if (prefix->raw_kind == 1) {
+	if (prefix->raw_kind == PREFIX_RAW_INTEGER) {
 		return FeMakeInteger(context, prefix->value);
 	}
-	if (prefix->raw_kind == 3) {
+	if (prefix->raw_kind == PREFIX_RAW_MINUS) {
 		return FeMakeSymbol(context, "-");
 	}
-	item = FeMakeInteger(context, prefix->value);
+	item = FeMakeInteger(context, universal_raw_value(prefix));
 	return FeMakeList(context, &item, 1);
 }
 
@@ -189,8 +251,7 @@ int64_t lisp_prefix_number(FeContext *context, FeObject *object)
 	if (FeGetType(object) == FeTInteger) {
 		return FeToInteger(context, object);
 	}
-	if (FeGetType(object) == FeTSymbol
-	    && FeGetType(FeMakeSymbol(context, "-")) == FeTSymbol) {
+	if (FeGetType(object) == FeTSymbol) {
 		char text[8];
 		(void)FeToString(context, object, text, sizeof(text));
 		if (strcmp(text, "-") == 0) {
@@ -205,7 +266,9 @@ int64_t lisp_prefix_number(FeContext *context, FeObject *object)
 			return value;
 		}
 	}
-	FeHandleError(context, "wrong-type-argument prefix-numeric-value");
+	/* A real condition, not the words: `(condition-case e … )` naming
+	 * wrong-type-argument catches this, and the data names the value. */
+	lisp_raise_wrong_type(context, "prefix-numeric-value", object);
 }
 
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments)

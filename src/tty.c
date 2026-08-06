@@ -86,6 +86,12 @@ static const struct meta_key meta_keys[] = {
 	{ 'z', 'z', 0 },
 	{ 'p', 'p', 0 },
 	{ 'n', 'n', 0 },
+	/* M-- is Emacs' negative-argument.  Without this row ESC '-' fell
+	 * through to the multi-byte branch below and read a *second* byte --
+	 * the ESC of whatever key followed -- so `M-- M-x` swallowed the
+	 * M-x.  07D added M-- to the argument accumulator but nothing ever
+	 * produced the event for it to accumulate. */
+	{ '-', '-', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

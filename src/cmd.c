@@ -1709,19 +1709,48 @@ static command_id runtime_id_of(const char *name)
 
 /* The descriptor every Lisp-defined command gets until runtime descriptors
  * let a `defun` declare its own.  CMD_EDITS_BUFFER is the safe half of
- * the guess -- a Lisp body cannot be asked what it intends -- and the
- * missing CMD_LISP_CALLABLE keeps (command-execute ...) restricted to
- * built-ins, exactly as the allow-list it replaced did. */
+ * the guess -- a Lisp body cannot be asked what it intends -- and
+ * CMD_LISP_CALLABLE is what lets (command-execute ...) reach one, which
+ * 07D's nested-invocation path needs and the built-ins-only allow-list
+ * this table replaced did not allow. */
 static const struct named_cmd lisp_defined_command
     = { NULL, NULL, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE, NULL };
 
-static const struct command_context *active_context;
+/* The active command context, held as a *copy* in file-scope storage
+ * rather than as a pointer to cmd_invoke's caller's stack object.
+ *
+ * (command-execute ...) passes a `struct command_context` that lives on
+ * native_command's C frame, and a Lisp completion raised inside the
+ * command longjmps straight past cmd_invoke's restore below -- so the
+ * pointer that used to be stored here named a dead frame, and
+ * cmd_active_prefix() read it.  A copy cannot dangle, and
+ * cmd_scope_save()/cmd_scope_restore() below let the one caller that can
+ * be unwound past -- (command-execute ...) -- put it back through an Fe
+ * cleanup, so it does not go stale either. */
+static struct active_command active_context;
 static unsigned prompt_block_depth;
 static int active_prompt_fd = -1;
 
 const struct command_prefix *cmd_active_prefix(void)
 {
-	return active_context ? &active_context->prefix : NULL;
+	return active_context.present ? &active_context.prefix : NULL;
+}
+
+struct command_scope cmd_scope_save(void)
+{
+	struct command_scope scope;
+
+	scope.context = active_context;
+	scope.ambient = editor.current_prefix;
+	scope.prompt_fd = active_prompt_fd;
+	return scope;
+}
+
+void cmd_scope_restore(struct command_scope scope)
+{
+	active_context = scope.context;
+	editor.current_prefix = scope.ambient;
+	active_prompt_fd = scope.prompt_fd;
 }
 
 int cmd_prompt_fd(void)
@@ -1904,7 +1933,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	const struct named_cmd *cmd = cmd_lookup(name);
 	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
 	struct command_prefix saved;
-	const struct command_context *saved_context;
+	struct active_command saved_context;
 	int saved_prompt_fd;
 	command_id outer;
 	int repeat;
@@ -1929,7 +1958,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	saved = editor.current_prefix;
 	saved_context = active_context;
 	saved_prompt_fd = active_prompt_fd;
-	active_context = ctx;
+	active_context = (struct active_command) { ctx->prefix, true };
 	set_command_prompt_fd(name, ctx);
 	editor.current_prefix = ctx->prefix;
 	/* An explicit zero is a real count: C-u 0 C-f moves nowhere. */

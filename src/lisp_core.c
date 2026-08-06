@@ -609,6 +609,50 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	FeHandleError(context, text);
 }
 
+/* Raise Emacs' `(wrong-type-argument PREDICATE VALUE)` as a real condition.
+ *
+ * FeHandleError() always builds an `(error "text")` condition, so a host
+ * seam that merely *spells* a condition name in its message is prose in a
+ * structured-conditions tree: `(condition-case e … (wrong-type-argument
+ * …))` cannot catch it, and the offending value is nowhere.  Fe exposes no
+ * host entry point that constructs an arbitrary condition -- RaiseCondition
+ * is private to fe -- so this goes through the language's own `signal`,
+ * with the two-element data list Emacs and fe's own RaiseWrongType both
+ * use.  The message text is the bare condition name, again as fe's is.
+ *
+ * Both list allocations can collect, so `value` and each intermediate stay
+ * on the GC stack until the form is built.  The checkpoint is not restored:
+ * the evaluation below never returns. */
+[[noreturn]] void lisp_raise_wrong_type(
+    FeContext *context, const char *predicate, FeObject *value)
+{
+	FeObject *parts[2];
+	FeObject *data, *form;
+
+	FePushGC(context, value);
+	parts[0] = FeMakeSymbol(context, predicate);
+	parts[1] = value;
+	data = FeMakeList(context, parts, 2);
+	FePushGC(context, data);
+	parts[0] = FeMakeSymbol(context, "quote");
+	parts[1] = data;
+	data = FeMakeList(context, parts, 2);
+	FePushGC(context, data);
+	parts[0] = FeMakeSymbol(context, "quote");
+	parts[1] = FeMakeSymbol(context, "wrong-type-argument");
+	form = FeMakeList(context, parts, 2);
+	FePushGC(context, form);
+	parts[0] = form;
+	parts[1] = data;
+	form = FeMakeList(context, parts, 2);
+	FePushGC(context, form);
+	form = FeCons(context, FeMakeSymbol(context, "signal"), form);
+	(void)FeEvaluateWithOptions(context, form, &eval_options);
+	/* `signal` cannot return; say so for the compiler and for a future
+	 * fe in which it somehow could. */
+	FeHandleError(context, "wrong-type-argument");
+}
+
 static void prompt_unavailable(FeContext *context)
 {
 	if (cmd_prompt_fd() < 0 || kg_event_prompt_active()) {
@@ -952,15 +996,26 @@ static int interactive_form_args(
 	value_root = FeCreateRoot(context, value);
 	while (!FeIsNil(value)) {
 		if (FeGetType(value) != FeTPair) {
+			/* The improper tail is what is not a list, and the
+			 * condition names it: `(wrong-type-argument listp
+			 * VALUE)`, which is fe's own shape for the same
+			 * complaint and Emacs' too. */
+			FeObject *tail = value;
 			FeReleaseRoot(context, value_root);
-			FeHandleError(context, "wrong-type-argument listp");
+			lisp_raise_wrong_type(context, "listp", tail);
 		}
 		if (argc == LISP_INTERACTIVE_MAX_ARGS) {
 			FeReleaseRoot(context, value_root);
-			FeHandleError(
+			interactive_error(
 			    context, "too many interactive arguments");
 		}
-		args[argc++] = FeCar(context, value);
+		/* interactive_push_arg roots each element on the GC stack,
+		 * which is what has to outlive the root released below:
+		 * releasing the list's only root and *then* letting the
+		 * command call allocate left every constructed argument
+		 * collectable, which is 07D's "root every list element until
+		 * FeCallWithOptions has taken the vector". */
+		interactive_push_arg(context, args, &argc, FeCar(context, value));
 		value = FeCdr(context, value);
 	}
 	FeReleaseRoot(context, value_root);
@@ -1026,42 +1081,24 @@ static int lisp_command_arguments(
 	return 0;
 }
 
-int kg_lisp_run_command(const char *name, int fd)
+/* Bind the raw prefix, build the arguments and call: the half of a command
+ * activation that is identical whether the command was reached from a key
+ * or from a nested (command-execute ...).  Returns the command's value, or
+ * nullptr when the binding could not be allocated (which has already
+ * reported).  Every exit but that one leaves the binding either restored
+ * (top level) or registered as an Fe cleanup (nested). */
+static FeObject *lisp_command_activate(
+    struct lisp_command *cmd, int fd, int nested)
 {
-	char command_name[LISP_COMMAND_NAME_MAX];
-	struct lisp_command *cmd;
 	const struct command_prefix *prefix = cmd_active_prefix();
 	FeObject *args[LISP_INTERACTIVE_MAX_ARGS];
-	FeObject *prefix_object, *symbol, *form, *quoted;
+	FeObject *prefix_object, *symbol, *form, *quoted, *result;
 	FeObject *parts[2];
 	FeRoot *prefix_root, *old_root;
 	struct lisp_prefix_binding *binding;
-	int argc = 0;
-	int nested;
+	size_t checkpoint = FeSaveGC(state.context);
+	int argc;
 
-	(void)fd;
-	if (!state.initialized || name == nullptr) {
-		return 1;
-	}
-	cmd = find_lisp_command(name);
-	if (!cmd) {
-		return 1;
-	}
-	nested = state.frame_active;
-
-	/* The command may remove or redefine itself before raising, so keep a
-	 * stable copy of the registered name for the diagnostic below; a
-	 * stack copy needs no cleanup across the longjmp. */
-	memcpy(command_name, cmd->name, sizeof(command_name));
-
-	state.error[0] = '\0';
-	state.last_error_kind = KG_LISP_ERROR_NONE;
-	state.frame.gc_checkpoint = FeSaveGC(state.context);
-	state.frame_active = true;
-	if (setjmp(state.frame.error_jump) != 0) {
-		return lisp_command_recover(command_name);
-	}
-	lisp_exec_enter(state.context);
 	symbol = FeMakeSymbol(state.context, "current-prefix-arg");
 	parts[0] = FeMakeSymbol(state.context, "quote");
 	parts[1] = symbol;
@@ -1076,20 +1113,112 @@ int kg_lisp_run_command(const char *name, int fd)
 	binding
 	    = lisp_command_bind_prefix(symbol, old_root, prefix_root, nested);
 	if (binding == nullptr) {
+		return nullptr;
+	}
+	argc = lisp_command_arguments(cmd, fd, prefix_object, args);
+	if (nested) {
+		/* Transparent to the enclosing condition-case, the treatment
+		 * lisp_call_body() documents at length: a plain
+		 * FeCallWithOptions raises past the *enclosing* run's
+		 * barrier -- kg's own error_jump -- so a handler lexically
+		 * around (command-execute …) never saw the condition.  The
+		 * protected call returns it instead, and FeResignal puts it
+		 * back in flight in the enclosing run with kind, condition
+		 * object and message intact.  FeResignal's own cleanup drain
+		 * runs the prefix binding's restore exactly once. */
+		if (!FeTryCallWithOptions(state.context,
+			FeGetRoot(cmd->function_root), args, (size_t)argc,
+			&eval_options, &result)) {
+			FeResignal(state.context);
+		}
+		FeRestoreGC(state.context, checkpoint);
+		return result;
+	}
+	result = FeCallWithOptions(state.context, FeGetRoot(cmd->function_root),
+	    args, (size_t)argc, &eval_options);
+	/* The argument vector's GC-stack roots have done their job; drop them
+	 * here so a nested activation, which has no top-level frame restore
+	 * behind it, costs a constant number of slots however often it runs.
+	 * `result` survives because nothing below allocates -- the same rule
+	 * lisp_take_command_value() documents. */
+	FeRestoreGC(state.context, checkpoint);
+	if (!nested) {
+		cleanup_prefix_binding(state.context, binding);
+	}
+	return result;
+}
+
+int kg_lisp_run_command(const char *name, int fd)
+{
+	char command_name[LISP_COMMAND_NAME_MAX];
+	struct lisp_command *cmd;
+
+	if (!state.initialized || name == nullptr) {
+		return 1;
+	}
+	cmd = find_lisp_command(name);
+	if (!cmd) {
+		return 1;
+	}
+	if (state.frame_active) {
+		/* Nested (command-execute ...): an evaluator is already
+		 * running and owns state.frame.  07D says to "build and call
+		 * inside that evaluator", and that is the whole of the
+		 * nested path -- no second setjmp, no second
+		 * lisp_exec_enter/leave, no write to frame_active.
+		 *
+		 * Installing one anyway is what the review found: the
+		 * activation overwrote the single state.frame's checkpoint
+		 * and error_jump, then on return set frame_active = false
+		 * and called lisp_exec_leave(1) while the outer command was
+		 * still running.  The outer command's next buffer operation
+		 * then found no execution context and raised "current buffer
+		 * is dead", which the error callback turns into abort()
+		 * because no frame is armed to catch it.
+		 *
+		 * A completion raised in here propagates to the enclosing
+		 * run, so a surrounding condition-case sees it, exactly as
+		 * 07D requires. */
+		state.command_value = lisp_command_activate(cmd, fd, 1);
+		return 0;
+	}
+
+	/* The command may remove or redefine itself before raising, so keep a
+	 * stable copy of the registered name for the diagnostic below; a
+	 * stack copy needs no cleanup across the longjmp. */
+	memcpy(command_name, cmd->name, sizeof(command_name));
+
+	state.error[0] = '\0';
+	state.last_error_kind = KG_LISP_ERROR_NONE;
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		return lisp_command_recover(command_name);
+	}
+	lisp_exec_enter(state.context);
+	if (lisp_command_activate(cmd, fd, 0) == nullptr) {
 		state.frame_active = false;
 		lisp_exec_leave(0);
 		return 0;
-	}
-	argc = lisp_command_arguments(cmd, fd, prefix_object, args);
-	(void)FeCallWithOptions(state.context, FeGetRoot(cmd->function_root),
-	    args, (size_t)argc, &eval_options);
-	if (!nested) {
-		cleanup_prefix_binding(state.context, binding);
 	}
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	lisp_exec_leave(1);
 	return 0;
+}
+
+/* The value the most recent command activation produced, cleared by the
+ * read.  A bare pointer rather than an FeRoot on purpose: creating a root
+ * conses, and the *point* of this slot is that nothing allocates between
+ * FeCallWithOptions returning in lisp_command_activate() and
+ * native_command handing the value back to the evaluator.  Anything that
+ * wants to hold it past that must root it itself. */
+FeObject *lisp_take_command_value(FeContext *context)
+{
+	FeObject *value = state.command_value;
+
+	state.command_value = nullptr;
+	return value != nullptr ? value : FeNil(context);
 }
 
 int kg_lisp_command_exists(const char *name)

@@ -3,29 +3,28 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this Phase 6
-set was written against the tree as it stands after Phase 5 closed
-milestone 1 and its post-close review fixes landed (2026-08-05).  Read
-the parent's §0 (verified baseline), §0.1 (the two complexity ratchets),
-§0.3 (scope honesty) and §0.4 (no legacy constituency) before any of
-these; they are the facts these documents assume.  Where the parent's
-Phase 6 section and `fe/doc/unwind-design.md` name stale or wrong facts
-— the design doc's "Emacs discards" claim about a raising cleanup that
-the measured oracle contradicts, the completion enum that already exists
-three-fifths dead, the checkpointed cleanup drain that already exists,
-and the two named conditions with zero producers — 06A's corrections
-control.
+implementation-audited against the tree it starts from, and this Phase 7
+set was written against the tree as it stands after Phase 6 closed and
+its acceptance-review fixes landed (2026-08-06).  Read the parent's §0
+(verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
+honesty) and §0.4 (no legacy constituency) before any of these; they
+are the facts these documents assume.  Where the parent's Phase 7
+section names a stale or wrong fact — above all its ordering premise,
+that strict arity cannot be enabled before interactive arguments land,
+which the audit *measured* to be false on today's corpus — 07A's
+corrections control.
 
-Measured on the audited tree, 2026-08-05 (post-review), and re-measured
-rather than carried forward per Rule 6: kg **5461/5500** scc, **32
-native / 406 PTY** (**337 pass + 69 skip** under `WITH_LISP=0`), **69**
-PTY cases gated on `requires_feature: lisp`; fe — after the post-close
-review fixes, which came in scc-negative — **533/540** scc with `fe.c`
-at **96** and `fe_eval.c` at **326/340**, pmccabe **751/760 across 263
-symbols** (worst function `RunEvaluationLoop` at 14), and
-`FeMinimumArenaSize()` **56304 bytes**, kg's 1 MiB arena partitioning
-to **1097 frames / 56225 object slots**.  06A re-measures at its start,
-as every A-slice does.
+Measured on the audited tree, 2026-08-06 (post-review, at the Phase 6
+close), and re-measured rather than carried forward per Rule 6: kg
+**5489/5500** scc — eleven points of headroom, the tightest this
+program has been — **32 native / 408 PTY** (**337 pass + 71 skip**
+under `WITH_LISP=0`), **71** PTY cases gated on
+`requires_feature: lisp`; fe **654/680** scc with `fe.c` at **97** and
+`fe_eval.c` at **440/460**, pmccabe **863/900 across 292 symbols**
+(worst function `DispatchPrimitive` at 15), and `FeMinimumArenaSize()`
+**56856 bytes**, kg's 1 MiB arena partitioning to **1097 frames /
+56225 object slots**.  07A re-measures at its start, as every A-slice
+does.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -81,95 +80,105 @@ triggered the price table's own obligation: the provisional milestone-2
 rows (Phases 6–9) are re-priced below against real post-milestone-1
 measurements.
 
-**This set — Phase 6, structured errors and non-local exits — is next.**
-Its five documents (`06a`–`06e`) are in this directory; the Grouping and
-Sequencing sections below describe them, and `06a` leads as every
-A-slice has.
+**The sixth set — Phase 6, structured errors and non-local exits — is
+complete (2026-08-06).**  Its five documents (`06a`–`06e`) were removed
+once the workstream was accepted; the Phase 6 Status section below is
+the surviving record, including the acceptance review that this time
+ran *before* the close and sent both repositories back for fixes.  What
+that set changed is the ground this one stands on: errors are condition
+objects behind byte-identical messages, `catch`/`throw`/
+`condition-case`/`signal`/`error`/`ignore-errors` are real,
+quit/error/budget are distinct completions classified at every kg
+recovery seam (`C-g` reports `Quit`), a native that re-enters
+evaluation contains or re-signals through `FeTryCallWithOptions`/
+`FeResignal` instead of a host `setjmp` that could not work,
+`save-excursion`/`with-current-buffer` are transparent to
+`condition-case`, and `FE_API_VERSION`/`FE_LANGUAGE_VERSION` are 5.
 
-The through-line is that Phase 6 is a *control-flow* phase built on
-machinery that mostly already exists, aimed at semantics the oracle has
-already answered.  Four facts, established by auditing this tree, shape
-the slices:
+**This set — Phase 7, strict arity and interactive command arguments —
+is next.**  Its five documents (`07a`–`07e`) are in this directory; the
+Grouping and Sequencing sections below describe them, and `07a` leads
+as every A-slice has.
 
-- **The substrate is half-built and documented as such.**
-  `FeCompletion` exists with five kinds, three never assigned; the
-  checkpointed cleanup drain (`RunCleanupsDownTo`) exists beside the
-  drain-to-zero one; `unwind-protect` ships on a LIFO registry whose
-  design doc (`fe/doc/unwind-design.md`) names, in order, exactly the
-  work this phase does — completion kinds to the host, then
-  `catch`/`throw` with drain-to-checkpoint, then `condition-case`.  The
-  phase extends that design; it re-derives nothing.  One correction
-  controls: the design doc's claim that Emacs discards a raising
-  cleanup's error is **false** (measured: the new error replaces the
-  in-flight one), and 06A's Decision 4 settles the policy against the
-  real oracle.
-- **The message text is load-bearing and must not move.**  30 fe
-  goldens, 109 kg test string assertions, and 8 PTY screen assertions
-  pin today's error prose; the audit counted **285 kg-side sites** that
-  touch error text one way or another.  So conditions land *behind* the
-  existing rendering — a condition object whose printed message is
-  byte-identical to today's — and the phase's expectation discipline is
-  Phase 4's again: **additions only**, no existing expectation edits.
-- **Errors are already half-classified.**  27 fe raise sites spell an
-  Emacs condition name at the head of their message (Phases 4–5 put
-  them there deliberately); 70 are bare prose, which is Emacs' own
-  `(error "text")` shape; kg's 112 raise sites are all prose and stay
-  that way (06A Decision 2 records the deferral).  The condition
-  hierarchy the parent asks for is static, small, and measured: every
-  chain Phase 6 needs is depth ≤ 2, and `quit` is not under `error`.
-- **The fe gates are spent**: 7 scc, 14 file and 9 pmccabe points of
-  headroom (post-review-fix; the review round came in negative) against
-  a row re-priced **+80 to +120**, so the funding Decision comes first,
-  for the fifth time — and it must name all three caps, including the
-  scc total the price table's own instruction forgot.
+The through-line is that Phase 7 makes ordinary invocation mean what it
+says — an argument list is a contract, not a suggestion — and then
+makes the editor able to *supply* arguments to commands.  Four facts,
+established by auditing this tree (the full A–H audit is condensed into
+07A), shape the slices:
 
-So the set front-loads one oracle-and-decision slice (06A: the measured
-answer table, five Decisions, the funded raise, the design-doc
-reconciliation), makes the dormant completion kinds true and
-host-readable (06B), builds the mid-stack unwind — `catch`/`throw` —
-that no shipped path has ever needed (06C), cuts errors over to
-condition objects with `signal`/`error`/`condition-case` in one fe-only
-slice (06D), and lands kg's pin, the quit/error/budget classification
-at every recovery seam, `ignore-errors`, the new manifest category and
-the documents in one atomic commit that closes the phase (06E).
+- **Strict arity is already landable.**  The parent says interactive
+  arguments must come first; the audit patched
+  `FeSetStrictArity(true)` into `kg_lisp_init` and measured 406/406
+  PTY and every native suite green, because every Lisp-defined command
+  in the corpus takes zero required parameters.  The constraint is
+  forward-compatibility only, so the cheap sequence is fe-first with a
+  no-adaptation pin (07A Decision 1), and the parent's premise is
+  corrected in writing.
+- **The binder is one function and it is half-strict already.**
+  `ArgsToEnv` handles `&optional`/`&rest` correctly today (measured:
+  binding, nil-fill and per-call rest freshness all match Emacs); what
+  the flag gates is only the too-few/too-many raises, and the two Fe
+  rest spellings (bare symbol, dotted tail) are deliberately variadic
+  and stay.  The real spread is in the *primitives*: a census found
+  the unary/binary resume families silently ignoring extras, `(if)`
+  answering nil, and `(and)` answering nil where Emacs answers `t` —
+  a wrong answer, not a missing check.
+- **Interactive is a strip today.**  kg's prelude `defun` discards the
+  `(interactive …)` spec; commands are invoked with a hard-wired zero
+  arguments; the registry stores a name and a root and nothing else;
+  `C-u` exists in C but collapses to a plain integer before dispatch
+  and never reaches Lisp; and none of the 78 natives can prompt.  The
+  corpus contains not one spec string — the whole feature is
+  greenfield, which is why it is two slices (07D metadata and
+  non-prompting codes, 07E the minibuffer seam).
+- **kg's gate is nearly spent**: 11 scc points of headroom against a
+  half that adds a metadata struct, a spec parser, an argument builder
+  and prompting natives.  The funding Decision comes first, for the
+  sixth time — kg's first raise of this program (5500 → 5660), priced
+  and proved live in 07A.
+
+So the set front-loads one oracle-and-decision slice (07A: the measured
+arity/interactive answer table, the six Decisions, the two-repository
+funding), cuts fe over to unconditional strict arity with
+`wrong-number-of-arguments` condition objects and the primitive-census
+fixes (07B), lands the pin as an atomic no-adaptation kg commit that
+proves the corpus green under strictness (07C), builds the interactive
+metadata and delivers `p`/`P`/`r`/FORM arguments (07D), and opens the
+first Lisp→minibuffer seam for the prompting letters, closing the phase
+(07E).
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [06A](06a-pin-the-completion-target-and-fund-the-phase.md) | 6 | The completion/condition oracle corpus (28 load-bearing rows measured in advance), five Decisions — the condition object and static hierarchy, the fate of every raise site, condition-case scope, the cleanup-raise policy, the host API and structured compat channel — the funded three-cap raise, and the `unwind-design.md` reconciliation | none — **this is first** |
-| [06B](06b-completion-kinds-reach-the-host.md) | 6 | `FeCompletionQuit`/`Budget` become true at their producers and host-readable through additive accessors; no Lisp-observable change, every golden byte-identical | 06A |
-| [06C](06c-catch-and-throw.md) | 6 | The mid-stack unwind: a checkpoint-carrying catch frame, `eq` tag matching, drain-to-checkpoint on the throw path, `no-catch` at message level, the native-reentry containment rule as a recorded divergence | 06B |
-| [06D](06d-conditions-signal-and-condition-case.md) | 6 | The cut: condition objects behind byte-identical messages, the static hierarchy, `signal`/`error` as evaluate-then-raise forms, `condition-case` reusing the catch machinery, the structured compat channel, the cleanup-raise policy, `FE_LANGUAGE_VERSION` 5 and `FE_API_VERSION` 5 — **no kg pin move** | 06C |
-| [06E](06e-the-kg-cutover.md) | 6 | The pin plus every kg adaptation in one atomic commit: quit/error/budget classified at all six recovery seams, kg's own quit producer converted, `ignore-errors` in the prelude, the new `errors-and-non-local-exits` manifest category, additions-only expectations, docs; closes the phase | 06D |
+| [07A](07a-pin-the-arity-target-and-fund-the-phase.md) | 7 | The measured arity/interactive oracle corpus (lambda arity and the `(FUNCTION NARGS)` condition object, lambda-list shapes, the variadic/primitive contracts, the interactive letter semantics), six Decisions — ordering, the condition and its data, malformed lambda lists, primitive arity, the API break and versions, the interactive scope split — and the two-repository funding, including kg's first cap raise | none — **this is first** |
+| [07B](07b-strict-arity-in-fe.md) | 7 | Unconditional strict arity in `ArgsToEnv` with `wrong-number-of-arguments` condition objects; the primitive census closed (silent extras, `(if)`, `(and)` → `t`, `signal` 1–2); `invalid-function` for the malformed lists; `FeSetStrictArity`/`-a`/third pass removed; `scripts/arity.fe`; API/LANGUAGE 6, `FeVersion "7.0"`; fuzz lambda-list builders | 07A |
+| [07C](07c-the-strict-pin.md) | 7 | The pin as one atomic kg commit needing **no runtime adaptation and no expectation edit** — Decision 1's measured bet, proved by the suites passing unedited; version asserts 6/6; new strictness tests; docs stop calling strict arity blocked | 07B |
+| [07D](07d-interactive-metadata-and-arguments.md) | 7 | kg-only: the spec survives `defun`, `define-command` grows a third argument, the registry roots the spec, the argument builder delivers the no-arg spec, `p`, `P`, `r` and `(interactive FORM)`; the raw prefix reaches Lisp; Lisp commands become `command-execute`-able | 07C |
+| [07E](07e-prompting-codes-and-the-phase-close.md) | 7 | kg-only: the first Lisp→minibuffer seam — `n`/`N`, `s`, `f`/`F`, `b`/`B` with cancel-is-quit and overflow-is-error contracts; closes the phase | 07D |
 
-**06A is genuinely first, for the same structural reason 00A through 05A
-were.**  Phase 6's semantics are dozens of independent oracle questions
+**07A is genuinely first, for the same structural reason 00A through 06A
+were.**  Phase 7's semantics are dozens of independent oracle questions
 (all measured during the audit — the snapshots confirm rather than
-discover), its cleanup-raise policy contradicts the design doc's belief
-about the oracle, its five new names are a manifest-ownership question,
-and its complexity cost exceeds the fe gates' headroom by an order of
-magnitude.  All of it must exist before any implementation slice.
+discover), its ordering premise contradicts the parent plan's text, its
+condition data shape is a decision with a comparator consequence, and
+kg's complexity cost exceeds the gate's 11-point headroom several times
+over.  All of it must exist before any implementation slice.
 
-**06B is small and lands alone on purpose**, like 03B/04B/05B: the
-parent's own "Order of work" item 1, independent and additive — but not
-free of design, because assigning the dead completion kinds silently
-widens the `CleanupFrameReserve` gate to them, which 06B must turn from
-an accident into an asserted behaviour.
+**07B and 07C are the two halves of one Rule-10 delivery** — but unlike
+06D/06E, the kg half is *designed to be empty*: the pin plus the version
+asserts plus new tests, with the suites' unedited pass as the evidence
+Decision 1's measurement still holds.  If 07C needs a runtime
+adaptation, that is a finding about the corpus, not a patch to make.
 
-**06C is the phase's genuinely new machinery.**  Every unwind today
-runs to the host; a catch that stops partway is the first mid-stack
-resume, and its checkpoint set is derived from the three existing
-restore sites rather than invented.  The native-reentry boundary stays
-a wall (C activations cannot be popped by assignment — the 03F census
-lesson), recorded as an honest divergence with a containment test.
+**07D is the phase's genuinely new kg machinery** — the first time a
+`(defun … (interactive "p") …)` means what it means in Emacs.  It is
+deliberately the non-prompting half: every letter it implements can be
+tested through the existing PTY harness without new UI seams.
 
-**06D and 06E are the two halves of one Rule-10 delivery**, exactly as
-04D/04E and 05D/05E were.  06D cuts fe over and closes the fe
-workstream with the full nine-stage runner; it deliberately does not
-move kg's pin — the version asserts fire, and kg's seams have not yet
-learned to classify completions.  06E is that pin, with every kg
-adaptation in the same green commit.
+**07E opens the minibuffer seam last**, when the metadata, prefix model
+and argument builder it depends on are already proven, and carries the
+phase close.
 
 ## Handoff contract
 
@@ -181,16 +190,16 @@ section then records what each slice actually delivered.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 06A | fe compat manifest/cases/snapshots, fe Makefile caps, `unwind-design.md`, Decision docs | fresh snapshots confirming the measured answer table, the funded three-cap raise proved live, the design doc corrected against the real oracle | no implementation, no status flips, no kg edits |
-| 06B | fe completion assignments, additive host accessors, `TestCompletionKinds` | byte-identical goldens and message strings, `TestEvaluationControl` unedited, the frame-reserve coupling asserted, `example_host.c` recompiling unedited | no condition objects, no catch/throw, no `FeErrorFn` change |
-| 06C | fe catch frame kind, the throw unwind, two new primitives, fuzz builders | forced-GC across the unwind, the 28 step pins unedited, the containment divergence tested and recorded, tight-`max_frames` throw | no condition objects, no condition-case, no cross-boundary throw |
-| 06D | fe condition objects/hierarchy/`signal`/`error`/`condition-case`, the structured compat channel, cleanup-raise policy, versions | byte-identical messages at every existing site, the parent's five-kinds gate matrix, `condition_source` upgrades, full nine-stage fe runner | no kg pin, no kg source, no `:success`/`handler-bind`, no residue |
-| 06E | kg pin, the six recovery seams, `lisp_search`'s quit producer, `ignore-errors`, the new manifest category, docs | additions-only expectations (every existing case unedited), `lisp-compat-check`/`lisp-prelude-check` green, full parallel runner | no signature change to `kg_lisp_eval_string`, no prose-site reclassification, no new kg natives |
+| 07A | fe compat manifest/cases/snapshots, both Makefiles' caps, Decision docs, parent §11 correction | fresh snapshots confirming the measured answer table (landing as known gaps), both funded raises proved live, the ordering premise corrected in writing | no implementation, no status flips, no pin |
+| 07B | fe `ArgsToEnv`, the resume families' arity checks, `FeGetNextArgument`/`FeRequireNoArguments` conditions, `main.c`/`test.sh`, versions, fuzz | message prose byte-identical while condition symbols move, `scripts/arity.fe` + goldens replacing the third pass, full nine-stage fe runner | no kg pin, no kg source, no interactive work |
+| 07C | kg pin, version asserts, new strictness tests, `fe-upstream.md` rows, docs | **every existing expectation unedited** — the suites' green pass is the slice's central evidence | no runtime adaptation, no prelude change, no interactive work |
+| 07D | kg prelude `defun`/`define-command`, the command registry, the argument builder, prefix plumbing, `p`/`P`/`r`/FORM | I-row semantics pinned native- and PTY-side, `lisp-prelude-check` in step, the manifest's `prelude-interactive` placeholder replaced | no prompting letters, no `CMD_REPEATS`, no new fe surface |
+| 07E | kg minibuffer seam, `n`/`N`/`s`/`f`/`F`/`b`/`B`, `editor_read_line_path`'s result contract, docs | cancel-is-quit and overflow-is-error pinned, prompting refused outside command context, full parallel runner; closes the phase | no completion UI, no `read-string` family unless the row holds, no new fe surface |
 
 For all rows, current suite counts are a starting census, not literals to
 assert.  Run focused tests while iterating; the full Fe runner closes the
-Fe workstream at 06D, and kg's full parallel runner closes Phase 6 at
-06E.
+Fe workstream at 07B, and kg's full parallel runner closes Phase 7 at
+07E.
 
 ## Compatibility direction
 
@@ -204,86 +213,84 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 6 this cuts one specific way.  There is no message-only error
-mode, no flag restoring the old cleanup-raise policy, and no release in
-which fe signals condition objects against a kg that cannot classify
-completions — the cut and the kg seams move as 06D + 06E, one Rule-10
-pair.  Where fe cannot or should not match Emacs, the divergence is
-*recorded*, not papered over: a throw does not cross the native
-re-entry boundary (C activations are live; containment is the honest
-behaviour, tested), budget exhaustion is catchable by nothing (Emacs
-has no budget concept), `:success` handlers and `handler-bind` are
-deferred with their measured Emacs answers on file, and the condition
-hierarchy is static C data rather than symbol properties.  Version
-numbers move once, at the cut — kg's
-`static_assert(FE_API_VERSION == 4)` firing at the 06E pin is the
-designed tripwire, as it was in 03F, 04D and 05D.
+For Phase 7 this cuts one specific way.  There is no lax-arity mode, no
+deprecated `FeSetStrictArity` no-op, no surviving `-a` flag, and no
+release in which fe is strict against a kg whose corpus has not been
+proven arity-correct — the cut and the pin move as 07B + 07C, one
+Rule-10 pair whose kg half is deliberately empty.  Where fe cannot or
+should not match Emacs, the divergence is *recorded*, not papered over:
+the two Fe rest spellings stay legal and arity-exempt, fe stays
+stricter than Emacs on garbage lambda lists Emacs merely tolerates,
+`print` keeps its Fe contract, kg's `after-change-functions` keeps its
+four-argument shape with a first-class divergence row, and the
+`(FUNCTION NARGS)` data's FUNCTION rendering differs from Emacs'
+`#[…]` form.  Version numbers move once, at the cut — kg's
+`static_assert(FE_API_VERSION == 5)` firing at the 07C pin is the
+designed tripwire, as it was in 03F, 04D, 05D and 06D.
 
 ## Sequencing
 
 ```text
-06A  pin the target and fund ──> 06B  completion kinds reach the host (pin moves)
-                                      │
-                                      v
-                                 06C  catch and throw, mid-stack unwind (pin moves)
-                                      │
-                                      v
-                                 06D  conditions + signal + condition-case, fe-only
+07A  pin the target and fund ──> 07B  strict arity in fe, fe-only
                                       ── fe workstream closes, NO pin
                                       │
                                       v
-                                 06E  the kg cutover ── pin + seams + prelude + docs,
-                                      one commit; closes the phase
+                                 07C  the strict pin ── one kg commit,
+                                      designed to need no adaptation
+                                      │
+                                      v
+                                 07D  interactive metadata + p/P/r/FORM,
+                                      kg-only, no pin
+                                      │
+                                      v
+                                 07E  the prompting letters, kg-only,
+                                      no pin; closes the phase
 ```
 
-Strictly linear, and nothing runs in parallel with it: every slice edits
-either the completion machinery or the things that read it.  Every arrow
-is a real dependency: 06B assigns the kinds 06A's Decisions shaped, 06C
-unwinds on the completion 06B made true, 06D's handlers reuse the
-mid-stack machinery 06C built, and 06E adapts kg to the contract 06D
-versioned.
+Strictly linear, and nothing runs in parallel with it: 07B and 07D
+both rewrite invocation, one per repository, and 07E extends 07D's
+builder.  Every arrow is a real dependency: 07B implements the
+contract 07A's cases pinned, 07C proves the corpus against 07B's
+strictness, 07D builds arguments for the calls 07C made strict, and
+07E prompts for the arguments 07D could not construct silently.
 
-The pin discipline is the Phase 4/5 shape verbatim: 06B and 06C move
-kg's pin in their own trivial green commits (06C's carries `catch` and
-`throw` through `lisp-compat-check` and the moved minimum-arena
-figure), 06D moves nothing, and 06E is the pin.
+The pin discipline differs from Phase 4/5/6 deliberately: exactly one
+pin move in the whole set (07C), because the fe half is one slice and
+the kg half is greenfield kg machinery with no fe dependency.
 
 ## What this set deliberately does not do
 
-- **No `:success` handlers, no `handler-bind`, no
-  `signal-hook-function`, no debugger.**  Each is a recorded exclusion
-  with its measured Emacs answer; nothing in kg's target init-file
-  corpus needs them, and the first package that does is Phase 8's
-  evidence.
-- **No Lisp-visible `error-conditions`/`get`.**  The hierarchy is
-  static C data; general symbol properties are a later phase's question
-  if any corpus ever needs them.
-- **No re-classification of kg's 112 prose raise sites.**  They raise
-  `(error "text")`-shaped conditions, which is Emacs' own shape for
-  prose errors; classifying the funnel sites (`wrong-type-argument`
-  from `lisp_finite`, `args-out-of-range` from the string indexes) is
-  recorded follow-up work, not this phase's.
-- **No throw across the native re-entry boundary.**  Contained, tested,
-  recorded as a divergence — the C activations between a nested run and
-  an outer catch are live, and pretending otherwise is the class of bug
-  03F exists to prevent.
-- **No token/cancel cleanup registry, no Fex migration to it**
-  (`unwind-design.md` item 2).  It is Fex's resource problem, not this
-  phase's control-flow problem; Phase 9's robustness scope is its
-  natural home and the design doc now points there.
-- **No `kg_lisp_eval_string` signature change.**  The completion kind
-  is internal state kg's seams read; a structured embedder API is
-  Phase 9's observability work if anything's.
-- **No strict arity, no interactive arguments.**  Phase 7.  `throw`'s
-  exact-2 arity and `signal`'s 1-or-2 are pinned by oracle cases, but
-  lambda arity stays lax.
-- **No compatibility residue.**  No message-only mode, no old
-  cleanup-raise flag (§0.4).  Version numbers still move because they
+- **No `func-arity`, no `interactive-form` reflection, no
+  keyboard-macro strings as commands.**  Recorded exclusions with
+  their measured Emacs answers; the first init file that needs one is
+  Phase 8's evidence.
+- **No `max`/`min` primitives.**  Their Emacs arity is measured and on
+  file, but nothing produces them; adding primitives is not this
+  phase's job.
+- **No interactive letters beyond the ten in scope** (`p P r n N s
+  f F b B` plus the nil spec and FORM).  `d m S x X M @ ^ *` and the
+  rest are valid Emacs letters recorded as deferred, and an unknown
+  letter fails naming itself.
+- **No completion UI, no history rings, no `completing-read`, no
+  `y-or-n-p`.**  07E's seam is a prompt, not a UI framework.
+- **No `CMD_REPEATS` for Lisp commands.**  A prefix reaches an
+  interactive command as its argument, per Emacs — never as a
+  repetition count; the divergence from kg built-ins is documented.
+- **No `after-change-functions` signature change.**  kg's
+  four-argument buffer-first shape stays, as a first-class divergence
+  row; Emacs' three-argument shape is Phase 8's question.
+- **No re-classification of kg's 112 prose raise sites** — still
+  Phase 6's recorded deferral; 07B reclassifies only the two shared
+  argument-walking helpers, keeping their prose byte-identical.
+- **No compatibility residue.**  No lax-arity mode, no `-a` flag, no
+  deprecated no-ops (§0.4).  Version numbers still move because they
   make the Fe↔kg contract checkable.
-- **No re-litigation of recorded Phase 4/5 residue.**  `FeTMacro`,
-  `internal--let`, int64-not-bignum, `is`'s tolerant comparator, and
-  the `double`-vs-`float` type-of spelling all stand as their Status
-  sections record them.
+- **No re-litigation of recorded Phase 4/5/6 residue.**  `FeTMacro`,
+  `internal--let`, int64-not-bignum, `is`'s tolerant comparator, the
+  `double`-vs-`float` type-of spelling, the native re-entry walls and
+  the two divergent kg manifest rows (`catch-throw-reachability`,
+  `condition-case-native-errors`) all stand as their Status sections
+  record them.
 
 ## Rules
 
@@ -306,7 +313,8 @@ Two additions specific to this program:
 
 - **Run both complexity commands, in both trees.**  `make
   complexity-check` and `make pmccabe-check` measure different things;
-  sub-plan 07B was caught by the second after passing the first.  Fe has
+  the follow-up program's sub-plan 07B (not this set's) was caught by
+  the second after passing the first.  Fe has
   its own pair, and a cap can sit silently red for a whole plan.  Run them
   at the *start* of a slice as well as the end.
 - **Every phase touches `doc/fe-upstream.md`'s divergence table.**  That
@@ -376,7 +384,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 4 — Lisp-2 | Symbol value/function cell accessors, function-position lookup, `function`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias`, `#'` reader change | ~10 small new functions at 3–6 pmccabe each | **+40 to +60** | **Landed inside the +60 funded raise** (04A: scc 420→480, file 240→300, pmccabe 630→690).  Phase actual: scc 391→441, pmccabe 601→643.  The post-close review fixes (see the Phase 4 Status addendum) spent a further +18 scc / +17 pmccabe of the same funding on defect repair: measured close is **459/480 and 660/690** |
 | 5 — integers | `FeTInteger` in the existing `Value` union, an Emacs number lexer replacing `strtod`, shortest-round-trip float printing, either-type `ResumeArith`/chained comparators, `>`/`>=`/`/=`/`integerp`/`floatp`/`eq`/`eql`, per-function math-native return types | The tower arms extend `ResumeArith`/`ResumeBinary`/the `=` arm in place (the `ARITH_OP`/`NUM_CMP_OP` macros this row originally named died with 03E) | **+50 to +70** | **Landed, and over its funding at the top of the raise.** Funded by 05A's Decision (scc 480→540, file 300→340, pmccabe 690→760).  Actuals across 05B–05D: scc 459→**538**, `fe_eval.c` 276→**330**, pmccabe 660→**752** (+79/+92 — scc went 19 points past the funded amount, pmccabe 22 past, and the caps now sit at **2/10/8 points from full**).  Per slice: 05B +1/+3 (the "nearly free" prediction held), 05C the tower's bulk +70/+58, 05D +8/+31.  The row's mid was a floor, not an estimate.  **kg needs no raise**: 5457/5500 at 05E close (+7), pmccabe +1 on each of `format_integer`, `format_float`, `native_numberp` — banked into the baseline in 05E's commit |
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Funded by 06A's Decision** (2026-08-05) — **cannot land before it**, and no longer before anything: the core was at 2 scc / 8 pmccabe / 10 file-cap points free, and 06A raised all three caps by the top of the row — `SCC_COMPLEXITY_MAX` 540→**680** (the tightest, at 2 points, which the price table's own instruction forgot to name), `SCC_FILE_COMPLEXITY_MAX` 340→**420**, `PMCCABE_TOTAL_MAX` 760→**900** — proved live by temporary lowering on 06A's tree. The measured starting state the raise is anchored to is 533/540, `fe_eval.c` 326/340, pmccabe 751/760; the 06B–06D actuals are recorded per slice in the Status section as they land |
-| 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms (the arithmetic cost rate) | **+30 to +45** (re-priced 2026-08-05) | Provisional (milestone 2) — like 6, needs the cap raise 06A (or its own 07A) must make; the lower end still exceeds today's headroom |
+| 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Sub-plan set written 2026-08-06** (`07a`–`07e`); 07A's Decision funds it — fe's three caps move 680 → 760 / 460 → 520 / 900 → 980, and kg gets its **first** raise of this program, `SCC_COMPLEXITY_MAX` 5500 → 5660 against a measured 5489 floor. Actuals go to the Status section per slice |
 | 8 — init compat waves | `let`/`let*`/`progn`/`prog1`/`cond`/`while`/`and`/`or`/`defvar`/`defconst`/keyword self-eval move from Lisp prelude into core; Wave C reader additions | Phase 4's *measured* +59 pmccabe for nine primitives plus a namespace cut, against ~8 core special forms plus reader work | **+50 to +80** (re-priced 2026-08-05) | Provisional (milestone 2) — Wave A alone is the size of Phase 4; the row's old top was a floor. Needs the 06A/08A raise before it |
 | 9 — robustness | Arena-stat API extension, iterative/pointer-reversal GC marking (replaces recursive mark), resource-exhaustion coverage | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase | **+30 to +50** (re-priced 2026-08-05) | Provisional (milestone 2) |
 | 10 — proofs | `.fe`/`.el` proof packages and fixtures | Not C; not scc-scanned | 0 | n/a |
@@ -2440,7 +2448,7 @@ oracle case, because two of the four semantic defects lived in
 comments confidently asserting the opposite of a measurement no one
 had made.**
 
-## Status — Phase 6 (06A)
+## Status — Phase 6
 
 **06A complete, 2026-08-05.**  The completion target is pinned and the
 phase is funded; no behaviour changed.  The audit's answer table landed as
@@ -2465,3 +2473,134 @@ the new caps, `format-check` and `compat` are all green.  The existing
 `errors-and-non-local-exits` rows stay as they are (`signal-and-quit`
 `planned` until 06D, `void-function-error`'s message-source note the thing
 06D upgrades).  Sub-plan 06B may start.
+
+**06B complete, 2026-08-05** (fe `229192e`, kg pin `539f19f`).
+`FeCompletion` is public, `FeGetCompletion`/`FeGetCondition` are the
+additive accessors, Quit/Budget are assigned at their producers (the
+interrupt path and the three walls), the `CleanupFrameReserve`
+coupling is asserted, and `TestCompletionKinds` runs.  Every golden
+and message string byte-identical.  Cost: **+0 scc / +3 pmccabe** —
+the "nearly free" prediction held.
+
+**06C complete, 2026-08-05** (fe `0c0f8a0`, kg pin `b726bd4`).
+`FeFrameCatch` carries the checkpoints, `PerformThrow` walks the
+run's frames under the `run_base` wall, tags compare by `eq` per the
+CT rows, `no-catch` raises through the error path,
+`scripts/catch-throw.fe` and the fuzz builders exist, and the
+containment divergence is recorded in `doc/fe-upstream.md`.  Cost:
+**+12 scc / +13 pmccabe**.
+
+**06D complete, 2026-08-05/06** (fe `c88ca0c` + `ae55024`).  The cut
+itself: condition objects at raise time, the static hierarchy,
+`signal`/`error`/`condition-case`, the cleanup-raise replacement
+policy, the structured compat channel (`FE_STRUCTURED_ERRORS`),
+`planned-quit-signal` flipped, versions API 5 / LANGUAGE 5 /
+`FeVersion "6.0"`.  Message text byte-identical at every
+pre-existing site.  Cost: **+89 scc / +74 pmccabe**, `fe_eval.c`
+338 → 420 — landing exactly on its cap with zero headroom, which the
+acceptance review then billed (below).  **What this slice shipped
+short**, found by the review: no `condition-case` tests in
+`test_api.c` at all (the parent's 5×3 gate matrix and the named
+hook-shaped re-entry case included), the U-row compat cases
+unrunnable as written, `(quit …)` handlers not actually catching a
+real C-g, a caught condition disarming the evaluation-control record,
+and Decision 4's cleanup-`throw` half unimplemented.
+
+**06E complete, 2026-08-06** (kg `e0d874a`, pinning fe `1d96a58` after
+the review-fix range).  The cutover in one atomic green commit:
+quit/error/budget classified at every recovery seam (`C-g` shows
+`Quit`; budget keeps its message; errors keep their formats),
+`lisp_search`'s two hand-rolled quit producers converted to
+`FeRaiseCompletion`, `ignore-errors` in the prelude (52 → 53, both
+spelling parsers in step), the `errors-and-non-local-exits` manifest
+category with its two honest `divergent` rows, the hook and process
+seams rebuilt on `FeTryCallWithOptions` (quit/budget are re-signalled,
+never contained), `save-excursion`/`with-current-buffer` transparent
+to `condition-case` via `FeResignal`, two new PTY cases (408 total),
+and the documentation family rewritten.  kg cost across the phase:
+**+28 scc** (5461 → 5489/5500), against the funded +15..30 row.
+
+### What the phase cost, collected
+
+fe, baseline `e351b67` → close `1d96a58`: scc **533 → 654/680**
+(+121, top of the funded +80..120 band), `fe_eval.c` **326 → 440**
+against a file cap re-funded twice (340 → 420 at 06A, 420 → **460**
+during the review fixes — 06A underfunded this one axis), pmccabe
+**751 → 863/900** across 263 → 292 symbols, worst function
+`DispatchPrimitive` 15/22.  `FeMinimumArenaSize()` 56304 → 56504
+(06C) → 56824 (06D) → **56856** (review fixes); kg's 1 MiB arena
+**1097 frames / 56225 slots** at the close.  fe compat **195 cases,
+170 passed, 25 known gaps, 0 failed**; kg manifest 143 features →
+148 with the new category, `lisp-compat-check` 0 problems, oracle
+verify-by-running 60 cases 0 written/updated.
+
+### What the plan got wrong, collected
+
+- **06E's expectation discipline was self-contradictory**: "changes
+  no existing message text" and "the quit seam reports `Quit`" cannot
+  both hold — three existing assertions had to change, and the plan's
+  own allowlist forbade it.  The Status rule going forward: an
+  outcome that changes what a seam *reports* must enumerate the
+  assertions it will edit, by name, in the plan.
+- **The containment architecture was designed on a false premise.**
+  06E assumed a host `setjmp` in a native could contain a nested
+  run's raise; fe unwinds the native's C frame before `error_fn`
+  runs, so the longjmp back is UB — the shipped first attempt
+  corrupted the GC stack (and at the old baseline, segfaulted).  The
+  fix had to be fe-side API (`FeTryCallWithOptions`/`FeResignal`),
+  which no slice had planned; the unplanned `FeSaveEvalState` pair
+  shipped mid-cutover was reverted as unworkable.
+- **A slice can claim its cap headroom precisely and still be wrong**:
+  06D landed on 420/420 exactly, so the first two-point addition
+  (itself unplanned) broke the gate.
+- **06A authored six oracle cases in a dialect fe cannot parse**
+  (`progn`/`push`), leaving the U-family permanently unrunnable until
+  the review rewrote them.
+- The 06D row of `doc/fe-upstream.md` carried transcription errors
+  (1088/56287 for kg's measured 1097/56225-ish partitioning), caught
+  by re-measurement.
+
+### Carried forward
+
+- kg's editor natives still raise prose `(error "text")` — 06A
+  Decision 2's deferral — so `condition-case-native-errors` is
+  `divergent`: a `(wrong-type-argument …)` handler does not catch
+  `(goto-char "x")`; a generic `(error …)` handler does.
+- `catch`/`throw` do not cross `save-excursion`/
+  `with-current-buffer` (the protected call's barrier is a catch
+  wall; a throw becomes `no-catch` inside and re-signals as that
+  error).  `catch-throw-reachability` is `divergent`; the recorded
+  design for closing it — expanding both forms to Lisp
+  `unwind-protect` over push/pop natives — is in `doc/TODO.md`.
+- Call-trace exposure, prose-site classification, and the
+  token/cancel cleanup registry remain deferred (TODO, Phase 9
+  pointers).
+- kg's scc gate closes Phase 6 at **5489/5500**; 07A's funding
+  Decision is the recorded consumer of that fact.
+
+### The acceptance review, 2026-08-06
+
+This phase's review ran *before* acceptance and was load-bearing: the
+tree as first delivered was red (kg's `make check` failed on the new
+hook-containment test; fe's `complexity-check` and `format-check`
+failed; one intermediate kg pin commit did not compile).  Three
+adversarial reviews plus a Phase 7 fact audit produced ~40 findings,
+the worst being semantic: a caught condition permanently disarmed the
+step limit, frame wall and C-g interrupt (an `ignore-errors` in an
+init file left the editor unboundable and un-interruptible); a real
+C-g was not catchable by a `(quit …)` handler and its catchability
+depended on stale state; quit/budget inside a cleanup reached the
+host as Error; a cleanup's throw could never find any catch and
+escaped the catch's own tag as `no-catch`; and the `error`
+primitive's format directives diverged from Emacs with a golden
+pinning the wrong answer.  The fe fixes are `374e52f`..`1d96a58`
+(12 commits, nine-stage runner green); the kg cutover was rebuilt
+from scratch as `e0d874a` (the original cutover commit and the
+non-compiling pin-only commit `8e3e925` were removed from the branch
+— Rule 10 now holds at every commit).  Final green light:
+`JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12 PASS** on kg, all
+nine fe stages green, 32 native / 408 PTY, `WITH_LISP=0` green.
+Lessons banked: a containment seam is fe's to own, never a host
+`setjmp`; a plan whose Outcome changes a seam's report must
+enumerate the assertion edits it implies; and landing exactly on a
+cap is a finding, not a success.

@@ -3830,11 +3830,14 @@ static void test_phase8_library(void)
 	 * never fall.  The claim worth making is margin, the same one
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
-	 * the high-water mark is a small fraction of it.  Measured on this
-	 * build via kg_lisp_arena_stats(): 56223 object slots, peak_live
-	 * 5171 after the prelude alone, 6696 after the 08A init corpus on
-	 * top of it, 7224 with lisp/auto-fill.el as well -- 12.8% of the
-	 * arena for everything kg ships. */
+	 * the high-water mark is a small fraction of it.  Re-measured on this
+	 * build via kg_lisp_arena_stats() at the Phase 9 pin: 56224 object
+	 * slots, peak_live 5188 after the prelude alone (5171 before the pin
+	 * -- the +17 is fe's two pre-built exhaustion conditions with their
+	 * interned names and pairs), 5729 with lisp/auto-fill.el on top of
+	 * it, and 8120 at this point in this function, after every Phase 8
+	 * form above -- 14.4% of the arena for everything kg ships plus this
+	 * test's own corpus. */
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));

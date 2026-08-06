@@ -385,7 +385,12 @@ $(LISP_CONFIG):
 	touch $@
 
 $(OBJS): $(LISP_CONFIG)
-$(LISP_OBJS): $(LISP_CONFIG)
+# LISP_SRCS is a subset of SRCS, so a second `$(LISP_OBJS): $(LISP_CONFIG)`
+# says nothing the line above has not.  What was missing is this: the
+# embedded prelude is #included, and nothing told make so, which is how a
+# `make lisp-prelude-generate` followed by `make` could relink an editor
+# still carrying the previous prelude.
+$(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_prelude_generated.inc
 
 $(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -872,7 +877,6 @@ bench-lisp-toggle:
 
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
-
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 

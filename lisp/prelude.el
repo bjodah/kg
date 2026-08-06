@@ -322,23 +322,42 @@
           (list 'list (list 'quote 'quasiquote)
             (internal--qq (car (cdr form)) (+ depth 1)))
         (internal--qq-list form depth))))))
+;; A dotted tail reaches here two ways, and Emacs answers both the same.
+;; The reader keeps `(a . b)' improper, so the walk below simply runs out
+;; of conses with `form' still non-nil.  But `(1 . ,x)' is NOT improper:
+;; the reader turns `,x' into the two-element list `(unquote x)', so the
+;; whole form reads as the PROPER list `(1 unquote x)'.  Emacs' rule is
+;; that an `unquote' form appearing in cdr position is the dotted tail,
+;; which is also why `(a unquote b)' means `(a . VALUE-OF-b)' there.
+;; `segs' is accumulated reversed and handed to internal--qq-dotted that
+;; way; the tail is the last argument of the `append', which is exactly
+;; what makes an improper result -- (append (list 'a) 'b) is (a . b) --
+;; and keeps `,@' segments working in front of one.
 (defalias 'internal--qq-list (lambda (form depth)
   (internal--let segs nil)
+  (internal--let tail nil)
+  (internal--let dotted nil)
   (while (consp form)
-    (internal--let e (car form))
-    (if (and (= depth 1) (consp e) (eq (car e) 'unquote-splicing))
-        (setq segs (cons (car (cdr e)) segs))
-      (setq segs (cons (list 'list (internal--qq e depth)) segs)))
-    (setq form (cdr form)))
+    (if (and (= depth 1) (eq (car form) 'unquote) (consp (cdr form)))
+        (progn
+          (setq tail (car (cdr form)))
+          (setq dotted t)
+          (setq form nil))
+      (internal--let e (car form))
+      (if (and (= depth 1) (consp e) (eq (car e) 'unquote-splicing))
+          (setq segs (cons (car (cdr e)) segs))
+        (setq segs (cons (list 'list (internal--qq e depth)) segs)))
+      (setq form (cdr form))))
   (if form
-      (internal--qq-dotted (reverse segs) (internal--qq form depth))
-    (cons 'append (reverse segs)))))
+      (internal--qq-dotted segs (internal--qq form depth))
+    (if dotted
+        (internal--qq-dotted segs tail)
+      (cons 'append (reverse segs))))))
+;; SEGS is still reversed here; the tail form joins it as the first
+;; element so that reversing puts it last, where `append' reads it as the
+;; final -- possibly non-list -- argument.
 (defalias 'internal--qq-dotted (lambda (segs tail)
-  (internal--let result tail)
-  (while segs
-    (setq result (list 'cons (car (car segs)) result))
-    (setq segs (cdr segs)))
-  result))
+  (cons 'append (reverse (cons tail segs)))))
 (defalias 'quasiquote (macro (form) (internal--qq form)))
 ;; --- definition forms ---
 ;; Argument lists go to Fe unchanged: its binder reads &optional and

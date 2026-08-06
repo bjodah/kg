@@ -2961,6 +2961,30 @@ static void test_quasiquote(void)
 	CHECK(eval_eq("(funcall #'(lambda (n) (+ n 1)) 41)", "42"));
 	CHECK(eval_eq("(functionp #'(lambda (n) n))", "t"));
 
+	/* Dotted quasiquote.  Every row is GNU Emacs 31.0.90's answer
+	 * (/opt-3/emacs-31-lucid, `emacs -Q --batch`).  The first two are
+	 * the ones the reader makes hard: `,x' reads as the two-element
+	 * list (unquote x), so `(1 . ,x)' is the PROPER list (1 unquote x)
+	 * and the expander has to recognise an unquote form in cdr position
+	 * rather than wait for an improper tail.  kg answered
+	 * (1 unquote x) and (a b unquote x) for those, and `(a . b)' --
+	 * a plain improper tail, which used to work -- raised
+	 * void-variable list. */
+	CHECK(eval_eq("(let ((x 2)) `(1 . ,x))", "(1 . 2)"));
+	CHECK(eval_eq("(let ((x 2)) `(a b . ,x))", "(a b . 2)"));
+	CHECK(eval_eq("`(a . b)", "(a . b)"));
+	/* A splice in front of a dotted tail, and an unquoted nil tail,
+	 * which Emacs answers as the proper list (a). */
+	CHECK(eval_eq("(let ((x (list 1 2))) `(,@x . 9))", "(1 2 . 9)"));
+	CHECK(eval_eq("`(a . ,nil)", "(a)"));
+	/* The rule is structural, not syntactic: a literal `unquote' in cdr
+	 * position means the same thing as the `,' that reads to it.  This
+	 * row is kg's spelling, not Emacs': Emacs' reader produces the
+	 * symbol named "," where fe's produces `unquote' (a recorded
+	 * divergence in doc/fe-upstream.md), so Emacs answers
+	 * (a unquote x) here while kg answers (a . 2). */
+	CHECK(eval_eq("(let ((x 2)) `(a unquote x))", "(a . 2)"));
+
 	/* A macro written with backquote. */
 	CHECK(eval_ok("(defmacro unless2 (test . body)"
 		      " `(if ,test nil (progn ,@body)))"));

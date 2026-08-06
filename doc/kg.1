@@ -88,6 +88,9 @@ Packages load explicitly with
 which resolves a bare name to
 .Pa <config>/kg/lisp/name.el
 and treats names containing a slash as literal paths.
+A bare name may be written with or without the
+.Pa .el
+suffix; both spellings resolve to the same file, as in Emacs.
 Loading a file twice with
 .Li load
 evaluates it twice;

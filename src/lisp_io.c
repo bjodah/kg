@@ -766,10 +766,24 @@ void lisp_eval_file(FeContext *context, const char *path)
 	free(buffer);
 }
 
+/* True when NAME already carries the ".el" suffix a bare load would
+ * otherwise append.  Emacs accepts both spellings -- its `load` tries
+ * NAME.elc, NAME.el and then NAME, so (load "foo.el") finds foo.el
+ * through the third -- where kg used to build foo.el.el and report a
+ * path the caller never asked for. */
+static bool lisp_has_el_suffix(const char *name, size_t length)
+{
+	static const char suffix[] = ".el";
+	size_t suffix_length = sizeof(suffix) - 1;
+
+	return length > suffix_length
+	    && strcmp(name + length - suffix_length, suffix) == 0;
+}
+
 /* (load NAME): a name containing '/' is a literal path; a bare name
- * resolves to <config>/kg/lisp/NAME.el.  Loading twice evaluates twice;
- * there is no require/provide behaviour here -- see native_require for
- * that. */
+ * resolves to <config>/kg/lisp/NAME.el, with the suffix already present
+ * accepted rather than doubled.  Loading twice evaluates twice; there is
+ * no require/provide behaviour here -- see native_require for that. */
 FeObject *native_load(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
@@ -784,6 +798,10 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 	if (strchr(name, '/')) {
 		bad = snprintf(path, sizeof(path), "%s", name) < 0
 		    || strlen(name) >= sizeof(path);
+	} else if (lisp_has_el_suffix(name, length)) {
+		bad = snprintf(stem, sizeof(stem), "lisp/%s", name) < 0
+		    || length + sizeof("lisp/") > sizeof(stem)
+		    || lisp_config_path(path, sizeof(path), stem);
 	} else {
 		bad = snprintf(stem, sizeof(stem), "lisp/%s.el", name) < 0
 		    || length + sizeof("lisp/.el") > sizeof(stem)

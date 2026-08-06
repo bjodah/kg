@@ -219,7 +219,8 @@ kg does not provide public `read-*` functions or a completion framework.
 
 Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.el` and treats names containing `/` as
-literal paths. Packages may load other packages; loading a file twice with
+literal paths. A bare name may be written with or without the `.el` suffix;
+both spellings resolve to the same file, as in Emacs. Packages may load other packages; loading a file twice with
 `load` evaluates it twice. Init files and packages are trusted code with the
 full privileges of the editor process, bounded only by the evaluation step
 budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**

@@ -455,11 +455,28 @@ static void test_load_package(void)
 	CHECK(kg_lisp_eval_string("pkg-value", 9, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "7") == 0);
 
+	/* The .el suffix may be written out, as in Emacs, whose `load`
+	 * tries NAME.elc, NAME.el and then NAME so both spellings find the
+	 * same file.  kg used to build pkg.el.el and report a path nobody
+	 * asked for. */
+	CHECK(
+	    kg_lisp_eval_string("(load \"pkg.el\")", 15, result, sizeof(result))
+	    == 0);
+	CHECK(kg_lisp_eval_string("pkg-value", 9, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "7") == 0);
+
 	/* Missing packages raise an error naming the resolved path. */
 	CHECK(
 	    kg_lisp_eval_string("(load \"absent\")", 15, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "absent.el") != nullptr);
+	/* ... and with the suffix written out, the same path, not
+	 * absent.el.el. */
+	CHECK(kg_lisp_eval_string(
+		  "(load \"absent.el\")", 18, result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "absent.el") != nullptr);
+	CHECK(strstr(result, "absent.el.el") == nullptr);
 	CHECK(kg_lisp_eval_string("(+ 1 1)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "2") == 0);
 

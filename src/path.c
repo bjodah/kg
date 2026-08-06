@@ -134,6 +134,19 @@ int editor_path_expand_tilde(char *buf, int bufsize)
 	return 0;
 }
 
+/* Expand a leading "~" in `dir`, or empty `dir` when $HOME plus the rest
+ * does not fit.  editor_path_expand_tilde() does not truncate -- it leaves
+ * the buffer untouched and reports -- so the caller would otherwise scan a
+ * directory whose name still begins with a literal '~', finding nothing
+ * or, if such a directory really exists, finding the wrong thing.  That
+ * return value used to be discarded. */
+static void expand_dir_or_empty(char *dir, int dsize)
+{
+	if (editor_path_expand_tilde(dir, dsize) != 0) {
+		dir[0] = '\0';
+	}
+}
+
 /* Split `path` into directory part (up to and including the last '/') and
  * file part (the rest).  If no '/' is present the directory is "./" and the
  * file is the whole path.  The directory is tilde-expanded so opendir/stat
@@ -155,16 +168,7 @@ void editor_path_split(
 	}
 	memcpy(dir, path, dlen);
 	dir[dlen] = '\0';
-	if (editor_path_expand_tilde(dir, dsize) != 0) {
-		/* $HOME plus the rest does not fit, so `dir` still begins
-		 * with a literal '~'.  Scanning that would either find
-		 * nothing or -- if a directory really is named "~" -- find
-		 * the wrong thing, so answer "no directory" instead.  The
-		 * return value used to be discarded here. */
-		dir[0] = '\0';
-		snprintf(file, fsize, "%s", buf_basename(path));
-		return;
-	}
+	expand_dir_or_empty(dir, dsize);
 	snprintf(file, fsize, "%s", buf_basename(path));
 }
 

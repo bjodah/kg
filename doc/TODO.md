@@ -7,9 +7,25 @@ This file remains the broader feature and technical-debt inventory.
 ## Lisp Interactive Follow-up
 
 - [x] **07E interactive prompting**: `n`/`N`, `s`, `f`/`F`, and `b`/`B` use
-      the existing pickers without side effects. Valid deferred modifiers,
-      keyboard-macro strings, `interactive-form`/documentation reflection,
-      prompt interpolation, and `CMD_REPEATS` remain explicitly deferred.
+      the existing pickers without side effects.
+- [ ] **Deferred interactive codes and modifiers**: every valid Emacs code
+      kg does not implement (`a b c C d D e G i k K m M R S U v x X z Z`)
+      and the three modifiers `*`, `@` and `^` report *unsupported*
+      interactive code, not invalid, and do not run the command body.
+      Keyboard-macro strings and `CMD_REPEATS` for Lisp commands are
+      deferred with them.
+- [ ] **Interactive reflection**: `interactive-form` and documentation
+      reflection need a metadata decision first — 07D stores the spec
+      thunk but not the raw form beside it, so honest reflection has
+      nothing to return. `commandp` therefore answers about a *name*
+      (the command registry) rather than about a function object, which
+      is a recorded divergence: Emacs also calls an anonymous lambda
+      carrying an interactive form a command.
+- [ ] **Prompt interpolation and `interactive` MODES**: Emacs passes a
+      prompt containing `%` through `format` with the earlier interactive
+      arguments, and filters commands by mode; kg's prompts are literal
+      and the MODES arguments are accepted and ignored. Both are recorded
+      divergences in `README.md` and `doc/lisp-api.md`.
 - [ ] **Phase 8 read functions**: public `read-string`, `read-number`,
       `read-file-name`, and `read-buffer`, including optional arguments,
       defaults, history, and non-command re-entry semantics.

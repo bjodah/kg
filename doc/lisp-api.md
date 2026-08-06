@@ -485,7 +485,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
@@ -498,26 +498,70 @@ core Fe special forms and primitives rather than prelude definitions.
 `defun` recognises only an `(interactive ...)` form immediately after its
 optional docstring. That declaration is removed from the body and registers
 the closure as a command; a later form remains ordinary code. A docstring
-followed by an empty declaration body gets an implicit `nil` body. The
- declaration's nil/empty spec supplies no arguments; string specs split
+followed by an empty declaration body gets an implicit `nil` body — but a
+docstring that *is* the whole body is the body, and the function returns it,
+as in Emacs. `(commandp NAME)` answers whether a name is a command. It asks
+the command registry, which is the only place kg can answer from: 07D adds no
+interactive-form reflection, so unlike Emacs it says `nil` for an anonymous
+lambda that carries an interactive form, and it does not accept Emacs'
+optional FOR-CALL-INTERACTIVELY argument. Both are recorded divergences.
+
+The declaration's nil/empty spec supplies no arguments; string specs split
 newline-delimited clauses and support `p`, `P`, `r`, `s`, `n`, `N`, `f`, `F`,
-`b`, and `B`. An interactive command receives at most 16 arguments. `p`
-receives `prefix-numeric-value`, `P` receives the raw prefix, and `r` receives
-sorted region bounds. `s` reads literal text; `n` accepts one decimal integer
-or floating-point token and re-prompts on invalid input; `N` uses the prefix
-when supplied. `f`/`F` read paths without visiting them, with `f` requiring an
-existing entry, while `b`/`B` read buffer names without selecting them (`B`
-permits a new name). Cancellation is a quit and overflow is an error.
+`b`, and `B`. An interior or trailing empty clause is an invalid
+specification, not a skipped one, and each clause's prompt is its own tail —
+it stops at the newline that ends the clause. An interactive command receives
+at most 16 arguments; the cap is a recorded divergence, not a silent
+truncation. `p` receives `prefix-numeric-value`, `P` receives the raw prefix,
+and `r` receives sorted region bounds. `s` reads literal text; `N` uses the
+prefix when supplied and otherwise runs exactly the `n` path. `f`/`F` read
+paths without visiting them, with `f` requiring an existing entry, while
+`b`/`B` read buffer names without selecting them (`B` permits a new name, and
+`M-RET` accepts typed text literally even when a completion exists).
+Cancellation is a quit and overflow is an error.
+
+Instead of a specification string the declaration may carry a single **form**,
+as in `(interactive (list 1 2))`. The `defun` macro wraps it in a
+zero-argument thunk in the command closure's own lexical environment —
+creating the thunk does not evaluate the form — and calls that thunk once at
+invocation, after `current-prefix-arg` is bound and before the body. It must
+return a proper list; an improper one raises `(wrong-type-argument listp
+VALUE)` naming the tail. `define-command`'s spec argument takes the same
+thunk, but cannot take detached raw form syntax, whose lexical environment it
+would have to guess. Emacs' additional `interactive` MODES arguments are
+accepted and ignored — a recorded divergence.
+
+`n` and `N` accept one decimal token: an optional sign, digits, an optional
+fraction and an optional exponent, with nothing but ASCII whitespace around
+it. That is fe's own reader grammar minus its `1e+INF`/`1e+NaN` spellings, so
+`inf`, `nan`, `0x10`, `1e`, trailing junk, a second token and an empty answer
+all re-prompt. Classification happens before any conversion and evaluates no
+Lisp. An integer past `int64` becomes a float, as an integer literal does in
+fe's reader; kg has no bignums.
+
+Prompts are literal. Emacs passes a prompt containing `%` through `format`
+with the earlier interactive arguments; kg does not, and records that
+interpolation as a divergence rather than treating status text as a format
+string. A valid Emacs code kg has not implemented, and the deferred modifiers
+`*`, `@` and `^`, report `unsupported interactive code CODE`; a byte outside
+Emacs' measured set reports `invalid interactive code CODE`. In both cases the
+command body does not run.
 
 `current-prefix-arg` is temporarily bound during a command. Its raw values
 are nil, an integer, a one-element list for a universal prefix, or the symbol
-`-`; `(prefix-numeric-value X)` converts these forms and rejects malformed
-values. `P` is `eq` to that temporary value. This is a command-boundary value
+`-`; `(prefix-numeric-value X)` converts these forms, and a malformed one
+raises a real `wrong-type-argument` condition carrying the value, which a
+handler naming `wrong-type-argument` catches. A run of bare `C-u` produces the
+uncapped `(4)`, `(16)`, `(64)`, ... Emacs produces; the 1000 cap belongs to
+the effective integer, not to the raw form. `P` is `eq` to that temporary value. This is a command-boundary value
 binding, not general dynamic binding, so a lexical variable named
 `current-prefix-arg` shadows it.
 
-`command-execute` uses the same metadata and evaluator, including nested calls;
-an inner call inherits the active command's prefix. `define-command` is the
+`command-execute` uses the same metadata and evaluator, including nested
+calls, and returns the command's value; an inner call inherits the active
+command's prefix when there is one and uses none otherwise. A nested call
+builds and runs inside the evaluator already running, so its error or quit
+reaches a `condition-case` lexically around the `(command-execute ...)`. `define-command` is the
 kg-owned extension `(define-command NAME FUNCTION &optional SPEC DOC)`; its
 spec is nil, a string, or a zero-argument function, and documentation is nil or
 a string. Interactive definitions replace their function, spec and document
@@ -623,7 +667,7 @@ primitive's function cell.
   `condition-case`. **kg's own editor natives still signal a plain
   `error`** whose message happens to read like a condition name, so
   `(condition-case e (goto-char "x") (error …))` catches while
-  `(… (wrong-type-argument …))` does not; classifying kg's ~78 natives
+  `(… (wrong-type-argument …))` does not; classifying kg's ~81 natives
   is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
   natives are already classified, which is why `(car 1)` *does* match a
   `wrong-type-argument` handler.

@@ -139,13 +139,21 @@ and binds them with
 (global-set-key "C-c d" "insert-date")
 .Ed
 .Pp
-A body form
-.Li (interactive)
-is stripped from the function and registers it under its own symbol,
-through the function cell.
+An
+.Li (interactive ...)
+form in the declaration position \(em immediately after an optional
+docstring, and nowhere else \(em is removed from the function body and
+registers it under its own symbol, through the function cell.
+A later
+.Li (interactive ...)
+stays an ordinary, nil-valued body form.
+.Li (commandp NAME)
+answers whether a name is a command.
 The underlying registry is also reachable directly as
-.Li (define-command NAME FUNCTION) ,
-where NAME is a symbol or a string and FUNCTION a function value.
+.Li (define-command NAME FN &optional SPEC DOC) ,
+where NAME is a symbol or a string, FN a function value, SPEC nil, a
+specification string, or a zero-argument function returning the argument
+list, and DOC nil or a string.
 Defined commands appear in M-x completion and run under the normal
 evaluation budget;
 .Li remove-command
@@ -733,21 +741,79 @@ a
 .Li defun
 recognises only an
 .Li (interactive ...)
- form immediately after an optional docstring.  The supported codes are
+form immediately after an optional docstring.
+The supported codes are
 .Li p ,
-.Li P
+.Li P ,
+.Li r ,
+.Li s ,
+.Li n ,
+.Li N ,
+.Li f ,
+.Li F ,
+.Li b
 and
- .Li r , .Li s , .Li n , .Li N , .Li f , .Li F , .Li b , and .Li B ;
+.Li B ;
 they deliver prefixes, sorted region bounds, literal strings, numbers, paths,
-and buffer names without visiting or selecting the result.  The
-raw value is temporarily available as
+and buffer names without visiting or selecting the result.
+Instead of a specification string the declaration may carry a single
+form, as in
+.Li (interactive (list 1 2)) ,
+which is evaluated in the command's own lexical environment at invocation
+time and must return a proper list of arguments.
+A valid Emacs code kg has not implemented, and the deferred modifiers
+.Li * ,
+.Li @
+and
+.Li ^ ,
+report
+.Dq unsupported interactive code ;
+a byte outside Emacs' set reports
+.Dq invalid interactive code .
+In both cases the command body does not run.
+.Pp
+The raw prefix is temporarily available as
 .Li current-prefix-arg ,
 and
 .Li prefix-numeric-value
- converts it.  Prompts are literal, available only from a real key or M-x
-context, and argument construction is strict and capped at 16 arguments.
-Cancellation is a quit and overflow is an error; kg supplies no public
-`read-*` functions or completion framework.
+converts it: nil is 1, an integer is itself, a one-element list is its
+element, and the symbol
+.Li -
+is \-1.
+Because kg's Lisp has no dynamic binding, a lexical binding of that name
+shadows the command-boundary value.
+Prompts are literal \(em a
+.Li %
+in prompt text is not a format directive, which is a recorded divergence
+\(em and are available only while running a command from a real key or M-x
+context; from an init file, a hook, a process callback, or
+.Ic M-:
+without a command, prompting fails before reading input.
+Argument construction is strict and capped at 16 arguments, itself a
+recorded divergence rather than a silent truncation.
+.Li n
+always prompts and ignores any prefix;
+.Li N
+returns a supplied prefix without prompting.
+A number must be one decimal token \(em an optional sign, digits, an
+optional fraction and an optional exponent \(em with nothing but
+whitespace around it; anything else, including
+.Li inf ,
+.Li nan ,
+.Li 0x10
+and an empty answer, re-prompts.
+Cancelling any prompt with
+.Ic C-g
+is a quit and aborts before the command body runs; an answer too long for
+the prompt buffer is refused rather than truncated \(em an error for the
+Lisp codes, and for
+.Ic C-x C-f
+and the other interactive path prompts a dismissal with
+.Dq Path too long
+in the echo area.
+kg supplies no public
+.Li read-*
+functions and no completion framework.
 .Pp
 If no files are given,
 .Nm

@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-F",
+ "setup": [],
+ "expr": "(defun take-any-path (p) (interactive \"FF: \") p)",
+ "note": "07E code F: the same read, permitting an absent target, and still creating nothing. kg-policy: PTY."
+}

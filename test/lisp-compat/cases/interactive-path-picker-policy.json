@@ -1,0 +1,6 @@
+{
+ "id": "interactive-path-picker-policy",
+ "setup": [],
+ "expr": "(defun take-relative (p) (interactive \"FF: \") p)",
+ "note": "07E: relative names, the completion pick-list and M-RET's explicit-literal escape are kg's existing file-picker policy, recorded as such rather than claimed as Emacs parity. Tilde is expanded exactly once and nothing is canonicalised with realpath, which cannot represent an absent F target."
+}

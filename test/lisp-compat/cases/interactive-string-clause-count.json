@@ -1,0 +1,6 @@
+{
+ "id": "interactive-string-clause-count",
+ "setup": [],
+ "expr": "(progn (defun two-raw (a b) (interactive \"P\\nP\") (list a b)) (command-execute 'two-raw))",
+ "note": "07A I13: a newline separates interactive clauses and each clause contributes one argument, checked by actually invoking the command. The retired interactive-string-grammar case evaluated a top-level (interactive \"r\\n\"), which is nil in both systems and pinned nothing."
+}

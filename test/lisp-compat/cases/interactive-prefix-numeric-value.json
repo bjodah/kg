@@ -1,0 +1,6 @@
+{
+ "id": "interactive-prefix-numeric-value",
+ "setup": [],
+ "expr": "(list (prefix-numeric-value nil) (prefix-numeric-value 5) (prefix-numeric-value '(4)) (prefix-numeric-value '-))",
+ "note": "07D I1: prefix-numeric-value's whole table -- nil is 1, an integer is itself, a one-element universal list is its element, and the symbol - is -1. The row used to cite interactive-raw-prefix, which never calls the function it was evidence for."
+}

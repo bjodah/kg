@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-b",
+ "setup": [],
+ "expr": "(defun take-buffer (n) (interactive \"bB: \") n)",
+ "note": "07E code b: an existing display name only, re-prompting on a miss, blank meaning the current buffer, and no buffer switch. kg-policy: PTY plus the native buffer-picker mode test."
+}

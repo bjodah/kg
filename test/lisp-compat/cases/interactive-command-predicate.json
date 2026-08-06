@@ -1,0 +1,6 @@
+{
+ "id": "interactive-command-predicate",
+ "setup": [],
+ "expr": "(progn (defun late2 () 7 (interactive)) (defun cmd2 () (interactive) 1) (list (commandp 'late2) (commandp 'cmd2) (commandp 'save-buffer) (commandp 5)))",
+ "note": "07D/review: commandp answers for a *name*. Only the declaration in the Emacs position makes one a command, redefining without it takes the status away, a built-in editor command is one, and a non-name is nil. kg has no interactive-form reflection, so an anonymous lambda with an interactive form -- which Emacs also calls a command -- is a recorded divergence rather than part of this case."
+}

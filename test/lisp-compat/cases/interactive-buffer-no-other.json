@@ -1,0 +1,6 @@
+{
+ "id": "interactive-buffer-no-other",
+ "setup": [],
+ "expr": "(defun take-default-buffer (n) (interactive \"BB: \") n)",
+ "note": "07E: with no other buffer to offer, B's blank default is the current buffer. The ring is built from buf_current + 1 through buf_current itself, so the first candidate is already \"first other, else current\" and there is no separate fallback."
+}

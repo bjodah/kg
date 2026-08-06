@@ -1,0 +1,6 @@
+{
+ "id": "interactive-prompt-context",
+ "setup": [],
+ "expr": "(defun ask-anywhere (v) (interactive \"sV: \") v)",
+ "note": "07E: prompting is allowed only from a real key/M-x command context with a live fd. Init loading, eval-expression without a command fd, hooks and process callbacks fail before reading input with \"interactive prompt is not available here\"; a nested command-execute during a command may prompt."
+}

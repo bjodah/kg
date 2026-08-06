@@ -1,0 +1,49 @@
+# 07E's `b` and `B`: a buffer *name*, and no buffer switch as a side
+# effect of constructing the argument.
+#
+# `b` accepts only an existing display name and blank means the current
+# buffer; `B` accepts a new typed name that matches nothing and blank
+# means the first "other buffer" candidate.  Both commands insert the
+# name they were handed, into the buffer that was current when the
+# command started -- which is what shows that reading the name selected
+# nothing.
+name: lisp-interactive-buffer-codes
+filename: bufcodes.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun show-buffer-name (name)
+      (interactive "bWhich: ")
+      (insert (concat "[" name "]")))
+    (defun show-new-name (name)
+      (interactive "BNew: ")
+      (insert (concat "{" name "}")))
+initial: ""
+keys:
+  # A second buffer, so "other buffer" means something.
+  - C-x
+  - C-f
+  - "sibling.txt"
+  - RET
+  - C-x
+  - b
+  - "bufcodes"
+  - RET
+  # `b` with a blank answer is the current buffer.
+  - M-x
+  - show-buffer-name
+  - RET
+  - RET
+  # `b` with an existing name is that name, and does not switch to it.
+  - M-x
+  - show-buffer-name
+  - RET
+  - "sibling"
+  - RET
+  # `B` accepts a name no buffer has.
+  - M-x
+  - show-new-name
+  - RET
+  - "brand-new"
+  - RET
+expected_saved: "[bufcodes.txt][sibling.txt]{brand-new}"

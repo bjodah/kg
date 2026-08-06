@@ -314,6 +314,7 @@ FeObject *native_numberp(FeContext *context, FeObject *arguments);
 FeObject *native_consp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
+FeObject *native_commandp(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);

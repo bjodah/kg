@@ -1,0 +1,6 @@
+{
+ "id": "interactive-prompt-overflow",
+ "setup": [],
+ "expr": "(defun take-long-path (p) (interactive \"FF: \") p)",
+ "note": "07E: MINIBUF_OVERFLOW raises an ordinary error naming the code; a truncated prefix is never delivered as if it were the answer. The refusal is retired once the typed text shrinks back under the cap, on the path prompt and the buffer picker alike."
+}

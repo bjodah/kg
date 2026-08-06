@@ -1,6 +1,0 @@
-{
- "schema": "fe-compat-oracle/1",
- "case": "interactive-prompting-metadata",
- "emacs_version": "GNU Emacs 31.0.90",
- "record": {"kind": "value", "type": "symbol", "printed": "t"}
-}

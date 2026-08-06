@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-s",
+ "setup": [],
+ "expr": "(defun take-string (v) (interactive \"sText: \") v)",
+ "note": "07E code s: an empty prefill, and exactly the accepted bytes back, including the empty string. kg-policy: emacs -Q --batch has no minibuffer, so the delivered value is pinned by PTY."
+}

@@ -263,6 +263,33 @@ def check_defcustom(kg_data: dict) -> list[str]:
 	return errors
 
 
+def check_orphan_snapshots(kg_data: dict) -> list[str]:
+	"""An oracle snapshot no comparison=emacs case asks for.
+
+	fe's own checker catches an orphan *case* file but not an orphan
+	*snapshot*, which is how a hand-written
+	oracle/interactive-prompting-metadata.json -- with a truncated
+	emacs_version banner, so plainly never produced by the runner --
+	survived beside a kg-policy row that by design has no snapshot to
+	compare. A checked-in snapshot is a claim that the pinned Emacs
+	answered this; one nothing asks for is a claim nothing tests.
+	"""
+	wanted = {
+		cid
+		for feature in kg_data.get("features", [])
+		if feature.get("comparison") == "emacs"
+		for cid in (feature.get("cases") or [])
+	}
+	oracle_dir = KG_MANIFEST.parent / "oracle"
+	errors = []
+	for path in sorted(oracle_dir.glob("*.json")):
+		if path.stem not in wanted:
+			errors.append(
+				f"{path.relative_to(ROOT)}: oracle snapshot for a case "
+				f"no comparison=emacs feature entry names")
+	return errors
+
+
 def main() -> int:
 	errors: list[str] = []
 
@@ -276,6 +303,7 @@ def main() -> int:
 	errors += check_planned_names_phase(fe_data, FE_MANIFEST)
 	errors += check_planned_names_phase(kg_data, KG_MANIFEST)
 	errors += check_defcustom(kg_data)
+	errors += check_orphan_snapshots(kg_data)
 
 	total = len(fe_data.get("features", [])) + len(kg_data.get("features", []))
 	print(f"lisp compat check: {total} feature(s) across both manifests, "

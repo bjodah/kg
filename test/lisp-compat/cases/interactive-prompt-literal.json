@@ -1,0 +1,6 @@
+{
+ "id": "interactive-prompt-literal",
+ "setup": [],
+ "expr": "(defun take-percent (v) (interactive \"sHalf %s done: \") v)",
+ "note": "07E: prompts are literal in this phase. Emacs passes a prompt containing % through format with the earlier interactive arguments; kg records that interpolation as a divergence rather than treating status text as a format string. A clause's prompt stops at its own newline."
+}

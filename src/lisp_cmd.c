@@ -296,6 +296,34 @@ static void copy_command_name(
 	free(name);
 }
 
+/* (commandp OBJECT): t when OBJECT names something M-x can run.
+ *
+ * kg's answer is the command registry's, which is the only place the
+ * question has an answer here: a built-in is a cmdtable row, and a
+ * Lisp-defined command is a `defun` whose body carried an `(interactive
+ * …)` declaration.  Emacs asks the *function* whether it has an
+ * interactive form, and so also says t for a lambda or a keyboard macro
+ * that is not bound to any name; kg has no interactive-form reflection
+ * (07D leaves it to a later metadata decision), so only a *name* can be
+ * a command here.  That is recorded as a divergence rather than guessed
+ * at.  Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted.
+ *
+ * Anything that is not a symbol or a string is nil, as in Emacs. */
+FeObject *native_commandp(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeType type = FeGetType(object);
+	char name[512];
+
+	FeRequireNoArguments(context, arguments);
+	if (type != FeTSymbol && type != FeTString) {
+		return FeMakeBool(context, false);
+	}
+	copy_command_name(context, object, name, sizeof(name));
+	return FeMakeBool(context,
+	    cmd_lookup(name) != nullptr || kg_lisp_command_exists(name) != 0);
+}
+
 static void validate_command_definition(
     FeContext *context, FeObject *fn, FeObject *spec, FeObject *doc)
 {

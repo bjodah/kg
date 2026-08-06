@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-N",
+ "setup": [],
+ "expr": "(defun take-prefix-or-number (v) (interactive \"NN: \") v)",
+ "note": "07E code N: a supplied prefix is returned through prefix-numeric-value without prompting; otherwise exactly the n path runs. kg-policy: both branches are pinned by PTY."
+}

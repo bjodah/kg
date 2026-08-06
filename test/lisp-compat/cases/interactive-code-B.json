@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-B",
+ "setup": [],
+ "expr": "(defun take-new-buffer (n) (interactive \"BB: \") n)",
+ "note": "07E code B: a new typed name accepted, blank defaulting to the first other-buffer candidate, and M-RET accepting typed text literally even when a completion exists. kg-policy: PTY plus the native mode test."
+}

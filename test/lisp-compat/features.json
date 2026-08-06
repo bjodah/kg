@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 78 native_bindings[] (src/lisp_prelude.c) and 52 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 49 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 81 native_bindings[] (src/lisp_prelude.c) and 53 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 54 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -1633,10 +1633,9 @@
    "status": "supported",
    "owner": "kg",
    "comparison": "kg-policy",
-    "cases": [
-     "prelude-internal-interactive-p",
-     "prelude-internal-has-interactive",
-     "prelude-internal-strip-interactive"
+   "cases": [
+    "prelude-internal-interactive-p",
+    "prelude-internal-has-interactive"
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
    "rationale": "Tested-via-wrapper: defun's own interactive-detection tests exercise this.",
@@ -1681,8 +1680,8 @@
    "rationale": null,
    "source_name": "defvar"
   },
-   {
-    "id": "prelude-defconst",
+  {
+   "id": "prelude-defconst",
    "category": "bindings",
    "status": "supported",
    "owner": "kg",
@@ -1692,49 +1691,49 @@
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
    "rationale": null,
-    "source_name": "defconst"
-   },
-   {
-    "id": "prelude-internal-docstring-p",
-    "category": "functions-and-macros",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": [
-     "interactive-declaration-placement"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Tested through defun declaration placement.",
-    "source_name": "internal--docstring-p"
-   },
-   {
-    "id": "prelude-internal-has-interactive",
-    "category": "functions-and-macros",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": [
-     "prelude-internal-has-interactive"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Tested through defun declaration placement.",
-    "source_name": "internal--has-interactive"
-   },
-   {
-    "id": "prelude-interactive-declaration",
-    "category": "functions-and-macros",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": [
-     "prelude-interactive"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Replaces the old inert interactive placeholder with declaration metadata and argument construction.",
-    "source_name": "interactive"
-   },
-   {
-    "id": "prelude-string-empty-p",
+   "source_name": "defconst"
+  },
+  {
+   "id": "prelude-internal-docstring-p",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-declaration-placement"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Tested through defun declaration placement.",
+   "source_name": "internal--docstring-p"
+  },
+  {
+   "id": "prelude-internal-has-interactive",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-internal-has-interactive"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Tested through defun declaration placement.",
+   "source_name": "internal--has-interactive"
+  },
+  {
+   "id": "prelude-interactive-declaration",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-interactive"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Replaces the old inert interactive placeholder with declaration metadata and argument construction.",
+   "source_name": "interactive"
+  },
+  {
+   "id": "prelude-string-empty-p",
    "category": "sequences",
    "status": "supported",
    "owner": "kg",
@@ -1782,7 +1781,7 @@
     "condition-case-native-errors"
    ],
    "kg_test": "test/test_lisp.c:test_condition_case_kg_native_conditions",
-   "rationale": "Emacs answers `wrong-type-argument`; kg answers a `(error \"wrong-type-argument\")` whose car is `error`, so the handler naming the specific symbol never matches and only a generic `(error ...)` handler catches it. kg's own editor natives still raise prose through FeHandleError: sub-plan 06A's Decision 2 scoped this phase to Fe's conditions and deferred classifying kg's ~78 natives to the follow-up that gives each one its Emacs condition symbol and data. Fe's own natives are already classified, which is why `(car 1)` does match a `wrong-type-argument` handler -- the gap is kg-side and native-by-native. The kg_test pins both halves of the true behaviour.",
+   "rationale": "Emacs answers `wrong-type-argument`; kg answers a `(error \"wrong-type-argument\")` whose car is `error`, so the handler naming the specific symbol never matches and only a generic `(error ...)` handler catches it. kg's own editor natives still raise prose through FeHandleError: sub-plan 06A's Decision 2 scoped this phase to Fe's conditions and deferred classifying kg's ~81 natives to the follow-up that gives each one its Emacs condition symbol and data. Fe's own natives are already classified, which is why `(car 1)` does match a `wrong-type-argument` handler -- the gap is kg-side and native-by-native. The kg_test pins both halves of the true behaviour.",
    "source_name": null
   },
   {
@@ -1850,10 +1849,10 @@
    "rationale": "kg-policy rather than an Emacs-comparable divergence: Emacs macro-expands once (or once per compilation unit under byte-compilation) and the difference is a performance/step-budget property of kg's own evaluator, not a value Emacs and kg could disagree on for a pure macro -- a macro whose expansion has side effects like this one is deliberately pathological, written to demonstrate the property, not typical kg or Emacs code. Recorded per the parent sub-plan's explicit divergences-to-record-on-day-one list ('Macros expand on every invocation, charged to the step budget').",
    "source_name": null
   },
-   {
-    "id": "defcustom",
-    "category": "loading",
-    "status": "planned",
+  {
+   "id": "defcustom",
+   "category": "loading",
+   "status": "planned",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1862,112 +1861,281 @@
    "kg_test": "test/test_lisp.c (not yet written -- Phase 8 Wave D delivers defcustom and its test together)",
    "rationale": "Phase 8 Wave D (parent plan's init-compat-waves phase, milestone 2): owned by kg, prelude/library layer, comparison emacs. Delivered as a prelude macro over kg's existing defvar-shaped boundp/setq machinery, not a port of Custom. Its eventual cases must distinguish: an unbound variable from an already-bound one (same first-defvar-wins contract as defvar); whether the standard-value form is evaluated in each of those two cases; the returned symbol and the stored docstring; accepted, inert presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) that kg stores but never interprets; rejected semantics-bearing or unknown keywords (kg is not silently accepting an arbitrary keyword and pretending it did something); and the documented absence of dynamic binding, retained standard forms, setopt, and any Customize UI. This entry exists specifically so defcustom does not become either a hand-waved synonym for defvar or an accidental commitment to all of Custom.",
    "source_name": null
-   },
-    {
-     "id": "arity-strict",
-     "category": "functions-and-macros",
-     "status": "supported",
-     "owner": "kg",
-     "comparison": "emacs",
-     "cases": [
-      "arity-strict"
-     ],
-     "kg_test": "test/test_lisp.c:test_strict_arity",
-     "rationale": "07C pins Fe's unconditional strict arity in the full kg host: too few lambda arguments raise wrong-number-of-arguments with the actual count in condition data, while optional and rest parameters retain their defined bindings.",
-     "source_name": null
-    },
-    {
-     "id": "native-prefix-numeric-value",
-       "category": "interactive-commands",
-       "status": "supported",
-      "owner": "kg",
-      "comparison": "emacs",
-      "cases": [
-       "interactive-raw-prefix"
-      ],
-      "kg_test": "test/test_lisp.c:test_definition_forms",
-      "rationale": "Strict conversion of nil, integer, one-element universal lists and minus.",
-    "source_name": "prefix-numeric-value"
-   },
-   {
-    "id": "native-internal-remove-command-if-present",
-    "category": "interactive-commands",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "kg-policy",
-    "cases": [
-     "interactive-empty-spec-redefinition"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Internal no-op synchronization used by defun redefinition.",
-    "source_name": "internal--remove-command-if-present"
-   },
-     {
-      "id": "phase7-interactive-declaration",
-    "category": "interactive-commands",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "interactive-declaration-placement",
-     "interactive-empty-spec-redefinition"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "07D implements declaration placement, nil/empty specifications, and command-status redefinition.",
-    "source_name": null
-   },
-   {
-    "id": "phase7-interactive-prefix",
-    "category": "interactive-commands",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "interactive-raw-prefix"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "07D delivers raw prefix values without collapsing repeated universal arguments or minus forms.",
-    "source_name": null
-   },
-   {
-    "id": "phase7-interactive-string",
-    "category": "interactive-commands",
-     "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "interactive-string-grammar"
-    ],
-    "kg_test": "test/test_lisp.c:test_definition_forms",
-     "rationale": "Phase 7 07D/07E implement newline-delimited clauses; prompting clauses are handled by the kg command boundary.",
-    "source_name": null
-   },
-    {
-     "id": "phase7-interactive-prompting",
-     "category": "interactive-commands",
-     "status": "supported",
-     "owner": "kg",
-     "comparison": "kg-policy",
-     "cases": [
-      "interactive-prompting-metadata"
-     ],
-     "kg_test": "test/pty/lisp-interactive-prompting.yaml",
-     "rationale": "07E delivers s/n/N/f/F/b/B through one literal minibuffer seam; PTY coverage owns the terminal value delivery, cancellation, picker policy, and overflow behavior.",
-     "source_name": null
-    },
-    {
-     "id": "phase7-interactive-command-execute",
-    "category": "interactive-commands",
-    "status": "supported",
-    "owner": "kg",
-    "comparison": "emacs",
-    "cases": [
-     "interactive-lisp-command-execute",
-     "interactive-form-lexical-capture"
-    ],
-    "kg_test": "test/test_lisp.c:test_command_allow_list",
-    "rationale": "07D constructs interactive arguments in the closure's lexical environment and supports nested command-execute.",
-    "source_name": null
-   }
+  },
+  {
+   "id": "arity-strict",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "arity-strict"
+   ],
+   "kg_test": "test/test_lisp.c:test_strict_arity",
+   "rationale": "07C pins Fe's unconditional strict arity in the full kg host: too few lambda arguments raise wrong-number-of-arguments with the actual count in condition data, while optional and rest parameters retain their defined bindings.",
+   "source_name": null
+  },
+  {
+   "id": "native-prefix-numeric-value",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-prefix-numeric-value"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Strict conversion of nil, integer, one-element universal lists and minus; a malformed raw form raises a real wrong-type-argument condition carrying the value. The case invokes the function itself, which the interactive-raw-prefix case it used to cite never did.",
+   "source_name": "prefix-numeric-value"
+  },
+  {
+   "id": "native-internal-remove-command-if-present",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-empty-spec-redefinition"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Internal no-op synchronization used by defun redefinition.",
+   "source_name": "internal--remove-command-if-present"
+  },
+  {
+   "id": "phase7-interactive-declaration",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-declaration-placement",
+    "interactive-empty-spec-redefinition"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "07D implements declaration placement, nil/empty specifications, and command-status redefinition.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-prefix",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-raw-prefix"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "07D delivers raw prefix values without collapsing repeated universal arguments or minus forms.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-string",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-string-clause-count"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "07D/07E implement newline-delimited clauses, each contributing its own arguments, and an interior or trailing empty clause is an invalid specification rather than silently skipped. Pinned by invoking a two-clause command, not by evaluating a top-level (interactive ...) form, which is nil in both systems.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-prompting",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-prompting-metadata"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting.yaml, test/pty/lisp-interactive-prompting-codes.yaml",
+   "rationale": "07E delivers s/n/N/f/F/b/B through one literal minibuffer seam. kg-policy by design: emacs -Q --batch has no minibuffer, so there is nothing for the batch oracle to compare and this row carries no snapshot. The per-code rows below own the individual contracts; PTY owns terminal value delivery, cancellation, picker policy, and overflow.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-command-execute",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-lisp-command-execute",
+    "interactive-form-lexical-capture"
+   ],
+   "kg_test": "test/test_lisp.c:test_run_command_reentrancy",
+   "rationale": "07D constructs interactive arguments in the closure's lexical environment, and a nested command-execute builds and calls inside the running evaluator: its value propagates (1, as the snapshot records), the outer command continues, and a failure reaches a surrounding condition-case. The row used to name test_command_allow_list, whose stub cmd_invoke answered CMD_UNKNOWN for every Lisp command and so never reached the path.",
+   "source_name": null
+  },
+  {
+   "id": "native-commandp",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "interactive-command-predicate"
+   ],
+   "kg_test": "test/test_lisp.c:test_definition_forms",
+   "rationale": "Answers the command registry's question, which is the only one kg can answer: a built-in cmdtable row, or a defun whose body carried an (interactive ...) declaration. Emacs asks the function object whether it has an interactive form and so also says t for an anonymous lambda or a keyboard macro bound to no name; kg has no interactive-form reflection (07D defers it), and Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted. Every case the snapshot compares agrees.",
+   "source_name": "commandp"
+  },
+  {
+   "id": "phase7-interactive-code-s",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-s"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting.yaml, test/pty/lisp-interactive-prompting-codes.yaml",
+   "rationale": "Empty prefill, exactly the accepted bytes back including the empty string, no history ring, and the clause tail verbatim as the prompt.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-n",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-n"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-number-retry.yaml, test/test_lisp.c:test_number_token_classifier",
+   "rationale": "Always prompts and ignores any prefix; one decimal token plus trailing whitespace, classified before strtoimax/strtod, re-prompting on empty input, a non-number and junk. Integer overflow becomes a double, as in fe's reader.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-N",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-N"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-codes.yaml, test/pty/lisp-interactive-prompting-number-retry.yaml",
+   "rationale": "A supplied prefix is returned through prefix-numeric-value without prompting; with none, exactly the n path runs. Both halves are pinned so the two cannot be reversed.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-f",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-f"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-paths.yaml",
+   "rationale": "The resulting path must name an existing filesystem entry and re-prompts when it does not. Nothing is opened, created, selected, or canonicalised while constructing the argument.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-F",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-F"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-paths.yaml",
+   "rationale": "The same read, permitting an absent target, and still creating nothing. realpath is deliberately not used: it cannot represent a path that does not exist.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-b",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-b"
+   ],
+   "kg_test": "test/pty/lisp-interactive-buffer-codes.yaml, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "Only an existing display name, re-prompting on a miss, with blank meaning the current buffer. The read returns a name and leaves buf_current alone; only the command body may switch.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-code-B",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-code-B"
+   ],
+   "kg_test": "test/pty/lisp-interactive-buffer-codes.yaml, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "A typed name matching nothing is accepted, blank defaults to the first other-buffer candidate, and M-RET accepts typed text literally even when a completion exists -- the path picker's explicit-literal escape. M-RET is this code's alone; C-x b ignores it.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-path-picker-policy",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-path-picker-policy"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-paths.yaml, test/test_buffer.c:test_path_prompt_midline_erase_keeps_cursor",
+   "rationale": "Relative names, the completion pick-list, Tab's longest-common-prefix and M-RET's explicit-literal escape are kg's existing file-picker policy, recorded as such rather than claimed as Emacs parity. Tilde is expanded exactly once.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-prompt-overflow",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-prompt-overflow"
+   ],
+   "kg_test": "test/test_buffer.c:test_path_prompt_overflow_is_retired, test/test_buffer.c:test_buf_read_name_overflow_is_retired",
+   "rationale": "MINIBUF_OVERFLOW raises an ordinary error naming the code, and a truncated prefix is never delivered as if it were the answer. The refusal is a count, retired once the typed text shrinks back under the cap, on the path prompt and the buffer picker alike.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-prompt-literal",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-prompt-literal"
+   ],
+   "kg_test": "test/pty/lisp-interactive-multi-clause-prompts.yaml",
+   "rationale": "Prompts are literal in this phase: Emacs passes a prompt containing % through format with the earlier interactive arguments, and kg records that interpolation as a divergence rather than treating status text as a format string. Each clause's prompt stops at its own newline.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-prompt-context",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-prompt-context"
+   ],
+   "kg_test": "test/pty/lisp-interactive-prompting-nested-context.yaml",
+   "rationale": "Prompting is allowed only while executing a command from a real key/M-x context with a live fd; init loading, eval-expression without a command fd, hooks and process callbacks fail before reading input. A nested command-execute during a command may prompt once the outer prompt has closed.",
+   "source_name": null
+  },
+  {
+   "id": "phase7-interactive-buffer-no-other",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "interactive-buffer-no-other"
+   ],
+   "kg_test": "test/test_buffer.c:test_buf_select_interactive_no_other_buffers, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone.",
+   "source_name": null
+  }
  ]
 }

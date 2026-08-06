@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-f",
+ "setup": [],
+ "expr": "(defun take-existing (p) (interactive \"fF: \") p)",
+ "note": "07E code f: a path that must name an existing filesystem entry, re-prompting when it does not, and never opened or visited as a side effect. kg-policy: PTY."
+}

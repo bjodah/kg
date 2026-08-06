@@ -1,0 +1,6 @@
+{
+ "id": "interactive-code-n",
+ "setup": [],
+ "expr": "(defun take-number (v) (interactive \"nN: \") v)",
+ "note": "07E code n: always prompts, ignores any prefix, and accepts one decimal token plus whitespace -- re-prompting on empty input, a non-number, or trailing junk. kg-policy: PTY plus the pure classifier's own native test."
+}

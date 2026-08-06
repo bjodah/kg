@@ -1446,11 +1446,39 @@ void kg_lisp_perf_snapshot(void) { }
  * alone became 0, and `inf`, `nan` and `0x10` were all accepted, the last
  * as 16.  ascii_is_* rather than <ctype.h> because this grammar is ASCII
  * by definition and kg never calls setlocale(). */
+/* Advance over a run of ASCII digits and say whether there was one. */
+static bool scan_digits(const char **p)
+{
+	const char *start = *p;
+
+	while (ascii_is_digit(**p)) {
+		(*p)++;
+	}
+	return *p != start;
+}
+
+/* The optional exponent tail, `[eE][+-]?digits`.  -1 when the `e` is
+ * there but the digits are not (`1e`, `1e+`), 0 when there is no
+ * exponent, 1 when one was consumed.  Split out for the same reason
+ * fe.c's own ClassifyExponent is. */
+static int scan_exponent(const char **p)
+{
+	if (**p != 'e' && **p != 'E') {
+		return 0;
+	}
+	(*p)++;
+	if (**p == '+' || **p == '-') {
+		(*p)++;
+	}
+	return scan_digits(p) ? 1 : -1;
+}
+
 enum kg_number_token kg_number_token_classify(const char *text)
 {
 	const char *p = text;
 	bool integral;
 	bool fraction = false;
+	int exponent;
 
 	while (ascii_is_space(*p)) {
 		p++;
@@ -1458,33 +1486,18 @@ enum kg_number_token kg_number_token_classify(const char *text)
 	if (*p == '+' || *p == '-') {
 		p++;
 	}
-	integral = ascii_is_digit(*p);
-	while (ascii_is_digit(*p)) {
-		p++;
-	}
+	integral = scan_digits(&p);
 	if (*p == '.') {
 		p++;
-		fraction = ascii_is_digit(*p);
-		while (ascii_is_digit(*p)) {
-			p++;
-		}
+		fraction = scan_digits(&p);
 	}
 	/* `+`, `-`, `.`, `e5` and `.e3` have no digits anywhere. */
 	if (!integral && !fraction) {
 		return KG_NUMBER_TOKEN_NONE;
 	}
-	if (*p == 'e' || *p == 'E') {
-		p++;
-		if (*p == '+' || *p == '-') {
-			p++;
-		}
-		if (!ascii_is_digit(*p)) {
-			return KG_NUMBER_TOKEN_NONE; /* `1e`, `1e+` */
-		}
-		while (ascii_is_digit(*p)) {
-			p++;
-		}
-		fraction = true; /* an exponent makes it a float, as in fe */
+	exponent = scan_exponent(&p);
+	if (exponent < 0) {
+		return KG_NUMBER_TOKEN_NONE; /* `1e`, `1e+` */
 	}
 	while (ascii_is_space(*p)) {
 		p++;
@@ -1492,6 +1505,8 @@ enum kg_number_token kg_number_token_classify(const char *text)
 	if (*p != '\0') {
 		return KG_NUMBER_TOKEN_NONE; /* `0x10`, `5.x`, `1 2`, `1.2.3` */
 	}
-	/* `5` and `5.` are integers; `5.0`, `.5` and `1e3` are floats. */
-	return fraction ? KG_NUMBER_TOKEN_FLOAT : KG_NUMBER_TOKEN_INTEGER;
+	/* `5` and `5.` are integers; `5.0`, `.5` and `1e3` are floats -- an
+	 * exponent makes it a float, as in fe. */
+	return fraction || exponent > 0 ? KG_NUMBER_TOKEN_FLOAT
+					: KG_NUMBER_TOKEN_INTEGER;
 }

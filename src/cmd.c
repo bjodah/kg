@@ -719,6 +719,21 @@ static void cmd_rebase_move_down(int fd)
  * *containing* the answer is what a non-directory answer means.  An
  * answer that names nothing is passed through untouched so the error
  * names what was typed. */
+/* The default directory for a blank answer: this buffer's, tilde expanded.
+ * If $HOME plus the prefill does not fit, editor_path_expand_tilde leaves a
+ * literal "~..." that names nothing, so the answer is emptied -- the caller
+ * falls back to "." -- with the reason said out loud rather than listing
+ * whatever a directory called "~" happens to hold.  That return value used
+ * to be discarded. */
+static void dired_prefill_expanded(char *path, int size)
+{
+	editor_prompt_prefill_dir(path, (size_t)size);
+	if (editor_path_expand_tilde(path, size) != 0) {
+		editor_set_status_message("Path too long");
+		path[0] = '\0';
+	}
+}
+
 static void cmd_dired(int fd)
 {
 	char path[PATH_MAX];
@@ -730,16 +745,7 @@ static void cmd_dired(int fd)
 		return;
 	}
 	if (!path[0]) {
-		editor_prompt_prefill_dir(path, sizeof(path));
-		/* If $HOME plus the prefill does not fit, `path` is still a
-		 * literal "~..." that names nothing; fall through to "." with
-		 * the reason said out loud rather than listing whatever a
-		 * directory called "~" happens to hold.  The return value
-		 * used to be discarded here. */
-		if (editor_path_expand_tilde(path, sizeof(path)) != 0) {
-			editor_set_status_message("Path too long");
-			path[0] = '\0';
-		}
+		dired_prefill_expanded(path, sizeof(path));
 	}
 	if (!path[0]) {
 		snprintf(path, sizeof(path), ".");

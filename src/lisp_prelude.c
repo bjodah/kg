@@ -56,6 +56,7 @@ static const struct native_binding native_bindings[] = {
 	{ "numberp", native_numberp },
 	{ "consp", native_consp },
 	{ "functionp", native_functionp },
+	{ "commandp", native_commandp },
 	{ "command-execute", native_command },
 	{ "prefix-numeric-value", native_prefix_numeric_value },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a

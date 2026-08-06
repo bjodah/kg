@@ -448,7 +448,7 @@ surface is available before any init file runs. It is what makes kg's
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
@@ -574,18 +574,45 @@ Packages define interactive commands the way Emacs does, with `defun` plus
 
 Only an `(interactive ...)` form immediately after an optional docstring is a
 declaration. It is removed from the body and registers the closure under its
-own symbol; a later form is ordinary code. The declaration supplies command
-arguments: `p` is the numeric prefix, `P` the raw prefix, and `r` the sorted
-region bounds. `s` reads literal text; `n` and `N` read numbers, with `N` using
-a supplied prefix; `f`/`F` read paths and `b`/`B` read buffer names without
-visiting or selecting them. Numeric input allows Fe's sign, fraction,
-exponent, and trailing ASCII whitespace grammar; invalid input re-prompts.
-Prompts are literal, `C-g` is quit, and overflow is an error before the body
-runs. Prompting is available only from key/M-x dispatch, not init, hooks,
-process callbacks, eval-expression, or an active prompt. Arguments are strict
-and capped at 16, with no nil padding. The raw
-`current-prefix-arg` binding is temporary, and `(prefix-numeric-value X)`
-converts its nil, integer, universal-list, or `-` forms. The registry is also
+own symbol; a later form is ordinary code. `(commandp NAME)` answers whether a
+name is a command — kg has no interactive-form reflection, so unlike Emacs it
+says `nil` for an anonymous lambda carrying an interactive form.
+
+The declaration supplies command arguments: `p` is the numeric prefix, `P` the
+raw prefix, and `r` the sorted region bounds. `s` reads literal text; `n` and
+`N` read numbers, with `N` using a supplied prefix; `f`/`F` read paths and
+`b`/`B` read buffer names without visiting or selecting them. Instead of a
+specification string the declaration may carry a single **form**, as in
+`(interactive (list 1 2))`: it is evaluated in the command's own lexical
+environment at invocation time, once, and must return a proper list of
+arguments. Emacs' additional `interactive` MODES arguments are accepted and
+ignored, which is a recorded divergence.
+
+A number must be one decimal token — an optional sign, digits, an optional
+fraction, an optional exponent — with nothing but ASCII whitespace around it.
+That is fe's own reader grammar minus its `1e+INF`/`1e+NaN` spellings, so
+`inf`, `nan`, `0x10`, `1e`, trailing junk and an empty answer all re-prompt,
+and no Lisp is evaluated to decide. An integer past `int64` becomes a float,
+as an integer literal does.
+
+Prompts are literal: a `%` in prompt text is not a format directive, where
+Emacs would pass it through `format` with the earlier arguments — a recorded
+divergence. `C-g` is quit, and an answer too long for the prompt buffer is
+refused rather than truncated (an error for the Lisp codes; for `C-x C-f` and
+the other interactive path prompts, a dismissal with `Path too long` in the
+echo area). Neither runs the command body. Prompting is available only from
+key/M-x dispatch, not init, hooks, process callbacks, eval-expression, or an
+active prompt.
+
+A valid Emacs code kg has not implemented, and the deferred modifiers `*`, `@`
+and `^`, report `unsupported interactive code`; a byte outside Emacs' set
+reports `invalid interactive code`. Arguments are strict and capped at 16, with
+no nil padding; the cap is a recorded divergence rather than a silent
+truncation. The raw `current-prefix-arg` binding is temporary, and
+`(prefix-numeric-value X)` converts its nil, integer, universal-list, or `-`
+forms — a malformed form raises a real `wrong-type-argument` condition carrying
+the value. Because kg's Lisp has no dynamic binding, a lexical binding named
+`current-prefix-arg` shadows the command-boundary value. The registry is also
 reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;
 the spec is nil, a string, or a zero-argument function, and documentation is
 nil or a string. `remove-command` undoes the registration.

@@ -2782,6 +2782,21 @@ static void test_definition_forms(void)
 	 * position, with a form after it, is documentation. */
 	CHECK(eval_ok("(defun decl-then-lisp () (interactive) \"tail\")"));
 	CHECK(eval_eq("(decl-then-lisp)", "tail"));
+
+	/* commandp answers the command registry's question: only a name is
+	 * a command here, and only the declaration in the Emacs position
+	 * makes it one.  Every value below is Emacs' own answer, recorded
+	 * in test/lisp-compat/oracle/interactive-command-predicate.json. */
+	CHECK(eval_eq("(commandp 'greet-lisp)", "nil"));
+	CHECK(eval_eq("(commandp 'decl-only-lisp)", "t"));
+	CHECK(eval_eq("(commandp 'late-lisp)", "nil"));
+	CHECK(eval_eq("(commandp 'quiet-lisp)", "nil"));
+	/* A built-in editor command is one too, ... */
+	CHECK(eval_eq("(commandp 'version)", "t"));
+	/* ... and anything that is not a name at all is nil, as in Emacs. */
+	CHECK(eval_eq("(commandp 5)", "nil"));
+	CHECK(eval_eq("(commandp nil)", "nil"));
+	CHECK(eval_eq("(commandp (lambda () 1))", "nil"));
 	/* A defun without (interactive) registers nothing. */
 	CHECK(eval_ok("(defun quiet-lisp () (message \"no\"))"));
 	CHECK(!kg_lisp_command_exists("quiet-lisp"));

@@ -1,0 +1,6 @@
+{
+ "id": "interactive-declaration-placement",
+ "setup": [],
+ "expr": "(progn (defun late () 7 (interactive)) (list (commandp 'late) (late)))",
+ "note": "07A I10: only the first body form after an optional docstring is a declaration; a later interactive form remains ordinary body code. Planned kg gap for 07D."
+}

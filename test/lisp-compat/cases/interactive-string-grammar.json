@@ -1,0 +1,6 @@
+{
+ "id": "interactive-string-grammar",
+ "setup": [],
+ "expr": "(interactive \"r\\n\")",
+ "note": "07A I13: interactive strings are newline-delimited clauses; r contributes two arguments and an empty clause contributes none. Planned kg gap for 07E."
+}

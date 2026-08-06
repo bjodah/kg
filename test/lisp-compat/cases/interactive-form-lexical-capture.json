@@ -1,0 +1,6 @@
+{
+ "id": "interactive-form-lexical-capture",
+ "setup": [],
+ "expr": "(let ((value 9)) (defun captured-command () (interactive (list value)) value) (command-execute 'captured-command))",
+ "note": "07A I15: an interactive FORM evaluates in the command closure's lexical environment, not a detached global environment. Planned kg gap for 07D."
+}

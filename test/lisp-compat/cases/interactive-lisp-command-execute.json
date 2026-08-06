@@ -1,0 +1,6 @@
+{
+ "id": "interactive-lisp-command-execute",
+ "setup": ["(defun command-with-arity (x) (interactive \"p\") x)"],
+ "expr": "(command-execute 'command-with-arity)",
+ "note": "07A I14: Lisp-to-Lisp command-execute uses the interactive specification and propagates completion. Planned kg gap for 07D."
+}

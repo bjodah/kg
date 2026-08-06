@@ -1860,6 +1860,60 @@
    "kg_test": "test/test_lisp.c (not yet written -- Phase 8 Wave D delivers defcustom and its test together)",
    "rationale": "Phase 8 Wave D (parent plan's init-compat-waves phase, milestone 2): owned by kg, prelude/library layer, comparison emacs. Delivered as a prelude macro over kg's existing defvar-shaped boundp/setq machinery, not a port of Custom. Its eventual cases must distinguish: an unbound variable from an already-bound one (same first-defvar-wins contract as defvar); whether the standard-value form is evaluated in each of those two cases; the returned symbol and the stored docstring; accepted, inert presentation metadata (:type, :options, :group, :tag, :link, :version, :package-version) that kg stores but never interprets; rejected semantics-bearing or unknown keywords (kg is not silently accepting an arbitrary keyword and pretending it did something); and the documented absence of dynamic binding, retained standard forms, setopt, and any Customize UI. This entry exists specifically so defcustom does not become either a hand-waved synonym for defvar or an accidental commitment to all of Custom.",
    "source_name": null
-  }
+   },
+   {
+    "id": "phase7-interactive-declaration",
+    "category": "interactive-commands",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "interactive-declaration-placement",
+     "interactive-empty-spec-redefinition"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Phase 7, 07A rows I10/I11: declaration placement, nil/empty specifications, and command-status redefinition are planned metadata contracts for 07D.",
+    "source_name": null
+   },
+   {
+    "id": "phase7-interactive-prefix",
+    "category": "interactive-commands",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "interactive-raw-prefix"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Phase 7, 07A row I12: raw prefix values reach Lisp without collapsing repeated universal arguments or minus forms. Planned for 07D.",
+    "source_name": null
+   },
+   {
+    "id": "phase7-interactive-string",
+    "category": "interactive-commands",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "interactive-string-grammar"
+    ],
+    "kg_test": "test/test_lisp.c:test_definition_forms",
+    "rationale": "Phase 7, 07A row I13: newline-delimited interactive string clauses and their argument counts are planned for 07E.",
+    "source_name": null
+   },
+   {
+    "id": "phase7-interactive-command-execute",
+    "category": "interactive-commands",
+    "status": "planned",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": [
+     "interactive-lisp-command-execute",
+     "interactive-form-lexical-capture"
+    ],
+    "kg_test": "test/test_lisp.c:test_command_allow_list",
+    "rationale": "Phase 7, 07A rows I14/I15: Lisp-defined command execution must construct interactive arguments in the closure's lexical environment. Planned for 07D.",
+    "source_name": null
+   }
  ]
 }

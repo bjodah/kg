@@ -1282,15 +1282,17 @@ Strict lambda arity becomes unconditional.
 Remove `FeSetStrictArity()` as part of the API-version transition.  Do not
 retain a deprecated no-op or a lax-arity compatibility mode (§0.4).
 
-The dependency is already documented and is the whole reason kg does not
-call `FeSetStrictArity()` today: `doc/fe-upstream.md` records that turning
-it on "would make every `(defun c (x) (interactive) …)` an arity error,
-because kg invokes interactive commands with zero arguments
-(`FeCallWithOptions(ctx, cmd, nullptr, 0, &opts)`)".  So the two halves of
-this phase are not independent — **interactive argument construction must
-land before strict arity is enabled**, in that order, in kg.  Fe's own
-`fe -a` pass already runs its script suite under strict arity, so Fe's side
-is the smaller half.
+The dependency was real for the old kg corpus, but the Phase 7 audit measured
+that it is not a present-tense blocker: every Lisp-defined command in the
+corpus has zero required parameters, except one with `&optional`, and a
+temporary `FeSetStrictArity(true)` in `kg_lisp_init` passed all 406 PTY cases
+and every native suite.  Strict arity is therefore independently landable in
+Fe; interactive argument construction is a forward-compatibility dependency
+for the first command with required parameters, not a prerequisite for the
+07B/07C cut.  Fe's own `fe -a` pass already runs its script suite under strict
+arity, so Fe's side is the smaller half.  07A's Decision 1 records the
+measured ordering and 07C is the atomic pin that proves it without kg runtime
+adaptation.
 
 Support:
 
@@ -1303,6 +1305,24 @@ Support:
 Add explicit arity checks to every primitive and special form.
 
 Variadic arithmetic and comparison functions must follow their actual Emacs contracts rather than merely accepting or ignoring extra arguments.
+
+### Phase 7 funding (07A, measured 2026-08-06)
+
+The phase is funded from the idle-tree measurements, not from the stale
+baseline in §0.1.  Fe is at 654/680 scc, `fe_eval.c` is 440/460, and pmccabe
+is 863/900 across 292 symbols.  07B is priced at +50..80 scc/pmccabe for
+strict dispatch, `ArgsToEnv` validation, native-helper classification and the
+fuzz builders, so 07A raises `SCC_COMPLEXITY_MAX` 680→760,
+`SCC_FILE_COMPLEXITY_MAX` 460→520, and `PMCCABE_TOTAL_MAX` 900→980.  A new
+function remains capped at pmccabe 15; the raise does not excuse an oversized
+helper.
+
+kg is at 5489/5500 scc.  07D/07E are priced at +110..170 scc for command
+metadata, prefix/argument construction, nested command execution and the
+prompt seam, so 07A raises kg's `SCC_COMPLEXITY_MAX` 5500→5660.  kg's
+per-file and pmccabe ratchets remain live and are recorded per slice.  The
+raise is proved by temporary lowering before implementation begins; no
+runtime behavior or Fe pin changes belong to 07A.
 
 ### kg interactive definitions
 
@@ -1692,8 +1712,8 @@ requires.
 8. Update the Fe submodule for integers and mixed-numeric operations.
 9. Adjust integer, mixed-numeric formatting and equality tests.
 10. Add structured completion translation.
-11. Implement interactive argument metadata.
-12. Enable strict arity.
+11. Enable strict arity.
+12. Implement interactive argument metadata.
 13. Expand the compatibility fixture corpus.
 14. Add variable docstrings and the supported `defcustom` subset.
 15. Add arena-stat diagnostics.

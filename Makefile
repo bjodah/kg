@@ -294,7 +294,12 @@ SCC_COMPLEXITY_PATHS ?= src
 # store and buffer-mark adapter add 43 (4243 measured); 4250 banks that
 # named module with six points of rounding/tool-version room, not room for
 # unrelated command growth.
-SCC_COMPLEXITY_MAX ?= 5500
+# Raised 5500 -> 5660 by Phase 7 sub-plan 07A (2026-08-06), funding the
+# interactive metadata, prefix/argument builder, nested command execution and
+# prompt seam in 07D/07E. The idle-tree measurement is 5489, so the raise is
+# 171 points above the floor against the audited +110..170 scc price; the
+# per-file and pmccabe ratchets remain unchanged and are reported per slice.
+SCC_COMPLEXITY_MAX ?= 5660
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

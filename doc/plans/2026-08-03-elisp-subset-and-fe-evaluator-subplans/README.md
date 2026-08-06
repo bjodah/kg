@@ -353,7 +353,7 @@ Two more, learned the hard way during the first set:
   a missing `<stddef.h>`.  Regenerate the compile DB before believing that
   lane.
 
-## Complexity price table (00A, 2026-08-04)
+## Complexity price table (00A, updated by 07A, 2026-08-06)
 
 Every row below is priced against the closest existing module, per
 00A's method.  Only two numbers in this table are *measured* rather than
@@ -364,10 +364,10 @@ an estimate from reading the parent plan's phase section against the
 shape of the nearest existing code, in the spirit of the follow-up
 program's Plan 06 table — a number to fund the next concretely-scoped
 piece of work against, not a prediction to be silently missed.  Phases
-6–10 are milestone 2 (parent §0.3) and are marked **provisional**: they
-are priced here because the sub-plan asks for a row per phase, but they
-are *not* funded by this slice's Decision, and should be re-priced when
-milestone 1 closes and hands back real measurements.
+6–10 are milestone 2 (parent §0.3). Phases 6, 8, 9 and 10 remain
+**provisional** until their own A-slice funds them; Phase 7 is now funded by
+07A. They are priced here because the sub-plan asks for a row per phase, and
+should be re-priced when a later slice hands back real measurements.
 
 Hard-cut design (parent §0.4) is priced throughout: no row below reserves
 complexity for a compatibility wrapper, an `=`-assignment lint/deprecation
@@ -397,8 +397,9 @@ invisible-under-the-desync arithmetic).  The milestone's real headline is
 not the totals but where they left the caps: **scc 538/540, `fe_eval.c`
 330/340, pmccabe 752/760 — two, ten and eight points of headroom**, all of
 it consumed by phases 3–5.  Milestone 2 begins with no room, and its
-phases are re-priced above accordingly: Phase 6 must raise the caps in
-its 06A Decision before it writes a line.  Do not read the re-priced
+phases are re-priced above accordingly: each phase's A-slice raises the caps
+before implementation when its measured price requires it.  Phase 7's 07A
+Decision is the first kg raise and the seventh Fe raise.  Do not read the re-priced
 ranges as promises; they are the "price every phase" method anchored to
 measured milestone-1 comparables instead of to today's 210 baseline, and
 they inherit the same "Phase 3 carries the widest uncertainty" caveat
@@ -415,7 +416,7 @@ that the original ranges did.
 | 4 — Lisp-2 | Command registry's rooted-callable lookup moves from value cell to function cell; `defun`/`defmacro` rewrite is Lisp, not C | `src/lisp_cmd.c` (57) | **+15 to +25** | **Landed at ~0** — scc unchanged at 5444 at phase close; the post-close review fixes (designator-diagnostic seam, `functionp` via `FeIsFunction`) added **+6 → 5450/5500** |
 | 5 — integers | The `lisp_position()`/`lisp_finite()` funnel becomes integer-typed, `format`'s two type gates widen, `numberp` goes two-tag, the prelude equality family is rewritten | `src/lisp_buffer.c`/`lisp_io.c`/`lisp_cmd.c` seams | **+15 to +25** | **Landed well under the estimate.** 05A confirmed **5450/5500** (50 points of headroom, no raise); 05E's close re-measure is **5457/5500** — **+7** against +15 to +25, inside existing headroom, no raise.  pmccabe: three functions +1 each (`format_integer` 5→6, `format_float` 3→4, `native_numberp` 1→2), banked into the per-symbol baseline in 05E's commit.  The funnel audit (7 constructor sites + 2 gates + 1 predicate) stands |
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+15 to +30** (re-priced 2026-08-05) | Provisional (milestone 2) — kg landed at ~0/+7 on Phases 4–5, so the old +25 to +40 top was anchored to nothing; the error boundary is a small seam |
-| 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction | `src/lisp_cmd.c` (57), **priced by 00A's own anchor table as "roughly doubling"** | **+45 to +60** (re-priced 2026-08-05) | Provisional (milestone 2) — still the biggest kg row; trimmed from +55 to +65 toward the landed Phase 5 rate but this is genuinely new C code, unlike Phases 4–5's seams |
+| 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction, nested command execution and prompt seam | `src/lisp_cmd.c` (57), with the 07A audit's greenfield machinery estimate | **+110 to +170 scc** (07A, 2026-08-06) | **Funded by 07A's Decision** — kg raises `SCC_COMPLEXITY_MAX` 5500→**5660** against the measured 5489 floor; per-file and pmccabe ratchets remain live and actuals are recorded per slice |
 | 8 — init compat waves | `defcustom` validation + docstring storage (Wave D); no Customize UI | `src/lisp_prelude.c`/`src/lisp_require.c` | **+20 to +35** (re-priced 2026-08-05) | Provisional (milestone 2) |
 | 9 — robustness | Arena-stat diagnostics command | small, new | **+5 to +15** (re-priced 2026-08-05) | Provisional (milestone 2) — Phase 0's 00D already built the read-only stats surface, so this is a small command on top of it |
 | 10 — proofs | Fixtures, PTY cases | Not `src/*.c` | 0 | n/a |

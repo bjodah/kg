@@ -1,0 +1,36 @@
+# A multi-clause interactive spec's prompts are each their own clause's
+# tail, and stop at the newline that ends the clause.
+#
+# The builder handed the reader a pointer into the rest of the whole
+# spec, so every prompt but the last ran on into the clauses after it:
+# (interactive "sAlpha: \nsBeta: \nsGamma: ") asked "Alpha: ^JsBeta:
+# ^JsGamma: ".  Only a screen assertion can see this -- the delivered
+# values, and so the saved file, are the same either way.
+#
+# The case stops with the *second* prompt on screen (the first is
+# answered, the last would be correct even with the bug, since nothing
+# follows it), so trailer_keys is empty: there is no way to send C-x C-s
+# into an open minibuffer read.  The file is therefore untouched, which
+# is what expected_saved says.
+name: lisp-interactive-multi-clause-prompts
+filename: multi-clause.txt
+backend: tmux
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun three-strings (a b c)
+      (interactive "sAlpha: \nsBeta: \nsGamma: ")
+      (insert (concat a "/" b "/" c)))
+initial: "seed"
+keys:
+  - M-x
+  - three-strings
+  - RET
+  - one
+  - RET
+trailer_keys: []
+expected_screen_contains:
+  - "Beta:"
+expected_screen_not_contains:
+  - "sGamma"
+expected_saved: "seed"

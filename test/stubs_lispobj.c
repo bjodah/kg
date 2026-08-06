@@ -124,13 +124,15 @@ int editor_path_expand_tilde(char *buf, int bufsize)
 }
 
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
-    int outsize, int allow_new, int blank_current)
+    int outsize, enum buf_name_mode mode, int *picked)
 {
 	(void)fd;
 	(void)prompt;
 	(void)out;
 	(void)outsize;
-	(void)allow_new;
-	(void)blank_current;
+	(void)mode;
+	if (picked != NULL) {
+		*picked = -1;
+	}
 	return MINIBUF_CANCELLED;
 }

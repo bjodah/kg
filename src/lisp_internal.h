@@ -34,6 +34,10 @@
 #define LISP_MAX_LOAD_PATH 8
 #define LISP_MAX_REQUIRE_STACK 8
 #define LISP_INTERACTIVE_MAX_ARGS 16
+/* The longest `(interactive "…")` specification string.  Bounded, and on
+ * the argument builder's own C frame, because everything it drives can
+ * raise: a heap copy held across a prompt cancellation leaks. */
+#define LISP_INTERACTIVE_SPEC_MAX 512
 
 enum lisp_interactive_kind {
 	LISP_INTERACTIVE_NONE,
@@ -63,6 +67,12 @@ struct lisp_prefix_binding {
 	struct FeRoot *old_root;
 	struct FeRoot *new_root;
 	int active;
+	/* The binding this one displaced, innermost first.  A nested
+	 * (command-execute ...) makes a second binding while the outer
+	 * command's is live, and state.prefix_binding is one slot: without
+	 * the chain the outer binding was simply forgotten, and frame
+	 * recovery -- which drains from that slot -- freed nothing. */
+	struct lisp_prefix_binding *outer;
 };
 
 /* The runtime execution context for one frame: which buffer Lisp code is

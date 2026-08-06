@@ -86,7 +86,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 }
 int cmd_execute_named(const char *name, int fd)
 {
-	struct command_context ctx = { fd, { 0, 0, 0 }, CMD_ORIGIN_KEY };
+	struct command_context ctx = { fd, { 0, 0, 0, 0 }, CMD_ORIGIN_KEY };
 
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }

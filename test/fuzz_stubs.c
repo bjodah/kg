@@ -36,16 +36,24 @@ void cmd_prompt_block(void) { }
 void cmd_prompt_unblock(void) { }
 
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
-    int outsize, int allow_new, int blank_current)
+    int outsize, enum buf_name_mode mode, int *picked)
 {
 	(void)fd;
 	(void)prompt;
 	(void)out;
 	(void)outsize;
-	(void)allow_new;
-	(void)blank_current;
+	(void)mode;
+	if (picked != NULL) {
+		*picked = -1;
+	}
 	return MINIBUF_CANCELLED;
 }
+
+struct command_scope cmd_scope_save(void)
+{
+	return (struct command_scope) { 0 };
+}
+void cmd_scope_restore(struct command_scope scope) { (void)scope; }
 
 static int fuzz_pipe_read_fd = -1;
 static int fuzz_pipe_write_fd = -1;

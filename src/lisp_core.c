@@ -598,8 +598,20 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	FeReleaseRoot(binding->context, binding->old_root);
 	FeReleaseRoot(binding->context, binding->new_root);
 	binding->active = 0;
+	/* Unlink from the innermost-first chain.  Cleanups are LIFO so this
+	 * is almost always the head, but walking is cheap and cannot leave a
+	 * freed link behind. */
 	if (state.prefix_binding == binding) {
-		state.prefix_binding = nullptr;
+		state.prefix_binding = binding->outer;
+	} else {
+		struct lisp_prefix_binding *scan = state.prefix_binding;
+
+		while (scan != nullptr && scan->outer != binding) {
+			scan = scan->outer;
+		}
+		if (scan != nullptr) {
+			scan->outer = binding->outer;
+		}
 	}
 	free(binding);
 }
@@ -918,9 +930,20 @@ static int interactive_add_prefix(FeContext *context, int fd, FeObject *raw,
 	if (handler != nullptr) {
 		return handler(context, fd, raw, args, argc, code, prompt);
 	}
-	/* This is the complete measured Emacs code set.  Codes outside the
-	 * implemented subset are distinguished from malformed bytes. */
-	if (strchr("abBcCdDefFGikKmMpPrRSUVvXxZz", code) != nullptr) {
+	/* 07A's measured Emacs code set, complete and in order:
+	 * a b B c C d D e f F G i k K m M n N p P r R s S U v x X z Z.
+	 * n, N, s, f, F, b, B, p, P and r are in the handler table above and
+	 * never reach here; what remains is a valid Emacs code kg has not
+	 * implemented, which is a different answer from a malformed byte.
+	 *
+	 * It had `V`, which Emacs has no code for, and lacked n/N/s while
+	 * the comment claimed to be the whole set.
+	 *
+	 * `*`, `@` and `^` are Emacs' interactive *modifiers* rather than
+	 * codes -- they lead the spec instead of naming an argument -- and
+	 * are deferred, not invalid: 07A Decision 6 and doc/TODO.md both
+	 * promise "unsupported" for a valid-but-deferred spelling. */
+	if (strchr("abBcCdDefFGikKmMnNpPrRsSUvxXzZ*@^", code) != nullptr) {
 		char message[64];
 		(void)snprintf(message, sizeof(message),
 		    "unsupported interactive code %c", code);
@@ -934,37 +957,78 @@ static int interactive_add_prefix(FeContext *context, int fd, FeObject *raw,
 	}
 }
 
+/* Copy one clause's prompt text -- everything from `from` up to the
+ * clause's terminating newline, or to the end of the spec when it is the
+ * last clause -- into a bounded buffer. */
+static void clause_prompt(
+    const char *from, const char *end, char *out, size_t outsize)
+{
+	size_t length = end != nullptr ? (size_t)(end - from) : strlen(from);
+
+	if (length >= outsize) {
+		length = outsize - 1;
+	}
+	memcpy(out, from, length);
+	out[length] = '\0';
+}
+
+/* Copy a Fe string into a caller-owned bounded buffer, raising when it does
+ * not fit.  The point is that no heap allocation is live afterwards: a
+ * prompt, a quit or a validation failure below raises, and an Fe raise
+ * longjmps past every free() on this C frame -- which ASan reported as a
+ * leak for every command whose spec prompts and is then cancelled.  Same
+ * reason copy_command_name() exists in lisp_cmd.c. */
+static void copy_bounded(FeContext *context, FeObject *object, char *out,
+    size_t outsize, const char *toolong)
+{
+	size_t length;
+	char *text = copy_fe_string(context, object, &length);
+
+	if (length >= outsize) {
+		free(text);
+		interactive_error(context, toolong);
+	}
+	memcpy(out, text, length + 1);
+	free(text);
+}
+
 static int interactive_string_args(
     FeContext *context, int fd, FeObject *spec, FeObject *raw, FeObject **args)
 {
-	char *text;
+	char text[LISP_INTERACTIVE_SPEC_MAX];
 	const char *clause;
 	const char *next;
-	size_t length;
 	int argc = 0;
 
-	text = copy_fe_string(context, spec, &length);
+	copy_bounded(context, spec, text, sizeof(text),
+	    "interactive specification is too long");
 	clause = text;
 	if (*text == '\0') {
-		free(text);
 		return 0;
 	}
 	while (*clause) {
+		char prompt[128];
+
 		next = strchr(clause, '\n');
 		if (next != nullptr && next == clause) {
-			free(text);
 			interactive_error(
 			    context, "invalid empty interactive clause");
 		}
 		if (argc >= LISP_INTERACTIVE_MAX_ARGS) {
-			free(text);
 			interactive_error(
 			    context, "too many interactive arguments");
 		}
+		/* The prompt is this clause's tail and stops at the newline.
+		 * Passing `clause + 1` handed the reader the rest of the
+		 * whole spec, so (interactive "sFirst: \nsSecond: ") asked
+		 * "First: ^JsSecond: " -- the second clause leaking into the
+		 * first one's prompt.  Bounded rather than allocated: a
+		 * prompt is display text, and 127 bytes is already far wider
+		 * than the echo area. */
+		clause_prompt(clause + 1, next, prompt, sizeof(prompt));
 		if (interactive_add_prefix(
-			context, fd, raw, args, &argc, *clause, clause + 1)
+			context, fd, raw, args, &argc, *clause, prompt)
 		    != 0) {
-			free(text);
 			return argc;
 		}
 		if (next == nullptr) {
@@ -972,12 +1036,10 @@ static int interactive_string_args(
 		}
 		clause = next + 1;
 		if (*clause == '\0') {
-			free(text);
 			interactive_error(
 			    context, "invalid empty interactive clause");
 		}
 	}
-	free(text);
 	return argc;
 }
 
@@ -1021,7 +1083,12 @@ static int interactive_form_args(
 
 static int lisp_command_recover(const char *command_name)
 {
-	if (state.prefix_binding != nullptr) {
+	/* Drain every binding still live, not only the innermost.  Fe's own
+	 * unwind has already run the cleanup of each *nested* binding, so
+	 * what is normally left here is the top-level one -- which nothing
+	 * released at all once a nested activation had overwritten the
+	 * single slot this used to read. */
+	while (state.prefix_binding != nullptr) {
 		cleanup_prefix_binding(state.context, state.prefix_binding);
 	}
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
@@ -1056,6 +1123,7 @@ static struct lisp_prefix_binding *lisp_command_bind_prefix(
 		binding->old_root = old_root;
 		binding->new_root = prefix_root;
 		binding->active = 1;
+		binding->outer = state.prefix_binding;
 		state.prefix_binding = binding;
 		if (nested) {
 			FeProtectWithCleanup(

@@ -722,6 +722,24 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			passed = 0
 			details = (f"exit code {kg_run.exit_code}, "
 				   f"expected {case.expected_exit_code}")
+	elif passed and kg_run.exit_code not in (0, None):
+		# A case that does not declare an expected status still
+		# requires a clean one.  Only cases that opted in were checked
+		# before, and a sanitizer reports through exactly this
+		# channel: LeakSanitizer prints its report and exits 23 while
+		# the saved file is perfectly correct, so ci-04 ran green over
+		# a heap leak on the interactive error paths that ASan had
+		# found and nothing was reading.
+		#
+		# The tmux backend cannot participate: it drives kg inside a
+		# tmux pane and never waits on kg itself, so run_editor_tmux
+		# reports 0 unconditionally -- which is why
+		# expected_exit_code is refused for that backend too. Cases
+		# that must observe a status use backend: pexpect.
+		passed = 0
+		details = (f"kg exited {kg_run.exit_code}; a sanitizer or "
+			   "assertion failure reports through the exit "
+			   "status even when the saved file is correct")
 
 	if passed:
 		return ("XPASS", None) if case.xfail else ("PASS", None)

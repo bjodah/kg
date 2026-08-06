@@ -157,7 +157,9 @@
     (funcall f (car lst))
     (setq lst (cdr lst)))
   original))
-(defalias 'mapconcat (lambda (f lst separator)
+;; SEPARATOR has been optional since Emacs 29, defaulting to "".
+(defalias 'mapconcat (lambda (f lst &optional separator)
+  (if (null separator) (setq separator ""))
   (internal--let result "")
   (internal--let first t)
   (while lst
@@ -197,24 +199,45 @@
       (setq previous lst))
     (setq lst (cdr lst)))
   result))
-(defalias 'add-to-list (macro (place item . rest)
-  (internal--let variable
-    (if (and (consp place) (eq (car place) 'quote))
-        (car (cdr place))
-      place))
-  (internal--let appendp (car rest))
-  (list 'setq variable
-    (list 'if (list 'member item variable)
-      variable
+;; Emacs' add-to-list is a *function* taking a symbol, not a macro taking
+;; a place: (let ((s 'my-list)) (add-to-list s 1)) has to reach my-list.
+;; A macro that pattern-matched a literal (quote NAME) could only ever
+;; assign to a variable spelled `s'.  `set'/`symbol-value' are the pair
+;; that makes it a function here; the membership test is `equal', as in
+;; Emacs, and the return value is the resulting list.
+(defalias 'add-to-list (lambda (variable item &optional appendp)
+  (internal--let current (symbol-value variable))
+  (if (member item current)
+      current
+    (set variable
       (if appendp
-          (list 'append variable (list 'list item))
-        (list 'cons item variable))))))
+          (append current (list item))
+        (cons item current))))))
 (defalias 'identity (lambda (value) value))
+;; Emacs' float syntax is exactly what fe's writer prints for a float
+;; (shortest round-trip, always with a `.' or an exponent), and its
+;; integer syntax is fe's for an integer, so %S is the whole conversion.
+(defalias 'number-to-string (lambda (n)
+  (if (numberp n)
+      (format "%S" n)
+    (signal 'wrong-type-argument (list 'numberp n)))))
+;; Emacs answers a list of codepoints, and nil for "".  Built backwards
+;; from the end so the spine is one `while' and no reverse is needed;
+;; `substring' indexes in codepoints and `string-to-char' decodes one.
+(defalias 'string-to-list (lambda (s)
+  (internal--let i (string-length s))
+  (internal--let res nil)
+  (while (< 0 i)
+    (setq i (- i 1))
+    (setq res (cons (string-to-char (substring s i (+ i 1))) res)))
+  res))
 (defalias 'prog2 (macro (first second . rest)
   (list 'progn first (cons 'prog1 (cons second rest)))))
+;; Emacs answers (wrong-number-of-arguments max 0) for a bare (max), not
+;; a prose error, so these signal the condition with the same data.
 (defalias 'max (lambda args
   (if (null args)
-      (error "max requires at least one argument")
+      (signal 'wrong-number-of-arguments (list 'max 0))
     (internal--let result (car args))
     (setq args (cdr args))
     (while args
@@ -223,7 +246,7 @@
     result)))
 (defalias 'min (lambda args
   (if (null args)
-      (error "min requires at least one argument")
+      (signal 'wrong-number-of-arguments (list 'min 0))
     (internal--let result (car args))
     (setq args (cdr args))
     (while args
@@ -247,7 +270,18 @@
 (defalias 'prog1 (macro (first . body)
   (cons 'internal--first (cons first body))))
 ;; --- binding forms ---
-(defalias 'internal--bind-name (lambda (b) (if (atom b) b (car b))))
+;; `let' compiles into a lambda application, and fe lets a parameter named
+;; `t' shadow -- which is Emacs-true for a lambda but NOT for a `let':
+;; Emacs answers (setting-constant t) for (let ((t 1)) t) and kg answered
+;; 1.  The binding names are therefore checked here, where both `let' and
+;; `let*' pass through, rather than in the expansion.  nil and keywords
+;; reach the same answer through fe's own parameter binder; naming them
+;; here makes the three refusals one rule with one message.
+(defalias 'internal--bind-name (lambda (b)
+  (internal--let name (if (atom b) b (car b)))
+  (if (or (eq name t) (eq name nil) (keywordp name))
+      (signal 'setting-constant (list name))
+    name)))
 (defalias 'internal--bind-value (lambda (b)
   (if (atom b) nil (car (cdr b)))))
 ;; Parallel, via immediate application: the value forms are evaluated

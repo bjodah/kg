@@ -3421,7 +3421,7 @@ static void test_quit_uncaught(void)
 	teardown_editor();
 }
 
-#define PRELUDE_DEFS 75
+#define PRELUDE_DEFS 77
 
 static void test_prelude_source_file(void)
 {
@@ -3537,6 +3537,91 @@ static void test_prelude_source_file(void)
 	kg_lisp_shutdown();
 }
 
+/* 08A Table C, as GNU Emacs 31.0.90 answers it (/opt-3/emacs-31-lucid,
+ * emacs -Q --batch).  fe core owns the refusals; kg's prelude owns the
+ * `let' half, because a `let' compiles into a lambda application and fe
+ * lets a lambda parameter named `t' shadow -- which Emacs also does for a
+ * lambda, and does NOT do for a `let'. */
+static void test_phase8_constants_and_keywords(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(condition-case e (setq t nil)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant t)"));
+	CHECK(eval_eq("(condition-case e (setq nil 1)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant nil)"));
+	CHECK(eval_eq("(condition-case e (setq :kw 1)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant :kw)"));
+	CHECK(eval_eq("(condition-case e (let ((t 1)) t)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant t)"));
+	CHECK(eval_eq("(condition-case e (let ((nil 1)) 1)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant nil)"));
+	CHECK(eval_eq("(condition-case e (let ((:kw 1)) 1)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant :kw)"));
+	/* let* goes through the same binding-name helper. */
+	CHECK(eval_eq("(condition-case e (let* ((t 1)) t)"
+		      " (setting-constant (list (car e) (car (cdr e)))))",
+	    "(setting-constant t)"));
+	/* An ordinary binding list still binds. */
+	CHECK(eval_eq("(let ((a 1) (b 2)) (+ a b))", "3"));
+	CHECK(eval_eq("(let* ((a 1) (b (+ a 1))) b)", "2"));
+	/* A lambda parameter named t may shadow -- Emacs answers 1 too. */
+	CHECK(eval_eq("((lambda (t) t) 1)", "1"));
+	/* Keywords self-evaluate and answer keywordp. */
+	CHECK(eval_eq("(list :foo (keywordp :foo) (keywordp 'foo) (eq :a ':a))",
+	    "(:foo t nil t)"));
+	/* `:' alone is a keyword too, which 08B first guessed it was not. */
+	CHECK(eval_eq("(keywordp ':)", "t"));
+
+	kg_lisp_shutdown();
+}
+
+/* 08A Table R.  Every accepted row is byte-identical to the pinned
+ * oracle's answer; every rejected row is a named read error, which is
+ * 08C's "reject rather than misread" rule made checkable. */
+static void test_phase8_reader_literals(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(list ?a ?\\n ?\\t ?\\e ?\\\\ ?\\s ?\\d)",
+	    "(97 10 9 27 92 32 127)"));
+	CHECK(eval_eq("(list ?\\C-a ?\\M-a)", "(1 134217825)"));
+	CHECK(eval_eq("?\xc3\xa9", "233"));
+	/* The control modifier is not `& 0x1f': ? is DEL, @.._ and a..z
+	 * fold, and everything else keeps its value with the 2^26 bit. */
+	CHECK(eval_eq("(list ?\\C-? ?\\C-% ?\\C-\xc3\xa9)",
+	    "(127 67108901 67109097)"));
+	CHECK(eval_eq("(list #x10 #o17 #b101 #xff)", "(16 15 5 255)"));
+	CHECK(eval_eq("(list \"\\x41\" \"\\101\" \"\\e\" \"\\d\" \"\\s\")",
+	    "(\"A\" \"A\" \"\x1b\" \"\x7f\" \" \")"));
+
+	/* Rejections, by name.  Each of these used to be read as something
+	 * else -- a vector as three symbols, ?ab as one character plus a
+	 * leftover token, "\x41f" as "Af". */
+	CHECK(eval_error_contains("(list [1 2 3])", "vector brackets"));
+	CHECK(eval_error_contains("(list '#:sym)", "unsupported read syntax"));
+	CHECK(eval_error_contains("(cdr '(a\\ b))", "symbol escape"));
+	CHECK(eval_error_contains("(list \"\\q\")", "unknown escape"));
+	CHECK(eval_error_contains(
+	    "(list ?ab)", "? literal without delimiter"));
+	CHECK(eval_error_contains("(list ?\\s-a)", "\\s character modifier"));
+	CHECK(eval_error_contains("(list ?\\^a)", "\\^ character modifier"));
+	CHECK(eval_error_contains(
+	    "(list \"\\x41f\")", "character above 255 in string"));
+	CHECK(eval_error_contains(
+	    "(list \"\\0a\")", "NUL character in string"));
+	CHECK(eval_error_contains(
+	    "(list ?\\x110000)", "\\x character out of range"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase8_library(void)
 {
 	struct kg_lisp_arena_stats before, after;
@@ -3546,15 +3631,75 @@ static void test_phase8_library(void)
 	CHECK(eval_eq("(mapc (lambda (x) x) '(1 2 3))", "(1 2 3)"));
 	CHECK(eval_eq(
 	    "(mapconcat (lambda (x) x) '(\"1\" \"2\" \"3\") \",\")", "1,2,3"));
+	/* SEPARATOR is optional since Emacs 29 and defaults to "". */
+	CHECK(eval_eq("(mapconcat (lambda (x) x) '(\"a\" \"b\"))", "ab"));
+	CHECK(eval_eq("(mapconcat 'number-to-string '(1 2 3) \", \")",
+	    "1, 2, 3"));
+	/* number-to-string: Emacs' integer and float syntaxes, which are
+	 * fe's writer's, and wrong-type-argument for a non-number. */
+	CHECK(eval_eq("(number-to-string 3)", "3"));
+	CHECK(eval_eq("(number-to-string 1.0)", "1.0"));
+	CHECK(eval_eq("(number-to-string 1.5)", "1.5"));
+	CHECK(eval_eq("(number-to-string -0.0)", "-0.0"));
+	CHECK(eval_error_contains(
+	    "(number-to-string \"x\")", "wrong-type-argument"));
+	/* string-to-list: codepoints, not bytes, and nil for "". */
+	CHECK(eval_eq("(string-to-list \"ab\xc3\xa9\")", "(97 98 233)"));
+	CHECK(eval_eq("(string-to-list \"\")", "nil"));
+	/* mapc is distinguishable from mapcar only through a side effect:
+	 * it answers its LIST argument, not the collected results. */
+	CHECK(eval_eq("(let ((acc nil))"
+		      " (list (mapc (lambda (x) (setq acc (cons x acc)))"
+		      " '(1 2 3)) acc (mapcar (lambda (x) (* x 2)) '(1 2 3))))",
+	    "((1 2 3) (3 2 1) (2 4 6))"));
 	CHECK(eval_eq("(progn (setq x (list 1 2 3)) (nreverse x))", "(3 2 1)"));
+	/* nreverse mutates: the name still points at what was the head, so
+	 * it is now the one-element tail.  Emacs answers ((2 1) (1)). */
+	CHECK(eval_eq("(let ((x (list 1 2))) (list (nreverse x) x))",
+	    "((2 1) (1))"));
 	CHECK(eval_eq("(delq 2 (list 1 2 1))", "(1 1)"));
 	CHECK(eval_eq("(delete '(a) (list '(a) '(b)))", "((b))"));
+	/* delq compares with eq and delete with equal, which is the whole
+	 * difference: the same freshly consed needle is found by one and
+	 * not the other.  Emacs answers (((1) (2)) ((2))). */
+	CHECK(eval_eq("(let ((needle (list 1)) (items (list (list 1)"
+		      " (list 2)))) (list (delq needle items)"
+		      " (delete needle (list (list 1) (list 2)))))",
+	    "(((1) (2)) ((2)))"));
+	/* The head-removal contract: the result must be assigned back,
+	 * because removing the first element cannot be done in place. */
+	CHECK(eval_eq("(progn (setq x (list 1 2)) (setq x (delq 1 x)) x)",
+	    "(2)"));
+	/* A cond clause with no body answers its own test's value. */
+	CHECK(eval_eq("(list (cond (5)) (cond (nil 1) (2)) (cond (nil 1))"
+		      " (cond))",
+	    "(5 2 nil nil)"));
 	CHECK(
 	    eval_eq("(progn (setq x '(2 1)) (add-to-list 'x 3) x)", "(3 2 1)"));
+	/* APPEND puts the new element last, and an element already there
+	 * (by `equal') leaves the list alone. */
+	CHECK(eval_eq("(progn (setq x (list 2 1)) (add-to-list 'x 3 t))",
+	    "(2 1 3)"));
+	CHECK(eval_eq("(progn (setq x (list 1 2)) (add-to-list 'x 1) x)",
+	    "(1 2)"));
+	/* Emacs' add-to-list is a function taking a symbol, so the symbol
+	 * argument is evaluated: this reaches my-list, not `s'.  kg's was a
+	 * macro pattern-matching a literal (quote NAME) and answered
+	 * (1) here, having assigned to `s'. */
+	CHECK(eval_eq("(let ((s 'my-list)) (setq my-list (list 1))"
+		      " (add-to-list s 2) my-list)",
+	    "(2 1)"));
 	CHECK(eval_eq("(identity 7)", "7"));
 	CHECK(eval_eq("(prog2 1 2 3)", "2"));
 	CHECK(eval_eq("(max 1 4 2)", "4"));
 	CHECK(eval_eq("(min 1 4 2)", "1"));
+	/* Emacs answers (wrong-number-of-arguments max 0) for a bare call
+	 * and (wrong-type-argument ...) for a non-number operand; kg used
+	 * to answer a prose error for the first. */
+	CHECK(eval_error_contains("(max)", "wrong-number-of-arguments"));
+	CHECK(eval_error_contains("(min)", "wrong-number-of-arguments"));
+	CHECK(eval_error_contains("(max \"a\" 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(min \"a\" 1)", "wrong-type-argument"));
 	CHECK(eval_eq("(progn (makunbound 'no-value) (defvar no-value) "
 		      "(boundp 'no-value))",
 	    "nil"));
@@ -4030,6 +4175,8 @@ int main(void)
 	RUN(test_ignore_errors);
 	RUN(test_condition_case_reentry);
 	RUN(test_quit_uncaught);
+	RUN(test_phase8_constants_and_keywords);
+	RUN(test_phase8_reader_literals);
 	RUN(test_phase8_library);
 	RUN(test_prelude_source_file);
 	return test_summary();

@@ -8,6 +8,7 @@
 #include "keybind.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 

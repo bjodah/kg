@@ -40,7 +40,8 @@ int test_key_script_pos;
 struct key_event editor_read_key(int fd)
 {
 	(void)fd;
-	if (test_key_script != NULL && test_key_script_pos < test_key_script_len) {
+	if (test_key_script != NULL
+	    && test_key_script_pos < test_key_script_len) {
 		return test_key_script[test_key_script_pos++];
 	}
 	return (struct key_event) { 'g', KEY_MOD_CTRL };

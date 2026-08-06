@@ -3071,17 +3071,14 @@ static struct key_event kev(int base, int mods)
 static void test_path_prompt_overflow_is_retired(void)
 {
 	char path[4];
-	struct key_event too_long[] = {
-		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
-		kev(KEY_BASE_RET, 0)
-	};
-	struct key_event corrected[] = {
-		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
-		/* Two backspaces: the first retires the refusal, the second
-		 * deletes a stored character. */
-		kev(KEY_BASE_DEL, 0), kev(KEY_BASE_DEL, 0),
-		kev(KEY_BASE_RET, 0)
-	};
+	struct key_event too_long[] = { kev('a', 0), kev('b', 0), kev('c', 0),
+		kev('d', 0), kev(KEY_BASE_RET, 0) };
+	struct key_event corrected[]
+	    = { kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
+		      /* Two backspaces: the first retires the refusal, the
+		       * second deletes a stored character. */
+		      kev(KEY_BASE_DEL, 0), kev(KEY_BASE_DEL, 0),
+		      kev(KEY_BASE_RET, 0) };
 
 	setup();
 	path[0] = '\0';
@@ -3110,13 +3107,11 @@ static void test_path_prompt_overflow_is_retired(void)
 static void test_path_prompt_midline_erase_keeps_cursor(void)
 {
 	char path[64];
-	struct key_event keys[] = {
-		kev('a', 0), kev('b', 0), kev('c', 0), kev('d', 0),
+	struct key_event keys[] = { kev('a', 0), kev('b', 0), kev('c', 0),
+		kev('d', 0),
 		/* Back over "cd", erase the 'b', type 'X' in its place. */
 		kev('b', KEY_MOD_CTRL), kev('b', KEY_MOD_CTRL),
-		kev(KEY_BASE_DEL, 0), kev('X', 0),
-		kev(KEY_BASE_RET, 0)
-	};
+		kev(KEY_BASE_DEL, 0), kev('X', 0), kev(KEY_BASE_RET, 0) };
 
 	setup();
 	path[0] = '\0';
@@ -3177,8 +3172,8 @@ static void test_buf_read_name_modes(void)
 
 	/* `b`: blank means the current buffer, and nothing is selected. */
 	PLAY(blank_ret);
-	CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
-		  BUF_NAME_EXISTING, &picked)
+	CHECK(buf_read_name(
+		  0, "B: ", name, (int)sizeof(name), BUF_NAME_EXISTING, &picked)
 	    == MINIBUF_ACCEPTED);
 	CHECK(buf_current == start);
 	CHECK(picked == start);
@@ -3197,8 +3192,8 @@ static void test_buf_read_name_modes(void)
 	/* `b`: the same miss re-prompts instead, so the read only ends when
 	 * the script's C-g arrives. */
 	PLAY(miss_then_cancel);
-	CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
-		  BUF_NAME_EXISTING, &picked)
+	CHECK(buf_read_name(
+		  0, "B: ", name, (int)sizeof(name), BUF_NAME_EXISTING, &picked)
 	    == MINIBUF_CANCELLED);
 	CHECK(buf_current == start);
 	CHECK(!kg_event_prompt_active());
@@ -3250,8 +3245,8 @@ static void test_buf_read_name_overflow_is_retired(void)
 	keys[BUF_NAME_QUERY_MAX + 3] = kev(KEY_BASE_RET, 0);
 
 	play_keys(keys, BUF_NAME_QUERY_MAX + 3);
-	CHECK(buf_read_name(
-		  0, "B: ", name, (int)sizeof(name), BUF_NAME_ANY, NULL)
+	CHECK(
+	    buf_read_name(0, "B: ", name, (int)sizeof(name), BUF_NAME_ANY, NULL)
 	    == MINIBUF_OVERFLOW);
 	CHECK(!kg_event_prompt_active());
 

@@ -156,7 +156,8 @@ static int start_universal_arg(struct key_event c)
 	} else {
 		editor.prefix_arg = meta < 0 ? 4 : meta;
 	}
-	editor.prefix_no_digits = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL;
+	editor.prefix_no_digits
+	    = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL;
 	if (meta < 0) {
 		editor_set_status_message("C-u");
 	} else {

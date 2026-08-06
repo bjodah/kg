@@ -5,7 +5,6 @@
  * at the foot of this file uses and which is compiled in both build
  * configurations; the KG_USE_LISP half below includes it again through
  * its own guard. */
-#include "def.h"
 #include "lisp.h"
 #include "perf.h"
 
@@ -22,7 +21,6 @@ void copy_result(char *result, size_t result_size, const char *text)
 
 #ifdef KG_USE_LISP
 
-#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -747,8 +745,7 @@ static FeObject *read_interactive_number(
 			 * literal does in fe's own reader; kg has no
 			 * bignums, which is already a recorded divergence. */
 			if (errno != ERANGE) {
-				return FeMakeInteger(
-				    context, (int64_t)integer);
+				return FeMakeInteger(context, (int64_t)integer);
 			}
 			return FeMakeDouble(context, strtod(text, nullptr));
 		}
@@ -1079,7 +1076,8 @@ static int interactive_form_args(
 		 * command call allocate left every constructed argument
 		 * collectable, which is 07D's "root every list element until
 		 * FeCallWithOptions has taken the vector". */
-		interactive_push_arg(context, args, &argc, FeCar(context, value));
+		interactive_push_arg(
+		    context, args, &argc, FeCar(context, value));
 		value = FeCdr(context, value);
 	}
 	FeReleaseRoot(context, value_root);

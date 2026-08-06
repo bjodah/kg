@@ -613,8 +613,7 @@ static void test_define_and_run_command(void)
 	 * is nil or a string. */
 	CHECK(eval_error_contains("(define-command \"x\" (lambda () 1) 5)",
 	    "requires a string or function spec"));
-	CHECK(eval_error_contains(
-	    "(define-command \"x\" (lambda () 1) nil 5)",
+	CHECK(eval_error_contains("(define-command \"x\" (lambda () 1) nil 5)",
 	    "documentation requires a string"));
 	/* ... and both optional arguments really are optional. */
 	CHECK(eval_ok("(define-command \"two-arg\" (lambda () 1))"));
@@ -623,12 +622,13 @@ static void test_define_and_run_command(void)
 	/* lookup-key answers nil rather than raising for a map nothing is
 	 * called, and for a sequence that does not parse. */
 	CHECK(eval_eq("(lookup-key \"no-such-map\" \"C-c i\")", "nil"));
-	CHECK(eval_eq("(lookup-key \"global\" \"C-c C-c C-c C-c C-c\")", "nil"));
+	CHECK(
+	    eval_eq("(lookup-key \"global\" \"C-c C-c C-c C-c C-c\")", "nil"));
 
 	/* global-unset-key tells an unbindable sequence from an unbound
 	 * one, and names the sequence in both messages. */
-	CHECK(eval_error_contains("(global-unset-key \"C-x i\")",
-	    "only \"C-c <key>\" is bindable"));
+	CHECK(eval_error_contains(
+	    "(global-unset-key \"C-x i\")", "only \"C-c <key>\" is bindable"));
 	CHECK(eval_error_contains(
 	    "(global-unset-key \"C-c q\")", "key is not bound"));
 

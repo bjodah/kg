@@ -1760,8 +1760,8 @@ static enum buf_name_action buf_name_take(
 }
 
 static enum buf_name_action buf_name_accept(struct key_event c,
-    const char *query, const struct buf_name_view *view, char *out,
-    int outsize, enum buf_name_mode mode, int overflow, int *picked)
+    const char *query, const struct buf_name_view *view, char *out, int outsize,
+    enum buf_name_mode mode, int overflow, int *picked)
 {
 	const int meta_ret = KEY_IS(c, KEY_BASE_RET, KEY_MOD_META);
 
@@ -1965,8 +1965,8 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
-			struct buf_name_view view = { n, matches, sel, order,
-				ring_pos, names };
+			struct buf_name_view view
+			    = { n, matches, sel, order, ring_pos, names };
 			int result = buf_name_handle_key(fd, c, query, &qlen,
 			    &overflow, &sel, &view, out, outsize, mode, picked);
 			if (result != -2) {
@@ -2005,8 +2005,8 @@ void buf_select_interactive(int fd)
 	 * returned text: display names are disambiguated by one parent
 	 * directory and can still collide, and the first match then wins
 	 * over the entry the user actually highlighted. */
-	if (buf_read_name(fd, "Buffer: ", name, sizeof(name), BUF_NAME_SELECT,
-		&picked)
+	if (buf_read_name(
+		fd, "Buffer: ", name, sizeof(name), BUF_NAME_SELECT, &picked)
 		== MINIBUF_ACCEPTED
 	    && picked >= 0) {
 		(void)buf_select(picked);

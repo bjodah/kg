@@ -446,8 +446,8 @@ static void test_expand_tilde_reports_overflow(void)
 
 		/* ... and the split's directory half is emptied, so the
 		 * caller scans nothing rather than the wrong thing. */
-		editor_path_split(
-		    "~/sub/name", dir, (int)sizeof(dir), file, (int)sizeof(file));
+		editor_path_split("~/sub/name", dir, (int)sizeof(dir), file,
+		    (int)sizeof(file));
 		CHECK(dir[0] == '\0');
 		CHECK(strcmp(file, "name") == 0);
 	}

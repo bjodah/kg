@@ -385,6 +385,7 @@ $(LISP_CONFIG):
 	touch $@
 
 $(OBJS): $(LISP_CONFIG)
+$(LISP_OBJS): $(LISP_CONFIG)
 
 $(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -456,6 +457,17 @@ lisp-prelude-check:
 		diff -u src/lisp_prelude_generated.inc "$$tmp" | head -20 >&2; \
 		exit 1; \
 	fi
+
+# Audit utility for feeding a fixed init corpus to an external driver.  It
+# is intentionally outside TESTBINS: it checks source framing and emits the
+# source forms, but does not claim to be a second Lisp evaluator.
+kgbatch: test/kgbatch
+
+test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(LISP_CONFIG) \
+	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
 
 # Regenerates/verifies test/lisp-compat/oracle/*.json against the resolved
 # Emacs, reusing fe/utils/run-emacs-oracle.py directly rather than copying
@@ -861,6 +873,7 @@ bench-lisp-toggle:
 $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
+
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 
 $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(LISP_CONFIG)
@@ -896,7 +909,7 @@ $(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
-	      $(TESTBINS) $(FUZZBINS) $(REGEX_DIFF_BIN)
+	      $(TESTBINS) $(TESTDIR)/kgbatch $(FUZZBINS) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR)
 
 distclean: clean

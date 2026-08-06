@@ -484,16 +484,22 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Binding | `let` `let*` `setq` `progn` |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
-| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
+| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
+| Small library | `identity` `prog2` `max` `min` `documentation` `setq-default` `setq-local` `kbd` |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
 core Fe special forms and primitives rather than prelude definitions.
+
+`setq-default` and `setq-local` are aliases of `setq` because kg has no
+buffer-local variable namespace. `load-path` remains a bounded C search-path
+array; use kg's `add-to-load-path` native rather than modifying it with
+`add-to-list`.
 
 `defun` recognises only an `(interactive ...)` form immediately after its
 optional docstring. That declaration is removed from the body and registers
@@ -650,9 +656,11 @@ primitive's function cell.
   is fe-native, not an Emacs form.
 - Numbers are signed 64-bit integers or doubles — **no bignums**. Integer
   arithmetic that overflows, and integer division by zero, raise an
-  `arith-error` message rather than promoting or wrapping. There is no
-  character type — write `(string-to-char "a")` rather than `?a`.
-- `t` is an ordinary assignable global, not a self-evaluating constant.
+  `arith-error` message rather than promoting or wrapping. Character
+  literals such as `?a` read as their codepoint numbers.
+- `t`, `nil` and keyword symbols are protected constants; keywords are
+  self-evaluating. A lambda parameter may still shadow `t`, matching the
+  measured lexical oracle.
 - **`condition-case` exists; `catch`/`throw` exist; `signal`/`error`
   exist.** Conditions have a static hierarchy: `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
@@ -671,9 +679,7 @@ primitive's function cell.
   is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
   natives are already classified, which is why `(car 1)` *does* match a
   `wrong-type-argument` handler.
-- **No dynamic binding, no vectors, no hash tables, no property
-  lists.** No property lists is why there are no docstring-backed
-  `describe-function`-style natives yet — see below.
+- **No dynamic binding, no vectors, no hash tables, no property lists.**
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A
@@ -689,13 +695,9 @@ primitive's function cell.
   failed, not where in the source it was written. Fe's reader does not
   carry position information through to evaluation; adding it is a
   `fe/` submodule change with its own pin move, not a kg-side one.
-- No docstring introspection: `defun`'s optional docstring string
-  literal is accepted syntactically (as an ordinary, ignored body form
-  before the code) but nothing stores it anywhere, and there is no
-  `describe-function`. `src/describe.c` today describes keys, commands
-  and bindings, not functions; adding this needs a bounded
-  symbol-to-docstring table, which is not part of the surface this
-  document describes.
+- Docstrings are retained by `defun`, `defvar` and `defconst`; the
+  prelude's `(documentation 'NAME)` returns the captured string. This is
+  an alist-backed query, not a property-list or `describe-function` UI.
 
 ## What is not here, and why
 

@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-kbd",
+ "setup": [],
+ "expr": "(list (kbd \"C-c k\") (condition-case e (kbd \"M-x\") (error 'rejected)))",
+ "note": "08D's kbd accepts the user-bindable C-c grammar and rejects other sequences."
+}

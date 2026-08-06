@@ -2236,6 +2236,193 @@
    "kg_test": "test/test_buffer.c:test_buf_select_interactive_no_other_buffers, test/test_buffer.c:test_buf_read_name_modes",
    "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone.",
    "source_name": null
-  }
+   },
+   {
+    "id": "phase8-library-doc-put",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["phase8-library-documentation"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "Internal docstring storage helper used by defun, defvar and defconst.",
+    "source_name": "internal--doc-put"
+   },
+   {
+    "id": "phase8-library-assq",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "assq"
+   },
+   {
+    "id": "phase8-library-mapc",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-mapc-mapconcat"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "mapc"
+   },
+   {
+    "id": "phase8-library-mapconcat",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-mapc-mapconcat"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "mapconcat"
+   },
+   {
+    "id": "phase8-library-nreverse",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-nreverse"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "nreverse"
+   },
+   {
+    "id": "phase8-library-delq",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "delq"
+   },
+   {
+    "id": "phase8-library-delete",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-delete"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "delete"
+   },
+   {
+    "id": "phase8-library-add-to-list",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-add-to-list"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "add-to-list"
+   },
+   {
+    "id": "phase8-library-identity",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "identity"
+   },
+   {
+    "id": "phase8-library-prog2",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "prog2"
+   },
+   {
+    "id": "phase8-library-max",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "max"
+   },
+   {
+    "id": "phase8-library-min",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": null,
+    "source_name": "min"
+   },
+   {
+    "id": "phase8-library-documentation",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["phase8-library-documentation"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "Docstrings are stored in a bounded prelude alist rather than Fe property lists.",
+    "source_name": "documentation"
+   },
+   {
+    "id": "phase8-library-qq-dotted",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "emacs",
+    "cases": ["phase8-reader-dotted-backquote"],
+    "kg_test": "test/test_lisp.c:test_quasiquote",
+    "rationale": null,
+    "source_name": "internal--qq-dotted"
+   },
+   {
+    "id": "phase8-library-setq-default",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+    "source_name": "setq-default"
+   },
+   {
+    "id": "phase8-library-setq-local",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["phase8-library-list-edges"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+    "source_name": "setq-local"
+   },
+   {
+    "id": "phase8-library-kbd",
+    "category": "prelude",
+    "status": "supported",
+    "owner": "kg",
+    "comparison": "kg-policy",
+    "cases": ["phase8-library-kbd"],
+    "kg_test": "test/test_lisp.c:test_phase8_library",
+    "rationale": "kbd accepts only the C-c key grammar that kg's user key binding entry point can parse.",
+    "source_name": "kbd"
+   }
  ]
 }

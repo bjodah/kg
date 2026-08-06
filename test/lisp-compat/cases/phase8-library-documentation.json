@@ -1,0 +1,6 @@
+{
+ "id": "phase8-library-documentation",
+ "setup": [],
+ "expr": "(progn (defun documented () \"A doc.\" nil) (documentation 'documented))",
+ "note": "08D stores defun docstrings in a prelude alist and returns them through documentation."
+}

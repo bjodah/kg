@@ -203,9 +203,12 @@ ordered by value vs implementation effort.
         `defvar`, `defconst`, `interactive`, `let`/`let*` with elisp binding
         lists, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
         `dotimes`, `quasiquote`, the list library (`length`, `nth`,
-        `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `assoc`, `member`,
-        `memq`, `push`, `pop`), `equal`, `string-empty-p`,
-        `thing-at-point`; `&optional` and `&rest` in argument lists
+         `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `mapc`, `mapconcat`,
+         `assoc`, `assq`, `member`, `memq`, `push`, `pop`, `nreverse`, `delq`,
+         `delete`, `add-to-list`), `equal`, `string-empty-p`,
+         `thing-at-point`, `identity`, `prog2`, `max`, `min`,
+         `documentation`, `setq-default`, `setq-local` and `kbd`;
+         `&optional` and `&rest` in argument lists
       - type natives `type-of`, `stringp`, `symbolp`, `numberp`, `consp`,
         `functionp`
       - Emacs names throughout the editor bridge (`insert`, `message`,
@@ -235,7 +238,6 @@ ordered by value vs implementation effort.
         `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
-      - no docstring registry / `documentation`; docstrings are inert
       - no call-trace exposure through the host error callback
         (the `call_trace` parameter to `handle_error` is discarded;
         exposing structured call traces is a debugger-shaped feature)
@@ -253,7 +255,6 @@ ordered by value vs implementation effort.
         (`catch-throw-reachability`, the other divergence 06E left)
       - token/cancel cleanup registry (Phase 9's robustness scope;
         currently `unwind-design.md` item 2, belongs to that phase)
-      - no dotted unquote (`` `(a . ,b) ``) and no nested quasiquote
       - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
         to Lisp; still only commands/bindings and the editing bridge exist
       - grow the `command-execute` allow-list deliberately (policy per

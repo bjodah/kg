@@ -447,12 +447,13 @@ surface is available before any init file runs. It is what makes kg's
 | Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
-| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `assoc` `member` `memq` `push` `pop` `caar` `cadr` `cddr` `1+` `1-` |
+| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
 | Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
+| Small library | `identity` `prog2` `max` `min` `documentation` `setq-default` `setq-local` `kbd` |
 
 Argument lists are strict: too few or too many arguments raise
 `wrong-number-of-arguments`. `&optional` parameters bind `nil` when omitted,
@@ -496,10 +497,11 @@ first surprise:
   reads only the function cell, so a function held in a variable is called
   with `(funcall f ...)` and `#'f` is `(function f)`.
 - Numbers are signed 64-bit integers or doubles — there are no bignums —
-  and there is no character type: write `(string-to-char "a")` rather
-  than `?a`. Integer arithmetic that overflows, and integer division by
-  zero, raise an `arith-error` message instead of promoting or wrapping.
-- `t` is an ordinary assignable global.
+  and character literals such as `?a` read as their codepoint numbers.
+  Integer arithmetic that overflows, and integer division by zero, raise
+  an `arith-error` message instead of promoting or wrapping.
+- `t`, `nil` and keyword symbols are protected constants and keywords are
+  self-evaluating. A lambda parameter may still shadow `t`.
 - `condition-case`, `catch`/`throw`, `signal`, and `error` exist; `quit`
   (from `C-g`) is catchable by name but not by `(error …)`, and budget
   exhaustion is catchable by nothing. Conditions use a static

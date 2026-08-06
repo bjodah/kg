@@ -1,0 +1,36 @@
+name: lisp-init-phase8-library
+filename: phase8-init.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (setq-default phase8-default 1)
+    (setq-local phase8-local 2)
+    (defvar phase8-declared "declared" "A declaration.")
+    (defconst phase8-constant 3 "A constant.")
+    (defun phase8-command ()
+      "A command from the 08D init file."
+      (interactive)
+      (insert "boot"))
+    (global-set-key (kbd "C-c k") 'phase8-command)
+    (setq phase8-list '(one two))
+    (add-to-list 'phase8-list 'zero)
+    (setq phase8-copy (nreverse (list 1 2 3)))
+    (setq phase8-joined (mapconcat (lambda (x) x) '("a" "b") ":"))
+    (setq phase8-assoc (assq 'a '((a . 1))))
+    (setq phase8-doc (documentation 'phase8-command))
+    (setq phase8-answer (prog2 0 (max 4 2) 9))
+    (setq phase8-answer (min phase8-answer 4))
+    (setq phase8-id (identity phase8-answer))
+    (setq phase8-filtered (delete 'x (list 'x 'y)))
+    (setq phase8-removed (delq 'y (list 'y 'z)))
+    (setq phase8-reversed (nreverse (list "a" "b")))
+    (setq phase8-lone (cond (5)))
+    (setq phase8-dotted `(head . ,phase8-answer))
+    (setq phase8-nested `(outer `(inner ,phase8-answer)))
+    (setq phase8-key (kbd "C-c z"))
+    (setq phase8-result (list phase8-default phase8-local phase8-answer))
+initial: ""
+keys:
+  - C-c
+  - k
+expected_saved: boot

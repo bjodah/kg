@@ -145,11 +145,98 @@
     (if (equal key (car (car alist))) (setq hit (car alist)))
     (setq alist (cdr alist)))
   hit))
+(defalias 'assq (lambda (key alist)
+  (internal--let hit nil)
+  (while (and alist (null hit))
+    (if (eq key (car (car alist))) (setq hit (car alist)))
+    (setq alist (cdr alist)))
+  hit))
+(defalias 'mapc (lambda (f lst)
+  (internal--let original lst)
+  (while lst
+    (funcall f (car lst))
+    (setq lst (cdr lst)))
+  original))
+(defalias 'mapconcat (lambda (f lst separator)
+  (internal--let result "")
+  (internal--let first t)
+  (while lst
+    (if first
+        (setq first nil)
+      (setq result (concat result separator)))
+    (setq result (concat result (funcall f (car lst))))
+    (setq lst (cdr lst)))
+  result))
+(defalias 'nreverse (lambda (lst)
+  (internal--let result nil)
+  (while lst
+    (internal--let next (cdr lst))
+    (setcdr lst result)
+    (setq result lst)
+    (setq lst next))
+  result))
+(defalias 'delq (lambda (elt lst)
+  (internal--let result lst)
+  (internal--let previous nil)
+  (while lst
+    (if (eq elt (car lst))
+        (if previous
+            (setcdr previous (cdr lst))
+          (setq result (cdr lst)))
+      (setq previous lst))
+    (setq lst (cdr lst)))
+  result))
+(defalias 'delete (lambda (elt lst)
+  (internal--let result lst)
+  (internal--let previous nil)
+  (while lst
+    (if (equal elt (car lst))
+        (if previous
+            (setcdr previous (cdr lst))
+          (setq result (cdr lst)))
+      (setq previous lst))
+    (setq lst (cdr lst)))
+  result))
+(defalias 'add-to-list (macro (place item . rest)
+  (internal--let variable
+    (if (and (consp place) (eq (car place) 'quote))
+        (car (cdr place))
+      place))
+  (internal--let appendp (car rest))
+  (list 'setq variable
+    (list 'if (list 'member item variable)
+      variable
+      (if appendp
+          (list 'append variable (list 'list item))
+        (list 'cons item variable))))))
+(defalias 'identity (lambda (value) value))
+(defalias 'prog2 (macro (first second . rest)
+  (list 'progn first (cons 'prog1 (cons second rest)))))
+(defalias 'max (lambda args
+  (if (null args)
+      (error "max requires at least one argument")
+    (internal--let result (car args))
+    (setq args (cdr args))
+    (while args
+      (if (> (car args) result) (setq result (car args)))
+      (setq args (cdr args)))
+    result)))
+(defalias 'min (lambda args
+  (if (null args)
+      (error "min requires at least one argument")
+    (internal--let result (car args))
+    (setq args (cdr args))
+    (while args
+      (if (< (car args) result) (setq result (car args)))
+      (setq args (cdr args)))
+    result)))
 ;; --- control macros ---
 (defalias 'cond (macro clauses
   (if clauses
       (list 'if (car (car clauses))
-        (cons 'progn (cdr (car clauses)))
+        (if (cdr (car clauses))
+            (cons 'progn (cdr (car clauses)))
+          (car (car clauses)))
         (cons 'cond (cdr clauses)))
     nil)))
 (defalias 'when (macro (test . body)
@@ -222,22 +309,36 @@
   (list 'internal--with-current-buffer buf
     (cons 'lambda (cons nil body)))))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
-(defalias 'internal--qq (lambda (form)
+(defalias 'internal--qq (lambda (form &optional depth)
+  (if (null depth) (setq depth 1))
   (if (atom form)
       (list 'quote form)
     (if (eq (car form) 'unquote)
-        (car (cdr form))
-      (internal--qq-list form)))))
-(defalias 'internal--qq-list (lambda (form)
+        (if (= depth 1)
+            (car (cdr form))
+          (list 'list (list 'quote 'unquote)
+            (internal--qq (car (cdr form)) (- depth 1))))
+      (if (eq (car form) 'quasiquote)
+          (list 'list (list 'quote 'quasiquote)
+            (internal--qq (car (cdr form)) (+ depth 1)))
+        (internal--qq-list form depth))))))
+(defalias 'internal--qq-list (lambda (form depth)
   (internal--let segs nil)
   (while (consp form)
     (internal--let e (car form))
-    (if (and (consp e) (eq (car e) 'unquote-splicing))
+    (if (and (= depth 1) (consp e) (eq (car e) 'unquote-splicing))
         (setq segs (cons (car (cdr e)) segs))
-      (setq segs (cons (list 'list (internal--qq e)) segs)))
+      (setq segs (cons (list 'list (internal--qq e depth)) segs)))
     (setq form (cdr form)))
-  (if form (setq segs (cons (internal--qq form) segs)))
-  (cons 'append (reverse segs))))
+  (if form
+      (internal--qq-dotted (reverse segs) (internal--qq form depth))
+    (cons 'append (reverse segs)))))
+(defalias 'internal--qq-dotted (lambda (segs tail)
+  (internal--let result tail)
+  (while segs
+    (setq result (list 'cons (car (car segs)) result))
+    (setq segs (cdr segs)))
+  result))
 (defalias 'quasiquote (macro (form) (internal--qq form)))
 ;; --- definition forms ---
 ;; Argument lists go to Fe unchanged: its binder reads &optional and
@@ -247,6 +348,13 @@
 (defalias 'internal--interactive-p (lambda (form)
   (if (atom form) nil (eq (car form) 'interactive))))
 (defalias 'internal--docstring-p (lambda (form) (stringp form)))
+(setq internal--docs nil)
+(defalias 'internal--doc-put (lambda (name doc)
+  (setq internal--docs (cons (cons name doc) internal--docs))
+  doc))
+(defalias 'documentation (lambda (name)
+  (internal--let entry (assq name internal--docs))
+  (if entry (cdr entry) nil)))
 (defalias 'internal--has-interactive (lambda (body)
   (if body (internal--interactive-p (car body)) nil)))
 ;; Only the declaration immediately after the optional docstring is metadata.
@@ -285,12 +393,14 @@
           (list 'define-command (list 'quote name)
             'internal--defun-fn spec doc)
           (list 'defalias (list 'quote name) 'internal--defun-fn)
+          (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
           (list 'quote name)))
     (progn
       (if (null body) (setq body (list nil)))
       (internal--let f (cons 'lambda (cons params body)))
       (list 'progn (list 'defalias (list 'quote name) f)
         (list 'internal--remove-command-if-present (list 'quote name))
+        (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
         (list 'quote name))))))
 (defalias 'defmacro (macro (name params . body)
   (list 'progn
@@ -301,17 +411,41 @@
 ;; defvar asks boundp rather than reading the variable -- which would
 ;; now raise void-variable -- and a variable holding nil stays nil.
 (defalias 'defvar (macro (name . rest)
+  (internal--let value-present
+    (and rest (or (not (stringp (car rest))) (cdr rest))))
+  (internal--let doc
+    (if (and (cdr rest) (stringp (car (cdr rest))))
+        (car (cdr rest))
+      (if (and rest (stringp (car rest))) (car rest) nil)))
   (list 'progn
     (list 'if (list 'boundp (list 'quote name))
       nil
-      (list 'setq name (car rest)))
+      (if value-present (list 'setq name (car rest)) nil))
+    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
     (list 'quote name))))
 (defalias 'defconst (macro (name . rest)
-  (list 'progn (list 'setq name (car rest)) (list 'quote name))))
+  (internal--let doc (if (and (car rest) (cdr rest)
+                              (stringp (car (cdr rest))))
+                         (car (cdr rest)) nil))
+  (list 'progn (list 'setq name (car rest))
+    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+    (list 'quote name))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
 (defalias 'interactive (macro args nil))
 (defalias 'ignore-errors (macro body
   (cons 'condition-case (cons nil (cons (cons 'progn body) '((error nil)))))))
+(defalias 'setq-default (symbol-function 'setq))
+(defalias 'setq-local (symbol-function 'setq))
+(defalias 'kbd (lambda (key)
+  (if (and (stringp key)
+           (= (string-length key) 5)
+           (string= (substring key 0 4) "C-c "))
+      key
+    (if (and (stringp key)
+             (= (string-length key) 7)
+             (string= (substring key 0 6) "C-c C-"))
+        key
+      (error "kbd: cannot bind key sequence")))))
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
 (defalias 'thing-at-point (lambda (thing)

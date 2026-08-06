@@ -2924,6 +2924,10 @@ static void test_quasiquote(void)
 	CHECK(eval_eq("`(a b)", "(a b)"));
 	CHECK(eval_eq(
 	    "(progn (setq b 42) `(nested (deep ,b)))", "(nested (deep 42))"));
+	CHECK(eval_eq("(let ((x 2)) `(outer `(inner ,x)))",
+	    "(outer (quasiquote (inner (unquote x))))"));
+	CHECK(eval_eq("(let ((x 2)) `(outer `(inner ,,x)))",
+	    "(outer (quasiquote (inner (unquote 2))))"));
 	CHECK(eval_eq("(progn (setq b 42) `,b)", "42"));
 	/* An empty backquote is a real nil, not a nil-shaped object. */
 	CHECK(eval_eq("`()", "nil"));
@@ -3378,7 +3382,7 @@ static void test_quit_uncaught(void)
 	teardown_editor();
 }
 
-#define PRELUDE_DEFS 53
+#define PRELUDE_DEFS 70
 
 static void test_prelude_source_file(void)
 {
@@ -3491,6 +3495,44 @@ static void test_prelude_source_file(void)
 	 * one-binding primitive, so the list library it carries still works. */
 	CHECK(eval_eq("(reverse '(1 2 3))", "(3 2 1)"));
 
+	kg_lisp_shutdown();
+}
+
+static void test_phase8_library(void)
+{
+	struct kg_lisp_arena_stats before, after;
+
+	CHECK(kg_lisp_init() == 0);
+	CHECK(eval_eq("(assq 'a '((a . 1) (b . 2)))", "(a . 1)"));
+	CHECK(eval_eq("(mapc (lambda (x) x) '(1 2 3))", "(1 2 3)"));
+	CHECK(eval_eq("(mapconcat (lambda (x) x) '(\"1\" \"2\" \"3\") \",\")",
+	    "1,2,3"));
+	CHECK(eval_eq("(progn (setq x (list 1 2 3)) (nreverse x))", "(3 2 1)"));
+	CHECK(eval_eq("(delq 2 (list 1 2 1))", "(1 1)"));
+	CHECK(eval_eq("(delete '(a) (list '(a) '(b)))", "((b))"));
+	CHECK(eval_eq("(progn (setq x '(2 1)) (add-to-list 'x 3) x)",
+	    "(3 2 1)"));
+	CHECK(eval_eq("(identity 7)", "7"));
+	CHECK(eval_eq("(prog2 1 2 3)", "2"));
+	CHECK(eval_eq("(max 1 4 2)", "4"));
+	CHECK(eval_eq("(min 1 4 2)", "1"));
+	CHECK(eval_eq("(progn (makunbound 'no-value) (defvar no-value) "
+	    "(boundp 'no-value))", "nil"));
+	CHECK(eval_eq("(progn (defun documented () \"A doc.\" nil) "
+	    "(documentation 'documented))", "A doc."));
+	CHECK(eval_eq("(progn (defvar documented-var 1 \"A variable.\") "
+	    "(documentation 'documented-var))", "A variable."));
+	CHECK(eval_eq("(progn (defconst documented-const 1 \"A constant.\") "
+	    "(documentation 'documented-const))", "A constant."));
+	CHECK(eval_eq("(progn (setq-default answer 8) answer)", "8"));
+	CHECK(eval_eq("(progn (setq-local answer 9) answer)", "9"));
+	CHECK(eval_eq("(kbd \"C-c k\")", "C-c k"));
+	CHECK(eval_error_contains("(kbd \"M-x\")", "cannot bind key sequence"));
+	CHECK(kg_lisp_arena_stats(&before) == 0);
+	CHECK(eval_ok("(mapconcat (lambda (x) x) "
+	    "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
+	CHECK(kg_lisp_arena_stats(&after) == 0);
+	CHECK(after.peak_live_objects >= before.peak_live_objects);
 	kg_lisp_shutdown();
 }
 
@@ -3886,6 +3928,7 @@ int main(void)
 	RUN(test_ignore_errors);
 	RUN(test_condition_case_reentry);
 	RUN(test_quit_uncaught);
+	RUN(test_phase8_library);
 	RUN(test_prelude_source_file);
 	return test_summary();
 }

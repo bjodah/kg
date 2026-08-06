@@ -57,12 +57,43 @@ static void format_put(FeContext *context, void *userdata, char chr)
 	out->length++;
 }
 
+static void format_fill(
+    FeContext *context, struct format_buffer *out, char chr, size_t count)
+{
+	while (count--) {
+		format_put(context, out, chr);
+	}
+}
+
 static void format_spaces(
     FeContext *context, struct format_buffer *out, size_t count)
 {
-	while (count--) {
-		format_put(context, out, ' ');
+	format_fill(context, out, ' ', count);
+}
+
+/* Make `extra` more output bytes fit in one step, so the loops that
+ * follow cannot call format_grow at all.  That matters exactly once: the
+ * long-float path below parks its rendering in the buffer's own tail, and
+ * a realloc under it would move the memory it is reading from. */
+static void format_reserve(
+    FeContext *context, struct format_buffer *out, size_t extra)
+{
+	size_t needed;
+	char *text;
+
+	if (ckd_add(&needed, out->start + out->length, extra)
+	    || ckd_add(&needed, needed, 1)) {
+		FeHandleError(context, "string is too large");
 	}
+	if (needed <= out->capacity) {
+		return;
+	}
+	text = realloc(out->text, needed);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = out->text = text;
+	out->capacity = needed;
 }
 
 struct format_spec {
@@ -73,94 +104,102 @@ struct format_spec {
 	bool zero;
 };
 
+/* What padding a rendering attracts, decided before a byte is written.
+ * `characters` is the display width of `text`, which is the byte length
+ * for every numeric conversion and 1 for a multi-byte %c. */
+struct format_padding {
+	size_t padding; /* fill characters before or after the value */
+	size_t precision_zeros; /* zeros between the sign and the digits */
+	char fill; /* ' ' or '0' */
+	bool negative; /* the rendering starts with '-' */
+};
+
+static struct format_padding format_pad_plan(const struct format_spec *spec,
+    const char *text, size_t length, size_t characters)
+{
+	bool numeric = strchr("dxXoefg", spec->conversion) != nullptr;
+	bool integer = strchr("dxXo", spec->conversion) != nullptr;
+	struct format_padding plan = { .fill = ' ' };
+	size_t display;
+
+	plan.negative = numeric && length > 0 && text[0] == '-';
+	if (integer && spec->precision > 0
+	    && (size_t)spec->precision > characters - plan.negative) {
+		plan.precision_zeros
+		    = (size_t)spec->precision - (characters - plan.negative);
+	}
+	display = characters + plan.precision_zeros;
+	if (spec->width > 0 && (size_t)spec->width > display) {
+		plan.padding = (size_t)spec->width - display;
+	}
+	if (spec->zero && !spec->left && numeric
+	    && (!integer || spec->precision < 0)) {
+		plan.fill = '0';
+	}
+	return plan;
+}
+
 static void format_pad(FeContext *context, struct format_buffer *out,
     const char *text, size_t length, size_t characters,
     const struct format_spec *spec)
 {
-	bool numeric = strchr("dxXoefg", spec->conversion) != nullptr;
-	bool integer = strchr("dxXo", spec->conversion) != nullptr;
-	bool negative = numeric && length > 0 && text[0] == '-';
-	size_t precision_zeros = integer && spec->precision > 0
-		&& (size_t)spec->precision > characters - negative
-	    ? (size_t)spec->precision - (characters - negative)
-	    : 0;
-	size_t display_length = characters + precision_zeros;
-	size_t padding = spec->width > 0 && (size_t)spec->width > display_length
-	    ? (size_t)spec->width - display_length
-	    : 0;
-	char fill = spec->zero && !spec->left
-		&& (!integer || spec->precision < 0) && numeric
-	    ? '0'
-	    : ' ';
+	struct format_padding plan
+	    = format_pad_plan(spec, text, length, characters);
 
 	if (!spec->left) {
-		if (fill == '0' && negative) {
+		if (plan.fill == '0' && plan.negative) {
 			format_put(context, out, *text++);
 			length--;
 		}
-		while (padding--) {
-			format_put(context, out, fill);
-		}
+		format_fill(context, out, plan.fill, plan.padding);
 	}
-	if (negative && length > 0) {
+	if (plan.negative && length > 0) {
 		format_put(context, out, *text++);
 		length--;
 	}
-	while (precision_zeros--) {
-		format_put(context, out, '0');
-	}
+	format_fill(context, out, '0', plan.precision_zeros);
 	while (length--) {
 		format_put(context, out, *text++);
 	}
 	if (spec->left) {
-		padding
-		    = spec->width > 0 && (size_t)spec->width > display_length
-		    ? (size_t)spec->width - display_length
-		    : 0;
-		while (padding--) {
-			format_put(context, out, ' ');
-		}
+		format_fill(context, out, ' ', plan.padding);
 	}
 }
 
-/* %d, on an interpreter with two number types: an integer prints its own
- * exact value -- the int64 path, which is what makes (format "%d"
- * 9007199254740993) come out exactly -- and a double truncates toward zero
- * and prints the exact integer.  Casting a double outside int64 range to
- * int64_t is undefined, so the double fast path uses the guard fe's own
- * printer uses and "%.0f" prints the rest, which is exact because a double
- * that large is already an integer.  That matches Emacs, which prints
- * every finite value in full via bignums.  NaN and the infinities have no
- * integer to print, so they raise instead. */
-static void format_integer(FeContext *context, char *digits, size_t size,
-    FeObject *object, char conversion)
+/* An int64 in the base its conversion names.  x/X/o print the magnitude
+ * behind an explicit sign, which is what Emacs does and what C's own
+ * unsigned conversions do not. */
+static void format_int64(
+    char *digits, size_t size, int64_t integer, char conversion)
 {
-	/* DBL_MAX is 309 digits, plus a sign and the terminator. */
-	FeDouble value;
+	uint64_t magnitude
+	    = integer < 0 ? -(uint64_t)integer : (uint64_t)integer;
+	const char *unsigned_operation;
 
-	if (FeGetType(object) == FeTInteger) {
-		int64_t integer = FeToInteger(context, object);
-		if (conversion == 'd') {
-			(void)snprintf(digits, size, "%" PRId64, integer);
-		} else if (conversion == 'x' || conversion == 'X') {
-			uint64_t magnitude = integer < 0 ? -(uint64_t)integer
-							 : (uint64_t)integer;
-
-			(void)snprintf(digits, size,
-			    integer < 0
-				? (conversion == 'x' ? "-%" PRIx64
-						     : "-%" PRIX64)
-				: (conversion == 'x' ? "%" PRIx64 : "%" PRIX64),
-			    magnitude);
-		} else {
-			uint64_t magnitude = integer < 0 ? -(uint64_t)integer
-							 : (uint64_t)integer;
-
-			(void)snprintf(digits, size,
-			    integer < 0 ? "-%" PRIo64 : "%" PRIo64, magnitude);
-		}
+	if (conversion == 'd') {
+		(void)snprintf(digits, size, "%" PRId64, integer);
 		return;
 	}
+	if (conversion == 'x') {
+		unsigned_operation = integer < 0 ? "-%" PRIx64 : "%" PRIx64;
+	} else if (conversion == 'X') {
+		unsigned_operation = integer < 0 ? "-%" PRIX64 : "%" PRIX64;
+	} else {
+		unsigned_operation = integer < 0 ? "-%" PRIo64 : "%" PRIo64;
+	}
+	(void)snprintf(digits, size, unsigned_operation, magnitude);
+}
+
+/* %d of a double: truncate toward zero and print the exact integer.
+ * Casting a double outside int64 range to int64_t is undefined, so the
+ * fast path uses the guard fe's own printer uses and "%.0f" prints the
+ * rest, which is exact because a double that large is already an
+ * integer.  NaN and the infinities have no integer to print. */
+static void format_double_as_integer(FeContext *context, char *digits,
+    size_t size, FeObject *object, char conversion)
+{
+	FeDouble value;
+
 	if (conversion != 'd' || FeGetType(object) != FeTDouble) {
 		FeHandleError(context,
 		    "format integer specifier does not match argument type");
@@ -177,6 +216,23 @@ static void format_integer(FeContext *context, char *digits, size_t size,
 	}
 }
 
+/* %d, %x, %X and %o, on an interpreter with two number types: an integer
+ * prints its own exact value -- the int64 path, which is what makes
+ * (format "%d" 9007199254740993) come out exactly -- and a double goes
+ * through the truncating path above.  That matches Emacs, which prints
+ * every finite value in full via bignums.  DBL_MAX is 309 digits, so
+ * every rendering here fits the caller's fixed buffer. */
+static void format_integer(FeContext *context, char *digits, size_t size,
+    FeObject *object, char conversion)
+{
+	if (FeGetType(object) == FeTInteger) {
+		format_int64(
+		    digits, size, FeToInteger(context, object), conversion);
+		return;
+	}
+	format_double_as_integer(context, digits, size, object, conversion);
+}
+
 /* %e, %f and %g hand the value straight to snprintf, which is what Emacs
  * does too -- its float conversions are C's, right down to spelling the
  * exceptional values "nan", "-nan" and "inf".  An integer widens through
@@ -185,14 +241,17 @@ static void format_integer(FeContext *context, char *digits, size_t size,
  * rather than "not a number".  Unlike %d these have a perfectly good
  * floating-point rendering, so they print rather than raise.  The spec is
  * switched on rather than pasted into the format string, to keep the
- * conversion a literal. */
-static void format_float(FeContext *context, char *digits, size_t size,
+ * conversion a literal.
+ *
+ * Returns the length the rendering needs, which the precision makes
+ * user-controlled and unbounded: "%.600f" of 1.0 is 602 characters, and
+ * ignoring snprintf's return silently answered the first 511 of them. */
+static size_t format_float(FeContext *context, char *digits, size_t size,
     const struct format_spec *spec, FeObject *object)
 {
-	/* "%f" of DBL_MAX is 309 integer digits, a point, six decimals and
-	 * a sign. */
 	char operation[32];
 	FeDouble value;
+	int needed;
 
 	if (FeGetType(object) != FeTDouble && FeGetType(object) != FeTInteger) {
 		FeHandleError(context,
@@ -206,7 +265,36 @@ static void format_float(FeContext *context, char *digits, size_t size,
 		(void)snprintf(
 		    operation, sizeof(operation), "%%%c", spec->conversion);
 	}
-	(void)snprintf(digits, size, operation, (double)value);
+	needed = snprintf(digits, size, operation, (double)value);
+	if (needed < 0) {
+		FeHandleError(context, "format conversion failed");
+	}
+	return (size_t)needed;
+}
+
+/* A float rendering too long for the caller's fixed buffer.  The output
+ * buffer is grown once to hold the digits, the padding they attract, and
+ * a second copy of the digits at its far end; the rendering is written
+ * into that tail and padded out of it.  Reserving first is what makes
+ * this safe: format_put cannot reallocate a buffer that is already large
+ * enough, so the tail cannot move under the copy, and no allocation is
+ * live across anything that can raise. */
+static void format_long_float(FeContext *context, struct format_buffer *out,
+    const struct format_spec *spec, FeObject *object, size_t needed)
+{
+	size_t width = spec->width > 0 ? (size_t)spec->width : 0;
+	size_t padding = width > needed ? width - needed : 0;
+	char *digits;
+	size_t extra;
+
+	if (ckd_add(&extra, needed, needed)
+	    || ckd_add(&extra, extra, padding)) {
+		FeHandleError(context, "string is too large");
+	}
+	format_reserve(context, out, extra);
+	digits = out->text + out->capacity - needed - 1;
+	(void)format_float(context, digits, needed + 1, spec, object);
+	format_pad(context, out, digits, needed, needed, spec);
 }
 
 struct format_writer {
@@ -229,68 +317,54 @@ static void format_write_text(FeContext *context, void *userdata, char chr)
 	}
 }
 
-/* Convert one argument.  %s and %S are fe's writer with its quoting flag
- * flipped, so every type prints the way the interpreter prints it. */
-static void format_argument(FeContext *context, struct format_buffer *out,
-    const struct format_spec *spec, FeObject **arguments)
+/* %c: a codepoint, UTF-8 encoded, one display character wide whatever it
+ * encodes to.  Emacs writes a NUL byte for (format "%c" 0); kg refuses
+ * it, along with the surrogates and anything past U+10FFFF, because
+ * nothing kg stores in a string may contain a NUL -- a recorded
+ * divergence (doc/lisp-api.md). */
+static void format_character(FeContext *context, struct format_buffer *out,
+    const struct format_spec *spec, FeObject *object)
 {
-	char digits[512];
+	int64_t codepoint = FeToInteger(context, object);
+	char utf8[4];
+	size_t length;
+
+	if (codepoint < 1 || codepoint > 0x10ffff
+	    || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+		FeHandleError(context, "format %c character is out of range");
+	}
+	if (codepoint < 0x80) {
+		utf8[0] = (char)codepoint;
+		length = 1;
+	} else if (codepoint < 0x800) {
+		utf8[0] = (char)(0xc0 | (codepoint >> 6));
+		utf8[1] = (char)(0x80 | (codepoint & 0x3f));
+		length = 2;
+	} else if (codepoint < 0x10000) {
+		utf8[0] = (char)(0xe0 | (codepoint >> 12));
+		utf8[1] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
+		utf8[2] = (char)(0x80 | (codepoint & 0x3f));
+		length = 3;
+	} else {
+		utf8[0] = (char)(0xf0 | (codepoint >> 18));
+		utf8[1] = (char)(0x80 | ((codepoint >> 12) & 0x3f));
+		utf8[2] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
+		utf8[3] = (char)(0x80 | (codepoint & 0x3f));
+		length = 4;
+	}
+	format_pad(context, out, utf8, length, 1, spec);
+}
+
+/* %s and %S are fe's writer with its quoting flag flipped, so every type
+ * prints the way the interpreter prints it.  It is written twice: once
+ * counting characters with no output, to learn the display width the
+ * padding needs, and once for real under that limit. */
+static void format_object(FeContext *context, struct format_buffer *out,
+    const struct format_spec *spec, FeObject *object)
+{
 	struct format_writer writer = { .limit = SIZE_MAX };
-	FeObject *object;
 	size_t characters;
 
-	/* A NUL byte inside the format string is not a spec: strchr() would
-	 * find it as the terminator of the set. */
-	if (FeIsNil(*arguments)) {
-		FeHandleError(
-		    context, "not enough arguments for format string");
-	}
-	object = FeGetNextArgument(context, arguments);
-	if (strchr("dxXo", spec->conversion)) {
-		format_integer(
-		    context, digits, sizeof(digits), object, spec->conversion);
-		format_pad(
-		    context, out, digits, strlen(digits), strlen(digits), spec);
-		return;
-	}
-	if (strchr("efg", spec->conversion)) {
-		format_float(context, digits, sizeof(digits), spec, object);
-		format_pad(
-		    context, out, digits, strlen(digits), strlen(digits), spec);
-		return;
-	}
-	if (spec->conversion == 'c') {
-		int64_t codepoint = FeToInteger(context, object);
-		char utf8[4];
-		size_t length;
-
-		if (codepoint < 1 || codepoint > 0x10ffff
-		    || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
-			FeHandleError(
-			    context, "format %c character is out of range");
-		}
-		if (codepoint < 0x80) {
-			utf8[0] = (char)codepoint;
-			length = 1;
-		} else if (codepoint < 0x800) {
-			utf8[0] = (char)(0xc0 | (codepoint >> 6));
-			utf8[1] = (char)(0x80 | (codepoint & 0x3f));
-			length = 2;
-		} else if (codepoint < 0x10000) {
-			utf8[0] = (char)(0xe0 | (codepoint >> 12));
-			utf8[1] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
-			utf8[2] = (char)(0x80 | (codepoint & 0x3f));
-			length = 3;
-		} else {
-			utf8[0] = (char)(0xf0 | (codepoint >> 18));
-			utf8[1] = (char)(0x80 | ((codepoint >> 12) & 0x3f));
-			utf8[2] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
-			utf8[3] = (char)(0x80 | (codepoint & 0x3f));
-			length = 4;
-		}
-		format_pad(context, out, utf8, length, 1, spec);
-		return;
-	}
 	FeWrite(context, object, format_write_text, &writer,
 	    spec->conversion == 'S');
 	if (spec->precision >= 0
@@ -313,6 +387,96 @@ static void format_argument(FeContext *context, struct format_buffer *out,
 	}
 }
 
+/* Convert one argument. */
+static void format_argument(FeContext *context, struct format_buffer *out,
+    const struct format_spec *spec, FeObject **arguments)
+{
+	/* DBL_MAX is 309 digits, plus a sign and the terminator; every
+	 * integer conversion fits.  A float may not -- see below. */
+	char digits[512];
+	FeObject *object;
+	size_t needed;
+
+	/* A NUL byte inside the format string is not a spec: strchr() would
+	 * find it as the terminator of the set. */
+	if (FeIsNil(*arguments)) {
+		FeHandleError(
+		    context, "not enough arguments for format string");
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (strchr("dxXo", spec->conversion)) {
+		format_integer(
+		    context, digits, sizeof(digits), object, spec->conversion);
+		format_pad(
+		    context, out, digits, strlen(digits), strlen(digits), spec);
+		return;
+	}
+	if (strchr("efg", spec->conversion)) {
+		needed = format_float(
+		    context, digits, sizeof(digits), spec, object);
+		if (needed < sizeof(digits)) {
+			format_pad(context, out, digits, needed, needed, spec);
+		} else {
+			format_long_float(context, out, spec, object, needed);
+		}
+		return;
+	}
+	if (spec->conversion == 'c') {
+		format_character(context, out, spec, object);
+		return;
+	}
+	format_object(context, out, spec, object);
+}
+
+/* One unsigned decimal field of a format specifier -- a width or a
+ * precision -- consumed from `out->text` at `*i`. */
+static int format_number_field(
+    FeContext *context, struct format_buffer *out, size_t length, size_t *i)
+{
+	int value = 0;
+
+	while (*i < length && out->text[*i] >= '0' && out->text[*i] <= '9') {
+		if (value > (INT_MAX - (out->text[*i] - '0')) / 10) {
+			FeHandleError(context, "format field is too large");
+		}
+		value = value * 10 + out->text[*i] - '0';
+		(*i)++;
+	}
+	return value;
+}
+
+/* Flags, width, precision and the conversion character, consumed from
+ * `out->text` at `*i`, which is left on the conversion character.  The
+ * accepted flag set is `-` and `0`; Emacs also has `+`, ` ` and `#`, and
+ * a field number `N$`, all of which reach the invalid-operation arm
+ * here -- a recorded divergence rather than a silent misreading. */
+static struct format_spec format_parse_spec(
+    FeContext *context, struct format_buffer *out, size_t length, size_t *i)
+{
+	struct format_spec spec = { .precision = -1 };
+
+	while (*i < length && (out->text[*i] == '-' || out->text[*i] == '0')) {
+		spec.left |= out->text[*i] == '-';
+		spec.zero |= out->text[*i] == '0';
+		(*i)++;
+	}
+	spec.width = format_number_field(context, out, length, i);
+	if (*i < length && out->text[*i] == '.') {
+		(*i)++;
+		spec.precision = format_number_field(context, out, length, i);
+	}
+	if (*i == length || !strchr("sSdefgcoxX", out->text[*i])) {
+		char message[64];
+
+		(void)snprintf(message, sizeof(message),
+		    "invalid format operation %%%c",
+		    *i < length ? out->text[*i] : '?');
+		FeHandleError(context, message);
+	}
+	spec.conversion = out->text[*i];
+	return spec;
+}
+
 /* Walk the format string.  Arguments left over are ignored, as in Emacs. */
 static void format_walk(FeContext *context, struct format_buffer *out,
     size_t length, FeObject *arguments)
@@ -333,48 +497,9 @@ static void format_walk(FeContext *context, struct format_buffer *out,
 			format_put(context, out, '%');
 			continue;
 		}
-		struct format_spec spec = { .precision = -1 };
+		struct format_spec spec
+		    = format_parse_spec(context, out, length, &i);
 
-		while (i < length
-		    && (out->text[i] == '-' || out->text[i] == '0')) {
-			spec.left |= out->text[i] == '-';
-			spec.zero |= out->text[i] == '0';
-			i++;
-		}
-		while (
-		    i < length && out->text[i] >= '0' && out->text[i] <= '9') {
-			if (spec.width
-			    > (INT_MAX - (out->text[i] - '0')) / 10) {
-				FeHandleError(
-				    context, "format field is too large");
-			}
-			spec.width = spec.width * 10 + out->text[i] - '0';
-			i++;
-		}
-		if (i < length && out->text[i] == '.') {
-			spec.precision = 0;
-			i++;
-			while (i < length && out->text[i] >= '0'
-			    && out->text[i] <= '9') {
-				if (spec.precision
-				    > (INT_MAX - (out->text[i] - '0')) / 10) {
-					FeHandleError(context,
-					    "format field is too large");
-				}
-				spec.precision
-				    = spec.precision * 10 + out->text[i] - '0';
-				i++;
-			}
-		}
-		if (i == length || !strchr("sSdefgcoxX", out->text[i])) {
-			char message[64];
-
-			(void)snprintf(message, sizeof(message),
-			    "invalid format operation %%%c",
-			    i < length ? out->text[i] : '?');
-			FeHandleError(context, message);
-		}
-		spec.conversion = out->text[i];
 		format_argument(context, out, &spec, &arguments);
 	}
 }

@@ -667,7 +667,7 @@ pmccabe-baseline:
 		$(PYTHON) utils/check_pmccabe_complexity.py \
 			--max-function $(PMCCABE_FUNCTION_COMPLEXITY_MAX) \
 			--max-new-function $(PMCCABE_NEW_FUNCTION_MAX) \
-			--write-baseline $(PMCCABE_BASELINE)
+			--write-baseline $(PMCCABE_BASELINE) $(PMCCABE_BASELINE_ARGS)
 
 gateway-check:
 	$(PYTHON) utils/check_mutation_gateway.py \

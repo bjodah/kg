@@ -2296,6 +2296,26 @@ static void test_format_natives(void)
 	/* Recovery after any of those leaves the interpreter usable. */
 	CHECK(eval_eq("(format \"%s\" 'ok)", "ok"));
 
+	/* A float rendering is bounded by nothing but the precision the
+	 * caller wrote, and the conversion buffer is 512 bytes: kg used to
+	 * ignore snprintf's return and answer the first 511 characters of
+	 * (format "%.600f" 1.0), where Emacs 31.0.90 answers all 602.  The
+	 * rows below straddle the buffer -- just under, just over, and over
+	 * with a width and with left alignment, since those take different
+	 * paths through the padding. */
+	CHECK(eval_eq("(length (format \"%.500f\" 1.0))", "502"));
+	CHECK(eval_eq("(length (format \"%.509f\" 1.0))", "511"));
+	CHECK(eval_eq("(length (format \"%.510f\" 1.0))", "512"));
+	CHECK(eval_eq("(length (format \"%.600f\" 1.0))", "602"));
+	CHECK(eval_eq("(length (format \"%.600e\" 1.0))", "606"));
+	CHECK(eval_eq("(length (format \"%700.600f\" 1.0))", "700"));
+	CHECK(eval_eq("(length (format \"%-620.600f|\" 1.0))", "621"));
+	CHECK(eval_eq("(substring (format \"%700.600f\" 1.0) 97 100)", " 1."));
+	CHECK(eval_eq(
+	    "(substring (format \"%-620.600f|\" 1.0) 617 621)", "   |"));
+	/* A long rendering is still exact at its head. */
+	CHECK(eval_eq("(substring (format \"%.600f\" 1.0) 0 6)", "1.0000"));
+
 	/* message is format plus the status line. */
 	CHECK(eval_ok("(message \"%s of %d\" \"one\" 3)"));
 	CHECK(strcmp(test_status_message, "one of 3") == 0);
@@ -3595,8 +3615,8 @@ static void test_phase8_reader_literals(void)
 	CHECK(eval_eq("?\xc3\xa9", "233"));
 	/* The control modifier is not `& 0x1f': ? is DEL, @.._ and a..z
 	 * fold, and everything else keeps its value with the 2^26 bit. */
-	CHECK(eval_eq("(list ?\\C-? ?\\C-% ?\\C-\xc3\xa9)",
-	    "(127 67108901 67109097)"));
+	CHECK(eval_eq(
+	    "(list ?\\C-? ?\\C-% ?\\C-\xc3\xa9)", "(127 67108901 67109097)"));
 	CHECK(eval_eq("(list #x10 #o17 #b101 #xff)", "(16 15 5 255)"));
 	CHECK(eval_eq("(list \"\\x41\" \"\\101\" \"\\e\" \"\\d\" \"\\s\")",
 	    "(\"A\" \"A\" \"\x1b\" \"\x7f\" \" \")"));
@@ -3608,14 +3628,13 @@ static void test_phase8_reader_literals(void)
 	CHECK(eval_error_contains("(list '#:sym)", "unsupported read syntax"));
 	CHECK(eval_error_contains("(cdr '(a\\ b))", "symbol escape"));
 	CHECK(eval_error_contains("(list \"\\q\")", "unknown escape"));
-	CHECK(eval_error_contains(
-	    "(list ?ab)", "? literal without delimiter"));
+	CHECK(eval_error_contains("(list ?ab)", "? literal without delimiter"));
 	CHECK(eval_error_contains("(list ?\\s-a)", "\\s character modifier"));
 	CHECK(eval_error_contains("(list ?\\^a)", "\\^ character modifier"));
 	CHECK(eval_error_contains(
 	    "(list \"\\x41f\")", "character above 255 in string"));
-	CHECK(eval_error_contains(
-	    "(list \"\\0a\")", "NUL character in string"));
+	CHECK(
+	    eval_error_contains("(list \"\\0a\")", "NUL character in string"));
 	CHECK(eval_error_contains(
 	    "(list ?\\x110000)", "\\x character out of range"));
 
@@ -3633,8 +3652,8 @@ static void test_phase8_library(void)
 	    "(mapconcat (lambda (x) x) '(\"1\" \"2\" \"3\") \",\")", "1,2,3"));
 	/* SEPARATOR is optional since Emacs 29 and defaults to "". */
 	CHECK(eval_eq("(mapconcat (lambda (x) x) '(\"a\" \"b\"))", "ab"));
-	CHECK(eval_eq("(mapconcat 'number-to-string '(1 2 3) \", \")",
-	    "1, 2, 3"));
+	CHECK(eval_eq(
+	    "(mapconcat 'number-to-string '(1 2 3) \", \")", "1, 2, 3"));
 	/* number-to-string: Emacs' integer and float syntaxes, which are
 	 * fe's writer's, and wrong-type-argument for a non-number. */
 	CHECK(eval_eq("(number-to-string 3)", "3"));
@@ -3655,8 +3674,8 @@ static void test_phase8_library(void)
 	CHECK(eval_eq("(progn (setq x (list 1 2 3)) (nreverse x))", "(3 2 1)"));
 	/* nreverse mutates: the name still points at what was the head, so
 	 * it is now the one-element tail.  Emacs answers ((2 1) (1)). */
-	CHECK(eval_eq("(let ((x (list 1 2))) (list (nreverse x) x))",
-	    "((2 1) (1))"));
+	CHECK(eval_eq(
+	    "(let ((x (list 1 2))) (list (nreverse x) x))", "((2 1) (1))"));
 	CHECK(eval_eq("(delq 2 (list 1 2 1))", "(1 1)"));
 	CHECK(eval_eq("(delete '(a) (list '(a) '(b)))", "((b))"));
 	/* delq compares with eq and delete with equal, which is the whole
@@ -3668,8 +3687,8 @@ static void test_phase8_library(void)
 	    "(((1) (2)) ((2)))"));
 	/* The head-removal contract: the result must be assigned back,
 	 * because removing the first element cannot be done in place. */
-	CHECK(eval_eq("(progn (setq x (list 1 2)) (setq x (delq 1 x)) x)",
-	    "(2)"));
+	CHECK(eval_eq(
+	    "(progn (setq x (list 1 2)) (setq x (delq 1 x)) x)", "(2)"));
 	/* A cond clause with no body answers its own test's value. */
 	CHECK(eval_eq("(list (cond (5)) (cond (nil 1) (2)) (cond (nil 1))"
 		      " (cond))",
@@ -3678,10 +3697,10 @@ static void test_phase8_library(void)
 	    eval_eq("(progn (setq x '(2 1)) (add-to-list 'x 3) x)", "(3 2 1)"));
 	/* APPEND puts the new element last, and an element already there
 	 * (by `equal') leaves the list alone. */
-	CHECK(eval_eq("(progn (setq x (list 2 1)) (add-to-list 'x 3 t))",
-	    "(2 1 3)"));
-	CHECK(eval_eq("(progn (setq x (list 1 2)) (add-to-list 'x 1) x)",
-	    "(1 2)"));
+	CHECK(eval_eq(
+	    "(progn (setq x (list 2 1)) (add-to-list 'x 3 t))", "(2 1 3)"));
+	CHECK(eval_eq(
+	    "(progn (setq x (list 1 2)) (add-to-list 'x 1) x)", "(1 2)"));
 	/* Emacs' add-to-list is a function taking a symbol, so the symbol
 	 * argument is evaluated: this reaches my-list, not `s'.  kg's was a
 	 * macro pattern-matching a literal (quote NAME) and answered
@@ -3717,13 +3736,13 @@ static void test_phase8_library(void)
 	 * first row; kg left dv1 unbound because a single string argument
 	 * was classified as documentation and no setq was emitted.  Only
 	 * the second element is ever documentation. */
-	CHECK(eval_eq("(progn (makunbound 'dv1) (defvar dv1 \"hello\") dv1)",
-	    "hello"));
+	CHECK(eval_eq(
+	    "(progn (makunbound 'dv1) (defvar dv1 \"hello\") dv1)", "hello"));
 	CHECK(eval_eq("(progn (makunbound 'dv2) (defvar dv2 \"v\" \"doc\")"
 		      " (list dv2 (documentation 'dv2)))",
 	    "(\"v\" \"doc\")"));
-	CHECK(eval_eq("(progn (makunbound 'dv3) (defvar dv3) (boundp 'dv3))",
-	    "nil"));
+	CHECK(eval_eq(
+	    "(progn (makunbound 'dv3) (defvar dv3) (boundp 'dv3))", "nil"));
 	CHECK(eval_eq("(progn (makunbound 'dv4) (defvar dv4 1) dv4)", "1"));
 	/* And the rule defvar exists for: an already-bound variable keeps
 	 * its value, whatever the declaration says. */

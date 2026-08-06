@@ -113,13 +113,14 @@ def key_of(func):
 	return f"{func['file']}:{func['symbol']}"
 
 
-def load_baseline(path):
+def load_baseline(path, quiet=False):
 	try:
 		with open(path, "r", encoding="utf-8") as fp:
 			data = json.load(fp)
 	except FileNotFoundError:
-		print(f"FAIL: complexity baseline {path} is missing; "
-		      "run 'make pmccabe-baseline'", file=sys.stderr)
+		if not quiet:
+			print(f"FAIL: complexity baseline {path} is missing; "
+			      "run 'make pmccabe-baseline'", file=sys.stderr)
 		return None
 	except json.JSONDecodeError as exc:
 		print(f"FAIL: complexity baseline {path} is not valid JSON: {exc}",
@@ -130,6 +131,39 @@ def load_baseline(path):
 		      f"{data.get('schema')!r}, expected {SCHEMA!r}", file=sys.stderr)
 		return None
 	return data
+
+
+def baseline_deltas(path, functions, max_new):
+	"""What a rewrite of `path` would bank that nobody asked for.
+
+	`make pmccabe-baseline` exists to record *improvements*, and it used
+	to record anything at all: commit b8581e8 re-banked four per-symbol
+	regressions (format_walk 5 -> 21, format_argument 6 -> 20,
+	format_integer 6 -> 16) and a new function at 25 against a
+	new-function budget of 15, and the command said nothing about any of
+	it.  Two classes are reported here, and both need --allow-regressions
+	before --write-baseline will proceed: a symbol measuring above the
+	entry the manifest already holds, and a symbol with no entry at all
+	measuring above the new-function budget.  The comparison is the same
+	one check_baseline already does, so refusing to do it silently costs
+	one dict lookup per symbol.
+	"""
+	previous = load_baseline(path, quiet=True)
+	recorded = previous["functions"] if previous else {}
+	deltas = []
+	for func in sorted(functions, key=key_of):
+		key = key_of(func)
+		if key in recorded:
+			if func["complexity"] > recorded[key]:
+				deltas.append(
+					f"  {key}: {recorded[key]} -> "
+					f"{func['complexity']} "
+					f"(+{func['complexity'] - recorded[key]})")
+		elif func["complexity"] > max_new:
+			deltas.append(
+				f"  {key}: new function at {func['complexity']}, "
+				f"budget for a new function {max_new}")
+	return deltas
 
 
 def write_baseline(path, functions, max_new):
@@ -206,6 +240,13 @@ def main():
 				 "instead of checking it")
 	parser.add_argument("--max-new-function", type=int, default=15,
 			    help="budget for a symbol with no baseline entry")
+	parser.add_argument("--allow-regressions", action="store_true",
+			    help="permit --write-baseline to record a symbol "
+				 "at a higher complexity than the manifest "
+				 "currently holds, or a new symbol above the "
+				 "new-function budget; without this such a "
+				 "rewrite is refused, so an increase cannot be "
+				 "banked by accident")
 	args = parser.parse_args()
 
 	functions = sorted(
@@ -249,6 +290,22 @@ def main():
 		)
 
 	if args.write_baseline:
+		# Banking an increase is a deliberate act with a reason, so it
+		# needs a flag and the reason goes in the commit message;
+		# banking one by accident is what this refuses.
+		deltas = baseline_deltas(args.write_baseline, functions,
+					 args.max_new_function)
+		if deltas and not args.allow_regressions:
+			print(f"FAIL: {len(deltas)} symbol(s) would be banked "
+			      "above what the current baseline allows; re-run "
+			      "with --allow-regressions (make pmccabe-baseline "
+			      "PMCCABE_BASELINE_ARGS=--allow-regressions) and "
+			      "say why in the commit message", file=sys.stderr)
+			for line in deltas:
+				print(line, file=sys.stderr)
+			return 1
+		for line in deltas:
+			print(f"banking increase: {line.strip()}")
 		write_baseline(args.write_baseline, functions,
 			       args.max_new_function)
 		return 0

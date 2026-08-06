@@ -65,7 +65,6 @@ struct lisp_prefix_binding {
 	int active;
 };
 
-
 /* The runtime execution context for one frame: which buffer Lisp code is
  * working in.  Separate from the active-window globals; hidden-buffer
  * operations move it, never a window.  Initialized from the active window
@@ -298,11 +297,13 @@ FeObject *native_consp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
-FeObject *lisp_prefix_object(FeContext *context, const struct command_prefix *prefix);
+FeObject *lisp_prefix_object(
+    FeContext *context, const struct command_prefix *prefix);
 int64_t lisp_prefix_number(FeContext *context, FeObject *object);
 FeObject *native_define_command(FeContext *context, FeObject *arguments);
 FeObject *native_remove_command(FeContext *context, FeObject *arguments);
-FeObject *native_remove_command_if_present(FeContext *context, FeObject *arguments);
+FeObject *native_remove_command_if_present(
+    FeContext *context, FeObject *arguments);
 FeObject *native_bind_key(FeContext *context, FeObject *arguments);
 FeObject *native_unbind_key(FeContext *context, FeObject *arguments);
 FeObject *native_current_buffer(FeContext *context, FeObject *arguments);

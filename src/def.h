@@ -77,6 +77,7 @@
 #include <unistd.h>
 
 #include "bufhandle.h"
+#include "bufmgr.h"
 #include "cmd.h"
 #include "decor.h"
 #include "keyevent.h"
@@ -406,16 +407,6 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
     void (*populate)(erow **rows, int *numrows, int *row_capacity),
     const char *status);
 
-/* Result of a minibuffer prompt.  ACCEPTED is the only outcome that should
- * ever be acted on by callers that execute the typed text (e.g. as a shell
- * command): OVERFLOW means the accepted buffer is a silently truncated
- * prefix of what the user typed, which is unsafe to run verbatim. */
-enum minibuf_result {
-	MINIBUF_CANCELLED = -1,
-	MINIBUF_ACCEPTED = 0,
-	MINIBUF_OVERFLOW = 1,
-};
-
 /* `buf` is read before it is written: whatever it already holds, as
  * measured by strnlen(buf, bufsize), becomes the prompt's initial text.
  * A caller wanting an empty prompt must set buf[0] = '\0' first --
@@ -423,7 +414,8 @@ enum minibuf_result {
  * prefills the minibuffer with whatever the stack held. */
 enum minibuf_result editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize);
-int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize);
+enum minibuf_result editor_read_line_path(
+    int fd, const char *prompt, char *buf, int bufsize);
 
 #define MINIBUF_HISTORY_MAX 32
 #define MINIBUF_HISTORY_ENTRY_MAX 256
@@ -447,7 +439,7 @@ const char *minibuf_history_walk(
 enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
     char *buf, int bufsize, struct minibuf_history *hist);
 void editor_prompt_prefill_dir(char *buf, int bufsize);
-void editor_path_expand_tilde(char *buf, int bufsize);
+int editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
 int editor_picker_render(char *msg, int msg_size, int *off,
     const char *const *names, int n, int n_total, int sel);
@@ -479,6 +471,7 @@ typedef const char *(*picker_name_fn)(int index, void *data);
 [[nodiscard]] int editor_picker_filter(picker_name_fn name_at, void *data,
     const char *query, const char **names, int *order, int max,
     int *prefix_matches);
+void editor_picker_cycle(int *selection, int matches, int direction);
 void buf_load_args(int nfiles, char **filenames, int readonly);
 void buf_select_interactive(int fd);
 void buf_open_file(int fd);

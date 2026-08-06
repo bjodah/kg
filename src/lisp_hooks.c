@@ -6,6 +6,7 @@
 
 #include "../fe/fe.h"
 #include "bufhandle.h"
+#include "cmd.h"
 #include "def.h"
 #include "event.h"
 #include "lisp.h"
@@ -135,14 +136,17 @@ static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
 		return;
 	}
 	lisp_exec_enter(ctx);
+	cmd_prompt_block();
 	if (FeTryCallWithOptions(
 		ctx, target, args, arg_count, &eval_options, &value)) {
+		cmd_prompt_unblock();
 		FeRestoreGC(ctx, gc);
 		lisp_exec_leave(1);
 		state.exec = saved_exec;
 		return;
 	}
 	kind = FeGetCompletion(ctx);
+	cmd_prompt_unblock();
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(0);
 	state.exec = saved_exec;

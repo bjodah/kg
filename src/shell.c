@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "bufmgr.h"
 #include "def.h"
 #include "edit.h"
 #include "marker.h"

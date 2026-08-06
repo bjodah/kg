@@ -1,0 +1,26 @@
+name: lisp-interactive-prompting-number-retry-grammar
+filename: prompt-number.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun number-retry (value)
+      (interactive "nNumber: ")
+      (insert (format "%s" value)))
+    (defun exponent-number (value)
+      (interactive "nExponent: ")
+      (insert (format "%s" value)))
+initial: ""
+keys:
+  - M-x
+  - number-retry
+  - RET
+  - "junk"
+  - RET
+  - "12."
+  - RET
+  - M-x
+  - exponent-number
+  - RET
+  - "1e2"
+  - RET
+expected_saved: "12100.0"

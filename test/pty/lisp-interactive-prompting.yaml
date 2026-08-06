@@ -1,0 +1,24 @@
+name: lisp-interactive-prompting-string-and-number
+filename: lisp-prompt.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun insert-input (value)
+      (interactive "sValue: ")
+      (insert value))
+    (defun insert-number (value)
+      (interactive "nNumber: ")
+      (insert (format "%s" value)))
+initial: ""
+keys:
+  - M-x
+  - insert-input
+  - RET
+  - "hello"
+  - RET
+  - M-x
+  - insert-number
+  - RET
+  - "12.5"
+  - RET
+expected_saved: hello12.5

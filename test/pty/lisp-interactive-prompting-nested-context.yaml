@@ -1,0 +1,25 @@
+name: lisp-interactive-prompting-nested-command-refusal
+filename: prompt-nested.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun inner-prompt (value)
+      (interactive "sInner: ")
+      (insert value))
+    (defun outer-command ()
+      (interactive)
+      (command-execute 'inner-prompt))
+    (defun ask-from-eval ()
+      (interactive)
+      (command-execute 'inner-prompt))
+initial: start
+keys:
+  - M-x
+  - outer-command
+  - RET
+  - nested
+  - RET
+  - "M-:"
+  - "(command-execute 'ask-from-eval)"
+  - RET
+expected_saved: start

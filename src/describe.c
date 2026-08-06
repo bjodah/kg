@@ -6,6 +6,7 @@
 
 #include "describe.h"
 
+#include "bufmgr.h"
 #include "cmd.h"
 #include "def.h"
 #include "keyevent.h"

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "bufmgr.h"
 #include "cmd.h"
 #include "cmdstate.h"
 #include "compile.h"
@@ -725,7 +726,7 @@ static void cmd_dired(int fd)
 
 	path[0] = '\0';
 	if (editor_read_line_path(fd, "Dired (directory): ", path, sizeof(path))
-	    < 0) {
+	    != MINIBUF_ACCEPTED) {
 		return;
 	}
 	if (!path[0]) {
@@ -1712,13 +1713,32 @@ static command_id runtime_id_of(const char *name)
  * missing CMD_LISP_CALLABLE keeps (command-execute ...) restricted to
  * built-ins, exactly as the allow-list it replaced did. */
 static const struct named_cmd lisp_defined_command
-	= { NULL, NULL, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE, NULL };
+    = { NULL, NULL, CMD_EDITS_BUFFER | CMD_LISP_CALLABLE, NULL };
 
 static const struct command_context *active_context;
+static unsigned prompt_block_depth;
+static int active_prompt_fd = -1;
 
 const struct command_prefix *cmd_active_prefix(void)
 {
 	return active_context ? &active_context->prefix : NULL;
+}
+
+int cmd_prompt_fd(void)
+{
+	if (prompt_block_depth != 0) {
+		return -1;
+	}
+	return active_prompt_fd;
+}
+
+void cmd_prompt_block(void) { prompt_block_depth++; }
+
+void cmd_prompt_unblock(void)
+{
+	if (prompt_block_depth > 0) {
+		prompt_block_depth--;
+	}
 }
 
 static int cmd_static_count(void)
@@ -1828,6 +1848,32 @@ static int refuses_read_only(const struct named_cmd *cmd)
 	return (cmd->flags & CMD_EDITS_BUFFER) && bcur()->readonly;
 }
 
+static void cmd_run_repeated(const char *name,
+    const struct command_context *ctx, int repeat, const struct named_cmd *cmd);
+
+static void cmd_run_repeated(const char *name,
+    const struct command_context *ctx, int repeat, const struct named_cmd *cmd)
+{
+	while (repeat-- > 0) {
+		if (cmd->fn) {
+			cmd->fn(ctx->fd);
+		} else {
+			(void)kg_lisp_run_command(name, ctx->fd);
+		}
+	}
+}
+
+static void set_command_prompt_fd(
+    const char *name, const struct command_context *ctx)
+{
+	if (ctx->origin == CMD_ORIGIN_KEY || ctx->origin == CMD_ORIGIN_MX) {
+		active_prompt_fd
+		    = name != NULL && strcmp(name, "eval-expression") == 0
+		    ? -1
+		    : ctx->fd;
+	}
+}
+
 int cmd_fast_path_begin(const char *name, command_id *outer)
 {
 	const struct named_cmd *cmd = cmd_lookup(name);
@@ -1859,6 +1905,7 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	bool from_lisp = ctx->origin == CMD_ORIGIN_LISP;
 	struct command_prefix saved;
 	const struct command_context *saved_context;
+	int saved_prompt_fd;
 	command_id outer;
 	int repeat;
 
@@ -1881,7 +1928,9 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	}
 	saved = editor.current_prefix;
 	saved_context = active_context;
+	saved_prompt_fd = active_prompt_fd;
 	active_context = ctx;
+	set_command_prompt_fd(name, ctx);
 	editor.current_prefix = ctx->prefix;
 	/* An explicit zero is a real count: C-u 0 C-f moves nowhere. */
 	repeat = (cmd->flags & CMD_REPEATS) && ctx->prefix.supplied
@@ -1890,16 +1939,11 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 	/* Publish the identity only now: a command refused above did not
 	 * run, so it is not what ran last either. */
 	outer = cmd_state_begin_command(cmd_id_by_name(name));
-	while (repeat-- > 0) {
-		if (cmd->fn) {
-			cmd->fn(ctx->fd);
-		} else {
-			(void)kg_lisp_run_command(name, ctx->fd);
-		}
-	}
+	cmd_run_repeated(name, ctx, repeat, cmd);
 	cmd_state_end_command(outer);
 	editor.current_prefix = saved;
 	active_context = saved_context;
+	active_prompt_fd = saved_prompt_fd;
 	return CMD_RAN;
 }
 
@@ -2072,15 +2116,11 @@ void editor_named_command(int fd)
 			sel = 0;
 			explicit_selection = 0;
 		} else if (KEY_IN_LIST(picker_next_keys, c)) {
-			if (shown > 0) {
-				sel = (sel + 1) % shown;
-				explicit_selection = 1;
-			}
+			editor_picker_cycle(&sel, shown, 1);
+			explicit_selection |= shown > 0;
 		} else if (KEY_IN_LIST(picker_prev_keys, c)) {
-			if (shown > 0) {
-				sel = (sel - 1 + shown) % shown;
-				explicit_selection = 1;
-			}
+			editor_picker_cycle(&sel, shown, -1);
+			explicit_selection |= shown > 0;
 		} else if (c.mods == 0 && ascii_is_print(c.base)
 		    && len < (int)sizeof(name) - 1) {
 			name[len++] = (char)c.base;

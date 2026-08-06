@@ -393,6 +393,7 @@ bool kg_event_unsubscribe(struct kg_event_subscriber_token token);
  * prompt's own cleanup. */
 void kg_event_prompt_enter(void);
 void kg_event_prompt_leave(void);
+bool kg_event_prompt_active(void);
 
 /* Deliver every event published at or before this call's own start --
  * captured as the queue's latest sequence number right then -- to every

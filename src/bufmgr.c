@@ -12,6 +12,7 @@
 #include <time.h>
 
 #include "bufhandle.h"
+#include "bufmgr.h"
 #include "cmdstate.h"
 #include "compile.h"
 #include "decor.h"
@@ -43,6 +44,8 @@ static const struct key_event picker_prev_keys[]
     = { { KEY_BASE_LEFT, 0 }, { 'b', KEY_MOD_CTRL } };
 static const struct key_event cancel_keys[]
     = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL } };
+
+static void buf_picker_cycle(int *selection, int matches, int direction);
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -971,9 +974,8 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 	return 0;
 }
 
-/* Prompt the user for a line of text in the status bar.  Returns 0 on
- * confirmation (Enter), 1 if unaccepted input exceeded the buffer, or -1 if
- * cancelled (ESC / C-g).  buf is always NUL-terminated on return. */
+/* Prompt the user for a line of text in the status bar.  Returns the shared
+ * minibuffer result and always leaves buf NUL-terminated. */
 enum minibuf_result editor_read_line(
     int fd, const char *prompt, char *buf, int bufsize)
 {
@@ -1299,6 +1301,115 @@ static int path_ends_in_dot_component(const char *buf)
 	return strcmp(base, ".") == 0 || strcmp(base, "..") == 0;
 }
 
+static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
+    int *sel, struct path_entry *entries, char *dir, char *file, char *lcp,
+    char *msg, int *matches, int *total, int *flen)
+{
+	const char *names[PICKER_MAX_ENTRIES] = { 0 };
+	int off, i, sel_off;
+
+	editor_path_split(buf, dir, 256, file, 256);
+	*flen = (int)strlen(file);
+	*total = editor_path_complete_entries(
+	    dir, file, entries, PICKER_MAX_ENTRIES, lcp, 256);
+	*matches = *total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES
+					       : (*total < 0 ? 0 : *total);
+	if (*sel >= *matches) {
+		*sel = *matches > 0 ? *matches - 1 : 0;
+	}
+	push_open_files_back(entries, *matches);
+	for (i = 0; i < *matches; i++) {
+		names[i] = entries[i].name;
+	}
+	off = 0;
+	editor_msg_appendf(msg, 1024, &off, "%s%s ", prompt, buf);
+	sel_off = editor_picker_render(
+	    msg, 1024, &off, names, *matches, *total, *sel);
+	editor_set_status_message("%s", msg);
+	editor_picker_emphasise(sel_off, names, *matches, *sel);
+	editor.echo_cursor_col
+	    = prompt_cursor_col(prompt, (int)strlen(prompt), buf, cursor);
+	editor_refresh_screen();
+}
+
+static void path_handle_erase(int fd, struct key_event c, char *buf,
+    int bufsize, int *cursor, int *len, int *overflow, int *sel)
+{
+	if (*cursor < *len) {
+		minibuf_edit_key(fd, c, buf, bufsize, cursor, len, overflow);
+	} else if (*len > 0 && buf[*len - 1] == '/') {
+		buf[--*len] = '\0';
+		while (*len > 0 && buf[*len - 1] != '/') {
+			buf[--*len] = '\0';
+		}
+	} else if (*len > 0) {
+		*len = utf8_glyph_start_before(buf, *len, *len);
+		buf[*len] = '\0';
+	}
+	*cursor = *len;
+	*sel = 0;
+}
+
+enum path_accept_action {
+	PATH_ACCEPT_DONE,
+	PATH_ACCEPT_OVERFLOW,
+	PATH_ACCEPT_DESCEND,
+};
+
+static enum path_accept_action path_handle_accept(char *buf, int bufsize,
+    int *cursor, int *len, int flen, int matches, int sel,
+    const struct path_entry *entries, int literal, int overflow)
+{
+	if (!literal && matches > 0 && *cursor == *len) {
+		const struct path_entry *pe = &entries[sel];
+		int new_name_len = (int)strlen(pe->name);
+		int add_slash = pe->is_dir ? 1 : 0;
+
+		if (*len - flen + new_name_len + add_slash + 1 > bufsize) {
+			editor_set_status_message("Path too long");
+			return PATH_ACCEPT_OVERFLOW;
+		}
+		*len -= flen;
+		memcpy(buf + *len, pe->name, new_name_len);
+		*len += new_name_len;
+		if (add_slash) {
+			buf[(*len)++] = '/';
+		}
+		buf[*len] = '\0';
+		*cursor = *len;
+		if (pe->is_dir) {
+			return PATH_ACCEPT_DESCEND;
+		}
+	}
+	if (editor_path_expand_tilde(buf, bufsize)) {
+		return PATH_ACCEPT_OVERFLOW;
+	}
+	return overflow > 0 ? PATH_ACCEPT_OVERFLOW : PATH_ACCEPT_DONE;
+}
+
+static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
+    int flen, int matches, const char *lcp, const struct path_entry *entries,
+    int *sel)
+{
+	int llen = (int)strlen(lcp);
+
+	if (llen > flen) {
+		int extend = llen - flen;
+		if (*len + extend < bufsize) {
+			memcpy(buf + *len, lcp + flen, extend);
+			*len += extend;
+			buf[*len] = '\0';
+			*cursor = *len;
+		}
+	} else if (matches == 1 && entries[0].is_dir && *len >= 0
+	    && *len < bufsize - 1 && (*len == 0 || buf[*len - 1] != '/')) {
+		buf[(*len)++] = '/';
+		buf[*len] = '\0';
+		*cursor = *len;
+	}
+	*sel = 0;
+}
+
 /* Prompt for a path with ido-style completion.  Matching directory
  * entries are rendered as a "{name1 | name2 | …}" pick-list to the
  * right of the typed text, with the selected entry shown in bold.
@@ -1309,11 +1420,11 @@ static int path_ends_in_dot_component(const char *buf)
  * still extends to the longest common prefix.  Backspace at the trailing
  * '/' deletes the whole last path component, so one keystroke walks
  * you up one level. */
-int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line_path(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	struct path_entry entries[PICKER_MAX_ENTRIES];
 	char dir[256], file[256], lcp[256], msg[1024];
-	int plen = (int)strlen(prompt);
 	/* Honour any pre-populated content (callers may seed the prompt
 	 * with the current buffer's directory, à la Emacs). */
 	int len = (int)strnlen(buf, bufsize - 1);
@@ -1329,60 +1440,15 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 	 * path too. */
 	kg_event_prompt_enter();
 	while (1) {
-		const char *names[PICKER_MAX_ENTRIES] = { 0 };
-		int off, i, sel_off;
-
-		editor_path_split(buf, dir, sizeof(dir), file, sizeof(file));
-		flen = (int)strlen(file);
-		total = editor_path_complete_entries(
-		    dir, file, entries, PICKER_MAX_ENTRIES, lcp, sizeof(lcp));
-		matches = total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES
-						     : (total < 0 ? 0 : total);
-		if (sel >= matches) {
-			sel = matches > 0 ? matches - 1 : 0;
-		}
-
-		push_open_files_back(entries, matches);
-
-		for (i = 0; i < matches; i++) {
-			names[i] = entries[i].name;
-		}
-
-		off = 0;
-		editor_msg_appendf(
-		    msg, sizeof(msg), &off, "%s%s ", prompt, buf);
-		sel_off = editor_picker_render(
-		    msg, sizeof(msg), &off, names, matches, total, sel);
-
-		editor_set_status_message("%s", msg);
-		editor_picker_emphasise(sel_off, names, matches, sel);
-		editor.echo_cursor_col
-		    = prompt_cursor_col(prompt, plen, buf, cursor);
-		editor_refresh_screen();
+		path_prompt_redraw(prompt, buf, cursor, &sel, entries, dir,
+		    file, lcp, msg, &matches, &total, &flen);
 
 		c = editor_read_key(fd);
 		if (KEY_IN_LIST(erase_keys, c)) {
-			if (cursor < len) {
-				minibuf_edit_key(fd, c, buf, bufsize, &cursor,
-				    &len, &overflow);
-			} else {
-				if (len > 0 && buf[len - 1] == '/') {
-					/* At a directory boundary: walk up one
-					 * component. */
-					buf[--len] = '\0';
-					while (len > 0 && buf[len - 1] != '/') {
-						buf[--len] = '\0';
-					}
-				} else if (len > 0) {
-					len = utf8_glyph_start_before(
-					    buf, len, len);
-					buf[len] = '\0';
-				}
-				cursor = len;
-			}
-			sel = 0;
+			path_handle_erase(fd, c, buf, bufsize, &cursor, &len,
+			    &overflow, &sel);
 		} else if (KEY_IN_LIST(cancel_keys, c)) {
-			return prompt_done(-1);
+			return prompt_done(MINIBUF_CANCELLED);
 		} else if (KEY_IS(c, 'b', KEY_MOD_CTRL)) {
 			if (cursor > 0) {
 				cursor
@@ -1398,14 +1464,10 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			 * other's bindings. */
 		} else if (KEY_IS(c, KEY_BASE_LEFT, 0)
 		    || KEY_IS(c, KEY_BASE_UP, 0)) {
-			if (matches > 0) {
-				sel = (sel - 1 + matches) % matches;
-			}
+			buf_picker_cycle(&sel, matches, -1);
 		} else if (KEY_IS(c, KEY_BASE_RIGHT, 0)
 		    || KEY_IS(c, KEY_BASE_DOWN, 0)) {
-			if (matches > 0) {
-				sel = (sel + 1) % matches;
-			}
+			buf_picker_cycle(&sel, matches, 1);
 		} else if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META)
 		    || (KEY_IS(c, KEY_BASE_RET, 0)
 			&& path_ends_in_dot_component(buf))) {
@@ -1413,55 +1475,27 @@ int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
 			 * applied, no descend.  M-RET is a deliberate
 			 * deviation from Emacs; the "." form is Emacs'
 			 * own. */
-			editor_path_expand_tilde(buf, bufsize);
-			return prompt_done(0);
+			enum path_accept_action action
+			    = path_handle_accept(buf, bufsize, &cursor, &len,
+				flen, matches, sel, entries, 1, overflow);
+			return prompt_done(action == PATH_ACCEPT_OVERFLOW
+				? MINIBUF_OVERFLOW
+				: MINIBUF_ACCEPTED);
 		} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
-			if (matches > 0 && cursor == len) {
-				/* Replace the typed file part with the selected
-				 * name. */
-				const struct path_entry *pe = &entries[sel];
-				int new_name_len = (int)strlen(pe->name);
-				int add_slash = pe->is_dir ? 1 : 0;
-				if (len - flen + new_name_len + add_slash + 1
-				    > bufsize) {
-					editor_set_status_message(
-					    "Path too long");
-					return prompt_done(-1);
-				}
-				len -= flen;
-				memcpy(buf + len, pe->name, new_name_len);
-				len += new_name_len;
-				if (add_slash) {
-					buf[len++] = '/';
-				}
-				buf[len] = '\0';
-				cursor = len;
-				if (pe->is_dir) {
-					sel = 0;
-					continue; /* descend, re-loop */
-				}
+			enum path_accept_action action
+			    = path_handle_accept(buf, bufsize, &cursor, &len,
+				flen, matches, sel, entries, 0, overflow);
+			if (action == PATH_ACCEPT_DESCEND) {
+				sel = 0;
+				continue;
 			}
-			editor_path_expand_tilde(buf, bufsize);
-			return prompt_done(0);
+			return prompt_done(action == PATH_ACCEPT_OVERFLOW
+				? MINIBUF_OVERFLOW
+				: MINIBUF_ACCEPTED);
 		} else if (KEY_IS(c, KEY_BASE_TAB, 0) && matches > 0
 		    && cursor == len) {
-			int llen = (int)strlen(lcp);
-			if (llen > flen) {
-				int extend = llen - flen;
-				if (len + extend < bufsize) {
-					memcpy(buf + len, lcp + flen, extend);
-					len += extend;
-					buf[len] = '\0';
-					cursor = len;
-				}
-			} else if (matches == 1 && entries[0].is_dir
-			    && len < bufsize - 1
-			    && (len == 0 || buf[len - 1] != '/')) {
-				buf[len++] = '/';
-				buf[len] = '\0';
-				cursor = len;
-			}
-			sel = 0;
+			path_handle_tab(buf, bufsize, &cursor, &len, flen,
+			    matches, lcp, entries, &sel);
 		} else {
 			if (minibuf_edit_key(fd, c, buf, bufsize, &cursor, &len,
 				&overflow)) {
@@ -1636,6 +1670,13 @@ struct bufpick_names {
 	int n;
 };
 
+static void buf_picker_cycle(int *selection, int matches, int direction)
+{
+	if (matches > 0) {
+		*selection = (*selection + direction + matches) % matches;
+	}
+}
+
 static const char *bufpick_name_at(int index, void *data)
 {
 	const struct bufpick_names *cand = data;
@@ -1643,24 +1684,156 @@ static const char *bufpick_name_at(int index, void *data)
 	return index < cand->n ? cand->name[index] : NULL;
 }
 
-/* Interactive buffer selector shown in the echo area (C-x b).
- * Lists every buffer except the current one and narrows the list as
- * the user types — substring matching with prefix matches ranked
- * first, the same rule M-x and C-x C-f use.  Left/Right cycle within
- * the filtered set; Enter switches; ESC/C-g cancels. */
-void buf_select_interactive(int fd)
+enum buf_name_action {
+	BUF_NAME_CONTINUE,
+	BUF_NAME_ACCEPTED,
+	BUF_NAME_OVERFLOW,
+};
+
+static enum buf_name_action buf_name_accept_query(
+    const char *query, char *out, int outsize)
 {
-	const char prompt[] = "Buffer: ";
-	const int plen = sizeof(prompt) - 1;
+	if ((int)strlen(query) >= outsize) {
+		return BUF_NAME_OVERFLOW;
+	}
+	strcpy(out, query);
+	return BUF_NAME_ACCEPTED;
+}
+
+static enum buf_name_action buf_name_accept(struct key_event c,
+    const char *query, int n, int matches, int sel, const int *order,
+    const char *const *names, char *out, int outsize, int allow_new,
+    int blank_current, int overflow)
+{
+	const char *answer;
+	int idx;
+
+	editor.echo_cursor_col = 0;
+	editor_set_status_message("");
+	if (overflow) {
+		return BUF_NAME_OVERFLOW;
+	}
+	if (query[0] == '\0' && blank_current) {
+		buf_display_name(buf_current, out, (size_t)outsize);
+		return BUF_NAME_ACCEPTED;
+	}
+	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META) && allow_new
+	    && query[0] != '\0') {
+		return buf_name_accept_query(query, out, outsize);
+	}
+	if (matches > 0) {
+		answer = names[sel];
+		if ((int)strlen(answer) >= outsize) {
+			return BUF_NAME_OVERFLOW;
+		}
+		strcpy(out, answer);
+		return BUF_NAME_ACCEPTED;
+	}
+	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META) && !allow_new) {
+		return BUF_NAME_CONTINUE;
+	}
+	if (query[0] == '\0') {
+		idx = n > 0 ? order[0] : buf_current;
+		buf_display_name(idx, out, (size_t)outsize);
+		return BUF_NAME_ACCEPTED;
+	}
+	if (allow_new) {
+		return buf_name_accept_query(query, out, outsize);
+	}
+	return BUF_NAME_CONTINUE;
+}
+
+static int buf_name_insert_key(
+    int fd, struct key_event c, char *query, int *qlen, int *overflow, int *sel)
+{
+	if (c.mods == 0 && ascii_is_print(c.base)) {
+		if (*qlen < 64 - 1) {
+			query[(*qlen)++] = (char)c.base;
+			query[*qlen] = '\0';
+		} else {
+			*overflow = 1;
+		}
+		*sel = 0;
+		return 1;
+	}
+	if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
+		char seq[4];
+		int n = editor_read_utf8_seq(fd, (int)c.base, seq);
+
+		if (n > 0 && *qlen + n < 64 - 1) {
+			memcpy(query + *qlen, seq, (size_t)n);
+			*qlen += n;
+			query[*qlen] = '\0';
+			*sel = 0;
+		} else if (n > 0) {
+			*overflow = 1;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+static int buf_name_handle_key(int fd, struct key_event c, char *query,
+    int *qlen, int *sel, int matches, int *overflow, int n, const int *order,
+    const char *const *names, char *out, int outsize, int allow_new,
+    int blank_current)
+{
+	if (KEY_IN_LIST(erase_keys, c)) {
+		if (*qlen > 0) {
+			*qlen = utf8_glyph_start_before(query, *qlen, *qlen);
+			query[*qlen] = '\0';
+		}
+		*sel = 0;
+		return -2;
+	}
+	if (KEY_IN_LIST(picker_next_keys, c)) {
+		buf_picker_cycle(sel, matches, 1);
+		return -2;
+	}
+	if (KEY_IN_LIST(picker_prev_keys, c)) {
+		buf_picker_cycle(sel, matches, -1);
+		return -2;
+	}
+	if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META)
+	    || KEY_IS(c, KEY_BASE_RET, 0)) {
+		enum buf_name_action action
+		    = buf_name_accept(c, query, n, matches, *sel, order, names,
+			out, outsize, allow_new, blank_current, *overflow);
+		if (action != BUF_NAME_CONTINUE) {
+			return action == BUF_NAME_ACCEPTED ? MINIBUF_ACCEPTED
+							   : MINIBUF_OVERFLOW;
+		}
+		return -2;
+	}
+	if (KEY_IN_LIST(cancel_keys, c)) {
+		editor.echo_cursor_col = 0;
+		editor_set_status_message("");
+		return MINIBUF_CANCELLED;
+	}
+	(void)buf_name_insert_key(fd, c, query, qlen, overflow, sel);
+	return -2;
+}
+
+/* Read a buffer name with the same picker used by C-x b.  This deliberately
+ * only returns text: selecting or creating the named buffer belongs to the
+ * eventual command body, not argument construction. */
+enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
+    int outsize, int allow_new, int blank_current)
+{
+	const int plen = (int)strlen(prompt);
 	int order[MAX_BUFFERS], n = 0;
 	char query[64];
 	int qlen = 0, sel = 0;
+	int overflow = 0;
 	int i;
 	struct key_event c;
 	char msg[512];
 	int off, sel_off;
 
 	query[0] = '\0';
+	if (out == NULL || outsize < 2) {
+		return MINIBUF_OVERFLOW;
+	}
 
 	/* See editor_read_line_with_history()'s comment: this is a
 	 * minibuffer read too (its query line), across a loop that may run
@@ -1679,12 +1852,6 @@ void buf_select_interactive(int fd)
 			order[n++] = idx;
 		}
 	}
-	if (n == 0) {
-		editor_set_status_message("No other buffers.");
-		kg_event_prompt_leave();
-		return;
-	}
-
 	{
 		static char namebuf[MAX_BUFFERS][128];
 		const char *names[MAX_BUFFERS];
@@ -1720,55 +1887,45 @@ void buf_select_interactive(int fd)
 			editor_refresh_screen();
 
 			c = editor_read_key(fd);
-			if (KEY_IN_LIST(erase_keys, c)) {
-				if (qlen > 0) {
-					qlen = utf8_glyph_start_before(
-					    query, qlen, qlen);
-					query[qlen] = '\0';
-				}
-				sel = 0;
-			} else if (KEY_IN_LIST(picker_next_keys, c)) {
-				if (matches > 0) {
-					sel = (sel + 1) % matches;
-				}
-			} else if (KEY_IN_LIST(picker_prev_keys, c)) {
-				if (matches > 0) {
-					sel = (sel - 1 + matches) % matches;
-				}
-			} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
-				editor.echo_cursor_col = 0;
-				editor_set_status_message("");
-				if (matches > 0) {
-					buf_select(order[ring_pos[sel]]);
-				}
+			int result = buf_name_handle_key(fd, c, query, &qlen,
+			    &sel, matches, &overflow, n, order, names, out,
+			    outsize, allow_new, blank_current);
+			if (result != -2) {
 				kg_event_prompt_leave();
-				return;
-			} else if (KEY_IN_LIST(cancel_keys, c)) {
-				editor.echo_cursor_col = 0;
-				editor_set_status_message("");
-				kg_event_prompt_leave();
-				return;
-			} else if (c.mods == 0 && ascii_is_print(c.base)
-			    && qlen < (int)sizeof(query) - 1) {
-				query[qlen++] = (char)c.base;
-				query[qlen] = '\0';
-				sel = 0;
-			} else if (c.mods == 0 && c.base >= 0x80
-			    && c.base <= 0xFF) {
-				/* Multi-byte character: take the whole
-				 * sequence so buffer names with non-ASCII
-				 * text can be typed at. */
-				char seq[4];
-				int n = editor_read_utf8_seq(
-				    fd, (int)c.base, seq);
+				return (enum minibuf_result)result;
+			}
+		}
+	}
+}
 
-				if (n > 0
-				    && qlen + n < (int)sizeof(query) - 1) {
-					memcpy(query + qlen, seq, (size_t)n);
-					qlen += n;
-					query[qlen] = '\0';
-					sel = 0;
-				}
+/* Interactive buffer selector shown in the echo area (C-x b). */
+void buf_select_interactive(int fd)
+{
+	char name[128];
+	int other = 0;
+
+	for (int i = 0; i < MAX_BUFFERS; i++) {
+		if (i != buf_current && buflist[i].active) {
+			other = 1;
+			break;
+		}
+	}
+	if (!other) {
+		editor_set_status_message("No other buffers.");
+		return;
+	}
+
+	if (buf_read_name(fd, "Buffer: ", name, sizeof(name), 0, 0)
+	    == MINIBUF_ACCEPTED) {
+		for (int i = 0; i < MAX_BUFFERS; i++) {
+			char display[128];
+			if (!buflist[i].active) {
+				continue;
+			}
+			buf_display_name(i, display, sizeof(display));
+			if (strcmp(display, name) == 0) {
+				(void)buf_select(i);
+				return;
 			}
 		}
 	}
@@ -1844,7 +2001,8 @@ static void buf_open_file_ro(int fd, int readonly)
 	const char *prompt = readonly ? "Open file read-only: " : "Open file: ";
 
 	editor_prompt_prefill_dir(query, sizeof(query));
-	if (editor_read_line_path(fd, prompt, query, sizeof(query)) < 0
+	if (editor_read_line_path(fd, prompt, query, sizeof(query))
+		!= MINIBUF_ACCEPTED
 	    || query[0] == '\0') {
 		return;
 	}

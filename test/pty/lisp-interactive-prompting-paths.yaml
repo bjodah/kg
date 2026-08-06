@@ -1,0 +1,30 @@
+name: lisp-interactive-prompting-path-policy
+filename: prompt-path.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun path-policy (missing existing)
+      (interactive "fMissing-then-existing: \nFAny-path: ")
+      (insert "paths-ok"))
+initial: ""
+keys:
+  - M-x
+  - path-policy
+  - RET
+  - "absent.txt"
+  - RET
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - "prompt-path.txt"
+  - RET
+  - "free-name.txt"
+  - RET
+expected_saved: "paths-ok"

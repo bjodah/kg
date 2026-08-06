@@ -208,6 +208,15 @@ entirely so a broken configuration can be repaired. Load errors show the
 labelled diagnostic in the status area; forms evaluated before the error
 remain applied.
 
+Interactive Lisp commands use the declaration immediately after an optional
+docstring to construct arguments. Supported codes are `p`, `P`, `r`, `s`,
+`n`, `N`, `f`, `F`, `b`, and `B`: strings, decimal numbers, paths, and buffer
+names are read through the existing minibuffer pickers without visiting or
+selecting anything. `N` uses the numeric prefix when supplied. Prompts are
+literal, available only from a real key or M-x command context, and capped at
+16 arguments. `C-g` quits and input overflow is an error before the body runs;
+kg does not provide public `read-*` functions or a completion framework.
+
 Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.el` and treats names containing `/` as
 literal paths. Packages may load other packages; loading a file twice with
@@ -567,8 +576,14 @@ Only an `(interactive ...)` form immediately after an optional docstring is a
 declaration. It is removed from the body and registers the closure under its
 own symbol; a later form is ordinary code. The declaration supplies command
 arguments: `p` is the numeric prefix, `P` the raw prefix, and `r` the sorted
-region bounds. String prompts are parsed but prompting is deferred to 07E.
-Arguments are strict and capped at 16, with no nil padding. The raw
+region bounds. `s` reads literal text; `n` and `N` read numbers, with `N` using
+a supplied prefix; `f`/`F` read paths and `b`/`B` read buffer names without
+visiting or selecting them. Numeric input allows Fe's sign, fraction,
+exponent, and trailing ASCII whitespace grammar; invalid input re-prompts.
+Prompts are literal, `C-g` is quit, and overflow is an error before the body
+runs. Prompting is available only from key/M-x dispatch, not init, hooks,
+process callbacks, eval-expression, or an active prompt. Arguments are strict
+and capped at 16, with no nil padding. The raw
 `current-prefix-arg` binding is temporary, and `(prefix-numeric-value X)`
 converts its nil, integer, universal-list, or `-` forms. The registry is also
 reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;

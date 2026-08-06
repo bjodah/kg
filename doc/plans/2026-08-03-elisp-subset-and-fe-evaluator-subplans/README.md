@@ -2605,3 +2605,24 @@ Lessons banked: a containment seam is fe's to own, never a host
 `setjmp`; a plan whose Outcome changes a seam's report must
 enumerate the assertion edits it implies; and landing exactly on a
 cap is a finding, not a success.
+
+### Phase 7 prompting close, 2026-08-06
+
+07E is implemented in the kg tree: path overflow uses the minibuffer result
+contract, `s`/`n`/`N`/`f`/`F`/`b`/`B` share the Lisp argument-builder seam,
+buffer-name reads do not select a buffer, and prompt availability is checked
+through the active command context. The focused prompting PTY matrix passes;
+the full `make check` run passes all 32 native and 416 PTY cases, and header,
+docs, prelude, and compatibility checks pass. The compatibility manifest now
+records prompting metadata while PTY coverage owns terminal value delivery.
+
+Measured kg complexity is **5649/5660 scc** with the current 07D+07E tree;
+`make complexity-check` and `make pmccabe-check` pass without baseline changes.
+The full native/PTY checks and the `WITH_LISP=0` matrix pass (the latter skips
+the 73 Lisp cases by design). Coverage after the new cases is 85.57% lines
+and 96.64% functions; the coverage baseline was regenerated for the new
+prompt/control-flow surface and is recorded here as a phase-close floor, not
+a claim of full branch coverage. Remaining close evidence is the full
+parallel runner; deferred valid codes/modifiers,
+prompt interpolation, public `read-*` APIs, completion/history framework,
+`interactive` reflection/MODES, and Fe changes remain out of scope.

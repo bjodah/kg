@@ -499,12 +499,15 @@ core Fe special forms and primitives rather than prelude definitions.
 optional docstring. That declaration is removed from the body and registers
 the closure as a command; a later form remains ordinary code. A docstring
 followed by an empty declaration body gets an implicit `nil` body. The
-declaration's nil/empty spec supplies no arguments; string specs split
-newline-delimited clauses and this slice supports `p`, `P`, and `r` (prompt
-text is parsed but prompting is 07E). An interactive command receives at most
-16 arguments and strict arity reports missing arguments instead of padding
-them with nil. `p` receives `prefix-numeric-value`, `P` receives the raw
-prefix, and `r` receives sorted region bounds.
+ declaration's nil/empty spec supplies no arguments; string specs split
+newline-delimited clauses and support `p`, `P`, `r`, `s`, `n`, `N`, `f`, `F`,
+`b`, and `B`. An interactive command receives at most 16 arguments. `p`
+receives `prefix-numeric-value`, `P` receives the raw prefix, and `r` receives
+sorted region bounds. `s` reads literal text; `n` accepts one decimal integer
+or floating-point token and re-prompts on invalid input; `N` uses the prefix
+when supplied. `f`/`F` read paths without visiting them, with `f` requiring an
+existing entry, while `b`/`B` read buffer names without selecting them (`B`
+permits a new name). Cancellation is a quit and overflow is an error.
 
 `current-prefix-arg` is temporarily bound during a command. Its raw values
 are nil, an integer, a one-element list for a universal prefix, or the symbol
@@ -519,6 +522,9 @@ kg-owned extension `(define-command NAME FUNCTION &optional SPEC DOC)`; its
 spec is nil, a string, or a zero-argument function, and documentation is nil or
 a string. Interactive definitions replace their function, spec and document
 atomically; redefining without a declaration removes command status.
+Prompting is refused outside a key/M-x command context or while another
+prompt is active. kg has no public `read-*` APIs or `completing-read`; prompt
+interpolation and deferred codes remain explicit divergences.
 
 ## Namespaces: function and value cells
 

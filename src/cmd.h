@@ -129,5 +129,8 @@ void cmd_fast_path_end(command_id outer);
 command_id cmd_runtime_define(const char *name);
 void cmd_runtime_remove(const char *name);
 const struct command_prefix *cmd_active_prefix(void);
+int cmd_prompt_fd(void);
+void cmd_prompt_block(void);
+void cmd_prompt_unblock(void);
 
 #endif /* KG_CMD_H */

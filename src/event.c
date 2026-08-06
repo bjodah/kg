@@ -566,6 +566,8 @@ void kg_event_prompt_leave(void)
 	}
 }
 
+bool kg_event_prompt_active(void) { return prompt_depth != 0; }
+
 /* One entry of a drain's subscriber snapshot: which slot, and the
  * generation it held when the drain started.  Re-checked against the live
  * registry before every call, so an unsubscribe -- another subscriber's,

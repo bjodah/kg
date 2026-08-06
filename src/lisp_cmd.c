@@ -1,7 +1,7 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "../fe/fe.h"
 #include "cmd.h"
@@ -119,6 +119,17 @@ FeObject *native_functionp(FeContext *context, FeObject *arguments)
 	FeHandleError(context, message);
 }
 
+static void report_command_result(
+    FeContext *context, int result, const char *name)
+{
+	if (result == CMD_READ_ONLY) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (result != CMD_RAN) {
+		command_error(context, "command is not allowed", name);
+	}
+}
+
 /* (command-execute COMMAND): COMMAND names a built-in editor command, as a
  * symbol like Emacs or equivalently as a string, since fe reads the text of
  * either.  Which commands may be reached this way, and which of them refuse
@@ -132,8 +143,8 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	const struct command_prefix *active = cmd_active_prefix();
-	struct command_context ctx
-	    = { STDIN_FILENO, active ? *active : (struct command_prefix){ 0 },
+	struct command_context ctx = { cmd_prompt_fd(),
+		active ? *active : (struct command_prefix) { 0 },
 		CMD_ORIGIN_LISP };
 	char rejected[512];
 	char *name;
@@ -146,16 +157,12 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	rc = cmd_invoke(name, &ctx);
 	(void)snprintf(rejected, sizeof(rejected), "%s", name);
 	free(name);
-	if (rc == CMD_READ_ONLY) {
-		FeHandleError(context, "buffer is read-only");
-	}
-	if (rc != CMD_RAN) {
-		command_error(context, "command is not allowed", rejected);
-	}
+	report_command_result(context, rc, rejected);
 	return FeNil(context);
 }
 
-FeObject *lisp_prefix_object(FeContext *context, const struct command_prefix *prefix)
+FeObject *lisp_prefix_object(
+    FeContext *context, const struct command_prefix *prefix)
 {
 	FeObject *item;
 
@@ -226,6 +233,38 @@ static void copy_command_name(
 	free(name);
 }
 
+static void validate_command_definition(
+    FeContext *context, FeObject *fn, FeObject *spec, FeObject *doc)
+{
+	if (FeGetType(fn) != FeTFn && FeGetType(fn) != FeTNativeFn) {
+		FeHandleError(context, "define-command requires a function");
+	}
+	if (!FeIsNil(spec) && FeGetType(spec) != FeTString
+	    && FeGetType(spec) != FeTFn && FeGetType(spec) != FeTNativeFn) {
+		FeHandleError(context,
+		    "define-command requires a string or function spec");
+	}
+	if (!FeIsNil(doc) && FeGetType(doc) != FeTString) {
+		FeHandleError(
+		    context, "define-command documentation requires a string");
+	}
+}
+
+static struct lisp_command *find_command_slot(const char *name)
+{
+	struct lisp_command *cmd = find_lisp_command(name);
+
+	if (cmd) {
+		return cmd;
+	}
+	for (size_t i = 0; i < LISP_MAX_COMMANDS; i++) {
+		if (!state.commands[i].name[0]) {
+			return &state.commands[i];
+		}
+	}
+	return nullptr;
+}
+
 /* (define-command NAME FN &optional SPEC DOC): the explicit kg extension
  * behind defun's interactive declaration.  All replacement roots are made
  * before the old descriptor is changed, so a bounded-table failure is atomic.
@@ -241,7 +280,6 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	FeRoot *function_root, *interactive_root, *documentation_root;
 	enum lisp_interactive_kind kind = LISP_INTERACTIVE_NONE;
 	command_id id;
-	size_t i;
 
 	if (!FeIsNil(arguments)) {
 		spec = FeGetNextArgument(context, &arguments);
@@ -250,36 +288,19 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 		doc = FeGetNextArgument(context, &arguments);
 	}
 	FeRequireNoArguments(context, arguments);
-	if (FeGetType(fn) != FeTFn && FeGetType(fn) != FeTNativeFn) {
-		FeHandleError(context, "define-command requires a function");
-	}
-	if (!FeIsNil(spec) && FeGetType(spec) != FeTString
-	    && FeGetType(spec) != FeTFn && FeGetType(spec) != FeTNativeFn) {
-		FeHandleError(context, "define-command requires a string or function spec");
-	}
-	if (!FeIsNil(doc) && FeGetType(doc) != FeTString) {
-		FeHandleError(context, "define-command documentation requires a string");
-	}
+	validate_command_definition(context, fn, spec, doc);
 	copy_command_name(context, name_object, name, sizeof(name));
 	if (cmd_lookup(name) != nullptr) {
 		command_error(
 		    context, "cannot redefine built-in command", name);
 	}
-	cmd = find_lisp_command(name);
-	if (!cmd) {
-		for (i = 0; i < LISP_MAX_COMMANDS; i++) {
-			if (!state.commands[i].name[0]) {
-				cmd = &state.commands[i];
-				break;
-			}
-		}
-	}
+	cmd = find_command_slot(name);
 	if (!cmd) {
 		FeHandleError(context, "too many Lisp commands");
 	}
 	if (!FeIsNil(spec)) {
 		kind = FeGetType(spec) == FeTString ? LISP_INTERACTIVE_STRING
-							: LISP_INTERACTIVE_FORM;
+						    : LISP_INTERACTIVE_FORM;
 	}
 	function_root = FeCreateRoot(context, fn);
 	interactive_root = FeCreateRoot(context, spec);
@@ -332,7 +353,8 @@ FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-FeObject *native_remove_command_if_present(FeContext *context, FeObject *arguments)
+FeObject *native_remove_command_if_present(
+    FeContext *context, FeObject *arguments)
 {
 	FeObject *name_object = FeGetNextArgument(context, &arguments);
 	struct lisp_command *cmd;

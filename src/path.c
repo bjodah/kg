@@ -80,6 +80,13 @@ int editor_picker_filter(picker_name_fn name_at, void *data, const char *query,
 	return total;
 }
 
+void editor_picker_cycle(int *selection, int matches, int direction)
+{
+	if (matches > 0) {
+		*selection = (*selection + direction + matches) % matches;
+	}
+}
+
 /* qsort comparator state: the typed needle that ranked these entries.
  * Set just before qsort, cleared after, so the comparator can keep
  * prefix matches above mid-name matches without an extra rank field
@@ -102,28 +109,29 @@ static int path_entry_cmp(const void *a, const void *b)
 
 /* Expand a leading "~" or "~/" in `buf` to $HOME, in place.  No-op for
  * "~user/" forms or when $HOME isn't set or the result wouldn't fit. */
-void editor_path_expand_tilde(char *buf, int bufsize)
+int editor_path_expand_tilde(char *buf, int bufsize)
 {
 	const char *home;
 	int home_len, rest_len;
 
 	if (buf[0] != '~') {
-		return;
+		return 0;
 	}
 	if (buf[1] != '/' && buf[1] != '\0') {
-		return;
+		return 0;
 	}
 	home = getenv("HOME");
 	if (!home || !home[0]) {
-		return;
+		return 0;
 	}
 	home_len = (int)strlen(home);
 	rest_len = (int)strlen(buf + 1);
 	if (home_len + rest_len + 1 > bufsize) {
-		return;
+		return 1;
 	}
 	memmove(buf + home_len, buf + 1, rest_len + 1);
 	memcpy(buf, home, home_len);
+	return 0;
 }
 
 /* Split `path` into directory part (up to and including the last '/') and

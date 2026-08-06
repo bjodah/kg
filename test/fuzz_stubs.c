@@ -1,3 +1,5 @@
+#include "../src/bufmgr.h"
+#include "../src/cmd.h"
 #include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
@@ -27,6 +29,23 @@ int win_current = 0;
 int win_count = 1;
 int win_total_rows = 24;
 int win_total_cols = 80;
+
+const struct command_prefix *cmd_active_prefix(void) { return NULL; }
+int cmd_prompt_fd(void) { return -1; }
+void cmd_prompt_block(void) { }
+void cmd_prompt_unblock(void) { }
+
+enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
+    int outsize, int allow_new, int blank_current)
+{
+	(void)fd;
+	(void)prompt;
+	(void)out;
+	(void)outsize;
+	(void)allow_new;
+	(void)blank_current;
+	return MINIBUF_CANCELLED;
+}
 
 static int fuzz_pipe_read_fd = -1;
 static int fuzz_pipe_write_fd = -1;
@@ -88,7 +107,8 @@ enum minibuf_result editor_read_line(
 	return MINIBUF_CANCELLED;
 }
 
-int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line_path(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	return editor_read_line(fd, prompt, buf, bufsize);
 }
@@ -107,10 +127,11 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	}
 }
 
-void editor_path_expand_tilde(char *buf, int bufsize)
+int editor_path_expand_tilde(char *buf, int bufsize)
 {
 	(void)buf;
 	(void)bufsize;
+	return 0;
 }
 
 void editor_set_status_message(const char *fmt, ...) { (void)fmt; }

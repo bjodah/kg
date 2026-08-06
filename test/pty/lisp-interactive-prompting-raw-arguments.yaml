@@ -1,0 +1,29 @@
+name: lisp-interactive-prompting-raw-arguments
+filename: prompt-raw.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun raw-and-region (prefix raw begin end)
+      (interactive "p\nP\nr")
+      (insert "raw-region-ok"))
+    (defun form-arguments (value text)
+      (interactive (list 7 "form"))
+      (insert "form-ok"))
+    (defun invalid-interactive-code ()
+      (interactive "q")
+      (insert "bad"))
+initial: ""
+keys:
+  - C-SPC
+  - C-u
+  - "3"
+  - M-x
+  - raw-and-region
+  - RET
+  - M-x
+  - form-arguments
+  - RET
+  - M-x
+  - invalid-interactive-code
+  - RET
+expected_saved: "raw-region-okform-ok"

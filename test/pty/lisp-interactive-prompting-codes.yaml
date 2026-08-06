@@ -1,0 +1,27 @@
+name: lisp-interactive-prompting-codes
+filename: prompt-codes.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun all-prompts (s n n0 f F b B)
+      (interactive "sString: \nnNumber: \nNPrefix-or-number: \nfExisting: \nFAny: \nbBuffer: \nBNew-buffer: ")
+      (insert "all-codes-ok"))
+initial: ""
+keys:
+  - M-x
+  - all-prompts
+  - RET
+  - hello
+  - RET
+  - "12"
+  - RET
+  - "34"
+  - RET
+  - "prompt-codes.txt"
+  - RET
+  - "new-file.txt"
+  - RET
+  - RET
+  - "made-up-buffer"
+  - M-RET
+expected_saved: "all-codes-ok"

@@ -5,6 +5,7 @@
 
 #include "../fe/fe.h"
 #include "bufhandle.h"
+#include "cmd.h"
 #include "def.h"
 #include "event.h"
 #include "lisp.h"
@@ -112,12 +113,15 @@ static void call_process_callback(FeContext *ctx, FeRoot *root, FeObject **args,
 		return;
 	}
 	lisp_exec_enter(ctx);
+	cmd_prompt_block();
 	if (FeTryCallWithOptions(ctx, fn, args, argc, &eval_options, &value)) {
+		cmd_prompt_unblock();
 		FeRestoreGC(ctx, gc);
 		lisp_exec_leave(1);
 		return;
 	}
 	kind = FeGetCompletion(ctx);
+	cmd_prompt_unblock();
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(0);
 	release_scratch();

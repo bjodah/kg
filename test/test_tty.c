@@ -38,7 +38,8 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	(void)bufsize;
 	buf[0] = '\0';
 }
-int editor_read_line_path(int fd, const char *prompt, char *buf, int bufsize)
+enum minibuf_result editor_read_line_path(
+    int fd, const char *prompt, char *buf, int bufsize)
 {
 	(void)fd;
 	(void)prompt;

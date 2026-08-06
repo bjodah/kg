@@ -62,7 +62,8 @@ static const struct native_binding native_bindings[] = {
 	 * name -> function registry, so these two have no Emacs analogue. */
 	{ "define-command", native_define_command },
 	{ "remove-command", native_remove_command },
-	{ "internal--remove-command-if-present", native_remove_command_if_present },
+	{ "internal--remove-command-if-present",
+	    native_remove_command_if_present },
 	{ "current-buffer", native_current_buffer },
 	{ "buffer-list", native_buffer_list },
 	{ "get-buffer", native_get_buffer },

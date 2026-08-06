@@ -1,0 +1,15 @@
+name: lisp-interactive-prompting-cancel
+filename: prompt-cancel.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun cancelled-prompt (value)
+      (interactive "sValue: ")
+      (insert value))
+initial: before
+keys:
+  - M-x
+  - cancelled-prompt
+  - RET
+  - C-g
+expected_saved: before

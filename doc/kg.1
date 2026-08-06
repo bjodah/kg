@@ -733,19 +733,21 @@ a
 .Li defun
 recognises only an
 .Li (interactive ...)
-form immediately after an optional docstring.  The supported non-prompting
-codes are
+ form immediately after an optional docstring.  The supported codes are
 .Li p ,
 .Li P
 and
-.Li r ;
-they deliver the numeric prefix, raw prefix, and sorted region bounds.  The
+ .Li r , .Li s , .Li n , .Li N , .Li f , .Li F , .Li b , and .Li B ;
+they deliver prefixes, sorted region bounds, literal strings, numbers, paths,
+and buffer names without visiting or selecting the result.  The
 raw value is temporarily available as
 .Li current-prefix-arg ,
 and
 .Li prefix-numeric-value
-converts it.  String prompts are parsed but prompting is deferred; command
-argument construction is strict and capped at 16 arguments.
+ converts it.  Prompts are literal, available only from a real key or M-x
+context, and argument construction is strict and capped at 16 arguments.
+Cancellation is a quit and overflow is an error; kg supplies no public
+`read-*` functions or completion framework.
 .Pp
 If no files are given,
 .Nm

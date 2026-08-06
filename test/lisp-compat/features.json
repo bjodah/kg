@@ -1850,10 +1850,10 @@
    "rationale": "kg-policy rather than an Emacs-comparable divergence: Emacs macro-expands once (or once per compilation unit under byte-compilation) and the difference is a performance/step-budget property of kg's own evaluator, not a value Emacs and kg could disagree on for a pure macro -- a macro whose expansion has side effects like this one is deliberately pathological, written to demonstrate the property, not typical kg or Emacs code. Recorded per the parent sub-plan's explicit divergences-to-record-on-day-one list ('Macros expand on every invocation, charged to the step budget').",
    "source_name": null
   },
-  {
-   "id": "defcustom",
-   "category": "loading",
-   "status": "planned",
+   {
+    "id": "defcustom",
+    "category": "loading",
+    "status": "planned",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1876,10 +1876,10 @@
      "rationale": "07C pins Fe's unconditional strict arity in the full kg host: too few lambda arguments raise wrong-number-of-arguments with the actual count in condition data, while optional and rest parameters retain their defined bindings.",
      "source_name": null
     },
-   {
-    "id": "native-prefix-numeric-value",
-      "category": "interactive-commands",
-      "status": "supported",
+    {
+     "id": "native-prefix-numeric-value",
+       "category": "interactive-commands",
+       "status": "supported",
       "owner": "kg",
       "comparison": "emacs",
       "cases": [
@@ -1932,18 +1932,31 @@
    {
     "id": "phase7-interactive-string",
     "category": "interactive-commands",
-    "status": "planned",
+     "status": "supported",
     "owner": "kg",
     "comparison": "emacs",
     "cases": [
      "interactive-string-grammar"
     ],
     "kg_test": "test/test_lisp.c:test_definition_forms",
-    "rationale": "Phase 7, 07A row I13: newline-delimited interactive string clauses and their argument counts are planned for 07E.",
+     "rationale": "Phase 7 07D/07E implement newline-delimited clauses; prompting clauses are handled by the kg command boundary.",
     "source_name": null
    },
-   {
-    "id": "phase7-interactive-command-execute",
+    {
+     "id": "phase7-interactive-prompting",
+     "category": "interactive-commands",
+     "status": "supported",
+     "owner": "kg",
+     "comparison": "kg-policy",
+     "cases": [
+      "interactive-prompting-metadata"
+     ],
+     "kg_test": "test/pty/lisp-interactive-prompting.yaml",
+     "rationale": "07E delivers s/n/N/f/F/b/B through one literal minibuffer seam; PTY coverage owns the terminal value delivery, cancellation, picker policy, and overflow behavior.",
+     "source_name": null
+    },
+    {
+     "id": "phase7-interactive-command-execute",
     "category": "interactive-commands",
     "status": "supported",
     "owner": "kg",

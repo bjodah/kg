@@ -90,3 +90,47 @@ int buf_kill_buffer(struct kg_buffer_handle handle)
 	buf_count--;
 	return 1;
 }
+
+/* Prompting commands are exercised by the PTY binary.  The Lisp unit binary
+ * intentionally has no terminal or picker objects, so keep its prompt seam
+ * unavailable rather than pulling the full buffer manager into this fixture.
+ */
+int cmd_prompt_fd(void) { return -1; }
+void cmd_prompt_block(void) { }
+void cmd_prompt_unblock(void) { }
+
+void editor_prompt_prefill_dir(char *buf, int bufsize)
+{
+	if (buf != NULL && bufsize > 0) {
+		buf[0] = '\0';
+	}
+}
+
+enum minibuf_result editor_read_line_path(
+    int fd, const char *prompt, char *buf, int bufsize)
+{
+	(void)fd;
+	(void)prompt;
+	(void)buf;
+	(void)bufsize;
+	return MINIBUF_CANCELLED;
+}
+
+int editor_path_expand_tilde(char *buf, int bufsize)
+{
+	(void)buf;
+	(void)bufsize;
+	return 0;
+}
+
+enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
+    int outsize, int allow_new, int blank_current)
+{
+	(void)fd;
+	(void)prompt;
+	(void)out;
+	(void)outsize;
+	(void)allow_new;
+	(void)blank_current;
+	return MINIBUF_CANCELLED;
+}

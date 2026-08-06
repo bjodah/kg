@@ -6,11 +6,13 @@ This file remains the broader feature and technical-debt inventory.
 
 ## Lisp Interactive Follow-up
 
-- [ ] **07E interactive prompting**: add `n`/`N`, `s`, `f`/`F`, and `b`/`B`
-      minibuffer argument construction, including cancellation and overflow
-      diagnostics. Valid deferred modifiers, keyboard-macro strings,
-      `interactive-form`/documentation reflection, and `CMD_REPEATS` remain
-      explicitly deferred; there is no generic unsupported-interactive gap.
+- [x] **07E interactive prompting**: `n`/`N`, `s`, `f`/`F`, and `b`/`B` use
+      the existing pickers without side effects. Valid deferred modifiers,
+      keyboard-macro strings, `interactive-form`/documentation reflection,
+      prompt interpolation, and `CMD_REPEATS` remain explicitly deferred.
+- [ ] **Phase 8 read functions**: public `read-string`, `read-number`,
+      `read-file-name`, and `read-buffer`, including optional arguments,
+      defaults, history, and non-command re-entry semantics.
 
 ## Missing Mg features
 

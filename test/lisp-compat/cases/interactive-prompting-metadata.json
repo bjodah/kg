@@ -1,0 +1,6 @@
+{
+ "id": "interactive-prompting-metadata",
+ "setup": [],
+ "expr": "(progn (defun prompted (value) (interactive \"sValue: \") value) (commandp 'prompted))",
+ "note": "07E: prompting metadata registers as a command; value delivery is covered by PTY cases because batch compat has no minibuffer fd."
+}

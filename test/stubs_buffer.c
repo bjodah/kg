@@ -125,10 +125,11 @@ int editor_path_complete_entries(const char *dir, const char *prefix,
 	(void)lcp_size;
 	return 0;
 }
-void editor_path_expand_tilde(char *buf, int bufsize)
+int editor_path_expand_tilde(char *buf, int bufsize)
 {
 	(void)buf;
 	(void)bufsize;
+	return 0;
 }
 void editor_goto_line_direct(int line, int col)
 {

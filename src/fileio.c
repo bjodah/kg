@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "bufhandle.h"
+#include "bufmgr.h"
 #include "def.h"
 #include "edit.h"
 #include "event.h"
@@ -646,7 +647,7 @@ static int editor_save_named(int fd, int destination_decided)
 		editor_prompt_prefill_dir(newname, sizeof(newname));
 		if (editor_read_line_path(
 			fd, "Write file: ", newname, sizeof(newname))
-			< 0
+			!= MINIBUF_ACCEPTED
 		    || !newname[0]) {
 			return 1;
 		}
@@ -693,7 +694,7 @@ void editor_write_file(int fd)
 
 	editor_prompt_prefill_dir(newname, sizeof(newname));
 	if (editor_read_line_path(fd, "Write file: ", newname, sizeof(newname))
-		< 0
+		!= MINIBUF_ACCEPTED
 	    || !newname[0]) {
 		return;
 	}
@@ -808,7 +809,7 @@ void editor_insert_file(int fd)
 	editor_prompt_prefill_dir(filename, sizeof(filename));
 	if (editor_read_line_path(
 		fd, "Insert file: ", filename, sizeof(filename))
-		< 0
+		!= MINIBUF_ACCEPTED
 	    || !filename[0]) {
 		return;
 	}

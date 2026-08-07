@@ -3,11 +3,24 @@
 # nonexistent path -- next-error must refuse rather than "succeed" into
 # storage that was never the diagnostic's target.  The buffer being
 # edited is left untouched.
+#
+# The `C-a` run after the compile command is cover, not editing.  A
+# compile is asynchronous and nothing in the harness waits for it: the
+# child has to run and its output be read and parsed before `M-g n` (or
+# `M-g p`) has anything to navigate to, and the only cover is the
+# key_delays slept in between.  Two of them -- 0.3 s at the 0.15 this
+# family carried -- is not enough under load: three separate cases of this
+# family failed the ci-03 valgrind lane of six-lane parallel runs, each
+# with the navigation simply not having happened, and the mechanism
+# reproduces on demand at a smaller key_delay under valgrind with the box
+# loaded.  Ten sleeps at 0.2 is 2.0 s, and `C-a` is a no-op for what
+# follows: next-error jumps to the diagnostic's own location regardless of
+# where point was.
 name: next-error-failed-open
 filename: present.c
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.2
 initial: |-
   hello
 keys:
@@ -18,6 +31,14 @@ keys:
   - C-k
   - "printf 'missing.c:3:1: error: gone\\n'"
   - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
   - M-g
   - n
 expected_screen_contains:

@@ -3,11 +3,24 @@
 # *compilation*'s own view: both the diagnostic (still visible in its
 # window) and the new cursor position (in the source window) show on
 # screen at once.
+#
+# The `C-a` run after the compile command is cover, not editing.  A
+# compile is asynchronous and nothing in the harness waits for it: the
+# child has to run and its output be read and parsed before `M-g n` (or
+# `M-g p`) has anything to navigate to, and the only cover is the
+# key_delays slept in between.  Two of them -- 0.3 s at the 0.15 this
+# family carried -- is not enough under load: three separate cases of this
+# family failed the ci-03 valgrind lane of six-lane parallel runs, each
+# with the navigation simply not having happened, and the mechanism
+# reproduces on demand at a smaller key_delay under valgrind with the box
+# loaded.  Ten sleeps at 0.2 is 2.0 s, and `C-a` is a no-op for what
+# follows: next-error jumps to the diagnostic's own location regardless of
+# where point was.
 name: next-error-two-windows
 filename: twowin.c
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.2
 initial: |-
   one
   two
@@ -20,6 +33,14 @@ keys:
   - C-k
   - "printf 'twowin.c:2:1: error: two is bad\\n'"
   - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
   - C-x
   - o
   - M-g

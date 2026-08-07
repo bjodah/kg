@@ -3,11 +3,24 @@
 # so C-u 128 M-g n reaches the last kept one in a single move, and one
 # further (via the clamp, not a second jump) proves the 129th and 130th
 # diagnostics were counted but not kept.
+#
+# The `C-a` run after the compile command is cover, not editing.  A
+# compile is asynchronous and nothing in the harness waits for it: the
+# child has to run and its output be read and parsed before `M-g n` (or
+# `M-g p`) has anything to navigate to, and the only cover is the
+# key_delays slept in between.  Two of them -- 0.3 s at the 0.15 this
+# family carried -- is not enough under load: three separate cases of this
+# family failed the ci-03 valgrind lane of six-lane parallel runs, each
+# with the navigation simply not having happened, and the mechanism
+# reproduces on demand at a smaller key_delay under valgrind with the box
+# loaded.  Ten sleeps at 0.2 is 2.0 s, and `C-a` is a no-op for what
+# follows: next-error jumps to the diagnostic's own location regardless of
+# where point was.
 name: next-error-truncation
 filename: trunc.c
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.2
 timeout: 20
 initial: |-
   line1
@@ -148,6 +161,14 @@ keys:
   - C-k
   - "i=1; while [ $i -le 130 ]; do printf 'trunc.c:%d:1: error: e\\n' \"$i\"; i=$((i+1)); done"
   - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
   - C-u
   - "1"
   - "2"

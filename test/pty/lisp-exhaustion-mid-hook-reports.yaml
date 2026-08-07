@@ -35,7 +35,7 @@ dimensions: [24, 120]
 # This case is the one in the set with the least natural cover, and it was
 # measured failing without this line: the assertion is on a message kg
 # paints *after* the last key, the harness captures the pane once it has
-# been quiet for 50 ms, and a kg busy filling 56222 object slots inside a
+# been quiet for 50 ms, and a kg busy filling 56224 object slots inside a
 # hook is quiet.  At the default 0.05 it failed in the gcc/valgrind, ASan
 # and MSan lanes of a six-lane parallel run (0.9-2.9 s per attempt) while
 # passing three times out of three on its own.

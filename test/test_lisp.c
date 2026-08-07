@@ -4022,16 +4022,20 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 9 fix-cycle pin: 56222
-	 * object slots (56224 before it -- fe's three new FeContext fields
-	 * cost the arena two slots), peak_live 5188 after the prelude alone
-	 * (5171 before Phase 9 -- the +17 is fe's two pre-built exhaustion
-	 * conditions with their interned names and pairs), 5729 with
-	 * lisp/auto-fill.el on top of it, and 8230 at this point in this
-	 * function, after every Phase 8 form above -- 14.6% of the arena for
-	 * everything kg ships plus this test's own corpus.  (The 8120 this
-	 * comment used to carry was already stale: measured 8230 on the old
-	 * pin too, so the corpus above it, not fe, moved it.) */
+	 * build via kg_lisp_arena_stats() at the Phase 10 pin: 56224 object
+	 * slots (56222 before it -- fe's macroexpand pair gave the two slots
+	 * Phase 9's three FeContext fields had taken back), peak_live 5210
+	 * after the prelude alone (5188 at the Phase 9 pin -- the +22 is the
+	 * same +22 a bare FeOpenContext moved by, fe's new primitives and
+	 * their interned names), 5751 with lisp/auto-fill.el on top of it,
+	 * and 8142 at this point in this function, after every Phase 8 form
+	 * above -- 14.5% of the arena for everything kg ships plus this
+	 * test's own corpus.  (This last figure is the one number in this
+	 * comment that has never reproduced across pins as written: the
+	 * "8230" it used to carry does not reproduce on this build at
+	 * either pin -- the Phase 9 pin measures 8120 here and this one
+	 * 8142, +22, the same delta as everything else in this paragraph.
+	 * Both re-measured by instrumenting this exact line, not derived.) */
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));

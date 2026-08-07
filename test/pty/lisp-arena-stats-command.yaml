@@ -25,12 +25,12 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  # The counters, in the order the renderer writes them.  56222 slots and
+  # The counters, in the order the renderer writes them.  56224 slots and
   # a 1096-frame capacity are this arena's measured partitioning at the
-  # Phase 9 fix-cycle pin (doc/fe-upstream.md's row); `fails 0` is the
+  # Phase 10 pin (doc/fe-upstream.md's row); `fails 0` is the
   # claim that a session which has only booted has never failed an
   # allocation.
-  - "Arena: 56222 slots,"
+  - "Arena: 56224 slots,"
   - " free, peak "
   - "; GC 0; roots "
   - "/1096; fails 0"

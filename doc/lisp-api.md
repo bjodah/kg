@@ -259,7 +259,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56222 object slots and a 1096-frame evaluator stack.
+  current pin as 56224 object slots and a 1096-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.

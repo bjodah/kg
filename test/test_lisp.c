@@ -4099,6 +4099,38 @@ static void test_condition_case_reentry(void)
 	teardown_editor();
 }
 
+/* The in-flight condition survives a containment inside a cleanup drain.
+ * kg's `run-hooks' contains each hook function's completion (a failing
+ * hook is reported, not propagated), and that containment publishes the
+ * contained condition in the very context field the completion being
+ * unwound is using.  When the drain is an `unwind-protect' cleanup that
+ * kg's own error is passing through, an enclosing `condition-case' used to
+ * bind the HOOK's condition object instead of the body's -- an error whose
+ * message said one thing and whose object said another.  Fixed in fe at
+ * this pin ("Hold the completion in flight across a cleanup drain"); this
+ * is kg's half of the evidence, since kg is where a containment inside a
+ * cleanup is reachable from ordinary Lisp. */
+static void test_cleanup_containment_keeps_condition(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(add-hook 'before-save-hook (lambda () (car 6)))"));
+	/* Body raises arith-error; the cleanup contains a
+	 * wrong-type-argument.  The handler must see the body's. */
+	CHECK(eval_eq("(condition-case e (unwind-protect (/ 1 0) "
+		      "(run-hooks 'before-save-hook)) (error (car e)))",
+	    "arith-error"));
+	/* The cleanup still runs, and the contained hook error is still
+	 * contained rather than escaping. */
+	CHECK(eval_eq("(condition-case e (unwind-protect 'body "
+		      "(run-hooks 'before-save-hook)) (error (car e)))",
+	    "body"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_quit_uncaught(void)
 {
 	char result[128] = "";
@@ -4962,6 +4994,7 @@ int main(void)
 	RUN(test_signal);
 	RUN(test_ignore_errors);
 	RUN(test_condition_case_reentry);
+	RUN(test_cleanup_containment_keeps_condition);
 	RUN(test_quit_uncaught);
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);

@@ -175,6 +175,30 @@ make
 sudo make install          # /usr/local/{bin,share/man/man1,share/kg/lisp}
 ```
 
+### FreeBSD
+
+Build with GNU make and clang; `make(1)` there is bmake and cannot read this
+Makefile, and the Makefile's `CC` default is `gcc`, which FreeBSD does not
+ship:
+
+```bash
+pkg install gmake                     # to build
+pkg install python3 py312-pexpect py312-pyyaml tmux   # to run `gmake check`
+gmake CC=clang
+gmake CC=clang check
+sudo gmake CC=clang install
+```
+
+Measured on FreeBSD 15.0-RELEASE (amd64) with clang 19.1.7, python 3.12.13,
+tmux 3.7b: the build is warning-free and `gmake CC=clang check` exits 0 at
+32/32 unit tests and 443 PTY cases — 421 passed, 22 skipped for the missing
+Emacs oracle, 0 failed; `gmake WITH_LISP=0 CC=clang clean all check` exits 0
+at 32/32 and 319 passed / 124 skipped / 0 failed. Install the `python3`
+metapackage, not just `python312`: the Makefile looks for `python3` or
+`python` on `PATH` and the versioned package installs neither name (or pass
+`gmake PYTHON=python3.12`). Substitute the `pyNNN-` prefix your FreeBSD
+release's default Python uses.
+
 Lisp support is compiled in by default. Use `make WITH_LISP=0` to build without
 the Fe Lisp interpreter; the nested `fe/tiny-regex-c` submodule is still needed
 for editor regexp search. `kg -V` reports `+lisp` or `-lisp` for the selected

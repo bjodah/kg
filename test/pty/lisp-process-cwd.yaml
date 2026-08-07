@@ -12,7 +12,7 @@ filename: cwd.txt
 requires_feature: lisp
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.3
 initial: "marker\n"
 keys:
   - M-x
@@ -36,8 +36,14 @@ keys:
   # while the same case passed 10/10 run on its own.  Fifteen was not
   # enough either: the Phase 12 fix cycle's final 12-lane run lost the
   # process line in ci-03 once more (442/443, this case alone), with
-  # the standalone re-run green -- so the budget doubles again.  Size
-  # this against the slowest lane UNDER LOAD, not against a quiet box.
+  # the standalone re-run green -- so the budget doubled again.  Thirty
+  # keys at 0.15 s ALSO lost the line once in a 12-lane run (again this
+  # case alone, again standalone green), so the third widening doubles
+  # key_delay to 0.3 s instead of the key count: what the child needs
+  # under load is wall time, each key already buys one drain chance,
+  # and slower keys double the ~4.5 s window to ~9 s without feeding
+  # the pane-settle detector more repaint events.  Size this against
+  # the slowest lane UNDER LOAD, not against a quiet box.
   - C-e
   - C-e
   - C-e

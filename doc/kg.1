@@ -478,7 +478,11 @@ substitutes the specifiers Emacs Lisp reaches for most:
 prints an object the way the interpreter prints it, so a string prints
 bare and a list prints as a list;
 .Li %S
-is the same with strings quoted;
+is the same with strings quoted, and with a quoted form abbreviated the
+way Emacs abbreviates it, so
+.Li (format \(dq%S\(dq \(aq\(aqx)
+is
+.Li \(dq\(aqx\(dq ;
 .Li %d
 accepts either number type, printing an integer exactly and truncating a
 float toward zero;
@@ -887,12 +891,21 @@ and Lisp nesting (recursive calls, nested special forms, self-expanding
 macros) is bounded by the interpreter's frame stack, not by C or
 garbage-collector recursion — kg's default arena holds roughly 364
 levels of ordinary self-recursion.
-A native re-entering the evaluator synchronously, as
+A native re-entering the evaluator synchronously, as a hook function, a
+process filter or sentinel and a nested
+.Li command-execute
+do, has its own, much smaller bound (32 nested re-entries), since each
+level there is a real C stack frame.
 .Li save-excursion
 and
 .Li with-current-buffer
-do, has its own, much smaller bound (32 nested re-entries), since each
-level there is a real C stack frame.
+were the example here until they became prelude macros over
+.Li unwind-protect ;
+they no longer re-enter, which is why a
+.Li throw
+out of either now reaches a
+.Li catch
+outside it.
 A structure that refers to itself prints as far as the cycle and then
 .Li #<cycle> ,
 rather than being printed forever.
@@ -981,8 +994,14 @@ name, and
 .Li current-prefix-arg
 is not marked special, so a
 .Li let
-over that name is an ordinary lexical binding and shadows the value a
-called function would otherwise read.
+over that name is an ordinary lexical binding: the forms lexically
+inside the
+.Li let
+read it, and a function called from inside still reads the
+command-boundary value \(em
+.Li (let ((current-prefix-arg 7)) (list current-prefix-arg (f)))
+measures
+.Li (7 nil) .
 Prompts are literal \(em a
 .Li %
 in prompt text is not a format directive, which is a recorded divergence

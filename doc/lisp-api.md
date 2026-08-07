@@ -1,6 +1,6 @@
 # kg Lisp API reference
 
-**Document version 3.** Covers the whole Lisp surface Plan 06 (Phases
+**Document version 4.** Covers the whole Lisp surface Plan 06 (Phases
 2-11) shipped: buffers, markers, editing, search, save-excursion /
 with-current-buffer, hooks, keymaps, processes, the function/value
 namespaces, provide / require / load-path, and — since Phase 11 —
@@ -236,9 +236,13 @@ Ordering rules that hold across every subscriber:
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
     `DefaultNativeReentry` = 32) counts nested evaluator runs a native
-    starts synchronously, one below another — e.g.
+    starts synchronously, one below another — e.g. a `run-hooks` whose
+    hook function calls a command with `command-execute`, whose command
+    runs a `run-hooks` of its own. (The example here used to be
     `internal--with-current-buffer` calling `FeCall` on a body that
-    itself calls `internal--save-excursion`. Unlike Lisp nesting, each
+    itself called `internal--save-excursion`; Phase 11 deleted both
+    natives — the two forms are prelude macros over `unwind-protect`
+    now and re-enter nothing.) Unlike Lisp nesting, each
     level here *is* a real C-stack bound (the native's own C activation,
     `FeCall`, and the nested run's barrier), so the default is a small
     number derived from kg's own corpus rather than a large one.
@@ -655,9 +659,13 @@ uncapped `(4)`, `(16)`, `(64)`, ... Emacs produces; the 1000 cap belongs to
 the effective integer, not to the raw form. `P` is `eq` to that temporary value. The binding is made and unmade at
 the command boundary by kg's C, not by `let` over a `defvar`'d name, and
 `current-prefix-arg` is not marked special — so a `let` over that name
-is an ordinary lexical binding and shadows the value a called function
-would otherwise read. (`defvar` marks, and marked names bind
-dynamically, since Phase 11; this particular name is not one of them.)
+is an ordinary lexical binding: the forms lexically inside the `let`
+read it, and a function *called* from inside still reads the
+command-boundary value.
+`(let ((current-prefix-arg 7)) (list current-prefix-arg (f)))` measures
+`(7 nil)`, where under Emacs, whose `current-prefix-arg` is special, it
+is `(7 7)`. (`defvar` marks, and marked names bind dynamically, since
+Phase 11; this particular name is not one of them.)
 
 `command-execute` uses the same metadata and evaluator, including nested
 calls, and returns the command's value; an inner call inherits the active

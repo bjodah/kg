@@ -3858,8 +3858,12 @@ static void test_catch_throw_unwind(void)
  * a save and a restore, and both used FeCall to do it -- which starts a
  * *nested* evaluator run whose completions transfer to kg's own outermost
  * barrier, past every condition-case that lexically encloses the form.  The
- * protected call plus FeResignal (lisp_call_body) puts the completion back
- * in flight in the enclosing run instead, which is what these pin.
+ * protected call plus FeResignal put the completion back in flight in the
+ * enclosing run instead, which is what these pin.  (The seam that did it
+ * for these two forms was lisp_call_body(); 11D Part 4 turned both forms
+ * into prelude macros and 1478302 deleted it, having no callers left.
+ * lisp_eval_file() still uses the shape, which is the point of pinning it
+ * rather than the function.)
  *
  * `throw` used to be the deliberate exception, pinned here as what it was
  * rather than as what Emacs answers: fe walls the throw search at a native
@@ -4513,21 +4517,29 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 11 pin: 56226 object
-	 * slots (56224 at the Phase 10 pin, 56222 before that -- the frame
-	 * record fe's dynamic-binding work grew costs one frame slot,
-	 * frame_capacity 1096 -> 1095, and returns two object slots),
-	 * peak_live 5227 after the prelude alone (5210 at the Phase 10 pin,
-	 * 5188 at Phase 9's), and 8159 at this point in this function, after
-	 * every Phase 8 form above -- 14.5% of the arena for everything kg
-	 * ships plus this test's own corpus.  The two live figures moved by
-	 * exactly +17 each across this pin: fe's two new primitives
+	 * build via kg_lisp_arena_stats() at the Phase 11 FIX CYCLE's pin
+	 * (fe 82347b3): 56226 object slots (56224 at the Phase 10 pin, 56222
+	 * before that -- the frame record fe's dynamic-binding work grew
+	 * costs one frame slot, frame_capacity 1096 -> 1095, and returns two
+	 * object slots), peak_live 5295 after the prelude alone (5210 at the
+	 * Phase 10 pin, 5188 at Phase 9's), and 8287 at this point in this
+	 * function, after every Phase 8 form above -- 14.7% of the arena for
+	 * everything kg ships plus this test's own corpus.
+	 *
+	 * Where the movement went, since this comment got it wrong once and
+	 * the rule below is what it exists to enforce.  The Phase 11 PIN cost
+	 * +17 on both figures: fe's two new primitives
 	 * (internal--mark-special, special-variable-p) and their interned
-	 * names, plus the prelude's own switch onto the core `let'.  Both
-	 * re-measured by instrumenting this exact line, not derived -- the
-	 * "8230" this comment used to carry never reproduced, and the rule
-	 * that replaced it is that every number here is measured at the pin
-	 * that records it.  The Phase 10 comment also carried "5751 with
+	 * names.  The prelude's switch onto fe's core `let' came a commit
+	 * LATER and cost +68 here (5227 -> 5295) and +128 at the census line
+	 * (8159 -> 8287).  The version of this comment written at the pin
+	 * attributed both deltas to the +17 and named a cause that had not
+	 * happened yet; the acceptance review caught it, and the numbers
+	 * above are measured by instrumenting this exact line and a
+	 * post-kg_lisp_init() probe on THIS tree, not derived.  That is the
+	 * rule -- the "8230" this comment used to carry never reproduced
+	 * either, and every number here is measured at the pin that records
+	 * it.  The Phase 10 comment also carried "5751 with
 	 * lisp/auto-fill.el on top of it"; that figure is dropped rather
 	 * than carried forward, because the method behind it was not
 	 * recorded and evaluating that file's text in a fresh post-prelude
@@ -4687,9 +4699,14 @@ static void test_with_current_buffer(void)
 	    "(with-current-buffer b2 (car 1))", "expected pair"));
 	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
 
-	/* 3. Buffer argument is dead/stale, error before body runs. */
-	/* Note: buf2 is dirty after insert, so kill-buffer with optional buffer
-	 * obj works or we clean it first */
+	/* 3. Buffer argument is dead/stale: the body never runs, and the
+	 * current buffer is unchanged afterwards.  Since 11D Part 4 the
+	 * resolution is `(set-buffer BUF)' as the body's own first form
+	 * inside the unwind-protect, not an argument the native resolved
+	 * before entering -- so the error is raised a step later than it was,
+	 * with the same observable outcome and with the cleanup running.
+	 * Note: buf2 is dirty after insert, so kill-buffer with optional
+	 * buffer obj works or we clean it first */
 	CHECK(eval_ok("(setq b3 (get-buffer-create \"buf3\"))"));
 	CHECK(eval_ok("(kill-buffer b3)"));
 	CHECK(eval_error_contains(

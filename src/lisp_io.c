@@ -755,7 +755,8 @@ static char *read_whole_file(const char *path, size_t *size)
  * with its kind, its condition object and its message intact, where an
  * enclosing condition-case finds it.  That is the
  * load-error-condition-reachability flip, and it is the same shape
- * lisp_call_body() has used since 06E.
+ * lisp_call_body() used from 06E until 11D Part 4 deleted it with its
+ * only two callers, the save-excursion/with-current-buffer natives.
  *
  * The three lines after the evaluation used to be unreachable on the
  * error path and are now the reason this works: the depth counter, the

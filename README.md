@@ -632,10 +632,14 @@ first surprise:
   macros) is bounded by the interpreter's frame stack, not by C or
   garbage-collector recursion — kg's default arena holds roughly 364
   levels of ordinary self-recursion, so walk long lists with `while`, not
-  recursion. A native re-entering the evaluator synchronously (as
-  `save-excursion` and `with-current-buffer` do) has its own, much
-  smaller bound (32 nested re-entries), since each level there is a real
-  C stack frame.
+  recursion. A native re-entering the evaluator synchronously (as a hook
+  function, a process filter or sentinel, and a nested
+  `command-execute` do) has its own, much smaller bound (32 nested
+  re-entries), since each level there is a real C stack frame.
+  `save-excursion` and `with-current-buffer` were the example here until
+  Phase 11 made them prelude macros over `unwind-protect`; they no
+  longer re-enter, which is why a `throw` out of either now reaches a
+  `catch` outside it.
 - A structure that refers to itself prints as far as the cycle and then
   `#<cycle>`, rather than being printed forever.
 
@@ -715,8 +719,11 @@ truncation. The raw `current-prefix-arg` binding is temporary, and
 forms — a malformed form raises a real `wrong-type-argument` condition carrying
 the value. The binding is made and unmade at the command boundary by kg's C rather
 than by `let` over a `defvar`'d name, and `current-prefix-arg` is not
-marked special, so a `let` over that name is an ordinary lexical binding
-and shadows the value a called function would otherwise read. The registry is also
+marked special, so a `let` over that name is an ordinary lexical binding:
+the forms lexically inside the `let` read it, and a function *called*
+from inside still reads the command-boundary value —
+`(let ((current-prefix-arg 7)) (list current-prefix-arg (f)))` measures
+`(7 nil)`. The registry is also
 reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;
 the spec is nil, a string, or a zero-argument function, and documentation is
 nil or a string. `remove-command` undoes the registration.

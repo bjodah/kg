@@ -27,7 +27,26 @@ keys:
   # test.  Five was not enough: under valgrind, with the parallel runner's
   # other lanes competing, the child had not been reaped and drained inside
   # the ~0.8 s that bought, and ci-03 failed with the process line missing
-  # while the same case passed 10/10 run on its own.
+  # while the same case passed 10/10 run on its own.  Fifteen was not
+  # enough either: the Phase 12 fix cycle's final 12-lane run lost the
+  # process line in ci-03 once more (442/443, this case alone), with
+  # the standalone re-run green -- so the budget doubles again.  Size
+  # this against the slowest lane UNDER LOAD, not against a quiet box.
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
+  - C-e
   - C-e
   - C-e
   - C-e

@@ -1,0 +1,30 @@
+# Sub-plan 11D Part 5.  The writer's (quote X) -> 'X abbreviation where a
+# user actually meets it: the M-: echo area.  fe's writer gained it in
+# sub-plan 11C and kg inherited it at the Phase 11 pin; until then every
+# echo of a quoted form read "(quote x)" where Emacs reads "'x", which
+# made it the most frequently *seen* divergence in the manifest even
+# though it changed no computed value.
+#
+# The form is built with `list' rather than written as ''x so the case
+# says the same thing to both dialects -- kg reads 'x into exactly this
+# two-element list, and so does Emacs, which is what made this the
+# printer's gap and not the reader's.  The nested element is there
+# because the abbreviation is recursive: (a 'b c), not (a (quote b) c).
+#
+# expected_screen_not_contains is the load-bearing half.  "(a 'b c)"
+# appearing proves the new behaviour; "(quote" not appearing proves the
+# old spelling is gone rather than merely joined.
+name: lisp-eval-colon-quote-echo
+filename: lisp-quote-echo.txt
+requires_feature: lisp
+backend: tmux
+initial: unchanged
+keys:
+  - "M-:"
+  - "(list 'a (list 'quote 'b) 'c)"
+  - RET
+expected_saved: unchanged
+expected_screen_contains:
+  - "(a 'b c)"
+expected_screen_not_contains:
+  - "(quote"

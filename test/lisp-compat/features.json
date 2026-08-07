@@ -2216,7 +2216,7 @@
     "phase8-reader-nested-backquote"
    ],
    "kg_test": "test/test_lisp.c:test_quasiquote",
-   "rationale": "fe's reader spells the two backquote reader macros `quasiquote' and `unquote' where Emacs spells them ` and , (doc/fe-upstream.md's reader-macro row). The structure and the evaluated value agree -- an unquote in cdr position is a dotted tail in both -- so only an unevaluated nested backquote prints differently, which is what this snapshot records.",
+   "rationale": "fe's reader spells the two backquote reader macros `quasiquote' and `unquote' where Emacs spells them ` and , (doc/fe-upstream.md's reader-macro row). The structure and the evaluated value agree -- an unquote in cdr position is a dotted tail in both -- so only an unevaluated nested backquote prints differently, which is what this snapshot records. THE QUOTE HALF OF THIS GAP IS CLOSED: since Phase 11 the writer abbreviates (quote X) back to 'X exactly as Emacs' printer does (the writer-quote-abbreviation row). Backquote stays open because it is different in kind, not because it is more of the same work. Emacs' abbreviation is over reader-produced symbols that ARE ` and , ; kg's reader produces the ordinary symbols quasiquote, unquote and unquote-splicing, so closing this means changing what the READER expands to, which breaks any Lisp that pattern-matches on quasiquote -- and Emacs' comma abbreviation is additionally context-sensitive. 11A Decision 4 rejects it by scope; doc/TODO.md carries it.",
    "source_name": null
   },
   {
@@ -2228,7 +2228,7 @@
    "cases": [
     "writer-quote-abbreviation"
    ],
-   "kg_test": "test/test_lisp.c:test_writer_quote_abbreviation",
+   "kg_test": "test/test_lisp.c:test_writer_quote_abbreviation, test/pty/lisp-eval-colon-quote-echo.yaml",
    "rationale": "Closed by Phase 11 (11A Decision 4, implemented in fe sub-plan 11C and inherited at 11D's pin); recorded as a divergence by 10C before that. Emacs' printer abbreviates a two-element (quote X) list back to 'X -- prin1, %S, the echo area, error renderings, all of them -- and fe's writer now does the same, recursively, so (format \"%S\" (list 'quote 'x)) is \"'x\" and (format \"%S\" (list 'a ''b 'c)) is \"(a 'b c)\" on both sides. The implementation is the symmetric copy of the (function f) -> #'f block that has been in WriteObject since Phase 4, with the same discrimination measured against the pinned Emacs: exactly one element after the head and the form proper, so (quote x y), (quote) and (quote . x) all keep printing as the pairs they are. Reading 'x produces that same two-element list on both sides, which is what made this the printer's gap and not the reader's. The sibling row phase8-reader-backquote-symbol-names records the neighbouring gap for backquote, which stays open and is different in kind: fe reads ` as `quasiquote' where Emacs reads it as a distinct symbol, so closing it means changing the reader's expansion symbols and breaking any Lisp that pattern-matches on quasiquote (11A Decision 4 rejects it by scope).",
    "source_name": null
   },

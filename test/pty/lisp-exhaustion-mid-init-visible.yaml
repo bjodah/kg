@@ -29,6 +29,12 @@ config_files:
     (while t
       (setq init-exhaustion-chain (cons 1 init-exhaustion-chain)))
     (setq init-exhaustion-unreached 'no)
+# Margin for the same reason lisp-exhaustion-mid-command-recovers
+# documents: the pane-quiet capture must not land before the diagnostics
+# line is painted.  This case's fill happens during startup, which the
+# harness polls for rather than sleeps through, so it needs far less than
+# that one -- but not the bare default.
+key_delay: 0.3
 initial: ""
 keys:
   - M-x

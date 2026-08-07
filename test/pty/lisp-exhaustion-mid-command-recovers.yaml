@@ -22,6 +22,15 @@ filename: lisp-exhaustion-recover.txt
 requires_feature: lisp
 backend: tmux
 dimensions: [24, 120]
+# key_delay is 8x the default and case-local, for a measured reason: the
+# harness ends a tmux run by capturing the pane once it has been *quiet*
+# for 50 ms, and a kg that is busy filling 56224 object slots is quiet.
+# At the default 0.05 the capture can land mid-fill -- which is how this
+# case failed in the MSan lane of a six-lane parallel run while passing
+# on its own.  0.4 leaves >3 s of cover between the fill's RET and the
+# capture (8 keys follow it), against a fill measured at 0.5 s under
+# ASan, and keeps the whole case near 6 s of a 15 s timeout.
+key_delay: 0.4
 initial: ""
 keys:
   - M-x

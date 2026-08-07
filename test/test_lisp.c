@@ -3300,6 +3300,66 @@ static void test_arena_exhaustion_conditions(void)
 	CHECK(fresh.free_slots * 2 > fresh.total_slots);
 	CHECK(eval_eq("(+ 1 2)", "3"));
 	kg_lisp_shutdown();
+
+	/* 8. The arena is one of the two exhaustions Phase 9 named; this is
+	 * the other.  README.md and doc/lisp-api.md both tell a user that a
+	 * full GC root stack is catchable as `evaluation-stack-exhaustion`,
+	 * and nothing on kg's side of the pin asserted it -- only fe's own
+	 * test_api.c did, and that one provokes the overflow from a native
+	 * written for the purpose.  This reaches it through kg's ordinary
+	 * entry point instead.
+	 *
+	 * The route is the *reader*, not the evaluator: an evaluation deep
+	 * enough to fill the 4096-slot root stack hits the 1096-frame wall
+	 * first and raises Budget, which is uncatchable by design (case 5
+	 * above).  Reading a datum nested `gc_stack_deep` levels pushes a
+	 * root per level with no frame at all, so `(load FILE)` -- whose
+	 * read happens at run time, inside the enclosing handler's extent --
+	 * is what puts the overflow where a handler can see it.  Measured on
+	 * this build: the same file loaded without a handler reports
+	 * `<path>:1: GC stack overflow`, and the depth is chosen well past
+	 * 4096 rather than at it, since the reader is not the only thing on
+	 * that stack. */
+	{
+		char path[] = "/tmp/kg-lisp-deep-XXXXXX";
+		static constexpr int gc_stack_deep = 8192;
+		int fd = mkstemp(path);
+		FILE *file = fd >= 0 ? fdopen(fd, "w") : nullptr;
+		int i;
+
+		CHECK(file != nullptr);
+		if (file == nullptr) {
+			if (fd >= 0) {
+				(void)close(fd);
+				(void)unlink(path);
+			}
+			return;
+		}
+		(void)fputc('\'', file);
+		for (i = 0; i < gc_stack_deep; i++) {
+			(void)fputc('(', file);
+		}
+		(void)fputc('1', file);
+		for (i = 0; i < gc_stack_deep; i++) {
+			(void)fputc(')', file);
+		}
+		CHECK(fclose(file) == 0);
+
+		CHECK(kg_lisp_init() == 0);
+		snprintf(form, sizeof(form),
+		    "(condition-case nil (load \"%s\")"
+		    " (evaluation-stack-exhaustion 'caught))",
+		    path);
+		CHECK(eval_eq(form, "caught"));
+		snprintf(form, sizeof(form),
+		    "(condition-case e (load \"%s\") (error e))", path);
+		CHECK(eval_eq(form, "(evaluation-stack-exhaustion)"));
+		snprintf(form, sizeof(form), "(load \"%s\")", path);
+		CHECK(eval_error_contains(form, "GC stack overflow"));
+		CHECK(eval_eq("(+ 1 2)", "3"));
+		kg_lisp_shutdown();
+		CHECK(unlink(path) == 0);
+	}
 }
 
 /* Sub-plan 01A's second test path: lisp/prelude.el is the canonical source

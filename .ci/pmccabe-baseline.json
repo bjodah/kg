@@ -987,7 +987,7 @@
   "src/localvars.c:footer_find_end": 6,
   "src/localvars.c:footer_find_start": 6,
   "src/localvars.c:footer_line_body": 8,
-  "src/localvars.c:footer_read_string": 10,
+  "src/localvars.c:footer_read_string": 12,
   "src/localvars.c:footer_split_lines": 8,
   "src/localvars.c:local_settings_init": 1,
   "src/localvars.c:local_settings_merge": 3,

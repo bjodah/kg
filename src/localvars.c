@@ -1232,7 +1232,14 @@ static void footer_read_string(const char **lines, const int *line_lens,
 	char acc[KG_COMPILE_COMMAND_MAX];
 	int acc_len;
 
-	if (value_len >= KG_COMPILE_COMMAND_MAX) {
+	/* The `< 0` is not reachable -- lv_split_assignment() derives
+	 * value_len from a colon strictly inside the span -- but nothing in
+	 * this function says so, and a value_len the analyzer is free to
+	 * assume negative makes both the memcpy() below and `acc[acc_len]`
+	 * run backwards.  Same shape as reflow_word_stream()'s `len <= 0`.
+	 * Without it clang-analyzer reports "Out of bound access to memory
+	 * preceding 'acc'" and ci-06 fails. */
+	if (value_len < 0 || value_len >= KG_COMPILE_COMMAND_MAX) {
 		out->malformed_entries++;
 		return;
 	}
@@ -1256,8 +1263,14 @@ static void footer_read_string(const char **lines, const int *line_lens,
 
 		/* Unterminated: only a line ending in an unescaped
 		 * backslash asks for the next one, and that backslash is
-		 * the continuation marker rather than text. */
-		if (!footer_line_body(
+		 * the continuation marker rather than text.  The
+		 * `acc_len > 0` is what makes dropping it safe to the
+		 * analyzer as well as to the reader: an empty accumulator
+		 * cannot end in a backslash, but only parse_quoted_string()
+		 * knows that (it answers -1, not -3, for an empty value), and
+		 * that is a function away. */
+		if (acc_len <= 0
+		    || !footer_line_body(
 			lines[*li], line_lens[*li], b, &body, &body_len)
 		    || !footer_body_ends_unescaped_bslash(body, body_len)) {
 			break;

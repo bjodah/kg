@@ -41,6 +41,14 @@
 # test_lisp.c:test_arena_exhaustion_conditions.
 #
 # No Emacs oracle: Emacs has no arena to exhaust.
+#
+# This is the one case of the five in the exhaustion set that fails on a
+# kg built against the pre-Phase-9 fe (acc94f7): measured there, the
+# saved file is `caught:` -- the init file's handler did not match, the
+# raise escaped and `show-exhaustion` was never defined -- and the echo
+# area carries `out of memory`.  The other four pass on that fe once the
+# arena's slot-count literal is removed from them, because what they pin
+# is kg-side seam behaviour that predates 09B.
 name: lisp-exhaustion-caught-by-name
 filename: lisp-exhaustion-caught.txt
 requires_feature: lisp

@@ -17,6 +17,14 @@
 # by lisp-exhaustion-mid-command-recovers; there is one echo area, so a
 # case cannot read both the message and the diagnostics command's line.
 #
+# This case is not pin-sensitive, by design and measured: it PASSes
+# unchanged against a kg built on the pre-Phase-9 fe (acc94f7).  09A
+# Table X pins behaviour that already existed -- the hook seam contains
+# the completion and reports it, and 09B changed the condition *object*
+# behind the message, not the message.  The case in this set that does
+# fail on that fe is lisp-exhaustion-caught-by-name, which is where the
+# by-name catch is asserted.
+#
 # No Emacs oracle: Emacs has no arena, no hook seam of this shape, and no
 # out-of-memory a Lisp program can reach on purpose.
 name: lisp-exhaustion-mid-hook-reports

@@ -174,6 +174,71 @@ static void test_buffer_read_only_nil(void)
 	CHECK(s.buffer_read_only == LOCAL_BOOL_FALSE);
 }
 
+/* A `;` inside parentheses is part of a value, not a segment separator:
+ * the property list keeps scanning to the real one. */
+static void test_modeline_paren_hides_semicolon(void)
+{
+	erow rows[1];
+	struct local_settings s;
+
+	setup_one_row(&rows[0], "-*- mode: (c ; x); buffer-read-only: t -*-");
+	CHECK(localvars_parse_modeline(rows, 1, &s) == 0);
+	CHECK(s.ignored_entries == 1);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+/* A segment holding nothing but blanks is not an entry and not an error;
+ * only a non-blank segment with no name/value colon is malformed. */
+static void test_modeline_blank_segments_are_not_errors(void)
+{
+	erow rows[1];
+	struct local_settings s;
+
+	setup_one_row(&rows[0], "-*- ;  ; buffer-read-only: t ;  -*-");
+	CHECK(localvars_parse_modeline(rows, 1, &s) == 0);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+	CHECK(s.malformed_entries == 0);
+	CHECK(s.ignored_entries == 0);
+}
+
+static void test_modeline_empty_name_is_malformed(void)
+{
+	erow rows[1];
+	struct local_settings s;
+
+	setup_one_row(&rows[0], "-*-  : t; nocolonhere -*-");
+	CHECK(localvars_parse_modeline(rows, 1, &s) == 0);
+	CHECK(s.malformed_entries == 2);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_UNSET);
+}
+
+/* The closing marker needs three bytes of its own: two left over after
+ * the opening one cannot hold it. */
+static void test_modeline_close_marker_needs_three_bytes(void)
+{
+	erow rows[1];
+	struct local_settings s;
+
+	setup_one_row(&rows[0], "-*--");
+	CHECK(localvars_parse_modeline(rows, 1, &s) != 0);
+	CHECK(s.compile_command_set == false);
+}
+
+/* A name longer than the parser's buffer is truncated, which can only
+ * turn a match into a miss -- never into a different variable. */
+static void test_modeline_overlong_name_is_ignored(void)
+{
+	erow rows[1];
+	struct local_settings s;
+	char line[256];
+
+	snprintf(line, sizeof(line), "-*- %0*d-command: \"make\" -*-", 80, 0);
+	setup_one_row(&rows[0], line);
+	CHECK(localvars_parse_modeline(rows, 1, &s) == 0);
+	CHECK(s.ignored_entries == 1);
+	CHECK(s.compile_command_set == false);
+}
+
 static void test_merge_unset_source_leaves_destination_intact(void)
 {
 	struct local_settings d = make_settings();
@@ -1014,6 +1079,11 @@ int main(void)
 	RUN(test_unsupported_var_before_supported);
 	RUN(test_duplicate_last_wins);
 	RUN(test_buffer_read_only_nil);
+	RUN(test_modeline_paren_hides_semicolon);
+	RUN(test_modeline_blank_segments_are_not_errors);
+	RUN(test_modeline_empty_name_is_malformed);
+	RUN(test_modeline_close_marker_needs_three_bytes);
+	RUN(test_modeline_overlong_name_is_ignored);
 	RUN(test_merge_unset_source_leaves_destination_intact);
 	RUN(test_merge_set_compile_command_overwrites_destination);
 	RUN(test_merge_set_ro_overwrites_unset_ro_leaves);

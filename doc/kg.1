@@ -2025,6 +2025,14 @@ It allocates nothing and changes nothing, so asking cannot alter the
 answer, and it is the way to see whether a session that reported
 .Ql out of memory
 recovered.
+That last use has one wrinkle, and it follows from the first: slots come
+back only when a collection runs, and a collection runs only when an
+allocation finds the free list empty.
+Asking is not an allocation, so straight after an exhaustion the command
+reports
+.Ql 0 free
+even where the data is already unreachable.
+Evaluate anything at all, then ask again, to see what came back.
 Also callable from Lisp as
 .Ql (command-execute "lisp-arena-stats") .
 .It lisp-interaction-mode

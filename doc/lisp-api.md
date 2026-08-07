@@ -296,6 +296,16 @@ Ordering rules that hold across every subscriber:
   `arena-exhaustion` — it is the one way for a program to see how much of
   the arena came back. `M-x lisp-arena-stats` is the same command.
 
+  That it allocates nothing is also its one caveat: slots return only
+  when a collection runs, and Fe collects only when an allocation finds
+  the free list empty. Asked immediately after an exhaustion it therefore
+  reports `0 free` even when the exhausting data is already unreachable —
+  measured, and the reason
+  `test/pty/lisp-exhaustion-mid-command-recovers.yaml` evaluates `(+ 1 2)`
+  between the failure and the question. Evaluate anything, then ask
+  again, to see what came back; `0 free` on the *second* ask is the
+  reading that means the arena is pinned.
+
 ## Buffers, point and marks
 
 | Form | Result |

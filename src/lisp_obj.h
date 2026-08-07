@@ -60,7 +60,16 @@ struct kg_lisp_object {
 /* How many objects the pool can hold at once.  Records are deduplicated per
  * buffer handle and released when their wrappers die, so with MAX_BUFFERS
  * live buffers the pool can only fill through held stale wrappers; the
- * bound is a defensive ceiling, not a size that user code can reach. */
+ * bound is a defensive ceiling, not a size that user code can reach.
+ *
+ * "At once" is load-bearing, and the pool has no back-pressure to hold it
+ * up: `find_free_record()` raises when every record is taken, and nothing
+ * here can ask fe to collect (fe publishes no collect-now entry point), so
+ * a workload that allocates no arena never provokes the sweep that would
+ * free the wrappers it has dropped.  An adapter object minted for the
+ * adapter's own private use therefore has to be released when its owner
+ * knows it is dead rather than when the collector gets to it -- see
+ * lisp_marker_release() and src/lisp_buffer.c's excursion restore. */
 #define LISP_MAX_OBJECTS 64
 
 struct lisp_object_pool {
@@ -128,6 +137,22 @@ void lisp_marker_set(struct FeContext *ctx, struct FeObject *obj,
 /* Detach marker object `obj`: it points nowhere until set-marker moves it
  * again.  Raises when `obj` is not a marker object. */
 void lisp_marker_detach(struct FeContext *ctx, struct FeObject *obj);
+
+/* Release marker object `obj`'s pool record NOW, without waiting for the
+ * collector to sweep its wrapper: delete the underlying marker and hand
+ * the record back to the pool.  Only for a marker the adapter minted for
+ * its own private use and knows is dead -- an excursion's saved state
+ * after its restore -- never for one a user's variable might still name,
+ * since `obj` keeps pointing at a record that is now free to be reused.
+ * That is safe but not silent: `lisp_object_peek()`'s wrapper-identity
+ * check answers "not a live object" for the released wrapper afterwards,
+ * whether the record has been reused or not.  Does nothing when `obj` is
+ * not a live marker object -- calling it twice is not an error.
+ *
+ * Deterministic release is what keeps the pool bound a bound on how many
+ * objects are live AT ONCE rather than on how many a run may create: a
+ * loop that saves an excursion 5000 times holds one record at a time. */
+void lisp_marker_release(struct FeContext *ctx, struct FeObject *obj);
 
 /* ---- Process objects: the pool's third kind ---------------------------
  * Deduplicated like a buffer object -- (eq p1 p2) for two asks naming the

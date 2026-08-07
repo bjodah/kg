@@ -79,7 +79,12 @@ struct FeObject *lisp_object_gc(struct FeContext *ctx, struct FeObject *obj)
 	if (FeGetType(obj) == FeTFex0) {
 		struct kg_lisp_object *rec = FeToPtr(ctx, obj);
 
-		if (rec != NULL) {
+		/* Only if the record still belongs to THIS wrapper.  A record
+		 * released ahead of the collector (lisp_marker_release) may
+		 * already have been handed to a different object, and the dead
+		 * wrapper being swept must not take the live one's record with
+		 * it. */
+		if (rec != NULL && rec->wrapper == obj) {
 			rec->active = false;
 			rec->wrapper = NULL;
 		}
@@ -303,6 +308,20 @@ void lisp_marker_detach(struct FeContext *ctx, struct FeObject *obj)
 	}
 	kg_marker_delete(rec->marker);
 	rec->marker = (struct kg_marker_handle) { { -1, 0, 0 }, 0, 0 };
+}
+
+void lisp_marker_release(struct FeContext *ctx, struct FeObject *obj)
+{
+	struct kg_lisp_object *rec
+	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
+
+	if (rec == NULL) {
+		return;
+	}
+	kg_marker_delete(rec->marker);
+	rec->marker = (struct kg_marker_handle) { { -1, 0, 0 }, 0, 0 };
+	rec->active = false;
+	rec->wrapper = NULL;
 }
 
 /* ---- Runtime execution context: the per-buffer point table -----------

@@ -1,0 +1,27 @@
+# The same B1 regression from the other direction: `M-:' with a loop of
+# 100 `save-excursion's, asserted on what the echo area shows rather than
+# on what the file holds.  The sibling case
+# (lisp-save-excursion-pool-loop) pins the saved-file outcome of a
+# command from init.el; this one pins the answer a user reads back
+# interactively, which is where the error text appeared -- the echo area
+# showed "too many buffer objects" instead of 100.
+#
+# expected_screen_not_contains carries the other half: a case that only
+# looked for "100" would also pass on a screen that printed the error and
+# a 100 from somewhere else.
+name: lisp-save-excursion-pool-echo
+filename: excursion-pool-echo.txt
+requires_feature: lisp
+backend: tmux
+initial: |
+  hello
+keys:
+  - "M-:"
+  - "(let ((i 0)) (while (< i 100) (save-excursion (setq i (+ i 1)))) i)"
+  - RET
+expected_saved: |
+  hello
+expected_screen_contains:
+  - "100"
+expected_screen_not_contains:
+  - "too many buffer objects"

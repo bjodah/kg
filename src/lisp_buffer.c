@@ -546,13 +546,28 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
  * for the first, a buffer object for the second -- rather than a
  * malloc'd record and an fe cleanup registration.  A marker already
  * knows which buffer it lives in, so one object carries both halves of
- * an excursion, and neither object can leak: the collector owns it.
+ * an excursion.
+ *
+ * Neither object can leak, but only one of them can wait for the
+ * collector to say so.  `with-current-buffer`'s buffer object is
+ * deduplicated per buffer handle, so a million of them are one pool
+ * record.  `save-excursion`'s marker is minted fresh every time and is
+ * the adapter's own private object -- no Lisp name outlives the form to
+ * hold it -- so the restore RELEASES its pool record on the spot
+ * (lisp_marker_release), rather than leaving it for a sweep that a loop
+ * allocating no arena never provokes.  Without that, the 64-record pool
+ * bounded how many excursions a run could SAVE rather than how many it
+ * could hold open, and the 65th `save-excursion` between two collections
+ * raised "too many buffer objects"; with it, the bound is nesting depth,
+ * which is what the pool is for.
  *
  * Restoring is deliberately tolerant, exactly as the C cleanups were.  A
  * buffer killed underneath the form is not an error; it is a restore
  * with nothing to restore to.  A cleanup that raised would REPLACE the
  * completion it was unwinding (fe's unwind-protect policy, 06A Decision
- * 4), so a killed buffer would swallow the error that killed it. */
+ * 4), so a killed buffer would swallow the error that killed it.  A state
+ * object whose record the restore already released is tolerated the same
+ * way, and for the same reason. */
 
 /* (internal--excursion-capture SAVE-POINT): the state one of the two
  * prelude macros will hand back to the restore below.  A non-nil
@@ -592,10 +607,20 @@ FeObject *native_excursion_restore(FeContext *context, FeObject *arguments)
 				    lisp_exec_point_marker(), pos);
 			}
 		}
-		lisp_marker_detach(context, saved);
+		lisp_marker_release(context, saved);
 		return FeNil(context);
 	}
 	if (!lisp_object_is_buffer(context, saved)) {
+		/* A spent state -- a marker this native already released, or
+		 * one whose record has since been reused -- is an excursion
+		 * with nothing left to put back, and is tolerated exactly as
+		 * a second manual restore was before the release existed.
+		 * Only adapter objects get that tolerance: a string, a
+		 * number, nil or a process object is still a type error. */
+		if (FeGetType(saved) == FeTFex0
+		    && !lisp_object_is_process(context, saved)) {
+			return FeNil(context);
+		}
 		FeHandleError(context,
 		    "internal--excursion-restore: expected a marker or a "
 		    "buffer");

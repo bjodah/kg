@@ -1,0 +1,47 @@
+# A user command that loops `save-excursion' more times than the adapter
+# object pool has records.  This is the Phase 11 acceptance review's
+# BLOCKER B1, in the shape it was found in: an ordinary interactive
+# command from init.el, not a probe.
+#
+# 11D Part 4 moved `save-excursion's saved state onto a GC-managed adapter
+# object.  The capture mints a fresh marker record out of the 64-entry
+# pool (src/lisp_obj.h, LISP_MAX_OBJECTS) and the restore used only to
+# DETACH it, leaving the record taken until fe's collector swept the
+# wrapper -- which a loop that allocates almost no arena never provokes,
+# because the pool has no back-pressure of its own.  The 65th
+# save-excursion between two collections therefore raised "too many
+# buffer objects", so this command inserted nothing at all and the file
+# saved unchanged.  The restore now releases the record on the spot, so
+# the bound is how many excursions are open AT ONCE, not how many a run
+# performs.
+#
+# 80 is deliberately just over the 64 records and well under any GC:
+# the failure it pins is the one a user meets first, "loop over the lines
+# of a buffer and look at each one".  The count is inserted so the saved
+# file distinguishes "ran and answered 80" from "died", rather than
+# merely from "ran".
+name: lisp-save-excursion-pool-loop
+filename: excursion-pool.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun count-visited-lines ()
+      "Visit every line with save-excursion, the way user code does."
+      (let ((n 0))
+        (while (< n 80)
+          (save-excursion (goto-char (point-min)))
+          (setq n (+ n 1)))
+        n))
+    (defun pool-probe ()
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "%S" (count-visited-lines))))
+    (global-set-key "C-c q" "pool-probe")
+initial: |
+  hello
+keys:
+  - C-c
+  - q
+expected_saved: |-
+  hello
+  80

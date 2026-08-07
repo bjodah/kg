@@ -4575,6 +4575,97 @@ static void test_save_excursion(void)
 	teardown_editor();
 }
 
+/* The adapter object pool bounds how many excursions are open AT ONCE,
+ * not how many a run performs.  The Phase 11 acceptance review's BLOCKER
+ * B1: 11D Part 4's capture mints a marker record out of the 64-entry
+ * pool (LISP_MAX_OBJECTS) and the restore only detached it, so the record
+ * stayed taken until fe's collector swept the wrapper -- which a loop
+ * allocating almost no arena never provokes, the pool having no
+ * back-pressure of its own.  The 65th `save-excursion' between two
+ * collections raised "too many buffer objects", where the pre-Phase-11
+ * malloc'd implementation ran 5000 of them.
+ *
+ * Every number below is the review's, so a re-introduction fails here
+ * rather than in a user's init.el.  There is no test above this one that
+ * calls `save-excursion' more than twice, which is why every gate was
+ * green on the defect. */
+static void test_save_excursion_pool_bound(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "hello world", 11);
+	CHECK(kg_lisp_init() == 0);
+
+	/* 1. The exact threshold: 64 records, so 65 was the first failure. */
+	CHECK(eval_eq("(let ((i 0)) (while (< i 65) (save-excursion "
+		      "(setq i (+ i 1)))) i)",
+	    "65"));
+
+	/* 2. The old answer, restored: 5000 sequential excursions. */
+	CHECK(eval_eq("(let ((i 0)) (while (< i 5000) (save-excursion "
+		      "(setq i (+ i 1)))) i)",
+	    "5000"));
+
+	/* 3. Records do not survive the evaluation that made them: this is a
+	 * second, separate eval_eq(), and 40 + 40 > 64. */
+	CHECK(eval_eq("(let ((i 0)) (while (< i 40) (save-excursion "
+		      "(setq i (+ i 1)))) i)",
+	    "40"));
+	CHECK(eval_eq("(let ((i 0)) (while (< i 40) (save-excursion "
+		      "(setq i (+ i 1)))) i)",
+	    "40"));
+
+	/* 4. The budget is shared with buffer objects, so the review's
+	 * three-extra-buffers variant is its own case. */
+	CHECK(eval_ok("(get-buffer-create \"pool1\")"));
+	CHECK(eval_ok("(get-buffer-create \"pool2\")"));
+	CHECK(eval_ok("(get-buffer-create \"pool3\")"));
+	CHECK(eval_eq("(let ((i 0)) (while (< i 200) (save-excursion "
+		      "(setq i (+ i 1)))) i)",
+	    "200"));
+
+	/* 5. Nesting is what the pool still bounds, and that bound is now
+	 * 64 deep -- strictly deeper than the pre-Phase-11 native form
+	 * managed, which re-entered the evaluator and so hit the
+	 * 32-re-entry wall at 33.  Five deep here, because sixty-four
+	 * nested forms in a C string literal test nothing this does not;
+	 * the ceiling itself is a measurement, recorded in the commit. */
+	CHECK(eval_eq("(save-excursion (save-excursion (save-excursion "
+		      "(save-excursion (save-excursion 'deep)))))",
+	    "deep"));
+
+	/* 6. A released record is reusable, and the collector must not take
+	 * the reuser's record with the dead wrapper it sweeps.  The marker
+	 * below lands on a record some earlier excursion released; the cons
+	 * loop then forces collections that sweep those dead excursion
+	 * wrappers.  Without the wrapper-identity check in lisp_object_gc()
+	 * this answers "marker-position: expected a marker". */
+	CHECK(eval_ok("(goto-char 3)"));
+	CHECK(eval_ok("(setq pm (make-marker))"));
+	CHECK(eval_ok("(let ((j 0)) (while (< j 40000) (setq j (+ j 1)) "
+		      "(cons j j)))"));
+	CHECK(eval_eq("(marker-position pm)", "3"));
+
+	/* 7. The tolerances the release must not cost: a second manual
+	 * restore of a spent state is still harmless, and a value that is not
+	 * an adapter object at all is still a type error. */
+	CHECK(eval_eq("(let ((s (internal--excursion-capture t))) (list "
+		      "(internal--excursion-restore s) "
+		      "(internal--excursion-restore s)))",
+	    "(nil nil)"));
+	CHECK(eval_error_contains("(internal--excursion-restore 5)",
+	    "expected a marker or a buffer"));
+	CHECK(eval_error_contains("(internal--excursion-restore nil)",
+	    "expected a marker or a buffer"));
+
+	/* 8. And the point restoration itself still works after all of it. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 2) (save-excursion (goto-char 7)) (point))",
+	    "2"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_with_current_buffer(void)
 {
 	setup_editor();
@@ -4959,6 +5050,7 @@ int main(void)
 	RUN(test_markers);
 	RUN(test_marker_survives_buffer_kill);
 	RUN(test_save_excursion);
+	RUN(test_save_excursion_pool_bound);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
 	RUN(test_hook_error_does_not_disarm);

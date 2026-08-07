@@ -425,10 +425,27 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5799 exceeds limit 5798
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5799
 #   scc total complexity: 5799 (limit 5799)
+# Raised 5799 -> 5806 by the Phase 11 fix cycle (2026-08-07) for the
+# acceptance review's BLOCKER B1, the only src/ change in the cycle: the
+# excursion restore hands its pool record straight back
+# (lisp_marker_release, and the wrapper-identity check in
+# lisp_object_gc that early release makes load-bearing), plus the
+# tolerance that keeps a spent state object from becoming a type error.
+# +7, still 19 under the 5825 Phase 11 funded and did not spend, so this
+# raise draws on that phase's own budget rather than opening a new one --
+# and the close below re-sets at the measured actual, as the convention
+# requires. Proof on the same tree, before the fix:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5798
+#   FAIL: total complexity 5799 exceeds limit 5798
+# and after it:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5805
+#   FAIL: total complexity 5806 exceeds limit 5805
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5806
+#   scc total complexity: 5806 (limit 5806)
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
 # unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
 # function 91).
-SCC_COMPLEXITY_MAX ?= 5799
+SCC_COMPLEXITY_MAX ?= 5806
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

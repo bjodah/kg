@@ -78,6 +78,21 @@ trusting it.
   has to track. A detached marker (never set, or its buffer died)
   resolves as "points nowhere": `marker-position`/`marker-buffer` answer
   `nil`, not an error, the same as Emacs.
+- **A record is released when its wrapper dies — or sooner, when the
+  adapter owns the object.** The ordinary rule is fe's collector: a
+  wrapper that nothing reaches any more is swept and its record goes
+  back to the pool. That is enough for everything Lisp names, because a
+  Lisp name is what keeps a wrapper reachable. It is *not* enough for
+  the objects the adapter mints for its own use, because the pool has no
+  back-pressure — a full pool raises rather than asking for a collection
+  (fe publishes no collect-now entry point), and a loop that allocates
+  no arena never provokes one by itself. `save-excursion`'s saved state
+  is such an object: its restore releases the record on the spot, so 64
+  bounds how many excursions are *open at once* (the nesting depth),
+  never how many a run performs. Without that release the 65th
+  `save-excursion` between two collections failed — the Phase 11
+  acceptance review's blocker, pinned now by
+  `test_save_excursion_pool_bound` and two PTY cases.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle
   once minted. **The handle is the only identity a process ever

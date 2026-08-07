@@ -366,7 +366,10 @@
 ;; alone for `with-current-buffer' -- which is Emacs' scope for the two
 ;; forms, and exactly what the natives preserved before.  Both are
 ;; GC-managed adapter objects, so an unwind that never reaches the
-;; cleanup cannot leak one.
+;; cleanup cannot leak one; the restore additionally hands
+;; `save-excursion's marker record straight back to the bounded pool,
+;; which is what keeps that pool a bound on open excursions rather than
+;; on how many a loop may perform.
 (defalias 'save-excursion (macro body
   (list 'internal--let
     (list (list 'internal--excursion (list 'internal--excursion-capture t)))

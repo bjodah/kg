@@ -71,6 +71,29 @@ prefix  = /usr/local
 bindir  = $(prefix)/bin
 mandir  = $(prefix)/share/man
 man1dir = $(mandir)/man1
+datadir = $(prefix)/share
+lispdir = $(datadir)/kg/lisp
+
+# The Lisp `make install` ships, decided by sub-plan 10D Part 1 against
+# how the *prelude* ships.  lisp/prelude.el is not here on purpose: it is
+# compiled into the binary (utils/embed_lisp.py ->
+# src/lisp_prelude_generated.inc, kept honest by `make
+# lisp-prelude-check`), so it can never be missing, stale, or a version
+# behind the editor that evaluates it.  A file on disk cannot have that
+# property, and installing a second copy of the prelude beside the
+# compiled-in one would only invite someone to edit the copy nothing
+# reads.
+#
+# lisp/auto-fill.el is the opposite kind of thing: an optional package a
+# user chooses to (require ...), which by definition has to be a file the
+# load-path can reach.  README.md and doc/kg.1 tell users to require it,
+# so it is installed, and both say where -- $(lispdir), which is NOT on
+# the default load-path (that is $XDG_CONFIG_HOME/kg/lisp, a per-user
+# directory), so the docs also say the (add-to-load-path ...) line that
+# reaches it.  Baking an install prefix into the binary's default
+# load-path was the alternative and was rejected: it is C in the editor
+# for a path a one-line init file states better.
+LISP_PACKAGES = lisp/auto-fill.el
 
 # Show a leading "~" on lines past end-of-buffer (vim/kilo style).
 # Off by default for an Emacs-like presentation.  Override on the make
@@ -451,7 +474,7 @@ $(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-oracle-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check lisp-oracle-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -468,6 +491,16 @@ docs-check:
 # not part of this or ordinary `make check`.
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
+
+# Sub-plan 10D Part 1's drift gate, in lisp-prelude-check's mold: a PTY
+# case's config_files: is inline YAML, so a case exercising a tracked
+# lisp/ package carries a *copy* of it.  lisp/auto-fill.el claimed in a
+# comment that the copy was byte-for-byte identical and it was not, for
+# two phases.  Structural, runs nothing, needs no build -- so it sits
+# beside the other no-drift checks and runs in both WITH_LISP
+# configurations.
+lisp-package-check:
+	@$(PYTHON) utils/check_lisp_package_drift.py
 
 # Sub-plan 10C Part 3: kg's half of the milestone gate's oracle item.
 # Runs every `comparison: emacs` case through test/kgbatch and compares it
@@ -989,12 +1022,16 @@ install: $(TARGET)
 	install -m 755 -s $(TARGET) $(DESTDIR)$(bindir)/$(PROG)
 	install -d $(DESTDIR)$(man1dir)
 	install -m 644 $(MAN1) $(DESTDIR)$(man1dir)/$(PROG).1
+	install -d $(DESTDIR)$(lispdir)
+	install -m 644 $(LISP_PACKAGES) $(DESTDIR)$(lispdir)
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PROG)
 	rm -f $(DESTDIR)$(man1dir)/$(PROG).1
+	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
+	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

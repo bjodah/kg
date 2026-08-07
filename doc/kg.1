@@ -136,6 +136,35 @@ as they are typed past it, via
 and one
 .Li replace-region
 call per break.
+Its hook entry point is a
+.Li condition-case
+that removes the hook and reports once, so a bad
+.Li fill-column
+disables the mode instead of erroring on every keystroke.
+.Pp
+.Nm
+installs that package to
+.Pa <prefix>/share/kg/lisp/
+.Pq Pa /usr/local/share/kg/lisp
+by default .
+That directory is
+.Em not
+on the default
+.Li load-path ,
+which is the per-user
+.Pa <config>/kg/lisp/
+alone, so an
+.Pa init.el
+reaches it with
+.Li (add-to-load-path "/usr/local/share/kg/lisp")
+before the
+.Li (require 'auto-fill) ,
+or copies the file into
+.Pa <config>/kg/lisp/
+instead.
+The prelude is deliberately not installed as a file: it is compiled into
+the binary, so it can never be missing or a version behind the editor
+that evaluates it.
 .Pp
 Lisp code defines interactive commands the way Emacs does, with
 .Li defun

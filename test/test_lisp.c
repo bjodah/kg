@@ -4214,6 +4214,60 @@ static void test_with_current_buffer(void)
 	teardown_editor();
 }
 
+/* A hook member that signals keeps its place; Emacs' would have been
+ * removed (sub-plan 10D Part 1).
+ *
+ * Measured under /opt-3/emacs-31-lucid/bin/emacs 31.0.90 before this was
+ * written, not read out of a manual: a member of `after-change-functions'
+ * that signals is called exactly ONCE across three insertions -- the
+ * error reaches the caller and Emacs empties the hook, so the two later
+ * insertions are clean and the hook's value is nil afterwards.  kg
+ * contains the error, reports `Hook error (...)', and leaves the member
+ * armed, so the same shape calls it three times.
+ *
+ * Recorded, not fixed: which policy is right is a host design question
+ * (Emacs' disarming is a modification-hook rule, not a general hook
+ * rule, and kg's containment is what makes C-g and budget completions
+ * survive a hook), and a package can take Emacs' policy for itself --
+ * lisp/auto-fill.el does, with a condition-case that removes itself, and
+ * test/pty/lisp-auto-fill-mode-error-disarms.yaml is the proof that
+ * works.  This test is the divergence's own witness, cited by
+ * test/lisp-compat/features.json's hook-error-does-not-disarm row.
+ *
+ * before-save-hook rather than after-change-functions: the counting is
+ * the property, run-hooks is the direct way to run one three times, and
+ * it needs no editing to do it. */
+static void test_hook_error_does_not_disarm(void)
+{
+	int i;
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq disarm-calls 0)"));
+	CHECK(eval_ok("(defun disarm-hook-fn ()"
+		      " (setq disarm-calls (+ disarm-calls 1))"
+		      " (car 1))"));
+	CHECK(eval_ok("(add-hook 'before-save-hook 'disarm-hook-fn)"));
+	for (i = 0; i < 3; i++) {
+		test_status_message[0] = '\0';
+		CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+		/* Every run reports, which is the other half of "still
+		 * armed": Emacs reports once. */
+		CHECK(strstr(test_status_message, "Hook error") != nullptr);
+	}
+	/* Three calls here; Emacs' equivalent shape answers 1. */
+	CHECK(eval_eq("disarm-calls", "3"));
+	/* And the entry is genuinely still there, not merely re-added: a
+	 * repaired definition runs from the same registration. */
+	CHECK(eval_ok("(defun disarm-hook-fn () (setq disarm-calls 'healed))"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("disarm-calls", "healed"));
+	CHECK(eval_ok("(remove-hook 'before-save-hook 'disarm-hook-fn)"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_hooks(void)
 {
 	setup_editor();
@@ -4511,6 +4565,7 @@ int main(void)
 	RUN(test_save_excursion);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
+	RUN(test_hook_error_does_not_disarm);
 	RUN(test_process_callback_designator);
 	RUN(test_keymap_apis);
 	RUN(test_string_length_and_substring);

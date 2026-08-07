@@ -172,7 +172,7 @@ compiler accepting `-std=c23`).
 ```bash
 git submodule update --init --recursive # required for Fe and tiny-regex-c
 make
-sudo make install          # installs to /usr/local/bin and /usr/local/share/man/man1
+sudo make install          # /usr/local/{bin,share/man/man1,share/kg/lisp}
 ```
 
 Lisp support is compiled in by default. Use `make WITH_LISP=0` to build without
@@ -267,7 +267,26 @@ already mid-load is a "cyclic require" error naming it, independent of
 `load`'s own nesting depth limit. `lisp/auto-fill.el` is a worked package
 using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
 at `fill-column` as they are typed past it, using `after-change-functions`
-and one `replace-region` call per break (one undo step).
+and one `replace-region` call per break (one undo step). It also shows how a
+package handles its own errors: the hook entry point is a `condition-case`
+that stores the condition in `auto-fill--error`, removes itself from the hook
+and reports once, so a `fill-column` set to something that is not a number
+disables the mode instead of erroring on every keystroke.
+
+`make install` puts it in `$(prefix)/share/kg/lisp/` — `/usr/local/share/kg/lisp`
+by default. That directory is **not** on the default `load-path`, which is the
+per-user `<config>/kg/lisp/` alone, so reach it from `init.el` with:
+
+```elisp
+(add-to-load-path "/usr/local/share/kg/lisp")
+(require 'auto-fill)
+(auto-fill-mode)
+```
+
+or copy the file into `<config>/kg/lisp/` and require it with no extra line.
+`lisp/prelude.el` is deliberately not installed: it is compiled into the
+binary, so it can never be missing or a version behind the editor that
+evaluates it.
 
 Buffer positions use Emacs' convention: a position is a 1-based codepoint
 offset, so `(point-min)` is 1, `(point-max)` is one past the last character,

@@ -17,14 +17,18 @@
 (defvar fill-column 70
   "Column auto-fill-mode tries to keep lines at or under.")
 
+(defvar auto-fill--error nil
+  "The error that turned auto-fill-mode off, or nil if it is healthy.")
+
 ;; The display column of buffer position POS.  Moves point to get it --
 ;; current-column has no by-position form -- so every caller wraps its
 ;; own use of this in save-excursion; it is not safe to call bare.  Fe has
 ;; had `>' since sub-plan 05C, but every comparison in this file stays
 ;; written as a flipped `<': the package is the byte-for-byte source that
-;; test/pty/lisp-auto-fill-mode-break.yaml plants in its own HOME, so
-;; respelling the code here would have to be a matched edit in the case
-;; for no behavioural gain.
+;; test/pty/lisp-auto-fill-mode-break.yaml plants in its own HOME, and
+;; `make lisp-package-check' now compares the two, so respelling the code
+;; here would have to be a matched edit in the case for no behavioural
+;; gain.
 (defun auto-fill--column-at (pos)
   (goto-char pos)
   (current-column))
@@ -44,11 +48,11 @@
         (setq pos (1+ pos)))
       break-pos)))
 
-;; after-change-functions is called (buf start end old-len); react only
-;; to insertions (start < end), and only when the insertion pushed point
-;; past fill-column.  The break itself is a single (replace-region ...)
-;; call -- the space becomes a newline -- so it is one undo step, never a
-;; delete followed by an insert.
+;; The break itself.  after-change-functions is called
+;; (buf start end old-len); react only to insertions (start < end), and
+;; only when the insertion pushed point past fill-column.  The break is a
+;; single (replace-region ...) call -- the space becomes a newline -- so
+;; it is one undo step, never a delete followed by an insert.
 ;; save-excursion wraps the whole check, not just auto-fill--find-break's
 ;; own scan: auto-fill--column-at's goto-char is a query with a side
 ;; effect, and without this the *condition* alone -- (< fill-column
@@ -58,7 +62,7 @@
 ;; (replace-region only ever rewrites something strictly before it, one
 ;; byte for one byte), so restoring point to wherever it was on entry is
 ;; always the right place to leave it, break or no break.
-(defun auto-fill--maybe-break (buf start end old-len)
+(defun auto-fill--break (buf start end old-len)
   (when (< start end)
     (with-current-buffer buf
       (save-excursion
@@ -68,8 +72,37 @@
             (when break-pos
               (replace-region break-pos (1+ break-pos) "\n"))))))))
 
+;; The hook entry point, and the only place in this package that handles a
+;; condition.  A fill error is almost always a configuration error -- the
+;; commonest is a `fill-column' that is not a number, which makes the
+;; comparison above raise wrong-type-argument -- and it happens on a
+;; *keystroke*, so the wrong policy is to report it and stay armed: every
+;; further character then re-reports it and the buffer becomes unusable.
+;;
+;; The policy here is Emacs', measured rather than assumed.  In GNU Emacs
+;; 31.0.90, a member of after-change-functions that signals is called
+;; exactly once: the error reaches the caller and the hook is emptied, so
+;; the following insertions are clean.  kg's host does not do that -- it
+;; contains a hook error, reports `Hook error (after-change-functions):
+;; ...' and leaves the hook armed -- so the package takes the policy
+;; itself, which is where a package can take it: catch, remove itself,
+;; and say so once.  The divergence in the *host* is recorded in
+;; test/lisp-compat/features.json (hook-error-does-not-disarm).
+;;
+;; auto-fill--error keeps the condition object, so a user who missed the
+;; echo-area line can still ask `auto-fill--error' what happened, and
+;; re-enabling with (auto-fill-mode) clears it.
+(defun auto-fill--maybe-break (buf start end old-len)
+  (condition-case err
+      (auto-fill--break buf start end old-len)
+    (error
+     (setq auto-fill--error err)
+     (remove-hook 'after-change-functions 'auto-fill--maybe-break)
+     (message "auto-fill-mode disabled: %S" err))))
+
 (defun auto-fill-mode ()
   "Break lines in the current buffer at `fill-column' as they are typed
 past it."
   (interactive)
+  (setq auto-fill--error nil)
   (add-hook 'after-change-functions 'auto-fill--maybe-break t))

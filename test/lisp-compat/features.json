@@ -1814,6 +1814,19 @@
    "source_name": null
   },
   {
+   "id": "hook-error-does-not-disarm",
+   "category": "errors-and-non-local-exits",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-add-hook"
+   ],
+   "kg_test": "test/test_lisp.c:test_hook_error_does_not_disarm, test/pty/lisp-auto-fill-mode-error-disarms.yaml",
+   "rationale": "Recorded by sub-plan 10D Part 1, after measuring the oracle rather than reading a manual. In GNU Emacs 31.0.90 a member of after-change-functions that signals is called exactly ONCE across three insertions: the error reaches the caller, Emacs empties the hook, and the later insertions are clean. kg contains the error, reports `Hook error (HOOK): MESSAGE' in the echo area, and leaves the member armed, so the same shape runs three times and reports three times -- which on a per-keystroke hook makes the buffer unusable rather than merely noisy. comparison is kg-policy because the two containment models are not comparable form for form: Emacs' disarming is a modification-hook rule specifically, while kg's containment is the mechanism that lets a C-g or a budget completion survive a hook (sub-plan 06E's protected call), and removing an entry from inside its own run would have to answer what happens to the rest of the list. Recorded, not fixed. A *package* can take Emacs' policy for itself, and the proof that it can is lisp/auto-fill.el: its hook entry point is a condition-case that stores the condition, remove-hooks itself and messages once, and the cited PTY case asserts the package's own line reaching a real screen while `Hook error' does not -- inverting the condition-case turns that case red with exactly the opposite pair.",
+   "source_name": null
+  },
+  {
    "id": "signal-from-kg",
    "category": "errors-and-non-local-exits",
    "status": "supported",

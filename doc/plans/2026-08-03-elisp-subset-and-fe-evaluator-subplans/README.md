@@ -3,30 +3,32 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this Phase 9
-set was written against the tree as it stands after Phase 8 closed and
-its acceptance-review fixes landed (2026-08-06).  Read the parent's §0
-(verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
-honesty) and §0.4 (no legacy constituency) before any of these; they
-are the facts these documents assume.  Where the parent's Phase 9
-section names a stale or wrong fact — and the audit found its central
-deliverable, the arena-stat API, already built in full — 09A's
-corrections control.
+implementation-audited against the tree it starts from, and this
+Phase 10 set was written against the tree as it stands after Phase 9
+closed and its acceptance-review fixes landed (2026-08-07).  Read the
+parent's §0 (verified baseline), §0.1 (the two complexity ratchets),
+§0.3 (scope honesty) and §0.4 (no legacy constituency) before any of
+these; they are the facts these documents assume.  Where the parent's
+§14/§15 name a stale or wrong fact — and the audit found Proof 1
+mostly built, Proof 2 existing as a distributed corpus, and §14 still
+spelling the package `.fe` — 10A's corrections control.
 
-Measured on the audited tree, 2026-08-06 (post-review, at the Phase 8
-close), and re-measured rather than carried forward per Rule 6: kg
-**5798/5804** scc with the worst file `src/bufmgr.c` at **479/520**,
-**32 native / 429 PTY** (**341 pass + 88 skip** under `WITH_LISP=0`);
-fe **746/760** scc with `fe.c` at **140** and `fe_eval.c` at
-**489/520**, pmccabe **1056/1056 across 339 symbols** (the cap re-set
-at its measured actual in the fix cycle), and `FeMinimumArenaSize()`
-**57016 bytes**, kg's 1 MiB arena partitioning to **1096 frames /
-56223 object slots** (peak live **7224**, 12.8%, after the full init
-corpus).  The compat manifests carry **350 features across both
-repositories** (kg 196 features / 201 cases / 99 snapshots; fe 306
-cases, 246 passed, 60 known gaps; census 55 fe primitives + 1 alias,
-81 kg natives, 77 prelude definitions).  09A re-measures at its start,
-as every A-slice does.
+Measured on the tree at the Phase 9 close, 2026-08-07 (post-review,
+post-fix-cycle), and re-measured rather than carried forward per
+Rule 6: kg **5800/5800** scc with the worst file `src/bufmgr.c` at
+**479/520**, **32 native / 434 PTY** (**341 pass + 93 skip** under
+`WITH_LISP=0`); fe **765/765** scc with `fe_eval.c` at **495/520**,
+pmccabe **1072/1072 across 343 symbols** (both caps re-set at measured
+actuals in the fix cycle), and `FeMinimumArenaSize()` **57328 bytes**,
+kg's 1 MiB arena partitioning to **1096 frames / 56222 object slots**
+(465 live after a bare open).  The compat manifests carry **352
+features across both repositories** (kg 198 features / 203 cases / 99
+snapshots; fe 154 features / 306 cases, 246 passed, 60 known gaps;
+census 56 fe primitives/aliases, 81 kg natives, 77 prelude
+definitions).  **Both scc caps and fe's pmccabe total sit at exactly
+zero headroom**, and kg's scc scan covers `src` only — test/, utils/
+and lisp/ work is complexity-free, which is the decisive funding fact
+for this set.  10A re-measures at its start, as every A-slice does.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -132,85 +134,108 @@ inert-but-honest declaration forms, `format` has widths/precision/
 flags and `%c`/`%x`/`%X`/`%o`, and `FE_API_VERSION`/
 `FE_LANGUAGE_VERSION` are 6/7 (`FeVersion` "8.0").
 
-**This set — Phase 9, robustness — is next.**  Its four documents
-(`09a`–`09d`) are in this directory; the Grouping and Sequencing
-sections below describe them, and `09a` leads as every A-slice has.
+**The ninth set — Phase 9, robustness — is complete (2026-08-07).**
+Its four documents (`09a`–`09d`) were removed once the workstream was
+accepted; the Phase 9 Status section below is the surviving record,
+including an acceptance review whose fe half REJECTED the delivery
+(one blocker: unwinding out of a `mark_fn` callback corrupted the
+arena under the new walk) and sent both repositories through a fix
+cycle, while the kg and docs reviews returned the program's first
+clean ACCEPTs.  What that set changed is the ground this one stands
+on: `out-of-memory` and `gc-stack-overflow` are pre-built, re-stamped,
+permanently rooted conditions under `error` — `(condition-case e BIG
+(error 'caught))` catches genuine exhaustion; `FeMark` walks with a
+flat C stack (pointer reversal; 48 B per `car` level before, 0 after);
+a mark/GC callback that raises or allocates aborts loudly instead of
+corrupting; kg's `lisp-arena-stats` command renders the full
+`FeArenaStats` surface; the exhaustion matrix is pinned end to end in
+the editor; and a fuzz-seed reachability gate (ci-06) prevents grammar
+changes from silently unsteering the tracked corpus.
 
-The through-line is that Phase 9 makes exhaustion survivable and the
-collector honest about its stack.  Four facts, established by
-measuring this tree (the audit's exhaustion matrix and depth
-measurements are condensed into 09A), shape the slices:
+**This set — Phase 10, compatibility proofs — is next, and it closes
+the parent's initial program.**  Its four documents (`10a`–`10d`) are
+in this directory; the Grouping and Sequencing sections below describe
+them, and `10a` leads as every A-slice has.
 
-- **The parent's central Phase 9 deliverable already exists.**  Every
-  field its §13 asks the arena-stat API to gain — total/free slots,
-  peak live, collection count, peak root/frame/cleanup counts,
-  allocation failures — is a live `FeArenaStats` field today (00D
-  built it, 03F split it).  What is missing is any kg-facing way to
-  *see* the numbers: no command reads them.  The fe-side "extension"
-  re-scopes to ≈zero; the kg-side diagnostics command is 09D.
-- **`FeMark` is the only unbounded data recursion left, and the crash
-  is measured, not hypothetical.**  One C frame per `car` level (32 B
-  at `-Os`, 80 B under MSan); segfault at ~262 000 levels on a default
-  8 MiB stack, reachable from pure Lisp in any arena ≥ ~4.9 MiB — and
-  the shipping editor segfaults inside `FeMark` at `ulimit -s ≤ 1280`.
-  The printer, reader and `Equal` are already bounded (depth/node/
-  byte/cycle budgets; the reader errors cleanly at 4007 open parens);
-  Phase 9 must not re-scope them.  The mark rewrite is 09C.
-- **Genuine exhaustion is catchable only by `(t …)`.**  When the arena
-  cannot allocate, the raise path degrades the condition object to nil
-  and `ConditionMatches` then answers false for every *named* handler:
-  `(condition-case e BIG (error …))` does not catch `out of memory` —
-  nor `GC stack overflow`, nor any named condition raised while the
-  arena is full.  No test in either tree wraps an OOM in
-  `condition-case`.  Making named conditions survive memory pressure
-  is 09B, the sharpest finding of the audit.
-- **kg survives exhaustion but cannot see or escape it.**  Measured:
-  mid-command exhaustion with local data recovers fully; mid-hook
-  exhaustion reports and the save still completes; but an init file
-  that exhausts into a *global* leaves the whole session at 0–9 free
-  slots — alive, correctly reporting, and useless, with no
-  diagnostics surface and no recovery path.  09D pins the matrix
-  end-to-end and adds the stats command; the reset command is
-  recorded debt, not this phase.
+The through-line is that Phase 10 proves the dialect on real
+workloads and makes the milestone gate assertable instead of asserted.
+Four facts, established by measuring this tree (the audit's proof
+inventory and 30-snippet Emacs comparison are condensed into 10A),
+shape the slices:
 
-So the set front-loads one measurement-and-decision slice (09A: the
-exhaustion matrix, the mark-depth figures, seven Decisions, the parent
-corrections, the two-tree funding), makes named conditions survive
-memory pressure in fe (09B), replaces the recursive mark with a
-flat-stack walk proved by the 03E stack-probe convention (09C), and
-moves the phase's single pin, adds kg's arena-diagnostics command,
-covers the exhaustion matrix end-to-end and closes the phase (09D).
+- **Proof 1 is ~85% built and §14 does not know it.**  The package is
+  `lisp/auto-fill.el` (there are zero `.fe` files in kg); six of
+  §14's seven bullets already pass with three PTY cases.  What is
+  actually wrong: no conditions in the file, the PTY cases plant a
+  *drifted* copy while the file claims byte-for-byte identity, and
+  `make install` ships no `lisp/` while the docs tell users to
+  `(require 'auto-fill)`.
+- **Proof 2 exists as a distributed corpus** — ~97 `config_files:` PTY
+  cases, `lisp-init-phase8-library.yaml` construct-for-construct from
+  08A, and matching in-C fixtures — covering seven of eight bullets;
+  buffer-local configuration is nominal only (`setq-local` is a
+  literal alias of `setq`).  10A declares the corpus rather than
+  duplicating it.
+- **Proof 3 has no artifact, and its "macro expansion" bullet sits on
+  a price cliff.**  Everything else it lists already works and agrees
+  with the pinned Emacs (24 of 30 pure-language snippets byte-agree);
+  `macroexpand`/`macroexpand-1`/`macroexpand-all` do not exist
+  anywhere and cannot be prelude-written (fe's `funcall`/`apply`
+  reject a macro operand by design).  10A Decision 2 makes the pair
+  fe primitives and rejects `-all` by name.
+- **The milestone gate's kg-oracle item has no runner, and two silent
+  divergences are unrecorded.**  fe's half is automated (306 cases,
+  0 failed); kg's 99 `comparison: emacs` cases are checked by a human
+  reading snapshots.  `defvar` does not create a special variable
+  (`let` over it silently answers differently than Emacs) and the
+  writer never abbreviates `(quote x)` → `'x` — the sharpest §2
+  violations measured, in the manifest as `supported` with an empty
+  rationale.  The runner, the honest manifest and the recorded
+  divergences are 10C.
+
+So the set front-loads one measurement-and-decision slice (10A: the
+proof inventory, nine Decisions, the §14/§15 corrections, the two-tree
+funding), builds `macroexpand`/`macroexpand-1` in fe (10B), moves the
+phase's single pin, builds kg's oracle runner and makes the manifest
+honest (10C), and completes the three proofs, asserts the milestone
+gate item by item, answers §15 from measured counters and closes the
+phase and the program (10D).
 
 ## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [09A](09a-pin-the-robustness-target-and-fund-the-phase.md) | 9 | The measured exhaustion matrix (Table X: every bound, its behaviour at the limit, its catchability today), the mark-depth figures, seven Decisions — three re-scoped deliverables, Budget stays uncatchable, rooted exhaustion recorded not rescued, the cleanup registry stays deferred, bounded escape traces, fuzz reachability, the two-tree funding — and the parent-§13 corrections | none — **this is first** |
-| [09B](09b-conditions-that-survive-memory-pressure.md) | 9 | fe-only: pre-built exhaustion conditions rooted at `FeOpen` so `(error …)` and named handlers catch `out of memory` and `GC stack overflow`; named-raise-under-pressure falls back to the OOM condition, not nil; handler re-entry pinned; the escaping-raise trace bounded | 09A |
-| [09C](09c-a-mark-phase-with-a-flat-stack.md) | 9 | fe-only: the recursive `FeMark` replaced by a flat-stack walk (pointer reversal or zero-allocation worklist — decided in-tree against the two-bit tag constraint), proved flat by the 03E stack-probe convention; deep/cyclic collection tests; fuzz gains depth and tracked seeds | 09B |
-| [09D](09d-the-pin-the-diagnostics-and-the-phase-close.md) | 9 | kg: the phase's single pin move (adaptation audit over kg's error-string expectations), the read-only arena-diagnostics command, the exhaustion matrix covered end-to-end (mid-command/mid-hook/mid-init PTY and native cases, OOM caught *by name* in the editor), caps re-set at actuals; closes the phase | 09C |
+| [10A](10a-pin-the-proof-targets-and-fund-the-phase.md) | 10 | The measured proof inventory (what each of §14's three proofs already has, item by item), the 30-snippet Emacs comparison, nine Decisions — `macroexpand` pair in scope with `-all` rejected by name, the kg oracle runner as gate infrastructure, the two silent divergences recorded not fixed, the unsupported-channel gate re-worded, the distributed corpus declared, the `require` suffix fix, the two-tree funding, §15 answered from counters — and the §14/§15 corrections | none — **this is first** |
+| [10B](10b-macroexpand-as-a-primitive.md) | 10 | fe-only: `macroexpand-1` and `macroexpand` as primitives reusing the evaluator's own expansion path (alias-following, strict arity under expansion, self-expanding macro hits the step budget); `macroexpand-all` rejected by its own name, not `void-function`; `comparison: emacs` compat cases | 10A |
+| [10C](10c-the-pin-the-oracle-runner-and-the-honest-manifest.md) | 10 | kg: the phase's single pin move (language version check — new names answer where `void-function` did), the `require` `.el`-suffix fix, `test/kgbatch` grown (`prin1` print, scratch buffer), the kg oracle runner with the XPASS rule fe's lacks, `kg_test` citations verified by tooling, the honest manifest (defvar/quote-printing divergence rows, the misclassified entry, the type-of/commandp case gaps), two §15 perf counters | 10B |
+| [10D](10d-the-three-proofs-and-the-milestone-gate.md) | 10 | kg: Proof 1 completed (conditions, drift gate, ship decision), Proof 2 declared and completed (error handling in the fixture, the bullet→case mapping), Proof 3 built (multi-file higher-order package, pure portions verified under Emacs 31), the milestone gate asserted item by item, §15's answer recorded from measured counters, caps re-set at actuals; closes the phase and the program | 10C |
 
-**09A is genuinely first, for the same structural reason 00A through
-08A were.**  Phase 9's contract is a measured behaviour matrix, not a
-feature list; the parent's §13 needs its corrections recorded before
-anyone implements from its text (its headline API already exists), and
-both trees' funding must be settled — fe closed Phase 8 at 746/760 scc
-and **1056/1056 pmccabe exactly**, kg at 5798/5804, so *every* slice
-with fe or kg C growth needs 09A's funded raises first.
+**10A is genuinely first, for the same structural reason 00A through
+09A were.**  Phase 10's contract is §14's milestone gate, and the gate
+cannot be asserted against the tree as §14 describes it — the audit
+found the proofs partially built, the gate's kg-oracle item
+unmechanized, and the funding at exactly zero on three caps — so the
+corrections and the funded raises must be recorded before anyone
+implements from §14's text.
 
-**09B and 09C are the fe half, and they are ordered** — the exhaustion
-tests 09B writes are the safety net under 09C's collector rewrite; the
-rebuilt mark must pass the catchability suite, not just its own probes.
-Neither moves a language version unless 09B's condition names are ruled
-language surface (decided there against `fe.h`'s own contract).
+**10B is the fe half, and it is the set's only new language surface** —
+two reflective primitives Proof 3 cannot be honest without.  It moves
+`FE_LANGUAGE_VERSION` (new names answer where `void-function` answered
+before, the V6 precedent) unless fe's versioning contract is read
+otherwise in-tree — decided there, recorded in the pin row.
 
-**09D is the pin plus everything kg-facing** — one slice because the
-diagnostics command and the end-to-end exhaustion cases are only
-testable against the pinned fe, and the phase close belongs with the
-last measured figures.
+**10C is the pin plus the gate machinery** — one slice because the
+oracle runner, the manifest hygiene and the suffix fix are only
+testable against the pinned fe, and they are what 10D's gate table
+stands on.
 
-The set is four documents, not five: Phase 9's kg half is one command
-and a test matrix, too small to split without inventing a boundary.
+**10D is the proofs and the close** — the artifacts §14 actually asks
+for, built last so they exercise the honest manifest and the runner
+rather than predating them.
+
+The set is four documents, not five: the manifest work and the runner
+are one coherent kg slice, and splitting the proofs from the gate
+table would separate the evidence from the thing it evidences.
 
 ## Handoff contract
 
@@ -228,15 +253,15 @@ adaptation audit went to die.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 09A | This directory, the README tables, the parent §13 correction block | Table X recorded with the measuring commands, the mark-depth table across builds, the funding Decisions written (raises land in B/D opening commits, proved live there), the "before" pins named | no implementation, no cap movement yet, no pin |
-| 09B | fe `FeOpen`/`FeHandleError`/`RaiseCondition`/`ConditionMatches`, the host trace print, tests/fuzz seeds | named handlers catch OOM and GC-stack overflow; named-raise-under-pressure arrives as the OOM fallback; handler re-OOM unwinds to the next handler; Budget stays uncatchable; session-consistency after a caught OOM; the exhaustion script + golden; reachability counts in the body; full nine-stage fe runner | no mark work, no kg edits, no pin |
-| 09C | fe `FeMark`/`CollectGarbage`/tag encoding, fuzz grammar + seeds | the mark-depth probe flat (< 2048 B delta at N=10/1k/100k), deep-`car`/`cdr`/alternating/cyclic collection correct, goldens byte-identical, `FeGetArenaStats` unchanged on standard corpora, Fex's `mark_fn` path exercised, sanitizer lanes green, full nine-stage fe runner | no printer/reader work, no kg edits, no pin |
-| 09D | kg pin + `doc/fe-upstream.md`, the diagnostics command (`cmdtable` row), PTY/native exhaustion cases, caps, docs | the adaptation audit measured, the command's output asserted by the test its manifest row cites, the Table X kg rows pinned (recover/report/rooted-visible), OOM caught by name inside the editor, the `ulimit` segfault's fix asserted or verified-by-hand in the Status, caps re-set at actuals, full parallel runner; closes the phase | no reset command (recorded debt), no new fe surface, no Budget change |
+| 10A | This directory, the README tables, the parent §14/§15 correction block | the proof inventory recorded item by item with its evidence, the 30-snippet comparison preserved, the nine Decisions written (raises land in B/C opening commits, proved live there), the post-fix-cycle caps re-measured | no implementation, no cap movement yet, no pin |
+| 10B | fe evaluator expansion path, `macroexpand`/`macroexpand-1` primitives, compat cases, tests | expansion correctness incl. aliases and strict arity under expansion; self-expanding macro hits the step budget; ENVIRONMENT non-nil and `macroexpand-all` rejected by name; script + golden; new `comparison: emacs` cases with runner-produced snapshots only; full nine-stage fe runner | no `macroexpand-all` implementation, no environments, no kg edits, no pin |
+| 10C | kg pin + `doc/fe-upstream.md`, `src/lisp_require.c`, `test/kgbatch`, the oracle runner (utils/), the manifest, two perf counters | the language-version reconciliation at the pin; `(require 'f "name.el")` fixed with the bare-stem/absolute paths pinned unchanged; the runner green over all `comparison: emacs` cases with the XPASS rule demonstrated; `check_lisp_compat.py` verifying `kg_test` citations; the defvar and quote-printing divergences recorded with cases; init/package load counters asserted populated | no proof artifacts, no dynamic binding, no printer abbreviation work, no fe edits beyond the gitlink |
+| 10D | `lisp/` (auto-fill + the new package), the Proof 2 fixture, PTY cases, the gate table, `doc/TODO.md`, caps | Proof 1's condition path + drift gate + ship decision; Proof 2's error handling + bullet→case mapping; Proof 3's package with pure portions verified under Emacs 31; the milestone gate table with each row citing its mechanism; §15's trigger table from measured counters; caps re-set at actuals; full parallel runner; closes the phase | no bytecode work, no new language surface, no fe edits, no pin |
 
 For all rows, current suite counts are a starting census, not literals to
 assert.  Run focused tests while iterating; the full Fe runner closes the
-Fe workstream at 09C, and kg's full parallel runner closes Phase 9 at
-09D.
+Fe workstream at 10B, and kg's full parallel runner closes Phase 10 at
+10D.
 
 ## Compatibility direction
 
@@ -250,81 +275,92 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 9 this cuts differently from every prior set: **there is no
-Emacs oracle for any of it.**  Emacs has no arena, no step budget and
-no fe collector, so "compatibility" here means agreement with 09A's
-*measured matrix of this tree*, pinned as native tests rather than
-oracle snapshots — the corpus discipline transfers (measure, pin,
-assert), the oracle does not.  The one Emacs-adjacent choice, the
-names of the exhaustion conditions, sits under `error` in the existing
-hierarchy so `(condition-case … (error …))` reads like Emacs even
-though the conditions are fe's own.  No compatibility residue applies
-as always: the degraded-to-nil condition path is deleted, not kept
-behind a mode, and the recursive mark is deleted, not wrapped (03E's
-rule).  Whether `FE_LANGUAGE_VERSION` moves is decided in 09B against
-`fe.h`'s own versioning contract; the `static_assert` tripwire fires
-at the 09D pin either way, as it has at every pin since 03F.
+For Phase 10 the oracle is back at the center, and the set's job is to
+make agreement *mechanized* on the kg side the way it already is on
+fe's: 10C's runner turns "all supported `comparison: emacs` entries
+pass against the oracle" from a sentence in §14 into a command that
+exits non-zero, with the XPASS rule (a divergence that starts agreeing
+must fail, so stale divergence rows get cleaned up) that fe's own
+runner still lacks.  Honesty about disagreement is the same
+discipline: the two silent divergences the audit found (`defvar` not
+special, quote printing) are recorded as divergences with cases, not
+fixed and not left as `supported` rows with empty rationales.  The one
+new language surface, 10B's `macroexpand` pair, is measured against
+Emacs (`comparison: emacs` cases with runner-produced snapshots);
+`macroexpand-all` is rejected by its own name per the reader's
+reject-by-name convention, not left to `void-function`.  Whether
+`FE_LANGUAGE_VERSION` moves is decided in 10B against `fe.h`'s own
+contract — the V6 precedent (changed answers move the version) makes
+a bump the expected outcome — and the `static_assert` tripwire fires
+at the 10C pin either way, as it has at every pin since 03F.
 
 ## Sequencing
 
 ```text
-09A  measure the matrix, fund ──> 09B  catchable exhaustion,
-                                       fe-only, caps raised
-                                       │
-                                       v
-                                  09C  the flat-stack mark,
-                                       fe-only
-                                       ── fe workstream closes,
-                                          NO pin
-                                       │
-                                       v
-                                  09D  the pin + the diagnostics
-                                       command + the matrix
-                                       end-to-end; closes the phase
+10A  inventory the proofs, fund ──> 10B  macroexpand pair,
+                                         fe-only, caps raised
+                                         ── fe workstream closes,
+                                            NO pin
+                                         │
+                                         v
+                                    10C  the pin + the oracle runner
+                                         + the honest manifest +
+                                         the require fix
+                                         │
+                                         v
+                                    10D  the three proofs + the
+                                         milestone gate + §15's
+                                         answer; closes the phase
+                                         and the program
 ```
 
-Strictly linear, and nothing runs in parallel with it: 09B's
-exhaustion tests are the net under 09C's collector rewrite, and 09D's
-end-to-end cases are only testable against the pinned fe.  Every
-arrow is a real dependency: 09B changes what a full arena *means*,
-09C changes how the collector walks it under those tests, and 09D
-proves both from inside the editor.
+Strictly linear, and nothing runs in parallel with it: 10C's runner
+and manifest are only testable against the pinned fe, and 10D's
+proofs must exercise the honest manifest and the runner, not predate
+them.  Every arrow is a real dependency: 10B adds the names Proof 3
+reflects with, 10C makes agreement checkable, and 10D is the evidence
+the gate table cites.
 
-The pin discipline repeats 07's and 08's deliberately: exactly one
-pin move in the whole set (09D), because the fe half is two slices
-that land together and the kg half has no further fe dependency.
+The pin discipline repeats 07's, 08's and 09's deliberately: exactly
+one pin move in the whole set (10C), because the fe half is one slice
+and the kg half has no further fe dependency.
 
 ## What this set deliberately does not do
 
-- **No printer, reader or `Equal` work.**  All three are measured
-  bounded (depth/node/byte/cycle budgets; a clean named error at 4007
-  open parens); re-scoping them into "robustness" would be spending
-  against solved problems (09A correction 3).
-- **No Budget catchability change.**  Step, frame and native-re-entry
-  walls stay uncatchable by `condition-case` (06A Decision 5, pinned
-  again in Table X); the host recovers, Lisp does not.
-- **No user-facing reset/GC command.**  The rooted-exhaustion session
-  becomes *visible* (09D's diagnostics command) but not rescuable;
-  a reset command is editor UI recorded in `doc/TODO.md`.
-- **No cleanup-registry work.**  `unwind-design.md` item 2 stays
-  fe-standalone debt: designed, unbuilt, and its one concrete defect
-  is in `fex_*.c`, which kg does not link (09A Decision 4).
-- **No arena growth, no new stat fields.**  The API is complete; the
-  1 MiB arena and its measured partitioning stand.
-- **No new language surface.**  Phase 9 adds conditions-that-work, a
-  collector-that-terminates and a command-that-reports; the language
-  the init corpus sees is Phase 8's, unchanged.
-- **No re-litigation of recorded Phase 4–8 residue.**  `FeTMacro`,
+- **No `macroexpand-all`, no macroexpand environments.**  The pair is
+  the reflective surface Proof 3 needs; `-all` needs a code walker and
+  is rejected by name and recorded in `doc/TODO.md` (10A Decision 2).
+- **No dynamic binding, no printer abbreviation.**  The two silent
+  divergences are recorded as divergences with cases (10A Decision 4);
+  making `defvar` special or teaching the writer `'x` is language-
+  runtime work no proof requires.
+- **No missing-function channel.**  Unknown functions keep answering
+  `void-function`; the "unsupported entries fail clearly" gate item is
+  re-worded against what the tree does — reader syntax rejects by
+  name, functions do not — and the debt is recorded (10A Decision 5).
+- **No new monolithic init fixture.**  The distributed corpus is
+  declared the fixture (10A Decision 6); duplicating it into one file
+  would create a second thing to drift.
+- **No §15 instrumentation beyond two cheap counters.**  Read-vs-eval,
+  dispatch and GC-time instrumentation is fe work at zero headroom for
+  a decision the existing counters already settle: triggers 1–3
+  measured *no* (prelude+init 0.8 ms, zero collections, 12.0% arena
+  live).  A future bytecode phase funds its own instrumentation
+  (10A Decision 9).
+- **No bytecode work.**  §15 is answered, not acted on.
+- **No re-litigation of recorded Phase 4–9 residue.**  `FeTMacro`,
   `internal--let`, int64-not-bignum, the native re-entry walls, the
   recorded divergence rows (lambda-parameter strictness, string
   escapes rejecting NUL/>255, `format` strictness,
   `documentation`-for-variables, `catch-throw-reachability`,
   `condition-case-native-errors`, the `(FUNCTION NARGS)` rendering),
   the 16-argument interactive bound, the deferred interactive
-  codes/modifiers, and Phase 8's second-set candidates
+  codes/modifiers, Phase 8's second-set candidates
   (`string-match`, `symbol-name`/`intern`, vectors, Lisp `load-path`,
-  sub-form precision, the `read-*` family, Customize) all stand as
-  their Status sections and `doc/TODO.md` record them.
+  sub-form precision, the `read-*` family, Customize), and Phase 9's
+  recorded debt (the arena reset command, the fe-standalone cleanup
+  registry, Budget uncatchability) all stand as their Status sections
+  and `doc/TODO.md` record them.
 
 ## Rules
 
@@ -420,8 +456,8 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 6 — conditions | 5 completion kinds, condition hierarchy, `catch`/`throw`, `condition-case`, checkpointed cleanup | Phase 3's *measured* control-flow weight — the closest comparable is not the +70 to +100 row but the actual +101 pmccabe Phase 3 landed (plus a condition hierarchy with no predecessor) | **+80 to +120 pmccabe / scc** (re-priced 2026-08-05) | **Funded by 06A's Decision** (2026-08-05) — **cannot land before it**, and no longer before anything: the core was at 2 scc / 8 pmccabe / 10 file-cap points free, and 06A raised all three caps by the top of the row — `SCC_COMPLEXITY_MAX` 540→**680** (the tightest, at 2 points, which the price table's own instruction forgot to name), `SCC_FILE_COMPLEXITY_MAX` 340→**420**, `PMCCABE_TOTAL_MAX` 760→**900** — proved live by temporary lowering on 06A's tree. The measured starting state the raise is anchored to is 533/540, `fe_eval.c` 326/340, pmccabe 751/760; the 06B–06D actuals are recorded per slice in the Status section as they land |
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Landed 2026-08-06, inside the fe band and past the kg band once the review fixes are counted.** fe: scc 654 → 694 at 07B, **670** after the review's fix cycle (net **+16**, well under the +50..80 — the review deleted more than the arity checks added); pmccabe 863 → **886** (+23) across 299 symbols; no cap re-raised beyond 07A's 760/520/980. kg: 5489 → 5656 across 07C/07D/07E (**+0/+89/+78** per slice — 07E 56% past its +30..50 price), then **+58** of review-fix work to **5714**; the 5660 cap was re-set to **5730** at its measured actual in the fix cycle's closing commit. Details in the Phase 7 Status |
 | 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Landed 2026-08-06, then rejected in review and re-closed after the fix cycle.**  Per slice: 08B **+38** (670 → 708, inside +25..45), 08C **+37** (708 → 745, *under* its +60..110 band — but the slice's real cost was **pmccabe, which this table does not price**: +148 across both slices, 886 → 1034, forcing an unfunded in-commit cap raise 980 → 1090 that the review rejected).  The fix cycle (`fba716d..acc94f7`, 8 commits) closed fe at **746/760** scc (`fe.c` 140, `fe_eval.c` 489/520) and re-set `PMCCABE_TOTAL_MAX` at its measured actual **1056** across 339 symbols.  Details in the Phase 8 Status |
-| 9 — robustness | Re-scoped by 09A: catchable exhaustion conditions (09B) and the flat-stack mark (09C); the "arena-stat API extension" already exists in full (00D/03F) | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase, plus 09B's plumbing against Phase 6's measured condition work | fe **+15..30** (09B) **+20..35** (09C) — priced by 09A, 2026-08-06 | **Sub-plan set written 2026-08-06** (`09a`–`09d`).  09A funds the raises — fe sits at 746/760 scc and **1056/1056 pmccabe exactly**, so the +30..50 band breaches both caps; `SCC_COMPLEXITY_MAX` 760→820 and `PMCCABE_TOTAL_MAX` 1056→1120 land in 09B's opening commit, re-set at actuals in 09D |
-| 10 — proofs | `.fe`/`.el` proof packages and fixtures | Not C; not scc-scanned | 0 | n/a |
+| 9 — robustness | Re-scoped by 09A: catchable exhaustion conditions (09B) and the flat-stack mark (09C); the "arena-stat API extension" already exists in full (00D/03F) | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase, plus 09B's plumbing against Phase 6's measured condition work | fe **+15..30** (09B) **+20..35** (09C) — priced by 09A, 2026-08-06 | **Landed 2026-08-07 far under the bands, then took a fix cycle for a review blocker.**  Per slice: 09B **+4** (746 → 750), 09C **+7** (750 → 757) — the pointer-reversal walk cost a tenth of its band.  The fix cycle (`56c60f9..7499f71`, 12 commits: the mark-callback contract + two guards, condition re-stamping, six re-derived fuzz seeds + the ci-06 reachability gate, the trace-arm coverage) added **+8 scc / +7 pmccabe**; caps closed at **765/765** and **1072/1072** across 343 symbols.  Details in the Phase 9 Status |
+| 10 — proofs | Re-scoped by 10A: `macroexpand`/`macroexpand-1` primitives (10B — the set's only fe C); everything else is `.el`/test/utils, not scc-scanned | The evaluator's existing expansion path (exposure plus a loop, not new machinery), against Phase 4's small-primitive comparables | fe **+15..30** (10B) — priced by 10A, 2026-08-07 | **Sub-plan set written 2026-08-07** (`10a`–`10d`).  10A funds the raise — fe sits at **765/765 scc and 1072/1072 pmccabe exactly**, so any C line breaches; the raises land in 10B's opening commit, re-set at actuals in 10D |
 
 Milestone 1 (phases 0–5) landed at **+328 scc and +252 pmccabe** on top of
 the 00A baseline (scc 210 → 538, pmccabe 500 → 752) — inside the +270 to
@@ -452,8 +488,8 @@ that the original ranges did.
 | 6 — conditions | Translates new host-visible completion categories at kg's error/signal boundary | `src/lisp_core.c` and callers | **+15 to +30** (re-priced 2026-08-05) | Provisional (milestone 2) — kg landed at ~0/+7 on Phases 4–5, so the old +25 to +40 top was anchored to nothing; the error boundary is a small seam |
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction, nested command execution and prompt seam | `src/lisp_cmd.c` (57), with the 07A audit's greenfield machinery estimate | **+110 to +170 scc** (07A, 2026-08-06) | **Landed at +167 for the slices plus +58 for the review-fix cycle: 5489 → 5714.**  Per slice: 07C +0 (the no-adaptation bet held), 07D +89 (priced +80..120), 07E **+78 against +30..50** — the one materially missed price of the phase.  The 5660 cap was re-set to **5730** at the fix cycle's measured actual (dated Makefile comment, reasons in `7468c9a`) |
 | 8 — init compat waves | `defcustom`/`custom-set-variables` prelude macros, `format` widths/`%c`/`%x`/`%o` in `src/lisp_io.c`, loader diagnostics surfacing `file:LINE`, pin adaptations, a possible `commandp`-class native | `src/lisp_io.c`'s existing directive switch; the 08D prelude batch measured ≈+0 | **+40 to +90 scc** (re-priced by the 08 set, 2026-08-06) | **Landed at +80 for the slices plus +4 for the review-fix cycle: 5714 → 5798/5804.**  Per slice: 08D **+0** (the zero-scc prelude bet held, verified at `3eedd34`), 08E **+80** — the whole kg spend, inside the funded band.  pmccabe: the formatter's aggregate +69 was review-rejected as ratchet laundering (a new function at 25 against the 15-point budget, banked silently) and the fix cycle **split it honestly** — `format_pad` 25→8, `format_walk` 21→5, `format_argument` 20→6, `format_integer` 16→2, ten helpers all ≤13 — and hardened kg's checker to refuse silent increases, as fe's was in 07.  Details in the Phase 8 Status |
-| 9 — robustness | Arena-stat diagnostics command, exhaustion-matrix coverage, pin adaptations | small, new (`cmdtable` row + renderer + tests) | **+5 to +15** (confirmed by 09A, 2026-08-06) | **Sub-plan set written 2026-08-06.**  09A funds the raise — kg sits at 5798/5804, so +11 breaches; `SCC_COMPLEXITY_MAX` 5804→5860 lands in 09D's opening commit, re-set at the close actual |
-| 10 — proofs | Fixtures, PTY cases | Not `src/*.c` | 0 | n/a |
+| 9 — robustness | Arena-stat diagnostics command, exhaustion-matrix coverage, pin adaptations | small, new (`cmdtable` row + renderer + tests) | **+5 to +15** (confirmed by 09A, 2026-08-06) | **Landed 2026-08-07 at +2** (5798 → 5800; `cmd_lisp_arena_stats` banked at pmccabe 2), the cap re-set 5860 → **5800** at close.  The kg fix cycle (`94a931c..266dbd1`, 13 commits: PTY timing right-sized from measurement, the `--settle-floor` harness mechanism, the pin adaptations for fe's fix range) cost **+0 src scc** — every change landed in test/, utils/, doc/ or comments.  Details in the Phase 9 Status |
+| 10 — proofs | Fixtures, PTY cases, the oracle runner, the proof packages — plus exactly two `src/*.c` touches: the `lisp_require.c` suffix conditional and two perf-counter sites | `src/lisp_require.c`'s existing candidate loop; `src/perf.h`'s existing counter idiom | kg **+3..10** (10C) — priced by 10A, 2026-08-07; all else 0 (not `src/*.c`) | **Sub-plan set written 2026-08-07.**  10A funds the raise — kg sits at **5800/5800 exactly**, so even +1 breaches; the raise lands in 10C's opening commit, re-set at the close actual in 10D |
 
 Milestone 1 (phases 0–5) landed at **+13 kg points** (5444 → 5457 —
 counted from where the tree stood after the Phase 0 set's own kg
@@ -2980,3 +3016,182 @@ twice now: every gate was green when both rejections were issued.
 Final green light: `JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12
 PASS** on kg at `06253df` with the pin at `acc94f7`, all nine fe
 stages green standalone.
+
+## Status — Phase 9 (written at acceptance by the orchestrator, 2026-08-07)
+
+Implemented in two waves and accepted after one fix cycle.
+Implementation: fe `acc94f7..56c60f9` (five commits: the 09A "before"
+pins, the 09B funding raise, the named exhaustion conditions, the
+pointer-reversal mark, the pre-pin cap re-set) and kg
+`10a325e..94a931c` (five commits: the 09D funding raise, the pin
+move, the diagnostics command and exhaustion coverage, the close
+mechanics, a PTY timing repair).  Three adversarial reviews plus the
+Phase 10 fact audit ran against that state: the kg and docs reviews
+returned **ACCEPT — the program's first clean verdicts in three
+phases** — and the fe review returned **REJECT** with one blocker, so
+the phase took a fix cycle: fe `56c60f9..7499f71` (twelve commits) and
+kg `94a931c..266dbd1` (thirteen commits, including the second pin move
+the fix cycle required).
+
+### What the review found, and what fixed it
+
+The blocker: unwinding out of a `mark_fn` callback destroyed the
+arena under the new pointer-reversal walk, where the old recursive
+walk merely left mark bits set.  The route existed in-tree: Fex's own
+`-d` tracer prints from the mark callback, the printer charges an
+evaluator step while evaluation is active, and a step limit or
+interrupt then raises out of the collector.  The fix is contract plus
+enforcement plus closure of the route: a mark/GC callback must return
+normally and must not allocate (stated in `fe.h` and `doc/c-api.md`);
+a violation aborts loudly — `FeContext::collecting` guards both
+`CollectGarbage` re-entry and `RaiseCompletionCore`, because the
+ordinary raise shape re-enters the collector through
+`ArenaCanAllocate`, which would have cleared the outer walk's mark
+bits; and `WriteObject` neither charges a step nor polls the
+interrupt while collecting, so fe's own tracers cannot trip it.
+
+The majors: the pre-built exhaustion conditions were shared mutable
+pairs — one `(setcar e 'poisoned)` from any handler permanently
+disabled catching OOM by name for the life of the context (fixed:
+`PublishExhaustion` re-stamps car and cdr before every publish — two
+stores, no allocation — with the poison assertions now in
+`scripts/exhaustion.fe`, proven failing on the parent tree); the 09C
+fuzz-grammar change had silently unsteered the tracked seed corpus —
+six of fourteen seeds no longer reached the construct they exist to
+force, two more than the review itself counted (fixed: seeds
+re-derived, and `fuzz/seeds/reachability.json` +
+`utils/verify_fuzz_seeds.py` now gate ci-06, so an unsteering grammar
+change fails CI instead of rotting silently); the public header still
+promised the pre-09B nil-condition behaviour at `FeGetCondition`
+(fixed, and the host-visible condition is now asserted from C); and
+the bounded escape trace's dropping arm had zero coverage (fixed:
+`scripts/deep-trace.fe` executes it, 258-line golden pinned).
+
+The kg review's major was one of record rather than behaviour: the
+PTY timing repair's arithmetic omitted the harness trailer keys,
+making its "near 6 s" claims 14.3 s in practice and the new hook case
+the slowest in the 434-case suite.  The fix re-measured the race
+cover actually needed (0.003 s plain, 0.24 s valgrind, up to 1.8 s
+MSan under load — the first sizing missed the MSan lane and was
+corrected when MSan failed it) and closed the cases at 3.8 s / 4.2 s.
+The fix cycle's runner work then found a genuine harness defect
+behind four different flaking cases: `settle_tmux`'s 50 ms pane-quiet
+capture cannot distinguish "settled" from "has not painted yet" in
+sanitizer lanes; `--settle-floor` is the mechanism fix, demonstrated
+deterministically, at a measured `make check` cost of 83 → 95 s.
+Smaller repairs: the silently dropped nothing-escaped screen
+assertion re-added, the manifest rationale's over-attribution
+corrected with the test now asserting every field, the
+version-decision row carrying the V5/V6 counter-argument beside the
+Phase 7 precedent, the GC-stack-overflow-by-name claim gaining the kg
+test it lacked (an 8192-deep `(load …)` datum), and the new
+`kg_test`-citation check immediately finding one real stale path in
+the manifest.
+
+### What shipped at close
+
+- fe: `out-of-memory` and `gc-stack-overflow` are pre-built,
+  re-stamped, permanently rooted conditions under `error` —
+  `(condition-case e BIG (error 'caught))` and catch-by-name work
+  under genuine exhaustion; a named raise from a full arena falls
+  back to the OOM condition instead of nil (quit deliberately keeps
+  its kind-matched nil-condition contract); handler re-entry under
+  pressure unwinds to the next handler and then the host; the
+  escaping-raise trace is bounded at `FeWriteDefaultMaxDepth` (256,
+  now a public constant both the printer and the trace derive from)
+  with `... N more frames`; Budget kinds (step, frame, native
+  re-entry) are all pinned uncatchable.
+- fe: `FeMark` walks with a flat C stack — Deutsch–Schorr–Waite
+  pointer reversal in two spare low bits of a pair's car word; the
+  worklist alternative lost on a measured 439 KiB (42.9% of kg's
+  arena) plus a failable allocation inside the one routine that runs
+  after allocation failed.  Stack probe: 48 B per `car` level before,
+  **0 bytes** after, at N=10/1000/100000, in every sanitizer lane;
+  the recursive path is deleted; the premises are asserted
+  (`static_assert(alignof(FeObject) > GcMarkCdrBit)`, sweep assert on
+  the direction bit); collection stats are provably walk-invariant.
+- kg: `lisp-arena-stats` (M-x, `CMD_LISP_CALLABLE`, read-only)
+  renders the full `FeArenaStats` surface in one numeric echo-area
+  line, every field asserted by the test its manifest row cites; five
+  PTY cases pin the exhaustion matrix's kg rows end to end —
+  mid-command exhaustion recovers, mid-hook exhaustion reports while
+  the save completes, mid-init rooted exhaustion leaves the session
+  alive and visible (recorded, not rescued; the reset command is TODO
+  debt), and an OOM is caught *by name* from init and from a command;
+  `test_lisp.c` pins the catchability contract through kg's entry
+  points and shutdown-after-exhaustion under the leak gate.
+- The low-stack result, verified by hand (the plan's permitted
+  alternative — a per-build C-frame threshold cannot gate five build
+  flavors at once; fe's `TestMarkStackProbe` asserts the property
+  directly per build): with fe at the old pin the editor segfaults
+  inside the collector at `ulimit -s 512` and dies at 256; at this
+  pin it answers and stays healthy at both.  Independently reproduced
+  by the kg review.
+
+### Per-slice actuals
+
+| Slice | Priced | Actual | Notes |
+|---|---|---|---|
+| 09A | 0 | 0 | `TestExhaustionCatchability` "before" pins; every assertion proved live by inversion |
+| 09B | fe +15..30 | **+4** scc | conditions, fallback arm, bounded trace; `RaiseCondition` 2→3 banked |
+| 09C | fe +20..35 | **+7** scc | DSW walk; `FeMark` 4→8 banked; probes flat in all lanes |
+| 09D | kg +5..15 | **+2** scc | one command at pmccabe 2; five PTY cases |
+| fe fix cycle | — | **+8** scc / +7 pmccabe | callback contract + guards, re-stamping, seed gate, trace coverage |
+| kg fix cycle | — | **+0** src scc | timing, assertions, `--settle-floor`, pin adaptations — all outside the scan |
+
+Phase totals: fe **+19** (746 → 765) against the parent's +30..50
+band; kg **+2** (5798 → 5800).  Caps re-set at actuals at every
+close: fe scc **765/765**, fe pmccabe **1072/1072** (343 symbols,
+worst function 14/22, `fe_eval.c` 495/520); kg scc **5800/5800**
+(worst file `src/bufmgr.c` 479/520).
+
+Suite counts at close: kg `make check` **32 native / 434 PTY**, 0
+FAIL/SKIP; `WITH_LISP=0` **341 pass + 93 skip** (the five new
+lisp-gated exhaustion cases are the whole increase); compat **198 kg
+features / 203 cases / 99 snapshots**, fe **306 cases / 246 passed /
+60 known gaps**, `check_lisp_compat.py` 352 features 0 problems.
+Arena at the pin: `FeMinimumArenaSize()` **57328** (57016 at the
+Phase 8 close; +288 for the two pre-rooted conditions and their
+names, +24 for the three guard fields), kg's 1 MiB arena **1096
+frames / 56222 slots**, 465 live after a bare open.
+
+### What the plan got wrong, collected
+
+- **09A's `ulimit -s ≤ 1280` crash threshold was an extrapolation
+  stated as a measurement.**  Measured thresholds: 512 and 256 (kg
+  `-Os` gcc); at 1280 neither binary crashes.  fe's own bisection
+  puts the 8 MiB-stack crash at 130k–150k levels (48 B/level, default
+  clang build), not the derived 262k (32 B/level `-Os`).  Every
+  in-tree figure now names its build.
+- **09A Decision 6's "OOM is hit on nearly every input incidentally"
+  was false** — measured zero of 1500 random fuzz inputs before 09B's
+  grammar arm existed; that is why the arm exists.  The reachability
+  counts are now backed by a documented generator (xorshift64*, seed
+  recorded) instead of unreproducible one-off runs.
+- **09A Decision 7 wrote kg's baseline as 5794 where the tree said
+  5798** — a pre-fix-cycle Phase 8 figure carried by mistake; 09A's
+  own "documents agree" gate failed on it, caught by the kg
+  implementer and the docs review independently.
+- **The plan did not anticipate the three structural gaps the review
+  found**: the new walk needed a callback *contract* (the recursive
+  one tolerated raising callbacks by accident), the pre-built
+  conditions needed mutation defense, and a fuzz-grammar change
+  silently invalidates tracked seeds.  All three countermeasures are
+  now structural (contract + guards, re-stamping, the ci-06
+  seed-reachability gate).
+
+### Carried forward
+
+- kg: the arena reset command (09A Decision 3) — recorded TODO debt;
+  the rooted-exhaustion session stays recorded-not-rescued.
+- fe-standalone: the token/cancel cleanup registry (09A Decision 4);
+  `fe -d scripts/io.fe` aborts on both sides of Phase 9's work
+  (pre-existing, untouched).
+- The Phase 10 fact audit ran against the pre-fix-cycle tree; its
+  §14/§15 corrections and funding facts are in the 10A document, and
+  the A-slice re-measures the post-fix bases (the audit's caps table
+  is already superseded by the fix cycles: fe 765/1072, kg 5800).
+
+Final green light: `JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12
+PASS** on kg at `266dbd1` with the pin at `7499f71`, all nine fe
+stages green standalone at `7499f71`.

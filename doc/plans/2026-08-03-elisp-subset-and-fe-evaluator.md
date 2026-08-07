@@ -1592,6 +1592,37 @@ Keep a terminating grammar for broad coverage and separate targeted fuzzers for:
 
 ## 14. Phase 10 — Compatibility proofs
 
+#### Correction block — 2026-08-07 (Phase 10 sub-plan 10A)
+
+The Phase 10 fact audit (run at the Phase 9 close) found this section
+substantially stale.  The following corrections are binding for Phase 10
+and replace the corresponding assumptions below:
+
+1. Proof 1's file is `lisp/auto-fill.el` and has been since Phase 2;
+   there are zero `.fe` files tracked in kg.  Six of its seven bullets
+   already pass with three PTY cases; the genuine work is the
+   *conditions* bullet, a drift gate for the copy the PTY cases plant,
+   and the `make install` ship decision.
+2. Proof 2's fixture exists as a distributed corpus (~97 `config_files:`
+   PTY cases; `test/pty/lisp-init-phase8-library.yaml` is 08A's
+   representative init construct for construct).  "Buffer-local-style
+   configuration where supported" is satisfiable only as recorded
+   honesty: `setq-local`/`setq-default` are literal aliases of `setq`.
+3. Proof 3's "macro expansion" is disambiguated by 10A Decision 2:
+   `macroexpand`/`macroexpand-1` become fe primitives (they do not
+   exist and cannot be prelude-written); `macroexpand-all` is rejected
+   by name.
+4. The milestone gate's "all supported `comparison: emacs` entries pass
+   against the oracle" has no kg-side runner; 10C builds it.  One
+   entry (`native-string-length`) could never pass and is re-classified.
+5. "Unsupported entries fail clearly" is met for reader syntax only;
+   unknown functions answer plain `void-function`.  The gate item is
+   re-worded against what the tree does (10A Decision 5).
+6. §15's "prelude load time" is already instrumented
+   (`KG_PERF_LISP_PRELUDE_NS`, 0.8 ms measured); bytecode triggers 1–3
+   measure *no* today.  §15 is answered from existing plus two cheap
+   counters (10A Decision 9), not instrumented in fe.
+
 Use three proof workloads.
 
 ### Proof 1 — Existing auto-fill package

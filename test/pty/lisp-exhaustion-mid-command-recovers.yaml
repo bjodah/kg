@@ -22,15 +22,25 @@ filename: lisp-exhaustion-recover.txt
 requires_feature: lisp
 backend: tmux
 dimensions: [24, 120]
-# key_delay is 8x the default and case-local, for a measured reason: the
+# key_delay is 4x the default and case-local, for a measured reason: the
 # harness ends a tmux run by capturing the pane once it has been *quiet*
 # for 50 ms, and a kg that is busy filling 56222 object slots is quiet.
 # At the default 0.05 the capture can land mid-fill -- which is how this
 # case failed in the MSan lane of a six-lane parallel run while passing
-# on its own.  0.4 leaves >3 s of cover between the fill's RET and the
-# capture (8 keys follow it), against a fill measured at 0.5 s under
-# ASan, and keeps the whole case near 6 s of a 15 s timeout.
-key_delay: 0.4
+# on its own.
+#
+# The capture lands after the last of this case's fifteen keys, so the
+# cover between the fill's RET and it is the *ten* keys that follow --
+# not the "8 keys" the previous comment counted -- which is 2.1 s at 0.2,
+# against a fill measured at 0.24 s under valgrind and 0.003 s plain.
+# DEFAULT_TRAILER's four keys are slept through too, so the case is
+# nineteen key_delays end to end: 4.2 s plain and 4.5 s under valgrind,
+# where the 0.4 this replaces measured 8.0 s and 8.3 s and its comment
+# claimed "near 6 s".  Unlike the hook case, the default 0.05 does not
+# reproduce a failure here on an idle box (3/3 pass under valgrind) --
+# the recorded failure was under six-lane load, so this margin is against
+# contention rather than against a locally reproduced race.
+key_delay: 0.2
 initial: ""
 keys:
   - M-x

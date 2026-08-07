@@ -452,7 +452,26 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
 # unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
 # function 91, one new symbol at 2).
-SCC_COMPLEXITY_MAX ?= 5806
+# Raised 5806 -> 5830 by Phase 12 sub-plan 12A Decision 7 (2026-08-07),
+# funding 12D's `src/*.c` share at the audited +10..24 scc price: the
+# incremental reader native `internal--read-form' that prelude `load'
+# loops over (it keeps C ownership of path resolution, depth bookkeeping
+# and load-buffer lifetime, and has to distinguish end-of-file from a
+# form that reads as nil), and the two condition sites that start raising
+# `file-missing' with Emacs' (OPERATION STRERROR PATH) data instead of a
+# prose `error'.  The prelude loop DELETES C at the same time, so the net
+# is recorded honestly at the close rather than assumed; 12E re-sets this
+# at the measured actual, as every phase since 08 has.  Everything else
+# Phase 12 adds on the kg side -- the prelude `load', the compat cases,
+# the pool constant, the docs -- is outside the scan or costs zero.  The
+# re-measured tree is 5806/5806: zero headroom, so even +1 breaches,
+# which is why this is a Decision and not routine growth.  Proof on the
+# same tree, before the funded work:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5805
+#   FAIL: total complexity 5806 exceeds limit 5805
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5806
+#   scc total complexity: 5806 (limit 5806)
+SCC_COMPLEXITY_MAX ?= 5830
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

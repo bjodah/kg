@@ -9,10 +9,10 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 6`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 7`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 8`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 9`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
 version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
@@ -62,17 +62,31 @@ the bump is what made the tripwire fire at this pin, which is the
 behaviour the two-macro scheme exists for, and the alternative was
 finding out at run time as `void-function`. `FE_API_VERSION` stayed at
 **6** for it — `fe.h`'s diff over the range is comment text only.
-`FeVersion` is `"9.0"`, bumped with that same addition — it is Fe's own
-next release, not a language-version mirror, so it has run one release
-ahead of `FE_LANGUAGE_VERSION` since 06D and, since Phase 8 and Phase 10
-each moved only the language macro, three ahead of `FE_API_VERSION`.
+Phase 11 then moved **both** again, in two fe slices under one pin:
+`FE_LANGUAGE_VERSION` 8 → **9** in sub-plan 11B's special-variable and
+shallow-dynamic-binding cut and 11C's quote-writer change below (evaluated
+answers move — `(let ((v 2)) (f))` over a `defvar`'d `v` reads 2 where it
+read the global before — and so does printed representation, `(quote x)`
+now writing as `'x`), and `FE_API_VERSION` 6 → **7** in 11C for the new
+public entry point `FeTryEvaluateStringWithOptions`, the protected *string*
+evaluation kg's loader seam is built on. Both assertions in
+`src/lisp_core.c` fired at this pin, which is the behaviour the two-macro
+scheme exists for. `FeVersion` is `"10.0"`, bumped once for the pair — it
+is Fe's own next release, not a language-version mirror, so it has run one
+release ahead of `FE_LANGUAGE_VERSION` since 06D and, Phase 11 having moved
+the API macro again, three ahead of `FE_API_VERSION`.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
 
-kg compiles `fe/fe.c` and `fe/fe_eval.c` (sub-plan 03B split the evaluator
-out of `fe.c` into its own translation unit, behind a private
-`fe/fe_internal.h` the two share) and their public header `fe/fe.h`. The
+kg compiles `fe/fe.c`, `fe/fe_eval.c` and `fe/fe_run.c` (sub-plan 03B split
+the evaluator out of `fe.c` into its own translation unit, and Fe sub-plan
+11B split the run driver and the public `FeEvaluate*`/`FeCall*` surface out
+of `fe_eval.c` into a third, both behind the private `fe/fe_internal.h` the
+three share) and their public header `fe/fe.h`. kg's Makefile names those
+translation units one by one — `FE_OBJ`/`FUZZ_FE_OBJ` and their rules — so
+an fe split is a named kg-side pin adaptation, not something a wildcard
+picks up. The
 `fex*` files, `auto.*`, and `main.c` are deliberately excluded so Fe's
 optional I/O, process, regular-expression and time extensions are not
 exposed. The maths natives (`sin`, `sqrt`, `expt`, …) are in `fe.c` itself

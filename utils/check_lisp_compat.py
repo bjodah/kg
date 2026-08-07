@@ -267,7 +267,7 @@ def check_defcustom(kg_data: dict) -> list[str]:
 
 
 KG_TEST_REF_RE = re.compile(
-	r"[A-Za-z0-9_./-]+\.(?:c|h|yaml|el)(?::[A-Za-z_][A-Za-z0-9_]*)?")
+	r"[A-Za-z0-9_./-]+\.(?:c|h|yaml|el|fe)(?::[A-Za-z_][A-Za-z0-9_]*)?")
 
 
 def _function_is_defined(text: str, name: str) -> bool:
@@ -303,7 +303,10 @@ def check_kg_test_targets(data: dict, path: Path) -> list[str]:
 
 	Paths are resolved from the *superproject* root in both manifests:
 	fe's own rows say `fe/test_api.c`, which is where that file is from
-	here.
+	here.  `.fe` is in the extension set for fe's rows alone: kg's own
+	Lisp has been `.el` since Phase 2, but fe's script suite is `.fe`
+	and a row may cite one (Phase 11's `special-variable-p` is the
+	first that does).
 	"""
 	errors = []
 	for feature in data.get("features", []):

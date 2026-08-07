@@ -35,6 +35,9 @@ endif
 ifeq ($(wildcard fe/fe_eval.c),)
 FE_SPLIT_MISSING = 1
 endif
+ifeq ($(wildcard fe/fe_run.c),)
+FE_SPLIT_MISSING = 1
+endif
 ifeq ($(FE_SPLIT_MISSING),1)
 ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
 ifneq ($(MAKECMDGOALS),)
@@ -42,16 +45,20 @@ SKIP_FE_CHECK = 1
 endif
 endif
 ifneq ($(SKIP_FE_CHECK),1)
-$(error fe/fe.c and/or fe/fe_eval.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
+$(error one of fe/fe.c, fe/fe_eval.c, fe/fe_run.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
 endif
 endif
 override CFLAGS += -DKG_USE_LISP=1
 override LDLIBS += -lm
 # The evaluator lives in its own translation unit since Fe sub-plan 03B
-# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h); a list so
-# every consumer below is a one-line change.
-FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o
-FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o
+# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h), and the run
+# driver plus the public FeEvaluate*/FeCall* surface in a third since Fe
+# sub-plan 11B (fe_eval.c -> fe_eval.c + fe_run.c, which is how fe kept its
+# 520 per-file cap binding while dynamic binding landed); a list so every
+# consumer below is a one-line change.
+FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o
+FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o \
+	      $(TESTDIR)/fe_run_fuzz.o
 endif
 
 ifeq ($(wildcard fe/tiny-regex-c/re.c),)
@@ -387,10 +394,26 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5802 exceeds limit 5801
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5802
 #   scc total complexity: 5802 (limit 5802)
+# Raised 5802 -> 5825 by Phase 11 sub-plan 11A Decision 8 (2026-08-07),
+# funding 11D's `src/*.c` share at the audited +8..20 scc price: the two
+# capture/restore natives the `save-excursion`/`with-current-buffer`
+# prelude macros are built on, the loader seam moving onto
+# `FeTryEvaluateStringWithOptions` with its own bookkeeping unwind and
+# `FeResignal`, and `load` returning `t`. Everything else Phase 11 adds on
+# the kg side -- the prelude, the compat cases, the PTY cases, the docs --
+# is outside the scan. The re-measured idle tree is 5802/5802: zero
+# headroom, so even +1 breaches, which is why this is a Decision and not
+# routine growth. Proof on the same tree, at the pin and before the funded
+# work:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5801
+#   FAIL: total complexity 5802 exceeds limit 5801
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5802
+#   scc total complexity: 5802 (limit 5802)
+# 11E re-sets this to the measured actual at the phase close.
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
 # unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
 # function 91).
-SCC_COMPLEXITY_MAX ?= 5802
+SCC_COMPLEXITY_MAX ?= 5825
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -497,6 +520,9 @@ $(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
+
+$(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check lisp-oracle-check check-unit check-pty
@@ -1023,6 +1049,9 @@ $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 $(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
+
+$(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:

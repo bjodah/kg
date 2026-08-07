@@ -3084,23 +3084,33 @@ static void test_strict_arity(void)
 	teardown_editor();
 }
 
-/* The writer never abbreviates (quote X) back to 'X (sub-plan 10C Part 4,
- * 10A Decision 4).  Recorded as a divergence, not fixed: Emacs' printer
- * abbreviates and fe's prints the list it has, so every %S and every M-:
- * echo of a quoted form differs.  Measured against the pinned oracle in
- * the same slice -- Emacs answers "'x" for the first assertion below.
+/* The writer abbreviates a two-element (quote X) list back to 'X, as
+ * Emacs' printer does (fe sub-plan 11C, adopted at Phase 11's pin; this
+ * was the recorded writer-quote-abbreviation divergence until then).  The
+ * discrimination is the existing `function`/#' block's, measured against
+ * Emacs in the same slice: exactly one element after the head, and the
+ * form proper.  (quote x y), (quote) and (quote . x) all keep printing as
+ * the pairs they are -- the answers on the right below are the pinned
+ * Emacs 31.0.90's own.
  *
- * Both halves are here on purpose.  The reader agrees: 'x reads into the
- * two-element list (quote x) in kg exactly as it does in Emacs, which is
- * what makes this the printer's gap and not the reader's, and what lets
- * the compat case build its operand with `list` and say the same thing to
- * both dialects. */
+ * The reader's half stays here on purpose: 'x reads into the two-element
+ * list (quote x) in kg exactly as it does in Emacs, which is what made
+ * this the printer's gap and not the reader's, and what lets the compat
+ * case build its operand with `list` and say the same thing to both
+ * dialects. */
 static void test_writer_quote_abbreviation(void)
 {
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(eval_eq("(format \"%S\" (list 'quote 'x))", "(quote x)"));
-	CHECK(eval_eq("(format \"%S\" ''x)", "(quote x)"));
+	CHECK(eval_eq("(format \"%S\" (list 'quote 'x))", "'x"));
+	CHECK(eval_eq("(format \"%S\" ''x)", "'x"));
+	/* Recursive, so a quote inside a list comes out abbreviated too. */
+	CHECK(eval_eq("(format \"%S\" (list 'a ''b 'c))", "(a 'b c)"));
+	CHECK(eval_eq("(format \"%S\" '''x)", "''x"));
+	/* Not a two-element proper (quote X): printed as the pair it is. */
+	CHECK(eval_eq("(format \"%S\" (list 'quote 'x 'y))", "(quote x y)"));
+	CHECK(eval_eq("(format \"%S\" (list 'quote))", "(quote)"));
+	CHECK(eval_eq("(format \"%S\" (cons 'quote 'x))", "(quote . x)"));
 	/* The reader's half: 'x is that list, element for element. */
 	CHECK(eval_eq("(car ''x)", "quote"));
 	CHECK(eval_eq("(car (cdr ''x))", "x"));
@@ -3252,10 +3262,10 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1096, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * 1095, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
  * frames per recursion level for this chain's shape (`if`, `+`, and the
  * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1096-frame arena, more than 2700x
+ * roughly 3 million frames against a 1095-frame arena, more than 2700x
  * over capacity -- demonstrably above it without depending on the private
  * Fe frame-size struct or reverse-engineering the arena layout, only on
  * the public frame_capacity/peak_frame_depth counters this file already
@@ -3441,7 +3451,7 @@ static void test_arena_exhaustion_conditions(void)
 	 * entry point instead.
 	 *
 	 * The route is the *reader*, not the evaluator: an evaluation deep
-	 * enough to fill the 4096-slot root stack hits the 1096-frame wall
+	 * enough to fill the 4096-slot root stack hits the 1095-frame wall
 	 * first and raises Budget, which is uncatchable by design (case 5
 	 * above).  Reading a datum nested `gc_stack_deep` levels pushes a
 	 * root per level with no frame at all, so `(load FILE)` -- whose
@@ -4153,20 +4163,25 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 10 pin: 56224 object
-	 * slots (56222 before it -- fe's macroexpand pair gave the two slots
-	 * Phase 9's three FeContext fields had taken back), peak_live 5210
-	 * after the prelude alone (5188 at the Phase 9 pin -- the +22 is the
-	 * same +22 a bare FeOpenContext moved by, fe's new primitives and
-	 * their interned names), 5751 with lisp/auto-fill.el on top of it,
-	 * and 8142 at this point in this function, after every Phase 8 form
-	 * above -- 14.5% of the arena for everything kg ships plus this
-	 * test's own corpus.  (This last figure is the one number in this
-	 * comment that has never reproduced across pins as written: the
-	 * "8230" it used to carry does not reproduce on this build at
-	 * either pin -- the Phase 9 pin measures 8120 here and this one
-	 * 8142, +22, the same delta as everything else in this paragraph.
-	 * Both re-measured by instrumenting this exact line, not derived.) */
+	 * build via kg_lisp_arena_stats() at the Phase 11 pin: 56226 object
+	 * slots (56224 at the Phase 10 pin, 56222 before that -- the frame
+	 * record fe's dynamic-binding work grew costs one frame slot,
+	 * frame_capacity 1096 -> 1095, and returns two object slots),
+	 * peak_live 5227 after the prelude alone (5210 at the Phase 10 pin,
+	 * 5188 at Phase 9's), and 8159 at this point in this function, after
+	 * every Phase 8 form above -- 14.5% of the arena for everything kg
+	 * ships plus this test's own corpus.  The two live figures moved by
+	 * exactly +17 each across this pin: fe's two new primitives
+	 * (internal--mark-special, special-variable-p) and their interned
+	 * names, plus the prelude's own switch onto the core `let'.  Both
+	 * re-measured by instrumenting this exact line, not derived -- the
+	 * "8230" this comment used to carry never reproduced, and the rule
+	 * that replaced it is that every number here is measured at the pin
+	 * that records it.  The Phase 10 comment also carried "5751 with
+	 * lisp/auto-fill.el on top of it"; that figure is dropped rather
+	 * than carried forward, because the method behind it was not
+	 * recorded and evaluating that file's text in a fresh post-prelude
+	 * context measures 5927 here, which is not the same measurement. */
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));

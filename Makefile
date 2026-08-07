@@ -339,7 +339,18 @@ SCC_COMPLEXITY_PATHS ?= src
 # price. The other 60 go back rather than sitting as unearned headroom for
 # work nobody has priced. Proof on the same tree: SCC_COMPLEXITY_MAX=5799
 # fails with "total complexity 5800 exceeds limit 5799", 5800 passes.
-SCC_COMPLEXITY_MAX ?= 5800
+# Raised 5800 -> 5820 by Phase 10 sub-plan 10A Decision 8 (2026-08-07), funding
+# 10C's two `src/*.c` touches at the audited +3..10 scc price: the
+# lisp_require.c `.el`-suffix conditional and the two Sec.15 perf-counter sites.
+# The tree sits at exactly 5800/5800 -- zero headroom, so even +1 breaches --
+# which is why this is a Decision and not routine growth. Proof on the same
+# tree, at the pin and before the funded work:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5799
+#   FAIL: total complexity 5800 exceeds limit 5799
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5800
+#   scc total complexity: 5800 (limit 5800)
+# 10D re-sets this to the measured actual at the phase close, as 09D did.
+SCC_COMPLEXITY_MAX ?= 5820
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

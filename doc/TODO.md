@@ -76,6 +76,21 @@ This file remains the broader feature and technical-debt inventory.
       means gensyms or an obarray-style renaming pass over the prelude,
       which is a cost with no measured demand behind it.  Left here so a
       future report of a strange interaction has somewhere to land.
+      `internal--excursion` is a 54th name and the one with the sharpest
+      consequence, added after the Phase 11 acceptance review found it:
+      it is what `save-excursion`/`with-current-buffer` hold their saved
+      state in, so a body that assigns it makes the `unwind-protect`
+      cleanup raise — and a raising cleanup REPLACES the completion it is
+      unwinding (fe's 06A Decision 4, which is Emacs' rule too:
+      `(condition-case e (unwind-protect (error "MY") (error "CLEANUP"))
+      (error e))` is `(error "CLEANUP")` on both), so the user's own
+      error is lost.  Measured:
+      `(condition-case e (save-excursion (setq internal--excursion nil)
+      (error "MY-ERROR")) (error (format "%S" e)))` answers
+      `"(error \"internal--excursion-restore: expected a marker or a
+      buffer\")"`.  Pathological trigger, no gensyms to fix it with, and
+      the tolerant restore cannot help: the value is not a spent
+      excursion, it is a value of the wrong type.
 - [ ] **Buffer-local variables.** `setq-local` and `setq-default` are
       aliases of `setq` and write the one global binding; both manifest
       rows are `divergent` for that reason since 10C.  A real
@@ -381,6 +396,30 @@ ordered by value vs implementation effort.
         evaluator work in the submodule, not loader work in kg.  11A
         Decision 5 rejected it by scope; `load-throw-reachability` pins
         both answers
+      - **A cleanup that raises AND HANDLES its own error still
+        overwrites the in-flight condition.**  fe's `RaiseCompletionCore`
+        holds the completion being unwound across a *containment* in a
+        cleanup drain (fixed in fe at the Phase 11 fix cycle's pin,
+        `265ecf0`, which is what makes a `run-hooks` inside a cleanup
+        behave); a raise inside the drain that fe's own
+        `condition-case` catches is a different path and still leaves
+        `ctx->condition` holding the handled error.  Measured, kg both
+        sides of that pin and Emacs 31.0.90:
+
+            (condition-case e (unwind-protect (/ 1 0)
+                                (ignore-errors (car 6)))
+              (error (format "%S" e)))
+
+            kg     "(wrong-type-argument listp 6)"
+            Emacs  "(arith-error)"
+
+        Only the object bound by the handler is wrong; the reported
+        message is the body's throughout, and a cleanup that raises
+        *without* handling still correctly replaces (Emacs agrees:
+        `"(error \"CLEANUP\")"`).  Pre-existing since the prelude gained
+        `unwind-protect`, evaluator work in the submodule, and no
+        manifest row yet because it needs one and an oracle snapshot
+        rather than a line here
       - **`file-missing` as a condition subtype.**  kg raises plain
         `error` for a file `load`/`require` cannot find, where Emacs
         raises `file-missing` under `file-error` under `error`, carrying

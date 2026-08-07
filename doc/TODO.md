@@ -29,6 +29,22 @@ This file remains the broader feature and technical-debt inventory.
 - [ ] **Phase 8 read functions**: public `read-string`, `read-number`,
       `read-file-name`, and `read-buffer`, including optional arguments,
       defaults, history, and non-command re-entry semantics.
+- [ ] **An arena reset command**, deferred by Phase 9's 09A Decision 3 and
+      the one piece of exhaustion recovery kg does not have. Phase 9 made
+      exhaustion catchable (`arena-exhaustion` under `error`), survivable
+      (a `let`-local chain is collectable the moment the handler runs) and
+      *visible* (`M-x lisp-arena-stats`), and stopped there deliberately.
+      What it does not fix: an init file or a command that exhausts into a
+      **global** leaves the arena pinned for the life of the session —
+      alive, correctly reporting, and useless, with restarting kg as the
+      only recovery. `test/pty/lisp-exhaustion-mid-init-visible.yaml` and
+      `test/test_lisp.c:test_arena_exhaustion_conditions` pin that state
+      rather than paper over it. A reset command is editor UI, not
+      robustness: it has to decide what happens to Lisp-defined commands,
+      hooks, key bindings, process filters and `provide`d features that
+      live in the arena it would throw away, which is a design question
+      Phase 9 had no reason to answer. When it lands it needs its own PTY
+      case; it must not be bolted onto the two above.
 
 ## Missing Mg features
 
@@ -238,8 +254,15 @@ ordered by value vs implementation effort.
         with `ignore-errors` the prelude's macro over the last of them —
         and the host-side completion surface kg's seams are built on:
         `FeGetCompletion`/`FeGetCondition`/`FeGetCompletionMessage`, the
-        protected call `FeTryCallWithOptions` and `FeResignal`; see
-        `doc/fe-upstream.md`
+        protected call `FeTryCallWithOptions` and `FeResignal`; and from
+        Phase 9, exhaustion as an ordinary catchable condition
+        (`arena-exhaustion`, `evaluation-stack-exhaustion`, both under
+        `error`, pre-built at context open so signalling one allocates
+        nothing) and a mark phase that uses no C stack at all — the
+        collector's `car` recursion is replaced by pointer reversal, so
+        the last unbounded data recursion in the interpreter is gone and
+        collecting a deep structure no longer depends on the host's stack
+        limit; see `doc/fe-upstream.md`
 
       Remaining Lisp follow-ups:
       - no call-trace exposure through the host error callback
@@ -257,8 +280,14 @@ ordered by value vs implementation effort.
         either body reaches the `catch` that names its tag instead of
         stopping at Fe's native re-entry wall as `no-catch`
         (`catch-throw-reachability`, the other divergence 06E left)
-      - token/cancel cleanup registry (Phase 9's robustness scope;
-        currently `unwind-design.md` item 2, belongs to that phase)
+      - token/cancel cleanup registry — **not Phase 9's, after all**.
+        09A Decision 4 measured it and left it where it was: it is
+        designed but unbuilt (`fe/doc/unwind-design.md` item 2), and its
+        one concrete defect (`fex_io.c`'s `MakeFile` leaking a `FILE*`
+        when `FeMakePtr` raises) is in the `fex_*.c` files kg does not
+        link.  It stays **fe-standalone debt**, owned by the submodule
+        and priced there; pulling it into a kg phase would double the
+        phase's fe price for no kg benefit
       - Phase 8 deferrals, each measured absent at the phase close and
         each an init-file compatibility gap rather than a nicety:
         - no `string-match`/`match-string` over a string; kg's regexp

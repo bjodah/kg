@@ -328,7 +328,14 @@ SCC_COMPLEXITY_PATHS ?= src
 # general allowance for unrelated growth. Proof on the same tree:
 # SCC_COMPLEXITY_MAX=5797 makes complexity-check fail on 5798, while 5798
 # passes. 09D re-sets this to the measured actual at the phase close.
-SCC_COMPLEXITY_MAX ?= 5860
+# Re-set 5860 -> 5800 at the Phase 9 close (2026-08-07), the convention the
+# Phase 8 fix cycle established and fe's own 09B/09C pair repeated (820 ->
+# 757, 1120 -> 1065). The phase spent +2 of the 62 points the raise made
+# available: one cmdtable row and one 15-line renderer, against a +5..15
+# price. The other 60 go back rather than sitting as unearned headroom for
+# work nobody has priced. Proof on the same tree: SCC_COMPLEXITY_MAX=5799
+# fails with "total complexity 5800 exceeds limit 5799", 5800 passes.
+SCC_COMPLEXITY_MAX ?= 5800
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

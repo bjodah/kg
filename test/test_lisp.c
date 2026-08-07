@@ -3236,8 +3236,8 @@ static void test_arena_exhaustion_conditions(void)
 	snprintf(form, sizeof(form),
 	    "(condition-case e %s (arena-exhaustion 'caught))", fill_local);
 	CHECK(eval_eq(form, "caught"));
-	snprintf(form, sizeof(form), "(condition-case e %s (error e))",
-	    fill_local);
+	snprintf(
+	    form, sizeof(form), "(condition-case e %s (error e))", fill_local);
 	CHECK(eval_eq(form, "(arena-exhaustion)"));
 	CHECK(eval_eq("(+ 1 2)", "3"));
 

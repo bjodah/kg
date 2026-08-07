@@ -18,7 +18,13 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (start-process "e" (current-buffer) "/bin/head" "-n1" "Makefile")
+  # head(1) is /usr/bin/head on FreeBSD and /bin/head on Linux, so the
+  # program is /usr/bin/env -- which is at that path on both -- and head is
+  # found on PATH.  The child is still exec'd directly (one exec of env,
+  # which execs head): nothing here goes through a shell, and the relative
+  # "Makefile" is still resolved by the child, which is the property under
+  # test.
+  - (start-process "e" (current-buffer) "/usr/bin/env" "head" "-n1" "Makefile")
   - RET
   # Process output reaches the buffer only at a safe-point drain, and a
   # keypress is what reaches one.  These are C-e (end-of-line: idempotent,

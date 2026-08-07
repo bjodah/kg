@@ -104,19 +104,28 @@ including the nesting-depth limit and a missing file \(em is caught by a
 written around the
 .Li load ,
 with its original condition symbol.
+A file that is not there raises Emacs' own
+.Li file-missing
+\(em
+.Li ("Cannot open load file" "No such file or directory" PATH)
+as its data, and the same condition and data from
+.Li require
+when nothing in the load-path matches \(em so a handler may name
+.Li file-missing ,
+its parent
+.Li file-error ,
+or
+.Li error .
+A permission failure raises the parent class where Emacs raises its third
+leaf
+.Li permission-denied ,
+which kg records rather than implements.
 A
 .Li throw
-out of a loaded file is not: it becomes
+out of a loaded file is the remaining divergence: it becomes
 .Li (no-catch TAG VALUE)
 where Emacs delivers the value to a catch around the
-.Li load ,
-and a missing file raises a plain
-.Li error
-where Emacs raises the
-.Li error
-subtype
-.Li file-missing .
-Both are recorded divergences.
+.Li load .
 .Li (require FEATURE &optional FILENAME)
 loads at most once, a no-op when
 .Li (provide FEATURE)
@@ -777,12 +786,20 @@ and
 .Li (special-variable-p \(aqNAME)
 answers whether a name was marked, and a lambda or defun parameter
 named after a special binds lexically as it does in Emacs;
-what kg does not have is buffer-local variables, whole-file
-.Li lexical-binding: nil
-semantics, or Emacs' rule that a one-argument
+a one-argument
 .Li (defvar v)
-is scoped to the file it appears in \(em kg marks globally, which is
-broader and never narrower;
+is scoped to the reader/evaluation unit it appears in, as in Emacs, so a
+later file's
+.Li let
+over the same name is lexical again \(em the one residual is a
+.Li defun
+written after such a
+.Li defvar
+and called from another file, which Emacs keeps dynamic and kg answers
+lexically;
+what kg does not have is buffer-local variables or whole-file
+.Li lexical-binding: nil
+semantics;
 the printer abbreviates
 .Li (quote X)
 back to
@@ -791,7 +808,20 @@ as Emacs' does, while backquote forms still print the long way because
 kg's reader expands them to the ordinary symbols
 .Li quasiquote , unquote
 and
-.Li unquote-splicing ;
+.Li unquote-splicing ,
+which is measured blocked rather than merely unfixed:
+.Li \(ga
+and
+.Li ,
+are reader delimiters and symbol escapes are a deliberate read error, so
+after a rename the prelude could not spell the macro it defines;
+.Li (eval FORM)
+evaluates FORM in the caller's own run, so a condition, a
+.Li throw
+or a
+.Li C-g
+out of it reaches the enclosing handler, and its environment is the
+global one, which is Emacs' answer for a nil LEXICAL argument;
 .Li eq
 is Emacs' eq: integers compare by value, while separately-read equal
 strings and float objects do not;
@@ -841,7 +871,11 @@ runs its cleanup forms on any non-local exit \(em a normal return, an
 error, a
 .Li throw ,
 .Li C-g ,
-or budget exhaustion;
+or budget exhaustion \(em and a
+.Li condition-case
+written inside a cleanup handles what that cleanup raises, leaving
+whatever was being unwound in flight, while a cleanup error nothing in
+the cleanup handles still replaces that completion as it does in Emacs;
 .Li save-excursion
 and
 .Li with-current-buffer

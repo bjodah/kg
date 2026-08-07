@@ -1,10 +1,12 @@
 # kg Lisp API reference
 
-**Document version 4.** Covers the whole Lisp surface Plan 06 (Phases
-2-11) shipped: buffers, markers, editing, search, save-excursion /
+**Document version 5.** Covers the whole Lisp surface Plan 06 (Phases
+2-12) shipped: buffers, markers, editing, search, save-excursion /
 with-current-buffer, hooks, keymaps, processes, the function/value
-namespaces, provide / require / load-path, and — since Phase 11 —
-special variables and shallow dynamic binding. Bump this number when the
+namespaces, provide / require / load-path, special variables and shallow
+dynamic binding (Phase 11), and — since Phase 12 — `eval`, condition
+handlers inside `unwind-protect` cleanups, and Emacs' `file-missing`
+condition class. Bump this number when the
 surface changes materially (a new native, a changed contract, a changed
 limit); a wording fix does not need a bump. `README.md`'s "Lisp" section
 is the narrative introduction and worked examples; this document is the
@@ -56,7 +58,7 @@ character).
 
 Buffers, markers and processes reach Lisp as opaque `FeTFex0` wrapper
 objects over records in a bounded pool (`src/lisp_obj.[ch]`,
-`LISP_MAX_OBJECTS` = 64 records shared across all three kinds). Only the
+`LISP_MAX_OBJECTS` = 256 records shared across all three kinds). Only the
 adapter creates these wrappers, so a Lisp value cannot be forged into
 looking like a buffer or a process; every native that consumes one
 checks both the wrapper's kind and the identity of what it names before
@@ -274,13 +276,32 @@ Ordering rules that hold across every subscriber:
   transferring past every handler to kg's own outermost barrier as it
   did before. That covers read-time failures, run-time failures, the
   depth limit above and a missing file. `load` answers `t` on success,
-  as Emacs' does. **A `throw` out of a loaded file is the exception**:
-  the containment barrier is a throw wall, so it becomes
+  as Emacs' does.
+  **A file that is not there raises Emacs' `file-missing`**, since
+  Phase 12: `(file-missing "Cannot open load file" "No such file or
+  directory" PATH)`, with the same condition and the same
+  `(OPERATION STRERROR PATH)` data from `require` when nothing in the
+  load-path matches — the feature's own name goes in the path slot
+  there, because nothing resolved. `file-missing` is a `file-error`,
+  which is an `error`, so a handler naming any of the three catches it:
+
+  ```elisp
+  (condition-case e (load "/nowhere/x.el") (file-missing (nth 3 e)))
+  ```
+
+  answers the path. A permission failure raises the parent class,
+  `file-error`, where Emacs raises its third leaf `permission-denied`;
+  that one is recorded rather than implemented, because it is
+  measurable only unprivileged. Everything else the loader raises —
+  the depth limit, a read failure on an open file, out of memory,
+  cyclic `require`, a file that does not `provide` — is a kg-policy
+  error with no Emacs counterpart and stays a plain `error`.
+  **A `throw` out of a loaded file is the remaining exception**: the
+  containment barrier is a throw wall, so it becomes
   `(no-catch TAG VALUE)` where Emacs delivers the thrown value to a
-  `catch` around the `(load ...)`, and a missing file raises a plain
-  `error` where Emacs raises the `error` subtype `file-missing`. Both
-  are recorded — `load-throw-reachability` and the `native-load` row —
-  with `doc/TODO.md` items.
+  `catch` around the `(load ...)`. Recorded as
+  `load-throw-reachability`, with a `doc/TODO.md` item that carries
+  Phase 12's measurement of what closing it now needs.
   **`require` cycle detection** is separate again: it tracks feature
   *identity*, not nesting depth, in its own `LISP_MAX_REQUIRE_STACK` = 8
   entry stack, so `(require 'a)` from inside `(require 'a)`'s own load is
@@ -289,7 +310,7 @@ Ordering rules that hold across every subscriber:
   involved is well under 8.
 - **A native's own bounded tables** refuse rather than silently drop or
   corrupt when full: `LISP_MAX_COMMANDS` = 32 Lisp-defined commands,
-  `LISP_MAX_OBJECTS` = 64 pool records, `LISP_MAX_HOOKS` = 16 distinct
+  `LISP_MAX_OBJECTS` = 256 pool records, `LISP_MAX_HOOKS` = 16 distinct
   hooks, `KG_PROCESS_TABLE_MAX` = 8 processes, `LISP_MAX_FEATURES` = 32
   provided features, `LISP_MAX_LOAD_PATH` = 8 load-path directories.
   Every one of these is a compile-time bound (`src/lisp_internal.h`,
@@ -417,9 +438,28 @@ All three are the same mechanism: Fe's cleanup registry
 exposes to Lisp directly. So "every exit" is not an approximation: a
 raised error or an interrupt inside `BODY` still restores what was
 saved, or runs `CLEANUP`. Nesting is fine; each restores exactly what it
-saved, in the reverse order it was saved. A cleanup form that itself
-raises is reported directly rather than replacing the error already
-unwinding, and the cleanups still pending after it run anyway.
+saved, in the reverse order it was saved.
+
+**A cleanup may handle its own errors**, since Phase 12: a
+`condition-case` or `ignore-errors` written *inside* `CLEANUP` catches
+what `CLEANUP` raises, whether or not something is being unwound past
+it, and the completion in flight — an error, a `throw`, a `C-g` — is
+undisturbed.
+
+```elisp
+(unwind-protect 'body (ignore-errors (car 6)))                  ; body
+(condition-case e (unwind-protect (/ 1 0) (ignore-errors (car 6)))
+  (error e))                                                    ; (arith-error)
+```
+
+Before Phase 12 both of those escaped to the host: every raise inside a
+running cleanup behaved as unhandled, because the replay to the cleanup
+entry was tested before the handler search ever ran. What did **not**
+change is the rule for a cleanup error nothing in the cleanup handles —
+it still replaces the completion being unwound and is caught by a
+handler written *around* the `unwind-protect`, which is Emacs' rule too
+— and a cleanup that `throw`s still abandons the error it was unwinding.
+The cleanups still pending after a raising cleanup run anyway.
 
 `save-excursion` and `with-current-buffer` are *transparent* to the
 evaluation that encloses them, `throw` included. An error raised inside
@@ -583,7 +623,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `special-variable-p` |
-| Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
+| Functions | `funcall` `apply` `eval` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |
@@ -592,6 +632,18 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
 core Fe special forms and primitives rather than prelude definitions.
+
+`(eval FORM)` — new in Phase 12 — evaluates `FORM` in **the caller's own
+run**, not in a nested one, so a condition, a `throw` or a `C-g` out of
+it reaches the handler, catch or recovery the caller is standing in:
+`(catch 'tg (eval '(throw 'tg 99)))` is `99` and
+`(condition-case e (eval '(car 6)) (error e))` binds the ordinary
+`(wrong-type-argument listp 6)`. Its environment is the **global** one,
+which is Emacs' answer and not an approximation of it: Emacs' optional
+LEXICAL argument *selects* an environment rather than inheriting the
+caller's, and `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` under
+the pinned Emacs 31.0.90 exactly as it is here. A non-nil LEXICAL is
+refused by name, the way `macroexpand`'s ENVIRONMENT is.
 
 `setq-default` and `setq-local` are aliases of `setq` because kg has no
 buffer-local variable namespace. `load-path` remains a bounded C search-path
@@ -773,7 +825,8 @@ primitive's function cell.
   exist.** Conditions have a static hierarchy: `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
   `arith-error`, `args-out-of-range`, `file-error`, `setting-constant`,
-  and `no-catch` are all under `error`; `quit` is a separate branch not under `error` and
+  and `no-catch` are all under `error`, and `file-missing` is under
+  `file-error` (Phase 12), the one three-deep chain; `quit` is a separate branch not under `error` and
   is not catchable by `(error …)` handlers. `(signal 'ARITH-ERROR DATA)`
   raises a condition object `(ARITH-ERROR . DATA)`; `(error "fmt" ARGS)`
   formats at signal time and raises `(error "formatted-text")`.

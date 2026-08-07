@@ -37,7 +37,49 @@ All relevant changes to the project are documented in this file.
   `no-catch` error.  Hooks, process filters and sentinels are unchanged
   and still contain a throw.
 
-- Documentation: `doc/lisp-api.md` is at document version 3.
+- A `condition-case` or `ignore-errors` written **inside an
+  `unwind-protect` cleanup** now handles what that cleanup raises.
+  Before, every error inside a running cleanup behaved as if nothing
+  could catch it: `(unwind-protect 'body (ignore-errors (car 6)))`
+  aborted the whole evaluation where Emacs simply answers `body`, and a
+  cleanup that tidied up with `ignore-errors` while an error was
+  unwinding replaced that error with its own.  A cleanup error that
+  nothing in the cleanup handles still replaces the completion being
+  unwound, which is Emacs' rule too.
+
+- **`(eval FORM)`** exists, and evaluates its form in the caller's own
+  evaluation, so a condition, a `throw` or a `C-g` out of it reaches the
+  handler, catch or cancellation the caller is standing in.  Its
+  environment is the global one, which is what Emacs does when its
+  optional LEXICAL argument is nil; a non-nil LEXICAL is refused by
+  name.
+
+- A `load` or `require` of a file that is not there raises Emacs' own
+  **`file-missing`** condition, carrying the operation, the system error
+  text and the path — `(file-missing "Cannot open load file" "No such
+  file or directory" "/nowhere/x.el")` — instead of a generic error with
+  the same information buried in prose.  A handler may name
+  `file-missing`, its parent `file-error`, or `error`.  Uncaught, the
+  message is Emacs' own rendering of that data.
+
+- A one-argument `(defvar v)` — the arity that declares a name without
+  giving it a value — is now scoped to the **file** it appears in, as in
+  Emacs, instead of marking the name for the rest of the session.  A
+  later file's `let` over the same name is an ordinary lexical binding
+  again.
+
+- Nested `save-excursion` and friends run four times deeper: the
+  adapter's object pool went from 64 records to 256, which costs 16.5 KB
+  and takes the pool out of the role of bounding how deeply Lisp can
+  nest.
+
+- Fixed a heap buffer overflow in syntax highlighting, present since the
+  editor's kilo ancestry: a line ending in a lone backslash inside an
+  unterminated string — an ordinary shell continuation with a missing
+  closing quote — wrote one byte past the highlight buffer, which glibc
+  reported later as `malloc(): invalid next size`.
+
+- Documentation: `doc/lisp-api.md` is at document version 5.
 
 ## [v1.1.0][] - 2026-05-26
 

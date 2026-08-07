@@ -55,18 +55,37 @@ This file remains the broader feature and technical-debt inventory.
       form so the flag can be consulted at all.  Parameters stay lexical
       unconditionally, which is Emacs 31's own measured answer.  The
       21-probe grid is `test/lisp-compat/cases/phase11-dynamic-*.json`.
-- [ ] **A one-argument `(defvar v)` is scoped to its file in Emacs and
-      global in kg.**  The one approximation Phase 11's marking model
-      makes, and the only part of the `defvar` item above that did not
-      close.  Both arities set the flag `let` consults; Emacs limits a
-      one-argument `defvar`'s effect to the file it appears in, while kg
-      marks the symbol for the whole session.  kg is BROADER, never
-      narrower, so no program correct under Emacs' rule computes something
-      else unless it relies on the effect *not* reaching another file.
-      Closing it needs a notion of which file a form came from, which
-      neither fe's evaluator nor kg's loader has.  Measured both ways in
-      `test/lisp-compat/features.json`'s `phase11-one-arg-defvar-file-scope`
-      row.
+- [x] **A one-argument `(defvar v)` is scoped to its file in Emacs and
+      global in kg.**  Done by Phase 12 (12A Decision 6, fe `38caa63`),
+      and the recorded blocker was wrong: the carrier this item said
+      "neither fe's evaluator nor kg's loader has" is `EvaluateInput`,
+      entered exactly once per `load`, `require`, batch file or prelude
+      install.  It takes the next number of a monotone counter on the way
+      in and hands the enclosing one back on the way out, so nested units
+      stack; a let-dynamic-only mark carries the unit that made it, and
+      the predicate compares for **equality** — measured in both nesting
+      directions, so neither an outer unit's mark nor an inner one's
+      leaks.  A full mark (two-argument `defvar`, `defconst`) stays
+      global, as in Emacs.  Outside any input unit — kg's hooks, command
+      dispatch and process callbacks — every mark is visible, since there
+      is no unit there for one to be foreign to.
+      `test_phase12_one_arg_defvar_file_scope` is the two-file probe, and
+      it answers what the pinned Emacs answers for the same two files.
+- [ ] **A `defun` written after a one-argument `defvar` in the same file
+      stays dynamic in Emacs when it is called from another file.**  The
+      one residual of the item above, and the direction its old text
+      warned about: kg is now NARROWER there.  Emacs' mechanism is not a
+      per-unit registry at all — a one-argument `(defvar v)` adds `v` to
+      the lexical environment threaded through the file, and a `lambda`
+      captures it — while fe consults the flag where the `let` RUNS and
+      has nowhere to record a closure's unit.  Against the five-probe
+      grid fe went 2/5 to 4/5 and lost this one.  Closing it means the
+      marking becoming a lexical-environment entry, which is a different
+      and larger design, in `fe_eval.c` rather than `fe.c`.  fe's
+      `one-arg-defvar-scope-carrier` manifest row carries the grid; kg's
+      `phase11-one-arg-defvar-file-scope` row carries what its own case
+      actually pins, which is the oracle shim's per-form scoping and not
+      the leak.
 - [ ] **The prelude's `internal--let` temporaries are dynamically
       capturable.**  A consequence of the same phase, recorded rather than
       defended (11A Decision 3): the ~53 generically named temporaries
@@ -105,15 +124,92 @@ This file remains the broader feature and technical-debt inventory.
       and the form proper, so `(quote x y)`, `(quote)` and `(quote . x)`
       keep printing as pairs.  Recursive, so `(a 'b c)` comes out as Emacs
       prints it.
-- [ ] **Backquote printing, and the reader symbols under it.**  The half
-      of the printer question Phase 11 rejected by scope, not the same
-      work as the quote half.  Emacs abbreviates over reader-produced
-      symbols that ARE `` ` ``/`,`/`,@`; kg's reader expands them to the
-      ordinary symbols `quasiquote`/`unquote`/`unquote-splicing`, so
-      closing this means changing what the *reader* produces and breaking
-      any Lisp that pattern-matches on `quasiquote` — and Emacs' comma
-      abbreviation is additionally context-sensitive.  Recorded as
-      `phase8-reader-backquote-symbol-names`.
+- [ ] **Backquote printing, and the reader symbols under it — BLOCKED,
+      not merely expensive.**  Phase 12 measured it and put it out of
+      scope with a basis (12A Decision 6), which is the shape the next
+      reader phase should price against.  Emacs abbreviates over
+      reader-produced symbols that ARE `` ` ``/`,`/`,@`; kg's reader
+      expands them to the ordinary symbols
+      `quasiquote`/`unquote`/`unquote-splicing`.  Renaming the reader's
+      three expansion strings is a three-string edit — and then
+      `lisp/prelude.el` **cannot spell the macro it defines**:
+      `` ` `` and `,` are reader *delimiters* (`fe/fe.c`'s `ReadAtom`)
+      and a backslash anywhere in a token is a named read error, so
+      neither `` (defalias '\` …) `` nor any of `internal--qq`'s six
+      pattern-match sites reads.  That rejection is not incidental — it
+      is the **supported** `phase8-reader-rejection-policy` row, pinned
+      by `test/test_lisp.c` and `fe/test_api.c`.  So symbol-escape reader
+      support (or an `intern` primitive, which neither tree has) is a
+      *prerequisite item*, not part of this one.  On top of that, Emacs'
+      comma abbreviation is context-sensitive — measured, `(list '\, 'x)`
+      standalone prints `(\, x)` and only inside a backquote does it
+      print `,x` — which needs an inside-backquote depth field fe's
+      `Writer` struct does not have.  Blast radius counted: 83 sites in
+      24 files, plus a guaranteed XPASS on
+      `phase8-reader-nested-backquote` and a PTY `expected_saved` edit.
+      The honest shape is two phases: reader escapes first, spelling
+      second.  Recorded as `phase8-reader-backquote-symbol-names`.
+- [ ] **Nesting is bounded by fe's evaluation frame limit, and Emacs has
+      no such bound.**  Recorded by Phase 12, which removed the *other*
+      bound: the adapter object pool went 64 -> 256 records, so nested
+      `save-excursion` runs to 218 and the 219th raises `evaluation frame
+      limit exceeded` — the same 1095-frame arena partition
+      `with-current-buffer` has always hit at 156.  Emacs has no pool and
+      no frame limit; its first ceiling is the C stack, at about 50000
+      nested `save-excursion`s.  Raising this means a larger frame
+      partition or a growable one, which is fe arena work and has no
+      measured demand behind it: nothing kg ships nests past single
+      digits.  Collector back-pressure is measured **useless** for it —
+      at the threshold every record is live, so a forced full collection
+      frees zero.
+- [ ] **`permission-denied`, Emacs' third `file-error` leaf.**  Recorded
+      by Phase 12 rather than asserted (12A Decision 1), because this box
+      cannot measure it: `chmod 000` is defeated by running as root, and
+      the suite runs as root.  Measured once, unprivileged, through
+      `setpriv --reuid=65534`: Emacs 31.0.90 answers
+      `(permission-denied "Cannot open load file" "Permission denied"
+      PATH)`, conditions `(permission-denied file-error error)`.  kg
+      answers the PARENT class, `file-error`, with the same data — a
+      handler spelling `file-error` catches both dialects, and only one
+      spelling `permission-denied` exactly does not.  Closing it is one
+      more line in fe's `condition_parents[]` and one more arm in
+      `src/lisp_io.c`; what it also needs is a way for the suite to
+      measure it, since a test that drops privileges is a new kind of
+      test here.
+- [ ] **`eval`'s LEXICAL argument.**  fe gained Emacs' one-argument
+      `eval` at the Phase 12 pin, evaluating its form in the caller's own
+      run.  A non-nil LEXICAL is rejected by name, as `macroexpand`'s
+      ENVIRONMENT is.  The measured reason it is not simply "inherit the
+      caller's scope": Emacs' LEXICAL *selects* an environment and never
+      inherits — `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` on
+      31.0.90 — so an implementation would need first-class lexical
+      environments as values, which neither tree has.
+- [ ] **fe has no `error-message` property, so a `signal`'s message is
+      the bare condition name.**  Newly recorded by Phase 12.
+      `RaiseCondition` is handed the symbol as both the name and the
+      message, so `(signal 'file-missing DATA)` reports `file-missing`
+      and nothing else where Emacs' `error-message-string` renders
+      `Cannot open load file: No such file or directory, /nope/x.el`.
+      kg's `render_file_condition()` does that rendering for the two
+      classes it raises that way, which is the narrow version; the
+      general one is a per-symbol message property in fe's hierarchy
+      table and an `error-message-string` to read it.  Everything kg
+      raises through `signal` and does not render — `wrong-type-argument`
+      from `lisp_raise_wrong_type()`, for one — still reports the bare
+      name.
+- [ ] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
+      `condition-case`.**  Found while measuring Phase 12's file
+      conditions, pre-existing, and deliberately not fixed there.
+      `(condition-case e (prefix-numeric-value "x") (wrong-type-argument
+      ...))` escapes to the host: the helper raises by evaluating a
+      `(signal ...)` form through `FeEvaluateWithOptions`, and
+      `FeEvaluate`/`FeCall` start a *nested run* whose completion
+      transfers to the outermost barrier, past every handler lexically
+      between the native and the raise.  It is the same defect 11D
+      Part 3 fixed for the loader, and the fix is the same shape —
+      `FeTryCall...` plus `FeResignal`, which is what
+      `lisp_raise_file_condition()` does.  Visible as part of the
+      `condition-case-native-errors` divergence.
 - [ ] **`macroexpand-all`**, which Phase 10's 10B left as a
       reject-by-name stub (`unsupported feature: macroexpand-all`, a
       catchable condition, deliberately not `void-function`).  It needs a
@@ -385,49 +481,67 @@ ordered by value vs implementation effort.
         bookkeeping the frame owns and `FeResignal`s, so a
         `condition-case` around the loader catches with the original
         condition.  `load` also answers `t` now.  Two pieces did not
-        close: a `throw` out of a loaded file still becomes `no-catch`
-        where Emacs delivers it to a `catch` around the `(load ...)`, and
-        a missing file still raises plain `error` where Emacs raises the
-        `error` subtype `file-missing`.  Both have their own items below
-      - **A `throw` out of a loaded file (Shape B).**  Closing it means
-        making `load` an fe primitive with a frame kind of its own, so the
-        loaded forms are evaluated by the same run as the caller and no
-        containment barrier stands between the throw and the catch —
-        evaluator work in the submodule, not loader work in kg.  11A
-        Decision 5 rejected it by scope; `load-throw-reachability` pins
-        both answers
-      - **A cleanup that raises AND HANDLES its own error still
-        overwrites the in-flight condition.**  fe's `RaiseCompletionCore`
-        holds the completion being unwound across a *containment* in a
-        cleanup drain (fixed in fe at the Phase 11 fix cycle's pin,
-        `265ecf0`, which is what makes a `run-hooks` inside a cleanup
-        behave); a raise inside the drain that fe's own
-        `condition-case` catches is a different path and still leaves
-        `ctx->condition` holding the handled error.  Measured, kg both
-        sides of that pin and Emacs 31.0.90:
-
-            (condition-case e (unwind-protect (/ 1 0)
-                                (ignore-errors (car 6)))
-              (error (format "%S" e)))
-
-            kg     "(wrong-type-argument listp 6)"
-            Emacs  "(arith-error)"
-
-        Only the object bound by the handler is wrong; the reported
-        message is the body's throughout, and a cleanup that raises
-        *without* handling still correctly replaces (Emacs agrees:
-        `"(error \"CLEANUP\")"`).  Pre-existing since the prelude gained
-        `unwind-protect`, evaluator work in the submodule, and no
-        manifest row yet because it needs one and an oracle snapshot
-        rather than a line here
-      - **`file-missing` as a condition subtype.**  kg raises plain
-        `error` for a file `load`/`require` cannot find, where Emacs
-        raises `file-missing` under `file-error` under `error`, carrying
-        the operation and the path as data.  A `condition-case` naming
-        `error` catches both, so it costs a program only the ability to
-        name the narrower condition.  It needs condition subtypes with an
-        inheritance test in fe's handler search; recorded in the
-        `native-load` and `load-path-search` rows
+        close then; Phase 12 closed one of them (`file-missing`) and
+        measured the other (`throw`) into a different, larger shape than
+        11A had assumed.  Both have their own items below
+      - **A `throw` out of a loaded file (Shape B) — still open, and the
+        blocker moved.**  Phase 12 measured the design 11A named (`load`
+        as an fe primitive with its own frame kind) into a cheaper one
+        and then found that one blocked too, which is the fact the next
+        attempt should start from.  The cheaper design is **(c)**: fe
+        gains `eval` — it has it, since the Phase 12 pin — and kg's
+        `load` becomes prelude Lisp looping a new native over the file,
+        `eval`ing each form in the current run, so no containment barrier
+        stands between the throw and the catch, Emacs' incremental
+        read-eval timing is preserved (form 1 runs before form 2's reader
+        error surfaces, on **both** sides today — an eager read-all-forms
+        design would break fidelity in the *opposite* direction), and
+        `load` keeps C ownership of path resolution, depth bookkeeping
+        and buffer lifetime.  **What blocks it is that a prelude loop
+        does not enter an INPUT UNIT.** Two things fe sets only in
+        `EvaluateInput` and exposes through no public entry:
+        `ctx->error_label`/`error_line`, which is where kg's per-form
+        `path:LINE` diagnostics come from — `FeReadString` explicitly
+        saves and restores the caller's label around itself, so a reader
+        native cannot leave one behind — and `ctx->input_scope`, which is
+        the one-argument-`defvar` scope carrier above.  Measured on this
+        tree: an error raised by an `eval`'d form inside a loaded file
+        reports the *enclosing* unit's label and the line of the
+        enclosing top-level form, and two `eval`s in one unit share a
+        scope where Emacs gives each `eval` its own.  So a prelude
+        `load` today would report every loaded file's errors at the
+        caller's `path:LINE` and re-open the leak the Phase 12 pin just
+        closed.  Closing this needs a small fe addition — an
+        enter/leave pair for an input unit (label, line, scope) that does
+        **not** start a new run — and therefore a pin move.
+        `load-throw-reachability` pins both answers
+      - ~~a cleanup that raises AND HANDLES its own error overwrites the
+        in-flight condition~~ — **done in Phase 12** (12A Decision 2, fe
+        `95965f0`), and the defect was broader and simpler than this item
+        said.  It was not about the drain at all: a `condition-case` or
+        `ignore-errors` established inside an `unwind-protect` CLEANUP
+        never handled anything, with or without an unwind in flight, and
+        `(unwind-protect 'body (ignore-errors (car 6)))` escaped to the
+        host where Emacs answers `body`.  The seam was one ordering —
+        `RaiseCompletionCore` tested `ctx->cleanup_catch` and replayed to
+        `RunOneCleanupEntry`'s `setjmp` before it ever called
+        `FindConditionHandler` — and the fix accepts a found handler only
+        at or above the frame floor the cleanup entry already saved, so a
+        **native** cleanup is bit-identical.  06A Decision 4 measured
+        correct and is preserved: an *unhandled* cleanup raise still
+        replaces the completion being unwound.  Six oracle cases under
+        `phase12-cleanup-handler-visibility`, including two guards for
+        Decision 4
+      - ~~`file-missing` as a condition subtype~~ — **done in Phase 12**
+        (12A Decision 4, fe `b030d0a`), and the blocker this item
+        recorded was **stale when it was written**: `file-error` has been
+        a row of fe's `condition_parents[]` since Phase 6, the
+        inheritance test in the handler search has always existed, and
+        `file-missing` under it was one data line.  kg's two sites — the
+        loader's cannot-open and `require`'s cannot-find — raise it with
+        Emacs' `(OPERATION STRERROR PATH)` data, and the diagnostic is
+        Emacs' `error-message-string` rendering of it.  Recorded as
+        `phase12-file-conditions`
       - token/cancel cleanup registry — **not Phase 9's, after all**.
         09A Decision 4 measured it and left it where it was: it is
         designed but unbuilt (`fe/doc/unwind-design.md` item 2), and its

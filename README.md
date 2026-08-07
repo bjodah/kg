@@ -237,11 +237,13 @@ both spellings resolve to the same file, as in Emacs. Packages may load other pa
 error raised by a loaded file — at read time or run time, and including
 the nesting-depth limit and a missing file — is catchable by a
 `condition-case` written around the `(load ...)`, with its original
-condition symbol. A `throw` out of a loaded file is not: it becomes
-`(no-catch TAG VALUE)` where Emacs delivers the value to a `catch`
-around the `load`, and a missing file raises a plain `error` where
-Emacs raises the `error` subtype `file-missing`. Both are recorded
-divergences. Init files and packages are trusted code with the
+condition symbol. A file that is not there raises Emacs' own
+`file-missing` — `(file-missing "Cannot open load file" "No such file or
+directory" PATH)`, and the same condition and data from `require` when
+nothing in the load-path matches — so a handler may name `file-missing`,
+its parent `file-error`, or `error`. A `throw` out of a loaded file is
+the remaining divergence: it becomes `(no-catch TAG VALUE)` where Emacs
+delivers the value to a `catch` around the `load`. Init files and packages are trusted code with the
 full privileges of the editor process, bounded only by the evaluation step
 budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**
 `doc/lisp-api.md` is the full reference (object lifetimes, position units,
@@ -521,7 +523,7 @@ surface is available before any init file runs. It is what makes kg's
 | Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `fboundp` — only `null`, `equal`, `zerop` and `listp` are prelude definitions; `eq`, `eql`, `integerp`, `floatp`, `keywordp`, `boundp` and `fboundp` are core Fe primitives and the rest kg natives |
-| Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
+| Functions | `(funcall F ARG ...)` `(apply F ARG ... LIST)` `(eval FORM)` `(function F)` written `#'F` `fboundp` `symbol-function` `symbol-value` `(fset 'NAME FN)` `(defalias 'NAME FN)` `fmakunbound` — core Fe forms, not prelude definitions |
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
@@ -582,17 +584,23 @@ first surprise:
   `throw` and `C-g`. `(special-variable-p 'v)` answers whether `v` was
   marked. A `lambda` or `defun` **parameter** named after a special stays
   lexical, which is Emacs' own behaviour under `lexical-binding: t`.
-  What kg does *not* have is buffer-local variables, whole-file
-  `lexical-binding: nil` semantics, or Emacs' rule that a one-argument
-  `(defvar v)` is scoped to the file it appears in — kg marks globally,
-  which is broader and never narrower.
+  A one-argument `(defvar v)` is scoped to the file — strictly, the
+  reader/evaluation unit — it appears in, as in Emacs: a later file's
+  `let` over the same name is lexical again. The one residual is a
+  `defun` written after such a `defvar` and *called* from another file,
+  which Emacs keeps dynamic and kg answers lexically. What kg does
+  *not* have is buffer-local variables or whole-file
+  `lexical-binding: nil` semantics.
 - The printer abbreviates `(quote X)` back to `'X`, as Emacs' does, so
   `M-:` and `%S` show `'x` and `(a 'b c)`. Backquote is the exception:
   kg's reader expands `` ` ``/`,`/`,@` to the ordinary symbols
   `quasiquote`/`unquote`/`unquote-splicing` where Emacs uses distinct
   symbols it also abbreviates, so an unevaluated backquote form prints
-  the long way. That is recorded rather than fixed — changing it means
-  changing what the reader produces.
+  the long way. That is recorded rather than fixed, and measured
+  *blocked* rather than merely expensive: `` ` `` and `,` are reader
+  delimiters and symbol escapes are a deliberate read error, so after
+  renaming what the reader produces the prelude could not spell the
+  macro it defines.
 - `t`, `nil` and keyword symbols are protected constants: `setq`, `set`, a
   `let` or `let*` binding name, `fset` and `defalias` all refuse them with
   the `setting-constant` condition. Keywords are self-evaluating, so
@@ -606,7 +614,11 @@ first surprise:
   `setting-constant` and others are under `error`; `quit` is a separate
   branch.
   `unwind-protect` runs its cleanup forms on any non-local exit — a
-  normal return, an error, a `throw`, `C-g`, or budget exhaustion.
+  normal return, an error, a `throw`, `C-g`, or budget exhaustion — and
+  a `condition-case` written *inside* a cleanup handles what that
+  cleanup raises, leaving whatever was being unwound in flight. A
+  cleanup error nothing in the cleanup handles still replaces that
+  completion, which is Emacs' rule too.
   `save-excursion` and `with-current-buffer` are transparent to the
   enclosing evaluation, `throw` included: an error inside either body
   reaches a `condition-case` written around the form with its original

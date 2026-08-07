@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md): kg's 81 native_bindings[] (src/lisp_prelude.c) and 77 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 54 primitives, 1 alias, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md, grown since): kg's 87 native_bindings[] (src/lisp_prelude.c) and 82 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 62 primitives/aliases at this pin, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -2002,6 +2002,32 @@
    "kg_test": "test/test_lisp.c:test_thing_at_point",
    "rationale": null,
    "source_name": "thing-at-point"
+  },
+  {
+   "id": "prelude-move-beginning-of-line",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-move-beginning-of-line"
+   ],
+   "kg_test": "test/test_lisp.c:test_line_motion",
+   "rationale": "Emacs' line-motion pair as prelude functions over (bounds-of-thing-at-point 'line) and goto-line, for programs (the README's select-current-line example is the motivating shape). Plain functions, not commands: cmdtable's rows of the same names own M-x and the C-a/C-e keys until built-in keys resolve to command names (keymap Plan 01). N's contract is Emacs': nil or 1 is the current line, otherwise forward N - 1 lines first, clamped at the buffer edges as goto-line clamps. kg-policy per this manifest's editor-primitives precedent -- it observes kg's buffer and point.",
+   "source_name": "move-beginning-of-line"
+  },
+  {
+   "id": "prelude-move-end-of-line",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "prelude-move-end-of-line"
+   ],
+   "kg_test": "test/test_lisp.c:test_line_motion",
+   "rationale": "The other half of the line-motion pair: end of line is the position before the line's newline, and the last line, having none, ends at point-max. Built on (bounds-of-thing-at-point 'line), whose cdr takes the newline in; the one subtle case is a trailing empty last line, where car = cdr = point-max with a newline immediately before it that belongs to the PREVIOUS line -- test_line_motion pins that end-of-line stays put there.",
+   "source_name": "move-end-of-line"
   },
   {
    "id": "prelude-ignore-errors",

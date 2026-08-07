@@ -1,0 +1,32 @@
+# The README's init.el example, end to end: a defun with a docstring and
+# (interactive) planted in init.el becomes an M-x command, and the region
+# it sets with set-mark + the prelude line-motion pair is live enough for
+# C-w to kill exactly the selected text.  move-end-of-line stops before
+# the line's newline, so killing the selection leaves the line itself
+# behind, empty -- which is what distinguishes this from a whole-line
+# kill and is why the expected file keeps its three lines.  Keep the
+# init.el below character for character what README.md's Lisp section
+# shows; this case is that example's proof.
+name: lisp-select-current-line
+filename: sel.txt
+requires_feature: lisp
+backend: pexpect
+config_files:
+  .config/kg/init.el: |
+    (defun bjodah/select-current-line ()
+       "Select the current line."
+       (interactive)
+       (move-beginning-of-line 1)
+       (set-mark (point))
+       (move-end-of-line 1))
+initial: "alpha\nbeta\ngamma\n"
+keys:
+  - Down
+  - M-x
+  - bjodah/select-current-line
+  - RET
+  - C-w
+expected_saved: |
+  alpha
+
+  gamma

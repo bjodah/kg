@@ -1,0 +1,9 @@
+{
+ "id": "prelude-move-end-of-line",
+ "setup": [
+  "(insert \"one\ntwo\nthree\")",
+  "(goto-char 6)"
+ ],
+ "expr": "(progn (move-end-of-line) (point))",
+ "note": "From inside the second line, end-of-line motion stops before that line's newline (position 7 here). The last-line and empty-last-line shapes -- no newline to stop before; a previous line's newline that must not be stepped onto -- are pinned by test_line_motion. kg-policy per the editor-primitives precedent."
+}

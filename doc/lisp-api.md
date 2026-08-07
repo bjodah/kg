@@ -405,6 +405,7 @@ Ordering rules that hold across every subscriber:
 | `(buffer-substring BEG END)` | Text between two positions, order-insensitive |
 | `(char-after &optional POS)` | Codepoint at `POS` (default point) as a number, `nil` at end of buffer |
 | `(forward-word &optional N)` / `(backward-word &optional N)` | Move point over `N` words (ASCII word constituents only) |
+| `(move-beginning-of-line &optional N)` / `(move-end-of-line &optional N)` | Move point to the start/end of the line; `N` not nil or 1 first moves forward `N - 1` lines, clamped |
 | `(bounds-of-thing-at-point THING)` | Cons `(START . END)` for `'word` or `'line`, or `nil`; any other symbol raises |
 
 `set-buffer` is a top-level-form-scoped selection: the *next* command or

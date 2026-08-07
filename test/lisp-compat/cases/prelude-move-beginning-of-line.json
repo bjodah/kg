@@ -1,0 +1,9 @@
+{
+ "id": "prelude-move-beginning-of-line",
+ "setup": [
+  "(insert \"one\ntwo\nthree\")",
+  "(goto-char 6)"
+ ],
+ "expr": "(progn (move-beginning-of-line) (point))",
+ "note": "From inside the second line, beginning-of-line motion answers that line's start. kg-policy: pinned by test_line_motion (with the N-argument, clamping and empty-buffer shapes), not by an Emacs snapshot, per the editor-primitives precedent."
+}

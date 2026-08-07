@@ -2976,6 +2976,86 @@ static void test_thing_at_point(void)
 	teardown_editor();
 }
 
+/* The prelude's move-beginning-of-line / move-end-of-line: Emacs' line
+ * motion pair as plain functions over (bounds-of-thing-at-point 'line),
+ * whose cdr takes the line break in -- see test_thing_at_point for the
+ * bounds themselves on this same buffer. */
+static void test_line_motion(void)
+{
+	/* Empty buffer: both are quiet no-ops answering nil. */
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+	CHECK(eval_eq("(move-beginning-of-line)", "nil"));
+	CHECK(eval_eq("(move-end-of-line)", "nil"));
+	CHECK(eval_eq("(point)", "1"));
+	kg_lisp_shutdown();
+	teardown_editor();
+
+	setup_thing_buffer();
+	CHECK(kg_lisp_init() == 0);
+
+	/* End of line is before the line's newline; the last line has no
+	 * newline and ends at point-max.  An empty middle line's end is its
+	 * own start, not the previous line's end. */
+	CHECK(eval_eq("(progn (goto-char 5) (move-end-of-line) (point))", "9"));
+	CHECK(
+	    eval_eq("(progn (goto-char 10) (move-end-of-line) (point))", "10"));
+	CHECK(
+	    eval_eq("(progn (goto-char 15) (move-end-of-line) (point))", "22"));
+	CHECK(
+	    eval_eq("(progn (goto-char 24) (move-end-of-line) (point))", "25"));
+
+	/* Beginning of line, from anywhere in the line. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (move-beginning-of-line) (point))", "1"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 10) (move-beginning-of-line) (point))", "10"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 22) (move-beginning-of-line) (point))", "11"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 25) (move-beginning-of-line) (point))", "23"));
+
+	/* N not nil or 1 first moves forward N - 1 lines; 0 names the
+	 * previous line; nil and 1 are the current line; the buffer edges
+	 * clamp, as goto-line's do. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (move-beginning-of-line 2) (point))", "10"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (move-end-of-line 2) (point))", "10"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 10) (move-beginning-of-line 0) (point))", "1"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 1) (move-end-of-line 4) (point))", "25"));
+	CHECK(
+	    eval_eq("(progn (goto-char 5) (move-end-of-line 1) (point))", "9"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (move-beginning-of-line 99) (point))", "23"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 15) (move-beginning-of-line -99) (point))",
+	    "1"));
+
+	/* Both answer nil, as in Emacs. */
+	CHECK(eval_eq("(move-end-of-line)", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+
+	/* A trailing empty last line: its end is itself, not the previous
+	 * line's newline -- the one case move-end-of-line's (< car cdr)
+	 * guard exists for, since there car = cdr = point-max and the
+	 * character before it IS a newline. */
+	setup_editor();
+	editor_insert_row(bcur(), 0, "a", 1);
+	editor_insert_row(bcur(), 1, "", 0);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(eval_eq("(progn (goto-char 3) (move-end-of-line) (point))", "3"));
+	CHECK(eval_eq("(progn (goto-char 1) (move-end-of-line) (point))", "2"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 3) (move-beginning-of-line) (point))", "3"));
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_prelude_forms(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -4478,8 +4558,9 @@ static void test_quit_uncaught(void)
 
 /* Top-level (defalias 'NAME ...) forms in lisp/prelude.el: 77 through
  * Phase 12's close, +3 at its fix cycle's loader rebuild (load, require,
- * internal--load-loop). */
-#define PRELUDE_DEFS 80
+ * internal--load-loop), +2 for the line-motion pair
+ * (move-beginning-of-line, move-end-of-line). */
+#define PRELUDE_DEFS 82
 
 static void test_prelude_source_file(void)
 {
@@ -5440,6 +5521,7 @@ int main(void)
 	RUN(test_format_natives);
 	RUN(test_char_string_round_trip);
 	RUN(test_thing_at_point);
+	RUN(test_line_motion);
 	RUN(test_prelude_forms);
 	RUN(test_elisp_if);
 	RUN(test_list_library);

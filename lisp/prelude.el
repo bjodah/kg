@@ -671,3 +671,35 @@
 (defalias 'thing-at-point (lambda (thing)
   (internal--let bounds (bounds-of-thing-at-point thing))
   (if bounds (buffer-substring (car bounds) (cdr bounds)))))
+
+;; Emacs' line-motion pair, as plain functions for programs: the
+;; cmdtable rows of the same names own M-x and the C-a/C-e keys until
+;; built-in keys resolve to command names (keymap Plan 01), so neither
+;; carries (interactive).  With N not nil or 1, move forward N - 1
+;; lines first (0 names the previous line), Emacs' contract; goto-line
+;; clamps at both buffer edges, which Emacs also does, and is a no-op
+;; in an empty buffer.
+(defalias 'move-beginning-of-line (lambda (&optional n)
+  (goto-line (+ (line-number-at-pos) (if n n 1) -1))
+  nil))
+
+;; End of line is the position before the line's newline; the last
+;; line has none and ends at end of buffer.  (bounds-of-thing-at-point
+;; 'line) takes the newline in -- its cdr is the next line's start --
+;; so step back over exactly one character when the character before
+;; cdr is a newline.  That is every line but the last (an empty middle
+;; line steps from cdr back onto its own car, which is where its end
+;; is); on the last line the character before cdr is either its last
+;; character or, when the line is empty so car equals cdr, the
+;; PREVIOUS line's newline -- the (< car cdr) guard exists for that
+;; one case, where stepping would leave the line.
+(defalias 'move-end-of-line (lambda (&optional n)
+  (if (and n (not (= n 1)))
+      (goto-line (+ (line-number-at-pos) n -1)))
+  (let ((bounds (bounds-of-thing-at-point 'line)))
+    (if bounds
+        (goto-char (if (and (< (car bounds) (cdr bounds))
+                            (= (char-after (- (cdr bounds) 1)) 10))
+                       (- (cdr bounds) 1)
+                     (cdr bounds)))))
+  nil))

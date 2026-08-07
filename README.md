@@ -253,6 +253,19 @@ literal, available only from a real key or M-x command context, and capped at
 16 arguments. `C-g` quits and input overflow is an error before the body runs;
 kg does not provide public `read-*` functions or a completion framework.
 
+A complete `init.el` command, in ordinary Emacs Lisp — the docstring and
+`(interactive)` make it available as `M-x bjodah/select-current-line`, and
+the region it sets is live, so `C-w` kills the selected line:
+
+```elisp
+(defun bjodah/select-current-line ()
+   "Select the current line."
+   (interactive)
+   (move-beginning-of-line 1)
+   (set-mark (point))
+   (move-end-of-line 1))
+```
+
 Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.el` and treats names containing `/` as
 literal paths. A bare name may be written with or without the `.el` suffix;

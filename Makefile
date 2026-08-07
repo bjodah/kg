@@ -511,6 +511,15 @@ SCC_COMPLEXITY_PATHS ?= src
 #   scc total complexity: 5833 (limit 5833)
 # 5845 is a ceiling, not a spend; the close re-sets it at the measured
 # actual, as every phase since 08 has.
+# The fix cycle's close: the measured actual IS 5845 -- the review fixes
+# spent 7 and the loader rebuild the remaining 12 (its C stream natives,
+# minus the deleted native_load/native_require/lisp_eval_file bodies) --
+# so the ceiling and the actual coincide and the re-set is a proof, not
+# an edit.  Proof at the close:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5844
+#   FAIL: total complexity 5845 exceeds limit 5844
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5845
+#   scc total complexity: 5845 (limit 5845)
 SCC_COMPLEXITY_MAX ?= 5845
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe

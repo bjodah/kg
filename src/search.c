@@ -504,6 +504,109 @@ static int isearch_set_marker(struct kg_marker_handle *marker, size_t position)
 	return marker->id != 0;
 }
 
+/* Where an interactive search started: the four view registers ESC has to
+ * put back, since abandoning a search abandons the scrolling it did. */
+struct isearch_origin {
+	int cx, cy, coloff, rowoff;
+};
+
+/* What the search has found so far: the marker sitting at the current
+ * match, the decoration showing it, where to search from while there is
+ * no match yet, and whether the last attempt ran out of engine budget. */
+struct isearch_match {
+	struct kg_marker_handle marker;
+	struct kg_decor_handle decor;
+	int start_row;
+	int start_col;
+	int too_complex;
+};
+
+enum isearch_step {
+	ISEARCH_STEP_OK,
+	ISEARCH_STEP_NOMEM,
+};
+
+/* Put point and the viewport back where the search began.  The marker is
+ * the truth when it survived the session's edits; the plain saved
+ * registers are the fallback when it did not. */
+static void isearch_restore_point(
+    struct kg_marker_handle saved_point, const struct isearch_origin *origin)
+{
+	int row, col;
+
+	if (!kg_marker_get_row_col(saved_point, &row, &col)) {
+		wcur()->cx = origin->cx;
+		wcur()->cy = origin->cy;
+		wcur()->coloff = origin->coloff;
+		wcur()->rowoff = origin->rowoff;
+		return;
+	}
+	wcur()->coloff = origin->coloff;
+	wcur()->rowoff = origin->rowoff;
+	wcur()->cy = row - origin->rowoff;
+	wcur()->cx = col - origin->coloff;
+	if (wcur()->cy < 0 || wcur()->cy >= wcur()->h || wcur()->cx < 0
+	    || wcur()->cx >= wcur()->w) {
+		editor_reveal_position_centered(row, col);
+	}
+}
+
+/* One search step: find the next occurrence in `search_dir` from wherever
+ * the last match left off, move the match marker and its decoration onto
+ * it, and reveal it.  Everything here is chars byte offsets.  Returns
+ * NOMEM when the caller must give up; anything else -- an empty regexp
+ * query, a pattern that will not compile, no match -- is a normal step
+ * that simply leaves the match where it was. */
+static enum isearch_step isearch_advance(struct isearch_match *m,
+    enum search_kind kind, char *query, int qlen, int search_dir)
+{
+	struct kg_regex rx = { 0 };
+	int current = m->start_row;
+	int col = m->start_col;
+	int match_row = -1, match_col = -1, match_len = 0;
+	int fold = !query_has_upper(query, qlen);
+	int match;
+
+	if (kind == SEARCH_REGEXP) {
+		if (qlen == 0) {
+			return ISEARCH_STEP_OK;
+		}
+		if (kg_regex_compile(&rx, query, fold ? KG_REGEX_ICASE : 0)
+		    != KG_REGEX_OK) {
+			editor_set_status_message(
+			    "Regexp I-search [bad regexp]: %s", query);
+			return ISEARCH_STEP_OK;
+		}
+	}
+
+	if (kg_marker_get_row_col(m->marker, &current, &col)) {
+		col += search_dir > 0 ? 1 : 0;
+	}
+	match = isearch_find_match(current, col, search_dir, kind, &rx, query,
+	    qlen, fold, &match_row, &match_col, &match_len);
+	m->too_complex = match < 0;
+
+	/* Drop the previous match's decoration unconditionally -- a new
+	 * match, a query edit, or no match at all all retire it the same
+	 * way -- before deciding whether there is a new one to show. */
+	search_match_decor_drop(&m->decor);
+	if (match <= 0) {
+		return ISEARCH_STEP_OK;
+	}
+
+	if (!isearch_set_marker(&m->marker,
+		buffer_row_col_to_position(bcur(), match_row, match_col))) {
+		return ISEARCH_STEP_NOMEM;
+	}
+	m->decor = search_match_decor(match_row, match_col, match_len);
+	if (m->decor.id == 0) {
+		return ISEARCH_STEP_NOMEM;
+	}
+	editor_reveal_position_centered(
+	    match_row, match_col + (search_dir > 0 ? match_len : 0));
+	return ISEARCH_STEP_OK;
+}
+
 static void do_isearch(int fd, int direction, enum search_kind kind)
 {
 	char query[KILO_QUERY_LEN + 1] = { 0 };
@@ -511,15 +614,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	struct minibuf_history *hist
 	    = kind == SEARCH_REGEXP ? &regexp_search_history : &search_history;
 	int hist_index = -1; /* -1 == the query being typed, not a recall */
-	int saved_cx = wcur()->cx, saved_cy = wcur()->cy;
-	int saved_coloff = wcur()->coloff, saved_rowoff = wcur()->rowoff;
-	int start_row = wcur()->rowoff + wcur()->cy;
-	int start_col = 0;
+	struct isearch_origin origin
+	    = { wcur()->cx, wcur()->cy, wcur()->coloff, wcur()->rowoff };
+	struct isearch_match m = { .start_row = wcur()->rowoff + wcur()->cy };
 	struct kg_marker_handle saved_point = { 0 };
-	struct kg_marker_handle last_match = { 0 };
-	struct kg_decor_handle match_decor = { 0 };
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
-	int too_complex = 0; /* last attempt ran out of engine budget */
 	int qlen = 0;
 	int yank_start = -1; /* see isearch_yank(); -1: no yank to pop */
 	int yank_index = 0;
@@ -530,9 +629,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	 * columns it is drawn as.  The match decoration below is anchored by
 	 * flat buffer-byte markers instead; converting to render space for
 	 * display is the renderer's job now, not this file's. */
-	start_col = wcur()->coloff + wcur()->cx;
+	m.start_col = wcur()->coloff + wcur()->cx;
 	saved_point = kg_marker_create(bcur(),
-	    buffer_row_col_to_position(bcur(), start_row, start_col),
+	    buffer_row_col_to_position(bcur(), m.start_row, m.start_col),
 	    KG_MARKER_GRAV_LEFT);
 	if (saved_point.id == 0) {
 		editor_set_status_message("Out of memory");
@@ -559,11 +658,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		 * neither that state nor an invalid pattern. */
 		editor_set_status_message("%sI-search %s: %s",
 		    kind == SEARCH_REGEXP ? "Regexp " : "",
-		    ring_note	      ? "[kill ring empty]"
-			: !rx_valid   ? "[bad regexp]"
-			: too_complex ? "[too complex]"
-			: fold	      ? "[fold]"
-				      : "[case]",
+		    ring_note		? "[kill ring empty]"
+			: !rx_valid	? "[bad regexp]"
+			: m.too_complex ? "[too complex]"
+			: fold		? "[fold]"
+					: "[case]",
 		    query);
 		editor_refresh_screen();
 
@@ -584,31 +683,11 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				    query, qlen, qlen);
 				query[qlen] = '\0';
 			}
-			isearch_drop_marker(&last_match);
+			isearch_drop_marker(&m.marker);
 			find_next = direction;
 		} else if (KEY_IN_LIST(isearch_end_keys, c)) {
 			if (KEY_IS(c, KEY_BASE_ESC, 0)) {
-				int row, col;
-
-				if (kg_marker_get_row_col(
-					saved_point, &row, &col)) {
-					wcur()->coloff = saved_coloff;
-					wcur()->rowoff = saved_rowoff;
-					wcur()->cy = row - saved_rowoff;
-					wcur()->cx = col - saved_coloff;
-					if (wcur()->cy < 0
-					    || wcur()->cy >= wcur()->h
-					    || wcur()->cx < 0
-					    || wcur()->cx >= wcur()->w) {
-						editor_reveal_position_centered(
-						    row, col);
-					}
-				} else {
-					wcur()->cx = saved_cx;
-					wcur()->cy = saved_cy;
-					wcur()->coloff = saved_coloff;
-					wcur()->rowoff = saved_rowoff;
-				}
+				isearch_restore_point(saved_point, &origin);
 			}
 			/* Emacs records the query when the search is
 			 * accepted, never when it is abandoned. */
@@ -617,8 +696,8 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			}
 			/* Accept or cancel: the search is over, so its match
 			 * decoration goes with it. */
-			search_match_decor_drop(&match_decor);
-			isearch_drop_marker(&last_match);
+			search_match_decor_drop(&m.decor);
+			isearch_drop_marker(&m.marker);
 			isearch_drop_marker(&saved_point);
 			editor_set_status_message("");
 			return;
@@ -639,7 +718,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			    hist, dir, &hist_index, draft);
 			if (entry) {
 				isearch_set_query(query, &qlen, entry);
-				isearch_drop_marker(&last_match);
+				isearch_drop_marker(&m.marker);
 				find_next = direction;
 			}
 		} else if (isearch_yank(c, query, &qlen, &yank_start,
@@ -648,14 +727,14 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			 * Emacs does; an empty ring changed nothing, so
 			 * only the note repaints. */
 			if (!ring_note) {
-				isearch_drop_marker(&last_match);
+				isearch_drop_marker(&m.marker);
 				find_next = direction;
 			}
 		} else if (c.mods == 0 && ascii_is_print(c.base)) {
 			if (qlen < KILO_QUERY_LEN) {
 				query[qlen++] = (char)c.base;
 				query[qlen] = '\0';
-				isearch_drop_marker(&last_match);
+				isearch_drop_marker(&m.marker);
 				find_next = direction;
 			}
 		} else if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
@@ -668,7 +747,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				memcpy(query + qlen, seq, (size_t)n);
 				qlen += n;
 				query[qlen] = '\0';
-				isearch_drop_marker(&last_match);
+				isearch_drop_marker(&m.marker);
 				find_next = direction;
 			}
 		} else if (isearch_handoff_key(fd, c)) {
@@ -681,89 +760,24 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			 * and only owner retiring it, whatever the edit did
 			 * to its span. */
 			minibuf_history_add(hist, query);
-			search_match_decor_drop(&match_decor);
-			isearch_drop_marker(&last_match);
+			search_match_decor_drop(&m.decor);
+			isearch_drop_marker(&m.marker);
 			isearch_drop_marker(&saved_point);
 			return;
 		}
 
 		/* Search occurrence. */
 		if (find_next) {
-			struct kg_regex rx = { 0 };
-			if (kind == SEARCH_REGEXP) {
-				if (qlen == 0) {
-					find_next = 0;
-					continue;
-				}
-				fold = !query_has_upper(query, qlen);
-				if (kg_regex_compile(
-					&rx, query, fold ? KG_REGEX_ICASE : 0)
-				    != KG_REGEX_OK) {
-					editor_set_status_message(
-					    "Regexp I-search [bad regexp]: %s",
-					    query);
-					find_next = 0;
-					continue;
-				}
-			}
-			{
-				int match = 0;
-				int current = start_row;
-				int col = start_col;
-				int match_row = -1;
-				int match_col = -1;
-				int match_len = 0;
-				int point_col;
-				int search_dir = find_next;
+			int search_dir = find_next;
 
-				fold = !query_has_upper(query, qlen);
-
-				if (kg_marker_get_row_col(
-					last_match, &current, &col)) {
-					col += search_dir > 0 ? 1 : 0;
-				}
-				match = isearch_find_match(current, col,
-				    search_dir, kind, &rx, query, qlen, fold,
-				    &match_row, &match_col, &match_len);
-				find_next = 0;
-				too_complex = match < 0;
-
-				/* Highlight: drop the previous match's
-				 * decoration unconditionally -- a new match,
-				 * a query edit, or no match at all all retire
-				 * it the same way -- before deciding whether
-				 * there is a new one to show. */
-				search_match_decor_drop(&match_decor);
-
-				if (match > 0) {
-					if (!isearch_set_marker(&last_match,
-						buffer_row_col_to_position(
-						    bcur(), match_row,
-						    match_col))) {
-						editor_set_status_message(
-						    "Out of memory");
-						running = 0;
-						isearch_drop_marker(
-						    &saved_point);
-						return;
-					}
-					match_decor = search_match_decor(
-					    match_row, match_col, match_len);
-					if (match_decor.id == 0) {
-						editor_set_status_message(
-						    "Out of memory");
-						running = 0;
-						isearch_drop_marker(
-						    &last_match);
-						isearch_drop_marker(
-						    &saved_point);
-						return;
-					}
-					point_col = match_col
-					    + (search_dir > 0 ? match_len : 0);
-					editor_reveal_position_centered(
-					    match_row, point_col);
-				}
+			find_next = 0;
+			if (isearch_advance(&m, kind, query, qlen, search_dir)
+			    == ISEARCH_STEP_NOMEM) {
+				editor_set_status_message("Out of memory");
+				running = 0;
+				isearch_drop_marker(&m.marker);
+				isearch_drop_marker(&saved_point);
+				return;
 			}
 		}
 	}

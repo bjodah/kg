@@ -572,7 +572,31 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5837 exceeds limit 5836
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5837
 #   scc total complexity: 5837 (limit 5837)
-SCC_COMPLEXITY_MAX ?= 5837
+# Raised 5837 -> 5841 for the same campaign's sub-plan D, a funded
+# Decision and the only one it takes: the campaign's other three
+# sub-plans returned 42 points and this one spends 4 of them back,
+# because on these two functions scc and pmccabe disagree about which
+# way the change went.
+#   generic_keyword_scan: three near-identical arms for 0b/0o/0x became
+#   one table of prefixes and their digit sets.  pmccabe 54 -> 48, 50
+#   lines deleted -- and scc +3, measured on this tree by adding the
+#   table alone with the arms untouched: the deletion itself scores
+#   exactly 0, so the whole cost is the helper's own existence.  (The
+#   switch-per-radix shape the same dedup can take measured +7, and an
+#   if-chain +21, which is why the table is the shape that landed.)
+#   do_isearch: the search step and the ESC restore became
+#   isearch_advance() and isearch_restore_point().  pmccabe 54 -> 40,
+#   and scc +1, the one `if` a helper needs to report out-of-memory
+#   that two inline `return`s did not.
+# Both are dedup and naming, which is what this campaign is for; scc
+# counts a helper's braces and its own branch keywords and gives no
+# credit for the copies that went away.  Cap equals the measured actual,
+# no slack.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5840
+#   FAIL: total complexity 5841 exceeds limit 5840
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5841
+#   scc total complexity: 5841 (limit 5841)
+SCC_COMPLEXITY_MAX ?= 5841
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

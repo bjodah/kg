@@ -1579,6 +1579,32 @@ static void yaml_syntax(struct editor_buffer *b, erow *row)
 	yaml_scan_value(row, i);
 }
 
+/* The non-decimal integer literal prefixes: the byte that may follow the
+ * leading `0`, in both spellings, and the digits that radix admits.  One
+ * table rather than three near-identical scanner arms. */
+static const struct {
+	const char *marks;
+	const char *digits;
+} radix_prefixes[] = {
+	{ "bB", "01" },
+	{ "oO", "01234567" },
+	{ "xX", "0123456789abcdefABCDEF" },
+	{ NULL, NULL },
+};
+
+/* The digits a `0`-prefixed literal admits, or NULL when the byte after
+ * the leading zero names no radix.  render's NUL is a digit in no radix,
+ * which is what stops such a literal at the end of the row. */
+static const char *radix_digits(char c)
+{
+	for (int k = 0; radix_prefixes[k].marks; k++) {
+		if (c && strchr(radix_prefixes[k].marks, c)) {
+			return radix_prefixes[k].digits;
+		}
+	}
+	return NULL;
+}
+
 static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 {
 	int in_string = 0; /* Are we inside "" or '' ? */
@@ -1717,61 +1743,20 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 		 * follows, so a bare 0b/0o/0x falls through to the decimal
 		 * handler. */
 		if (prev_sep && *p == '0') {
-			switch (p[1]) {
-			case 'b':
-			case 'B':
-				if (p[2] == '0' || p[2] == '1') {
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					while (*p == '0' || *p == '1') {
-						row->hl[i] = HL_NUMBER;
-						p++;
-						i++;
-					}
-					prev_sep = 0;
-					continue;
+			const char *digits = radix_digits(p[1]);
+
+			if (digits && p[2] && strchr(digits, p[2])) {
+				int n = 2;
+
+				while (p[n] && strchr(digits, p[n])) {
+					n++;
 				}
-				break;
-			case 'o':
-			case 'O':
-				if (p[2] >= '0' && p[2] <= '7') {
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					while (*p >= '0' && *p <= '7') {
-						row->hl[i] = HL_NUMBER;
-						p++;
-						i++;
-					}
-					prev_sep = 0;
-					continue;
-				}
-				break;
-			case 'x':
-			case 'X':
-				if (isxdigit((unsigned char)p[2])) {
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					row->hl[i] = HL_NUMBER;
-					p++;
-					i++;
-					while (isxdigit((unsigned char)*p)) {
-						row->hl[i] = HL_NUMBER;
-						p++;
-						i++;
-					}
-					prev_sep = 0;
-					continue;
-				}
-				break;
+				KG_ASSERT_RENDER_OFF(row, i + n);
+				memset(row->hl + i, HL_NUMBER, (size_t)n);
+				p += n;
+				i += n;
+				prev_sep = 0;
+				continue;
 			}
 		}
 

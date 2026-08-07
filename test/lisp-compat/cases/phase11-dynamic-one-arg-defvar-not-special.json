@@ -4,5 +4,5 @@
   "(defvar ov)"
  ],
  "expr": "(special-variable-p 'ov)",
- "note": "11A grid probe A7a. A one-argument `defvar' does NOT make the symbol special: special-variable-p answers nil. Paired with phase11-dynamic-one-arg-defvar-let-dynamic, which shows `let' over it is dynamic anyway -- the two flags Emacs really has, reproduced rather than simplified. Before Phase 11 kg raised void-function, having no such predicate."
+ "note": "11A grid probe A7a. A one-argument `defvar' does NOT make the symbol special: special-variable-p answers nil. Paired with phase11-dynamic-one-arg-defvar-scope, which shows what a one-argument `defvar' DOES do -- the two flags Emacs really has, reproduced rather than simplified. Before Phase 11 kg raised void-function, having no such predicate."
 }

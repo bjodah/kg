@@ -2,5 +2,5 @@
  "id": "prelude-defvar-special",
  "setup": [],
  "expr": "(progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf)))",
- "note": "The consequence of kg's defvar not creating a special variable, measured on both sides: Emacs answers 2 (the let binding is dynamic, so the function called from inside it sees it), kg answers 1 (the let binding is lexical and invisible to dvsf, which reads the global). Nothing raises and nothing warns; the program simply computes a different number. Added by sub-plan 10C because the entry claimed `supported` with an empty rationale and only the first-defvar-wins half was ever compared."
+ "note": "Since Phase 11 kg's `defvar' DOES make the symbol special, and this case agrees: both sides answer 2, because the `let' binding is dynamic on both and the function called from inside it sees it. It did not until Phase 11 -- kg answered 1, the `let' binding being lexical and invisible to dvsf, which read the global; nothing raised and nothing warned, the program simply computed a different number. That is what the case was added for, by sub-plan 10C, because the entry claimed `supported` with an empty rationale and only the first-defvar-wins half was ever compared. It is kept, now as the agreement it pins: see the prelude-defvar feature row."
 }

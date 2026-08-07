@@ -16,9 +16,14 @@
 ;;; Nothing here throws across a native re-entry boundary: every catch in
 ;;; this package is inside one `pipeline.el' function, and the commands
 ;;; below call into it and take a value back.  A `throw' out of a
-;;; `with-current-buffer' or `save-excursion' body would be answered
-;;; `no-catch' (kg's recorded catch-throw-reachability divergence), so
-;;; that shape is deliberately absent rather than accidentally missing.
+;;; `with-current-buffer' or `save-excursion' body USED TO BE answered
+;;; `no-catch' (kg's then-recorded catch-throw-reachability divergence),
+;;; so that shape is deliberately absent rather than accidentally
+;;; missing.  Phase 11 closed it for those two forms -- they are prelude
+;;; `unwind-protect' macros now, and a throw out of either reaches a
+;;; catch outside it -- but a hook, a process filter and a nested
+;;; `command-execute' are still walls, so the absence is still
+;;; deliberate.
 
 (require 'pipeline)
 

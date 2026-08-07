@@ -2,5 +2,5 @@
  "id": "prelude-with-current-buffer",
  "setup": [],
  "expr": "(with-current-buffer (current-buffer) (point))",
- "note": "Wraps kg's internal--with-current-buffer native."
+ "note": "Selects BUFFER for BODY and restores the previously current buffer after it -- deliberately not point in it, which is Emacs' scope for this form too. Since Phase 11 (11D Part 4) it is a prelude `unwind-protect' macro over the shared internal--excursion-capture / internal--excursion-restore natives, not the internal--with-current-buffer native that re-entered the evaluator with BODY as a lambda."
 }

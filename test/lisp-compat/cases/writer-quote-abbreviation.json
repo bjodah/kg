@@ -2,5 +2,5 @@
  "id": "writer-quote-abbreviation",
  "setup": [],
  "expr": "(format \"%S\" (list 'quote 'x))",
- "note": "Emacs' printer abbreviates a two-element (quote X) list back to 'X; fe's writer prints the list it is. Built with `list` rather than written as ''x so the case says the same thing to both readers -- kg reads 'x into exactly this list, and so does Emacs. Every %S, every M-: echo and every error rendering of a quoted form carries the difference."
+ "note": "Emacs' printer abbreviates a two-element (quote X) list back to 'X, and since Phase 11 (fe sub-plan 11C, feature writer-quote-forms in fe's own manifest) so does fe's writer -- both sides answer \"'x\" and the case is an agreement. Before that fe printed the list it was, and every %S, every M-: echo and every error rendering of a quoted form carried the difference, which is why the divergence was worth a case at all. Built with `list` rather than written as ''x so the case says the same thing to both readers -- kg reads 'x into exactly this list, and so does Emacs."
 }

@@ -2,5 +2,5 @@
  "id": "prelude-save-excursion",
  "setup": [],
  "expr": "(save-excursion (goto-char (point-max)))",
- "note": "Wraps kg's internal--save-excursion native; restores kg's current buffer's point after BODY, whatever BODY does to it, including a non-local exit."
+ "note": "Restores kg's current buffer's point after BODY, whatever BODY does to it, including a non-local exit. Since Phase 11 (11D Part 4) the form is a prelude `unwind-protect' macro over the two internal--excursion-capture / internal--excursion-restore natives, not the single internal--save-excursion native that re-entered the evaluator with BODY as a lambda -- which is what lets a `throw' out of BODY reach a `catch' outside the form."
 }

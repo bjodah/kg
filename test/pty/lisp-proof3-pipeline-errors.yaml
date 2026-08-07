@@ -38,23 +38,33 @@ config_files:
     ;;; condition-case, provide/require and more than one file -- without
     ;;; inventing machinery to hang them on.
     ;;;
-    ;;; Three measured constraints shaped it, and are worth knowing before
+    ;;; Four measured constraints shaped it, and are worth knowing before
     ;;; editing it:
     ;;;
-    ;;;   * a `throw' cannot cross a native re-entry boundary in kg (the
-    ;;;     recorded catch-throw-reachability divergence), so every catch
-    ;;;     and its throws live inside this file, with no `save-excursion'
-    ;;;     or `with-current-buffer' in between.  `pipeline-text.el' never
-    ;;;     throws across one either.
+    ;;;   * a `throw' could not cross a native re-entry boundary in kg (the
+    ;;;     then-recorded catch-throw-reachability divergence), so every
+    ;;;     catch and its throws live inside this file, with no
+    ;;;     `save-excursion' or `with-current-buffer' in between.
+    ;;;     `pipeline-text.el' never throws across one either.  THAT
+    ;;;     DIVERGENCE IS CLOSED as of Phase 11 for exactly those two forms,
+    ;;;     which became prelude `unwind-protect' macros with no native
+    ;;;     frame between the throw and the catch.  Every OTHER native
+    ;;;     re-entry -- a hook, a process filter, a nested `command-execute'
+    ;;;     -- is still a wall, so the shape this file avoids is still worth
+    ;;;     avoiding; the reason is narrower than when it was written.
     ;;;   * `load' resolves a bare name only in the config directory, so the
     ;;;     two files reach each other with `require', which searches
     ;;;     `load-path'.
     ;;;   * Emacs' `load' of a file with no `lexical-binding' cookie binds
     ;;;     dynamically, and the closures below then capture nothing --
     ;;;     measured, as `void-variable (n)', before the cookie on line 1 was
-    ;;;     added.  kg has only lexical binding and reads the cookie as the
-    ;;;     comment it is, so the line costs kg nothing and is what makes
-    ;;;     "runs unchanged under Emacs 31" true rather than nearly true.
+    ;;;     added.  kg reads the cookie as the comment it is, so the line
+    ;;;     costs kg nothing and is what makes "runs unchanged under Emacs
+    ;;;     31" true rather than nearly true.  (It said "kg has only lexical
+    ;;;     binding" until Phase 11 gave kg dynamic binding too.  The line
+    ;;;     still costs kg nothing: kg's dynamic binding follows the marks
+    ;;;     `defvar'/`defconst' set on a symbol, never a per-file cookie, so
+    ;;;     nothing in this file binds dynamically either way.)
     ;;;   * two of kg's recorded silent divergences must not be load-bearing
     ;;;     here, or "runs unchanged under Emacs" would be a coincidence:
     ;;;     nothing in this file rebinds a `defvar'd variable around a call,
@@ -184,9 +194,14 @@ config_files:
     ;;; Nothing here throws across a native re-entry boundary: every catch in
     ;;; this package is inside one `pipeline.el' function, and the commands
     ;;; below call into it and take a value back.  A `throw' out of a
-    ;;; `with-current-buffer' or `save-excursion' body would be answered
-    ;;; `no-catch' (kg's recorded catch-throw-reachability divergence), so
-    ;;; that shape is deliberately absent rather than accidentally missing.
+    ;;; `with-current-buffer' or `save-excursion' body USED TO BE answered
+    ;;; `no-catch' (kg's then-recorded catch-throw-reachability divergence),
+    ;;; so that shape is deliberately absent rather than accidentally
+    ;;; missing.  Phase 11 closed it for those two forms -- they are prelude
+    ;;; `unwind-protect' macros now, and a throw out of either reaches a
+    ;;; catch outside it -- but a hook, a process filter and a nested
+    ;;; `command-execute' are still walls, so the absence is still
+    ;;; deliberate.
 
     (require 'pipeline)
 

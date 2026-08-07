@@ -1,8 +1,8 @@
 # Deduplication and complexity-lowering campaign (CX)
 
-Status: OPEN — both prerequisites landed 2026-08-07 (FreeBSD at
-ad53e28, kill-ring-in-prompts at c950793, each closed by a 12/12
-parallel CI run).
+Status: CLOSED 2026-08-07 by a 12/12 parallel CI run (see Results at the
+end).  Both prerequisites had landed the same day (FreeBSD at ad53e28,
+kill-ring-in-prompts at c950793, each closed by a 12/12 run of its own).
 
 Origin: `2026-08-06_complexity-reduction-potential.md` (findings doc).
 Its central claim was re-verified on 2026-08-07: `lizard -m` (modified
@@ -162,3 +162,68 @@ Per sub-plan: commit SHAs, the banked pmccabe before→after per symbol,
 net scc delta, gate exit statuses, and the final 12/12 run. Plus a
 one-paragraph honest assessment per extraction: did it make the code
 better, or just the number smaller?
+
+## Results (closed 2026-08-07)
+
+Status: CLOSED.  All four sub-plans landed; CX-D took the campaign's one
+funded scc raise.  Commits, on `stricter-emacs-adherence` on top of
+c5913cd:
+
+| | commit | symbol | pmccabe | scc |
+|---|---|---|---|---|
+| CX-A/1 | 07ebbfc | `localvars_parse_modeline` | 51 -> 12 | -32 |
+| | | `localvars_parse_footer` | 91 -> 63 | |
+| CX-A/2 | 8c3560f | `localvars_parse_footer` | 63 -> 9 | 0 |
+| CX-B | cc4c0d9 | `editor_reflow_paragraph` | 59 -> 8 | -3 |
+| CX-C | c00dfbb | `editor_move_cursor` | 61 -> 12 | -7 |
+| CX-D | 9f322ea | `generic_keyword_scan` | 54 -> 48 | +4 |
+| | | `do_isearch` | 54 -> 40 | |
+| fix | c649e68 | `footer_read_string` | 10 -> 12 | 0 |
+
+scc total 5879 -> 5841 over the campaign, the cap re-set at the measured
+actual at each close.  Every new helper measured at or under the 15
+new-function ceiling; the worst is `footer_build_window` at 13.  Final
+green light: `JOBS=8 .ci/run-ci-steps.sh --parallel`, 12/12 -- on the
+second run.  The first was 11/12: ci-06's clang-analyzer found that
+CX-A/2 had moved the footer's continuation reader out of sight of the
+proof that a value length is non-negative, fixed in c649e68 with the
+bound test spelled out.  Nothing else failed on either run, and neither
+of the known flakes (ci-05 MSan test_compile, ci-03 valgrind
+lisp-process-cwd) appeared.
+
+Two bugs fell out of the refactoring, both pre-existing:
+
+- `localvars_parse_footer()` read a body of *negative* length when a
+  block's comment prefix and suffix overlap ("aaa"/"aaa" against the
+  line "aaaa") and handed it to `memcpy()`.  Reproduced on the tree
+  before the change under ASan (`negative-size-param: (size=-2)`), fixed
+  by the shared `footer_line_body()` guard in CX-A/2 and pinned by
+  `test_footer_overlapping_prefix_suffix_no_body`.
+- The same function's continuation reader skipped the prefix/suffix
+  check on the line it was already standing on -- one of three
+  hand-written copies of that test having drifted from the other two.
+  Benign, because the caller had already checked it.
+
+Two things the campaign declined to do, on purpose:
+
+- The rest of `generic_keyword_scan()` (48).  It is one stateful loop
+  over `(p, i, prev_sep, in_string, in_comment)`; six helpers passing
+  that tuple by pointer would read worse than the loop, which is the
+  test this plan set for it.  Only the triplicated 0b/0o/0x arms were
+  dedup'd.
+- `do_isearch()`'s key-dispatch ladder (the function is 40).  Its arms
+  are already two to five lines over the file's existing `isearch_*`
+  helpers; the two things that were *not* already factored --
+  the search step and the ESC restore -- are.
+
+One finding worth carrying forward: on CX-D, scc and pmccabe disagree
+about the direction of the change, and scc is the one that is wrong for
+this kind of work.  Measured on the tree: adding the radix table with
+the three duplicated arms *still in place* scores the same +3 as adding
+it and deleting them, so a 50-line deletion earns exactly zero credit
+and the whole charge is the helper's own existence.  The dedup written
+as a switch per radix measured +7 and as an if-chain +21.  scc counts a
+function's braces and its branch keywords; it cannot see copies that
+went away.  Any future plan that budgets a dedup campaign against
+`SCC_COMPLEXITY_MAX` should expect to pay rather than earn, and should
+price it from the per-symbol pmccabe manifest instead.

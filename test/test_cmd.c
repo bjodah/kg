@@ -475,15 +475,15 @@ static void test_descriptors_are_reachable_by_id(void)
  * lisp-arena-stats-command.yaml: this one pins the rendering against a
  * live arena in-process, the PTY case pins that the same line reaches a
  * real terminal's echo area.  The numbers themselves are the arena's, so
- * this asserts the shape and the two facts that must hold for a session
- * that has only ever loaded the prelude: no allocation has failed, and
- * the total is Fe's own total_slots.
+ * this asserts the whole line against those same counters, plus the one
+ * fact that must hold for a session which has only ever loaded the
+ * prelude: no allocation has failed.
  *
  * Under WITH_LISP=0 the same command reports "Lisp not available",
  * which is the other half of the contract and is asserted here too. */
 static void test_lisp_arena_stats_renders(void)
 {
-	char expected[128];
+	char expected[256];
 	struct kg_lisp_arena_stats stats;
 
 	if (!kg_lisp_active()) {
@@ -496,15 +496,25 @@ static void test_lisp_arena_stats_renders(void)
 	editor.statusmsg[0] = '\0';
 	CHECK(run("lisp-arena-stats", CMD_ORIGIN_LISP) == CMD_RAN);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
-	snprintf(expected, sizeof(expected), "Arena: %zu slots, ",
-	    stats.total_slots);
-	CHECKF(strncmp(editor.statusmsg, expected, strlen(expected)) == 0,
-	    "rendered %s", editor.statusmsg);
+	/* Every field, not a prefix and four substrings: reading the
+	 * counters allocates nothing and mutates no Fe state (that is the
+	 * property the CMD_LISP_CALLABLE row rests on), so the second read
+	 * has to answer exactly what the command rendered from.  This is
+	 * what makes the frames/capacity pair asserted here rather than
+	 * only in the PTY case -- capacity is a fixed property of the
+	 * arena layout, so it is stable within a session by construction. */
+	snprintf(expected, sizeof(expected),
+	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
+	    "frames %zu/%zu; fails %zu",
+	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
+	    stats.collection_count, stats.peak_gc_stack_depth,
+	    stats.peak_frame_depth, stats.frame_capacity,
+	    stats.allocation_failures);
+	CHECKF(strcmp(editor.statusmsg, expected) == 0,
+	    "rendered %s, expected %s", editor.statusmsg, expected);
+	CHECK(stats.frame_capacity > 0);
+	/* A session that has only booted has never failed an allocation. */
 	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
-	    editor.statusmsg);
-	CHECKF(strstr(editor.statusmsg, " free, peak ") != NULL, "rendered %s",
-	    editor.statusmsg);
-	CHECKF(strstr(editor.statusmsg, "; frames ") != NULL, "rendered %s",
 	    editor.statusmsg);
 	kg_lisp_shutdown();
 }

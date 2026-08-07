@@ -558,8 +558,10 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
  * allocating no arena never provokes.  Without that, the 64-record pool
  * bounded how many excursions a run could SAVE rather than how many it
  * could hold open, and the 65th `save-excursion` between two collections
- * raised "too many buffer objects"; with it, the bound is nesting depth,
- * which is what the pool is for.
+ * raised "too many buffer objects"; with it, the pool bounds only what
+ * is open at once -- and since the pool went to 256 records (Phase 12)
+ * even that is academic: fe's evaluation frame limit fires first, at
+ * 219 nested excursions (src/lisp_obj.h says the same).
  *
  * Restoring is deliberately tolerant, exactly as the C cleanups were.  A
  * buffer killed underneath the form is not an error; it is a restore

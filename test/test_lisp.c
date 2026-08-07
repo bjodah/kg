@@ -437,6 +437,33 @@ static void test_interrupt(void)
 	kg_lisp_shutdown();
 }
 
+/* The two cleanup-delivery divergences from Emacs the Phase 12 docs
+ * review found (manifest row cleanup-raise-residuals; fe's twin row is
+ * unwind-protect-cleanup-raise-residuals): both PRE-EXISTING, pinned
+ * here so a change of answer is visible.  Emacs answers
+ * (OUT (error "cleanup")) and (no-catch b 2) respectively; fe delivers
+ * to frames the abandoned computation left on the stack. */
+static void test_cleanup_raise_residuals(void)
+{
+	const char *body = "(condition-case o (catch 'tg (unwind-protect"
+			   " (condition-case nil (throw 'tg 'body)"
+			   " (error 'IN)) (error \"cleanup\")))"
+			   " (error (list 'OUT o)))";
+	const char *exited = "(catch 'a (unwind-protect (catch 'b"
+			     " (throw 'a 1)) (throw 'b 2)))";
+	char result[128] = "";
+
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_eval_string(body, strlen(body), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "IN") == 0);
+	CHECK(
+	    kg_lisp_eval_string(exited, strlen(exited), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "2") == 0);
+	kg_lisp_shutdown();
+}
+
 /* Quit during load is still a quit after the Phase 12 fix-cycle loader
  * rebuild: C-g inside a loaded form's evaluation cancels the whole
  * evaluation as KG_LISP_ERROR_QUIT, and the loader's bookkeeping is
@@ -5349,6 +5376,7 @@ int main(void)
 	RUN(test_load_incremental_loop);
 	RUN(test_interrupt);
 	RUN(test_load_quit);
+	RUN(test_cleanup_raise_residuals);
 	RUN(test_message_arity);
 	RUN(test_insert_and_undo);
 	RUN(test_insert_read_only_recovery);

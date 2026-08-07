@@ -122,10 +122,12 @@ leaf
 which kg records rather than implements.
 A
 .Li throw
-out of a loaded file is the remaining divergence: it becomes
-.Li (no-catch TAG VALUE)
-where Emacs delivers the value to a catch around the
-.Li load .
+out of a loaded file reaches a catch around the
+.Li load ,
+as in Emacs: loaded forms are read and evaluated one at a time in the
+caller's own run, so errors, throws and quits cross the
+.Li load
+as if the forms were written in place.
 .Li (require FEATURE &optional FILENAME)
 loads at most once, a no-op when
 .Li (provide FEATURE)
@@ -816,6 +818,7 @@ and
 are reader delimiters and symbol escapes are a deliberate read error, so
 after a rename the prelude could not spell the macro it defines;
 .Li (eval FORM)
+\(em by contrast with the callback walls above, and matching Emacs \(em
 evaluates FORM in the caller's own run, so a condition, a
 .Li throw
 or a
@@ -875,7 +878,11 @@ or budget exhaustion \(em and a
 .Li condition-case
 written inside a cleanup handles what that cleanup raises, leaving
 whatever was being unwound in flight, while a cleanup error nothing in
-the cleanup handles still replaces that completion as it does in Emacs;
+the cleanup handles still replaces that completion as it does in Emacs
+\(em two corner shapes of where the replacement lands diverge, recorded
+as the compat manifest's
+.Li cleanup-raise-residuals
+row;
 .Li save-excursion
 and
 .Li with-current-buffer
@@ -923,8 +930,9 @@ cons (visible only through
 .Li (symbol-function \(aqa-macro) ) ;
 and Lisp nesting (recursive calls, nested special forms, self-expanding
 macros) is bounded by the interpreter's frame stack, not by C or
-garbage-collector recursion — kg's default arena holds roughly 364
-levels of ordinary self-recursion.
+garbage-collector recursion — kg's default arena holds about 540
+levels of ordinary self-recursion (measured 544 at the Phase 12 fix
+cycle).
 A native re-entering the evaluator synchronously, as a hook function, a
 process filter or sentinel and a nested
 .Li command-execute

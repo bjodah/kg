@@ -1115,9 +1115,9 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(stats.collection_count == 0);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* A real init evaluates real forms: peak_frame_depth has moved off
-	 * the bare prelude's own baseline of 2 (measured: prelude alone is
-	 * peak_frame_depth 2, the representative init above is 54 on this
-	 * build -- both well under frame_capacity). */
+	 * the bare prelude's own baseline (measured at the Phase 12 fix
+	 * cycle: prelude alone is peak_frame_depth 3, the representative
+	 * init above is 54 -- both well under frame_capacity). */
 	CHECK(stats.peak_frame_depth > 2);
 	CHECK(stats.peak_cleanup_stack_depth == 0);
 	kg_lisp_shutdown();

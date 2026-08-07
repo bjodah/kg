@@ -1,0 +1,7 @@
+{
+ "id": "cleanup-throw-to-exited-catch",
+ "setup": [],
+ "expr": "(catch 'a (unwind-protect (catch 'b (throw 'a 1)) (throw 'b 2)))",
+ "expect": "diverge",
+ "note": "kg's half of fe's cond-u6 probe: a cleanup's throw reaching a catch the in-flight completion had ALREADY EXITED. Emacs answers (no-catch b 2); fe's FindCatchFrame still sees the catch frame -- same frame-lifetime cause as the handler case -- and answers 2. Pre-existing; found post-close by the Phase 12 docs review."
+}

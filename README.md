@@ -241,7 +241,9 @@ condition symbol. A file that is not there raises Emacs' own
 `file-missing` — `(file-missing "Cannot open load file" "No such file or
 directory" PATH)`, and the same condition and data from `require` when
 nothing in the load-path matches — so a handler may name `file-missing`,
-its parent `file-error`, or `error`. A `throw` out of a loaded file
+its parent `file-error`, or `error`. A permission failure raises the
+parent class `file-error`, where Emacs raises its third leaf
+`permission-denied` — recorded rather than implemented. A `throw` out of a loaded file
 reaches a `catch` around the `load`, as it does in Emacs: loaded forms
 are read and evaluated one at a time in the caller's own run, so
 errors, throws and quits cross the `load` as if the forms were written
@@ -620,7 +622,10 @@ first surprise:
   a `condition-case` written *inside* a cleanup handles what that
   cleanup raises, leaving whatever was being unwound in flight. A
   cleanup error nothing in the cleanup handles still replaces that
-  completion, which is Emacs' rule too.
+  completion, which is Emacs' rule too — though *where* the replacement
+  is delivered can diverge in two corner shapes (a handler in the
+  abandoned body; a catch the exit had already left), recorded as
+  `cleanup-raise-residuals` in the compat manifest.
   `save-excursion` and `with-current-buffer` are transparent to the
   enclosing evaluation, `throw` included: an error inside either body
   reaches a `condition-case` written around the form with its original
@@ -634,7 +639,10 @@ first surprise:
   nested `command-execute`, are still kg's native-reentry wall for
   `throw`: it becomes `(no-catch TAG VALUE)` there, which an enclosing
   `condition-case` handles, and that is a recorded divergence from
-  Emacs.
+  Emacs. `(eval FORM)`, by contrast, evaluates FORM in the caller's own
+  run — a condition, a `throw` or a `C-g` out of it reaches the
+  enclosing handler, and its environment is the global one, which is
+  Emacs' answer for a nil LEXICAL argument.
   kg's own editor natives still signal a plain `error` whose message
   happens to read like a condition name, so a handler naming the
   specific symbol does not match one of them; classifying them is the
@@ -644,9 +652,9 @@ first surprise:
   `(macro . FUNCTION)` cons — visible only through `(symbol-function 'a-macro)`.
 - Lisp nesting (recursive calls, nested special forms, self-expanding
   macros) is bounded by the interpreter's frame stack, not by C or
-  garbage-collector recursion — kg's default arena holds roughly 364
-  levels of ordinary self-recursion, so walk long lists with `while`, not
-  recursion. A native re-entering the evaluator synchronously (as a hook
+  garbage-collector recursion — kg's default arena holds about 540
+  levels of ordinary self-recursion (measured 544 at the Phase 12 fix
+  cycle), so walk long lists with `while`, not recursion. A native re-entering the evaluator synchronously (as a hook
   function, a process filter or sentinel, and a nested
   `command-execute` do) has its own, much smaller bound (32 nested
   re-entries), since each level there is a real C stack frame.

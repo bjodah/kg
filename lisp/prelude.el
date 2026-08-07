@@ -529,11 +529,15 @@
 ;; simplification: a two-argument `defvar' marks *full* --
 ;; `special-variable-p' answers t -- while a one-argument `(defvar v)'
 ;; sets the let-dynamic flag alone, so `special-variable-p' answers nil
-;; and yet `(let ((v 5)) v)' is 5.  kg's marking is global where Emacs
-;; scopes a one-argument `defvar' to the file it appears in; that
-;; approximation is recorded in test/lisp-compat/features.json's
-;; `prelude-defvar' row rather than defended.  Marking is one-way: fe
-;; has no unmark, because Emacs has none either.
+;; and yet `(let ((v 5)) v)' is 5.  A one-argument mark is scoped to
+;; its INPUT UNIT (one load, require, batch file or M-:), as Emacs
+;; scopes it to the evaluation unit; the residuals -- kg answers
+;; lexically for a defun written after the defvar and called from
+;; another file, where Emacs stays dynamic, and every mark is visible
+;; to host context (hooks, command dispatch) -- are recorded in
+;; test/lisp-compat/features.json's `prelude-defvar' row rather than
+;; defended.  Marking is one-way: fe has no unmark, because Emacs has
+;; none either.
 (defalias 'defvar (macro (name . rest)
   (internal--let value-present (if rest t nil))
   (internal--let doc

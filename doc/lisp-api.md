@@ -89,12 +89,19 @@ trusting it.
   back-pressure — a full pool raises rather than asking for a collection
   (fe publishes no collect-now entry point), and a loop that allocates
   no arena never provokes one by itself. `save-excursion`'s saved state
-  is such an object: its restore releases the record on the spot, so 64
-  bounds how many excursions are *open at once* (the nesting depth),
-  never how many a run performs. Without that release the 65th
-  `save-excursion` between two collections failed — the Phase 11
-  acceptance review's blocker, pinned now by
-  `test_save_excursion_pool_bound` and two PTY cases.
+  is such an object: its restore releases the record on the spot, so
+  the pool bounds how many excursions are *open at once*, never how
+  many a run performs. Without that release the 65th `save-excursion`
+  between two collections failed — the Phase 11 acceptance review's
+  blocker, pinned now by `test_save_excursion_pool_bound` and two PTY
+  cases. Since the pool went to 256 records (Phase 12), it no longer
+  bounds nesting at all: fe's evaluation frame limit fires first.
+  Measured at the Phase 12 fix cycle, nested `save-excursion` runs to
+  **218** and the 219th raises `evaluation frame limit exceeded`;
+  nested `with-current-buffer` over `(current-buffer)` runs to **156**
+  and the 157th raises the same — both the 1095-frame arena
+  partition's verdict, not the pool's. `test/test_lisp.c`'s
+  `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle
   once minted. **The handle is the only identity a process ever
@@ -230,9 +237,10 @@ Ordering rules that hold across every subscriber:
   - **Lisp nesting** (`FeEvalOptions.max_frames`, 0 selecting the arena's
     own `frame_capacity`) counts live evaluator frames, not Lisp call
     frames one-for-one — an ordinary self-recursive function costs
-    roughly 3 frames per level (`if`, the arithmetic, and the recursive
-    call each open one), so in practice it stops `(deep n)`-shaped
-    recursion a few hundred levels in. kg's default 1 MiB arena measures
+    about 2 frames per level (measured at the Phase 12 fix cycle:
+    `(deep n)`-shaped recursion runs to 544 levels against the
+    1095-frame arena), so in practice it stops such recursion a few
+    hundred levels in. kg's default 1 MiB arena measures
     `frame_capacity` 1095; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
@@ -467,7 +475,13 @@ change is the rule for a cleanup error nothing in the cleanup handles —
 it still replaces the completion being unwound and is caught by a
 handler written *around* the `unwind-protect`, which is Emacs' rule too
 — and a cleanup that `throw`s still abandons the error it was unwinding.
-The cleanups still pending after a raising cleanup run anyway.
+The cleanups still pending after a raising cleanup run anyway. Two
+corner shapes of *where* the replacement lands diverge from Emacs, both
+pre-existing and found post-close: a `condition-case` in the already-
+abandoned body can receive it before the enclosing one does, and a
+cleanup's `throw` can reach a `catch` the exit had already left. The
+`cleanup-raise-residuals` manifest row pins both probes with the
+oracle's answers.
 
 `save-excursion` and `with-current-buffer` are *transparent* to the
 evaluation that encloses them, `throw` included. An error raised inside
@@ -876,15 +890,27 @@ primitive's function cell.
   is Emacs 31's own measured behaviour under `lexical-binding: t`; the
   flag is consulted at `let`'s binding paths and nowhere else.
 
-  Two approximations are recorded rather than defended. kg's marking is
-  **global** where Emacs scopes a one-argument `defvar` to the file it
-  appears in — broader, never narrower. And the ~53 generically named
-  temporaries kg's prelude binds (`result`, `res`, `doc`, `name`, …)
-  become dynamically capturable the moment a user `defvar`s such a name,
-  which is exactly Emacs' own exposure for `lexical-binding` libraries.
+  A one-argument `defvar`'s let-dynamic-only mark is scoped to the
+  **input unit** it appears in — a `load`, a `require`, a batch file,
+  an `M-:`, one `eval-buffer` — as Emacs scopes it to the evaluation
+  unit, and Phase 12 measured the two agreeing on the canonical
+  two-file probe: file A's own `let` over its bare `defvar` is
+  dynamic, file B's `let` over the same name is lexical again, in both
+  dialects. Two residuals are recorded rather than defended, and one
+  runs **narrower** than Emacs, not broader: a `defun` written after
+  the `defvar` in file A stays dynamic in Emacs when called from file
+  B (the mark travels in the file's lexical environment), while kg —
+  consulting the flag where the `let` runs — answers lexically there.
+  The other is a widening: outside any input unit (hooks, command
+  dispatch, process callbacks — host context), every mark is visible.
+  And the ~53 generically named temporaries kg's prelude binds
+  (`result`, `res`, `doc`, `name`, …) become dynamically capturable
+  the moment a user `defvar`s such a name, which is exactly Emacs' own
+  exposure for `lexical-binding` libraries.
   `test/lisp-compat/features.json`'s `prelude-defvar`,
   `phase11-one-arg-defvar-file-scope` and `prelude-let` rows carry the
-  measurements.
+  measurements, and fe's `one-arg-defvar-scope-carrier` row carries
+  the probe grid.
 - **The printer abbreviates `(quote X)` to `'X`, as Emacs' does.**
   `(format "%S" (list 'quote 'x))` is `"'x"` on both sides, recursively,
   so `(a 'b c)` prints that way and every `M-: ` echo of a quoted form

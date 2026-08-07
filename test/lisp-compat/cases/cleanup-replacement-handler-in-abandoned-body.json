@@ -1,0 +1,7 @@
+{
+ "id": "cleanup-replacement-handler-in-abandoned-body",
+ "setup": [],
+ "expr": "(condition-case o (catch 'tg (unwind-protect (condition-case nil (throw 'tg 'body) (error 'IN)) (error \"cleanup\"))) (error (list 'OUT o)))",
+ "expect": "diverge",
+ "note": "kg's half of fe's cond-u5 probe (fe/compat's unwind-protect-cleanup-raise-residuals row): an unhandled cleanup raise replaces the throw being unwound in both dialects -- the replacement rule holds -- but Emacs delivers the replacement to the ENCLOSING handler ((OUT (error \"cleanup\"))) while fe delivers it to a condition-case established in the ABANDONED body, still on the frame stack the drain started from (IN). Pre-existing on every revision since the replacement rule; found post-close by the Phase 12 docs review."
+}

@@ -68,10 +68,20 @@ All relevant changes to the project are documented in this file.
   later file's `let` over the same name is an ordinary lexical binding
   again.
 
-- Nested `save-excursion` and friends run four times deeper: the
-  adapter's object pool went from 64 records to 256, which costs 16.5 KB
-  and takes the pool out of the role of bounding how deeply Lisp can
-  nest.
+- `load` and `require` evaluate a file's forms **in the caller's own
+  run**, one form at a time, as Emacs does: a `throw` out of a loaded
+  file reaches a `catch` around the `load`, an error reaches an
+  enclosing `condition-case`, `unwind-protect` cleanups in the loading
+  frame run as either crosses, and a form runs before the *next* form's
+  reader error is discovered.  (This landed in the phase's fix cycle;
+  at the phase's first close a thrown value still arrived as
+  `no-catch`.)
+
+- Nested `save-excursion` runs 3.4× deeper (64 → 218 levels, measured):
+  the adapter's object pool went from 64 records to 256, which costs
+  16.5 KB and takes the pool out of the role of bounding how deeply
+  Lisp can nest — the interpreter's frame limit is the bound now.
+  `with-current-buffer` is unchanged: it was frame-limit-bound already.
 
 - Fixed a heap buffer overflow in syntax highlighting, present since the
   editor's kilo ancestry: a line ending in a lone backslash inside an

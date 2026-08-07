@@ -14,11 +14,11 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(59 primitives/aliases at this pin, plus the handful of fe-owned divergences that
+(62 primitives/aliases at this pin, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
-(this directory) owns kg's 81 natives (`native_bindings[]`,
+(this directory) owns kg's 87 natives (`native_bindings[]`,
 `src/lisp_prelude.c`) and kg's prelude definitions
-(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 77) -- kg-owned,
+(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 80) -- kg-owned,
 even though most of the prelude definitions are themselves oracle-comparable
 Emacs Lisp forms
 (`let`, `defun`, `cond`, `mapcar`, ...). Putting kg's half inside the
@@ -264,11 +264,11 @@ re-recorded).
 | §14 item | Status | Decided by |
 | --- | --- | --- |
 | the three proofs pass | PASS | Proof 1: `lisp-auto-fill-mode-break.yaml`, `-undo.yaml`, `-error-disarms.yaml`, `-no-lisp-regression.yaml`, plus `make lisp-package-check`. Proof 2: `lisp-init-phase8-library.yaml` and the corpus mapped above. Proof 3: `lisp/pipeline.el` + `lisp/pipeline-text.el`, nine oracle cases and `lisp-proof3-pipeline-{init,commands,errors}.yaml` |
-| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — **143 cases**, 132 passed, **11 recorded divergent cases**, 0 failed (131/120/11 at the Phase 11 close, 113/100/13 at Phase 10's). Units matter and this row conflated them once: 11 is a count of *cases*, and the manifest carries **17 divergent features**, of which ten are `comparison: emacs` and account for those cases while the other seven are `comparison: kg-policy` and have no snapshot at all. The runner has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
+| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — **148 cases**, 136 passed, **12 recorded divergent cases**, 0 failed (143/132/11 at Phase 12's first close, 131/120/11 at Phase 11's, 113/100/13 at Phase 10's). Units matter and this row conflated them once: 12 is a count of *cases*, and the manifest carries **17 divergent features**, of which ten are `comparison: emacs` and account for those cases while the other seven are `comparison: kg-policy` and have no snapshot at all. The runner has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
 | all `supported` `comparison: kg-policy` entries pass their kg tests | PASS | `make check` runs every cited test; `make lisp-compat-check` verifies each citation resolves — the file exists, a C citation names a function, and that function is defined there |
 | unsupported entries fail clearly | PARTIAL, and re-worded (10A Decision 5) | Reader syntax kg does not implement is rejected **by name** (`unsupported read syntax: vector brackets`, `phase8-reader-vector`), and so is `macroexpand-all` (`unsupported feature: macroexpand-all`). Unknown *functions* answer plain `void-function`, which is byte-identical to a typo. A curated known-name channel would be new language machinery with an unbounded name list; the debt is in `doc/TODO.md` |
-| intentional divergences are documented and tested | PASS | 11 `divergent` `comparison: emacs` **cases** run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed. Phase 11 then **fixed four** of the 13 the Phase 10 close recorded — `prelude-defvar`, `writer-quote-abbreviation`, `load-error-condition-reachability` and `catch-throw-reachability` — and **opened two** in their place, both consequences of those fixes rather than oversights: `load-throw-reachability` (the containment barrier that makes a loaded file's error catchable is a throw wall) and `phase11-one-arg-defvar-file-scope`. Phase 12 then closed the *behaviour* the second of those described — a one-argument `defvar` is scoped to its input unit now, and the two-file probe `test_phase12_one_arg_defvar_file_scope` is the evidence — without the case flipping, because that case never pinned the leak: the Emacs shim evaluates each setup form in its own scope while kg's runner concatenates them into one file, so both sides answer correctly to different questions. Its rationale was rewritten in the same commit rather than its snapshot, which is the other half of the XPASS discipline: a fix that deliberately does not flip its case must still correct what the case claims. `load-throw-reachability` stays open and its `doc/TODO.md` item carries Phase 12's measurement of the remaining blocker. The XPASS rule is what forced each fix's manifest edit into the same commit as its behaviour change |
-| kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 441 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 100 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
+| intentional divergences are documented and tested | PASS | 11 `divergent` `comparison: emacs` **cases** run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed. Phase 11 then **fixed four** of the 13 the Phase 10 close recorded — `prelude-defvar`, `writer-quote-abbreviation`, `load-error-condition-reachability` and `catch-throw-reachability` — and **opened two** in their place, both consequences of those fixes rather than oversights: `load-throw-reachability` (the containment barrier that makes a loaded file's error catchable is a throw wall) and `phase11-one-arg-defvar-file-scope`. Phase 12 then closed the *behaviour* the second of those described — a one-argument `defvar` is scoped to its input unit now, and the two-file probe `test_phase12_one_arg_defvar_file_scope` is the evidence — without the case flipping, because that case never pinned the leak: the Emacs shim evaluates each setup form in its own scope while kg's runner concatenates them into one file, so both sides answer correctly to different questions. Its rationale was rewritten in the same commit rather than its snapshot, which is the other half of the XPASS discipline: a fix that deliberately does not flip its case must still correct what the case claims. `load-throw-reachability` flipped at the phase's FIX CYCLE — fe's input-unit trio let `load` become a prelude loop in the caller's run, the case went expect: diverge → agree in the same commit as the behaviour, and three fresh `load-dynamic-extent` cases pin the consequences. The same cycle opened `cleanup-raise-residuals` (two pre-existing cleanup-delivery shapes the docs review found) — closed and opened divergences both go through this table's rule. The XPASS rule is what forced each fix's manifest edit into the same commit as its behaviour change |
+| kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 443 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 102 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
 | no assignment `=` remains | PASS | `=` is chained numeric equality since Phase 2 (`FE_LANGUAGE_VERSION` 2). Measured now, not remembered: `(= 1 1)` is `t`, and `(= x 1)` on an unbound `x` is `void-variable`, not an assignment (`prelude-equality-family`, `fe/compat`'s numeric rows) |
 | strict arity is unconditional | PASS | `FeSetStrictArity()`/`FeGetStrictArity()` do not exist to turn it off (Phase 7, `FE_LANGUAGE_VERSION` 6); `arity-strict` and `arity-lambda-too-few-nargs` compare against the oracle, and a wrong-arity *macro* call raises the same condition with the same data through 10B's reflective expansion path |
 | Lisp-2 behavior is complete for the supported subset | PASS | `pipeline-lisp2-cells` (one symbol, two cells, measured against Emacs), the `lisp2-*` rows in `fe/compat`, and `#'`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias` all present since Phase 4 |
@@ -326,18 +326,21 @@ as the range of three runs rather than a single figure.
 ## Counts, with their units (re-stated at the Phase 12 close)
 
 Cases and features are different units, and every count below names the
-one it is in.  Measured on the tree at Phase 12's close, not carried:
+one it is in.  Measured on the tree at Phase 12's fix cycle, not
+carried (the first-close table said 209/17/192, 246 cases, 143
+snapshots, and carried a stale 327 for fe's snapshots where the measured
+count was 355 — the number below is measured):
 
 | Unit | kg (`test/lisp-compat/`) | fe (`fe/compat/`) |
 | --- | ---: | ---: |
-| features in the manifest | **209** | **167** |
-| ... of which `divergent` | **17** | **30** |
-| ... of which `supported` | 192 | 124 |
+| features in the manifest | **220** | **168** |
+| ... of which `divergent` | **17** | **31** |
+| ... of which `supported` | 203 | 124 |
 | ... `planned` / `unsupported` | 0 / 0 | 9 / 4 |
-| case files | **246** | **365** |
-| checked-in Emacs snapshots | **143** | 327 |
-| `make lisp-oracle-check` | 143 cases, 132 passed, **11 divergent cases**, 0 failed | — |
-| `make -C fe compat` | — | 365 cases, 303 passed, 62 known gaps, 0 failed |
+| case files | **251** | **367** |
+| checked-in Emacs snapshots | **148** | **357** |
+| `make lisp-oracle-check` | 148 cases, 136 passed, **12 divergent cases**, 0 failed | — |
+| `make -C fe compat` | — | 367 cases, 303 passed, 64 known gaps, 0 failed |
 
 The two numbers most often confused are in the last two rows of the kg
 column: **11 divergent cases** and **17 divergent features** are both

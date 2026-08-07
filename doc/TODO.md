@@ -144,8 +144,10 @@ This file remains the broader feature and technical-debt inventory.
       comma abbreviation is context-sensitive — measured, `(list '\, 'x)`
       standalone prints `(\, x)` and only inside a backquote does it
       print `,x` — which needs an inside-backquote depth field fe's
-      `Writer` struct does not have.  Blast radius counted: 83 sites in
-      24 files, plus a guaranteed XPASS on
+      `Writer` struct does not have.  Blast radius re-counted at the
+      Phase 12 fix cycle (`git grep -lE "quasiquote|unquote"`, tracked
+      files, `doc/plans` excluded): 75 sites in 22 files across the kg
+      and fe trees, plus a guaranteed XPASS on
       `phase8-reader-nested-backquote` and a PTY `expected_saved` edit.
       The honest shape is two phases: reader escapes first, spelling
       second.  Recorded as `phase8-reader-backquote-symbol-names`.
@@ -153,8 +155,9 @@ This file remains the broader feature and technical-debt inventory.
       no such bound.**  Recorded by Phase 12, which removed the *other*
       bound: the adapter object pool went 64 -> 256 records, so nested
       `save-excursion` runs to 218 and the 219th raises `evaluation frame
-      limit exceeded` — the same 1095-frame arena partition
-      `with-current-buffer` has always hit at 156.  Emacs has no pool and
+      limit exceeded` — the same 1095-frame arena partition that bounds
+      `with-current-buffer` (at the fix cycle, over `(current-buffer)`:
+      156 runs, the 157th raises).  Emacs has no pool and
       no frame limit; its first ceiling is the C stack, at about 50000
       nested `save-excursion`s.  Raising this means a larger frame
       partition or a growable one, which is fe arena work and has no
@@ -185,18 +188,20 @@ This file remains the broader feature and technical-debt inventory.
       31.0.90 — so an implementation would need first-class lexical
       environments as values, which neither tree has.
 - [ ] **fe has no `error-message` property, so a `signal`'s message is
-      the bare condition name.**  Newly recorded by Phase 12.
-      `RaiseCondition` is handed the symbol as both the name and the
-      message, so `(signal 'file-missing DATA)` reports `file-missing`
-      and nothing else where Emacs' `error-message-string` renders
-      `Cannot open load file: No such file or directory, /nope/x.el`.
-      kg's `render_file_condition()` does that rendering for the two
-      classes it raises that way, which is the narrow version; the
-      general one is a per-symbol message property in fe's hierarchy
-      table and an `error-message-string` to read it.  Everything kg
-      raises through `signal` and does not render — `wrong-type-argument`
-      from `lisp_raise_wrong_type()`, for one — still reports the bare
-      name.
+      the bare condition name.**  Newly recorded by Phase 12; example
+      corrected by its review, which measured the original headline
+      example rendering fine — `render_file_condition()` keys on the
+      condition SYMBOL, not on who raised it, so a plain Lisp
+      `(signal 'file-missing ...)` of the string triple renders
+      byte-identically to Emacs.  The true examples: measured,
+      `(signal 'error (list "custom msg"))` reports `error` where
+      Emacs reports `custom msg`, and
+      `(signal 'wrong-type-argument (list 'listp 6))` reports
+      `wrong-type-argument` where Emacs reports
+      `Wrong type argument: listp, 6`.  kg's renderer is the narrow
+      version for the two file classes; the general one is a
+      per-symbol message property in fe's hierarchy table and an
+      `error-message-string` to read it.
 - [ ] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
       `condition-case`.**  Found while measuring Phase 12's file
       conditions, pre-existing, and deliberately not fixed there.

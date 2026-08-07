@@ -529,6 +529,16 @@ ifeq ($(WITH_LISP),1)
 # adapter object, especially lisp_core.o's static_assert tripwires.
 $(LISP_OBJS): fe/fe.h
 $(addprefix $(PERFOBJDIR)/,$(LISP_SRCS:.c=.o)): fe/fe.h
+# Same reasoning, one header further in, and it had a real defect: the
+# per-object lines below name lisp_obj.h only where the .c file includes it
+# directly, but lisp_internal.h includes it too and `struct lisp_state'
+# embeds `struct lisp_object_pool' BY VALUE.  Changing LISP_MAX_OBJECTS
+# therefore relaid out the one global every adapter object reaches for while
+# leaving lisp_core.o -- the file that DEFINES it -- compiled against the old
+# size, so lisp_obj.c indexed past the end of an array lisp_core.o had
+# allocated short.  Two objects, both private headers, spelled once.
+$(LISP_OBJS): $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
+$(addprefix $(PERFOBJDIR)/,$(LISP_SRCS:.c=.o)): $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
 endif
 
 $(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)

@@ -908,7 +908,7 @@
   "src/lisp_require.c:native_add_to_load_path": 4,
   "src/lisp_require.c:native_featurep": 1,
   "src/lisp_require.c:native_provide": 3,
-  "src/lisp_require.c:native_require": 8,
+  "src/lisp_require.c:native_require": 9,
   "src/lisp_require.c:requiring_index": 3,
   "src/lisp_require.c:resolve_require_path": 5,
   "src/lisp_search.c:lisp_match_bound": 7,

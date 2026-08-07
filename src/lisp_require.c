@@ -265,12 +265,24 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 		 * require that actually loads is the only thing kg calls a
 		 * package load.  See perf.h for why this one accumulates and
 		 * why it is nested inside the init counter when the require
-		 * is written in init.el. */
+		 * is written in init.el.
+		 *
+		 * Only the OUTERMOST require of a chain is timed --
+		 * requiring_depth was incremented above, so 1 means this one
+		 * has no require above it.  A nested require's interval lies
+		 * entirely inside its parent's, and adding both counted the
+		 * same nanoseconds twice: measured, on an init file whose
+		 * (require 'pipeline-text) loads a file that itself requires
+		 * 'pipeline, the total came out LARGER than the init file it
+		 * happened inside. */
 		long long before = lisp_monotonic_ns();
+		bool outermost = state.requiring_depth == 1;
 
 		lisp_eval_file(context, path);
-		KG_PERF_ADD(
-		    KG_PERF_LISP_PACKAGE_LOAD_NS, lisp_monotonic_ns() - before);
+		if (outermost) {
+			KG_PERF_ADD(KG_PERF_LISP_PACKAGE_LOAD_NS,
+			    lisp_monotonic_ns() - before);
+		}
 	}
 #else
 	lisp_eval_file(context, path);

@@ -376,8 +376,21 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5800 exceeds limit 5799
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5800
 #   scc total complexity: 5800 (limit 5800)
-# 10D re-sets this to the measured actual at the phase close, as 09D did.
-SCC_COMPLEXITY_MAX ?= 5820
+# Re-set 5820 -> 5802 at the Phase 10 close (2026-08-07), the convention
+# every phase since 08 has kept.  The phase spent +2 of the 20 points the
+# raise made available, against a +3..10 price: the lisp_require.c suffix
+# conditional cost 0 (a ternary scc does not count) and the three
+# perf-counter sites cost 2, all of it the outermost-require test the
+# nesting fix needed.  The other 18 go back rather than sitting as
+# unearned headroom for work nobody has priced.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5801
+#   FAIL: total complexity 5802 exceeds limit 5801
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5802
+#   scc total complexity: 5802 (limit 5802)
+# SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
+# unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
+# function 91).
+SCC_COMPLEXITY_MAX ?= 5802
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

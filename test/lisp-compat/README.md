@@ -228,6 +228,69 @@ cannot:
   dynamically and the closures capture nothing — measured, as
   `void-variable (n)`, before the cookie was added.
 
+## The compatibility milestone gate (§14), item by item
+
+The parent plan's §14 says the initial program is complete when nine
+things hold. Each row below names the command or test that decides it,
+so the gate is run rather than read. Every figure is measured on the
+tree at Phase 10's close.
+
+| §14 item | Status | Decided by |
+| --- | --- | --- |
+| the three proofs pass | PASS | Proof 1: `lisp-auto-fill-mode-break.yaml`, `-undo.yaml`, `-error-disarms.yaml`, `-no-lisp-regression.yaml`, plus `make lisp-package-check`. Proof 2: `lisp-init-phase8-library.yaml` and the corpus mapped above. Proof 3: `lisp/pipeline.el` + `lisp/pipeline-text.el`, nine oracle cases and `lisp-proof3-pipeline-{init,commands,errors}.yaml` |
+| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — 112 cases, 100 passed, 12 recorded divergences, 0 failed. It has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
+| all `supported` `comparison: kg-policy` entries pass their kg tests | PASS | `make check` runs every cited test; `make lisp-compat-check` verifies each citation resolves — the file exists, a C citation names a function, and that function is defined there |
+| unsupported entries fail clearly | PARTIAL, and re-worded (10A Decision 5) | Reader syntax kg does not implement is rejected **by name** (`unsupported read syntax: vector brackets`, `phase8-reader-vector`), and so is `macroexpand-all` (`unsupported feature: macroexpand-all`). Unknown *functions* answer plain `void-function`, which is byte-identical to a typo. A curated known-name channel would be new language machinery with an unbounded name list; the debt is in `doc/TODO.md` |
+| intentional divergences are documented and tested | PASS | 12 `divergent` `comparison: emacs` cases run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed; the two that were unrecorded (`prelude-defvar`, `writer-quote-abbreviation`) are now rows with cases, `doc/fe-upstream.md` entries and `doc/TODO.md` work items |
+| kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 439 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 98 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
+| no assignment `=` remains | PASS | `=` is chained numeric equality since Phase 2 (`FE_LANGUAGE_VERSION` 2). Measured now, not remembered: `(= 1 1)` is `t`, and `(= x 1)` on an unbound `x` is `void-variable`, not an assignment (`prelude-equality-family`, `fe/compat`'s numeric rows) |
+| strict arity is unconditional | PASS | `FeSetStrictArity()`/`FeGetStrictArity()` do not exist to turn it off (Phase 7, `FE_LANGUAGE_VERSION` 6); `arity-strict` and `arity-lambda-too-few-nargs` compare against the oracle, and a wrong-arity *macro* call raises the same condition with the same data through 10B's reflective expansion path |
+| Lisp-2 behavior is complete for the supported subset | PASS | `pipeline-lisp2-cells` (one symbol, two cells, measured against Emacs), the `lisp2-*` rows in `fe/compat`, and `#'`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias` all present since Phase 4 |
+
+## §15 — the bytecode decision, answered from measured counters
+
+§15 forbids starting a bytecode project during the program and lists
+nine measurements to take afterwards, of which at least one of five
+triggers must fire to justify one. 10A Decision 9 funded two new
+counters rather than instrumenting fe; this is what they say.
+
+Measured with the counting build (`test/perfobj/kg`, `$KG_PERF_OUT`),
+three runs, on a representative `init.el` (the 08A corpus plus
+`(require 'auto-fill)` and `(require 'pipeline-text)`, the latter a
+two-file chain), opening a one-character file and quitting:
+
+| §15 measurement | Counter | Reading |
+| --- | --- | --- |
+| prelude load time | `lisp_prelude_ns` | **0.817-0.821** ms |
+| user-init load time | `lisp_user_init_ns` | **0.587-0.592** ms (excludes the prelude) |
+| package load time | `lisp_package_load_ns` | **0.432-0.437** ms, counted once per require chain, inside the init time above |
+| object allocation per loaded form | `lisp_arena_peak_live` | 8402 of 56224 slots — **14.9%** live after everything above |
+| AST retention cost | `lisp_arena_free_slots`, `lisp_gc_count` | 47822 free, **0 collections**: nothing loaded has yet cost a collection |
+| GC time | — | not instrumented (fe work; 10A Decision 9 declined it) |
+| time spent reading versus evaluating | — | not instrumented (fe work) |
+| evaluator dispatch overhead | — | not instrumented (fe work) |
+| interactive command latency attributable to Lisp | — | not instrumented; `lisp_peak_frame_depth` 13 of 1096 is the only related shape measured |
+
+Against §15's five triggers:
+
+| Trigger | Fires? | Why |
+| --- | --- | --- |
+| 1. Lisp evaluation materially affects interactive latency | **no** | the whole of startup Lisp is ~1.4 ms, and no interactive path measured has shown Lisp cost at all |
+| 2. init or package startup exceeds an agreed product target | **no** | prelude + init together are ~1.4 ms; there is no product target this is near |
+| 3. retained ASTs consume an unacceptable fraction of the arena | **no** | 14.9% live, 0 collections, 0 allocation failures |
+| 4. distributing precompiled extension packages becomes a requirement | **no** | no such requirement exists; packages are `.el` files `make install` ships |
+| 5. profiling identifies evaluator dispatch as a dominant cost | **unmeasured** | the instrumentation for it is fe work at zero headroom, and 10A Decision 9 declined to build it for a decision the other four already settle |
+
+**No trigger fires. The explicit-frame AST interpreter is retained**, as
+§15 directs when none applies. A future phase that re-opens bytecode
+funds trigger 5's instrumentation then; the three unmeasured rows above
+are what it would have to build first.
+
+Wall times are the weakest evidence in this repository (`src/perf.h`'s
+own header rule), which is why the counters that decide triggers 3 and 4
+are counts rather than durations, and why the durations above are given
+as the range of three runs rather than a single figure.
+
 ## The checker
 
 `utils/check_lisp_compat.py` (kg's `utils/`, not `fe/utils/`) is the

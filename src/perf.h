@@ -164,7 +164,11 @@ enum kg_perf_counter {
 	 *     the other.
 	 *   - package time is a *total*, not a gauge, since one session
 	 *     may (require ...) several files.  KG_PERF_ADD, not
-	 *     KG_PERF_SET.
+	 *     KG_PERF_SET.  Only the OUTERMOST require of a chain is
+	 *     timed: a nested require's interval lies entirely inside its
+	 *     parent's, and adding both counts the same nanoseconds
+	 *     twice, which measurably made the package total exceed the
+	 *     init total it happened inside.
 	 *   - package time IS counted inside init time when the (require
 	 *     ...) is written in the init file, which is the ordinary
 	 *     case.  That nesting is deliberate -- "how long did the init

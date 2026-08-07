@@ -76,6 +76,18 @@ This file remains the broader feature and technical-debt inventory.
       code walker, and with it the `ENVIRONMENT` alist both `macroexpand`
       and `macroexpand-1` currently refuse the same way.  fe's own
       `TODO.md` carries the submodule half.
+- [ ] **Bytecode — measured and declined, 2026-08-07.**  Phase 10 answered
+      the parent plan's §15 from counters rather than acting on it: none
+      of its five triggers fires.  Prelude 0.82 ms, user init 0.59 ms,
+      package load 0.44 ms (inside the init), 0 collections, 14.9% of the
+      arena live after a representative init that requires two packages.
+      The trigger that is *unmeasured* rather than negative is the fifth
+      (evaluator dispatch as a dominant cost); its instrumentation is fe
+      work and 10A Decision 9 declined to build it for a decision the
+      other four settle.  The full trigger table, the three uninstrumented
+      §15 measurements and the counters behind them are in
+      `test/lisp-compat/README.md`.  A phase that re-opens this funds that
+      instrumentation first.
 - [ ] **A missing-function channel.** 10A Decision 5: reader syntax kg
       does not implement is rejected *by name* (`unsupported read syntax:
       vector brackets`), and functions it does not implement are not —

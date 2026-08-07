@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ---- Helpers ---- */
@@ -121,6 +122,8 @@ static void perf_remove_config_root(const char *root)
 		"%s/kg/init.el",
 		"%s/kg/lisp/perfpkg.el",
 		"%s/kg/lisp/perfpkg2.el",
+		"%s/kg/lisp/perfouter.el",
+		"%s/kg/lisp/perfinner.el",
 		"%s/kg/lisp",
 		"%s/kg",
 		"%s",
@@ -1160,6 +1163,16 @@ static void test_lisp_load_time_counters(void)
 	    == 0);
 	(void)snprintf(path, sizeof(path), "%s/kg/lisp/perfpkg2.el", root);
 	CHECK(perf_write_file(path, "(provide 'perfpkg2)\n") == 0);
+	/* A package that requires another: the shape that made the package
+	 * total exceed the init total it happened inside, before only the
+	 * outermost require of a chain was timed. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/perfouter.el", root);
+	CHECK(perf_write_file(path,
+		  "(require 'perfinner)\n"
+		  "(provide 'perfouter)\n")
+	    == 0);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/perfinner.el", root);
+	CHECK(perf_write_file(path, "(provide 'perfinner)\n") == 0);
 	(void)snprintf(path, sizeof(path), "%s/kg/init.el", root);
 	CHECK(perf_write_file(path,
 		  "(require 'perfpkg)\n"
@@ -1214,6 +1227,44 @@ static void test_lisp_load_time_counters(void)
 		/* ... and it is not counted as init time, which has finished.
 		 */
 		CHECK(counter(KG_PERF_LISP_USER_INIT_NS) == init_ns);
+		package = counter(KG_PERF_LISP_PACKAGE_LOAD_NS);
+	}
+
+	/* A nested require is counted ONCE, inside its outermost one.  A
+	 * chain's inner interval lies entirely inside its parent's, so
+	 * timing both counted the same nanoseconds twice -- measured on a
+	 * real init file, where the package total came out LARGER than the
+	 * init total it happened inside.  The assertion that catches a
+	 * regression is not a sum (a wall time is never the same number
+	 * twice) but a bound: the whole chain took at most the wall time
+	 * this one eval took, which double counting exceeds by
+	 * construction. */
+	{
+		static const char chain[] = "(require 'perfouter)";
+		unsigned long long chain_ns;
+		struct timespec before, after;
+
+		clock_gettime(CLOCK_MONOTONIC, &before);
+		CHECK(kg_lisp_eval_string(chain, sizeof(chain) - 1, nullptr, 0)
+		    == 0);
+		clock_gettime(CLOCK_MONOTONIC, &after);
+		chain_ns = counter(KG_PERF_LISP_PACKAGE_LOAD_NS) - package;
+		CHECK(chain_ns > 0);
+		CHECK(chain_ns
+		    <= (unsigned long long)((after.tv_sec - before.tv_sec)
+			    * 1000000000LL
+			+ (after.tv_nsec - before.tv_nsec)));
+		/* Both features really were provided by that one chain. */
+		{
+			char result[128] = "";
+			static const char both[] = "(list (featurep 'perfouter)"
+						   " (featurep 'perfinner))";
+
+			CHECK(kg_lisp_eval_string(both, sizeof(both) - 1,
+				  result, sizeof(result))
+			    == 0);
+			CHECK(strcmp(result, "(t t)") == 0);
+		}
 	}
 
 	kg_lisp_shutdown();

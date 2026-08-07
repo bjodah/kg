@@ -1,0 +1,55 @@
+# Sub-plan 11D Part 4.  `save-excursion' and `with-current-buffer' became
+# prelude macros over Lisp `unwind-protect', and the editor state they
+# preserve moved from a malloc'd record behind an fe cleanup registration
+# into two capture/restore natives over GC-managed adapter objects.  This
+# case pins that the preserved scope did not change while the shape did,
+# in a live editor rather than in-process.
+#
+# Three claims, in one command:
+#
+#   1. save-excursion restores point after a body that EDITS -- and the
+#      marker is right-gravity, so text inserted before the saved point
+#      carries it along instead of leaving it pointing at the old byte.
+#      Point starts after "one" on line 2; the body goes to the top and
+#      inserts "AB" there, which is before it, so the restore has to land
+#      two bytes later for "<here>" to land after "one" and not inside it.
+#   2. a `throw' out of a save-excursion body reaches a `catch' outside
+#      the form -- the catch-throw-reachability flip, which answered
+#      (no-catch done threw) before Phase 11 -- and the restore runs on
+#      that path too, which is why "threw" lands beside "<here>" instead
+#      of at the top of the buffer.
+#   3. with-current-buffer restores the current BUFFER and deliberately
+#      not point in it, which is Emacs' scope for that form (it is
+#      save-current-buffer plus set-buffer).  The body walks to
+#      point-min and the following insert lands there, in front of the
+#      "AB" from claim 1.  test_with_current_buffer covers the half this
+#      cannot: switching to a different buffer and coming back.
+name: lisp-save-excursion-edit-across
+filename: excursion.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun excursion-probe ()
+      (interactive)
+      (goto-char 10)
+      (save-excursion
+        (goto-char (point-min))
+        (insert "AB"))
+      (insert "<here>")
+      (insert (format "%S" (catch 'done
+                             (save-excursion
+                               (goto-char (point-min))
+                               (throw 'done 'threw)))))
+      (with-current-buffer (current-buffer)
+        (goto-char (point-min)))
+      (insert "Z"))
+    (global-set-key "C-c p" "excursion-probe")
+initial: |
+  first
+  onetwo
+keys:
+  - C-c
+  - p
+expected_saved: |
+  ZABfirst
+  one<here>threwtwo

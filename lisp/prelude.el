@@ -352,12 +352,32 @@
 (defalias 'pop (macro (place)
   (list 'prog1 (list 'car place)
     (list 'setq place (list 'cdr place)))))
+;; `save-excursion' and `with-current-buffer' are `unwind-protect' over
+;; the body, not a native that calls back into the evaluator with the
+;; body as a lambda.  That is what lets a `throw' inside the body reach a
+;; `catch' outside the form: fe walls a throw search at a native re-entry
+;; boundary by design, so the old shape turned every such throw into
+;; (no-catch TAG VALUE).  `condition-case' crossed the native shape too
+;; (06E) and still crosses this one.
+;;
+;; The editor state each form preserves is captured before the
+;; unwind-protect is entered and put back by its cleanup: a marker at
+;; point in the current buffer for `save-excursion', the current buffer
+;; alone for `with-current-buffer' -- which is Emacs' scope for the two
+;; forms, and exactly what the natives preserved before.  Both are
+;; GC-managed adapter objects, so an unwind that never reaches the
+;; cleanup cannot leak one.
 (defalias 'save-excursion (macro body
-  (list 'internal--save-excursion
-    (cons 'lambda (cons nil body)))))
+  (list 'internal--let
+    (list (list 'internal--excursion (list 'internal--excursion-capture t)))
+    (list 'unwind-protect (cons 'progn body)
+      (list 'internal--excursion-restore 'internal--excursion)))))
 (defalias 'with-current-buffer (macro (buf . body)
-  (list 'internal--with-current-buffer buf
-    (cons 'lambda (cons nil body)))))
+  (list 'internal--let
+    (list (list 'internal--excursion (list 'internal--excursion-capture nil)))
+    (list 'unwind-protect
+      (list 'progn (list 'set-buffer buf) (cons 'progn body))
+      (list 'internal--excursion-restore 'internal--excursion)))))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
 (defalias 'internal--qq (lambda (form &optional depth)
   (if (null depth) (setq depth 1))

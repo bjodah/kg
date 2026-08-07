@@ -692,32 +692,6 @@
    "source_name": "marker-buffer"
   },
   {
-   "id": "native-internal-save-excursion",
-   "category": "editor-primitives",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "native-internal-save-excursion"
-   ],
-   "kg_test": "test/test_lisp.c:test_save_excursion",
-   "rationale": "No test names this native by its own name (see this slice's untested-natives sweep), but it is exercised on every call the save-excursion macro's own test makes -- the macro is a one-line wrapper around it. Recorded as tested-via-wrapper rather than a gap.",
-   "source_name": "internal--save-excursion"
-  },
-  {
-   "id": "native-internal-with-current-buffer",
-   "category": "editor-primitives",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "native-internal-with-current-buffer"
-   ],
-   "kg_test": "test/test_lisp.c:test_with_current_buffer",
-   "rationale": "Tested-via-wrapper, same shape as internal--save-excursion above: with-current-buffer's own test exercises this native on every call.",
-   "source_name": "internal--with-current-buffer"
-  },
-  {
    "id": "native-add-hook",
    "category": "editor-primitives",
    "status": "supported",
@@ -1625,6 +1599,32 @@
    "source_name": "pop"
   },
   {
+   "id": "native-excursion-capture-restore",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-excursion-capture-restore"
+   ],
+   "kg_test": "test/test_lisp.c:test_save_excursion, test/test_lisp.c:test_with_current_buffer",
+   "rationale": "The capture/restore pair sub-plan 11D Part 4 replaced internal--save-excursion and internal--with-current-buffer with. Those two were natives that called the body as a thunk, which is what made a `throw' out of the body uncatchable outside the form; the two forms are now prelude macros over Lisp `unwind-protect' and only the editor state stays in C. (internal--excursion-capture SAVE-POINT) answers a right-gravity marker at point in the current buffer when SAVE-POINT is non-nil and the current buffer object when it is nil -- the two scopes save-excursion and with-current-buffer respectively preserve, which are the scopes the natives preserved before and Emacs' own. (internal--excursion-restore STATE) puts it back and releases it, tolerantly: a buffer killed underneath the form is a restore with nothing to restore to, not an error, because an unwind-protect cleanup that raises REPLACES the completion it was unwinding and would swallow the error that killed the buffer. The saved state is a GC-managed adapter object rather than a malloc'd record with an fe cleanup registration, so an unwind that never reaches the cleanup cannot leak one. kg-policy: Emacs has no such pair, and what IS Emacs-comparable is the behaviour of the two macros built on them.",
+   "source_name": "internal--excursion-capture"
+  },
+  {
+   "id": "native-excursion-restore",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-excursion-capture-restore"
+   ],
+   "kg_test": "test/test_lisp.c:test_save_excursion, test/test_lisp.c:test_with_current_buffer",
+   "rationale": "The restore half of the pair the native-excursion-capture-restore row above describes; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The case, the tests and the reasoning are that row's.",
+   "source_name": "internal--excursion-restore"
+  },
+  {
    "id": "prelude-save-excursion",
    "category": "editor-primitives",
    "status": "supported",
@@ -1633,8 +1633,8 @@
    "cases": [
     "prelude-save-excursion"
    ],
-   "kg_test": "test/test_lisp.c:test_save_excursion",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_save_excursion, test/pty/lisp-save-excursion-edit-across.yaml",
+   "rationale": "A prelude macro over Lisp `unwind-protect' since sub-plan 11D Part 4, where it was a wrapper around the internal--save-excursion native before. The change of shape is what made a `throw' out of the body reach a `catch' outside the form (the catch-throw-reachability row); the state preserved is unchanged -- the current buffer and point in it, held by a right-gravity marker, so text inserted before the saved point carries it along. kg-policy because the state kg has to preserve is kg's; what is Emacs-comparable is the control flow through it, which the catch-throw-reachability and condition-case rows own.",
    "source_name": "save-excursion"
   },
   {
@@ -1646,8 +1646,8 @@
    "cases": [
     "prelude-with-current-buffer"
    ],
-   "kg_test": "test/test_lisp.c:test_with_current_buffer",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_with_current_buffer, test/pty/lisp-save-excursion-edit-across.yaml",
+   "rationale": "A prelude macro over Lisp `unwind-protect' since sub-plan 11D Part 4, same change of shape as prelude-save-excursion above and for the same reason. It restores the current BUFFER and deliberately not point in it, which is Emacs' scope for the form -- it is save-current-buffer plus set-buffer -- and was the native's scope before. A buffer killed underneath the form is a restore with nothing to restore to rather than an error; see the native-excursion-capture-restore row for why a raising cleanup would be worse.",
    "source_name": "with-current-buffer"
   },
   {
@@ -1882,14 +1882,14 @@
   {
    "id": "catch-throw-reachability",
    "category": "errors-and-non-local-exits",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "catch-throw-reachability"
    ],
-   "kg_test": "test/test_lisp.c:test_wrapping_native_transparency",
-   "rationale": "Emacs answers `escaped`; kg raises `(no-catch tag escaped)`. `save-excursion` and `with-current-buffer` are natives that call the body as a thunk, and Fe walls the throw search at a native re-entry boundary by design (fe/compat/features.json's throw row calls it \"a tested wall\"), so a throw out of the body finds no catch and is converted there. Sub-plan 06E's protected call (FeTryCallWithOptions plus FeResignal, src/lisp_core.c's lisp_call_body) made these two forms transparent to `condition-case` and to quit, and the unwind still runs their C restore, but it cannot make them transparent to `throw`: the resignalled completion is the no-catch error, not the throw. Closing this means expanding both forms to Lisp `unwind-protect` in lisp/prelude.el so no native frame stands between the throw and its catch; until then the divergence is what the kg_test pins.",
+   "kg_test": "test/test_lisp.c:test_wrapping_native_transparency, test/pty/lisp-save-excursion-edit-across.yaml",
+   "rationale": "Closed by Phase 11 sub-plan 11D Part 4 (11A Decision 6), by exactly the fix this row's own rationale named: `save-excursion' and `with-current-buffer' are prelude macros over Lisp `unwind-protect' in lisp/prelude.el, so no native frame stands between a `throw' in the body and a `catch' outside the form. They used to be natives that called the body as a thunk, and fe walls a throw search at a native re-entry boundary by design (fe/compat/features.json's throw row calls it \"a tested wall\"), so the throw was converted to (no-catch tag escaped) there. 06E's protected call had already made both forms transparent to `condition-case' and to quit, and that guard is kept -- test_wrapping_native_transparency asserts it still crosses both. WHAT REMAINS A WALL is every native re-entry that is not one of these two forms: hooks, process filters and sentinels, and a nested `command-execute'. Those are callbacks kg invokes from its own C, not forms a user writes around a body, so there is no prelude expansion that removes the frame; a throw out of one still becomes no-catch. Their rows say so, and README.md and doc/kg.1 were re-worded in 11E to name the two forms that now pass and the callbacks that do not.",
    "source_name": null
   },
   {

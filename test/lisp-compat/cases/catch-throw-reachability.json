@@ -2,5 +2,5 @@
  "id": "catch-throw-reachability",
  "setup": [],
  "expr": "(catch 'tag (save-excursion (throw 'tag 'escaped)))",
- "note": "Non-local exits through catch/throw unwind native protective frames."
+ "note": "A `throw' out of a save-excursion body to a `catch' outside the form. Emacs answers escaped, and so does kg since sub-plan 11D Part 4 made both forms prelude macros over Lisp `unwind-protect' instead of natives that call the body as a thunk: fe walls a throw search at a native re-entry boundary by design, so while a native frame stood between them the throw became (no-catch tag escaped) instead."
 }

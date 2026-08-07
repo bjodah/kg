@@ -516,82 +516,91 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
 	return FeMakeInteger(context, (int64_t)lisp_char_at(b, row, col));
 }
 
-struct save_excursion_data {
-	struct kg_buffer_handle saved_buffer;
-	struct kg_marker_handle saved_point_marker;
-};
+/* ---- save-excursion / with-current-buffer ----------------------------
+ * Both forms are prelude macros over Lisp `unwind-protect' since
+ * sub-plan 11D Part 4, not natives that call back into the evaluator.
+ * That is the whole of the catch-throw-reachability fix: a native
+ * re-entry is a throw wall in fe by design, so while the body ran inside
+ * lisp_call_body() a `throw' out of it could not reach a `catch' outside
+ * the form -- it became (no-catch TAG VALUE) instead.  With the body
+ * evaluated by the same run as its caller, no barrier stands between the
+ * throw and the catch at all.  `condition-case' already crossed both
+ * forms (06E's protected call) and still does; the guard cases are in
+ * test_wrapping_native_transparency.
+ *
+ * What is left in C is the editor state the two forms preserve, and only
+ * that.  The scope is exactly what the native forms preserved, no more
+ * and no less:
+ *
+ *   save-excursion       the current buffer, and point in it, held by a
+ *                        right-gravity marker so text inserted before it
+ *                        carries it along
+ *   with-current-buffer  the current buffer alone -- NOT point, which
+ *                        Emacs' with-current-buffer does not restore
+ *                        either, being save-current-buffer plus
+ *                        set-buffer
+ *
+ * The saved state is an ordinary GC-managed adapter object -- a marker
+ * for the first, a buffer object for the second -- rather than a
+ * malloc'd record and an fe cleanup registration.  A marker already
+ * knows which buffer it lives in, so one object carries both halves of
+ * an excursion, and neither object can leak: the collector owns it.
+ *
+ * Restoring is deliberately tolerant, exactly as the C cleanups were.  A
+ * buffer killed underneath the form is not an error; it is a restore
+ * with nothing to restore to.  A cleanup that raised would REPLACE the
+ * completion it was unwinding (fe's unwind-protect policy, 06A Decision
+ * 4), so a killed buffer would swallow the error that killed it. */
 
-static void cleanup_save_excursion(FeContext *ctx, void *ptr)
+/* (internal--excursion-capture SAVE-POINT): the state one of the two
+ * prelude macros will hand back to the restore below.  A non-nil
+ * SAVE-POINT asks for point as well as the buffer. */
+FeObject *native_excursion_capture(FeContext *context, FeObject *arguments)
 {
-	struct save_excursion_data *data = ptr;
-	struct editor_buffer *b = buf_resolve(data->saved_buffer);
+	FeObject *save_point = FeGetNextArgument(context, &arguments);
 
-	if (b != NULL) {
+	FeRequireNoArguments(context, arguments);
+	if (FeIsNil(save_point)) {
+		return lisp_buffer_object(context, state.exec.buffer);
+	}
+	return lisp_marker_object(context, lisp_exec_buffer(context),
+	    lisp_exec_point_byte(context), KG_MARKER_GRAV_RIGHT);
+}
+
+/* (internal--excursion-restore STATE): put back what the capture above
+ * took, and release it.  Runs from an `unwind-protect' cleanup, so it
+ * runs on every way out of the body -- return, error, throw, quit and an
+ * exhausted step budget. */
+FeObject *native_excursion_restore(FeContext *context, FeObject *arguments)
+{
+	FeObject *saved = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b;
+
+	FeRequireNoArguments(context, arguments);
+	if (lisp_object_is_marker(context, saved)) {
+		struct kg_marker_handle marker = lisp_marker_resolve(
+		    context, saved, "internal--excursion-restore");
 		size_t pos;
-		lisp_exec_set_buffer(ctx, b);
-		if (kg_marker_resolve(data->saved_point_marker, &pos)
-		    == KG_MARKER_OK) {
-			(void)kg_marker_set_position(
-			    lisp_exec_point_marker(), pos);
+
+		b = buf_resolve(marker.buffer);
+		if (b != NULL) {
+			lisp_exec_set_buffer(context, b);
+			if (kg_marker_resolve(marker, &pos) == KG_MARKER_OK) {
+				(void)kg_marker_set_position(
+				    lisp_exec_point_marker(), pos);
+			}
 		}
+		lisp_marker_detach(context, saved);
+		return FeNil(context);
 	}
-	kg_marker_delete(data->saved_point_marker);
-	free(data);
-}
-
-FeObject *native_save_excursion(FeContext *context, FeObject *arguments)
-{
-	FeObject *fn = FeGetNextArgument(context, &arguments);
-	struct editor_buffer *b = lisp_exec_buffer(context);
-	struct save_excursion_data *data;
-	size_t byte_pos = lisp_exec_point_byte(context);
-
-	FeRequireNoArguments(context, arguments);
-	data = malloc(sizeof(*data));
-	if (data == NULL) {
-		FeHandleError(context, "out of memory");
+	if (!lisp_object_is_buffer(context, saved)) {
+		FeHandleError(context,
+		    "internal--excursion-restore: expected a marker or a "
+		    "buffer");
 	}
-	data->saved_buffer = state.exec.buffer;
-	data->saved_point_marker
-	    = kg_marker_create(b, byte_pos, KG_MARKER_GRAV_RIGHT);
-	if (data->saved_point_marker.id == 0) {
-		free(data);
-		FeHandleError(context, "out of memory");
-	}
-	FeProtectWithCleanup(context, cleanup_save_excursion, data);
-	return lisp_call_body(context, fn);
-}
-
-struct with_current_buffer_data {
-	struct kg_buffer_handle saved_buffer;
-};
-
-static void cleanup_with_current_buffer(FeContext *ctx, void *ptr)
-{
-	struct with_current_buffer_data *data = ptr;
-	struct editor_buffer *b = buf_resolve(data->saved_buffer);
-
+	b = buf_resolve(lisp_object_buffer_handle(context, saved));
 	if (b != NULL) {
-		lisp_exec_set_buffer(ctx, b);
+		lisp_exec_set_buffer(context, b);
 	}
-	free(data);
-}
-
-FeObject *native_with_current_buffer(FeContext *context, FeObject *arguments)
-{
-	FeObject *buf_obj = FeGetNextArgument(context, &arguments);
-	FeObject *fn = FeGetNextArgument(context, &arguments);
-	struct editor_buffer *target_b;
-	struct with_current_buffer_data *data;
-
-	FeRequireNoArguments(context, arguments);
-	target_b = lisp_buffer_resolve(context, buf_obj, "with-current-buffer");
-	data = malloc(sizeof(*data));
-	if (data == NULL) {
-		FeHandleError(context, "out of memory");
-	}
-	data->saved_buffer = state.exec.buffer;
-	FeProtectWithCleanup(context, cleanup_with_current_buffer, data);
-	lisp_exec_set_buffer(context, target_b);
-	return lisp_call_body(context, fn);
+	return FeNil(context);
 }

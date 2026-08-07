@@ -1,0 +1,6 @@
+{
+ "id": "native-excursion-capture-restore",
+ "setup": [],
+ "expr": "(internal--let ((s (internal--excursion-capture t))) (goto-char 1) (internal--excursion-restore s) (point))",
+ "note": "The pair kg's save-excursion and with-current-buffer prelude macros are built on since sub-plan 11D Part 4, exercised directly rather than only through the macros. A non-nil argument to the capture asks for point as well as the buffer, so the restore puts point back where it was; the buffer-only spelling ((internal--excursion-capture nil)) is what with-current-buffer uses. Not meant to be called by user code -- they are internal-- names -- but real natives in their own right, so they get a case of their own."
+}

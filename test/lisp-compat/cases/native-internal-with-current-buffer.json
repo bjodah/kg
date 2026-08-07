@@ -1,6 +1,0 @@
-{
- "id": "native-internal-with-current-buffer",
- "setup": [],
- "expr": "(internal--with-current-buffer (current-buffer) (lambda () (point)))",
- "note": "The native kg's `with-current-buffer` prelude macro expands to."
-}

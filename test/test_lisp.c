@@ -3857,13 +3857,19 @@ static void test_catch_throw_unwind(void)
  * protected call plus FeResignal (lisp_call_body) puts the completion back
  * in flight in the enclosing run instead, which is what these pin.
  *
- * `throw` is the deliberate exception, and the last two blocks pin it as
- * what it is rather than as what Emacs answers: Fe walls the throw search
- * at a native re-entry boundary by design, so a throw out of either body
- * finds no catch and becomes `(no-catch TAG VALUE)` -- an ordinary error an
- * enclosing condition-case handles, and one whose unwinding still runs the
- * C restore.  test/lisp-compat/features.json's catch-throw-reachability row
- * carries the same statement as a divergence. */
+ * `throw` used to be the deliberate exception, pinned here as what it was
+ * rather than as what Emacs answers: fe walls the throw search at a native
+ * re-entry boundary by design, so a throw out of either body found no catch
+ * and became `(no-catch TAG VALUE)`.  Sub-plan 11D Part 4 closed it by
+ * removing the native frame -- both forms are prelude macros over Lisp
+ * `unwind-protect` now -- so the two throw blocks below assert the reverse:
+ * the catch receives the thrown value, and the restore still ran on that
+ * path.  This test remains the condition-case guard the 11D contract names:
+ * the transparency 06E bought must survive the change of shape.  What is
+ * still a wall is every native re-entry that is NOT one of these two forms
+ * -- hooks (test_hook_throw_containment), process callbacks, a nested
+ * command-execute -- because those are callbacks kg invokes from its own C
+ * and no prelude expansion removes the frame. */
 static void test_wrapping_native_transparency(void)
 {
 	setup_editor();
@@ -3885,14 +3891,17 @@ static void test_wrapping_native_transparency(void)
 		      "   (wrong-type-argument 'by-symbol))",
 	    "by-symbol"));
 
-	/* 3. A throw out of the body is contained as no-catch -- and the
-	 * restore ran on that path too. */
+	/* 3. A throw out of the body reaches the catch outside the form --
+	 * with the value it threw, not a no-catch error -- and the restore
+	 * ran on that path too.  The condition-case is left wrapped around
+	 * it so this reads as the inversion of the assertion it replaces:
+	 * the handler is simply never entered now. */
 	CHECK(eval_ok("(goto-char 3)"));
 	CHECK(eval_eq("(condition-case e"
 		      "   (catch 'tag"
 		      "     (save-excursion (goto-char 8) (throw 'tag 'gone)))"
 		      "   (error (car e)))",
-	    "no-catch"));
+	    "gone"));
 	CHECK(eval_eq("(point)", "3"));
 
 	/* 4. with-current-buffer answers the same three ways, and restores
@@ -3907,12 +3916,39 @@ static void test_wrapping_native_transparency(void)
 		      "   (catch 'tag (with-current-buffer b2"
 		      "     (throw 'tag 'gone)))"
 		      "   (error (car e)))",
-	    "no-catch"));
+	    "gone"));
 	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
 
 	/* 5. A body that completes normally is unaffected by any of this. */
 	CHECK(eval_eq("(with-current-buffer b2 (buffer-name))", "wrap2"));
 	CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+
+	/* 6. The quit path, which no compat case can reach: C-g out of the
+	 * body still restores.  An `unwind-protect' cleanup runs on every
+	 * completion kind fe has, and this is the one that is neither a
+	 * return, an error nor a throw. */
+	{
+		char result[128] = "";
+		static const char quitting[]
+		    = "(save-excursion (goto-char 8) (while t 1))";
+
+		CHECK(eval_ok("(goto-char 3)"));
+		interrupt_polls = 0;
+		kg_lisp_set_interrupt_check(cancel_evaluation);
+		CHECK(kg_lisp_eval_string(quitting, sizeof(quitting) - 1,
+			  result, sizeof(result))
+		    != 0);
+		kg_lisp_set_interrupt_check(nullptr);
+		CHECK(strcmp(result, "Quit") == 0);
+		CHECK(eval_eq("(point)", "3"));
+
+		CHECK(eval_ok("(set-buffer (get-buffer \"bridge.txt\"))"));
+		interrupt_polls = 0;
+		kg_lisp_set_interrupt_check(cancel_evaluation);
+		CHECK(!eval_ok("(with-current-buffer b2 (while t 1))"));
+		kg_lisp_set_interrupt_check(nullptr);
+		CHECK(eval_eq("(buffer-name (current-buffer))", "bridge.txt"));
+	}
 
 	kg_lisp_shutdown();
 	teardown_editor();

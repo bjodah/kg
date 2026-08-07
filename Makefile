@@ -143,11 +143,18 @@ OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
 REGEX_ENGINE_OBJ = $(OBJDIR)/tiny_regex.o
 REGEX_WRAPPER_OBJ = $(OBJDIR)/regex.o
 REGEX_OBJS = $(REGEX_ENGINE_OBJ) $(REGEX_WRAPPER_OBJ)
-HDRS = $(OBJDIR)/def.h
 # Every header in src/ is checked for compiling on its own (see
 # `header-check`): a module header that only works once def.h has been
 # included is def.h with extra steps.
 ALL_HDRS = $(sort $(wildcard $(OBJDIR)/*.h))
+# Every object depends on every src header.  HDRS used to name def.h alone,
+# and every other header reached an object only through a hand-maintained
+# per-object line -- the exact defect the lisp_obj.h fix wrote out (a header
+# deciding a struct layout every TU reaches for, with make never told), found
+# again nine headers wide: 611 undeclared edges across 54 objects, measured.
+# The price is a full rebuild on any header edit; the alternative was the
+# silent-ABI-skew class of bug, which costs more.
+HDRS = $(ALL_HDRS)
 
 # Test infrastructure
 TESTDIR  = test
@@ -565,16 +572,6 @@ ifeq ($(WITH_LISP),1)
 # adapter object, especially lisp_core.o's static_assert tripwires.
 $(LISP_OBJS): fe/fe.h
 $(addprefix $(PERFOBJDIR)/,$(LISP_SRCS:.c=.o)): fe/fe.h
-# Same reasoning, one header further in, and it had a real defect: the
-# per-object lines below name lisp_obj.h only where the .c file includes it
-# directly, but lisp_internal.h includes it too and `struct lisp_state'
-# embeds `struct lisp_object_pool' BY VALUE.  Changing LISP_MAX_OBJECTS
-# therefore relaid out the one global every adapter object reaches for while
-# leaving lisp_core.o -- the file that DEFINES it -- compiled against the old
-# size, so lisp_obj.c indexed past the end of an array lisp_core.o had
-# allocated short.  Two objects, both private headers, spelled once.
-$(LISP_OBJS): $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
-$(addprefix $(PERFOBJDIR)/,$(LISP_SRCS:.c=.o)): $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
 endif
 
 $(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)

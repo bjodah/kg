@@ -409,24 +409,26 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5802 exceeds limit 5801
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5802
 #   scc total complexity: 5802 (limit 5802)
-# Re-set 5825 -> 5800 at the Phase 11 close (2026-08-07), the convention
+# Re-set 5825 -> 5799 at the Phase 11 close (2026-08-07), the convention
 # every phase since 08 has kept. The phase spent NOTHING of the 23 points
-# the raise made available and gave two back: the loader seam cost +1 (the
-# resignal branch), and replacing the save-excursion/with-current-buffer
+# the raise made available and gave three back: the loader seam cost +1
+# (the resignal branch), replacing the save-excursion/with-current-buffer
 # natives -- two natives, two malloc'd records and two cleanup callbacks
-# -- with one capture/restore pair over GC-managed objects returned 3. The
-# rest of Phase 11's kg work is prelude, compat cases, PTY cases and docs,
-# none of which the scan covers. Setting the cap BELOW where the phase
-# started is deliberate and is the ratchet working as intended; it is not
-# a claim that the pre-phase 5802 was wrong. Proof on the same tree:
+# -- with one capture/restore pair over GC-managed objects returned 3, and
+# deleting lisp_call_body(), whose only two callers those natives were,
+# returned 1 more. The rest of Phase 11's kg work is prelude, compat
+# cases, PTY cases and docs, none of which the scan covers. Setting the
+# cap BELOW where the phase started is deliberate and is the ratchet
+# working as intended; it is not a claim that the pre-phase 5802 was
+# wrong. Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5798
+#   FAIL: total complexity 5799 exceeds limit 5798
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5799
-#   FAIL: total complexity 5800 exceeds limit 5799
-#   $ make complexity-check SCC_COMPLEXITY_MAX=5800
-#   scc total complexity: 5800 (limit 5800)
+#   scc total complexity: 5799 (limit 5799)
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
 # unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
 # function 91).
-SCC_COMPLEXITY_MAX ?= 5800
+SCC_COMPLEXITY_MAX ?= 5799
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

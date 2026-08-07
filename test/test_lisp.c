@@ -184,7 +184,9 @@ static void test_load_file_error(void)
 static bool write_temp_lisp(char *path, const char *source)
 {
 	int fd = mkstemp(path);
+	size_t length = strlen(source);
 	FILE *file;
+	bool written;
 
 	if (fd < 0) {
 		return false;
@@ -195,8 +197,10 @@ static bool write_temp_lisp(char *path, const char *source)
 		(void)unlink(path);
 		return false;
 	}
-	if (fwrite(source, 1, strlen(source), file) != strlen(source)
-	    || fclose(file) != 0) {
+	/* Close unconditionally: short-circuiting past fclose on a failed
+	 * write leaks the stream, which gcc's -fanalyzer says out loud. */
+	written = fwrite(source, 1, length, file) == length;
+	if (fclose(file) != 0 || !written) {
 		(void)unlink(path);
 		return false;
 	}
@@ -264,7 +268,8 @@ static void test_load_error_condition_reachability(void)
 	 * containment barrier, so the catch does not receive 99 and the
 	 * throw arrives as no-catch. */
 	(void)snprintf(form, sizeof(form),
-	    "(condition-case e (catch 'load-tag (load \"%s\")) (error (car e)))",
+	    "(condition-case e (catch 'load-tag (load \"%s\"))"
+	    " (error (car e)))",
 	    thrower);
 	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
 	    == 0);
@@ -3187,8 +3192,7 @@ static void test_phase11_dynamic_binding(void)
 		      " (special-variable-p 'p11-up))",
 	    "t"));
 	/* Constants cannot be marked at all. */
-	CHECK(eval_error_contains(
-	    "(defvar t 1)", "setting-constant"));
+	CHECK(eval_error_contains("(defvar t 1)", "setting-constant"));
 
 	/* Not grid probes: kg's own `let' shapes, which the switch onto
 	 * fe's core bindings-list form had to preserve exactly.  The

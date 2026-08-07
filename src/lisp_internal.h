@@ -202,11 +202,6 @@ FeObject *lisp_function_designator(FeContext *context, FeObject *object);
 FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
     char *diagnostic, size_t diagnostic_size);
 #define LISP_CALLABLE_DIAGNOSTIC_MAX 128
-/* The body-thunk call a *wrapping* native makes (lisp_core.c): one that has
- * already registered its restore with FeProtectWithCleanup and now runs the
- * body between the save and that restore.  Transparent to the enclosing
- * run -- see the definition for why FeCall was not. */
-FeObject *lisp_call_body(FeContext *context, FeObject *body);
 /* Raise Emacs' (wrong-type-argument PREDICATE VALUE) as a real condition a
  * handler naming wrong-type-argument can catch (lisp_core.c). */
 [[noreturn]] void lisp_raise_wrong_type(

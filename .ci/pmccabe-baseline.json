@@ -758,7 +758,6 @@
   "src/lisp_core.c:kg_lisp_set_interrupt_check": 1,
   "src/lisp_core.c:kg_lisp_shutdown": 2,
   "src/lisp_core.c:kg_number_token_classify": 12,
-  "src/lisp_core.c:lisp_call_body": 2,
   "src/lisp_core.c:lisp_callable_designator": 4,
   "src/lisp_core.c:lisp_command_activate": 5,
   "src/lisp_core.c:lisp_command_arguments": 3,

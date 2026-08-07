@@ -520,9 +520,11 @@ FeObject *native_char_after(FeContext *context, FeObject *arguments)
  * Both forms are prelude macros over Lisp `unwind-protect' since
  * sub-plan 11D Part 4, not natives that call back into the evaluator.
  * That is the whole of the catch-throw-reachability fix: a native
- * re-entry is a throw wall in fe by design, so while the body ran inside
- * lisp_call_body() a `throw' out of it could not reach a `catch' outside
- * the form -- it became (no-catch TAG VALUE) instead.  With the body
+ * re-entry is a throw wall in fe by design, so while the body ran through
+ * a protected call from inside a native a `throw' out of it could not
+ * reach a `catch' outside the form -- it became (no-catch TAG VALUE)
+ * instead.  (`lisp_call_body', the seam that made that call, went with
+ * them: these were its only two callers.)  With the body
  * evaluated by the same run as its caller, no barrier stands between the
  * throw and the catch at all.  `condition-case' already crossed both
  * forms (06E's protected call) and still does; the guard cases are in

@@ -2,7 +2,7 @@
 
 All relevant changes to the project are documented in this file.
 
-## [Unreleased]
+## [UNRELEASED][] - unreleased
 
 ### Changes
 

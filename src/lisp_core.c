@@ -60,11 +60,11 @@ static_assert(FE_LANGUAGE_VERSION == 9);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 57680
- * bytes (~56.3 KiB) at the pinned Fe, so an override much below ~64 KiB
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 57960
+ * bytes (~56.6 KiB) at the pinned Fe, so an override much below ~64 KiB
  * fails to start; the default's 1 MiB still leaves roughly 95% of the
- * arena for objects and frame growth -- 56224 object slots and a
- * 1096-frame evaluator stack, as kg_lisp_arena_stats() reports them.
+ * arena for objects and frame growth -- 56226 object slots and a
+ * 1095-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
@@ -261,48 +261,6 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
 		return nullptr;
 	}
 	return resolved;
-}
-
-/* The body-thunk call every *wrapping* native makes -- save-excursion and
- * with-current-buffer today: run `body` between a save that has already
- * been registered with FeProtectWithCleanup and the restore that registry
- * will perform, and leave the enclosing run able to see whatever the body
- * did.
- *
- * FeCall was not that.  It transfers a nested run's completion to the
- * *enclosing* run's barrier, past this native's C frame -- and kg's
- * outermost barrier is the seam's own error_jump, so an error raised inside
- * (save-excursion ...) skipped every condition-case that lexically enclosed
- * the form and surfaced at top level instead.  FeTryCallWithOptions returns
- * the completion rather than throwing it, and FeResignal puts it back in
- * flight in the enclosing run with its kind, its condition object and its
- * message intact, so that condition-case matches on the original condition
- * symbol, and a quit or a budget completion still cancels the whole
- * evaluation.
- *
- * The C restore is deliberately not run here.  It is registered, and
- * FeResignal's own cleanup drain runs it exactly once on the way out --
- * before the handler, which is the order Emacs gives unwind-protect.
- * Running it by hand as well would restore twice.
- *
- * What this still cannot make transparent is `throw`.  Fe walls the throw
- * search at a native re-entry boundary by design (fe's own compat manifest
- * calls it "a tested wall"), so a throw inside the body finds no catch and
- * becomes the condition `(no-catch TAG VALUE)` -- which resignals as an
- * ordinary error an enclosing condition-case can handle, but which the
- * `catch` that names the tag does not receive.  That divergence is written
- * down in test/lisp-compat/features.json's catch-throw-reachability row;
- * closing it means expanding these two forms to Lisp `unwind-protect` in
- * the prelude, so that no native frame stands between the throw and its
- * catch at all. */
-FeObject *lisp_call_body(FeContext *context, FeObject *body)
-{
-	FeObject *value = FeNil(context);
-
-	if (FeTryCallWithOptions(context, body, nullptr, 0, nullptr, &value)) {
-		return value;
-	}
-	FeResignal(context);
 }
 
 struct lisp_command *find_lisp_command(const char *name)
@@ -1207,8 +1165,7 @@ static FeObject *lisp_command_activate(
 	}
 	argc = lisp_command_arguments(cmd, fd, prefix_object, args);
 	if (nested) {
-		/* Transparent to the enclosing condition-case, the treatment
-		 * lisp_call_body() documents at length: a plain
+		/* Transparent to the enclosing condition-case: a plain
 		 * FeCallWithOptions raises past the *enclosing* run's
 		 * barrier -- kg's own error_jump -- so a handler lexically
 		 * around (command-execute …) never saw the condition.  The

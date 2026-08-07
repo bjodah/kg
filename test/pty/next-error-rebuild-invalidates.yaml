@@ -2,11 +2,29 @@
 # second, different compile followed by one next-error must land on that
 # run's first diagnostic, not continue where the first run's cursor was
 # or resurrect its markers.
+#
+# The `C-a` runs after each compile's RET are cover, not editing.  A
+# compile is asynchronous: the child has to run and its output has to be
+# read and parsed before `M-g n` has anything to navigate to, and nothing
+# in the harness waits for that -- the only cover is however many
+# key_delays the harness sleeps in between.  Two of them (0.3 s at the
+# 0.15 this case used to carry) is not enough under load: it failed the
+# ci-03 valgrind lane of a six-lane parallel run with `XYbbb`/`ddd`, both
+# letters at the *first* run's location because the second compile had
+# not been parsed yet, and the mechanism reproduces on demand at
+# key_delay 0.05 under valgrind with 24 busy loops on this 32-core box
+# (1 of 5 runs, same diff).
+#
+# Ten sleeps after each compile at 0.2 is 2.0 s of cover for 8.2 s of
+# wall time -- cheaper than buying the same 2.0 s from key_delay alone,
+# which would have to be 1.0 and would cost 25 s.  `C-a` is chosen
+# because point is irrelevant to what follows: next-error jumps to the
+# diagnostic's own location regardless of where the cursor was.
 name: next-error-rebuild-invalidates
 filename: rebuild.c
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.2
 initial: |-
   aaa
   bbb
@@ -20,6 +38,14 @@ keys:
   - C-k
   - "printf 'rebuild.c:2:1: error: e1\\n'"
   - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
   - M-g
   - n
   - X
@@ -30,6 +56,14 @@ keys:
   - C-k
   - "printf 'rebuild.c:4:1: error: e2\\n'"
   - RET
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
+  - C-a
   - M-g
   - n
   - Y

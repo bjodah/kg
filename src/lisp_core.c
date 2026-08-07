@@ -141,10 +141,13 @@ void release_scratch(void)
  * this function and would leave one stale.
  *
  * MESSAGE arrives as "LABEL:LINE: SYMBOL"; only the trailing symbol name
- * is replaced, so the position fe latched survives.  Answers false and
- * leaves the caller on fe's own text for every other condition -- the
- * classes kg raises this way are the only ones whose data is Emacs'
- * (OPERATION STRERROR PATH) triple of strings. */
+ * is replaced, so the position fe latched survives.  The match to Emacs is
+ * for the (OPERATION STRERROR PATH) triple of strings -- the shape kg's own
+ * raises always have -- including Emacs' rule that an empty OPERATION
+ * drops its ": " separator.  Every other shape a user (signal
+ * 'file-missing DATA) can build (wrong arity, a non-string field) answers
+ * false and falls back to fe's own text BY DESIGN: those are
+ * error-message-string corners this deliberately does not reproduce. */
 static bool render_file_condition(
     FeContext *context, char *out, size_t size, const char *message)
 {
@@ -153,6 +156,7 @@ static bool render_file_condition(
 	FeObject *data, *field;
 	char name[32], text[512];
 	size_t used, length, i;
+	bool bare_operation = false;
 
 	if (FeGetType(condition) != FeTPair) {
 		return false;
@@ -169,6 +173,13 @@ static bool render_file_condition(
 		return false;
 	}
 	used -= length;
+	/* `out' is state.error[1024] and MESSAGE is fe's own 1024-byte
+	 * buffer, so today this cannot overflow -- but nothing couples the
+	 * two sizes, and MESSAGE carries a host-controlled load label up to
+	 * PATH_MAX.  Checked, not assumed. */
+	if (used >= size) {
+		return false;
+	}
 	memcpy(out, message, used);
 	data = FeCdr(context, condition);
 	for (i = 0; i < 3; i++) {
@@ -184,8 +195,13 @@ static bool render_file_condition(
 			return false;
 		}
 		text[length] = '\0';
-		used += (size_t)snprintf(
-		    out + used, size - used, "%s%s", separator[i], text);
+		if (i == 0 && length == 0) {
+			/* Emacs: (file-missing "" "d" "p") renders "d, p" --
+			 * an empty OPERATION takes its ": " with it. */
+			bare_operation = true;
+		}
+		used += (size_t)snprintf(out + used, size - used, "%s%s",
+		    i == 1 && bare_operation ? "" : separator[i], text);
 		if (used >= size) {
 			return false;
 		}
@@ -734,14 +750,15 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
  * the suite as root), so an unreadable file lands on the parent class,
  * which is where a handler naming file-error catches it either way.
  *
- * WHAT THIS COSTS, recorded rather than hidden: fe's `signal' uses the
+ * WHAT THIS WOULD HAVE COST, and what repairs it: fe's `signal' uses the
  * bare condition name as the completion's message (fe_eval.c's PSignal
  * arm passes `symbol' as both the name and the message), so an UNCAUGHT
- * missing-file load now reports `file-missing' where it used to report
- * `cannot open PATH: No such file or directory'.  The path is still in
- * the condition's data, which is what a handler reads and what Emacs
- * puts there; rendering data back into a message is Emacs'
- * error-message-string, which neither fe nor kg has.
+ * missing-file load would report `file-missing' and nothing else -- the
+ * file name gone from every diagnostic.  render_file_condition() above
+ * is the repair: it rebuilds Emacs' error-message-string text from the
+ * condition's data for these two classes' string-triple shape, and only
+ * for them -- it is not a general error-message-string, which neither
+ * fe nor kg has.
  *
  * WHY THE PROTECTED CALL AND NOT lisp_raise_wrong_type's plain
  * FeEvaluateWithOptions: measured, that route does not reach an enclosing

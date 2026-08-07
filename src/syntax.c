@@ -1621,9 +1621,17 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 		if (in_comment) {
 			row->hl[i] = HL_MLCOMMENT;
 			if (*p == mce[0] && *(p + 1) == mce[1]) {
-				row->hl[i + 1] = HL_MLCOMMENT;
-				p += 2;
-				i += 2;
+				/* Safe as hl[i + 1] only while every HLDB
+				 * mce is two bytes: a one-byte closer would
+				 * match with p[1] the render NUL and write
+				 * one past hl, exactly the trailing-'\\'
+				 * overflow below.  Same offset shape, so the
+				 * code no longer assumes the invariant. */
+				int two = mce[1] ? 1 : 0;
+
+				row->hl[i + two] = HL_MLCOMMENT;
+				p += 1 + two;
+				i += 1 + two;
 				in_comment = 0;
 				prev_sep = 1;
 				continue;
@@ -1634,10 +1642,13 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 				continue;
 			}
 		} else if (*p == mcs[0] && *(p + 1) == mcs[1]) {
+			/* Mirror of the mce guard above, for the opener. */
+			int two = mcs[1] ? 1 : 0;
+
 			row->hl[i] = HL_MLCOMMENT;
-			row->hl[i + 1] = HL_MLCOMMENT;
-			p += 2;
-			i += 2;
+			row->hl[i + two] = HL_MLCOMMENT;
+			p += 1 + two;
+			i += 1 + two;
 			in_comment = 1;
 			prev_sep = 0;
 			continue;

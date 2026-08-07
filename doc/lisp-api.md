@@ -293,9 +293,12 @@ Ordering rules that hold across every subscriber:
   `file-error`, where Emacs raises its third leaf `permission-denied`;
   that one is recorded rather than implemented, because it is
   measurable only unprivileged. Everything else the loader raises —
-  the depth limit, a read failure on an open file, out of memory,
-  cyclic `require`, a file that does not `provide` — is a kg-policy
-  error with no Emacs counterpart and stays a plain `error`.
+  the depth limit, out of memory, cyclic `require`, a file that does
+  not `provide` — is a kg-policy error with no Emacs counterpart and
+  stays a plain `error`. A read failure on an open file stays a plain
+  `error` too, but that one *has* a counterpart — Emacs answers
+  `(file-error "Cannot open load file" "Is a directory" PATH)` for
+  `(load DIRECTORY)` — and is out of scope per 12A Decision 1.
   **A `throw` out of a loaded file is the remaining exception**: the
   containment barrier is a throw wall, so it becomes
   `(no-catch TAG VALUE)` where Emacs delivers the thrown value to a

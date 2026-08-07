@@ -311,6 +311,17 @@ static void test_load_error_condition_reachability(void)
 		  "Cannot open load file: No such file or directory,"
 		  " /tmp/kg-lisp-missing/x.el")
 	    != nullptr);
+	/* Emacs drops the ": " separator when OPERATION is the empty
+	 * string: (file-missing "" "d" "p") renders "d, p", not ": d, p".
+	 * User-reachable via `signal' only; kg's own raises always fill
+	 * OPERATION.  The "eval:1: " ahead of it is the position prefix
+	 * the renderer preserves -- asserting through it is what catches
+	 * a regression to "eval:1: : d, p". */
+	(void)snprintf(
+	    form, sizeof(form), "(signal 'file-missing '(\"\" \"d\" \"p\"))");
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "eval:1: d, p") != nullptr);
 
 	kg_lisp_shutdown();
 	CHECK(unlink(raiser) == 0);

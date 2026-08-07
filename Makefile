@@ -495,7 +495,23 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5826 exceeds limit 5825
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5826
 #   scc total complexity: 5826 (limit 5826)
-SCC_COMPLEXITY_MAX ?= 5826
+# Raised 5826 -> 5845 for Phase 12's fix cycle, the phase's second
+# funded Decision: the acceptance reviews rejected the close, so the
+# remainder is priced here rather than smuggled in.  It buys (a) the
+# review fixes, measured +7 on this tree -- the empty-OPERATION
+# separator rule and the checked memcpy bound in
+# render_file_condition(), and the two guarded sibling writes in
+# generic_keyword_scan() -- and (b) the prelude `load' loop the
+# paragraph above left unfunded, now unblocked by fe's input-unit trio
+# (FE_API_VERSION 8), whose C half is a read-form native beside the
+# eval loop.  Proof at the raise, review fixes in, loader not yet:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5832
+#   FAIL: total complexity 5833 exceeds limit 5832
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5833
+#   scc total complexity: 5833 (limit 5833)
+# 5845 is a ceiling, not a spend; the close re-sets it at the measured
+# actual, as every phase since 08 has.
+SCC_COMPLEXITY_MAX ?= 5845
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

@@ -1647,9 +1647,26 @@ static void generic_keyword_scan(struct editor_buffer *b, erow *row)
 		if (in_string) {
 			row->hl[i] = HL_STRING;
 			if (*p == '\\') {
-				row->hl[i + 1] = HL_STRING;
-				p += 2;
-				i += 2;
+				/* A backslash claims the byte after it too --
+				 * but only when there is one.  In an
+				 * unterminated string whose last render byte
+				 * is a lone '\\', p[1] is render's NUL
+				 * terminator, so hl[i + 1] is one past hl's
+				 * allocation (row_hl_reserve() sizes hl to
+				 * exactly rsize for a row below
+				 * KG_ROW_SLACK_MIN): a one-byte heap overflow.
+				 * `esc' is the escape's second byte where it
+				 * exists and 0 where it does not, so a lone
+				 * trailing backslash is repainted as the
+				 * ordinary in-string byte it is and the scan
+				 * advances by one to the end of the row --
+				 * yaml_quote_span_end()'s `i + 1 < len' guard,
+				 * spelled as an offset. */
+				int esc = p[1] ? 1 : 0;
+
+				row->hl[i + esc] = HL_STRING;
+				p += 1 + esc;
+				i += 1 + esc;
 				prev_sep = 0;
 				continue;
 			}

@@ -4,8 +4,8 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 15546,
-  "lines_hit": 13387,
+  "lines_found": 15547,
+  "lines_hit": 13388,
   "line_rate": 0.8611,
   "functions_found": 1341,
   "functions_hit": 1301,
@@ -500,9 +500,9 @@
    "branch_rate": 0.717
   },
   "src/syntax.c": {
-   "lines_found": 765,
-   "lines_hit": 656,
-   "line_rate": 0.8575,
+   "lines_found": 766,
+   "lines_hit": 657,
+   "line_rate": 0.8577,
    "functions_found": 45,
    "functions_hit": 44,
    "function_rate": 0.9778,

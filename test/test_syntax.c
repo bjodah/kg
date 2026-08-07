@@ -166,6 +166,36 @@ static void test_c_string(void)
 	teardown();
 }
 
+/* An unterminated string whose last render byte is a lone trailing
+ * backslash used to write row->hl[row->rsize] -- one byte past hl's
+ * allocation, since row_hl_reserve() sizes hl to exactly rsize for rows
+ * under KG_ROW_SLACK_MIN.  The C highlighter's sibling of the guard
+ * test_yaml_malformed_escape_at_eol_no_crash() pins for YAML. */
+static void test_c_unterminated_string_trailing_backslash_no_crash(void)
+{
+	setup(syntax_find_by_name("C"));
+	editor_insert_row(bcur(), 0, "\"abc\\", 5);
+
+	CHECK(bcur()->row[0].rsize == 5);
+	CHECK(bcur()->row[0].hl[0] == HL_STRING);
+	CHECK(bcur()->row[0].hl[4] == HL_STRING);
+	teardown();
+}
+
+/* Same shape through the Shell highlighter, which is how the overflow was
+ * reached in the wild: a shell line continuing a double-quoted argument
+ * onto the next row, with no closing quote anywhere in the file. */
+static void test_shell_unterminated_string_trailing_backslash_no_crash(void)
+{
+	setup(syntax_find_by_name("Shell"));
+	editor_insert_row(bcur(), 0, "x=\"export FOO=bar \\", 19);
+
+	CHECK(bcur()->row[0].rsize == 19);
+	CHECK(bcur()->row[0].hl[2] == HL_STRING);
+	CHECK(bcur()->row[0].hl[18] == HL_STRING);
+	teardown();
+}
+
 /* A single-line comment "//" colours the rest of the line HL_COMMENT. */
 static void test_c_line_comment(void)
 {
@@ -1328,6 +1358,8 @@ int main(void)
 	RUN(test_c_type_keyword);
 	RUN(test_c_ctrl_keyword);
 	RUN(test_c_string);
+	RUN(test_c_unterminated_string_trailing_backslash_no_crash);
+	RUN(test_shell_unterminated_string_trailing_backslash_no_crash);
 	RUN(test_c_line_comment);
 	RUN(test_c_line_comment_after_tab);
 	RUN(test_c_integer);

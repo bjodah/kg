@@ -1139,7 +1139,7 @@
   "src/syntax.c:editor_syntax_to_color": 2,
   "src/syntax.c:editor_update_syntax": 1,
   "src/syntax.c:editor_update_syntax_row_only": 8,
-  "src/syntax.c:generic_keyword_scan": 51,
+  "src/syntax.c:generic_keyword_scan": 52,
   "src/syntax.c:gitcommit_syntax": 7,
   "src/syntax.c:gitrebase_is_hash": 4,
   "src/syntax.c:gitrebase_lookup": 7,

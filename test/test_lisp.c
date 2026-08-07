@@ -264,16 +264,20 @@ static void test_load_error_condition_reachability(void)
 	    == 0);
 	CHECK(strcmp(result, "t") == 0);
 
-	/* The half that stays divergent: a throw does not cross the
-	 * containment barrier, so the catch does not receive 99 and the
-	 * throw arrives as no-catch. */
+	/* The half that was divergent until Phase 12's fix cycle: `load' is
+	 * now a prelude loop `eval'ing each form in the CURRENT run (fe's
+	 * input-unit trio, FE_API_VERSION 8), so there is no containment
+	 * barrier and no throw wall -- the catch receives the thrown 99,
+	 * which is Emacs' answer.  The condition-case is kept from the old
+	 * shape of this probe so a regression to (no-catch load-tag 99)
+	 * fails on the value rather than aborting the test. */
 	(void)snprintf(form, sizeof(form),
 	    "(condition-case e (catch 'load-tag (load \"%s\"))"
 	    " (error (car e)))",
 	    thrower);
 	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
 	    == 0);
-	CHECK(strcmp(result, "no-catch") == 0);
+	CHECK(strcmp(result, "99") == 0);
 
 	/* A missing file raises Emacs' `file-missing' (sub-plan 12D Part 2),
 	 * where it used to raise a plain `error' whose message carried the
@@ -329,6 +333,90 @@ static void test_load_error_condition_reachability(void)
 	CHECK(unlink(plain) == 0);
 }
 
+/* Phase 12 fix cycle: `load' is a prelude read-eval loop over fe's
+ * input-unit trio, and these are the loop's own guarantees -- the ones
+ * the barrier-shaped loader could not give or gave differently.  The
+ * compat corpus pins the Emacs-comparable half (load-dynamic-extent);
+ * this pins the kg-side mechanics: per-form diagnostic labels, error
+ * timing, cleanup-on-cross-throw, and the depth limit surviving the
+ * rebuild. */
+static void test_load_incremental_loop(void)
+{
+	char forms[] = "/tmp/kg-lisp-forms-XXXXXX";
+	char timing[] = "/tmp/kg-lisp-timing-XXXXXX";
+	char cleaner[] = "/tmp/kg-lisp-clean-XXXXXX";
+	char form[512];
+	char result[256] = "";
+
+	/* Form 4 sits past a blank line and a comment; a form spanning
+	 * lines would drift without the per-form latch (the fe acceptance
+	 * test's ablation), so the error must name line 4, not 1. */
+	CHECK(write_temp_lisp(forms, "(setq lf-probe 1)\n\n;; c\n(car 6)\n"));
+	/* Form 1 must RUN before form 2's reader error surfaces: Emacs
+	 * reads and evaluates a load incrementally, and the audit measured
+	 * kg's whole-buffer reader diverging on exactly this shape. */
+	CHECK(write_temp_lisp(timing, "(setq lt-probe 41)\n(unclosed\n"));
+	CHECK(write_temp_lisp(cleaner,
+	    "(unwind-protect (throw 'lc-tag 5) (setq lc-cleaned 'yes))\n"));
+
+	CHECK(kg_lisp_init() == 0);
+
+	(void)snprintf(form, sizeof(form), "(load \"%s\")", forms);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, forms) != nullptr);
+	CHECK(strstr(result, ":4:") != nullptr);
+	/* ...and the abandoned unit's label did not leak into the next
+	 * diagnostic (the fe fix cycle's B1, seen from kg). */
+	CHECK(kg_lisp_eval_string("(car 7)", 7, result, sizeof(result)) != 0);
+	CHECK(strstr(result, forms) == nullptr);
+
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"%s\") (error lt-probe))", timing);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "41") == 0);
+
+	/* A cleanup in the loading frame runs while a throw crosses the
+	 * load on its way to the caller's catch. */
+	(void)snprintf(form, sizeof(form),
+	    "(progn (setq lc-cleaned 'no)"
+	    " (list (catch 'lc-tag (load \"%s\")) lc-cleaned))",
+	    cleaner);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "(5 yes)") == 0);
+
+	/* The depth limit survived the rebuild: a self-loading file stops
+	 * at LISP_MAX_LOAD_DEPTH with the loader's own diagnostic, not in
+	 * the C stack.  The file loads itself by its final name, so the
+	 * source is written after mkstemp fixed it. */
+	{
+		char self[] = "/tmp/kg-lisp-self-XXXXXX";
+		char source[128];
+		FILE *file;
+
+		CHECK(write_temp_lisp(self, ";; placeholder\n"));
+		(void)snprintf(source, sizeof(source), "(load \"%s\")\n", self);
+		file = fopen(self, "w");
+		CHECK(file != nullptr);
+		CHECK(
+		    fwrite(source, 1, strlen(source), file) == strlen(source));
+		CHECK(fclose(file) == 0);
+		(void)snprintf(form, sizeof(form), "(load \"%s\")", self);
+		CHECK(kg_lisp_eval_string(
+			  form, strlen(form), result, sizeof(result))
+		    != 0);
+		CHECK(strstr(result, "load depth limit exceeded") != nullptr);
+		CHECK(unlink(self) == 0);
+	}
+
+	kg_lisp_shutdown();
+	CHECK(unlink(forms) == 0);
+	CHECK(unlink(timing) == 0);
+	CHECK(unlink(cleaner) == 0);
+}
+
 static int interrupt_polls;
 
 static int cancel_evaluation(void) { return ++interrupt_polls >= 2; }
@@ -347,6 +435,43 @@ static void test_interrupt(void)
 	CHECK(kg_lisp_eval_string("(+ 2 3)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "5") == 0);
 	kg_lisp_shutdown();
+}
+
+/* Quit during load is still a quit after the Phase 12 fix-cycle loader
+ * rebuild: C-g inside a loaded form's evaluation cancels the whole
+ * evaluation as KG_LISP_ERROR_QUIT, and the loader's bookkeeping is
+ * unwound (the prelude loop's cleanup rode fe's drain), so loading
+ * again afterwards works. */
+static void test_load_quit(void)
+{
+	char looper[] = "/tmp/kg-lisp-loop-XXXXXX";
+	char form[256];
+	char result[128] = "";
+
+	CHECK(write_temp_lisp(looper, "(while t 1)\n"));
+	CHECK(kg_lisp_init() == 0);
+	interrupt_polls = 0;
+	kg_lisp_set_interrupt_check(cancel_evaluation);
+	(void)snprintf(form, sizeof(form), "(load \"%s\")", looper);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    != 0);
+	CHECK(strcmp(result, "Quit") == 0);
+	CHECK(kg_lisp_last_error_kind() == KG_LISP_ERROR_QUIT);
+	kg_lisp_set_interrupt_check(nullptr);
+	/* The depth counter and buffer slot were released on the way out. */
+	{
+		FILE *file = fopen(looper, "w");
+
+		CHECK(file != nullptr);
+		CHECK(fputs("(setq lq-after 'ok)\n", file) >= 0);
+		CHECK(fclose(file) == 0);
+	}
+	(void)snprintf(form, sizeof(form), "(load \"%s\")", looper);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "t") == 0);
+	kg_lisp_shutdown();
+	CHECK(unlink(looper) == 0);
 }
 
 static void test_message_arity(void)
@@ -4324,7 +4449,10 @@ static void test_quit_uncaught(void)
 	teardown_editor();
 }
 
-#define PRELUDE_DEFS 77
+/* Top-level (defalias 'NAME ...) forms in lisp/prelude.el: 77 through
+ * Phase 12's close, +3 at its fix cycle's loader rebuild (load, require,
+ * internal--load-loop). */
+#define PRELUDE_DEFS 80
 
 static void test_prelude_source_file(void)
 {
@@ -5218,7 +5346,9 @@ int main(void)
 	RUN(test_phase12_one_arg_defvar_file_scope);
 	RUN(test_load_file_error);
 	RUN(test_load_error_condition_reachability);
+	RUN(test_load_incremental_loop);
 	RUN(test_interrupt);
+	RUN(test_load_quit);
 	RUN(test_message_arity);
 	RUN(test_insert_and_undo);
 	RUN(test_insert_read_only_recovery);

@@ -484,37 +484,18 @@ ordered by value vs implementation effort.
         close then; Phase 12 closed one of them (`file-missing`) and
         measured the other (`throw`) into a different, larger shape than
         11A had assumed.  Both have their own items below
-      - **A `throw` out of a loaded file (Shape B) — still open, and the
-        blocker moved.**  Phase 12 measured the design 11A named (`load`
-        as an fe primitive with its own frame kind) into a cheaper one
-        and then found that one blocked too, which is the fact the next
-        attempt should start from.  The cheaper design is **(c)**: fe
-        gains `eval` — it has it, since the Phase 12 pin — and kg's
-        `load` becomes prelude Lisp looping a new native over the file,
-        `eval`ing each form in the current run, so no containment barrier
-        stands between the throw and the catch, Emacs' incremental
-        read-eval timing is preserved (form 1 runs before form 2's reader
-        error surfaces, on **both** sides today — an eager read-all-forms
-        design would break fidelity in the *opposite* direction), and
-        `load` keeps C ownership of path resolution, depth bookkeeping
-        and buffer lifetime.  **What blocks it is that a prelude loop
-        does not enter an INPUT UNIT.** Two things fe sets only in
-        `EvaluateInput` and exposes through no public entry:
-        `ctx->error_label`/`error_line`, which is where kg's per-form
-        `path:LINE` diagnostics come from — `FeReadString` explicitly
-        saves and restores the caller's label around itself, so a reader
-        native cannot leave one behind — and `ctx->input_scope`, which is
-        the one-argument-`defvar` scope carrier above.  Measured on this
-        tree: an error raised by an `eval`'d form inside a loaded file
-        reports the *enclosing* unit's label and the line of the
-        enclosing top-level form, and two `eval`s in one unit share a
-        scope where Emacs gives each `eval` its own.  So a prelude
-        `load` today would report every loaded file's errors at the
-        caller's `path:LINE` and re-open the leak the Phase 12 pin just
-        closed.  Closing this needs a small fe addition — an
-        enter/leave pair for an input unit (label, line, scope) that does
-        **not** start a new run — and therefore a pin move.
-        `load-throw-reachability` pins both answers
+      - ~~A `throw` out of a loaded file (Shape B)~~ — **done in Phase
+        12's fix cycle**, by exactly the design (c) this item measured
+        out, once fe's side of the blocker was built: the fix cycle
+        added the input-unit trio
+        `FeEnterInputUnit`/`FeReadInputForm`/`FeLeaveInputUnit`
+        (`FE_API_VERSION` 8, the fix-cycle pin move), and `load` and
+        `require` became prelude loops `eval`ing each form in the
+        current run — per-form `path:LINE` latched by the incremental
+        reader, input-unit defvar scoping intact, incremental
+        read-eval timing pinned as an oracle case
+        (`load-error-timing`).  The flipped `load-throw-reachability`
+        row and the `load-dynamic-extent` cases carry the evidence.
       - ~~a cleanup that raises AND HANDLES its own error overwrites the
         in-flight condition~~ — **done in Phase 12** (12A Decision 2, fe
         `95965f0`), and the defect was broader and simpler than this item

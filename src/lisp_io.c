@@ -755,57 +755,45 @@ static char *read_whole_file(FeContext *context, const char *path, size_t *size)
 	return buffer;
 }
 
-/* Evaluate the Lisp source at PATH, nested inside the caller's evaluation
- * and inheriting its step budget.  Shared by (load ...) and (require ...),
- * which differ only in how they resolve PATH: honours
- * LISP_MAX_LOAD_DEPTH and keeps the buffer in state.load_buffers so a
- * longjmp past this call is freed by the frame recovery that already
- * walks that array.
+/* Open the source at PATH as a load stream: whole file into the next
+ * state.load_buffers slot, cursor and label into the load_streams twin,
+ * and an fe input unit entered with the path as its label.  Shared by
+ * `load' and `require''s loading arm, whose PRELUDE loops read the
+ * stream back one form at a time and `eval' each in the current run --
+ * the Phase 12 fix-cycle rebuild that retired the containment barrier
+ * this function's predecessor was built around (sub-plan 12D Part 2, on
+ * fe's FE_API_VERSION 8 input-unit trio).  With no barrier there is no
+ * throw wall: a throw, condition or quit out of a loaded form propagates
+ * to whatever catch or handler encloses the (load ...), which is Emacs'
+ * answer and the load-throw-reachability flip.
  *
- * The evaluation goes through FeTryEvaluateStringWithOptions, not
- * FeEvaluateString, and that is the whole of sub-plan 11D Part 3.
- * FeEvaluateString is a nested run dressed as a top-level call: a
- * condition raised by the loaded text transferred straight to the
- * *outermost* barrier -- kg's own error_jump -- past every
- * condition-case lexically between the (load ...) and the raise.  The
- * protected entry contains the completion instead and returns false, so
- * this frame is still live: it unwinds the bookkeeping it owns and then
- * FeResignal puts the completion back in flight in the enclosing run,
- * with its kind, its condition object and its message intact, where an
- * enclosing condition-case finds it.  That is the
- * load-error-condition-reachability flip, and it is the same shape
- * lisp_call_body() used from 06E until 11D Part 4 deleted it with its
- * only two callers, the save-excursion/with-current-buffer natives.
+ * Either this returns with the slot fully open -- buffer, cursor, unit,
+ * all of it -- or it raises with nothing changed; there is no partial
+ * state for the prelude's unwind-protect to guess about.  The unit's
+ * label is the per-slot path copy, NOT the caller's transient string,
+ * because fe borrows the label for the unit's whole lifetime.
  *
- * The three lines after the evaluation used to be unreachable on the
- * error path and are now the reason this works: the depth counter, the
- * load_buffers slot and the malloc'd buffer are all released *before*
- * the resignal, while the frame that owns them still exists.  The
- * load_buffers array stays the belt to that braces -- a quit or budget
- * completion that kg's frame recovery unwinds past a caller of this
- * function still has its buffer freed by the walk over that array --
- * but the ordinary error path no longer depends on it.
- *
- * What this does NOT make reachable is a `throw` out of the loaded text
- * to a `catch` around the (load ...).  The containment barrier is a
- * throw wall exactly as the protected call's is, so the throw becomes
- * (no-catch TAG VALUE) -- which resignals as an ordinary error an
- * enclosing condition-case can handle, but which the catch naming the
- * tag does not receive.  Emacs answers the thrown value.  Closing it
- * needs `load' to be an fe primitive with a frame kind of its own
- * (Shape B), which 11A Decision 5 rejects by scope; the divergence is
- * recorded as test/lisp-compat/features.json's
- * load-throw-reachability row with both answers pinned. */
-void lisp_eval_file(FeContext *context, const char *path)
+ * The abnormal paths, and who cleans what: the prelude loop's
+ * unwind-protect closes the stream (internal--load-end) during fe's
+ * cleanup drain for all three completion kinds, and the containment
+ * barriers and RaiseCompletionCore restore the input unit itself.  The
+ * load_buffers walk in release_frame_buffers() stays as the belt: a
+ * completion that reaches kg's host barrier frees whatever some
+ * abandoned loop had open, and close marks its slot closed so the two
+ * can never double-free. */
+size_t lisp_load_stream_begin(FeContext *context, const char *path)
 {
+	struct lisp_load_stream *stream;
 	char *buffer;
 	size_t size, slot;
-	FeObject *value = FeNil(context);
-	bool completed;
 
 	if (state.load_depth >= LISP_MAX_LOAD_DEPTH) {
 		FeHandleError(context, "load depth limit exceeded");
 	}
+	/* PATH always fits stream->path: both callers bound it to PATH_MAX
+	 * before calling (internal--load-begin's snprintf check,
+	 * resolve_require_path's own bounds), and both buffers are the same
+	 * size, so the snprintf below cannot truncate. */
 	buffer = read_whole_file(context, path, &size);
 	if (!buffer) {
 		char message[sizeof(state.error)];
@@ -814,16 +802,101 @@ void lisp_eval_file(FeContext *context, const char *path)
 		FeHandleError(context, message);
 	}
 	slot = state.load_depth;
+	stream = &state.load_streams[slot];
+	(void)snprintf(stream->path, sizeof(stream->path), "%s", path);
+	stream->offset = 0;
+	stream->line = 1;
+	stream->size = size;
+	stream->open = true;
 	state.load_buffers[slot] = buffer;
 	state.load_depth++;
-	completed = FeTryEvaluateStringWithOptions(
-	    context, path, buffer, size, nullptr, &value);
-	state.load_depth--;
-	state.load_buffers[slot] = nullptr;
-	free(buffer);
-	if (!completed) {
-		FeResignal(context);
+	FeEnterInputUnit(context, stream->path, &stream->enclosing);
+	return slot;
+}
+
+/* The open stream a HANDLE names, or a raise.  Loads nest strictly, so
+ * the only handle either reader natives accept is the innermost open
+ * stream: anything else is a mismatched-nesting bug in the prelude loop
+ * (or a user calling an internal-- native directly), reported rather
+ * than indexed with. */
+static struct lisp_load_stream *load_stream_top(
+    FeContext *context, FeObject *handle)
+{
+	int64_t slot = FeToInteger(context, handle);
+
+	/* depth - 1 is >= 0 whenever the first test passes, so a negative
+	 * handle fails the equality without its own test. */
+	if (state.load_depth == 0 || slot != (int64_t)(state.load_depth - 1)
+	    || !state.load_streams[slot].open) {
+		FeHandleError(context, "load stream handle is not open");
 	}
+	return &state.load_streams[slot];
+}
+
+/* (internal--load-begin PATH): open PATH as the next load stream and
+ * answer its handle.  The prelude's loop is the only intended caller. */
+FeObject *native_internal_load_begin(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	char path[PATH_MAX];
+	size_t length;
+	char *name;
+
+	FeRequireNoArguments(context, arguments);
+	name = copy_fe_string(context, object, &length);
+	if ((size_t)snprintf(path, sizeof(path), "%s", name) >= sizeof(path)) {
+		free(name);
+		FeHandleError(context, "path is too long");
+	}
+	free(name);
+	return FeMakeInteger(
+	    context, (int64_t)lisp_load_stream_begin(context, path));
+}
+
+/* (internal--read-form HANDLE): the next form from the stream, as the
+ * one-element list (FORM) so end-of-input (nil) and a form that reads as
+ * nil ((nil)) stay distinguishable.  FeReadInputForm leaves the line the
+ * form STARTS on latched in the context, so a raise while `eval'ing it
+ * reports path:LINE of the form -- the same latch the retired C loop
+ * got from fe's EvaluateInput. */
+FeObject *native_internal_read_form(FeContext *context, FeObject *arguments)
+{
+	FeObject *handle = FeGetNextArgument(context, &arguments);
+	struct lisp_load_stream *stream;
+	FeObject *form;
+	size_t slot;
+
+	FeRequireNoArguments(context, arguments);
+	stream = load_stream_top(context, handle);
+	slot = (size_t)(stream - state.load_streams);
+	form = FeReadInputForm(context, state.load_buffers[slot], stream->size,
+	    &stream->offset, &stream->line);
+	if (form == nullptr) {
+		return FeNil(context);
+	}
+	FePushGC(context, form);
+	return FeCons(context, form, FeNil(context));
+}
+
+/* (internal--load-end HANDLE): leave the stream's input unit (restoring
+ * the enclosing unit's scope, label and position) and release the
+ * buffer.  Runs from the prelude loop's unwind-protect, so fe's cleanup
+ * drain calls it on every completion kind as well as on the way out. */
+FeObject *native_internal_load_end(FeContext *context, FeObject *arguments)
+{
+	FeObject *handle = FeGetNextArgument(context, &arguments);
+	struct lisp_load_stream *stream;
+	size_t slot;
+
+	FeRequireNoArguments(context, arguments);
+	stream = load_stream_top(context, handle);
+	slot = (size_t)(stream - state.load_streams);
+	FeLeaveInputUnit(context, &stream->enclosing);
+	stream->open = false;
+	state.load_depth--;
+	free(state.load_buffers[slot]);
+	state.load_buffers[slot] = nullptr;
+	return FeNil(context);
 }
 
 /* True when NAME already carries the ".el" suffix a bare load would
@@ -858,15 +931,14 @@ static int lisp_package_path(
 	    || lisp_config_path(path, size, stem);
 }
 
-/* (load NAME): a name containing '/' is a literal path; a bare name
- * resolves through lisp_package_path above.  Loading twice evaluates
- * twice; there is no require/provide behaviour here -- see native_require
- * for that.
- *
- * Returns t on success, which is Emacs' answer and which kg answered nil
- * for until Phase 11 (11A Decision 5).  There is no failure return to
- * distinguish it from: every way this can fail raises. */
-FeObject *native_load(FeContext *context, FeObject *arguments)
+/* (internal--resolve-load NAME): `load''s name resolution, unchanged
+ * from when `load' was a C native -- a name containing '/' is a literal
+ * path; a bare name resolves through lisp_package_path above.  The
+ * loading itself is the prelude's loop (internal--load-loop in
+ * lisp/prelude.el): loading twice evaluates twice, `load' answers t
+ * (Emacs' answer, 11A Decision 5), and there is no require/provide
+ * behaviour here. */
+FeObject *native_internal_resolve_load(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	char path[PATH_MAX];
@@ -890,6 +962,5 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 		command_error(context, "cannot resolve package path", rejected);
 	}
 	free(name);
-	lisp_eval_file(context, path);
-	return FeMakeBool(context, true);
+	return FeMakeString(context, path);
 }

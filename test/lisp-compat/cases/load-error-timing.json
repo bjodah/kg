@@ -1,0 +1,8 @@
+{
+ "id": "load-error-timing",
+ "setup": [
+  "(setq load-error-timing-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-error-timing.el\") \"test/lisp-compat/fixtures/load-error-timing.el\"))"
+ ],
+ "expr": "(condition-case e (load load-error-timing-path) (error load-timing-probe))",
+ "note": "Loading is incremental: the fixture's first form has RUN (the probe answers 41 from the handler) by the time its second form's reader error is raised.  The Phase 12 fact audit's decisive Emacs measurement, pinned as a case at the fix cycle's loader rebuild."
+}

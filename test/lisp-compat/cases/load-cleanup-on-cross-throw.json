@@ -1,0 +1,8 @@
+{
+ "id": "load-cleanup-on-cross-throw",
+ "setup": [
+  "(setq load-cleanup-cross-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-cleanup-cross.el\") \"test/lisp-compat/fixtures/load-cleanup-cross.el\"))"
+ ],
+ "expr": "(progn (setq load-cross-cleaned 'no) (list (catch 'cross-tag (load load-cleanup-cross-path)) load-cross-cleaned))",
+ "note": "An unwind-protect cleanup in the loading frame runs while a throw crosses the load on its way to the caller's catch: (5 yes) in both dialects.  Added at the Phase 12 fix cycle's loader rebuild."
+}

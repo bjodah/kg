@@ -138,6 +138,22 @@ struct lisp_state {
 	 * longjmp past the natives, so frame recovery frees the leftovers. */
 	char *load_buffers[LISP_MAX_LOAD_DEPTH];
 	size_t load_depth;
+	/* The reader cursor and input-unit bookkeeping beside each
+	 * load_buffers slot, one struct per nesting level (Phase 12's fix
+	 * cycle): `load' and `require' are prelude loops over
+	 * internal--read-form, so the C side keeps, per open stream, the
+	 * byte/line cursor FeReadInputForm advances, the path that is the
+	 * unit's label (borrowed by fe for the unit's whole lifetime, which
+	 * is why it is per-slot storage and not a stack local), and the
+	 * enclosing FeInputUnit to restore on close. */
+	struct lisp_load_stream {
+		size_t offset;
+		size_t line;
+		size_t size;
+		bool open;
+		char path[PATH_MAX];
+		FeInputUnit enclosing;
+	} load_streams[LISP_MAX_LOAD_DEPTH];
 	/* Buffer text extracted by a native that has not handed it to Fe
 	 * yet; freed by frame recovery for the same reason. */
 	char *scratch;
@@ -167,6 +183,13 @@ struct lisp_state {
 	 * condition-case pop happens too; outer frame recovery resets the count
 	 * as a final fallback when a completion reaches kg's host boundary. */
 	char requiring[LISP_MAX_REQUIRE_STACK][LISP_FEATURE_NAME_MAX];
+#if KG_PERF_COUNTERS
+	/* When the OUTERMOST require of a chain started, for the
+	 * package-load counter: latched by internal--require-push at depth
+	 * 1, banked by internal--require-check at the same depth.  Counting
+	 * builds only, like every KG_PERF field. */
+	long long require_outer_before_ns;
+#endif
 	size_t requiring_depth;
 	bool frame_active;
 	struct lisp_prefix_binding *prefix_binding;
@@ -280,9 +303,12 @@ int lisp_config_path(char *out, size_t outsize, const char *stem);
  * question is answered, so `load` and `require` cannot disagree about
  * the same input the way they did before sub-plan 10C. */
 bool lisp_has_el_suffix(const char *name, size_t length);
-/* Evaluate the Lisp source at PATH, honouring LISP_MAX_LOAD_DEPTH; shared
- * by native_load and native_require (lisp_io.c). */
-void lisp_eval_file(FeContext *context, const char *path);
+/* Open the Lisp source at PATH as a load stream, honouring
+ * LISP_MAX_LOAD_DEPTH: reads the whole file, takes the next
+ * state.load_streams slot, and enters an fe input unit labelled with the
+ * path (lisp_io.c).  Shared by `load' and `require''s loading arm, whose
+ * prelude loops read it back one form at a time.  Returns the slot. */
+size_t lisp_load_stream_begin(FeContext *context, const char *path);
 
 /* The command registry (lisp_core.c). */
 struct lisp_command *find_lisp_command(const char *name);
@@ -292,7 +318,16 @@ struct lisp_command *find_lisp_command(const char *name);
 FeObject *native_message(FeContext *context, FeObject *arguments);
 FeObject *native_insert(FeContext *context, FeObject *arguments);
 FeObject *native_buffer_name(FeContext *context, FeObject *arguments);
-FeObject *native_load(FeContext *context, FeObject *arguments);
+/* The loader's C half (lisp_io.c).  `load' itself is prelude Lisp: a loop
+ * of internal--read-form/eval inside the input unit internal--load-begin
+ * enters, so a throw, condition or quit out of a loaded form propagates
+ * in the CURRENT run to whatever catch or handler encloses the (load ...).
+ * resolve turns a load NAME into a path; begin/read-form/end own the
+ * stream. */
+FeObject *native_internal_resolve_load(FeContext *context, FeObject *arguments);
+FeObject *native_internal_load_begin(FeContext *context, FeObject *arguments);
+FeObject *native_internal_read_form(FeContext *context, FeObject *arguments);
+FeObject *native_internal_load_end(FeContext *context, FeObject *arguments);
 FeObject *native_format(FeContext *context, FeObject *arguments);
 FeObject *native_point_offset(FeContext *context, FeObject *arguments);
 FeObject *native_point_min(FeContext *context, FeObject *arguments);
@@ -375,7 +410,17 @@ FeObject *native_set_process_filter(FeContext *context, FeObject *arguments);
 FeObject *native_set_process_sentinel(FeContext *context, FeObject *arguments);
 FeObject *native_process_status(FeContext *context, FeObject *arguments);
 FeObject *native_provide(FeContext *context, FeObject *arguments);
-FeObject *native_require(FeContext *context, FeObject *arguments);
+/* `require''s C half (lisp_require.c); the loop itself is the same
+ * prelude loop `load' uses.  resolve answers nil when the feature is
+ * already provided, else the resolved path; push/pop own the cyclic-
+ * require stack from the prelude's unwind-protect; check is the
+ * did-not-provide verdict and the package-load perf accounting. */
+FeObject *native_internal_require_resolve(
+    FeContext *context, FeObject *arguments);
+FeObject *native_internal_require_push(FeContext *context, FeObject *arguments);
+FeObject *native_internal_require_pop(FeContext *context, FeObject *arguments);
+FeObject *native_internal_require_check(
+    FeContext *context, FeObject *arguments);
 FeObject *native_featurep(FeContext *context, FeObject *arguments);
 FeObject *native_add_to_load_path(FeContext *context, FeObject *arguments);
 

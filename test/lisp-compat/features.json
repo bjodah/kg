@@ -77,7 +77,7 @@
     "native-load"
    ],
    "kg_test": "test/test_lisp.c:test_load_file",
-   "rationale": "kg's loader resolves against kg's own bounded load-path array and package state rather than Emacs' Lisp-visible load-path with .elc/.el/no-suffix probing, which is why the resolution half is kg-policy and lives in the load-path-search row. What IS Emacs-comparable is the value: since Phase 11 `load' answers t on success, as Emacs' does, where it answered nil before (11A Decision 5; load-returns-t pins it). There is no failure return to distinguish t from -- every way kg's load can fail raises, and since 11D Part 3 an enclosing condition-case can catch it (load-error-condition-reachability). The condition a missing file raises is Emacs' `file-missing' since Phase 12 (12D Part 2, the phase12-file-conditions row): it used to be a plain `error' whose message carried the path as prose, and the blocker Phase 11 recorded for it -- \"condition subtypes with an inheritance test in fe's handler search\" -- was stale when it was written, since fe has had that test since Phase 6.",
+   "rationale": "kg's loader resolves against kg's own bounded load-path array and package state rather than Emacs' Lisp-visible load-path with .elc/.el/no-suffix probing, which is why the resolution half is kg-policy and lives in the load-path-search row. What IS Emacs-comparable is the value: since Phase 11 `load' answers t on success, as Emacs' does, where it answered nil before (11A Decision 5; load-returns-t pins it). There is no failure return to distinguish t from -- every way kg's load can fail raises, and since 11D Part 3 an enclosing condition-case can catch it (load-error-condition-reachability). The condition a missing file raises is Emacs' `file-missing' since Phase 12 (12D Part 2, the phase12-file-conditions row): it used to be a plain `error' whose message carried the path as prose, and the blocker Phase 11 recorded for it -- \"condition subtypes with an inheritance test in fe's handler search\" -- was stale when it was written, since fe has had that test since Phase 6. Since Phase 12's fix cycle `load' itself is prelude Lisp (lisp/prelude.el's loader section) over the C stream natives the loader-stream-natives row describes; resolution is unchanged and stays kg-policy.",
    "source_name": "load"
   },
   {
@@ -134,20 +134,152 @@
     "load-error-condition-reachability"
    ],
    "kg_test": "test/test_lisp.c:test_load_error_condition_reachability",
-   "rationale": "Closed by Phase 11 sub-plan 11D Part 3 (11A Decision 5, Shape A); recorded by the Phase 10 acceptance review before that. Emacs evaluates a loaded source file inside the dynamic extent of the calling `load', so an enclosing `condition-case' handles an error from that file. kg's lisp_eval_file() re-entered fe through FeEvaluateString, a nested run dressed as a top-level call: the error transferred to that nested run's host barrier -- kg's outermost error_jump -- past every handler lexically between the load and the raise. It now uses fe's FeTryEvaluateStringWithOptions (fe sub-plan 11C, FE_API_VERSION 7), which CONTAINS the completion and returns false with this frame still live; lisp_eval_file unwinds the bookkeeping it owns -- the depth counter, the load_buffers slot and the malloc'd buffer, three lines that were unreachable on the error path before -- and then FeResignal puts the completion back in flight in the enclosing run with its kind, condition object and message intact, where the condition-case finds it. The load_buffers array stays as the belt to that braces for the completions kg's frame recovery unwinds past a caller. Reader exhaustion was always catchable, being raised before the nested evaluator starts (test_exhaustion_catchability), and still is. The THROW half is not closed and is not the same problem: see the load-throw-reachability row.",
+   "rationale": "Closed by Phase 11 sub-plan 11D Part 3 (11A Decision 5, Shape A); recorded by the Phase 10 acceptance review before that. Emacs evaluates a loaded source file inside the dynamic extent of the calling `load', so an enclosing `condition-case' handles an error from that file. kg's lisp_eval_file() re-entered fe through FeEvaluateString, a nested run dressed as a top-level call: the error transferred to that nested run's host barrier -- kg's outermost error_jump -- past every handler lexically between the load and the raise. It now uses fe's FeTryEvaluateStringWithOptions (fe sub-plan 11C, FE_API_VERSION 7), which CONTAINS the completion and returns false with this frame still live; lisp_eval_file unwinds the bookkeeping it owns -- the depth counter, the load_buffers slot and the malloc'd buffer, three lines that were unreachable on the error path before -- and then FeResignal puts the completion back in flight in the enclosing run with its kind, condition object and message intact, where the condition-case finds it. The load_buffers array stays as the belt to that braces for the completions kg's frame recovery unwinds past a caller. Reader exhaustion was always catchable, being raised before the nested evaluator starts (test_exhaustion_catchability), and still is. The THROW half is not closed and is not the same problem: see the load-throw-reachability row. PHASE 12 FIX-CYCLE CODA: the containment-and-resignal machinery this row describes was retired when `load' became a prelude read-eval loop in the caller's own run (see load-throw-reachability); the property now holds with no barrier at all -- an error inside a loaded form reaches an enclosing condition-case because nothing ever stood between them. The history above is kept because it explains the shape the loader had from Phase 11 to Phase 12.",
    "source_name": null
   },
   {
    "id": "load-throw-reachability",
    "category": "loading",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "load-throw-reachability"
    ],
    "kg_test": "test/test_lisp.c:test_load_error_condition_reachability",
-   "rationale": "Opened by Phase 11 sub-plan 11D Part 3, in the same commit that closed load-error-condition-reachability, because the two halves of the load barrier share a root cause and not a fix. A `throw' out of a loaded file to a `catch' around the (load ...) reaches that catch in Emacs and answers 99; here the containment barrier FeTryEvaluateStringWithOptions installs is a throw wall exactly as the protected call's is, so the throw finds no catch and becomes (no-catch load-tag 99) -- an ordinary error an enclosing condition-case can handle, but not the value the catch was waiting for. That containment is what makes the error half work, so this is a consequence of the fix and not an oversight. Closing it means Shape B: `load' becomes an fe primitive with a frame kind of its own, so the loaded forms are evaluated by the same run as the caller and no barrier stands between the throw and the catch. 11A Decision 5 rejects that by scope -- it is evaluator work, not loader work -- and doc/TODO.md carries the item.",
+   "rationale": "FLIPPED by Phase 12's fix cycle, having been opened by Phase 11 sub-plan 11D Part 3 in the same commit that closed load-error-condition-reachability. A `throw' out of a loaded file to a `catch' around the (load ...) reaches that catch and answers 99 in both dialects now: `load' is a prelude read-eval loop -- internal--read-form / `eval' inside the input unit internal--load-begin enters -- built on fe's FE_API_VERSION 8 entry trio (FeEnterInputUnit / FeReadInputForm / FeLeaveInputUnit), so the loaded forms run in the CURRENT run and no barrier stands between the throw and the catch. The old rationale said closing this meant Shape B, `load' as an fe primitive with a frame kind of its own; that text is retired -- the kg review's negative result showed what was actually needed was three fe entries letting the HOST drive a read-eval loop inside one input unit, which is smaller than a frame kind and keeps the loader kg's. The error half (load-error-condition-reachability) holds trivially in the same shape: with no barrier there is nothing to resignal across. Diagnostics keep their per-form path:LINE labels because FeReadInputForm latches the line each form STARTS on, the same latch fe's own EvaluateInput uses.",
+   "source_name": null
+  },
+  {
+   "id": "loader-stream-natives",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "The C half of the Phase 12 fix-cycle loader rebuild (sub-plan 12D Part 2, completed by the fix cycle on fe's FE_API_VERSION 8 input-unit trio). `load' and `require' are prelude Lisp loops; these natives own what C must own. internal--load-begin opens a load stream -- whole file into the next state.load_buffers slot, cursor and per-slot path copy beside it (fe borrows the unit label for the unit's whole lifetime), FeEnterInputUnit with the path as label -- and either returns a fully-open stream or raises with nothing changed, so the prelude's unwind-protect never sees partial state. internal--read-form answers the next form as the one-element list (FORM), keeping end-of-input (nil) distinguishable from a form reading as nil, with the form's own line latched so a raise while `eval'ing it reports path:LINE of the form. internal--load-end leaves the input unit and frees the buffer; it runs from the prelude loop's unwind-protect, i.e. on every completion kind via fe's cleanup drain. Handles are validated against the innermost open stream -- loads nest strictly, and a mismatched handle (or a user calling an internal-- native directly) is reported, not indexed with. internal--resolve-load is `load''s old name resolution unchanged. The require quartet: resolve (no-op arm, cycle and nesting verdicts, load-path resolution), push/pop (the cyclic-require stack, published inside the prelude unwind-protect and popped in its cleanup -- what used to be a C-side FeProtectWithCleanup), check (the did-not-provide verdict and the package-load perf accounting). kg-policy: Emacs has no such seam; what IS Emacs-comparable is the loader behaviour built on it, pinned by load-dynamic-extent and load-throw-reachability.",
+   "source_name": "internal--load-begin"
+  },
+  {
+   "id": "loader-stream-resolve-load",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--resolve-load"
+  },
+  {
+   "id": "loader-stream-read-form",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--read-form"
+  },
+  {
+   "id": "loader-stream-load-end",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--load-end"
+  },
+  {
+   "id": "loader-stream-require-resolve",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--require-resolve"
+  },
+  {
+   "id": "loader-stream-require-push",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--require-push"
+  },
+  {
+   "id": "loader-stream-require-pop",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--require-pop"
+  },
+  {
+   "id": "loader-stream-require-check",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "A C half of the prelude loader; it is a separate row only because this manifest's source-coverage rule wants every kg native named by some entry's source_name, and one entry can name only one. The cases, the tests and the reasoning are the loader-stream-natives row's.",
+   "source_name": "internal--require-check"
+  },
+  {
+   "id": "prelude-load-loop",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "The prelude half of the loader-stream-natives row: the read-eval loop itself, shared by `load' and `require'. The stream handle is bound INSIDE the unwind-protect so there is no window in which an open stream has no cleanup armed; the cleanup closes the stream on every completion kind via fe's cleanup drain.",
+   "source_name": "internal--load-loop"
+  },
+  {
+   "id": "load-dynamic-extent",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "load-error-timing",
+    "load-nested-inner-throw",
+    "load-cleanup-on-cross-throw"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_incremental_loop",
+   "rationale": "Emacs evaluates a loaded file incrementally and inside the dynamic extent of the (load ...) call, and since Phase 12's fix cycle so does kg -- these three cases pin the consequences the old barrier loader got wrong or could not express. load-error-timing: form 1 RUNS before form 2's reader error surfaces (the Phase 12 fact audit's decisive Emacs measurement, now a pinned case rather than a note). load-nested-inner-throw: a catch inside a loaded file receives a throw from a nested load, and the outer file keeps evaluating past it. load-cleanup-on-cross-throw: an unwind-protect cleanup in the loading frame runs while a throw crosses the load on its way to the caller's catch. Fresh cases with runner-produced snapshots, added at the flip; see load-throw-reachability for the flip itself.",
    "source_name": null
   },
   {
@@ -173,7 +305,7 @@
     "native-require"
    ],
    "kg_test": "test/test_lisp.c:test_require_provide, test/test_lisp.c:test_require_el_suffix, test/pty/lisp-require-filename-el-suffix.yaml",
-   "rationale": "kg-policy: Emacs' require searches a Lisp-visible load-path of directories with .elc/.el/no-suffix probing and an autoload cache, none of which kg has, so agreement with the oracle is undefined for the resolution itself; what is comparable -- returns FEATURE, no-op when already provided, errors when the file does not provide it -- kg matches and test_require_provide pins. Sub-plan 10C (10A Decision 7) closed the one place two kg loaders disagreed with each other rather than with Emacs: candidate_readable() appended '.el' unconditionally, so (require 'f \"name.el\") looked for name.el.el while (load \"name.el\") beside it worked. Both now ask lisp_io.c's lisp_has_el_suffix, the single copy of that question. test_require_el_suffix pins the fix and, deliberately, the three rules that did NOT move: a bare stem still gains .el, an absent file still fails naming what it looked for -- as Emacs' `file-missing' since Phase 12, where the message used to be kg's own 'cannot find in load-path' prose -- and the file the old code would have found, doubled.el.el, is unreachable with its marker unbound, and a FILENAME containing '/' is still literal -- neither suffixed nor searched. See also the load-path-search row for what require does that load does not.",
+   "rationale": "kg-policy: Emacs' require searches a Lisp-visible load-path of directories with .elc/.el/no-suffix probing and an autoload cache, none of which kg has, so agreement with the oracle is undefined for the resolution itself; what is comparable -- returns FEATURE, no-op when already provided, errors when the file does not provide it -- kg matches and test_require_provide pins. Sub-plan 10C (10A Decision 7) closed the one place two kg loaders disagreed with each other rather than with Emacs: candidate_readable() appended '.el' unconditionally, so (require 'f \"name.el\") looked for name.el.el while (load \"name.el\") beside it worked. Both now ask lisp_io.c's lisp_has_el_suffix, the single copy of that question. test_require_el_suffix pins the fix and, deliberately, the three rules that did NOT move: a bare stem still gains .el, an absent file still fails naming what it looked for -- as Emacs' `file-missing' since Phase 12, where the message used to be kg's own 'cannot find in load-path' prose -- and the file the old code would have found, doubled.el.el, is unreachable with its marker unbound, and a FILENAME containing '/' is still literal -- neither suffixed nor searched. See also the load-path-search row for what require does that load does not. Since Phase 12's fix cycle `require' itself is prelude Lisp sharing `load''s loop; the C half (resolve/push/pop/check, see loader-stream-natives) keeps the feature table, the cyclic-require stack and the did-not-provide verdict, and a `throw' out of a required file now reaches a `catch' around the (require ...) exactly as load-throw-reachability describes.",
    "source_name": "require"
   },
   {

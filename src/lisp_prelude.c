@@ -16,9 +16,20 @@ static const struct native_binding native_bindings[] = {
 	{ "delete-region", native_delete_region },
 	{ "replace-region", native_replace_region },
 	{ "buffer-name", native_buffer_name },
-	{ "load", native_load },
+	/* `load' and `require' themselves are prelude Lisp (lisp/prelude.el's
+	 * loader section): loops of internal--read-form/eval inside one
+	 * input unit, so throws, conditions and quits out of a loaded form
+	 * reach the caller's own catches and handlers.  These natives are
+	 * the loops' C halves. */
+	{ "internal--resolve-load", native_internal_resolve_load },
+	{ "internal--load-begin", native_internal_load_begin },
+	{ "internal--read-form", native_internal_read_form },
+	{ "internal--load-end", native_internal_load_end },
+	{ "internal--require-resolve", native_internal_require_resolve },
+	{ "internal--require-push", native_internal_require_push },
+	{ "internal--require-pop", native_internal_require_pop },
+	{ "internal--require-check", native_internal_require_check },
 	{ "provide", native_provide },
-	{ "require", native_require },
 	{ "featurep", native_featurep },
 	/* kg's own name: load-path is a bounded C array, not a Fe list a
 	 * package could push onto with (setq load-path ...), so it needs a

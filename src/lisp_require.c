@@ -225,23 +225,15 @@ static int requiring_index(const char *name)
 	return -1;
 }
 
-static void cleanup_require(FeContext *context, void *data)
-{
-	(void)context;
-	(void)data;
-	state.requiring_depth--;
-	state.requiring[state.requiring_depth][0] = '\0';
-}
-
-/* (require FEATURE &optional FILENAME): a no-op, returning FEATURE
- * unevaluated, when it is already provided.  Otherwise FILENAME (or
- * FEATURE's own name, absent one) resolves through the load-path exactly
- * as native_load resolves a bare name, the file is evaluated nested in
- * this call the way (load ...) nests, and the feature must be provided
- * by the time it returns -- a file that runs to completion without
- * calling (provide ...) is a caller bug, reported rather than silently
- * accepted. */
-FeObject *native_require(FeContext *context, FeObject *arguments)
+/* (internal--require-resolve FEATURE &optional FILENAME): everything
+ * `require' decides before any loading happens.  nil when FEATURE is
+ * already provided (require's no-op arm); otherwise the resolved path,
+ * with the cyclic-require and nesting-depth verdicts raised from here so
+ * the prelude's unwind-protect never has a partially-decided require to
+ * clean up after.  FILENAME (or FEATURE's own name, absent one) resolves
+ * through the load-path exactly as `load' resolves a bare name. */
+FeObject *native_internal_require_resolve(
+    FeContext *context, FeObject *arguments)
 {
 	FeObject *feature_object = FeGetNextArgument(context, &arguments);
 	FeObject *filename_object = nullptr;
@@ -255,7 +247,7 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 	FeRequireNoArguments(context, arguments);
 	feature_name(context, feature_object, name, sizeof(name), "require");
 	if (find_feature(name)) {
-		return feature_object;
+		return FeNil(context);
 	}
 	if (filename_object != nullptr && !FeIsNil(filename_object)) {
 		feature_name(
@@ -269,48 +261,81 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 	if (state.requiring_depth >= LISP_MAX_REQUIRE_STACK) {
 		FeHandleError(context, "require nesting too deep");
 	}
+	resolve_require_path(context, stem, path, sizeof(path));
+	return FeMakeString(context, path);
+}
+
+/* (internal--require-push FEATURE): publish FEATURE on the cyclic-
+ * require stack.  Called from inside the prelude `require''s
+ * unwind-protect body, paired with internal--require-pop in its cleanup,
+ * which is what used to be FeProtectWithCleanup here: a condition-case
+ * can catch a load error without returning through any C frame, and the
+ * pop riding fe's cleanup drain is what keeps a retry of the same
+ * feature a retry rather than a false cyclic require.  Re-checks the
+ * bound resolve already checked -- the two run a few evaluator steps
+ * apart and this one is the publisher. */
+FeObject *native_internal_require_push(FeContext *context, FeObject *arguments)
+{
+	FeObject *feature_object = FeGetNextArgument(context, &arguments);
+	char name[LISP_FEATURE_NAME_MAX];
+
+	FeRequireNoArguments(context, arguments);
+	feature_name(context, feature_object, name, sizeof(name), "require");
+	if (state.requiring_depth >= LISP_MAX_REQUIRE_STACK) {
+		FeHandleError(context, "require nesting too deep");
+	}
 	(void)snprintf(state.requiring[state.requiring_depth],
 	    sizeof(state.requiring[0]), "%s", name);
-	/* A condition-case can catch a load error without returning through
-	 * this C frame.  Tie the pop to Fe's unwind registry so that retrying
-	 * the same feature is a retry, not a false cyclic require.  Register
-	 * before publishing the stack entry: if the cleanup registry itself is
-	 * full, its raise must not leave requiring_depth changed. */
-	FeProtectWithCleanup(context, cleanup_require, nullptr);
 	state.requiring_depth++;
-
-	resolve_require_path(context, stem, path, sizeof(path));
 #if KG_PERF_COUNTERS
-	{
-		/* §15's "package load time", summed over the session: a
-		 * require that actually loads is the only thing kg calls a
-		 * package load.  See perf.h for why this one accumulates and
-		 * why it is nested inside the init counter when the require
-		 * is written in init.el.
-		 *
-		 * Only the OUTERMOST require of a chain is timed --
-		 * requiring_depth was incremented above, so 1 means this one
-		 * has no require above it.  A nested require's interval lies
-		 * entirely inside its parent's, and adding both counted the
-		 * same nanoseconds twice: measured, on an init file whose
-		 * (require 'pipeline-text) loads a file that itself requires
-		 * 'pipeline, the total came out LARGER than the init file it
-		 * happened inside. */
-		long long before = lisp_monotonic_ns();
-		bool outermost = state.requiring_depth == 1;
-
-		lisp_eval_file(context, path);
-		if (outermost) {
-			KG_PERF_ADD(KG_PERF_LISP_PACKAGE_LOAD_NS,
-			    lisp_monotonic_ns() - before);
-		}
+	/* §15's "package load time", summed over the session: a require
+	 * that actually loads is the only thing kg calls a package load.
+	 * Only the OUTERMOST require of a chain is timed -- a nested
+	 * require's interval lies entirely inside its parent's, and adding
+	 * both counted the same nanoseconds twice (measured; see perf.h).
+	 * The latch is per-chain, not per-slot: depth 1 means no require
+	 * above this one. */
+	if (state.requiring_depth == 1) {
+		state.require_outer_before_ns = lisp_monotonic_ns();
 	}
-#else
-	lisp_eval_file(context, path);
 #endif
+	return FeMakeBool(context, true);
+}
 
+/* (internal--require-pop): the cleanup arm's half of the pair above.
+ * Runs on every completion kind through fe's cleanup drain, and on the
+ * way out of a successful require. */
+FeObject *native_internal_require_pop(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	if (state.requiring_depth == 0) {
+		FeHandleError(context, "require stack is empty");
+	}
+	state.requiring_depth--;
+	state.requiring[state.requiring_depth][0] = '\0';
+	return FeNil(context);
+}
+
+/* (internal--require-check FEATURE): the success-path verdict.  A file
+ * that ran to completion without (provide FEATURE) is a caller bug,
+ * reported rather than silently accepted; a chain whose outermost
+ * require just finished banks its package-load time.  Runs before the
+ * pop, so requiring_depth still names this chain's depth. */
+FeObject *native_internal_require_check(FeContext *context, FeObject *arguments)
+{
+	FeObject *feature_object = FeGetNextArgument(context, &arguments);
+	char name[LISP_FEATURE_NAME_MAX];
+
+	FeRequireNoArguments(context, arguments);
+	feature_name(context, feature_object, name, sizeof(name), "require");
 	if (!find_feature(name)) {
 		command_error(context, "did not provide feature", name);
 	}
-	return feature_object;
+#if KG_PERF_COUNTERS
+	if (state.requiring_depth == 1) {
+		KG_PERF_ADD(KG_PERF_LISP_PACKAGE_LOAD_NS,
+		    lisp_monotonic_ns() - state.require_outer_before_ns);
+	}
+#endif
+	return FeNil(context);
 }

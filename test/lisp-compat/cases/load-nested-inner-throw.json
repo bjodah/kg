@@ -1,0 +1,8 @@
+{
+ "id": "load-nested-inner-throw",
+ "setup": [
+  "(setq load-nested-outer-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-nested-outer.el\") \"test/lisp-compat/fixtures/load-nested-outer.el\"))"
+ ],
+ "expr": "(progn (load load-nested-outer-path) load-nested-probe)",
+ "note": "A catch inside a loaded file receives a throw from a NESTED load (7), and the outer file keeps evaluating past it (+1): the loaded forms run in the caller's own run at every nesting level.  Added at the Phase 12 fix cycle's loader rebuild."
+}

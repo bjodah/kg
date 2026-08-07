@@ -299,12 +299,17 @@ Ordering rules that hold across every subscriber:
   `error` too, but that one *has* a counterpart — Emacs answers
   `(file-error "Cannot open load file" "Is a directory" PATH)` for
   `(load DIRECTORY)` — and is out of scope per 12A Decision 1.
-  **A `throw` out of a loaded file is the remaining exception**: the
-  containment barrier is a throw wall, so it becomes
-  `(no-catch TAG VALUE)` where Emacs delivers the thrown value to a
-  `catch` around the `(load ...)`. Recorded as
-  `load-throw-reachability`, with a `doc/TODO.md` item that carries
-  Phase 12's measurement of what closing it now needs.
+  **A `throw` out of a loaded file reaches a `catch` around the
+  `(load ...)`**, as it does in Emacs, since Phase 12's fix cycle:
+  `load` is a prelude read-eval loop — each form read by an
+  incremental reader that latches the form's own `path:LINE`, then
+  `eval`ed in the caller's own run inside one fe input unit — so
+  errors, throws and quits cross the `load` as if the loaded forms
+  were written in place, and `unwind-protect` cleanups in the loading
+  frame run as they cross. The flipped `load-throw-reachability` row
+  records the history; `load-dynamic-extent` pins the consequences
+  (incremental error timing, nested loads, cleanups) against the
+  oracle.
   **`require` cycle detection** is separate again: it tracks feature
   *identity*, not nesting depth, in its own `LISP_MAX_REQUIRE_STACK` = 8
   entry stack, so `(require 'a)` from inside `(require 'a)`'s own load is

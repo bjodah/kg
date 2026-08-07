@@ -241,9 +241,11 @@ condition symbol. A file that is not there raises Emacs' own
 `file-missing` — `(file-missing "Cannot open load file" "No such file or
 directory" PATH)`, and the same condition and data from `require` when
 nothing in the load-path matches — so a handler may name `file-missing`,
-its parent `file-error`, or `error`. A `throw` out of a loaded file is
-the remaining divergence: it becomes `(no-catch TAG VALUE)` where Emacs
-delivers the value to a `catch` around the `load`. Init files and packages are trusted code with the
+its parent `file-error`, or `error`. A `throw` out of a loaded file
+reaches a `catch` around the `load`, as it does in Emacs: loaded forms
+are read and evaluated one at a time in the caller's own run, so
+errors, throws and quits cross the `load` as if the forms were written
+in place. Init files and packages are trusted code with the
 full privileges of the editor process, bounded only by the evaluation step
 budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**
 `doc/lisp-api.md` is the full reference (object lifetimes, position units,

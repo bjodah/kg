@@ -611,6 +611,57 @@
              (string= (substring key 0 6) "C-c C-"))
         key
       (error "kbd: cannot bind key sequence")))))
+;; --- the loader ---
+;; `load' and `require' are Lisp loops over C stream natives (Phase 12's
+;; fix cycle, on fe's input-unit trio), NOT C calls into a nested
+;; evaluation: each form is read by internal--read-form -- which latches
+;; the form's own path:LINE for diagnostics -- and run by `eval' in the
+;; CURRENT run, inside the input unit internal--load-begin entered.  That
+;; is what lets a `throw' out of a loaded file reach a `catch' around the
+;; (load ...), an error reach an enclosing condition-case, and a quit
+;; stay a quit, exactly as if the file's forms were written in place --
+;; Emacs' dynamic-extent rule, which the retired containment barrier
+;; could not honour for throws (the old load-throw-reachability
+;; divergence).  The handle is bound inside the unwind-protect so there
+;; is no window where an open stream has no cleanup armed; the cleanup
+;; closes the stream (freeing the C buffer and restoring the enclosing
+;; input unit) on every completion kind via fe's cleanup drain.
+;; internal--read-form answers (FORM) or nil, keeping end-of-file
+;; distinguishable from a form that reads as nil.
+(defalias 'internal--load-loop (lambda (path)
+  (let ((h nil))
+    (unwind-protect
+        (progn
+          (setq h (internal--load-begin path))
+          (let ((cell (internal--read-form h)))
+            (while cell
+              (eval (car cell))
+              (setq cell (internal--read-form h)))))
+      (if h (internal--load-end h))))))
+(defalias 'load (lambda (name)
+  (internal--load-loop (internal--resolve-load name))
+  t))
+;; require: the no-op arm (already provided) is internal--require-resolve
+;; answering nil.  The cyclic-require stack entry is published inside the
+;; unwind-protect for the same no-window reason as the stream handle, and
+;; popped in its cleanup -- the pop used to be a C-side
+;; FeProtectWithCleanup, and rides fe's cleanup drain either way, so a
+;; condition-case catching a load error leaves a retry a retry rather
+;; than a false "cyclic require".  The did-not-provide verdict
+;; (internal--require-check) runs only on the success path, before the
+;; pop so the C side still sees this chain's depth.
+(defalias 'require (lambda (feature &optional filename)
+  (let ((path (internal--require-resolve feature filename)))
+    (if path
+        (let ((pushed nil))
+          (unwind-protect
+              (progn
+                (setq pushed (internal--require-push feature))
+                (internal--load-loop path)
+                (internal--require-check feature))
+            (if pushed (internal--require-pop))))))
+  feature))
+
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
 (defalias 'thing-at-point (lambda (thing)

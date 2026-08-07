@@ -48,7 +48,7 @@ expected_saved: ok
 expected_screen_contains:
   # The arena is pinned by the global the init file left behind: no free
   # slots, and the peak is the whole arena.
-  - "Arena: 56224 slots, 0 free, peak 56224;"
+  - "Arena: 56222 slots, 0 free, peak 56222;"
   - "; fails "
 expected_screen_not_contains:
   - "Lisp not available"

@@ -60,10 +60,10 @@ static_assert(FE_LANGUAGE_VERSION == 7);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 57304
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 57328
  * bytes (~56.0 KiB) at the pinned Fe, so an override much below ~64 KiB
  * fails to start; the default's 1 MiB still leaves roughly 95% of the
- * arena for objects and frame growth -- 56224 object slots and a
+ * arena for objects and frame growth -- 56222 object slots and a
  * 1096-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;

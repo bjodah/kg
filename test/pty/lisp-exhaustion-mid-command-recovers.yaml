@@ -31,16 +31,21 @@ dimensions: [24, 120]
 #
 # The capture lands after the last of this case's fifteen keys, so the
 # cover between the fill's RET and it is the *ten* keys that follow --
-# not the "8 keys" the previous comment counted -- which is 2.1 s at 0.2,
-# against a fill measured at 0.24 s under valgrind and 0.003 s plain.
+# not the "8 keys" the previous comment counted -- which is 3.1 s at 0.3.
+# What that has to cover is the fill plus the two commands after it, and
+# the fill alone measures 0.003 s plain, 0.24 s under valgrind, 0.96 s
+# under clang MSan and 1.35-1.79 s under MSan with 24 busy loops on this
+# 32-core box.  MSan under load is the case to size against; the plain
+# and valgrind numbers are not the ones that matter.
+#
 # DEFAULT_TRAILER's four keys are slept through too, so the case is
-# nineteen key_delays end to end: 4.2 s plain and 4.5 s under valgrind,
-# where the 0.4 this replaces measured 8.0 s and 8.3 s and its comment
-# claimed "near 6 s".  Unlike the hook case, the default 0.05 does not
-# reproduce a failure here on an idle box (3/3 pass under valgrind) --
-# the recorded failure was under six-lane load, so this margin is against
-# contention rather than against a locally reproduced race.
-key_delay: 0.2
+# nineteen key_delays end to end: 5.9 s, where the 0.4 this replaces
+# measured 8.0 s plain and 8.3 s under valgrind while its comment claimed
+# "near 6 s".  Unlike the hook case, the default 0.05 does not reproduce
+# a failure here even under valgrind on an idle box (3/3 pass), so this
+# margin is against contention rather than against a locally reproduced
+# race.  Verified 3/3 under MSan with the box loaded.
+key_delay: 0.3
 initial: ""
 keys:
   - M-x

@@ -1,12 +1,24 @@
 # start-process execs argv directly (no /bin/sh -c in between): shell
 # metacharacters in an argument survive as literal bytes in the child's
 # output, and no shell ever gets a chance to interpret the ";".
+#
+# The five C-e keys after the RET are the case's only cover for an
+# *asynchronous* delivery: the child has to run and its output has to
+# reach the buffer before the trailer's C-x C-s writes the file, and
+# nothing in the harness waits for that.  key_delay is what buys the
+# time, and 0.15 was too little -- it failed the ci-03 valgrind lane of a
+# six-lane parallel run with an empty saved file, and the mechanism was
+# then reproduced on demand (1 of 5 runs at key_delay 0.05 under valgrind
+# with 24 busy loops on this 32-core box, same empty-file diff).  0.4
+# gives 2.0 s of cover for 4.4 s of wall time, sized like the exhaustion
+# cases beside it: against the slowest lane under load, not the fastest
+# on an idle box.
 name: lisp-process-argv-not-shell
 filename: argv.txt
 requires_feature: lisp
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.15
+key_delay: 0.4
 initial: ""
 keys:
   - M-x

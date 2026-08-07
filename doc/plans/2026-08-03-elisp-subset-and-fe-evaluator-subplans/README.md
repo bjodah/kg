@@ -152,10 +152,12 @@ corrupting; kg's `lisp-arena-stats` command renders the full
 the editor; and a fuzz-seed reachability gate (ci-06) prevents grammar
 changes from silently unsteering the tracked corpus.
 
-**This set — Phase 10, compatibility proofs — is next, and it closes
-the parent's initial program.**  Its four documents (`10a`–`10d`) are
-in this directory; the Grouping and Sequencing sections below describe
-them, and `10a` leads as every A-slice has.
+**The tenth set — Phase 10, compatibility proofs — is complete
+(2026-08-07), and it closes the parent's initial program.**  Its four
+documents (`10a`–`10d`) were removed after acceptance; the Phase 10
+Status section below is the surviving record.  The proof packages,
+mechanized kg oracle, honest divergence inventory, measured bytecode
+decision, and `macroexpand` pair are now part of the tree they planned.
 
 The through-line is that Phase 10 proves the dialect on real
 workloads and makes the milestone gate assertable instead of asserted.
@@ -201,14 +203,14 @@ honest (10C), and completes the three proofs, asserts the milestone
 gate item by item, answers §15 from measured counters and closes the
 phase and the program (10D).
 
-## Grouping
+## Grouping (historical Phase 10 contract)
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| [10A](10a-pin-the-proof-targets-and-fund-the-phase.md) | 10 | The measured proof inventory (what each of §14's three proofs already has, item by item), the 30-snippet Emacs comparison, nine Decisions — `macroexpand` pair in scope with `-all` rejected by name, the kg oracle runner as gate infrastructure, the two silent divergences recorded not fixed, the unsupported-channel gate re-worded, the distributed corpus declared, the `require` suffix fix, the two-tree funding, §15 answered from counters — and the §14/§15 corrections | none — **this is first** |
-| [10B](10b-macroexpand-as-a-primitive.md) | 10 | fe-only: `macroexpand-1` and `macroexpand` as primitives reusing the evaluator's own expansion path (alias-following, strict arity under expansion, self-expanding macro hits the step budget); `macroexpand-all` rejected by its own name, not `void-function`; `comparison: emacs` compat cases | 10A |
-| [10C](10c-the-pin-the-oracle-runner-and-the-honest-manifest.md) | 10 | kg: the phase's single pin move (language version check — new names answer where `void-function` did), the `require` `.el`-suffix fix, `test/kgbatch` grown (`prin1` print, scratch buffer), the kg oracle runner with the XPASS rule fe's lacks, `kg_test` citations verified by tooling, the honest manifest (defvar/quote-printing divergence rows, the misclassified entry, the type-of/commandp case gaps), two §15 perf counters | 10B |
-| [10D](10d-the-three-proofs-and-the-milestone-gate.md) | 10 | kg: Proof 1 completed (conditions, drift gate, ship decision), Proof 2 declared and completed (error handling in the fixture, the bullet→case mapping), Proof 3 built (multi-file higher-order package, pure portions verified under Emacs 31), the milestone gate asserted item by item, §15's answer recorded from measured counters, caps re-set at actuals; closes the phase and the program | 10C |
+| 10A (retired) | 10 | The measured proof inventory (what each of §14's three proofs already has, item by item), the 30-snippet Emacs comparison, nine Decisions — `macroexpand` pair in scope with `-all` rejected by name, the kg oracle runner as gate infrastructure, the two silent divergences recorded not fixed, the unsupported-channel gate re-worded, the distributed corpus declared, the `require` suffix fix, the two-tree funding, §15 answered from counters — and the §14/§15 corrections | none — **this is first** |
+| 10B (retired) | 10 | fe-only: `macroexpand-1` and `macroexpand` as primitives reusing the evaluator's own expansion path (alias-following, strict arity under expansion, self-expanding macro hits the step budget); `macroexpand-all` rejected by its own name, not `void-function`; `comparison: emacs` compat cases | 10A |
+| 10C (retired) | 10 | kg: the phase's single pin move (language version check — new names answer where `void-function` did), the `require` `.el`-suffix fix, `test/kgbatch` grown (`prin1` print, scratch buffer), the kg oracle runner with the XPASS rule fe's lacks, `kg_test` citations verified by tooling, the honest manifest (defvar/quote-printing divergence rows, the misclassified entry, the type-of/commandp case gaps), two §15 perf counters | 10B |
+| 10D (retired) | 10 | kg: Proof 1 completed (conditions, drift gate, ship decision), Proof 2 declared and completed (error handling in the fixture, the bullet→case mapping), Proof 3 built (multi-file higher-order package, pure portions verified under Emacs 31), the milestone gate asserted item by item, §15's answer recorded from measured counters, caps re-set at actuals; closes the phase and the program | 10C |
 
 **10A is genuinely first, for the same structural reason 00A through
 09A were.**  Phase 10's contract is §14's milestone gate, and the gate
@@ -237,9 +239,9 @@ The set is four documents, not five: the manifest work and the runner
 are one coherent kg slice, and splitting the proofs from the gate
 table would separate the evidence from the thing it evidences.
 
-## Handoff contract
+## Handoff contract (fulfilled)
 
-Hand the slices to one engineer one row at a time; each sub-plan's
+The slices were handed to one engineer one row at a time; each sub-plan's
 "Files this slice owns", test list and "does not do" section are part of
 the acceptance criteria, not suggestions.  The documents are removed
 on completion, **by the reviewer at acceptance, never by the
@@ -457,7 +459,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 7 — strict arity | Unconditional strict arity, arity checks per primitive/special form, plus kg's interactive metadata/argument/prompting machinery | Fe's `-a` pass already exists; per-site additions across ~50 primitives, anchored to Phase 2's measured +6 pmccabe for a chained comparator and two forms; the kg half is greenfield and priced per slice in the 07 set | fe **+50 to +80** scc/pmccabe, kg **+110 to +170** scc (audited 2026-08-06) | **Landed 2026-08-06, inside the fe band and past the kg band once the review fixes are counted.** fe: scc 654 → 694 at 07B, **670** after the review's fix cycle (net **+16**, well under the +50..80 — the review deleted more than the arity checks added); pmccabe 863 → **886** (+23) across 299 symbols; no cap re-raised beyond 07A's 760/520/980. kg: 5489 → 5656 across 07C/07D/07E (**+0/+89/+78** per slice — 07E 56% past its +30..50 price), then **+58** of review-fix work to **5714**; the 5660 cap was re-set to **5730** at its measured actual in the fix cycle's closing commit. Details in the Phase 7 Status |
 | 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Landed 2026-08-06, then rejected in review and re-closed after the fix cycle.**  Per slice: 08B **+38** (670 → 708, inside +25..45), 08C **+37** (708 → 745, *under* its +60..110 band — but the slice's real cost was **pmccabe, which this table does not price**: +148 across both slices, 886 → 1034, forcing an unfunded in-commit cap raise 980 → 1090 that the review rejected).  The fix cycle (`fba716d..acc94f7`, 8 commits) closed fe at **746/760** scc (`fe.c` 140, `fe_eval.c` 489/520) and re-set `PMCCABE_TOTAL_MAX` at its measured actual **1056** across 339 symbols.  Details in the Phase 8 Status |
 | 9 — robustness | Re-scoped by 09A: catchable exhaustion conditions (09B) and the flat-stack mark (09C); the "arena-stat API extension" already exists in full (00D/03F) | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase, plus 09B's plumbing against Phase 6's measured condition work | fe **+15..30** (09B) **+20..35** (09C) — priced by 09A, 2026-08-06 | **Landed 2026-08-07 far under the bands, then took a fix cycle for a review blocker.**  Per slice: 09B **+4** (746 → 750), 09C **+7** (750 → 757) — the pointer-reversal walk cost a tenth of its band.  The fix cycle (`56c60f9..7499f71`, 12 commits: the mark-callback contract + two guards, condition re-stamping, six re-derived fuzz seeds + the ci-06 reachability gate, the trace-arm coverage) added **+8 scc / +7 pmccabe**; caps closed at **765/765** and **1072/1072** across 343 symbols.  Details in the Phase 9 Status |
-| 10 — proofs | Re-scoped by 10A: `macroexpand`/`macroexpand-1` primitives (10B — the set's only fe C); everything else is `.el`/test/utils, not scc-scanned | The evaluator's existing expansion path (exposure plus a loop, not new machinery), against Phase 4's small-primitive comparables | fe **+15..30** (10B) — priced by 10A, 2026-08-07 | **Sub-plan set written 2026-08-07** (`10a`–`10d`).  10A funds the raise — fe sits at **765/765 scc and 1072/1072 pmccabe exactly**, so any C line breaches; the raises land in 10B's opening commit, re-set at actuals in 10D |
+| 10 — proofs | Re-scoped by 10A: `macroexpand`/`macroexpand-1` primitives (10B — the set's only fe C); everything else is `.el`/test/utils, not scc-scanned | The evaluator's existing expansion path (exposure plus a loop, not new machinery), against Phase 4's small-primitive comparables | fe **+15..30** (10B) — priced by 10A, 2026-08-07 | **Landed and accepted 2026-08-07 at +22 scc / +16 pmccabe** (765 → **787/787**, 1072 → **1088/1088** across 347 symbols), inside the funded band. `fe_eval.c` is **517/520**. The acceptance fix at `6355f7f` was complexity-neutral; the Phase 10 Status records it. |
 
 Milestone 1 (phases 0–5) landed at **+328 scc and +252 pmccabe** on top of
 the 00A baseline (scc 210 → 538, pmccabe 500 → 752) — inside the +270 to
@@ -489,7 +491,7 @@ that the original ranges did.
 | 7 — strict arity | Interactive argument metadata, interactive-spec parser, argument construction, nested command execution and prompt seam | `src/lisp_cmd.c` (57), with the 07A audit's greenfield machinery estimate | **+110 to +170 scc** (07A, 2026-08-06) | **Landed at +167 for the slices plus +58 for the review-fix cycle: 5489 → 5714.**  Per slice: 07C +0 (the no-adaptation bet held), 07D +89 (priced +80..120), 07E **+78 against +30..50** — the one materially missed price of the phase.  The 5660 cap was re-set to **5730** at the fix cycle's measured actual (dated Makefile comment, reasons in `7468c9a`) |
 | 8 — init compat waves | `defcustom`/`custom-set-variables` prelude macros, `format` widths/`%c`/`%x`/`%o` in `src/lisp_io.c`, loader diagnostics surfacing `file:LINE`, pin adaptations, a possible `commandp`-class native | `src/lisp_io.c`'s existing directive switch; the 08D prelude batch measured ≈+0 | **+40 to +90 scc** (re-priced by the 08 set, 2026-08-06) | **Landed at +80 for the slices plus +4 for the review-fix cycle: 5714 → 5798/5804.**  Per slice: 08D **+0** (the zero-scc prelude bet held, verified at `3eedd34`), 08E **+80** — the whole kg spend, inside the funded band.  pmccabe: the formatter's aggregate +69 was review-rejected as ratchet laundering (a new function at 25 against the 15-point budget, banked silently) and the fix cycle **split it honestly** — `format_pad` 25→8, `format_walk` 21→5, `format_argument` 20→6, `format_integer` 16→2, ten helpers all ≤13 — and hardened kg's checker to refuse silent increases, as fe's was in 07.  Details in the Phase 8 Status |
 | 9 — robustness | Arena-stat diagnostics command, exhaustion-matrix coverage, pin adaptations | small, new (`cmdtable` row + renderer + tests) | **+5 to +15** (confirmed by 09A, 2026-08-06) | **Landed 2026-08-07 at +2** (5798 → 5800; `cmd_lisp_arena_stats` banked at pmccabe 2), the cap re-set 5860 → **5800** at close.  The kg fix cycle (`94a931c..266dbd1`, 13 commits: PTY timing right-sized from measurement, the `--settle-floor` harness mechanism, the pin adaptations for fe's fix range) cost **+0 src scc** — every change landed in test/, utils/, doc/ or comments.  Details in the Phase 9 Status |
-| 10 — proofs | Fixtures, PTY cases, the oracle runner, the proof packages — plus exactly two `src/*.c` touches: the `lisp_require.c` suffix conditional and two perf-counter sites | `src/lisp_require.c`'s existing candidate loop; `src/perf.h`'s existing counter idiom | kg **+3..10** (10C) — priced by 10A, 2026-08-07; all else 0 (not `src/*.c`) | **Sub-plan set written 2026-08-07.**  10A funds the raise — kg sits at **5800/5800 exactly**, so even +1 breaches; the raise lands in 10C's opening commit, re-set at the close actual in 10D |
+| 10 — proofs | Fixtures, PTY cases, the oracle runner, the proof packages — plus exactly two `src/*.c` touches: the `lisp_require.c` suffix conditional and two perf-counter sites | `src/lisp_require.c`'s existing candidate loop; `src/perf.h`'s existing counter idiom | kg **+3..10** (10C) — priced by 10A, 2026-08-07; all else 0 (not `src/*.c`) | **Landed and accepted 2026-08-07 at +2 scc** (5800 → **5802/5802**), just below the estimate because the suffix conditional costs no scc point. Acceptance repairs remain scc-neutral; the require-stack cleanup adds one pmccabe-1 helper, banked explicitly. The Phase 10 Status records the review. |
 
 Milestone 1 (phases 0–5) landed at **+13 kg points** (5444 → 5457 —
 counted from where the tree stood after the Phase 0 set's own kg
@@ -3195,3 +3197,123 @@ frames / 56222 slots**, 465 live after a bare open.
 Final green light: `JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12
 PASS** on kg at `266dbd1` with the pin at `7499f71`, all nine fe
 stages green standalone at `7499f71`.
+
+## Status — Phase 10 (written at acceptance, 2026-08-07)
+
+Implemented and accepted after a two-repository review fix.  The planned
+implementation is fe `7499f71..a51f031` (five commits: the funded cap
+raise, the macroexpand pair, the compatibility corpus, the measured alias
+correction, and the cap re-set) and kg `b490c11..0ded851` (nine commits:
+the pin, funding, require suffix, oracle runner, honest manifest and
+counters, the three proofs, and the asserted close).  Acceptance added fe
+`6355f7f` and kg `4414999`; the documentation-only commit following the
+latter retires `10a`–`10d` and preserves this Status.
+
+### What the review found, and what fixed it
+
+The fe blocker was a call-shape contradiction in `macroexpand-all`'s
+deliberately unsupported stub.  A direct call reached the named
+`unsupported feature: macroexpand-all` error, but `funcall` and `apply`
+classified the same primitive as an invalid function and did not share the
+ordinary operand-evaluation path.  `6355f7f` makes the stub function-shaped:
+direct, `funcall`, and `apply` calls evaluate their operands and then reach
+the same named refusal.  API and script tests pin all three routes and the
+side-effect order.  The same commit corrects the stale alias-cycle account
+and makes all three fe-side unsupported rationales state the actual plain
+`void-function` behavior where no curated known-name channel exists.
+
+The kg blocker was stale require-cycle state after a Lisp handler caught a
+failure.  `native_require` incremented `requiring_depth` and decremented it
+only on C return; a `condition-case` non-local exit skipped that decrement,
+so retrying the same missing feature falsely reported a cycle.  The stack
+entry now owns an `FeProtectWithCleanup` pop on normal and abnormal exit,
+registered before the depth is published so cleanup-registry exhaustion
+cannot create the same corruption.  A one-evaluation two-retry regression
+proves both attempts report the real missing-path error.
+
+Four supporting findings were fixed rather than waived:
+
+- the kg oracle inferred ordinary condition classes from diagnostic
+  substrings even though its Lisp wrapper can see the condition object;
+  kgbatch now emits tagged value/error/quit records and the runner compares
+  ordinary condition symbols exactly, with a self-test of the path;
+- an unknown `--case` silently ran zero oracle cases, a stale C prototype
+  satisfied the manifest's test-citation checker, and malformed PTY YAML was
+  parsed a second time after already being reported; all three gates now
+  fail or report structurally as intended;
+- `fe.h` was not a prerequisite of kg's adapter objects, so a language/API
+  version edit could relink stale `lisp_core.o` and hide the static-assert
+  tripwire.  Both ordinary and performance adapter objects now depend on
+  the public Fe header; and
+- an ordinary evaluation error in a loaded file crosses the nested
+  `FeEvaluateString` host barrier and bypasses a `condition-case` around
+  `load`/`require`, unlike Emacs.  That pre-existing, larger API gap is now
+  the measured `load-error-condition-reachability` divergence with an Emacs
+  31 snapshot, a kg regression, and a TODO.  Reader failures raised before
+  the nested evaluator starts remain catchable.
+
+### What shipped
+
+- `macroexpand-1` and fixpoint `macroexpand` reuse the evaluator's sole
+  transformer-application path, preserve strict arity and Emacs' measured
+  alias rule, and terminate self-expansion at the step budget.  Non-nil
+  environments and `macroexpand-all` are rejected explicitly.
+- The Fe language contract moved to `FE_LANGUAGE_VERSION` 8 / `FeVersion`
+  9.0 while `FE_API_VERSION` remains 6; kg's compile-time reconciliation
+  and fixed header prerequisite make that pin check effective.
+- `make lisp-oracle-check` executes every kg-owned Emacs-comparison case
+  against its checked-in snapshot and treats an agreeing divergence as
+  XPASS.  The source inventory, test citations, orphan snapshots, package
+  copies, and prelude copy are all structural gates in `make check`.
+- Proof 1 is the shipped `auto-fill.el` package with hook-error handling and
+  a no-drift gate; Proof 2 is the mapped init-file PTY corpus with explicit
+  error handling; Proof 3 is `pipeline.el` plus `pipeline-text.el`, with its
+  pure higher-order behavior executed unchanged under Emacs 31 and kg.
+- The §14 milestone table is executable evidence: eight PASS rows and the
+  one honest PARTIAL row for unsupported-name reporting.  §15's measured
+  answer is also final: startup Lisp is about 1.4 ms, package loading about
+  0.44 ms inside it, the representative workload retains 8402/56224 arena
+  slots (14.9%), and performs zero collections.  No bytecode trigger fires,
+  so the explicit-frame AST interpreter remains.
+
+### Per-slice actuals and closing measurements
+
+| Slice | Priced | Actual | Notes |
+|---|---|---|---|
+| 10A | 0 | 0 | Proof inventory, nine Decisions, parent corrections and funded raises only |
+| 10B | fe +15..30 | **+22 scc / +16 pmccabe** | 765 → **787/787**, 1072 → **1088/1088** across 347 symbols; acceptance fix complexity-neutral |
+| 10C+10D | kg +3..10 | **+2 scc** | 5800 → **5802/5802**; the suffix fix costs no scc point and the counter/nesting sites cost two; proof artifacts are outside the scan |
+| kg acceptance | — | **0 scc / +1 pmccabe** | `cleanup_require`, complexity 1, banked explicitly; all other repairs are Make/test/utils/doc |
+
+The fe file-pressure warning is real: `fe_eval.c` closes at **517/520**.
+The next change there must price a split or a cap movement rather than
+pretend three points are a working budget.  kg remains **5802/5802**, with
+`src/bufmgr.c` the worst source file at 479/520 and pmccabe's worst function
+unchanged at 91.
+
+Closing corpus and suite census: **362 features** across both manifests
+(203 kg, 159 fe); kg has **217 cases / 113 snapshots**, and its oracle run
+is **113 total / 100 pass / 13 recorded divergences / 0 fail**.  Fe compat
+is **322 / 260 pass / 62 known gaps / 0 fail**.  `make check` is **32 native
+/ 439 PTY**, all pass; `WITH_LISP=0` is **32 native / 341 PTY pass + 98
+skip**, all expected; the package drift gate finds **9 tracked copies in
+439 cases, 0 drifted**.
+
+### Carried forward
+
+- The §14 unsupported-entry row remains PARTIAL by 10A Decision 5: known
+  reader syntax and `macroexpand-all` reject by name, while an unknown
+  function remains indistinguishable from a typo as `void-function`.
+- Dynamic/special binding, real buffer-local variables, quote abbreviation,
+  the loaded-file condition-reachability gap, macroexpand environments and
+  `macroexpand-all` remain recorded work rather than claims this phase made.
+- No bytecode work is authorized by the measurements.  A future proposal
+  first instruments the three unmeasured §15 rows (read-versus-eval time,
+  dispatch overhead, and interactive Lisp latency) and demonstrates a
+  trigger.
+
+Final green light on the acceptance tree: Fe `.ci/run-ci-steps.sh` **9/9
+PASS**; kg `make check` **32/32 native + 439/439 PTY PASS**; and
+`JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12 PASS**, including coverage,
+valgrind, ASan/UBSan, MSan, static analysis, format, `WITH_LISP=0`, fuzz,
+regex differential, signed/unsigned char, and both subprojects.

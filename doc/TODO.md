@@ -600,6 +600,17 @@ ordered by value vs implementation effort.
       Recursive deletion stays out on purpose: `rmdir` failing on a
       non-empty directory is the safety property, not a limitation.
 
+- [ ] **`draw_window_rows()` wants a render context, not an extraction**:
+      at pmccabe 67 (14 parameters) it is the worst symbol left in
+      `src/*.c`, and the 2026-08-07 complexity campaign deliberately did
+      not touch it.  It is a hot repaint loop with coupled terminal
+      state, so the right fix is a render-context struct plus a real
+      structural decomposition, designed against `make bench` and
+      `test/perfobj/` counter evidence rather than eyeballed -- not the
+      "lift some ifs into helpers" shape that would satisfy the ratchet
+      and leave the loop no easier to reason about.
+
+
 ## Important (DONE)
 
 - [x] Refactor code to Linux style, variable decl. at top of context sorted

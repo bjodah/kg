@@ -460,6 +460,14 @@ $(OBJS): $(LISP_CONFIG)
 # `make lisp-prelude-generate` followed by `make` could relink an editor
 # still carrying the previous prelude.
 $(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_prelude_generated.inc
+ifeq ($(WITH_LISP),1)
+# lisp_internal.h includes Fe's public header, but this Makefile does not
+# generate compiler dependency files.  Keep both ordinary and performance
+# copies honest explicitly: a version/API edit in fe.h must rebuild every
+# adapter object, especially lisp_core.o's static_assert tripwires.
+$(LISP_OBJS): fe/fe.h
+$(addprefix $(PERFOBJDIR)/,$(LISP_SRCS:.c=.o)): fe/fe.h
+endif
 
 $(TARGET): $(OBJS) $(FE_OBJ) $(REGEX_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -525,7 +533,7 @@ lisp-package-check:
 # (a recorded divergence that starts agreeing FAILS).  No Emacs is invoked
 # -- the snapshots are the oracle -- so this belongs in ordinary `make
 # check` rather than in a .ci step, and it is cheap enough to be there:
-# 101 cases, one kg process each, **0.29 s measured** against `make
+# 113 cases, one kg process each, **0.29 s measured** against `make
 # check`'s 85 s, i.e. 0.3%.  The self-test is run first and is the reason
 # "0 failed" means anything: it builds a corpus in a temp directory whose
 # snapshot says 4 where kg answers 3, and requires the run to fail.

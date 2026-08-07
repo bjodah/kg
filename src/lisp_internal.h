@@ -163,10 +163,9 @@ struct lisp_state {
 	size_t load_path_count;
 	bool load_path_ready;
 	/* Features currently mid-(require ...), innermost last: cycle
-	 * detection.  Reset to empty by frame recovery (release_frame_buffers
-	 * in lisp_core.c), same treatment load_depth gets, since a longjmp
-	 * abandons every nested require the same way it abandons every
-	 * nested load. */
+	 * detection.  Each require registers an Fe cleanup so a Lisp-level
+	 * condition-case pop happens too; outer frame recovery resets the count
+	 * as a final fallback when a completion reaches kg's host boundary. */
 	char requiring[LISP_MAX_REQUIRE_STACK][LISP_FEATURE_NAME_MAX];
 	size_t requiring_depth;
 	bool frame_active;

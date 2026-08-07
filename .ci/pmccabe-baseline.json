@@ -900,6 +900,7 @@
   "src/lisp_process.c:native_start_shell_command": 4,
   "src/lisp_process.c:release_binding": 3,
   "src/lisp_require.c:candidate_readable": 4,
+  "src/lisp_require.c:cleanup_require": 1,
   "src/lisp_require.c:ensure_default_load_path": 3,
   "src/lisp_require.c:feature_name": 5,
   "src/lisp_require.c:find_feature": 3,

@@ -10,34 +10,32 @@ snapshot side by side.  This is the command that exits non-zero instead.
 No Emacs is required or invoked: `oracle/<id>.json` *is* the pinned
 oracle's answer, recorded by `make lisp-compat-oracle`.  What this runs is
 kg, once per case, through `test/kgbatch` -- the editor's own objects and
-its own `kg_lisp_eval_string()`, with kgbatch's `-p` (prin1-shaped
-printing, so a string-valued case is compared as `"abc"` and not `abc`)
-and `-b` (a live scratch buffer, so a case that reads point runs instead
-of raising `current buffer is dead`).
+its own `kg_lisp_eval_string()`, with kgbatch's `-r` (a tagged value,
+condition symbol, or quit record) and `-b` (a live scratch buffer, so a
+case that reads point runs instead of raising `current buffer is dead`).
 
 HOW A RECORD IS DECIDED
 
-Structurally, from kgbatch's exit status, never by pattern-matching
-prose:
+Structurally when the reader reaches kgbatch's wrapper, never by
+pattern-matching prose:
 
-  * exit 0            -> {"kind": "value", "printed": <the rendering>}
-  * exit non-zero     -> {"kind": "condition", "condition_source":
-                          "message", "message": <the error text>}
+  * exit 0, `V:`      -> {"kind": "value", "printed": <the rendering>}
+  * exit 0, `E:`      -> {"kind": "condition", "condition_source":
+                          "structured", "condition": <the exact symbol>}
+  * exit 0, `Q:`      -> {"kind": "quit"}
+  * exit non-zero     -> a reader error or uncatchable budget, recorded from
+                          the message because the Lisp wrapper cannot catch it
   * no exit in time   -> {"kind": "timeout"}
   * feature status "unsupported" -> decided from the manifest, kg is
     never run (the manifest already says kg cannot do this; running it
     would only ask which error a missing name happens to produce)
 
-kg has no host-visible condition *symbol* -- `lisp.h` exports the
-completion kind (error/quit/budget) and the message text, not the
-condition object -- so a condition record is compared the weaker way
-fe's runner already documents for its own message-source records: the
-oracle's condition name must appear in kg's message.  kg's messages lead
-with the condition name (`void-function no-such-fn`,
-`wrong-number-of-arguments`), so this is a real check and not a
-formality, but it is a substring claim and this file says so rather than
-letting a reader assume symbol equality.  Narrowing it is condition-data
-work in `src/lisp.h`, not runner work.
+`lisp.h` exposes no condition symbol to a C host, but the wrapper does not
+need one: it catches the condition in Lisp and prints `(car condition)` in
+the `E:` record.  Those records compare symbols exactly.  Only failures
+that happen before or outside the wrapper retain the weaker message-source
+comparison fe's runner uses too: the oracle condition name must occur in
+the diagnostic.
 
 THE XPASS RULE, WHICH FE'S RUNNER DOES NOT HAVE
 
@@ -102,7 +100,8 @@ def load_manifest(corpus_root: Path) -> dict:
 def case_source(case: dict) -> str:
 	"""The setup forms then the expression, one form per line.
 
-	kgbatch's `-p` wraps the whole file in `(format "%S" (progn ...))`,
+	kgbatch's `-r` wraps the whole file in a tagged `(condition-case ...
+	(format "V:%S" (progn ...)) ...)`,
 	so the file's value is the expression's value -- the same shape
 	oracle/emacs-shim.el runs (every setup form, then the expr).
 	"""
@@ -119,7 +118,7 @@ def run_kg_case(kgbatch: Path, case: dict, timeout: float):
 	try:
 		try:
 			proc = subprocess.run(
-				[str(kgbatch), "-p", "-b", str(tmp_path)],
+				[str(kgbatch), "-r", "-b", str(tmp_path)],
 				capture_output=True, timeout=timeout)
 		except subprocess.TimeoutExpired:
 			return {"kind": "timeout", "seconds": timeout}, None
@@ -136,7 +135,17 @@ def run_kg_case(kgbatch: Path, case: dict, timeout: float):
 		if not printed.startswith(prefix):
 			return None, (f"kgbatch printed {printed!r}, which does not "
 				      f"start with the path it was given")
-		return {"kind": "value", "printed": printed[len(prefix):]}, None
+		payload = printed[len(prefix):]
+		if payload.startswith("V:"):
+			return {"kind": "value", "printed": payload[2:]}, None
+		if payload.startswith("E:") and payload[2:]:
+			return {"kind": "condition",
+				"condition_source": "structured",
+				"condition": payload[2:]}, None
+		if payload == "Q:quit":
+			return {"kind": "quit"}, None
+		return None, (f"kgbatch printed an invalid record {payload!r}; "
+			      "expected V:, E:, or Q:quit")
 
 	message = proc.stderr.decode("utf-8", "replace").strip("\n")
 	if message.startswith(prefix):
@@ -155,10 +164,11 @@ def records_agree(oracle: dict, kg: dict) -> bool:
 	if kind == "value":
 		return oracle.get("printed") == kg.get("printed")
 	if kind == "condition":
-		# The substring claim the module docstring explains: kg has no
-		# host-visible condition symbol to compare, so the oracle's
-		# condition name has to appear in kg's message.
 		condition = oracle.get("condition", "")
+		if kg.get("condition_source") == "structured":
+			return bool(condition) and condition == kg.get("condition")
+		# Reader errors and uncatchable budgets never enter the Lisp
+		# wrapper; retain the documented message-source fallback for them.
 		return bool(condition) and condition in kg.get("message", "")
 	if kind == "unsupported":
 		return oracle.get("feature") == kg.get("feature")
@@ -289,6 +299,12 @@ SELF_TEST_SNAPSHOT = {
 	"emacs_version": "self-test, no Emacs was run",
 	"record": {"kind": "value", "type": "integer", "printed": "4"},
 }
+SELF_TEST_CONDITION_CASE = {
+	"id": "runner-self-test-condition",
+	"setup": [],
+	"expr": "(car 1)",
+	"note": "The record must carry the exact wrong-type-argument symbol.",
+}
 
 
 def self_test(kgbatch: Path, timeout: float) -> int:
@@ -309,6 +325,19 @@ def self_test(kgbatch: Path, timeout: float) -> int:
 		(root / "oracle" / "runner-self-test.json").write_text(
 			json.dumps(SELF_TEST_SNAPSHOT), encoding="utf-8")
 
+		condition, error = run_kg_case(
+			kgbatch, SELF_TEST_CONDITION_CASE, timeout)
+		want_condition = {
+			"kind": "condition",
+			"condition_source": "structured",
+			"condition": "wrong-type-argument",
+		}
+		if error or condition != want_condition:
+			print("FAIL: the self-test condition was not recorded by exact "
+			      f"symbol: error={error!r} record={condition!r}",
+			      file=sys.stderr)
+			return 1
+
 		report = Report()
 		manifest = load_manifest(root)
 		for case_id, feature in emacs_cases(manifest):
@@ -324,6 +353,8 @@ def self_test(kgbatch: Path, timeout: float) -> int:
 		print("self-test: a snapshot saying 4 where kg answers 3 fails "
 		      "the run, as it must:")
 		print(f"  {report.failures[0]}")
+		print("self-test: wrong-type-argument was captured as an exact "
+		      "structured condition symbol")
 	return 0
 
 
@@ -358,6 +389,12 @@ def main() -> int:
 	cases = emacs_cases(manifest)
 	if args.case:
 		wanted = set(args.case)
+		available = {cid for cid, _feature in cases}
+		unknown = sorted(wanted - available)
+		if unknown:
+			print("FAIL: unknown comparison=emacs case id(s): "
+			      + ", ".join(unknown), file=sys.stderr)
+			return 1
 		cases = [(cid, f) for cid, f in cases if cid in wanted]
 
 	report = Report()

@@ -94,6 +94,19 @@
    "source_name": null
   },
   {
+   "id": "load-error-condition-reachability",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "load-error-condition-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_package",
+   "rationale": "Recorded by the Phase 10 acceptance review. Emacs evaluates a loaded source file inside the dynamic extent of the calling `load`, so an enclosing `condition-case` handles an error from that file. kg's `lisp_eval_file` re-enters Fe through `FeEvaluateString`; an evaluation error transfers to that nested run's host barrier and therefore bypasses the lexically enclosing handler. Reader exhaustion can still be caught because it is raised before the nested evaluator starts, which is a different path pinned in `test_exhaustion_catchability`. Fixing the evaluation path needs an Fe protected/ambient string-evaluation API rather than another C cleanup: the loaded buffer is already released by frame recovery, and wrapping only the allocation would not restore condition reachability. The case returns the caught condition symbol under Emacs but reaches kg's host as an error, making the reachability difference observable rather than merely comparing diagnostic prose.",
+   "source_name": null
+  },
+  {
    "id": "native-provide",
    "category": "loading",
    "status": "supported",

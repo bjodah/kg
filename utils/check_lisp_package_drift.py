@@ -43,18 +43,19 @@ LISP_DIR = ROOT / "lisp"
 PLANTED_RE = re.compile(r"^\.config/kg/lisp/(?P<name>[^/]+\.el)$")
 
 
-def check_case(path: Path) -> list[str]:
+def check_case(path: Path) -> tuple[list[str], int]:
 	try:
 		data = yaml.safe_load(path.read_text(encoding="utf-8"))
 	except yaml.YAMLError as exc:
-		return [f"{path.relative_to(ROOT)}: cannot parse: {exc}"]
+		return [f"{path.relative_to(ROOT)}: cannot parse: {exc}"], 0
 	if not isinstance(data, dict):
-		return []
+		return [], 0
 	planted = data.get("config_files") or {}
 	if not isinstance(planted, dict):
-		return []
+		return [], 0
 
 	errors = []
+	tracked_count = 0
 	for key, text in sorted(planted.items()):
 		match = PLANTED_RE.match(str(key))
 		if not match:
@@ -64,6 +65,7 @@ def check_case(path: Path) -> list[str]:
 			# A fixture package invented for this case; nothing to
 			# drift from.
 			continue
+		tracked_count += 1
 		want = tracked.read_text(encoding="utf-8")
 		if text == want:
 			continue
@@ -76,7 +78,7 @@ def check_case(path: Path) -> list[str]:
 		errors.append(
 			f"{path.relative_to(ROOT)} plants {key}, which has drifted "
 			f"from {tracked.relative_to(ROOT)}:\n{diff}")
-	return errors
+	return errors, tracked_count
 
 
 def main() -> int:
@@ -89,19 +91,9 @@ def main() -> int:
 	errors: list[str] = []
 	planted_count = 0
 	for case in cases:
-		found = check_case(case)
+		found, count = check_case(case)
 		errors += found
-	# Counted separately so the summary reports coverage rather than
-	# only failures: a check that silently matches nothing is not a
-	# check.
-	for case in cases:
-		data = yaml.safe_load(case.read_text(encoding="utf-8"))
-		if not isinstance(data, dict):
-			continue
-		for key in (data.get("config_files") or {}):
-			match = PLANTED_RE.match(str(key))
-			if match and (LISP_DIR / match.group("name")).is_file():
-				planted_count += 1
+		planted_count += count
 
 	print(f"lisp-package-check: {planted_count} planted copy/copies of a "
 	      f"tracked lisp/ package across {len(cases)} PTY case(s), "

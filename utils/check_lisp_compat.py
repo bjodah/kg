@@ -14,13 +14,12 @@ Three things, in order:
 1. Reuse (not reimplement) fe/utils/check_compat_manifest.py's schema and
    per-entry validation for both manifests, each pointed at the other via
    --other-manifest so the two id spaces are also checked for collisions.
-2. The check that keeps the inventory alive: every one of Fe's 54
-   primitives + 1 alias (fe/fe.c's primitive_names[]/primitive_aliases[]),
-   kg's 78 natives (src/lisp_prelude.c's native_bindings[]), and kg's 53
-   prelude definitions (lisp/prelude.el's top-level "(defalias 'NAME ...)"
-   forms) appears in exactly one feature entry's "source_name" field, across
-   the two manifests combined. A native or prelude definition added without a
-   manifest entry fails this.
+2. The check that keeps the inventory alive: every Fe primitive/alias
+   (fe/fe.c's primitive_names[]/primitive_aliases[]), kg native
+   (src/lisp_prelude.c's native_bindings[]), and kg prelude definition
+   (lisp/prelude.el's top-level "(defalias 'NAME ...)" forms) appears in
+   exactly one feature entry's "source_name" field across the two manifests.
+   The census is derived and printed on every run; a new unclaimed name fails.
 3. Two rules 00B's own checker did not need yet: every status="planned"
    entry's rationale names a phase ("Phase <digit>"), and the "defcustom"
    entry exists with the shape 00C's gate specifies.
@@ -53,7 +52,7 @@ def strip_c_comments(text: str) -> str:
 
 
 def parse_fe_primitives() -> set[str]:
-	"""54 primitive names plus the 1 alias ('fn' -> 'lambda') from fe.c."""
+	"""Primitive names plus aliases (including `fn` -> `lambda`) from fe.c."""
 	text = strip_c_comments(FE_C.read_text(encoding="utf-8"))
 	names_block = re.search(
 		r"static const char\* primitive_names\[\] = \{(.*?)\};", text, re.S)
@@ -73,7 +72,7 @@ def parse_fe_primitives() -> set[str]:
 
 
 def parse_kg_natives() -> set[str]:
-	"""78 native_bindings[] names from src/lisp_prelude.c."""
+	"""All native_bindings[] names from src/lisp_prelude.c."""
 	text = strip_c_comments(LISP_PRELUDE_C.read_text(encoding="utf-8"))
 	block = re.search(
 		r"static const struct native_binding native_bindings\[\] = \{"
@@ -85,7 +84,7 @@ def parse_kg_natives() -> set[str]:
 
 
 def parse_kg_prelude_defs() -> set[str]:
-	"""53 top-level "(defalias 'NAME ...)" definitions from lisp/prelude.el.
+	"""Top-level "(defalias 'NAME ...)" definitions from lisp/prelude.el.
 
 	Sub-plan 01A moved these out of three C string literals in
 	src/lisp_prelude.c and into a real Lisp source file, so this reads the
@@ -272,16 +271,17 @@ KG_TEST_REF_RE = re.compile(
 
 
 def _function_is_defined(text: str, name: str) -> bool:
-	"""A C definition or declaration of `name` at the start of a line.
+	"""A C definition of `name` at the start of a line.
 
 	Deliberately dumb, like the rest of this file: kg's tests are
-	`static void test_x(void)` at column 0, so "a line that starts with
-	a type and reaches `name(`" is enough. It is not a parser and does
-	not need to be -- the drift it catches is a renamed or deleted test,
-	not a subtle one.
+	`static void test_x(void)` at column 0. Require a body-opening brace,
+	so a stale prototype cannot keep a deleted test alive. It is not a
+	parser and does not need to be -- the drift it catches is a renamed or
+	deleted test, not a subtle declaration grammar.
 	"""
-	return re.search(r"(?m)^\w[\w *]*\b" + re.escape(name) + r"\s*\(",
-			 text) is not None
+	return re.search(
+		r"(?ms)^\w[\w\t *]*\b" + re.escape(name)
+		+ r"\s*\([^;{}]*\)\s*\{", text) is not None
 
 
 def check_kg_test_targets(data: dict, path: Path) -> list[str]:

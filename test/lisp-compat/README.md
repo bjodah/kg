@@ -14,7 +14,7 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(55 primitives, 1 alias, plus the handful of fe-owned divergences that
+(59 primitives/aliases at this pin, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
 (this directory) owns kg's 81 natives (`native_bindings[]`,
 `src/lisp_prelude.c`) and kg's prelude definitions
@@ -78,9 +78,8 @@ point kg's corpus at it without copying the runner").
   **`make lisp-oracle-check` runs kg against every one of them**
   (`utils/check_lisp_oracle.py`, part of `make check`). It drives
   `test/kgbatch` once per case -- the editor's own objects and its own
-  `kg_lisp_eval_string()`, with kgbatch's `-p` for prin1-shaped printing
-  and `-b` for a live scratch buffer -- and classifies the result from
-  the exit status, never by pattern-matching prose. No Emacs is invoked:
+  `kg_lisp_eval_string()`, with kgbatch's `-r` for tagged values, exact
+  condition symbols and quits, and `-b` for a live scratch buffer. No Emacs is invoked:
   the snapshots are the oracle. This paragraph used to say kg had no
   batch-mode Lisp outside the full editor and that a human read the case
   and the snapshot side by side. Both halves are obsolete.
@@ -114,17 +113,15 @@ legitimately have cases on both sides. A case says so for itself with
 such field the feature's status decides. `native-type-of` is the worked
 example: `(type-of 1)` agrees, `(type-of 1.0)` does not.
 
-### Condition records are compared by substring, not by symbol
+### Condition records are normally compared by exact symbol
 
-kg has no host-visible condition *symbol*: `src/lisp.h` exports the
-completion kind (error/quit/budget) and the message text, not the
-condition object. So a condition record is compared the weaker way fe's
-runner already documents for its own message-source records -- the
-oracle's condition name must appear in kg's message. kg's messages lead
-with the condition name (`void-function no-such-fn`), so it is a real
-check, but it is a substring claim and the runner's header says so
-rather than letting a reader assume symbol equality. Narrowing it is
-condition-data work in `src/lisp.h`, not runner work.
+kg exposes no condition symbol to a C host, but kgbatch's `-r` wrapper
+catches ordinary errors in Lisp, where the condition object is available,
+and emits its exact car in an `E:` record. The runner compares that symbol
+for equality. Reader errors happen before the wrapper evaluates, and an
+uncatchable budget happens outside it; only those message-source records use
+fe's weaker fallback, requiring the oracle condition name to occur in kg's
+diagnostic. The runner's self-test pins the structured path.
 
 ## Proof 2 — the representative user init, bullet by bullet
 
@@ -238,10 +235,10 @@ tree at Phase 10's close.
 | §14 item | Status | Decided by |
 | --- | --- | --- |
 | the three proofs pass | PASS | Proof 1: `lisp-auto-fill-mode-break.yaml`, `-undo.yaml`, `-error-disarms.yaml`, `-no-lisp-regression.yaml`, plus `make lisp-package-check`. Proof 2: `lisp-init-phase8-library.yaml` and the corpus mapped above. Proof 3: `lisp/pipeline.el` + `lisp/pipeline-text.el`, nine oracle cases and `lisp-proof3-pipeline-{init,commands,errors}.yaml` |
-| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — 112 cases, 100 passed, 12 recorded divergences, 0 failed. It has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
+| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — 113 cases, 100 passed, 13 recorded divergences, 0 failed. It has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
 | all `supported` `comparison: kg-policy` entries pass their kg tests | PASS | `make check` runs every cited test; `make lisp-compat-check` verifies each citation resolves — the file exists, a C citation names a function, and that function is defined there |
 | unsupported entries fail clearly | PARTIAL, and re-worded (10A Decision 5) | Reader syntax kg does not implement is rejected **by name** (`unsupported read syntax: vector brackets`, `phase8-reader-vector`), and so is `macroexpand-all` (`unsupported feature: macroexpand-all`). Unknown *functions* answer plain `void-function`, which is byte-identical to a typo. A curated known-name channel would be new language machinery with an unbounded name list; the debt is in `doc/TODO.md` |
-| intentional divergences are documented and tested | PASS | 12 `divergent` `comparison: emacs` cases run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed; the two that were unrecorded (`prelude-defvar`, `writer-quote-abbreviation`) are now rows with cases, `doc/fe-upstream.md` entries and `doc/TODO.md` work items |
+| intentional divergences are documented and tested | PASS | 13 `divergent` `comparison: emacs` cases run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed; the two that were unrecorded (`prelude-defvar`, `writer-quote-abbreviation`) are now rows with cases, `doc/fe-upstream.md` entries and `doc/TODO.md` work items. The acceptance review added `load-error-condition-reachability`, whose loaded-file evaluation error crosses kg's nested Fe barrier instead of reaching the caller's handler |
 | kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 439 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 98 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
 | no assignment `=` remains | PASS | `=` is chained numeric equality since Phase 2 (`FE_LANGUAGE_VERSION` 2). Measured now, not remembered: `(= 1 1)` is `t`, and `(= x 1)` on an unbound `x` is `void-variable`, not an assignment (`prelude-equality-family`, `fe/compat`'s numeric rows) |
 | strict arity is unconditional | PASS | `FeSetStrictArity()`/`FeGetStrictArity()` do not exist to turn it off (Phase 7, `FE_LANGUAGE_VERSION` 6); `arity-strict` and `arity-lambda-too-few-nargs` compare against the oracle, and a wrong-arity *macro* call raises the same condition with the same data through 10B's reflective expansion path |
@@ -303,7 +300,7 @@ as the range of three runs rather than a single figure.
 2. Parses `fe/fe.c`'s `primitive_names[]`/`primitive_aliases[]` and
    `src/lisp_prelude.c`'s `native_bindings[]` and the `(defalias 'name ...)`
    top-level forms in `lisp/prelude.el`, and checks every one of the
-   resulting 55 + 1 + 81 + 77 source names is claimed by at least one
+   resulting 59 + 81 + 77 source names is claimed by at least one
    feature entry's `"source_name"` field, across both manifests combined.
    (The counts are re-derived from the sources on every run and printed;
    they are written here only so a reader knows the order of magnitude.)
@@ -324,9 +321,10 @@ describes have not drifted apart).
 wired into `make check` as `make lisp-oracle-check`: where the checker
 above asks whether the manifest and the sources agree, this one asks
 whether *kg* and the snapshots agree. It runs no Emacs, takes 0.29 s for
-101 cases, and self-tests first -- `--self-test` builds a corpus in a
+113 cases, and self-tests first -- `--self-test` builds a corpus in a
 temp directory whose snapshot says 4 where kg answers 3 and requires the
-run to fail, which is what makes its "0 failed" worth reading. Under
+run to fail, then verifies an ordinary error is captured by exact condition
+symbol. That is what makes its "0 failed" worth reading. Under
 `WITH_LISP=0` the target reports that there is no evaluator to compare
 and does nothing.
 

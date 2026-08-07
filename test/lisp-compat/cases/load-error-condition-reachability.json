@@ -1,0 +1,9 @@
+{
+ "id": "load-error-condition-reachability",
+ "setup": [
+  "(setq load-error-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-error.el\") \"test/lisp-compat/fixtures/load-error.el\"))"
+ ],
+ "expr": "(condition-case e (load load-error-path) (wrong-type-argument (car e)) (error (car e)))",
+ "expect": "diverge",
+ "note": "Emacs returns wrong-type-argument from the enclosing handler. kg's loaded-file evaluation crosses a nested Fe evaluator barrier, so the error reaches the host instead of that handler."
+}

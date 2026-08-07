@@ -433,6 +433,9 @@ static void test_init_file(void)
 
 static void test_load_package(void)
 {
+	static const char load_error_form[]
+	    = "(condition-case e (load \"caught-load-error\")"
+	      " (error 'caught))";
 	char root[64], path[512], source[600], result[128] = "";
 	int length;
 
@@ -520,6 +523,21 @@ static void test_load_package(void)
 	CHECK(kg_lisp_eval_string("literal-value", 13, result, sizeof(result))
 	    == 0);
 	CHECK(strcmp(result, "3") == 0);
+
+	/* An evaluation error raised by a loaded file crosses Fe's nested
+	 * evaluation barrier and does not reach a condition-case around load.
+	 * This is deliberately recorded as a compatibility divergence; pin it
+	 * here so a future protected/ambient file-evaluation path can turn the
+	 * failure into a caught value intentionally. */
+	(void)snprintf(
+	    path, sizeof(path), "%s/kg/lisp/caught-load-error.el", root);
+	CHECK(write_text_file(path, "(car 1)\n") == 0);
+	CHECK(kg_lisp_eval_string(load_error_form, sizeof(load_error_form) - 1,
+		  result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "expected pair") != nullptr);
+	CHECK(kg_lisp_eval_string("(+ 2 3)", 7, result, sizeof(result)) == 0);
+	CHECK(strcmp(result, "5") == 0);
 
 	kg_lisp_shutdown();
 	remove_config_root(root);
@@ -1091,6 +1109,18 @@ static void test_require_provide(void)
 	CHECK(write_text_file(path, "(provide 'after-cycle)\n") == 0);
 	CHECK(eval_eq("(require 'after-cycle)", "after-cycle"));
 	CHECK(eval_eq("(featurep 'after-cycle)", "t"));
+
+	/* A condition caught within the same evaluator run never reaches kg's
+	 * outer frame recovery.  The require stack therefore needs an Fe
+	 * cleanup of its own: retrying a missing feature must repeat the path
+	 * error, not report a stale cycle left by the first non-local exit. */
+	CHECK(eval_eq("(list "
+		      " (condition-case e (require 'retry-absent)"
+		      "  (error (car (cdr e))))"
+		      " (condition-case e (require 'retry-absent)"
+		      "  (error (car (cdr e)))))",
+	    "(\"cannot find in load-path: retry-absent\""
+	    " \"cannot find in load-path: retry-absent\")"));
 
 	/* An explicit FILENAME resolves instead of the feature's own
 	 * name. */

@@ -218,6 +218,14 @@ static int requiring_index(const char *name)
 	return -1;
 }
 
+static void cleanup_require(FeContext *context, void *data)
+{
+	(void)context;
+	(void)data;
+	state.requiring_depth--;
+	state.requiring[state.requiring_depth][0] = '\0';
+}
+
 /* (require FEATURE &optional FILENAME): a no-op, returning FEATURE
  * unevaluated, when it is already provided.  Otherwise FILENAME (or
  * FEATURE's own name, absent one) resolves through the load-path exactly
@@ -256,6 +264,12 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 	}
 	(void)snprintf(state.requiring[state.requiring_depth],
 	    sizeof(state.requiring[0]), "%s", name);
+	/* A condition-case can catch a load error without returning through
+	 * this C frame.  Tie the pop to Fe's unwind registry so that retrying
+	 * the same feature is a retry, not a false cyclic require.  Register
+	 * before publishing the stack entry: if the cleanup registry itself is
+	 * full, its raise must not leave requiring_depth changed. */
+	FeProtectWithCleanup(context, cleanup_require, nullptr);
 	state.requiring_depth++;
 
 	resolve_require_path(context, stem, path, sizeof(path));
@@ -288,7 +302,6 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 	lisp_eval_file(context, path);
 #endif
 
-	state.requiring_depth--;
 	if (!find_feature(name)) {
 		command_error(context, "did not provide feature", name);
 	}

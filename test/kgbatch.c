@@ -10,15 +10,16 @@
  *   * utils/check_lisp_oracle.py, which drives one case per process and
  *     compares the printed record against the checked-in Emacs snapshot.
  *
- * The two flags exist for the second caller and are described where they
+ * The three flags exist for the second caller and are described where they
  * are parsed.  Note what stayed out: there is still no terminal, no key
  * input and no screen refresh here.  `-b` gives the process a *buffer*,
  * which is editor state, not an editor.
  *
  * Output contract, which the runner parses: on success, one line
  * `PATH: RENDERING` on stdout and exit 0; on a Lisp error, one line
- * `PATH: MESSAGE` on stderr and a nonzero exit.  The caller knows the
- * path it passed, so the prefix is unambiguous. */
+ * `PATH: MESSAGE` on stderr and a nonzero exit.  In `-r` mode RENDERING
+ * starts `V:` (value), `E:` (condition symbol), or `Q:` (quit).  The caller
+ * knows the path it passed, so the prefix is unambiguous. */
 
 #include <errno.h>
 #include <stdio.h>
@@ -44,23 +45,40 @@
  * setup forms, then the expression" -- the same shape
  * oracle/emacs-shim.el runs -- and `format`'s %S is kg's own writer, so
  * this adds no second rendering path to disagree with the first. */
-static char *wrap_in_prin1(char *source, size_t length, size_t *out_length)
+static char *wrap_source(char *source, size_t length, const char *prefix,
+    const char *suffix, size_t *out_length)
 {
-	static const char prefix[] = "(format \"%S\" (progn\n";
-	static const char suffix[] = "\n))\n";
-	size_t total = sizeof(prefix) - 1 + length + sizeof(suffix) - 1;
+	size_t prefix_length = strlen(prefix), suffix_length = strlen(suffix);
+	size_t total = prefix_length + length + suffix_length;
 	char *wrapped = malloc(total + 1);
 
 	if (!wrapped) {
 		return nullptr;
 	}
-	memcpy(wrapped, prefix, sizeof(prefix) - 1);
-	memcpy(wrapped + sizeof(prefix) - 1, source, length);
-	memcpy(
-	    wrapped + sizeof(prefix) - 1 + length, suffix, sizeof(suffix) - 1);
+	memcpy(wrapped, prefix, prefix_length);
+	memcpy(wrapped + prefix_length, source, length);
+	memcpy(wrapped + prefix_length + length, suffix, suffix_length);
 	wrapped[total] = '\0';
 	*out_length = total;
 	return wrapped;
+}
+
+/* `-r`: make the result self-describing without a new public adapter API.
+ * The condition-case runs inside kg's evaluator, where the condition object
+ * is available: ordinary errors therefore report their exact symbol rather
+ * than making the oracle runner search diagnostic prose.  Reader errors occur
+ * before this wrapper can run, and uncatchable budgets still use kgbatch's
+ * ordinary nonzero/message contract. */
+static char *wrap_in_record(char *source, size_t length, size_t *out_length)
+{
+	static const char prefix[] = "(condition-case kgbatch--condition\n"
+				     "    (format \"V:%S\" (progn\n";
+	static const char suffix[]
+	    = "\n))\n"
+	      "  (quit \"Q:quit\")\n"
+	      "  (error (format \"E:%S\" (car kgbatch--condition))))\n";
+
+	return wrap_source(source, length, prefix, suffix, out_length);
 }
 
 /* `-b`: a live scratch buffer, so a form that reads or moves point runs
@@ -121,7 +139,7 @@ static char *read_file(const char *path, size_t *out_length)
 	return source;
 }
 
-static int evaluate_file(const char *path, bool prin1)
+static int evaluate_file(const char *path, bool prin1, bool record)
 {
 	char result[KGBATCH_RESULT_MAX];
 	size_t length;
@@ -132,8 +150,11 @@ static int evaluate_file(const char *path, bool prin1)
 	if (!source) {
 		return 1;
 	}
-	if (prin1) {
-		evaluated = wrap_in_prin1(source, length, &length);
+	if (record) {
+		evaluated = wrap_in_record(source, length, &length);
+	} else if (prin1) {
+		evaluated = wrap_source(source, length,
+		    "(format \"%S\" (progn\n", "\n))\n", &length);
 		if (!evaluated) {
 			fprintf(stderr, "%s: %s\n", path, strerror(ENOMEM));
 			free(source);
@@ -156,20 +177,23 @@ static int evaluate_file(const char *path, bool prin1)
 static void usage(const char *argv0)
 {
 	fprintf(stderr,
-	    "usage: %s [-p] [-b] FILE...\n"
+	    "usage: %s [-p|-r] [-b] FILE...\n"
 	    "  -p  print the value the way prin1 does (strings quoted)\n"
+	    "  -r  print a tagged value, condition symbol, or quit record\n"
 	    "  -b  open a live scratch buffer before evaluating\n",
 	    argv0);
 }
 
 int main(int argc, char **argv)
 {
-	bool prin1 = false, scratch = false;
+	bool prin1 = false, record = false, scratch = false;
 	int i, status = 0;
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-p") == 0) {
 			prin1 = true;
+		} else if (strcmp(argv[i], "-r") == 0) {
+			record = true;
 		} else if (strcmp(argv[i], "-b") == 0) {
 			scratch = true;
 		} else if (strcmp(argv[i], "--") == 0) {
@@ -186,6 +210,10 @@ int main(int argc, char **argv)
 		usage(argv[0]);
 		return 2;
 	}
+	if (prin1 && record) {
+		usage(argv[0]);
+		return 2;
+	}
 	if (scratch) {
 		open_scratch_buffer();
 	}
@@ -195,7 +223,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	for (; i < argc; i++) {
-		status |= evaluate_file(argv[i], prin1);
+		status |= evaluate_file(argv[i], prin1, record);
 	}
 	kg_lisp_shutdown();
 	return status;

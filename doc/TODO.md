@@ -332,6 +332,13 @@ ordered by value vs implementation effort.
         either body reaches the `catch` that names its tag instead of
         stopping at Fe's native re-entry wall as `no-catch`
         (`catch-throw-reachability`, the other divergence 06E left)
+      - errors raised while evaluating a file through `(load ...)` or
+        `(require ...)` cross `FeEvaluateString`'s nested host barrier,
+        so a `condition-case` around the loader cannot catch them
+        (`load-error-condition-reachability`).  Reader failures raised
+        before the nested evaluator starts are catchable.  Closing the
+        gap needs a protected or ambient Fe string-evaluation entry point,
+        not only C-side resource cleanup
       - token/cancel cleanup registry — **not Phase 9's, after all**.
         09A Decision 4 measured it and left it where it was: it is
         designed but unbuilt (`fe/doc/unwind-design.md` item 2), and its

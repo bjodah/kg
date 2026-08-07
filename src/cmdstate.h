@@ -96,6 +96,16 @@ void cmd_clear_transient(void);
  * must not leave state that a later command with a fresh id could read. */
 void cmd_forget_transient_owner(command_id id);
 
+/* A prompt keystroke's kill-class boundary: what the previous prompt
+ * key did to the kill ring becomes cmd_last_kill_class()'s answer, the
+ * way cmd_state_begin_keystroke() does it for whole commands -- WITHOUT
+ * touching command identity or the transient, which prompt keystrokes
+ * leave alone (see the file comment).  Called once per keystroke by the
+ * prompt read loops (bufmgr.c) so their kills coalesce under the same
+ * rule as buffer kills: only with a kill on the directly preceding
+ * keystroke. */
+void cmd_state_prompt_keystroke(void);
+
 /* What the previous top-level command did to the kill ring, for a kill
  * or copy producer to decide whether it may coalesce with it. */
 [[nodiscard]] enum kill_coalesce_class cmd_last_kill_class(void);

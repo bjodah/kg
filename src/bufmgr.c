@@ -673,6 +673,12 @@ static int prompt_done(int rc)
 	if (rc < 0) {
 		editor_set_status_message("");
 	}
+	/* The prompt's own kills must not coalesce with whatever the buffer
+	 * does next -- in Emacs the minibuffer's exit ran commands in
+	 * between.  Clearing the running class makes the next keystroke's
+	 * cmd_last_kill_class() read NONE; a command that kills after its
+	 * prompt returns still registers its own class normally. */
+	cmd_set_kill_class(KILL_COALESCE_NONE);
 	kg_event_prompt_leave();
 	return rc;
 }
@@ -740,17 +746,169 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	free(abs);
 }
 
-static char minibuf_kill[1024];
-
-/* Store `kill_len` bytes from `src` as the minibuffer kill ring content,
- * truncated to what the fixed buffer holds. */
-static void minibuf_set_kill(const char *src, int kill_len)
+/* Splice `n` bytes at the cursor, counting an overflow when the prompt
+ * buffer is full.  Insertion is all-or-nothing so a multi-byte sequence
+ * is never cut in half by the buffer limit. */
+static void minibuf_insert(char *buf, int bufsize, int *cursor, int *len,
+    int *overflow, const char *bytes, int n)
 {
-	if (kill_len >= (int)sizeof(minibuf_kill)) {
-		kill_len = (int)sizeof(minibuf_kill) - 1;
+	if (*len + n >= bufsize) {
+		(*overflow)++;
+		return;
 	}
-	memcpy(minibuf_kill, src, (size_t)kill_len);
-	minibuf_kill[kill_len] = '\0';
+	memmove(buf + *cursor + n, buf + *cursor, *len - *cursor + 1);
+	memcpy(buf + *cursor, bytes, (size_t)n);
+	*cursor += n;
+	*len += n;
+}
+
+/* The prompt-local yank-pop record: which kill ring entry the previous
+ * keystroke's C-y or M-y inserted, where and how long, so M-y can
+ * replace that span with the next-older entry.  One per prompt read
+ * loop, zero-initialized at prompt entry.  The loop clears `valid` into
+ * `eligible` at every keystroke and only a successful yank sets it
+ * again, so eligibility means exactly "the directly preceding prompt
+ * keystroke was a yank" with no invalidation bookkeeping anywhere else.
+ * The buffer-side yank_pop_state (yank.c) cannot be reused: its gate is
+ * cmd_last_kill_class(), whose transient the prompt entry clears, and
+ * its span is a buffer marker where a prompt is a bare char array.
+ * `note` is a one-shot minibuffer-message-style " [text]" for the next
+ * repaint; prompts without that mechanism (the path picker) drop it
+ * silently. */
+struct minibuf_yank {
+	int valid;
+	int eligible;
+	int index;
+	int start;
+	int len;
+	const char *note;
+};
+
+/* Bytes of `text` a prompt yank inserts: the prompt is a NUL-terminated
+ * single line, so the span stops at the ring entry's first embedded NUL.
+ * An Emacs minibuffer, being a real buffer, would take the whole entry;
+ * this comment pins the divergence.  Newlines are NOT special: they
+ * enter the prompt as bytes, exactly as C-q C-j types one. */
+static int minibuf_yank_span(const char *text, size_t len)
+{
+	const char *nul = memchr(text, '\0', len);
+
+	return (int)(nul != NULL ? (size_t)(nul - text) : len);
+}
+
+/* A prompt kill: remove [from, to) from buf and record it in the real
+ * kill ring -- forward kills append to the directly preceding prompt
+ * kill's entry, backward kills prepend, exactly the buffer rules
+ * (yank.h).  cmd_state_prompt_keystroke() in the prompt read loops is
+ * what scopes "directly preceding" to the previous prompt keystroke,
+ * and prompt_done() is what keeps the last prompt kill from coalescing
+ * with the buffer kill that runs after the prompt returns. */
+static void minibuf_kill_span(
+    char *buf, int *cursor, int *len, int from, int to, int backward)
+{
+	int n = to - from;
+
+	if (n <= 0) {
+		return;
+	}
+	if (backward) {
+		kill_ring_kill_backward(buf + from, (size_t)n);
+	} else {
+		kill_ring_kill_forward(buf + from, (size_t)n);
+	}
+	memmove(buf + from, buf + to, (size_t)(*len - to + 1));
+	*len -= n;
+	*cursor = from;
+}
+
+/* C-y: insert the kill ring's newest entry at the cursor and record the
+ * span for M-y.  Whole-or-nothing on capacity, like the private-store
+ * C-y this replaces: a span that does not fit is refused without
+ * touching the overflow count, since nothing entered the prompt. */
+static void minibuf_yank(char *buf, int bufsize, int *cursor, int *len,
+    int *overflow, struct minibuf_yank *yank)
+{
+	const char *text = kill_ring_get();
+	int n, at;
+
+	if (text == NULL) {
+		if (yank != NULL) {
+			yank->note = "Kill ring is empty";
+		}
+		return;
+	}
+	n = minibuf_yank_span(text, kill_ring_get_len());
+	if (n == 0 || *len + n >= bufsize) {
+		return;
+	}
+	at = *cursor;
+	minibuf_insert(buf, bufsize, cursor, len, overflow, text, n);
+	if (yank != NULL) {
+		yank->valid = 1;
+		yank->index = 0;
+		yank->start = at;
+		yank->len = n;
+	}
+}
+
+/* M-y: replace the span the directly preceding C-y or M-y inserted with
+ * the next-older ring entry, wrapping past the oldest, cursor after it,
+ * as Emacs' yank-pop does in a minibuffer.  Without a preceding yank,
+ * Emacs 28+ browses the ring interactively (yank-from-kill-ring); kg
+ * has no completion framework and answers the classic eligibility
+ * message instead.  The span bound check is a belt against a caller
+ * that edited buf without the per-keystroke eligibility reset. */
+static void minibuf_yank_pop(char *buf, int bufsize, int *cursor, int *len,
+    int *overflow, struct minibuf_yank *yank)
+{
+	char *text;
+	size_t elen = 0;
+	int n, next;
+
+	if (yank == NULL) {
+		return;
+	}
+	if (!yank->eligible || killring.count == 0
+	    || yank->start + yank->len > *len) {
+		yank->note = "Previous command was not a yank";
+		return;
+	}
+	next = (yank->index + 1) % killring.count;
+	text = kill_ring_entry_repeated(next, 1, &elen);
+	if (text == NULL) {
+		return;
+	}
+	n = minibuf_yank_span(text, elen);
+	if (*len - yank->len + n < bufsize) {
+		memmove(buf + yank->start, buf + yank->start + yank->len,
+		    (size_t)(*len - yank->start - yank->len + 1));
+		*len -= yank->len;
+		*cursor = yank->start;
+		minibuf_insert(buf, bufsize, cursor, len, overflow, text, n);
+		yank->valid = 1;
+		yank->index = next;
+		yank->len = n;
+	}
+	free(text);
+}
+
+/* One repaint of the prompt line, minibuffer-message style: when the
+ * previous keystroke left a note (an empty kill ring, a M-y with no
+ * yank before it), it is shown once as " [note]" after the text, the
+ * way Emacs' minibuffer-message appends its complaint, and cleared so
+ * the next repaint is ordinary. */
+static void minibuf_prompt_paint(const char *prompt, int plen, const char *buf,
+    int cursor, struct minibuf_yank *yank)
+{
+	if (yank->note != NULL) {
+		editor_set_status_message("%s%s [%s]", prompt, buf, yank->note);
+		editor.echo_cursor_col
+		    = prompt_cursor_col(prompt, plen, buf, cursor);
+		editor_refresh_screen();
+		yank->note = NULL;
+		return;
+	}
+	prompt_refresh(prompt, plen, buf, cursor);
 }
 
 /* Offset just past the whitespace run and the word that follow `pos`,
@@ -799,22 +957,6 @@ void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow)
 	*cursor = start;
 }
 
-/* Splice `n` bytes at the cursor, counting an overflow when the prompt
- * buffer is full.  Insertion is all-or-nothing so a multi-byte sequence
- * is never cut in half by the buffer limit. */
-static void minibuf_insert(char *buf, int bufsize, int *cursor, int *len,
-    int *overflow, const char *bytes, int n)
-{
-	if (*len + n >= bufsize) {
-		(*overflow)++;
-		return;
-	}
-	memmove(buf + *cursor + n, buf + *cursor, *len - *cursor + 1);
-	memcpy(buf + *cursor, bytes, (size_t)n);
-	*cursor += n;
-	*len += n;
-}
-
 /* The four cursor motions minibuf_edit_key() answers as plain keys, each
  * reachable by a Ctrl letter or the matching arrow/Home/End -- a table
  * instead of four KEY_IS() || KEY_IS() pairs, in the shape
@@ -856,7 +998,7 @@ static enum minibuf_motion minibuf_motion_for(struct key_event c)
 }
 
 static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
-    int *cursor, int *len, int *overflow)
+    int *cursor, int *len, int *overflow, struct minibuf_yank *yank)
 {
 	char seq[4];
 	int n, raw;
@@ -896,20 +1038,15 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 		break;
 	}
 	if (KEY_IS(c, 'k', KEY_MOD_CTRL)) {
-		int kill_len = *len - *cursor;
-		if (kill_len > 0) {
-			minibuf_set_kill(buf + *cursor, kill_len);
-			buf[*cursor] = '\0';
-			*len = *cursor;
-		}
+		minibuf_kill_span(buf, cursor, len, *cursor, *len, 0);
 		return 1;
 	}
 	if (KEY_IS(c, 'y', KEY_MOD_CTRL)) {
-		int yank_len = (int)strlen(minibuf_kill);
-		if (yank_len > 0 && *len + yank_len < bufsize) {
-			minibuf_insert(buf, bufsize, cursor, len, overflow,
-			    minibuf_kill, yank_len);
-		}
+		minibuf_yank(buf, bufsize, cursor, len, overflow, yank);
+		return 1;
+	}
+	if (KEY_IS(c, 'y', KEY_MOD_META)) {
+		minibuf_yank_pop(buf, bufsize, cursor, len, overflow, yank);
 		return 1;
 	}
 	if (KEY_IS(c, 'f', KEY_MOD_META)) {
@@ -921,24 +1058,13 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 		return 1;
 	}
 	if (KEY_IS(c, 'd', KEY_MOD_META)) {
-		int end = minibuf_word_end(buf, *len, *cursor);
-		int kill_len = end - *cursor;
-		if (kill_len > 0) {
-			minibuf_set_kill(buf + *cursor, kill_len);
-			memmove(buf + *cursor, buf + end, *len - end + 1);
-			*len -= kill_len;
-		}
+		minibuf_kill_span(buf, cursor, len, *cursor,
+		    minibuf_word_end(buf, *len, *cursor), 0);
 		return 1;
 	}
 	if (KEY_IS(c, KEY_BASE_DEL, KEY_MOD_META)) {
-		int start = minibuf_word_start(buf, *cursor);
-		int kill_len = *cursor - start;
-		if (kill_len > 0) {
-			minibuf_set_kill(buf + start, kill_len);
-			memmove(buf + start, buf + *cursor, *len - *cursor + 1);
-			*cursor = start;
-			*len -= kill_len;
-		}
+		minibuf_kill_span(buf, cursor, len,
+		    minibuf_word_start(buf, *cursor), *cursor, 1);
 		return 1;
 	}
 	if (KEY_IS(c, 'q', KEY_MOD_CTRL)) {
@@ -1075,6 +1201,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	char draft[bufsize];
 	int draft_cursor = cursor;
 	int draft_overflow = 0;
+	struct minibuf_yank yank = { 0 };
 
 	buf[len] = '\0';
 	/* kg_event_drain_safe() must defer for the whole of this read, not
@@ -1088,8 +1215,15 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	 * happens inside it may look like a repeat of what ran before it. */
 	cmd_clear_transient();
 	while (1) {
-		prompt_refresh(prompt, plen, buf, cursor);
+		minibuf_prompt_paint(prompt, plen, buf, cursor, &yank);
 		c = editor_read_key(fd);
+		/* Every prompt keystroke is its own kill-class boundary, and
+		 * yank-pop eligibility is exactly "the key before this one
+		 * was a yank": clear it here, and only a successful C-y/M-y
+		 * sets it again. */
+		cmd_state_prompt_keystroke();
+		yank.eligible = yank.valid;
+		yank.valid = 0;
 		if (hist && KEY_IN_LIST(history_keys, c)) {
 			int dir = KEY_IN_LIST(history_back_keys, c) ? 1 : -1;
 			const char *entry;
@@ -1116,7 +1250,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 			continue;
 		}
 		if (minibuf_edit_key(
-			fd, c, buf, bufsize, &cursor, &len, &overflow)) {
+			fd, c, buf, bufsize, &cursor, &len, &overflow, &yank)) {
 			continue;
 		}
 		if (KEY_IN_LIST(cancel_keys, c)) {
@@ -1340,8 +1474,10 @@ static void path_handle_erase(int fd, struct key_event c, char *buf,
 		 * back over the deleted glyph, and it must stay there.
 		 * Hoisting `*cursor = *len` out of the two at-end arms below
 		 * snapped it to end of line after every mid-path erase, so
-		 * the next typed character landed at the far end. */
-		minibuf_edit_key(fd, c, buf, bufsize, cursor, len, overflow);
+		 * the next typed character landed at the far end.  Erase
+		 * keys never reach the yank branches, so no record. */
+		minibuf_edit_key(
+		    fd, c, buf, bufsize, cursor, len, overflow, NULL);
 	} else if (*overflow > 0) {
 		/* Retire a refused insertion before deleting anything --
 		 * exactly what minibuf_delete_backward does, and what the
@@ -1458,6 +1594,7 @@ enum minibuf_result editor_read_line_path(
 	struct key_event c;
 	int sel = 0;
 	int matches = 0, total = 0, flen = 0;
+	struct minibuf_yank yank = { 0 };
 
 	buf[len] = '\0';
 	/* See editor_read_line_with_history()'s comment: same deferral,
@@ -1469,6 +1606,14 @@ enum minibuf_result editor_read_line_path(
 		    file, lcp, msg, &matches, &total, &flen);
 
 		c = editor_read_key(fd);
+		/* Same per-keystroke kill-class boundary and yank-pop
+		 * eligibility rule as editor_read_line_with_history()'s
+		 * loop; this prompt's picker rendering has no message slot,
+		 * so any note the yank helpers leave is dropped unshown. */
+		cmd_state_prompt_keystroke();
+		yank.eligible = yank.valid;
+		yank.valid = 0;
+		yank.note = NULL;
 		if (KEY_IN_LIST(erase_keys, c)) {
 			path_handle_erase(fd, c, buf, bufsize, &cursor, &len,
 			    &overflow, &sel);
@@ -1523,7 +1668,7 @@ enum minibuf_result editor_read_line_path(
 			    matches, lcp, entries, &sel);
 		} else {
 			if (minibuf_edit_key(fd, c, buf, bufsize, &cursor, &len,
-				&overflow)) {
+				&overflow, &yank)) {
 				sel = 0;
 				continue;
 			}

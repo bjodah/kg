@@ -80,6 +80,12 @@ void cmd_forget_transient_owner(command_id id)
 	}
 }
 
+void cmd_state_prompt_keystroke(void)
+{
+	state.last_kill_class = state.this_kill_class;
+	state.this_kill_class = KILL_COALESCE_NONE;
+}
+
 enum kill_coalesce_class cmd_last_kill_class(void)
 {
 	return state.last_kill_class;

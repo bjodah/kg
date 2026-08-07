@@ -50,11 +50,17 @@ standard VT100 escape sequences.
   confined to the region when one is active
 - Search history: M-p/M-n inside an incremental search recall earlier
   search strings, and C-s (or C-r) with an empty query repeats the last
-  search; literal and regexp searches keep separate rings, like Emacs
+  search; literal and regexp searches keep separate rings, like Emacs.
+  C-y inside the search appends the newest kill to the query and
+  re-searches at once (Emacs' isearch-yank-kill); M-y directly after it
+  swaps in the next-older ring entry (isearch-yank-pop-only)
 - Minibuffer history: M-p/M-n (also Up/Down, C-p/C-n) recall earlier
   input at the shell-command, query-replace, compile, Eval, goto-line and
   string-rectangle prompts.  Each prompt has its own ring, except the four
-  query-replace prompts, which share one
+  query-replace prompts, which share one.  Prompt kills and yanks
+  (C-k, M-d, M-Backspace, C-y, M-y) use the one global kill ring, as
+  Emacs' minibuffer does, so text killed in a prompt can be yanked in
+  the buffer and the other way around
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)

@@ -1,0 +1,22 @@
+# C-y in a prompt with an empty kill ring: a non-destructive no-op that
+# answers minibuffer-message style, " [Kill ring is empty]" appended
+# after the (empty) typed text for one repaint -- the shape Emacs'
+# minibuffer complaint takes.  Nothing was inserted, so after the
+# trailer's C-g the buffer saves unchanged.  A fresh kg has an empty
+# ring by construction: no kill happens before the prompt opens.
+name: minibuf-yank-empty-ring
+filename: mber.txt
+backend: tmux
+initial: "keep\n"
+keys:
+  - M-!
+  - C-y
+expected_screen_contains:
+  - "[Kill ring is empty]"
+trailer_keys:
+  - C-g
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: "keep\n"

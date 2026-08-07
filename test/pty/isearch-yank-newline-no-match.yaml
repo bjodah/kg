@@ -1,0 +1,24 @@
+# A newline-containing kill yanks into the search query as raw bytes --
+# two consecutive C-k kills coalesce into the one ring entry "ab\n"
+# (text, then the line break) -- but kg's matcher is row-scoped: it
+# walks rows and matches inside row->chars, where a newline never
+# occurs, so a query holding one can never match.  Emacs, searching the
+# buffer as one text, finds "ab\n" spanning the break; RECORDED
+# DIVERGENCE, pinned here rather than fixed -- a multi-row matcher is a
+# structural change out of proportion to a prompt-keys plan.  What this
+# case asserts is the honest half: the yank itself is accepted (no
+# crash, no stray state), the failed search moves point nowhere, and
+# C-g restores the start position exactly -- the typed "Z" lands at the
+# very beginning of the buffer.
+name: isearch-yank-newline-no-match
+filename: isnl.txt
+backend: pexpect
+initial: "ab\ncd\n"
+keys:
+  - C-k
+  - C-k
+  - C-s
+  - C-y
+  - C-g
+  - Z
+expected_saved: "Zcd\n"

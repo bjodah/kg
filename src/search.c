@@ -12,6 +12,7 @@
 #include "keyevent.h"
 #include "marker.h"
 #include "regex.h"
+#include "yank.h"
 
 #define KILO_QUERY_LEN 256
 
@@ -409,6 +410,60 @@ static int isearch_handoff_key(int fd, struct key_event c)
 	return 0;
 }
 
+/* C-y and M-y in the search prompt, measured against Emacs 31
+ * (isearch-yank-kill / isearch-yank-pop-only): C-y appends the kill
+ * ring's newest entry to the query; M-y directly after a yank replaces
+ * the span that yank appended with the next-older entry, wrapping past
+ * the oldest; and M-y with NO yank before it appends the newest entry
+ * exactly as C-y does -- measured, Emacs rotates nothing there.
+ * `*yank_start` is the appended span's start, -1 while the previous
+ * keystroke was not a yank (the caller resets it on every other key),
+ * and since yanks only ever append, the span's end is always `*qlen`.
+ * Returns 1 when the key was one of the two: the caller re-searches,
+ * except when `*ring_note` was raised instead because the ring is
+ * empty.  The query is a bounded NUL-terminated line: the span stops
+ * at an embedded NUL and is clamped bytewise to the query's capacity
+ * (Emacs, yanking into a real buffer, has neither bound). */
+static int isearch_yank(struct key_event c, char *query, int *qlen,
+    int *yank_start, int *yank_index, int *ring_note)
+{
+	char *text;
+	const char *nul;
+	size_t elen = 0;
+	int n, next, pop;
+
+	if (!KEY_IS(c, 'y', KEY_MOD_CTRL) && !KEY_IS(c, 'y', KEY_MOD_META)) {
+		return 0;
+	}
+	pop = KEY_IS(c, 'y', KEY_MOD_META) && *yank_start >= 0
+	    && killring.count > 0;
+	next = pop ? (*yank_index + 1) % killring.count : 0;
+	/* Fetch before touching the query, so an empty ring or a failed
+	 * allocation leaves the previously yanked span in place. */
+	text = kill_ring_entry_repeated(next, 1, &elen);
+	if (text == NULL) {
+		*yank_start = -1;
+		*ring_note = 1;
+		return 1;
+	}
+	if (pop) {
+		*qlen = *yank_start;
+	} else {
+		*yank_start = *qlen;
+	}
+	nul = memchr(text, '\0', elen);
+	n = (int)(nul != NULL ? (size_t)(nul - text) : elen);
+	if (n > KILO_QUERY_LEN - *qlen) {
+		n = KILO_QUERY_LEN - *qlen;
+	}
+	memcpy(query + *qlen, text, (size_t)n);
+	*qlen += n;
+	query[*qlen] = '\0';
+	*yank_index = next;
+	free(text);
+	return 1;
+}
+
 /* Install `entry` as the in-progress isearch query.  Ring entries are
  * literal text, so the caller re-searches with it exactly as if it had
  * been typed — smart case included. */
@@ -466,6 +521,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int find_next = 0; /* if 1 search next, if -1 search prev. */
 	int too_complex = 0; /* last attempt ran out of engine budget */
 	int qlen = 0;
+	int yank_start = -1; /* see isearch_yank(); -1: no yank to pop */
+	int yank_index = 0;
+	int ring_note = 0; /* one-shot "[kill ring empty]" for the prompt */
 
 	/* Everything in this function is a chars byte offset: the search
 	 * reads row->chars, so a TAB is one character and never the eight
@@ -501,7 +559,8 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		 * neither that state nor an invalid pattern. */
 		editor_set_status_message("%sI-search %s: %s",
 		    kind == SEARCH_REGEXP ? "Regexp " : "",
-		    !rx_valid	      ? "[bad regexp]"
+		    ring_note	      ? "[kill ring empty]"
+			: !rx_valid   ? "[bad regexp]"
 			: too_complex ? "[too complex]"
 			: fold	      ? "[fold]"
 				      : "[case]",
@@ -509,6 +568,13 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		editor_refresh_screen();
 
 		c = editor_read_key(fd);
+		ring_note = 0;
+		/* Yank-pop eligibility is "the key before this one was a
+		 * yank", exactly the minibuffer's rule. */
+		if (!KEY_IS(c, 'y', KEY_MOD_CTRL)
+		    && !KEY_IS(c, 'y', KEY_MOD_META)) {
+			yank_start = -1;
+		}
 		if (KEY_IN_LIST(erase_keys, c)) {
 			/* Drop a whole character, so backspacing over a
 			 * multi-byte glyph never leaves half of it in the
@@ -573,6 +639,15 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 			    hist, dir, &hist_index, draft);
 			if (entry) {
 				isearch_set_query(query, &qlen, entry);
+				isearch_drop_marker(&last_match);
+				find_next = direction;
+			}
+		} else if (isearch_yank(c, query, &qlen, &yank_start,
+			       &yank_index, &ring_note)) {
+			/* Append (or pop) and re-search immediately, as
+			 * Emacs does; an empty ring changed nothing, so
+			 * only the note repaints. */
+			if (!ring_note) {
 				isearch_drop_marker(&last_match);
 				find_next = direction;
 			}

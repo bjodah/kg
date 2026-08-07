@@ -1,0 +1,27 @@
+# C-y in the search is Emacs' isearch-yank-kill -- append the newest
+# kill to the query and re-search immediately -- and M-y directly after
+# it is isearch-yank-pop-only: replace the just-yanked span with the
+# next-older entry and re-search.  Seed the ring with "beta" newest and
+# "alpha" older (two C-k kills separated by Down), then from the empty
+# second line: C-y searches for "beta" (matching in "zz beta ww"), M-y
+# flips the query to "alpha" (matching in "xx alpha yy"), RET accepts
+# with point at the match's end, and the typed "*" pins that position in
+# the saved file.  Only the rotation can put the "*" after "alpha": a
+# C-y that failed to rotate would leave point after "beta" instead.
+name: isearch-yank-kill-pop
+filename: iskp.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: "alpha\nbeta\nxx alpha yy\nzz beta ww\n"
+keys:
+  - C-k
+  - Down
+  - C-k
+  - C-s
+  - C-y
+  - M-y
+  - RET
+  - "*"
+oracle: emacs

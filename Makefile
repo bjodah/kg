@@ -528,7 +528,22 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5845 exceeds limit 5844
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5845
 #   scc total complexity: 5845 (limit 5845)
-SCC_COMPLEXITY_MAX ?= 5845
+# Raised 5845 -> 5879 for the kill-ring-in-prompts plan
+# (doc/plans/2026-08-07-kill-ring-in-prompts.md), a funded Decision
+# priced at landing: +34 buys the minibuffer prompts' kills and yanks
+# retargeted from the private minibuf_kill slot to the real ring with a
+# prompt-local yank-pop (bufmgr.c: minibuf_kill_span/minibuf_yank/
+# minibuf_yank_pop/minibuf_prompt_paint, and the per-keystroke
+# kill-class boundary in cmdstate.c), and isearch's
+# yank-kill/yank-pop-only (search.c: isearch_yank) -- the plan priced
+# comparable features at +5..24 and this lands two prompts plus the
+# coalescing discipline neither had.  Cap equals the measured actual,
+# no slack.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5878
+#   FAIL: total complexity 5879 exceeds limit 5878
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5879
+#   scc total complexity: 5879 (limit 5879)
+SCC_COMPLEXITY_MAX ?= 5879
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

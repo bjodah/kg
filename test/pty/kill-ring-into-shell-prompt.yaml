@@ -1,0 +1,29 @@
+# Buffer kills reach the M-! prompt: two C-k kills (separated by Down so
+# they do not coalesce) seed the ring with "beta" newest and "alpha"
+# older; inside the prompt C-y yanks "beta" and M-y replaces that span
+# with "alpha".  The final screen therefore shows "echo alpha" -- which
+# only the M-y rotation can produce, since C-y put "echo beta" there --
+# asserted while the prompt is still open (the tmux runner captures the
+# pane before the trailer runs).  The trailer's leading C-g closes the
+# prompt so the ordinary save-and-quit can land in the buffer.
+name: kill-ring-into-shell-prompt
+filename: krsp.txt
+backend: tmux
+initial: "alpha\nbeta\n"
+keys:
+  - C-k
+  - Down
+  - C-k
+  - M-!
+  - "echo "
+  - C-y
+  - M-y
+expected_screen_contains:
+  - "echo alpha"
+trailer_keys:
+  - C-g
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: "\n\n"

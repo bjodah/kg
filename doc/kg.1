@@ -1460,6 +1460,28 @@ cancels and returns to the original position;
 .Ic Backspace
 removes the last character from the query.
 .Pp
+.Ic C-y
+appends the kill ring's newest entry to the query and searches for the
+result at once, as Emacs'
+.Ic isearch-yank-kill
+does.
+.Ic M-y
+directly after such a yank replaces the just-yanked text with the next
+older ring entry and searches again
+.Pq Emacs' Ic isearch-yank-pop-only ,
+wrapping past the oldest back to the newest;
+.Ic M-y
+with no yank immediately before it appends the newest entry exactly as
+.Ic C-y
+does, which is also Emacs' behavior.
+With an empty kill ring either key changes nothing and the prompt
+answers
+.Ic [kill ring empty]
+for one keystroke.
+The query is matched a line at a time, so a yanked span that contains a
+line break can never match; Emacs, searching the buffer as one text,
+finds such a span across the break.
+.Pp
 Searches have a history.
 Accepting a search with
 .Ic Enter ,
@@ -1805,6 +1827,33 @@ and
 .Ic query-replace-regexp
 share a single one, as in Emacs.
 Nothing is written to disk: the rings live only for the session.
+.Pp
+A prompt's kills and yanks use the one global kill ring, as Emacs'
+minibuffer does:
+.Ic C-k
+kills from the cursor to the end of the typed text,
+.Ic M-d
+and
+.Ic M-Backspace
+kill the word after and before the cursor, and what was killed in a
+prompt can be yanked in the buffer after the prompt closes, or the
+other way around.
+Consecutive prompt kills grow one ring entry, under the same
+directly-following rule buffer kills use, and the prompt's last kill
+never coalesces with a buffer kill after it.
+.Ic C-y
+inserts the newest entry at the cursor and
+.Ic M-y
+directly after a yank replaces it with the next older one, wrapping;
+run with no yank immediately before it, the prompt answers
+.Ic [Previous command was not a yank]
+where Emacs 28 and later would open its interactive ring browser, which
+kg does not have.
+An empty kill ring answers
+.Ic [Kill ring is empty]
+after the typed text for one keystroke.
+A yanked entry stops at an embedded NUL byte, the prompt being a single
+NUL-terminated line where Emacs' minibuffer is a real buffer.
 .Pp
 .Ic C-h
 opens a special
@@ -2526,7 +2575,11 @@ and can be closed with
 when another buffer is available to switch to.
 .Pp
 The kill ring is global and shared across all buffers, so text killed in
-one buffer can be yanked in another.
+one buffer can be yanked in another; the minibuffer prompts and the
+incremental-search query share it too, in both directions
+(see
+.Sx KEY BINDINGS Ns 's
+prompt and search paragraphs).
 It holds up to 16 entries and 8 MiB total; pushing past either cap
 evicts the oldest entries first, and an individual entry too big to
 ever fit alone is rejected outright, leaving the ring as it was.

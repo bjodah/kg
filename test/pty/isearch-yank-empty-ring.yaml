@@ -1,0 +1,21 @@
+# C-y in the search with an empty kill ring: the query is untouched and
+# the search prompt's bracket slot answers "[kill ring empty]" for one
+# repaint, the same slot "[fold]"/"[case]"/"[bad regexp]" use.  The
+# trailer's C-g then abandons the search with point back at the start,
+# and the buffer saves unchanged.
+name: isearch-yank-empty-ring
+filename: iser.txt
+backend: tmux
+initial: "keep\n"
+keys:
+  - C-s
+  - C-y
+expected_screen_contains:
+  - "[kill ring empty]"
+trailer_keys:
+  - C-g
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: "keep\n"

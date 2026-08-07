@@ -1,0 +1,23 @@
+# The reverse direction, and the divergence this plan closed: text
+# killed INSIDE the M-! prompt lands on the one global kill ring, so
+# after C-g abandons the prompt, C-y in the buffer pastes it -- kg used
+# to keep a private prompt-only kill slot where the killed text
+# dead-ended.  Emacs' minibuffer is an ordinary buffer sharing the one
+# ring in both directions, so the oracle pins the whole flow: type
+# "canary" into the prompt, C-a C-k kills it, C-g out, C-y pastes it at
+# point.  Both editors save "canarybase".
+name: kill-ring-out-of-shell-prompt
+filename: krsp2.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: "base\n"
+keys:
+  - M-!
+  - canary
+  - C-a
+  - C-k
+  - C-g
+  - C-y
+oracle: emacs

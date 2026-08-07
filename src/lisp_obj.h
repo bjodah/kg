@@ -69,8 +69,32 @@ struct kg_lisp_object {
  * free the wrappers it has dropped.  An adapter object minted for the
  * adapter's own private use therefore has to be released when its owner
  * knows it is dead rather than when the collector gets to it -- see
- * lisp_marker_release() and src/lisp_buffer.c's excursion restore. */
-#define LISP_MAX_OBJECTS 64
+ * lisp_marker_release() and src/lisp_buffer.c's excursion restore.
+ *
+ * 64 -> 256 in sub-plan 12D Part 3 (12A Decision 5).  At 64 the pool was
+ * the binding constraint on `save-excursion' nesting -- the 65th nested
+ * form raised where Emacs has no bound at all until the C stack goes at
+ * about 50000 -- and the Phase 11 review said so.  At 256 it is not: fe's
+ * evaluation frame limit fires first, at the same 1095-frame arena
+ * partition every other nesting construct already lives under, and the
+ * measured depth is recorded in test_save_excursion_pool_bound.  The
+ * price is 88 bytes a record, so +16.5 KB of .bss and zero scc.
+ *
+ * BACK-PRESSURE WAS MEASURED AND REJECTED, not overlooked.  Asking fe to
+ * collect at the threshold frees exactly zero records, because at the
+ * nesting threshold every record is LIVE: the audit forced a full
+ * collection with a 40000-cons burst inside the 64th nested excursion and
+ * the 65th allocation still failed.  It rescues the dropped-garbage case
+ * only, which is a different bug from the one that bounded nesting, and
+ * it would cost an fe entry point and a pin move.  A `realloc'ing pool is
+ * ruled out by construction: records are addressed BY POINTER inside
+ * FeTFex0 wrappers and kg registers no mark_fn, so there is nowhere to
+ * fix pointers up after a move.
+ *
+ * Changing this value changes the layout of `struct lisp_state', which
+ * every adapter object reaches for; Makefile's WITH_LISP block is what
+ * makes an incremental build notice. */
+#define LISP_MAX_OBJECTS 256
 
 struct lisp_object_pool {
 	struct kg_lisp_object objects[LISP_MAX_OBJECTS];

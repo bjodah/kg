@@ -4,7 +4,9 @@
 # (lisp-save-excursion-pool-loop) pins the saved-file outcome of a
 # command from init.el; this one pins the answer a user reads back
 # interactively, which is where the error text appeared -- the echo area
-# showed "too many buffer objects" instead of 100.
+# showed "too many buffer objects" instead of 100 -- the marker mint
+# says "too many marker objects" since sub-plan 12D Part 3, and this
+# guard follows it.
 #
 # expected_screen_not_contains carries the other half: a case that only
 # looked for "100" would also pass on a screen that printed the error and
@@ -24,4 +26,4 @@ expected_saved: |
 expected_screen_contains:
   - "100"
 expected_screen_not_contains:
-  - "too many buffer objects"
+  - "too many marker objects"

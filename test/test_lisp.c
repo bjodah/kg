@@ -2030,9 +2030,12 @@ static void test_buffer_object_capacity(void)
 	/* The adapter object pool is bounded: distinct buffer handles each
 	 * take one record, so enough create/kill cycles while every Lisp
 	 * value stays alive exhaust it, and the exhaustion is an error
-	 * rather than a silent alias to an earlier record. */
+	 * rather than a silent alias to an earlier record.  400 cycles, not
+	 * the 100 this asserted before sub-plan 12D Part 3 raised
+	 * LISP_MAX_OBJECTS 64 -> 256; the claim is the bound, not its
+	 * value, and 100 no longer reaches it. */
 	CHECK(eval_error_contains("(progn (setq held '()) (setq n 0)"
-				  " (while (< n 100)"
+				  " (while (< n 400)"
 				  "  (setq held (cons (get-buffer-create "
 				  "(format \"cap-%d\" n)) held))"
 				  "  (kill-buffer (car held))"
@@ -4747,25 +4750,35 @@ static void test_save_excursion(void)
 
 /* The adapter object pool bounds how many excursions are open AT ONCE,
  * not how many a run performs.  The Phase 11 acceptance review's BLOCKER
- * B1: 11D Part 4's capture mints a marker record out of the 64-entry
- * pool (LISP_MAX_OBJECTS) and the restore only detached it, so the record
+ * B1: 11D Part 4's capture mints a marker record out of the pool
+ * (LISP_MAX_OBJECTS) and the restore only detached it, so the record
  * stayed taken until fe's collector swept the wrapper -- which a loop
  * allocating almost no arena never provokes, the pool having no
  * back-pressure of its own.  The 65th `save-excursion' between two
- * collections raised "too many buffer objects", where the pre-Phase-11
+ * collections raised "too many marker objects", where the pre-Phase-11
  * malloc'd implementation ran 5000 of them.
  *
  * Every number below is the review's, so a re-introduction fails here
  * rather than in a user's init.el.  There is no test above this one that
  * calls `save-excursion' more than twice, which is why every gate was
- * green on the defect. */
+ * green on the defect.
+ *
+ * SUB-PLAN 12D PART 3 raised the pool 64 -> 256, so the numbers that were
+ * about the pool's SIZE have moved and are re-measured on this tree
+ * rather than carried; the numbers that were about the review's defect --
+ * that a closed excursion gives its record back at all -- are unchanged,
+ * which is the point of keeping both here. */
 static void test_save_excursion_pool_bound(void)
 {
 	setup_editor();
 	editor_insert_row(bcur(), 0, "hello world", 11);
 	CHECK(kg_lisp_init() == 0);
 
-	/* 1. The exact threshold: 64 records, so 65 was the first failure. */
+	/* 1. The review's exact threshold, kept at 65 rather than moved with
+	 * the pool: 64 records was the size then, so 65 sequential
+	 * excursions was the first failure, and it is the number that
+	 * regresses if a closed excursion ever stops giving its record
+	 * back. */
 	CHECK(eval_eq("(let ((i 0)) (while (< i 65) (save-excursion "
 		      "(setq i (+ i 1)))) i)",
 	    "65"));
@@ -4776,13 +4789,13 @@ static void test_save_excursion_pool_bound(void)
 	    "5000"));
 
 	/* 3. Records do not survive the evaluation that made them: this is a
-	 * second, separate eval_eq(), and 40 + 40 > 64. */
-	CHECK(eval_eq("(let ((i 0)) (while (< i 40) (save-excursion "
+	 * second, separate eval_eq(), and 160 + 160 > 256. */
+	CHECK(eval_eq("(let ((i 0)) (while (< i 160) (save-excursion "
 		      "(setq i (+ i 1)))) i)",
-	    "40"));
-	CHECK(eval_eq("(let ((i 0)) (while (< i 40) (save-excursion "
+	    "160"));
+	CHECK(eval_eq("(let ((i 0)) (while (< i 160) (save-excursion "
 		      "(setq i (+ i 1)))) i)",
-	    "40"));
+	    "160"));
 
 	/* 4. The budget is shared with buffer objects, so the review's
 	 * three-extra-buffers variant is its own case. */
@@ -4793,12 +4806,16 @@ static void test_save_excursion_pool_bound(void)
 		      "(setq i (+ i 1)))) i)",
 	    "200"));
 
-	/* 5. Nesting is what the pool still bounds, and that bound is now
-	 * 64 deep -- strictly deeper than the pre-Phase-11 native form
-	 * managed, which re-entered the evaluator and so hit the
-	 * 32-re-entry wall at 33.  Five deep here, because sixty-four
-	 * nested forms in a C string literal test nothing this does not;
-	 * the ceiling itself is a measurement, recorded in the commit. */
+	/* 5. Nesting is what the pool USED to bound, and since sub-plan 12D
+	 * Part 3 it does not.  Re-measured on this tree at
+	 * LISP_MAX_OBJECTS 256: 218 nested excursions answer `deep' and the
+	 * 219th raises "evaluation frame limit exceeded" -- fe's frame
+	 * limit, the same ceiling `with-current-buffer' has had all along
+	 * (155 deep, 156 raising, unchanged by this).  At 64 the pool was
+	 * the binding constraint and the 65th nested form raised.  Five
+	 * deep in the assertion, because a 218-form C string literal tests
+	 * nothing this does not; the ceiling itself is the measurement, and
+	 * it is recorded in the commit and in src/lisp_obj.h. */
 	CHECK(eval_eq("(save-excursion (save-excursion (save-excursion "
 		      "(save-excursion (save-excursion 'deep)))))",
 	    "deep"));
@@ -4831,6 +4848,23 @@ static void test_save_excursion_pool_bound(void)
 	CHECK(eval_eq(
 	    "(progn (goto-char 2) (save-excursion (goto-char 7)) (point))",
 	    "2"));
+
+	/* 9. The pool is still A bound, one order of magnitude further out
+	 * than the excursion nesting it used to cap.  200 markers held live
+	 * at once fit where 65 did not; 400 do not, and the diagnostic says
+	 * which mint ran out.  Not 256 exactly, because this function is
+	 * holding buffer records of its own by now: the claim is the order
+	 * of magnitude, not an arithmetic identity.  Last in the function
+	 * because a failed 400 leaves those records taken until something
+	 * provokes a collection. */
+	CHECK(eval_eq("(let ((held '()) (i 0)) (while (< i 200)"
+		      " (setq held (cons (make-marker) held))"
+		      " (setq i (+ i 1))) (length held))",
+	    "200"));
+	CHECK(eval_error_contains("(let ((held '()) (i 0)) (while (< i 400)"
+				  " (setq held (cons (make-marker) held))"
+				  " (setq i (+ i 1))) (length held))",
+	    "too many marker objects"));
 
 	kg_lisp_shutdown();
 	teardown_editor();

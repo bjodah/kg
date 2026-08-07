@@ -218,7 +218,10 @@ struct FeObject *lisp_marker_object(struct FeContext *ctx,
 	struct kg_marker_handle handle;
 
 	if (rec == NULL) {
-		FeHandleError(ctx, "too many buffer objects");
+		/* "marker", not "buffer": the three mints share one pool, and
+		 * this one said `buffer' until sub-plan 12D Part 3, which is
+		 * what every measurement of the excursion bound printed. */
+		FeHandleError(ctx, "too many marker objects");
 	}
 	handle = kg_marker_create(b, pos, gravity);
 	if (handle.id == 0) {

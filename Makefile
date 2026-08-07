@@ -471,7 +471,24 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5806 exceeds limit 5805
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5806
 #   scc total complexity: 5806 (limit 5806)
-SCC_COMPLEXITY_MAX ?= 5830
+# Re-set 5830 -> 5826 at the Phase 12 close, the convention every phase
+# since 08 has kept.  The phase spent +20 of the 24 the raise made
+# available, against a +10..24 price: the file-condition raise helper and
+# its two sites, and -- unpriced, and recorded as such in its commit --
+# the renderer that keeps kg's missing-file diagnostic naming the file
+# instead of printing the bare condition name fe's `signal' would leave.
+# The pool went to 256 for zero, being a #define value, and the crash fix
+# in src/syntax.c cost zero because its guard is an offset rather than a
+# branch.  The four points left over go back rather than sitting as
+# unearned headroom: the one item of the phase that did NOT land -- the
+# prelude `load' loop, blocked on an fe entry point that does not exist,
+# see doc/TODO.md -- needs an fe pin move and will fund its own raise
+# with a measurement of its own.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5825
+#   FAIL: total complexity 5826 exceeds limit 5825
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5826
+#   scc total complexity: 5826 (limit 5826)
+SCC_COMPLEXITY_MAX ?= 5826
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

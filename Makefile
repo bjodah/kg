@@ -84,16 +84,20 @@ lispdir = $(datadir)/kg/lisp
 # compiled-in one would only invite someone to edit the copy nothing
 # reads.
 #
-# lisp/auto-fill.el is the opposite kind of thing: an optional package a
-# user chooses to (require ...), which by definition has to be a file the
-# load-path can reach.  README.md and doc/kg.1 tell users to require it,
-# so it is installed, and both say where -- $(lispdir), which is NOT on
-# the default load-path (that is $XDG_CONFIG_HOME/kg/lisp, a per-user
-# directory), so the docs also say the (add-to-load-path ...) line that
-# reaches it.  Baking an install prefix into the binary's default
-# load-path was the alternative and was rejected: it is C in the editor
-# for a path a one-line init file states better.
-LISP_PACKAGES = lisp/auto-fill.el
+# The three files below are the opposite kind of thing: optional packages
+# a user chooses to (require ...), which by definition have to be files
+# the load-path can reach.  README.md and doc/kg.1 tell users to require
+# them, so they are installed, and both say where -- $(lispdir), which is
+# NOT on the default load-path (that is $XDG_CONFIG_HOME/kg/lisp, a
+# per-user directory), so the docs also say the (add-to-load-path ...)
+# line that reaches it.  Baking an install prefix into the binary's
+# default load-path was the alternative and was rejected: it is C in the
+# editor for a path a one-line init file states better.
+#
+# pipeline.el and pipeline-text.el ship as a pair on purpose:
+# pipeline-text.el's first form is (require 'pipeline), so installing one
+# without the other would install something that cannot load.
+LISP_PACKAGES = lisp/auto-fill.el lisp/pipeline.el lisp/pipeline-text.el
 
 # Show a leading "~" on lines past end-of-buffer (vim/kilo style).
 # Off by default for an Emacs-like presentation.  Override on the make

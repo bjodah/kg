@@ -1,0 +1,8 @@
+{
+ "id": "pipeline-macro-call-p",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/pipeline.el\") nil t) (load \"lisp/pipeline.el\"))"
+ ],
+ "expr": "(list (pipeline-macro-call-p (list 'pipeline-twice 1)) (pipeline-macro-call-p (list '+ 1 2)))",
+ "note": "Proof 3, macro reflection used as a predicate: the package answers whether a form is one of its own macro calls by asking the expander rather than by keeping a list, since a non-macro form comes back unchanged. Setup loads lisp/pipeline.el itself on BOTH sides -- the tracked file, not a copy -- through the one form both dialects read: (fboundp 'expand-file-name) is t in Emacs, which needs an absolute name because its `load' searches load-path for a relative one, and nil in kg, whose `load' takes a '/'-containing name as a literal path. The untaken branch is only ever read. So this snapshot is the pinned Emacs' answer for the code kg ships, with nothing to drift."
+}

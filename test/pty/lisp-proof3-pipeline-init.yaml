@@ -1,0 +1,252 @@
+# PROOF 3 (parent plan §14), loaded the way a user would load it: an
+# isolated HOME with both package files under .config/kg/lisp/ and an
+# init.el that requires only the editor-facing one.
+#
+# What this case proves that the compat cases cannot: the require CHAIN
+# works from an init file.  init.el requires pipeline-text, which
+# requires pipeline, which is the §14 "provide/require" and "multiple
+# files" bullets in the shape a user meets them -- through load-path,
+# not through a literal path.  The number saved is the pure package's
+# fold over the buffer's size, so the helper really ran.
+#
+# The buffer starts with four characters, so the default pipeline
+# (add one, triple, subtract twenty) answers (4+1)*3-20 = -5.  Point is
+# at the start of the buffer when init.el runs, so the answer lands in
+# front of them.
+name: lisp-proof3-pipeline-init
+filename: proof3-init.txt
+requires_feature: lisp
+config_files:
+  .config/kg/lisp/pipeline.el: |
+    ;;; pipeline.el --- Proof 3's pure half: higher-order steps over a value.  -*- lexical-binding: t; -*-
+    ;;;
+    ;;; The parent plan's §14 asks for "a small higher-order package" whose
+    ;;; pure-language portions also run unchanged under Emacs 31.  This file
+    ;;; is that portion, and "unchanged" is measured rather than claimed:
+    ;;; test/lisp-compat/ carries `comparison: emacs' cases whose setup loads
+    ;;; THIS FILE on both sides and whose snapshots are the pinned Emacs'
+    ;;; own answers (see the pipeline-* case ids).  Nothing here touches a
+    ;;; buffer, a window, a key or a process; `pipeline-text.el' is the half
+    ;;; that does, and it (require ...)s this one.
+    ;;;
+    ;;; A pipeline is an ordinary list of one-argument functions, applied
+    ;;; left to right to a starting value.  That is enough to exercise every
+    ;;; bullet §14 lists -- Lisp-2 name separation, funcall/apply, closures,
+    ;;; macro expansion including reflective use, catch/throw,
+    ;;; condition-case, provide/require and more than one file -- without
+    ;;; inventing machinery to hang them on.
+    ;;;
+    ;;; Three measured constraints shaped it, and are worth knowing before
+    ;;; editing it:
+    ;;;
+    ;;;   * a `throw' cannot cross a native re-entry boundary in kg (the
+    ;;;     recorded catch-throw-reachability divergence), so every catch
+    ;;;     and its throws live inside this file, with no `save-excursion'
+    ;;;     or `with-current-buffer' in between.  `pipeline-text.el' never
+    ;;;     throws across one either.
+    ;;;   * `load' resolves a bare name only in the config directory, so the
+    ;;;     two files reach each other with `require', which searches
+    ;;;     `load-path'.
+    ;;;   * Emacs' `load' of a file with no `lexical-binding' cookie binds
+    ;;;     dynamically, and the closures below then capture nothing --
+    ;;;     measured, as `void-variable (n)', before the cookie on line 1 was
+    ;;;     added.  kg has only lexical binding and reads the cookie as the
+    ;;;     comment it is, so the line costs kg nothing and is what makes
+    ;;;     "runs unchanged under Emacs 31" true rather than nearly true.
+    ;;;   * two of kg's recorded silent divergences must not be load-bearing
+    ;;;     here, or "runs unchanged under Emacs" would be a coincidence:
+    ;;;     nothing in this file rebinds a `defvar'd variable around a call
+    ;;;     (kg's `defvar' does not make a symbol special), and no returned
+    ;;;     value contains a `(quote X)' form (kg's writer prints it where
+    ;;;     Emacs prints 'X).  Both are why the macros below expand to plain
+    ;;;     `if'/`+' forms and why the reflective helpers are handed their
+    ;;;     form as data built with `list'.
+
+    (provide 'pipeline)
+
+    ;; --- Lisp-2 name separation -----------------------------------------
+    ;; One symbol, two independent cells.  The value cell says where the
+    ;; pipeline came from; the function cell computes something.  Reading
+    ;; `pipeline-origin' never reaches the function, and calling
+    ;; `(pipeline-origin)' never reaches the value.
+    (setq pipeline-origin "value-cell")
+
+    (defun pipeline-origin ()
+      "function-cell")
+
+    ;; --- closures --------------------------------------------------------
+    ;; Each of these returns a function that has captured its argument.  The
+    ;; capture is lexical in both dialects, which is exactly why the package
+    ;; may rely on it.
+    (defun pipeline-adder (n)
+      (lambda (x) (+ x n)))
+
+    (defun pipeline-scaler (n)
+      (lambda (x) (* x n)))
+
+    ;; --- funcall / apply -------------------------------------------------
+    ;; `pipeline-run' is the fold: funcall each step on the accumulated
+    ;; value.  `pipeline-call' is `apply' over a ready-made argument list,
+    ;; which is the other half of §14's bullet.
+    (defun pipeline-run (steps value)
+      (let ((rest steps) (acc value))
+        (while rest
+          (setq acc (funcall (car rest) acc))
+          (setq rest (cdr rest)))
+        acc))
+
+    (defun pipeline-call (fn args)
+      (apply fn args))
+
+    ;; --- catch / throw ---------------------------------------------------
+    ;; Early exit: stop at the first step whose result passes LIMIT and hand
+    ;; that result straight out of the loop.  The catch and the throw are in
+    ;; one function on purpose -- see the header's first constraint.
+    (defun pipeline-run-until (steps value limit)
+      (catch 'pipeline-limit
+        (let ((rest steps) (acc value))
+          (while rest
+            (setq acc (funcall (car rest) acc))
+            (if (< limit acc)
+                (throw 'pipeline-limit acc))
+            (setq rest (cdr rest)))
+          acc)))
+
+    ;; --- condition-case --------------------------------------------------
+    ;; A step that signals stops the pipeline and is reported as data rather
+    ;; than escaping.  The report is (failed CONDITION), a list of two
+    ;; symbols, so it prints identically in both dialects.
+    (defun pipeline-run-safely (steps value)
+      (condition-case err
+          (pipeline-run steps value)
+        (error (list 'failed (car err)))))
+
+    ;; --- macros, and reflection on them ----------------------------------
+    ;; These expand to plain arithmetic and `if' forms: no implicit body
+    ;; (kg's is `do' where Emacs' is `progn') and no quoted data (kg prints
+    ;; `(quote x)' where Emacs prints 'x), so an expansion is comparable
+    ;; between the two dialects character for character.
+    ;;
+    ;; `pipeline-boost' expands to a form whose own head is a macro call.
+    ;; That is deliberate: it is what makes one expansion step and the
+    ;; expansion fixpoint different answers, which is the whole difference
+    ;; between `macroexpand-1' and `macroexpand'.
+    (defmacro pipeline-twice (form)
+      (list '+ form form))
+
+    (defmacro pipeline-boost (form)
+      (list 'pipeline-twice form))
+
+    (defmacro pipeline-guard (n form)
+      (list 'if (list '< 0 n) form 0))
+
+    ;; The reflective half §14's "macro expansion" bullet means (10A
+    ;; Decision 2): a package that can tell you what its own macros expand
+    ;; to.  FORM is data, not syntax, so callers build it with `list'.
+    ;; `pipeline-explain-step' takes exactly one expansion step and
+    ;; `pipeline-explain' runs to the fixpoint, which is the difference
+    ;; between `macroexpand-1' and `macroexpand' and the reason a debugging
+    ;; helper wants both.
+    (defun pipeline-explain-step (form)
+      (macroexpand-1 form))
+
+    (defun pipeline-explain (form)
+      (macroexpand form))
+
+    ;; Whether FORM's head names one of this package's macros, answered by
+    ;; asking the expander rather than by keeping a list: a form that is not
+    ;; a macro call comes back from `macroexpand-1' unchanged.
+    (defun pipeline-macro-call-p (form)
+      (not (equal form (macroexpand-1 form))))
+  .config/kg/lisp/pipeline-text.el: |
+    ;;; pipeline-text.el --- Proof 3's editor half: pipelines over a buffer.  -*- lexical-binding: t; -*-
+    ;;;
+    ;;; The other half of the parent plan's §14 Proof 3.  `pipeline.el' is
+    ;;; pure and is measured against Emacs 31 case by case; this file is the
+    ;;; part that could not be, because it reads a buffer and defines
+    ;;; interactive commands.  Keeping them apart is what makes the claim
+    ;;; "its pure-language portions also run unchanged under Emacs 31"
+    ;;; checkable instead of aspirational.
+    ;;;
+    ;;; It reaches its helper with `require', not `load': `load' resolves a
+    ;;; bare name only in the config directory, while `require' searches
+    ;;; `load-path', so `require' is what lets an installed copy and a
+    ;;; per-user copy both work.  That single (require 'pipeline) is also
+    ;;; §14's provide/require and multiple-files bullets.
+    ;;;
+    ;;; Nothing here throws across a native re-entry boundary: every catch in
+    ;;; this package is inside one `pipeline.el' function, and the commands
+    ;;; below call into it and take a value back.  A `throw' out of a
+    ;;; `with-current-buffer' or `save-excursion' body would be answered
+    ;;; `no-catch' (kg's recorded catch-throw-reachability divergence), so
+    ;;; that shape is deliberately absent rather than accidentally missing.
+
+    (require 'pipeline)
+
+    (provide 'pipeline-text)
+
+    ;; The package's own default pipeline: add one, triple, then subtract
+    ;; twenty.  A function rather than a variable so a caller reading
+    ;; `pipeline-text-steps' as a value gets nothing -- the Lisp-2 point
+    ;; `pipeline.el' makes with `pipeline-origin', restated where a user
+    ;; would meet it.
+    ;;
+    ;; The third step is what makes the early exit below observable: with a
+    ;; pipeline that only ever grows, stopping at the last step and running
+    ;; to the end are the same number, and a catch/throw that cannot change
+    ;; an answer proves nothing.
+    (defun pipeline-text-steps ()
+      (list (pipeline-adder 1) (pipeline-scaler 3) (pipeline-adder -20)))
+
+    (defun pipeline-text-run ()
+      "Insert the default pipeline's answer for the size of this buffer."
+      (interactive)
+      (insert (number-to-string
+               (pipeline-run (pipeline-text-steps)
+                             (- (point-max) (point-min))))))
+
+    (defun pipeline-text-run-until ()
+      "Insert the default pipeline's answer, stopping at the first step past 5."
+      (interactive)
+      (insert (number-to-string
+               (pipeline-run-until (pipeline-text-steps)
+                                   (- (point-max) (point-min))
+                                   5))))
+
+    (defun pipeline-text-explain ()
+      "Insert what (pipeline-boost 3) expands to: one step, then fully.
+
+    The reflective use §14's macro-expansion bullet asks for -- a package
+    that can tell a user what its own macros mean, rather than only running
+    them."
+      (interactive)
+      (insert (format "%S then %S"
+                      (pipeline-explain-step (list 'pipeline-boost 3))
+                      (pipeline-explain (list 'pipeline-boost 3)))))
+
+    (defun pipeline-text-run-safely ()
+      "Run a pipeline whose second step signals, and insert the report.
+
+    The error is data here, not an escape: `pipeline-run-safely' catches it
+    and the command finishes normally, so the buffer is edited."
+      (interactive)
+      (insert (format "%S"
+                      (pipeline-run-safely
+                       (list (pipeline-adder 1) (lambda (x) (car x)))
+                       (- (point-max) (point-min))))))
+
+    (defun pipeline-text-run-unguarded ()
+      "Run the same failing pipeline with no handler, so the error escapes.
+
+    The counterpart to `pipeline-text-run-safely': the condition reaches
+    kg's command boundary and is reported there, and nothing is inserted."
+      (interactive)
+      (insert (number-to-string
+               (pipeline-run (list (pipeline-adder 1) (lambda (x) (car x)))
+                             (- (point-max) (point-min))))))
+  .config/kg/init.el: |
+    (require 'pipeline-text)
+    (pipeline-text-run)
+initial: "abcd"
+keys: []
+expected_saved: "-5abcd"

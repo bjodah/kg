@@ -1,0 +1,8 @@
+{
+ "id": "pipeline-macroexpand-fixpoint",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/pipeline.el\") nil t) (load \"lisp/pipeline.el\"))"
+ ],
+ "expr": "(pipeline-explain (list 'pipeline-boost 3))",
+ "note": "Proof 3, reflective macro expansion, the fixpoint: the same form expanded until it is no longer a macro call, which is the whole difference between macroexpand-1 and macroexpand. Setup loads lisp/pipeline.el itself on BOTH sides -- the tracked file, not a copy -- through the one form both dialects read: (fboundp 'expand-file-name) is t in Emacs, which needs an absolute name because its `load' searches load-path for a relative one, and nil in kg, whose `load' takes a '/'-containing name as a literal path. The untaken branch is only ever read. So this snapshot is the pinned Emacs' answer for the code kg ships, with nothing to drift."
+}

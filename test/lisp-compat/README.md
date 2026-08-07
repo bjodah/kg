@@ -161,6 +161,73 @@ reports `file:LINE: CONDITION` (`lisp-init-error.yaml`,
 variable, so an init file that rebinds one around a call gets a silently
 different answer (the `prelude-defvar` row).
 
+## Proof 3 — the higher-order package, verified against Emacs 31
+
+§14's Proof 3 asks for "a self-contained package" exercising Lisp-2 name
+separation, `funcall`/`apply`, closures, macro expansion, catch/throw,
+`condition-case`, `provide`/`require` and multiple files, and adds: "the
+package may be written for kg, but its pure-language portions should
+also run unchanged under Emacs 31."
+
+The package is `lisp/pipeline.el` (pure) plus `lisp/pipeline-text.el`
+(editor-facing, and it `(require 'pipeline)`, which is the multiple-files
+bullet). Splitting it that way is what makes the Emacs 31 claim
+*measurable*: the nine `pipeline-*` cases in this corpus load
+`lisp/pipeline.el` — the tracked file, not a copy — on **both** sides,
+so their snapshots are the pinned Emacs' own answers for the code kg
+ships and `make lisp-oracle-check` fails the moment the two stop
+agreeing.
+
+The one form that does the loading is dialect-neutral, in the shape fe's
+own 10B cases use:
+
+```elisp
+(if (fboundp 'expand-file-name)
+    (load (expand-file-name "lisp/pipeline.el") nil t)
+  (load "lisp/pipeline.el"))
+```
+
+`(fboundp 'expand-file-name)` is `t` in Emacs, whose `load` searches
+`load-path` for a relative name and so needs an absolute one, and `nil`
+in kg, whose `load` takes a `/`-containing name as a literal path. Both
+dialects *read* both branches; only one runs.
+
+| §14 bullet | Case (compared against Emacs 31) |
+| --- | --- |
+| Lisp-2 name separation | `pipeline-lisp2-cells` |
+| `funcall` | `pipeline-closures-funcall` |
+| `apply` | `pipeline-apply` |
+| closures | `pipeline-closures-funcall` |
+| macro expansion | `pipeline-macroexpand-1` (one step), `pipeline-macroexpand-fixpoint` (the fixpoint), `pipeline-macro-call-p` (expansion used as a predicate), `pipeline-macro-use` (the macros evaluated) |
+| catch/throw | `pipeline-catch-throw` |
+| `condition-case` | `pipeline-condition-case` |
+| provide/require, multiple files | `lisp/pipeline-text.el`'s `(require 'pipeline)`, exercised end to end by `test/pty/lisp-proof3-pipeline-init.yaml` |
+
+Three PTY cases cover what an oracle cannot: the require chain reached
+from a real `init.el` (`lisp-proof3-pipeline-init.yaml`), the commands
+reached through `M-x` (`lisp-proof3-pipeline-commands.yaml`), and both
+error paths — handled and unhandled — with the editor still usable
+afterwards (`lisp-proof3-pipeline-errors.yaml`).
+
+Two things the package deliberately does **not** do, because they would
+have made the agreement a coincidence rather than a property, and one it
+cannot:
+
+* no recorded silent divergence is load-bearing in the pure file:
+  nothing rebinds a `defvar`'d variable around a call (`prelude-defvar`),
+  and no returned value contains a `(quote X)` form
+  (`writer-quote-abbreviation`) — which is why the macros expand to plain
+  `if`/`+` forms and why the reflective helpers are handed their form as
+  data built with `list`;
+* no `throw` crosses a native re-entry boundary
+  (`catch-throw-reachability`): every catch and its throws are inside one
+  `pipeline.el` function, with no `save-excursion` or
+  `with-current-buffer` between them;
+* `lisp/pipeline.el` carries a `lexical-binding: t` cookie on line 1.
+  kg reads it as the comment it is, but without it Emacs' `load` binds
+  dynamically and the closures capture nothing — measured, as
+  `void-variable (n)`, before the cookie was added.
+
 ## The checker
 
 `utils/check_lisp_compat.py` (kg's `utils/`, not `fe/utils/`) is the

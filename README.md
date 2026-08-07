@@ -288,6 +288,15 @@ or copy the file into `<config>/kg/lisp/` and require it with no extra line.
 binary, so it can never be missing or a version behind the editor that
 evaluates it.
 
+`lisp/pipeline.el` and `lisp/pipeline-text.el` ship beside it as a worked
+two-file package: `pipeline.el` is pure Lisp — higher-order steps folded over
+a value, with closures, `funcall`/`apply`, `catch`/`throw`, `condition-case`,
+macros and reflective `macroexpand-1`/`macroexpand` — and `pipeline-text.el`
+`(require)`s it and adds the interactive commands that run a pipeline over the
+current buffer. `pipeline.el` touches no buffer, window, key or process, and
+runs unchanged under GNU Emacs 31: `make lisp-oracle-check` loads that exact
+file on both sides and compares kg's answers with the pinned Emacs' own.
+
 Buffer positions use Emacs' convention: a position is a 1-based codepoint
 offset, so `(point-min)` is 1, `(point-max)` is one past the last character,
 and every line break counts as one character. Offsets count characters, not

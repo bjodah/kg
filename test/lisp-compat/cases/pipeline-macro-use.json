@@ -1,0 +1,8 @@
+{
+ "id": "pipeline-macro-use",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/pipeline.el\") nil t) (load \"lisp/pipeline.el\"))"
+ ],
+ "expr": "(list (pipeline-boost 5) (pipeline-guard 2 7) (pipeline-guard -1 7))",
+ "note": "Proof 3, the macros used rather than reflected on: a nested expansion evaluates, and a guard macro's `if' takes each arm. Setup loads lisp/pipeline.el itself on BOTH sides -- the tracked file, not a copy -- through the one form both dialects read: (fboundp 'expand-file-name) is t in Emacs, which needs an absolute name because its `load' searches load-path for a relative one, and nil in kg, whose `load' takes a '/'-containing name as a literal path. The untaken branch is only ever read. So this snapshot is the pinned Emacs' answer for the code kg ships, with nothing to drift."
+}

@@ -1,0 +1,8 @@
+{
+ "id": "pipeline-catch-throw",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/pipeline.el\") nil t) (load \"lisp/pipeline.el\"))"
+ ],
+ "expr": "(pipeline-run-until (list (pipeline-adder 5) (pipeline-adder 5) (pipeline-adder 5)) 0 7)",
+ "note": "Proof 3, catch/throw: the fold exits at the first step whose result passes the limit, so the third step never runs and the answer is 10 rather than 15. Setup loads lisp/pipeline.el itself on BOTH sides -- the tracked file, not a copy -- through the one form both dialects read: (fboundp 'expand-file-name) is t in Emacs, which needs an absolute name because its `load' searches load-path for a relative one, and nil in kg, whose `load' takes a '/'-containing name as a literal path. The untaken branch is only ever read. So this snapshot is the pinned Emacs' answer for the code kg ships, with nothing to drift."
+}

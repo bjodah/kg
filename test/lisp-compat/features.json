@@ -2641,6 +2641,27 @@
    "kg_test": "test/test_lisp.c:test_phase8_library",
    "rationale": "kbd accepts only the C-c key grammar that kg's user key binding entry point can parse.",
    "source_name": "kbd"
+  },
+  {
+   "id": "proof3-pipeline-package",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "pipeline-lisp2-cells",
+    "pipeline-closures-funcall",
+    "pipeline-apply",
+    "pipeline-catch-throw",
+    "pipeline-condition-case",
+    "pipeline-macroexpand-1",
+    "pipeline-macroexpand-fixpoint",
+    "pipeline-macro-call-p",
+    "pipeline-macro-use"
+   ],
+   "kg_test": "lisp/pipeline.el, lisp/pipeline-text.el, test/pty/lisp-proof3-pipeline-init.yaml, test/pty/lisp-proof3-pipeline-commands.yaml, test/pty/lisp-proof3-pipeline-errors.yaml",
+   "rationale": "The parent plan's §14 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also §14's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every §14 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's recorded silent divergences are deliberately NOT load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Two measured constraints shaped it: a throw cannot cross a native re-entry boundary (catch-throw-reachability), so every catch and its throws are inside one function with no wrapping native between them, and `load' resolves a bare name only in the config directory (load-path-search), so the two files reach each other with `require'.",
+   "source_name": null
   }
  ]
 }

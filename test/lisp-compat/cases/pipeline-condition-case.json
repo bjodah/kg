@@ -1,0 +1,8 @@
+{
+ "id": "pipeline-condition-case",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/pipeline.el\") nil t) (load \"lisp/pipeline.el\"))"
+ ],
+ "expr": "(pipeline-run-safely (list (pipeline-adder 1) (lambda (x) (car x))) 1)",
+ "note": "Proof 3, condition-case: a step that signals is reported as data instead of escaping, and the condition symbol both dialects raise for (car 2) is the same one. Setup loads lisp/pipeline.el itself on BOTH sides -- the tracked file, not a copy -- through the one form both dialects read: (fboundp 'expand-file-name) is t in Emacs, which needs an absolute name because its `load' searches load-path for a relative one, and nil in kg, whose `load' takes a '/'-containing name as a literal path. The untaken branch is only ever read. So this snapshot is the pinned Emacs' answer for the code kg ships, with nothing to drift."
+}

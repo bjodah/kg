@@ -25,9 +25,10 @@ Three things, in order:
    entry's rationale names a phase ("Phase <digit>"), and the "defcustom"
    entry exists with the shape 00C's gate specifies.
 4. Every test a feature entry's "kg_test" cites exists: the file is
-   there, and where a function is named, that file defines it. 00B's
-   checker only asks that the field is non-empty, so a renamed test or a
-   moved PTY case left the manifest pointing at nothing.
+   there, a C file is cited *with* a function (a bare .c names no test),
+   and the named function is defined in it. 00B's checker only asks that
+   the field is non-empty, so a renamed test or a moved PTY case left the
+   manifest pointing at nothing.
 """
 
 from __future__ import annotations
@@ -323,6 +324,17 @@ def check_kg_test_targets(data: dict, path: Path) -> list[str]:
 				errors.append(
 					f"{where}: kg_test names {file_part}, "
 					f"which does not exist")
+				continue
+			if not symbol and file_part.endswith((".c", ".h")):
+				# A C file on its own cites no test. Sub-plan 10C
+				# closed this: the rule is "an existing test
+				# *function* or a case file", and a bare .c
+				# satisfied the first half by naming a file that
+				# happens to contain tests.
+				errors.append(
+					f"{where}: kg_test names the C file "
+					f"{file_part} but no function in it; "
+					f"cite {file_part}:test_something")
 				continue
 			if symbol and not _function_is_defined(
 					target.read_text(encoding="utf-8"),

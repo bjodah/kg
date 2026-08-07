@@ -451,7 +451,7 @@ $(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-oracle-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -468,6 +468,27 @@ docs-check:
 # not part of this or ordinary `make check`.
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
+
+# Sub-plan 10C Part 3: kg's half of the milestone gate's oracle item.
+# Runs every `comparison: emacs` case through test/kgbatch and compares it
+# with the checked-in snapshot, with the XPASS rule fe's own runner lacks
+# (a recorded divergence that starts agreeing FAILS).  No Emacs is invoked
+# -- the snapshots are the oracle -- so this belongs in ordinary `make
+# check` rather than in a .ci step, and it is cheap enough to be there:
+# 101 cases, one kg process each, **0.29 s measured** against `make
+# check`'s 85 s, i.e. 0.3%.  The self-test is run first and is the reason
+# "0 failed" means anything: it builds a corpus in a temp directory whose
+# snapshot says 4 where kg answers 3, and requires the run to fail.
+# WITH_LISP=0 has no evaluator to compare, so the whole target reports
+# that and does nothing, exactly as the lisp-gated PTY cases skip.
+lisp-oracle-check:
+ifeq ($(WITH_LISP),1)
+	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+	@$(PYTHON) utils/check_lisp_oracle.py --self-test
+	@$(PYTHON) utils/check_lisp_oracle.py $(LISP_ORACLE_ARGS)
+else
+	@echo "# lisp-oracle-check: WITH_LISP=0, no evaluator to compare"
+endif
 
 # Phase 1 sub-plan 01A: lisp/prelude.el is the canonical prelude source and
 # src/lisp_prelude_generated.inc is a checked-in, byte-for-byte copy of it,

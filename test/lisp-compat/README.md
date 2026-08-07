@@ -46,8 +46,10 @@ test/lisp-compat/
                        divergences and the defcustom entry), each
                        with a status, an owner, a comparison mode, and the
                        case(s)/kg_test that back it
-  cases/*.json         one file per case, fe/compat's exact schema
-                       (id, setup, expr, note)
+  cases/*.json         one file per case, fe/compat's schema
+                       (id, setup, expr, note) plus kg's optional
+                       "expect": "agree"/"diverge" (see the XPASS rule
+                       below)
   oracle/*.json         checked-in Emacs snapshots for every
                         comparison=emacs entry, version-stamped exactly
                         like fe's
@@ -69,27 +71,60 @@ point kg's corpus at it without copying the runner").
 
 ## What actually executes a kg-owned case
 
-Unlike fe's own manifest, nothing in this directory drives a
-standalone interpreter against `cases/*.json` automatically: kg has no
-batch-mode Lisp REPL outside the full editor, and most kg-owned
-constructs need kg's buffer/window/process state to mean anything at
-all. Instead:
-
 * `comparison: emacs` entries get a real, checked-in Emacs snapshot
   (`oracle/<id>.json`, produced by `fe/utils/run-emacs-oracle.py` exactly
   as in `fe/`) recording what the pinned oracle does for the case's
-  `expr`. That snapshot is the target contract.
-* Every entry -- regardless of comparison mode -- names the kg native or
-  PTY test (`kg_test`) whose assertions already pin kg's own side of the
-  same behavior. `utils/check_lisp_compat.py` (kg's checker, see below)
-  verifies the field is present and non-empty; it does not re-execute kg
-  or diff kg's output against the snapshot programmatically, because kg's
-  existing native (`test/test_lisp.c`) and PTY (`test/pty/lisp-*.yaml`)
-  suites already are that programmatic check, run by `make check` itself.
-  A human (or a future automated step, once kg grows a batch Lisp mode)
-  reads the case and the snapshot side by side with the named test's
-  assertions to confirm agreement; every `comparison: emacs` entry in
-  this manifest was confirmed this way when it was added.
+  `expr`. That snapshot is the target contract, and since sub-plan 10C
+  **`make lisp-oracle-check` runs kg against every one of them**
+  (`utils/check_lisp_oracle.py`, part of `make check`). It drives
+  `test/kgbatch` once per case -- the editor's own objects and its own
+  `kg_lisp_eval_string()`, with kgbatch's `-p` for prin1-shaped printing
+  and `-b` for a live scratch buffer -- and classifies the result from
+  the exit status, never by pattern-matching prose. No Emacs is invoked:
+  the snapshots are the oracle. This paragraph used to say kg had no
+  batch-mode Lisp outside the full editor and that a human read the case
+  and the snapshot side by side. Both halves are obsolete.
+* Every entry -- regardless of comparison mode -- also names the kg
+  native or PTY test (`kg_test`) whose assertions pin kg's own side of
+  the same behavior. `utils/check_lisp_compat.py` verifies that every
+  cited file exists and that every cited function is defined there, so a
+  renamed test or a moved PTY case fails `make check` instead of leaving
+  a row citing evidence that is not there. `comparison: kg-policy`
+  entries have no snapshot by design and are pinned by that test alone.
+
+### The XPASS rule, and where kg's runner deliberately differs from fe's
+
+`fe/utils/run-fe-compat.py` prints `agrees early` and counts a pass when
+a case whose feature is *not* `supported` matches the oracle anyway.
+kg's runner does not: a `divergent` case that agrees is a **failure**,
+for the same reason `XPASS` fails kg's PTY suite. A recorded divergence
+that stopped diverging is a manifest lying about the tree, and the row
+(and usually a `doc/fe-upstream.md` entry beside it) has to be corrected
+before the run goes green. `planned` keeps fe's softer treatment.
+
+The rule paid for itself on its first run: `native-type-of` and
+`native-commandp` were both `divergent` with cases that fully agreed
+with the oracle -- the divergence each row described was never
+evaluated by anything -- and `native-string-length` was `supported`
+against a `void-function` snapshot it could never match.
+
+A feature's status is a property of the feature, and one feature can
+legitimately have cases on both sides. A case says so for itself with
+`"expect": "agree"` or `"expect": "diverge"` in its own file; with no
+such field the feature's status decides. `native-type-of` is the worked
+example: `(type-of 1)` agrees, `(type-of 1.0)` does not.
+
+### Condition records are compared by substring, not by symbol
+
+kg has no host-visible condition *symbol*: `src/lisp.h` exports the
+completion kind (error/quit/budget) and the message text, not the
+condition object. So a condition record is compared the weaker way fe's
+runner already documents for its own message-source records -- the
+oracle's condition name must appear in kg's message. kg's messages lead
+with the condition name (`void-function no-such-fn`), so it is a real
+check, but it is a substring claim and the runner's header says so
+rather than letting a reader assume symbol equality. Narrowing it is
+condition-data work in `src/lisp.h`, not runner work.
 
 ## The checker
 
@@ -119,6 +154,16 @@ all. Instead:
 Wired into `make check` next to `docs-check` (kg's closest existing
 analogue: a dumb, structural check that a table and the source it
 describes have not drifted apart).
+
+`utils/check_lisp_oracle.py` is the other half, added by sub-plan 10C and
+wired into `make check` as `make lisp-oracle-check`: where the checker
+above asks whether the manifest and the sources agree, this one asks
+whether *kg* and the snapshots agree. It runs no Emacs, takes 0.29 s for
+101 cases, and self-tests first -- `--self-test` builds a corpus in a
+temp directory whose snapshot says 4 where kg answers 3 and requires the
+run to fail, which is what makes its "0 failed" worth reading. Under
+`WITH_LISP=0` the target reports that there is no evaluator to compare
+and does nothing.
 
 `make lisp-compat-oracle` regenerates/verifies this directory's
 snapshots against the resolved Emacs, using `fe/utils/run-emacs-oracle.py`

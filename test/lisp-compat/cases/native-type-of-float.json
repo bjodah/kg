@@ -1,0 +1,6 @@
+{
+ "id": "native-type-of-float",
+ "setup": [],
+ "expr": "(type-of 1.0)",
+ "note": "The half of native-type-of's recorded divergence that its original case never evaluated: Emacs answers `float`, kg answers fe's own type_names[] spelling `double`. Sub-plan 10C added it because the entry claimed a divergence no case exercised -- the runner's XPASS rule found the sibling case agreeing and the row therefore untested."
+}

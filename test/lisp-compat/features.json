@@ -850,14 +850,14 @@
   {
    "id": "native-string-length",
    "category": "sequences",
-   "status": "supported",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "native-string-length"
    ],
    "kg_test": "test/test_lisp.c:test_string_length_and_substring",
-   "rationale": null,
+   "rationale": "Re-classified from supported by sub-plan 10C (10A Decision 3), because the old classification could never be true: `string-length` does not exist in the pinned Emacs at all -- the snapshot on file is `void-function (string-length)` -- so a `supported` `comparison: emacs` row was asserting that kg agrees with an oracle that raises. kg's own answer is 3, and it is the right answer for kg: `string-length` is a kg native that counts codepoints, and every expectation in the cited kg_test was measured against Emacs 31's `length` on the same strings (the test file's own header comment), UTF-8 counting included. What diverges is the *name*: Emacs spells this `length`, which kg also provides. The honest row is therefore a divergence in vocabulary, pinned by a case whose oracle record is the void-function it must stay.",
    "source_name": "string-length"
   },
   {
@@ -958,10 +958,11 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "native-type-of"
+    "native-type-of",
+    "native-type-of-float"
    ],
    "kg_test": "test/test_lisp.c:test_type_predicates",
-   "rationale": "Half of the number gap closed at 05E and half did not, so this stays divergent. `(type-of 1)` now reads fe's type_names[] entry for the new integer tag and answers `integer`, matching the pinned Emacs snapshot -- that is the case this entry's expr pins. But `(type-of 1.0)` answers `double` where Emacs answers `float`, and a float spelling is a number spelling, so calling the number gap closed was wrong: fe deliberately did not rename the type (the message ripple through fe's own errors, docs and manifest was out of scope for 05C-05E, recorded fe-side too). The rest of kg's vocabulary is likewise its own: `pair` for Emacs' `cons`, `nil` for nil's `symbol`, fe's callable kinds (`lambda`, `primitive`, `native-fn`, `macro`) for Emacs' `function`/`subr`, and a process wrapper answering the raw `fex0` tag.",
+   "rationale": "Half of the number gap closed at 05E and half did not, so this stays divergent. `(type-of 1)` now reads fe's type_names[] entry for the new integer tag and answers `integer`, matching the pinned Emacs snapshot -- that is what the native-type-of case pins, and it carries \"expect\": \"agree\" so the runner requires the agreement rather than treating it as a stale divergence. But `(type-of 1.0)` answers `double` where Emacs answers `float`, and a float spelling is a number spelling, so calling the number gap closed was wrong: fe deliberately did not rename the type (the message ripple through fe's own errors, docs and manifest was out of scope for 05C-05E, recorded fe-side too). The rest of kg's vocabulary is likewise its own: `pair` for Emacs' `cons`, `nil` for nil's `symbol`, fe's callable kinds (`lambda`, `primitive`, `native-fn`, `macro`) for Emacs' `function`/`subr`, and a process wrapper answering the raw `fex0` tag. Sub-plan 10C added the native-type-of-float case, which is the half this entry claimed and no case evaluated: (type-of 1.0) is `float` in the pinned Emacs and `double` here. utils/check_lisp_oracle.py's XPASS rule is what found the gap -- the one case on file agreed with the oracle, so the divergence was recorded and untested.",
    "source_name": "type-of"
   },
   {
@@ -1976,10 +1977,11 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "interactive-command-predicate"
+    "interactive-command-predicate",
+    "commandp-anonymous-lambda"
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
-   "rationale": "Answers the command registry's question, which is the only one kg can answer: a built-in cmdtable row, or a defun whose body carried an (interactive ...) declaration. Emacs asks the function object whether it has an interactive form and so also says t for an anonymous lambda or a keyboard macro bound to no name; kg has no interactive-form reflection (07D defers it), and Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted. Every case the snapshot compares agrees.",
+   "rationale": "Answers the command registry's question, which is the only one kg can answer: a built-in cmdtable row, or a defun whose body carried an (interactive ...) declaration. Emacs asks the function object whether it has an interactive form and so also says t for an anonymous lambda or a keyboard macro bound to no name; kg has no interactive-form reflection (07D defers it), and Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted. The interactive-command-predicate case carries \"expect\": \"agree\": every answer it compares does agree with the oracle, which is exactly why sub-plan 10C added commandp-anonymous-lambda -- (commandp (lambda () (interactive) 1)) is t in the pinned Emacs and nil here, so the recorded divergence is now the thing a case measures rather than a sentence in this field. utils/check_lisp_oracle.py's XPASS rule found it.",
    "source_name": "commandp"
   },
   {

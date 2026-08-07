@@ -1169,8 +1169,8 @@ static void test_require_el_suffix(void)
 	CHECK(write_text_file(
 		  path, "(setq doubled-ran t)\n(provide 'doubled-f)\n")
 	    == 0);
-	CHECK(eval_error_contains("(require 'doubled-f \"doubled.el\")",
-	    "cannot find in load-path"));
+	CHECK(eval_error_contains(
+	    "(require 'doubled-f \"doubled.el\")", "cannot find in load-path"));
 	CHECK(eval_eq("(featurep 'doubled-f)", "nil"));
 	CHECK(eval_error_contains("doubled-ran", "doubled-ran"));
 

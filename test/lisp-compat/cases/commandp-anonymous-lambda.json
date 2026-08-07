@@ -1,0 +1,6 @@
+{
+ "id": "commandp-anonymous-lambda",
+ "setup": [],
+ "expr": "(commandp (lambda () (interactive) 1))",
+ "note": "The half of native-commandp's recorded divergence that its original case never evaluated: Emacs asks the function object whether it has an interactive form and answers t for an anonymous lambda; kg answers the command registry's question about a *name* and so answers nil. Sub-plan 10C added it because the entry's own rationale said 'every case the snapshot compares agrees' -- an accurate sentence about an untested divergence."
+}

@@ -2,5 +2,6 @@
  "id": "native-type-of",
  "setup": [],
  "expr": "(type-of 1)",
- "note": "05E: kg's type-of reads fe's type_names[], so a fixnum-valued literal now answers 'integer, matching Emacs; the old one-type 'double answer is gone."
+ "expect": "agree",
+ "note": "05E: kg's type-of reads fe's type_names[], so a fixnum-valued literal now answers 'integer, matching Emacs; the old one-type 'double answer is gone. (\"expect\": \"agree\": this case pins the part kg gets right; its feature is divergent because of a sibling case.)"
 }

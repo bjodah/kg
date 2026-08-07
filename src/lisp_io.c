@@ -770,8 +770,12 @@ void lisp_eval_file(FeContext *context, const char *path)
  * otherwise append.  Emacs accepts both spellings -- its `load` tries
  * NAME.elc, NAME.el and then NAME, so (load "foo.el") finds foo.el
  * through the third -- where kg used to build foo.el.el and report a
- * path the caller never asked for. */
-static bool lisp_has_el_suffix(const char *name, size_t length)
+ * path the caller never asked for.
+ *
+ * Not static: sub-plan 10C gave `require` the same rule, and two copies
+ * of "does this end in .el" is how the two loaders came to disagree in
+ * the first place.  Declared in lisp_internal.h. */
+bool lisp_has_el_suffix(const char *name, size_t length)
 {
 	static const char suffix[] = ".el";
 	size_t suffix_length = sizeof(suffix) - 1;

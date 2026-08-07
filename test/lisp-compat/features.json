@@ -102,8 +102,8 @@
    "cases": [
     "native-require"
    ],
-   "kg_test": "test/test_lisp.c:test_require_provide",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_require_provide, test/test_lisp.c:test_require_el_suffix, test/pty/lisp-require-filename-el-suffix.yaml",
+   "rationale": "kg-policy: Emacs' require searches a Lisp-visible load-path of directories with .elc/.el/no-suffix probing and an autoload cache, none of which kg has, so agreement with the oracle is undefined for the resolution itself; what is comparable -- returns FEATURE, no-op when already provided, errors when the file does not provide it -- kg matches and test_require_provide pins. Sub-plan 10C (10A Decision 7) closed the one place two kg loaders disagreed with each other rather than with Emacs: candidate_readable() appended '.el' unconditionally, so (require 'f \"name.el\") looked for name.el.el while (load \"name.el\") beside it worked. Both now ask lisp_io.c's lisp_has_el_suffix, the single copy of that question. test_require_el_suffix pins the fix and, deliberately, the three rules that did NOT move: a bare stem still gains .el, an absent file is still 'cannot find in load-path' (the file the old code would have found, doubled.el.el, is now unreachable and its marker stays unbound), and a FILENAME containing '/' is still literal -- neither suffixed nor searched. See also the load-path-search row for what require does that load does not.",
    "source_name": "require"
   },
   {

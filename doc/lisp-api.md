@@ -476,7 +476,7 @@ editor.
 | Form | Result |
 | ---- | ------ |
 | `(provide FEATURE)` | Register `FEATURE` (a symbol or a string) in the bounded feature table; returns `FEATURE` |
-| `(require FEATURE &optional FILENAME)` | No-op (returns `FEATURE`) if already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` and evaluates it nested, the way `load` nests; errors if the feature is still not provided afterward |
+| `(require FEATURE &optional FILENAME)` | No-op (returns `FEATURE`) if already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` — written with or without the `.el` suffix, the same rule `load` applies to a bare name — and evaluates it nested, the way `load` nests; a `FILENAME` containing `/` is a literal path, neither suffixed nor searched; errors if the feature is still not provided afterward |
 | `(featurep FEATURE)` | `t`/`nil`, without loading anything |
 | `(add-to-load-path DIR)` | Prepend `DIR` to the bounded load-path, so it is searched before every directory already in it |
 

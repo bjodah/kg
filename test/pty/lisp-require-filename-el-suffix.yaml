@@ -1,0 +1,35 @@
+# Sub-plan 10C Part 2 (10A Decision 7): (require FEATURE "NAME.el") and
+# (load "NAME.el") resolve the same file.
+#
+# Before this, require's candidate_readable() appended ".el"
+# unconditionally while load's lisp_package_path() asked whether the name
+# already carried one, so an init.el that wrote the suffix got
+# "cannot find in load-path: greeting.el" from require and a working load
+# on the line below it -- two loaders in one editor disagreeing about one
+# string.
+#
+# test/test_lisp.c:test_require_el_suffix pins the resolution rules
+# in-process, including the ones that must NOT have moved (bare stem,
+# absent file, literal '/'-containing path).  This case is the end-to-end
+# half: a real init.el in a real isolated HOME, loaded by a real editor
+# start, with the package's effect visible in the saved file.
+#
+# Both spellings run, in one init, and both must have run: the buffer
+# ends up with the require's insertion followed by the load's, which is
+# also the ordering assertion that the second form is not silently a
+# no-op.
+name: lisp-require-filename-el-suffix
+filename: lisp-require-suffix.txt
+requires_feature: lisp
+config_files:
+  .config/kg/lisp/greeting.el: |
+    (defun greeting-say (word) (insert word))
+    (provide 'greeting)
+  .config/kg/init.el: |
+    (require 'greeting "greeting.el")
+    (greeting-say "required")
+    (load "greeting.el")
+    (greeting-say "-loaded")
+initial: ""
+keys: []
+expected_saved: required-loaded

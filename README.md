@@ -253,9 +253,12 @@ line; missing files name the resolved path.
 | Form | Result |
 | ---- | ------ |
 | `(provide FEATURE)` | Register `FEATURE` (a symbol or string) as loaded; returns `FEATURE` |
-| `(require FEATURE &optional FILENAME)` | No-op if `FEATURE` is already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` and evaluates it, erroring if the feature is still not provided afterward |
+| `(require FEATURE &optional FILENAME)` | No-op if `FEATURE` is already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` — with or without the `.el` suffix, exactly as `load` resolves a bare name — and evaluates it, erroring if the feature is still not provided afterward |
 | `(featurep FEATURE)` | `t`/`nil`, without loading anything |
 | `(add-to-load-path DIR)` | Prepend `DIR` to the bounded load-path (searched before every directory already in it) |
+
+A `FILENAME` containing `/` is a literal path for `require` too: it is
+neither suffixed nor searched.
 
 `load-path` defaults to one entry, `<config>/kg/lisp/`, and is a bounded
 C-side array rather than a Fe list a package could `(push ...)` onto directly

@@ -162,11 +162,21 @@ FeObject *native_add_to_load_path(FeContext *context, FeObject *arguments)
 /* PATH_MAX candidate = "DIR/STEM.el"; true and filled in when that file
  * is at least readable.  A directory that does not exist fails the same
  * access() call a missing file would, so a load-path full of stale
- * directories is just several misses in a row, not a special case. */
+ * directories is just several misses in a row, not a special case.
+ *
+ * A STEM that already ends in ".el" keeps the suffix it has rather than
+ * gaining a second one: (require 'f "auto-fill.el") used to look for
+ * auto-fill.el.el and report a path the caller never wrote, while
+ * (load "auto-fill.el") next to it worked -- two loaders in one editor
+ * disagreeing about the same input (sub-plan 10C, 10A Decision 7).  The
+ * question is asked once, by lisp_io.c's lisp_has_el_suffix, which is
+ * the same call `load` makes. */
 static bool candidate_readable(
     const char *dir, const char *stem, char *out, size_t outsize)
 {
-	int n = snprintf(out, outsize, "%s/%s.el", dir, stem);
+	const char *suffix
+	    = lisp_has_el_suffix(stem, strlen(stem)) ? "" : ".el";
+	int n = snprintf(out, outsize, "%s/%s%s", dir, stem, suffix);
 
 	return n >= 0 && (size_t)n < outsize && access(out, R_OK) == 0;
 }

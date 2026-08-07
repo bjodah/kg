@@ -1120,6 +1120,78 @@ static void test_require_provide(void)
 	remove_config_root(root);
 }
 
+/* require's FILENAME and load's NAME answer the same question about the
+ * same input (sub-plan 10C Part 2, 10A Decision 7).
+ *
+ * Before this, `(load "impl.el")` worked and `(require 'f "impl.el")`
+ * did not: load's lisp_package_path() asked lisp_has_el_suffix() and
+ * require's candidate_readable() unconditionally appended, so require
+ * looked for impl.el.el and reported a path the caller never wrote.  Two
+ * loaders in one editor disagreeing about one string.
+ *
+ * Every other resolution rule is pinned here *unchanged*, because the
+ * fix is one conditional inside the load-path candidate builder and
+ * nothing else may have moved: a bare stem still gains .el, a stem whose
+ * file is absent is still an error naming it, and a '/'-containing name
+ * is still literal -- never suffixed, never searched. */
+static void test_require_el_suffix(void)
+{
+	char root[64], path[512], source[600];
+	int length;
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	/* The fix: a FILENAME that already ends in .el resolves to that
+	 * file. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/suffixed.el", root);
+	CHECK(write_text_file(
+		  path, "(setq suffixed-ran t)\n(provide 'suffixed-f)\n")
+	    == 0);
+	CHECK(eval_eq("(require 'suffixed-f \"suffixed.el\")", "suffixed-f"));
+	CHECK(eval_eq("(featurep 'suffixed-f)", "t"));
+	CHECK(eval_eq("suffixed-ran", "t"));
+	/* And load, which already worked, still answers the same file --
+	 * the symmetry is the point of the change. */
+	CHECK(eval_ok("(load \"suffixed.el\")"));
+
+	/* Pinned unchanged: a bare stem still gains the suffix. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/plainstem.el", root);
+	CHECK(write_text_file(path, "(provide 'plain-f)\n") == 0);
+	CHECK(eval_eq("(require 'plain-f \"plainstem\")", "plain-f"));
+
+	/* Pinned unchanged, and the sharp end of the fix: the doubled name
+	 * is no longer what require looks for.  This file is exactly what
+	 * the old code resolved "doubled.el" to, and it must now be
+	 * unreachable -- the require fails naming the feature, and the
+	 * marker the file would set stays unbound. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/doubled.el.el", root);
+	CHECK(write_text_file(
+		  path, "(setq doubled-ran t)\n(provide 'doubled-f)\n")
+	    == 0);
+	CHECK(eval_error_contains("(require 'doubled-f \"doubled.el\")",
+	    "cannot find in load-path"));
+	CHECK(eval_eq("(featurep 'doubled-f)", "nil"));
+	CHECK(eval_error_contains("doubled-ran", "doubled-ran"));
+
+	/* Pinned unchanged: an absolute FILENAME is literal.  It contains a
+	 * '/', so resolve_require_path never reaches the load-path or the
+	 * suffix rule at all -- the file is taken exactly as written, .el
+	 * suffix included. */
+	(void)snprintf(path, sizeof(path), "%s/absolute-pkg.el", root);
+	CHECK(write_text_file(
+		  path, "(setq absolute-ran t)\n(provide 'absolute-f)\n")
+	    == 0);
+	length = snprintf(
+	    source, sizeof(source), "(require 'absolute-f \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(eval_eq(source, "absolute-f"));
+	CHECK(eval_eq("absolute-ran", "t"));
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+}
+
 static void test_load_path_order(void)
 {
 	char root[64], extra[64], path[512], source[600];
@@ -4364,6 +4436,7 @@ int main(void)
 	RUN(test_init_file);
 	RUN(test_load_package);
 	RUN(test_require_provide);
+	RUN(test_require_el_suffix);
 	RUN(test_load_path_order);
 	RUN(test_load_path_missing_dirs);
 	RUN(test_define_and_run_command);

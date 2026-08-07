@@ -270,6 +270,10 @@ long lisp_offset_argument(
 
 /* XDG config resolution (lisp_io.c). */
 int lisp_config_path(char *out, size_t outsize, const char *stem);
+/* True when NAME already ends in ".el" (lisp_io.c).  The one place that
+ * question is answered, so `load` and `require` cannot disagree about
+ * the same input the way they did before sub-plan 10C. */
+bool lisp_has_el_suffix(const char *name, size_t length);
 /* Evaluate the Lisp source at PATH, honouring LISP_MAX_LOAD_DEPTH; shared
  * by native_load and native_require (lisp_io.c). */
 void lisp_eval_file(FeContext *context, const char *path);

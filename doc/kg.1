@@ -111,7 +111,14 @@ own name) through
 a bounded array of directories \(em not a Fe list \(em defaulting to one
 entry,
 .Pa <config>/kg/lisp/ ,
-searched in order, first match wins;
+searched in order, first match wins.
+.Li FILENAME
+follows the same suffix rule
+.Li load
+applies to a bare name: it may be written with or without the
+.Pa .el
+suffix and both spellings resolve to the same file, while a name
+containing a slash is a literal path, neither suffixed nor searched.
 .Li (add-to-load-path DIR)
 prepends a directory so it is searched first.
 .Pa lisp/auto-fill.el

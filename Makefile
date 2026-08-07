@@ -113,8 +113,16 @@ KG_SHOW_TILDE ?= 0
 override CFLAGS += -DKG_SHOW_TILDE=$(KG_SHOW_TILDE)
 
 # Required for POSIX/GNU interfaces when source files include system headers
-# directly, as enforced by Include What You Use.
+# directly, as enforced by Include What You Use.  Only glibc (Linux/Cygwin)
+# needs the nudge -- src/def.h guards its own copy of these defines the same
+# way.  BSD libc's feature_test macro chain never re-enables __BSD_VISIBLE
+# once _POSIX_C_SOURCE is defined (there is no _DEFAULT_SOURCE rescue as on
+# glibc), so requesting it there hides BSD-only declarations kg needs
+# (SIGWINCH, gettimeofday) with nothing to bring them back; BSD's unset-macro
+# default already exposes the full POSIX + XSI + BSD surface kg uses.
+ifneq (,$(filter Linux CYGWIN%,$(shell uname -s)))
 override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+endif
 
 # The Lisp adapter is one public Fe-free header (lisp.h) in front of a set
 # of adapter implementation files sharing a private lisp_internal.h.  Only

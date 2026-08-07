@@ -122,4 +122,4 @@ keys:
   - r
 expected_saved: |-
   boot
-  declared|1|2|3|6|2|x:y|120|16|pkg|80|(zero one two)|(3 2 1)|(head . 16)|(outer (quasiquote (inner (unquote phase8-radix))))|5|C-c z|at boot     col 3 »|A command from the 08D init file.|(error "cannot find in load-path: phase8-absent")|(wrong-type-argument listp 1)|nil|resumed|2
+  declared|1|2|3|6|2|x:y|120|16|pkg|80|(zero one two)|(3 2 1)|(head . 16)|(outer (quasiquote (inner (unquote phase8-radix))))|5|C-c z|at boot     col 3 »|A command from the 08D init file.|(file-missing "Cannot open load file" "No such file or directory" "phase8-absent")|(wrong-type-argument listp 1)|nil|resumed|2

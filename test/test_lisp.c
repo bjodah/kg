@@ -275,14 +275,42 @@ static void test_load_error_condition_reachability(void)
 	    == 0);
 	CHECK(strcmp(result, "no-catch") == 0);
 
-	/* A missing file raises plain `error', not Emacs' file-missing --
-	 * recorded in the native-load row, not fixed. */
+	/* A missing file raises Emacs' `file-missing' (sub-plan 12D Part 2),
+	 * where it used to raise a plain `error' whose message carried the
+	 * path as prose.  A handler naming the narrow class catches it, and
+	 * so does one naming its parent or `error'. */
 	(void)snprintf(form, sizeof(form),
 	    "(condition-case e (load \"/tmp/kg-lisp-missing/x.el\")"
 	    " (error (car e)))");
 	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
 	    == 0);
-	CHECK(strcmp(result, "error") == 0);
+	CHECK(strcmp(result, "file-missing") == 0);
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"/tmp/kg-lisp-missing/x.el\")"
+	    " (file-missing (cdr e)))");
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result,
+		  "(\"Cannot open load file\" \"No such file or directory\""
+		  " \"/tmp/kg-lisp-missing/x.el\")")
+	    == 0);
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"/tmp/kg-lisp-missing/x.el\")"
+	    " (file-error 'by-parent))");
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "by-parent") == 0);
+	/* Uncaught, the diagnostic is Emacs' error-message-string rendering
+	 * of that data rather than the bare condition name fe's `signal'
+	 * would otherwise leave. */
+	(void)snprintf(
+	    form, sizeof(form), "(load \"/tmp/kg-lisp-missing/x.el\")");
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result,
+		  "Cannot open load file: No such file or directory,"
+		  " /tmp/kg-lisp-missing/x.el")
+	    != nullptr);
 
 	kg_lisp_shutdown();
 	CHECK(unlink(raiser) == 0);
@@ -1300,11 +1328,10 @@ static void test_require_provide(void)
 	 * error, not report a stale cycle left by the first non-local exit. */
 	CHECK(eval_eq("(list "
 		      " (condition-case e (require 'retry-absent)"
-		      "  (error (car (cdr e))))"
+		      "  (file-missing (car (cdr (cdr (cdr e))))))"
 		      " (condition-case e (require 'retry-absent)"
-		      "  (error (car (cdr e)))))",
-	    "(\"cannot find in load-path: retry-absent\""
-	    " \"cannot find in load-path: retry-absent\")"));
+		      "  (file-missing (car (cdr (cdr (cdr e)))))))",
+	    "(\"retry-absent\" \"retry-absent\")"));
 
 	/* An explicit FILENAME resolves instead of the feature's own
 	 * name. */
@@ -1387,8 +1414,8 @@ static void test_require_el_suffix(void)
 	CHECK(write_text_file(
 		  path, "(setq doubled-ran t)\n(provide 'doubled-f)\n")
 	    == 0);
-	CHECK(eval_error_contains(
-	    "(require 'doubled-f \"doubled.el\")", "cannot find in load-path"));
+	CHECK(eval_error_contains("(require 'doubled-f \"doubled.el\")",
+	    "Cannot open load file: No such file or directory, doubled.el"));
 	CHECK(eval_eq("(featurep 'doubled-f)", "nil"));
 	CHECK(eval_error_contains("doubled-ran", "doubled-ran"));
 

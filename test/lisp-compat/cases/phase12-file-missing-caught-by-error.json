@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-caught-by-error",
+ "setup": [],
+ "expr": "(condition-case e (load \"/nonexistent-dir-kg12/x.el\") (error 'by-error))",
+ "note": "And two levels up. This is the one of the four that already agreed before Phase 12 -- kg's plain `error' was catchable by an `error' handler too -- so it is the guard that the narrowing did not cost the wide catch."
+}

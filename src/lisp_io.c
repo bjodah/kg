@@ -695,8 +695,12 @@ int lisp_config_path(char *out, size_t outsize, const char *stem)
 }
 
 /* Read the entire file into a malloc'd buffer.  Returns nullptr and sets
- * state.error on failure. */
-static char *read_whole_file(const char *path, size_t *size)
+ * state.error on the failures the caller reports as kg-policy resource
+ * errors; the one failure Emacs gives a condition CLASS to -- the file
+ * not opening -- raises from here instead, because only here is the
+ * errno that decides the class still live.  Nothing is allocated at that
+ * point, so raising past the rest of this function leaks nothing. */
+static char *read_whole_file(FeContext *context, const char *path, size_t *size)
 {
 	FILE *file;
 	char *buffer;
@@ -704,8 +708,23 @@ static char *read_whole_file(const char *path, size_t *size)
 
 	file = fopen(path, "rb");
 	if (!file) {
-		set_error("cannot open %s: %s", path, strerror(errno));
-		return nullptr;
+		/* Emacs 31.0.90, measured: (load "/nonexistent-dir/x.el") is
+		 * (file-missing "Cannot open load file" "No such file or
+		 * directory" "/nonexistent-dir/x.el") -- and so is a path
+		 * whose parent is not a directory, which reports ENOTDIR
+		 * here and "No such file or directory" there, because Emacs'
+		 * loader probes suffixes and answers its own not-found
+		 * rather than the raw errno.  Both are file-missing, which
+		 * is why this splits on EACCES rather than on ENOENT.  A
+		 * permission failure is Emacs' `permission-denied', a third
+		 * leaf 12A Decision 1 leaves out because chmod 000 is
+		 * defeated by running as root and this box runs the suite as
+		 * root; the parent class it sits under is the closest thing
+		 * kg can name, and a handler spelling file-error catches
+		 * both dialects either way. */
+		lisp_raise_file_condition(context,
+		    errno == EACCES ? "file-error" : "file-missing",
+		    "Cannot open load file", strerror(errno), path);
 	}
 	if (fseek(file, 0, SEEK_END) != 0 || (file_size = ftell(file)) < 0) {
 		set_error("cannot read %s: %s", path, strerror(errno));
@@ -787,7 +806,7 @@ void lisp_eval_file(FeContext *context, const char *path)
 	if (state.load_depth >= LISP_MAX_LOAD_DEPTH) {
 		FeHandleError(context, "load depth limit exceeded");
 	}
-	buffer = read_whole_file(path, &size);
+	buffer = read_whole_file(context, path, &size);
 	if (!buffer) {
 		char message[sizeof(state.error)];
 

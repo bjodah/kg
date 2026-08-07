@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-load-class",
+ "setup": [],
+ "expr": "(condition-case e (load \"/nonexistent-dir-kg12/x.el\") (file-missing (car e)))",
+ "note": "12D Part 2: a load of a file that is not there raises Emacs' `file-missing', caught here by its own class. kg raised a plain `error' whose message carried the path as prose until Phase 12's pin made `file-missing' a row of fe's condition hierarchy."
+}

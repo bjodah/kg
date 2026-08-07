@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-caught-by-file-error",
+ "setup": [],
+ "expr": "(condition-case e (load \"/nonexistent-dir-kg12/x.el\") (file-error 'by-parent))",
+ "note": "The hierarchy, one level up: file-missing is a file-error, so a handler naming the parent catches it. fe carried `file-error' under `error' since Phase 6; Phase 12 added the one data line that puts file-missing under it."
+}

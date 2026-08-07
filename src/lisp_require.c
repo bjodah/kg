@@ -203,7 +203,14 @@ static void resolve_require_path(
 			return;
 		}
 	}
-	command_error(context, "cannot find in load-path", stem);
+	/* Emacs 31.0.90, measured: (require 'no-such-feature-xyz) is
+	 * (file-missing "Cannot open load file" "No such file or directory"
+	 * "no-such-feature-xyz") -- the same condition and the same data
+	 * shape the loader's cannot-open site raises, with the FEATURE in
+	 * the path slot rather than a resolved path, because there is no
+	 * resolved path when nothing in the load-path matched. */
+	lisp_raise_file_condition(context, "file-missing",
+	    "Cannot open load file", "No such file or directory", stem);
 }
 
 static int requiring_index(const char *name)

@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 15547,
-  "lines_hit": 13388,
-  "line_rate": 0.8611,
-  "functions_found": 1341,
-  "functions_hit": 1301,
+  "lines_found": 15615,
+  "lines_hit": 13449,
+  "line_rate": 0.8613,
+  "functions_found": 1343,
+  "functions_hit": 1303,
   "function_rate": 0.9702,
-  "branches_found": 9658,
-  "branches_hit": 7167,
-  "branch_rate": 0.7421
+  "branches_found": 9688,
+  "branches_hit": 7185,
+  "branch_rate": 0.7416
  },
  "files": {
   "src/autocomplete.c": {
@@ -247,15 +247,15 @@
    "branch_rate": 0.8676
   },
   "src/lisp_core.c": {
-   "lines_found": 584,
-   "lines_hit": 497,
-   "line_rate": 0.851,
-   "functions_found": 65,
-   "functions_hit": 63,
-   "function_rate": 0.9692,
-   "branches_found": 246,
-   "branches_hit": 182,
-   "branch_rate": 0.7398
+   "lines_found": 651,
+   "lines_hit": 559,
+   "line_rate": 0.8587,
+   "functions_found": 67,
+   "functions_hit": 65,
+   "function_rate": 0.9701,
+   "branches_found": 274,
+   "branches_hit": 200,
+   "branch_rate": 0.7299
   },
   "src/lisp_hooks.c": {
    "lines_found": 206,
@@ -269,15 +269,15 @@
    "branch_rate": 0.6348
   },
   "src/lisp_io.c": {
-   "lines_found": 388,
-   "lines_hit": 355,
-   "line_rate": 0.9149,
+   "lines_found": 389,
+   "lines_hit": 354,
+   "line_rate": 0.91,
    "functions_found": 34,
    "functions_hit": 34,
    "function_rate": 1.0,
-   "branches_found": 252,
+   "branches_found": 254,
    "branches_hit": 197,
-   "branch_rate": 0.7817
+   "branch_rate": 0.7756
   },
   "src/lisp_obj.c": {
    "lines_found": 338,

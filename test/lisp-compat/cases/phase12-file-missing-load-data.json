@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-load-data",
+ "setup": [],
+ "expr": "(condition-case e (load \"/nonexistent-dir-kg12/x.el\") (file-missing (cdr e)))",
+ "note": "The data shape, which is the half a handler actually reads: Emacs' uniform (OPERATION STRERROR PATH) triple of strings. The path is the resolved one, so an absolute name -- which both dialects take literally -- makes the two sides comparable."
+}

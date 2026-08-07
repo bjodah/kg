@@ -206,6 +206,12 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * handler naming wrong-type-argument can catch (lisp_core.c). */
 [[noreturn]] void lisp_raise_wrong_type(
     FeContext *context, const char *predicate, FeObject *value);
+/* Raise Emacs' file conditions -- (SYMBOL OPERATION STRERROR PATH), with
+ * SYMBOL one of file-missing/file-error -- as a real condition a handler
+ * naming either class, or `error', can catch (lisp_core.c). */
+[[noreturn]] void lisp_raise_file_condition(FeContext *context,
+    const char *symbol, const char *operation, const char *detail,
+    const char *path);
 /* Latch state.error_kind into state.last_error_kind and disarm it
  * (lisp_core.c).  Called by every seam that has finished handling a
  * completion, so none of them leaves a stale kind behind. */

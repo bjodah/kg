@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-not-a-directory",
+ "setup": [],
+ "expr": "(condition-case e (load \"/etc/hostname/x.el\") (file-missing (car (cdr e))))",
+ "note": "The arm that decided how kg splits the classes, measured rather than assumed: a path whose PARENT is not a directory reports ENOTDIR to kg's fopen and \"No such file or directory\" from Emacs, because Emacs' loader probes suffixes and answers its own not-found instead of the raw errno -- and it is `file-missing' on both sides. That is why kg splits on EACCES (Emacs' permission-denied, out of scope by 12A Decision 1) rather than on ENOENT. Only the OPERATION is compared here, since the strerror text legitimately differs."
+}

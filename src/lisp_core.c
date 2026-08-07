@@ -60,10 +60,10 @@ static_assert(FE_LANGUAGE_VERSION == 10);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 57960
- * bytes (~56.6 KiB) at the pinned Fe, so an override much below ~64 KiB
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 58080
+ * bytes (~56.7 KiB) at the pinned Fe, so an override much below ~64 KiB
  * fails to start; the default's 1 MiB still leaves roughly 95% of the
- * arena for objects and frame growth -- 56226 object slots and a
+ * arena for objects and frame growth -- 56225 object slots and a
  * 1095-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
@@ -129,6 +129,71 @@ void release_scratch(void)
 	state.scratch = nullptr;
 }
 
+/* Emacs' `error-message-string' of a file condition is the operation, the
+ * strerror text and the path -- "Cannot open load file: No such file or
+ * directory, /nope/x.el" -- while fe's `signal' uses the bare condition
+ * NAME as the completion message (fe_eval.c's PSignal arm passes the
+ * symbol as both).  Without this, every diagnostic for the two sites
+ * sub-plan 12D moved onto `file-missing' would be the word `file-missing'
+ * and nothing else: the file kg used to name would be reachable only from
+ * a handler.  Rebuilt from the condition object rather than from a buffer
+ * the raise arms, because a raise a Lisp handler catches never reaches
+ * this function and would leave one stale.
+ *
+ * MESSAGE arrives as "LABEL:LINE: SYMBOL"; only the trailing symbol name
+ * is replaced, so the position fe latched survives.  Answers false and
+ * leaves the caller on fe's own text for every other condition -- the
+ * classes kg raises this way are the only ones whose data is Emacs'
+ * (OPERATION STRERROR PATH) triple of strings. */
+static bool render_file_condition(
+    FeContext *context, char *out, size_t size, const char *message)
+{
+	static const char *const separator[3] = { "", ": ", ", " };
+	FeObject *condition = FeGetCondition(context);
+	FeObject *data, *field;
+	char name[32], text[512];
+	size_t used, length, i;
+
+	if (FeGetType(condition) != FeTPair) {
+		return false;
+	}
+	length = FeToString(
+	    context, FeCar(context, condition), name, sizeof(name));
+	if (length >= sizeof(name)
+	    || (strcmp(name, "file-missing") != 0
+		&& strcmp(name, "file-error") != 0)) {
+		return false;
+	}
+	used = strlen(message);
+	if (used < length || strcmp(message + used - length, name) != 0) {
+		return false;
+	}
+	used -= length;
+	memcpy(out, message, used);
+	data = FeCdr(context, condition);
+	for (i = 0; i < 3; i++) {
+		if (FeGetType(data) != FeTPair) {
+			return false;
+		}
+		field = FeCar(context, data);
+		length = FeGetType(field) == FeTString
+		    ? FeStringByteLength(context, field)
+		    : sizeof(text);
+		if (length >= sizeof(text)
+		    || !FeCopyStringBytes(context, field, text, length)) {
+			return false;
+		}
+		text[length] = '\0';
+		used += (size_t)snprintf(
+		    out + used, size - used, "%s%s", separator[i], text);
+		if (used >= size) {
+			return false;
+		}
+		data = FeCdr(context, data);
+	}
+	return true;
+}
+
 [[noreturn]] static void handle_error(
     FeContext *context, const char *message, FeObject *call_trace)
 {
@@ -139,7 +204,10 @@ void release_scratch(void)
 		abort();
 	}
 	lisp->error_kind = FeGetCompletion(context);
-	copy_result(lisp->error, sizeof(lisp->error), message);
+	if (!render_file_condition(
+		context, lisp->error, sizeof(lisp->error), message)) {
+		copy_result(lisp->error, sizeof(lisp->error), message);
+	}
 	longjmp(lisp->frame.error_jump, 1);
 }
 
@@ -646,6 +714,96 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	/* `signal` cannot return; say so for the compiler and for a future
 	 * fe in which it somehow could. */
 	FeHandleError(context, "wrong-type-argument");
+}
+
+/* Raise one of Emacs' file conditions with Emacs' own data shape
+ * (sub-plan 12D Part 2).  The route is lisp_raise_wrong_type's above and
+ * for the same reason -- RaiseCondition is private to fe, so the only way
+ * to build an arbitrary condition from the host is the language's own
+ * `signal' -- but the data is Emacs' three-element (OPERATION STRERROR
+ * PATH) list of strings rather than a two-element list, measured on
+ * 31.0.90:
+ *
+ *   (load "/nonexistent-dir/x.el")
+ *     (file-missing "Cannot open load file" "No such file or directory"
+ *                   "/nonexistent-dir/x.el")
+ *
+ * SYMBOL is `file-missing' where the file is absent and `file-error'
+ * otherwise; Emacs' third leaf, `permission-denied', is out of scope
+ * (12A Decision 1: it is measurable only unprivileged, and this box runs
+ * the suite as root), so an unreadable file lands on the parent class,
+ * which is where a handler naming file-error catches it either way.
+ *
+ * WHAT THIS COSTS, recorded rather than hidden: fe's `signal' uses the
+ * bare condition name as the completion's message (fe_eval.c's PSignal
+ * arm passes `symbol' as both the name and the message), so an UNCAUGHT
+ * missing-file load now reports `file-missing' where it used to report
+ * `cannot open PATH: No such file or directory'.  The path is still in
+ * the condition's data, which is what a handler reads and what Emacs
+ * puts there; rendering data back into a message is Emacs'
+ * error-message-string, which neither fe nor kg has.
+ *
+ * WHY THE PROTECTED CALL AND NOT lisp_raise_wrong_type's plain
+ * FeEvaluateWithOptions: measured, that route does not reach an enclosing
+ * `condition-case' at all.  FeCall/FeEvaluate start a nested run whose
+ * completion transfers to the *outermost* barrier -- kg's own error_jump
+ * -- past every handler lexically between the native and the raise, which
+ * is the same defect sub-plan 11D Part 3 fixed for the loader.  The
+ * protected call contains the completion instead and FeResignal puts it
+ * back in flight in the enclosing run with its kind, condition object and
+ * message intact.  (lisp_raise_wrong_type has the older shape and the
+ * older behaviour; that is a separate pre-existing defect, visible as the
+ * condition-case-native-errors divergence, and not this slice's.)
+ *
+ * Every allocation can collect, so each intermediate stays on the GC
+ * stack until the call is made.  The checkpoint is not restored: neither
+ * exit from here returns. */
+[[noreturn]] void lisp_raise_file_condition(FeContext *context,
+    const char *symbol, const char *operation, const char *detail,
+    const char *path)
+{
+	FeObject *parts[3];
+	FeObject *data, *form, *result;
+
+	parts[0] = FeMakeString(context, operation);
+	FePushGC(context, parts[0]);
+	parts[1] = FeMakeString(context, detail);
+	FePushGC(context, parts[1]);
+	parts[2] = FeMakeString(context, path);
+	FePushGC(context, parts[2]);
+	data = FeMakeList(context, parts, 3);
+	FePushGC(context, data);
+	parts[0] = FeMakeSymbol(context, "quote");
+	parts[1] = data;
+	data = FeMakeList(context, parts, 2);
+	FePushGC(context, data);
+	parts[0] = FeMakeSymbol(context, "quote");
+	parts[1] = FeMakeSymbol(context, symbol);
+	form = FeMakeList(context, parts, 2);
+	FePushGC(context, form);
+	parts[0] = form;
+	parts[1] = data;
+	form = FeMakeList(context, parts, 2);
+	FePushGC(context, form);
+	form = FeCons(context, FeMakeSymbol(context, "signal"), form);
+	FePushGC(context, form);
+	/* `signal` is a special form, so it is not a callable FeTryCall can be
+	 * handed; a nullary closure over the form is.  Evaluating the lambda
+	 * itself only builds the closure and cannot raise. */
+	parts[0] = FeMakeSymbol(context, "lambda");
+	parts[1] = FeNil(context);
+	parts[2] = form;
+	form = FeMakeList(context, parts, 3);
+	FePushGC(context, form);
+	form = FeEvaluateWithOptions(context, form, &eval_options);
+	FePushGC(context, form);
+	if (!FeTryCallWithOptions(
+		context, form, nullptr, 0, &eval_options, &result)) {
+		FeResignal(context);
+	}
+	/* `signal` cannot return normally; say so for the compiler and for a
+	 * future fe in which it somehow could. */
+	FeHandleError(context, symbol);
 }
 
 static void prompt_unavailable(FeContext *context)

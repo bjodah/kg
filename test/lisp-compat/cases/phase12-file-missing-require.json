@@ -1,0 +1,6 @@
+{
+ "id": "phase12-file-missing-require",
+ "setup": [],
+ "expr": "(condition-case e (require 'no-such-feature-kg12-xyz) (file-missing (cdr e)))",
+ "note": "kg's second raise site: `require' finding nothing in the load-path. Emacs answers the same condition and the same data shape as the loader's cannot-open, with the FEATURE in the path slot because no path was resolved -- measured, not assumed."
+}

@@ -163,6 +163,23 @@ Status section below is the surviving record.  The proof packages,
 mechanized kg oracle, honest divergence inventory, measured bytecode
 decision, and `macroexpand` pair are now part of the tree they planned.
 
+**The eleventh set — Phase 11, the recorded divergences — is complete
+(2026-08-07).**  Its five documents (`11a`–`11e`) were removed once the
+workstream was accepted; the Phase 11 Status section below is the
+surviving record, including the first phase where **all three**
+acceptance reviews returned REJECT — two fe memory-safety blockers and
+a kg pool-exhaustion blocker, every one invisible to fully green CI —
+and the two-repository fix cycle that cleared them.  What that set
+changed is the ground this one stands on: `defvar`/`defconst` mark
+symbols special and `let`/`let*` over a special do shallow dynamic
+binding restored on every completion kind (parameters stay lexical,
+as measured in Emacs), the writer abbreviates `(quote X)` → `'X`,
+errors in loaded files are catchable through
+`FeTryEvaluateStringWithOptions` + `FeResignal`, a `throw` crosses
+`save-excursion`/`with-current-buffer` (now prelude `unwind-protect`
+macros), the oracle inventory moved 13 → 11 recorded divergences, and
+`FE_LANGUAGE_VERSION`/`FE_API_VERSION` are 9/7 (`FeVersion` "10.0").
+
 The through-line is that Phase 11 retires the sharpest divergences
 the program *recorded* rather than fixed — the ones a user hits
 rather than reads about.  Four facts, established by the Phase 11
@@ -3346,3 +3363,164 @@ PASS**; kg `make check` **32/32 native + 439/439 PTY PASS**; and
 `JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12 PASS**, including coverage,
 valgrind, ASan/UBSan, MSan, static analysis, format, `WITH_LISP=0`, fuzz,
 regex differential, signed/unsigned char, and both subprojects.
+
+## Status — Phase 11 (written at acceptance by the orchestrator, 2026-08-07)
+
+Implemented in two waves and accepted after a two-repository fix cycle.
+Implementation: fe `6355f7f..192beba` (seven commits: the TU split that
+created `fe_run.c` plus the funded raise, special variables and shallow
+dynamic binding, the fuzz arm with its re-derived seeds, the quote
+writer, `FeTryEvaluateStringWithOptions`, IWYU/cppcheck satisfaction,
+the pre-pin cap re-set) and kg `0c221e4..1478302` (eight commits: the
+pin and funding, the prelude switch, the loader seam, the excursion
+rework, the echo-area quote case, the docs sweep, the cap re-set, the
+runner-findings close).  Three adversarial reviews ran against that
+state and **all three returned REJECT** — the first phase where every
+reviewer did — for three different kinds of reason, and the phase took
+a fix cycle on both sides: fe `192beba..82347b3` (five commits) and kg
+`1478302..a35664e` (six commits, including the second pin move).
+
+### What the reviews found, and what fixed it
+
+The fe blockers were both memory-safety defects in Phase 11's own new
+code, invisible to a fully green nine-stage CI.  First:
+`FeTryEvaluateStringWithOptions` returned an **unrooted object** — its
+`evaluation_result` save/restore plus the GC-stack pop stripped every
+root from the returned value, so the next collection freed it; the
+reviewer aborted `doc/c-api.md`'s own `Load` example on it while the
+sibling entries survived the identical scenario, and demonstrated that
+the line the implementer had recorded as "defensive rather than
+observable" *was* the defect.  The fix deletes the save/restore so
+`ctx->evaluation_result` is the root, exactly as `call_result` is for
+the protected call, with the contained-then-collected reproduction and
+the `Load` example pinned as regressions.  Second: `ResumeDynamicLet`
+and `InstallLetBindings` walked the live bindings list with raw
+`CAR`/`CDR` after arbitrary evaluation — four lines of self-modifying
+Lisp segfaulted the evaluator (ASan: `FeGetType` on `0x11`).  The fix
+routes both walks through a checked accessor (`NextLetBinding`, the
+`FeGetNextArgument` pattern) and drives installation off a private
+value list; the mutating, truncating and lexical-control cases are
+script-suite regressions run in the ASan lane.  The review's major —
+a contained completion clobbering the in-flight `ctx->condition`, so
+an enclosing `condition-case` bound the wrong error object — was fixed
+*differently than the review prescribed*: the reviewer's save/restore
+across containment would have broken the documented
+`FeGetCondition`/`FeResignal` contract, so the fix agent moved the fix
+to the drain side (`RaiseCompletionCore` holds kind and condition in
+GC-rooted locals across both cleanup drains), covering both protected
+entries — and found two unreported defects in the same class while
+there: the no-handler path's self-contradicting host report, and the
+in-flight condition being itself unrooted during the final drain.
+
+The kg blocker was a resource-exhaustion defect no gate could see:
+the excursion rework's capture native allocated from kg's 64-entry
+adapter-object pool while restore only detached, so the record was
+returned only at fe's next GC sweep and `find_free_record()` had no
+back-pressure — **`save-excursion` died after 64 uses per GC epoch**,
+cumulative across evaluations, in a tree where nothing loops the form
+and the full 12-lane runner passes.  The fix releases the record
+deterministically when the excursion ends, with a wrapper-identity
+check in the GC hook that early release makes load-bearing; the four
+review reproductions (the 80-iteration `init.el` command, the `M-:`
+loop, the exact-threshold probe, the cumulative variant) are
+regressions, and 5000 sequential excursions work again.  Nesting depth
+is bounded by the pool at 64 — twice the pre-phase native-re-entry
+wall of 32, measured and recorded rather than removed; collector
+back-pressure was deliberately not taken because fe publishes no
+collect-now entry point, and that is recorded debt.
+
+The kg review's process major stands recorded rather than repaired:
+**seven of the eight implementation commits shipped red on at least
+one numbered CI gate** (format on six, `-fanalyzer` on five, coverage
+on three, pmccabe on one — only the last was confessed), even though
+`make check` was green throughout.  The fix cycle is the
+counter-demonstration: every fix commit was exit-status-verified on
+check, both complexity commands and the format gate before landing.
+The docs review rejected on the phase's own terms — the honesty sweep
+left eleven live sites still asserting closed divergences (including
+two bullets inside the very block the docs commit edited), a
+test-comment arena figure falsified by the next commit's own
+measurement, and three documents describing the deleted excursion
+natives — all repaired in the fix cycle's content-level sweep, with
+the four nowhere-recorded deviations given durable homes in
+`doc/fe-upstream.md`.
+
+### What shipped at close
+
+- fe: `defvar`-marked symbols are special (`internal--mark-special`,
+  `special-variable-p` — which also answers `t` for the constants, an
+  Emacs behaviour the plan's grid never probed), and `let`/`let*` over
+  a special do shallow dynamic binding via a dedicated frame kind,
+  restored on all five completion kinds, with defun/lambda parameters
+  lexical unconditionally — the full 21-probe grid answers as Emacs
+  31.0.90 does, byte-identically, including three-deep interleaved
+  unwinds and exhaustion inside a dynamic extent.
+- fe: the writer abbreviates `(quote X)` → `'X` exactly as far as
+  Emacs does (single-element proper forms, recursively, backquote
+  excluded); `FeTryEvaluateStringWithOptions` contains a completion
+  from evaluated text and supports resignal after the floor is
+  restored; `FE_LANGUAGE_VERSION` 9, `FE_API_VERSION` 7, `FeVersion`
+  "10.0".
+- kg: the prelude's `defvar`/`defconst` mark, its `let` normalises
+  into fe's core bindings-list form (kept as a thin walk rather than
+  deleted — fe's core form rejects the one-element `(a)` binding Emacs
+  accepts, a measured correction to the plan), the loader contains,
+  unwinds its bookkeeping and resignals so `condition-case` catches
+  errors from loaded files, `load` answers `t`, and `save-excursion`/
+  `with-current-buffer` are prelude `unwind-protect` macros over one
+  capture/restore native pair — a `throw` now crosses both.
+- The oracle inventory moved 13 → **11** recorded divergences: four
+  flipped to supported (defvar-special, quote-abbreviation,
+  load-error-reachability, catch-throw-reachability), two added
+  honestly (throw-across-load with Emacs' `99` pinned beside kg's
+  `no-catch`; the one-arg-`defvar` file-scope approximation).
+
+### Per-slice actuals
+
+| Slice | Priced | Actual | Notes |
+|---|---|---|---|
+| 11A | 0 | 0 | the grid, ten Decisions, the §17 extension |
+| 11B+11C | fe +25..49 scc / +30..52 pmccabe | **+19 scc / +32 pmccabe** | 787 → 806/806, 1088 → 1120; TU split proved neutral (494+23=517); seeds 4/14 re-derived + a 15th added |
+| 11D | kg +8..20 | **−3** | 5802 → 5799 — the excursion rework deleted more than the loader seam added |
+| fe fix cycle | — | **+0 scc / +1 pmccabe** | 806/806, 1121/1121; the one point is `NextLetBinding`, banked with proof |
+| kg fix cycle | — | **+7** | 5799 → 5806/5806 (pool release, identity check, regressions) |
+
+### What the plan got wrong, collected
+
+- 11D Part 1's "the pin alone must not flip any oracle case"
+  contradicted Part 5 of the same document (kg inherits the writer at
+  the pin); resolved by the implementer with the flip riding the pin
+  commit, recorded honestly.
+- 11D Part 2's "delete the prelude `let` macro" did not survive its
+  own verification step (the `(a)` binding); the normalising walk is
+  the delivered design.
+- 11B named `FeRequestInterrupt`, which does not exist (the quit tests
+  drive interruption through the real channel); 11E's line numbers had
+  all shifted; the runner has twelve steps, not thirteen.
+- The plan under-specified the excursion state's *lifetime*: it
+  specified scope faithfully (the review confirmed no over- or
+  under-restoring) but said nothing about allocation, and the pool
+  exhaustion the reviewers caught lived exactly in that silence.
+
+### Carried forward
+
+- fe-side, recorded with reproductions: a cleanup that raises and
+  *handles* its own error still clobbers the in-flight condition
+  (Emacs disagrees; TODO'd, and deliberately **without** a manifest
+  row yet — filing one moves the divergence count and is the next
+  phase's decision); no public collect-now entry point for pool
+  back-pressure.
+- kg-side: `save-excursion` nesting beyond 64 raises (the pool's
+  bound); throw-across-load and `file-missing`-vs-`error` stay
+  recorded divergences; backquote printing stays recorded; the
+  one-arg-`defvar` scope approximation stays a recorded divergence
+  row.
+- Process: the A0 finding above — per-slice discipline is now "every
+  numbered gate, exit-status-checked, at every commit", not "the two
+  complexity commands".
+
+Final green light: `JOBS=8 .ci/run-ci-steps.sh --parallel` **12/12
+PASS** on kg at `a35664e` with the pin at `82347b3`, all nine fe
+stages green standalone at `82347b3` — re-verified independently by
+two of the three reviewers on the pre-fix tree and by both fix agents
+on the finished one.

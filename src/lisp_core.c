@@ -86,6 +86,19 @@ void set_error(const char *format, ...)
 	va_end(ap);
 }
 
+#if KG_PERF_COUNTERS
+/* CLOCK_MONOTONIC in nanoseconds, for the three §15 load-time counters
+ * (prelude, user init, packages).  Only a counting build has it: the
+ * shipped editor takes no clock_gettime() for any of them. */
+long long lisp_monotonic_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (long long)now.tv_sec * 1000000000LL + now.tv_nsec;
+}
+#endif
+
 static void reset_state(void)
 {
 	char error[sizeof(state.error)];
@@ -394,21 +407,18 @@ int kg_lisp_init(void)
 	in_prelude = true;
 #if KG_PERF_COUNTERS
 	{
-		struct timespec before, after;
-
 		/* Wall-clock, not a counter: see KG_PERF_LISP_PRELUDE_NS's
 		 * comment in perf.h for why this one is not asserted
 		 * anywhere. clock_gettime() itself is not gated behind
 		 * KG_PERF_COUNTERS elsewhere in kg because nothing else here
-		 * needs wall time; guarding it keeps this the one place a
-		 * counting build pays for a syscall the shipped editor never
+		 * needs wall time; guarding it keeps a counting build the
+		 * only one that pays for a syscall the shipped editor never
 		 * makes. */
-		clock_gettime(CLOCK_MONOTONIC, &before);
+		long long before = lisp_monotonic_ns();
+
 		evaluate_prelude(context);
-		clock_gettime(CLOCK_MONOTONIC, &after);
-		KG_PERF_SET(KG_PERF_LISP_PRELUDE_NS,
-		    (after.tv_sec - before.tv_sec) * 1000000000LL
-			+ (after.tv_nsec - before.tv_nsec));
+		KG_PERF_SET(
+		    KG_PERF_LISP_PRELUDE_NS, lisp_monotonic_ns() - before);
 	}
 #else
 	evaluate_prelude(context);
@@ -553,7 +563,18 @@ int kg_lisp_load_init(void)
 	if (access(path, F_OK) != 0) {
 		return 0;
 	}
+#if KG_PERF_COUNTERS
+	{
+		long long before = lisp_monotonic_ns();
+		int failed = kg_lisp_load_file(path);
+
+		KG_PERF_SET(
+		    KG_PERF_LISP_USER_INIT_NS, lisp_monotonic_ns() - before);
+		return failed;
+	}
+#else
 	return kg_lisp_load_file(path);
+#endif
 }
 
 const char *kg_lisp_last_error(void) { return state.error; }

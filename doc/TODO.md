@@ -46,6 +46,46 @@ This file remains the broader feature and technical-debt inventory.
       Phase 9 had no reason to answer. When it lands it needs its own PTY
       case; it must not be bolted onto the two above.
 
+- [ ] **Dynamic binding, and `defvar` marking a symbol special.** Recorded
+      by Phase 10's sub-plan 10C (10A Decision 4) as the sharpest measured
+      divergence in the manifest, and deliberately not fixed there: it
+      changes an answer rather than raising, so nothing tells a user.
+      `(progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf)))`
+      is 2 in the pinned Emacs and 1 here.  The work is a special flag per
+      symbol, a dynamic binding stack in fe, and unwinding that restores
+      it on every non-local exit — language-runtime work in the submodule,
+      not editor work.  `test/lisp-compat/features.json`'s `prelude-defvar`
+      row (cases on both sides), `doc/fe-upstream.md` and
+      `doc/lisp-api.md` all carry it.
+- [ ] **Buffer-local variables.** `setq-local` and `setq-default` are
+      aliases of `setq` and write the one global binding; both manifest
+      rows are `divergent` for that reason since 10C.  A real
+      implementation needs a per-buffer binding table, a lookup that
+      consults it before the global cell, and a lifetime rule for buffer
+      kill and switch.  `add-hook`'s LOCAL argument is unaffected — it is
+      real already.
+- [ ] **The printer's `(quote X)` → `'X` abbreviation**, and the wider
+      question of how far it goes (`function`/`#'`, `quasiquote` and
+      `unquote`).  fe-side work in `WriteObject`; recorded as
+      `writer-quote-abbreviation` with a case and a `doc/fe-upstream.md`
+      row.  No proof needs it, but it is the divergence a user *sees*
+      most often, in every `M-:` echo of a quoted form.
+- [ ] **`macroexpand-all`**, which Phase 10's 10B left as a
+      reject-by-name stub (`unsupported feature: macroexpand-all`, a
+      catchable condition, deliberately not `void-function`).  It needs a
+      code walker, and with it the `ENVIRONMENT` alist both `macroexpand`
+      and `macroexpand-1` currently refuse the same way.  fe's own
+      `TODO.md` carries the submodule half.
+- [ ] **A missing-function channel.** 10A Decision 5: reader syntax kg
+      does not implement is rejected *by name* (`unsupported read syntax:
+      vector brackets`), and functions it does not implement are not —
+      an unimplemented Emacs function is byte-identical to a typo
+      (`void-function`).  A curated known-name channel would need an
+      unbounded name list and new language machinery, so Phase 10
+      re-worded the milestone gate item against what the tree does
+      instead of building one.  The three `unsupported` manifest entries
+      say so in their rationales.
+
 ## Missing Mg features
 
 Features and keybindings present in Mg but missing from kg, roughly

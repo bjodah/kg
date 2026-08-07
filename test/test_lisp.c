@@ -371,6 +371,10 @@ static void remove_config_root(const char *root)
 		"%s/kg/lisp/after-cycle.el",
 		"%s/kg/lisp/impl.el",
 		"%s/kg/lisp/dup.el",
+		"%s/kg/lisp/suffixed.el",
+		"%s/kg/lisp/plainstem.el",
+		"%s/kg/lisp/doubled.el.el",
+		"%s/absolute-pkg.el",
 		"%s/direct.fe",
 		"%s/literal.el",
 		"%s/kg/lisp",
@@ -3050,6 +3054,31 @@ static void test_strict_arity(void)
 	teardown_editor();
 }
 
+/* The writer never abbreviates (quote X) back to 'X (sub-plan 10C Part 4,
+ * 10A Decision 4).  Recorded as a divergence, not fixed: Emacs' printer
+ * abbreviates and fe's prints the list it has, so every %S and every M-:
+ * echo of a quoted form differs.  Measured against the pinned oracle in
+ * the same slice -- Emacs answers "'x" for the first assertion below.
+ *
+ * Both halves are here on purpose.  The reader agrees: 'x reads into the
+ * two-element list (quote x) in kg exactly as it does in Emacs, which is
+ * what makes this the printer's gap and not the reader's, and what lets
+ * the compat case build its operand with `list` and say the same thing to
+ * both dialects. */
+static void test_writer_quote_abbreviation(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(format \"%S\" (list 'quote 'x))", "(quote x)"));
+	CHECK(eval_eq("(format \"%S\" ''x)", "(quote x)"));
+	/* The reader's half: 'x is that list, element for element. */
+	CHECK(eval_eq("(car ''x)", "quote"));
+	CHECK(eval_eq("(car (cdr ''x))", "x"));
+	CHECK(eval_eq("(length ''x)", "2"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_quasiquote(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -4497,6 +4526,7 @@ int main(void)
 	RUN(test_binding_forms);
 	RUN(test_definition_forms);
 	RUN(test_strict_arity);
+	RUN(test_writer_quote_abbreviation);
 	RUN(test_quasiquote);
 	RUN(test_void_function);
 	RUN(test_void_variable);

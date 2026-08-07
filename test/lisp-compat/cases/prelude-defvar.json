@@ -2,5 +2,6 @@
  "id": "prelude-defvar",
  "setup": [],
  "expr": "(progn (defvar dv1 99) dv1)",
- "note": "Matches Emacs' basic defvar (first-defvar-wins; a variable already bound is left alone). kg's defvar asks boundp rather than reading the variable, specifically because an unbound kg variable now raises void-variable (src/lisp_prelude.c's own comment) -- a deliberate implementation detail that produces the same observable contract as Emacs, not a divergence."
+ "expect": "agree",
+ "note": "Matches Emacs' basic defvar (first-defvar-wins; a variable already bound is left alone). kg's defvar asks boundp rather than reading the variable, specifically because an unbound kg variable now raises void-variable (src/lisp_prelude.c's own comment) -- a deliberate implementation detail that produces the same observable contract as Emacs, not a divergence. (\"expect\": \"agree\": this case pins first-defvar-wins, the half kg matches; prelude-defvar-special pins the half it does not.)"
 }

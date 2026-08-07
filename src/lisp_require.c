@@ -6,6 +6,7 @@
 
 #include "../fe/fe.h"
 #include "lisp_internal.h"
+#include "perf.h"
 
 /* ---- provide/require/featurep, and the bounded load-path require
  * searches -----------------------------------------------------------
@@ -258,7 +259,22 @@ FeObject *native_require(FeContext *context, FeObject *arguments)
 	state.requiring_depth++;
 
 	resolve_require_path(context, stem, path, sizeof(path));
+#if KG_PERF_COUNTERS
+	{
+		/* §15's "package load time", summed over the session: a
+		 * require that actually loads is the only thing kg calls a
+		 * package load.  See perf.h for why this one accumulates and
+		 * why it is nested inside the init counter when the require
+		 * is written in init.el. */
+		long long before = lisp_monotonic_ns();
+
+		lisp_eval_file(context, path);
+		KG_PERF_ADD(
+		    KG_PERF_LISP_PACKAGE_LOAD_NS, lisp_monotonic_ns() - before);
+	}
+#else
 	lisp_eval_file(context, path);
+#endif
 
 	state.requiring_depth--;
 	if (!find_feature(name)) {

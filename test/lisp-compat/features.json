@@ -81,6 +81,19 @@
    "source_name": "load"
   },
   {
+   "id": "load-path-search",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-load"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_file, test/test_lisp.c:test_require_el_suffix",
+   "rationale": "Recorded by sub-plan 10C (10A Decision 7 named it as an existing row; it was not one). Emacs' `load` searches `load-path`; kg's does not. A bare name resolves to exactly one place, <config>/kg/lisp/NAME.el, and a name containing '/' is a literal path -- `require` is the only form that searches, and it searches kg's bounded C-side load-path rather than a Lisp list. comparison is kg-policy because there is nothing to compare: the search list is a bounded array of 8 directories a package cannot push onto, and Emacs' probing order (.elc, .el, no suffix) has no kg analogue -- kg tries the one suffix, which since 10C both loaders agree on. The practical shape of the divergence: an init file that does (add-to-list 'load-path DIR) then (load \"pkg\") works in Emacs and fails here, while (add-to-load-path DIR) then (require 'pkg) works. Documented in README.md, doc/kg.1 and doc/lisp-api.md; the bounded array is a deliberate design (see src/lisp_require.c's header), not an unimplemented feature.",
+   "source_name": null
+  },
+  {
    "id": "native-provide",
    "category": "loading",
    "status": "supported",
@@ -1672,14 +1685,15 @@
   {
    "id": "prelude-defvar",
    "category": "bindings",
-   "status": "supported",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "prelude-defvar"
+    "prelude-defvar",
+    "prelude-defvar-special"
    ],
    "kg_test": "test/test_lisp.c:test_definition_forms",
-   "rationale": null,
+   "rationale": "Recorded as a divergence by sub-plan 10C (10A Decision 4); it sat here as `supported` with an empty rationale, which is how the sharpest measured Sec.2 violation in the manifest went unrecorded. kg's `defvar` binds a value and, when the name is already bound, leaves it alone -- first-defvar-wins, exactly Emacs' contract, and that half is what the prelude-defvar case pins (\"expect\": \"agree\"). What it does NOT do is mark the symbol *special*, because kg has no dynamic binding at all: every binding form in fe is lexical. The consequence is not an error, a warning or a missing name -- it is a different number. prelude-defvar-special measures it: (progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf))) is 2 in the pinned Emacs, where the let binding is dynamic and the callee sees it, and 1 here, where the let binding is lexical and the callee reads the global. Any init file that rebinds a defvar'd variable around a call -- the ordinary Emacs idiom for temporary settings -- silently computes something else under kg. Making defvar special is language-runtime work (a special flag per symbol, a dynamic binding stack, unwinding that restores it), not proof work; doc/TODO.md carries it and doc/fe-upstream.md has the row.",
    "source_name": "defvar"
   },
   {
@@ -2111,6 +2125,19 @@
    ],
    "kg_test": "test/test_lisp.c:test_quasiquote",
    "rationale": "fe's reader spells the two backquote reader macros `quasiquote' and `unquote' where Emacs spells them ` and , (doc/fe-upstream.md's reader-macro row). The structure and the evaluated value agree -- an unquote in cdr position is a dotted tail in both -- so only an unevaluated nested backquote prints differently, which is what this snapshot records.",
+   "source_name": null
+  },
+  {
+   "id": "writer-quote-abbreviation",
+   "category": "reader-and-literals",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "writer-quote-abbreviation"
+   ],
+   "kg_test": "test/test_lisp.c:test_writer_quote_abbreviation",
+   "rationale": "Recorded by sub-plan 10C (10A Decision 4); before it, this was one clause inside another entry's rationale and had no case of its own. Emacs' printer abbreviates a two-element (quote X) list back to 'X -- prin1, %S, the echo area, error renderings, all of them -- and fe's writer prints the list. Measured: (format \"%S\" (list 'quote 'x)) is \"'x\" in the pinned Emacs and \"(quote x)\" here, and reading 'x produces exactly that list on both sides, so this is the printer and not the reader. It is visible in every M-: echo of a quoted form and in every %S of one, which makes it the most frequently *seen* divergence in the manifest even though it changes no computed value. The sibling row phase8-reader-backquote-symbol-names records the neighbouring gap for backquote, which is a reader spelling rather than a printer abbreviation: fe reads ` as `quasiquote' where Emacs reads it as a distinct symbol its printer also abbreviates. Teaching the writer the abbreviation is fe work in WriteObject with a decision to make about how far it goes (function/#', quasiquote/unquote); no proof needs it, so it is recorded, not fixed.",
    "source_name": null
   },
   {
@@ -2566,27 +2593,27 @@
   {
    "id": "phase8-library-setq-default",
    "category": "prelude",
-   "status": "supported",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
     "phase8-library-setq-aliases"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+   "rationale": "Re-classified from `supported` by sub-plan 10C (10A Decision 6), decided against the row's own text rather than by rule. The rationale was already truthful -- \"kg has no buffer-local variable namespace; both spellings are documented aliases of setq\" -- but the status word is what a gate counts and a reader skims, and `supported` beside the name `setq-default` says kg does the thing the name means. It does not: `(setq-default x 1)` writes the one global binding, so a second buffer sees the write and nothing is ever restored when a buffer is killed or switched. Emacs would answer the same two values as the cited case for entirely different reasons, which is why the row is `comparison: kg-policy` and has no snapshot. `add-hook`'s LOCAL argument is real and is a separate row; this one is the variable namespace, and Sec.14's Proof 2 bullet 'buffer-local-style configuration where supported' is satisfiable only as this recorded honesty. A real buffer-local namespace is language-runtime plus buffer-lifetime work; doc/TODO.md carries it beside `setq-local`.",
    "source_name": "setq-default"
   },
   {
    "id": "phase8-library-setq-local",
    "category": "prelude",
-   "status": "supported",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
     "phase8-library-setq-aliases"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "kg has no buffer-local variable namespace; both spellings are documented aliases of setq.",
+   "rationale": "Re-classified from `supported` by sub-plan 10C (10A Decision 6), decided against the row's own text rather than by rule. The rationale was already truthful -- \"kg has no buffer-local variable namespace; both spellings are documented aliases of setq\" -- but the status word is what a gate counts and a reader skims, and `supported` beside the name `setq-local` says kg does the thing the name means. It does not: `(setq-local x 1)` writes the one global binding, so a second buffer sees the write and nothing is ever restored when a buffer is killed or switched. Emacs would answer the same two values as the cited case for entirely different reasons, which is why the row is `comparison: kg-policy` and has no snapshot. `add-hook`'s LOCAL argument is real and is a separate row; this one is the variable namespace, and Sec.14's Proof 2 bullet 'buffer-local-style configuration where supported' is satisfiable only as this recorded honesty. A real buffer-local namespace is language-runtime plus buffer-lifetime work; doc/TODO.md carries it beside `setq-default`.",
    "source_name": "setq-local"
   },
   {

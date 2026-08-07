@@ -15,6 +15,7 @@
 #include "lisp.h"
 #include "lisp_obj.h"
 #include "marker.h"
+#include "perf.h"
 #include "regex.h"
 
 /* Adapter limits, shared by struct lisp_state and the modules that walk
@@ -267,6 +268,11 @@ size_t lisp_byte_of_char_offset(const struct editor_buffer *b, long off);
  * buffer helpers expect. */
 long lisp_offset_argument(
     FeContext *context, const struct editor_buffer *b, FeObject *object);
+
+#if KG_PERF_COUNTERS
+/* CLOCK_MONOTONIC in nanoseconds (lisp_core.c); counting builds only. */
+long long lisp_monotonic_ns(void);
+#endif
 
 /* XDG config resolution (lisp_io.c). */
 int lisp_config_path(char *out, size_t outsize, const char *stem);

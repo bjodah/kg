@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* ---- Helpers ---- */
@@ -77,6 +78,61 @@ static void teardown(void)
 static unsigned long long counter(enum kg_perf_counter c)
 {
 	return kg_perf_read(c);
+}
+
+/* An isolated XDG config root, for the load-time counters below: they
+ * time a *user's* init file and the packages it requires, and there is no
+ * way to have either without a config directory to put them in.  Same
+ * shape as test_lisp.c's own setup_config_root/remove_config_root pair;
+ * not shared with it because the two binaries link different objects. */
+static int perf_config_root(char *root, size_t rootsize)
+{
+	char path[512];
+
+	(void)snprintf(root, rootsize, "/tmp/kg-perf-cfg-XXXXXX");
+	if (!mkdtemp(root)) {
+		return 1;
+	}
+	(void)snprintf(path, sizeof(path), "%s/kg", root);
+	if (mkdir(path, 0700) != 0) {
+		return 1;
+	}
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp", root);
+	if (mkdir(path, 0700) != 0) {
+		return 1;
+	}
+	return setenv("XDG_CONFIG_HOME", root, 1) != 0;
+}
+
+static int perf_write_file(const char *path, const char *text)
+{
+	FILE *file = fopen(path, "wb");
+
+	if (!file) {
+		return 1;
+	}
+	(void)fputs(text, file);
+	return fclose(file) != 0;
+}
+
+static void perf_remove_config_root(const char *root)
+{
+	static const char *const entries[] = {
+		"%s/kg/init.el",
+		"%s/kg/lisp/perfpkg.el",
+		"%s/kg/lisp/perfpkg2.el",
+		"%s/kg/lisp",
+		"%s/kg",
+		"%s",
+	};
+	char path[512];
+	size_t i;
+
+	for (i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
+		(void)snprintf(path, sizeof(path), entries[i], root);
+		(void)remove(path);
+	}
+	(void)unsetenv("XDG_CONFIG_HOME");
 }
 
 /* Number of times a doubling array has to grow to hold `n` records, plus
@@ -1064,6 +1120,106 @@ static void test_lisp_prelude_arena_margin(void)
 	kg_lisp_shutdown();
 }
 
+/* §15's three load-time counters, and the confusion the new two exist to
+ * kill (sub-plan 10C Part 4, 10A Decision 9).
+ *
+ * The parent plan's §15 asks for prelude load time, user-init load time
+ * and package load time before a bytecode project may be justified. Only
+ * the first was instrumented, and the Phase 10 audit misread it: with an
+ * init file present `lisp_prelude_ns` reports *less*, which invites the
+ * conclusion that an init file makes the prelude faster. It does not --
+ * the two are simply different work, and the prelude counter never
+ * included any init time to begin with. The fix is not a bigger number
+ * but two more counters, and this test is what pins the relationship
+ * between them.
+ *
+ * What is asserted is *population and separation*, never a value: a wall
+ * time is not the same number twice on a loaded box (this file's own
+ * header), so "how long" is `make bench`'s and 10D's job to report, not
+ * a gate's to assert.
+ *
+ *   - after kg_lisp_init() alone: prelude populated, init and package
+ *     zero -- proof that the prelude counter is not silently the sum;
+ *   - after an init file that requires a package: init populated and
+ *     package populated, prelude UNCHANGED by either -- the separation;
+ *   - package time is a running total, so a second require adds to it. */
+static void test_lisp_load_time_counters(void)
+{
+	char root[64], path[512];
+	unsigned long long prelude, init_ns, package;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(perf_config_root(root, sizeof(root)) == 0);
+
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/perfpkg.el", root);
+	CHECK(perf_write_file(path,
+		  "(setq perf-pkg-loaded t)\n"
+		  "(provide 'perfpkg)\n")
+	    == 0);
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/perfpkg2.el", root);
+	CHECK(perf_write_file(path, "(provide 'perfpkg2)\n") == 0);
+	(void)snprintf(path, sizeof(path), "%s/kg/init.el", root);
+	CHECK(perf_write_file(path,
+		  "(require 'perfpkg)\n"
+		  "(setq perf-init-ran t)\n")
+	    == 0);
+
+	kg_perf_reset();
+	CHECK(kg_lisp_init() == 0);
+	prelude = counter(KG_PERF_LISP_PRELUDE_NS);
+	/* The prelude is real work and takes real time; zero here would mean
+	 * the counter is not wired, which is the only thing worth asserting
+	 * about a duration. */
+	CHECK(prelude > 0);
+	CHECK(counter(KG_PERF_LISP_USER_INIT_NS) == 0);
+	CHECK(counter(KG_PERF_LISP_PACKAGE_LOAD_NS) == 0);
+
+	CHECK(kg_lisp_load_init() == 0);
+	init_ns = counter(KG_PERF_LISP_USER_INIT_NS);
+	package = counter(KG_PERF_LISP_PACKAGE_LOAD_NS);
+	CHECK(init_ns > 0);
+	CHECK(package > 0);
+	/* The separation: loading an init file did not touch the prelude
+	 * counter in either direction.  This is the assertion the audit's
+	 * "the prelude counter reports less with an init present" reading
+	 * would have failed. */
+	CHECK(counter(KG_PERF_LISP_PRELUDE_NS) == prelude);
+	/* The nesting, stated rather than left to be rediscovered: the
+	 * require is written in the init file, so its time is inside the
+	 * init file's. */
+	CHECK(package <= init_ns);
+	/* The init file really ran, and really loaded the package: the
+	 * counters above are timing work that happened. */
+	{
+		char result[128] = "";
+
+		CHECK(
+		    kg_lisp_eval_string("(list perf-init-ran perf-pkg-loaded)",
+			sizeof("(list perf-init-ran perf-pkg-loaded)") - 1,
+			result, sizeof(result))
+		    == 0);
+		CHECK(strcmp(result, "(t t)") == 0);
+	}
+
+	/* A total, not a gauge: a second require adds. */
+	{
+		static const char second[] = "(require 'perfpkg2)";
+
+		CHECK(
+		    kg_lisp_eval_string(second, sizeof(second) - 1, nullptr, 0)
+		    == 0);
+		CHECK(counter(KG_PERF_LISP_PACKAGE_LOAD_NS) > package);
+		/* ... and it is not counted as init time, which has finished.
+		 */
+		CHECK(counter(KG_PERF_LISP_USER_INIT_NS) == init_ns);
+	}
+
+	kg_lisp_shutdown();
+	perf_remove_config_root(root);
+}
+
 /* Fe evaluation throughput shapes (list walk, arithmetic loop,
  * macro-heavy expansion, deep call chain) -- the same four
  * utils/bench.py's Lisp cases exercise interactively, run in-process here
@@ -1160,6 +1316,7 @@ static void test_lisp_evaluator_shapes(void)
 int main(void)
 {
 	RUN(test_lisp_prelude_arena_margin);
+	RUN(test_lisp_load_time_counters);
 	RUN(test_lisp_evaluator_shapes);
 	RUN(test_load_row_array_growth);
 	RUN(test_load_highlight_is_final);

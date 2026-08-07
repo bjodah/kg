@@ -735,7 +735,42 @@ primitive's function cell.
   is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
   natives are already classified, which is why `(car 1)` *does* match a
   `wrong-type-argument` handler.
-- **No dynamic binding, no vectors, no hash tables, no property lists.**
+- **No dynamic binding, and `defvar` does not create a special
+  variable.** Every binding form in kg's Lisp is lexical, `let`
+  included, and `defvar` binds a value and leaves an already-bound name
+  alone (first-defvar-wins, which is Emacs' contract) without marking
+  the symbol special. **The consequence is a silently different answer,
+  not an error**: measured against the pinned Emacs 31,
+
+  ```elisp
+  (progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf)))
+  ```
+
+  is `2` in Emacs — the `let` binding is dynamic and the function called
+  from inside it sees it — and `1` here, where the `let` binding is
+  lexical and `dvsf` reads the global. Nothing warns. The ordinary Emacs
+  idiom of rebinding a `defvar`'d variable around a call to change a
+  setting temporarily therefore does not do that in kg; write the
+  temporary value into the global and restore it in an
+  `unwind-protect`, or pass it as an argument.
+  `test/lisp-compat/features.json`'s `prelude-defvar` row records it
+  with cases on both sides, and `doc/TODO.md` carries the work.
+- **The printer never abbreviates `(quote X)` to `'X`.** Emacs'
+  printer does; fe's writer prints the list it has, so `(format "%S"
+  '(quote x))` is `"(quote x)"` here and `"'x"` in Emacs, and the same
+  difference shows in every `M-:` echo of a quoted form. The reader
+  agrees on both sides — `'x` *is* the two-element list `(quote x)` —
+  so this is the printer alone. Recorded as
+  `writer-quote-abbreviation`; the neighbouring backquote spelling
+  (`quasiquote`/`unquote` where Emacs uses distinct symbols) is
+  `phase8-reader-backquote-symbol-names`.
+- **No buffer-local variables.** `setq-local` and `setq-default` are
+  documented aliases of `setq`: both write the one global binding, so a
+  second buffer sees the write and nothing is restored when a buffer is
+  killed or switched. `add-hook`'s LOCAL argument is real and is a
+  separate mechanism. Both manifest rows are `divergent` for this
+  reason.
+- **No vectors, no hash tables, no property lists.**
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A

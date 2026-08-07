@@ -1,0 +1,6 @@
+{
+ "id": "writer-quote-abbreviation",
+ "setup": [],
+ "expr": "(format \"%S\" (list 'quote 'x))",
+ "note": "Emacs' printer abbreviates a two-element (quote X) list back to 'X; fe's writer prints the list it is. Built with `list` rather than written as ''x so the case says the same thing to both readers -- kg reads 'x into exactly this list, and so does Emacs. Every %S, every M-: echo and every error rendering of a quoted form carries the difference."
+}

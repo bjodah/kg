@@ -56,6 +56,8 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_LISP_PEAK_NATIVE_REENTRY] = "lisp_peak_native_reentry",
 	[KG_PERF_LISP_ALLOC_FAILURES] = "lisp_alloc_failures",
 	[KG_PERF_LISP_PRELUDE_NS] = "lisp_prelude_ns",
+	[KG_PERF_LISP_USER_INIT_NS] = "lisp_user_init_ns",
+	[KG_PERF_LISP_PACKAGE_LOAD_NS] = "lisp_package_load_ns",
 };
 
 void kg_perf_reset(void)

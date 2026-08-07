@@ -145,6 +145,33 @@ enum kg_perf_counter {
 	 * the pty-launch noise a `make bench` case's whole-process wall time
 	 * carries. */
 	KG_PERF_LISP_PRELUDE_NS,
+	/* Wall-clock nanoseconds spent loading the *user's* init file
+	 * (kg_lisp_load_init()'s kg_lisp_load_file call), and the total
+	 * spent evaluating files that `(require ...)` had to load
+	 * (native_require()'s lisp_eval_file call, summed over the
+	 * session).  §15 of the parent plan asks for "user-init load time"
+	 * and "package load time" beside the prelude's, and these are them
+	 * (sub-plan 10A Decision 9).  Same caveat as the prelude counter:
+	 * durations, not counts, so nothing asserts a *value* -- what
+	 * test/test_perf.c asserts is that each is populated when the
+	 * corresponding work happened and stays zero when it did not.
+	 *
+	 * Three properties worth stating, because the audit's confusion
+	 * came from reading one number as if it were another:
+	 *   - init time EXCLUDES prelude time.  The prelude is evaluated
+	 *     inside kg_lisp_init(), long before an init file is opened;
+	 *     the two counters never overlap and neither is a subset of
+	 *     the other.
+	 *   - package time is a *total*, not a gauge, since one session
+	 *     may (require ...) several files.  KG_PERF_ADD, not
+	 *     KG_PERF_SET.
+	 *   - package time IS counted inside init time when the (require
+	 *     ...) is written in the init file, which is the ordinary
+	 *     case.  That nesting is deliberate -- "how long did the init
+	 *     file take" should include what it loaded -- so do not add
+	 *     the two together and call it startup cost. */
+	KG_PERF_LISP_USER_INIT_NS,
+	KG_PERF_LISP_PACKAGE_LOAD_NS,
 
 	KG_PERF_COUNTER_COUNT
 };

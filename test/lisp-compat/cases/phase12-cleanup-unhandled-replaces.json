@@ -1,0 +1,6 @@
+{
+ "id": "phase12-cleanup-unhandled-replaces",
+ "setup": [],
+ "expr": "(condition-case e (unwind-protect (/ 1 0) (car 6)) (error e))",
+ "note": "06A Decision 4's guard, not a target: an UNHANDLED error raised by a cleanup replaces the completion being unwound and is caught by the ENCLOSING handler. Emacs and kg agreed on this before the pin (audit probes A10/A15/A16) and 12A Decision 2 requires the fix not to touch it, so this case exists to fail if it ever does."
+}

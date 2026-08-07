@@ -286,9 +286,10 @@ three runs, on a representative `init.el` (the 08A corpus plus
 two-file chain), opening a one-character file and quitting.  **The
 readings below are the Phase 10 measurement and are left as taken**;
 they are the answer to a question §15 asked once, not a live figure.
-The two denominators moved at the Phase 11 pin, when fe's dynamic-binding
-frame record grew: the 1 MiB arena partitions to 56226 object slots and
-1095 frames now, against the 56224 and 1096 the table names.
+The two denominators have moved twice since: at the Phase 11 pin, when
+fe's dynamic-binding frame record grew, and by one object slot at the
+Phase 12 pin.  The 1 MiB arena partitions to 56225 object slots and 1095
+frames now, against the 56224 and 1096 the table names.
 
 | §15 measurement | Counter | Reading |
 | --- | --- | --- |

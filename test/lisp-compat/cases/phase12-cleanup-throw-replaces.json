@@ -1,0 +1,6 @@
+{
+ "id": "phase12-cleanup-throw-replaces",
+ "setup": [],
+ "expr": "(catch 'ct (condition-case e (unwind-protect (/ 1 0) (throw 'ct 'from-cleanup)) (error 'handled)))",
+ "note": "The second half of the same guard, audit probe A16: a cleanup that THROWS during an error unwind abandons the error and delivers to its catch. catch/throw inside a cleanup already worked before the pin (probe B6) because only the condition-handler search was short-circuited; this pins that it still does."
+}

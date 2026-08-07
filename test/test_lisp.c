@@ -488,6 +488,8 @@ static void remove_config_root(const char *root)
 		"%s/absolute-pkg.el",
 		"%s/direct.fe",
 		"%s/literal.el",
+		"%s/defvar-a.el",
+		"%s/defvar-b.el",
 		"%s/kg/lisp",
 		"%s/kg",
 		"%s",
@@ -652,6 +654,74 @@ static void test_load_package(void)
 	CHECK(strcmp(result, "caught") == 0);
 	CHECK(kg_lisp_eval_string("(+ 2 3)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "5") == 0);
+
+	kg_lisp_shutdown();
+	remove_config_root(root);
+}
+
+/* Sub-plan 12D: the two-file probe the one-arg-`defvar' scope carrier
+ * needed, run against kg's real `load'.  Emacs' measured rule is that a
+ * one-argument `(defvar v)' makes `let' over v dynamic within the
+ * reader/evaluation unit the defvar appeared in -- one file, or one
+ * `eval' -- and nowhere else, with `special-variable-p' answering nil
+ * throughout.  kg's mark used to be context-global, so file B saw file A's
+ * declaration; since the pin, `EvaluateInput' stamps each mark with the
+ * input unit that made it and `SymbolIsLetDynamic' compares for equality.
+ *
+ * The three answers below are byte-for-byte what the pinned Emacs 31.0.90
+ * gives for the same two files under `lexical-binding: t' (measured
+ * 2026-08-07: `(A from-A B unbound svp nil)').  The `let' is INSIDE each
+ * file on purpose: fe consults the flag where the `let' runs and has
+ * nowhere to record a closure's unit, so a function defined after the
+ * defvar in A and CALLED from another unit answers lexically where Emacs
+ * answers dynamically -- fe's own manifest row
+ * one-arg-defvar-scope-carrier records that narrowing in full. */
+static void test_phase12_one_arg_defvar_file_scope(void)
+{
+	char root[64], path[512], source[600], result[128] = "";
+	int length;
+
+	CHECK(setup_config_root(root, sizeof(root)) == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	(void)snprintf(path, sizeof(path), "%s/defvar-a.el", root);
+	CHECK(write_text_file(path,
+		  "(defvar p12oav)\n"
+		  "(defun p12-a-reader ()"
+		  " (if (boundp 'p12oav) p12oav 'unbound))\n"
+		  "(setq p12-a-in-file"
+		  " (let ((p12oav 'from-A)) (p12-a-reader)))\n")
+	    == 0);
+	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(
+	    kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))
+	    == 0);
+
+	(void)snprintf(path, sizeof(path), "%s/defvar-b.el", root);
+	CHECK(write_text_file(path,
+		  "(setq p12-b-in-file"
+		  " (let ((p12oav 'from-B)) (p12-a-reader)))\n")
+	    == 0);
+	length = snprintf(source, sizeof(source), "(load \"%s\")", path);
+	CHECK(length > 0 && (size_t)length < sizeof(source));
+	CHECK(
+	    kg_lisp_eval_string(source, (size_t)length, result, sizeof(result))
+	    == 0);
+
+	/* A's own `let' is dynamic: the reader sees from-A. */
+	CHECK(kg_lisp_eval_string("p12-a-in-file", 13, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "from-A") == 0);
+	/* B's is lexical: the reader sees the (unbound) global. */
+	CHECK(kg_lisp_eval_string("p12-b-in-file", 13, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "unbound") == 0);
+	/* And the one-argument arity still marks nothing special. */
+	CHECK(kg_lisp_eval_string(
+		  "(special-variable-p 'p12oav)", 28, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "nil") == 0);
 
 	kg_lisp_shutdown();
 	remove_config_root(root);
@@ -3094,12 +3164,24 @@ static void test_phase11_dynamic_binding(void)
 	    "nil"));
 	/* A10b (guard): a one-argument defvar binds nothing. */
 	CHECK(eval_eq("(boundp 'p11-one)", "nil"));
-	/* A7b: and yet `let' over it is dynamic.  kg's marking is global
-	 * where Emacs scopes this to the file; the compat row
-	 * phase11-one-arg-defvar-file-scope pins both answers. */
-	CHECK(eval_eq("(progn (defun p11-one-r () p11-one)"
-		      " (let ((p11-one 5)) (p11-one-r)))",
+	/* A7b: and yet `let' over it is dynamic -- WITHIN THE INPUT UNIT
+	 * that declared it.  Every kg_lisp_eval_string() is its own unit
+	 * (one FeEvaluateStringWithOptions, one EvaluateInput), so since the
+	 * fe scope carrier this has to declare and bind in one call, exactly
+	 * as Emacs answers `unbound' for `(eval '(defvar v) t)' followed by a
+	 * separate `(eval '(let ((v 5)) ...) t)'.  The next assertion is the
+	 * other half: a later unit does NOT see the mark. */
+	CHECK(eval_eq("(progn (defvar p11-one2) (defun p11-one-r ()"
+		      " p11-one2) (let ((p11-one2 5)) (p11-one-r)))",
 	    "5"));
+	/* A7b, the scope half: p11-one was declared in an earlier unit, so
+	 * `let' over it here is lexical and the reader sees the (unbound)
+	 * global -- the divergence the compat row
+	 * phase11-one-arg-defvar-file-scope used to record and this pin
+	 * closes. */
+	CHECK(eval_error_contains("(progn (defun p11-one-r2 () p11-one)"
+				  " (let ((p11-one 5)) (p11-one-r2)))",
+	    "void-variable"));
 
 	/* A1 / A11: the temporary-setting idiom, the headline. */
 	CHECK(eval_eq("(progn (defvar p11-hkv nil) (defun p11-callee ()"
@@ -4135,6 +4217,50 @@ static void test_cleanup_containment_keeps_condition(void)
 	teardown_editor();
 }
 
+/* Sub-plan 12D Part 1: what the fe pin's cleanup-handler fix changes,
+ * asserted in-process.  A `condition-case' or `ignore-errors' established
+ * INSIDE an `unwind-protect' cleanup now handles what that cleanup raises;
+ * before the pin every raise inside a running cleanup behaved as unhandled
+ * because RaiseCompletionCore tested ctx->cleanup_catch before it ever ran
+ * the handler search.  The last three assertions are 06A Decision 4's
+ * guard, which 12A Decision 2 requires the fix to leave byte-identical: an
+ * UNHANDLED cleanup raise still replaces the completion being unwound. */
+static void test_phase12_cleanup_handler_visibility(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Audit probe B9: no unwind in flight at all. */
+	CHECK(
+	    eval_eq("(unwind-protect 'body (ignore-errors (car 6)))", "body"));
+	/* A1: the cleanup handles its own error while an arith-error is
+	 * being unwound; the in-flight condition survives. */
+	CHECK(eval_eq("(condition-case e (unwind-protect (/ 1 0)"
+		      " (ignore-errors (car 6))) (error (car e)))",
+	    "arith-error"));
+	/* A7b: the cleanup's own handler binds the cleanup's error. */
+	CHECK(eval_eq("(let ((m 'unset)) (list (condition-case e"
+		      " (unwind-protect (/ 1 0) (condition-case c (car 6)"
+		      " (error (setq m c)))) (error (car e))) m))",
+	    "(arith-error (wrong-type-argument listp 6))"));
+	/* A3c: the same, while a throw rather than an error unwinds. */
+	CHECK(eval_eq("(let ((m 'unset)) (list (catch 'tg (unwind-protect"
+		      " (throw 'tg 99) (setq m (ignore-errors (car 6))))) m))",
+	    "(99 nil)"));
+
+	/* 06A Decision 4, preserved: unhandled still replaces. */
+	CHECK(eval_eq("(condition-case e (unwind-protect (/ 1 0) (car 6))"
+		      " (error (car e)))",
+	    "wrong-type-argument"));
+	/* And a cleanup that throws still abandons the error (A16). */
+	CHECK(eval_eq("(catch 'ct (condition-case e (unwind-protect (/ 1 0)"
+		      " (throw 'ct 'from-cleanup)) (error 'handled)))",
+	    "from-cleanup"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_quit_uncaught(void)
 {
 	char result[128] = "";
@@ -4517,14 +4643,19 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 11 FIX CYCLE's pin
-	 * (fe 82347b3): 56226 object slots (56224 at the Phase 10 pin, 56222
-	 * before that -- the frame record fe's dynamic-binding work grew
-	 * costs one frame slot, frame_capacity 1096 -> 1095, and returns two
-	 * object slots), peak_live 5295 after the prelude alone (5210 at the
-	 * Phase 10 pin, 5188 at Phase 9's), and 8287 at this point in this
-	 * function, after every Phase 8 form above -- 14.7% of the arena for
-	 * everything kg ships plus this test's own corpus.
+	 * build via kg_lisp_arena_stats() at the Phase 12 pin (fe 6f20ec6):
+	 * 56225 object slots (56226 at the Phase 11 fix cycle's pin, 56224 at
+	 * the Phase 10 pin, 56222 before that -- the frame record fe's
+	 * dynamic-binding work grew costs one frame slot, frame_capacity
+	 * 1096 -> 1095, and returns two object slots; Phase 12's fe additions
+	 * take one object slot back and no frame slot), peak_live 5301 after
+	 * the prelude alone (5295 at the Phase 11 fix cycle's pin, 5210 at
+	 * the Phase 10 pin, 5188 at Phase 9's), and 8304 at this point in
+	 * this function, after every Phase 8 form above -- 14.8% of the arena
+	 * for everything kg ships plus this test's own corpus.  The Phase 12
+	 * PIN cost +6 and +17: fe's `eval' primitive and its interned name,
+	 * the `file-missing' hierarchy row, and the input-unit field the
+	 * defvar scope carrier stamps onto each let-dynamic-only mark.
 	 *
 	 * Where the movement went, since this comment got it wrong once and
 	 * the rule below is what it exists to enforce.  The Phase 11 PIN cost
@@ -5012,6 +5143,7 @@ int main(void)
 	RUN(test_eval_and_recovery);
 	RUN(test_sized_input);
 	RUN(test_load_file);
+	RUN(test_phase12_one_arg_defvar_file_scope);
 	RUN(test_load_file_error);
 	RUN(test_load_error_condition_reachability);
 	RUN(test_interrupt);
@@ -5104,6 +5236,7 @@ int main(void)
 	RUN(test_ignore_errors);
 	RUN(test_condition_case_reentry);
 	RUN(test_cleanup_containment_keeps_condition);
+	RUN(test_phase12_cleanup_handler_visibility);
 	RUN(test_quit_uncaught);
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);

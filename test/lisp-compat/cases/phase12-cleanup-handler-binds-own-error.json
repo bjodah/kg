@@ -1,0 +1,6 @@
+{
+ "id": "phase12-cleanup-handler-binds-own-error",
+ "setup": [],
+ "expr": "(let ((m 'unset)) (list (condition-case e (unwind-protect (/ 1 0) (condition-case c (car 6) (error (setq m c)))) (error e)) m))",
+ "note": "Audit probe A7b: both halves at once. The cleanup's own `condition-case' binds the cleanup's error, and the outer handler still binds the error being unwound. Before the pin kg's inner `c' never bound at all, so the setq never ran and this answered ((wrong-type-argument listp 6) unset)."
+}

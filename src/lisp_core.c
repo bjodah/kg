@@ -49,7 +49,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_process.h"
 
 static_assert(FE_API_VERSION == 7);
-static_assert(FE_LANGUAGE_VERSION == 9);
+static_assert(FE_LANGUAGE_VERSION == 10);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)

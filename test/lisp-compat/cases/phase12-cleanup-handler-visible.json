@@ -1,0 +1,6 @@
+{
+ "id": "phase12-cleanup-handler-visible",
+ "setup": [],
+ "expr": "(unwind-protect 'body (ignore-errors (car 6)))",
+ "note": "The Phase 12 fact audit's probe B9, and the simplest statement of the gap this pin closes. There is no unwind in flight at all: the body returns normally and the cleanup raises an error its OWN `ignore-errors' establishes a handler for. Emacs answers `body'. Before fe 95965f0, RaiseCompletionCore tested ctx->cleanup_catch before it ever called FindConditionHandler, so while any cleanup entry ran every raise took the replay jump unconditionally and the cleanup's own handler frames were never examined -- the error behaved as unhandled and escaped to the host."
+}

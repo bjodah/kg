@@ -1,0 +1,6 @@
+{
+ "id": "phase12-cleanup-handler-during-throw",
+ "setup": [],
+ "expr": "(let ((m 'unset)) (list (catch 'tg (unwind-protect (throw 'tg 99) (setq m (ignore-errors (car 6))))) m))",
+ "note": "Audit probe A3c: the same visibility rule while a THROW rather than an error is being unwound. The throw still delivers 99 to its catch, and the cleanup's handled error is contained inside the cleanup. Before the pin this escaped to the host entirely."
+}

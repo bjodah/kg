@@ -1,0 +1,6 @@
+{
+ "id": "arena-exhaustion-catchable-by-name",
+ "setup": [],
+ "expr": "(condition-case e (let ((l nil)) (while t (setq l (cons 1 l)))) (arena-exhaustion 'caught))",
+ "note": "Exhausting kg's fixed 1 MiB arena from a let-local raises (arena-exhaustion) and the handler that names it catches: answers `caught`. Before the Phase 9 pin the same form let the error escape, because the condition object was degraded to nil and only a (t ...) handler matched. No Emacs equivalent: Emacs has no arena to exhaust."
+}

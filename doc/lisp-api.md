@@ -256,6 +256,45 @@ Ordering rules that hold across every subscriber:
   `src/lisp_obj.h`, `src/lisp_hooks.c`, `src/process_table.h`), not a
   heap allocation that grows; hitting one is an ordinary Lisp error, not
   a crash.
+- **The object arena is fixed and exhaustible, and exhaustion is an
+  ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
+  never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
+  current pin as 56224 object slots and a 1096-frame evaluator stack.
+  A program that consumes all of them raises `out of memory` under the
+  condition `arena-exhaustion`, and a program that fills Fe's GC root
+  stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
+  Both sit under `error` in the hierarchy, so all three of these catch
+  them:
+
+  ```elisp
+  (condition-case e (make-a-lot) (t 'caught))
+  (condition-case e (make-a-lot) (error 'caught))
+  (condition-case e (make-a-lot) (arena-exhaustion 'caught))
+  ```
+
+  Fe pre-builds both condition objects when the context opens and keeps
+  them rooted, so signalling one allocates nothing — which is what makes
+  them catchable when there is no memory left to build a condition with.
+  A *named* raise that happens while the arena is full arrives as
+  `arena-exhaustion` rather than as its own name, because its condition
+  could not be built; a `quit` is unaffected, since it is matched by
+  completion kind rather than by object shape. Budget exhaustion (steps,
+  frames, native re-entry) remains catchable by nothing.
+
+  **Recovery depends on what the exhausting data was reachable from.**
+  Data held in a `let` local or an argument is unreachable the moment the
+  handler runs, so the next collection returns it and the session is
+  normal again. Data assigned to a *global* keeps the arena pinned: the
+  session stays alive and keeps reporting truthfully, but the space does
+  not come back. kg has no arena-reset command (`doc/TODO.md` records it
+  as debt); restarting is the recovery.
+- **`(command-execute "lisp-arena-stats")`** reports the arena's state to
+  the echo area: total slots, free slots, peak live objects, collections,
+  peak GC root depth, peak frames against `frame_capacity`, and the count
+  of failed allocations. It allocates nothing and mutates nothing, so it
+  is safe to call from inside a handler that has just caught an
+  `arena-exhaustion` — it is the one way for a program to see how much of
+  the arena came back. `M-x lisp-arena-stats` is the same command.
 
 ## Buffers, point and marks
 

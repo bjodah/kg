@@ -202,6 +202,18 @@ s-expression before point (in `*scratch*` and Lisp Interaction/Lisp buffers
 labelled errors are shown in the status area. A build made with `WITH_LISP=0`
 keeps all commands available and reports that Lisp was not compiled in.
 
+Lisp runs in a fixed 1 MiB arena that never grows, so a program can exhaust
+it — `out of memory` in the status area is that, not the host running out.
+Exhaustion is survivable and catchable: `(condition-case e BIG (error
+'caught))` catches it, and so does a handler naming `arena-exhaustion`
+(`evaluation-stack-exhaustion` for a full GC root stack). `M-x
+lisp-arena-stats` reports what is left — slots total/free/peak,
+collections, peak GC roots, peak frames against capacity, and failed
+allocations — and allocates nothing itself. An exhaustion whose data is
+reachable from a *global* keeps the arena pinned: the session stays alive
+and keeps reporting truthfully, but the space does not come back until kg
+is restarted.
+
 On startup kg loads `$XDG_CONFIG_HOME/kg/init.el` (falling back to
 `~/.config/kg/init.el`); a missing file is normal, and `-Q` skips loading
 entirely so a broken configuration can be repaired. Load errors show the

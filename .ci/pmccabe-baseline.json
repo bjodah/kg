@@ -283,6 +283,7 @@
   "src/cmd.c:cmd_kmacro_end_macro": 1,
   "src/cmd.c:cmd_kmacro_end_or_call": 2,
   "src/cmd.c:cmd_kmacro_start": 1,
+  "src/cmd.c:cmd_lisp_arena_stats": 2,
   "src/cmd.c:cmd_lisp_interaction_mode": 1,
   "src/cmd.c:cmd_list_buffers": 1,
   "src/cmd.c:cmd_lookup": 4,

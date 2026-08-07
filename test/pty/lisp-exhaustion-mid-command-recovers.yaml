@@ -1,0 +1,53 @@
+# Sub-plan 09D Part 3, 09A Table X's first kg row: mid-command exhaustion
+# with local data recovers fully.
+#
+# `M-:` builds a cons chain into a `let` local until the fixed 1 MiB arena
+# is out of object slots.  The chain is unreachable the moment the raise
+# unwinds the `let`, so the slots come back -- but not until something
+# asks for one, because Fe only collects when MakeObject finds the free
+# list empty.  Measured: immediately after the failure the arena reports
+# `0 free` with `fails 1`; after the next ordinary evaluation it reports
+# 51505 free and one more collection.  That ordering is why this case runs
+# a second, trivial `M-:` between the exhaustion and the diagnostics
+# command -- reading the counters is not itself an allocation, so the
+# command cannot show recovery it has not provoked.
+#
+# What survives the recovery is the count: `fails 1` is permanent for the
+# session, which is what makes the stats line worth having.
+#
+# No Emacs oracle: Emacs has no arena, so this is kg policy pinned against
+# kg's own measured behaviour.  120 columns because the stats line is ~82.
+name: lisp-exhaustion-mid-command-recovers
+filename: lisp-exhaustion-recover.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+initial: ""
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (let ((l nil)) (while t (setq l (cons 1 l))))
+  - RET
+  - M-x
+  - eval-expression
+  - RET
+  - (+ 1 2)
+  - RET
+  - M-x
+  - lisp-arena-stats
+  - RET
+  - o
+  - k
+# The next command is normal: the typed text reaches the buffer and saves.
+expected_saved: ok
+expected_screen_contains:
+  # Exactly one allocation failed, and it was counted.
+  - "; fails 1"
+  # The arena is the same arena it was before the failure.
+  - "Arena: 56224 slots,"
+expected_screen_not_contains:
+  # The failure did not leave the arena pinned -- that rendering is what
+  # lisp-exhaustion-mid-init-visible asserts instead.
+  - ", 0 free,"
+  - "Lisp not available"

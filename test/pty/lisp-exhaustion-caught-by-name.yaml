@@ -1,0 +1,59 @@
+# Sub-plan 09D Part 3: an out-of-memory caught *by name*, end to end
+# inside the editor, at both of the seams a person can reach -- an init
+# file and an interactive `M-:`.  This is the whole point of the fe half
+# of Phase 9 (09B).
+#
+# Before this pin both halves failed: the raise degraded the condition
+# object to nil, `ConditionMatches` answered false for every named
+# handler, and only `(t ...)` could contain an exhaustion.  Now
+# `arena-exhaustion` is a pre-built, rooted condition whose parent is
+# `error`, so an init file can handle running out of memory the way it
+# handles anything else -- and the forms after it still run, which is what
+# `show-exhaustion` proves by existing, being bound, and inserting.
+#
+# One exhaustion per top-level evaluation, deliberately: the step budget
+# (KG_LISP_STEP_LIMIT, 2^20) is per `kg_lisp_load_file`/`M-:` call, not
+# per form, and two arena-filling loops in one init file exhaust the
+# budget before the second exhausts the arena -- measured, and the reason
+# the second handler shape is an `M-:` here rather than a third form in
+# the file.  The remaining shapes (`(t ...)`, the condition object read
+# back through the handler variable, the non-matching name that still
+# escapes) are pinned in test_lisp.c:test_arena_exhaustion_conditions.
+#
+# No Emacs oracle: Emacs has no arena to exhaust.
+name: lisp-exhaustion-caught-by-name
+filename: lisp-exhaustion-caught.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- catches its own out-of-memory, by name.
+    (setq exhaustion-by-name
+      (condition-case e
+          (let ((l nil)) (while t (setq l (cons 1 l))))
+        (arena-exhaustion 'by-name)))
+    (defun show-exhaustion ()
+      "Append what the init file's handler caught."
+      (interactive)
+      (goto-char (point-max))
+      (insert (format "%s" exhaustion-by-name)))
+    (global-set-key "C-c e" "show-exhaustion")
+initial: "caught:"
+keys:
+  # The init file's handler ran, the file kept loading past it, and the
+  # command it defined is bound and works.
+  - C-c
+  - e
+  # ... and the same catch works from an interactive evaluation, in a
+  # session whose arena has already been filled and recovered once.
+  - M-x
+  - eval-expression
+  - RET
+  - (condition-case e (let ((l nil)) (while t (setq l (cons 1 l)))) (arena-exhaustion 'cmd-by-name))
+  - RET
+expected_saved: "caught:by-name"
+expected_screen_contains:
+  - "cmd-by-name"
+expected_screen_not_contains:
+  - "out of memory"

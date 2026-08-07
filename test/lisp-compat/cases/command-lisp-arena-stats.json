@@ -1,0 +1,6 @@
+{
+ "id": "command-lisp-arena-stats",
+ "setup": [],
+ "expr": "(command-execute \"lisp-arena-stats\")",
+ "note": "Runs kg's arena-diagnostics command through cmd_invoke(), which prints one echo-area line built from FeGetArenaStats' counters and returns nil. No Emacs equivalent: Emacs has no fixed arena, so there is nothing for an oracle to answer."
+}

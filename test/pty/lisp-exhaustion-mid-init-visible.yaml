@@ -1,0 +1,48 @@
+# Sub-plan 09D Part 3, 09A Table X's third kg row and Decision 3: an init
+# file that exhausts into a *global* leaves the session alive, correctly
+# reporting, and useless -- and Phase 9 makes that state visible rather
+# than rescuable.
+#
+# The chain is assigned to a global, so it is still reachable when the
+# raise happens and the collector has nothing to give back.  The editor
+# comes up, reports `Init file error` with the arena's own message, and
+# keeps working on what little it can recycle; `M-x lisp-arena-stats` is
+# the only way to tell this session from a healthy one, which is the whole
+# reason the command exists.
+#
+# Deliberately NOT rescued: 09A Decision 3 left a reset/GC command to a
+# future phase (doc/TODO.md carries it as debt).  This case pins the
+# current state; when a reset command lands it will need a second case,
+# not a rewrite of this one.
+#
+# No Emacs oracle: Emacs has no arena.  120 columns for the stats line.
+name: lisp-exhaustion-mid-init-visible
+filename: lisp-exhaustion-init.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- exhausts the arena into a global.
+    (setq init-exhaustion-first 'reached)
+    (setq init-exhaustion-chain nil)
+    (while t
+      (setq init-exhaustion-chain (cons 1 init-exhaustion-chain)))
+    (setq init-exhaustion-unreached 'no)
+initial: ""
+keys:
+  - M-x
+  - lisp-arena-stats
+  - RET
+  - o
+  - k
+# The editor is alive: the keys after the diagnostics command still edit
+# and the file is still written.
+expected_saved: ok
+expected_screen_contains:
+  # The arena is pinned by the global the init file left behind: no free
+  # slots, and the peak is the whole arena.
+  - "Arena: 56224 slots, 0 free, peak 56224;"
+  - "; fails "
+expected_screen_not_contains:
+  - "Lisp not available"

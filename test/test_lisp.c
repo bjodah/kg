@@ -3171,6 +3171,137 @@ static void test_recursion_depth(void)
 	kg_lisp_shutdown();
 }
 
+/* Exhaustion of the fixed arena, from kg's own evaluator entry point.
+ *
+ * Sub-plan 09D Part 3, and the kg half of 09A's Table X.  Fe sub-plan 09B
+ * pre-builds `(arena-exhaustion)` and `(evaluation-stack-exhaustion)` at
+ * FeOpenContext and keeps them rooted, so signalling one allocates
+ * nothing -- which is what makes an out-of-memory catchable by a handler
+ * that has to *name* a condition.  Before that pin only `(t ...)` caught
+ * it: the raise degraded the condition object to nil and ConditionMatches,
+ * which walks a pair to reach the hierarchy, answered false for every
+ * named handler.  This asserts the new contract through
+ * kg_lisp_eval_string(), the same entry point M-: and an init file use,
+ * rather than through fe's own test harness.
+ *
+ * There is no Emacs oracle for any of this and there deliberately is not
+ * one: Emacs has no arena, so `comparison: kg-policy` is what
+ * test/lisp-compat/features.json's `arena-exhaustion-catchable-by-name`
+ * row records.
+ *
+ * Three things it pins that must NOT change with it: a Budget wall (the
+ * step limit) is still caught by nothing, not even `(t ...)`, per 09A
+ * Decision 2; a chain built into a `let` local is collectable again the
+ * moment the handler runs, so the session recovers fully; and a chain
+ * built into a *global* keeps the arena pinned afterwards -- 09A
+ * Decision 3's "recorded, not rescued", which doc/TODO.md carries as the
+ * reset-command debt.  The final kg_lisp_shutdown() is the exhausted
+ * session's teardown; the suite runs under the sanitizer lanes' leak
+ * checkers, so "it shut down without leaking" needs no separate gate. */
+static void test_arena_exhaustion_conditions(void)
+{
+	/* Built into a let-local, so the chain is unreachable the instant
+	 * the handler frame is entered and the handler is free to allocate. */
+	static const char fill_local[]
+	    = "(let ((l nil)) (while t (setq l (cons 1 l))))";
+	struct kg_lisp_arena_stats fresh, caught, pinned;
+	char form[256];
+
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&fresh) == 0);
+	CHECK(fresh.allocation_failures == 0);
+	CHECK(fresh.free_slots * 2 > fresh.total_slots);
+
+	/* 1. `(t ...)` -- the one handler shape that worked before the pin. */
+	snprintf(form, sizeof(form), "(condition-case e %s (t 'caught))",
+	    fill_local);
+	CHECK(eval_eq(form, "caught"));
+	CHECK(kg_lisp_arena_stats(&caught) == 0);
+	CHECK(caught.allocation_failures == fresh.allocation_failures + 1);
+	CHECK(caught.total_slots == fresh.total_slots);
+	CHECK(caught.free_slots > 0);
+	/* Ordinary evaluation between rounds: the session is not damaged. */
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* 2. `(error ...)` -- the generic named handler, which is what an
+	 * init file or a package actually writes.  This is the assertion
+	 * that would have failed at every pin before this one. */
+	snprintf(form, sizeof(form), "(condition-case e %s (error 'caught))",
+	    fill_local);
+	CHECK(eval_eq(form, "caught"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* 3. The specific name, and what the handler's variable is bound to:
+	 * the pre-built condition object, not nil. */
+	snprintf(form, sizeof(form),
+	    "(condition-case e %s (arena-exhaustion 'caught))", fill_local);
+	CHECK(eval_eq(form, "caught"));
+	snprintf(form, sizeof(form), "(condition-case e %s (error e))",
+	    fill_local);
+	CHECK(eval_eq(form, "(arena-exhaustion)"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* 4. The hierarchy is a real answer, not a catch-all: an unrelated
+	 * named handler still lets the exhaustion through to the host, and
+	 * the host still renders the same message text it always did. */
+	snprintf(form, sizeof(form),
+	    "(condition-case e %s (arith-error 'caught))", fill_local);
+	CHECK(eval_error_contains(form, "out of memory"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* 5. Budget stays uncatchable (09A Decision 2): the step wall is not
+	 * a condition, and `(t ...)` does not see it. */
+	CHECK(eval_error_contains(
+	    "(condition-case e (while t 1) (t 'caught))", "step limit"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* 6. Rooted exhaustion is recorded, not rescued (09A Decision 3),
+	 * and the measured answer is sharper than "it is not rescued": the
+	 * handler does not even run.  The same chain built into a *global*
+	 * is still reachable when the raise happens, so the collector has
+	 * nothing to give back, and entering a `condition-case` handler that
+	 * binds a variable is itself an allocation -- fe's handler-re-entry
+	 * rule (09B) says a handler that cannot allocate re-raises, and with
+	 * no enclosing handler the re-raise reaches the host.  So this is the
+	 * one exhaustion shape in this test that is *reported* rather than
+	 * caught, and the report is the same text as always.
+	 *
+	 * Measured here: rc 1, "eval:1: out of memory", free_slots 0,
+	 * allocation_failures 7. */
+	CHECK(eval_ok("(setq exhaustion-global nil)"));
+	CHECK(eval_error_contains("(condition-case e"
+				  " (while t (setq exhaustion-global"
+				  " (cons 1 exhaustion-global)))"
+				  " (error 'caught))",
+	    "out of memory"));
+	CHECK(kg_lisp_arena_stats(&pinned) == 0);
+	CHECK(pinned.total_slots == fresh.total_slots);
+	CHECK(pinned.free_slots * 100 < pinned.total_slots);
+	CHECK(pinned.allocation_failures > caught.allocation_failures);
+
+	/* 7. ... and the session is alive, correctly reporting, and useless
+	 * -- 09A's three words for this state, each asserted.  Ordinary
+	 * evaluation still answers, and a handler still catches an ordinary
+	 * error, because the collector can still recycle what the *new* form
+	 * allocates; what it cannot do is return the pinned chain.  This is
+	 * the state M-x lisp-arena-stats exists to make visible, and the
+	 * reset command doc/TODO.md records is what would end it. */
+	CHECK(eval_eq("(+ 1 2)", "3"));
+	CHECK(eval_eq("(condition-case nil (car 1) (error 'ok))", "ok"));
+	CHECK(kg_lisp_arena_stats(&pinned) == 0);
+	CHECK(pinned.free_slots * 100 < pinned.total_slots);
+
+	kg_lisp_shutdown();
+
+	/* And a fresh context after an exhausted one is a fresh context. */
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&fresh) == 0);
+	CHECK(fresh.allocation_failures == 0);
+	CHECK(fresh.free_slots * 2 > fresh.total_slots);
+	CHECK(eval_eq("(+ 1 2)", "3"));
+	kg_lisp_shutdown();
+}
+
 /* Sub-plan 01A's second test path: lisp/prelude.el is the canonical source
  * and src/lisp_prelude_generated.inc is a generated copy of it that kg
  * evaluates at startup.  `make lisp-prelude-check` proves those two files
@@ -4231,6 +4362,7 @@ int main(void)
 	RUN(test_void_variable);
 	RUN(test_cyclic_result);
 	RUN(test_recursion_depth);
+	RUN(test_arena_exhaustion_conditions);
 	RUN(test_condition_case_native_error);
 	RUN(test_catch_throw_unwind);
 	RUN(test_wrapping_native_transparency);

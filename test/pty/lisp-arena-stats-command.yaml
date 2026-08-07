@@ -1,0 +1,37 @@
+# Sub-plan 09D Part 2.  The arena-diagnostics command's output, on a real
+# terminal.  test/lisp-compat/features.json's `command-lisp-arena-stats`
+# row cites this case and test_cmd.c:test_lisp_arena_stats_renders; that
+# one pins the rendering in-process, this one pins that the same line
+# reaches the echo area of a live editor.
+#
+# No Emacs oracle, by design: Emacs has no arena, no fixed slot count and
+# no collector of fe's shape, so this is kg policy pinned against kg's own
+# measured behaviour (the 09 set's compatibility-direction note).
+#
+# The wide terminal is deliberate: the line is ~82 columns on a session
+# that has only loaded the prelude, and an 80-column screen would truncate
+# the `fails` field this case exists to read.
+name: lisp-arena-stats-command
+filename: lisp-arena-stats.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+initial: ""
+keys:
+  - M-x
+  - lisp-arena-stats
+  - RET
+  - o
+  - k
+expected_saved: ok
+expected_screen_contains:
+  # The counters, in the order the renderer writes them.  56224 slots and
+  # a 1096-frame capacity are this arena's measured partitioning at the
+  # Phase 9 pin (doc/fe-upstream.md's row); `fails 0` is the claim that a
+  # session which has only booted has never failed an allocation.
+  - "Arena: 56224 slots,"
+  - " free, peak "
+  - "; GC 0; roots "
+  - "/1096; fails 0"
+expected_screen_not_contains:
+  - "Lisp not available"

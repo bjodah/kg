@@ -2185,6 +2185,19 @@
    "source_name": null
   },
   {
+   "id": "arena-exhaustion-catchable-by-name",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "arena-exhaustion-catchable-by-name"
+   ],
+   "kg_test": "test/test_lisp.c:test_arena_exhaustion_conditions",
+   "rationale": "Phase 9 (fe sub-plan 09B) made exhaustion of kg's fixed 1 MiB arena raise the pre-built condition (arena-exhaustion), which sits under `error` in fe's hierarchy, so `(t ...)`, `(error ...)` and the name itself all catch it; before the Phase 9 pin only `(t ...)` did, because the raise path degraded the condition object to nil. A full GC root stack is (evaluation-stack-exhaustion) on the same terms. comparison is kg-policy and no oracle snapshot exists on purpose: Emacs has no arena to exhaust, so this is kg's measured behaviour pinned against itself, per the 09 set's compatibility direction. The cited kg_test drives all three handler shapes through kg's own evaluator entry point (kg_lisp_eval_string), asserts the arena is usable again afterwards and that allocation_failures counted the failure, and pins the two things that must NOT change: a budget exhaustion is still caught by nothing, and a chain rooted in a global still pins the arena (09A Decision 3 -- recorded, not rescued). test/pty/lisp-exhaustion-caught-by-name.yaml is the same contract from inside the editor.",
+   "source_name": null
+  },
+  {
    "id": "phase7-interactive-code-n",
    "category": "interactive-commands",
    "status": "supported",
@@ -2325,6 +2338,19 @@
    ],
    "kg_test": "test/test_buffer.c:test_buf_select_interactive_no_other_buffers, test/test_buffer.c:test_buf_read_name_modes",
    "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone.",
+   "source_name": null
+  },
+  {
+   "id": "command-lisp-arena-stats",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "command-lisp-arena-stats"
+   ],
+   "kg_test": "test/test_cmd.c:test_lisp_arena_stats_renders",
+   "rationale": "Sub-plan 09D's arena-diagnostics command, and the second entry in this manifest that is a cmdtable row rather than a native. comparison is kg-policy because there is nothing to compare against: Emacs has no fixed arena, no slot count, and no collector of fe's shape, so agreement with the pinned oracle is undefined for every field it prints. The cited kg_test asserts the rendered echo-area line in-process against a live arena (the `Arena: N slots, ` prefix built from FeGetArenaStats' own total_slots, the `; fails 0` of a session that has only booted, and the free/peak and frames/capacity pairs); test/pty/lisp-arena-stats-command.yaml asserts the same line reaching a real terminal, including the measured 56224 slots and 1096-frame capacity of kg's 1 MiB arena at the Phase 9 pin. The command is CMD_LISP_CALLABLE and not CMD_EDITS_BUFFER: kg_lisp_arena_stats() allocates nothing and mutates no Fe state, so a handler that has just caught an arena-exhaustion may call it to see how much of the arena came back.",
    "source_name": null
   },
   {

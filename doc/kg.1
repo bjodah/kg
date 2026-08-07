@@ -2015,6 +2015,18 @@ Bound to
 .Ic F3
 and
 .Ic C-x \&( .
+.It lisp-arena-stats
+Report the state of the fixed Lisp arena in the status area: total object
+slots, free slots, the high-water mark of live objects, the number of
+collections, the peak GC root-stack depth, the peak evaluator frame depth
+against the arena's frame capacity, and the number of allocations that
+failed.
+It allocates nothing and changes nothing, so asking cannot alter the
+answer, and it is the way to see whether a session that reported
+.Ql out of memory
+recovered.
+Also callable from Lisp as
+.Ql (command-execute "lisp-arena-stats") .
 .It lisp-interaction-mode
 Enable Lisp Interaction mode in the current buffer.
 In this mode

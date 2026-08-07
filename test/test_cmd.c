@@ -14,13 +14,18 @@
 #include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/keyevent.h"
+#include "../src/lisp.h"
 #include "test.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* The 11 commands Lisp's (command-execute ...) accepted before the
- * allow-list in lisp.c was deleted.  cmd_invoke() must still accept
- * exactly these and no others. */
+ * allow-list in lisp.c was deleted, plus every command a later slice
+ * deliberately added to the set (below).  cmd_invoke() must still accept
+ * exactly the two lists together and nothing else -- the point of this
+ * test is that widening the set is a decision somebody wrote down, not a
+ * flag that drifted. */
 static const char *const historical_lisp_callable[] = {
 	"capitalize-word",
 	"delete-horizontal-space",
@@ -33,6 +38,18 @@ static const char *const historical_lisp_callable[] = {
 	"upcase-word",
 	"version",
 	"what-cursor-position",
+};
+
+/* Deliberate additions, one line of reason each.
+ *
+ * lisp-arena-stats (sub-plan 09D): the arena-diagnostics command.  It
+ * reads Fe's counters through kg_lisp_arena_stats(), which allocates
+ * nothing and mutates no state, and its whole effect is one echo-area
+ * line -- the same shape as `version`, which has been Lisp-callable
+ * since before the allow-list was deleted.  A Lisp program that has just
+ * caught an `arena-exhaustion` is exactly the caller that wants it. */
+static const char *const added_lisp_callable[] = {
+	"lisp-arena-stats",
 };
 
 static int table_size(void)
@@ -87,20 +104,27 @@ static void test_every_entry_has_a_handler_and_summary(void)
 
 static void test_lisp_callable_set_is_the_historical_one(void)
 {
-	size_t k,
-	    expected = sizeof(historical_lisp_callable)
-	    / sizeof(*historical_lisp_callable);
+	static const char *const *const lists[]
+	    = { historical_lisp_callable, added_lisp_callable };
+	static const size_t lengths[] = {
+		sizeof(historical_lisp_callable)
+		    / sizeof(*historical_lisp_callable),
+		sizeof(added_lisp_callable) / sizeof(*added_lisp_callable),
+	};
+	size_t k, list, expected = lengths[0] + lengths[1];
 	int i, n = table_size(), found = 0;
 
-	for (k = 0; k < expected; k++) {
-		const struct named_cmd *cmd
-		    = cmd_lookup(historical_lisp_callable[k]);
+	for (list = 0; list < sizeof(lists) / sizeof(*lists); list++) {
+		for (k = 0; k < lengths[list]; k++) {
+			const struct named_cmd *cmd
+			    = cmd_lookup(lists[list][k]);
 
-		CHECKF(cmd != NULL, "%s is gone from the table",
-		    historical_lisp_callable[k]);
-		if (cmd) {
-			CHECKF(cmd->flags & CMD_LISP_CALLABLE,
-			    "%s lost CMD_LISP_CALLABLE", cmd->name);
+			CHECKF(cmd != NULL, "%s is gone from the table",
+			    lists[list][k]);
+			if (cmd) {
+				CHECKF(cmd->flags & CMD_LISP_CALLABLE,
+				    "%s lost CMD_LISP_CALLABLE", cmd->name);
+			}
 		}
 	}
 	for (i = 0; i < n; i++) {
@@ -123,8 +147,8 @@ static void test_lisp_callable_mutation_verdicts(void)
 	    = { "capitalize-word", "delete-horizontal-space",
 		      "delete-trailing-space", "downcase-word", "join-line",
 		      "just-one-space", "transpose-chars", "upcase-word" };
-	static const char *const not_mutating[]
-	    = { "electric-pair-mode", "version", "what-cursor-position" };
+	static const char *const not_mutating[] = { "electric-pair-mode",
+		"lisp-arena-stats", "version", "what-cursor-position" };
 	size_t i;
 
 	for (i = 0; i < sizeof(mutating) / sizeof(*mutating); i++) {
@@ -444,12 +468,54 @@ static void test_descriptors_are_reachable_by_id(void)
 	}
 }
 
+/* The diagnostics command's actual output, not just its table row.
+ *
+ * Sub-plan 09D's manifest row (test/lisp-compat/features.json,
+ * `command-lisp-arena-stats`) cites this test and test/pty/
+ * lisp-arena-stats-command.yaml: this one pins the rendering against a
+ * live arena in-process, the PTY case pins that the same line reaches a
+ * real terminal's echo area.  The numbers themselves are the arena's, so
+ * this asserts the shape and the two facts that must hold for a session
+ * that has only ever loaded the prelude: no allocation has failed, and
+ * the total is Fe's own total_slots.
+ *
+ * Under WITH_LISP=0 the same command reports "Lisp not available",
+ * which is the other half of the contract and is asserted here too. */
+static void test_lisp_arena_stats_renders(void)
+{
+	char expected[128];
+	struct kg_lisp_arena_stats stats;
+
+	if (!kg_lisp_active()) {
+		editor.statusmsg[0] = '\0';
+		CHECK(run("lisp-arena-stats", CMD_ORIGIN_LISP) == CMD_RAN);
+		CHECK(strcmp(editor.statusmsg, "Lisp not available") == 0);
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+	editor.statusmsg[0] = '\0';
+	CHECK(run("lisp-arena-stats", CMD_ORIGIN_LISP) == CMD_RAN);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	snprintf(expected, sizeof(expected), "Arena: %zu slots, ",
+	    stats.total_slots);
+	CHECKF(strncmp(editor.statusmsg, expected, strlen(expected)) == 0,
+	    "rendered %s", editor.statusmsg);
+	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
+	    editor.statusmsg);
+	CHECKF(strstr(editor.statusmsg, " free, peak ") != NULL, "rendered %s",
+	    editor.statusmsg);
+	CHECKF(strstr(editor.statusmsg, "; frames ") != NULL, "rendered %s",
+	    editor.statusmsg);
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
 	RUN(test_every_entry_has_a_handler_and_summary);
 	RUN(test_lisp_callable_set_is_the_historical_one);
 	RUN(test_lisp_callable_mutation_verdicts);
+	RUN(test_lisp_arena_stats_renders);
 	RUN(test_lookup_edges);
 	RUN(test_static_ids_are_table_slots);
 	RUN(test_identity_is_published_for_every_origin);

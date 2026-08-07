@@ -121,6 +121,43 @@ static void display_lisp_result(int error, const char *result)
 	}
 }
 
+/* How full is the fixed Lisp arena, and what has it been through?
+ *
+ * Sub-plan 09D.  Fe's arena counters have existed since Phase 0 and
+ * nothing in the editor could read them: an exhausted session was alive,
+ * correctly reporting, and completely opaque.  Phase 9 made exhaustion a
+ * condition a handler can name; this makes the state behind it visible.
+ *
+ * Read-only in the strongest sense the table has: kg_lisp_arena_stats()
+ * copies Fe's counters and allocates nothing, so asking cannot change the
+ * answer -- which is also why it is safe under CMD_LISP_CALLABLE and why
+ * it is not CMD_EDITS_BUFFER.  Every field is a size_t rendered with
+ * %zu, so there is no caller-supplied text on this line at all: nothing
+ * kg read from a file or a Lisp program can become terminal syntax here,
+ * and the line reaches the screen through the echo area's ordinary
+ * display_glyph_at() path like every other message.
+ *
+ * `frames` is peak-of-capacity because that pair is the one bound a
+ * person can act on (09A Table X's frame row); slots, collections, roots
+ * and failures are counts. */
+static void cmd_lisp_arena_stats(int fd)
+{
+	struct kg_lisp_arena_stats stats;
+
+	(void)fd;
+	if (kg_lisp_arena_stats(&stats) != 0) {
+		editor_set_status_message("Lisp not available");
+		return;
+	}
+	editor_set_status_message(
+	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
+	    "frames %zu/%zu; fails %zu",
+	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
+	    stats.collection_count, stats.peak_gc_stack_depth,
+	    stats.peak_frame_depth, stats.frame_capacity,
+	    stats.allocation_failures);
+}
+
 /* Emacs' read-expression-history. */
 static struct minibuf_history eval_expression_history;
 
@@ -1563,6 +1600,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Finish recording a macro, or replay the last one" },
 	{ "kmacro-start-macro", cmd_kmacro_start, CMD_NONE,
 	    "Start recording a keyboard macro" },
+	{ "lisp-arena-stats", cmd_lisp_arena_stats, LISP_OK,
+	    "Report the Lisp arena's slots, collections and frames" },
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
 	{ "list-buffers", cmd_list_buffers, CMD_NONE, "Show the buffer list" },

@@ -1,0 +1,47 @@
+# Sub-plan 09D Part 3, 09A Table X's second kg row: mid-hook exhaustion
+# reports and the host operation completes.
+#
+# `before-save-hook` runs a function that exhausts the arena into a `let`
+# local.  Both halves are asserted here, and they are the whole row:
+#
+#   * the host operation completes -- the file holds what was typed, saved
+#     by a save whose hook had just run the arena out.  The hook seam
+#     (src/lisp_hooks.c's guarded run) contains the completion instead of
+#     letting it unwind through the editor.
+#   * it is reported, not swallowed -- `Hook error (before-save-hook): out
+#     of memory` is what the echo area is left showing.  Measured: the
+#     hook's diagnostic lands after the save's own "Wrote ..." message, so
+#     it is the surviving one.
+#
+# The exhaustion's other trace, `fails 1` in the arena counters, is pinned
+# by lisp-exhaustion-mid-command-recovers; there is one echo area, so a
+# case cannot read both the message and the diagnostics command's line.
+#
+# No Emacs oracle: Emacs has no arena, no hook seam of this shape, and no
+# out-of-memory a Lisp program can reach on purpose.
+name: lisp-exhaustion-mid-hook-reports
+filename: lisp-exhaustion-hook.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- a before-save-hook that runs the arena out.
+    (defun exhaust-before-save ()
+      (let ((l nil))
+        (while t (setq l (cons 1 l)))))
+    (add-hook 'before-save-hook 'exhaust-before-save)
+initial: ""
+keys:
+  - s
+  - a
+  - v
+  - e
+  - d
+  - C-x
+  - C-s
+expected_saved: saved
+expected_screen_contains:
+  - "Hook error (before-save-hook): out of memory"
+expected_screen_not_contains:
+  - "Lisp not available"

@@ -548,6 +548,25 @@ static void test_footer_continued_compile_command(void)
 	CHECK(s.malformed_entries == 0);
 }
 
+/* A prefix and a suffix that overlap can both match a line shorter than
+ * the two together -- "aaa"/"aaa" against "aaaa".  Such a line is outside
+ * the envelope; before CX-A/2 the continuation reader took it as a body
+ * of length -2 and handed that straight to memcpy(). */
+static void test_footer_overlapping_prefix_suffix_no_body(void)
+{
+	const char *lines[] = {
+		"aaaLocal Variables:aaa",
+		"aaacompile-command: \"x\\aaa",
+		"aaaa",
+		"aaaEnd:aaa",
+	};
+	struct local_settings s;
+
+	s = parse_footer_lines(lines, 4);
+	CHECK(s.compile_command_set == false);
+	CHECK(s.malformed_entries == 1);
+}
+
 static void test_footer_override_modeline(void)
 {
 	erow modeline_row[1];
@@ -1096,6 +1115,7 @@ int main(void)
 	RUN(test_footer_outside_3000_bytes);
 	RUN(test_footer_form_feed_excludes_early_block);
 	RUN(test_footer_continued_compile_command);
+	RUN(test_footer_overlapping_prefix_suffix_no_body);
 	RUN(test_footer_override_modeline);
 	RUN(test_footer_invalid_ro_value);
 	RUN(test_dl_read_only_t);

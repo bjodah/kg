@@ -1035,313 +1035,305 @@ int dirlocals_parse(
 	return 0;
 }
 
-int localvars_parse_footer(
-    const erow *rows, int row_count, struct local_settings *out)
+/* The `Local Variables:` block's shape: the comment prefix and suffix
+ * that its opening line established -- whatever sat before and after the
+ * marker there -- and the lines that opened and closed it. */
+struct footer_block {
+	const char *prefix;
+	int prefix_len;
+	const char *suffix;
+	int suffix_len;
+	int start_line;
+	int end_line;
+};
+
+/* True when `ln` carries the block's comment prefix and suffix; the body
+ * between them is handed back UNTRIMMED, because the continuation reader
+ * needs the trailing backslash and the leading blanks a trim would eat.
+ *
+ * A line can satisfy both tests and still have no body, when the two
+ * overlap -- prefix "aaa", suffix "aaa" and the line "aaaa" match at once
+ * -- which is a line outside the envelope, not a body of length -2. */
+static bool footer_line_body(const char *ln, int ll,
+    const struct footer_block *b, const char **body, int *body_len)
 {
-	char window[FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA];
-	const char *lines[FOOTER_MAX_LINES];
-	int line_lens[FOOTER_MAX_LINES];
-	int nlines, wpos, total, cut, sofar, eff_start, eff_len;
-	int start_line, end_line, prefix_len, suffix_len;
-	const char *prefix, *suffix;
+	int n;
 
-	local_settings_init(out);
-	if (row_count <= 0 || rows == NULL) {
-		return -1;
+	if (ll < b->prefix_len) {
+		return false;
+	}
+	if (b->prefix_len > 0
+	    && memcmp(ln, b->prefix, (size_t)b->prefix_len) != 0) {
+		return false;
+	}
+	if (b->suffix_len > 0
+	    && (ll < b->suffix_len
+		|| memcmp(ln + ll - b->suffix_len, b->suffix,
+		       (size_t)b->suffix_len)
+		    != 0)) {
+		return false;
 	}
 
-	total = 0;
+	n = ll - b->prefix_len - b->suffix_len;
+	if (n < 0) {
+		return false;
+	}
+	*body = ln + b->prefix_len;
+	*body_len = n;
+	return true;
+}
+
+/* Copy the buffer's last FOOTER_TAIL_BYTES into `window`, rows rejoined
+ * with newlines and the result NUL-terminated.  Emacs looks for the
+ * footer near the end of the file, so what precedes that window is not a
+ * candidate.  Returns the length written. */
+static int footer_build_window(
+    const erow *rows, int row_count, char *window, size_t window_size)
+{
+	const int cap = (int)window_size - 1;
+	int total = 0, sofar = 0, wpos = 0, cut;
+
 	for (int i = 0; i < row_count; i++) {
-		total += rows[i].size;
-		if (i < row_count - 1) {
-			total++;
-		}
+		total += rows[i].size + (i < row_count - 1 ? 1 : 0);
 	}
-
 	cut = total > FOOTER_TAIL_BYTES ? total - FOOTER_TAIL_BYTES : 0;
-	wpos = 0;
-	sofar = 0;
 
-	for (int i = 0;
-	    i < row_count && wpos < FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1;
-	    i++) {
+	for (int i = 0; i < row_count && wpos < cap; i++) {
 		int row_start = sofar;
 		int row_end = sofar + rows[i].size;
 
 		if (row_end > cut) {
 			int skip = row_start < cut ? cut - row_start : 0;
 			int copy = row_end - (row_start + skip);
-			int room
-			    = FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1 - wpos;
 
-			if (copy > room) {
-				copy = room;
+			if (copy > cap - wpos) {
+				copy = cap - wpos;
 			}
-			memcpy(window + wpos, rows[i].chars + skip, copy);
+			memcpy(
+			    window + wpos, rows[i].chars + skip, (size_t)copy);
 			wpos += copy;
 		}
 		sofar = row_end;
 
-		if (i < row_count - 1 && sofar >= cut
-		    && wpos < FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA - 1) {
+		if (i < row_count - 1 && sofar >= cut && wpos < cap) {
 			window[wpos++] = '\n';
 		}
 		sofar += (i < row_count - 1) ? 1 : 0;
 	}
 	window[wpos] = '\0';
+	return wpos;
+}
 
-	eff_start = 0;
+/* Split the window's last form-feed-delimited page into lines.  A block
+ * before the last `\f` belongs to an earlier page and is not the file's
+ * footer, so the split starts after it.  Returns the line count. */
+static int footer_split_lines(
+    const char *window, int wpos, const char **lines, int *line_lens)
+{
+	const char *end = window + wpos;
+	const char *p = window;
+	const char *ls;
+	int nlines = 0;
+
 	for (int j = wpos - 1; j >= 0; j--) {
 		if (window[j] == '\f') {
-			eff_start = j + 1;
+			p = window + j + 1;
 			break;
 		}
 	}
-	eff_len = wpos - eff_start;
 
-	nlines = 0;
-	{
-		const char *p = window + eff_start;
-		const char *end = p + eff_len;
-		const char *ls = p;
-
-		while (p < end && nlines < FOOTER_MAX_LINES) {
-			if (*p == '\n') {
-				lines[nlines] = ls;
-				line_lens[nlines] = (int)(p - ls);
-				nlines++;
-				ls = p + 1;
-			}
-			p++;
-		}
-		if (ls < end && nlines < FOOTER_MAX_LINES) {
+	ls = p;
+	while (p < end && nlines < FOOTER_MAX_LINES) {
+		if (*p == '\n') {
 			lines[nlines] = ls;
-			line_lens[nlines] = (int)(end - ls);
+			line_lens[nlines] = (int)(p - ls);
 			nlines++;
+			ls = p + 1;
 		}
+		p++;
 	}
-
-	start_line = -1;
-	prefix = NULL;
-	prefix_len = 0;
-	suffix = NULL;
-	suffix_len = 0;
-
-	{
-		const char marker[] = "Local Variables:";
-		const int marker_len = (int)(sizeof(marker) - 1);
-
-		for (int li = 0; li < nlines; li++) {
-			const char *ln = lines[li];
-			int ll = line_lens[li];
-
-			for (int p = 0; p <= ll - marker_len; p++) {
-				int match = 1;
-				for (int k = 0; k < marker_len; k++) {
-					if (tolower((unsigned char)ln[p + k])
-					    != tolower(
-						(unsigned char)marker[k])) {
-						match = 0;
-						break;
-					}
-				}
-				if (match) {
-					start_line = li;
-					prefix = ln;
-					prefix_len = p;
-					suffix = ln + p + marker_len;
-					suffix_len = ll - p - marker_len;
-					break;
-				}
-			}
-			if (start_line >= 0) {
-				break;
-			}
-		}
+	if (ls < end && nlines < FOOTER_MAX_LINES) {
+		lines[nlines] = ls;
+		line_lens[nlines] = (int)(end - ls);
+		nlines++;
 	}
+	return nlines;
+}
 
-	if (start_line < 0) {
-		return -1;
-	}
+/* Find the `Local Variables:` line, matched case-insensitively, and read
+ * the comment envelope off it: whatever precedes the marker is the prefix
+ * every line of the block must carry, whatever follows it the suffix. */
+static bool footer_find_start(const char **lines, const int *line_lens,
+    int nlines, struct footer_block *b)
+{
+	static const char marker[] = "Local Variables:";
+	const int marker_len = (int)sizeof(marker) - 1;
 
-	end_line = -1;
-	for (int li = start_line + 1; li < nlines; li++) {
+	for (int li = 0; li < nlines; li++) {
 		const char *ln = lines[li];
 		int ll = line_lens[li];
+
+		for (int p = 0; p <= ll - marker_len; p++) {
+			int k = 0;
+
+			while (k < marker_len
+			    && tolower((unsigned char)ln[p + k])
+				== tolower((unsigned char)marker[k])) {
+				k++;
+			}
+			if (k < marker_len) {
+				continue;
+			}
+			b->start_line = li;
+			b->prefix = ln;
+			b->prefix_len = p;
+			b->suffix = ln + p + marker_len;
+			b->suffix_len = ll - p - marker_len;
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Find the block's `End:` line, inside the same envelope.  A block the
+ * text runs out on is not a block at all. */
+static bool footer_find_end(const char **lines, const int *line_lens,
+    int nlines, struct footer_block *b)
+{
+	for (int li = b->start_line + 1; li < nlines; li++) {
 		const char *body;
 		int body_len;
 
-		if (ll < prefix_len) {
+		if (!footer_line_body(
+			lines[li], line_lens[li], b, &body, &body_len)) {
 			continue;
 		}
-		if (prefix_len > 0 && memcmp(ln, prefix, prefix_len) != 0) {
-			continue;
-		}
-		if (suffix_len > 0
-		    && (ll < suffix_len
-			|| memcmp(ln + ll - suffix_len, suffix, suffix_len)
-			    != 0)) {
-			continue;
-		}
-
-		body = ln + prefix_len;
-		body_len = ll - prefix_len - suffix_len;
 		lv_trim_blanks(&body, &body_len);
-
 		if (body_len == 4 && body[3] == ':'
 		    && strncasecmp(body, "end", 3) == 0) {
-			end_line = li;
-			break;
+			b->end_line = li;
+			return true;
 		}
 	}
+	return false;
+}
 
-	if (end_line < 0) {
+/* Read a string value that a trailing backslash may continue onto the
+ * lines below, which is the footer envelope's own rule -- the modeline
+ * has no such thing.  `*li` enters as the line the value started on and
+ * leaves as the last line consumed.  Every way of failing -- a quote left
+ * open with nothing to continue it, a continuation that runs past `End:`
+ * or out of the envelope, an accumulation that outgrows the variable --
+ * is one malformed entry. */
+static void footer_read_string(const char **lines, const int *line_lens,
+    const struct footer_block *b, const char *value, int value_len, int *li,
+    struct local_settings *out)
+{
+	char acc[KG_COMPILE_COMMAND_MAX];
+	int acc_len;
+
+	if (value_len >= KG_COMPILE_COMMAND_MAX) {
+		out->malformed_entries++;
+		return;
+	}
+	acc_len = value_len;
+	memcpy(acc, value, (size_t)value_len);
+
+	for (;;) {
+		char decoded[KG_COMPILE_COMMAND_MAX];
+		const char *body;
+		int body_len, rc;
+
+		acc[acc_len] = '\0';
+		rc = parse_quoted_string(acc, decoded, sizeof(decoded));
+		if (rc >= 0) {
+			localvars_apply_string(out, decoded, rc);
+			return;
+		}
+		if (rc != -3) {
+			break;
+		}
+
+		/* Unterminated: only a line ending in an unescaped
+		 * backslash asks for the next one, and that backslash is
+		 * the continuation marker rather than text. */
+		if (!footer_line_body(
+			lines[*li], line_lens[*li], b, &body, &body_len)
+		    || !footer_body_ends_unescaped_bslash(body, body_len)) {
+			break;
+		}
+		acc_len--;
+
+		(*li)++;
+		if (*li >= b->end_line) {
+			break;
+		}
+		if (!footer_line_body(
+			lines[*li], line_lens[*li], b, &body, &body_len)
+		    || body_len >= KG_COMPILE_COMMAND_MAX - acc_len) {
+			break;
+		}
+		memcpy(acc + acc_len, body, (size_t)body_len);
+		acc_len += body_len;
+	}
+	out->malformed_entries++;
+}
+
+int localvars_parse_footer(
+    const erow *rows, int row_count, struct local_settings *out)
+{
+	char window[FOOTER_TAIL_BYTES + FOOTER_WIN_EXTRA];
+	const char *lines[FOOTER_MAX_LINES];
+	int line_lens[FOOTER_MAX_LINES];
+	struct footer_block block;
+	int nlines, wpos;
+
+	local_settings_init(out);
+	if (row_count <= 0 || rows == NULL) {
 		return -1;
 	}
 
-	for (int li = start_line + 1; li < end_line;) {
-		const char *ln = lines[li];
-		int ll = line_lens[li];
-		const char *body;
-		int body_len;
+	wpos = footer_build_window(rows, row_count, window, sizeof(window));
+	nlines = footer_split_lines(window, wpos, lines, line_lens);
+
+	if (!footer_find_start(lines, line_lens, nlines, &block)
+	    || !footer_find_end(lines, line_lens, nlines, &block)) {
+		return -1;
+	}
+
+	for (int li = block.start_line + 1; li < block.end_line; li++) {
+		const char *body, *value;
+		int body_len, value_len;
 		char name[64];
-		const char *val;
-		int val_len;
-		enum local_var_kind kind;
 
-		if (ll < prefix_len) {
-			goto skip_line;
-		}
-		if (prefix_len > 0 && memcmp(ln, prefix, prefix_len) != 0) {
-			goto skip_line;
-		}
-		if (suffix_len > 0
-		    && (ll < suffix_len
-			|| memcmp(ln + ll - suffix_len, suffix, suffix_len)
-			    != 0)) {
-			goto skip_line;
-		}
-
-		body = ln + prefix_len;
-		body_len = ll - prefix_len - suffix_len;
-
-		switch (lv_split_assignment(
-		    body, body_len, name, sizeof(name), &val, &val_len)) {
-		case LV_ASSIGN_OK:
-			break;
-		case LV_ASSIGN_MALFORMED:
-			out->malformed_entries++;
-			goto skip_line;
-		case LV_ASSIGN_BLANK:
-			goto skip_line;
-		}
-
-		kind = localvars_kind(name);
-		if (kind == LOCAL_VAR_STRING) {
-			char acc[KG_COMPILE_COMMAND_MAX];
-			int acc_len, cli;
-
-			if (val_len >= KG_COMPILE_COMMAND_MAX) {
-				out->malformed_entries++;
-				goto next_li;
-			}
-			acc_len = val_len;
-			memcpy(acc, val, val_len);
-
-			cli = li;
-			for (;;) {
-				char decoded[KG_COMPILE_COMMAND_MAX];
-				int rc;
-
-				acc[acc_len] = '\0';
-				rc = parse_quoted_string(
-				    acc, decoded, sizeof(decoded));
-				if (rc >= 0) {
-					localvars_apply_string(
-					    out, decoded, rc);
-					break;
-				}
-				if (rc != -3) {
-					out->malformed_entries++;
-					break;
-				}
-
-				{
-					const char *cl = lines[cli];
-					int cll = line_lens[cli];
-					const char *cb = cl + prefix_len;
-					int cbl = cll - prefix_len - suffix_len;
-
-					if (!footer_body_ends_unescaped_bslash(
-						cb, cbl)) {
-						out->malformed_entries++;
-						break;
-					}
-					acc_len--;
-
-					cli++;
-					if (cli >= end_line) {
-						out->malformed_entries++;
-						break;
-					}
-
-					{
-						const char *nl = lines[cli];
-						int nll = line_lens[cli];
-
-						if (nll < prefix_len
-						    || (prefix_len > 0
-							&& memcmp(nl, prefix,
-							       prefix_len)
-							    != 0)
-						    || (suffix_len > 0
-							&& (nll < suffix_len
-							    || memcmp(nl + nll
-								       - suffix_len,
-								   suffix,
-								   suffix_len)
-								!= 0))) {
-							out->malformed_entries++;
-							break;
-						}
-
-						{
-							const char *nb
-							    = nl + prefix_len;
-							int nbl = nll
-							    - prefix_len
-							    - suffix_len;
-							int room
-							    = KG_COMPILE_COMMAND_MAX
-							    - acc_len;
-
-							if (nbl >= room) {
-								out->malformed_entries++;
-								break;
-							}
-							memcpy(acc + acc_len,
-							    nb, nbl);
-							acc_len += nbl;
-						}
-					}
-				}
-			}
-			li = cli + 1;
+		if (!footer_line_body(
+			lines[li], line_lens[li], &block, &body, &body_len)) {
 			continue;
 		}
 
-		if (kind == LOCAL_VAR_BOOL) {
-			localvars_apply_bool(out, val, val_len);
-			goto next_li;
+		switch (lv_split_assignment(
+		    body, body_len, name, sizeof(name), &value, &value_len)) {
+		case LV_ASSIGN_BLANK:
+			continue;
+		case LV_ASSIGN_MALFORMED:
+			out->malformed_entries++;
+			continue;
+		case LV_ASSIGN_OK:
+			break;
 		}
 
-		out->ignored_entries++;
-
-	next_li:
-		li++;
-		continue;
-	skip_line:
-		li++;
+		switch (localvars_kind(name)) {
+		case LOCAL_VAR_STRING:
+			footer_read_string(lines, line_lens, &block, value,
+			    value_len, &li, out);
+			break;
+		case LOCAL_VAR_BOOL:
+			localvars_apply_bool(out, value, value_len);
+			break;
+		default:
+			out->ignored_entries++;
+			break;
+		}
 	}
 
 	return 0;

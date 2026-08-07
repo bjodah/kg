@@ -543,7 +543,19 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5879 exceeds limit 5878
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5879
 #   scc total complexity: 5879 (limit 5879)
-SCC_COMPLEXITY_MAX ?= 5879
+# Lowered 5879 -> 5847 by the CX campaign's sub-plan A
+# (doc/plans/2026-08-07_complexity-reduction-campaign.md), which is the
+# other direction: the modeline and footer envelopes were each carrying
+# their own copy of the same span scanner -- trim, find the unquoted
+# colon, lowercase the name, skip to the value -- and now share one.
+# Dedup, not extraction, is what moves this number down; the footer's
+# stage decomposition in the same sub-plan measured exactly zero here.
+# Cap equals the measured actual, no slack.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5846
+#   FAIL: total complexity 5847 exceeds limit 5846
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5847
+#   scc total complexity: 5847 (limit 5847)
+SCC_COMPLEXITY_MAX ?= 5847
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

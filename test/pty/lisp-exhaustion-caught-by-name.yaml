@@ -23,7 +23,19 @@
 # Both answers land in the *buffer* rather than the echo area on purpose:
 # a saved-file assertion waits for kg to exit, so this case cannot race
 # the pane-quiet capture the way the two echo-area cases in this set have
-# to be timed against.  The remaining handler shapes (`(t ...)`, the
+# to be timed against.
+#
+# The `out of memory` assertion below is the second half of "caught", and
+# it is why this case is worth more than its saved file alone: a handler
+# that ran is not proof that nothing *also* escaped to the echo area.  It
+# was a tmux `expected_screen_not_contains` before this case moved to the
+# pexpect backend, and it is stronger here -- with this backend the
+# harness reads until kg exits and `expected_screen_not_contains` is
+# matched against everything kg wrote to the terminal for the whole
+# session, not against whatever the final frame happened to hold.  It is
+# not vacuous: deleting the init file's `(arena-exhaustion 'by-name)`
+# handler makes it fire (measured, `unexpected screen text: 'out of
+# memory'`).  The remaining handler shapes (`(t ...)`, the
 # condition object read back through the handler variable, the
 # non-matching name that still escapes) are pinned in
 # test_lisp.c:test_arena_exhaustion_conditions.
@@ -53,3 +65,6 @@ keys:
   - C-c
   - e
 expected_saved: "caught:by-name cmd-by-name"
+# Nothing escaped: neither exhaustion reached the echo area.
+expected_screen_not_contains:
+  - "out of memory"

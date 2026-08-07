@@ -318,8 +318,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `fe.c` — fe is not pristine upstream. `doc/fe-upstream.md` lists every
   divergence; prefer kg's prelude in `src/lisp_prelude.c` over a new one.
 - kg's Lisp is Emacs-shaped (`defun`, `lambda`, `setq`, `progn`, `let` with
-  binding lists, backquote). Write examples, tests and docs that way; `=` is
-  still assignment, not comparison.
+  binding lists, backquote, and — since Phase 11 — `defvar`/`defconst`
+  marking a symbol special so a `let` over it binds dynamically, with
+  `special-variable-p` to ask). Write examples, tests and docs that way.
+  `=` is chained numeric equality, NOT assignment: it was Fe's assignment
+  operator before Phase 2's hard cut, and this bullet said so until the
+  Phase 11 docs sweep found it still saying it.
 - `WITH_LISP=1` is the default build; `make WITH_LISP=0` must reproduce the
   pre-Lisp editor. CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
   configuration; keep both configurations green.

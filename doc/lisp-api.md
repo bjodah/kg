@@ -1,9 +1,10 @@
 # kg Lisp API reference
 
-**Document version 2.** Covers the whole Lisp surface Plan 06 (Phases
-2-8) shipped: buffers, markers, editing, search, save-excursion /
+**Document version 3.** Covers the whole Lisp surface Plan 06 (Phases
+2-11) shipped: buffers, markers, editing, search, save-excursion /
 with-current-buffer, hooks, keymaps, processes, the function/value
-namespaces, and provide / require / load-path. Bump this number when the
+namespaces, provide / require / load-path, and — since Phase 11 —
+special variables and shallow dynamic binding. Bump this number when the
 surface changes materially (a new native, a changed contract, a changed
 limit); a wording fix does not need a bump. `README.md`'s "Lisp" section
 is the narrative introduction and worked examples; this document is the
@@ -215,7 +216,7 @@ Ordering rules that hold across every subscriber:
     roughly 3 frames per level (`if`, the arithmetic, and the recursive
     call each open one), so in practice it stops `(deep n)`-shaped
     recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1096; exceeding it raises
+    `frame_capacity` 1095; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -241,6 +242,26 @@ Ordering rules that hold across every subscriber:
 - **`load` nesting** (`(load ...)`, and the file `(require ...)`
   evaluates when a feature is not yet provided) is capped at
   `LISP_MAX_LOAD_DEPTH` = 8 levels, independent of the step budget.
+  **An error raised by a loaded file is catchable around the `load`**:
+  since Phase 11 kg evaluates the file through Fe's protected string
+  entry, unwinds the loader bookkeeping the frame owns, and re-raises
+  into the enclosing run, so
+
+  ```elisp
+  (condition-case e (load "broken") (wrong-type-argument 'caught))
+  ```
+
+  runs its handler with the original condition, rather than the error
+  transferring past every handler to kg's own outermost barrier as it
+  did before. That covers read-time failures, run-time failures, the
+  depth limit above and a missing file. `load` answers `t` on success,
+  as Emacs' does. **A `throw` out of a loaded file is the exception**:
+  the containment barrier is a throw wall, so it becomes
+  `(no-catch TAG VALUE)` where Emacs delivers the thrown value to a
+  `catch` around the `(load ...)`, and a missing file raises a plain
+  `error` where Emacs raises the `error` subtype `file-missing`. Both
+  are recorded — `load-throw-reachability` and the `native-load` row —
+  with `doc/TODO.md` items.
   **`require` cycle detection** is separate again: it tracks feature
   *identity*, not nesting depth, in its own `LISP_MAX_REQUIRE_STACK` = 8
   entry stack, so `(require 'a)` from inside `(require 'a)`'s own load is
@@ -259,7 +280,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56224 object slots and a 1096-frame evaluator stack.
+  current pin as 56226 object slots and a 1095-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -382,20 +403,25 @@ raises is reported directly rather than replacing the error already
 unwinding, and the cleanups still pending after it run anyway.
 
 `save-excursion` and `with-current-buffer` are *transparent* to the
-evaluation that encloses them: an error raised inside either body
-reaches a `condition-case` written around the form, carrying its
-original condition symbol, and the restore has already run by the time
-the handler does. (They are natives that run the body as a thunk, and
-they get that transparency from Fe's protected call plus `FeResignal` —
-`lisp_call_body` in `src/lisp_core.c` — which puts the completion back
-in flight in the enclosing run instead of transferring it straight to
-kg's outermost barrier.) `throw` is the one exception, and a recorded
-divergence from Emacs: Fe walls the throw search at a native re-entry
-boundary, so a `throw` out of either body finds no catch, becomes
-`(no-catch TAG VALUE)` — which an enclosing `condition-case` still
-handles, and which still runs the restore — and does *not* reach the
-`catch` that names the tag. `test/lisp-compat/features.json`'s
-`catch-throw-reachability` row is where that is written down.
+evaluation that encloses them, `throw` included. An error raised inside
+either body reaches a `condition-case` written around the form carrying
+its original condition symbol, and a `throw` reaches a `catch` written
+around the form carrying the value it threw; the restore has already
+run by the time either does. Since Phase 11 both forms are prelude
+macros over Lisp `unwind-protect` rather than natives that run the body
+as a thunk, which is what buys the `throw` half: Fe walls a throw search
+at a native re-entry boundary by design, so while such a frame stood
+between them a `throw` out of the body became `(no-catch TAG VALUE)`
+instead.
+
+**Every other native re-entry is still that wall.** A `throw` out of a
+hook function, a process filter or sentinel, or a nested
+`(command-execute …)` finds no catch outside the callback and becomes
+`(no-catch TAG VALUE)` — an ordinary error an enclosing `condition-case`
+handles, and one whose unwinding still runs cleanups, but not the value
+the `catch` was waiting for. Those are callbacks kg invokes from its own
+C, so there is no prelude expansion that removes the frame.
+`test/lisp-compat/features.json` has a row for each.
 
 `save-excursion` restoring "point" means restoring the *buffer's*
 remembered point (see "Point is per-buffer" above) to what it was when
@@ -533,11 +559,11 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Group | Forms |
 | ---- | ------ |
 | Definitions | `defun` `defmacro` `defvar` `defconst` `defcustom` `custom-set-variables` `declare` `interactive` `lambda` |
-| Binding | `let` `let*` `setq` `progn` |
+| Binding | `let` `let*` `setq` `progn` `special-variable-p` — `let`/`let*` bind a *marked* name dynamically and every other name lexically; `special-variable-p` answers whether `defvar`/`defconst` marked it |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
-| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` |
+| Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `special-variable-p` |
 | Functions | `funcall` `apply` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
@@ -611,9 +637,12 @@ are nil, an integer, a one-element list for a universal prefix, or the symbol
 raises a real `wrong-type-argument` condition carrying the value, which a
 handler naming `wrong-type-argument` catches. A run of bare `C-u` produces the
 uncapped `(4)`, `(16)`, `(64)`, ... Emacs produces; the 1000 cap belongs to
-the effective integer, not to the raw form. `P` is `eq` to that temporary value. This is a command-boundary value
-binding, not general dynamic binding, so a lexical variable named
-`current-prefix-arg` shadows it.
+the effective integer, not to the raw form. `P` is `eq` to that temporary value. The binding is made and unmade at
+the command boundary by kg's C, not by `let` over a `defvar`'d name, and
+`current-prefix-arg` is not marked special — so a `let` over that name
+is an ordinary lexical binding and shadows the value a called function
+would otherwise read. (`defvar` marks, and marked names bind
+dynamically, since Phase 11; this particular name is not one of them.)
 
 `command-execute` uses the same metadata and evaluator, including nested
 calls, and returns the command's value; an inner call inherits the active
@@ -653,7 +682,7 @@ read the two cells directly with `(symbol-function 'NAME)` and
 
 | Form | Result |
 | ---- | ------ |
-| `(function F)` / `#'F` | The function designator, without evaluating `F`: a symbol is returned as-is, a `(lambda ...)` form becomes the closure. `#'` is the reader's abbreviation for `(function ...)`, and the writer prints a `(function X)` form back as `#'X` — which is what `M-:` / `eval-expression` shows |
+| `(function F)` / `#'F` | The function designator, without evaluating `F`: a symbol is returned as-is, a `(lambda ...)` form becomes the closure. `#'` is the reader's abbreviation for `(function ...)`, and the writer prints a `(function X)` form back as `#'X` — which is what `M-:` / `eval-expression` shows. Its sibling has done the same since Phase 11: `'X` reads as `(quote X)` and a two-element `(quote X)` prints back as `'X` |
 | `(funcall F &rest ARGS)` | Call function object or designator `F` with `ARGS` |
 | `(apply F &rest ARGS LIST)` | Like `funcall`, with the final operand a list whose elements are appended as arguments |
 | `(fset 'NAME FN)` | Write `FN` into `NAME`'s function cell |
@@ -735,34 +764,55 @@ primitive's function cell.
   is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
   natives are already classified, which is why `(car 1)` *does* match a
   `wrong-type-argument` handler.
-- **No dynamic binding, and `defvar` does not create a special
-  variable.** Every binding form in kg's Lisp is lexical, `let`
-  included, and `defvar` binds a value and leaves an already-bound name
-  alone (first-defvar-wins, which is Emacs' contract) without marking
-  the symbol special. **The consequence is a silently different answer,
-  not an error**: measured against the pinned Emacs 31,
+- **Dynamic binding is the Decision-2 subset, not `lexical-binding:
+  nil`.** Variables are lexical by default and stay that way; a symbol
+  becomes dynamic only by being *marked*, and only `defvar` and
+  `defconst` mark. A `let` over a marked name swaps its global value
+  cell and restores the old contents — or the fact that it had none — on
+  every way out: return, error, `throw`, `C-g` and step-budget
+  exhaustion. So the ordinary Emacs temporary-setting idiom works:
 
   ```elisp
   (progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf)))
   ```
 
-  is `2` in Emacs — the `let` binding is dynamic and the function called
-  from inside it sees it — and `1` here, where the `let` binding is
-  lexical and `dvsf` reads the global. Nothing warns. The ordinary Emacs
-  idiom of rebinding a `defvar`'d variable around a call to change a
-  setting temporarily therefore does not do that in kg; write the
-  temporary value into the global and restore it in an
-  `unwind-protect`, or pass it as an argument.
-  `test/lisp-compat/features.json`'s `prelude-defvar` row records it
-  with cases on both sides, and `doc/TODO.md` carries the work.
-- **The printer never abbreviates `(quote X)` to `'X`.** Emacs'
-  printer does; fe's writer prints the list it has, so `(format "%S"
-  '(quote x))` is `"(quote x)"` here and `"'x"` in Emacs, and the same
-  difference shows in every `M-:` echo of a quoted form. The reader
-  agrees on both sides — `'x` *is* the two-element list `(quote x)` —
-  so this is the printer alone. Recorded as
-  `writer-quote-abbreviation`; the neighbouring backquote spelling
-  (`quasiquote`/`unquote` where Emacs uses distinct symbols) is
+  is `2` here and `2` in the pinned Emacs 31. Three consequences follow
+  with no further machinery, and all three are Emacs' measured answers:
+  a function reading the name free sees the bound value wherever it was
+  defined; `setq` inside the binding writes the binding rather than the
+  value it hides; and a closure reads the value in force when it is
+  *called*, not when it was made. The two arities differ as Emacs' do:
+  `(defvar v VALUE)` and `(defconst v VALUE)` mark fully, so
+  `(special-variable-p 'v)` is `t`, while a bare `(defvar v)` sets only
+  the flag `let` consults — `special-variable-p` answers `nil` and `let`
+  over it is dynamic anyway.
+
+  **What stays lexical unconditionally is a *parameter*.** A `lambda` or
+  `defun` parameter named after a marked symbol binds lexically, which
+  is Emacs 31's own measured behaviour under `lexical-binding: t`; the
+  flag is consulted at `let`'s binding paths and nowhere else.
+
+  Two approximations are recorded rather than defended. kg's marking is
+  **global** where Emacs scopes a one-argument `defvar` to the file it
+  appears in — broader, never narrower. And the ~53 generically named
+  temporaries kg's prelude binds (`result`, `res`, `doc`, `name`, …)
+  become dynamically capturable the moment a user `defvar`s such a name,
+  which is exactly Emacs' own exposure for `lexical-binding` libraries.
+  `test/lisp-compat/features.json`'s `prelude-defvar`,
+  `phase11-one-arg-defvar-file-scope` and `prelude-let` rows carry the
+  measurements.
+- **The printer abbreviates `(quote X)` to `'X`, as Emacs' does.**
+  `(format "%S" (list 'quote 'x))` is `"'x"` on both sides, recursively,
+  so `(a 'b c)` prints that way and every `M-: ` echo of a quoted form
+  reads as it does in Emacs. The discrimination is Emacs' measured one:
+  exactly one element after the head and the form proper, so
+  `(quote x y)`, `(quote)` and `(quote . x)` all keep printing as the
+  pairs they are. The neighbouring **backquote** spelling is *not*
+  closed and is different in kind: kg's reader expands `` ` ``/`,`/`,@`
+  to the ordinary symbols `quasiquote`/`unquote`/`unquote-splicing`
+  where Emacs uses distinct symbols its printer also abbreviates, so
+  closing it means changing what the reader produces and breaking any
+  Lisp that pattern-matches on `quasiquote`. Recorded as
   `phase8-reader-backquote-symbol-names`.
 - **No buffer-local variables.** `setq-local` and `setq-default` are
   documented aliases of `setq`: both write the one global binding, so a

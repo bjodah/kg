@@ -233,7 +233,15 @@ Extension packages load explicitly with `(load "name")`, which resolves a
 bare name to `<config>/kg/lisp/name.el` and treats names containing `/` as
 literal paths. A bare name may be written with or without the `.el` suffix;
 both spellings resolve to the same file, as in Emacs. Packages may load other packages; loading a file twice with
-`load` evaluates it twice. Init files and packages are trusted code with the
+`load` evaluates it twice, and `load` answers `t` when it succeeds. An
+error raised by a loaded file — at read time or run time, and including
+the nesting-depth limit and a missing file — is catchable by a
+`condition-case` written around the `(load ...)`, with its original
+condition symbol. A `throw` out of a loaded file is not: it becomes
+`(no-catch TAG VALUE)` where Emacs delivers the value to a `catch`
+around the `load`, and a missing file raises a plain `error` where
+Emacs raises the `error` subtype `file-missing`. Both are recorded
+divergences. Init files and packages are trusted code with the
 full privileges of the editor process, bounded only by the evaluation step
 budget and `C-g` cancellation — **kg's Lisp is not a sandbox.**
 `doc/lisp-api.md` is the full reference (object lifetimes, position units,
@@ -477,7 +485,9 @@ of `char-after`, which returns a number.
 
 `format` takes the specifiers Emacs Lisp reaches for most. `%s` prints
 an object the way the interpreter prints it — a string bare, a list as a
-list, `nil` as `nil` — and `%S` is the same with strings quoted; `%d`
+list, `nil` as `nil` — and `%S` is the same with strings quoted, and with
+a quoted form abbreviated the way Emacs abbreviates it, so
+`(format "%S" ''x)` is `"'x"`; `%d`
 accepts either number type, printing an integer exactly and truncating a
 float toward zero; and `%e`, `%f` and `%g` are the C floating-point
 conversions, accepting either number type as they do in Emacs. `%o`, `%x`
@@ -506,7 +516,7 @@ surface is available before any init file runs. It is what makes kg's
 | Group | Forms |
 | ---- | ------ |
 | Definitions | `defun` `defmacro` `defvar` `defconst` `defcustom` `custom-set-variables` `declare` `interactive` `lambda` |
-| Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` |
+| Binding | `(let ((VAR VALUE) ...) BODY...)` `let*` `(setq VAR VALUE ...)` `(set 'VAR VALUE)` `progn` `(special-variable-p 'VAR)` — a `let` binding is lexical unless `defvar`/`defconst` marked the name special |
 | Control | `cond` `when` `unless` `prog1` `(dolist (VAR LIST [RESULT]) BODY...)` `(dotimes (VAR COUNT [RESULT]) BODY...)` |
 | Non-local exits | `(catch TAG BODY...)` `(throw TAG VALUE)` `(condition-case VAR BODY (CONDITION HANDLER...) ...)` `(signal 'SYMBOL DATA)` `(error "FORMAT" ARG...)` `(unwind-protect BODY CLEANUP...)` `(ignore-errors BODY...)` — core Fe forms except `ignore-errors`, which is the prelude's macro over `condition-case` |
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
@@ -562,6 +572,27 @@ first surprise:
   and character literals such as `?a` read as their codepoint numbers.
   Integer arithmetic that overflows, and integer division by zero, raise
   an `arith-error` message instead of promoting or wrapping.
+- Variables are lexical by default; `defvar` and `defconst` mark a symbol
+  *special*, and a `let` over a marked name binds it dynamically — which
+  makes the ordinary Emacs temporary-setting idiom work:
+  `(defvar case-sensitive-search nil)` then
+  `(let ((case-sensitive-search t)) (do-the-search))` is seen by
+  `do-the-search`, as it is in Emacs. The binding swaps the symbol's
+  global value and restores it on every way out, including an error, a
+  `throw` and `C-g`. `(special-variable-p 'v)` answers whether `v` was
+  marked. A `lambda` or `defun` **parameter** named after a special stays
+  lexical, which is Emacs' own behaviour under `lexical-binding: t`.
+  What kg does *not* have is buffer-local variables, whole-file
+  `lexical-binding: nil` semantics, or Emacs' rule that a one-argument
+  `(defvar v)` is scoped to the file it appears in — kg marks globally,
+  which is broader and never narrower.
+- The printer abbreviates `(quote X)` back to `'X`, as Emacs' does, so
+  `M-:` and `%S` show `'x` and `(a 'b c)`. Backquote is the exception:
+  kg's reader expands `` ` ``/`,`/`,@` to the ordinary symbols
+  `quasiquote`/`unquote`/`unquote-splicing` where Emacs uses distinct
+  symbols it also abbreviates, so an unevaluated backquote form prints
+  the long way. That is recorded rather than fixed — changing it means
+  changing what the reader produces.
 - `t`, `nil` and keyword symbols are protected constants: `setq`, `set`, a
   `let` or `let*` binding name, `fset` and `defalias` all refuse them with
   the `setting-constant` condition. Keywords are self-evaluating, so
@@ -577,17 +608,19 @@ first surprise:
   `unwind-protect` runs its cleanup forms on any non-local exit — a
   normal return, an error, a `throw`, `C-g`, or budget exhaustion.
   `save-excursion` and `with-current-buffer` are transparent to the
-  enclosing evaluation: an error inside either body reaches a
-  `condition-case` written around the form, with its original condition,
-  and the restore has already run. A hook or process-callback boundary
-  *contains* instead: an error there, and a `throw` naming a `catch`
-  outside the callback, are reported and swallowed so one broken hook
-  cannot take the editor's evaluation down — but a `C-g` or a budget
-  exhaustion is never contained, and cancels the whole evaluation. A
-  `throw` out of `save-excursion`, `with-current-buffer` or a callback
-  does not reach the `catch` that names its tag (kg's native-reentry
-  wall — recorded as a divergence from Emacs); it becomes
-  `(no-catch TAG VALUE)`, which an enclosing `condition-case` handles.
+  enclosing evaluation, `throw` included: an error inside either body
+  reaches a `condition-case` written around the form with its original
+  condition, a `throw` reaches a `catch` written around the form with the
+  value it threw, and the restore has already run by the time either
+  does. A hook or process-callback boundary *contains* instead: an error
+  there, and a `throw` naming a `catch` outside the callback, are
+  reported and swallowed so one broken hook cannot take the editor's
+  evaluation down — but a `C-g` or a budget exhaustion is never
+  contained, and cancels the whole evaluation. Those callbacks, and a
+  nested `command-execute`, are still kg's native-reentry wall for
+  `throw`: it becomes `(no-catch TAG VALUE)` there, which an enclosing
+  `condition-case` handles, and that is a recorded divergence from
+  Emacs.
   kg's own editor natives still signal a plain `error` whose message
   happens to read like a condition name, so a handler naming the
   specific symbol does not match one of them; classifying them is the
@@ -680,8 +713,10 @@ no nil padding; the cap is a recorded divergence rather than a silent
 truncation. The raw `current-prefix-arg` binding is temporary, and
 `(prefix-numeric-value X)` converts its nil, integer, universal-list, or `-`
 forms — a malformed form raises a real `wrong-type-argument` condition carrying
-the value. Because kg's Lisp has no dynamic binding, a lexical binding named
-`current-prefix-arg` shadows the command-boundary value. The registry is also
+the value. The binding is made and unmade at the command boundary by kg's C rather
+than by `let` over a `defvar`'d name, and `current-prefix-arg` is not
+marked special, so a `let` over that name is an ordinary lexical binding
+and shadows the value a called function would otherwise read. The registry is also
 reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;
 the spec is nil, a string, or a zero-argument function, and documentation is
 nil or a string. `remove-command` undoes the registration.

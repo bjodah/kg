@@ -93,7 +93,30 @@ A bare name may be written with or without the
 suffix; both spellings resolve to the same file, as in Emacs.
 Loading a file twice with
 .Li load
-evaluates it twice;
+evaluates it twice, and
+.Li load
+answers
+.Li t
+when it succeeds.
+An error raised by a loaded file \(em at read time or run time, and
+including the nesting-depth limit and a missing file \(em is caught by a
+.Li condition-case
+written around the
+.Li load ,
+with its original condition symbol.
+A
+.Li throw
+out of a loaded file is not: it becomes
+.Li (no-catch TAG VALUE)
+where Emacs delivers the value to a catch around the
+.Li load ,
+and a missing file raises a plain
+.Li error
+where Emacs raises the
+.Li error
+subtype
+.Li file-missing .
+Both are recorded divergences.
 .Li (require FEATURE &optional FILENAME)
 loads at most once, a no-op when
 .Li (provide FEATURE)
@@ -539,8 +562,9 @@ and
 the binding forms
 .Li (let ((VAR VALUE) ...) BODY ...) ,
 .Li let* ,
+.Li progn
 and
-.Li progn ;
+.Li (special-variable-p \(aqNAME) ;
 .Pq Li setq
 and
 .Pq Li set
@@ -734,6 +758,36 @@ are the corresponding predicates, and
 reports whether a name has a value.
 .Pp
 kg's Lisp differs from Emacs Lisp in ways worth knowing:
+variables are lexical by default, while
+.Li defvar
+and
+.Li defconst
+mark a symbol special and a
+.Li let
+over a marked name binds it dynamically \(em so the ordinary Emacs
+temporary-setting idiom works, the binding swaps the symbol's global
+value and restores it on every way out including an error, a
+.Li throw
+and
+.Li C-g ,
+.Li (special-variable-p \(aqNAME)
+answers whether a name was marked, and a lambda or defun parameter
+named after a special binds lexically as it does in Emacs;
+what kg does not have is buffer-local variables, whole-file
+.Li lexical-binding: nil
+semantics, or Emacs' rule that a one-argument
+.Li (defvar v)
+is scoped to the file it appears in \(em kg marks globally, which is
+broader and never narrower;
+the printer abbreviates
+.Li (quote X)
+back to
+.Li \(aqX
+as Emacs' does, while backquote forms still print the long way because
+kg's reader expands them to the ordinary symbols
+.Li quasiquote , unquote
+and
+.Li unquote-splicing ;
 .Li eq
 is Emacs' eq: integers compare by value, while separately-read equal
 strings and float objects do not;
@@ -787,11 +841,14 @@ or budget exhaustion;
 .Li save-excursion
 and
 .Li with-current-buffer
-are transparent to the enclosing evaluation, so an error inside either
-body reaches a
+are transparent to the enclosing evaluation, throw included, so an error
+inside either body reaches a
 .Li condition-case
-written around the form with its original condition and the restore
-already run, while a hook or process-callback boundary contains an error
+written around the form with its original condition, a
+.Li throw
+reaches a catch written around the form with the value it threw, and the
+restore has already run by the time either does, while a hook or
+process-callback boundary contains an error
 (and a
 .Li throw
 naming a catch outside the callback) rather than letting one broken hook
@@ -801,11 +858,10 @@ or a budget exhaustion is never contained and cancels the whole
 evaluation;
 a
 .Li throw
-out of
-.Li save-excursion ,
-.Li with-current-buffer
-or a callback does not reach the catch that names its tag (kg's
-native-reentry wall) but becomes
+out of a hook, a process filter or sentinel, or a nested
+.Li command-execute
+still does not reach the catch that names its tag (kg's
+native-reentry wall, which those callbacks remain) but becomes
 .Li (no-catch TAG VALUE) ,
 which an enclosing
 .Li condition-case
@@ -916,8 +972,17 @@ converts it: nil is 1, an integer is itself, a one-element list is its
 element, and the symbol
 .Li -
 is \-1.
-Because kg's Lisp has no dynamic binding, a lexical binding of that name
-shadows the command-boundary value.
+The binding is made and unmade at the command boundary by kg's C rather
+than by a
+.Li let
+over a
+.Li defvar Ns 'd
+name, and
+.Li current-prefix-arg
+is not marked special, so a
+.Li let
+over that name is an ordinary lexical binding and shadows the value a
+called function would otherwise read.
 Prompts are literal \(em a
 .Li %
 in prompt text is not a format directive, which is a recorded divergence

@@ -46,17 +46,36 @@ This file remains the broader feature and technical-debt inventory.
       Phase 9 had no reason to answer. When it lands it needs its own PTY
       case; it must not be bolted onto the two above.
 
-- [ ] **Dynamic binding, and `defvar` marking a symbol special.** Recorded
-      by Phase 10's sub-plan 10C (10A Decision 4) as the sharpest measured
-      divergence in the manifest, and deliberately not fixed there: it
-      changes an answer rather than raising, so nothing tells a user.
-      `(progn (defvar dvs 1) (defun dvsf () dvs) (let ((dvs 2)) (dvsf)))`
-      is 2 in the pinned Emacs and 1 here.  The work is a special flag per
-      symbol, a dynamic binding stack in fe, and unwinding that restores
-      it on every non-local exit — language-runtime work in the submodule,
-      not editor work.  `test/lisp-compat/features.json`'s `prelude-defvar`
-      row (cases on both sides), `doc/fe-upstream.md` and
-      `doc/lisp-api.md` all carry it.
+- [x] **Dynamic binding, and `defvar` marking a symbol special.** Done by
+      Phase 11 (11A Decisions 2–3), the subset it names: two symbol flags
+      set by `defvar`/`defconst` through fe's `internal--mark-special`,
+      shallow binding at fe's binding-list paths with restore on all five
+      completion kinds, `special-variable-p`, and kg's prelude `let` moved
+      off its lambda-application expansion onto fe's core bindings-list
+      form so the flag can be consulted at all.  Parameters stay lexical
+      unconditionally, which is Emacs 31's own measured answer.  The
+      21-probe grid is `test/lisp-compat/cases/phase11-dynamic-*.json`.
+- [ ] **A one-argument `(defvar v)` is scoped to its file in Emacs and
+      global in kg.**  The one approximation Phase 11's marking model
+      makes, and the only part of the `defvar` item above that did not
+      close.  Both arities set the flag `let` consults; Emacs limits a
+      one-argument `defvar`'s effect to the file it appears in, while kg
+      marks the symbol for the whole session.  kg is BROADER, never
+      narrower, so no program correct under Emacs' rule computes something
+      else unless it relies on the effect *not* reaching another file.
+      Closing it needs a notion of which file a form came from, which
+      neither fe's evaluator nor kg's loader has.  Measured both ways in
+      `test/lisp-compat/features.json`'s `phase11-one-arg-defvar-file-scope`
+      row.
+- [ ] **The prelude's `internal--let` temporaries are dynamically
+      capturable.**  A consequence of the same phase, recorded rather than
+      defended (11A Decision 3): the ~53 generically named temporaries
+      `lisp/prelude.el` binds (`result`, `res`, `doc`, `name`, …) become
+      dynamic the moment a user `defvar`s such a name.  This is exactly
+      Emacs' own exposure for `lexical-binding` libraries, so "fixing" it
+      means gensyms or an obarray-style renaming pass over the prelude,
+      which is a cost with no measured demand behind it.  Left here so a
+      future report of a strange interaction has somewhere to land.
 - [ ] **Buffer-local variables.** `setq-local` and `setq-default` are
       aliases of `setq` and write the one global binding; both manifest
       rows are `divergent` for that reason since 10C.  A real
@@ -64,12 +83,22 @@ This file remains the broader feature and technical-debt inventory.
       consults it before the global cell, and a lifetime rule for buffer
       kill and switch.  `add-hook`'s LOCAL argument is unaffected — it is
       real already.
-- [ ] **The printer's `(quote X)` → `'X` abbreviation**, and the wider
-      question of how far it goes (`function`/`#'`, `quasiquote` and
-      `unquote`).  fe-side work in `WriteObject`; recorded as
-      `writer-quote-abbreviation` with a case and a `doc/fe-upstream.md`
-      row.  No proof needs it, but it is the divergence a user *sees*
-      most often, in every `M-:` echo of a quoted form.
+- [x] **The printer's `(quote X)` → `'X` abbreviation.**  Done by Phase 11
+      (11A Decision 4) in fe's `WriteObject`, as the symmetric copy of the
+      `(function f)` → `#'f` block that has been there since Phase 4, with
+      Emacs' measured discrimination: exactly one element after the head
+      and the form proper, so `(quote x y)`, `(quote)` and `(quote . x)`
+      keep printing as pairs.  Recursive, so `(a 'b c)` comes out as Emacs
+      prints it.
+- [ ] **Backquote printing, and the reader symbols under it.**  The half
+      of the printer question Phase 11 rejected by scope, not the same
+      work as the quote half.  Emacs abbreviates over reader-produced
+      symbols that ARE `` ` ``/`,`/`,@`; kg's reader expands them to the
+      ordinary symbols `quasiquote`/`unquote`/`unquote-splicing`, so
+      closing this means changing what the *reader* produces and breaking
+      any Lisp that pattern-matches on `quasiquote` — and Emacs' comma
+      abbreviation is additionally context-sensitive.  Recorded as
+      `phase8-reader-backquote-symbol-names`.
 - [ ] **`macroexpand-all`**, which Phase 10's 10B left as a
       reject-by-name stub (`unsupported feature: macroexpand-all`, a
       catchable condition, deliberately not `void-function`).  It needs a
@@ -327,18 +356,39 @@ ordered by value vs implementation effort.
         (wrong-type-argument …))` does *not* match, which
         `test/lisp-compat/features.json`'s
         `condition-case-native-errors` row records as a divergence
-      - `save-excursion`/`with-current-buffer` expanded to Lisp
-        `unwind-protect` in `lisp/prelude.el`, so a `throw` out of
-        either body reaches the `catch` that names its tag instead of
-        stopping at Fe's native re-entry wall as `no-catch`
-        (`catch-throw-reachability`, the other divergence 06E left)
-      - errors raised while evaluating a file through `(load ...)` or
-        `(require ...)` cross `FeEvaluateString`'s nested host barrier,
-        so a `condition-case` around the loader cannot catch them
-        (`load-error-condition-reachability`).  Reader failures raised
-        before the nested evaluator starts are catchable.  Closing the
-        gap needs a protected or ambient Fe string-evaluation entry point,
-        not only C-side resource cleanup
+      - ~~`save-excursion`/`with-current-buffer` expanded to Lisp
+        `unwind-protect`~~ — **done in Phase 11 (11A Decision 6).**  Both
+        are prelude macros over `unwind-protect` around two capture/restore
+        natives, so no native frame stands between a `throw` and its
+        `catch`.  The remaining native re-entry walls are the callbacks kg
+        invokes from its own C — hooks, process filters and sentinels, a
+        nested `command-execute` — and they stay walls: there is no prelude
+        expansion that removes those frames
+      - ~~errors raised while evaluating a file through `(load ...)`~~ —
+        **done in Phase 11 (11A Decision 5, Shape A).**  `lisp_eval_file`
+        uses fe's `FeTryEvaluateStringWithOptions`, unwinds the loader
+        bookkeeping the frame owns and `FeResignal`s, so a
+        `condition-case` around the loader catches with the original
+        condition.  `load` also answers `t` now.  Two pieces did not
+        close: a `throw` out of a loaded file still becomes `no-catch`
+        where Emacs delivers it to a `catch` around the `(load ...)`, and
+        a missing file still raises plain `error` where Emacs raises the
+        `error` subtype `file-missing`.  Both have their own items below
+      - **A `throw` out of a loaded file (Shape B).**  Closing it means
+        making `load` an fe primitive with a frame kind of its own, so the
+        loaded forms are evaluated by the same run as the caller and no
+        containment barrier stands between the throw and the catch —
+        evaluator work in the submodule, not loader work in kg.  11A
+        Decision 5 rejected it by scope; `load-throw-reachability` pins
+        both answers
+      - **`file-missing` as a condition subtype.**  kg raises plain
+        `error` for a file `load`/`require` cannot find, where Emacs
+        raises `file-missing` under `file-error` under `error`, carrying
+        the operation and the path as data.  A `condition-case` naming
+        `error` catches both, so it costs a program only the ability to
+        name the narrower condition.  It needs condition subtypes with an
+        inheritance test in fe's handler search; recorded in the
+        `native-load` and `load-path-search` rows
       - token/cancel cleanup registry — **not Phase 9's, after all**.
         09A Decision 4 measured it and left it where it was: it is
         designed but unbuilt (`fe/doc/unwind-design.md` item 2), and its

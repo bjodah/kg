@@ -154,9 +154,11 @@ Two more things a reader of this table should know, because they are
 properties of the fixture rather than of any one bullet: an init file
 that errors *outside* a handler leaves the forms before it in effect and
 reports `file:LINE: CONDITION` (`lisp-init-error.yaml`,
-`lisp-init-runtime-error.yaml`), and `defvar` does not create a special
-variable, so an init file that rebinds one around a call gets a silently
-different answer (the `prelude-defvar` row).
+`lisp-init-runtime-error.yaml`), and `defvar` marks a symbol special, so
+an init file that rebinds one around a call gets Emacs' answer (the
+`prelude-defvar` row and the sixteen `phase11-dynamic-*` cases).  That
+second sentence said the opposite until Phase 11: rebinding used to be
+lexical, and the answer used to be silently different.
 
 ## Proof 3 — the higher-order package, verified against Emacs 31
 
@@ -225,21 +227,48 @@ cannot:
   dynamically and the closures capture nothing — measured, as
   `void-variable (n)`, before the cookie was added.
 
+**All three of those constraints were Phase 11 targets, and two of them
+are now satisfied rather than avoided.**  The package is deliberately
+left as it was written — the point of the design note is what it took to
+make Proof 3 an agreement rather than a coincidence *at the time*, and
+rewriting it would erase that — but the constraints no longer bind:
+
+* `prelude-defvar` and `writer-quote-abbreviation` are `supported`.  A
+  Proof-3-shaped package written today may rebind a `defvar`'d variable
+  around a call and may return a `(quote X)` form; both print and
+  compute as they do in Emacs.
+* `catch-throw-reachability` is `supported` for exactly the two forms the
+  bullet names: a `throw` now crosses `save-excursion` and
+  `with-current-buffer`, which are prelude macros over `unwind-protect`.
+  Every *other* native re-entry — a hook, a process filter or sentinel, a
+  nested `command-execute`, the loader's containment barrier — is still a
+  wall, so the bullet's advice survives with a narrower scope.
+* the `lexical-binding: t` cookie's meaning has changed, and it still
+  matters.  It used to be the difference between Emacs binding
+  everything dynamically and kg binding everything lexically; it is now
+  the difference between Emacs binding everything dynamically and *both*
+  binding lexically except where a `defvar` marked the name.  kg still
+  reads the cookie as the comment it is — kg has no whole-file dynamic
+  mode to select — so the line stays a note to Emacs alone.
+
 ## The compatibility milestone gate (§14), item by item
 
 The parent plan's §14 says the initial program is complete when nine
 things hold. Each row below names the command or test that decides it,
 so the gate is run rather than read. Every figure is measured on the
-tree at Phase 10's close.
+tree at **Phase 11's close** (the gate itself is not reopened — §14 and
+§18 closed with Phase 10; Phase 11 moved four rows of the divergence
+inventory the gate cites and opened two, and this is where the counts are
+re-recorded).
 
 | §14 item | Status | Decided by |
 | --- | --- | --- |
 | the three proofs pass | PASS | Proof 1: `lisp-auto-fill-mode-break.yaml`, `-undo.yaml`, `-error-disarms.yaml`, `-no-lisp-regression.yaml`, plus `make lisp-package-check`. Proof 2: `lisp-init-phase8-library.yaml` and the corpus mapped above. Proof 3: `lisp/pipeline.el` + `lisp/pipeline-text.el`, nine oracle cases and `lisp-proof3-pipeline-{init,commands,errors}.yaml` |
-| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — 113 cases, 100 passed, 13 recorded divergences, 0 failed. It has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
+| all `supported` `comparison: emacs` entries pass against the oracle | PASS | `make lisp-oracle-check` — 131 cases, 120 passed, 11 recorded divergences, 0 failed (113/100/13 at the Phase 10 close). It has no tolerance for a divergence that starts agreeing (the XPASS rule above), and it self-tests first |
 | all `supported` `comparison: kg-policy` entries pass their kg tests | PASS | `make check` runs every cited test; `make lisp-compat-check` verifies each citation resolves — the file exists, a C citation names a function, and that function is defined there |
 | unsupported entries fail clearly | PARTIAL, and re-worded (10A Decision 5) | Reader syntax kg does not implement is rejected **by name** (`unsupported read syntax: vector brackets`, `phase8-reader-vector`), and so is `macroexpand-all` (`unsupported feature: macroexpand-all`). Unknown *functions* answer plain `void-function`, which is byte-identical to a typo. A curated known-name channel would be new language machinery with an unbounded name list; the debt is in `doc/TODO.md` |
-| intentional divergences are documented and tested | PASS | 13 `divergent` `comparison: emacs` cases run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed; the two that were unrecorded (`prelude-defvar`, `writer-quote-abbreviation`) are now rows with cases, `doc/fe-upstream.md` entries and `doc/TODO.md` work items. The acceptance review added `load-error-condition-reachability`, whose loaded-file evaluation error crosses kg's nested Fe barrier instead of reaching the caller's handler |
-| kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 439 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 98 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
+| intentional divergences are documented and tested | PASS | 11 `divergent` `comparison: emacs` cases run every time `make lisp-oracle-check` does, and each must still diverge. The two that had never been exercised (`native-type-of`, `native-commandp`) were found by that rule and closed. Phase 11 then **fixed four** of the 13 the Phase 10 close recorded — `prelude-defvar`, `writer-quote-abbreviation`, `load-error-condition-reachability` and `catch-throw-reachability` — and **opened two** in their place, both consequences of those fixes rather than oversights: `load-throw-reachability` (the containment barrier that makes a loaded file's error catchable is a throw wall) and `phase11-one-arg-defvar-file-scope` (kg marks globally where Emacs scopes a one-argument `defvar` to its file). The XPASS rule is what forced each fix's manifest edit into the same commit as its behaviour change |
+| kg starts and operates with both Lisp configurations | PASS | `make check` (32 native / 441 PTY, 0 fail, 0 skip) and `make WITH_LISP=0 clean all check` (32 native / 341 pass + 100 skip, 0 fail); CI stage `.ci/ci-08-with-lisp-0.sh` |
 | no assignment `=` remains | PASS | `=` is chained numeric equality since Phase 2 (`FE_LANGUAGE_VERSION` 2). Measured now, not remembered: `(= 1 1)` is `t`, and `(= x 1)` on an unbound `x` is `void-variable`, not an assignment (`prelude-equality-family`, `fe/compat`'s numeric rows) |
 | strict arity is unconditional | PASS | `FeSetStrictArity()`/`FeGetStrictArity()` do not exist to turn it off (Phase 7, `FE_LANGUAGE_VERSION` 6); `arity-strict` and `arity-lambda-too-few-nargs` compare against the oracle, and a wrong-arity *macro* call raises the same condition with the same data through 10B's reflective expansion path |
 | Lisp-2 behavior is complete for the supported subset | PASS | `pipeline-lisp2-cells` (one symbol, two cells, measured against Emacs), the `lisp2-*` rows in `fe/compat`, and `#'`/`funcall`/`apply`/`fboundp`/`symbol-function`/`fset`/`fmakunbound`/`defalias` all present since Phase 4 |
@@ -254,7 +283,12 @@ counters rather than instrumenting fe; this is what they say.
 Measured with the counting build (`test/perfobj/kg`, `$KG_PERF_OUT`),
 three runs, on a representative `init.el` (the 08A corpus plus
 `(require 'auto-fill)` and `(require 'pipeline-text)`, the latter a
-two-file chain), opening a one-character file and quitting:
+two-file chain), opening a one-character file and quitting.  **The
+readings below are the Phase 10 measurement and are left as taken**;
+they are the answer to a question §15 asked once, not a live figure.
+The two denominators moved at the Phase 11 pin, when fe's dynamic-binding
+frame record grew: the 1 MiB arena partitions to 56226 object slots and
+1095 frames now, against the 56224 and 1096 the table names.
 
 | §15 measurement | Counter | Reading |
 | --- | --- | --- |
@@ -320,8 +354,8 @@ describes have not drifted apart).
 `utils/check_lisp_oracle.py` is the other half, added by sub-plan 10C and
 wired into `make check` as `make lisp-oracle-check`: where the checker
 above asks whether the manifest and the sources agree, this one asks
-whether *kg* and the snapshots agree. It runs no Emacs, takes 0.29 s for
-113 cases, and self-tests first -- `--self-test` builds a corpus in a
+whether *kg* and the snapshots agree. It runs no Emacs, takes well under
+a second for its 131 cases, and self-tests first -- `--self-test` builds a corpus in a
 temp directory whose snapshot says 4 where kg answers 3 and requires the
 run to fail, then verifies an ordinary error is captured by exact condition
 symbol. That is what makes its "0 failed" worth reading. Under

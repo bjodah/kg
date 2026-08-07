@@ -2,6 +2,43 @@
 
 All relevant changes to the project are documented in this file.
 
+## [Unreleased]
+
+### Changes
+
+- The embedded Lisp gained **special variables and dynamic binding**,
+  which is the difference between an Emacs `init.el` doing what it says
+  and doing something else quietly.  `defvar` and `defconst` now mark a
+  symbol *special*, and a `let` over a marked name binds it dynamically:
+  `(defvar case-sensitive-search nil)` and then
+  `(let ((case-sensitive-search t)) (do-the-search))` is seen by
+  `do-the-search`, exactly as in Emacs.  Before this, the binding was
+  lexical and invisible to anything it called, so the ordinary
+  temporary-setting idiom computed a different answer with no error and
+  no warning.  The binding swaps the symbol's global value and puts the
+  old one back on every way out — a normal return, an error, a `throw`,
+  `C-g`, or an exhausted evaluation budget — and `(special-variable-p
+  'NAME)` answers whether a name was marked.  A `lambda` or `defun`
+  **parameter** named after a special still binds lexically, which is
+  Emacs' own behaviour.  There are still no buffer-local variables.
+
+- Quoted forms **print the way Emacs prints them**: `'x`, not
+  `(quote x)`, recursively, so `M-:` and `%S` show `(a 'b c)`.
+  Backquote forms still print the long way.
+
+- An error inside a file loaded with `(load ...)` or `(require ...)` is
+  now **catchable around the loader**: a `condition-case` written around
+  the call sees the original condition, where the error used to escape
+  past every handler to the top level.  `load` also answers `t` on
+  success, as Emacs' does.
+
+- A `throw` out of a `save-excursion` or `with-current-buffer` body now
+  reaches the `catch` that names its tag, instead of turning into a
+  `no-catch` error.  Hooks, process filters and sentinels are unchanged
+  and still contain a throw.
+
+- Documentation: `doc/lisp-api.md` is at document version 3.
+
 ## [v1.1.0][] - 2026-05-26
 
 > [!NOTE]

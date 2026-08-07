@@ -71,12 +71,15 @@ config_files:
     ;;;     "runs unchanged under Emacs 31" true rather than nearly true.
     ;;;   * two of kg's recorded silent divergences must not be load-bearing
     ;;;     here, or "runs unchanged under Emacs" would be a coincidence:
-    ;;;     nothing in this file rebinds a `defvar'd variable around a call
-    ;;;     (kg's `defvar' does not make a symbol special), and no returned
-    ;;;     value contains a `(quote X)' form (kg's writer prints it where
-    ;;;     Emacs prints 'X).  Both are why the macros below expand to plain
-    ;;;     `if'/`+' forms and why the reflective helpers are handed their
-    ;;;     form as data built with `list'.
+    ;;;     nothing in this file rebinds a `defvar'd variable around a call,
+    ;;;     and no returned value contains a `(quote X)' form.  Both are why
+    ;;;     the macros below expand to plain `if'/`+' forms and why the
+    ;;;     reflective helpers are handed their form as data built with
+    ;;;     `list'.  BOTH DIVERGENCES ARE CLOSED as of Phase 11 -- `defvar'
+    ;;;     marks, and the writer abbreviates -- so the constraint no longer
+    ;;;     binds; this file is left as written because what it took to make
+    ;;;     the agreement a property rather than a coincidence is the record
+    ;;;     worth keeping.
 
     (provide 'pipeline)
 
@@ -139,9 +142,11 @@ config_files:
 
     ;; --- macros, and reflection on them ----------------------------------
     ;; These expand to plain arithmetic and `if' forms: no implicit body
-    ;; (kg's is `do' where Emacs' is `progn') and no quoted data (kg prints
-    ;; `(quote x)' where Emacs prints 'x), so an expansion is comparable
-    ;; between the two dialects character for character.
+    ;; (kg's is `do' where Emacs' is `progn') and no quoted data, so an
+    ;; expansion is comparable between the two dialects character for
+    ;; character.  The quoted-data half stopped mattering in Phase 11, when
+    ;; kg's writer learnt Emacs' `(quote x)' -> 'x abbreviation; the
+    ;; implicit-body half still does.
     ;;
     ;; `pipeline-boost' expands to a form whose own head is a macro call.
     ;; That is deliberate: it is what makes one expansion step and the

@@ -1,0 +1,51 @@
+# Keys typed while Fe is evaluating are not lost.  src/tty.c's
+# editor_check_quit_pending() polls stdin during an evaluation looking for
+# C-g; every byte that is NOT C-g is stashed in `pending_input` and replayed
+# by read_input_byte() through the ordinary key decoder once the evaluation
+# returns.  Both halves are asserted here: the `abc` typed into the middle
+# of the loop is in the saved file afterwards, and the `C-g` behind it still
+# cancelled.
+#
+# This used to be covered only by accident.  Before utils/pty_accept.py
+# drained the pty while sending, kg spent whole cases blocked on a full
+# output queue with keys piling up behind it, which walked these paths in
+# almost every case; draining removed the stall, and with it 11 lines of
+# src/tty.c that nothing asked for on purpose.  This case asks on purpose.
+#
+# Timing is the sibling case's, for the sibling case's reasons: the loop
+# body is a 400-character `concat`, so the step budget takes ~900 ms to
+# fire, and the four keys behind `C-c s` land 0.05 s apart well inside
+# that.  A slower configuration widens the window rather than narrowing it.
+#
+# tmux, so the status line can be asserted too: the replay must not look
+# like an error, and the evaluation must still have ended in `Quit`.
+name: lisp-typeahead-replayed-after-quit
+filename: lisp-typeahead.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 60]
+config_files:
+  .config/kg/init.el: |
+    (defun pad (n)
+      (let ((r ""))
+        (dotimes (i n) (setq r (concat r "x")))
+        r))
+    (setq spin-pad (pad 400))
+    (defun spin ()
+      "Loop until cancelled or until the step budget stops it."
+      (interactive)
+      (while t (concat spin-pad spin-pad)))
+    (global-set-key "C-c s" "spin")
+initial: "before"
+keys:
+  - C-c
+  - s
+  - a
+  - b
+  - c
+  - C-g
+expected_saved: "abcbefore"
+expected_screen_contains:
+  - "Quit"
+expected_screen_not_contains:
+  - "Lisp error"

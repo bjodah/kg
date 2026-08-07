@@ -191,9 +191,9 @@ sudo gmake CC=clang install
 
 Measured on FreeBSD 15.0-RELEASE (amd64) with clang 19.1.7, python 3.12.13,
 tmux 3.7b: the build is warning-free and `gmake CC=clang check` exits 0 at
-32/32 unit tests and 443 PTY cases — 421 passed, 22 skipped for the missing
+32/32 unit tests and 444 PTY cases — 422 passed, 22 skipped for the missing
 Emacs oracle, 0 failed; `gmake WITH_LISP=0 CC=clang clean all check` exits 0
-at 32/32 and 319 passed / 124 skipped / 0 failed. Install the `python3`
+at 32/32 and 319 passed / 125 skipped / 0 failed. Install the `python3`
 metapackage, not just `python312`: the Makefile looks for `python3` or
 `python` on `PATH` and the versioned package installs neither name (or pass
 `gmake PYTHON=python3.12`). Substitute the `pyNNN-` prefix your FreeBSD

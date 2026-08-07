@@ -179,6 +179,112 @@ static void test_load_file_error(void)
 	kg_lisp_shutdown();
 }
 
+/* Write SOURCE to a fresh temporary .el file, returning its path in
+ * PATH (which must be a writable "...XXXXXX" template) or false. */
+static bool write_temp_lisp(char *path, const char *source)
+{
+	int fd = mkstemp(path);
+	FILE *file;
+
+	if (fd < 0) {
+		return false;
+	}
+	file = fdopen(fd, "w");
+	if (file == nullptr) {
+		(void)close(fd);
+		(void)unlink(path);
+		return false;
+	}
+	if (fwrite(source, 1, strlen(source), file) != strlen(source)
+	    || fclose(file) != 0) {
+		(void)unlink(path);
+		return false;
+	}
+	return true;
+}
+
+/* Sub-plan 11D Part 3: what a completion raised inside a loaded file can
+ * and cannot reach.  The compat corpus pins the same two answers against
+ * the pinned Emacs (load-error-condition-reachability, closed here, and
+ * load-throw-reachability, opened here); this runs them in-process and
+ * adds the parts the corpus has no way to ask about -- that `load'
+ * answers t, that the loader's own bookkeeping is unwound rather than
+ * merely abandoned, and that a second load after a caught error still
+ * works, which is what a leaked depth counter or a leaked load_buffers
+ * slot would break. */
+static void test_load_error_condition_reachability(void)
+{
+	char raiser[] = "/tmp/kg-lisp-raise-XXXXXX";
+	char thrower[] = "/tmp/kg-lisp-throw-XXXXXX";
+	char plain[] = "/tmp/kg-lisp-plain-XXXXXX";
+	char form[512];
+	char result[256] = "";
+
+	CHECK(write_temp_lisp(raiser, "(car 1)\n"));
+	CHECK(write_temp_lisp(thrower, "(throw 'load-tag 99)\n"));
+	CHECK(write_temp_lisp(plain, "(setq loaded-marker 'ran)\n"));
+
+	CHECK(kg_lisp_init() == 0);
+
+	/* `load' answers t, as Emacs' does. */
+	(void)snprintf(form, sizeof(form), "(load \"%s\")", plain);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "t") == 0);
+	CHECK(kg_lisp_eval_string("loaded-marker", 13, result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "ran") == 0);
+
+	/* The flip: an ordinary error inside the loaded file reaches an
+	 * enclosing condition-case with its condition symbol intact,
+	 * instead of transferring past it to kg's outermost barrier. */
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"%s\") (error (car e)))", raiser);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "wrong-type-argument") == 0);
+	/* Named narrowly, not just as `error': the condition object is
+	 * replayed, not re-manufactured. */
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"%s\") (wrong-type-argument 'narrow))",
+	    raiser);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "narrow") == 0);
+
+	/* The bookkeeping was unwound, not abandoned: loading again after
+	 * a caught error still works.  A leaked load_depth or a leaked
+	 * load_buffers slot shows up here and nowhere else. */
+	(void)snprintf(form, sizeof(form), "(load \"%s\")", plain);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "t") == 0);
+
+	/* The half that stays divergent: a throw does not cross the
+	 * containment barrier, so the catch does not receive 99 and the
+	 * throw arrives as no-catch. */
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (catch 'load-tag (load \"%s\")) (error (car e)))",
+	    thrower);
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "no-catch") == 0);
+
+	/* A missing file raises plain `error', not Emacs' file-missing --
+	 * recorded in the native-load row, not fixed. */
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"/tmp/kg-lisp-missing/x.el\")"
+	    " (error (car e)))");
+	CHECK(kg_lisp_eval_string(form, strlen(form), result, sizeof(result))
+	    == 0);
+	CHECK(strcmp(result, "error") == 0);
+
+	kg_lisp_shutdown();
+	CHECK(unlink(raiser) == 0);
+	CHECK(unlink(thrower) == 0);
+	CHECK(unlink(plain) == 0);
+}
+
 static int interrupt_polls;
 
 static int cancel_evaluation(void) { return ++interrupt_polls >= 2; }
@@ -524,18 +630,21 @@ static void test_load_package(void)
 	    == 0);
 	CHECK(strcmp(result, "3") == 0);
 
-	/* An evaluation error raised by a loaded file crosses Fe's nested
-	 * evaluation barrier and does not reach a condition-case around load.
-	 * This is deliberately recorded as a compatibility divergence; pin it
-	 * here so a future protected/ambient file-evaluation path can turn the
-	 * failure into a caught value intentionally. */
+	/* An evaluation error raised by a loaded file reaches a
+	 * condition-case around the load, since sub-plan 11D Part 3 put
+	 * lisp_eval_file() on fe's protected string entry.  It used to
+	 * cross the nested evaluator's barrier and surface at top level,
+	 * and this assertion is the inverted form of the one that pinned
+	 * that: the same form now RETURNS, with the handler's value.
+	 * The path resolution here is the bare-name one -- <config>/kg/lisp
+	 * -- which the reachability fix had to leave alone. */
 	(void)snprintf(
 	    path, sizeof(path), "%s/kg/lisp/caught-load-error.el", root);
 	CHECK(write_text_file(path, "(car 1)\n") == 0);
 	CHECK(kg_lisp_eval_string(load_error_form, sizeof(load_error_form) - 1,
 		  result, sizeof(result))
-	    != 0);
-	CHECK(strstr(result, "expected pair") != nullptr);
+	    == 0);
+	CHECK(strcmp(result, "caught") == 0);
 	CHECK(kg_lisp_eval_string("(+ 2 3)", 7, result, sizeof(result)) == 0);
 	CHECK(strcmp(result, "5") == 0);
 
@@ -4724,6 +4833,7 @@ int main(void)
 	RUN(test_sized_input);
 	RUN(test_load_file);
 	RUN(test_load_file_error);
+	RUN(test_load_error_condition_reachability);
 	RUN(test_interrupt);
 	RUN(test_message_arity);
 	RUN(test_insert_and_undo);

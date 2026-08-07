@@ -741,11 +741,47 @@ static char *read_whole_file(const char *path, size_t *size)
  * which differ only in how they resolve PATH: honours
  * LISP_MAX_LOAD_DEPTH and keeps the buffer in state.load_buffers so a
  * longjmp past this call is freed by the frame recovery that already
- * walks that array. */
+ * walks that array.
+ *
+ * The evaluation goes through FeTryEvaluateStringWithOptions, not
+ * FeEvaluateString, and that is the whole of sub-plan 11D Part 3.
+ * FeEvaluateString is a nested run dressed as a top-level call: a
+ * condition raised by the loaded text transferred straight to the
+ * *outermost* barrier -- kg's own error_jump -- past every
+ * condition-case lexically between the (load ...) and the raise.  The
+ * protected entry contains the completion instead and returns false, so
+ * this frame is still live: it unwinds the bookkeeping it owns and then
+ * FeResignal puts the completion back in flight in the enclosing run,
+ * with its kind, its condition object and its message intact, where an
+ * enclosing condition-case finds it.  That is the
+ * load-error-condition-reachability flip, and it is the same shape
+ * lisp_call_body() has used since 06E.
+ *
+ * The three lines after the evaluation used to be unreachable on the
+ * error path and are now the reason this works: the depth counter, the
+ * load_buffers slot and the malloc'd buffer are all released *before*
+ * the resignal, while the frame that owns them still exists.  The
+ * load_buffers array stays the belt to that braces -- a quit or budget
+ * completion that kg's frame recovery unwinds past a caller of this
+ * function still has its buffer freed by the walk over that array --
+ * but the ordinary error path no longer depends on it.
+ *
+ * What this does NOT make reachable is a `throw` out of the loaded text
+ * to a `catch` around the (load ...).  The containment barrier is a
+ * throw wall exactly as the protected call's is, so the throw becomes
+ * (no-catch TAG VALUE) -- which resignals as an ordinary error an
+ * enclosing condition-case can handle, but which the catch naming the
+ * tag does not receive.  Emacs answers the thrown value.  Closing it
+ * needs `load' to be an fe primitive with a frame kind of its own
+ * (Shape B), which 11A Decision 5 rejects by scope; the divergence is
+ * recorded as test/lisp-compat/features.json's
+ * load-throw-reachability row with both answers pinned. */
 void lisp_eval_file(FeContext *context, const char *path)
 {
 	char *buffer;
 	size_t size, slot;
+	FeObject *value = FeNil(context);
+	bool completed;
 
 	if (state.load_depth >= LISP_MAX_LOAD_DEPTH) {
 		FeHandleError(context, "load depth limit exceeded");
@@ -760,10 +796,14 @@ void lisp_eval_file(FeContext *context, const char *path)
 	slot = state.load_depth;
 	state.load_buffers[slot] = buffer;
 	state.load_depth++;
-	(void)FeEvaluateString(context, path, buffer, size);
+	completed = FeTryEvaluateStringWithOptions(
+	    context, path, buffer, size, nullptr, &value);
 	state.load_depth--;
 	state.load_buffers[slot] = nullptr;
 	free(buffer);
+	if (!completed) {
+		FeResignal(context);
+	}
 }
 
 /* True when NAME already carries the ".el" suffix a bare load would
@@ -801,7 +841,11 @@ static int lisp_package_path(
 /* (load NAME): a name containing '/' is a literal path; a bare name
  * resolves through lisp_package_path above.  Loading twice evaluates
  * twice; there is no require/provide behaviour here -- see native_require
- * for that. */
+ * for that.
+ *
+ * Returns t on success, which is Emacs' answer and which kg answered nil
+ * for until Phase 11 (11A Decision 5).  There is no failure return to
+ * distinguish it from: every way this can fail raises. */
 FeObject *native_load(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
@@ -827,5 +871,5 @@ FeObject *native_load(FeContext *context, FeObject *arguments)
 	}
 	free(name);
 	lisp_eval_file(context, path);
-	return FeNil(context);
+	return FeMakeBool(context, true);
 }

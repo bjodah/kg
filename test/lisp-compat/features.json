@@ -77,8 +77,21 @@
     "native-load"
    ],
    "kg_test": "test/test_lisp.c:test_load_file",
-   "rationale": null,
+   "rationale": "kg's loader resolves against kg's own bounded load-path array and package state rather than Emacs' Lisp-visible load-path with .elc/.el/no-suffix probing, which is why the resolution half is kg-policy and lives in the load-path-search row. What IS Emacs-comparable is the value: since Phase 11 `load' answers t on success, as Emacs' does, where it answered nil before (11A Decision 5; load-returns-t pins it). There is no failure return to distinguish t from -- every way kg's load can fail raises, and since 11D Part 3 an enclosing condition-case can catch it (load-error-condition-reachability). One measured difference is recorded and NOT fixed: a missing file raises a plain `error' here where Emacs raises `file-missing', a subtype of `error' carrying the operation and the path in its data. A condition-case naming `error' catches both, so the divergence costs a program only the ability to name the narrower condition; adding it means condition subtypes with an inheritance test in fe's handler search, which Phase 11 does not fund. doc/TODO.md carries it.",
    "source_name": "load"
+  },
+  {
+   "id": "phase11-load-return-value",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "load-returns-t"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_file",
+   "rationale": "Emacs' `load' answers t on success; kg answered nil until Phase 11 (11A Decision 5, one line in native_load). It is a separate row from native-load because that one is kg-policy -- kg's resolution is a bounded C-side load-path array with none of Emacs' .elc/.el/no-suffix probing, so the resolution has no oracle -- while the RETURN VALUE is straightforwardly comparable and now agrees. There is no failure return to distinguish t from: every way kg's load can fail raises, and since 11D Part 3 an enclosing condition-case can catch it (load-error-condition-reachability).",
+   "source_name": null
   },
   {
    "id": "load-path-search",
@@ -90,20 +103,33 @@
     "native-load"
    ],
    "kg_test": "test/test_lisp.c:test_load_file, test/test_lisp.c:test_require_el_suffix",
-   "rationale": "Recorded by sub-plan 10C (10A Decision 7 named it as an existing row; it was not one). Emacs' `load` searches `load-path`; kg's does not. A bare name resolves to exactly one place, <config>/kg/lisp/NAME.el, and a name containing '/' is a literal path -- `require` is the only form that searches, and it searches kg's bounded C-side load-path rather than a Lisp list. comparison is kg-policy because there is nothing to compare: the search list is a bounded array of 8 directories a package cannot push onto, and Emacs' probing order (.elc, .el, no suffix) has no kg analogue -- kg tries the one suffix, which since 10C both loaders agree on. The practical shape of the divergence: an init file that does (add-to-list 'load-path DIR) then (load \"pkg\") works in Emacs and fails here, while (add-to-load-path DIR) then (require 'pkg) works. Documented in README.md, doc/kg.1 and doc/lisp-api.md; the bounded array is a deliberate design (see src/lisp_require.c's header), not an unimplemented feature.",
+   "rationale": "Recorded by sub-plan 10C (10A Decision 7 named it as an existing row; it was not one). Emacs' `load` searches `load-path`; kg's does not. A bare name resolves to exactly one place, <config>/kg/lisp/NAME.el, and a name containing '/' is a literal path -- `require` is the only form that searches, and it searches kg's bounded C-side load-path rather than a Lisp list. comparison is kg-policy because there is nothing to compare: the search list is a bounded array of 8 directories a package cannot push onto, and Emacs' probing order (.elc, .el, no suffix) has no kg analogue -- kg tries the one suffix, which since 10C both loaders agree on. The practical shape of the divergence: an init file that does (add-to-list 'load-path DIR) then (load \"pkg\") works in Emacs and fails here, while (add-to-load-path DIR) then (require 'pkg) works. Documented in README.md, doc/kg.1 and doc/lisp-api.md; the bounded array is a deliberate design (see src/lisp_require.c's header), not an unimplemented feature. Phase 11 note: the failure CONDITION for a name that resolves to nothing is a plain `error' here where Emacs raises `file-missing'. Recorded, not fixed -- see the native-load row.",
    "source_name": null
   },
   {
    "id": "load-error-condition-reachability",
    "category": "loading",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "load-error-condition-reachability"
    ],
-   "kg_test": "test/test_lisp.c:test_load_package",
-   "rationale": "Recorded by the Phase 10 acceptance review. Emacs evaluates a loaded source file inside the dynamic extent of the calling `load`, so an enclosing `condition-case` handles an error from that file. kg's `lisp_eval_file` re-enters Fe through `FeEvaluateString`; an evaluation error transfers to that nested run's host barrier and therefore bypasses the lexically enclosing handler. Reader exhaustion can still be caught because it is raised before the nested evaluator starts, which is a different path pinned in `test_exhaustion_catchability`. Fixing the evaluation path needs an Fe protected/ambient string-evaluation API rather than another C cleanup: the loaded buffer is already released by frame recovery, and wrapping only the allocation would not restore condition reachability. The case returns the caught condition symbol under Emacs but reaches kg's host as an error, making the reachability difference observable rather than merely comparing diagnostic prose.",
+   "kg_test": "test/test_lisp.c:test_load_error_condition_reachability",
+   "rationale": "Closed by Phase 11 sub-plan 11D Part 3 (11A Decision 5, Shape A); recorded by the Phase 10 acceptance review before that. Emacs evaluates a loaded source file inside the dynamic extent of the calling `load', so an enclosing `condition-case' handles an error from that file. kg's lisp_eval_file() re-entered fe through FeEvaluateString, a nested run dressed as a top-level call: the error transferred to that nested run's host barrier -- kg's outermost error_jump -- past every handler lexically between the load and the raise. It now uses fe's FeTryEvaluateStringWithOptions (fe sub-plan 11C, FE_API_VERSION 7), which CONTAINS the completion and returns false with this frame still live; lisp_eval_file unwinds the bookkeeping it owns -- the depth counter, the load_buffers slot and the malloc'd buffer, three lines that were unreachable on the error path before -- and then FeResignal puts the completion back in flight in the enclosing run with its kind, condition object and message intact, where the condition-case finds it. The load_buffers array stays as the belt to that braces for the completions kg's frame recovery unwinds past a caller. Reader exhaustion was always catchable, being raised before the nested evaluator starts (test_exhaustion_catchability), and still is. The THROW half is not closed and is not the same problem: see the load-throw-reachability row.",
+   "source_name": null
+  },
+  {
+   "id": "load-throw-reachability",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "load-throw-reachability"
+   ],
+   "kg_test": "test/test_lisp.c:test_load_error_condition_reachability",
+   "rationale": "Opened by Phase 11 sub-plan 11D Part 3, in the same commit that closed load-error-condition-reachability, because the two halves of the load barrier share a root cause and not a fix. A `throw' out of a loaded file to a `catch' around the (load ...) reaches that catch in Emacs and answers 99; here the containment barrier FeTryEvaluateStringWithOptions installs is a throw wall exactly as the protected call's is, so the throw finds no catch and becomes (no-catch load-tag 99) -- an ordinary error an enclosing condition-case can handle, but not the value the catch was waiting for. That containment is what makes the error half work, so this is a consequence of the fix and not an oversight. Closing it means Shape B: `load' becomes an fe primitive with a frame kind of its own, so the loaded forms are evaluated by the same run as the caller and no barrier stands between the throw and the catch. 11A Decision 5 rejects that by scope -- it is evaluator work, not loader work -- and doc/TODO.md carries the item.",
    "source_name": null
   },
   {

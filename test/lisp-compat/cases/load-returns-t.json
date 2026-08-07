@@ -1,0 +1,8 @@
+{
+ "id": "load-returns-t",
+ "setup": [
+  "(setq load-ok-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-ok.el\") \"test/lisp-compat/fixtures/load-ok.el\"))"
+ ],
+ "expr": "(load load-ok-path)",
+ "note": "Emacs' `load' answers t on success. kg answered nil until Phase 11 (11A Decision 5, one line in native_load). There is no failure return to distinguish it from -- every way kg's load can fail raises -- so the value is only ever t, which is also true of Emacs' load once its NOERROR argument is left off."
+}

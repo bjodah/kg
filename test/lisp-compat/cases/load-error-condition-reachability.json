@@ -4,6 +4,5 @@
   "(setq load-error-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/load-error.el\") \"test/lisp-compat/fixtures/load-error.el\"))"
  ],
  "expr": "(condition-case e (load load-error-path) (wrong-type-argument (car e)) (error (car e)))",
- "expect": "diverge",
- "note": "Emacs returns wrong-type-argument from the enclosing handler. kg's loaded-file evaluation crosses a nested Fe evaluator barrier, so the error reaches the host instead of that handler."
+ "note": "Emacs evaluates a loaded source file inside the dynamic extent of the calling `load', so an enclosing `condition-case' handles an error from that file and this returns wrong-type-argument. kg answered the same since sub-plan 11D Part 3 put lisp_eval_file() on fe's protected string entry FeTryEvaluateStringWithOptions and re-raised the contained completion with FeResignal; before that the error crossed a nested evaluator barrier and reached the host instead of the handler. The handler names the condition narrowly first, which is the part that shows the original condition OBJECT is replayed rather than an error being re-manufactured."
 }

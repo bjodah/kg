@@ -442,9 +442,16 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5806 exceeds limit 5805
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5806
 #   scc total complexity: 5806 (limit 5806)
+# Re-confirmed at the fix cycle's close, on the finished tree, and NOT
+# lowered: 5806 is the measured actual with zero headroom, so there is
+# nothing to give back the way the Phase 11 close gave back three.
+#   $ make complexity-check SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 5806 (limit 99999)
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5805
+#   FAIL: total complexity 5806 exceeds limit 5805
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file src/bufmgr.c at 479,
 # unchanged by this phase), and the pmccabe ceilings stay 110/15 (worst
-# function 91).
+# function 91, one new symbol at 2).
 SCC_COMPLEXITY_MAX ?= 5806
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe

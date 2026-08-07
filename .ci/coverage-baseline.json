@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 15535,
-  "lines_hit": 13374,
-  "line_rate": 0.8609,
-  "functions_found": 1340,
-  "functions_hit": 1299,
-  "function_rate": 0.9694,
-  "branches_found": 9650,
-  "branches_hit": 7159,
-  "branch_rate": 0.7419
+  "lines_found": 15546,
+  "lines_hit": 13387,
+  "line_rate": 0.8611,
+  "functions_found": 1341,
+  "functions_hit": 1301,
+  "function_rate": 0.9702,
+  "branches_found": 9658,
+  "branches_hit": 7167,
+  "branch_rate": 0.7421
  },
  "files": {
   "src/autocomplete.c": {
@@ -225,15 +225,15 @@
    "branch_rate": 0.8713
   },
   "src/lisp_buffer.c": {
-   "lines_found": 266,
-   "lines_hit": 255,
-   "line_rate": 0.9586,
+   "lines_found": 269,
+   "lines_hit": 259,
+   "line_rate": 0.9628,
    "functions_found": 36,
    "functions_hit": 36,
    "function_rate": 1.0,
-   "branches_found": 108,
-   "branches_hit": 90,
-   "branch_rate": 0.8333
+   "branches_found": 112,
+   "branches_hit": 94,
+   "branch_rate": 0.8393
   },
   "src/lisp_cmd.c": {
    "lines_found": 274,
@@ -280,15 +280,15 @@
    "branch_rate": 0.7817
   },
   "src/lisp_obj.c": {
-   "lines_found": 330,
-   "lines_hit": 293,
-   "line_rate": 0.8879,
-   "functions_found": 42,
-   "functions_hit": 41,
-   "function_rate": 0.9762,
-   "branches_found": 198,
-   "branches_hit": 143,
-   "branch_rate": 0.7222
+   "lines_found": 338,
+   "lines_hit": 302,
+   "line_rate": 0.8935,
+   "functions_found": 43,
+   "functions_hit": 43,
+   "function_rate": 1.0,
+   "branches_found": 202,
+   "branches_hit": 147,
+   "branch_rate": 0.7277
   },
   "src/lisp_prelude.c": {
    "lines_found": 9,

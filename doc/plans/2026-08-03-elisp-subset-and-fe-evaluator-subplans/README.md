@@ -3,32 +3,36 @@
 Parent plan:
 [../2026-08-03-elisp-subset-and-fe-evaluator.md](../2026-08-03-elisp-subset-and-fe-evaluator.md),
 reviewed and corrected 2026-08-04; each sub-plan set since has been
-implementation-audited against the tree it starts from, and this
-Phase 10 set was written against the tree as it stands after Phase 9
-closed and its acceptance-review fixes landed (2026-08-07).  Read the
-parent's §0 (verified baseline), §0.1 (the two complexity ratchets),
-§0.3 (scope honesty) and §0.4 (no legacy constituency) before any of
-these; they are the facts these documents assume.  Where the parent's
-§14/§15 name a stale or wrong fact — and the audit found Proof 1
-mostly built, Proof 2 existing as a distributed corpus, and §14 still
-spelling the package `.fe` — 10A's corrections control.
+implementation-audited against the tree it starts from.  The parent's
+initial program **closed with Phase 10** (2026-08-07); this Phase 11
+set is the first post-program set, written against the tree as it
+stands after Phase 10's acceptance commits landed, and it continues
+the same numbered series under the same rules.  Read the parent's §0
+(verified baseline), §0.1 (the two complexity ratchets), §0.3 (scope
+honesty) and §0.4 (no legacy constituency) before any of these; they
+are the facts these documents assume.  Phase 11 lifts one §17
+non-goal (dynamic binding, for a measured, recorded subset) — the
+extension block after §17 and 11A's Decisions control.
 
-Measured on the tree at the Phase 9 close, 2026-08-07 (post-review,
-post-fix-cycle), and re-measured rather than carried forward per
-Rule 6: kg **5800/5800** scc with the worst file `src/bufmgr.c` at
-**479/520**, **32 native / 434 PTY** (**341 pass + 93 skip** under
-`WITH_LISP=0`); fe **765/765** scc with `fe_eval.c` at **495/520**,
-pmccabe **1072/1072 across 343 symbols** (both caps re-set at measured
-actuals in the fix cycle), and `FeMinimumArenaSize()` **57328 bytes**,
-kg's 1 MiB arena partitioning to **1096 frames / 56222 object slots**
-(465 live after a bare open).  The compat manifests carry **352
-features across both repositories** (kg 198 features / 203 cases / 99
-snapshots; fe 154 features / 306 cases, 246 passed, 60 known gaps;
-census 56 fe primitives/aliases, 81 kg natives, 77 prelude
-definitions).  **Both scc caps and fe's pmccabe total sit at exactly
-zero headroom**, and kg's scc scan covers `src` only — test/, utils/
-and lisp/ work is complexity-free, which is the decisive funding fact
-for this set.  10A re-measures at its start, as every A-slice does.
+Measured on the tree at the Phase 10 acceptance, 2026-08-07 (kg
+`2cbccbc` / fe `6355f7f`), and re-measured rather than carried
+forward per Rule 6: kg **5802/5802** scc with the worst file
+`src/bufmgr.c` at **479/520**, **32 native / 439 PTY** (**341 pass +
+98 skip** under `WITH_LISP=0`); fe **787/787** scc with `fe_eval.c`
+at **517/520** — three points from the file cap, in exactly the file
+dynamic binding lands in — pmccabe **1088/1088 across 347 symbols**,
+and `FeMinimumArenaSize()` **57680 bytes**, kg's 1 MiB arena
+partitioning to **56224 object slots** (487 live after a bare open,
+5210 after the prelude).  The compat manifests carry **362 features
+across both repositories** (kg 203 features / 217 cases / 113
+snapshots, oracle runner 113 cases / 100 passed / **13 recorded
+divergences** / 0 failed; fe 159 features / 322 cases, 260 passed, 62
+known gaps).  **Both scc totals and fe's pmccabe total sit at exactly
+zero headroom**, kg's scc scan covers `src` only — test/, utils/ and
+lisp/ work is complexity-free — and a translation-unit split cannot
+relieve either total (`check_scc_complexity.py` sums per file), which
+together are the decisive funding facts for this set.  11A re-measures
+at its start, as every A-slice does.
 
 **The first set — Phase 0 and Phase 1's extraction — is complete
 (2026-08-04).**  Its five documents (`00a`–`00d`, `01a`) were removed once
@@ -159,89 +163,106 @@ Status section below is the surviving record.  The proof packages,
 mechanized kg oracle, honest divergence inventory, measured bytecode
 decision, and `macroexpand` pair are now part of the tree they planned.
 
-The through-line is that Phase 10 proves the dialect on real
-workloads and makes the milestone gate assertable instead of asserted.
-Four facts, established by measuring this tree (the audit's proof
-inventory and 30-snippet Emacs comparison are condensed into 10A),
-shape the slices:
+The through-line is that Phase 11 retires the sharpest divergences
+the program *recorded* rather than fixed — the ones a user hits
+rather than reads about.  Four facts, established by the Phase 11
+fact audit's measurements (its 21-probe Emacs semantics grid, blast
+radii and code seams are condensed into 11A), shape the slices:
 
-- **Proof 1 is ~85% built and §14 does not know it.**  The package is
-  `lisp/auto-fill.el` (there are zero `.fe` files in kg); six of
-  §14's seven bullets already pass with three PTY cases.  What is
-  actually wrong: no conditions in the file, the PTY cases plant a
-  *drifted* copy while the file claims byte-for-byte identity, and
-  `make install` ships no `lisp/` while the docs tell users to
-  `(require 'auto-fill)`.
-- **Proof 2 exists as a distributed corpus** — ~97 `config_files:` PTY
-  cases, `lisp-init-phase8-library.yaml` construct-for-construct from
-  08A, and matching in-C fixtures — covering seven of eight bullets;
-  buffer-local configuration is nominal only (`setq-local` is a
-  literal alias of `setq`).  10A declares the corpus rather than
-  duplicating it.
-- **Proof 3 has no artifact, and its "macro expansion" bullet sits on
-  a price cliff.**  Everything else it lists already works and agrees
-  with the pinned Emacs (24 of 30 pure-language snippets byte-agree);
-  `macroexpand`/`macroexpand-1`/`macroexpand-all` do not exist
-  anywhere and cannot be prelude-written (fe's `funcall`/`apply`
-  reject a macro operand by design).  10A Decision 2 makes the pair
-  fe primitives and rejects `-all` by name.
-- **The milestone gate's kg-oracle item has no runner, and two silent
-  divergences are unrecorded.**  fe's half is automated (306 cases,
-  0 failed); kg's 99 `comparison: emacs` cases are checked by a human
-  reading snapshots.  `defvar` does not create a special variable
-  (`let` over it silently answers differently than Emacs) and the
-  writer never abbreviates `(quote x)` → `'x` — the sharpest §2
-  violations measured, in the manifest as `supported` with an empty
-  rationale.  The runner, the honest manifest and the recorded
-  divergences are 10C.
+- **`defvar` does not mark a symbol special, and the temporary-setting
+  idiom silently misbehaves.**  `(defvar hkv nil) (defun callee ()
+  hkv) (defun caller () (let ((hkv t)) (callee)))` — Emacs `t`, kg
+  `nil`.  The measured grid also falsifies the obvious design: a
+  defun *parameter* named after a special stays **lexical** in Emacs
+  31 under `lexical-binding: t` (kg already agrees), so dynamic
+  binding must live at fe's binding-list paths only — and kg's
+  prelude `let` is a *lambda application* today, so it must move onto
+  fe's core bindings-list `let` or the fix cannot reach it.  The
+  let-shadowing blast radius across `lisp/*.el` and all 102 planted
+  `config_files` is exactly **one site — the divergence probe
+  itself**, so nothing in the tree changes behaviour by accident.
+- **The writer's `(quote x)` gap is an ~8-line symmetric copy of a
+  block that already exists.**  `(function f)` → `#'f` has been
+  implemented, with Emacs-identical arity/properness discrimination,
+  since Phase 4 (`fe/fe.c:1090-1097`); the quote change reuses it,
+  the textual blast radius is 5 occurrences in 4 files, and no
+  `supported` case anywhere regresses.  Backquote is different in
+  kind (reader-symbol change, breaks `quasiquote` pattern-matching)
+  and stays recorded.
+- **The two "host barrier" divergences share a root cause but not a
+  fix.**  Both handler searches stop at the same `ctx->run_base`
+  floor, but a throw is converted to a `no-catch` *error* before
+  anything can contain it — so `catch-throw-reachability` closes
+  kg-side (prelude `unwind-protect` expansion of `save-excursion`/
+  `with-current-buffer`; measured: `condition-case` already crosses
+  both), while `load-error-condition-reachability` needs a new fe
+  entry point (`FeTryEvaluateStringWithOptions`, the sibling of the
+  protected call, then `FeResignal` from kg's loader).
+  Throw-across-load would need `load` as an fe primitive and is
+  rejected by scope, recorded as a new divergence row.
+- **Every fix turns `make check` red on success unless its manifest
+  edit rides the same commit.**  kg's oracle runner's XPASS rule
+  fails a `divergent` case that starts agreeing — for all four target
+  rows — while fe's runner has no such rule and will silently stop
+  being right; the fe slices edit fe's affected rows by hand.  Both
+  scc totals and fe's pmccabe total sit at zero headroom, `fe_eval.c`
+  has three file-cap points exactly where dynamic binding lands, and
+  one new fuzz-grammar arm re-steers all 14 tracked seeds (Phase 9
+  precedent: 6 of 14 re-derived by hand).
 
-So the set front-loads one measurement-and-decision slice (10A: the
-proof inventory, nine Decisions, the §14/§15 corrections, the two-tree
-funding), builds `macroexpand`/`macroexpand-1` in fe (10B), moves the
-phase's single pin, builds kg's oracle runner and makes the manifest
-honest (10C), and completes the three proofs, asserts the milestone
-gate item by item, answers §15 from measured counters and closes the
-phase and the program (10D).
+So the set front-loads one measurement-and-decision slice (11A: the
+grid, ten Decisions, the parent §17 extension, the two-tree funding),
+builds special variables and shallow dynamic binding in fe behind a
+funded TU split (11B), adds the quote writer and the protected string
+entry and closes the fe workstream pre-pin (11C), moves the phase's
+single pin and adopts every behaviour with same-commit manifest flips
+(11D), and sweeps every document that described the old behaviour,
+re-measures, and hands the phase to review (11E).
 
-## Grouping (historical Phase 10 contract)
+## Grouping
 
 | Sub-plan | Phase | Focus | Prerequisites |
 |----------|-------|-------|---------------|
-| 10A (retired) | 10 | The measured proof inventory (what each of §14's three proofs already has, item by item), the 30-snippet Emacs comparison, nine Decisions — `macroexpand` pair in scope with `-all` rejected by name, the kg oracle runner as gate infrastructure, the two silent divergences recorded not fixed, the unsupported-channel gate re-worded, the distributed corpus declared, the `require` suffix fix, the two-tree funding, §15 answered from counters — and the §14/§15 corrections | none — **this is first** |
-| 10B (retired) | 10 | fe-only: `macroexpand-1` and `macroexpand` as primitives reusing the evaluator's own expansion path (alias-following, strict arity under expansion, self-expanding macro hits the step budget); `macroexpand-all` rejected by its own name, not `void-function`; `comparison: emacs` compat cases | 10A |
-| 10C (retired) | 10 | kg: the phase's single pin move (language version check — new names answer where `void-function` did), the `require` `.el`-suffix fix, `test/kgbatch` grown (`prin1` print, scratch buffer), the kg oracle runner with the XPASS rule fe's lacks, `kg_test` citations verified by tooling, the honest manifest (defvar/quote-printing divergence rows, the misclassified entry, the type-of/commandp case gaps), two §15 perf counters | 10B |
-| 10D (retired) | 10 | kg: Proof 1 completed (conditions, drift gate, ship decision), Proof 2 declared and completed (error handling in the fixture, the bullet→case mapping), Proof 3 built (multi-file higher-order package, pure portions verified under Emacs 31), the milestone gate asserted item by item, §15's answer recorded from measured counters, caps re-set at actuals; closes the phase and the program | 10C |
+| [11A](11a-pin-the-divergence-targets-and-fund-the-phase.md) | 11 | The measured 21-probe Emacs semantics grid (six probes already agree and are guards), ten Decisions — the four-divergence scope, the two-flag shallow-binding model with lexical parameters preserved, the prelude-`let` migration, the quote writer with backquote out, Shape A for the load barrier with throw-across-load rejected by scope, the prelude fix for catch/throw, the XPASS sequencing constraint, the two-tree funding incl. the `fe_eval.c` TU split, the fuzz-arm seed price, the version moves — and the parent §17 extension | none — **this is first** |
+| [11B](11b-special-variables-and-dynamic-binding.md) | 11 | fe-only: the TU split and the funded raise, then `internal--mark-special`/`special-variable-p` and shallow dynamic binding at the binding-list paths, restored on all five completion kinds; the A-grid as API/script tests with the six guards; the fuzz arm and its hand re-derived seeds; `FE_LANGUAGE_VERSION` 9 | 11A |
+| [11C](11c-the-quote-writer-and-the-protected-string-entry.md) | 11 | fe-only: `(quote X)` → `'X` in `WriteObject` (the `#'` block's sibling; enumerated 3-site fe blast radius), `FeTryEvaluateStringWithOptions` (containment + resignal, `FE_API_VERSION` 7), fe manifest rows edited by hand (no XPASS rule there), caps re-set at actuals **pre-pin**; closes the fe workstream, NO pin | 11B |
+| [11D](11d-the-pin-the-prelude-switch-and-the-loader-seam.md) | 11 | kg: the funded raise, the phase's single pin (incl. the new-TU Makefile adaptation), then per-commit behaviour adoption with same-commit manifest flips — prelude `defvar`/`defconst` marking + `let` onto fe's core form + the grid as `comparison: emacs` cases; the loader onto the protected entry + `FeResignal` + `load` returns `t`; `save-excursion`/`with-current-buffer` as prelude `unwind-protect` macros over two capture/restore natives; the kg writer-flip tests | 11C |
+| [11E](11e-the-docs-honesty-sweep-and-the-close.md) | 11 | kg: the enumerated docs sweep (lisp-api v3, README, kg.1, TODO, fe-upstream, compat READMEs, ChangeLog), the re-measured close figures, caps re-set at actuals, full parallel runner; hands the phase to review — Status and document retirement are the reviewer's acts | 11D |
 
-**10A is genuinely first, for the same structural reason 00A through
-09A were.**  Phase 10's contract is §14's milestone gate, and the gate
-cannot be asserted against the tree as §14 describes it — the audit
-found the proofs partially built, the gate's kg-oracle item
-unmechanized, and the funding at exactly zero on three caps — so the
-corrections and the funded raises must be recorded before anyone
-implements from §14's text.
+**11A is genuinely first, for the same structural reason 00A through
+10A were.**  The phase's contract is a measured semantics grid, and
+two of the audit's findings falsify the obvious implementation (Emacs
+binds defun parameters lexically even when they shadow a special; the
+two barrier divergences need different fixes) — so the corrections and
+the funded raises must be recorded before anyone implements from the
+divergence rows' prose.
 
-**10B is the fe half, and it is the set's only new language surface** —
-two reflective primitives Proof 3 cannot be honest without.  It moves
-`FE_LANGUAGE_VERSION` (new names answer where `void-function` answered
-before, the V6 precedent) unless fe's versioning contract is read
-otherwise in-tree — decided there, recorded in the pin row.
+**11B is the phase's substance** — the language change, in the file
+with three points of headroom, behind the TU split that keeps the
+520 file cap binding at full strength.
 
-**10C is the pin plus the gate machinery** — one slice because the
-oracle runner, the manifest hygiene and the suffix fix are only
-testable against the pinned fe, and they are what 10D's gate table
-stands on.
+**11C is the small fe remainder** — two independent pieces that only
+share a slice because both must precede the pin, ending with the
+pre-pin cap re-set that keeps the phase to one pin move.
 
-**10D is the proofs and the close** — the artifacts §14 actually asks
-for, built last so they exercise the honest manifest and the runner
-rather than predating them.
+**11D is the pin plus every behaviour adoption** — sequenced so each
+divergence flip and its manifest edit share a commit, because the
+XPASS rule fails the suite on success otherwise.
 
-The set is four documents, not five: the manifest work and the runner
-are one coherent kg slice, and splitting the proofs from the gate
-table would separate the evidence from the thing it evidences.
+**11E is the sweep and the close** — the honesty pass over every
+document the audit enumerated as describing the old behaviour, then
+the re-measured close, with Status and retirement left to the
+reviewer.
 
-## Handoff contract (fulfilled)
+The set is five documents: the fe language work and the fe
+odds-and-ends are different risk classes (11B/11C), and the docs
+sweep is large enough — five kg documents plus two manifests'
+rationales — that folding it into 11D would bury the behaviour
+commits.
 
-The slices were handed to one engineer one row at a time; each sub-plan's
+## Handoff contract
+
+The slices are handed to one engineer one row at a time; each sub-plan's
 "Files this slice owns", test list and "does not do" section are part of
 the acceptance criteria, not suggestions.  The documents are removed
 on completion, **by the reviewer at acceptance, never by the
@@ -255,15 +276,16 @@ adaptation audit went to die.
 
 | Slice | Primary edit surface | Evidence it must add or preserve | Explicitly not its test |
 |---|---|---|---|
-| 10A | This directory, the README tables, the parent §14/§15 correction block | the proof inventory recorded item by item with its evidence, the 30-snippet comparison preserved, the nine Decisions written (raises land in B/C opening commits, proved live there), the post-fix-cycle caps re-measured | no implementation, no cap movement yet, no pin |
-| 10B | fe evaluator expansion path, `macroexpand`/`macroexpand-1` primitives, compat cases, tests | expansion correctness incl. aliases and strict arity under expansion; self-expanding macro hits the step budget; ENVIRONMENT non-nil and `macroexpand-all` rejected by name; script + golden; new `comparison: emacs` cases with runner-produced snapshots only; full nine-stage fe runner | no `macroexpand-all` implementation, no environments, no kg edits, no pin |
-| 10C | kg pin + `doc/fe-upstream.md`, `src/lisp_require.c`, `test/kgbatch`, the oracle runner (utils/), the manifest, two perf counters | the language-version reconciliation at the pin; `(require 'f "name.el")` fixed with the bare-stem/absolute paths pinned unchanged; the runner green over all `comparison: emacs` cases with the XPASS rule demonstrated; `check_lisp_compat.py` verifying `kg_test` citations; the defvar and quote-printing divergences recorded with cases; init/package load counters asserted populated | no proof artifacts, no dynamic binding, no printer abbreviation work, no fe edits beyond the gitlink |
-| 10D | `lisp/` (auto-fill + the new package), the Proof 2 fixture, PTY cases, the gate table, `doc/TODO.md`, caps | Proof 1's condition path + drift gate + ship decision; Proof 2's error handling + bullet→case mapping; Proof 3's package with pure portions verified under Emacs 31; the milestone gate table with each row citing its mechanism; §15's trigger table from measured counters; caps re-set at actuals; full parallel runner; closes the phase | no bytecode work, no new language surface, no fe edits, no pin |
+| 11A | This directory, the README tables, the parent §17 extension block | the 21-probe grid recorded with the six already-agreeing guards named as guards, the ten Decisions written (raises land in 11B/11D opening commits, proved live there), the acceptance-tree caps re-measured | no implementation, no cap movement yet, no pin |
+| 11B | fe symbol flags + binding-list paths, the new TU, the fuzz arm, `fe/test_api.c` + scripts, fe manifest/docs | the TU split proved complexity-neutral with per-file figures; the grid green as API/script tests incl. the four-completion-kind restore, GC-under-bindings and exhaustion composition; the A4/A6b/A13 guards proved still green; the seed re-derivation count recorded; `FE_LANGUAGE_VERSION` 9 with rationale; full nine-stage fe runner | no kg edits, no pin, no writer work, no protected entry, no `defvar` in fe, no dynamic parameter binding |
+| 11C | `fe/fe.c` `WriteObject`, the protected entry in the split TU + `fe.h`, fe goldens/manifest/docs, the pre-pin cap re-set | the quote grid as script golden + API tests; the enumerated 3-site fe blast radius and nothing more; containment/resignal/quit/budget/throw-wall/side-effect-order tests for the new entry; `FE_API_VERSION` 7; fe manifest rows hand-edited (`phase7-arity-condition-rendering` split, the `compare_data` opt-out dropped, `primitive-let`'s stale rationale fixed); caps re-set at actuals in the last commit | no kg edits, no pin, no Shape B, no backquote, no reader changes |
+| 11D | kg pin + Makefile TU adaptation, `lisp/prelude.el`, `src/lisp_io.c`/`src/lisp_buffer.c`, compat cases + manifest, `test/test_lisp.c`, PTY cases | the pin commit flips no oracle case (asserted); each behaviour commit carries its manifest flip (XPASS); the grid as new `comparison: emacs` cases with fresh runner-produced snapshots only; the zero-blast-radius claim proved by the full PTY suite; the loader seam's bookkeeping unwound before `FeResignal`; `load` returns `t`; throw-across-load and `file-missing` recorded as divergences; `condition-case`-still-crosses guards kept green; `WITH_LISP=0` green | no docs sweep beyond named manifest/fe-upstream rows, no close mechanics, no buffer-locals, no fe edits beyond the gitlink |
+| 11E | `doc/lisp-api.md`, `README.md`, `doc/kg.1`, `doc/TODO.md`, `doc/fe-upstream.md`, compat READMEs, `doc/ChangeLog.md`, caps | every enumerated stale claim rewritten and the two documented-nowhere gaps filled; the stale-claim greps at zero; lisp-api document version 3; close figures re-measured and recorded in the final commit body; caps re-set at actuals; full parallel runner 12/12 | no behaviour change, no fe edits, no Status writing, no document retirement |
 
 For all rows, current suite counts are a starting census, not literals to
 assert.  Run focused tests while iterating; the full Fe runner closes the
-Fe workstream at 10B, and kg's full parallel runner closes Phase 10 at
-10D.
+Fe workstream at 11C, and kg's full parallel runner closes Phase 11 at
+11E.
 
 ## Compatibility direction
 
@@ -277,92 +299,97 @@ add legacy aliases, C-API wrappers, dual-evaluator modes, source-file lint for
 hypothetical configs, or `.fe` filename fallbacks.  Version numbers still move
 because they make the Fe↔kg contract checkable.
 
-For Phase 10 the oracle is back at the center, and the set's job is to
-make agreement *mechanized* on the kg side the way it already is on
-fe's: 10C's runner turns "all supported `comparison: emacs` entries
-pass against the oracle" from a sentence in §14 into a command that
-exits non-zero, with the XPASS rule (a divergence that starts agreeing
-must fail, so stale divergence rows get cleaned up) that fe's own
-runner still lacks.  Honesty about disagreement is the same
-discipline: the two silent divergences the audit found (`defvar` not
-special, quote printing) are recorded as divergences with cases, not
-fixed and not left as `supported` rows with empty rationales.  The one
-new language surface, 10B's `macroexpand` pair, is measured against
-Emacs (`comparison: emacs` cases with runner-produced snapshots);
-`macroexpand-all` is rejected by its own name per the reader's
-reject-by-name convention, not left to `void-function`.  Whether
-`FE_LANGUAGE_VERSION` moves is decided in 10B against `fe.h`'s own
-contract — the V6 precedent (changed answers move the version) makes
-a bump the expected outcome — and the `static_assert` tripwire fires
-at the 10C pin either way, as it has at every pin since 03F.
+For Phase 11 the oracle mechanism Phase 10 built is the instrument:
+every fix is specified as "this measured Emacs answer becomes kg's
+answer", pinned by a `comparison: emacs` case, and the XPASS rule is
+what forces each flip's manifest edit into the same commit as its
+behaviour change.  The measured grid controls over every older
+document's prose — where `doc/lisp-api.md` or a manifest rationale
+described the old behaviour as deliberate, the document is rewritten
+(11E), not obeyed.  Honesty about what stays broken is the same
+discipline as ever: throw-across-load, `file-missing`-vs-`error`,
+backquote printing, the one-arg-`defvar` scope approximation and the
+capturable prelude temporaries are *recorded*, with cases where an
+answer can be pinned, not silently shipped.  `FE_LANGUAGE_VERSION`
+moves 8→9 in 11B and `FE_API_VERSION` 6→7 in 11C (changed answers and
+a new entry point — the V6 precedent), and the `static_assert`
+tripwire fires at the 11D pin as it has at every pin since 03F — now
+with the header-prerequisite fix from the Phase 10 acceptance making
+it effective.
 
 ## Sequencing
 
 ```text
-10A  inventory the proofs, fund ──> 10B  macroexpand pair,
-                                         fe-only, caps raised
-                                         ── fe workstream closes,
-                                            NO pin
-                                         │
-                                         v
-                                    10C  the pin + the oracle runner
-                                         + the honest manifest +
-                                         the require fix
-                                         │
-                                         v
-                                    10D  the three proofs + the
-                                         milestone gate + §15's
-                                         answer; closes the phase
-                                         and the program
+11A  the grid, the Decisions, ──> 11B  TU split + dynamic binding,
+     the funding                       fe-only, caps raised
+                                       │
+                                       v
+                                  11C  quote writer + protected
+                                       string entry; caps re-set
+                                       at actuals ── fe workstream
+                                       closes, NO pin
+                                       │
+                                       v
+                                  11D  the pin + prelude switch +
+                                       loader seam + catch/throw
+                                       expansion, each flip with
+                                       its manifest edit
+                                       │
+                                       v
+                                  11E  the docs honesty sweep +
+                                       the re-measured close;
+                                       hands the phase to review
 ```
 
-Strictly linear, and nothing runs in parallel with it: 10C's runner
-and manifest are only testable against the pinned fe, and 10D's
-proofs must exercise the honest manifest and the runner, not predate
-them.  Every arrow is a real dependency: 10B adds the names Proof 3
-reflects with, 10C makes agreement checkable, and 10D is the evidence
-the gate table cites.
+Strictly linear, and nothing runs in parallel with it: 11C's
+protected entry lives in the TU 11B splits out, 11D's prelude switch
+is only testable against the pinned fe, and 11E's sweep must describe
+the tree 11D finished, not predate it.
 
-The pin discipline repeats 07's, 08's and 09's deliberately: exactly
-one pin move in the whole set (10C), because the fe half is one slice
-and the kg half has no further fe dependency.
+The pin discipline repeats 07's through 10's deliberately: exactly
+one pin move in the whole set (11D), which is why 11C's cap re-set
+lands pre-pin — a post-pin fe commit would force a second move.
 
 ## What this set deliberately does not do
 
-- **No `macroexpand-all`, no macroexpand environments.**  The pair is
-  the reflective surface Proof 3 needs; `-all` needs a code walker and
-  is rejected by name and recorded in `doc/TODO.md` (10A Decision 2).
-- **No dynamic binding, no printer abbreviation.**  The two silent
-  divergences are recorded as divergences with cases (10A Decision 4);
-  making `defvar` special or teaching the writer `'x` is language-
-  runtime work no proof requires.
-- **No missing-function channel.**  Unknown functions keep answering
-  `void-function`; the "unsupported entries fail clearly" gate item is
-  re-worded against what the tree does — reader syntax rejects by
-  name, functions do not — and the debt is recorded (10A Decision 5).
-- **No new monolithic init fixture.**  The distributed corpus is
-  declared the fixture (10A Decision 6); duplicating it into one file
-  would create a second thing to drift.
-- **No §15 instrumentation beyond two cheap counters.**  Read-vs-eval,
-  dispatch and GC-time instrumentation is fe work at zero headroom for
-  a decision the existing counters already settle: triggers 1–3
-  measured *no* (prelude+init 0.8 ms, zero collections, 12.0% arena
-  live).  A future bytecode phase funds its own instrumentation
-  (10A Decision 9).
-- **No bytecode work.**  §15 is answered, not acted on.
-- **No re-litigation of recorded Phase 4–9 residue.**  `FeTMacro`,
-  `internal--let`, int64-not-bignum, the native re-entry walls, the
-  recorded divergence rows (lambda-parameter strictness, string
-  escapes rejecting NUL/>255, `format` strictness,
-  `documentation`-for-variables, `catch-throw-reachability`,
-  `condition-case-native-errors`, the `(FUNCTION NARGS)` rendering),
-  the 16-argument interactive bound, the deferred interactive
-  codes/modifiers, Phase 8's second-set candidates
-  (`string-match`, `symbol-name`/`intern`, vectors, Lisp `load-path`,
-  sub-form precision, the `read-*` family, Customize), and Phase 9's
-  recorded debt (the arena reset command, the fe-standalone cleanup
-  registry, Budget uncatchability) all stand as their Status sections
-  and `doc/TODO.md` record them.
+- **No buffer-local variables.**  They need a per-buffer binding
+  table, a lookup order and a lifetime rule for buffer kill/switch —
+  their own phase.  `setq-local`/`setq-default` stay recorded aliases,
+  their manifest rows stay `divergent`, and `default-value`/
+  `set-default`/`make-local-variable` are not built (11A Decision 1).
+- **No `lexical-binding: nil` file semantics.**  kg's dialect stays
+  lexical-by-default with the Decision-2 special-variable subset; a
+  whole-file dynamic mode is not a target and never was.
+- **No backquote printing, no reader-symbol change.**  Emacs'
+  backquote abbreviation requires the reader to produce `` \` ``/
+  `\,`/`\,@` symbols where kg produces `quasiquote`/`unquote`/
+  `unquote-splicing`; changing that breaks pattern-matching Lisp and
+  stays the recorded `phase8-reader-backquote-symbol-names`
+  divergence (11A Decision 4).
+- **No Shape B — `load` does not become an fe primitive.**  A `throw`
+  out of a loaded file stays uncatchable across the barrier, recorded
+  as a new divergence row with Emacs' measured answer beside kg's
+  (11A Decision 5).  Likewise `file-missing` stays plain `error` —
+  condition-subtype work is not funded here.
+- **No unmarking, no dynamic parameter binding.**  Special marking is
+  one-way (as in Emacs), and closure/defun parameters bind lexically
+  unconditionally — the measured A4 guard; an implementation that
+  loses it trades one divergence for another.
+- **No defense against the capturable-temporaries hazard.**  Under
+  dynamic binding, a user who `defvar`s a generic name (`result`,
+  `res`, `doc`, …) can capture the prelude's 53 `internal--let`
+  temporaries — which is exactly Emacs' own exposure for
+  lexical-binding libraries, so it is recorded, not defended
+  (11A Decision 3).
+- **No re-litigation of recorded residue.**  The Phase 4–10 rows this
+  set does not name — `FeTMacro`, int64-not-bignum, the remaining
+  native re-entry walls (hooks, process filters, nested
+  `command-execute`), lambda-parameter strictness, `format`
+  strictness, `condition-case-native-errors`, `macroexpand-all` and
+  environments, the missing-function channel, the arena reset
+  command, the fe-standalone cleanup registry, Budget uncatchability,
+  bytecode (measured and declined) — all stand as their Status
+  sections and `doc/TODO.md` record them.
 
 ## Rules
 
@@ -460,6 +487,7 @@ path, a second evaluator, `.fe` fallback loading, or a lax-arity mode.
 | 8 — init compat waves | 08A's re-scope after the audit: fe-core is only constant protection + keywords (08B) and the reader/positions slice (08C); the library remainder is prelude at **measured ≈+0 scc**; kg's C share is `format` directives, diagnostics and pin adaptations | 08B against Phase 2's measured +6 for two forms and a primitive; 08C against Phase 5's lexer work (05C's reader share); the prelude batch against the audit's prototype (+0 scc, ~720 arena slots) | fe **+25..45** (08B) **+60..110** (08C), kg **+40..90** (08D/08E C-side) — priced by 08A, 2026-08-06 | **Landed 2026-08-06, then rejected in review and re-closed after the fix cycle.**  Per slice: 08B **+38** (670 → 708, inside +25..45), 08C **+37** (708 → 745, *under* its +60..110 band — but the slice's real cost was **pmccabe, which this table does not price**: +148 across both slices, 886 → 1034, forcing an unfunded in-commit cap raise 980 → 1090 that the review rejected).  The fix cycle (`fba716d..acc94f7`, 8 commits) closed fe at **746/760** scc (`fe.c` 140, `fe_eval.c` 489/520) and re-set `PMCCABE_TOTAL_MAX` at its measured actual **1056** across 339 symbols.  Details in the Phase 8 Status |
 | 9 — robustness | Re-scoped by 09A: catchable exhaustion conditions (09B) and the flat-stack mark (09C); the "arena-stat API extension" already exists in full (00D/03F) | Phase 3's lesson that a *focused* rewrite is small (03E's `if`-single-else fix, ~0 net), applied to `CollectGarbage`'s mark phase, plus 09B's plumbing against Phase 6's measured condition work | fe **+15..30** (09B) **+20..35** (09C) — priced by 09A, 2026-08-06 | **Landed 2026-08-07 far under the bands, then took a fix cycle for a review blocker.**  Per slice: 09B **+4** (746 → 750), 09C **+7** (750 → 757) — the pointer-reversal walk cost a tenth of its band.  The fix cycle (`56c60f9..7499f71`, 12 commits: the mark-callback contract + two guards, condition re-stamping, six re-derived fuzz seeds + the ci-06 reachability gate, the trace-arm coverage) added **+8 scc / +7 pmccabe**; caps closed at **765/765** and **1072/1072** across 343 symbols.  Details in the Phase 9 Status |
 | 10 — proofs | Re-scoped by 10A: `macroexpand`/`macroexpand-1` primitives (10B — the set's only fe C); everything else is `.el`/test/utils, not scc-scanned | The evaluator's existing expansion path (exposure plus a loop, not new machinery), against Phase 4's small-primitive comparables | fe **+15..30** (10B) — priced by 10A, 2026-08-07 | **Landed and accepted 2026-08-07 at +22 scc / +16 pmccabe** (765 → **787/787**, 1072 → **1088/1088** across 347 symbols), inside the funded band. `fe_eval.c` is **517/520**. The acceptance fix at `6355f7f` was complexity-neutral; the Phase 10 Status records it. |
+| 11 — recorded divergences | 11B: two symbol flags, `internal--mark-special`/`special-variable-p`, shallow binding at the binding-list paths with restore on all five completion kinds, one fuzz arm, behind a complexity-neutral `fe_eval.c` TU split; 11C: the quote-writer block (the `#'` block's ~8-line sibling) and `FeTryEvaluateStringWithOptions` (the protected call's sibling) | Phase 6's measured condition/unwind work for the binding restore; the existing `fe/fe.c:1090-1097` block for the writer; `FeTryCallWithOptions` (`fe_eval.c:4246-4306`) nearly verbatim for the entry | fe **+15..30** (11B) **+10..19** (11C), pmccabe **+30..52** combined — priced by 11A, 2026-08-07; funded raise 787→**835** scc, 1088→**1140** pmccabe in 11B's opening commit | Funded by 11A; actuals recorded per slice as they land |
 
 Milestone 1 (phases 0–5) landed at **+328 scc and +252 pmccabe** on top of
 the 00A baseline (scc 210 → 538, pmccabe 500 → 752) — inside the +270 to
@@ -492,6 +520,7 @@ that the original ranges did.
 | 8 — init compat waves | `defcustom`/`custom-set-variables` prelude macros, `format` widths/`%c`/`%x`/`%o` in `src/lisp_io.c`, loader diagnostics surfacing `file:LINE`, pin adaptations, a possible `commandp`-class native | `src/lisp_io.c`'s existing directive switch; the 08D prelude batch measured ≈+0 | **+40 to +90 scc** (re-priced by the 08 set, 2026-08-06) | **Landed at +80 for the slices plus +4 for the review-fix cycle: 5714 → 5798/5804.**  Per slice: 08D **+0** (the zero-scc prelude bet held, verified at `3eedd34`), 08E **+80** — the whole kg spend, inside the funded band.  pmccabe: the formatter's aggregate +69 was review-rejected as ratchet laundering (a new function at 25 against the 15-point budget, banked silently) and the fix cycle **split it honestly** — `format_pad` 25→8, `format_walk` 21→5, `format_argument` 20→6, `format_integer` 16→2, ten helpers all ≤13 — and hardened kg's checker to refuse silent increases, as fe's was in 07.  Details in the Phase 8 Status |
 | 9 — robustness | Arena-stat diagnostics command, exhaustion-matrix coverage, pin adaptations | small, new (`cmdtable` row + renderer + tests) | **+5 to +15** (confirmed by 09A, 2026-08-06) | **Landed 2026-08-07 at +2** (5798 → 5800; `cmd_lisp_arena_stats` banked at pmccabe 2), the cap re-set 5860 → **5800** at close.  The kg fix cycle (`94a931c..266dbd1`, 13 commits: PTY timing right-sized from measurement, the `--settle-floor` harness mechanism, the pin adaptations for fe's fix range) cost **+0 src scc** — every change landed in test/, utils/, doc/ or comments.  Details in the Phase 9 Status |
 | 10 — proofs | Fixtures, PTY cases, the oracle runner, the proof packages — plus exactly two `src/*.c` touches: the `lisp_require.c` suffix conditional and two perf-counter sites | `src/lisp_require.c`'s existing candidate loop; `src/perf.h`'s existing counter idiom | kg **+3..10** (10C) — priced by 10A, 2026-08-07; all else 0 (not `src/*.c`) | **Landed and accepted 2026-08-07 at +2 scc** (5800 → **5802/5802**), just below the estimate because the suffix conditional costs no scc point. Acceptance repairs remain scc-neutral; the require-stack cleanup adds one pmccabe-1 helper, banked explicitly. The Phase 10 Status records the review. |
+| 11 — recorded divergences | 11D: the loader seam onto the protected entry (unwind-then-`FeResignal`), `load` returning `t`, two capture/restore natives for the `save-excursion`/`with-current-buffer` prelude macros, the pin's Makefile TU adaptation; everything else — prelude, cases, PTY, docs — outside the scan | `src/lisp_io.c`'s existing `lisp_eval_file`; `src/lisp_buffer.c`'s existing 06E natives (which the prelude macros replace) | kg **+8..20** (11D) — priced by 11A, 2026-08-07; funded raise 5802→**5825** in 11D's opening commit; 11E re-sets at actuals | Funded by 11A; actuals recorded per slice as they land |
 
 Milestone 1 (phases 0–5) landed at **+13 kg points** (5444 → 5457 —
 counted from where the tree stood after the Phase 0 set's own kg

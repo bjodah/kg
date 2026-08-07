@@ -1806,6 +1806,27 @@ The following are excluded unless a proof workload establishes a concrete need:
   metadata/property APIs beyond Wave D's explicit `defcustom` subset;
 * sandboxing untrusted Lisp.
 
+#### Extension block — 2026-08-07 (Phase 11, sub-plan 11A)
+
+The program closed with Phase 10; the sub-plan series continues past
+it under the same rules.  Phase 11 lifts the **dynamic binding**
+exclusion above, under this section's own escape clause ("unless a
+proof workload establishes a concrete need"), for a measured subset
+only.  The concrete need, established by the Phase 11 fact audit
+(2026-08-07, Emacs 31.0.90): the temporary-setting idiom `(let
+((some-var t)) (call-something))` over a `defvar`'d variable silently
+answers differently than Emacs in every init file that uses it — the
+manifest's sharpest recorded divergence (`prelude-defvar-special`) —
+and the shipped proof package `lisp/auto-fill.el` reads its defvar'd
+variables free from defun bodies in exactly the shape dynamic binding
+defines.  The lifted subset is 11A Decision 2's: two-flag special
+marking (`defvar`/`defconst`), shallow dynamic binding at binding-list
+forms, restore on all completion kinds, with defun/lambda parameters
+staying lexical (the measured Emacs behaviour under
+`lexical-binding: t`).  Buffer-local variables,
+`lexical-binding: nil` file semantics, `default-value`/`set-default`
+and unmarking remain excluded.  Every other §17 exclusion stands.
+
 ## 18. Final acceptance checklist
 
 The program is complete when all of the following are true:

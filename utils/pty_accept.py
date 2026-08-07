@@ -40,6 +40,27 @@ DEFAULT_STARTUP_DELAY = 0.5
 # arrive, which is why the handful of cases that need a bare ESC to stay
 # separate from the next key override this upward.
 DEFAULT_KEY_DELAY = 0.05
+# Draining gap between the individual bytes of one multi-byte token (a
+# whole word like "version" typed as one YAML list entry) and between
+# whole tokens while more are still queued.  Linux's pty output queue is
+# generous enough that kg's per-keystroke full-screen redraw never backs
+# up, so a burst of sends with nothing read in between still arrives
+# intact; FreeBSD's is smaller, and with nothing draining it kg's write()
+# blocks until this process finally reads (at end of test, via the
+# trailer's EOF wait), which stalls kg's read loop for the run's whole
+# duration and both times out cases whose replies alone exceed the queue
+# and, once kg's write unblocks, delivers every queued key in one
+# scheduler-timescale burst -- indistinguishable from a paste, so
+# auto-indent and autocompletion silently turn off mid-case.  A
+# non-blocking read after every byte drains that backlog continuously
+# instead; SEND_DRAIN_TIMEOUT beyond zero additionally paces the send
+# loop by a small, real gap, which a plain drain (timeout=0) does not,
+# and which FreeBSD needed in order to hand kg a turn between two
+# back-to-back byte writes with no other delay between them.  Its cost on
+# Linux was measured at 5.9 s of summed per-case time over the whole
+# suite (600.7 s across 443 cases against 594.8 s without it), which at
+# PTY_JOBS=8 is under a second of wall.
+SEND_DRAIN_TIMEOUT = 0.005
 DEFAULT_JOBS = 8
 # kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).
 KG_READY_PATTERN = r"(?:----|-\*\*-)  "
@@ -193,6 +214,15 @@ def token_to_bytes(token: str) -> bytes:
 	return token.encode("utf-8")
 
 
+def drain_pexpect(child: pexpect.spawn) -> None:
+	"""Read whatever kg has already written, so its next write() does not
+	block on a full pty output queue -- see SEND_DRAIN_TIMEOUT."""
+	try:
+		child.read_nonblocking(size=1 << 20, timeout=SEND_DRAIN_TIMEOUT)
+	except Exception:
+		pass
+
+
 def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 	if token.startswith("RESIZE="):
 		r, c = map(int, token.split("=")[1].split(","))
@@ -246,6 +276,7 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 
 	for b in token_to_bytes(token):
 		child.send(bytes([b]))
+		drain_pexpect(child)
 
 
 def tmux_key_name(token: str) -> tuple[str, str]:
@@ -471,6 +502,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 			for token in [*keys, *trailer_keys]:
 				send_token_pexpect(child, token)
 				time.sleep(key_delay)
+				drain_pexpect(child)
 			child.expect(pexpect.EOF, timeout=timeout)
 			child.close()
 		except Exception as exc:

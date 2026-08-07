@@ -555,7 +555,15 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5847 exceeds limit 5846
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5847
 #   scc total complexity: 5847 (limit 5847)
-SCC_COMPLEXITY_MAX ?= 5847
+# Lowered 5847 -> 5844 by the same campaign's sub-plan B: reflow's eight
+# hand-unwound allocation failures and three copies of "grow the line
+# buffer" became one accumulator with a sticky `failed` flag.  Cap equals
+# the measured actual.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5843
+#   FAIL: total complexity 5844 exceeds limit 5843
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5844
+#   scc total complexity: 5844 (limit 5844)
+SCC_COMPLEXITY_MAX ?= 5844
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

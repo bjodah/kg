@@ -1,0 +1,9 @@
+# The first line's leading whitespace is the paragraph's indent, and M-q
+# re-applies it to every line it wraps -- including the ones it creates.
+name: reflow-indent-preserved
+filename: reflow-indent.txt
+dimensions: [24, 100]
+initial: "    alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau\n"
+keys:
+  - M-q
+expected_saved: "    alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu\n    nu xi omicron pi rho sigma tau\n"

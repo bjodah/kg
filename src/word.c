@@ -1140,100 +1140,244 @@ void editor_comment_dwim(void)
 	}
 }
 
-/* Reflow the current paragraph to FILL_COLUMN (M-q).
- * Paragraph boundaries are blank lines.  Indentation from the first
- * line is detected and re-applied to every reflowed line.
- * The entire operation is recorded as a single undo record. */
-void editor_reflow_paragraph(void)
+/* ---- Reflow (M-q) ----
+ *
+ * Reflow has to have the whole paragraph in hand before it touches the
+ * buffer, because it replaces it in a single transaction: one undo step,
+ * one editor_update_row() per row, and no moment in which the old rows
+ * are gone and the new ones are not there yet.  So the wrap loop fills
+ * this accumulator and the caller serialises it afterwards.
+ *
+ * `failed` is sticky: an allocation that fails poisons the accumulator
+ * and every later operation on it is a no-op, so the wrap loop tests it
+ * once per word instead of unwinding at eight separate allocations. */
+struct reflow_lines {
+	char **line; /* the finished lines */
+	int *len;
+	int count;
+	int cap;
+	char *cur; /* the line being built */
+	int cur_len;
+	int cur_cap;
+	char *indent; /* every line starts with this */
+	int indent_len;
+	bool failed;
+};
+
+static void reflow_lines_init(struct reflow_lines *l, const char *indent_src,
+    int indent_len, int fill_col)
 {
-	int filerow;
-	int para_start, para_end, nrows, total_chars, i;
-	int fill_col, indent_len;
-	erow *row;
-	char *words = NULL, *indent = NULL, *joined = NULL;
-	int words_len, joined_len;
-	char **new_lines = NULL;
-	int *new_lens = NULL;
-	int new_count = 0, new_cap;
-	char *cur = NULL;
-	int cur_len, cur_cap;
-	const char *p, *word_start;
-	int word_len, need;
-	int ok = 0;
-
-	if (bcur()->numrows <= 0) {
+	memset(l, 0, sizeof(*l));
+	l->indent_len = indent_len;
+	l->cap = 8;
+	l->cur_cap = fill_col + indent_len + 2;
+	l->indent = malloc((size_t)indent_len + 1);
+	l->line = malloc((size_t)l->cap * sizeof(*l->line));
+	l->len = malloc((size_t)l->cap * sizeof(*l->len));
+	l->cur = malloc((size_t)l->cur_cap);
+	if (!l->indent || !l->line || !l->len || !l->cur) {
+		l->failed = true;
 		return;
 	}
-	filerow = word_cursor_filerow();
-	if (bcur()->row[filerow].size == 0) {
+	memcpy(l->indent, indent_src, (size_t)indent_len);
+	l->indent[indent_len] = '\0';
+	memcpy(l->cur, l->indent, (size_t)indent_len);
+	l->cur_len = indent_len;
+}
+
+static void reflow_lines_free(struct reflow_lines *l)
+{
+	for (int i = 0; i < l->count; i++) {
+		free(l->line[i]);
+	}
+	free(l->line);
+	free(l->len);
+	free(l->cur);
+	free(l->indent);
+}
+
+/* Room for `need` bytes in the line being built.  The bound is strict --
+ * the doubling this replaces always kept a byte spare -- so keep it. */
+static bool reflow_reserve(struct reflow_lines *l, int need)
+{
+	while (need >= l->cur_cap) {
+		char *bigger = realloc(l->cur, (size_t)l->cur_cap * 2);
+
+		if (!bigger) {
+			l->failed = true;
+			return false;
+		}
+		l->cur = bigger;
+		l->cur_cap *= 2;
+	}
+	return true;
+}
+
+static bool reflow_grow_lines(struct reflow_lines *l)
+{
+	int cap = l->cap * 2;
+	char **line = realloc(l->line, (size_t)cap * sizeof(*line));
+	int *len;
+
+	if (!line) {
+		l->failed = true;
+		return false;
+	}
+	l->line = line;
+	len = realloc(l->len, (size_t)cap * sizeof(*len));
+	if (!len) {
+		l->failed = true;
+		return false;
+	}
+	l->len = len;
+	l->cap = cap;
+	return true;
+}
+
+/* Finish the line being built and start the next one at the indent. */
+static void reflow_end_line(struct reflow_lines *l)
+{
+	char *saved;
+
+	if (l->failed) {
 		return;
 	}
-
-	/* Locate paragraph boundaries and sum text length for pre-allocation */
-	para_start = filerow;
-	while (para_start > 0 && bcur()->row[para_start - 1].size > 0) {
-		para_start--;
+	saved = malloc((size_t)l->cur_len + 1);
+	if (!saved) {
+		l->failed = true;
+		return;
 	}
-	para_end = filerow;
-	while (para_end < bcur()->numrows - 1
-	    && bcur()->row[para_end + 1].size > 0) {
-		para_end++;
-	}
-	nrows = para_end - para_start + 1;
-	total_chars = 0;
-	for (i = para_start; i <= para_end; i++) {
-		total_chars += bcur()->row[i].size;
-	}
+	memcpy(saved, l->cur, (size_t)l->cur_len);
+	saved[l->cur_len] = '\0';
 
-	/* Git commit buffers: never reflow the subject line or comment
-	 * paragraphs; the body reflows at FILL_COLUMN (72) as usual. */
-	if (syntax_is_git_commit()) {
-		int subject = syntax_git_commit_subject();
+	if (l->count >= l->cap && !reflow_grow_lines(l)) {
+		free(saved);
+		return;
+	}
+	l->line[l->count] = saved;
+	l->len[l->count] = l->cur_len;
+	l->count++;
 
-		if (bcur()->row[para_start].chars[0] == '#') {
-			editor_set_status_message(
-			    "Not reflowing commit comments");
+	memcpy(l->cur, l->indent, (size_t)l->indent_len);
+	l->cur_len = l->indent_len;
+}
+
+/* Append one word, with the separating space when it is not the first on
+ * the line. */
+static void reflow_append_word(
+    struct reflow_lines *l, const char *word, int word_len)
+{
+	if (l->failed) {
+		return;
+	}
+	if (l->cur_len > l->indent_len) {
+		if (!reflow_reserve(l, l->cur_len + 1)) {
 			return;
 		}
-		if (subject >= para_start && subject <= para_end) {
-			editor_set_status_message(
-			    "Not reflowing the commit subject");
-			return;
+		l->cur[l->cur_len++] = ' ';
+	}
+	if (!reflow_reserve(l, l->cur_len + word_len)) {
+		return;
+	}
+	memcpy(l->cur + l->cur_len, word, (size_t)word_len);
+	l->cur_len += word_len;
+}
+
+/* The finished lines as one newline-joined string -- the single
+ * replacement the paragraph is rewritten with. */
+static char *reflow_join(const struct reflow_lines *l, int *out_len)
+{
+	int total = 0;
+	char *joined, *q;
+
+	for (int i = 0; i < l->count; i++) {
+		total += l->len[i] + (i > 0);
+	}
+	joined = malloc((size_t)total + 1);
+	if (!joined) {
+		return NULL;
+	}
+	q = joined;
+	for (int i = 0; i < l->count; i++) {
+		if (i > 0) {
+			*q++ = '\n';
 		}
+		memcpy(q, l->line[i], (size_t)l->len[i]);
+		q += l->len[i];
 	}
+	*q = '\0';
+	*out_len = total;
+	return joined;
+}
 
-	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
+/* A paragraph runs between blank lines. */
+static void reflow_paragraph_bounds(int filerow, int *start, int *end)
+{
+	int s = filerow;
+	int e = filerow;
 
-	/* Detect leading whitespace indent from first paragraph line */
-	row = &bcur()->row[para_start];
-	indent_len = 0;
-	while (indent_len < row->size
-	    && isspace((unsigned char)row->chars[indent_len])) {
-		indent_len++;
+	while (s > 0 && bcur()->row[s - 1].size > 0) {
+		s--;
 	}
-	indent = malloc(indent_len + 1);
-	if (!indent) {
-		goto oom;
+	while (e < bcur()->numrows - 1 && bcur()->row[e + 1].size > 0) {
+		e++;
 	}
-	if (indent_len > 0) {
-		memcpy(indent, row->chars, indent_len);
-	}
-	indent[indent_len] = '\0';
+	*start = s;
+	*end = e;
+}
 
-	/* Build word stream: strip leading/trailing whitespace per line, join
-	 * with spaces */
-	words = malloc(total_chars + nrows + 1);
+static int reflow_indent_len(const erow *row)
+{
+	int n = 0;
+
+	while (n < row->size && isspace((unsigned char)row->chars[n])) {
+		n++;
+	}
+	return n;
+}
+
+/* Git commit buffers: never reflow the subject line or the comment
+ * paragraphs; the body reflows at FILL_COLUMN (72) as usual.  Says why in
+ * the echo area when it refuses. */
+static bool reflow_refused_by_git_commit(int para_start, int para_end)
+{
+	int subject;
+
+	if (!syntax_is_git_commit()) {
+		return false;
+	}
+	if (bcur()->row[para_start].chars[0] == '#') {
+		editor_set_status_message("Not reflowing commit comments");
+		return true;
+	}
+	subject = syntax_git_commit_subject();
+	if (subject >= para_start && subject <= para_end) {
+		editor_set_status_message("Not reflowing the commit subject");
+		return true;
+	}
+	return false;
+}
+
+/* The paragraph as one space-separated word stream: every line stripped
+ * of its own leading and trailing whitespace, joined with single spaces.
+ * NULL when out of memory. */
+static char *reflow_word_stream(int para_start, int para_end)
+{
+	int total = 0;
+	int words_len = 0;
+	char *words;
+
+	for (int i = para_start; i <= para_end; i++) {
+		total += bcur()->row[i].size;
+	}
+	words = malloc((size_t)total + (size_t)(para_end - para_start + 1) + 1);
 	if (!words) {
-		goto oom;
+		return NULL;
 	}
-	words_len = 0;
-	for (i = para_start; i <= para_end; i++) {
-		const char *line;
-		int len;
 
-		row = &bcur()->row[i];
-		line = row->chars;
-		len = row->size;
+	for (int i = para_start; i <= para_end; i++) {
+		const char *line = bcur()->row[i].chars;
+		int len = bcur()->row[i].size;
 
 		while (len > 0 && isspace((unsigned char)*line)) {
 			line++;
@@ -1255,182 +1399,93 @@ void editor_reflow_paragraph(void)
 		if (words_len > 0) {
 			words[words_len++] = ' ';
 		}
-		memcpy(words + words_len, line, len);
+		memcpy(words + words_len, line, (size_t)len);
 		words_len += len;
 	}
 	words[words_len] = '\0';
+	return words;
+}
 
-	/* Word-wrap into new_lines, tracking lengths to avoid strlen on insert
-	 */
-	new_cap = 8;
-	new_lines = malloc(new_cap * sizeof(char *));
-	new_lens = malloc(new_cap * sizeof(int));
-	if (!new_lines || !new_lens) {
-		goto oom;
-	}
-	new_count = 0;
+/* Wrap the word stream into `l` at `fill_col`.  A word that does not fit
+ * ends the line, unless the line holds nothing but the indent -- a word
+ * longer than the fill column overruns it rather than vanishing. */
+static void reflow_wrap(struct reflow_lines *l, const char *words, int fill_col)
+{
+	const char *p = words;
 
-	cur_cap = fill_col + indent_len + 2;
-	cur = malloc(cur_cap);
-	if (!cur) {
-		goto oom;
-	}
-	memcpy(cur, indent, indent_len);
-	cur_len = indent_len;
+	while (*p && !l->failed) {
+		const char *word_start;
+		int word_len, need;
 
-	p = words;
-	while (*p) {
 		while (*p == ' ') {
 			p++;
 		}
 		if (!*p) {
 			break;
 		}
-
 		word_start = p;
 		while (*p && *p != ' ') {
 			p++;
 		}
-		word_len = p - word_start;
+		word_len = (int)(p - word_start);
 
-		need = cur_len + (cur_len > indent_len ? 1 : 0) + word_len;
-		if (need <= fill_col || cur_len == indent_len) {
-			if (cur_len > indent_len) {
-				if (cur_len + 1 >= cur_cap) {
-					char *newcur;
-					cur_cap *= 2;
-					newcur = realloc(cur, cur_cap);
-					if (!newcur) {
-						goto oom;
-					}
-					cur = newcur;
-				}
-				cur[cur_len++] = ' ';
-			}
-			while (cur_len + word_len >= cur_cap) {
-				char *newcur;
-				cur_cap *= 2;
-				newcur = realloc(cur, cur_cap);
-				if (!newcur) {
-					goto oom;
-				}
-				cur = newcur;
-			}
-			memcpy(cur + cur_len, word_start, word_len);
-			cur_len += word_len;
-		} else {
-			char *saved = malloc(cur_len + 1);
-			char **tmp_lines;
-			int *tmp_lens;
-
-			if (!saved) {
-				goto oom;
-			}
-			memcpy(saved, cur, cur_len);
-			saved[cur_len] = '\0';
-			if (new_count >= new_cap) {
-				new_cap *= 2;
-				tmp_lines = realloc(
-				    new_lines, new_cap * sizeof(char *));
-				if (!tmp_lines) {
-					free(saved);
-					goto oom;
-				}
-				new_lines = tmp_lines;
-				tmp_lens
-				    = realloc(new_lens, new_cap * sizeof(int));
-				if (!tmp_lens) {
-					free(saved);
-					goto oom;
-				}
-				new_lens = tmp_lens;
-			}
-			new_lines[new_count] = saved;
-			new_lens[new_count] = cur_len;
-			new_count++;
-
-			memcpy(cur, indent, indent_len);
-			cur_len = indent_len;
-			while (cur_len + word_len >= cur_cap) {
-				char *newcur;
-				cur_cap *= 2;
-				newcur = realloc(cur, cur_cap);
-				if (!newcur) {
-					goto oom;
-				}
-				cur = newcur;
-			}
-			memcpy(cur + cur_len, word_start, word_len);
-			cur_len += word_len;
+		need = l->cur_len + (l->cur_len > l->indent_len ? 1 : 0)
+		    + word_len;
+		if (need > fill_col && l->cur_len > l->indent_len) {
+			reflow_end_line(l);
 		}
+		reflow_append_word(l, word_start, word_len);
 	}
-	if (cur_len > 0) {
-		char *saved = malloc(cur_len + 1);
-		char **tmp_lines;
-		int *tmp_lens;
+	if (l->cur_len > 0) {
+		reflow_end_line(l);
+	}
+}
 
-		if (!saved) {
-			goto oom;
-		}
-		memcpy(saved, cur, cur_len);
-		saved[cur_len] = '\0';
-		if (new_count >= new_cap) {
-			new_cap *= 2;
-			tmp_lines
-			    = realloc(new_lines, new_cap * sizeof(char *));
-			if (!tmp_lines) {
-				free(saved);
-				goto oom;
-			}
-			new_lines = tmp_lines;
-			tmp_lens = realloc(new_lens, new_cap * sizeof(int));
-			if (!tmp_lens) {
-				free(saved);
-				goto oom;
-			}
-			new_lens = tmp_lens;
-		}
-		new_lines[new_count] = saved;
-		new_lens[new_count] = cur_len;
-		new_count++;
-	}
-	ok = 1;
-oom:
-	free(cur);
-	free(words);
-	free(indent);
-	/* The reflowed lines as one string, so the whole paragraph is one
-	 * replacement: one undo step, and no moment in which the old rows
-	 * are gone and the new ones are not there yet.  The transaction
-	 * copies the bytes it removes, so nothing has to save the original
-	 * paragraph beforehand either. */
-	joined_len = 0;
-	for (i = 0; i < new_count; i++) {
-		joined_len += new_lens[i] + (i > 0);
-	}
-	joined = malloc((size_t)joined_len + 1);
-	if (joined) {
-		char *q = joined;
+/* Reflow the current paragraph to FILL_COLUMN (M-q).
+ * Paragraph boundaries are blank lines.  Indentation from the first
+ * line is detected and re-applied to every reflowed line.
+ * The entire operation is recorded as a single undo record. */
+void editor_reflow_paragraph(void)
+{
+	struct reflow_lines lines;
+	int filerow, para_start, para_end;
+	int fill_col, indent_len, joined_len;
+	char *words, *joined;
 
-		for (i = 0; i < new_count; i++) {
-			if (i > 0) {
-				*q++ = '\n';
-			}
-			memcpy(q, new_lines[i], (size_t)new_lens[i]);
-			q += new_lens[i];
-		}
-		*q = '\0';
-	}
-	for (i = 0; i < new_count; i++) {
-		free(new_lines[i]);
-	}
-	free(new_lines);
-	free(new_lens);
-	if (!ok || !joined) {
-		word_nomem();
-		free(joined);
+	if (bcur()->numrows <= 0) {
 		return;
 	}
+	filerow = word_cursor_filerow();
+	if (bcur()->row[filerow].size == 0) {
+		return;
+	}
+
+	reflow_paragraph_bounds(filerow, &para_start, &para_end);
+	if (reflow_refused_by_git_commit(para_start, para_end)) {
+		return;
+	}
+
+	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
+	indent_len = reflow_indent_len(&bcur()->row[para_start]);
+
+	words = reflow_word_stream(para_start, para_end);
+	reflow_lines_init(
+	    &lines, bcur()->row[para_start].chars, indent_len, fill_col);
+	if (!words) {
+		lines.failed = true;
+	} else {
+		reflow_wrap(&lines, words, fill_col);
+		free(words);
+	}
+
+	joined_len = 0;
+	joined = lines.failed ? NULL : reflow_join(&lines, &joined_len);
+	reflow_lines_free(&lines);
+	if (!joined) {
+		word_nomem();
+		return;
+	}
+
 	{
 		struct kg_edit e = kg_edit_user(bcur(),
 		    buffer_row_col_to_position(bcur(), para_start, 0),

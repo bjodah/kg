@@ -260,7 +260,7 @@ if [ -n "${python_activate}" ]; then
 fi
 
 export JOBS GNU_PARALLEL VALGRIND
-export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_JOBS
+export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_SETTLE_FLOOR PTY_JOBS
 
 rm -f "${CI_RUN_DIR}"/*.state "${CI_RUN_DIR}"/*.state.tmp
 rm -rf "${CI_RUN_DIR}/logs"

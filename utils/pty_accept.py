@@ -508,22 +508,35 @@ def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
 		time.sleep(READY_POLL)
 
 
-def settle_tmux(sock: str, pane: str, budget: float) -> None:
+def settle_tmux(sock: str, pane: str, budget: float, floor: float = 0.0) -> None:
 	"""Let the pane stop changing before a screen assertion reads it.
 
 	Keys are queued in the pty, so at a small key_delay the capture can
 	otherwise race ahead of a slow runner's redraw.
+
+	`floor` is the answer to the failure mode "unchanged" cannot tell
+	apart from "not painted yet".  A kg that is still running a
+	compilation, a shell command or an arena-filling hook paints nothing
+	while it does so, so it looks exactly like a finished one and the
+	capture lands early -- which is how a case whose assertion is on a
+	message painted *after* the last key fails only under lane
+	contention.  A floor makes the quiet window mean something: nothing
+	settles before `floor` seconds have passed since the last key,
+	whatever the pane looks like.  It is paid once per case rather than
+	once per key, which is what makes it cheaper than the key_delay every
+	such case would otherwise have to carry.
 	"""
-	deadline = time.monotonic() + budget
+	start = time.monotonic()
+	deadline = start + max(budget, floor)
 	prev = None
-	quiet_since = time.monotonic()
+	quiet_since = start
 	while time.monotonic() < deadline:
 		cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", check=False)
 		now = time.monotonic()
 		if cp.stdout != prev:
 			prev = cp.stdout
 			quiet_since = now
-		elif now - quiet_since >= READY_SETTLE:
+		elif now - quiet_since >= READY_SETTLE and now - start >= floor:
 			return
 		time.sleep(READY_POLL)
 
@@ -552,7 +565,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
 		    timeout: float, config_files: dict[str, str],
-		    ready: bool) -> RunResult:
+		    ready: bool, settle_floor: float = 0.0) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -590,7 +603,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				else:
 					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
 				time.sleep(key_delay)
-			settle_tmux(sock, pane, startup_delay)
+			settle_tmux(sock, pane, startup_delay, settle_floor)
 			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50",
 					  check=False)
 			transcript.write(cp.stdout)
@@ -633,11 +646,11 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
 	       key_delay: float, dimensions: tuple[int, int],
 	       timeout: float, config_files: dict[str, str],
-	       ready: bool = True) -> RunResult:
+	       ready: bool = True, settle_floor: float = 0.0) -> RunResult:
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
-				       timeout, config_files, ready)
+				       timeout, config_files, ready, settle_floor)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
 				  timeout, config_files, ready)
@@ -655,7 +668,8 @@ def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
 def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			 timeout: float, startup_delay_add: float,
 			 key_delay_add: float, emacs: str | None,
-			 have_tmux: bool) -> tuple[str, str | None]:
+			 have_tmux: bool,
+			 settle_floor: float = 0.0) -> tuple[str, str | None]:
 	if case.requires_feature is not None and case.requires_feature not in features:
 		return ("SKIP", None)
 	# A missing tool is a skip here and a hard failure in main() under
@@ -669,7 +683,7 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, startup_delay,
 			    key_delay, case.dimensions, timeout,
-			    case.config_files)
+			    case.config_files, settle_floor=settle_floor)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -756,6 +770,10 @@ def main() -> int:
 	                    help="Additional startup delay added to every case")
 	parser.add_argument("--key-delay-add", type=float, default=0.0,
 	                    help="Additional per-key delay added to every case")
+	parser.add_argument("--settle-floor", type=float, default=0.0,
+	                    help="Minimum seconds a tmux case waits after its "
+	                         "last key before the pane may be declared "
+	                         "settled (see settle_tmux)")
 	parser.add_argument("--jobs", "-j", type=int, default=0,
 	                    help="Cases to run concurrently (0 picks a default, "
 	                         "1 runs them in this process)")
@@ -807,7 +825,8 @@ def main() -> int:
 				    features=features, timeout=args.timeout,
 				    startup_delay_add=args.startup_delay_add,
 				    key_delay_add=args.key_delay_add,
-				    emacs=emacs, have_tmux=have_tmux)
+				    emacs=emacs, have_tmux=have_tmux,
+				    settle_floor=args.settle_floor)
 
 	records: list[dict] = []
 
@@ -865,6 +884,7 @@ def main() -> int:
 				"timeout": args.timeout,
 				"startup_delay_add": args.startup_delay_add,
 				"key_delay_add": args.key_delay_add,
+				"settle_floor": args.settle_floor,
 				"counts": counts,
 				"cases": records,
 			}, fp, indent=1)

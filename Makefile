@@ -241,6 +241,10 @@ PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
+# Minimum seconds a tmux case waits after its last key before the harness
+# may call the pane settled.  Empty here (a plain `make check` does not
+# need it); .ci/ci-env.sh sets it, and higher under --parallel.
+PTY_SETTLE_FLOOR ?=
 PTY_JOBS ?=
 FUZZ_CFLAGS ?= -Wall -Wextra -pedantic -std=c23 -O1 -g \
 	       -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DKG_FUZZ=1 \
@@ -578,6 +582,7 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
+		$(if $(PTY_SETTLE_FLOOR),--settle-floor $(PTY_SETTLE_FLOOR),) \
 		$(if $(PTY_JOBS),--jobs $(PTY_JOBS),) \
 		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
 		--kg $(TARGET) --kg-runner "$(KG_RUNNER)" $(PTY_TESTS)

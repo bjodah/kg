@@ -36,6 +36,19 @@ fi
 PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.3}
 PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.01}
 
+# What the key add cannot buy, bought once per case instead of once per
+# key.  The tmux runner ends a case by capturing the pane after it has been
+# *unchanged* for 50 ms, and a kg that is still running a compilation, a
+# shell command or an arena-filling hook paints nothing while it does so --
+# so "quiet" and "has not started yet" look identical and the capture can
+# land before the message the case asserts.  Four consecutive parallel runs
+# failed five different cases that way, all in the sanitizer and valgrind
+# lanes, never serially.  PTY_SETTLE_FLOOR is the minimum a tmux case waits
+# after its last key before the pane may be called settled; it is paid once
+# per tmux case (161 of them), not per key, and it doubles under --parallel
+# for the same reason PTY_TIMEOUT does.
+PTY_SETTLE_FLOOR=${PTY_SETTLE_FLOOR:-$([ "${CI_PARALLEL}" = 1 ] && echo 1.5 || echo 0.7)}
+
 # PTY cases are independent and spend their time waiting on a child editor,
 # so pooling them scales past the core count.  8 is half the 16 measured
 # safe at 6-way lane concurrency (96 concurrent cases held 13 of 32 cores).

@@ -268,6 +268,17 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is seeing a paste (`editor.paste_mode`) and drops auto-indent and
   autocompletion, and a bare `ESC` merges with the next key unless they are
   more than 100 ms apart. Do not take the default below 0.05.
+- A tmux case ends when the pane has been *unchanged* for 50 ms, which
+  cannot be told apart from "kg has not painted yet" -- a kg still running
+  a compilation, a shell command or an arena-filling hook is silent. The
+  fix is `--settle-floor` (`PTY_SETTLE_FLOOR`, set by `.ci/ci-env.sh`: 0.7
+  serial, 1.5 under `--parallel`, unset for a plain `make check`): the
+  minimum a tmux case waits after its last key before the pane may be
+  called settled. It is paid once per tmux case rather than once per key,
+  which is what makes it cheaper than the `key_delay` such a case would
+  otherwise need. Size a case's own cover against the slowest lane *under
+  load* -- plain, valgrind and MSan latencies here span two orders of
+  magnitude, and a case only ever fails in the lane nobody measured.
 - `dimensions: [rows, cols]` is available for viewport-sensitive cases.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.

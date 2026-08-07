@@ -7,6 +7,17 @@
 # Fundamental mode (notes.txt would be Text), and empty, so the position
 # reads "All (1,0)".  notes.txt is never edited, so the saved file still
 # holds the initial text.
+#
+# The name and the position are asserted as two fragments rather than as
+# one whole mode line, because what sits between them is timing and not
+# the property under test: "note" does not exist on disk, so bufmgr.c's
+# auto-revert poll -- rate-limited to AUTOREVERT_POLL_INTERVAL_SEC, 2 s --
+# sets `disk_changed` the first time it runs and display.c starts writing
+# `note (changed)`.  Measured on this build: the whole-line form holds
+# while the pane is captured within ~1.1 s of the last key and stops
+# holding past ~1.3 s, which made the assertion a statement about how fast
+# the harness got there.  Both fragments hold either way, and the trailing
+# space in `----  note ` is what keeps `notes.txt` from matching it.
 name: path-prompt-meta-ret-literal
 filename: notes.txt
 backend: tmux
@@ -21,6 +32,7 @@ trailer_keys: [C-x, C-c]
 expected_saved: |
   notes
 expected_screen_contains:
-  - "----  note  All (1,0)  (Fundamental)"
+  - "----  note "
+  - "All (1,0)  (Fundamental)"
 expected_screen_not_contains:
   - "notes.txt  All"

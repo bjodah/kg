@@ -9,7 +9,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `Makefile`: build, test, install, release targets
 
 ## Build and test
-- Build: `make` or `CC="ccache cc" make`
+- Build: `make` or `make CC="ccache cc"`
 - Run tests: `make check` (e.g. `make check 2>&1 | grep -E "^(FAIL|ERROR|XPASS)|# (FAIL|ERROR|TOTAL|PASS|SKIP|XFAIL|XPASS)" | head -30; echo "CHECK EXIT=${PIPESTATUS[0]}"`). Also run `make complexity-check` before and after larger chunks of work.
 - Clean binaries/objects: `make clean` or `make distclean`
 - `make check` now runs two layers:
@@ -147,7 +147,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     install `scc`); see `.github/workflows/quality.yml`.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
-- `CC` and `CFLAGS` are environment-overridable, e.g. `CC="ccache clang" CFLAGS="..." make`.
+- `CC` and `CFLAGS` are overridable on the make command line, e.g.
+  `make CC="ccache clang" CFLAGS="..."`. Command line, not environment:
+  the Makefile's plain `CC = gcc` assignment beats an environment `CC`
+  (only `make -e` or a command-line value wins over it), so an exported
+  `CC` is silently ignored.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
   dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-12-*.sh`;

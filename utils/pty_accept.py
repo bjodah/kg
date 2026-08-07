@@ -59,7 +59,11 @@ DEFAULT_KEY_DELAY = 0.05
 # back-to-back byte writes with no other delay between them.  Its cost on
 # Linux was measured at 5.9 s of summed per-case time over the whole
 # suite (600.7 s across 443 cases against 594.8 s without it), which at
-# PTY_JOBS=8 is under a second of wall.
+# PTY_JOBS=8 is under a second of wall.  The tmux backend deliberately
+# has no counterpart: the tmux server owns the pane's pty and reads it
+# continuously, so kg's output queue cannot fill there in the first
+# place -- verified by the FreeBSD suite passing its tmux cases with no
+# drain at all.
 SEND_DRAIN_TIMEOUT = 0.005
 DEFAULT_JOBS = 8
 # kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).

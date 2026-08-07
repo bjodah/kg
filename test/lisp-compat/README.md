@@ -126,6 +126,41 @@ check, but it is a substring claim and the runner's header says so
 rather than letting a reader assume symbol equality. Narrowing it is
 condition-data work in `src/lisp.h`, not runner work.
 
+## Proof 2 — the representative user init, bullet by bullet
+
+The parent plan's §14 asks for "a tracked, isolated `.config/kg/init.el`
+fixture" covering eight things, run in a temporary HOME through PTY
+tests. Sub-plan 10A Decision 6 declares the existing corpus that fixture
+rather than writing a ninth copy of it: about 97 PTY cases already plant
+`config_files:` HOMEs (roughly 70 with a `.config/kg/init.el`), and
+`test/pty/lisp-init-phase8-library.yaml` is 08A's representative init
+reconstructed construct for construct. A new monolithic file would only
+be a second thing to drift.
+
+`test/pty/lisp-init-phase8-library.yaml` is the named representative
+fixture, and its own header says so. Its second command inserts every
+value the init file computed, so the case observes the *values*, not
+merely that the file loaded.
+
+| §14 bullet | Where it is proven |
+| --- | --- |
+| `setq`, `defvar`, `defconst`, the supported `defcustom` subset | `lisp-init-phase8-library.yaml` (all four, plus `custom-set-variables`); `defcustom`'s own case distinctions are the `defcustom` manifest row, whose rationale `utils/check_lisp_compat.py` gates |
+| `defun` and interactive commands | `lisp-init-phase8-library.yaml` (`phase8-command`, `phase8-report`, both reached from key bindings); `lisp-defun-interactive.yaml`, `lisp-define-command.yaml` |
+| macros and backquote | `lisp-init-phase8-library.yaml` (`` `(head . ,x) ``, a nested backquote, `dolist`, `add-to-list`, `declare`); `test_lisp.c:test_quasiquote` |
+| hooks | `lisp-init-phase8-library.yaml` (an `after-change-functions` lambda whose count is reported); `lisp-auto-fill-mode-break.yaml`, `test_lisp.c:test_hooks` |
+| key bindings | `lisp-init-phase8-library.yaml` (`global-set-key` + `kbd`, both bindings used); `lisp-bind-key.yaml` |
+| **buffer-local-style configuration where supported** | **Nominal only, and recorded as such.** `setq-local`/`setq-default` are documented aliases of `setq` and write the one global binding; both manifest rows are `divergent` since 10C for exactly this reason. The fixture uses `setq-local` and reports its value, which is what "supported" amounts to here. `add-hook`'s LOCAL argument is real and is a different mechanism. |
+| loading helper files | `lisp-init-phase8-library.yaml` (`(require 'phase8-pkg)` from a package planted beside the init file); `lisp-init-load-pkg.yaml`, `lisp-require-filename-el-suffix.yaml`. **Honest row:** `load` does not search `load-path` — a bare name resolves to `<config>/kg/lisp/NAME.el` and nothing else, and `require` is the only form that searches. Recorded as the `load-path-search` divergence. |
+| error handling | `lisp-init-phase8-library.yaml`, added by 10D: a guarded `(require ...)` of a package that is not installed, a `condition-case` naming `wrong-type-argument` rather than catching wholesale, an `ignore-errors`, and a form after them all proving the init file kept going. All four values are in the asserted output. |
+
+Two more things a reader of this table should know, because they are
+properties of the fixture rather than of any one bullet: an init file
+that errors *outside* a handler leaves the forms before it in effect and
+reports `file:LINE: CONDITION` (`lisp-init-error.yaml`,
+`lisp-init-runtime-error.yaml`), and `defvar` does not create a special
+variable, so an init file that rebinds one around a call gets a silently
+different answer (the `prelude-defvar` row).
+
 ## The checker
 
 `utils/check_lisp_compat.py` (kg's `utils/`, not `fe/utils/`) is the

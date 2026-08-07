@@ -1,6 +1,20 @@
 name: lisp-init-phase8-library
 filename: phase8-init.txt
 requires_feature: lisp
+# PROOF 2's REPRESENTATIVE FIXTURE.
+#
+# The parent plan's §14 ("Proof 2 -- Representative user init") asks for
+# "a tracked, isolated .config/kg/init.el fixture" covering setq/defvar/
+# defconst/defcustom, defun and interactive commands, macros and
+# backquote, hooks, key bindings, buffer-local-style configuration,
+# loading helper files, and error handling.  Sub-plan 10A Decision 6
+# names THIS case that fixture rather than writing a second one: Proof 2
+# already exists as a distributed corpus (~97 PTY cases plant
+# config_files: HOMEs, ~70 of them a .config/kg/init.el), and a new
+# monolithic file would only be a second thing to drift.  The bullet ->
+# case mapping, including the two bullets that are satisfiable only as
+# recorded honesty, is in test/lisp-compat/README.md under "Proof 2".
+#
 # Sub-plan 08A's representative init.el, reconstructed construct for
 # construct from its own description: setq, setq-default, defvar,
 # defconst, two interactive defuns, global-set-key, add-hook, dolist, an
@@ -47,6 +61,19 @@ config_files:
     (setq phase8-lone (cond (5)))
     (setq phase8-key (kbd "C-c z"))
     (setq phase8-format (format "at %-8s col %d %c" phase8-name 3 187))
+    ;; Error handling, §14's eighth Proof 2 bullet, in the two shapes an
+    ;; init file actually uses: a guarded (require ...) of something that
+    ;; may not be installed, and a guarded form whose condition is named
+    ;; rather than caught wholesale.  Both values are reported below, so
+    ;; the case observes that the handler ran and what it saw -- not just
+    ;; that the init file survived.
+    (setq phase8-require-error
+      (condition-case err (require 'phase8-absent) (error (format "%S" err))))
+    (setq phase8-named-error
+      (condition-case err (car 1) (wrong-type-argument (format "%S" err))))
+    (setq phase8-ignored (ignore-errors (car 1)))
+    ;; ... and the init file kept going: everything after this point runs.
+    (setq phase8-after-error "resumed")
     (defun phase8-command ()
       "A command from the 08D init file."
       (declare (indent 0))
@@ -75,6 +102,10 @@ config_files:
               phase8-key
               phase8-format
               (documentation 'phase8-command)
+              phase8-require-error
+              phase8-named-error
+              (format "%S" phase8-ignored)
+              phase8-after-error
               (number-to-string phase8-changes))
         "|")))
     (global-set-key (kbd "C-c k") 'phase8-command)
@@ -91,4 +122,4 @@ keys:
   - r
 expected_saved: |-
   boot
-  declared|1|2|3|6|2|x:y|120|16|pkg|80|(zero one two)|(3 2 1)|(head . 16)|(outer (quasiquote (inner (unquote phase8-radix))))|5|C-c z|at boot     col 3 »|A command from the 08D init file.|2
+  declared|1|2|3|6|2|x:y|120|16|pkg|80|(zero one two)|(3 2 1)|(head . 16)|(outer (quasiquote (inner (unquote phase8-radix))))|5|C-c z|at boot     col 3 »|A command from the 08D init file.|(error "cannot find in load-path: phase8-absent")|(wrong-type-argument listp 1)|nil|resumed|2

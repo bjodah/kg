@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-setq-writes-binding",
+ "setup": [
+  "(defvar sv 1)",
+  "(defun svf () sv)"
+ ],
+ "expr": "(list (let ((sv 2)) (setq sv 3) (svf)) sv)",
+ "note": "11A grid probe A2a. Shallow binding means the cell `setq' writes inside a `let' over a special IS the binding, not the value it hides: the callee sees 3, and the global is back to 1 once the `let' completes. Before Phase 11 kg answered (1 1) -- the let was lexical and invisible to svf, and the setq wrote the global that svf then read back after the restore."
+}

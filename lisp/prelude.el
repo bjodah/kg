@@ -277,13 +277,13 @@
 (defalias 'prog1 (macro (first . body)
   (cons 'internal--first (cons first body))))
 ;; --- binding forms ---
-;; `let' compiles into a lambda application, and fe lets a parameter named
-;; `t' shadow -- which is Emacs-true for a lambda but NOT for a `let':
-;; Emacs answers (setting-constant t) for (let ((t 1)) t) and kg answered
-;; 1.  The binding names are therefore checked here, where both `let' and
-;; `let*' pass through, rather than in the expansion.  nil and keywords
-;; reach the same answer through fe's own parameter binder; naming them
-;; here makes the three refusals one rule with one message.
+;; The binding names are checked here, where both `let' and `let*' pass
+;; through, rather than in each expansion: `t', nil and keywords are
+;; constants and Emacs answers (setting-constant t) for (let ((t 1)) t).
+;; fe's core `let' refuses all three too, so this is now a second opinion
+;; rather than the only one -- it stays because `let*' expands to the
+;; two-argument `internal--let' spelling, one binding at a time, and
+;; because one rule with one message is worth more than the line it costs.
 (defalias 'internal--bind-name (lambda (b)
   (internal--let name (if (atom b) b (car b)))
   (if (or (eq name t) (eq name nil) (keywordp name))
@@ -291,24 +291,33 @@
     name)))
 (defalias 'internal--bind-value (lambda (b)
   (if (atom b) nil (car (cdr b)))))
-;; Parallel, via immediate application: the value forms are evaluated
-;; as arguments, in the environment outside the new bindings.  One
-;; `while' walk calls both helpers in head position, as `let*' does,
-;; and builds the two lists reversed for `reverse' to put back.  The
-;; obvious spelling -- two `mapcar' passes over #' designators -- pays
-;; a funcall and a designator resolution per binding per expansion, and
-;; a macro expands on every call: 200k expansions of a two-binding
-;; `let', run against the fe interpreter itself, measured 2.92 s that
-;; way against 1.92 s for this loop (median of five each).
+;; `let' normalises its binding list and hands it to fe's core
+;; bindings-list `let' (reachable here as `internal--let', captured above
+;; before this macro shadowed the name).  Until Phase 11 this expanded to
+;; an immediate lambda application instead, which is why a `let' over a
+;; `defvar'd name was lexical: a lambda parameter is a lexical
+;; environment entry unconditionally -- in fe and, measured, in Emacs 31
+;; too -- so the special flag is consulted at fe's binding-list paths and
+;; nowhere else (11A Decisions 2-3).  Routing through the core form is
+;; what puts kg's `let' on one of those paths.  fe still compiles a
+;; binding list with no marked target into the same lambda application,
+;; so the lexical case pays nothing for this.
+;;
+;; Normalising rather than passing the list through is deliberate and
+;; measured: fe's core form takes (NAME VALUE) pairs and bare symbols,
+;; but raises wrong-type-argument for the one-element list (a) where
+;; Emacs -- and kg before this change -- answers nil for (let ((a)) a).
+;; The same walk keeps (let ((a 1 2)) a) answering 1, kg's long-standing
+;; reading of a shape Emacs rejects; that is unchanged behaviour, not a
+;; new decision, and it is recorded rather than fixed here.
 (defalias 'let (macro (bindings . body)
-  (internal--let names nil)
-  (internal--let values nil)
+  (internal--let pairs nil)
   (while bindings
-    (setq names (cons (internal--bind-name (car bindings)) names))
-    (setq values (cons (internal--bind-value (car bindings)) values))
+    (setq pairs (cons (list (internal--bind-name (car bindings))
+                            (internal--bind-value (car bindings)))
+                  pairs))
     (setq bindings (cdr bindings)))
-  (cons (cons 'lambda (cons (reverse names) body))
-    (reverse values))))
+  (cons 'internal--let (cons (reverse pairs) body))))
 (defalias 'let* (macro (bindings . body)
   (internal--let forms nil)
   (while bindings
@@ -490,6 +499,18 @@
 ;; "hello" for (progn (defvar dv "hello") dv); classifying a lone string
 ;; as the docstring left dv unbound.  Only the SECOND element is ever
 ;; documentation.
+;;
+;; Since Phase 11 the expansion also marks the symbol, which is what
+;; makes `let' over it dynamic (11A Decision 2).  The two arities mark
+;; differently, and the difference is Emacs' measured one rather than a
+;; simplification: a two-argument `defvar' marks *full* --
+;; `special-variable-p' answers t -- while a one-argument `(defvar v)'
+;; sets the let-dynamic flag alone, so `special-variable-p' answers nil
+;; and yet `(let ((v 5)) v)' is 5.  kg's marking is global where Emacs
+;; scopes a one-argument `defvar' to the file it appears in; that
+;; approximation is recorded in test/lisp-compat/features.json's
+;; `prelude-defvar' row rather than defended.  Marking is one-way: fe
+;; has no unmark, because Emacs has none either.
 (defalias 'defvar (macro (name . rest)
   (internal--let value-present (if rest t nil))
   (internal--let doc
@@ -497,16 +518,22 @@
         (car (cdr rest))
       nil))
   (list 'progn
+    (list 'internal--mark-special (list 'quote name) value-present)
     (list 'if (list 'boundp (list 'quote name))
       nil
       (if value-present (list 'setq name (car rest)) nil))
     (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
     (list 'quote name))))
+;; `defconst' marks full, as Emacs' does, and -- also as Emacs' does --
+;; the constancy is a declaration and not enforcement: the name is still
+;; `let'-rebindable and still `setq'-able.
 (defalias 'defconst (macro (name . rest)
   (internal--let doc (if (and (car rest) (cdr rest)
                               (stringp (car (cdr rest))))
                          (car (cdr rest)) nil))
-  (list 'progn (list 'setq name (car rest))
+  (list 'progn
+    (list 'internal--mark-special (list 'quote name) t)
+    (list 'setq name (car rest))
     (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
     (list 'quote name))))
 (defalias 'internal--custom-presentation-keyword-p (lambda (key)

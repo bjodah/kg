@@ -1,0 +1,10 @@
+{
+ "id": "phase11-dynamic-parameter-stays-lexical",
+ "setup": [
+  "(defvar pv 1)",
+  "(defun reader () pv)",
+  "(defun taker (pv) (list pv (reader)))"
+ ],
+ "expr": "(taker 9)",
+ "note": "11A grid probe A4, the guard that falsified the phase's own first draft. A defun PARAMETER named after a special variable binds LEXICALLY in Emacs 31 under lexical-binding: t -- confirmed interpreted, byte-compiled, with a user defvar and with core case-fold-search -- so the callee reads the global 1 while the parameter itself is 9. kg agreed before Phase 11 and must still agree after: an implementation that bound specials dynamically at every parameter-binding site would close one divergence and open this one. fe consults the flag at `let''s binding paths and nowhere else."
+}

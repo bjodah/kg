@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-let-star",
+ "setup": [
+  "(defvar lsv 1)",
+  "(defun lsvf () lsv)"
+ ],
+ "expr": "(let* ((lsv 2) (other (lsvf))) (list lsv other))",
+ "note": "11A grid probe A3b. `let*' binds sequentially, so the second initializer runs with the first binding already in force -- and because that binding is dynamic, the function called from the initializer sees it too. Before Phase 11 kg answered (2 1): the let* binding was lexical, so lsvf read the global."
+}

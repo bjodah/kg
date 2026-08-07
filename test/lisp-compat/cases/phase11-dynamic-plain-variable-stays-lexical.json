@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-plain-variable-stays-lexical",
+ "setup": [
+  "(setq plainv 1)",
+  "(defun plainf () plainv)"
+ ],
+ "expr": "(list (let ((plainv 2)) (plainf)) (plainf))",
+ "note": "11A grid probe A13, a guard: a variable that was never `defvar'd stays LEXICAL under `let', so the callee reads the global on both sides of the binding. kg agreed before Phase 11 and must still agree -- an implementation that made every `let' dynamic would pass every target case in this set and fail this one."
+}

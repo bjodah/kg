@@ -1,0 +1,10 @@
+{
+ "id": "phase11-dynamic-let-over-unbound-special",
+ "setup": [
+  "(defvar uv 1)",
+  "(defun uvf () (if (boundp 'uv) (list 'bound uv) 'unbound))",
+  "(makunbound 'uv)"
+ ],
+ "expr": "(list (let ((uv 3)) (uvf)) (uvf))",
+ "note": "11A grid probe A10a. Binding a special that has no value binds it -- the callee sees (bound 3) -- and the restore puts back the ABSENCE of a value, not nil: boundp is nil again afterwards. That is why fe's binding frame records the old contents OR the fact that there were none. Before Phase 11 kg answered (unbound unbound). The probe reaches the unbound state through a two-argument `defvar' followed by `makunbound' rather than through a one-argument `(defvar uv)': a two-argument defvar's mark is global in Emacs as well as here, so the property survives the oracle shim's form-at-a-time evaluation, which a one-argument defvar's file-scoped mark does not (phase11-dynamic-one-arg-defvar-scope pins that separately, as the divergence it is)."
+}

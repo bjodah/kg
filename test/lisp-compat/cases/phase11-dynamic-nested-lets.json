@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-nested-lets",
+ "setup": [
+  "(defvar nv 1)",
+  "(defun nvf () nv)"
+ ],
+ "expr": "(list (nvf) (let ((nv 2)) (nvf)) (nvf))",
+ "note": "11A grid probe A3a. Nested extents: the free read answers the global outside the binding, the bound value inside it, and the global again after. Before Phase 11 kg answered (1 1 1)."
+}

@@ -1,0 +1,10 @@
+{
+ "id": "phase11-dynamic-temporary-setting-idiom",
+ "setup": [
+  "(defvar hkv nil)",
+  "(defun callee () hkv)",
+  "(defun caller () (let ((hkv t)) (callee)))"
+ ],
+ "expr": "(caller)",
+ "note": "11A grid probe A11, and the headline the phase exists for: THE Emacs temporary-setting idiom, spread over three top-level forms the way an init file writes it. Before Phase 11 kg answered nil, silently -- no error, no warning, just a different program. This is the same shape as prelude-defvar-special (probe A1); it is here separately because A1 measures one function reading one variable and this measures the idiom as a caller/callee pair, which is how it appears in the wild."
+}

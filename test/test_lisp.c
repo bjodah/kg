@@ -2937,6 +2937,175 @@ static void test_binding_forms(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase 11's semantics grid, through kg's own entry points.
+ *
+ * test/lisp-compat/cases/phase11-dynamic-*.json compare the same probes
+ * against the pinned Emacs 31.0.90 and are the authority on what the
+ * answers should be; this runs them in-process, where a failure names a
+ * line instead of a case, and adds the shapes the compat corpus cannot
+ * reach -- the interaction with kg's own binding forms, and the
+ * degenerate `let' shapes that have nothing to do with Emacs
+ * disagreement and everything to do with not regressing kg.
+ *
+ * The grid probe each assertion is is named in the comment above it.
+ * Six of the twenty-one probes ALREADY agreed before Phase 11 and are
+ * guards rather than targets; they are marked as such, because an
+ * implementation that binds specials dynamically at every
+ * parameter-binding site passes every target here and fails A4. */
+static void test_phase11_dynamic_binding(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* A9a: the predicate exists, and answers the *special* flag.  The
+	 * three constants answer t, which is Emacs' answer for a name
+	 * nothing can ever bind. */
+	CHECK(eval_eq("(special-variable-p t)", "t"));
+	CHECK(eval_eq("(special-variable-p nil)", "t"));
+	CHECK(eval_eq("(special-variable-p :kw)", "t"));
+	CHECK(eval_eq("(special-variable-p 'p11-never-declared)", "nil"));
+	CHECK(eval_error_contains(
+	    "(special-variable-p 3)", "expected symbol, got integer"));
+
+	/* A7d / A8a: a two-argument defvar and a defconst mark full;
+	 * A7a: a one-argument defvar marks let-dynamic only, so the
+	 * predicate still answers nil for it. */
+	CHECK(eval_eq("(progn (defvar p11-two 1) (special-variable-p"
+		      " 'p11-two))",
+	    "t"));
+	CHECK(eval_eq("(progn (defconst p11-const 1) (special-variable-p"
+		      " 'p11-const))",
+	    "t"));
+	CHECK(eval_eq("(progn (defvar p11-one) (special-variable-p"
+		      " 'p11-one))",
+	    "nil"));
+	/* A10b (guard): a one-argument defvar binds nothing. */
+	CHECK(eval_eq("(boundp 'p11-one)", "nil"));
+	/* A7b: and yet `let' over it is dynamic.  kg's marking is global
+	 * where Emacs scopes this to the file; the compat row
+	 * phase11-one-arg-defvar-file-scope pins both answers. */
+	CHECK(eval_eq("(progn (defun p11-one-r () p11-one)"
+		      " (let ((p11-one 5)) (p11-one-r)))",
+	    "5"));
+
+	/* A1 / A11: the temporary-setting idiom, the headline. */
+	CHECK(eval_eq("(progn (defvar p11-hkv nil) (defun p11-callee ()"
+		      " p11-hkv) (defun p11-caller () (let ((p11-hkv t))"
+		      " (p11-callee))) (p11-caller))",
+	    "t"));
+	/* A3a: nested extents, global outside and bound value inside. */
+	CHECK(eval_eq("(progn (defvar p11-nv 1) (defun p11-nvf () p11-nv)"
+		      " (list (p11-nvf) (let ((p11-nv 2)) (p11-nvf))"
+		      " (p11-nvf)))",
+	    "(1 2 1)"));
+	/* A2a: setq inside the binding writes the binding, not the value
+	 * the binding hides. */
+	CHECK(eval_eq("(progn (defvar p11-sv 1) (defun p11-svf () p11-sv)"
+		      " (list (let ((p11-sv 2)) (setq p11-sv 3) (p11-svf))"
+		      " p11-sv))",
+	    "(3 1)"));
+	/* A2b (guard): setq outside any let still writes the global. */
+	CHECK(eval_eq("(progn (setq p11-sv 4) p11-sv)", "4"));
+	/* A3b: let* binds sequentially, and the path is special-aware. */
+	CHECK(eval_eq("(progn (defvar p11-ls 1) (defun p11-lsf () p11-ls)"
+		      " (let* ((p11-ls 2) (o (p11-lsf))) (list p11-ls o)))",
+	    "(2 2)"));
+	/* A5: a closure reads the value in force when it is CALLED. */
+	CHECK(eval_eq("(progn (defvar p11-cv 1)"
+		      " (let ((f (lambda () p11-cv)))"
+		      " (let ((p11-cv 2)) (funcall f))))",
+	    "2"));
+	/* A8b: defconst declares, it does not enforce -- still
+	 * let-rebindable, and the rebinding is dynamic. */
+	CHECK(eval_eq("(progn (defun p11-cf () p11-const)"
+		      " (list (let ((p11-const 2)) (p11-cf)) (p11-cf)))",
+	    "(2 1)"));
+	/* A10a: binding an unbound special binds it, and the restore puts
+	 * back the ABSENCE of a value rather than nil. */
+	CHECK(eval_eq("(progn (defvar p11-uv 1) (defun p11-uvf ()"
+		      " (if (boundp 'p11-uv) (list 'bound p11-uv) 'unbound))"
+		      " (makunbound 'p11-uv)"
+		      " (list (let ((p11-uv 3)) (p11-uvf)) (p11-uvf)))",
+	    "((bound 3) unbound)"));
+
+	/* The restore runs on every completion kind.  A6a is the throw,
+	 * A6b (guard -- kg and Emacs agreed before Phase 11 too) the
+	 * error; quit has no in-process probe and is covered by the
+	 * exhaustion/quit cases elsewhere in this file. */
+	CHECK(eval_eq("(progn (defvar p11-tv 1) (defun p11-tvf () p11-tv)"
+		      " (list (catch 'tag (let ((p11-tv 2))"
+		      " (throw 'tag (p11-tvf)))) (p11-tvf)))",
+	    "(2 1)"));
+	CHECK(eval_eq("(progn (defvar p11-ev 1) (defun p11-evf () p11-ev)"
+		      " (list (condition-case nil (let ((p11-ev 2))"
+		      " (error \"boom\")) (error (p11-evf))) (p11-evf)))",
+	    "(1 1)"));
+	/* And on the budget wall, which no compat case can reach and
+	 * `ignore-errors' cannot contain -- Budget is uncatchable by
+	 * design, so the eval below is expected to FAIL, and the claim is
+	 * about what the arena looks like afterwards: the binding must
+	 * not have survived the wall. */
+	CHECK(eval_ok("(defvar p11-bv 1)"));
+	CHECK(!eval_ok("(let ((p11-bv 2)) (while t (setq p11-bv 2)))"));
+	CHECK(eval_eq("p11-bv", "1"));
+
+	/* A4 (guard, and the probe that falsified the phase's first
+	 * draft): a defun PARAMETER named after a special binds
+	 * LEXICALLY, in Emacs 31 under lexical-binding: t and here. */
+	CHECK(eval_eq("(progn (defvar p11-pv 1) (defun p11-reader ()"
+		      " p11-pv) (defun p11-taker (p11-pv)"
+		      " (list p11-pv (p11-reader))) (p11-taker 9))",
+	    "(9 1)"));
+	/* The same for a lambda's parameter. */
+	CHECK(eval_eq("(funcall (lambda (p11-pv) (list p11-pv"
+		      " (p11-reader))) 8)",
+	    "(8 1)"));
+	/* A13 (guard): a name no defvar ever named stays lexical. */
+	CHECK(eval_eq("(progn (setq p11-plain 1) (defun p11-plainf ()"
+		      " p11-plain) (list (let ((p11-plain 2)) (p11-plainf))"
+		      " (p11-plainf)))",
+	    "(1 1)"));
+	/* A12 (guard): defvar is first-wins, and marking is idempotent
+	 * and one-way -- a second, one-argument defvar over a fully
+	 * marked name neither unmarks it nor reassigns it. */
+	CHECK(eval_eq("(progn (defvar p11-two 99) (list p11-two"
+		      " (special-variable-p 'p11-two)))",
+	    "(1 t)"));
+	CHECK(eval_eq("(progn (defvar p11-two) (special-variable-p"
+		      " 'p11-two))",
+	    "t"));
+	/* Marking upgrades the other way: let-dynamic-only, then full. */
+	CHECK(eval_eq("(progn (defvar p11-up) (defvar p11-up 1)"
+		      " (special-variable-p 'p11-up))",
+	    "t"));
+	/* Constants cannot be marked at all. */
+	CHECK(eval_error_contains(
+	    "(defvar t 1)", "setting-constant"));
+
+	/* Not grid probes: kg's own `let' shapes, which the switch onto
+	 * fe's core bindings-list form had to preserve exactly.  The
+	 * one-element binding (a) is why the prelude keeps a normalising
+	 * macro instead of deleting it -- fe's core form raises
+	 * wrong-type-argument for it, Emacs and kg answer nil. */
+	CHECK(eval_eq("(let ((a)) a)", "nil"));
+	CHECK(eval_eq("(let (a b) (list a b))", "(nil nil)"));
+	CHECK(eval_eq("(let () 42)", "42"));
+	CHECK(eval_eq("(let ((a 1)))", "nil"));
+	/* kg's long-standing reading of a shape Emacs rejects; unchanged
+	 * behaviour, recorded rather than fixed by this phase. */
+	CHECK(eval_eq("(let ((a 1 2)) a)", "1"));
+	/* The constant refusals survive the switch, with one message. */
+	CHECK(eval_error_contains("(let ((t 1)) t)", "setting-constant"));
+	CHECK(eval_error_contains("(let ((nil 1)) 1)", "setting-constant"));
+	CHECK(eval_error_contains("(let ((:k 1)) 1)", "setting-constant"));
+	CHECK(eval_error_contains("(let* ((t 1)) t)", "setting-constant"));
+	/* Parallel evaluation of the initializers survives it too. */
+	CHECK(eval_eq("(progn (setq p11-par 100)"
+		      " (let ((p11-par 1) (z p11-par)) z))",
+	    "100"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_definition_forms(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -4624,6 +4793,7 @@ int main(void)
 	RUN(test_type_predicates);
 	RUN(test_numeric_core_error_rules);
 	RUN(test_binding_forms);
+	RUN(test_phase11_dynamic_binding);
 	RUN(test_definition_forms);
 	RUN(test_strict_arity);
 	RUN(test_writer_quote_abbreviation);

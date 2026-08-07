@@ -1,0 +1,6 @@
+{
+ "id": "phase11-dynamic-special-variable-p-constants",
+ "setup": [],
+ "expr": "(list (special-variable-p t) (special-variable-p nil) (special-variable-p :kw) (special-variable-p 'phase11-never-declared))",
+ "note": "11A grid probe A9a, widened to the constants. Emacs answers t for t, nil and every keyword -- they are special even though nothing can ever bind one -- and nil for a name no `defvar' has ever named. fe's primitive reproduces all four, which is a measured extension beyond 11A's grid rather than an accident (fe sub-plan 11B's commit records the measurement). Before Phase 11 kg raised void-function for the predicate itself."
+}

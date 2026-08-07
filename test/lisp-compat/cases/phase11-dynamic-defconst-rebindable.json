@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-defconst-rebindable",
+ "setup": [
+  "(defconst dcv 1)",
+  "(defun dcvf () dcv)"
+ ],
+ "expr": "(list (let ((dcv 2)) (dcvf)) (dcvf))",
+ "note": "11A grid probe A8b. `defconst' declares intent, not enforcement: the name is still `let'-rebindable, and the rebinding is dynamic like any other special's. Before Phase 11 kg answered (1 1)."
+}

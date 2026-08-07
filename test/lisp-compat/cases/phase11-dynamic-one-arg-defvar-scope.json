@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-one-arg-defvar-scope",
+ "setup": [
+  "(defvar ov)",
+  "(defun ovf () ov)"
+ ],
+ "expr": "(let ((ov 5)) (ovf))",
+ "note": "11A grid probe A7b, and the case that measures the ONE approximation kg's marking model makes. In a lexical-binding: t FILE, Emacs answers 5 here: a one-argument `(defvar ov)' makes ov let-dynamic even though special-variable-p answers nil for it, and `let' over it is dynamic. But that let-dynamic effect is scoped to the file the defvar appears in -- and the oracle shim evaluates each setup form with its own `eval FORM t', which is a different scope, so Emacs' answer through this harness is (void-variable ov): the defvar's effect did not reach the expression. kg's marking is GLOBAL, so kg answers 5 wherever the defvar was written. That is the divergence, stated precisely: not that kg gets the one-argument arity wrong -- phase11-dynamic-one-arg-defvar-not-special shows special-variable-p answering nil on both sides, which is the arity's other half -- but that kg's version of it is broader in scope than Emacs'. Measured in a real file for the record: (defvar ov) / (defun ovf () ov) / (let ((ov 5)) (ovf)) as three top-level forms of one lexical-binding: t file answers 5 in Emacs 31.0.90, agreeing with kg. Per-file marking needs a notion of the file a form came from that neither fe nor kg's loader has; 11A Decision 2 records the approximation rather than funding it, and doc/TODO.md carries the item."
+}

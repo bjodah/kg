@@ -1,0 +1,8 @@
+{
+ "id": "phase11-dynamic-closure-reads-at-call",
+ "setup": [
+  "(defvar cv 1)"
+ ],
+ "expr": "(let ((f (lambda () cv))) (let ((cv 2)) (funcall f)))",
+ "note": "11A grid probe A5. A closure over a special reads the value in force when it is CALLED, not when it was made -- it closes over nothing, because a free reference to a special is a read of the global cell the binding swapped. Before Phase 11 kg answered 1. Note that f itself is an ordinary lexical binding in the same form, which is the point: only the marked name is dynamic."
+}

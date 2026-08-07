@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-restore-on-throw",
+ "setup": [
+  "(defvar tv 1)",
+  "(defun tvf () tv)"
+ ],
+ "expr": "(list (catch 'tag (let ((tv 2)) (throw 'tag (tvf)))) (tvf))",
+ "note": "11A grid probe A6a. The binding is in force until the throw unwinds past the `let', and restored by that unwinding -- one of the five completion kinds fe's binding frame restores on. Before Phase 11 kg answered (1 1)."
+}

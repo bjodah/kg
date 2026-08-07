@@ -1,0 +1,9 @@
+{
+ "id": "phase11-dynamic-restore-on-error",
+ "setup": [
+  "(defvar ev 1)",
+  "(defun evf () ev)"
+ ],
+ "expr": "(list (condition-case nil (let ((ev 2)) (error \"boom\")) (error (evf))) (evf))",
+ "note": "11A grid probe A6b, a guard rather than a target: kg and Emacs already agreed here before Phase 11, because both answered the global. It stays a case because the reason they agree changed -- kg used to have no binding to restore, and now has one that the error unwinding restores before the handler runs. A6a and A6b together are what make the restore-on-every-completion-kind claim testable."
+}

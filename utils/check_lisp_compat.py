@@ -24,6 +24,10 @@ Three things, in order:
 3. Two rules 00B's own checker did not need yet: every status="planned"
    entry's rationale names a phase ("Phase <digit>"), and the "defcustom"
    entry exists with the shape 00C's gate specifies.
+4. Every test a feature entry's "kg_test" cites exists: the file is
+   there, and where a function is named, that file defines it. 00B's
+   checker only asks that the field is non-empty, so a renamed test or a
+   moved PTY case left the manifest pointing at nothing.
 """
 
 from __future__ import annotations
@@ -262,6 +266,73 @@ def check_defcustom(kg_data: dict) -> list[str]:
 	return errors
 
 
+KG_TEST_REF_RE = re.compile(
+	r"[A-Za-z0-9_./-]+\.(?:c|h|yaml|el)(?::[A-Za-z_][A-Za-z0-9_]*)?")
+
+
+def _function_is_defined(text: str, name: str) -> bool:
+	"""A C definition or declaration of `name` at the start of a line.
+
+	Deliberately dumb, like the rest of this file: kg's tests are
+	`static void test_x(void)` at column 0, so "a line that starts with
+	a type and reaches `name(`" is enough. It is not a parser and does
+	not need to be -- the drift it catches is a renamed or deleted test,
+	not a subtle one.
+	"""
+	return re.search(r"(?m)^\w[\w *]*\b" + re.escape(name) + r"\s*\(",
+			 text) is not None
+
+
+def check_kg_test_targets(data: dict, path: Path) -> list[str]:
+	"""Every test a feature entry cites has to exist.
+
+	fe/utils/check_compat_manifest.py checks that `kg_test` is non-empty
+	for the entries that require one, and stops there -- so a renamed
+	test function, or a PTY case that was deleted or moved, leaves a row
+	citing evidence that is not there, and every reader downstream (the
+	manifest is the thing a review reads to decide whether a behaviour is
+	pinned) believes it.
+
+	A `kg_test` field is prose that *contains* references, not a
+	reference list: some entries name two files, some add an explanation
+	after them. So references are extracted rather than parsed out of a
+	fixed shape -- a token ending in .c/.h/.yaml/.el, optionally followed
+	by `:function`. Every extracted token must resolve, and a field with
+	no token at all is an entry that cites nothing.
+
+	Paths are resolved from the *superproject* root in both manifests:
+	fe's own rows say `fe/test_api.c`, which is where that file is from
+	here.
+	"""
+	errors = []
+	for feature in data.get("features", []):
+		claim = feature.get("kg_test")
+		if not claim:
+			continue
+		where = f"{path.relative_to(ROOT)}:{feature.get('id')}"
+		refs = [m.group(0) for m in KG_TEST_REF_RE.finditer(claim)]
+		if not refs:
+			errors.append(
+				f"{where}: kg_test names no test file "
+				f"({claim!r})")
+			continue
+		for ref in refs:
+			file_part, _, symbol = ref.partition(":")
+			target = ROOT / file_part
+			if not target.is_file():
+				errors.append(
+					f"{where}: kg_test names {file_part}, "
+					f"which does not exist")
+				continue
+			if symbol and not _function_is_defined(
+					target.read_text(encoding="utf-8"),
+					symbol):
+				errors.append(
+					f"{where}: kg_test names {symbol}(), "
+					f"which {file_part} does not define")
+	return errors
+
+
 def check_orphan_snapshots(kg_data: dict) -> list[str]:
 	"""An oracle snapshot no comparison=emacs case asks for.
 
@@ -303,6 +374,8 @@ def main() -> int:
 	errors += check_planned_names_phase(kg_data, KG_MANIFEST)
 	errors += check_defcustom(kg_data)
 	errors += check_orphan_snapshots(kg_data)
+	errors += check_kg_test_targets(kg_data, KG_MANIFEST)
+	errors += check_kg_test_targets(fe_data, FE_MANIFEST)
 
 	total = len(fe_data.get("features", [])) + len(kg_data.get("features", []))
 	print(f"lisp compat check: {total} feature(s) across both manifests, "

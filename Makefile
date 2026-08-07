@@ -563,7 +563,16 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5844 exceeds limit 5843
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5844
 #   scc total complexity: 5844 (limit 5844)
-SCC_COMPLEXITY_MAX ?= 5844
+# Lowered 5844 -> 5837 by the same campaign's sub-plan C: editor_move_cursor()
+# split by MODE (visual-line first, then one helper per direction), and
+# four screen-cursor primitives it was open-coding -- retreat a column,
+# step a screen row up or down, place a column -- collapsed into shared
+# ones.  Cap equals the measured actual.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5836
+#   FAIL: total complexity 5837 exceeds limit 5836
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5837
+#   scc total complexity: 5837 (limit 5837)
+SCC_COMPLEXITY_MAX ?= 5837
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

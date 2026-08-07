@@ -33,14 +33,253 @@ static void cursor_place_col(int col)
 	}
 }
 
+/* Step the screen cursor back `n` byte columns, scrolling right-to-left
+ * when it runs off the window's left edge and stopping at column 0 of the
+ * row.  Mirror of cursor_advance_screen_col(). */
+static void cursor_retreat_screen_col(int n)
+{
+	while (n--) {
+		if (wcur()->cx > 0) {
+			wcur()->cx -= 1;
+		} else if (wcur()->coloff) {
+			wcur()->coloff--;
+		} else {
+			break;
+		}
+	}
+}
+
+/* Move the cursor one screen row down, scrolling when it is already on
+ * the last one, and one up, scrolling likewise. */
+static void cursor_next_screen_row(void)
+{
+	if (wcur()->cy == wcur()->h - 1) {
+		wcur()->rowoff++;
+	} else {
+		wcur()->cy += 1;
+	}
+}
+
+static void cursor_prev_screen_row(void)
+{
+	if (wcur()->cy == 0) {
+		wcur()->rowoff--;
+	} else {
+		wcur()->cy--;
+	}
+}
+
+/* Bytes in the glyph that starts at chars offset `filecol`, and in the one
+ * that ends just before it: 1 for ASCII, 2-4 for a multi-byte UTF-8
+ * sequence, counted by the continuation bytes around the start byte.  Both
+ * take and return chars-space quantities. */
+static int glyph_bytes_at(erow *row, int filecol)
+{
+	int n = 1;
+
+	while (filecol + n < row->size
+	    && utf8_is_cont((unsigned char)row->chars[filecol + n])) {
+		n++;
+	}
+	return n;
+}
+
+static int glyph_bytes_before(erow *row, int filecol)
+{
+	int n = 1;
+	int pos = filecol - 1;
+
+	while (pos > 0 && row && utf8_is_cont((unsigned char)row->chars[pos])) {
+		n++;
+		pos--;
+	}
+	return n;
+}
+
+/* Visual-line mode handles the four motions that follow a *wrapped* line
+ * rather than a logical one, and says so by returning true; anything else
+ * falls through to the logical motions below.  Everything here is in
+ * display columns (`rcol`, `win_w`) until visual_col_to_chars() converts
+ * back to a chars offset at the last step. */
+static bool move_visual_line(int key, int filerow, erow *row, int filecol)
+{
+	struct editor_window *w = &winlist[win_current];
+	int win_w = win_text_width(w);
+	int rcol, char_idx, cur_vrow;
+
+	switch (key) {
+	case HOME_KEY:
+		if (row) {
+			rcol = visual_line_cursor_col(row, filecol, win_w);
+			char_idx = visual_col_to_chars(
+			    row, (rcol / win_w) * win_w, win_w);
+			editor_cursor_goto(filerow, char_idx);
+		}
+		return true;
+	case END_KEY:
+		if (row) {
+			int max_rcol = visual_line_width(row, win_w);
+			int target_rcol;
+
+			rcol = visual_line_cursor_col(row, filecol, win_w);
+			target_rcol = filecol == row->size
+			    ? max_rcol
+			    : ((rcol / win_w) + 1) * win_w - 1;
+			if (target_rcol > max_rcol) {
+				target_rcol = max_rcol;
+			}
+			char_idx = visual_col_to_chars(row, target_rcol, win_w);
+			editor_cursor_goto(filerow, char_idx);
+		}
+		return true;
+	case ARROW_UP:
+	case ARROW_DOWN:
+		rcol = row ? visual_line_cursor_col(row, filecol, win_w) : 0;
+		cur_vrow = get_visual_row(w, bcur(), filerow, filecol);
+		if (key == ARROW_DOWN) {
+			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
+		} else if (cur_vrow > 0) {
+			goto_visual_row_col(cur_vrow - 1, rcol % win_w);
+		}
+		return true;
+	}
+	return false;
+}
+
+/* ARROW_LEFT.  `filecol` and `row->size` are chars offsets; cx and coloff
+ * are the screen halves of the same space. */
+static void move_left(int filerow, erow *row, int filecol)
+{
+	if (filecol > 0) {
+		/* Past EOL in rect mark mode is virtual space, stepped one
+		 * column at a time; inside the row, a whole glyph. */
+		if (row && filecol > row->size) {
+			cursor_retreat_screen_col(1);
+		} else {
+			cursor_retreat_screen_col(
+			    glyph_bytes_before(row, filecol));
+		}
+		return;
+	}
+	if (filerow >= bcur()->numrows) {
+		int prevrow = bcur()->numrows - 1;
+
+		prevrow = prevrow < 0 ? 0 : prevrow;
+		editor_cursor_goto(
+		    prevrow, bcur()->numrows ? bcur()->row[prevrow].size : 0);
+		return;
+	}
+	if (filerow > 0) {
+		cursor_prev_screen_row();
+		cursor_place_col(bcur()->row[filerow - 1].size);
+	}
+}
+
+/* ARROW_RIGHT. */
+static void move_right(int filerow, erow *row, int filecol)
+{
+	if (row && filecol < row->size) {
+		int n = glyph_bytes_at(row, filecol);
+
+		while (n--) {
+			cursor_advance_screen_col();
+		}
+	} else if (row && bcur()->rect_mode) {
+		/* In rect mark mode, extend the cursor into virtual space
+		 * past EOL so a rectangle can span columns that some rows
+		 * don't reach. */
+		cursor_advance_screen_col();
+	} else if (row && filecol == row->size
+	    && filerow < bcur()->numrows - 1) {
+		wcur()->cx = 0;
+		wcur()->coloff = 0;
+		cursor_next_screen_row();
+	}
+}
+
+static void move_up(void)
+{
+	if (wcur()->cy > 0) {
+		wcur()->cy -= 1;
+	} else if (wcur()->rowoff) {
+		wcur()->rowoff--;
+	} else {
+		/* Already at the top of the buffer: the run of vertical
+		 * moves ends, so the goal column is forgotten. */
+		wcur()->desired_visual_col = -1;
+		wcur()->cx = 0;
+		wcur()->coloff = 0;
+	}
+}
+
+static void move_down(int filerow, erow *row)
+{
+	if (filerow < bcur()->numrows - 1) {
+		cursor_next_screen_row();
+	} else if (row) {
+		/* On the last row a further C-n goes to end of line, and
+		 * ends the run. */
+		cursor_place_col(row->size);
+		wcur()->desired_visual_col = -1;
+	}
+}
+
+/* After vertical motion, put point at the byte that lands on the saved
+ * goal column of the row it arrived on.  `desired_visual_col` is a DISPLAY
+ * column and `target` a chars offset; editor_chars_col_at_visual() is the
+ * seam between the two.  `target` is deliberately NOT bounded by
+ * row->size: reaching past a short row's end, that function returns
+ * row->size plus the virtual overshoot, which rect mark mode keeps and
+ * clamp_cx_to_row() takes back everywhere else. */
+static void snap_to_desired_visual_col(erow *row)
+{
+	int target;
+
+	if (!row || wcur()->desired_visual_col < 0) {
+		return;
+	}
+	target = editor_chars_col_at_visual(row, wcur()->desired_visual_col);
+
+	wcur()->cx = target - wcur()->coloff;
+	if (wcur()->cx < 0) {
+		wcur()->coloff = target;
+		wcur()->cx = 0;
+	} else if (wcur()->cx > wcur()->w - 1) {
+		wcur()->coloff += wcur()->cx - (wcur()->w - 1);
+		wcur()->cx = wcur()->w - 1;
+	}
+}
+
+/* Fix cx if the current line has not enough chars.  In rect mark mode the
+ * cursor is allowed to stay past EOL so the user can extend a rectangle
+ * whose right edge crosses shorter lines -- editor_snap_cx_to_row() snaps
+ * it back when rect mode ends.  Everywhere else this is what makes
+ * coloff + cx a valid chars offset in the row. */
+static void clamp_cx_to_row(erow *row)
+{
+	int rowlen = row ? row->size : 0;
+
+	if (bcur()->rect_mode) {
+		return;
+	}
+	if (wcur()->coloff > rowlen) {
+		wcur()->coloff = rowlen;
+		wcur()->cx = 0;
+	} else if (wcur()->cx > rowlen - wcur()->coloff) {
+		wcur()->cx = rowlen - wcur()->coloff;
+	}
+	if (row) {
+		KG_ASSERT_CHARS_OFF(row, wcur()->coloff + wcur()->cx);
+	}
+}
+
 /* Handle cursor position change because arrow keys were pressed. */
 void editor_move_cursor(int key)
 {
 	int filerow = editor_current_filerow_or_eof();
 	erow *row = filerow >= bcur()->numrows ? NULL : &bcur()->row[filerow];
 	int filecol = editor_current_filecol();
-	int is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
-	int rowlen;
+	bool is_vertical = (key == ARROW_UP || key == ARROW_DOWN);
 
 	/* Capture the visual goal column on the first vertical move so a
 	 * run of C-n/C-p stays at the same visible column across rows of
@@ -49,59 +288,9 @@ void editor_move_cursor(int key)
 		wcur()->desired_visual_col = editor_visual_col(row, filecol);
 	}
 
-	if (bcur()->visual_line_mode) {
-		struct editor_window *w = &winlist[win_current];
-		int win_w = win_text_width(w);
-		switch (key) {
-		case HOME_KEY: {
-			if (row) {
-				int rcol = visual_line_cursor_col(
-				    row, filecol, win_w);
-				int target_rcol = (rcol / win_w) * win_w;
-				int char_idx = visual_col_to_chars(
-				    row, target_rcol, win_w);
-				editor_cursor_goto(filerow, char_idx);
-			}
-			return;
-		}
-		case END_KEY: {
-			if (row) {
-				int rcol = visual_line_cursor_col(
-				    row, filecol, win_w);
-				int max_rcol = visual_line_width(row, win_w);
-				int target_rcol = filecol == row->size
-				    ? max_rcol
-				    : ((rcol / win_w) + 1) * win_w - 1;
-				if (target_rcol > max_rcol) {
-					target_rcol = max_rcol;
-				}
-				int char_idx = visual_col_to_chars(
-				    row, target_rcol, win_w);
-				editor_cursor_goto(filerow, char_idx);
-			}
-			return;
-		}
-		case ARROW_UP: {
-			int rcol = row
-			    ? visual_line_cursor_col(row, filecol, win_w)
-			    : 0;
-			int cur_vrow
-			    = get_visual_row(w, bcur(), filerow, filecol);
-			if (cur_vrow > 0) {
-				goto_visual_row_col(cur_vrow - 1, rcol % win_w);
-			}
-			return;
-		}
-		case ARROW_DOWN: {
-			int rcol = row
-			    ? visual_line_cursor_col(row, filecol, win_w)
-			    : 0;
-			int cur_vrow
-			    = get_visual_row(w, bcur(), filerow, filecol);
-			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
-			return;
-		}
-		}
+	if (bcur()->visual_line_mode
+	    && move_visual_line(key, filerow, row, filecol)) {
+		return;
 	}
 
 	switch (key) {
@@ -115,144 +304,27 @@ void editor_move_cursor(int key)
 		}
 		break;
 	case ARROW_LEFT:
-		if (filecol == 0) {
-			if (filerow >= bcur()->numrows) {
-				int prevrow = bcur()->numrows - 1;
-				prevrow = prevrow < 0 ? 0 : prevrow;
-				editor_cursor_goto(prevrow,
-				    bcur()->numrows ? bcur()->row[prevrow].size
-						    : 0);
-				break;
-			}
-			if (filerow > 0) {
-				if (wcur()->cy == 0) {
-					wcur()->rowoff--;
-				} else {
-					wcur()->cy--;
-				}
-				wcur()->cx = bcur()->row[filerow - 1].size;
-				if (wcur()->cx > wcur()->w - 1) {
-					wcur()->coloff
-					    = wcur()->cx - wcur()->w + 1;
-					wcur()->cx = wcur()->w - 1;
-				}
-			}
-		} else if (row && filecol > row->size) {
-			/* Virtual space past EOL (rect mark mode): plain step.
-			 */
-			if (wcur()->cx == 0) {
-				if (wcur()->coloff) {
-					wcur()->coloff--;
-				}
-			} else {
-				wcur()->cx -= 1;
-			}
-		} else {
-			/* Step back a whole glyph (1 byte for ASCII, 2-4 for
-			 * UTF-8 multi-byte) by counting continuation bytes
-			 * trailing the previous start byte. */
-			int n = 1, pos = filecol - 1;
-			while (pos > 0 && row
-			    && utf8_is_cont((unsigned char)row->chars[pos])) {
-				n++;
-				pos--;
-			}
-			while (n--) {
-				if (wcur()->cx == 0) {
-					if (wcur()->coloff) {
-						wcur()->coloff--;
-					} else {
-						break;
-					}
-				} else {
-					wcur()->cx -= 1;
-				}
-			}
-		}
+		move_left(filerow, row, filecol);
 		break;
 	case ARROW_RIGHT:
-		if (row && filecol < row->size) {
-			/* Step forward a whole glyph: 1 + however many
-			 * continuation bytes follow the current start byte. */
-			int n = 1;
-			while (filecol + n < row->size
-			    && utf8_is_cont(
-				(unsigned char)row->chars[filecol + n])) {
-				n++;
-			}
-			while (n--) {
-				cursor_advance_screen_col();
-			}
-		} else if (row && bcur()->rect_mode) {
-			/* In rect mark mode, extend the cursor into virtual
-			 * space past EOL so a rectangle can span columns that
-			 * some rows don't reach. */
-			cursor_advance_screen_col();
-		} else if (row && filecol == row->size
-		    && filerow < bcur()->numrows - 1) {
-			wcur()->cx = 0;
-			wcur()->coloff = 0;
-			if (wcur()->cy == wcur()->h - 1) {
-				wcur()->rowoff++;
-			} else {
-				wcur()->cy += 1;
-			}
-		}
+		move_right(filerow, row, filecol);
 		break;
 	case ARROW_UP:
-		if (wcur()->cy > 0) {
-			wcur()->cy -= 1;
-		} else if (wcur()->rowoff) {
-			wcur()->rowoff--;
-		} else {
-			wcur()->desired_visual_col = -1;
-			wcur()->cx = 0;
-			wcur()->coloff = 0;
-		}
+		move_up();
 		break;
 	case ARROW_DOWN:
-		if (filerow < bcur()->numrows - 1) {
-			if (wcur()->cy == wcur()->h - 1) {
-				wcur()->rowoff++;
-			} else {
-				wcur()->cy += 1;
-			}
-		} else if (row) {
-			cursor_place_col(row->size);
-			wcur()->desired_visual_col = -1;
-		}
+		move_down(filerow, row);
 		break;
 	}
-	/* After vertical motion, snap cx to the byte position that lands
-	 * at the saved goal column on the new row.  In rect mode the
-	 * cursor is allowed to stay past EOL; the trailing clamp below
-	 * only fires for non-rect-mode. */
+
+	/* The motion may have landed on another row; the goal-column snap
+	 * and the clamp both belong to the row point is on now. */
 	filerow = editor_current_filerow_or_eof();
 	row = filerow >= bcur()->numrows ? NULL : &bcur()->row[filerow];
-	if (is_vertical && row && wcur()->desired_visual_col >= 0) {
-		int target = editor_chars_col_at_visual(
-		    row, wcur()->desired_visual_col);
-		wcur()->cx = target - wcur()->coloff;
-		if (wcur()->cx < 0) {
-			wcur()->coloff = target;
-			wcur()->cx = 0;
-		} else if (wcur()->cx > wcur()->w - 1) {
-			wcur()->coloff += wcur()->cx - (wcur()->w - 1);
-			wcur()->cx = wcur()->w - 1;
-		}
+	if (is_vertical) {
+		snap_to_desired_visual_col(row);
 	}
-
-	/* Fix cx if the current line has not enough chars.  In rect mark
-	 * mode the cursor is allowed to stay past EOL so the user can
-	 * extend a rectangle whose right edge crosses shorter lines —
-	 * editor_snap_cx_to_row() snaps it back when rect mode ends. */
-	rowlen = row ? row->size : 0;
-	if (!bcur()->rect_mode && wcur()->coloff > rowlen) {
-		wcur()->coloff = rowlen;
-		wcur()->cx = 0;
-	} else if (!bcur()->rect_mode && wcur()->cx > rowlen - wcur()->coloff) {
-		wcur()->cx = rowlen - wcur()->coloff;
-	}
+	clamp_cx_to_row(row);
 }
 
 /* Move to the beginning of the document */

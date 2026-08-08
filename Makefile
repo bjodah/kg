@@ -91,9 +91,15 @@ endif
 # flags and simply ignores the rpath.
 #
 # Grammars are NOT linked: they are dlopen'd at runtime by soname, Emacs'
-# own model (decision 1), which arrives with the registry in a later slice.
+# own model (decision 1).  TS_GRAMMAR_PATH is the compiled-in search path
+# the loader falls back to when $KG_TS_GRAMMAR_PATH is unset or empty:
+# colon-separated entries, each a directory holding
+# libtree-sitter-<name>.so, and an entry containing `%s` has the grammar
+# name substituted -- which is how /opt-9's one-prefix-per-grammar layout
+# is a single entry rather than twenty.
 WITH_TREE_SITTER ?= 0
 TREE_SITTER_PREFIX ?= /opt-9/tree-sitter-v0.26.11-release
+TS_GRAMMAR_PATH ?= /opt-9/tree-sitter-grammar-%s/lib
 
 ifneq ($(WITH_TREE_SITTER),0)
 ifneq ($(WITH_TREE_SITTER),1)
@@ -111,12 +117,16 @@ ifneq ($(SKIP_TREE_SITTER_CHECK),1)
 $(error $(TREE_SITTER_PREFIX)/include/tree_sitter/api.h is missing; point TREE_SITTER_PREFIX=... at a tree-sitter install prefix, or build with 'WITH_TREE_SITTER=0')
 endif
 endif
-override CFLAGS += -DKG_USE_TREE_SITTER=1 -I$(TREE_SITTER_PREFIX)/include
+override CFLAGS += -DKG_USE_TREE_SITTER=1 -I$(TREE_SITTER_PREFIX)/include \
+		   -DKG_TS_GRAMMAR_DEFAULT_PATH='"$(TS_GRAMMAR_PATH)"'
 # In LDLIBS rather than LDFLAGS because two link lines (test/kgbatch and
 # the keypress fuzz target) pass LDLIBS and not LDFLAGS; -L before -l in
 # one variable resolves the same way, and LDLIBS is last on every line.
+# -ldl for the grammar loader's dlopen().  Redundant on a glibc >= 2.34,
+# where libdl was folded into libc and libdl.so is a stub kept for exactly
+# this line; still required on older glibc and on the BSDs' libc split.
 override LDLIBS += -L$(TREE_SITTER_PREFIX)/lib \
-		   -Wl,-rpath,$(TREE_SITTER_PREFIX)/lib -ltree-sitter
+		   -Wl,-rpath,$(TREE_SITTER_PREFIX)/lib -ltree-sitter -ldl
 endif
 
 # Which implementation of the private src/syntax_backend.h contract this
@@ -124,7 +134,7 @@ endif
 # selected is not compiled at all, which is the property
 # `test ! -e src/syntax_legacy.o` in .ci/ci-13-with-tree-sitter.sh asserts.
 ifeq ($(WITH_TREE_SITTER),1)
-SYNTAX_BACKEND_SRCS = syntax_tree_sitter.c
+SYNTAX_BACKEND_SRCS = syntax_tree_sitter.c syntax_tree_sitter_lang.c
 else
 SYNTAX_BACKEND_SRCS = syntax_legacy.c
 endif
@@ -137,7 +147,10 @@ SYNTAX_BACKEND_OBJS = $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS:.c=.o))
 SYNTAX_BACKEND_ALL = $(OBJDIR)/syntax_legacy.o $(PERFOBJDIR)/syntax_legacy.o \
 		     $(OBJDIR)/syntax_tree_sitter.o \
 		     $(PERFOBJDIR)/syntax_tree_sitter.o \
-		     $(TESTDIR)/test_syntax_legacy
+		     $(OBJDIR)/syntax_tree_sitter_lang.o \
+		     $(PERFOBJDIR)/syntax_tree_sitter_lang.o \
+		     $(TESTDIR)/test_syntax_legacy \
+		     $(TESTDIR)/test_syntax_tree_sitter
 
 # One stamp for the whole feature configuration, so an object compiled
 # under one set of -D flags is never mistaken for up to date under another.
@@ -257,13 +270,17 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom \
            $(TESTDIR)/test_perf
-# The legacy scanners' own suite exists only where the legacy scanners do:
-# it links src/syntax_legacy.o and asserts what each bespoke scanner paints,
-# so it is not a suite a tree-sitter build can run at all.  The tree-sitter
-# backend's equivalent arrives with the backend itself; today's skeleton
-# recognizes nothing and has nothing of its own to assert.
+# Each backend's own suite exists only where that backend does: it links
+# that backend's object and asserts what it paints, so neither is a suite
+# the other configuration can run at all.  test_syntax_legacy asserts the
+# bespoke scanners; test_syntax_tree_sitter asserts grammar loading, query
+# compilation and capture-to-render-offset painting, and hard-requires the
+# C grammar, since a WITH_TREE_SITTER=1 build only happens on a box that
+# has one.
 ifeq ($(WITH_TREE_SITTER),0)
 TESTBINS += $(TESTDIR)/test_syntax_legacy
+else
+TESTBINS += $(TESTDIR)/test_syntax_tree_sitter
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -364,6 +381,15 @@ TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o
+# The tree-sitter backend converts a capture's chars-space columns into
+# render-byte offsets with chars_to_render_col() (src/mode.c), so in that
+# configuration every test binary that links a backend needs mode.o too.
+# It costs nothing: mode.o reaches only for utf8_width_at(), which width.o
+# above already provides, and $^ in the link rule dedupes it against the
+# EXTRA_ lists that name it themselves.
+ifeq ($(WITH_TREE_SITTER),1)
+TEST_SRCS_OBJS += $(OBJDIR)/mode.o
+endif
 TEST_RUNNER ?=
 KG_RUNNER ?=
 # Per-run machine-readable test results (gitignored).  Both layers write
@@ -391,7 +417,12 @@ endif
 # extras, so the feature defines have to be repeated here; the link side
 # needs nothing, the keypress target already passing $(LDLIBS).
 ifeq ($(WITH_TREE_SITTER),1)
-override FUZZ_CFLAGS += -DKG_USE_TREE_SITTER=1 -I$(TREE_SITTER_PREFIX)/include
+override FUZZ_CFLAGS += -DKG_USE_TREE_SITTER=1 \
+			-I$(TREE_SITTER_PREFIX)/include \
+			-DKG_TS_GRAMMAR_DEFAULT_PATH='"$(TS_GRAMMAR_PATH)"'
+# Same reason TEST_SRCS_OBJS gains it above: the tree-sitter backend calls
+# chars_to_render_col(), which lives in src/mode.c.
+FUZZ_SRCS += $(OBJDIR)/mode.c
 endif
 
 # Project metrics
@@ -866,7 +897,50 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6092 exceeds limit 6091
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6092
 #   scc total complexity: 6092 (limit 6092)
-SCC_COMPLEXITY_MAX ?= 6092
+# Raised 6092 -> 6179 for the tree-sitter C backend, slice 6 (2026-08-08):
+# the real backend behind src/syntax_backend.h -- a row-backed TSInput, a
+# per-buffer parser and tree, dlopen'd grammars and kg's own highlight
+# query, and the capture-to-render-offset painting
+# (doc/plans/kg-tree-sitter-plan.md, Phase 6 and Phase 8's query policy).
+# The +87 is almost entirely two files that no default build compiles, and
+# scc reads the directory rather than the build:
+#   - src/syntax_tree_sitter.c 3 -> 51 (+48).  The skeleton's 3 becomes the
+#     whole backend: the TSInput reader's row walk (ts_input_read, pmccabe
+#     7), the ranged per-row query and its capture loop
+#     (syntax_backend_update_row 8, paint_capture 6), the chars->render
+#     conversion and precedence write (paint_span 7), and the state
+#     lifetime (syntax_backend_prepare 6, syntax_backend_rebuild 6,
+#     ts_state_new 5, syntax_backend_state_free 5).
+#   - src/syntax_tree_sitter_lang.c 0 -> 41 (+41), the whole new file: the
+#     grammar search path and loader (path_next_entry 6, grammar_so_path 6,
+#     grammar_try 6, kg_ts_grammar_load 4), the query compile and capture
+#     mapping (query_compile 7, capture_face 4), and the cached, once-per
+#     -process resolution (kg_ts_language_for_mode 6).
+#   - src/syntax.c 120 -> 118 (-2).  syntax_after_edit() gave its row loop
+#     and its end-row clamp to the backend and kept only the counter, the
+#     range guard and the coordinate assertion (pmccabe 5 -> 3, the one
+#     improvement in the baseline).
+#   - src/syntax_legacy.c 231 -> 231 (+0), even though it GAINED that row
+#     loop verbatim plus syntax_backend_rebuild().  scc's C counter is
+#     position-dependent in a long file (the slice-2 note above documents
+#     the same effect at length); pmccabe, which is not, reports the two
+#     new symbols at 4 and 1 and no existing symbol moved.
+# No new symbol anywhere in the slice exceeds 8 against the 15
+# new-function budget.  Bisected on this tree: with src/syntax_tree_sitter.c
+# and src/syntax_tree_sitter_lang.c moved out of src/, the total is 6087 --
+# which is HEAD's 6092, minus the 3 the skeleton contributed, minus
+# syntax.c's 2 -- so nothing else in the slice moved the number:
+#   $ mv src/syntax_tree_sitter*.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=6086
+#   FAIL: total complexity 6087 exceeds limit 6086
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the two new files measure 51 and 41, and the worst file is still
+# src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6178
+#   FAIL: total complexity 6179 exceeds limit 6178
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6179
+#   scc total complexity: 6179 (limit 6179)
+SCC_COMPLEXITY_MAX ?= 6179
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -936,6 +1010,14 @@ $(FEATURE_CONFIG):
 	touch $@
 
 $(OBJS): $(FEATURE_CONFIG)
+# The counting build is a second set of objects from the same sources and
+# needs the same guard: PERF_CFLAGS is CFLAGS, feature defines and all, so
+# a perfobj compiled under one configuration is exactly as wrong under
+# another as an src/*.o is.  Without this, `make WITH_TREE_SITTER=1 check`
+# followed by `make check` relinks test_perf from objects that still think
+# tree-sitter is the backend -- which test_perf can now tell, since the
+# two backends' syntax-notification shapes differ (BACKEND_KEEPS_STATE).
+$(PERF_SRC_OBJS) $(PERF_TEST_OBJS): $(FEATURE_CONFIG)
 # LISP_SRCS is a subset of SRCS, so a second `$(LISP_OBJS): $(FEATURE_CONFIG)`
 # says nothing the line above has not.  What was missing is this: the
 # embedded prelude is #included, and nothing told make so, which is how a
@@ -1349,6 +1431,10 @@ EXTRA_syntax       := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS)
 # The backend's own suite links exactly what the facade's does: the
 # scanners reach the buffer through the same row primitives.
 EXTRA_syntax_legacy := $(TESTDIR)/stubs.o         $(TEST_SRCS_OBJS)
+# Likewise for the tree-sitter backend, whose extra dependencies (the core
+# library, dl) are already on every link line in that configuration
+# (LDLIBS) and whose mode.o is already in TEST_SRCS_OBJS there.
+EXTRA_syntax_tree_sitter := $(TESTDIR)/stubs.o    $(TEST_SRCS_OBJS)
 EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o

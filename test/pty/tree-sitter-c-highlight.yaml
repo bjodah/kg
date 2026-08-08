@@ -1,0 +1,40 @@
+# A SMOKE case for the tree-sitter backend, deliberately not a colour
+# assertion: the PTY harness compares SAVED FILES, and a colour never
+# reaches one.  What this proves is that a WITH_TREE_SITTER=1 kg, which
+# throws its parse tree away and reparses the whole buffer on every edit
+# (doc/plans/kg-tree-sitter-plan.md, Phase 6 -- slice 6 is correctness
+# first), still edits a C file exactly like any other build: an inserted
+# row, a comment typed into it, and a killed row all land where they
+# should, and nothing the parser does disturbs point or the row array.
+#
+# Colour correctness is asserted byte for byte, in render-space offsets,
+# by test/test_syntax_tree_sitter.c -- which is where it can be, because a
+# unit test can read row->hl and a terminal capture cannot.
+#
+# The .c extension is the whole reason this case is a C-mode case; it is
+# the only mode this slice registers a grammar for, so it is also the only
+# one whose editing runs through a live parser.
+name: tree-sitter-c-highlight
+filename: ts-highlight.c
+requires_feature: tree-sitter
+backend: tmux
+key_delay: 0.1
+initial: |
+  int main(void)
+  {
+      return 0;
+  }
+keys:
+  - C-n
+  - C-e
+  - RET
+  - "    int x = 42; /* forty-two */"
+  - C-n
+  - C-a
+  - C-k
+  - C-k
+expected_saved: |
+  int main(void)
+  {
+      int x = 42; /* forty-two */
+  }

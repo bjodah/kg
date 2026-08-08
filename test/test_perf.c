@@ -201,6 +201,18 @@ static int write_lines_file(char *path, size_t path_size, int lines)
 	return 0;
 }
 
+/* Whether the compiled-in syntax backend keeps per-buffer state for a mode
+ * it highlights.  The legacy scanners derive every row from the row above
+ * it and keep none, so what a load transfers is NULL; a parsing backend
+ * keeps its parser and its tree.  Which of the two is compiled in is a
+ * source-list decision (src/syntax_backend.h), and this is the one place
+ * this suite has to know about it. */
+#ifdef KG_USE_TREE_SITTER
+#define BACKEND_KEEPS_STATE 1
+#else
+#define BACKEND_KEEPS_STATE 0
+#endif
+
 /* ---- File loader row-array growth ---- */
 
 static void test_load_row_array_growth(void)
@@ -285,8 +297,8 @@ static void write_markdown(FILE *fp)
  * and colours a row at a time but renders every row, then colours the whole
  * staged document in one preparation pass, and this differential is what
  * says the two orders settle at the same colours. */
-static void check_load_highlight_is_final(
-    const char *name_template, int suffix_len, void (*write_corpus)(FILE *))
+static void check_load_highlight_is_final(const char *name_template,
+    int suffix_len, void (*write_corpus)(FILE *), int expect_state)
 {
 	char path[64];
 	unsigned char **hl = NULL;
@@ -316,12 +328,13 @@ static void check_load_highlight_is_final(
 	CHECK(editor_open(path) == 0);
 	rows = bcur()->numrows;
 	CHECK(rows > 100);
-	/* The load prepared a backend state against the staged rows and
-	 * transferred it here (commit_load_result()).  The legacy backend
-	 * prepares none, so what arrived is NULL -- the invariant that says
-	 * the transfer happened rather than something else being left
-	 * behind. */
-	CHECK(bcur()->syntax_state == NULL);
+	/* The load prepared whatever the backend keeps against the staged
+	 * rows and transferred it here (commit_load_result()) -- the
+	 * invariant that says the transfer happened rather than something
+	 * else being left behind.  `expect_state` is what the caller knows:
+	 * whether this backend keeps state at all, and whether this corpus's
+	 * mode is one it can highlight. */
+	CHECK((bcur()->syntax_state != NULL) == expect_state);
 	hl = calloc((size_t)rows, sizeof(*hl));
 	oc = calloc((size_t)rows, sizeof(*oc));
 	CHECK(hl != NULL && oc != NULL);
@@ -358,9 +371,11 @@ static void check_load_highlight_is_final(
 static void test_load_highlight_is_final(void)
 {
 	check_load_highlight_is_final(
-	    "test_perf_hl_XXXXXX.c", 2, write_comment_c);
+	    "test_perf_hl_XXXXXX.c", 2, write_comment_c, BACKEND_KEEPS_STATE);
+	/* Markdown has no tree-sitter grammar registered yet (the plan's
+	 * batch 1 is C first), so neither backend keeps state for it. */
 	check_load_highlight_is_final(
-	    "test_perf_hl_XXXXXX.md", 3, write_markdown);
+	    "test_perf_hl_XXXXXX.md", 3, write_markdown, 0);
 }
 
 /* ---- Live row-array growth ---- */
@@ -709,7 +724,17 @@ static void test_multiline_insert_flattens_buffer(void)
  *                       there because row 5's state comes out unchanged.
  *   PROPAGATE    == 1   that one row below the span, and no more.
  * Before this slice the same edit cost three notifications, each with its
- * own propagation, two of them over rows not yet rendered. */
+ * own propagation, two of them over rows not yet rendered.
+ *
+ * SYNTAX_ROW and PROPAGATE are the BACKEND's half of that shape, and the
+ * two backends genuinely disagree: the numbers above are the legacy
+ * scanners', and the tree-sitter backend of slice 6 answers every
+ * notification with a full reparse and a repaint of every row, so it
+ * scans the whole buffer and propagates nothing
+ * (doc/plans/kg-tree-sitter-plan.md, Phase 6).  Both are asserted, because
+ * shrinking the tree-sitter number back to a damaged range is exactly what
+ * Phase 7 is, and this is where that will be measured.  SYNTAX_EDIT and
+ * ROW_UPDATE are the facade's and are the same either way. */
 static void test_multiline_edit_notifies_syntax_once(void)
 {
 	const int rows = 64;
@@ -730,15 +755,22 @@ static void test_multiline_edit_notifies_syntax_once(void)
 
 	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 3);
+#ifdef KG_USE_TREE_SITTER
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == (unsigned long long)rows + 2);
+	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
+#else
 	CHECK(counter(KG_PERF_SYNTAX_ROW) == 4);
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
+#endif
 	teardown();
 }
 
 /* The same property for the hottest edit of all -- one typed byte, one
- * row, no topology change.  One notification, one rendered row, two rows
- * scanned (the row itself and the always-re-examined row below it), and
- * the scan stops there rather than walking the rest of the buffer. */
+ * row, no topology change.  One notification, one rendered row, and -- for
+ * the legacy scanners -- two rows scanned (the row itself and the
+ * always-re-examined row below it), the scan stopping there rather than
+ * walking the rest of the buffer.  The tree-sitter backend of slice 6
+ * repaints the whole buffer instead; see the note above. */
 static void test_one_row_edit_notifies_syntax_once(void)
 {
 	const int rows = 64;
@@ -754,8 +786,13 @@ static void test_one_row_edit_notifies_syntax_once(void)
 
 	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
+#ifdef KG_USE_TREE_SITTER
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == (unsigned long long)rows);
+	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
+#else
 	CHECK(counter(KG_PERF_SYNTAX_ROW) == 2);
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
+#endif
 	teardown();
 }
 

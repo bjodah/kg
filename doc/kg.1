@@ -78,9 +78,15 @@ and links
 from the prefix named by the
 .Li TREE_SITTER_PREFIX
 make variable.
-The tree-sitter backend loads no grammars yet, so such a build treats every
-buffer as plain text; the mode names, mode commands and file-name detection
-below are unaffected by either choice.
+The tree-sitter backend loads grammars at run time by soname
+.Pq Pa libtree-sitter- Ns Ar name Ns Pa .so ,
+searched along
+.Ev KG_TS_GRAMMAR_PATH ;
+it highlights C, and treats every other buffer as plain text.
+A mode whose grammar is missing is not an error and never falls back to the
+row scanners.
+The mode names, mode commands and file-name detection below are unaffected
+by either choice.
 .Pp
 On startup
 .Nm
@@ -3311,6 +3317,29 @@ for raw-mode input and output.
 Terminal size changes
 .Pq SIGWINCH
 are handled gracefully.
+.Bl -tag -width Ds
+.It Ev KG_TS_GRAMMAR_PATH
+Colon-separated list of directories a
+.Sq +tree-sitter
+build searches for grammar shared objects, before the path compiled into
+the binary.
+Each entry is a directory holding
+.Pa libtree-sitter- Ns Ar name Ns Pa .so ;
+an entry containing
+.Sq %s
+has the grammar name substituted into it first, so one entry can cover a
+tree with one directory per grammar.
+An empty or unset value means the compiled-in default.
+Ignored by a
+.Sq -tree-sitter
+build.
+.It Ev XDG_CONFIG_HOME
+Base directory for the Lisp init file and package directory under
+.Pa FILES
+below;
+.Pa ~/.config
+when unset.
+.El
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa /dev/tty

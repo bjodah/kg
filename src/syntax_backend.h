@@ -16,6 +16,7 @@
  * so this header needs nothing from def.h at all. */
 struct editor_buffer;
 struct erow;
+struct kg_syntax_edit;
 struct kg_syntax_state;
 
 /* ---- Provided by the backend ---- */
@@ -56,6 +57,38 @@ void syntax_backend_state_free(struct kg_syntax_state *st);
  * facade's, not a backend's. */
 void syntax_backend_update_row(struct editor_buffer *b, struct erow *row);
 
+/* One completed edit transaction's whole highlighting cost, paid once after
+ * kg_buffer_replace() has published the new rows and rendered them.  `edit`
+ * is the transaction in doc/coordinates.md's buffer-byte and chars-space
+ * coordinates (src/syntax.h's kg_syntax_edit).
+ *
+ * What the facade has already done, and what a backend may therefore
+ * assume -- the whole of it, deliberately small:
+ *   - `b`'s rows are published and rendered;
+ *   - edit->start_point.row is a valid row index of `b`;
+ *   - nothing else.  In particular no row's hl has been reserved or
+ *     blanked yet, and edit->new_end_point.row may be past the last row
+ *     (a deletion that took the tail of the buffer with it), so a backend
+ *     that walks to it clamps for itself.
+ * Every row a backend colours here goes through syntax_update_row_only()
+ * below, which is what reserves and blanks that row's hl; nothing else
+ * reserves it for the backend. */
+void syntax_backend_after_edit(
+    struct editor_buffer *b, const struct kg_syntax_edit *edit);
+
+/* "Everything changed": the notification for a path that rewrites a buffer
+ * without being able to say what it replaced, so a backend holding a parse
+ * tree throws it away rather than trying to edit it.  Same facade
+ * guarantees as syntax_backend_after_edit() minus the edit description, and
+ * the same rule about routing per-row colouring through
+ * syntax_update_row_only().
+ *
+ * It is also where a buffer acquires backend state it does not yet have: a
+ * mode change releases whatever the old mode's backend state was and then
+ * lands here (editor_set_syntax()), and a buffer whose rows were replaced
+ * wholesale (kg_buffer_adopt_rows()) arrives with no state either. */
+void syntax_backend_rebuild(struct editor_buffer *b);
+
 /* ---- Provided by the common facade ---- */
 
 /* Re-highlight one row without propagating the result downstream.  A
@@ -63,6 +96,13 @@ void syntax_backend_update_row(struct editor_buffer *b, struct erow *row);
  * Markdown setext underline) calls this rather than editor_update_syntax(),
  * which would recurse through the propagation loop. */
 void syntax_update_row_only(struct editor_buffer *b, struct erow *row);
+
+/* Re-highlight the rows below row `idx` until one of them comes out with
+ * the cross-row state (row->hl_oc) it already had, which is where the
+ * change stops being visible.  A service of the facade rather than of the
+ * legacy backend because hl_oc is a row field the facade owns and clears;
+ * a backend that keeps no per-row carry (tree-sitter) never calls it. */
+void syntax_propagate_below(struct editor_buffer *b, int idx);
 
 /* Index of the first byte at or after `from` that is not a space or tab. */
 int syntax_git_rebase_skip_ws(const char *line, int len, int from);

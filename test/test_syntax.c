@@ -405,15 +405,18 @@ static void test_prepare_rows_colours_and_keeps_no_state(void)
 
 	st = syntax_prepare_rows(rows, numrows, c, &ok);
 	CHECK(ok == 1);
-	CHECK(st == NULL); /* This backend keeps no state. */
 	CHECK(rows[0].hl != NULL && rows[1].hl != NULL && rows[2].hl != NULL);
 
-	/* Publication releases whatever described the old rows; the caller
-	 * then hands over the state it prepared against the new ones. */
+	/* Whether `st` is NULL is the backend's business and is asserted in
+	 * the backend's own suite: the legacy scanners keep nothing and
+	 * return NULL, a parsing backend returns its parser and tree.  What
+	 * is neutral, and is the whole point of the handover, is that
+	 * publication releases whatever described the OLD rows and that the
+	 * buffer then holds exactly what was prepared against the new ones. */
 	kg_buffer_adopt_rows(bcur(), &rows, &numrows, &cap);
 	CHECK(bcur()->syntax_state == NULL);
 	syntax_state_adopt(bcur(), st);
-	CHECK(bcur()->syntax_state == NULL);
+	CHECK(bcur()->syntax_state == st);
 	teardown();
 }
 

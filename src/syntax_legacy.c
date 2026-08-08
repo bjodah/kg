@@ -1690,6 +1690,53 @@ void syntax_backend_update_row(struct editor_buffer *b, struct erow *row)
 	generic_keyword_scan(b, row, spec);
 }
 
+/* The backend contract: one completed edit transaction, once.  This
+ * backend keeps no state over the whole text, so what the notification
+ * owes it is the per-row work in the right order: every row the
+ * replacement produced, top to bottom, and then the propagation below the
+ * last of them.  The facade has already counted the transaction and
+ * checked that the start row is published (syntax_after_edit()); the end
+ * row has not been checked and is clamped here, because a deletion that
+ * took the tail of the buffer with it names a row that no longer exists.
+ *
+ * That propagation is unconditional -- the first row below the span is
+ * always re-examined -- rather than conditional on the last new row's
+ * hl_oc having changed.  There is no "before" value to compare it
+ * against: the rows a splice installs are new records whose hl_oc is
+ * zero, and the row the edit replaced in place has been re-initialised
+ * too, so a comparison against what is in the field measures the staging,
+ * not the text.  Re-examining one row costs one row scan and converges on
+ * exactly what a from-scratch editor_rehighlight_all() would produce;
+ * skipping it on a stale comparison is how the old row-at-a-time path
+ * could leave a block comment coloured under text that no longer opened
+ * one (test/test_syntax_legacy.c's edit-then-rehighlight differential). */
+void syntax_backend_after_edit(
+    struct editor_buffer *b, const struct kg_syntax_edit *edit)
+{
+	int first = edit->start_point.row;
+	int last = edit->new_end_point.row;
+	int i;
+
+	if (last >= b->numrows) {
+		last = b->numrows - 1;
+	}
+	for (i = first; i <= last; i++) {
+		syntax_update_row_only(b, &b->row[i]);
+	}
+	syntax_propagate_below(b, last);
+}
+
+/* The backend contract: the text is not the text you scanned.  For this
+ * backend that is the same thing as re-colouring every row, since every
+ * row's carry comes from the row above it and lives in that row -- there
+ * is no other state to discard.  editor_rehighlight_all() is that body,
+ * and clearing hl_oc first is what makes it a rebuild rather than a
+ * refresh. */
+void syntax_backend_rebuild(struct editor_buffer *b)
+{
+	editor_rehighlight_all(b);
+}
+
 /* The other half of the backend contract: derive what this backend keeps
  * about a whole document.  It keeps nothing -- every row's colour comes
  * from the row above it and lives in that row -- so the state is NULL and

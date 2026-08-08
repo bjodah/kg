@@ -255,10 +255,28 @@ make WITH_TREE_SITTER=1 TREE_SITTER_PREFIX=/usr/local
 to ask a binary which backend it has. The two flags are independent: all four
 combinations of `WITH_LISP` and `WITH_TREE_SITTER` build.
 
-The backend itself is still arriving. Today a `WITH_TREE_SITTER=1` build
-links tree-sitter and loads no grammars, so every buffer is plain text; the
-grammars, queries and incremental reparsing land in later releases, and
-`WITH_TREE_SITTER=0` is what to build until they do.
+Grammars are **not** linked. They are loaded at run time by soname —
+`libtree-sitter-<name>.so`, the same convention Emacs' `--with-tree-sitter`
+installs use, so the same grammar builds serve both. A grammar is looked for
+in each colon-separated entry of `KG_TS_GRAMMAR_PATH`, and then in the
+compiled-in default (`TS_GRAMMAR_PATH`, a make variable). An entry containing
+`%s` has the grammar name substituted, which is how a one-directory-per-grammar
+layout is a single entry:
+
+```bash
+KG_TS_GRAMMAR_PATH=/usr/lib/tree-sitter:/opt/ts-grammar-%s/lib kg foo.c
+```
+
+A grammar that is not installed is not an error and never falls back to the
+row scanners: that mode is plain text for the session, said once in the status
+line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
+
+Language coverage is arriving in batches. Today **C** is highlighted —
+comments, strings, numbers, keywords and types, from a small kg-owned query
+compiled into the binary — and every other mode is plain text under
+`WITH_TREE_SITTER=1`. Edits currently reparse the whole buffer; incremental
+reparsing lands in a later release. `WITH_TREE_SITTER=0` remains the default
+and the fully-featured highlighting configuration for every other language.
 
 ## Development
 

@@ -391,10 +391,14 @@ static void test_load_highlight_is_final(void)
 {
 	check_load_highlight_is_final(
 	    "test_perf_hl_XXXXXX.c", 2, write_comment_c, BACKEND_KEEPS_STATE);
-	/* Markdown has no tree-sitter grammar registered yet (the plan's
-	 * batch 1 is C first), so neither backend keeps state for it. */
+	/* Markdown, which the legacy scanner reads one row DOWN for and the
+	 * tree-sitter backend parses like any other language: batch 1
+	 * registered its (block) grammar, so under that backend this corpus
+	 * now has the same load shape as the C one -- one parse from
+	 * nothing, inside the load transaction, and no row repainted after
+	 * it. */
 	check_load_highlight_is_final(
-	    "test_perf_hl_XXXXXX.md", 3, write_markdown, 0);
+	    "test_perf_hl_XXXXXX.md", 3, write_markdown, BACKEND_KEEPS_STATE);
 }
 
 /* ---- Live row-array growth ---- */

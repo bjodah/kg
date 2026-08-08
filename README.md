@@ -271,11 +271,15 @@ A grammar that is not installed is not an error and never falls back to the
 row scanners: that mode is plain text for the session, said once in the status
 line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
-Language coverage is arriving in batches. Today **C** is highlighted —
-comments, strings, numbers, keywords and types, from a small kg-owned query
-compiled into the binary — and every other mode is plain text under
-`WITH_TREE_SITTER=1`. An edit reparses incrementally, against the tree the
-last one left, and re-colours only the rows that changed, so an ordinary
+Language coverage is arriving in batches. Today **C**, **Python**, **YAML**
+and **Markdown** are highlighted — comments, strings, numbers, keywords and
+types, from small kg-owned queries compiled into the binary, one per
+language. Every other mode is plain text under `WITH_TREE_SITTER=1`: a mode
+with no grammar is not an error, it simply has no colours, and it never falls
+back to the row scanners. Markdown uses the **block** grammar only, so
+headings, fences, quotes and list markers are coloured and inline markup
+inside a paragraph is not. An edit reparses incrementally, against the tree
+the last one left, and re-colours only the rows that changed, so an ordinary
 keystroke costs what it changed rather than what the file weighs.
 `WITH_TREE_SITTER=0` remains the default and the fully-featured highlighting
 configuration for every other language.

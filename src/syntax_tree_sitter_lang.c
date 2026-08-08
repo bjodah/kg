@@ -82,6 +82,104 @@ static const char C_HIGHLIGHT_QUERY[]
       "(function_declarator declarator: (identifier) @type)\n"
       "(call_expression function: (identifier) @type)\n";
 
+/* Python.  A string is captured through its PIECES rather than whole: the
+ * grammar spells a string as (string (string_start) (string_content)
+ * (string_end)), and an f-string puts (interpolation) between them --
+ * code, not text, and painting the (string) node whole would colour it as
+ * text.  Capturing the three pieces covers every quote style, including
+ * the triple-quoted strings that span rows (string_content is one node
+ * over all of them), and leaves an interpolation's expression alone.
+ *
+ * None/True/False are NAMED nodes here ((none), (true), (false)), not
+ * anonymous keyword tokens, so they are listed separately from the token
+ * list.  The soft keywords `match` and `case` are deliberately absent:
+ * they are ordinary identifiers outside a match statement, and the point
+ * of this query is the small palette, not completeness.
+ *
+ * A decorator is @type (HL_KEYWORD2), the same face as the name a def or
+ * class introduces, because that is what it is about -- the definition
+ * below it -- and HL_KEYWORD1 is already the keyword line noise.  (type)
+ * is the annotation node, which costs one pattern and covers parameter
+ * annotations, return types and annotated assignments alike. */
+static const char PYTHON_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string_start) @string\n"
+      "(string_content) @string\n"
+      "(string_end) @string\n"
+      "(integer) @number\n"
+      "(float) @number\n"
+      "[\n"
+      "  \"and\" \"as\" \"assert\" \"async\" \"await\" \"break\" \"class\"\n"
+      "  \"continue\" \"def\" \"del\" \"elif\" \"else\" \"except\"\n"
+      "  \"finally\" \"for\" \"from\" \"global\" \"if\" \"import\" \"in\"\n"
+      "  \"is\" \"lambda\" \"nonlocal\" \"not\" \"or\" \"pass\" \"raise\"\n"
+      "  \"return\" \"try\" \"while\" \"with\" \"yield\"\n"
+      "] @keyword\n"
+      "[ (none) (true) (false) ] @keyword\n"
+      "(function_definition name: (identifier) @type)\n"
+      "(class_definition name: (identifier) @type)\n"
+      "(decorator) @type\n"
+      "(type) @type\n";
+
+/* YAML.  A mapping key is @type (HL_KEYWORD2): a key is the structure of
+ * the document, and colouring it is the one thing that makes a YAML file
+ * readable at a glance.  The key is captured as the whole (flow_node), so
+ * a quoted key comes out one colour rather than half key and half string.
+ *
+ * Plain (unquoted) scalars in VALUE position are left alone.  The grammar
+ * calls them (string_scalar), but in YAML nearly everything is one, and
+ * painting them @string would paint most of the file.
+ *
+ * (block_scalar) is the whole `|` or `>` block including its indicator
+ * and every row of its content -- one capture spanning many rows, which
+ * is the multi-row construct this language contributes to the
+ * differential.  Anchors, aliases and tags are captured whole so their
+ * `&`, `*` and `!!` sigils are coloured with the name. */
+static const char YAML_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(double_quote_scalar) @string\n"
+      "(single_quote_scalar) @string\n"
+      "(block_scalar) @string\n"
+      "(integer_scalar) @number\n"
+      "(float_scalar) @number\n"
+      "[ (boolean_scalar) (null_scalar) (anchor) (alias) (tag) ] @keyword\n"
+      "[ \"---\" \"...\" ] @keyword\n"
+      "(block_mapping_pair key: (flow_node) @type)\n"
+      "(flow_pair key: (flow_node) @type)\n";
+
+/* Markdown, BLOCK grammar only.  tree-sitter-markdown ships two grammars,
+ * and the inline one (libtree-sitter-markdown-inline.so, symbol
+ * tree_sitter_markdown_inline) is NOT loaded here: reaching it means
+ * language injection, which is out of v1 by Refinement decision 4.  So
+ * emphasis, code spans and link destinations are plain text, and
+ * everything below is a block-level construct the block grammar owns.
+ * That is also why there is no (link_destination) pattern: the block
+ * grammar has no such node, it hands a paragraph's contents over as one
+ * opaque (inline).
+ *
+ * Headings are captured whole rather than as marker-plus-content: a
+ * heading IS the line, an atx marker on its own is two characters of
+ * colour, and a setext heading's underline row belongs with the row above
+ * it.  Both nodes end at column 0 of the row AFTER the heading, which
+ * paints nothing there -- tree-sitter's ranges are half-open and
+ * paint_span() drops an empty span.
+ *
+ * A block quote is @comment because that is what a quote reads as: text
+ * that is in the file without being of it.  Both kinds of code block are
+ * @string, fences and info string included, which keeps a fenced block
+ * one colour from ``` to ```. */
+static const char MARKDOWN_HIGHLIGHT_QUERY[]
+    = "(atx_heading) @keyword\n"
+      "(setext_heading) @keyword\n"
+      "(thematic_break) @keyword\n"
+      "(block_quote) @comment\n"
+      "(fenced_code_block) @string\n"
+      "(indented_code_block) @string\n"
+      "[\n"
+      "  (list_marker_minus) (list_marker_plus) (list_marker_star)\n"
+      "  (list_marker_dot) (list_marker_parenthesis)\n"
+      "] @keyword\n";
+
 /* ---- capture -> face, and the precedence between them -------------------
  *
  * Captures overlap: a block-comment opener inside a string literal, a
@@ -123,13 +221,29 @@ static const struct {
 
 /* ---- the registry -------------------------------------------------------
  *
- * Batch 1 of the plan's grammar manifest is C, Python, Markdown (block)
- * and YAML; this slice registers C only, because C is the language whose
- * offsets, tabs and multi-line constructs the painting code has to be
- * proven against first.  Adding a language is one row plus its query. */
+ * Batch 1 of the plan's grammar manifest, complete: C, Python, Markdown
+ * (block) and YAML.  Adding a language is one row plus its query.
+ *
+ * The `grammar` column is the soname stem, so the row also picks WHICH
+ * grammar of a family is loaded.  "markdown" is the block grammar; the
+ * companion "markdown-inline" install is a separate prefix and a separate
+ * soname, and kg does not load it -- inline highlighting inside a
+ * paragraph is language injection, which is out of v1 (Refinement
+ * decision 4).  A future injection slice adds a second row shape, not a
+ * second name in this one.
+ *
+ * The grammars these rows name are pinned by the /opt-9 environment
+ * rather than by kg: c v0.24.2, python v0.25.0, yaml v0.7.2, markdown
+ * v0.5.3 (doc/plans/kg-tree-sitter-plan.md, "Grammar manifest"). */
 static struct kg_ts_language ts_registry[] = {
 	{ KG_MODE_C, "c", C_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL, NULL, 0,
 	    { 0 }, { 0 } },
+	{ KG_MODE_PYTHON, "python", PYTHON_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_YAML, "yaml", YAML_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL,
+	    NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_MARKDOWN, "markdown", MARKDOWN_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 };
 
 #define TS_NLANGS ((unsigned int)(sizeof(ts_registry) / sizeof(ts_registry[0])))
@@ -290,6 +404,33 @@ static int capture_face(
 	return 0;
 }
 
+/* True when any pattern of `q` carries a predicate or directive -- #eq?,
+ * #match?, #set!, anything in parentheses after the pattern.
+ *
+ * This is the structural half of Refinement decision 2 ("kg-owned minimal
+ * queries, no predicate engine").  tree-sitter's C library PARSES
+ * predicates and then leaves them entirely to the caller: it hands them
+ * back through ts_query_predicates_for_pattern() and matches the pattern
+ * regardless.  kg never asks, so a query with a predicate would not fail
+ * -- it would silently behave as though every predicate were true, which
+ * is a wrong answer wearing the shape of a right one.  A query kg cannot
+ * execute as written is therefore treated exactly like one that does not
+ * compile: the mode is plain text and the reason is said once. */
+static int query_has_predicates(const TSQuery *q)
+{
+	uint32_t i, n = ts_query_pattern_count(q);
+
+	for (i = 0; i < n; i++) {
+		uint32_t steps = 0;
+
+		ts_query_predicates_for_pattern(q, i, &steps);
+		if (steps > 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /* Compile one registry row's query against its loaded grammar and resolve
  * every capture id to a face.  1 on success, with l->query owned by the
  * registry from then on (queries are immutable and shared by every buffer
@@ -305,6 +446,13 @@ static int query_compile(struct kg_ts_language *l, char *err, size_t errsz)
 	if (!q) {
 		snprintf(err, errsz, "%s highlight query: error %d at byte %u",
 		    l->grammar, (int)qerr, (unsigned)off);
+		return 0;
+	}
+	if (query_has_predicates(q)) {
+		snprintf(err, errsz,
+		    "%s highlight query: predicates are not executed",
+		    l->grammar);
+		ts_query_delete(q);
 		return 0;
 	}
 	n = ts_query_capture_count(q);
@@ -328,6 +476,19 @@ static int query_compile(struct kg_ts_language *l, char *err, size_t errsz)
 	}
 	l->capture_count = n;
 	l->query = q;
+	return 1;
+}
+
+int kg_ts_query_accepts(
+    const TSLanguage *lang, const char *text, char *err, size_t errsz)
+{
+	struct kg_ts_language probe = { KG_MODE_TEXT, "candidate", text,
+		KG_TS_LANG_UNTRIED, lang, NULL, 0, { 0 }, { 0 } };
+
+	if (!query_compile(&probe, err, errsz)) {
+		return 0;
+	}
+	ts_query_delete(probe.query);
 	return 1;
 }
 

@@ -84,6 +84,18 @@ struct kg_ts_language *kg_ts_language_for_mode(enum kg_mode_id mode);
 const TSLanguage *kg_ts_grammar_load(
     const char *grammar, const char *search_path, char *err, size_t errsz);
 
+/* Testing seam.  Would kg accept `text` as a highlight query for `lang`?
+ * 1 when it compiles, uses no predicates and names only capture names the
+ * palette can paint -- exactly the rules a registry row's query is held
+ * to, because this runs the same code -- else 0 with the reason in
+ * err[0..errsz).  Nothing is retained either way: the query is deleted
+ * before returning, so this asks the question without answering it for a
+ * mode.  It exists so the no-predicates rule (Refinement decision 2) can
+ * be tested with a deliberately-predicated query, which no registry row
+ * may contain. */
+int kg_ts_query_accepts(
+    const TSLanguage *lang, const char *text, char *err, size_t errsz);
+
 /* The search path a plain kg_ts_language_for_mode() would use:
  * $KG_TS_GRAMMAR_PATH when it is set and non-empty, else the compiled-in
  * KG_TS_GRAMMAR_DEFAULT_PATH.  Never NULL. */

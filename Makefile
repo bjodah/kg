@@ -975,7 +975,45 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6199 exceeds limit 6198
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6199
 #   scc total complexity: 6199 (limit 6199)
-SCC_COMPLEXITY_MAX ?= 6199
+# Raised 6199 -> 6203 for grammar batch 1, slice 8 (2026-08-08): Python,
+# YAML and Markdown (block) join C in the tree-sitter registry, and a
+# query carrying predicates is rejected at load time
+# (doc/plans/kg-tree-sitter-plan.md, Phase 8 and Refinement decision 2).
+# The whole +4 is one file that no default build compiles:
+#   - src/syntax_tree_sitter_lang.c 41 -> 45 (+4), and NOT where the
+#     diff is biggest.  The three new queries are 98 lines of C string
+#     literal and three registry rows, and they measure ZERO: scc's C
+#     counter does not look inside a string literal or a comment.
+#     Bisected on this tree, with the queries and their comments cut out
+#     of the file, it still measures 45.  What the +4 buys is executable:
+#     +3 for the predicate guard (query_has_predicates, pmccabe 3, and
+#     the arm that rejects in query_compile, 7 -> 8) and +1 for the
+#     testing seam kg_ts_query_accepts (pmccabe 2) that lets a test hand
+#     a deliberately-predicated query to exactly the registry's own
+#     compile path.
+# The guard is the reason this slice costs anything at all, and it is
+# bought deliberately: tree-sitter's C library PARSES predicates and then
+# matches the pattern regardless, so an unexecuted #eq? is not a filter
+# that fails, it is a filter that silently passes.  Refinement decision 2
+# ("no predicate engine") was a policy a reviewer had to enforce; it is
+# now a load-time check.
+# Bisected on this tree: with src/syntax_tree_sitter_lang.c moved out of
+# src/, the total is 6158, which is HEAD's 6199 minus the 41 that file
+# measured there, so nothing outside it moved:
+#   $ mv src/syntax_tree_sitter_lang.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6158 (limit 99999)
+# pmccabe agrees: two new symbols at 3 and 2 against the 15 new-function
+# budget, one existing symbol moved (query_compile 7 -> 8), and
+# `make pmccabe-check WITH_TREE_SITTER=1` needs no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX
+# stays 520: the file measures 45, and the worst is still src/bufmgr.c at
+# 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6202
+#   FAIL: total complexity 6203 exceeds limit 6202
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6203
+#   scc total complexity: 6203 (limit 6203)
+SCC_COMPLEXITY_MAX ?= 6203
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

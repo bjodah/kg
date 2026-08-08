@@ -1,0 +1,40 @@
+# The batch-1 companion to tree-sitter-c-highlight.yaml, and a SMOKE case
+# for the same reason: the PTY harness compares SAVED FILES, and a colour
+# never reaches one.  What this proves is that a WITH_TREE_SITTER=1 kg
+# editing a PYTHON file -- a whitespace-significant grammar, whose
+# external scanner emits indent and dedent tokens, so every one of these
+# keystrokes changes block structure and not just a row -- still edits it
+# exactly like any other build: an inserted row, a comment typed into it,
+# and a killed row all land where they should, and nothing the parser does
+# disturbs point or the row array.
+#
+# Colour correctness for Python is asserted byte for byte, in render-space
+# offsets, by test/test_syntax_tree_sitter.c, which is where it can be: a
+# unit test can read row->hl and a terminal capture cannot.
+#
+# The .py extension is the whole reason this is a Python-mode case; the
+# mode is what selects the grammar (doc/plans/kg-tree-sitter-plan.md,
+# Phase 8, batch 1).
+name: tree-sitter-python-highlight
+filename: ts-highlight.py
+requires_feature: tree-sitter
+backend: tmux
+key_delay: 0.1
+initial: |
+  def main():
+      return 0
+
+  main()
+keys:
+  - C-e
+  - RET
+  - "    x = 42  # forty-two"
+  - C-n
+  - C-a
+  - C-k
+  - C-k
+expected_saved: |
+  def main():
+      x = 42  # forty-two
+
+  main()

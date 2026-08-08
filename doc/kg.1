@@ -82,7 +82,10 @@ The tree-sitter backend loads grammars at run time by soname
 .Pq Pa libtree-sitter- Ns Ar name Ns Pa .so ,
 searched along
 .Ev KG_TS_GRAMMAR_PATH ;
-it highlights C, and treats every other buffer as plain text.
+it highlights C, Python, YAML and Markdown, and treats every other buffer as
+plain text.
+Markdown uses the block grammar only, so headings, code fences, block quotes
+and list markers are coloured while inline markup inside a paragraph is not.
 A mode whose grammar is missing is not an error and never falls back to the
 row scanners.
 The mode names, mode commands and file-name detection below are unaffected

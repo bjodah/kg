@@ -462,14 +462,22 @@ static void test_syntax_state_release_and_adopt_are_null_safe(void)
 }
 
 /* The mode-change release point: a real change goes through it, and a
- * re-selection of the mode the buffer is already in does not. */
+ * re-selection of the mode the buffer is already in does not.
+ *
+ * Shell is the mode changed TO because it is the one no backend builds
+ * state for in either configuration: the legacy scanners keep none for
+ * anything, and no tree-sitter grammar is registered for it (the plan's
+ * batch 2).  A mode a backend CAN parse acquires state at the same
+ * point, which is that backend's own assertion --
+ * test_syntax_tree_sitter.c's test_mode_change_acquires_and_releases_
+ * state(). */
 static void test_mode_change_releases_state(void)
 {
 	setup(syntax_find_by_mode(KG_MODE_C));
-	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_PYTHON));
-	CHECK(bcur()->syntax == syntax_find_by_mode(KG_MODE_PYTHON));
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_SHELL));
+	CHECK(bcur()->syntax == syntax_find_by_mode(KG_MODE_SHELL));
 	CHECK(bcur()->syntax_state == NULL);
-	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_PYTHON));
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_SHELL));
 	CHECK(bcur()->syntax_state == NULL);
 	teardown();
 }

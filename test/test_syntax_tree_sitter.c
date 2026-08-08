@@ -55,22 +55,27 @@ static void teardown(void)
 	bcur()->numrows = 0;
 }
 
-/* Put `lines` in the current buffer and give the backend the one
- * notification a whole-document change earns: syntax_rebuild(), which is
- * where a buffer with no state acquires one.  editor_insert_row() on its
- * own highlights each row against whatever tree exists, which for the
+/* Put `lines` in the current buffer under `mode` and give the backend the
+ * one notification a whole-document change earns: syntax_rebuild(), which
+ * is where a buffer with no state acquires one.  editor_insert_row() on
+ * its own highlights each row against whatever tree exists, which for the
  * first row of a fresh buffer is none -- that is the compat path, not the
  * one an editor takes, and test_row_at_a_time_needs_a_tree() below pins
  * it deliberately. */
-static void load_c(const char *const *lines, int n)
+static void load_mode(const char *mode, const char *const *lines, int n)
 {
 	int i;
 
-	setup(syntax_find_by_name("C"));
+	setup(syntax_find_by_name(mode));
 	for (i = 0; i < n; i++) {
 		editor_insert_row(bcur(), i, lines[i], strlen(lines[i]));
 	}
 	syntax_rebuild(bcur());
+}
+
+static void load_c(const char *const *lines, int n)
+{
+	load_mode("C", lines, n);
 }
 
 /* CHECK that row `r` of the current buffer has exactly `hl` -- one
@@ -193,29 +198,101 @@ static void test_env_overrides_search_path(void)
 	rmdir(dir);
 }
 
-/* kg's own highlight query compiles against the real grammar, and every
- * capture it names has a face.  A query that does not compile is reported
- * by kg_ts_language_for_mode() returning NULL, so this assertion is the
- * difference between "no colours because the query is broken" and "no
- * colours because the backend is broken". */
-static void test_query_compiles(void)
+/* kg's own highlight queries compile against the real grammars, and every
+ * capture they name has a face.  A query that does not compile is
+ * reported by kg_ts_language_for_mode() returning NULL, so this assertion
+ * is the difference between "no colours because the query is broken" and
+ * "no colours because the backend is broken".
+ *
+ * Every batch-1 language: its grammar is on this box, kg's own query
+ * compiles against it, and each of its captures resolved to a face.  A
+ * query that names a node type its grammar does not have is a compile
+ * error, so this is also what says the node names in those queries are
+ * the grammar's real ones rather than plausible guesses. */
+static void test_batch1_queries_compile(void)
 {
-	struct kg_ts_language *l = kg_ts_language_for_mode(KG_MODE_C);
+	static const struct {
+		enum kg_mode_id mode;
+		const char *grammar;
+	} batch1[] = {
+		{ KG_MODE_C, "c" },
+		{ KG_MODE_PYTHON, "python" },
+		{ KG_MODE_YAML, "yaml" },
+		{ KG_MODE_MARKDOWN, "markdown" },
+	};
+	size_t i;
 
-	CHECK(l != NULL);
-	if (!l) {
-		return;
+	for (i = 0; i < sizeof(batch1) / sizeof(*batch1); i++) {
+		struct kg_ts_language *l
+		    = kg_ts_language_for_mode(batch1[i].mode);
+
+		CHECKF(l != NULL, "%s: no language", batch1[i].grammar);
+		if (!l) {
+			continue;
+		}
+		CHECK(l->state == KG_TS_LANG_READY);
+		CHECK(l->query != NULL);
+		CHECKF(l->capture_count > 0
+			&& l->capture_count <= KG_TS_MAX_CAPTURES,
+		    "%s: %u captures", batch1[i].grammar, l->capture_count);
+		CHECK(
+		    kg_ts_language_for_mode(batch1[i].mode) == l); /* cached */
 	}
-	CHECK(l->state == KG_TS_LANG_READY);
-	CHECK(l->query != NULL);
-	CHECK(l->capture_count > 0 && l->capture_count <= KG_TS_MAX_CAPTURES);
-	CHECK(kg_ts_language_for_mode(KG_MODE_C) == l); /* cached */
 }
 
-/* A mode with no registry row is not an error and costs nothing. */
+/* Refinement decision 2, enforced rather than merely intended: kg's
+ * queries carry no predicates, and one that did would be REJECTED.  It
+ * has to be, because tree-sitter's C library parses predicates and then
+ * matches the pattern anyway -- a #eq? kg never evaluates is not a filter
+ * that fails, it is a filter that silently passes.  The seam compiles a
+ * candidate under exactly the registry's rules and keeps nothing. */
+static void test_query_predicates_are_rejected(void)
+{
+	char err[160];
+	const TSLanguage *c = kg_ts_grammar_load(
+	    "c", kg_ts_grammar_search_path(), err, sizeof(err));
+
+	CHECKF(c != NULL, "%s", err);
+	if (!c) {
+		return;
+	}
+	err[0] = '\0';
+	CHECKF(kg_ts_query_accepts(c, "(comment) @comment\n", err, sizeof(err))
+		== 1,
+	    "a plain query was refused: %s", err);
+
+	err[0] = '\0';
+	CHECK(kg_ts_query_accepts(c,
+		  "((comment) @comment (#eq? @comment \"/* x */\"))\n", err,
+		  sizeof(err))
+	    == 0);
+	CHECK(strstr(err, "predicate") != NULL);
+
+	/* The directive spelling of the same thing -- #set! sets a property
+	 * rather than filtering, and kg reads no properties either. */
+	err[0] = '\0';
+	CHECK(
+	    kg_ts_query_accepts(c, "((comment) @comment (#set! priority 99))\n",
+		err, sizeof(err))
+	    == 0);
+
+	/* And the two failures that were already there, through the same
+	 * door: a capture with no face, and a query that will not parse. */
+	err[0] = '\0';
+	CHECK(kg_ts_query_accepts(c, "(comment) @invented\n", err, sizeof(err))
+	    == 0);
+	err[0] = '\0';
+	CHECK(kg_ts_query_accepts(
+		  c, "(no_such_node) @comment\n", err, sizeof(err))
+	    == 0);
+}
+
+/* A mode with no registry row is not an error and costs nothing.  Shell
+ * is the deliberate example: kg has the mode, /opt-9 has no bash grammar,
+ * and the plan's batch 2 is where that changes. */
 static void test_unregistered_mode_has_no_language(void)
 {
-	CHECK(kg_ts_language_for_mode(KG_MODE_PYTHON) == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL) == NULL);
 	CHECK(kg_ts_language_for_mode(KG_MODE_TEXT) == NULL);
 }
 
@@ -320,6 +397,189 @@ static void test_utf8_before_token(void)
 	teardown();
 }
 
+/* ---- Python ----
+ *
+ * Byte-exact paints for the three languages batch 1 adds, chosen for the
+ * node shapes their queries depend on rather than for coverage: what
+ * makes a language interesting here is the construct whose colour is not
+ * decided on its own row. */
+
+/* The representative Python line: a keyword, the name a def introduces
+ * (which is @type, not @keyword), and a trailing comment. */
+static void test_python_def_and_comment(void)
+{
+	static const char *const lines[] = { "def f(x):  # c" };
+
+	load_mode("Python", lines, 1);
+	check_hl(0, "44405000000222");
+	teardown();
+}
+
+/* An f-string is NOT one string.  The grammar spells it
+ * (string (string_start) (string_content) (interpolation) ... (string_end))
+ * and the interpolation is code: kg captures the pieces, so `{n}` comes
+ * out unpainted between two painted halves.  A query that captured
+ * (string) whole would paint this line uniformly and look right until
+ * someone read the expression inside. */
+static void test_python_fstring_interpolation(void)
+{
+	static const char *const lines[] = { "s = f\"hi {y} there\"" };
+
+	load_mode("Python", lines, 1);
+	check_hl(0, "0000666660006666666");
+	teardown();
+}
+
+/* A triple-quoted string over rows: one (string_content) node covering
+ * the middle, which is the multi-row construct Python contributes. */
+static void test_python_triple_quoted_string(void)
+{
+	static const char *const lines[] = { "x = '''a", "b'''", "y = 1" };
+
+	load_mode("Python", lines, 3);
+	check_hl(0, "00006666");
+	check_hl(1, "6666");
+	check_hl(2, "00007");
+	teardown();
+}
+
+/* Decorators, class names, annotations and the named None/True/False
+ * nodes -- the four places the sketch's guesses had to be checked against
+ * the grammar rather than assumed. */
+static void test_python_decorator_class_and_annotation(void)
+{
+	static const char *const lines[] = {
+		"@memoize",
+		"class A:",
+		"    n: int = None",
+	};
+
+	load_mode("Python", lines, 3);
+	check_hl(0, "55555555"); /* the decorator, sigil included */
+	check_hl(1, "44444050"); /* class, then the name it introduces */
+	check_hl(2, "00000005550004444"); /* annotation @type, None @keyword */
+	teardown();
+}
+
+/* ---- YAML ---- */
+
+/* A mapping key is @type, a flow sequence's scalars keep their own faces,
+ * and a comment runs to end of row. */
+static void test_yaml_key_flow_and_comment(void)
+{
+	static const char *const lines[] = { "key: [1, true]  # c" };
+
+	load_mode("YAML", lines, 1);
+	check_hl(0, "5550007004444000222");
+	teardown();
+}
+
+/* A block scalar is one capture from its `|` indicator to the last row of
+ * its content, so every row of the block is @string without any row of it
+ * being quoted. */
+static void test_yaml_block_scalar(void)
+{
+	static const char *const lines[] = {
+		"block: |",
+		"  literal",
+		"  more",
+		"done: 1",
+	};
+
+	load_mode("YAML", lines, 4);
+	check_hl(0, "55555006");
+	check_hl(1, "666666666");
+	check_hl(2, "666666");
+	check_hl(3, "5555007");
+	teardown();
+}
+
+/* Document markers, anchors and aliases: the sigil is part of the capture
+ * (the (anchor) node, not its (anchor_name) child), so `&x` is coloured
+ * whole. */
+static void test_yaml_anchors_and_markers(void)
+{
+	static const char *const lines[] = { "---", "a: &x 1", "b: *x" };
+
+	load_mode("YAML", lines, 3);
+	check_hl(0, "444");
+	check_hl(1, "5004407");
+	check_hl(2, "50044");
+	teardown();
+}
+
+/* ---- Markdown (block grammar) ---- */
+
+/* A heading is the whole line.  The paragraph below it is plain text --
+ * `*emphasis*` is the INLINE grammar's business, and kg does not load it
+ * (Refinement decision 4), so this is what "block grammar only" looks
+ * like from the outside. */
+static void test_markdown_heading_and_paragraph(void)
+{
+	static const char *const lines[] = { "# Head", "", "a *b* c" };
+
+	load_mode("Markdown", lines, 3);
+	check_hl(0, "444444");
+	check_hl(2, "0000000");
+	teardown();
+}
+
+/* A fenced code block is one capture from the opening fence through the
+ * closing one, info string included: three rows of @string here, and
+ * ordinary text on the row after it. */
+static void test_markdown_fenced_code_block(void)
+{
+	static const char *const lines[] = {
+		"```python",
+		"def f():",
+		"```",
+		"",
+		"after",
+	};
+
+	load_mode("Markdown", lines, 5);
+	check_hl(0, "666666666");
+	check_hl(1, "66666666");
+	check_hl(2, "666");
+	check_hl(4, "00000");
+	teardown();
+}
+
+/* A block quote reads as text that is in the file without being of it,
+ * so it is @comment -- every row of it, marker included. */
+static void test_markdown_block_quote(void)
+{
+	static const char *const lines[] = { "> quoted", "> more", "", "x" };
+
+	load_mode("Markdown", lines, 4);
+	check_hl(0, "22222222");
+	check_hl(1, "222222");
+	check_hl(3, "0");
+	teardown();
+}
+
+/* List markers and thematic breaks: the marker is @keyword and its item's
+ * text is not, which is the one place the block grammar draws a line
+ * inside a row.
+ *
+ * The trailing "end" row is load-bearing, and the finding it encodes is
+ * this grammar's, not kg's: a `---` on the LAST row of a document that
+ * does not end in a newline parses as a (paragraph), not a
+ * (thematic_break) -- the block scanner needs the line terminator before
+ * it will commit.  kg's buffer never has a newline after its last row, so
+ * a thematic break at end of buffer is genuinely plain text until
+ * something is typed below it. */
+static void test_markdown_list_and_thematic_break(void)
+{
+	static const char *const lines[] = { "- item", "", "---", "", "end" };
+
+	load_mode("Markdown", lines, 5);
+	check_hl(0, "440000");
+	check_hl(2, "444");
+	check_hl(4, "000");
+	teardown();
+}
+
 /* ---- Lifecycle ---- */
 
 /* A staged load -- rows that belong to no buffer yet -- comes out parsed
@@ -394,13 +654,23 @@ static void test_mode_change_acquires_and_releases_state(void)
 	CHECK(bcur()->syntax_state != NULL);
 	check_hl(0, "555000");
 
-	editor_set_syntax(bcur(), syntax_find_by_name("Python"));
+	/* Shell: a mode with no grammar in this build, so the state goes. */
+	editor_set_syntax(bcur(), syntax_find_by_name("Shell"));
 	CHECK(bcur()->syntax_state == NULL);
 	check_hl(0, "000000");
 
 	editor_set_syntax(bcur(), syntax_find_by_name("C"));
 	CHECK(bcur()->syntax_state != NULL);
 	check_hl(0, "555000");
+
+	/* And straight from one parsed mode to ANOTHER, with no unparsed
+	 * mode in between: the state a buffer holds belongs to a language,
+	 * so this is the release-and-reacquire the backend does when the two
+	 * differ, not a reuse.  "int x;" is a valid Python expression
+	 * statement, and Python paints none of it. */
+	editor_set_syntax(bcur(), syntax_find_by_name("Python"));
+	CHECK(bcur()->syntax_state != NULL);
+	check_hl(0, "000000");
 	teardown();
 }
 
@@ -409,10 +679,10 @@ static void test_mode_change_acquires_and_releases_state(void)
  * command that touches one row uses. */
 static void test_unsupported_mode_is_plain_text(void)
 {
-	static const char *const lines[] = { "def f(): return 42" };
+	static const char *const lines[] = { "echo hi # 42" };
 	int i;
 
-	setup(syntax_find_by_name("Python"));
+	setup(syntax_find_by_name("Shell"));
 	editor_insert_row(bcur(), 0, lines[0], strlen(lines[0]));
 	syntax_rebuild(bcur());
 	CHECK(bcur()->syntax_state == NULL);
@@ -524,12 +794,15 @@ static void test_real_source_file_is_colourful(void)
  * Two layers, as the plan asks: a table of awkward edits, each named, and
  * a seeded random loop that prints its seed so a failure reproduces. */
 
-/* The fixture every case starts from.  Every construct in it is one whose
- * colouring depends on text that is not on its own row: a comment spanning
- * rows, a string containing what would otherwise open one, preprocessor
- * lines, nested braces, a tab before a token and a multi-byte character
- * before one. */
-static const char *const diff_fixture[] = {
+/* The C fixture.  Every construct in it is one whose colouring depends on
+ * text that is not on its own row: a comment spanning rows, a string
+ * containing what would otherwise open one, preprocessor lines, nested
+ * braces, a tab before a token and a multi-byte character before one.
+ *
+ * Each batch-1 language has one of these, and one table of edits, and one
+ * alphabet for the random loop; the machinery below is shared, so a
+ * language is three tables and a row in diff_langs[]. */
+static const char *const c_fixture[] = {
 	"#include <stdio.h>",
 	"#define MAX(a, b) ((a) > (b) ? (a) : (b))",
 	"",
@@ -552,7 +825,7 @@ static const char *const diff_fixture[] = {
 	"}",
 };
 
-#define DIFF_FIXTURE_ROWS ((int)(sizeof(diff_fixture) / sizeof(*diff_fixture)))
+#define C_FIXTURE_ROWS ((int)(sizeof(c_fixture) / sizeof(*c_fixture)))
 
 /* A column that means "the end of whatever row this is":
  * buffer_row_col_to_position() clamps a column to the row's size, so a
@@ -747,7 +1020,7 @@ struct diff_case {
 
 /* The awkward edits: each one changes what rows far away from it mean, or
  * sits on a boundary where an off-by-one would live. */
-static const struct diff_case diff_cases[] = {
+static const struct diff_case c_cases[] = {
 	{ "open a block comment at the top", 0, 0, 0, 0, "/*" },
 	{ "close a comment that was never opened", 0, 0, 0, 0, "*/" },
 	{ "delete a block comment's opener", 3, 0, 3, 2, "" },
@@ -766,20 +1039,293 @@ static const struct diff_case diff_cases[] = {
 	{ "replace everything with a comment", 0, 0, 19, EOL, "/* all */" },
 };
 
+/* ---- Python: the same machinery, a whitespace-significant grammar -----
+ *
+ * What is different about this fixture is not the constructs, it is that
+ * INDENTATION is syntax: the grammar's external scanner emits indent and
+ * dedent tokens, so an edit to a row's leading whitespace changes the
+ * block structure of every row below it.  That is precisely where an
+ * incremental parse's damage set is easiest to get wrong. */
+static const char *const python_fixture[] = {
+	"# module comment",
+	"import os",
+	"",
+	"@memoize",
+	"class Widget(Base):",
+	"    \"\"\"A docstring",
+	"    spanning rows.",
+	"    \"\"\"",
+	"",
+	"    def method(self, n: int = 0) -> str:",
+	"        s = f\"n is {n} of {self.total}\"",
+	"        t = 'plain # not a comment'",
+	"        if n > 0 and s is not None:",
+	"            return s",
+	"        try:",
+	"            del t",
+	"        except ValueError as e:",
+	"            raise e",
+	"        return None",
+};
+
+#define PYTHON_FIXTURE_ROWS                                                    \
+	((int)(sizeof(python_fixture) / sizeof(*python_fixture)))
+
+static const struct diff_case python_cases[] = {
+	{ "py: open a triple quote at the top", 0, 0, 0, 0, "\"\"\"" },
+	{ "py: delete the docstring's opener", 5, 4, 5, 7, "" },
+	{ "py: delete the docstring's closer", 7, 4, 7, 7, "" },
+	{ "py: dedent a method body row", 13, 0, 13, 4, "" },
+	{ "py: indent a def row", 9, 0, 9, 0, "    " },
+	{ "py: split a string across two rows", 11, 20, 11, 20, "\n" },
+	{ "py: join the docstring's rows", 5, EOL, 6, 0, "" },
+	{ "py: comment out the class header", 4, 0, 4, 0, "# " },
+	{ "py: an unterminated quote at the top", 0, 0, 0, 0, "'" },
+	{ "py: delete everything", 0, 0, 18, EOL, "" },
+	{ "py: replace everything with a def", 0, 0, 18, EOL,
+	    "def f():\n    pass" },
+};
+
+/* ---- YAML: indentation again, plus block scalars ---------------------- */
+static const char *const yaml_fixture[] = {
+	"# a yaml document",
+	"---",
+	"name: kg",
+	"version: 1.1",
+	"debug: false",
+	"empty: null",
+	"anchor: &base",
+	"  a: 1",
+	"  b: two",
+	"merged: *base",
+	"tagged: !!str 7",
+	"quoted: \"has: colon\"",
+	"list:",
+	"  - one",
+	"  - two",
+	"block: |",
+	"  literal line",
+	"  second line",
+	"folded: >",
+	"  folded text",
+	"...",
+};
+
+#define YAML_FIXTURE_ROWS ((int)(sizeof(yaml_fixture) / sizeof(*yaml_fixture)))
+
+static const struct diff_case yaml_cases[] = {
+	{ "yaml: open a block scalar at the top", 0, 0, 0, 0, "k: |" },
+	{ "yaml: delete a block indicator", 15, 7, 15, 8, "" },
+	{ "yaml: dedent a block scalar's content", 16, 0, 16, 2, "" },
+	{ "yaml: indent a mapping key", 2, 0, 2, 0, "  " },
+	{ "yaml: open a quote in a value", 3, EOL, 3, EOL, "\"" },
+	{ "yaml: join a key and the row below", 12, EOL, 13, 0, "" },
+	{ "yaml: delete the document marker", 1, 0, 1, EOL, "" },
+	{ "yaml: turn a value into a comment", 4, 7, 4, 7, "# " },
+	{ "yaml: delete everything", 0, 0, 20, EOL, "" },
+	{ "yaml: replace everything with a list", 0, 0, 20, EOL,
+	    "- one\n- two" },
+};
+
+/* ---- Markdown: block structure decided by blank rows and fences ------- */
+static const char *const markdown_fixture[] = {
+	"# Title",
+	"",
+	"A paragraph with *emphasis* and `code`.",
+	"",
+	"## Section",
+	"",
+	"> a quoted line",
+	"> and another",
+	"",
+	"- first item",
+	"- second item",
+	"  1. nested item",
+	"",
+	"```python",
+	"def f():",
+	"    return 1",
+	"```",
+	"",
+	"Setext",
+	"======",
+	"",
+	"the end",
+};
+
+#define MARKDOWN_FIXTURE_ROWS                                                  \
+	((int)(sizeof(markdown_fixture) / sizeof(*markdown_fixture)))
+
+static const struct diff_case markdown_cases[] = {
+	{ "md: open a fence at the top", 0, 0, 0, 0, "```\n" },
+	{ "md: delete the closing fence", 16, 0, 16, EOL, "" },
+	{ "md: promote a paragraph to a heading", 2, 0, 2, 0, "# " },
+	{ "md: delete a heading marker", 0, 0, 0, 2, "" },
+	{ "md: join a setext heading and its rule", 18, EOL, 19, 0, "" },
+	{ "md: split the fenced block", 14, 0, 14, 0, "\n" },
+	{ "md: quote a list item", 9, 0, 9, 0, "> " },
+	{ "md: delete a list marker", 10, 0, 10, 2, "" },
+	{ "md: remove the blank row before a list", 8, 0, 9, 0, "" },
+	{ "md: delete everything", 0, 0, 21, EOL, "" },
+	{ "md: replace everything with a fence", 0, 0, 21, EOL,
+	    "```c\nint x;\n```" },
+};
+
+/* One language's differential material: what to load, what to edit, and
+ * what a random edit is spelled out of.  The three tables above times
+ * four languages go through exactly the same runner, which is the point:
+ * a language that diverges does so against the same machinery C is known
+ * to hold up under, so the finding is about the language and not about
+ * the harness. */
+struct diff_lang {
+	const char *mode; /* syntax_find_by_name() */
+	const char *const *fixture;
+	int rows;
+	const struct diff_case *cases;
+	unsigned int ncases;
+	const char *const *tokens;
+	unsigned int ntokens;
+};
+
+/* The alphabets a random replacement is built from: per language, the
+ * tokens that change what the text around them means.  Whitespace is in
+ * every one of them on purpose -- for three of these four grammars it is
+ * syntax. */
+static const char *const c_tokens[] = {
+	"/*",
+	"*/",
+	"\"",
+	"'",
+	"\\",
+	"\n",
+	"\n\n",
+	";",
+	"{",
+	"}",
+	"(",
+	")",
+	"int ",
+	"x",
+	"//",
+	"#define ",
+	"\t",
+	" ",
+	"\xc3\xa9",
+	"return 0;",
+	"#if",
+	"#endif",
+	"0x2a",
+	"'c'",
+};
+
+static const char *const python_tokens[] = {
+	"#",
+	"\"\"\"",
+	"'''",
+	"\"",
+	"'",
+	"\\",
+	":",
+	"\n",
+	"\n    ",
+	"    ",
+	"\t",
+	"def ",
+	"class ",
+	"return ",
+	"None",
+	"if ",
+	"lambda ",
+	"f\"",
+	"(",
+	")",
+	"42",
+	"0x2a",
+	"# c",
+	"\xc3\xa9",
+};
+
+static const char *const yaml_tokens[] = {
+	"#",
+	"-",
+	":",
+	": ",
+	"|",
+	">",
+	"\"",
+	"'",
+	"\n",
+	"\n  ",
+	"  ",
+	"&a",
+	"*a",
+	"!!str ",
+	"---",
+	"...",
+	"true",
+	"null",
+	"42",
+	"1.5",
+	"key",
+	"\xc3\xa9",
+};
+
+static const char *const markdown_tokens[] = {
+	"#",
+	"##",
+	"```",
+	"`",
+	"*",
+	"-",
+	"+",
+	">",
+	"\n",
+	"\n\n",
+	"===",
+	"---",
+	"1. ",
+	"    ",
+	"[x](y)",
+	"text",
+	"\t",
+	"\xc3\xa9",
+};
+
+#define NTOK(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
+#define NCASE(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
+
+static const struct diff_lang diff_langs[] = {
+	{ "C", c_fixture, C_FIXTURE_ROWS, c_cases, NCASE(c_cases), c_tokens,
+	    NTOK(c_tokens) },
+	{ "Python", python_fixture, PYTHON_FIXTURE_ROWS, python_cases,
+	    NCASE(python_cases), python_tokens, NTOK(python_tokens) },
+	{ "YAML", yaml_fixture, YAML_FIXTURE_ROWS, yaml_cases,
+	    NCASE(yaml_cases), yaml_tokens, NTOK(yaml_tokens) },
+	{ "Markdown", markdown_fixture, MARKDOWN_FIXTURE_ROWS, markdown_cases,
+	    NCASE(markdown_cases), markdown_tokens, NTOK(markdown_tokens) },
+};
+
+#define DIFF_LANGS ((unsigned int)(sizeof(diff_langs) / sizeof(*diff_langs)))
+
 /* Each awkward edit on its own, against a fresh fixture: an incremental
- * answer and a from-scratch one, byte for byte. */
+ * answer and a from-scratch one, byte for byte, for every language. */
 static void test_differential_case_table(void)
 {
-	size_t i;
+	unsigned int l, i;
 
-	for (i = 0; i < sizeof(diff_cases) / sizeof(*diff_cases); i++) {
-		const struct diff_case *c = &diff_cases[i];
+	for (l = 0; l < DIFF_LANGS; l++) {
+		const struct diff_lang *lang = &diff_langs[l];
 
-		load_c(diff_fixture, DIFF_FIXTURE_ROWS);
-		CHECKF(apply_edit(c->r0, c->c0, c->r1, c->c1, c->text) == 1,
-		    "%s: the edit was refused", c->name);
-		differential_check(c->name);
-		teardown();
+		for (i = 0; i < lang->ncases; i++) {
+			const struct diff_case *c = &lang->cases[i];
+
+			load_mode(lang->mode, lang->fixture, lang->rows);
+			CHECKF(apply_edit(c->r0, c->c0, c->r1, c->c1, c->text)
+				== 1,
+			    "%s: the edit was refused", c->name);
+			differential_check(c->name);
+			teardown();
+		}
 	}
 }
 
@@ -801,7 +1347,7 @@ static void test_differential_chained_edits(void)
 	};
 	size_t i;
 
-	load_c(diff_fixture, DIFF_FIXTURE_ROWS);
+	load_c(c_fixture, C_FIXTURE_ROWS);
 	for (i = 0; i < sizeof(chain) / sizeof(*chain); i++) {
 		CHECKF(apply_edit(chain[i].r0, chain[i].c0, chain[i].r1,
 			   chain[i].c1, chain[i].text)
@@ -844,39 +1390,10 @@ static unsigned int diff_rand(unsigned int *state)
 	return x;
 }
 
-/* The alphabet a random replacement is built from: the tokens that change
- * what the text around them means, weighted by being listed at all. */
-static const char *const diff_tokens[] = {
-	"/*",
-	"*/",
-	"\"",
-	"'",
-	"\\",
-	"\n",
-	"\n\n",
-	";",
-	"{",
-	"}",
-	"(",
-	")",
-	"int ",
-	"x",
-	"//",
-	"#define ",
-	"\t",
-	" ",
-	"\xc3\xa9",
-	"return 0;",
-	"#if",
-	"#endif",
-	"0x2a",
-	"'c'",
-};
-
-#define DIFF_TOKENS ((unsigned int)(sizeof(diff_tokens) / sizeof(*diff_tokens)))
-
-/* Up to three tokens, concatenated.  Returns the length. */
-static size_t diff_random_text(unsigned int *state, char *out, size_t outsz)
+/* Up to three tokens of the language's own alphabet, concatenated.
+ * Returns the length. */
+static size_t diff_random_text(
+    unsigned int *state, const struct diff_lang *lang, char *out, size_t outsz)
 {
 	unsigned int n = diff_rand(state) % 4;
 	size_t len = 0;
@@ -884,7 +1401,8 @@ static size_t diff_random_text(unsigned int *state, char *out, size_t outsz)
 
 	out[0] = '\0';
 	for (i = 0; i < n; i++) {
-		const char *tok = diff_tokens[diff_rand(state) % DIFF_TOKENS];
+		const char *tok
+		    = lang->tokens[diff_rand(state) % lang->ntokens];
 		size_t tl = strlen(tok);
 
 		if (len + tl + 1 >= outsz) {
@@ -912,10 +1430,70 @@ static void diff_random_span(
 	*end = at + width > total ? total : at + width;
 }
 
-/* Random edits, checked after every one.  The seed is printed with every
- * failure and fixed by default, so CI runs the same 200 edits each time
- * and a hunt can run different ones: KG_TS_DIFF_SEED and KG_TS_DIFF_CASES
- * are the knobs, the same shape make check-regex-differential uses.
+/* One language's random run: `cases` edits from its own alphabet against
+ * its own fixture, each checked immediately.  Returns nothing and reports
+ * everything, because what a run is for is the RATE. */
+static void random_edits_for(
+    const struct diff_lang *lang, unsigned int seed0, int cases)
+{
+	unsigned int state = seed0 ? seed0 : 1u;
+	int applied = 0, diverged = 0;
+	char text[128];
+	char what[256];
+	int i;
+
+	load_mode(lang->mode, lang->fixture, lang->rows);
+	for (i = 0; i < cases; i++) {
+		size_t begin, end, len;
+		struct kg_edit e;
+
+		diff_random_span(
+		    &state, buffer_byte_length(bcur()), &begin, &end);
+		len = diff_random_text(&state, lang, text, sizeof(text));
+		e = kg_edit_user(bcur(), begin, end, text, len);
+		if (!kg_buffer_replace(&e, NULL)) {
+			continue;
+		}
+		snprintf(what, sizeof(what),
+		    "%s seed 0x%x case %d: [%zu,%zu) <- %zu bytes", lang->mode,
+		    seed0, i, begin, end, len);
+		applied++;
+		diverged += differential_check_ex(what, 0);
+	}
+	if (diverged) {
+		fprintf(stderr,
+		    "  (%s, seed 0x%x: %d of %d edits recovered from a syntax "
+		    "error differently than a fresh parse)\n",
+		    lang->mode, seed0, diverged, applied);
+	}
+	/* The shape is still asserted even though the individual case is
+	 * not.  Error recovery diverges on a small fraction of edits; a
+	 * wrong TSInputEdit, or an old tree that was never told about the
+	 * edit, diverges on nearly all of them, and that is what this
+	 * catches.  The bound is the same for every language deliberately:
+	 * the whitespace-significant grammars are exactly the ones expected
+	 * to recover differently more often, so a bound relaxed per language
+	 * would stop measuring the thing it is for -- and measurement says
+	 * they are not: over seeds 100..399 at 200 edits each (~60 000 edits
+	 * per language), the divergences were C 38, Python 2, YAML 2,
+	 * Markdown 0, and the strict inc == wide half never once failed.
+	 * The default seed diverges nowhere. */
+	CHECKF(diverged * 10 <= applied,
+	    "%s seed 0x%x: %d of %d edits disagreed with a fresh parse, which "
+	    "is too many to be error recovery",
+	    lang->mode, seed0, diverged, applied);
+	teardown();
+}
+
+/* Random edits, checked after every one, for every batch-1 language.  The
+ * seed is printed with every failure and fixed by default, so CI runs the
+ * same edits each time and a hunt can run different ones: KG_TS_DIFF_SEED
+ * and KG_TS_DIFF_CASES are the knobs, the same shape
+ * make check-regex-differential uses.
+ *
+ * Every language runs from the SAME seed rather than from a stirred one,
+ * so a quoted seed reproduces all four runs and the alphabets stay the
+ * only difference between them.
  *
  * The damage window is checked strictly on every edit; the tree
  * comparison is counted rather than asserted, for the reason
@@ -927,13 +1505,9 @@ static void diff_random_span(
 static void test_differential_random_edits(void)
 {
 	unsigned int seed0 = 0x9e3779b9u;
-	unsigned int state;
 	int cases = 200;
-	int applied = 0, diverged = 0;
 	const char *env;
-	char text[128];
-	char what[256];
-	int i;
+	unsigned int l;
 
 	env = getenv("KG_TS_DIFF_SEED");
 	if (env && *env) {
@@ -943,41 +1517,9 @@ static void test_differential_random_edits(void)
 	if (env && *env) {
 		cases = (int)strtol(env, NULL, 0);
 	}
-	state = seed0 ? seed0 : 1u;
-	load_c(diff_fixture, DIFF_FIXTURE_ROWS);
-	for (i = 0; i < cases; i++) {
-		size_t begin, end, len;
-		struct kg_edit e;
-
-		diff_random_span(
-		    &state, buffer_byte_length(bcur()), &begin, &end);
-		len = diff_random_text(&state, text, sizeof(text));
-		e = kg_edit_user(bcur(), begin, end, text, len);
-		if (!kg_buffer_replace(&e, NULL)) {
-			continue;
-		}
-		snprintf(what, sizeof(what),
-		    "seed 0x%x case %d: [%zu,%zu) <- %zu bytes", seed0, i,
-		    begin, end, len);
-		applied++;
-		diverged += differential_check_ex(what, 0);
+	for (l = 0; l < DIFF_LANGS; l++) {
+		random_edits_for(&diff_langs[l], seed0, cases);
 	}
-	if (diverged) {
-		fprintf(stderr,
-		    "  (seed 0x%x: %d of %d edits recovered from a syntax "
-		    "error differently than a fresh parse)\n",
-		    seed0, diverged, applied);
-	}
-	/* The shape is still asserted even though the individual case is
-	 * not.  Error recovery diverges on a fraction of a percent of edits
-	 * (7 in 18 900 measured); a wrong TSInputEdit, or an old tree that
-	 * was never told about the edit, diverges on nearly all of them, and
-	 * that is what this catches. */
-	CHECKF(diverged * 10 <= applied,
-	    "seed 0x%x: %d of %d edits disagreed with a fresh parse, which is "
-	    "too many to be error recovery",
-	    seed0, diverged, applied);
-	teardown();
 }
 
 int main(void)
@@ -986,7 +1528,8 @@ int main(void)
 	RUN(test_missing_grammar_degrades);
 	RUN(test_search_path_forms);
 	RUN(test_env_overrides_search_path);
-	RUN(test_query_compiles);
+	RUN(test_batch1_queries_compile);
+	RUN(test_query_predicates_are_rejected);
 	RUN(test_unregistered_mode_has_no_language);
 	RUN(test_declaration_number_and_comment);
 	RUN(test_string_literals);
@@ -994,6 +1537,17 @@ int main(void)
 	RUN(test_preproc_directive);
 	RUN(test_tab_before_token);
 	RUN(test_utf8_before_token);
+	RUN(test_python_def_and_comment);
+	RUN(test_python_fstring_interpolation);
+	RUN(test_python_triple_quoted_string);
+	RUN(test_python_decorator_class_and_annotation);
+	RUN(test_yaml_key_flow_and_comment);
+	RUN(test_yaml_block_scalar);
+	RUN(test_yaml_anchors_and_markers);
+	RUN(test_markdown_heading_and_paragraph);
+	RUN(test_markdown_fenced_code_block);
+	RUN(test_markdown_block_quote);
+	RUN(test_markdown_list_and_thematic_break);
 	RUN(test_prepare_rows_parses_and_paints);
 	RUN(test_edit_reparses_whole_buffer);
 	RUN(test_mode_change_acquires_and_releases_state);

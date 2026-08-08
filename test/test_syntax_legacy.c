@@ -1345,7 +1345,7 @@ static void test_prepare_rows_propagates_block_comment(void)
 	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "*/ int x;", 9));
 	CHECK(kg_row_builder_render(rows, numrows) == 0);
 
-	CHECK(syntax_prepare_rows(rows, numrows, c, &ok) == NULL);
+	CHECK(syntax_prepare_rows(rows, numrows, c, NULL, &ok) == NULL);
 	CHECK(ok == 1);
 	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_MLCOMMENT);
 	CHECK(rows[1].hl != NULL && rows[1].hl[0] == HL_MLCOMMENT);

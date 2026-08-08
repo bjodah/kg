@@ -566,14 +566,15 @@ void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax)
  * what turns "some rows and a mode" into the complete document a backend
  * needs to see -- it is never published and never observable, and the
  * backend is required to leave it alone. */
-struct kg_syntax_state *syntax_prepare_rows(
-    struct erow *rows, int numrows, struct editor_syntax *syntax, int *ok)
+struct kg_syntax_state *syntax_prepare_rows(struct erow *rows, int numrows,
+    struct editor_syntax *syntax, char *filename, int *ok)
 {
 	struct editor_buffer staged = { 0 };
 
 	staged.row = rows;
 	staged.numrows = numrows;
 	staged.syntax = syntax;
+	staged.filename = filename;
 	return syntax_backend_prepare(&staged, ok);
 }
 

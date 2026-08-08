@@ -84,6 +84,11 @@ enum kg_mode_id {
 	KG_MODE_COMPILATION,
 	KG_MODE_LISP_INTERACTION,
 	KG_MODE_DIRED,
+	/* One past the last mode, and the reason it exists: the identities
+	 * above are dense from zero, so a table keyed by mode can be a flat
+	 * array indexed by the id rather than a search.  Not a mode; nothing
+	 * ever carries it. */
+	KG_MODE_COUNT,
 };
 
 /* What a buffer's mode is.  Identity, display name, how a file name
@@ -169,6 +174,13 @@ int syntax_git_rebase_flags_end(const char *line, int len, int from);
  * kg_row_builder_render() -- and colour every one of those rows on the way.
  * `syntax` is the mode the finished buffer will be in; it is passed rather
  * than read off a buffer because the rows belong to no buffer yet.
+ * `filename` is the file those rows came from, or NULL for rows kg
+ * generated (a dired listing, an ibuffer).  It is not how the mode is
+ * chosen -- the caller has already done that -- but a mode can be spelled
+ * by more than one grammar, and which one is a question only the name
+ * answers: kg's TypeScript mode covers both .ts and .tsx, and the two are
+ * different tree-sitter grammars.  Without it a .tsx file would be painted
+ * on load by the .ts grammar and only corrected by the first edit.
  *
  * This is the load path's whole highlighting pass, and the reason it is one
  * call over the complete document rather than one call per row: a backend
@@ -178,8 +190,8 @@ int syntax_git_rebase_flags_end(const char *line, int len, int from);
  * that keeps no state returns NULL having still done the colouring, so NULL
  * is not a failure.  Failure is `*ok` set to 0, which is the editor running
  * out of memory mid-pass, and comes with a NULL state. */
-struct kg_syntax_state *syntax_prepare_rows(
-    struct erow *rows, int numrows, struct editor_syntax *syntax, int *ok);
+struct kg_syntax_state *syntax_prepare_rows(struct erow *rows, int numrows,
+    struct editor_syntax *syntax, char *filename, int *ok);
 
 /* Install `st` as `b`'s state, releasing whatever `b` held: the ownership
  * transfer at the end of a staged load. */

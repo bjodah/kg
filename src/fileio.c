@@ -364,8 +364,8 @@ static int load_stage_rows(struct temp_load_result *res)
 	if (kg_row_builder_render(res->row, res->numrows) != 0) {
 		return -1;
 	}
-	res->syntax_state
-	    = syntax_prepare_rows(res->row, res->numrows, probe.syntax, &ok);
+	res->syntax_state = syntax_prepare_rows(
+	    res->row, res->numrows, probe.syntax, res->filename, &ok);
 	if (!ok) {
 		errno = ENOMEM;
 		return -1;

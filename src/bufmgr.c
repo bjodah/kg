@@ -2553,7 +2553,7 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 		kg_row_builder_free(&rows, &numrows, &row_capacity);
 		return;
 	}
-	state = syntax_prepare_rows(rows, numrows, syn, &ok);
+	state = syntax_prepare_rows(rows, numrows, syn, NULL, &ok);
 	if (!ok) {
 		kg_row_builder_free(&rows, &numrows, &row_capacity);
 		return;

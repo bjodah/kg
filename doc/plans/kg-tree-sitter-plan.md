@@ -885,8 +885,9 @@ plan retires from the default of new language support.
 
 ### Grammar manifest (pinned by the /opt-9 environment)
 
-Available (tag): c v0.24.2, cpp v0.23.4, css v0.25.0, go v0.25.0,
-html v0.23.2, java v0.23.5, javascript v0.25.0, json v0.24.8,
+Available (tag): bash v0.6.0 *(too old: grammar ABI 6)*, c v0.24.2,
+cpp v0.23.4, css v0.25.0, elisp 1.6.1, go v0.25.0, html v0.23.2,
+java v0.23.5, javascript v0.25.0, json v0.24.8, make v1.1.1,
 markdown + markdown-inline v0.5.3, ocaml v0.25.0, python v0.25.0,
 rust v0.24.2, toml v0.7.0, typescript + tsx v0.23.2, yaml v0.7.2.
 
@@ -899,6 +900,9 @@ build (decision 4's rule).  Shell was the one painful gap; the user
 is adding `tree-sitter-grammar-{bash,elisp,make}` to the /opt-9
 manifest (decided 2026-08-07).  Their tags are recorded here once the
 installs exist, and Shell, Makefile and Lisp then join batch 2.
+*(2026-08-08: the three installs exist.  Makefile and Lisp joined;
+Shell did not — the bash install is v0.6.0 and unreadable.  See
+"Landed" below.)*
 
 - **Batch 1: C, Python, Markdown (block), YAML** — all four have
   bespoke scanners today, so the legacy backend is a behavioural
@@ -907,6 +911,46 @@ installs exist, and Shell, Makefile and Lisp then join batch 2.
   newly added grammars).  /opt-9 languages kg has no mode for (Go,
   JSON, TOML, OCaml, C++, CSS) are candidates for *new* cheap modes
   afterwards — the point of the whole exercise — but are not v1.
+
+#### Landed (2026-08-08, slices 8 and 9)
+
+Batches 1 and 2 are both in the registry: **thirteen rows over eleven
+grammars** — C, Python, YAML, Markdown (block), JavaScript, React (the
+javascript grammar again: tree-sitter-javascript parses JSX, so React
+is not its own dependency), TypeScript and TSX (one mode, two rows,
+chosen by file-name suffix, sharing one query text that is inside both
+grammars' node inventories), Java, Rust, HTML, Emacs Lisp and Makefile.
+
+The three grammars added to /opt-9 after this document was first
+written resolve as follows.  `elisp` is **1.6.1** and `make` is
+**v1.1.1** (both read out of the installed `.so` — there is no `.pc`
+or `VERSION` file in those prefixes, so the tag comes from the build's
+recorded source path).  `bash` is **v0.6.0**, which is *grammar ABI 6*
+where tree-sitter 0.26.11 reads 13–15: kg's loader refuses it, so
+**Shell has no registry row** and stays plain text.  That is the one
+batch-2 target that did not land, and it needs a newer
+tree-sitter-bash in /opt-9, not a change in kg — the row and its query
+are a fifteen-minute follow-up once the pin moves.
+`test_bash_grammar_abi_is_rejected()` is the assertion that will fail,
+loudly and in the right place, on the day it does.
+
+**Plain text by decision, not by omission**: Vue, Angular, Svelte, C#,
+PHP, Ruby, Swift, SQL and Dart.  /opt-9 has no grammar for any of
+them, and the three framework modes would additionally need language
+injection (a second parser over a sub-range of one document), which is
+out of v1 by Refinement decision 4.  Git commit and Git rebase stay
+grammarless by policy: their C-c keys quit the editor, so their
+behaviour must never depend on a third-party parser.
+
+Two consequences of decision 4 are visible on screen rather than only
+in the manifest: an HTML `<script>`/`<style>` body is one opaque
+`(raw_text)` and is left uncoloured, and a Makefile recipe line is
+shell and likewise plain, though the `$(...)` and `$@` references
+inside it are coloured because they are the make grammar's own nodes.
+
+The `.scm`-embedding generator this section sketches is **still not
+built**, on second consideration rather than deferral — see the
+reasoning block at the head of `src/syntax_tree_sitter_lang.c`.
 
 ### Corrections to the Response (verified against the tree)
 

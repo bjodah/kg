@@ -15,7 +15,20 @@
  * prefix, and the same box's grammar prefixes are part of that contract
  * (doc/plans/kg-tree-sitter-plan.md, Refinement decision 1); a suite that
  * skipped itself here would make "the grammar is missing" indistinguishable
- * from "the backend paints nothing". */
+ * from "the backend paints nothing".  Every OTHER grammar is required the
+ * same way, through test_registry_queries_compile(), for the same reason:
+ * a registry row whose grammar quietly is not there is a language that
+ * quietly has no colours.
+ *
+ * Three layers, and they cost very different amounts to write.  Every row
+ * of the registry gets a query-compile assertion (cheap, and it is what
+ * says the node names in a query are the grammar's real ones).  Each
+ * language gets two or three byte-exact paints, chosen for the decision in
+ * its query that would have gone the other way if it had been written from
+ * memory.  Eight of the languages get a differential fixture, an edit table
+ * and a share of the seeded random loop; the other five ride the same
+ * runner with no fixture, because the runner is language-generic and what a
+ * ninth fixture adds is runtime. */
 
 #include "../src/def.h"
 #include "../src/edit.h"
@@ -204,40 +217,112 @@ static void test_env_overrides_search_path(void)
  * is the difference between "no colours because the query is broken" and
  * "no colours because the backend is broken".
  *
- * Every batch-1 language: its grammar is on this box, kg's own query
- * compiles against it, and each of its captures resolved to a face.  A
- * query that names a node type its grammar does not have is a compile
- * error, so this is also what says the node names in those queries are
- * the grammar's real ones rather than plausible guesses. */
-static void test_batch1_queries_compile(void)
+ * EVERY registry row, batch 1 and batch 2: its grammar is on this box,
+ * kg's own query compiles against it, and each of its captures resolved to
+ * a face.  A query that names a node type its grammar does not have is a
+ * compile error, so this is also what says the node names in those queries
+ * are the grammar's real ones rather than plausible guesses -- and for the
+ * two TypeScript rows, that the one shared query text is inside BOTH
+ * grammars' node inventories, which is not something either grammar
+ * promises.
+ *
+ * The row is named by the (mode, filename) pair the registry resolves,
+ * because that is the whole interface: a .tsx name and a .ts name are the
+ * same mode and different grammars.  Asserting `grammar` is what makes the
+ * variant selection observable rather than inferred. */
+static void test_registry_queries_compile(void)
 {
 	static const struct {
 		enum kg_mode_id mode;
+		const char *filename;
 		const char *grammar;
-	} batch1[] = {
-		{ KG_MODE_C, "c" },
-		{ KG_MODE_PYTHON, "python" },
-		{ KG_MODE_YAML, "yaml" },
-		{ KG_MODE_MARKDOWN, "markdown" },
+	} rows[] = {
+		{ KG_MODE_C, "a.c", "c" },
+		{ KG_MODE_PYTHON, "a.py", "python" },
+		{ KG_MODE_YAML, "a.yaml", "yaml" },
+		{ KG_MODE_MARKDOWN, "a.md", "markdown" },
+		{ KG_MODE_JAVASCRIPT, "a.js", "javascript" },
+		{ KG_MODE_REACT, "a.jsx", "javascript" },
+		{ KG_MODE_TYPESCRIPT, "a.tsx", "tsx" },
+		{ KG_MODE_TYPESCRIPT, "a.ts", "typescript" },
+		{ KG_MODE_JAVA, "A.java", "java" },
+		{ KG_MODE_RUST, "a.rs", "rust" },
+		{ KG_MODE_HTML, "a.html", "html" },
+		{ KG_MODE_LISP, "init.el", "elisp" },
+		{ KG_MODE_MAKEFILE, "Makefile", "make" },
 	};
 	size_t i;
 
-	for (i = 0; i < sizeof(batch1) / sizeof(*batch1); i++) {
+	for (i = 0; i < sizeof(rows) / sizeof(*rows); i++) {
 		struct kg_ts_language *l
-		    = kg_ts_language_for_mode(batch1[i].mode);
+		    = kg_ts_language_for_mode(rows[i].mode, rows[i].filename);
 
-		CHECKF(l != NULL, "%s: no language", batch1[i].grammar);
+		CHECKF(l != NULL, "%s: no language", rows[i].grammar);
 		if (!l) {
 			continue;
 		}
+		CHECKF(strcmp(l->grammar, rows[i].grammar) == 0,
+		    "%s resolved to grammar %s, expected %s", rows[i].filename,
+		    l->grammar, rows[i].grammar);
 		CHECK(l->state == KG_TS_LANG_READY);
 		CHECK(l->query != NULL);
 		CHECKF(l->capture_count > 0
 			&& l->capture_count <= KG_TS_MAX_CAPTURES,
-		    "%s: %u captures", batch1[i].grammar, l->capture_count);
-		CHECK(
-		    kg_ts_language_for_mode(batch1[i].mode) == l); /* cached */
+		    "%s: %u captures", rows[i].grammar, l->capture_count);
+		CHECK(kg_ts_language_for_mode(rows[i].mode, rows[i].filename)
+		    == l); /* cached */
 	}
+}
+
+/* The one mode whose grammar variant depends on the file name, asserted
+ * from both ends: which row the registry hands back, and what the two
+ * grammars then do to the same bytes.
+ *
+ * `<div className="c">hi</div>` is a JSX element in .tsx and, in .ts, a
+ * type assertion applied to `div` -- so `div` is a (type_identifier) there
+ * and @type, and in .tsx it is a JSX tag name the shared query does not
+ * capture.  The colour of those three bytes is the whole difference, and it
+ * is why the variant exists: with only the typescript grammar, every .tsx
+ * file in the tree parses as an ERROR node. */
+static void test_typescript_variant_selection(void)
+{
+	static const char *const lines[]
+	    = { "const a = <div className=\"c\">hi</div>;" };
+	struct kg_ts_language *ts
+	    = kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, "app.ts");
+	struct kg_ts_language *tsx
+	    = kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, "app.tsx");
+
+	CHECK(ts != NULL && tsx != NULL);
+	if (!ts || !tsx) {
+		return;
+	}
+	CHECK(ts != tsx);
+	CHECK(strcmp(ts->grammar, "typescript") == 0);
+	CHECK(strcmp(tsx->grammar, "tsx") == 0);
+	/* A buffer with no file name at all falls to the suffix-less row. */
+	CHECK(kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, NULL) == ts);
+	/* ".tsx" is a suffix test, not a substring one. */
+	CHECK(kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, "a.tsx.ts") == ts);
+
+	setup(syntax_find_by_name("TypeScript"));
+	bcur()->filename = (char *)"app.ts";
+	editor_insert_row(bcur(), 0, lines[0], strlen(lines[0]));
+	syntax_rebuild(bcur());
+	CHECK(bcur()->syntax_state != NULL);
+	/*        const a = <div className="c">hi</div>;
+	 *                   ^^^ a type_identifier under the .ts grammar */
+	check_hl(0, "44444000000555000000000006660000000000");
+
+	setup(syntax_find_by_name("TypeScript"));
+	bcur()->filename = (char *)"app.tsx";
+	editor_insert_row(bcur(), 0, lines[0], strlen(lines[0]));
+	syntax_rebuild(bcur());
+	CHECK(bcur()->syntax_state != NULL);
+	/* ... and a JSX tag name under the .tsx grammar, uncaptured. */
+	check_hl(0, "44444000000000000000000006660000000000");
+	bcur()->filename = NULL;
+	teardown();
 }
 
 /* Refinement decision 2, enforced rather than merely intended: kg's
@@ -287,13 +372,60 @@ static void test_query_predicates_are_rejected(void)
 	    == 0);
 }
 
-/* A mode with no registry row is not an error and costs nothing.  Shell
- * is the deliberate example: kg has the mode, /opt-9 has no bash grammar,
- * and the plan's batch 2 is where that changes. */
+/* A mode with no registry row is not an error and costs nothing.  C# and
+ * Vue are the deliberate examples, and they are deliberate in a way Shell
+ * was not: batch 2 gave Shell a grammar-shaped problem rather than a row
+ * (see test_bash_grammar_abi_is_rejected()), and every OTHER mode kg has
+ * with no grammar in /opt-9 is a plain-text mode by Refinement decision 4
+ * and expected to stay one.  A slice that gives C# a grammar moves this
+ * anchor again; that is the intended cost of the anchor being real. */
 static void test_unregistered_mode_has_no_language(void)
 {
-	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL) == NULL);
-	CHECK(kg_ts_language_for_mode(KG_MODE_TEXT) == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_CSHARP, "a.cs") == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_VUE, "a.vue") == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_TEXT, NULL) == NULL);
+	/* The git modes stay grammarless by policy rather than by accident:
+	 * they bind C-c keys that quit the editor, so their behaviour must
+	 * never depend on a third-party parser (Phase 9). */
+	CHECK(kg_ts_language_for_mode(KG_MODE_GIT_COMMIT, "COMMIT_EDITMSG")
+	    == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_GIT_REBASE, "git-rebase-todo")
+	    == NULL);
+	/* And a mode id past the end of the table is a miss, not a read off
+	 * the end of the index. */
+	CHECK(kg_ts_language_for_mode((enum kg_mode_id)KG_MODE_COUNT, NULL)
+	    == NULL);
+}
+
+/* Shell, and why it has no row.  /opt-9 does ship a tree-sitter-bash, but
+ * it is v0.6.0 -- grammar ABI 6, where this tree-sitter reads 13 to 15 --
+ * so the loader refuses it, with the ABI it found and the range it wants in
+ * the message.  This is the ABI guard's only real-world case in the tree,
+ * and it is worth pinning for two reasons: it says the guard runs against a
+ * genuine mismatch rather than only against a hand-made one, and it is what
+ * will fail, loudly and here, on the day the /opt-9 pin is refreshed and
+ * Shell can finally have a row.
+ *
+ * Skipped rather than failed if the .so is not installed: this suite's hard
+ * requirement is the C grammar, and an absent bash is the same "no row"
+ * answer by a different route. */
+static void test_bash_grammar_abi_is_rejected(void)
+{
+	const char *dir = "/opt-9/tree-sitter-grammar-bash/lib";
+	char err[160];
+	char sopath[256];
+	FILE *fp;
+
+	snprintf(sopath, sizeof(sopath), "%s/libtree-sitter-bash.so", dir);
+	fp = fopen(sopath, "r");
+	if (!fp) {
+		return;
+	}
+	fclose(fp);
+	err[0] = '\0';
+	CHECK(kg_ts_grammar_load("bash", dir, err, sizeof(err)) == NULL);
+	CHECKF(strstr(err, "ABI") != NULL, "unexpected reason: %s", err);
+	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL, "a.sh") == NULL);
 }
 
 /* ---- Captures to faces ---- */
@@ -580,6 +712,270 @@ static void test_markdown_list_and_thematic_break(void)
 	teardown();
 }
 
+/* ---- Batch 2: the trickiest choice per language ------------------------
+ *
+ * Two or three byte-exact paints each rather than a survey: what is worth
+ * a case here is the assertion that would have gone the other way if the
+ * query had been written from memory instead of from a probe.  The rest of
+ * each language rides the machinery batch 1 already proved.
+ *
+ * (There is no Shell section.  /opt-9's tree-sitter-bash is v0.6.0, ABI 6,
+ * and this tree-sitter reads 13-15; test_bash_grammar_abi_is_rejected()
+ * above is what Shell gets until that pin moves.) */
+
+/* JavaScript: a template string is NOT one string.  `${n}` is code, so the
+ * two backticks and the two fragments around the substitution are painted
+ * and the substitution is not -- the same treatment Python's f-string gets,
+ * arrived at from the same node shape. */
+static void test_javascript_template_string(void)
+{
+	static const char *const lines[] = { "const s = `hi ${n} !`;" };
+
+	load_mode("JavaScript", lines, 1);
+	check_hl(0, "4444400000666600006660");
+	teardown();
+}
+
+/* The JavaScript grammar's hardest ambiguity, and the reason this is a
+ * parser and not a scanner: `/ab+/g` after `=` is a regex literal, and the
+ * same characters after an identifier are two divisions.  Both rows are the
+ * grammar's answer, not kg's. */
+static void test_javascript_regex_versus_division(void)
+{
+	static const char *const lines[] = {
+		"const r = /ab+/g;",
+		"const q = a /b/ c;",
+	};
+
+	load_mode("JavaScript", lines, 2);
+	check_hl(0, "44444000006666660");
+	check_hl(1, "444440000000000000");
+	teardown();
+}
+
+/* JSX, in an ordinary .js buffer: tree-sitter-javascript parses it, which
+ * is why React is a row naming this grammar rather than a dependency of its
+ * own.  The tag names are @type at both ends of the element. */
+static void test_javascript_jsx_element(void)
+{
+	static const char *const lines[]
+	    = { "const e = <Foo bar=\"b\">t</Foo>;" };
+
+	load_mode("JavaScript", lines, 1);
+	check_hl(0, "4444400000055500000666000055500");
+	teardown();
+}
+
+/* React mode is the JavaScript grammar under another name, asserted rather
+ * than assumed: the same bytes come out the same colour in both modes. */
+static void test_react_mode_uses_javascript_grammar(void)
+{
+	static const char *const lines[] = { "const e = <Foo/>;" };
+
+	load_mode("React", lines, 1);
+	check_hl(0, "44444000000555000");
+	teardown();
+}
+
+/* ---- Rust ---- */
+
+/* THE Rust assertion: `'a` is a lifetime and `'x'` is a character, and a
+ * hand-written scanner cannot reliably tell them apart.  Here they are on
+ * adjacent rows: the lifetime @type, the char @string. */
+static void test_rust_lifetime_is_not_a_char(void)
+{
+	static const char *const lines[] = {
+		"struct S<'a> { c: &'a str }",
+		"const Q: char = 'x';",
+	};
+
+	load_mode("Rust", lines, 2);
+	check_hl(0, "444444050550000000055055500");
+	check_hl(1, "44444000055550006660");
+	teardown();
+}
+
+/* An attribute is @type, the same call a Python decorator got, and the
+ * inner form `#![...]` is a different node from the outer `#[...]`, so both
+ * are spelled out in the query. */
+static void test_rust_attributes(void)
+{
+	static const char *const lines[] = {
+		"#![allow(dead_code)]",
+		"#[derive(Debug)]",
+	};
+
+	load_mode("Rust", lines, 2);
+	check_hl(0, "55555555555555555555");
+	check_hl(1, "5555555555555555");
+	teardown();
+}
+
+/* A raw string is its own node, which is how `r#"a " b"#` stays one span
+ * through a quote that would close an ordinary literal. */
+static void test_rust_raw_string(void)
+{
+	static const char *const lines[] = { "let r = r#\"a \" b\"#;" };
+
+	load_mode("Rust", lines, 1);
+	check_hl(0, "4440000066666666660");
+	teardown();
+}
+
+/* ---- HTML ---- */
+
+/* The pair that makes markup readable: the tag name is @keyword and the
+ * attribute name is @type, with the quoted value -- quotes included --
+ * @string. */
+static void test_html_tag_attribute_and_value(void)
+{
+	static const char *const lines[] = { "<p class=\"c\">t</p>" };
+
+	load_mode("HTML", lines, 1);
+	check_hl(0, "040555550666000040");
+	teardown();
+}
+
+/* An unquoted attribute value is a bare (attribute_value) with no wrapper
+ * node, so it needs its own capture; a comment is a comment. */
+static void test_html_unquoted_value_and_comment(void)
+{
+	static const char *const lines[] = {
+		"<!-- c -->",
+		"<img src=a.png>",
+	};
+
+	load_mode("HTML", lines, 2);
+	check_hl(0, "2222222222");
+	check_hl(1, "044405550666660");
+	teardown();
+}
+
+/* What "no language injection" looks like from outside: the <script> tags
+ * are coloured and the JavaScript between them is plain, because the
+ * grammar hands that over as one opaque (raw_text) and reaching into it
+ * means a second parser (Refinement decision 4). */
+static void test_html_script_content_is_plain(void)
+{
+	static const char *const lines[] = { "<script>var x = 1;</script>" };
+
+	load_mode("HTML", lines, 1);
+	check_hl(0, "044444400000000000004444440");
+	teardown();
+}
+
+/* ---- Emacs Lisp ---- */
+
+/* A defun builds (function_definition), which has a `name` field: the head
+ * is an anonymous keyword token and the name it introduces is @type, the
+ * same shape Python's def has. */
+static void test_elisp_defun(void)
+{
+	static const char *const lines[] = { "(defun f (a) \"doc\" 42)" };
+
+	load_mode("Lisp", lines, 1);
+	check_hl(0, "0444440500000666660770");
+	teardown();
+}
+
+/* A special form's head is a token of the node rather than a child symbol,
+ * so `setq` is @keyword while `require` -- an ordinary function -- is not;
+ * and `?c` is a character, which in Emacs Lisp is an integer. */
+static void test_elisp_special_form_and_char(void)
+{
+	static const char *const lines[] = {
+		"(setq x ?c) ; done",
+		"(require 'cl-lib)",
+	};
+
+	load_mode("Lisp", lines, 2);
+	check_hl(0, "044440007700222222");
+	check_hl(1, "00000000000000000");
+	teardown();
+}
+
+/* nil and t are keyword tokens of this grammar, not symbols. */
+static void test_elisp_nil_and_t(void)
+{
+	static const char *const lines[] = { "(let ((a nil)) t)" };
+
+	load_mode("Lisp", lines, 1);
+	check_hl(0, "04440000044400040");
+	teardown();
+}
+
+/* ---- Makefile ---- */
+
+/* An assignment's name and a rule's target are @type -- the structure of
+ * the file, the call YAML's mapping keys got. */
+static void test_make_assignment_and_target(void)
+{
+	static const char *const lines[] = { "CC = gcc", "all: prog" };
+
+	load_mode("Makefile", lines, 2);
+	check_hl(0, "55000000");
+	check_hl(1, "555000000");
+	teardown();
+}
+
+/* A recipe line is shell and stays plain -- injecting a shell grammar is
+ * Refinement decision 4's other side, and this build has no usable bash
+ * grammar anyway -- but the make-level references inside it are not: a
+ * `$(...)` reference and an automatic variable are the grammar's own nodes.
+ *
+ * The leading TAB is one byte of chars and eight of render, so this row is
+ * also the coordinate seam again, in a language whose syntax is that tab. */
+static void test_make_recipe_variables(void)
+{
+	static const char *const lines[] = { "all:", "\t$(CC) -o $@ x" };
+
+	load_mode("Makefile", lines, 2);
+	check_hl(0, "5550");
+	check_hl(1, "000000004444400004400");
+	teardown();
+}
+
+/* Conditionals are anonymous keyword tokens of their directive nodes. */
+static void test_make_conditional(void)
+{
+	static const char *const lines[]
+	    = { "ifeq ($(CC),gcc)", "X = 1", "endif" };
+
+	load_mode("Makefile", lines, 3);
+	check_hl(0, "4444004444400000");
+	check_hl(1, "50000");
+	check_hl(2, "44444");
+	teardown();
+}
+
+/* ---- Java ---- */
+
+/* Java splits the comment node in two -- (line_comment) and
+ * (block_comment), where C has one (comment) -- and gives every number
+ * base its own literal node, so a query naming only the decimal one would
+ * leave 0xff uncoloured. */
+static void test_java_types_numbers_and_comment(void)
+{
+	static const char *const lines[] = { "int n = 0xff; // c" };
+
+	load_mode("Java", lines, 1);
+	check_hl(0, "555000007777002222");
+	teardown();
+}
+
+/* An annotation is @type, and a string ARGUMENT of one comes out @string:
+ * the annotation node contains it, and the precedence table -- not the
+ * order the query cursor walked -- decides which of the two overlapping
+ * captures wins. */
+static void test_java_annotation_over_string(void)
+{
+	static const char *const lines[] = { "@SuppressWarnings(\"unused\")" };
+
+	load_mode("Java", lines, 1);
+	check_hl(0, "555555555555555555666666665");
+	teardown();
+}
+
 /* ---- Lifecycle ---- */
 
 /* A staged load -- rows that belong to no buffer yet -- comes out parsed
@@ -598,7 +994,7 @@ static void test_prepare_rows_parses_and_paints(void)
 	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "*/ int x;", 9));
 	CHECK(kg_row_builder_render(rows, numrows) == 0);
 
-	st = syntax_prepare_rows(rows, numrows, c, &ok);
+	st = syntax_prepare_rows(rows, numrows, c, NULL, &ok);
 	CHECK(ok == 1);
 	CHECK(st != NULL);
 	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_COMMENT);
@@ -654,8 +1050,8 @@ static void test_mode_change_acquires_and_releases_state(void)
 	CHECK(bcur()->syntax_state != NULL);
 	check_hl(0, "555000");
 
-	/* Shell: a mode with no grammar in this build, so the state goes. */
-	editor_set_syntax(bcur(), syntax_find_by_name("Shell"));
+	/* C#: a mode with no grammar in this build, so the state goes. */
+	editor_set_syntax(bcur(), syntax_find_by_name("C#"));
 	CHECK(bcur()->syntax_state == NULL);
 	check_hl(0, "000000");
 
@@ -679,10 +1075,10 @@ static void test_mode_change_acquires_and_releases_state(void)
  * command that touches one row uses. */
 static void test_unsupported_mode_is_plain_text(void)
 {
-	static const char *const lines[] = { "echo hi # 42" };
+	static const char *const lines[] = { "var x = 42; // c" };
 	int i;
 
-	setup(syntax_find_by_name("Shell"));
+	setup(syntax_find_by_name("C#"));
 	editor_insert_row(bcur(), 0, lines[0], strlen(lines[0]));
 	syntax_rebuild(bcur());
 	CHECK(bcur()->syntax_state == NULL);
@@ -799,9 +1195,9 @@ static void test_real_source_file_is_colourful(void)
  * containing what would otherwise open one, preprocessor lines, nested
  * braces, a tab before a token and a multi-byte character before one.
  *
- * Each batch-1 language has one of these, and one table of edits, and one
- * alphabet for the random loop; the machinery below is shared, so a
- * language is three tables and a row in diff_langs[]. */
+ * Each language with a fixture has one of these, and one table of edits,
+ * and one alphabet for the random loop; the machinery below is shared, so
+ * a language is three tables and a row in diff_langs[]. */
 static const char *const c_fixture[] = {
 	"#include <stdio.h>",
 	"#define MAX(a, b) ((a) > (b) ? (a) : (b))",
@@ -1171,9 +1567,209 @@ static const struct diff_case markdown_cases[] = {
 	    "```c\nint x;\n```" },
 };
 
+/* ---- Batch 2: four languages, chosen for what they stress ------------
+ *
+ * Not all nine.  The runner below is language-generic and batch 1 proved it
+ * on four grammars; what a fifth ordinary language would add is runtime,
+ * not evidence.  These four were picked because each breaks the machinery
+ * in a different place if it is going to break at all:
+ *
+ *   Rust        a large grammar with an external scanner, raw strings and
+ *               the lifetime/char ambiguity;
+ *   HTML        node shapes unlike any other language here -- no
+ *               statements, no expressions, an element is a tree of tags --
+ *               and an external scanner that decides where raw text ends;
+ *   Emacs Lisp  structure that is nothing but nesting, so an edit to one
+ *               parenthesis re-parents everything after it;
+ *   JavaScript  the external scanner that has to decide automatic
+ *               semicolon insertion and regex-versus-division, which is
+ *               the classic case of "the same bytes, a different tree,
+ *               because of what came before them".
+ *
+ * JavaScript stands in for bash here.  bash was the intended
+ * external-scanner-heavy pick, and /opt-9's tree-sitter-bash is too old to
+ * load at all (test_bash_grammar_abi_is_rejected()).
+ *
+ * TypeScript/TSX, Java and Makefile ride the same machinery with no
+ * fixture of their own, which is the arrangement batch 1 established: a
+ * language's own risk is in its QUERY, and that is what the byte-exact
+ * cases above are for. */
+
+static const char *const rust_fixture[] = {
+	"//! crate docs",
+	"#![allow(dead_code)]",
+	"",
+	"/* a block",
+	" * comment */",
+	"use std::fmt;",
+	"",
+	"#[derive(Debug, Clone)]",
+	"pub struct Item<'a, T: Clone> {",
+	"    pub name: &'a str,",
+	"    count: u32,",
+	"    tag: T,",
+	"}",
+	"",
+	"impl<'a, T: Clone> Item<'a, T> {",
+	"    pub fn new(name: &'a str, tag: T) -> Self {",
+	"        let c = 'x';",
+	"        let s = \"lit /* not a comment */\";",
+	"        let r = r#\"raw \" string\"#;",
+	"        let n = 0x2a + 1.5 as u32;",
+	"        match name {",
+	"            \"a\" => {}",
+	"            _ => {}",
+	"        }",
+	"        Self { name, count: n, tag }",
+	"    }",
+	"}",
+	"",
+	"macro_rules! m { () => {} }",
+};
+
+#define RUST_FIXTURE_ROWS ((int)(sizeof(rust_fixture) / sizeof(*rust_fixture)))
+
+static const struct diff_case rust_cases[] = {
+	{ "rs: open a block comment at the top", 0, 0, 0, 0, "/*" },
+	{ "rs: delete a block comment's closer", 4, 11, 4, 13, "" },
+	{ "rs: make a lifetime look like a char", 9, 15, 9, 15, "'" },
+	{ "rs: open a raw string at the top", 0, 0, 0, 0, "r#\"" },
+	{ "rs: delete a raw string's hash", 18, 17, 18, 18, "" },
+	{ "rs: comment out an attribute", 7, 0, 7, 0, "// " },
+	{ "rs: unbalance the impl braces", 26, 0, 26, 1, "" },
+	{ "rs: split a string across two rows", 17, 20, 17, 20, "\n" },
+	{ "rs: join the two rows a comment spans", 3, EOL, 4, 0, "" },
+	{ "rs: delete everything", 0, 0, 28, EOL, "" },
+	{ "rs: replace everything with a fn", 0, 0, 28, EOL,
+	    "fn f<'a>(s: &'a str) -> char { 'c' }" },
+};
+
+static const char *const html_fixture[] = {
+	"<!DOCTYPE html>",
+	"<!-- a comment",
+	"     over rows -->",
+	"<html lang=\"en\">",
+	"  <head>",
+	"    <title>kg &amp; co</title>",
+	"    <meta charset=utf-8>",
+	"  </head>",
+	"  <body>",
+	"    <p class='x' id=\"y\" disabled>text</p>",
+	"    <img src=\"a.png\"/>",
+	"    <script>",
+	"      var x = 1; // not coloured",
+	"    </script>",
+	"    <style>.x { color: red; }</style>",
+	"  </body>",
+	"</html>",
+};
+
+#define HTML_FIXTURE_ROWS ((int)(sizeof(html_fixture) / sizeof(*html_fixture)))
+
+static const struct diff_case html_cases[] = {
+	{ "html: open a comment at the top", 0, 0, 0, 0, "<!--" },
+	{ "html: delete a comment's closer", 2, 15, 2, 18, "" },
+	{ "html: unclose an end tag", 7, 3, 7, 4, "" },
+	{ "html: open a quote in an attribute", 3, 11, 3, 11, "\"" },
+	{ "html: delete a script's end tag", 13, 4, 13, EOL, "" },
+	{ "html: turn an element into text", 9, 4, 9, 5, "" },
+	{ "html: split an attribute across rows", 9, 14, 9, 14, "\n" },
+	{ "html: join a comment's rows", 1, EOL, 2, 0, "" },
+	{ "html: delete everything", 0, 0, 16, EOL, "" },
+	{ "html: replace everything with one element", 0, 0, 16, EOL,
+	    "<p class=\"a\">x</p>" },
+};
+
+static const char *const elisp_fixture[] = {
+	";;; init.el --- demo",
+	";; a comment",
+	"(require 'cl-lib)",
+	"",
+	"(defvar my-count 42",
+	"  \"How many.\")",
+	"(defconst my-ratio 1.5)",
+	"",
+	"(defun my-fun (a &optional b)",
+	"  \"Docs for `my-fun'.\"",
+	"  (let ((x (+ a 1))",
+	"        (y ?c))",
+	"    (if (and a b)",
+	"        (message \"hi %s\" x)",
+	"      (setq y nil))",
+	"    `(a ,x ,@b)",
+	"    #'my-fun))",
+	"",
+	"(lambda (x) (* x x))",
+};
+
+#define ELISP_FIXTURE_ROWS                                                     \
+	((int)(sizeof(elisp_fixture) / sizeof(*elisp_fixture)))
+
+static const struct diff_case elisp_cases[] = {
+	{ "el: open a string at the top", 0, 0, 0, 0, "\"" },
+	{ "el: delete a closing paren", 16, 12, 16, 13, "" },
+	{ "el: unbalance a let", 10, 2, 10, 3, "" },
+	{ "el: comment out a defun header", 8, 0, 8, 0, ";; " },
+	{ "el: turn a char literal into a quote", 11, 11, 11, 12, "'" },
+	{ "el: split a docstring across rows", 9, 10, 9, 10, "\n" },
+	{ "el: delete a docstring's opening quote", 9, 2, 9, 3, "" },
+	{ "el: join the defvar's two rows", 4, EOL, 5, 0, "" },
+	{ "el: delete everything", 0, 0, 18, EOL, "" },
+	{ "el: replace everything with a defun", 0, 0, 18, EOL,
+	    "(defun f (x) \"d\" (let ((y 1)) y))" },
+};
+
+static const char *const javascript_fixture[] = {
+	"// a module",
+	"/* block",
+	"   comment */",
+	"import { a, b } from \"mod\";",
+	"",
+	"const re = /ab+\\/c/gi;",
+	"const tpl = `x ${a} y`;",
+	"const n = 0x2a, f = 1.5e3;",
+	"",
+	"class Widget extends Base {",
+	"  #priv = null;",
+	"  static async run(x = true) {",
+	"    try {",
+	"      await this.#priv;",
+	"    } catch (e) {",
+	"      throw new Error('bad ' + e);",
+	"    }",
+	"    return x ? undefined : null;",
+	"  }",
+	"}",
+	"",
+	"function App() {",
+	"  return <div className=\"c\">hi {n}</div>;",
+	"}",
+	"",
+	"export default App;",
+};
+
+#define JAVASCRIPT_FIXTURE_ROWS                                                \
+	((int)(sizeof(javascript_fixture) / sizeof(*javascript_fixture)))
+
+static const struct diff_case javascript_cases[] = {
+	{ "js: open a block comment at the top", 0, 0, 0, 0, "/*" },
+	{ "js: delete a block comment's closer", 2, 11, 2, 13, "" },
+	{ "js: turn a regex into a division", 5, 11, 5, 12, "" },
+	{ "js: open a template literal at the top", 0, 0, 0, 0, "`" },
+	{ "js: split a template string across rows", 6, 16, 6, 16, "\n" },
+	{ "js: comment out the class header", 9, 0, 9, 0, "// " },
+	{ "js: unbalance the class braces", 19, 0, 19, 1, "" },
+	{ "js: strip a JSX closing tag", 22, 34, 22, EOL, "" },
+	{ "js: an unterminated string at the top", 0, 0, 0, 0, "'" },
+	{ "js: join the two rows a comment spans", 1, EOL, 2, 0, "" },
+	{ "js: delete everything", 0, 0, 25, EOL, "" },
+	{ "js: replace everything with a class", 0, 0, 25, EOL,
+	    "class A { m() { return `x`; } }" },
+};
+
 /* One language's differential material: what to load, what to edit, and
  * what a random edit is spelled out of.  The three tables above times
- * four languages go through exactly the same runner, which is the point:
+ * eight languages go through exactly the same runner, which is the point:
  * a language that diverges does so against the same machinery C is known
  * to hold up under, so the finding is about the language and not about
  * the harness. */
@@ -1291,6 +1887,113 @@ static const char *const markdown_tokens[] = {
 	"\xc3\xa9",
 };
 
+static const char *const rust_tokens[] = {
+	"//",
+	"/*",
+	"*/",
+	"\"",
+	"'",
+	"'a",
+	"r#\"",
+	"\"#",
+	"#[",
+	"]",
+	"\n",
+	"{",
+	"}",
+	"(",
+	")",
+	";",
+	"fn ",
+	"let ",
+	"impl ",
+	"match ",
+	"->",
+	"u32",
+	"0x2a",
+	"1.5",
+	" ",
+	"\t",
+	"\xc3\xa9",
+};
+
+static const char *const html_tokens[] = {
+	"<",
+	">",
+	"</",
+	"/>",
+	"<!--",
+	"-->",
+	"\"",
+	"'",
+	"=",
+	"\n",
+	"div",
+	"class",
+	"&amp;",
+	"<script>",
+	"</script>",
+	" ",
+	"\t",
+	"\xc3\xa9",
+};
+
+static const char *const elisp_tokens[] = {
+	"(",
+	")",
+	"'",
+	"`",
+	",",
+	",@",
+	"\"",
+	";",
+	";; ",
+	"?c",
+	"\n",
+	"\n  ",
+	"defun ",
+	"let ",
+	"setq ",
+	"nil",
+	"t",
+	"42",
+	"1.5",
+	"my-fun",
+	" ",
+	"\t",
+	"\xc3\xa9",
+};
+
+static const char *const javascript_tokens[] = {
+	"//",
+	"/*",
+	"*/",
+	"\"",
+	"'",
+	"`",
+	"${",
+	"}",
+	"\n",
+	"\n  ",
+	"(",
+	")",
+	"{",
+	";",
+	"const ",
+	"function ",
+	"class ",
+	"return ",
+	"=>",
+	"/re/",
+	"<div>",
+	"</div>",
+	"0x2a",
+	"1.5",
+	" ",
+	"\t",
+	"\xc3\xa9",
+};
+
 #define NTOK(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
 #define NCASE(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
 
@@ -1303,6 +2006,15 @@ static const struct diff_lang diff_langs[] = {
 	    NCASE(yaml_cases), yaml_tokens, NTOK(yaml_tokens) },
 	{ "Markdown", markdown_fixture, MARKDOWN_FIXTURE_ROWS, markdown_cases,
 	    NCASE(markdown_cases), markdown_tokens, NTOK(markdown_tokens) },
+	{ "Rust", rust_fixture, RUST_FIXTURE_ROWS, rust_cases,
+	    NCASE(rust_cases), rust_tokens, NTOK(rust_tokens) },
+	{ "HTML", html_fixture, HTML_FIXTURE_ROWS, html_cases,
+	    NCASE(html_cases), html_tokens, NTOK(html_tokens) },
+	{ "Lisp", elisp_fixture, ELISP_FIXTURE_ROWS, elisp_cases,
+	    NCASE(elisp_cases), elisp_tokens, NTOK(elisp_tokens) },
+	{ "JavaScript", javascript_fixture, JAVASCRIPT_FIXTURE_ROWS,
+	    javascript_cases, NCASE(javascript_cases), javascript_tokens,
+	    NTOK(javascript_tokens) },
 };
 
 #define DIFF_LANGS ((unsigned int)(sizeof(diff_langs) / sizeof(*diff_langs)))
@@ -1475,9 +2187,13 @@ static void random_edits_for(
 	 * to recover differently more often, so a bound relaxed per language
 	 * would stop measuring the thing it is for -- and measurement says
 	 * they are not: over seeds 100..399 at 200 edits each (~60 000 edits
-	 * per language), the divergences were C 38, Python 2, YAML 2,
-	 * Markdown 0, and the strict inc == wide half never once failed.
-	 * The default seed diverges nowhere. */
+	 * per language), the divergences were C 38, JavaScript 26, Rust 11,
+	 * Python 2, YAML 2, and HTML, Emacs Lisp and Markdown 0 -- with the
+	 * worst single seed 2 of 200, and the strict inc == wide half never
+	 * once failing for any of the eight.  The default seed diverges
+	 * nowhere.  The two grammars whose external scanner has to guess
+	 * (JavaScript's regex-or-division, C's preprocessor) are the two that
+	 * recover differently most often, which is the expected shape. */
 	CHECKF(diverged * 10 <= applied,
 	    "%s seed 0x%x: %d of %d edits disagreed with a fresh parse, which "
 	    "is too many to be error recovery",
@@ -1485,14 +2201,15 @@ static void random_edits_for(
 	teardown();
 }
 
-/* Random edits, checked after every one, for every batch-1 language.  The
+/* Random edits, checked after every one, for every language that has a
+ * fixture -- batch 1's four and batch 2's four.  The
  * seed is printed with every failure and fixed by default, so CI runs the
  * same edits each time and a hunt can run different ones: KG_TS_DIFF_SEED
  * and KG_TS_DIFF_CASES are the knobs, the same shape
  * make check-regex-differential uses.
  *
  * Every language runs from the SAME seed rather than from a stirred one,
- * so a quoted seed reproduces all four runs and the alphabets stay the
+ * so a quoted seed reproduces all eight runs and the alphabets stay the
  * only difference between them.
  *
  * The damage window is checked strictly on every edit; the tree
@@ -1528,9 +2245,11 @@ int main(void)
 	RUN(test_missing_grammar_degrades);
 	RUN(test_search_path_forms);
 	RUN(test_env_overrides_search_path);
-	RUN(test_batch1_queries_compile);
+	RUN(test_registry_queries_compile);
+	RUN(test_typescript_variant_selection);
 	RUN(test_query_predicates_are_rejected);
 	RUN(test_unregistered_mode_has_no_language);
+	RUN(test_bash_grammar_abi_is_rejected);
 	RUN(test_declaration_number_and_comment);
 	RUN(test_string_literals);
 	RUN(test_multiline_block_comment);
@@ -1548,6 +2267,24 @@ int main(void)
 	RUN(test_markdown_fenced_code_block);
 	RUN(test_markdown_block_quote);
 	RUN(test_markdown_list_and_thematic_break);
+	RUN(test_javascript_template_string);
+	RUN(test_javascript_regex_versus_division);
+	RUN(test_javascript_jsx_element);
+	RUN(test_react_mode_uses_javascript_grammar);
+	RUN(test_rust_lifetime_is_not_a_char);
+	RUN(test_rust_attributes);
+	RUN(test_rust_raw_string);
+	RUN(test_html_tag_attribute_and_value);
+	RUN(test_html_unquoted_value_and_comment);
+	RUN(test_html_script_content_is_plain);
+	RUN(test_elisp_defun);
+	RUN(test_elisp_special_form_and_char);
+	RUN(test_elisp_nil_and_t);
+	RUN(test_make_assignment_and_target);
+	RUN(test_make_recipe_variables);
+	RUN(test_make_conditional);
+	RUN(test_java_types_numbers_and_comment);
+	RUN(test_java_annotation_over_string);
 	RUN(test_prepare_rows_parses_and_paints);
 	RUN(test_edit_reparses_whole_buffer);
 	RUN(test_mode_change_acquires_and_releases_state);

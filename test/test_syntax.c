@@ -403,7 +403,7 @@ static void test_prepare_rows_colours_and_keeps_no_state(void)
 	/* Rendering is rendering only now: nothing is coloured yet. */
 	CHECK(rows[0].render != NULL && rows[0].hl == NULL);
 
-	st = syntax_prepare_rows(rows, numrows, c, &ok);
+	st = syntax_prepare_rows(rows, numrows, c, NULL, &ok);
 	CHECK(ok == 1);
 	CHECK(rows[0].hl != NULL && rows[1].hl != NULL && rows[2].hl != NULL);
 
@@ -433,7 +433,7 @@ static void test_prepare_rows_honours_mode_owned_highlighter(void)
 	setup(&owned);
 	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "listing", 7));
 	CHECK(kg_row_builder_render(rows, numrows) == 0);
-	CHECK(syntax_prepare_rows(rows, numrows, &owned, &ok) == NULL);
+	CHECK(syntax_prepare_rows(rows, numrows, &owned, NULL, &ok) == NULL);
 	CHECK(ok == 1);
 	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_KEYWORD1);
 	kg_row_builder_free(&rows, &numrows, &cap);
@@ -464,20 +464,22 @@ static void test_syntax_state_release_and_adopt_are_null_safe(void)
 /* The mode-change release point: a real change goes through it, and a
  * re-selection of the mode the buffer is already in does not.
  *
- * Shell is the mode changed TO because it is the one no backend builds
- * state for in either configuration: the legacy scanners keep none for
- * anything, and no tree-sitter grammar is registered for it (the plan's
- * batch 2).  A mode a backend CAN parse acquires state at the same
- * point, which is that backend's own assertion --
- * test_syntax_tree_sitter.c's test_mode_change_acquires_and_releases_
- * state(). */
+ * C# is the mode changed TO because it is one no backend builds state for
+ * in either configuration: the legacy scanners keep none for anything, and
+ * no tree-sitter grammar is registered for it -- /opt-9 has none, and
+ * Refinement decision 4 leaves such modes as plain text.  (This used to be
+ * Shell, until the plan's batch 2 turned Shell into a mode that is
+ * grammarless only because the installed tree-sitter-bash is too old.)  A
+ * mode a backend CAN parse acquires state at the same point, which is that
+ * backend's own assertion -- test_syntax_tree_sitter.c's
+ * test_mode_change_acquires_and_releases_state(). */
 static void test_mode_change_releases_state(void)
 {
 	setup(syntax_find_by_mode(KG_MODE_C));
-	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_SHELL));
-	CHECK(bcur()->syntax == syntax_find_by_mode(KG_MODE_SHELL));
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_CSHARP));
+	CHECK(bcur()->syntax == syntax_find_by_mode(KG_MODE_CSHARP));
 	CHECK(bcur()->syntax_state == NULL);
-	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_SHELL));
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_CSHARP));
 	CHECK(bcur()->syntax_state == NULL);
 	teardown();
 }

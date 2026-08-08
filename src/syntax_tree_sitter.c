@@ -355,7 +355,10 @@ static struct kg_ts_language *ts_language_for(struct editor_buffer *b)
 	if (!b->syntax || b->syntax->highlight) {
 		return NULL;
 	}
-	return kg_ts_language_for_mode(b->syntax->id);
+	/* The file name is not how the mode was chosen -- that already
+	 * happened -- but one mode can be spelled by two grammars, and
+	 * .ts vs .tsx is the only thing that tells those two apart. */
+	return kg_ts_language_for_mode(b->syntax->id, b->filename);
 }
 
 /* Colour every row of `b` from whatever tree it now has, through the

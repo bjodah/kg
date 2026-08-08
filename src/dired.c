@@ -365,7 +365,7 @@ int dired_fill_current(const char *dir)
 	 * a backend scanner; the preparation pass routes rows through it the
 	 * same as it would any other mode, and this backend keeps no state
 	 * for a listing it does not parse. */
-	state = syntax_prepare_rows(rows, numrows, &dired_syntax, &ok);
+	state = syntax_prepare_rows(rows, numrows, &dired_syntax, NULL, &ok);
 	if (!ok) {
 		kg_row_builder_free(&rows, &numrows, &row_capacity);
 		return 1;

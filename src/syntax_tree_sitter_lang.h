@@ -40,12 +40,22 @@ typedef struct TSQuery TSQuery;
  * highlight it with, and the results of having tried -- resolved once per
  * process and then cached, negative results included.
  *
+ * A mode may have MORE THAN ONE row, because one kg mode can be spelled by
+ * more than one grammar: TypeScript covers .ts and .tsx, and tsx is a
+ * separate grammar with node types typescript does not have.  Such rows sit
+ * next to each other in the table and are told apart by
+ * `filename_suffix` -- the first row whose suffix the buffer's file name
+ * ends with wins, and a row with no suffix matches anything, so it is the
+ * last row of its mode.  Each row still caches its own grammar, query and
+ * verdict; a variant is a row, not a second state inside one.
+ *
  * `state` is a kg_ts_lang_state.  `language`, `query`, `capture_hl` and
  * `capture_priority` are meaningful only in the READY state; the last two
  * are indexed by tree-sitter's capture id, which is the order the capture
  * names first appear in `query_text`. */
 struct kg_ts_language {
 	enum kg_mode_id mode;
+	const char *filename_suffix; /* NULL: this mode's default row */
 	const char *grammar; /* libtree-sitter-<grammar>.so */
 	const char *query_text;
 	int state;
@@ -69,10 +79,15 @@ enum kg_ts_lang_state {
 
 /* The registry entry for `mode`, ready to use, or NULL when this build
  * cannot highlight that mode: it has no entry, its grammar is not
- * installed, or its query did not compile.  The first call for a mode does
+ * installed, or its query did not compile.  The first call for a row does
  * the dlopen and the query compile and reports a failure once through
- * editor_set_status_message(); every later call is a table lookup. */
-struct kg_ts_language *kg_ts_language_for_mode(enum kg_mode_id mode);
+ * editor_set_status_message(); every later call is a table lookup.
+ *
+ * `filename` is the buffer's file name, or NULL when it has none; it picks
+ * between a mode's grammar variants (see filename_suffix above) and is
+ * ignored by every mode that has only one row. */
+struct kg_ts_language *kg_ts_language_for_mode(
+    enum kg_mode_id mode, const char *filename);
 
 /* Testing seam.  Resolve one grammar through an explicit colon-separated
  * search path instead of $KG_TS_GRAMMAR_PATH / the compiled-in default,

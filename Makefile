@@ -1013,7 +1013,47 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6203 exceeds limit 6202
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6203
 #   scc total complexity: 6203 (limit 6203)
-SCC_COMPLEXITY_MAX ?= 6203
+# Raised 6203 -> 6212 for grammar batch 2, slice 9 (2026-08-08): JavaScript,
+# React, TypeScript, TSX, Java, Rust, HTML, Emacs Lisp and Makefile join the
+# tree-sitter registry -- thirteen rows over eleven grammars
+# (doc/plans/kg-tree-sitter-plan.md, Phase 8, batch 2).  The whole +9 is one
+# file that no default build compiles, and NOT the part of it that grew:
+#   - src/syntax_tree_sitter_lang.c 45 -> 54 (+9).  The nine new queries are
+#     ~230 lines of C string literal and nine registry rows, and they
+#     measure ZERO, for the reason slice 8 recorded: scc's C counter does
+#     not look inside a string literal or a comment.  What the +9 buys is
+#     the two things a thirteen-row table needs that a four-row one did not:
+#     a mode -> first-row INDEX, because ts_after_edit_untreed() walks the
+#     registry once per edit that lands on a buffer with no tree and a
+#     linear scan of thirteen rows per keystroke is not free
+#     (registry_index, pmccabe 2; kg_mode_id is dense from zero, so the
+#     index is an array subscript); and per-file-name grammar VARIANTS,
+#     because kg's one TypeScript mode covers .ts and .tsx and tree-sitter
+#     makes those two different grammars with different node inventories
+#     (row_covers, pmccabe 4, and registry_find 3 -> 7, which is the
+#     suffix walk over a mode's rows).
+# Nothing else in src moved: src/syntax.c stays 118 and
+# src/syntax_tree_sitter.c stays 71, even though both changed --
+# syntax_prepare_rows() gained a filename parameter it stores, and
+# ts_language_for() passes b->filename, and neither is a branch point.
+# Bisected on this tree: with src/syntax_tree_sitter_lang.c moved out of
+# src/, the total is 6158, which is HEAD's 6203 minus the 45 that file
+# measured there, so nothing outside it moved:
+#   $ mv src/syntax_tree_sitter_lang.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6158 (limit 99999)
+# pmccabe agrees: two new symbols at 4 and 2 against the 15 new-function
+# budget, one existing symbol moved (registry_find 3 -> 7), and
+# `make pmccabe-check WITH_TREE_SITTER=1` needs no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX
+# stays 520: the file measures 54 -- the ratchet a nine-language slice was
+# most likely to hit is the one it moved least -- and the worst is still
+# src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6211
+#   FAIL: total complexity 6212 exceeds limit 6211
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6212
+#   scc total complexity: 6212 (limit 6212)
+SCC_COMPLEXITY_MAX ?= 6212
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

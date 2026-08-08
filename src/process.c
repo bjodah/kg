@@ -192,6 +192,23 @@ int kg_process_spawn(
 	return spawn_process(req, pid_out, output_fd_out);
 }
 
+/* Not ported: the Windows spawn above builds its child's handles up front
+ * with CreatePipe(), and a second, writable pipe is a different piece of
+ * plumbing rather than a flag on this one.  The only caller is the LSP
+ * transport, which reports the failure as "no server" -- an editor without
+ * a language server, not a broken one -- so this stays a refusal until
+ * something on Windows wants it. */
+int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
+    int *stdin_fd_out, int *stdout_fd_out)
+{
+	(void)req;
+	(void)pid_out;
+	(void)stdin_fd_out;
+	(void)stdout_fd_out;
+	errno = ENOSYS;
+	return -1;
+}
+
 void kg_close_fd(int *fd)
 {
 	if (*fd >= 0) {
@@ -389,6 +406,42 @@ int kg_process_spawn(
 		return -1;
 	}
 	return spawn_process(req, pid_out, output_fd_out);
+}
+
+/* Composed out of kg_process_spawn() rather than beside it: the extra
+ * descriptor a bidirectional child needs is a pipe whose read end goes in
+ * the request's own `stdin_fd`, which is precisely what that field is for
+ * and what shell.c already does with it.  So the fork, the exec, the
+ * process group, the /dev/null fallbacks and the CLOEXEC discipline are
+ * reached, not copied -- both ends of the new pipe are CLOEXEC, and the
+ * one the child keeps loses the flag on the dup2() onto fd 0. */
+int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
+    int *stdin_fd_out, int *stdout_fd_out)
+{
+	struct kg_spawn_request child = *req;
+	int in[2];
+	int saved_errno;
+
+	if (req->stdin_fd >= 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (kg_pipe_cloexec(in) < 0) {
+		return -1;
+	}
+	child.stdin_fd = in[0];
+	child.nonblocking_output = true;
+	if (kg_process_spawn(&child, pid_out, stdout_fd_out) != 0) {
+		saved_errno = errno;
+		close(in[0]);
+		close(in[1]);
+		errno = saved_errno;
+		return -1;
+	}
+	close(in[0]);
+	fcntl(in[1], F_SETFL, O_NONBLOCK);
+	*stdin_fd_out = in[1];
+	return 0;
 }
 
 /* The one place a raw wait status is taken apart: everything above this

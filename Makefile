@@ -250,11 +250,20 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # always built -- the LISP_SRCS shape above, for the same reason: the
 # facade's entry points exist in both configurations, so no caller grows a
 # KG_USE_LSP conditional.  Stage 0 of doc/plans/2026-08-08-lsp.md ships the
-# facade inert, so lsp_core.c is the same no-ops either way; the JSON,
-# transport and client files join this list when WITH_LSP=1 in later
-# stages, and that is when lsp_core.c's halves start to differ.
+# facade inert, so lsp_core.c is the same no-ops either way, and that is
+# when lsp_core.c's halves will start to differ.  Everything BEHIND the
+# facade is WITH_LSP=1 only, and lsp_transport.c (Stage 1) is the first of
+# it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
+ifeq ($(WITH_LSP),1)
+LSP_SRCS += lsp_transport.c
+endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
+# Named so `make clean` removes what THIS configuration did not build,
+# the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
+# `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
+# transport's test binary behind.
+LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -312,6 +321,13 @@ ifeq ($(WITH_TREE_SITTER),0)
 TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
 TESTBINS += $(TESTDIR)/test_syntax_tree_sitter
+endif
+# Same per-axis rule: the transport's suite links src/lsp_transport.o,
+# which only a WITH_LSP=1 build has.  A WITH_LSP=0 tree has no transport
+# to test -- the facade it does have is three no-ops that every other
+# binary already links.
+ifeq ($(WITH_LSP),1)
+TESTBINS += $(TESTDIR)/test_lsp_transport
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -1092,7 +1108,57 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6212 exceeds limit 6211
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6212
 #   scc total complexity: 6212 (limit 6212)
-SCC_COMPLEXITY_MAX ?= 6212
+# Raised 6212 -> 6318 for the LSP transport, Stage 1 (2026-08-08): a
+# bidirectional child process and the Language Server Protocol's
+# base-protocol framing over its two pipes
+# (doc/plans/2026-08-08-lsp.md, Stage 1).  The whole +106 is one new file,
+# and it is a first-of-its-kind module: there was no framing parser and no
+# incremental non-blocking writer in the tree to extend.
+#   - src/lsp_transport.c 0 -> 106, the file's entire measurement.  A byte
+#     parser and two non-blocking pipes are what a comparison-dense
+#     number looks like.  The framing half: parse_length (pmccabe 13, a
+#     digit run with an overflow guard, so a server's absurd
+#     Content-Length is refused rather than wrapped),
+#     headers_content_length (7, skip unknown fields, reject a line with
+#     no colon), header_block_end (7, "\r\n\r\n" with a bare "\n\n"
+#     tolerated), next_header_line (6), line_names (6, field names are
+#     case-insensitive), inbox_take_message (6) and inbox_fill (6).  The
+#     buffering half: buf_reserve (7), buf_append (2), buf_consume (2).
+#     The I/O half: lsp_transport_send (8), lsp_transport_next_message
+#     (6), outbox_write (5), lsp_transport_flush (4), lsp_transport_close
+#     (4), lsp_transport_child_alive (4), lsp_transport_start (3),
+#     io_would_block (3), transport_fail (2), and five accessors at 1.
+#   - src/process.c 12 -> 12 (+0), though it gained kg_process_spawn_bidi()
+#     and a Windows refusal of it.  The new entry point is COMPOSED out of
+#     kg_process_spawn() rather than placed beside it: the child's stdin is
+#     a CLOEXEC pipe handed to the request's own stdin_fd, which is what
+#     shell.c already does with that field, so the fork, the exec, the
+#     process group, the /dev/null fallbacks and the CLOEXEC discipline are
+#     reached and not copied.  Its three guards do not register with scc's
+#     C counter, which is the honest reading of a function that adds no
+#     branch shape the file did not already have.
+# The file measured 111 before io_would_block() was pulled out of the two
+# places that spell "EAGAIN or EWOULDBLOCK or EINTR"; that is the only
+# funding a module with no predecessor had available, and it was taken.
+# Bisected on this tree: with src/lsp_transport.c moved out of src/, the
+# total is 6212, the previous cap exactly, so nothing outside it moved:
+#   $ mv src/lsp_transport.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6212 (limit 99999)
+# pmccabe agrees: 24 new symbols for this slice, the worst 13, all under
+# the 15 new-function budget, and no existing symbol moved -- so `make
+# pmccabe-check` passes with no baseline rewrite.  (It reads src/process.c
+# preprocessor-blind and reports only the _WIN32 half, so the POSIX
+# kg_process_spawn_bidi() -- three guards, 4 counted by hand -- does not
+# appear in its output; it is under budget either way.)
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the new file measures 106, and the worst is still src/bufmgr.c at
+# 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6317
+#   FAIL: total complexity 6318 exceeds limit 6317
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6318
+#   scc total complexity: 6318 (limit 6318)
+SCC_COMPLEXITY_MAX ?= 6318
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1645,6 +1711,11 @@ EXTRA_register    := $(EXTRA_buffer) $(OBJDIR)/register.o
 # does; process_table.o itself is already pulled in by TEST_SRCS_OBJS (see
 # its comment), named again here only for readability.
 EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table.o
+# The transport depends on process.h and POSIX and on nothing else in the
+# editor, so this is the minimal link: its own object, plus the baseline
+# every test binary needs for test.o's harness globals.  process.o comes
+# from TEST_SRCS_OBJS.
+EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
@@ -1755,7 +1826,7 @@ $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) \
+	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(FUZZBINS) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR)

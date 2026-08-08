@@ -53,6 +53,32 @@ struct kg_spawn_request {
 int kg_process_spawn(
     const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out);
 
+/* Like kg_process_spawn(), but the caller also gets a pipe to the child's
+ * standard input, so it can keep talking to a child that keeps answering --
+ * the shape a language server needs, and the one thing kg_process_spawn()
+ * cannot express (its `stdin_fd` is a descriptor the caller already has,
+ * written once and closed).  Both parent-side descriptors come back
+ * O_NONBLOCK and CLOEXEC, because the only caller drives them from a poll
+ * loop and must never block the editor on either direction.
+ *
+ * `req->stdin_fd` must be -1: this function creates the child's stdin
+ * itself, so a descriptor there is a caller bug and is refused with EINVAL
+ * rather than silently ignored -- the field defaults to 0 (kg's own stdin,
+ * the terminal) in a designated initializer that forgets it, which is
+ * exactly the mistake worth failing loudly on.  `req->nonblocking_output`
+ * is likewise ignored: the read end is always non-blocking here.
+ *
+ * `req->stderr_to_output` is honoured, and for a protocol stream it must
+ * be false: a server that writes a log line to stderr would otherwise
+ * splice it into the middle of a message and desynchronise the framing.
+ * lsp_transport_start() forces it false for that reason.
+ *
+ * Returns 0, or -1 with errno set (EINVAL, or whatever pipe()/fork()
+ * failed with).  Same process group as kg_process_spawn(): the child leads
+ * its own, so signalling it reaches the server's own children too. */
+int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
+    int *stdin_fd_out, int *stdout_fd_out);
+
 /* What became of a child, decoded from the wait status the callers would
  * otherwise each pick apart with WIFEXITED and friends.  A collected child
  * either exited, with a code, or died from a signal; the zeroed value

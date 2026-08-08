@@ -256,14 +256,15 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c
+LSP_SRCS += lsp_transport.c lsp_json.c
 endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
 # the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
-LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport
+LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
+          $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -327,7 +328,7 @@ endif
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_lsp_transport
+TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -1158,7 +1159,53 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6318 exceeds limit 6317
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6318
 #   scc total complexity: 6318 (limit 6318)
-SCC_COMPLEXITY_MAX ?= 6318
+# Raised 6318 -> 6413 for the LSP JSON layer, Stage 2 (2026-08-09): the
+# parser and writer JSON-RPC needs, and no more than that
+# (doc/plans/2026-08-08-lsp.md, Stage 2).  The whole +95 is one new file,
+# and the reason it is not smaller is that there was no JSON anywhere in
+# src/ or in vendored code to extend, and the alternative -- a third-party
+# parser -- is the new dependency this repo does not take.
+#   - src/lsp_json.c 0 -> 95, the file's entire measurement.  A strict
+#     parser is a refusal per grammar rule, and the refusals ARE the
+#     feature: what a lenient JSON reader saves in branches it spends
+#     turning a server's typo into a client that navigates somewhere
+#     wrong.  The decoding half: parse_unicode_escape (pmccabe 12,
+#     surrogate pairs and the lone-surrogate refusal), sbuf_push_utf8
+#     (10, the four UTF-8 lengths), parse_string (8), hex_digit (7),
+#     read_hex4 (4), arena_string (3) and parse_escape (3 modified, 11
+#     traditional -- a flat switch over the nine legal escapes).  The
+#     grammar half: parse_element (9), scan_number_tail (8, the fraction
+#     and exponent must each have a digit), parse_number (6),
+#     parse_container (6), scan_int_part (5, where the leading-zero rule
+#     lives), parse_literal (4), skip_ws (6), take_children (3),
+#     parse_value (2, a seven-way switch) and enter (2).  The storage
+#     half: arena_alloc (7), grow (6), stack_push (2), sbuf_push (2).
+#     The reading API: lsp_json_get (7), lsp_json_int (5, the
+#     out-of-range refusal that keeps the cast defined), lsp_json_key_at
+#     (4), lsp_json_str (4), lsp_json_at (3) and five more at 3 or less
+#     -- every one of them NULL-tolerant, which is one branch each and
+#     is what lets a client chain them and check once.  The writer:
+#     w_escaped (4), lsp_jsonw_finish (4), lsp_jsonw_int (3), w_append
+#     (3), lsp_jsonw_bool (3), and eleven appenders at 1, which is the
+#     shape a sticky failure flag buys -- no appender has an error path.
+# Nothing outside the new file changed at all: this stage adds no call
+# site, since Stage 3 is what will have one.
+# Bisected on this tree: with src/lsp_json.c moved out of src/, the total
+# is 6318, the previous cap exactly, so nothing outside it moved:
+#   $ mv src/lsp_json.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6318 (limit 99999)
+# pmccabe agrees: 57 new symbols for this slice, the worst 12, all under
+# the 15 new-function budget, and no existing symbol moved -- so `make
+# pmccabe-check` passes with no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the new file measures 95, and the worst is still src/bufmgr.c at
+# 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6412
+#   FAIL: total complexity 6413 exceeds limit 6412
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6413
+#   scc total complexity: 6413 (limit 6413)
+SCC_COMPLEXITY_MAX ?= 6413
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1716,6 +1763,13 @@ EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table
 # every test binary needs for test.o's harness globals.  process.o comes
 # from TEST_SRCS_OBJS.
 EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_OBJS)
+# The JSON layer depends on the C library and nothing else -- not even
+# process.h -- so its own object would link on its own; the baseline is
+# here because test.o's harness reaches the editor globals stubs.o and
+# TEST_SRCS_OBJS provide, exactly as the transport's suite does.
+# lsp_json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
+# named again for readability.
+EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

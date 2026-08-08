@@ -66,6 +66,29 @@ struct lsp_instance {
 
 static struct lsp_instance instances[LSP_SERVER_MAX_INSTANCES];
 
+/* Whoever wants to be told that a client is about to be disposed of; see
+ * src/lsp_server.h.  One hook, not a list: there is exactly one thing in kg
+ * that keeps per-client state, and a registry of listeners for a single
+ * listener is a table to get wrong. */
+static lsp_instance_drop_fn instance_drop_hook;
+
+void lsp_server_set_instance_drop_hook(lsp_instance_drop_fn fn)
+{
+	instance_drop_hook = fn;
+}
+
+/* Dispose of a slot's client and empty the slot, telling the hook first.
+ * Every path that ends a client goes through here, so there is no way to
+ * free one without whoever kept state about it hearing so. */
+static void instance_drop(struct lsp_instance *slot, unsigned grace_ms)
+{
+	if (instance_drop_hook) {
+		instance_drop_hook(slot->client);
+	}
+	lsp_client_dispose(slot->client, grace_ms);
+	memset(slot, 0, sizeof(*slot));
+}
+
 static const struct lsp_server_spec *spec_for(enum kg_mode_id mode)
 {
 	size_t i;
@@ -261,8 +284,7 @@ static struct lsp_instance *instance_find(
 			continue;
 		}
 		if (lsp_client_state(slot->client) == LSP_CLIENT_DEAD) {
-			lsp_client_dispose(slot->client, 0);
-			memset(slot, 0, sizeof(*slot));
+			instance_drop(slot, 0);
 			return NULL;
 		}
 		return slot;
@@ -371,8 +393,7 @@ void lsp_server_shutdown_all(unsigned grace_ms)
 		if (!instances[i].spec) {
 			continue;
 		}
-		lsp_client_dispose(instances[i].client, each);
-		memset(&instances[i], 0, sizeof(instances[i]));
+		instance_drop(&instances[i], each);
 	}
 }
 

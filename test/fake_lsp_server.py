@@ -55,6 +55,10 @@ Options, all of them optional:
 ``--sync full|incremental|none``
     The ``textDocumentSync`` capability, sent in its object form with
     ``openClose`` true.
+``--no-open-close``
+    Send ``openClose`` false with it: a server that wants no documents
+    pushed to it at all, which with ``--sync none`` is the whole of the
+    "this server reads files from disk" configuration.
 ``--definition URI:LINE:CHAR`` / ``--definition-none``
     What ``textDocument/definition`` answers: one Location, or JSON null.
 ``--reference URI:LINE:CHAR`` (repeatable)
@@ -80,6 +84,13 @@ Options, all of them optional:
     Answer ``kg/echo`` requests in pairs, second one first, so a client
     that matched responses by arrival order instead of by id gets them
     swapped.
+``--record FILE``
+    Append one JSON object per line to FILE for every
+    ``textDocument/did*`` notification received --
+    ``{"method": ..., "params": ...}`` -- flushed and fsync'd before the
+    reply that follows it, so a test polling the file sees a whole line or
+    no line and never half of one.  This is how the document-sync tests
+    (Stage 4) assert the exact payload kg sent rather than an effect of it.
 
 Two methods exist only for the tests, and are named with kg's own prefix so
 they cannot be confused with the protocol's:
@@ -95,6 +106,7 @@ they cannot be confused with the protocol's:
 
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -236,7 +248,7 @@ class Protocol:
             "capabilities": {
                 "positionEncoding": self.args.position_encoding,
                 "textDocumentSync": {
-                    "openClose": True,
+                    "openClose": not self.args.no_open_close,
                     "change": SYNC_KINDS[self.args.sync],
                 },
                 "definitionProvider": True,
@@ -270,10 +282,27 @@ class Protocol:
         error = message.get("error") or {}
         self.method_not_found = error.get("code") == -32601
 
+    def record(self, message):
+        """Append a document notification to --record, whole line or none.
+
+        Opened, written and closed per line so the file is complete after
+        every one of them: a test reading it concurrently must never see a
+        line the server is still in the middle of writing."""
+        method = message.get("method", "")
+        if not self.args.record or not method.startswith("textDocument/did"):
+            return
+        line = json.dumps({"method": method,
+                           "params": message.get("params")})
+        with open(self.args.record, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
     def on_request(self, message):
         method = message["method"]
         if method == "exit":
             raise SystemExit(0)
+        self.record(message)
         self.greet()
         if self.args.die_on and method == self.args.die_on:
             raise SystemExit(1)
@@ -332,6 +361,8 @@ def main(argv):
     parser.add_argument("--sync", default="incremental",
                         choices=sorted(SYNC_KINDS),
                         help="textDocumentSync change kind (protocol)")
+    parser.add_argument("--no-open-close", action="store_true",
+                        help="advertise openClose false (protocol)")
     parser.add_argument("--definition", default=None,
                         help="URI:LINE:CHAR answered to definition requests")
     parser.add_argument("--definition-none", action="store_true",
@@ -350,6 +381,9 @@ def main(argv):
                         help="exit without replying when this method arrives")
     parser.add_argument("--reverse-pairs", action="store_true",
                         help="answer kg/echo requests in pairs, reversed")
+    parser.add_argument("--record", default=None,
+                        help="file to append received didOpen/didChange/"
+                             "didClose params to, one JSON object per line")
     args = parser.parse_args(argv[1:])
     MODES[args.mode](sys.stdin.buffer, sys.stdout.buffer, args)
     return 0

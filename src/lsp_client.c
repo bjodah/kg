@@ -24,6 +24,7 @@
 
 #include "lsp_json.h"
 #include "lsp_transport.h"
+#include "lsp_uri.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -84,58 +85,6 @@ struct lsp_client {
 	char root[PATH_MAX];
 };
 
-/* ------------------------------ file URIs ----------------------------- */
-
-/* RFC 3986's unreserved set, plus the separator a path is made of.  A table
- * would be shorter to read and longer to check; this is the definition
- * spelled out, which is what a reader comparing it against the RFC wants. */
-static bool uri_plain_byte(unsigned char c)
-{
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-	    || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_'
-	    || c == '~' || c == '/';
-}
-
-/* Percent-encode a path into a file: URI.  Deliberately the minimum: this
- * is the one URI the client itself has to write, and Stage 4 owns the real
- * URI story (encode and decode, both directions, against real server
- * output).  Until then, encoding everything outside the unreserved set is
- * the conservative choice -- over-encoding a byte is legal and readable,
- * under-encoding one is a URI a server may reject.
- *
- * Returns false when the result would not fit, which the caller reads as
- * "send no rootUri" rather than as an error: a server with no workspace
- * root still works. */
-static bool path_to_file_uri(const char *path, char *out, size_t out_size)
-{
-	static const char hex[] = "0123456789ABCDEF";
-	size_t n = 0;
-	size_t i;
-
-	if (out_size < 8) {
-		return false;
-	}
-	memcpy(out, "file://", 7);
-	n = 7;
-	for (i = 0; path[i]; i++) {
-		unsigned char c = (unsigned char)path[i];
-		bool plain = uri_plain_byte(c);
-
-		if (n + (plain ? 1u : 3u) >= out_size) {
-			return false;
-		}
-		if (plain) {
-			out[n++] = (char)c;
-			continue;
-		}
-		out[n++] = '%';
-		out[n++] = hex[c >> 4];
-		out[n++] = hex[c & 0x0f];
-	}
-	out[n] = '\0';
-	return true;
-}
-
 /* ---------------------------- message building ------------------------ */
 
 /* Build one JSON-RPC message: `{"jsonrpc":"2.0"[,"id":N],"method":...
@@ -180,7 +129,7 @@ static char *build_initialize(const char *root, size_t *out_len)
 	char uri[PATH_MAX + 64];
 	char *text = NULL;
 	bool have_root
-	    = root && root[0] && path_to_file_uri(root, uri, sizeof(uri));
+	    = root && root[0] && lsp_uri_from_path(root, uri, sizeof(uri));
 
 	lsp_jsonw_init(&w);
 	lsp_jsonw_begin_object(&w);

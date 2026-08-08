@@ -256,7 +256,8 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c lsp_json.c lsp_client.c lsp_server.c
+LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
+            lsp_sync.c
 endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
@@ -265,8 +266,10 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # transport's test binary behind.
 LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
+          $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
-          $(TESTDIR)/test_lsp_client
+          $(TESTDIR)/test_lsp_client \
+          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -331,7 +334,7 @@ endif
 # binary already links.
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
-            $(TESTDIR)/test_lsp_client
+            $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -1261,7 +1264,64 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6582 exceeds limit 6581
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6582
 #   scc total complexity: 6582 (limit 6582)
-SCC_COMPLEXITY_MAX ?= 6582
+# Raised 6582 -> 6700 for document synchronisation and positions, Stage 4
+# (2026-08-09): the shadow snapshots and the one contiguous replacement they
+# yield, the UTF-8/UTF-16 position conversions, and the file: URIs both the
+# client and the sync layer write (doc/plans/2026-08-08-lsp.md, Stage 4).
+# The whole +118 is two new files minus a deletion, and the deletion is the
+# point of the second one:
+#   - src/lsp_sync.c 0 -> 84.  The boundary module -- the only one in the
+#     LSP stack that reads a buffer -- and the count is three ideas.  The
+#     positions: utf8_seq_len (pmccabe 8, the four sequence lengths and
+#     every way a byte fails to start one, since kg never refuses to show a
+#     file and so must never refuse to say where a position in one is),
+#     lsp_pos_utf16_from_byte (4), lsp_pos_byte_from_utf16 (4),
+#     lsp_pos_encode (3), lsp_pos_decode (3), point_at (3).  The diff:
+#     diff_of (11, two scans and the two boundary walks that keep a range
+#     from starting or ending inside a character), is_utf8_cont (1).  The
+#     table and the notifications: lsp_sync_before_request (7, the four
+#     states a document can be in), doc_open (6), abs_path_of (6, a buffer
+#     stores the name it was opened with and a relative URI is one the
+#     server resolves somewhere else), lsp_sync_close_buffer (4), doc_find
+#     (4), language_id_of (3), doc_free_slot (3), doc_change (3),
+#     lsp_sync_drop_client (3), same_buffer (3), and eleven builders and
+#     accessors at 2 or 1 -- which is what a sticky-failure JSON writer
+#     buys: no appender has an error path, so a whole didOpen is one
+#     branch-free function.
+#   - src/lsp_uri.c 0 -> 52, of which 17 is not new: uri_plain_byte (11)
+#     and the encoder (lsp_uri_from_path, 8, was 6) MOVED here out of
+#     src/lsp_client.c, which drops 111 -> 92 for exactly that reason.  The
+#     genuinely new half is the decoder Stage 4 needs and Stage 3 did not:
+#     lsp_uri_to_path (13, the percent-decode with its two refusals -- a
+#     malformed escape, and %00, which is how a check on a whole path ends
+#     up applied to a prefix of it), uri_path_start (7, the scheme and the
+#     empty-or-localhost authority), hex_value (7), ascii_prefix_ieq (3),
+#     ascii_lower (3).  A separate module and not a corner of the sync
+#     because two callers need it and only one of them may see the editor.
+#   - src/lsp_server.c 58 -> 59 (+1): instance_drop (3), the one funnel
+#     every path that ends a client now goes through, so that whoever kept
+#     per-client state hears about it.  The hook is a function pointer the
+#     registry is handed rather than a call into src/lsp_sync.h, which
+#     would put an editor dependency underneath the registry and cost every
+#     test binary that links it a buffer table.
+#   - src/lsp_core.c 0 -> 0: lsp_init() went from empty to one call.
+# Bisected on this tree: with both new files moved out of src/, the total is
+# 6564, which is the previous cap minus the 19 src/lsp_client.c gave up and
+# plus the 1 src/lsp_server.c took on, so nothing else moved:
+#   $ mv src/lsp_uri.c src/lsp_sync.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6564 (limit 99999)
+# pmccabe agrees: 38 new symbols for this slice, the worst 13, all under
+# the 15 new-function budget, and no existing symbol moved -- so `make
+# pmccabe-check` passes with no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the new files measure 84 and 52, and the worst is still
+# src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6699
+#   FAIL: total complexity 6700 exceeds limit 6699
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6700
+#   scc total complexity: 6700 (limit 6700)
+SCC_COMPLEXITY_MAX ?= 6700
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1834,7 +1894,19 @@ EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
 # readability, as the two suites above do.
 EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
                     $(OBJDIR)/lsp_server.o $(OBJDIR)/lsp_transport.o \
-                    $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
+                    $(OBJDIR)/lsp_json.o $(OBJDIR)/lsp_uri.o \
+                    $(TEST_SRCS_OBJS)
+# Document sync is the one LSP module that reads buffers, so its suite is
+# the first that cannot use the minimal baseline above: it builds real
+# buffers, edits them through the edit transaction and watches the shadow
+# follow the content generation.  That is EXTRA_buffer's link exactly --
+# real bufmgr.o, so buf_handle()/buf_resolve() are the editor's rather than
+# test.c's weak stand-ins -- and every lsp_*.o it needs on top of that
+# already arrives through TEST_SRCS_OBJS' $(LSP_OBJS), named here for
+# readability as the three suites above do.
+EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
+                  $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
+                  $(OBJDIR)/lsp_transport.o $(OBJDIR)/lsp_json.o
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

@@ -15,6 +15,7 @@
 #ifdef KG_USE_LSP
 
 #include "lsp_server.h"
+#include "lsp_sync.h"
 
 /* The whole budget for winding every running server down, split between
  * them by the registry.  Three tenths of a second is chosen against what
@@ -25,11 +26,15 @@
  * is exiting, and the transport's SIGKILL is the backstop. */
 #define LSP_SHUTDOWN_GRACE_MS 300u
 
-/* Nothing to do.  Servers are started lazily by the first command that
- * needs one, so an editor session that never runs an xref command never
- * spawns anything -- which is why there is no configuration to read here
- * and no table to build. */
-void lsp_init(void) { }
+/* Nothing is started here.  Servers are spawned lazily by the first command
+ * that needs one, so an editor session that never runs an xref command
+ * never spawns anything -- which is why there is no configuration to read
+ * and no table to build.  The one thing that must happen once is the wiring
+ * between the registry and the document sync: the registry tells whoever is
+ * listening that it is about to dispose of a client, and the sync layer is
+ * what listens, so that a reclaimed instance leaves no shadow behind
+ * pointing at a freed client (src/lsp_sync.h). */
+void lsp_init(void) { lsp_sync_install(); }
 
 void lsp_shutdown(void) { lsp_server_shutdown_all(LSP_SHUTDOWN_GRACE_MS); }
 

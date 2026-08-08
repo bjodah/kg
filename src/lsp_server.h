@@ -86,6 +86,22 @@ const char *lsp_server_status_text(enum lsp_server_status status);
 bool lsp_workspace_root(
     enum kg_mode_id mode, const char *abs_path, char *out, size_t out_size);
 
+/* Told just before an instance's client is disposed of, whether that is a
+ * dead server's slot being reclaimed or the whole registry shutting down.
+ *
+ * It exists so that state kept per client -- Stage 4's document shadows --
+ * can be forgotten without this module knowing what that state is.  The
+ * alternative, calling src/lsp_sync.h from here, would put an editor
+ * dependency underneath the registry and cost every test binary that links
+ * it a buffer table.  NULL, the default, means nobody is listening.
+ *
+ * The client is still valid when the hook runs and is gone immediately
+ * afterwards, so a hook that wants to send the server anything must do it
+ * there -- and Stage 4's does not, because a client being disposed of is
+ * one whose server is dead or exiting. */
+typedef void (*lsp_instance_drop_fn)(struct lsp_client *c);
+void lsp_server_set_instance_drop_hook(lsp_instance_drop_fn fn);
+
 /* Poll every live instance.  Returns nonzero when anything happened,
  * unchanged from lsp_client_poll(), which is lsp_poll()'s repaint
  * convention.  This is what src/lsp_core.c calls from the editor's two poll

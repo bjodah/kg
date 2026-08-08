@@ -596,7 +596,38 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 5841 exceeds limit 5840
 #   $ make complexity-check SCC_COMPLEXITY_MAX=5841
 #   scc total complexity: 5841 (limit 5841)
-SCC_COMPLEXITY_MAX ?= 5841
+# Raised 5841 -> 5996 for the Windows support commit (6475c0c,
+# 2026-08-08), which landed without a pre-priced Decision; this entry
+# banks it after the fact instead of before. +155 buys the new
+# src/platform.c (+137: the POSIX shims Windows lacks -- kg_poll,
+# kg_realpath, kg_console_enable/disable, the opendir/readdir/closedir
+# trio, and the rest kg_dirent.h declares), the new stdckdint.h (+19: a
+# <stdckdint.h> polyfill for toolchains that predate the C23 header), the
+# #ifdef _WIN32 branch dired_collect_flagged()/dired_delete_verified()
+# picked up beside the fstatat identity path (+8, doc/coordinates.md-style
+# platform split, not a behaviour change on POSIX), tty.c's console-mode
+# handling (+8), process_table.c's poll_entry() Windows branch (+4), and
+# +1 each in compile.c and main.c. src/process.c's own scc score DROPPED
+# 26 despite gaining the CreateProcess-based spawn_process() (pmccabe 5 ->
+# 19): scc and pmccabe disagree on which way this file moved, the same
+# split the CX campaign's sub-plan D note above already records for
+# generic_keyword_scan/do_isearch -- more lines, fewer scc-countable
+# branches. Cap equals the measured actual, no slack. Proof on the same
+# tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5995
+#   FAIL: total complexity 5996 exceeds limit 5995
+#   $ make complexity-check SCC_COMPLEXITY_MAX=5996
+#   scc total complexity: 5996 (limit 5996)
+# The pmccabe baseline is banked the same way (make pmccabe-baseline
+# PMCCABE_BASELINE_ARGS=--allow-regressions, since these are increases,
+# not the improvements that command exists for): kg_poll is a new
+# function at 20 against the 15 new-function budget; spawn_process 5 ->
+# 19; compilation_poll 22 -> 23; poll_entry 14 -> 16; main 10 -> 11;
+# dired_collect_flagged 7 -> 8 and dired_delete_verified 4 -> 5, one
+# extra branch apiece from the #ifdef _WIN32 identity path above.
+# SCC_FILE_COMPLEXITY_MAX stays 520 (worst file is still src/bufmgr.c,
+# unchanged by this commit at 498).
+SCC_COMPLEXITY_MAX ?= 5996
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

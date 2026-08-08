@@ -27,8 +27,50 @@ struct erow;
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
 #define HL_HIGHLIGHT_NUMBERS (1 << 1)
 
+/* Stable identity of an editor mode, independent of how -- or whether --
+ * it highlights.  Every struct editor_syntax carries one: the HLDB
+ * registry entries in syntax.c and the synthetic records bufmgr.c and
+ * dired.c own, so no non-highlighting behavior has to recognize a mode by
+ * its highlighter function pointer.  KG_MODE_TEXT is first, and is the
+ * mode a zero-initialized record names. */
+enum kg_mode_id {
+	KG_MODE_TEXT = 0,
+	/* The HLDB registry, in table order. */
+	KG_MODE_C,
+	KG_MODE_PYTHON,
+	KG_MODE_SHELL,
+	KG_MODE_JAVASCRIPT,
+	KG_MODE_RUST,
+	KG_MODE_JAVA,
+	KG_MODE_TYPESCRIPT,
+	KG_MODE_CSHARP,
+	KG_MODE_PHP,
+	KG_MODE_RUBY,
+	KG_MODE_SWIFT,
+	KG_MODE_SQL,
+	KG_MODE_DART,
+	KG_MODE_HTML,
+	KG_MODE_REACT,
+	KG_MODE_VUE,
+	KG_MODE_ANGULAR,
+	KG_MODE_SVELTE,
+	KG_MODE_MAKEFILE,
+	KG_MODE_MARKDOWN,
+	KG_MODE_LISP,
+	KG_MODE_GIT_COMMIT,
+	KG_MODE_GIT_REBASE,
+	KG_MODE_YAML,
+	/* Synthetic modes, deliberately outside HLDB: never selected by a
+	 * filename, so syntax_find_by_mode() does not resolve them. */
+	KG_MODE_IBUFFER,
+	KG_MODE_COMPILATION,
+	KG_MODE_LISP_INTERACTION,
+	KG_MODE_DIRED,
+};
+
 /* Syntax highlight definition */
 struct editor_syntax {
+	enum kg_mode_id id;
 	char *name; /* Display name shown in mode line, e.g. "C", "Python" */
 	char **filematch;
 	char **keywords;
@@ -48,6 +90,7 @@ int editor_row_has_open_comment(struct erow *row);
 void editor_update_syntax(struct editor_buffer *b, struct erow *row);
 void editor_rehighlight_from(struct editor_buffer *b, int start_idx);
 struct editor_syntax *syntax_find_by_name(const char *name);
+struct editor_syntax *syntax_find_by_mode(enum kg_mode_id id);
 void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax);
 void editor_rehighlight_all(struct editor_buffer *b);
 int editor_syntax_to_color(int hl);

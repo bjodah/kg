@@ -26,10 +26,10 @@ static void dired_highlight(struct editor_buffer *b, erow *row);
 
 /* Synthetic syntax record, deliberately outside HLDB: a dired buffer is
  * never selected by filename.  syntax_is_dired() compares this record's
- * address where the other syntax_is_* helpers compare highlighter
- * pointers, so attaching a highlighter changes nothing elsewhere. */
+ * address, and KG_MODE_DIRED names the mode for anyone who cannot, so
+ * attaching a highlighter changes nothing elsewhere. */
 static struct editor_syntax dired_syntax
-    = { "Dired", NULL, NULL, "", "", "", 0, dired_highlight };
+    = { KG_MODE_DIRED, "Dired", NULL, NULL, "", "", "", 0, dired_highlight };
 
 /* A dired buffer is named DIRED_PREFIX, the absolute directory, then '*'.
  * The name is the mode's only state: dired_dir_of() reads the directory

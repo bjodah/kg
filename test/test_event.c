@@ -922,7 +922,7 @@ static void test_producer_failed_save_produces_before_and_unsuccessful_after(
 static void test_producer_mode_changed_carries_name(void)
 {
 	setup();
-	struct editor_syntax syn = { .name = "Python" };
+	struct editor_syntax syn = { .id = KG_MODE_PYTHON, .name = "Python" };
 
 	editor_set_syntax(bcur(), &syn);
 	CHECK(bcur()->syntax == &syn);

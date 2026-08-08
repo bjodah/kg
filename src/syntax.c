@@ -603,54 +603,63 @@ static void gitrebase_syntax(struct editor_buffer *b, erow *row);
 static void yaml_syntax(struct editor_buffer *b, erow *row);
 static void editor_update_syntax_row_only(struct editor_buffer *b, erow *row);
 
+/* The mode registry.  The first column is the entry's stable identity
+ * (syntax.h's enum kg_mode_id), which is what mode semantics compares --
+ * never the highlighter in the last column.  A row is what
+ * syntax_find_by_name() and syntax_find_by_mode() hand back. */
 struct editor_syntax HLDB[] = {
-	{ "C", C_HL_extensions, C_HL_keywords, "//", "/*", "*/",
+	{ KG_MODE_C, "C", C_HL_extensions, C_HL_keywords, "//", "/*", "*/",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Python", PYTHON_HL_extensions, PYTHON_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Shell", SHELL_HL_extensions, SHELL_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "JavaScript", JS_HL_extensions, JS_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Rust", RUST_HL_extensions, RUST_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Java", JAVA_HL_extensions, JAVA_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "TypeScript", TS_HL_extensions, TS_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "C#", CSHARP_HL_extensions, CSHARP_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "PHP", PHP_HL_extensions, PHP_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Ruby", RUBY_HL_extensions, RUBY_HL_keywords, "#", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Swift", SWIFT_HL_extensions, SWIFT_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "SQL", SQL_HL_extensions, SQL_HL_keywords, "--", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Dart", DART_HL_extensions, DART_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "HTML", HTML_HL_extensions, HTML_HL_keywords, "<!--", "", "-->",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "React", REACT_HL_extensions, REACT_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Vue", VUE_HL_extensions, VUE_HL_keywords, "//", "/*", "*/",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Angular", ANGULAR_HL_extensions, ANGULAR_HL_keywords, "//", "/*",
+	{ KG_MODE_PYTHON, "Python", PYTHON_HL_extensions, PYTHON_HL_keywords,
+	    "#", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_SHELL, "Shell", SHELL_HL_extensions, SHELL_HL_keywords, "#",
+	    "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_JAVASCRIPT, "JavaScript", JS_HL_extensions, JS_HL_keywords,
+	    "//", "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS,
+	    NULL },
+	{ KG_MODE_RUST, "Rust", RUST_HL_extensions, RUST_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_JAVA, "Java", JAVA_HL_extensions, JAVA_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_TYPESCRIPT, "TypeScript", TS_HL_extensions, TS_HL_keywords,
+	    "//", "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS,
+	    NULL },
+	{ KG_MODE_CSHARP, "C#", CSHARP_HL_extensions, CSHARP_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_PHP, "PHP", PHP_HL_extensions, PHP_HL_keywords, "//", "/*",
 	    "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Svelte", SVELTE_HL_extensions, SVELTE_HL_keywords, "//", "/*", "*/",
+	{ KG_MODE_RUBY, "Ruby", RUBY_HL_extensions, RUBY_HL_keywords, "#", "",
+	    "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_SWIFT, "Swift", SWIFT_HL_extensions, SWIFT_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_SQL, "SQL", SQL_HL_extensions, SQL_HL_keywords, "--", "/*",
+	    "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_DART, "Dart", DART_HL_extensions, DART_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_HTML, "HTML", HTML_HL_extensions, HTML_HL_keywords, "<!--",
+	    "", "-->", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_REACT, "React", REACT_HL_extensions, REACT_HL_keywords, "//",
+	    "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_VUE, "Vue", VUE_HL_extensions, VUE_HL_keywords, "//", "/*",
+	    "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_ANGULAR, "Angular", ANGULAR_HL_extensions,
+	    ANGULAR_HL_keywords, "//", "/*", "*/",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Makefile", MAKE_HL_extensions, NULL, "", "", "", 0,
+	{ KG_MODE_SVELTE, "Svelte", SVELTE_HL_extensions, SVELTE_HL_keywords,
+	    "//", "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS,
+	    NULL },
+	{ KG_MODE_MAKEFILE, "Makefile", MAKE_HL_extensions, NULL, "", "", "", 0,
 	    makefile_syntax },
-	{ "Markdown", MD_HL_extensions, MD_HL_keywords, "", "", "", 0,
-	    markdown_syntax },
-	{ "Lisp", LISP_HL_extensions, LISP_HL_keywords, ";", "", "",
-	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
-	{ "Git commit", GITCOMMIT_HL_extensions, NULL, "", "", "", 0,
-	    gitcommit_syntax },
-	{ "Git rebase", GITREBASE_HL_extensions, NULL, "", "", "", 0,
-	    gitrebase_syntax },
-	{ "YAML", YAML_HL_extensions, NULL, "#", "", "", 0, yaml_syntax },
+	{ KG_MODE_MARKDOWN, "Markdown", MD_HL_extensions, MD_HL_keywords, "",
+	    "", "", 0, markdown_syntax },
+	{ KG_MODE_LISP, "Lisp", LISP_HL_extensions, LISP_HL_keywords, ";", "",
+	    "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_GIT_COMMIT, "Git commit", GITCOMMIT_HL_extensions, NULL, "",
+	    "", "", 0, gitcommit_syntax },
+	{ KG_MODE_GIT_REBASE, "Git rebase", GITREBASE_HL_extensions, NULL, "",
+	    "", "", 0, gitrebase_syntax },
+	{ KG_MODE_YAML, "YAML", YAML_HL_extensions, NULL, "#", "", "", 0,
+	    yaml_syntax },
 };
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -938,8 +947,7 @@ static void makefile_syntax(struct editor_buffer *b, erow *row)
 /* True when the current buffer is a git commit/merge/tag message. */
 int syntax_is_git_commit(void)
 {
-	return bcur()->syntax
-	    && (bcur()->syntax->highlight == gitcommit_syntax);
+	return bcur()->syntax && bcur()->syntax->id == KG_MODE_GIT_COMMIT;
 }
 
 /* Row index of the commit subject: the first non-blank row that is not
@@ -1017,8 +1025,7 @@ static const struct gitrebase_action gitrebase_actions[] = {
 /* True when the current buffer is a git-rebase-todo. */
 int syntax_is_git_rebase(void)
 {
-	return bcur()->syntax
-	    && (bcur()->syntax->highlight == gitrebase_syntax);
+	return bcur()->syntax && bcur()->syntax->id == KG_MODE_GIT_REBASE;
 }
 
 /* Index into gitrebase_actions for the word at p[0..len), or -1. */
@@ -1912,6 +1919,20 @@ struct editor_syntax *syntax_find_by_name(const char *name)
 	int j;
 	for (j = 0; j < (int)HLDB_ENTRIES; j++) {
 		if (strcmp(HLDB[j].name, name) == 0) {
+			return &HLDB[j];
+		}
+	}
+	return NULL;
+}
+
+/* The registry entry for a mode id, or NULL.  The synthetic modes
+ * (Text, IBuffer, Compilation, Lisp Interaction, Dired) live outside HLDB
+ * and never resolve here; their records are owned by bufmgr.c and dired.c. */
+struct editor_syntax *syntax_find_by_mode(enum kg_mode_id id)
+{
+	int j;
+	for (j = 0; j < (int)HLDB_ENTRIES; j++) {
+		if (HLDB[j].id == id) {
 			return &HLDB[j];
 		}
 	}

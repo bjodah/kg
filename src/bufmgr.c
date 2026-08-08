@@ -58,12 +58,14 @@ static void buf_picker_cycle(int *selection, int matches, int direction);
 
 /* Synthetic syntax records for special modes. */
 static struct editor_syntax ibuffer_syntax
-    = { "IBuffer", NULL, NULL, "", "", "", 0, NULL };
-struct editor_syntax text_syntax = { "Text", NULL, NULL, "", "", "", 0, NULL };
-struct editor_syntax lisp_interaction_syntax = { "Lisp Interaction", NULL, NULL,
-	";", "", "", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL };
+    = { KG_MODE_IBUFFER, "IBuffer", NULL, NULL, "", "", "", 0, NULL };
+struct editor_syntax text_syntax
+    = { KG_MODE_TEXT, "Text", NULL, NULL, "", "", "", 0, NULL };
+struct editor_syntax lisp_interaction_syntax
+    = { KG_MODE_LISP_INTERACTION, "Lisp Interaction", NULL, NULL, ";", "", "",
+	      HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL };
 struct editor_syntax compilation_syntax
-    = { "Compilation", NULL, NULL, "", "", "", 0, NULL };
+    = { KG_MODE_COMPILATION, "Compilation", NULL, NULL, "", "", "", 0, NULL };
 
 /* Column offset of the filename field in a *Buffer List* data row.
  * Format: " %c  %-24s  %6d  %-14s  %s"

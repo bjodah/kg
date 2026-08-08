@@ -8,8 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern struct editor_syntax HLDB[]; /* defined in syntax.c */
-
 /* ---- Helpers ---- */
 
 static void setup(void)
@@ -202,7 +200,8 @@ static void test_join_line_cursor_at_join(void)
 static void test_comment_dwim_add(void)
 {
 	setup();
-	bcur()->syntax = &HLDB[0]; /* C syntax: scs = "//" */
+	bcur()->syntax
+	    = syntax_find_by_mode(KG_MODE_C); /* C syntax: scs = "//" */
 	editor_insert_row(bcur(), 0, "int x;", 6);
 	cursor_home();
 	kg_mark_clear(bcur());
@@ -218,7 +217,7 @@ static void test_comment_dwim_add(void)
 static void test_comment_dwim_remove(void)
 {
 	setup();
-	bcur()->syntax = &HLDB[0];
+	bcur()->syntax = syntax_find_by_mode(KG_MODE_C);
 	editor_insert_row(bcur(), 0, "// int x;", 9);
 	cursor_home();
 	kg_mark_clear(bcur());
@@ -242,7 +241,7 @@ static void test_comment_dwim_moves_generation_when_already_dirty(void)
 	uint64_t generation;
 
 	setup();
-	bcur()->syntax = &HLDB[0];
+	bcur()->syntax = syntax_find_by_mode(KG_MODE_C);
 	editor_insert_row(bcur(), 0, "int x;", 6);
 	cursor_home();
 	kg_mark_clear(bcur());
@@ -275,7 +274,7 @@ static void test_comment_dwim_no_syntax(void)
 static void test_comment_dwim_region_excludes_final_bol_line(void)
 {
 	setup();
-	bcur()->syntax = &HLDB[0];
+	bcur()->syntax = syntax_find_by_mode(KG_MODE_C);
 	editor_insert_row(bcur(), 0, "a += 1;", 7);
 	editor_insert_row(bcur(), 1, "b += 2;", 7);
 	editor_insert_row(bcur(), 2, "return a + b;", 13);

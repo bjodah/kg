@@ -7,10 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* HLDB is defined in syntax.c; not declared in def.h since it is an
- * implementation detail, but tests need direct access to pick a language. */
-extern struct editor_syntax HLDB[];
-
 /* ---- Helpers ---- */
 
 static void setup(struct editor_syntax *syn)
@@ -124,7 +120,7 @@ static void test_syntax_to_color(void)
 	CHECK(editor_syntax_to_color(HL_NORMAL) == 37);
 }
 
-/* ---- C syntax tests (HLDB[0]) ---- */
+/* ---- C syntax tests (KG_MODE_C) ---- */
 
 /* "int x;" → "int" is a type keyword (HL_KEYWORD2, the trailing-| group). */
 static void test_c_type_keyword(void)
@@ -278,7 +274,7 @@ static void test_c_no_partial_keyword(void)
 	teardown();
 }
 
-/* ---- Makefile syntax tests (HLDB[18]) ---- */
+/* ---- Makefile syntax tests (KG_MODE_MAKEFILE) ---- */
 
 /* "all: src" → the target name "all" is HL_KEYWORD1. */
 static void test_make_target(void)
@@ -333,7 +329,7 @@ static void test_make_comment(void)
 	teardown();
 }
 
-/* ---- Markdown syntax tests (HLDB[19]) ---- */
+/* ---- Markdown syntax tests (KG_MODE_MARKDOWN) ---- */
 
 /* "# Heading" → fully HL_KEYWORD1. */
 static void test_md_atx_heading(void)
@@ -421,7 +417,7 @@ static void test_md_unmatched_bold(void)
 	teardown();
 }
 
-/* ---- Git commit syntax tests (HLDB[21]) ---- */
+/* ---- Git commit syntax tests (KG_MODE_GIT_COMMIT) ---- */
 
 /* "# comment line" -> every byte HL_COMMENT. */
 static void test_gitcommit_comment_line(void)
@@ -762,8 +758,8 @@ static void dummy_highlight(struct editor_buffer *b, struct erow *row)
 /* Custom highlighter hook test */
 static void test_custom_highlighter_pointer(void)
 {
-	struct editor_syntax dummy_syntax
-	    = { "Dummy", NULL, NULL, "", "", "", 0, dummy_highlight };
+	struct editor_syntax dummy_syntax = { KG_MODE_TEXT, "Dummy", NULL, NULL,
+		"", "", "", 0, dummy_highlight };
 	setup(&dummy_syntax);
 	editor_insert_row(bcur(), 0, "hello", 5);
 	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
@@ -831,8 +827,8 @@ static void counting_highlight(struct editor_buffer *b, struct erow *row)
 static void test_rehighlight_all_linear_complexity(void)
 {
 	int i;
-	struct editor_syntax counting_syntax
-	    = { "Counting", NULL, NULL, "", "", "", 0, counting_highlight };
+	struct editor_syntax counting_syntax = { KG_MODE_TEXT, "Counting", NULL,
+		NULL, "", "", "", 0, counting_highlight };
 	setup(&counting_syntax);
 
 	for (i = 0; i < 200; i++) {
@@ -1344,6 +1340,69 @@ static void test_yaml_malformed_escape_at_eol_no_crash(void)
 	teardown();
 }
 
+/* ---- Mode identity ---- */
+
+/* Every registry mode resolves to its own HLDB entry, and no two entries
+ * share an id: a duplicate would leave some registry id unresolvable, and
+ * the loop below would see the NULL.  The synthetic modes are deliberately
+ * outside HLDB and must not resolve at all. */
+static void test_mode_ids_are_unique_and_resolve(void)
+{
+	struct editor_syntax *seen[KG_MODE_YAML + 1];
+	int id, other;
+
+	for (id = KG_MODE_C; id <= KG_MODE_YAML; id++) {
+		seen[id] = syntax_find_by_mode((enum kg_mode_id)id);
+		CHECK(seen[id] != NULL);
+		CHECK(seen[id]->id == (enum kg_mode_id)id);
+		for (other = KG_MODE_C; other < id; other++) {
+			CHECK(seen[other] != seen[id]);
+		}
+	}
+
+	CHECK(syntax_find_by_mode(KG_MODE_TEXT) == NULL);
+	CHECK(syntax_find_by_mode(KG_MODE_IBUFFER) == NULL);
+	CHECK(syntax_find_by_mode(KG_MODE_COMPILATION) == NULL);
+	CHECK(syntax_find_by_mode(KG_MODE_LISP_INTERACTION) == NULL);
+	CHECK(syntax_find_by_mode(KG_MODE_DIRED) == NULL);
+}
+
+/* The two lookups are two views of one table. */
+static void test_mode_lookup_agrees_with_name_lookup(void)
+{
+	CHECK(syntax_find_by_mode(KG_MODE_C) == syntax_find_by_name("C"));
+	CHECK(syntax_find_by_mode(KG_MODE_MAKEFILE)
+	    == syntax_find_by_name("Makefile"));
+	CHECK(syntax_find_by_mode(KG_MODE_GIT_COMMIT)
+	    == syntax_find_by_name("Git commit"));
+	CHECK(syntax_find_by_mode(KG_MODE_GIT_REBASE)
+	    == syntax_find_by_name("Git rebase"));
+	CHECK(syntax_find_by_mode(KG_MODE_YAML) == syntax_find_by_name("YAML"));
+}
+
+/* syntax_is_git_commit()/syntax_is_git_rebase() answer for the mode the
+ * current buffer is in, and for no other mode -- they used to recognize
+ * it by its highlighter function pointer. */
+static void test_git_mode_predicates_follow_mode_id(void)
+{
+	setup(syntax_find_by_mode(KG_MODE_GIT_COMMIT));
+	CHECK(syntax_is_git_commit());
+	CHECK(!syntax_is_git_rebase());
+
+	setup(syntax_find_by_mode(KG_MODE_GIT_REBASE));
+	CHECK(!syntax_is_git_commit());
+	CHECK(syntax_is_git_rebase());
+
+	setup(syntax_find_by_mode(KG_MODE_C));
+	CHECK(!syntax_is_git_commit());
+	CHECK(!syntax_is_git_rebase());
+
+	setup(NULL);
+	CHECK(!syntax_is_git_commit());
+	CHECK(!syntax_is_git_rebase());
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -1438,5 +1497,8 @@ int main(void)
 	RUN(test_yaml_colon_at_end_of_short_row);
 	RUN(test_yaml_empty_rows_no_crash);
 	RUN(test_yaml_malformed_escape_at_eol_no_crash);
+	RUN(test_mode_ids_are_unique_and_resolve);
+	RUN(test_mode_lookup_agrees_with_name_lookup);
+	RUN(test_git_mode_predicates_follow_mode_id);
 	return test_summary();
 }

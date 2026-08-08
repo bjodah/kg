@@ -10,4 +10,4 @@ steps:
     environment:
     commands:
       - apt-get install pmccabe
-      - cp -ra . /dev/shm && env -C /dev/shm bash -l .ci/run-ci-steps.sh
+      - mkdir /tmp/kg && cp -ra . /tmp/kg/. && env -C /tmp/kg bash -l .ci/run-ci-steps.sh

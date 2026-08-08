@@ -248,7 +248,7 @@ still finds a shared one at run time.
 
 ```bash
 make WITH_TREE_SITTER=1 TREE_SITTER_PREFIX=/usr/local
-./src/kg -V          # kg 1.1.0 +lisp +tree-sitter
+./src/kg -V          # kg 1.1.0 +lisp +tree-sitter +lsp
 ```
 
 `kg -V` names every optional feature as `+word` or `-word`, so it is the way

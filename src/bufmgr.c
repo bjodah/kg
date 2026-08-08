@@ -27,6 +27,7 @@
 #include "keyevent.h"
 #include "lisp.h"
 #include "localvars.h"
+#include "lsp.h"
 #include "marker.h"
 #include "perf.h"
 #include "process_table.h"
@@ -2919,6 +2920,7 @@ void editor_cleanup(void)
 	cleaned_up = 1;
 	compilation_shutdown();
 	kg_process_table_shutdown();
+	lsp_shutdown();
 
 	/* Every window may own a visual-line geometry index (src/vgeom.h);
 	 * freeing it here is what the "session teardown" leg of its

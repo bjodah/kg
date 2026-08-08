@@ -152,13 +152,34 @@ SYNTAX_BACKEND_ALL = $(OBJDIR)/syntax_legacy.o $(PERFOBJDIR)/syntax_legacy.o \
 		     $(TESTDIR)/test_syntax_legacy \
 		     $(TESTDIR)/test_syntax_tree_sitter
 
+# LSP is the optional language-server client (doc/plans/2026-08-08-lsp.md),
+# and unlike tree-sitter it is ON by default: it has no build-time
+# dependency of any kind -- servers are found at run time -- so WITH_LSP=1
+# is still the dependency-free configuration, and defaulting it off would
+# mean the main lanes never compiled the client at all.  There is
+# correspondingly no prefix or guard file to check, only the 0/1
+# validation; .ci/ci-14-with-lsp-0.sh is what keeps the disabled build
+# honest, together with one orthogonality run against WITH_LISP=0.
+WITH_LSP ?= 1
+
+ifneq ($(WITH_LSP),0)
+ifneq ($(WITH_LSP),1)
+$(error WITH_LSP must be 0 or 1)
+endif
+endif
+ifeq ($(WITH_LSP),1)
+override CFLAGS += -DKG_USE_LSP=1
+endif
+
 # One stamp for the whole feature configuration, so an object compiled
 # under one set of -D flags is never mistaken for up to date under another.
-# It replaced LISP_CONFIG when the tree-sitter axis arrived: two
-# independent axes need one stamp between them, not one each, or the
-# sequence `make WITH_LISP=0; make WITH_LISP=0 WITH_TREE_SITTER=1` looks
-# unchanged to make.  Lives in $(OBJDIR) beside the objects it guards.
-FEATURE_CONFIG = $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)
+# It replaced LISP_CONFIG when the tree-sitter axis arrived, and gained the
+# LSP axis with it: independent axes need one stamp between them, not one
+# each, or the sequence `make WITH_LISP=0; make WITH_LISP=0
+# WITH_TREE_SITTER=1` looks unchanged to make.  Lives in $(OBJDIR) beside
+# the objects it guards.
+FEATURE_CONFIG = \
+    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -225,10 +246,20 @@ LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
+# The LSP client's one editor-facing header is src/lsp.h, and lsp_core.c is
+# always built -- the LISP_SRCS shape above, for the same reason: the
+# facade's entry points exist in both configurations, so no caller grows a
+# KG_USE_LSP conditional.  Stage 0 of doc/plans/2026-08-08-lsp.md ships the
+# facade inert, so lsp_core.c is the same no-ops either way; the JSON,
+# transport and client files join this list when WITH_LSP=1 in later
+# stages, and that is when lsp_core.c's halves start to differ.
+LSP_SRCS = lsp_core.c
+LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
+
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c $(LISP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
+       shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c
 
@@ -310,6 +341,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
+	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
@@ -376,11 +408,15 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # arm) -- every test that links event.o needs process_table.o, which in
 # turn needs process.o.  $^ in the link rule below dedupes, so an EXTRA_
 # list that also names process.o separately is harmless.
+# $(LSP_OBJS) is here for the same reason: the LSP facade is called from
+# tty.c's idle poll and from editor_cleanup() (src/bufmgr.c), so every test
+# binary linking either one needs it.  It is one object of no-ops today.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
-                 $(OBJDIR)/process.o $(OBJDIR)/process_table.o
+                 $(OBJDIR)/process.o $(OBJDIR)/process_table.o \
+                 $(LSP_OBJS)
 # The tree-sitter backend converts a capture's chars-space columns into
 # render-byte offsets with chars_to_render_col() (src/mode.c), so in that
 # configuration every test binary that links a backend needs mode.o too.
@@ -412,6 +448,9 @@ FE_FUZZ_CFLAGS ?= $(FUZZ_CFLAGS)
 
 ifeq ($(WITH_LISP),1)
 override FUZZ_CFLAGS += -DKG_USE_LISP=1
+endif
+ifeq ($(WITH_LSP),1)
+override FUZZ_CFLAGS += -DKG_USE_LSP=1
 endif
 # FUZZ_CFLAGS is a complete flag set of its own rather than CFLAGS plus
 # extras, so the feature defines have to be repeated here; the link side

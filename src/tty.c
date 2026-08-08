@@ -19,6 +19,7 @@
 #include "compile.h"
 #include "def.h"
 #include "keyevent.h"
+#include "lsp.h"
 #include "process_table.h"
 
 #ifndef _WIN32
@@ -597,6 +598,13 @@ static int read_key_byte(int fd, int idle)
 				 * screen runs from a safe point, never from
 				 * this idle loop. */
 				kg_process_table_poll();
+				/* Part of `changed`, unlike the line above:
+				 * an LSP response is allowed to move point
+				 * or the echo area from here, the way
+				 * compilation_poll() is, so the frame it
+				 * changed has to be repainted while the
+				 * editor is still waiting for a key. */
+				changed |= lsp_poll();
 				if (changed) {
 					editor_refresh_screen();
 				}

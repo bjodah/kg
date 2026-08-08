@@ -50,6 +50,7 @@
 #include "event.h"
 #include "kbd.h"
 #include "lisp.h"
+#include "lsp.h"
 #include "marker.h"
 #include "perf.h"
 #include "process_table.h"
@@ -103,6 +104,7 @@ void init_editor(void)
 	win_init();
 	compile_nav_install();
 	kg_process_table_init();
+	lsp_init();
 	atexit(editor_cleanup);
 	/* Registered after editor_cleanup, so it runs before it: a position
 	 * register's marker is given back while its buffer is still there. */
@@ -145,6 +147,14 @@ static int usage(FILE *fp, int rc)
 #define KG_FEATURE_TREE_SITTER "-tree-sitter"
 #endif
 
+/* The LSP client answers from its macro too: which servers are reachable is
+ * a run-time question, but whether this build has a client at all is not. */
+#ifdef KG_USE_LSP
+#define KG_FEATURE_LSP "+lsp"
+#else
+#define KG_FEATURE_LSP "-lsp"
+#endif
+
 int main(int argc, char **argv)
 {
 	int opt, readonly = 0, no_init = 0;
@@ -165,9 +175,9 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s %s %s\n", KG_VERSION,
+			printf("kg %s %s %s %s\n", KG_VERSION,
 			    kg_lisp_active() ? "+lisp" : "-lisp",
-			    KG_FEATURE_TREE_SITTER);
+			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP);
 			return 0;
 		case 'h':
 			return usage(stdout, 0);
@@ -204,10 +214,11 @@ int main(int argc, char **argv)
 		compilation_start_pending_restart();
 		autorevert_poll();
 		kg_process_table_poll();
+		lsp_poll();
 		/* Safe point: each of the non-command lifecycle actions
 		 * above (signal-driven resize, compilation polling,
-		 * autorevert, process-table polling) has either done nothing
-		 * or fully completed -- none of them holds an edit
+		 * autorevert, process-table and LSP polling) has either done
+		 * nothing or fully completed -- none of them holds an edit
 		 * transaction or the renderer open across this call.
 		 * kg_process_table_poll() itself never writes a buffer; its
 		 * drain subscriber runs from kg_event_drain_safe() below, not

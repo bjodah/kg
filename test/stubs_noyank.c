@@ -181,8 +181,7 @@ enum minibuf_result __attribute__((weak)) editor_read_line_with_history(int fd,
 
 void editor_cleanup(void) { }
 
-struct editor_syntax text_syntax
-    = { KG_MODE_TEXT, "Text", NULL, NULL, "", "", "", 0, NULL };
+struct editor_syntax text_syntax = { KG_MODE_TEXT, "Text", NULL, "", NULL };
 
 int __attribute__((weak)) buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)

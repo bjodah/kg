@@ -140,7 +140,7 @@ endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
 # Source files
-SRCS = main.c tty.c syntax.c autocomplete.c buffer.c fileio.c \
+SRCS = main.c tty.c syntax.c syntax_legacy.c autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c \
@@ -167,7 +167,8 @@ HDRS = $(ALL_HDRS)
 # Test infrastructure
 TESTDIR  = test
 TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
-           $(TESTDIR)/test_syntax $(TESTDIR)/test_yank \
+           $(TESTDIR)/test_syntax $(TESTDIR)/test_syntax_legacy \
+           $(TESTDIR)/test_yank \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
            $(TESTDIR)/test_shell $(TESTDIR)/test_complete \
@@ -208,6 +209,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
+	    $(OBJDIR)/syntax_legacy.c \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
@@ -277,6 +279,7 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # turn needs process.o.  $^ in the link rule below dedupes, so an EXTRA_
 # list that also names process.o separately is harmless.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
+                 $(OBJDIR)/syntax_legacy.o \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o
@@ -627,7 +630,45 @@ SCC_COMPLEXITY_PATHS ?= src
 # extra branch apiece from the #ifdef _WIN32 identity path above.
 # SCC_FILE_COMPLEXITY_MAX stays 520 (worst file is still src/bufmgr.c,
 # unchanged by this commit at 498).
-SCC_COMPLEXITY_MAX ?= 5996
+# Raised 5996 -> 6072 for the syntax backend seam, slice 2 (2026-08-08):
+# src/syntax.c split into a backend-neutral facade plus src/syntax_legacy.c,
+# the bespoke scanners, behind the private contract in
+# src/syntax_backend.h (doc/plans/kg-tree-sitter-plan.md, Phase 2).  Most
+# of the +76 is NOT new complexity, and the split is measured two ways
+# rather than one because scc's own number is not additive across a file
+# split:
+#   - The behaviour-preserving move adds +5 by per-function measurement
+#     (score each function on its own, same method on both sides: 444 ->
+#     449).  The three additions are legacy_spec_for() (+3, the mode-id
+#     lookup that replaces four columns on struct editor_syntax),
+#     syntax_backend_update_row()'s scanner-or-generic branch (+1), and
+#     syntax_git_rebase_action_name() (+1, the accessor that lets the
+#     legacy scanner read the facade's rebase action table instead of
+#     keeping a second copy of it).  pmccabe, an independent tool, agrees
+#     in direction and size: 2 + 3 + 2 = +7 across those three symbols,
+#     and NO existing symbol's measured complexity changed -- every moved
+#     function re-keys at exactly its old number (25 re-keyed symbols,
+#     `make pmccabe-baseline PMCCABE_BASELINE_ARGS=--allow-regressions`,
+#     which is what the flag is for here: a re-key, not a regression).
+#   - The other ~71 is scc counting more of the same bytes.  scc 3.7.0's
+#     C complexity counter loses count part-way through a long file after
+#     certain character-literal/comment sequences, and where the file is
+#     cut changes what it sees.  Reproducible on the UNCHANGED pre-split
+#     file: partitioning HEAD's src/syntax.c into 20 contiguous pieces at
+#     top-level function boundaries sums to 416, while scc reports 267 for
+#     the whole file (a 2-piece cut at line 1089 sums to exactly 267, so
+#     this is position-dependent, not a size rule).  Splitting the file
+#     moved the facade's functions out from behind the scanners and they
+#     are now counted; nothing was added to them.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the two halves measure 112 (src/syntax.c, was 267) and 231
+# (src/syntax_legacy.c), and the worst file is still src/bufmgr.c at 498.
+# Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6071
+#   FAIL: total complexity 6072 exceeds limit 6071
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6072
+#   scc total complexity: 6072 (limit 6072)
+SCC_COMPLEXITY_MAX ?= 6072
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1101,6 +1142,9 @@ iwyu:
 EXTRA_undo         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_buffer       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_syntax       := $(TESTDIR)/stubs.o          $(TEST_SRCS_OBJS)
+# The backend's own suite links exactly what the facade's does: the
+# scanners reach the buffer through the same row primitives.
+EXTRA_syntax_legacy := $(TESTDIR)/stubs.o         $(TEST_SRCS_OBJS)
 EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o

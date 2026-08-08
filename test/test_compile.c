@@ -46,7 +46,7 @@ int editor_confirm_yn(int fd, const char *fmt, ...)
 void editor_free_row(erow *row) { (void)row; }
 
 struct editor_syntax compilation_syntax
-    = { KG_MODE_COMPILATION, "Compilation", NULL, NULL, "", "", "", 0, NULL };
+    = { KG_MODE_COMPILATION, "Compilation", NULL, "", NULL };
 
 void win_display_buffer_other_window(int buffer_index) { (void)buffer_index; }
 void win_position_at_end(int buffer_index) { (void)buffer_index; }

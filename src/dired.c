@@ -29,7 +29,7 @@ static void dired_highlight(struct editor_buffer *b, erow *row);
  * address, and KG_MODE_DIRED names the mode for anyone who cannot, so
  * attaching a highlighter changes nothing elsewhere. */
 static struct editor_syntax dired_syntax
-    = { KG_MODE_DIRED, "Dired", NULL, NULL, "", "", "", 0, dired_highlight };
+    = { KG_MODE_DIRED, "Dired", NULL, "", dired_highlight };
 
 /* A dired buffer is named DIRED_PREFIX, the absolute directory, then '*'.
  * The name is the mode's only state: dired_dir_of() reads the directory

@@ -1118,11 +1118,11 @@ struct edit_case {
  * wants between backends, applied to the one backend that exists. */
 static void check_edit_matches_rehighlight(const struct edit_case *c)
 {
-	unsigned char **hl;
+	unsigned char *hl;
 	struct kg_edit e;
 	int *oc;
 	int i, rows;
-	size_t begin, end;
+	size_t begin, end, total, off;
 
 	setup(syntax_find_by_name(c->mode));
 	for (i = 0; i < c->nlines; i++) {
@@ -1134,8 +1134,15 @@ static void check_edit_matches_rehighlight(const struct edit_case *c)
 	    bcur(), begin, end, c->replacement, strlen(c->replacement));
 	CHECK(kg_buffer_replace(&e, NULL) == 1);
 
+	/* Snapshot the edit's hl into one flat arena (row offsets are
+	 * re-derivable: a rebuild recolours but never resizes a render), so
+	 * the cleanup is two unconditional frees whatever path runs. */
 	rows = bcur()->numrows;
-	hl = calloc((size_t)rows, sizeof(*hl));
+	total = 0;
+	for (i = 0; i < rows; i++) {
+		total += (size_t)bcur()->row[i].rsize;
+	}
+	hl = malloc(total + 1);
 	oc = calloc((size_t)rows, sizeof(*oc));
 	CHECK(hl != NULL && oc != NULL);
 	if (!hl || !oc) {
@@ -1144,18 +1151,20 @@ static void check_edit_matches_rehighlight(const struct edit_case *c)
 		teardown();
 		return;
 	}
+	off = 0;
 	for (i = 0; i < rows; i++) {
-		int n = bcur()->row[i].rsize;
+		erow *r = &bcur()->row[i];
 
-		oc[i] = bcur()->row[i].hl_oc;
-		hl[i] = n > 0 ? malloc((size_t)n) : NULL;
-		if (hl[i]) {
-			memcpy(hl[i], bcur()->row[i].hl, (size_t)n);
+		oc[i] = r->hl_oc;
+		if (r->rsize > 0) {
+			memcpy(hl + off, r->hl, (size_t)r->rsize);
+			off += (size_t)r->rsize;
 		}
 	}
 	/* "Everything changed", which for this backend is the from-scratch
 	 * pass: the same rows, recoloured with no history at all. */
 	syntax_rebuild(bcur());
+	off = 0;
 	for (i = 0; i < rows; i++) {
 		erow *r = &bcur()->row[i];
 
@@ -1163,13 +1172,13 @@ static void check_edit_matches_rehighlight(const struct edit_case *c)
 		    "%s row %d: hl_oc %d after the edit, "
 		    "%d from scratch",
 		    c->mode, i, oc[i], r->hl_oc);
-		if (hl[i]) {
-			CHECKF(memcmp(hl[i], r->hl, (size_t)r->rsize) == 0,
+		if (r->rsize > 0) {
+			CHECKF(memcmp(hl + off, r->hl, (size_t)r->rsize) == 0,
 			    "%s row %d (%s): hl differs from a from-scratch "
 			    "rehighlight",
 			    c->mode, i, r->chars);
+			off += (size_t)r->rsize;
 		}
-		free(hl[i]);
 	}
 	free(hl);
 	free(oc);

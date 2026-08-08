@@ -23,9 +23,14 @@
 #include <string.h>
 
 #include "def.h"
+#include "localvars.h"
 #include "syntax.h"
 #include "syntax_backend.h"
 #include "syntax_legacy.h"
+
+/* Opaque to this backend, which keeps no whole-buffer state; the type is
+ * never defined here (syntax.h forward-declares it for everyone else). */
+struct kg_syntax_state;
 
 /* Enable string and number highlighting for a mode scanned generically.
  * Recorded per mode below for the same reason the comment delimiters are:

@@ -1,11 +1,13 @@
 # A SMOKE case for the tree-sitter backend, deliberately not a colour
 # assertion: the PTY harness compares SAVED FILES, and a colour never
 # reaches one.  What this proves is that a WITH_TREE_SITTER=1 kg, which
-# throws its parse tree away and reparses the whole buffer on every edit
-# (doc/plans/kg-tree-sitter-plan.md, Phase 6 -- slice 6 is correctness
-# first), still edits a C file exactly like any other build: an inserted
+# answers every one of these keystrokes with an incremental reparse
+# against the tree the last one left (doc/plans/kg-tree-sitter-plan.md,
+# Phase 7), still edits a C file exactly like any other build: an inserted
 # row, a comment typed into it, and a killed row all land where they
 # should, and nothing the parser does disturbs point or the row array.
+# This is also the only place a whole *chain* of tree edits is driven by
+# real keystrokes rather than by a test calling kg_buffer_replace().
 #
 # Colour correctness is asserted byte for byte, in render-space offsets,
 # by test/test_syntax_tree_sitter.c -- which is where it can be, because a

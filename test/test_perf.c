@@ -47,6 +47,11 @@ static void setup(void)
 	 * refusal that would leave that test's window not showing its
 	 * buffer at all, not just short one event. */
 	kg_event_drain_safe();
+	/* Before reset_current_buffer(), which memsets the record: a backend
+	 * that keeps a parse tree keeps it behind a pointer that lives in
+	 * there, and zeroing the field leaks it -- which is what
+	 * LeakSanitizer says about a tree-sitter build of this binary. */
+	syntax_state_release(bcur());
 	free_all_rows();
 	reset_current_buffer();
 	reset_current_view();
@@ -65,6 +70,7 @@ static void setup(void)
 
 static void teardown(void)
 {
+	syntax_state_release(bcur());
 	free_all_rows();
 	bcur()->row = NULL;
 	bcur()->numrows = 0;
@@ -335,6 +341,19 @@ static void check_load_highlight_is_final(const char *name_template,
 	 * whether this backend keeps state at all, and whether this corpus's
 	 * mode is one it can highlight. */
 	CHECK((bcur()->syntax_state != NULL) == expect_state);
+#ifdef KG_USE_TREE_SITTER
+	/* A load is ONE parse of the whole document, and it is the parse
+	 * from nothing -- made once inside the load transaction against the
+	 * staged rows (syntax_backend_prepare()), with nothing reparsing it
+	 * on publication and no row repainted by the edit path, which has
+	 * not run.  A corpus whose mode has no grammar (the .md caller) is
+	 * parsed not at all, which is the same statement with the count at
+	 * zero. */
+	CHECK(counter(KG_PERF_TS_PARSE) == (unsigned long long)expect_state);
+	CHECK(
+	    counter(KG_PERF_TS_FULL_PARSE) == (unsigned long long)expect_state);
+	CHECK(counter(KG_PERF_TS_REHIGHLIGHT_ROW) == 0);
+#endif
 	hl = calloc((size_t)rows, sizeof(*hl));
 	oc = calloc((size_t)rows, sizeof(*oc));
 	CHECK(hl != NULL && oc != NULL);
@@ -728,13 +747,17 @@ static void test_multiline_insert_flattens_buffer(void)
  *
  * SYNTAX_ROW and PROPAGATE are the BACKEND's half of that shape, and the
  * two backends genuinely disagree: the numbers above are the legacy
- * scanners', and the tree-sitter backend of slice 6 answers every
- * notification with a full reparse and a repaint of every row, so it
- * scans the whole buffer and propagates nothing
- * (doc/plans/kg-tree-sitter-plan.md, Phase 6).  Both are asserted, because
- * shrinking the tree-sitter number back to a damaged range is exactly what
- * Phase 7 is, and this is where that will be measured.  SYNTAX_EDIT and
- * ROW_UPDATE are the facade's and are the same either way. */
+ * scanners', and the tree-sitter backend answers the notification with an
+ * incremental parse against the old tree and a repaint of the damaged rows
+ * (doc/plans/kg-tree-sitter-plan.md, Phase 7), which is a different, and
+ * separately derived, small number.  Both are asserted.  SYNTAX_EDIT and
+ * ROW_UPDATE are the facade's and are the same either way.
+ *
+ * The syntax_rebuild() before the edit is not decoration: it is the
+ * notification a real buffer has already had by the time anyone types into
+ * it -- a load prepares the parse, a mode change rebuilds it -- and
+ * without it the first edit would be measuring a buffer acquiring its
+ * parser rather than an ordinary keystroke. */
 static void test_multiline_edit_notifies_syntax_once(void)
 {
 	const int rows = 64;
@@ -747,6 +770,7 @@ static void test_multiline_edit_notifies_syntax_once(void)
 	for (r = 0; r < rows; r++) {
 		editor_insert_row(bcur(), r, "int v = 0;", 10);
 	}
+	syntax_rebuild(bcur());
 	pos = buffer_row_col_to_position(bcur(), 2, 4);
 	e = kg_edit_user(bcur(), pos, pos, "one\ntwo\n", 8);
 	kg_perf_reset();
@@ -756,7 +780,30 @@ static void test_multiline_edit_notifies_syntax_once(void)
 	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 3);
 #ifdef KG_USE_TREE_SITTER
-	CHECK(counter(KG_PERF_SYNTAX_ROW) == (unsigned long long)rows + 2);
+	/* The tree-sitter backend's half of the shape, and the whole of
+	 * Phase 7: ONE parse, and it is handed the old tree, so it is not a
+	 * parse from nothing; the repaint is bounded by a constant that does
+	 * not contain `rows`.
+	 *
+	 * The bound, derived rather than observed.  The damage set is the
+	 * union of the edit's own new span -- rows 2..4, three rows, because
+	 * the replacement carries two newlines -- and the rows of the
+	 * changed ranges tree-sitter reports, which for text pasted inside
+	 * one declaration is that same span (measured: one range, three rows
+	 * repainted, on tree-sitter 0.26.11 with grammar c 0.24.2).  Five is
+	 * that with a row of room at either end for a library or grammar
+	 * bump to widen a range; what the number may never do is grow with
+	 * the buffer, which is exactly what the slice-6 answer (rows + 2)
+	 * did.  Every row the backend repaints is one the facade scans, so
+	 * SYNTAX_ROW and TS_REHIGHLIGHT_ROW are the same number here, which
+	 * is what says nothing else re-coloured anything behind their back. */
+	CHECK(counter(KG_PERF_TS_PARSE) == 1);
+	CHECK(counter(KG_PERF_TS_FULL_PARSE) == 0);
+	CHECK(counter(KG_PERF_TS_CHANGED_RANGE) >= 1);
+	CHECK(counter(KG_PERF_TS_REHIGHLIGHT_ROW) >= 3);
+	CHECK(counter(KG_PERF_TS_REHIGHLIGHT_ROW) <= 5);
+	CHECK(
+	    counter(KG_PERF_SYNTAX_ROW) == counter(KG_PERF_TS_REHIGHLIGHT_ROW));
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
 #else
 	CHECK(counter(KG_PERF_SYNTAX_ROW) == 4);
@@ -769,8 +816,8 @@ static void test_multiline_edit_notifies_syntax_once(void)
  * row, no topology change.  One notification, one rendered row, and -- for
  * the legacy scanners -- two rows scanned (the row itself and the
  * always-re-examined row below it), the scan stopping there rather than
- * walking the rest of the buffer.  The tree-sitter backend of slice 6
- * repaints the whole buffer instead; see the note above. */
+ * walking the rest of the buffer.  The tree-sitter backend reparses
+ * incrementally and repaints one row; see the note above. */
 static void test_one_row_edit_notifies_syntax_once(void)
 {
 	const int rows = 64;
@@ -781,13 +828,27 @@ static void test_one_row_edit_notifies_syntax_once(void)
 	for (r = 0; r < rows; r++) {
 		editor_insert_row(bcur(), r, "int v = 0;", 10);
 	}
+	syntax_rebuild(bcur());
 	kg_perf_reset();
 	CHECK(editor_row_replace_range(2, 4, 0, "y", 1, KG_EDIT_USER) == 1);
 
 	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
 	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
 #ifdef KG_USE_TREE_SITTER
-	CHECK(counter(KG_PERF_SYNTAX_ROW) == (unsigned long long)rows);
+	/* The hottest edit there is, and the number this slice exists to
+	 * make constant.  Derivation as above: the edit's new span is one
+	 * row, and a byte typed into a declarator changes nothing outside
+	 * the line it is on, so the changed range is inside that same row
+	 * and the union is one row (measured: one range, one row).  Three is
+	 * that with room for a range to reach a row further; 64 rows of
+	 * buffer must not appear in it, and did in slice 6. */
+	CHECK(counter(KG_PERF_TS_PARSE) == 1);
+	CHECK(counter(KG_PERF_TS_FULL_PARSE) == 0);
+	CHECK(counter(KG_PERF_TS_CHANGED_RANGE) >= 1);
+	CHECK(counter(KG_PERF_TS_REHIGHLIGHT_ROW) >= 1);
+	CHECK(counter(KG_PERF_TS_REHIGHLIGHT_ROW) <= 3);
+	CHECK(
+	    counter(KG_PERF_SYNTAX_ROW) == counter(KG_PERF_TS_REHIGHLIGHT_ROW));
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
 #else
 	CHECK(counter(KG_PERF_SYNTAX_ROW) == 2);

@@ -274,9 +274,11 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 Language coverage is arriving in batches. Today **C** is highlighted —
 comments, strings, numbers, keywords and types, from a small kg-owned query
 compiled into the binary — and every other mode is plain text under
-`WITH_TREE_SITTER=1`. Edits currently reparse the whole buffer; incremental
-reparsing lands in a later release. `WITH_TREE_SITTER=0` remains the default
-and the fully-featured highlighting configuration for every other language.
+`WITH_TREE_SITTER=1`. An edit reparses incrementally, against the tree the
+last one left, and re-colours only the rows that changed, so an ordinary
+keystroke costs what it changed rather than what the file weighs.
+`WITH_TREE_SITTER=0` remains the default and the fully-featured highlighting
+configuration for every other language.
 
 ## Development
 

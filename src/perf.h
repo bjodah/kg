@@ -54,6 +54,34 @@ enum kg_perf_counter {
 	 * propagation (doc/plans/kg-tree-sitter-plan.md, Phase 3). */
 	KG_PERF_SYNTAX_EDIT,
 
+	/* The tree-sitter backend (src/syntax_tree_sitter.c), which is only
+	 * compiled into a WITH_TREE_SITTER=1 build; in every other build
+	 * these stay zero, which is indistinguishable from "measured and
+	 * zero", so a reader checks kg -V for "+tree-sitter" first, exactly
+	 * as the Lisp gauges below ask.
+	 *
+	 * They are deliberately not the SYNTAX_ROW/SYNTAX_BYTES counters
+	 * wearing a different hat: those describe a row scanner, and the
+	 * question here is a different one -- how many parses an edit costs,
+	 * whether any of them was a parse from nothing, and how wide the
+	 * repaint that parse authorised turned out to be
+	 * (doc/plans/kg-tree-sitter-plan.md, Phase 12).
+	 *
+	 * PARSE counts every ts_parser_parse(); FULL_PARSE is the subset
+	 * that was passed no old tree, so PARSE - FULL_PARSE is the number
+	 * of incremental reparses, and an ordinary keystroke must add
+	 * nothing to FULL_PARSE.  CHANGED_RANGE is the number of ranges
+	 * ts_tree_get_changed_ranges() returned, summed; REHIGHLIGHT_ROW is
+	 * the rows the incremental path actually repainted -- the damage
+	 * window, which is the number Phase 7 exists to shrink.  Rows
+	 * repainted by a full rebuild are NOT counted here: that path
+	 * repaints every row by definition, and KG_PERF_SYNTAX_ROW already
+	 * says so. */
+	KG_PERF_TS_PARSE,
+	KG_PERF_TS_FULL_PARSE,
+	KG_PERF_TS_CHANGED_RANGE,
+	KG_PERF_TS_REHIGHLIGHT_ROW,
+
 	/* Whole-buffer work. */
 	KG_PERF_BUFFER_FLATTEN, /* editor_rows_to_string() calls */
 	KG_PERF_BUFFER_REBUILD, /* every-row rebuilds from one flat string */

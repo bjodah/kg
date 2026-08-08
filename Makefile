@@ -940,7 +940,42 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6179 exceeds limit 6178
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6179
 #   scc total complexity: 6179 (limit 6179)
-SCC_COMPLEXITY_MAX ?= 6179
+# Raised 6179 -> 6198 for incremental parsing and ranged highlighting,
+# slice 7 (2026-08-08): the edit becomes a TSInputEdit against the old
+# tree, the parse reuses it, and the repaint shrinks from every row to the
+# damaged ones (doc/plans/kg-tree-sitter-plan.md, Phase 7).  The whole +19
+# is one file, which no default build compiles:
+#   - src/syntax_tree_sitter.c 51 -> 71 (+20): the parse split into
+#     ts_state_parse()/ts_state_reparse() so a parse can be handed an old
+#     tree, the edit translation (ts_edit_from, pmccabe 1), the damage set
+#     as a sorted merge with a high-water mark (damage_paint 5,
+#     range_last_row 3, damage_repaint 5), the no-tree case
+#     (ts_after_edit_untreed 3), syntax_backend_after_edit() itself going
+#     from "call rebuild" to the tree-edit/parse/changed-ranges sequence
+#     (2 -> 7), and one loop in ts_input_read (7 -> 8): an incremental
+#     parse seeks backwards constantly, and walking the row cursor back
+#     instead of restarting it at row zero is 4.5M row steps and 11 ms per
+#     keystroke turned into 36k steps and under 0.1 ms on a 38 768-row
+#     file.  That one is bought with a measurement, not with taste.
+#   - src/perf.h +0 and src/perf.c +0: four counter enumerators and four
+#     names are declarations, not branch points.
+# Bisected on this tree: with src/syntax_tree_sitter.c moved out of src/,
+# the total is 6128, which is HEAD's 6179 minus the 51 that file measured
+# there, so nothing outside it moved:
+#   $ mv src/syntax_tree_sitter.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6128 (limit 99999)
+# No new symbol exceeds 7 against the 15 new-function budget, and the only
+# existing symbol that moved is ts_input_read, 7 -> 8, priced above
+# (`make pmccabe-check WITH_TREE_SITTER=1`).
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the file measures 71, and the worst is still src/bufmgr.c at 499.
+# Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6198
+#   FAIL: total complexity 6199 exceeds limit 6198
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6199
+#   scc total complexity: 6199 (limit 6199)
+SCC_COMPLEXITY_MAX ?= 6199
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

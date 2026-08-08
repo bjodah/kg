@@ -668,7 +668,41 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6072 exceeds limit 6071
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6072
 #   scc total complexity: 6072 (limit 6072)
-SCC_COMPLEXITY_MAX ?= 6072
+# Raised 6072 -> 6082 for the syntax backend seam, slice 3 (2026-08-08):
+# edit-granular syntax notification (doc/plans/kg-tree-sitter-plan.md,
+# Phase 3).  kg_buffer_replace() now tells the syntax layer about an edit
+# exactly ONCE, with a byte-and-point description of it
+# (src/syntax.h's kg_syntax_edit, field for field tree-sitter's
+# TSInputEdit), instead of re-running the highlighter -- and its downstream
+# propagation -- once per rebuilt row.  The +10 is all new branch points,
+# and unlike slice 2's it is genuinely new code rather than scc counting
+# more of the same bytes:
+#   - src/syntax.c 112 -> 118 (+6).  syntax_after_edit() is +4 (its two
+#     range guards and the loop over the replacement's rows),
+#     syntax_propagate_below() is net +1 (it takes over the loop
+#     syntax_propagate_downstream() was, and its "did this row change"
+#     test moved out of the loop condition into editor_update_syntax(),
+#     which is the other +1).  syntax_rebuild() adds none.
+#   - src/buffer.c 316 -> 320 (+4).  splice_last_line_len() is +2 (the
+#     backwards scan for the last separator, which is where the new end
+#     point's column comes from), edit_describe()'s newline/no-newline
+#     branch is +1, and the editor_update_row() split into
+#     editor_render_row() + the notification accounts for the last one.
+#     No function grew: pmccabe agrees, with every new symbol at or below
+#     8 against the 15 new-function budget (editor_render_row 8 -- the old
+#     editor_update_row body, re-keyed -- syntax_after_edit 5,
+#     syntax_propagate_below 3, splice_last_line_len 3, edit_describe 2,
+#     syntax_rebuild 1) and exactly one existing symbol moving:
+#     editor_update_syntax 1 -> 2, banked with `make pmccabe-baseline
+#     PMCCABE_BASELINE_ARGS=--allow-regressions`.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520; the worst file is still src/bufmgr.c at 498.  Proof on the same
+# tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6081
+#   FAIL: total complexity 6082 exceeds limit 6081
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6082
+#   scc total complexity: 6082 (limit 6082)
+SCC_COMPLEXITY_MAX ?= 6082
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

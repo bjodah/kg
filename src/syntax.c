@@ -384,16 +384,25 @@ void syntax_update_row_only(struct editor_buffer *b, struct erow *row)
 	}
 }
 
-static void syntax_propagate_downstream(
-    struct editor_buffer *b, erow *row, int old_oc)
+/* Re-highlight the rows below row `idx` until one of them comes out with
+ * the cross-row state it already had, which is where the change stops
+ * being visible: every row below that one was computed from that same
+ * state and is already what it would be computed to again.
+ *
+ * The caller decides whether row `idx` itself changed anything -- see
+ * editor_update_syntax() for the row-at-a-time answer and
+ * syntax_after_edit() for the transaction's. */
+static void syntax_propagate_below(struct editor_buffer *b, int idx)
 {
-	int idx = row->idx;
-	while (row->hl_oc != old_oc && idx + 1 < b->numrows) {
-		idx++;
-		row = &b->row[idx];
-		old_oc = row->hl_oc;
+	while (idx + 1 < b->numrows) {
+		erow *row = &b->row[++idx];
+		int old_oc = row->hl_oc;
+
 		KG_PERF_INC(KG_PERF_SYNTAX_PROPAGATE);
 		syntax_update_row_only(b, row);
+		if (row->hl_oc == old_oc) {
+			return;
+		}
 	}
 }
 
@@ -402,8 +411,61 @@ static void syntax_propagate_downstream(
 void editor_update_syntax(struct editor_buffer *b, erow *row)
 {
 	int old_oc = row->hl_oc;
+
 	syntax_update_row_only(b, row);
-	syntax_propagate_downstream(b, row, old_oc);
+	if (row->hl_oc != old_oc) {
+		syntax_propagate_below(b, row->idx);
+	}
+}
+
+/* One completed edit transaction's whole highlighting cost, paid once
+ * after kg_buffer_replace() has published the new rows and rendered them
+ * -- not once per row, which is what a row-at-a-time rebuild used to make
+ * a ten-row paste pay (ten independent updates, each with its own
+ * downstream propagation, over a buffer topology that was still being
+ * assembled).  A backend that keeps state over the whole text gets one
+ * notification per edit, in the shape it can reparse from.
+ *
+ * The legacy backend has no such state, so what this owes it is the
+ * per-row work in the right order: every row the replacement produced,
+ * top to bottom, and then the propagation below the last of them.
+ *
+ * That propagation is unconditional -- the first row below the span is
+ * always re-examined -- rather than conditional on the last new row's
+ * hl_oc having changed.  There is no "before" value to compare it
+ * against: the rows a splice installs are new records whose hl_oc is
+ * zero, and the row the edit replaced in place has been re-initialised
+ * too, so a comparison against what is in the field measures the staging,
+ * not the text.  Re-examining one row costs one row scan and converges on
+ * exactly what a from-scratch editor_rehighlight_all() would produce;
+ * skipping it on a stale comparison is how the old row-at-a-time path
+ * could leave a block comment coloured under text that no longer opened
+ * one (test/test_syntax_legacy.c's edit-then-rehighlight differential). */
+void syntax_after_edit(
+    struct editor_buffer *b, const struct kg_syntax_edit *edit)
+{
+	int first = edit->start_point.row;
+	int last = edit->new_end_point.row;
+	int i;
+
+	KG_PERF_INC(KG_PERF_SYNTAX_EDIT);
+	if (first < 0 || first >= b->numrows) {
+		return;
+	}
+	if (last >= b->numrows) {
+		last = b->numrows - 1;
+	}
+	/* The consuming end of the coordinate seam: an edit's columns are
+	 * bytes of row->chars, and row `first` is published by now, so the
+	 * claim is checkable here (doc/coordinates.md; armed by
+	 * -DKG_DEBUG_COORDS=1, which .ci/ci-04 builds with).  The same holds
+	 * of new_end_point.column in row `last`, which the loop below walks
+	 * to. */
+	KG_ASSERT_CHARS_OFF(&b->row[first], edit->start_point.column);
+	for (i = first; i <= last; i++) {
+		syntax_update_row_only(b, &b->row[i]);
+	}
+	syntax_propagate_below(b, last);
 }
 
 void editor_rehighlight_from(struct editor_buffer *b, int start_idx)
@@ -449,6 +511,19 @@ void editor_rehighlight_all(struct editor_buffer *b)
 		syntax_update_row_only(b, &b->row[j]);
 	}
 }
+
+/* "Everything changed": the notification for a path that rewrites a
+ * buffer without being able to say what it replaced -- the counterpart of
+ * syntax_after_edit() rather than a variant of it, so a backend holding a
+ * parse tree knows to throw it away instead of trying to edit it.
+ *
+ * It shares editor_rehighlight_all()'s body because the legacy backend
+ * keeps no state a row rebuild does not: for it, re-highlighting every
+ * row IS discarding the state.  The two names are still separate, because
+ * the callers are: editor_rehighlight_all() is "re-colour what is
+ * displayed" (a mode change), and this is "the text is not the text you
+ * parsed". */
+void syntax_rebuild(struct editor_buffer *b) { editor_rehighlight_all(b); }
 
 /* The whole of editor_set_syntax(): reserve capacity for the
  * KG_EVENT_MODE_CHANGED event before the transition, assign the syntax and

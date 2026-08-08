@@ -541,6 +541,7 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
 int editor_chars_col_at_visual(erow *row, int target_vcol);
 
 /* buffer.c */
+void editor_render_row(struct editor_buffer *b, erow *row);
 void editor_update_row(struct editor_buffer *b, erow *row);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
 int editor_row_grown_capacity(int need);

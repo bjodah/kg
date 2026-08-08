@@ -9,6 +9,8 @@
  * fontified.  That is src/syntax_backend.h's private contract, implemented
  * today by src/syntax_legacy.c's bespoke scanners. */
 
+#include <stddef.h> /* size_t, for the byte positions in kg_syntax_edit */
+
 /* Forward declarations; the full types are defined in def.h, which
  * syntax.c includes to reach their members.  Rows are spelled with the
  * struct tag rather than def.h's `erow` typedef so this header needs
@@ -93,8 +95,44 @@ struct editor_syntax {
 	void (*highlight)(struct editor_buffer *b, struct erow *row);
 };
 
+/* A position in the text, as the syntax layer is told about one: a row
+ * index and a byte offset into that row's `chars` -- doc/coordinates.md's
+ * **chars** space, not render bytes and not display columns.  A TAB is one
+ * column here however wide it is drawn, which is the coordinate system an
+ * incremental parser wants (tree-sitter's TSPoint.column is the same
+ * thing: source bytes from the start of the line).  No render or tab
+ * conversion belongs anywhere near these numbers. */
+struct kg_text_point {
+	int row;
+	int column;
+};
+
+/* One completed edit, described for whoever keeps state derived from the
+ * whole text.  The three byte positions are doc/coordinates.md's **buffer
+ * byte** space -- the flattened buffer, one '\n' between rows -- and are
+ * exactly kg_buffer_replace()'s begin_byte/end_byte and the end of what it
+ * put there.  The three points are the same three positions in row/column
+ * form: `old_end_*` describes the text as it was *before* the edit and
+ * `start_*`/`new_end_*` the text as it is *after* it, which is why an
+ * insertion has old_end == start and a deletion new_end == start.
+ *
+ * The shape is deliberate: it is field for field tree-sitter's
+ * TSInputEdit (doc/plans/kg-tree-sitter-plan.md, Phase 3), so a backend
+ * that reparses incrementally can pass one straight through. */
+struct kg_syntax_edit {
+	size_t start_byte;
+	size_t old_end_byte;
+	size_t new_end_byte;
+	struct kg_text_point start_point;
+	struct kg_text_point old_end_point;
+	struct kg_text_point new_end_point;
+};
+
 /* syntax.c */
 void editor_update_syntax(struct editor_buffer *b, struct erow *row);
+void syntax_after_edit(
+    struct editor_buffer *b, const struct kg_syntax_edit *edit);
+void syntax_rebuild(struct editor_buffer *b);
 void editor_rehighlight_from(struct editor_buffer *b, int start_idx);
 struct editor_syntax *syntax_find_by_name(const char *name);
 struct editor_syntax *syntax_find_by_mode(enum kg_mode_id id);

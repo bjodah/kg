@@ -27,6 +27,7 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_SYNTAX_ROW] = "syntax_row",
 	[KG_PERF_SYNTAX_BYTES] = "syntax_bytes",
 	[KG_PERF_SYNTAX_PROPAGATE] = "syntax_propagate",
+	[KG_PERF_SYNTAX_EDIT] = "syntax_edit",
 	[KG_PERF_BUFFER_FLATTEN] = "buffer_flatten",
 	[KG_PERF_BUFFER_REBUILD] = "buffer_rebuild",
 	[KG_PERF_AB_APPEND] = "ab_append",

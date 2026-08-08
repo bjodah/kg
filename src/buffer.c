@@ -329,7 +329,10 @@ static int row_render_reserve(erow *row, int need)
 	return 1;
 }
 
-/* Update the rendered version and the syntax highlight of a row.
+/* Rebuild the rendered version of a row: row->render and row->rsize from
+ * row->chars, with every TAB expanded to the next tab stop.  Derived state
+ * only -- the row's highlight is a separate step, and which one runs it
+ * depends on the caller (see editor_update_row() below).
  *
  * The render buffer is reused: it carries a capacity, so an edit that
  * does not make the row longer than it has ever been costs no
@@ -347,12 +350,17 @@ static int row_render_reserve(erow *row, int need)
  * or bail out: every caller has already changed row->chars by the time it
  * gets here, so a cache a failure left marked valid would go on claiming
  * the width of text that is no longer there. */
-void editor_update_row(struct editor_buffer *b, erow *row)
+void editor_render_row(struct editor_buffer *b, erow *row)
 {
 	unsigned int tabs = 0;
 	unsigned long long allocsize;
 	int j, idx, render_cap, vcol;
 
+	/* Rendering is a row-local transformation and needs nothing from the
+	 * buffer; the parameter is here because every caller is holding one
+	 * and because the pair (render, notify) is called through the same
+	 * two-argument shape. */
+	(void)b;
 	row->wrap_cache_win_w = 0;
 	KG_PERF_INC(KG_PERF_ROW_UPDATE);
 	for (j = 0; j < row->size; j++) {
@@ -405,8 +413,22 @@ void editor_update_row(struct editor_buffer *b, erow *row)
 	}
 	row->rsize = idx;
 	row->render[idx] = '\0';
+}
 
-	/* Update the syntax highlighting attributes of the row. */
+/* Render one row and immediately re-highlight it: the row-at-a-time
+ * compatibility path, and the entry point every raw row helper still uses
+ * (editor_insert_row(), editor_row_insert_char()/_string(),
+ * editor_row_append_string(), editor_row_del_char(), editor_del_row()'s
+ * rehighlight, edit_ensure_one_row()).  Those callers are unchanged, and
+ * migrating them onto the edit transaction is follow-up Plan 02's
+ * remaining work -- the same census .ci/mutation-gateway.json keeps.
+ *
+ * The transaction does NOT come through here: kg_buffer_replace() renders
+ * its rows with editor_render_row() and tells the syntax layer once, with
+ * a description of the whole edit, through syntax_after_edit(). */
+void editor_update_row(struct editor_buffer *b, erow *row)
+{
+	editor_render_row(b, row);
 	editor_update_syntax(b, row);
 }
 
@@ -939,6 +961,22 @@ static int splice_newlines(const char *text, int len)
 		}
 	}
 	return n;
+}
+
+/* Bytes of `text` after its last '\n' -- the column the last row of a
+ * splice ends at, and for text holding no separator at all the whole of
+ * it.  Chars space (doc/coordinates.md): these are bytes of row->chars,
+ * whatever they render as. */
+static int splice_last_line_len(const char *text, int len)
+{
+	int i;
+
+	for (i = len; i > 0; i--) {
+		if (text[i - 1] == '\n') {
+			break;
+		}
+	}
+	return len - i;
 }
 
 /* The first affected row's new content: `prefix`, then the `first_seg`
@@ -1568,10 +1606,50 @@ static int edit_is_noop(const struct kg_edit *e, const struct edit_staged *st)
 	    && memcmp(st->old_text, e->replacement, e->replacement_len) == 0;
 }
 
+/* The edit, in the terms the syntax layer is told about one: the flat
+ * byte span it replaced and the same three positions as row/column points
+ * (src/syntax.h's kg_syntax_edit; chars space, per doc/coordinates.md).
+ * Everything here is already known before publication, which is when this
+ * is called -- r0/c0 and r1/c1 name the OLD text and stop being resolvable
+ * the moment the rows are replaced.
+ *
+ * The new end is where the replacement leaves off: with no separator in
+ * it the edit stays on row r0 and ends `replacement_len` bytes further
+ * along that row; with `st->nl` of them it ends on row r0 + nl, at the
+ * length of the text after the last one. */
+static struct kg_syntax_edit edit_describe(const struct kg_edit *e, int r0,
+    int c0, int r1, int c1, const struct edit_staged *st)
+{
+	int len = (int)e->replacement_len;
+	struct kg_text_point new_end = { .row = r0, .column = c0 + len };
+
+	/* Both ends of the OLD text, against the rows that still hold it:
+	 * every column here is chars space, and this is the seam where a
+	 * render offset would look identical and be wrong. */
+	KG_ASSERT_CHARS_OFF(&e->buffer->row[r0], c0);
+	KG_ASSERT_CHARS_OFF(&e->buffer->row[r1], c1);
+	if (st->nl) {
+		new_end.row = r0 + st->nl;
+		new_end.column = splice_last_line_len(e->replacement, len);
+	}
+	return (struct kg_syntax_edit) {
+		.start_byte = e->begin_byte,
+		.old_end_byte = e->end_byte,
+		.new_end_byte = e->begin_byte + e->replacement_len,
+		.start_point = { .row = r0, .column = c0 },
+		.old_end_point = { .row = r1, .column = c1 },
+		.new_end_point = new_end,
+	};
+}
+
 /* Put the staged rows in place of rows [r0, r1].  Nothing here can fail
  * the edit, which is the whole point of everything above it; the trailing
- * `editor_update_row()` pass rebuilds derived state and can still run out
- * of memory, which quits rather than unwinding (see the section header). */
+ * `editor_render_row()` pass rebuilds derived state and can still run out
+ * of memory, which quits rather than unwinding (see the section header).
+ *
+ * Rendering is all that pass does: the rows' highlights are the whole
+ * edit's business, not each row's, and kg_buffer_replace() settles them
+ * once through syntax_after_edit() when the topology is finished. */
 static void edit_publish(
     struct editor_buffer *b, int r0, int r1, struct edit_staged *st)
 {
@@ -1620,7 +1698,7 @@ static void edit_publish(
 		b->row[i].idx = i;
 	}
 	for (i = r0; i < r0 + new_span; i++) {
-		editor_update_row(b, &b->row[i]);
+		editor_render_row(b, &b->row[i]);
 	}
 }
 
@@ -1639,6 +1717,7 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 {
 	struct editor_buffer *b = e->buffer;
 	struct edit_staged st = { 0 };
+	struct kg_syntax_edit sedit;
 	size_t old_total;
 	int r0, c0, r1, c1;
 
@@ -1680,10 +1759,16 @@ int kg_buffer_replace(const struct kg_edit *e, struct kg_edit_result *out)
 		KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_EDIT);
 		return 0;
 	}
+	sedit = edit_describe(e, r0, c0, r1, c1, &st);
 	edit_publish(b, r0, r1, &st);
 	kg_marker_relocate_all(
 	    b, e->begin_byte, e->end_byte, e->replacement_len);
 	kg_decor_compact(b);
+	/* Exactly one syntax notification per successful edit, once the rows,
+	 * the markers and the decorations are all published and the rows are
+	 * rendered -- and before the text-change event, so a subscriber
+	 * reading a row's colours sees the ones its bytes deserve. */
+	syntax_after_edit(b, &sedit);
 	edit_staged_free(&st);
 	edit_note_change(b, e->intent);
 	if (out) {
@@ -1914,7 +1999,16 @@ void kg_buffer_append_internal(
 	 * change as they go, the same as they would for typed text -- so
 	 * dirty is forced back to zero here rather than left to their count:
 	 * process output was never the user's to save, whatever it took to
-	 * lay the rows out. */
+	 * lay the rows out.
+	 *
+	 * They also each re-highlight the row they touched, which is all the
+	 * legacy backend needs and is why there is no syntax_rebuild() call
+	 * here: a backend that keeps state over the whole text would want one
+	 * (this is the raw-mutation path Phase 3 of
+	 * doc/plans/kg-tree-sitter-plan.md says must either migrate onto the
+	 * transaction or announce itself), but adding it now would charge
+	 * every compilation and shell-output chunk an O(rows) rebuild for a
+	 * backend that has no state to rebuild. */
 	b->dirty = 0;
 }
 

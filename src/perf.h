@@ -46,6 +46,13 @@ enum kg_perf_counter {
 	KG_PERF_SYNTAX_ROW, /* rows handed to the highlighter */
 	KG_PERF_SYNTAX_BYTES, /* rendered bytes it scanned */
 	KG_PERF_SYNTAX_PROPAGATE, /* extra rows an hl_oc flip dragged in */
+	/* Edit-granular syntax notifications: syntax_after_edit() calls, one
+	 * per successful kg_buffer_replace(), and the unit the syntax
+	 * counters above are read per for an edit.  The property it exists
+	 * to pin is that a replacement spanning N rows notifies the syntax
+	 * layer ONCE rather than N times, each with its own downstream
+	 * propagation (doc/plans/kg-tree-sitter-plan.md, Phase 3). */
+	KG_PERF_SYNTAX_EDIT,
 
 	/* Whole-buffer work. */
 	KG_PERF_BUFFER_FLATTEN, /* editor_rows_to_string() calls */

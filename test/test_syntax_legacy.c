@@ -10,6 +10,7 @@
  * test/test_syntax.c. */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "../src/syntax.h"
 #include "../src/syntax_legacy.h"
 #include "test.h"
@@ -1090,6 +1091,219 @@ static void test_yaml_malformed_escape_at_eol_no_crash(void)
 	teardown();
 }
 
+/* ---- Edit transaction vs. from-scratch rehighlight ---- */
+
+/* One edit-transaction differential case: build `lines` in `mode`,
+ * replace the text between (r0,c0) and (r1,c1) -- chars space, per
+ * doc/coordinates.md -- with `replacement`, and compare what the edit
+ * left behind against what a rehighlight of the same final text
+ * produces. */
+struct edit_case {
+	const char *mode;
+	const char *const *lines;
+	int nlines;
+	int r0, c0, r1, c1;
+	const char *replacement;
+};
+
+/* Since kg_buffer_replace() tells the syntax layer about an edit exactly
+ * once (src/syntax.h's syntax_after_edit()), rather than re-running the
+ * highlighter per rebuilt row, the incremental answer has to be the same
+ * one a whole-buffer pass computes: same hl bytes, same cross-row hl_oc,
+ * row for row.  Multi-row constructs are the whole of the risk -- a C
+ * block comment, a Markdown fence and a YAML block scalar each carry
+ * state across rows in hl_oc -- so each case edits across such a
+ * construct's boundary, where an edit changes what the rows below it
+ * mean.  This is the differential pattern the tree-sitter plan's Phase 10
+ * wants between backends, applied to the one backend that exists. */
+static void check_edit_matches_rehighlight(const struct edit_case *c)
+{
+	unsigned char **hl;
+	struct kg_edit e;
+	int *oc;
+	int i, rows;
+	size_t begin, end;
+
+	setup(syntax_find_by_name(c->mode));
+	for (i = 0; i < c->nlines; i++) {
+		editor_insert_row(bcur(), i, c->lines[i], strlen(c->lines[i]));
+	}
+	begin = buffer_row_col_to_position(bcur(), c->r0, c->c0);
+	end = buffer_row_col_to_position(bcur(), c->r1, c->c1);
+	e = kg_edit_user(
+	    bcur(), begin, end, c->replacement, strlen(c->replacement));
+	CHECK(kg_buffer_replace(&e, NULL) == 1);
+
+	rows = bcur()->numrows;
+	hl = calloc((size_t)rows, sizeof(*hl));
+	oc = calloc((size_t)rows, sizeof(*oc));
+	CHECK(hl != NULL && oc != NULL);
+	if (!hl || !oc) {
+		free(hl);
+		free(oc);
+		teardown();
+		return;
+	}
+	for (i = 0; i < rows; i++) {
+		int n = bcur()->row[i].rsize;
+
+		oc[i] = bcur()->row[i].hl_oc;
+		hl[i] = n > 0 ? malloc((size_t)n) : NULL;
+		if (hl[i]) {
+			memcpy(hl[i], bcur()->row[i].hl, (size_t)n);
+		}
+	}
+	/* "Everything changed", which for this backend is the from-scratch
+	 * pass: the same rows, recoloured with no history at all. */
+	syntax_rebuild(bcur());
+	for (i = 0; i < rows; i++) {
+		erow *r = &bcur()->row[i];
+
+		CHECKF(oc[i] == r->hl_oc,
+		    "%s row %d: hl_oc %d after the edit, "
+		    "%d from scratch",
+		    c->mode, i, oc[i], r->hl_oc);
+		if (hl[i]) {
+			CHECKF(memcmp(hl[i], r->hl, (size_t)r->rsize) == 0,
+			    "%s row %d (%s): hl differs from a from-scratch "
+			    "rehighlight",
+			    c->mode, i, r->chars);
+		}
+		free(hl[i]);
+	}
+	free(hl);
+	free(oc);
+	teardown();
+}
+
+/* A C block comment that spans rows, with the edit removing the row that
+ * opened it -- so the rows below stop being comment and the row that used
+ * to close it stops closing anything. */
+static void test_edit_differential_c_block_comment(void)
+{
+	static const char *const lines[] = {
+		"int a = 0;",
+		"/* opened here",
+		"still inside the comment",
+		"*/ int b = 1;",
+		"int c = 2;",
+	};
+	const struct edit_case c = {
+		.mode = "C",
+		.lines = lines,
+		.nlines = 5,
+		.r0 = 1,
+		.c0 = 0,
+		.r1 = 1,
+		.c1 = 14,
+		.replacement = "int d = 3;\nint e = 4;",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
+/* The other direction: an edit that OPENS a block comment where there was
+ * none, so the rows below it become comment. */
+static void test_edit_differential_c_opens_comment(void)
+{
+	static const char *const lines[] = {
+		"int a = 0;",
+		"int b = 1;",
+		"int c = 2;",
+		"int d = 3;",
+	};
+	const struct edit_case c = {
+		.mode = "C",
+		.lines = lines,
+		.nlines = 4,
+		.r0 = 0,
+		.c0 = 4,
+		.r1 = 1,
+		.c1 = 4,
+		.replacement = "x /* opened\nand still open\ny",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
+/* A Markdown fenced block, with the edit moving the opening fence down a
+ * row: every row of the block changes meaning, and so does the row that
+ * used to close it. */
+static void test_edit_differential_markdown_fence(void)
+{
+	static const char *const lines[] = {
+		"# Title",
+		"```",
+		"fenced line",
+		"another fenced line",
+		"```",
+		"after the fence",
+	};
+	const struct edit_case c = {
+		.mode = "Markdown",
+		.lines = lines,
+		.nlines = 6,
+		.r0 = 1,
+		.c0 = 0,
+		.r1 = 1,
+		.c1 = 3,
+		.replacement = "prose first\n```",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
+/* A YAML block scalar, with the edit replacing its header by a plain key
+ * and a new header one row down. */
+static void test_edit_differential_yaml_block_scalar(void)
+{
+	static const char *const lines[] = {
+		"first: value",
+		"script: |",
+		"  echo one",
+		"  echo two",
+		"next: value",
+	};
+	const struct edit_case c = {
+		.mode = "YAML",
+		.lines = lines,
+		.nlines = 5,
+		.r0 = 1,
+		.c0 = 0,
+		.r1 = 1,
+		.c1 = 9,
+		.replacement = "plain: value\nscript: >",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
+/* Regression, and the one behaviour this slice deliberately changed: an
+ * edit that stops a construct from opening must not leave the rows below
+ * it coloured for it.  Rebuilding row by row used to decide whether to
+ * propagate by comparing a staged row's hl_oc -- which describes the
+ * staging, not the text -- and so left "text in comment" cyan under a row
+ * that no longer opened a comment.  syntax_after_edit() always re-examines
+ * the first row below the edit, which is what makes the differential
+ * cases above hold. */
+static void test_edit_clears_stale_comment_below(void)
+{
+	struct kg_edit e;
+
+	setup(syntax_find_by_name("C"));
+	editor_insert_row(bcur(), 0, "/* open", 7);
+	editor_insert_row(bcur(), 1, "text in comment", 15);
+	CHECK(bcur()->row[1].hl[0] == HL_MLCOMMENT);
+
+	e = kg_edit_user(bcur(), 0, 7, "a\nb", 3);
+	CHECK(kg_buffer_replace(&e, NULL) == 1);
+
+	CHECK(bcur()->numrows == 3);
+	CHECK(bcur()->row[2].hl[0] == HL_NORMAL);
+	CHECK(bcur()->row[2].hl_oc == 0);
+	teardown();
+}
+
 /* ---- Mode identity ---- */
 
 int main(void)
@@ -1167,5 +1381,10 @@ int main(void)
 	RUN(test_yaml_colon_at_end_of_short_row);
 	RUN(test_yaml_empty_rows_no_crash);
 	RUN(test_yaml_malformed_escape_at_eol_no_crash);
+	RUN(test_edit_differential_c_block_comment);
+	RUN(test_edit_differential_c_opens_comment);
+	RUN(test_edit_differential_markdown_fence);
+	RUN(test_edit_differential_yaml_block_scalar);
+	RUN(test_edit_clears_stale_comment_below);
 	return test_summary();
 }

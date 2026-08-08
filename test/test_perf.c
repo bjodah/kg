@@ -676,6 +676,77 @@ static void test_multiline_insert_flattens_buffer(void)
 	teardown();
 }
 
+/* ---- Edit-granular syntax notification ---- */
+
+/* The property this slice exists for: one edit transaction is ONE syntax
+ * notification, whatever it did to the buffer's topology.  Rendering is
+ * still per row -- the rows really are rebuilt -- but the syntax layer is
+ * told once, with a description of the whole edit, instead of being woken
+ * per row while the row array is still being assembled
+ * (doc/plans/kg-tree-sitter-plan.md, Phase 3).
+ *
+ * The shape, derived rather than observed:
+ *   SYNTAX_EDIT  == 1   one syntax_after_edit() per successful replace.
+ *   ROW_UPDATE   == 3   the new span is rows 2..4 -- the split row plus
+ *                       the two the two '\n' opened -- and each is
+ *                       rendered exactly once.
+ *   SYNTAX_ROW   == 4   those three rows, plus one row below the span:
+ *                       the propagation always re-examines the first row
+ *                       under an edit, since the staged rows carry no
+ *                       "before" hl_oc to compare against.  It stops
+ *                       there because row 5's state comes out unchanged.
+ *   PROPAGATE    == 1   that one row below the span, and no more.
+ * Before this slice the same edit cost three notifications, each with its
+ * own propagation, two of them over rows not yet rendered. */
+static void test_multiline_edit_notifies_syntax_once(void)
+{
+	const int rows = 64;
+	struct kg_edit e;
+	size_t pos;
+	int r;
+
+	setup();
+	bcur()->syntax = syntax_find_by_name("C");
+	for (r = 0; r < rows; r++) {
+		editor_insert_row(bcur(), r, "int v = 0;", 10);
+	}
+	pos = buffer_row_col_to_position(bcur(), 2, 4);
+	e = kg_edit_user(bcur(), pos, pos, "one\ntwo\n", 8);
+	kg_perf_reset();
+	CHECK(kg_buffer_replace(&e, NULL) == 1);
+	CHECK(bcur()->numrows == rows + 2);
+
+	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 3);
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == 4);
+	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
+	teardown();
+}
+
+/* The same property for the hottest edit of all -- one typed byte, one
+ * row, no topology change.  One notification, one rendered row, two rows
+ * scanned (the row itself and the always-re-examined row below it), and
+ * the scan stops there rather than walking the rest of the buffer. */
+static void test_one_row_edit_notifies_syntax_once(void)
+{
+	const int rows = 64;
+	int r;
+
+	setup();
+	bcur()->syntax = syntax_find_by_name("C");
+	for (r = 0; r < rows; r++) {
+		editor_insert_row(bcur(), r, "int v = 0;", 10);
+	}
+	kg_perf_reset();
+	CHECK(editor_row_replace_range(2, 4, 0, "y", 1, KG_EDIT_USER) == 1);
+
+	CHECK(counter(KG_PERF_SYNTAX_EDIT) == 1);
+	CHECK(counter(KG_PERF_ROW_UPDATE) == 1);
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == 2);
+	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
+	teardown();
+}
+
 /* ---- Undo eviction ---- */
 
 static void test_undo_eviction_walk(void)
@@ -1381,6 +1452,8 @@ int main(void)
 	RUN(test_replace_range_updates_once);
 	RUN(test_rect_delete_updates_per_byte);
 	RUN(test_multiline_insert_flattens_buffer);
+	RUN(test_multiline_edit_notifies_syntax_once);
+	RUN(test_one_row_edit_notifies_syntax_once);
 	RUN(test_undo_eviction_walk);
 	RUN(test_visual_line_scan_per_refresh);
 	RUN(test_visual_line_warm_repaint_scans_nothing);

@@ -318,6 +318,7 @@ copy_tree() {
 		--exclude='*.gcno' \
 		--exclude='*.plist' \
 		--exclude=src/kg \
+		--exclude='src/.features-*' \
 		--exclude='src/.with-lisp-*' \
 		. | tar -xf - -C "${dest}"
 	make -C "${dest}" -s distclean coverage-clean

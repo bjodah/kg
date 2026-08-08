@@ -63,6 +63,25 @@ A build configured with
 reports
 .Sq -lisp .
 .Pp
+Syntax highlighting has two interchangeable backends chosen at build time,
+and
+.Fl V
+names the one in this binary the same way: the default build reports
+.Sq -tree-sitter
+and uses the built-in row scanners this page documents, while a build
+configured with
+.Li WITH_TREE_SITTER=1
+reports
+.Sq +tree-sitter
+and links
+.Sy libtree-sitter
+from the prefix named by the
+.Li TREE_SITTER_PREFIX
+make variable.
+The tree-sitter backend loads no grammars yet, so such a build treats every
+buffer as plain text; the mode names, mode commands and file-name detection
+below are unaffected by either choice.
+.Pp
 On startup
 .Nm
 loads the Lisp init file

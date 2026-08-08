@@ -233,6 +233,33 @@ Lisp support is compiled in by default. Use `make WITH_LISP=0` to build without
 the Fe Lisp interpreter;
 See [LISP.md](LISP.md).
 
+## Tree-sitter (optional, off by default)
+
+Syntax highlighting has two interchangeable backends, chosen at build time.
+`WITH_TREE_SITTER=0` is the default and needs nothing beyond a C compiler: it
+builds the bespoke row scanners kg has always used, and it stays the
+supported configuration on a machine with no package manager.
+
+`make WITH_TREE_SITTER=1` builds against an existing tree-sitter install
+instead of vendoring one. `TREE_SITTER_PREFIX` names it, and the build looks
+for `$(TREE_SITTER_PREFIX)/include/tree_sitter/api.h`; the resulting binary
+links `libtree-sitter` from that prefix's `lib/`, with an `-rpath` so it
+still finds a shared one at run time.
+
+```bash
+make WITH_TREE_SITTER=1 TREE_SITTER_PREFIX=/usr/local
+./src/kg -V          # kg 1.1.0 +lisp +tree-sitter
+```
+
+`kg -V` names every optional feature as `+word` or `-word`, so it is the way
+to ask a binary which backend it has. The two flags are independent: all four
+combinations of `WITH_LISP` and `WITH_TREE_SITTER` build.
+
+The backend itself is still arriving. Today a `WITH_TREE_SITTER=1` build
+links tree-sitter and loads no grammars, so every buffer is plain text; the
+grammars, queries and incremental reparsing land in later releases, and
+`WITH_TREE_SITTER=0` is what to build until they do.
+
 ## Development
 
 Before submitting changes, format the C sources and tests:

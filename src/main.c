@@ -132,6 +132,19 @@ static int usage(FILE *fp, int rc)
 	return rc;
 }
 
+/* The feature words `kg -V` prints, one space-separated +word/-word per
+ * build axis.  Lisp answers at run time (kg_lisp_active()); the syntax
+ * backend is a compile-time source-list choice with no run-time question to
+ * ask, so it answers from the macro the Makefile defines.  The spelling
+ * matters beyond the eye: utils/pty_accept.py takes every +word here as a
+ * feature name, which is what makes `requires_feature: tree-sitter` in a
+ * PTY case skip on a build that has none. */
+#ifdef KG_USE_TREE_SITTER
+#define KG_FEATURE_TREE_SITTER "+tree-sitter"
+#else
+#define KG_FEATURE_TREE_SITTER "-tree-sitter"
+#endif
+
 int main(int argc, char **argv)
 {
 	int opt, readonly = 0, no_init = 0;
@@ -152,8 +165,9 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s %s\n", KG_VERSION,
-			    kg_lisp_active() ? "+lisp" : "-lisp");
+			printf("kg %s %s %s\n", KG_VERSION,
+			    kg_lisp_active() ? "+lisp" : "-lisp",
+			    KG_FEATURE_TREE_SITTER);
 			return 0;
 		case 'h':
 			return usage(stdout, 0);

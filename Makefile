@@ -72,7 +72,80 @@ $(error fe/tiny-regex-c/re.c is missing; run 'git submodule update --init --recu
 endif
 endif
 
-LISP_CONFIG = $(OBJDIR)/.with-lisp-$(WITH_LISP)
+# Tree-sitter is the optional second highlighting backend, and it is off by
+# default on purpose: kg has to keep building on a box with no package
+# manager, so WITH_TREE_SITTER=0 stays the dependency-free configuration and
+# the legacy scanners stay a first-class, permanently maintained backend
+# (doc/plans/kg-tree-sitter-plan.md, Refinement decision 3).
+#
+# The dependency model is a prebuilt PREFIX, not a submodule (decision 1).
+# TREE_SITTER_PREFIX names an install whose include/tree_sitter/api.h is the
+# guard file; the core library is then an ordinary link-time dependency
+# found under $(TREE_SITTER_PREFIX)/lib, with no pkg-config requirement.
+# The default is this development environment's release prefix; the
+# {debug,asan,msan} siblings are what a sanitizer lane would point at.
+# -rpath is not decoration: the release and debug prefixes ship only a
+# shared libtree-sitter, in a directory on no default loader path, so
+# without it the editor links and then fails to start.  A static prefix
+# (the asan and msan ones ship libtree-sitter.a) links from the same three
+# flags and simply ignores the rpath.
+#
+# Grammars are NOT linked: they are dlopen'd at runtime by soname, Emacs'
+# own model (decision 1), which arrives with the registry in a later slice.
+WITH_TREE_SITTER ?= 0
+TREE_SITTER_PREFIX ?= /opt-9/tree-sitter-v0.26.11-release
+
+ifneq ($(WITH_TREE_SITTER),0)
+ifneq ($(WITH_TREE_SITTER),1)
+$(error WITH_TREE_SITTER must be 0 or 1)
+endif
+endif
+ifeq ($(WITH_TREE_SITTER),1)
+ifeq ($(wildcard $(TREE_SITTER_PREFIX)/include/tree_sitter/api.h),)
+ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
+ifneq ($(MAKECMDGOALS),)
+SKIP_TREE_SITTER_CHECK = 1
+endif
+endif
+ifneq ($(SKIP_TREE_SITTER_CHECK),1)
+$(error $(TREE_SITTER_PREFIX)/include/tree_sitter/api.h is missing; point TREE_SITTER_PREFIX=... at a tree-sitter install prefix, or build with 'WITH_TREE_SITTER=0')
+endif
+endif
+override CFLAGS += -DKG_USE_TREE_SITTER=1 -I$(TREE_SITTER_PREFIX)/include
+# In LDLIBS rather than LDFLAGS because two link lines (test/kgbatch and
+# the keypress fuzz target) pass LDLIBS and not LDFLAGS; -L before -l in
+# one variable resolves the same way, and LDLIBS is last on every line.
+override LDLIBS += -L$(TREE_SITTER_PREFIX)/lib \
+		   -Wl,-rpath,$(TREE_SITTER_PREFIX)/lib -ltree-sitter
+endif
+
+# Which implementation of the private src/syntax_backend.h contract this
+# build compiles.  A source list, never an #ifdef: the backend that is not
+# selected is not compiled at all, which is the property
+# `test ! -e src/syntax_legacy.o` in .ci/ci-13-with-tree-sitter.sh asserts.
+ifeq ($(WITH_TREE_SITTER),1)
+SYNTAX_BACKEND_SRCS = syntax_tree_sitter.c
+else
+SYNTAX_BACKEND_SRCS = syntax_legacy.c
+endif
+SYNTAX_BACKEND_OBJS = $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS:.c=.o))
+# Both backends' objects and test binaries, named so `make clean` removes
+# the one this configuration did not build.  $(OBJS)/$(TESTBINS) only ever
+# name the selected backend, so without this a `make WITH_TREE_SITTER=1;
+# make clean` would leave src/syntax_tree_sitter.o behind for a later
+# default build's linker to trip over.
+SYNTAX_BACKEND_ALL = $(OBJDIR)/syntax_legacy.o $(PERFOBJDIR)/syntax_legacy.o \
+		     $(OBJDIR)/syntax_tree_sitter.o \
+		     $(PERFOBJDIR)/syntax_tree_sitter.o \
+		     $(TESTDIR)/test_syntax_legacy
+
+# One stamp for the whole feature configuration, so an object compiled
+# under one set of -D flags is never mistaken for up to date under another.
+# It replaced LISP_CONFIG when the tree-sitter axis arrived: two
+# independent axes need one stamp between them, not one each, or the
+# sequence `make WITH_LISP=0; make WITH_LISP=0 WITH_TREE_SITTER=1` looks
+# unchanged to make.  Lives in $(OBJDIR) beside the objects it guards.
+FEATURE_CONFIG = $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -140,7 +213,7 @@ endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
 # Source files
-SRCS = main.c tty.c syntax.c syntax_legacy.c autocomplete.c buffer.c fileio.c \
+SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c \
@@ -167,7 +240,7 @@ HDRS = $(ALL_HDRS)
 # Test infrastructure
 TESTDIR  = test
 TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
-           $(TESTDIR)/test_syntax $(TESTDIR)/test_syntax_legacy \
+           $(TESTDIR)/test_syntax \
            $(TESTDIR)/test_yank \
            $(TESTDIR)/test_autocomplete $(TESTDIR)/test_word \
            $(TESTDIR)/test_basic $(TESTDIR)/test_region \
@@ -184,6 +257,14 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom \
            $(TESTDIR)/test_perf
+# The legacy scanners' own suite exists only where the legacy scanners do:
+# it links src/syntax_legacy.o and asserts what each bespoke scanner paints,
+# so it is not a suite a tree-sitter build can run at all.  The tree-sitter
+# backend's equivalent arrives with the backend itself; today's skeleton
+# recognizes nothing and has nothing of its own to assert.
+ifeq ($(WITH_TREE_SITTER),0)
+TESTBINS += $(TESTDIR)/test_syntax_legacy
+endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
 # be mixed with the src/*.o everything else links.  Its objects live in
@@ -209,7 +290,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
-	    $(OBJDIR)/syntax_legacy.c \
+	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
@@ -279,7 +360,7 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # turn needs process.o.  $^ in the link rule below dedupes, so an EXTRA_
 # list that also names process.o separately is harmless.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
-                 $(OBJDIR)/syntax_legacy.o \
+                 $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o
@@ -305,6 +386,12 @@ FE_FUZZ_CFLAGS ?= $(FUZZ_CFLAGS)
 
 ifeq ($(WITH_LISP),1)
 override FUZZ_CFLAGS += -DKG_USE_LISP=1
+endif
+# FUZZ_CFLAGS is a complete flag set of its own rather than CFLAGS plus
+# extras, so the feature defines have to be repeated here; the link side
+# needs nothing, the keypress target already passing $(LDLIBS).
+ifeq ($(WITH_TREE_SITTER),1)
+override FUZZ_CFLAGS += -DKG_USE_TREE_SITTER=1 -I$(TREE_SITTER_PREFIX)/include
 endif
 
 # Project metrics
@@ -748,7 +835,38 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6089 exceeds limit 6088
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6089
 #   scc total complexity: 6089 (limit 6089)
-SCC_COMPLEXITY_MAX ?= 6089
+# Raised 6089 -> 6092 for the WITH_TREE_SITTER build axis, slice 5
+# (2026-08-08): the feature flag, the feature stamp, the backend source
+# lists and the `+tree-sitter` feature word
+# (doc/plans/kg-tree-sitter-plan.md, Phase 5).  Almost all of that slice is
+# Makefile and .ci, which scc does not scan (SCC_COMPLEXITY_PATHS is src);
+# the whole +3 is one new file, src/syntax_tree_sitter.c, the SKELETON
+# backend that the tree-sitter configuration compiles in place of
+# src/syntax_legacy.c.  It counts against the cap even though no default
+# build compiles it, because scc reads the directory and not the build.
+#   - src/syntax_tree_sitter.c 0 -> 3 (+3), the file's whole measurement:
+#     syntax_backend_prepare()'s loop over the staged rows and its
+#     out-of-memory guard, which is the same shape the legacy backend's
+#     prepare has.  The other two contract functions are empty.
+#   - src/main.c 16 -> 16 (+0): -V gained a third printf argument and a
+#     #ifdef-selected string constant, neither of which is a branch point.
+# Bisected on this tree: with src/syntax_tree_sitter.c moved out of src/,
+# `make complexity-check SCC_COMPLEXITY_MAX=6089` passes at exactly 6089,
+# so nothing else in the slice moved the number.
+# pmccabe agrees: three new symbols, all far under the 15 new-function
+# budget (syntax_backend_prepare 3, syntax_backend_update_row 1,
+# syntax_backend_state_free 1), no existing symbol changed, and no
+# baseline rewrite is needed -- the new file is only in PMCCABE_PATHS
+# when WITH_TREE_SITTER=1, where `make pmccabe-check` reports the three as
+# new and under budget.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520; the worst file is still src/bufmgr.c, at 499.  Proof on the same
+# tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6091
+#   FAIL: total complexity 6092 exceeds limit 6091
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6092
+#   scc total complexity: 6092 (limit 6092)
+SCC_COMPLEXITY_MAX ?= 6092
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -807,12 +925,18 @@ IWYU_FILES = $(addprefix $(CURDIR)/$(OBJDIR)/,$(SRCS))
 
 all: $(TARGET)
 
-$(LISP_CONFIG):
-	rm -f $(OBJDIR)/.with-lisp-0 $(OBJDIR)/.with-lisp-1
+# Removing every other stamp is what makes this work: the file that exists
+# names the configuration the objects beside it were compiled for, so a
+# build in any other configuration finds its own stamp absent, recreates
+# it, and every object rebuilds.  The .with-lisp-* names are the shape this
+# stamp had before the tree-sitter axis; a tree that still has one is a
+# tree whose objects predate the rename.
+$(FEATURE_CONFIG):
+	rm -f $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-*
 	touch $@
 
-$(OBJS): $(LISP_CONFIG)
-# LISP_SRCS is a subset of SRCS, so a second `$(LISP_OBJS): $(LISP_CONFIG)`
+$(OBJS): $(FEATURE_CONFIG)
+# LISP_SRCS is a subset of SRCS, so a second `$(LISP_OBJS): $(FEATURE_CONFIG)`
 # says nothing the line above has not.  What was missing is this: the
 # embedded prelude is #included, and nothing told make so, which is how a
 # `make lisp-prelude-generate` followed by `make` could relink an editor
@@ -942,7 +1066,7 @@ lisp-prelude-check:
 # test/pty/*.yaml.
 kgbatch: test/kgbatch
 
-test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(LISP_CONFIG) \
+test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
@@ -1358,7 +1482,7 @@ $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 
-$(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(LISP_CONFIG)
+$(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
 
@@ -1393,7 +1517,8 @@ $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
+	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) \
+	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(FUZZBINS) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR)
 

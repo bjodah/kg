@@ -1,24 +1,22 @@
 /* test_syntax.c -- regression tests for the backend-neutral syntax layer
  *
  * What a mode is, which mode a file name or shebang selects, what an HL_*
- * face is in terminal colours, the mode-change event, and the mode-owned
- * highlighter hook.  The bespoke scanners' own expectations -- every
- * "this byte comes out HL_KEYWORD1" assertion -- live in
- * test/test_syntax_legacy.c, which is the suite that goes away with the
- * backend it tests.
+ * face is in terminal colours, the mode-change event, the mode-owned
+ * highlighter hook, and the lifetime of the backend's opaque per-buffer
+ * state.  Every "this byte comes out HL_KEYWORD1" assertion belongs to
+ * whichever backend is linked and lives in that backend's own suite --
+ * test/test_syntax_legacy.c for the bespoke scanners.
  *
- * Two exceptions are deliberate and named here rather than duplicated:
- * the git-commit subject tests assert the common
- * syntax_git_commit_subject() and, in passing, what the linked backend
- * painted; and the set-syntax rebuild test names two registry modes to
- * prove the rebuild happened at all. */
+ * This suite is built and run in EVERY configuration, so nothing in it may
+ * assume a particular backend.  Where a colour is asserted here it is
+ * painted by a mode-owned highlighter the test itself supplies (dired's
+ * arrangement), which no backend is allowed to override; where the answer
+ * is genuinely a scanner's, the assertion lives next door and a comment
+ * here says so. */
 
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/syntax.h"
-/* is_separator() belongs to the legacy backend; the char-signedness case
- * below pins it against a negative char alongside def.h's ASCII helpers. */
-#include "../src/syntax_legacy.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,12 +81,9 @@ static void test_ascii_classification_is_sign_independent(void)
 	    && ascii_is_space('\n') && ascii_is_space('\r'));
 	CHECK(!ascii_is_space('x') && !ascii_is_space(0xa0) /* NBSP byte */);
 	CHECK(!ascii_is_space(-96));
-
-	/* is_separator() takes an int that callers feed a plain char from,
-	 * so it must survive a negative one and answer the same either
-	 * way. */
-	CHECK(is_separator(' ') && is_separator('\0'));
-	CHECK(!is_separator((char)0xc3) && !is_separator(0xc3));
+	/* is_separator() is the legacy backend's, so the same assertion
+	 * against a negative char lives in test_syntax_legacy.c, which is
+	 * the suite that links it. */
 }
 
 static void test_syntax_to_color(void)
@@ -118,22 +113,17 @@ static void test_gitcommit_subject_skips_comment(void)
 	teardown();
 }
 
-/* A buffer of only comments has no subject and no warning anywhere. */
+/* A buffer of only comments has no subject.  What a comment row is
+ * *painted* is the backend's answer, and test_syntax_legacy.c's
+ * test_gitcommit_comment_line() is where it is asserted; this is the
+ * facade's question, which every backend answers the same. */
 static void test_gitcommit_no_subject(void)
 {
-	int i;
-
 	setup(syntax_find_by_name("Git commit"));
 	editor_insert_row(bcur(), 0, "# only a comment", 16);
 	editor_insert_row(bcur(), 1, "# another comment", 17);
 
 	CHECK(syntax_git_commit_subject() == -1);
-	for (i = 0; i < 16; i++) {
-		CHECK(bcur()->row[0].hl[i] == HL_COMMENT);
-	}
-	for (i = 0; i < 17; i++) {
-		CHECK(bcur()->row[1].hl[i] == HL_COMMENT);
-	}
 	teardown();
 }
 
@@ -237,14 +227,27 @@ static void test_custom_highlighter_pointer(void)
 	teardown();
 }
 
-/* test that editor_set_syntax rebuilds highlights for existing rows */
+/* editor_set_syntax() rehighlights the rows the buffer already holds.  Both
+ * modes here own their highlighter outright, so what this pins is the
+ * facade's rebuild rather than any backend's opinion of the text: the row
+ * is painted under the first mode, the second mode's hook is called once
+ * for it, and what that hook does not paint comes back HL_NORMAL.  The same
+ * transition between two *scanned* registry modes is
+ * test_syntax_legacy.c's. */
 static void test_editor_set_syntax_rebuilds(void)
 {
-	setup(syntax_find_by_name("C"));
-	editor_insert_row(bcur(), 0, "int x;", 6);
-	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+	struct editor_syntax painting
+	    = { KG_MODE_TEXT, "Painting", NULL, "", dummy_highlight };
+	struct editor_syntax counting
+	    = { KG_MODE_TEXT, "Counting", NULL, "", counting_highlight };
 
-	editor_set_syntax(bcur(), syntax_find_by_name("Markdown"));
+	setup(&painting);
+	editor_insert_row(bcur(), 0, "int x;", 6);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD1);
+
+	custom_hl_count = 0;
+	editor_set_syntax(bcur(), &counting);
+	CHECK(custom_hl_count == 1);
 	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
 	teardown();
 }
@@ -379,9 +382,10 @@ static void test_git_mode_predicates_follow_mode_id(void)
 
 /* Render, prepare, adopt: the staged sequence every builder now follows.
  * The preparation pass is what colours the rows -- rendering no longer
- * does -- so this also checks that a cross-row construct (an open block
- * comment) still propagates down the staged document exactly as it did
- * when the two passes were interleaved. */
+ * does -- and every row it returns must have an hl array, because the
+ * display indexes row->hl without asking.  Which colours land in it is the
+ * backend's; the C block comment propagating down a staged document is
+ * test_syntax_legacy.c's version of this test. */
 static void test_prepare_rows_colours_and_keeps_no_state(void)
 {
 	struct editor_syntax *c = syntax_find_by_mode(KG_MODE_C);
@@ -402,11 +406,7 @@ static void test_prepare_rows_colours_and_keeps_no_state(void)
 	st = syntax_prepare_rows(rows, numrows, c, &ok);
 	CHECK(ok == 1);
 	CHECK(st == NULL); /* This backend keeps no state. */
-	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_MLCOMMENT);
-	CHECK(rows[1].hl != NULL && rows[1].hl[0] == HL_MLCOMMENT);
-	CHECK(rows[2].hl != NULL && rows[2].hl[0] == HL_MLCOMMENT);
-	CHECK(rows[0].hl_oc == 1 && rows[1].hl_oc == 1);
-	CHECK(rows[2].hl_oc == 0); /* The comment closes on the last row. */
+	CHECK(rows[0].hl != NULL && rows[1].hl != NULL && rows[2].hl != NULL);
 
 	/* Publication releases whatever described the old rows; the caller
 	 * then hands over the state it prepared against the new ones. */

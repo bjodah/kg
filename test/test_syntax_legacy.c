@@ -5,9 +5,12 @@
  * git-rebase scanners, and the cross-row hl_oc state they propagate.
  * Split out of test_syntax.c, unchanged, when the scanners moved behind
  * src/syntax_backend.h -- a build that installs a different backend does
- * not build this suite.  The backend-neutral half (mode identity,
- * selection, colours, the mode-owned highlighter hook) is in
- * test/test_syntax.c. */
+ * not build this suite (the Makefile adds it to TESTBINS only when
+ * WITH_TREE_SITTER=0).  It is not a museum: the legacy backend is
+ * permanent, being the configuration that needs no dependency at all
+ * (doc/plans/kg-tree-sitter-plan.md, Refinement decision 3).  The
+ * backend-neutral half (mode identity, selection, colours, the mode-owned
+ * highlighter hook, syntax-state lifetime) is in test/test_syntax.c. */
 
 #include "../src/def.h"
 #include "../src/edit.h"
@@ -67,6 +70,16 @@ static void test_is_separator_alnum_false(void)
 	CHECK(!is_separator('Z'));
 	CHECK(!is_separator('0'));
 	CHECK(!is_separator('_'));
+}
+
+/* is_separator() takes an int that callers feed a plain char from, so it
+ * must survive a negative one and answer the same either way -- the
+ * counterpart of test_syntax.c's ASCII-helper case, which
+ * .ci/ci-11-char-signedness.sh runs under both signednesses. */
+static void test_is_separator_negative_char(void)
+{
+	CHECK(is_separator(' ') && is_separator('\0'));
+	CHECK(!is_separator((char)0xc3) && !is_separator(0xc3));
 }
 
 /* The generic scanner marks ASCII control bytes and nothing else.  It
@@ -1313,6 +1326,51 @@ static void test_edit_clears_stale_comment_below(void)
 	teardown();
 }
 
+/* ---- Staged preparation ---- */
+
+/* The preparation pass colours a whole staged document in one go, and a
+ * cross-row construct -- an open block comment -- has to propagate down it
+ * exactly as it did when rendering and highlighting were interleaved one
+ * row at a time.  test_syntax.c holds the facade's half of this: that the
+ * pass runs, keeps no state, and leaves every row with an hl array. */
+static void test_prepare_rows_propagates_block_comment(void)
+{
+	struct editor_syntax *c = syntax_find_by_name("C");
+	erow *rows = NULL;
+	int numrows = 0, cap = 0, ok = 0;
+
+	setup(c);
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "/* open", 7));
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "still", 5));
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "*/ int x;", 9));
+	CHECK(kg_row_builder_render(rows, numrows) == 0);
+
+	CHECK(syntax_prepare_rows(rows, numrows, c, &ok) == NULL);
+	CHECK(ok == 1);
+	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[1].hl != NULL && rows[1].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[2].hl != NULL && rows[2].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[0].hl_oc == 1 && rows[1].hl_oc == 1);
+	CHECK(rows[2].hl_oc == 0); /* The comment closes on the last row. */
+	kg_row_builder_free(&rows, &numrows, &cap);
+	teardown();
+}
+
+/* editor_set_syntax() rehighlights the rows the buffer already holds, and
+ * through the scanners that means a C keyword loses its colour when the
+ * buffer becomes Markdown.  test_syntax.c pins the same rebuild with two
+ * mode-owned highlighters, which is the part no backend can change. */
+static void test_set_syntax_rebuilds_scanned_rows(void)
+{
+	setup(syntax_find_by_name("C"));
+	editor_insert_row(bcur(), 0, "int x;", 6);
+	CHECK(bcur()->row[0].hl[0] == HL_KEYWORD2);
+
+	editor_set_syntax(bcur(), syntax_find_by_name("Markdown"));
+	CHECK(bcur()->row[0].hl[0] == HL_NORMAL);
+	teardown();
+}
+
 /* ---- Mode identity ---- */
 
 int main(void)
@@ -1321,6 +1379,7 @@ int main(void)
 	RUN(test_is_separator_nul);
 	RUN(test_is_separator_punct);
 	RUN(test_is_separator_alnum_false);
+	RUN(test_is_separator_negative_char);
 	RUN(test_generic_scan_marks_only_ascii_controls);
 	RUN(test_c_type_keyword);
 	RUN(test_c_ctrl_keyword);
@@ -1395,5 +1454,7 @@ int main(void)
 	RUN(test_edit_differential_markdown_fence);
 	RUN(test_edit_differential_yaml_block_scalar);
 	RUN(test_edit_clears_stale_comment_below);
+	RUN(test_prepare_rows_propagates_block_comment);
+	RUN(test_set_syntax_rebuilds_scanned_rows);
 	return test_summary();
 }

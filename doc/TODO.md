@@ -4,6 +4,37 @@ The dependency-ordered implementation program for the next architecture and
 feature work is [doc/plans/2026-07-31-follow-ups](plans/2026-07-31-follow-ups/README.md).
 This file remains the broader feature and technical-debt inventory.
 
+## Tree-sitter follow-ups (v1 landed 2026-08-08)
+
+The `WITH_TREE_SITTER=1` backend is complete per
+[doc/plans/kg-tree-sitter-plan.md](plans/kg-tree-sitter-plan.md)'s
+definition of done: 13 registry rows over 11 grammars, incremental
+TSInputEdit parsing with damage-limited repainting, differential-tested
+against full rebuilds.  Known follow-ups, none blocking:
+
+- **Shell**: `/opt-9/tree-sitter-grammar-bash` is v0.6.0 (grammar
+  ABI 6, below tree-sitter 0.26's floor); the loader refuses it and
+  `test_bash_grammar_abi_is_rejected()` fails loudly when the pin
+  moves.  Adding Shell then is one registry row + one query + tests.
+- **Git-mode diagnostics under the TS backend**: the overlong-subject
+  and bad-rebase-action HL_WARNING spans are legacy-scanner output, so
+  a TS build shows git buffers plain.  The plan's Phase 9 answer is to
+  re-express them as decorations, which both backends display.
+- **TSX tag colouring**: TS and TSX share one query text restricted to
+  the common node inventory, so `.tsx` tag names are unpainted; a
+  second query literal for the tsx row fixes it if wanted.
+- **Hosted CI promotion**: `.ci/ci-13-with-tree-sitter.sh` SKIPs off
+  the developer box; promoting it means building the pinned core (and
+  grammars) in a cached step (Refinement, "Hosted CI").
+- **Bench cases**: slice 7 measured edit latency ad hoc (1.3-5.6 ms
+  net per keystroke on 6.7k-38.8k-line files); `utils/bench.py` cases
+  for large-file open + edit under the TS build would make that a
+  tracked number.  Parse cancellation stays deferred until a
+  measurement says otherwise (Refinement, "Latency policy").
+- **Query embedding generator** (`utils/embed_tree_sitter_queries.py`):
+  deliberately declined twice; revisit only if queries outgrow
+  string-literal form.
+
 ## Lisp Interactive Follow-up
 
 - [x] **07E interactive prompting**: `n`/`N`, `s`, `f`/`F`, and `b`/`B` use

@@ -23,14 +23,20 @@
  * with it rather than surviving it. */
 
 #include <errno.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <fcntl.h>
 #include <poll.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #include "bufmgr.h"
 #include "def.h"
@@ -62,10 +68,18 @@ static char *pump_io(int rfd, int wfd, const char *in, int inlen, int *out_len)
 	}
 
 	if (rfd >= 0) {
+#ifdef _WIN32
+		kg_fd_set_nonblocking(rfd);
+#else
 		fcntl(rfd, F_SETFL, O_NONBLOCK);
+#endif
 	}
 	if (wfd >= 0) {
+#ifdef _WIN32
+		kg_fd_set_nonblocking(wfd);
+#else
 		fcntl(wfd, F_SETFL, O_NONBLOCK);
+#endif
 	}
 
 	/* If there's no input to send, close the write side immediately so the

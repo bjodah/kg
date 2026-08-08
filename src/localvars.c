@@ -5,8 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define strncasecmp _strnicmp
+#else
 #include <strings.h>
 #include <unistd.h>
+#endif
 
 void local_settings_init(struct local_settings *settings)
 {

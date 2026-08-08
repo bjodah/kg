@@ -1,6 +1,10 @@
 /* ============================== Dired mode =============================== */
 
+#ifdef _WIN32
+#include "kg_dirent.h"
+#else
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -9,7 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include "def.h"
 #include "edit.h"
@@ -46,6 +52,12 @@ struct dired_entry {
  * before that call so the status line can report it. */
 static struct dired_entry *dired_list;
 static int dired_list_count;
+#ifdef _WIN32
+static char dired_delete_directory[PATH_MAX];
+static void dired_close_dir(int fd) { (void)fd; }
+#else
+static void dired_close_dir(int fd) { close(fd); }
+#endif
 
 /* True when the current buffer is a directory listing. */
 int syntax_is_dired(void) { return bcur()->syntax == &dired_syntax; }
@@ -520,10 +532,21 @@ int dired_collect_flagged(int dirfd, struct dired_target *out, int max)
 			return -1;
 		}
 		memset(&out[n].id, 0, sizeof(out[n].id));
+#ifdef _WIN32
+		{
+			char full[PATH_MAX];
+			if (dired_join(dired_delete_directory, out[n].name,
+				full, sizeof(full)) == 0
+			    && stat(full, &st) == 0) {
+				dired_identity_from_stat(&out[n].id, &st);
+			}
+		}
+#else
 		if (fstatat(dirfd, out[n].name, &st, AT_SYMLINK_NOFOLLOW)
 		    == 0) {
 			dired_identity_from_stat(&out[n].id, &st);
 		}
+#endif
 		n++;
 	}
 	return n;
@@ -542,16 +565,28 @@ int dired_delete_verified(int dirfd, const struct dired_target *target)
 	struct dired_identity now;
 	struct stat st;
 
+#ifdef _WIN32
+	char full[PATH_MAX];
+	if (dired_join(dired_delete_directory, target->name,
+		full, sizeof(full)) != 0 || stat(full, &st) != 0) {
+		return -1;
+	}
+#else
 	if (fstatat(dirfd, target->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
 		return -1;
 	}
+#endif
 	dired_identity_from_stat(&now, &st);
 	if (memcmp(&now, &target->id, sizeof(now)) != 0) {
 		errno = ESTALE;
 		return -1;
 	}
+#ifdef _WIN32
+	return S_ISDIR(st.st_mode) ? rmdir(full) : unlink(full);
+#else
 	return unlinkat(
-	    dirfd, target->name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
+		dirfd, target->name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
+#endif
 }
 
 /* Delete the D-flagged entries after one confirmation, then re-read the
@@ -570,6 +605,11 @@ void dired_do_flagged_delete(int fd)
 	if (!dired_active() || dired_current_dir(dir, sizeof(dir)) != 0) {
 		return;
 	}
+#ifdef _WIN32
+	(void)snprintf(dired_delete_directory,
+	    sizeof(dired_delete_directory), "%s", dir);
+	dirfd = -1;
+#else
 	dirfd = open(dir,
 	    O_RDONLY
 #ifdef O_DIRECTORY
@@ -583,16 +623,17 @@ void dired_do_flagged_delete(int fd)
 		editor_set_status_message("Dired %s: %s", dir, strerror(errno));
 		return;
 	}
+#endif
 	targets = calloc((size_t)bcur()->numrows + 1, sizeof(*targets));
 	if (!targets) {
-		close(dirfd);
+		dired_close_dir(dirfd);
 		editor_set_status_message("Dired: out of memory");
 		return;
 	}
 
 	flagged = dired_collect_flagged(dirfd, targets, bcur()->numrows + 1);
 	if (flagged <= 0) {
-		close(dirfd);
+		dired_close_dir(dirfd);
 		free(targets);
 		editor_set_status_message(flagged == 0
 			? "No files flagged for deletion"
@@ -601,7 +642,7 @@ void dired_do_flagged_delete(int fd)
 	}
 	if (!editor_confirm_yn(fd, "Delete %d flagged %s? (y/n) ", flagged,
 		flagged == 1 ? "entry" : "entries")) {
-		close(dirfd);
+		dired_close_dir(dirfd);
 		free(targets);
 		editor_set_status_message("Deletion cancelled");
 		return;
@@ -619,7 +660,7 @@ void dired_do_flagged_delete(int fd)
 			}
 		}
 	}
-	close(dirfd);
+	dired_close_dir(dirfd);
 	free(targets);
 
 	if (failed) {

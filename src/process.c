@@ -8,6 +8,243 @@
 
 #include "process.h"
 
+#ifdef _WIN32
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+
+static HANDLE process_handle(pid_t pid)
+{
+	return (HANDLE)(intptr_t)pid;
+}
+
+static int make_command_line(
+    const struct kg_spawn_request *req, char **out, size_t *out_size)
+{
+	const char *const *arg;
+	char *line;
+	size_t size = 64;
+	size_t used = 0;
+
+	if (req->argv) {
+		for (arg = req->argv; *arg; arg++) {
+			size += strlen(*arg) * 2 + 4;
+		}
+	} else {
+		size += strlen(req->command) + 8;
+	}
+	line = malloc(size);
+	if (!line) {
+		errno = ENOMEM;
+		return -1;
+	}
+	if (!req->argv) {
+		(void)snprintf(line, size, "/d /s /c %s", req->command);
+		*out = line;
+		*out_size = size;
+		return 0;
+	}
+	for (arg = req->argv; *arg; arg++) {
+		const char *p = *arg;
+		bool quote = *p == '\0' || strpbrk(p, " \t\"") != NULL;
+
+		if (used > 0) {
+			line[used++] = ' ';
+		}
+		if (quote) {
+			line[used++] = '"';
+		}
+		while (*p) {
+			if (*p == '"') {
+				line[used++] = '\\';
+			}
+			line[used++] = *p++;
+		}
+		if (quote) {
+			line[used++] = '"';
+		}
+	}
+	line[used] = '\0';
+	*out = line;
+	*out_size = size;
+	return 0;
+}
+
+static int make_inheritable(int fd)
+{
+	HANDLE handle = (HANDLE)_get_osfhandle(fd);
+
+	if (handle == INVALID_HANDLE_VALUE
+	    || !SetHandleInformation(handle, HANDLE_FLAG_INHERIT,
+		HANDLE_FLAG_INHERIT)) {
+		errno = EBADF;
+		return -1;
+	}
+	return 0;
+}
+
+static int spawn_process(
+    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+{
+	SECURITY_ATTRIBUTES security = {
+		.nLength = sizeof(security), .bInheritHandle = TRUE
+	};
+	STARTUPINFOA startup = { .cb = sizeof(startup) };
+	PROCESS_INFORMATION process = { 0 };
+	HANDLE output_read = NULL, output_write = NULL;
+	HANDLE null_handle = INVALID_HANDLE_VALUE;
+	char *command_line = NULL;
+	int output_fd;
+	int result = -1;
+	size_t command_line_size;
+
+	if (make_command_line(req, &command_line, &command_line_size) != 0) {
+		return -1;
+	}
+	(void)command_line_size;
+	if (!CreatePipe(&output_read, &output_write, &security, 0)
+	    || !SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0)) {
+		errno = EIO;
+		goto done;
+	}
+	if (req->stdin_fd >= 0) {
+		if (make_inheritable(req->stdin_fd) != 0) {
+			goto done;
+		}
+		startup.hStdInput = (HANDLE)_get_osfhandle(req->stdin_fd);
+	} else {
+		null_handle = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
+			FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, NULL);
+		if (null_handle == INVALID_HANDLE_VALUE) {
+			errno = EIO;
+			goto done;
+		}
+		startup.hStdInput = null_handle;
+	}
+	if (!req->stderr_to_output && null_handle == INVALID_HANDLE_VALUE) {
+		null_handle = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
+			FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, NULL);
+		if (null_handle == INVALID_HANDLE_VALUE) {
+			errno = EIO;
+			goto done;
+		}
+	}
+	startup.hStdOutput = output_write;
+	startup.hStdError = req->stderr_to_output ? output_write : null_handle;
+	startup.dwFlags = STARTF_USESTDHANDLES;
+	if (!CreateProcessA(req->argv ? NULL : "C:\\Windows\\System32\\cmd.exe",
+		command_line, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP,
+		NULL, req->directory, &startup, &process)) {
+		errno = EIO;
+		goto done;
+	}
+	CloseHandle(process.hThread);
+	CloseHandle(output_write);
+	output_write = NULL;
+	if (null_handle != INVALID_HANDLE_VALUE) {
+		CloseHandle(null_handle);
+		null_handle = INVALID_HANDLE_VALUE;
+	}
+	output_fd = _open_osfhandle((intptr_t)output_read, _O_BINARY | _O_RDONLY);
+	if (output_fd < 0) {
+		CloseHandle(output_read);
+		TerminateProcess(process.hProcess, 127);
+		CloseHandle(process.hProcess);
+		errno = EIO;
+		goto done;
+	}
+	*pid_out = (pid_t)(intptr_t)process.hProcess;
+	*output_fd_out = output_fd;
+	result = 0;
+
+done:
+	if (output_write) {
+		CloseHandle(output_write);
+	}
+	if (output_read && result != 0) {
+		CloseHandle(output_read);
+	}
+	if (null_handle != INVALID_HANDLE_VALUE) {
+		CloseHandle(null_handle);
+	}
+	free(command_line);
+	return result;
+}
+
+static bool spawn_request_is_runnable(const struct kg_spawn_request *req)
+{
+	if (req->argv) {
+		return req->command == NULL && req->argv[0] != NULL;
+	}
+	return req->command != NULL;
+}
+
+int kg_process_spawn(
+    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+{
+	if (!spawn_request_is_runnable(req)) {
+		errno = EINVAL;
+		return -1;
+	}
+	return spawn_process(req, pid_out, output_fd_out);
+}
+
+void kg_close_fd(int *fd)
+{
+	if (*fd >= 0) {
+		_close(*fd);
+		*fd = -1;
+	}
+}
+
+int kg_process_wait(pid_t pid, struct kg_process_status *status)
+{
+	HANDLE handle = process_handle(pid);
+	DWORD code;
+
+	if (WaitForSingleObject(handle, INFINITE) != WAIT_OBJECT_0
+	    || !GetExitCodeProcess(handle, &code)) {
+		return -1;
+	}
+	*status = (struct kg_process_status) {
+		.exited = true, .exit_code = (int)code
+	};
+	CloseHandle(handle);
+	return 0;
+}
+
+int kg_process_reap(pid_t pid, struct kg_process_status *status)
+{
+	HANDLE handle = process_handle(pid);
+	DWORD code;
+	DWORD wait = WaitForSingleObject(handle, 0);
+
+	if (wait == WAIT_TIMEOUT) {
+		return 0;
+	}
+	if (wait != WAIT_OBJECT_0 || !GetExitCodeProcess(handle, &code)) {
+		return 0;
+	}
+	*status = (struct kg_process_status) {
+		.exited = true, .exit_code = (int)code
+	};
+	CloseHandle(handle);
+	return 1;
+}
+
+void kg_process_signal_group(pid_t group, int sig)
+{
+	(void)sig;
+	if (group > 0) {
+		(void)TerminateProcess(process_handle(group), 1);
+	}
+}
+
+#else
+
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -205,3 +442,5 @@ void kg_process_signal_group(pid_t group, int sig)
 		kill(-group, sig);
 	}
 }
+
+#endif

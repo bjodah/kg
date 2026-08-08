@@ -15,8 +15,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #define KG_PROCESS_READ_CHUNK 4096
 /* Bytes read per poll per entry, budgeted the same way compile.c's
@@ -450,13 +452,25 @@ static void poll_entry(int slot)
 		size_t read_total = 0;
 
 		while (read_total < KG_PROCESS_TICK_BUDGET) {
+#ifdef _WIN32
+			int n = kg_fd_read_available(
+				e->output_fd, buf, sizeof buf);
+			if (n == -2) {
+				break;
+			}
+#else
 			ssize_t n = read(e->output_fd, buf, sizeof buf);
-
+#endif
 			if (n > 0) {
 				entry_append_output(e, buf, (size_t)n);
 				read_total += (size_t)n;
 				produced = true;
 			} else if (n < 0) {
+#ifdef _WIN32
+				if (n == -2) {
+					break;
+				}
+#endif
 				if (errno == EAGAIN || errno == EWOULDBLOCK) {
 					break;
 				}

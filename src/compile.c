@@ -7,8 +7,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #define COMPILATION_READ_CHUNK 4096
 #define COMPILATION_TICK_BUDGET (64 * 1024)
@@ -526,8 +530,16 @@ int compilation_poll(void)
 		char buf[COMPILATION_READ_CHUNK];
 		size_t read_total = 0;
 		while (read_total < COMPILATION_TICK_BUDGET) {
+#ifdef _WIN32
+			ssize_t n = kg_fd_read_available(
+				g_compilation.output_fd, buf, sizeof(buf));
+			if (n == -2) {
+				break;
+			}
+#else
 			ssize_t n
 			    = read(g_compilation.output_fd, buf, sizeof(buf));
+#endif
 			if (n > 0) {
 				compilation_process_bytes(
 				    &g_compilation, buf, n);

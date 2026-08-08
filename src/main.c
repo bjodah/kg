@@ -36,8 +36,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 #include "bufhandle.h"
 #include "compile.h"
@@ -103,6 +107,7 @@ void init_editor(void)
 	/* Registered after editor_cleanup, so it runs before it: a position
 	 * register's marker is given back while its buffer is still there. */
 	atexit(kg_register_clear);
+#ifndef _WIN32
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = handle_sig_winch;
@@ -111,6 +116,7 @@ void init_editor(void)
 		perror("sigaction SIGWINCH");
 		exit(1);
 	}
+#endif
 }
 
 static int usage(FILE *fp, int rc)
@@ -130,7 +136,14 @@ int main(int argc, char **argv)
 {
 	int opt, readonly = 0, no_init = 0;
 
-	while ((opt = getopt(argc, argv, "QRVh")) != -1) {
+#ifdef _WIN32
+#define KG_GETOPT kg_getopt
+#define KG_OPTIND kg_optind
+#else
+#define KG_GETOPT getopt
+#define KG_OPTIND optind
+#endif
+	while ((opt = KG_GETOPT(argc, argv, "QRVh")) != -1) {
 		switch (opt) {
 		case 'Q':
 			no_init = 1;
@@ -149,6 +162,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+#ifdef _WIN32
+	kg_platform_init();
+	for (int i = KG_OPTIND; i < argc; i++) {
+		kg_normalize_path(argv[i]);
+	}
+#endif
 	init_editor();
 	if (kg_lisp_active() && kg_lisp_init() != 0) {
 		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
@@ -156,7 +175,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);
-	buf_load_args(argc - optind, argv + optind, readonly);
+	buf_load_args(argc - KG_OPTIND, argv + KG_OPTIND, readonly);
 	enable_raw_mode(STDIN_FILENO);
 	/* The greeting is set before init-file loading so a load error is
 	 * not overwritten by it. */

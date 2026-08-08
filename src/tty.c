@@ -1,6 +1,9 @@
 /* tty.c - Low level terminal handling */
 
 #include <errno.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
@@ -11,18 +14,23 @@
 #include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 #include "compile.h"
 #include "def.h"
 #include "keyevent.h"
 #include "process_table.h"
 
+#ifndef _WIN32
 static struct termios orig_termios; /* In order to restore at exit.*/
+#endif
 static unsigned char *pending_input;
 static size_t pending_input_len;
 static size_t pending_input_off;
 static size_t pending_input_cap;
+#ifndef _WIN32
 static volatile sig_atomic_t pending_resize;
+#endif
 
 /* One key handed back to the reader, delivered before anything else and
  * never recorded into a keyboard macro again -- it was recorded when it
@@ -129,7 +137,11 @@ void disable_raw_mode(int fd)
 #endif
 	/* Don't even check the return value as it's too late. */
 	if (editor.rawmode) {
+#ifdef _WIN32
+		kg_console_disable();
+#else
 		tcsetattr(fd, TCSAFLUSH, &orig_termios);
+#endif
 		editor.rawmode = 0;
 	}
 }
@@ -199,9 +211,14 @@ int editor_input_flood(int fd)
 {
 	int queued = 0;
 
+#ifdef _WIN32
+	(void)fd;
+	queued = 0;
+#else
 	if (ioctl(fd, FIONREAD, &queued) == -1) {
 		queued = 0;
 	}
+#endif
 	if (fd == STDIN_FILENO) {
 		queued += (int)(pending_input_len - pending_input_off);
 	}
@@ -284,6 +301,19 @@ int enable_raw_mode(int fd)
 	editor.rawmode = 1;
 	return 0;
 #else
+#ifdef _WIN32
+	(void)fd;
+	if (editor.rawmode) {
+		return 0;
+	}
+	if (kg_console_enable() != 0) {
+		errno = ENOTTY;
+		return -1;
+	}
+	atexit(editor_at_exit);
+	editor.rawmode = 1;
+	return 0;
+#else
 	struct termios raw;
 
 	if (editor.rawmode) {
@@ -323,6 +353,7 @@ int enable_raw_mode(int fd)
 fatal:
 	errno = ENOTTY;
 	return -1;
+#endif
 #endif
 }
 
@@ -773,6 +804,9 @@ int get_cursor_position(int ifd, int ofd, int *rows, int *cols)
 	*rows = win_total_rows ? win_total_rows : 24;
 	*cols = win_total_cols ? win_total_cols : 80;
 	return 0;
+#elif defined(_WIN32)
+	(void)ifd;
+	return kg_console_window_size(ofd, rows, cols);
 #else
 	unsigned int i = 0;
 	char buf[32];
@@ -822,6 +856,13 @@ int get_window_size(int ifd, int ofd, int *rows, int *cols)
 	(void)ofd;
 	*rows = 24;
 	*cols = 80;
+	return 0;
+#elif defined(_WIN32)
+	(void)ifd;
+	if (kg_console_window_size(ofd, rows, cols) != 0
+	    || !kg_normalize_window_size(*rows, *cols, rows, cols)) {
+		return -1;
+	}
 	return 0;
 #else
 	struct winsize ws;
@@ -903,6 +944,9 @@ void probe_window_size(void)
 	wcur()->h = 22;
 	wcur()->w = 80;
 	return;
+#elif defined(_WIN32)
+	update_window_size();
+	return;
 #else
 	int new_rows, new_cols, orig_row, orig_col;
 	char seq[32];
@@ -938,6 +982,13 @@ void update_window_size(void)
 #ifdef KG_FUZZ
 	apply_window_size(24, 80);
 	return;
+#elif defined(_WIN32)
+	int rows, cols;
+
+	if (get_window_size(STDIN_FILENO, STDOUT_FILENO, &rows, &cols) == 0) {
+		apply_window_size(rows, cols);
+	}
+	return;
 #else
 	const int max_attempts = 3;
 	int new_rows, new_cols;
@@ -970,6 +1021,9 @@ void handle_sig_winch(int unused __attribute__((unused)))
 	(void)unused;
 	update_window_size();
 	return;
+#elif defined(_WIN32)
+	(void)unused;
+	update_window_size();
 #else
 	int saved_errno = errno;
 	pending_resize = 1;
@@ -979,12 +1033,16 @@ void handle_sig_winch(int unused __attribute__((unused)))
 
 int editor_process_pending_signals(void)
 {
+#ifdef _WIN32
+	return 0;
+#else
 	if (pending_resize) {
 		pending_resize = 0;
 		update_window_size();
 		return 1;
 	}
 	return 0;
+#endif
 }
 
 /* Suspend the editor (C-z): restore terminal, stop the process, then
@@ -992,6 +1050,8 @@ int editor_process_pending_signals(void)
 void editor_suspend(void)
 {
 #ifdef KG_FUZZ
+	return;
+#elif defined(_WIN32)
 	return;
 #else
 	disable_raw_mode(STDIN_FILENO);

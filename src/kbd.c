@@ -5,7 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <sys/time.h>
+#endif
 
 #include "bufhandle.h"
 #include "cmd.h"

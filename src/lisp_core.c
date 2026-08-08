@@ -30,7 +30,9 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <stdckdint.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #if KG_PERF_COUNTERS
 #include <time.h>
 #endif
@@ -47,6 +49,12 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 #include "lisp_process.h"
+
+#ifdef _WIN32
+#define lisp_free_arena kg_aligned_free
+#else
+#define lisp_free_arena free
+#endif
 
 static_assert(FE_API_VERSION == 8);
 static_assert(FE_LANGUAGE_VERSION == 10);
@@ -413,7 +421,7 @@ int kg_lisp_init(void)
 	}
 	context = FeOpenContext(arena, arena_size);
 	if (!context) {
-		free(arena);
+		lisp_free_arena(arena);
 		set_error("cannot open Fe context");
 		return 1;
 	}
@@ -433,7 +441,7 @@ int kg_lisp_init(void)
 		FeRestoreGC(state.context, state.frame.gc_checkpoint);
 		state.frame_active = false;
 		FeCloseContext(state.context);
-		free(state.arena);
+		lisp_free_arena(state.arena);
 		reset_state();
 		set_error("%s: %s",
 		    in_prelude ? "cannot evaluate Lisp prelude"
@@ -480,7 +488,7 @@ void kg_lisp_shutdown(void)
 	lisp_hooks_shutdown(state.context);
 	release_lisp_commands();
 	FeCloseContext(state.context);
-	free(state.arena);
+	lisp_free_arena(state.arena);
 	memset(&state, 0, sizeof(state));
 }
 

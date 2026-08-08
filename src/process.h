@@ -1,6 +1,8 @@
 #ifndef KG_PROCESS_H
 #define KG_PROCESS_H
 
+#include "platform.h"
+
 /* Child processes kg starts on the user's behalf.  Most are a `/bin/sh -c`
  * command whose output kg reads from a pipe: M-x compile streams it into
  * *compilation*, M-! and M-| collect it.  A caller that already has an
@@ -10,7 +12,9 @@
  * group, the redirections, and reaping -- and nothing about how the output
  * is read, which is what actually differs between the callers. */
 
+#ifndef _WIN32
 #include <sys/types.h>
+#endif
 
 struct kg_spawn_request {
 	/* Passed to /bin/sh -c, so the user's pipes and redirects work.
@@ -80,8 +84,10 @@ int kg_pipe_cloexec(int fds[2]);
 /* close() an owned descriptor once, and mark it closed. */
 void kg_close_fd(int *fd);
 
+#ifndef _WIN32
 /* Overridable by tests to inject EINTR sequences and permanent failures
  * without needing to race a real child process.  Defaults to waitpid(). */
 extern pid_t (*kg_process_waitpid_fn)(pid_t pid, int *status, int options);
+#endif
 
 #endif /* KG_PROCESS_H */

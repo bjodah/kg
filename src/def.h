@@ -57,8 +57,12 @@
 #endif
 #endif
 
+#include "platform.h"
+
 #include <ctype.h>
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -68,13 +72,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/ioctl.h>
+#endif
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/time.h>
 #include <sys/types.h>
 #include <termios.h>
+#endif
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include "bufhandle.h"
 #include "bufmgr.h"

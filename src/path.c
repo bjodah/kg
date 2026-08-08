@@ -4,7 +4,11 @@
  * Kept here, separate from bufmgr.c, so unit tests can exercise them without
  * pulling in the rest of the editor's globals. */
 
+#ifdef _WIN32
+#include "kg_dirent.h"
+#else
 #include <dirent.h>
+#endif
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>

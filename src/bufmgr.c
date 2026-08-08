@@ -8,8 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <sys/types.h>
 #include <time.h>
+#endif
 
 #include "bufhandle.h"
 #include "bufmgr.h"
@@ -48,7 +52,9 @@ static const struct key_event cancel_keys[]
 static void buf_picker_cycle(int *selection, int matches, int direction);
 #include <fcntl.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 /* Synthetic syntax records for special modes. */
 static struct editor_syntax ibuffer_syntax

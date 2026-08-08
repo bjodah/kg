@@ -8,9 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include "platform.h"
+#else
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#endif
 
 #include "bufhandle.h"
 #include "bufmgr.h"
@@ -39,10 +43,17 @@ static void file_identity_from_stat(
 	id->device = (uint64_t)st->st_dev;
 	id->inode = (uint64_t)st->st_ino;
 	id->size = (uint64_t)st->st_size;
+#ifdef _WIN32
+	id->mtime_sec = (int64_t)st->st_mtime;
+	id->ctime_sec = (int64_t)st->st_ctime;
+	id->mtime_nsec = 0;
+	id->ctime_nsec = 0;
+#else
 	id->mtime_sec = (int64_t)st->st_mtim.tv_sec;
 	id->ctime_sec = (int64_t)st->st_ctim.tv_sec;
 	id->mtime_nsec = (uint32_t)st->st_mtim.tv_nsec;
 	id->ctime_nsec = (uint32_t)st->st_ctim.tv_nsec;
+#endif
 }
 
 /* Sample what `path` names right now.  Returns 0 when the answer is known —
@@ -214,6 +225,7 @@ int editor_write_rows_to_file(const char *filename, erow *rows, int numrows,
 	 * bits are not preserved.  A new file follows the process umask like
 	 * open(2).
 	 */
+#ifndef _WIN32
 	mode_t mode;
 	struct stat target_st;
 	if (stat(target_path, &target_st) == 0) {
@@ -228,6 +240,7 @@ int editor_write_rows_to_file(const char *filename, erow *rows, int numrows,
 	if (fchmod(temp_fd, mode) == -1) {
 		goto err_cleanup;
 	}
+#endif
 
 	/* Write entire content to temp file */
 	if (write_all(temp_fd, buf, len) == -1) {

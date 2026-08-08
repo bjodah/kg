@@ -183,6 +183,23 @@ sudo make install          # /usr/local/{bin,share/man/man1,share/kg/lisp}
 
 The nested `fe/tiny-regex-c` submodule is needed for editor regexp search.
 
+### Windows
+
+Windows builds use `clang-cl` with the Visual Studio 2022 C++ build tools and
+Windows SDK.  Install the Visual Studio workload first, then run from a
+PowerShell checkout (the script can install LLVM with `-InstallLLVM`):
+
+```powershell
+git submodule update --init --recursive
+.\build-windows.ps1 -InstallLLVM
+.\build\windows\Release\kg.exe -V
+```
+
+Use `-Configuration Debug` for a debug build or `-WithoutLisp` for the
+smaller non-Lisp build.  The Windows port uses the native console and process
+APIs; shell and compilation commands are run by `cmd.exe`, so Unix shell
+commands from the examples above are not portable unchanged.
+
 Override the prefix or use DESTDIR for staged installs:
 
 ```bash

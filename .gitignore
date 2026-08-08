@@ -38,3 +38,4 @@ test/test_*
 repomix-output.*
 .repomixignore
 timeout-*
+*.log

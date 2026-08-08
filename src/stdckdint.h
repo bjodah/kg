@@ -86,6 +86,11 @@ static inline int kg_ckd_mul_signed(
 
 #else
 
+/* #include_next is a GCC/Clang extension; -pedantic flags the directive
+ * itself even though the standard header it reaches is what every other
+ * translation unit gets.  system_header silences that for the rest of
+ * this file without touching the _WIN32 branch above. */
+#pragma GCC system_header
 #include_next <stdckdint.h>
 
 #endif

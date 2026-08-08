@@ -356,6 +356,12 @@ static void test_delete_verified_refuses_a_replaced_name(void)
 	CHECK(dired_collect_flagged(dirfd, &target, 1) == 1);
 	CHECK(strcmp(target.name, "a.txt") == 0);
 
+	/* Allocate the eventual replacement's inode now, while a.txt's own
+	 * inode is still live: two live files can never share an inode, so
+	 * this guarantees a distinct identity below regardless of whether
+	 * the filesystem happens to recycle a just-freed inode number. */
+	make_file(dir, "a.txt.new");
+
 	/* Same object: it goes. */
 	CHECK(dired_delete_verified(dirfd, &target) == 0);
 	CHECK(!name_exists(dir, "a.txt"));
@@ -366,7 +372,13 @@ static void test_delete_verified_refuses_a_replaced_name(void)
 	CHECK(errno == ENOENT);
 
 	/* A different inode under the same name is refused, and survives. */
-	make_file(dir, "a.txt");
+	{
+		char from[512], to[512];
+
+		snprintf(from, sizeof(from), "%s/a.txt.new", dir);
+		snprintf(to, sizeof(to), "%s/a.txt", dir);
+		CHECK(rename(from, to) == 0);
+	}
 	errno = 0;
 	CHECK(dired_delete_verified(dirfd, &target) == -1);
 	CHECK(errno == ESTALE);

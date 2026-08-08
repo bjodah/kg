@@ -702,7 +702,53 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6082 exceeds limit 6081
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6082
 #   scc total complexity: 6082 (limit 6082)
-SCC_COMPLEXITY_MAX ?= 6082
+# Raised 6082 -> 6089 for the syntax backend seam, slice 4 (2026-08-08):
+# backend-preparable staged loads and opaque per-buffer syntax state
+# (doc/plans/kg-tree-sitter-plan.md, Phase 4).  A file load now renders
+# every staged row and then prepares the backend against the WHOLE staged
+# document in one pass, instead of rendering-and-colouring a row at a time;
+# what that pass derives is an opaque `struct kg_syntax_state *` the
+# adopting buffer owns.  The +7 is new branch points, one per new failure
+# mode or ownership decision, and scc's file numbers are additive here (no
+# file moved that did not gain code):
+#   - src/fileio.c 141 -> 144 (+3).  load_stage_rows() is the whole of it:
+#     it had one call and no branch, and now has two steps that can fail
+#     separately -- a row that will not render, and a preparation that runs
+#     out of memory -- plus the state handover in commit_load_result() and
+#     the release in free_load_result(), neither of which branches
+#     (pmccabe: load_stage_rows 1 -> 3, and it is the only fileio.c symbol
+#     that moved).
+#   - src/syntax.c 118 -> 120 (+2).  editor_set_syntax_commit() gains the
+#     "does the mode actually change" test that guards the mode-change
+#     release point (pmccabe 3 -> 4); the four new facade functions
+#     (syntax_prepare_rows, syntax_state_adopt/release/discard) are
+#     straight-line and measure 1 each.
+#   - src/bufmgr.c 498 -> 499 and src/dired.c 129 -> 130 (+1 each): the
+#     second failure branch buf_open_special() and dired_fill_current()
+#     each acquire, for the same reason load_stage_rows() does (pmccabe
+#     3 -> 4 apiece).
+#   - src/buffer.c 320 -> 320 and src/syntax_legacy.c 231 -> 231 (+0),
+#     even though both changed: kg_row_builder_highlight() became
+#     kg_row_builder_render() at the same measured complexity (pmccabe 4,
+#     unchanged -- it lost the highlight call and gained nothing), and
+#     syntax_backend_prepare() (pmccabe 3) is the loop that function gave
+#     up.  The work moved; it did not grow.
+# pmccabe agrees in direction and size: +5 across four existing symbols,
+# and all seven new symbols are at or below 4 against the 15 new-function
+# budget (kg_row_builder_render 4, syntax_backend_prepare 3,
+# syntax_prepare_rows/state_adopt/state_release/state_discard 1,
+# syntax_backend_state_free 1).  One symbol goes away
+# (kg_row_builder_highlight).  Banked with `make pmccabe-baseline
+# PMCCABE_BASELINE_ARGS=--allow-regressions`, the flag being for the four
+# +1/+2 increases above.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520; the worst file is still src/bufmgr.c, at 499.  Proof on the same
+# tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6088
+#   FAIL: total complexity 6089 exceeds limit 6088
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6089
+#   scc total complexity: 6089 (limit 6089)
+SCC_COMPLEXITY_MAX ?= 6089
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

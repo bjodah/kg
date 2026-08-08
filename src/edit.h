@@ -12,7 +12,6 @@
  * Forward declaration; the full struct is defined in def.h.  buffer.c
  * includes def.h to reach its members. */
 struct editor_buffer;
-struct editor_syntax;
 typedef struct erow erow;
 
 /* Why an edit is being made, which is the whole of what its policy
@@ -159,17 +158,18 @@ void kg_edit_fail_alloc_after(int n);
 int kg_row_builder_add_line(
     erow **rows, int *numrows, int *row_capacity, const char *s, size_t len);
 
-/* Render and syntax-highlight every row of a staged, unpublished array, in
- * the order they appear.  `numrows` is announced to the highlighter one
- * row at a time as the pass goes, rather than up front: a highlighter
- * that carries state into the next row (an open block comment) must not
- * be let propagate into rows this pass has not reached yet, which have no
- * render and would be misread as empty.  Returns 0, or -1 with errno set
- * (ENOMEM, or the editor shutting down mid-pass) leaving whatever
- * rendered so far as it is -- the caller's abandon path
- * (kg_row_builder_free()) does not care how far a failed pass got. */
-int kg_row_builder_highlight(
-    erow *rows, int numrows, struct editor_syntax *syntax);
+/* Render every row of a staged, unpublished array, in the order they
+ * appear.  Rendering only: the colouring pass is syntax.h's
+ * syntax_prepare_rows(), which runs after this one and over the whole
+ * finished document, because a backend that parses cannot be shown a row at
+ * a time (doc/plans/kg-tree-sitter-plan.md, Phase 4).  Every staged builder
+ * therefore renders, then prepares, then adopts.
+ *
+ * Returns 0, or -1 with errno set (ENOMEM, or the editor shutting down
+ * mid-pass) leaving whatever rendered so far as it is -- the caller's
+ * abandon path (kg_row_builder_free()) does not care how far a failed pass
+ * got. */
+int kg_row_builder_render(erow *rows, int numrows);
 
 /* Free a staged row array exactly as kg_row_builder_add_line() built it:
  * every row's owned storage, then the array, then the triple that
@@ -188,7 +188,12 @@ void kg_row_builder_free(erow **rows, int *numrows, int *row_capacity);
  * always left clean regardless of what it was -- a file load, a revert
  * and a listing rebuild all want a new baseline, not a change to the old
  * one.  content_generation still advances, because the bytes did
- * change. */
+ * change.
+ *
+ * `b`'s syntax state goes with its old rows (syntax.h's
+ * syntax_state_release()): it described text `b` no longer holds.  A caller
+ * that prepared one against the rows it is handing over installs it right
+ * after this call, with syntax_state_adopt(). */
 void kg_buffer_adopt_rows(
     struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity);
 

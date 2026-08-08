@@ -278,7 +278,13 @@ static void write_markdown(FILE *fp)
 
 /* The staged pass is the only highlight pass a load pays for now, so it
  * has to leave the buffer in the state a from-scratch rehighlight would:
- * same hl bytes, same hl_oc, row for row. */
+ * same hl bytes, same hl_oc, row for row.
+ *
+ * That is also this suite's equivalence proof for the render/prepare split
+ * (doc/plans/kg-tree-sitter-plan.md, Phase 4): the load no longer renders
+ * and colours a row at a time but renders every row, then colours the whole
+ * staged document in one preparation pass, and this differential is what
+ * says the two orders settle at the same colours. */
 static void check_load_highlight_is_final(
     const char *name_template, int suffix_len, void (*write_corpus)(FILE *))
 {
@@ -310,6 +316,12 @@ static void check_load_highlight_is_final(
 	CHECK(editor_open(path) == 0);
 	rows = bcur()->numrows;
 	CHECK(rows > 100);
+	/* The load prepared a backend state against the staged rows and
+	 * transferred it here (commit_load_result()).  The legacy backend
+	 * prepares none, so what arrived is NULL -- the invariant that says
+	 * the transfer happened rather than something else being left
+	 * behind. */
+	CHECK(bcur()->syntax_state == NULL);
 	hl = calloc((size_t)rows, sizeof(*hl));
 	oc = calloc((size_t)rows, sizeof(*oc));
 	CHECK(hl != NULL && oc != NULL);

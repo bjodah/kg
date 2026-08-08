@@ -18,6 +18,21 @@
 struct editor_buffer;
 struct erow;
 
+/* Whatever the compiled-in backend keeps about one buffer's *whole* text:
+ * a parser and the tree it produced, for a backend that parses; nothing at
+ * all, for the legacy row scanners, which derive every row from the row
+ * above it and so keep no state a buffer has to own.
+ *
+ * Declared here and defined by the backend, never by def.h -- a buffer
+ * carries a `struct kg_syntax_state *` (def.h) without any editor module,
+ * or any standalone-header check, meeting the backend's own headers.
+ *
+ * One buffer owns at most one.  It is prepared against a complete document
+ * (syntax_prepare_rows()), installed on the buffer that keeps that document
+ * (syntax_state_adopt()), and released the moment the buffer stops
+ * describing that document (syntax_state_release()). */
+struct kg_syntax_state;
+
 /* Syntax highlight types */
 #define HL_NORMAL 0
 #define HL_NONPRINT 1
@@ -146,5 +161,40 @@ void editor_select_syntax_highlight(struct editor_buffer *b, char *filename);
 int syntax_git_rebase_pick_span(
     const char *line, int len, int *start, int *wlen);
 int syntax_git_rebase_flags_end(const char *line, int len, int from);
+
+/* ---- Per-buffer backend state ------------------------------------------
+ *
+ * Prepare a backend's whole-buffer state against a staged, unpublished row
+ * array -- edit.h's row builder, already rendered by
+ * kg_row_builder_render() -- and colour every one of those rows on the way.
+ * `syntax` is the mode the finished buffer will be in; it is passed rather
+ * than read off a buffer because the rows belong to no buffer yet.
+ *
+ * This is the load path's whole highlighting pass, and the reason it is one
+ * call over the complete document rather than one call per row: a backend
+ * that parses cannot see a row at a time.  Returns the prepared state, which
+ * the caller then owns and must either hand to a buffer
+ * (syntax_state_adopt()) or throw away (syntax_state_discard()); a backend
+ * that keeps no state returns NULL having still done the colouring, so NULL
+ * is not a failure.  Failure is `*ok` set to 0, which is the editor running
+ * out of memory mid-pass, and comes with a NULL state. */
+struct kg_syntax_state *syntax_prepare_rows(
+    struct erow *rows, int numrows, struct editor_syntax *syntax, int *ok);
+
+/* Install `st` as `b`'s state, releasing whatever `b` held: the ownership
+ * transfer at the end of a staged load. */
+void syntax_state_adopt(struct editor_buffer *b, struct kg_syntax_state *st);
+
+/* Drop `b`'s state and leave the field NULL.  Every path on which a buffer
+ * stops describing the text its state was prepared against calls this:
+ * buffer kill and slot reuse (src/bufmgr.c), session teardown
+ * (editor_cleanup()), a real mode change (editor_set_syntax()) and a broad
+ * replacement of a buffer's rows (kg_buffer_adopt_rows()).  Idempotent, and
+ * safe on a buffer that never had one. */
+void syntax_state_release(struct editor_buffer *b);
+
+/* Free a prepared state no buffer ever took: an abandoned load.  NULL is a
+ * state like any other and is accepted. */
+void syntax_state_discard(struct kg_syntax_state *st);
 
 #endif /* KG_SYNTAX_H */

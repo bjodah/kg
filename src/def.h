@@ -349,6 +349,13 @@ struct editor_buffer {
 	uint64_t content_generation;
 	char *filename;
 	struct editor_syntax *syntax;
+	/* What the compiled-in highlighting backend derived from this
+	 * buffer's whole text, or NULL when it derives nothing -- the legacy
+	 * row scanners keep no such state, so it is NULL throughout today.
+	 * Opaque on purpose: syntax.h declares the tag and only the backend
+	 * defines it, so no tree-sitter type ever reaches this header.  The
+	 * slot owns it; syntax_state_release() names every point it goes. */
+	struct kg_syntax_state *syntax_state;
 	struct kg_buffer_mark mark;
 	int mark_highlight;
 	struct kg_buffer_mark mark_ring[MARK_RING_MAX];
@@ -820,6 +827,11 @@ struct temp_load_result {
 	int numrows;
 	int row_capacity;
 	struct file_snapshot disk;
+	/* Prepared against the staged rows above, before any of them were
+	 * published, and handed to the buffer that adopts them
+	 * (commit_load_result()).  A load that is abandoned instead frees it
+	 * (free_load_result()); either way this field owns it until then. */
+	struct kg_syntax_state *syntax_state;
 };
 
 int load_file_transactional(const char *filename, struct temp_load_result *res);

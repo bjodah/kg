@@ -346,6 +346,8 @@ int dired_fill_current(const char *dir)
 	struct dired_listing l;
 	erow *rows = NULL;
 	int numrows = 0, row_capacity = 0;
+	struct kg_syntax_state *state;
+	int ok = 0;
 
 	if (dired_stage(dir, &l) != 0) {
 		return 1;
@@ -355,7 +357,16 @@ int dired_fill_current(const char *dir)
 
 	dired_populate(&rows, &numrows, &row_capacity);
 	dired_unstage();
-	if (kg_row_builder_highlight(rows, numrows, &dired_syntax) != 0) {
+	if (kg_row_builder_render(rows, numrows) != 0) {
+		kg_row_builder_free(&rows, &numrows, &row_capacity);
+		return 1;
+	}
+	/* dired's colours come from its mode-owned `highlight` hook, not from
+	 * a backend scanner; the preparation pass routes rows through it the
+	 * same as it would any other mode, and this backend keeps no state
+	 * for a listing it does not parse. */
+	state = syntax_prepare_rows(rows, numrows, &dired_syntax, &ok);
+	if (!ok) {
 		kg_row_builder_free(&rows, &numrows, &row_capacity);
 		return 1;
 	}
@@ -365,6 +376,7 @@ int dired_fill_current(const char *dir)
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
 	bcur()->syntax = &dired_syntax;
+	syntax_state_adopt(bcur(), state);
 	editor_set_status_message("%s", l.status);
 	return 0;
 }

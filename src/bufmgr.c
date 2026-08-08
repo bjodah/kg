@@ -2346,6 +2346,7 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 	undo_stack_free(&buflist[slot].undostack);
 	kg_decor_store_free(&buflist[slot]);
 	kg_marker_store_free(&buflist[slot]);
+	syntax_state_release(&buflist[slot]);
 	free(buflist[slot].filename);
 
 	buflist[slot].active = 0;
@@ -2540,13 +2541,20 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 	int slot = buf_enter_special(name, &existing);
 	erow *rows = NULL;
 	int numrows = 0, row_capacity = 0;
+	struct kg_syntax_state *state;
+	int ok = 0;
 
 	if (slot < 0) {
 		return;
 	}
 
 	populate(&rows, &numrows, &row_capacity);
-	if (kg_row_builder_highlight(rows, numrows, syn) != 0) {
+	if (kg_row_builder_render(rows, numrows) != 0) {
+		kg_row_builder_free(&rows, &numrows, &row_capacity);
+		return;
+	}
+	state = syntax_prepare_rows(rows, numrows, syn, &ok);
+	if (!ok) {
 		kg_row_builder_free(&rows, &numrows, &row_capacity);
 		return;
 	}
@@ -2555,7 +2563,11 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
 	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	bcur()->readonly_override = 1;
 	editor_refresh_readonly_state();
+	/* Mode first, then the state prepared under it -- the same order
+	 * commit_load_result() takes, and for the same reason: every release
+	 * point this function passes through is behind the handover. */
 	bcur()->syntax = syn;
+	syntax_state_adopt(bcur(), state);
 
 	buf_commit_special(slot, existing);
 
@@ -2569,6 +2581,10 @@ static void buf_reset_slot(int slot)
 
 	kg_decor_store_free(b);
 	kg_marker_store_free(b);
+	/* Slot reuse: the incoming buffer must not inherit what the backend
+	 * derived from the outgoing one's text.  The memset below would only
+	 * lose the pointer. */
+	syntax_state_release(b);
 	memset(b, 0, sizeof(*b));
 	b->generation
 	    = generation; /* Handovers accumulate; they don't reset. */
@@ -2910,15 +2926,16 @@ void editor_cleanup(void)
 	 * detached before the process exits. */
 	window_vgeom_reset_all();
 
-	/* Every slot owns its rows, filename, undo chain, marker store and
-	 * decoration store, and no copy of any of them lives elsewhere, so
-	 * one table pass is the whole teardown. */
+	/* Every slot owns its rows, filename, undo chain, marker store,
+	 * decoration store and backend syntax state, and no copy of any of
+	 * them lives elsewhere, so one table pass is the whole teardown. */
 	for (int i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 
 		if (!b->active) {
 			kg_decor_store_free(b);
 			kg_marker_store_free(b);
+			syntax_state_release(b);
 			continue;
 		}
 		editor_free_all_rows(b);
@@ -2927,6 +2944,7 @@ void editor_cleanup(void)
 		undo_stack_free(&b->undostack);
 		kg_decor_store_free(b);
 		kg_marker_store_free(b);
+		syntax_state_release(b);
 		b->active = 0;
 	}
 	bcur()->filename = NULL;

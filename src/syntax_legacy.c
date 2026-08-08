@@ -1684,3 +1684,45 @@ void syntax_backend_update_row(struct editor_buffer *b, struct erow *row)
 	}
 	generic_keyword_scan(b, row, spec);
 }
+
+/* The other half of the backend contract: derive what this backend keeps
+ * about a whole document.  It keeps nothing -- every row's colour comes
+ * from the row above it and lives in that row -- so the state is NULL and
+ * the work is the colouring the facade's contract asks for in passing.
+ *
+ * The scan walks its own copy of the staged record and raises the copy's
+ * row count one row at a time, rather than colouring rows 0..N of a
+ * document that already says it has N+1.  That is not a detail: a scanner
+ * carrying state into the next row (an open block comment) must not be let
+ * propagate into rows this pass has not reached, which have no render yet
+ * and would be read as empty; and markdown's setext heading, which asks
+ * whether the row *below* is an underline, has to find that row absent
+ * until it arrives -- exactly as it did when a file load rendered and
+ * highlighted one row at a time.  The copy is what keeps the caller's
+ * record untouched, as syntax_backend_prepare()'s contract requires.
+ *
+ * Failure is the facade's per-row failure: syntax_update_row_only() clears
+ * `running` when it cannot reserve a row's hl.  Rows coloured before that
+ * point stay coloured; the caller of a failed prepare abandons the staged
+ * array whole. */
+struct kg_syntax_state *syntax_backend_prepare(
+    struct editor_buffer *staged, int *ok)
+{
+	struct editor_buffer scan = *staged;
+	int saved_running = running;
+	int i;
+
+	*ok = 1;
+	for (i = 0; i < staged->numrows; i++) {
+		scan.numrows = i + 1;
+		syntax_update_row_only(&scan, &scan.row[i]);
+		if (running != saved_running) {
+			running = saved_running;
+			*ok = 0;
+			break;
+		}
+	}
+	return NULL;
+}
+
+void syntax_backend_state_free(struct kg_syntax_state *st) { (void)st; }

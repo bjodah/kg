@@ -541,6 +541,16 @@ static void editor_set_syntax_commit(
 		    "Too many pending events; mode not changed.");
 		return;
 	}
+	if (b->syntax != syntax) {
+		/* The mode really changes, so anything the backend derived
+		 * under the old one describes a fontification that no longer
+		 * applies -- the "mode change" release point.  Compared by
+		 * identity, and released here rather than in the caller, so
+		 * that a re-selection of the mode a buffer is already in
+		 * costs nothing and a refused transition above loses
+		 * nothing. */
+		syntax_state_release(b);
+	}
 	b->syntax = syntax;
 	editor_rehighlight_all(b);
 	kg_event_publish_lifecycle(&res,
@@ -551,6 +561,45 @@ static void editor_set_syntax_commit(
 void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax)
 {
 	editor_set_syntax_commit(b, syntax);
+}
+
+/* ---- Per-buffer backend state ------------------------------------------
+ *
+ * The facade owns the *lifetime*; the backend owns the contents.  Four
+ * calls, and they are deliberately small: an ownership rule that is spelled
+ * out at each of its points is one a future backend cannot quietly leak
+ * through. */
+
+/* Prepare against a staged, unpublished row array.  The temporary record is
+ * what turns "some rows and a mode" into the complete document a backend
+ * needs to see -- it is never published and never observable, and the
+ * backend is required to leave it alone. */
+struct kg_syntax_state *syntax_prepare_rows(
+    struct erow *rows, int numrows, struct editor_syntax *syntax, int *ok)
+{
+	struct editor_buffer staged = { 0 };
+
+	staged.row = rows;
+	staged.numrows = numrows;
+	staged.syntax = syntax;
+	return syntax_backend_prepare(&staged, ok);
+}
+
+void syntax_state_discard(struct kg_syntax_state *st)
+{
+	syntax_backend_state_free(st);
+}
+
+void syntax_state_release(struct editor_buffer *b)
+{
+	syntax_backend_state_free(b->syntax_state);
+	b->syntax_state = NULL;
+}
+
+void syntax_state_adopt(struct editor_buffer *b, struct kg_syntax_state *st)
+{
+	syntax_state_release(b);
+	b->syntax_state = st;
 }
 
 /* Maps syntax highlight token types to terminal colors. */

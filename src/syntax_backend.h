@@ -16,8 +16,35 @@
  * so this header needs nothing from def.h at all. */
 struct editor_buffer;
 struct erow;
+struct kg_syntax_state;
 
 /* ---- Provided by the backend ---- */
+
+/* Derive whatever this backend keeps about a whole document, from a staged
+ * buffer that already holds all of it: `staged->row[0 .. numrows)` are
+ * rendered (kg_row_builder_render()) and `staged->syntax` is the mode the
+ * finished buffer will be in.  The record is a throwaway the facade built
+ * over rows that belong to no buffer yet, and prepare must leave it as it
+ * found it -- a backend that wants to walk the document incrementally works
+ * on its own copy.
+ *
+ * Colouring every row is part of the job: on return each row's hl and hl_oc
+ * must be what the same text would settle at after publication, because
+ * this is the only highlighting pass a load pays for.  A mode that owns its
+ * own highlighter (struct editor_syntax::highlight -- dired) is not this
+ * backend's to fontify; per-row work routed through the facade's
+ * syntax_update_row_only() honours that automatically.
+ *
+ * Returns the state, which the caller owns; a backend that keeps none
+ * returns NULL, so NULL is not a failure.  `*ok` is set to 1 on success and
+ * to 0 when the pass ran out of memory, in which case nothing is returned
+ * to free. */
+struct kg_syntax_state *syntax_backend_prepare(
+    struct editor_buffer *staged, int *ok);
+
+/* Release a state syntax_backend_prepare() returned.  NULL is accepted --
+ * it is what a backend that keeps no state returns for every buffer. */
+void syntax_backend_state_free(struct kg_syntax_state *st);
 
 /* Fill row->hl (and, for a backend that keeps cross-row state, row->hl_oc)
  * for one non-empty row.  The facade has already reserved row->hl for

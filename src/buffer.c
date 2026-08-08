@@ -1901,18 +1901,21 @@ int kg_row_builder_add_line(
 	return 1;
 }
 
-int kg_row_builder_highlight(
-    erow *rows, int numrows, struct editor_syntax *syntax)
+/* Render, and only render: what a row's bytes look like on a terminal is a
+ * row-local transformation with no syntax in it, and separating it from the
+ * colouring is what lets a whole-document backend see the finished text
+ * before it parses anything (doc/plans/kg-tree-sitter-plan.md, Phase 4).
+ * The colouring pass over the same rows is syntax_prepare_rows(). */
+int kg_row_builder_render(erow *rows, int numrows)
 {
 	struct editor_buffer staged = { 0 };
 	int saved_running = running;
 	int i;
 
 	staged.row = rows;
-	staged.syntax = syntax;
+	staged.numrows = numrows;
 	for (i = 0; i < numrows; i++) {
-		staged.numrows = i + 1;
-		editor_update_row(&staged, &rows[i]);
+		editor_render_row(&staged, &rows[i]);
 		if (!rows[i].render || running != saved_running) {
 			running = saved_running;
 			errno = ENOMEM;
@@ -1939,6 +1942,14 @@ void kg_buffer_adopt_rows(
     struct editor_buffer *b, erow **rows, int *numrows, int *row_capacity)
 {
 	size_t old_total = buffer_byte_length(b);
+
+	/* Whatever the backend derived from the rows about to be freed
+	 * describes text this buffer is about to stop holding -- the "broad
+	 * replacement" release point.  A caller that prepared a state against
+	 * the NEW rows installs it immediately after this returns
+	 * (syntax_state_adopt(); see commit_load_result()), so the handover
+	 * is a release followed by an adopt rather than a special case here. */
+	syntax_state_release(b);
 
 	/* A staged adoption has no edit span through which old positions can
 	 * be relocated.  Its documented broad-replacement policy is therefore

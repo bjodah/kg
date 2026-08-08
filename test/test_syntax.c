@@ -14,6 +14,7 @@
  * prove the rebuild happened at all. */
 
 #include "../src/def.h"
+#include "../src/edit.h"
 #include "../src/syntax.h"
 /* is_separator() belongs to the legacy backend; the char-signedness case
  * below pins it against a negative char alongside def.h's ASCII helpers. */
@@ -366,6 +367,110 @@ static void test_git_mode_predicates_follow_mode_id(void)
 	teardown();
 }
 
+/* ---- Backend syntax state (doc/plans/kg-tree-sitter-plan.md, Phase 4) ----
+ *
+ * A buffer carries one opaque `struct kg_syntax_state *` for whatever the
+ * compiled-in backend derives from its whole text.  These tests pin the
+ * lifetime rule rather than any contents, because the contents are the
+ * backend's: the legacy scanners derive nothing, so every assertion below
+ * is that the pointer is NULL.  That is the promise this backend makes --
+ * a backend that keeps state has to break it deliberately, and these are
+ * the tests that will say so. */
+
+/* Render, prepare, adopt: the staged sequence every builder now follows.
+ * The preparation pass is what colours the rows -- rendering no longer
+ * does -- so this also checks that a cross-row construct (an open block
+ * comment) still propagates down the staged document exactly as it did
+ * when the two passes were interleaved. */
+static void test_prepare_rows_colours_and_keeps_no_state(void)
+{
+	struct editor_syntax *c = syntax_find_by_mode(KG_MODE_C);
+	struct kg_syntax_state *st;
+	erow *rows = NULL;
+	int numrows = 0, cap = 0, ok = 0;
+
+	setup(c);
+	CHECK(bcur()->syntax_state == NULL);
+
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "/* open", 7));
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "still", 5));
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "*/ int x;", 9));
+	CHECK(kg_row_builder_render(rows, numrows) == 0);
+	/* Rendering is rendering only now: nothing is coloured yet. */
+	CHECK(rows[0].render != NULL && rows[0].hl == NULL);
+
+	st = syntax_prepare_rows(rows, numrows, c, &ok);
+	CHECK(ok == 1);
+	CHECK(st == NULL); /* This backend keeps no state. */
+	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[1].hl != NULL && rows[1].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[2].hl != NULL && rows[2].hl[0] == HL_MLCOMMENT);
+	CHECK(rows[0].hl_oc == 1 && rows[1].hl_oc == 1);
+	CHECK(rows[2].hl_oc == 0); /* The comment closes on the last row. */
+
+	/* Publication releases whatever described the old rows; the caller
+	 * then hands over the state it prepared against the new ones. */
+	kg_buffer_adopt_rows(bcur(), &rows, &numrows, &cap);
+	CHECK(bcur()->syntax_state == NULL);
+	syntax_state_adopt(bcur(), st);
+	CHECK(bcur()->syntax_state == NULL);
+	teardown();
+}
+
+/* A mode that owns its highlighter outright (dired's listing) is coloured
+ * by the preparation pass too: its rows never reach a backend scanner, and
+ * a staged rebuild of the listing must not come out blank. */
+static void test_prepare_rows_honours_mode_owned_highlighter(void)
+{
+	struct editor_syntax owned
+	    = { KG_MODE_DIRED, "Owned", NULL, "", dummy_highlight };
+	erow *rows = NULL;
+	int numrows = 0, cap = 0, ok = 0;
+
+	setup(&owned);
+	CHECK(kg_row_builder_add_line(&rows, &numrows, &cap, "listing", 7));
+	CHECK(kg_row_builder_render(rows, numrows) == 0);
+	CHECK(syntax_prepare_rows(rows, numrows, &owned, &ok) == NULL);
+	CHECK(ok == 1);
+	CHECK(rows[0].hl != NULL && rows[0].hl[0] == HL_KEYWORD1);
+	kg_row_builder_free(&rows, &numrows, &cap);
+	teardown();
+}
+
+/* Release and adopt are the whole of the ownership rule, and both have to
+ * be safe on a buffer that holds no state -- which is every buffer under
+ * this backend, and the first state of every buffer under any other.  The
+ * release points overlap by design (killing a buffer whose rows were just
+ * replaced passes two of them), so a second release must be a no-op rather
+ * than a double free. */
+static void test_syntax_state_release_and_adopt_are_null_safe(void)
+{
+	setup(NULL);
+	syntax_state_release(bcur());
+	CHECK(bcur()->syntax_state == NULL);
+	syntax_state_release(bcur());
+	CHECK(bcur()->syntax_state == NULL);
+	syntax_state_adopt(bcur(), NULL);
+	CHECK(bcur()->syntax_state == NULL);
+	syntax_state_adopt(bcur(), NULL);
+	CHECK(bcur()->syntax_state == NULL);
+	syntax_state_discard(NULL); /* An abandoned load's leftover. */
+	teardown();
+}
+
+/* The mode-change release point: a real change goes through it, and a
+ * re-selection of the mode the buffer is already in does not. */
+static void test_mode_change_releases_state(void)
+{
+	setup(syntax_find_by_mode(KG_MODE_C));
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_PYTHON));
+	CHECK(bcur()->syntax == syntax_find_by_mode(KG_MODE_PYTHON));
+	CHECK(bcur()->syntax_state == NULL);
+	editor_set_syntax(bcur(), syntax_find_by_mode(KG_MODE_PYTHON));
+	CHECK(bcur()->syntax_state == NULL);
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -390,5 +495,9 @@ int main(void)
 	RUN(test_mode_ids_are_unique_and_resolve);
 	RUN(test_mode_lookup_agrees_with_name_lookup);
 	RUN(test_git_mode_predicates_follow_mode_id);
+	RUN(test_prepare_rows_colours_and_keeps_no_state);
+	RUN(test_prepare_rows_honours_mode_owned_highlighter);
+	RUN(test_syntax_state_release_and_adopt_are_null_safe);
+	RUN(test_mode_change_releases_state);
 	return test_summary();
 }

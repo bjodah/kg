@@ -337,23 +337,40 @@ static int load_append_row(
 	return 0;
 }
 
-/* Render and highlight every staged row, once, with the syntax the
- * staged filename selects.
+/* Render every staged row, then prepare the backend's whole-buffer state
+ * against all of them at once, with the syntax the staged filename selects.
+ * That order is the point of the staged load (Phase 4 of
+ * doc/plans/kg-tree-sitter-plan.md): a backend that parses the document
+ * rather than scanning it row by row has to be shown the finished text, and
+ * it has to be shown it before anything is published.
  *
  * Syntax selection happens once here rather than once per row.  It reads
  * only the filename, but for a file with no recognised extension it
  * re-opens the file to look for a hash-bang, so the old per-row call
- * opened and read the file once per line.  The render/highlight pass
- * itself is kg_row_builder_highlight()'s -- see its comment in edit.h for
- * why it announces the staged rows one at a time rather than all at once.
+ * opened and read the file once per line.
  *
- * Returns 0, or -1 with errno set when a row could not be rendered. */
+ * The prepared state stays in `res` until commit_load_result() hands it to
+ * the buffer that adopts the rows, or free_load_result() throws it away
+ * with them.
+ *
+ * Returns 0, or -1 with errno set when a row could not be rendered or the
+ * preparation ran out of memory. */
 static int load_stage_rows(struct temp_load_result *res)
 {
 	struct editor_buffer probe = { 0 };
+	int ok = 0;
 
 	editor_select_syntax_highlight(&probe, res->filename);
-	return kg_row_builder_highlight(res->row, res->numrows, probe.syntax);
+	if (kg_row_builder_render(res->row, res->numrows) != 0) {
+		return -1;
+	}
+	res->syntax_state
+	    = syntax_prepare_rows(res->row, res->numrows, probe.syntax, &ok);
+	if (!ok) {
+		errno = ENOMEM;
+		return -1;
+	}
+	return 0;
 }
 
 /* Roll a partial load back and report it.  free_load_result() must not
@@ -472,6 +489,20 @@ void commit_load_result(struct temp_load_result *res)
 	 * it compares every row's hl bytes and hl_oc after a load against a
 	 * from-scratch editor_rehighlight_all(). */
 	editor_select_syntax_highlight(bcur(), bcur()->filename);
+
+	/* The staged pass's backend state, transferred last -- after the
+	 * rows it was prepared against and after the mode it was prepared
+	 * under.  Ordering, not identity comparison, is what makes that
+	 * safe: kg_buffer_adopt_rows() above releases whatever state the
+	 * outgoing content had, and mode selection is the other release
+	 * point, so putting the adopt after both of them means no release
+	 * can run between the handover and the next edit.  (The mode
+	 * selected here is by construction the one the staged pass used --
+	 * same function, same filename -- so a "did the mode change" test
+	 * would answer no; but that is a property of two calls agreeing,
+	 * and this ordering holds even if one day they do not.) */
+	syntax_state_adopt(bcur(), res->syntax_state);
+	res->syntax_state = NULL;
 }
 
 void free_load_result(struct temp_load_result *res)
@@ -481,6 +512,10 @@ void free_load_result(struct temp_load_result *res)
 	}
 	free(res->filename);
 	res->filename = NULL;
+	/* An abandoned load: the state was prepared against rows no buffer
+	 * will ever hold.  NULL here after a commit, which took it. */
+	syntax_state_discard(res->syntax_state);
+	res->syntax_state = NULL;
 	kg_row_builder_free(&res->row, &res->numrows, &res->row_capacity);
 }
 

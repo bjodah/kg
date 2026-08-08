@@ -256,7 +256,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c lsp_json.c
+LSP_SRCS += lsp_transport.c lsp_json.c lsp_client.c lsp_server.c
 endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
@@ -264,7 +264,9 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
 LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
-          $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json
+          $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
+          $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
+          $(TESTDIR)/test_lsp_client
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -328,7 +330,8 @@ endif
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json
+TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
+            $(TESTDIR)/test_lsp_client
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -1205,7 +1208,60 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6413 exceeds limit 6412
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6413
 #   scc total complexity: 6413 (limit 6413)
-SCC_COMPLEXITY_MAX ?= 6413
+# Raised 6413 -> 6582 for the JSON-RPC client and the server registry,
+# Stage 3 (2026-08-09): the protocol state machine over one server, and the
+# policy that decides which server and where (doc/plans/2026-08-08-lsp.md,
+# Stage 3).  The whole +169 is two new files; nothing outside them moved,
+# and src/lsp_core.c gained its KG_USE_LSP split at a measured cost of 0,
+# because a preprocessor branch is not a run-time one.
+#   - src/lsp_client.c 0 -> 111.  It is a conversation, and the count is
+#     the shape of one: three states, sixteen pending slots, a queue that
+#     exists only before READY, and a death path that has to run every
+#     callback exactly once so no caller's context is orphaned.  The
+#     dispatch half: lsp_client_poll (pmccabe 8, drain, dispatch, notice a
+#     dead child), handle_response (6, match by id or drop),
+#     dispatch_message (5, the three things a message can be),
+#     capture_caps (5, textDocumentSync in both its number and object
+#     forms), id_value (6, an integer id, or the digits of a server that
+#     stringified it), refuse_server_request (3) and the two handshake
+#     callbacks at 2 and 1.  The sending half: lsp_client_start (7),
+#     build_initialize (6, the request's own shape), build_call (5),
+#     client_write (5, send now or hold until READY), client_request (4),
+#     flush_queued/drop_queued/lsp_client_notify at 2.  The life-cycle
+#     half: wait_for_exit (5), pending_fail_all (4), client_die (3),
+#     lsp_client_dispose (3), lsp_client_shutdown_begin (3),
+#     pending_alloc (3) and six accessors at 1.  The URI half:
+#     uri_plain_byte (11, one comparison per RFC 3986 unreserved class,
+#     which is a table written as an expression) and path_to_file_uri (6).
+#   - src/lsp_server.c 0 -> 58.  A table, a walk and four slots.  The
+#     walk: start_dir_of (6, the one realpath, on the directory rather
+#     than a file that may not exist yet), lsp_workspace_root (5, mode
+#     markers, then .git, then the file's directory), ancestor_matching
+#     (5, bounded so a symlinked path cannot outlast it), dir_has_c_markers
+#     (4, the four things a C build system leaves), marker_contains (4,
+#     pyproject.toml read for `[tool.ty` rather than parsed), marker_exists
+#     (3), parent_dir (3), dir_has_python_markers (2), dir_has_git (1).
+#     The registry: lsp_server_for (6), instance_find (5, where a dead
+#     instance's slot is reclaimed), lsp_server_shutdown_all (5, the
+#     grace budget split between the live ones), spec_start (3, argv for
+#     a built-in and /bin/sh for the environment override), spec_for (3),
+#     instance_free_slot (3), and the accessors at 3 or less.
+# Bisected on this tree: with both new files moved out of src/, the total
+# is 6413, the previous cap exactly, so nothing outside them moved:
+#   $ mv src/lsp_client.c src/lsp_server.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6413 (limit 99999)
+# pmccabe agrees: 49 new symbols for this slice, the worst 11, all under
+# the 15 new-function budget, and no existing symbol moved -- so `make
+# pmccabe-check` passes with no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the new files measure 111 and 58, and the worst is still
+# src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6581
+#   FAIL: total complexity 6582 exceeds limit 6581
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6582
+#   scc total complexity: 6582 (limit 6582)
+SCC_COMPLEXITY_MAX ?= 6582
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1770,6 +1826,15 @@ EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_
 # lsp_json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
 # named again for readability.
 EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
+# The client and the registry above it: the protocol state machine, the
+# server specs and the workspace-root walk, plus the two modules below them.
+# Still no editor object -- lsp_server.c reaches syntax.h for `enum
+# kg_mode_id` and nothing else in it, so syntax.o is not needed.  All four
+# lsp_*.o arrive through TEST_SRCS_OBJS' $(LSP_OBJS); named here for
+# readability, as the two suites above do.
+EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
+                    $(OBJDIR)/lsp_server.o $(OBJDIR)/lsp_transport.o \
+                    $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

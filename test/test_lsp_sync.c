@@ -28,6 +28,7 @@
 
 #include "../src/def.h"
 #include "../src/edit.h"
+#include "../src/event.h"
 #include "../src/lsp_client.h"
 #include "../src/lsp_json.h"
 #include "../src/lsp_sync.h"
@@ -954,6 +955,70 @@ static void test_close_notifies_and_forgets(void)
 	teardown_buffer();
 }
 
+/* The same close, reached the way the editor reaches it: a buffer is killed
+ * and the document goes with it, through the event queue rather than
+ * through a call anybody wrote at the kill site.
+ *
+ * The wiring is the whole point of the case.  lsp_sync_install() subscribes
+ * to KG_EVENT_BUFFER_KILLED, which is published AFTER the buffer's
+ * generation has been bumped (src/bufmgr.c's buf_kill_commit()), so the
+ * handle a subscriber receives never resolves -- and must not need to.
+ * That is reproduced exactly here: the generation is bumped first, the
+ * handle is asserted dead, and only then is the event published and
+ * drained.  A subscriber that resolved the handle instead of comparing it
+ * would send nothing, and the server would be left holding a document for a
+ * buffer that no longer exists and can never be closed, since closing needs
+ * the URI only this table still has. */
+static void test_a_killed_buffer_closes_its_document(void)
+{
+	struct lsp_client *c = start_server("incremental", "utf-8");
+	const struct lsp_json_value *params;
+	struct kg_event_reservation res;
+	struct kg_buffer_handle buf;
+	const char *method = "";
+	char want_uri[PATH_MAX];
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	setup_buffer("killed.c", c_source);
+	buf = buf_handle(buf_current);
+	CHECK(pump_until_ready(c));
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+	CHECK(lsp_sync_uri(c, buf) != NULL);
+
+	lsp_sync_install();
+	bcur()->generation++;
+	CHECK(buf_resolve(buf) == NULL);
+	res = kg_event_reserve_lifecycle();
+	CHECK(res.valid);
+	CHECK(kg_event_publish_lifecycle(&res, kg_event_make_buffer_killed(buf))
+	    == KG_EVENT_QUEUED);
+	kg_event_drain_safe();
+
+	CHECK(lsp_sync_uri(c, buf) == NULL);
+	CHECK(lsp_sync_version(c, buf) == -1);
+	barrier(c);
+
+	CHECK(record_count == 2);
+	params = record_params(1, &method);
+	CHECKF(
+	    strcmp(method, "textDocument/didClose") == 0, "got '%s'", method);
+	CHECK(lsp_uri_from_path(file_path, want_uri, sizeof(want_uri)));
+	CHECK(strcmp(json_text(lsp_json_get(
+			 lsp_json_get(params, "textDocument"), "uri")),
+		  want_uri)
+	    == 0);
+
+	/* The slot is the fixture's, not a really killed buffer's; put its
+	 * generation back so the next case's handle names it again. */
+	bcur()->generation--;
+	lsp_sync_drop_client(c);
+	lsp_client_dispose(c, 200);
+	teardown_buffer();
+}
+
 /* A dead buffer is a refusal, not a request sent about a document that no
  * longer exists.  The handle is the only thing that can tell the
  * difference, which is why the entry point takes one. */
@@ -1194,6 +1259,7 @@ int main(int argc, char **argv)
 	RUN(test_a_server_that_wants_nothing_gets_nothing);
 	RUN(test_open_close_without_changes);
 	RUN(test_close_notifies_and_forgets);
+	RUN(test_a_killed_buffer_closes_its_document);
 	RUN(test_a_dead_handle_is_refused);
 	RUN(test_a_relative_file_name_is_absolutised);
 	RUN(test_sync_before_the_handshake_still_opens);

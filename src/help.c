@@ -84,8 +84,8 @@ const char *kg_help_lines[]
 	      "numeric arg    │",
 	      "│ C-x r SPC  save point   │ C-x r j  jump to reg    │ M-?      "
 	      "find refs      │",
-	      "│ C-x r s    copy to reg  │ C-x r i  insert reg     │           "
-	      "              │",
+	      "│ C-x r s    copy to reg  │ C-x r i  insert reg     │ M-,      "
+	      "xref go back   │",
 	      "└─────────────────────────┴─────────────────────────┴───────────"
 	      "──────────────┘",
 	      "           M- = Esc/Meta/Alt      C- = Ctrl       S- = Shift",

@@ -2920,6 +2920,23 @@ void editor_cleanup(void)
 	cleaned_up = 1;
 	compilation_shutdown();
 	kg_process_table_shutdown();
+	/* Every server is wound down BEFORE the buffer table below is torn
+	 * down, and that order is what keeps the exit free of a didClose
+	 * storm.  Two things make it hold, and both are worth stating because
+	 * a later edit could break either:
+	 *
+	 *   - lsp_shutdown() disposes each client through the registry's
+	 *     drop hook, which is src/lsp_sync.c's lsp_sync_drop_client() --
+	 *     it FORGETS each document rather than closing it, since a
+	 *     didClose queued for a server already sent `exit` is a message
+	 *     nobody reads.  So the table is empty from here on.
+	 *   - the loop below frees each buffer's storage directly; it is not
+	 *     buf_kill(), so it publishes no KG_EVENT_BUFFER_KILLED, and
+	 *     nothing drains the event queue during exit anyway (delivery
+	 *     happens only at src/main.c's safe points).  The kill
+	 *     subscriber lsp_sync_install() registered therefore never runs
+	 *     here -- and if a later change made it run, it would find an
+	 *     empty document table and send nothing. */
 	lsp_shutdown();
 
 	/* Every window may own a visual-line geometry index (src/vgeom.h);

@@ -465,12 +465,19 @@ static void test_storage_is_bounded(void)
  * asks kbd.c to install it and then reads the result. */
 static void test_builtin_global_map_resolves(void)
 {
-	static const char *const sequences[] = { "C-f", "C-b", "C-n", "C-p",
-		"C-a", "C-e", "M-f", "M-b", "M-<", "M->", "C-v", "M-v", "C-l",
-		"M-r", "M-g g", "M-g M-g", "M-g n", "M-g p", "<left>",
-		"<right>", "<up>", "<down>", "<home>", "<end>", "<prior>",
-		"<next>", "C-<left>", "C-<right>", "C-<up>", "C-<down>",
-		"C-<home>", "C-<end>" };
+	static const char *const sequences[]
+	    = { "C-f", "C-b", "C-n", "C-p", "C-a", "C-e", "M-f", "M-b", "M-<",
+		      "M->", "C-v", "M-v", "C-l", "M-r", "M-g g", "M-g M-g",
+		      "M-g n", "M-g p", "<left>", "<right>", "<up>", "<down>",
+		      "<home>", "<end>", "<prior>", "<next>", "C-<left>",
+		      "C-<right>", "C-<up>", "C-<down>", "C-<home>", "C-<end>",
+		      /* The three xref keys.  They are here for a bound the
+		       * sample above does not reach: every command name a
+		       * binding uses is interned in keymap.c's name pool, and a
+		       * name that does not fit makes the bind refuse without a
+		       * word -- so a full pool shows up as a key that silently
+		       * stopped working, and these are the newest three. */
+		      "M-.", "M-?", "M-," };
 	size_t i;
 
 	keymap_reset();

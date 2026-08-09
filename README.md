@@ -136,7 +136,8 @@ standard VT100 escape sequences.
 - `M-.` (`xref-find-definitions`) asks a language server where the symbol
   at point is defined and goes there, asynchronously; `M-?`
   (`xref-find-references`) asks where it is used and lists the answer in a
-  read-only `*xref*` buffer (`RET` visits, `n`/`p` move, `q` closes) — see
+  read-only `*xref*` buffer (`RET` visits, `n`/`p` move, `q` closes), and
+  `M-,` (`xref-go-back`) returns to where the newest jump started — see
   [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
@@ -312,9 +313,11 @@ is:
 ./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
 ```
 
-Two commands use it: **`M-.`** (`xref-find-definitions`), which goes to the
-definition of the symbol at point, and **`M-?`** (`xref-find-references`),
-which lists every use of it. Everything else the protocol offers —
+Three commands use it: **`M-.`** (`xref-find-definitions`), which goes to
+the definition of the symbol at point, **`M-?`** (`xref-find-references`),
+which lists every use of it, and **`M-,`** (`xref-go-back`), which returns
+to where the newest of those jumps started. Everything else the protocol
+offers —
 diagnostics, completion, hover, rename — is deliberately out of scope until
 this foundation has proven itself.
 
@@ -341,10 +344,19 @@ while the server thinks, and the answer arrives later; the echo area
 reports where it went, or `No definition found` / `No references found`, or
 why there was no server to ask. An answer that arrives while a minibuffer
 prompt is open is built but not switched to, so a half-typed filename is
-never yanked out from under you. The place a jump left is pushed on the
-mark ring, so `C-u C-SPC` comes back. The buffer is sent to the server
-before each request rather than on every keystroke, so an unsaved buffer is
-still the text the answer is about.
+never yanked out from under you — that holds for a single definition too,
+which lists rather than jumps in that case. The place a jump left is
+pushed on the mark ring, so `C-u C-SPC` comes back, and onto the go-back
+stack, so `M-,` retraces the whole route: out of the visited file to the
+`*xref*` listing, and out of that to where the search was started. Sixteen
+departure points are kept as markers, so they follow the text through
+later edits; one whose buffer has been killed is passed over rather than
+reported, and an exhausted stack says `No xref history`.
+
+The buffer is sent to the server before each request rather than on every
+keystroke, so an unsaved buffer is still the text the answer is about.
+Killing a buffer tells every server holding it that the document is
+closed, and quitting kg shuts every running server down.
 
 `KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x

@@ -95,6 +95,18 @@ Options, all of them optional:
     Exit, without replying, the moment a request for METHOD arrives: a
     server crashing with a request outstanding, which is the one death a
     client cannot notice by an answer failing to make sense.
+``--garbage-reply METHOD``
+    Answer a request for METHOD with a correctly framed message whose body
+    is not JSON, and send nothing else.  The framing modes above corrupt
+    the transport; this corrupts what the transport delivered, which is a
+    protocol violation the client is required to treat as fatal rather
+    than skip past -- a client that guessed would navigate somewhere the
+    server never named.
+``--huge-after N``
+    After the Nth reply, write a header block claiming ``--length`` bytes
+    and exit: an oversized frame arriving mid-session, once the handshake
+    has settled and requests are outstanding, rather than as the first
+    thing on the pipe (which is what ``huge-header`` mode covers).
 ``--reverse-pairs``
     Answer ``kg/echo`` requests in pairs, second one first, so a client
     that matched responses by arrival order instead of by id gets them
@@ -126,6 +138,12 @@ import sys
 import time
 
 GARBAGE = b"\x01\x02 this is not a header block\r\n\r\n"
+
+# A body that is framed correctly and is not JSON: --garbage-reply's whole
+# payload.  Deliberately not "almost JSON" -- the client's contract is that
+# an unparseable body is fatal, and a truncated object would test the
+# parser's recovery instead of that contract.
+GARBAGE_BODY = b"\x01\x02 this is framed, and it is not JSON"
 
 SYNC_KINDS = {"none": 0, "full": 1, "incremental": 2}
 
@@ -246,6 +264,10 @@ class Protocol:
             time.sleep(self.args.delay_ms / 1000.0)
         self.send({"jsonrpc": "2.0", "id": request_id, "result": result})
         self.replies += 1
+        if self.args.huge_after and self.replies >= self.args.huge_after:
+            write_all(self.stdout,
+                      b"Content-Length: %d\r\n\r\n" % self.args.length)
+            raise SystemExit(0)
         if self.args.exit_after and self.replies >= self.args.exit_after:
             raise SystemExit(0)
 
@@ -365,6 +387,9 @@ class Protocol:
         if "id" not in message:
             return  # a notification: initialized, and whatever else
         self.handled += 1
+        if self.args.garbage_reply and method == self.args.garbage_reply:
+            write_all(self.stdout, frame(GARBAGE_BODY))
+            return
         result = self.canned(method, message.get("params"))
         if self.args.reverse_pairs and method == "kg/echo":
             self.deferred.append((message["id"], result))
@@ -442,6 +467,11 @@ def main(argv):
                         help="exit once this many replies have been sent")
     parser.add_argument("--die-on", default=None,
                         help="exit without replying when this method arrives")
+    parser.add_argument("--garbage-reply", default=None,
+                        help="answer this method with a framed non-JSON body")
+    parser.add_argument("--huge-after", type=int, default=0,
+                        help="write an oversized header block and exit once "
+                             "this many replies have been sent")
     parser.add_argument("--reverse-pairs", action="store_true",
                         help="answer kg/echo requests in pairs, reversed")
     parser.add_argument("--record", default=None,

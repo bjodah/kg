@@ -33,6 +33,10 @@
  * naming anything else would be one nothing can be looked up from. */
 #define XREF_WHO_DEF "xref-find-definitions"
 #define XREF_WHO_REF "xref-find-references"
+/* xref-go-back names itself nowhere: the one thing it says, "No xref
+ * history", is the answer to a question about the stack rather than a
+ * report from a command, and reads better without a prefix -- the same
+ * shape as "No definition found". */
 #define XREF_WHO_GOTO "xref-goto-xref"
 
 /* How much of a server's own error text reaches the echo area.  A server is
@@ -44,7 +48,7 @@
 
 /* ------------------------------ go-back stack ------------------------- */
 
-/* Where a jump started, so that Stage 7's M-, can go back to it.  A marker
+/* Where a jump started, so that M-, can go back to it.  A marker
  * rather than a line number, for the reason compile_nav.c keeps one: the
  * departure point stays where the text went if the file is edited in
  * between, and a killed buffer is a handle that stops resolving rather than
@@ -84,11 +88,32 @@ static struct xref_return xref_return_here(void)
 	return ret;
 }
 
+/* Throw a departure point away: the jump it was taken for did not happen,
+ * or a newer one has replaced it. */
+static void xref_return_drop(struct xref_return *ret)
+{
+	if (ret->valid) {
+		kg_marker_delete(ret->marker);
+	}
+	ret->valid = false;
+}
+
 /* Hand the departure point to the stack.  Ownership of the marker moves
- * there, so the caller's copy must not be dropped afterwards. */
+ * there, so the caller's copy must not be dropped afterwards.
+ *
+ * A point whose marker no longer resolves is dropped rather than stored.
+ * That is the late-reply case: an answer can arrive long after the buffer
+ * the question was asked in was killed, and the jump still happens -- the
+ * definition is where it is regardless of what became of the buffer that
+ * asked -- but there is nothing to go back TO, and storing it would cost
+ * the oldest still-usable entry its slot. */
 static void xref_return_push(struct xref_return ret)
 {
 	if (!ret.valid) {
+		return;
+	}
+	if (kg_marker_resolve(ret.marker, NULL) != KG_MARKER_OK) {
+		xref_return_drop(&ret);
 		return;
 	}
 	if (g_return_count == XREF_RETURN_MAX) {
@@ -100,14 +125,25 @@ static void xref_return_push(struct xref_return ret)
 	g_returns[g_return_count++] = ret;
 }
 
-/* Throw a departure point away: the jump it was taken for did not happen,
- * or a newer one has replaced it. */
-static void xref_return_drop(struct xref_return *ret)
+/* The newest departure point that is still a place, with the position its
+ * marker resolves to.  Entries whose buffer has been killed -- or whose
+ * marker store went with it -- are dropped silently on the way past: a
+ * killed buffer is not an error to report, it is a place that is no longer
+ * there, and reporting it would leave the user pressing M-, once per buffer
+ * they had closed.  False once the stack holds no such place, which is what
+ * "No xref history" is said for. */
+static bool xref_return_pop(struct xref_return *out, size_t *pos)
 {
-	if (ret->valid) {
-		kg_marker_delete(ret->marker);
+	while (g_return_count > 0) {
+		struct xref_return ret = g_returns[--g_return_count];
+
+		if (kg_marker_resolve(ret.marker, pos) == KG_MARKER_OK) {
+			*out = ret;
+			return true;
+		}
+		xref_return_drop(&ret);
 	}
-	ret->valid = false;
+	return false;
 }
 
 /* One request in flight, and what the answer to it needs that the answer
@@ -560,7 +596,14 @@ static void xref_answer(struct lsp_client *c, struct xref_request *req,
 		    "%s: the answer named no file kg can open", req->who);
 		return;
 	}
-	if (!req->references && g_result_found == 1) {
+	/* Not while a minibuffer prompt is up, for xref_show()'s reason and
+	 * one more: this path does not merely select a buffer, it visits a
+	 * file and moves point, so an answer landing under a half-typed
+	 * filename would leave that prompt editing a buffer nobody opened it
+	 * over.  The listing is the answer that waits: it is built, the echo
+	 * area says so, and the definition is one C-x b and one RET away. */
+	if (!req->references && g_result_found == 1
+	    && !kg_event_prompt_active()) {
 		xref_answer_one(req);
 		return;
 	}
@@ -639,6 +682,30 @@ void editor_xref_goto_xref(int fd)
 	xref_return_push(departure);
 	editor_set_status_message(
 	    "%s:%d", buf_basename(loc.path), loc.line + 1);
+}
+
+/* -------------------------------- M-, --------------------------------- */
+
+void editor_xref_go_back(int fd)
+{
+	struct xref_return ret;
+	size_t pos = 0;
+	int row, col;
+
+	(void)fd;
+	if (!xref_return_pop(&ret, &pos)) {
+		editor_set_status_message("No xref history");
+		return;
+	}
+	/* The marker is deleted whatever happens next.  It is a bounded
+	 * resource -- one store per buffer, relocated on every edit -- and
+	 * this entry has been popped either way: a buf_select() refused under
+	 * event pressure costs the return, not the marker. */
+	if (buf_select(buf_handle_slot(ret.buffer))
+	    && buffer_position_to_row_col(bcur(), pos, &row, &col) == 1) {
+		editor_goto_line_direct(row + 1, col + 1);
+	}
+	xref_return_drop(&ret);
 }
 
 /* -------------------------------- the commands ------------------------ */
@@ -798,6 +865,12 @@ void editor_xref_find_references(int fd)
 }
 
 void editor_xref_goto_xref(int fd)
+{
+	(void)fd;
+	editor_set_status_message("kg was built without LSP support");
+}
+
+void editor_xref_go_back(int fd)
 {
 	(void)fd;
 	editor_set_status_message("kg was built without LSP support");

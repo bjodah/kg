@@ -1,0 +1,43 @@
+name: lsp-goback
+# M-, goes back to where M-. jumped from.
+#
+# The jump itself is lsp-definition-basic's: the fake server answers
+# --definition-self 2:4, a Location in the document the client opened, so
+# point lands on the "u" of "use" on the third line.  What this case adds is
+# the return: M-, pops the departure point M-. recorded before the request
+# went out -- the very start of the buffer, where point was when the key was
+# pressed -- and puts point back there.
+#
+# The saved file is the whole assertion, and it distinguishes the three
+# outcomes a screen would not.  "X" typed after M-, lands at the start of
+# line 1 only if the go-back happened; it lands in front of "use" if M-,
+# did nothing (the jump's position), and the file is unchanged from the
+# initial text nowhere -- so a case that passes cannot be a case where
+# neither key did anything.
+#
+# The C-l pairs are the wait, for the reason lsp-definition-basic states:
+# the request is answered in a later lsp_poll(), so the case has to leave
+# time for a Python interpreter to start, handshake and reply before M-, is
+# pressed.  M-, itself is synchronous -- it reads a marker and moves point
+# -- so the single C-l after it is a repaint, not a wait.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --definition-self 2:4"
+filename: xrefback.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "M-,"
+  - "C-l"
+  - "X"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }

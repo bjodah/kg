@@ -76,10 +76,20 @@ void editor_xref_find_references(int fd);
  * listing -- does the place the search was started from. */
 void editor_xref_goto_xref(int fd);
 
-/* How many departure points are on the go-back stack.  Stage 7's
- * `xref-go-back` (M-,) is what pops them; until then this is how a test
+/* `M-x xref-go-back` (M-,).  Returns to where the newest jump started and
+ * forgets it, so pressing it again walks further back.
+ *
+ * A departure point whose buffer has been killed is not a place to return
+ * to: such entries are dropped on the way past rather than reported, and
+ * the command lands on the newest one that is still there.  An empty stack
+ * -- or one holding nothing but dead entries -- says "No xref history". */
+void editor_xref_go_back(int fd);
+
+/* How many departure points are on the go-back stack.  This is how a test
  * asks whether a jump remembered where it came from, and that the stack is
- * bounded. */
+ * bounded; no policy reads it.  It counts what is stored, including entries
+ * whose buffer has since died -- those are noticed by
+ * `xref-go-back`, which is the only thing that pops them. */
 size_t xref_go_back_depth(void);
 
 #endif /* KG_XREF_H */

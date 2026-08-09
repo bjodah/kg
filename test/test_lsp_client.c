@@ -304,6 +304,64 @@ static void test_unsolicited_notification_is_ignored(void)
 	lsp_client_dispose(c, 200);
 }
 
+/* A reply whose framing was perfect and whose body is not JSON.
+ *
+ * The framing modes prove the transport survives bad bytes; this proves the
+ * layer above does not try to.  The bytes arrived inside a Content-Length
+ * the server itself wrote, so they are the server's own doing and there is
+ * no prefix of them worth guessing at: the client's contract is that this
+ * is fatal.  What must still hold on the way down is the callback
+ * guarantee -- exactly one call, no result -- because a caller's heap
+ * context (src/xref.c's struct xref_request) is freed nowhere else. */
+static void test_a_garbage_reply_kills_the_client(void)
+{
+	const char *extra[] = { "--garbage-reply", "kg/echo", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "doomed", &got) > 0);
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result);
+	/* The synthesised one, so a caller has something to print. */
+	CHECK(got.had_error);
+	CHECK(lsp_client_pending_count(c) == 0);
+	lsp_client_dispose(c, 200);
+}
+
+/* An oversized frame arriving mid-session rather than as the first thing on
+ * the pipe: the handshake has settled, a request is outstanding, and the
+ * server then claims a body no bound would accept.  `huge-header` mode
+ * already covers the transport in isolation (test_lsp_transport.c); what
+ * this adds is that a client with work in flight dies the same way and
+ * still runs that work's callback rather than waiting for a body that is
+ * never coming. */
+static void test_an_oversized_frame_mid_session_kills_the_client(void)
+{
+	const char *extra[] = { "--huge-after", "1", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	/* Queued before the handshake finishes, so the oversized header --
+	 * written the instant the initialize reply has gone out -- lands with
+	 * this request outstanding whichever order the two are read in. */
+	CHECK(echo_request(c, "doomed", &got) > 0);
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result);
+	CHECK(lsp_client_pending_count(c) == 0);
+	lsp_client_dispose(c, 200);
+}
+
 /* shutdown, then exit, then the server is gone -- and the client notices
  * that by itself, which is what makes a graceful exit distinguishable from
  * a crash. */
@@ -711,6 +769,8 @@ int main(int argc, char **argv)
 	RUN(test_server_death_fails_pending_requests);
 	RUN(test_server_request_is_refused_not_ignored);
 	RUN(test_unsolicited_notification_is_ignored);
+	RUN(test_a_garbage_reply_kills_the_client);
+	RUN(test_an_oversized_frame_mid_session_kills_the_client);
 	RUN(test_shutdown_handshake_ends_the_server);
 	RUN(test_dispose_runs_pending_callbacks);
 	RUN(test_start_failure_is_reported);

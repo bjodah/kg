@@ -20,7 +20,19 @@
  * 12 * sizeof(struct keymap). */
 static constexpr int keymap_max_maps = 12;
 static constexpr int keymap_max_entries = 256;
-static constexpr int keymap_name_pool = 2048;
+/* The name pool holds every map name AND every command name a binding
+ * interns, which is what made it the tightest of the three bounds: at 2048
+ * the built-in maps used 2035 of it, and the thirteen bytes left over were
+ * exactly the "user" and "my-mode" a configuration test creates.  Adding
+ * one global binding (M-, -> xref-go-back, 13 bytes) filled it to the byte,
+ * and the first map a user's Lisp asked for then failed to be created --
+ * silently, because keymap_create() answering nullptr is how a full table
+ * has always been reported.  The failure mode is worth spelling out: a
+ * command name that does not fit makes keymap_bind() refuse, which leaves
+ * that key to the dispatch switch rather than to an error anybody sees.
+ * 2560 leaves ~500 bytes, some 30 names, for configuration -- the same
+ * reasoning as the twelve maps above, on the axis that ran out first. */
+static constexpr int keymap_name_pool = 2560;
 
 struct keymap {
 	const char *name;

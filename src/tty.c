@@ -110,6 +110,8 @@ static const struct meta_key meta_keys[] = {
 	 * reason M-. does: without it ESC ? reads a second byte and swallows
 	 * whatever key was typed next. */
 	{ '?', '?', 0 },
+	/* M-, is xref-go-back, and is the third of the same set. */
+	{ ',', ',', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

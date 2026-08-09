@@ -28,6 +28,7 @@
 #include "lsp_sync.h"
 
 #include "def.h"
+#include "event.h"
 #include "lsp_client.h"
 #include "lsp_json.h"
 #include "lsp_server.h"
@@ -561,7 +562,39 @@ void lsp_sync_drop_client(struct lsp_client *c)
 	}
 }
 
+/* A buffer has been killed, so every server holding it as a document is
+ * told and the slots are freed.
+ *
+ * KG_EVENT_BUFFER_KILLED rather than KG_EVENT_BUFFER_KILLING, even though
+ * the handle no longer resolves by the time this runs, and that is the
+ * point: a didClose needs the URI, which this table already stores, and
+ * nothing else about the buffer.  Matching is therefore by handle equality
+ * (same_buffer(), which compares slot, id and generation) and never by
+ * resolving -- so the one event whose handle is guaranteed dead is the one
+ * this can act on, and a KILLING that some later refusal turned into a
+ * buffer still alive can never close a document out from under it.
+ *
+ * `resolution` is ignored for the same reason: it says the handle is gone,
+ * which is already known. */
+static enum kg_event_cb_status on_buffer_killed(
+    const struct kg_event *ev, enum kg_event_resolution resolution, void *ctx)
+{
+	(void)resolution;
+	(void)ctx;
+	lsp_sync_close_buffer(ev->payload.buffer_life.buffer);
+	return KG_EVENT_CB_CONTINUE;
+}
+
 void lsp_sync_install(void)
 {
+	static struct kg_event_subscriber_token kill_token;
+
 	lsp_server_set_instance_drop_hook(lsp_sync_drop_client);
+	/* Idempotent: called once by lsp_init() in the editor, and by any
+	 * test that wants the wiring after a kg_event_queue_init() has reset
+	 * the registry.  Unsubscribing a token that named nothing, or one
+	 * whose slot a later registration reused, does nothing (event.h). */
+	(void)kg_event_unsubscribe(kill_token);
+	kill_token = kg_event_subscribe(
+	    1u << KG_EVENT_BUFFER_KILLED, on_buffer_killed, NULL);
 }

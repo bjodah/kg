@@ -1418,7 +1418,48 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6791 exceeds limit 6790
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6791
 #   scc total complexity: 6791 (limit 6791)
-SCC_COMPLEXITY_MAX ?= 6791
+# Raised 6791 -> 6801 (+10) for M-, xref-go-back and the lifecycle
+# hardening around it, Stage 7 of doc/plans/2026-08-08-lsp.md.  All ten are
+# in one file, measured on this tree:
+#   - src/xref.c 86 -> 96 (+10).  Popping a stack is not the mirror image
+#     of pushing one, and the difference is where the ten went:
+#     xref_return_pop (pmccabe 3) walks past every departure point whose
+#     buffer has been killed rather than reporting the first one, since a
+#     closed buffer is not an error to hand the user; editor_xref_go_back
+#     (4) is the refusal-then-move sequence over what it found; and
+#     xref_return_push gained the same liveness test at the other end (3
+#     -> 4), which is the late-reply case -- an answer arriving after its
+#     origin buffer was killed still navigates, and no longer spends a
+#     stack slot on a place that is gone.  The last point is xref_answer's
+#     `&& !kg_event_prompt_active()`: a single definition now waits in the
+#     *xref* listing instead of moving point under a half-typed filename,
+#     which is the guard xref_show() already had and the visit path did
+#     not.  Worst new symbol 4, against the 15 budget.
+#   - src/lsp_sync.c 86 -> 86 (+0).  The KG_EVENT_BUFFER_KILLED subscriber
+#     is a branchless callback over the close this module already had, and
+#     the unsubscribe/subscribe pair in lsp_sync_install() is two
+#     statements.
+#   - src/cmd.c, src/kbd.c, src/tty.c, src/help.c, src/bufmgr.c: +0.  A
+#     cmdtable row with its one-line handler, a global-map row, a
+#     meta_keys[] row, a help-table cell and a comment about the exit
+#     order are data, statements and prose.
+# Bisected on this tree: with src/xref.c moved out of src/, the total is
+# 6705, which is 6801 minus the 96 that file measures here -- and 6705 is
+# exactly what the same bisect gave at Stage 6, so nothing outside it
+# moved:
+#   $ mv src/xref.c /tmp && make complexity-check SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6705 (limit 99999)
+# pmccabe agrees: worst new symbol 4, and the only existing symbol that
+# moved is xref_return_push, 3 -> 4 -- both inside the new-function budget,
+# so `make pmccabe-check` passes with no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: src/xref.c measures 96, and the worst is still src/bufmgr.c at 499.
+# Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6800
+#   FAIL: total complexity 6801 exceeds limit 6800
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6801
+#   scc total complexity: 6801 (limit 6801)
+SCC_COMPLEXITY_MAX ?= 6801
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

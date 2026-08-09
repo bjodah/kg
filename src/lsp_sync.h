@@ -136,8 +136,17 @@ long long lsp_sync_version(struct lsp_client *c, struct kg_buffer_handle buf);
  * and forget it.  A killed buffer whose document is left open is a server
  * answering out of a file that no longer has an editor behind it, and --
  * once the handle stops resolving -- one kg can never close, since closing
- * needs the URI this table is holding.  Stage 7 subscribes this to
- * KG_EVENT_BUFFER_KILLED; until then, it is called by the tests. */
+ * needs the URI this table is holding.
+ *
+ * lsp_sync_install() subscribes this to KG_EVENT_BUFFER_KILLED, so the
+ * editor never calls it by hand: the buffer table publishes the kill and
+ * kg_event_drain_safe() delivers it at one of src/main.c's safe points.
+ * The handle is dead by then and is used only as an identity -- documents
+ * are matched to it by comparing slot, id and generation, never by
+ * resolving it -- which is what makes closing a killed buffer's document
+ * possible at all.  Still public, and still called directly by the tests,
+ * since a document table is worth asserting without an event queue in the
+ * way. */
 void lsp_sync_close_buffer(struct kg_buffer_handle buf);
 
 /* Forget every document belonging to `c`, without telling it anything.
@@ -148,11 +157,15 @@ void lsp_sync_close_buffer(struct kg_buffer_handle buf);
  * this table pointing at freed memory. */
 void lsp_sync_drop_client(struct lsp_client *c);
 
-/* Wire this module to the registry, once, from lsp_init().  Separate from
- * the hook itself so that src/lsp_server.c keeps knowing nothing about
- * documents or buffers -- it calls a function pointer it was handed, and
- * a test binary that links the registry without this module simply never
- * hands it one. */
+/* Wire this module up, once, from lsp_init(): the registry's instance-drop
+ * hook, and a KG_EVENT_BUFFER_KILLED subscriber that closes the killed
+ * buffer's documents.
+ *
+ * Separate from the hooks themselves so that src/lsp_server.c keeps
+ * knowing nothing about documents or buffers -- it calls a function
+ * pointer it was handed, and a test binary that links the registry without
+ * this module simply never hands it one.  Calling it more than once is
+ * safe and leaves exactly one subscriber registered. */
 void lsp_sync_install(void);
 
 #endif /* KG_LSP_SYNC_H */

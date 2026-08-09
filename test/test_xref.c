@@ -18,6 +18,7 @@
  * does; nothing below touches a buffer.
  */
 
+#include "../src/def.h"
 #include "../src/lsp_json.h"
 #include "../src/xref.h"
 #include "test.h"
@@ -152,10 +153,24 @@ static void test_negative_character_clamps(void)
 
 /* Nothing has jumped, so nothing has been remembered.  The stack itself is
  * exercised end to end by the PTY cases; this is the empty-state half of
- * its contract, and the reason the accessor exists before M-, does. */
+ * its contract. */
 static void test_go_back_starts_empty(void)
 {
 	CHECK(xref_go_back_depth() == 0);
+}
+
+/* M-, with nothing to go back to says so and moves nothing.  Worth a native
+ * case rather than a PTY one because it is the branch a PTY case cannot
+ * assert: an editor that "went back" nowhere and an editor that reported an
+ * empty history look identical in a saved file, and differ only in the echo
+ * area. */
+static void test_go_back_on_an_empty_stack_reports(void)
+{
+	editor.statusmsg[0] = '\0';
+	editor_xref_go_back(0);
+	CHECK(xref_go_back_depth() == 0);
+	CHECKF(strcmp(editor.statusmsg, "No xref history") == 0, "got '%s'",
+	    editor.statusmsg);
 }
 
 int main(void)
@@ -167,5 +182,6 @@ int main(void)
 	RUN(test_refusals);
 	RUN(test_negative_character_clamps);
 	RUN(test_go_back_starts_empty);
+	RUN(test_go_back_on_an_empty_stack_reports);
 	return test_summary();
 }

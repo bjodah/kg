@@ -1150,6 +1150,7 @@ Multiple files each open in their own buffer.
 .It M-g p Ta Jump to the previous compilation diagnostic
 .It M-. Ta Go to the definition of the symbol at point (needs a language server)
 .It M-? Ta List every reference to the symbol at point (needs a language server)
+.It M-\&, Ta Go back to where the last xref jump started
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -2588,6 +2589,22 @@ Bound to
 Always lists, even for a single result.
 See
 .Sx LSP .
+.It xref-go-back
+Return to where the newest
+.Ic M-.
+or
+.Ic M-\&?
+jump started, and forget it, so pressing it again walks further back.
+Bound to
+.Ic M-\&, .
+A departure point in a buffer that has since been killed is not a place
+to return to: such entries are passed over silently, and an empty
+history reports
+.Do
+No xref history
+.Dc .
+See
+.Sx LSP .
 .It xref-goto-xref
 Go to the result named on the current
 .Pa *xref*
@@ -2829,6 +2846,21 @@ Before the jump, the place it left is pushed on the mark ring, so
 .Ic C-u C-SPC
 returns to it.
 .Pp
+.Ic M-\&,
+.Pq Ic M-x xref-go-back
+walks that back: it returns to where the newest jump started and forgets
+it, so pressing it repeatedly retraces the route \(em out of the visited
+file to the
+.Pa *xref*
+listing, and out of that to where the search was started.
+Sixteen departure points are kept, the oldest dropped; each is a marker,
+so it follows the text if the file is edited in between, and one whose
+buffer has been killed is passed over rather than reported.
+With nothing left to return to it says
+.Do
+No xref history
+.Dc .
+.Pp
 .Ic M-\&?
 answers with a list rather than a jump, in a read-only buffer named
 .Pa *xref* :
@@ -2865,10 +2897,18 @@ selected \(em the echo area says how many results are waiting in
 and
 .Ic C-x b
 reaches them.
+That holds for a single definition too: an answer never moves point or
+switches buffers under a prompt, so
+.Ic M-.
+lists rather than jumps when one arrives while a prompt is up.
 .Pp
 The buffer is sent to the server before each request, not on every
 keystroke: an unsaved buffer is still the text the answer is about, and a
 server never sees an edit that no command asked a question about.
+Killing a buffer tells every server holding it that the document is
+closed, and quitting
+.Nm
+shuts every running server down.
 A server that dies is not restarted where it fell; the next command
 starts a new one.
 .Pp

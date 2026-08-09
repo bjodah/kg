@@ -460,6 +460,7 @@ static const struct {
 	 * gets by on the decoder's ESC-merge alone. */
 	{ "M-.", "xref-find-definitions" },
 	{ "M-?", "xref-find-references" },
+	{ "M-,", "xref-go-back" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

@@ -18,8 +18,8 @@ name: lsp-ty-definition
 #
 # ty 0.0.69 answered textDocument/definition and textDocument/references
 # both, and negotiated utf-8 like clangd; nothing here is xfail.  The file
-# is all-ASCII, so one M-. suffices (see lsp-clangd-definition.yaml for the
-# pre-handshake encoding caveat that a multi-byte line would hit).
+# is all-ASCII, so it says nothing about position encoding; that is
+# lsp-clangd-definition.yaml's and lsp-definition-cold-encoding.yaml's job.
 requires_feature: lsp
 requires_tool: ty
 backend: tmux

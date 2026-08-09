@@ -233,6 +233,265 @@ static void test_requests_before_ready_are_flushed(void)
 	lsp_client_dispose(c, 200);
 }
 
+/* ------------------------- deferred-build requests -------------------- */
+
+/* What a builder did, and what it could see when it did it.  The encoding
+ * is the whole point: a builder that ran when the request was asked for
+ * would read the pre-handshake default, and one that ran when the message
+ * was written reads what the server negotiated. */
+struct builder {
+	int calls;
+	int frees;
+	bool saw_utf8;
+	bool refuse;
+	char params[64];
+};
+
+static char *build_params(struct lsp_client *c, void *bctx, size_t *out_len)
+{
+	struct builder *b = bctx;
+	char *out;
+	int n;
+
+	b->calls++;
+	b->saw_utf8
+	    = lsp_client_caps(c)->position_encoding == LSP_POSITION_UTF8;
+	if (b->refuse) {
+		return NULL;
+	}
+	n = snprintf(b->params, sizeof(b->params), "{\"tag\":\"%s\"}",
+	    b->saw_utf8 ? "utf-8" : "utf-16");
+	out = malloc((size_t)n + 1);
+	if (!out) {
+		return NULL;
+	}
+	memcpy(out, b->params, (size_t)n + 1);
+	*out_len = (size_t)n;
+	return out;
+}
+
+static void count_free(void *bctx) { ((struct builder *)bctx)->frees++; }
+
+/* The regression this whole mechanism exists for.  The request is asked for
+ * while the client is still INITIALIZING, against a server that will turn
+ * out to want utf-8 -- so a builder run at call time would see the UTF-16
+ * default and encode every position one unit short per multi-byte character
+ * ahead of it.  Run at send time, it sees what the handshake settled, and
+ * the tag it built comes back through the echo to prove which it was. */
+static void test_deferred_params_are_built_after_the_handshake(void)
+{
+	const char *extra[] = { "--position-encoding", "utf-8", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct builder b = { 0 };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    > 0);
+	/* Nothing has been built yet: the capabilities are not known.  The
+	 * request is outstanding all the same -- two, with the handshake's
+	 * own `initialize` still unanswered beside it -- which is what makes
+	 * every death path already cover it. */
+	CHECK(b.calls == 0);
+	CHECK(lsp_client_pending_count(c) == 2);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(b.calls == 1);
+	CHECK(b.saw_utf8);
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 1 && strcmp(got.tag, "utf-8") == 0);
+	lsp_client_dispose(c, 200);
+}
+
+/* A READY client has nothing to wait for, so the builder runs in the call
+ * and the context is released before it returns. */
+static void test_deferred_on_a_ready_client_builds_immediately(void)
+{
+	const char *extra[] = { "--position-encoding", "utf-8", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct builder b = { 0 };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    > 0);
+	CHECK(b.calls == 1);
+	CHECK(b.saw_utf8);
+	CHECK(b.frees == 1);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1 && strcmp(got.tag, "utf-8") == 0);
+	lsp_client_dispose(c, 200);
+}
+
+/* A builder that abandons the request.  The id was already handed out, so
+ * the contract says the callback runs exactly once -- with neither result
+ * nor error, the shape a caller already reads as "no answer will come" --
+ * rather than the request quietly evaporating. */
+static void test_a_builder_that_refuses_fails_the_request(void)
+{
+	struct lsp_client *c = start_protocol(NULL);
+	struct builder b = { .refuse = true };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(b.calls == 1);
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result);
+	CHECK(!got.had_error);
+	lsp_client_dispose(c, 200);
+	/* Once, not twice: the dispose above must not fail it again. */
+	CHECK(got.calls == 1);
+}
+
+/* On the immediate path a refusing builder is a -1, which the existing
+ * contract already defines as "the callback will never run" -- so the
+ * caller keeps its own context and this must not invent a callback for it. */
+static void test_a_refused_immediate_build_reports_minus_one(void)
+{
+	struct lsp_client *c = start_protocol(NULL);
+	struct builder b = { .refuse = true };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    == -1);
+	CHECK(b.calls == 1);
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 0);
+	CHECK(lsp_client_pending_count(c) == 0);
+	lsp_client_dispose(c, 200);
+	CHECK(got.calls == 0);
+}
+
+/* The server dies during the handshake, with a builder still queued.  Both
+ * halves of the contract have to hold at once: the builder's context is
+ * released (it never ran, so nobody else will), and the callback runs
+ * exactly once with no answer.  Neither may happen twice. */
+static void test_a_queued_builder_is_released_when_the_server_dies(void)
+{
+	const char *extra[] = { "--die-on", "initialize", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct builder b = { 0 };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    > 0);
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(b.calls == 0); /* never built: there was no handshake */
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result);
+	lsp_client_dispose(c, 200);
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 1);
+}
+
+/* Disposing of a client that never reached READY: same invariant, taken by
+ * the other path -- drop_queued() frees the context and pending_fail_all()
+ * runs the callback, and dispose is the only caller that does both without
+ * a death in between. */
+static void test_dispose_releases_a_queued_builder(void)
+{
+	struct lsp_client *c = start_protocol(NULL);
+	struct builder b = { 0 };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_client_request_deferred(
+		  c, "kg/echo", build_params, &b, count_free, record, &got)
+	    > 0);
+	lsp_client_dispose(c, 0);
+	CHECK(b.calls == 0);
+	CHECK(b.frees == 1);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result);
+}
+
+/* What a Location-shaped answer named, for the ordering case below. */
+static void record_uri(struct lsp_client *c,
+    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    void *ctx)
+{
+	struct answer *a = ctx;
+	const char *uri = lsp_json_str(lsp_json_get(result, "uri"), NULL);
+
+	(void)c;
+	(void)error;
+	a->calls++;
+	a->had_result = result != NULL;
+	snprintf(a->tag, sizeof(a->tag), "%s", uri ? uri : "");
+}
+
+/* One queue, both kinds.  A notification asked for first has to reach the
+ * server first even though the request behind it is the one that still
+ * needs building: kg's own use is a didOpen followed by the question about
+ * the document it opened, and a request that overtook it would ask about a
+ * document the server has never heard of.
+ *
+ * `--definition-self` is what turns that into an assertion.  It answers
+ * with a Location in the document the client most recently sent -- and with
+ * null when there has been none -- so the uri coming back is the server
+ * saying, in its own words, that it saw the didOpen first. */
+static void test_a_deferred_request_stays_behind_a_notification(void)
+{
+	static const char open_params[]
+	    = "{\"textDocument\":{\"uri\":\"file:///queued.c\","
+	      "\"languageId\":\"c\",\"version\":1,\"text\":\"int x;\"}}";
+	const char *extra[] = { "--definition-self", "7:3", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct builder b = { 0 };
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_client_notify(c, "textDocument/didOpen", open_params,
+		  sizeof(open_params) - 1)
+	    == 0);
+	CHECK(lsp_client_request_deferred(c, "textDocument/definition",
+		  build_params, &b, count_free, record_uri, &got)
+	    > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1);
+	CHECK(strcmp(got.tag, "file:///queued.c") == 0);
+	lsp_client_dispose(c, 200);
+}
+
 /* A server that dies with a request outstanding.  The callback must still
  * run -- once, with no result -- or every caller's context leaks and every
  * command waits forever. */
@@ -804,6 +1063,13 @@ int main(int argc, char **argv)
 	RUN(test_handshake_captures_utf8_and_incremental);
 	RUN(test_responses_are_matched_by_id);
 	RUN(test_requests_before_ready_are_flushed);
+	RUN(test_deferred_params_are_built_after_the_handshake);
+	RUN(test_deferred_on_a_ready_client_builds_immediately);
+	RUN(test_a_builder_that_refuses_fails_the_request);
+	RUN(test_a_refused_immediate_build_reports_minus_one);
+	RUN(test_a_queued_builder_is_released_when_the_server_dies);
+	RUN(test_dispose_releases_a_queued_builder);
+	RUN(test_a_deferred_request_stays_behind_a_notification);
 	RUN(test_server_death_fails_pending_requests);
 	RUN(test_server_request_is_refused_not_ignored);
 	RUN(test_unsolicited_notification_is_ignored);

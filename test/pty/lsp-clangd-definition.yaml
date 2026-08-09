@@ -36,18 +36,16 @@ name: lsp-clangd-definition
 # ("_" is a word constituent here), which is the "(" as far as the server
 # is concerned.
 #
-# M-. is pressed twice on purpose, and this is the case that shows why.
-# The first one starts the server, and xref_point_character() says so at
-# length: a request built while the client is still INITIALIZING is
-# encoded with the pre-handshake default, UTF-16, because nobody has told
-# kg yet that clangd wanted utf-8.  On the "ä" line the two disagree by
-# one, so that first request asks about the byte before the identifier and
-# clangd answers "No definition found" -- exactly what a user sees today,
-# and what the "encode at send time" follow-up in doc/TODO.md is for.  The
-# second M-., sent after the handshake has settled, is the one whose
-# answer this case asserts.  It keeps passing if that follow-up lands:
-# then the first jump succeeds, and the second asks about the definition
-# it landed on and is answered with the same location.
+# One M-. -- and it is a cold server, which is the whole point.  The
+# command starts clangd and asks its question in the same keystroke, so the
+# request is built while the client is still INITIALIZING and nobody has
+# told kg yet that clangd wanted utf-8 rather than the protocol's UTF-16
+# default.  On the "ä" line those two disagree by one, so a request encoded
+# at call time asks about the byte before the identifier and is answered
+# "No definition found".  lsp_client_request_deferred() is what makes this
+# case pass: the params are built when the message is finally written,
+# after the handshake settled the encoding.  A second M-. would hide the
+# bug rather than test it, which is what this case did until the fix.
 requires_feature: lsp
 requires_tool: clangd
 backend: pexpect
@@ -88,7 +86,6 @@ keys:
   - "C-l"
   - "C-l"
   - "C-l"
-  - "M-."
   - "C-l"
   - "C-l"
   - "C-l"

@@ -1096,7 +1096,9 @@ static void test_a_relative_file_name_is_absolutised(void)
  * INITIALIZING when lsp_sync_before_request() runs, exactly as it is under
  * M-. .  The didOpen must still arrive, and arrive before the request that
  * follows it, which the record file's single line and the barrier's own
- * reply together say. */
+ * reply together say.  M-.'s own request is a deferred one, whose place in
+ * that same queue is asserted by test_lsp_client.c's
+ * test_a_deferred_request_stays_behind_a_notification(). */
 static void test_sync_before_the_handshake_still_opens(void)
 {
 	struct lsp_client *c = start_server("incremental", "utf-8");

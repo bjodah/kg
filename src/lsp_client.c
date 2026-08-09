@@ -46,6 +46,13 @@
 #define LSP_CLIENT_MAX_PENDING 16
 #define LSP_CLIENT_MAX_QUEUED 16
 
+/* A queued deferred request stores its method rather than pointing at the
+ * caller's string, and stores it in place rather than in a strdup: the
+ * longest method kg sends is "textDocument/references" at 23 bytes, and a
+ * fixed field removes an allocation whose failure path would otherwise have
+ * to unwind a half-registered request. */
+#define LSP_CLIENT_METHOD_MAX 64
+
 /* The JSON-RPC code for "no such method", answered to every server-to-client
  * request, and the implementation-defined code kg synthesises for a request
  * that will never be answered.  -32099 is the low end of the
@@ -65,9 +72,28 @@ struct lsp_pending {
 	bool used;
 };
 
+/* A request whose params have not been built yet.  Its pending slot exists
+ * already -- the id was allocated and the callback registered when the
+ * caller asked -- so everything that fails a pending request (the server
+ * dying, the client being disposed of) covers this one too, and the only
+ * thing still owed is the build. */
+struct lsp_deferred {
+	lsp_params_fn build;
+	void *bctx;
+	lsp_ctx_free_fn bctx_free;
+	long long id;
+	char method[LSP_CLIENT_METHOD_MAX];
+};
+
+/* One entry of the pre-READY FIFO, in one of two shapes: `data` non-NULL is
+ * a message already built, and `data` NULL means `def` holds the builder
+ * that will produce one.  One queue rather than two, because the order
+ * between the kinds is what makes a didOpen precede the request that asks
+ * about the document it opened. */
 struct lsp_queued {
 	char *data;
 	size_t len;
+	struct lsp_deferred def;
 };
 
 struct lsp_client {
@@ -180,22 +206,36 @@ static char *build_initialize(const char *root, size_t *out_len)
  * initialize, shutdown, exit, and the refusal of a server request -- which
  * must not wait for the READY the handshake is what produces.  Returns 0 or
  * -1, having freed the message in both cases unless it was queued. */
+/* The next free FIFO entry, zeroed, or NULL when the queue is full. */
+static struct lsp_queued *queued_alloc(struct lsp_client *c)
+{
+	struct lsp_queued *q;
+
+	if (c->queued_count >= LSP_CLIENT_MAX_QUEUED) {
+		return NULL;
+	}
+	q = &c->queued[c->queued_count++];
+	memset(q, 0, sizeof(*q));
+	return q;
+}
+
 static int client_write(
     struct lsp_client *c, char *msg, size_t len, bool immediate)
 {
+	struct lsp_queued *q;
 	int rc;
 
 	if (!msg) {
 		return -1;
 	}
 	if (!immediate && c->state == LSP_CLIENT_INITIALIZING) {
-		if (c->queued_count >= LSP_CLIENT_MAX_QUEUED) {
+		q = queued_alloc(c);
+		if (!q) {
 			free(msg);
 			return -1;
 		}
-		c->queued[c->queued_count].data = msg;
-		c->queued[c->queued_count].len = len;
-		c->queued_count++;
+		q->data = msg;
+		q->len = len;
 		return 0;
 	}
 	rc = lsp_transport_send(c->t, msg, len);
@@ -203,28 +243,74 @@ static int client_write(
 	return rc;
 }
 
+static void pending_fail_one(struct lsp_client *c, long long id);
+
+/* Build a queued request's params now and send it.  Everything that can go
+ * wrong here -- the builder abandoning the request, a message that will not
+ * build, a transport that will not take it -- ends the same way: the
+ * pending slot this request already owns is failed, so the caller hears
+ * exactly once either way. */
+static void send_deferred(struct lsp_client *c, struct lsp_deferred *d)
+{
+	size_t params_len = 0;
+	size_t len = 0;
+	char *params = d->build(c, d->bctx, &params_len);
+	char *msg = NULL;
+
+	if (params) {
+		msg = build_call(d->id, d->method, params, params_len, &len);
+	}
+	free(params);
+	if (d->bctx_free) {
+		d->bctx_free(d->bctx);
+	}
+	if (client_write(c, msg, len, true) != 0) {
+		pending_fail_one(c, d->id);
+	}
+}
+
 /* Send everything held during the handshake, in the order it was asked
  * for.  A transport that fails part way leaves the rest freed rather than
  * queued: the client is about to be declared dead, and every pending
- * callback with it. */
+ * callback with it.
+ *
+ * The state is already READY when this runs (on_initialize sets it before
+ * calling), which is both why a builder here sees the negotiated
+ * capabilities and why nothing it does can grow the queue underneath the
+ * walk: client_write() only queues while INITIALIZING. */
 static void flush_queued(struct lsp_client *c)
 {
+	size_t count = c->queued_count;
 	size_t i;
 
-	for (i = 0; i < c->queued_count; i++) {
-		(void)lsp_transport_send(
-		    c->t, c->queued[i].data, c->queued[i].len);
-		free(c->queued[i].data);
-	}
 	c->queued_count = 0;
+	for (i = 0; i < count; i++) {
+		if (c->queued[i].data) {
+			(void)lsp_transport_send(
+			    c->t, c->queued[i].data, c->queued[i].len);
+			free(c->queued[i].data);
+			continue;
+		}
+		send_deferred(c, &c->queued[i].def);
+	}
 }
 
+/* Throw the queue away without sending it.  A deferred entry's builder
+ * context is released here; its callback is not run here, because the
+ * pending table it is registered in is failed by the same caller (see
+ * client_die() and lsp_client_dispose()) and running it twice is the one
+ * thing the contract forbids. */
 static void drop_queued(struct lsp_client *c)
 {
+	struct lsp_deferred *d;
 	size_t i;
 
 	for (i = 0; i < c->queued_count; i++) {
 		free(c->queued[i].data);
+		d = &c->queued[i].def;
+		if (!c->queued[i].data && d->bctx_free) {
+			d->bctx_free(d->bctx);
+		}
 	}
 	c->queued_count = 0;
 }
@@ -263,6 +349,29 @@ static void pending_fail_all(
 		if (slot.cb) {
 			slot.cb(c, NULL, error, slot.ctx);
 		}
+	}
+}
+
+/* Fail one outstanding request, named by id, with neither result nor error
+ * -- the "no reply will ever arrive" shape src/lsp_client.h documents.  The
+ * slot is released before its callback runs, for pending_fail_all()'s
+ * reason: a callback that asks a new question must not be handed the slot
+ * it is standing in. */
+static void pending_fail_one(struct lsp_client *c, long long id)
+{
+	struct lsp_pending slot;
+	size_t i;
+
+	for (i = 0; i < LSP_CLIENT_MAX_PENDING; i++) {
+		if (!c->pending[i].used || c->pending[i].id != id) {
+			continue;
+		}
+		slot = c->pending[i];
+		memset(&c->pending[i], 0, sizeof(c->pending[i]));
+		if (slot.cb) {
+			slot.cb(c, NULL, NULL, slot.ctx);
+		}
+		return;
 	}
 }
 
@@ -517,6 +626,78 @@ long long lsp_client_request(struct lsp_client *c, const char *method,
     const char *params, size_t params_len, lsp_response_fn cb, void *ctx)
 {
 	return client_request(c, method, params, params_len, cb, ctx, false);
+}
+
+/* The READY path of lsp_client_request_deferred(): there is nothing to wait
+ * for, so the builder runs now and the result is an ordinary request. */
+static long long request_build_now(struct lsp_client *c, const char *method,
+    lsp_params_fn build, void *bctx, lsp_response_fn cb, void *ctx)
+{
+	size_t len = 0;
+	char *params = build(c, bctx, &len);
+	long long id;
+
+	if (!params) {
+		return -1;
+	}
+	id = client_request(c, method, params, len, cb, ctx, false);
+	free(params);
+	return id;
+}
+
+/* The INITIALIZING path: take the id and the pending slot now -- so the
+ * caller gets an id it can be told about, and so every death path already
+ * covers this request -- and leave the message itself for flush_queued().
+ * The pending slot is only marked used once the FIFO entry exists, so a
+ * full queue leaves nothing half-registered. */
+static long long request_queue_build(struct lsp_client *c, const char *method,
+    lsp_params_fn build, void *bctx, lsp_ctx_free_fn bctx_free,
+    lsp_response_fn cb, void *ctx)
+{
+	struct lsp_pending *slot = pending_alloc(c);
+	struct lsp_queued *q;
+	long long id;
+
+	if (!slot || !(q = queued_alloc(c))) {
+		return -1;
+	}
+	id = c->next_id++;
+	q->def.build = build;
+	q->def.bctx = bctx;
+	q->def.bctx_free = bctx_free;
+	q->def.id = id;
+	snprintf(q->def.method, sizeof(q->def.method), "%s", method);
+	slot->id = id;
+	slot->cb = cb;
+	slot->ctx = ctx;
+	slot->used = true;
+	return id;
+}
+
+long long lsp_client_request_deferred(struct lsp_client *c, const char *method,
+    lsp_params_fn build, void *bctx, lsp_ctx_free_fn bctx_free,
+    lsp_response_fn cb, void *ctx)
+{
+	long long id;
+
+	if (!build || c->state == LSP_CLIENT_DEAD
+	    || strlen(method) >= LSP_CLIENT_METHOD_MAX) {
+		id = -1;
+	} else if (c->state == LSP_CLIENT_INITIALIZING) {
+		id = request_queue_build(
+		    c, method, build, bctx, bctx_free, cb, ctx);
+		if (id > 0) {
+			/* Queued: the context is released by whichever of
+			 * flush_queued() and drop_queued() reaches it. */
+			return id;
+		}
+	} else {
+		id = request_build_now(c, method, build, bctx, cb, ctx);
+	}
+	if (bctx_free) {
+		bctx_free(bctx);
+	}
+	return id;
 }
 
 int lsp_client_notify(struct lsp_client *c, const char *method,

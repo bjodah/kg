@@ -1459,7 +1459,45 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6801 exceeds limit 6800
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6801
 #   scc total complexity: 6801 (limit 6801)
-SCC_COMPLEXITY_MAX ?= 6801
+# Raised 6801 -> 6833 (+32) for the pre-handshake position-encoding fix
+# (2026-08-09), the follow-up Stage 8's real-server cases forced.  The bug
+# was that a command against a lazily started server encoded its position
+# when the command ran, which is before `initialize` has answered: the
+# encoding was therefore the protocol default (UTF-16) and never the utf-8
+# both clangd and ty negotiate, so the first M-. of a session on a line
+# with a multi-byte character asked about the wrong column.  The +32 is in
+# two files, measured on this tree:
+#   - src/lsp_client.c 92 -> 118 (+26).  A request whose params are built
+#     at send time rather than at call time is a second entry point
+#     (lsp_client_request_deferred, pmccabe 7, and its two halves
+#     request_build_now at 2 and request_queue_build at 3), a second shape
+#     for a queue entry, and the walk that now sorts the two apart
+#     (send_deferred 3, flush_queued 3 -> 4, drop_queued 2 -> 3,
+#     queued_alloc 2 split out of client_write, which drops 5 -> 4).  The
+#     one genuinely new invariant costs one more function: pending_fail_one
+#     (3), which fails a single request by id, because a builder that
+#     abandons its request has to run that request's callback exactly once
+#     and nothing before this could fail fewer than all of them.
+#   - src/xref.c 96 -> 102 (+6).  The builder itself, xref_build_params
+#     (4): it re-derives the position from the departure marker the go-back
+#     stack already kept -- so the question follows an edit made while the
+#     server was starting -- and returns NULL when that marker no longer
+#     resolves.  xref_request_new gained the same refusal (1 -> 3) and now
+#     carries the URI, and xref_encode_character replaces
+#     xref_point_character at the same cost with an explicit column
+#     argument instead of an ambient point.
+# Bisected on this tree: with both files moved out of src/, the total is
+# 6613, which is 6833 minus the 118 and 102 those two measure here.
+# pmccabe: worst new symbol 7 (lsp_client_request_deferred), inside the 15
+# new-function budget, and no existing symbol moved, so `make
+# pmccabe-check` passes with no baseline rewrite.  Cap equals the measured
+# actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays 520; the worst file is
+# still src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6832
+#   FAIL: total complexity 6833 exceeds limit 6832
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6833
+#   scc total complexity: 6833 (limit 6833)
+SCC_COMPLEXITY_MAX ?= 6833
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

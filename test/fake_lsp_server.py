@@ -69,6 +69,14 @@ Options, all of them optional:
     the client itself sent removes the absolute path from the test's
     vocabulary entirely.  Takes precedence over ``--definition``; if no
     document has been opened, the answer is null.
+``--definition-echo``
+    Answer ``textDocument/definition`` with a Location at the very position
+    the request asked about, in the document it named.  It is the only way
+    a test outside this process can see which column the client encoded:
+    the answer comes back in the same units it was asked in, so point lands
+    where it started only if the client's encoding and its decoding agree
+    with the negotiated one.  Takes precedence over ``--definition-self``
+    and ``--definition``, and yields to ``--definition-none``.
 ``--reference URI:LINE:CHAR`` (repeatable)
     What ``textDocument/references`` answers, as an array of Locations; an
     empty list answers ``[]``.
@@ -303,6 +311,8 @@ class Protocol:
         if method == "textDocument/definition":
             if self.args.definition_none:
                 return None
+            if self.args.definition_echo:
+                return self.echo_location(params)
             if self.args.definition_self:
                 return self.self_location()
             if not self.args.definition:
@@ -320,6 +330,26 @@ class Protocol:
         if method == "shutdown":
             return None
         return None
+
+    def echo_location(self, params):
+        """A Location at exactly the position the request asked about.
+
+        The mirror of --definition-self: that one answers where a test told
+        it to, this one answers *where the client pointed*, which is the
+        only way a test outside this process can see the position kg
+        encoded.  A client that encoded the column in the wrong unit gets
+        that same wrong column back and lands point on it, so a round trip
+        through here is an assertion about the encoding rather than about
+        the answer.  Null when the request named no document or no
+        position."""
+        params = params or {}
+        document = params.get("textDocument") or {}
+        uri = document.get("uri")
+        position = params.get("position")
+        if not uri or not position:
+            return None
+        return {"uri": uri,
+                "range": {"start": position, "end": position}}
 
     def self_location(self):
         """A Location in the document the client last sent, or null."""
@@ -451,6 +481,9 @@ def main(argv):
     parser.add_argument("--definition-self", default=None,
                         help="LINE:CHAR answered to definition requests, in "
                              "the document the client last sent")
+    parser.add_argument("--definition-echo", action="store_true",
+                        help="answer definition requests with a Location at "
+                             "the position they asked about")
     parser.add_argument("--reference", action="append", default=[],
                         help="URI:LINE:CHAR added to the references answer")
     parser.add_argument("--references-self", default=None,

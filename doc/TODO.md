@@ -13,15 +13,6 @@ done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
-- **Encode a request's position at send time.**  The first command
-  against a lazily started server builds its request while the client is
-  still INITIALIZING, so `xref_point_character()` (src/xref.c) encodes
-  with the pre-handshake default, UTF-16, rather than the utf-8 both real
-  servers turn out to want.  It is invisible on an ASCII line and off by
-  one per multi-byte character otherwise, which
-  `test/pty/lsp-clangd-definition.yaml` shows by pressing `M-.` twice.
-  The fix is a client contract change: queue params as a callback that
-  runs when the frame is written, not as a finished string.
 - **Result previews in `*xref*`.**  The listing ships as
   `path:line:col:`; the plan's `path:line:col: preview` needs the target
   line, which means reading it from an open buffer when there is one and

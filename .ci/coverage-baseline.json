@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 17639,
-  "lines_hit": 15349,
-  "line_rate": 0.8702,
-  "functions_found": 1623,
-  "functions_hit": 1581,
-  "function_rate": 0.9741,
-  "branches_found": 10852,
-  "branches_hit": 8110,
-  "branch_rate": 0.7473
+  "lines_found": 17722,
+  "lines_hit": 15428,
+  "line_rate": 0.8706,
+  "functions_found": 1630,
+  "functions_hit": 1588,
+  "function_rate": 0.9742,
+  "branches_found": 10902,
+  "branches_hit": 8144,
+  "branch_rate": 0.747
  },
  "files": {
   "src/autocomplete.c": {
@@ -368,15 +368,15 @@
    "branch_rate": 0.6803
   },
   "src/lsp_client.c": {
-   "lines_found": 297,
-   "lines_hit": 258,
-   "line_rate": 0.8687,
-   "functions_found": 28,
-   "functions_hit": 28,
+   "lines_found": 366,
+   "lines_hit": 326,
+   "line_rate": 0.8907,
+   "functions_found": 34,
+   "functions_hit": 34,
    "function_rate": 1.0,
-   "branches_found": 142,
-   "branches_hit": 89,
-   "branch_rate": 0.6268
+   "branches_found": 182,
+   "branches_hit": 118,
+   "branch_rate": 0.6484
   },
   "src/lsp_core.c": {
    "lines_found": 3,
@@ -687,15 +687,15 @@
    "branch_rate": 0.6277
   },
   "src/xref.c": {
-   "lines_found": 322,
-   "lines_hit": 260,
-   "line_rate": 0.8075,
-   "functions_found": 32,
-   "functions_hit": 31,
-   "function_rate": 0.9688,
-   "branches_found": 160,
-   "branches_hit": 97,
-   "branch_rate": 0.6062
+   "lines_found": 336,
+   "lines_hit": 271,
+   "line_rate": 0.8065,
+   "functions_found": 33,
+   "functions_hit": 32,
+   "function_rate": 0.9697,
+   "branches_found": 170,
+   "branches_hit": 102,
+   "branch_rate": 0.6
   },
   "src/yank.c": {
    "lines_found": 463,

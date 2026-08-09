@@ -45,6 +45,24 @@ typedef void (*lsp_response_fn)(struct lsp_client *c,
     const struct lsp_json_value *result, const struct lsp_json_value *error,
     void *ctx);
 
+/* Build a request's `params` at the moment the message is actually written.
+ *
+ * Returns a malloc'd JSON value and its length -- the same bytes
+ * lsp_client_request() would have been handed, and freed by the client
+ * after they are copied into the message -- or NULL to abandon the request.
+ *
+ * `c` is the client the message is going to, which is what makes this worth
+ * having: before the handshake finishes, `lsp_client_caps(c)` is still the
+ * defaults, so params that depend on a negotiated capability (a position in
+ * the server's encoding) cannot be correct if they are built when the
+ * command runs.  Built here, they are read after `initialize` has answered.
+ */
+typedef char *(*lsp_params_fn)(
+    struct lsp_client *c, void *bctx, size_t *out_len);
+
+/* Release a builder's context.  See lsp_client_request_deferred(). */
+typedef void (*lsp_ctx_free_fn)(void *bctx);
+
 /* Where a client is in its life.
  *
  * INITIALIZING is from the spawn until the `initialize` result arrives: the
@@ -143,6 +161,38 @@ void lsp_client_dispose(struct lsp_client *c, unsigned grace_ms);
  * to ignore or reject anything sent before it has been initialized. */
 long long lsp_client_request(struct lsp_client *c, const char *method,
     const char *params, size_t params_len, lsp_response_fn cb, void *ctx);
+
+/* Ask the server something, building the params when the message is sent
+ * rather than when the question is asked.
+ *
+ * Identical to lsp_client_request() in everything the caller sees -- the
+ * return value, the pending-table bound, the exactly-once callback -- except
+ * for *when* `build` runs.  A READY client builds and sends immediately.  A
+ * client still INITIALIZING queues the builder in the same FIFO as every
+ * other held message, so the params are built once the handshake has
+ * settled, with `lsp_client_caps()` answering about the server rather than
+ * about the defaults, and after every notification queued before it has
+ * gone out.  That ordering is load-bearing: a document must be opened
+ * before it is asked about.
+ *
+ * Ownership of `bctx` passes to the client: `bctx_free(bctx)` runs exactly
+ * once, whatever happens -- after `build` was called, or instead of it when
+ * the request never reaches a send because the client died, was disposed of
+ * or refused the call.  NULL means the context needs no release, which is
+ * the usual case when `bctx` *is* `ctx` and the response callback frees it;
+ * passing a non-NULL `bctx_free` for a `bctx` that is also `ctx` would free
+ * it twice.
+ *
+ * Returns the request id, or -1 when the client is DEAD, when either table
+ * is full, when `method` is longer than the client stores, or when `build`
+ * returned NULL on the immediate path.  As for lsp_client_request(), -1
+ * means `cb` will never run; anything else means it runs exactly once --
+ * including when a queued `build` returns NULL later, which fails the
+ * request with no result and no error, the same shape a server death
+ * produces. */
+long long lsp_client_request_deferred(struct lsp_client *c, const char *method,
+    lsp_params_fn build, void *bctx, lsp_ctx_free_fn bctx_free,
+    lsp_response_fn cb, void *ctx);
 
 /* Tell the server something.  Same params convention, same pre-READY
  * queueing, no id and no answer.  Returns 0, or -1 for a DEAD client, a full

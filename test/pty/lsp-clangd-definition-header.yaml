@@ -14,9 +14,8 @@ name: lsp-clangd-definition-header
 # "header_target" of its definition); and the C mode in the same line says
 # kg re-derived the mode from the new file's name.
 #
-# main.c here is all-ASCII, unlike its sibling case, which is why one M-.
-# suffices: the pre-handshake UTF-16 imprecision that case documents costs
-# nothing on a line where the two encodings agree byte for byte.
+# main.c here is all-ASCII, unlike its sibling case, so it says nothing
+# about position encoding either way; that is the sibling's job.
 requires_feature: lsp
 requires_tool: clangd
 backend: tmux

@@ -151,11 +151,18 @@ static bool xref_return_pop(struct xref_return *out, size_t *pos)
  * where the question was asked from.  Heap-allocated because it outlives
  * the command that made it -- the reply lands in a later lsp_poll() -- and
  * freed exactly once, by the callback, which src/lsp_client.h guarantees
- * runs even when the server dies. */
+ * runs even when the server dies.
+ *
+ * It is also what the question is built from, not just what its answer is
+ * read with: `origin` and `uri` are enough to reconstruct the position, and
+ * xref_build_params() does exactly that at send time.  That is why the same
+ * object is the request's `bctx` and its `ctx`, and why it is handed over
+ * with no bctx_free -- the response callback owns it, once, either way. */
 struct xref_request {
 	struct xref_return origin;
 	const char *who; /* a literal; never freed */
 	bool references;
+	char uri[LSP_SYNC_MAX_URI];
 };
 
 static void xref_request_free(struct xref_request *req)
@@ -220,7 +227,7 @@ bool xref_location_of(const struct lsp_json_value *v, struct xref_location *out)
 /* The row point is on, or NULL at end of buffer.  Both callers below need
  * a row's bytes to convert a column against, and both have to survive a
  * buffer with no rows at all. */
-static erow *xref_row_at(struct editor_buffer *b, int row)
+static const erow *xref_row_at(const struct editor_buffer *b, int row)
 {
 	if (!b || row < 0 || row >= b->numrows) {
 		return NULL;
@@ -228,35 +235,27 @@ static erow *xref_row_at(struct editor_buffer *b, int row)
 	return &b->row[row];
 }
 
-/* Point, as the protocol counts it.  kg's column is a byte offset into the
- * row's chars (doc/coordinates.md); the server's is a character offset in
- * the encoding the handshake settled.
- *
- * One known imprecision, written down rather than papered over.  The very
- * first command against a lazily started server builds its request while
- * that server is still INITIALIZING, so the encoding here is the
- * pre-handshake default (UTF-16) rather than what the server will turn out
- * to want.  It costs nothing on an ASCII line, where the two encodings
- * agree byte for byte, and on a line with a multi-byte character before
- * point it can send a column a few units short -- one M-. that lands on
- * the wrong symbol, and a second that does not, since by then the answer
- * is known.  Fixing it properly means encoding a queued request's params
- * at send time rather than at call time, which is a change to the client's
- * contract and not to this function.  The reply is decoded against the
- * settled encoding (xref_visit), which is where getting it wrong would
- * have moved point to the wrong place rather than asked about it. */
-static long long xref_point_character(
-    struct lsp_client *c, struct editor_buffer *b, int row)
+/* A byte column in `row`, as the protocol counts it.  kg's column is a byte
+ * offset into the row's chars (doc/coordinates.md); the server's is a
+ * character offset in the encoding the handshake settled, which is why this
+ * is only ever called from the request builder -- after `initialize` has
+ * answered, so `lsp_client_caps()` describes the server rather than the
+ * defaults.  The reply is decoded against the same settled encoding
+ * (xref_visit). */
+static long long xref_encode_character(
+    struct lsp_client *c, const struct editor_buffer *b, int row, int col)
 {
-	erow *r = xref_row_at(b, row);
-	size_t col;
+	const erow *r = xref_row_at(b, row);
+	size_t byte_col;
 
 	if (!r) {
 		return 0;
 	}
-	col = (size_t)editor_current_filecol_in_row(r);
+	byte_col = (col < 0)  ? 0u
+	    : (col > r->size) ? (size_t)r->size
+			      : (size_t)col;
 	return (long long)lsp_pos_encode(lsp_client_caps(c)->position_encoding,
-	    r->chars, (size_t)r->size, col);
+	    r->chars, (size_t)r->size, byte_col);
 }
 
 /* Land point on a location, in two steps, because the second one cannot be
@@ -273,8 +272,8 @@ static long long xref_point_character(
 static bool xref_visit(const char *who, enum lsp_position_encoding enc,
     const struct xref_location *loc, struct kg_buffer_handle escape_from)
 {
-	struct editor_buffer *b;
-	erow *r;
+	const struct editor_buffer *b;
+	const erow *r;
 	size_t col;
 	int row;
 
@@ -713,13 +712,12 @@ void editor_xref_go_back(int fd)
 /* The request's params: which document, and where in it -- plus, for a
  * references request, whether the declaration counts as one (it does: a
  * list of uses that leaves out the definition is a list a reader has to
- * complete by hand).  Built here rather than inline in the command so that
- * the command reads as the sequence of refusals it is. */
+ * complete by hand). */
 static char *xref_position_params(struct lsp_client *c, const char *uri,
-    struct editor_buffer *b, bool references, size_t *out_len)
+    const struct editor_buffer *b, int row, int col, bool references,
+    size_t *out_len)
 {
 	struct lsp_jsonw w;
-	int row = editor_current_filerow_or_eof();
 	char *out = NULL;
 
 	lsp_jsonw_init(&w);
@@ -734,7 +732,7 @@ static char *xref_position_params(struct lsp_client *c, const char *uri,
 	lsp_jsonw_key(&w, "line");
 	lsp_jsonw_int(&w, row < 0 ? 0 : row);
 	lsp_jsonw_key(&w, "character");
-	lsp_jsonw_int(&w, xref_point_character(c, b, row));
+	lsp_jsonw_int(&w, xref_encode_character(c, b, row, col));
 	lsp_jsonw_end_object(&w);
 	if (references) {
 		lsp_jsonw_key(&w, "context");
@@ -748,6 +746,44 @@ static char *xref_position_params(struct lsp_client *c, const char *uri,
 		return NULL;
 	}
 	return out;
+}
+
+/* Build the question, at the moment it is sent rather than when it was
+ * asked (src/lsp_client.h, lsp_client_request_deferred).  Two things follow
+ * from that, and both are the point of doing it this way.
+ *
+ * The encoding is the settled one.  A command against a server that is
+ * still starting up used to encode its column with the pre-handshake
+ * default, UTF-16, and every real server kg ships a spec for negotiates
+ * utf-8 -- so the first M-. on a cold server asked about a column one unit
+ * short per multi-byte character earlier in the line, and answered "No
+ * definition found" for a symbol that was there.
+ *
+ * The position is re-derived rather than remembered.  `origin` is a marker,
+ * so it follows the text: an edit made while the server was starting moves
+ * the question with the identifier it is about instead of leaving it
+ * pointing at whatever slid into that column.
+ *
+ * NULL abandons the request -- the buffer was killed, or its marker no
+ * longer resolves -- and the client turns that into the same
+ * no-result-no-error callback a server death produces, which xref_reply()
+ * already reports. */
+static char *xref_build_params(
+    struct lsp_client *c, void *bctx, size_t *out_len)
+{
+	struct xref_request *req = bctx;
+	const struct editor_buffer *b = buf_resolve(req->origin.buffer);
+	size_t pos = 0;
+	int row = 0;
+	int col = 0;
+
+	if (!b || !req->origin.valid
+	    || kg_marker_resolve(req->origin.marker, &pos) != KG_MARKER_OK
+	    || buffer_position_to_row_col(b, pos, &row, &col) != 1) {
+		return NULL;
+	}
+	return xref_position_params(
+	    c, req->uri, b, row, col, req->references, out_len);
 }
 
 /* The client for this buffer, or NULL with the reason already printed. */
@@ -773,8 +809,11 @@ static struct lsp_client *xref_client_for_current(
 
 /* The departure point, remembered before the question goes out so that a
  * slow answer still returns to where the user actually was when they
- * asked. */
-static struct xref_request *xref_request_new(const char *who, bool references)
+ * asked -- and, since Stage 8's follow-up, the anchor the question itself
+ * is built from, which is why a request with no usable marker is refused
+ * here rather than sent from a position nothing can reconstruct. */
+static struct xref_request *xref_request_new(
+    const char *who, bool references, const char *uri)
 {
 	struct xref_request *req = calloc(1, sizeof(*req));
 
@@ -784,6 +823,11 @@ static struct xref_request *xref_request_new(const char *who, bool references)
 	req->who = who;
 	req->references = references;
 	req->origin = xref_return_here();
+	snprintf(req->uri, sizeof(req->uri), "%s", uri);
+	if (!req->origin.valid) {
+		xref_request_free(req);
+		return NULL;
+	}
 	return req;
 }
 
@@ -796,35 +840,37 @@ static void xref_send(const char *who, const char *method, bool references)
 	struct xref_request *req;
 	struct lsp_client *c;
 	const char *uri;
-	char *params;
-	size_t len = 0;
 
 	c = xref_client_for_current(who, b);
 	if (!c) {
 		return;
 	}
+	/* The document goes first and the question second, through the same
+	 * queue: a server still starting up receives the didOpen this
+	 * queued and then the request that asks about it, in that order. */
 	if (lsp_sync_before_request(c, handle) != 0
 	    || !(uri = lsp_sync_uri(c, handle))) {
 		editor_set_status_message(
 		    "%s: could not send the buffer to the server", who);
 		return;
 	}
-	params = xref_position_params(c, uri, b, references, &len);
-	req = params ? xref_request_new(who, references) : NULL;
+	req = xref_request_new(who, references, uri);
 	if (!req) {
-		free(params);
 		editor_set_status_message("%s: out of memory", who);
 		return;
 	}
-	if (lsp_client_request(c, method, params, len, xref_reply, req) < 0) {
+	/* The same object twice: `req` is what builds the question and what
+	 * reads its answer, so it is released by the response callback and
+	 * needs no separate builder-context free (src/lsp_client.h). */
+	if (lsp_client_request_deferred(
+		c, method, xref_build_params, req, NULL, xref_reply, req)
+	    < 0) {
 		xref_request_free(req);
 		editor_set_status_message("%s: the server is not ready", who);
-	} else {
-		editor_set_status_message(references ? "Finding references..."
-						     : "Finding "
-						       "definition...");
+		return;
 	}
-	free(params);
+	editor_set_status_message(
+	    references ? "Finding references..." : "Finding definition...");
 }
 
 void editor_xref_find_definitions(int fd)

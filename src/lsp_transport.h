@@ -2,8 +2,7 @@
 #define KG_LSP_TRANSPORT_H
 
 #include <stddef.h>
-
-#include "process.h"
+#include <sys/types.h> /* pid_t */
 
 /* The wire under the LSP client: one child process, spoken to over its
  * standard input and listened to over its standard output, with the
@@ -75,6 +74,7 @@ enum lsp_transport_error {
 	LSP_TRANSPORT_ERR_NOMEM,
 };
 
+struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_transport;
 
 /* Spawn `req`'s command and wrap its pipes.  `req->stdin_fd` must be -1

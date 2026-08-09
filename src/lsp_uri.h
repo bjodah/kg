@@ -1,7 +1,6 @@
 #ifndef KG_LSP_URI_H
 #define KG_LSP_URI_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* `file:` URIs, in both directions, for a protocol that names every

@@ -2,7 +2,6 @@
 #define KG_XREF_H
 
 #include <limits.h>
-#include <stdbool.h>
 #include <stddef.h>
 
 /* Cross-referencing commands: "where is this defined", and -- from Stage 6

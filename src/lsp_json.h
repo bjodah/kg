@@ -1,7 +1,6 @@
 #ifndef KG_LSP_JSON_H
 #define KG_LSP_JSON_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* JSON, in the amount JSON-RPC needs and not a byte more.

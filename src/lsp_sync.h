@@ -1,11 +1,9 @@
 #ifndef KG_LSP_SYNC_H
 #define KG_LSP_SYNC_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
-#include "bufhandle.h"
-#include "lsp_client.h"
+#include "lsp_client.h" /* enum lsp_position_encoding */
 
 /* What the server thinks a document says, and where in it a position is.
  *
@@ -34,6 +32,12 @@
  * reads files from disk, and sending it documents it did not ask for is a
  * protocol violation rather than a kindness.
  */
+
+/* Declared, not included: def.h and bufhandle.h define these, and a caller
+ * that has a buffer or a handle to pass has already included them. */
+struct editor_buffer;
+struct kg_buffer_handle;
+struct lsp_client;
 
 /* Bounds.  Sixteen documents is the working set of an editing session --
  * every buffer an xref command has been run in, across every server -- and

@@ -79,8 +79,8 @@ static struct lsp_transport *start_argv(const char *const *argv)
 	return lsp_transport_start(&req);
 }
 
-static struct lsp_transport *start_fake(const char *mode, const char *opt,
-    const char *value)
+static struct lsp_transport *start_fake(
+    const char *mode, const char *opt, const char *value)
 {
 	const char *argv[7];
 	int n = 0;
@@ -196,8 +196,7 @@ static void test_unknown_headers_are_skipped(void)
  * first server anyone writes by hand gets this wrong. */
 static void test_bare_newline_headers_are_tolerated(void)
 {
-	struct lsp_transport *t
-	    = start_printf("Content-Length: 5\\n\\nhello");
+	struct lsp_transport *t = start_printf("Content-Length: 5\\n\\nhello");
 	const char *body = NULL;
 	size_t len = 0;
 
@@ -448,8 +447,8 @@ static bool python3_on_path(void)
 		if (len == 0 || len + 9 >= sizeof(candidate)) {
 			continue;
 		}
-		snprintf(candidate, sizeof(candidate), "%.*s/python3",
-		    (int)len, start);
+		snprintf(candidate, sizeof(candidate), "%.*s/python3", (int)len,
+		    start);
 		if (access(candidate, X_OK) == 0) {
 			return true;
 		}

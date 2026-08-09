@@ -1,7 +1,6 @@
 #ifndef KG_LSP_SERVER_H
 #define KG_LSP_SERVER_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 #include "syntax.h" /* enum kg_mode_id */

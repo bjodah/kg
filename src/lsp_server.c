@@ -26,9 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 /* The smallest grace any one server gets when the editor is exiting, even
  * if the budget divided between them would be less.  Below this the wait is

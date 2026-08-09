@@ -1,10 +1,7 @@
 #ifndef KG_LSP_CLIENT_H
 #define KG_LSP_CLIENT_H
 
-#include <stdbool.h>
 #include <stddef.h>
-
-#include "process.h"
 
 /* One language server, spoken to as JSON-RPC: request ids, the callbacks
  * their answers land in, the initialize/initialized handshake and the
@@ -25,6 +22,7 @@
  * moves bytes and runs callbacks.
  */
 
+struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_client;
 struct lsp_json_value;
 

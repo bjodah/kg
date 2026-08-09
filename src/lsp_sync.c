@@ -27,6 +27,7 @@
 
 #include "lsp_sync.h"
 
+#include "bufhandle.h"
 #include "def.h"
 #include "event.h"
 #include "lsp_client.h"
@@ -36,6 +37,7 @@
 #include "syntax.h"
 
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

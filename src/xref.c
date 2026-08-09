@@ -14,6 +14,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "localvars.h"
 #include "lsp_client.h"
 #include "lsp_json.h"
 #include "lsp_server.h"
@@ -27,6 +28,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Only ever pointed at here; lsp_server.h hands one over and lsp_client.h
+ * and lsp_sync.h are what take it back. */
+struct lsp_client;
 
 /* Each command's name, as every message it prints spells it.  These are the
  * names a user would type at M-x and the names kg(1) documents, so a message

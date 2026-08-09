@@ -15,6 +15,8 @@
 
 #include "lsp_transport.h"
 
+#include "process.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <stdint.h>
@@ -39,7 +41,7 @@ struct lsp_buf {
 
 struct lsp_transport {
 	pid_t pid;
-	int in_fd;  /* kg writes -> child's stdin */
+	int in_fd; /* kg writes -> child's stdin */
 	int out_fd; /* kg reads <- child's stdout */
 	struct lsp_buf inbox;
 	struct lsp_buf outbox;
@@ -248,7 +250,8 @@ static int headers_content_length(const char *data, size_t end, size_t *out)
 	size_t pos = 0;
 	bool found = false;
 
-	while (pos < end && next_header_line(data, end, &pos, &line, &line_len)) {
+	while (
+	    pos < end && next_header_line(data, end, &pos, &line, &line_len)) {
 		if (!memchr(line, ':', line_len)) {
 			return -1;
 		}
@@ -305,8 +308,8 @@ static int inbox_fill(struct lsp_transport *t)
 	if (!buf_reserve(&t->inbox, LSP_TRANSPORT_READ_CHUNK)) {
 		return transport_fail(t, LSP_TRANSPORT_ERR_NOMEM);
 	}
-	n = read(t->out_fd, t->inbox.data + t->inbox.len,
-	    LSP_TRANSPORT_READ_CHUNK);
+	n = read(
+	    t->out_fd, t->inbox.data + t->inbox.len, LSP_TRANSPORT_READ_CHUNK);
 	if (n > 0) {
 		t->inbox.len += (size_t)n;
 		return 1;

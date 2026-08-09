@@ -1,9 +1,9 @@
 #ifndef KG_VISIT_H
 #define KG_VISIT_H
 
-#include <stdbool.h>
-
-#include "bufhandle.h"
+/* Declared, not included: bufhandle.h defines it, and a caller that has a
+ * handle to pass has already included that. */
+struct kg_buffer_handle;
 
 /* "Show me that file, at that place" -- the one navigation primitive every
  * results buffer needs, and the reason it is its own module rather than a

@@ -1,0 +1,60 @@
+name: lsp-clangd-definition-header
+# The other half of test/pty/lsp-clangd-definition.yaml: the same real
+# clangd and the same two-file fixture, but the definition is in the *other*
+# file, so M-. has to open it.  That is the jump a saved-file assertion
+# cannot see -- kg saves the buffer it ends up in, which is header.h, while
+# the harness reads main.c -- so this one is a tmux case and reads the
+# screen.
+#
+# Three things are asserted, and together they are the whole answer:
+# "only-in-header-marker" is a string that exists nowhere but header.h, so
+# it being on screen means the file was opened; "header.h  All (4,11)" is
+# kg's mode line, which names the buffer *and* carries point's line and
+# column, so it says where in that file the jump landed (line 4, the
+# "header_target" of its definition); and the C mode in the same line says
+# kg re-derived the mode from the new file's name.
+#
+# main.c here is all-ASCII, unlike its sibling case, which is why one M-.
+# suffices: the pre-handshake UTF-16 imprecision that case documents costs
+# nothing on a line where the two encodings agree byte for byte.
+requires_feature: lsp
+requires_tool: clangd
+backend: tmux
+key_delay: 0.3
+filename: main.c
+workspace_files:
+  header.h: |
+    #ifndef HEADER_H
+    #define HEADER_H
+    /* only-in-header-marker */
+    static int header_target(int v) { return v + 1; }
+    #endif
+  compile_commands.json: |
+    [
+      {
+        "directory": "{CWD}",
+        "file": "{CWD}/main.c",
+        "arguments": ["cc", "-c", "{CWD}/main.c"]
+      }
+    ]
+initial: |
+  #include "header.h"
+  int use(void) { return header_target(2); }
+keys:
+  - "Down"
+  - "M-f"
+  - "M-f"
+  - "M-f"
+  - "M-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  #include "header.h"
+  int use(void) { return header_target(2); }
+expected_screen_contains:
+  - "only-in-header-marker"
+  - "header.h  All (4,11)  (C)"

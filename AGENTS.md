@@ -23,8 +23,9 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   the interpreter that has them (the Makefile picks one automatically and
   it can be overridden with `make PYTHON=...`).
 - The suite skips rather than fakes what it cannot run: a case needing
-  `tmux`, or the `emacs` oracle, SKIPs with a printed reason and count when
-  the tool is missing. `--require-tools` (hosted CI passes it via
+  `tmux`, the `emacs` oracle, or the executable named by its own
+  `requires_tool:` (`clangd`, `ty`), SKIPs with a printed reason and count
+  when the tool is missing. `--require-tools` (hosted CI passes it via
   `make check PTY_ACCEPT_ARGS=--require-tools`) turns that into an upfront
   failure naming the tool. The oracle binary is `--emacs`, else
   `$KG_PTY_EMACS` (`make check KG_PTY_EMACS=...`), else `emacs` on PATH,
@@ -131,6 +132,10 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     `KG_PTY_EMACS`): `oracle: emacs` cases and
     `make check-regex-differential`.  Both SKIP with a reason when
     missing, unless `--require-tools` is passed.
+  - `clangd` and `ty`: the real-server LSP PTY cases
+    (`requires_tool:`), and only those -- kg finds a server on PATH at run
+    time and needs neither to build.  Same skip-or-`--require-tools` rule;
+    hosted CI installs clangd from apt and ty from PyPI.
   - `scc` (`SCC`, tested at v3.7.0) and `pmccabe` (`PMCCABE`): the
     complexity ratchets in `ci-01`.
   - `lcov`, `genhtml`, `gcov`: `make coverage`, `ci-02`.
@@ -291,6 +296,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   value expands to the checkout root, since a case runs with its working
   directory in a fresh temporary directory. The Emacs oracle deliberately
   does not get it.
+- `workspace_files:` maps relative paths to contents planted *beside the
+  file under test* (`config_files:` plants under the case's HOME): a
+  `compile_commands.json`, a `pyproject.toml`, the second file of a
+  two-file project — the fixtures a language server discovers by walking
+  the tree. `{CWD}` in a value expands to that directory, as `{REPO}`
+  does, because a compilation database's `"directory"` cannot be relative
+  and the directory is a fresh mkdtemp.
+- `requires_tool: <name>` SKIPs the case with a printed reason when that
+  bare executable is not on PATH, and `--require-tools` turns it into an
+  upfront failure, exactly as for tmux and the Emacs oracle. It is how the
+  real-server LSP cases (`clangd`, `ty`) stay in the suite on boxes
+  without them; `requires_feature:` only covers kg's own `-V` features.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an

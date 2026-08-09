@@ -353,6 +353,12 @@ departure points are kept as markers, so they follow the text through
 later edits; one whose buffer has been killed is passed over rather than
 reported, and an exhausted stack says `No xref history`.
 
+Positions are exchanged in whichever encoding the handshake settles on.
+kg offers UTF-8 first — its own columns are byte offsets, so nothing has to
+be converted — and both `clangd` and `ty` take it; a server that insists on
+the protocol's default, UTF-16, gets UTF-16, converted against the real
+bytes of the line.
+
 The buffer is sent to the server before each request rather than on every
 keystroke, so an unsaved buffer is still the text the answer is about.
 Killing a buffer tells every server holding it that the document is

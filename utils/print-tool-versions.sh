@@ -68,6 +68,8 @@ show bear bear --version
 show parallel parallel --version
 show tmux tmux -V
 show emacs emacs --version
+show clangd clangd --version
+show ty ty --version
 show python3 python3 --version
 show cbmc cbmc --version
 printf '%-20s %s\n' "iwyu" \

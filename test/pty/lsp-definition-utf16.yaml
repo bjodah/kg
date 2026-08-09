@@ -1,0 +1,43 @@
+name: lsp-definition-utf16
+# The UTF-16 half of test/pty/lsp-definition-basic.yaml, which is the same
+# jump on an all-ASCII line where every encoding agrees and so proves
+# nothing about any of them.
+#
+# UTF-16 is the protocol's mandatory encoding and the one kg must get right
+# without ever choosing it: kg offers utf-8 first, both real servers this
+# suite drives (clangd, ty) take it, and the fallback would otherwise be
+# exercised by nothing.  test/fake_lsp_server.py advertises utf-16 by
+# default, so the negotiation here is genuine rather than forced -- kg asks
+# for utf-8, is told utf-16, and has to believe the server.
+#
+# The answer is line 2 character 12, counted the way the protocol counts
+# it: on `int /* ä */ use(void) ...` the "ä" is one UTF-16 code unit and
+# two bytes, so unit 12 is byte 13, the "u" of "use".  The X typed at point
+# is therefore in front of "use" only if kg decoded; a kg that took the
+# character for a byte offset would land one byte early, between "*/" and
+# the space, and put the X there.  That is the whole assertion, and it is
+# the one difference from the basic case.
+#
+# The two C-l between M-. and the X are the wait: the request is
+# asynchronous, so the case has to leave time for a Python interpreter to
+# start, handshake and reply, and C-l is the one key that repaints without
+# moving point.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --position-encoding utf-16 --definition-self 2:12"
+filename: xrefutf16.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int /* ä */ use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int /* ä */ Xuse(void) { return target(); }

@@ -480,11 +480,28 @@ static void build_tree(void)
 	mk_dir(tree, "flags");
 	mk_file(tree, "flags/compile_flags.txt", "-I.\n");
 	mk_dir(tree, "plain");
+	mk_dir(tree, "dot");
+	mk_file(tree, "dot/.clangd", "CompileFlags:\n");
+	mk_dir(tree, "dot/deep");
 	mk_dir(tree, "py");
 	mk_file(tree, "py/pyproject.toml", "[project]\nname='x'\n[tool.ty]\n");
 	mk_dir(tree, "py/mod");
 	mk_dir(tree, "other");
 	mk_file(tree, "other/pyproject.toml", "[project]\nname='y'\n");
+	mk_dir(tree, "tyt");
+	mk_file(tree, "tyt/ty.toml", "[src]\n");
+	mk_dir(tree, "tyt/mod");
+	/* A checkout inside a project: the .git is *nearer* the file than the
+	 * compilation database above it. */
+	mk_dir(tree, "nested");
+	mk_file(tree, "nested/compile_commands.json", "[]\n");
+	mk_dir(tree, "nested/vendor");
+	mk_dir(tree, "nested/vendor/.git");
+	mk_dir(tree, "nested/vendor/src");
+	mk_dir(tree, "nestedpy");
+	mk_file(tree, "nestedpy/ty.toml", "[src]\n");
+	mk_dir(tree, "nestedpy/vendor");
+	mk_dir(tree, "nestedpy/vendor/.git");
 }
 
 /* The nearest ancestor with a C marker wins over the .git further up: a
@@ -495,6 +512,24 @@ static void test_root_prefers_nearest_c_marker(void)
 	check_root(KG_MODE_C, "proj/deep/a.c", "proj");
 	check_root(KG_MODE_C, "bld/x.c", "bld");
 	check_root(KG_MODE_C, "flags/x.c", "flags");
+	check_root(KG_MODE_C, "dot/deep/a.c", "dot");
+}
+
+/* The other direction of the same rule, and the one a nested checkout
+ * makes real: a vendored dependency has its own .git, but the compilation
+ * database that describes how its sources are built lives in the project
+ * above it.  Every marker of the mode is tried against every ancestor
+ * before .git is tried against any, so the database wins even though the
+ * .git is nearer -- which is the root clangd, started with that database,
+ * agrees with.  The Python side of the same shape: a ty.toml above a
+ * vendored .git. */
+static void test_root_prefers_a_marker_over_a_nearer_git(void)
+{
+	check_root(KG_MODE_C, "nested/vendor/src/a.c", "nested");
+	check_root(KG_MODE_PYTHON, "nestedpy/vendor/a.py", "nestedpy");
+	/* And the mode decides which markers count: nested/ has no Python
+	 * marker, so the vendored .git is the nearest thing left. */
+	check_root(KG_MODE_PYTHON, "nested/vendor/src/a.py", "nested/vendor");
 }
 
 /* No marker of this mode anywhere: .git is the fallback, and it is checked
@@ -513,6 +548,9 @@ static void test_root_reads_pyproject_for_tool_ty(void)
 {
 	check_root(KG_MODE_PYTHON, "py/mod/x.py", "py");
 	check_root(KG_MODE_PYTHON, "other/x.py", "");
+	/* A ty.toml needs no section to be read: its existence is the whole
+	 * marker, where a pyproject.toml's is its `[tool.ty` section. */
+	check_root(KG_MODE_PYTHON, "tyt/mod/x.py", "tyt");
 	/* The same file in C mode ignores the Python markers entirely. */
 	check_root(KG_MODE_C, "py/mod/x.c", "");
 }
@@ -776,6 +814,7 @@ int main(int argc, char **argv)
 	RUN(test_start_failure_is_reported);
 
 	RUN(test_root_prefers_nearest_c_marker);
+	RUN(test_root_prefers_a_marker_over_a_nearer_git);
 	RUN(test_root_falls_back_to_git);
 	RUN(test_root_reads_pyproject_for_tool_ty);
 	RUN(test_root_defaults_to_the_files_directory);

@@ -52,7 +52,8 @@ jobs:
       matrix:
         step: ${{ fromJson(needs.discover.outputs.steps) }}
     env:
-      # A missing tmux or Emacs is a failure here, never a green skip.
+      # A missing tmux, Emacs or language server is a failure here, never a
+      # green skip.
       PTY_ACCEPT_ARGS: --require-tools
       SCC_VERSION: v3.7.0
     steps:
@@ -69,8 +70,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential ccache clang clang-format clang-tidy \
             clang-tools cppcheck valgrind lcov pmccabe parallel \
-            iwyu bear tmux emacs-nox \
+            iwyu bear tmux emacs-nox clangd \
             python3-pexpect python3-yaml jq
+      # The real-server PTY cases (test/pty/lsp-clangd-*.yaml,
+      # test/pty/lsp-ty-definition.yaml) name their binary with
+      # `requires_tool:`, which --require-tools above turns from a skip
+      # into a failure.  clangd comes from apt; ty is a PyPI wheel with no
+      # distro package yet.
+      - name: Install ty
+        run: |
+          pipx install ty || python3 -m pip install --user --break-system-packages ty
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
       - name: Install scc
         run: |
           go install "github.com/boyter/scc/v3@${SCC_VERSION}"

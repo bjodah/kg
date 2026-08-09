@@ -2792,19 +2792,26 @@ starts over from the first one.
 .Sh LSP
 kg can ask a Language Server Protocol server where a symbol is defined
 and where it is used.
-Two commands use it:
+Three commands use it:
 .Ic M-x xref-find-definitions ,
 bound to
 .Ic M-. ,
-and
 .Ic M-x xref-find-references ,
 bound to
-.Ic M-\&? .
+.Ic M-\&? ,
+and
+.Ic M-x xref-go-back ,
+bound to
+.Ic M-\&, .
 It is optional at build time
 .Pq Ic make WITH_LSP=0 ,
 on by default, and
 .Ic kg -V
-says which of the two this binary is.
+prints
+.Sq +lsp
+or
+.Sq -lsp
+to say which this binary is.
 .Pp
 Servers are found at run time and started lazily.
 Nothing is spawned by opening a file: the first command that needs an
@@ -2911,6 +2918,19 @@ closed, and quitting
 shuts every running server down.
 A server that dies is not restarted where it fell; the next command
 starts a new one.
+.Pp
+Positions are exchanged in whichever encoding the handshake settles on.
+.Nm
+offers UTF-8 first, because its own columns are byte offsets and nothing
+has to be converted;
+.Ic clangd
+and
+.Ic ty
+both take it.
+A server that insists on the protocol's default, UTF-16, gets UTF-16:
+columns are converted to and from code units against the real bytes of
+the line, so a line with non-ASCII text before point is asked about, and
+answered at, the right place either way.
 .Pp
 .Ev KG_LSP_SERVER_C
 and

@@ -1,0 +1,65 @@
+name: lsp-ty-definition
+# M-. against the real ty (astral-sh's Python type checker, `ty server`),
+# picked up from PATH exactly as a user would get it; `requires_tool: ty`
+# makes a box without one SKIP with a printed reason.
+#
+# The fixture is what makes the workspace root a ty workspace rather than
+# just a directory: `workspace_files:` plants a pyproject.toml carrying a
+# `[tool.ty]` section beside the file under test, which is the marker
+# lsp_workspace_root() looks for (a pyproject.toml *without* that section
+# is deliberately not a match -- see test_lsp_client.c), plus the second
+# module the import resolves to.
+#
+# The jump is cross-module, so like the clangd header case this reads the
+# screen rather than the saved file: "only-in-helper-marker" exists nowhere
+# but helper.py, and the mode line "helper.py  All (2,4)  (Python)" says
+# which buffer point ended in and where -- line 2, column 4, the
+# "target_fn" of its `def`.
+#
+# ty 0.0.69 answered textDocument/definition and textDocument/references
+# both, and negotiated utf-8 like clangd; nothing here is xfail.  The file
+# is all-ASCII, so one M-. suffices (see lsp-clangd-definition.yaml for the
+# pre-handshake encoding caveat that a multi-byte line would hit).
+requires_feature: lsp
+requires_tool: ty
+backend: tmux
+key_delay: 0.3
+filename: mainmod.py
+workspace_files:
+  pyproject.toml: |
+    [project]
+    name = "fixture"
+    version = "0.1.0"
+
+    [tool.ty]
+  helper.py: |
+    # only-in-helper-marker
+    def target_fn(v):
+        return v + 1
+initial: |
+  from helper import target_fn
+
+
+  def use():
+      return target_fn(1)
+keys:
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "M-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  from helper import target_fn
+
+
+  def use():
+      return target_fn(1)
+expected_screen_contains:
+  - "only-in-helper-marker"
+  - "helper.py  All (2,4)  (Python)"

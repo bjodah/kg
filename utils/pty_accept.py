@@ -98,7 +98,9 @@ class Case:
 	initial: str
 	keys: list[str]
 	requires_feature: str | None
+	requires_tool: str | None
 	config_files: dict[str, str]
+	workspace_files: dict[str, str]
 	env: dict[str, str]
 	expected_saved: str | None
 	expected_saved_any: list[str] | None
@@ -141,6 +143,20 @@ def resolve_emacs(explicit: str | None) -> str | None:
 	if os.access(EMACS_FALLBACK, os.X_OK):
 		return EMACS_FALLBACK
 	return None
+
+
+def case_missing_tool(case: "Case") -> str | None:
+	"""The executable this case needs and this box has not got, or None.
+
+	`requires_tool:` is the general form of the tmux and Emacs rules below:
+	a case that drives a real language server names the binary, and a box
+	without it skips with a reason rather than failing.  It is deliberately
+	a plain PATH lookup -- the case says `clangd`, kg spawns `clangd`, and
+	anything cleverer would let the two disagree about which one ran.
+	"""
+	if case.requires_tool is None:
+		return None
+	return None if shutil.which(case.requires_tool) else case.requires_tool
 
 
 def case_needs_tmux(case: "Case") -> bool:
@@ -353,6 +369,24 @@ def diff_text(expected: bytes, actual: bytes, expected_name: str, actual_name: s
 	))
 
 
+def relative_file_map(data: dict, path: Path, key: str) -> dict[str, str]:
+	"""One of the `path: contents` maps a case can plant files with.
+
+	The paths are relative and may not climb: a case writes inside its own
+	throwaway directory or not at all.  `{REPO}` in a value expands here,
+	as it does in `env:`; `{CWD}` cannot, because the directory only exists
+	once the run starts (see write_workspace_files).
+	"""
+	value = data.get(key, {})
+	if (not isinstance(value, dict) or
+	    not all(isinstance(k, str) and isinstance(v, str) and k and
+	            not k.startswith("/") and ".." not in k
+	            for k, v in value.items())):
+		raise ValueError(
+			f"{path}: {key} must map relative paths to contents")
+	return {k: v.replace("{REPO}", str(ROOT)) for k, v in value.items()}
+
+
 def load_case(path: Path) -> Case:
 	data = yaml.safe_load(path.read_text())
 
@@ -368,13 +402,20 @@ def load_case(path: Path) -> Case:
 		not isinstance(requires_feature, str) or not requires_feature
 	):
 		raise ValueError(f"{path}: requires_feature must be a non-empty string")
-	config_files = data.get("config_files", {})
-	if (not isinstance(config_files, dict) or
-	    not all(isinstance(k, str) and isinstance(v, str) and k and
-	            not k.startswith("/") and ".." not in k
-	            for k, v in config_files.items())):
+	requires_tool = data.get("requires_tool")
+	if requires_tool is not None and (
+		not isinstance(requires_tool, str) or not requires_tool or
+		"/" in requires_tool
+	):
 		raise ValueError(
-			f"{path}: config_files must map relative paths to contents")
+			f"{path}: requires_tool must be a bare executable name")
+	# `config_files:` plants files under the case's throwaway HOME (an
+	# init.el, a package); `workspace_files:` plants them beside the file
+	# under test, which is the case's working directory, for the fixtures a
+	# tool discovers by walking the tree -- a compile_commands.json, a
+	# pyproject.toml, the second file of a two-file project.
+	config_files = relative_file_map(data, path, "config_files")
+	workspace_files = relative_file_map(data, path, "workspace_files")
 	# `env:` maps variable names to values merged into kg's environment for
 	# this case only.  It exists for the run-time hooks kg reads from the
 	# environment rather than from a file -- KG_LSP_SERVER_C, which is how
@@ -443,7 +484,9 @@ def load_case(path: Path) -> Case:
 		initial=data["initial"],
 		keys=data["keys"],
 		requires_feature=requires_feature,
+		requires_tool=requires_tool,
 		config_files=config_files,
+		workspace_files=workspace_files,
 		env=env,
 		expected_saved=data.get("expected_saved"),
 		expected_saved_any=data.get("expected_saved_any"),
@@ -466,6 +509,23 @@ def write_config_files(home: Path, config_files: dict[str, str]) -> None:
 		target = home / relpath
 		target.parent.mkdir(parents=True, exist_ok=True)
 		target.write_text(content)
+
+
+def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
+	"""Plant `workspace_files:` beside the file under test.
+
+	`{CWD}` in a value expands to that directory.  It exists because the
+	fixtures this stages are the ones that have to name themselves in
+	absolute terms -- a compile_commands.json entry's "directory" is the
+	one field clangd will not accept relative -- and the directory is a
+	fresh mkdtemp nobody could have written into the YAML.  Same spirit as
+	`{REPO}` in `env:`, and the same limit: one substitution, not a
+	template language.
+	"""
+	for relpath, content in workspace_files.items():
+		target = cwd / relpath
+		target.parent.mkdir(parents=True, exist_ok=True)
+		target.write_text(content.replace("{CWD}", str(cwd)))
 
 
 def wait_ready_pexpect(child: pexpect.spawn, ready: bool, budget: float) -> None:
@@ -501,12 +561,14 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		       trailer_keys: list[str], startup_delay: float,
 		       key_delay: float, dimensions: tuple[int, int],
 		       timeout: float, config_files: dict[str, str],
-		       ready: bool, case_env: dict[str, str]) -> RunResult:
+		       ready: bool, case_env: dict[str, str],
+		       workspace_files: dict[str, str] | None = None) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 		file_path.write_text(initial)
 		write_config_files(Path(td), config_files)
+		write_workspace_files(Path(td), workspace_files or {})
 
 		env = os.environ.copy()
 		env["HOME"] = td
@@ -630,7 +692,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		    key_delay: float, dimensions: tuple[int, int],
 		    timeout: float, config_files: dict[str, str],
 		    ready: bool, case_env: dict[str, str],
-		    settle_floor: float = 0.0) -> RunResult:
+		    settle_floor: float = 0.0,
+		    workspace_files: dict[str, str] | None = None) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -638,6 +701,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 		file_path.write_text(initial)
+		write_workspace_files(Path(td), workspace_files or {})
 
 		home = Path(td) / "home"
 		home.mkdir()
@@ -713,16 +777,18 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       key_delay: float, dimensions: tuple[int, int],
 	       timeout: float, config_files: dict[str, str],
 	       ready: bool = True, settle_floor: float = 0.0,
-	       case_env: dict[str, str] | None = None) -> RunResult:
+	       case_env: dict[str, str] | None = None,
+	       workspace_files: dict[str, str] | None = None) -> RunResult:
 	case_env = case_env or {}
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
 				       timeout, config_files, ready, case_env,
-				       settle_floor)
+				       settle_floor, workspace_files)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
-				  timeout, config_files, ready, case_env)
+				  timeout, config_files, ready, case_env,
+				  workspace_files)
 
 
 def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
@@ -747,13 +813,17 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		return ("SKIP", f"{case.name}: skipped, tmux not found")
 	if case.oracle == "emacs" and emacs is None:
 		return ("SKIP", f"{case.name}: skipped, emacs oracle not found")
+	missing_tool = case_missing_tool(case)
+	if missing_tool:
+		return ("SKIP", f"{case.name}: skipped, {missing_tool} not found")
 	startup_delay = case.startup_delay + startup_delay_add
 	key_delay = case.key_delay + key_delay_add
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, startup_delay,
 			    key_delay, case.dimensions, timeout,
 			    case.config_files, settle_floor=settle_floor,
-			    case_env=case.env)
+			    case_env=case.env,
+			    workspace_files=case.workspace_files)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -762,10 +832,17 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		oracle_backend = case.oracle_backend or case.backend
 		# The oracle keeps the fixed startup sleep: KG_READY describes
 		# kg's mode line, not Emacs's.
+		# The oracle gets the workspace fixture but not the HOME
+		# config: `workspace_files:` describes the tree the file under
+		# test lives in, which is as true for Emacs as for kg, while
+		# `config_files:` (like `env:`) is kg's own configuration and
+		# handing it over would only make the oracle's run differ from a
+		# plain one in a way the case did not intend.
 		emacs_run = run_editor([emacs, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
 				       startup_delay, key_delay, case.dimensions,
-				       timeout, {}, ready=False)
+				       timeout, {}, ready=False,
+				       workspace_files=case.workspace_files)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved
@@ -852,7 +929,8 @@ def main() -> int:
 	                         "(default: $KG_PTY_EMACS, then PATH)")
 	parser.add_argument("--require-tools", action="store_true",
 	                    help="Fail instead of skipping when a tool some case "
-	                         "needs (tmux, the Emacs oracle) is missing")
+	                         "needs (tmux, the Emacs oracle, a case's "
+	                         "requires_tool) is missing")
 	parser.add_argument("--json", dest="json_path", default="",
 	                    help="Write per-case results (status, wall time, "
 	                         "backend, oracle) to this file")
@@ -881,6 +959,13 @@ def main() -> int:
 			       "or $KG_PTY_EMACS, or put emacs on PATH)")
 	if tmux_cases and not have_tmux:
 		missing.append(f"tmux ({tmux_cases} case(s) need it)")
+	tool_cases: dict[str, int] = {}
+	for case in cases:
+		if case.requires_tool:
+			tool_cases[case.requires_tool] = tool_cases.get(case.requires_tool, 0) + 1
+	for tool in sorted(tool_cases):
+		if shutil.which(tool) is None:
+			missing.append(f"{tool} ({tool_cases[tool]} case(s) need it)")
 	for item in missing:
 		print(f"{'FAIL' if args.require_tools else 'warning'}: missing tool: {item}",
 		      file=sys.stderr)
@@ -914,6 +999,7 @@ def main() -> int:
 				"backend": case.backend,
 				"oracle": case.oracle,
 				"requires_feature": case.requires_feature,
+				"requires_tool": case.requires_tool,
 				"xfail": case.xfail,
 			})
 

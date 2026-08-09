@@ -4,6 +4,54 @@ The dependency-ordered implementation program for the next architecture and
 feature work is [doc/plans/2026-07-31-follow-ups](plans/2026-07-31-follow-ups/README.md).
 This file remains the broader feature and technical-debt inventory.
 
+## LSP follow-ups (v1 landed 2026-08-09)
+
+The `WITH_LSP=1` client is complete per
+[doc/plans/2026-08-08-lsp.md](plans/2026-08-08-lsp.md)'s definition of
+done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
+(`lsp_transport`, `lsp_json`, `lsp_client`, `lsp_server`, `lsp_sync`,
+`lsp_uri`, `xref`), tested against a scripted fake server and against the
+real `clangd` and `ty`.  Known follow-ups, none blocking:
+
+- **Encode a request's position at send time.**  The first command
+  against a lazily started server builds its request while the client is
+  still INITIALIZING, so `xref_point_character()` (src/xref.c) encodes
+  with the pre-handshake default, UTF-16, rather than the utf-8 both real
+  servers turn out to want.  It is invisible on an ASCII line and off by
+  one per multi-byte character otherwise, which
+  `test/pty/lsp-clangd-definition.yaml` shows by pressing `M-.` twice.
+  The fix is a client contract change: queue params as a callback that
+  runs when the frame is written, not as a finished string.
+- **Result previews in `*xref*`.**  The listing ships as
+  `path:line:col:`; the plan's `path:line:col: preview` needs the target
+  line, which means reading it from an open buffer when there is one and
+  a bounded lazy read otherwise (200 files opened to paint one screen,
+  and read from disk is the wrong text for a buffer with unsaved edits).
+- **A per-request timeout.**  A server that is alive but stuck answers
+  nothing and kg waits forever; only death is detected today.
+- **An `*lsp-log*` buffer.**  Server stderr goes to `/dev/null`
+  (`kg_process_spawn_bidi()`), so a server that explains its refusal
+  explains it to nobody.
+- **A fuzz target for the frame parser.**  `lsp_transport.c`'s
+  Content-Length framing is the one place kg parses bytes from a process
+  it did not write; the five existing targets are the pattern
+  (`test/fuzz_*.c`, tracked seeds under `test/fuzz-seeds/`).
+- **More server specs.**  `gopls` and `rust-analyzer` are one row each in
+  `server_specs[]` plus a marker predicate (`go.mod`, `Cargo.toml`) and
+  the `KG_LSP_SERVER_<MODE>` name that follows from the mode.
+- **The rest of the protocol**, in the order it would be worth having:
+  diagnostics (which need a decoration channel and an error list, not
+  just a request), hover, rename, completion.  All were out of scope by
+  the plan, not by accident.
+- **Lisp bindings for the xref commands.**  They are deliberately not in
+  the `CMD_LISP_CALLABLE` set while the command set settles.
+- **The mode-map overlap cleanup.**  `*compilation*` is read-only, so the
+  buffer-list map is live there too and its `RET` resolves to
+  `ibuffer-visit-buffer`, which does nothing only because the command
+  checks the buffer's syntax first (src/kbd.c, above `enum mode_map`).
+  `*xref*` is excluded from that predicate by name; a real mode registry
+  owning the table is the answer, not a third exclusion.
+
 ## Tree-sitter follow-ups (v1 landed 2026-08-08)
 
 The `WITH_TREE_SITTER=1` backend is complete per

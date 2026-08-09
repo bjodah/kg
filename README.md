@@ -134,7 +134,9 @@ standard VT100 escape sequences.
 - `M-g` is a prefix map: `M-g g` / `M-g M-g` go to a line, `M-g n` / `M-g p`
   step through compilation diagnostics
 - `M-.` (`xref-find-definitions`) asks a language server where the symbol
-  at point is defined and goes there, asynchronously — see
+  at point is defined and goes there, asynchronously; `M-?`
+  (`xref-find-references`) asks where it is used and lists the answer in a
+  read-only `*xref*` buffer (`RET` visits, `n`/`p` move, `q` closes) — see
   [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
@@ -300,22 +302,32 @@ the default, and the configuration with colours for every other language.
 
 ## LSP (optional, on by default)
 
-kg can ask a Language Server Protocol server where a symbol is defined.
-Unlike tree-sitter, this needs nothing at build time — servers are found at
-run time — so `WITH_LSP=1` is the default and `make WITH_LSP=0` builds the
-editor without it. `kg -V` says which one a binary is:
+kg can ask a Language Server Protocol server where a symbol is defined and
+where it is used. Unlike tree-sitter, this needs nothing at build time —
+servers are found at run time — so `WITH_LSP=1` is the default and `make
+WITH_LSP=0` builds the editor without it. `kg -V` says which one a binary
+is:
 
 ```bash
 ./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
 ```
 
-One command uses it today: **`M-.`** (`xref-find-definitions`), which goes
-to the definition of the symbol at point. Everything else the protocol
-offers — references, diagnostics, completion, hover, rename — is
-deliberately out of scope until this foundation has proven itself.
+Two commands use it: **`M-.`** (`xref-find-definitions`), which goes to the
+definition of the symbol at point, and **`M-?`** (`xref-find-references`),
+which lists every use of it. Everything else the protocol offers —
+diagnostics, completion, hover, rename — is deliberately out of scope until
+this foundation has proven itself.
 
-Servers are **started lazily**, and never by opening a file: the first `M-.`
-in a C buffer is what spawns `clangd`, and every buffer under the same
+`M-?` always lists, even for one result, in a read-only `*xref*` buffer: a
+header counting the results, then one `path:line:column:` line each, with
+paths shown relative to the workspace root. `RET` goes to the result on the
+current line, `n` and `p` move between them, and `q` closes the listing.
+The listing is bounded at 200 results and says how many more there were.
+`M-.` uses the same buffer when a server offers more than one definition,
+and still jumps straight to a single one.
+
+Servers are **started lazily**, and never by opening a file: the first
+`M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same
 workspace root then shares it. Two modes have a built-in server, `clangd`
 for C and `ty server` for Python; any other mode says it has no server
 rather than starting one. The workspace root is the nearest ancestor
@@ -324,12 +336,15 @@ holding that language's build-system marker (`.clangd`,
 `ty.toml`, or a `pyproject.toml` mentioning `[tool.ty`), then the nearest
 ancestor holding `.git`, and failing that the file's own directory.
 
-`M-.` sends the question and returns. The editor stays responsive while the
-server thinks, and point moves when the answer arrives; the echo area
-reports where it went, or `No definition found`, or why there was no server
-to ask. The place it left is pushed on the mark ring, so `C-u C-SPC` comes
-back. The buffer is sent to the server before each request rather than on
-every keystroke, so an unsaved buffer is still the text the answer is about.
+Both commands send the question and return. The editor stays responsive
+while the server thinks, and the answer arrives later; the echo area
+reports where it went, or `No definition found` / `No references found`, or
+why there was no server to ask. An answer that arrives while a minibuffer
+prompt is open is built but not switched to, so a half-typed filename is
+never yanked out from under you. The place a jump left is pushed on the
+mark ring, so `C-u C-SPC` comes back. The buffer is sent to the server
+before each request rather than on every keystroke, so an unsaved buffer is
+still the text the answer is about.
 
 `KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x

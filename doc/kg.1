@@ -1149,6 +1149,7 @@ Multiple files each open in their own buffer.
 .It M-g n Ta Jump to the next compilation diagnostic
 .It M-g p Ta Jump to the previous compilation diagnostic
 .It M-. Ta Go to the definition of the symbol at point (needs a language server)
+.It M-? Ta List every reference to the symbol at point (needs a language server)
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -2572,6 +2573,29 @@ Bound to
 .Ic M-. .
 The question is asked and the command returns; the answer arrives later
 and moves point when it does.
+A server that offers more than one definition gets the
+.Pa *xref*
+listing instead of a jump.
+See
+.Sx LSP .
+.It xref-find-references
+Ask the buffer's language server where the symbol at point is used, and
+list the answer in the
+.Pa *xref*
+buffer.
+Bound to
+.Ic M-\&? .
+Always lists, even for a single result.
+See
+.Sx LSP .
+.It xref-goto-xref
+Go to the result named on the current
+.Pa *xref*
+line.
+Bound to
+.Ic Enter
+in that buffer, and reports that there is nothing to go to anywhere
+else.
 See
 .Sx LSP .
 .It yank
@@ -2749,11 +2773,16 @@ discards the previous run's diagnostics and cursor, so
 .Ic next-error
 starts over from the first one.
 .Sh LSP
-kg can ask a Language Server Protocol server where a symbol is defined.
-One command uses it today:
+kg can ask a Language Server Protocol server where a symbol is defined
+and where it is used.
+Two commands use it:
 .Ic M-x xref-find-definitions ,
 bound to
-.Ic M-. .
+.Ic M-. ,
+and
+.Ic M-x xref-find-references ,
+bound to
+.Ic M-\&? .
 It is optional at build time
 .Pq Ic make WITH_LSP=0 ,
 on by default, and
@@ -2796,11 +2825,46 @@ The echo area reports what happened: the file and line jumped to, or
 No definition found
 .Dc ,
 or the reason there was no server to ask.
-A server that answers with more than one definition is reported as such
-and the first one is visited.
 Before the jump, the place it left is pushed on the mark ring, so
 .Ic C-u C-SPC
 returns to it.
+.Pp
+.Ic M-\&?
+answers with a list rather than a jump, in a read-only buffer named
+.Pa *xref* :
+a header line counting the results, then one line per result in
+.Ql path:line:column:
+form, with the path relative to the workspace root when it is under it.
+The listing is bounded at 200 results and says how many more there were
+when it cut.
+.Ic M-.
+uses the same listing when a server offers more than one definition; a
+single definition is still visited directly.
+.Pp
+In the
+.Pa *xref*
+buffer:
+.Bl -tag -width "Enter" -compact
+.It Ic Enter
+Go to the result on this line
+.Pq Ic M-x xref-goto-xref .
+.It Ic n , Ic p
+Next and previous line.
+.It Ic q
+Close the listing.
+.El
+.Pp
+The column a listing prints is the protocol's own character offset
+counted from one, which is a byte column on every line that is ASCII;
+.Ic Enter
+converts it against the target line's real bytes, so the place it lands
+is right whether or not the printed number was.
+An answer that arrives while a minibuffer prompt is open is built but not
+selected \(em the echo area says how many results are waiting in
+.Pa *xref* ,
+and
+.Ic C-x b
+reaches them.
 .Pp
 The buffer is sent to the server before each request, not on every
 keystroke: an unsaved buffer is still the text the answer is about, and a

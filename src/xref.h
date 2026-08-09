@@ -53,10 +53,28 @@ struct xref_location {
 bool xref_location_of(
     const struct lsp_json_value *v, struct xref_location *out);
 
+/* The results buffer.  Named here rather than spelled again in kbd.c
+ * because the mode map that gives it RET, n, p and q is keyed on the name:
+ * two spellings of it would be two chances for one of them to be wrong. */
+#define XREF_BUFFER_NAME "*xref*"
+
 /* `M-x xref-find-definitions` (M-.).  Sends the request and returns; the
  * echo area says what happened, twice -- once when the question goes out
- * and once when the answer comes back. */
+ * and once when the answer comes back.  One definition is visited; a server
+ * that offers a choice gets the same listing references get. */
 void editor_xref_find_definitions(int fd);
+
+/* `M-x xref-find-references` (M-?).  Always lists, even for one result:
+ * "where is this used" is answered by the set, and a command that sometimes
+ * jumps and sometimes lists is one whose next keystroke a user cannot
+ * predict. */
+void editor_xref_find_references(int fd);
+
+/* `M-x xref-goto-xref` (RET in *xref*).  Visits the result on the line
+ * point is on; says so and does nothing anywhere else.  The place it left
+ * goes on the go-back stack, and so -- once, on the first visit out of a
+ * listing -- does the place the search was started from. */
+void editor_xref_goto_xref(int fd);
 
 /* How many departure points are on the go-back stack.  Stage 7's
  * `xref-go-back` (M-,) is what pops them; until then this is how a test

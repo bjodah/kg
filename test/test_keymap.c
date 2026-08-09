@@ -19,6 +19,7 @@
 #include "../src/cmd.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
+#include "../src/keybind.h"
 #include "../src/keyevent.h"
 #include "../src/keymap.h"
 #include "test.h"
@@ -432,6 +433,14 @@ static void test_storage_is_bounded(void)
 		maps++;
 		CHECKF(maps < 1000, "the map table is unbounded");
 	}
+	/* Bounded above, and bounded below by what one session needs at
+	 * once: kbd.c installs eight maps (the global one and seven mode
+	 * maps), keybind.c creates a ninth the first time a user binds a
+	 * C-c key, and configuration may define its own after that.  A
+	 * table with no room left for the tenth is the state this was in
+	 * before the xref map; test_configuration_maps_fit_the_builtins()
+	 * below is the same claim made against the real maps. */
+	CHECKF(maps >= 12, "only %d maps fit; the editor's own need 9", maps);
 	keymap_reset();
 
 	map = keymap_create("test-global", KEYMAP_LAYER_GLOBAL);
@@ -493,6 +502,39 @@ static void test_builtin_global_map_resolves(void)
 	keymap_reset();
 }
 
+/* The editor's own maps and a user's do not compete for the table.
+ *
+ * This is a regression, not a hypothetical.  With keymap_max_maps at 8,
+ * kbd.c's global map plus six mode maps used seven and keybind.c's lazily
+ * created "user" map used the eighth, so the table was full before any
+ * configuration ran: a `(define-key "my-mode-map" ...)` got no map at all,
+ * and the seventh mode map this stage adds would have taken the user's
+ * slot outright -- C-c bindings would simply have stopped working.
+ *
+ * Run last, and deliberately: keybind.c caches its map in a static that
+ * keymap_reset() cannot clear, so nothing may bind a C-c key after the
+ * reset this ends with. */
+static void test_configuration_maps_fit_the_builtins(void)
+{
+	struct keymap_match match;
+
+	keymap_reset();
+	key_install_builtin_maps();
+	CHECKF(
+	    keymap_find("xref") != NULL, "the xref mode map was not created");
+	CHECKF(keybind_bind("C-c x", "forward-char") == 0,
+	    "no room for the user's map");
+	match = lookup("C-c x");
+	CHECKF(match.result == KEYMAP_COMMAND,
+	    "C-c x does not resolve (result %d)", (int)match.result);
+	CHECK(match.command && strcmp(match.command, "forward-char") == 0);
+	/* And a map for configuration to define after that. */
+	CHECKF(keymap_create("my-mode", KEYMAP_LAYER_MAJOR) != NULL,
+	    "no room for a configuration map");
+	CHECK(keybind_unbind("C-c x") == 0);
+	keymap_reset();
+}
+
 int main(void)
 {
 	RUN(test_parse_sequence);
@@ -509,5 +551,6 @@ int main(void)
 	RUN(test_prefix_without_a_leaf);
 	RUN(test_storage_is_bounded);
 	RUN(test_builtin_global_map_resolves);
+	RUN(test_configuration_maps_fit_the_builtins);
 	return test_summary();
 }

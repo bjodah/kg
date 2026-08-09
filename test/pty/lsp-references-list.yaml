@@ -1,0 +1,53 @@
+name: lsp-references-list
+# M-? asks the language server where the symbol at point is used and lists
+# the answer in a read-only *xref* buffer.  The server is
+# test/fake_lsp_server.py in place of clangd (KG_LSP_SERVER_C), answering
+# --references-self: Locations in the document the client itself opened,
+# which is how a case whose file lives in a temporary directory nobody
+# named can still assert exact targets.
+#
+# This is the case that reads the screen, so it is the tmux one: what it
+# asserts is the listing itself -- the header counting the answer, and one
+# row per result in `path:line:col:` form with the path relative to the
+# workspace root (which, for a lone .c file in a temporary directory, is
+# that directory).  Line 1 column 5 is the "target" of its definition and
+# line 3 column 24 the "target" of the call, both counted from one, which
+# is the same protocol answer test/pty/lsp-references-visit.yaml then
+# presses RET on.
+#
+# The three C-l between M-? and the capture are the wait: the request is
+# asynchronous by design, so the case has to leave time for a Python
+# interpreter to start, handshake and reply.  C-l is the one key that
+# repaints without moving point, so it costs a key_delay and changes
+# nothing whether the answer has arrived yet or not.
+#
+# Nothing is saved: the trailer is C-x C-c alone, because the selected
+# buffer at the end is *xref*, and C-x C-s on a buffer with no file prompts
+# for a name.  The saved file is therefore the initial one, and asserting
+# that is asserting that a listing changed nothing on disk.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --references-self 0:4,2:23"
+filename: xrefref.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-?"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+trailer_keys:
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "2 references"
+  - "xrefref.c:1:5:"
+  - "xrefref.c:3:24:"

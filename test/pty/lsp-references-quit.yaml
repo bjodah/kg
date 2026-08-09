@@ -1,0 +1,33 @@
+name: lsp-references-quit
+# q in the *xref* buffer closes it and leaves the buffer the search was
+# started from selected, with point where M-? was pressed.
+#
+# The X typed afterwards is what proves both halves at once.  It lands at
+# the start of the file only if q was read as `quit-window` in a buffer
+# that then went away: had the listing never appeared, the q itself would
+# have been typed into the source file; had the listing appeared and not
+# closed, the read-only *xref* buffer would have refused both keys and the
+# file would be unchanged.  Each of those failures spells a different
+# saved file from this one.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --references-self 0:4,2:23"
+filename: xrefref.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-?"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "q"
+  - "C-l"
+  - "X"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }

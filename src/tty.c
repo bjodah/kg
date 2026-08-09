@@ -106,6 +106,10 @@ static const struct meta_key meta_keys[] = {
 	 * branch below, which reads a second byte and so swallows the key
 	 * after it -- the same failure the M-- row above was added for. */
 	{ '.', '.', 0 },
+	/* M-? is xref-find-references, and needs the same row for the same
+	 * reason M-. does: without it ESC ? reads a second byte and swallows
+	 * whatever key was typed next. */
+	{ '?', '?', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

@@ -1,0 +1,40 @@
+name: lsp-references-visit
+# RET in the *xref* buffer visits the result on the line point is on, and
+# n moves between them.  Both come from the xref mode map, which is the
+# half of this stage a screen assertion cannot make: a read-only buffer
+# already matched the *buffer list* map before this stage, whose RET is
+# `ibuffer-visit-buffer` -- a command that quietly does nothing outside a
+# buffer list.  So a broken predicate here is not an error message, it is a
+# RET that goes nowhere, and the only way to tell the two apart is where
+# point ends up.
+#
+# Point starts on the first result, n steps to the second (line 3
+# character 23 in the protocol's zero-based numbering, the "target" of the
+# call), and the X typed after the visit is the whole assertion: the byte
+# it lands on says the row, the column and the utf-8/utf-16 negotiation all
+# came out right.  The final C-l repaints without moving point, so a jump
+# that had not happened yet would put the X somewhere the expectation
+# names, rather than racing it.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --references-self 0:4,2:23"
+filename: xrefref.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-?"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "n"
+  - "RET"
+  - "C-l"
+  - "X"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return Xtarget(); }

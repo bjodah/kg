@@ -95,6 +95,11 @@ static void cmd_xref_find_definitions(int fd)
 {
 	editor_xref_find_definitions(fd);
 }
+static void cmd_xref_find_references(int fd)
+{
+	editor_xref_find_references(fd);
+}
+static void cmd_xref_goto_xref(int fd) { editor_xref_goto_xref(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
 
 /* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
@@ -1714,6 +1719,10 @@ static const struct named_cmd cmdtable[] = {
 	    "Write this buffer to a different file" },
 	{ "xref-find-definitions", cmd_xref_find_definitions, CMD_NONE,
 	    "Go to where the symbol at point is defined" },
+	{ "xref-find-references", cmd_xref_find_references, CMD_NONE,
+	    "List every reference to the symbol at point" },
+	{ "xref-goto-xref", cmd_xref_goto_xref, CMD_NONE,
+	    "Go to the result named on this *xref* line" },
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
 	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },

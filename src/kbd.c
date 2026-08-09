@@ -22,6 +22,7 @@
 #include "keymap.h"
 #include "marker.h"
 #include "syntax.h"
+#include "xref.h"
 #include "yank.h"
 
 #define PREFIX_ARG_MAX 1000
@@ -458,6 +459,7 @@ static const struct {
 	 * ESC first, and every other Meta binding here -- M-f, M-d, M-x --
 	 * gets by on the decoder's ESC-merge alone. */
 	{ "M-.", "xref-find-definitions" },
+	{ "M-?", "xref-find-references" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },
@@ -557,15 +559,29 @@ static const struct {
  * adapted into layers, not a mode registry: when there is a real one it
  * owns this table and the predicates go with it.
  *
- * They are MAJOR maps, which is one layer, so their predicates have to
- * stay mutually exclusive the way they already were: dired and the
- * buffer list are told apart by the syntax pointer, and the git modes by
- * their own. */
+ * They are all MAJOR maps, which is one layer, and what one layer does
+ * with two active maps is worth stating, because the rule is not the
+ * "mutually exclusive" this comment used to claim.  keymap.c's
+ * layer_probe() searches a layer's maps newest first and lets the first
+ * one with anything to say answer, so two active maps that both bind a
+ * sequence resolve to the newer one's command -- but a layer where one map
+ * says COMMAND and another says PREFIX for the same keys is AMBIGUOUS and
+ * runs nothing.
+ *
+ * The overlap is real today: `*compilation*` is a read-only buffer, so the
+ * buffer-list map is live in it too, and RET there resolves to
+ * `ibuffer-visit-buffer` -- which does nothing, because the command checks
+ * the buffer's syntax before it acts.  That is a command guarding itself,
+ * not a predicate keeping maps apart.  `*xref*` gets its RET from its own
+ * map instead, both by being newer and by being excluded from the
+ * buffer-list predicate below; excluding it is the half that does not
+ * depend on the order these are created in. */
 enum mode_map {
 	MODE_MAP_DIRED,
 	MODE_MAP_BUFFER_LIST,
 	MODE_MAP_SPECIAL,
 	MODE_MAP_COMPILATION,
+	MODE_MAP_XREF,
 	MODE_MAP_GIT_COMMIT,
 	MODE_MAP_GIT_REBASE,
 	MODE_MAP_COUNT,
@@ -590,6 +606,10 @@ static const struct {
 	{ MODE_MAP_BUFFER_LIST, "q", "quit-window" },
 	{ MODE_MAP_SPECIAL, "q", "quit-window" },
 	{ MODE_MAP_COMPILATION, "C-c C-k", "kill-compilation" },
+	{ MODE_MAP_XREF, "RET", "xref-goto-xref" },
+	{ MODE_MAP_XREF, "n", "next-line" },
+	{ MODE_MAP_XREF, "p", "previous-line" },
+	{ MODE_MAP_XREF, "q", "quit-window" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-c", "server-edit" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-k", "git-commit-abort" },
 	{ MODE_MAP_GIT_REBASE, "C-c C-c", "server-edit" },
@@ -607,6 +627,16 @@ static const struct {
 static struct keymap *global_map;
 static struct keymap *mode_maps[MODE_MAP_COUNT];
 
+/* Whether the current buffer is the special buffer called `name`.  Two of
+ * the predicates below are exactly this question, and a buffer with no name
+ * is not any of them. */
+static int buffer_is_named(const char *name)
+{
+	const char *filename = bcur()->filename;
+
+	return filename && strcmp(filename, name) == 0;
+}
+
 /* Whether each mode map is live, asked once per keystroke.  A read-only
  * buffer that is neither dired nor the buffer list still answers q,
  * which is what the special-buffer branch in dispatch used to do. */
@@ -615,13 +645,15 @@ static void key_update_mode_maps(void)
 	const char *name = bcur()->filename;
 	int listing = syntax_is_dired();
 	int special = name && is_special_buffer(name) && buf_count > 1;
+	int xref = buffer_is_named(XREF_BUFFER_NAME);
 
 	keymap_set_active(mode_maps[MODE_MAP_DIRED], listing);
-	keymap_set_active(
-	    mode_maps[MODE_MAP_BUFFER_LIST], bcur()->readonly && !listing);
+	keymap_set_active(mode_maps[MODE_MAP_BUFFER_LIST],
+	    bcur()->readonly && !listing && !xref);
 	keymap_set_active(mode_maps[MODE_MAP_SPECIAL], special && !listing);
-	keymap_set_active(mode_maps[MODE_MAP_COMPILATION],
-	    name && strcmp(name, "*compilation*") == 0);
+	keymap_set_active(
+	    mode_maps[MODE_MAP_COMPILATION], buffer_is_named("*compilation*"));
+	keymap_set_active(mode_maps[MODE_MAP_XREF], xref);
 	keymap_set_active(
 	    mode_maps[MODE_MAP_GIT_COMMIT], syntax_is_git_commit());
 	keymap_set_active(
@@ -671,6 +703,7 @@ void key_install_builtin_maps(void)
 	    = keymap_create("special", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_COMPILATION]
 	    = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_XREF] = keymap_create("xref", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_COMMIT]
 	    = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_REBASE]

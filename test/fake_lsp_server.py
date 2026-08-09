@@ -72,6 +72,13 @@ Options, all of them optional:
 ``--reference URI:LINE:CHAR`` (repeatable)
     What ``textDocument/references`` answers, as an array of Locations; an
     empty list answers ``[]``.
+``--references-self LINE:CHAR,LINE:CHAR,...``
+    Answer ``textDocument/references`` with one Location per pair, all of
+    them in the document the client most recently opened or changed --
+    ``--definition-self`` for the references request, and for the same
+    reason: a PTY case whose file lives in a temporary directory nobody
+    named can still assert exact targets.  Takes precedence over
+    ``--reference``; if no document has been opened, the answer is ``[]``.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
     The client is required to answer it with a MethodNotFound error;
@@ -280,6 +287,8 @@ class Protocol:
                 return None
             return parse_location(self.args.definition)
         if method == "textDocument/references":
+            if self.args.references_self:
+                return self.self_locations(self.args.references_self)
             return [parse_location(r) for r in self.args.reference]
         if method == "kg/echo":
             return params
@@ -298,6 +307,19 @@ class Protocol:
         position = {"line": int(line), "character": int(char)}
         return {"uri": self.last_uri,
                 "range": {"start": position, "end": position}}
+
+    def self_locations(self, spec):
+        """Locations in the last document the client sent, one per
+        comma-separated LINE:CHAR pair, or [] before there is one."""
+        if not self.last_uri:
+            return []
+        out = []
+        for pair in spec.split(","):
+            line, char = pair.split(":")
+            position = {"line": int(line), "character": int(char)}
+            out.append({"uri": self.last_uri,
+                        "range": {"start": position, "end": position}})
+        return out
 
     def note_document(self, message):
         """Remember the URI of any textDocument notification's document."""
@@ -406,6 +428,10 @@ def main(argv):
                              "the document the client last sent")
     parser.add_argument("--reference", action="append", default=[],
                         help="URI:LINE:CHAR added to the references answer")
+    parser.add_argument("--references-self", default=None,
+                        help="comma-separated LINE:CHAR pairs answered to "
+                             "references requests, in the document the "
+                             "client itself opened")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
     parser.add_argument("--notify", default=None,

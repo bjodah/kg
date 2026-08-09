@@ -1,0 +1,29 @@
+name: lsp-references-none
+# A server that finds nothing gets no buffer.  The fake server is started
+# with neither --references-self nor --reference, so it answers
+# `textDocument/references` with an empty array: the echo area says "No
+# references found" and no *xref* buffer is opened.
+#
+# The assertion is that the X lands at point, where it was before M-? --
+# nothing was selected, nothing was visited, and the read-only listing that
+# would have swallowed the keystroke is not there.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol"
+filename: xrefref.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-?"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }

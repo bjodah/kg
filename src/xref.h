@@ -1,0 +1,67 @@
+#ifndef KG_XREF_H
+#define KG_XREF_H
+
+#include <limits.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+/* Cross-referencing commands: "where is this defined", and -- from Stage 6
+ * of doc/plans/2026-08-08-lsp.md -- "where is it used".
+ *
+ * This is the editor half of the LSP feature and the only part of it a user
+ * ever names.  It knows what a buffer, a window and the echo area are, and
+ * it knows nothing about clangd, ty, JSON-RPC or framing: it asks
+ * src/lsp_server.h for a client, src/lsp_sync.h to bring the document up to
+ * date, and src/lsp_client.h to carry one request.  The answer arrives in a
+ * callback run from lsp_poll(), so the command itself returns the moment it
+ * has sent the question -- an editor that blocked on a language server
+ * would be an editor that hangs whenever one is slow.
+ *
+ * Both entry points exist in every build.  A WITH_LSP=0 kg has the command
+ * and the binding and reports that the feature was not compiled in, which
+ * is a better answer than an unknown command for something the manual
+ * documents.
+ */
+
+struct lsp_json_value;
+
+/* Where the server says something is.  `line` and `character` are the
+ * protocol's own numbers: zero-based, and `character` counted in whatever
+ * encoding the handshake settled (src/lsp_sync.h converts it), which is why
+ * it is not called a column -- it is not one until it has been decoded
+ * against the target row's bytes. */
+struct xref_location {
+	char path[PATH_MAX];
+	int line;
+	long long character;
+};
+
+/* Read one element of a `textDocument/definition` result into `out`.  The
+ * protocol allows three shapes for the same answer and a server picks one:
+ *
+ *   Location      { uri, range }
+ *   LocationLink  { targetUri, targetSelectionRange | targetRange }
+ *
+ * -- the selection range being preferred where both are offered, since it
+ * names the identifier rather than the whole body of what was defined.
+ *
+ * Returns false, having written nothing worth reading, for a node that is
+ * not one of those, for a URI that is not a `file:` one kg can turn back
+ * into a path (src/lsp_uri.h), and for a negative line.  Public, and pure,
+ * because it is the part of this module worth a unit test: everything else
+ * here needs an editor and a server. */
+bool xref_location_of(
+    const struct lsp_json_value *v, struct xref_location *out);
+
+/* `M-x xref-find-definitions` (M-.).  Sends the request and returns; the
+ * echo area says what happened, twice -- once when the question goes out
+ * and once when the answer comes back. */
+void editor_xref_find_definitions(int fd);
+
+/* How many departure points are on the go-back stack.  Stage 7's
+ * `xref-go-back` (M-,) is what pops them; until then this is how a test
+ * asks whether a jump remembered where it came from, and that the stack is
+ * bounded. */
+size_t xref_go_back_depth(void);
+
+#endif /* KG_XREF_H */

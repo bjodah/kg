@@ -23,6 +23,7 @@
 #include "register.h"
 #include "syntax.h"
 #include "vgeom.h"
+#include "xref.h"
 #include "yank.h"
 
 static constexpr int lisp_expression_max = 512;
@@ -90,6 +91,10 @@ static void cmd_goto_line(int fd) { editor_goto_line(fd); }
 
 /* Jump to the next/previous compilation diagnostic (M-g n / M-g p). */
 static void cmd_next_error(int fd) { editor_next_error(fd); }
+static void cmd_xref_find_definitions(int fd)
+{
+	editor_xref_find_definitions(fd);
+}
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
 
 /* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
@@ -1707,6 +1712,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Delete trailing whitespace on every line" },
 	{ "write-file", cmd_write_file, CMD_NONE,
 	    "Write this buffer to a different file" },
+	{ "xref-find-definitions", cmd_xref_find_definitions, CMD_NONE,
+	    "Go to where the symbol at point is defined" },
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
 	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },

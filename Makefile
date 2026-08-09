@@ -264,7 +264,17 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
-LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
+#
+# src/visit.c and src/xref.c are outside all of this on purpose.  visit.c is
+# the navigation primitive next-error and xref share, so it is built in every
+# configuration; xref.c is built in every configuration too, for lsp_core.c's
+# reason -- the command table's `xref-find-definitions` row and the M-.
+# binding are unconditional, and a WITH_LSP=0 kg answers them by saying the
+# feature was not compiled in.  Neither is in LSP_OBJS, because LSP_OBJS is
+# also what every test binary links (see TEST_SRCS_OBJS) and xref.c reaches
+# the whole editor: the suite that does link it says so itself, below.
+LSP_ALL = $(TESTDIR)/test_xref \
+          $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
@@ -275,7 +285,7 @@ LSP_ALL = $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c register.c \
+       compile_nav.c register.c visit.c xref.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c
 
 # Object and header files
@@ -334,7 +344,8 @@ endif
 # binary already links.
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
-            $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync
+            $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
+            $(TESTDIR)/test_xref
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -1321,7 +1332,45 @@ SCC_COMPLEXITY_PATHS ?= src
 #   FAIL: total complexity 6700 exceeds limit 6699
 #   $ make complexity-check SCC_COMPLEXITY_MAX=6700
 #   scc total complexity: 6700 (limit 6700)
-SCC_COMPLEXITY_MAX ?= 6700
+# Raised 6700 -> 6754 (+54) for M-. xref-find-definitions, Stage 5 of
+# doc/plans/2026-08-08-lsp.md, measured file by file on this tree:
+#   - src/xref.c 0 -> 50, the whole of the new module and very nearly the
+#     whole of the +54.  pmccabe by symbol, worst first:
+#     xref_definition_reply 8 (the four things an answer can be), the
+#     command editor_xref_find_definitions 7 (the sequence of refusals it
+#     is), xref_read_range 5 and xref_location_of 5 (the three shapes the
+#     protocol allows for one answer, and every way one of them can be
+#     unreadable), xref_row_at 4, xref_client_for_current 4, then eleven
+#     symbols at 3 or below including the WITH_LSP=0 half's three stubs.
+#   - src/visit.c 0 -> 15, of which NONE is new: editor_visit_escape_window
+#     (6) and editor_visit_file_position (4) with its visit_may_open (5)
+#     are nav_pick_window/nav_open_source MOVED out of src/compile_nav.c,
+#     which drops 62 -> 49 for exactly that reason.  Net for the pair: +2,
+#     the `who` prefix parameter every refusal message now carries and the
+#     one early return the split into two functions costs.
+#   - src/lsp_sync.c 84 -> 86 (+2): lsp_sync_before_request gains the
+#     state check that stops the not-yet-known capabilities of an
+#     INITIALIZING client from reading as a refusal (see its comment).
+#   - src/tty.c, src/cmd.c, src/kbd.c, src/help.c: +0.  A meta_keys[] row,
+#     a cmdtable row, a keymap row and a help-table cell are data.
+# Bisected on this tree: with both new files moved out of src/, the total is
+# 6689, which is the previous cap minus the 13 src/compile_nav.c gave up to
+# src/visit.c plus the 2 src/lsp_sync.c took on -- so nothing else moved,
+# and the whole raise is the two new files' 65 minus that 11:
+#   $ mv src/visit.c src/xref.c /tmp && make complexity-check \
+#         SCC_COMPLEXITY_MAX=99999
+#   scc total complexity: 6689 (limit 99999)
+# pmccabe agrees: the worst new symbol is 8, well inside the 15
+# new-function budget, and no existing symbol moved -- so `make
+# pmccabe-check` passes with no baseline rewrite.
+# Cap equals the measured actual, no slack.  SCC_FILE_COMPLEXITY_MAX stays
+# 520: the new files measure 50 and 15, and the worst is still
+# src/bufmgr.c at 499.  Proof on the same tree:
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6753
+#   FAIL: total complexity 6754 exceeds limit 6753
+#   $ make complexity-check SCC_COMPLEXITY_MAX=6754
+#   scc total complexity: 6754 (limit 6754)
+SCC_COMPLEXITY_MAX ?= 6754
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1839,7 +1888,7 @@ EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/pr
 # editor_goto_line_direct(), which stubs_buffer.c stubs as a no-op -- the
 # native suite exercises the record/cursor state machine only, per Plan 05
 # Bundle D; the point-placement half is PTY-only.
-EXTRA_compile_nav := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/compile_parse.o $(OBJDIR)/compile_nav.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
+EXTRA_compile_nav := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/compile_parse.o $(OBJDIR)/compile_nav.o $(OBJDIR)/visit.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # compile_parse.c is pure: no editor state, nothing beyond def.h's checked
 # arithmetic/ASCII helpers.  Same minimal baseline as EXTRA_localvars.
 EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST_SRCS_OBJS)
@@ -1907,6 +1956,14 @@ EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
 EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
                   $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
                   $(OBJDIR)/lsp_transport.o $(OBJDIR)/lsp_json.o
+# xref.c is the command layer: buffers, windows, the echo area, the command
+# table and the whole LSP stack underneath it.  Stubbing that is stubbing the
+# editor, so this links the same everything-but-main.c set EXTRA_cmd does --
+# and it is the only test binary that links src/xref.o at all, which is why
+# xref.c is not in LSP_OBJS.  What it actually drives is the pure half,
+# xref_location_of(): a location parser is where a server's three answer
+# shapes are either read right or navigated wrong.
+EXTRA_xref        := $(EXTRA_cmd)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

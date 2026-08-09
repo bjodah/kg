@@ -1019,6 +1019,45 @@ static void test_a_relative_file_name_is_absolutised(void)
 	teardown_buffer();
 }
 
+/* The first command after a lazy spawn asks its question before the
+ * handshake has settled, which is the ordinary case and not a corner one:
+ * src/lsp_server.h starts a server on demand and src/lsp_client.h queues
+ * what is sent to it until `initialize` is answered.  Until Stage 5 this
+ * module read the not-yet-known capabilities as a refusal -- they have the
+ * same shape as one -- and sent nothing, so M-. on a cold server measured a
+ * position in a document the server had never been given.
+ *
+ * Note what is NOT pumped before the request here: the client is still
+ * INITIALIZING when lsp_sync_before_request() runs, exactly as it is under
+ * M-. .  The didOpen must still arrive, and arrive before the request that
+ * follows it, which the record file's single line and the barrier's own
+ * reply together say. */
+static void test_sync_before_the_handshake_still_opens(void)
+{
+	struct lsp_client *c = start_server("incremental", "utf-8");
+	struct kg_buffer_handle buf;
+	const char *method = "";
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	setup_buffer("a.c", c_source);
+	buf = buf_handle(buf_current);
+	CHECK(lsp_client_state(c) == LSP_CLIENT_INITIALIZING);
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+	CHECK(lsp_sync_uri(c, buf) != NULL);
+	barrier(c);
+
+	CHECK(record_count == 1);
+	(void)record_params(0, &method);
+	CHECK(strcmp(method, "textDocument/didOpen") == 0);
+
+	lsp_sync_drop_client(c);
+	lsp_client_dispose(c, 200);
+	teardown_buffer();
+}
+
 /* A client that is gone takes its documents with it, silently: a didClose
  * queued for a dead server is a message nobody reads, and a shadow left
  * behind is a pointer into freed memory the next lookup would compare
@@ -1157,6 +1196,7 @@ int main(int argc, char **argv)
 	RUN(test_close_notifies_and_forgets);
 	RUN(test_a_dead_handle_is_refused);
 	RUN(test_a_relative_file_name_is_absolutised);
+	RUN(test_sync_before_the_handshake_still_opens);
 	RUN(test_dropping_a_client_forgets_its_documents);
 
 	record_reset();

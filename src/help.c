@@ -52,7 +52,7 @@ const char *kg_help_lines[]
 	      "              │",
 	      "│ M-g n/p  next/prev err  │ M-x      named command  │ M-:       "
 	      "eval expr     │",
-	      "│                         │ C-j      eval sexp/nl   │ C-x #    "
+	      "│ M-.      goto definition│ C-j      eval sexp/nl   │ C-x #    "
 	      "save+exit      │",
 	      "├─────────────────────────┼─────────────────────────┼───────────"
 	      "──────────────┤",

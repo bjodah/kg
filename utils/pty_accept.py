@@ -83,6 +83,10 @@ READY_SETTLE = 0.05
 # outside PATH.  Anything with an `emacs` on PATH (a CI image, a distro
 # install) is served by the search in resolve_emacs() long before this.
 EMACS_FALLBACK = "/opt-3/emacs-31-lucid/bin/emacs"
+# This checkout, for the `{REPO}` expansion in a case's `env:` values.  A
+# case runs in a fresh temporary directory, so a path into the repository is
+# otherwise unnameable from one.
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -95,6 +99,7 @@ class Case:
 	keys: list[str]
 	requires_feature: str | None
 	config_files: dict[str, str]
+	env: dict[str, str]
 	expected_saved: str | None
 	expected_saved_any: list[str] | None
 	oracle: str | None
@@ -370,6 +375,27 @@ def load_case(path: Path) -> Case:
 	            for k, v in config_files.items())):
 		raise ValueError(
 			f"{path}: config_files must map relative paths to contents")
+	# `env:` maps variable names to values merged into kg's environment for
+	# this case only.  It exists for the run-time hooks kg reads from the
+	# environment rather than from a file -- KG_LSP_SERVER_C, which is how
+	# a case injects test/fake_lsp_server.py in place of clangd.
+	#
+	# `{REPO}` in a value expands to this checkout's root, because a case
+	# runs with its working directory in a fresh temporary directory and
+	# has no other way to name a file in the repository.  It is the only
+	# substitution: anything more is a template language nobody asked for.
+	#
+	# The Emacs oracle deliberately does not get it.  A case that sets
+	# KG_LSP_SERVER_C is a case about kg's own client, and handing Emacs a
+	# variable it has never heard of would only make the oracle's run
+	# differ from a plain one in a way the case did not intend.
+	env = data.get("env", {})
+	if (not isinstance(env, dict) or
+	    not all(isinstance(k, str) and isinstance(v, str) and k and
+	            "=" not in k for k, v in env.items())):
+		raise ValueError(
+			f"{path}: env must map variable names to string values")
+	env = {k: v.replace("{REPO}", str(ROOT)) for k, v in env.items()}
 	modes = sum(1 for key in ("expected_saved", "expected_saved_any", "oracle") if key in data)
 	if modes != 1:
 		raise ValueError(f"{path}: specify exactly one of expected_saved, expected_saved_any, or oracle")
@@ -418,6 +444,7 @@ def load_case(path: Path) -> Case:
 		keys=data["keys"],
 		requires_feature=requires_feature,
 		config_files=config_files,
+		env=env,
 		expected_saved=data.get("expected_saved"),
 		expected_saved_any=data.get("expected_saved_any"),
 		oracle=data.get("oracle"),
@@ -474,7 +501,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		       trailer_keys: list[str], startup_delay: float,
 		       key_delay: float, dimensions: tuple[int, int],
 		       timeout: float, config_files: dict[str, str],
-		       ready: bool) -> RunResult:
+		       ready: bool, case_env: dict[str, str]) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -486,6 +513,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		env.pop("XDG_CONFIG_HOME", None)
 		env["TERM"] = env.get("TERM", "xterm-256color")
 		env.setdefault("LC_ALL", "C.UTF-8")
+		env.update(case_env)
 
 		log = io.BytesIO()
 		child = pexpect.spawn(
@@ -601,7 +629,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
 		    timeout: float, config_files: dict[str, str],
-		    ready: bool, settle_floor: float = 0.0) -> RunResult:
+		    ready: bool, case_env: dict[str, str],
+		    settle_floor: float = 0.0) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
@@ -620,6 +649,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		cmd = "env -u XDG_CONFIG_HOME " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
+		      "".join(f"{k}={shlex.quote(v)} " for k, v in case_env.items()) + \
 		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
 		transcript = io.StringIO()
 
@@ -682,14 +712,17 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       trailer_keys: list[str], backend: str, startup_delay: float,
 	       key_delay: float, dimensions: tuple[int, int],
 	       timeout: float, config_files: dict[str, str],
-	       ready: bool = True, settle_floor: float = 0.0) -> RunResult:
+	       ready: bool = True, settle_floor: float = 0.0,
+	       case_env: dict[str, str] | None = None) -> RunResult:
+	case_env = case_env or {}
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
-				       timeout, config_files, ready, settle_floor)
+				       timeout, config_files, ready, case_env,
+				       settle_floor)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
-				  timeout, config_files, ready)
+				  timeout, config_files, ready, case_env)
 
 
 def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
@@ -719,7 +752,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
 			    case.trailer_keys, case.backend, startup_delay,
 			    key_delay, case.dimensions, timeout,
-			    case.config_files, settle_floor=settle_floor)
+			    case.config_files, settle_floor=settle_floor,
+			    case_env=case.env)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")

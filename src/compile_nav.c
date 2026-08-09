@@ -9,11 +9,10 @@
 #include "decor.h"
 #include "def.h"
 #include "marker.h"
+#include "visit.h"
 
-#include <errno.h>
 #include <limits.h>
 #include <string.h>
-#include <sys/stat.h>
 
 /* One diagnostic beyond what compile_parse.h already gives: where it sits
  * inside *compilation* (a marker plus a highlight decoration, both created
@@ -168,61 +167,12 @@ static bool diag_build_path(
 	return true;
 }
 
-/* Move focus to another window before displaying a diagnostic's source, so
- * *compilation* stays visible: only when there are at least two windows and
- * the current one is showing it, otherwise a jump reuses whatever window
- * the user is already in, like any other buffer switch.  Picks the next
- * window in the C-x o cycle rather than hunting for one already showing the
- * target -- a deliberately simple rule, not an attempt to reproduce
- * display-buffer's window reuse. */
-static void nav_pick_window(void)
-{
-	if (win_count <= 1
-	    || !win_shows_buffer(wcur(), g_run.compilation_buffer)) {
-		return;
-	}
-	for (int i = 1; i <= MAX_WINDOWS; i++) {
-		int idx = (win_current + i) % MAX_WINDOWS;
-
-		if (winlist[idx].active && idx != win_current) {
-			win_current = idx;
-			return;
-		}
-	}
-}
-
-/* Open `path`'s buffer (reusing it if already open) and land it in the
- * window nav_pick_window() chose.  A path that resolves to a directory, or
- * that stat() cannot see at all, is reported and refused rather than
- * handed to buf_open_path() -- which would happily start a new, empty
- * buffer for a file that does not exist, exactly the "reused storage"
- * this module's contract refuses to paper over with. */
-static bool nav_open_source(const char *path)
-{
-	struct stat st;
-
-	if (buf_find_open(path) < 0) {
-		if (stat(path, &st) != 0) {
-			editor_set_status_message(
-			    "next-error: %s: %s", path, strerror(errno));
-			return false;
-		}
-		if (S_ISDIR(st.st_mode)) {
-			editor_set_status_message(
-			    "next-error: %s is a directory", path);
-			return false;
-		}
-		if (buf_count >= MAX_BUFFERS) {
-			editor_set_status_message(
-			    "next-error: too many open buffers (%d max)",
-			    MAX_BUFFERS);
-			return false;
-		}
-	}
-	nav_pick_window();
-	buf_open_path(path, 0);
-	return bcur()->filename && strcmp(bcur()->filename, path) == 0;
-}
+/* Which window a visit should leave, and which buffer's name every refusal
+ * this module reports carries.  Both were spelled into src/visit.c's
+ * callers when next-error was the only one; naming them here is what makes
+ * the shared primitive shared rather than compilation's with a parameter
+ * bolted on. */
+#define NAV_WHO "next-error"
 
 /* Remember where this visit landed, so a later one can prefer the marker
  * over the diagnostic's original line/column -- which is what keeps
@@ -256,7 +206,7 @@ static bool nav_visit_marker(struct compile_nav_extra *ex)
 		ex->source_marker_valid = false;
 		return false;
 	}
-	nav_pick_window();
+	editor_visit_escape_window(g_run.compilation_buffer);
 	if (!buf_select(buf_handle_slot(ex->source_buffer))) {
 		return true; /* refused under event pressure; still handled */
 	}
@@ -276,16 +226,14 @@ static void nav_visit(int idx)
 		return;
 	}
 	if (!diag_build_path(d, path, sizeof(path))) {
-		editor_set_status_message(
-		    "next-error: diagnostic path was truncated in compiler "
-		    "output");
+		editor_set_status_message(NAV_WHO
+		    ": diagnostic path was truncated in compiler output");
 		return;
 	}
-	if (!nav_open_source(path)) {
+	if (!editor_visit_file_position(NAV_WHO, path, (int)d->line,
+		d->has_column ? (int)d->column : 1, g_run.compilation_buffer)) {
 		return;
 	}
-	editor_goto_line_direct(
-	    (int)d->line, d->has_column ? (int)d->column : 1);
 	nav_remember_marker(ex);
 }
 

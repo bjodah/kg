@@ -284,6 +284,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   load* -- plain, valgrind and MSan latencies here span two orders of
   magnitude, and a case only ever fails in the lane nobody measured.
 - `dimensions: [rows, cols]` is available for viewport-sensitive cases.
+- `env:` maps variable names to values merged into kg's environment for
+  that case only, for the run-time hooks kg reads from the environment
+  rather than from a file — `KG_LSP_SERVER_C`, which is how an LSP case
+  injects `test/fake_lsp_server.py` in place of clangd. `{REPO}` in a
+  value expands to the checkout root, since a case runs with its working
+  directory in a fresh temporary directory. The Emacs oracle deliberately
+  does not get it.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an

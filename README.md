@@ -133,6 +133,9 @@ standard VT100 escape sequences.
   run's diagnostics and restarts the cursor from the first one
 - `M-g` is a prefix map: `M-g g` / `M-g M-g` go to a line, `M-g n` / `M-g p`
   step through compilation diagnostics
+- `M-.` (`xref-find-definitions`) asks a language server where the symbol
+  at point is defined and goes there, asynchronously — see
+  [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
   `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`
@@ -294,6 +297,48 @@ An edit reparses incrementally, against the tree the last one left, and
 re-colours only the rows that changed, so an ordinary keystroke costs what
 it changed rather than what the file weighs. `WITH_TREE_SITTER=0` remains
 the default, and the configuration with colours for every other language.
+
+## LSP (optional, on by default)
+
+kg can ask a Language Server Protocol server where a symbol is defined.
+Unlike tree-sitter, this needs nothing at build time — servers are found at
+run time — so `WITH_LSP=1` is the default and `make WITH_LSP=0` builds the
+editor without it. `kg -V` says which one a binary is:
+
+```bash
+./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
+```
+
+One command uses it today: **`M-.`** (`xref-find-definitions`), which goes
+to the definition of the symbol at point. Everything else the protocol
+offers — references, diagnostics, completion, hover, rename — is
+deliberately out of scope until this foundation has proven itself.
+
+Servers are **started lazily**, and never by opening a file: the first `M-.`
+in a C buffer is what spawns `clangd`, and every buffer under the same
+workspace root then shares it. Two modes have a built-in server, `clangd`
+for C and `ty server` for Python; any other mode says it has no server
+rather than starting one. The workspace root is the nearest ancestor
+holding that language's build-system marker (`.clangd`,
+`compile_commands.json`, `compile_flags.txt`, `build/compile_commands.json`;
+`ty.toml`, or a `pyproject.toml` mentioning `[tool.ty`), then the nearest
+ancestor holding `.git`, and failing that the file's own directory.
+
+`M-.` sends the question and returns. The editor stays responsive while the
+server thinks, and point moves when the answer arrives; the echo area
+reports where it went, or `No definition found`, or why there was no server
+to ask. The place it left is pushed on the mark ring, so `C-u C-SPC` comes
+back. The buffer is sent to the server before each request rather than on
+every keystroke, so an unsaved buffer is still the text the answer is about.
+
+`KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
+line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x
+compile`'s command is, so a wrapper, a path with spaces or extra arguments
+all work — and it is how kg's own tests point the client at a fake server:
+
+```bash
+KG_LSP_SERVER_C='clangd --header-insertion=never' kg foo.c
+```
 
 ## Development
 

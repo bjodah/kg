@@ -101,6 +101,11 @@ static const struct meta_key meta_keys[] = {
 	 * M-x.  07D added M-- to the argument accumulator but nothing ever
 	 * produced the event for it to accumulate. */
 	{ '-', '-', 0 },
+	/* M-. is xref-find-definitions.  This table is an allow-list, not a
+	 * default: a byte missing from it falls through to the multi-byte
+	 * branch below, which reads a second byte and so swallows the key
+	 * after it -- the same failure the M-- row above was added for. */
+	{ '.', '.', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

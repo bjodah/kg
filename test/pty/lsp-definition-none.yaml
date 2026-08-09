@@ -1,0 +1,30 @@
+name: lsp-definition-none
+# The other half of M-.: a server that looked and found nothing answers JSON
+# null, and point must not move.  A jump to "wherever null decodes to" is
+# the failure this exists to catch, and it is invisible on screen -- the
+# echo area would say something either way -- so the assertion is again the
+# saved file: the X is typed where M-. left point, and it is still at the
+# very start of the buffer.
+#
+# Same shape as lsp-definition-basic otherwise: the fake server in place of
+# clangd, and two C-l to leave the asynchronous answer time to arrive
+# without moving point while it does.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --definition-none"
+filename: xrefnone.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }

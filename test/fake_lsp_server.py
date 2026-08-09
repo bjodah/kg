@@ -61,6 +61,14 @@ Options, all of them optional:
     "this server reads files from disk" configuration.
 ``--definition URI:LINE:CHAR`` / ``--definition-none``
     What ``textDocument/definition`` answers: one Location, or JSON null.
+``--definition-self LINE:CHAR``
+    Answer ``textDocument/definition`` with a Location in the document the
+    client most recently opened or changed, at LINE:CHAR.  It exists
+    because a PTY case edits a file in a temporary directory whose name
+    neither the case nor this server knows: pointing the answer at the URI
+    the client itself sent removes the absolute path from the test's
+    vocabulary entirely.  Takes precedence over ``--definition``; if no
+    document has been opened, the answer is null.
 ``--reference URI:LINE:CHAR`` (repeatable)
     What ``textDocument/references`` answers, as an array of Locations; an
     empty list answers ``[]``.
@@ -219,6 +227,9 @@ class Protocol:
         self.method_not_found = False
         self.greeted = False
         self.deferred = []
+        # The URI of the document the client last told this server about,
+        # which is what --definition-self answers in.
+        self.last_uri = None
 
     def send(self, message):
         write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
@@ -261,7 +272,11 @@ class Protocol:
         if method == "initialize":
             return self.initialize_result()
         if method == "textDocument/definition":
-            if self.args.definition_none or not self.args.definition:
+            if self.args.definition_none:
+                return None
+            if self.args.definition_self:
+                return self.self_location()
+            if not self.args.definition:
                 return None
             return parse_location(self.args.definition)
         if method == "textDocument/references":
@@ -274,6 +289,23 @@ class Protocol:
         if method == "shutdown":
             return None
         return None
+
+    def self_location(self):
+        """A Location in the document the client last sent, or null."""
+        if not self.last_uri:
+            return None
+        line, char = self.args.definition_self.split(":")
+        position = {"line": int(line), "character": int(char)}
+        return {"uri": self.last_uri,
+                "range": {"start": position, "end": position}}
+
+    def note_document(self, message):
+        """Remember the URI of any textDocument notification's document."""
+        params = message.get("params") or {}
+        document = params.get("textDocument") or {}
+        uri = document.get("uri")
+        if uri:
+            self.last_uri = uri
 
     def on_response(self, message):
         """The client answering the request this server sent it."""
@@ -302,6 +334,8 @@ class Protocol:
         method = message["method"]
         if method == "exit":
             raise SystemExit(0)
+        if method.startswith("textDocument/"):
+            self.note_document(message)
         self.record(message)
         self.greet()
         if self.args.die_on and method == self.args.die_on:
@@ -367,6 +401,9 @@ def main(argv):
                         help="URI:LINE:CHAR answered to definition requests")
     parser.add_argument("--definition-none", action="store_true",
                         help="answer definition requests with null")
+    parser.add_argument("--definition-self", default=None,
+                        help="LINE:CHAR answered to definition requests, in "
+                             "the document the client last sent")
     parser.add_argument("--reference", action="append", default=[],
                         help="URI:LINE:CHAR added to the references answer")
     parser.add_argument("--server-request", default=None,

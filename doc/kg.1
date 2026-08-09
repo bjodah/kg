@@ -1148,6 +1148,7 @@ Multiple files each open in their own buffer.
 .It M-g g / M-g M-g Ta Go to line (prompts for line or line:col)
 .It M-g n Ta Jump to the next compilation diagnostic
 .It M-g p Ta Jump to the previous compilation diagnostic
+.It M-. Ta Go to the definition of the symbol at point (needs a language server)
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -2564,6 +2565,15 @@ Each modified line is independently reversible with
 Write the buffer to a different file.
 Bound to
 .Ic C-x C-w .
+.It xref-find-definitions
+Ask the buffer's language server where the symbol at point is defined,
+and go there.
+Bound to
+.Ic M-. .
+The question is asked and the command returns; the answer arrives later
+and moves point when it does.
+See
+.Sx LSP .
 .It yank
 Insert the kill ring's contents at point, or with a numeric argument
 that many copies under one undo record.
@@ -2738,6 +2748,76 @@ Starting a new compilation
 discards the previous run's diagnostics and cursor, so
 .Ic next-error
 starts over from the first one.
+.Sh LSP
+kg can ask a Language Server Protocol server where a symbol is defined.
+One command uses it today:
+.Ic M-x xref-find-definitions ,
+bound to
+.Ic M-. .
+It is optional at build time
+.Pq Ic make WITH_LSP=0 ,
+on by default, and
+.Ic kg -V
+says which of the two this binary is.
+.Pp
+Servers are found at run time and started lazily.
+Nothing is spawned by opening a file: the first command that needs an
+answer is what pays for the server, and every buffer under the same
+workspace root then shares it.
+Two modes have a built-in server:
+C
+.Pq Ic clangd
+and Python
+.Pq Ic ty server .
+Any other mode reports that it has no server rather than starting one.
+.Pp
+The workspace root is the nearest ancestor directory holding a marker of
+that language's build system \(em for C
+.Pa .clangd ,
+.Pa compile_commands.json ,
+.Pa compile_flags.txt
+or
+.Pa build/compile_commands.json ;
+for Python
+.Pa ty.toml ,
+or a
+.Pa pyproject.toml
+mentioning
+.Ql [tool.ty
+\(em then the nearest ancestor holding
+.Pa .git ,
+and failing that the file's own directory.
+.Pp
+.Ic M-.
+sends the question and returns; the editor stays responsive while the
+server thinks, and point moves when the answer arrives.
+The echo area reports what happened: the file and line jumped to, or
+.Do
+No definition found
+.Dc ,
+or the reason there was no server to ask.
+A server that answers with more than one definition is reported as such
+and the first one is visited.
+Before the jump, the place it left is pushed on the mark ring, so
+.Ic C-u C-SPC
+returns to it.
+.Pp
+The buffer is sent to the server before each request, not on every
+keystroke: an unsaved buffer is still the text the answer is about, and a
+server never sees an edit that no command asked a question about.
+A server that dies is not restarted where it fell; the next command
+starts a new one.
+.Pp
+.Ev KG_LSP_SERVER_C
+and
+.Ev KG_LSP_SERVER_PYTHON
+replace the built-in command line for that mode.
+The value is run through
+.Ic /bin/sh -c ,
+exactly as
+.Ic M-x compile Ns 's
+command is, so a wrapper script, an absolute path with spaces in it and
+extra arguments all work.
 .Sh READ-ONLY MODE
 .Ic M-x read-only-mode
 .Pq bound to Ic C-x C-q
@@ -3334,6 +3414,21 @@ Terminal size changes
 .Pq SIGWINCH
 are handled gracefully.
 .Bl -tag -width Ds
+.It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON
+The command line a
+.Sq +lsp
+build runs for that mode's language server, replacing the built-in
+.Ic clangd
+or
+.Ic ty server .
+Run through
+.Ic /bin/sh -c ,
+so quoting and arguments work; unset or empty leaves the built-in.
+Ignored by a
+.Sq -lsp
+build.
+See
+.Sx LSP .
 .It Ev KG_TS_GRAMMAR_PATH
 Colon-separated list of directories a
 .Sq +tree-sitter

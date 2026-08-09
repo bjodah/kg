@@ -83,6 +83,25 @@ size_t lsp_pos_decode(enum lsp_position_encoding enc, const char *chars,
 
 /* ------------------------- document synchronisation ------------------- */
 
+/* The file `b` visits, as an absolute path, written to `out`.  A buffer
+ * stores the name it was opened with, which is relative whenever the user
+ * typed a relative one (src/bufmgr.c's buf_open_path()), and every part of
+ * the protocol that names a file wants an absolute one: a relative URI is
+ * one the server resolves against a directory kg never told it about, and a
+ * relative workspace-root query is one src/lsp_server.h refuses.
+ *
+ * Deliberately not realpath(): the file need not exist, and resolving
+ * symlinks would hand the server a name it cannot match against the one it
+ * found itself.
+ *
+ * Returns false for a buffer visiting no file, for a working directory that
+ * cannot be read, and for a result that does not fit `out_size`.  It is
+ * public because the command layer asks the same question before this
+ * module does -- src/xref.c needs the path to find the workspace root, one
+ * step before the document is synchronised at all. */
+bool lsp_sync_abs_path(
+    const struct editor_buffer *b, char *out, size_t out_size);
+
 /* Bring `c`'s idea of the buffer `buf` names up to date, and do it before
  * every positional request: a `textDocument/definition` measured against a
  * document the server last saw three edits ago answers about a position

@@ -290,13 +290,9 @@ static const char *language_id_of(const struct editor_buffer *b)
 	}
 }
 
-/* The buffer's file name as an absolute path.  A buffer stores the name it
- * was opened with, which is relative whenever the user typed a relative one
- * (src/bufmgr.c's buf_open_path()), and a relative URI is one the server
- * resolves against a directory kg never told it about.  Not realpath():
- * the file need not exist, and resolving symlinks would hand the server a
- * name it cannot match against the one it found itself. */
-static bool abs_path_of(
+/* The buffer's file name as an absolute path; see lsp_sync.h for why it is
+ * not realpath() and why it is public. */
+bool lsp_sync_abs_path(
     const struct editor_buffer *b, char *out, size_t out_size)
 {
 	char cwd[PATH_MAX];
@@ -446,7 +442,7 @@ static int doc_open(struct lsp_client *c, struct kg_buffer_handle buf,
 	size_t len = 0;
 	char *text;
 
-	if (!d || !abs_path_of(b, path, sizeof(path))
+	if (!d || !lsp_sync_abs_path(b, path, sizeof(path))
 	    || !lsp_uri_from_path(path, d->uri, sizeof(d->uri))) {
 		return -1;
 	}
@@ -504,7 +500,18 @@ int lsp_sync_before_request(struct lsp_client *c, struct kg_buffer_handle buf)
 		return -1;
 	}
 	caps = lsp_client_caps(c);
-	if (!caps->open_close && caps->sync == LSP_SYNC_NONE) {
+	/* "Wants nothing" is a thing a server has to have SAID.  Before the
+	 * handshake settles the capabilities are still the defaults, which
+	 * spell the same shape as a refusal -- and reading them as one is
+	 * how the very first command after a lazy spawn would send a
+	 * position into a document the server was never given.  An
+	 * INITIALIZING client is synchronised on the assumption that it will
+	 * want it: the notification is queued and flushed in order once the
+	 * handshake completes, ahead of the request that follows it here, so
+	 * a server that turns out to want nothing receives one didOpen it
+	 * did not ask for and nothing else. */
+	if (lsp_client_state(c) == LSP_CLIENT_READY && !caps->open_close
+	    && caps->sync == LSP_SYNC_NONE) {
 		return 0; /* the server reads files itself; say nothing */
 	}
 	d = doc_find(c, buf);

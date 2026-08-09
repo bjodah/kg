@@ -453,6 +453,11 @@ static const struct {
 	{ "M-g M-g", "goto-line" },
 	{ "M-g n", "next-error" },
 	{ "M-g p", "previous-error" },
+	/* Emacs' M-. .  No "ESC ." row beside it: the two ESC spellings
+	 * further down exist for the shifted keys a user reaches by pressing
+	 * ESC first, and every other Meta binding here -- M-f, M-d, M-x --
+	 * gets by on the decoder's ESC-merge alone. */
+	{ "M-.", "xref-find-definitions" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

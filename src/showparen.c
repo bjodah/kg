@@ -21,6 +21,7 @@
 #include "syntax.h"
 #include "vgeom.h"
 #include <stddef.h>
+#include <stdint.h>
 
 int show_paren_mode = 1;
 

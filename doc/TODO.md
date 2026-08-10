@@ -100,6 +100,14 @@ done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
+- **A buffer visiting an unwritable file should be read-only**, as in
+  Emacs.  Not LSP's bug but LSP is where it hurts (adversarial review
+  2026-08-10, finding 12): a WorkspaceEdit targeting a mode-444 file
+  "succeeds" into a buffer whose save will fail.  With the read-only
+  flag set at visit time, the existing `obeys_readonly` edit policy and
+  the all-or-nothing WorkspaceEdit validation would both refuse it up
+  front.  An editor-wide change (visit path, `C-x C-q` interplay), so
+  it did not ride along with the review's LSP fixes.
 - ~~**Result previews in `*xref*`.**~~  Done: the listing ships as
   `path:line:col: preview`, the preview coming from `src/fileline.h`'s
   `kg_file_line_preview()` -- an open buffer's own row when one visits the

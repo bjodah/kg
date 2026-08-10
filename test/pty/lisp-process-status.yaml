@@ -63,5 +63,10 @@ keys:
   - C-e
   - C-c
   - o
-expected_saved: |-
-  RUN:run EXIT:exit SIGNAL:signal
+# Both orders: "e" (exits) and "s" (killed) are independent children
+# racing to terminate, and the drain delivers whichever died first --
+# under load the kill can beat the clean exit.  Only the RUN prefix and
+# each child's own status are the behaviour under test.
+expected_saved_any:
+  - "RUN:run EXIT:exit SIGNAL:signal"
+  - "RUN:run SIGNAL:signalEXIT:exit "

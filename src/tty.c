@@ -365,8 +365,13 @@ int enable_raw_mode(int fd)
 	raw.c_cc[VMIN] = 0; /* Return each byte, or zero for timeout. */
 	raw.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
 
-	/* put terminal in raw mode after flushing */
-	if (tcsetattr(fd, TCSAFLUSH, &raw) < 0) {
+	/* TCSADRAIN, not TCSAFLUSH: FLUSH discards input already queued in
+	 * the pty, so a key typed before kg finishes starting -- type-ahead
+	 * over a slow ssh link, or a test harness racing a sanitizer build
+	 * -- silently vanishes, and a multi-byte sequence straddling the
+	 * flush is beheaded (its tail then self-inserts).  Emacs keeps
+	 * type-ahead; so do we. */
+	if (tcsetattr(fd, TCSADRAIN, &raw) < 0) {
 		goto fatal;
 	}
 	editor.rawmode = 1;

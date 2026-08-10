@@ -431,6 +431,16 @@ int load_file_transactional(const char *filename, struct temp_load_result *res)
 	fp = fopen(filename, "r");
 	if (!fp) {
 		if (errno == ENOENT) {
+			/* Visiting a file that is not there is Emacs' new
+			 * file, and "nothing is there" is a state we know:
+			 * record it as such rather than leaving the
+			 * snapshot unsampled, which the save path would
+			 * read as "cannot verify" and ask about.  Recorded
+			 * from what this fopen() just observed, not from a
+			 * second stat(): a file that appears in between is
+			 * one this buffer never accepted, and the save is
+			 * meant to notice it. */
+			res->disk.valid = true;
 			return 0;
 		}
 		free(res->filename);

@@ -2682,6 +2682,42 @@ static void test_snapshot_unreadable_is_unknown(void)
 	rmdir(dir);
 }
 
+/* Visiting a name nothing holds is Emacs' new file, and "nothing is there"
+ * is an answer: the load succeeds with no rows and an accepted state that
+ * says so, which is what lets the first save write without asking.  The two
+ * questions the save can still ask are the two other answers, and both are
+ * reachable from the very same accepted state. */
+static void test_visit_missing_file_accepts_absence(void)
+{
+	char dir_template[] = "test_newfile_XXXXXX";
+	char *dir = mkdtemp(dir_template);
+	char path[PATH_MAX];
+	struct temp_load_result res;
+
+	CHECK(dir != NULL);
+	if (!dir) {
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/new.txt", dir);
+
+	CHECK(load_file_transactional(path, &res) == 0);
+	CHECK(res.numrows == 0);
+	CHECK(res.disk.valid);
+	CHECK(!res.disk.id.present);
+
+	/* Still nothing there: the save has nothing to warn about. */
+	CHECK(file_snapshot_compare_path(path, &res.disk) == FILE_SAME);
+
+	/* Something appeared under the buffer between the visit and the
+	 * save: that is what the question is for. */
+	write_text_file(path, "theirs");
+	CHECK(file_snapshot_compare_path(path, &res.disk) == FILE_DIFFERENT);
+
+	free_load_result(&res);
+	unlink(path);
+	rmdir(dir);
+}
+
 /* ---- Staged whole-file reads ---- */
 
 static int g_read_step;
@@ -3382,6 +3418,7 @@ int main(void)
 	RUN(test_guarded_write_refuses_replaced_target);
 	RUN(test_snapshot_distinguishes_by_identity);
 	RUN(test_snapshot_unreadable_is_unknown);
+	RUN(test_visit_missing_file_accepts_absence);
 	RUN(test_edit_replaces_byte_ranges);
 	RUN(test_edit_empties_and_fills_a_buffer);
 	RUN(test_edit_internal_changes_text_without_dirtying);

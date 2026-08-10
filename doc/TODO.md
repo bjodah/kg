@@ -8,9 +8,12 @@ This file remains the broader feature and technical-debt inventory.
 
 - [ ] mouse-mode by default if support detected. Left click to move cursor,
       scroll wheel up down, mark regions of text (left moutse down).
-- [ ] Currently: "C-x C-f C-a C-k /tmp/newfile.txt RET foobar C-x C-s" incurs
-      "Cannot verify /tmp/newfile.txt on disk.  Save anyway? (y/n)", this is
-      a deviation from emacs, I expect to prompt here.
+- [x] "C-x C-f C-a C-k /tmp/newfile.txt RET foobar C-x C-s" no longer asks
+      "Cannot verify /tmp/newfile.txt on disk.  Save anyway? (y/n)": a visit
+      that ends in ENOENT records the file as absent instead of leaving its
+      state unsampled, so the first save of a new file is silent as in Emacs.
+      The question stays for a file that was there and is not, or that
+      cannot be examined.
 - [ ] Create new scratch buffers: "C-x b *foo* RET" should open/create an
       ephemeral buffer (due to leading+trailing asterisk, no confirmation 
       on "C-x k" of unsaved changes).

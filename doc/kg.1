@@ -3088,6 +3088,11 @@ marker in the mode line.
 A file that cannot be examined at all — an unreadable directory, an I/O
 error, a symlink loop — is tagged the same way: unable to check is never
 reported as unchanged.
+A file that was never there — a new file visited with
+.Ic C-x C-f
+and not yet written — is recorded as absent, which is a state like any
+other: its first save asks nothing, and only something appearing at that
+name in the meantime makes it a change.
 On
 .Ic C-x C-s
 against such a buffer the user is prompted to confirm before overwriting,

@@ -1,0 +1,38 @@
+# C-x C-f onto a name nothing holds, then C-x C-s: Emacs writes a brand-new
+# file without a word, and so must kg.  The save guard compares the state
+# the buffer accepted against what is on disk now; a visit that ended in
+# ENOENT used to leave that state unsampled, and "could not sample" is not
+# "nothing was there", so the first save of every new file asked
+# "Cannot verify ... Save anyway? (y/n)".
+#
+# The new file's contents are proved by appending them to the file under
+# test, which is the one file the harness reads back: without the save
+# there is nothing to append, and with the prompt back the first "n" of
+# "notes.txt" answers it instead.  The screen assertions are the direct
+# half — the prompt must not be on the terminal at all.
+name: save-new-file-does-not-prompt
+filename: notes.txt
+initial: |
+  notes
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "fresh.txt"
+  - RET
+  - "foobar"
+  - C-x
+  - C-s
+  - M-!
+  - "cat fresh.txt >> notes.txt"
+  - RET
+trailer_keys: [C-x, C-c]
+expected_saved: |-
+  notes
+  foobar
+expected_screen_contains:
+  - "Wrote"
+expected_screen_not_contains:
+  - "Cannot verify"
+  - "Save anyway"

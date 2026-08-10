@@ -27,10 +27,11 @@ keys:
   - M-RET
   - Z
 # Back to rw.txt before the trailer saves: saving the read-only buffer
-# would prompt instead.  The trailing y answers "Modified buffer, really
-# quit?" -- without it kg never exits, tmux kills it, and the run's
-# coverage data is never written.
-trailer_keys: ["C-x", "b", "rw", "RET", "C-x", "C-s", "C-x", "C-c", "y"]
+# would prompt instead.  Nothing is modified by the time C-x C-c runs --
+# locked.txt was a new file and its save above went through in silence --
+# so the quit needs no confirmation, and a key sent after it would land
+# on a pane kg has already left.
+trailer_keys: ["C-x", "b", "rw", "RET", "C-x", "C-s", "C-x", "C-c"]
 expected_screen_contains:
   - "RO"
 expected_saved: "editable"

@@ -378,6 +378,13 @@ struct editor_buffer {
 	int auto_revert;
 	int visual_line_mode;
 	int overwrite_mode;
+	/* 1 when `filename` is this buffer's name and not a path: C-x b to a
+	 * name nothing answers to makes such a buffer, as Emacs'
+	 * switch-to-buffer does.  It is what kg has in place of Emacs'
+	 * `buffer-file-name' being nil for a buffer that visits nothing --
+	 * kg's own *special* buffers answer the same question through the
+	 * leading asterisk, so ask buf_visits_file() rather than this flag. */
+	int no_file;
 };
 
 /* Global editor state */
@@ -654,6 +661,18 @@ static inline int checked_size_to_int(int *result, size_t val)
 static inline int is_special_buffer(const char *filename)
 {
 	return !filename || filename[0] == '*';
+}
+
+/* Whether `b`'s name is a file it stands for on disk -- kg's spelling of
+ * Emacs' "buffer-file-name is non-nil".  False for the *special* buffers
+ * kg generates and for a buffer created by name (C-x b to a name nothing
+ * answers to), which have a name but nothing to save it over.  This, not
+ * is_special_buffer(), is the question every save, revert, quit-time and
+ * kill-time prompt asks: a buffer that visits nothing has no unsaved
+ * changes to lose. */
+static inline int buf_visits_file(const struct editor_buffer *b)
+{
+	return !b->no_file && !is_special_buffer(b->filename);
 }
 
 /* True for UTF-8 continuation bytes (0x80–0xBF).  Useful when iterating

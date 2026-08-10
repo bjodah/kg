@@ -524,7 +524,7 @@ int autorevert_poll(void)
 		enum file_change_state state;
 		int new_changed;
 
-		if (!b->active || is_special_buffer(b->filename)) {
+		if (!b->active || !buf_visits_file(b)) {
 			continue;
 		}
 
@@ -569,6 +569,7 @@ static void buf_reset(void)
 	b->dirty = 0;
 	b->syntax = NULL;
 	bcur()->filename = NULL;
+	bcur()->no_file = 0;
 	kg_mark_clear(bcur());
 	kg_mark_ring_clear(bcur());
 	bcur()->shift_select = 0;
@@ -725,7 +726,7 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	int dir_len, home_len;
 
 	buf[0] = '\0';
-	if (!fn || is_special_buffer(fn)) {
+	if (!buf_visits_file(bcur())) {
 		return;
 	}
 	abs = realpath(fn, NULL);
@@ -1737,7 +1738,7 @@ static void buf_apply_local_settings(void)
 	ssize_t n;
 	char *data = NULL;
 
-	if (is_special_buffer(bcur()->filename)) {
+	if (!buf_visits_file(bcur())) {
 		return;
 	}
 
@@ -1908,11 +1909,6 @@ enum buf_name_action {
 	BUF_NAME_CONTINUE,
 	BUF_NAME_ACCEPTED,
 	BUF_NAME_OVERFLOW,
-	/* BUF_NAME_SELECT only: RET on a query that matches nothing closes
-	 * the prompt having chosen nothing, which is what C-x b has always
-	 * done.  Distinct from ACCEPTED so no caller can mistake the empty
-	 * answer for a name. */
-	BUF_NAME_DISMISSED,
 };
 
 /* One redraw's filtered view of the buffer ring, as the accept path needs
@@ -1994,10 +1990,8 @@ static enum buf_name_action buf_name_accept(struct key_event c,
 		return buf_name_accept_query(query, out, outsize);
 	}
 	/* A query naming no buffer: `b` re-prompts, which is the Lisp code's
-	 * contract; C-x b closes, which is what it always did.  Answering
-	 * CONTINUE for both left C-x b re-prompting forever. */
-	return mode == BUF_NAME_EXISTING ? BUF_NAME_CONTINUE
-					 : BUF_NAME_DISMISSED;
+	 * contract. */
+	return BUF_NAME_CONTINUE;
 }
 
 static int buf_name_insert_key(
@@ -2067,10 +2061,6 @@ static int buf_name_handle_key(int fd, struct key_event c, char *query,
 		if (action == BUF_NAME_OVERFLOW) {
 			return MINIBUF_OVERFLOW;
 		}
-		if (action == BUF_NAME_DISMISSED) {
-			out[0] = '\0';
-			return MINIBUF_CANCELLED;
-		}
 		return MINIBUF_ACCEPTED;
 	}
 	if (KEY_IN_LIST(cancel_keys, c)) {
@@ -2112,9 +2102,7 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 	 * minibuffer read too (its query line), across a loop that may run
 	 * for many keystrokes before Enter or C-g.  Balanced at the loop's
 	 * one exit, since this function does not funnel through
-	 * prompt_done(); the refusal above returns before the pair opens.
-	 * ("No other buffers." used to be an early return here and is
-	 * buf_select_interactive's now, where it emits its own pair.) */
+	 * prompt_done(); the refusal above returns before the pair opens. */
 	kg_event_prompt_enter();
 
 	/* Build ring starting from the buffer after current (most natural
@@ -2172,39 +2160,50 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 	}
 }
 
-/* Interactive buffer selector shown in the echo area (C-x b). */
+/* Show the buffer called `name`, making it first when nothing answers to
+ * that name.  The created buffer visits no file (buf_create_named()), so
+ * nothing stats it, C-x s never offers it and C-x C-s asks where to write
+ * it -- which is the whole of what Emacs' switch-to-buffer means by
+ * creating a buffer. */
+static void buf_select_named(const char *name)
+{
+	int slot = buf_find_by_name(name);
+
+	if (slot < 0) {
+		slot = buf_handle_slot(buf_create_named(name));
+	}
+	if (slot < 0) {
+		editor_set_status_message("Cannot create buffer %s", name);
+		return;
+	}
+	(void)buf_select(slot);
+}
+
+/* Interactive buffer selector shown in the echo area (C-x b).
+ *
+ * A name no buffer answers to creates that buffer, as Emacs' own
+ * switch-to-buffer does -- so the prompt runs even when this is the only
+ * buffer, where kg used to answer "No other buffers." and stop. */
 void buf_select_interactive(int fd)
 {
 	char name[128];
-	int other = 0;
 	int picked = -1;
-
-	for (int i = 0; i < MAX_BUFFERS; i++) {
-		if (i != buf_current && buflist[i].active) {
-			other = 1;
-			break;
-		}
-	}
-	if (!other) {
-		/* Structurally this prompt starting and immediately
-		 * finishing, so it is still one balanced pair -- which the
-		 * early return had stopped emitting when the read moved into
-		 * buf_read_name(). */
-		kg_event_prompt_enter();
-		editor_set_status_message("No other buffers.");
-		kg_event_prompt_leave();
-		return;
-	}
 
 	/* Select by the index the picker reports, not by re-scanning for the
 	 * returned text: display names are disambiguated by one parent
 	 * directory and can still collide, and the first match then wins
 	 * over the entry the user actually highlighted. */
 	if (buf_read_name(
-		fd, "Buffer: ", name, sizeof(name), BUF_NAME_SELECT, &picked)
-		== MINIBUF_ACCEPTED
-	    && picked >= 0) {
+		fd, "Buffer: ", name, sizeof(name), BUF_NAME_ANY, &picked)
+	    != MINIBUF_ACCEPTED) {
+		return;
+	}
+	if (picked >= 0) {
 		(void)buf_select(picked);
+		return;
+	}
+	if (name[0] != '\0') {
+		buf_select_named(name);
 	}
 }
 
@@ -2310,7 +2309,7 @@ void buf_save_all(int fd)
 		if (!b->active || !b->dirty) {
 			continue;
 		}
-		if (is_special_buffer(b->filename)) {
+		if (!buf_visits_file(b)) {
 			continue;
 		}
 
@@ -2395,6 +2394,7 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 
 	buflist[slot].active = 0;
 	buflist[slot].filename = NULL;
+	buflist[slot].no_file = 0;
 	buflist[slot].dirty = 0;
 	buflist[slot].syntax = NULL;
 	/* Every handle taken on this buffer stops resolving here. */
@@ -2406,6 +2406,20 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 		    &res, kg_event_make_buffer_killed(dying));
 	}
 	return 1;
+}
+
+/* Whether the user is content to lose what is in the current buffer.
+ * Only a modified buffer that visits a file has anything to lose, so only
+ * that one is asked about -- Emacs' kill-buffer asks exactly when
+ * `buffer-modified-p' and `buffer-file-name' are both true.  A scratch
+ * buffer, or one of kg's *special* ones, is killed outright however much
+ * has been typed into it. */
+static int buf_kill_confirmed(int fd)
+{
+	if (!bcur()->dirty || !buf_visits_file(bcur())) {
+		return 1;
+	}
+	return editor_confirm_yn(fd, "Buffer modified, really kill? (y/n) ");
 }
 
 void buf_kill(int fd)
@@ -2424,8 +2438,7 @@ void buf_kill(int fd)
 		compilation_shutdown();
 	}
 
-	if (bcur()->dirty
-	    && !editor_confirm_yn(fd, "Buffer modified, really kill? (y/n) ")) {
+	if (!buf_kill_confirmed(fd)) {
 		editor_set_status_message("");
 		return;
 	}
@@ -2639,10 +2652,14 @@ static void buf_reset_slot(int slot)
 }
 
 /* Create a new empty buffer named `name` without selecting it or touching
- * any window: the backend of Lisp's (get-buffer-create).  Returns a handle
- * naming nothing when the name is empty, the table is full, or the event
- * queue refused the open.  The new buffer is clean and carries the syntax
- * its name selects, but no file. */
+ * any window: the backend of Lisp's (get-buffer-create) and of C-x b to a
+ * name nothing answers to.  Returns a handle naming nothing when the name
+ * is empty, the table is full, or the event queue refused the open.  The
+ * new buffer is clean and carries the syntax its name selects, but no
+ * file -- `name` is what it is called, not somewhere it can be written,
+ * which is what `no_file` records for every question buf_visits_file()
+ * answers.  (Emacs would leave such a buffer in fundamental-mode; taking
+ * the syntax from the name is kg's, and predates this call site.) */
 struct kg_buffer_handle buf_create_named(const char *name)
 {
 	struct kg_buffer_handle zeroed = { -1, 0, 0 };
@@ -2671,6 +2688,7 @@ struct kg_buffer_handle buf_create_named(const char *name)
 		return zeroed;
 	}
 	editor_select_syntax_highlight(&buflist[slot], (char *)name);
+	buflist[slot].no_file = 1;
 	buflist[slot].dirty = 0;
 	buf_count++;
 	return buf_handle(slot);

@@ -667,6 +667,10 @@ static int editor_save_commit(int name_changed, char *old_filename,
 
 	if (name_changed) {
 		free(old_filename);
+		/* The buffer now stands for a file on disk, whatever it stood
+		 * for before.  Cleared here rather than at the assignment
+		 * above so the rollback branch has nothing to undo. */
+		bcur()->no_file = 0;
 		for (int i = 0; i < bcur()->numrows; i++) {
 			editor_update_syntax(bcur(), &bcur()->row[i]);
 		}
@@ -680,9 +684,14 @@ static int editor_save_commit(int name_changed, char *old_filename,
 }
 
 /* Save the current file on disk. Return 0 on success, 1 on error.
- * Special buffers (filename is NULL or starts with '*') prompt for a name.
+ * A buffer that visits no file -- one of kg's *special* ones, or one
+ * created by name -- prompts for a name, which is Emacs' save-buffer
+ * falling through to write-file.
  * `destination_decided` is set by write-file, which has already asked about
- * the destination it is adopting; asking again here would double-prompt. */
+ * the destination it is adopting; asking again here would double-prompt.
+ * Write-file also adopts the destination -- name and `no_file` both --
+ * before calling, so the buffer it hands over already visits a file and
+ * never reaches the prompt above. */
 static int editor_save_named(int fd, int destination_decided)
 {
 	char *newfilename;
@@ -699,7 +708,7 @@ static int editor_save_named(int fd, int destination_decided)
 		accepted = NULL;
 	}
 
-	if (is_special_buffer(bcur()->filename)) {
+	if (!buf_visits_file(bcur())) {
 		char newname[256];
 
 		editor_prompt_prefill_dir(newname, sizeof(newname));
@@ -775,8 +784,14 @@ void editor_write_file(int fd)
 	char *old_filename = bcur()->filename;
 	struct editor_syntax *old_syntax = bcur()->syntax;
 	struct file_snapshot old_disk = bcur()->disk;
+	int old_no_file = bcur()->no_file;
 
+	/* The destination is adopted whole before the write: the buffer
+	 * visits a file from here on, which is what keeps editor_save_named()
+	 * from opening a second "Write file:" prompt for a buffer that
+	 * visited nothing a moment ago. */
 	bcur()->filename = newfilename;
+	bcur()->no_file = 0;
 	editor_select_syntax_highlight(bcur(), bcur()->filename);
 
 	if (editor_save_named(fd, 1) != 0) {
@@ -787,6 +802,7 @@ void editor_write_file(int fd)
 		bcur()->filename = old_filename;
 		bcur()->syntax = old_syntax;
 		bcur()->disk = old_disk;
+		bcur()->no_file = old_no_file;
 	} else {
 		/* Save succeeded: free the old filename and update syntax of
 		 * rows */

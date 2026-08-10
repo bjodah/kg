@@ -1712,7 +1712,7 @@ saved again.
 .It C-x C-r Ta Open file read-only in new buffer
 .It C-x C-q Ta Toggle read-only mode on current buffer (read-only-mode)
 .It C-x d Ta List a directory (dired)
-.It C-x b Ta Switch to buffer (interactive)
+.It C-x b Ta Switch to buffer, creating it when the name is new
 .It C-x k Ta Kill (close) current buffer
 .It C-x C-b Ta Open buffer list
 .It C-x C-c Ta Quit
@@ -1783,6 +1783,17 @@ What you type narrows the list by basename;
 Left/Right cycles;
 .Ic Enter
 switches to the selected buffer.
+A name that narrows the list to nothing is not a mistake: as in Emacs,
+.Ic Enter
+then creates an empty buffer with that name, whatever the name is
+spelled like.
+Such a buffer visits no file \(em it has a name, not a path \(em so
+.Ic C-x C-s
+asks where to write it,
+.Ic C-x s
+never offers it, and
+.Ic C-x k
+kills it without asking about unsaved changes.
 .Ss Window Commands
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
@@ -2254,7 +2265,12 @@ Equivalent to
 Reversible with
 .Ic C-_ .
 .It kill-buffer
-Kill the current buffer, offering to save it when it is modified.
+Kill the current buffer, asking first when it is modified and visits a
+file.
+A buffer that visits none \(em one of the
+.Pa *special*
+buffers, or one created by name \(em is killed outright, as in Emacs,
+since there is nothing it could be saved over.
 Bound to
 .Ic C-x k .
 .It kill-compilation
@@ -2477,7 +2493,8 @@ Bound to
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.
 .It save-buffer
-Save the current buffer to its file.
+Save the current buffer to its file, asking where to write it when the
+buffer visits none.
 Equivalent to
 .Ic C-x C-s .
 .It save-buffers-kill-terminal
@@ -2555,7 +2572,8 @@ Suspend kg and return to the shell; resume it with
 Bound to
 .Ic C-z .
 .It switch-to-buffer
-Switch to another buffer, chosen in the picker.
+Switch to another buffer, chosen in the picker, or create one when the
+name typed is not a buffer's.
 Bound to
 .Ic C-x b .
 .It toggle-read-only

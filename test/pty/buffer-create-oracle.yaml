@@ -1,0 +1,35 @@
+# Emacs' own switch-to-buffer, against kg's: a name nothing answers to
+# makes a buffer, what is typed there stays there, and coming back leaves
+# the file kg was started on with only its own edit.
+#
+# The full name "oracle-create.txt" is typed on the way back because the
+# two prompts agree on an exact name and not on a prefix: kg's picker
+# takes the highlighted completion where Emacs takes the literal text.
+#
+# The edit lands at M-< rather than at the end of the buffer so that the
+# comparison is about buffers and not about final newlines: an edit past
+# the last line has Emacs write a closing newline where kg writes none,
+# which is the newline policy CLAUDE.md warns oracle cases away from.
+#
+# C-x k is deliberately absent.  Emacs' kill-buffer reads a buffer name
+# (defaulting to the current one) and kg's kills the current buffer
+# outright, so the two cannot be sent the same keys; what C-x k does to a
+# buffer that visits nothing is pinned in
+# buffer-create-on-switch-and-kill.yaml instead.
+name: buffer-create-oracle
+filename: oracle-create.txt
+initial: |
+  HOST
+keys:
+  - C-x
+  - b
+  - "sketch"
+  - RET
+  - "TYPED"
+  - C-x
+  - b
+  - "oracle-create.txt"
+  - RET
+  - M-<
+  - "Z"
+oracle: emacs

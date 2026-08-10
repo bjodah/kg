@@ -1,0 +1,28 @@
+# A buffer the user creates by name is an ordinary editable buffer even
+# when the name is spelled with asterisks.
+#
+# The leading asterisk is kg's mark of a buffer *it* generated -- *help*,
+# *Buffer List*, *compilation* -- and in those `q` dismisses the buffer
+# rather than self-inserting.  Nothing stops the user naming a buffer
+# "*notes*", and Emacs puts no such buffer in special-mode either, so the
+# three q's here have to be three q's.
+#
+# Had `q` still dismissed, the first one would have killed *notes* and the
+# other two would have been typed into host.txt, which is why the saved
+# bytes tell the two behaviours apart.
+name: buffer-create-asterisk-name-is-ordinary
+filename: host.txt
+initial: |-
+  HOST
+keys:
+  - C-x
+  - b
+  - "*notes*"
+  - RET
+  - "qqq"
+  - C-x
+  - k
+  - C-End
+  - "Z"
+expected_saved: |-
+  HOSTZ

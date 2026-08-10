@@ -44,4 +44,9 @@ expected_saved: |
 expected_screen_contains:
   - "!alpha"
   - "gamma"
-trailer_keys: [C-x, C-s, C-x, C-c, "y"]
+# The trailer has no "y" on the end: the hidden "scratch" buffer is
+# modified when C-x C-c runs, but it visits no file, and kg counts only
+# file-visiting buffers at quit time as Emacs' save-buffers-kill-emacs
+# does.  Nothing asks, so nothing answers -- and under tmux a keystroke
+# sent after the pane has gone is an error rather than a no-op.
+trailer_keys: [C-x, C-s, C-x, C-c]

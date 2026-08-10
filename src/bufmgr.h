@@ -14,15 +14,14 @@ enum minibuf_result {
  * silently acquired `b`'s re-prompt-on-a-miss (which made C-x b RET on a
  * non-matching query loop forever) and `B`'s M-RET accept. */
 enum buf_name_mode {
-	/* C-x b.  RET always closes the prompt; a query matching nothing
-	 * selects nothing, and blank takes the first ring candidate. */
-	BUF_NAME_SELECT,
 	/* Lisp `b`.  Only an existing display name is accepted, a miss
 	 * re-prompts, and blank means the current buffer. */
 	BUF_NAME_EXISTING,
-	/* Lisp `B`.  A typed name that matches nothing is accepted, M-RET
-	 * accepts typed text literally even when a completion exists, and
-	 * blank takes the first "other buffer" candidate. */
+	/* C-x b and Lisp `B`.  A typed name that matches nothing is accepted,
+	 * M-RET accepts typed text literally even when a completion exists,
+	 * and blank takes the first "other buffer" candidate.  C-x b answers
+	 * a name no buffer has by creating that buffer, which is why it wants
+	 * the name rather than a dismissal. */
 	BUF_NAME_ANY,
 };
 

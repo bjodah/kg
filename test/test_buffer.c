@@ -3189,9 +3189,9 @@ static void test_path_prompt_tab_and_cycle(void)
 
 /* The buffer-name read is a read: it returns a display name and leaves
  * buf_current alone, which is what lets the Lisp `b`/`B` codes construct
- * an argument without switching buffers as a side effect.  The three
- * modes' accept policies are pinned here too, because C-x b and the two
- * Lisp codes share one picker and their policies had merged. */
+ * an argument without switching buffers as a side effect.  Both modes'
+ * accept policies are pinned here too, because C-x b and the two Lisp
+ * codes share one picker and their policies had merged. */
 static void test_buf_read_name_modes(void)
 {
 	char name[128];
@@ -3243,21 +3243,11 @@ static void test_buf_read_name_modes(void)
 
 		PLAY(cycled);
 		CHECK(buf_read_name(0, "B: ", name, (int)sizeof(name),
-			  BUF_NAME_SELECT, &picked)
+			  BUF_NAME_ANY, &picked)
 		    == MINIBUF_ACCEPTED);
 		CHECK(picked >= 0);
 		CHECK(buf_current == start);
 	}
-
-	/* C-x b: the same miss closes the prompt having chosen nothing.
-	 * Sharing `b`'s re-prompt made C-x b loop forever on RET. */
-	PLAY(miss_ret);
-	CHECK(buf_read_name(
-		  0, "B: ", name, (int)sizeof(name), BUF_NAME_SELECT, &picked)
-	    == MINIBUF_CANCELLED);
-	CHECK(picked == -1);
-	CHECK(buf_current == start);
-	CHECK(!kg_event_prompt_active());
 
 	play_keys(NULL, 0);
 	teardown();
@@ -3311,16 +3301,33 @@ static void test_buf_read_name_overflow_is_retired(void)
 	teardown();
 }
 
-/* "No other buffers." is structurally this prompt starting and
- * immediately finishing, so it must still be one balanced
- * enter/leave pair; the early return had stopped emitting either when
- * the read itself moved into buf_read_name(). */
-static void test_buf_select_interactive_no_other_buffers(void)
+/* C-x b to a name no buffer answers to creates that buffer, as Emacs'
+ * switch-to-buffer does.  It runs even when this is the only buffer,
+ * where kg used to answer "No other buffers." without opening a prompt at
+ * all -- and the prompt is still one balanced enter/leave pair.  What it
+ * makes visits no file: that, not the name, is what the kill, save and
+ * revert prompts ask about. */
+static void test_buf_select_interactive_creates_buffer(void)
 {
+	struct key_event keys[]
+	    = { kev('n', 0), kev('e', 0), kev('w', 0), kev(KEY_BASE_RET, 0) };
+
 	setup();
 	CHECK(!kg_event_prompt_active());
+	PLAY(keys);
 	buf_select_interactive(0);
 	CHECK(!kg_event_prompt_active());
+	CHECK(bcur()->filename && strcmp(bcur()->filename, "new") == 0);
+	CHECK(!buf_visits_file(bcur()));
+	CHECK(bcur()->numrows == 0);
+	CHECK(!bcur()->dirty);
+
+	play_keys(NULL, 0);
+	free(bcur()->filename);
+	bcur()->filename = NULL;
+	bcur()->no_file = 0;
+	bcur()->active = 0;
+	buf_count = 0;
 	teardown();
 }
 
@@ -3340,7 +3347,7 @@ int main(void)
 	RUN(test_path_prompt_tab_and_cycle);
 	RUN(test_buf_read_name_modes);
 	RUN(test_buf_read_name_overflow_is_retired);
-	RUN(test_buf_select_interactive_no_other_buffers);
+	RUN(test_buf_select_interactive_creates_buffer);
 	RUN(test_rows_to_string);
 	RUN(test_rows_to_string_empty_row);
 	RUN(test_rows_to_string_trailing_empty_row);

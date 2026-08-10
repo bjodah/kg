@@ -1,0 +1,35 @@
+# C-x b RET on a query that names no buffer creates that buffer, and the
+# prompt closes -- once, not forever.
+#
+# This case used to pin the opposite rule: the prompt closed having
+# selected nothing.  Emacs creates instead, and kg now does too.  What has
+# not changed is that the prompt must close: sharing the picker with the
+# Lisp `b` interactive code -- whose contract *is* to re-prompt on a miss
+# -- once gave C-x b that behaviour, so RET reopened the prompt forever
+# and every later keystroke went into the query instead of a buffer.
+#
+# The trailing "Z" is what proves it closed.  It is typed after C-x b has
+# come back to the file kg was started on, so it can only reach the buffer
+# if neither prompt is still up; "MADE" reaching the screen instead of
+# "helloZ" would mean the second C-x b had missed.
+name: buffer-switch-nonmatching-query-creates
+filename: switch-miss.txt
+backend: tmux
+initial: "hello"
+keys:
+  - C-x
+  - b
+  - "nosuchbuffer"
+  - RET
+  - "MADE"
+  - C-x
+  - b
+  - "switch-miss"
+  - RET
+  - C-End
+  - Z
+expected_screen_contains:
+  - "helloZ"
+expected_screen_not_contains:
+  - "MADE"
+expected_saved: "helloZ"

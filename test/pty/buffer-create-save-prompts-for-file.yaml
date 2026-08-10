@@ -1,0 +1,47 @@
+# C-x C-s in a buffer that visits no file asks where to write it, which is
+# Emacs' save-buffer falling through to write-file.
+#
+# The buffer is made by C-x b against a name nothing answers to, so its
+# name ("sketch") is a name and not a path; kg must not quietly create a
+# file called "sketch" in whatever directory it happens to be running in.
+# The path prompt opens empty for the same reason -- there is no directory
+# to prefill from -- and the C-a C-k is only there so the case does not
+# depend on that.
+#
+# What proves the write landed is reading it back: once the answer has
+# been given the buffer is visiting ~/sketch.txt, C-x b returns to the
+# file kg was started on, and C-x i inserts what was written.
+name: buffer-create-save-prompts-for-file
+filename: host.txt
+backend: tmux
+initial: |-
+  HOST
+keys:
+  - C-x
+  - b
+  - "sketch"
+  - RET
+  - "WRITTEN"
+  - C-x
+  - C-s
+  - C-a
+  - C-k
+  - "~/sketch.txt"
+  - RET
+  - C-x
+  - b
+  - "host"
+  - RET
+  - M->
+  - RET
+  - C-x
+  - i
+  - C-a
+  - C-k
+  - "~/sketch.txt"
+  - RET
+expected_saved: |-
+  HOST
+  WRITTEN
+expected_screen_contains:
+  - "WRITTEN"

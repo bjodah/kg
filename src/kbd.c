@@ -638,14 +638,27 @@ static int buffer_is_named(const char *name)
 	return filename && strcmp(filename, name) == 0;
 }
 
+/* Whether the current buffer is one kg generated for its own purposes --
+ * *help*, *Buffer List*, *compilation* -- and so one where `q` dismisses
+ * rather than self-inserts.  The leading asterisk is the mark of that,
+ * except that a buffer the user created by name (C-x b) may be called
+ * anything, asterisks included, and is an ordinary editable buffer; the
+ * last buffer standing answers q as itself either way. */
+static int buffer_is_generated_special(void)
+{
+	const char *name = bcur()->filename;
+
+	return name && is_special_buffer(name) && !bcur()->no_file
+	    && buf_count > 1;
+}
+
 /* Whether each mode map is live, asked once per keystroke.  A read-only
  * buffer that is neither dired nor the buffer list still answers q,
  * which is what the special-buffer branch in dispatch used to do. */
 static void key_update_mode_maps(void)
 {
-	const char *name = bcur()->filename;
 	int listing = syntax_is_dired();
-	int special = name && is_special_buffer(name) && buf_count > 1;
+	int special = buffer_is_generated_special();
 	int xref = buffer_is_named(XREF_BUFFER_NAME);
 
 	keymap_set_active(mode_maps[MODE_MAP_DIRED], listing);

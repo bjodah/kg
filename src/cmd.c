@@ -233,8 +233,9 @@ static int strip_trailing_whitespace(erow *row, int filerow)
 /* Re-read the current file from disk, discarding all unsaved changes. */
 static void cmd_revert_buffer(int fd)
 {
-	if (is_special_buffer(bcur()->filename)) {
-		editor_set_status_message("Cannot revert a special buffer");
+	if (!buf_visits_file(bcur())) {
+		editor_set_status_message(
+		    "Cannot revert a buffer with no file");
 		return;
 	}
 	if (bcur()->dirty
@@ -962,8 +963,11 @@ static int editor_confirm_quit(int fd)
 {
 	int i, ndirty = 0;
 
-	/* Count modified real-file buffers (exclude *special* ones). */
-	if (bcur()->dirty && !is_special_buffer(bcur()->filename)) {
+	/* Count modified file-visiting buffers.  A buffer that visits nothing
+	 * -- kg's *special* ones, and one created by name -- has nowhere to
+	 * be saved, which is why Emacs' save-buffers-kill-emacs does not
+	 * count it either. */
+	if (bcur()->dirty && buf_visits_file(bcur())) {
 		ndirty++;
 	}
 	for (i = 0; i < MAX_BUFFERS; i++) {
@@ -973,7 +977,7 @@ static int editor_confirm_quit(int fd)
 		if (!buflist[i].dirty) {
 			continue;
 		}
-		if (is_special_buffer(buflist[i].filename)) {
+		if (!buf_visits_file(&buflist[i])) {
 			continue;
 		}
 		ndirty++;

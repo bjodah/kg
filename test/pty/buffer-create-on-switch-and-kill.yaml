@@ -1,0 +1,28 @@
+# C-x b to a name no buffer answers to creates that buffer, and C-x k
+# kills it without asking however much has been typed into it.
+#
+# Emacs' switch-to-buffer creates on a miss, and its kill-buffer asks
+# about unsaved changes only for a buffer that is visiting a file.  A
+# buffer made this way visits none, so the kill is silent.
+#
+# The keys after C-x k are what prove there was no prompt: had one
+# appeared, C-End would have answered it (cancelling the kill) and "Z"
+# would have gone into the sketch buffer, leaving host.txt unchanged.
+# Reaching the expectation below means the kill happened and the session
+# came back to the buffer kg was started on.
+name: buffer-create-on-switch-and-kill
+filename: host.txt
+initial: |-
+  HOST
+keys:
+  - C-x
+  - b
+  - "sketch"
+  - RET
+  - "typed into a buffer that visits nothing"
+  - C-x
+  - k
+  - C-End
+  - "Z"
+expected_saved: |-
+  HOSTZ

@@ -25,6 +25,11 @@ standard VT100 escape sequences.
 - Multiple buffers sharing one kill ring, which holds up to 16 entries
   (8 MiB total); C-y yanks the newest, M-y (yank-pop) immediately
   afterward walks older ones
+- C-x b to a name no buffer has creates an empty buffer with that name,
+  as Emacs' switch-to-buffer does, whatever the name is spelled like.
+  It visits no file, so C-x C-s asks where to write it, C-x s never
+  offers it, and C-x k kills it without asking about unsaved changes --
+  which is also how kg's own `*special*` buffers are killed
 - Split-window support
 - Visual mark mode: the region renders in reverse video as you move.
   The mark, the mark ring and the active region belong to the buffer,

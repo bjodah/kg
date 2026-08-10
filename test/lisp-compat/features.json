@@ -2665,8 +2665,8 @@
    "cases": [
     "interactive-buffer-no-other"
    ],
-   "kg_test": "test/test_buffer.c:test_buf_select_interactive_no_other_buffers, test/test_buffer.c:test_buf_read_name_modes",
-   "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone.",
+   "kg_test": "test/test_buffer.c:test_buf_select_interactive_creates_buffer, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "With no other buffer to offer, B's blank default is the current buffer. The ring runs from buf_current + 1 through buf_current itself, so the first candidate already is \"first other, else current\"; the separate fallback that claimed to handle this was unreachable and is gone. The cited buf_select_interactive test now covers the same one-buffer session from C-x b's side: the prompt used to answer \"No other buffers.\" without opening, and opens for real since C-x b creates a buffer for a name nothing answers to.",
    "source_name": null
   },
   {

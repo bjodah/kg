@@ -2450,7 +2450,7 @@
     "phase8-reader-policy-rejections"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
-   "rationale": "08C's reject-before-implement rule, delivered: vectors, uninterned-symbol syntax, symbol escapes and unknown string escapes are named read errors rather than silent misreadings. kg-policy because the answer is an error message, which Emacs has no comparable spelling for.",
+   "rationale": "08C's reject-before-implement rule, delivered: vectors, uninterned-symbol syntax and unknown string escapes are named read errors rather than silent misreadings. kg-policy because the answer is an error message, which Emacs has no comparable spelling for. Symbol escapes left this row at Phase 14, which implements them -- what is still rejected there is a backslash with nothing after it, and the case names that instead. `##` left it at the same phase for the same reason; every other `#` dispatch stays rejected.",
    "source_name": null
   },
   {
@@ -3010,6 +3010,90 @@
    ],
    "kg_test": "test/test_lisp.c:test_phase13_trap_battery",
    "rationale": "Phase 13.4 trap battery, the half that involves kg's prelude. `declare` is metadata and is stripped before the body is code -- alone, and in the full docstring/declare/interactive/body cross-product -- so nothing walks a live (declare (debug ...)) as if it were an expression. The known format directives consume their arguments in order and extras are ignored; the UNknown-directive side is already strict and recorded separately (phase8-format-strictness), and a raise cannot desync an argument cursor. Assigning t, nil or a keyword is `setting-constant`. All pinned green as found.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-intern-soft",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-intern-soft-double-probe",
+    "phase14-intern-soft-after-intern",
+    "phase14-intern-soft-string-only"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_symbols",
+   "rationale": "Phase 14, the trap this phase exists to avoid, pinned in kg as well as in fe because kg is where a program written against the idiom would run: intern-soft answers nil on a miss and does NOT intern. The double probe is the assertion; an implementation that interns on a miss answers the symbol the second time and the `(while (setq x (intern-soft (format ...))) ...)` loop then exhausts kg's fixed arena instead of terminating. Measured before the pin move: all three cases answered E:void-function.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-uninterned-symbols",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-uninterned-identity",
+    "phase14-gensym-hygiene"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_symbols",
+   "rationale": "Phase 14's uninterned symbols, and the two policy decisions kg records with them. PRINTING: an uninterned symbol writes its bare name -- Emacs' own answer with print-gensym nil, its default -- so printing is not injective for them on either side; kg has no print-gensym and no `#:` spelling to make it so. COMPARISON: identity only, and kg is where that is worth pinning, `equal` being kg's prelude function rather than an fe primitive: it bottoms out in `eq` for atoms, so an uninterned symbol is `equal` to nothing but itself, as in Emacs.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-symbol-plists",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-plist-put-get",
+    "phase14-symbol-type-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_symbols",
+   "rationale": "Phase 14's put/get/symbol-plist through kg. The append-at-the-tail order and the overwrite-in-place rule are measured Emacs behaviour, not the cheaper implementation; the type failures are wrong-type-argument conditions carrying Emacs' data, which is Phase 13.3's rule applied to a surface that landed after it. This is the storage Phase 19's per-symbol error-message property will use.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-symbol-family-through-prelude",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-mapcar-symbol-name"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_symbols",
+   "rationale": "Phase 14: every name in the family is an ordinary function with a primitive_is_function[] row, so kg's prelude higher-order functions -- which funcall their argument -- reach them. Phase 13.1 had to repair exactly this for signal, error and keywordp after the fact; the family lands with its rows.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-reader-and-printer-escapes",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-reader-symbol-escapes",
+    "phase14-printer-symbol-escapes",
+    "phase14-printer-roundtrip"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_symbols",
+   "rationale": "Phase 14: kg's reader gains Emacs' symbol escapes and its printer gains the inverse. The printer half is pinned through `format` %S, which is the route a kg program actually renders a symbol by. The round-trip case is the property the pair exists for. This unblocks -- but is not -- the backquote SPELLING work doc/TODO.md records: reader escapes were its named prerequisite, and the remaining half is the writer's context-sensitive comma abbreviation and the 75-site rename, which stays recorded as phase8-reader-backquote-symbol-names.",
+   "source_name": null
+  },
+  {
+   "id": "phase14-gensym-hygiene-in-prelude",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase14-excursion-gensym-hygiene"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase14_excursion_hygiene",
+   "rationale": "Phase 14's hygiene demonstration, which is a kg-side behaviour change and not an fe one: save-excursion and with-current-buffer now bind their captured state to a gensym instead of to the ordinary symbol `internal--excursion'. A body that assigned that name used to make the unwind-protect cleanup raise, and a raising cleanup REPLACES the completion it is unwinding (fe 06A Decision 4, which is Emacs' rule too), so the user's own error was lost -- measured through test/kgbatch, this case's form answered \"internal--excursion-restore: expected a marker or a buffer\". The two sides now agree on MY-ERROR for different reasons: on Emacs `internal--excursion' is an unused global, in kg it is unreachable. doc/TODO.md's row for the other ~53 prelude temporaries is re-pointed rather than retired: the mechanism is proven, the sweep is not done.",
    "source_name": null
   }
  ]

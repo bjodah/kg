@@ -99,7 +99,7 @@ trusting it.
   Measured at the Phase 12 fix cycle, nested `save-excursion` runs to
   **218** and the 219th raises `evaluation frame limit exceeded`;
   nested `with-current-buffer` over `(current-buffer)` runs to **156**
-  and the 157th raises the same — both the 1095-frame arena
+  and the 157th raises the same — both the 1093-frame arena
   partition's verdict, not the pool's. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
@@ -243,9 +243,9 @@ Ordering rules that hold across every subscriber:
     frames one-for-one — an ordinary self-recursive function costs
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
-    1095-frame arena), so in practice it stops such recursion a few
+    1093-frame arena), so in practice it stops such recursion a few
     hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1095; exceeding it raises
+    `frame_capacity` 1093; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -340,7 +340,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56225 object slots and a 1095-frame evaluator stack.
+  current pin as 56239 object slots and a 1093-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -460,6 +460,12 @@ exposes to Lisp directly. So "every exit" is not an approximation: a
 raised error or an interrupt inside `BODY` still restores what was
 saved, or runs `CLEANUP`. Nesting is fine; each restores exactly what it
 saved, in the reverse order it was saved.
+
+Since Phase 14 the first two bind their saved state to a `gensym`, so
+nothing a body can write reaches it. Before that the binding was the
+ordinary symbol `internal--excursion`, and a body that assigned that name
+made the restoring cleanup raise — and a raising cleanup *replaces* the
+completion it is unwinding, so the body's own error was lost.
 
 **A cleanup may handle its own errors**, since Phase 12: a
 `condition-case` or `ignore-errors` written *inside* `CLEANUP` catches
@@ -667,6 +673,60 @@ so no result is ever cut mid-glyph:
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
 | `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, and refuses 0 where Emacs writes a NUL byte; Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
 
+## Symbols, property lists and the reader's escapes
+
+Since Phase 14 fe carries the symbol surface itself, so these are core
+forms rather than kg natives:
+
+| Form | Result |
+| ---- | ------ |
+| `(intern NAME)` | The interned symbol named by the string `NAME`, creating it if there is none. `(intern "nil")` is `nil` |
+| `(intern-soft NAME-OR-SYMBOL)` | The interned symbol, or **`nil` on a miss — and nothing is interned** |
+| `(symbol-name SYMBOL)` | Its name, as a string. `(symbol-name nil)` is `"nil"` |
+| `(make-symbol NAME)` | A fresh **uninterned** symbol: `eq` to nothing but itself, and in no obarray |
+| `(gensym &optional PREFIX)` | `make-symbol` over a private counter — the way a macro gets a temporary nothing can capture |
+| `(put SYMBOL PROPERTY VALUE)` | Stores `VALUE` and returns it. A new property appends at the tail; an existing one is overwritten in place |
+| `(get SYMBOL PROPERTY)` | The stored value, or `nil` |
+| `(symbol-plist SYMBOL)` | The whole `(PROPERTY VALUE ...)` list |
+
+`intern-soft` is a probe and never a constructor. That matters more than
+it looks: real code loops on it (`(while (setq x (intern-soft (format
+...))) ...)`), and an implementation that interned on a miss would turn
+such a loop into an arena exhaustion instead of a termination.
+
+kg has one obarray and no way to name a second, so `intern` and
+`intern-soft` do not take Emacs' optional `OBARRAY`; a second argument is
+`wrong-number-of-arguments` rather than an argument accepted and ignored.
+Symbol names are bounded at 63 bytes, which is the reader's own token
+bound. `(put nil ...)` raises `(wrong-type-argument symbolp nil)` — kg's
+`nil` is a distinct object with no storage — while `(get nil P)` answers
+`nil` as Emacs does before anything was put.
+
+An uninterned symbol prints as its **bare name**, which is what Emacs
+does with `print-gensym` nil, its default; kg has no `print-gensym` and
+no `#:` spelling, so printing does not distinguish two symbols of one
+name and `eq` is the only thing that does. `(keywordp (make-symbol
+":a"))` is `nil`: a keyword is an interned symbol whose name starts with
+a colon.
+
+**Reader escapes.** A backslash takes the next byte into a symbol's name
+literally, so `a\ b` is the one symbol whose name is `a b`, `\1` is the
+symbol named `1` rather than the integer, and one escape anywhere makes
+the whole token a symbol. An escaped dot is an ordinary list element
+where a bare one is the dotted-tail marker: `(a \. b)` has three
+elements and `(a . b)` is a pair. `##` is the symbol with the empty name.
+A backslash with nothing after it is a read error, and the strict-reader
+policy is otherwise unchanged — vectors, `#:` and the other `#`
+dispatches are still named read errors rather than misreadings.
+
+The printer is the inverse, so a symbol always reads back as itself:
+bytes at or below the space, and `"#'(),;[]\` and the backquote, escape
+wherever they occur, and the first byte escapes when the whole name
+reads as a number, when the name starts with `?`, or when it starts with
+`.` and the next byte is not an ASCII letter. So `(intern "a b")` prints
+`a\ b`, `(intern "1")` prints `\1`, `(intern ".")` prints `\.` — and
+`(intern ".emacs")` prints `.emacs`.
+
 kg evaluates a prelude (`lisp/prelude.el`, embedded into the binary as
 `src/lisp_prelude_generated.inc`), written in Fe, at startup
 before any init file runs — this is what makes `defun`, `let`, `cond`,
@@ -682,6 +742,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `special-variable-p` |
 | Functions | `funcall` `apply` `eval` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
+| Symbols | `intern` `intern-soft` `symbol-name` `make-symbol` `gensym` `put` `get` `symbol-plist` — core Fe primitives, described above |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
 | Editor | `string-empty-p` `thing-at-point` |

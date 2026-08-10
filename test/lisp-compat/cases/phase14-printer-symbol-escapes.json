@@ -1,0 +1,6 @@
+{
+ "id": "phase14-printer-symbol-escapes",
+ "setup": [],
+ "expr": "(list (intern \"a b\") (intern \"1\") (intern \".\") (intern \".emacs\") (intern \"\"))",
+ "note": "Phase 14: the printer is the reader's inverse, through kg's own writer. A name that would read back as something else escapes; `.emacs` would not, and does not. Deliberately NOT spelled through `(format \"%S\" ...)`, which would put the escaped name inside a printed STRING: kg's writer does not escape a backslash inside a string, so `\"a\\ b\"` prints as it is and Emacs prints `\"a\\\\ b\"` -- a pre-existing gap this phase surfaced and doc/TODO.md now records, not a symbol question."
+}

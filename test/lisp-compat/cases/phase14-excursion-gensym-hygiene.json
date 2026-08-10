@@ -1,0 +1,6 @@
+{
+ "id": "phase14-excursion-gensym-hygiene",
+ "setup": [],
+ "expr": "(condition-case e (save-excursion (setq internal--excursion nil) (error \"MY-ERROR\")) (error (car (cdr e))))",
+ "note": "Phase 14's gensym-hygiene demonstration. kg's save-excursion binds its captured state to a gensym, so a body that assigns the old ordinary name `internal--excursion' can no longer make the unwind-protect cleanup raise. A raising cleanup REPLACES the completion it is unwinding, on both sides, so before this the user's own error was lost: measured through test/kgbatch, this form answered \"internal--excursion-restore: expected a marker or a buffer\". On Emacs `internal--excursion' is just an unused global, so the oracle answers MY-ERROR for a different reason -- which is precisely the answer kg now gives."
+}

@@ -39,25 +39,41 @@ import tempfile
 # Conses hard and keeps almost nothing: the garbage is what drives the
 # collector, and the small retained list is what a mistaken collection
 # would corrupt.  The answer is checked, not just the exit status.
+# Phase 14 added the symbol half: `make-symbol` and `gensym` manufacture
+# live-then-dead SYMBOL objects, which are the first symbols fe has that
+# the collector may reclaim (an interned one is on `symbol_list`, a root),
+# and `put` appends two fresh pairs onto a property list whose symbol is
+# reachable only through the caller's operand list.  Both are exactly the
+# unrooted-intermediate seam this lane exists for.  `keeper` is retained
+# across the churn and its name read back afterwards; `gcprobe`'s property
+# is written and read at every hundredth iteration.
 SCRIPT = """
 (setq kept nil)
+(setq keeper (make-symbol "kept-name"))
 (setq n 0)
 (while (< n 300)
   (setq n (+ n 1))
   (list n n n)
   (concat "x" (format "%d" n))
-  (if (= n (* 100 (/ n 100))) (setq kept (cons n kept)) nil))
-(list n kept (length kept))
+  (gensym "tmp")
+  (make-symbol "throwaway")
+  (intern-soft "never-interned-here")
+  (if (= n (* 100 (/ n 100)))
+      (progn (put 'gcprobe (intern "p") n)
+             (setq kept (cons (get 'gcprobe 'p) kept)))
+    nil))
+(list n kept (length kept) (symbol-name keeper)
+      (intern-soft "never-interned-here") (intern-soft keeper))
 """
 
-EXPECTED = "(300 (300 200 100) 3)"
+EXPECTED = '(300 (300 200 100) 3 "kept-name" nil nil)'
 
 # The same script with enough iterations to fill kg's 1 MB arena at least
 # once, which the stress-affordable loop above does not: run through the
 # ORDINARY build only, to assert the collector is invoked at all.
 BIG_SCRIPT = SCRIPT.replace("< n 300", "< n 4000").replace(
     "(* 100 (/ n 100))", "(* 1000 (/ n 1000))")
-BIG_EXPECTED = "(4000 (4000 3000 2000 1000) 4)"
+BIG_EXPECTED = '(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil)'
 
 # The stress build collects per allocation, and the loop above allocates
 # far more than one object per iteration, so its count cannot be near the

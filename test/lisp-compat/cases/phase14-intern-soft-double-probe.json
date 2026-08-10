@@ -1,0 +1,6 @@
+{
+ "id": "phase14-intern-soft-double-probe",
+ "setup": [],
+ "expr": "(list (intern-soft \"kg14-fresh-a\") (intern-soft \"kg14-fresh-a\"))",
+ "note": "Phase 14, the contract this family is easiest to get wrong on, through kg's own evaluator: intern-soft answers nil on a miss and interns nothing, twice. An intern-on-miss implementation answers the symbol the second time, and the `(while (setq x (intern-soft (format ...))) ...)` idiom -- real code, in Gnus' message.el -- then allocates until kg's fixed arena is gone instead of terminating. Measured before the pin move: E:void-function."
+}

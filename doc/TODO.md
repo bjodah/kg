@@ -258,29 +258,36 @@ against full rebuilds.  Known follow-ups, none blocking:
       actually pins, which is the oracle shim's per-form scoping and not
       the leak.
 - [ ] **The prelude's `internal--let` temporaries are dynamically
-      capturable.**  A consequence of the same phase, recorded rather than
-      defended (11A Decision 3): the ~53 generically named temporaries
+      capturable — UNBLOCKED by Phase 14, mechanism proven, sweep not
+      done.**  A consequence of Phase 11, recorded rather than defended
+      (11A Decision 3): the ~53 generically named temporaries
       `lisp/prelude.el` binds (`result`, `res`, `doc`, `name`, …) become
       dynamic the moment a user `defvar`s such a name.  This is exactly
       Emacs' own exposure for `lexical-binding` libraries, so "fixing" it
-      means gensyms or an obarray-style renaming pass over the prelude,
-      which is a cost with no measured demand behind it.  Left here so a
-      future report of a strange interaction has somewhere to land.
-      `internal--excursion` is a 54th name and the one with the sharpest
-      consequence, added after the Phase 11 acceptance review found it:
-      it is what `save-excursion`/`with-current-buffer` hold their saved
-      state in, so a body that assigns it makes the `unwind-protect`
-      cleanup raise — and a raising cleanup REPLACES the completion it is
-      unwinding (fe's 06A Decision 4, which is Emacs' rule too:
+      means gensyms or an obarray-style renaming pass over the prelude.
+      Phase 14 supplied the gensyms, so the remaining cost is the sweep
+      itself and the re-reading it needs, not a missing mechanism.
+      Left here so a future report of a strange interaction has somewhere
+      to land.
+      `internal--excursion` was a 54th name and the one with the sharpest
+      consequence, found by the Phase 11 acceptance review: it is what
+      `save-excursion`/`with-current-buffer` hold their saved state in, so
+      a body that assigned it made the `unwind-protect` cleanup raise —
+      and a raising cleanup REPLACES the completion it is unwinding (fe's
+      06A Decision 4, which is Emacs' rule too:
       `(condition-case e (unwind-protect (error "MY") (error "CLEANUP"))
       (error e))` is `(error "CLEANUP")` on both), so the user's own
-      error is lost.  Measured:
+      error was lost.  Measured then:
       `(condition-case e (save-excursion (setq internal--excursion nil)
-      (error "MY-ERROR")) (error (format "%S" e)))` answers
+      (error "MY-ERROR")) (error (format "%S" e)))` answered
       `"(error \"internal--excursion-restore: expected a marker or a
-      buffer\")"`.  Pathological trigger, no gensyms to fix it with, and
-      the tolerant restore cannot help: the value is not a spent
-      excursion, it is a value of the wrong type.
+      buffer\")"`.  **DONE for that one name**, Phase 14: both macros bind
+      a `(gensym "internal--excursion-")` instead, the same form now
+      answers `"(error \"MY-ERROR\")"`, and
+      `test_phase14_excursion_hygiene` plus the
+      `phase14-excursion-gensym-hygiene` oracle case hold it there.  It is
+      also this wave's worked example of what the sweep would look like:
+      two lines per macro, one `gensym` call per expansion.
 - [ ] **Buffer-local variables.** `setq-local` and `setq-default` are
       aliases of `setq` and write the one global binding; both manifest
       rows are `divergent` for that reason since 10C.  A real
@@ -307,11 +314,11 @@ against full rebuilds.  Known follow-ups, none blocking:
       `` ` `` and `,` are reader *delimiters* (`fe/fe.c`'s `ReadAtom`)
       and a backslash anywhere in a token is a named read error, so
       neither `` (defalias '\` …) `` nor any of `internal--qq`'s six
-      pattern-match sites reads.  That rejection is not incidental — it
-      is the **supported** `phase8-reader-rejection-policy` row, pinned
-      by `test/test_lisp.c` and `fe/test_api.c`.  So symbol-escape reader
-      support (or an `intern` primitive, which neither tree has) is a
-      *prerequisite item*, not part of this one.  On top of that, Emacs'
+      pattern-match sites read.  **That prerequisite is now met**: Phase
+      14 implements symbol escapes AND `intern`, so `` '\` ``, `'\,` and
+      `(intern ",")` all read and the six pattern-match sites are
+      spellable.  What is left is the second phase the note below already
+      names, and it is the expensive one.  On top of that, Emacs'
       comma abbreviation is context-sensitive — measured, `(list '\, 'x)`
       standalone prints `(\, x)` and only inside a backquote does it
       print `,x` — which needs an inside-backquote depth field fe's
@@ -320,8 +327,9 @@ against full rebuilds.  Known follow-ups, none blocking:
       files, `doc/plans` excluded): 75 sites in 22 files across the kg
       and fe trees, plus a guaranteed XPASS on
       `phase8-reader-nested-backquote` and a PTY `expected_saved` edit.
-      The honest shape is two phases: reader escapes first, spelling
-      second.  Recorded as `phase8-reader-backquote-symbol-names`.
+      The honest shape is two phases: reader escapes first — landed,
+      Phase 14 — spelling second, which is still this row.  Recorded as
+      `phase8-reader-backquote-symbol-names`.
 - [ ] **Nesting is bounded by fe's evaluation frame limit, and Emacs has
       no such bound.**  Recorded by Phase 12, which removed the *other*
       bound: the adapter object pool went 64 -> 256 records, so nested
@@ -350,6 +358,20 @@ against full rebuilds.  Known follow-ups, none blocking:
       `src/lisp_io.c`; what it also needs is a way for the suite to
       measure it, since a test that drops privileges is a new kind of
       test here.
+- [ ] **The writer does not escape a backslash inside a printed string,
+      so a string containing one does not read back.**  Found by Phase
+      14, which made backslashes ordinary: measured, `(list "x\\y")`
+      prints `(x\y)` in kg where Emacs prints `("x\\y")`, and
+      `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` there.
+      `EmitStoredString` escapes only `"`.  Symbols round-trip since
+      Phase 14; strings still do not, and the two now differ visibly
+      because a symbol's printed name routinely carries backslashes.
+      Fixing it is one line in fe's writer and a re-measure of every
+      golden that prints a string containing a backslash — cheap in the
+      code, not in the goldens — plus a `FE_LANGUAGE_VERSION` move,
+      printed representation being language.  Its natural home is
+      whichever phase next touches the writer.
+
 - [ ] **`eval`'s LEXICAL argument.**  fe gained Emacs' one-argument
       `eval` at the Phase 12 pin, evaluating its form in the caller's own
       run.  A non-nil LEXICAL is rejected by name, as `macroexpand`'s
@@ -372,7 +394,10 @@ against full rebuilds.  Known follow-ups, none blocking:
       `Wrong type argument: listp, 6`.  kg's renderer is the narrow
       version for the two file classes; the general one is a
       per-symbol message property in fe's hierarchy table and an
-      `error-message-string` to read it.
+      `error-message-string` to read it.  **UNBLOCKED by Phase 14**,
+      which was the prerequisite: `put`/`get` exist, so the property has
+      somewhere to live and something to read it with.  Scheduled for
+      Phase 19, which owns `error-message-string`.
 - [x] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
       `condition-case`.**  DONE, Phase 13.2.  Converted to the
       protected-call + `FeResignal` shape `lisp_raise_file_condition()`

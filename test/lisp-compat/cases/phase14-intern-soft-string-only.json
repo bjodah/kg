@@ -1,0 +1,6 @@
+{
+ "id": "phase14-intern-soft-string-only",
+ "setup": [],
+ "expr": "(let ((s \"kg14-string-only\")) (list (intern-soft s) (intern-soft \"kg14-string-only\")))",
+ "note": "Phase 14: a name that has only ever existed as a string -- read as a literal, bound to a variable, passed to intern-soft -- has still not become a symbol."
+}

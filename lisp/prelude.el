@@ -370,17 +370,31 @@
 ;; `save-excursion's marker record straight back to the bounded pool,
 ;; which is what keeps that pool a bound on open excursions rather than
 ;; on how many a loop may perform.
+;;
+;; The temporary the captured state is bound to is a `gensym' -- an
+;; uninterned symbol, so nothing the body can write reaches it.  It used
+;; to be the ordinary symbol `internal--excursion', which meant a body
+;; that assigned that name made the cleanup raise, and a raising cleanup
+;; REPLACES the completion it is unwinding, so the user's own error was
+;; lost.  Measured before the change:
+;;   (condition-case e (save-excursion (setq internal--excursion nil)
+;;     (error "MY-ERROR")) (error (format "%S" e)))
+;; answered the cleanup's complaint about a value of the wrong type.  It
+;; answers ("MY-ERROR") now.  This is Phase 14's hygiene demonstration:
+;; the other prelude temporaries are still ordinary names (doc/TODO.md).
 (defalias 'save-excursion (macro body
+  (internal--let sym (gensym "internal--excursion-"))
   (list 'internal--let
-    (list (list 'internal--excursion (list 'internal--excursion-capture t)))
+    (list (list sym (list 'internal--excursion-capture t)))
     (list 'unwind-protect (cons 'progn body)
-      (list 'internal--excursion-restore 'internal--excursion)))))
+      (list 'internal--excursion-restore sym)))))
 (defalias 'with-current-buffer (macro (buf . body)
+  (internal--let sym (gensym "internal--excursion-"))
   (list 'internal--let
-    (list (list 'internal--excursion (list 'internal--excursion-capture nil)))
+    (list (list sym (list 'internal--excursion-capture nil)))
     (list 'unwind-protect
       (list 'progn (list 'set-buffer buf) (cons 'progn body))
-      (list 'internal--excursion-restore 'internal--excursion)))))
+      (list 'internal--excursion-restore sym)))))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
 (defalias 'internal--qq (lambda (form &optional depth)
   (if (null depth) (setq depth 1))

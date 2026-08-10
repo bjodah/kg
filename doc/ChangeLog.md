@@ -6,6 +6,29 @@ All relevant changes to the project are documented in this file.
 
 ### Changes
 
+- The embedded Lisp gained **symbols as first-class values**: `intern`,
+  `intern-soft`, `symbol-name`, `make-symbol`, `gensym`, and the
+  property list `put`/`get`/`symbol-plist`.  `intern-soft` is a probe
+  and never a constructor — it answers `nil` for a name nothing has
+  interned and interns nothing while doing so, which is what lets the
+  ordinary "loop until there is no such symbol" idiom terminate.
+  `make-symbol` and `gensym` hand out *uninterned* symbols, the ones
+  nothing can reach by name, which is how a macro gets a temporary a
+  user's `defvar` cannot capture.  kg's own `save-excursion` and
+  `with-current-buffer` are the first users: a body that assigned the
+  name they used to hold their saved state in made the restoring cleanup
+  raise, and the body's own error was lost with it.
+
+- **Backslash escapes in symbol names**, as in Emacs: `a\ b` is the one
+  symbol whose name is `a b`, `\1` is the symbol named `1` rather than
+  the integer, and `\.` inside a list is an ordinary element rather than
+  the dotted-pair marker.  `##` is the symbol with the empty name.  A
+  symbol whose name would otherwise read back as something else now
+  *prints* with the escapes that make it read back as itself, so
+  `(intern "a b")` shows as `a\ b` and the symbol `.` shows as `\.`.
+  Everything else the reader refuses — vectors, `#:`, the rest of the
+  `#` dispatches, unknown string escapes — it still refuses by name.
+
 - The embedded Lisp gained **special variables and dynamic binding**,
   which is the difference between an Emacs `init.el` doing what it says
   and doing something else quietly.  `defvar` and `defconst` now mark a

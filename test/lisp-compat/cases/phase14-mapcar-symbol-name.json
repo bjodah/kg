@@ -1,0 +1,6 @@
+{
+ "id": "phase14-mapcar-symbol-name",
+ "setup": [],
+ "expr": "(mapcar 'symbol-name '(a b))",
+ "note": "Phase 14: the symbol family is reachable through the prelude's higher-order functions, which funcall their argument -- the same route Phase 13 had to repair for signal/error/keywordp, and the reason kg cares that all eight carry primitive_is_function[] rows from the start."
+}

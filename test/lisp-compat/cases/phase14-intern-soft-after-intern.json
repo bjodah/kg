@@ -1,0 +1,9 @@
+{
+ "id": "phase14-intern-soft-after-intern",
+ "setup": [
+  "(intern-soft \"kg14-fresh-b\")",
+  "(intern \"kg14-fresh-b\")"
+ ],
+ "expr": "(symbol-name (intern-soft \"kg14-fresh-b\"))",
+ "note": "Phase 14: the other half of the double probe -- after an explicit intern the same name answers the symbol, so the nils above are misses and not a stub."
+}

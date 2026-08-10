@@ -1,0 +1,6 @@
+{
+ "id": "phase14-symbol-type-errors",
+ "setup": [],
+ "expr": "(list (condition-case e (intern 5) (wrong-type-argument e)) (condition-case e (symbol-name 5) (wrong-type-argument e)) (condition-case e (get 5 'a) (wrong-type-argument e)))",
+ "note": "Phase 14: the family's type failures are wrong-type-argument conditions a handler can name, with Emacs' data shape -- Phase 13.3's rule applied to a surface that landed after it."
+}

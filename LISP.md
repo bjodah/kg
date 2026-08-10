@@ -433,11 +433,25 @@ first surprise:
   kg's reader expands `` ` ``/`,`/`,@` to the ordinary symbols
   `quasiquote`/`unquote`/`unquote-splicing` where Emacs uses distinct
   symbols it also abbreviates, so an unevaluated backquote form prints
-  the long way. That is recorded rather than fixed, and measured
-  *blocked* rather than merely expensive: `` ` `` and `,` are reader
-  delimiters and symbol escapes are a deliberate read error, so after
-  renaming what the reader produces the prelude could not spell the
-  macro it defines.
+  the long way. That is recorded rather than fixed. Its named
+  prerequisite -- symbol escapes, without which the prelude could not
+  spell the macro it defines after renaming what the reader produces --
+  is met since Phase 14; what remains is the rename itself and Emacs'
+  context-sensitive comma abbreviation, which the printer has no place
+  to track.
+- Symbols are first class: `intern`, `intern-soft`, `symbol-name`,
+  `make-symbol`, `gensym`, and `put`/`get`/`symbol-plist` for property
+  lists. `intern-soft` is a probe -- it answers `nil` for a name nothing
+  has interned and interns nothing while asking -- and `make-symbol`
+  and `gensym` hand out uninterned symbols, which is how a macro gets a
+  temporary nothing can capture by name. A symbol name may carry
+  backslash escapes, as in Emacs: `a\ b` is the one symbol named `a b`,
+  `\1` is the symbol named `1`, an escaped `\.` in a list is an ordinary
+  element, and `##` is the symbol with the empty name. The printer emits
+  those escapes wherever a name would otherwise read back as something
+  else, so a symbol always reads back as itself. kg has one obarray, so
+  `intern`'s optional OBARRAY argument is refused rather than ignored.
+
 - `t`, `nil` and keyword symbols are protected constants: `setq`, `set`, a
   `let` or `let*` binding name, `fset` and `defalias` all refuse them with
   the `setting-constant` condition. Keywords are self-evaluating, so

@@ -1,0 +1,6 @@
+{
+ "id": "phase14-printer-roundtrip",
+ "setup": [],
+ "expr": "(list (eq 'a\\ b (intern \"a b\")) (eq '\\1 (intern \"1\")) (eq '## (intern \"\")) (eq '\\.. (intern \"..\")))",
+ "note": "Phase 14, the property the escapes exist for: what kg prints for a name that needs them is what kg reads back into the same object. Each element spells the printer's own output for the name beside it."
+}

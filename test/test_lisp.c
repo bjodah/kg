@@ -3959,10 +3959,10 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1095, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * 1093, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
  * frames per recursion level for this chain's shape (`if`, `+`, and the
  * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1095-frame arena, more than 2700x
+ * roughly 3 million frames against a 1093-frame arena, more than 2700x
  * over capacity -- demonstrably above it without depending on the private
  * Fe frame-size struct or reverse-engineering the arena layout, only on
  * the public frame_capacity/peak_frame_depth counters this file already
@@ -4148,7 +4148,7 @@ static void test_arena_exhaustion_conditions(void)
 	 * entry point instead.
 	 *
 	 * The route is the *reader*, not the evaluator: an evaluation deep
-	 * enough to fill the 4096-slot root stack hits the 1095-frame wall
+	 * enough to fill the 4096-slot root stack hits the 1093-frame wall
 	 * first and raises Budget, which is uncatchable by design (case 5
 	 * above).  Reading a datum nested `gc_stack_deep` levels pushes a
 	 * root per level with no frame at all, so `(load FILE)` -- whose
@@ -4552,6 +4552,112 @@ static void test_phase13_trap_battery(void)
 	teardown_editor();
 }
 
+/* Phase 14.  The symbol surface through kg's own evaluator, so that the
+ * prelude's `equal`, `mapcar` and friends are in the picture rather than
+ * only fe's core.  fe/test_api.c:TestSymbolPrimitives is the fe-side
+ * twin; what is here is what only kg can answer. */
+static void test_phase14_symbols(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* THE intern-soft CONTRACT, double-probed: nil on a miss, twice,
+	 * and no interning as a side effect.  An intern-on-miss
+	 * implementation answers the symbol on the second probe, and the
+	 * `(while (setq x (intern-soft ...)) ...)` idiom then allocates
+	 * until the arena is gone instead of terminating. */
+	CHECK(eval_eq("(intern-soft \"kg14-fresh\")", "nil"));
+	CHECK(eval_eq("(intern-soft \"kg14-fresh\")", "nil"));
+	CHECK(eval_eq("(progn (intern \"kg14-fresh\") "
+		      "(symbol-name (intern-soft \"kg14-fresh\")))",
+	    "kg14-fresh"));
+	/* A name that has only ever been a string is still not a symbol. */
+	CHECK(eval_eq(
+	    "(let ((s \"kg14-string-only\")) "
+	    "(list (intern-soft s) (intern-soft \"kg14-string-only\")))",
+	    "(nil nil)"));
+
+	/* Uninterned symbols: identity, not name.  kg's prelude `equal`
+	 * bottoms out in `eq` for atoms, so it agrees with Emacs that an
+	 * uninterned symbol is equal to nothing but itself -- which is the
+	 * comparison half of the policy this phase recorded. */
+	CHECK(eval_eq("(eq (make-symbol \"kg14-u\") 'kg14-u)", "nil"));
+	CHECK(eval_eq("(equal (make-symbol \"kg14-u\") 'kg14-u)", "nil"));
+	CHECK(eval_eq("(let ((s (make-symbol \"kg14-u\"))) (equal s s))", "t"));
+	CHECK(eval_eq("(symbol-name (make-symbol \"kg14-u\"))", "kg14-u"));
+	CHECK(eval_eq("(intern-soft (make-symbol \"kg14-u\"))", "nil"));
+
+	/* gensym is the hygiene mechanism: unique, and unreachable by name. */
+	CHECK(eval_eq("(eq (gensym) (gensym))", "nil"));
+	CHECK(eval_eq("(intern-soft (symbol-name (gensym)))", "nil"));
+
+	/* Property lists, including the append order and the eq-compared
+	 * property Emacs was measured to have. */
+	CHECK(eval_eq("(progn (put 'kg14-p 'a 1) (put 'kg14-p 'b 2) "
+		      "(symbol-plist 'kg14-p))",
+	    "(a 1 b 2)"));
+	CHECK(eval_eq(
+	    "(progn (put 'kg14-p 'a 9) (symbol-plist 'kg14-p))", "(a 9 b 2)"));
+	CHECK(eval_eq("(list (get 'kg14-p 'a) (get 'kg14-p 'nope) "
+		      "(get 'kg14-never 'a) (get nil 'a))",
+	    "(9 nil nil nil)"));
+
+	/* All eight are ordinary functions, so the prelude's higher-order
+	 * functions -- which funcall their argument -- can reach them. */
+	CHECK(eval_eq("(mapcar 'symbol-name '(a b))", "(\"a\" \"b\")"));
+	CHECK(eval_eq("(mapcar (lambda (n) (symbol-name (intern n))) "
+		      "'(\"x\" \"y\"))",
+	    "(\"x\" \"y\")"));
+
+	/* Reader escapes and the printer that is their inverse, through
+	 * kg's reader.  `format`'s %S is kg's route to the printed form. */
+	CHECK(eval_eq("(symbol-name 'a\\ b)", "a b"));
+	CHECK(eval_eq("(symbol-name '\\1)", "1"));
+	CHECK(eval_eq("(length '(a \\. b))", "3"));
+	CHECK(eval_eq("(format \"%S\" (intern \"a b\"))", "a\\ b"));
+	CHECK(eval_eq("(format \"%S\" (intern \"1\"))", "\\1"));
+	CHECK(eval_eq("(format \"%S\" (intern \"\"))", "##"));
+	CHECK(eval_eq("(eq '## (intern \"\"))", "t"));
+	CHECK(eval_eq("(eq 'a\\ b (intern \"a b\"))", "t"));
+
+	/* The type errors are conditions a handler can name -- Phase 13's
+	 * repair applied to a surface that landed after it. */
+	CHECK(eval_eq("(condition-case e (intern 5) (wrong-type-argument e))",
+	    "(wrong-type-argument stringp 5)"));
+	CHECK(eval_eq(
+	    "(condition-case e (symbol-name 5) (wrong-type-argument e))",
+	    "(wrong-type-argument symbolp 5)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Phase 14's gensym-hygiene demonstration, from the consumer's side.
+ * `save-excursion` and `with-current-buffer` bind their captured state to
+ * a gensym, so a body that assigns the old name -- `internal--excursion`
+ * -- can no longer make the cleanup raise.  A raising cleanup REPLACES
+ * the completion it is unwinding (fe 06A Decision 4, which is Emacs' rule
+ * too), so before this the user's own error was lost. */
+static void test_phase14_excursion_hygiene(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(condition-case e (save-excursion "
+		      "(setq internal--excursion nil) (error \"MY-ERROR\")) "
+		      "(error (car (cdr e))))",
+	    "MY-ERROR"));
+	CHECK(eval_eq("(condition-case e (with-current-buffer (current-buffer) "
+		      "(setq internal--excursion nil) (error \"MY-ERROR\")) "
+		      "(error (car (cdr e))))",
+	    "MY-ERROR"));
+	/* And the forms still do their job. */
+	CHECK(eval_ok("(save-excursion (goto-char (point-min)))"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Sub-plan 06E.  Hook containment swallows a hook's *error* and carries on
  * with the next hook; it must not swallow a quit, or C-g would be eaten by
  * whichever hook happened to be running when it arrived.  The quit is put
@@ -4948,7 +5054,10 @@ static void test_phase8_reader_literals(void)
 	 * leftover token, "\x41f" as "Af". */
 	CHECK(eval_error_contains("(list [1 2 3])", "vector brackets"));
 	CHECK(eval_error_contains("(list '#:sym)", "unsupported read syntax"));
-	CHECK(eval_error_contains("(cdr '(a\\ b))", "symbol escape"));
+	/* Phase 14 implements symbol escapes, so what is left to reject
+	 * here is a backslash with nothing after it; the positive rows are
+	 * in test_phase14_symbols below. */
+	CHECK(eval_error_contains("(list 'a\\", "unterminated symbol escape"));
 	CHECK(eval_error_contains("(list \"\\q\")", "unknown escape"));
 	CHECK(eval_error_contains("(list ?ab)", "? literal without delimiter"));
 	CHECK(eval_error_contains("(list ?\\s-a)", "\\s character modifier"));
@@ -5123,17 +5232,24 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 12 pin (fe 6f20ec6):
-	 * 56225 object slots (56226 at the Phase 11 fix cycle's pin, 56224 at
-	 * the Phase 10 pin, 56222 before that -- the frame record fe's
-	 * dynamic-binding work grew costs one frame slot, frame_capacity
-	 * 1096 -> 1095, and returns two object slots; Phase 12's fe additions
-	 * take one object slot back and no frame slot), peak_live 5301 after
-	 * the prelude alone (5295 at the Phase 11 fix cycle's pin, 5210 at
-	 * the Phase 10 pin, 5188 at Phase 9's), and 8304 at this point in
-	 * this function, after every Phase 8 form above -- 14.8% of the arena
-	 * for everything kg ships plus this test's own corpus.  The Phase 12
-	 * PIN cost +6 and +17: fe's `eval' primitive and its interned name,
+	 * build via kg_lisp_arena_stats() at the Phase 14 pin:
+	 * 56239 object slots (56225 at the Phase 12 pin, 56226 at the Phase
+	 * 11 fix cycle's pin, 56224 at the Phase 10 pin, 56222 before that --
+	 * the frame record fe's dynamic-binding work grew costs one frame
+	 * slot, frame_capacity 1096 -> 1095, and returns two object slots;
+	 * Phase 12's fe additions take one object slot back and no frame
+	 * slot; Phase 14's grow FeMinimumArenaSize by 2264 bytes, which moves
+	 * two frame slots' worth of bytes to the object side, 1095 -> 1093
+	 * frames and +14 objects), peak_live 6205 after the prelude alone
+	 * (5301 at the Phase 12 pin, 5295 at the Phase 11 fix cycle's pin,
+	 * 5210 at the Phase 10 pin, 5188 at Phase 9's), and 9236 at this
+	 * point in this function, after every Phase 8 form above -- 16.4% of
+	 * the arena for everything kg ships plus this test's own corpus.
+	 * Phase 14 is the largest single move in the series and the reason is
+	 * structural rather than additive: every symbol object is one cons
+	 * bigger, so the +904 on the prelude figure is mostly the prelude's
+	 * own several hundred interned names paying that cons each.  The Phase
+	 * 12 PIN cost +6 and +17: fe's `eval' primitive and its interned name,
 	 * the `file-missing' hierarchy row, and the input-unit field the
 	 * defvar scope carrier stamps onto each let-dynamic-only mark.
 	 *
@@ -5747,6 +5863,8 @@ int main(void)
 	RUN(test_wrapping_native_transparency);
 	RUN(test_condition_case_kg_native_conditions);
 	RUN(test_phase13_trap_battery);
+	RUN(test_phase14_symbols);
+	RUN(test_phase14_excursion_hygiene);
 	RUN(test_hook_quit_is_not_contained);
 	RUN(test_hook_throw_containment);
 	RUN(test_signal);

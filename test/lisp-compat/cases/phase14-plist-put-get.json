@@ -1,0 +1,10 @@
+{
+ "id": "phase14-plist-put-get",
+ "setup": [
+  "(put 'kg14-p 'a 1)",
+  "(put 'kg14-p 'b 2)",
+  "(put 'kg14-p 'a 9)"
+ ],
+ "expr": "(list (symbol-plist 'kg14-p) (get 'kg14-p 'a) (get 'kg14-p 'nope) (get 'kg14-never 'a) (get nil 'a))",
+ "note": "Phase 14: put appends a new property at the tail and overwrites an existing one in place -- both measured rather than assumed -- and get answers nil for a property nobody set, for a symbol with no plist at all, and for nil. This is the surface Phase 19's error-message property will be built on."
+}

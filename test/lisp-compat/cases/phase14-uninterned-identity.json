@@ -1,0 +1,6 @@
+{
+ "id": "phase14-uninterned-identity",
+ "setup": [],
+ "expr": "(list (eq (make-symbol \"kg14-u\") 'kg14-u) (equal (make-symbol \"kg14-u\") 'kg14-u) (symbol-name (make-symbol \"kg14-u\")) (intern-soft (make-symbol \"kg14-u\")))",
+ "note": "Phase 14: kg's recorded policy for uninterned symbols, in the one place kg can state it that fe cannot -- `equal` is kg's prelude function, not an fe primitive, and it bottoms out in `eq` for atoms, so an uninterned symbol is equal to nothing but itself, exactly as in Emacs."
+}

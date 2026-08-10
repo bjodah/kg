@@ -1,0 +1,6 @@
+{
+ "id": "phase14-gensym-hygiene",
+ "setup": [],
+ "expr": "(list (eq (gensym) (gensym)) (intern-soft (symbol-name (gensym))))",
+ "note": "Phase 14: gensym hands out uninterned symbols nothing else can name. The exact NAME is deliberately not compared: Emacs' counter is the Lisp variable gensym-counter and kg's is an fe context field with no Lisp spelling, so a case comparing names would compare two unrelated pieces of process state."
+}

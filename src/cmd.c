@@ -2091,6 +2091,27 @@ int cmd_fast_path_begin(const char *name, command_id *outer)
 
 void cmd_fast_path_end(command_id outer) { cmd_state_end_command(outer); }
 
+/* The two verdicts only a Lisp caller can be given, in one place so
+ * cmd_invoke() has one decision about origin rather than three.
+ * CMD_NO_TERMINAL is the newer of them: a command that can read the
+ * terminal, reached from Lisp with no prompt descriptor -- an init file,
+ * a hook, a process filter, or inside eval-expression, which gives up
+ * its own descriptor by design.  Refused rather than run, because the
+ * read would be read(-1, ...) and that path clears `running' and takes
+ * the editor down.  It is the same question lisp_prompt_require() asks
+ * for the prompting natives, so both routes answer alike. */
+static int lisp_origin_refusal(
+    const struct named_cmd *cmd, const struct command_context *ctx)
+{
+	if (!(cmd->flags & CMD_LISP_CALLABLE)) {
+		return CMD_NOT_CALLABLE;
+	}
+	if ((cmd->flags & CMD_READS_TERMINAL) && ctx->fd < 0) {
+		return CMD_NO_TERMINAL;
+	}
+	return CMD_RAN;
+}
+
 /* The one route into a command.  It owns the read-only refusal, the
  * Lisp-callability verdict, and the prefix argument the command will see:
  * execution sites outside the per-keystroke dispatch in kbd.c (Lisp, the
@@ -2115,18 +2136,12 @@ int cmd_invoke(const char *name, const struct command_context *ctx)
 		}
 		cmd = &lisp_defined_command;
 	}
-	if (from_lisp && !(cmd->flags & CMD_LISP_CALLABLE)) {
-		return CMD_NOT_CALLABLE;
-	}
-	/* A command that can read the terminal, reached from Lisp with no
-	 * prompt descriptor -- an init file, a hook, a process filter, or
-	 * inside eval-expression, which gives up its own descriptor by
-	 * design.  Refused rather than run: the read would be read(-1, ...),
-	 * and that path clears `running' and takes the editor down.  Same
-	 * question lisp_prompt_require() asks for the prompting natives, so
-	 * both routes answer alike. */
-	if (from_lisp && (cmd->flags & CMD_READS_TERMINAL) && ctx->fd < 0) {
-		return CMD_NO_TERMINAL;
+	if (from_lisp) {
+		int refusal = lisp_origin_refusal(cmd, ctx);
+
+		if (refusal != CMD_RAN) {
+			return refusal;
+		}
 	}
 	if (refuses_read_only(cmd)) {
 		/* Lisp reports its own refusal as an error; saying it in
@@ -2191,6 +2206,31 @@ static void mx_run(const char *name, int fd, struct command_prefix prefix)
 	struct command_context ctx = { fd, prefix, CMD_ORIGIN_MX };
 
 	(void)cmd_invoke(name, &ctx);
+}
+
+/* The name Enter runs.  An exactly typed candidate beats the highlighted
+ * one -- Emacs' completing-read rule, and the rule prompt_choice_exact()
+ * in src/prompt.c already applies to every OTHER picker kg has.  M-x did
+ * not have it: it ran the first *prefix* match in table order, and static
+ * commands sort ahead of Lisp ones, so a user's `show-p' was shadowed by
+ * the built-in `show-paren-mode' and had no spelling that reached it.
+ *
+ * A user who moved the highlight themselves outranks both, which is why
+ * `explicit_selection' short-circuits the search rather than being
+ * consulted after it. */
+static const char *mx_chosen_name(const char **names, int shown, int sel,
+    const char *typed, int explicit_selection)
+{
+	int i;
+
+	if (!explicit_selection) {
+		for (i = 0; i < shown; i++) {
+			if (strcmp(names[i], typed) == 0) {
+				return names[i];
+			}
+		}
+	}
+	return names[sel];
 }
 
 /* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
@@ -2276,10 +2316,13 @@ void editor_named_command(int fd)
 				mx_run(last_extended_command, fd, prefix);
 			} else if ((len > 0 || explicit_selection) && shown > 0
 			    && sel >= 0 && sel < shown) {
+				const char *chosen = mx_chosen_name(names,
+				    shown, sel, name, explicit_selection);
+
 				snprintf(last_extended_command,
 				    sizeof(last_extended_command), "%s",
-				    names[sel]);
-				mx_run(names[sel], fd, prefix);
+				    chosen);
+				mx_run(chosen, fd, prefix);
 			} else if (len == 0) {
 				editor_set_status_message(
 				    "No previous M-x command");

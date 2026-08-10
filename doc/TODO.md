@@ -46,16 +46,20 @@ This file remains the broader feature and technical-debt inventory.
       the major mode's syntax table as the word definition (kg uses its own
       ASCII one), and continuing into other buffers.
 - [ ] "M-/" should have an atomic undo operation.
-- [ ] M-x has no exact-match-wins rule: RET runs the first prefix match
-      in table order, and static commands sort ahead of Lisp ones, so
-      the exact name of a user command can be shadowed by a longer
-      built-in (found when `show-paren-mode` shadowed a test's `show-p`;
-      Emacs' completing-read accepts the exact match instead).
-      Phase 16's own `completing-read` picker (`prompt_read_choice()`,
-      `src/prompt.c`) does have the rule — an exactly typed candidate
-      beats the highlighted one — so the fix for M-x is now a known
-      four-line shape rather than a design question; what it still
-      needs is deciding whether `C-x b` and the path picker take it too.
+- [x] **M-x exact-match-wins** (Phase 17): RET ran the first prefix match
+      in table order, and static commands sort ahead of Lisp ones, so the
+      exact name of a user command was shadowed by a longer built-in
+      (found when `show-paren-mode` shadowed a test's `show-p`).  It now
+      takes the exactly typed candidate, as Emacs' `completing-read` does
+      and as `prompt_read_choice()` (`src/prompt.c`) already did — a user
+      who moved the highlight themselves still outranks both.  Pinned by
+      `test/pty/lisp-mx-exact-match-wins.yaml`, with `show-p` as the name,
+      since that is the one the bug was found with.
+      Still open, and deliberately left so: whether `C-x b` and the path
+      picker take the rule too.  Both create what they do not find, so
+      "exact" means something different there — an exactly typed name
+      that matches nothing is already the answer — and neither has a
+      reported shadowing.
 
 ## Maintainability
 

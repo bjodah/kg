@@ -1,0 +1,31 @@
+# M-x runs the command whose name was typed EXACTLY, even when a longer
+# built-in prefix-matches the same text and sorts ahead of it.
+#
+# The picker ranks prefix matches first and, within that rank, keeps the
+# table's order -- and the static table comes before Lisp-defined
+# commands.  So a Lisp command called `show-p' used to be unreachable by
+# name: typing it highlighted the built-in `show-paren-mode', and Enter
+# ran that.  Emacs' completing-read takes the exact match instead, which
+# is also what every other picker in kg already does
+# (prompt_choice_exact(), src/prompt.c).
+#
+# `show-p' is the name the bug was found with, so it is the name the case
+# uses.  The proof is what lands in the buffer: `show-p' inserts a mark,
+# `show-paren-mode' only toggles a highlight and would leave the file
+# untouched.
+name: lisp-mx-exact-match-wins
+filename: lisp-mx-exact-match-wins.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun show-p ()
+      (interactive)
+      (insert "<exact>"))
+initial: |-
+  abc
+keys:
+  - M-x
+  - show-p
+  - RET
+expected_saved: |-
+  <exact>abc

@@ -736,7 +736,7 @@
   "src/lisp_cmd.c:native_symbolp": 2,
   "src/lisp_cmd.c:native_type_of": 2,
   "src/lisp_cmd.c:native_unbind_key": 3,
-  "src/lisp_cmd.c:report_command_result": 3,
+  "src/lisp_cmd.c:report_command_result": 4,
   "src/lisp_cmd.c:restore_command_scope": 2,
   "src/lisp_cmd.c:universal_raw_value": 3,
   "src/lisp_cmd.c:validate_command_definition": 9,

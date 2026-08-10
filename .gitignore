@@ -31,6 +31,7 @@ test/.bench/
 test/regex_differential
 # The kgbatch audit driver (make kgbatch), built from test/kgbatch.c.
 test/kgbatch
+test/kgbatch-gcstress
 # Unit-test binaries: test/test_foo is built from test/test_foo.c.
 test/test_*
 !test/test_*.c

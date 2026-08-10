@@ -644,7 +644,7 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check lisp-oracle-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check lisp-oracle-check lisp-gc-stress-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -731,6 +731,50 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
+
+# Phase 13.5's kg half of fe's FE_GC_STRESS knob.  Fe's `MakeObject()`
+# collects before every allocation when fe.c is built with
+# -DFE_GC_STRESS=1, so an object live only through an unrooted C local
+# dies at the first opportunity rather than at whatever unrelated
+# allocation happens to empty the free list.  This target runs one
+# heavy-allocation script through kg's own evaluator twice -- an ordinary
+# kgbatch and one linked against a stress-built fe -- and requires the
+# same answer from both, with the stress build's arena-stats collection
+# count far above the ordinary one's.  Same shape as test/perfobj: the
+# instrumented fe object gets its own name under test/ and never mixes
+# with src/*.o, so turning the knob on leaves no stale object behind.
+# fe_eval.c and fe_run.c are NOT rebuilt: the macro lives inside fe.c and
+# nothing in fe.h moves with it.
+GC_STRESS_KGBATCH = $(TESTDIR)/kgbatch-gcstress
+GC_STRESS_FE_OBJ = $(TESTDIR)/fe_gcstress.o
+
+$(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h
+	$(CC) $(FE_CFLAGS) -DFE_GC_STRESS=1 -c $< -o $@
+
+$(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
+	$(FEATURE_CONFIG) $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+	$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
+	$(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
+		$(REGEX_OBJS) $(LDLIBS)
+
+# Ordered after lisp-oracle-check rather than beside it: `check`'s
+# prerequisites run in parallel under -j, both targets build
+# $(TESTDIR)/kgbatch through a sub-make, and a run that links it while the
+# other is exec'ing it dies with EACCES on the half-written binary.
+# Measured: .ci/ci-03 failed exactly that way.  The dependency is
+# scheduling, not meaning -- neither check needs the other's result.
+lisp-gc-stress-check: lisp-oracle-check
+ifeq ($(WITH_LISP),1)
+	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
+	@$(PYTHON) utils/check_lisp_gc_stress.py \
+		--kgbatch $(TESTDIR)/kgbatch \
+		--stress-kgbatch $(GC_STRESS_KGBATCH)
+else
+	@echo "# lisp-gc-stress-check: WITH_LISP=0, no evaluator to stress"
+endif
 
 # Regenerates/verifies test/lisp-compat/oracle/*.json against the resolved
 # Emacs, reusing fe/utils/run-emacs-oracle.py directly rather than copying
@@ -1256,7 +1300,8 @@ $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
-	      $(TESTBINS) $(TESTDIR)/kgbatch $(FUZZBINS) $(REGEX_DIFF_BIN)
+	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
+	      $(FUZZBINS) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR)
 
 distclean: clean

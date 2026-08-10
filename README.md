@@ -363,7 +363,7 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
 Highlighted today: **C**, **Python**, **YAML**, **Markdown**,
 **JavaScript**, **React/JSX**, **TypeScript**, **TSX**, **Java**, **Rust**,
-**HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
+**Go**, **HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
 keywords and types, from small kg-owned queries compiled into the binary,
 one per language. Every other mode is plain text under
 `WITH_TREE_SITTER=1`: a mode with no grammar is not an error, it simply has
@@ -420,13 +420,20 @@ and still jumps straight to a single one.
 
 Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same
-workspace root then shares it. Two modes have a built-in server, `clangd`
-for C and `ty server` for Python; any other mode says it has no server
-rather than starting one. The workspace root is the nearest ancestor
-holding that language's build-system marker (`.clangd`,
-`compile_commands.json`, `compile_flags.txt`, `build/compile_commands.json`;
-`ty.toml`, or a `pyproject.toml` mentioning `[tool.ty`), then the nearest
-ancestor holding `.git`, and failing that the file's own directory.
+workspace root then shares it. Four modes have a built-in server — `clangd`
+for C, `ty server` for Python, `gopls` for Go and `rust-analyzer` for Rust;
+any other mode says it has no server rather than starting one. The
+workspace root is the nearest ancestor holding that language's build-system
+marker (`.clangd`, `compile_commands.json`, `compile_flags.txt`,
+`build/compile_commands.json`; `ty.toml`, or a `pyproject.toml` mentioning
+`[tool.ty`; `go.mod` or `go.work`; `Cargo.toml`), then the nearest ancestor
+holding `.git`, and failing that the file's own directory.
+
+The nearest marker wins, which for the two new ones is the answer their own
+tooling gives: a file inside a Go module roots on that module even when a
+`go.work` sits above it, because the go command finds the workspace above
+the module by itself; a file in a Cargo workspace member roots on the
+member, because `cargo metadata` resolves the workspace above it.
 
 Both commands send the question and return. The editor stays responsive
 while the server thinks, and the answer arrives later; the echo area
@@ -473,7 +480,8 @@ reason a server died. The buffer is created on the first line and never
 selects itself: `C-x b *lsp-log*` is how you read it, on the day something
 hangs. It keeps the last 64 KiB, dropping whole lines from the top.
 
-`KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
+`KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`, `KG_LSP_SERVER_GO` and
+`KG_LSP_SERVER_RUST` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x
 compile`'s command is, so a wrapper, a path with spaces or extra arguments
 all work — and it is how kg's own tests point the client at a fake server:

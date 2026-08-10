@@ -130,9 +130,19 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       is what the client does with it.  Ten tracked seeds under
       `test/fuzz-seeds/lsp_frames`; `make fuzz-lsp-frames-smoke` is in
       the aggregate `fuzz-smoke` that `.ci/ci-09` runs.
-- **More server specs.**  `gopls` and `rust-analyzer` are one row each in
-  `server_specs[]` plus a marker predicate (`go.mod`, `Cargo.toml`) and
-  the `KG_LSP_SERVER_<MODE>` name that follows from the mode.
+- [x] **More server specs.**  Done 2026-08-10: `gopls` and `rust-analyzer`
+      are a row each in `server_specs[]` with a marker predicate
+      (`go.mod` or `go.work`; `Cargo.toml`) and the environment override
+      the mode's name gives (`KG_LSP_SERVER_GO`, `KG_LSP_SERVER_RUST`).
+      Go needed a mode first -- `KG_MODE_GO`, `.go`, `//`, its own keyword
+      set for the legacy scanner and a row in the tree-sitter registry
+      against /opt-9's `go` v0.25.0, which was one of the grammars the
+      tree-sitter plan left as a candidate for a cheap new mode.  The
+      nearest marker wins, which is the root each language's own tooling
+      resolves from: a module inside a `go.work`, a member inside a Cargo
+      workspace.  Covered by root-walk cases in `test/test_lsp_client.c`,
+      a fake-server PTY case each for the mode -> spec -> environment
+      wiring, and a real-server case each behind `requires_tool:`.
 - **The rest of the protocol**, in the order it would be worth having:
   diagnostics (which need a decoration channel and an error list, not
   just a request), hover, rename, completion.  All were out of scope by

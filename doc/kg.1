@@ -83,7 +83,7 @@ The tree-sitter backend loads grammars at run time by soname
 searched along
 .Ev KG_TS_GRAMMAR_PATH ;
 it highlights C, Python, YAML, Markdown, JavaScript, React/JSX, TypeScript,
-TSX, Java, Rust, HTML, Emacs Lisp and Makefile, and treats every other
+TSX, Java, Rust, Go, HTML, Emacs Lisp and Makefile, and treats every other
 buffer as plain text.
 Markdown uses the block grammar only, so headings, code fences, block quotes
 and list markers are coloured while inline markup inside a paragraph is not.
@@ -3070,11 +3070,15 @@ Servers are found at run time and started lazily.
 Nothing is spawned by opening a file: the first command that needs an
 answer is what pays for the server, and every buffer under the same
 workspace root then shares it.
-Two modes have a built-in server:
+Four modes have a built-in server:
 C
-.Pq Ic clangd
-and Python
-.Pq Ic ty server .
+.Pq Ic clangd ,
+Python
+.Pq Ic ty server ,
+Go
+.Pq Ic gopls
+and Rust
+.Pq Ic rust-analyzer .
 Any other mode reports that it has no server rather than starting one.
 .Pp
 The workspace root is the nearest ancestor directory holding a marker of
@@ -3089,10 +3093,25 @@ for Python
 or a
 .Pa pyproject.toml
 mentioning
-.Ql [tool.ty
+.Ql [tool.ty ;
+for Go
+.Pa go.mod
+or
+.Pa go.work ;
+for Rust
+.Pa Cargo.toml
 \(em then the nearest ancestor holding
 .Pa .git ,
 and failing that the file's own directory.
+.Pp
+The nearest marker wins, which for Go and Rust is the answer their own
+tooling gives.
+A file inside a module roots on that module even when a
+.Pa go.work
+sits above it, because the go command finds the workspace above the module
+on its own; a file in a Cargo workspace member roots on the member, because
+.Ic cargo metadata
+resolves the workspace above it.
 .Pp
 .Ic M-.
 sends the question and returns; the editor stays responsive while the
@@ -3219,9 +3238,11 @@ columns are converted to and from code units against the real bytes of
 the line, so a line with non-ASCII text before point is asked about, and
 answered at, the right place either way.
 .Pp
-.Ev KG_LSP_SERVER_C
+.Ev KG_LSP_SERVER_C ,
+.Ev KG_LSP_SERVER_PYTHON ,
+.Ev KG_LSP_SERVER_GO
 and
-.Ev KG_LSP_SERVER_PYTHON
+.Ev KG_LSP_SERVER_RUST
 replace the built-in command line for that mode.
 The value is run through
 .Ic /bin/sh -c ,
@@ -3619,6 +3640,7 @@ are used as a fallback when the extension is not recognised.
 .It JavaScript Ta .js .mjs .cjs
 .It TypeScript Ta .ts .tsx .d.ts
 .It Rust Ta .rs .rlib
+.It Go Ta .go
 .It Java Ta .java
 .It C# Ta .cs .csx
 .It PHP Ta .php .phtml
@@ -3962,13 +3984,15 @@ asks for mouse reports at all; see
 Nothing else in
 .Nm
 consults it.
-.It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON
+.It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON , Ev KG_LSP_SERVER_GO , Ev KG_LSP_SERVER_RUST
 The command line a
 .Sq +lsp
 build runs for that mode's language server, replacing the built-in
-.Ic clangd
+.Ic clangd ,
+.Ic ty server ,
+.Ic gopls
 or
-.Ic ty server .
+.Ic rust-analyzer .
 Run through
 .Ic /bin/sh -c ,
 so quoting and arguments work; unset or empty leaves the built-in.

@@ -34,6 +34,8 @@
 
 static bool dir_has_c_markers(const char *dir);
 static bool dir_has_python_markers(const char *dir);
+static bool dir_has_go_markers(const char *dir);
+static bool dir_has_rust_markers(const char *dir);
 
 /* What kg knows how to start.  `env` is spelled out rather than derived
  * from `name` so the environment variable a user sets is greppable in this
@@ -53,6 +55,10 @@ static const struct lsp_server_spec server_specs[] = {
 	    dir_has_c_markers },
 	{ KG_MODE_PYTHON, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
 	    { "ty", "server", NULL }, dir_has_python_markers },
+	{ KG_MODE_GO, "gopls", LSP_SERVER_ENV_PREFIX "GO", { "gopls", NULL },
+	    dir_has_go_markers },
+	{ KG_MODE_RUST, "rust-analyzer", LSP_SERVER_ENV_PREFIX "RUST",
+	    { "rust-analyzer", NULL }, dir_has_rust_markers },
 };
 
 struct lsp_instance {
@@ -154,6 +160,30 @@ static bool dir_has_python_markers(const char *dir)
 {
 	return marker_exists(dir, "ty.toml")
 	    || marker_contains(dir, "pyproject.toml", "[tool.ty");
+}
+
+/* Go.  Both spellings of "the top of something" are markers, and the walk
+ * takes the nearest, which is the module: a go.work always sits at or above
+ * the go.mod files it lists, so a file inside a module roots on its module
+ * even in a workspace -- and that is the root gopls loads, because the go
+ * command finds the go.work above it on its own (`go env GOWORK` walks up
+ * from the working directory).  go.work alone wins only for a file that is
+ * under a workspace but under no module, which is where the module answer
+ * does not exist. */
+static bool dir_has_go_markers(const char *dir)
+{
+	return marker_exists(dir, "go.mod") || marker_exists(dir, "go.work");
+}
+
+/* Rust.  A Cargo workspace has a Cargo.toml at its root and one per member
+ * crate, so the nearest is the member rather than the workspace.  That is
+ * still a root rust-analyzer agrees with: it runs `cargo metadata` from
+ * where it is started, and cargo resolves the workspace above the member
+ * itself.  Rooting at the member also keeps one server per crate on a tree
+ * with several unrelated ones. */
+static bool dir_has_rust_markers(const char *dir)
+{
+	return marker_exists(dir, "Cargo.toml");
 }
 
 static bool dir_has_git(const char *dir) { return marker_exists(dir, ".git"); }

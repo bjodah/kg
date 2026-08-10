@@ -766,6 +766,29 @@ static void build_tree(void)
 	mk_file(tree, "nestedpy/ty.toml", "[src]\n");
 	mk_dir(tree, "nestedpy/vendor");
 	mk_dir(tree, "nestedpy/vendor/.git");
+	/* Go: a module, a workspace holding one, and a module above a
+	 * vendored checkout's .git. */
+	mk_dir(tree, "gomod");
+	mk_file(tree, "gomod/go.mod", "module example.com/m\n");
+	mk_dir(tree, "gomod/pkg");
+	mk_dir(tree, "gowork");
+	mk_file(tree, "gowork/go.work", "go 1.22\nuse ./mod\n");
+	mk_dir(tree, "gowork/mod");
+	mk_file(tree, "gowork/mod/go.mod", "module example.com/w\n");
+	mk_dir(tree, "gonest");
+	mk_file(tree, "gonest/go.mod", "module example.com/n\n");
+	mk_dir(tree, "gonest/vendor");
+	mk_dir(tree, "gonest/vendor/.git");
+	/* Rust: a crate, and a workspace whose member has a Cargo.toml of
+	 * its own. */
+	mk_dir(tree, "crate");
+	mk_file(tree, "crate/Cargo.toml", "[package]\nname='x'\n");
+	mk_dir(tree, "crate/src");
+	mk_dir(tree, "cws");
+	mk_file(tree, "cws/Cargo.toml", "[workspace]\nmembers=['member']\n");
+	mk_dir(tree, "cws/member");
+	mk_file(tree, "cws/member/Cargo.toml", "[package]\nname='m'\n");
+	mk_dir(tree, "cws/member/src");
 }
 
 /* The nearest ancestor with a C marker wins over the .git further up: a
@@ -817,6 +840,35 @@ static void test_root_reads_pyproject_for_tool_ty(void)
 	check_root(KG_MODE_PYTHON, "tyt/mod/x.py", "tyt");
 	/* The same file in C mode ignores the Python markers entirely. */
 	check_root(KG_MODE_C, "py/mod/x.c", "");
+}
+
+/* Go roots on the module, and a go.work only decides for a file that is
+ * under no module at all: the workspace file always sits at or above the
+ * go.mod files it lists, so the nearest-marker rule picks the module --
+ * which is the root the go command, and so gopls, loads for that file. */
+static void test_root_go_prefers_the_module(void)
+{
+	check_root(KG_MODE_GO, "gomod/pkg/a.go", "gomod");
+	check_root(KG_MODE_GO, "gowork/mod/a.go", "gowork/mod");
+	check_root(KG_MODE_GO, "gowork/a.go", "gowork");
+	/* The marker beats a nearer .git, as it does for C. */
+	check_root(KG_MODE_GO, "gonest/vendor/a.go", "gonest");
+	/* And the mode decides which markers count: a C project's
+	 * compilation database is not a Go module. */
+	check_root(KG_MODE_GO, "proj/deep/a.go", "");
+}
+
+/* Rust roots on the nearest Cargo.toml, which in a workspace is the member
+ * crate rather than the workspace root: rust-analyzer runs `cargo metadata`
+ * from where it is started and resolves the workspace above it itself. */
+static void test_root_rust_takes_the_nearest_cargo_toml(void)
+{
+	check_root(KG_MODE_RUST, "crate/src/a.rs", "crate");
+	check_root(KG_MODE_RUST, "cws/member/src/a.rs", "cws/member");
+	check_root(KG_MODE_RUST, "cws/a.rs", "cws");
+	/* No Cargo.toml anywhere above: the .git fallback, and a Go module
+	 * is not a Rust crate. */
+	check_root(KG_MODE_RUST, "gomod/pkg/a.rs", "");
 }
 
 /* Nothing above the file at all: its own directory is the root, so a
@@ -963,6 +1015,38 @@ static void test_registry_refuses_an_unsupported_mode(void)
 	CHECK(lsp_server_instance_count() == 0);
 	/* A NULL status out-parameter is accepted. */
 	CHECK(lsp_server_for(KG_MODE_TEXT, file, NULL) == NULL);
+}
+
+/* Go and Rust have specs of their own, and the environment name each one
+ * reads is the mode's: KG_LSP_SERVER_GO and KG_LSP_SERVER_RUST.  The
+ * assertion is that a server is started at the root the walk found, with
+ * `cat` standing in for gopls and rust-analyzer -- neither of which need be
+ * installed for the wiring to be the thing under test.  A wrong env name
+ * would exec the built-in binary instead, which on a box without it is a
+ * dead client rather than this one. */
+static void test_registry_starts_go_and_rust_from_the_env(void)
+{
+	enum lsp_server_status status = LSP_SERVER_OK;
+	char file[PATH_MAX];
+
+	setenv("KG_LSP_SERVER_GO", "cat >/dev/null", 1);
+	setenv("KG_LSP_SERVER_RUST", "cat >/dev/null", 1);
+	path_of(file, sizeof(file), tree, "gomod/pkg/a.go");
+	CHECK(lsp_server_for(KG_MODE_GO, file, &status) != NULL);
+	CHECK(status == LSP_SERVER_OK);
+	path_of(file, sizeof(file), tree, "crate/src/a.rs");
+	CHECK(lsp_server_for(KG_MODE_RUST, file, &status) != NULL);
+	CHECK(status == LSP_SERVER_OK);
+	CHECK(lsp_server_instance_count() == 2);
+	/* Same mode, same root: one instance, as for C. */
+	path_of(file, sizeof(file), tree, "gomod/pkg/b.go");
+	CHECK(lsp_server_for(KG_MODE_GO, file, &status) != NULL);
+	CHECK(lsp_server_instance_count() == 2);
+
+	lsp_server_shutdown_all(300);
+	CHECK(lsp_server_instance_count() == 0);
+	unsetenv("KG_LSP_SERVER_GO");
+	unsetenv("KG_LSP_SERVER_RUST");
 }
 
 /* The override is a shell command line, so a wrapper with arguments and
@@ -1279,6 +1363,8 @@ int main(int argc, char **argv)
 	RUN(test_root_prefers_a_marker_over_a_nearer_git);
 	RUN(test_root_falls_back_to_git);
 	RUN(test_root_reads_pyproject_for_tool_ty);
+	RUN(test_root_go_prefers_the_module);
+	RUN(test_root_rust_takes_the_nearest_cargo_toml);
 	RUN(test_root_defaults_to_the_files_directory);
 	RUN(test_root_refuses_a_relative_path);
 
@@ -1286,6 +1372,7 @@ int main(int argc, char **argv)
 	RUN(test_registry_replaces_a_dead_instance);
 	RUN(test_registry_refuses_a_fifth_instance);
 	RUN(test_registry_refuses_an_unsupported_mode);
+	RUN(test_registry_starts_go_and_rust_from_the_env);
 	RUN(test_env_override_spawns_the_fake_server);
 	RUN(test_the_registry_names_the_client);
 

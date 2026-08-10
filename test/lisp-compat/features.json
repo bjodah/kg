@@ -2684,6 +2684,162 @@
    "source_name": null
   },
   {
+   "id": "native-read-string",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-read-string"
+   ],
+   "kg_test": "test/pty/lisp-read-string-number.yaml, test/pty/lisp-read-quit.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16. (read-string PROMPT &optional INITIAL-INPUT HISTORY DEFAULT-VALUE) through the same minibuffer seam the `s' interactive code reads: INITIAL-INPUT is the prompt's starting text, an empty answer takes DEFAULT-VALUE (and is the empty string without one, as in Emacs), C-g is `quit'. kg-policy by design: emacs -Q --batch has no minibuffer, so there is nothing for the batch oracle to compare and this row carries no snapshot -- the same reason the phase7-interactive-prompting row above carries none. HISTORY is the phase16-read-history divergence.",
+   "source_name": "read-string"
+  },
+  {
+   "id": "native-read-number",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-read-number"
+   ],
+   "kg_test": "test/pty/lisp-read-string-number.yaml, test/pty/lisp-prompt-rendering.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16. (read-number PROMPT &optional DEFAULT HISTORY): the `n' code's reader, which classifies the token before strtoimax/strtod and re-prompts on anything that is not a number, plus Emacs' default handling -- the prompt renders \"PROMPT(default N) \" and an empty answer takes N. With no DEFAULT an empty answer re-prompts, which is exactly the `n' code. A non-number DEFAULT is `wrong-type-argument numberp' before the prompt opens.",
+   "source_name": "read-number"
+  },
+  {
+   "id": "native-read-file-name",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-read-file-name"
+   ],
+   "kg_test": "test/pty/lisp-read-file-name-buffer.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16. (read-file-name PROMPT &optional DIR DEFAULT-FILENAME MUSTMATCH INITIAL PREDICATE) through the `f'/`F' path picker: DIR and INITIAL together are the prompt's initial text (kg's path prompt is prefilled rather than carrying a separate directory, and with neither it starts where the current buffer's file lives, as C-x C-f does), MUSTMATCH selects the existence check `f' makes and `F' does not, and DEFAULT-FILENAME answers an empty prompt -- which on this picker means M-RET, its accept-the-typed-text-literally escape, since Enter on an empty prompt completes to the highlighted directory entry. PREDICATE is refused rather than dropped (phase16-unsupported-predicates); the picker's own policy is the phase7-interactive-path-picker-policy row.",
+   "source_name": "read-file-name"
+  },
+  {
+   "id": "native-read-buffer",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-read-buffer"
+   ],
+   "kg_test": "test/pty/lisp-read-file-name-buffer.yaml, test/test_lisp.c:test_phase16_read_forms, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "Phase 16. (read-buffer PROMPT &optional DEFAULT REQUIRE-MATCH PREDICATE) through the same picker C-x b and the `b'/`B' codes use: REQUIRE-MATCH selects `b''s existing-name-only mode (a miss re-prompts) against `B''s accept-any, and the read returns a name without selecting anything. DEFAULT is the phase16-read-buffer-default divergence; PREDICATE is refused (phase16-unsupported-predicates).",
+   "source_name": "read-buffer"
+  },
+  {
+   "id": "native-y-or-n-p",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-y-or-n-p"
+   ],
+   "kg_test": "test/pty/lisp-yes-no-prompts.yaml, test/pty/lisp-prompt-rendering.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16. (y-or-n-p PROMPT) is one key, rendered \"PROMPT(y or n) \", answering t for y/Y and nil otherwise -- editor_confirm_yn()'s policy, which every C-level \"(y/n)\" question in the editor already has, now sharing one implementation (prompt_ask_yn(), src/prompt.c). The one thing Lisp adds is that C-g is `quit' rather than an answer. The re-ask divergence is phase16-y-or-n-p-single-key.",
+   "source_name": "y-or-n-p"
+  },
+  {
+   "id": "native-yes-or-no-p",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-yes-or-no-p"
+   ],
+   "kg_test": "test/pty/lisp-yes-no-prompts.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16. (yes-or-no-p PROMPT) is a typed word read to Enter, rendered \"PROMPT(yes or no) \", re-prompting until \"yes\" or \"no\" arrives (ASCII case-insensitive, as Emacs'). C-g is `quit'. The two shapes are deliberately different substrates -- one key for the cheap question, a real minibuffer read for the expensive one -- which is the distinction Emacs' two names exist to make.",
+   "source_name": "yes-or-no-p"
+  },
+  {
+   "id": "native-completing-read",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-completing-read"
+   ],
+   "kg_test": "test/pty/lisp-completing-read.yaml, test/pty/lisp-completing-read-cancel.yaml, test/pty/lisp-prompt-rendering.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "Phase 16, and the one form of that phase that is new construction rather than exposure: kg's other pickers all walk a table the editor owns, so a caller-supplied candidate list needed a reader of its own (prompt_read_choice(), src/prompt.c), built on the same editor_picker_filter()/_render()/_emphasise() policy M-x, C-x b and C-x C-f show. Typing filters, Left/Right cycle, Tab completes the typed text to the highlighted candidate, Enter takes it, and a query that is exactly one of the candidates wins over the highlight (Emacs' rule, which kg's M-x picker does not have -- doc/TODO.md records that as open); REQUIRE-MATCH decides whether a query matching nothing is accepted as typed or re-prompts; Enter on an untouched empty prompt answers with DEFAULT (M-x's own rule for its \"(default ...)\", and the only shape in which a DEFAULT survives a picker that always has something highlighted). COLLECTION and PREDICATE are the phase16-completing-read-collection and phase16-unsupported-predicates rows.",
+   "source_name": "completing-read"
+  },
+  {
+   "id": "phase16-read-history",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase16-read-history"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "DIVERGENT, Phase 16. Emacs' HISTORY argument names a symbol whose value is the history list a read pushes onto and M-p/M-n walk. kg's minibuffer histories are per-call-site C rings (struct minibuf_history: the shell command, the compile command), not values a Lisp symbol names, so there is nothing for the argument to select. It is accepted and ignored rather than raised: raising would make the Emacs spelling of an ordinary call fail, and a read with no history is still the read the caller asked for. Pinned by passing a full Emacs argument list and measuring that it reaches the prompt refusal rather than an arity error. The same is true of the `s' and `n' interactive codes, which have never kept a history either (the phase7-interactive-code-s row says so).",
+   "source_name": null
+  },
+  {
+   "id": "phase16-completing-read-collection",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase16-completing-read-collection"
+   ],
+   "kg_test": "test/pty/lisp-completing-read.yaml, test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "DIVERGENT, Phase 16. Emacs' COLLECTION may be a list of strings, an alist, an obarray, a hash table or a function; kg's is a list of strings and nothing else -- anything else is `wrong-type-argument', and a non-string element is too. It is also bounded at PROMPT_CHOICE_MAX (64) candidates, refused rather than truncated, because that is how many the echo area's pick-list can hold and a candidate the picker can never show or cycle to is not a candidate. kg has neither obarrays nor hash tables (the latter is the plan's watch item, whose measured demand utils/forecast/AUDIT.md carries), and a function COLLECTION is a completion protocol rather than a table.",
+   "source_name": null
+  },
+  {
+   "id": "phase16-unsupported-predicates",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase16-unsupported-predicates"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase16_read_forms",
+   "rationale": "DIVERGENT, Phase 16. `completing-read', `read-file-name' and `read-buffer' each take a PREDICATE that filters what may be answered. kg has no filtered picker, and a non-nil PREDICATE raises an error naming it rather than being silently dropped: a predicate that is quietly ignored answers with candidates the caller excluded, which is a wrong answer where the raise is a missing feature. The check happens before the prompt seam is consulted, so the diagnostic is the same with or without a terminal.",
+   "source_name": null
+  },
+  {
+   "id": "phase16-read-buffer-default",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase16-read-buffer-default"
+   ],
+   "kg_test": "test/pty/lisp-read-file-name-buffer.yaml, test/test_buffer.c:test_buf_read_name_modes",
+   "rationale": "DIVERGENT, Phase 16. `read-buffer''s DEFAULT is accepted and ignored, and it is the one DEFAULT of this phase that is: kg's buffer picker answers a blank query with a default of its own -- the current buffer under REQUIRE-MATCH, the first other buffer in the ring otherwise (the phase7-interactive-code-b/-B rows) -- and so never returns the empty answer a caller's default would replace. The alternative was a second buffer picker whose UI differs from C-x b's, which costs more than the argument is worth; `read-string', `read-number', `read-file-name' and `completing-read' all honour theirs. The prompt does not show a \"(default ...)\" it would not use.",
+   "source_name": null
+  },
+  {
+   "id": "phase16-y-or-n-p-single-key",
+   "category": "interactive-commands",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase16-y-or-n-p-single-key"
+   ],
+   "kg_test": "test/pty/lisp-yes-no-prompts.yaml, test/pty/lisp-prompt-rendering.yaml",
+   "rationale": "DIVERGENT, Phase 16. Emacs' `y-or-n-p' re-asks (\"Please answer y or n\") until one of the two keys arrives; kg's answers nil for any key that is not y or Y, because that is what every \"(y/n)\" question in the editor already does and a Lisp form that disagreed with the editor around it would be the worse of the two surprises. Measured against what kg users get, not against the manual: C-x C-c on a modified buffer, C-x k, dired's delete and the save-over-a-changed-file question all read one key that way. C-g is the exception the Lisp form adds -- not an answer but `quit' -- which is why prompt_ask_yn() reports three outcomes where editor_confirm_yn() reports two.",
+   "source_name": null
+  },
+  {
    "id": "phase8-library-doc-put",
    "category": "prelude",
    "status": "supported",
@@ -2948,7 +3104,7 @@
     "pipeline-macro-use"
    ],
    "kg_test": "lisp/pipeline.el, lisp/pipeline-text.el, test/pty/lisp-proof3-pipeline-init.yaml, test/pty/lisp-proof3-pipeline-commands.yaml, test/pty/lisp-proof3-pipeline-errors.yaml",
-   "rationale": "The parent plan's \u00a714 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also \u00a714's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every \u00a714 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
+   "rationale": "The parent plan's §14 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also §14's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every §14 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
    "source_name": null
   },
   {

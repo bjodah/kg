@@ -1211,6 +1211,99 @@ static void test_interactive_prompt_context_refusal(void)
 	teardown_editor();
 }
 
+/* Phase 16: the public read forms' argument contracts, and the same
+ * refusal the interactive codes get.
+ *
+ * Everything here happens BEFORE a prompt would open, which is why it is
+ * a native test at all: this binary has no terminal, cmd_prompt_fd()
+ * answers -1, and the value delivery, cancellation and picker policy are
+ * PTY cases (test/pty/lisp-read-*.yaml, lisp-completing-read.yaml,
+ * lisp-yes-no-prompts.yaml, lisp-prompt-rendering.yaml).  What is pinned
+ * here is that a bad argument is a real `wrong-type-argument' rather than
+ * a prompt nobody can answer, that an unsupported PREDICATE says so out
+ * loud instead of being silently dropped, and that a HISTORY argument is
+ * accepted -- so the Emacs spelling of an ordinary call reaches the
+ * prompt refusal rather than an arity error. */
+static void test_phase16_read_forms(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* All seven exist, and all seven refuse to prompt from here. */
+	CHECK(eval_eq(
+	    "(condition-case nil (read-string \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq(
+	    "(condition-case nil (read-number \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq(
+	    "(condition-case nil (read-file-name \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq(
+	    "(condition-case nil (read-buffer \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq(
+	    "(condition-case nil (y-or-n-p \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq(
+	    "(condition-case nil (yes-or-no-p \"P: \") (error 'no))", "no"));
+	CHECK(eval_eq("(condition-case nil (completing-read \"P: \" '(\"a\"))"
+		      "  (error 'no))",
+	    "no"));
+
+	/* A non-string prompt is Emacs' condition, not a prompt. */
+	CHECK(eval_eq("(condition-case nil (read-string 5)"
+		      "  (wrong-type-argument 'wrong-type))",
+	    "wrong-type"));
+	CHECK(eval_eq("(condition-case nil (completing-read \"P: \" 5)"
+		      "  (wrong-type-argument 'wrong-type))",
+	    "wrong-type"));
+	CHECK(eval_eq("(condition-case nil (completing-read \"P: \" '(1 2))"
+		      "  (wrong-type-argument 'wrong-type))",
+	    "wrong-type"));
+	CHECK(eval_eq("(condition-case nil (read-number \"P: \" \"x\")"
+		      "  (wrong-type-argument 'wrong-type))",
+	    "wrong-type"));
+	CHECK(eval_eq("(condition-case nil (read-string \"P: \" nil nil 5)"
+		      "  (wrong-type-argument 'wrong-type))",
+	    "wrong-type"));
+
+	/* An unsupported argument is refused by name, and is refused before
+	 * the prompt seam is consulted -- so this says PREDICATE even here,
+	 * where every read would fail anyway. */
+	CHECK(eval_ok("(setq report nil)"));
+	CHECK(eval_eq("(condition-case e"
+		      "    (completing-read \"P: \" '(\"a\") 'stringp)"
+		      "  (error (setq report (car (cdr e))) 'refused))",
+	    "refused"));
+	CHECK(eval_eq("(string-match \"PREDICATE\" report)", "16"));
+	CHECK(eval_eq("(condition-case nil (read-buffer \"P: \" nil nil 'x)"
+		      "  (error 'refused))",
+	    "refused"));
+	CHECK(eval_eq(
+	    "(condition-case nil (read-file-name \"P: \" nil nil nil nil 'x)"
+	    "  (error 'refused))",
+	    "refused"));
+
+	/* HISTORY is accepted and ignored: a full Emacs argument list gets
+	 * as far as the prompt refusal rather than "too many arguments". */
+	CHECK(eval_eq("(condition-case nil"
+		      "    (read-string \"P: \" \"init\" 'my-history \"def\")"
+		      "  (error 'no))",
+	    "no"));
+	CHECK(eval_eq("(condition-case nil (read-number \"P: \" 3 'my-history)"
+		      "  (error 'no))",
+	    "no"));
+	CHECK(eval_eq("(condition-case nil"
+		      "    (completing-read \"P: \" '(\"a\") nil t \"a\""
+		      "                     'my-history \"a\")"
+		      "  (error 'no))",
+	    "no"));
+
+	/* One past Emacs' argument list is still an arity error. */
+	CHECK(
+	    eval_eq("(condition-case nil (y-or-n-p \"P: \" 1) (error 'arity))",
+		"arity"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_defun_redefinition_is_atomic(void)
 {
 	char name[32];
@@ -6149,6 +6242,7 @@ int main(void)
 	RUN(test_define_and_run_command);
 	RUN(test_defun_redefinition_is_atomic);
 	RUN(test_interactive_prompt_context_refusal);
+	RUN(test_phase16_read_forms);
 	RUN(test_run_command_interrupt);
 	RUN(test_run_command_reentrancy);
 	RUN(test_command_prefix_delivery);

@@ -255,6 +255,44 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * symbol check accepts both and still reports `symbolp'. */
 void lisp_check_string(FeContext *context, FeObject *object);
 void lisp_check_symbol_or_string(FeContext *context, FeObject *object);
+/* ---- Minibuffer reads (lisp_prompt.c) --------------------------------
+ *
+ * The four readers `(interactive "s/n/f/F/b/B")` and the public
+ * `read-*` forms share.  Everything optional about a read is in one
+ * struct rather than in a per-reader argument list, so the two callers
+ * cannot drift into different policies:
+ *
+ *   initial     the prompt's initial text (NULL for the reader's own
+ *               default: empty for a string, the current buffer's
+ *               directory for a path)
+ *   fallback    what an EMPTY answer becomes -- a DEFAULT argument's
+ *               value, or NULL/nil for none.  Held across the prompt
+ *               only as an element of the native's own argument list,
+ *               which the evaluator roots
+ *   must_match  the answer must name an existing file (`f`) or an
+ *               existing buffer (`b`)
+ *   kind        what an overflow diagnostic names this read
+ */
+struct lisp_read_options {
+	const char *initial;
+	FeObject *fallback;
+	bool must_match;
+	const char *kind;
+};
+
+/* Raise unless a live command prompt exists to read from: prompting is
+ * refused outside a key/M-x command context and while another prompt is
+ * already up (07E's re-entrancy rule, which the public forms inherit). */
+void lisp_prompt_require(FeContext *context);
+FeObject *lisp_read_string_prompt(FeContext *context, int fd,
+    const char *prompt, const struct lisp_read_options *opt);
+FeObject *lisp_read_number_prompt(FeContext *context, int fd,
+    const char *prompt, const struct lisp_read_options *opt);
+FeObject *lisp_read_path_prompt(FeContext *context, int fd, const char *prompt,
+    const struct lisp_read_options *opt);
+FeObject *lisp_read_buffer_prompt(FeContext *context, int fd,
+    const char *prompt, const struct lisp_read_options *opt);
+
 /* Latch state.error_kind into state.last_error_kind and disarm it
  * (lisp_core.c).  Called by every seam that has finished handling a
  * completion, so none of them leaves a stale kind behind. */
@@ -460,6 +498,14 @@ FeObject *native_internal_require_check(
     FeContext *context, FeObject *arguments);
 FeObject *native_featurep(FeContext *context, FeObject *arguments);
 FeObject *native_add_to_load_path(FeContext *context, FeObject *arguments);
+/* The minibuffer reads (lisp_prompt.c), Phase 16. */
+FeObject *native_read_string(FeContext *context, FeObject *arguments);
+FeObject *native_read_number(FeContext *context, FeObject *arguments);
+FeObject *native_read_file_name(FeContext *context, FeObject *arguments);
+FeObject *native_read_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_y_or_n_p(FeContext *context, FeObject *arguments);
+FeObject *native_yes_or_no_p(FeContext *context, FeObject *arguments);
+FeObject *native_completing_read(FeContext *context, FeObject *arguments);
 
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);

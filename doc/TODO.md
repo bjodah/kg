@@ -51,6 +51,11 @@ This file remains the broader feature and technical-debt inventory.
       the exact name of a user command can be shadowed by a longer
       built-in (found when `show-paren-mode` shadowed a test's `show-p`;
       Emacs' completing-read accepts the exact match instead).
+      Phase 16's own `completing-read` picker (`prompt_read_choice()`,
+      `src/prompt.c`) does have the rule — an exactly typed candidate
+      beats the highlighted one — so the fix for M-x is now a known
+      four-line shape rather than a design question; what it still
+      needs is deciding whether `C-x b` and the path picker take it too.
 
 ## Maintainability
 
@@ -197,9 +202,22 @@ against full rebuilds.  Known follow-ups, none blocking:
       arguments, and filters commands by mode; kg's prompts are literal
       and the MODES arguments are accepted and ignored. Both are recorded
       divergences in `README.md` and `doc/lisp-api.md`.
-- [ ] **Phase 8 read functions**: public `read-string`, `read-number`,
-      `read-file-name`, and `read-buffer`, including optional arguments,
-      defaults, history, and non-command re-entry semantics.
+- [x] **Phase 8 read functions** (landed as Phase 16, 2026-08-10):
+      public `read-string`, `read-number`, `read-file-name`,
+      `read-buffer`, plus `y-or-n-p`, `yes-or-no-p` and
+      `completing-read`.  Emacs' optional arguments where kg has
+      substance for them (PROMPT, INITIAL-INPUT, DEFAULT, MUSTMATCH /
+      REQUIRE-MATCH); the non-command re-entry semantics are 07E's own,
+      shared rather than reimplemented, and C-g is a `quit` a
+      `condition-case` catches.  Four things stayed undone *on purpose*
+      and are recorded rows in `test/lisp-compat/features.json` rather
+      than open work here: a HISTORY argument is accepted and ignored
+      (kg's minibuffer histories are per-call-site C rings, not values a
+      symbol names), a non-nil PREDICATE is refused with an error rather
+      than dropped, `read-buffer`'s DEFAULT is ignored because kg's
+      buffer picker supplies its own, and `y-or-n-p` keeps kg's one-key
+      confirmation policy where Emacs re-asks.  Reopening any of them
+      needs the divergence row's rationale answered, not this box.
 - [ ] **The forecast audit's residual tail** (Phase 15,
       `utils/forecast/AUDIT.md`).  Six names, seven references, and they
       partition cleanly: `erase-buffer` (2) and `beginning-of-line` (1)

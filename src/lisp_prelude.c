@@ -83,6 +83,17 @@ static const struct native_binding native_bindings[] = {
 	{ "remove-command", native_remove_command },
 	{ "internal--remove-command-if-present",
 	    native_remove_command_if_present },
+	/* The minibuffer reads (Phase 16).  Same seam, same re-entrancy
+	 * rule and same C-g-is-`quit' as the interactive codes above; what
+	 * these add is asking mid-body rather than only in an argument
+	 * list. */
+	{ "read-string", native_read_string },
+	{ "read-number", native_read_number },
+	{ "read-file-name", native_read_file_name },
+	{ "read-buffer", native_read_buffer },
+	{ "y-or-n-p", native_y_or_n_p },
+	{ "yes-or-no-p", native_yes_or_no_p },
+	{ "completing-read", native_completing_read },
 	{ "current-buffer", native_current_buffer },
 	{ "buffer-list", native_buffer_list },
 	{ "get-buffer", native_get_buffer },

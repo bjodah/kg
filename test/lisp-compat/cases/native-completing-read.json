@@ -1,0 +1,6 @@
+{
+ "id": "native-completing-read",
+ "setup": [],
+ "expr": "(completing-read \"Fruit: \" '(\"apple\" \"banana\" \"cherry\") nil t)",
+ "note": "Phase 16. kg's pick-list over a caller-supplied list of strings. kg-policy both because there is no batch minibuffer and because the picker's rules -- Tab completes to the highlighted candidate, Enter on an untouched empty prompt is the DEFAULT -- are kg's, not Emacs' completion styles."
+}

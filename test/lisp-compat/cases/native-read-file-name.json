@@ -1,0 +1,6 @@
+{
+ "id": "native-read-file-name",
+ "setup": [],
+ "expr": "(read-file-name \"Find file: \" \"/tmp\" \"notes.txt\" t)",
+ "note": "Phase 16. DIR is the prefill, DEFAULT-FILENAME answers an empty prompt (M-RET on kg's path picker), MUSTMATCH is the existence check the `f' code makes. kg-policy: the picker is kg's own, and there is no batch minibuffer to compare."
+}

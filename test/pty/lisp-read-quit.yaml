@@ -1,0 +1,43 @@
+# Phase 16: C-g at a Lisp-initiated prompt is Emacs' `quit', and the
+# editor survives it either way.
+#
+# Caught: the command's own condition-case names `quit', so cancelling
+# the read is an ordinary Lisp value and the command finishes normally.
+# Uncaught: the quit unwinds the whole command, the buffer keeps exactly
+# what the earlier commands put there -- nothing half-inserted -- and the
+# session is still usable, which the ordinary typing at the end proves.
+#
+# This is the case the phase exists to make true: a prompt that cannot be
+# cancelled, or that wedges the editor when it is, is worse than no
+# prompt.
+name: lisp-read-quit
+filename: readquit.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun ask-cancel ()
+      (interactive)
+      (insert (condition-case nil (read-string "Say: ") (quit "cancelled"))))
+    (defun ask-plain ()
+      (interactive)
+      (insert (concat "[" (read-string "Say: ") "]")))
+initial: ""
+keys:
+  # C-g at the read: caught by the command's own handler.
+  - M-x
+  - ask-cancel
+  - RET
+  - C-g
+  # The same command answered for real still works.
+  - M-x
+  - ask-cancel
+  - RET
+  - "ok"
+  - RET
+  # C-g with no handler: nothing is inserted, and the editor is alive.
+  - M-x
+  - ask-plain
+  - RET
+  - C-g
+  - "z"
+expected_saved: "cancelledokz"

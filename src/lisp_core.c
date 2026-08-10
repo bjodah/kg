@@ -870,14 +870,6 @@ void lisp_check_symbol_or_string(FeContext *context, FeObject *object)
 	raise_signal_form(context, symbol, FeMakeList(context, parts, 3));
 }
 
-static void prompt_unavailable(FeContext *context)
-{
-	if (cmd_prompt_fd() < 0 || kg_event_prompt_active()) {
-		FeHandleError(
-		    context, "interactive prompt is not available here");
-	}
-}
-
 static void interactive_push_arg(
     FeContext *context, FeObject **args, int *argc, FeObject *value)
 {
@@ -888,145 +880,48 @@ static void interactive_push_arg(
 	FePushGC(context, value);
 }
 
-typedef void (*interactive_prompt_check)(FeContext *context, const char *kind);
-
-static void interactive_prompt_ok(FeContext *context, const char *kind)
-{
-	(void)context;
-	(void)kind;
-}
-
-[[noreturn]] static void interactive_prompt_quit(
-    FeContext *context, const char *kind)
-{
-	(void)kind;
-	FeRaiseCompletion(context, FeCompletionQuit, "Quit");
-}
-
-[[noreturn]] static void interactive_prompt_overflow(
-    FeContext *context, const char *kind)
-{
-	char message[96];
-
-	(void)snprintf(message, sizeof(message),
-	    "interactive prompt overflow for %s", kind);
-	FeHandleError(context, message);
-}
-
-static void check_interactive_prompt(
-    FeContext *context, enum minibuf_result result, const char *kind)
-{
-	static const interactive_prompt_check checks[] = {
-		interactive_prompt_quit,
-		interactive_prompt_ok,
-		interactive_prompt_overflow,
-	};
-
-	checks[result + 1](context, kind);
-}
-
-static FeObject *read_interactive_number(
-    FeContext *context, int fd, const char *prompt)
-{
-	char text[256];
-
-	for (;;) {
-		enum minibuf_result result;
-		enum kg_number_token kind;
-
-		text[0] = '\0';
-		result = editor_read_line(fd, prompt, text, sizeof(text));
-		check_interactive_prompt(context, result, "n");
-		kind = kg_number_token_classify(text);
-		if (kind == KG_NUMBER_TOKEN_INTEGER) {
-			intmax_t integer;
-
-			errno = 0;
-			integer = strtoimax(text, nullptr, 10);
-			/* Past int64 it becomes a double, as an integer
-			 * literal does in fe's own reader; kg has no
-			 * bignums, which is already a recorded divergence. */
-			if (errno != ERANGE) {
-				return FeMakeInteger(context, (int64_t)integer);
-			}
-			return FeMakeDouble(context, strtod(text, nullptr));
-		}
-		if (kind == KG_NUMBER_TOKEN_FLOAT) {
-			return FeMakeDouble(context, strtod(text, nullptr));
-		}
-		editor_set_status_message("Please enter a number.");
-	}
-}
-
-static FeObject *read_interactive_string(
-    FeContext *context, int fd, const char *prompt)
-{
-	char text[PATH_MAX];
-	enum minibuf_result result;
-
-	text[0] = '\0';
-	result = editor_read_line(fd, prompt, text, sizeof(text));
-	check_interactive_prompt(context, result, "s");
-	return FeMakeString(context, text);
-}
-
-static FeObject *read_interactive_path(
-    FeContext *context, int fd, char code, const char *prompt)
-{
-	char text[PATH_MAX];
-	struct stat st;
-	enum minibuf_result result;
-
-	editor_prompt_prefill_dir(text, sizeof(text));
-	for (;;) {
-		result = editor_read_line_path(fd, prompt, text, sizeof(text));
-		check_interactive_prompt(context, result, "path");
-		if (code == 'F' || stat(text, &st) == 0) {
-			return FeMakeString(context, text);
-		}
-		editor_set_status_message("File does not exist: %s", text);
-	}
-}
-
-static FeObject *read_interactive_buffer(
-    FeContext *context, int fd, char code, const char *prompt)
-{
-	char text[PATH_MAX];
-	enum minibuf_result result
-	    = buf_read_name(fd, prompt, text, sizeof(text),
-		code == 'B' ? BUF_NAME_ANY : BUF_NAME_EXISTING, nullptr);
-
-	check_interactive_prompt(context, result, "buffer");
-	return FeMakeString(context, text);
-}
-
 typedef FeObject *(*interactive_reader)(
     FeContext *context, int fd, char code, const char *prompt);
 
+/* The interactive codes take no defaults and no initial input: the whole
+ * of what a code says is its prompt.  `f' requires an existing file where
+ * `F' does not, and `b' an existing buffer where `B' takes any name --
+ * which is the same must_match the public forms' MUSTMATCH argument
+ * selects. */
 static FeObject *read_interactive_number_code(
     FeContext *context, int fd, char code, const char *prompt)
 {
+	struct lisp_read_options opt = { nullptr, nullptr, false, "n" };
+
 	(void)code;
-	return read_interactive_number(context, fd, prompt);
+	return lisp_read_number_prompt(context, fd, prompt, &opt);
 }
 
 static FeObject *read_interactive_string_code(
     FeContext *context, int fd, char code, const char *prompt)
 {
+	struct lisp_read_options opt = { nullptr, nullptr, false, "s" };
+
 	(void)code;
-	return read_interactive_string(context, fd, prompt);
+	return lisp_read_string_prompt(context, fd, prompt, &opt);
 }
 
 static FeObject *read_interactive_path_code(
     FeContext *context, int fd, char code, const char *prompt)
 {
-	return read_interactive_path(context, fd, code, prompt);
+	struct lisp_read_options opt
+	    = { nullptr, nullptr, code == 'f', "path" };
+
+	return lisp_read_path_prompt(context, fd, prompt, &opt);
 }
 
 static FeObject *read_interactive_buffer_code(
     FeContext *context, int fd, char code, const char *prompt)
 {
-	return read_interactive_buffer(context, fd, code, prompt);
+	struct lisp_read_options opt
+	    = { nullptr, nullptr, code == 'b', "buffer" };
+
+	return lisp_read_buffer_prompt(context, fd, prompt, &opt);
 }
 
 static interactive_reader interactive_reader_for(char code)
@@ -1052,7 +947,7 @@ static FeObject *read_interactive_prompt(
 	if (code == 'N' && raw != NULL && !FeIsNil(raw)) {
 		return FeMakeInteger(context, lisp_prefix_number(context, raw));
 	}
-	prompt_unavailable(context);
+	lisp_prompt_require(context);
 	reader = interactive_reader_for(code);
 	return reader(context, fd, code, prompt);
 }

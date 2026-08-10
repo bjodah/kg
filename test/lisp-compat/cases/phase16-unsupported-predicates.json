@@ -1,0 +1,6 @@
+{
+ "id": "phase16-unsupported-predicates",
+ "setup": [],
+ "expr": "(completing-read \"Fruit: \" '(\"apple\") 'stringp)",
+ "note": "Phase 16 divergence: Emacs filters the candidates through PREDICATE; kg raises \"completing-read PREDICATE is not supported by kg\". Loud rather than dropped -- an ignored predicate answers with candidates the caller excluded. read-file-name and read-buffer refuse theirs the same way."
+}

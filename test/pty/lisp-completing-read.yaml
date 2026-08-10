@@ -1,0 +1,65 @@
+# Phase 16: `completing-read' over a list of strings -- the one form of
+# this phase that is new construction rather than exposure, since kg's
+# existing pickers all walk a table the editor owns (the command list,
+# the buffer ring, a directory).
+#
+# Four rules, one per command below: typing filters and Enter takes the
+# highlighted candidate; Tab completes the typed text to it; Enter on an
+# untouched empty prompt answers with the DEF argument (M-x's own
+# "(default ...)" rule, and the only shape in which a DEFAULT can survive
+# a picker that always has something highlighted); and with no
+# REQUIRE-MATCH a query matching nothing is accepted as typed.
+name: lisp-completing-read
+filename: complete.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defvar fruit-list '("apple" "banana" "cherry"))
+    (defun pick-fruit ()
+      (interactive)
+      (insert (concat "<" (completing-read "Fruit: " fruit-list nil t) ">")))
+    (defun pick-default ()
+      (interactive)
+      (insert (concat "[" (completing-read "Fruit: " fruit-list nil nil nil
+                                           nil "pear") "]")))
+    (defun pick-free ()
+      (interactive)
+      (insert (concat "{" (completing-read "Fruit: " fruit-list) "}")))
+    (defun pick-exact ()
+      (interactive)
+      (insert (concat "(" (completing-read "Fruit: " '("apple pie" "apple")
+                                           nil t) ")")))
+initial: ""
+keys:
+  # Filter to one candidate and take it.
+  - M-x
+  - pick-fruit
+  - RET
+  - ban
+  - RET
+  # Tab completes the query to the highlighted candidate; Enter takes it.
+  - M-x
+  - pick-fruit
+  - RET
+  - ch
+  - TAB
+  - RET
+  # An untouched empty prompt is the DEF argument.
+  - M-x
+  - pick-default
+  - RET
+  - RET
+  # No REQUIRE-MATCH: a query nothing matches is the answer.
+  - M-x
+  - pick-free
+  - RET
+  - kiwi
+  - RET
+  # An exactly typed candidate wins over the highlighted one, which is
+  # the longer "apple pie" here -- Emacs' completing-read rule.
+  - M-x
+  - pick-exact
+  - RET
+  - apple
+  - RET
+expected_saved: "<banana><cherry>[pear]{kiwi}(apple)"

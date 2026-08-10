@@ -1,0 +1,34 @@
+# Phase 16: what the three composed prompts actually say on screen.
+#
+# The saved file cannot see a prompt, so these are transcript assertions:
+# read-number renders its DEFAULT the way Emacs' own read-number does,
+# y-or-n-p renders the "(y or n) " kg answers with one key, and
+# completing-read renders its candidates in kg's existing pick-list --
+# the same "{a | b | c}" M-x, C-x b and C-x C-f show, with the
+# highlighted entry first.
+name: lisp-prompt-rendering
+filename: prompt-render.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun ask-all ()
+      (interactive)
+      (let* ((n (read-number "N: " 7))
+             (ok (y-or-n-p "Really? "))
+             (fruit (completing-read "Fruit: " '("apple" "banana" "cherry"))))
+        (insert (format "%s/%s/%s" n (if ok "y" "n") fruit))))
+initial: ""
+keys:
+  - M-x
+  - ask-all
+  - RET
+  - "5"
+  - RET
+  - "y"
+  - ban
+  - RET
+expected_saved: "5/y/banana"
+expected_screen_contains:
+  - "N: (default 7)"
+  - "Really? (y or n)"
+  - "banana | cherry"

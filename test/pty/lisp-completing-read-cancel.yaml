@@ -1,0 +1,52 @@
+# Phase 16: the picker's three refusal paths, which the happy-path case
+# (lisp-completing-read.yaml) does not reach.
+#
+# A REQUIRE-MATCH query that matches nothing re-prompts rather than
+# answering -- the same rule the `b' interactive code has -- and
+# backspace walks the query back so the next answer is not refused for
+# the previous one's characters.  C-g at the picker is `quit', caught
+# here by the command's own condition-case, and the editor is still
+# usable afterwards: the last command answers for real.
+name: lisp-completing-read-cancel
+filename: complete-cancel.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defvar fruit-list '("apple" "banana" "cherry"))
+    (defun pick-strict ()
+      (interactive)
+      (insert (concat "<" (completing-read "Fruit: " fruit-list nil t) ">")))
+    (defun pick-guarded ()
+      (interactive)
+      (insert (concat "["
+                      (condition-case nil
+                          (completing-read "Fruit: " fruit-list nil t)
+                        (quit "cancelled"))
+                      "]")))
+initial: ""
+keys:
+  # "zzz" matches nothing and REQUIRE-MATCH is on: Enter re-prompts.
+  # Three backspaces retire it, and "app" then answers.
+  - M-x
+  - pick-strict
+  - RET
+  - zzz
+  - RET
+  - C-?
+  - C-?
+  - C-?
+  - app
+  - RET
+  # C-g at the picker is a quit the command catches.
+  - M-x
+  - pick-guarded
+  - RET
+  - ch
+  - C-g
+  # ... and the same command still works afterwards.
+  - M-x
+  - pick-guarded
+  - RET
+  - ch
+  - RET
+expected_saved: "<apple>[cancelled][cherry]"

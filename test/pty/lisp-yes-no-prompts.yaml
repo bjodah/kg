@@ -1,0 +1,42 @@
+# Phase 16: `y-or-n-p' and `yes-or-no-p', kg's two question shapes.
+#
+# y-or-n-p is one key and kg's own confirmation policy -- `y' is yes and
+# any other key is no, where Emacs re-asks -- which is what every C-level
+# "(y/n)" question in the editor already does, now with C-g reserved for
+# `quit'.  yes-or-no-p is a typed word read to Enter, re-prompting until
+# one of the two words arrives, which is where "maybe" goes below.
+name: lisp-yes-no-prompts
+filename: yesno.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun ask-yn ()
+      (interactive)
+      (insert (if (y-or-n-p "Really? ") "Y" "N")))
+    (defun ask-yesno ()
+      (interactive)
+      (insert (if (yes-or-no-p "Sure? ") "[yes]" "[no]")))
+initial: ""
+keys:
+  - M-x
+  - ask-yn
+  - RET
+  - "y"
+  - M-x
+  - ask-yn
+  - RET
+  - "n"
+  # A word that is neither re-prompts rather than answering.
+  - M-x
+  - ask-yesno
+  - RET
+  - "maybe"
+  - RET
+  - "YES"
+  - RET
+  - M-x
+  - ask-yesno
+  - RET
+  - "no"
+  - RET
+expected_saved: "YN[yes][no]"

@@ -1,0 +1,6 @@
+{
+ "id": "phase16-completing-read-collection",
+ "setup": [],
+ "expr": "(completing-read \"Fruit: \" '((\"apple\" . 1) (\"banana\" . 2)))",
+ "note": "Phase 16 divergence: Emacs accepts this alist COLLECTION and completes over its keys; kg raises (wrong-type-argument stringp (\"apple\" . 1)), because kg's COLLECTION is a list of strings and nothing else. Also bounded at 64 candidates, refused rather than truncated."
+}

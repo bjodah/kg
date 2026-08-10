@@ -6,6 +6,7 @@
  * collide with test_compile.c's or bufmgr.o's. */
 
 #include "../src/def.h"
+#include "../src/prompt.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,6 +122,31 @@ int editor_path_expand_tilde(char *buf, int bufsize)
 	(void)buf;
 	(void)bufsize;
 	return 0;
+}
+
+/* src/prompt.c's two questions, for the same reason: they read keys, and
+ * this binary has no terminal.  Every public read reaches cmd_prompt_fd()
+ * above first and raises, so these exist to link, not to answer. */
+enum minibuf_result prompt_read_choice(int fd, const char *prompt,
+    const char *const *choices, int nchoices, const char *initial,
+    bool require_match, char *out, int outsize)
+{
+	(void)fd;
+	(void)prompt;
+	(void)choices;
+	(void)nchoices;
+	(void)initial;
+	(void)require_match;
+	(void)out;
+	(void)outsize;
+	return MINIBUF_CANCELLED;
+}
+
+enum prompt_yn prompt_ask_yn(int fd, const char *question)
+{
+	(void)fd;
+	(void)question;
+	return PROMPT_YN_CANCELLED;
 }
 
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,

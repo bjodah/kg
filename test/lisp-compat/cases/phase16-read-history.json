@@ -1,0 +1,6 @@
+{
+ "id": "phase16-read-history",
+ "setup": [],
+ "expr": "(read-string \"Name: \" nil 'my-history \"world\")",
+ "note": "Phase 16 divergence: the HISTORY argument is accepted and ignored. Under Emacs this pushes the answer onto my-history and M-p walks it; under kg the argument selects nothing, because kg's minibuffer histories are per-call-site C rings rather than values a symbol names. Measured here as: the call reaches the prompt refusal, not an arity error."
+}

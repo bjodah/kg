@@ -23,6 +23,7 @@
 #include "marker.h"
 #include "mouse.h"
 #include "occur.h"
+#include "prompt.h"
 #include "syntax.h"
 #include "xref.h"
 #include "yank.h"
@@ -186,33 +187,21 @@ static int handle_universal_arg(struct key_event c)
 
 /* Ask `fmt` (printf-style, as for the status line) in the echo area and
  * read one key.  Returns 1 only for a literal yes; anything else, C-g
- * included, is a no.  The screen is refreshed first because the question
- * has to be visible before the key that answers it is read.  Every y/n
- * question in the editor goes through here, so they all agree on what a
- * yes is and on when the question is on screen. */
+ * included, is a no.  Every y/n question the editor's own commands ask
+ * goes through here, so they all agree on what a yes is; the question
+ * itself is prompt_ask_yn() (src/prompt.c), which also reports the
+ * cancellation this shape folds into "no" -- Lisp's `y-or-n-p' needs the
+ * difference, since C-g there is Emacs' `quit'. */
 int editor_confirm_yn(int fd, const char *fmt, ...)
 {
 	char prompt[sizeof(editor.statusmsg)];
 	va_list ap;
-	struct key_event answer;
-	int yes;
 
 	va_start(ap, fmt);
 	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(prompt, sizeof(prompt), fmt, ap);
 	va_end(ap);
-	editor_set_status_message("%s", prompt);
-	/* A confirmation reads one key with the echo area committed to the
-	 * question, which is exactly the window kg_event_drain_safe() must
-	 * defer through -- delivering into it would let a callback repaint
-	 * the status line out from under the prompt still waiting for its
-	 * answer. */
-	kg_event_prompt_enter();
-	editor_refresh_screen();
-	answer = editor_read_key(fd);
-	yes = KEY_IS(answer, 'y', 0) || KEY_IS(answer, 'Y', 0);
-	kg_event_prompt_leave();
-	return yes;
+	return prompt_ask_yn(fd, prompt) == PROMPT_YN_YES;
 }
 
 /* One chunk of a `C-u N C-k` kill.  The whole span the loop below walks

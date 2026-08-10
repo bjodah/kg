@@ -597,6 +597,58 @@ reachable as `(define-command NAME FUNCTION &optional SPEC DOCUMENTATION)`;
 the spec is nil, a string, or a zero-argument function, and documentation is
 nil or a string. `remove-command` undoes the registration.
 
+### Asking the user something
+
+A command does not have to say everything it needs in its `(interactive
+...)` declaration. These seven forms read the minibuffer from anywhere in
+a command's body:
+
+```lisp
+(defun insert-heading ()
+  "Ask for a heading and insert it."
+  (interactive)
+  (let ((text (read-string "Heading: " nil nil "Untitled"))
+        (level (read-number "Level: " 1)))
+    (when (y-or-n-p (concat "Insert \"" text "\"? "))
+      (insert (concat (make-string level ?#) " " text)))))
+(global-set-key "C-c h" "insert-heading")
+```
+
+* `(read-string PROMPT &optional INITIAL-INPUT HISTORY DEFAULT-VALUE)`
+* `(read-number PROMPT &optional DEFAULT HISTORY)` — the prompt shows
+  `(default N)` and an empty answer takes it
+* `(read-file-name PROMPT &optional DIR DEFAULT-FILENAME MUSTMATCH INITIAL PREDICATE)`
+  and `(read-buffer PROMPT &optional DEFAULT REQUIRE-MATCH PREDICATE)` —
+  the same file and buffer pickers `C-x C-f` and `C-x b` use
+* `(y-or-n-p PROMPT)` — one key: `y` is yes, any other key is no
+* `(yes-or-no-p PROMPT)` — a typed `yes` or `no`, re-asked until one of
+  them arrives
+* `(completing-read PROMPT COLLECTION &optional PREDICATE REQUIRE-MATCH INITIAL-INPUT HISTORY DEFAULT)`
+  — kg's pick-list over a list of strings: typing filters, `Left`/`Right`
+  cycle, `Tab` completes to the highlighted candidate, `Enter` takes it,
+  and a name typed in full wins over a longer candidate that sorts first
+
+They follow the interactive codes' rules, because they are the same
+readers: prompting works only from key/`M-x` dispatch and not while
+another prompt is up, prompts are literal, an over-long answer is refused
+rather than truncated, and `C-g` is a quit a `condition-case` can catch:
+
+```lisp
+(defun ask-politely ()
+  (interactive)
+  (message "%s" (condition-case nil (read-string "Say: ") (quit "never mind"))))
+```
+
+Four things differ from Emacs, and are recorded as such: a `HISTORY`
+argument is accepted and ignored (kg's minibuffer histories are not
+values a symbol names); a non-nil `PREDICATE` is refused with an error
+rather than silently dropped; `read-buffer`'s `DEFAULT` is ignored,
+because kg's buffer picker supplies its own default for a blank answer;
+and `y-or-n-p` answers no for any key that is not `y`, where Emacs
+re-asks — which is what every `(y/n)` question in kg already does.
+`completing-read`'s `COLLECTION` is a list of strings and nothing else,
+at most 64 of them.
+
 A worked `init.el` — select the word under the cursor, the way you would
 write it in Emacs:
 

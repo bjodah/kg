@@ -242,7 +242,7 @@ LISP_SRCS = lisp_core.c
 ifeq ($(WITH_LISP),1)
 LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
              lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c lisp_hooks.c \
-             lisp_process.c lisp_require.c
+             lisp_process.c lisp_require.c lisp_prompt.c
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
@@ -291,7 +291,7 @@ SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c file
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
-       mouse.c showparen.c
+       mouse.c showparen.c prompt.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -381,6 +381,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
+	    $(OBJDIR)/prompt.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
@@ -522,7 +523,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7400
+SCC_COMPLEXITY_MAX ?= 7497
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

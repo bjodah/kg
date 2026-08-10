@@ -1,0 +1,6 @@
+{
+ "id": "native-read-number",
+ "setup": [],
+ "expr": "(read-number \"How many? \" 7)",
+ "note": "Phase 16. kg-policy for the same reason: batch has no minibuffer. What the argument decides is the prompt text -- \"How many? (default 7) \" -- and what an empty answer becomes."
+}

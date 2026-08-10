@@ -1,0 +1,6 @@
+{
+ "id": "native-read-string",
+ "setup": [],
+ "expr": "(read-string \"Name: \" nil nil \"world\")",
+ "note": "Phase 16. The value comes from a terminal, so this case is documentation of the call shape and the row is kg-policy: delivery, the DEFAULT-VALUE substitution and C-g are pinned by test/pty/lisp-read-string-number.yaml and test/pty/lisp-read-quit.yaml. Outside a command context the same form raises \"interactive prompt is not available here\", which test_phase16_read_forms measures."
+}

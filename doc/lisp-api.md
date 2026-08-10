@@ -910,8 +910,75 @@ spec is nil, a string, or a zero-argument function, and documentation is nil or
 a string. Interactive definitions replace their function, spec and document
 atomically; redefining without a declaration removes command status.
 Prompting is refused outside a key/M-x command context or while another
-prompt is active. kg has no public `read-*` APIs or `completing-read`; prompt
-interpolation and deferred codes remain explicit divergences.
+prompt is active — the same rule the public read functions below inherit.
+Prompt interpolation and deferred codes remain explicit divergences.
+
+## Asking the user: the read functions
+
+A command's argument list is not the only place it may ask a question.
+These seven forms read the minibuffer from anywhere in a command's body,
+through the same seam and with the same rules the interactive codes have:
+prompting is refused outside a key/M-x command context and while another
+prompt is already up, and `C-g` is Emacs' `quit`, catchable by a
+`condition-case` naming `quit` and by nothing else.
+
+| Form | Answer |
+| ---- | ------ |
+| `(read-string PROMPT &optional INITIAL-INPUT HISTORY DEFAULT-VALUE)` | The typed text. `INITIAL-INPUT` is the prompt's starting text; an empty answer is `DEFAULT-VALUE`, or `""` without one |
+| `(read-number PROMPT &optional DEFAULT HISTORY)` | A number. With a `DEFAULT` the prompt reads `PROMPT(default N) ` and an empty answer takes it; without one, an empty answer re-prompts |
+| `(read-file-name PROMPT &optional DIR DEFAULT-FILENAME MUSTMATCH INITIAL PREDICATE)` | A path, through kg's file picker. `DIR` and `INITIAL` together are the prompt's initial text; `MUSTMATCH` requires the path to exist |
+| `(read-buffer PROMPT &optional DEFAULT REQUIRE-MATCH PREDICATE)` | A buffer name, through the `C-x b` picker. `REQUIRE-MATCH` accepts only an existing buffer |
+| `(y-or-n-p PROMPT)` | `t` for `y` or `Y`, `nil` for any other key |
+| `(yes-or-no-p PROMPT)` | `t` or `nil` for a typed `yes` / `no`, re-prompting until one of them arrives |
+| `(completing-read PROMPT COLLECTION &optional PREDICATE REQUIRE-MATCH INITIAL-INPUT HISTORY DEFAULT)` | One of `COLLECTION`'s strings, or — without `REQUIRE-MATCH` — whatever was typed |
+
+```lisp
+(defun rename-thing ()
+  (interactive)
+  (let ((new (read-string "New name: " nil nil "untitled")))
+    (when (y-or-n-p (concat "Rename to " new "? "))
+      (insert new))))
+```
+
+`completing-read` shows kg's own pick-list, the `{apple | banana |
+cherry}` `M-x`, `C-x b` and `C-x C-f` already show: typing filters,
+`Left`/`Right` cycle the highlight, `Tab` completes the typed text to the
+highlighted candidate, and `Enter` takes it. A query that is *exactly* one
+of the candidates wins over the highlight, as Emacs' `completing-read`
+does — so a short name is never shadowed by a longer one that sorts first
+— unless the highlight was moved deliberately, which outranks both.
+`Enter` on an untouched empty prompt answers with `DEFAULT` — `M-x`'s own
+rule for its `(default ...)`, and the only shape in which a default can
+survive a picker that always has something highlighted. `COLLECTION` is a list of strings and nothing else:
+Emacs' alists, obarrays, hash tables and completion functions raise
+`wrong-type-argument`, and more than 64 candidates is refused rather than
+silently shortened, since that is how many the echo area can hold.
+
+Four divergences, each recorded in `test/lisp-compat/features.json`:
+
+* a `HISTORY` argument is **accepted and ignored**. kg's minibuffer
+  histories are per-call-site rings (the shell command, the compile
+  command), not values a symbol names, so there is nothing for the
+  argument to select;
+* a non-nil `PREDICATE` is **refused with an error** rather than dropped,
+  in all three forms that take one. An ignored predicate would answer with
+  candidates the caller excluded;
+* `read-buffer`'s `DEFAULT` is accepted and ignored: kg's buffer picker
+  answers a blank query with a default of its own — the current buffer
+  under `REQUIRE-MATCH`, the next buffer in the ring otherwise — so it
+  never returns the empty answer the argument would replace. The other
+  three forms honour theirs;
+* `y-or-n-p` answers `nil` for any key that is not `y`/`Y`, where Emacs
+  re-asks. That is what every `(y/n)` question in the editor already does,
+  and a Lisp form disagreeing with the editor around it would be the worse
+  surprise. `yes-or-no-p` is the shape to use when the question deserves a
+  typed word.
+
+`read-file-name`'s `DEFAULT-FILENAME` answers an *empty* prompt, which on
+kg's path picker means `M-RET` (its accept-the-typed-text-literally
+escape): plain `Enter` on an empty prompt completes to the highlighted
+directory entry instead, which is the picker's existing behaviour for
+`C-x C-f`.
 
 ## Namespaces: function and value cells
 
@@ -1196,6 +1263,7 @@ from this surface, each recorded here rather than silently missing:
 | Hooks and their event-drain subscriber | `src/lisp_hooks.[ch]` |
 | Process objects, filters, sentinels | `src/lisp_process.[ch]`, `src/process_table.[ch]`, `src/process.[ch]` |
 | String natives, including case conversion and `string-to-number` | `src/lisp_string.c` |
+| The minibuffer reads — the interactive codes' four readers and the seven public `read-*`/`y-or-n-p`/`completing-read` forms | `src/lisp_prompt.c`, over `src/prompt.[ch]`'s candidate picker and y/n question |
 | The forecast audit and its corpus | `utils/forecast_audit.py`, `utils/forecast/` |
 | The public, Fe-free surface every editor module includes | `src/lisp.h` |
 

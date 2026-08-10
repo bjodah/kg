@@ -1,0 +1,6 @@
+{
+ "id": "native-y-or-n-p",
+ "setup": [],
+ "expr": "(y-or-n-p \"Really? \")",
+ "note": "Phase 16. One key, \"Really? (y or n) \" on screen, t only for y or Y. kg-policy: the policy is editor_confirm_yn()'s, shared with every C-level question in the editor, and Emacs' re-ask is the phase16-y-or-n-p-single-key divergence."
+}

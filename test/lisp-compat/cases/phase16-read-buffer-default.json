@@ -1,0 +1,6 @@
+{
+ "id": "phase16-read-buffer-default",
+ "setup": [],
+ "expr": "(read-buffer \"Buffer: \" \"*scratch*\")",
+ "note": "Phase 16 divergence: Emacs shows \"Buffer (default *scratch*): \" and answers with it on an empty answer; kg's picker supplies its own default for a blank query (the current buffer under REQUIRE-MATCH, the next in the ring otherwise) and never returns the empty answer the argument would replace, so the argument is accepted and ignored."
+}

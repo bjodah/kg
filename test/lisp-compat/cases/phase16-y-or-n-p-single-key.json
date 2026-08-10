@@ -1,0 +1,6 @@
+{
+ "id": "phase16-y-or-n-p-single-key",
+ "setup": [],
+ "expr": "(y-or-n-p \"Really? \")",
+ "note": "Phase 16 divergence: pressing SPC (or any key that is not y/Y and not C-g) answers nil here, where Emacs re-asks \"Please answer y or n\". kg's one-key confirmation policy, shared with every \"(y/n)\" question the editor's own commands ask. C-g is not an answer in either system: here it is `quit'."
+}

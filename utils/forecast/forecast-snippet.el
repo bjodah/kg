@@ -85,15 +85,35 @@
   (let ((pad (make-string (current-column) ?\s)))
     (string-join (split-string text "\n") (concat "\n" pad))))
 
-(defun forecast-snippet-insert (name)
-  "Insert template NAME at point, indented to the current column."
-  (interactive)
-  (insert (forecast-snippet--indent-to-point
-           (forecast-snippet-expand name nil))))
-
 (defun forecast-snippet-names ()
   "Every defined snippet name, sorted."
   (sort (mapcar 'car forecast-snippet-table) 'string<))
+
+(defun forecast-snippet--read-name ()
+  "Ask which snippet to insert."
+  (intern (completing-read "Snippet: "
+                           (mapcar 'symbol-name (forecast-snippet-names))
+                           nil t)))
+
+(defun forecast-snippet-insert (name)
+  "Insert template NAME at point, indented to the current column."
+  (interactive (list (forecast-snippet--read-name)))
+  (insert (forecast-snippet--indent-to-point
+           (forecast-snippet-expand name nil))))
+
+(defun forecast-snippet-fill (name)
+  "Insert template NAME, asking for each field, defaults offered."
+  (interactive (list (forecast-snippet--read-name)))
+  (let ((values nil))
+    (dolist (field (forecast-snippet--fields (forecast-snippet--template name)))
+      (push (cons field
+                  (read-string (format "%s: " field)
+                               nil nil
+                               (forecast-snippet--value name field nil)))
+            values))
+    (when (y-or-n-p (format "Insert %s? " name))
+      (insert (forecast-snippet--indent-to-point
+               (forecast-snippet-expand name values))))))
 
 (defun forecast-snippet-describe (name)
   "A one-line summary of template NAME."

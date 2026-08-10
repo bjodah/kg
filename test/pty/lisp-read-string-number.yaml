@@ -1,0 +1,38 @@
+# Phase 16: `read-string' and `read-number' called from a command's body
+# rather than from its argument list.
+#
+# Three things this pins that an argument-list read cannot: an empty
+# answer takes the DEFAULT-VALUE argument, INITIAL-INPUT really is the
+# prompt's starting text (Enter alone answers with it), and read-number's
+# default is both shown -- "N: (default 7) " -- and taken.
+name: lisp-read-string-number
+filename: readprompt.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun ask-things ()
+      (interactive)
+      (let ((a (read-string "A: " nil nil "adefault"))
+            (b (read-string "B: " "seed"))
+            (c (read-string "C: " nil nil "unused"))
+            (n (read-number "N: " 7))
+            (m (read-number "M: ")))
+        (insert (format "[%s|%s|%s|%s|%s]" a b c n m))))
+initial: ""
+keys:
+  - M-x
+  - ask-things
+  - RET
+  # A: empty, so the DEFAULT-VALUE argument answers.
+  - RET
+  # B: prefilled with INITIAL-INPUT, accepted as it stands.
+  - RET
+  # C: typed text wins over the default.
+  - typed
+  - RET
+  # N: empty, so the default 7 answers.
+  - RET
+  # M: no default, so an answer is required.
+  - "42"
+  - RET
+expected_saved: "[adefault|seed|typed|7|42]"

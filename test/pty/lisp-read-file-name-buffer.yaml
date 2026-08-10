@@ -1,0 +1,54 @@
+# Phase 16: `read-file-name' and `read-buffer' from a command body.
+#
+# Both read through the pickers the `f'/`F' and `b'/`B' interactive codes
+# already use, so what is pinned here is the argument mapping rather than
+# the picker: DIR and INITIAL together are the prompt's initial text,
+# MUSTMATCH selects the existence check, and DEFAULT-FILENAME answers an
+# empty prompt -- which on the path picker means M-RET, its
+# accept-the-typed-text-literally escape, since Enter on an empty prompt
+# completes to the highlighted directory entry instead.
+#
+# `read-buffer' deliberately shows no default: kg's buffer picker answers
+# a blank query with its own (the current buffer when a match is
+# required), so the DEF argument is accepted and ignored -- the
+# read-buffer-default row in test/lisp-compat/features.json.
+name: lisp-read-file-name-buffer
+filename: readpath.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun ask-file ()
+      (interactive)
+      (insert (concat "<" (read-file-name "F: " nil "fallback.txt" nil
+                                          "typed.txt") ">")))
+    (defun ask-file-default ()
+      (interactive)
+      (insert (concat "<" (read-file-name "G: " "/a/b" "fallback.txt") ">")))
+    (defun ask-buffer ()
+      (interactive)
+      (insert (concat "{" (read-buffer "B: " nil t) "}")))
+initial: ""
+keys:
+  # INITIAL is the prompt's text; nothing in this directory matches it,
+  # so Enter answers with it verbatim and MUSTMATCH nil permits it.
+  - M-x
+  - ask-file
+  - RET
+  - RET
+  # DIR is the prefill: "/a/b/", which three backspaces walk back to
+  # empty (the path prompt deletes a whole component at a trailing /).
+  # M-RET then answers with nothing, and DEFAULT-FILENAME takes over.
+  - M-x
+  - ask-file-default
+  - RET
+  - C-?
+  - C-?
+  - C-?
+  - M-RET
+  # REQUIRE-MATCH, answered with the one buffer there is.
+  - M-x
+  - ask-buffer
+  - RET
+  - readpath
+  - RET
+expected_saved: "<typed.txt><fallback.txt>{readpath.txt}"

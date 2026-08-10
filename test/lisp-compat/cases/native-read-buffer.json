@@ -1,0 +1,6 @@
+{
+ "id": "native-read-buffer",
+ "setup": [],
+ "expr": "(read-buffer \"Buffer: \" nil t)",
+ "note": "Phase 16. REQUIRE-MATCH selects the `b' mode of the C-x b picker. The DEFAULT argument is accepted and ignored -- the phase16-read-buffer-default row."
+}

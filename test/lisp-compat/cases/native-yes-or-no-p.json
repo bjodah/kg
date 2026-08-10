@@ -1,0 +1,6 @@
+{
+ "id": "native-yes-or-no-p",
+ "setup": [],
+ "expr": "(yes-or-no-p \"Really? \")",
+ "note": "Phase 16. A typed word read to Enter, re-prompting until yes or no arrives, case-insensitively. kg-policy: batch has no minibuffer."
+}

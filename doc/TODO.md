@@ -100,11 +100,15 @@ done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
-- **Result previews in `*xref*`.**  The listing ships as
-  `path:line:col:`; the plan's `path:line:col: preview` needs the target
-  line, which means reading it from an open buffer when there is one and
-  a bounded lazy read otherwise (200 files opened to paint one screen,
-  and read from disk is the wrong text for a buffer with unsaved edits).
+- ~~**Result previews in `*xref*`.**~~  Done: the listing ships as
+  `path:line:col: preview`, the preview coming from `src/fileline.h`'s
+  `kg_file_line_preview()` -- an open buffer's own row when one visits the
+  file, so an unsaved edit is what is shown, and a bounded line-by-line
+  read otherwise (no buffer is opened to paint a listing, and no more than
+  a mebibyte is walked to reach one line).  Trimmed, capped at 200 bytes
+  and stripped of control bytes, because a listing row is what RET indexes
+  results by.  The seam is a module of its own for the occur- and
+  grep-style listings that want the same text.
 - **A per-request timeout.**  A server that is alive but stuck answers
   nothing and kg waits forever; only death is detected today.
 - **An `*lsp-log*` buffer.**  Server stderr goes to `/dev/null`

@@ -14,6 +14,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "fileline.h"
 #include "localvars.h"
 #include "lsp_client.h"
 #include "lsp_json.h"
@@ -440,7 +441,7 @@ static const char *xref_display_path(struct lsp_client *c, const char *path)
 [[gnu::format(printf, 2, 3)]] static bool xref_append_line(
     int slot, const char *fmt, ...)
 {
-	char line[PATH_MAX + 64];
+	char line[PATH_MAX + KG_LINE_PREVIEW_MAX + 64];
 	va_list ap;
 	int written;
 
@@ -470,15 +471,21 @@ static const char *xref_display_path(struct lsp_client *c, const char *path)
  * the visit does when RET asks for them.  The two agree on every ASCII
  * line, which is every line this has been seen to print.
  *
- * No preview of the referenced line, which Emacs' *xref* buffer does show.
- * A Location carries none, so a preview is 200 files opened and read to
- * paint one screen -- and read from disk, which is the wrong text for any
- * buffer with unsaved edits.  Doing it properly means previews for open
- * buffers and a bounded lazy read for the rest, which is a slice of its
- * own; recorded in doc/plans/2026-08-08-lsp.md rather than half-done. */
+ * The preview is the text of the line the result is on, from src/fileline.h
+ * -- an open buffer's own bytes where there is one, so a listing never
+ * disagrees with the buffer RET lands in, and a bounded read from disk
+ * otherwise, because two hundred results are not two hundred buffers.  A
+ * file that is gone, a line past its end and a blank line all print the
+ * line the listing printed before there were previews at all; none of them
+ * is worth a row that says so.
+ *
+ * A preview is one row's worth and cannot become two: fileline.h's contract
+ * is one line with its control bytes neutralised, which is what keeps the
+ * listing's row numbers an index into the results. */
 static int xref_render(struct lsp_client *c, const char *what)
 {
 	int slot = buf_prepare_special_text(XREF_BUFFER_NAME, &text_syntax, 1);
+	char preview[KG_LINE_PREVIEW_MAX + 1];
 	size_t i;
 
 	if (slot < 0
@@ -486,9 +493,12 @@ static int xref_render(struct lsp_client *c, const char *what)
 		return -1;
 	}
 	for (i = 0; i < g_result_count; i++) {
-		if (!xref_append_line(slot, "%s:%d:%lld:\n",
+		(void)kg_file_line_preview(g_results[i].path,
+		    g_results[i].line + 1, preview, sizeof(preview));
+		if (!xref_append_line(slot, "%s:%d:%lld:%s%s\n",
 			xref_display_path(c, g_results[i].path),
-			g_results[i].line + 1, g_results[i].character + 1)) {
+			g_results[i].line + 1, g_results[i].character + 1,
+			preview[0] ? " " : "", preview)) {
 			return -1;
 		}
 	}

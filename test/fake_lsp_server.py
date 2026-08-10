@@ -87,6 +87,13 @@ Options, all of them optional:
     reason: a PTY case whose file lives in a temporary directory nobody
     named can still assert exact targets.  Takes precedence over
     ``--reference``; if no document has been opened, the answer is ``[]``.
+``--references-sibling NAME:LINE:CHAR`` (repeatable)
+    One more Location per option, in the file NAME *beside* the document
+    the client last sent, appended after ``--references-self``'s.  Same
+    reason as that one -- the case cannot spell the temporary directory it
+    runs in -- for the answers that must name a file the editor has not
+    opened, which is the only way to ask for text it has to go to disk
+    for.  Ignored before a document has been opened.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
     The client is required to answer it with a MethodNotFound error;
@@ -319,8 +326,10 @@ class Protocol:
                 return None
             return parse_location(self.args.definition)
         if method == "textDocument/references":
-            if self.args.references_self:
-                return self.self_locations(self.args.references_self)
+            if self.args.references_self or self.args.references_sibling:
+                return (self.self_locations(self.args.references_self)
+                        + self.sibling_locations(
+                            self.args.references_sibling))
             return [parse_location(r) for r in self.args.reference]
         if method == "kg/echo":
             return params
@@ -360,10 +369,27 @@ class Protocol:
         return {"uri": self.last_uri,
                 "range": {"start": position, "end": position}}
 
+    def sibling_locations(self, specs):
+        """Locations in files beside the last document the client sent,
+        one per NAME:LINE:CHAR spec, or [] before there is one.
+
+        The URI is built from the last document's own, so the temporary
+        directory a case runs in stays out of the case."""
+        if not self.last_uri or not specs:
+            return []
+        directory = self.last_uri.rsplit("/", 1)[0]
+        out = []
+        for spec in specs:
+            name, line, char = spec.split(":")
+            position = {"line": int(line), "character": int(char)}
+            out.append({"uri": f"{directory}/{name}",
+                        "range": {"start": position, "end": position}})
+        return out
+
     def self_locations(self, spec):
         """Locations in the last document the client sent, one per
         comma-separated LINE:CHAR pair, or [] before there is one."""
-        if not self.last_uri:
+        if not self.last_uri or not spec:
             return []
         out = []
         for pair in spec.split(","):
@@ -490,6 +516,9 @@ def main(argv):
                         help="comma-separated LINE:CHAR pairs answered to "
                              "references requests, in the document the "
                              "client itself opened")
+    parser.add_argument("--references-sibling", action="append", default=[],
+                        help="NAME:LINE:CHAR beside the last document, "
+                             "appended to the references answer")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
     parser.add_argument("--notify", default=None,

@@ -285,7 +285,7 @@ LSP_ALL = $(TESTDIR)/test_xref \
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c register.c visit.c xref.c dabbrev.c \
+       compile_nav.c register.c visit.c fileline.c xref.c dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c
 
@@ -326,7 +326,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_decor $(TESTDIR)/test_event \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
-           $(TESTDIR)/test_showparen \
+           $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -517,7 +517,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7074
+SCC_COMPLEXITY_MAX ?= 7113
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1120,6 +1120,11 @@ EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
 # xref_location_of(): a location parser is where a server's three answer
 # shapes are either read right or navigated wrong.
 EXTRA_xref        := $(EXTRA_cmd)
+# fileline.c answers "what does line N of that file say" from an open
+# buffer or from disk, so its suite needs real buffers holding real files:
+# EXTRA_buffer's set (bufmgr.o for buf_open_path(), fileio.o to load one)
+# plus the module itself.
+EXTRA_fileline    := $(EXTRA_buffer) $(OBJDIR)/fileline.o
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

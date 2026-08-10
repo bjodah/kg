@@ -1,0 +1,61 @@
+name: lsp-references-preview
+# Every result in *xref* carries the text of the line it names, and where
+# that text comes from is the whole of this case.
+#
+# Three results, from two files and two sources:
+#
+#   line 1  is edited before the search and never saved, so the preview can
+#           only have come from the buffer.  The X is the assertion: the
+#           file on disk still starts with "int target", and
+#           expected_screen_not_contains says that line must not appear.
+#   line 3  is indented, and the preview is not: leading blanks say nothing
+#           about a result and cost a listing row the columns they occupy.
+#   helper.c is planted beside the file under test and never opened by kg,
+#           so its preview is the bounded read from disk -- the half a
+#           buffer can never answer.  --references-sibling is how the
+#           server names it without the case knowing the temporary
+#           directory it runs in.
+#
+# tmux, because what is asserted is the listing on screen.  The three C-l
+# after M-? are the wait: the request is asynchronous, so the case has to
+# leave a Python interpreter time to start, handshake and reply, and C-l is
+# the one key that repaints without moving point.
+#
+# Nothing is saved: the trailer answers the modified-buffer prompt with y,
+# so the file on disk is still the one the case wrote -- which is also the
+# assertion that a listing full of previews wrote nothing anywhere.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --references-self 0:4,2:26 --references-sibling helper.c:1:20"
+filename: xrefprev.c
+workspace_files:
+  helper.c: |
+    #include "xrefprev.h"
+    int helper(void) { return target(); }
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+      int use(void) { return target(); }
+keys:
+  - "X"
+  - "M-?"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+trailer_keys:
+  - "C-x"
+  - "C-c"
+  - "y"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+      int use(void) { return target(); }
+expected_screen_contains:
+  - "3 references"
+  - "xrefprev.c:1:5: Xint target(void) { return 1; }"
+  - "xrefprev.c:3:27: int use(void) { return target(); }"
+  - "helper.c:2:21: int helper(void) { return target(); }"
+expected_screen_not_contains:
+  - "xrefprev.c:1:5: int target"

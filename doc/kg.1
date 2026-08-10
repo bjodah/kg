@@ -2713,7 +2713,8 @@ list the answer in the
 buffer.
 Bound to
 .Ic M-\&? .
-Always lists, even for a single result.
+Always lists, even for a single result, each with the text of the line it
+names beside it.
 See
 .Sx LSP .
 .It xref-go-back
@@ -2999,8 +3000,18 @@ No xref history
 answers with a list rather than a jump, in a read-only buffer named
 .Pa *xref* :
 a header line counting the results, then one line per result in
-.Ql path:line:column:
+.Ql path:line:column: preview
 form, with the path relative to the workspace root when it is under it.
+The preview is the text of the line the result is on, with leading and
+trailing blanks dropped and its length capped at 200 bytes; a control
+byte in it becomes a space, so one result is always exactly one line of
+the listing.
+It is read from the buffer visiting that file when there is one, so an
+unsaved edit is what the listing shows; otherwise it is read from the
+file, one line at a time and no further than a mebibyte in.
+A file that cannot be read, a line past the end of one, and a blank line
+all get no preview, and the result is listed without one.
+No file is opened into a buffer to paint a listing.
 The listing is bounded at 200 results and says how many more there were
 when it cut.
 .Ic M-.

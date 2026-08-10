@@ -395,8 +395,13 @@ diagnostics, completion, hover, rename — is deliberately out of scope until
 this foundation has proven itself.
 
 `M-?` always lists, even for one result, in a read-only `*xref*` buffer: a
-header counting the results, then one `path:line:column:` line each, with
-paths shown relative to the workspace root. `RET` goes to the result on the
+header counting the results, then one `path:line:column: preview` line
+each, with paths shown relative to the workspace root. The preview is the
+text of the line the result is on, with its indentation dropped and its
+length capped; it comes from the buffer when the file is open, so an
+unsaved edit is what the listing shows, and from a bounded read of the file
+otherwise — no file is opened into a buffer to paint a listing, and a file
+that has gone away simply has no preview. `RET` goes to the result on the
 current line, `n` and `p` move between them, and `q` closes the listing.
 The listing is bounded at 200 results and says how many more there were.
 `M-.` uses the same buffer when a server offers more than one definition,

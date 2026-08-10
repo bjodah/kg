@@ -63,8 +63,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   subprojects use, and `-print_final_stats` so execs/s and peak RSS are
   in the log. Every target has tracked seeds under `test/fuzz-seeds/<target>`
   and a `make fuzz-<target>-seed` that copies them into the gitignored
-  working corpus; `make fuzz-seed` does all five. Crash, timeout and OOM
+  working corpus; `make fuzz-seed` does all six. Crash, timeout and OOM
   inputs land in `test/fuzz-artifacts/<target>/`.
+  `test/fuzz_lsp_frames.c` is the one target that needs a seam to reach
+  its parser: it drives the real `src/lsp_transport.c` over a pipe it
+  writes itself, through `lsp_transport_attach_fuzz_fd()`, which exists
+  only under `KG_FUZZ` because the shipped way in forks a language server
+  per input.
 - `make fuzz-regex-seed-replay` runs every tracked regex seed once without
   mutation. Each harness documents its input encoding in its header
   comment (`test/fuzz_regex.c`, `test/fuzz_keypress.c`, ...).

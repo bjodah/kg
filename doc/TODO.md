@@ -119,10 +119,17 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       lines, the timeouts and the reason a client died are appended to
       `*lsp-log*` with the server's name in front.  Created lazily, never
       selected, last 64 KiB kept.
-- **A fuzz target for the frame parser.**  `lsp_transport.c`'s
-  Content-Length framing is the one place kg parses bytes from a process
-  it did not write; the five existing targets are the pattern
-  (`test/fuzz_*.c`, tracked seeds under `test/fuzz-seeds/`).
+- [x] **A fuzz target for the frame parser.**  Done 2026-08-10:
+      `test/fuzz_lsp_frames.c` is the sixth libFuzzer target, and its
+      input is the raw byte stream a server writes on its stdout --
+      written into a pipe whose read end is the real transport's, so what
+      runs is `lsp_transport.c`'s own read-and-frame loop and not a model
+      of it.  The seam is `lsp_transport_attach_fuzz_fd()`, compiled only
+      under `KG_FUZZ`, because the shipped constructor forks a server per
+      input.  Every delivered frame goes on to `lsp_json_parse()`, which
+      is what the client does with it.  Ten tracked seeds under
+      `test/fuzz-seeds/lsp_frames`; `make fuzz-lsp-frames-smoke` is in
+      the aggregate `fuzz-smoke` that `.ci/ci-09` runs.
 - **More server specs.**  `gopls` and `rust-analyzer` are one row each in
   `server_specs[]` plus a marker predicate (`go.mod`, `Cargo.toml`) and
   the `KG_LSP_SERVER_<MODE>` name that follows from the mode.

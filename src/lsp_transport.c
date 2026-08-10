@@ -461,6 +461,31 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 	return t;
 }
 
+#ifdef KG_FUZZ
+/* Fuzz-only (test/fuzz_lsp_frames.c): a transport with no child at all,
+ * reading whatever the harness has already put into `out_fd`.  The parser
+ * above is unreachable otherwise -- lsp_transport_start() forks a server
+ * per input, which costs orders of magnitude more than the parse and would
+ * make the target a measurement of fork().  The descriptor becomes the
+ * transport's and is closed by lsp_transport_close() like any other; there
+ * is no write side and nothing to reap.  KG_FUZZ is set by FUZZ_CFLAGS
+ * alone, so none of this is in the editor. */
+struct lsp_transport *lsp_transport_attach_fuzz_fd(int out_fd)
+{
+	struct lsp_transport *t = calloc(1, sizeof(*t));
+
+	if (!t) {
+		return NULL;
+	}
+	t->pid = -1;
+	t->in_fd = -1;
+	t->out_fd = out_fd;
+	t->err_fd = -1;
+	t->reaped = true;
+	return t;
+}
+#endif
+
 void lsp_transport_close(struct lsp_transport *t)
 {
 	struct kg_process_status status;

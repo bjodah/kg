@@ -391,7 +391,8 @@ FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE)
+FUZZBIN_LSP_FRAMES = $(TESTDIR)/fuzz_lsp_frames
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_FRAMES)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -522,7 +523,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7294
+SCC_COMPLEXITY_MAX ?= 7295
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -890,9 +891,21 @@ fuzz-compile-parse-smoke: $(FUZZBIN_COMPILE_PARSE) fuzz-compile-parse-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/compile_parse/ \
 		$(FUZZ_CORPUS)/compile_parse
 
-fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed
+fuzz-lsp-frames: $(FUZZBIN_LSP_FRAMES)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke
+fuzz-lsp-frames-seed:
+	mkdir -p $(FUZZ_CORPUS)/lsp_frames
+	cp -f $(FUZZ_SEEDS)/lsp_frames/* $(FUZZ_CORPUS)/lsp_frames/
+
+fuzz-lsp-frames-smoke: $(FUZZBIN_LSP_FRAMES) fuzz-lsp-frames-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/lsp_frames
+	./$(FUZZBIN_LSP_FRAMES) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_frames/ \
+		$(FUZZ_CORPUS)/lsp_frames
+
+fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-frames-seed
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-frames-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1244,6 +1257,15 @@ $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_pars
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
 
+# The transport depends on the process layer and on nothing else in the
+# editor, and the harness hands each frame it delivers to the JSON parser
+# the client would call: four translation units, no stubs, no def.h.
+$(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+                       $(OBJDIR)/lsp_json.c $(OBJDIR)/process.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+		$(OBJDIR)/lsp_json.c $(OBJDIR)/process.c
+
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
@@ -1293,5 +1315,6 @@ uninstall:
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
+	fuzz-lsp-frames fuzz-lsp-frames-seed fuzz-lsp-frames-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

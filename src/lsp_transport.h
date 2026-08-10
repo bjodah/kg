@@ -93,6 +93,16 @@ struct lsp_transport;
  * has a live child and two open descriptors. */
 struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req);
 
+#ifdef KG_FUZZ
+/* Fuzz-only: wrap an already-open descriptor as a transport's read side,
+ * with no child process and no write side, so a harness can drive the
+ * frame parser on bytes it wrote itself.  Only test/fuzz_lsp_frames.c
+ * calls it and only the fuzz build defines KG_FUZZ; the editor is compiled
+ * without either.  `out_fd` is taken over and closed by
+ * lsp_transport_close(). */
+struct lsp_transport *lsp_transport_attach_fuzz_fd(int out_fd);
+#endif
+
 /* Close the descriptors, make sure the child is gone, and free everything.
  * Killing here is not the client's shutdown policy -- a graceful
  * `shutdown`/`exit` exchange belongs to Stage 3 and happens before this --

@@ -1,0 +1,5 @@
+Content-Type: application/vscode-jsonrpc; charset=utf-8
+X-Server-Note: nothing to see
+Content-Length: 112
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///tmp/a.c","diagnostics":[]}}

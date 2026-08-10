@@ -23,22 +23,42 @@ This file remains the broader feature and technical-debt inventory.
 
 ## Maintainability
 
-- [ ] Rebalance the ci scripts: currently it sounds like "ci-03-gcc-analyzer-valgrind" does two very separate things?
-      (lumped together due to single `make check` target?). Another thing I worry about: default amount of output of the
-      scripts? maybe we can hide most output behind some `--verbose` flag to respective script? And have default mode mostly
-      print summary and output on error (no need to report success of scanning every single file on a unique row for example, 
-      if that is the case today). I'd also like to know what ci-step-scripts are the "best bang-for-the-buck", and in order to
-      know that we will need to track number of reported failures in some ledger file. We can then add instructions in AGENTS.md
-      that subagents only need to run the high-value subset of CI scripts for their sub-plans, and the orchestrator runs the
-      full CI test suite only at end-of-campaign.
-- [ ] Complexity "optimum": we recently ran a /home/bjorn/vc/kg/doc/plans/2026-08-07_complexity-reduction-campaign.md;
-      the risk we face is that we split functions into too many small ones. Would it be sensible to also look at
-      functions with a *very low* cyclomatic complexity? (e.g. CCN<3, could potentially indicate candidates for inlining?)
-- [ ] Programmatic guards for overly large percentage of linecount being comments in files (with a whitelist mechanism
-      for exceptions). Currently (b4a89fe) e.g. the comment block preceding "SCC_COMPLEXITY_MAX ?= ..." in Makefile spans
-      lines 505-1499 (with what looks like a full history of every bump of this value). This is unacceptable, and we need
-      a ci step that guards against this kind of creep. (much like we guard reasonable coverage and cyclomatic complexity).
-      
+- [x] **CI rebalance** (2026-08-10): `ci-03-gcc-analyzer-valgrind` split
+      into `ci-03-gcc-analyzer` (fast, default tier) and `ci-15-valgrind`,
+      the first member of the runner's *expensive* tier — reported as SKIP
+      by default, run with `--expensive` or `CI_EXPENSIVE=1`, which
+      `.woodpecker.yaml` sets so hosted CI runs everything.  The `.ci`
+      scripts no longer `set -x`; run one under `bash -x` when a trace is
+      wanted.  The failure-frequency ledger idea was considered and
+      REJECTED: raw failure counts conflate gates that catch bugs with
+      gates that flake, and cost-of-late-discovery is asymmetric (a
+      coverage-ratchet failure at end of campaign is a five-minute fix; a
+      sanitizer failure there is a bisect across every sub-plan).  Pick a
+      subagent's step subset by cost instead: fast static gates per slice,
+      PTY-heavy sanitizer lanes at end of campaign — except that a slice
+      touching memory-lifetime code runs its sanitizer lane early.
+- [x] **Over-splitting audit** (2026-08-10): a CCN<3 floor was considered
+      and REJECTED — CCN 1 is also every accessor and named predicate, and
+      a low-complexity ratchet would fight the scc/pmccabe ratchets from
+      the other side.  The real smell is a single-caller `static` helper
+      threading many of its caller's locals through the boundary, which is
+      what `utils/single_caller_audit.py` ranks (manual tool, no gate, no
+      Makefile target — by decision, not omission).
+- [ ] A first inlining pass over that audit's top rows: the
+      `splice_alloc`/`splice_head_alloc`/`splice_rows_alloc` chain in
+      `src/buffer.c` (10/8/6 parameters, one caller each) and the
+      `path_*`/`buf_name_*` prompt families in `src/bufmgr.c` (8–12
+      parameters each).
+- [x] **Comment creep** (2026-08-10): the Makefile's ~1000-line ratchet
+      changelog block is gone (2244 → 1258 lines) and the policy that
+      replaces it is in AGENTS.md: a ratchet raise/lower/re-baseline
+      carries its rationale and measured proof in the COMMIT MESSAGE; the
+      comment beside a knob says what it means today, nothing about how it
+      got there.  A comment-percentage CI guard was considered and
+      REJECTED (gameable by adding code; punishes headers whose comments
+      earn their keep).  `utils/comment_ratio.py` ranks files by comment
+      share for one-off verbosity hunts instead.
+
 
 ## LSP follow-ups (v1 landed 2026-08-09)
 

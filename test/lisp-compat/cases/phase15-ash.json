@@ -1,0 +1,6 @@
+{
+ "id": "phase15-ash",
+ "setup": [],
+ "expr": "(list (ash 1 4) (ash 16 -2) (ash -16 -2) (ash 1 0) (ash 0 5) (ash 1 62))",
+ "note": "Both directions, the identity, zero, and the largest exact left shift int64 holds."
+}

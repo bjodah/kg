@@ -16,9 +16,9 @@ Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
 (62 primitives/aliases at this pin, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
-(this directory) owns kg's 87 natives (`native_bindings[]`,
+(this directory) owns kg's 94 natives (`native_bindings[]`,
 `src/lisp_prelude.c`) and kg's prelude definitions
-(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 82) -- kg-owned,
+(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 122) -- kg-owned,
 even though most of the prelude definitions are themselves oracle-comparable
 Emacs Lisp forms
 (`let`, `defun`, `cond`, `mapcar`, ...). Putting kg's half inside the
@@ -41,7 +41,7 @@ the native/PTY test named in `kg_test`, not by an Emacs snapshot.
 ```text
 test/lisp-compat/
   README.md          this file
-  features.json       the manifest: 87 kg natives + 82 prelude definitions
+  features.json       the manifest: 94 kg natives + 122 prelude definitions
                        (plus a handful of kg-owned cross-cutting
                        divergences and the defcustom entry), each
                        with a status, an owner, a comparison mode, and the

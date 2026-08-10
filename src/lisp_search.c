@@ -1,4 +1,8 @@
+#include <limits.h>
+#include <stdckdint.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../fe/fe.h"
@@ -304,6 +308,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	}
 
 	state.match.valid = true;
+	state.match.on_string = false;
 	state.match.buffer = state.exec.buffer;
 	state.match.row = hit.found_row;
 	state.match.match = hit.match;
@@ -364,6 +369,16 @@ static FeObject *lisp_match_bound(
 	    || state.match.match.spans[n].start < 0) {
 		return FeNil(context);
 	}
+	/* A string match already holds Emacs' own units -- 0-based CHARACTER
+	 * indices into the subject, not 1-based buffer positions -- because
+	 * string-match converted them where the subject was still in hand.
+	 * Nothing below this point is reachable for one: there is no buffer
+	 * to resolve and no row to add. */
+	if (state.match.on_string) {
+		return FeMakeInteger(context,
+		    (int64_t)(want_end ? state.match.match.spans[n].end
+				       : state.match.match.spans[n].start));
+	}
 	b = buf_resolve(state.match.buffer);
 	if (b == NULL) {
 		FeHandleError(context, "match-data: buffer is dead");
@@ -383,4 +398,200 @@ FeObject *native_match_beginning(FeContext *context, FeObject *arguments)
 FeObject *native_match_end(FeContext *context, FeObject *arguments)
 {
 	return lisp_match_bound(context, arguments, true);
+}
+
+/* ---- string-match / regexp-quote --------------------------------------
+ *
+ * The regex-from-Lisp seam Phase 15 exists to open, and a seam is all it
+ * is: the engine is src/regex.h's, already used by C-s and by
+ * re-search-forward above.  What is new is the SUBJECT.
+ *
+ * Coordinates.  The engine reports BYTE spans into a NUL-terminated
+ * subject (doc/coordinates.md's third space is display columns and does
+ * not appear here at all).  Emacs' string-match reports 0-based CHARACTER
+ * indices.  The conversion happens HERE, once, while the subject is still
+ * in hand, and what is stored in state.match for a string match is
+ * therefore already in characters -- which is why match-beginning/-end
+ * need neither the subject nor a buffer to answer for one.  The buffer
+ * search above stores byte columns and converts at the read instead,
+ * because there the row is still reachable and the subject is not.
+ *
+ * Two properties of the engine are inherited rather than papered over,
+ * and both are recorded in test/lisp-compat/features.json: the subject is
+ * NUL-terminated, so matching stops at an embedded NUL; and `^'/`$'
+ * anchor the whole subject rather than each line of it, because kg's
+ * buffer search hands the engine one row at a time and never needed a
+ * line anchor. */
+
+/* Copy PATTERN and SUBJECT into one allocation, NUL-terminated, and park
+ * it in state.scratch: the engine needs both alive at once, and a raise
+ * between here and release_scratch() longjmps past every free().  Returns
+ * the block; *subject_out points into it. */
+static char *lisp_pattern_and_subject(FeContext *context, FeObject *pattern_obj,
+    FeObject *subject_obj, size_t *pattern_len, char **subject_out,
+    size_t *subject_len)
+{
+	size_t allocation;
+	char *block;
+
+	lisp_check_string(context, pattern_obj);
+	lisp_check_string(context, subject_obj);
+	*pattern_len = FeStringByteLength(context, pattern_obj);
+	*subject_len = FeStringByteLength(context, subject_obj);
+	if (ckd_add(&allocation, *pattern_len, *subject_len)
+	    || ckd_add(&allocation, allocation, 2) || allocation > INT_MAX) {
+		FeHandleError(context, "string is too large");
+	}
+	block = malloc(allocation);
+	if (!block) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = block;
+	(void)FeCopyStringBytes(context, pattern_obj, block, *pattern_len);
+	block[*pattern_len] = '\0';
+	*subject_out = block + *pattern_len + 1;
+	(void)FeCopyStringBytes(
+	    context, subject_obj, *subject_out, *subject_len);
+	(*subject_out)[*subject_len] = '\0';
+	return block;
+}
+
+/* Compile PATTERN or raise, with the diagnostics lisp_search() uses. */
+static void lisp_compile_or_raise(
+    FeContext *context, struct kg_regex *rx, const char *pattern)
+{
+	int status = kg_regex_compile(rx, pattern, 0);
+	char message[400];
+
+	if (status == KG_REGEX_TOODEEP) {
+		FeHandleError(context, "regexp too complex to compile");
+	}
+	if (status != KG_REGEX_OK) {
+		(void)snprintf(
+		    message, sizeof(message), "invalid regexp: %s", pattern);
+		FeHandleError(context, message);
+	}
+}
+
+/* An Emacs START index for `string-match': 0-based in characters,
+ * negative counting back from the end, and past the end a range error --
+ * measured, (string-match "a" "ab" 5) is (args-out-of-range "ab" 5). */
+static int lisp_match_start(FeContext *context, FeObject *start_object,
+    FeObject *subject_object, int chars)
+{
+	FeDouble value;
+
+	if (FeIsNil(start_object)) {
+		return 0;
+	}
+	value = lisp_finite(context, start_object, "integerp");
+	if (value < 0) {
+		value += (FeDouble)chars;
+	}
+	if (value < 0) {
+		value = 0;
+	}
+	if (value > (FeDouble)chars) {
+		lisp_raise_args_out_of_range(
+		    context, subject_object, start_object);
+	}
+	return (int)value;
+}
+
+/* (string-match REGEXP STRING &optional START) */
+FeObject *native_string_match(FeContext *context, FeObject *arguments)
+{
+	FeObject *pattern_object = FeGetNextArgument(context, &arguments);
+	FeObject *subject_object = FeGetNextArgument(context, &arguments);
+	FeObject *start_object = FeNil(context);
+	size_t pattern_len, subject_len;
+	char *pattern, *subject;
+	struct kg_regex rx;
+	struct kg_match match = { 0 };
+	int chars, start, status, i;
+
+	if (!FeIsNil(arguments)) {
+		start_object = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	pattern = lisp_pattern_and_subject(context, pattern_object,
+	    subject_object, &pattern_len, &subject, &subject_len);
+	chars = lisp_utf8_length(subject, (int)subject_len);
+	start = lisp_match_start(context, start_object, subject_object, chars);
+	lisp_compile_or_raise(context, &rx, pattern);
+	status = kg_regex_match_forward(&rx, subject,
+	    lisp_utf8_byte(subject, (int)subject_len, start), &match);
+	if (status == KG_REGEX_TOO_COMPLEX) {
+		FeHandleError(
+		    context, "string-match: regular expression too complex");
+	}
+	if (status != KG_REGEX_OK) {
+		release_scratch();
+		return FeNil(context);
+	}
+	state.match = (struct kg_lisp_match_data) { 0 };
+	state.match.valid = true;
+	state.match.on_string = true;
+	state.match.match.nspans = match.nspans;
+	for (i = 0; i < match.nspans; i++) {
+		int from = match.spans[i].start, to = match.spans[i].end;
+
+		state.match.match.spans[i].start = from < 0
+		    ? -1
+		    : lisp_utf8_chars(subject, (int)subject_len, from);
+		state.match.match.spans[i].end = to < 0
+		    ? -1
+		    : lisp_utf8_chars(subject, (int)subject_len, to);
+	}
+	release_scratch();
+	return FeMakeInteger(
+	    context, (int64_t)state.match.match.spans[0].start);
+}
+
+/* The characters Emacs 31.0.90's own regexp-quote escapes, measured:
+ * (regexp-quote "a.*+?[]^$\\b(){}|-/") is
+ * "a\\.\\*\\+\\?\\[]\\^\\$\\\\b(){}|-/", so `]' is NOT one of them -- a `]'
+ * outside a bracket expression is an ordinary character in this dialect, and
+ * escaping it would change nothing except the string. */
+static bool lisp_regexp_special(char byte)
+{
+	return byte == '.' || byte == '*' || byte == '+' || byte == '?'
+	    || byte == '[' || byte == '^' || byte == '$' || byte == '\\';
+}
+
+/* (regexp-quote S): S as a regexp matching itself literally. */
+FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeObject *result;
+	size_t length, allocation, i, out = 0;
+	char *block, *quoted;
+
+	FeRequireNoArguments(context, arguments);
+	lisp_check_string(context, object);
+	length = FeStringByteLength(context, object);
+	/* One allocation holding the source and its at-most-doubled
+	 * rendering, the way native_string_equal() holds its two copies:
+	 * one parked pointer is one thing for frame recovery to free. */
+	if (ckd_mul(&allocation, length, 3)
+	    || ckd_add(&allocation, allocation, 2)) {
+		FeHandleError(context, "string is too large");
+	}
+	block = malloc(allocation);
+	if (!block) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = block;
+	(void)FeCopyStringBytes(context, object, block, length);
+	quoted = block + length;
+	for (i = 0; i < length; i++) {
+		if (lisp_regexp_special(block[i])) {
+			quoted[out++] = '\\';
+		}
+		quoted[out++] = block[i];
+	}
+	quoted[out] = '\0';
+	result = FeMakeString(context, quoted);
+	release_scratch();
+	return result;
 }

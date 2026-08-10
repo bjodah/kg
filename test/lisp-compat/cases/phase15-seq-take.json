@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-take",
+ "setup": [],
+ "expr": "(list (seq-take (list 1 2 3) 2) (seq-take (list 1 2) 5) (seq-take (list 1 2) 0))",
+ "note": "Fewer, more, and none."
+}

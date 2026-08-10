@@ -1,0 +1,6 @@
+{
+ "id": "phase15-split-string",
+ "setup": [],
+ "expr": "(list (split-string \"  a b\\tc  \") (split-string \"a,b,,c\" \",\") (split-string \"a,b,,c\" \",\" t) (split-string \"\") (split-string \"\" \",\") (split-string \"a\\nb\\n\" \"\\n\") (split-string \"abc\" \",\"))",
+ "note": "The default separators, an explicit one with and without OMIT-NULLS, both empty-string cases, and a separator that never matches."
+}

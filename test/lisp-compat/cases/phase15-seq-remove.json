@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-remove",
+ "setup": [],
+ "expr": "(list (seq-remove (lambda (x) (< 1 x)) (list 1 2 3)) (seq-remove (lambda (x) nil) (list 1 2)))",
+ "note": "The complement of seq-filter."
+}

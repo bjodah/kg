@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-map",
+ "setup": [],
+ "expr": "(list (seq-map (quote 1+) (list 1 2)) (seq-map (quote 1+) nil))",
+ "note": "Over a list, and over the empty list."
+}

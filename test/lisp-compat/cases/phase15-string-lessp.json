@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-lessp",
+ "setup": [],
+ "expr": "(list (string< \"a\" \"b\") (string< \"a\" \"a\") (string< \"ab\" \"a\") (string< \"A\" \"a\") (string< \"a\" \"ab\") (string< (quote abc) \"abd\"))",
+ "note": "Order, equality, prefix relations, ASCII case ordering, and a symbol operand."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-trim",
+ "setup": [],
+ "expr": "(list (string-trim \"  a b  \") (string-trim \"\\t\\n a \\r\\n\") (string-trim \"\") (string-trim \"abc\"))",
+ "note": "Both ends, the full default whitespace set, and the two no-op cases."
+}

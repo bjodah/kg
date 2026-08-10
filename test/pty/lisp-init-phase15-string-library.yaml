@@ -1,0 +1,68 @@
+name: lisp-init-phase15-string-library
+filename: phase15-init.txt
+requires_feature: lisp
+# Phase 15's string and list library, in the real editor.
+#
+# test/test_lisp.c pins each name against the pinned oracle's answer and
+# test/lisp-compat pins the same answers a second time as snapshots; what
+# neither of those reaches is the thing a user actually does -- write an
+# init file that computes with these names at startup, and read the
+# results back from a command.  This case is that, and it is deliberately
+# written as a small text-munging init rather than as a list of probes.
+#
+# One property is worth pointing at in the expectation: `sort` is
+# destructive in Emacs 31's own way (it moves values between the cells the
+# list already has), so `p15-sorted` sorts a `copy-sequence` and
+# `p15-joined` -- computed BEFORE it, from the same list -- still reads in
+# the original order.  Drop the copy and both change.
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- Phase 15's library, used the way an init file uses it.
+    (setq p15-words (split-string "  the quick  brown fox  "))
+    (setq p15-joined (string-join p15-words "-"))
+    (setq p15-sorted
+      (string-join (sort (copy-sequence p15-words) 'string<) ","))
+    (setq p15-trimmed (string-trim "   padded   "))
+    (setq p15-shout (upcase p15-trimmed))
+    (setq p15-title (capitalize "hello world"))
+    (setq p15-num (string-to-number "42abc"))
+    (setq p15-hit (string-match "\\([a-z]+\\)-\\([0-9]+\\)" "task-17 done"))
+    (setq p15-group (match-string 2 "task-17 done"))
+    (setq p15-clean (replace-regexp-in-string "[0-9]+" "#" "a1b22c"))
+    (setq p15-quoted (string-match (regexp-quote "a.b") "xa.by"))
+    (setq p15-long (seq-filter (lambda (w) (< 3 (length w))) p15-words))
+    (setq p15-alist '((a . 1) (b . 2)))
+    (setq p15-got (alist-get 'b p15-alist))
+    (setq p15-plist (plist-put (list :a 1) :b 2))
+    (setq p15-seq (number-sequence 1 5 2))
+    (setq p15-math (list (abs -3) (mod -7 2) (% -7 2) (ash 1 5)))
+    (setq p15-pad (make-string 3 ?-))
+    (setq p15-suffix (if (string-suffix-p "fox" p15-joined) "yes" "no"))
+    (defun p15-report ()
+      "Insert every value the init file computed."
+      (interactive)
+      (insert (string-join
+        (list p15-joined
+              p15-sorted
+              p15-shout
+              p15-title
+              (number-to-string p15-num)
+              (number-to-string p15-hit)
+              p15-group
+              p15-clean
+              (number-to-string p15-quoted)
+              (format "%S" p15-long)
+              (number-to-string p15-got)
+              (format "%S" p15-plist)
+              (format "%S" p15-seq)
+              (format "%S" p15-math)
+              p15-pad
+              p15-suffix)
+        "|")))
+    (global-set-key (kbd "C-c p") 'p15-report)
+initial: ""
+keys:
+  - C-c
+  - p
+expected_saved: |-
+  the-quick-brown-fox|brown,fox,quick,the|PADDED|Hello World|42|0|17|a#b#c|1|("quick" "brown")|2|(:a 1 :b 2)|(1 3 5)|(3 1 -1 32)|---|yes

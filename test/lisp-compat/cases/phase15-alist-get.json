@@ -1,0 +1,6 @@
+{
+ "id": "phase15-alist-get",
+ "setup": [],
+ "expr": "(list (alist-get (quote a) (list (cons (quote a) 1) (cons (quote b) 2))) (alist-get (quote z) (list (cons (quote a) 1))) (alist-get (quote z) (list (cons (quote a) 1)) 9))",
+ "note": "A hit, a miss, and a miss with a DEFAULT."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-number-sequence",
+ "setup": [],
+ "expr": "(list (number-sequence 1 5) (number-sequence 1 5 2) (number-sequence 5 1) (number-sequence 3) (number-sequence 1 2 0.5) (number-sequence 5 1 -2))",
+ "note": "TO given and omitted, an empty range, a fractional INC, and a negative one."
+}

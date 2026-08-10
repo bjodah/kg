@@ -99,9 +99,17 @@
     (setq res (internal--append2 (car r) res))
     (setq r (cdr r)))
   res))
+;; Emacs' `length' is generic over sequences and answers
+;; (wrong-type-argument sequencep X) for anything that is not one -- not
+;; `listp', which is what the bare `while' below reported for (length 5)
+;; by falling into (cdr 5).  A dotted pair still says listp, from the same
+;; walk and about the offending TAIL, which is Emacs' answer too:
+;; (length '(1 . 2)) is (wrong-type-argument listp 2) on both sides.
 (defalias 'length (lambda (x)
   (if (stringp x)
       (string-length x)
+    (if (not (listp x))
+        (signal 'wrong-type-argument (list 'sequencep x)))
     (internal--let n 0)
     (while x
       (setq n (+ n 1))
@@ -735,3 +743,364 @@
                        (- (cdr bounds) 1)
                      (cdr bounds)))))
   nil))
+
+;; --- the package-writer's string and list library (Phase 15) ---------
+;;
+;; Everything below is ordinary Lisp over the natives above it, which is
+;; the point: `utils/forecast/AUDIT.md' ranked these names by how often
+;; the Lisp we want to write reaches for them, and almost none of them
+;; needed C.  The three that did -- `string-match', `regexp-quote' and
+;; the case conversions -- are natives because they are seams onto the
+;; regex engine and onto byte-level text, not because they are hard.
+;;
+;; Rule 2 of this file's header holds here as everywhere: nothing below
+;; recurses over a list spine.  The merge sort is the one place that
+;; would naturally have, and it is written as two `while' loops instead.
+
+;; --- match data ---
+;; The last match may have been against a buffer or against a string, and
+;; `match-string' needs different extractors for the two.  That is not a
+;; special case, it is the units lining up: a STRING match reports
+;; 0-based character indices and `substring' is 0-based; a BUFFER match
+;; reports 1-based positions and `buffer-substring' is 1-based.  A group
+;; that did not participate is nil on both sides, as in Emacs.
+(defalias 'match-string (lambda (n &optional string)
+  (let ((from (match-beginning n)))
+    (if (null from)
+        nil
+      (if string
+          (substring string from (match-end n))
+        (buffer-substring from (match-end n)))))))
+
+;; --- strings ---
+;; Emacs' default SEPARATORS is the regexp "[ \f\t\n\r\v]+", and with it
+;; OMIT-NULLS defaults to t; with an explicit SEPARATORS it defaults to
+;; nil.  Measured on 31.0.90: (split-string "") is nil and
+;; (split-string "" ",") is (""), which is that asymmetry and nothing
+;; else.  The loop is Emacs' own: the guard that a repeated EMPTY match at
+;; the same place advances by one character is what makes a pattern like
+;; "x*" terminate.  Emacs' fourth TRIM argument is not accepted.
+(defalias 'split-string (lambda (string &optional separators omit-nulls)
+  (let ((re (if separators separators "[ \f\t\n\r\v]+"))
+        (keep-nulls (if separators (not omit-nulls) nil))
+        (limit (length string))
+        (start 0)
+        (notfirst nil)
+        (parts nil)
+        (going t))
+    (while going
+      (let ((from (if (and notfirst (= start (match-beginning 0))
+                           (< start limit))
+                      (+ start 1)
+                    start)))
+        (if (and (< start limit) (string-match re string from))
+            (progn
+              (let ((piece (substring string start (match-beginning 0))))
+                (if (or keep-nulls (not (string= piece "")))
+                    (setq parts (cons piece parts))))
+              (setq start (match-end 0))
+              (setq notfirst t))
+          (setq going nil))))
+    (let ((piece (substring string start limit)))
+      (if (or keep-nulls (not (string= piece "")))
+          (setq parts (cons piece parts))))
+    (reverse parts))))
+(defalias 'string-join (lambda (strings &optional separator)
+  (mapconcat 'identity strings separator)))
+;; Emacs' TRIM-LEFT/TRIM-RIGHT regexp arguments are refused rather than
+;; ignored: the default set -- space, tab, newline, return, form feed,
+;; vertical tab -- is what every caller wants, and an anchored user
+;; regexp would need the `\\=`' the engine does not have.
+(defalias 'internal--trim-reject (lambda (name regexp)
+  (if regexp (error "%s: a REGEXP argument is unsupported" name))))
+(defalias 'internal--trim-char-p (lambda (c)
+  (or (= c 32) (= c 9) (= c 10) (= c 13) (= c 12) (= c 11))))
+(defalias 'string-trim-left (lambda (string &optional regexp)
+  (internal--trim-reject "string-trim-left" regexp)
+  (let ((i 0) (n (length string)) (done nil))
+    (while (and (not done) (< i n))
+      (if (internal--trim-char-p (string-to-char (substring string i (+ i 1))))
+          (setq i (+ i 1))
+        (setq done t)))
+    (substring string i))))
+(defalias 'string-trim-right (lambda (string &optional regexp)
+  (internal--trim-reject "string-trim-right" regexp)
+  (let ((n (length string)) (done nil))
+    (while (and (not done) (< 0 n))
+      (if (internal--trim-char-p
+            (string-to-char (substring string (- n 1) n)))
+          (setq n (- n 1))
+        (setq done t)))
+    (substring string 0 n))))
+(defalias 'string-trim (lambda (string &optional trim-left trim-right)
+  (string-trim-left (string-trim-right string trim-right) trim-left)))
+(defalias 'string-prefix-p (lambda (prefix string &optional ignore-case)
+  (let ((n (length prefix)))
+    (and (<= n (length string))
+         (let ((head (substring string 0 n)))
+           (if ignore-case
+               (string= (downcase prefix) (downcase head))
+             (string= prefix head)))))))
+(defalias 'string-suffix-p (lambda (suffix string &optional ignore-case)
+  (let ((n (length suffix)))
+    (and (<= n (length string))
+         (let ((tail (substring string (- (length string) n))))
+           (if ignore-case
+               (string= (downcase suffix) (downcase tail))
+             (string= suffix tail)))))))
+;; Codepoint order, which is what Emacs compares by.  A symbol operand is
+;; its name on both sides -- `symbol-name' has been reachable since
+;; Phase 14, so this costs one call rather than a recorded divergence.
+(defalias 'string< (lambda (s1 s2)
+  (let ((a (string-to-list (if (symbolp s1) (symbol-name s1) s1)))
+        (b (string-to-list (if (symbolp s2) (symbol-name s2) s2)))
+        (done nil)
+        (result nil))
+    (while (and (not done) a b)
+      (cond ((< (car a) (car b)) (setq result t) (setq done t))
+            ((< (car b) (car a)) (setq done t))
+            (t (setq a (cdr a)) (setq b (cdr b)))))
+    (if done result (and (null a) (consp b) t)))))
+;; Emacs' \\& (the whole match), \\N (group N) and \\\\ in a replacement
+;; string.  An escape Emacs rejects outright ("\\q") yields the escaped
+;; character here; that is the one shape of replacement string the two
+;; disagree about.
+(defalias 'internal--replace-expand (lambda (rep string)
+  (let ((chars (string-to-list rep)) (out ""))
+    (while chars
+      (let ((c (car chars)))
+        (if (and (= c 92) (cdr chars))
+            (let ((d (car (cdr chars))))
+              (setq chars (cdr chars))
+              (cond ((= d 38)
+                     (setq out (concat out (match-string 0 string))))
+                    ((= d 92) (setq out (concat out "\\")))
+                    ((and (<= 48 d) (<= d 57))
+                     (let ((m (match-string (- d 48) string)))
+                       (setq out (concat out (if m m "")))))
+                    (t (setq out (concat out (char-to-string d))))))
+          (setq out (concat out (char-to-string c)))))
+      (setq chars (cdr chars)))
+    out)))
+;; REP is a replacement string or a function of the matched text.  Emacs'
+;; FIXEDCASE is accepted and ignored -- kg never case-adjusts a
+;; replacement, because it never case-folds a match either -- and its
+;; SUBEXP and START arguments are not accepted.  The empty-match rule is
+;; Emacs' own: an empty match copies one character and advances, and the
+;; final empty match at end of string is not replaced, which is why
+;; (replace-regexp-in-string "x*" "-" "abc") is "-a-b-c" and not
+;; "-a-b-c-".
+(defalias 'replace-regexp-in-string (lambda
+  (regexp rep string &optional fixedcase literal)
+  (let ((start 0) (out "") (limit (length string)))
+    (while (and (< start limit) (string-match regexp string start))
+      (let ((mb (match-beginning 0)) (me (match-end 0)))
+        (setq out (concat out (substring string start mb)))
+        (setq out (concat out
+                    (if (stringp rep)
+                        (if literal rep
+                          (internal--replace-expand rep string))
+                      (funcall rep (match-string 0 string)))))
+        (if (= me mb)
+            (progn
+              (if (< mb limit)
+                  (setq out (concat out (substring string mb (+ mb 1)))))
+              (setq start (+ mb 1)))
+          (setq start me))))
+    (concat out (substring string (if (< start limit) start limit))))))
+
+;; --- lists ---
+(defalias 'cdar (lambda (x) (cdr (car x))))
+(defalias 'caddr (lambda (x) (car (cdr (cdr x)))))
+(defalias 'cdddr (lambda (x) (cdr (cdr (cdr x)))))
+(defalias 'cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
+(defalias 'elt (lambda (sequence n)
+  (if (stringp sequence)
+      (progn
+        (if (or (< n 0) (<= (length sequence) n))
+            (signal 'args-out-of-range (list sequence n)))
+        (string-to-char (substring sequence n (+ n 1))))
+    (nth n sequence))))
+(defalias 'butlast (lambda (list &optional n)
+  (let ((keep (- (length list) (if n n 1))) (out nil))
+    (while (and (< 0 keep) list)
+      (setq out (cons (car list) out))
+      (setq list (cdr list))
+      (setq keep (- keep 1)))
+    (reverse out))))
+(defalias 'copy-sequence (lambda (sequence)
+  (if (stringp sequence)
+      (substring sequence 0)
+    (let ((out nil))
+      (while sequence
+        (setq out (cons (car sequence) out))
+        (setq sequence (cdr sequence)))
+      (reverse out)))))
+(defalias 'number-sequence (lambda (from &optional to inc)
+  (if (null to)
+      (list from)
+    (let ((step (if inc inc 1)) (n from) (out nil))
+      (if (= step 0) (error "The increment can not be zero"))
+      (if (< 0 step)
+          (while (<= n to)
+            (setq out (cons n out))
+            (setq n (+ n step)))
+        (while (<= to n)
+          (setq out (cons n out))
+          (setq n (+ n step))))
+      (reverse out)))))
+;; Destructive, as Emacs': every argument but the last has to be a list,
+;; and the result is the first non-nil one with the rest spliced onto it.
+(defalias 'nconc (lambda lists
+  (let ((result nil) (tail nil))
+    (while lists
+      (let ((piece (car lists)))
+        (if (and (cdr lists) (not (listp piece)))
+            (signal 'wrong-type-argument (list 'listp piece)))
+        (when piece
+          (if (null tail) (setq result piece) (setcdr tail piece))
+          (when (consp piece)
+            (setq tail piece)
+            (while (consp (cdr tail)) (setq tail (cdr tail))))))
+      (setq lists (cdr lists)))
+    result)))
+(defalias 'mapcan (lambda (function sequence)
+  (apply 'nconc (mapcar function sequence))))
+(defalias 'assq-delete-all (lambda (key alist)
+  (let ((result alist) (previous nil))
+    (while alist
+      (if (and (consp (car alist)) (eq key (car (car alist))))
+          (if previous
+              (setcdr previous (cdr alist))
+            (setq result (cdr alist)))
+        (setq previous alist))
+      (setq alist (cdr alist)))
+    result)))
+;; Emacs' TESTFN and REMOVE arguments are not accepted; the lookup is
+;; `assq', which is Emacs' own default.
+(defalias 'alist-get (lambda (key alist &optional default)
+  (let ((cell (assq key alist)))
+    (if cell (cdr cell) default))))
+(defalias 'plist-get (lambda (plist prop)
+  (let ((hit nil))
+    (while (and plist (cdr plist) (null hit))
+      (if (eq (car plist) prop) (setq hit (cdr plist)))
+      (setq plist (cdr (cdr plist))))
+    (if hit (car hit) nil))))
+;; Destructive where it can be, as Emacs': an existing property is
+;; overwritten in place and a new one is spliced onto the tail, so only
+;; (plist-put nil ...) has to build a fresh list.
+(defalias 'plist-put (lambda (plist prop value)
+  (let ((tail plist) (done nil))
+    (while (and tail (cdr tail) (not done))
+      (if (eq (car tail) prop)
+          (progn (setcar (cdr tail) value) (setq done t))
+        (setq tail (cdr (cdr tail)))))
+    (cond (done plist)
+          ((null plist) (list prop value))
+          (t (let ((last plist))
+               (while (cdr last) (setq last (cdr last)))
+               (setcdr last (list prop value))
+               plist))))))
+;; A stable bottom-up merge sort.  It sorts the VALUES into a fresh list
+;; and then writes them back over the input's own cons cells with
+;; `setcar', which is what makes it match Emacs 31.0.90 exactly: measured
+;; there, (let* ((c (list 2)) (x (cons 3 c)) (y (sort x #'<))) ...) leaves
+;; y `eq' to x and leaves c holding 3 -- the cells keep their identities
+;; and their contents move.  Emacs' keyword calling convention
+;; ((sort SEQ :lessp ...)) is not accepted.
+(defalias 'internal--merge (lambda (a b predicate)
+  (let ((out nil))
+    (while (and a b)
+      (if (funcall predicate (car b) (car a))
+          (progn (setq out (cons (car b) out)) (setq b (cdr b)))
+        (setq out (cons (car a) out))
+        (setq a (cdr a))))
+    (while a (setq out (cons (car a) out)) (setq a (cdr a)))
+    (while b (setq out (cons (car b) out)) (setq b (cdr b)))
+    (nreverse out))))
+(defalias 'internal--merge-pairs (lambda (runs predicate)
+  (let ((out nil))
+    (while runs
+      (if (cdr runs)
+          (progn
+            (setq out (cons (internal--merge (car runs) (car (cdr runs))
+                              predicate)
+                        out))
+            (setq runs (cdr (cdr runs))))
+        (setq out (cons (car runs) out))
+        (setq runs nil)))
+    (nreverse out))))
+(defalias 'sort (lambda (sequence predicate)
+  (let ((runs (mapcar 'list sequence)))
+    (while (cdr runs)
+      (setq runs (internal--merge-pairs runs predicate)))
+    (let ((values (car runs)) (cell sequence))
+      (while cell
+        (setcar cell (car values))
+        (setq values (cdr values))
+        (setq cell (cdr cell))))
+    sequence)))
+
+;; --- the seq- shim ---
+;; Lists only: Emacs' seq- functions are generic over every sequence type
+;; through cl-generic, and kg has lists and strings and no dispatch.
+(defalias 'seq-map (lambda (function sequence) (mapcar function sequence)))
+(defalias 'seq-filter (lambda (predicate sequence)
+  (let ((out nil))
+    (while sequence
+      (if (funcall predicate (car sequence))
+          (setq out (cons (car sequence) out)))
+      (setq sequence (cdr sequence)))
+    (reverse out))))
+(defalias 'seq-remove (lambda (predicate sequence)
+  (seq-filter (lambda (x) (not (funcall predicate x))) sequence)))
+(defalias 'seq-find (lambda (predicate sequence &optional default)
+  (let ((hit nil) (found nil))
+    (while (and sequence (not found))
+      (if (funcall predicate (car sequence))
+          (progn (setq hit (car sequence)) (setq found t)))
+      (setq sequence (cdr sequence)))
+    (if found hit default))))
+(defalias 'seq-some (lambda (predicate sequence)
+  (let ((hit nil))
+    (while (and sequence (null hit))
+      (setq hit (funcall predicate (car sequence)))
+      (setq sequence (cdr sequence)))
+    hit)))
+(defalias 'seq-take (lambda (sequence n)
+  (let ((out nil))
+    (while (and sequence (< 0 n))
+      (setq out (cons (car sequence) out))
+      (setq sequence (cdr sequence))
+      (setq n (- n 1)))
+    (reverse out))))
+
+;; --- arithmetic ---
+;; (+ number 0) rather than `number' on the non-negative arm so that
+;; (abs -0.0) is 0.0, as it is in Emacs: -0.0 is not less than 0, and
+;; adding zero to it is the one operation that normalises the sign.
+(defalias 'abs (lambda (number)
+  (if (numberp number)
+      (if (< number 0) (- number) (+ number 0))
+    (signal 'wrong-type-argument (list 'numberp number)))))
+;; (% X Y) is the remainder, taking X's sign; (mod X Y) the modulus,
+;; taking Y's.  fe's two-argument `truncate' and `floor' are exactly the
+;; two roundings that difference is made of, so neither needs a bit of
+;; arithmetic of its own.  `%' is integers-only, as in Emacs; `mod'
+;; accepts floats.
+(defalias '% (lambda (x y)
+  (if (and (integerp x) (integerp y))
+      (- x (* y (truncate x y)))
+    (signal 'wrong-type-argument
+      (list 'integer-or-marker-p (if (integerp x) y x))))))
+(defalias 'mod (lambda (x y) (- x (* y (floor x y)))))
+;; An arithmetic shift: right by N is floor division by 2^N, so
+;; (ash -16 -2) is -4 and not -3.  A left shift multiplies, and a product
+;; past int64 raises fe's arith-error where Emacs would widen to a bignum
+;; -- kg's standing no-bignum divergence, not a new one.  `logand',
+;; `logior' and `logxor' are deliberately absent; see doc/lisp-api.md.
+(defalias 'ash (lambda (value count)
+  (if (< count 0)
+      (floor value (expt 2 (- count)))
+    (* value (expt 2 count)))))

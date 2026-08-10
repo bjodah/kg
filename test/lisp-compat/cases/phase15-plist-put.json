@@ -1,0 +1,6 @@
+{
+ "id": "phase15-plist-put",
+ "setup": [],
+ "expr": "(list (let ((l (list :a 1))) (list (plist-put l :b 2) l)) (let ((l (list :a 1))) (list (plist-put l :a 9) l)) (plist-put nil :a 1))",
+ "note": "Appending, overwriting in place, and the nil case."
+}

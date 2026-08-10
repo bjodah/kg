@@ -1,0 +1,7 @@
+{
+ "id": "phase15-string-to-number",
+ "setup": [],
+ "expr": "(list (string-to-number \"42\") (string-to-number \"3.5\") (string-to-number \"x\") (string-to-number \"  12 \") (string-to-number \"12abc\") (string-to-number \"ff\" 16) (string-to-number \"\") (string-to-number \"1.\") (string-to-number \".5\") (string-to-number \"5e\") (string-to-number \"0x10\") (string-to-number \"inf\") (string-to-number \"1e3\"))",
+ "note": "Thirteen shapes measured against the oracle before implementing.",
+ "expect": "agree"
+}

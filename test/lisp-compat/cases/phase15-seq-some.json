@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-some",
+ "setup": [],
+ "expr": "(list (seq-some (lambda (x) (if (< 1 x) (* x 10) nil)) (list 1 2 3)) (seq-some (lambda (x) nil) (list 1 2)))",
+ "note": "The first non-nil RESULT, not the element, and a miss."
+}

@@ -115,6 +115,14 @@ struct lisp_point_table {
  * lisp_internal.h is the private surface.  See Phase 3 notes. */
 struct kg_lisp_match_data {
 	bool valid;
+	/* What the last match ran against, and therefore what `match'
+	 * holds.  A BUFFER match (search-forward and friends) stores byte
+	 * columns of `row' in `buffer', converted to positions when
+	 * match-beginning/-end read them.  A STRING match (string-match)
+	 * stores Emacs' own units -- 0-based CHARACTER indices into the
+	 * subject -- because string-match is the last place the subject is
+	 * reachable, and `buffer'/`row' are meaningless for it. */
+	bool on_string;
 	struct kg_buffer_handle buffer;
 	int row;
 	struct kg_match match;
@@ -365,6 +373,20 @@ FeObject *native_concat(FeContext *context, FeObject *arguments);
 FeObject *native_string_equal(FeContext *context, FeObject *arguments);
 FeObject *native_char_to_string(FeContext *context, FeObject *arguments);
 FeObject *native_string_to_char(FeContext *context, FeObject *arguments);
+FeObject *native_string_to_number(FeContext *context, FeObject *arguments);
+FeObject *native_make_string(FeContext *context, FeObject *arguments);
+FeObject *native_upcase(FeContext *context, FeObject *arguments);
+FeObject *native_downcase(FeContext *context, FeObject *arguments);
+FeObject *native_capitalize(FeContext *context, FeObject *arguments);
+/* The three UTF-8 conversions the string and search natives share
+ * (lisp_string.c).  All three take a byte length and count whole glyphs,
+ * so a caller never lands inside one: `length' answers how many
+ * codepoints `text' holds, `byte' the byte offset of the Nth codepoint,
+ * and `chars' how many codepoints precede a byte offset.  `byte' and
+ * `chars' are inverses on glyph boundaries. */
+int lisp_utf8_length(const char *text, int length);
+int lisp_utf8_byte(const char *text, int length, int chars);
+int lisp_utf8_chars(const char *text, int length, int offset);
 FeObject *native_type_of(FeContext *context, FeObject *arguments);
 FeObject *native_stringp(FeContext *context, FeObject *arguments);
 FeObject *native_symbolp(FeContext *context, FeObject *arguments);
@@ -402,6 +424,8 @@ FeObject *native_re_search_forward(FeContext *context, FeObject *arguments);
 FeObject *native_re_search_backward(FeContext *context, FeObject *arguments);
 FeObject *native_match_beginning(FeContext *context, FeObject *arguments);
 FeObject *native_match_end(FeContext *context, FeObject *arguments);
+FeObject *native_string_match(FeContext *context, FeObject *arguments);
+FeObject *native_regexp_quote(FeContext *context, FeObject *arguments);
 FeObject *native_make_marker(FeContext *context, FeObject *arguments);
 FeObject *native_set_marker(FeContext *context, FeObject *arguments);
 FeObject *native_marker_position(FeContext *context, FeObject *arguments);

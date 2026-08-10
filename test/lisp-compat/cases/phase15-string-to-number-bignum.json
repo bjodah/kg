@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-to-number-bignum",
+ "setup": [],
+ "expr": "(string-to-number \"99999999999999999999\")",
+ "note": "No bignums: kg answers the double, Emacs the exact integer."
+}

@@ -4658,6 +4658,333 @@ static void test_phase14_excursion_hygiene(void)
 	teardown_editor();
 }
 
+/* ---- Phase 15: the package-writer's string and list library ---------
+ *
+ * Every expectation below was measured against the pinned oracle Emacs
+ * 31.0.90 BEFORE it was implemented -- that is what the phase's forecast
+ * audit and its probe scripts were for -- and the same expectations are
+ * pinned a second time as oracle cases in test/lisp-compat.  What these
+ * add is the paths a compat case cannot reach: the ones that need a
+ * buffer, and the ones whose answer is a condition rather than a value. */
+
+static void test_phase15_string_natives(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* ASCII case conversion over both a string and a character. */
+	CHECK(eval_eq("(upcase \"aBc\")", "ABC"));
+	CHECK(eval_eq("(downcase \"aBc\")", "abc"));
+	CHECK(eval_eq("(capitalize \"hELLO wORLD\")", "Hello World"));
+	/* Emacs' word rule: a word begins after any non-alphanumeric, so
+	 * `_' starts one and `1' does not. */
+	CHECK(eval_eq("(capitalize \"a-b_c d1e\")", "A-B_C D1e"));
+	CHECK(eval_eq(
+	    "(list (upcase 97) (downcase 65) (capitalize 97))", "(65 97 65)"));
+	/* ASCII-only, and the recorded divergence: a byte >= 0x80 passes
+	 * through, and it counts as a word constituent so the letters after
+	 * it are not each read as the start of a word. */
+	CHECK(eval_eq("(upcase \"caf\xc3\xa9\")", "CAF\xc3\xa9"));
+	CHECK(
+	    eval_eq("(capitalize \"\xc3\xa9lan vital\")", "\xc3\xa9lan Vital"));
+	CHECK(eval_eq("(condition-case e (upcase '(1)) (error e))",
+	    "(wrong-type-argument char-or-string-p (1))"));
+
+	/* string-to-number, including the three shapes Emacs does NOT read
+	 * as numbers and the "1." that is integer syntax to the reader. */
+	CHECK(eval_eq("(list (string-to-number \"42\") "
+		      "(string-to-number \"3.5\") (string-to-number \"x\") "
+		      "(string-to-number \"  12 \") "
+		      "(string-to-number \"12abc\"))",
+	    "(42 3.5 0 12 12)"));
+	CHECK(eval_eq("(list (string-to-number \"1.\") "
+		      "(string-to-number \".5\") (string-to-number \"5e\") "
+		      "(string-to-number \"0x10\") (string-to-number \"inf\"))",
+	    "(1 0.5 5 0 0)"));
+	CHECK(eval_eq("(string-to-number \"ff\" 16)", "255"));
+	CHECK(eval_error_contains(
+	    "(string-to-number \"1\" 1)", "args-out-of-range"));
+	CHECK(eval_error_contains(
+	    "(string-to-number \"1\" 35)", "args-out-of-range"));
+	CHECK(eval_eq("(condition-case e (string-to-number 5) (error e))",
+	    "(wrong-type-argument stringp 5)"));
+
+	CHECK(eval_eq("(make-string 3 120)", "xxx"));
+	CHECK(eval_eq("(string-length (make-string 2 233))", "2"));
+	CHECK(eval_eq("(condition-case e (make-string -1 120) (error e))",
+	    "(wrong-type-argument wholenump -1)"));
+	CHECK(eval_eq("(condition-case e (make-string 2 \"x\") (error e))",
+	    "(wrong-type-argument characterp \"x\")"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_regex_seam(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "alpha beta", 10);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(string-match \"b+\" \"abbbc\")", "1"));
+	CHECK(eval_eq("(list (match-beginning 0) (match-end 0))", "(1 4)"));
+	CHECK(eval_eq("(string-match \"z\" \"abc\")", "nil"));
+	CHECK(eval_eq("(string-match \"a\" \"aaa\" 1)", "1"));
+	/* A negative START counts back from the end, as substring's does. */
+	CHECK(eval_eq("(string-match \"a\" \"xa\" -1)", "1"));
+	CHECK(eval_error_contains(
+	    "(string-match \"a\" \"ab\" 5)", "args-out-of-range"));
+	CHECK(eval_eq("(condition-case e (string-match 1 \"a\") (error e))",
+	    "(wrong-type-argument stringp 1)"));
+	CHECK(eval_eq("(condition-case e (string-match \"a\" 1) (error e))",
+	    "(wrong-type-argument stringp 1)"));
+	CHECK(eval_error_contains(
+	    "(string-match \"[\" \"a\")", "invalid regexp"));
+
+	/* Character indices, not bytes: the group starts after two
+	 * multi-byte characters, so it begins at 2 and not at 6. */
+	CHECK(eval_eq("(progn (string-match \"\\\\([a-z]+\\\\)\" "
+		      "\"\xe6\xbc\xa2\xe5\xad\x97"
+		      "ab\") "
+		      "(list (match-beginning 1) (match-end 1) "
+		      "(match-string 1 \"\xe6\xbc\xa2\xe5\xad\x97"
+		      "ab\")))",
+	    "(2 4 \"ab\")"));
+	CHECK(eval_eq("(progn (string-match \"\\\\([a-z]+\\\\)-"
+		      "\\\\([0-9]+\\\\)\" \"xx foo-42 yy\") "
+		      "(list (match-string 1 \"xx foo-42 yy\") "
+		      "(match-string 2 \"xx foo-42 yy\") "
+		      "(match-string 3 \"xx foo-42 yy\")))",
+	    "(\"foo\" \"42\" nil)"));
+
+	/* The same match data register serves both subjects, as in Emacs:
+	 * a buffer search after a string match reports positions again. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (re-search-forward \"beta\") "
+		      "(match-beginning 0) (match-end 0))",
+	    "(11 7 11)"));
+	CHECK(eval_eq("(match-string 0)", "beta"));
+
+	CHECK(eval_eq("(string-length (regexp-quote \"a.b\"))", "4"));
+	CHECK(eval_eq("(string-match (regexp-quote \"a.b\") \"xa.by\")", "1"));
+	CHECK(
+	    eval_eq("(string-match (regexp-quote \"a.b\") \"xaXby\")", "nil"));
+
+	CHECK(eval_eq(
+	    "(replace-regexp-in-string \"b+\" \"X\" \"abbbcb\")", "aXcX"));
+	CHECK(eval_eq(
+	    "(replace-regexp-in-string \"x*\" \"-\" \"abc\")", "-a-b-c"));
+	CHECK(eval_eq("(replace-regexp-in-string \"b\" "
+		      "(lambda (m) (upcase m)) \"abc\")",
+	    "aBc"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_string_library(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(split-string \"  a b\tc  \")", "(\"a\" \"b\" \"c\")"));
+	CHECK(eval_eq(
+	    "(split-string \"a,b,,c\" \",\")", "(\"a\" \"b\" \"\" \"c\")"));
+	CHECK(eval_eq(
+	    "(split-string \"a,b,,c\" \",\" t)", "(\"a\" \"b\" \"c\")"));
+	CHECK(eval_eq("(list (split-string \"\") (split-string \"\" \",\"))",
+	    "(nil (\"\"))"));
+	/* The empty-match guard: without it "x*" never advances. */
+	CHECK(eval_eq(
+	    "(split-string \"abc\" \"x*\")", "(\"\" \"a\" \"b\" \"c\" \"\")"));
+
+	CHECK(eval_eq("(string-join (list \"a\" \"b\") \"-\")", "a-b"));
+	CHECK(eval_eq("(string-join (list \"a\" \"b\"))", "ab"));
+
+	CHECK(eval_eq("(string-trim \"  a b  \")", "a b"));
+	CHECK(eval_eq("(string-trim \"\t\n a \r\n\")", "a"));
+	CHECK(eval_eq("(string-trim-left \"  a \")", "a "));
+	CHECK(eval_eq("(string-trim-right \" a  \")", " a"));
+	/* Emacs' REGEXP argument is refused by name, not ignored. */
+	CHECK(eval_error_contains(
+	    "(string-trim \"xax\" \"x+\")", "REGEXP argument is unsupported"));
+
+	CHECK(eval_eq("(list (string-prefix-p \"ab\" \"abc\") "
+		      "(string-prefix-p \"abc\" \"ab\") "
+		      "(string-prefix-p \"AB\" \"abc\" t))",
+	    "(t nil t)"));
+	CHECK(eval_eq("(list (string-suffix-p \"bc\" \"abc\") "
+		      "(string-suffix-p \"abc\" \"bc\") "
+		      "(string-suffix-p \"BC\" \"abc\" t))",
+	    "(t nil t)"));
+
+	CHECK(eval_eq("(list (string< \"a\" \"b\") (string< \"a\" \"a\") "
+		      "(string< \"ab\" \"a\") (string< \"A\" \"a\") "
+		      "(string< 'abc \"abd\"))",
+	    "(t nil nil t t)"));
+	/* Codepoints, not bytes: a multi-byte character sorts above every
+	 * ASCII one because its first byte does. */
+	CHECK(eval_eq("(string< \"z\" \"\xc3\xa9\")", "t"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_list_library(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(list (cdar '((1 2) 3)) (caddr '(1 2 3 4)) "
+		      "(cdddr '(1 2 3 4)) (cadddr '(1 2 3 4)))",
+	    "((2) 3 (4) 4)"));
+
+	CHECK(eval_eq("(list (elt '(1 2 3) 1) (elt \"abc\" 1) "
+		      "(elt '(1 2) 5))",
+	    "(2 98 nil)"));
+	CHECK(eval_error_contains("(elt \"ab\" 5)", "args-out-of-range"));
+
+	CHECK(eval_eq("(list (butlast '(1 2 3)) (butlast '(1 2 3) 2) "
+		      "(butlast '(1)) (butlast nil) (butlast '(1 2 3) -1))",
+	    "((1 2) (1) nil nil (1 2 3))"));
+	CHECK(eval_eq("(let ((l (list 1 2))) (list (eq l (copy-sequence l)) "
+		      "(equal l (copy-sequence l)) (copy-sequence \"ab\")))",
+	    "(nil t \"ab\")"));
+	CHECK(eval_eq("(list (number-sequence 1 5 2) (number-sequence 5 1) "
+		      "(number-sequence 3))",
+	    "((1 3 5) nil (3))"));
+	CHECK(eval_error_contains(
+	    "(number-sequence 1 5 0)", "increment can not be zero"));
+
+	/* nconc and mapcan are destructive, which is the whole reason
+	 * nconc exists here: mapcan over it agrees with Emacs even when a
+	 * function returns a list the caller still holds. */
+	CHECK(eval_eq("(let ((a (list 1)) (b (list 2))) "
+		      "(list (nconc a b) a))",
+	    "((1 2) (1 2))"));
+	CHECK(eval_eq("(mapcan (lambda (x) (list x x)) '(1 2))", "(1 1 2 2)"));
+	CHECK(eval_eq("(condition-case e (nconc 1 (list 2)) (error e))",
+	    "(wrong-type-argument listp 1)"));
+
+	CHECK(eval_eq("(let ((l (list (cons 'a 1) (cons 'b 2) (cons 'a 3)))) "
+		      "(list (assq-delete-all 'a l) l))",
+	    "(((b . 2)) ((a . 1) (b . 2)))"));
+	CHECK(eval_eq("(list (alist-get 'a '((a . 1))) "
+		      "(alist-get 'z '((a . 1))) (alist-get 'z '((a . 1)) 9))",
+	    "(1 nil 9)"));
+	CHECK(eval_eq("(list (plist-get '(:a 1 :b 2) :b) "
+		      "(plist-get '(:a 1) :z) (plist-get nil :z) "
+		      "(plist-get '(:a) :a))",
+	    "(2 nil nil nil)"));
+	CHECK(eval_eq("(let ((l (list :a 1))) (list (plist-put l :b 2) l))",
+	    "((:a 1 :b 2) (:a 1 :b 2))"));
+
+	/* Emacs' predicate for a non-sequence is sequencep; a dotted tail
+	 * is still listp, about the tail, on both sides. */
+	CHECK(eval_eq("(list (length \"abc\") (length '(1 2)))", "(3 2)"));
+	CHECK(eval_eq("(condition-case e (length 5) (error e))",
+	    "(wrong-type-argument sequencep 5)"));
+	CHECK(eval_eq("(condition-case e (length '(1 . 2)) (error e))",
+	    "(wrong-type-argument listp 2)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_sort(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* The property that decides the implementation: Emacs 31.0.90 sorts
+	 * a list by moving VALUES between the cells it already has, so the
+	 * head cons keeps its identity and a cell the caller held
+	 * separately sees a different value.  A relinking merge sort would
+	 * leave `x' pointing at a suffix, and a copying one would leave it
+	 * unsorted; both were measured against this shape before the
+	 * setcar-writeback was written. */
+	CHECK(eval_eq("(let* ((x (list 3 1 2)) (y (sort x '<))) "
+		      "(list y x (eq y x)))",
+	    "((1 2 3) (1 2 3) t)"));
+	CHECK(eval_eq("(let* ((c (list 2)) (x (cons 3 c)) (y (sort x '<))) "
+		      "(list y x c (eq y x)))",
+	    "((2 3) (2 3) (3) t)"));
+
+	CHECK(eval_eq(
+	    "(sort (list \"b\" \"a\" \"C\") 'string<)", "(\"C\" \"a\" \"b\")"));
+	CHECK(eval_eq("(list (sort nil '<) (sort (list 1) '<))", "(nil (1))"));
+	/* Stable: equal keys keep their input order. */
+	CHECK(eval_eq("(sort (list (cons 1 'a) (cons 1 'b) (cons 0 'c)) "
+		      "(lambda (u v) (< (car u) (car v))))",
+	    "((0 . c) (1 . a) (1 . b))"));
+	/* A long enough list to run several bottom-up passes. */
+	CHECK(eval_eq(
+	    "(sort (list 9 3 7 1 8 2 6 4 5 0) '<)", "(0 1 2 3 4 5 6 7 8 9)"));
+
+	CHECK(
+	    eval_eq("(internal--merge (list 1 3) (list 2 4) '<)", "(1 2 3 4)"));
+	CHECK(eval_eq("(internal--merge-pairs "
+		      "(list (list 1) (list 0) (list 2)) '<)",
+	    "((0 1) (2))"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_seq_shim(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(seq-map '1+ '(1 2))", "(2 3)"));
+	CHECK(eval_eq("(seq-filter (lambda (x) (< 1 x)) '(1 2 3))", "(2 3)"));
+	CHECK(eval_eq("(seq-remove (lambda (x) (< 1 x)) '(1 2 3))", "(1)"));
+	CHECK(eval_eq("(list (seq-find (lambda (x) (< 1 x)) '(1 2 3)) "
+		      "(seq-find (lambda (x) nil) '(1 2)) "
+		      "(seq-find (lambda (x) nil) '(1 2) 'none))",
+	    "(2 nil none)"));
+	/* seq-some answers the first non-nil RESULT, not the element. */
+	CHECK(eval_eq("(seq-some (lambda (x) (if (< 1 x) (* x 10) nil)) "
+		      "'(1 2 3))",
+	    "20"));
+	CHECK(eval_eq("(list (seq-take '(1 2 3) 2) (seq-take '(1 2) 5) "
+		      "(seq-take '(1 2) 0))",
+	    "((1 2) (1 2) nil)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase15_arithmetic(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(list (abs -3) (abs 3) (abs -3.5))", "(3 3 3.5)"));
+	/* -0.0 is not less than zero, so the non-negative arm has to
+	 * normalise the sign; (+ n 0) is what does it. */
+	CHECK(eval_eq("(list (abs -0.0) (abs 0.0))", "(0.0 0.0)"));
+	CHECK(eval_eq("(condition-case e (abs \"x\") (error e))",
+	    "(wrong-type-argument numberp \"x\")"));
+
+	CHECK(eval_eq(
+	    "(list (% 7 2) (% -7 2) (% 7 -2) (% -7 -2))", "(1 -1 1 -1)"));
+	CHECK(eval_eq("(list (mod 7 2) (mod -7 2) (mod 7 -2) (mod -7 -2))",
+	    "(1 1 -1 -1)"));
+	CHECK(eval_eq("(mod 5.5 2)", "1.5"));
+	CHECK(eval_eq("(condition-case e (% 7.5 2) (error e))",
+	    "(wrong-type-argument integer-or-marker-p 7.5)"));
+	CHECK(eval_error_contains("(% 7 0)", "arith-error"));
+
+	CHECK(eval_eq("(list (ash 1 4) (ash 16 -2) (ash -16 -2) (ash 1 0) "
+		      "(ash 0 5))",
+	    "(16 4 -4 1 0)"));
+	CHECK(eval_eq("(ash 1 62)", "4611686018427387904"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Sub-plan 06E.  Hook containment swallows a hook's *error* and carries on
  * with the next hook; it must not swallow a quit, or C-g would be eaten by
  * whichever hook happened to be running when it arrived.  The quit is put
@@ -4868,8 +5195,9 @@ static void test_quit_uncaught(void)
 /* Top-level (defalias 'NAME ...) forms in lisp/prelude.el: 77 through
  * Phase 12's close, +3 at its fix cycle's loader rebuild (load, require,
  * internal--load-loop), +2 for the line-motion pair
- * (move-beginning-of-line, move-end-of-line). */
-#define PRELUDE_DEFS 82
+ * (move-beginning-of-line, move-end-of-line), +40 for Phase 15's string
+ * and list library. */
+#define PRELUDE_DEFS 122
 
 static void test_prelude_source_file(void)
 {
@@ -5865,6 +6193,13 @@ int main(void)
 	RUN(test_phase13_trap_battery);
 	RUN(test_phase14_symbols);
 	RUN(test_phase14_excursion_hygiene);
+	RUN(test_phase15_string_natives);
+	RUN(test_phase15_regex_seam);
+	RUN(test_phase15_string_library);
+	RUN(test_phase15_list_library);
+	RUN(test_phase15_sort);
+	RUN(test_phase15_seq_shim);
+	RUN(test_phase15_arithmetic);
 	RUN(test_hook_quit_is_not_contained);
 	RUN(test_hook_throw_containment);
 	RUN(test_signal);

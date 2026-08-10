@@ -672,6 +672,68 @@ so no result is ever cut mid-glyph:
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
 | `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, and refuses 0 where Emacs writes a NUL byte; Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(make-string N CHAR)` | `N` copies of one character. Emacs' third `MULTIBYTE` argument is not accepted — every kg string is UTF-8 |
+| `(string-to-number S &optional BASE)` | `0` for anything that does not begin with a number, as in Emacs — including `"0x10"` and `"inf"`, which are not numbers to it either. `"1."` is the integer `1` and `"1.5"` is a float, the same split the reader makes. `BASE` is 2–16 |
+| `(upcase X)` / `(downcase X)` / `(capitalize X)` | `X` is a string or a character, and the result has `X`'s type. **ASCII only** — see the differences section |
+
+`length` is the Emacs spelling and works on both lists and strings;
+`string-length` is a kg-only name for the string half of it, kept
+because it is what the string natives are written against.
+
+## Regular expressions from Lisp
+
+The engine is kg's own (`src/regex.h`), the same one behind `C-s` and
+`re-search-forward`; these two are the seam onto it for *strings*.
+Everything about the pattern language, including which patterns are
+rejected outright, is that engine's — Emacs' syntax, with `\\(`…`\\)`
+groups and up to nine of them.
+
+| Form | Result |
+| ---- | ------ |
+| `(string-match REGEXP STRING &optional START)` | 0-based **character** index of the match, or `nil`. Sets the match data. `START` counts back from the end when negative and is `args-out-of-range` past it |
+| `(match-string N &optional STRING)` | The `N`th group's text, `nil` when that group did not participate. With `STRING` it reads the string the last `string-match` ran over; without it, the buffer |
+| `(match-beginning N)` / `(match-end N)` | 0-based character indices after a `string-match`, 1-based buffer positions after a buffer search — the units of whichever subject was matched |
+| `(replace-regexp-in-string REGEXP REP STRING &optional FIXEDCASE LITERAL)` | `REP` is a replacement string understanding `\\&`, `\\N` and `\\\\`, or a function of the matched text. `LITERAL` suppresses the escapes; `FIXEDCASE` is accepted and ignored (kg never case-adjusts, because it never case-folds) |
+| `(regexp-quote S)` | `S` as a regexp matching itself |
+
+There is **one** match-data register, shared by string and buffer
+matches exactly as in Emacs, so a search of either kind replaces what
+the other left. Three properties are inherited from the engine and are
+recorded divergences rather than surprises: `^` and `$` anchor the whole
+subject rather than each line of it, matching is always
+case-**sensitive** (there is no `case-fold-search`), and the subject is
+NUL-terminated, so a match stops at an embedded NUL.
+
+## The string and list library
+
+Ordinary Lisp over the natives above, in `lisp/prelude.el`. What is here
+was chosen by measurement: `utils/forecast_audit.py` ranks the names a
+corpus of *target* Lisp reaches for against the names kg has, and
+`utils/forecast/AUDIT.md` is the checked-in result.
+
+| Group | Forms |
+| ---- | ---- |
+| Splitting and joining | `split-string` (Emacs' `OMIT-NULLS` asymmetry included), `string-join` |
+| Trimming and testing | `string-trim`, `string-trim-left`, `string-trim-right`, `string-prefix-p`, `string-suffix-p`, `string<`, `string-empty-p` |
+| Alists and plists | `alist-get`, `assq-delete-all`, `plist-get`, `plist-put` |
+| List utilities | `elt`, `butlast`, `copy-sequence`, `number-sequence`, `nconc`, `mapcan`, `sort`, `cdar`, `caddr`, `cdddr`, `cadddr` |
+| The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — **lists only** |
+| Arithmetic | `abs`, `mod`, `%`, `ash` |
+
+Three notes a caller will want:
+
+* `sort` takes `(sort SEQ PREDICATE)` and is **destructive in Emacs 31's
+  own way**: it moves values between the cells the list already has, so
+  the result is `eq` to the input and a cell held separately sees a
+  different value. Emacs 30's keyword convention (`(sort SEQ :lessp …)`)
+  is not accepted.
+* `nconc`, `plist-put` and `assq-delete-all` are destructive, as Emacs'
+  are; `mapcan` is built on `nconc` and is therefore destructive in the
+  same places.
+* Where a form takes fewer optional arguments than Emacs' — `string-trim`'s
+  `REGEXP`, `alist-get`'s `TESTFN`, `plist-get`'s `PREDICATE`,
+  `split-string`'s `TRIM` — the extra argument is **refused by name**, not
+  accepted and ignored.
 
 ## Symbols, property lists and the reader's escapes
 
@@ -933,6 +995,28 @@ primitive's function cell.
   arithmetic that overflows, and integer division by zero, raise an
   `arith-error` message rather than promoting or wrapping. Character
   literals such as `?a` read as their codepoint numbers.
+  `(string-to-number "99999999999999999999")` answers the double the
+  text rounds to, which is the same policy fe's reader takes for a
+  literal.
+- **Case conversion is ASCII only.** `upcase`, `downcase` and
+  `capitalize` leave every byte ≥ 0x80 alone, because kg carries no
+  Unicode case tables. A byte ≥ 0x80 *does* count as a word constituent
+  for `capitalize`, so the ASCII letters of a non-ASCII word are not
+  each read as the start of one.
+- **A regexp never folds case, and its anchors are the subject's.**
+  There is no `case-fold-search`: `string-match`, `re-search-forward`
+  and `replace-regexp-in-string` are all case-sensitive, and
+  `replace-regexp-in-string` therefore never case-adjusts a replacement
+  either (its `FIXEDCASE` argument is accepted and ignored). `^` and `$`
+  match the start and end of the whole subject, not of each line in it.
+- **The writer does not re-escape a backslash inside a string.**
+  `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` in Emacs, so a
+  printed string holding backslashes — anything `regexp-quote` returns,
+  for instance — does not read back as itself. This is fe's writer, not
+  kg's; `doc/TODO.md` carries the fix and its cost (one line in the
+  writer, a re-measure of every golden that prints one, and a
+  `FE_LANGUAGE_VERSION` move), which is why it is recorded here rather
+  than closed by this phase.
 - `t`, `nil` and keyword symbols are protected constants: `setq`, `set`,
   a `let`/`let*` binding name, `fset` and `defalias` all refuse them with
   the `setting-constant` condition. Keywords are self-evaluating, and
@@ -1067,10 +1151,24 @@ primitive's function cell.
 
 ## What is not here, and why
 
-Three things a reader coming from Emacs might expect are deliberately
-absent from this surface, each recorded here rather than silently
-missing:
+Things a reader coming from Emacs might expect are deliberately absent
+from this surface, each recorded here rather than silently missing:
 
+- **Hash tables, vectors and records.** Off-roadmap, and Phase 15's
+  forecast audit is the instrument that re-answers it with kg-relevant
+  data rather than intuition: across the whole corpus it measured
+  **4 references to hash-table names** (one package sketch's word tally,
+  which the same sketch also spells with an alist), **0 to vectors** and
+  **0 to records**. `utils/forecast/AUDIT.md`'s watch-item table carries
+  the number on every run, so reopening the question has evidence to
+  start from.
+- **`logand`, `logior`, `logxor`.** `ash` is here because it is exact in
+  three lines of prelude Lisp over `expt` and `floor`; the three bitwise
+  operations are not, and the forecast audit measured **zero** references
+  to any bitwise operation in the corpus. When demand appears they belong
+  beside fe's own `expt` and `floor` — fe owns the numeric tower and has
+  `int64_t` in hand — not in a kg native and not in a 63-iteration
+  prelude loop.
 - **Mode hooks / a mode registry** (`define-derived-mode`, per-mode
   `defvar`s). kg's major modes are still a fixed C table
   (`src/mode.[ch]`); there is no Lisp-visible way to define one.
@@ -1094,10 +1192,11 @@ missing:
 | `load`, `require`/`provide`/`featurep`/load-path, XDG config resolution, `format`, `message`, `insert`, region edits | `src/lisp_io.c`, `src/lisp_require.c` |
 | Command registry, `command-execute`, key bindings | `src/lisp_cmd.c` |
 | Buffer/marker/process object pool, generation checks | `src/lisp_obj.[ch]` |
-| Search and match data | `src/lisp_search.c` |
+| Search, `string-match`, `regexp-quote` and match data | `src/lisp_search.c` |
 | Hooks and their event-drain subscriber | `src/lisp_hooks.[ch]` |
 | Process objects, filters, sentinels | `src/lisp_process.[ch]`, `src/process_table.[ch]`, `src/process.[ch]` |
-| String natives | `src/lisp_string.c` |
+| String natives, including case conversion and `string-to-number` | `src/lisp_string.c` |
+| The forecast audit and its corpus | `utils/forecast_audit.py`, `utils/forecast/` |
 | The public, Fe-free surface every editor module includes | `src/lisp.h` |
 
 `src/lisp_internal.h` is the private surface shared only among

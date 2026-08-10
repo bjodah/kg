@@ -1,0 +1,6 @@
+{
+ "id": "phase15-upcase-non-ascii",
+ "setup": [],
+ "expr": "(string-to-list (upcase (concat \"caf\" (char-to-string 233))))",
+ "note": "ASCII-only: the accented letter is left alone where Emacs case-converts it. Built with char-to-string and reported as codepoints so the case file, the expression and the record are all ASCII -- the oracle shim's stdout is not UTF-8 for a multibyte string."
+}

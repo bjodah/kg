@@ -81,6 +81,20 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
   depend on what the PTY cases painted. Function coverage was identical
   in every run measured and gets no slack.
+- `make forecast-audit` / `make forecast-check` is the Lisp surface's
+  demand ratchet: `utils/forecast_audit.py` reads a corpus of *target*
+  Lisp (`utils/forecast/` -- a realistic init file, hand-written package
+  sketches -- plus kg's own `lisp/*.el`), collects every name in function
+  position, subtracts the four sources of implemented names (fe's
+  `primitive_names[]`, fe's `FeDefineNative` maths natives, kg's
+  `native_bindings[]`, kg's `lisp/*.el`), and writes the ranked
+  MISSING/COVERED partition to `utils/forecast/AUDIT.md`. `forecast-check`
+  is regenerate-and-diff and rides in `make check` beside the other
+  structural no-drift gates. A new sketch that adds MISSING names is the
+  tool working; the gate only requires the checked-in report to match the
+  tree. `utils/forecast/target-init.el` must additionally LOAD CLEAN
+  (`make forecast-init-check`), which is what keeps the corpus's floor
+  honest.
 - `make gateway-check` (part of `.ci/ci-01-*.sh`) is a census, not a ban:
   `.ci/mutation-gateway.json` records, per `src/*.c`, how many raw row
   primitives it calls, how many undo records it writes by hand, how many

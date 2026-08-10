@@ -1,0 +1,6 @@
+{
+ "id": "phase15-internal-trim-helpers",
+ "setup": [],
+ "expr": "(list (internal--trim-reject \"x\" nil) (internal--trim-char-p 32) (internal--trim-char-p 97))",
+ "note": "kg-only helpers: the reject is a no-op for a nil REGEXP, and the character predicate answers for space and not for a letter."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-match-string",
+ "setup": [],
+ "expr": "(progn (string-match \"\\\\([a-z]+\\\\)-\\\\([0-9]+\\\\)\" \"xx foo-42 yy\") (list (match-string 0 \"xx foo-42 yy\") (match-string 1 \"xx foo-42 yy\") (match-string 2 \"xx foo-42 yy\") (match-string 3 \"xx foo-42 yy\")))",
+ "note": "Whole match, both groups, and a group index past the last one."
+}

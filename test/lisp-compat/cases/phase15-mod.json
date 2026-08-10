@@ -1,0 +1,6 @@
+{
+ "id": "phase15-mod",
+ "setup": [],
+ "expr": "(list (mod 7 2) (mod -7 2) (mod 7 -2) (mod -7 -2) (mod 5.5 2))",
+ "note": "All four sign combinations and a float operand."
+}

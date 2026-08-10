@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-prefix-p",
+ "setup": [],
+ "expr": "(list (string-prefix-p \"ab\" \"abc\") (string-prefix-p \"\" \"x\") (string-prefix-p \"abc\" \"ab\") (string-prefix-p \"AB\" \"abc\" t))",
+ "note": "A hit, the empty prefix, a prefix longer than the string, and IGNORE-CASE."
+}

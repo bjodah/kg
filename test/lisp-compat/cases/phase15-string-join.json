@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-join",
+ "setup": [],
+ "expr": "(list (string-join (list \"a\" \"b\") \"-\") (string-join (list \"a\" \"b\")) (string-join nil \"-\"))",
+ "note": "SEPARATOR given, omitted, and an empty list."
+}

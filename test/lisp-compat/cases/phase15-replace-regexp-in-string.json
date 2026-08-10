@@ -1,0 +1,7 @@
+{
+ "id": "phase15-replace-regexp-in-string",
+ "setup": [],
+ "expr": "(list (replace-regexp-in-string \"b+\" \"X\" \"abbbcb\") (replace-regexp-in-string \"\\\\([a-z]\\\\)\" \"<\\\\1>\" \"ab\") (replace-regexp-in-string \"b\" \"[\\\\&]\" \"abc\") (replace-regexp-in-string \"b\" (lambda (m) (upcase m)) \"abc\") (replace-regexp-in-string \"x*\" \"-\" \"abc\"))",
+ "note": "Literal replacement, a numbered group, the whole-match escape, a function REP, and the empty-match rule.",
+ "expect": "agree"
+}

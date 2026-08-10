@@ -1,0 +1,6 @@
+{
+ "id": "phase15-assq-delete-all",
+ "setup": [],
+ "expr": "(let ((l (list (cons (quote a) 1) (cons (quote b) 2) (cons (quote a) 3)))) (list (assq-delete-all (quote a) l) l))",
+ "note": "Both the returned list and what the caller's variable is left holding."
+}

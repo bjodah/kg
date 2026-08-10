@@ -1,0 +1,6 @@
+{
+ "id": "phase15-internal-replace-expand",
+ "setup": [],
+ "expr": "(progn (string-match \"\\\\([a-z]\\\\)\" \"ab\") (string-to-list (internal--replace-expand \"<0>\" \"ab\")))",
+ "note": "kg-only helper, reported as codepoints so the comparison is of the expansion and not of two printers."
+}

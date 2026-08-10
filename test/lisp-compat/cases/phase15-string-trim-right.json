@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-trim-right",
+ "setup": [],
+ "expr": "(list (string-trim-right \" a  \") (string-trim-right \"a\") (string-trim-right \"   \"))",
+ "note": "Trailing whitespace only."
+}

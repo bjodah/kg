@@ -1,0 +1,6 @@
+{
+ "id": "phase15-make-string",
+ "setup": [],
+ "expr": "(list (make-string 3 120) (make-string 0 120) (string-to-list (make-string 2 233)))",
+ "note": "Count, the empty case, and a multi-byte character reported as codepoints."
+}

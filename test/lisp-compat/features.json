@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md, grown since): kg's 87 native_bindings[] (src/lisp_prelude.c) and 82 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 62 primitives/aliases at this pin, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md, grown since): kg's 94 native_bindings[] (src/lisp_prelude.c) and 122 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 70 primitives/aliases at this pin, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "native-message",
@@ -1421,10 +1421,11 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "prelude-length"
+    "prelude-length",
+    "phase15-length-sequencep"
    ],
-   "kg_test": "test/test_lisp.c:test_list_library",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_list_library, test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15 corrected the predicate the failure names. `length' is generic over sequences in Emacs and answers (wrong-type-argument sequencep X) for anything that is not one; kg's prelude walk fell into (cdr 5) and reported `listp', which named the wrong contract for a caller writing a handler. A dotted pair still says listp about the offending TAIL, from that same walk, which is Emacs' answer too.",
    "source_name": "length"
   },
   {
@@ -3095,6 +3096,623 @@
    "kg_test": "test/test_lisp.c:test_phase14_excursion_hygiene",
    "rationale": "Phase 14's hygiene demonstration, which is a kg-side behaviour change and not an fe one: save-excursion and with-current-buffer now bind their captured state to a gensym instead of to the ordinary symbol `internal--excursion'. A body that assigned that name used to make the unwind-protect cleanup raise, and a raising cleanup REPLACES the completion it is unwinding (fe 06A Decision 4, which is Emacs' rule too), so the user's own error was lost -- measured through test/kgbatch, this case's form answered \"internal--excursion-restore: expected a marker or a buffer\". The two sides now agree on MY-ERROR for different reasons: on Emacs `internal--excursion' is an unused global, in kg it is unreachable. doc/TODO.md's row for the other ~53 prelude temporaries is re-pointed rather than retired: the mechanism is proven, the sweep is not done.",
    "source_name": null
+  },
+  {
+   "id": "native-upcase",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-upcase-ascii",
+    "phase15-upcase-non-ascii"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_natives",
+   "rationale": "Phase 15. kg's case conversion is ASCII-only: the editor carries no Unicode case tables and buying a pair of them for three functions is not a trade this phase makes. A byte >= 0x80 passes through unchanged, so the ASCII case agrees exactly and the non-ASCII case does not. A byte >= 0x80 does count as a word constituent for `capitalize', which is what keeps the ASCII letters of a non-ASCII word from each being read as the start of one: \"elan\" spelled with an accent capitalizes to itself here and to its own capitalization in Emacs -- one letter apart, not two words apart.",
+   "source_name": "upcase"
+  },
+  {
+   "id": "native-downcase",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-downcase-ascii",
+    "phase15-downcase-non-ascii"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_natives",
+   "rationale": "Phase 15. kg's case conversion is ASCII-only: the editor carries no Unicode case tables and buying a pair of them for three functions is not a trade this phase makes. A byte >= 0x80 passes through unchanged, so the ASCII case agrees exactly and the non-ASCII case does not. A byte >= 0x80 does count as a word constituent for `capitalize', which is what keeps the ASCII letters of a non-ASCII word from each being read as the start of one: \"elan\" spelled with an accent capitalizes to itself here and to its own capitalization in Emacs -- one letter apart, not two words apart.",
+   "source_name": "downcase"
+  },
+  {
+   "id": "native-capitalize",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-capitalize-ascii",
+    "phase15-capitalize-non-ascii"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_natives",
+   "rationale": "Phase 15. kg's case conversion is ASCII-only: the editor carries no Unicode case tables and buying a pair of them for three functions is not a trade this phase makes. A byte >= 0x80 passes through unchanged, so the ASCII case agrees exactly and the non-ASCII case does not. A byte >= 0x80 does count as a word constituent for `capitalize', which is what keeps the ASCII letters of a non-ASCII word from each being read as the start of one: \"elan\" spelled with an accent capitalizes to itself here and to its own capitalization in Emacs -- one letter apart, not two words apart.",
+   "source_name": "capitalize"
+  },
+  {
+   "id": "native-string-to-number",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-to-number",
+    "phase15-string-to-number-bignum"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_natives",
+   "rationale": "Phase 15. Everything Emacs reads, kg reads the same way -- including the two shapes that are NOT numbers to it, \"0x10\" and \"inf\", and the difference between \"1.\" (the integer 1, which is integer syntax to the reader too) and \"1.5\". What diverges is an integer past int64: kg has no bignums, so it answers the double the text rounds to, which is the same policy fe's reader takes for a literal (num-int64-literal-overflow in fe's manifest). BASE is 2..16 as in Emacs, and out of that range is args-out-of-range.",
+   "source_name": "string-to-number"
+  },
+  {
+   "id": "native-make-string",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-make-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_natives",
+   "rationale": "Phase 15. Emacs' third MULTIBYTE argument selects a representation kg does not have -- every kg string is UTF-8 -- so it is not accepted, and an extra argument is wrong-number-of-arguments rather than a silently ignored one.",
+   "source_name": "make-string"
+  },
+  {
+   "id": "native-string-match",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-match",
+    "phase15-string-match-anchors-and-case"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 15's regex-from-Lisp seam. The engine is src/regex.h's, already behind C-s and re-search-forward; what string-match adds is a string subject and Emacs' character-indexed match data, converted from the engine's byte spans where the subject is still in hand. Two properties of that engine are inherited rather than papered over, and the second case pins both: `^' and `$' anchor the whole subject rather than each line of it (kg's buffer search hands the engine one row at a time and so never needed a line anchor), and matching is case-SENSITIVE, where Emacs consults case-fold-search, whose default is t. A third is not observable through an oracle case: the subject is NUL-terminated, so a match stops at an embedded NUL.",
+   "source_name": "string-match"
+  },
+  {
+   "id": "native-regexp-quote",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-regexp-quote"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 15. The escaped set is Emacs 31.0.90's own, measured character by character: `.', `*', `+', `?', `[', `^', `$' and backslash, and NOT `]' -- a `]' outside a bracket expression is an ordinary character in this dialect. The case reports codepoints rather than the string itself because fe's writer does not re-escape a backslash inside a printed string and Emacs' prin1 does (doc/lisp-api.md's differences section); comparing the characters compares the answer rather than the two printers.",
+   "source_name": "regexp-quote"
+  },
+  {
+   "id": "prelude-match-string",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-match-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 15. The extractor differs by what the last match ran against, and that is the units lining up rather than a special case: a string match reports 0-based character indices and `substring' is 0-based, a buffer match reports 1-based positions and `buffer-substring' is 1-based. A group that did not participate is nil on both sides. Emacs' (match-string N) with no STRING after a *string* match reads the current buffer and is args-out-of-range there; kg reads its buffer too, so neither side answers anything useful and the case does not ask.",
+   "source_name": "match-string"
+  },
+  {
+   "id": "prelude-split-string",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-split-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "Phase 15. The argument asymmetry is Emacs' and is the whole of the design: with the default SEPARATORS, OMIT-NULLS defaults to t; with an explicit one it defaults to nil, so (split-string \"\") is nil and (split-string \"\" \",\") is (\"\"). The loop is Emacs' own, including the guard that a repeated EMPTY match at the same place advances one character, which is what makes a pattern like \"x*\" terminate. Emacs' fourth TRIM argument is not accepted.",
+   "source_name": "split-string"
+  },
+  {
+   "id": "prelude-string-join",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-join"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": null,
+   "source_name": "string-join"
+  },
+  {
+   "id": "prelude-string-trim",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-trim"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "Phase 15. Emacs' TRIM-LEFT/TRIM-RIGHT regexp arguments are refused by name rather than ignored: the default set -- space, tab, newline, return, form feed, vertical tab -- is what every caller wants, and an anchored user regexp would need a start-of-string assertion the engine does not have.",
+   "source_name": "string-trim"
+  },
+  {
+   "id": "prelude-string-trim-left",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-trim-left"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": null,
+   "source_name": "string-trim-left"
+  },
+  {
+   "id": "prelude-string-trim-right",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-trim-right"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": null,
+   "source_name": "string-trim-right"
+  },
+  {
+   "id": "prelude-internal-trim-reject",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase15-internal-trim-helpers"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "The one place string-trim's three spellings refuse Emacs' REGEXP argument, so the refusal is one rule with one message rather than three.",
+   "source_name": "internal--trim-reject"
+  },
+  {
+   "id": "prelude-internal-trim-char-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase15-internal-trim-helpers"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "The default trim set as a predicate, shared by string-trim-left and string-trim-right.",
+   "source_name": "internal--trim-char-p"
+  },
+  {
+   "id": "prelude-string-prefix-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-prefix-p"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": null,
+   "source_name": "string-prefix-p"
+  },
+  {
+   "id": "prelude-string-suffix-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-suffix-p"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": null,
+   "source_name": "string-suffix-p"
+  },
+  {
+   "id": "prelude-string-lessp",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-lessp"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "Phase 15. Codepoint order, which is what Emacs compares by, and symbols are accepted on either side through `symbol-name' as they are there. Emacs' third spelling `string-lessp' and its `string>' sibling are not provided.",
+   "source_name": "string<"
+  },
+  {
+   "id": "prelude-internal-replace-expand",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase15-internal-replace-expand"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Emacs' replacement-string escapes as a kg-only helper: the whole match, a numbered group, and a literal backslash. An escape Emacs rejects outright yields the escaped character here, which is the one shape of replacement string the two disagree about.",
+   "source_name": "internal--replace-expand"
+  },
+  {
+   "id": "prelude-replace-regexp-in-string",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-replace-regexp-in-string",
+    "phase15-replace-regexp-case"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 15. The replacement grammar, the function-valued REP and the empty-match rule all agree exactly -- including Emacs' rule that an empty match copies one character and advances, and that the final empty match at end of string is not replaced, which is why (replace-regexp-in-string \"x*\" \"-\" \"abc\") is \"-a-b-c\" and not \"-a-b-c-\". What diverges is inherited from `string-match': kg never case-folds a match and therefore never case-adjusts a replacement, so FIXEDCASE is accepted and ignored. Emacs' SUBEXP and START arguments are not accepted.",
+   "source_name": "replace-regexp-in-string"
+  },
+  {
+   "id": "prelude-cdar",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-cxr-family"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "cdar"
+  },
+  {
+   "id": "prelude-caddr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-cxr-family"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "caddr"
+  },
+  {
+   "id": "prelude-cdddr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-cxr-family"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "cdddr"
+  },
+  {
+   "id": "prelude-cadddr",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-cxr-family"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "cadddr"
+  },
+  {
+   "id": "prelude-elt",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Lists and strings, which are the two sequence types kg has. The asymmetry at the end is Emacs': a list index past the end is nil (elt is `nth' there) and a string index past the end is args-out-of-range.",
+   "source_name": "elt"
+  },
+  {
+   "id": "prelude-butlast",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-butlast"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "butlast"
+  },
+  {
+   "id": "prelude-copy-sequence",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-copy-sequence"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": null,
+   "source_name": "copy-sequence"
+  },
+  {
+   "id": "prelude-number-sequence",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-number-sequence"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. A zero INC is Emacs' own prose error, message included.",
+   "source_name": "number-sequence"
+  },
+  {
+   "id": "prelude-nconc",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-nconc"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Destructive, as Emacs': the result is the first non-nil argument with the rest spliced onto its tail, so the caller's own variable sees the join. It exists mostly because `mapcan' is defined over it and would otherwise have had to be a copying divergence.",
+   "source_name": "nconc"
+  },
+  {
+   "id": "prelude-mapcan",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-mapcan"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Built on `nconc', so it is destructive exactly where Emacs' is -- a function returning a list the caller still holds has that list spliced, on both sides.",
+   "source_name": "mapcan"
+  },
+  {
+   "id": "prelude-assq-delete-all",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-assq-delete-all"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Destructive in `delq''s shape, which is the shape Emacs' is: the head cell of the input keeps whatever it held, so the caller's own variable is left holding a prefix of the result.",
+   "source_name": "assq-delete-all"
+  },
+  {
+   "id": "prelude-alist-get",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-alist-get"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. The lookup is `assq', which is Emacs' own default; its TESTFN and REMOVE arguments are not accepted, and alist-get is a plain function here rather than a generalized variable, so it is not `setf'-able (kg has no setf).",
+   "source_name": "alist-get"
+  },
+  {
+   "id": "prelude-plist-get",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-plist-get"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Comparison is `eq', which is Emacs' default; its PREDICATE argument is not accepted.",
+   "source_name": "plist-get"
+  },
+  {
+   "id": "prelude-plist-put",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-plist-put"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 15. Destructive where it can be, as Emacs': an existing property is overwritten in place and a new one is spliced onto the tail, so only (plist-put nil ...) has to build a fresh list.",
+   "source_name": "plist-put"
+  },
+  {
+   "id": "prelude-sort",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-sort"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_sort",
+   "rationale": "Phase 15. A stable bottom-up merge sort that sorts the VALUES and writes them back over the input's own cons cells with `setcar'. That is not a shortcut, it is what makes kg match Emacs 31.0.90 exactly: measured there, (let* ((c (list 2)) (x (cons 3 c)) (y (sort x #'<))) ...) leaves y `eq' to x and leaves c holding 3 -- the cells keep their identities and their contents move -- which a relinking sort would not reproduce and a copying one would not either. Emacs 30's keyword calling convention ((sort SEQ :lessp ...)) is not accepted.",
+   "source_name": "sort"
+  },
+  {
+   "id": "prelude-internal-merge",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase15-internal-merge"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_sort",
+   "rationale": "The stable two-run merge `sort' is built from: an element of B is taken only when it is strictly less than the head of A, which is what stability is.",
+   "source_name": "internal--merge"
+  },
+  {
+   "id": "prelude-internal-merge-pairs",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase15-internal-merge"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_sort",
+   "rationale": "One bottom-up pass: adjacent runs merged pairwise, an odd run carried through untouched.",
+   "source_name": "internal--merge-pairs"
+  },
+  {
+   "id": "prelude-seq-map",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-map"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-map"
+  },
+  {
+   "id": "prelude-seq-filter",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-filter"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-filter"
+  },
+  {
+   "id": "prelude-seq-remove",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-remove"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-remove"
+  },
+  {
+   "id": "prelude-seq-find",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-find"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-find"
+  },
+  {
+   "id": "prelude-seq-some",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-some"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-some"
+  },
+  {
+   "id": "prelude-seq-take",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-seq-take"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_seq_shim",
+   "rationale": "Phase 15's seq- shim, and the scope is the whole of the row: Emacs' seq- functions are generic over every sequence type through cl-generic, and kg's take LISTS. A string argument is not accepted where Emacs would accept one. The four the forecast audit measured demand for (seq-filter, seq-remove, seq-take, seq-map) plus the two the plan named (seq-find, seq-some) are what is here; the rest of seq.el is not.",
+   "source_name": "seq-take"
+  },
+  {
+   "id": "prelude-abs",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-abs"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_arithmetic",
+   "rationale": "Phase 15. The non-negative arm answers (+ NUMBER 0) rather than NUMBER, because -0.0 is not less than 0 and adding zero is the one operation that normalises its sign -- (abs -0.0) is 0.0 on both sides because of that single token.",
+   "source_name": "abs"
+  },
+  {
+   "id": "prelude-percent",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-percent"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_arithmetic",
+   "rationale": "Phase 15. The remainder, taking the dividend's sign, defined as X - Y * (truncate X Y): fe's two-argument `truncate' is exactly the rounding the definition needs. Integers only, as in Emacs.",
+   "source_name": "%"
+  },
+  {
+   "id": "prelude-mod",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-mod"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_arithmetic",
+   "rationale": "Phase 15. The modulus, taking the divisor's sign, defined as X - Y * (floor X Y): fe's two-argument `floor' is the other of the two roundings, which is the whole difference between this and `%'. Floats are accepted, as in Emacs.",
+   "source_name": "mod"
+  },
+  {
+   "id": "prelude-ash",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-ash"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_arithmetic",
+   "rationale": "Phase 15. An arithmetic shift: right by N is floor division by 2^N, so (ash -16 -2) is -4 and not -3. A left shift multiplies, and a product past int64 raises fe's arith-error where Emacs widens to a bignum -- kg's standing no-bignum divergence (num-overflow-bignum in fe's manifest), not a new one, and not what this case asks. `logand', `logior' and `logxor' are deliberately absent: the forecast audit measured ZERO references to any bitwise operation across the whole corpus, and the cheap-and-exact spelling for them is beside fe's own `expt' rather than in a kg native or a 63-iteration prelude loop. doc/lisp-api.md records the decision where a reader will look for the names.",
+   "source_name": "ash"
   }
  ]
 }

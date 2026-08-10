@@ -1,0 +1,6 @@
+{
+ "id": "phase15-abs",
+ "setup": [],
+ "expr": "(list (abs -3) (abs 3) (abs -3.5) (abs -0.0) (abs 0.0) (condition-case e (abs \"x\") (wrong-type-argument (quote caught))))",
+ "note": "Both signs, both types, both zeroes, and the type error."
+}

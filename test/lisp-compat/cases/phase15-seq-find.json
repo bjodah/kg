@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-find",
+ "setup": [],
+ "expr": "(list (seq-find (lambda (x) (< 1 x)) (list 1 2 3)) (seq-find (lambda (x) nil) (list 1 2)) (seq-find (lambda (x) nil) (list 1 2) (quote none)))",
+ "note": "A hit, a miss, and a miss with a DEFAULT."
+}

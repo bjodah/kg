@@ -47,9 +47,17 @@ import tempfile
 # unrooted-intermediate seam this lane exists for.  `keeper` is retained
 # across the churn and its name read back afterwards; `gcprobe`'s property
 # is written and read at every hundredth iteration.
+# Phase 15 added the string-and-list half, which is the same seam again
+# in its most ordinary shape: `split-string`, `string-join`,
+# `replace-regexp-in-string`, `seq-filter` and `sort` all build
+# intermediate strings and cons cells that nothing roots until the next
+# form takes them, and `replace-regexp-in-string` rebuilds its
+# accumulator once per match.  A mistaken collection among them changes
+# `shaped`, which is retained across the churn and reported.
 SCRIPT = """
 (setq kept nil)
 (setq keeper (make-symbol "kept-name"))
+(setq shaped nil)
 (setq n 0)
 (while (< n 300)
   (setq n (+ n 1))
@@ -60,25 +68,37 @@ SCRIPT = """
   (intern-soft "never-interned-here")
   (if (= n (* 100 (/ n 100)))
       (progn (put 'gcprobe (intern "p") n)
-             (setq kept (cons (get 'gcprobe 'p) kept)))
+             (setq kept (cons (get 'gcprobe 'p) kept))
+             (sort (list 3 1 2) '<)
+             (setq shaped
+                   (cons (string-join
+                          (seq-filter (lambda (w) (string< "a" w))
+                                      (split-string
+                                       (replace-regexp-in-string
+                                        "-" " " "one-two-three")))
+                          ",")
+                         shaped)))
     nil))
 (list n kept (length kept) (symbol-name keeper)
-      (intern-soft "never-interned-here") (intern-soft keeper))
+      (intern-soft "never-interned-here") (intern-soft keeper) shaped)
 """
 
-EXPECTED = '(300 (300 200 100) 3 "kept-name" nil nil)'
+EXPECTED = ('(300 (300 200 100) 3 "kept-name" nil nil '
+            '("one,two,three" "one,two,three" "one,two,three"))')
 
 # The same script with enough iterations to fill kg's 1 MB arena at least
 # once, which the stress-affordable loop above does not: run through the
 # ORDINARY build only, to assert the collector is invoked at all.
 BIG_SCRIPT = SCRIPT.replace("< n 300", "< n 4000").replace(
     "(* 100 (/ n 100))", "(* 1000 (/ n 1000))")
-BIG_EXPECTED = '(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil)'
+BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
+                '("one,two,three" "one,two,three" "one,two,three" '
+                '"one,two,three"))')
 
 # The stress build collects per allocation, and the loop above allocates
 # far more than one object per iteration, so its count cannot be near the
 # iteration count.  Measured on this box: 0 collections ordinary (the
-# arena never fills), 10679 stress.
+# arena never fills), 24278 stress.
 MIN_STRESS_COLLECTIONS = 1000
 
 STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")

@@ -1,0 +1,7 @@
+{
+ "id": "phase15-downcase-ascii",
+ "setup": [],
+ "expr": "(list (downcase \"aBc\") (downcase 65) (downcase 97))",
+ "note": "ASCII downcase, over a string and over a character.",
+ "expect": "agree"
+}

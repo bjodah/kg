@@ -61,6 +61,13 @@ static const struct native_binding native_bindings[] = {
 	{ "string=", native_string_equal },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },
+	{ "string-to-number", native_string_to_number },
+	{ "make-string", native_make_string },
+	/* ASCII-only case conversion: kg carries no Unicode case tables.
+	 * See src/lisp_string.c and the manifest rows. */
+	{ "upcase", native_upcase },
+	{ "downcase", native_downcase },
+	{ "capitalize", native_capitalize },
 	{ "type-of", native_type_of },
 	{ "stringp", native_stringp },
 	{ "symbolp", native_symbolp },
@@ -89,6 +96,11 @@ static const struct native_binding native_bindings[] = {
 	{ "re-search-backward", native_re_search_backward },
 	{ "match-beginning", native_match_beginning },
 	{ "match-end", native_match_end },
+	/* The regex-from-Lisp seam: the engine is src/regex.h's, already
+	 * behind C-s and re-search-forward.  What string-match adds is a
+	 * string subject and Emacs' character-indexed match data. */
+	{ "string-match", native_string_match },
+	{ "regexp-quote", native_regexp_quote },
 	{ "make-marker", native_make_marker },
 	{ "set-marker", native_set_marker },
 	{ "marker-position", native_marker_position },

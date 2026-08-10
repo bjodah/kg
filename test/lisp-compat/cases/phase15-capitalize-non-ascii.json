@@ -1,0 +1,6 @@
+{
+ "id": "phase15-capitalize-non-ascii",
+ "setup": [],
+ "expr": "(string-to-list (capitalize (concat (char-to-string 233) \"lan vital\")))",
+ "note": "ASCII-only: the accented letter is left alone where Emacs case-converts it. Built with char-to-string and reported as codepoints so the case file, the expression and the record are all ASCII -- the oracle shim's stdout is not UTF-8 for a multibyte string. capitalize additionally shows the word rule: a byte of a multi-byte character is a word constituent here, so the letters after it are not each read as the start of a word."
+}

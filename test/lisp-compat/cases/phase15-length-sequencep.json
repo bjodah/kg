@@ -1,0 +1,6 @@
+{
+ "id": "phase15-length-sequencep",
+ "setup": [],
+ "expr": "(list (length \"abc\") (length (list 1 2)) (condition-case e (length 5) (error (car e))) (condition-case e (length (cons 1 2)) (error e)))",
+ "note": "Phase 15: a non-sequence is wrong-type-argument sequencep, and a dotted tail is still wrong-type-argument listp about the tail."
+}

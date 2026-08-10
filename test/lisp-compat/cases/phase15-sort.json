@@ -1,0 +1,6 @@
+{
+ "id": "phase15-sort",
+ "setup": [],
+ "expr": "(list (let* ((x (list 3 1 2)) (y (sort x (quote <)))) (list y x (eq y x))) (let* ((c (list 2)) (x (cons 3 c)) (y (sort x (quote <)))) (list y x c (eq y x))) (sort (list \"b\" \"a\" \"C\") (quote string<)) (sort nil (quote <)) (sort (list 1) (quote <)) (sort (list (cons 1 (quote a)) (cons 1 (quote b)) (cons 0 (quote c))) (lambda (u v) (< (car u) (car v)))))",
+ "note": "Cell identity through the sort, a string comparator, the empty and one-element lists, and stability."
+}

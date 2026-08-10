@@ -1,0 +1,6 @@
+{
+ "id": "phase15-mapcan",
+ "setup": [],
+ "expr": "(list (mapcan (lambda (x) (list x x)) (list 1 2)) (let* ((tail (list 3)) (r (mapcan (lambda (x) (if (= x 1) tail (list x))) (list 1 2)))) (list r tail)))",
+ "note": "Fresh lists, and a shared one whose splicing is visible."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-suffix-p",
+ "setup": [],
+ "expr": "(list (string-suffix-p \"bc\" \"abc\") (string-suffix-p \"\" \"x\") (string-suffix-p \"abc\" \"bc\") (string-suffix-p \"BC\" \"abc\" t))",
+ "note": "A hit, the empty suffix, a suffix longer than the string, and IGNORE-CASE."
+}

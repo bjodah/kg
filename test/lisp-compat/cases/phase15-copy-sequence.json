@@ -1,0 +1,6 @@
+{
+ "id": "phase15-copy-sequence",
+ "setup": [],
+ "expr": "(let ((l (list 1 2))) (list (copy-sequence l) (eq l (copy-sequence l)) (equal l (copy-sequence l)) (copy-sequence \"ab\") (copy-sequence nil)))",
+ "note": "A fresh list that is equal and not eq, a string, and nil."
+}

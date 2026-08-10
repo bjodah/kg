@@ -1,0 +1,6 @@
+{
+ "id": "phase15-butlast",
+ "setup": [],
+ "expr": "(list (butlast (list 1 2 3)) (butlast (list 1 2 3) 2) (butlast (list 1)) (butlast nil) (butlast (list 1 2 3) 0) (butlast (list 1 2 3) -1))",
+ "note": "Default N, an explicit N, the one-element and empty lists, and both N values that keep everything."
+}

@@ -200,6 +200,28 @@ against full rebuilds.  Known follow-ups, none blocking:
 - [ ] **Phase 8 read functions**: public `read-string`, `read-number`,
       `read-file-name`, and `read-buffer`, including optional arguments,
       defaults, history, and non-command re-entry semantics.
+- [ ] **The forecast audit's residual tail** (Phase 15,
+      `utils/forecast/AUDIT.md`).  Six names, seven references, and they
+      partition cleanly: `erase-buffer` (2) and `beginning-of-line` (1)
+      are editor natives and belong to Phase 17's missing-natives list --
+      `beginning-of-line` is not on that list today and should join it,
+      since kg has `move-beginning-of-line` and Emacs has both -- and
+      `make-hash-table`/`puthash`/`gethash`/`maphash` (1 each) are the
+      hash-table watch item, whose whole measured demand across the
+      corpus is those four references from one package sketch that also
+      spells the same tally with an alist.  The tail is the number to
+      re-read before scoping Phase 17's package milestone: a
+      grep/occur-style helper is one native away from being writable,
+      and the templating sketch already is.
+- [ ] **`logand`, `logior`, `logxor`**, declined by Phase 15 with the
+      measurement rather than the intuition: the forecast corpus contains
+      **zero** references to any bitwise operation.  `ash` landed because
+      it is exact in three lines of prelude Lisp over `expt` and `floor`;
+      these three are not -- a prelude spelling is a 63-iteration loop per
+      call charged to the step budget, and a kg native is C for something
+      fe already has the `int64_t` for.  Their home is beside fe's own
+      `expt`/`floor` maths natives, in whichever phase next moves the fe
+      pin for a reason of its own.
 - [ ] **An arena reset command**, deferred by Phase 9's 09A Decision 3 and
       the one piece of exhaustion recovery kg does not have. Phase 9 made
       exhaustion catchable (`arena-exhaustion` under `error`), survivable
@@ -267,6 +289,13 @@ against full rebuilds.  Known follow-ups, none blocking:
       means gensyms or an obarray-style renaming pass over the prelude.
       Phase 14 supplied the gensyms, so the remaining cost is the sweep
       itself and the re-reading it needs, not a missing mechanism.
+      Phase 15's string and list library grew the surface rather than
+      shrinking it, and the number is now measured rather than estimated:
+      **58 distinct names** are bound by a `let`/`let*`/`internal--let`
+      anywhere in `lisp/prelude.el` (counted with the reader in
+      `utils/forecast_audit.py`), of which the short ones a user is most
+      likely to `defvar` -- `a`, `b`, `c`, `d`, `e`, `f`, `h`, `i`, `m`,
+      `n`, `r` -- are eleven.
       Left here so a future report of a strange interaction has somewhere
       to land.
       `internal--excursion` was a 54th name and the one with the sharpest

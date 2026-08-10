@@ -1,0 +1,6 @@
+{
+ "id": "phase15-regexp-quote",
+ "setup": [],
+ "expr": "(string-to-list (regexp-quote \"a.*+?[]^$b(){}|-/\"))",
+ "note": "Every candidate character, reported as codepoints so the comparison is of the result and not of two printers."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-nconc",
+ "setup": [],
+ "expr": "(let ((a (list 1)) (b (list 2))) (list (nconc a b) a (nconc) (nconc nil (list 3))))",
+ "note": "The splice seen through the caller's variable, the zero-argument case, and a nil leading argument."
+}

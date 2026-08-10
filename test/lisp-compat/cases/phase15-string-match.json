@@ -1,0 +1,7 @@
+{
+ "id": "phase15-string-match",
+ "setup": [],
+ "expr": "(list (string-match \"b+\" \"abbbc\") (match-beginning 0) (match-end 0) (string-match \"z\" \"abc\") (string-match \"a\" \"aaa\" 1) (progn (string-match \"\\\\([a-z]+\\\\)-\\\\([0-9]+\\\\)\" \"xx foo-42 yy\") (list (match-beginning 0) (match-end 0) (match-beginning 1) (match-end 1) (match-beginning 3))))",
+ "note": "Whole match, groups, a miss, a START offset, and a group index past the last one.",
+ "expect": "agree"
+}

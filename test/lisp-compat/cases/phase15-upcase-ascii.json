@@ -1,0 +1,7 @@
+{
+ "id": "phase15-upcase-ascii",
+ "setup": [],
+ "expr": "(list (upcase \"aBc\") (upcase 97) (upcase 65))",
+ "note": "ASCII upcase, over a string and over a character, agrees exactly.",
+ "expect": "agree"
+}

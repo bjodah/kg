@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-trim-left",
+ "setup": [],
+ "expr": "(list (string-trim-left \"  a \") (string-trim-left \"a\") (string-trim-left \"   \"))",
+ "note": "Leading whitespace only."
+}

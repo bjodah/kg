@@ -1,0 +1,6 @@
+{
+ "id": "phase15-replace-regexp-case",
+ "setup": [],
+ "expr": "(list (replace-regexp-in-string \"b\" \"x\" \"aBc\") (replace-regexp-in-string \"ab\" \"xy\" \"AB cd\"))",
+ "note": "Emacs folds case when matching and adjusts the replacement's case to the match's; kg does neither."
+}

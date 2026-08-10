@@ -1,0 +1,6 @@
+{
+ "id": "phase15-plist-get",
+ "setup": [],
+ "expr": "(list (plist-get (list :a 1 :b 2) :b) (plist-get (list :a 1) :z) (plist-get nil :z) (plist-get (list :a) :a))",
+ "note": "A hit, a miss, the empty plist, and an odd-length one."
+}

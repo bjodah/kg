@@ -1,0 +1,6 @@
+{
+ "id": "phase15-elt",
+ "setup": [],
+ "expr": "(list (elt (list 1 2 3) 1) (elt \"abc\" 1) (elt (list 1 2) 5) (condition-case e (elt \"ab\" 5) (args-out-of-range (quote caught))))",
+ "note": "List and string indexing, and both out-of-range answers."
+}

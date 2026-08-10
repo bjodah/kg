@@ -1,0 +1,7 @@
+{
+ "id": "phase15-capitalize-ascii",
+ "setup": [],
+ "expr": "(list (capitalize \"hELLO wORLD\") (capitalize \"a-b_c d1e\") (capitalize \"ABC\"))",
+ "note": "Emacs' own word rule, measured: a word begins after any non-alphanumeric, so `_' starts one and `1' does not.",
+ "expect": "agree"
+}

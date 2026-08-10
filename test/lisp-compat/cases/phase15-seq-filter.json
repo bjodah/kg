@@ -1,0 +1,6 @@
+{
+ "id": "phase15-seq-filter",
+ "setup": [],
+ "expr": "(list (seq-filter (lambda (x) (< 1 x)) (list 1 2 3)) (seq-filter (lambda (x) nil) (list 1 2)))",
+ "note": "A partial match and no match."
+}

@@ -522,7 +522,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7294
+SCC_COMPLEXITY_MAX ?= 7397
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -644,7 +644,7 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -690,6 +690,25 @@ forecast-audit:
 
 forecast-check:
 	@$(PYTHON) utils/forecast_audit.py --check
+
+# The corpus's floor, and the one part of it that is not structural:
+# utils/forecast/target-init.el is a realistic user init file and Phase
+# 15's definition of done requires it to LOAD CLEAN, so it is run rather
+# than read.  `-b' gives the process a buffer, since the file's commands
+# are defined (not called) at load time but `with-current-buffer' resolves
+# a buffer either way.  Ordered after lisp-gc-stress-check for that
+# target's own reason: three `check' prerequisites build test/kgbatch
+# through a sub-make, and a run that links it while another is exec'ing it
+# dies with EACCES.
+forecast-init-check: lisp-gc-stress-check
+ifeq ($(WITH_LISP),1)
+	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+	@$(TESTDIR)/kgbatch -b utils/forecast/target-init.el >/dev/null \
+		&& echo "forecast-init-check: utils/forecast/target-init.el" \
+			"loads clean"
+else
+	@echo "# forecast-init-check: WITH_LISP=0, no evaluator to load it"
+endif
 
 # Sub-plan 10C Part 3: kg's half of the milestone gate's oracle item.
 # Runs every `comparison: emacs` case through test/kgbatch and compares it
@@ -1349,7 +1368,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

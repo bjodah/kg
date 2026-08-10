@@ -1,0 +1,6 @@
+{
+ "id": "phase15-cxr-family",
+ "setup": [],
+ "expr": "(list (cdar (list (list 1 2) 3)) (caddr (list 1 2 3 4)) (cdddr (list 1 2 3 4)) (cadddr (list 1 2 3 4)))",
+ "note": "The four compositions Phase 15 adds beside the caar/cadr/cddr the prelude already had."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase15-percent",
+ "setup": [],
+ "expr": "(list (% 7 2) (% -7 2) (% 7 -2) (% -7 -2) (condition-case e (% 7.5 2) (wrong-type-argument (quote caught))))",
+ "note": "All four sign combinations and the float rejection."
+}

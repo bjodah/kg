@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <limits.h>
 #include <stdckdint.h>
 #include <stdint.h>
@@ -36,7 +37,7 @@ static char *lisp_string_argument(
 	return text;
 }
 
-static int lisp_utf8_length(const char *text, int length)
+int lisp_utf8_length(const char *text, int length)
 {
 	int byte = 0, chars = 0;
 
@@ -48,7 +49,7 @@ static int lisp_utf8_length(const char *text, int length)
 }
 
 /* Byte offset of the `chars`'th codepoint, clamped to the end of `text`. */
-static int lisp_utf8_byte(const char *text, int length, int chars)
+int lisp_utf8_byte(const char *text, int length, int chars)
 {
 	int byte = 0, n;
 
@@ -56,6 +57,21 @@ static int lisp_utf8_byte(const char *text, int length, int chars)
 		byte += utf8_glyph_span_at(text, length, byte);
 	}
 	return byte;
+}
+
+/* The inverse of lisp_utf8_byte(): how many codepoints precede byte offset
+ * `offset`.  A `offset` inside a glyph counts that glyph as passed, which
+ * cannot happen for a regex span (kg_regex normalizes to glyph
+ * boundaries) and is the same rounding lisp_utf8_byte() clamps with. */
+int lisp_utf8_chars(const char *text, int length, int offset)
+{
+	int byte = 0, chars = 0;
+
+	while (byte < offset && byte < length) {
+		byte += utf8_glyph_span_at(text, length, byte);
+		chars++;
+	}
+	return chars;
 }
 
 FeObject *native_string_length(FeContext *context, FeObject *arguments)
@@ -258,6 +274,266 @@ FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 	}
 	text[lisp_encode_char(codepoint, text)] = '\0';
 	return FeMakeString(context, text);
+}
+
+/* ---- case conversion -------------------------------------------------
+ * ASCII only, and recorded as such: Emacs case-converts the whole of
+ * Unicode from its own case tables, and kg carries none.  A byte >= 0x80
+ * passes through unchanged, so (upcase "café") keeps its accent and
+ * (upcase "café") is "CAFé" where Emacs answers "CAFÉ".
+ *
+ * A byte >= 0x80 does count as a word constituent for `capitalize', which
+ * is what keeps the ASCII letters of a non-ASCII word from each being
+ * treated as the start of one: "élan" capitalizes to "élan" here and to
+ * "Élan" in Emacs -- one letter apart rather than two words apart. */
+
+static int lisp_ascii_upper(int byte)
+{
+	return (byte >= 'a' && byte <= 'z') ? byte - ('a' - 'A') : byte;
+}
+
+static int lisp_ascii_lower(int byte)
+{
+	return (byte >= 'A' && byte <= 'Z') ? byte + ('a' - 'A') : byte;
+}
+
+/* Word constituent for `capitalize': an ASCII alphanumeric, or any byte
+ * of a multi-byte character.  Emacs' own rule is "alphanumeric", measured:
+ * (capitalize "a-b_c d1e") is "A-B_C D1e", so `_' begins a word and `1'
+ * does not. */
+static bool lisp_word_byte(unsigned char byte)
+{
+	return byte >= 0x80 || ascii_is_digit(byte)
+	    || (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z');
+}
+
+enum lisp_case_kind { LISP_CASE_UP, LISP_CASE_DOWN, LISP_CASE_CAPITALIZE };
+
+static void lisp_case_convert(char *text, int length, enum lisp_case_kind kind)
+{
+	bool in_word = false;
+	int i;
+
+	for (i = 0; i < length; i++) {
+		unsigned char byte = (unsigned char)text[i];
+
+		switch (kind) {
+		case LISP_CASE_UP:
+			text[i] = (char)lisp_ascii_upper(byte);
+			break;
+		case LISP_CASE_DOWN:
+			text[i] = (char)lisp_ascii_lower(byte);
+			break;
+		case LISP_CASE_CAPITALIZE:
+			text[i] = (char)(in_word ? lisp_ascii_lower(byte)
+						 : lisp_ascii_upper(byte));
+			break;
+		}
+		in_word = lisp_word_byte(byte);
+	}
+}
+
+/* (upcase X) / (downcase X) / (capitalize X): X is a string or a
+ * character, and the result has X's own type, as in Emacs. */
+static FeObject *lisp_case(
+    FeContext *context, FeObject *arguments, enum lisp_case_kind kind)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeObject *result;
+	int length;
+	char *text;
+	char one;
+
+	FeRequireNoArguments(context, arguments);
+	if (FeGetType(object) != FeTString) {
+		FeDouble value;
+
+		/* Emacs' own predicate for the whole argument, measured:
+		 * (upcase '(1)) is (wrong-type-argument char-or-string-p (1)).
+		 */
+		if (FeGetType(object) != FeTInteger
+		    && FeGetType(object) != FeTDouble) {
+			lisp_raise_wrong_type(
+			    context, "char-or-string-p", object);
+		}
+		value = lisp_finite(context, object, "char-or-string-p");
+		if (value < 0 || value > 0x10FFFF) {
+			lisp_raise_wrong_type(
+			    context, "char-or-string-p", object);
+		}
+		one = (char)(int)value;
+		if (value > 0x7F) {
+			return object; /* not ASCII: unchanged, see above */
+		}
+		lisp_case_convert(&one, 1,
+		    kind == LISP_CASE_CAPITALIZE ? LISP_CASE_UP : kind);
+		return FeMakeInteger(context, (int64_t)(unsigned char)one);
+	}
+	text = lisp_string_argument(context, object, &length);
+	lisp_case_convert(text, length, kind);
+	result = FeMakeString(context, text);
+	release_scratch();
+	return result;
+}
+
+FeObject *native_upcase(FeContext *context, FeObject *arguments)
+{
+	return lisp_case(context, arguments, LISP_CASE_UP);
+}
+
+FeObject *native_downcase(FeContext *context, FeObject *arguments)
+{
+	return lisp_case(context, arguments, LISP_CASE_DOWN);
+}
+
+FeObject *native_capitalize(FeContext *context, FeObject *arguments)
+{
+	return lisp_case(context, arguments, LISP_CASE_CAPITALIZE);
+}
+
+/* ---- string-to-number ------------------------------------------------ */
+
+/* True when the text strtoll stopped at and strtod ran past really is a
+ * fractional part or an exponent.  "1." is Emacs' *integer* 1 (it is
+ * integer syntax to the reader too), while "1.5" and "1e3" are floats, and
+ * strtod consumes one more byte than strtoll in all three. */
+static bool lisp_number_is_float(const char *from, const char *to)
+{
+	const char *p;
+
+	for (p = from; p < to; p++) {
+		if (ascii_is_digit((unsigned char)*p) || *p == 'e'
+		    || *p == 'E') {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Emacs' BASE argument: nil is 10, and 2..16 is the whole range -- both
+ * 1 and 35 were measured to be (args-out-of-range BASE), with no second
+ * value in the data. */
+static int lisp_number_base(
+    FeContext *context, FeObject **arguments, FeObject *base_object)
+{
+	FeDouble requested;
+
+	if (!FeIsNil(*arguments)) {
+		base_object = FeGetNextArgument(context, arguments);
+	}
+	FeRequireNoArguments(context, *arguments);
+	if (FeIsNil(base_object)) {
+		return 10;
+	}
+	requested = lisp_finite(context, base_object, "integerp");
+	if (requested < 2 || requested > 16) {
+		lisp_raise_args_out_of_range(
+		    context, base_object, FeNil(context));
+	}
+	return (int)requested;
+}
+
+/* Whether `text' begins with something Emacs reads as a base-10 number at
+ * all.  strtod would take "0x10" as a hex float and "inf"/"nan" as
+ * themselves; Emacs answers 0 for all three, so the shapes it does not
+ * read are rejected before either conversion is believed. */
+static bool lisp_number_starts(const char *text)
+{
+	if (*text == '+' || *text == '-') {
+		text++;
+	}
+	if (!ascii_is_digit((unsigned char)*text) && *text != '.') {
+		return false;
+	}
+	return !(text[0] == '0' && (text[1] == 'x' || text[1] == 'X'));
+}
+
+/* (string-to-number S &optional BASE): 0 for anything that does not start
+ * with a number, as in Emacs -- this never signals on its input's shape. */
+FeObject *native_string_to_number(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	int length;
+	int base = lisp_number_base(context, &arguments, FeNil(context));
+	char *text, *cursor, *end_integer, *end_double;
+	long long integer;
+	double value;
+	bool is_float;
+
+	text = lisp_string_argument(context, object, &length);
+	cursor = text;
+	while (*cursor && ascii_is_space((unsigned char)*cursor)) {
+		cursor++;
+	}
+	errno = 0;
+	integer = strtoll(cursor, &end_integer, base);
+	if (base != 10 || !lisp_number_starts(cursor)) {
+		bool none = end_integer == cursor || errno == ERANGE
+		    || (base == 10 && !lisp_number_starts(cursor));
+
+		release_scratch();
+		return FeMakeInteger(context, none ? 0 : (int64_t)integer);
+	}
+	value = strtod(cursor, &end_double);
+	/* A float when strtod really consumed a fractional part or an
+	 * exponent, and -- since there are no bignums -- also when the
+	 * integer did not fit, which is the policy the reader takes for a
+	 * literal past int64.  Decided BEFORE release_scratch(): the two
+	 * end pointers point into the buffer it frees. */
+	is_float = (end_double > end_integer
+		       && lisp_number_is_float(end_integer, end_double))
+	    || errno == ERANGE;
+	release_scratch();
+	if (is_float) {
+		return FeMakeDouble(context, (FeDouble)value);
+	}
+	return FeMakeInteger(context, (int64_t)integer);
+}
+
+/* ---- make-string ----------------------------------------------------- */
+
+/* (make-string N CHAR): N copies of one character.  Emacs' third
+ * MULTIBYTE argument selects a representation kg does not have -- every
+ * string here is UTF-8 -- so it is not accepted. */
+FeObject *native_make_string(FeContext *context, FeObject *arguments)
+{
+	FeObject *count_object = FeGetNextArgument(context, &arguments);
+	FeObject *char_object = FeGetNextArgument(context, &arguments);
+	FeDouble count, codepoint;
+	char encoded[4];
+	int width;
+	size_t total, allocation, i;
+	char *text;
+	FeObject *result;
+
+	FeRequireNoArguments(context, arguments);
+	count = lisp_finite(context, count_object, "wholenump");
+	if (count < 0) {
+		lisp_raise_wrong_type(context, "wholenump", count_object);
+	}
+	codepoint = lisp_finite(context, char_object, "characterp");
+	if (codepoint < 1 || codepoint > 0x10FFFF
+	    || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+		lisp_raise_wrong_type(context, "characterp", char_object);
+	}
+	width = lisp_encode_char((long)codepoint, encoded);
+	if (count > (FeDouble)(INT_MAX / width)) {
+		FeHandleError(context, "string is too large");
+	}
+	total = (size_t)count * (size_t)width;
+	allocation = total + 1;
+	text = malloc(allocation);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	state.scratch = text;
+	for (i = 0; i < total; i += (size_t)width) {
+		memcpy(text + i, encoded, (size_t)width);
+	}
+	text[total] = '\0';
+	result = FeMakeString(context, text);
+	release_scratch();
+	return result;
 }
 
 /* (string-to-char S): first codepoint as a number, nil for "". */

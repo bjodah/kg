@@ -1,0 +1,6 @@
+{
+ "id": "phase15-string-match-anchors-and-case",
+ "setup": [],
+ "expr": "(list (string-match \"^b\" \"a\\nb\") (string-match \"a$\" \"a\\nb\") (string-match \"B\" \"abc\"))",
+ "note": "The two inherited engine properties: whole-subject anchors and no case folding."
+}

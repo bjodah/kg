@@ -798,6 +798,45 @@ static void test_diff_ends_land_on_glyph_boundaries(void)
 	teardown_buffer();
 }
 
+/* The other end of the same rule, and it needs its own case: the one above
+ * is satisfied by the PREFIX walk-back alone, because the glyph it edits
+ * has an "y" after it that both texts share, so the common suffix stops on
+ * a boundary by luck of the fixture.  Take that "y" away and the suffix
+ * scan is what runs into the middle of a glyph.
+ *
+ * "xé" -> "xĩ" is c3 a9 -> c4 a9 at the end of the line: the last byte is
+ * common, so a suffix that is not walked back claims it, and what kg sends
+ * is a range ending mid-glyph with the text "\xc4" -- one lead byte, not a
+ * character, which is not UTF-8 and so not a JSON string a server can
+ * decode.  The assertion is the whole glyph, from byte 1 to the end. */
+static void test_diff_suffix_walks_back_to_a_glyph_boundary(void)
+{
+	struct lsp_client *c = start_server("incremental", "utf-8");
+	static const char *const lines[] = { "x" E_ACUTE, NULL };
+	struct kg_buffer_handle buf;
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	setup_buffer("a.c", lines);
+	buf = buf_handle(buf_current);
+	CHECK(pump_until_ready(c));
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+
+	/* U+00E9 -> U+0129: c3 a9 -> c4 a9, differing in the FIRST byte. */
+	replace_bytes(1, 3, "\xc4\xa9");
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+	barrier(c);
+
+	CHECK(record_count == 2);
+	check_ranged_change(1, 2, 0, 1, 0, 3, "\xc4\xa9");
+
+	lsp_sync_drop_client(c);
+	lsp_client_dispose(c, 200);
+	teardown_buffer();
+}
+
 /* The same edit against a full-sync server: no range at all, and the whole
  * document every time.  Which of the two is sent is the server's choice,
  * captured at the handshake, and this is where kg proves it read it. */
@@ -839,7 +878,14 @@ static void test_full_sync_sends_the_whole_document(void)
 
 /* A server wanting no synchronisation at all reads files from disk, and
  * sending it documents it did not ask for is a protocol violation rather
- * than a kindness.  Nothing is sent and nothing is tracked. */
+ * than a kindness.  Nothing is sent -- not the didOpen, not the didChange
+ * the edit below would otherwise produce, and so not the didClose either.
+ *
+ * The document is still TRACKED, and that is not a contradiction: the URI
+ * is what the caller above builds `textDocument.uri` out of
+ * (src/lsp_sync.h), and such a server is asked positional questions like
+ * any other.  A table that forgot it would refuse every command against
+ * exactly the servers this capability describes. */
 static void test_a_server_that_wants_nothing_gets_nothing(void)
 {
 	struct lsp_client *c = start_server_argv("none", "utf-8", true);
@@ -860,8 +906,9 @@ static void test_a_server_that_wants_nothing_gets_nothing(void)
 	barrier(c);
 
 	CHECK(record_count == 0);
-	CHECK(lsp_sync_uri(c, buf) == NULL);
-	CHECK(lsp_sync_version(c, buf) == -1);
+	CHECK(lsp_sync_uri(c, buf) != NULL);
+	/* Version 1 and never incremented: nothing was ever sent to number. */
+	CHECK(lsp_sync_version(c, buf) == 1);
 
 	lsp_sync_drop_client(c);
 	lsp_client_dispose(c, 200);
@@ -949,6 +996,74 @@ static void test_close_notifies_and_forgets(void)
 	CHECK(strcmp(method, "textDocument/didOpen") == 0);
 	CHECK(json_at(params, "textDocument", "version", NULL) == 1);
 	CHECK(lsp_sync_version(c, buf) == 1);
+
+	lsp_sync_drop_client(c);
+	lsp_client_dispose(c, 200);
+	teardown_buffer();
+}
+
+/* The buffer starts visiting a different file.  C-x C-w is the way a user
+ * does it -- write this buffer to that name -- and all it changes is the
+ * buffer's `filename`, which is what this case does by hand: the handle,
+ * the rows and the content generation are all the same afterwards, and a
+ * document keyed on the handle alone would notice nothing.
+ *
+ * What must happen is the pair: didClose under the name the server was
+ * given, didOpen under the new one, at version 1 with the current text.
+ * Everything after it -- every didChange, and every request built from
+ * lsp_sync_uri() -- then names the file the user is actually editing.  The
+ * failure this replaces was silent and destructive: the server went on
+ * being told about a file nobody had touched, and a rename answered
+ * against it named ranges in that file, which kg would have opened and
+ * edited. */
+static void test_writing_the_buffer_elsewhere_reopens_the_document(void)
+{
+	struct lsp_client *c = start_server("incremental", "utf-8");
+	const struct lsp_json_value *params;
+	const char *method = "";
+	struct kg_buffer_handle buf;
+	char first_uri[PATH_MAX];
+	char second_uri[PATH_MAX];
+	char second_path[PATH_MAX];
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	setup_buffer("a.c", c_source);
+	buf = buf_handle(buf_current);
+	CHECK(pump_until_ready(c));
+	CHECK(lsp_uri_from_path(file_path, first_uri, sizeof(first_uri)));
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+	CHECK(strcmp(lsp_sync_uri(c, buf), first_uri) == 0);
+
+	snprintf(second_path, sizeof(second_path), "%s/b.c", workdir);
+	CHECK(lsp_uri_from_path(second_path, second_uri, sizeof(second_uri)));
+	free(bcur()->filename);
+	bcur()->filename = strdup(second_path);
+	replace_bytes(0, 3, "INT");
+	CHECK(lsp_sync_before_request(c, buf) == 0);
+	CHECK(strcmp(lsp_sync_uri(c, buf), second_uri) == 0);
+	barrier(c);
+
+	CHECK(record_count == 3);
+	params = record_params(1, &method);
+	CHECK(strcmp(method, "textDocument/didClose") == 0);
+	CHECK(strcmp(json_text(lsp_json_get(
+			 lsp_json_get(params, "textDocument"), "uri")),
+		  first_uri)
+	    == 0);
+	params = record_params(2, &method);
+	CHECK(strcmp(method, "textDocument/didOpen") == 0);
+	CHECK(strcmp(json_text(lsp_json_get(
+			 lsp_json_get(params, "textDocument"), "uri")),
+		  second_uri)
+	    == 0);
+	CHECK(json_at(params, "textDocument", "version", NULL) == 1);
+	CHECK(strcmp(json_text(lsp_json_get(
+			 lsp_json_get(params, "textDocument"), "text")),
+		  "INT main(void)\n{\n}")
+	    == 0);
 
 	lsp_sync_drop_client(c);
 	lsp_client_dispose(c, 200);
@@ -1094,10 +1209,12 @@ static void test_a_relative_file_name_is_absolutised(void)
  *
  * Note what is NOT pumped before the request here: the client is still
  * INITIALIZING when lsp_sync_before_request() runs, exactly as it is under
- * M-. .  The didOpen must still arrive, and arrive before the request that
- * follows it, which the record file's single line and the barrier's own
- * reply together say.  M-.'s own request is a deferred one, whose place in
- * that same queue is asserted by test_lsp_client.c's
+ * M-. .  The document is registered there and the didOpen is held -- what
+ * the server wants is not known yet -- and goes out the moment the
+ * handshake settles, from the ready hook, ahead of everything the client
+ * queued behind it.  The record file's single line and the barrier's own
+ * reply together say that it arrived; M-.'s own request is a deferred one,
+ * whose place in that queue is asserted by test_lsp_client.c's
  * test_a_deferred_request_stays_behind_a_notification(). */
 static void test_sync_before_the_handshake_still_opens(void)
 {
@@ -1257,10 +1374,12 @@ int main(int argc, char **argv)
 	RUN(test_overlapping_prefix_and_suffix_are_clamped);
 	RUN(test_utf16_ranges_count_code_units);
 	RUN(test_diff_ends_land_on_glyph_boundaries);
+	RUN(test_diff_suffix_walks_back_to_a_glyph_boundary);
 	RUN(test_full_sync_sends_the_whole_document);
 	RUN(test_a_server_that_wants_nothing_gets_nothing);
 	RUN(test_open_close_without_changes);
 	RUN(test_close_notifies_and_forgets);
+	RUN(test_writing_the_buffer_elsewhere_reopens_the_document);
 	RUN(test_a_killed_buffer_closes_its_document);
 	RUN(test_a_dead_handle_is_refused);
 	RUN(test_a_relative_file_name_is_absolutised);

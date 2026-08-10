@@ -292,6 +292,57 @@ static void test_huge_content_length_is_refused(void)
 	lsp_transport_close(t);
 }
 
+/* The outbound bound, and the one thing about a failure that the reason
+ * alone cannot say.  A message past LSP_TRANSPORT_MAX_OUTBOX_BYTES is
+ * refused whatever the child is doing -- it is kg's own queue that would
+ * have to hold it -- and it is reported as TOO_LARGE, exactly as a body the
+ * server sent that is too big to hold.  The two are opposite accusations,
+ * so the transport records which side it was, and the client above turns
+ * that into two different sentences ("kg could not keep up with the
+ * server", not "the server sent more than kg will hold").
+ *
+ * Nothing was tested here at all before: the bound had no test and the
+ * distinction had no caller. */
+static void test_an_oversized_send_is_kgs_own_bound(void)
+{
+	struct lsp_transport *t = start_fake("echo", NULL, NULL);
+	size_t len = LSP_TRANSPORT_MAX_OUTBOX_BYTES + 1;
+	char *body = malloc(len);
+
+	CHECK(t != NULL && body != NULL);
+	if (!t || !body) {
+		free(body);
+		lsp_transport_close(t);
+		return;
+	}
+	memset(body, 'x', len);
+	CHECK(lsp_transport_send(t, body, len) == -1);
+	CHECK(lsp_transport_failed(t));
+	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_TOO_LARGE);
+	CHECK(lsp_transport_error_outbound(t));
+	free(body);
+	lsp_transport_close(t);
+}
+
+/* The other side of the same reason: a frame the SERVER made too big.  The
+ * transport is equally dead and the error is equally TOO_LARGE, and this is
+ * the assertion that the two are still told apart. */
+static void test_an_oversized_frame_is_not_kgs_own_bound(void)
+{
+	struct lsp_transport *t = start_fake("huge-header", NULL, NULL);
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_message(t, &body, &len) == -1);
+	CHECK(lsp_transport_failed(t));
+	CHECK(!lsp_transport_error_outbound(t));
+	lsp_transport_close(t);
+}
+
 static void test_child_death_reports_eof(void)
 {
 	struct lsp_transport *t = start_fake("die", NULL, NULL);
@@ -844,6 +895,8 @@ int main(int argc, char **argv)
 	RUN(test_bare_newline_headers_are_tolerated);
 	RUN(test_garbage_is_an_error_not_a_hang);
 	RUN(test_huge_content_length_is_refused);
+	RUN(test_an_oversized_send_is_kgs_own_bound);
+	RUN(test_an_oversized_frame_is_not_kgs_own_bound);
 	RUN(test_child_death_reports_eof);
 	RUN(test_large_body_round_trip);
 	RUN(test_queued_writes_drain_on_flush);

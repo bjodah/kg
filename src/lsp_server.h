@@ -14,9 +14,13 @@
  * Instances are keyed by (server, workspace root) and started lazily.
  * Opening a .c file spawns nothing; the first command that needs an answer
  * is what pays for the server, and a second file under the same root shares
- * it.  A server that died is not restarted where it fell -- its slot is
- * reclaimed by the next request for that key, which is the lazy-restart
- * policy of doc/plans/2026-08-08-lsp.md.
+ * it.  A server that died is not restarted where it fell: its slot is
+ * emptied by the next poll that finds the client dead, and by the next
+ * request for that key if one gets there first, and a fresh server is
+ * started by the next command that needs one -- which is the lazy-restart
+ * policy of doc/plans/2026-08-08-lsp.md.  Reclaiming on the poll is what
+ * keeps servers that died in workspaces nobody revisits from holding the
+ * registry full.
  *
  * syntax.h is included for `enum kg_mode_id` alone, which is why it can be:
  * that header names no editor type, so this one stays free-standing
@@ -102,10 +106,11 @@ bool lsp_workspace_root(
 typedef void (*lsp_instance_drop_fn)(struct lsp_client *c);
 void lsp_server_set_instance_drop_hook(lsp_instance_drop_fn fn);
 
-/* Poll every live instance.  Returns nonzero when anything happened,
- * unchanged from lsp_client_poll(), which is lsp_poll()'s repaint
- * convention.  This is what src/lsp_core.c calls from the editor's two poll
- * sites. */
+/* Poll every live instance, and empty the slot of every one that has died.
+ * Returns nonzero when anything happened, unchanged from lsp_client_poll(),
+ * which is lsp_poll()'s repaint convention -- the reclaiming itself is not
+ * something a repaint would show.  This is what src/lsp_core.c calls from
+ * the editor's two poll sites. */
 int lsp_server_poll_all(void);
 
 /* Shut every instance down and empty the registry, for an editor that is

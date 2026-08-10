@@ -103,6 +103,9 @@ struct lsp_transport {
 	 * exactly then and no longer. */
 	size_t delivered;
 	enum lsp_transport_error error;
+	/* Whether `error` happened to what kg was sending rather than to what
+	 * the server sent; see lsp_transport_error_outbound(). */
+	bool error_outbound;
 	/* The read side is finished.  Not a failure yet: messages already
 	 * buffered are delivered before the transport reports it. */
 	bool eof;
@@ -215,6 +218,18 @@ static int transport_fail(
 	kg_close_fd(&t->out_fd);
 	kg_close_fd(&t->sock_fd);
 	return -1;
+}
+
+/* The same, for a failure in what kg was sending: the queue kg fills, not
+ * the stream the server fills.  Recorded beside the reason because the
+ * reason alone cannot tell them apart (lsp_transport.h). */
+static int transport_fail_outbound(
+    struct lsp_transport *t, enum lsp_transport_error error)
+{
+	if (t->error == LSP_TRANSPORT_OK) {
+		t->error_outbound = true;
+	}
+	return transport_fail(t, error);
 }
 
 /* ------------------------------- parsing ------------------------------ */
@@ -947,11 +962,11 @@ int lsp_transport_send(struct lsp_transport *t, const char *body, size_t len)
 	if (len > LSP_TRANSPORT_MAX_OUTBOX_BYTES
 	    || t->outbox.len + (size_t)header_len + len
 		> LSP_TRANSPORT_MAX_OUTBOX_BYTES) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE);
+		return transport_fail_outbound(t, LSP_TRANSPORT_ERR_TOO_LARGE);
 	}
 	if (!buf_append(&t->outbox, header, (size_t)header_len)
 	    || !buf_append(&t->outbox, body, len)) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_NOMEM);
+		return transport_fail_outbound(t, LSP_TRANSPORT_ERR_NOMEM);
 	}
 	return lsp_transport_flush(t);
 }
@@ -997,6 +1012,11 @@ bool lsp_transport_failed(const struct lsp_transport *t)
 enum lsp_transport_error lsp_transport_error(const struct lsp_transport *t)
 {
 	return t->error;
+}
+
+bool lsp_transport_error_outbound(const struct lsp_transport *t)
+{
+	return t->error_outbound;
 }
 
 pid_t lsp_transport_pid(const struct lsp_transport *t) { return t->pid; }

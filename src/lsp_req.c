@@ -305,7 +305,8 @@ bool lsp_req_send_position(const char *who, const char *method,
 	if (lsp_client_request_deferred(
 		c, method, lsp_req_build, req, NULL, lsp_req_reply, req)
 	    < 0) {
-		editor_set_status_message("%s: the server is not ready", who);
+		editor_set_status_message(
+		    "%s: %s", who, lsp_client_refusal_text(c));
 		lsp_request_free(req);
 		return false;
 	}

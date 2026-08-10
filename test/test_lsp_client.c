@@ -30,6 +30,7 @@
 #include "../src/process.h"
 #include "test.h"
 
+#include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -824,21 +825,6 @@ static void test_dispose_runs_pending_callbacks(void)
 	CHECK(!got.had_result);
 }
 
-/* A spawn that cannot happen is a NULL, not a client that never answers. */
-static void test_start_failure_is_reported(void)
-{
-	const char *argv[2] = { "kg-no-such-language-server", NULL };
-	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
-	struct lsp_client *c = lsp_client_start(&req, "/tmp");
-
-	/* execvp() fails in the child, so the spawn itself may succeed and
-	 * the death shows up as an immediate end of stream. */
-	if (c) {
-		CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
-		lsp_client_dispose(c, 50);
-	}
-}
-
 /* -------------------------- workspace roots --------------------------- */
 
 static void path_of(char *out, size_t n, const char *base, const char *rel)
@@ -1166,6 +1152,64 @@ static void test_registry_replaces_a_dead_instance(void)
 	set_c_server(NULL);
 }
 
+/* Four servers that died in four different workspaces, and a fifth file
+ * that must still get one.
+ *
+ * The registry is four slots wide, and until the poll reclaimed them a
+ * dead client held its slot until something asked for that same (spec,
+ * root) key again -- which nothing does for a workspace the user has
+ * finished with.  So four transient failures in four checkouts, a `clangd`
+ * that crashes on a bad compilation database four times, cost the whole
+ * session: every buffer after them was told "too many language servers are
+ * already running" with nothing running at all.
+ *
+ * `exit 0` is a server that dies during the handshake, which is what makes
+ * each of the four dead rather than merely idle.  The assertion is the
+ * fifth: it is served, and the registry never held more than the four it
+ * is allowed. */
+static void test_registry_reclaims_dead_instances_on_poll(void)
+{
+	static const char *const roots[]
+	    = { "d1", "d2", "d3", "d4", "d5", NULL };
+	enum lsp_server_status status = LSP_SERVER_OK;
+	struct lsp_client *c;
+	char rel[64];
+	int i;
+
+	set_c_server("exit 0");
+	for (i = 0; roots[i]; i++) {
+		mk_dir(tree, roots[i]);
+		snprintf(
+		    rel, sizeof(rel), "%s/compile_commands.json", roots[i]);
+		mk_file(tree, rel, "[]\n");
+	}
+	for (i = 0; i < LSP_SERVER_MAX_INSTANCES; i++) {
+		snprintf(rel, sizeof(rel), "%s/a.c", roots[i]);
+		c = server_for(rel, &status);
+		CHECKF(c != NULL, "%s", rel);
+		if (c) {
+			CHECK(pump_until_state(c, LSP_CLIENT_DEAD)
+			    == LSP_CLIENT_DEAD);
+		}
+	}
+	CHECK(lsp_server_instance_count() == LSP_SERVER_MAX_INSTANCES);
+
+	/* The editor's own poll, which is the only thing that runs between
+	 * one command and the next. */
+	(void)lsp_server_poll_all();
+	CHECK(lsp_server_instance_count() == 0);
+
+	snprintf(rel, sizeof(rel), "%s/a.c", roots[4]);
+	c = server_for(rel, &status);
+	CHECKF(c != NULL && status == LSP_SERVER_OK, "%s: %s", rel,
+	    lsp_server_status_text(status));
+	CHECK(lsp_server_instance_count() == 1);
+
+	lsp_server_shutdown_all(400);
+	CHECK(lsp_server_instance_count() == 0);
+	set_c_server(NULL);
+}
+
 /* The bound is a refusal with a reason, not a slower editor. */
 static void test_registry_refuses_a_fifth_instance(void)
 {
@@ -1474,6 +1518,250 @@ static void test_server_stderr_reaches_the_log(void)
 	log_capture_end();
 }
 
+/* A server that cannot be started at all.  On this platform execvp() fails
+ * in the CHILD, so the spawn usually succeeds and the failure arrives as a
+ * stream that ends without a word -- which is the path this is named for
+ * and the path it used to assert nothing about, its whole body having been
+ * inside `if (c)`.
+ *
+ * Both outcomes are now asserted, and the death is asserted by its words:
+ * "the server closed the connection without answering" is what an end of
+ * stream with no frame ever received means, and it is a different sentence
+ * from a server that answered and then exited (below) precisely so that a
+ * user reading the echo area can tell those apart. */
+static void test_start_failure_is_reported(void)
+{
+	const char *argv[2] = { "kg-no-such-language-server", NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct lsp_client *c;
+
+	log_capture_begin();
+	c = lsp_client_start(&req, "/tmp");
+	if (!c) {
+		/* The other outcome: the spawn itself failed, and NULL with an
+		 * errno is the whole report. */
+		CHECK(errno != 0);
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(strstr(log_seen,
+		  "the server closed the connection without answering")
+	    != NULL);
+	/* And not the blanket wording every other failure used to share. */
+	CHECK(strstr(log_seen, "[lsp] server exited\n") == NULL);
+	lsp_client_dispose(c, 50);
+	log_capture_end();
+}
+
+/* A server that closes its standard output and keeps running.  There is no
+ * child to reap and no error to read: the only thing that has happened is
+ * that the frame stream ended, and a client that waited for the process
+ * instead would sit out its whole deadline on this request and on every
+ * request after it, with a server it still believed in.
+ *
+ * The wording is the other half of it, and the reason this is not a
+ * duplicate of test_server_death_fails_pending_requests(): this server DID
+ * answer -- the handshake completed -- so the end of its stream is "server
+ * exited", not the never-said-anything sentence above. */
+static void test_a_closed_frame_stream_is_a_dead_server(void)
+{
+	/* Two replies: the handshake's, and the first echo's.  The second
+	 * echo is the one nobody can ever answer. */
+	const char *extra[] = { "--close-stdout-after", "2", NULL };
+	struct lsp_client *c;
+	struct answer answered = { 0 };
+	struct answer stranded = { 0 };
+
+	/* Long enough that a deadline reached first would be the bug rather
+	 * than the assertion: the end of the stream must be what ends this. */
+	set_timeout_env("30000");
+	log_capture_begin();
+	c = start_protocol(extra);
+	set_timeout_env(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "answered", &answered) > 0);
+	CHECK(echo_request(c, "stranded", &stranded) > 0);
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(answered.calls == 1 && answered.had_result);
+	CHECK(stranded.calls == 1);
+	CHECK(!stranded.had_result && stranded.had_error);
+	CHECK(strstr(log_seen, "[lsp] server exited\n") != NULL);
+	CHECK(lsp_client_pending_count(c) == 0);
+	lsp_client_dispose(c, 50);
+	log_capture_end();
+}
+
+/* A reply with neither `result` nor `error` in it.  The server is alive and
+ * has answered; what it answered is nothing, and the two NULLs that shape
+ * used to become are reserved for "no reply will ever arrive" -- so every
+ * caller reported a healthy server as one that died before answering.  The
+ * error kg synthesises instead names the method, which is the only part of
+ * it a user can act on. */
+static void test_a_reply_with_no_members_is_not_a_death(void)
+{
+	const char *extra[] = { "--empty-reply", "kg/echo", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "hollow", &got) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result && got.had_error);
+	CHECK(strcmp(
+		  got.message, "no result and no error in the reply to kg/echo")
+	    == 0);
+	/* Alive, and answering: only that one reply was hollow. */
+	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
+	lsp_client_dispose(c, 200);
+}
+
+/* A server that refuses, which is the commonest thing a real one does that
+ * this fake could not do at all until now: an `error` object reaches the
+ * callback with its message intact, and the callback is called once. */
+static void test_an_error_reply_reaches_the_caller(void)
+{
+	const char *extra[] = { "--error", "kg/echo:-32602:no can do", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "refused", &got) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1);
+	CHECK(!got.had_result && got.had_error);
+	CHECK(strcmp(got.message, "no can do") == 0);
+	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
+	lsp_client_dispose(c, 200);
+}
+
+/* Bytes that are framing-shaped and are not framing.  The transport calls
+ * that ERR_PROTOCOL, and the client's business with it is the sentence it
+ * puts in front of the user: a malformed frame is not a server that exited,
+ * and reporting it as one sends somebody to look for a process that is
+ * still running.  `garbage` mode writes a header block with no
+ * Content-Length in it, which is exactly that. */
+static void test_a_malformed_frame_is_reported_as_one(void)
+{
+	const char *argv[5]
+	    = { "python3", script_path, "--mode", "garbage", NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct lsp_client *c;
+
+	log_capture_begin();
+	c = lsp_client_start(&req, "/tmp");
+	CHECK(c != NULL);
+	if (!c) {
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(strstr(log_seen, "the server sent a malformed frame") != NULL);
+	lsp_client_dispose(c, 50);
+	log_capture_end();
+}
+
+/* kg's own bounds, and the words a caller is given for them.
+ *
+ * The pending table is sixteen wide, and the seventeenth question is
+ * refused -- which is right, since a caller that has sixteen outstanding is
+ * looping.  What was wrong was the report: every -1 from here was printed
+ * as "the server is not ready" about a server that was READY and answering,
+ * so the message sent the user to look at the wrong process.  The
+ * distinction lives in one place, lsp_client_refusal_text(), and this is
+ * both of its answers.
+ *
+ * The deadline is switched off for the duration: a request that expired
+ * mid-case would free the slot the case is trying to fill. */
+static void test_a_full_pending_table_says_so(void)
+{
+	const char *extra[] = { "--no-reply", "kg/echo", NULL };
+	char long_method[128];
+	struct lsp_client *c;
+	struct answer got = { 0 };
+	int filled = 0;
+	int i;
+
+	set_timeout_env("0");
+	c = start_protocol(extra);
+	set_timeout_env(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	/* Empty table, healthy server: the other answer. */
+	CHECK(
+	    strcmp(lsp_client_refusal_text(c), "the server is not ready") == 0);
+	for (i = 0; i < 64; i++) {
+		if (echo_request(c, "filler", &got) < 0) {
+			filled = 1;
+			break;
+		}
+	}
+	CHECK(filled);
+	CHECK(strcmp(lsp_client_refusal_text(c),
+		  "too many requests are already in flight")
+	    == 0);
+	/* The deferred path is bounded by the same table and refuses the
+	 * same way, without ever running the builder. */
+	CHECK(lsp_client_request_deferred(c, "kg/echo", build_params,
+		  &(struct builder) { 0 }, NULL, record, &got)
+	    == -1);
+	/* And a method longer than the client stores is refused before any
+	 * of that is reached. */
+	memset(long_method, 'm', sizeof(long_method) - 1);
+	long_method[sizeof(long_method) - 1] = '\0';
+	CHECK(lsp_client_request_deferred(c, long_method, build_params,
+		  &(struct builder) { 0 }, NULL, record, &got)
+	    == -1);
+	/* Nothing was answered, so every one of those callbacks is still
+	 * owed -- and dispose is what pays them. */
+	lsp_client_dispose(c, 50);
+	CHECK(got.calls > 0);
+	/* NULL is a client too. */
+	lsp_client_dispose(NULL, 50);
+}
+
+/* A dead client answers every call and does none of them: the state is
+ * terminal, and a caller that keeps talking to one gets -1 rather than a
+ * message queued for a server that is gone. */
+static void test_a_dead_client_refuses_everything(void)
+{
+	const char *extra[] = { "--die-on", "kg/echo", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "doomed", &got) > 0);
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(lsp_client_notify(c, "textDocument/didSave", NULL, 0) == -1);
+	CHECK(echo_request(c, "after", &got) == -1);
+	/* Nothing to shut down: it is already gone, and asking again must
+	 * not send anything down a transport that is closed. */
+	lsp_client_shutdown_begin(c);
+	CHECK(lsp_client_state(c) == LSP_CLIENT_DEAD);
+	lsp_client_dispose(c, 50);
+}
+
 /* The registry names its clients after the server it thinks it started, so
  * two servers writing to the log at once stay tellable apart -- and an
  * override pointing at a fake still says "clangd", because what a message
@@ -1588,7 +1876,6 @@ int main(int argc, char **argv)
 	RUN(test_an_oversized_frame_mid_session_kills_the_client);
 	RUN(test_shutdown_handshake_ends_the_server);
 	RUN(test_dispose_runs_pending_callbacks);
-	RUN(test_start_failure_is_reported);
 
 	RUN(test_root_prefers_nearest_c_marker);
 	RUN(test_root_prefers_a_marker_over_a_nearer_git);
@@ -1602,6 +1889,7 @@ int main(int argc, char **argv)
 
 	RUN(test_registry_keys_instances_by_root);
 	RUN(test_registry_replaces_a_dead_instance);
+	RUN(test_registry_reclaims_dead_instances_on_poll);
 	RUN(test_registry_refuses_a_fifth_instance);
 	RUN(test_registry_refuses_an_unsupported_mode);
 	RUN(test_registry_starts_go_and_rust_from_the_env);
@@ -1613,6 +1901,13 @@ int main(int argc, char **argv)
 	RUN(test_a_late_reply_after_a_timeout_is_dropped);
 	RUN(test_a_zero_timeout_never_expires);
 	RUN(test_server_stderr_reaches_the_log);
+	RUN(test_start_failure_is_reported);
+	RUN(test_a_closed_frame_stream_is_a_dead_server);
+	RUN(test_a_reply_with_no_members_is_not_a_death);
+	RUN(test_an_error_reply_reaches_the_caller);
+	RUN(test_a_malformed_frame_is_reported_as_one);
+	RUN(test_a_full_pending_table_says_so);
+	RUN(test_a_dead_client_refuses_everything);
 
 	remove_trees();
 	return test_summary();

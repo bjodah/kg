@@ -3079,10 +3079,30 @@ walk the matches from anywhere, in the order they appear in the buffer; a
 line with several matches is one row and several stops.
 Running a compilation takes the two keys back, and running
 .Ic occur
-again takes them from a compilation \(em the most recent results win,
-which is Emacs'
+again takes them from a compilation.
+.Pp
+The rule is the same in every direction and worth stating once: the
+listing
+.Em created
+last owns
+.Ic M-g n ,
+whether it came from
+.Ic occur ,
+from a compilation, or from
+.Ic M-x lsp-diagnostics .
+Emacs is last\-wins too, but its
+.Dq last
+is a different thing \(em
 .Va next-error-last-buffer
-rule.
+is the listing last
+.Em navigated ,
+and failing that the current buffer.
+So sitting in
+.Pa *compilation*
+after opening a diagnostics listing and never moving in it,
+.Ic M-g n
+walks the diagnostics in kg and the compilation in Emacs.
+With one listing at a time, which is the usual case, the two rules agree.
 .Pp
 Each match is remembered as a position in the source
 .Em buffer ,
@@ -3356,6 +3376,33 @@ closed, and quitting
 shuts every running server down.
 A server that dies is not restarted where it fell; the next command
 starts a new one.
+That is worth saying twice for a server that fails to start at all:
+every retry is a whole new process, so four
+.Ic M-.
+after a server that dies on startup are four servers started and four
+failures reported, which for a JVM-backed one is four JVMs.
+The message says what happened each time; nothing is retried behind your
+back and nothing is remembered but the failure.
+.Pp
+Servers go away with
+.Nm .
+A clean exit \(em
+.Ic C-x C-c ,
+or any of the other ways out \(em asks every running server to
+.Sq shutdown
+and then to
+.Sq exit ,
+and kills whatever has not gone by the end of the grace period.
+A
+.Nm
+that is killed outright, with
+.Dv SIGKILL
+or by the terminal going away, has no chance to do any of that: a server
+on the ordinary wire notices anyway, since its standard input ends when
+kg's descriptors are closed, but one started over
+.Sq listen-hash:
+speaks over a socket and need never read its standard input, so it can
+outlive the editor and has to be stopped by hand.
 .Pp
 Every request carries a deadline, since a server that is alive but stuck
 answers nothing and only death is otherwise noticed.

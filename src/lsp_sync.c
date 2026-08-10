@@ -212,6 +212,15 @@ struct lsp_document {
 	size_t shadow_len;
 	uint64_t shadow_generation;
 	long long version;
+	/* What the server calls this document's language.  A literal from
+	 * language_id_of(), kept because the didOpen may be sent long after
+	 * the buffer that decided it was read. */
+	const char *language_id;
+	/* Whether the didOpen has actually gone out.  A document registered
+	 * while the client was still INITIALIZING is tracked and silent until
+	 * the handshake says what the server wants (see doc_open()); until
+	 * then there is nothing to change and nothing to close. */
+	bool opened;
 	char uri[LSP_SYNC_MAX_URI];
 };
 
@@ -375,8 +384,7 @@ static void w_change_full(struct lsp_jsonw *w, const char *text, size_t len)
 	lsp_jsonw_end_object(w);
 }
 
-static int send_did_open(struct lsp_document *d, const struct editor_buffer *b,
-    const char *text, size_t len)
+static int send_did_open(struct lsp_document *d, const char *text, size_t len)
 {
 	struct lsp_jsonw w;
 
@@ -387,7 +395,7 @@ static int send_did_open(struct lsp_document *d, const struct editor_buffer *b,
 	lsp_jsonw_key(&w, "uri");
 	lsp_jsonw_string(&w, d->uri);
 	lsp_jsonw_key(&w, "languageId");
-	lsp_jsonw_string(&w, language_id_of(b));
+	lsp_jsonw_string(&w, d->language_id);
 	lsp_jsonw_key(&w, "version");
 	lsp_jsonw_int(&w, d->version);
 	lsp_jsonw_key(&w, "text");
@@ -443,6 +451,41 @@ static char *buffer_text(const struct editor_buffer *b, size_t *out_len)
 	return text;
 }
 
+/* Whether this server wants to be told about documents at all.  A server
+ * that named no sync kind and no openClose reads files from disk; kg tracks
+ * its documents all the same -- a request needs the URI -- and sends it
+ * nothing. */
+static bool sync_wanted(const struct lsp_capabilities *caps)
+{
+	return caps->open_close || caps->sync != LSP_SYNC_NONE;
+}
+
+/* Send the didOpen this document has been holding, and mark it open.  The
+ * shadow is the text: it is exactly what the server is being given, which
+ * is what makes the next diff a diff. */
+static int doc_send_open(struct lsp_document *d)
+{
+	if (send_did_open(d, d->shadow, d->shadow_len) != 0) {
+		doc_release(d);
+		return -1;
+	}
+	d->opened = true;
+	return 0;
+}
+
+/* Start tracking a document -- and send its didOpen, unless there is a
+ * reason to hold it: the handshake has not finished, or the server wants
+ * nothing.
+ *
+ * The wait is the point.  "This server wants no synchronisation" is a thing
+ * the server has to have SAID, and before the `initialize` result the
+ * capabilities are still the defaults, which spell exactly the same shape
+ * as a refusal.  Sending the didOpen anyway is how a server advertising
+ * `openClose: false, change: 0` -- one that reads files from disk itself --
+ * used to be handed a document it never asked for, and then a didClose for
+ * it later.  So the document is registered (the URI a request needs exists
+ * from here) and the notification waits for sync_client_ready(), which runs
+ * inside the handshake, ahead of the queued request that asks about it. */
 static int doc_open(struct lsp_client *c, struct kg_buffer_handle buf,
     const struct editor_buffer *b)
 {
@@ -466,16 +509,30 @@ static int doc_open(struct lsp_client *c, struct kg_buffer_handle buf,
 	d->shadow = text;
 	d->shadow_len = len;
 	d->shadow_generation = b->content_generation;
-	if (send_did_open(d, b, text, len) != 0) {
-		doc_release(d);
-		return -1;
+	d->language_id = language_id_of(b);
+	if (lsp_client_state(c) != LSP_CLIENT_READY
+	    || !sync_wanted(lsp_client_caps(c))) {
+		return 0;
 	}
-	return 0;
+	return doc_send_open(d);
+}
+
+/* Tell `c` this document is gone and free the slot.  A document that was
+ * never opened is only forgotten: a didClose for a didOpen that never went
+ * out names a document the server has never heard of. */
+static void doc_close(struct lsp_document *d)
+{
+	if (d->opened) {
+		(void)send_did_close(d);
+	}
+	doc_release(d);
 }
 
 /* The buffer moved on.  The shadow is replaced whether or not anything was
  * sent: a server that wants no changes still had the text at didOpen, and a
- * shadow left behind would make the next diff describe an edit twice. */
+ * shadow left behind would make the next diff describe an edit twice.  A
+ * document whose didOpen is still held is the same case -- the text it will
+ * carry is simply this one, and there is no change to describe yet. */
 static int doc_change(struct lsp_document *d, const struct editor_buffer *b,
     const struct lsp_capabilities *caps)
 {
@@ -487,7 +544,7 @@ static int doc_change(struct lsp_document *d, const struct editor_buffer *b,
 		return -1;
 	}
 	d->shadow_generation = b->content_generation;
-	if (caps->sync != LSP_SYNC_NONE) {
+	if (d->opened && caps->sync != LSP_SYNC_NONE) {
 		d->version++;
 		rc = send_did_change(d, text, len, caps);
 	}
@@ -499,6 +556,32 @@ static int doc_change(struct lsp_document *d, const struct editor_buffer *b,
 
 /* ------------------------------ public API ---------------------------- */
 
+/* Whether the document still names the file the buffer visits.  A buffer
+ * remembers the name it was opened with and nothing about it is fixed:
+ * C-x C-w writes it somewhere else and changes `filename` alone, so a
+ * document keyed on the buffer handle alone goes on describing the old
+ * path.  Every didChange and every request would then be about a file the
+ * user has not touched -- and a rename answered against it would name
+ * ranges in that file, which kg would obligingly open and edit.
+ *
+ * Derived from the buffer rather than watched for, because there is no
+ * event that says "this buffer visits a different file now" and a hook on
+ * the write path would be a second place for this to be got wrong.  A
+ * buffer that has stopped visiting a file at all (`filename` gone) is a
+ * mismatch too, which closes the document rather than leaving it. */
+static bool doc_uri_current(
+    const struct lsp_document *d, const struct editor_buffer *b)
+{
+	char path[PATH_MAX];
+	char uri[LSP_SYNC_MAX_URI];
+
+	if (!lsp_sync_abs_path(b, path, sizeof(path))
+	    || !lsp_uri_from_path(path, uri, sizeof(uri))) {
+		return false;
+	}
+	return strcmp(uri, d->uri) == 0;
+}
+
 int lsp_sync_before_request(struct lsp_client *c, struct kg_buffer_handle buf)
 {
 	const struct editor_buffer *b = c ? buf_resolve(buf) : NULL;
@@ -509,21 +592,18 @@ int lsp_sync_before_request(struct lsp_client *c, struct kg_buffer_handle buf)
 		return -1;
 	}
 	caps = lsp_client_caps(c);
-	/* "Wants nothing" is a thing a server has to have SAID.  Before the
-	 * handshake settles the capabilities are still the defaults, which
-	 * spell the same shape as a refusal -- and reading them as one is
-	 * how the very first command after a lazy spawn would send a
-	 * position into a document the server was never given.  An
-	 * INITIALIZING client is synchronised on the assumption that it will
-	 * want it: the notification is queued and flushed in order once the
-	 * handshake completes, ahead of the request that follows it here, so
-	 * a server that turns out to want nothing receives one didOpen it
-	 * did not ask for and nothing else. */
-	if (lsp_client_state(c) == LSP_CLIENT_READY && !caps->open_close
-	    && caps->sync == LSP_SYNC_NONE) {
-		return 0; /* the server reads files itself; say nothing */
-	}
+	/* No branch on "the server wants nothing" here, deliberately.  A
+	 * document is tracked for every client, because the URI the caller
+	 * builds its request from is what this table holds; whether anything
+	 * is SENT about it is doc_open()'s and doc_change()'s decision, and
+	 * they take it against capabilities that have been settled rather
+	 * than against defaults that have not. */
 	d = doc_find(c, buf);
+	if (d && !doc_uri_current(d, b)) {
+		doc_close(
+		    d); /* written elsewhere: close it under the old name */
+		d = NULL;
+	}
 	if (!d) {
 		return doc_open(c, buf, b);
 	}
@@ -553,8 +633,32 @@ void lsp_sync_close_buffer(struct kg_buffer_handle buf)
 
 	for (i = 0; i < LSP_SYNC_MAX_DOCS; i++) {
 		if (documents[i].client && same_buffer(documents[i].buf, buf)) {
-			(void)send_did_close(&documents[i]);
-			doc_release(&documents[i]);
+			doc_close(&documents[i]);
+		}
+	}
+}
+
+/* The handshake settled: the documents held through it are opened now that
+ * the server has said what it wants -- or stay held forever, unsent, when
+ * what it wants is nothing.  This is lsp_sync.h's "inert for a server that
+ * wants no synchronisation" made true: such a server hears no didOpen, and
+ * so no didChange and no didClose either, while kg goes on knowing which
+ * URI each of its buffers is.
+ *
+ * Installed as the client's ready hook, so it runs after `initialized` and
+ * before the queue behind it is flushed: the didOpen goes out ahead of the
+ * request that asks about the document, which is the order that makes the
+ * question answerable. */
+static void sync_client_ready(struct lsp_client *c)
+{
+	size_t i;
+
+	if (!sync_wanted(lsp_client_caps(c))) {
+		return;
+	}
+	for (i = 0; i < LSP_SYNC_MAX_DOCS; i++) {
+		if (documents[i].client == c && !documents[i].opened) {
+			(void)doc_send_open(&documents[i]);
 		}
 	}
 }
@@ -598,6 +702,7 @@ void lsp_sync_install(void)
 	static struct kg_event_subscriber_token kill_token;
 
 	lsp_server_set_instance_drop_hook(lsp_sync_drop_client);
+	lsp_client_set_ready_hook(sync_client_ready);
 	/* Idempotent: called once by lsp_init() in the editor, and by any
 	 * test that wants the wiring after a kg_event_queue_init() has reset
 	 * the registry.  Unsubscribing a token that named nothing, or one

@@ -200,6 +200,27 @@ Options, all of them optional:
     Exit, without replying, the moment a request for METHOD arrives: a
     server crashing with a request outstanding, which is the one death a
     client cannot notice by an answer failing to make sense.
+``--error METHOD:CODE:MESSAGE`` (repeatable)
+    Answer a request for METHOD with a JSON-RPC ``error`` object instead of
+    a ``result``: ``{"code": CODE, "message": MESSAGE}``.  A real server
+    refuses this way all the time -- clangd declines to rename a keyword,
+    a server asked about a file it failed to parse says so -- and it is
+    the one answer shape nothing else here can produce, so every "the
+    server said no" path in kg was reachable by no test.  CODE is a
+    number; MESSAGE is the rest of the value and may contain colons.
+``--empty-reply METHOD``
+    Answer a request for METHOD with ``{"jsonrpc": "2.0", "id": N}`` and
+    nothing else: a response carrying neither ``result`` nor ``error``.
+    Out of spec, and a shape a client must not confuse with "no reply will
+    ever come" -- the server is alive and has answered.
+``--close-stdout-after N``
+    Close standard output once N replies have been sent, and go on reading
+    stdin: a server that is still running with its protocol channel gone.
+    Not the same as ``--exit-after`` -- the process is alive, so nothing
+    that watches the child can notice -- and the reason it exists is that
+    the client must treat the end of the frame stream as the end of the
+    server whatever the process is doing.  It exits when its own stdin
+    ends, which is the client closing the transport.
 ``--garbage-reply METHOD``
     Answer a request for METHOD with a correctly framed message whose body
     is not JSON, and send nothing else.  The framing modes above corrupt
@@ -433,6 +454,24 @@ class Protocol:
             raise SystemExit(0)
         if self.args.exit_after and self.replies >= self.args.exit_after:
             raise SystemExit(0)
+        if (self.args.close_stdout_after
+                and self.replies >= self.args.close_stdout_after):
+            # Alive, reading, and unable to say anything ever again.
+            os.close(1)
+
+    def error_reply(self, method):
+        """The `{"code": ..., "message": ...}` --error asked for, or None."""
+        for spec in self.args.error_reply:
+            name, _, rest = spec.partition(":")
+            code, _, message = rest.partition(":")
+            if name == method:
+                return {"code": int(code), "message": message}
+        return None
+
+    def refuse(self, request_id, method):
+        self.send({"jsonrpc": "2.0", "id": request_id,
+                   "error": self.error_reply(method)})
+        self.replies += 1
 
     def greet(self):
         """The unsolicited traffic, sent once, before the first reply."""
@@ -727,6 +766,13 @@ class Protocol:
         if self.args.garbage_reply and method == self.args.garbage_reply:
             write_all(self.stdout, frame(GARBAGE_BODY))
             return
+        if self.error_reply(method):
+            self.refuse(message["id"], method)
+            return
+        if self.args.empty_reply and method == self.args.empty_reply:
+            self.send({"jsonrpc": "2.0", "id": message["id"]})
+            self.replies += 1
+            return
         result = self.canned(method, message.get("params"))
         if self.args.reverse_pairs and method == "kg/echo":
             self.deferred.append((message["id"], result))
@@ -918,6 +964,16 @@ def main(argv):
                         help="exit once this many replies have been sent")
     parser.add_argument("--die-on", default=None,
                         help="exit without replying when this method arrives")
+    parser.add_argument("--error", dest="error_reply", action="append",
+                        default=[],
+                        help="METHOD:CODE:MESSAGE answered as a JSON-RPC "
+                             "error object")
+    parser.add_argument("--empty-reply", default=None,
+                        help="answer this method with neither a result nor "
+                             "an error")
+    parser.add_argument("--close-stdout-after", type=int, default=0,
+                        help="close stdout, without exiting, once this many "
+                             "replies have been sent")
     parser.add_argument("--garbage-reply", default=None,
                         help="answer this method with a framed non-JSON body")
     parser.add_argument("--huge-after", type=int, default=0,

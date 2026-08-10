@@ -103,6 +103,23 @@ typedef void (*lsp_client_notify_fn)(struct lsp_client *c, const char *method,
     const struct lsp_json_value *params);
 void lsp_client_set_notify_hook(lsp_client_notify_fn fn);
 
+/* Told that `c` has just reached READY, from inside the handshake itself:
+ * after `initialized` has gone out and before anything held during the
+ * handshake is flushed.  That instant is the whole point of the hook.  It
+ * is the first moment lsp_client_caps() answers about the server rather
+ * than about the defaults, and the last moment at which a message can still
+ * be put in FRONT of the queue -- which is what a `textDocument/didOpen`
+ * has to be, since the request that asks about the document is already
+ * sitting in it.  Anything sent from here is written straight to the
+ * transport, the state being READY already.
+ *
+ * One hook for the whole module, for the log hook's reason: exactly one
+ * thing in kg holds work back for the capabilities (src/lsp_sync.h).  NULL,
+ * the default, is a client nobody is waiting on -- which is what a test
+ * binary with no editor in it wants. */
+typedef void (*lsp_client_ready_fn)(struct lsp_client *c);
+void lsp_client_set_ready_hook(lsp_client_ready_fn fn);
+
 /* Build a request's `params` at the moment the message is actually written.
  *
  * Returns a malloc'd JSON value and its length -- the same bytes
@@ -331,5 +348,15 @@ const char *lsp_client_root(const struct lsp_client *c);
 /* How many requests are outstanding.  For tests and for a caller deciding
  * whether a server is busy; not part of any protocol decision. */
 size_t lsp_client_pending_count(const struct lsp_client *c);
+
+/* Why a request was just refused, for the caller that has to say so.  A -1
+ * from either request function is one of two very different things, and the
+ * command layer cannot tell them apart: the client is not in a state to
+ * take the question, or kg's own pending table is full -- which is a bound
+ * of kg's, on a server that is perfectly well.  Telling a user "the server
+ * is not ready" about a healthy server sends them to look at the wrong
+ * process, so the distinction is made here, once, rather than spelled into
+ * each of the three call sites. */
+const char *lsp_client_refusal_text(const struct lsp_client *c);
 
 #endif /* KG_LSP_CLIENT_H */

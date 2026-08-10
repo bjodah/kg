@@ -30,7 +30,11 @@
  * The whole module is inert for a server that wants no synchronisation at
  * all (`textDocumentSync` absent or 0, and no `openClose`): such a server
  * reads files from disk, and sending it documents it did not ask for is a
- * protocol violation rather than a kindness.
+ * protocol violation rather than a kindness.  Inert means inert, including
+ * for the first command of all: a document asked for before the handshake
+ * has settled is tracked but silent, and what the server said is what
+ * decides -- when it reaches READY -- whether its didOpen is sent or the
+ * document is forgotten.  That is lsp_sync_install()'s ready hook.
  */
 
 /* Declared, not included: def.h and bufhandle.h define these, and a caller
@@ -111,12 +115,17 @@ bool lsp_sync_abs_path(
  * document the server last saw three edits ago answers about a position
  * that no longer exists.
  *
- * Untracked buffer:      `textDocument/didOpen` with the whole text, version 1.
+ * Untracked buffer:      `textDocument/didOpen` with the whole text, version 1
+ *                        -- held, not sent, until the client is READY.
  * Unchanged generation:  nothing at all, which is the common case.
  * Changed generation:    `textDocument/didChange` at the next version --
  *                        one contiguous replacement for an incremental
  *                        server, the whole text for a full-sync one -- and
  *                        the shadow is replaced by what was sent.
+ * A different file:      the buffer visits somewhere else than the document
+ *                        says (C-x C-w), so the old URI is closed and the
+ *                        new one opened.  The path is re-derived here on
+ *                        every call, since nothing announces such a move.
  *
  * Returns 0 when the server is up to date, including when there was
  * nothing to do, and -1 when it is not: a handle that no longer resolves,
@@ -162,8 +171,9 @@ void lsp_sync_close_buffer(struct kg_buffer_handle buf);
 void lsp_sync_drop_client(struct lsp_client *c);
 
 /* Wire this module up, once, from lsp_init(): the registry's instance-drop
- * hook, and a KG_EVENT_BUFFER_KILLED subscriber that closes the killed
- * buffer's documents.
+ * hook, the client's ready hook (which sends -- or abandons -- the didOpens
+ * held through a handshake), and a KG_EVENT_BUFFER_KILLED subscriber that
+ * closes the killed buffer's documents.
  *
  * Separate from the hooks themselves so that src/lsp_server.c keeps
  * knowing nothing about documents or buffers -- it calls a function

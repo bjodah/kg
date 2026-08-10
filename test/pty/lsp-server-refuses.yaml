@@ -1,0 +1,66 @@
+name: lsp-server-refuses
+# A server that says no.  This is the commonest thing a real language
+# server does that no test here could produce until fake_lsp_server.py grew
+# `--error`: clangd declines to rename a keyword, gopls answers an error
+# for a file it failed to load, and every one of those arrives as a
+# JSON-RPC `error` object rather than as a result.
+#
+# kg's three "the server refused" paths -- src/xref.c's, src/lsp_req.c's
+# (which is what M-x lsp-rename reports through) and src/lsp_hover.c's --
+# each print the server's own message behind the command's name, and none
+# of them was reached by any test.  All three are exercised here, in one
+# case rather than three, because a language server that refuses one
+# request refuses them all and starting three Python interpreters to see
+# the same sentence three times is three times the wall clock for no more
+# evidence.
+#
+# The screen assertion is the last of the three, since the echo area only
+# holds one line: the definition and hover refusals before it are asserted
+# by what they did NOT do -- no jump, no *lsp-hover* window, no listing --
+# which the saved file and the absent buffers show.  The rename refusal is
+# the one whose text is on screen, and it is the one worth putting there:
+# a refused rename that said nothing would look exactly like a rename that
+# worked and found nothing to change.
+#
+# The X proves the editor took a key after all three; it is typed where
+# point never moved from, at the very start.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --error 'textDocument/definition:-32603:index is not ready' --error 'textDocument/hover:-32603:no hover here' --error 'textDocument/rename:-32602:cannot rename a keyword'"
+filename: refused.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "M-x"
+  - "lsp-hover"
+  - "RET"
+  - "C-l"
+  - "C-l"
+  - "M-x"
+  - "lsp-rename"
+  - "RET"
+  - "renamed"
+  - "RET"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+trailer_keys:
+  - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "lsp-rename: cannot rename a keyword"
+expected_screen_not_contains:
+  - "the server died before answering"

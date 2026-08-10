@@ -477,7 +477,7 @@ void editor_lsp_hover(int fd)
 	    < 0) {
 		hover_request_free(req);
 		editor_set_status_message(
-		    HOVER_WHO ": the server is not ready");
+		    HOVER_WHO ": %s", lsp_client_refusal_text(c));
 		return;
 	}
 	editor_set_status_message("Asking %s...", lsp_client_name(c));

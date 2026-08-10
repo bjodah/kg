@@ -237,9 +237,18 @@ int lsp_transport_next_stderr_line(
     struct lsp_transport *t, const char **line, size_t *len);
 
 /* Whether the transport has failed, and why.  A failed transport keeps
- * answering these two and refuses everything else. */
+ * answering these three and refuses everything else.
+ *
+ * lsp_transport_error_outbound() is which SIDE the failure was on, and it
+ * exists because the two sides of LSP_TRANSPORT_ERR_TOO_LARGE are two
+ * different events: a body or a header block bigger than kg will hold is
+ * the server sending too much, and an outbox past
+ * LSP_TRANSPORT_MAX_OUTBOX_BYTES is kg queueing faster than the server
+ * reads.  Nothing else here can tell them apart, and a client that reports
+ * both as the server's doing blames it for kg's own queue. */
 bool lsp_transport_failed(const struct lsp_transport *t);
 enum lsp_transport_error lsp_transport_error(const struct lsp_transport *t);
+bool lsp_transport_error_outbound(const struct lsp_transport *t);
 
 /* The child, for a caller that owns policy: its pid, and whether a
  * WNOHANG reap says it is still there.  lsp_transport_child_alive() is the

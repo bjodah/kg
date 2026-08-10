@@ -476,14 +476,36 @@ const char *lsp_server_status_text(enum lsp_server_status status)
 	return "unknown language server error";
 }
 
+/* Poll every instance, and let go of the ones that have died.
+ *
+ * The reaping is not tidiness.  A dead client holds a slot, and the only
+ * other thing that ever emptied one was a lookup of the same (spec, root)
+ * key -- so four servers that died in four different workspaces filled the
+ * registry for the rest of the session, and every buffer in a fifth was
+ * told "too many language servers are already running" while nothing was
+ * running at all.  Reclaiming here is the same lazy-restart policy taken
+ * one step further: a corpse is dropped as soon as the editor notices it,
+ * and the next command in its workspace starts a fresh server exactly as
+ * instance_find() would have made it.
+ *
+ * Dropping is safe here and nowhere earlier: lsp_client_poll() has already
+ * run every callback the death produced, and instance_drop() tells the
+ * drop hook before freeing, so the document table lets go of the client in
+ * the same breath (src/lsp_sync.h).  It is not counted as a change: the
+ * poll that killed the client already returned nonzero, and reclaiming a
+ * slot repaints nothing. */
 int lsp_server_poll_all(void)
 {
 	int changed = 0;
 	size_t i;
 
 	for (i = 0; i < LSP_SERVER_MAX_INSTANCES; i++) {
-		if (instances[i].spec) {
-			changed |= lsp_client_poll(instances[i].client);
+		if (!instances[i].spec) {
+			continue;
+		}
+		changed |= lsp_client_poll(instances[i].client);
+		if (lsp_client_state(instances[i].client) == LSP_CLIENT_DEAD) {
+			instance_drop(&instances[i], 0);
 		}
 	}
 	return changed;

@@ -45,6 +45,12 @@ This file remains the broader feature and technical-debt inventory.
       Left undone on purpose: case-fold matching and case-pattern fitting,
       the major mode's syntax table as the word definition (kg uses its own
       ASCII one), and continuing into other buffers.
+- [ ] "M-/" should have an atomic undo operation.
+- [ ] M-x has no exact-match-wins rule: RET runs the first prefix match
+      in table order, and static commands sort ahead of Lisp ones, so
+      the exact name of a user command can be shadowed by a longer
+      built-in (found when `show-paren-mode` shadowed a test's `show-p`;
+      Emacs' completing-read accepts the exact match instead).
 
 ## Maintainability
 

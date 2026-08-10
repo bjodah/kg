@@ -23,6 +23,7 @@
 
 #include "lsp_transport.h"
 
+#include "perf.h"
 #include "process.h"
 
 #include <errno.h>
@@ -207,13 +208,21 @@ static int proto_write_fd(const struct lsp_transport *t)
  * server kg has given up on, and return the -1 the public functions hand
  * back.  The line channels are left open on purpose -- a server that
  * explained itself and then broke did both in that order, and the
- * explanation is the half worth keeping. */
+ * explanation is the half worth keeping.
+ *
+ * Which is why the holds go too.  A channel somebody was scanning first
+ * (`held` short of its buffer) delivers nothing past the scan and reads
+ * nothing more; a transport that has failed has no scan left to protect,
+ * and leaving the hold on would silence exactly the lines that say why --
+ * and leave the child blocked writing to a pipe nobody drains. */
 static int transport_fail(
     struct lsp_transport *t, enum lsp_transport_error error)
 {
 	if (t->error == LSP_TRANSPORT_OK) {
 		t->error = error;
 	}
+	t->err.held = SIZE_MAX;
+	t->log.held = SIZE_MAX;
 	kg_close_fd(&t->in_fd);
 	kg_close_fd(&t->out_fd);
 	kg_close_fd(&t->sock_fd);
@@ -407,6 +416,7 @@ static int inbox_fill(struct lsp_transport *t)
 	n = read(proto_read_fd(t), t->inbox.data + t->inbox.len,
 	    LSP_TRANSPORT_READ_CHUNK);
 	if (n > 0) {
+		KG_PERF_INC(KG_PERF_LSP_INBOX_READ);
 		t->inbox.len += (size_t)n;
 		return 1;
 	}
@@ -660,6 +670,29 @@ static size_t announce_digits(
 	return pos;
 }
 
+/* Where `needle` starts in `line`, or `len` when it is not in it.  The
+ * announce is searched for rather than anchored at the start of the line
+ * because Oracle's own client searches: its regexp runs against the whole
+ * chunk the child wrote, so a server that puts its logger's prefix in
+ * front (`INFO [nb]: ... listening at port N with hash H`) is announcing
+ * as far as that client is concerned, and a kg that anchored would wait
+ * out its deadline on a server everything else can talk to. */
+static size_t line_find(
+    const char *line, size_t len, const char *needle, size_t needle_len)
+{
+	size_t i;
+
+	if (needle_len > len) {
+		return len;
+	}
+	for (i = 0; i + needle_len <= len; i++) {
+		if (memcmp(line + i, needle, needle_len) == 0) {
+			return i;
+		}
+	}
+	return len;
+}
+
 /* One line of the child's stdout, weighed as the announce: 0 when it is
  * not one (log noise, which is most of them), 1 when it is and the connect
  * has been started, -1 when it claims to be one and is not usable.
@@ -679,12 +712,14 @@ static int announce_take(struct lsp_transport *t, const char *line, size_t len)
 	const size_t prefix_len = sizeof(prefix) - 1;
 	const size_t middle_len = sizeof(middle) - 1;
 	unsigned long port = 0;
+	size_t start;
 	size_t pos;
 
-	if (len < prefix_len || memcmp(line, prefix, prefix_len) != 0) {
+	start = line_find(line, len, prefix, prefix_len) + prefix_len;
+	if (start > len) {
 		return 0;
 	}
-	pos = announce_digits(line, len, prefix_len, &port);
+	pos = announce_digits(line, len, start, &port);
 	if (len - pos < middle_len
 	    || memcmp(line + pos, middle, middle_len) != 0) {
 		return 0; /* the bare announce, or something else entirely */
@@ -692,7 +727,7 @@ static int announce_take(struct lsp_transport *t, const char *line, size_t len)
 	/* Past here the line IS the announce, so anything wrong with it is
 	 * an error rather than a line to skip.  Oracle's own client matches
 	 * an empty run of digits here and then connects to port 0. */
-	if (pos == prefix_len || port == 0 || port > 65535u) {
+	if (pos == start || port == 0 || port > 65535u) {
 		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL);
 	}
 	pos += middle_len;
@@ -738,8 +773,8 @@ static int announce_scan(struct lsp_transport *t)
 			return 0;
 		}
 		if (rc < 0) {
-			/* Whatever it said on the way out is a line now. */
-			t->log.held = SIZE_MAX;
+			/* transport_fail() lifts the hold, so whatever it
+			 * said on the way out is a line now. */
 			return transport_fail(t, LSP_TRANSPORT_ERR_EOF);
 		}
 	}

@@ -16,6 +16,8 @@
  * doc/plans/2026-08-08-lsp.md).  It knows bytes and frames.  It depends on
  * process.h and POSIX and on nothing else in the editor -- no def.h, no
  * globals -- so it links into a test binary with the process layer alone.
+ * (perf.h too, for one counter, and that is not a dependency in any build
+ * that ships: KG_PERF_COUNTERS is off, so every macro from it is nothing.)
  *
  * Both descriptors are non-blocking, so neither sending nor receiving ever
  * stalls the editor: a send that the pipe will not take is queued and
@@ -85,6 +87,13 @@
  * server that does not like them closes the socket within a millisecond
  * and says nothing.
  *
+ * That regexp is a search rather than an anchor -- it runs against
+ * whatever chunk the child wrote -- so kg looks for the prefix anywhere in
+ * a line too.  A server whose logger puts `INFO [nb]: ` in front of the
+ * announce is announcing as far as Oracle's client is concerned, and a kg
+ * that insisted on offset zero would sit out its deadline on a server
+ * everything else can talk to.
+ *
  * Two things about that line are measured rather than inferred, and both
  * are traps.  It is announced TWICE, and the first one has no hash on it
  * (`...listening at port N`, then `...at port N with hash H`, often in one
@@ -103,14 +112,28 @@ enum lsp_wire {
 
 /* Bounds on the announce phase, in the spirit of every other one here: a
  * child that talks instead of announcing must not cost unbounded memory,
- * and a hash is a short secret rather than a payload.  The first bounds
- * what is HELD -- lines the caller has already read out are gone, and a
- * chatty server is bounded rather than counted.
+ * and a hash is a short secret rather than a payload.
  *
- * Neither of them is a deadline, because the transport keeps no clock:
+ * What the first one is, exactly: a bound on the log channel's buffer
+ * between two drains of it, and so on how far the scan may run ahead of
+ * the caller.  A firehose is what trips it -- a child writing faster than
+ * the scan reaches the end of the pipe, which is the one shape that would
+ * otherwise grow this buffer without limit inside a single call.  A server
+ * that is merely chatty does NOT: its banner arrives in pieces, and every
+ * piece the scan has passed is delivered to
+ * lsp_transport_next_stderr_line() and gone from the buffer, so the bound
+ * sees a poll's worth at a time and nothing accumulates.
+ *
+ * And it is not a deadline either, because the transport keeps no clock:
  * nothing here sleeps, polls or measures time.  A child that stays silent
- * forever is the *client's* deadline to notice (LSP_CLIENT_TIMEOUT_ENV,
- * which the `initialize` queued at start is already waiting on). */
+ * forever, or one that talks for longer than anybody will wait, is the
+ * *client's* deadline to notice (LSP_CLIENT_TIMEOUT_ENV, which the
+ * `initialize` queued at start is already waiting on) -- and that deadline,
+ * not this bound, is what a chatty server actually runs into.  How fast it
+ * gets there is set outside this file: a line channel is read when the
+ * caller's poll site comes round, so a child that has filled its pipe
+ * waits for the next poll, and one pipe-load per poll is the whole of the
+ * announce channel's throughput. */
 #define LSP_TRANSPORT_MAX_ANNOUNCE_BYTES (256u * 1024u)
 #define LSP_TRANSPORT_MAX_HASH_BYTES 256u
 

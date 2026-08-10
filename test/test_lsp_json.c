@@ -261,6 +261,34 @@ static void test_number_grammar(void)
 	CHECK(doc != NULL);
 	CHECK(lsp_json_num(lsp_json_root(doc), 1.0) == -0.5);
 	lsp_json_free(doc);
+
+	/* The rule is the INTEGER part's alone, and a parser that spread it
+	 * over the whole number would refuse three spellings every server
+	 * that formats with printf() emits.  Asserted on the value, not just
+	 * on the verdict: `0` followed by digits that were quietly dropped
+	 * would still parse. */
+	doc = parse("1e007");
+	CHECK(doc != NULL);
+	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 1e7);
+	lsp_json_free(doc);
+	doc = parse("1.0625");
+	CHECK(doc != NULL);
+	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 1.0625);
+	lsp_json_free(doc);
+	doc = parse("0.0625");
+	CHECK(doc != NULL);
+	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 0.0625);
+	lsp_json_free(doc);
+
+	/* And it is enforced wherever a value may be, not only at the top:
+	 * a parser that dropped it reads `[01]` as `[1]` and `{"a":01}` as
+	 * `{"a":1}`, which is a wrong answer rather than a refused one --
+	 * this is the mutation the rule exists to fail. */
+	CHECK(refuses("[01]", &off));
+	CHECK(off == 2);
+	CHECK(refuses("{\"a\":01}", &off));
+	CHECK(off == 6);
+	CHECK(refuses("[1,-01]", NULL));
 }
 
 /* The integer accessor is a conversion, not a rounding, and it refuses
@@ -386,11 +414,32 @@ static void test_depth_bound(void)
 
 /* An oversized document is refused before a byte of it is looked at; the
  * length is the caller's claim and this module does not have to trust it
- * enough to walk it. */
+ * enough to walk it.
+ *
+ * The buffer is real, and is valid JSON for every one of those bytes,
+ * which is what makes this the bound's own case: a parser with the length
+ * check deleted walks it, finds nothing wrong, and hands back a document.
+ * Claiming that length for a two-byte `{}` -- which is how this case used
+ * to be written -- proves nothing, because the trailing-garbage rule
+ * refuses that one anyway, after reading 32 MiB past the end of a two-byte
+ * literal, which is the very thing the bound exists to prevent.
+ *
+ * Nothing here costs the 32 MiB it names: the correct parser returns
+ * before touching the buffer, and only a mutant pays to walk it. */
 static void test_input_bound(void)
 {
-	CHECK(lsp_json_parse("{}", (size_t)LSP_JSON_MAX_INPUT_BYTES + 1, NULL)
-	    == NULL);
+	const size_t len = (size_t)LSP_JSON_MAX_INPUT_BYTES + 1;
+	char *text = malloc(len);
+
+	CHECK(text != NULL);
+	if (!text) {
+		return;
+	}
+	memset(text, 'a', len);
+	text[0] = '"';
+	text[len - 1] = '"';
+	CHECK(lsp_json_parse(text, len, NULL) == NULL);
+	free(text);
 }
 
 /* A real clangd `textDocument/definition` reply, hand-copied.  The point is

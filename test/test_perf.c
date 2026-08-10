@@ -23,6 +23,10 @@
 #include "../src/edit.h"
 #include "../src/event.h"
 #include "../src/lisp.h"
+#ifdef KG_USE_LSP
+#include "../src/lsp_transport.h"
+#include "../src/process.h"
+#endif
 #include "../src/syntax.h"
 #include "../src/vgeom.h"
 #include "test.h"
@@ -506,6 +510,62 @@ static void test_compilation_mirror_updates_per_read(void)
 	free(bytes);
 	teardown();
 }
+
+/* ---- The LSP transport's inbox ---- */
+
+#ifdef KG_USE_LSP
+
+/* Several complete frames in one write() cost exactly one read().
+ *
+ * The property is the inbox's whole design -- reads append to it and
+ * frames are parsed out of it, so "four messages arrived in one read" and
+ * "a header split across three reads" are the same code path
+ * (src/lsp_transport.c's opening comment) -- and it is a cost rather than
+ * a behaviour: test_lsp_transport.c's test_several_messages_from_one_read()
+ * passes just as well with LSP_TRANSPORT_READ_CHUNK set to a single byte,
+ * because the parser cannot tell where the reads fell and the transport's
+ * API does not report them.  A counter can.
+ *
+ * The child writes its three frames with one printf, so the reader sees
+ * either nothing yet (EAGAIN, which is not a read that returned bytes) or
+ * all of them: the count is one, not "one or two on a fast box". */
+static void test_batched_frames_cost_one_read(void)
+{
+	const char *argv[4] = { "/bin/sh", "-c",
+		"printf 'Content-Length: 3\\r\\n\\r\\none"
+		"Content-Length: 3\\r\\n\\r\\ntwo"
+		"Content-Length: 5\\r\\n\\r\\nthree'; sleep 2",
+		NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct timespec nap = { 0, 1000000 }; /* 1 ms */
+	struct lsp_transport *t;
+	const char *body = NULL;
+	size_t len = 0;
+	int taken = 0;
+	int spins;
+
+	kg_perf_reset();
+	t = lsp_transport_start_wire(&req, LSP_WIRE_STDIO);
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	/* Bounded rather than timed: 5000 ms of 1 ms naps is a hang
+	 * reported as a failure, not a suite that waits forever. */
+	for (spins = 0; taken < 3 && spins < 5000; spins++) {
+		while (lsp_transport_next_message(t, &body, &len) == 1) {
+			taken++;
+		}
+		if (taken < 3) {
+			nanosleep(&nap, NULL);
+		}
+	}
+	CHECK(taken == 3);
+	CHECK(counter(KG_PERF_LSP_INBOX_READ) == 1);
+	lsp_transport_close(t);
+}
+
+#endif /* KG_USE_LSP */
 
 /* ---- Screen append buffer ---- */
 
@@ -1559,6 +1619,9 @@ int main(void)
 	RUN(test_insert_row_array_growth);
 	RUN(test_special_text_append_growth);
 	RUN(test_compilation_mirror_updates_per_read);
+#ifdef KG_USE_LSP
+	RUN(test_batched_frames_cost_one_read);
+#endif
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
 	RUN(test_typing_into_long_row_reuses_storage);

@@ -12,6 +12,16 @@ name: lsp-listen-hash-no-announce
 # spawn goes unanswered, is abandoned, and the client dies with it, which is
 # what puts a message where the user is looking.
 #
+# So what this case pins is the deadline, over the socket wire -- and the
+# deadline is the same code on either wire.  Delete `listen-hash: ` from the
+# env below and it still passes, screen assertion included, because a `sleep
+# 60` on stdio is silent in exactly the same way: that is not a hole in the
+# case, it is what the case is about.  The wire's own negative behaviour is
+# tested where it can be told apart from silence -- a refused connection in
+# lsp-listen-hash-dead-port.yaml, and announce-line parsing, bounds and
+# post-failure logging in test/test_lsp_transport.c, which drives the
+# transport directly and can assert which error it was.
+#
 # The C-l are the wait -- a shell has to start and the deadline has to pass
 # -- and C-l is the one key that repaints without moving point.
 #

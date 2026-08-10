@@ -21,6 +21,7 @@
 #include "keyevent.h"
 #include "lisp.h"
 #include "marker.h"
+#include "mouse.h"
 #include "register.h"
 #include "syntax.h"
 #include "vgeom.h"
@@ -324,6 +325,16 @@ static void cmd_sort_lines(int fd)
 {
 	(void)fd;
 	editor_sort_lines();
+}
+
+/* Toggle whether kg asks the terminal for mouse reports, and acts on
+ * them.  It is on by default wherever TERM names a terminal that might
+ * answer; this is the way off, for a terminal that answers badly, or for
+ * getting the terminal's own selection and copy back for a moment. */
+static void cmd_xterm_mouse_mode(int fd)
+{
+	(void)fd;
+	kg_mouse_toggle();
 }
 
 /* Toggle auto-revert on the current buffer.  When on (or when the global
@@ -1751,6 +1762,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Go back to where the last xref jump started" },
 	{ "xref-goto-xref", cmd_xref_goto_xref, CMD_NONE,
 	    "Go to the result named on this *xref* line" },
+	{ "xterm-mouse-mode", cmd_xterm_mouse_mode, LISP_OK,
+	    "Toggle acting on the terminal's mouse reports" },
 	{ "yaml-mode", cmd_yaml_mode, CMD_NONE,
 	    "Use YAML mode in this buffer" },
 	{ "yank", cmd_yank, EDITS, "Insert the kill ring's contents at point" },

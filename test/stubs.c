@@ -154,6 +154,20 @@ void editor_cleanup(void) { }
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
 
+/* src/tty.c asks for and takes back mouse reporting, and hands a decoded
+ * report over; src/mouse.c does all three for real, and reaches the
+ * whole window/buffer stack to do it.  The binaries that link this file
+ * link tty.o without that stack, so they get no-ops -- what mouse
+ * reporting does is exercised by test/pty/mouse-*.yaml, which drives the
+ * real editor. */
+void kg_mouse_start(void) { }
+void kg_mouse_stop(void) { }
+void kg_mouse_record(const char *params, char final_byte)
+{
+	(void)params;
+	(void)final_byte;
+}
+
 /* Buffer identity lives in bufmgr.c, which these binaries do not link.
  * The stub buflist has no ids, so a view resolves on slot bounds alone:
  * enough for the display code included by test_basic, and the same answer

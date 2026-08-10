@@ -1,0 +1,21 @@
+# M-x xterm-mouse-mode turns reporting off, and the same bytes that
+# mouse-click-sets-point.yaml uses then do nothing at all.  The saved
+# file proves both halves of "nothing": point never left the start of the
+# buffer (the X is at 0,0, not at the click's chars offset 6), and no
+# part of the report reached the buffer as text -- kg consumes a mouse
+# report whole whether or not it acts on it.
+#
+# backend: pexpect -- see mouse-click-sets-point.yaml.
+name: mouse-mode-off-ignores-reports
+filename: mouse-off.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: "alpha\n\tbeta gamma\ndelta\n"
+keys:
+  - M-x
+  - xterm-mouse-mode
+  - RET
+  - "M-[<0;14;2M"
+  - "M-[<0;14;2m"
+  - X
+expected_saved: "Xalpha\n\tbeta gamma\ndelta\n"

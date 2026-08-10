@@ -1,0 +1,20 @@
+# A left click lands on the buffer position under the DISPLAY column it
+# names, not on the byte with that number.  The clicked line starts with
+# a TAB, so the two answers are seven bytes apart: terminal column 14 is
+# display column 13, which is the 'g' of "gamma" (chars offset 6), while
+# reading 13 as a byte offset would put point past the end of the line.
+#
+# backend: pexpect because the mouse report is raw bytes -- the whole SGR
+# sequence goes out as one token (one write per byte, 5 ms apart) so it
+# arrives well inside kg's escape window.  tmux send-keys has no form
+# this harness can spell an ESC-prefixed byte string with.
+name: mouse-click-sets-point
+filename: mouse-click.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: "alpha\n\tbeta gamma\ndelta\n"
+keys:
+  - "M-[<0;14;2M"
+  - "M-[<0;14;2m"
+  - X
+expected_saved: "alpha\n\tbeta Xgamma\ndelta\n"

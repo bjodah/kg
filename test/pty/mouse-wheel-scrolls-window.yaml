@@ -1,0 +1,84 @@
+# The wheel scrolls the window five lines a notch (Emacs' terminal
+# default) and does not insist point come along -- it is dragged to the
+# edge it left only once the window has scrolled past it.
+#
+# Asserted through the saved file rather than through the screen: this
+# case has to be backend: pexpect to inject the raw SGR bytes at all, and
+# a pexpect run's "screen" is the whole output transcript, in which an
+# earlier frame's "line 06" would match just as well as the current one.
+# The construction below is exact instead.  Point starts on line 01; one
+# wheel-down puts rowoff at 5, leaving point behind, so it is dragged to
+# the window's new top line (line 06); a second notch puts rowoff at 10
+# and drags it again, to line 11.  Typing X there proves both the step
+# size and that it repeats.
+name: mouse-wheel-scrolls-window
+filename: mouse-wheel.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: |
+  line 01
+  line 02
+  line 03
+  line 04
+  line 05
+  line 06
+  line 07
+  line 08
+  line 09
+  line 10
+  line 11
+  line 12
+  line 13
+  line 14
+  line 15
+  line 16
+  line 17
+  line 18
+  line 19
+  line 20
+  line 21
+  line 22
+  line 23
+  line 24
+  line 25
+  line 26
+  line 27
+  line 28
+  line 29
+  line 30
+
+keys:
+  - "M-[<65;5;5M"
+  - "M-[<65;5;5M"
+  - X
+expected_saved: |
+  line 01
+  line 02
+  line 03
+  line 04
+  line 05
+  line 06
+  line 07
+  line 08
+  line 09
+  line 10
+  Xline 11
+  line 12
+  line 13
+  line 14
+  line 15
+  line 16
+  line 17
+  line 18
+  line 19
+  line 20
+  line 21
+  line 22
+  line 23
+  line 24
+  line 25
+  line 26
+  line 27
+  line 28
+  line 29
+  line 30

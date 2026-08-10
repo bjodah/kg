@@ -21,6 +21,7 @@
 #include "keyevent.h"
 #include "keymap.h"
 #include "marker.h"
+#include "mouse.h"
 #include "syntax.h"
 #include "xref.h"
 #include "yank.h"
@@ -853,38 +854,54 @@ static void key_finish_keypress(struct kg_buffer_handle buffer_before,
 	}
 }
 
-/* Process events arriving from the standard input, which is, the user
- * is typing stuff on the terminal. */
-void editor_process_keypress(int fd)
+/* Paste mode detection: characters arriving less than 30ms apart are a
+ * paste rather than typing, and auto-indent and autocompletion are
+ * suppressed while it lasts.  The gap has to be measured across the
+ * whole timeval: comparing tv_usec only when tv_sec matches misreads
+ * every gap that straddles a second boundary, which during a paste is
+ * one line in every second, and leaves the flag stuck on for slow
+ * keystrokes that happen to share a second with a fast one. */
+static void key_update_paste_mode(void)
 {
 	struct timeval tv;
-	struct key_event c = editor_read_key_idle(fd);
-	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
-	uint64_t generation_before = bcur()->content_generation;
-	int was_shift_select = bcur()->shift_select;
-	long elapsed;
 	long seconds;
-	enum key_dispatch dispatched;
-	const char *shift_cmd;
-	int n;
 
-	/* Paste mode detection: characters arriving less than 30ms apart are
-	 * a paste rather than typing, and auto-indent and autocompletion are
-	 * suppressed while it lasts.  The gap has to be measured across the
-	 * whole timeval: comparing tv_usec only when tv_sec matches misreads
-	 * every gap that straddles a second boundary, which during a paste is
-	 * one line in every second, and leaves the flag stuck on for slow
-	 * keystrokes that happen to share a second with a fast one. */
 	gettimeofday(&tv, NULL);
 	seconds = (long)(tv.tv_sec - editor.last_char_time.tv_sec);
 	if (seconds > 1) {
 		editor.paste_mode = 0;
 	} else {
-		elapsed = seconds * 1000000L
+		long elapsed = seconds * 1000000L
 		    + (long)(tv.tv_usec - editor.last_char_time.tv_usec);
+
 		editor.paste_mode = elapsed < 30000;
 	}
 	editor.last_char_time = tv;
+}
+
+/* Process events arriving from the standard input, which is, the user
+ * is typing stuff on the terminal. */
+void editor_process_keypress(int fd)
+{
+	struct key_event c = editor_read_key_idle(fd);
+	struct kg_buffer_handle buffer_before = buf_handle(buf_current);
+	uint64_t generation_before = bcur()->content_generation;
+	int was_shift_select = bcur()->shift_select;
+	enum key_dispatch dispatched;
+	const char *shift_cmd;
+	int n;
+
+	/* A decoded mouse report, not a key: no keymap can name it, it is
+	 * not a paste, and it ends no keystroke.  This is the one place it
+	 * is acted on, which is what keeps a click that arrives while a
+	 * minibuffer prompt is reading keys from moving point under the
+	 * prompt -- those loops never reach here. */
+	if (c.base == KEY_BASE_MOUSE) {
+		kg_mouse_handle_pending();
+		return;
+	}
+
+	key_update_paste_mode();
 
 	/* A sequence in progress takes the whole keystroke: no numeric
 	 * argument, no mode intercepts, no new command state.  The

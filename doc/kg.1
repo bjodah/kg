@@ -3260,6 +3260,74 @@ echo area.
 A smaller terminal is treated as that size, so the display overflows but
 the editor keeps working; a reported size larger than 10000 in either
 direction is rejected as implausible and the previous size is kept.
+.Sh MOUSE
+.Nm
+asks the terminal for SGR-encoded mouse reports
+.Pq DECSET 1000 , 1002 No and 1006
+whenever it enters raw mode, and takes the request back whenever it
+leaves: on exit, and on
+.Ic C-z ,
+which hands the mouse back to the shell and asks for it again on resume.
+.Pp
+There is no capability query worth having \(em a terminal that does not
+understand the request ignores it and no harm is done \(em so the
+heuristic is deliberately generous:
+.Nm
+asks unless
+.Ev TERM
+is unset, empty,
+.Ql dumb
+or
+.Ql unknown .
+.Pp
+What the reports do:
+.Bl -tag -width Ds
+.It Left press
+Select the window under the pointer, the way
+.Ic C-x o
+does, and put point at the clicked position.
+The terminal column is a display column, so a click lands on the
+character drawn there whatever tabs and double-width glyphs precede it;
+a click past the end of a line lands at the end of that line.
+.It Left drag
+The press position becomes the mark the first time the pointer moves \(em
+a plain click leaves the mark where it was \(em and point follows the
+pointer, so the region grows as an ordinary
+.Ic C-SPC
+region does and
+.Ic C-w
+or
+.Ic M-w
+takes it.
+A drag that wanders out of the window it started in keeps extending the
+region in that window.
+.It Wheel
+Scroll the window under the pointer five lines a notch, matching Emacs'
+terminal default.
+Point keeps its place in the buffer until the window scrolls past it, and
+is then dragged to the edge it left.
+.El
+.Pp
+A press on a mode line or on the echo area does nothing, and neither do
+the middle and right buttons.
+.Pp
+Mouse reporting takes the terminal's own selection away: while it is on,
+dragging selects a
+.Nm
+region instead of marking text for the terminal's copy buffer.
+Hold
+.Ic Shift
+while dragging to get the terminal's native selection back for one drag;
+terminals reserve Shift for exactly this.
+.Pp
+.Ic M-x xterm-mouse-mode
+toggles the whole feature off and on again, for a terminal that answers
+badly or for getting the native selection back for longer than one drag.
+It is also callable from Lisp, so
+.Li (command-execute \(dqxterm-mouse-mode\(dq)
+in the init file turns it off for good.
+While it is off, a mouse report that arrives anyway is still consumed
+whole and discarded: no part of one ever reaches a buffer as text.
 .Sh CONTROL CHARACTERS
 Nothing
 .Nm
@@ -3640,6 +3708,15 @@ Terminal size changes
 .Pq SIGWINCH
 are handled gracefully.
 .Bl -tag -width Ds
+.It Ev TERM
+Names the terminal.
+Read once, at startup, to decide whether
+.Nm
+asks for mouse reports at all; see
+.Sx MOUSE .
+Nothing else in
+.Nm
+consults it.
 .It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON
 The command line a
 .Sq +lsp

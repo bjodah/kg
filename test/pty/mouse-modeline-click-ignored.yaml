@@ -1,0 +1,19 @@
+# v1 acts on clicks that land on buffer text and on nothing else.  With
+# one window on a 12-row terminal the text rows are 1..10, the mode line
+# is row 11 and the echo area row 12; a press on either of the last two
+# must move neither point nor the window, and must not reach the buffer
+# as text.  The X lands where point already was.
+#
+# backend: pexpect -- see mouse-click-sets-point.yaml.
+name: mouse-modeline-click-ignored
+filename: mouse-modeline.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: "alpha\nbeta\ngamma\n"
+keys:
+  - "M-[<0;3;11M"
+  - "M-[<0;3;11m"
+  - "M-[<0;3;12M"
+  - "M-[<0;3;12m"
+  - X
+expected_saved: "Xalpha\nbeta\ngamma\n"

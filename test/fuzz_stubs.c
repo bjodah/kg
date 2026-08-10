@@ -255,6 +255,24 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 	(void)target_rcol_in_segment;
 }
 
+/* src/mouse.c's wheel path in visual-line mode; same reason as the four
+ * above -- this target does not link src/vgeom.c.  One visual row per
+ * logical row, which is what the get_visual_row() stub above already
+ * says. */
+int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b)
+{
+	(void)w;
+	return b ? b->numrows : 0;
+}
+
+/* src/mouse.c gives the window under a click the focus the way C-x o
+ * does.  src/bufmgr.c is not linked here; this target has one window and
+ * one buffer, so the answer is the slot the window already holds and
+ * selecting it changes nothing. */
+int win_buffer_slot(const struct editor_window *w) { return w->buf.slot; }
+
+int buf_select(int slot) { return slot >= 0 && slot < MAX_BUFFERS; }
+
 void editor_query_replace(int fd) { (void)fd; }
 void editor_named_command(int fd) { (void)fd; }
 

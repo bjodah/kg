@@ -1,0 +1,22 @@
+# A left drag sets the mark where the button went down and lets point
+# follow the pointer, so C-w kills what was dragged over.  The line holds
+# a TAB, so the drag's far end is a display column resolved the same way
+# a click's is: the TAB after "hello" fills display columns 5..7, putting
+# the 'w' of "world" at display column 8 -- terminal column 9 -- which is
+# chars offset 6.  Reading 8 as a byte offset would leave "rld" behind.
+#
+# The mark is set on the first motion report, not on the press: a plain
+# click must leave the user's mark where they put it.
+#
+# backend: pexpect -- see mouse-click-sets-point.yaml.
+name: mouse-drag-sets-region
+filename: mouse-drag.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: "hello\tworld\n"
+keys:
+  - "M-[<0;1;1M"
+  - "M-[<32;9;1M"
+  - "M-[<0;9;1m"
+  - C-w
+expected_saved: "world\n"

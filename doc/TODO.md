@@ -6,22 +6,39 @@ This file remains the broader feature and technical-debt inventory.
 
 ## Convenience
 
-- [ ] mouse-mode by default if support detected. Left click to move cursor,
-      scroll wheel up down, mark regions of text (left moutse down).
+- [x] mouse-mode by default if support detected. Left click to move
+      cursor (and select the window under it), scroll wheel up/down (5
+      lines), left drag marks a region.  `src/mouse.c`, SGR 1006
+      reporting, on unless `TERM` is unset/dumb/unknown; `M-x
+      xterm-mouse-mode` toggles (terminal-native selection needs
+      Shift-drag while reporting is on, see kg(1) MOUSE).  Out of v1:
+      middle/right buttons, double-click selection, modifier bits,
+      mouse in keyboard macros.
 - [x] "C-x C-f C-a C-k /tmp/newfile.txt RET foobar C-x C-s" no longer asks
       "Cannot verify /tmp/newfile.txt on disk.  Save anyway? (y/n)": a visit
       that ends in ENOENT records the file as absent instead of leaving its
       state unsampled, so the first save of a new file is silent as in Emacs.
       The question stays for a file that was there and is not, or that
       cannot be examined.
-- [ ] Create new scratch buffers: "C-x b *foo* RET" should open/create an
-      ephemeral buffer (due to leading+trailing asterisk, no confirmation 
-      on "C-x k" of unsaved changes).
+- [x] Create new scratch buffers: done as the full Emacs rule rather
+      than asterisk-gated -- "C-x b name RET" for any non-matching name
+      creates a buffer visiting no file (`no_file` +
+      `buf_visits_file()`), and "C-x k" confirms unsaved changes only
+      for file-visiting buffers.  "C-x C-s" in such a buffer prompts
+      "Write file:" and adopts the answer.  Known consequence, accepted
+      for now: killing a modified lone non-file buffer exits silently
+      (kill-last-buffer-quits composing with the new kill rule).
 - [ ] Currently the minibuffer behavior is patched in an ad-hoc manner:
-      I would expect all (almost all?) manipulation that work in the ordinary
-      buffer to work in the minibuffer too. (e.g. M-u for upper case, the 
-      isearch-forward/isearch-backward do not accept "C-q C-j" making it hard
-      to eg search for "some-word-followed-by-newline".
+      I would expect all (almost all?) manipulation that work in the
+      ordinary buffer to work in the minibuffer too.  The quick wins
+      landed 2026-08-10: isearch accepts "C-q" (isearch-quote-char, so
+      "C-q C-j" searches for word-then-newline, with the cross-row
+      literal matching that requires), and the prompt editor gained
+      M-u/M-l/M-c beside its existing M-f/M-b/M-d/M-DEL/C-q.  Still
+      open, deliberately deferred (minibuffer-as-real-buffer work):
+      prompt word boundary is whitespace rather than word syntax,
+      regexp isearch and query-replace are still per-row, the prompt
+      is a fixed char[] (no undo, no transpose, no embedded newline).
 - [x] "M-/" to run dabbrev-expand (equivalent).  `src/dabbrev.c`, with
       Emacs' candidate order, cycling, exhaustion wording and
       restore-the-abbreviation behaviour pinned by `oracle: emacs` cases.

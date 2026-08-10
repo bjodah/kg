@@ -47,6 +47,12 @@ enum key_base {
 	KEY_BASE_DELETE, /* the forward-delete key */
 	KEY_BASE_F3,
 	KEY_BASE_F4,
+	/* Not a key: "a mouse report was decoded and is waiting", the event
+	 * src/tty.c hands back for an SGR report so exactly one reader --
+	 * the main loop's keypress step -- acts on it.  It has no spelling,
+	 * so key_format() refuses it and no keymap can name it; every other
+	 * reader treats it as a key nothing is bound to and drops it. */
+	KEY_BASE_MOUSE,
 };
 
 struct key_event {

@@ -1,0 +1,22 @@
+# The same click, in visual-line-mode, where a logical row occupies
+# several screen rows.  The window is 40 columns wide, so the 62-column
+# line below wraps once: terminal row 2 is the line's second wrap
+# segment, and terminal column 6 there is display column 40 + 5 = 45 of
+# the row -- the 'T'.  Point has to come out of the wrapped geometry
+# (goto_visual_row_col), not out of the unwrapped rowoff/cy arithmetic
+# the non-wrapping path uses.
+#
+# backend: pexpect -- see mouse-click-sets-point.yaml.
+name: mouse-click-visual-line-mode
+filename: mouse-visual-line.txt
+backend: pexpect
+dimensions: [12, 40]
+initial: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - "M-[<0;6;2M"
+  - "M-[<0;6;2m"
+  - X
+expected_saved: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSXTUVWXYZ0123456789\n"

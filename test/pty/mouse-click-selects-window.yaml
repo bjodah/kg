@@ -1,0 +1,88 @@
+# The window under the click takes the focus, and point lands in THAT
+# window's view of the buffer.  C-x 2 splits a 12-row terminal into a
+# top window (text rows 1..5) and a bottom one (text rows 7..10); the
+# bottom window is scrolled to the end of the buffer and focus handed
+# back to the top one, so the two windows now show different lines.  A
+# press on the bottom window's first text row must select it and land on
+# the line IT shows there, not on whatever the top window has at the same
+# offset -- the top window still starts at line 01.
+#
+# backend: pexpect -- see mouse-click-sets-point.yaml.
+name: mouse-click-selects-window
+filename: mouse-window.txt
+backend: pexpect
+dimensions: [12, 80]
+initial: |
+  line 01
+  line 02
+  line 03
+  line 04
+  line 05
+  line 06
+  line 07
+  line 08
+  line 09
+  line 10
+  line 11
+  line 12
+  line 13
+  line 14
+  line 15
+  line 16
+  line 17
+  line 18
+  line 19
+  line 20
+  line 21
+  line 22
+  line 23
+  line 24
+  line 25
+  line 26
+  line 27
+  line 28
+  line 29
+  line 30
+
+keys:
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - M->
+  - C-x
+  - o
+  - "M-[<0;1;7M"
+  - "M-[<0;1;7m"
+  - X
+expected_saved: |
+  line 01
+  line 02
+  line 03
+  line 04
+  line 05
+  line 06
+  line 07
+  line 08
+  line 09
+  line 10
+  line 11
+  line 12
+  line 13
+  line 14
+  line 15
+  line 16
+  line 17
+  line 18
+  line 19
+  line 20
+  line 21
+  line 22
+  line 23
+  line 24
+  line 25
+  line 26
+  line 27
+  Xline 28
+  line 29
+  line 30

@@ -58,10 +58,18 @@ static const char *const historical_lisp_callable[] = {
  * nothing to observe.  A Lisp caller only ever gets the first expansion
  * -- the cycle is keyed on command identity and a command reached
  * through (command-execute ...) is nested -- which is a smaller
- * behaviour than the key has, not a wider one. */
+ * behaviour than the key has, not a wider one.
+ *
+ * xterm-mouse-mode: a global mode toggle with no buffer effect at all --
+ * one flag, one pair of DECSET strings and one echo-area line, which is
+ * `electric-pair-mode`'s shape exactly, and that has been Lisp-callable
+ * since before the allow-list was deleted.  Mouse reporting is on by
+ * default, so an init file that wants it off is the caller this is for;
+ * without the flag that init file would have no way to say so. */
 static const char *const added_lisp_callable[] = {
 	"dabbrev-expand",
 	"lisp-arena-stats",
+	"xterm-mouse-mode",
 };
 
 static int table_size(void)

@@ -20,6 +20,7 @@
 #include "def.h"
 #include "keyevent.h"
 #include "lsp.h"
+#include "mouse.h"
 #include "process_table.h"
 
 #ifndef _WIN32
@@ -144,6 +145,12 @@ void disable_raw_mode(int fd)
 	pending_input_off = 0;
 	pending_input_cap = 0;
 	unread_key_slot = -1;
+	/* Give the terminal its mouse back before its line discipline: the
+	 * request is kg's, so kg takes it back on every way out of raw mode
+	 * -- exit(), and the C-z suspend that comes straight back through
+	 * enable_raw_mode() below.  Idempotent, so the paths that reach
+	 * here twice cost one comparison. */
+	kg_mouse_stop();
 #ifdef KG_FUZZ
 	(void)fd;
 	editor.rawmode = 0;
@@ -326,6 +333,7 @@ int enable_raw_mode(int fd)
 	}
 	atexit(editor_at_exit);
 	editor.rawmode = 1;
+	kg_mouse_start();
 	return 0;
 #else
 	struct termios raw;
@@ -362,6 +370,9 @@ int enable_raw_mode(int fd)
 		goto fatal;
 	}
 	editor.rawmode = 1;
+	/* The one place raw mode is entered, so the one place mouse
+	 * reporting is asked for: startup, and every C-z resume. */
+	kg_mouse_start();
 	return 0;
 
 fatal:
@@ -377,6 +388,58 @@ fatal:
 static struct key_event bare_esc(void)
 {
 	return (struct key_event) { KEY_BASE_ESC, 0 };
+}
+
+/* An SGR mouse report, "CSI < b ; x ; y M" (press) or "... m" (release);
+ * the "CSI <" is already consumed.  The parameters are read here rather
+ * than in src/mouse.c because the input queue's reader is private to
+ * this file.
+ *
+ * Whatever the report says, and whether or not the mode is on, every
+ * byte of it is consumed before returning: a mouse report must never
+ * reach a buffer as text.  A byte that belongs to no report (or a report
+ * longer than any terminal sends) ends the attempt as a bare ESC, the
+ * same answer every other unrecognised escape sequence gets.  The event
+ * handed back is acted on only by the main loop's keypress step; every
+ * other key reader treats it as a key it has no binding for. */
+static struct key_event parse_mouse_escape(int fd)
+{
+	char params[KG_MOUSE_PARAMS_MAX];
+	size_t n = 0;
+	unsigned char c;
+
+	while (n < sizeof(params) - 1) {
+		if (read_input_byte(fd, &c) != 1) {
+			return bare_esc();
+		}
+		if (c == 'M' || c == 'm') {
+			params[n] = '\0';
+			kg_mouse_record(params, (char)c);
+			return (struct key_event) { KEY_BASE_MOUSE, 0 };
+		}
+		if ((c < '0' || c > '9') && c != ';') {
+			return bare_esc();
+		}
+		params[n++] = (char)c;
+	}
+	return bare_esc();
+}
+
+/* ESC O xx: the SS3 sequences an application-mode keypad and some
+ * terminals' Home/End/F-keys arrive as. */
+static struct key_event parse_ss3(unsigned char final_byte)
+{
+	switch (final_byte) {
+	case 'H':
+		return (struct key_event) { KEY_BASE_HOME, 0 };
+	case 'F':
+		return (struct key_event) { KEY_BASE_END, 0 };
+	case 'R':
+		return (struct key_event) { KEY_BASE_F3, 0 };
+	case 'S':
+		return (struct key_event) { KEY_BASE_F4, 0 };
+	}
+	return bare_esc();
 }
 
 /* Decode an escape sequence (ESC byte already consumed) into a key_event. */
@@ -405,6 +468,9 @@ static struct key_event parse_escape(int fd)
 
 	/* ESC [ sequences */
 	if (seq[0] == '[') {
+		if (seq[1] == '<') {
+			return parse_mouse_escape(fd);
+		}
 		if (seq[1] >= '0' && seq[1] <= '9') {
 			if (read_input_byte(fd, seq + 2) != 1) {
 				return bare_esc();
@@ -572,16 +638,7 @@ static struct key_event parse_escape(int fd)
 		}
 		/* ESC O sequences */
 	} else if (seq[0] == 'O') {
-		switch (seq[1]) {
-		case 'H':
-			return (struct key_event) { KEY_BASE_HOME, 0 };
-		case 'F':
-			return (struct key_event) { KEY_BASE_END, 0 };
-		case 'R':
-			return (struct key_event) { KEY_BASE_F3, 0 };
-		case 'S':
-			return (struct key_event) { KEY_BASE_F4, 0 };
-		}
+		return parse_ss3(seq[1]);
 	}
 	return bare_esc();
 }

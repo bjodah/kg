@@ -143,6 +143,25 @@ standard VT100 escape sequences.
 - Auto-indent; electric bracket pairing via `M-x electric-pair-mode`
   (off by default, can be enabled from the init file)
 - Suspend to background (C-z)
+- Mouse support, on by default: click to put point where you clicked (in
+  the window you clicked in), drag to select a region, wheel to scroll
+  five lines a notch.  kg asks the terminal for SGR mouse reports
+  whenever it enters raw mode and takes the request back whenever it
+  leaves — quitting, and C-z, which hands the mouse back to the shell and
+  takes it again on resume.  There is no capability query worth having, so
+  the heuristic is generous: kg asks unless `TERM` is unset, empty,
+  `dumb` or `unknown`, and a terminal that does not understand the
+  request ignores it.  Clicks on a mode line or the echo area do nothing.
+
+  **Enabling mouse reporting takes the terminal's own selection away**:
+  while it is on, dragging selects a kg region instead of marking text
+  for the terminal's copy buffer.  Hold **Shift** while dragging to get
+  the terminal's native selection back for one drag — every terminal
+  worth using keeps Shift for itself.  `M-x xterm-mouse-mode` toggles the
+  whole thing off (and on again) if you would rather have the terminal's
+  selection all the time; it is also callable from Lisp, so
+  `(command-execute "xterm-mouse-mode")` in an init file turns it off for
+  good
 - Built-in help in a scrollable *help* buffer (C-h)
 - Introspection over the command table and the keymaps, rendered into a
   read-only `*Describe*` buffer (`q` closes): `M-x describe-key` reads a

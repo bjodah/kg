@@ -143,6 +143,21 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       workspace.  Covered by root-walk cases in `test/test_lsp_client.c`,
       a fake-server PTY case each for the mode -> spec -> environment
       wiring, and a real-server case each behind `requires_tool:`.
+      Java followed on the same shape: `jdtls` against `KG_LSP_SERVER_JAVA`,
+      markers `pom.xml`, `build.gradle`, `build.gradle.kts`,
+      `settings.gradle` and `settings.gradle.kts` -- jdt.ls's own Maven and
+      Gradle importers' descriptors -- plus `utils/install-jdtls.sh`,
+      because jdt.ls ships as a tarball and nothing packages it.
+- **A `KG_LSP_SERVER_JAVA` recipe for Oracle's nbcode**, if one is wanted.
+  The NetBeans-based server in `oracle/javavscode` is the other real Java
+  server, and it does not speak LSP on stdio: its extension starts it with
+  `--start-java-language-server=listen-hash:0`, reads the port and hash it
+  prints on stdout, connects a TCP socket to `127.0.0.1:<port>` and writes
+  the hash before the first LSP byte.  kg's client is stdio-only, so this
+  needs a socket transport and that handshake, on top of building NetBeans
+  from source (`ant apply-patches && ant build-netbeans` over the
+  `apache/netbeans` submodule).  `jdtls` is the shipped default because
+  neither of those is a row in a table.
 - [x] **The rest of the protocol.**  Diagnostics, hover, rename and
       completion were all out of scope by the plan, not by accident; all
       four are done (2026-08-10):

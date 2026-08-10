@@ -36,6 +36,7 @@ static bool dir_has_c_markers(const char *dir);
 static bool dir_has_python_markers(const char *dir);
 static bool dir_has_go_markers(const char *dir);
 static bool dir_has_rust_markers(const char *dir);
+static bool dir_has_java_markers(const char *dir);
 
 /* What kg knows how to start.  `env` is spelled out rather than derived
  * from `name` so the environment variable a user sets is greppable in this
@@ -59,6 +60,8 @@ static const struct lsp_server_spec server_specs[] = {
 	    dir_has_go_markers },
 	{ KG_MODE_RUST, "rust-analyzer", LSP_SERVER_ENV_PREFIX "RUST",
 	    { "rust-analyzer", NULL }, dir_has_rust_markers },
+	{ KG_MODE_JAVA, "jdtls", LSP_SERVER_ENV_PREFIX "JAVA",
+	    { "jdtls", NULL }, dir_has_java_markers },
 };
 
 struct lsp_instance {
@@ -184,6 +187,34 @@ static bool dir_has_go_markers(const char *dir)
 static bool dir_has_rust_markers(const char *dir)
 {
 	return marker_exists(dir, "Cargo.toml");
+}
+
+/* Java.  The list is jdt.ls's own: its Maven importer looks for pom.xml and
+ * its Gradle importer for the four Gradle descriptors, so a directory
+ * holding one of these is a directory jdt.ls would import a project from.
+ *
+ * Nearest wins, as everywhere else.  For Maven that is the module, and a
+ * module pom carries the coordinates and the <parent> that lets it be read
+ * on its own.  For Gradle it is the compromise: a subproject's build.gradle
+ * is nearer than the settings.gradle at the top of the build it belongs to,
+ * so kg starts a server per subproject and a definition in a sibling
+ * subproject is not in that server's model.  The two settings descriptors
+ * are markers anyway, because a Gradle build root often has a settings file
+ * and no build file at all, and a source file directly under one would
+ * otherwise fall through to .git.
+ *
+ * Two near misses, deliberately absent.  `.project` is Eclipse's own
+ * per-project state rather than a build descriptor: an imported build has
+ * one in every subproject, so it roots deeper than the build files above
+ * it, which are the truth.  `mvnw` sits beside the root pom.xml by the
+ * wrapper's own contract, so it never names a root pom.xml misses. */
+static bool dir_has_java_markers(const char *dir)
+{
+	return marker_exists(dir, "pom.xml")
+	    || marker_exists(dir, "build.gradle")
+	    || marker_exists(dir, "build.gradle.kts")
+	    || marker_exists(dir, "settings.gradle")
+	    || marker_exists(dir, "settings.gradle.kts");
 }
 
 static bool dir_has_git(const char *dir) { return marker_exists(dir, ".git"); }

@@ -908,6 +908,22 @@ static void build_tree(void)
 	mk_dir(tree, "cws/member");
 	mk_file(tree, "cws/member/Cargo.toml", "[package]\nname='m'\n");
 	mk_dir(tree, "cws/member/src");
+	/* Java: a Maven reactor with a module in it, a Gradle build whose
+	 * root carries only a settings file, and an Eclipse .project below
+	 * a pom to prove .project is not a marker. */
+	mk_dir(tree, "mvn");
+	mk_file(tree, "mvn/pom.xml", "<project/>\n");
+	mk_dir(tree, "mvn/mod");
+	mk_file(tree, "mvn/mod/pom.xml", "<project/>\n");
+	mk_dir(tree, "mvn/mod/src");
+	mk_dir(tree, "mvn/eclipsey");
+	mk_file(tree, "mvn/eclipsey/.project", "<projectDescription/>\n");
+	mk_dir(tree, "gradlew");
+	mk_file(
+	    tree, "gradlew/settings.gradle.kts", "rootProject.name=\"g\"\n");
+	mk_dir(tree, "gradlew/sub");
+	mk_file(tree, "gradlew/sub/build.gradle", "plugins { id 'java' }\n");
+	mk_dir(tree, "gradlew/sub/src");
 }
 
 /* The nearest ancestor with a C marker wins over the .git further up: a
@@ -988,6 +1004,27 @@ static void test_root_rust_takes_the_nearest_cargo_toml(void)
 	/* No Cargo.toml anywhere above: the .git fallback, and a Go module
 	 * is not a Rust crate. */
 	check_root(KG_MODE_RUST, "gomod/pkg/a.rs", "");
+}
+
+/* Java takes jdt.ls's own descriptors: pom.xml for the Maven importer, the
+ * four Gradle files for the Gradle one.  Nearest wins, so a Maven module
+ * roots on itself rather than on the reactor above it, and a Gradle
+ * subproject roots on itself rather than on the settings file at the top of
+ * the build -- which is the one place the rule is a compromise rather than
+ * the answer the tooling would give.  A settings file with no build file
+ * beside it is still a root.  `.project` is not a marker: it is Eclipse's
+ * per-project state, and an imported build has one everywhere. */
+static void test_root_java_takes_jdtls_descriptors(void)
+{
+	check_root(KG_MODE_JAVA, "mvn/x.java", "mvn");
+	check_root(KG_MODE_JAVA, "mvn/mod/src/x.java", "mvn/mod");
+	check_root(KG_MODE_JAVA, "gradlew/x.java", "gradlew");
+	check_root(KG_MODE_JAVA, "gradlew/sub/src/x.java", "gradlew/sub");
+	/* .project alone does not root; the pom above it does. */
+	check_root(KG_MODE_JAVA, "mvn/eclipsey/x.java", "mvn");
+	/* And the mode decides which markers count: a Cargo manifest is not
+	 * a Java build, so this one falls through to the .git fallback. */
+	check_root(KG_MODE_JAVA, "crate/src/x.java", "");
 }
 
 /* Nothing above the file at all: its own directory is the root, so a
@@ -1166,6 +1203,39 @@ static void test_registry_starts_go_and_rust_from_the_env(void)
 	CHECK(lsp_server_instance_count() == 0);
 	unsetenv("KG_LSP_SERVER_GO");
 	unsetenv("KG_LSP_SERVER_RUST");
+}
+
+/* Java the same way, and for the same reason: the name the spec reads is
+ * KG_LSP_SERVER_JAVA, so `cat` stands in for jdtls and a box without a
+ * language server still tests kg's table.  The root is the one the walk
+ * found from the Maven module, not the reactor above it. */
+static void test_registry_starts_java_from_the_env(void)
+{
+	enum lsp_server_status status = LSP_SERVER_OK;
+	char file[PATH_MAX];
+	char root[PATH_MAX];
+	char want[PATH_MAX];
+
+	setenv("KG_LSP_SERVER_JAVA", "cat >/dev/null", 1);
+	path_of(file, sizeof(file), tree, "mvn/mod/src/A.java");
+	path_of(want, sizeof(want), tree, "mvn/mod");
+	CHECK(lsp_server_for(KG_MODE_JAVA, file, &status) != NULL);
+	CHECK(status == LSP_SERVER_OK);
+	CHECK(lsp_workspace_root(KG_MODE_JAVA, file, root, sizeof(root)));
+	CHECK(strcmp(root, want) == 0);
+	CHECK(lsp_server_instance_count() == 1);
+	/* A second file in the same module shares the instance; one in the
+	 * reactor above it is a different root and so a second server. */
+	path_of(file, sizeof(file), tree, "mvn/mod/src/B.java");
+	CHECK(lsp_server_for(KG_MODE_JAVA, file, &status) != NULL);
+	CHECK(lsp_server_instance_count() == 1);
+	path_of(file, sizeof(file), tree, "mvn/C.java");
+	CHECK(lsp_server_for(KG_MODE_JAVA, file, &status) != NULL);
+	CHECK(lsp_server_instance_count() == 2);
+
+	lsp_server_shutdown_all(300);
+	CHECK(lsp_server_instance_count() == 0);
+	unsetenv("KG_LSP_SERVER_JAVA");
 }
 
 /* The override is a shell command line, so a wrapper with arguments and
@@ -1486,6 +1556,7 @@ int main(int argc, char **argv)
 	RUN(test_root_reads_pyproject_for_tool_ty);
 	RUN(test_root_go_prefers_the_module);
 	RUN(test_root_rust_takes_the_nearest_cargo_toml);
+	RUN(test_root_java_takes_jdtls_descriptors);
 	RUN(test_root_defaults_to_the_files_directory);
 	RUN(test_root_refuses_a_relative_path);
 
@@ -1494,6 +1565,7 @@ int main(int argc, char **argv)
 	RUN(test_registry_refuses_a_fifth_instance);
 	RUN(test_registry_refuses_an_unsupported_mode);
 	RUN(test_registry_starts_go_and_rust_from_the_env);
+	RUN(test_registry_starts_java_from_the_env);
 	RUN(test_env_override_spawns_the_fake_server);
 	RUN(test_the_registry_names_the_client);
 

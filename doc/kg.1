@@ -3136,15 +3136,17 @@ Servers are found at run time and started lazily.
 Nothing is spawned by opening a file: the first command that needs an
 answer is what pays for the server, and every buffer under the same
 workspace root then shares it.
-Four modes have a built-in server:
+Five modes have a built-in server:
 C
 .Pq Ic clangd ,
 Python
 .Pq Ic ty server ,
 Go
-.Pq Ic gopls
-and Rust
-.Pq Ic rust-analyzer .
+.Pq Ic gopls ,
+Rust
+.Pq Ic rust-analyzer
+and Java
+.Pq Ic jdtls .
 Any other mode reports that it has no server rather than starting one.
 .Pp
 The workspace root is the nearest ancestor directory holding a marker of
@@ -3165,7 +3167,14 @@ for Go
 or
 .Pa go.work ;
 for Rust
-.Pa Cargo.toml
+.Pa Cargo.toml ;
+for Java
+.Pa pom.xml ,
+.Pa build.gradle ,
+.Pa build.gradle.kts ,
+.Pa settings.gradle
+or
+.Pa settings.gradle.kts
 \(em then the nearest ancestor holding
 .Pa .git ,
 and failing that the file's own directory.
@@ -3178,6 +3187,21 @@ sits above it, because the go command finds the workspace above the module
 on its own; a file in a Cargo workspace member roots on the member, because
 .Ic cargo metadata
 resolves the workspace above it.
+Java's markers are the files
+.Ic jdtls Ns 's
+own Maven and Gradle importers look for, and there the rule is a compromise
+in one place: a Gradle subproject's
+.Pa build.gradle
+is nearer than the
+.Pa settings.gradle
+at the top of the build it belongs to, so
+.Nm
+starts a server per subproject and a definition in a sibling subproject is
+not in that server's model.
+An Eclipse
+.Pa .project
+file is deliberately not a marker: it is per-project state that an imported
+build has in every subdirectory, and the build files above it are the truth.
 .Pp
 .Ic M-.
 sends the question and returns; the editor stays responsive while the
@@ -3449,9 +3473,10 @@ writes the rest unconditionally and shows it never.
 .Pp
 .Ev KG_LSP_SERVER_C ,
 .Ev KG_LSP_SERVER_PYTHON ,
-.Ev KG_LSP_SERVER_GO
-and
+.Ev KG_LSP_SERVER_GO ,
 .Ev KG_LSP_SERVER_RUST
+and
+.Ev KG_LSP_SERVER_JAVA
 replace the built-in command line for that mode.
 The value is run through
 .Ic /bin/sh -c ,
@@ -3459,6 +3484,28 @@ exactly as
 .Ic M-x compile Ns 's
 command is, so a wrapper script, an absolute path with spaces in it and
 extra arguments all work.
+.Pp
+Java's server is the Eclipse JDT Language Server, spawned as the bare name
+.Ic jdtls .
+It ships as a tarball rather than a package, and
+.Pa utils/install-jdtls.sh
+in the source distribution downloads the newest milestone, or builds a
+checkout given
+.Fl -from-source ,
+and installs a launcher into
+.Fl -prefix ,
+.Pa ~/.local
+by default.
+It needs Java 21 or newer, which is what
+.Ic jdtls
+itself refuses to start below, and a
+.Ic python3
+to run jdt.ls's own launcher script.
+A JVM starting and importing a project is slower than a
+.Ic clangd
+parsing one translation unit: expect the first
+.Ic M-.
+in a Java buffer to take a few seconds.
 .Sh READ-ONLY MODE
 .Ic M-x read-only-mode
 .Pq bound to Ic C-x C-q
@@ -4193,15 +4240,16 @@ asks for mouse reports at all; see
 Nothing else in
 .Nm
 consults it.
-.It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON , Ev KG_LSP_SERVER_GO , Ev KG_LSP_SERVER_RUST
+.It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON , Ev KG_LSP_SERVER_GO , Ev KG_LSP_SERVER_RUST , Ev KG_LSP_SERVER_JAVA
 The command line a
 .Sq +lsp
 build runs for that mode's language server, replacing the built-in
 .Ic clangd ,
 .Ic ty server ,
-.Ic gopls
+.Ic gopls ,
+.Ic rust-analyzer
 or
-.Ic rust-analyzer .
+.Ic jdtls .
 Run through
 .Ic /bin/sh -c ,
 so quoting and arguments work; unset or empty leaves the built-in.

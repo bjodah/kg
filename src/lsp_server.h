@@ -7,9 +7,9 @@
 
 /* Which server a buffer's mode wants, where its workspace starts, and which
  * of them are already running.  The one module that knows the names
- * `clangd`, `ty`, `gopls` and `rust-analyzer`, and the only one above it
- * that will ever need to: every caller asks for a client and gets one, or
- * gets told why not.
+ * `clangd`, `ty`, `gopls`, `rust-analyzer` and `jdtls`, and the only one
+ * above it that will ever need to: every caller asks for a client and gets
+ * one, or gets told why not.
  *
  * Instances are keyed by (server, workspace root) and started lazily.
  * Opening a .c file spawns nothing; the first command that needs an answer
@@ -123,8 +123,8 @@ size_t lsp_server_instance_count(void);
 /* The environment override, spelled out because it is a user interface: for
  * every supported mode, `KG_LSP_SERVER_` followed by the mode's name in
  * upper case -- `KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`,
- * `KG_LSP_SERVER_GO` and `KG_LSP_SERVER_RUST` today.  Its
- * value is a shell command line, run through `/bin/sh -c` exactly as M-x
+ * `KG_LSP_SERVER_GO`, `KG_LSP_SERVER_RUST` and `KG_LSP_SERVER_JAVA` today.
+ * Its value is a shell command line, run through `/bin/sh -c` exactly as M-x
  * compile's is, so quoting, an absolute path with spaces in it and a
  * wrapper script all work without this module parsing anything.  Set and
  * non-empty replaces the built-in argv; unset or empty leaves it.

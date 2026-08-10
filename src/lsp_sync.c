@@ -288,6 +288,8 @@ static const char *language_id_of(const struct editor_buffer *b)
 		return "c";
 	case KG_MODE_PYTHON:
 		return "python";
+	case KG_MODE_JAVA:
+		return "java";
 	default:
 		return "plaintext";
 	}

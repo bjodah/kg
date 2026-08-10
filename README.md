@@ -467,20 +467,27 @@ refreshed as you keep typing. It is an ordinary read-only buffer — `C-x
 
 Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same
-workspace root then shares it. Four modes have a built-in server — `clangd`
-for C, `ty server` for Python, `gopls` for Go and `rust-analyzer` for Rust;
+workspace root then shares it. Five modes have a built-in server — `clangd`
+for C, `ty server` for Python, `gopls` for Go, `rust-analyzer` for Rust and
+`jdtls` for Java;
 any other mode says it has no server rather than starting one. The
 workspace root is the nearest ancestor holding that language's build-system
 marker (`.clangd`, `compile_commands.json`, `compile_flags.txt`,
 `build/compile_commands.json`; `ty.toml`, or a `pyproject.toml` mentioning
-`[tool.ty`; `go.mod` or `go.work`; `Cargo.toml`), then the nearest ancestor
-holding `.git`, and failing that the file's own directory.
+`[tool.ty`; `go.mod` or `go.work`; `Cargo.toml`; `pom.xml`, `build.gradle`,
+`build.gradle.kts`, `settings.gradle` or `settings.gradle.kts`), then the
+nearest ancestor holding `.git`, and failing that the file's own directory.
 
-The nearest marker wins, which for the two new ones is the answer their own
+The nearest marker wins, which for Go and Rust is the answer their own
 tooling gives: a file inside a Go module roots on that module even when a
 `go.work` sits above it, because the go command finds the workspace above
 the module by itself; a file in a Cargo workspace member roots on the
-member, because `cargo metadata` resolves the workspace above it.
+member, because `cargo metadata` resolves the workspace above it. Java's
+markers are the ones jdt.ls itself imports a project from, and there the
+rule is a compromise in one place: a Gradle subproject's `build.gradle` is
+nearer than the `settings.gradle` at the top of the build, so kg starts a
+server per subproject and a definition in a sibling subproject is not in
+that server's model.
 
 Both commands send the question and return. The editor stays responsive
 while the server thinks, and the answer arrives later; the echo area
@@ -569,8 +576,8 @@ eglot shows the same first line and offers the rest through `M-x
 eldoc-doc-buffer` on demand; kg writes the rest unconditionally and shows
 it never.
 
-`KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`, `KG_LSP_SERVER_GO` and
-`KG_LSP_SERVER_RUST` replace the built-in command
+`KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`, `KG_LSP_SERVER_GO`,
+`KG_LSP_SERVER_RUST` and `KG_LSP_SERVER_JAVA` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x
 compile`'s command is, so a wrapper, a path with spaces or extra arguments
 all work — and it is how kg's own tests point the client at a fake server:
@@ -579,6 +586,33 @@ all work — and it is how kg's own tests point the client at a fake server:
 KG_LSP_SERVER_C='clangd --header-insertion=never' kg foo.c
 KG_LSP_TIMEOUT_MS=5000 kg foo.c      # give up on a request after 5 s
 ```
+
+### Java setup
+
+Java's server is the Eclipse JDT Language Server, and kg spawns it as the
+bare name `jdtls`. It ships as a tarball rather than a package, so
+`utils/install-jdtls.sh` is here to do the tedious part:
+
+```bash
+utils/install-jdtls.sh                        # newest milestone -> ~/.local
+utils/install-jdtls.sh --prefix /opt/jdtls    # somewhere else
+utils/install-jdtls.sh --from-source ~/src/eclipse.jdt.ls   # build a checkout
+```
+
+It needs Java 21 or newer (jdt.ls refuses to start below that) and
+`python3`, whose only job is to run jdt.ls's own launcher script. The
+server lands in `<prefix>/share/jdtls` and a `<prefix>/bin/jdtls` wrapper
+beside it; re-running replaces the tree only once the new one is unpacked,
+and the script says so and stops if `<prefix>/bin` is not on your `PATH`.
+`--dry-run` prints what it would fetch and where it would put it. What it
+does not do is edit your shell profile, or promise that jdt.ls will import
+your project — that is jdt.ls's business, and it reports what it made of
+the tree in its own log.
+
+jdt.ls is a JVM, so the first `M-.` in a Java buffer is slower than the
+first one in a C buffer: roughly two to three seconds on a warm box before
+the answer arrives, and longer the first time a Maven or Gradle project is
+imported. Nothing blocks while it thinks.
 
 ## Development
 

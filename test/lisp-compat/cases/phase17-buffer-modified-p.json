@@ -1,0 +1,7 @@
+{
+ "id": "phase17-buffer-modified-p",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (list (buffer-modified-p) (progn (insert \"x\") (buffer-modified-p)) (set-buffer-modified-p nil) (buffer-modified-p)))\n (with-temp-buffer (list (set-buffer-modified-p t) (buffer-modified-p) (set-buffer-modified-p 5) (buffer-modified-p)))\n (with-temp-buffer (buffer-file-name)))",
+ "note": "The flag as an insertion sets it and as set-buffer-modified-p writes it -- including that set-buffer-modified-p answers nil rather than FLAG, which is what Emacs 31.0.90 does whatever its docstring says, and that any non-nil FLAG means the same thing. A buffer that visits no file has no buffer-file-name on either side.",
+ "expect": "agree"
+}

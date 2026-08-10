@@ -1,0 +1,7 @@
+{
+ "id": "phase17-delete-char-past-the-end",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"ab\") (goto-char 1) (list (condition-case e (delete-char 9) (error (car e))) (buffer-substring (point-min) (point-max))))\n (with-temp-buffer (insert \"ab\") (goto-char 3) (list (condition-case e (delete-char -9) (error (car e))) (buffer-substring (point-min) (point-max)))))",
+ "note": "THE DIVERGENCE. Emacs signals `end-of-buffer'/`beginning-of-buffer' and deletes NOTHING when the buffer is too short; kg clamps and deletes what is there, which is the same choice the motion natives make and has the same cause (fe's condition table has neither name). The second element of each pair is what the buffer holds afterwards, so the case pins the data loss as well as the condition.",
+ "expect": "diverge"
+}

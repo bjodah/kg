@@ -409,8 +409,36 @@ Ordering rules that hold across every subscriber:
 | `(buffer-substring BEG END)` | Text between two positions, order-insensitive |
 | `(char-after &optional POS)` | Codepoint at `POS` (default point) as a number, `nil` at end of buffer |
 | `(forward-word &optional N)` / `(backward-word &optional N)` | Move point over `N` words (ASCII word constituents only) |
+| `(forward-char &optional N)` / `(backward-char &optional N)` | Move point `N` characters; a line break is one character. Answers `nil` |
+| `(forward-line &optional N)` | `N` lines forward, to the beginning of a line. Answers the *shortfall*: how many of `N` were not travelled |
+| `(beginning-of-line &optional N)` / `(end-of-line &optional N)` | Start/end of the line `N - 1` lines on from this one, clamped. `N` defaults to 1, so 2 is the next line and 0 the previous |
+| `(beginning-of-buffer)` / `(end-of-buffer)` | `(goto-char (point-min))` / `(goto-char (point-max))`, and nothing else — see below |
 | `(move-beginning-of-line &optional N)` / `(move-end-of-line &optional N)` | Move point to the start/end of the line; `N` not nil or 1 first moves forward `N - 1` lines, clamped |
+| `(skip-chars-forward SPEC &optional LIM)` / `(skip-chars-backward SPEC &optional LIM)` | Move point over characters in `SPEC`, no further than `LIM`. Answers the signed distance travelled |
 | `(bounds-of-thing-at-point THING)` | Cons `(START . END)` for `'word` or `'line`, or `nil`; any other symbol raises |
+| `(buffer-file-name &optional BUF)` | The file `BUF` visits, or `nil` for a buffer that visits none |
+| `(buffer-modified-p &optional BUF)` | Whether `BUF` has unsaved changes |
+| `(set-buffer-modified-p FLAG)` | Set that flag on the current buffer. Answers `nil`, which is what Emacs answers too |
+
+Every motion above **clamps** at the ends of the buffer. Emacs signals
+`beginning-of-buffer`/`end-of-buffer` there; kg cannot, because fe gates
+`signal` on its own condition table and holds neither name, so kg's whole
+motion family answers as `forward-word` always has. `doc/TODO.md` carries
+the fe-side row.
+
+`beginning-of-buffer` and `end-of-buffer` do not push the mark, where
+Emacs' — which are commands — do. kg's `set-mark` also lights the region
+up, which a Lisp call has no business doing, and there is no unhighlighted
+`push-mark` to use instead. The Emacs manual's own advice for Lisp code
+is `(goto-char (point-min))`, which is exactly what these are.
+
+`skip-chars-forward`'s `SPEC` is Emacs' character-set syntax: a leading
+`^` negates it (so `""` skips nothing and `"^"` skips everything), `-`
+between two characters is a range, and a backslash quotes the next
+character. Named classes (`[:alpha:]` and its family) are **not**
+understood and read as the ordinary characters they are made of.
+Membership is tested over codepoints, so a `SPEC` naming a multi-byte
+character skips whole glyphs.
 
 `set-buffer` is a top-level-form-scoped selection: the *next* command or
 evaluation starts again in the active window's buffer. Use
@@ -427,13 +455,18 @@ and therefore one undo step:
 | ---- | ------ |
 | `(insert TEXT)` | Insert `TEXT` at point |
 | `(delete-region START END)` | Delete the region; positions in either order |
+| `(delete-char &optional N)` | Delete `N` characters after point, or `-N` before it. Clamps where Emacs signals, so a count past the end deletes what is there |
+| `(erase-buffer)` | The whole buffer becomes empty |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit — never delete-then-insert |
 | `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
 | `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match start, or `nil` |
 | `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; error on a bad or too-complex pattern |
 | `(re-search-backward PATTERN &optional BOUND)` | Regexp search backward; see `src/lisp_search.c` for the exact (non-Emacs) rule |
 | `(match-beginning N)` / `(match-end N)` | Group `N`'s bounds from the last search, or `nil` |
-| `(make-marker)` | A marker at point in the current buffer |
+| `(looking-at REGEXP)` | Anchored match at point; sets the match data, moves point nowhere |
+| `(make-marker)` | A marker that points nowhere until something sets it |
+| `(point-marker)` | A marker at point in the current buffer |
+| `(copy-marker &optional POSITION TYPE)` | A marker at `POSITION` (a position or another marker); with no `POSITION` it points nowhere. Non-nil `TYPE` makes it advance ahead of text inserted at it |
 | `(set-marker MARKER POS &optional BUF)` | Move `MARKER`; `POS` nil detaches it |
 | `(marker-position MARKER)` / `(marker-buffer MARKER)` | Where `MARKER` points, or `nil` |
 
@@ -445,13 +478,27 @@ the same way point outlives a `goto-char`: it is a piece of per-session
 state (`struct kg_lisp_match_data`), not something scoped to one
 top-level form.
 
-## save-excursion, with-current-buffer and unwind-protect
+## save-excursion, with-current-buffer, with-temp-buffer and unwind-protect
 
 | Form | Result |
 | ---- | ------ |
 | `(save-excursion BODY...)` | Restores point and the current buffer on every exit, including an error, a `throw` or `C-g` |
 | `(with-current-buffer BUF BODY...)` | Evaluates `BODY` with `BUF` current, then restores; never selects a window |
+| `(with-temp-buffer BODY...)` | Evaluates `BODY` in a fresh, empty buffer that visits no file, then restores the caller's buffer and kills the temporary one |
 | `(unwind-protect BODY CLEANUP...)` | Evaluates `BODY`, then `CLEANUP...` as an implicit `progn` on every exit — normal return, error, `throw`, `C-g`, or step-budget exhaustion; the value is `BODY`'s, the cleanups' are discarded |
+
+`with-temp-buffer` is the other three composed, and three details of it
+are kg's. Its buffer's name starts `" *temp*"` and carries a unique
+suffix, because kg has no `generate-new-buffer` and a fixed name would
+make a nested use reuse the buffer it is already inside. Its cleanup
+clears the modified flag before killing, because kg's `kill-buffer`
+refuses a modified buffer rather than asking. And the kill itself is
+wrapped in `ignore-errors`, because a cleanup that raises *replaces* the
+completion it is unwinding, and losing what the body computed is worse
+than leaking a buffer. kg refuses a kill when the editor's lifecycle
+event queue is full; that queue drains once per keystroke and each
+temporary buffer costs three of its 64 slots, so a single command that
+opens more than about twenty temp buffers starts leaking them.
 
 All three are the same mechanism: Fe's cleanup registry
 (`FeProtectWithCleanup`), which the first two reach from C and
@@ -1071,11 +1118,14 @@ primitive's function cell.
   for `capitalize`, so the ASCII letters of a non-ASCII word are not
   each read as the start of one.
 - **A regexp never folds case, and its anchors are the subject's.**
-  There is no `case-fold-search`: `string-match`, `re-search-forward`
-  and `replace-regexp-in-string` are all case-sensitive, and
+  There is no `case-fold-search`: `string-match`, `re-search-forward`,
+  `looking-at` and `replace-regexp-in-string` are all case-sensitive, and
   `replace-regexp-in-string` therefore never case-adjusts a replacement
   either (its `FIXEDCASE` argument is accepted and ignored). `^` and `$`
-  match the start and end of the whole subject, not of each line in it.
+  match the start and end of the whole subject, not of each line in it —
+  except in the buffer, where the subject *is* one line, which is why
+  `looking-at`'s anchors behave exactly as Emacs' do and why no pattern
+  it is given can match across a line break.
 - **The writer does not re-escape a backslash inside a string.**
   `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` in Emacs, so a
   printed string holding backslashes — anything `regexp-quote` returns,
@@ -1256,10 +1306,11 @@ from this surface, each recorded here rather than silently missing:
 | The Fe-written prelude itself | `lisp/prelude.el`, embedded as `src/lisp_prelude_generated.inc` |
 | Position/codepoint conversions, buffer/mark/point natives | `src/lisp_buffer.c` |
 | Word motion, `bounds-of-thing-at-point` | `src/lisp_word.c` |
+| Line/character motion, `skip-chars-forward`/`-backward` | `src/lisp_motion.c` |
 | `load`, `require`/`provide`/`featurep`/load-path, XDG config resolution, `format`, `message`, `insert`, region edits | `src/lisp_io.c`, `src/lisp_require.c` |
 | Command registry, `command-execute`, key bindings | `src/lisp_cmd.c` |
 | Buffer/marker/process object pool, generation checks | `src/lisp_obj.[ch]` |
-| Search, `string-match`, `regexp-quote` and match data | `src/lisp_search.c` |
+| Search, `looking-at`, `string-match`, `regexp-quote` and match data | `src/lisp_search.c` |
 | Hooks and their event-drain subscriber | `src/lisp_hooks.[ch]` |
 | Process objects, filters, sentinels | `src/lisp_process.[ch]`, `src/process_table.[ch]`, `src/process.[ch]` |
 | String natives, including case conversion and `string-to-number` | `src/lisp_string.c` |

@@ -20,30 +20,28 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/auto-fill.el` | 48 | 5 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1568 | 122 |
+| `lisp/prelude.el` | 1596 | 125 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-grep.el` | 91 | 11 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2120** | **187** |
+| **total** | **2148** | **190** |
 
 ## Implemented-name set
 
 | Source | Names |
 | --- | ---: |
-| kg-native | 101 |
-| kg-lisp | 146 |
+| kg-native | 116 |
+| kg-lisp | 149 |
 | fe-primitive | 70 |
 | fe-native | 14 |
 | reader | 6 |
-| corpus (defined by the corpus itself) | 187 |
+| corpus (defined by the corpus itself) | 190 |
 
-## MISSING (6 names, 7 references)
+## MISSING (4 names, 4 references)
 
 | Refs | Name | Wanted by |
 | ---: | --- | --- |
-| 2 | `erase-buffer` | forecast-grep.el, forecast-wordcount.el |
-| 1 | `beginning-of-line` | forecast-grep.el |
 | 1 | `gethash` | forecast-wordcount.el |
 | 1 | `make-hash-table` | forecast-wordcount.el |
 | 1 | `maphash` | forecast-wordcount.el |
@@ -59,7 +57,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 0 | -- |
 | records | 0 | -- |
 
-## COVERED (218 names, 2113 references)
+## COVERED (220 names, 2144 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -67,19 +65,19 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 144 | `cdr` | fe-primitive |
 | 134 | `car` | fe-primitive |
 | 129 | `if` | fe-primitive |
-| 122 | `defalias` | fe-primitive |
-| 112 | `list` | fe-primitive |
-| 109 | `lambda` | fe-primitive |
-| 69 | `cons` | fe-primitive |
+| 126 | `list` | fe-primitive |
+| 125 | `defalias` | fe-primitive |
+| 111 | `lambda` | fe-primitive |
+| 71 | `cons` | fe-primitive |
 | 63 | `let` | kg-lisp |
 | 62 | `defun` | kg-lisp |
 | 60 | `while` | fe-primitive |
-| 49 | `internal--let` | kg-lisp |
+| 50 | `internal--let` | kg-lisp |
 | 48 | `and` | fe-primitive |
 | 32 | `eq` | fe-primitive |
 | 28 | `not` | fe-primitive |
 | 26 | `<` | fe-primitive |
-| 22 | `macro` | fe-primitive |
+| 23 | `macro` | fe-primitive |
 | 21 | `-` | fe-primitive |
 | 21 | `=` | fe-primitive |
 | 20 | `length` | kg-lisp |
@@ -102,11 +100,12 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 10 | `string=` | kg-native |
 | 9 | `<=` | fe-primitive |
 | 9 | `error` | fe-primitive |
+| 9 | `point-min` | kg-native |
 | 9 | `signal` | fe-primitive |
 | 8 | `downcase` | kg-native |
 | 8 | `message` | kg-native |
-| 8 | `point-min` | kg-native |
-| 7 | `point-max` | kg-native |
+| 8 | `point-max` | kg-native |
+| 7 | `goto-char` | kg-native |
 | 7 | `setcdr` | fe-primitive |
 | 6 | `provide` | kg-native |
 | 6 | `regexp-quote` | kg-native |
@@ -114,7 +113,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 5 | `1+` | kg-lisp |
 | 5 | `dolist` | kg-lisp |
 | 5 | `equal` | kg-lisp |
-| 5 | `goto-char` | kg-native |
 | 5 | `internal--qq` | kg-lisp |
 | 5 | `match-end` | kg-native |
 | 5 | `match-string` | kg-lisp |
@@ -147,6 +145,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 3 | `forecast-snippet--fields` | corpus |
 | 3 | `forecast-snippet--template` | corpus |
 | 3 | `forecast-wordcount--words` | corpus |
+| 3 | `gensym` | fe-primitive |
 | 3 | `get-buffer-create` | kg-native |
 | 3 | `goto-line` | kg-native |
 | 3 | `integerp` | fe-primitive |
@@ -165,6 +164,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 2 | `char-to-string` | kg-native |
 | 2 | `condition-case` | fe-primitive |
 | 2 | `current-column` | kg-native |
+| 2 | `erase-buffer` | kg-native |
 | 2 | `expt` | fe-native |
 | 2 | `floor` | fe-native |
 | 2 | `forecast-grep--fold` | corpus |
@@ -175,7 +175,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 2 | `forecast-snippet-expand` | corpus |
 | 2 | `forecast-wordcount--interesting-p` | corpus |
 | 2 | `forecast-wordcount--tally-alist` | corpus |
-| 2 | `gensym` | fe-primitive |
 | 2 | `global-set-key` | kg-native |
 | 2 | `intern` | fe-primitive |
 | 2 | `internal--append2` | kg-lisp |
@@ -209,6 +208,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 1 | `1-` | kg-lisp |
 | 1 | `auto-fill--break` | kg-lisp |
 | 1 | `auto-fill--find-break` | kg-lisp |
+| 1 | `beginning-of-line` | kg-native |
 | 1 | `capitalize` | kg-native |
 | 1 | `catch` | fe-primitive |
 | 1 | `completing-read` | kg-native |

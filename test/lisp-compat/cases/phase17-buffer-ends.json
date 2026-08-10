@@ -1,0 +1,7 @@
+{
+ "id": "phase17-buffer-ends",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"abc\") (goto-char 2) (list (beginning-of-buffer) (point) (end-of-buffer) (point)))\n (with-temp-buffer (list (beginning-of-buffer) (point) (end-of-buffer) (point))))",
+ "note": "Where point lands, and what the two forms answer. This half agrees; the mark is the half that does not (phase17-buffer-ends-do-not-push-the-mark).",
+ "expect": "agree"
+}

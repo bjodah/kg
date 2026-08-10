@@ -1,0 +1,7 @@
+{
+ "id": "phase17-forward-char",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"abc\") (goto-char 1) (list (forward-char 2) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 1) (list (forward-char) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 2) (list (forward-char 0) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 3) (list (forward-char -1) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 3) (list (backward-char) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 1) (list (backward-char -2) (point)))\n (with-temp-buffer (insert \"a\\nb\") (goto-char 1) (list (forward-char 2) (point))))",
+ "note": "Both directions, the default count, a zero count, a negative count (which reverses each of them), and a move across a line break -- everything about these two that does not touch the ends of the buffer.",
+ "expect": "agree"
+}

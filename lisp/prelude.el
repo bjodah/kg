@@ -403,6 +403,54 @@
     (list 'unwind-protect
       (list 'progn (list 'set-buffer buf) (cons 'progn body))
       (list 'internal--excursion-restore sym)))))
+;; `with-temp-buffer' is Emacs' shape exactly: a fresh buffer, made
+;; current for the body, killed on every way out.  Three details are kg's
+;; and each one is forced.
+;;
+;; The NAME is minted at run time, from `gensym', not at expansion time:
+;; a fixed name would make a nested or recursive `with-temp-buffer' reuse
+;; the buffer it is already inside, and Emacs' `generate-new-buffer' --
+;; which kg does not have -- is what stops that there.
+;;
+;; The cleanup CLEARS THE MODIFIED FLAG before killing.  kg's
+;; `kill-buffer' refuses a modified buffer rather than asking (there is
+;; no prompt inside an unwind cleanup to ask with), and a temp buffer
+;; that the body wrote to is modified by definition, so without this line
+;; every useful `with-temp-buffer' would raise on its way out.
+;;
+;; The kill is the OUTER form, after `with-current-buffer' has already
+;; put the caller's buffer back: killing the current buffer would leave
+;; the frame pointing at a dead one.  And it is wrapped in
+;; `ignore-errors', for the reason `save-excursion' above documents: a
+;; cleanup that raises REPLACES the completion it is unwinding, so a
+;; refused kill would swallow the body's value AND the body's error.  kg
+;; refuses one when the editor's lifecycle event queue is full, which is
+;; a real bound: the queue drains once per keystroke, each temp buffer
+;; costs it three events out of 64, so a single command that opens more
+;; than about twenty temp buffers starts leaking them.  Leaking a buffer
+;; is a worse outcome than not leaking one and a much better outcome than
+;; losing what the body computed.
+(defalias 'with-temp-buffer (macro body
+  (internal--let name (gensym "internal--temp-name-"))
+  (list 'internal--let
+    (list (list name (list 'symbol-name (list 'gensym " *temp*-"))))
+    (list 'unwind-protect
+      (cons 'with-current-buffer
+        (cons (list 'get-buffer-create name) body))
+      (list 'progn
+        (list 'with-current-buffer (list 'get-buffer-create name)
+          (list 'set-buffer-modified-p nil))
+        (list 'ignore-errors (list 'kill-buffer (list 'get-buffer-create name))))))))
+;; `beginning-of-buffer'/`end-of-buffer' are `goto-char' sugar here, and
+;; deliberately nothing more.  Emacs' are commands that also PUSH THE
+;; MARK, so C-x C-x returns you; kg's `set-mark' additionally lights the
+;; region up, which a Lisp call has no business doing, and kg has no
+;; unhighlighted `push-mark' to use instead.  Recorded as a divergence
+;; (the manifest's beginning-of-buffer/end-of-buffer rows) rather than
+;; approximated.  The Emacs manual's own advice for Lisp code is
+;; `(goto-char (point-min))', which is what these are.
+(defalias 'beginning-of-buffer (lambda () (goto-char (point-min))))
+(defalias 'end-of-buffer (lambda () (goto-char (point-max))))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
 (defalias 'internal--qq (lambda (form &optional depth)
   (if (null depth) (setq depth 1))

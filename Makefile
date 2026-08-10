@@ -241,8 +241,8 @@ endif
 LISP_SRCS = lisp_core.c
 ifeq ($(WITH_LISP),1)
 LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
-             lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c lisp_hooks.c \
-             lisp_process.c lisp_require.c lisp_prompt.c
+             lisp_motion.c lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c \
+             lisp_hooks.c lisp_process.c lisp_require.c lisp_prompt.c
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 

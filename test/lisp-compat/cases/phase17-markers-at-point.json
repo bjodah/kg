@@ -1,0 +1,7 @@
+{
+ "id": "phase17-markers-at-point",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"abc\") (goto-char 2) (list (marker-position (point-marker)) (marker-position (copy-marker)) (marker-position (copy-marker 3)) (marker-position (make-marker))))\n (with-temp-buffer (insert \"abc\") (goto-char 2) (marker-position (copy-marker (point-marker))))\n (with-temp-buffer (insert \"abc\") (list (marker-position (copy-marker 99)) (marker-position (copy-marker -5))))\n (with-temp-buffer (insert \"abc\") (goto-char 2) (let ((m (point-marker))) (goto-char 3) (list (marker-position m) (point)))))",
+ "note": "make-marker points nowhere, point-marker points at point, and copy-marker takes a position, another marker, or nothing at all -- and nothing at all detaches, measured, whatever the docstring's MARKER argument suggests. Out-of-range positions clamp, and a marker does not follow point.",
+ "expect": "agree"
+}

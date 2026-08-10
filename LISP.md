@@ -165,6 +165,13 @@ bytes, so multi-byte text addresses the same way it reads.
 | `(char-after)` / `(char-after N)` | Codepoint as a number, `nil` at end of buffer |
 | `(forward-word)` / `(forward-word N)` | Move point over `N` words |
 | `(backward-word)` / `(backward-word N)` | Move point back over `N` words |
+| `(forward-char &optional N)` / `(backward-char &optional N)` | Move point over `N` characters; a line break is one |
+| `(forward-line &optional N)` | `N` lines on, to the beginning of a line; answers how many of `N` were not travelled |
+| `(beginning-of-line &optional N)` / `(end-of-line &optional N)` | Start/end of the line `N - 1` lines on from this one |
+| `(beginning-of-buffer)` / `(end-of-buffer)` | `(goto-char (point-min))` / `(goto-char (point-max))` |
+| `(skip-chars-forward SPEC &optional LIM)` / `(skip-chars-backward SPEC ...)` | Move over characters in `SPEC`; answers the signed distance |
+| `(buffer-file-name &optional BUF)` | The file `BUF` visits, or `nil` |
+| `(buffer-modified-p &optional BUF)` / `(set-buffer-modified-p FLAG)` | Read and write the unsaved-changes flag |
 | `(bounds-of-thing-at-point THING)` | Cons `(START . END)` for `'word` or `'line`, or `nil` |
 
 `goto-line` counts lines from 1 and, like its Emacs namesake, takes no
@@ -191,7 +198,12 @@ call below is one undo step:
 | `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; an error on a bad or too-complex pattern |
 | `(re-search-backward PATTERN &optional BOUND)` | Regexp search backward; see the caveat below |
 | `(match-beginning N)` / `(match-end N)` | Group `N`'s bounds from the last search, or `nil` |
-| `(make-marker)` | A marker at point in the current buffer |
+| `(delete-char &optional N)` | Delete `N` characters after point, or `-N` before it |
+| `(erase-buffer)` | The whole buffer becomes empty |
+| `(looking-at REGEXP)` | `t` when `REGEXP` matches at point; sets the match data, moves point nowhere |
+| `(make-marker)` | A marker that points nowhere until something sets it |
+| `(point-marker)` | A marker at point in the current buffer |
+| `(copy-marker &optional POSITION TYPE)` | A marker at `POSITION`, or nowhere when it is omitted |
 | `(set-marker MARKER POS &optional BUF)` | Move `MARKER`; `POS` nil detaches it |
 | `(marker-position MARKER)` / `(marker-buffer MARKER)` | Where `MARKER` points, or `nil` if nowhere |
 

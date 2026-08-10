@@ -139,6 +139,11 @@ struct kg_buffer_handle lisp_object_buffer_handle(
 struct FeObject *lisp_marker_object(struct FeContext *ctx,
     struct editor_buffer *b, size_t pos, enum kg_marker_gravity gravity);
 
+/* A fresh marker object pointing nowhere: `make-marker''s answer, and
+ * `copy-marker''s when it is given no position.  Raises only when the
+ * pool is exhausted -- there is no kg_marker behind it to fail. */
+struct FeObject *lisp_marker_object_detached(struct FeContext *ctx);
+
 /* The marker handle `obj` names, raising when `obj` is not a marker
  * object at all.  A marker that points nowhere -- never set, detached, or
  * its buffer has died -- is not itself an error: it answers with a handle

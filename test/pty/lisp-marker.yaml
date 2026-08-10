@@ -1,6 +1,10 @@
-# make-marker/set-marker/marker-position: a marker relocates through an
-# edit that lands before it, and (goto-char (marker-position m)) still
-# addresses the same logical text afterwards.
+# point-marker/marker-position: a marker relocates through an edit that
+# lands before it, and (goto-char (marker-position m)) still addresses the
+# same logical text afterwards.
+#
+# point-marker, not make-marker: Phase 17 gave make-marker Emacs' own
+# meaning (a marker that points nowhere) and point-marker the meaning it
+# used to have.
 name: lisp-marker
 filename: lisp-marker.txt
 requires_feature: lisp
@@ -9,7 +13,7 @@ config_files:
     (defun marker-test ()
       (interactive)
       (goto-char 7)
-      (setq m (make-marker))
+      (setq m (point-marker))
       (goto-char 1)
       (insert "XXXXX")
       (goto-char (marker-position m))

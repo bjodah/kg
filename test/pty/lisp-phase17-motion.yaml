@@ -1,0 +1,50 @@
+# Phase 17's motion and edit natives, driven from a real command in a real
+# terminal.  The unit tests and the oracle cases both run without a
+# window; what this adds is that point moves in the WINDOW too -- the
+# runtime point marker is synced back to the cursor when the command
+# returns -- so a command that ends with (forward-line ...) leaves the
+# user's cursor where the Lisp put it, and the next typed character lands
+# there.
+name: lisp-phase17-motion
+filename: lisp-phase17-motion.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    ;; Walk to the third line with forward-line, to the end of it with
+    ;; end-of-line, and leave point there.  The mark is untouched.
+    (defun phase17-walk ()
+      (interactive)
+      (goto-char (point-min))
+      (forward-line 2)
+      (end-of-line)
+      (insert (format "<%d>" (line-number-at-pos))))
+    ;; skip-chars-forward over the indent, then delete-char over the
+    ;; marker word, then looking-at to decide whether to say so.
+    (defun phase17-trim ()
+      (interactive)
+      (goto-char (point-min))
+      (forward-line 1)
+      (beginning-of-line)
+      (skip-chars-forward " \t")
+      (if (looking-at "DROP")
+          (delete-char 5)
+        (insert "?")))
+    (global-set-key "C-c w" "phase17-walk")
+    (global-set-key "C-c t" "phase17-trim")
+initial: |-
+  alpha
+      DROP beta
+  gamma
+keys:
+  - C-c
+  - w
+  - C-c
+  - t
+  # Point is left where phase17-trim put it: typing lands there, which is
+  # what proves the Lisp moved the window's cursor and not only a marker.
+  - "!"
+expected_saved: |-
+  alpha
+      !beta
+  gamma<3>
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

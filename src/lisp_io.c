@@ -657,11 +657,11 @@ FeObject *native_replace_region(FeContext *context, FeObject *arguments)
 	return FeNil(context);
 }
 
-/* (buffer-name [buf]): the display name of the exec buffer, or of the
- * buffer object `arguments` names.  Extracted so the native body has no
- * branches of its own. */
-static struct editor_buffer *lisp_buffer_name_target(
-    FeContext *context, FeObject **arguments)
+/* The optional BUFFER argument the buffer-inspecting natives share: the
+ * exec buffer when it is omitted or nil, the buffer that object names
+ * otherwise.  Extracted so each native body has no branches of its own. */
+static struct editor_buffer *lisp_buffer_argument(
+    FeContext *context, FeObject **arguments, const char *what)
 {
 	if (FeIsNil(*arguments)) {
 		return lisp_exec_buffer(context);
@@ -669,16 +669,121 @@ static struct editor_buffer *lisp_buffer_name_target(
 	FeObject *object = FeGetNextArgument(context, arguments);
 
 	FeRequireNoArguments(context, *arguments);
-	return lisp_buffer_resolve(context, object, "buffer-name");
+	if (FeIsNil(object)) {
+		return lisp_exec_buffer(context);
+	}
+	return lisp_buffer_resolve(context, object, what);
 }
 
 FeObject *native_buffer_name(FeContext *context, FeObject *arguments)
 {
 	char name[PATH_MAX];
-	struct editor_buffer *b = lisp_buffer_name_target(context, &arguments);
+	struct editor_buffer *b
+	    = lisp_buffer_argument(context, &arguments, "buffer-name");
 
 	buf_display_name(buf_handle_slot(buf_handle_of(b)), name, sizeof(name));
 	return FeMakeString(context, name);
+}
+
+/* (buffer-file-name &optional BUFFER): the file the buffer visits, or nil
+ * for one that visits none.
+ *
+ * kg keeps the buffer's NAME in the same field whether it is a path or
+ * not, so the question is buf_visits_file()'s and not "is `filename' set"
+ * -- a *scratch* buffer and a C-x b buffer both have a name there and
+ * neither visits anything.  What is reported is what the editor holds:
+ * Emacs stores an absolute path and kg stores the name as the command
+ * line or C-x C-f gave it, since kg has no expand-file-name to build one
+ * with and inventing a directory would be worse than reporting the truth. */
+FeObject *native_buffer_file_name(FeContext *context, FeObject *arguments)
+{
+	struct editor_buffer *b
+	    = lisp_buffer_argument(context, &arguments, "buffer-file-name");
+
+	if (b->filename == nullptr || b->filename[0] == '\0'
+	    || !buf_visits_file(b)) {
+		return FeNil(context);
+	}
+	return FeMakeString(context, b->filename);
+}
+
+/* (buffer-modified-p &optional BUFFER): kg's own dirty flag, which is
+ * what the mode line, C-x s and kill-buffer already read. */
+FeObject *native_buffer_modified_p(FeContext *context, FeObject *arguments)
+{
+	struct editor_buffer *b
+	    = lisp_buffer_argument(context, &arguments, "buffer-modified-p");
+
+	return FeMakeBool(context, b->dirty != 0);
+}
+
+/* (set-buffer-modified-p FLAG): set the flag on the exec buffer.  Emacs
+ * takes no BUFFER argument here (only `buffer-modified-p' does) and
+ * answers nil rather than FLAG -- measured on 31.0.90, where the
+ * docstring's "Return FLAG" is not what the function does. */
+FeObject *native_set_buffer_modified_p(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+
+	FeRequireNoArguments(context, arguments);
+	b->dirty = FeIsNil(object) ? 0 : 1;
+	return FeNil(context);
+}
+
+/* (delete-char &optional N): N characters after point, or |N| before it
+ * for a negative N, as one gateway call and therefore one undo step.
+ *
+ * Emacs signals `end-of-buffer'/`beginning-of-buffer' and deletes nothing
+ * when the buffer is too short; kg clamps and deletes what is there, the
+ * same choice the motion natives make and for the same reason (fe's
+ * condition table has neither name).  Recorded in the manifest. */
+FeObject *native_delete_char(FeContext *context, FeObject *arguments)
+{
+	long count = lisp_optional_count(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	long here = lisp_exec_point_char(context);
+	long other = here + count;
+	size_t beg, end;
+
+	FeRequireNoArguments(context, arguments);
+	if (b->readonly) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (other < 0) {
+		other = 0;
+	}
+	if (other > lisp_buffer_char_length(b)) {
+		other = lisp_buffer_char_length(b);
+	}
+	beg = lisp_byte_of_char_offset(b, count < 0 ? other : here);
+	end = lisp_byte_of_char_offset(b, count < 0 ? here : other);
+	if (end != beg) {
+		struct kg_edit edit = kg_edit_user(b, beg, end, "", 0);
+
+		(void)kg_buffer_replace(&edit, NULL);
+	}
+	return FeNil(context);
+}
+
+/* (erase-buffer): the whole buffer becomes empty, as one gateway call and
+ * therefore one undo step.  Emacs ignores narrowing here; kg has none. */
+FeObject *native_erase_buffer(FeContext *context, FeObject *arguments)
+{
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t end;
+
+	FeRequireNoArguments(context, arguments);
+	if (b->readonly) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	end = buffer_byte_length(b);
+	if (end != 0) {
+		struct kg_edit edit = kg_edit_user(b, 0, end, "", 0);
+
+		(void)kg_buffer_replace(&edit, NULL);
+	}
+	return FeNil(context);
 }
 
 /* Resolve <config>/kg/<stem> using $XDG_CONFIG_HOME, falling back to

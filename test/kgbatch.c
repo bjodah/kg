@@ -97,6 +97,13 @@ static void open_scratch_buffer(void)
 	b->active = 1;
 	b->readonly_override = -1;
 	b->filename = nullptr;
+	/* buf_load_args() is what normally claims the first slot, and it sets
+	 * this; without it bufmgr believes it holds zero buffers and refuses
+	 * to kill any -- buf_kill_buffer() keeps the last one alive -- so the
+	 * first `with-temp-buffer' of a run leaked its buffer.  Found by
+	 * Phase 17's with-temp-buffer, which is the first thing here to kill
+	 * a buffer at all. */
+	buf_count = 1;
 	wcur()->h = 24;
 	wcur()->w = 80;
 	winlist[win_current].active = 1;

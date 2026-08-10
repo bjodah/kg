@@ -1,0 +1,7 @@
+{
+ "id": "phase17-looking-at",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"hello world\") (goto-char 1) (list (looking-at \"h.l\") (match-beginning 0) (match-end 0) (looking-at \"ell\") (point)))\n (with-temp-buffer (insert \"hello world\") (goto-char 2) (list (looking-at \"ell\") (match-beginning 0) (match-end 0)))\n (with-temp-buffer (insert \"foo-42\") (goto-char 1) (list (looking-at \"\\\\([a-z]+\\\\)-\\\\([0-9]+\\\\)\") (match-string 1) (match-string 2)))\n (with-temp-buffer (insert \"ab\\ncd\") (goto-char 1) (list (looking-at \"ab$\") (looking-at \"^ab\")))\n (with-temp-buffer (insert \"ab\\ncd\") (goto-char 2) (list (looking-at \"^b\") (looking-at \"b$\")))\n (with-temp-buffer (list (looking-at \"\") (looking-at \"a\"))))",
+ "note": "looking-at is ANCHORED: it matches at point or not at all, sets the match data when it does, and never moves point. Groups, the two line anchors from both sides of a line break, and an empty buffer.",
+ "expect": "agree"
+}

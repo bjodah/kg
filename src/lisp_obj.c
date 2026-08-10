@@ -238,6 +238,24 @@ struct FeObject *lisp_marker_object(struct FeContext *ctx,
 	return rec->wrapper;
 }
 
+/* A marker object pointing nowhere: `make-marker''s answer and
+ * `copy-marker''s when it is given no position.  It takes a pool record
+ * like any other marker but no kg_marker, so nothing has to be created
+ * only to be deleted again. */
+struct FeObject *lisp_marker_object_detached(struct FeContext *ctx)
+{
+	struct kg_lisp_object *rec = find_free_record();
+
+	if (rec == NULL) {
+		FeHandleError(ctx, "too many marker objects");
+	}
+	rec->kind = KG_LISP_OBJECT_MARKER;
+	rec->marker = (struct kg_marker_handle) { { -1, 0, 0 }, 0, 0 };
+	rec->active = true;
+	rec->wrapper = FeMakePtr(ctx, FeTFex0, rec);
+	return rec->wrapper;
+}
+
 struct kg_marker_handle lisp_marker_resolve(
     struct FeContext *ctx, struct FeObject *obj)
 {
@@ -686,18 +704,72 @@ FeObject *native_kill_buffer(FeContext *context, FeObject *arguments)
 }
 
 /* ---- Marker natives ---------------------------------------------------
- * (make-marker) follows this sub-plan's own table rather than Emacs':
- * real make-marker returns a detached marker and point-marker is the one
- * that starts at point.  Recorded as a naming mismatch worth revisiting
- * in the Phase 3 notes rather than silently picking one. */
+ * (make-marker) answers a DETACHED marker, as Emacs' does, and
+ * (point-marker) is the one that starts at point.  It answered a marker
+ * at point from sub-plan 03's table until Phase 17, which is a name for
+ * point-marker's behaviour and was recorded as a divergence for four
+ * phases; adding point-marker is what made correcting it free, because
+ * every caller that wanted the old answer now has a name for it. */
 
 FeObject *native_make_marker(FeContext *context, FeObject *arguments)
+{
+	FeRequireNoArguments(context, arguments);
+	return lisp_marker_object_detached(context);
+}
+
+/* (point-marker): a marker at point in the current buffer, insertion type
+ * nil -- text inserted at its position does not carry it along. */
+FeObject *native_point_marker(FeContext *context, FeObject *arguments)
 {
 	struct editor_buffer *b = lisp_exec_buffer(context);
 
 	FeRequireNoArguments(context, arguments);
 	return lisp_marker_object(
 	    context, b, lisp_exec_point_byte(context), KG_MARKER_GRAV_LEFT);
+}
+
+/* (copy-marker &optional POSITION TYPE): a new marker at POSITION, which
+ * is a buffer position, another marker, or -- measured on 31.0.90, where
+ * the docstring's "MARKER" reads as if it defaulted to point -- omitted,
+ * which detaches it exactly as (make-marker) does.  A marker POSITION is
+ * copied in its own buffer, not in the current one.  Non-nil TYPE is
+ * Emacs' insertion type t: the marker advances ahead of text inserted at
+ * it, which is kg's right gravity. */
+FeObject *native_copy_marker(FeContext *context, FeObject *arguments)
+{
+	FeObject *position = NULL, *type = NULL;
+	enum kg_marker_gravity gravity;
+	struct editor_buffer *b;
+
+	if (!FeIsNil(arguments)) {
+		position = FeGetNextArgument(context, &arguments);
+	}
+	if (!FeIsNil(arguments)) {
+		type = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	gravity = type != NULL && !FeIsNil(type) ? KG_MARKER_GRAV_RIGHT
+						 : KG_MARKER_GRAV_LEFT;
+	if (position == NULL || FeIsNil(position)) {
+		return lisp_marker_object_detached(context);
+	}
+	if (lisp_object_is_marker(context, position)) {
+		struct kg_marker_handle handle
+		    = lisp_marker_resolve(context, position);
+		size_t byte;
+
+		b = buf_resolve(handle.buffer);
+		if (b == NULL
+		    || kg_marker_resolve(handle, &byte) != KG_MARKER_OK) {
+			return lisp_marker_object_detached(context);
+		}
+		return lisp_marker_object(context, b, byte, gravity);
+	}
+	b = lisp_exec_buffer(context);
+	return lisp_marker_object(context, b,
+	    lisp_byte_of_char_offset(
+		b, lisp_offset_argument(context, b, position)),
+	    gravity);
 }
 
 /* (set-marker MARKER POSITION &optional BUFFER): POSITION nil detaches

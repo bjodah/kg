@@ -218,19 +218,25 @@ against full rebuilds.  Known follow-ups, none blocking:
       buffer picker supplies its own, and `y-or-n-p` keeps kg's one-key
       confirmation policy where Emacs re-asks.  Reopening any of them
       needs the divergence row's rationale answered, not this box.
-- [ ] **The forecast audit's residual tail** (Phase 15,
-      `utils/forecast/AUDIT.md`).  Six names, seven references, and they
-      partition cleanly: `erase-buffer` (2) and `beginning-of-line` (1)
-      are editor natives and belong to Phase 17's missing-natives list --
-      `beginning-of-line` is not on that list today and should join it,
-      since kg has `move-beginning-of-line` and Emacs has both -- and
-      `make-hash-table`/`puthash`/`gethash`/`maphash` (1 each) are the
-      hash-table watch item, whose whole measured demand across the
-      corpus is those four references from one package sketch that also
-      spells the same tally with an alist.  The tail is the number to
-      re-read before scoping Phase 17's package milestone: a
-      grep/occur-style helper is one native away from being writable,
-      and the templating sketch already is.
+- [x] **The forecast audit's residual tail** (Phase 15, closed by
+      Phase 17).  It was six names and seven references, partitioning
+      cleanly: `erase-buffer` (2) and `beginning-of-line` (1) were editor
+      natives and joined Phase 17's missing-natives list, which is what
+      made the grep/occur helper writable; the four hash-table names are
+      the watch item and stay off the roadmap.  The audit now reports a
+      MISSING list of exactly those four.
+- [ ] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17).
+      Every kg motion native clamps at the ends of the buffer where Emacs
+      signals one of these two, and `delete-char` clamps its count where
+      Emacs signals and deletes nothing.  The cause is one table: fe gates
+      `signal` on `condition_parents[]` (`fe/fe_eval.c`) and neither name
+      is in it, so raising one is an fe language change -- an fe commit,
+      its own compat rows, an `FE_LANGUAGE_VERSION` bump and a pin move --
+      rather than a kg native.  Recorded as five `divergent` rows in
+      `test/lisp-compat/features.json`, each with the case that pins the
+      difference.  The `delete-char` one is the row that costs a user
+      text an Emacs user would still have, so it is the one that decides
+      whether this is worth an fe wave.
 - [ ] **`logand`, `logior`, `logxor`**, declined by Phase 15 with the
       measurement rather than the intuition: the forecast corpus contains
       **zero** references to any bitwise operation.  `ash` landed because

@@ -1,0 +1,6 @@
+{
+ "id": "phase17-buffer-file-name",
+ "setup": [],
+ "expr": "(buffer-file-name)",
+ "note": "Reads kg's own buffer name field; kg-policy, since a batch Emacs and kg do not visit the same file."
+}

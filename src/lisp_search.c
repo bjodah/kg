@@ -595,3 +595,61 @@ FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
 	release_scratch();
 	return result;
 }
+
+/* ---- looking-at -------------------------------------------------------
+ *
+ * (looking-at REGEXP): t when REGEXP matches the buffer text starting
+ * exactly at point, setting the match data as a search does, and moving
+ * point nowhere.
+ *
+ * It is anchored, and the engine has no anchored entry point -- but it
+ * does not need one.  re_exec() reports the LEFTMOST match at or after
+ * the offset it is given, so a match that starts at point is the one it
+ * finds, and a reported start past point proves there is none there.
+ * The spans are then the anchored match's own.
+ *
+ * Two inherited properties, both recorded in the manifest rather than
+ * papered over: the subject is one row, so no pattern matches across a
+ * line break the way Emacs' does; and `^'/`$' anchor that row, which is
+ * exactly beginning- and end-of-line here and is therefore the one place
+ * the row-at-a-time architecture happens to agree with Emacs. */
+FeObject *native_looking_at(FeContext *context, FeObject *arguments)
+{
+	FeObject *pattern_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	struct kg_match match = { 0 };
+	struct kg_regex rx;
+	char *pattern;
+	size_t pattern_len;
+	const char *subject = "";
+	int row = 0, col = 0, status;
+
+	lisp_check_string(context, pattern_object);
+	pattern = copy_fe_string(context, pattern_object, &pattern_len);
+	state.scratch = pattern;
+	FeRequireNoArguments(context, arguments);
+	lisp_compile_or_raise(context, &rx, pattern);
+	release_scratch();
+	/* An empty buffer has no row to hand the engine, and an empty
+	 * subject is exactly what point is looking at there. */
+	if (b->numrows > 0) {
+		buffer_position_to_row_col(
+		    b, lisp_exec_point_byte(context), &row, &col);
+		subject = b->row[row].chars;
+	}
+	status = kg_regex_match_forward(&rx, subject, col, &match);
+	if (status == KG_REGEX_TOO_COMPLEX) {
+		FeHandleError(
+		    context, "looking-at: regular expression too complex");
+	}
+	if (status != KG_REGEX_OK || match.spans[0].start != col) {
+		return FeMakeBool(context, false);
+	}
+	state.match = (struct kg_lisp_match_data) { 0 };
+	state.match.valid = true;
+	state.match.on_string = false;
+	state.match.buffer = state.exec.buffer;
+	state.match.row = row;
+	state.match.match = match;
+	return FeMakeBool(context, true);
+}

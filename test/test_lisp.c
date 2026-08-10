@@ -2706,10 +2706,9 @@ static void test_search_cancellation(void)
 }
 
 /* ---- Marker natives ----------------------------------------------------
- * (make-marker) here starts at point in the exec buffer, per this
- * sub-plan's own table -- not Emacs' make-marker, which starts detached
- * (Emacs' point-marker is the one that starts at point).  Recorded as a
- * naming mismatch worth revisiting in the Phase 3 notes. */
+ * (make-marker) answers a detached marker and (point-marker) one at
+ * point, which is Emacs' split.  It answered point-marker's marker from
+ * sub-plan 03 until Phase 17 added the name that meant it. */
 
 static void test_markers(void)
 {
@@ -2717,13 +2716,24 @@ static void test_markers(void)
 	editor_insert_row(bcur(), 0, "hello world", 11);
 	CHECK(kg_lisp_init() == 0);
 
+	/* Emacs' make-marker points nowhere until something sets it. */
+	CHECK(eval_eq("(marker-position (make-marker))", "nil"));
+	CHECK(eval_eq("(marker-buffer (make-marker))", "nil"));
+	CHECK(eval_eq("(type-of (make-marker))", "marker"));
+
 	CHECK(eval_ok("(goto-char 7)"));
-	CHECK(eval_ok("(setq m (make-marker))"));
+	CHECK(eval_ok("(setq m (point-marker))"));
 	CHECK(eval_eq("(type-of m)", "marker"));
 	CHECK(eval_eq("(marker-position m)", "7"));
 	CHECK(eval_eq("(eq (marker-buffer m) (current-buffer))", "t"));
 	/* Unlike buffer objects, two markers are never eq. */
 	CHECK(eval_eq("(eq (make-marker) (make-marker))", "nil"));
+	/* copy-marker takes a position, another marker, or nothing at all --
+	 * and nothing at all detaches, measured on Emacs 31.0.90. */
+	CHECK(eval_eq("(marker-position (copy-marker))", "nil"));
+	CHECK(eval_eq("(marker-position (copy-marker 3))", "3"));
+	CHECK(eval_eq("(marker-position (copy-marker m))", "7"));
+	CHECK(eval_eq("(eq (copy-marker m) m)", "nil"));
 
 	/* An insertion strictly before the marker always pushes it
 	 * forward, whatever its gravity. */
@@ -2764,7 +2774,7 @@ static void test_marker_survives_buffer_kill(void)
 	/* set-buffer and make-marker have to share a form for the marker to
 	 * land in "doomed" rather than the window's own buffer -- see the
 	 * struct kg_lisp_exec_ctx comment in lisp_internal.h. */
-	CHECK(eval_ok("(progn (set-buffer h) (setq m (make-marker)))"));
+	CHECK(eval_ok("(progn (set-buffer h) (setq m (point-marker)))"));
 	CHECK(eval_ok("(kill-buffer h)"));
 
 	CHECK(eval_eq("(marker-position m)", "nil"));
@@ -5318,8 +5328,9 @@ static void test_quit_uncaught(void)
  * Phase 12's close, +3 at its fix cycle's loader rebuild (load, require,
  * internal--load-loop), +2 for the line-motion pair
  * (move-beginning-of-line, move-end-of-line), +40 for Phase 15's string
- * and list library. */
-#define PRELUDE_DEFS 122
+ * and list library, +3 for Phase 17's with-temp-buffer and the
+ * beginning-of-buffer/end-of-buffer pair. */
+#define PRELUDE_DEFS 125
 
 static void test_prelude_source_file(void)
 {
@@ -5843,7 +5854,7 @@ static void test_save_excursion_pool_bound(void)
 	 * wrappers.  Without the wrapper-identity check in lisp_object_gc()
 	 * this answers "marker-position: expected a marker". */
 	CHECK(eval_ok("(goto-char 3)"));
-	CHECK(eval_ok("(setq pm (make-marker))"));
+	CHECK(eval_ok("(setq pm (point-marker))"));
 	CHECK(eval_ok("(let ((j 0)) (while (< j 40000) (setq j (+ j 1)) "
 		      "(cons j j)))"));
 	CHECK(eval_eq("(marker-position pm)", "3"));
@@ -5874,13 +5885,249 @@ static void test_save_excursion_pool_bound(void)
 	 * because a failed 400 leaves those records taken until something
 	 * provokes a collection. */
 	CHECK(eval_eq("(let ((held '()) (i 0)) (while (< i 200)"
-		      " (setq held (cons (make-marker) held))"
+		      " (setq held (cons (point-marker) held))"
 		      " (setq i (+ i 1))) (length held))",
 	    "200"));
 	CHECK(eval_error_contains("(let ((held '()) (i 0)) (while (< i 400)"
-				  " (setq held (cons (make-marker) held))"
+				  " (setq held (cons (point-marker) held))"
 				  " (setq i (+ i 1))) (length held))",
 	    "too many marker objects"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* ---- Phase 17: reaching the editor ------------------------------------
+ *
+ * These six functions are the kg side of the manifest rows the oracle
+ * cases pin from the other side.  What is here rather than there is what
+ * an Emacs snapshot cannot see: kg's undo steps, its read-only refusal,
+ * its own bounds, and the shapes that raise.
+ */
+
+static void test_phase17_line_motion(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "aa", 2);
+	editor_insert_row(bcur(), 1, "bbbb", 4);
+	editor_insert_row(bcur(), 2, "cc", 2);
+	CHECK(kg_lisp_init() == 0);
+
+	/* The shortfall, and where point lands, for a move that fits and one
+	 * that does not.  A buffer with no final newline costs one extra. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 1) (list (forward-line 1) (point)))", "(0 4)"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 1) (list (forward-line 9) (point)))", "(6 11)"));
+	CHECK(eval_eq("(progn (goto-char 9) (list (forward-line -9) (point)))",
+	    "(-7 1)"));
+
+	CHECK(
+	    eval_eq("(progn (goto-char 6) (beginning-of-line) (point))", "4"));
+	CHECK(eval_eq("(progn (goto-char 6) (end-of-line) (point))", "8"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 1) (beginning-of-line 3) (point))", "9"));
+	CHECK(eval_eq("(progn (goto-char 1) (end-of-line 99) (point))", "11"));
+
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (beginning-of-buffer) (point))", "1"));
+	CHECK(eval_eq("(progn (goto-char 5) (end-of-buffer) (point))", "11"));
+	/* The recorded half: neither form pushes the mark. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 5) (beginning-of-buffer) (mark))", "nil"));
+
+	/* A count that is not a number is Emacs' condition, not fe's prose. */
+	CHECK(
+	    eval_error_contains("(forward-line \"x\")", "wrong-type-argument"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase17_char_motion(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "abc", 3);
+	editor_insert_row(bcur(), 1, "de", 2);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 1) (list (forward-char 2) (point)))",
+	    "(nil 3)"));
+	/* A line break is one character. */
+	CHECK(eval_eq("(progn (goto-char 3) (forward-char 2) (point))", "5"));
+	CHECK(eval_eq("(progn (goto-char 5) (backward-char 2) (point))", "3"));
+	/* A negative count reverses each of them. */
+	CHECK(eval_eq("(progn (goto-char 1) (backward-char -3) (point))", "4"));
+
+	/* The recorded divergence: kg clamps where Emacs signals, and does
+	 * so at both ends. */
+	CHECK(eval_eq("(progn (goto-char 1) (list (forward-char 900) (point)))",
+	    "(nil 7)"));
+	CHECK(
+	    eval_eq("(progn (goto-char 7) (list (backward-char 900) (point)))",
+		"(nil 1)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase17_looking_at(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "foo-42 bar", 10);
+	editor_insert_row(bcur(), 1, "second", 6);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 1) (looking-at \"foo\"))", "t"));
+	/* Anchored: the pattern is present, but not AT point. */
+	CHECK(eval_eq("(progn (goto-char 1) (looking-at \"bar\"))", "nil"));
+	CHECK(eval_eq("(progn (goto-char 8) (looking-at \"bar\"))", "t"));
+	/* It sets the match data and moves point nowhere. */
+	CHECK(eval_eq("(progn (goto-char 1)"
+		      " (looking-at \"\\\\([a-z]+\\\\)-\\\\([0-9]+\\\\)\")"
+		      " (list (match-beginning 0) (match-end 0)"
+		      " (match-beginning 1) (match-end 1) (point)))",
+	    "(1 7 1 4 1)"));
+	/* The row is the subject, so the anchors are line anchors. */
+	CHECK(eval_eq("(progn (goto-char 1) (looking-at \"^foo\"))", "t"));
+	CHECK(eval_eq("(progn (goto-char 2) (looking-at \"^oo\"))", "nil"));
+	CHECK(eval_eq("(progn (goto-char 8) (looking-at \"bar$\"))", "t"));
+	/* And the recorded consequence: no match crosses a line break. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 8) (looking-at \"bar\\nsecond\"))", "nil"));
+
+	CHECK(eval_error_contains("(looking-at 5)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(looking-at \"[\")", "invalid regexp"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase17_skip_chars(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "  abc12", 7);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(progn (goto-char 1) (list (skip-chars-forward \" \")"
+		      " (point)))",
+	    "(2 3)"));
+	CHECK(eval_eq("(progn (goto-char 3) (list (skip-chars-forward \"a-z\")"
+		      " (point)))",
+	    "(3 6)"));
+	CHECK(eval_eq("(progn (goto-char 8) (list (skip-chars-backward \"0-9\")"
+		      " (point)))",
+	    "(-2 6)"));
+	/* A leading `^' negates, so the empty set skips nothing and its
+	 * negation skips everything. */
+	CHECK(eval_eq("(progn (goto-char 1) (skip-chars-forward \"\"))", "0"));
+	CHECK(eval_eq("(progn (goto-char 1) (skip-chars-forward \"^\"))", "7"));
+	/* LIM bounds it, and a LIM already behind point moves nothing. */
+	CHECK(eval_eq(
+	    "(progn (goto-char 3) (skip-chars-forward \"a-z\" 5))", "2"));
+	CHECK(eval_eq(
+	    "(progn (goto-char 3) (skip-chars-forward \"a-z\" 2))", "0"));
+
+	CHECK(eval_error_contains(
+	    "(skip-chars-forward 5)", "wrong-type-argument"));
+	/* The bound is a raise, not a silent truncation: 64 ranges fit. */
+	CHECK(eval_error_contains(
+	    "(skip-chars-forward (make-string 200 97))", "set is too large"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase17_buffer_edits(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	editor_insert_row(bcur(), 1, "ghi", 3);
+	CHECK(kg_lisp_init() == 0);
+
+	/* One gateway call, so one undo step: the whole delete comes back. */
+	CHECK(eval_eq("(progn (goto-char 2) (delete-char 3)"
+		      " (buffer-substring (point-min) (point-max)))",
+	    "aef\nghi"));
+	CHECK(eval_eq("(progn (goto-char 3) (delete-char -2)"
+		      " (buffer-substring (point-min) (point-max)))",
+	    "f\nghi"));
+	/* erase-buffer empties it and leaves point at the only position. */
+	CHECK(eval_eq(
+	    "(progn (erase-buffer) (list (point) (point-max)))", "(1 1)"));
+	CHECK(eval_eq("(erase-buffer)", "nil"));
+
+	/* Both refuse a read-only buffer by name rather than failing
+	 * silently in the gateway. */
+	bcur()->readonly = 1;
+	CHECK(eval_error_contains("(delete-char 1)", "read-only"));
+	CHECK(eval_error_contains("(erase-buffer)", "read-only"));
+	bcur()->readonly = 0;
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+static void test_phase17_buffer_status(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* setup_editor() gives the buffer a filename, which is what makes
+	 * this the interesting half: a buffer that visits a file reports it,
+	 * a buffer that only has a NAME reports nil even though kg keeps
+	 * both in the same field. */
+	CHECK(eval_eq("(buffer-file-name)", "/tmp/bridge.txt"));
+	CHECK(eval_eq("(format \"%S\" (buffer-file-name"
+		      " (get-buffer-create \"named\")))",
+	    "nil"));
+
+	CHECK(eval_eq("(buffer-modified-p)", "nil"));
+	CHECK(eval_eq("(progn (insert \"x\") (buffer-modified-p))", "t"));
+	CHECK(eval_eq("(set-buffer-modified-p nil)", "nil"));
+	CHECK(eval_eq("(buffer-modified-p)", "nil"));
+	CHECK(eval_eq(
+	    "(progn (set-buffer-modified-p t) (buffer-modified-p))", "t"));
+	/* buffer-modified-p takes the optional buffer; set- does not. */
+	CHECK(eval_eq(
+	    "(buffer-modified-p (get-buffer-create \"named\"))", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* with-temp-buffer's own bound, which no oracle case can see: kg refuses
+ * a kill when the editor's lifecycle event queue is full, and the queue
+ * drains once per keystroke.  The form tolerates that -- a cleanup that
+ * raised would REPLACE the body's completion -- so what this pins is that
+ * the body's value still arrives, and that ordinary use kills its buffer
+ * rather than leaking one. */
+static void test_phase17_with_temp_buffer(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(with-temp-buffer (insert \"x\") 42)", "42"));
+	/* The caller's buffer is current again, and untouched. */
+	CHECK(eval_eq("(progn (with-temp-buffer (insert \"x\"))"
+		      " (buffer-name (current-buffer)))",
+	    "bridge.txt"));
+	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", ""));
+	/* A nested use gets its own buffer. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"outer\")"
+		      " (with-temp-buffer (insert \"inner\"))"
+		      " (buffer-substring (point-min) (point-max)))",
+	    "outer"));
+	/* And the buffer really is gone: two uses in a row leave the buffer
+	 * list where they found it. */
+	CHECK(eval_eq("(let ((n (length (buffer-list))))"
+		      " (with-temp-buffer (insert \"a\"))"
+		      " (with-temp-buffer (insert \"b\"))"
+		      " (- (length (buffer-list)) n))",
+	    "0"));
+	/* An error out of the body still reaches the caller. */
+	CHECK(eval_error_contains(
+	    "(with-temp-buffer (insert \"x\") (car 1))", "expected pair"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -6282,6 +6529,13 @@ int main(void)
 	RUN(test_marker_survives_buffer_kill);
 	RUN(test_save_excursion);
 	RUN(test_save_excursion_pool_bound);
+	RUN(test_phase17_line_motion);
+	RUN(test_phase17_char_motion);
+	RUN(test_phase17_looking_at);
+	RUN(test_phase17_skip_chars);
+	RUN(test_phase17_buffer_edits);
+	RUN(test_phase17_buffer_status);
+	RUN(test_phase17_with_temp_buffer);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
 	RUN(test_hook_error_does_not_disarm);

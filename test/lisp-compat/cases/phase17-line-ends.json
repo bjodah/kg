@@ -1,0 +1,7 @@
+{
+ "id": "phase17-line-ends",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 5) (list (beginning-of-line) (point) (end-of-line) (point)))\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 1) (list (beginning-of-line 2) (point)))\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 5) (list (beginning-of-line 0) (point)))\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 1) (list (end-of-line 2) (point)))\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 1) (list (end-of-line 99) (point)))\n (with-temp-buffer (insert \"aa\\nbbbb\\ncc\") (goto-char 9) (list (beginning-of-line -5) (point)))\n (with-temp-buffer (list (beginning-of-line) (end-of-line) (point))))",
+ "note": "beginning-of-line/end-of-line with the default count, a count of 2 (the next line), 0 (the previous one), a count past either end, and an empty buffer. These are the counted forms package code calls; kg's own move-beginning-of-line is the command C-a runs and takes no count.",
+ "expect": "agree"
+}

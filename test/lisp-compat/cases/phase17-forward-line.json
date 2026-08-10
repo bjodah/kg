@@ -1,0 +1,7 @@
+{
+ "id": "phase17-forward-line",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 2) (list (forward-line 1) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 1) (list (forward-line 5) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\\n\") (goto-char 1) (list (forward-line 5) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 5) (list (forward-line 0) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 8) (list (forward-line -1) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 8) (list (forward-line -9) (point)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 1) (list (forward-line) (point)))\n (with-temp-buffer (list (forward-line 1) (point)))\n (with-temp-buffer (list (forward-line -1) (point))))",
+ "note": "The shortfall Emacs returns, in every shape that decides it: a move that fits, one that runs off the end of a buffer with no final newline (which costs one extra), the same buffer with a final newline (which does not), a zero count, a backward move that fits, one that runs off the start, the default count, and an empty buffer either way.",
+ "expect": "agree"
+}

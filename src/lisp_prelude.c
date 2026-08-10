@@ -14,8 +14,13 @@ static const struct native_binding native_bindings[] = {
 	{ "message", native_message },
 	{ "insert", native_insert },
 	{ "delete-region", native_delete_region },
+	{ "delete-char", native_delete_char },
+	{ "erase-buffer", native_erase_buffer },
 	{ "replace-region", native_replace_region },
 	{ "buffer-name", native_buffer_name },
+	{ "buffer-file-name", native_buffer_file_name },
+	{ "buffer-modified-p", native_buffer_modified_p },
+	{ "set-buffer-modified-p", native_set_buffer_modified_p },
 	/* `load' and `require' themselves are prelude Lisp (lisp/prelude.el's
 	 * loader section): loops of internal--read-form/eval inside one
 	 * input unit, so throws, conditions and quits out of a loaded form
@@ -53,6 +58,20 @@ static const struct native_binding native_bindings[] = {
 	{ "char-after", native_char_after },
 	{ "forward-word", native_forward_word },
 	{ "backward-word", native_backward_word },
+	/* Phase 17's motion family (src/lisp_motion.c).  Every one of these
+	 * CLAMPS at the ends of the buffer where Emacs signals
+	 * `beginning-of-buffer'/`end-of-buffer': fe gates `signal' on its own
+	 * condition table and neither name is in it.  Recorded per native in
+	 * the manifest, and as an fe-side row in doc/TODO.md. */
+	{ "forward-line", native_forward_line },
+	{ "forward-char", native_forward_char },
+	{ "backward-char", native_backward_char },
+	/* Emacs has both `beginning-of-line' (a function taking a count) and
+	 * `move-beginning-of-line' (what C-a runs); kg had only the command. */
+	{ "beginning-of-line", native_beginning_of_line },
+	{ "end-of-line", native_end_of_line },
+	{ "skip-chars-forward", native_skip_chars_forward },
+	{ "skip-chars-backward", native_skip_chars_backward },
 	{ "bounds-of-thing-at-point", native_bounds_of_thing },
 	{ "string-length", native_string_length },
 	{ "substring", native_substring },
@@ -112,7 +131,10 @@ static const struct native_binding native_bindings[] = {
 	 * string subject and Emacs' character-indexed match data. */
 	{ "string-match", native_string_match },
 	{ "regexp-quote", native_regexp_quote },
+	{ "looking-at", native_looking_at },
 	{ "make-marker", native_make_marker },
+	{ "point-marker", native_point_marker },
+	{ "copy-marker", native_copy_marker },
 	{ "set-marker", native_set_marker },
 	{ "marker-position", native_marker_position },
 	{ "marker-buffer", native_marker_buffer },

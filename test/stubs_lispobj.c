@@ -52,6 +52,13 @@ struct kg_buffer_handle buf_create_named(const char *name)
 	buflist[slot].active = 1;
 	buflist[slot].filename = strdup(name);
 	buflist[slot].dirty = 0;
+	/* The real buf_create_named() sets this, and it is not decoration:
+	 * kg keeps a named buffer's NAME in the `filename' field, so
+	 * `no_file' is the only thing that distinguishes it from a buffer
+	 * visiting a file of that name.  Without it here, buf_visits_file()
+	 * -- and so (buffer-file-name ...) -- answered as if every stubbed
+	 * buffer visited one. */
+	buflist[slot].no_file = 1;
 	buflist[slot].readonly_override = -1;
 	undo_stack_init(&buflist[slot].undostack);
 	buf_count++;

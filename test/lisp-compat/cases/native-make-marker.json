@@ -2,5 +2,5 @@
  "id": "native-make-marker",
  "setup": [],
  "expr": "(make-marker)",
- "note": "kg's (make-marker) starts at point in the current buffer. Emacs' make-marker starts detached (no position, no buffer); Emacs' point-marker is the one that starts at point."
+ "note": "(make-marker) answers a marker that points nowhere, as Emacs' does. It answered a marker at point until Phase 17, which is point-marker's behaviour under make-marker's name; adding point-marker is what made correcting it free. kg-policy, so the rendering -- kg prints an adapter object where Emacs prints #<marker in no buffer> -- is not compared here."
 }

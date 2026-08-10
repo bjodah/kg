@@ -1,0 +1,7 @@
+{
+ "id": "phase17-delete-char",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"abcdef\") (goto-char 2) (list (delete-char 2) (buffer-substring (point-min) (point-max)) (point)))\n (with-temp-buffer (insert \"abcdef\") (goto-char 4) (list (delete-char -2) (buffer-substring (point-min) (point-max)) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 2) (list (delete-char 0) (buffer-substring (point-min) (point-max))))\n (with-temp-buffer (insert \"ab\\ncd\") (goto-char 3) (list (delete-char 1) (buffer-substring (point-min) (point-max))))\n (with-temp-buffer (insert \"abcdef\") (goto-char 2) (list (delete-char 1) (delete-char 1) (buffer-substring (point-min) (point-max)))))",
+ "note": "Forward, backward, a zero count, a deletion that closes a line break, and two deletions in a row.",
+ "expect": "agree"
+}

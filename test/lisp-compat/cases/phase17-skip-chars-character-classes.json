@@ -1,0 +1,7 @@
+{
+ "id": "phase17-skip-chars-character-classes",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"abc\") (goto-char 1) (skip-chars-forward \"[:alpha:]\"))",
+ "note": "THE DIVERGENCE. Emacs' skip-chars SPEC understands named character classes; kg's reads `[:alpha:]' as the ordinary characters it is made of, so it skips the `a' and stops. Recorded rather than approximated: a half-populated class table would be worse than a missing one.",
+ "expect": "diverge"
+}

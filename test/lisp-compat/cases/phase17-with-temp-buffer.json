@@ -1,0 +1,7 @@
+{
+ "id": "phase17-with-temp-buffer",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"x\") 42)\n (with-temp-buffer (insert \"outer\") (with-temp-buffer (insert \"inner\")) (buffer-substring (point-min) (point-max)))\n (with-temp-buffer (list (point) (point-max) (buffer-substring (point-min) (point-max))))\n (with-temp-buffer (insert \"abc\") (list (point) (buffer-file-name)))\n (string-prefix-p \" *temp*\" (with-temp-buffer (buffer-name)))\n (let ((outer (buffer-name))) (list (equal outer (buffer-name)) (equal outer (with-temp-buffer (buffer-name))))))",
+ "note": "The form's value is its body's, the buffer starts empty and visits no file, a nested use gets its own buffer, the caller's buffer is current again afterwards, and the temp buffer's name starts \" *temp*\" -- kg's carries a unique suffix, since kg has no generate-new-buffer and a fixed name would make a nested use reuse the buffer it is already inside.",
+ "expect": "agree"
+}

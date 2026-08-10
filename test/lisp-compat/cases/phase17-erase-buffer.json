@@ -1,0 +1,7 @@
+{
+ "id": "phase17-erase-buffer",
+ "setup": [],
+ "expr": "(list\n (with-temp-buffer (insert \"abc\") (list (erase-buffer) (buffer-substring (point-min) (point-max)) (point) (point-max)))\n (with-temp-buffer (insert \"aa\\nbb\\ncc\") (goto-char 4) (erase-buffer) (list (point) (point-max) (buffer-modified-p)))\n (with-temp-buffer (list (erase-buffer) (point-max))))",
+ "note": "An erase leaves an empty buffer with point at its one position, marks it modified, and is a no-op on a buffer that is already empty.",
+ "expect": "agree"
+}

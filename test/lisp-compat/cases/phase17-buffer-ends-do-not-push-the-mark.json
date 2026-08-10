@@ -1,0 +1,7 @@
+{
+ "id": "phase17-buffer-ends-do-not-push-the-mark",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"abc\") (goto-char 2) (beginning-of-buffer) (list (point) (mark)))",
+ "note": "THE DIVERGENCE. Emacs' beginning-of-buffer and end-of-buffer are commands that push the mark, so C-x C-x returns you to where you were; kg's are goto-char sugar and leave the mark alone. kg's `set-mark' additionally lights the region up, which a Lisp call has no business doing, and kg has no unhighlighted push-mark to use instead. The Emacs manual's own advice for Lisp code is (goto-char (point-min)), which is what these are.",
+ "expect": "diverge"
+}

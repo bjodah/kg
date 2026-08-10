@@ -23,6 +23,14 @@ This file remains the broader feature and technical-debt inventory.
 
 ## Maintainability
 
+- [ ] Rebalance the ci scripts: currently it sounds like "ci-03-gcc-analyzer-valgrind" does two very separate things?
+      (lumped together due to single `make check` target?). Another thing I worry about: default amount of output of the
+      scripts? maybe we can hide most output behind some `--verbose` flag to respective script? And have default mode mostly
+      print summary and output on error (no need to report success of scanning every single file on a unique row for example, 
+      if that is the case today). I'd also like to know what ci-step-scripts are the "best bang-for-the-buck", and in order to
+      know that we will need to track number of reported failures in some ledger file. We can then add instructions in AGENTS.md
+      that subagents only need to run the high-value subset of CI scripts for their sub-plans, and the orchestrator runs the
+      full CI test suite only at end-of-campaign.
 - [ ] Complexity "optimum": we recently ran a /home/bjorn/vc/kg/doc/plans/2026-08-07_complexity-reduction-campaign.md;
       the risk we face is that we split functions into too many small ones. Would it be sensible to also look at
       functions with a *very low* cyclomatic complexity? (e.g. CCN<3, could potentially indicate candidates for inlining?)

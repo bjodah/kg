@@ -644,7 +644,7 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check lisp-oracle-check lisp-gc-stress-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -671,6 +671,25 @@ lisp-compat-check:
 # configurations.
 lisp-package-check:
 	@$(PYTHON) utils/check_lisp_package_drift.py
+
+# Phase 15's forecast audit: which names does the Lisp we WANT to write
+# reach for, and which of those does kg not have?  The corpus is
+# utils/forecast/ plus kg's own lisp/*.el, the implemented-name set is
+# parsed out of fe.c, src/lisp_prelude.c and lisp/*.el, and the ranked
+# MISSING/COVERED partition is the checked-in utils/forecast/AUDIT.md.
+#
+# `forecast-check' is the regenerate-and-diff gate, and it sits here --
+# beside docs-check, lisp-compat-check and lisp-prelude-check -- rather
+# than in a .ci step of its own for the reason those three are here: it
+# runs no fe, no kg and no Emacs, needs no build, and is meaningful in
+# both WITH_LISP configurations.  Joining `make check' therefore gates it
+# in every CI lane that runs the suite, which is the smallest honest
+# option available.
+forecast-audit:
+	@$(PYTHON) utils/forecast_audit.py
+
+forecast-check:
+	@$(PYTHON) utils/forecast_audit.py --check
 
 # Sub-plan 10C Part 3: kg's half of the milestone gate's oracle item.
 # Runs every `comparison: emacs` case through test/kgbatch and compares it
@@ -1330,7 +1349,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

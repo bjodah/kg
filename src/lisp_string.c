@@ -499,17 +499,28 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 {
 	FeObject *count_object = FeGetNextArgument(context, &arguments);
 	FeObject *char_object = FeGetNextArgument(context, &arguments);
-	FeDouble count, codepoint;
+	FeDouble codepoint;
 	char encoded[4];
+	int64_t count;
 	int width;
 	size_t total, allocation, i;
 	char *text;
 	FeObject *result;
 
 	FeRequireNoArguments(context, arguments);
-	count = lisp_finite(context, count_object, "wholenump");
+	/* N is read as an INTEGER, not through lisp_finite()'s double: a
+	 * float N is (wrong-type-argument wholenump 2.0) in Emacs too, and
+	 * nothing that reaches an allocation size should have been floating
+	 * point on the way -- which is also what gcc's -fanalyzer says. */
+	if (FeGetType(count_object) != FeTInteger) {
+		lisp_raise_wrong_type(context, "wholenump", count_object);
+	}
+	count = FeToInteger(context, count_object);
 	if (count < 0) {
 		lisp_raise_wrong_type(context, "wholenump", count_object);
+	}
+	if (count > INT_MAX) {
+		FeHandleError(context, "string is too large");
 	}
 	codepoint = lisp_finite(context, char_object, "characterp");
 	if (codepoint < 1 || codepoint > 0x10FFFF
@@ -517,7 +528,7 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 		lisp_raise_wrong_type(context, "characterp", char_object);
 	}
 	width = lisp_encode_char((long)codepoint, encoded);
-	if (count > (FeDouble)(INT_MAX / width)) {
+	if (count > (int64_t)(INT_MAX / width)) {
 		FeHandleError(context, "string is too large");
 	}
 	total = (size_t)count * (size_t)width;

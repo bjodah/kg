@@ -59,14 +59,14 @@ SCRIPT = """
 (setq keeper (make-symbol "kept-name"))
 (setq shaped nil)
 (setq n 0)
-(while (< n 300)
+(while (< n 40)
   (setq n (+ n 1))
   (list n n n)
   (concat "x" (format "%d" n))
   (gensym "tmp")
   (make-symbol "throwaway")
   (intern-soft "never-interned-here")
-  (if (= n (* 100 (/ n 100)))
+  (if (= n (* 20 (/ n 20)))
       (progn (put 'gcprobe (intern "p") n)
              (setq kept (cons (get 'gcprobe 'p) kept))
              (sort (list 3 1 2) '<)
@@ -83,14 +83,14 @@ SCRIPT = """
       (intern-soft "never-interned-here") (intern-soft keeper) shaped)
 """
 
-EXPECTED = ('(300 (300 200 100) 3 "kept-name" nil nil '
-            '("one,two,three" "one,two,three" "one,two,three"))')
+EXPECTED = ('(40 (40 20) 2 "kept-name" nil nil '
+            '("one,two,three" "one,two,three"))')
 
 # The same script with enough iterations to fill kg's 1 MB arena at least
 # once, which the stress-affordable loop above does not: run through the
 # ORDINARY build only, to assert the collector is invoked at all.
-BIG_SCRIPT = SCRIPT.replace("< n 300", "< n 4000").replace(
-    "(* 100 (/ n 100))", "(* 1000 (/ n 1000))")
+BIG_SCRIPT = SCRIPT.replace("< n 40", "< n 4000").replace(
+    "(* 20 (/ n 20))", "(* 1000 (/ n 1000))")
 BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
                 '("one,two,three" "one,two,three" "one,two,three" '
                 '"one,two,three"))')
@@ -98,8 +98,23 @@ BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
 # The stress build collects per allocation, and the loop above allocates
 # far more than one object per iteration, so its count cannot be near the
 # iteration count.  Measured on this box: 0 collections ordinary (the
-# arena never fills), 24278 stress.
+# arena never fills), 14536 stress.
 MIN_STRESS_COLLECTIONS = 1000
+
+# A stress collection is O(arena), and the arena holds tens of thousands
+# of objects, so this lane is slow by construction and slowest where it
+# matters most.  Measured on this box with the ci-05 MSan lane's own
+# binary: the PRELUDE ALONE costs 69 s and 9222 collections before the
+# script's first form runs -- that is fixed cost, and it grew with Phase
+# 15's library -- and each iteration of the loop above adds about 0.8 s.
+# That is why the loop is 40 iterations rather than the 300 it was
+# through Phase 14 -- measured under MSan: 300 iterations 229 s (past the
+# 120 s this timeout used to be, which is how the regression was found),
+# 100 iterations 149 s, 40 iterations 138 s -- and why the timeout now has
+# real headroom rather than a little.  The knee is the prelude, not the
+# loop, so cutting the loop further buys almost nothing.  A plain build
+# runs the whole check in about 1 s.
+STRESS_TIMEOUT = 600
 
 STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")
 
@@ -107,7 +122,7 @@ STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")
 def run(binary: pathlib.Path, script: pathlib.Path):
 	proc = subprocess.run(
 	    [str(binary), "-b", "-g", str(script)],
-	    capture_output=True, text=True, timeout=120)
+	    capture_output=True, text=True, timeout=STRESS_TIMEOUT)
 	if proc.returncode != 0:
 		raise SystemExit(
 		    f"FAIL: {binary} exited {proc.returncode}\n{proc.stderr}")

@@ -4681,6 +4681,11 @@ static void test_phase15_string_natives(void)
 	CHECK(eval_eq("(capitalize \"a-b_c d1e\")", "A-B_C D1e"));
 	CHECK(eval_eq(
 	    "(list (upcase 97) (downcase 65) (capitalize 97))", "(65 97 65)"));
+	/* A non-ASCII character comes back unchanged, and one outside
+	 * Unicode is the same predicate the whole argument is judged by. */
+	CHECK(eval_eq("(list (upcase 233) (downcase 233))", "(233 233)"));
+	CHECK(eval_eq("(condition-case e (upcase 1114112) (error e))",
+	    "(wrong-type-argument char-or-string-p 1114112)"));
 	/* ASCII-only, and the recorded divergence: a byte >= 0x80 passes
 	 * through, and it counts as a word constituent so the letters after
 	 * it are not each read as the start of a word. */
@@ -4702,6 +4707,9 @@ static void test_phase15_string_natives(void)
 		      "(string-to-number \"0x10\") (string-to-number \"inf\"))",
 	    "(1 0.5 5 0 0)"));
 	CHECK(eval_eq("(string-to-number \"ff\" 16)", "255"));
+	CHECK(eval_eq("(list (string-to-number \"-42\") "
+		      "(string-to-number \"+7\") (string-to-number \"-.5\"))",
+	    "(-42 7 -0.5)"));
 	CHECK(eval_error_contains(
 	    "(string-to-number \"1\" 1)", "args-out-of-range"));
 	CHECK(eval_error_contains(
@@ -4711,6 +4719,12 @@ static void test_phase15_string_natives(void)
 
 	CHECK(eval_eq("(make-string 3 120)", "xxx"));
 	CHECK(eval_eq("(string-length (make-string 2 233))", "2"));
+	/* N is read as an integer, not through a double: a float N is
+	 * (wrong-type-argument wholenump 2.0) in Emacs too. */
+	CHECK(eval_eq("(condition-case e (make-string 2.0 120) (error e))",
+	    "(wrong-type-argument wholenump 2.0)"));
+	CHECK(eval_eq("(condition-case e (make-string 2 0) (error e))",
+	    "(wrong-type-argument characterp 0)"));
 	CHECK(eval_eq("(condition-case e (make-string -1 120) (error e))",
 	    "(wrong-type-argument wholenump -1)"));
 	CHECK(eval_eq("(condition-case e (make-string 2 \"x\") (error e))",
@@ -4730,8 +4744,10 @@ static void test_phase15_regex_seam(void)
 	CHECK(eval_eq("(list (match-beginning 0) (match-end 0))", "(1 4)"));
 	CHECK(eval_eq("(string-match \"z\" \"abc\")", "nil"));
 	CHECK(eval_eq("(string-match \"a\" \"aaa\" 1)", "1"));
-	/* A negative START counts back from the end, as substring's does. */
+	/* A negative START counts back from the end, as substring's does,
+	 * and one past the front clamps to it rather than erring. */
 	CHECK(eval_eq("(string-match \"a\" \"xa\" -1)", "1"));
+	CHECK(eval_eq("(string-match \"x\" \"xa\" -9)", "0"));
 	CHECK(eval_error_contains(
 	    "(string-match \"a\" \"ab\" 5)", "args-out-of-range"));
 	CHECK(eval_eq("(condition-case e (string-match 1 \"a\") (error e))",
@@ -4777,6 +4793,19 @@ static void test_phase15_regex_seam(void)
 	CHECK(eval_eq("(replace-regexp-in-string \"b\" "
 		      "(lambda (m) (upcase m)) \"abc\")",
 	    "aBc"));
+
+	/* The engine's too-complex status reaches string-match as the
+	 * distinct error it is, never folded into "no match" -- the same
+	 * property test_regex_too_complex_and_bad_pattern pins for the
+	 * buffer search, over the same catastrophic-backtracking shape. */
+	{
+		char source[256];
+
+		fe_regex_source(source, sizeof(source),
+		    "(string-match \"%s\" \"aaaaaaaaaaaaaaaaaaaaaaaa\")",
+		    "\\(a*\\)*b");
+		CHECK(eval_error_contains(source, "too complex"));
+	}
 
 	kg_lisp_shutdown();
 	teardown_editor();

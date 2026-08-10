@@ -60,6 +60,7 @@
 struct editor_config editor;
 int running = 1;
 int kg_exit_status = 0;
+int inhibit_startup_screen = 0;
 int global_auto_revert = 0;
 int electric_pairs = 0;
 
@@ -155,6 +156,22 @@ static int usage(FILE *fp, int rc)
 #define KG_FEATURE_LSP "-lsp"
 #endif
 
+/* Whether the user turned the startup screen off.  Emacs decides this
+ * once, after the init file has had its say, and so does kg -- main()
+ * calls this between loading init.el and painting the first frame, and
+ * the renderer then reads the latched int rather than the interpreter,
+ * which it could not ask anyway from inside a running Lisp command.
+ *
+ * Emacs makes `inhibit-startup-message` a defvaralias of
+ * `inhibit-startup-screen`; kg has no variable aliases, so both names are
+ * asked for and either one answers.  `-Q` loads no init file, so both are
+ * still nil and the screen is shown. */
+static int startup_screen_inhibited(void)
+{
+	return kg_lisp_variable_non_nil("inhibit-startup-screen")
+	    || kg_lisp_variable_non_nil("inhibit-startup-message");
+}
+
 int main(int argc, char **argv)
 {
 	int opt, readonly = 0, no_init = 0;
@@ -208,6 +225,7 @@ int main(int argc, char **argv)
 		editor_set_status_message(
 		    "Init file error: %s", kg_lisp_last_error());
 	}
+	inhibit_startup_screen = startup_screen_inhibited();
 	while (running) {
 		editor_process_pending_signals();
 		compilation_poll();

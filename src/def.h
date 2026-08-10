@@ -391,6 +391,11 @@ struct editor_buffer {
 extern struct editor_config editor;
 extern int running;
 extern int kg_exit_status; /* Process exit status returned by main(). */
+/* Nonzero when the startup screen -- the logo an empty buffer shows -- is
+ * suppressed.  Latched by main() once the init file has run, from Lisp's
+ * `inhibit-startup-screen` (or its Emacs alias `inhibit-startup-message`);
+ * always zero in a WITH_LISP=0 build, where neither variable exists. */
+extern int inhibit_startup_screen;
 extern struct editor_buffer buflist[MAX_BUFFERS];
 extern int buf_current; /* index into buflist[] of the active buffer */
 extern int buf_count; /* number of active buffers */

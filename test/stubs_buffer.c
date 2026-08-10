@@ -8,6 +8,9 @@
 /* Globals normally defined in main.c */
 struct editor_config editor;
 int running = 1;
+/* main.c latches this from Lisp; a stub never inhibits the
+ * startup screen, so display.c draws it exactly as it always did. */
+int inhibit_startup_screen = 0;
 
 /* The window globals and the win_* entry points live in stubs_win.c: this
  * file is also linked by test_winmgr, which brings the real winmgr.o. */

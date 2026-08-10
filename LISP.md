@@ -25,6 +25,21 @@ entirely so a broken configuration can be repaired. Load errors show the
 labelled diagnostic in the status area; forms evaluated before the error
 remain applied.
 
+The smallest useful `init.el` is one line. This turns off the startup
+screen — the centred logo an empty buffer shows:
+
+```elisp
+(setq inhibit-startup-message t)
+```
+
+`inhibit-startup-screen` is Emacs' other name for the same switch, and
+either spelling suppresses the screen; kg reads them once, after `init.el`
+has run. In Emacs the two names are one variable; in kg they are two, so
+setting one does not change what the other reads back. Neither touches the
+`Press Ctrl-h for help` greeting in the status area — that is Emacs'
+separate `inhibit-startup-echo-area-message`, which kg does not have.
+`doc/lisp-api.md` lists every variable the editor itself reads.
+
 Interactive Lisp commands use the declaration immediately after an optional
 docstring to construct arguments. Supported codes are `p`, `P`, `r`, `s`,
 `n`, `N`, `f`, `F`, `b`, and `B`: strings, decimal numbers, paths, and buffer

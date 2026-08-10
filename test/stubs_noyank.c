@@ -8,6 +8,9 @@
 /* Globals normally defined in main.c */
 struct editor_config editor;
 int running = 1;
+/* main.c latches this from Lisp; a stub never inhibits the
+ * startup screen, so display.c draws it exactly as it always did. */
+int inhibit_startup_screen = 0;
 
 /* Globals normally defined in bufmgr.c */
 struct editor_buffer buflist[MAX_BUFFERS];

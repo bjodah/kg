@@ -81,6 +81,9 @@ static void test_disabled(void)
 	CHECK(kg_lisp_load_file("unused.el") != 0);
 	CHECK(strstr(kg_lisp_last_error(), "not compiled in") != nullptr);
 	CHECK(kg_lisp_load_init() == 0);
+	/* No variables exist here, so the startup path's question always
+	 * answers "not asked for" and the startup screen shows. */
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
 	kg_lisp_set_interrupt_check(nullptr);
 	kg_lisp_shutdown();
 	kg_lisp_shutdown();
@@ -975,6 +978,56 @@ static int eval_error_contains(const char *source, const char *fragment)
 		return 0;
 	}
 	return strstr(result, fragment) != nullptr;
+}
+
+/* kg_lisp_variable_non_nil(): the one channel by which an editor module
+ * reads a user-settable variable, and the startup screen's two names are
+ * its first caller (main.c).  What is pinned here is the channel's four
+ * answers -- unbound, nil, non-nil, and a name too long for the form
+ * buffer -- plus the two properties the prelude's `defvar's give the
+ * names: bound and special before any init file runs.
+ *
+ * The alias is deliberately NOT a shared cell: Emacs makes
+ * `inhibit-startup-message' a `defvaralias' of `inhibit-startup-screen',
+ * kg has no variable aliases, and what makes both spellings work is
+ * main.c asking for both.  Setting one leaves the other nil, and this
+ * asserts that rather than leaving it to be discovered. */
+static void test_variable_non_nil(void)
+{
+	/* A name no C buffer sizes: the read interns whatever it is handed
+	 * and answers from `boundp`, so a long one is an unbound one. */
+	char overlong[512];
+
+	/* Before init, and after shutdown: no interpreter, no value. */
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq("(boundp 'inhibit-startup-screen)", "t"));
+	CHECK(eval_eq("(special-variable-p 'inhibit-startup-message)", "t"));
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-message") == 0);
+	/* A name nothing ever declared is void, not nil; asking for its
+	 * value would raise, and the contained read answers zero. */
+	CHECK(eval_eq("(boundp 'kg-test-no-such-variable)", "nil"));
+	CHECK(kg_lisp_variable_non_nil("kg-test-no-such-variable") == 0);
+
+	CHECK(eval_ok("(setq inhibit-startup-message t)"));
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-message") != 0);
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
+	/* Non-nil, not "t": 0 and the empty string are values a user may
+	 * write and Emacs treats as true. */
+	CHECK(eval_ok("(setq inhibit-startup-screen 0)"));
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") != 0);
+	CHECK(eval_ok("(setq inhibit-startup-screen nil)"));
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
+
+	memset(overlong, 'x', sizeof(overlong) - 1);
+	overlong[sizeof(overlong) - 1] = '\0';
+	CHECK(kg_lisp_variable_non_nil(overlong) == 0);
+	CHECK(kg_lisp_variable_non_nil(nullptr) == 0);
+
+	kg_lisp_shutdown();
+	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
 }
 
 static void test_define_and_run_command(void)
@@ -5450,6 +5503,7 @@ int main(void)
 	RUN(test_lifecycle);
 	RUN(test_eval_and_recovery);
 	RUN(test_sized_input);
+	RUN(test_variable_non_nil);
 	RUN(test_load_file);
 	RUN(test_phase12_one_arg_defvar_file_scope);
 	RUN(test_load_file_error);

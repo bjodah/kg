@@ -1,0 +1,19 @@
+# The control for the two inhibit cases beside it: same empty file, same
+# keys, no init file.  kg paints its startup screen -- the centred logo an
+# empty buffer shows -- before the first keystroke, so the slogan is in the
+# transcript, and the typed text proves the editor was alive while it was.
+# Without this case, "the slogan is absent" in the other two would be
+# satisfied by a kg that never painted at all.
+name: startup-screen-shown-by-default
+filename: startup.txt
+initial: ""
+keys:
+  - h
+  - e
+  - l
+  - l
+  - o
+expected_saved: "hello"
+expected_screen_contains:
+  - Just enough Emacs
+  - Your fingers know this

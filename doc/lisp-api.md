@@ -555,6 +555,37 @@ key — while `define-key` takes any sequence the built-in maps could
 hold, so it *can* shadow a built-in binding; `C-g` and `C-x C-c` are the
 keys to leave alone.
 
+## Variables the editor reads
+
+Most of what kg does is reached by calling a command, not by setting a
+variable. The exceptions are listed here, and the list is short on
+purpose: an editor module reads a variable through exactly one channel,
+`kg_lisp_variable_non_nil()` in `src/lisp.h`, which answers "non-nil or
+not" and nothing else.
+
+| Variable | Default | Read | Effect |
+| ---- | ---- | ---- | ---- |
+| `inhibit-startup-screen` | `nil` | once, after `init.el` has run | Non-nil draws no startup screen — the centred logo an empty buffer otherwise shows |
+| `inhibit-startup-message` | `nil` | same | Emacs' other spelling of the above; either name suppresses the screen |
+
+Both are `defvar`'d by the prelude, so they are `boundp` and
+`special-variable-p` before any init file runs, and `-Q` (no init file)
+leaves both `nil`. They are read once rather than per frame: setting
+either from `M-:` after startup changes nothing, which is Emacs'
+behaviour too.
+
+The alias is where kg diverges. In Emacs `inhibit-startup-message` is a
+`defvaralias` of `inhibit-startup-screen` — one variable under two names,
+so setting either reads back through both. kg has no variable aliases;
+these are two ordinary variables, and what makes both spellings work is
+that the startup path asks for both. Setting one leaves the other `nil`.
+Emacs' third alias, `inhibit-splash-screen`, is not provided.
+
+The `Press Ctrl-h for help` greeting in the status area is a separate
+thing and neither variable suppresses it: Emacs gives that its own
+`inhibit-startup-echo-area-message`, whose value must be your login name
+spelled literally in the init file, and kg does not implement it.
+
 ## Processes
 
 | Form | Result |

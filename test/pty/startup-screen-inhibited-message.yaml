@@ -1,0 +1,20 @@
+# The line a user writes: Emacs' obsolete spelling.  Identical to
+# startup-screen-shown-by-default except for the init file, so the missing
+# slogan is the init file's doing and nothing else.
+name: startup-screen-inhibited-message
+filename: startup.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (setq inhibit-startup-message t)
+initial: ""
+keys:
+  - h
+  - e
+  - l
+  - l
+  - o
+expected_saved: "hello"
+expected_screen_not_contains:
+  - Just enough Emacs
+  - Your fingers know this

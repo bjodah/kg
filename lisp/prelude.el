@@ -666,6 +666,24 @@
             (if pushed (internal--require-pop))))))
   feature))
 
+;; --- startup ---
+;; The startup screen switch, declared here so it is `boundp' and
+;; `special-variable-p' before any init file runs, exactly as Emacs
+;; declares it.  kg's startup screen is the centred logo an empty buffer
+;; shows; main.c reads these once, after the init file has had its say,
+;; and draws no banner when either is non-nil.
+;;
+;; In Emacs `inhibit-startup-message' is a `defvaralias' of
+;; `inhibit-startup-screen' -- one variable under two names.  kg has no
+;; variable aliases, so these are two ordinary variables and the C side
+;; treats EITHER being non-nil as "suppressed".  That covers what a user
+;; writes; what it does not do is make a `setq' of one name read back
+;; through the other, and that is the whole of the divergence.
+(defvar inhibit-startup-screen nil
+  "Non-nil means do not show the startup screen.")
+(defvar inhibit-startup-message nil
+  "Emacs' other name for `inhibit-startup-screen'; either one suppresses it.")
+
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
 (defalias 'thing-at-point (lambda (thing)

@@ -11,6 +11,9 @@
 
 struct editor_config editor;
 int running = 1;
+/* main.c latches this from Lisp; a stub never inhibits the
+ * startup screen, so display.c draws it exactly as it always did. */
+int inhibit_startup_screen = 0;
 int kg_exit_status = 0;
 int global_auto_revert = 0;
 int electric_pairs = 0;

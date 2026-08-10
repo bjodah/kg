@@ -1484,6 +1484,53 @@ void kg_lisp_set_interrupt_check(int (*check)(void))
 
 int kg_lisp_active(void) { return 1; }
 
+/* The value cell has no C accessor by design (see fe/fe.c's symbol
+ * accessors: its unit of currency is the binding cell), so a host reads a
+ * variable by evaluating the symbol -- which is what
+ * lisp_command_activate() already does for `current-prefix-arg`.  The
+ * object is evaluated rather than a source string read: interning an
+ * existing name and evaluating a symbol both allocate nothing, so a caller
+ * asking this question does not disturb the arena.  That is a property, not
+ * an optimisation -- test/pty/lisp-exhaustion-mid-init-visible.yaml pins
+ * what an arena an init file pinned looks like afterwards, and the reader
+ * this used to run gave a slot back and moved the number.
+ *
+ * `boundp` first: a name nothing ever declared is void, and evaluating it
+ * would raise rather than answer nil.  The frame is this file's ordinary
+ * one, because the raise that is left -- interning a new symbol into a full
+ * arena -- has to land somewhere.  No lisp_exec_enter()/release_frame_
+ * buffers(): evaluating a symbol calls no native, opens no load and takes
+ * no scratch, so there is nothing for either to do. */
+int kg_lisp_variable_non_nil(const char *name)
+{
+	FeObject *symbol, *value;
+	/* Written after the setjmp and read after it returns normally, which
+	 * is the shape -Wclobbered is about; kg_lisp_init()'s `in_prelude`
+	 * is the same declaration for the same reason. */
+	volatile int non_nil = 0;
+
+	if (name == nullptr || !state.initialized || state.frame_active) {
+		return 0;
+	}
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		lisp_settle_completion();
+		return 0;
+	}
+	symbol = FeMakeSymbol(state.context, name);
+	if (FeIsBound(state.context, symbol)) {
+		value = FeEvaluateWithOptions(
+		    state.context, symbol, &eval_options);
+		non_nil = !FeIsNil(value);
+	}
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+	return non_nil;
+}
+
 int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 {
 	FeArenaStats stats;
@@ -1589,6 +1636,12 @@ const char *kg_lisp_command_name(int index)
 void kg_lisp_set_interrupt_check(int (*check)(void)) { (void)check; }
 
 int kg_lisp_active(void) { return 0; }
+
+int kg_lisp_variable_non_nil(const char *name)
+{
+	(void)name;
+	return 0;
+}
 
 int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 {

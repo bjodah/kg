@@ -40,6 +40,16 @@ static const char *kg_logo[] = {
 #define KG_LOGO_LINES ((int)(sizeof(kg_logo) / sizeof(kg_logo[0])))
 #define KG_LOGO_COLS 32
 
+/* Whether the rows past a window's last one are where the startup screen
+ * goes: an empty buffer, and a session that did not turn it off.  The
+ * switch is `inhibit-startup-screen`, latched by main() once the init
+ * file has run, so this reads a plain int rather than the interpreter --
+ * a frame is painted from inside running Lisp too. */
+static int startup_screen_visible(int numrows)
+{
+	return numrows == 0 && !inhibit_startup_screen;
+}
+
 /* Bytes a frame buffer starts out holding.  One frame is hundreds of
  * appends -- ab_fill() alone splits a blank line into 256-byte chunks --
  * so the first allocation may as well cover a small screen outright. */
@@ -441,7 +451,7 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 
 		if (fr >= numrows) {
 			int filled = 0;
-			if (numrows == 0) {
+			if (startup_screen_visible(numrows)) {
 				int start = (win_h - KG_LOGO_LINES) / 2;
 				int line = y - start;
 

@@ -1,0 +1,22 @@
+# The other spelling: in Emacs `inhibit-startup-message' is a defvaralias
+# of `inhibit-startup-screen', so both names have to work.  kg has no
+# variable aliases -- these are two variables and the startup path treats
+# either being non-nil as "suppressed" -- which is exactly why the second
+# name needs a case of its own rather than riding on the first.
+name: startup-screen-inhibited-screen
+filename: startup.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (setq inhibit-startup-screen t)
+initial: ""
+keys:
+  - h
+  - e
+  - l
+  - l
+  - o
+expected_saved: "hello"
+expected_screen_not_contains:
+  - Just enough Emacs
+  - Your fingers know this

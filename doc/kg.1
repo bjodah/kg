@@ -124,6 +124,31 @@ This is not a sandbox; see
 .Pa doc/lisp-api.md
 for the full reference (object lifetimes, position units, callback
 ordering, error handling) behind this section's narrative tour.
+.Pp
+An empty buffer shows the startup screen: a centred logo and slogan.
+.Nm
+reads
+.Li inhibit-startup-screen
+once, after the init file has run, and draws no startup screen when it is
+non-nil.
+.Bd -literal -offset indent
+(setq inhibit-startup-message t)
+.Ed
+.Li inhibit-startup-message
+is Emacs' other spelling of the same switch and either name suppresses
+the screen.
+Unlike Emacs, where a
+.Li defvaralias
+makes the two names one variable, kg's are two variables, so setting one
+does not change what the other reads back.
+Neither suppresses the
+.Dq Press Ctrl-h for help
+greeting in the status area.
+.Fl Q
+loads no init file, so both stay
+.Li nil
+and the startup screen is shown.
+.Pp
 Packages load explicitly with
 .Li (load "name") ,
 which resolves a bare name to

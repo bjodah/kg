@@ -290,6 +290,14 @@ Lisp support is compiled in by default. Use `make WITH_LISP=0` to build without
 the Fe Lisp interpreter;
 See [LISP.md](LISP.md).
 
+kg reads `$XDG_CONFIG_HOME/kg/init.el` (falling back to
+`~/.config/kg/init.el`) at startup. One line is already a useful one — this
+turns off the startup screen an empty buffer shows:
+
+```elisp
+(setq inhibit-startup-message t)
+```
+
 ## Tree-sitter (optional, off by default)
 
 Syntax highlighting has two interchangeable backends, chosen at build time.

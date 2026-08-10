@@ -57,6 +57,12 @@ static void setup_editor(void)
 	winlist[0].active = 1;
 	wcur()->buf = buf_handle(buf_current);
 	bcur()->filename = "/tmp/bridge.txt";
+	/* The current slot counts, exactly as buf_load_args() makes it count
+	 * in the editor.  Without this the harness believed it held one
+	 * buffer fewer than it does, and buf_kill_buffer()'s
+	 * keep-the-last-one rule refused a kill that the editor allows --
+	 * the same omission test/kgbatch.c had. */
+	buf_count = 1;
 	undo_init();
 	test_status_message[0] = '\0';
 	test_command_name[0] = '\0';
@@ -6166,8 +6172,20 @@ static void test_phase17_switch_to_buffer(void)
 		      " (switch-to-buffer \"*report*\")"
 		      " (- (length (buffer-list)) n))",
 	    "0"));
+	/* It takes a buffer OBJECT as well as a name. */
+	CHECK(eval_eq("(buffer-name (switch-to-buffer"
+		      " (get-buffer \"*report*\")))",
+	    "*report*"));
 	CHECK(
 	    eval_error_contains("(switch-to-buffer 5)", "wrong-type-argument"));
+
+	/* Leave the harness as it was found.  The stub bufmgr frees a killed
+	 * buffer's name and nothing else does, so a test that creates a
+	 * buffer and walks away leaks it -- which is what .ci/ci-04's
+	 * LeakSanitizer reported for this function's first version. */
+	CHECK(eval_ok("(progn (with-current-buffer (get-buffer \"*report*\")"
+		      " (set-buffer-modified-p nil))"
+		      " (kill-buffer (get-buffer \"*report*\")))"));
 
 	kg_lisp_shutdown();
 	teardown_editor();

@@ -1,12 +1,10 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "../fe/fe.h"
 #include "def.h"
 #include "lisp_internal.h"
-#include "localvars.h"
 #include "marker.h"
 
 /* ---- Line and character motion, and character-set skipping -----------

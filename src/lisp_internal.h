@@ -235,6 +235,18 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
 [[noreturn]] void lisp_raise_file_condition(FeContext *context,
     const char *symbol, const char *operation, const char *detail,
     const char *path);
+/* Raise Emacs' (args-out-of-range FIRST SECOND) -- the range failure that
+ * is not a type failure, whose data is the offending values themselves
+ * with no predicate in front (lisp_core.c). */
+[[noreturn]] void lisp_raise_args_out_of_range(
+    FeContext *context, FeObject *first, FeObject *second);
+/* The two type checks a native writes most, raising wrong-type-argument
+ * with Emacs' predicate name rather than letting fe's own accessor produce
+ * its "expected string, got integer" prose (lisp_core.c).  kg takes a
+ * string wherever Emacs takes a symbol for a hook or feature name, so the
+ * symbol check accepts both and still reports `symbolp'. */
+void lisp_check_string(FeContext *context, FeObject *object);
+void lisp_check_symbol_or_string(FeContext *context, FeObject *object);
 /* Latch state.error_kind into state.last_error_kind and disarm it
  * (lisp_core.c).  Called by every seam that has finished handling a
  * completion, so none of them leaves a stale kind behind. */
@@ -263,7 +275,8 @@ void lisp_exec_set_buffer(FeContext *ctx, struct editor_buffer *b);
 struct kg_marker_handle lisp_exec_point_marker(void);
 
 /* Position/codepoint conversions the modules share (lisp_buffer.c). */
-FeDouble lisp_finite(FeContext *context, FeObject *object);
+FeDouble lisp_finite(
+    FeContext *context, FeObject *object, const char *predicate);
 long lisp_decode_char(const char *text, int length, int col);
 long lisp_optional_count(FeContext *context, FeObject **arguments);
 FeObject *lisp_position(FeContext *context, long offset);

@@ -1,0 +1,6 @@
+{
+ "id": "phase13-apply-error",
+ "setup": [],
+ "expr": "(condition-case e (apply 'error (list \"boom\")) (error (car e)))",
+ "note": "Phase 13.1: `error` reached through `apply` raises rather than answering `invalid-function error`. Measured before the pin move through test/kgbatch: E:invalid-function."
+}

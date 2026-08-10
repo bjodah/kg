@@ -18,7 +18,14 @@ static char *lisp_string_argument(
     FeContext *context, FeObject *object, int *length)
 {
 	size_t bytes;
-	char *text = copy_fe_string(context, object, &bytes);
+	char *text;
+
+	/* Ahead of the accessor, so a non-string is Emacs'
+	 * (wrong-type-argument stringp X) rather than fe's own "expected
+	 * string, got integer" -- which names neither the condition a
+	 * handler would catch nor the value that failed. */
+	lisp_check_string(context, object);
+	text = copy_fe_string(context, object, &bytes);
 
 	if (bytes > INT_MAX) {
 		free(text);
@@ -74,7 +81,7 @@ static int lisp_string_index(
 	if (FeIsNil(object)) {
 		return fallback;
 	}
-	value = lisp_finite(context, object);
+	value = lisp_finite(context, object, "integerp");
 	if (value < 0) {
 		value += (FeDouble)chars;
 	}
@@ -125,6 +132,7 @@ static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 	while (!FeIsNil(arguments)) {
 		FeObject *object = FeGetNextArgument(context, &arguments);
 
+		lisp_check_string(context, object);
 		if (ckd_add(
 			&total, total, FeStringByteLength(context, object))) {
 			FeHandleError(context, "string is too large");
@@ -175,6 +183,8 @@ FeObject *native_string_equal(FeContext *context, FeObject *arguments)
 	bool equal;
 
 	FeRequireNoArguments(context, arguments);
+	lisp_check_string(context, a);
+	lisp_check_string(context, b);
 	length = FeStringByteLength(context, a);
 	if (length != FeStringByteLength(context, b)) {
 		return FeMakeBool(context, false);
@@ -230,9 +240,17 @@ FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 	long codepoint;
 
 	FeRequireNoArguments(context, arguments);
-	value = lisp_finite(context, object);
+	value = lisp_finite(context, object, "characterp");
+	/* Emacs' own answer for a code point outside Unicode, measured:
+	 * (char-to-string 4194304) is (wrong-type-argument characterp
+	 * 4194304), not a range error.  0 is on this side of the line
+	 * too, and that part is kg's own policy rather than Emacs' --
+	 * Emacs answers a one-NUL string there -- because nothing kg
+	 * stores in a string may contain a NUL, the same rule fe's reader
+	 * applies to the escape "\0".  Saying so as `characterp' keeps it
+	 * one predicate rather than two verdicts for one argument. */
 	if (value < 1 || value > 0x10FFFF) {
-		FeHandleError(context, "character code is out of range");
+		lisp_raise_wrong_type(context, "characterp", object);
 	}
 	codepoint = (long)value;
 	if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {

@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-format-consumption",
+ "setup": [],
+ "expr": "(list (format \"%d%d\" 1 2) (format \"%s\" 1 2) (format \"%s-%d-%s\" 'a 2 \"c\"))",
+ "note": "Phase 13.4 trap battery: the known directives consume their arguments in order and do not desync the cursor, and arguments the format string never reaches are ignored. kg is already strict about UNknown directives (manifest row phase8-format-strictness raises rather than emitting them literally), and a raise cannot desync a cursor -- so what is left to pin is the known-directive side, which this does."
+}

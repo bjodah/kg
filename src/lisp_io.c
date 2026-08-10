@@ -513,6 +513,9 @@ static char *lisp_format_text(FeContext *context, FeObject *arguments)
 	struct format_buffer out = { 0 };
 	size_t length;
 
+	/* (format 1) and (message 1) are both (wrong-type-argument stringp 1)
+	 * on Emacs, measured. */
+	lisp_check_string(context, object);
 	out.text = copy_fe_string(context, object, &length);
 	state.scratch = out.text;
 	out.start = length + 1;
@@ -546,6 +549,11 @@ FeObject *native_insert(FeContext *context, FeObject *arguments)
 	char *text;
 
 	FeRequireNoArguments(context, arguments);
+	/* Emacs' (insert 1) inserts the *character* 1 and answers nil; kg's
+	 * insert is string-only, so this is a kg-policy rejection, but the
+	 * condition it raises is still the structured one a handler can
+	 * name rather than fe's accessor prose. */
+	lisp_check_string(context, object);
 	text = copy_fe_string(context, object, &length);
 	if (b->readonly) {
 		free(text);

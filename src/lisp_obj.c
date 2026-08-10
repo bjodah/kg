@@ -183,7 +183,11 @@ struct editor_buffer *lisp_buffer_resolve(
 
 	rec = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_BUFFER);
 	if (rec == NULL) {
-		lisp_object_error(ctx, what, "expected a buffer");
+		/* Emacs' own answer, measured: (buffer-name 1) is
+		 * (wrong-type-argument bufferp 1).  A *dead* buffer below stays
+		 * kg's plain error, because Emacs' answer there
+		 * ("Selecting deleted buffer") is unstructured too. */
+		lisp_raise_wrong_type(ctx, "bufferp", obj);
 	}
 	b = buf_resolve(rec->buffer);
 	if (b == NULL) {
@@ -235,25 +239,30 @@ struct FeObject *lisp_marker_object(struct FeContext *ctx,
 }
 
 struct kg_marker_handle lisp_marker_resolve(
-    struct FeContext *ctx, struct FeObject *obj, const char *what)
+    struct FeContext *ctx, struct FeObject *obj)
 {
 	struct kg_lisp_object *rec
 	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
 
 	if (rec == NULL) {
-		lisp_object_error(ctx, what, "expected a marker");
+		/* (marker-position 1) is (wrong-type-argument markerp 1).
+		 * The old `what' parameter existed only to name the native in
+		 * a prose message; the condition names the value instead. */
+		lisp_raise_wrong_type(ctx, "markerp", obj);
 	}
 	return rec->marker;
 }
 
 struct kg_process_handle lisp_process_resolve(
-    struct FeContext *ctx, struct FeObject *obj, const char *what)
+    struct FeContext *ctx, struct FeObject *obj)
 {
 	struct kg_lisp_object *rec
 	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_PROCESS);
 
 	if (rec == NULL) {
-		lisp_object_error(ctx, what, "expected a process");
+		/* (process-status 1) is (wrong-type-argument processp 1); the
+		 * `what' parameter is gone for the same reason as above. */
+		lisp_raise_wrong_type(ctx, "processp", obj);
 	}
 	return rec->process;
 }
@@ -279,7 +288,8 @@ void lisp_marker_set(struct FeContext *ctx, struct FeObject *obj,
 	struct kg_buffer_handle handle = buf_handle_of(b);
 
 	if (rec == NULL) {
-		lisp_object_error(ctx, "set-marker", "expected a marker");
+		/* (set-marker 1 2) is (wrong-type-argument markerp 1). */
+		lisp_raise_wrong_type(ctx, "markerp", obj);
 	}
 	if (rec->marker.buffer.slot == handle.slot
 	    && rec->marker.buffer.id == handle.id
@@ -307,7 +317,8 @@ void lisp_marker_detach(struct FeContext *ctx, struct FeObject *obj)
 	    = lisp_object_peek(ctx, obj, KG_LISP_OBJECT_MARKER);
 
 	if (rec == NULL) {
-		lisp_object_error(ctx, "set-marker", "expected a marker");
+		/* (set-marker 1 2) is (wrong-type-argument markerp 1). */
+		lisp_raise_wrong_type(ctx, "markerp", obj);
 	}
 	kg_marker_delete(rec->marker);
 	rec->marker = (struct kg_marker_handle) { { -1, 0, 0 }, 0, 0 };
@@ -552,6 +563,9 @@ static char *lisp_name_argument(
 	char *text;
 	size_t length;
 
+	/* (get-buffer 1), (set-buffer 1) and (kill-buffer 1) are all
+	 * (wrong-type-argument stringp 1) on Emacs, measured. */
+	lisp_check_string(context, object);
 	text = copy_fe_string(context, object, &length);
 	if (length == 0 || length >= outsize) {
 		free(text);
@@ -724,7 +738,7 @@ FeObject *native_marker_position(FeContext *context, FeObject *arguments)
 	size_t byte;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_marker_resolve(context, object, "marker-position");
+	handle = lisp_marker_resolve(context, object);
 	b = buf_resolve(handle.buffer);
 	if (b == NULL || kg_marker_resolve(handle, &byte) != KG_MARKER_OK) {
 		return FeNil(context);
@@ -740,7 +754,7 @@ FeObject *native_marker_buffer(FeContext *context, FeObject *arguments)
 	struct kg_marker_handle handle;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_marker_resolve(context, object, "marker-buffer");
+	handle = lisp_marker_resolve(context, object);
 	if (buf_resolve(handle.buffer) == NULL) {
 		return FeNil(context);
 	}

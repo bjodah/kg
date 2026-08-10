@@ -429,7 +429,7 @@ FeObject *native_process_live_p(FeContext *context, FeObject *arguments)
 	struct kg_process_table_info info;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "process-live-p");
+	handle = lisp_process_resolve(context, object);
 	if (!kg_process_table_query(handle, &info)) {
 		return FeMakeBool(context, false);
 	}
@@ -443,7 +443,7 @@ FeObject *native_delete_process(FeContext *context, FeObject *arguments)
 	struct kg_process_binding *b;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "delete-process");
+	handle = lisp_process_resolve(context, object);
 	if (!kg_process_table_terminate_and_release(handle)) {
 		FeHandleError(context, "delete-process: cannot delete process");
 	}
@@ -465,7 +465,7 @@ FeObject *native_process_buffer(FeContext *context, FeObject *arguments)
 	struct kg_buffer_handle buffer;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "process-buffer");
+	handle = lisp_process_resolve(context, object);
 	buffer = kg_process_table_buffer(handle);
 	if (buf_resolve(buffer) == NULL) {
 		return FeNil(context);
@@ -504,7 +504,7 @@ FeObject *native_set_process_filter(FeContext *context, FeObject *arguments)
 	struct kg_process_binding *b;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "set-process-filter");
+	handle = lisp_process_resolve(context, object);
 	if (!kg_process_table_resolves(handle)) {
 		FeHandleError(context, "set-process-filter: process is dead");
 	}
@@ -532,7 +532,7 @@ FeObject *native_set_process_sentinel(FeContext *context, FeObject *arguments)
 	struct kg_process_binding *b;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "set-process-sentinel");
+	handle = lisp_process_resolve(context, object);
 	if (!kg_process_table_resolves(handle)) {
 		FeHandleError(context, "set-process-sentinel: process is dead");
 	}
@@ -558,7 +558,7 @@ FeObject *native_process_status(FeContext *context, FeObject *arguments)
 	struct kg_process_table_info info;
 
 	FeRequireNoArguments(context, arguments);
-	handle = lisp_process_resolve(context, object, "process-status");
+	handle = lisp_process_resolve(context, object);
 	if (!kg_process_table_query(handle, &info)) {
 		return FeNil(context);
 	}

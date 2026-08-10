@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-declare-docstring-interactive",
+ "setup": [],
+ "expr": "(progn (defun kg13-full (x) \"doc\" (declare (pure t)) (interactive \"p\") (* x 2)) (kg13-full 4))",
+ "note": "Phase 13.4 trap battery, the positional cross-product: docstring, then `declare`, then `interactive`, then the body. Each of the three is stripped in its own position and the body still runs and answers."
+}

@@ -146,7 +146,7 @@ struct FeObject *lisp_marker_object(struct FeContext *ctx,
  * (marker-position obj)/(marker-buffer obj) read to answer nil, exactly
  * as Emacs' own detached markers do. */
 struct kg_marker_handle lisp_marker_resolve(
-    struct FeContext *ctx, struct FeObject *obj, const char *what);
+    struct FeContext *ctx, struct FeObject *obj);
 
 /* Point marker object `obj` at byte position `pos` of `b`, replacing
  * whatever it pointed at before -- including a different buffer's marker
@@ -195,7 +195,7 @@ struct FeObject *lisp_process_object(
  * itself an error -- src/process_table.h's own resolution answers that,
  * matching lisp_marker_resolve()'s detached-marker precedent. */
 struct kg_process_handle lisp_process_resolve(
-    struct FeContext *ctx, struct FeObject *obj, const char *what);
+    struct FeContext *ctx, struct FeObject *obj);
 
 /* The buffer handle BUFFER-OR-NAME names, for start-process's and
  * start-shell-command's BUFFER argument: a live buffer object resolves

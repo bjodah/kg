@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-setting-constant",
+ "setup": [],
+ "expr": "(list (condition-case e (setq t 1) (setting-constant (car e))) (condition-case e (setq nil 1) (setting-constant (car e))) (condition-case e (setq :k 1) (setting-constant (car e))))",
+ "note": "Phase 13.4 trap battery: t, nil and keywords are constants, and assigning one is the `setting-constant` condition rather than a silent rebinding. Pinned through kg, green as found; fe's own side is constant-setq-t/-nil/-keyword/-colon."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase13-native-args-out-of-range",
+ "setup": [],
+ "expr": "(condition-case e (match-beginning -1) (args-out-of-range (car e)))",
+ "note": "Phase 13.3's second condition: a range failure that is not a type failure. (match-beginning -1) is args-out-of-range on Emacs and now here; a group index past the last one is nil on both, which is why only the negative side raises."
+}

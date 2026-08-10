@@ -514,7 +514,7 @@ static void test_message_arity(void)
 	CHECK(strstr(result, "too few arguments") != nullptr);
 	CHECK(kg_lisp_eval_string("(message 1)", 11, result, sizeof(result))
 	    != 0);
-	CHECK(strstr(result, "expected string") != nullptr);
+	CHECK(strstr(result, "wrong-type-argument") != nullptr);
 	CHECK(kg_lisp_eval_string(
 		  "(message \"ready\")", 17, result, sizeof(result))
 	    == 0);
@@ -2007,7 +2007,10 @@ static void test_buffer_objects(void)
 	    eval_eq("(eq (current-buffer) (get-buffer \"bridge.txt\"))", "t"));
 	CHECK(eval_eq("(get-buffer \"absent\")", "nil"));
 	CHECK(eval_eq("(buffer-live-p 42)", "nil"));
-	CHECK(eval_error_contains("(buffer-name 42)", "expected a buffer"));
+	CHECK(eval_error_contains("(buffer-name 42)", "wrong-type-argument"));
+	CHECK(eval_eq("(condition-case e (buffer-name 42) "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "bufferp"));
 
 	/* get-buffer-create makes a clean hidden buffer, idempotent by name. */
 	CHECK(eval_ok("(setq h (get-buffer-create \"hidden\"))"));
@@ -2692,7 +2695,7 @@ static void test_string_length_and_substring(void)
 	CHECK(eval_eq("(string-length \"abc\")", "3"));
 	CHECK(eval_eq("(string-length \"h\xc3\xa9llo\")", "5"));
 	CHECK(eval_eq("(string-length \"\xe6\xbc\xa2\xe5\xad\x97\")", "2"));
-	CHECK(eval_error_contains("(string-length 1)", "expected string"));
+	CHECK(eval_error_contains("(string-length 1)", "wrong-type-argument"));
 	/* Lengths and char codes are integers now, not doubles. */
 	CHECK(eval_eq("(type-of (string-length \"abc\"))", "integer"));
 	CHECK(eval_eq("(type-of (string-to-char \"abc\"))", "integer"));
@@ -2732,7 +2735,7 @@ static void test_string_concat_and_equal(void)
 	CHECK(eval_eq("(concat \"\xe6\xbc\xa2\" \"\xe5\xad\x97\")",
 	    "\xe6\xbc\xa2\xe5\xad\x97"));
 	CHECK(eval_eq("(string-length (concat \"h\xc3\xa9\" \"llo\"))", "5"));
-	CHECK(eval_error_contains("(concat \"a\" 1)", "expected string"));
+	CHECK(eval_error_contains("(concat \"a\" 1)", "wrong-type-argument"));
 
 	CHECK(eval_eq("(string= \"\" \"\")", "t"));
 	CHECK(eval_eq("(string= \"abc\" \"abc\")", "t"));
@@ -2741,7 +2744,7 @@ static void test_string_concat_and_equal(void)
 	CHECK(eval_eq("(string= \"h\xc3\xa9llo\" \"h\xc3\xa9llo\")", "t"));
 	CHECK(eval_eq("(string= \"h\xc3\xa9llo\" \"hello\")", "nil"));
 	/* Recovery after a type error leaves the interpreter usable. */
-	CHECK(eval_error_contains("(string= \"a\" 1)", "expected string"));
+	CHECK(eval_error_contains("(string= \"a\" 1)", "wrong-type-argument"));
 	CHECK(eval_eq("(concat \"ok\")", "ok"));
 
 	kg_lisp_shutdown();
@@ -2845,7 +2848,7 @@ static void test_format_natives(void)
 	CHECK(eval_error_contains(
 	    "(format \"%q\" 1)", "invalid format operation %q"));
 	CHECK(eval_error_contains("(format \"50%\")", "middle of format"));
-	CHECK(eval_error_contains("(format 1)", "expected string"));
+	CHECK(eval_error_contains("(format 1)", "wrong-type-argument"));
 	/* The spellings Emacs accepts and kg refuses, recorded rather than
 	 * quietly misread (manifest row phase8-format-strictness): Emacs'
 	 * remaining flags and its N$ field numbers, and %c of 0, which
@@ -2905,8 +2908,12 @@ static void test_char_string_round_trip(void)
 	CHECK(eval_eq("(char-to-string 233)", "\xc3\xa9"));
 	CHECK(eval_eq("(char-to-string 28450)", "\xe6\xbc\xa2"));
 	CHECK(eval_eq("(char-to-string 128169)", "\xf0\x9f\x92\xa9"));
-	CHECK(eval_error_contains("(char-to-string 0)", "out of range"));
-	CHECK(eval_error_contains("(char-to-string 1114112)", "out of range"));
+	CHECK(eval_error_contains("(char-to-string 0)", "wrong-type-argument"));
+	/* Emacs' own answer for a code point outside Unicode is
+	 * (wrong-type-argument characterp 1114112), measured; 0 is kg's
+	 * own rejection and keeps its own prose. */
+	CHECK(eval_error_contains(
+	    "(char-to-string 1114112)", "wrong-type-argument"));
 	CHECK(eval_error_contains("(char-to-string 55296)", "surrogate"));
 
 	CHECK(eval_eq("(string-to-char \"abc\")", "97"));
@@ -4370,33 +4377,176 @@ static void test_wrapping_native_transparency(void)
 	teardown_editor();
 }
 
-/* Sub-plan 06E, and the honest half of the compat manifest's
- * condition-case-native-errors row.  kg's own editor natives still raise
- * prose through FeHandleError -- 06A's Decision 2 deferred classifying them
- * -- so the condition they carry is plain `error` whose message happens to
- * read "wrong-type-argument".  A generic handler therefore catches them and
- * a handler naming the specific symbol does not, which is a divergence from
- * Emacs and is written down as one. */
+/* Sub-plan 06E, closed by Phase 13.2 and 13.3: a kg native raises Emacs'
+ * own condition, with Emacs' own data, and a handler naming the specific
+ * symbol catches it.  Both halves had to move.  13.2: the raise used to
+ * go through a nested FeEvaluate, whose completion transfers to the
+ * OUTERMOST barrier -- past every lexically enclosing handler -- so the
+ * wrong-type-argument arm below did not merely fail to match, it was
+ * never reached at all and the error left kg uncatchable.  13.3: the
+ * argument seams raised prose through FeHandleError, so even the generic
+ * arm caught `(error "wrong-type-argument")` rather than the real thing.
+ *
+ * What this does NOT assert, deliberately: the *rendering* of an uncaught
+ * one.  fe's `signal` uses the bare condition name as the completion's
+ * message, so an uncaught raise still reports `wrong-type-argument` and
+ * not Emacs' "Wrong type argument: integer-or-marker-p, \"x\"" -- that
+ * needs the error-message property, which is Phase 19. */
 static void test_condition_case_kg_native_conditions(void)
 {
 	setup_editor();
 	editor_insert_row(bcur(), 0, "hello world", 11);
 	CHECK(kg_lisp_init() == 0);
 
-	/* A generic (error ...) handler catches a kg native's raise. */
+	/* A generic (error ...) handler still catches a kg native's raise:
+	 * wrong-type-argument is a subtype of error. */
 	CHECK(eval_eq("(condition-case e (goto-char \"x\") (error 'generic))",
 	    "generic"));
-	/* The symbol the *message* names does not match, because the
-	 * condition object is `(error "wrong-type-argument")`. */
-	CHECK(eval_error_contains(
-	    "(condition-case e (goto-char \"x\") (wrong-type-argument 'sym))",
+	/* And the handler naming the symbol now matches, which is the whole
+	 * of 13.2 plus 13.3 in one form. */
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") "
+		      "(wrong-type-argument 'sym))",
+	    "sym"));
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") (error (car e)))",
 	    "wrong-type-argument"));
-	CHECK(eval_eq(
-	    "(condition-case e (goto-char \"x\") (error (car e)))", "error"));
-	/* Fe's own natives, by contrast, already carry classified
-	 * conditions -- so this is a kg-side gap, not a Lisp-wide one. */
+	/* Emacs' data shape: the predicate the argument failed first, the
+	 * offending value second.  (goto-char "x") is
+	 * (wrong-type-argument integer-or-marker-p "x") on 31.0.90. */
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "integer-or-marker-p"));
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") "
+		      "(wrong-type-argument (car (cdr (cdr e)))))",
+	    "x"));
+	/* 13.2's own regression, on the caller the plan named: a handler
+	 * lexically enclosing the native is reached at all.  This form
+	 * used to escape its own condition-case. */
+	CHECK(eval_eq("(condition-case e (prefix-numeric-value \"x\") "
+		      "(wrong-type-argument 'caught))",
+	    "caught"));
+	/* An inner handler that does not name the condition still lets it
+	 * through to an outer one that does -- the resignal keeps the
+	 * condition object, not just the fact of a failure. */
+	CHECK(eval_eq("(condition-case e "
+		      "(condition-case inner (goto-char \"x\") (quit 'wrong)) "
+		      "(wrong-type-argument (car e)))",
+	    "wrong-type-argument"));
+	/* 13.3's other condition: a range failure that is not a type
+	 * failure.  (match-beginning -1) is (args-out-of-range -1 0) on
+	 * Emacs, measured; a group past the last one is nil on both. */
+	CHECK(eval_eq("(condition-case e (match-beginning -1) "
+		      "(args-out-of-range (car e)))",
+	    "args-out-of-range"));
+	CHECK(eval_eq("(match-beginning 9)", "nil"));
+	/* Fe's own natives were already classified, and still are. */
 	CHECK(eval_eq(
 	    "(condition-case e (car 1) (wrong-type-argument 'sym))", "sym"));
+	/* 13.1, through kg: `signal`, `error` and `keywordp` are reachable
+	 * as values at all.  All three answered `invalid-function` before
+	 * the pin move -- and the one that mattered here is `mapcar`, since
+	 * kg's prelude funcalls its function argument, so a predicate with
+	 * no row in fe's primitive_is_function[] was unusable however
+	 * ordinary it looked in call position. */
+	CHECK(
+	    eval_eq("(condition-case e "
+		    "(funcall 'signal 'wrong-type-argument (list 'symbolp 1)) "
+		    "(wrong-type-argument (car (cdr e))))",
+		"symbolp"));
+	CHECK(eval_eq(
+	    "(condition-case e (apply 'error (list \"boom\")) (error (car e)))",
+	    "error"));
+	CHECK(eval_eq("(mapcar 'keywordp (list :a 1))", "(t nil)"));
+	CHECK(eval_eq("(list (functionp 'signal) (functionp 'error) "
+		      "(functionp 'keywordp))",
+	    "(t t t)"));
+	/* Every seam the sweep touched, by the predicate Emacs names. */
+	CHECK(eval_eq("(condition-case e (string= 1 \"a\") "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "stringp"));
+	CHECK(eval_eq("(condition-case e (marker-position 1) "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "markerp"));
+	CHECK(eval_eq("(condition-case e (provide 1) "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "symbolp"));
+	CHECK(eval_eq("(condition-case e (forward-word \"x\") "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "fixnump"));
+	CHECK(eval_eq("(condition-case e (char-to-string \"a\") "
+		      "(wrong-type-argument (car (cdr e))))",
+	    "characterp"));
+	/* A failure Emacs itself reports unstructured stays a plain error
+	 * here: kg does not invent a condition Emacs does not have. */
+	CHECK(eval_eq("(condition-case e (char-to-string 55296) "
+		      "(wrong-type-argument 'wta) (error 'plain))",
+	    "plain"));
+	/* The interpreter is usable after every one of these. */
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Phase 13.4's trap battery, kg's half.  Every one of these is a
+ * semantic that cost weeks somewhere else and that kg already had right;
+ * they are checked in as tests rather than written down as prose
+ * precisely because the richest such batteries elsewhere were only ever
+ * prose.  The compat corpus carries the same forms against the Emacs
+ * oracle (phase13-trap-*); this is the native side that names them, so
+ * a kg-owned manifest row has a kg_test to point at. */
+static void test_phase13_trap_battery(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Variadic comparison is pairwise-ALL, not first-pair: an
+	 * implementation that compares only arguments 0 and 1 answers t for
+	 * the first of these, which is a silently wrong range check rather
+	 * than an error. */
+	CHECK(eval_eq("(< 1 5 3)", "nil"));
+	CHECK(eval_eq("(> 3 1 2)", "nil"));
+	CHECK(eval_eq("(<= 1 1 2)", "t"));
+	CHECK(eval_eq("(>= 3 3 1)", "t"));
+	CHECK(eval_eq("(> 3 2 1)", "t"));
+	CHECK(eval_eq("(< 1 2 3 4)", "t"));
+
+	/* Catch tags are compared with eq and type-check nothing, so `t` is
+	 * legal; `nil` as a tag does not match its own catch on Emacs
+	 * either, so the two constants are pinned separately.  A throw
+	 * matching an outer catch passes through a mismatched inner one. */
+	CHECK(eval_eq("(catch t (throw t 1))", "1"));
+	CHECK(eval_eq("(condition-case e (catch nil (throw nil 2)) "
+		      "(no-catch 'no-catch))",
+	    "no-catch"));
+	CHECK(eval_eq("(catch 'a (catch 'b (throw 'a 3)))", "3"));
+
+	/* `declare` is metadata, stripped before the body is code -- alone,
+	 * and in the full docstring/declare/interactive/body cross-product. */
+	CHECK(eval_ok("(defun kg13-declared (x) (declare (side-effect-free t))"
+		      " x)"));
+	CHECK(eval_eq("(kg13-declared 7)", "7"));
+	CHECK(eval_ok("(defun kg13-full (x) \"doc\" (declare (pure t)) "
+		      "(interactive \"p\") (* x 2))"));
+	CHECK(eval_eq("(kg13-full 4)", "8"));
+
+	/* The known format directives consume their arguments in order and
+	 * do not desync the cursor; extras are ignored.  The unknown-
+	 * directive side is already strict (phase8-format-strictness), and
+	 * a raise cannot desync a cursor. */
+	CHECK(eval_eq("(format \"%d%d\" 1 2)", "12"));
+	CHECK(eval_eq("(format \"%s\" 1 2)", "1"));
+	CHECK(eval_eq("(format \"%s-%d-%s\" 'a 2 \"c\")", "a-2-c"));
+
+	/* t, nil and keywords are constants. */
+	CHECK(
+	    eval_eq("(condition-case e (setq t 1) (setting-constant (car e)))",
+		"setting-constant"));
+	CHECK(eval_eq(
+	    "(condition-case e (setq nil 1) (setting-constant (car e)))",
+	    "setting-constant"));
+	CHECK(
+	    eval_eq("(condition-case e (setq :k 1) (setting-constant (car e)))",
+		"setting-constant"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -5596,6 +5746,7 @@ int main(void)
 	RUN(test_catch_throw_unwind);
 	RUN(test_wrapping_native_transparency);
 	RUN(test_condition_case_kg_native_conditions);
+	RUN(test_phase13_trap_battery);
 	RUN(test_hook_quit_is_not_contained);
 	RUN(test_hook_throw_containment);
 	RUN(test_signal);

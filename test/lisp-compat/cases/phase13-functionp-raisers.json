@@ -1,0 +1,6 @@
+{
+ "id": "phase13-functionp-raisers",
+ "setup": [],
+ "expr": "(list (functionp 'signal) (functionp 'error) (functionp 'keywordp))",
+ "note": "Phase 13.1 through kg's own `functionp` native, which asks fe's FeIsFunction, which reads the same table `funcall` routes on -- so the reflective answer and the callable answer cannot drift apart. All three were nil before the pin move."
+}

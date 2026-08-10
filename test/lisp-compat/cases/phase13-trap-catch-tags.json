@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-catch-tags",
+ "setup": [],
+ "expr": "(list (catch t (throw t 1)) (catch 'a (catch 'b (throw 'a 3))))",
+ "note": "Phase 13.4 trap battery: `t` is a legal catch tag, and a throw matching the outer catch passes through an inner one with a different tag. Pinned, green as found."
+}

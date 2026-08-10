@@ -1,0 +1,6 @@
+{
+ "id": "phase13-native-condition-through-inner-handler",
+ "setup": [],
+ "expr": "(condition-case outer (condition-case inner (goto-char \"x\") (quit 'wrong)) (wrong-type-argument 'outer-caught))",
+ "note": "Phase 13.2: the raise reaches a LEXICALLY ENCLOSING handler, passing through an inner handler that does not name the condition. The old shape raised through a nested FeEvaluate whose completion transfers to the outermost barrier, so neither handler was consulted and the error left kg uncatchable; this form is the one that separates 'the symbol did not match' from 'the handler was never reached'."
+}

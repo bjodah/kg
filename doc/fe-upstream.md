@@ -1,7 +1,7 @@
 # Fe upstream
 
 kg embeds the core of [Fe](https://github.com/bjodah/fe) through the `fe/` git
-submodule. The submodule tracks the **`analyzers-etc` branch** of
+submodule. The submodule tracks the **`more-elisp` branch** of
 `github.com:bjodah/fe`; that branch name is the pin. The exact commit is
 recorded automatically by git as part of `fe/` being a submodule — the
 superproject's tree stores the SHA the working tree is checked out at, and
@@ -12,7 +12,7 @@ rewritten.
 The supported embedding interface is `FE_API_VERSION 8`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 10`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 11`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
 version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
@@ -92,6 +92,33 @@ is built on. No language behaviour changed with it, so
 fix cycle is the same phase, so fe's `doc/c-api.md` records that release
 11.0 moves both macros. With the API at 8, `FeVersion` has run three
 ahead of `FE_API_VERSION` since Phase 11 and still does.
+Phase 13 moved `FE_LANGUAGE_VERSION` 10 → **11** alone, in fe's
+funcall-classification repair below, and `FE_API_VERSION` stayed at **8** —
+no declaration in `fe.h` changed, only comment text and three data lines in
+`fe_eval.c`'s `primitive_is_function[]`. The change is that `signal`,
+`error` and `keywordp` are reachable through `funcall`/`apply` at all: all
+three evaluate every operand and are ordinary functions in Emacs, but a
+missing row made `IsRawFormCallable()` treat them as special forms, so
+`(funcall 'signal 'error '("x"))`, `(apply 'error '("boom"))` and
+`(mapcar 'keywordp '(:a 1))` answered `invalid-function` in `fe/fe` and,
+identically, in kg. Like the version 8 bump this is *not* a break — no
+program that ran under 10 answers differently under 11, because every
+affected program raised — and it is a bump for version 8's reason, which
+this table records rather than re-decides: kg's compile-time
+`static_assert` is the macro's only consumer, and `signal` reachable
+through the two entry points a prelude's higher-order functions are built
+on is exactly the kind of thing a version that does not move cannot report.
+The assertion in `src/lisp_core.c` fired at this pin, which is the
+behaviour the two-macro scheme exists for. `FeVersion` is `"12.0"`.
+The same pin carries fe's `FE_GC_STRESS` build knob, which moves neither
+macro on purpose: it is a compile-time define inside `fe.c`, defaulting to
+0 and compiling to nothing there, with no declaration in `fe.h` and no
+effect on any program's answer — the same standard the Phase 9 row above
+applies to a change with no C declaration and no language surface. kg
+builds one object with it (`test/fe_gcstress.o`, linked into
+`test/kgbatch-gcstress`, the `make lisp-gc-stress-check` lane); the shipped
+editor's `src/fe.o` is built without it, exactly as `test/perfobj/` keeps
+the counting build out of `src/`.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
@@ -117,7 +144,7 @@ includes it, directly or through `lisp_internal.h`.
 
 To update Fe:
 
-1. Fetch `origin` in `fe/` and check out the tip of `analyzers-etc` (or the
+1. Fetch `origin` in `fe/` and check out the tip of `more-elisp` (or the
    branch you are moving the pin to).
 2. Review the complete submodule diff, including the kg-side divergences
    listed below — they live on that branch and must survive the update.
@@ -178,7 +205,7 @@ submodule against a plan document will be.
 
 ## kg-side divergences from upstream rxi/fe
 
-These changes live on `bjodah/fe`'s `analyzers-etc` branch. They exist because
+These changes live on `bjodah/fe`'s `more-elisp` branch. They exist because
 kg presents Fe to users as an Emacs Lisp dialect, and the remaining Emacs
 surface is bought in kg's own prelude in `lisp/prelude.el`. Anything
 that could be done in the prelude was done there instead.

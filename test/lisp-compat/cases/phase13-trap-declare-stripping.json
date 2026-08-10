@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-declare-stripping",
+ "setup": [],
+ "expr": "(progn (defun kg13-declared (x) (declare (side-effect-free t)) x) (kg13-declared 7))",
+ "note": "Phase 13.4 trap battery: a `declare` form in a body is metadata, stripped before the body is code. Walking a live (declare (debug ...)) as code was a multi-week hunt elsewhere; kg's prelude `defun` already strips it, and this pins that."
+}

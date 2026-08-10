@@ -1,0 +1,6 @@
+{
+ "id": "phase13-native-wrong-type-data",
+ "setup": [],
+ "expr": "(condition-case e (goto-char \"invalid\") (wrong-type-argument (cdr e)))",
+ "note": "Phase 13.3: a kg native's wrong-type-argument carries Emacs' data -- the predicate the argument failed first, the offending value second. Before this phase kg raised (error \"wrong-type-argument\"), so this handler never matched at all and the value was nowhere."
+}

@@ -351,10 +351,11 @@ FeObject *native_add_hook(FeContext *context, FeObject *arguments)
 	}
 	FeRequireNoArguments(context, arguments);
 
-	if (FeGetType(name_obj) != FeTSymbol
-	    && FeGetType(name_obj) != FeTString) {
-		FeHandleError(context, "add-hook: expected symbol or string");
-	}
+	/* Emacs' own answer for a non-symbol hook name, measured:
+	 * (add-hook 1 'f) is (wrong-type-argument symbolp 1).  kg also takes
+	 * a string here, which is a kg extension, not a different verdict for
+	 * the values Emacs rejects. */
+	lisp_check_symbol_or_string(context, name_obj);
 	if (FeGetType(fn_obj) != FeTFn && FeGetType(fn_obj) != FeTNativeFn
 	    && FeGetType(fn_obj) != FeTSymbol) {
 		FeHandleError(context, "add-hook: expected function or symbol");

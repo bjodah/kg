@@ -1,0 +1,6 @@
+{
+ "id": "phase13-funcall-signal",
+ "setup": [],
+ "expr": "(condition-case e (funcall 'signal 'wrong-type-argument (list 'symbolp 1)) (wrong-type-argument (car (cdr e))))",
+ "note": "Phase 13.1, kg side of fe's lisp2-funcall-signal: `signal` reached through `funcall` raises the condition it names rather than `invalid-function signal`. Measured before the pin move, through test/kgbatch: E:invalid-function."
+}

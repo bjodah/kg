@@ -1,4 +1,4 @@
 [submodule "fe"]
 	path = fe
 	url = https://github.com/bjodah/fe.git
-	branch = analyzers-etc
+	branch = more-elisp

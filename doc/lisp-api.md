@@ -223,7 +223,11 @@ Ordering rules that hold across every subscriber:
   explicit message; an ordinary error keeps today's format verbatim.
   `quit` is catchable by `(quit …)` and `(t)` handlers but not by
   `(error …)`; budget exhaustion is catchable by nothing — it always
-  reaches the host.  Forms evaluated **before** the error remain
+  reaches the host.  A condition an editor native raises reaches a
+  handler written lexically around it, passing through any intervening
+  handler that does not name it: until Phase 13.2 those raises went
+  through a nested evaluation whose completion transferred straight to
+  the host, so no enclosing `condition-case` saw them at all.  Forms evaluated **before** the error remain
   applied — an init file or package that fails partway through still has
   its earlier `defun`s and `setq`s in effect. Errors raised while loading a
   file include its source label and the 1-based line of the top-level form,
@@ -887,13 +891,20 @@ primitive's function cell.
   `throw` finds the innermost matching `catch` by `eq` tag and unwinds
   `unwind-protect` cleanups on the way; an uncaught `throw` signals
   `(no-catch TAG VALUE)`. `ignore-errors` is a one-line macro over
-  `condition-case`. **kg's own editor natives still signal a plain
-  `error`** whose message happens to read like a condition name, so
-  `(condition-case e (goto-char "x") (error …))` catches while
-  `(… (wrong-type-argument …))` does not; classifying kg's ~81 natives
-  is the follow-up sub-plan 06A's Decision 2 deferred, and Fe's own
-  natives are already classified, which is why `(car 1)` *does* match a
-  `wrong-type-argument` handler.
+  `condition-case`. **kg's own editor natives raise Emacs' conditions
+  with Emacs' data** since Phase 13: a type-check failure is
+  `(wrong-type-argument PREDICATE VALUE)` with the predicate Emacs names
+  — `(goto-char "x")` is `(wrong-type-argument integer-or-marker-p "x")`
+  here as on Emacs 31.0.90 — and a range failure Emacs reports that way
+  is `(args-out-of-range …)`. A handler naming the specific symbol
+  catches them, and so does a generic `(error …)` one, since these are
+  sub-conditions of `error`. Two things are deliberately *not* claimed.
+  A native whose failure Emacs itself reports unstructured keeps a plain
+  `error`: resource exhaustion, a dead buffer, a NaN position, and kg's
+  own refusal of NUL and surrogate character codes, which Emacs accepts.
+  And an **uncaught** one still reports the bare condition name rather
+  than Emacs' `Wrong type argument: integer-or-marker-p, "x"`, because
+  neither tree has the per-symbol `error-message` property yet.
 - **Dynamic binding is the Decision-2 subset, not `lexical-binding:
   nil`.** Variables are lexical by default and stay that way; a symbol
   becomes dynamic only by being *marked*, and only `defvar` and

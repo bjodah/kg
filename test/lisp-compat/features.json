@@ -2045,14 +2045,14 @@
   {
    "id": "condition-case-native-errors",
    "category": "errors-and-non-local-exits",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "condition-case-native-errors"
    ],
    "kg_test": "test/test_lisp.c:test_condition_case_kg_native_conditions",
-   "rationale": "Emacs answers `wrong-type-argument`; kg answers a `(error \"wrong-type-argument\")` whose car is `error`, so the handler naming the specific symbol never matches and only a generic `(error ...)` handler catches it. kg's own editor natives still raise prose through FeHandleError: sub-plan 06A's Decision 2 scoped this phase to Fe's conditions and deferred classifying kg's ~81 natives to the follow-up that gives each one its Emacs condition symbol and data. Fe's own natives are already classified, which is why `(car 1)` does match a `wrong-type-argument` handler -- the gap is kg-side and native-by-native. The kg_test pins both halves of the true behaviour.",
+   "rationale": "Phase 13.2/13.3: kg's natives now raise Emacs' own conditions, and a condition-case naming the specific symbol catches them. Two defects had to fall together for this row to flip. (1) lisp_raise_wrong_type() raised through a nested FeEvaluate, whose completion transfers to the OUTERMOST barrier -- kg's own error_jump -- past every handler lexically between the native and the raise, so (condition-case e (prefix-numeric-value \"x\") (wrong-type-argument 'caught)) escaped its own handler and reached the host uncatchable; it now uses the protected-call + FeResignal route lisp_raise_file_condition() already documented. (2) kg's natives spelled prose through FeHandleError, so even a caught error was (error \"wrong-type-argument\"); the numeric, string, symbol, buffer, marker and process argument seams now route through lisp_raise_wrong_type() with Emacs' own predicate name measured on 31.0.90 -- (goto-char \"invalid\") is (wrong-type-argument integer-or-marker-p \"invalid\") here as there. 06A Decision 2's deferred follow-up, closed. What is NOT claimed: kg has no error-message property, so an UNCAUGHT one still reports the bare symbol rather than \"Wrong type argument: ...\" (Phase 19), and natives whose failure Emacs reports unstructured -- resource exhaustion, a dead buffer, a NaN -- deliberately keep their plain error.",
    "source_name": null
   },
   {
@@ -2947,7 +2947,69 @@
     "pipeline-macro-use"
    ],
    "kg_test": "lisp/pipeline.el, lisp/pipeline-text.el, test/pty/lisp-proof3-pipeline-init.yaml, test/pty/lisp-proof3-pipeline-commands.yaml, test/pty/lisp-proof3-pipeline-errors.yaml",
-   "rationale": "The parent plan's §14 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also §14's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every §14 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
+   "rationale": "The parent plan's \u00a714 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also \u00a714's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every \u00a714 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
+   "source_name": null
+  },
+  {
+   "id": "phase13-funcall-raisers",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase13-funcall-signal",
+    "phase13-apply-error",
+    "phase13-mapcar-keywordp",
+    "phase13-functionp-raisers"
+   ],
+   "kg_test": "test/test_lisp.c:test_condition_case_kg_native_conditions",
+   "rationale": "Phase 13.1, kg's half of fe's funcall-function-shaped-raisers/funcall-keywordp rows. `signal`, `error` and `keywordp` had no row in fe's primitive_is_function[], so funcall/apply rejected them as special forms; measured through test/kgbatch before the pin move, all four of these cases answered E:invalid-function. kg is where it mattered most: the prelude's higher-order functions are built on funcall, so `(mapcar 'keywordp ...)` was unusable, and `signal` -- the name a program writing its own condition handling reaches for -- could not be applied at all. Fixed in fe at FE_LANGUAGE_VERSION 11; kg's static_assert is what caught the pin.",
+   "source_name": null
+  },
+  {
+   "id": "phase13-native-conditions-are-catchable",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase13-native-wrong-type-data",
+    "phase13-native-condition-through-inner-handler",
+    "phase13-native-args-out-of-range"
+   ],
+   "kg_test": "test/test_lisp.c:test_condition_case_kg_native_conditions",
+   "rationale": "Phase 13.2 and 13.3 in the two shapes that separate them. 13.2: lisp_raise_wrong_type() raised through a nested FeEvaluate, whose completion transfers to the OUTERMOST barrier -- kg's own error_jump -- past every lexically enclosing handler, so the through-an-inner-handler case was not 'the symbol did not match', it was 'no handler was ever consulted'; it now uses the protected-call + FeResignal route lisp_raise_file_condition() already documented and lisp_raise_args_out_of_range() shares. 13.3: the argument seams carry Emacs' data, measured on 31.0.90 -- (goto-char \"invalid\") is (wrong-type-argument integer-or-marker-p \"invalid\") on both sides, and (match-beginning -1) is args-out-of-range on both while a group past the last one is nil on both.",
+   "source_name": null
+  },
+  {
+   "id": "phase13-trap-comparison-and-catch",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase13-trap-chained-comparison",
+    "phase13-trap-catch-tags",
+    "phase13-trap-catch-nil-tag"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase13_trap_battery",
+   "rationale": "Phase 13.4 trap battery through kg's own evaluator, pinning rather than changing: the variadic comparisons are pairwise-all rather than first-pair (a first-pair implementation answers t for (< 1 5 3), a silently wrong range check rather than an error), `t` is a legal catch tag while `nil` as a tag does not match its own catch on Emacs either, and a throw matching an outer catch passes through a mismatched inner one. Each of these cost weeks somewhere else; kg was green on all of them, which is what makes them worth checking in as tests rather than writing down as prose.",
+   "source_name": null
+  },
+  {
+   "id": "phase13-trap-declare-and-format",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase13-trap-declare-stripping",
+    "phase13-trap-declare-docstring-interactive",
+    "phase13-trap-format-consumption",
+    "phase13-trap-setting-constant"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase13_trap_battery",
+   "rationale": "Phase 13.4 trap battery, the half that involves kg's prelude. `declare` is metadata and is stripped before the body is code -- alone, and in the full docstring/declare/interactive/body cross-product -- so nothing walks a live (declare (debug ...)) as if it were an expression. The known format directives consume their arguments in order and extras are ignored; the UNknown-directive side is already strict and recorded separately (phase8-format-strictness), and a raise cannot desync an argument cursor. Assigning t, nil or a keyword is `setting-constant`. All pinned green as found.",
    "source_name": null
   }
  ]

@@ -250,6 +250,10 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	int found;
 	size_t match_byte;
 
+	/* (search-forward 1) and (re-search-forward 1) are both
+	 * (wrong-type-argument stringp 1) on Emacs, measured; ahead of the
+	 * accessor so it is that and not fe's own prose. */
+	lisp_check_string(context, pattern_object);
 	pattern = copy_fe_string(context, pattern_object, &pattern_len);
 	/* Parked in state.scratch, the same way lisp_string.c and
 	 * lisp_buffer.c park theirs: lisp_search_bound() and
@@ -343,12 +347,20 @@ static FeObject *lisp_match_bound(
     FeContext *context, FeObject *arguments, bool want_end)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
-	long n = (long)lisp_finite(context, object);
+	long n = (long)lisp_finite(context, object, "integerp");
 	struct editor_buffer *b;
 	int col;
 
 	FeRequireNoArguments(context, arguments);
-	if (!state.match.valid || n < 0 || n >= state.match.match.nspans
+	/* A negative group index is Emacs' args-out-of-range, measured:
+	 * (match-beginning -1) is (args-out-of-range -1 0).  A group *past*
+	 * the last one is nil there and here -- the range error is only for
+	 * the side that cannot name a group at all. */
+	if (n < 0) {
+		lisp_raise_args_out_of_range(
+		    context, object, FeMakeInteger(context, 0));
+	}
+	if (!state.match.valid || n >= state.match.match.nspans
 	    || state.match.match.spans[n].start < 0) {
 		return FeNil(context);
 	}

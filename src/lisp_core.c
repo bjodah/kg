@@ -57,7 +57,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 static_assert(FE_API_VERSION == 8);
-static_assert(FE_LANGUAGE_VERSION == 10);
+static_assert(FE_LANGUAGE_VERSION == 11);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -696,37 +696,51 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	FeHandleError(context, text);
 }
 
-/* Raise Emacs' `(wrong-type-argument PREDICATE VALUE)` as a real condition.
+/* The one route from a kg native to a real, catchable condition:
+ * `(signal 'SYMBOL 'DATA)`, raised so that a `condition-case` between the
+ * native and its caller actually sees it.
  *
- * FeHandleError() always builds an `(error "text")` condition, so a host
- * seam that merely *spells* a condition name in its message is prose in a
- * structured-conditions tree: `(condition-case e … (wrong-type-argument
- * …))` cannot catch it, and the offending value is nowhere.  Fe exposes no
- * host entry point that constructs an arbitrary condition -- RaiseCondition
- * is private to fe -- so this goes through the language's own `signal`,
- * with the two-element data list Emacs and fe's own RaiseWrongType both
- * use.  The message text is the bare condition name, again as fe's is.
+ * WHY A LISP FORM AT ALL.  FeHandleError() always builds an
+ * `(error "text")` condition, so a host seam that merely *spells* a
+ * condition name in its message is prose in a structured-conditions tree:
+ * `(condition-case e … (wrong-type-argument …))` cannot catch it, and the
+ * offending value is nowhere.  Fe exposes no host entry point that
+ * constructs an arbitrary condition -- RaiseCondition is private to fe --
+ * so the language's own `signal` is the only construction available.
  *
- * Both list allocations can collect, so `value` and each intermediate stay
- * on the GC stack until the form is built.  The checkpoint is not restored:
- * the evaluation below never returns. */
-[[noreturn]] void lisp_raise_wrong_type(
-    FeContext *context, const char *predicate, FeObject *value)
+ * WHY THE PROTECTED CALL AND NOT A PLAIN FeEvaluateWithOptions.  Measured:
+ * that route does not reach an enclosing `condition-case` at all.
+ * FeCall/FeEvaluate start a nested run whose completion transfers to the
+ * *outermost* barrier -- kg's own error_jump -- past every handler
+ * lexically between the native and the raise, which is the same defect
+ * sub-plan 11D Part 3 fixed for the loader.  The protected call contains
+ * the completion instead, and FeResignal puts it back in flight in the
+ * enclosing run with its kind, condition object and message intact.  Until
+ * Phase 13.2 this function had the plain shape and
+ * `(condition-case e (prefix-numeric-value "x") (wrong-type-argument …))`
+ * escaped its own handler, reaching the host as an uncatchable error.
+ *
+ * `signal` is function-shaped from fe language version 11 on, but a
+ * nullary closure over the form is still what is called: it keeps one
+ * construction for every raise here, and evaluating the lambda itself
+ * only builds the closure and cannot raise.
+ *
+ * Every allocation can collect, so `data` and each intermediate stay on
+ * the GC stack until the call is made.  The checkpoint is not restored:
+ * no exit from here returns. */
+[[noreturn]] static void raise_signal_form(
+    FeContext *context, const char *symbol, FeObject *data)
 {
-	FeObject *parts[2];
-	FeObject *data, *form;
+	FeObject *parts[3];
+	FeObject *form, *result;
 
-	FePushGC(context, value);
-	parts[0] = FeMakeSymbol(context, predicate);
-	parts[1] = value;
-	data = FeMakeList(context, parts, 2);
 	FePushGC(context, data);
 	parts[0] = FeMakeSymbol(context, "quote");
 	parts[1] = data;
 	data = FeMakeList(context, parts, 2);
 	FePushGC(context, data);
 	parts[0] = FeMakeSymbol(context, "quote");
-	parts[1] = FeMakeSymbol(context, "wrong-type-argument");
+	parts[1] = FeMakeSymbol(context, symbol);
 	form = FeMakeList(context, parts, 2);
 	FePushGC(context, form);
 	parts[0] = form;
@@ -734,19 +748,89 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	form = FeMakeList(context, parts, 2);
 	FePushGC(context, form);
 	form = FeCons(context, FeMakeSymbol(context, "signal"), form);
-	(void)FeEvaluateWithOptions(context, form, &eval_options);
-	/* `signal` cannot return; say so for the compiler and for a future
-	 * fe in which it somehow could. */
-	FeHandleError(context, "wrong-type-argument");
+	FePushGC(context, form);
+	parts[0] = FeMakeSymbol(context, "lambda");
+	parts[1] = FeNil(context);
+	parts[2] = form;
+	form = FeMakeList(context, parts, 3);
+	FePushGC(context, form);
+	form = FeEvaluateWithOptions(context, form, &eval_options);
+	FePushGC(context, form);
+	if (!FeTryCallWithOptions(
+		context, form, nullptr, 0, &eval_options, &result)) {
+		FeResignal(context);
+	}
+	/* `signal` cannot return normally; say so for the compiler and for a
+	 * future fe in which it somehow could. */
+	FeHandleError(context, symbol);
+}
+
+/* Raise Emacs' `(wrong-type-argument PREDICATE VALUE)`: the predicate the
+ * argument failed first, the offending value second, which is the shape
+ * Emacs and fe's own RaiseWrongType both use.  The message text is the
+ * bare condition name, again as fe's is.  PREDICATE is a C string literal
+ * at every call site -- it names the Emacs predicate the argument would
+ * have had to satisfy, measured against 31.0.90 rather than guessed. */
+[[noreturn]] void lisp_raise_wrong_type(
+    FeContext *context, const char *predicate, FeObject *value)
+{
+	FeObject *parts[2];
+
+	FePushGC(context, value);
+	parts[0] = FeMakeSymbol(context, predicate);
+	parts[1] = value;
+	raise_signal_form(
+	    context, "wrong-type-argument", FeMakeList(context, parts, 2));
+}
+
+/* Raise Emacs' `(args-out-of-range ...)`: the range failure that is not a
+ * type failure.  Emacs' data is the offending arguments themselves, in the
+ * order the call wrote them and with no predicate in front -- measured,
+ * `(match-beginning -1)` is `(args-out-of-range -1 0)` and
+ * `(substring "abc" 0 9)` is `(args-out-of-range "abc" 0 9)` -- so the
+ * caller passes the values, and the two-element form is what kg's own
+ * range failures need. */
+[[noreturn]] void lisp_raise_args_out_of_range(
+    FeContext *context, FeObject *first, FeObject *second)
+{
+	FeObject *parts[2];
+
+	FePushGC(context, first);
+	FePushGC(context, second);
+	parts[0] = first;
+	parts[1] = second;
+	raise_signal_form(
+	    context, "args-out-of-range", FeMakeList(context, parts, 2));
+}
+
+/* The two type checks a native writes most: `(wrong-type-argument stringp
+ * X)` and `(wrong-type-argument symbolp X)`, raised before the accessor
+ * that would otherwise produce fe's own "expected string, got integer" --
+ * a Fe implementation detail that names neither Emacs' condition nor its
+ * data.  kg accepts a string wherever Emacs takes a symbol for a hook or
+ * a feature name, so the symbol check accepts both and still reports
+ * Emacs' `symbolp` for anything else. */
+void lisp_check_string(FeContext *context, FeObject *object)
+{
+	if (FeGetType(object) != FeTString) {
+		lisp_raise_wrong_type(context, "stringp", object);
+	}
+}
+
+void lisp_check_symbol_or_string(FeContext *context, FeObject *object)
+{
+	FeType type = FeGetType(object);
+
+	if (type != FeTSymbol && type != FeTString) {
+		lisp_raise_wrong_type(context, "symbolp", object);
+	}
 }
 
 /* Raise one of Emacs' file conditions with Emacs' own data shape
- * (sub-plan 12D Part 2).  The route is lisp_raise_wrong_type's above and
- * for the same reason -- RaiseCondition is private to fe, so the only way
- * to build an arbitrary condition from the host is the language's own
- * `signal' -- but the data is Emacs' three-element (OPERATION STRERROR
- * PATH) list of strings rather than a two-element list, measured on
- * 31.0.90:
+ * (sub-plan 12D Part 2).  The route is raise_signal_form's above and for
+ * the same reasons; what is local here is the data, Emacs' three-element
+ * (OPERATION STRERROR PATH) list of strings rather than a two-element
+ * list, measured on 31.0.90:
  *
  *   (load "/nonexistent-dir/x.el")
  *     (file-missing "Cannot open load file" "No such file or directory"
@@ -768,27 +852,14 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
  * for them -- it is not a general error-message-string, which neither
  * fe nor kg has.
  *
- * WHY THE PROTECTED CALL AND NOT lisp_raise_wrong_type's plain
- * FeEvaluateWithOptions: measured, that route does not reach an enclosing
- * `condition-case' at all.  FeCall/FeEvaluate start a nested run whose
- * completion transfers to the *outermost* barrier -- kg's own error_jump
- * -- past every handler lexically between the native and the raise, which
- * is the same defect sub-plan 11D Part 3 fixed for the loader.  The
- * protected call contains the completion instead and FeResignal puts it
- * back in flight in the enclosing run with its kind, condition object and
- * message intact.  (lisp_raise_wrong_type has the older shape and the
- * older behaviour; that is a separate pre-existing defect, visible as the
- * condition-case-native-errors divergence, and not this slice's.)
- *
  * Every allocation can collect, so each intermediate stays on the GC
- * stack until the call is made.  The checkpoint is not restored: neither
- * exit from here returns. */
+ * stack until the list is built.  The checkpoint is not restored:
+ * raise_signal_form does not return. */
 [[noreturn]] void lisp_raise_file_condition(FeContext *context,
     const char *symbol, const char *operation, const char *detail,
     const char *path)
 {
 	FeObject *parts[3];
-	FeObject *data, *form, *result;
 
 	parts[0] = FeMakeString(context, operation);
 	FePushGC(context, parts[0]);
@@ -796,39 +867,7 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	FePushGC(context, parts[1]);
 	parts[2] = FeMakeString(context, path);
 	FePushGC(context, parts[2]);
-	data = FeMakeList(context, parts, 3);
-	FePushGC(context, data);
-	parts[0] = FeMakeSymbol(context, "quote");
-	parts[1] = data;
-	data = FeMakeList(context, parts, 2);
-	FePushGC(context, data);
-	parts[0] = FeMakeSymbol(context, "quote");
-	parts[1] = FeMakeSymbol(context, symbol);
-	form = FeMakeList(context, parts, 2);
-	FePushGC(context, form);
-	parts[0] = form;
-	parts[1] = data;
-	form = FeMakeList(context, parts, 2);
-	FePushGC(context, form);
-	form = FeCons(context, FeMakeSymbol(context, "signal"), form);
-	FePushGC(context, form);
-	/* `signal` is a special form, so it is not a callable FeTryCall can be
-	 * handed; a nullary closure over the form is.  Evaluating the lambda
-	 * itself only builds the closure and cannot raise. */
-	parts[0] = FeMakeSymbol(context, "lambda");
-	parts[1] = FeNil(context);
-	parts[2] = form;
-	form = FeMakeList(context, parts, 3);
-	FePushGC(context, form);
-	form = FeEvaluateWithOptions(context, form, &eval_options);
-	FePushGC(context, form);
-	if (!FeTryCallWithOptions(
-		context, form, nullptr, 0, &eval_options, &result)) {
-		FeResignal(context);
-	}
-	/* `signal` cannot return normally; say so for the compiler and for a
-	 * future fe in which it somehow could. */
-	FeHandleError(context, symbol);
+	raise_signal_form(context, symbol, FeMakeList(context, parts, 3));
 }
 
 static void prompt_unavailable(FeContext *context)

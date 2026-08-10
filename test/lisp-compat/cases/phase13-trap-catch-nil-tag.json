@@ -1,0 +1,6 @@
+{
+ "id": "phase13-trap-catch-nil-tag",
+ "setup": [],
+ "expr": "(condition-case e (catch nil (throw nil 2)) (no-catch 'no-catch))",
+ "note": "Phase 13.4 trap battery, the asymmetric half: `nil` as a tag does NOT match its own catch -- (catch nil (throw nil 2)) is no-catch on Emacs, not 2 -- so the two constants are pinned separately rather than assumed symmetric with cond-ct-tag-t."
+}

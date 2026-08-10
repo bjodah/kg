@@ -27,19 +27,17 @@
  * Accepts either the way add-hook's hook name does, since a bare Fe
  * symbol argument -- 'auto-fill -- is what every example in the sub-plan
  * and doc/lisp-api.md writes. */
-static void feature_name(FeContext *context, FeObject *object, char *out,
-    size_t outsize, const char *what)
+static void feature_name(
+    FeContext *context, FeObject *object, char *out, size_t outsize)
 {
 	char *tmp;
 	size_t len;
 
-	if (FeGetType(object) != FeTSymbol && FeGetType(object) != FeTString) {
-		char message[96];
-
-		(void)snprintf(message, sizeof(message),
-		    "%s: expected symbol or string", what);
-		FeHandleError(context, message);
-	}
+	/* (provide 1) and (featurep 1) are (wrong-type-argument symbolp 1) on
+	 * Emacs, measured.  The native's own name used to be spelled into a
+	 * prose message here, which no handler could match on; the condition
+	 * carries the offending value instead, so the parameter is gone. */
+	lisp_check_symbol_or_string(context, object);
 	tmp = copy_fe_string(context, object, &len);
 	if (len == 0 || len >= outsize) {
 		free(tmp);
@@ -67,7 +65,7 @@ FeObject *native_provide(FeContext *context, FeObject *arguments)
 	char name[LISP_FEATURE_NAME_MAX];
 
 	FeRequireNoArguments(context, arguments);
-	feature_name(context, object, name, sizeof(name), "provide");
+	feature_name(context, object, name, sizeof(name));
 	if (!find_feature(name)) {
 		if (state.feature_count >= LISP_MAX_FEATURES) {
 			FeHandleError(context, "feature table is full");
@@ -85,7 +83,7 @@ FeObject *native_featurep(FeContext *context, FeObject *arguments)
 	char name[LISP_FEATURE_NAME_MAX];
 
 	FeRequireNoArguments(context, arguments);
-	feature_name(context, object, name, sizeof(name), "featurep");
+	feature_name(context, object, name, sizeof(name));
 	return FeMakeBool(context, find_feature(name));
 }
 
@@ -247,13 +245,12 @@ FeObject *native_internal_require_resolve(
 		filename_object = FeGetNextArgument(context, &arguments);
 	}
 	FeRequireNoArguments(context, arguments);
-	feature_name(context, feature_object, name, sizeof(name), "require");
+	feature_name(context, feature_object, name, sizeof(name));
 	if (find_feature(name)) {
 		return FeNil(context);
 	}
 	if (filename_object != nullptr && !FeIsNil(filename_object)) {
-		feature_name(
-		    context, filename_object, stem, sizeof(stem), "require");
+		feature_name(context, filename_object, stem, sizeof(stem));
 	} else {
 		(void)snprintf(stem, sizeof(stem), "%s", name);
 	}
@@ -282,7 +279,7 @@ FeObject *native_internal_require_push(FeContext *context, FeObject *arguments)
 	char name[LISP_FEATURE_NAME_MAX];
 
 	FeRequireNoArguments(context, arguments);
-	feature_name(context, feature_object, name, sizeof(name), "require");
+	feature_name(context, feature_object, name, sizeof(name));
 	if (state.requiring_depth >= LISP_MAX_REQUIRE_STACK) {
 		FeHandleError(context, "require nesting too deep");
 	}
@@ -329,7 +326,7 @@ FeObject *native_internal_require_check(FeContext *context, FeObject *arguments)
 	char name[LISP_FEATURE_NAME_MAX];
 
 	FeRequireNoArguments(context, arguments);
-	feature_name(context, feature_object, name, sizeof(name), "require");
+	feature_name(context, feature_object, name, sizeof(name));
 	if (!find_feature(name)) {
 		command_error(context, "did not provide feature", name);
 	}

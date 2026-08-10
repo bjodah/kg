@@ -373,19 +373,26 @@ against full rebuilds.  Known follow-ups, none blocking:
       version for the two file classes; the general one is a
       per-symbol message property in fe's hierarchy table and an
       `error-message-string` to read it.
-- [ ] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
-      `condition-case`.**  Found while measuring Phase 12's file
-      conditions, pre-existing, and deliberately not fixed there.
-      `(condition-case e (prefix-numeric-value "x") (wrong-type-argument
-      ...))` escapes to the host: the helper raises by evaluating a
-      `(signal ...)` form through `FeEvaluateWithOptions`, and
-      `FeEvaluate`/`FeCall` start a *nested run* whose completion
-      transfers to the outermost barrier, past every handler lexically
-      between the native and the raise.  It is the same defect 11D
-      Part 3 fixed for the loader, and the fix is the same shape —
-      `FeTryCall...` plus `FeResignal`, which is what
-      `lisp_raise_file_condition()` does.  Visible as part of the
-      `condition-case-native-errors` divergence.
+- [x] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
+      `condition-case`.**  DONE, Phase 13.2.  Converted to the
+      protected-call + `FeResignal` shape `lisp_raise_file_condition()`
+      already used, now shared by both through one
+      `raise_signal_form()` helper.  Pinned by
+      `phase13-native-condition-through-inner-handler`, the case that
+      separates "the symbol did not match" from "no handler was ever
+      consulted", and by `test_condition_case_kg_native_conditions`.
+- [x] **kg's ~87 natives all raise a plain `error`** (06A Decision 2's
+      deferred follow-up, manifest row `condition-case-native-errors`).
+      DONE, Phase 13.3.  The numeric, string, symbol, buffer, marker and
+      process argument seams route through `lisp_raise_wrong_type()`
+      with the predicate Emacs names, measured on 31.0.90 — a buffer
+      position is `integer-or-marker-p`, a repeat count `fixnump`, a
+      string index `integerp`, a character `characterp` — and
+      `lisp_raise_args_out_of_range()` carries the range failures Emacs
+      reports that way.  Natives whose failure Emacs itself reports
+      unstructured (resource exhaustion, a dead buffer, a NaN, kg's own
+      surrogate rejection) deliberately keep their plain `error`.  The row is `supported`; what is left is the *rendering*
+      of an uncaught one, which is the `error-message` item above.
 - [ ] **`macroexpand-all`**, which Phase 10's 10B left as a
       reject-by-name stub (`unsupported feature: macroexpand-all`, a
       catchable condition, deliberately not `void-function`).  It needs a

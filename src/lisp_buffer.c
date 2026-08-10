@@ -119,16 +119,25 @@ void lisp_exec_goto_char(const struct editor_buffer *b, long off)
  * detail that names neither Emacs' condition nor, since 05D, either of
  * kg's two number types.  Both tags are accepted (an integer widens the
  * way FeToDouble widens it); anything else is Emacs' wrong-type-argument,
- * spelled message-level here exactly as fe's own numeric family spells
- * it, and made a structured condition by Phase 6.  A NaN passes the tag
- * test and is rejected on its value instead, keeping its own text. */
-FeDouble lisp_finite(FeContext *context, FeObject *object)
+ * as a real condition since Phase 13.3 rather than the words spelled into
+ * a message.  A NaN passes the tag test and is rejected on its value
+ * instead, keeping its own text -- Emacs has no NaN to compare against
+ * here, so that one stays kg's own plain error.
+ *
+ * PREDICATE is the caller's, because Emacs does not use one name for all
+ * of these: a buffer position is `integer-or-marker-p', a repeat count is
+ * `fixnump', a string index is `integerp' and a character is
+ * `characterp', all measured on 31.0.90.  Passing it here rather than
+ * fixing one name is what lets the data be Emacs' data and not an
+ * approximation of it. */
+FeDouble lisp_finite(
+    FeContext *context, FeObject *object, const char *predicate)
 {
 	FeType type = FeGetType(object);
 	FeDouble value;
 
 	if (type != FeTDouble && type != FeTInteger) {
-		FeHandleError(context, "wrong-type-argument");
+		lisp_raise_wrong_type(context, predicate, object);
 	}
 	value = FeToDouble(context, object);
 	if (value != value) {
@@ -142,7 +151,7 @@ FeDouble lisp_finite(FeContext *context, FeObject *object)
 long lisp_offset_argument(
     FeContext *context, const struct editor_buffer *b, FeObject *object)
 {
-	FeDouble value = lisp_finite(context, object);
+	FeDouble value = lisp_finite(context, object, "integer-or-marker-p");
 	long max = lisp_buffer_char_length(b) + 1;
 
 	if (value < 1) {
@@ -183,7 +192,7 @@ long lisp_optional_count(FeContext *context, FeObject **arguments)
 	if (FeIsNil(object)) {
 		return 1;
 	}
-	value = lisp_finite(context, object);
+	value = lisp_finite(context, object, "fixnump");
 	if (value > (FeDouble)INT_MAX) {
 		return INT_MAX;
 	}
@@ -256,7 +265,7 @@ FeObject *native_goto_line(FeContext *context, FeObject *arguments)
 	long line;
 
 	FeRequireNoArguments(context, arguments);
-	value = lisp_finite(context, object);
+	value = lisp_finite(context, object, "integerp");
 	if (value > (FeDouble)INT_MAX) {
 		line = INT_MAX;
 	} else if (value < (FeDouble)INT_MIN) {
@@ -597,8 +606,8 @@ FeObject *native_excursion_restore(FeContext *context, FeObject *arguments)
 
 	FeRequireNoArguments(context, arguments);
 	if (lisp_object_is_marker(context, saved)) {
-		struct kg_marker_handle marker = lisp_marker_resolve(
-		    context, saved, "internal--excursion-restore");
+		struct kg_marker_handle marker
+		    = lisp_marker_resolve(context, saved);
 		size_t pos;
 
 		b = buf_resolve(marker.buffer);

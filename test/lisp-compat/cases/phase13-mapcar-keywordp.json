@@ -1,0 +1,6 @@
+{
+ "id": "phase13-mapcar-keywordp",
+ "setup": [],
+ "expr": "(mapcar 'keywordp (list :a 1))",
+ "note": "Phase 13.1, the kg-visible face of the same fe bug and the reason it mattered here: kg's prelude `mapcar` funcalls its function argument, so a predicate with no primitive_is_function[] row was unusable as a value even though calling it directly always worked. Measured before the pin move: E:invalid-function."
+}

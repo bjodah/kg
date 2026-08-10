@@ -11,6 +11,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 ## Build and test
 - Build: `make` or `make CC="ccache cc"`
 - Run tests: `make check` (e.g. `make check 2>&1 | grep -E "^(FAIL|ERROR|XPASS)|# (FAIL|ERROR|TOTAL|PASS|SKIP|XFAIL|XPASS)" | head -30; echo "CHECK EXIT=${PIPESTATUS[0]}"`). Also run `make complexity-check` before and after larger chunks of work.
+- `make complexity-check` and `make pmccabe-check` are ratchets set at the
+  measured actual with no slack: raising a ceiling is an explicit decision,
+  and both a raise and a lower carry their rationale and their measured
+  proof (the per-file bisect, the before/after run at the old and new
+  limit) in the commit message. The comment beside the knob says what the
+  knob means today and nothing about how it got there — that is `git log`.
 - Clean binaries/objects: `make clean` or `make distclean`
 - `make check` now runs two layers:
   - native unit tests in `test/test_*.c`
@@ -80,8 +86,10 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   primitives it calls, how many undo records it writes by hand, how many
   times it touches `suppress_undo`, and how many times it writes a row's
   text fields directly. No count may rise and no unlisted file may
-  appear; `make gateway-baseline` banks a decrease. The manifest is
-  follow-up Plan 02's remaining migration work written down.
+  appear; `make gateway-baseline` banks a decrease, and a re-baseline
+  carries its rationale and measured proof in the commit message, never as
+  a comment beside the knob. The manifest is follow-up Plan 02's remaining
+  migration work written down.
 - Every `make check` writes machine-readable results to `test/.results/`
   (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
   from `utils/pty_accept.py --json`, both with per-case status and wall

@@ -669,14 +669,14 @@ static const struct {
  * one that a third name-keyed map would otherwise have been a third
  * hand-written exclusion for. */
 static const struct {
-	enum mode_map map;
 	const char *buffer_name;
+	enum mode_map map;
 	bool listing; /* binds RET to a visit command of its own */
 } name_keyed_maps[] = {
-	{ MODE_MAP_COMPILATION, "*compilation*", false },
-	{ MODE_MAP_XREF, XREF_BUFFER_NAME, true },
-	{ MODE_MAP_OCCUR, OCCUR_BUFFER_NAME, true },
-	{ MODE_MAP_DIAGNOSTICS, LSP_DIAG_BUFFER_NAME, true },
+	{ "*compilation*", MODE_MAP_COMPILATION, false },
+	{ XREF_BUFFER_NAME, MODE_MAP_XREF, true },
+	{ OCCUR_BUFFER_NAME, MODE_MAP_OCCUR, true },
+	{ LSP_DIAG_BUFFER_NAME, MODE_MAP_DIAGNOSTICS, true },
 };
 
 static struct keymap *global_map;

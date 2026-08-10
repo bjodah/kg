@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "def.h"
 #include "event.h"
+#include "lisp.h"
 #include "lisp_internal.h"
 #include "prompt.h"
 

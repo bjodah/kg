@@ -381,7 +381,6 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
-	    $(OBJDIR)/prompt.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \

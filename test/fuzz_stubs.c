@@ -4,6 +4,7 @@
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
+#include "../src/prompt.h"
 #include "../src/yank.h"
 
 #include <fcntl.h>
@@ -136,6 +137,34 @@ void editor_prompt_prefill_dir(char *buf, int bufsize)
 	if (bufsize > 0) {
 		buf[0] = '\0';
 	}
+}
+
+/* src/prompt.c's two questions, stubbed for the same reason the readers
+ * above are: the real ones are pick-list loops over bufmgr.c's and
+ * path.c's rendering, neither of which this target links.  A fuzzed
+ * keystroke that reaches a confirmation gets "no", which is what every
+ * cancelled prompt here answers. */
+enum minibuf_result prompt_read_choice(int fd, const char *prompt,
+    const char *const *choices, int nchoices, const char *initial,
+    bool require_match, char *out, int outsize)
+{
+	(void)fd;
+	(void)prompt;
+	(void)choices;
+	(void)nchoices;
+	(void)initial;
+	(void)require_match;
+	if (outsize > 0) {
+		out[0] = '\0';
+	}
+	return MINIBUF_CANCELLED;
+}
+
+enum prompt_yn prompt_ask_yn(int fd, const char *question)
+{
+	(void)fd;
+	(void)question;
+	return PROMPT_YN_CANCELLED;
 }
 
 int editor_path_expand_tilde(char *buf, int bufsize)

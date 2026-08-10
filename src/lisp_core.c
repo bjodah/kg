@@ -23,13 +23,11 @@ void copy_result(char *result, size_t result_size, const char *text)
 #ifdef KG_USE_LISP
 
 #include <errno.h>
-#include <inttypes.h>
 #include <limits.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
 #include <stdlib.h>
-#include <sys/stat.h>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -38,9 +36,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 #include "../fe/fe.h"
-#include "bufmgr.h"
 #include "cmd.h"
-#include "event.h"
 /* lisp.h is already included, unconditionally, above -- this second
  * #include is a no-op through the header guard.  Kept out rather than
  * suppressed: the file still checks every KG_USE_LISP-gated definition

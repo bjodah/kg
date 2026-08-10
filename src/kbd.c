@@ -16,7 +16,6 @@
 #include "cmdstate.h"
 #include "def.h"
 #include "edit.h"
-#include "event.h"
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"

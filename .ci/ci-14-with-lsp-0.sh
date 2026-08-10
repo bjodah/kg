@@ -8,7 +8,7 @@
 # for it, servers being found at run time -- so it is the DISABLED build
 # that no other lane covers, exactly as .ci/ci-08-with-lisp-0.sh is for
 # Lisp.
-set -euxo pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh

@@ -25,8 +25,6 @@ if [ ! -e "${TREE_SITTER_PREFIX}/include/tree_sitter/api.h" ]; then
 	exit 0
 fi
 
-set -x
-
 export TREE_SITTER_PREFIX
 
 # (WITH_LISP=1, WITH_TREE_SITTER=1): the full-feature build.

@@ -31,8 +31,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - The suite skips rather than fakes what it cannot run: a case needing
   `tmux`, the `emacs` oracle, or the executable named by its own
   `requires_tool:` (`clangd`, `ty`), SKIPs with a printed reason and count
-  when the tool is missing. `--require-tools` (hosted CI passes it via
-  `make check PTY_ACCEPT_ARGS=--require-tools`) turns that into an upfront
+  when the tool is missing. `--require-tools`
+  (`make check PTY_ACCEPT_ARGS=--require-tools`) turns that into an upfront
   failure naming the tool. The oracle binary is `--emacs`, else
   `$KG_PTY_EMACS` (`make check KG_PTY_EMACS=...`), else `emacs` on PATH,
   else the `/opt-3` developer-box pin.
@@ -121,17 +121,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   another counting build -- never against a release `-Os` one. The
   `startup` case is the constant to subtract by eye. `--big` adds the
   1M-line corpus; corpora are cached in the gitignored `test/.bench/`.
-- Hosted CI is two workflows: `build.yml` is platform smoke, and
-  `quality.yml` runs one job per `.ci/ci-NN-*.sh`, discovered from the
-  same glob, with `--require-tools` so a missing tmux or Emacs fails
-  instead of skipping.
+- Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
+  with the toolchain in it, `apt-get install pmccabe`, then
+  `bash -l .ci/run-ci-steps.sh` -- the same runner, and the same steps
+  discovered from the same glob, as a local run. It sets `CI_EXPENSIVE=1`,
+  so it also runs the expensive steps a local run skips.
 - The toolchain, and who needs it.  Every one of these is a bare name the
   Makefile or a `.ci` step resolves through `PATH`, overridable by the
   variable in parentheses; nothing is pinned to an absolute path any more.
   `utils/print-tool-versions.sh` prints which of them this box has, and
   what version, and is the thing to run first when a step fails only here.
   - `make`, a C23 compiler (`CC`, default `gcc`) and `clang` (`CLANG_CC`,
-    `FUZZ_CC`) -- sanitizer lanes `ci-03`..`ci-05` and the fuzz targets are
+    `FUZZ_CC`) -- sanitizer lanes `ci-04`/`ci-05` and the fuzz targets are
     clang-only.  `ccache` is optional and only ever a speed-up.
   - `python3` or `python` (`PYTHON`) with `pexpect` and `PyYAML`: the PTY
     harness and every ratchet script under `utils/`.  The Makefile picks
@@ -143,7 +144,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   - `clangd` and `ty`: the real-server LSP PTY cases
     (`requires_tool:`), and only those -- kg finds a server on PATH at run
     time and needs neither to build.  Same skip-or-`--require-tools` rule;
-    hosted CI installs clangd from apt and ty from PyPI.
+    hosted CI takes both from its image and SKIPs the cases without them.
   - `scc` (`SCC`, tested at v3.7.0) and `pmccabe` (`PMCCABE`): the
     complexity ratchets in `ci-01`.
   - `lcov`, `genhtml`, `gcov`: `make coverage`, `ci-02`.
@@ -152,12 +153,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     `include-what-you-use` and `iwyu_tool.py` (`IWYU`, `IWYU_TOOL`), and
     GNU `parallel` (`GNU_PARALLEL`): `ci-06`.  `parallel` must be GNU
     parallel, not moreutils'.
-  - `valgrind` (`VALGRIND`): `ci-03`.
+  - `valgrind` (`VALGRIND`): `ci-15`, the expensive step.
   - `cbmc` (`CBMC`): `fe/tiny-regex-c`'s `make verify` only.  Nothing kg
     runs needs it -- `make check` there runs `verify-syntax`, which asks
     an ordinary compiler whether the CPROVER harness still builds.
-  - Hosted CI additionally needs `jq` (step discovery) and `go` (to
-    install `scc`); see `.github/workflows/quality.yml`.
+  - Hosted CI needs nothing beyond these: the image carries the toolchain
+    and `.woodpecker.yaml` installs only `pmccabe` on top of it.  The
+    runner discovers its steps with a shell glob, so no `jq`.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are overridable on the make command line, e.g.
@@ -167,9 +169,19 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `CC` is silently ignored.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-12-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-15-*.sh`;
   run one directly when iterating on a specific phase. The step list is a
   glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
+- A step that costs minutes rather than seconds is *expensive*, and the
+  runner names those in one array (`expensive_steps` in
+  `.ci/run-ci-steps.sh`; today just `ci-15-valgrind`, the whole suite under
+  valgrind). Both run modes report an expensive step as `SKIP` -- in the
+  summary and in `--status`, never silently absent -- unless `--expensive`
+  is passed or `CI_EXPENSIVE=1` is in the environment, which is what
+  `.woodpecker.yaml` sets. Running the step's script directly always runs
+  it: the gate lives in the runner, not in the step.
+- The steps do not trace themselves (`set -euo pipefail`, no `-x`); run one
+  under `bash -x` when a trace is what you want.
 - `.ci/ci-12-subprojects.sh` runs the submodules' own fast suites from the
   root: `make -C fe check complexity-check pmccabe-check format-check` and
   the same for `fe/tiny-regex-c` (~12 s together). kg links `fe/fe.c` and

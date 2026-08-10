@@ -32,10 +32,10 @@ keys:
   # a synchronisation budget rather than anything about the behaviour under
   # test.  Five was not enough: under valgrind, with the parallel runner's
   # other lanes competing, the child had not been reaped and drained inside
-  # the ~0.8 s that bought, and ci-03 failed with the process line missing
+  # the ~0.8 s that bought, and the valgrind lane failed with the process line missing
   # while the same case passed 10/10 run on its own.  Fifteen was not
   # enough either: the Phase 12 fix cycle's final 12-lane run lost the
-  # process line in ci-03 once more (442/443, this case alone), with
+  # process line in the valgrind lane once more (442/443, this case alone), with
   # the standalone re-run green -- so the budget doubled again.  Thirty
   # keys at 0.15 s ALSO lost the line once in a 12-lane run (again this
   # case alone, again standalone green), so the third widening doubles

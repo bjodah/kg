@@ -9,7 +9,7 @@
 # in the harness waits for that -- the only cover is however many
 # key_delays the harness sleeps in between.  Two of them (0.3 s at the
 # 0.15 this case used to carry) is not enough under load: it failed the
-# ci-03 valgrind lane of a six-lane parallel run with `XYbbb`/`ddd`, both
+# ci-15 valgrind lane of a six-lane parallel run with `XYbbb`/`ddd`, both
 # letters at the *first* run's location because the second compile had
 # not been parsed yet, and the mechanism reproduces on demand at
 # key_delay 0.05 under valgrind with 24 busy loops on this 32-core box

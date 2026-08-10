@@ -1,7 +1,7 @@
 #!/bin/bash
 # The WITH_LISP=0 configuration must keep building and behaving like the
 # pre-Lisp editor: no Fe objects, Lisp PTY cases skipped by feature.
-set -euxo pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh

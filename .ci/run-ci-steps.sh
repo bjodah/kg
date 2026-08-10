@@ -1,48 +1,55 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 usage() {
 	cat <<'EOF'
-usage: run-ci-steps.sh [--parallel | --status]
+usage: run-ci-steps.sh [--parallel] [--expensive]
+       run-ci-steps.sh --status
 
 Without arguments the numbered .ci/ci-NN-*.sh steps run one after another in
 this working tree, streaming to the terminal, stopping at the first failure.
 
-  --parallel  Run the steps concurrently.  Every step that builds gets a
-              throwaway copy of this working tree, so the copies cannot
-              clobber each other's objects, and every step writes its own
-              log file.  The terminal only gets a PASS/FAIL line per step
-              plus a replay of the failing logs.
-  --status    Print what the runner in this tree is doing (or did last):
-              per-step state, timings and log paths.  Never blocks, never
-              starts anything, safe to poll.
+  --parallel   Run the steps concurrently.  Every step that builds gets a
+               throwaway copy of this working tree, so the copies cannot
+               clobber each other's objects, and every step writes its own
+               log file.  The terminal only gets a PASS/FAIL line per step
+               plus a replay of the failing logs.
+  --expensive  Also run the expensive steps, which both run modes otherwise
+               report as SKIP.  CI_EXPENSIVE=1 in the environment does the
+               same thing; hosted CI sets it.  Running an expensive step's
+               script directly always runs it -- the gate is here, not there.
+  --status     Print what the runner in this tree is doing (or did last):
+               per-step state, timings and log paths.  Never blocks, never
+               starts anything, safe to poll.
 
 Both run modes take a lock in .ci/.run; a second run in the same tree is
 refused because the two would fight over src/*.o.  A lock whose process is
 gone is reported as stale and taken over.
 
-Environment (see .ci/ci-env.sh): CI_PARALLEL_LANES caps how many steps run at
-once, CI_RUN_DIR moves the run state, CI_LANE_ROOT picks where lane trees are
-put, JOBS and the PTY_* knobs keep overriding the defaults.
+Environment (see .ci/ci-env.sh): CI_EXPENSIVE=1 includes the expensive steps,
+CI_PARALLEL_LANES caps how many steps run at once, CI_RUN_DIR moves the run
+state, CI_LANE_ROOT picks where lane trees are put, JOBS and the PTY_* knobs
+keep overriding the defaults.
 EOF
 }
 
 parallel_mode=0
 status_only=0
+expensive=${CI_EXPENSIVE:-0}
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--parallel)
 		parallel_mode=1
 		;;
+	--expensive)
+		expensive=1
+		;;
 	--status)
-		# Nothing is run, so the trace would only be in the way.
-		set +x
 		status_only=1
 		;;
 	-h | --help)
-		set +x
 		usage
 		exit 0
 		;;
@@ -67,7 +74,6 @@ esac
 lock_file="${CI_RUN_DIR}/lock"
 
 step_name() {
-	{ local -; set +x; } 2>/dev/null
 	local base=${1##*/}
 
 	echo "${base%.sh}"
@@ -78,10 +84,26 @@ step_name() {
 # and ci-08/ci-09 also run `make clean`, so those each need a tree of their own.
 in_tree_steps=(ci-01-complexity ci-07-format-check)
 
+# Steps that cost minutes rather than seconds.  Both run modes report them as
+# SKIP unless --expensive or CI_EXPENSIVE=1 asks for them; hosted CI does.
+expensive_steps=(ci-15-valgrind)
+
+skipped_step() {
+	local name=$1
+
+	if [ "${expensive}" = 1 ]; then
+		return 1
+	fi
+	case " ${expensive_steps[*]} " in
+	*" ${name} "*) return 0 ;;
+	esac
+	return 1
+}
+
 lane_dir_for() {
 	local name=$1
 
-	if [ "${parallel_mode}" -eq 0 ]; then
+	if [ "${parallel_mode}" -eq 0 ] || skipped_step "${name}"; then
 		return 0
 	fi
 	case " ${in_tree_steps[*]} " in
@@ -91,21 +113,19 @@ lane_dir_for() {
 }
 
 log_for() {
-	if [ "${parallel_mode}" -eq 0 ]; then
+	if [ "${parallel_mode}" -eq 0 ] || skipped_step "$1"; then
 		return 0
 	fi
 	echo "${CI_RUN_DIR}/logs/$1.log"
 }
 
 now() {
-	{ local -; set +x; } 2>/dev/null
 	date +%s.%N
 }
 
 # The run state lives in the real tree (a lane copy is thrown away) and
 # survives the run, so `--status` still explains what happened afterwards.
 state_set() {
-	{ local -; set +x; } 2>/dev/null
 	local name=$1 st=$2 start=$3 end=$4 rc=$5
 	local file="${CI_RUN_DIR}/${name}.state" elapsed=""
 
@@ -135,7 +155,6 @@ human_time() {
 }
 
 print_status() {
-	{ local -; set +x; } 2>/dev/null
 	local lock_pid lock_mode lock_start file name st start end elapsed log
 
 	echo "run state: ${CI_RUN_DIR}"
@@ -183,7 +202,6 @@ fi
 # take a lock.  noclobber makes the create atomic; a lock left behind by a
 # runner that is no longer alive is stale and gets taken over.
 acquire_lock() {
-	{ local -; set +x; } 2>/dev/null
 	local existing
 
 	mkdir -p "${CI_RUN_DIR}"
@@ -209,7 +227,6 @@ acquire_lock() {
 lock_held=0
 cleanup() {
 	local rc=$? file name st start pids stopped
-	{ local -; set +x; } 2>/dev/null
 
 	trap - EXIT
 	if [ "${lock_held}" -eq 1 ]; then
@@ -265,12 +282,30 @@ export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_SETTLE_FLOOR PTY_
 rm -f "${CI_RUN_DIR}"/*.state "${CI_RUN_DIR}"/*.state.tmp
 rm -rf "${CI_RUN_DIR}/logs"
 
-if [ "${parallel_mode}" -eq 0 ]; then
-	for step in "${steps[@]}"; do
-		state_set "$(step_name "${step}")" PENDING "" "" ""
-	done
+# Every step is accounted for before the first one starts, so --status lists
+# the whole run: the expensive ones it is not going to run say so as SKIP.
+init_states() {
+	local step name
+
 	for step in "${steps[@]}"; do
 		name=$(step_name "${step}")
+		if skipped_step "${name}"; then
+			state_set "${name}" SKIP "" "" ""
+		else
+			state_set "${name}" PENDING "" "" ""
+		fi
+	done
+}
+
+if [ "${parallel_mode}" -eq 0 ]; then
+	init_states
+	for step in "${steps[@]}"; do
+		name=$(step_name "${step}")
+		if skipped_step "${name}"; then
+			# Already SKIP in the state files; say so on the way past.
+			echo "SKIP  ${name} (expensive; --expensive or CI_EXPENSIVE=1 runs it)"
+			continue
+		fi
 		started=$(now)
 		state_set "${name}" RUNNING "${started}" "" ""
 		rc=0
@@ -283,10 +318,6 @@ if [ "${parallel_mode}" -eq 0 ]; then
 	done
 	exit 0
 fi
-
-# Parallel mode below.  Tracing is off from here on: the driver itself runs
-# nothing interesting, and every step is still traced inside its own log.
-set +x
 
 lane_root=${CI_LANE_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/kg-ci-lanes-XXXXXX")}
 mkdir -p "${lane_root}" "${CI_RUN_DIR}/logs"
@@ -331,13 +362,11 @@ run_lane() {
 
 	started=$(now)
 	state_set "${name}" RUNNING "${started}" "" ""
-	set -x
 	if [ -n "${lane_dir}" ]; then
 		{ copy_tree "${lane_dir}" && "${lane_dir}/${step}"; } || rc=$?
 	else
 		"${step}" || rc=$?
 	fi
-	set +x
 	state_set "${name}" "$([ "${rc}" -eq 0 ] && echo PASS || echo FAIL)" \
 		"${started}" "$(now)" "${rc}"
 
@@ -356,13 +385,17 @@ echo "running ${#steps[@]} CI steps, ${CI_PARALLEL_LANES} at a time, JOBS=${JOBS
 echo "run state and logs: ${CI_RUN_DIR}"
 echo "lane trees: ${lane_root}"
 
-for step in "${steps[@]}"; do
-	state_set "$(step_name "${step}")" PENDING "" "" ""
-done
+init_states
 
 started_all=$(now)
 for step in "${steps[@]}"; do
 	name=$(step_name "${step}")
+	if skipped_step "${name}"; then
+		# No lane, and so no tree copy: the copy is pure waste for a
+		# step that is not going to run.
+		echo "skip  ${name} (expensive)"
+		continue
+	fi
 	while [ "$(jobs -rp | wc -l)" -ge "${CI_PARALLEL_LANES}" ]; do
 		wait -n || true
 	done
@@ -394,7 +427,9 @@ for step in "${steps[@]}"; do
 		rm -rf "${CI_RUN_DIR}/results/${name}"
 		cp -a "${lane_dir}/test/.results" "${CI_RUN_DIR}/results/${name}"
 	fi
-	if [ "${st}" = PASS ]; then
+	if [ "${st}" = SKIP ]; then
+		printf '  SKIP  %-28s %8s   (expensive)\n' "${name}" "-"
+	elif [ "${st}" = PASS ]; then
 		printf '  PASS  %-28s %8ss\n' "${name}" "${secs}"
 		# ci-02 builds coverage/ inside its lane; put it back where a
 		# serial run would have left it.  The report's file names still
@@ -420,7 +455,7 @@ echo "==========================================================================
 # cases, coverage against its floor, the complexity manifest, the pins.
 # Never fatal -- a report is not a gate.
 if ! "${PYTHON:-python3}" utils/quality_report.py \
-	--results-dir "${CI_RUN_DIR}/results/ci-03-gcc-analyzer-valgrind" \
+	--results-dir "${CI_RUN_DIR}/results/ci-03-gcc-analyzer" \
 	--output "${CI_RUN_DIR}/quality.json"; then
 	echo "(quality report not written)"
 fi

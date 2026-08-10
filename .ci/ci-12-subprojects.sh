@@ -15,8 +15,9 @@
 # the Fe script suite, and the regex engine's own test vectors.
 #
 # Budget: ~15 s wall, against a ~65 s parallel run whose critical path is
-# ci-02/ci-03, so it costs nothing there and about 15 s serially.
-set -euxo pipefail
+# ci-02 and the sanitizer lanes, so it costs nothing there and about 15 s
+# serially.
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh

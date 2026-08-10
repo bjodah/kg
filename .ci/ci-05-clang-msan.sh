@@ -6,7 +6,7 @@
 # (doc/plans/kg-tree-sitter-plan.md, Refinement, "Sanitizer lanes").  ASan
 # and valgrind have no such problem and .ci/ci-13-with-tree-sitter.sh is
 # where the configuration is exercised.
-set -euxo pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh

@@ -9,7 +9,7 @@
 # `M-g p`) has anything to navigate to, and the only cover is the
 # key_delays slept in between.  Two of them -- 0.3 s at the 0.15 this
 # family carried -- is not enough under load: three separate cases of this
-# family failed the ci-03 valgrind lane of six-lane parallel runs, each
+# family failed the ci-15 valgrind lane of six-lane parallel runs, each
 # with the navigation simply not having happened, and the mechanism
 # reproduces on demand at a smaller key_delay under valgrind with the box
 # loaded.  Ten sleeps at 0.2 is 2.0 s, and `C-a` is a no-op for what

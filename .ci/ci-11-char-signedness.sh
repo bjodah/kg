@@ -7,7 +7,7 @@
 # printable" for every UTF-8 byte.  Neither is true any more, and this
 # step is what keeps it that way: the unit suite has to agree byte for
 # byte under both signednesses, on input that contains UTF-8, ESC and DEL.
-set -euxo pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh

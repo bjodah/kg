@@ -2,6 +2,8 @@
 
 #include "next_error.h"
 
+#include <stddef.h>
+
 #include "def.h"
 
 static const struct next_error_source *g_source;

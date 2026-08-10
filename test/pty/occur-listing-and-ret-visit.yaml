@@ -14,6 +14,12 @@
 # A RET that resolved to `ibuffer-visit-buffer` (the buffer-list map is
 # live in any read-only buffer) would quietly do nothing, and the saved
 # file is what tells the two apart.
+#
+# The second visit proves `p`: back in the listing (whose cursor stayed on
+# the second row through the first visit), one `p` steps up to the first
+# row, and the Y lands on line 1 -- somewhere it can only have come back
+# from, not walked forward to.  It lands *inside* the line, before "foo",
+# because a visit goes to the occurrence, not the line start.
 name: occur-listing-and-ret-visit
 filename: occ.txt
 backend: tmux
@@ -37,12 +43,17 @@ keys:
   - n
   - RET
   - X
+  - C-x
+  - o
+  - p
+  - RET
+  - Y
 expected_screen_contains:
   - '3 matches in 2 lines for "foo" in buffer: occ.txt'
   - "      1:alpha foo beta"
   - "      4:foo and foo again"
 expected_saved: |-
-  alpha foo beta
+  alpha Yfoo beta
   nothing here
   gamma
   Xfoo and foo again

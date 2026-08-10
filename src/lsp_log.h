@@ -1,7 +1,6 @@
 #ifndef KG_LSP_LOG_H
 #define KG_LSP_LOG_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* The `*lsp-log*` buffer: what the language servers said when nobody was

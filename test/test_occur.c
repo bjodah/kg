@@ -172,8 +172,12 @@ static void test_listing_is_emacs_shaped(void)
 	CHECK(strcmp(occur_line(2), "      3:foo tail") == 0);
 	/* Three lines and the empty row every text ending in a newline
 	 * leaves behind. */
-	CHECK(occur_buffer()->numrows == 4);
-	CHECK(occur_buffer()->readonly);
+	{
+		struct editor_buffer *b = occur_buffer();
+
+		CHECK(b && b->numrows == 4);
+		CHECK(b && b->readonly);
+	}
 	teardown();
 }
 
@@ -241,7 +245,11 @@ static void test_rerun_replaces_the_listing_and_resets_the_cursor(void)
 	CHECK(occur_test_generation() == first + 1);
 	CHECK(occur_test_cursor_index() == -1);
 	CHECK(occur_test_count() == 1);
-	CHECK(occur_buffer()->numrows == 3);
+	{
+		struct editor_buffer *b = occur_buffer();
+
+		CHECK(b && b->numrows == 3);
+	}
 	CHECK(strcmp(occur_line(1), "      2:bar") == 0);
 	teardown();
 }

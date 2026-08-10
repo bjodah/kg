@@ -12,7 +12,6 @@
 #include "cmd.h"
 #include "cmdstate.h"
 #include "compile.h"
-#include "compile_nav.h"
 #include "dabbrev.h"
 #include "def.h"
 #include "describe.h"

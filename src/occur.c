@@ -3,9 +3,12 @@
 #include "occur.h"
 
 #include "bufhandle.h"
+#include "bufmgr.h"
+#include "cmd.h"
 #include "compile_nav.h"
 #include "decor.h"
 #include "def.h"
+#include "localvars.h"
 #include "marker.h"
 #include "next_error.h"
 #include "regex.h"

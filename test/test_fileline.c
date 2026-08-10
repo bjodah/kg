@@ -256,6 +256,8 @@ static void test_open_buffer_beats_disk(void)
 	CHECKF(strcmp(out, "return 42;") == 0, "got '%s'", out);
 	/* Same trimming as the disk half: one policy, one implementation. */
 	CHECK(preview(path, 1, out) == strlen("int f(void)"));
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 }
 
 /* An open buffer answers even when the answer is "no such line" -- it is
@@ -280,6 +282,8 @@ static void test_open_buffer_shorter_than_its_file(void)
 	CHECK(preview(path, 4, out) == 0);
 	CHECK(out[0] == '\0');
 	CHECK(preview(path, 3, out) == strlen("three"));
+	free(bcur()->filename);
+	bcur()->filename = NULL;
 }
 
 int main(void)

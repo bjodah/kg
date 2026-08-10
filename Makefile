@@ -287,7 +287,7 @@ SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c file
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c register.c visit.c xref.c dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
-       mouse.c
+       mouse.c showparen.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -326,6 +326,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_decor $(TESTDIR)/test_event \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
+           $(TESTDIR)/test_showparen \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -516,7 +517,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7005
+SCC_COMPLEXITY_MAX ?= 7074
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1010,7 +1011,10 @@ EXTRA_syntax_tree_sitter := $(TESTDIR)/stubs.o    $(TEST_SRCS_OBJS)
 EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
-EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
+# test_basic.c #includes src/display.c to reach the drawing helpers, so it
+# needs everything display.c calls -- showparen.o among them, since the
+# repaint is where the paren highlight is recomputed.
+EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # The geometry index's own unit tests need exactly what test_basic needs
 # to reach get_visual_row()/find_visual_row()/goto_visual_row_col(): real
 # basic.o (editor_cursor_goto(), editor_row_insert_char()), mode.o (the
@@ -1057,6 +1061,12 @@ EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yan
 # a live buffer and reports through the echo area, so this links the same
 # buffer-and-stubs set the word commands do, plus its own object.
 EXTRA_dabbrev     := $(EXTRA_word) $(OBJDIR)/dabbrev.o
+# The matcher is pure over a row array, but the update seam publishes
+# decorations into a real buffer and reads the current window, so this
+# links the buffer-backed set (TEST_SRCS_OBJS' marker.o/decor.o) plus
+# mode.o, which is where chars_to_render_col() lives.
+EXTRA_showparen   := $(EXTRA_buffer) $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o \
+                     $(OBJDIR)/showparen.o
 EXTRA_marker      := $(EXTRA_buffer)
 EXTRA_decor       := $(EXTRA_buffer)
 EXTRA_event       := $(EXTRA_buffer) $(OBJDIR)/event.o

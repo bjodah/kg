@@ -48,7 +48,10 @@ static struct minibuf_history query_replace_history;
  * comment on search_match_decor() for the gravity choice and on each
  * call site below for why that site is the one deleting it. */
 
-#define KG_SEARCH_MATCH_PRIORITY 0
+/* Emacs gives isearch's overlay priority 1001 and show-paren's 1000, so
+ * the search match wins where a paren highlight (src/showparen.c, priority
+ * 0) covers the same byte; 1 against 0 says the same thing here. */
+#define KG_SEARCH_MATCH_PRIORITY 1
 
 /* Create the current-match decoration spanning the `len` buffer bytes
  * from `start_pos`.  Byte positions rather than a row and a column

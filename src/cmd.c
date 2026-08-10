@@ -23,6 +23,7 @@
 #include "marker.h"
 #include "mouse.h"
 #include "register.h"
+#include "showparen.h"
 #include "syntax.h"
 #include "vgeom.h"
 #include "xref.h"
@@ -346,6 +347,14 @@ static void cmd_auto_revert_mode(int fd)
 	bcur()->auto_revert = !bcur()->auto_revert;
 	editor_set_status_message("Auto-revert for %s is %s",
 	    buf_basename(bcur()->filename), bcur()->auto_revert ? "on" : "off");
+}
+
+/* Toggle highlighting of the paren at point and the one it pairs with.
+ * On by default, as in Emacs 28.1 and later; this is the way off. */
+static void cmd_show_paren_mode(int fd)
+{
+	(void)fd;
+	show_paren_toggle();
 }
 
 /* Toggle automatic insertion of closing brackets and quotes. */
@@ -1722,6 +1731,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Run a shell command and show its output" },
 	{ "shell-command-on-region", cmd_shell_command_on_region, CMD_NONE,
 	    "Pipe the region through a shell command" },
+	{ "show-paren-mode", cmd_show_paren_mode, LISP_OK,
+	    "Toggle highlighting the paren at point and its match" },
 	{ "sort-lines", cmd_sort_lines, EDITS,
 	    "Sort the lines of the region in ascending order" },
 	{ "split-window-below", cmd_split_window_below, CMD_NONE,

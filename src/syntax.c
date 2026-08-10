@@ -614,6 +614,17 @@ int editor_syntax_to_color(int hl)
 		return 34; /* blue */
 	case HL_WARNING:
 		return 31; /* red */
+	/* Emacs paints show-paren-match and show-paren-mismatch with
+	 * backgrounds (turquoise, and white-on-red).  This channel is one
+	 * SGR foreground number -- a background or an attribute would
+	 * survive the `\x1b[39m` the draw loop resets colour with and bleed
+	 * into the rest of the row -- so these are the nearest foregrounds
+	 * that no other HL_* uses: bright cyan against HL_COMMENT's plain
+	 * cyan, bright red against HL_NUMBER's and HL_WARNING's plain red. */
+	case HL_PAREN_MATCH:
+		return 96; /* bright cyan */
+	case HL_PAREN_MISMATCH:
+		return 91; /* bright red */
 	default:
 		return 37; /* white */
 	}

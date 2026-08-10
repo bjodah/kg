@@ -1,0 +1,17 @@
+# An empty buffer has no row to look at and no paren to be at, and the
+# first thing typed into one is a closer with nothing before it -- the
+# unmatched case, reached at the one position where the row above does not
+# exist.  Point is then walked off and back onto it.
+name: show-paren-empty-buffer
+filename: paren-empty.c
+initial: ""
+keys:
+  - C-Home
+  - C-End
+  - ")"
+  - C-b
+  - C-f
+  - "("
+  - C-b
+  - C-b
+expected_saved: ")("

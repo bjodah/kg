@@ -1,0 +1,26 @@
+# Both editors have show-paren-mode on by default, and neither may let
+# that change a byte.  The oracle is the point: kg's own expectation could
+# be wrong in the same direction as kg, but Emacs' cannot be.
+#
+# Deliberately a plain-text file with everything on one line: what is
+# being compared is the text, and c-mode's auto-indent is a difference
+# between the two editors that has nothing to do with this feature.
+name: show-paren-oracle-text-unchanged
+filename: paren-oracle.txt
+initial: |
+  alpha (beta [gamma]) delta
+keys:
+  - C-Home
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-e
+  - C-a
+  - C-d
+  - C-d
+oracle: emacs

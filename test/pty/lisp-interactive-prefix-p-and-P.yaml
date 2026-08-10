@@ -17,10 +17,10 @@ config_files:
     (defun step (n)
       (interactive "p")
       (goto-char (+ (point) n)))
-    (defun show-p (n)
+    (defun report-p (n)
       (interactive "p")
       (insert (format "p=%S;" n)))
-    (defun show-raw (arg)
+    (defun report-raw (arg)
       (interactive "P")
       (insert (format "P=%S;" arg)))
 initial: "abcdefghij"
@@ -41,20 +41,20 @@ keys:
   # Then the delivered values themselves, appended at end of buffer.
   - C-End
   - M-x
-  - show-p
+  - report-p
   - RET
   - C-u
   - "5"
   - M-x
-  - show-p
+  - report-p
   - RET
   - M-x
-  - show-raw
+  - report-raw
   - RET
   # C-u 5 is the integer 5, not a (4)-style universal list.
   - C-u
   - "5"
   - M-x
-  - show-raw
+  - report-raw
   - RET
 expected_saved: "abcdefXghijp=1;p=5;P=nil;P=5;"

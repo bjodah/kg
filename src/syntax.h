@@ -44,6 +44,8 @@ struct kg_syntax_state;
 #define HL_NUMBER 7
 #define HL_MATCH 8 /* Search match. */
 #define HL_WARNING 9 /* Overlong commit subject, etc. */
+#define HL_PAREN_MATCH 10 /* show-paren: the pair agrees. */
+#define HL_PAREN_MISMATCH 11 /* show-paren: it does not, or has no partner. */
 
 /* Stable identity of an editor mode, independent of how -- or whether --
  * it highlights.  Every struct editor_syntax carries one: the HLDB

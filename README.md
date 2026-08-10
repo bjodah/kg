@@ -142,6 +142,20 @@ standard VT100 escape sequences.
   1000
 - Auto-indent; electric bracket pairing via `M-x electric-pair-mode`
   (off by default, can be enabled from the init file)
+- Show-paren highlighting, **on by default** as in Emacs 28.1 and later:
+  with point immediately after a closing bracket, or on an opening one,
+  kg colours that bracket and the one it pairs with.  `()`, `[]` and `{}`
+  all pair, nesting is counted across all three, and a pair of the wrong
+  kind — `(` closed by `]` — is coloured in the mismatch face instead, as
+  is a bracket with no partner at all.  Brackets inside a string or a
+  comment pair only with each other, so a `)` in a comment never closes
+  live code; in a buffer kg has no syntax for, every bracket is code.
+  The search gives up after 100k bytes (Emacs'
+  `blink-matching-paren-distance`) and reports no partner rather than
+  scanning a whole large file on every keystroke.  `M-x show-paren-mode`
+  is the way off, and is callable from Lisp, so
+  `(command-execute "show-paren-mode")` in an init file turns it off for
+  good
 - Suspend to background (C-z)
 - Mouse support, on by default: click to put point where you clicked (in
   the window you clicked in), drag to select a region, wheel to scroll

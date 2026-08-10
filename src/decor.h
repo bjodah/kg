@@ -26,10 +26,14 @@ struct editor_buffer;
 
 /* A compact, closed set of visual faces -- not a text property bag.  A new
  * consumer adds a value here rather than smuggling a string or a color
- * through the record. */
+ * through the record.  The values are contiguous and the last one is the
+ * end of the range decor.c validates against, so a new face is appended
+ * (and given an HL_* colour in display.c's decor_face_to_hl()). */
 enum kg_decor_face {
 	KG_DECOR_FACE_MATCH = 0, /* Isearch/query-replace's current match. */
 	KG_DECOR_FACE_WARNING = 1, /* A parsed diagnostic, e.g. compile. */
+	KG_DECOR_FACE_PAREN_MATCH = 2, /* show-paren's matched pair. */
+	KG_DECOR_FACE_PAREN_MISMATCH = 3, /* show-paren's unmatched paren. */
 };
 
 enum kg_decor_result {

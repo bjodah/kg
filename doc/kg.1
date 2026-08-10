@@ -2607,6 +2607,11 @@ Without a numeric prefix, displays output.
 With a prefix, replaces the region with stdout.
 Equivalent to
 .Ic M-\&| .
+.It show-paren-mode
+Toggle highlighting of the bracket at point and the one it pairs with (see
+.Sx SHOW PAREN ) .
+On by default; may be turned off from the init file with
+.Ql (command-execute \(dqshow-paren-mode\(dq) .
 .It sort-lines
 Sort the lines of the region in ascending (case-sensitive) order.
 If the region end is at column 0 of a line, that final line is excluded
@@ -3388,6 +3393,59 @@ as two columns and a
 as four.
 Tabs are not control characters here: they expand to the next tab stop as
 usual.
+.Sh SHOW PAREN
+With point immediately after a closing bracket, or on an opening one,
+.Nm
+colours that bracket and the one it pairs with.
+This is on by default, as
+.Xr emacs 1 Ns 's
+.Ic show-paren-mode
+has been since 28.1;
+.Ic M-x show-paren-mode
+turns it off and on again.
+.Pp
+.Ql () ,
+.Ql []
+and
+.Ql {}
+all pair.
+Nesting is counted across all three kinds together and the kind is checked
+only once the partner has been found, so an opening round bracket closed by
+a square one is a found pair reported as a mismatch, in a second colour.
+A bracket with no partner at all gets that same mismatch colour, on its own.
+.Pp
+Which bracket at point is taken follows
+.Xr emacs 1
+exactly: the closer before point wins over an opener after it, and point
+just
+.Em inside
+a bracket highlights nothing.
+.Pp
+A bracket counts only if the syntax scanner puts it in the same class \(em
+code, string, or comment \(em as the bracket at point.
+So brackets inside one string pair with each other, a bracket inside a
+comment never closes live code, and code skips a bracket that is quoted or
+commented out.
+In a buffer
+.Nm
+has no syntax for, every byte is code and the quotes around a bracket mean
+nothing; that is plain-text behaviour and is the one place this is
+knowingly looser than
+.Xr emacs 1 .
+The other divergence runs the other way: where the bracket at point is
+inside a comment and its partner would be outside it,
+.Xr emacs 1
+sometimes pairs the two and
+.Nm
+always reports no partner.
+.Pp
+The search stops after 102400 bytes \(em
+.Xr emacs 1 Ns 's
+.Va blink-matching-paren-distance ,
+and for the same reason: a keystroke may not cost a scan of the whole file.
+A search that runs that far reports no partner, which is also what
+.Xr emacs 1
+does.
 .Sh SYNTAX HIGHLIGHTING
 Syntax highlighting is detected automatically from the file extension or
 type, e.g., Makefile.  Hash-bang lines

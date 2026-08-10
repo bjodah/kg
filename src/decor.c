@@ -27,7 +27,12 @@ static bool decor_alloc_ok(void)
 
 static bool decor_face_valid(enum kg_decor_face face)
 {
-	return face == KG_DECOR_FACE_MATCH || face == KG_DECOR_FACE_WARNING;
+	/* The faces are a contiguous range with a named first and last
+	 * (decor.h), so this is two comparisons rather than one clause per
+	 * face -- which is also what keeps this function's cost where it was
+	 * when there were two of them. */
+	return face >= KG_DECOR_FACE_MATCH
+	    && face <= KG_DECOR_FACE_PAREN_MISMATCH;
 }
 
 static bool decor_store_reserve(struct kg_decor_store *store)

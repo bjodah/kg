@@ -65,10 +65,19 @@ static const char *const historical_lisp_callable[] = {
  * `electric-pair-mode`'s shape exactly, and that has been Lisp-callable
  * since before the allow-list was deleted.  Mouse reporting is on by
  * default, so an init file that wants it off is the caller this is for;
- * without the flag that init file would have no way to say so. */
+ * without the flag that init file would have no way to say so.
+ *
+ * show-paren-mode: the same shape again -- one global flag, no buffer
+ * effect, one echo-area line -- and the same reason it is needed.  The
+ * mode is ON by default (Emacs 28.1 and later), so an init file that
+ * wants it off is exactly the caller here, and without the flag it would
+ * have no way to say so.  It is not CMD_EDITS_BUFFER: the highlight is a
+ * decoration, and a decoration changes no byte of the text, which is why
+ * it stays available in a read-only buffer as it does in Emacs. */
 static const char *const added_lisp_callable[] = {
 	"dabbrev-expand",
 	"lisp-arena-stats",
+	"show-paren-mode",
 	"xterm-mouse-mode",
 };
 
@@ -167,8 +176,9 @@ static void test_lisp_callable_mutation_verdicts(void)
 	    = { "capitalize-word", "delete-horizontal-space",
 		      "delete-trailing-space", "downcase-word", "join-line",
 		      "just-one-space", "transpose-chars", "upcase-word" };
-	static const char *const not_mutating[] = { "electric-pair-mode",
-		"lisp-arena-stats", "version", "what-cursor-position" };
+	static const char *const not_mutating[]
+	    = { "electric-pair-mode", "lisp-arena-stats", "show-paren-mode",
+		      "version", "what-cursor-position" };
 	size_t i;
 
 	for (i = 0; i < sizeof(mutating) / sizeof(*mutating); i++) {

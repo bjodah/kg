@@ -14,6 +14,7 @@
 #include "event.h"
 #include "marker.h"
 #include "perf.h"
+#include "showparen.h"
 #include "syntax.h"
 #include "vgeom.h"
 
@@ -207,6 +208,10 @@ static int decor_face_to_hl(enum kg_decor_face face)
 		return HL_MATCH;
 	case KG_DECOR_FACE_WARNING:
 		return HL_WARNING;
+	case KG_DECOR_FACE_PAREN_MATCH:
+		return HL_PAREN_MATCH;
+	case KG_DECOR_FACE_PAREN_MISMATCH:
+		return HL_PAREN_MISMATCH;
 	}
 	return HL_NORMAL;
 }
@@ -750,6 +755,13 @@ void editor_refresh_screen(void)
 	int msglen;
 
 	KG_PERF_INC(KG_PERF_REFRESH);
+	/* Point moved or the text changed since the last frame, so the
+	 * paren highlight is recomputed here rather than at each of the
+	 * dozen places that move point -- one seam, and no way for a
+	 * decoration to outlive the position it was computed from.  Outside
+	 * the render bracket below because it publishes decorations, which
+	 * is buffer state, not screen output. */
+	show_paren_update();
 	/* Debug-only bracket for kg_event_drain_safe()'s KG_DEBUG_STATE
 	 * assertion; see KG_EVENT_UNSAFE_EDIT's comment in kg_buffer_replace()
 	 * for what this is and is not.  The exit(1) below this point on an

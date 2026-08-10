@@ -1,0 +1,27 @@
+# The mode is on by default (Emacs 28.1 and later) and `M-x
+# show-paren-mode' is the only way to say otherwise -- there is no key.
+# Both directions are exercised, because the way off also has to retire
+# the highlight that is already on screen, and a toggle that only ever
+# reported the new state would pass a one-way test.
+#
+# The screen assertion is the echo-area line, which is the whole of what
+# this harness can read back: capture-pane gives text, not attributes, so
+# the colour the two faces draw with is asserted nowhere in the PTY layer
+# (see test/test_showparen.c's header).
+name: show-paren-mode-toggle
+filename: paren-toggle.c
+backend: tmux
+key_delay: 0.06
+initial: "f(x);"
+keys:
+  - M-x
+  - show-paren-mode
+  - RET
+  # Repaint over a paren with the mode off: nothing recomputes, and the
+  # echo-area line the toggle left is still the last thing written.
+  - C-Home
+  - C-f
+  - C-f
+expected_screen_contains:
+  - Show paren mode disabled
+expected_saved: "f(x);"

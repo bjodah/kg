@@ -1,0 +1,44 @@
+# show-paren-mode is on from the first frame, so every keystroke in this
+# case is typed with the highlight live and the matcher running.  What it
+# pins is that the highlight is a decoration and nothing else: the bytes
+# that reach the file are the bytes that were typed, with no marker for
+# the paren pair anywhere in them.
+#
+# The cursor is then walked back over the whole expression, so the matcher
+# runs at every trigger position it has -- on an opener, after a closer,
+# after a closer that is immediately followed by an opener, and at the two
+# unmatched ends -- before the file is written.
+name: show-paren-typing-leaves-text-alone
+filename: paren-typing.c
+initial: "int x;"
+keys:
+  - C-End
+  - RET
+  - "f"
+  - "("
+  - "g"
+  - "("
+  - "1"
+  - ")"
+  - ","
+  - "h"
+  - "["
+  - "2"
+  - "]"
+  - ")"
+  - ";"
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+  - C-b
+expected_saved: "int x;\nf(g(1),h[2]);"

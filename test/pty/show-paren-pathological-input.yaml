@@ -1,0 +1,40 @@
+# The inputs the matcher is most likely to fall over on, driven through a
+# real editor rather than a unit test: a paren as the very first byte of
+# the buffer, a paren as the very last, deep nesting, a closer with no
+# opener and an opener with no closer.  Point is walked across all of them
+# -- so every one is at some moment the paren the scan starts from -- and
+# the mode is turned off and on again in the middle of it.
+#
+# The assertion is that kg is still alive and the text is untouched.  A
+# crash, a hang or a stray byte would all show up as a failure to write
+# the file back unchanged.
+name: show-paren-pathological-input
+filename: paren-edges.c
+initial: "((((((((((x))))))))))\n)unopened\nunclosed(\n{[(mixed)]}"
+keys:
+  - C-Home
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - C-f
+  - End
+  - Down
+  - Home
+  - C-f
+  - Down
+  - End
+  - M-x
+  - show-paren-mode
+  - RET
+  - Down
+  - Home
+  - C-f
+  - C-f
+  - C-f
+  - M-x
+  - show-paren-mode
+  - RET
+  - C-End
+  - C-Home
+expected_saved: "((((((((((x))))))))))\n)unopened\nunclosed(\n{[(mixed)]}"

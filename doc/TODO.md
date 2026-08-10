@@ -152,10 +152,10 @@ definition of done: 13 registry rows over 11 grammars, incremental
 TSInputEdit parsing with damage-limited repainting, differential-tested
 against full rebuilds.  Known follow-ups, none blocking:
 
-- **Shell**: `/opt-9/tree-sitter-grammar-bash` is v0.6.0 (grammar
-  ABI 6, below tree-sitter 0.26's floor); the loader refuses it and
-  `test_bash_grammar_abi_is_rejected()` fails loudly when the pin
-  moves.  Adding Shell then is one registry row + one query + tests.
+- **Shell**: unblocked.  The grammar the loader used to refuse (a
+  tree-sitter-bash of grammar ABI 6) is gone; the installed
+  `libtree-sitter-bash.so` is ABI 15 and loads.  What is missing is
+  one registry row + one query + tests.
 - **Git-mode diagnostics under the TS backend**: the overlong-subject
   and bad-rebase-action HL_WARNING spans are legacy-scanner output, so
   a TS build shows git buffers plain.  The plan's Phase 9 answer is to

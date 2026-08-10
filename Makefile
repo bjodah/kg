@@ -82,8 +82,12 @@ endif
 # TREE_SITTER_PREFIX names an install whose include/tree_sitter/api.h is the
 # guard file; the core library is then an ordinary link-time dependency
 # found under $(TREE_SITTER_PREFIX)/lib, with no pkg-config requirement.
-# The default is this development environment's release prefix; the
-# {debug,asan,msan} siblings are what a sanitizer lane would point at.
+# The default is this development environment's release prefix, read from
+# $TREE_SITTER_ROOT when the box exports one so that moving the install
+# needs no repo edit; the {debug,asan,msan} siblings are what a sanitizer
+# lane would point at.  $(or ...) rather than plain `?=` because `?=` only
+# defers to an environment variable of the SAME name, and TREE_SITTER_ROOT
+# is the box's name for this while TREE_SITTER_PREFIX is kg's.
 # -rpath is not decoration: the release and debug prefixes ship only a
 # shared libtree-sitter, in a directory on no default loader path, so
 # without it the editor links and then fails to start.  A static prefix
@@ -95,11 +99,14 @@ endif
 # the loader falls back to when $KG_TS_GRAMMAR_PATH is unset or empty:
 # colon-separated entries, each a directory holding
 # libtree-sitter-<name>.so, and an entry containing `%s` has the grammar
-# name substituted -- which is how /opt-9's one-prefix-per-grammar layout
-# is a single entry rather than twenty.
+# name substituted, which lets one entry cover a whole
+# one-prefix-per-grammar tree.  This install is flat -- every grammar .so
+# beside the core in the prefix's lib -- so the default is one plain
+# directory, read from $TREE_SITTER_GRAMMAR_DIR on the same terms as the
+# prefix above.
 WITH_TREE_SITTER ?= 0
-TREE_SITTER_PREFIX ?= /opt-9/tree-sitter-v0.26.11-release
-TS_GRAMMAR_PATH ?= /opt-9/tree-sitter-grammar-%s/lib
+TREE_SITTER_PREFIX ?= $(or $(TREE_SITTER_ROOT),/opt-2/tree-sitter-v0.26.12-release)
+TS_GRAMMAR_PATH ?= $(or $(TREE_SITTER_GRAMMAR_DIR),/opt-2/tree-sitter-v0.26.12-release/lib)
 
 ifneq ($(WITH_TREE_SITTER),0)
 ifneq ($(WITH_TREE_SITTER),1)
@@ -340,6 +347,14 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
 # compilation and capture-to-render-offset painting, and hard-requires the
 # C grammar, since a WITH_TREE_SITTER=1 build only happens on a box that
 # has one.
+# That suite's ABI guard needs a grammar this tree-sitter refuses, and
+# every grammar the install ships is in range, so the mismatch is built
+# rather than found: TS_FAKE_GRAMMARS, whose rules are down beside the
+# other test-binary rules because a rule up here would become the default
+# goal ahead of `all`.
+TS_FAKE_GRAMMAR_DIR = $(TESTDIR)/.ts-fake-grammar
+TS_FAKE_GRAMMARS = $(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakeold.so \
+                   $(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakenew.so
 ifeq ($(WITH_TREE_SITTER),0)
 TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
@@ -1273,6 +1288,22 @@ $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 
+# The deliberately-unloadable grammars test_syntax_tree_sitter's ABI guard
+# is asserted against: one source built twice, once below the ABI floor and
+# once above the ceiling, under the sonames the loader looks for.  An
+# order-only prerequisite, so neither .so reaches the suite's link line --
+# they are dlopen'd, like every other grammar -- and compiled with none of
+# $(CFLAGS), because what they stand in for is a third-party binary.
+$(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakeold.so: KG_FAKE_ABI = 6
+$(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakenew.so: KG_FAKE_ABI = 999
+$(TS_FAKE_GRAMMARS): $(TESTDIR)/fake_ts_grammar.c
+	@mkdir -p $(@D)
+	$(CC) -shared -fPIC \
+		-DKG_FAKE_GRAMMAR=$(patsubst libtree-sitter-%.so,%,$(@F)) \
+		-DKG_FAKE_ABI=$(KG_FAKE_ABI) -o $@ $<
+
+$(TESTDIR)/test_syntax_tree_sitter: | $(TS_FAKE_GRAMMARS)
+
 $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
@@ -1328,7 +1359,7 @@ clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(FUZZBINS) $(REGEX_DIFF_BIN)
-	rm -rf $(PERFOBJDIR)
+	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)

@@ -466,10 +466,10 @@ static void test_syntax_state_release_and_adopt_are_null_safe(void)
  *
  * C# is the mode changed TO because it is one no backend builds state for
  * in either configuration: the legacy scanners keep none for anything, and
- * no tree-sitter grammar is registered for it -- /opt-9 has none, and
+ * no tree-sitter grammar is registered for it -- the install has none, and
  * Refinement decision 4 leaves such modes as plain text.  (This used to be
- * Shell, until the plan's batch 2 turned Shell into a mode that is
- * grammarless only because the installed tree-sitter-bash is too old.)  A
+ * Shell, until the plan's batch 2 left Shell grammarless; a Shell row would
+ * move it again, which C# will not.)  A
  * mode a backend CAN parse acquires state at the same point, which is that
  * backend's own assertion -- test_syntax_tree_sitter.c's
  * test_mode_change_acquires_and_releases_state(). */

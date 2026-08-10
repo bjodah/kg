@@ -3,8 +3,8 @@
 
 #include "bufhandle.h"
 #include "localvars.h"
-#include "process.h"
 #include "platform.h"
+#include "process.h"
 #include <limits.h>
 #include <stddef.h>
 

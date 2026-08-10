@@ -8,8 +8,17 @@ name: lsp-rename-undo-is-atomic
 #
 # Two occurrences, three lines apart, so a per-occurrence record would
 # leave the file half renamed here and the expectation would fail.
+#
+# The saved file is the ORIGINAL text, so it cannot on its own tell an
+# undo that worked from a rename that never happened -- every way the
+# rename can fail saves the same bytes, and this case used to pass
+# against a server that was /bin/false.  The screen assertion is what
+# closes that: the harness captures the pane after `keys` and before
+# `trailer_keys`, so the C-_ moves into the trailer and both halves are
+# asserted -- the rename is on screen first, the original text is on disk
+# after.
 requires_feature: lsp
-backend: pexpect
+backend: tmux
 key_delay: 0.35
 env:
   KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --rename-self 0:4:10 --rename-self 2:23:29"
@@ -27,7 +36,10 @@ keys:
   - "C-l"
   - "C-l"
   - "C-l"
-  - "C-_"
+trailer_keys: ["C-_", "C-x", "C-s", "C-x", "C-c"]
+expected_screen_contains:
+  - "int renamed(void) { return 1; }"
+  - "int use(void) { return renamed(); }"
 expected_saved: |
   int target(void) { return 1; }
   int other(void) { return 2; }

@@ -22,9 +22,10 @@
 
 /* ------------------------------- reading ------------------------------ */
 
-/* One end of a range.  A character the protocol counts from zero, so a
- * negative one is a server bug and clamps rather than refusing the whole
- * edit -- the sync layer clamps every other out-of-range position too. */
+/* One end of a range.  Both members are counted from zero by the
+ * protocol, so a negative one is not a position at all: it is refused
+ * here, where an unreadable edit is still only an edit -- the caller
+ * counts it as dropped, and a partial answer is applied nowhere. */
 static bool lsp_edit_read_end(
     const struct lsp_json_value *pos, int *line, long long *character)
 {
@@ -35,10 +36,7 @@ static bool lsp_edit_read_end(
 	}
 	*line = (int)n;
 	*character = lsp_json_int(lsp_json_get(pos, "character"), 0);
-	if (*character < 0) {
-		*character = 0;
-	}
-	return true;
+	return *character >= 0;
 }
 
 bool lsp_edit_range_read(
@@ -52,10 +50,14 @@ bool lsp_edit_range_read(
 
 /* The index `uri`'s file has in the edit, adding it when it is new.
  * False for a URI that is not a local file kg can open and for a
- * seventeenth file. */
-static bool lsp_edit_file_index(
-    struct lsp_workspace_edit *edit, const char *uri, size_t *out)
+ * seventeenth file.  A file named twice keeps the version its first
+ * mention carried: two identifiers for one document disagreeing about its
+ * version is a server contradicting itself, and the first answer is the
+ * one the rest of the reading has already been read against. */
+static bool lsp_edit_file_index(struct lsp_workspace_edit *edit,
+    const char *uri, long long version, size_t *out)
 {
+	struct lsp_edit_file *file;
 	char path[PATH_MAX];
 	size_t i;
 
@@ -71,7 +73,9 @@ static bool lsp_edit_file_index(
 	if (edit->file_count == LSP_EDIT_MAX_FILES) {
 		return false;
 	}
-	memcpy(edit->files[edit->file_count].path, path, strlen(path) + 1);
+	file = &edit->files[edit->file_count];
+	memcpy(file->path, path, strlen(path) + 1);
+	file->version = version;
 	*out = edit->file_count++;
 	return true;
 }
@@ -106,17 +110,25 @@ static bool lsp_edit_add(struct lsp_workspace_edit *edit, size_t file,
 	return true;
 }
 
-/* Every TextEdit of one document. */
+/* Every TextEdit of one document.  An array with nothing in it is a
+ * document with nothing to do: it registers no file, so no buffer is
+ * opened for it and no refusal is counted against it. */
 static void lsp_edit_read_array(struct lsp_workspace_edit *edit,
-    const char *uri, const struct lsp_json_value *edits)
+    const char *uri, long long version, const struct lsp_json_value *edits)
 {
 	size_t n = lsp_json_len(edits);
 	size_t file = 0;
 	size_t i;
 
-	if (lsp_json_kind_of(edits) != LSP_JSON_ARRAY
-	    || !lsp_edit_file_index(edit, uri, &file)) {
-		edit->dropped += n > 0 ? n : 1;
+	if (lsp_json_kind_of(edits) != LSP_JSON_ARRAY) {
+		edit->dropped++;
+		return;
+	}
+	if (n == 0) {
+		return;
+	}
+	if (!lsp_edit_file_index(edit, uri, version, &file)) {
+		edit->dropped += n;
 		return;
 	}
 	for (i = 0; i < n; i++) {
@@ -126,7 +138,9 @@ static void lsp_edit_read_array(struct lsp_workspace_edit *edit,
 	}
 }
 
-/* `changes`: an object whose keys are URIs. */
+/* `changes`: an object whose keys are URIs.  This shape carries no
+ * versions at all, which is why -1 has to mean "the answer did not say"
+ * rather than "the document is at version -1". */
 static void lsp_edit_read_changes(
     struct lsp_workspace_edit *edit, const struct lsp_json_value *changes)
 {
@@ -136,7 +150,7 @@ static void lsp_edit_read_changes(
 	for (i = 0; i < n; i++) {
 		const char *uri = lsp_json_key_at(changes, i, NULL);
 
-		lsp_edit_read_array(edit, uri, lsp_json_at(changes, i));
+		lsp_edit_read_array(edit, uri, -1, lsp_json_at(changes, i));
 	}
 }
 
@@ -152,11 +166,26 @@ static void lsp_edit_note_resource_op(
 	edit->resource_ops++;
 }
 
+/* The `version` of a versioned document identifier, or -1 for one that
+ * carries none: the member is optional, and `null` is how the protocol
+ * spells "I am not tracking a version for this file".  Both mean the same
+ * thing here -- there is nothing to compare -- and neither is an error. */
+static long long lsp_edit_read_version(const struct lsp_json_value *document)
+{
+	const struct lsp_json_value *version
+	    = lsp_json_get(document, "version");
+
+	if (lsp_json_kind_of(version) != LSP_JSON_NUMBER) {
+		return -1;
+	}
+	return lsp_json_int(version, -1);
+}
+
 /* `documentChanges`: an array of TextDocumentEdit objects, possibly with
- * resource operations mixed in.  The `version` of an identifier is read
- * and ignored: kg's answer to a document that moved under the server is
- * the same either way -- the ranges are decoded against what the buffer
- * says now. */
+ * resource operations mixed in.  The `version` of an identifier is kept:
+ * it is the server's own statement of which text its ranges were measured
+ * against, and applying ranges to a document that has moved past it is
+ * the one thing this module must not do (see lsp_edit_file::version). */
 static void lsp_edit_read_document_changes(
     struct lsp_workspace_edit *edit, const struct lsp_json_value *changes)
 {
@@ -166,6 +195,8 @@ static void lsp_edit_read_document_changes(
 	for (i = 0; i < n; i++) {
 		const struct lsp_json_value *item = lsp_json_at(changes, i);
 		const struct lsp_json_value *kind = lsp_json_get(item, "kind");
+		const struct lsp_json_value *document
+		    = lsp_json_get(item, "textDocument");
 
 		if (lsp_json_kind_of(kind) == LSP_JSON_STRING) {
 			lsp_edit_note_resource_op(
@@ -173,9 +204,8 @@ static void lsp_edit_read_document_changes(
 			continue;
 		}
 		lsp_edit_read_array(edit,
-		    lsp_json_str(
-			lsp_json_get(lsp_json_get(item, "textDocument"), "uri"),
-			NULL),
+		    lsp_json_str(lsp_json_get(document, "uri"), NULL),
+		    lsp_edit_read_version(document),
 		    lsp_json_get(item, "edits"));
 	}
 }
@@ -228,10 +258,16 @@ static int lsp_edit_span_cmp(const void *a, const void *b)
 	if (x->begin != y->begin) {
 		return x->begin < y->begin ? 1 : -1;
 	}
-	if (x->end == y->end) {
+	if (x->end != y->end) {
+		return x->end < y->end ? 1 : -1;
+	}
+	if (x->order == y->order) {
 		return 0;
 	}
-	return x->end < y->end ? 1 : -1;
+	/* Descending, like the rest of the ordering, and for the same
+	 * reason: the array is consumed from the end, so the span the
+	 * server sent FIRST has to sort last to be written first. */
+	return x->order < y->order ? 1 : -1;
 }
 
 bool lsp_edit_spans_order(struct lsp_edit_span *spans, size_t n)
@@ -320,34 +356,51 @@ char *lsp_edit_splice(const char *base, size_t base_len, size_t base_begin,
 
 /* ------------------------------ the buffers --------------------------- */
 
-/* A protocol position as a flat byte position of `b`. */
-static size_t lsp_edit_position(const struct editor_buffer *b,
-    enum lsp_position_encoding enc, int line, long long character)
+/* A protocol position as a flat byte position of `b`, or false for one
+ * the buffer does not have.  See lsp_edit.h: a position outside the
+ * document is refused rather than clamped, and {numrows, 0} -- the end of
+ * the document, which is how a server names the deletion of the last
+ * line -- is the one position past the last row that exists. */
+static bool lsp_edit_position(const struct editor_buffer *b,
+    enum lsp_position_encoding enc, int line, long long character, size_t *out)
 {
 	const erow *row;
 	size_t col;
 
-	if (line < 0) {
-		line = 0;
+	if (line < 0 || character < 0) {
+		return false;
 	}
 	if (line >= b->numrows) {
-		return buffer_byte_length(b);
+		if (line != b->numrows || character != 0) {
+			return false;
+		}
+		*out = buffer_byte_length(b);
+		return true;
 	}
 	row = &b->row[line];
+	if ((unsigned long long)character > lsp_pos_encode(
+		enc, row->chars, (size_t)row->size, (size_t)row->size)) {
+		return false;
+	}
 	col = lsp_pos_decode(
 	    enc, row->chars, (size_t)row->size, (size_t)character);
-	return buffer_row_col_to_position(b, line, (int)col);
+	*out = buffer_row_col_to_position(b, line, (int)col);
+	return true;
 }
 
 bool lsp_edit_range_span(const struct editor_buffer *b,
     enum lsp_position_encoding enc, const struct lsp_edit_range *range,
     struct lsp_edit_span *out)
 {
-	out->begin
-	    = lsp_edit_position(b, enc, range->start_line, range->start_char);
-	out->end = lsp_edit_position(b, enc, range->end_line, range->end_char);
 	out->text = "";
 	out->len = 0;
+	out->order = 0;
+	if (!lsp_edit_position(
+		b, enc, range->start_line, range->start_char, &out->begin)
+	    || !lsp_edit_position(
+		b, enc, range->end_line, range->end_char, &out->end)) {
+		return false;
+	}
 	return out->begin <= out->end;
 }
 
@@ -415,9 +468,10 @@ static struct editor_buffer *lsp_edit_find_buffer(const char *path)
 
 /* That buffer, opening the file when nothing visits it.  Opening selects
  * it -- buf_open_path() is the editor's own visit -- which is why the
- * caller puts the selection back afterwards. */
+ * caller puts the selection back afterwards, and `*opened` is set so a
+ * refused edit can close again what it only opened to look at. */
 static struct editor_buffer *lsp_edit_buffer_for(
-    const char *who, const char *path)
+    const char *who, const char *path, bool *opened)
 {
 	struct editor_buffer *b = lsp_edit_find_buffer(path);
 	struct stat st;
@@ -425,13 +479,17 @@ static struct editor_buffer *lsp_edit_buffer_for(
 	if (b) {
 		return b;
 	}
+	/* By basename, like every other refusal here: the echo area is one
+	 * line, and a PATH_MAX path pushes the reason -- which is the part
+	 * the user cannot guess -- off the end of it. */
 	if (stat(path, &st) != 0) {
 		editor_set_status_message(
-		    "%s: %s: %s", who, path, strerror(errno));
+		    "%s: %s: %s", who, buf_basename(path), strerror(errno));
 		return NULL;
 	}
 	if (S_ISDIR(st.st_mode)) {
-		editor_set_status_message("%s: %s is a directory", who, path);
+		editor_set_status_message(
+		    "%s: %s is a directory", who, buf_basename(path));
 		return NULL;
 	}
 	if (buf_count >= MAX_BUFFERS) {
@@ -440,20 +498,49 @@ static struct editor_buffer *lsp_edit_buffer_for(
 		return NULL;
 	}
 	buf_open_path(path, 0);
+	*opened = true;
 	return lsp_edit_find_buffer(path);
 }
 
-/* ----------------------------- the application ------------------------ */
+/* ------------------------------- the plan ----------------------------- */
 
-/* Every edit for one file, as byte spans of the buffer holding it. */
+/* Every file's edits as byte spans of the buffer that holds them, built
+ * before one byte is written.  This is what makes an application
+ * all-or-nothing (lsp_edit.h): the checks that can refuse -- the file
+ * opens, the buffer is writable and still says what the server was
+ * answering about, the ranges are inside it and do not overlap -- all
+ * happen here, over every file, and the second pass has nothing left to
+ * decide.
+ *
+ * One spans array per file, each the whole edit's worth: a file's share
+ * is not known until its items have been walked, and a shared array with
+ * every file's slice measured off it is a bound three functions have to
+ * be read together to see.  The waste is bounded by the same numbers
+ * lsp_edit.h bounds everything else with. */
+struct lsp_edit_plan {
+	struct editor_buffer *buffers[LSP_EDIT_MAX_FILES];
+	struct lsp_edit_span *spans[LSP_EDIT_MAX_FILES];
+	size_t count[LSP_EDIT_MAX_FILES];
+	/* The buffers this application opened, to close again if it is
+	 * refused.  A handle rather than a pointer: closing one can move
+	 * the others. */
+	struct kg_buffer_handle opened[LSP_EDIT_MAX_FILES];
+	size_t opened_count;
+};
+
+/* Every edit for one file, as byte spans of the buffer holding it, into
+ * the `cap` the caller's array holds.  One span per item at most, so a
+ * caller passing the whole edit's item count cannot be overrun -- the
+ * bound is a parameter rather than an argument the reader has to
+ * reconstruct, and the caller restates it on the way out. */
 static bool lsp_edit_collect(const struct lsp_workspace_edit *edit, size_t file,
     const struct editor_buffer *b, enum lsp_position_encoding enc,
-    struct lsp_edit_span *spans, size_t *count)
+    struct lsp_edit_span *spans, size_t cap, size_t *count)
 {
 	size_t n = 0;
 	size_t i;
 
-	for (i = 0; i < edit->item_count; i++) {
+	for (i = 0; i < edit->item_count && n < cap; i++) {
 		const struct lsp_edit_item *item = &edit->items[i];
 
 		if (item->file != file) {
@@ -464,11 +551,188 @@ static bool lsp_edit_collect(const struct lsp_workspace_edit *edit, size_t file,
 		}
 		spans[n].text = item->text;
 		spans[n].len = item->len;
+		/* The item's own position in the array the server sent, which
+		 * is what orders two edits at the same place. */
+		spans[n].order = i;
 		n++;
 	}
 	*count = n;
 	return n > 0;
 }
+
+/* Whether `b` still holds the text the answer is about, and why not.
+ *
+ * Two questions, and they are the same question: the buffer the request
+ * was sent from is compared against the generation stamped when it went
+ * out, and every other file against what this server was last told about
+ * it -- which for a versioned answer is also asked the protocol's way,
+ * against the version the identifier named.  A file the server was never
+ * told about (it read it from disk) can only be taken as it stands. */
+static const char *lsp_edit_staleness(const struct lsp_edit_origin *origin,
+    const struct lsp_edit_file *file, const struct editor_buffer *b)
+{
+	struct kg_buffer_handle handle = buf_handle_of(b);
+	struct lsp_sync_doc_state doc;
+
+	if (!origin) {
+		return NULL;
+	}
+	if (origin->valid && buf_handle_slot(origin->buffer) == handle.slot) {
+		if (b->content_generation != origin->generation) {
+			return "changed while the server was answering";
+		}
+		if (file->version >= 0 && origin->version >= 0
+		    && file->version != origin->version) {
+			return "is not at the version the edit names";
+		}
+		return NULL;
+	}
+	doc = lsp_sync_state_of(origin->client, handle);
+	if (!doc.tracked) {
+		return NULL;
+	}
+	if (!doc.current) {
+		return "changed while the server was answering";
+	}
+	if (file->version >= 0 && doc.version != file->version) {
+		return "is not at the version the edit names";
+	}
+	return NULL;
+}
+
+/* One file, resolved and checked.  False with the reason printed, and it
+ * refuses the whole edit: every message here names the file it is about,
+ * because "nothing was renamed" without a reason is a rename that looks
+ * broken rather than one that declined. */
+static bool lsp_edit_plan_file(const char *who,
+    const struct lsp_workspace_edit *edit, size_t file,
+    enum lsp_position_encoding enc, const struct lsp_edit_origin *origin,
+    struct lsp_edit_plan *plan)
+{
+	const char *path = edit->files[file].path;
+	const char *name = buf_basename(path);
+	struct lsp_edit_span *spans;
+	bool opened = false;
+	struct editor_buffer *b;
+	const char *stale;
+	size_t n = 0;
+
+	b = lsp_edit_buffer_for(who, path, &opened);
+	if (!b) {
+		return false; /* lsp_edit_buffer_for() said why */
+	}
+	if (opened) {
+		plan->opened[plan->opened_count++] = buf_handle_of(b);
+	}
+	stale = lsp_edit_staleness(origin, &edit->files[file], b);
+	if (stale) {
+		editor_set_status_message("%s: %s %s", who, name, stale);
+		return false;
+	}
+	if (b->readonly) {
+		editor_set_status_message("%s: %s is read-only", who, name);
+		return false;
+	}
+	spans = calloc(edit->item_count, sizeof(*spans));
+	if (!spans) {
+		editor_set_status_message("%s: out of memory", who);
+		return false;
+	}
+	/* Handed to the plan before anything can fail: it owns every array
+	 * it was given, applied or refused. */
+	plan->spans[file] = spans;
+	/* The second half of the bound: `n` spans were written into an
+	 * array of `item_count`, and saying so here is what makes every
+	 * later use of the pair provably inside it. */
+	if (!lsp_edit_collect(edit, file, b, enc, spans, edit->item_count, &n)
+	    || n > edit->item_count) {
+		editor_set_status_message(
+		    "%s: %s: an edit is outside the file", who, name);
+		return false;
+	}
+	if (!lsp_edit_spans_order(spans, n)) {
+		editor_set_status_message(
+		    "%s: %s: the server sent overlapping edits", who, name);
+		return false;
+	}
+	plan->buffers[file] = b;
+	plan->count[file] = n;
+	return true;
+}
+
+/* Whether some earlier file of this edit is the same buffer.  Two paths
+ * that are not the same string can still be one buffer (a symlink, most
+ * of the time), and the second pass measures its spans against a buffer
+ * the first pass has already rewritten -- so this is refused rather than
+ * applied to text nobody checked. */
+static bool lsp_edit_plan_repeats(const struct lsp_edit_plan *plan, size_t file)
+{
+	size_t i;
+
+	for (i = 0; i < file; i++) {
+		if (plan->buffers[i] == plan->buffers[file]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Every array the plan was handed, whether it was applied or refused. */
+static void lsp_edit_plan_free(struct lsp_edit_plan *plan)
+{
+	size_t i;
+
+	for (i = 0; i < LSP_EDIT_MAX_FILES; i++) {
+		free(plan->spans[i]);
+		plan->spans[i] = NULL;
+	}
+}
+
+/* Close what only the checking opened.  buf_kill_buffer() refuses a
+ * modified buffer, which is exactly right: nothing has been written yet,
+ * so a buffer that is dirty here was dirty before this ran and is the
+ * user's. */
+static void lsp_edit_plan_close_opened(struct lsp_edit_plan *plan)
+{
+	size_t i;
+
+	for (i = plan->opened_count; i-- > 0;) {
+		(void)buf_kill_buffer(plan->opened[i]);
+	}
+	plan->opened_count = 0;
+}
+
+/* The whole edit, resolved and checked.  False means nothing has been
+ * written and the reason has been printed. */
+static bool lsp_edit_plan_build(const char *who,
+    const struct lsp_workspace_edit *edit, enum lsp_position_encoding enc,
+    const struct lsp_edit_origin *origin, struct lsp_edit_plan *plan)
+{
+	size_t file;
+
+	/* Every file registered at least one item, so a file to plan for
+	 * means an item to plan -- which is what the per-file arrays below
+	 * are sized by, and what makes a zero-sized allocation impossible
+	 * rather than merely unusual. */
+	if (edit->item_count == 0) {
+		editor_set_status_message("%s: there is nothing to apply", who);
+		return false;
+	}
+	for (file = 0; file < edit->file_count; file++) {
+		if (!lsp_edit_plan_file(who, edit, file, enc, origin, plan)) {
+			return false;
+		}
+		if (lsp_edit_plan_repeats(plan, file)) {
+			editor_set_status_message(
+			    "%s: %s: the server named one file twice", who,
+			    buf_basename(edit->files[file].path));
+			return false;
+		}
+	}
+	return true;
+}
+
+/* ----------------------------- the application ------------------------ */
 
 /* One buffer's whole share of the edit, as one replacement: one undo
  * record, one row rebuild, all or nothing. */
@@ -498,51 +762,45 @@ static bool lsp_edit_commit(
 	return ok != 0;
 }
 
-static void lsp_edit_apply_file(const char *who,
-    const struct lsp_workspace_edit *edit, size_t file,
-    enum lsp_position_encoding enc, struct lsp_edit_report *report)
+/* Write the plan.  Nothing here decides anything: every file was checked
+ * before this ran, so the only failure left is a buffer that refuses the
+ * splice it was told it could take -- an allocation, or an edit policy
+ * that changed under us.  It stops at the first one and says which file
+ * it was, because a report of a rename that half happened has to be a
+ * report of a rename that half happened. */
+static void lsp_edit_plan_apply(const struct lsp_workspace_edit *edit,
+    const struct lsp_edit_plan *plan, struct lsp_edit_report *report)
 {
-	const char *path = edit->files[file].path;
-	struct editor_buffer *b = lsp_edit_buffer_for(who, path);
-	struct lsp_edit_span *spans;
-	size_t n = 0;
+	size_t file;
 
-	spans = b ? calloc(edit->item_count, sizeof(*spans)) : NULL;
-	if (!spans) {
-		report->refused++;
-		return;
-	}
-	if (!lsp_edit_collect(edit, file, b, enc, spans, &n)) {
-		editor_set_status_message("%s: %s: an edit is outside the file",
-		    who, buf_basename(path));
-		report->refused++;
-	} else if (!lsp_edit_spans_order(spans, n)) {
-		editor_set_status_message(
-		    "%s: %s: the server sent overlapping edits", who,
-		    buf_basename(path));
-		report->refused++;
-	} else if (!lsp_edit_commit(b, spans, n)) {
-		editor_set_status_message("%s: %s could not be edited%s", who,
-		    buf_basename(path), b->readonly ? " (read-only)" : "");
-		report->refused++;
-	} else {
-		report->edits += n;
+	for (file = 0; file < edit->file_count; file++) {
+		if (!lsp_edit_commit(plan->buffers[file], plan->spans[file],
+			plan->count[file])) {
+			report->incomplete = true;
+			snprintf(report->failed, sizeof(report->failed), "%s",
+			    buf_basename(edit->files[file].path));
+			return;
+		}
+		report->edits += plan->count[file];
 		report->files++;
 	}
-	free(spans);
 }
 
 bool lsp_workspace_edit_apply(const char *who,
     const struct lsp_workspace_edit *edit, enum lsp_position_encoding enc,
-    struct lsp_edit_report *out)
+    const struct lsp_edit_origin *origin, struct lsp_edit_report *out)
 {
 	struct kg_buffer_handle home = buf_handle(buf_current);
 	struct lsp_edit_report report = { 0 };
-	size_t file;
+	struct lsp_edit_plan plan = { 0 };
 
-	for (file = 0; file < edit->file_count; file++) {
-		lsp_edit_apply_file(who, edit, file, enc, &report);
+	if (lsp_edit_plan_build(who, edit, enc, origin, &plan)) {
+		lsp_edit_plan_apply(edit, &plan, &report);
+	} else {
+		report.refused = true;
+		lsp_edit_plan_close_opened(&plan);
 	}
+	lsp_edit_plan_free(&plan);
 	/* Back where the user was, whatever was opened along the way: a
 	 * rename is not a navigation command, and landing in the last file
 	 * the server happened to name is not where anybody asked to be. */

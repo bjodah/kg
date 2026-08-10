@@ -1,6 +1,8 @@
 #ifndef KG_LSP_REQ_H
 #define KG_LSP_REQ_H
 
+#include <stdint.h> /* uint64_t, the generation stamp below */
+
 #include "bufhandle.h" /* struct kg_buffer_handle, by value below */
 #include "lsp_client.h" /* enum lsp_position_encoding */
 
@@ -45,12 +47,25 @@ struct lsp_req_point {
  * call like every other JSON node (src/lsp_client.h); `encoding` is what
  * the handshake settled, taken at reply time so a caller decoding a range
  * never has to hold the client to ask; `point` is where the question was
- * asked, now. */
+ * asked, now.
+ *
+ * `sent_generation` is what the buffer's `content_generation` said at the
+ * instant the question went out -- not when the command ran, and not now.
+ * That is the text the server was answering about, so a caller that is
+ * going to WRITE what the answer says compares it against the buffer's
+ * generation now and refuses when they differ: kg synchronises lazily, so
+ * between the question and the answer a buffer can move arbitrarily far
+ * from the document the server holds, and applying an answer to text it
+ * was never about is how one typed character turns a rename into
+ * corruption.  `sent_generation_valid` is false only for a request whose
+ * params were never built, which is a request that was never sent. */
 struct lsp_req_answer {
 	struct lsp_client *client;
 	const struct lsp_json_value *result;
 	enum lsp_position_encoding encoding;
 	struct lsp_req_point point;
+	uint64_t sent_generation;
+	bool sent_generation_valid;
 	void *ctx;
 };
 

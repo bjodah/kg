@@ -145,6 +145,27 @@ const char *lsp_sync_uri(struct lsp_client *c, struct kg_buffer_handle buf);
  * is not tracked.  For tests, and for a log line; no policy reads it. */
 long long lsp_sync_version(struct lsp_client *c, struct kg_buffer_handle buf);
 
+/* What a server's copy of one buffer is worth right now.
+ *
+ * `tracked` is false for a buffer this client was never told about, which
+ * is not an error: a server also reads files from disk, and an answer may
+ * name a file no command in this session ever synchronised.  Nothing can
+ * be said about such a file and nothing is.
+ *
+ * `current` is the whole point: the shadow was taken at a
+ * `content_generation`, so comparing it against the buffer's now says
+ * whether the buffer still holds the text the server was answering about.
+ * `version` is the same question spelled the protocol's way, for an answer
+ * that carries a versioned document identifier. */
+struct lsp_sync_doc_state {
+	bool tracked;
+	bool current;
+	long long version;
+};
+
+struct lsp_sync_doc_state lsp_sync_state_of(
+    struct lsp_client *c, struct kg_buffer_handle buf);
+
 /* Tell every server that has it open that the buffer `buf` named is gone,
  * and forget it.  A killed buffer whose document is left open is a server
  * answering out of a file that no longer has an editor behind it, and --

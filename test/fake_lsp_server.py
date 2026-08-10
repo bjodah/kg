@@ -154,6 +154,11 @@ Options, all of them optional:
     Which of the WorkspaceEdit's two shapes to answer with (default
     ``changes``).  ``documentChanges`` sends TextDocumentEdit objects with
     versioned identifiers, which is what a modern server does.
+``--rename-version N``
+    The ``version`` those identifiers carry (default 1, which is the
+    version kg's first ``didOpen`` announces).  Any other value is a
+    server answering about a document the client is not holding, which a
+    client must refuse -- so this is how a test asks for that refusal.
 ``--rename-resource-op KIND``
     Add a resource operation of that kind (``create``, ``rename``,
     ``delete``) to the ``documentChanges`` array.  kg performs none of
@@ -627,7 +632,8 @@ class Protocol:
             return None
         if self.args.rename_shape == "changes":
             return {"changes": {uri: edits for uri, edits in pairs}}
-        changes = [{"textDocument": {"uri": uri, "version": 1},
+        changes = [{"textDocument": {"uri": uri,
+                                     "version": self.args.rename_version},
                     "edits": edits} for uri, edits in pairs]
         if self.args.rename_resource_op:
             changes.append({"kind": self.args.rename_resource_op,
@@ -934,6 +940,10 @@ def main(argv):
     parser.add_argument("--rename-shape", default="changes",
                         choices=["changes", "documentChanges"],
                         help="which WorkspaceEdit shape to answer with")
+    # --- added with the WorkspaceEdit staleness fixes (lsp_edit) ---
+    parser.add_argument("--rename-version", type=int, default=1,
+                        help="version the documentChanges identifiers carry")
+    # --- end ---
     parser.add_argument("--rename-resource-op", default=None,
                         choices=["create", "rename", "delete"],
                         help="add a resource operation to documentChanges")

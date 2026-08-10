@@ -406,9 +406,14 @@ static void comp_act(const struct comp_target *target, const size_t *index,
 /* ------------------------------ the reply ----------------------------- */
 
 /* Whether the answer is one to act on: the buffer it was asked about is
- * still the one point is in, and no prompt is up.  Completion inserts
- * text at point, so an answer that arrived after a buffer switch is an
- * answer about somewhere else. */
+ * still the one point is in, it still says what the server was answering
+ * about, and no prompt is up.  Completion inserts text at point, so an
+ * answer that arrived after a buffer switch is an answer about somewhere
+ * else -- and one that arrived after the user kept typing is an answer
+ * about text that is no longer there.  Emacs' completion-at-point cannot
+ * race this way at all: it computes and consumes its collection inside
+ * one command.  kg's runs from lsp_poll(), so the refusal is the same
+ * check src/lsp_edit.h makes for a rename, spelled for one buffer. */
 static bool comp_still_here(const struct lsp_req_answer *answer)
 {
 	if (kg_event_prompt_active()) {
@@ -418,6 +423,12 @@ static bool comp_still_here(const struct lsp_req_answer *answer)
 	if (!answer->point.resolved
 	    || buf_handle_slot(answer->point.buffer) != buf_current) {
 		editor_set_status_message(COMPLETE_WHO ": the buffer moved on");
+		return false;
+	}
+	if (answer->sent_generation_valid
+	    && bcur()->content_generation != answer->sent_generation) {
+		editor_set_status_message(COMPLETE_WHO
+		    ": the buffer changed while the server was answering");
 		return false;
 	}
 	return true;

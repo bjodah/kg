@@ -436,15 +436,28 @@ lets you read the change before writing it — and the buffer you ran the
 command in is the one selected again afterwards. The report is `Renamed N
 occurrences in M files`.
 
-Three things a rename deliberately does not do. It does not perform the
-create/rename/delete-file operations a server may attach to its answer:
-they are counted and the report says how many were skipped and of what
-kind. It applies nothing at all when part of the answer cannot be read —
-an edit naming something other than a local file, or more of them than kg
-stores — because a rename that renamed most of the uses of a symbol is
-worse than one that renamed none and said so. And it refuses a file whose
-edits overlap, or whose buffer is read-only, naming that file and leaving
-it alone.
+A rename is **all or nothing across every file it names**. The whole
+answer is resolved and checked first — every file opens, every buffer is
+writable, every range is inside the file it names, no two edits overlap —
+and only then is anything written; a single failure refuses the rename
+entirely, names the file and the reason, and leaves every buffer as it
+was, including any it opened only to look at. A rename that renamed most
+of the uses of a symbol is worse than one that renamed none and said so.
+
+The same applies to an answer that is no longer about your buffer. kg
+sends a document to the server only when a command needs it, so between
+the question and the answer the text can move; if it has — one character
+typed while the server was thinking is enough — the rename is refused with
+`<file> changed while the server was answering`. A server that sends
+versioned `documentChanges` is answered the same way when its version is
+not the one kg last sent, which is the check `eglot` makes.
+
+Two other things a rename deliberately does not do. It does not perform
+the create/rename/delete-file operations a server may attach to its
+answer: they are counted and the report says how many were skipped and of
+what kind. And it applies nothing at all when part of the answer cannot be
+read — an edit naming something other than a local file, or more of them
+than kg stores.
 
 **`M-TAB`** (`completion-at-point`) completes the symbol before point.
 It is spelled `M-TAB` because that is what a terminal sends: `C-M-i` and
@@ -458,7 +471,9 @@ typed insert what they share and say `Complete, but not unique`; several
 with nothing left in common are listed in a read-only `*Completions*`
 buffer beside the source, with point left where it was. An empty answer
 says `No completions`. Each insertion is one edit, so `C-_` takes a
-completion back in one step.
+completion back in one step. A completion whose buffer changed while the
+server was answering — you kept typing, as one does — is refused rather
+than inserted against text that is no longer there.
 
 The `*Completions*` listing is passive, which is a divergence worth
 knowing: unlike Emacs' it binds no keys, and it is neither taken down nor

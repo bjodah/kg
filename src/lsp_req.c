@@ -55,6 +55,11 @@ struct lsp_request {
 	char extra_key[32];
 	char extra_value[LSP_REQ_EXTRA_MAX];
 	bool has_extra;
+	/* What the buffer said when the question was built, which is the
+	 * moment it went out (lsp_req_build).  See lsp_req.h: this is the
+	 * only record of the text the answer is about. */
+	uint64_t sent_generation;
+	bool sent_generation_valid;
 };
 
 static void lsp_request_free(struct lsp_request *req)
@@ -154,12 +159,17 @@ static char *lsp_req_build(struct lsp_client *c, void *bctx, size_t *out_len)
 {
 	struct lsp_request *req = bctx;
 	struct lsp_req_point point = lsp_request_point(req);
+	const struct editor_buffer *b = buf_resolve(req->buffer);
 
-	if (!point.resolved) {
+	if (!point.resolved || !b) {
 		return NULL;
 	}
-	return lsp_request_params(
-	    c, req, buf_resolve(req->buffer), point.row, point.col, out_len);
+	/* The stamp, taken here for the same reason the position is: this
+	 * is the instant the question goes out, so this is the text the
+	 * answer will be about (lsp_req.h). */
+	req->sent_generation = b->content_generation;
+	req->sent_generation_valid = true;
+	return lsp_request_params(c, req, b, point.row, point.col, out_len);
 }
 
 static void lsp_req_report_error(
@@ -192,6 +202,8 @@ static void lsp_req_reply(struct lsp_client *c,
 		answer.result = result;
 		answer.encoding = lsp_client_caps(c)->position_encoding;
 		answer.point = lsp_request_point(req);
+		answer.sent_generation = req->sent_generation;
+		answer.sent_generation_valid = req->sent_generation_valid;
 		answer.ctx = req->ctx;
 		req->on_answer(&answer);
 	}

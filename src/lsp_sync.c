@@ -627,6 +627,22 @@ long long lsp_sync_version(struct lsp_client *c, struct kg_buffer_handle buf)
 	return d ? d->version : -1;
 }
 
+struct lsp_sync_doc_state lsp_sync_state_of(
+    struct lsp_client *c, struct kg_buffer_handle buf)
+{
+	struct lsp_sync_doc_state out = { false, false, -1 };
+	struct lsp_document *d = c ? doc_find(c, buf) : NULL;
+	const struct editor_buffer *b = d ? buf_resolve(buf) : NULL;
+
+	if (!b) {
+		return out;
+	}
+	out.tracked = true;
+	out.current = d->shadow_generation == b->content_generation;
+	out.version = d->version;
+	return out;
+}
+
 void lsp_sync_close_buffer(struct kg_buffer_handle buf)
 {
 	size_t i;

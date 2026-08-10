@@ -3321,16 +3321,36 @@ The report is
 Renamed N occurrences in M files
 .Dc .
 .Pp
-Three things a rename does not do.
+A rename is all or nothing, across every file it names.
+The whole answer is resolved and checked before one byte is written \(em
+every file opens, every buffer is writable, every range is inside the
+file it names, no two edits overlap \(em and a single failure refuses the
+rename entirely, names the file and the reason, and leaves every buffer
+as it was, including one that was opened only to check it.
+A rename that renamed most of the uses of a symbol is worse than one that
+renamed none and said so.
+.Pp
+An answer that is no longer about the buffer is refused the same way.
+kg sends a document to a server only when a command needs it, so between
+the question and the answer the buffer can move \(em one character typed
+while the server is thinking is enough \(em and the ranges then name text
+that is not where it was.
+Such an answer is refused with
+.Do
+\*[Lt]file\*[Gt] changed while the server was answering
+.Dc ,
+and a server that sends versioned
+.Ql documentChanges
+is refused the same way when the version is not the one kg last sent it,
+which is the check eglot makes.
+.Pp
+Two other things a rename does not do.
 It does not perform the create-, rename- and delete-file operations a
 server may attach to its answer: they are counted, and the report names
 how many were skipped and of what kind.
-It applies nothing at all when part of the answer cannot be read \(em an
-edit naming a file that is not a local one, or more of them than kg
-stores \(em since a rename that renamed most of the uses of a symbol is
-worse than one that renamed none and said so.
-And it refuses a file whose edits overlap, or whose buffer is read-only,
-naming that file and leaving it untouched.
+And it applies nothing at all when part of the answer cannot be read \(em
+an edit naming a file that is not a local one, or more of them than kg
+stores.
 .Pp
 .Ic M-TAB
 .Pq Ic M-x completion-at-point
@@ -3358,6 +3378,9 @@ No completions
 The insertion is one edit, so
 .Ic C-_
 takes a completion back in one step.
+A completion whose buffer changed while the server was answering is
+refused rather than inserted over text that is no longer there, the same
+staleness check a rename makes.
 .Pp
 The
 .Pa *Completions*

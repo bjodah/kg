@@ -17,6 +17,7 @@
 #include "lsp_edit.h"
 #include "lsp_json.h"
 #include "lsp_req.h"
+#include "lsp_sync.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -134,11 +135,23 @@ static bool lsp_rename_usable(const struct lsp_workspace_edit *edit)
 	return true;
 }
 
+/* What happened, and never more than what happened: a rename that failed
+ * partway through is reported as one, naming the file it stopped in.  The
+ * refusals never reach here -- those printed their own reason, with their
+ * own file, before anything was written. */
 static void lsp_rename_report(
     const struct lsp_workspace_edit *edit, const struct lsp_edit_report *report)
 {
 	char skipped[128];
 
+	if (report->incomplete) {
+		editor_set_status_message(RENAME_WHO
+		    ": renamed %zu occurrence%s in %zu file%s, then "
+		    "FAILED in %s",
+		    report->edits, report->edits == 1 ? "" : "s", report->files,
+		    report->files == 1 ? "" : "s", report->failed);
+		return;
+	}
 	editor_set_status_message("Renamed %zu occurrence%s in %zu file%s%s",
 	    report->edits, report->edits == 1 ? "" : "s", report->files,
 	    report->files == 1 ? "" : "s",
@@ -147,6 +160,17 @@ static void lsp_rename_report(
 
 static void lsp_rename_answer(const struct lsp_req_answer *answer)
 {
+	/* Which question this is the answer to, so that a buffer that moved
+	 * while the server was thinking is refused rather than rewritten
+	 * against text the server never saw (src/lsp_edit.h). */
+	const struct lsp_edit_origin origin = {
+		.client = answer->client,
+		.buffer = answer->point.buffer,
+		.generation = answer->sent_generation,
+		.version
+		= lsp_sync_version(answer->client, answer->point.buffer),
+		.valid = answer->sent_generation_valid,
+	};
 	struct lsp_workspace_edit *edit;
 	struct lsp_edit_report report = { 0 };
 
@@ -174,11 +198,14 @@ static void lsp_rename_answer(const struct lsp_req_answer *answer)
 		return;
 	}
 	if (lsp_rename_usable(edit)) {
-		if (lsp_workspace_edit_apply(
-			RENAME_WHO, edit, answer->encoding, &report)) {
+		(void)lsp_workspace_edit_apply(
+		    RENAME_WHO, edit, answer->encoding, &origin, &report);
+		if (report.refused) {
+			/* A refusal has already named its own file and its
+			 * own reason, and applied nothing at all. */
+		} else if (report.edits > 0 || report.incomplete) {
 			lsp_rename_report(edit, &report);
-		} else if (report.refused == 0) {
-			/* A refusal has already named its own file. */
+		} else {
 			editor_set_status_message(
 			    RENAME_WHO ": nothing was renamed");
 		}

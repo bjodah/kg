@@ -213,11 +213,29 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
         and what makes markers strictly inside that span collapse to its
         start, the cost the note in `src/lsp_edit.h` names.  A file no
         buffer visits is opened, edited and left unsaved.
+        The promise above -- an answer that cannot be applied in full
+        applied not at all -- became true of the *application* too in the
+        2026-08-11 sweep: the whole edit is resolved and checked (every
+        file opens, every buffer is writable and still holds the text the
+        server was answering about, every range is inside it, no two
+        overlap) before one byte is written, a failure refuses all of it
+        and closes what it opened only to look at, and the one failure
+        that can still land midway is reported as one instead of being
+        overwritten by a success line.  Positions outside the document
+        are refused rather than clamped -- a clamp turned a stale range
+        into an append and called it a rename -- equal-position edits
+        keep the array order the protocol says decides, and a versioned
+        `documentChanges` whose version is not the one kg last sent is
+        refused, which is eglot's check.
   - [x] **`M-TAB` (`completion-at-point`).**  `textDocument/completion`,
         with the server's own `textEdit` range preferred over kg's word
         scan for what is being completed, `sortText` ordering, and Emacs'
         three outcomes (insert, extend by the common prefix, list in
-        `*Completions*`).  The listing is passive: a mode map for it
+        `*Completions*`).  An answer whose buffer moved while the server
+        was thinking is refused, the same staleness check the rename
+        makes, since kg's completion -- unlike Emacs', which computes and
+        consumes its candidates inside one command -- arrives in a later
+        poll.  The listing is passive: a mode map for it
         wants the mode registry the last bullet of this section asks for,
         and Emacs' "close it as you type" wants a post-command hook kg
         has no place for yet.

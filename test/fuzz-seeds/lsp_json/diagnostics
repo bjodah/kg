@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[{"message":"unused \u00e5 \n","severity":2,"code":null,"tags":[1,2]}]}}

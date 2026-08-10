@@ -810,7 +810,10 @@ static void test_multiline_edit_notifies_syntax_once(void)
 	    counter(KG_PERF_SYNTAX_ROW) == counter(KG_PERF_TS_REHIGHLIGHT_ROW));
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
 #else
-	CHECK(counter(KG_PERF_SYNTAX_ROW) == 4);
+	/* Three edited rows, the always-re-examined row below them, and the
+	 * one row of look-behind above (the Markdown setext dependency):
+	 * five, and still a constant. */
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == 5);
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
 #endif
 	teardown();
@@ -818,10 +821,11 @@ static void test_multiline_edit_notifies_syntax_once(void)
 
 /* The same property for the hottest edit of all -- one typed byte, one
  * row, no topology change.  One notification, one rendered row, and -- for
- * the legacy scanners -- two rows scanned (the row itself and the
- * always-re-examined row below it), the scan stopping there rather than
- * walking the rest of the buffer.  The tree-sitter backend reparses
- * incrementally and repaints one row; see the note above. */
+ * the legacy scanners -- three rows scanned (the row itself, the
+ * always-re-examined row below it, and the one row of look-behind above,
+ * which is what keeps a setext heading honest), the scan stopping there
+ * rather than walking the rest of the buffer.  The tree-sitter backend
+ * reparses incrementally and repaints one row; see the note above. */
 static void test_one_row_edit_notifies_syntax_once(void)
 {
 	const int rows = 64;
@@ -855,7 +859,7 @@ static void test_one_row_edit_notifies_syntax_once(void)
 	    counter(KG_PERF_SYNTAX_ROW) == counter(KG_PERF_TS_REHIGHLIGHT_ROW));
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 0);
 #else
-	CHECK(counter(KG_PERF_SYNTAX_ROW) == 2);
+	CHECK(counter(KG_PERF_SYNTAX_ROW) == 3);
 	CHECK(counter(KG_PERF_SYNTAX_PROPAGATE) == 1);
 #endif
 	teardown();

@@ -500,7 +500,7 @@ Useful local quality checks:
 
 ```bash
 make check
-make fuzz-keypress
+make fuzz-smoke
 make complexity-check
 make pmccabe-check
 make coverage
@@ -510,6 +510,20 @@ make iwyu
 
 `make iwyu` runs Include What You Use from the compilation database, so
 refresh `compile_commands.json` with `make compile-db` first.
+
+`make fuzz-smoke` runs a five-second sanitizer-backed smoke campaign for
+every native fuzz target.  Build one target with `make fuzz-<name>`, smoke
+test it with `make fuzz-<name>-smoke`, or run it longer with its tracked
+corpus.  The targets are `keypress`, `syntax`, `dirlocals`, `regex`,
+`localvars`, `compile-parse`, `lsp-json`, `width`, and `keybind`; for
+example:
+
+```bash
+make fuzz-syntax
+FUZZ_MAX_TOTAL_TIME=60 make fuzz-syntax-smoke
+./test/fuzz_syntax -artifact_prefix=test/fuzz-artifacts/syntax/ \
+	test/fuzz-corpus/syntax
+```
 
 For crash triage and fuzzing notes, see [doc/FUZZING.md](doc/FUZZING.md).
 

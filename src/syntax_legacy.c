@@ -1720,6 +1720,16 @@ void syntax_backend_after_edit(
 	if (last >= b->numrows) {
 		last = b->numrows - 1;
 	}
+	/* One row of look-behind: a Markdown setext underline colours the
+	 * row *above* it, the one dependency in this backend that points
+	 * up.  markdown_syntax() re-triggers the row above when the row it
+	 * scans IS an underline, but a row that just STOPPED being one
+	 * takes another branch and leaves the row above stale.  The setext
+	 * branches write no hl_oc, so this rescan cannot perturb the
+	 * forward carry settled below. */
+	if (first > 0) {
+		syntax_update_row_only(b, &b->row[first - 1]);
+	}
 	for (i = first; i <= last; i++) {
 		syntax_update_row_only(b, &b->row[i]);
 	}

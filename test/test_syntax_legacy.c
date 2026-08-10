@@ -1251,6 +1251,51 @@ static void test_edit_differential_c_opens_comment(void)
 /* A Markdown fenced block, with the edit moving the opening fence down a
  * row: every row of the block changes meaning, and so does the row that
  * used to close it. */
+/* The backward dependency: a setext underline colours the row above it,
+ * so an edit that makes the underline stop being one must recolour that
+ * row too.  Found by fuzz_syntax's edit-vs-rebuild oracle: the incremental
+ * path left the heading row at a stale HL_KEYWORD1. */
+static void test_edit_differential_md_setext_underline_rewritten(void)
+{
+	static const char *const lines[] = {
+		"Hello",
+		"=====",
+		"body",
+	};
+	const struct edit_case c = {
+		.mode = "Markdown",
+		.lines = lines,
+		.nlines = 3,
+		.r0 = 1,
+		.c0 = 0,
+		.r1 = 1,
+		.c1 = 5,
+		.replacement = "prose",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
+static void test_edit_differential_md_setext_underline_emptied(void)
+{
+	static const char *const lines[] = {
+		"Hello",
+		"-----",
+	};
+	const struct edit_case c = {
+		.mode = "Markdown",
+		.lines = lines,
+		.nlines = 2,
+		.r0 = 1,
+		.c0 = 0,
+		.r1 = 1,
+		.c1 = 5,
+		.replacement = "",
+	};
+
+	check_edit_matches_rehighlight(&c);
+}
+
 static void test_edit_differential_markdown_fence(void)
 {
 	static const char *const lines[] = {
@@ -1451,6 +1496,8 @@ int main(void)
 	RUN(test_yaml_malformed_escape_at_eol_no_crash);
 	RUN(test_edit_differential_c_block_comment);
 	RUN(test_edit_differential_c_opens_comment);
+	RUN(test_edit_differential_md_setext_underline_rewritten);
+	RUN(test_edit_differential_md_setext_underline_emptied);
 	RUN(test_edit_differential_markdown_fence);
 	RUN(test_edit_differential_yaml_block_scalar);
 	RUN(test_edit_clears_stale_comment_below);

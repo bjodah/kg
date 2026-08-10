@@ -375,6 +375,7 @@ PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
 BENCH_OUT ?= $(TESTDIR)/.results/bench.json
 BENCH_ARGS ?=
 FUZZBIN = $(TESTDIR)/fuzz_keypress
+FUZZBIN_SYNTAX = $(TESTDIR)/fuzz_syntax
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
@@ -387,11 +388,16 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
 	    $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
+FUZZ_SYNTAX_SRCS = $(TESTDIR)/fuzz_syntax.c \
+		  $(filter-out $(TESTDIR)/fuzz_keypress.c,$(FUZZ_SRCS))
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE)
+FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
+FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
+FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -834,6 +840,18 @@ fuzz-keypress-smoke: $(FUZZBIN) fuzz-keypress-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keypress/ \
 		$(FUZZ_CORPUS)/keypress
 
+fuzz-syntax: $(FUZZBIN_SYNTAX)
+
+fuzz-syntax-seed:
+	mkdir -p $(FUZZ_CORPUS)/syntax
+	cp -f $(FUZZ_SEEDS)/syntax/* $(FUZZ_CORPUS)/syntax/
+
+fuzz-syntax-smoke: $(FUZZBIN_SYNTAX) fuzz-syntax-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/syntax
+	./$(FUZZBIN_SYNTAX) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/syntax/ \
+		$(FUZZ_CORPUS)/syntax
+
 fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
 
 fuzz-dirlocals-seed:
@@ -890,9 +908,45 @@ fuzz-compile-parse-smoke: $(FUZZBIN_COMPILE_PARSE) fuzz-compile-parse-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/compile_parse/ \
 		$(FUZZ_CORPUS)/compile_parse
 
-fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed
+fuzz-lsp-json: $(FUZZBIN_LSP_JSON)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke
+fuzz-lsp-json-seed:
+	mkdir -p $(FUZZ_CORPUS)/lsp_json
+	cp -f $(FUZZ_SEEDS)/lsp_json/* $(FUZZ_CORPUS)/lsp_json/
+
+fuzz-lsp-json-smoke: $(FUZZBIN_LSP_JSON) fuzz-lsp-json-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/lsp_json
+	./$(FUZZBIN_LSP_JSON) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_json/ \
+		$(FUZZ_CORPUS)/lsp_json
+
+fuzz-width: $(FUZZBIN_WIDTH)
+
+fuzz-width-seed:
+	mkdir -p $(FUZZ_CORPUS)/width
+	cp -f $(FUZZ_SEEDS)/width/* $(FUZZ_CORPUS)/width/
+
+fuzz-width-smoke: $(FUZZBIN_WIDTH) fuzz-width-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/width
+	./$(FUZZBIN_WIDTH) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/width/ \
+		$(FUZZ_CORPUS)/width
+
+fuzz-keybind: $(FUZZBIN_KEYBIND)
+
+fuzz-keybind-seed:
+	mkdir -p $(FUZZ_CORPUS)/keybind
+	cp -f $(FUZZ_SEEDS)/keybind/* $(FUZZ_CORPUS)/keybind/
+
+fuzz-keybind-smoke: $(FUZZBIN_KEYBIND) fuzz-keybind-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/keybind
+	./$(FUZZBIN_KEYBIND) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/keybind/ \
+		$(FUZZ_CORPUS)/keybind
+
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1223,6 +1277,10 @@ $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
 
+$(FUZZBIN_SYNTAX): $(FUZZ_SYNTAX_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SYNTAX_SRCS) \
+		$(FUZZ_FE_OBJ) $(LDLIBS)
+
 $(FUZZBIN_DIRLOCALS): $(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c
@@ -1243,6 +1301,19 @@ $(FUZZBIN_LOCALVARS): $(TESTDIR)/fuzz_localvars.c $(OBJDIR)/localvars.c $(HDRS)
 $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
+
+$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c -lm
+
+$(FUZZBIN_WIDTH): $(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c
+
+$(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c \
+		$(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
@@ -1289,6 +1360,10 @@ uninstall:
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
+	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \
+	fuzz-lsp-json fuzz-lsp-json-seed fuzz-lsp-json-smoke \
+	fuzz-width fuzz-width-seed fuzz-width-smoke \
+	fuzz-keybind fuzz-keybind-seed fuzz-keybind-smoke \
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \

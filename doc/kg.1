@@ -2421,6 +2421,29 @@ buffers are created in this mode by default.
 Show the buffer list in a read-only buffer.
 Bound to
 .Ic C-x C-b .
+.It lsp-diagnostics
+List everything the language servers have reported about the files kg
+has told them about, in a read-only
+.Pa *Diagnostics*
+buffer shown in another window.
+Sends the current buffer to its server first, which is what makes a
+server that has never been told about this document report on it.
+See
+.Sx LSP .
+.It lsp-diagnostics-goto
+Go to the diagnostic named on the current
+.Pa *Diagnostics*
+line, bound to
+.Ic Enter
+there.
+See
+.Sx LSP .
+.It lsp-hover
+Ask the language server what the symbol at point is, and report the
+first line of the answer in the echo area; a longer answer goes whole to
+.Pa *lsp-hover* .
+See
+.Sx LSP .
 .It mark-paragraph
 Put the region around the paragraph point is in, including its
 trailing blank line.
@@ -3237,6 +3260,83 @@ A server that insists on the protocol's default, UTF-16, gets UTF-16:
 columns are converted to and from code units against the real bytes of
 the line, so a line with non-ASCII text before point is asked about, and
 answered at, the right place either way.
+.Pp
+Diagnostics are the one part of the protocol
+.Nm
+never asks for: a server publishes them whenever it has an opinion about
+a document it has been told about, and
+.Ic M-x lsp-diagnostics
+lists what has arrived.
+A publish replaces everything that server had said about that file
+rather than adding to it, which is the protocol's own rule, and one
+carrying a version older than the last one seen for that file is dropped
+whole \(em it describes text the server has since been sent a newer copy
+of.
+The listing is a read-only buffer named
+.Pa *Diagnostics* ,
+shown in another window and not selected, with one row per diagnostic in
+.Ql file:line:column: severity: message
+form, ordered by file and then by position.
+.Ic Enter
+visits the one on the current line,
+.Ic n
+and
+.Ic p
+move,
+.Ic q
+closes, and showing the listing takes the
+.Ic M-g M-n
+and
+.Ic M-g M-p
+keys, so next-error walks the diagnostics until another command produces
+results.
+.Pp
+The command sends the current buffer to its server before listing.
+That is not what Emacs' flymake does, and it is what makes diagnostics
+reachable at all here:
+.Nm
+opens a document lazily, on the first command that needs one, so a
+session in which no LSP command had been run would have nothing to list
+forever.
+The first
+.Ic M-x lsp-diagnostics
+in a buffer therefore starts the server and asks; the answer arrives
+afterwards, like every other answer.
+.Pp
+Every diagnostic is also marked in any buffer visiting its file, as a
+temporary highlight over the range the server named, repainted on every
+publish and taken back when a publish says there is nothing left.
+Severity picks the highlight's priority, so an error covers a warning
+where the two overlap, but not its colour: the renderer's colour channel
+is one foreground number and the warning face is already the red an
+error wants.
+The severity is spelled out in the listing, which is where it is
+legible.
+.Pp
+.Ic M-x lsp-hover
+asks the server what the symbol at point is.
+.Nm
+has no eldoc, so nothing asks by itself and there is no key binding \(em
+Emacs has none either, since eldoc is automatic there.
+The answer's contents are read in all three shapes the protocol has had
+(a MarkupContent object, a bare string, and a MarkedString or an array of
+them) and rendered to plain text: Markdown is neutralised rather than
+displayed, so fences, backticks, heading markers and horizontal rules go
+and what is left is the words.
+The first line goes to the echo area; an answer with more lines in it
+also goes whole to
+.Pa *lsp-hover* ,
+which the message then names and which
+.Ic C-x b
+reaches.
+That buffer is created lazily and never selects itself, exactly as
+.Pa *lsp-log*
+does not.
+Emacs' eglot shows the same first line and offers the rest through
+.Ic M-x eldoc-doc-buffer ,
+on demand;
+.Nm
+writes the rest unconditionally and shows it never.
 .Pp
 .Ev KG_LSP_SERVER_C ,
 .Ev KG_LSP_SERVER_PYTHON ,

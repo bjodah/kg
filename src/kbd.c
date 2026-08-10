@@ -20,6 +20,7 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "lsp_diag.h"
 #include "marker.h"
 #include "mouse.h"
 #include "occur.h"
@@ -594,6 +595,7 @@ enum mode_map {
 	MODE_MAP_COMPILATION,
 	MODE_MAP_XREF,
 	MODE_MAP_OCCUR,
+	MODE_MAP_DIAGNOSTICS,
 	MODE_MAP_GIT_COMMIT,
 	MODE_MAP_GIT_REBASE,
 	MODE_MAP_COUNT,
@@ -626,6 +628,10 @@ static const struct {
 	{ MODE_MAP_OCCUR, "n", "occur-next" },
 	{ MODE_MAP_OCCUR, "p", "occur-prev" },
 	{ MODE_MAP_OCCUR, "q", "quit-window" },
+	{ MODE_MAP_DIAGNOSTICS, "RET", "lsp-diagnostics-goto" },
+	{ MODE_MAP_DIAGNOSTICS, "n", "next-line" },
+	{ MODE_MAP_DIAGNOSTICS, "p", "previous-line" },
+	{ MODE_MAP_DIAGNOSTICS, "q", "quit-window" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-c", "server-edit" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-k", "git-commit-abort" },
 	{ MODE_MAP_GIT_REBASE, "C-c C-c", "server-edit" },
@@ -664,6 +670,7 @@ static const struct {
 	{ MODE_MAP_COMPILATION, "*compilation*", false },
 	{ MODE_MAP_XREF, XREF_BUFFER_NAME, true },
 	{ MODE_MAP_OCCUR, OCCUR_BUFFER_NAME, true },
+	{ MODE_MAP_DIAGNOSTICS, LSP_DIAG_BUFFER_NAME, true },
 };
 
 static struct keymap *global_map;

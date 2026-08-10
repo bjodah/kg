@@ -51,6 +51,7 @@
 #include "kbd.h"
 #include "lisp.h"
 #include "lsp.h"
+#include "lsp_diag.h"
 #include "lsp_log.h"
 #include "marker.h"
 #include "perf.h"
@@ -108,6 +109,7 @@ void init_editor(void)
 	kg_process_table_init();
 	lsp_init();
 	lsp_log_install();
+	lsp_diag_install();
 	atexit(editor_cleanup);
 	/* Registered after editor_cleanup, so it runs before it: a position
 	 * register's marker is given back while its buffer is still there. */

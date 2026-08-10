@@ -19,6 +19,8 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
+#include "lsp_diag.h"
+#include "lsp_hover.h"
 #include "marker.h"
 #include "mouse.h"
 #include "next_error.h"
@@ -116,6 +118,17 @@ static void cmd_occur_goto_occurrence(int fd)
 }
 static void cmd_occur_next(int fd) { editor_occur_next(fd); }
 static void cmd_occur_prev(int fd) { editor_occur_prev(fd); }
+
+/* M-x lsp-diagnostics and the RET its listing binds, and M-x lsp-hover.
+ * Unconditional rows, for the xref commands' reason: a WITH_LSP=0 kg
+ * answers them with why there is no answer rather than with "Unknown
+ * command". */
+static void cmd_lsp_diagnostics(int fd) { editor_lsp_diagnostics(fd); }
+static void cmd_lsp_diagnostics_goto(int fd)
+{
+	editor_lsp_diagnostics_goto(fd);
+}
+static void cmd_lsp_hover(int fd) { editor_lsp_hover(fd); }
 
 /* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
 static void cmd_point_to_register(int fd) { editor_point_to_register(fd); }
@@ -1672,6 +1685,12 @@ static const struct named_cmd cmdtable[] = {
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, CMD_NONE,
 	    "Use Lisp Interaction mode in this buffer" },
 	{ "list-buffers", cmd_list_buffers, CMD_NONE, "Show the buffer list" },
+	{ "lsp-diagnostics", cmd_lsp_diagnostics, CMD_NONE,
+	    "List what the language servers reported" },
+	{ "lsp-diagnostics-goto", cmd_lsp_diagnostics_goto, CMD_NONE,
+	    "Go to the diagnostic this *Diagnostics* line names" },
+	{ "lsp-hover", cmd_lsp_hover, CMD_NONE,
+	    "Ask the language server about the symbol at point" },
 	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
 	    "Put the region around this paragraph" },
 	{ "mark-word", cmd_mark_word, CMD_NONE,

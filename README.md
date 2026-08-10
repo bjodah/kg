@@ -387,8 +387,9 @@ the default, and the configuration with colours for every other language.
 
 ## LSP (optional, on by default)
 
-kg can ask a Language Server Protocol server where a symbol is defined and
-where it is used. Unlike tree-sitter, this needs nothing at build time —
+kg can ask a Language Server Protocol server where a symbol is defined,
+where it is used and what it is, and it listens to what a server says
+about a file without being asked. Unlike tree-sitter, this needs nothing at build time —
 servers are found at run time — so `WITH_LSP=1` is the default and `make
 WITH_LSP=0` builds the editor without it. `kg -V` says which one a binary
 is:
@@ -397,13 +398,14 @@ is:
 ./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
 ```
 
-Three commands use it: **`M-.`** (`xref-find-definitions`), which goes to
+Three keys use it: **`M-.`** (`xref-find-definitions`), which goes to
 the definition of the symbol at point, **`M-?`** (`xref-find-references`),
 which lists every use of it, and **`M-,`** (`xref-go-back`), which returns
-to where the newest of those jumps started. Everything else the protocol
-offers —
-diagnostics, completion, hover, rename — is deliberately out of scope until
-this foundation has proven itself.
+to where the newest of those jumps started. Two more commands have no key
+and are typed at `M-x`: **`lsp-diagnostics`**, which lists what the servers
+have reported, and **`lsp-hover`**, which asks what the symbol at point is.
+Everything else the protocol offers — completion, rename — is deliberately
+out of scope until this foundation has proven itself.
 
 `M-?` always lists, even for one result, in a read-only `*xref*` buffer: a
 header counting the results, then one `path:line:column: preview` line
@@ -479,6 +481,48 @@ server's name, together with every request that ran out of time and the
 reason a server died. The buffer is created on the first line and never
 selects itself: `C-x b *lsp-log*` is how you read it, on the day something
 hangs. It keeps the last 64 KiB, dropping whole lines from the top.
+
+**Diagnostics** are the one part of the protocol kg never asks for: a
+server publishes them whenever it has an opinion about a document it has
+been told about, and `M-x lsp-diagnostics` lists what has arrived. A
+publish replaces everything that server had said about that file rather
+than adding to it — the protocol's own rule — and one carrying a version
+older than the last one seen for that file is dropped whole, since it
+describes text the server has since been sent a newer copy of.
+
+The listing is a read-only `*Diagnostics*` buffer, shown in another window
+and not selected, with one row per diagnostic as
+`file:line:column: severity: message`, ordered by file and then by
+position. `RET` visits the one on the current line, `n` and `p` move, `q`
+closes, and showing the listing takes the `M-g M-n` / `M-g M-p` keys, so
+next-error walks the diagnostics until another command produces results.
+The command sends the current buffer to its server first — which is not
+what Emacs' flymake does, and is what makes diagnostics reachable at all
+here: kg opens a document lazily, so a session in which no LSP command had
+been run would have nothing to list forever. The first
+`M-x lsp-diagnostics` in a buffer therefore starts the server and asks,
+and the answer arrives afterwards like every other one.
+
+Every diagnostic is also marked in any buffer visiting its file, over the
+range the server named, repainted on every publish and taken back when a
+publish empties. Severity picks the mark's priority, so an error covers a
+warning where the two overlap — but not its colour: the renderer's colour
+channel is one foreground number and the warning face is already the red an
+error wants. The severity is spelled out in the listing, which is where it
+is legible.
+
+**`M-x lsp-hover`** asks the server what the symbol at point is. There is
+no key binding: kg has no eldoc, so nothing asks by itself, and Emacs has
+no binding either. The answer is read in all three shapes the protocol has
+had (a MarkupContent object, a bare string, a MarkedString or an array of
+them) and rendered to plain text — Markdown is neutralised rather than
+displayed, so fences, backticks, heading markers and horizontal rules go
+and the words are what is left. The first line goes to the echo area; an
+answer with more lines in it also goes whole to `*lsp-hover*`, which the
+message names and `C-x b` reaches, and which never selects itself. Emacs'
+eglot shows the same first line and offers the rest through `M-x
+eldoc-doc-buffer` on demand; kg writes the rest unconditionally and shows
+it never.
 
 `KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`, `KG_LSP_SERVER_GO` and
 `KG_LSP_SERVER_RUST` replace the built-in command

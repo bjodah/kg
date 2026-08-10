@@ -11,7 +11,7 @@
  * one of exactly three things, and the dispatcher says which in three
  * lines, because the interesting decisions are what happens next: a
  * response finds its slot by id, a server request is refused, a
- * notification is dropped.
+ * notification goes to the one hook that may care about it.
  *
  * The invariant worth stating: a registered callback is invoked exactly
  * once, whatever happens.  The reply runs it, and if no reply will ever
@@ -133,6 +133,12 @@ struct lsp_client {
 static lsp_client_log_fn log_hook;
 
 void lsp_client_set_log_hook(lsp_client_log_fn fn) { log_hook = fn; }
+
+/* Who hears about the notifications kg never asked for; see
+ * src/lsp_client.h.  One hook, for the log hook's reason. */
+static lsp_client_notify_fn notify_hook;
+
+void lsp_client_set_notify_hook(lsp_client_notify_fn fn) { notify_hook = fn; }
 
 /* CLOCK_MONOTONIC in milliseconds.  Monotonic and not the wall clock: a
  * deadline measured against a clock that can be stepped is one a time-zone
@@ -732,6 +738,21 @@ static void handle_response(struct lsp_client *c,
 	}
 }
 
+/* A notification: a `method` with no `id`, and so nothing to answer.  It
+ * goes to the module-level hook when one is installed and is dropped when
+ * none is, which is what this layer did with every notification before the
+ * hook existed.  A `method` that is not a string is not a notification kg
+ * can name, and is dropped without troubling the hook. */
+static void handle_notification(
+    struct lsp_client *c, const struct lsp_json_value *root)
+{
+	const char *method = lsp_json_str(lsp_json_get(root, "method"), NULL);
+
+	if (notify_hook && method) {
+		notify_hook(c, method, lsp_json_get(root, "params"));
+	}
+}
+
 /* One complete message, sorted into the three things it can be.  `method`
  * with an `id` is a request, `id` alone is a response, `method` alone is a
  * notification -- and a document that is not JSON at all ends the client,
@@ -752,6 +773,8 @@ static void dispatch_message(struct lsp_client *c, const char *body, size_t len)
 	if (lsp_json_get(root, "method")) {
 		if (id) {
 			refuse_server_request(c, id);
+		} else {
+			handle_notification(c, root);
 		}
 	} else if (id) {
 		handle_response(c, root, id);

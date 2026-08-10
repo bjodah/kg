@@ -568,6 +568,125 @@ static void test_unsolicited_notification_is_ignored(void)
 	lsp_client_dispose(c, 200);
 }
 
+/* ------------------------- the notification hook ---------------------- */
+
+/* What the module-level notification hook saw.  Everything is copied: the
+ * method name and the params node are borrowed for the duration of the
+ * call, like every other node this layer hands over. */
+struct notification {
+	int calls;
+	char method[64];
+	char uri[128];
+	char message[128];
+	size_t diagnostics;
+};
+
+static struct notification g_notification;
+
+static void note_notification(struct lsp_client *c, const char *method,
+    const struct lsp_json_value *params)
+{
+	const struct lsp_json_value *list = lsp_json_get(params, "diagnostics");
+	const char *text;
+
+	(void)c;
+	g_notification.calls++;
+	snprintf(
+	    g_notification.method, sizeof(g_notification.method), "%s", method);
+	text = lsp_json_str(lsp_json_get(params, "uri"), NULL);
+	if (text) {
+		snprintf(
+		    g_notification.uri, sizeof(g_notification.uri), "%s", text);
+	}
+	g_notification.diagnostics = lsp_json_len(list);
+	text
+	    = lsp_json_str(lsp_json_get(lsp_json_at(list, 0), "message"), NULL);
+	if (text) {
+		snprintf(g_notification.message, sizeof(g_notification.message),
+		    "%s", text);
+	}
+}
+
+/* Tell the server a document was opened, which is what makes the fake
+ * publish diagnostics about it. */
+static int open_document(struct lsp_client *c, const char *uri)
+{
+	char params[256];
+	int n = snprintf(params, sizeof(params),
+	    "{\"textDocument\":{\"uri\":\"%s\",\"languageId\":\"c\","
+	    "\"version\":1,\"text\":\"int a;\\n\"}}",
+	    uri);
+
+	return lsp_client_notify(c, "textDocument/didOpen", params, (size_t)n);
+}
+
+/* The one notification kg reads today reaches the hook whole: the method
+ * it was sent under, and the params node with the server's own diagnostics
+ * still in it.  Everything above this layer is built on that -- the store
+ * in src/lsp_diag.c never sees a message, only this callback. */
+static void test_a_notification_reaches_the_hook(void)
+{
+	const char *extra[] = { "--publish-diagnostic", "3:2:1:boom", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+	double deadline;
+
+	g_notification = (struct notification) { 0 };
+	lsp_client_set_notify_hook(note_notification);
+	CHECK(c != NULL);
+	if (!c) {
+		lsp_client_set_notify_hook(NULL);
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(open_document(c, "file:///tmp/hooked.c") == 0);
+	/* A notification has no reply to wait for, so the wait is for the
+	 * hook itself rather than for the pending table to empty. */
+	deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	while (g_notification.calls == 0 && monotonic_seconds() < deadline) {
+		(void)lsp_client_poll(c);
+	}
+	CHECK(g_notification.calls == 1);
+	CHECK(strcmp(g_notification.method, "textDocument/publishDiagnostics")
+	    == 0);
+	CHECK(strcmp(g_notification.uri, "file:///tmp/hooked.c") == 0);
+	CHECK(g_notification.diagnostics == 1);
+	CHECK(strcmp(g_notification.message, "boom") == 0);
+	/* A reply is not a notification: the session goes on and the hook
+	 * is not called again. */
+	CHECK(echo_request(c, "still-here", &got) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1 && g_notification.calls == 1);
+	lsp_client_set_notify_hook(NULL);
+	lsp_client_dispose(c, 200);
+}
+
+/* With no hook installed a notification is dropped, which is what this
+ * layer did with every one of them before there was a hook -- and the
+ * session carries on, which is what test_unsolicited_notification_is_ignored
+ * asserts about a healthy server. */
+static void test_a_notification_with_no_hook_is_dropped(void)
+{
+	const char *extra[] = { "--publish-diagnostic", "0:0:2:quiet", NULL };
+	struct lsp_client *c = start_protocol(extra);
+	struct answer got = { 0 };
+
+	g_notification = (struct notification) { 0 };
+	lsp_client_set_notify_hook(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(open_document(c, "file:///tmp/unhooked.c") == 0);
+	CHECK(echo_request(c, "still-here", &got) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(got.calls == 1);
+	CHECK(g_notification.calls == 0);
+	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
+	lsp_client_dispose(c, 200);
+}
+
 /* A reply whose framing was perfect and whose body is not JSON.
  *
  * The framing modes prove the transport survives bad bytes; this proves the
@@ -1353,6 +1472,8 @@ int main(int argc, char **argv)
 	RUN(test_server_death_fails_pending_requests);
 	RUN(test_server_request_is_refused_not_ignored);
 	RUN(test_unsolicited_notification_is_ignored);
+	RUN(test_a_notification_reaches_the_hook);
+	RUN(test_a_notification_with_no_hook_is_dropped);
 	RUN(test_a_garbage_reply_kills_the_client);
 	RUN(test_an_oversized_frame_mid_session_kills_the_client);
 	RUN(test_shutdown_handshake_ends_the_server);

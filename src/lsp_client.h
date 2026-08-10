@@ -81,6 +81,26 @@ typedef void (*lsp_client_log_fn)(
     const char *server, const char *text, size_t len);
 void lsp_client_set_log_hook(lsp_client_log_fn fn);
 
+/* Told about a notification the server sent that kg never asked for:
+ * `method` is its name and `params` the notification's own `params` member,
+ * NULL when it carried none.  Both are borrowed and live only for the
+ * duration of the call, like every other node here.
+ *
+ * Method-agnostic on purpose.  `textDocument/publishDiagnostics` is the
+ * only one anything reads today (src/lsp_diag.h), but which methods matter
+ * is a decision for a layer that knows what a diagnostic is, and this one
+ * does not: it delivers the name and the node and takes no view.
+ *
+ * One hook for the whole module, not one per client and not a registry,
+ * for the reason the log hook above gives: there is exactly one thing in kg
+ * that keeps this state, and a registry of listeners for a single listener
+ * is a table to get wrong.  NULL, the default, drops the notification --
+ * which is what this layer did with every one of them before there was a
+ * hook, and what a test binary with no editor in it still wants. */
+typedef void (*lsp_client_notify_fn)(struct lsp_client *c, const char *method,
+    const struct lsp_json_value *params);
+void lsp_client_set_notify_hook(lsp_client_notify_fn fn);
+
 /* Build a request's `params` at the moment the message is actually written.
  *
  * Returns a malloc'd JSON value and its length -- the same bytes
@@ -266,8 +286,9 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
  * Responses are matched to their request by id.  A server-to-client
  * *request* is answered immediately with a JSON-RPC MethodNotFound error,
  * because kg implements none of them and a request left hanging is a server
- * that eventually stops answering.  A notification kg did not ask for is
- * dropped.  A message that is not JSON at all is a protocol violation and
+ * that eventually stops answering.  A notification kg did not ask for goes
+ * to the notification hook above, and is dropped when there is none.  A
+ * message that is not JSON at all is a protocol violation and
  * kills the client: the framing was intact, so the bytes inside it are the
  * server's own doing, and a client that guesses past that is one that
  * navigates somewhere wrong. */

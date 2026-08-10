@@ -88,6 +88,26 @@ Options, all of them optional:
     reason: a PTY case whose file lives in a temporary directory nobody
     named can still assert exact targets.  Takes precedence over
     ``--reference``; if no document has been opened, the answer is ``[]``.
+``--publish-diagnostic LINE:CHAR:SEVERITY:MESSAGE`` (repeatable)
+    Publish these as ``textDocument/publishDiagnostics`` for a document as
+    soon as the client opens it (``textDocument/didOpen``), which is the
+    unsolicited traffic the protocol's diagnostics are.  The range is
+    LINE:CHAR to the end of that line as the server sees it -- CHAR + the
+    length of MESSAGE is not a range anybody could predict, so the end is
+    CHAR + ``--publish-width`` (default 1).  SEVERITY is the protocol's
+    number (1 error, 2 warning, 3 information, 4 hint).  The split is from
+    the left and stops after three, so MESSAGE may contain colons.
+    The publish names the document the client just opened, so a case whose
+    file lives in a temporary directory nobody named still gets
+    diagnostics about its own file -- ``--definition-self``'s reason.
+``--publish-version N``
+    Send ``version: N`` with the publish.  Absent, no version is sent at
+    all, which is what a server that does not track them does.
+``--publish-empty-after N``
+    Publish the diagnostics above on the first didOpen, then publish an
+    empty list on the Nth ``textDocument/did*`` notification after it: a
+    server taking back what it said, which is the only way a client's
+    "replace, do not merge" semantics is observable from outside.
 ``--references-sibling NAME:LINE:CHAR`` (repeatable)
     One more Location per option, in the file NAME *beside* the document
     the client last sent, appended after ``--references-self``'s.  Same
@@ -95,6 +115,21 @@ Options, all of them optional:
     runs in -- for the answers that must name a file the editor has not
     opened, which is the only way to ask for text it has to go to disk
     for.  Ignored before a document has been opened.
+``--hover TEXT``
+    What ``textDocument/hover`` answers, as a MarkupContent whose ``kind``
+    is ``--hover-kind`` (default ``markdown``).  A literal ``\n`` in TEXT
+    becomes a newline, which is how a case asks for the multi-line answer.
+``--hover-kind markdown|plaintext``
+    The MarkupContent kind sent with ``--hover``.
+``--hover-plain``
+    Answer with a bare string instead of a MarkupContent: the protocol's
+    oldest of the three shapes, and the one a client is likeliest to
+    render as its JSON.
+``--hover-marked``
+    Answer with an array of MarkedString -- ``{language, value}`` and a
+    bare string -- which is the third shape.
+``--hover-none``
+    Answer ``textDocument/hover`` with null.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
     The client is required to answer it with a MethodNotFound error;
@@ -285,6 +320,10 @@ class Protocol:
         # The URI of the document the client last told this server about,
         # which is what --definition-self answers in.
         self.last_uri = None
+        # How many textDocument/did* notifications have arrived, which is
+        # what --publish-empty-after counts.
+        self.did_count = 0
+        self.published = False
 
     def send(self, message):
         write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
@@ -324,6 +363,7 @@ class Protocol:
                 },
                 "definitionProvider": True,
                 "referencesProvider": True,
+                "hoverProvider": True,
             },
             "serverInfo": {"name": "fake_lsp_server"},
         }
@@ -347,6 +387,8 @@ class Protocol:
                         + self.sibling_locations(
                             self.args.references_sibling))
             return [parse_location(r) for r in self.args.reference]
+        if method == "textDocument/hover":
+            return self.hover_result()
         if method == "kg/echo":
             return params
         if method == "kg/state":
@@ -355,6 +397,58 @@ class Protocol:
         if method == "shutdown":
             return None
         return None
+
+    def hover_result(self):
+        """Hover.contents in whichever of the three shapes was asked for."""
+        if self.args.hover_none:
+            return None
+        text = (self.args.hover or "").replace("\\n", "\n")
+        if self.args.hover_marked:
+            return {"contents": [{"language": "c", "value": text},
+                                 "and a bare string"]}
+        if self.args.hover_plain:
+            return {"contents": text}
+        return {"contents": {"kind": self.args.hover_kind, "value": text}}
+
+    def diagnostics(self):
+        """--publish-diagnostic as protocol Diagnostic objects."""
+        out = []
+        for spec in self.args.publish_diagnostic:
+            line, char, severity, message = spec.split(":", 3)
+            start = {"line": int(line), "character": int(char)}
+            end = {"line": int(line),
+                   "character": int(char) + self.args.publish_width}
+            out.append({"range": {"start": start, "end": end},
+                        "severity": int(severity),
+                        "source": "fake_lsp_server",
+                        "message": message})
+        return out
+
+    def publish(self, diagnostics):
+        """One textDocument/publishDiagnostics notification."""
+        params = {"uri": self.last_uri, "diagnostics": diagnostics}
+        if self.args.publish_version is not None:
+            params["version"] = self.args.publish_version
+        self.send({"jsonrpc": "2.0",
+                   "method": "textDocument/publishDiagnostics",
+                   "params": params})
+
+    def maybe_publish(self, method):
+        """The unsolicited diagnostics traffic, driven by the client's own
+        document notifications: the first didOpen publishes what argv
+        asked for, and --publish-empty-after takes it back later."""
+        if not self.args.publish_diagnostic or not self.last_uri:
+            return
+        if not method.startswith("textDocument/did"):
+            return
+        self.did_count += 1
+        if not self.published:
+            self.published = True
+            self.publish(self.diagnostics())
+            return
+        if (self.args.publish_empty_after
+                and self.did_count > self.args.publish_empty_after):
+            self.publish([])
 
     def echo_location(self, params):
         """A Location at exactly the position the request asked about.
@@ -453,6 +547,7 @@ class Protocol:
         if method.startswith("textDocument/"):
             self.note_document(message)
         self.record(message)
+        self.maybe_publish(method)
         self.greet()
         if self.args.die_on and method == self.args.die_on:
             raise SystemExit(1)
@@ -542,6 +637,29 @@ def main(argv):
     parser.add_argument("--references-sibling", action="append", default=[],
                         help="NAME:LINE:CHAR beside the last document, "
                              "appended to the references answer")
+    parser.add_argument("--publish-diagnostic", action="append", default=[],
+                        help="LINE:CHAR:SEVERITY:MESSAGE published for the "
+                             "document the client opens")
+    parser.add_argument("--publish-width", type=int, default=1,
+                        help="characters a published diagnostic's range "
+                             "covers")
+    parser.add_argument("--publish-version", type=int, default=None,
+                        help="version sent with the publish")
+    parser.add_argument("--publish-empty-after", type=int, default=0,
+                        help="publish an empty list after this many "
+                             "textDocument/did* notifications")
+    parser.add_argument("--hover", default=None,
+                        help="text answered to hover requests; \\n is a "
+                             "newline")
+    parser.add_argument("--hover-kind", default="markdown",
+                        choices=["markdown", "plaintext"],
+                        help="MarkupContent kind sent with --hover")
+    parser.add_argument("--hover-plain", action="store_true",
+                        help="answer hover with a bare string")
+    parser.add_argument("--hover-marked", action="store_true",
+                        help="answer hover with an array of MarkedString")
+    parser.add_argument("--hover-none", action="store_true",
+                        help="answer hover requests with null")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
     parser.add_argument("--notify", default=None,

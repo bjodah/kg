@@ -147,6 +147,28 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   diagnostics (which need a decoration channel and an error list, not
   just a request), hover, rename, completion.  All were out of scope by
   the plan, not by accident.
+  - [x] **Diagnostics.**  Done 2026-08-10: the client layer grew one
+        module-level notification hook, in the shape of its log hook, and
+        `src/lsp_diag.c` is what listens.  A publish replaces that file's
+        diagnostics wholesale (the protocol's rule) unless its `version`
+        is older than the last one seen; the store is keyed on the path,
+        so a diagnostic outlives the buffer it is about.  Positions are
+        kept in the server's encoding and decoded against the target
+        row's bytes at paint time, which is `src/xref.c`'s conversion
+        mirrored.  Every diagnostic is a `KG_DECOR_FACE_WARNING`
+        decoration in whatever buffer visits the file -- severity picks
+        the priority, not the colour, since the renderer's colour channel
+        is one foreground number and that face is already the red an
+        error wants -- and `M-x lsp-diagnostics` lists them all in
+        `*Diagnostics*`, next-error keys included.
+  - [x] **Hover.**  Done 2026-08-10: `M-x lsp-hover`, through the same
+        deferred-request/send-time-encoding path `M-.` uses.  All three
+        `contents` shapes are rendered to plain text with Markdown
+        neutralised; the first line goes to the echo area and a
+        multi-line answer goes whole to `*lsp-hover*`, which is
+        `*lsp-log*`'s never-selected policy.  No key: kg has no eldoc and
+        Emacs has no binding either.
+  - [ ] **Rename** and **completion** are still the two that are left.
 - **Lisp bindings for the xref commands.**  They are deliberately not in
   the `CMD_LISP_CALLABLE` set while the command set settles.
 - **The mode-map overlap cleanup.**  `*compilation*` is read-only, so the

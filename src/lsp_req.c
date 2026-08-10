@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct lsp_json_value;
+
 /* Only ever pointed at here; lsp_server.h hands one over and
  * lsp_client.h and lsp_sync.h are what take it back. */
 struct lsp_client;

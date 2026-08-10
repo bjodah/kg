@@ -98,6 +98,17 @@ enum command_flags {
 	 * column, so the goal column survives it.  Any other command
 	 * invalidates it.  Read by key_finish_keypress(). */
 	CMD_KEEPS_GOAL_COLUMN = 1 << 3,
+	/* The handler can read the terminal -- a minibuffer prompt, a y/n
+	 * confirmation, a raw key.  Harmless from a keystroke or from M-x,
+	 * where there is a terminal by definition; from Lisp it is only
+	 * safe when the activation has a prompt descriptor, which is
+	 * exactly what `lisp_prompt_require()' asks for the natives.  With
+	 * no descriptor the read would be `read(-1, ...)', whose EBADF path
+	 * clears `running' and takes the editor down, so cmd_invoke()
+	 * refuses such a command from Lisp instead.  Set it on any command
+	 * that can reach editor_read_key(), editor_read_raw_byte(), one of
+	 * the editor_read_line* prompts, or prompt_ask_yn(). */
+	CMD_READS_TERMINAL = 1 << 4,
 };
 
 struct named_cmd {
@@ -128,6 +139,7 @@ enum command_result {
 	CMD_UNKNOWN = 1, /* no command of that name */
 	CMD_NOT_CALLABLE = 2, /* exists, but not from this origin */
 	CMD_READ_ONLY = 3, /* exists, but the buffer refuses edits */
+	CMD_NO_TERMINAL = 4, /* exists, but this activation cannot prompt */
 };
 
 /* cmd.c */

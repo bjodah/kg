@@ -544,7 +544,15 @@ an empty prefix.
 
 Which commands those are, and which of them a read-only buffer refuses, is
 one table in the editor — the same one M-x and every key binding consult, so
-a command cannot be refused by one route and allowed by another. Commands
+a command cannot be refused by one route and allowed by another. 124 of the
+153 built-in commands are reachable this way; the 29 that are not are
+refused with *command is not allowed*, and the table in `src/cmd.c` states
+the reason for each — it re-enters the evaluator, it is a modal loop that
+owns the keyboard, its argument *is* a keystroke, it ends or suspends the
+editor, or it is M-x itself. A command that opens a prompt *is* reachable,
+and prompts; from an init file, a hook or `eval-expression` — none of which
+has a descriptor to prompt on — it raises *interactive prompt is not
+available here* instead. Commands
 defined in Lisp count as commands that edit the buffer, so a read-only buffer
 refuses them too; there is no way yet for a `defun` to say otherwise.
 

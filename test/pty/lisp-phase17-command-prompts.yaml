@@ -1,0 +1,33 @@
+# "It prompts" stopped being a reason to keep a command out of the
+# Lisp-callable set at Phase 16, and Phase 17's audit is what acts on
+# that.  Here a Lisp command reached from a key runs a BUILT-IN command
+# that opens a minibuffer prompt, the user answers it, and the Lisp body
+# carries on afterwards.
+#
+# The activation matters: this one comes from a keystroke, so it has a
+# prompt descriptor.  The same call from eval-expression, which gives its
+# descriptor up, is refused instead -- lisp-command-execute-no-terminal.
+name: lisp-phase17-command-prompts
+filename: lisp-phase17-command-prompts.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun phase17-prompted ()
+      (interactive)
+      (command-execute 'goto-line)
+      (insert "<here>"))
+    (global-set-key "C-c g" "phase17-prompted")
+initial: |-
+  one
+  two
+  three
+keys:
+  - C-c
+  - g
+  - "3"
+  - RET
+expected_saved: |-
+  one
+  two
+  <here>three
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

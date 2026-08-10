@@ -1,0 +1,42 @@
+# Phase 17's CMD_LISP_CALLABLE audit, from the Lisp side.  Seven commands
+# that were refused before it and run now, chosen to cover the shapes the
+# audit had to judge: line motion, a region kill and a yank, a
+# whole-buffer edit, and two window commands that change the frame rather
+# than the text.
+name: lisp-phase17-command-audit
+filename: lisp-phase17-command-audit.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defun phase17-audit ()
+      (interactive)
+      (goto-char (point-min))
+      ;; upcase-word was already callable; move-end-of-line, kill-region,
+      ;; end-of-buffer, yank, whitespace-cleanup, split-window-below and
+      ;; other-window were not.
+      (command-execute 'upcase-word)
+      (goto-char (point-min))
+      (set-mark (point))
+      (command-execute 'move-end-of-line)
+      (command-execute 'kill-region)
+      (command-execute 'end-of-buffer)
+      (command-execute 'yank)
+      (command-execute 'whitespace-cleanup)
+      ;; A window command from Lisp: it changes the frame, not the text,
+      ;; and the edits after it still land in this buffer.
+      (command-execute 'split-window-below)
+      (command-execute 'other-window)
+      (goto-char (point-max))
+      (insert "\ndone"))
+    (global-set-key "C-c a" "phase17-audit")
+initial: |-
+  alpha beta
+  gamma
+keys:
+  - C-c
+  - a
+expected_saved: |-
+
+  gammaALPHA beta
+  done
+trailer_keys: [C-x, C-s, C-x, C-c, "y"]

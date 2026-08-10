@@ -487,26 +487,53 @@ void lisp_exec_enter(FeContext *ctx)
 	    ctx, b, state.exec.buffer, buffer_row_col_to_position(b, row, col));
 }
 
+/* Write the window's cursor from the runtime point.  Only the exec
+ * buffer's point moves a window, and only while the active window still
+ * shows it: hidden work must never move a displayed window, even in the
+ * two-window case where the active window is not the only one showing
+ * this buffer. */
+void lisp_exec_point_to_window(void)
+{
+	struct editor_window *w = wcur();
+	struct editor_buffer *b = win_buffer(w);
+	struct kg_lisp_point_entry *e;
+	size_t pos;
+	int row, col;
+
+	if (state.exec.buffer.slot < 0 || b == NULL) {
+		return;
+	}
+	e = lisp_point_find(state.exec.buffer);
+	if (e == NULL || !win_shows_buffer(w, state.exec.buffer)
+	    || kg_marker_resolve(e->point, &pos) != KG_MARKER_OK) {
+		return;
+	}
+	buffer_position_to_row_col(b, pos, &row, &col);
+	editor_cursor_goto(row, col);
+}
+
+/* The other direction: the runtime point takes the window's cursor.  Used
+ * where something outside the Lisp world has moved it -- today that is a
+ * built-in command reached through (command-execute ...), which knows
+ * only the window.  Same condition as above, for the same reason. */
+void lisp_exec_point_from_window(FeContext *ctx)
+{
+	struct editor_window *w = wcur();
+	struct editor_buffer *b = win_buffer(w);
+
+	if (state.exec.buffer.slot < 0 || b == NULL
+	    || !win_shows_buffer(w, state.exec.buffer)) {
+		return;
+	}
+	lisp_point_write(ctx, b, state.exec.buffer,
+	    buffer_row_col_to_position(
+		b, editor_current_filerow(), editor_current_filecol()));
+}
+
 void lisp_exec_leave(int sync)
 {
-	if (sync && state.exec.buffer.slot >= 0) {
-		struct editor_window *w = wcur();
-		struct editor_buffer *b = win_buffer(w);
-		struct kg_lisp_point_entry *e
-		    = lisp_point_find(state.exec.buffer);
-		size_t pos;
-		int row, col;
-
-		/* Only the exec buffer's point is synced, and only while the
-		 * active window still shows it: hidden work must never move
-		 * a displayed window, even the two-window case where the
-		 * active window is not the only one showing this buffer. */
-		if (b != NULL && e != NULL
-		    && win_shows_buffer(w, state.exec.buffer)
-		    && kg_marker_resolve(e->point, &pos) == KG_MARKER_OK) {
-			buffer_position_to_row_col(b, pos, &row, &col);
-			editor_cursor_goto(row, col);
-		}
+	if (sync) {
+		lisp_exec_point_to_window();
 	}
 	memset(&state.exec, 0, sizeof(state.exec));
 }

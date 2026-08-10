@@ -187,10 +187,11 @@ static void test_no_bindings_still_answers(void)
 }
 
 /* The four commands are in the one policy table, with the verdicts the
- * table is the single source of: none of them edits a buffer, and none
- * is reachable from Lisp -- three read the terminal and the fourth takes
- * the window, so the historical Lisp-callable set is unchanged by this
- * slice.  test_cmd.c is what pins that set; this is the local half. */
+ * table is the single source of: none of them edits a buffer, and
+ * describe-key alone is unreachable from Lisp -- it reads a key
+ * SEQUENCE, which only a keyboard has, where the other three prompt for
+ * a name or take the window, both of which Phase 17's audit found
+ * ordinary.  test_cmd.c pins the audited set; this is the local half. */
 static void test_command_table_rows(void)
 {
 	static const char *const names[] = { "describe-bindings",
@@ -208,8 +209,9 @@ static void test_command_table_rows(void)
 		    "%s claims to edit the buffer", names[i]);
 		CHECK(cmd->fn != NULL);
 		CHECK(cmd->summary != NULL);
-		CHECKF(!(cmd->flags & CMD_LISP_CALLABLE),
-		    "%s widens what Lisp may reach", names[i]);
+		CHECKF(((cmd->flags & CMD_LISP_CALLABLE) != 0)
+			== (strcmp(names[i], "describe-key") != 0),
+		    "%s: wrong side of the Lisp-callable audit", names[i]);
 		CHECK(cmd_id_by_name(names[i]) != CMD_ID_NONE);
 	}
 }

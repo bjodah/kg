@@ -135,8 +135,12 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   diagnostics (which need a decoration channel and an error list, not
   just a request), hover, rename, completion.  All were out of scope by
   the plan, not by accident.
-- **Lisp bindings for the xref commands.**  They are deliberately not in
-  the `CMD_LISP_CALLABLE` set while the command set settles.
+- ~~**Lisp bindings for the xref commands.**~~  Done by Phase 17's
+  `CMD_LISP_CALLABLE` audit, which is the settling this row was waiting
+  for: all four are reachable from `(command-execute ...)` now.  They
+  read no terminal and assume no keyboard; what they do assume is a
+  language server, and without one they report that, from Lisp exactly
+  as from a key.
 - **The mode-map overlap cleanup.**  `*compilation*` is read-only, so the
   buffer-list map is live there too and its `RET` resolves to
   `ibuffer-visit-buffer`, which does nothing only because the command

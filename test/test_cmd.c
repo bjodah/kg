@@ -20,65 +20,84 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The 11 commands Lisp's (command-execute ...) accepted before the
- * allow-list in lisp.c was deleted, plus every command a later slice
- * deliberately added to the set (below).  cmd_invoke() must still accept
- * exactly the two lists together and nothing else -- the point of this
- * test is that widening the set is a decision somebody wrote down, not a
- * flag that drifted. */
-static const char *const historical_lisp_callable[] = {
-	"capitalize-word",
-	"delete-horizontal-space",
-	"delete-trailing-space",
-	"downcase-word",
-	"electric-pair-mode",
-	"join-line",
-	"just-one-space",
-	"transpose-chars",
-	"upcase-word",
-	"version",
-	"what-cursor-position",
+/* THE KEPT-OFF SET.  Phase 17 audited all 153 rows and flipped every
+ * command whose handler is safe under (command-execute ...), which
+ * inverted what is worth pinning: the Lisp-callable set is now the
+ * default and the exceptions are the decision.  These are the
+ * exceptions, grouped by the reason cmdtable's own header states, and
+ * cmd_invoke() must refuse exactly these and nothing else -- the point
+ * of this test is unchanged, that the set is something somebody wrote
+ * down rather than a flag that drifted.
+ *
+ * 1. Re-enters the evaluator, which a Lisp caller is already inside.
+ * 2. A modal loop that owns the keyboard until it ends.  Macro replay
+ *    additionally re-enters editor_process_keypress(), i.e. arbitrary
+ *    command dispatch, with no depth accounting of its own.
+ * 3. Its argument IS a keystroke, so a Lisp call has nothing to supply.
+ * 4. Ends or suspends the editor from inside an evaluation.
+ * 5. The interactive command dispatcher itself; (command-execute ...)
+ *    is the same thing without the picker. */
+static const char *const not_lisp_callable[] = {
+	/* 1 */
+	"eval-buffer",
+	"eval-expression",
+	"eval-last-sexp",
+	"eval-print-last-sexp",
+	"newline-or-eval-print-last-sexp",
+	/* 2 */
+	"isearch-backward",
+	"isearch-backward-regexp",
+	"isearch-forward",
+	"isearch-forward-regexp",
+	"kmacro-end-and-call-macro",
+	"kmacro-end-macro",
+	"kmacro-end-or-call-macro",
+	"kmacro-start-macro",
+	"query-replace",
+	"query-replace-regexp",
+	/* 3 */
+	"copy-to-register",
+	"describe-key",
+	"insert-register",
+	"jump-to-register",
+	"point-to-register",
+	"quoted-insert",
+	"self-insert-command",
+	"zap-to-char",
+	/* 4 */
+	"git-commit-abort",
+	"git-rebase-abort",
+	"save-buffers-kill-terminal",
+	"server-edit",
+	"suspend-editor",
+	/* 5 */
+	"execute-extended-command",
 };
 
-/* Deliberate additions, one line of reason each.
- *
- * lisp-arena-stats (sub-plan 09D): the arena-diagnostics command.  It
- * reads Fe's counters through kg_lisp_arena_stats(), which allocates
- * nothing and mutates no state, and its whole effect is one echo-area
- * line -- the same shape as `version`, which has been Lisp-callable
- * since before the allow-list was deleted.  A Lisp program that has just
- * caught an `arena-exhaustion` is exactly the caller that wants it.
- *
- * dabbrev-expand: a synchronous, self-contained edit of the current
- * buffer -- it reads no key, opens no prompt and waits on nothing, and
- * CMD_EDITS_BUFFER already gives it the read-only refusal every other
- * editing command in this set has.  That is what separates it from the
- * xref commands, which stay out: those return before the language
- * server has answered, so a Lisp caller would get control back with
- * nothing to observe.  A Lisp caller only ever gets the first expansion
- * -- the cycle is keyed on command identity and a command reached
- * through (command-execute ...) is nested -- which is a smaller
- * behaviour than the key has, not a wider one.
- *
- * xterm-mouse-mode: a global mode toggle with no buffer effect at all --
- * one flag, one pair of DECSET strings and one echo-area line, which is
- * `electric-pair-mode`'s shape exactly, and that has been Lisp-callable
- * since before the allow-list was deleted.  Mouse reporting is on by
- * default, so an init file that wants it off is the caller this is for;
- * without the flag that init file would have no way to say so.
- *
- * show-paren-mode: the same shape again -- one global flag, no buffer
- * effect, one echo-area line -- and the same reason it is needed.  The
- * mode is ON by default (Emacs 28.1 and later), so an init file that
- * wants it off is exactly the caller here, and without the flag it would
- * have no way to say so.  It is not CMD_EDITS_BUFFER: the highlight is a
- * decoration, and a decoration changes no byte of the text, which is why
- * it stays available in a read-only buffer as it does in Emacs. */
-static const char *const added_lisp_callable[] = {
-	"dabbrev-expand",
-	"lisp-arena-stats",
-	"show-paren-mode",
-	"xterm-mouse-mode",
+/* A command that can read the terminal is Lisp-callable but refused when
+ * the activation has no descriptor to prompt on (cmd.h's
+ * CMD_READS_TERMINAL, cmd_invoke()'s CMD_NO_TERMINAL).  Every shape of
+ * terminal read is represented here: a minibuffer prompt, a path prompt,
+ * a y/n confirmation, a raw key, and the picker. */
+static const char *const reads_terminal[] = {
+	"goto-line",
+	"find-file",
+	"revert-buffer",
+	"quoted-insert",
+	"switch-to-buffer",
+};
+
+/* And the other side of the same question: commands that do NOT read the
+ * terminal, so a hook or an init file may run them.  A row that silently
+ * gained a prompt would be an editor that exits on a bad file
+ * descriptor, which is why this list is here at all. */
+static const char *const reads_nothing[] = {
+	"forward-word",
+	"upcase-word",
+	"undo",
+	"other-window",
+	"list-buffers",
+	"recenter-top-bottom",
 };
 
 static int table_size(void)
@@ -125,45 +144,70 @@ static void test_every_entry_has_a_handler_and_summary(void)
 		    "%s: summary ends in a period", cmd->name);
 		CHECKF((cmd->flags
 			   & ~(unsigned)(CMD_EDITS_BUFFER | CMD_LISP_CALLABLE
-			       | CMD_REPEATS | CMD_KEEPS_GOAL_COLUMN))
+			       | CMD_REPEATS | CMD_KEEPS_GOAL_COLUMN
+			       | CMD_READS_TERMINAL))
 			== 0,
 		    "%s has an unknown flag", cmd->name);
 	}
 }
 
-static void test_lisp_callable_set_is_the_historical_one(void)
+static void test_lisp_callable_set_is_the_audited_one(void)
 {
-	static const char *const *const lists[]
-	    = { historical_lisp_callable, added_lisp_callable };
-	static const size_t lengths[] = {
-		sizeof(historical_lisp_callable)
-		    / sizeof(*historical_lisp_callable),
-		sizeof(added_lisp_callable) / sizeof(*added_lisp_callable),
-	};
-	size_t k, list, expected = lengths[0] + lengths[1];
-	int i, n = table_size(), found = 0;
+	size_t k,
+	    expected = sizeof(not_lisp_callable) / sizeof(*not_lisp_callable);
+	int i, n = table_size(), refused = 0;
 
-	for (list = 0; list < sizeof(lists) / sizeof(*lists); list++) {
-		for (k = 0; k < lengths[list]; k++) {
-			const struct named_cmd *cmd
-			    = cmd_lookup(lists[list][k]);
+	for (k = 0; k < expected; k++) {
+		const struct named_cmd *cmd = cmd_lookup(not_lisp_callable[k]);
 
-			CHECKF(cmd != NULL, "%s is gone from the table",
-			    lists[list][k]);
-			if (cmd) {
-				CHECKF(cmd->flags & CMD_LISP_CALLABLE,
-				    "%s lost CMD_LISP_CALLABLE", cmd->name);
-			}
+		CHECKF(cmd != NULL, "%s is gone from the table",
+		    not_lisp_callable[k]);
+		if (cmd) {
+			CHECKF(!(cmd->flags & CMD_LISP_CALLABLE),
+			    "%s gained CMD_LISP_CALLABLE without a reason",
+			    cmd->name);
 		}
 	}
 	for (i = 0; i < n; i++) {
-		if (cmd_descriptor_at(i)->flags & CMD_LISP_CALLABLE) {
-			found++;
+		if (!(cmd_descriptor_at(i)->flags & CMD_LISP_CALLABLE)) {
+			refused++;
 		}
 	}
-	CHECKF(found == (int)expected,
-	    "%d commands are Lisp-callable, the allow-list had %zu", found,
+	CHECKF(refused == (int)expected,
+	    "%d commands are refused from Lisp, the audit named %zu", refused,
 	    expected);
+}
+
+/* CMD_READS_TERMINAL is what makes a prompting command safe from Lisp
+ * rather than fatal: cmd_invoke() refuses it when the activation has no
+ * prompt descriptor, and read(-1, ...) would otherwise clear `running'.
+ * A command that grows a prompt without the flag is the bug this
+ * catches, so both sides of the classification are pinned. */
+static void test_terminal_reading_classification(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(reads_terminal) / sizeof(*reads_terminal); i++) {
+		const struct named_cmd *cmd = cmd_lookup(reads_terminal[i]);
+
+		CHECKF(cmd != NULL, "%s is gone from the table",
+		    reads_terminal[i]);
+		if (cmd) {
+			CHECKF(cmd->flags & CMD_READS_TERMINAL,
+			    "%s reads the terminal but does not say so",
+			    cmd->name);
+		}
+	}
+	for (i = 0; i < sizeof(reads_nothing) / sizeof(*reads_nothing); i++) {
+		const struct named_cmd *cmd = cmd_lookup(reads_nothing[i]);
+
+		CHECKF(
+		    cmd != NULL, "%s is gone from the table", reads_nothing[i]);
+		if (cmd) {
+			CHECKF(!(cmd->flags & CMD_READS_TERMINAL),
+			    "%s claims to read the terminal", cmd->name);
+		}
+	}
 }
 
 /* The old allow-list carried its own `mutates` bit.  Every entry agreed
@@ -220,6 +264,15 @@ static int run(const char *name, enum command_origin origin)
 {
 	struct command_context ctx
 	    = { 0, { 0, 0, 0, 0 }, origin }; /* fd 0, no prefix argument */
+
+	return cmd_invoke(name, &ctx);
+}
+
+/* The same, with no descriptor to prompt on -- what an init file, a hook
+ * or a process filter gives a command reached from Lisp. */
+static int run_without_a_terminal(const char *name)
+{
+	struct command_context ctx = { -1, { 0, 0, 0, 0 }, CMD_ORIGIN_LISP };
 
 	return cmd_invoke(name, &ctx);
 }
@@ -292,8 +345,11 @@ static void test_refused_commands_are_not_what_ran_last(void)
 	run_as_keystroke("version");
 	cmd_state_begin_keystroke();
 
-	/* Not callable from Lisp. */
-	CHECK(run("sort-lines", CMD_ORIGIN_LISP) == CMD_NOT_CALLABLE);
+	/* Not callable from Lisp: one of Phase 17's audited exceptions. */
+	CHECK(run("isearch-forward", CMD_ORIGIN_LISP) == CMD_NOT_CALLABLE);
+	CHECK(cmd_state()->this_command == CMD_ID_NONE);
+	/* Callable, but this activation has no descriptor to prompt on. */
+	CHECK(run_without_a_terminal("goto-line") == CMD_NO_TERMINAL);
 	CHECK(cmd_state()->this_command == CMD_ID_NONE);
 	/* Refused by a read-only buffer. */
 	bcur()->readonly = 1;
@@ -553,7 +609,8 @@ int main(void)
 {
 	RUN(test_names_sorted_and_unique);
 	RUN(test_every_entry_has_a_handler_and_summary);
-	RUN(test_lisp_callable_set_is_the_historical_one);
+	RUN(test_lisp_callable_set_is_the_audited_one);
+	RUN(test_terminal_reading_classification);
 	RUN(test_lisp_callable_mutation_verdicts);
 	RUN(test_lisp_arena_stats_renders);
 	RUN(test_lookup_edges);

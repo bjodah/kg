@@ -1,5 +1,7 @@
-# A command with no CMD_LISP_CALLABLE flag is still refused by name, with
-# the wording the deleted allow-list used.
+# A command Phase 17's audit deliberately kept out of the Lisp-callable
+# set is still refused by name, with the wording the deleted allow-list
+# used.  isearch-forward is the audit's second reason: a modal loop that
+# owns the keyboard until it ends.
 name: lisp-command-execute-not-allowed
 filename: lisp-cmdexec-deny.txt
 requires_feature: lisp
@@ -9,8 +11,8 @@ keys:
   - M-x
   - eval-expression
   - RET
-  - (command-execute 'compile)
+  - (command-execute 'isearch-forward)
   - RET
 expected_saved: abc
 expected_screen_contains:
-  - "command is not allowed: compile"
+  - "command is not allowed: isearch-forward"

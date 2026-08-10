@@ -152,6 +152,13 @@ static void report_command_result(
 	if (result == CMD_READ_ONLY) {
 		FeHandleError(context, "buffer is read-only");
 	}
+	if (result == CMD_NO_TERMINAL) {
+		/* The same words lisp_prompt_require() raises, because it is
+		 * the same condition: this activation has no descriptor to
+		 * prompt on. */
+		FeHandleError(
+		    context, "interactive prompt is not available here");
+	}
 	if (result != CMD_RAN) {
 		command_error(context, "command is not allowed", name);
 	}
@@ -193,7 +200,17 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	}
 	scope_stack[scope_depth++] = cmd_scope_save();
 	FeProtectWithCleanup(context, restore_command_scope, nullptr);
+	/* A built-in command knows only the window's cursor; the Lisp around
+	 * it knows only the runtime point.  Hand the point over before the
+	 * command runs and take back where it left the cursor afterwards, so
+	 * (goto-char N) (command-execute ...) (insert ...) reads as one
+	 * sequence of motions rather than two that ignore each other.  Both
+	 * halves are no-ops when the exec buffer is not the one on screen --
+	 * a command reached from Lisp acts on the window's buffer, which is
+	 * a divergence recorded in doc/lisp-api.md and not one this fixes. */
+	lisp_exec_point_to_window();
 	rc = cmd_invoke(name, &ctx);
+	lisp_exec_point_from_window(context);
 	/* Take the value before anything else: it is unrooted, and only the
 	 * absence of allocation between the call and here keeps it alive. */
 	value = lisp_take_command_value(context);

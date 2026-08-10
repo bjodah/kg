@@ -951,7 +951,35 @@ Phase 11; this particular name is not one of them.)
 calls, and returns the command's value; an inner call inherits the active
 command's prefix when there is one and uses none otherwise. A nested call
 builds and runs inside the evaluator already running, so its error or quit
-reaches a `condition-case` lexically around the `(command-execute ...)`. `define-command` is the
+reaches a `condition-case` lexically around the `(command-execute ...)`.
+
+**Which built-in commands it may reach** is `cmdtable`'s
+`CMD_LISP_CALLABLE` flag and nothing else; Phase 17 audited all 153 rows
+and 124 carry it. The 29 that do not are refused with *command is not
+allowed*, for one of five reasons, each stated beside the table in
+`src/cmd.c`: the command re-enters the evaluator (the `eval-*` family);
+it is a modal loop that owns the keyboard until it ends (incremental
+search, `query-replace`, keyboard macros); its argument *is* a keystroke
+(`quoted-insert`, `zap-to-char`, `self-insert-command`, the four register
+commands, `describe-key`); it ends or suspends the editor; or it is the
+interactive command dispatcher itself (`execute-extended-command`), which
+`command-execute` already is without the picker.
+
+*Prompting* is not one of those reasons — a built-in command that opens a
+minibuffer prompt is reachable, and prompts, exactly as a Lisp command
+calling `read-string` does. What it needs is a descriptor to prompt on:
+reached from a keystroke or from `M-x` there is one, and from an init
+file, a hook, a process filter or inside `eval-expression` there is not,
+where such a command raises *interactive prompt is not available here* —
+the same words, and the same question, as the read functions below.
+
+A built-in command knows the *window's* cursor, and the Lisp around it
+knows the runtime point. `command-execute` hands one to the other in both
+directions, so `(goto-char N)`, a `command-execute`, and an `insert`
+read as one sequence of motions. Both halves are skipped when the exec
+buffer is not the one on screen, because a built-in command reached from
+Lisp acts on the window's buffer rather than on the buffer `set-buffer`
+selected — a divergence, and not one this closes. `define-command` is the
 kg-owned extension `(define-command NAME FUNCTION &optional SPEC DOC)`; its
 spec is nil, a string, or a zero-argument function, and documentation is nil or
 a string. Interactive definitions replace their function, spec and document

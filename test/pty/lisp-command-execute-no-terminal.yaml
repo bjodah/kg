@@ -1,0 +1,25 @@
+# A command that CAN be reached from Lisp but reads the terminal, reached
+# from an activation that has no descriptor to prompt on.
+#
+# eval-expression is exactly that activation: it gives up its own prompt
+# descriptor by design (the echo area is already showing its own read),
+# so a command that would prompt has nowhere to prompt.  Without
+# CMD_READS_TERMINAL the read would be read(-1, ...), whose EBADF path
+# clears `running' and takes the editor down -- so what this case really
+# pins is that kg says so and stays alive.  The trailer keys are the
+# proof of the second half: the editor is still there to save and quit.
+name: lisp-command-execute-no-terminal
+filename: lisp-cmdexec-noterm.txt
+requires_feature: lisp
+backend: tmux
+initial: abc
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (command-execute 'goto-line)
+  - RET
+expected_saved: Zabc
+expected_screen_contains:
+  - "interactive prompt is not available here"
+trailer_keys: ["Z", C-x, C-s, C-x, C-c]

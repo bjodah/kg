@@ -319,6 +319,14 @@ void lisp_exec_set_buffer(FeContext *ctx, struct editor_buffer *b);
  * context has a buffer, which lisp_exec_enter()/lisp_exec_set_buffer()
  * both guarantee before returning; a handle naming nothing otherwise. */
 struct kg_marker_handle lisp_exec_point_marker(void);
+/* The two halves of keeping the runtime point and the window's cursor
+ * agreeing.  Both are no-ops unless the active window shows the exec
+ * buffer, so hidden work never moves a displayed window.  `to_window' is
+ * what lisp_exec_leave() does at the end of an evaluation; both are what
+ * (command-execute ...) does around a built-in command, which knows only
+ * the window. */
+void lisp_exec_point_to_window(void);
+void lisp_exec_point_from_window(FeContext *ctx);
 
 /* Position/codepoint conversions the modules share (lisp_buffer.c). */
 FeDouble lisp_finite(

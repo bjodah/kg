@@ -9,6 +9,7 @@
 #include "decor.h"
 #include "def.h"
 #include "marker.h"
+#include "next_error.h"
 #include "visit.h"
 
 #include <limits.h>
@@ -44,6 +45,13 @@ static uint32_t g_generation;
  * g_run.diags, not a field of it. */
 static struct compile_nav_cursor g_cursor = { -1, 0 };
 
+static void nav_move(int direction);
+/* Compilation's registration with src/next_error.h.  A compile takes the
+ * next-error keys back from whatever had them (an occur, say), which is
+ * Emacs' next-error-last-buffer rule: the most recent results win. */
+static const struct next_error_source g_next_error_source
+    = { "compilation", nav_move };
+
 void compile_nav_reset(struct kg_buffer_handle compilation_buffer,
     const char *initial_cwd, size_t initial_cwd_len)
 {
@@ -59,6 +67,7 @@ void compile_nav_reset(struct kg_buffer_handle compilation_buffer,
 
 	g_generation++;
 	g_cursor = (struct compile_nav_cursor) { -1, g_generation };
+	next_error_set_source(&g_next_error_source);
 }
 
 void compile_nav_ingest_line(
@@ -257,22 +266,18 @@ static void nav_move(int direction)
 	nav_visit(g_cursor.index);
 }
 
-void editor_next_error(int fd)
-{
-	(void)fd;
-	nav_move(1);
-}
-
-void editor_previous_error(int fd)
-{
-	(void)fd;
-	nav_move(-1);
-}
-
 static const struct compile_diag_hooks g_hooks
     = { compile_nav_reset, compile_nav_ingest_line };
 
-void compile_nav_install(void) { compilation_set_diag_hooks(&g_hooks); }
+void compile_nav_install(void)
+{
+	compilation_set_diag_hooks(&g_hooks);
+	/* Compilation owns the next-error keys from startup, before any
+	 * compile has run: that is what makes M-g n in a fresh editor still
+	 * answer "No compilation diagnostics" rather than a message about
+	 * there being no source. */
+	next_error_set_source(&g_next_error_source);
+}
 
 size_t compile_nav_test_count(void) { return g_run.diags.count; }
 

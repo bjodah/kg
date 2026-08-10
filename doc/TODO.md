@@ -131,8 +131,13 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   buffer-list map is live there too and its `RET` resolves to
   `ibuffer-visit-buffer`, which does nothing only because the command
   checks the buffer's syntax first (src/kbd.c, above `enum mode_map`).
-  `*xref*` is excluded from that predicate by name; a real mode registry
-  owning the table is the answer, not a third exclusion.
+  The by-name exclusion that used to keep `*xref*` out of that predicate
+  is now one table, `name_keyed_maps[]`, which says which buffers own a
+  map keyed on their name and which of those bind `RET` themselves --
+  added when `*Occur*` became the third such buffer.  That is the shape
+  of the answer, not the answer: a real mode registry owning the table,
+  with the predicates and the buffer names on the modes rather than in
+  kbd.c, is still what this wants.
 
 ## Tree-sitter follow-ups (v1 landed 2026-08-08)
 

@@ -1,0 +1,50 @@
+# Running occur makes it the next-error source (Emacs'
+# next-error-last-buffer), so M-g M-n walks the matches themselves rather
+# than a compilation's diagnostics -- including two matches on one line,
+# which are two stops.
+#
+# Point never leaves the source window: occur displays its listing in the
+# other one without selecting it, exactly as Emacs' display-buffer does.
+# Each stop is proved by typing a digit there, so the saved file spells
+# out the whole walk: 1 at the first match of line 1, 2 at the first match
+# of line 3, 3 at the second match of line 3 -- which stayed the right
+# match across the edit before it, because a match is a marker and the
+# marker moved with the text.  The last M-g M-p comes back to the middle
+# stop, and 4 lands *before* 2: the markers have left gravity, so text
+# typed at one is pushed to its right and the stop stays where it was.
+#
+# M-g M-n rather than M-g n on purpose: the Meta spelling of the second
+# key is the binding this case exists to cover.
+name: occur-next-error-walk
+filename: walk.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.12
+initial: |-
+  foo one
+  plain
+  foo two foo three
+keys:
+  - M-x
+  - occur
+  - RET
+  - foo
+  - RET
+  - M-g
+  - M-n
+  - "1"
+  - M-g
+  - M-n
+  - "2"
+  - M-g
+  - M-n
+  - "3"
+  - M-g
+  - M-p
+  - "4"
+expected_screen_contains:
+  - '3 matches in 2 lines for "foo" in buffer: walk.txt'
+expected_saved: |-
+  1foo one
+  plain
+  42foo two 3foo three

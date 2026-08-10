@@ -656,6 +656,37 @@ int win_can_display_buffer_other_window(int buffer_index)
 	return win_count >= 2;
 }
 
+void win_position_at_row(int buffer_index, int row)
+{
+	struct kg_buffer_handle h = buf_handle(buffer_index);
+	struct editor_buffer *b = buf_resolve(h);
+	int i;
+
+	if (!b || b->numrows == 0) {
+		return;
+	}
+	if (row < 0) {
+		row = 0;
+	}
+	if (row >= b->numrows) {
+		row = b->numrows - 1;
+	}
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		struct editor_window *w = &winlist[i];
+
+		if (!w->active || !win_shows_buffer(w, h)) {
+			continue;
+		}
+		if (row < w->rowoff) {
+			w->rowoff = row;
+		} else if (w->h > 0 && row >= w->rowoff + w->h) {
+			w->rowoff = row - w->h + 1;
+		}
+		w->cy = row - w->rowoff;
+		w->cx = 0;
+	}
+}
+
 void win_position_at_end(int buffer_index)
 {
 	struct kg_buffer_handle h = buf_handle(buffer_index);

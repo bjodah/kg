@@ -285,7 +285,7 @@ LSP_ALL = $(TESTDIR)/test_xref \
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c register.c visit.c fileline.c xref.c dabbrev.c \
+       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c
 
@@ -327,6 +327,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
            $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
+           $(TESTDIR)/test_occur \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -517,7 +518,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7113
+SCC_COMPLEXITY_MAX ?= 7219
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1034,10 +1035,17 @@ EXTRA_compile     := $(TESTDIR)/stubs_noyank.o  $(OBJDIR)/compile.o $(OBJDIR)/pr
 # editor_goto_line_direct(), which stubs_buffer.c stubs as a no-op -- the
 # native suite exercises the record/cursor state machine only, per Plan 05
 # Bundle D; the point-placement half is PTY-only.
-EXTRA_compile_nav := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/compile_parse.o $(OBJDIR)/compile_nav.o $(OBJDIR)/visit.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
+EXTRA_compile_nav := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/compile_parse.o $(OBJDIR)/compile_nav.o $(OBJDIR)/next_error.o $(OBJDIR)/visit.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # compile_parse.c is pure: no editor state, nothing beyond def.h's checked
 # arithmetic/ASCII helpers.  Same minimal baseline as EXTRA_localvars.
 EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST_SRCS_OBJS)
+# occur.c builds a real listing buffer out of a real source buffer, so it
+# needs everything compile_nav's records need plus the regex engine it
+# searches with.  win_display_buffer_other_window()/win_position_at_row()
+# come from stubs_win.o and editor_goto_line_direct() from stubs_buffer.o,
+# both no-ops: what this suite observes is the store, the listing's text
+# and the next-error handover, never point moving.
+EXTRA_occur       := $(EXTRA_compile_nav) $(OBJDIR)/occur.o $(REGEX_OBJS)
 EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
 EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o

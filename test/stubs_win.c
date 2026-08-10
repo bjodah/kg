@@ -14,6 +14,11 @@ int win_total_cols = 80;
 
 void win_display_buffer_other_window(int idx) { (void)idx; }
 void win_position_at_end(int idx) { (void)idx; }
+void win_position_at_row(int idx, int row)
+{
+	(void)idx;
+	(void)row;
+}
 
 /* A window's own identity, for suites that link bufmgr.o's producers
  * (buf_attach_view()/buf_detach_view_commit() call win_handle_of()) but not

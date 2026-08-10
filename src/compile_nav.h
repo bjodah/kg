@@ -26,8 +26,14 @@
  * The cycle cursor next-error/previous-error share is not a field of the
  * record store: compile_nav_cursor_advance() is a pure function of one, so
  * the store says what a compile produced and the cursor says where the user
- * is in it, kept apart on purpose (a later slice, e.g. occur, will want a
- * second cursor over a different store). */
+ * is in it, kept apart on purpose.  That second store arrived with M-x
+ * occur: src/occur.c keeps a cursor of its own and steps it with the same
+ * function, which is what the parenthesis here used to predict.
+ *
+ * The two keys themselves are no longer this module's.  next-error and
+ * previous-error dispatch through src/next_error.h to whichever store
+ * produced results most recently; this one registers at install time and
+ * again on every compile, so a compile always takes them back. */
 
 #ifndef KG_COMPILE_NAV_H
 #define KG_COMPILE_NAV_H
@@ -38,13 +44,9 @@
 struct compile_diag;
 struct kg_buffer_handle;
 
-/* Install this module's hooks into compile.c.  Called once, from
- * init_editor(). */
+/* Install this module's hooks into compile.c, and register it as the
+ * next-error store (src/next_error.h).  Called once, from init_editor(). */
 void compile_nav_install(void);
-
-/* M-g n / M-g p, bound through the keymap only (see src/kbd.c). */
-void editor_next_error(int fd);
-void editor_previous_error(int fd);
 
 /* ---- The record store's two hook implementations ----
  *

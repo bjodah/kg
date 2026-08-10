@@ -1,0 +1,45 @@
+# A search that finds nothing says so and changes nothing.
+#
+# The first occur lists its one match, and M-g M-n visits it -- the X is
+# what says the visit landed on "gamma" rather than anywhere else.  The
+# second occur finds nothing: the echo area carries the miss, and the
+# *Occur* window still carries the first search's header and row, so the
+# empty search neither rebuilt the listing nor emptied it.  (That the
+# *store* behind it survives too, and with it the next-error walk, is
+# test/test_occur.c's to assert: an echo message only survives on screen
+# until the next command writes one.)
+#
+# The listing row still reads "beta gamma" while the file now reads "beta
+# Xgamma", which is the other half of what a listing is: a snapshot of the
+# search, not a view of the buffer.
+name: occur-no-matches
+filename: none.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.12
+initial: |-
+  alpha
+  beta gamma
+  delta
+keys:
+  - M-x
+  - occur
+  - RET
+  - gamma
+  - RET
+  - M-g
+  - M-n
+  - X
+  - M-x
+  - occur
+  - RET
+  - zzz
+  - RET
+expected_screen_contains:
+  - 'No matches for "zzz"'
+  - '1 match for "gamma" in buffer: none.txt'
+  - "      2:beta gamma"
+expected_saved: |-
+  alpha
+  beta Xgamma
+  delta

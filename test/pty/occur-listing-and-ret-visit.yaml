@@ -1,0 +1,49 @@
+# M-x occur lists every matching line in *Occur*, shown in a second window
+# while the source stays visible, and RET on one of its rows visits the
+# occurrence it names.
+#
+# The screen assertions are the listing itself: the Emacs-shaped header,
+# and one `%7d:` row per matching source line -- "foo and foo again" holds
+# two matches and appears once, which is the shape a per-match listing
+# would get wrong.
+#
+# The visit is proved the only way a results buffer can be: by editing at
+# point afterwards.  `C-x o` moves into the listing, `n` steps from the
+# header to the first row and again to the second, and RET jumps to line 4
+# -- so the X lands at the start of "foo and foo again" and nowhere else.
+# A RET that resolved to `ibuffer-visit-buffer` (the buffer-list map is
+# live in any read-only buffer) would quietly do nothing, and the saved
+# file is what tells the two apart.
+name: occur-listing-and-ret-visit
+filename: occ.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.12
+initial: |-
+  alpha foo beta
+  nothing here
+  gamma
+  foo and foo again
+  tail
+keys:
+  - M-x
+  - occur
+  - RET
+  - foo
+  - RET
+  - C-x
+  - o
+  - n
+  - n
+  - RET
+  - X
+expected_screen_contains:
+  - '3 matches in 2 lines for "foo" in buffer: occ.txt'
+  - "      1:alpha foo beta"
+  - "      4:foo and foo again"
+expected_saved: |-
+  alpha foo beta
+  nothing here
+  gamma
+  Xfoo and foo again
+  tail

@@ -196,8 +196,19 @@ standard VT100 escape sequences.
   `*compilation*` is the selected one, and track the diagnostic's position
   through edits made after visiting it. A recompile discards the previous
   run's diagnostics and restarts the cursor from the first one
-- `M-g` is a prefix map: `M-g g` / `M-g M-g` go to a line, `M-g n` / `M-g p`
-  step through compilation diagnostics
+- `M-x occur` lists every line of the buffer matching a regexp in a
+  read-only `*Occur*` buffer, shown in another window while the source
+  stays visible: a header, then `%7d:` and the line's own text per
+  matching line, with every match highlighted.  `RET` visits the
+  occurrence on the row point is on, `n` / `p` move between rows, `q`
+  closes.  Running it makes occur the `next-error` source, so `M-g n` /
+  `M-g p` walk the matches themselves — a line with several matches is
+  one row and several stops.  A search that finds nothing says so and
+  leaves the previous listing alone
+- `M-g` is a prefix map: `M-g g` / `M-g M-g` go to a line, `M-g n` /
+  `M-g M-n` and `M-g p` / `M-g M-p` step through the results of whichever
+  of compilation and occur ran most recently (Emacs'
+  `next-error-last-buffer` rule)
 - `M-.` (`xref-find-definitions`) asks a language server where the symbol
   at point is defined and goes there, asynchronously; `M-?`
   (`xref-find-references`) asks where it is used and lists the answer in a

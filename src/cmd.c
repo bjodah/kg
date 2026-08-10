@@ -22,6 +22,8 @@
 #include "lisp.h"
 #include "marker.h"
 #include "mouse.h"
+#include "next_error.h"
+#include "occur.h"
 #include "register.h"
 #include "showparen.h"
 #include "syntax.h"
@@ -92,7 +94,8 @@ static void cmd_what_cursor_position(int fd)
 /* Go to a specific line (prompts for line or line:col). */
 static void cmd_goto_line(int fd) { editor_goto_line(fd); }
 
-/* Jump to the next/previous compilation diagnostic (M-g n / M-g p). */
+/* Jump to the next/previous result of whichever store owns the keys --
+ * a compilation, or an occur (M-g n / M-g p, M-g M-n / M-g M-p). */
 static void cmd_next_error(int fd) { editor_next_error(fd); }
 static void cmd_xref_find_definitions(int fd)
 {
@@ -105,6 +108,15 @@ static void cmd_xref_find_references(int fd)
 static void cmd_xref_goto_xref(int fd) { editor_xref_goto_xref(fd); }
 static void cmd_xref_go_back(int fd) { editor_xref_go_back(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
+
+/* M-x occur, and the three keys its listing binds. */
+static void cmd_occur(int fd) { editor_occur(fd); }
+static void cmd_occur_goto_occurrence(int fd)
+{
+	editor_occur_goto_occurrence(fd);
+}
+static void cmd_occur_next(int fd) { editor_occur_next(fd); }
+static void cmd_occur_prev(int fd) { editor_occur_prev(fd); }
 
 /* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
 static void cmd_point_to_register(int fd) { editor_point_to_register(fd); }
@@ -1676,11 +1688,19 @@ static const struct named_cmd cmdtable[] = {
 	{ "newline-or-eval-print-last-sexp", cmd_newline_or_eval_print, EDITS,
 	    "Newline, or evaluate and print the sexp in Lisp buffers" },
 	{ "next-error", cmd_next_error, CMD_NONE,
-	    "Jump to the next compilation diagnostic" },
+	    "Jump to the next match or compilation diagnostic" },
 	{ "next-line", cmd_next_line, REPEATS | KEEPS_GOAL,
 	    "Move point one line down" },
 	{ "not-modified", cmd_not_modified, CMD_NONE,
 	    "Clear the modified flag without saving" },
+	{ "occur", cmd_occur, CMD_NONE,
+	    "List every line matching a regexp in *Occur*" },
+	{ "occur-mode-goto-occurrence", cmd_occur_goto_occurrence, CMD_NONE,
+	    "Go to the occurrence this *Occur* line names" },
+	{ "occur-next", cmd_occur_next, REPEATS,
+	    "Move to the next match in *Occur*" },
+	{ "occur-prev", cmd_occur_prev, REPEATS,
+	    "Move to the previous match in *Occur*" },
 	{ "open-line", cmd_open_line, EDITS | REPEATS,
 	    "Insert a newline after point, leaving point before it" },
 	{ "other-window", cmd_other_window, CMD_NONE,
@@ -1690,7 +1710,7 @@ static const struct named_cmd cmdtable[] = {
 	{ "point-to-register", cmd_point_to_register, CMD_NONE,
 	    "Save point in a register named by the next key" },
 	{ "previous-error", cmd_previous_error, CMD_NONE,
-	    "Jump to the previous compilation diagnostic" },
+	    "Jump to the previous match or compilation diagnostic" },
 	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL,
 	    "Move point one line up" },
 	{ "query-replace", cmd_query_replace, EDITS,

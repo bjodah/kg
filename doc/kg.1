@@ -1171,8 +1171,8 @@ Multiple files each open in their own buffer.
 .It M-m Ta Back to indentation on current line
 .It M-r Ta Cycle cursor through top/middle/bottom of window
 .It M-g g / M-g M-g Ta Go to line (prompts for line or line:col)
-.It M-g n Ta Jump to the next compilation diagnostic
-.It M-g p Ta Jump to the previous compilation diagnostic
+.It M-g n / M-g M-n Ta Jump to the next match or compilation diagnostic
+.It M-g p / M-g M-p Ta Jump to the previous match or compilation diagnostic
 .It M-. Ta Go to the definition of the symbol at point (needs a language server)
 .It M-? Ta List every reference to the symbol at point (needs a language server)
 .It M-\&, Ta Go back to where the last xref jump started
@@ -2462,13 +2462,24 @@ s-expression before point and insert the result instead.
 Bound to
 .Ic C-j .
 .It next-error
-Jump to the next diagnostic parsed from the
+Jump to the next result of whichever of
+.Ic compile
+and
+.Ic occur
+ran most recently: a diagnostic parsed from the
 .Pa *compilation*
-buffer, opening or selecting its source file and moving point there.
+buffer, or a match listed in
+.Pa *Occur* .
+Either way it opens or selects the place the result names and moves point
+there.
 Bound to
-.Ic M-g n .
+.Ic M-g n
+and
+.Ic M-g M-n .
 See
-.Sx COMPILATION .
+.Sx COMPILATION
+and
+.Sx OCCUR .
 .It next-line
 Move point one line down, keeping the goal column.
 Bound to
@@ -2477,6 +2488,40 @@ and the down arrow.
 A numeric argument repeats it.
 .It not-modified
 Clear the modified flag without saving.
+.It occur
+Prompt for a regular expression and list every line of the current buffer
+matching it in a read-only
+.Pa *Occur*
+buffer.
+No default key binding, as in Emacs.
+See
+.Sx OCCUR .
+.It occur-mode-goto-occurrence
+Visit the occurrence named by the
+.Pa *Occur*
+row point is on.
+Bound to
+.Ic Enter
+inside
+.Pa *Occur* ,
+and says so and does nothing anywhere else.
+.It occur-next
+Move point to the next row of
+.Pa *Occur* ,
+skipping the header.
+Bound to
+.Ic n
+inside
+.Pa *Occur* .
+A numeric argument repeats it.
+.It occur-prev
+Move point to the previous row of
+.Pa *Occur* .
+Bound to
+.Ic p
+inside
+.Pa *Occur* .
+A numeric argument repeats it.
 .It open-line
 Insert a newline after point, leaving point where it is.
 Bound to
@@ -2487,15 +2532,17 @@ Move to the next window.
 Bound to
 .Ic C-x o .
 .It previous-error
-Jump to the previous diagnostic parsed from the
-.Pa *compilation*
-buffer.
+Jump to the previous result of the same store.
 Bound to
-.Ic M-g p .
+.Ic M-g p
+and
+.Ic M-g M-p .
 The reverse of
 .Ic next-error ;
 see
-.Sx COMPILATION .
+.Sx COMPILATION
+and
+.Sx OCCUR .
 .It previous-line
 Move point one line up, keeping the goal column.
 Bound to
@@ -2917,6 +2964,84 @@ Starting a new compilation
 discards the previous run's diagnostics and cursor, so
 .Ic next-error
 starts over from the first one.
+.Sh OCCUR
+.Ic M-x occur
+prompts
+.Do
+List lines matching regexp:
+.Dc
+and lists every line of the current buffer matching that regular
+expression in a read-only
+.Pa *Occur*
+buffer.
+An empty answer cancels.
+The pattern is matched case-insensitively unless it contains an
+upper-case letter, the same rule the search commands use.
+There is no default key binding, as in Emacs.
+.Pp
+The listing opens in another window while the source stays visible, and
+point stays in the source: reading the answer does not cost the place the
+question was asked from.
+Its first line reports the counts, the pattern and the buffer searched
+\(em for example
+.Do
+3 matches in 2 lines for \(dqfoo\(dq in buffer: kg.c
+.Dc
+\(em and each line after it is a matching line of the source, its number
+in a seven-column field, a colon, and the line's own text.
+A line holding several matches appears once, with each match highlighted
+where it sits.
+Up to 500 matches are listed; the listing says so when it stops there.
+.Pp
+Inside
+.Pa *Occur* ,
+.Ic Enter
+.Pq Ic occur-mode-goto-occurrence
+visits the occurrence the row names \(em in the other window when there
+is one, so the listing stays on screen \(em
+.Ic n
+and
+.Ic p
+move between rows, and
+.Ic q
+closes the listing.
+.Pp
+Running
+.Ic occur
+also makes it the
+.Ic next-error
+store, so
+.Ic M-g n
+and
+.Ic M-g p
+walk the matches from anywhere, in the order they appear in the buffer; a
+line with several matches is one row and several stops.
+Running a compilation takes the two keys back, and running
+.Ic occur
+again takes them from a compilation \(em the most recent results win,
+which is Emacs'
+.Va next-error-last-buffer
+rule.
+.Pp
+Each match is remembered as a position in the source
+.Em buffer ,
+not as a line of a file: a buffer that was never saved is listed and
+visited like any other, and a match visited after the source was edited
+lands where its text moved to rather than where it used to be.
+A match whose tracking was lost falls back to the line and column it was
+found at, clamped to what the buffer now holds.
+.Pp
+Rerunning
+.Ic occur
+replaces the listing and restarts the
+.Ic next-error
+cursor at the first match.
+A search that finds nothing reports
+.Do
+No matches for \(dq...\(dq
+.Dc
+and changes nothing at all: the previous listing, its highlights and its
+walk are all still there.
 .Sh LSP
 kg can ask a Language Server Protocol server where a symbol is defined
 and where it is used.
@@ -3790,6 +3915,8 @@ is a prefix map, in the Emacs style: further
 .Ic M-g Ar key
 bindings (e.g.
 .Ic M-g n Ns / Ns Ic M-g p
+and their Meta spellings
+.Ic M-g M-n Ns / Ns Ic M-g M-p
 for
 .Ic next-error Ns / Ns Ic previous-error )
 live under it rather than taking a key of their own.

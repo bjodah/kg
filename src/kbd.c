@@ -22,6 +22,7 @@
 #include "keymap.h"
 #include "marker.h"
 #include "mouse.h"
+#include "occur.h"
 #include "syntax.h"
 #include "xref.h"
 #include "yank.h"
@@ -455,6 +456,10 @@ static const struct {
 	{ "M-g M-g", "goto-line" },
 	{ "M-g n", "next-error" },
 	{ "M-g p", "previous-error" },
+	/* Emacs binds both spellings of each, and a hand that has just typed
+	 * M-g has no reason to let go of Meta for the second key. */
+	{ "M-g M-n", "next-error" },
+	{ "M-g M-p", "previous-error" },
 	/* Emacs' M-. .  No "ESC ." row beside it: the two ESC spellings
 	 * further down exist for the shifted keys a user reaches by pressing
 	 * ESC first, and every other Meta binding here -- M-f, M-d, M-x --
@@ -577,16 +582,18 @@ static const struct {
  * buffer-list map is live in it too, and RET there resolves to
  * `ibuffer-visit-buffer` -- which does nothing, because the command checks
  * the buffer's syntax before it acts.  That is a command guarding itself,
- * not a predicate keeping maps apart.  `*xref*` gets its RET from its own
- * map instead, both by being newer and by being excluded from the
- * buffer-list predicate below; excluding it is the half that does not
- * depend on the order these are created in. */
+ * not a predicate keeping maps apart.  `*xref*` and `*Occur*` get their RET
+ * from their own maps instead, both by being newer and by standing the
+ * buffer-list map down; standing it down is the half that does not depend
+ * on the order these are created in, and it is answered from
+ * name_keyed_maps[] below rather than by naming a buffer per exclusion. */
 enum mode_map {
 	MODE_MAP_DIRED,
 	MODE_MAP_BUFFER_LIST,
 	MODE_MAP_SPECIAL,
 	MODE_MAP_COMPILATION,
 	MODE_MAP_XREF,
+	MODE_MAP_OCCUR,
 	MODE_MAP_GIT_COMMIT,
 	MODE_MAP_GIT_REBASE,
 	MODE_MAP_COUNT,
@@ -615,6 +622,10 @@ static const struct {
 	{ MODE_MAP_XREF, "n", "next-line" },
 	{ MODE_MAP_XREF, "p", "previous-line" },
 	{ MODE_MAP_XREF, "q", "quit-window" },
+	{ MODE_MAP_OCCUR, "RET", "occur-mode-goto-occurrence" },
+	{ MODE_MAP_OCCUR, "n", "occur-next" },
+	{ MODE_MAP_OCCUR, "p", "occur-prev" },
+	{ MODE_MAP_OCCUR, "q", "quit-window" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-c", "server-edit" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-k", "git-commit-abort" },
 	{ MODE_MAP_GIT_REBASE, "C-c C-c", "server-edit" },
@@ -627,6 +638,32 @@ static const struct {
 	{ MODE_MAP_GIT_REBASE, "C-c C-d", "git-rebase-drop" },
 	{ MODE_MAP_GIT_REBASE, "M-p", "git-rebase-move-line-up" },
 	{ MODE_MAP_GIT_REBASE, "M-n", "git-rebase-move-line-down" },
+};
+
+/* The buffers whose major mode map is chosen by their NAME, and whether
+ * that map is a complete listing map -- one that binds RET to its own
+ * visit command.  One table, because the two questions asked here have
+ * one answer: which map to make live, and whether the buffer-list map
+ * (live in any read-only buffer) has to stand down for it.
+ *
+ * `*compilation*` is in the table without the flag: its map adds C-c C-k
+ * and nothing else, and its RET still reaches `ibuffer-visit-buffer`,
+ * which checks the buffer's syntax and does nothing -- the overlap the
+ * comment above describes.  Standing the buffer-list map down there would
+ * leave RET in *compilation* bound to nothing at all, which is a
+ * different behaviour, not a tidier one.
+ *
+ * This is not the mode registry doc/TODO.md asks for; it is the part of
+ * one that a third name-keyed map would otherwise have been a third
+ * hand-written exclusion for. */
+static const struct {
+	enum mode_map map;
+	const char *buffer_name;
+	bool listing; /* binds RET to a visit command of its own */
+} name_keyed_maps[] = {
+	{ MODE_MAP_COMPILATION, "*compilation*", false },
+	{ MODE_MAP_XREF, XREF_BUFFER_NAME, true },
+	{ MODE_MAP_OCCUR, OCCUR_BUFFER_NAME, true },
 };
 
 static struct keymap *global_map;
@@ -659,19 +696,36 @@ static int buffer_is_generated_special(void)
 /* Whether each mode map is live, asked once per keystroke.  A read-only
  * buffer that is neither dired nor the buffer list still answers q,
  * which is what the special-buffer branch in dispatch used to do. */
+/* Make each name-keyed map live or not, and report whether the current
+ * buffer's own map is a listing one -- which is the buffer-list map's cue
+ * to stand down, since both would otherwise bind RET in one layer. */
+static bool key_update_name_keyed_maps(void)
+{
+	bool own_listing_map = false;
+	size_t i;
+
+	for (i = 0; i < sizeof(name_keyed_maps) / sizeof(*name_keyed_maps);
+	    i++) {
+		int live = buffer_is_named(name_keyed_maps[i].buffer_name);
+
+		keymap_set_active(mode_maps[name_keyed_maps[i].map], live);
+		if (live && name_keyed_maps[i].listing) {
+			own_listing_map = true;
+		}
+	}
+	return own_listing_map;
+}
+
 static void key_update_mode_maps(void)
 {
 	int listing = syntax_is_dired();
 	int special = buffer_is_generated_special();
-	int xref = buffer_is_named(XREF_BUFFER_NAME);
+	bool own_listing_map = key_update_name_keyed_maps();
 
 	keymap_set_active(mode_maps[MODE_MAP_DIRED], listing);
 	keymap_set_active(mode_maps[MODE_MAP_BUFFER_LIST],
-	    bcur()->readonly && !listing && !xref);
+	    bcur()->readonly && !listing && !own_listing_map);
 	keymap_set_active(mode_maps[MODE_MAP_SPECIAL], special && !listing);
-	keymap_set_active(
-	    mode_maps[MODE_MAP_COMPILATION], buffer_is_named("*compilation*"));
-	keymap_set_active(mode_maps[MODE_MAP_XREF], xref);
 	keymap_set_active(
 	    mode_maps[MODE_MAP_GIT_COMMIT], syntax_is_git_commit());
 	keymap_set_active(
@@ -722,6 +776,7 @@ void key_install_builtin_maps(void)
 	mode_maps[MODE_MAP_COMPILATION]
 	    = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_XREF] = keymap_create("xref", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_OCCUR] = keymap_create("occur", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_COMMIT]
 	    = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_REBASE]

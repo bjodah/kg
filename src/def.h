@@ -532,6 +532,12 @@ void win_delete_others(void);
 void win_display_buffer_other_window(int buffer_index);
 int win_can_display_buffer_other_window(int buffer_index);
 void win_position_at_end(int buffer_index);
+/* Put point on `row` (0-based) in every window showing this buffer,
+ * scrolling as little as it takes to bring it into view.  win_position_at_end()
+ * with a row of the caller's choosing: for a results buffer whose cursor
+ * has to follow a walk driven from somewhere else (M-g n over *Occur*),
+ * which is a window that is not the current one. */
+void win_position_at_row(int buffer_index, int row);
 
 /* autocomplete.c */
 int editor_find_close_char(int open_char);

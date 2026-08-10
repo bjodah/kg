@@ -375,10 +375,13 @@ static bool comp_insert(
 static void comp_act(const struct comp_target *target, const size_t *index,
     size_t n, size_t typed)
 {
-	const char *texts[LSP_COMPLETE_MAX_ITEMS];
+	const char *texts[LSP_COMPLETE_MAX_ITEMS] = { NULL };
 	size_t common;
 	size_t i;
 
+	if (n == 0) {
+		return; /* the caller reports "No completions" */
+	}
 	if (n == 1) {
 		const char *text = g_comp.items[index[0]].insert;
 

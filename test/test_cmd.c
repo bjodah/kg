@@ -47,8 +47,20 @@ static const char *const historical_lisp_callable[] = {
  * nothing and mutates no state, and its whole effect is one echo-area
  * line -- the same shape as `version`, which has been Lisp-callable
  * since before the allow-list was deleted.  A Lisp program that has just
- * caught an `arena-exhaustion` is exactly the caller that wants it. */
+ * caught an `arena-exhaustion` is exactly the caller that wants it.
+ *
+ * dabbrev-expand: a synchronous, self-contained edit of the current
+ * buffer -- it reads no key, opens no prompt and waits on nothing, and
+ * CMD_EDITS_BUFFER already gives it the read-only refusal every other
+ * editing command in this set has.  That is what separates it from the
+ * xref commands, which stay out: those return before the language
+ * server has answered, so a Lisp caller would get control back with
+ * nothing to observe.  A Lisp caller only ever gets the first expansion
+ * -- the cycle is keyed on command identity and a command reached
+ * through (command-execute ...) is nested -- which is a smaller
+ * behaviour than the key has, not a wider one. */
 static const char *const added_lisp_callable[] = {
+	"dabbrev-expand",
 	"lisp-arena-stats",
 };
 

@@ -1,0 +1,17 @@
+# A second and third M-/ straight after the first replace the expansion
+# with the next candidate rather than expanding again: backward first
+# ("foolproof", then "foolish"), then forward past point ("foobar").
+name: dabbrev-expand-cycles
+filename: dabbrev-cycle.txt
+key_delay: 0.08
+initial: |
+  aa foolish foolproof bb
+  foo
+  cc foobar dd
+keys:
+  - C-n
+  - C-e
+  - M-/
+  - M-/
+  - M-/
+oracle: emacs

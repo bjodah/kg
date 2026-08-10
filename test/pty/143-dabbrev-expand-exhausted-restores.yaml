@@ -1,0 +1,18 @@
+# A cycle that runs out puts back what the user typed: the fourth M-/
+# here has no fourth candidate, so the line is "foo" again -- Emacs
+# restores the abbreviation before it complains, and so does kg.
+name: dabbrev-expand-exhausted-restores
+filename: dabbrev-exhausted.txt
+key_delay: 0.08
+initial: |
+  aa foolish foolproof bb
+  foo
+  cc foobar dd
+keys:
+  - C-n
+  - C-e
+  - M-/
+  - M-/
+  - M-/
+  - M-/
+oracle: emacs

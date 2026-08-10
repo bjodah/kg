@@ -1,0 +1,22 @@
+# Point inside a word expands only the part before it and leaves the tail
+# alone: "x" in "xtra" becomes "xyzzy", giving "xyzzytra".
+#
+# Not an oracle case.  Emacs agrees on this first expansion, but a second
+# M-/ there offers the "xyzzytra" the first one just created, because
+# dabbrev's forward scan resumes inside the word point is standing in.
+# kg's forward scan starts past that word, so it never offers it; the
+# divergence is deliberate and is written down in README.md.
+name: dabbrev-expand-inside-word
+filename: dabbrev-inside.txt
+key_delay: 0.08
+initial: |
+  xyzzy
+  xtra
+keys:
+  - C-n
+  - C-a
+  - C-f
+  - M-/
+expected_saved: |
+  xyzzy
+  xyzzytra

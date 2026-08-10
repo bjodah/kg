@@ -1,0 +1,32 @@
+# M-x reaches dabbrev-expand, but never continues a cycle: a command
+# invoked through another one is nested, and cmdstate.c gives the
+# keystroke's identity back to the outer command when the inner one
+# returns, so the second M-x dabbrev-expand does not see itself as what
+# ran last.  Both invocations therefore expand afresh to the nearest
+# candidate backward, and the line reads "foolproof" rather than the
+# "foolish" a second M-/ would give.
+#
+# Not an oracle case: Emacs' M-x sets last-command to the command it ran,
+# so it cycles there.  The divergence is kg-wide (recenter-top-bottom and
+# move-to-window-line behave the same way), not this command's.
+name: dabbrev-expand-from-mx
+filename: dabbrev-mx.txt
+backend: pexpect
+key_delay: 0.08
+initial: |
+  aa foolish foolproof bb
+  foo
+  cc foobar dd
+keys:
+  - C-n
+  - C-e
+  - M-x
+  - dabbrev-expand
+  - RET
+  - M-x
+  - dabbrev-expand
+  - RET
+expected_saved: |
+  aa foolish foolproof bb
+  foolproof
+  cc foobar dd

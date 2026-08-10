@@ -461,6 +461,9 @@ static const struct {
 	{ "M-.", "xref-find-definitions" },
 	{ "M-?", "xref-find-references" },
 	{ "M-,", "xref-go-back" },
+	/* Emacs' M-/ .  Its own ESC '/' row in tty.c's meta_keys is what
+	 * makes this reachable at all; see the comment there. */
+	{ "M-/", "dabbrev-expand" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

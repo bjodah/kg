@@ -62,6 +62,12 @@ WHOLE_KEYS = {
 # "M-\\/SPC" is M-\\ and M-SPC.
 STANDALONE = {"DEL", "BS", "RET", "F3", "F4"}
 
+# Keys whose "/" is the key itself rather than the table's "A/B"
+# shorthand.  M-/ is dabbrev-expand; read as a shorthand it would be
+# "M-" and an empty alternative, so it is written down here rather than
+# left to fail as two unbound keys.
+LITERAL_SLASH = {"M-/"}
+
 # The help table has nine columns to name a key in; a keymap has as many
 # as it likes.  Each entry is one narrow spelling and the canonical one
 # key_format() produces for the same key.
@@ -192,6 +198,8 @@ def key_fields(rows: list[list[str]]) -> list[str]:
 
 def expand(key: str) -> list[str]:
 	""""C-f/C-b" is two keys; "M-C-s/r" is M-C-s and M-C-r."""
+	if key in LITERAL_SLASH:
+		return [key]
 	parts = key.split("/")
 	if len(parts) == 1:
 		return [key]

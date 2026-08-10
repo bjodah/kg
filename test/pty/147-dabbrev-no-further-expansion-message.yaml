@@ -1,0 +1,20 @@
+# The second wording: a cycle that has shown everything it has says "no
+# further" rather than "no", and the abbreviation is back on the line.
+name: dabbrev-no-further-expansion-message
+filename: dabbrev-further.txt
+backend: tmux
+dimensions: [12, 60]
+key_delay: 0.08
+initial: |
+  alpha_one beta
+  al
+keys:
+  - C-n
+  - C-e
+  - M-/
+  - M-/
+expected_saved: |
+  alpha_one beta
+  al
+expected_screen_contains:
+  - "No further dynamic expansion for `al' found"

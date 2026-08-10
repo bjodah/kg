@@ -117,6 +117,24 @@ standard VT100 escape sequences.
 - Word-case bindings (M-u / M-l / M-c)
 - Transpose chars (C-t) and words (M-t)
 - Space cleanup (M-\ / M-SPC) and zap-to-char (M-z)
+- Dynamic abbreviation expansion (M-/, `M-x dabbrev-expand`): the word
+  before point is completed from a longer word this buffer already holds,
+  nearest occurrence backward from point first, then forward past the word
+  point is in.  A second M-/ straight after the first shows the next
+  candidate instead of expanding again, each word is offered once however
+  often it occurs, and a cycle that runs out puts back what was typed and
+  says so.  Any other key ends the cycle, leaving the last expansion.
+  Four deliberate differences from Emacs' dabbrev: matching is exact-case
+  (Emacs folds case and refits the expansion to the case pattern that was
+  typed); a word here is kg's own -- ASCII alphanumerics and `_`, what
+  M-f and M-d already move over -- rather than the major mode's syntax
+  table, which in a text buffer also joins words with `-`; Emacs
+  continues into other buffers once the current one is spent, where kg
+  stops at the current buffer; and expanding from the middle of a word,
+  Emacs' forward scan can re-offer the word the expansion just created,
+  where kg's starts past it.  Reached through `M-x` rather than its key
+  it always expands afresh instead of continuing a cycle, which is how
+  every kg command that behaves differently when repeated works
 - Sort lines in the region (M-x sort-lines, single-step undo)
 - Open line (C-o) and join-line (M-^)
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes

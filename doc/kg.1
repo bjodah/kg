@@ -1228,6 +1228,7 @@ will be mis-detected as sentence ends.
 .It C-q Ta Quoted-insert: insert the next byte literally
 .It C-t Ta Transpose characters around point
 .It M-t Ta Transpose the two words around point
+.It M-/ Ta Expand the word before point from this buffer
 .It M-\e Ta Delete horizontal space around point
 .It M-Space Ta Collapse horizontal space around point to one space
 .It M-z Ta Kill through a prompted character
@@ -2057,6 +2058,40 @@ An empty confirmed command reports
 .Do
 No compile command
 .Dc .
+.It dabbrev-expand
+Expand the word before point into a longer word this buffer already
+holds, searching backward from point first, nearest occurrence first,
+then forward past the word point is in.
+A second
+.Ic M-/
+straight after the first replaces the expansion with the next candidate
+rather than expanding again, and each distinct word is offered once
+however often it occurs.
+When the candidates run out, what was typed is put back and
+.Do
+No further dynamic expansion for `word' found
+.Dc
+is reported; when there were none to begin with, so is
+.Do
+No dynamic expansion for `word' found
+.Dc .
+Any other key ends the cycle and the last expansion stands.
+Reached through
+.Ic M-x
+it always expands afresh rather than continuing a cycle, since a command
+invoked through another one does not count as the command that ran last.
+A word here is kg's own \(em ASCII alphanumerics and
+.Ic _ ,
+the same policy
+.Ic M-f
+and
+.Ic M-d
+use \(em rather than the major mode's syntax table, and matching is
+exact-case: unlike Emacs' dabbrev, kg neither folds case nor refits the
+expansion to the case pattern that was typed, and it does not continue
+into other buffers.
+Bound to
+.Ic M-/ .
 .It delete-backward-char
 Delete the character before point.
 Bound to

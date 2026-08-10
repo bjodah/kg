@@ -112,6 +112,8 @@ static const struct meta_key meta_keys[] = {
 	{ '?', '?', 0 },
 	/* M-, is xref-go-back, and is the third of the same set. */
 	{ ',', ',', 0 },
+	/* M-/ is dabbrev-expand, and is the fourth. */
+	{ '/', '/', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

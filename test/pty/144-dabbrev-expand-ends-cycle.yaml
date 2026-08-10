@@ -1,0 +1,19 @@
+# Any other key ends the cycle and the last expansion stands: typing "x"
+# after the second M-/ commits "foolish", and the M-/ after that starts a
+# fresh cycle over the new abbreviation "foolishx" -- which nothing in
+# the buffer extends, so nothing changes again.
+name: dabbrev-expand-ends-cycle
+filename: dabbrev-ends.txt
+key_delay: 0.08
+initial: |
+  aa foolish foolproof bb
+  foo
+  cc foobar dd
+keys:
+  - C-n
+  - C-e
+  - M-/
+  - M-/
+  - x
+  - M-/
+oracle: emacs

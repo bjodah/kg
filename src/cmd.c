@@ -13,6 +13,7 @@
 #include "cmdstate.h"
 #include "compile.h"
 #include "compile_nav.h"
+#include "dabbrev.h"
 #include "def.h"
 #include "describe.h"
 #include "edit.h"
@@ -1424,6 +1425,24 @@ static void cmd_move_to_window_line(int fd)
 	editor_move_to_window_line();
 }
 
+/* Expand the word before point from the words the buffer already holds,
+ * and -- when this invocation follows one of its own -- show the next
+ * expansion instead of expanding again.  Like the two above, it is a
+ * descriptor rather than a switch branch so that the cycle has an
+ * identity to key on.
+ *
+ * Reached through M-x (or from Lisp) it always expands afresh, never
+ * continues: a command invoked through another one is nested, and
+ * cmd_state_end_command() gives the keystroke's identity back to the
+ * outer command, so the next invocation does not see itself as what ran
+ * last.  That is cmdstate.c's rule for every transient, not this
+ * command's -- the two cycles above behave the same way. */
+static void cmd_dabbrev_expand(int fd)
+{
+	(void)fd;
+	editor_dabbrev_expand();
+}
+
 /* Manually enable YAML syntax highlighting, e.g. for an extensionless
  * file. ".yaml"/".yml" files select it automatically. */
 static void cmd_yaml_mode(int fd)
@@ -1474,6 +1493,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Run a compile command and collect its output" },
 	{ "copy-to-register", cmd_copy_to_register, CMD_NONE,
 	    "Copy the region into a register named by a key" },
+	{ "dabbrev-expand", cmd_dabbrev_expand, EDITS | LISP_OK,
+	    "Expand the word before point from this buffer" },
 	{ "delete-backward-char", cmd_delete_backward_char, EDITS | REPEATS,
 	    "Delete the character before point" },
 	{ "delete-char", cmd_delete_char, EDITS | REPEATS,

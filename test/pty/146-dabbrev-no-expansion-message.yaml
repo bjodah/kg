@@ -1,0 +1,19 @@
+# Nothing in the buffer extends "fo", so M-/ says so in the echo area and
+# leaves the line alone.  Emacs' wording, ASCII-quoted.
+name: dabbrev-no-expansion-message
+filename: dabbrev-none.txt
+backend: tmux
+dimensions: [12, 60]
+key_delay: 0.08
+initial: |
+  alpha beta
+  fo
+keys:
+  - C-n
+  - C-e
+  - M-/
+expected_saved: |
+  alpha beta
+  fo
+expected_screen_contains:
+  - "No dynamic expansion for `fo' found"

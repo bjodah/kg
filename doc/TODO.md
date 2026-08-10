@@ -22,7 +22,12 @@ This file remains the broader feature and technical-debt inventory.
       buffer to work in the minibuffer too. (e.g. M-u for upper case, the 
       isearch-forward/isearch-backward do not accept "C-q C-j" making it hard
       to eg search for "some-word-followed-by-newline".
-- [ ] "M-/" to run dabbrev-expand (equivalent).
+- [x] "M-/" to run dabbrev-expand (equivalent).  `src/dabbrev.c`, with
+      Emacs' candidate order, cycling, exhaustion wording and
+      restore-the-abbreviation behaviour pinned by `oracle: emacs` cases.
+      Left undone on purpose: case-fold matching and case-pattern fitting,
+      the major mode's syntax table as the word definition (kg uses its own
+      ASCII one), and continuing into other buffers.
 
 ## Maintainability
 

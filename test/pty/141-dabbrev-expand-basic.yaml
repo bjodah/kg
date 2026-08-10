@@ -1,0 +1,17 @@
+# M-/ expands the word before point from the words the buffer already
+# holds, nearest occurrence backward first: "foo" becomes "foolproof",
+# not "foolish".  Oracle case: dabbrev is core Emacs and this file has no
+# hyphen in it, so kg's word (ASCII alnum and '_') and the syntax table
+# Emacs consults agree byte for byte.
+name: dabbrev-expand-basic
+filename: dabbrev-basic.txt
+key_delay: 0.08
+initial: |
+  aa foolish foolproof bb
+  foo
+  cc foobar dd
+keys:
+  - C-n
+  - C-e
+  - M-/
+oracle: emacs

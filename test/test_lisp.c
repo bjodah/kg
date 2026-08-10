@@ -2734,6 +2734,17 @@ static void test_markers(void)
 	CHECK(eval_eq("(marker-position (copy-marker 3))", "3"));
 	CHECK(eval_eq("(marker-position (copy-marker m))", "7"));
 	CHECK(eval_eq("(eq (copy-marker m) m)", "nil"));
+	/* Copying a marker that points nowhere copies the nowhere, rather
+	 * than falling back to point. */
+	CHECK(eval_eq("(marker-position (copy-marker (make-marker)))", "nil"));
+	/* A non-nil TYPE is Emacs' insertion type t -- kg's right gravity,
+	 * so text inserted AT the marker carries it along, where the
+	 * default leaves it behind. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"abcde\")"
+		      " (let ((r (copy-marker 3 t)) (l (copy-marker 3)))"
+		      " (goto-char 3) (insert \"XX\")"
+		      " (list (marker-position l) (marker-position r))))",
+	    "(3 5)"));
 
 	/* An insertion strictly before the marker always pushes it
 	 * forward, whatever its gravity. */

@@ -4,6 +4,34 @@ The dependency-ordered implementation program for the next architecture and
 feature work is [doc/plans/2026-07-31-follow-ups](plans/2026-07-31-follow-ups/README.md).
 This file remains the broader feature and technical-debt inventory.
 
+## Convenience
+
+- [ ] mouse-mode by default if support detected. Left click to move cursor,
+      scroll wheel up down, mark regions of text (left moutse down).
+- [ ] Currently: "C-x C-f C-a C-k /tmp/newfile.txt RET foobar C-x C-s" incurs
+      "Cannot verify /tmp/newfile.txt on disk.  Save anyway? (y/n)", this is
+      a deviation from emacs, I expect to prompt here.
+- [ ] Create new scratch buffers: "C-x b *foo* RET" should open/create an
+      ephemeral buffer (due to leading+trailing asterisk, no confirmation 
+      on "C-x k" of unsaved changes).
+- [ ] Currently the minibuffer behavior is patched in an ad-hoc manner:
+      I would expect all (almost all?) manipulation that work in the ordinary
+      buffer to work in the minibuffer too. (e.g. M-u for upper case, the 
+      isearch-forward/isearch-backward do not accept "C-q C-j" making it hard
+      to eg search for "some-word-followed-by-newline".
+- [ ] "M-/" to run dabbrev-expand (equivalent).
+
+## Maintainability
+
+- [ ] Complexity "optimum": we recently ran a /home/bjorn/vc/kg/doc/plans/2026-08-07_complexity-reduction-campaign.md;
+      the risk we face is that we split functions into too many small ones. Would it be sensible to also look at
+      functions with a *very low* cyclomatic complexity? (e.g. CCN<3, could potentially indicate candidates for inlining?)
+- [ ] Programmatic guards for overly large percentage of linecount being comments in files (with a whitelist mechanism
+      for exceptions). Currently (b4a89fe) e.g. the comment block preceding "SCC_COMPLEXITY_MAX ?= ..." in Makefile spans
+      lines 505-1499 (with what looks like a full history of every bump of this value). This is unacceptable, and we need
+      a ci step that guards against this kind of creep. (much like we guard reasonable coverage and cyclomatic complexity).
+      
+
 ## LSP follow-ups (v1 landed 2026-08-09)
 
 The `WITH_LSP=1` client is complete per
@@ -318,63 +346,7 @@ against full rebuilds.  Known follow-ups, none blocking:
 Features and keybindings present in Mg but missing from kg, roughly
 ordered by value vs implementation effort.
 
-### High value, straightforward
-
-- [x] **M-% query-replace**: Interactive find-and-replace.  Prompt for
-      search string then replacement, step through matches with y/n/!
-      (replace all)/q.  The incremental search machinery in search.c is
-      a natural starting point.
-
-- [x] **C-x C-w write-file**: Save buffer to a different filename (Save
-      As).  Prompts for a new name, writes, and updates the buffer's
-      filename.
-
-- [x] **C-x i insert-file**: Insert the contents of a file at point.
-
-- [x] **M-; comment-dwim**: Toggle or insert a line comment using the
-      current buffer's syntax.  Requires plumbing comment-start strings
-      from the syntax table through to an editing command.
-
-- [x] **C-x C-x exchange-point-and-mark**: Swap cursor and mark.  Lets
-      you visually inspect the other end of a region or bounce between two
-      positions.  Trivial to implement.
-
-- [x] **C-o open-line**: Insert a newline at point without advancing the
-      cursor.  The classic "make room above the next line" command.  One
-      liner.
-
-- [x] Visual mark mode
-
-- [x] Adjust filename in bar, gets cut off if the path is too long.
-      Same issue applies to long buffer names; need a sensible ellipsis
-      strategy (e.g. shorten leading path components like Emacs does).
-
-- [x] Crash when opening doc/TODO.md
-
-        ~/src/kg(master)$ kg doc/TODO.md 
-        malloc(): invalid next size (unsorted)
-        Aborted (core dumped)
-- [x] Let C-x C-f use the directory of the current buffer as starting point.
-
-
 ### Stability / safety (high priority)
-
-- [x] **`M-!` shell-command** and **`M-|` shell-command-on-region**:
-      Run an external shell command, optionally piping the current region
-      through it and replacing the region with the output.  For a remote-shell
-      editor this is the highest-leverage missing feature — pipe through
-      `sort`, `fmt`, `column -t`, `jq`, `sed`, etc.  Mg has it.
-
-- [x] **Tab completion in the minibuffer**: For `C-x C-f`, `C-x i`,
-      `C-x C-w` and any other path-prompting command.  Single biggest
-      day-to-day friction once everything else works.
-
-- [x] **External-modification detection on save**: When editing
-      `/etc/*` something else may have rewritten the file.  Stat the
-      file before save; if mtime/size changed since we read it, prompt
-      "file changed on disk, save anyway?".  Also: live `(changed)`
-      marker in the mode line, plus optional `M-x auto-revert-mode` /
-      `global-auto-revert-mode` that silently reload clean buffers.
 
 - [ ] **Backup-on-save / simple autosave**: Write a `file~` (or `#file#`)
       safety net on first save in a session.  Cheap to add, saves grief
@@ -384,50 +356,7 @@ ordered by value vs implementation effort.
       Currently there is no way to insert a literal Tab, Esc, or other
       control byte — matters for terminfo, sendmail.cf, Makefiles.
 
-### Medium value
-
-- [x] **M-x named commands**: Execute a command by name.  Opens the door
-      to toggles (auto-fill, overwrite-mode) without burning key bindings.
-      Significant infrastructure but makes kg extensible.
-
-- [x] **Keyboard macros  C-x ( / C-x ) / C-x e**: Record and replay a
-      sequence of keystrokes.  Even a single-level macro (no nesting)
-      covers the vast majority of real use.  F3 and F4 added as aliases
-      for start/stop/execute.
-
-- [x] **M-x revert-buffer**: Re-read the current file from disk, discarding
-      all unsaved changes (with confirmation prompt if dirty).  Useful after
-      an external tool modifies the file.
-
-- [x] **M-^ join-line**: Join current line with the previous one
-      (complement to the C-k-at-EOL join-with-next that kg already has).
-      Also add `join-line` as an M-x command.
-
-- [x] **M-u / M-l / M-c  upcase / downcase / capitalize word**: Operate
-      on the word from point forward.  word.c already walks words; just
-      add tolower/toupper passes.  Also add `upcase-word`, `downcase-word`,
-      and `capitalize-word` as M-x commands.
-
-- [x] **Git commit mode (and the wider EDITOR-server crowd)**: When kg
-      runs as `GIT_EDITOR` — filename matches `COMMIT_EDITMSG`,
-      `MERGE_MSG`, `TAG_EDITMSG`, etc. — enter a small dedicated mode
-      with Emacs-style `C-c C-c` to finalize (save and exit 0) and
-      `C-c C-k` to abort (exit non-zero so git cancels the commit
-      with an empty message).  `C-x #` does the same as `C-c C-c`
-      for the broader EDITOR-server flow that crontab, sudoedit, hg,
-      and friends share.  Pair with syntax highlighting that dims
-      comment lines (`#` prefix), warns past column 50 on the
-      subject, and a `M-q` that respects column 72 in the body but
-      leaves the subject alone.  Lands kg in the "what's your
-      $EDITOR" conversation alongside `emacs -nw` and `vim`.
-      Implemented as a syntax-flag-detected mode (`SHL_GITCOMMIT`), with no
-      Lisp package.
-
 ### Lower priority / larger scope
-
-- [x] **C-u universal-argument**: Numeric prefix for repeating commands
-      (e.g. C-u 8 C-f moves forward 8 chars).  Moderate plumbing work
-      but unlocks power-user workflows.
 
 - [x] **M-z zap-to-char**: Kill from point up to and including a
       prompted character.
@@ -440,221 +369,11 @@ ordered by value vs implementation effort.
 - [ ] **Multi-entry kill ring**: Prerequisite for M-y yank-pop.  Keep
       the ring bounded (8–16 entries) to avoid unbounded memory growth.
 
-- [x] **M-SPC just-one-space**: Collapse whitespace around point to a
-      single space.  Also add `just-one-space` as an M-x command.
-
-- [x] **C-t transpose-chars**: Swap the character before point with the
-      one at point.  Indispensable for fixing the most common typing errors.
-      Also add `transpose-chars` as an M-x command.
-
 - [ ] **M-t transpose-words**: Companion to `transpose-chars`.
-
-- [x] **Rectangle operations**: `C-x r k` kill-rectangle, `C-x r y`
-      yank-rectangle, plus `C-x r d` delete and `C-x r c` clear.
-      `C-x r t` string-rectangle is still TODO.  Surprisingly useful
-      for config tables, fstab columns, CSV-ish data.
-
-- [x] **Registers**: `C-x r SPC` (point-to-register), `C-x r j`
-      (jump-to-register), `C-x r s` (copy-to-register), `C-x r i`
-      (insert-register).  32 slots, marker-backed positions, bounded text
-      (1 MiB per register, 4 MiB total).  Persistent bookmarks deferred.
-
-- [ ] **Regex search**, or at least a case-sensitivity toggle in
-      isearch.  Right now isearch is literal-only and case-sensitive.
-
-- [x] **Verify `M-d` kill-word forward and `M-DEL` kill-word backward**:
-      Pair with `M-f`/`M-b` that already exist; add if missing.
 
 - [ ] **Toggle line numbers**: `M-x linum-mode` or similar.  Frequent
       ask, low cost.
 
-- [x] **Minimal config file**: `~/.config/kg/init.el` — done; see the Lisp
-      section in README.md (init files, `(load ...)`, `define-command`,
-      `global-set-key`). What exists now:
-      - an Emacs-shaped position and mark API (`point`, `goto-char`,
-        `goto-line`, `point-min`/`point-max`, `line-number-at-pos`,
-        `current-column`, `mark`, `set-mark`, `deactivate-mark`,
-        `region-beginning`/`region-end`,
-        `buffer-substring`, `char-after`, `forward-word`/`backward-word`,
-        `bounds-of-thing-at-point`), addressing the buffer by 1-based
-        codepoint offsets
-      - string natives (`string-length`, `substring`, `concat`, `string=`,
-        `char-to-string`, `string-to-char`, `format`), which upstream fe
-        lacks; `format` covers `%s`, `%S`, `%d`, `%e`, `%f`, `%g` and
-        `%%`, and since Phase 8 also `%c`, `%o`, `%x`, `%X` and the
-        `-`/`0` flag, field width and precision that go with them; and
-        `message` is a format function like its Emacs namesake
-      - an Emacs Lisp prelude evaluated at startup: `defun`, `defmacro`,
-        `defvar`, `defconst`, `defcustom`, `custom-set-variables`,
-        `declare`, `interactive`, `let`/`let*` with elisp binding
-        lists, `progn`, `cond`, `when`, `unless`, `prog1`, `dolist`,
-        `dotimes`, `quasiquote`, the list library (`length`, `nth`,
-        `nthcdr`, `last`, `reverse`, `append`, `mapcar`, `mapc`,
-        `mapconcat`, `assoc`, `assq`, `member`, `memq`, `push`, `pop`,
-        `nreverse`, `delq`, `delete`, `add-to-list`), `equal`,
-        `string-empty-p`, `thing-at-point`, `identity`, `prog2`, `max`,
-        `min`, `documentation`, `number-to-string`, `string-to-list`,
-        `setq-default`, `setq-local` and `kbd`;
-        `&optional` and `&rest` in argument lists
-      - type natives `type-of`, `stringp`, `symbolp`, `numberp`, `consp`,
-        `functionp`
-      - Emacs names throughout the editor bridge (`insert`, `message`,
-        `buffer-name`, `load`, `global-set-key`, `global-unset-key`,
-        `command-execute`); the only invented names are `define-command`
-        and `remove-command`, which Emacs has no analogue for — and
-        `(interactive)` inside a `defun` writes to that registry, so they
-        rarely need to be typed
-      - the fe submodule carries elisp `if`, `lambda` as the primitive's
-        name, the `` ` ``/`,`/`,@`/`#'` reader macros (`#'f` reads as
-        `(function f)`, and the writer prints one back as `#'f`),
-        Lisp-2 namespaces — a separate value and function cell per
-        symbol, with call position resolving the function cell only, and
-        the nine namespace forms `function`, `funcall`, `apply`,
-        `fboundp`, `symbol-function`, `symbol-value`, `fset`, `defalias`
-        and `fmakunbound` as core forms rather than prelude
-        definitions — `void-function` errors, `unwind-protect`, core
-        `setq` (lexical-aware) and `set` (always the global cell),
-        left-to-right chained numeric `=`, and a 4096-slot GC stack; and
-        from Phase 6, condition objects `(SYMBOL . DATA)` with a static
-        hierarchy plus the forms that raise and catch them — `catch`,
-        `throw`, `condition-case`, `signal` and `error` as core forms,
-        with `ignore-errors` the prelude's macro over the last of them —
-        and the host-side completion surface kg's seams are built on:
-        `FeGetCompletion`/`FeGetCondition`/`FeGetCompletionMessage`, the
-        protected call `FeTryCallWithOptions` and `FeResignal`; and from
-        Phase 9, exhaustion as an ordinary catchable condition
-        (`arena-exhaustion`, `evaluation-stack-exhaustion`, both under
-        `error`, pre-built at context open so signalling one allocates
-        nothing) and a mark phase that uses no C stack at all — the
-        collector's `car` recursion is replaced by pointer reversal, so
-        the last unbounded data recursion in the interpreter is gone and
-        collecting a deep structure no longer depends on the host's stack
-        limit; see `doc/fe-upstream.md`
-
-      Remaining Lisp follow-ups:
-      - no call-trace exposure through the host error callback
-        (the `call_trace` parameter to `handle_error` is discarded;
-        exposing structured call traces is a debugger-shaped feature)
-      - re-classification of kg's 112 prose raise sites into named
-        condition objects (deferred per 06A Decision 2; most raise
-        `(error "text")` which is Emacs' own shape for prose errors).
-        Until it lands, `(condition-case e (goto-char "x")
-        (wrong-type-argument …))` does *not* match, which
-        `test/lisp-compat/features.json`'s
-        `condition-case-native-errors` row records as a divergence
-      - ~~`save-excursion`/`with-current-buffer` expanded to Lisp
-        `unwind-protect`~~ — **done in Phase 11 (11A Decision 6).**  Both
-        are prelude macros over `unwind-protect` around two capture/restore
-        natives, so no native frame stands between a `throw` and its
-        `catch`.  The remaining native re-entry walls are the callbacks kg
-        invokes from its own C — hooks, process filters and sentinels, a
-        nested `command-execute` — and they stay walls: there is no prelude
-        expansion that removes those frames
-      - ~~errors raised while evaluating a file through `(load ...)`~~ —
-        **done in Phase 11 (11A Decision 5, Shape A).**  `lisp_eval_file`
-        uses fe's `FeTryEvaluateStringWithOptions`, unwinds the loader
-        bookkeeping the frame owns and `FeResignal`s, so a
-        `condition-case` around the loader catches with the original
-        condition.  `load` also answers `t` now.  Two pieces did not
-        close then; Phase 12 closed one of them (`file-missing`) and
-        measured the other (`throw`) into a different, larger shape than
-        11A had assumed.  Both have their own items below
-      - ~~A `throw` out of a loaded file (Shape B)~~ — **done in Phase
-        12's fix cycle**, by exactly the design (c) this item measured
-        out, once fe's side of the blocker was built: the fix cycle
-        added the input-unit trio
-        `FeEnterInputUnit`/`FeReadInputForm`/`FeLeaveInputUnit`
-        (`FE_API_VERSION` 8, the fix-cycle pin move), and `load` and
-        `require` became prelude loops `eval`ing each form in the
-        current run — per-form `path:LINE` latched by the incremental
-        reader, input-unit defvar scoping intact, incremental
-        read-eval timing pinned as an oracle case
-        (`load-error-timing`).  The flipped `load-throw-reachability`
-        row and the `load-dynamic-extent` cases carry the evidence.
-      - ~~a cleanup that raises AND HANDLES its own error overwrites the
-        in-flight condition~~ — **done in Phase 12** (12A Decision 2, fe
-        `95965f0`), and the defect was broader and simpler than this item
-        said.  It was not about the drain at all: a `condition-case` or
-        `ignore-errors` established inside an `unwind-protect` CLEANUP
-        never handled anything, with or without an unwind in flight, and
-        `(unwind-protect 'body (ignore-errors (car 6)))` escaped to the
-        host where Emacs answers `body`.  The seam was one ordering —
-        `RaiseCompletionCore` tested `ctx->cleanup_catch` and replayed to
-        `RunOneCleanupEntry`'s `setjmp` before it ever called
-        `FindConditionHandler` — and the fix accepts a found handler only
-        at or above the frame floor the cleanup entry already saved, so a
-        **native** cleanup is bit-identical.  06A Decision 4 measured
-        correct and is preserved: an *unhandled* cleanup raise still
-        replaces the completion being unwound.  Six oracle cases under
-        `phase12-cleanup-handler-visibility`, including two guards for
-        Decision 4
-      - ~~`file-missing` as a condition subtype~~ — **done in Phase 12**
-        (12A Decision 4, fe `b030d0a`), and the blocker this item
-        recorded was **stale when it was written**: `file-error` has been
-        a row of fe's `condition_parents[]` since Phase 6, the
-        inheritance test in the handler search has always existed, and
-        `file-missing` under it was one data line.  kg's two sites — the
-        loader's cannot-open and `require`'s cannot-find — raise it with
-        Emacs' `(OPERATION STRERROR PATH)` data, and the diagnostic is
-        Emacs' `error-message-string` rendering of it.  Recorded as
-        `phase12-file-conditions`
-      - token/cancel cleanup registry — **not Phase 9's, after all**.
-        09A Decision 4 measured it and left it where it was: it is
-        designed but unbuilt (`fe/doc/unwind-design.md` item 2), and its
-        one concrete defect (`fex_io.c`'s `MakeFile` leaking a `FILE*`
-        when `FeMakePtr` raises) is in the `fex_*.c` files kg does not
-        link.  It stays **fe-standalone debt**, owned by the submodule
-        and priced there; pulling it into a kg phase would double the
-        phase's fe price for no kg benefit
-      - Phase 8 deferrals, each measured absent at the phase close and
-        each an init-file compatibility gap rather than a nicety:
-        - no `string-match`/`match-string` over a string; kg's regexp
-          surface is buffer-search only (`re-search-forward` and friends)
-        - no `symbol-name`, `intern` or `intern-soft`, so a program
-          cannot compute a name and a keyword cannot be turned back into
-          text
-        - no vectors, and no `#:` uninterned-symbol syntax: both are
-          named read errors rather than misreadings, recorded as
-          `phase8-reader-unsupported-syntax`.  A vector needs an object
-          type the fe core does not have
-        - `load-path` is still a C array; `(add-to-list 'load-path ...)`
-          cannot reach it, and `add-to-load-path` is kg's spelling
-        - source positions are per top-level form only.  A read error
-          reports a byte offset rather than a line, because
-          `FeReadString` has no label to count lines against, and an
-          error inside a function reports the top-level form that called
-          it rather than the sub-form that raised
-        - no `read`, `read-string`, `read-from-string` or any other
-          `read-*` entry point; `(interactive "...")` codes are the only
-          way to prompt
-        - Customize is a declaration, not a system: no `defgroup`,
-          `setopt`, `custom-file`, saved state or UI.  `defcustom` is a
-          `defvar` that records a docstring and accepts inert
-          presentation keywords, and `custom-set-variables` is a
-          `setq` over quoted `(SYMBOL VALUE)` pairs
-        - no `format-message` (Emacs' curved-quote translation), and
-          `%S` has no print-depth or print-length control -- fe's writer
-          truncates with `#<deep>`/`#<truncated>` on its own budgets
-        - no `*Messages*` ring: `message` writes the status line and the
-          text is gone when the next message replaces it
-      - editor option variables (`tab-width`, `auto-fill-column`, ...) exposed
-        to Lisp; still only commands/bindings and the editing bridge exist
-      - grow the `command-execute` allow-list deliberately (policy per
-        command).  The list is gone: it is the `CMD_LISP_CALLABLE` flag
-        on `cmdtable` in `src/cmd.c`, still the same eleven commands,
-        and `cmd_invoke()` is the one place that reads it
-      - **word constituents disagree between the two layers**: the global
-        `is_word_char()` in `src/word.c` is ASCII-only (`isalnum() || '_'`),
-        so `M-f`, `M-b`, `M-@`, `M-d` and the Lisp `forward-word` /
-        `backward-word` that drive them stop inside "héllo", while the Lisp
-        `bounds-of-thing-at-point` treats every codepoint from U+0080 up as
-        a word constituent and returns the whole word. Deliberate for now —
-        making interactive word motion codepoint-aware is part of the
-        "Proper UTF-8 handling" item below, not a Lisp change
-      - extend the keypress fuzz harness to drive `eval-expression` once it
-        can run without filesystem side effects
-      - upstream Fe: `FeCallWithOptions` (landed) lets hosts budget a bare
-        `FeCall`; per-context custom types remain deferred
 
 - [ ] **Dired follow-ups**: dired mode shipped as a C mode (`src/dired.c`)
       with listing, `RET`/`^`/`g`/`n`/`p`, the `*`/`D` markers and `x`
@@ -683,26 +402,8 @@ ordered by value vs implementation effort.
 
 ## Important (DONE)
 
-- [x] Refactor code to Linux style, variable decl. at top of context sorted
-      in reverse chrismas tree style, lines can be up to 110 chars long
 - [x] Add hash-bang fallback for detection of syntax highlighting, e.g., #!/bin/sh
-- [x] Fix delete key
-- [x] Add auto-indent à la Mg (consider M-x auto-indent-mode toggle or
-      C-j vs Enter distinction)
-- [x] Add built-in help, similar in style to whay my fork of Mg has, see
-      ~/src/mg/ for details
 - [x] Add markdown-mode with syntax highlighting
-- [x] Add support for multiple buffers, supporting copy-paste between
-      them, i.e., shared kill ring
-- [x] Add support for split windows, both horizontal and vertical
-- [x] Change the mode line to be more similar to Emacs, the current
-      active window marker '**' is so easily mistaken for "aha a modifed
-      buffer", we could instead use ansi escape sequences to set all the
-      non-selected windows as "dim"
-- [x] With two buffers open, we should only need to ask "are you sure"
-      if any buffer is modified and not saved when exiting
-- [x] Testing and stability to reach "usable" level
-- [x] Add support for Emacs' M-q to "reflow" a paragraph
 
 ## Maybe Later
 
@@ -735,79 +436,7 @@ ordered by value vs implementation effort.
       of its parts, so a flag reports four columns where the terminal
       draws two.
 
-- [x] **Horizontal-scroll + tab units mismatch in display.c**.  Fixed:
-      `coloff` is a chars-byte offset (`coloff + cx == filecol`), which
-      is what every other module already assumed, and the two places
-      that read it as a render offset now convert.  The row-drawing
-      loop slices `r->render` at `chars_to_render_col(r, coloff)`, and
-      the cursor column is the difference of two `editor_visual_col()`
-      readings instead of a second, subtly different, walk of the row.
-      A scrolled window used to be drawn one tab expansion off and not
-      contain point at all
-      (`test/pty/horizontal-scroll-tab-slices-render.yaml`).
-      See `doc/coordinates.md` row 11b.
-
 - [ ] **mandoc -T lint nits in doc/kg.1**.  Three pre-existing
       "new sentence, new line" warnings (e.g. around `M-a/M-e`'s
       `Mr.\&` and `e.g.\&`).  Cosmetic; mdoc convention says each
       sentence should begin on its own line.
-
-- [x] **Multi-byte input in the minibuffer is broken**.  Fixed: the
-      prompt reader dropped every byte above ASCII (`isprint()` rejects
-      them), so the search string stayed empty and the following keys
-      fell through to the buffer.  Prompts now pull in the rest of the
-      UTF-8 sequence (`editor_read_utf8_seq`) and insert it whole, and
-      backspace, C-d, C-b/C-f and the echo-area cursor column all work
-      in glyphs and display cells instead of bytes.
-
-- [x] **Typing a multi-byte character into the buffer still does
-      nothing**.  Fixed: the self-insert arm accepted only TAB and
-      32..126, so both bytes of a typed `å` were dropped before they
-      reached `editor_self_insert_char`.  A byte above ASCII now
-      collects its continuation bytes (`editor_read_utf8_seq`, so
-      keyboard macros still replay) and inserts the glyph as one unit
-      through `editor_self_insert_glyph`; a malformed sequence is
-      dropped rather than half inserted, and read-only buffers refuse
-      the lead byte like any other editing key.  The two open decisions
-      resolved as: **undo** follows yank, the other command that
-      inserts multi-byte text — one `UNDO_YANK_TEXT` record whose
-      reverse deletes the glyph's bytes forward, so `C-_` removes the
-      whole character and leaves valid UTF-8 (overwrite mode reuses
-      `editor_overwrite_char`'s `UNDO_REPLACE_TEXT` record, now with a
-      replacement longer than one byte); **`editor.cx`** stays a byte
-      offset into `row->chars` and advances by the glyph's byte length,
-      which is exactly where `C-f` over the same glyph lands.
-
-- [x] **Regex follow-ups from the Emacs-fidelity work.**
-      Both infrastructure halves are done: the differential fuzzer
-      against the Emacs oracle is now `make check-regex-differential`
-      (`utils/regex_differential.py`, `utils/regex_oracle.el`,
-      `test/regex_differential.c`), run in CI by
-      `.ci/ci-10-regex-differential.sh`; and the regex fuzz corpus has
-      a tracked home in `test/fuzz-seeds/regex`, copied into the
-      gitignored working corpus by `make fuzz-regex-seed`.  The one
-      non-deliberate divergence they turned up is fixed too, below.
-      Known deliberate divergences that remain: `\w` `\d` `\s`, case
-      folding and the POSIX classes are ASCII-only (Emacs' `\w`
-      matches `å`); a quantifier on a quantifier (`a\{2\}\{2\}`) is
-      valid in Emacs but never matches here.
-      **Fixed: the capture register after an empty repetition of a
-      quantified group.**  `\(x*\|a\)\{2\}b` against `ab` used to give
-      group 1 as `1 1` where Emacs gives `0 1`.  The first write-up
-      here read it as "Emacs keeps the last iteration that consumed
-      anything", and scoped it to `\{n\}`; probing the oracle over the
-      whole `\{n,m\}` grid said otherwise on both counts.  Emacs
-      compiles a repeat with a non-zero minimum as a counted loop with
-      *no* empty-match check, so an empty repetition does not end the
-      loop until the minimum is behind it — repetition 1 of
-      `\(x*\|a\)\{2\}` matches the empty branch at 0 and repetition 2
-      then matches `a`.  Past the minimum the check is back, which is
-      why `*`, `\{0,m\}` and `\{n,\}` always agreed, and why enough
-      slack over the minimum (`\{2,4\}b` on `ab`) reaches the trailing
-      empty repetition again.  `\{n,n+1\}` diverged too and was never
-      in the original scope.  `match_rep()` in `fe/tiny-regex-c/re.c`
-      now repeats while `done <= min` even on an empty body; kg and
-      Emacs agree over 32k hand-built cases spanning the grid, and
-      `--cases 200000` agrees on seeds 12 (which used to fail), 13, 14,
-      15 and 20260729.  Span 0 was never affected, so only `\1`-style
-      references saw it.

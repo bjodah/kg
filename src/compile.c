@@ -10,7 +10,6 @@
 #ifdef _WIN32
 #include "platform.h"
 #else
-#include <sys/types.h>
 #include <unistd.h>
 #endif
 
@@ -532,7 +531,7 @@ int compilation_poll(void)
 		while (read_total < COMPILATION_TICK_BUDGET) {
 #ifdef _WIN32
 			ssize_t n = kg_fd_read_available(
-				g_compilation.output_fd, buf, sizeof(buf));
+			    g_compilation.output_fd, buf, sizeof(buf));
 			if (n == -2) {
 				break;
 			}

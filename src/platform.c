@@ -1,9 +1,9 @@
 #include "platform.h"
 #ifdef _WIN32
+#include "kg_dirent.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include "kg_dirent.h"
 
 int kg_optind = 1;
 static DWORD kg_saved_input_mode;
@@ -41,8 +41,8 @@ void kg_normalize_path(char *path)
 		}
 	}
 }
-void *kg_memmem(const void *haystack, size_t haystack_size,
-    const void *needle, size_t needle_size)
+void *kg_memmem(const void *haystack, size_t haystack_size, const void *needle,
+    size_t needle_size)
 {
 	const unsigned char *text = haystack;
 	const unsigned char *want = needle;
@@ -65,10 +65,7 @@ void *kg_aligned_alloc(size_t alignment, size_t size)
 	return _aligned_malloc(size, alignment);
 }
 
-void kg_aligned_free(void *memory)
-{
-	_aligned_free(memory);
-}
+void kg_aligned_free(void *memory) { _aligned_free(memory); }
 int kg_usleep(unsigned int usec)
 {
 	Sleep((usec + 999U) / 1000U);
@@ -203,8 +200,10 @@ int kg_poll(struct pollfd *fds, unsigned long count, int timeout_ms)
 				continue;
 			}
 			type = GetFileType(handle);
-			if (type == FILE_TYPE_PIPE && (fds[i].events & POLLIN)) {
-				if (!PeekNamedPipe(handle, NULL, 0, NULL, &available, NULL)) {
+			if (type == FILE_TYPE_PIPE
+			    && (fds[i].events & POLLIN)) {
+				if (!PeekNamedPipe(handle, NULL, 0, NULL,
+					&available, NULL)) {
 					DWORD error = GetLastError();
 
 					if (error == ERROR_BROKEN_PIPE
@@ -215,13 +214,16 @@ int kg_poll(struct pollfd *fds, unsigned long count, int timeout_ms)
 				} else if (available > 0) {
 					fds[i].revents = POLLIN;
 				}
-			} else if (WaitForSingleObject(handle, 0) == WAIT_OBJECT_0) {
+			} else if (WaitForSingleObject(handle, 0)
+			    == WAIT_OBJECT_0) {
 				fds[i].revents = fds[i].events;
 			}
-			if (type == FILE_TYPE_PIPE && (fds[i].events & POLLOUT)) {
-				/* Anonymous pipe writes are synchronous.  The write side is
-				 * closed as soon as its input is exhausted, so it is safe to
-				 * let the pump attempt the next bounded write. */
+			if (type == FILE_TYPE_PIPE
+			    && (fds[i].events & POLLOUT)) {
+				/* Anonymous pipe writes are synchronous.  The
+				 * write side is closed as soon as its input is
+				 * exhausted, so it is safe to let the pump
+				 * attempt the next bounded write. */
 				fds[i].revents |= POLLOUT;
 			}
 			if (fds[i].revents) {
@@ -308,8 +310,9 @@ int kg_console_enable(void)
 	kg_saved_input_cp = GetConsoleCP();
 	kg_saved_output_cp = GetConsoleOutputCP();
 	if (!SetConsoleMode(input,
-		(input_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
-		     | ENABLE_PROCESSED_INPUT))
+		(input_mode
+		    & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
+			| ENABLE_PROCESSED_INPUT))
 		    | ENABLE_VIRTUAL_TERMINAL_INPUT)
 	    || !SetConsoleMode(output,
 		output_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -376,8 +379,8 @@ int kg_mkstemp(char *template_name)
 		errno = EINVAL;
 		return -1;
 	}
-	return _open(template_name,
-	    _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
+	return _open(template_name, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY,
+	    _S_IREAD | _S_IWRITE);
 }
 
 int kg_rename(const char *oldpath, const char *newpath)
@@ -390,10 +393,7 @@ int kg_rename(const char *oldpath, const char *newpath)
 	return -1;
 }
 
-int kg_fsync(int fd)
-{
-	return _commit(fd);
-}
+int kg_fsync(int fd) { return _commit(fd); }
 
 ssize_t kg_getline(char **line, size_t *capacity, FILE *stream)
 {
@@ -461,8 +461,9 @@ DIR *opendir(const char *path)
 		return NULL;
 	}
 	memcpy(dir->pattern, path, length);
-	while (length > 0 && (dir->pattern[length - 1] == '/'
-			|| dir->pattern[length - 1] == '\\')) {
+	while (length > 0
+	    && (dir->pattern[length - 1] == '/'
+		|| dir->pattern[length - 1] == '\\')) {
 		dir->pattern[--length] = '\0';
 	}
 	dir->pattern[length++] = '\\';
@@ -491,9 +492,10 @@ struct dirent *readdir(DIR *dir)
 	strncpy(dir->entry.d_name, dir->data.cFileName,
 	    sizeof(dir->entry.d_name) - 1);
 	dir->entry.d_name[sizeof(dir->entry.d_name) - 1] = '\0';
-	dir->entry.d_type =
-	    (dir->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? DT_DIR
-							 : DT_UNKNOWN;
+	dir->entry.d_type
+	    = (dir->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+	    ? DT_DIR
+	    : DT_UNKNOWN;
 	return &dir->entry;
 }
 
@@ -510,9 +512,6 @@ int closedir(DIR *dir)
 
 #else
 
-int kg_platform_anchor(void)
-{
-	return 0;
-}
+int kg_platform_anchor(void) { return 0; }
 
 #endif

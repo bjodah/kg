@@ -6,8 +6,8 @@
  * standard header everywhere else. */
 #ifdef _WIN32
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 static inline int kg_ckd_add_unsigned(
     uint64_t *out, uint64_t left, uint64_t right)
@@ -30,8 +30,7 @@ static inline int kg_ckd_mul_unsigned(
 	return right != 0 && left > UINT64_MAX / right;
 }
 
-static inline int kg_ckd_add_signed(
-    int64_t *out, int64_t left, int64_t right)
+static inline int kg_ckd_add_signed(int64_t *out, int64_t left, int64_t right)
 {
 	if ((right > 0 && left > INT64_MAX - right)
 	    || (right < 0 && left < INT64_MIN - right)) {
@@ -42,8 +41,7 @@ static inline int kg_ckd_add_signed(
 	return 0;
 }
 
-static inline int kg_ckd_sub_signed(
-    int64_t *out, int64_t left, int64_t right)
+static inline int kg_ckd_sub_signed(int64_t *out, int64_t left, int64_t right)
 {
 	if ((right < 0 && left > INT64_MAX + right)
 	    || (right > 0 && left < INT64_MIN + right)) {
@@ -54,35 +52,39 @@ static inline int kg_ckd_sub_signed(
 	return 0;
 }
 
-static inline int kg_ckd_mul_signed(
-    int64_t *out, int64_t left, int64_t right)
+static inline int kg_ckd_mul_signed(int64_t *out, int64_t left, int64_t right)
 {
 	int overflow = 0;
 
 	if (left > 0) {
-		if (right > 0)
+		if (right > 0) {
 			overflow = left > INT64_MAX / right;
-		else if (right < 0)
+		} else if (right < 0) {
 			overflow = right < INT64_MIN / left;
+		}
 	} else if (left < 0) {
-		if (right > 0)
+		if (right > 0) {
 			overflow = left < INT64_MIN / right;
-		else if (right < 0)
+		} else if (right < 0) {
 			overflow = left < INT64_MAX / right;
+		}
 	}
 	*out = overflow ? 0 : left * right;
 	return overflow;
 }
 
-#define ckd_add(out, left, right) \
-	_Generic(*(out), int64_t: kg_ckd_add_signed, \
-		default: kg_ckd_add_unsigned)((void *)(out), (left), (right))
-#define ckd_sub(out, left, right) \
-	_Generic(*(out), int64_t: kg_ckd_sub_signed, \
-		default: kg_ckd_sub_unsigned)((void *)(out), (left), (right))
-#define ckd_mul(out, left, right) \
-	_Generic(*(out), int64_t: kg_ckd_mul_signed, \
-		default: kg_ckd_mul_unsigned)((void *)(out), (left), (right))
+#define ckd_add(out, left, right)                                              \
+	_Generic(*(out),                                                       \
+	    int64_t: kg_ckd_add_signed,                                        \
+	    default: kg_ckd_add_unsigned)((void *)(out), (left), (right))
+#define ckd_sub(out, left, right)                                              \
+	_Generic(*(out),                                                       \
+	    int64_t: kg_ckd_sub_signed,                                        \
+	    default: kg_ckd_sub_unsigned)((void *)(out), (left), (right))
+#define ckd_mul(out, left, right)                                              \
+	_Generic(*(out),                                                       \
+	    int64_t: kg_ckd_mul_signed,                                        \
+	    default: kg_ckd_mul_unsigned)((void *)(out), (left), (right))
 
 #else
 

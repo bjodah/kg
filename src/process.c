@@ -14,10 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static HANDLE process_handle(pid_t pid)
-{
-	return (HANDLE)(intptr_t)pid;
-}
+static HANDLE process_handle(pid_t pid) { return (HANDLE)(intptr_t)pid; }
 
 static int make_command_line(
     const struct kg_spawn_request *req, char **out, size_t *out_size)
@@ -76,8 +73,8 @@ static int make_inheritable(int fd)
 	HANDLE handle = (HANDLE)_get_osfhandle(fd);
 
 	if (handle == INVALID_HANDLE_VALUE
-	    || !SetHandleInformation(handle, HANDLE_FLAG_INHERIT,
-		HANDLE_FLAG_INHERIT)) {
+	    || !SetHandleInformation(
+		handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)) {
 		errno = EBADF;
 		return -1;
 	}
@@ -87,9 +84,8 @@ static int make_inheritable(int fd)
 static int spawn_process(
     const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
 {
-	SECURITY_ATTRIBUTES security = {
-		.nLength = sizeof(security), .bInheritHandle = TRUE
-	};
+	SECURITY_ATTRIBUTES security
+	    = { .nLength = sizeof(security), .bInheritHandle = TRUE };
 	STARTUPINFOA startup = { .cb = sizeof(startup) };
 	PROCESS_INFORMATION process = { 0 };
 	HANDLE output_read = NULL, output_write = NULL;
@@ -115,8 +111,8 @@ static int spawn_process(
 		startup.hStdInput = (HANDLE)_get_osfhandle(req->stdin_fd);
 	} else {
 		null_handle = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
-			FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING,
-			FILE_ATTRIBUTE_NORMAL, NULL);
+		    FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+		    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (null_handle == INVALID_HANDLE_VALUE) {
 			errno = EIO;
 			goto done;
@@ -125,8 +121,8 @@ static int spawn_process(
 	}
 	if (!req->stderr_to_output && null_handle == INVALID_HANDLE_VALUE) {
 		null_handle = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
-			FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING,
-			FILE_ATTRIBUTE_NORMAL, NULL);
+		    FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+		    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (null_handle == INVALID_HANDLE_VALUE) {
 			errno = EIO;
 			goto done;
@@ -136,8 +132,8 @@ static int spawn_process(
 	startup.hStdError = req->stderr_to_output ? output_write : null_handle;
 	startup.dwFlags = STARTF_USESTDHANDLES;
 	if (!CreateProcessA(req->argv ? NULL : "C:\\Windows\\System32\\cmd.exe",
-		command_line, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP,
-		NULL, req->directory, &startup, &process)) {
+		command_line, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP, NULL,
+		req->directory, &startup, &process)) {
 		errno = EIO;
 		goto done;
 	}
@@ -148,7 +144,8 @@ static int spawn_process(
 		CloseHandle(null_handle);
 		null_handle = INVALID_HANDLE_VALUE;
 	}
-	output_fd = _open_osfhandle((intptr_t)output_read, _O_BINARY | _O_RDONLY);
+	output_fd
+	    = _open_osfhandle((intptr_t)output_read, _O_BINARY | _O_RDONLY);
 	if (output_fd < 0) {
 		CloseHandle(output_read);
 		TerminateProcess(process.hProcess, 127);
@@ -226,9 +223,8 @@ int kg_process_wait(pid_t pid, struct kg_process_status *status)
 	    || !GetExitCodeProcess(handle, &code)) {
 		return -1;
 	}
-	*status = (struct kg_process_status) {
-		.exited = true, .exit_code = (int)code
-	};
+	*status = (struct kg_process_status) { .exited = true,
+		.exit_code = (int)code };
 	CloseHandle(handle);
 	return 0;
 }
@@ -245,9 +241,8 @@ int kg_process_reap(pid_t pid, struct kg_process_status *status)
 	if (wait != WAIT_OBJECT_0 || !GetExitCodeProcess(handle, &code)) {
 		return 0;
 	}
-	*status = (struct kg_process_status) {
-		.exited = true, .exit_code = (int)code
-	};
+	*status = (struct kg_process_status) { .exited = true,
+		.exit_code = (int)code };
 	CloseHandle(handle);
 	return 1;
 }

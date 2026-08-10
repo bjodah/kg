@@ -548,7 +548,8 @@ int dired_collect_flagged(int dirfd, struct dired_target *out, int max)
 		{
 			char full[PATH_MAX];
 			if (dired_join(dired_delete_directory, out[n].name,
-				full, sizeof(full)) == 0
+				full, sizeof(full))
+				== 0
 			    && stat(full, &st) == 0) {
 				dired_identity_from_stat(&out[n].id, &st);
 			}
@@ -579,8 +580,9 @@ int dired_delete_verified(int dirfd, const struct dired_target *target)
 
 #ifdef _WIN32
 	char full[PATH_MAX];
-	if (dired_join(dired_delete_directory, target->name,
-		full, sizeof(full)) != 0 || stat(full, &st) != 0) {
+	if (dired_join(dired_delete_directory, target->name, full, sizeof(full))
+		!= 0
+	    || stat(full, &st) != 0) {
 		return -1;
 	}
 #else
@@ -597,7 +599,7 @@ int dired_delete_verified(int dirfd, const struct dired_target *target)
 	return S_ISDIR(st.st_mode) ? rmdir(full) : unlink(full);
 #else
 	return unlinkat(
-		dirfd, target->name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
+	    dirfd, target->name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
 #endif
 }
 
@@ -618,8 +620,8 @@ void dired_do_flagged_delete(int fd)
 		return;
 	}
 #ifdef _WIN32
-	(void)snprintf(dired_delete_directory,
-	    sizeof(dired_delete_directory), "%s", dir);
+	(void)snprintf(
+	    dired_delete_directory, sizeof(dired_delete_directory), "%s", dir);
 	dirfd = -1;
 #else
 	dirfd = open(dir,

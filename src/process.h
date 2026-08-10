@@ -12,10 +12,6 @@
  * group, the redirections, and reaping -- and nothing about how the output
  * is read, which is what actually differs between the callers. */
 
-#ifndef _WIN32
-#include <sys/types.h>
-#endif
-
 struct kg_spawn_request {
 	/* Passed to /bin/sh -c, so the user's pipes and redirects work.
 	 * Ignored when `argv` is set. */

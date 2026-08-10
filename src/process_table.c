@@ -454,7 +454,7 @@ static void poll_entry(int slot)
 		while (read_total < KG_PROCESS_TICK_BUDGET) {
 #ifdef _WIN32
 			int n = kg_fd_read_available(
-				e->output_fd, buf, sizeof buf);
+			    e->output_fd, buf, sizeof buf);
 			if (n == -2) {
 				break;
 			}

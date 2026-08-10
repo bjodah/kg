@@ -12,13 +12,13 @@
 #define _CRT_DECLARE_NONSTDC_NAMES 1
 #endif
 
-#include <fcntl.h>
 #include <direct.h>
+#include <fcntl.h>
 #include <io.h>
 #include <malloc.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <windows.h>
 
@@ -98,8 +98,8 @@ extern int kg_optind;
 int kg_strnlen(const char *text, size_t maxlen);
 void *kg_aligned_alloc(size_t alignment, size_t size);
 void kg_aligned_free(void *memory);
-void *kg_memmem(const void *haystack, size_t haystack_size,
-    const void *needle, size_t needle_size);
+void *kg_memmem(const void *haystack, size_t haystack_size, const void *needle,
+    size_t needle_size);
 int kg_usleep(unsigned int usec);
 int kg_console_enable(void);
 void kg_console_disable(void);
@@ -154,7 +154,14 @@ ssize_t kg_getline(char **line, size_t *capacity, FILE *stream);
 
 #else
 
-#include <sys/types.h>
+/* POSIX already has the types the Windows branch above has to typedef
+ * itself, so the seam is one include wide here.  It is an export because
+ * platform.h is where the rest of kg asks for pid_t and ssize_t: a module
+ * that includes only this header is complete in both configurations, and
+ * include-what-you-use, which sees just this branch, would otherwise send
+ * every such module to <sys/types.h> and leave its Windows build without
+ * the types. */
+#include <sys/types.h> // IWYU pragma: export
 
 #endif
 

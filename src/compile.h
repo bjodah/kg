@@ -3,13 +3,10 @@
 
 #include "bufhandle.h"
 #include "localvars.h"
-#include "process.h"
 #include "platform.h"
+#include "process.h"
 #include <limits.h>
 #include <stddef.h>
-#ifndef _WIN32
-#include <sys/types.h>
-#endif
 
 enum compilation_phase {
 	COMPILATION_IDLE,

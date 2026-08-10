@@ -1,0 +1,23 @@
+name: isearch-quote-char-newline-backward
+# The same quoted newline in a reverse search: C-r leaves point at the
+# start of the match, and a match carrying a newline cannot be the one
+# the search started on, so this finds the *last* line that is exactly
+# "alpha" rather than the "alphabet" above it.
+filename: sample.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: |
+  alphabet
+  alpha
+  gamma
+keys:
+  - M->
+  - C-r
+  - alpha
+  - C-q
+  - C-j
+  - RET
+  - X
+oracle: emacs

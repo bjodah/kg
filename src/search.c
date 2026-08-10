@@ -50,18 +50,20 @@ static struct minibuf_history query_replace_history;
 
 #define KG_SEARCH_MATCH_PRIORITY 0
 
-/* Create the current-match decoration spanning chars [col, col + len) of
- * row `filerow`.  decor.h's documented gravity pair for a match
- * highlight -- KG_MARKER_GRAV_RIGHT for the start, KG_MARKER_GRAV_LEFT
- * for the end -- keeps text typed at either edge outside the match
- * rather than growing it.  Returns a handle that resolves as gone on
- * allocation failure; the caller is expected to treat `id == 0` as
- * out-of-memory, matching kg_marker_create()'s convention elsewhere in
- * this file. */
-static struct kg_decor_handle search_match_decor(int filerow, int col, int len)
+/* Create the current-match decoration spanning the `len` buffer bytes
+ * from `start_pos`.  Byte positions rather than a row and a column
+ * because a match may cross a row boundary -- a query carrying a newline
+ * is what isearch_match_at() below exists for -- and a row separator is
+ * one byte of the same count.  decor.h's documented gravity pair for a
+ * match highlight -- KG_MARKER_GRAV_RIGHT for the start,
+ * KG_MARKER_GRAV_LEFT for the end -- keeps text typed at either edge
+ * outside the match rather than growing it.  Returns a handle that
+ * resolves as gone on allocation failure; the caller is expected to
+ * treat `id == 0` as out-of-memory, matching kg_marker_create()'s
+ * convention elsewhere in this file. */
+static struct kg_decor_handle search_match_decor(size_t start_pos, size_t len)
 {
-	size_t start_pos = buffer_row_col_to_position(bcur(), filerow, col);
-	size_t end_pos = buffer_row_col_to_position(bcur(), filerow, col + len);
+	size_t end_pos = start_pos + len;
 
 	return kg_decor_create(bcur(), start_pos, end_pos, KG_MARKER_GRAV_RIGHT,
 	    KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_MATCH, KG_SEARCH_MATCH_PRIORITY,
@@ -113,7 +115,7 @@ static char *case_strstr(const char *hay, const char *needle, int fold)
 }
 
 static char *isearch_find_last_before(
-    char *s, char *query, int limit, int qlen, int fold)
+    char *s, const char *query, int limit, int qlen, int fold)
 {
 	char *best = NULL;
 	char *match = s;
@@ -126,6 +128,96 @@ static char *isearch_find_last_before(
 		match++;
 	}
 	return best;
+}
+
+static int case_equal(char a, char b, int fold)
+{
+	if (!fold) {
+		return a == b;
+	}
+	return tolower((unsigned char)a) == tolower((unsigned char)b);
+}
+
+/* Does the literal `query` match starting at (row, col)?  A '\n' in the
+ * query matches the separator that ends a row, so a search string
+ * carrying one -- put there by C-q, isearch-quote-char, or carried in by
+ * a yanked multi-line kill -- spans rows.  The regexp kind has no
+ * equivalent: kg_regex_match_forward() is handed one row at a time.
+ * kg's last row has no separator after it, the way a file's
+ * final newline is a terminator rather than a row of its own, so a query
+ * can never match past the end of the buffer.  Everything here is a
+ * chars byte offset. */
+static int isearch_match_at(int row, int col, const char *query, int fold)
+{
+	const struct editor_buffer *b = bcur();
+
+	for (; *query != '\0'; query++) {
+		const erow *r = &b->row[row];
+
+		if (*query == '\n') {
+			if (col != r->size || row + 1 >= b->numrows) {
+				return 0;
+			}
+			row++;
+			col = 0;
+			continue;
+		}
+		if (col >= r->size
+		    || !case_equal(r->chars[col], *query, fold)) {
+			return 0;
+		}
+		col++;
+	}
+	return 1;
+}
+
+/* Where a newline-bearing query matches in `row`, or -1.  `origin` says
+ * this is the row the search started from, whose `col` is point: a
+ * backward match found there would end on a later row, i.e. after point,
+ * so there is nothing to find.  Every other row is scanned whole, which
+ * is the same rule the single-row backward path (isearch_find_last_before)
+ * already applies to a wrapped row. */
+static int isearch_multiline_col(
+    int row, int col, int direction, const char *query, int fold, int origin)
+{
+	const erow *r = &bcur()->row[row];
+	int i, best = -1;
+
+	if (direction < 0 && origin) {
+		return -1;
+	}
+	for (i = direction > 0 ? col : 0; i <= r->size; i++) {
+		if (!isearch_match_at(row, i, query, fold)) {
+			continue;
+		}
+		if (direction > 0) {
+			return i;
+		}
+		best = i;
+	}
+	return best;
+}
+
+/* The literal query's match column in `row`, or -1.  A query without a
+ * newline never leaves its row, so it keeps the plain strstr scan; one
+ * with a newline goes through the cross-row matcher above. */
+static int isearch_literal_col(int row, int col, int direction,
+    const char *query, int qlen, int fold, int origin)
+{
+	const erow *r = &bcur()->row[row];
+	char *match;
+
+	if (memchr(query, '\n', (size_t)qlen) != NULL) {
+		return isearch_multiline_col(
+		    row, col, direction, query, fold, origin);
+	}
+	if (direction > 0) {
+		match = case_strstr(r->chars + col, query, fold);
+	} else {
+		match = isearch_find_last_before(
+		    r->chars, query, col, qlen, fold);
+	}
+	return match != NULL ? (int)(match - r->chars) : -1;
 }
 
 /* Look for the query from (start_row, start_col), wrapping once around the
@@ -181,18 +273,12 @@ static int isearch_find_match(int start_row, int start_col, int direction,
 				return -1;
 			}
 		} else {
-			char *match;
-			if (direction > 0) {
-				match = case_strstr(
-				    row->chars + col, query, fold);
-			} else {
-				match = isearch_find_last_before(
-				    row->chars, query, col, qlen, fold);
-			}
+			int found = isearch_literal_col(
+			    current, col, direction, query, qlen, fold, i == 0);
 
-			if (match) {
+			if (found >= 0) {
 				*match_row = current;
-				*match_col = match - row->chars;
+				*match_col = found;
 				*match_len = qlen;
 				return 1;
 			}
@@ -489,6 +575,51 @@ static void isearch_recall_last(
 	}
 }
 
+/* Append `n` bytes to the query, or nothing at all when they do not fit:
+ * a half-appended character would be neither what was typed nor a
+ * search string.  Returns 1 when the query grew. */
+static int isearch_append(char *query, int *qlen, const char *bytes, int n)
+{
+	if (n <= 0 || n > KILO_QUERY_LEN - *qlen) {
+		return 0;
+	}
+	memcpy(query + *qlen, bytes, (size_t)n);
+	*qlen += n;
+	query[*qlen] = '\0';
+	return 1;
+}
+
+/* The keys that put text into the search string, and the only ones that
+ * do: a printable ASCII byte, the lead byte of a multi-byte character
+ * the terminal is sending one byte at a time, and C-q, Emacs'
+ * isearch-quote-char, which takes the very next byte whatever it is --
+ * C-q C-j searches for a newline, C-q TAB for a tab.  The next byte is
+ * data, not a key, so it is read here rather than by the decoder,
+ * exactly as cmd_quoted_insert() reads it for the buffer.  Returns 1
+ * when the query grew, so the caller re-searches. */
+static int isearch_insert_key(
+    int fd, struct key_event c, char *query, int *qlen)
+{
+	char seq[4];
+
+	if (KEY_IS(c, 'q', KEY_MOD_CTRL)) {
+		seq[0] = (char)editor_read_raw_byte(fd);
+		return running ? isearch_append(query, qlen, seq, 1) : 0;
+	}
+	if (c.mods != 0) {
+		return 0;
+	}
+	if (ascii_is_print(c.base)) {
+		seq[0] = (char)c.base;
+		return isearch_append(query, qlen, seq, 1);
+	}
+	if (c.base >= 0x80 && c.base <= 0xFF) {
+		return isearch_append(query, qlen, seq,
+		    editor_read_utf8_seq(fd, (int)c.base, seq));
+	}
+	return 0;
+}
+
 static void isearch_drop_marker(struct kg_marker_handle *marker)
 {
 	kg_marker_delete(*marker);
@@ -565,6 +696,7 @@ static enum isearch_step isearch_advance(struct isearch_match *m,
 	int col = m->start_col;
 	int match_row = -1, match_col = -1, match_len = 0;
 	int fold = !query_has_upper(query, qlen);
+	size_t start_pos;
 	int match;
 
 	if (kind == SEARCH_REGEXP) {
@@ -594,16 +726,23 @@ static enum isearch_step isearch_advance(struct isearch_match *m,
 		return ISEARCH_STEP_OK;
 	}
 
-	if (!isearch_set_marker(&m->marker,
-		buffer_row_col_to_position(bcur(), match_row, match_col))) {
+	start_pos = buffer_row_col_to_position(bcur(), match_row, match_col);
+	if (!isearch_set_marker(&m->marker, start_pos)) {
 		return ISEARCH_STEP_NOMEM;
 	}
-	m->decor = search_match_decor(match_row, match_col, match_len);
+	m->decor = search_match_decor(start_pos, (size_t)match_len);
 	if (m->decor.id == 0) {
 		return ISEARCH_STEP_NOMEM;
 	}
-	editor_reveal_position_centered(
-	    match_row, match_col + (search_dir > 0 ? match_len : 0));
+	/* Point lands at the far end of the match in the search's own
+	 * direction, which for a match carrying a newline is on a later
+	 * row -- so the end is named as a byte position and converted
+	 * back, never as this row's column plus a length. */
+	if (search_dir > 0) {
+		buffer_position_to_row_col(bcur(),
+		    start_pos + (size_t)match_len, &match_row, &match_col);
+	}
+	editor_reveal_position_centered(match_row, match_col);
 	return ISEARCH_STEP_OK;
 }
 
@@ -730,26 +869,9 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 				isearch_drop_marker(&m.marker);
 				find_next = direction;
 			}
-		} else if (c.mods == 0 && ascii_is_print(c.base)) {
-			if (qlen < KILO_QUERY_LEN) {
-				query[qlen++] = (char)c.base;
-				query[qlen] = '\0';
-				isearch_drop_marker(&m.marker);
-				find_next = direction;
-			}
-		} else if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
-			/* Lead byte of a multi-byte character: read the rest
-			 * of the sequence so it joins the query whole. */
-			char seq[4];
-			int n = editor_read_utf8_seq(fd, (int)c.base, seq);
-
-			if (n > 0 && qlen + n <= KILO_QUERY_LEN) {
-				memcpy(query + qlen, seq, (size_t)n);
-				qlen += n;
-				query[qlen] = '\0';
-				isearch_drop_marker(&m.marker);
-				find_next = direction;
-			}
+		} else if (isearch_insert_key(fd, c, query, &qlen)) {
+			isearch_drop_marker(&m.marker);
+			find_next = direction;
 		} else if (isearch_handoff_key(fd, c)) {
 			/* A handoff ends the search on its match, which in
 			 * Emacs commits the query just like Enter does.  The
@@ -884,7 +1006,9 @@ void editor_query_replace(int fd)
 		/* Highlight the match: one temporary decoration, replacing
 		 * whatever the previous iteration's answer left behind. */
 		search_match_decor_drop(&match_decor);
-		match_decor = search_match_decor(filerow, match_col, slen);
+		match_decor = search_match_decor(
+		    buffer_row_col_to_position(bcur(), filerow, match_col),
+		    (size_t)slen);
 		if (match_decor.id == 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
@@ -1145,8 +1269,9 @@ void editor_query_replace_regexp(int fd)
 		/* Highlight the match: one temporary decoration, replacing
 		 * whatever the previous iteration's answer left behind. */
 		search_match_decor_drop(&match_decor);
-		match_decor
-		    = search_match_decor(filerow, match_start, match_len);
+		match_decor = search_match_decor(
+		    buffer_row_col_to_position(bcur(), filerow, match_start),
+		    (size_t)match_len);
 		if (match_decor.id == 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;

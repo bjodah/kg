@@ -1,0 +1,25 @@
+name: minibuf-word-case
+# M-u / M-l / M-c in a prompt, on the same word span M-f and M-b move
+# over.  The typed command is `echo alpha beta gamma`; M-f steps past
+# `echo`, M-u upcases `alpha`, M-c capitalizes `beta`, then M-b steps
+# back onto `Beta` and M-l puts it back down.  The prefix argument makes
+# M-! insert the output, so the saved file is what the transformed
+# command line actually was.
+filename: shell.txt
+backend: pexpect
+key_delay: 0.1
+initial: ""
+keys:
+  - M-1
+  - M-!
+  - "echo alpha beta gamma"
+  - C-a
+  - M-f
+  - M-u
+  - M-c
+  - M-b
+  - M-l
+  - RET
+expected_saved_any:
+  - "ALPHA beta gamma"
+  - "ALPHA beta gamma\n"

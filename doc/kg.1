@@ -1504,6 +1504,21 @@ cancels and returns to the original position;
 .Ic Backspace
 removes the last character from the query.
 .Pp
+.Ic C-q
+is Emacs'
+.Ic isearch-quote-char :
+the next key joins the query literally, whatever it is, which is the
+only way to search for a character no printable key produces.
+.Ic C-q C-j
+searches for a newline, so
+.Ic C-s word C-q C-j
+finds
+.Sq word
+only where it ends a line and leaves point at the start of the next
+one, and
+.Ic C-q Tab
+searches for a literal tab.
+.Pp
 .Ic C-y
 appends the kill ring's newest entry to the query and searches for the
 result at once, as Emacs'
@@ -1522,9 +1537,19 @@ With an empty kill ring either key changes nothing and the prompt
 answers
 .Ic [kill ring empty]
 for one keystroke.
-The query is matched a line at a time, so a yanked span that contains a
-line break can never match; Emacs, searching the buffer as one text,
-finds such a span across the break.
+A literal query matches across a line break: a newline in it, whether
+put there by
+.Ic C-q C-j
+or carried in by a yanked kill, matches the break at the end of a row,
+so a multi-line kill yanked with
+.Ic C-y
+finds the span it came from.
+A regexp query is still matched a line at a time, so a pattern that
+spans a break never matches; Emacs, searching the buffer as one text,
+matches that too.
+kg's last row has no separator after it \(em a file's final newline is
+its terminator rather than a row of its own \(em so a query cannot match
+past the end of the buffer.
 .Pp
 Searches have a history.
 Accepting a search with
@@ -1871,6 +1896,25 @@ and
 .Ic query-replace-regexp
 share a single one, as in Emacs.
 Nothing is written to disk: the rings live only for the session.
+.Pp
+Prompts edit by word as well as by character.
+.Ic M-f
+and
+.Ic M-b
+move over the word after and before the cursor,
+.Ic M-u ,
+.Ic M-l
+and
+.Ic M-c
+upcase, downcase and capitalize the word after it and leave the cursor
+past that word, and
+.Ic C-q
+inserts the next byte literally.
+A prompt's word is delimited by whitespace, where Emacs' is delimited by
+word syntax: in a filename prompt kg's
+.Ic M-b
+walks back over the whole path where Emacs' stops at each
+.Sq / .
 .Pp
 A prompt's kills and yanks use the one global kill ring, as Emacs'
 minibuffer does:

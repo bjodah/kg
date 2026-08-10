@@ -1,0 +1,23 @@
+name: isearch-quote-char-newline
+# C-q in an incremental search is Emacs' isearch-quote-char: the next
+# key joins the search string literally, so C-q C-j searches for a
+# newline and "alpha\n" matches only the line that is exactly "alpha".
+# Point lands past the newline, i.e. at the start of the next line,
+# which is what the typed X proves.
+filename: sample.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: |
+  alphabet
+  alpha
+  beta
+keys:
+  - C-s
+  - alpha
+  - C-q
+  - C-j
+  - RET
+  - X
+oracle: emacs

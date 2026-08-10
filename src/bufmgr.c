@@ -32,6 +32,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "syntax.h"
+#include "word.h"
 #include "yank.h"
 
 /* Key sets the minibuffer and the pickers ask about.  A list rather than
@@ -944,6 +945,44 @@ static int minibuf_word_start(const char *buf, int pos)
 	return pos;
 }
 
+/* M-u / M-l / M-c, or 0 when `c` is none of them. */
+static int minibuf_case_mode_for(struct key_event c)
+{
+	if (KEY_IS(c, 'u', KEY_MOD_META)) {
+		return 'u';
+	}
+	if (KEY_IS(c, 'l', KEY_MOD_META)) {
+		return 'l';
+	}
+	if (KEY_IS(c, 'c', KEY_MOD_META)) {
+		return 'c';
+	}
+	return 0;
+}
+
+/* Upcase, downcase or capitalize the word forward from the cursor and
+ * leave the cursor past it, as Emacs' M-u/M-l/M-c do in the minibuffer.
+ * The span is minibuf_word_end()'s, the one M-f and M-d already use, so
+ * no two of the prompt's word commands can disagree about where a word
+ * ends; the byte rule is word.h's, shared with the buffer's M-u.  The
+ * text only changes case, so it can never outgrow the prompt's buffer
+ * and there is no overflow to account for. */
+static void minibuf_case_word(char *buf, int len, int *cursor, int mode)
+{
+	int end = minibuf_word_end(buf, len, *cursor);
+	int start = *cursor;
+	int i;
+
+	while (start < end && isspace((unsigned char)buf[start])) {
+		start++;
+	}
+	for (i = start; i < end; i++) {
+		buf[i] = (char)kg_word_case_byte(
+		    mode, (unsigned char)buf[i], i == start);
+	}
+	*cursor = end;
+}
+
 /* Delete the whole character before the cursor, not just its last byte:
  * a multi-byte glyph would otherwise leave a stray continuation byte
  * behind and corrupt everything typed after it. */
@@ -1008,10 +1047,9 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
     int *cursor, int *len, int *overflow, struct minibuf_yank *yank)
 {
 	char seq[4];
-	int n, raw;
+	int n, raw, mode;
 
-	if (KEY_IS(c, KEY_BASE_DELETE, 0) || KEY_IS(c, KEY_BASE_DEL, 0)
-	    || KEY_IS(c, 'h', KEY_MOD_CTRL)) {
+	if (KEY_IN_LIST(erase_keys, c)) {
 		minibuf_delete_backward(buf, cursor, len, overflow);
 		return 1;
 	}
@@ -1072,6 +1110,11 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 	if (KEY_IS(c, KEY_BASE_DEL, KEY_MOD_META)) {
 		minibuf_kill_span(buf, cursor, len,
 		    minibuf_word_start(buf, *cursor), *cursor, 1);
+		return 1;
+	}
+	mode = minibuf_case_mode_for(c);
+	if (mode != 0) {
+		minibuf_case_word(buf, *len, cursor, mode);
 		return 1;
 	}
 	if (KEY_IS(c, 'q', KEY_MOD_CTRL)) {

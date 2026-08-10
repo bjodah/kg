@@ -8,6 +8,7 @@
 #include "edit.h"
 #include "marker.h"
 #include "syntax.h"
+#include "word.h"
 #include "yank.h"
 
 #define FILL_COLUMN 72
@@ -1031,13 +1032,7 @@ static void do_word_case(int mode)
 	for (i = 0; i < word_len; i++) {
 		unsigned char ch = (unsigned char)row->chars[word_start + i];
 
-		if (mode == 'u') {
-			cased[i] = (char)toupper(ch);
-		} else if (mode == 'l') {
-			cased[i] = (char)tolower(ch);
-		} else { /* 'c' */
-			cased[i] = (char)(i == 0 ? toupper(ch) : tolower(ch));
-		}
+		cased[i] = (char)kg_word_case_byte(mode, ch, i == 0);
 	}
 	editor_row_replace_range(
 	    filerow, word_start, word_len, cased, word_len, KG_EDIT_USER);

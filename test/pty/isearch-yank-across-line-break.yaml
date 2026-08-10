@@ -1,0 +1,24 @@
+name: isearch-yank-across-line-break
+# A kill that carries a line break is a search string that carries one,
+# so C-y in a literal search now finds the span across the break --
+# the same cross-row match C-q C-j builds by hand.  C-k C-k makes the
+# kill "alpha\n"; the only place it can match is the second "alpha"
+# line, and point lands on the line after it.
+filename: sample.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: |
+  alpha
+  beta
+  alpha
+  gamma
+keys:
+  - C-k
+  - C-k
+  - C-s
+  - C-y
+  - RET
+  - X
+oracle: emacs

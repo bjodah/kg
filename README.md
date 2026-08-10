@@ -54,6 +54,11 @@ standard VT100 escape sequences.
   C-y inside the search appends the newest kill to the query and
   re-searches at once (Emacs' isearch-yank-kill); M-y directly after it
   swaps in the next-older ring entry (isearch-yank-pop-only)
+- C-q inside the search quotes the next key into the query
+  (isearch-quote-char), so C-s C-q C-j searches for a newline and
+  C-q TAB for a literal tab.  A literal query carrying a newline —
+  quoted or yanked in — matches across the line break; a regexp query
+  is still matched a line at a time
 - Minibuffer history: M-p/M-n (also Up/Down, C-p/C-n) recall earlier
   input at the shell-command, query-replace, compile, Eval, goto-line and
   string-rectangle prompts.  Each prompt has its own ring, except the four
@@ -61,6 +66,10 @@ standard VT100 escape sequences.
   (C-k, M-d, M-Backspace, C-y, M-y) use the one global kill ring, as
   Emacs' minibuffer does, so text killed in a prompt can be yanked in
   the buffer and the other way around
+- Word-level editing in prompts: M-f/M-b move by word, M-d/M-Backspace
+  kill by word, M-u/M-l/M-c upcase/downcase/capitalize the word after
+  the cursor, and C-q quotes the next byte in.  A prompt's word is
+  delimited by whitespace rather than by Emacs' word syntax
 - Multi-level undo (C-_)
 - Paragraph reflow to 72 columns (M-q)
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)

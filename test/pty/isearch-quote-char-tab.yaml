@@ -1,0 +1,18 @@
+name: isearch-quote-char-tab
+# C-q TAB searches for a literal tab, which no other key can put into
+# the search string: TAB on its own is not a printable byte, and the
+# search string is compared against row->chars, where a tab is one
+# character rather than the eight columns it is drawn as.
+filename: sample.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+initial: "one two\nthree\tfour\n"
+keys:
+  - C-s
+  - C-q
+  - TAB
+  - RET
+  - X
+oracle: emacs

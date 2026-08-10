@@ -351,7 +351,7 @@ static void test_bidi_refuses_a_caller_supplied_stdin(void)
 	pid_t pid = -1;
 	int in_fd = -1, out_fd = -1;
 
-	CHECK(kg_process_spawn_bidi(&req, &pid, &in_fd, &out_fd) == -1);
+	CHECK(kg_process_spawn_bidi(&req, &pid, &in_fd, &out_fd, NULL) == -1);
 	CHECK(errno == EINVAL);
 	CHECK(pid == -1 && in_fd == -1 && out_fd == -1);
 }
@@ -375,7 +375,7 @@ static void test_bidi_round_trip_against_cat(void)
 	int in_fd = -1, out_fd = -1;
 	ssize_t n;
 
-	CHECK(kg_process_spawn_bidi(&req, &pid, &in_fd, &out_fd) == 0);
+	CHECK(kg_process_spawn_bidi(&req, &pid, &in_fd, &out_fd, NULL) == 0);
 	CHECK(pid > 0 && in_fd >= 0 && out_fd >= 0);
 	CHECK(write(in_fd, "ping\n", 5) == 5);
 

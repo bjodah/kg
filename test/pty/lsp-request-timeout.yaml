@@ -1,0 +1,59 @@
+name: lsp-request-timeout
+# A server that is alive and stuck answers nothing, and kg stops waiting.
+# The server here is test/fake_lsp_server.py in place of clangd
+# (KG_LSP_SERVER_C) with --no-reply textDocument/definition: it reads the
+# request, counts it, and never answers it -- the one failure a client
+# cannot notice by watching the child die.
+#
+# What is asserted is the echo area, so this is a tmux case: after the
+# deadline the request is abandoned and reported once, naming the method
+# and the wait ("no reply to textDocument/definition after 1s"), and NOT
+# "the server died before answering" -- the server is alive, only the
+# request was given up on.
+#
+# KG_LSP_TIMEOUT_MS is what makes the case take a second rather than the
+# default thirty.  It is the same knob a user has, read the same way as
+# KG_LSP_SERVER_C, which is why the test needs no build of its own.
+#
+# The C-l between M-. and the capture are the wait: the request is
+# asynchronous by design, so the case has to leave time for a Python
+# interpreter to start, handshake, be asked, and then for the deadline to
+# pass.  C-l is the one key that repaints without moving point, so it costs
+# a key_delay and changes nothing.
+#
+# The trailer is the proof the editor survived it: an X typed after the
+# timeout, saved, is a byte on disk that only an editor still taking keys
+# could have written.  Point never moved, so it lands at the very start.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --no-reply textDocument/definition"
+  KG_LSP_TIMEOUT_MS: "1000"
+filename: xreftimeout.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+trailer_keys:
+  - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "no reply to textDocument/definition after 1s"
+expected_screen_not_contains:
+  - "the server died before answering"

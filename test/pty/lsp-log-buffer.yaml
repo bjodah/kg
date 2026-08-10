@@ -1,0 +1,57 @@
+name: lsp-log-buffer
+# Everything a language server says when nobody asked it anything ends up
+# in *lsp-log*, and nowhere else.  The server is test/fake_lsp_server.py in
+# place of clangd (KG_LSP_SERVER_C), told to write two lines to its
+# standard error at startup -- which used to go to /dev/null, so a server
+# that explained its refusal explained it to nobody -- and to answer no
+# definition request, so the deadline abandons one and logs that too.
+#
+# So the case asserts both halves of the log: what the server said, and
+# what kg gave up waiting for, each prefixed with the server's name so two
+# servers writing at once stay tellable apart.  The name is the spec's
+# ("clangd") and not the command line's, which is a Python script here.
+#
+# The buffer is reached with C-x b, which is the whole of its user
+# interface: it is created on the first line and never selects itself, so
+# nothing before that keystroke could have shown it.  The C-l are the wait
+# -- a Python interpreter has to start, the handshake has to settle, and
+# the one-second deadline has to pass.
+#
+# Nothing is saved: the selected buffer at the end is *lsp-log*, which has
+# no file, so the trailer is C-x C-c alone and the saved file is the
+# initial one -- asserting that reading the log changed nothing on disk.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --no-reply textDocument/definition --stderr 'kg-test: no compile database here' --stderr 'kg-test: guessing flags'"
+  KG_LSP_TIMEOUT_MS: "1000"
+filename: xreflog.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-x"
+  - "b"
+  - "*lsp-log*"
+  - "RET"
+  - "C-l"
+trailer_keys:
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "[clangd] kg-test: no compile database here"
+  - "[clangd] kg-test: guessing flags"
+  - "[clangd] no reply to textDocument/definition after 1s"

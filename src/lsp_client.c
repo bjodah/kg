@@ -54,11 +54,18 @@
 #define LSP_CLIENT_METHOD_MAX 64
 
 /* The JSON-RPC code for "no such method", answered to every server-to-client
- * request, and the implementation-defined code kg synthesises for a request
- * that will never be answered.  -32099 is the low end of the
+ * request, and the implementation-defined codes kg synthesises for a request
+ * that will never be answered -- because the client is dead, or because the
+ * request ran out of time.  -32099 is the low end of the
  * implementation-defined range the specification reserves for exactly this. */
 #define LSP_JSONRPC_METHOD_NOT_FOUND (-32601)
 #define LSP_JSONRPC_INTERNAL_DEAD (-32099)
+#define LSP_JSONRPC_INTERNAL_TIMEOUT (-32098)
+
+/* How long a client's name may be: "rust-analyzer" with room to spare, and
+ * short enough that every message it prefixes still leaves a line's worth
+ * of the thing being reported. */
+#define LSP_CLIENT_NAME_MAX 32
 
 /* How long lsp_client_dispose() sleeps between polls while it waits out its
  * grace period.  Short enough that a server exiting promptly is not waited
@@ -67,9 +74,16 @@
 
 struct lsp_pending {
 	long long id;
+	/* CLOCK_MONOTONIC milliseconds after which nobody is waiting for
+	 * this any more; 0 when the client's timeout is switched off. */
+	long long deadline_ms;
 	lsp_response_fn cb;
 	void *ctx;
 	bool used;
+	/* The method, kept for the one message this request may still
+	 * produce: "no reply to textDocument/definition after 30s" names
+	 * the question, which is the only part of it a user recognises. */
+	char method[LSP_CLIENT_METHOD_MAX];
 };
 
 /* A request whose params have not been built yet.  Its pending slot exists
@@ -108,8 +122,58 @@ struct lsp_client {
 	struct lsp_pending pending[LSP_CLIENT_MAX_PENDING];
 	struct lsp_queued queued[LSP_CLIENT_MAX_QUEUED];
 	size_t queued_count;
+	/* Read once, at start: a knob that changed under a running client
+	 * would leave requests measured against two different budgets. */
+	long long timeout_ms;
+	char name[LSP_CLIENT_NAME_MAX];
 	char root[PATH_MAX];
 };
+
+/* Who hears about stderr, timeouts and deaths; see src/lsp_client.h. */
+static lsp_client_log_fn log_hook;
+
+void lsp_client_set_log_hook(lsp_client_log_fn fn) { log_hook = fn; }
+
+/* CLOCK_MONOTONIC in milliseconds.  Monotonic and not the wall clock: a
+ * deadline measured against a clock that can be stepped is one a time-zone
+ * change or an NTP correction can expire. */
+static long long now_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+		return 0;
+	}
+	return (long long)ts.tv_sec * 1000 + (long long)(ts.tv_nsec / 1000000);
+}
+
+static void client_log(struct lsp_client *c, const char *text)
+{
+	if (log_hook) {
+		log_hook(c->name, text, strlen(text));
+	}
+}
+
+/* The timeout this client will use.  The environment wins when it names a
+ * number: zero switches the deadline off, a positive value replaces the
+ * default, and anything else -- a negative number, trailing text, an empty
+ * string -- is not an answer and leaves the default alone. */
+static long long timeout_from_env(void)
+{
+	const char *text = getenv(LSP_CLIENT_TIMEOUT_ENV);
+	char *end;
+	long long value;
+
+	if (!text || !*text) {
+		return LSP_CLIENT_TIMEOUT_MS_DEFAULT;
+	}
+	errno = 0;
+	value = strtoll(text, &end, 10);
+	if (errno != 0 || *end || value < 0) {
+		return LSP_CLIENT_TIMEOUT_MS_DEFAULT;
+	}
+	return value;
+}
 
 /* ---------------------------- message building ------------------------ */
 
@@ -375,29 +439,135 @@ static void pending_fail_one(struct lsp_client *c, long long id)
 	}
 }
 
+/* A JSON-RPC error object, as a parsed document whose root is the node.
+ * Written and then parsed rather than sprintf'd straight into a literal:
+ * it costs one small allocation on a path taken once per failure, the
+ * writer escapes a message kg did not compose itself, and it keeps the
+ * callback contract -- borrowed nodes from a parsed document -- identical
+ * on the failure path and the happy one.  NULL is a legal answer: the
+ * callback then sees neither result nor error, which still reads as "no
+ * reply will ever arrive". */
+static struct lsp_json *error_doc(int code, const char *message)
+{
+	struct lsp_jsonw w;
+	struct lsp_json *doc;
+	char *text = NULL;
+	size_t len = 0;
+
+	lsp_jsonw_init(&w);
+	lsp_jsonw_begin_object(&w);
+	lsp_jsonw_key(&w, "code");
+	lsp_jsonw_int(&w, code);
+	lsp_jsonw_key(&w, "message");
+	lsp_jsonw_string(&w, message);
+	lsp_jsonw_end_object(&w);
+	if (lsp_jsonw_finish(&w, &text, &len) != 0) {
+		return NULL;
+	}
+	doc = lsp_json_parse(text, len, NULL);
+	free(text);
+	return doc;
+}
+
 /* The client is finished.  Everything outstanding is failed with a
  * synthesised JSON-RPC error, so a caller sees a real error object rather
  * than having to invent one, and nothing that was queued is still owed a
- * send.  Parsing a literal is how the error node is made: it costs one
- * small allocation on a path taken once per server, and it keeps the
- * callback contract -- borrowed nodes from a parsed document -- identical
- * on the failure path and the happy one. */
+ * send.  The reason goes to the log as well: "why did that hang" is asked
+ * of the log buffer, and a server that died while a question was in flight
+ * is the commonest answer. */
 static void client_die(struct lsp_client *c, const char *why)
 {
-	static const char shape[] = "{\"code\":%d,\"message\":\"%s\"}";
-	struct lsp_json *doc;
-	char text[160];
-	int len;
+	struct lsp_json *doc = error_doc(LSP_JSONRPC_INTERNAL_DEAD, why);
 
 	c->state = LSP_CLIENT_DEAD;
 	drop_queued(c);
-	len = snprintf(
-	    text, sizeof(text), shape, LSP_JSONRPC_INTERNAL_DEAD, why);
-	doc = (len > 0 && (size_t)len < sizeof(text))
-	    ? lsp_json_parse(text, (size_t)len, NULL)
-	    : NULL;
+	client_log(c, why);
 	pending_fail_all(c, lsp_json_root(doc));
 	lsp_json_free(doc);
+}
+
+/* ------------------------------- deadlines ---------------------------- */
+
+/* When a request sent now runs out of time, or 0 for a client whose
+ * deadline is switched off. */
+static long long deadline_from_now(const struct lsp_client *c)
+{
+	return c->timeout_ms > 0 ? now_ms() + c->timeout_ms : 0;
+}
+
+/* Give every outstanding request its budget again, from now.  Called at
+ * the one moment a request can have been waiting without having been sent:
+ * the handshake finishing, which is what releases the whole held queue at
+ * once.  Measuring their patience from the moment they were asked would
+ * spend it on a server's own startup. */
+static void pending_restart_deadlines(struct lsp_client *c)
+{
+	size_t i;
+
+	for (i = 0; i < LSP_CLIENT_MAX_PENDING; i++) {
+		if (c->pending[i].used) {
+			c->pending[i].deadline_ms = deadline_from_now(c);
+		}
+	}
+}
+
+/* How long the wait was, as a reader would say it: whole seconds when it
+ * is whole seconds, milliseconds otherwise. */
+static void wait_text(long long ms, char *out, size_t size)
+{
+	if (ms >= 1000 && ms % 1000 == 0) {
+		snprintf(out, size, "%llds", ms / 1000);
+		return;
+	}
+	snprintf(out, size, "%lldms", ms);
+}
+
+/* Abandon one request whose deadline has passed.  The slot is released
+ * before the callback runs, for pending_fail_all()'s reason, and the
+ * callback gets a real error object naming the method and the wait -- so
+ * every caller's existing "the server said no" path reports the timeout
+ * once, with no second opinion to keep in step.
+ *
+ * The server is left alone.  It is alive; it owes an answer nobody is
+ * waiting for any more, and a reply that arrives later finds no pending
+ * entry and is dropped by handle_response() like any other stray id. */
+static void pending_expire_one(struct lsp_client *c, struct lsp_pending *slot)
+{
+	struct lsp_pending taken = *slot;
+	struct lsp_json *doc;
+	char text[LSP_CLIENT_METHOD_MAX + 64];
+	char waited[24];
+
+	memset(slot, 0, sizeof(*slot));
+	wait_text(c->timeout_ms, waited, sizeof(waited));
+	snprintf(text, sizeof(text), "no reply to %s after %s", taken.method,
+	    waited);
+	client_log(c, text);
+	doc = error_doc(LSP_JSONRPC_INTERNAL_TIMEOUT, text);
+	if (taken.cb) {
+		taken.cb(c, NULL, lsp_json_root(doc), taken.ctx);
+	}
+	lsp_json_free(doc);
+}
+
+/* Every request that has run out of time, at most once each.  Returns
+ * nonzero when one did, which is lsp_client_poll()'s repaint convention:
+ * the callback will have put something in the echo area. */
+static int pending_expire(struct lsp_client *c)
+{
+	long long now = now_ms();
+	int fired = 0;
+	size_t i;
+
+	for (i = 0; i < LSP_CLIENT_MAX_PENDING; i++) {
+		if (!c->pending[i].used || c->pending[i].deadline_ms == 0
+		    || c->pending[i].deadline_ms > now) {
+			continue;
+		}
+		pending_expire_one(c, &c->pending[i]);
+		fired = 1;
+	}
+	return fired;
 }
 
 /* ------------------------------ dispatching --------------------------- */
@@ -480,6 +650,7 @@ static void on_initialize(struct lsp_client *c,
 	capture_caps(c, lsp_json_get(result, "capabilities"));
 	c->state = LSP_CLIENT_READY;
 	(void)client_notify_now(c, "initialized");
+	pending_restart_deadlines(c);
 	flush_queued(c);
 }
 
@@ -618,6 +789,8 @@ static long long client_request(struct lsp_client *c, const char *method,
 	slot->id = id;
 	slot->cb = cb;
 	slot->ctx = ctx;
+	slot->deadline_ms = deadline_from_now(c);
+	snprintf(slot->method, sizeof(slot->method), "%s", method);
 	slot->used = true;
 	return id;
 }
@@ -670,6 +843,8 @@ static long long request_queue_build(struct lsp_client *c, const char *method,
 	slot->id = id;
 	slot->cb = cb;
 	slot->ctx = ctx;
+	slot->deadline_ms = deadline_from_now(c);
+	snprintf(slot->method, sizeof(slot->method), "%s", method);
 	slot->used = true;
 	return id;
 }
@@ -727,6 +902,8 @@ struct lsp_client *lsp_client_start(
 		return NULL;
 	}
 	c->next_id = 1;
+	c->timeout_ms = timeout_from_env();
+	snprintf(c->name, sizeof(c->name), "%s", "lsp");
 	if (root_path) {
 		snprintf(c->root, sizeof(c->root), "%s", root_path);
 	}
@@ -747,6 +924,26 @@ struct lsp_client *lsp_client_start(
 	return c;
 }
 
+/* Hand whatever the server has written to its standard error to the log,
+ * a line at a time.  Called before anything else a poll does, and on a
+ * DEAD client too: a server that explained its refusal and then exited did
+ * both in that order, and the explanation is the half worth keeping. */
+static void drain_stderr(struct lsp_client *c)
+{
+	const char *line = NULL;
+	size_t len = 0;
+
+	/* Read even with nobody listening.  A pipe kg never reads is one a
+	 * chatty server eventually blocks writing to, and a server blocked
+	 * on its stderr is a server that has stopped answering -- which is
+	 * the failure this whole side channel exists to explain. */
+	while (lsp_transport_next_stderr_line(c->t, &line, &len) == 1) {
+		if (log_hook) {
+			log_hook(c->name, line, len);
+		}
+	}
+}
+
 int lsp_client_poll(struct lsp_client *c)
 {
 	const char *body = NULL;
@@ -754,6 +951,7 @@ int lsp_client_poll(struct lsp_client *c)
 	int changed = 0;
 	int rc;
 
+	drain_stderr(c);
 	if (c->state == LSP_CLIENT_DEAD) {
 		return 0;
 	}
@@ -779,7 +977,11 @@ int lsp_client_poll(struct lsp_client *c)
 		client_die(c, "server exited");
 		return 1;
 	}
-	return changed;
+	/* Last, and only for a client that is still alive: a request whose
+	 * deadline passed while its server was dying has already been failed
+	 * by the death path, and reporting it twice is the one thing the
+	 * exactly-once contract forbids. */
+	return changed | pending_expire(c);
 }
 
 void lsp_client_shutdown_begin(struct lsp_client *c)
@@ -817,6 +1019,9 @@ void lsp_client_dispose(struct lsp_client *c, unsigned grace_ms)
 	if (!c) {
 		return;
 	}
+	/* The last chance anyone has to read what this server said: the
+	 * descriptors are closed a few lines below. */
+	drain_stderr(c);
 	if (c->state == LSP_CLIENT_READY) {
 		lsp_client_shutdown_begin(c);
 		wait_for_exit(c, grace_ms);
@@ -839,6 +1044,15 @@ const struct lsp_capabilities *lsp_client_caps(const struct lsp_client *c)
 }
 
 const char *lsp_client_root(const struct lsp_client *c) { return c->root; }
+
+void lsp_client_set_name(struct lsp_client *c, const char *name)
+{
+	if (name && name[0]) {
+		snprintf(c->name, sizeof(c->name), "%s", name);
+	}
+}
+
+const char *lsp_client_name(const struct lsp_client *c) { return c->name; }
 
 size_t lsp_client_pending_count(const struct lsp_client *c)
 {

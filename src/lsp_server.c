@@ -256,13 +256,21 @@ static struct lsp_client *spec_start(
 		.directory = root,
 		.stdin_fd = -1,
 	};
+	struct lsp_client *c;
 
 	if (override && *override) {
 		req.command = override;
 	} else {
 		req.argv = spec->argv;
 	}
-	return lsp_client_start(&req, root);
+	c = lsp_client_start(&req, root);
+	/* The spec's name, not the command line's: an override points kg at
+	 * a wrapper script or a fake, and what a message about "clangd"
+	 * should say is which server kg thinks it is talking to. */
+	if (c) {
+		lsp_client_set_name(c, spec->name);
+	}
+	return c;
 }
 
 /* The slot holding this key, or NULL.  A slot whose client has died is

@@ -265,15 +265,19 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
 #
-# src/visit.c and src/xref.c are outside all of this on purpose.  visit.c is
+# src/visit.c, src/xref.c and src/lsp_log.c are outside all of this on
+# purpose.  visit.c is
 # the navigation primitive next-error and xref share, so it is built in every
 # configuration; xref.c is built in every configuration too, for lsp_core.c's
 # reason -- the command table's `xref-find-definitions` row and the M-.
 # binding are unconditional, and a WITH_LSP=0 kg answers them by saying the
-# feature was not compiled in.  Neither is in LSP_OBJS, because LSP_OBJS is
+# feature was not compiled in.  lsp_log.c is the third: it owns the
+# *lsp-log* buffer, so it reaches the editor exactly as xref.c does, and
+# main.c installs it unconditionally.  None of them is in LSP_OBJS, because
+# LSP_OBJS is
 # also what every test binary links (see TEST_SRCS_OBJS) and xref.c reaches
 # the whole editor: the suite that does link it says so itself, below.
-LSP_ALL = $(TESTDIR)/test_xref \
+LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
@@ -285,7 +289,7 @@ LSP_ALL = $(TESTDIR)/test_xref \
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c dabbrev.c \
+       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c
 
@@ -348,7 +352,7 @@ endif
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
-            $(TESTDIR)/test_xref
+            $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -518,7 +522,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7219
+SCC_COMPLEXITY_MAX ?= 7294
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1120,6 +1124,13 @@ EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
 EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
                   $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
                   $(OBJDIR)/lsp_transport.o $(OBJDIR)/lsp_json.o
+# The log buffer is the other LSP module that writes to a buffer, so its
+# suite links what lsp_sync's does and for the same reason: real bufmgr.o,
+# so `*lsp-log*` is a buffer the editor made rather than a stand-in.  Its
+# own object is named because lsp_log.c is outside LSP_OBJS (see LSP_ALL),
+# and lsp_client.o -- whose log hook it installs -- arrives through
+# TEST_SRCS_OBJS.
+EXTRA_lsp_log := $(EXTRA_buffer) $(OBJDIR)/lsp_log.o
 # xref.c is the command layer: buffers, windows, the echo area, the command
 # table and the whole LSP stack underneath it.  Stubbing that is stubbing the
 # editor, so this links the same everything-but-main.c set EXTRA_cmd does --

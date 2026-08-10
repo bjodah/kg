@@ -196,12 +196,13 @@ int kg_process_spawn(
  * a language server, not a broken one -- so this stays a refusal until
  * something on Windows wants it. */
 int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
-    int *stdin_fd_out, int *stdout_fd_out)
+    int *stdin_fd_out, int *stdout_fd_out, int *stderr_fd_out)
 {
 	(void)req;
 	(void)pid_out;
 	(void)stdin_fd_out;
 	(void)stdout_fd_out;
+	(void)stderr_fd_out;
 	errno = ENOSYS;
 	return -1;
 }
@@ -299,9 +300,14 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
 
 /* The forked child, between fork() and exec.  Nothing here may allocate or
  * touch editor state; `p` is the output pipe, whose write end this end of
- * the fork owns. */
+ * the fork owns, and `stderr_fd` is a descriptor to put on the child's
+ * standard error, or -1 for the request's own policy (the output pipe, or
+ * /dev/null).  It is a parameter rather than a field of the request
+ * because only kg_process_spawn_bidi() makes such a pipe, and a field
+ * defaulting to 0 in a designated initializer would silently mean kg's own
+ * stdin -- the exact trap `stdin_fd` documents. */
 [[noreturn]] static void spawn_child(
-    const struct kg_spawn_request *req, const int p[2])
+    const struct kg_spawn_request *req, const int p[2], int stderr_fd)
 {
 	/* Both sides of the fork call setpgid() so neither has to win the
 	 * race: the child is a group leader before it can exec, and before
@@ -327,6 +333,8 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
 	dup2(p[1], STDOUT_FILENO);
 	if (req->stderr_to_output) {
 		dup2(p[1], STDERR_FILENO);
+	} else if (stderr_fd >= 0) {
+		dup2(stderr_fd, STDERR_FILENO);
 	} else if (null_fd >= 0) {
 		dup2(null_fd, STDERR_FILENO);
 	}
@@ -342,9 +350,11 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
 
 /* The pipe/fork/parent-side bookkeeping, unchanged by the argv-or-command
  * decision -- kg_process_spawn() is the one place that decision is made, so
- * pulling this out keeps its own complexity where it already was. */
-static int spawn_process(
-    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+ * pulling this out keeps its own complexity where it already was.
+ * `stderr_fd` is spawn_child()'s parameter of the same name, passed
+ * through: -1 for every caller but the bidirectional one. */
+static int spawn_process(const struct kg_spawn_request *req, int stderr_fd,
+    pid_t *pid_out, int *output_fd_out)
 {
 	int p[2];
 	pid_t pid;
@@ -363,7 +373,7 @@ static int spawn_process(
 	}
 
 	if (pid == 0) {
-		spawn_child(req, p);
+		spawn_child(req, p, stderr_fd);
 	}
 
 	close(p[1]);
@@ -393,28 +403,52 @@ static bool spawn_request_is_runnable(const struct kg_spawn_request *req)
 	return req->command != NULL;
 }
 
-int kg_process_spawn(
-    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+/* The runnable check and the spawn, with spawn_child()'s `stderr_fd`
+ * passed through.  Both public entry points are this function with a
+ * different third pipe: none, or one the bidirectional caller made. */
+static int spawn_checked(const struct kg_spawn_request *req, int stderr_fd,
+    pid_t *pid_out, int *output_fd_out)
 {
 	if (!spawn_request_is_runnable(req)) {
 		errno = EINVAL;
 		return -1;
 	}
-	return spawn_process(req, pid_out, output_fd_out);
+	return spawn_process(req, stderr_fd, pid_out, output_fd_out);
 }
 
-/* Composed out of kg_process_spawn() rather than beside it: the extra
- * descriptor a bidirectional child needs is a pipe whose read end goes in
- * the request's own `stdin_fd`, which is precisely what that field is for
- * and what shell.c already does with it.  So the fork, the exec, the
- * process group, the /dev/null fallbacks and the CLOEXEC discipline are
- * reached, not copied -- both ends of the new pipe are CLOEXEC, and the
- * one the child keeps loses the flag on the dup2() onto fd 0. */
+int kg_process_spawn(
+    const struct kg_spawn_request *req, pid_t *pid_out, int *output_fd_out)
+{
+	return spawn_checked(req, -1, pid_out, output_fd_out);
+}
+
+/* The optional third pipe.  Returns the read end, or -1 -- and -1 is not a
+ * failure of the spawn: a server whose complaints cannot be captured is
+ * still a server, so the child gets /dev/null on its stderr and the caller
+ * is told there is nothing to read. */
+static int stderr_pipe_open(int fds[2], int *stderr_fd_out)
+{
+	if (!stderr_fd_out || kg_pipe_cloexec(fds) < 0) {
+		return -1;
+	}
+	return fds[1];
+}
+
+/* Composed out of the same spawn as kg_process_spawn() rather than beside
+ * it: the extra descriptor a bidirectional child needs is a pipe whose read
+ * end goes in the request's own `stdin_fd`, which is precisely what that
+ * field is for and what shell.c already does with it.  So the fork, the
+ * exec, the process group, the /dev/null fallbacks and the CLOEXEC
+ * discipline are reached, not copied -- every end of the new pipes is
+ * CLOEXEC, and the ones the child keeps lose the flag on the dup2() onto
+ * fd 0 and fd 2. */
 int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
-    int *stdin_fd_out, int *stdout_fd_out)
+    int *stdin_fd_out, int *stdout_fd_out, int *stderr_fd_out)
 {
 	struct kg_spawn_request child = *req;
 	int in[2];
+	int err[2] = { -1, -1 };
+	int err_write;
 	int saved_errno;
 
 	if (req->stdin_fd >= 0) {
@@ -424,18 +458,28 @@ int kg_process_spawn_bidi(const struct kg_spawn_request *req, pid_t *pid_out,
 	if (kg_pipe_cloexec(in) < 0) {
 		return -1;
 	}
+	err_write = stderr_pipe_open(err, stderr_fd_out);
 	child.stdin_fd = in[0];
 	child.nonblocking_output = true;
-	if (kg_process_spawn(&child, pid_out, stdout_fd_out) != 0) {
+	if (spawn_checked(&child, err_write, pid_out, stdout_fd_out) != 0) {
 		saved_errno = errno;
 		close(in[0]);
 		close(in[1]);
+		kg_close_fd(&err[0]);
+		kg_close_fd(&err[1]);
 		errno = saved_errno;
 		return -1;
 	}
 	close(in[0]);
+	kg_close_fd(&err[1]);
 	fcntl(in[1], F_SETFL, O_NONBLOCK);
 	*stdin_fd_out = in[1];
+	if (stderr_fd_out) {
+		if (err[0] >= 0) {
+			fcntl(err[0], F_SETFL, O_NONBLOCK);
+		}
+		*stderr_fd_out = err[0];
+	}
 	return 0;
 }
 

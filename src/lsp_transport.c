@@ -43,8 +43,16 @@ struct lsp_transport {
 	pid_t pid;
 	int in_fd; /* kg writes -> child's stdin */
 	int out_fd; /* kg reads <- child's stdout */
+	int err_fd; /* kg reads <- child's stderr, or -1 */
 	struct lsp_buf inbox;
 	struct lsp_buf outbox;
+	/* The stderr side channel: its own buffer, its own borrow, its own
+	 * end of stream.  None of it touches `error`, because a server's
+	 * complaints failing has nothing to do with whether it is still
+	 * speaking the protocol. */
+	struct lsp_buf errbox;
+	size_t err_delivered;
+	bool err_eof;
 	/* How much of the outbox the child has taken.  A partial write
 	 * resumes here rather than re-sending. */
 	size_t outbox_sent;
@@ -323,6 +331,98 @@ static int inbox_fill(struct lsp_transport *t)
 	return -1;
 }
 
+/* ------------------------------ standard error ------------------------ */
+
+/* One read() into the errbox, with the failure policy inverted from
+ * inbox_fill()'s: nothing here fails the transport, it only stops the side
+ * channel.  1 when bytes arrived, 0 when the pipe is empty for now, -1 at
+ * end of stream, on an error, or when stderr was never captured. */
+static int errbox_fill(struct lsp_transport *t)
+{
+	ssize_t n;
+
+	if (t->err_fd < 0 || t->err_eof) {
+		return -1;
+	}
+	if (!buf_reserve(&t->errbox, LSP_TRANSPORT_READ_CHUNK)) {
+		t->err_eof = true;
+		return -1;
+	}
+	n = read(t->err_fd, t->errbox.data + t->errbox.len,
+	    LSP_TRANSPORT_READ_CHUNK);
+	if (n > 0) {
+		t->errbox.len += (size_t)n;
+		return 1;
+	}
+	if (n < 0 && io_would_block()) {
+		return 0;
+	}
+	t->err_eof = true;
+	return -1;
+}
+
+/* Cut one line off the front of the errbox: 1 with the line borrowed out,
+ * 0 when more bytes are needed.  `final` is what makes the last line
+ * before end of stream a line at all -- otherwise a run with no newline in
+ * it is not one yet, and waiting is the right answer. */
+static int errbox_take_line(
+    struct lsp_transport *t, bool final, const char **line, size_t *len)
+{
+	const char *nl = t->errbox.len
+	    ? memchr(t->errbox.data, '\n', t->errbox.len)
+	    : NULL;
+	size_t take;
+
+	if (nl) {
+		take = (size_t)(nl - t->errbox.data);
+		t->err_delivered = take + 1;
+	} else if (t->errbox.len >= LSP_TRANSPORT_MAX_STDERR_LINE) {
+		take = LSP_TRANSPORT_MAX_STDERR_LINE;
+		t->err_delivered = take;
+	} else if (final && t->errbox.len > 0) {
+		take = t->errbox.len;
+		t->err_delivered = take;
+	} else {
+		return 0;
+	}
+	/* A server on a terminal-shaped stderr writes CRLF; the carriage
+	 * return is framing, not text, and would paint as one more glyph. */
+	if (take > 0 && t->errbox.data[take - 1] == '\r') {
+		take--;
+	}
+	*line = t->errbox.data;
+	*len = take;
+	return 1;
+}
+
+int lsp_transport_next_stderr_line(
+    struct lsp_transport *t, const char **line, size_t *len)
+{
+	int rc;
+
+	*line = NULL;
+	*len = 0;
+	/* The previous call's line is released here and not before, which is
+	 * what the borrow in lsp_transport.h promises. */
+	buf_consume(&t->errbox, t->err_delivered);
+	t->err_delivered = 0;
+	if (t->err_fd < 0) {
+		return 0;
+	}
+	for (;;) {
+		if (errbox_take_line(t, t->err_eof, line, len)) {
+			return 1;
+		}
+		rc = errbox_fill(t);
+		if (rc <= 0) {
+			/* End of stream turns the tail into a line, once. */
+			return (rc < 0 && t->err_eof)
+			    ? errbox_take_line(t, true, line, len)
+			    : 0;
+		}
+	}
+}
+
 /* ------------------------------ public API ---------------------------- */
 
 struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
@@ -332,11 +432,14 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 	pid_t pid = -1;
 	int in_fd = -1;
 	int out_fd = -1;
+	int err_fd = -1;
 	int saved_errno;
 
 	/* Not negotiable, whatever the caller asked for: a server's stderr
 	 * spliced into its stdout is one log line between a header and its
-	 * body, and framing that has desynchronised never resynchronises. */
+	 * body, and framing that has desynchronised never resynchronises.
+	 * It gets a pipe of its own instead, which is what makes a server's
+	 * complaint readable without it ever reaching the parser. */
 	child.stderr_to_output = false;
 
 	t = calloc(1, sizeof(*t));
@@ -344,7 +447,8 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 		errno = ENOMEM;
 		return NULL;
 	}
-	if (kg_process_spawn_bidi(&child, &pid, &in_fd, &out_fd) != 0) {
+	if (kg_process_spawn_bidi(&child, &pid, &in_fd, &out_fd, &err_fd)
+	    != 0) {
 		saved_errno = errno;
 		free(t);
 		errno = saved_errno;
@@ -353,6 +457,7 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 	t->pid = pid;
 	t->in_fd = in_fd;
 	t->out_fd = out_fd;
+	t->err_fd = err_fd;
 	return t;
 }
 
@@ -365,6 +470,7 @@ void lsp_transport_close(struct lsp_transport *t)
 	}
 	kg_close_fd(&t->in_fd);
 	kg_close_fd(&t->out_fd);
+	kg_close_fd(&t->err_fd);
 	if (!t->reaped && t->pid > 0) {
 		/* The backstop, not the policy: Stage 3's graceful
 		 * shutdown/exit exchange happens before this is reached,
@@ -376,6 +482,7 @@ void lsp_transport_close(struct lsp_transport *t)
 	}
 	free(t->inbox.data);
 	free(t->outbox.data);
+	free(t->errbox.data);
 	free(t);
 }
 

@@ -3182,6 +3182,30 @@ shuts every running server down.
 A server that dies is not restarted where it fell; the next command
 starts a new one.
 .Pp
+Every request carries a deadline, since a server that is alive but stuck
+answers nothing and only death is otherwise noticed.
+Thirty seconds after it was sent, an unanswered request is abandoned: the
+echo area reports it once, naming the method and the wait
+.Pq Sq no reply to textDocument/definition after 30s ,
+the same line is written to
+.Pa *lsp-log* ,
+and nothing else happens \(em the server is left running, a reply that
+arrives afterwards is dropped, and the next command asks it again.
+.Ev KG_LSP_TIMEOUT_MS
+overrides the thirty seconds, in milliseconds, and
+.Sq 0
+switches the deadline off for a session debugging a server by hand.
+.Pp
+.Pa *lsp-log*
+is where a server's own words go: everything it writes to its standard
+error, one line at a time and prefixed with the server's name, together
+with every request that ran out of time and the reason a server died.
+It is created on the first line and never selects itself or takes a
+window \(em
+.Ic C-x b Pa *lsp-log*
+is how it is read \(em and it keeps the last 64 KiB, dropping whole lines
+from the top.
+.Pp
 Positions are exchanged in whichever encoding the handshake settles on.
 .Nm
 offers UTF-8 first, because its own columns are byte offsets and nothing
@@ -3948,6 +3972,20 @@ or
 Run through
 .Ic /bin/sh -c ,
 so quoting and arguments work; unset or empty leaves the built-in.
+Ignored by a
+.Sq -lsp
+build.
+See
+.Sx LSP .
+.It Ev KG_LSP_TIMEOUT_MS
+How long a
+.Sq +lsp
+build waits for one language-server request, in milliseconds, before
+abandoning it and reporting so.
+The default is 30000;
+.Sq 0
+waits forever, and anything that is not a number is ignored.
+Read once per server, when it is started.
 Ignored by a
 .Sq -lsp
 build.

@@ -9,7 +9,8 @@ mode parses them as JSON-RPC and answers.
 
 Everything is read from stdin and written to stdout.  Nothing is ever
 written to stdout that is not part of a frame -- diagnostics go to stderr,
-which the transport routes to /dev/null -- except in the modes whose whole
+which the transport reads on a pipe of its own and hands to kg's
+``*lsp-log*`` buffer (``--stderr`` below) -- except in the modes whose whole
 purpose is to misbehave.  Every mode is deterministic apart from
 ``--delay-ms``, which is a duration a test asked for.
 
@@ -104,6 +105,20 @@ Options, all of them optional:
 ``--delay-ms N``
     Sleep N milliseconds before each reply, so a test can prove nothing
     blocks on an answer that has not arrived.
+``--delay-method METHOD``
+    Restrict ``--delay-ms`` to replies to METHOD.  Without it the delay is
+    paid on every reply including ``initialize``, which a test about one
+    slow request does not want -- a handshake delayed past the client's
+    own deadline is a different case.
+``--no-reply METHOD`` (repeatable)
+    Read requests for METHOD, count them, and answer none of them, ever:
+    a server that is alive and stuck, which is the one failure a client
+    cannot notice by watching the child die.  Everything else is answered
+    as usual, so a test can prove the server still works afterwards.
+``--stderr TEXT`` (repeatable)
+    Write TEXT, and a newline, to standard error before reading anything:
+    a server explaining itself on the channel the protocol does not use.
+    Written at startup so a test never has to guess when it appears.
 ``--exit-after N``
     Exit as soon as N replies have been sent.
 ``--die-on METHOD``
@@ -274,8 +289,9 @@ class Protocol:
     def send(self, message):
         write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
 
-    def reply(self, request_id, result):
-        if self.args.delay_ms:
+    def reply(self, request_id, result, method=None):
+        if self.args.delay_ms and (not self.args.delay_method
+                                   or method == self.args.delay_method):
             time.sleep(self.args.delay_ms / 1000.0)
         self.send({"jsonrpc": "2.0", "id": request_id, "result": result})
         self.replies += 1
@@ -443,6 +459,10 @@ class Protocol:
         if "id" not in message:
             return  # a notification: initialized, and whatever else
         self.handled += 1
+        if method in self.args.no_reply:
+            # Received, counted, and left unanswered forever: the client's
+            # own deadline is the only thing that can end this request.
+            return
         if self.args.garbage_reply and method == self.args.garbage_reply:
             write_all(self.stdout, frame(GARBAGE_BODY))
             return
@@ -451,10 +471,10 @@ class Protocol:
             self.deferred.append((message["id"], result))
             if len(self.deferred) >= 2:
                 for pending_id, pending in reversed(self.deferred):
-                    self.reply(pending_id, pending)
+                    self.reply(pending_id, pending, method)
                 self.deferred = []
             return
-        self.reply(message["id"], result)
+        self.reply(message["id"], result, method)
 
     def run(self, stdin):
         while True:
@@ -469,6 +489,9 @@ class Protocol:
 
 
 def mode_protocol(stdin, stdout, args):
+    for line in args.stderr_line:
+        sys.stderr.write(line + "\n")
+    sys.stderr.flush()
     Protocol(stdout, args).run(stdin)
 
 
@@ -525,6 +548,14 @@ def main(argv):
                         help="method of a notification sent to the client")
     parser.add_argument("--delay-ms", type=int, default=0,
                         help="milliseconds to wait before each reply")
+    parser.add_argument("--delay-method", default=None,
+                        help="restrict --delay-ms to replies to this method")
+    parser.add_argument("--no-reply", action="append", default=[],
+                        help="read requests for this method and never answer "
+                             "one")
+    parser.add_argument("--stderr", dest="stderr_line", action="append",
+                        default=[],
+                        help="line written to standard error at startup")
     parser.add_argument("--exit-after", type=int, default=0,
                         help="exit once this many replies have been sent")
     parser.add_argument("--die-on", default=None,

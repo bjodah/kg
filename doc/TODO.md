@@ -109,11 +109,16 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   and stripped of control bytes, because a listing row is what RET indexes
   results by.  The seam is a module of its own for the occur- and
   grep-style listings that want the same text.
-- **A per-request timeout.**  A server that is alive but stuck answers
-  nothing and kg waits forever; only death is detected today.
-- **An `*lsp-log*` buffer.**  Server stderr goes to `/dev/null`
-  (`kg_process_spawn_bidi()`), so a server that explains its refusal
-  explains it to nobody.
+- [x] **A per-request timeout.**  Done 2026-08-10: every request carries a
+      deadline (30 s, `KG_LSP_TIMEOUT_MS`, `0` disables), and one that
+      passes abandons the request with an error naming the method and the
+      wait, a line in `*lsp-log*`, and the server left running.  A late
+      reply lands on no pending entry and is dropped.
+- [x] **An `*lsp-log*` buffer.**  Done 2026-08-10: server stderr has a pipe
+      of its own (`kg_process_spawn_bidi()`'s fifth argument), and its
+      lines, the timeouts and the reason a client died are appended to
+      `*lsp-log*` with the server's name in front.  Created lazily, never
+      selected, last 64 KiB kept.
 - **A fuzz target for the frame parser.**  `lsp_transport.c`'s
   Content-Length framing is the one place kg parses bytes from a process
   it did not write; the five existing targets are the pattern

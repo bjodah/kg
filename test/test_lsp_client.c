@@ -113,6 +113,7 @@ struct answer {
 	bool had_result;
 	bool had_error;
 	char tag[64];
+	char message[128];
 	bool method_not_found;
 };
 
@@ -129,6 +130,10 @@ static void record(struct lsp_client *c, const struct lsp_json_value *result,
 	tag = lsp_json_str(lsp_json_get(result, "tag"), NULL);
 	if (tag) {
 		snprintf(a->tag, sizeof(a->tag), "%s", tag);
+	}
+	tag = lsp_json_str(lsp_json_get(error, "message"), NULL);
+	if (tag) {
+		snprintf(a->message, sizeof(a->message), "%s", tag);
 	}
 	a->method_not_found
 	    = lsp_json_bool(lsp_json_get(result, "methodNotFound"), false);
@@ -989,6 +994,197 @@ static void test_env_override_spawns_the_fake_server(void)
 	set_c_server(NULL);
 }
 
+/* --------------------------- deadlines and the log -------------------- */
+
+/* What the log hook was told, as one string, so an assertion is a
+ * strstr(): the hook's own line splitting is src/lsp_log.c's business and
+ * is asserted there. */
+static char log_seen[8192];
+static size_t log_seen_len;
+
+static void log_capture(const char *server, const char *text, size_t len)
+{
+	int n
+	    = snprintf(log_seen + log_seen_len, sizeof(log_seen) - log_seen_len,
+		"[%s] %.*s\n", server, (int)len, text);
+
+	if (n > 0 && (size_t)n < sizeof(log_seen) - log_seen_len) {
+		log_seen_len += (size_t)n;
+	}
+}
+
+static void log_capture_begin(void)
+{
+	log_seen[0] = '\0';
+	log_seen_len = 0;
+	lsp_client_set_log_hook(log_capture);
+}
+
+static void log_capture_end(void) { lsp_client_set_log_hook(NULL); }
+
+/* Poll for `seconds` whatever happens, for the cases whose assertion is
+ * that nothing did. */
+static void pump_for(struct lsp_client *c, double seconds)
+{
+	double deadline = monotonic_seconds() + seconds;
+	struct timespec nap = { 0, 1000000 };
+
+	while (monotonic_seconds() < deadline) {
+		(void)lsp_client_poll(c);
+		nanosleep(&nap, NULL);
+	}
+}
+
+static void set_timeout_env(const char *value)
+{
+	if (value) {
+		setenv(LSP_CLIENT_TIMEOUT_ENV, value, 1);
+	} else {
+		unsetenv(LSP_CLIENT_TIMEOUT_ENV);
+	}
+}
+
+/* A server that is alive and stuck: it reads the request, answers nothing,
+ * and would keep the caller waiting forever.  The deadline is what ends
+ * the request -- with an error naming the method, one line in the log, and
+ * a server left running, which the second question proves by being
+ * answered. */
+static void test_a_stuck_request_is_abandoned_on_its_deadline(void)
+{
+	const char *extra[] = { "--no-reply", "kg/echo", NULL };
+	struct answer stuck = { 0 };
+	struct answer alive = { 0 };
+	struct lsp_client *c;
+
+	set_timeout_env("250");
+	log_capture_begin();
+	c = start_protocol(extra);
+	set_timeout_env(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "stuck", &stuck) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(stuck.calls == 1);
+	CHECK(!stuck.had_result && stuck.had_error);
+	CHECK(strcmp(stuck.message, "no reply to kg/echo after 250ms") == 0);
+	CHECK(
+	    strstr(log_seen, "[lsp] no reply to kg/echo after 250ms") != NULL);
+	/* Not torn down: only the request was abandoned. */
+	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, &alive) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(alive.calls == 1 && alive.had_result);
+	lsp_client_dispose(c, 200);
+	log_capture_end();
+}
+
+/* The answer that turns up after nobody is waiting for it.  Its pending
+ * entry is gone, so handle_response() has nothing to match it to and drops
+ * it: the callback runs exactly once, which is the contract, and the late
+ * reply is neither a second call nor a crash. */
+static void test_a_late_reply_after_a_timeout_is_dropped(void)
+{
+	const char *extra[]
+	    = { "--delay-method", "kg/echo", "--delay-ms", "900", NULL };
+	struct answer late = { 0 };
+	struct lsp_client *c;
+
+	set_timeout_env("250");
+	c = start_protocol(extra);
+	set_timeout_env(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "late", &late) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(late.calls == 1 && late.had_error);
+	/* Well past the server's own delay: the reply does arrive. */
+	pump_for(c, 1.5);
+	CHECK(late.calls == 1);
+	CHECK(lsp_client_pending_count(c) == 0);
+	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
+	lsp_client_dispose(c, 200);
+}
+
+/* Zero is the escape hatch: a session debugging a server by hand waits as
+ * long as it likes. */
+static void test_a_zero_timeout_never_expires(void)
+{
+	const char *extra[] = { "--no-reply", "kg/echo", NULL };
+	struct answer never = { 0 };
+	struct lsp_client *c;
+
+	set_timeout_env("0");
+	c = start_protocol(extra);
+	set_timeout_env(NULL);
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(echo_request(c, "forever", &never) > 0);
+	pump_for(c, 0.6);
+	CHECK(never.calls == 0);
+	CHECK(lsp_client_pending_count(c) == 1);
+	/* Disposing is what finally runs it, as it does for any client with
+	 * a request still outstanding. */
+	lsp_client_dispose(c, 200);
+	CHECK(never.calls == 1);
+}
+
+/* What a server writes to its standard error reaches the log, a line at a
+ * time and with the newline gone.  It used to reach /dev/null. */
+static void test_server_stderr_reaches_the_log(void)
+{
+	const char *extra[] = { "--stderr", "kg-test: no compile_commands.json",
+		"--stderr", "kg-test: second line", NULL };
+	struct lsp_client *c;
+
+	log_capture_begin();
+	c = start_protocol(extra);
+	CHECK(c != NULL);
+	if (!c) {
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	pump_for(c, 0.3);
+	CHECK(strstr(log_seen, "[lsp] kg-test: no compile_commands.json\n")
+	    != NULL);
+	CHECK(strstr(log_seen, "[lsp] kg-test: second line\n") != NULL);
+	lsp_client_dispose(c, 200);
+	log_capture_end();
+}
+
+/* The registry names its clients after the server it thinks it started, so
+ * two servers writing to the log at once stay tellable apart -- and an
+ * override pointing at a fake still says "clangd", because what a message
+ * about clangd should say is which spec it came from. */
+static void test_the_registry_names_the_client(void)
+{
+	enum lsp_server_status status = LSP_SERVER_OK;
+	char command[PATH_MAX + 128];
+	struct lsp_client *c;
+
+	snprintf(command, sizeof(command), "python3 '%s' --mode protocol",
+	    script_path);
+	set_c_server(command);
+	c = server_for("proj/deep/a.c", &status);
+	CHECK(c != NULL && status == LSP_SERVER_OK);
+	if (c) {
+		CHECK(strcmp(lsp_client_name(c), "clangd") == 0);
+	}
+	lsp_server_shutdown_all(300);
+	CHECK(lsp_server_instance_count() == 0);
+	set_c_server(NULL);
+}
+
 /* ------------------------------- harness ------------------------------ */
 
 /* Where test/fake_lsp_server.py is, given how this binary was invoked:
@@ -1091,6 +1287,12 @@ int main(int argc, char **argv)
 	RUN(test_registry_refuses_a_fifth_instance);
 	RUN(test_registry_refuses_an_unsupported_mode);
 	RUN(test_env_override_spawns_the_fake_server);
+	RUN(test_the_registry_names_the_client);
+
+	RUN(test_a_stuck_request_is_abandoned_on_its_deadline);
+	RUN(test_a_late_reply_after_a_timeout_is_dropped);
+	RUN(test_a_zero_timeout_never_expires);
+	RUN(test_server_stderr_reaches_the_log);
 
 	remove_trees();
 	return test_summary();

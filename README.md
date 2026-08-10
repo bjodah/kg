@@ -453,6 +453,26 @@ keystroke, so an unsaved buffer is still the text the answer is about.
 Killing a buffer tells every server holding it that the document is
 closed, and quitting kg shuts every running server down.
 
+Every request has a **deadline**, because a server that is alive but stuck
+answers nothing and only death is otherwise noticed. Thirty seconds after
+it was sent, an unanswered request is abandoned: the echo area says `no
+reply to textDocument/definition after 30s`, the same line goes to the log
+below, and that is the end of it — the server is left running, a reply that
+turns up later is dropped, and the next command asks it again as usual.
+`KG_LSP_TIMEOUT_MS` overrides the thirty seconds (`0` waits forever, which
+is for debugging a server by hand). The default is deliberately longer than
+Emacs' eglot's ten seconds: a cold clangd indexing a large project can take
+that long to answer honestly, and cancelling it would turn a slow answer
+into a wrong one.
+
+`*lsp-log*` is where a server's own words go. Anything it writes to its
+standard error — the complaint about a missing `compile_commands.json`, the
+flags it guessed — is captured there a line at a time, prefixed with the
+server's name, together with every request that ran out of time and the
+reason a server died. The buffer is created on the first line and never
+selects itself: `C-x b *lsp-log*` is how you read it, on the day something
+hangs. It keeps the last 64 KiB, dropping whole lines from the top.
+
 `KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x
 compile`'s command is, so a wrapper, a path with spaces or extra arguments
@@ -460,6 +480,7 @@ all work — and it is how kg's own tests point the client at a fake server:
 
 ```bash
 KG_LSP_SERVER_C='clangd --header-insertion=never' kg foo.c
+KG_LSP_TIMEOUT_MS=5000 kg foo.c      # give up on a request after 5 s
 ```
 
 ## Development

@@ -53,6 +53,13 @@
 #define LSP_TRANSPORT_MAX_BODY_BYTES (32u * 1024u * 1024u)
 #define LSP_TRANSPORT_MAX_OUTBOX_BYTES (4u * 1024u * 1024u)
 
+/* The longest run of stderr bytes with no newline in it that is still
+ * called a line.  A server writing a megabyte without a newline is not
+ * logging, and the buffer holding it must not grow on its say-so any more
+ * than the inbox may; past this the bytes so far are delivered as a line
+ * and the rest becomes the next one. */
+#define LSP_TRANSPORT_MAX_STDERR_LINE 4096u
+
 /* Why a transport is dead.  Reported for the log and for tests; no caller
  * is expected to branch on the distinction between an I/O error and a
  * protocol one, since the remedy for all of them is the same. */
@@ -120,6 +127,25 @@ int lsp_transport_flush(struct lsp_transport *t);
  * something other than 1. */
 int lsp_transport_next_message(
     struct lsp_transport *t, const char **body, size_t *len);
+
+/* Pull the next complete line the child wrote to its standard error,
+ * reading from it as needed.  Returns 1 with `*line`/`*len` set to the
+ * line's bytes without its newline, and 0 when there is no whole line to
+ * give.  Call in a loop until it returns 0.
+ *
+ * `*line` is borrowed exactly as lsp_transport_next_message()'s body is:
+ * it points into the transport's own buffer, is NOT NUL-terminated, and is
+ * valid only until the next call.
+ *
+ * Standard error is a side channel and never fails the transport.  It has
+ * its own pipe (see process.h), so nothing here can desynchronise the
+ * framing on the other one; a stderr that ends, errors, or was never
+ * captured at all simply has no more lines, and the protocol stream goes
+ * on.  The last line before end of stream is delivered even without a
+ * terminating newline, since a server that dies mid-sentence is exactly
+ * the one whose sentence is worth reading. */
+int lsp_transport_next_stderr_line(
+    struct lsp_transport *t, const char **line, size_t *len);
 
 /* Whether the transport has failed, and why.  A failed transport keeps
  * answering these two and refuses everything else. */

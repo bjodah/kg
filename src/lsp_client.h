@@ -43,6 +43,44 @@ typedef void (*lsp_response_fn)(struct lsp_client *c,
     const struct lsp_json_value *result, const struct lsp_json_value *error,
     void *ctx);
 
+/* How long a request may go unanswered before the client stops waiting for
+ * it, and the environment variable that overrides it -- read once per
+ * client, at lsp_client_start(), the way src/lsp_server.h's
+ * KG_LSP_SERVER_<MODE> is read at spawn time.
+ *
+ * Thirty seconds, not eglot's ten: kg's own bound has to cover the worst
+ * honest answer rather than the usual one, and a clangd asked for a
+ * definition while it is still indexing a cold, large project routinely
+ * takes longer than ten seconds to answer -- a bound that cancels that
+ * request turns a slow answer into a wrong one ("no reply") on exactly the
+ * project where the question was worth asking.  Thirty seconds is far past
+ * any warm server (single-digit milliseconds) and still short enough that a
+ * stuck one is reported inside one coffee-free attention span.
+ *
+ * The value is milliseconds.  Zero switches the deadline off entirely, for
+ * a session debugging a server by hand; anything that is not a positive
+ * number leaves the default.  A test sets it to a fraction of a second,
+ * which is the other reason it is a knob at all. */
+#define LSP_CLIENT_TIMEOUT_ENV "KG_LSP_TIMEOUT_MS"
+#define LSP_CLIENT_TIMEOUT_MS_DEFAULT 30000
+
+/* Told about anything a user should be able to read afterwards: a line the
+ * server wrote to its standard error, a request abandoned on its deadline,
+ * the reason a client died.  `server` is lsp_client_name()'s answer, so
+ * that two servers writing at once stay tellable apart, and `text`/`len`
+ * are one line with no newline in it -- borrowed for the duration of the
+ * call, like every other node here.
+ *
+ * One hook for the whole module, not one per client, for the reason
+ * lsp_server.h's instance-drop hook gives: there is exactly one thing in kg
+ * that keeps this state (the `*lsp-log*` buffer, src/lsp_log.h), and a
+ * registry of listeners for a single listener is a table to get wrong.
+ * NULL, the default, throws the text away -- which is what a test binary
+ * with no editor in it wants. */
+typedef void (*lsp_client_log_fn)(
+    const char *server, const char *text, size_t len);
+void lsp_client_set_log_hook(lsp_client_log_fn fn);
+
 /* Build a request's `params` at the moment the message is actually written.
  *
  * Returns a malloc'd JSON value and its length -- the same bytes
@@ -131,6 +169,14 @@ struct lsp_capabilities {
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path);
 
+/* What this client is called in a message a user reads: the server's own
+ * name ("clangd"), set by the registry that knows it (src/lsp_server.c).
+ * A client nobody named answers "lsp", so a message always has a subject.
+ * The name is copied and truncated to fit; NULL and "" leave the default.
+ */
+void lsp_client_set_name(struct lsp_client *c, const char *name);
+const char *lsp_client_name(const struct lsp_client *c);
+
 /* Stop the server and free the client, synchronously, for an editor that is
  * exiting.  A READY client is asked to `shutdown` and then `exit`, and this
  * waits for that exchange for at most `grace_ms` in total -- polling, not
@@ -156,7 +202,19 @@ void lsp_client_dispose(struct lsp_client *c, unsigned grace_ms);
  *
  * Before READY the message is held rather than sent, and flushed in order
  * once the handshake completes.  That is not a nicety: a server is entitled
- * to ignore or reject anything sent before it has been initialized. */
+ * to ignore or reject anything sent before it has been initialized.  A
+ * request held that way is given its whole deadline from the moment it is
+ * finally sent, so a server that took twenty seconds to start does not
+ * spend the first question's budget on its own handshake.
+ *
+ * Every request carries a deadline (LSP_CLIENT_TIMEOUT_ENV above).  When it
+ * passes, the request is abandoned: the pending entry goes, `cb` runs with
+ * a synthesised JSON-RPC error whose message names the method and the wait,
+ * and one line goes to the log hook.  The server is NOT torn down -- it is
+ * alive, it simply owes an answer nobody is waiting for any more -- and a
+ * reply that turns up afterwards is dropped like any other reply to an id
+ * nobody is waiting for.  A caller therefore needs no timer of its own: the
+ * exactly-once callback covers the case where no answer ever comes. */
 long long lsp_client_request(struct lsp_client *c, const char *method,
     const char *params, size_t params_len, lsp_response_fn cb, void *ctx);
 
@@ -199,7 +257,9 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
     const char *params, size_t params_len);
 
 /* Service the child: write what is queued, read what has arrived, dispatch
- * every complete message, and notice a server that has died.  Returns
+ * every complete message, hand the server's standard error to the log hook
+ * a line at a time, abandon whatever request has run out of time, and
+ * notice a server that has died.  Returns
  * nonzero when something happened -- a callback ran, the state changed --
  * which is lsp_poll()'s repaint convention, passed up unchanged.
  *

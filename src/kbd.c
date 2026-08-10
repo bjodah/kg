@@ -790,6 +790,8 @@ void key_install_builtin_maps(void)
 	    = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_XREF] = keymap_create("xref", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_OCCUR] = keymap_create("occur", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_DIAGNOSTICS]
+	    = keymap_create("diagnostics", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_COMMIT]
 	    = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_REBASE]

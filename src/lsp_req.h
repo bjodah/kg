@@ -1,8 +1,6 @@
 #ifndef KG_LSP_REQ_H
 #define KG_LSP_REQ_H
 
-#include <stddef.h>
-
 #include "bufhandle.h" /* struct kg_buffer_handle, by value below */
 #include "lsp_client.h" /* enum lsp_position_encoding */
 
@@ -27,9 +25,6 @@
  * configurations keeps its own no-LSP half (src/xref.c's shape), and only
  * its LSP half calls in here.
  */
-
-struct lsp_client;
-struct lsp_json_value;
 
 /* Where the question was asked, resolved again at the moment the answer
  * arrives rather than remembered as a number: an edit made while the

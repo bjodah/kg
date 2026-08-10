@@ -80,6 +80,7 @@ size_t lsp_complete_common_prefix(const char *const *texts, size_t n)
 
 #ifdef KG_USE_LSP
 
+#include "bufhandle.h"
 #include "dabbrev.h"
 #include "def.h"
 #include "edit.h"
@@ -88,9 +89,10 @@ size_t lsp_complete_common_prefix(const char *const *texts, size_t n)
 #include "lsp_json.h"
 #include "lsp_req.h"
 #include "lsp_sync.h"
-#include "syntax.h"
 
 #include <stdio.h>
+
+struct lsp_json_value;
 
 /* The name every message this prints spells. */
 #define COMPLETE_WHO "completion-at-point"

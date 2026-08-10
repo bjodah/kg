@@ -11,6 +11,7 @@
 #ifdef KG_USE_LSP
 
 #include "bufhandle.h"
+#include "cmd.h"
 #include "compile_nav.h"
 #include "decor.h"
 #include "def.h"
@@ -18,6 +19,7 @@
 #include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
+#include "localvars.h"
 #include "lsp_uri.h"
 #include "marker.h"
 #include "next_error.h"
@@ -26,9 +28,12 @@
 
 #include <limits.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct lsp_client;
 
 /* Each command's name, as every message it prints spells it: the name a
  * user would type at M-x, so a refusal can be looked up from what it

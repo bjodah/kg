@@ -12,6 +12,7 @@
 
 #include "bufhandle.h"
 #include "def.h"
+#include "localvars.h"
 #include "lsp_client.h"
 #include "lsp_json.h"
 #include "lsp_server.h"
@@ -19,8 +20,12 @@
 #include "marker.h"
 #include "syntax.h"
 
+#include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct lsp_client;
 
 /* The command's name, as every message it prints spells it: the name a
  * user would type at M-x, so a refusal can be looked up from what it

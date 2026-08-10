@@ -8,12 +8,14 @@
 #include "lsp_req.h"
 
 #include "def.h"
+#include "localvars.h"
 #include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
 #include "marker.h"
 #include "syntax.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

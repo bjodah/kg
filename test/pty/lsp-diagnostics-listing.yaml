@@ -23,9 +23,11 @@ name: lsp-diagnostics-listing
 # which is a byte column on every line that is ASCII.
 #
 # The listing is displayed in the other window and never selected, the way
-# occur's is, so the current buffer at the end is still diag.c and the
-# saved file is the initial one -- asserting that listing diagnostics
-# changed nothing on disk.
+# occur's is, so listing alone changes nothing on disk.  The visit half is
+# proved the way occur's is, by editing at point afterwards: C-x o into the
+# listing, n twice from the header to the second row, and RET
+# (lsp-diagnostics-goto) lands point on the warning's own column -- so the
+# Z can only appear at 2:24, immediately before `target()`.
 requires_feature: lsp
 backend: tmux
 dimensions: [24, 80]
@@ -47,9 +49,15 @@ keys:
   - "lsp-diagnostics"
   - "RET"
   - "C-l"
+  - "C-x"
+  - "o"
+  - "n"
+  - "n"
+  - "RET"
+  - "Z"
 expected_saved: |
   int target(void) { return 1; }
-  int use(void) { return target(); }
+  int use(void) { return Ztarget(); }
 expected_screen_contains:
   - "2 diagnostics"
   - "diag.c:1:5: error: cannot find target"

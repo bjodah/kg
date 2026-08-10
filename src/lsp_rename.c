@@ -9,8 +9,10 @@
 
 #ifdef KG_USE_LSP
 
+#include "bufmgr.h"
 #include "dabbrev.h"
 #include "def.h"
+#include "localvars.h"
 #include "event.h"
 #include "lsp_edit.h"
 #include "lsp_json.h"

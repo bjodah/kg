@@ -42,6 +42,14 @@ a test written against them stays written):
     without a body.
 ``die``
     Exit immediately, having written nothing.
+``truncated``
+    Write a header block claiming ten bytes of body and three bytes of it,
+    then exit: a frame cut in half by a server that stopped, which is what
+    a socket closing mid-message looks like from the client's side.
+
+The socket wire (``--listen-hash``) is orthogonal to all of them: it moves
+whichever mode was chosen off stdin/stdout and onto a TCP connection,
+reproducing what Oracle's nbcode does.  See ``--listen-hash`` below.
 
 Protocol mode (Stage 3): ``protocol`` speaks just enough JSON-RPC to be a
 language server -- initialize/initialized, definition, references,
@@ -216,6 +224,39 @@ Options, all of them optional:
     no line and never half of one.  This is how the document-sync tests
     (Stage 4) assert the exact payload kg sent rather than an effect of it.
 
+The socket wire, available with every mode above:
+
+``--listen-hash``
+    Behave as Oracle's nbcode does when it is started with
+    ``--start-java-language-server=listen-hash:0``.  Bind a listening
+    socket on 127.0.0.1 at a port the kernel picks, print
+    ``Java Language Server listening at port PORT`` and then
+    ``Java Language Server listening at port PORT with hash HASH`` on the
+    real standard output -- both lines, in that order and in one write,
+    because that is what the real server does and the first of them is a
+    decoy: it names the port and no secret.  Then accept one connection,
+    read exactly the hash's bytes off it, and run the chosen mode with that
+    socket as its input and output.  Standard output stays a log from then
+    on, which is what nbcode's is.  A client that sends the wrong bytes
+    gets a line on standard error and exit status 2 -- the real server
+    closes the socket without a word instead, which is harder to tell from
+    a crash, so this one says so.
+``--announce-hash TEXT``
+    The hash to announce and require.  The default is 128 lowercase hex
+    characters, which is the shape nbcode's is.
+``--announce-noise TEXT`` (repeatable)
+    A line written to standard output *before* the announce: the module
+    list and progress chatter nbcode prints around it.
+``--announce-log TEXT`` (repeatable)
+    A line written to standard output *after* the connection is accepted,
+    which is where a real server's logging goes on for the rest of the
+    session.
+``--announce-pad N``
+    Write N bytes and a newline before the announce: one very long line,
+    for the client's own line bound.  A malformed announce needs no option
+    here -- a client that has to survive one is tested against a plain
+    ``printf``, which never listens for the connection that will not come.
+
 Two methods exist only for the tests, and are named with kg's own prefix so
 they cannot be confused with the protocol's:
 
@@ -231,10 +272,26 @@ they cannot be confused with the protocol's:
 import argparse
 import json
 import os
+import socket
 import sys
 import time
 
 GARBAGE = b"\x01\x02 this is not a header block\r\n\r\n"
+
+# What nbcode prints on its standard output when it is ready, measured
+# against a real one (extension 26.0.1) rather than read off its client.
+#
+# It is TWO lines, and the first one carries no hash: a client that locks
+# onto "listening at port N" has a port and no secret, and the server closes
+# on it without a word.  The hash is what makes the second line the
+# announce.  The same process also prints a `Debug Server Adapter listening
+# at port ... with hash ...` for its debug adapter, which is why the leading
+# words are part of the pattern rather than noise around it.
+ANNOUNCE_BARE = "Java Language Server listening at port %d"
+ANNOUNCE = "Java Language Server listening at port %d with hash %s"
+
+# 128 lowercase hex characters, which is the shape nbcode's is.
+DEFAULT_HASH = ("6ff0b7a12c334d0e9a7f5b1e8c4d2a90" * 4)
 
 # A body that is framed correctly and is not JSON: --garbage-reply's whole
 # payload.  Deliberately not "almost JSON" -- the client's contract is that
@@ -328,6 +385,10 @@ def mode_huge_header(_stdin, stdout, args):
 
 def mode_die(_stdin, _stdout, _args):
     return
+
+
+def mode_truncated(_stdin, stdout, _args):
+    write_all(stdout, b"Content-Length: 10\r\n\r\nabc")
 
 
 def parse_location(spec):
@@ -702,8 +763,61 @@ MODES = {
     "garbage": mode_garbage,
     "huge-header": mode_huge_header,
     "die": mode_die,
+    "truncated": mode_truncated,
     "protocol": mode_protocol,
 }
+
+
+def announce_lines(lines):
+    """Log noise on the real standard output, one line at a time."""
+    for line in lines:
+        sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+def read_hash(connection, expected):
+    """The handshake: exactly the announced hash's bytes, and nothing about
+    them is framed, so the count is the whole of what says where it ends."""
+    got = b""
+    while len(got) < len(expected):
+        chunk = connection.recv(len(expected) - len(got))
+        if not chunk:
+            break
+        got += chunk
+    if got != expected:
+        sys.stderr.write(
+            "fake_lsp_server: handshake was %r, expected %r\n"
+            % (got, expected))
+        sys.stderr.flush()
+        raise SystemExit(2)
+
+
+def listen_hash(args):
+    """nbcode's wire: announce a port and a hash, take one connection that
+    proves it read them, and hand back that socket as the frame stream.
+
+    Everything before the handshake is on the real standard output, which
+    is what makes this reproduce the shape rather than describe it: the
+    client has to read lines out of a channel that is not the protocol's,
+    find one among them, and connect."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    announce_lines(args.announce_noise)
+    if args.announce_pad:
+        announce_lines(["x" * args.announce_pad])
+    # Both lines, in nbcode's order and in one write, so a client that acts
+    # on the first one is caught here rather than against the real server.
+    announce_lines([ANNOUNCE_BARE % port,
+                    ANNOUNCE % (port, args.announce_hash)])
+
+    connection, _ = listener.accept()
+    listener.close()
+    read_hash(connection, args.announce_hash.encode("utf-8"))
+    announce_lines(args.announce_log)
+    return connection.makefile("rb"), connection.makefile("wb")
 
 
 def main(argv):
@@ -814,8 +928,25 @@ def main(argv):
     parser.add_argument("--record", default=None,
                         help="file to append received didOpen/didChange/"
                              "didClose params to, one JSON object per line")
+    parser.add_argument("--listen-hash", action="store_true",
+                        help="speak the chosen mode over a TCP socket "
+                             "announced on stdout, as nbcode does")
+    parser.add_argument("--announce-hash", default=DEFAULT_HASH,
+                        help="hash to announce and require (--listen-hash)")
+    parser.add_argument("--announce-noise", action="append", default=[],
+                        help="line written to stdout before the announce")
+    parser.add_argument("--announce-log", action="append", default=[],
+                        help="line written to stdout after the connection "
+                             "is accepted")
+    parser.add_argument("--announce-pad", type=int, default=0,
+                        help="bytes of one long line written before the "
+                             "announce")
     args = parser.parse_args(argv[1:])
-    MODES[args.mode](sys.stdin.buffer, sys.stdout.buffer, args)
+    if args.listen_hash:
+        stdin, stdout = listen_hash(args)
+    else:
+        stdin, stdout = sys.stdin.buffer, sys.stdout.buffer
+    MODES[args.mode](stdin, stdout, args)
     return 0
 
 

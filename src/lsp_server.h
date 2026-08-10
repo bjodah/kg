@@ -131,7 +131,20 @@ size_t lsp_server_instance_count(void);
  *
  * It is how every deterministic test injects test/fake_lsp_server.py, and
  * how a user points kg at a differently named or differently located
- * binary. */
+ * binary.
+ *
+ * One spelling means more than the command line.  A value beginning with
+ * the token `listen-hash:` followed by whitespace runs the REST of it as
+ * the command, and speaks to it over the socket wire instead of over its
+ * standard input and output (LSP_WIRE_LISTEN_HASH, src/lsp_transport.h):
+ *
+ *     KG_LSP_SERVER_JAVA="listen-hash: nbcode \
+ *         --start-java-language-server=listen-hash:0"
+ *
+ * which is Oracle's nbcode, the one server kg can start that does not
+ * speak LSP on stdio.  Nothing built in selects that wire: no spec names
+ * nbcode, jdt.ls stays the Java default, and the wire arrives with the
+ * command line that needs it or not at all. */
 #define LSP_SERVER_ENV_PREFIX "KG_LSP_SERVER_"
 
 #endif /* KG_LSP_SERVER_H */

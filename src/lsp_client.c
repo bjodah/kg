@@ -911,8 +911,8 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
 	return client_write(c, msg, len, false);
 }
 
-struct lsp_client *lsp_client_start(
-    const struct kg_spawn_request *req, const char *root_path)
+struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
+    const char *root_path, enum lsp_wire wire)
 {
 	struct lsp_client *c = calloc(1, sizeof(*c));
 	char *params;
@@ -930,7 +930,7 @@ struct lsp_client *lsp_client_start(
 	if (root_path) {
 		snprintf(c->root, sizeof(c->root), "%s", root_path);
 	}
-	c->t = lsp_transport_start(req);
+	c->t = lsp_transport_start_wire(req, wire);
 	params = c->t ? build_initialize(c->root, &len) : NULL;
 	sent = params
 	    && client_request(
@@ -945,6 +945,12 @@ struct lsp_client *lsp_client_start(
 		return NULL;
 	}
 	return c;
+}
+
+struct lsp_client *lsp_client_start(
+    const struct kg_spawn_request *req, const char *root_path)
+{
+	return lsp_client_start_wire(req, root_path, LSP_WIRE_STDIO);
 }
 
 /* Hand whatever the server has written to its standard error to the log,

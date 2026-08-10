@@ -587,6 +587,26 @@ KG_LSP_SERVER_C='clangd --header-insertion=never' kg foo.c
 KG_LSP_TIMEOUT_MS=5000 kg foo.c      # give up on a request after 5 s
 ```
 
+One value means more than a command line. A `KG_LSP_SERVER_*` beginning
+with the token `listen-hash:` and then a space runs the *rest* of the value
+as the command, and speaks to it over a TCP socket instead of over its
+standard input and output:
+
+```bash
+KG_LSP_SERVER_JAVA='listen-hash: nbcode --start-java-language-server=listen-hash:0' kg X.java
+```
+
+That is Oracle's nbcode, the NetBeans Java server, which does not speak LSP
+on stdio at all: started that way it listens on a port, prints
+`Java Language Server listening at port N with hash H` on its standard
+output, and expects the client to connect to `127.0.0.1:N` and write the
+hash before the first LSP byte. kg reads its stdout for that line, connects
+without ever blocking the editor, sends the hash, and the frames go over the
+socket both ways; everything else the server prints there, announce line
+included, becomes `*lsp-log*` lines beside its standard error. Nothing
+built in selects that wire — `jdtls` is still the Java default — so it
+arrives with the command line that asks for it or not at all.
+
 ### Java setup
 
 Java's server is the Eclipse JDT Language Server, and kg spawns it as the

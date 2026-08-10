@@ -57,7 +57,8 @@ static double monotonic_seconds(void)
 
 /* ------------------------------ the fake ------------------------------ */
 
-static struct lsp_client *start_protocol(const char *const *extra)
+static struct lsp_client *start_protocol_wire(
+    const char *const *extra, enum lsp_wire wire)
 {
 	const char *argv[24];
 	struct kg_spawn_request req = { .stdin_fd = -1 };
@@ -68,12 +69,20 @@ static struct lsp_client *start_protocol(const char *const *extra)
 	argv[n++] = script_path;
 	argv[n++] = "--mode";
 	argv[n++] = "protocol";
+	if (wire == LSP_WIRE_LISTEN_HASH) {
+		argv[n++] = "--listen-hash";
+	}
 	for (i = 0; extra && extra[i] && n < 23; i++) {
 		argv[n++] = extra[i];
 	}
 	argv[n] = NULL;
 	req.argv = argv;
-	return lsp_client_start(&req, "/tmp");
+	return lsp_client_start_wire(&req, "/tmp", wire);
+}
+
+static struct lsp_client *start_protocol(const char *const *extra)
+{
+	return start_protocol_wire(extra, LSP_WIRE_STDIO);
 }
 
 /* Poll until the client reaches `want`, or the deadline passes.  Returns
@@ -533,6 +542,36 @@ static void test_server_request_is_refused_not_ignored(void)
 	const char *extra[]
 	    = { "--server-request", "workspace/configuration", NULL };
 	struct lsp_client *c = start_protocol(extra);
+	struct answer state = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, &state) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(state.calls == 1 && state.had_result);
+	CHECK(state.method_not_found);
+	lsp_client_dispose(c, 200);
+}
+
+/* The same, on the socket wire (src/lsp_transport.h), because that is the
+ * wire on which it actually happens: nbcode sends `workspace/configuration`
+ * and `window/workDoneProgress/create` before its own initialize result,
+ * whatever the client advertised, and the refusal has to go back over a
+ * socket that only came up after the announce.  It is the same code path
+ * -- the client cannot tell the wires apart -- and this is the case that
+ * says so, end to end through a real connection and handshake.
+ *
+ * It also covers the ordering: the refusal is written while the client is
+ * still INITIALIZING, so it is queued in the transport ahead of nothing and
+ * behind the initialize, and it still reaches the server. */
+static void test_server_request_is_refused_over_the_socket(void)
+{
+	const char *extra[]
+	    = { "--server-request", "workspace/configuration", NULL };
+	struct lsp_client *c = start_protocol_wire(extra, LSP_WIRE_LISTEN_HASH);
 	struct answer state = { 0 };
 
 	CHECK(c != NULL);
@@ -1541,6 +1580,7 @@ int main(int argc, char **argv)
 	RUN(test_a_deferred_request_stays_behind_a_notification);
 	RUN(test_server_death_fails_pending_requests);
 	RUN(test_server_request_is_refused_not_ignored);
+	RUN(test_server_request_is_refused_over_the_socket);
 	RUN(test_unsolicited_notification_is_ignored);
 	RUN(test_a_notification_reaches_the_hook);
 	RUN(test_a_notification_with_no_hook_is_dropped);

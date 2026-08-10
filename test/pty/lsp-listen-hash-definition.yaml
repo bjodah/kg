@@ -1,0 +1,47 @@
+name: lsp-listen-hash-definition
+# The socket wire, end to end through the editor: M-. against a server that
+# does not speak LSP on its standard output at all.
+#
+# The server is test/fake_lsp_server.py --listen-hash in place of clangd,
+# which is Oracle's nbcode reproduced -- it prints
+# "Java Language Server listening at port N with hash H" on its stdout, with
+# NetBeans-shaped noise on either side of it, listens, and speaks the
+# protocol only to a client that connected to that port and sent the hash
+# first.  A wrong handshake makes it exit 2, so an answer arriving at all is
+# proof kg wrote the right bytes.
+#
+# The `listen-hash: ` token in front of the command is the whole of the user
+# interface for this: the rest of the value is the /bin/sh command line, as
+# it always was, and the token is what selects the wire.  A KG_LSP_SERVER_C
+# without it would have kg reading frames off that stdout and finding log
+# lines, which is the failure this spelling exists to prevent.
+#
+# The assertion is the saved file, as in lsp-definition-basic.yaml: the fake
+# answers --definition-self 2:4, a Location in the document kg itself opened,
+# so the "X" typed after the jump says which byte point landed on -- line 2
+# character 4 in the protocol's zero-based numbering is the "u" of "use".
+#
+# The three C-l are the wait, and there is one more of them than the stdio
+# cases need: a Python interpreter has to start, bind, announce and accept
+# before the handshake can even begin.  C-l is the one key that repaints
+# without moving point.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "listen-hash: python3 {REPO}/test/fake_lsp_server.py --listen-hash --mode protocol --definition-self 2:4 --announce-noise 'INFO [org.netbeans.core.startup]: starting modules' --announce-log 'INFO [nbcode]: client connected'"
+filename: xrefsocket.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int Xuse(void) { return target(); }

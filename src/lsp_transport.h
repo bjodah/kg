@@ -4,11 +4,12 @@
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-/* The wire under the LSP client: one child process, spoken to over its
- * standard input and listened to over its standard output, with the
+/* The wire under the LSP client: one child process, with the
  * base-protocol framing of the Language Server Protocol on both
  * directions -- an ASCII header block, `Content-Length: N` among it,
  * terminated by a blank line, then exactly N bytes of body.
+ *
+ * There are two arrangements the frames can travel on; see `enum lsp_wire`.
  *
  * This module knows nothing about JSON, about requests and responses, or
  * about which server is on the other end (Stages 2 and 3 of
@@ -60,20 +61,77 @@
  * and the rest becomes the next one. */
 #define LSP_TRANSPORT_MAX_STDERR_LINE 4096u
 
+/* How the frames reach the server.
+ *
+ * LSP_WIRE_STDIO is the protocol's own arrangement and what every server
+ * kg starts by itself speaks: the child's standard input and standard
+ * output ARE the frame stream.
+ *
+ * LSP_WIRE_LISTEN_HASH is Oracle's nbcode (the NetBeans Java server in
+ * `oracle/javavscode`), which does not speak LSP on stdio at all.  Started
+ * with `--start-java-language-server=listen-hash:0` it opens a listening
+ * socket, prints one line naming the port and a secret on its standard
+ * output, and expects the client to connect to 127.0.0.1 at that port and
+ * write the secret before the first LSP byte.  So on this wire the child's
+ * stdout is an announce-then-log channel and never a frame stream, and the
+ * socket is both directions of the protocol.
+ *
+ * The handshake is byte for byte what Oracle's own extension writes
+ * (vscode/src/lsp/initializer.ts: `server.write(info[2])` on the connect
+ * callback, `info` being the match of
+ * /Java Language Server listening at port (\d*) with hash (.*)\n/): the
+ * hash's bytes -- 128 lowercase hex characters, measured against a real
+ * server -- with no newline after them and no framing around them.  A
+ * server that does not like them closes the socket within a millisecond
+ * and says nothing.
+ *
+ * Two things about that line are measured rather than inferred, and both
+ * are traps.  It is announced TWICE, and the first one has no hash on it
+ * (`...listening at port N`, then `...at port N with hash H`, often in one
+ * read): the hash is what makes a line the announce, and a client that
+ * matched on the port alone would connect with no secret to send.  And the
+ * leading words matter, because the same process announces a
+ * `Debug Server Adapter listening at port ... with hash ...` too, and a
+ * client that took that one would hand its initialize to a debugger. */
+enum lsp_wire {
+	LSP_WIRE_STDIO = 0,
+	LSP_WIRE_LISTEN_HASH,
+};
+
+#define LSP_TRANSPORT_ANNOUNCE_PREFIX "Java Language Server listening at port "
+#define LSP_TRANSPORT_ANNOUNCE_HASH " with hash "
+
+/* Bounds on the announce phase, in the spirit of every other one here: a
+ * child that talks instead of announcing must not cost unbounded memory,
+ * and a hash is a short secret rather than a payload.  The first bounds
+ * what is HELD -- lines the caller has already read out are gone, and a
+ * chatty server is bounded rather than counted.
+ *
+ * Neither of them is a deadline, because the transport keeps no clock:
+ * nothing here sleeps, polls or measures time.  A child that stays silent
+ * forever is the *client's* deadline to notice (LSP_CLIENT_TIMEOUT_ENV,
+ * which the `initialize` queued at start is already waiting on). */
+#define LSP_TRANSPORT_MAX_ANNOUNCE_BYTES (256u * 1024u)
+#define LSP_TRANSPORT_MAX_HASH_BYTES 256u
+
 /* Why a transport is dead.  Reported for the log and for tests; no caller
  * is expected to branch on the distinction between an I/O error and a
  * protocol one, since the remedy for all of them is the same. */
 enum lsp_transport_error {
 	LSP_TRANSPORT_OK = 0,
 	/* read()/write() failed, or the child closed the pipe under a
-	 * write (EPIPE, ECONNRESET). */
+	 * write (EPIPE, ECONNRESET).  On the listen-hash wire, a socket
+	 * that could not be made or that refused the connection is this
+	 * too: connecting is a state, but a connect that failed is not. */
 	LSP_TRANSPORT_ERR_IO,
 	/* The child's stdout ended.  A server that exited, crashed, or was
-	 * killed looks like this. */
+	 * killed looks like this -- including one that exited before it
+	 * announced a port. */
 	LSP_TRANSPORT_ERR_EOF,
 	/* The bytes are not base-protocol framing: a header line with no
 	 * colon, a header block with no Content-Length, or a length that is
-	 * not a number. */
+	 * not a number.  On the listen-hash wire, an announce line with no
+	 * usable port or hash in it is this too. */
 	LSP_TRANSPORT_ERR_PROTOCOL,
 	/* One of the bounds above was exceeded. */
 	LSP_TRANSPORT_ERR_TOO_LARGE,
@@ -92,6 +150,20 @@ struct lsp_transport;
  * spawn, if the child could not be started; a returned transport always
  * has a live child and two open descriptors. */
 struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req);
+
+/* The same, on `wire`.  lsp_transport_start() is this with
+ * LSP_WIRE_STDIO, which is every server but nbcode.
+ *
+ * On LSP_WIRE_LISTEN_HASH the transport comes back with no socket yet and
+ * is NOT a failure: it is waiting for the child's announce line, and it
+ * reaches it from the caller's own poll site, in lsp_transport_flush() and
+ * lsp_transport_next_message(), exactly as everything else here does.
+ * Sending before then queues the bytes -- the handshake's hash is written
+ * ahead of them the moment the socket is up -- and receiving says "nothing
+ * yet".  The child's stdout lines, the announce among them, are delivered
+ * by lsp_transport_next_stderr_line() along with its stderr. */
+struct lsp_transport *lsp_transport_start_wire(
+    const struct kg_spawn_request *req, enum lsp_wire wire);
 
 #ifdef KG_FUZZ
 /* Fuzz-only: wrap an already-open descriptor as a transport's read side,
@@ -142,6 +214,16 @@ int lsp_transport_next_message(
  * reading from it as needed.  Returns 1 with `*line`/`*len` set to the
  * line's bytes without its newline, and 0 when there is no whole line to
  * give.  Call in a loop until it returns 0.
+ *
+ * On the listen-hash wire the child's standard OUTPUT is a log too -- the
+ * frames go over the socket, so everything nbcode prints, announce line
+ * included, is text somebody may want to read -- and its lines come out of
+ * here as well, after whatever standard error has to say.  One accessor
+ * rather than two because there is exactly one thing above this that reads
+ * them (the client's log hook, which puts them in *lsp-log*), and a second
+ * accessor would be a second thing for every caller to remember to drain.
+ * Each descriptor keeps its own buffer, so a half-written line on one
+ * never lands inside a line from the other.
  *
  * `*line` is borrowed exactly as lsp_transport_next_message()'s body is:
  * it points into the transport's own buffer, is NOT NUL-terminated, and is

@@ -1,9 +1,9 @@
 /* ==================== LSP base-protocol transport =======================
  *
- * Frames in, frames out, over one child process's standard input and
- * standard output.  See src/lsp_transport.h for the contract; this file is
- * the whole of Stage 1 of doc/plans/2026-08-08-lsp.md, and it deliberately
- * cannot tell a JSON-RPC request from a shopping list.
+ * Frames in, frames out, over one child process.  See src/lsp_transport.h
+ * for the contract; this file is the whole of Stage 1 of
+ * doc/plans/2026-08-08-lsp.md, and it deliberately cannot tell a JSON-RPC
+ * request from a shopping list.
  *
  * The shape is two byte buffers and two non-blocking descriptors.  Reads
  * append to the inbox and are parsed out of it a frame at a time, so a
@@ -11,6 +11,14 @@
  * are the same code path.  Writes are queued in the outbox and drained as
  * the pipe allows, so a server that has stopped reading slows kg down by
  * exactly nothing until the queue's bound is reached.
+ *
+ * The listen-hash wire changes which descriptors those are and nothing
+ * else: the child's stdout becomes a line channel like its stderr, the
+ * announce line on it names a port and a secret, and a non-blocking
+ * connect to that port produces the descriptor the frames then use for
+ * both directions.  Every step of that happens where every other step in
+ * this file happens -- inside a call the caller's poll site made -- so the
+ * "nothing here sleeps or polls" of the header survives it.
  */
 
 #include "lsp_transport.h"
@@ -24,6 +32,11 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef _WIN32
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
@@ -39,20 +52,48 @@ struct lsp_buf {
 	size_t cap;
 };
 
+/* A descriptor whose bytes are text rather than frames: its own buffer,
+ * its own borrow, its own end of stream.  None of it touches `error`,
+ * because a server's complaints failing has nothing to do with whether it
+ * is still speaking the protocol.
+ *
+ * `held` is how much of the buffer belongs to the reader.  SIZE_MAX, the
+ * normal state, is all of it and more: the channel reads again whenever a
+ * whole line is not there yet.  A smaller number says somebody else is
+ * reading this descriptor first and has only got that far -- the announce
+ * scan, which must see the announce line before the log does -- and then
+ * nothing past it is delivered, and nothing more is read here at all. */
+struct lsp_lines {
+	int fd;
+	struct lsp_buf buf;
+	size_t delivered;
+	size_t held;
+	bool eof;
+};
+
+/* Where a listen-hash transport is.  A stdio one is OPEN from the start
+ * and never leaves it; the other two are states, not failures. */
+enum lsp_transport_phase {
+	LSP_PHASE_OPEN = 0,
+	LSP_PHASE_ANNOUNCE,
+	LSP_PHASE_CONNECTING,
+};
+
 struct lsp_transport {
 	pid_t pid;
+	enum lsp_wire wire;
+	enum lsp_transport_phase phase;
 	int in_fd; /* kg writes -> child's stdin */
-	int out_fd; /* kg reads <- child's stdout */
-	int err_fd; /* kg reads <- child's stderr, or -1 */
+	int out_fd; /* kg reads <- child's stdout, or -1 on the socket wire */
+	int sock_fd; /* both directions on the socket wire, else -1 */
 	struct lsp_buf inbox;
 	struct lsp_buf outbox;
-	/* The stderr side channel: its own buffer, its own borrow, its own
-	 * end of stream.  None of it touches `error`, because a server's
-	 * complaints failing has nothing to do with whether it is still
-	 * speaking the protocol. */
-	struct lsp_buf errbox;
-	size_t err_delivered;
-	bool err_eof;
+	struct lsp_lines err; /* the child's stderr */
+	struct lsp_lines log; /* its stdout, on the socket wire */
+	/* The secret the announce line named, kept until the connection
+	 * completes and it can be put in front of the outbox. */
+	char hash[LSP_TRANSPORT_MAX_HASH_BYTES];
+	size_t hash_len;
 	/* How much of the outbox the child has taken.  A partial write
 	 * resumes here rather than re-sending. */
 	size_t outbox_sent;
@@ -108,6 +149,20 @@ static bool buf_append(struct lsp_buf *b, const char *src, size_t len)
 	return true;
 }
 
+/* Put `len` bytes in FRONT of what is already queued.  One caller: the
+ * listen-hash handshake, whose hash has to reach the server before the
+ * `initialize` that was queued while the socket was still being made. */
+static bool buf_prepend(struct lsp_buf *b, const char *src, size_t len)
+{
+	if (!buf_reserve(b, len)) {
+		return false;
+	}
+	memmove(b->data + len, b->data, b->len);
+	memcpy(b->data, src, len);
+	b->len += len;
+	return true;
+}
+
 /* Drop the first `n` bytes.  The buffers stay compact rather than growing
  * a read cursor: a message is consumed whole, so the memmove happens once
  * per message and moves only what has not been parsed yet. */
@@ -130,9 +185,26 @@ static bool io_would_block(void)
 	return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
 }
 
-/* Every failure funnels here: record the first reason, close both
- * descriptors so nothing can be half-spoken to a server kg has given up
- * on, and return the -1 the public functions hand back. */
+/* Which descriptor the frames are on.  The same one both ways on the
+ * socket wire, and the child's two pipes on the stdio one; -1 while a
+ * listen-hash transport is still finding its socket, which is why every
+ * user of these is behind the phase check in transport_advance(). */
+static int proto_read_fd(const struct lsp_transport *t)
+{
+	return (t->wire == LSP_WIRE_LISTEN_HASH) ? t->sock_fd : t->out_fd;
+}
+
+static int proto_write_fd(const struct lsp_transport *t)
+{
+	return (t->wire == LSP_WIRE_LISTEN_HASH) ? t->sock_fd : t->in_fd;
+}
+
+/* Every failure funnels here: record the first reason, close the
+ * descriptors the protocol was on so nothing can be half-spoken to a
+ * server kg has given up on, and return the -1 the public functions hand
+ * back.  The line channels are left open on purpose -- a server that
+ * explained itself and then broke did both in that order, and the
+ * explanation is the half worth keeping. */
 static int transport_fail(
     struct lsp_transport *t, enum lsp_transport_error error)
 {
@@ -141,6 +213,7 @@ static int transport_fail(
 	}
 	kg_close_fd(&t->in_fd);
 	kg_close_fd(&t->out_fd);
+	kg_close_fd(&t->sock_fd);
 	return -1;
 }
 
@@ -316,8 +389,8 @@ static int inbox_fill(struct lsp_transport *t)
 	if (!buf_reserve(&t->inbox, LSP_TRANSPORT_READ_CHUNK)) {
 		return transport_fail(t, LSP_TRANSPORT_ERR_NOMEM);
 	}
-	n = read(
-	    t->out_fd, t->inbox.data + t->inbox.len, LSP_TRANSPORT_READ_CHUNK);
+	n = read(proto_read_fd(t), t->inbox.data + t->inbox.len,
+	    LSP_TRANSPORT_READ_CHUNK);
 	if (n > 0) {
 		t->inbox.len += (size_t)n;
 		return 1;
@@ -331,101 +404,378 @@ static int inbox_fill(struct lsp_transport *t)
 	return -1;
 }
 
-/* ------------------------------ standard error ------------------------ */
+/* ------------------------------ line channels ------------------------- */
 
-/* One read() into the errbox, with the failure policy inverted from
- * inbox_fill()'s: nothing here fails the transport, it only stops the side
+/* One read() into a line channel, with the failure policy inverted from
+ * inbox_fill()'s: nothing here fails the transport, it only stops the
  * channel.  1 when bytes arrived, 0 when the pipe is empty for now, -1 at
- * end of stream, on an error, or when stderr was never captured. */
-static int errbox_fill(struct lsp_transport *t)
+ * end of stream, on an error, or when the descriptor was never captured. */
+static int lines_fill(struct lsp_lines *ch)
 {
 	ssize_t n;
 
-	if (t->err_fd < 0 || t->err_eof) {
+	if (ch->fd < 0 || ch->eof) {
 		return -1;
 	}
-	if (!buf_reserve(&t->errbox, LSP_TRANSPORT_READ_CHUNK)) {
-		t->err_eof = true;
+	if (!buf_reserve(&ch->buf, LSP_TRANSPORT_READ_CHUNK)) {
+		ch->eof = true;
 		return -1;
 	}
-	n = read(t->err_fd, t->errbox.data + t->errbox.len,
-	    LSP_TRANSPORT_READ_CHUNK);
+	n = read(ch->fd, ch->buf.data + ch->buf.len, LSP_TRANSPORT_READ_CHUNK);
 	if (n > 0) {
-		t->errbox.len += (size_t)n;
+		ch->buf.len += (size_t)n;
 		return 1;
 	}
 	if (n < 0 && io_would_block()) {
 		return 0;
 	}
-	t->err_eof = true;
+	ch->eof = true;
 	return -1;
 }
 
-/* Cut one line off the front of the errbox: 1 with the line borrowed out,
+/* How much of a channel's buffer may be read out of it right now. */
+static size_t lines_limit(const struct lsp_lines *ch)
+{
+	return (ch->held < ch->buf.len) ? ch->held : ch->buf.len;
+}
+
+/* Cut one line off the front of a channel: 1 with the line borrowed out,
  * 0 when more bytes are needed.  `final` is what makes the last line
  * before end of stream a line at all -- otherwise a run with no newline in
  * it is not one yet, and waiting is the right answer. */
-static int errbox_take_line(
-    struct lsp_transport *t, bool final, const char **line, size_t *len)
+static int lines_take(
+    struct lsp_lines *ch, bool final, const char **line, size_t *len)
 {
-	const char *nl = t->errbox.len
-	    ? memchr(t->errbox.data, '\n', t->errbox.len)
-	    : NULL;
+	size_t limit = lines_limit(ch);
+	const char *nl = limit ? memchr(ch->buf.data, '\n', limit) : NULL;
 	size_t take;
 
 	if (nl) {
-		take = (size_t)(nl - t->errbox.data);
-		t->err_delivered = take + 1;
-	} else if (t->errbox.len >= LSP_TRANSPORT_MAX_STDERR_LINE) {
+		take = (size_t)(nl - ch->buf.data);
+		ch->delivered = take + 1;
+	} else if (limit >= LSP_TRANSPORT_MAX_STDERR_LINE) {
 		take = LSP_TRANSPORT_MAX_STDERR_LINE;
-		t->err_delivered = take;
-	} else if (final && t->errbox.len > 0) {
-		take = t->errbox.len;
-		t->err_delivered = take;
+		ch->delivered = take;
+	} else if (final && limit > 0) {
+		take = limit;
+		ch->delivered = take;
 	} else {
 		return 0;
 	}
 	/* A server on a terminal-shaped stderr writes CRLF; the carriage
 	 * return is framing, not text, and would paint as one more glyph. */
-	if (take > 0 && t->errbox.data[take - 1] == '\r') {
+	if (take > 0 && ch->buf.data[take - 1] == '\r') {
 		take--;
 	}
-	*line = t->errbox.data;
+	*line = ch->buf.data;
 	*len = take;
 	return 1;
 }
 
-int lsp_transport_next_stderr_line(
-    struct lsp_transport *t, const char **line, size_t *len)
+/* Release the line the last call borrowed out.  `held` shrinks with the
+ * buffer it counts into, so a channel somebody else is scanning stays in
+ * step with the scan. */
+static void lines_release(struct lsp_lines *ch)
+{
+	buf_consume(&ch->buf, ch->delivered);
+	if (ch->held != SIZE_MAX) {
+		ch->held -= ch->delivered;
+	}
+	ch->delivered = 0;
+}
+
+/* The next whole line of a channel, reading more when it may.  A channel
+ * somebody else is scanning first (`held` short of the buffer) is never
+ * read here: filling it would only queue bytes the scan has not reached. */
+static int lines_next(struct lsp_lines *ch, const char **line, size_t *len)
 {
 	int rc;
 
-	*line = NULL;
-	*len = 0;
-	/* The previous call's line is released here and not before, which is
-	 * what the borrow in lsp_transport.h promises. */
-	buf_consume(&t->errbox, t->err_delivered);
-	t->err_delivered = 0;
-	if (t->err_fd < 0) {
+	if (ch->fd < 0) {
 		return 0;
 	}
 	for (;;) {
-		if (errbox_take_line(t, t->err_eof, line, len)) {
+		if (lines_take(ch, ch->eof, line, len)) {
 			return 1;
 		}
-		rc = errbox_fill(t);
+		if (ch->held != SIZE_MAX) {
+			return 0;
+		}
+		rc = lines_fill(ch);
 		if (rc <= 0) {
 			/* End of stream turns the tail into a line, once. */
-			return (rc < 0 && t->err_eof)
-			    ? errbox_take_line(t, true, line, len)
+			return (rc < 0 && ch->eof)
+			    ? lines_take(ch, true, line, len)
 			    : 0;
 		}
 	}
 }
 
+int lsp_transport_next_stderr_line(
+    struct lsp_transport *t, const char **line, size_t *len)
+{
+	*line = NULL;
+	*len = 0;
+	/* The previous call's line is released here and not before, which is
+	 * what the borrow in lsp_transport.h promises. */
+	lines_release(&t->err);
+	lines_release(&t->log);
+	if (lines_next(&t->err, line, len)) {
+		return 1;
+	}
+	return lines_next(&t->log, line, len);
+}
+
+/* ------------------------------ the socket wire ----------------------- */
+
+/* The next unscanned line of the child's stdout, without consuming it: the
+ * announce scan reads ahead of the log, and `held` is how far it has got.
+ * A run of LSP_TRANSPORT_MAX_STDERR_LINE bytes with no newline in it is a
+ * line here for exactly the reason it is one in lines_take() -- and by the
+ * same rule, so the two never disagree about where a line ended. */
+static bool announce_next_line(
+    struct lsp_transport *t, const char **line, size_t *len)
+{
+	size_t avail = t->log.buf.len - t->log.held;
+	const char *base;
+	const char *nl;
+
+	if (avail == 0) {
+		return false; /* also the only state where `data` may be NULL */
+	}
+	base = t->log.buf.data + t->log.held;
+	nl = memchr(base, '\n', avail);
+	if (nl) {
+		*len = (size_t)(nl - base);
+		t->log.held += *len + 1;
+	} else if (avail >= LSP_TRANSPORT_MAX_STDERR_LINE) {
+		*len = LSP_TRANSPORT_MAX_STDERR_LINE;
+		t->log.held += *len;
+	} else {
+		return false;
+	}
+	*line = base;
+	return true;
+}
+
+/* Make a descriptor kg's own: non-blocking, because nothing here may ever
+ * stall the editor, and close-on-exec, because every other descriptor kg
+ * holds is (process.h says so, and a child inheriting a language server's
+ * socket would keep it open past the server's death). */
+static int fd_own(int fd)
+{
+	int flags = fcntl(fd, F_GETFL, 0);
+
+	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) {
+		return -1;
+	}
+	return fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 ? -1 : 0;
+}
+
+/* Start connecting to the port the announce named.  Loopback only: the
+ * server was started by kg on this machine, and a language server is not
+ * something to reach across a network by accident.  1 when the connect is
+ * under way (completion is connect_finish()'s), -1 when it cannot be. */
+static int connect_start(struct lsp_transport *t, unsigned short port)
+{
+	struct sockaddr_in addr;
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (fd < 0) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_IO);
+	}
+	if (fd_own(fd) != 0) {
+		close(fd);
+		return transport_fail(t, LSP_TRANSPORT_ERR_IO);
+	}
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	t->sock_fd = fd;
+	t->phase = LSP_PHASE_CONNECTING;
+	if (connect(fd, (const struct sockaddr *)&addr, sizeof(addr)) == 0
+	    || errno == EINPROGRESS || errno == EINTR) {
+		return 1;
+	}
+	return transport_fail(t, LSP_TRANSPORT_ERR_IO);
+}
+
+/* Has the connection come up?  A non-blocking connect reports itself by
+ * making the descriptor writable, and SO_ERROR is the only place the
+ * verdict is: a refused connection is writable too.  The poll is the
+ * caller's own poll site asking, with a zero timeout, so this waits for
+ * nothing.  1 connected (and the handshake queued), 0 not yet, -1 refused.
+ *
+ * The hash goes in FRONT of the outbox rather than being written here: it
+ * is the first thing the server must read, everything queued while the
+ * socket was being made comes after it, and putting it in the queue means
+ * one partial-write path instead of two. */
+static int connect_finish(struct lsp_transport *t)
+{
+	struct pollfd pfd = { .fd = t->sock_fd, .events = POLLOUT };
+	socklen_t len = sizeof(int);
+	int err = 0;
+
+	if (poll(&pfd, 1, 0) <= 0) {
+		return 0;
+	}
+	if (getsockopt(t->sock_fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0
+	    || err != 0) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_IO);
+	}
+	if (!buf_prepend(&t->outbox, t->hash, t->hash_len)) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_NOMEM);
+	}
+	t->phase = LSP_PHASE_OPEN;
+	return 1;
+}
+
+/* Consume the run of digits at `pos`, returning the offset after it and
+ * accumulating the value into `*out` -- saturating, so a number past the
+ * port range stays past it rather than wrapping into a valid one. */
+static size_t announce_digits(
+    const char *line, size_t len, size_t pos, unsigned long *out)
+{
+	for (; pos < len && line[pos] >= '0' && line[pos] <= '9'; pos++) {
+		if (*out <= 65535u) {
+			*out = *out * 10 + (unsigned long)(line[pos] - '0');
+		}
+	}
+	return pos;
+}
+
+/* One line of the child's stdout, weighed as the announce: 0 when it is
+ * not one (log noise, which is most of them), 1 when it is and the connect
+ * has been started, -1 when it claims to be one and is not usable.
+ *
+ * The hash is what makes a line the announce, not the port.  nbcode
+ * announces the same port TWICE -- once bare, `...listening at port N`,
+ * and then again `...at port N with hash H`, both of which can land in one
+ * read -- and the bare one is nothing to act on: there is no secret to
+ * hand over, and a client that connected on it would be closed on without
+ * a word.  So a line with the prefix and no ` with hash ` is skipped like
+ * any other log line, and only a line that has one is held to the rest of
+ * the rules. */
+static int announce_take(struct lsp_transport *t, const char *line, size_t len)
+{
+	static const char prefix[] = LSP_TRANSPORT_ANNOUNCE_PREFIX;
+	static const char middle[] = LSP_TRANSPORT_ANNOUNCE_HASH;
+	const size_t prefix_len = sizeof(prefix) - 1;
+	const size_t middle_len = sizeof(middle) - 1;
+	unsigned long port = 0;
+	size_t pos;
+
+	if (len < prefix_len || memcmp(line, prefix, prefix_len) != 0) {
+		return 0;
+	}
+	pos = announce_digits(line, len, prefix_len, &port);
+	if (len - pos < middle_len
+	    || memcmp(line + pos, middle, middle_len) != 0) {
+		return 0; /* the bare announce, or something else entirely */
+	}
+	/* Past here the line IS the announce, so anything wrong with it is
+	 * an error rather than a line to skip.  Oracle's own client matches
+	 * an empty run of digits here and then connects to port 0. */
+	if (pos == prefix_len || port == 0 || port > 65535u) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL);
+	}
+	pos += middle_len;
+	/* The line's own terminator is framing, not secret: a CR here would
+	 * be sent as part of the hash by Oracle's extension, whose regexp
+	 * stops at the LF alone, and no server puts one in a hash. */
+	if (len > pos && line[len - 1] == '\r') {
+		len--;
+	}
+	if (len <= pos || len - pos > sizeof(t->hash)) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL);
+	}
+	memcpy(t->hash, line + pos, len - pos);
+	t->hash_len = len - pos;
+	/* Read for by the log from here on: the announce line goes to the
+	 * log too, as it does in every other client of this server. */
+	t->log.held = SIZE_MAX;
+	return connect_start(t, (unsigned short)port);
+}
+
+/* Look through the child's stdout for the announce line, reading more as
+ * needed.  1 when it was found, 0 when it has not arrived yet, -1 when the
+ * transport just died -- on a child that ended without announcing, or one
+ * that wrote more than the announce phase is allowed to hold. */
+static int announce_scan(struct lsp_transport *t)
+{
+	const char *line = NULL;
+	size_t len = 0;
+	int rc;
+
+	for (;;) {
+		while (announce_next_line(t, &line, &len)) {
+			rc = announce_take(t, line, len);
+			if (rc != 0) {
+				return rc;
+			}
+		}
+		if (t->log.buf.len > LSP_TRANSPORT_MAX_ANNOUNCE_BYTES) {
+			return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE);
+		}
+		rc = lines_fill(&t->log);
+		if (rc == 0) {
+			return 0;
+		}
+		if (rc < 0) {
+			/* Whatever it said on the way out is a line now. */
+			t->log.held = SIZE_MAX;
+			return transport_fail(t, LSP_TRANSPORT_ERR_EOF);
+		}
+	}
+}
+
+/* Get the frame stream to where the rest of this file can use it: 1 when
+ * the descriptors are live, 0 while the socket wire is still finding
+ * them, -1 on a transport that is dead or died here.  A stdio transport
+ * answers 1 on its first branch, which is what keeps this off that path. */
+static int transport_advance(struct lsp_transport *t)
+{
+	int rc;
+
+	if (t->error != LSP_TRANSPORT_OK) {
+		return -1;
+	}
+	if (t->phase == LSP_PHASE_ANNOUNCE) {
+		rc = announce_scan(t);
+		if (rc <= 0) {
+			return rc;
+		}
+	}
+	if (t->phase == LSP_PHASE_CONNECTING) {
+		return connect_finish(t);
+	}
+	return 1;
+}
+
 /* ------------------------------ public API ---------------------------- */
 
-struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
+/* A transport with nothing attached to it yet.  The -1s are what a
+ * calloc() cannot express and what every close path depends on. */
+static struct lsp_transport *transport_alloc(void)
+{
+	struct lsp_transport *t = calloc(1, sizeof(*t));
+
+	if (!t) {
+		return NULL;
+	}
+	t->in_fd = -1;
+	t->out_fd = -1;
+	t->sock_fd = -1;
+	t->err.fd = -1;
+	t->err.held = SIZE_MAX;
+	t->log.fd = -1;
+	t->log.held = SIZE_MAX;
+	return t;
+}
+
+struct lsp_transport *lsp_transport_start_wire(
+    const struct kg_spawn_request *req, enum lsp_wire wire)
 {
 	struct kg_spawn_request child = *req;
 	struct lsp_transport *t;
@@ -442,7 +792,7 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 	 * complaint readable without it ever reaching the parser. */
 	child.stderr_to_output = false;
 
-	t = calloc(1, sizeof(*t));
+	t = transport_alloc();
 	if (!t) {
 		errno = ENOMEM;
 		return NULL;
@@ -455,10 +805,25 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
 		return NULL;
 	}
 	t->pid = pid;
+	t->wire = wire;
 	t->in_fd = in_fd;
-	t->out_fd = out_fd;
-	t->err_fd = err_fd;
+	t->err.fd = err_fd;
+	if (wire == LSP_WIRE_LISTEN_HASH) {
+		/* The child's stdout is text on this wire, and the announce
+		 * scan reads it before the log may: `held` at 0 is that,
+		 * and it is lifted the moment the announce is found. */
+		t->log.fd = out_fd;
+		t->log.held = 0;
+		t->phase = LSP_PHASE_ANNOUNCE;
+	} else {
+		t->out_fd = out_fd;
+	}
 	return t;
+}
+
+struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
+{
+	return lsp_transport_start_wire(req, LSP_WIRE_STDIO);
 }
 
 #ifdef KG_FUZZ
@@ -472,15 +837,13 @@ struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
  * alone, so none of this is in the editor. */
 struct lsp_transport *lsp_transport_attach_fuzz_fd(int out_fd)
 {
-	struct lsp_transport *t = calloc(1, sizeof(*t));
+	struct lsp_transport *t = transport_alloc();
 
 	if (!t) {
 		return NULL;
 	}
 	t->pid = -1;
-	t->in_fd = -1;
 	t->out_fd = out_fd;
-	t->err_fd = -1;
 	t->reaped = true;
 	return t;
 }
@@ -495,7 +858,9 @@ void lsp_transport_close(struct lsp_transport *t)
 	}
 	kg_close_fd(&t->in_fd);
 	kg_close_fd(&t->out_fd);
-	kg_close_fd(&t->err_fd);
+	kg_close_fd(&t->sock_fd);
+	kg_close_fd(&t->err.fd);
+	kg_close_fd(&t->log.fd);
 	if (!t->reaped && t->pid > 0) {
 		/* The backstop, not the policy: Stage 3's graceful
 		 * shutdown/exit exchange happens before this is reached,
@@ -507,7 +872,8 @@ void lsp_transport_close(struct lsp_transport *t)
 	}
 	free(t->inbox.data);
 	free(t->outbox.data);
-	free(t->errbox.data);
+	free(t->err.buf.data);
+	free(t->log.buf.data);
 	free(t);
 }
 
@@ -525,7 +891,7 @@ static int outbox_write(struct lsp_transport *t)
 	ssize_t n;
 
 	while (t->outbox_sent < t->outbox.len) {
-		n = write(t->in_fd, t->outbox.data + t->outbox_sent,
+		n = write(proto_write_fd(t), t->outbox.data + t->outbox_sent,
 		    t->outbox.len - t->outbox_sent);
 		if (n > 0) {
 			t->outbox_sent += (size_t)n;
@@ -546,6 +912,15 @@ int lsp_transport_flush(struct lsp_transport *t)
 
 	if (t->error != LSP_TRANSPORT_OK) {
 		return -1;
+	}
+	rc = transport_advance(t);
+	if (rc < 0) {
+		return -1;
+	}
+	if (rc == 0) {
+		/* No socket yet: the queue is where the bytes belong, and
+		 * this is not a failure -- see lsp_transport_start_wire(). */
+		return 0;
 	}
 	if (t->outbox_sent < t->outbox.len) {
 		old_sigpipe = signal(SIGPIPE, SIG_IGN);
@@ -600,6 +975,10 @@ int lsp_transport_next_message(
 	 * is what the borrow in lsp_transport.h promises. */
 	buf_consume(&t->inbox, t->delivered);
 	t->delivered = 0;
+	rc = transport_advance(t);
+	if (rc <= 0) {
+		return rc;
+	}
 
 	for (;;) {
 		rc = inbox_take_message(t, body, len);

@@ -153,11 +153,20 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   server, and it does not speak LSP on stdio: its extension starts it with
   `--start-java-language-server=listen-hash:0`, reads the port and hash it
   prints on stdout, connects a TCP socket to `127.0.0.1:<port>` and writes
-  the hash before the first LSP byte.  kg's client is stdio-only, so this
-  needs a socket transport and that handshake, on top of building NetBeans
-  from source (`ant apply-patches && ant build-netbeans` over the
-  `apache/netbeans` submodule).  `jdtls` is the shipped default because
-  neither of those is a row in a table.
+  the hash before the first LSP byte.
+  The wire is done (2026-08-10): `LSP_WIRE_LISTEN_HASH` in
+  `src/lsp_transport.c` scans the child's stdout for the announce line,
+  connects non-blocking, writes the hash and then frames over the socket,
+  with the child's stdout becoming a `*lsp-log*` channel beside its
+  standard error; a `KG_LSP_SERVER_<MODE>` value beginning with the token
+  `listen-hash:` and whitespace selects it and runs the rest as the
+  command.  Covered by socket cases in `test/test_lsp_transport.c` against
+  `test/fake_lsp_server.py --listen-hash`, and by two PTY cases -- a
+  definition through the fake, and a server that never announces.  What is
+  left is nbcode itself: building NetBeans from source (`ant apply-patches
+  && ant build-netbeans` over the `apache/netbeans` submodule) or
+  unpacking the extension's vsix, and an installer for it.  `jdtls` is the
+  shipped default because that half is not a row in a table.
 - [x] **The rest of the protocol.**  Diagnostics, hover, rename and
       completion were all out of scope by the plan, not by accident; all
       four are done (2026-08-10):

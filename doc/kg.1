@@ -3485,6 +3485,32 @@ exactly as
 command is, so a wrapper script, an absolute path with spaces in it and
 extra arguments all work.
 .Pp
+A value beginning with the token
+.Sq listen-hash:
+and then whitespace runs the rest of itself as the command and speaks to
+it over a TCP socket rather than over its standard input and output:
+.Bd -literal -offset indent
+KG_LSP_SERVER_JAVA='listen-hash: nbcode \e
+    --start-java-language-server=listen-hash:0'
+.Ed
+.Pp
+That is Oracle's nbcode, the NetBeans Java server, which speaks no LSP on
+stdio at all.
+Started that way it listens on a port, prints
+.Sq Java Language Server listening at port N with hash H
+on its standard output, and expects the client to connect to
+.Li 127.0.0.1:N
+and write the hash before the first LSP byte.
+.Nm
+reads its standard output for that line, connects without blocking, sends
+the hash, and frames travel over the socket both ways; everything else the
+server prints there, that line included, joins its standard error in
+.Pa *lsp-log* .
+No built-in server uses that wire \(em
+.Ic jdtls
+is still the Java default \(em so it arrives with the command line that
+asks for it, or not at all.
+.Pp
 Java's server is the Eclipse JDT Language Server, spawned as the bare name
 .Ic jdtls .
 It ships as a tarball rather than a package, and
@@ -4253,6 +4279,11 @@ or
 Run through
 .Ic /bin/sh -c ,
 so quoting and arguments work; unset or empty leaves the built-in.
+A value beginning with
+.Sq listen-hash:
+and whitespace runs the rest as the command and talks to it over the TCP
+socket that command announces, which is Oracle's nbcode; see
+.Sx LSP .
 Ignored by a
 .Sq -lsp
 build.

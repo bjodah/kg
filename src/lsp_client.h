@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#include "lsp_transport.h" /* enum lsp_wire */
+
 /* One language server, spoken to as JSON-RPC: request ids, the callbacks
  * their answers land in, the initialize/initialized handshake and the
  * capabilities it settles, and the crash detection that keeps a dead server
@@ -188,6 +190,18 @@ struct lsp_capabilities {
  * started or memory ran out. */
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path);
+
+/* The same, on `wire` (src/lsp_transport.h).  lsp_client_start() is this
+ * with LSP_WIRE_STDIO.
+ *
+ * A LSP_WIRE_LISTEN_HASH client is INITIALIZING with its `initialize`
+ * queued in the transport, exactly as a stdio one whose server has not
+ * answered yet is: the socket comes up inside a later lsp_client_poll(),
+ * and the request goes out then.  So a server that never announces a port
+ * is not a case for this layer at all -- it is a request that goes
+ * unanswered, which the per-request deadline already ends. */
+struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
+    const char *root_path, enum lsp_wire wire);
 
 /* What this client is called in a message a user reads: the server's own
  * name ("clangd"), set by the registry that knows it (src/lsp_server.c).

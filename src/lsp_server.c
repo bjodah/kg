@@ -19,6 +19,7 @@
 #include "lsp_server.h"
 
 #include "lsp_client.h"
+#include "lsp_transport.h"
 #include "process.h"
 
 #include <limits.h>
@@ -42,9 +43,18 @@ static bool dir_has_java_markers(const char *dir);
  * from `name` so the environment variable a user sets is greppable in this
  * file, and `argv` is a direct exec -- no shell -- so nothing in a built-in
  * spec can be word-split by a stray space in the environment.  The override
- * is the opposite by design: a command line for /bin/sh. */
+ * is the opposite by design: a command line for /bin/sh.
+ *
+ * `wire` is how the frames reach that command (src/lsp_transport.h).  Every
+ * built-in spec is LSP_WIRE_STDIO, which is the protocol's own arrangement
+ * and what every server kg names speaks; LSP_WIRE_LISTEN_HASH exists for
+ * the one an override can ask for, and no row selects it. */
 struct lsp_server_spec {
+	/* The two enums sit together so the pointers after them stay packed:
+	 * a 4-byte field anywhere among them costs this table a hole per
+	 * row, which is what clang-tidy's Padding check says out loud. */
 	enum kg_mode_id mode;
+	enum lsp_wire wire;
 	const char *name;
 	const char *env;
 	const char *const argv[4];
@@ -52,15 +62,16 @@ struct lsp_server_spec {
 };
 
 static const struct lsp_server_spec server_specs[] = {
-	{ KG_MODE_C, "clangd", LSP_SERVER_ENV_PREFIX "C", { "clangd", NULL },
-	    dir_has_c_markers },
-	{ KG_MODE_PYTHON, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
+	{ KG_MODE_C, LSP_WIRE_STDIO, "clangd", LSP_SERVER_ENV_PREFIX "C",
+	    { "clangd", NULL }, dir_has_c_markers },
+	{ KG_MODE_PYTHON, LSP_WIRE_STDIO, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
 	    { "ty", "server", NULL }, dir_has_python_markers },
-	{ KG_MODE_GO, "gopls", LSP_SERVER_ENV_PREFIX "GO", { "gopls", NULL },
-	    dir_has_go_markers },
-	{ KG_MODE_RUST, "rust-analyzer", LSP_SERVER_ENV_PREFIX "RUST",
-	    { "rust-analyzer", NULL }, dir_has_rust_markers },
-	{ KG_MODE_JAVA, "jdtls", LSP_SERVER_ENV_PREFIX "JAVA",
+	{ KG_MODE_GO, LSP_WIRE_STDIO, "gopls", LSP_SERVER_ENV_PREFIX "GO",
+	    { "gopls", NULL }, dir_has_go_markers },
+	{ KG_MODE_RUST, LSP_WIRE_STDIO, "rust-analyzer",
+	    LSP_SERVER_ENV_PREFIX "RUST", { "rust-analyzer", NULL },
+	    dir_has_rust_markers },
+	{ KG_MODE_JAVA, LSP_WIRE_STDIO, "jdtls", LSP_SERVER_ENV_PREFIX "JAVA",
 	    { "jdtls", NULL }, dir_has_java_markers },
 };
 
@@ -304,6 +315,41 @@ bool lsp_workspace_root(
 
 /* ------------------------------- registry ----------------------------- */
 
+/* The command line an override names, and the wire it asks for.
+ *
+ * A value beginning with the token `listen-hash:` and then whitespace is
+ * the socket wire (src/lsp_transport.h) and the rest of it is the command;
+ * anything else keeps the meaning every override has always had, which is
+ * a stdio command line and nothing more.  The token is spelled the way
+ * nbcode's own option is (`--start-java-language-server=listen-hash:0`),
+ * so the recipe reads as one thing twice rather than as two names for it.
+ *
+ * Returns the command, or NULL for "there is no override here" -- which is
+ * what an empty value, and a `listen-hash:` with nothing to run after it,
+ * both mean.  `*wire` is left alone unless the token asked for it. */
+static const char *override_command(const char *value, enum lsp_wire *wire)
+{
+	static const char token[] = "listen-hash:";
+	const size_t len = sizeof(token) - 1;
+
+	if (!value || !*value) {
+		return NULL;
+	}
+	if (strncmp(value, token, len) != 0
+	    || (value[len] != ' ' && value[len] != '\t')) {
+		return value;
+	}
+	value += len;
+	while (*value == ' ' || *value == '\t') {
+		value++;
+	}
+	if (!*value) {
+		return NULL;
+	}
+	*wire = LSP_WIRE_LISTEN_HASH;
+	return value;
+}
+
 /* Start one server for `spec` in `root`.  The override wins and is a shell
  * command line (src/lsp_server.h says so to the user); the built-in spec is
  * an argv exec'd directly.  The child's working directory is the workspace
@@ -312,19 +358,20 @@ bool lsp_workspace_root(
 static struct lsp_client *spec_start(
     const struct lsp_server_spec *spec, const char *root)
 {
-	const char *override = getenv(spec->env);
+	enum lsp_wire wire = spec->wire;
+	const char *command = override_command(getenv(spec->env), &wire);
 	struct kg_spawn_request req = {
 		.directory = root,
 		.stdin_fd = -1,
 	};
 	struct lsp_client *c;
 
-	if (override && *override) {
-		req.command = override;
+	if (command) {
+		req.command = command;
 	} else {
 		req.argv = spec->argv;
 	}
-	c = lsp_client_start(&req, root);
+	c = lsp_client_start_wire(&req, root, wire);
 	/* The spec's name, not the command line's: an override points kg at
 	 * a wrapper script or a fake, and what a message about "clangd"
 	 * should say is which server kg thinks it is talking to. */

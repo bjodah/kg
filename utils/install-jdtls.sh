@@ -192,10 +192,15 @@ fi
 # An install that cannot be started is not an install.  --help is the one
 # thing the launcher answers without starting a JVM workspace -- and what
 # is checked is its output, not its exit status: the wrong entry point in
-# this tree exits 0 having done nothing at all.
-if ! "$bindir/jdtls" --help 2>/dev/null | grep -q -- "-data"; then
-	die "$bindir/jdtls was written but does not run; try: $bindir/jdtls --help"
-fi
+# this tree exits 0 having done nothing at all.  The output is captured
+# rather than piped into a `grep -q`, which would exit at the first match,
+# leave the launcher writing into a closed pipe, and fail the whole check
+# on the SIGPIPE that `pipefail` then reports.
+help_out=$("$bindir/jdtls" --help 2>/dev/null || true)
+case $help_out in
+*-data*) ;;
+*) die "$bindir/jdtls was written but does not run; try: $bindir/jdtls --help" ;;
+esac
 say "installed: $bindir/jdtls -> $share"
 
 case ":$PATH:" in

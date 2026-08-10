@@ -689,6 +689,49 @@ FeObject *native_buffer_live_p(FeContext *context, FeObject *arguments)
 	    context, lisp_object_buffer_handle(context, object).slot >= 0);
 }
 
+/* (switch-to-buffer BUFFER-OR-NAME): show it in the selected window and
+ * make it current, creating a buffer of that name when a string names
+ * none -- Emacs' function form, which kg had no Lisp spelling of at all:
+ * `switch-to-buffer' was a command that reads the name from the
+ * minibuffer and nothing else, so a package could build a report buffer
+ * and then had no way to put it on screen.
+ *
+ * `set-buffer' is still the one that does NOT touch a window; this is
+ * the one that does.  The exec context follows the window, so the rest
+ * of the caller's body edits the buffer the user is now looking at. */
+FeObject *native_switch_to_buffer(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	struct kg_buffer_handle handle;
+	struct editor_buffer *b;
+
+	FeRequireNoArguments(context, arguments);
+	if (FeGetType(object) == FeTString) {
+		char name[PATH_MAX];
+		int slot;
+
+		lisp_name_argument(context, object, name, sizeof(name));
+		slot = lisp_buffer_slot_by_name(name);
+		if (slot < 0) {
+			handle = buf_create_named(name);
+			if (handle.slot < 0) {
+				FeHandleError(context, "too many open buffers");
+			}
+		} else {
+			handle = buf_handle(slot);
+		}
+	} else {
+		handle = buf_handle_of(
+		    lisp_buffer_resolve(context, object, "switch-to-buffer"));
+	}
+	b = buf_resolve(handle);
+	if (b == NULL || !buf_select(buf_handle_slot(handle))) {
+		FeHandleError(context, "switch-to-buffer: cannot show buffer");
+	}
+	lisp_exec_set_buffer(context, b);
+	return lisp_buffer_object(context, handle);
+}
+
 FeObject *native_set_buffer(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);

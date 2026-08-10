@@ -65,6 +65,23 @@ struct kg_buffer_handle buf_create_named(const char *name)
 	return buf_handle(slot);
 }
 
+/* The real one attaches the slot to the current window, publishes a
+ * lifecycle event and recomputes derived state; what
+ * (switch-to-buffer ...) needs of it here is the window attachment and
+ * buf_current, which is what makes the switched-to buffer the one
+ * win_buffer() answers with. */
+int buf_select(int slot)
+{
+	if (slot < 0 || slot >= MAX_BUFFERS || !buflist[slot].active) {
+		return 0;
+	}
+	if (win_count > 0) {
+		wcur()->buf = buf_handle(slot);
+	}
+	buf_current = slot;
+	return 1;
+}
+
 int buf_kill_buffer(struct kg_buffer_handle handle)
 {
 	struct editor_buffer *b = buf_resolve(handle);

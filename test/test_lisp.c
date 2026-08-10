@@ -6133,6 +6133,35 @@ static void test_phase17_with_temp_buffer(void)
 	teardown_editor();
 }
 
+/* switch-to-buffer is the function form kg had only as a command, and
+ * the one that makes a package able to put its own buffer on screen.
+ * What is asserted here is the half a PTY case cannot see cheaply: it
+ * creates on a new name, resolves an existing one, and leaves the
+ * created buffer CURRENT for the rest of the form, which is what lets a
+ * package switch and then write. */
+static void test_phase17_switch_to_buffer(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq(
+	    "(buffer-name (switch-to-buffer \"*report*\"))", "*report*"));
+	CHECK(eval_eq("(progn (switch-to-buffer \"*report*\")"
+		      " (insert \"x\") (buffer-name (current-buffer)))",
+	    "*report*"));
+	/* A second switch to the same name finds it rather than making a
+	 * second buffer of that name. */
+	CHECK(eval_eq("(let ((n (length (buffer-list))))"
+		      " (switch-to-buffer \"*report*\")"
+		      " (- (length (buffer-list)) n))",
+	    "0"));
+	CHECK(
+	    eval_error_contains("(switch-to-buffer 5)", "wrong-type-argument"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_with_current_buffer(void)
 {
 	setup_editor();
@@ -6536,6 +6565,7 @@ int main(void)
 	RUN(test_phase17_buffer_edits);
 	RUN(test_phase17_buffer_status);
 	RUN(test_phase17_with_temp_buffer);
+	RUN(test_phase17_switch_to_buffer);
 	RUN(test_with_current_buffer);
 	RUN(test_hooks);
 	RUN(test_hook_error_does_not_disarm);

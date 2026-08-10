@@ -469,6 +469,7 @@ FeObject *native_get_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_get_buffer_create(FeContext *context, FeObject *arguments);
 FeObject *native_buffer_live_p(FeContext *context, FeObject *arguments);
 FeObject *native_set_buffer(FeContext *context, FeObject *arguments);
+FeObject *native_switch_to_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_kill_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_delete_region(FeContext *context, FeObject *arguments);
 FeObject *native_delete_char(FeContext *context, FeObject *arguments);

@@ -211,7 +211,12 @@ lispdir = $(datadir)/kg/lisp
 # pipeline.el and pipeline-text.el ship as a pair on purpose:
 # pipeline-text.el's first form is (require 'pipeline), so installing one
 # without the other would install something that cannot load.
-LISP_PACKAGES = lisp/auto-fill.el lisp/pipeline.el lisp/pipeline-text.el
+#
+# grep-buffer.el (Phase 17) is the milestone package: the first one that
+# could not have been written before the elisp wave.  It stands alone --
+# it requires nothing but the prelude.
+LISP_PACKAGES = lisp/auto-fill.el lisp/grep-buffer.el lisp/pipeline.el \
+                lisp/pipeline-text.el
 
 # Show a leading "~" on lines past end-of-buffer (vim/kilo style).
 # Off by default for an Emacs-like presentation.  Override on the make

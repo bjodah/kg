@@ -398,6 +398,7 @@ Ordering rules that hold across every subscriber:
 | `(buffer-live-p OBJ)` | `t` for a live buffer object, else `nil` (never raises) |
 | `(buffer-name &optional BUF)` | Display name of `BUF`, or the current buffer |
 | `(set-buffer BUF)` | Make `BUF` current for the rest of this top-level form only |
+| `(switch-to-buffer BUFFER-OR-NAME)` | Show it in the selected window and make it current, creating it when a string names no buffer. Answers the buffer object |
 | `(kill-buffer &optional BUF)` | Kill `BUF` (or current); raises on a modified buffer with no confirmation path from Lisp |
 | `(point)` / `(point-min)` / `(point-max)` | Point and buffer bounds, 1-based |
 | `(goto-char N)` | Move point to `N`, clamped to the buffer |

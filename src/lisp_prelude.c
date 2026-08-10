@@ -119,6 +119,11 @@ static const struct native_binding native_bindings[] = {
 	{ "get-buffer-create", native_get_buffer_create },
 	{ "buffer-live-p", native_buffer_live_p },
 	{ "set-buffer", native_set_buffer },
+	/* set-buffer selects without touching a window; this one shows the
+	 * buffer.  Emacs' function form of a name kg had only as a
+	 * minibuffer-reading command, which left a package able to build a
+	 * report buffer and unable to put it on screen. */
+	{ "switch-to-buffer", native_switch_to_buffer },
 	{ "kill-buffer", native_kill_buffer },
 	{ "search-forward", native_search_forward },
 	{ "search-backward", native_search_backward },

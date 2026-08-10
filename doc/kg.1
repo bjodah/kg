@@ -242,8 +242,33 @@ that removes the hook and reports once, so a bad
 .Li fill-column
 disables the mode instead of erroring on every keystroke.
 .Pp
+.Pa lisp/grep-buffer.el
+is the package to read first if you want to write one.
+.Li (require 'grep-buffer)
+then
+.Li grep-buffer
+asks for a regexp, collects every matching line of the current buffer
+into
+.Pa *grep-buffer*
+\(em one
+.Li "LINE: TEXT"
+row per hit, with the matched text in brackets and a count at the end
+\(em and shows it.
+With point on a row,
+.Li grep-buffer-goto
+returns to the line that row names;
+.Li grep-buffer-word-at-point
+searches for the word under the cursor, and
+.Li grep-buffer-ignore-case
+folds case.
+It is not the built-in
+.Li occur ,
+which is C and integrates with
+.Ic M-g M-n ;
+it is Lisp a user can change.
+.Pp
 .Nm
-installs that package to
+installs those packages to
 .Pa <prefix>/share/kg/lisp/
 .Pq Pa /usr/local/share/kg/lisp
 by default .

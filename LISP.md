@@ -135,6 +135,30 @@ or copy the file into `<config>/kg/lisp/` and require it with no extra line.
 binary, so it can never be missing or a version behind the editor that
 evaluates it.
 
+`lisp/grep-buffer.el` ships beside it and is the package to read first if
+you want to write one. `(require 'grep-buffer)` then `M-x grep-buffer`
+asks for a regexp, collects every matching line of the current buffer
+into `*grep-buffer*` — one `LINE: TEXT` row per hit, with the matched
+text in `[brackets]` and a count at the end — and shows it. Put point on
+a row and `M-x grep-buffer-goto` takes you back to the line that row
+names. `M-x grep-buffer-word-at-point` searches for the word under the
+cursor, and `grep-buffer-ignore-case` folds case when you set it. Bind
+what you use:
+
+```elisp
+(require 'grep-buffer)
+(global-set-key "C-c g" "grep-buffer")
+(global-set-key "C-c w" "grep-buffer-word-at-point")
+(global-set-key "C-c j" "grep-buffer-goto")
+```
+
+It is not kg's built-in `M-x occur`, which is C and integrates with
+`M-g M-n`; it is a hundred lines of Lisp you can change, and it is the
+package the elisp wave existed to make writable — it needs the regexp
+seam, the string library, `erase-buffer`, `beginning-of-line` and
+`switch-to-buffer`, and before this wave it could not have been written
+at all.
+
 `lisp/pipeline.el` and `lisp/pipeline-text.el` ship beside it as a worked
 two-file package: `pipeline.el` is pure Lisp — higher-order steps folded over
 a value, with closures, `funcall`/`apply`, `catch`/`throw`, `condition-case`,

@@ -1,0 +1,8 @@
+{
+ "id": "phase17-grep-buffer-report",
+ "setup": [
+  "(if (fboundp 'expand-file-name) (load (expand-file-name \"lisp/grep-buffer.el\") nil t) (load \"lisp/grep-buffer.el\"))"
+ ],
+ "expr": "(grep-buffer--report \"notes.txt\" \"al\" (grep-buffer--hits \"al\" (list \"alpha\" \"beta\" \"  also\")))",
+ "note": "The milestone package's pure half: hit collection, bracketing and the summary line, with no buffer involved. kg-policy, since the commands around it are all buffer and window operations."
+}

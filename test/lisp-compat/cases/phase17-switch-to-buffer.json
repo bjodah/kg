@@ -1,0 +1,6 @@
+{
+ "id": "phase17-switch-to-buffer",
+ "setup": [],
+ "expr": "(buffer-name (switch-to-buffer \"*report*\"))",
+ "note": "Shows a buffer in the selected window, creating it when the name is new. kg-policy: a batch Emacs has no window to show it in."
+}

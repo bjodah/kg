@@ -75,7 +75,7 @@ int kg_process_spawn(
  * `req->stderr_to_output` is honoured, and for a protocol stream it must
  * be false: a server that writes a log line to stderr would otherwise
  * splice it into the middle of a message and desynchronise the framing.
- * lsp_transport_start() forces it false for that reason.
+ * lsp_transport_start_wire() forces it false for that reason.
  *
  * Returns 0, or -1 with errno set (EINVAL, or whatever pipe()/fork()
  * failed with).  Same process group as kg_process_spawn(): the child leads

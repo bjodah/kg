@@ -178,7 +178,7 @@ struct lsp_capabilities {
 /* Spawn `req`'s command and start the handshake: the child is running and
  * `initialize` is queued for it when this returns, so the state is
  * INITIALIZING and not READY -- the result arrives in a later
- * lsp_client_poll().  `req->stdin_fd` must be -1, as lsp_transport_start()
+ * lsp_client_poll().  `req->stdin_fd` must be -1, as lsp_transport_start_wire()
  * requires.
  *
  * `root_path` is the workspace root, an absolute directory path.  It becomes

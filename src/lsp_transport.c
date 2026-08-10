@@ -821,15 +821,10 @@ struct lsp_transport *lsp_transport_start_wire(
 	return t;
 }
 
-struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req)
-{
-	return lsp_transport_start_wire(req, LSP_WIRE_STDIO);
-}
-
 #ifdef KG_FUZZ
 /* Fuzz-only (test/fuzz_lsp_frames.c): a transport with no child at all,
  * reading whatever the harness has already put into `out_fd`.  The parser
- * above is unreachable otherwise -- lsp_transport_start() forks a server
+ * above is unreachable otherwise -- lsp_transport_start_wire() forks a server
  * per input, which costs orders of magnitude more than the parse and would
  * make the target a measurement of fork().  The descriptor becomes the
  * transport's and is closed by lsp_transport_close() like any other; there

@@ -15,7 +15,7 @@
  * src/lsp_transport.c, so what runs is the editor's own
  * inbox_fill()/inbox_take_message() loop over a real descriptor -- neither
  * the framing nor the read path is reimplemented here.  The other way in,
- * lsp_transport_start(), forks a server per input, and a fork costs orders
+ * lsp_transport_start_wire(), forks a server per input, and a fork costs orders
  * of magnitude more than the parse it would be measuring.
  *
  * Writing and reading are interleaved rather than done in that order,

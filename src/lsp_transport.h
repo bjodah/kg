@@ -142,17 +142,14 @@ enum lsp_transport_error {
 struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_transport;
 
-/* Spawn `req`'s command and wrap its pipes.  `req->stdin_fd` must be -1
- * (kg_process_spawn_bidi() makes the child's stdin itself) and
- * `stderr_to_output` is forced false whatever the caller set: the child's
- * stderr must never reach the stream this parses, or one log line
- * desynchronises the framing for good.  Returns NULL, with errno from the
- * spawn, if the child could not be started; a returned transport always
- * has a live child and two open descriptors. */
-struct lsp_transport *lsp_transport_start(const struct kg_spawn_request *req);
-
-/* The same, on `wire`.  lsp_transport_start() is this with
- * LSP_WIRE_STDIO, which is every server but nbcode.
+/* Spawn `req`'s command and wrap its pipes, speaking `wire`.
+ * `req->stdin_fd` must be -1 (kg_process_spawn_bidi() makes the child's
+ * stdin itself) and `stderr_to_output` is forced false whatever the caller
+ * set: the child's stderr must never reach the stream this parses, or one
+ * log line desynchronises the framing for good.  Returns NULL, with errno
+ * from the spawn, if the child could not be started; a returned transport
+ * always has a live child and two open descriptors.  LSP_WIRE_STDIO is
+ * every server but nbcode.
  *
  * On LSP_WIRE_LISTEN_HASH the transport comes back with no socket yet and
  * is NOT a failure: it is waiting for the child's announce line, and it

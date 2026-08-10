@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 20178,
-  "lines_hit": 17605,
-  "line_rate": 0.8725,
-  "functions_found": 1887,
-  "functions_hit": 1844,
-  "function_rate": 0.9772,
-  "branches_found": 12473,
-  "branches_hit": 9304,
-  "branch_rate": 0.7459
+  "lines_found": 20348,
+  "lines_hit": 17767,
+  "line_rate": 0.8732,
+  "functions_found": 1904,
+  "functions_hit": 1861,
+  "function_rate": 0.9774,
+  "branches_found": 12587,
+  "branches_hit": 9401,
+  "branch_rate": 0.7469
  },
  "files": {
   "src/autocomplete.c": {
@@ -390,15 +390,15 @@
    "branch_rate": 0.684
   },
   "src/lsp_client.c": {
-   "lines_found": 459,
-   "lines_hit": 416,
-   "line_rate": 0.9063,
-   "functions_found": 49,
-   "functions_hit": 49,
+   "lines_found": 461,
+   "lines_hit": 427,
+   "line_rate": 0.9262,
+   "functions_found": 50,
+   "functions_hit": 50,
    "function_rate": 1.0,
    "branches_found": 226,
-   "branches_hit": 155,
-   "branch_rate": 0.6858
+   "branches_hit": 165,
+   "branch_rate": 0.7301
   },
   "src/lsp_complete.c": {
    "lines_found": 195,
@@ -500,15 +500,15 @@
    "branch_rate": 0.4857
   },
   "src/lsp_server.c": {
-   "lines_found": 173,
-   "lines_hit": 153,
-   "line_rate": 0.8844,
-   "functions_found": 24,
-   "functions_hit": 24,
+   "lines_found": 188,
+   "lines_hit": 167,
+   "line_rate": 0.8883,
+   "functions_found": 25,
+   "functions_hit": 25,
    "function_rate": 1.0,
-   "branches_found": 124,
-   "branches_hit": 101,
-   "branch_rate": 0.8145
+   "branches_found": 138,
+   "branches_hit": 110,
+   "branch_rate": 0.7971
   },
   "src/lsp_sync.c": {
    "lines_found": 271,
@@ -522,15 +522,15 @@
    "branch_rate": 0.8333
   },
   "src/lsp_transport.c": {
-   "lines_found": 276,
-   "lines_hit": 240,
-   "line_rate": 0.8696,
-   "functions_found": 26,
-   "functions_hit": 26,
+   "lines_found": 429,
+   "lines_hit": 377,
+   "line_rate": 0.8788,
+   "functions_found": 41,
+   "functions_hit": 41,
    "function_rate": 1.0,
-   "branches_found": 200,
-   "branches_hit": 138,
-   "branch_rate": 0.69
+   "branches_found": 300,
+   "branches_hit": 216,
+   "branch_rate": 0.72
   },
   "src/lsp_uri.c": {
    "lines_found": 69,

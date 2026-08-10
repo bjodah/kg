@@ -1,0 +1,31 @@
+name: lsp-completion-sole-match
+# M-TAB with one candidate inserts it, the way Emacs' completion-at-point
+# does.  The candidate here carries a `textEdit`, which is the shape that
+# tells the client where the completion begins -- [0, 3) of line 1, the
+# "val" M-> leaves point after -- so what this asserts is that kg took the
+# server's own range rather than its own word scan.
+#
+# The file deliberately ends without a final newline, so M-> lands at
+# the end of "val" rather than on the empty row a trailing newline
+# leaves behind.
+#
+# The C-l after M-TAB is the wait: the request is asynchronous, and C-l is
+# the one key that repaints without moving point.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion-edit value_one:1:0:3"
+filename: complone.c
+initial: |-
+  int value_one(void);
+  val
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  int value_one(void);
+  value_one

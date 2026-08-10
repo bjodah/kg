@@ -259,6 +259,18 @@ ifeq ($(WITH_LSP),1)
 LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
+# The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
+# a request's position from the current buffer, lsp_edit.c applies a
+# WorkspaceEdit to buffers and opens files.  They are NOT in LSP_OBJS,
+# which every test binary links (TEST_SRCS_OBJS below): a test that links
+# them would have to link the buffer table, the window table and the
+# command layer with them.  They are src/xref.c's situation one axis over,
+# and the axis is why they are a list rather than a row in SRCS: xref.c is
+# built in both configurations and says so in a #else, while these two
+# exist only where the protocol does.
+ifeq ($(WITH_LSP),1)
+LSP_EDITOR_SRCS = lsp_req.c lsp_edit.c
+endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
 # the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
@@ -288,14 +300,17 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
           $(TESTDIR)/test_lsp_client \
-          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync
+          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync \
+          $(OBJDIR)/lsp_req.o \
+          $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
-       lsp_diag.c lsp_hover.c dabbrev.c \
+       lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
+       dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c
 
@@ -359,7 +374,7 @@ ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
-            $(TESTDIR)/test_lsp_diag
+            $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -530,7 +545,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7511
+SCC_COMPLEXITY_MAX ?= 7753
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1159,6 +1174,11 @@ EXTRA_lsp_log := $(EXTRA_buffer) $(OBJDIR)/lsp_log.o
 # xref_location_of(): a location parser is where a server's three answer
 # shapes are either read right or navigated wrong.
 EXTRA_xref        := $(EXTRA_cmd)
+# Applying a WorkspaceEdit reaches the buffer table, the edit gateway and
+# the undo stack, and completion's prefix scanner reaches dabbrev's -- so
+# this links the same everything-but-main.c set EXTRA_cmd does, for
+# EXTRA_xref's reason.
+EXTRA_lsp_edit    := $(EXTRA_cmd)
 # The diagnostics store and the hover renderer, together: both are the
 # command layer, both reach buffers, decorations and the echo area, and
 # the store's position conversion is only observable against a real

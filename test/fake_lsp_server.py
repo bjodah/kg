@@ -130,6 +130,38 @@ Options, all of them optional:
     bare string -- which is the third shape.
 ``--hover-none``
     Answer ``textDocument/hover`` with null.
+``--rename-self LINE:START:END`` (repeatable)
+    One TextEdit per option, in the document the client last sent,
+    replacing the bytes [START, END) of LINE with the ``newName`` the
+    request itself carried -- so a case asserts the name it typed made the
+    round trip, and, as with ``--definition-self``, never has to spell the
+    temporary directory it runs in.  Without any of these (and without
+    ``--rename-sibling``) a rename request is answered with ``null``,
+    which is how a server says it will not rename that position.
+``--rename-sibling NAME:LINE:START:END`` (repeatable)
+    The same, in the file NAME *beside* the last document: the multi-file
+    half of a rename, which is the only part that proves kg opens a file
+    nobody was editing and leaves it modified.
+``--rename-shape changes|documentChanges``
+    Which of the WorkspaceEdit's two shapes to answer with (default
+    ``changes``).  ``documentChanges`` sends TextDocumentEdit objects with
+    versioned identifiers, which is what a modern server does.
+``--rename-resource-op KIND``
+    Add a resource operation of that kind (``create``, ``rename``,
+    ``delete``) to the ``documentChanges`` array.  kg performs none of
+    them and says how many it skipped; this is how a test sees that.
+``--completion LABEL`` (repeatable)
+    A CompletionItem with nothing but a label: the plainest shape a
+    server can answer ``textDocument/completion`` with.
+``--completion-insert LABEL:TEXT`` (repeatable)
+    An item whose ``insertText`` differs from its label.
+``--completion-edit LABEL:LINE:START:END`` (repeatable)
+    An item carrying a ``textEdit`` that replaces [START, END) of LINE
+    with the label -- the shape that tells the client where the
+    completion begins instead of leaving it to guess.
+``--completion-list``
+    Answer with a CompletionList (``{isIncomplete, items}``) rather than
+    the bare array.  Both are legal and a client has to read both.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
     The client is required to answer it with a MethodNotFound error;
@@ -364,6 +396,8 @@ class Protocol:
                 "definitionProvider": True,
                 "referencesProvider": True,
                 "hoverProvider": True,
+                "renameProvider": True,
+                "completionProvider": {"triggerCharacters": ["."]},
             },
             "serverInfo": {"name": "fake_lsp_server"},
         }
@@ -389,6 +423,10 @@ class Protocol:
             return [parse_location(r) for r in self.args.reference]
         if method == "textDocument/hover":
             return self.hover_result()
+        if method == "textDocument/rename":
+            return self.rename_result(params)
+        if method == "textDocument/completion":
+            return self.completion_result()
         if method == "kg/echo":
             return params
         if method == "kg/state":
@@ -449,6 +487,73 @@ class Protocol:
         if (self.args.publish_empty_after
                 and self.did_count > self.args.publish_empty_after):
             self.publish([])
+
+    def text_edits(self, specs, new_text):
+        """One TextEdit per LINE:START:END spec."""
+        out = []
+        for spec in specs:
+            line, start, end = (int(n) for n in spec.split(":"))
+            out.append({"range": {"start": {"line": line,
+                                            "character": start},
+                                  "end": {"line": line, "character": end}},
+                        "newText": new_text})
+        return out
+
+    def sibling_uri(self, name):
+        return self.last_uri.rsplit("/", 1)[0] + "/" + name
+
+    def rename_edits(self, new_text):
+        """(uri, edits) pairs for every --rename-* option, in order."""
+        pairs = []
+        if self.args.rename_self:
+            pairs.append((self.last_uri,
+                          self.text_edits(self.args.rename_self, new_text)))
+        grouped = {}
+        for spec in self.args.rename_sibling:
+            name, rest = spec.split(":", 1)
+            grouped.setdefault(name, []).append(rest)
+        for name, specs in grouped.items():
+            pairs.append((self.sibling_uri(name),
+                          self.text_edits(specs, new_text)))
+        return pairs
+
+    def rename_result(self, params):
+        """A WorkspaceEdit in whichever shape --rename-shape asked for."""
+        if not self.last_uri:
+            return None
+        new_text = (params or {}).get("newName", "renamed")
+        pairs = self.rename_edits(new_text)
+        if not pairs and not self.args.rename_resource_op:
+            return None
+        if self.args.rename_shape == "changes":
+            return {"changes": {uri: edits for uri, edits in pairs}}
+        changes = [{"textDocument": {"uri": uri, "version": 1},
+                    "edits": edits} for uri, edits in pairs]
+        if self.args.rename_resource_op:
+            changes.append({"kind": self.args.rename_resource_op,
+                            "uri": self.sibling_uri("created.c")})
+        return {"documentChanges": changes}
+
+    def completion_result(self):
+        """The canned candidate set, as an array or a CompletionList."""
+        items = []
+        for spec in self.args.completion_edit:
+            label, line, start, end = spec.split(":")
+            position = {"line": int(line), "character": int(start)}
+            items.append({"label": label,
+                          "textEdit": {
+                              "range": {"start": position,
+                                        "end": {"line": int(line),
+                                                "character": int(end)}},
+                              "newText": label}})
+        for spec in self.args.completion_insert:
+            label, text = spec.split(":", 1)
+            items.append({"label": label, "insertText": text})
+        for label in self.args.completion:
+            items.append({"label": label})
+        if self.args.completion_list:
+            return {"isIncomplete": False, "items": items}
+        return items
 
     def echo_location(self, params):
         """A Location at exactly the position the request asked about.
@@ -660,6 +765,27 @@ def main(argv):
                         help="answer hover with an array of MarkedString")
     parser.add_argument("--hover-none", action="store_true",
                         help="answer hover requests with null")
+    parser.add_argument("--rename-self", action="append", default=[],
+                        help="LINE:START:END replaced in the last document "
+                             "by a rename request's newName")
+    parser.add_argument("--rename-sibling", action="append", default=[],
+                        help="NAME:LINE:START:END replaced in a file beside "
+                             "the last document")
+    parser.add_argument("--rename-shape", default="changes",
+                        choices=["changes", "documentChanges"],
+                        help="which WorkspaceEdit shape to answer with")
+    parser.add_argument("--rename-resource-op", default=None,
+                        choices=["create", "rename", "delete"],
+                        help="add a resource operation to documentChanges")
+    parser.add_argument("--completion", action="append", default=[],
+                        help="label of a bare CompletionItem")
+    parser.add_argument("--completion-insert", action="append", default=[],
+                        help="LABEL:TEXT of an item with an insertText")
+    parser.add_argument("--completion-edit", action="append", default=[],
+                        help="LABEL:LINE:START:END of an item with a "
+                             "textEdit")
+    parser.add_argument("--completion-list", action="store_true",
+                        help="answer completion with a CompletionList")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
     parser.add_argument("--notify", default=None,

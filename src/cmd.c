@@ -19,8 +19,10 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
+#include "lsp_complete.h"
 #include "lsp_diag.h"
 #include "lsp_hover.h"
+#include "lsp_rename.h"
 #include "marker.h"
 #include "mouse.h"
 #include "next_error.h"
@@ -108,6 +110,12 @@ static void cmd_xref_find_references(int fd)
 }
 static void cmd_xref_goto_xref(int fd) { editor_xref_goto_xref(fd); }
 static void cmd_xref_go_back(int fd) { editor_xref_go_back(fd); }
+
+/* The other two language-server commands.  Both exist in a WITH_LSP=0
+ * build and say the feature was not compiled in, exactly as the xref
+ * four do. */
+static void cmd_lsp_rename(int fd) { editor_lsp_rename(fd); }
+static void cmd_completion_at_point(int fd) { editor_completion_at_point(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
 
 /* M-x occur, and the three keys its listing binds. */
@@ -1535,6 +1543,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Comment or uncomment the line or region" },
 	{ "compile", editor_compile, CMD_NONE,
 	    "Run a compile command and collect its output" },
+	{ "completion-at-point", cmd_completion_at_point, EDITS,
+	    "Complete the symbol before point from the server" },
 	{ "copy-to-register", cmd_copy_to_register, CMD_NONE,
 	    "Copy the region into a register named by a key" },
 	{ "dabbrev-expand", cmd_dabbrev_expand, EDITS | LISP_OK,
@@ -1691,6 +1701,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Go to the diagnostic this *Diagnostics* line names" },
 	{ "lsp-hover", cmd_lsp_hover, CMD_NONE,
 	    "Ask the language server about the symbol at point" },
+	{ "lsp-rename", cmd_lsp_rename, EDITS,
+	    "Rename the symbol at point across the workspace" },
 	{ "mark-paragraph", cmd_mark_paragraph, CMD_NONE,
 	    "Put the region around this paragraph" },
 	{ "mark-word", cmd_mark_word, CMD_NONE,

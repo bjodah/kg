@@ -1,0 +1,64 @@
+name: lsp-clangd-rename
+# M-x lsp-rename against the real clangd, not the fake server: no `env:`
+# here, so kg spawns the `clangd` on PATH exactly as a user would get it,
+# and `requires_tool: clangd` makes a box without one SKIP with a printed
+# reason instead of failing (`--require-tools` turns that into an upfront
+# FAIL, as for tmux and the Emacs oracle).
+#
+# What this adds over the fake-server cases is that nothing about the
+# answer was written by the test: clangd decides how many occurrences
+# there are, which shape of WorkspaceEdit to send them in (it sends
+# `documentChanges` with a versioned identifier), and in which order.  The
+# assertion is that all three occurrences moved and nothing else did.
+#
+# The compilation database is what makes the workspace root real, exactly
+# as in test/pty/lsp-clangd-definition.yaml: its "directory" is the one
+# field clangd will not take relative, and the directory is a fresh
+# mkdtemp, hence `{CWD}`.
+#
+# Point is walked onto the identifier rather than searched to: three M-f
+# ("static", "int", "local_target" -- "_" is a word constituent here) land
+# it just past the name, and one C-b puts it on the name's last byte,
+# which is a position clangd resolves without argument.
+#
+# The six C-l after the prompt are the wait.  clangd is a real compiler
+# front end: the first request pays for process start, the handshake and
+# one parse of the translation unit, and a loaded CI box is not this one.
+requires_feature: lsp
+requires_tool: clangd
+backend: pexpect
+key_delay: 0.3
+filename: main.c
+workspace_files:
+  compile_commands.json: |
+    [
+      {
+        "directory": "{CWD}",
+        "file": "{CWD}/main.c",
+        "arguments": ["cc", "-c", "{CWD}/main.c"]
+      }
+    ]
+initial: |
+  static int local_target(int v) { return v + 2; }
+  int use(void) { return local_target(1); }
+  int twice(void) { return local_target(2); }
+keys:
+  - "M-f"
+  - "M-f"
+  - "M-f"
+  - "C-b"
+  - "M-x"
+  - "lsp-rename"
+  - RET
+  - "renamed_symbol"
+  - RET
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  static int renamed_symbol(int v) { return v + 2; }
+  int use(void) { return renamed_symbol(1); }
+  int twice(void) { return renamed_symbol(2); }

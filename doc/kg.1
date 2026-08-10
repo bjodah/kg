@@ -1176,6 +1176,7 @@ Multiple files each open in their own buffer.
 .It M-. Ta Go to the definition of the symbol at point (needs a language server)
 .It M-? Ta List every reference to the symbol at point (needs a language server)
 .It M-\&, Ta Go back to where the last xref jump started
+.It M-TAB Ta Complete the symbol before point (needs a language server)
 .It C-u Ta Numeric prefix for the next command (see below)
 .El
 .Pp
@@ -2083,6 +2084,28 @@ An empty confirmed command reports
 .Do
 No compile command
 .Dc .
+.It completion-at-point
+Ask the buffer's language server what the symbol before point could be,
+and complete it.
+Bound to
+.Ic M-TAB ,
+which is what a terminal sends for
+.Ic C-M-i
+as well.
+One candidate is inserted; several that share more text than has been
+typed extend it by what they share and report
+.Do
+Complete, but not unique
+.Dc ;
+several with nothing left in common are listed in a read-only
+.Pa *Completions*
+buffer, leaving point where it was.
+An empty answer reports
+.Do
+No completions
+.Dc .
+See
+.Sx LSP .
 .It dabbrev-expand
 Expand the word before point into a longer word this buffer already
 holds, searching backward from point first, nearest occurrence first,
@@ -2442,6 +2465,21 @@ See
 Ask the language server what the symbol at point is, and report the
 first line of the answer in the echo area; a longer answer goes whole to
 .Pa *lsp-hover* .
+See
+.Sx LSP .
+.It lsp-rename
+Ask the buffer's language server to rename the symbol at point, and
+apply the answer to every file it names.
+Not bound to a key: a command that rewrites files across a project is
+one to name deliberately.
+The prompt spells the symbol at point and an empty answer stands for it.
+Files that no buffer visits are opened, edited and left modified and
+unsaved, so the change can be read before it is written; the buffer the
+command was run in is the one still selected when it is done.
+Reports
+.Do
+Renamed N occurrences in M files
+.Dc .
 See
 .Sx LSP .
 .It mark-paragraph
@@ -3066,19 +3104,24 @@ No matches for \(dq...\(dq
 and changes nothing at all: the previous listing, its highlights and its
 walk are all still there.
 .Sh LSP
-kg can ask a Language Server Protocol server where a symbol is defined
-and where it is used.
-Three commands use it:
+kg can ask a Language Server Protocol server where a symbol is defined,
+where it is used, what it could be completed to, and to rename it.
+Five commands use it:
 .Ic M-x xref-find-definitions ,
 bound to
 .Ic M-. ,
 .Ic M-x xref-find-references ,
 bound to
 .Ic M-\&? ,
-and
 .Ic M-x xref-go-back ,
 bound to
-.Ic M-\&, .
+.Ic M-\&, ,
+.Ic M-x completion-at-point ,
+bound to
+.Ic M-TAB ,
+and
+.Ic M-x lsp-rename ,
+which is bound to nothing.
 It is optional at build time
 .Pq Ic make WITH_LSP=0 ,
 on by default, and
@@ -3213,6 +3256,72 @@ That holds for a single definition too: an answer never moves point or
 switches buffers under a prompt, so
 .Ic M-.
 lists rather than jumps when one arrives while a prompt is up.
+.Pp
+.Ic M-x lsp-rename
+renames the symbol at point everywhere the server says it appears.
+It prompts for the new name \(em the prompt spells the old one, and an
+empty answer means it \(em sends
+.Ql textDocument/rename ,
+and applies the WorkspaceEdit that comes back, in either of the two
+shapes a server may send it in.
+Every occurrence in one buffer is applied as a single replacement of the
+span they lie in, so the whole rename is one undo record: one
+.Ic C-_
+takes all of it back, in that buffer.
+A file that no buffer visits is opened, edited and left modified and
+unsaved \(em Emacs' behaviour, and what lets the change be read before it
+is written \(em and the buffer the command was run in is selected again
+when it is done.
+The report is
+.Do
+Renamed N occurrences in M files
+.Dc .
+.Pp
+Three things a rename does not do.
+It does not perform the create-, rename- and delete-file operations a
+server may attach to its answer: they are counted, and the report names
+how many were skipped and of what kind.
+It applies nothing at all when part of the answer cannot be read \(em an
+edit naming a file that is not a local one, or more of them than kg
+stores \(em since a rename that renamed most of the uses of a symbol is
+worse than one that renamed none and said so.
+And it refuses a file whose edits overlap, or whose buffer is read-only,
+naming that file and leaving it untouched.
+.Pp
+.Ic M-TAB
+.Pq Ic M-x completion-at-point
+completes the symbol before point.
+What is being completed is the range the server itself named, when it
+sent one, and otherwise the word before point \(em the same word
+.Ic M-/
+expands.
+Candidates are filtered to those that match what has been typed, since a
+server may return its whole set, and ordered by the
+.Ql sortText
+the protocol asks a client to sort on.
+Then, exactly as in Emacs: one candidate is inserted; several sharing
+more than has been typed insert what they share and report
+.Do
+Complete, but not unique
+.Dc ;
+several with nothing left in common are listed in a read-only
+.Pa *Completions*
+buffer beside the source, with point left where it was.
+An empty answer says
+.Do
+No completions
+.Dc .
+The insertion is one edit, so
+.Ic C-_
+takes a completion back in one step.
+.Pp
+The
+.Pa *Completions*
+listing is passive: unlike Emacs', it binds nothing, and it is not taken
+down or refreshed as typing continues.
+It is an ordinary read-only buffer \(em
+.Ic C-x 0
+closes its window, and the next completion rebuilds it in place.
 .Pp
 The buffer is sent to the server before each request, not on every
 keystroke: an unsaved buffer is still the text the answer is about, and a

@@ -213,7 +213,9 @@ standard VT100 escape sequences.
   at point is defined and goes there, asynchronously; `M-?`
   (`xref-find-references`) asks where it is used and lists the answer in a
   read-only `*xref*` buffer (`RET` visits, `n`/`p` move, `q` closes), and
-  `M-,` (`xref-go-back`) returns to where the newest jump started — see
+  `M-,` (`xref-go-back`) returns to where the newest jump started; `M-TAB`
+  (`completion-at-point`) completes the symbol before point and `M-x
+  lsp-rename` renames it across the workspace — see
   [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
@@ -398,14 +400,15 @@ is:
 ./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
 ```
 
-Three keys use it: **`M-.`** (`xref-find-definitions`), which goes to
+Four keys use it: **`M-.`** (`xref-find-definitions`), which goes to
 the definition of the symbol at point, **`M-?`** (`xref-find-references`),
-which lists every use of it, and **`M-,`** (`xref-go-back`), which returns
-to where the newest of those jumps started. Two more commands have no key
-and are typed at `M-x`: **`lsp-diagnostics`**, which lists what the servers
-have reported, and **`lsp-hover`**, which asks what the symbol at point is.
-Everything else the protocol offers — completion, rename — is deliberately
-out of scope until this foundation has proven itself.
+which lists every use of it, **`M-,`** (`xref-go-back`), which returns
+to where the newest of those jumps started, and **`M-TAB`**
+(`completion-at-point`), which completes the symbol before point. Three
+more commands have no key and are typed at `M-x`: **`lsp-diagnostics`**,
+which lists what the servers have reported, **`lsp-hover`**, which asks
+what the symbol at point is, and **`lsp-rename`**, which renames it
+everywhere.
 
 `M-?` always lists, even for one result, in a read-only `*xref*` buffer: a
 header counting the results, then one `path:line:column: preview` line
@@ -419,6 +422,48 @@ current line, `n` and `p` move between them, and `q` closes the listing.
 The listing is bounded at 200 results and says how many more there were.
 `M-.` uses the same buffer when a server offers more than one definition,
 and still jumps straight to a single one.
+
+**`M-x lsp-rename`** renames the symbol at point everywhere the server
+says it appears. It prompts for the new name — the prompt spells the old
+one, and an empty answer means it, which is `eglot-rename`'s default
+without a minibuffer default — and applies the `WorkspaceEdit` that comes
+back, in either of the two shapes a server may send it in (`changes` or
+`documentChanges`). Every occurrence in one buffer is applied as a single
+replacement of the span they lie in, so the whole rename is **one undo
+record**: one `C-_` takes all of it back. A file no buffer visits is
+opened, edited and left modified and unsaved — Emacs' behaviour, and what
+lets you read the change before writing it — and the buffer you ran the
+command in is the one selected again afterwards. The report is `Renamed N
+occurrences in M files`.
+
+Three things a rename deliberately does not do. It does not perform the
+create/rename/delete-file operations a server may attach to its answer:
+they are counted and the report says how many were skipped and of what
+kind. It applies nothing at all when part of the answer cannot be read —
+an edit naming something other than a local file, or more of them than kg
+stores — because a rename that renamed most of the uses of a symbol is
+worse than one that renamed none and said so. And it refuses a file whose
+edits overlap, or whose buffer is read-only, naming that file and leaving
+it alone.
+
+**`M-TAB`** (`completion-at-point`) completes the symbol before point.
+It is spelled `M-TAB` because that is what a terminal sends: `C-M-i` and
+`M-TAB` are the same two bytes (`ESC`, `TAB`) there, as they are in
+Emacs. What is being completed is the range the server itself named when
+it sent one, and otherwise the word before point — the same word `M-/`
+expands. Candidates are filtered against what has been typed (a server
+may return its whole set) and ordered by `sortText`, then, exactly as in
+Emacs: one candidate is inserted; several sharing more than has been
+typed insert what they share and say `Complete, but not unique`; several
+with nothing left in common are listed in a read-only `*Completions*`
+buffer beside the source, with point left where it was. An empty answer
+says `No completions`. Each insertion is one edit, so `C-_` takes a
+completion back in one step.
+
+The `*Completions*` listing is passive, which is a divergence worth
+knowing: unlike Emacs' it binds no keys, and it is neither taken down nor
+refreshed as you keep typing. It is an ordinary read-only buffer — `C-x
+0` closes its window, and the next completion rebuilds it in place.
 
 Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same

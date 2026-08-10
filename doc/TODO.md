@@ -143,10 +143,9 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       workspace.  Covered by root-walk cases in `test/test_lsp_client.c`,
       a fake-server PTY case each for the mode -> spec -> environment
       wiring, and a real-server case each behind `requires_tool:`.
-- **The rest of the protocol**, in the order it would be worth having:
-  diagnostics (which need a decoration channel and an error list, not
-  just a request), hover, rename, completion.  All were out of scope by
-  the plan, not by accident.
+- [x] **The rest of the protocol.**  Diagnostics, hover, rename and
+      completion were all out of scope by the plan, not by accident; all
+      four are done (2026-08-10):
   - [x] **Diagnostics.**  Done 2026-08-10: the client layer grew one
         module-level notification hook, in the shape of its log hook, and
         `src/lsp_diag.c` is what listens.  A publish replaces that file's
@@ -168,7 +167,23 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
         multi-line answer goes whole to `*lsp-hover*`, which is
         `*lsp-log*`'s never-selected policy.  No key: kg has no eldoc and
         Emacs has no binding either.
-  - [ ] **Rename** and **completion** are still the two that are left.
+  - [x] **`M-x lsp-rename`.**  `textDocument/rename`, and a WorkspaceEdit
+        applied in either shape (`changes`, `documentChanges`;
+        resource operations counted and skipped, an answer that cannot be
+        read in full applied not at all).  Every occurrence in one buffer
+        is one replacement of the span they lie in, which is what makes a
+        rename one undo record on a stack that has no group bracket --
+        and what makes markers strictly inside that span collapse to its
+        start, the cost the note in `src/lsp_edit.h` names.  A file no
+        buffer visits is opened, edited and left unsaved.
+  - [x] **`M-TAB` (`completion-at-point`).**  `textDocument/completion`,
+        with the server's own `textEdit` range preferred over kg's word
+        scan for what is being completed, `sortText` ordering, and Emacs'
+        three outcomes (insert, extend by the common prefix, list in
+        `*Completions*`).  The listing is passive: a mode map for it
+        wants the mode registry the last bullet of this section asks for,
+        and Emacs' "close it as you type" wants a post-command hook kg
+        has no place for yet.
 - **Lisp bindings for the xref commands.**  They are deliberately not in
   the `CMD_LISP_CALLABLE` set while the command set settles.
 - **The mode-map overlap cleanup.**  `*compilation*` is read-only, so the

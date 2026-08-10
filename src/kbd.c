@@ -471,6 +471,12 @@ static const struct {
 	/* Emacs' M-/ .  Its own ESC '/' row in tty.c's meta_keys is what
 	 * makes this reachable at all; see the comment there. */
 	{ "M-/", "dabbrev-expand" },
+	/* Emacs' completion-at-point, on the key a terminal can actually
+	 * send: C-M-i and M-TAB are the same two bytes there (ESC, TAB),
+	 * and kg's decoder calls the second byte TAB, so the sequence is
+	 * spelled M-TAB.  Its own ESC TAB row in tty.c's meta_keys is what
+	 * makes it reachable at all. */
+	{ "M-TAB", "completion-at-point" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },

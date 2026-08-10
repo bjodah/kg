@@ -338,10 +338,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
   actual space key, `RET` for Enter, `M-RET` for Meta-Enter (sent as
   one ESC+CR token so the pair lands inside kg's escape window),
-  `C-?` for Backspace, and `C-q` followed by the next token for quoted
-  input. `Home`, `End`, `C-Home`, `C-End`, `S-Home`, `S-End`, `Up`,
-  and `Down` are named tokens (sent as xterm tilde / modified tilde /
-  cursor sequences).
+  `C-?` for Backspace, `M-TAB` (also spelled `C-M-i`: the same two
+  bytes, ESC and TAB) for completion-at-point, and `C-q` followed by
+  the next token for quoted input. `Home`, `End`, `C-Home`, `C-End`,
+  `S-Home`, `S-End`, `Up`, and `Down` are named tokens (sent as xterm
+  tilde / modified tilde / cursor sequences).
   PageUp/PageDown have no named tokens; emit their escape bytes via
   `M-[` plus the letter/digit/`~` (e.g. `M-[`, `H` for Home on
   terminals that send `ESC[H`).

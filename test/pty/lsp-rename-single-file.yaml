@@ -1,0 +1,40 @@
+name: lsp-rename-single-file
+# M-x lsp-rename asks the server what to change and changes it.  The
+# server here is test/fake_lsp_server.py in place of clangd
+# (KG_LSP_SERVER_C), answering --rename-self: TextEdits in the document
+# the client itself opened, so a case whose file lives in a temporary
+# directory nobody named can still name exact ranges.  The newText is the
+# `newName` the request carried, which is what makes the typed name part
+# of the assertion rather than something the server made up.
+#
+# Point is left at the start of the buffer, on "int": the prompt's default
+# is the symbol at point, and typing a name over it is what a user does.
+#
+# The C-l between the accepted prompt and the save are the wait.  The
+# request is asynchronous by design -- the command returns the moment it
+# has sent the question -- so the case has to leave time for a Python
+# interpreter to start, handshake and reply, and C-l is the one key that
+# repaints without moving point.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --rename-self 0:4:10 --rename-self 2:23:29"
+filename: renone.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-x"
+  - "lsp-rename"
+  - RET
+  - "renamed"
+  - RET
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  int renamed(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return renamed(); }

@@ -634,6 +634,46 @@ first one in a C buffer: roughly two to three seconds on a warm box before
 the answer arrives, and longer the first time a Maven or Gradle project is
 imported. Nothing blocks while it thinks.
 
+### Java with nbcode instead
+
+Oracle's nbcode is the other real Java server: the NetBeans-based one
+behind the Java extension for VS Code (`oracle/javavscode`). Unlike every
+other server kg speaks to, it does not use stdio. Started with
+`--start-java-language-server=listen-hash:0` it prints a port and a hash on
+its stdout and then waits to be *connected to*, and the client has to open
+a TCP socket to that port and write the hash before the first LSP byte.
+The `listen-hash:` token in front of a `KG_LSP_SERVER_<MODE>` command line
+is what asks kg for that wire; everything after it is the command, run
+through `/bin/sh -c` as usual:
+
+```bash
+utils/install-nbcode.sh    # runtime -> ~/.local/share, wrapper -> ~/.local/bin
+export KG_LSP_SERVER_JAVA="listen-hash: nbcode --start-java-language-server=listen-hash:0"
+```
+
+`install-nbcode.sh` takes the same options as the jdtls one — `--prefix`,
+`--version`, `--from-source`, `--dry-run` — and by default gets nbcode the
+cheap way, because the published extension is a zip with a complete
+NetBeans runtime inside it: it downloads that from open-vsx.org (~150 MB)
+and unpacks `extension/nbcode` into `<prefix>/share/nbcode`.
+`--from-source` builds a javavscode checkout with Ant instead, which wants
+that checkout's `netbeans` submodule fetched and `ant apply-patches`
+already run, and takes tens of minutes. Java 17 or newer either way.
+
+The `<prefix>/bin/nbcode` wrapper exists to give each run a userdir of its
+own, and that is not fussiness: NetBeans' single-instance handler is keyed
+on the userdir, so two nbcode processes pointed at one do not both start —
+the second hands its command line to the first and exits without ever
+printing a port, which looks from the outside like a server that started
+and said nothing. Set `KG_NBCODE_USERDIR` to pin one anyway and keep its
+index warm between sessions, at the price of running one nbcode at a time.
+
+Being a NetBeans, nbcode is in the same class as jdt.ls rather than faster:
+measured here on a one-file Maven project, about a second and a half from
+spawn to the announce line and around three seconds to the first `M-.`
+answer, cold. A large project's first import is longer, and with a
+per-run userdir it is paid every session.
+
 ## Development
 
 Before submitting changes, format the C sources and tests:

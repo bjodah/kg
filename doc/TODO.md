@@ -148,25 +148,38 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       `settings.gradle` and `settings.gradle.kts` -- jdt.ls's own Maven and
       Gradle importers' descriptors -- plus `utils/install-jdtls.sh`,
       because jdt.ls ships as a tarball and nothing packages it.
-- **A `KG_LSP_SERVER_JAVA` recipe for Oracle's nbcode**, if one is wanted.
-  The NetBeans-based server in `oracle/javavscode` is the other real Java
-  server, and it does not speak LSP on stdio: its extension starts it with
-  `--start-java-language-server=listen-hash:0`, reads the port and hash it
-  prints on stdout, connects a TCP socket to `127.0.0.1:<port>` and writes
-  the hash before the first LSP byte.
-  The wire is done (2026-08-10): `LSP_WIRE_LISTEN_HASH` in
-  `src/lsp_transport.c` scans the child's stdout for the announce line,
-  connects non-blocking, writes the hash and then frames over the socket,
-  with the child's stdout becoming a `*lsp-log*` channel beside its
-  standard error; a `KG_LSP_SERVER_<MODE>` value beginning with the token
-  `listen-hash:` and whitespace selects it and runs the rest as the
-  command.  Covered by socket cases in `test/test_lsp_transport.c` against
-  `test/fake_lsp_server.py --listen-hash`, and by two PTY cases -- a
-  definition through the fake, and a server that never announces.  What is
-  left is nbcode itself: building NetBeans from source (`ant apply-patches
-  && ant build-netbeans` over the `apache/netbeans` submodule) or
-  unpacking the extension's vsix, and an installer for it.  `jdtls` is the
-  shipped default because that half is not a row in a table.
+- [x] **A `KG_LSP_SERVER_JAVA` recipe for Oracle's nbcode.**  Done
+      2026-08-10, and it took both halves of one campaign.  The
+      NetBeans-based server in `oracle/javavscode` is the other real Java
+      server and it does not speak LSP on stdio: started with
+      `--start-java-language-server=listen-hash:0` it prints a port and a
+      hash on stdout and waits to be connected to, and the client opens a
+      TCP socket to `127.0.0.1:<port>` and writes the hash before the
+      first LSP byte.  So the client grew a second wire --
+      `LSP_WIRE_LISTEN_HASH` in `src/lsp_transport.c` scans the child's
+      stdout for the announce line, connects non-blocking, writes the hash
+      and then frames over the socket, with the child's stdout becoming a
+      `*lsp-log*` channel beside its standard error.  A
+      `KG_LSP_SERVER_<MODE>` value beginning with the token `listen-hash:`
+      means "the rest is the command line, and the socket handshake is how
+      to reach it", while any other value keeps its stdio meaning; and
+      `utils/install-nbcode.sh` grew beside `install-jdtls.sh` to put an
+      `nbcode` on PATH.  `jdtls` stays the built-in Java default: nbcode
+      is reached by naming it, not by a row in `server_specs[]`.
+      Building NetBeans from source turned out not to be the price of
+      entry, which is what made this cheap: the extension published on
+      open-vsx.org is a zip with a complete NetBeans runtime in
+      `extension/nbcode`, so the default route downloads and unpacks that
+      and `--from-source` is the slow alternative rather than the only
+      way.  The wrapper the installer writes gives each run its own
+      userdir because NetBeans' single-instance handler is keyed on it --
+      two nbcode processes sharing one do not both start, and the loser
+      exits without printing a port.  Covered by socket cases in
+      `test/test_lsp_transport.c` against `test/fake_lsp_server.py
+      --listen-hash`, two fake-server PTY cases (a definition through the
+      fake, and a server that never announces), and
+      `test/pty/lsp-nbcode-definition.yaml` behind `requires_tool:
+      nbcode`.
 - [x] **The rest of the protocol.**  Diagnostics, hover, rename and
       completion were all out of scope by the plan, not by accident; all
       four are done (2026-08-10):

@@ -3532,6 +3532,62 @@ A JVM starting and importing a project is slower than a
 parsing one translation unit: expect the first
 .Ic M-.
 in a Java buffer to take a few seconds.
+.Pp
+Oracle's
+.Ic nbcode ,
+the NetBeans-based server behind the Java extension for VS Code
+.Pq Ic oracle/javavscode ,
+is the other real Java server, and it does not speak LSP on stdio.
+Started with
+.Fl -start-java-language-server Ns = Ns Ic listen-hash:0
+it prints a port and a hash on its standard output and waits to be
+connected to; the client opens a TCP socket to that port on
+.Ic 127.0.0.1
+and writes the hash before the first LSP byte.
+A
+.Ev KG_LSP_SERVER_ Ns Ar MODE
+value beginning with the token
+.Ic listen-hash:
+followed by whitespace asks
+.Nm
+for that wire, and the rest of the value is the command line, run through
+.Ic /bin/sh -c
+as any other is:
+.Bd -literal -offset indent
+KG_LSP_SERVER_JAVA="listen-hash: nbcode \e
+    --start-java-language-server=listen-hash:0"
+.Ed
+.Pp
+.Pa utils/install-nbcode.sh
+in the source distribution installs it, taking the same options as the
+jdtls script.
+By default it downloads the published extension from open-vsx.org \(em a
+zip with a complete NetBeans runtime in it \(em and unpacks that runtime
+into
+.Pa <prefix>/share/nbcode ;
+.Fl -from-source
+builds a javavscode checkout with
+.Ic ant
+instead, which wants that checkout's
+.Pa netbeans
+submodule fetched and
+.Ic ant apply-patches
+already run.
+Java 17 or newer either way.
+.Pp
+The
+.Pa <prefix>/bin/nbcode
+wrapper it writes gives every run a userdir of its own.
+NetBeans' single-instance handler is keyed on the userdir, so two
+.Ic nbcode
+processes pointed at one do not both start: the second hands its command
+line to the first and exits without printing a port, which from the
+outside is a server that started and then said nothing.
+.Ev KG_NBCODE_USERDIR
+pins one instead, keeping its index warm between sessions at the price of
+running one
+.Ic nbcode
+at a time.
 .Sh READ-ONLY MODE
 .Ic M-x read-only-mode
 .Pq bound to Ic C-x C-q

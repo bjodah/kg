@@ -1110,6 +1110,11 @@ int lsp_client_poll(struct lsp_client *c)
 	return changed | pending_expire(c);
 }
 
+int lsp_client_wait_fds(const struct lsp_client *c, int *fds, int max)
+{
+	return lsp_transport_wait_fds(c->t, fds, max);
+}
+
 void lsp_client_shutdown_begin(struct lsp_client *c)
 {
 	if (c->state != LSP_CLIENT_READY || c->shutdown_id > 0) {

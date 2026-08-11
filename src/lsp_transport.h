@@ -130,10 +130,11 @@ enum lsp_wire {
  * *client's* deadline to notice (LSP_CLIENT_TIMEOUT_ENV, which the
  * `initialize` queued at start is already waiting on) -- and that deadline,
  * not this bound, is what a chatty server actually runs into.  How fast it
- * gets there is set outside this file: a line channel is read when the
- * caller's poll site comes round, so a child that has filled its pipe
- * waits for the next poll, and one pipe-load per poll is the whole of the
- * announce channel's throughput. */
+ * gets there is still set outside this file, but no longer by a clock: the
+ * caller puts lsp_transport_wait_fds()' descriptors in its own wait, so a
+ * child that has filled its pipe is heard as soon as it fills it and the
+ * announce channel runs at the pipe's speed rather than the editor's idle
+ * tick's. */
 #define LSP_TRANSPORT_MAX_ANNOUNCE_BYTES (256u * 1024u)
 #define LSP_TRANSPORT_MAX_HASH_BYTES 256u
 
@@ -284,5 +285,27 @@ bool lsp_transport_child_alive(struct lsp_transport *t);
 /* Bytes queued for the child and not yet written.  Zero means the send
  * queue is empty, which is the only reliable "the request is on its way". */
 size_t lsp_transport_pending_bytes(const struct lsp_transport *t);
+
+/* How many descriptors lsp_transport_wait_fds() may write: the protocol
+ * stream and the two line channels. */
+#define LSP_TRANSPORT_WAIT_FDS_MAX 3
+
+/* The descriptors this transport is waiting to hear from, written into
+ * `fds` (at most `max` of them) and counted by the return value.
+ *
+ * This module still keeps no clock and still polls nothing -- it says
+ * WHICH descriptors a caller's own wait should include, and the caller
+ * decides what to do about it.  It exists because "when the poll site
+ * comes round" used to be the whole of a line channel's throughput: an
+ * editor that could only wait for a keystroke drained a chatty server's
+ * banner one pipe-load per idle tick, and 512 KiB of it cost six seconds
+ * before the connect (doc/plans/2026-08-08-lsp.md).  A caller that puts
+ * these in its wait hears the child instead.
+ *
+ * Only descriptors the very next poll would actually read from are
+ * reported, which is what keeps such a wait from spinning: a channel that
+ * has ended, and every descriptor of a transport that has failed, is left
+ * out, because both stay ready forever without ever yielding a byte. */
+int lsp_transport_wait_fds(const struct lsp_transport *t, int *fds, int max);
 
 #endif /* KG_LSP_TRANSPORT_H */

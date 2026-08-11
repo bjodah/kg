@@ -325,6 +325,14 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
  * navigates somewhere wrong. */
 int lsp_client_poll(struct lsp_client *c);
 
+/* The descriptors a caller's own wait should include so that the next
+ * lsp_client_poll() happens when this client's server has something to say
+ * rather than when a clock says so.  Written into `fds`, at most `max` of
+ * them, counted by the return value; the transport decides which ones
+ * (lsp_transport_wait_fds(), which is also where the bound to size `fds`
+ * against lives). */
+int lsp_client_wait_fds(const struct lsp_client *c, int *fds, int max);
+
 /* Begin the graceful exit: send `shutdown`, and send `exit` when it is
  * answered.  Returns immediately -- the exchange completes in later polls.
  * Only a READY client has anything to do here, and only the first call does

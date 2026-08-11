@@ -113,6 +113,12 @@ void lsp_server_set_instance_drop_hook(lsp_instance_drop_fn fn);
  * the editor's two poll sites. */
 int lsp_server_poll_all(void);
 
+/* Every live instance's wait descriptors, gathered into one array for the
+ * editor's idle wait -- the readiness side of the poll above, and what
+ * src/lsp_core.c hands up as lsp_wait_fds().  At most `max` are written;
+ * KG_LSP_WAIT_FDS_MAX in src/lsp.h is the size that never truncates. */
+int lsp_server_wait_fds(int *fds, int max);
+
 /* Shut every instance down and empty the registry, for an editor that is
  * exiting.  `grace_ms` is the budget for ALL of them together, split
  * between the live ones, so the editor's exit is bounded whether one server

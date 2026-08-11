@@ -13,6 +13,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -22,6 +23,7 @@
 #include "lsp.h"
 #include "mouse.h"
 #include "process_table.h"
+#include "tty.h"
 
 #ifndef _WIN32
 static struct termios orig_termios; /* In order to restore at exit.*/
@@ -654,58 +656,236 @@ static struct key_event parse_escape(int fd)
 	return bare_esc();
 }
 
+enum kg_idle_wake kg_idle_wait(
+    int fd, const int *extra, int count, int timeout_ms)
+{
+	struct pollfd pfd[1 + KG_LSP_WAIT_FDS_MAX];
+	int nfds = 1;
+	int rc;
+	int i;
+
+	KG_PERF_INC(KG_PERF_IDLE_WAIT);
+	pfd[0].fd = fd;
+	pfd[0].events = POLLIN;
+	pfd[0].revents = 0;
+	for (i = 0; i < count && nfds < (int)(sizeof(pfd) / sizeof(pfd[0]));
+	    i++) {
+		pfd[nfds].fd = extra[i];
+		pfd[nfds].events = POLLIN;
+		pfd[nfds].revents = 0;
+		nfds++;
+	}
+	rc = poll(pfd, (unsigned long)nfds, timeout_ms);
+	if (rc < 0) {
+		/* Anything other than a signal is a poll kg cannot make;
+		 * reported as the tick, so the editor keeps running its
+		 * pollers rather than spinning on an error it cannot fix. */
+		return (errno == EINTR) ? KG_IDLE_SIGNAL : KG_IDLE_TICK;
+	}
+	if (rc == 0) {
+		KG_PERF_INC(KG_PERF_IDLE_TICK);
+		return KG_IDLE_TICK;
+	}
+	if (pfd[0].revents & POLLIN) {
+		return KG_IDLE_KEY;
+	}
+	if (pfd[0].revents) {
+		return KG_IDLE_HANGUP;
+	}
+	KG_PERF_INC(KG_PERF_IDLE_FD_WAKE);
+	return KG_IDLE_FD;
+}
+
+#ifndef _WIN32
+/* CLOCK_MONOTONIC in milliseconds, for the tick deadline below.  Monotonic
+ * and not the wall clock, for the reason src/lsp_client.c gives about its
+ * own deadlines: a clock that can be stepped is one an NTP correction can
+ * move the next tick a day into the future. */
+static long long idle_now_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+		return 0;
+	}
+	return (long long)ts.tv_sec * 1000 + (long long)(ts.tv_nsec / 1000000);
+}
+#endif
+
+/* Everything the editor does between keystrokes, once per tick.  This is
+ * the block that used to hang off the 100 ms read timeout, and it still
+ * runs at exactly that cadence -- KG_IDLE_FD only ever gets the editor to
+ * lsp_poll() sooner, never these. */
+static void idle_tick_work(void)
+{
+	int changed = 0;
+
+	changed |= autorevert_poll();
+	changed |= compilation_poll();
+	compilation_start_pending_restart();
+	/* Not part of `changed`: this only moves bytes fd -> queue and
+	 * publishes events, so there is nothing here yet for a repaint to
+	 * show -- the drain that would change the screen runs from a safe
+	 * point, never from this idle loop. */
+	kg_process_table_poll();
+	/* Part of `changed`, unlike the line above: an LSP response is
+	 * allowed to move point or the echo area from here, the way
+	 * compilation_poll() is, so the frame it changed has to be
+	 * repainted while the editor is still waiting for a key. */
+	changed |= lsp_poll();
+	if (changed) {
+		editor_refresh_screen();
+	}
+}
+
+/* The main loop's wait: the terminal, every live language server's
+ * descriptors, and whatever is left of the current tick.
+ *
+ * The tick is a DEADLINE rather than a duration, and exactly one place
+ * moves it.  That is what keeps the pollers in idle_tick_work() at 100 ms
+ * however often a chatty server wakes the editor in between -- a wait a
+ * descriptor ended early leaves the deadline where it was, so the tick
+ * still lands when it would have landed. */
+static enum kg_idle_wake idle_wait(int fd)
+{
+#ifdef _WIN32
+	/* A console handle is not something kg_poll() speaks to, so this
+	 * platform keeps the wait it always had: the read below blocks with
+	 * the console's own timeout, and a read that comes back empty is its
+	 * tick.  kg_idle_wait() is still here and still works -- on the
+	 * descriptors a language server hands over -- it is just not what
+	 * paces the loop here. */
+	(void)fd;
+	return KG_IDLE_KEY;
+#else
+	static long long next_tick;
+	int fds[KG_LSP_WAIT_FDS_MAX];
+	enum kg_idle_wake wake;
+	long long now = idle_now_ms();
+	int count;
+
+	if (now < next_tick) {
+		count = lsp_wait_fds(fds, KG_LSP_WAIT_FDS_MAX);
+		wake = kg_idle_wait(fd, fds, count, (int)(next_tick - now));
+		if (wake != KG_IDLE_TICK) {
+			return wake;
+		}
+		now = idle_now_ms();
+	}
+	next_tick = now + KG_IDLE_TICK_MS;
+	return KG_IDLE_TICK;
+#endif
+}
+
+/* Whether a byte is already queued for this reader, in which case there is
+ * nothing to wait for.  Type-ahead read out of the terminal by the C-g
+ * check lives there (reserve_pending_input()), and poll() knows nothing
+ * about it. */
+static int input_queued(int fd)
+{
+	return fd == STDIN_FILENO && pending_input_off < pending_input_len;
+}
+
+/* What the reader does next once a wait has ended. */
+enum idle_next {
+	IDLE_NEXT_READ, /* the terminal has a byte; go and get it */
+	IDLE_NEXT_WAIT, /* whatever woke us is handled; wait again */
+	IDLE_NEXT_STOP, /* the input stream is gone */
+};
+
+/* Act on why the wait ended.  Everything here is work the editor used to
+ * do on the 100 ms read timeout, sorted by which of them the wait actually
+ * woke for -- which is the whole of what the poll bought. */
+static enum idle_next idle_dispatch(enum kg_idle_wake wake)
+{
+	switch (wake) {
+	case KG_IDLE_KEY:
+		return IDLE_NEXT_READ;
+	case KG_IDLE_FD:
+		/* A server, and only a server: the pollers in
+		 * idle_tick_work() keep their own cadence. */
+		if (lsp_poll()) {
+			editor_refresh_screen();
+		}
+		break;
+	case KG_IDLE_TICK:
+		idle_tick_work();
+		break;
+	case KG_IDLE_SIGNAL:
+		if (editor_process_pending_signals() == 1) {
+			editor_refresh_screen();
+		}
+		break;
+	case KG_IDLE_HANGUP:
+		return IDLE_NEXT_STOP;
+	}
+	return IDLE_NEXT_WAIT;
+}
+
+/* Wait until this reader has a byte to read, doing whatever else the idle
+ * loop owes anybody meanwhile.  A prompt's reader (`idle` off) waits in
+ * the read() below instead, as it always has: a minibuffer must not be
+ * redrawn, or silently reverted, under the user.  Returns 0 only when the
+ * input stream is gone. */
+static int wait_for_input(int fd, int idle)
+{
+	enum idle_next next = IDLE_NEXT_READ;
+
+	while (idle && !input_queued(fd)) {
+		next = idle_dispatch(idle_wait(fd));
+		if (next != IDLE_NEXT_WAIT) {
+			break;
+		}
+	}
+	return next != IDLE_NEXT_STOP;
+}
+
 /* Block until one input byte arrives, servicing signals and the idle
- * polls meanwhile.  `idle` selects the main-loop poll set (auto-revert
- * plus pending compilation restarts) over the plain one used by
- * minibuffer prompts.  Returns the byte, or -1 once the input stream is
- * gone and the editor is shutting down. */
+ * polls meanwhile.  `idle` selects the main-loop wait (the tick's pollers,
+ * plus every language server's descriptors) over the plain one used by
+ * minibuffer prompts, which reads the terminal and nothing else.  Returns
+ * the byte, or -1 once the input stream is gone and the editor is shutting
+ * down. */
 static int read_key_byte(int fd, int idle)
 {
 	unsigned char c;
 	int nread;
 
 	while (1) {
+		if (!wait_for_input(fd, idle)) {
+			break;
+		}
 		nread = read_input_byte(fd, &c);
+		if (nread > 0) {
+			return c;
+		}
 		if (nread == 0) {
 			if (idle) {
-				int changed = 0;
-				changed |= autorevert_poll();
-				changed |= compilation_poll();
-				compilation_start_pending_restart();
-				/* Not part of `changed`: this only moves
-				 * bytes fd -> queue and publishes events, so
-				 * there is nothing here yet for a repaint to
-				 * show -- the drain that would change the
-				 * screen runs from a safe point, never from
-				 * this idle loop. */
-				kg_process_table_poll();
-				/* Part of `changed`, unlike the line above:
-				 * an LSP response is allowed to move point
-				 * or the echo area from here, the way
-				 * compilation_poll() is, so the frame it
-				 * changed has to be repainted while the
-				 * editor is still waiting for a key. */
-				changed |= lsp_poll();
-				if (changed) {
-					editor_refresh_screen();
-				}
-			} else {
-				compilation_poll();
+#ifdef _WIN32
+				idle_tick_work(); /* the console's timeout */
+				continue;
+#else
+				/* The wait said the terminal had a byte and
+				 * it had none, which for a descriptor
+				 * poll(2) called readable means end of
+				 * input.  Polling it again would spin at
+				 * full speed, so this ends the session the
+				 * way an unreadable terminal does. */
+				break;
+#endif
 			}
+			compilation_poll();
 			continue;
 		}
-		if (nread == -1) {
-			if (errno == EINTR) {
-				if (editor_process_pending_signals() == 1) {
-					editor_refresh_screen();
-				}
-				continue;
-			}
-			running = 0;
-			return -1;
+		if (errno != EINTR) {
+			break;
 		}
-		return c;
+		if (editor_process_pending_signals() == 1) {
+			editor_refresh_screen();
+		}
 	}
+	running = 0;
+	return -1;
 }
 
 /* Body shared by the three readers below: replay macro keys, read one

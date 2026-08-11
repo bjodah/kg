@@ -128,6 +128,24 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       lines, the timeouts and the reason a client died are appended to
       `*lsp-log*` with the server's name in front.  Created lazily, never
       selected, last 64 KiB kept.
+- [x] **The editor's input loop should wait on a server, not on a clock.**
+      Done 2026-08-11, the follow-up commit 706030d left open once the
+      `*lsp-log*` trim stopped being the bottleneck.  `read_key_byte()`'s
+      idle path used to be a `read()` under `VMIN=0/VTIME=1` and nothing
+      else, so a language server's pipe was drained once per 100 ms
+      timeout -- one pipe-load a tick, and 512 KiB of pre-announce banner
+      cost 6.95 s before kg could connect.  The wait is now a `poll()`
+      over the terminal AND every live transport's descriptors
+      (`lsp_wait_fds()` -> `lsp_transport_wait_fds()`, `src/tty.h`), so a
+      pipe-load costs a wakeup instead of a tick: 200 KiB 2.78 s ->
+      0.014 s, 512 KiB 6.95 s -> 0.041 s, against the 0.03 s a
+      zero-latency-tick build measured as the floor.  The tick itself is
+      unchanged and so is everything hanging off it -- auto-revert, a
+      running compilation, the process table still run once per 100 ms,
+      and a descriptor only ever ends a wait EARLY -- which is what keeps
+      the escape-merge window and paste detection measuring what they
+      always measured.  Pinned by `KG_PERF_IDLE_*` and four cases in
+      `test/test_perf.c`: N pipe-loads cost N wakes and no ticks.
 - [x] **A fuzz target for the frame parser.**  Done 2026-08-10:
       `test/fuzz_lsp_frames.c` is the sixth libFuzzer target, and its
       input is the raw byte stream a server writes on its stdout --

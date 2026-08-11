@@ -1,0 +1,6 @@
+{
+ "id": "phase18-local-dies-with-buffer",
+ "setup": [],
+ "expr": "(progn (defvar p18k 'D) (let ((b (get-buffer-create \"p18-k\")))  (with-current-buffer b (setq-local p18k 'L))  (kill-buffer b)  (list p18k (default-value 'p18k))))",
+ "note": "Phase 18 contract: a local binding dies with its buffer, leaving the default untouched."
+}

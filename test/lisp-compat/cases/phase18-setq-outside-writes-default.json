@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-outside-writes-default",
+ "setup": [],
+ "expr": "(progn (defvar p18b 'D) (with-current-buffer (get-buffer-create \"p18-b\") (setq-local p18b 'L)) (setq p18b 'S) (list p18b (default-value 'p18b) (local-variable-p 'p18b)  (with-current-buffer (get-buffer \"p18-b\") p18b)))",
+ "note": "Phase 18 contract: in a buffer with no local binding, setq writes the default; the other buffer's local binding is untouched."
+}

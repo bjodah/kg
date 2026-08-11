@@ -1,0 +1,220 @@
+# Phase 18's two-buffer isolation proof: one variable, two buffers, two
+# values, and auto-fill honouring each of them.
+#
+# `fill-column' is `lisp/auto-fill.el''s own variable and this wave's first
+# real consumer of a buffer-local binding.  The init file below sets the
+# DEFAULT to 70, then gives the file buffer a local 12 and a second,
+# hidden buffer a local 40.  The same fifteen characters are typed into
+# both: the narrow buffer breaks after "ccc", the wide one does not break
+# at all, and the last line records what each buffer and the default
+# answer for the same name.  Nothing but the buffer-local binding can
+# produce two different answers from one `fill-column' read inside one
+# `auto-fill--break'.
+#
+# CHECKED IN AS xfail BY PHASE 18'S CONTRACT COMMIT, before any of the
+# storage existed: `setq-local' was a documented alias of `setq' then, so
+# both buffers shared one value and neither line broke where this expects.
+# The XPASS rule is what turns the implementation landing into a forced
+# edit of this header.
+name: lisp-buffer-local-two-buffers
+filename: buffer-local-two.txt
+requires_feature: lisp
+xfail: true
+key_delay: 0.06
+config_files:
+  .config/kg/lisp/auto-fill.el: |
+    ;;; auto-fill.el --- proof package for kg's require/load-path work.
+    ;;;
+    ;;; Provides `auto-fill-mode', a buffer-local `after-change-functions'
+    ;;; hook that breaks a line once it grows past `fill-column', the way
+    ;;; Emacs' auto-fill-mode does for the common case of typing past the
+    ;;; margin.  Deliberately narrow, and does not try to be Emacs' fill
+    ;;; engine: it reacts to insertions only, breaks at the last space at or
+    ;;; before the column, and leaves a line alone when it holds no space to
+    ;;; break at -- there is no fill-prefix, no paragraph awareness and no
+    ;;; re-filling of a whole paragraph.
+    ;;;
+    ;;; Load it with (require 'auto-fill) and turn it on per buffer with
+    ;;; (auto-fill-mode), e.g. from `find-file-hook' or an init file.
+
+    (provide 'auto-fill)
+
+    (defvar fill-column 70
+      "Column auto-fill-mode tries to keep lines at or under.")
+
+    (defvar auto-fill--error nil
+      "The error that turned auto-fill-mode off, or nil if it is healthy.")
+
+    ;; The display column of buffer position POS.  Moves point to get it --
+    ;; current-column has no by-position form -- so every caller wraps its
+    ;; own use of this in save-excursion; it is not safe to call bare.  Fe has
+    ;; had `>' since sub-plan 05C, but every comparison in this file stays
+    ;; written as a flipped `<': the package is the byte-for-byte source that
+    ;; test/pty/lisp-auto-fill-mode-break.yaml plants in its own HOME, and
+    ;; `make lisp-package-check' now compares the two, so respelling the code
+    ;; here would have to be a matched edit in the case for no behavioural
+    ;; gain.
+    (defun auto-fill--column-at (pos)
+      (goto-char pos)
+      (current-column))
+
+    ;; The last space in [FROM, TO) whose own column is at or before
+    ;; fill-column, or nil when there is none -- a single word longer than
+    ;; fill-column is left alone, the same as Emacs when it finds no earlier
+    ;; break point.  save-excursion undoes every goto-char the scan (via
+    ;; auto-fill--column-at) makes along the way, so the caller's point is
+    ;; exactly where it found it.
+    (defun auto-fill--find-break (from to)
+      (save-excursion
+        (let ((pos from) (break-pos nil))
+          (while (and (< pos to) (<= (auto-fill--column-at pos) fill-column))
+            (if (eq (char-after pos) 32)
+                (setq break-pos pos))
+            (setq pos (1+ pos)))
+          break-pos)))
+
+    ;; The break itself.  after-change-functions is called
+    ;; (buf start end old-len); react only to insertions (start < end), and
+    ;; only when the insertion pushed point past fill-column.  The break is a
+    ;; single (replace-region ...) call -- the space becomes a newline -- so
+    ;; it is one undo step, never a delete followed by an insert.
+    ;; save-excursion wraps the whole check, not just auto-fill--find-break's
+    ;; own scan: auto-fill--column-at's goto-char is a query with a side
+    ;; effect, and without this the *condition* alone -- (< fill-column
+    ;; (auto-fill--column-at end)) -- already moves point to END and leaves
+    ;; it there even when the answer is nil and nothing else in this function
+    ;; runs.  END's own character position is never touched by the break
+    ;; (replace-region only ever rewrites something strictly before it, one
+    ;; byte for one byte), so restoring point to wherever it was on entry is
+    ;; always the right place to leave it, break or no break.
+    (defun auto-fill--break (buf start end old-len)
+      (when (< start end)
+        (with-current-buffer buf
+          (save-excursion
+            (when (< fill-column (auto-fill--column-at end))
+              (let* ((line (bounds-of-thing-at-point 'line))
+                     (break-pos (and line (auto-fill--find-break (car line) end))))
+                (when break-pos
+                  (replace-region break-pos (1+ break-pos) "\n"))))))))
+
+    ;; The hook entry point, and the only place in this package that handles a
+    ;; condition.  A fill error is almost always a configuration error -- the
+    ;; commonest is a `fill-column' that is not a number, which makes the
+    ;; comparison above raise wrong-type-argument -- and it happens on a
+    ;; *keystroke*, so the wrong policy is to report it and stay armed: every
+    ;; further character then re-reports it and the buffer becomes unusable.
+    ;;
+    ;; The policy here is Emacs', measured rather than assumed.  In GNU Emacs
+    ;; 31.0.90, a member of after-change-functions that signals is called
+    ;; exactly once: the error reaches the caller and the hook is emptied, so
+    ;; the following insertions are clean.  kg's host does not do that -- it
+    ;; contains a hook error, reports `Hook error (after-change-functions):
+    ;; ...' and leaves the hook armed -- so the package takes the policy
+    ;; itself, which is where a package can take it: catch, remove itself,
+    ;; and say so once.  The divergence in the *host* is recorded in
+    ;; test/lisp-compat/features.json (hook-error-does-not-disarm).
+    ;;
+    ;; auto-fill--error keeps the condition object, so a user who missed the
+    ;; echo-area line can still ask `auto-fill--error' what happened, and
+    ;; re-enabling with (auto-fill-mode) clears it.
+    (defun auto-fill--maybe-break (buf start end old-len)
+      (condition-case err
+          (auto-fill--break buf start end old-len)
+        (error
+         (setq auto-fill--error err)
+         (remove-hook 'after-change-functions 'auto-fill--maybe-break)
+         (message "auto-fill-mode disabled: %S" err))))
+
+    (defun auto-fill-mode ()
+      "Break lines in the current buffer at `fill-column' as they are typed
+    past it."
+      (interactive)
+      (setq auto-fill--error nil)
+      (add-hook 'after-change-functions 'auto-fill--maybe-break t))
+  .config/kg/init.el: |
+    (require 'auto-fill)
+    (setq-default fill-column 70)
+
+    (defvar p18-file-buffer nil)
+
+    ;; The file buffer keeps a narrow margin; a second, hidden buffer keeps a
+    ;; wide one.  Both run auto-fill-mode, and the only difference between
+    ;; them is the value of one variable.
+    (defun p18-setup ()
+      (interactive)
+      (setq p18-file-buffer (current-buffer))
+      (setq-local fill-column 12)
+      (auto-fill-mode)
+      (with-current-buffer (get-buffer-create "p18-wide")
+        (setq-local fill-column 40)
+        (auto-fill-mode)))
+
+    (defun p18-visit-wide ()
+      (interactive)
+      (switch-to-buffer (get-buffer "p18-wide")))
+
+    (defun p18-collect ()
+      (interactive)
+      (let ((text (buffer-substring (point-min) (point-max))))
+        (switch-to-buffer p18-file-buffer)
+        (goto-char (point-max))
+        (insert "\n")
+        (insert text)))
+
+    (defun p18-report ()
+      (interactive)
+      (insert "\n")
+      (insert (format "%S" (list (with-current-buffer (get-buffer "p18-wide") fill-column)
+                                 fill-column
+                                 (default-value 'fill-column)))))
+initial: ""
+keys:
+  - M-x
+  - 'p18-setup'
+  - RET
+  - 'a'
+  - 'a'
+  - 'a'
+  - SPC
+  - 'b'
+  - 'b'
+  - 'b'
+  - SPC
+  - 'c'
+  - 'c'
+  - 'c'
+  - SPC
+  - 'd'
+  - 'd'
+  - 'd'
+  - M-x
+  - 'p18-visit-wide'
+  - RET
+  - 'a'
+  - 'a'
+  - 'a'
+  - SPC
+  - 'b'
+  - 'b'
+  - 'b'
+  - SPC
+  - 'c'
+  - 'c'
+  - 'c'
+  - SPC
+  - 'd'
+  - 'd'
+  - 'd'
+  - M-x
+  - 'p18-collect'
+  - RET
+  - M-x
+  - 'p18-report'
+  - RET
+  - C-x
+  - C-s
+expected_saved: |-
+  aaa bbb ccc
+  ddd
+  aaa bbb ccc ddd
+  (40 12 70)

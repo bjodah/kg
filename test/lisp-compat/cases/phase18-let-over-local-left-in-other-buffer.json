@@ -1,0 +1,7 @@
+{
+ "id": "phase18-let-over-local-left-in-other-buffer",
+ "setup": [],
+ "expr": "(progn (defvar p18v 'D) (with-current-buffer (get-buffer-create \"p18-v1\") (setq-local p18v 'A)) (with-current-buffer (get-buffer-create \"p18-v2\") (setq-local p18v 'B)) (list (with-current-buffer (get-buffer \"p18-v1\")        (let ((p18v 'LET)) (set-buffer (get-buffer \"p18-v2\")) p18v))  (with-current-buffer (get-buffer \"p18-v1\") p18v)  (with-current-buffer (get-buffer \"p18-v2\") p18v)  (default-value 'p18v)))",
+ "expect": "diverge",
+ "note": "Phase 18's ONE recorded divergence, frozen before the code was written: a let over a buffer-local binding that is LEFT with a different current buffer than it was entered in. Emacs' specpdl remembers which buffer the binding was made for; kg's storage is Emacs' own swap representation with no per-binding buffer tag, so the let's restore lands in whichever buffer is current at exit. See the phase18-let-buffer-switched-out manifest row."
+}

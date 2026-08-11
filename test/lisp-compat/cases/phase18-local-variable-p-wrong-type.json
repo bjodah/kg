@@ -1,0 +1,6 @@
+{
+ "id": "phase18-local-variable-p-wrong-type",
+ "setup": [],
+ "expr": "(local-variable-p 1)",
+ "note": "Phase 18 contract: local-variable-p type-checks its SYMBOL argument with Emacs' own condition and data."
+}

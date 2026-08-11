@@ -1,0 +1,6 @@
+{
+ "id": "phase18-buffer-local-value",
+ "setup": [],
+ "expr": "(progn (defvar p18i 'D) (let ((b (get-buffer-create \"p18-i\")))  (with-current-buffer b (setq-local p18i 'L))  (list (buffer-local-value 'p18i b) p18i)))",
+ "note": "Phase 18 contract: buffer-local-value reads another buffer's binding without selecting it, and falls through to the default when that buffer has none."
+}

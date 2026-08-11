@@ -1,0 +1,6 @@
+{
+ "id": "phase18-make-local-variable",
+ "setup": [],
+ "expr": "(progn (defvar p18f 'D) (with-current-buffer (get-buffer-create \"p18-f\")  (list (local-variable-p 'p18f)   (progn (make-local-variable 'p18f) (local-variable-p 'p18f))   p18f (progn (setq p18f 'L) p18f) (default-value 'p18f))))",
+ "note": "Phase 18 contract: make-local-variable creates a local binding seeded from the default; a later setq writes the local one."
+}

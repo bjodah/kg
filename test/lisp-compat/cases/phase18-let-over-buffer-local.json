@@ -1,0 +1,6 @@
+{
+ "id": "phase18-let-over-buffer-local",
+ "setup": [],
+ "expr": "(progn (defvar p18l 'D) (with-current-buffer (get-buffer-create \"p18-l\")  (setq-local p18l 'L)  (list (let ((p18l 'LET)) (list p18l (default-value 'p18l) (local-variable-p 'p18l)))   p18l (default-value 'p18l))))",
+ "note": "Phase 18 contract, the hard one: a dynamic let over a name that is buffer-local in the current buffer binds THAT buffer's local binding; the default is not touched and the local value comes back on exit."
+}

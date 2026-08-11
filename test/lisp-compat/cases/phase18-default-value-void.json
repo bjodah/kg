@@ -1,0 +1,6 @@
+{
+ "id": "phase18-default-value-void",
+ "setup": [],
+ "expr": "(default-value 'p18-never-bound)",
+ "note": "Phase 18 contract: default-value of a name with no default raises void-variable, rather than answering nil."
+}

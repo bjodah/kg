@@ -1,0 +1,6 @@
+{
+ "id": "phase18-buffer-local-value-falls-through",
+ "setup": [],
+ "expr": "(progn (defvar p18j 'D) (buffer-local-value 'p18j (get-buffer-create \"p18-j\")))",
+ "note": "Phase 18 contract: buffer-local-value answers the default for a buffer with no local binding."
+}

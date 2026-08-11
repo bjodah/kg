@@ -1,0 +1,6 @@
+{
+ "id": "phase18-lookup-order-two-buffers",
+ "setup": [],
+ "expr": "(progn (defvar p18c 'D) (with-current-buffer (get-buffer-create \"p18-c1\") (setq-local p18c 'A)) (with-current-buffer (get-buffer-create \"p18-c2\") (setq-local p18c 'B)) (list (with-current-buffer (get-buffer \"p18-c1\") p18c)  (with-current-buffer (get-buffer \"p18-c2\") p18c)  p18c (default-value 'p18c)))",
+ "note": "Phase 18 contract: lookup order is buffer-local binding first, default second, and visibility switches with the current buffer."
+}

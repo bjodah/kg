@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-local-value-is-returned",
+ "setup": [],
+ "expr": "(progn (defvar p18r 'D) (defvar p18s 'D) (with-current-buffer (get-buffer-create \"p18-r\")  (list (setq-local p18r 1 p18s 2) p18r p18s)))",
+ "note": "Phase 18 contract: setq-local takes SYMBOL VALUE pairs and answers the last value, as setq does."
+}

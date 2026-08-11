@@ -1,0 +1,6 @@
+{
+ "id": "phase18-local-variable-p-buffer-argument",
+ "setup": [],
+ "expr": "(progn (defvar p18h 'D) (let ((b (get-buffer-create \"p18-h\")))  (with-current-buffer b (setq-local p18h 'L))  (list (local-variable-p 'p18h b) (local-variable-p 'p18h))))",
+ "note": "Phase 18 contract: local-variable-p's optional BUFFER argument asks about that buffer instead of the current one."
+}

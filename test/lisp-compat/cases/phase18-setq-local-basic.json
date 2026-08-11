@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-local-basic",
+ "setup": [],
+ "expr": "(progn (defvar p18a 'D) (with-current-buffer (get-buffer-create \"p18-a\")  (setq-local p18a 'L)  (list p18a (default-value 'p18a) (local-variable-p 'p18a))))",
+ "note": "Phase 18 contract: setq-local creates a binding in the current buffer, leaves the default alone, and local-variable-p says so."
+}

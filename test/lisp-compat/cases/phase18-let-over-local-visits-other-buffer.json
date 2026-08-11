@@ -1,0 +1,6 @@
+{
+ "id": "phase18-let-over-local-visits-other-buffer",
+ "setup": [],
+ "expr": "(progn (defvar p18n 'D) (with-current-buffer (get-buffer-create \"p18-n1\") (setq-local p18n 'A)) (with-current-buffer (get-buffer-create \"p18-n2\") (setq-local p18n 'B)) (with-current-buffer (get-buffer \"p18-n1\")  (let ((p18n 'LET))   (list p18n (with-current-buffer (get-buffer \"p18-n2\") p18n) p18n))))",
+ "note": "Phase 18 contract: a let over one buffer's local binding is not visible in another buffer that has its own, and is back in force on return."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase18-let-over-local-restored-after",
+ "setup": [],
+ "expr": "(progn (defvar p18o 'D) (with-current-buffer (get-buffer-create \"p18-o1\") (setq-local p18o 'A)) (with-current-buffer (get-buffer-create \"p18-o2\") (setq-local p18o 'B)) (with-current-buffer (get-buffer \"p18-o1\")  (let ((p18o 'LET)) (with-current-buffer (get-buffer \"p18-o2\") p18o))) (list (with-current-buffer (get-buffer \"p18-o1\") p18o)  (with-current-buffer (get-buffer \"p18-o2\") p18o) (default-value 'p18o)))",
+ "note": "Phase 18 contract: after a let over a buffer-local binding that visited another buffer and came back, every binding is exactly what it was."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-local-inside-let",
+ "setup": [],
+ "expr": "(progn (defvar p18p 'D) (with-current-buffer (get-buffer-create \"p18-p\")  (list (let ((p18p 'LET)) (setq-local p18p 'SL) (list p18p (local-variable-p 'p18p)))   p18p (local-variable-p 'p18p) (default-value 'p18p))))",
+ "note": "Phase 18 contract: setq-local inside a let that bound the default creates a real local binding, and that binding survives the let (the let restores only the default)."
+}

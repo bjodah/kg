@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-default-visible-without-local",
+ "setup": [],
+ "expr": "(progn (defvar p18d 'D0) (with-current-buffer (get-buffer-create \"p18-d\") (setq-local p18d 'L)) (setq-default p18d 'D1) (list (with-current-buffer (get-buffer \"p18-d\") p18d)  (default-value 'p18d) p18d))",
+ "note": "Phase 18 contract: setq-default writes the value buffers without a local binding see, and a local binding shadows a later default."
+}

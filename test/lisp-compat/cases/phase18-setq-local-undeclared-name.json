@@ -1,0 +1,6 @@
+{
+ "id": "phase18-setq-local-undeclared-name",
+ "setup": [],
+ "expr": "(progn (with-current-buffer (get-buffer-create \"p18-u\")  (setq-local p18-undeclared 'L)  (list p18-undeclared (local-variable-p 'p18-undeclared)   (special-variable-p 'p18-undeclared))))",
+ "note": "Phase 18 contract: setq-local works on a name no defvar declared and does NOT make it special -- a buffer-local binding and a dynamic-binding mark are different things."
+}

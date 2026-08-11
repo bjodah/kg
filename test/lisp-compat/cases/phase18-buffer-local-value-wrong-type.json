@@ -1,0 +1,6 @@
+{
+ "id": "phase18-buffer-local-value-wrong-type",
+ "setup": [],
+ "expr": "(progn (defvar p18t 'D) (buffer-local-value 'p18t 1))",
+ "note": "Phase 18 contract: buffer-local-value type-checks its BUFFER argument with Emacs' own condition and data."
+}

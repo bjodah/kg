@@ -1,0 +1,6 @@
+{
+ "id": "phase18-let-over-default",
+ "setup": [],
+ "expr": "(progn (defvar p18m 'D) (with-current-buffer (get-buffer-create \"p18-m\")  (list (let ((p18m 'LET)) (list p18m (default-value 'p18m) (local-variable-p 'p18m)))   p18m (default-value 'p18m))))",
+ "note": "Phase 18 contract: a dynamic let over a name with no local binding in the current buffer binds the DEFAULT, which is what default-value reports inside the let."
+}

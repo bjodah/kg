@@ -1,0 +1,6 @@
+{
+ "id": "phase18-kill-local-variable",
+ "setup": [],
+ "expr": "(progn (defvar p18g 'D) (with-current-buffer (get-buffer-create \"p18-g\")  (setq-local p18g 'L)  (list p18g (progn (kill-local-variable 'p18g) (local-variable-p 'p18g)) p18g)))",
+ "note": "Phase 18 contract: kill-local-variable removes the local binding and the default becomes visible again."
+}

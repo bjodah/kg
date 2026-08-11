@@ -6,6 +6,31 @@ All relevant changes to the project are documented in this file.
 
 ### Changes
 
+- **Errors read the way Emacs writes them.**  A failing editing
+  primitive used to report the bare name of the condition it raised —
+  `(goto-char "x")` said `wrong-type-argument` and nothing else.  It now
+  says `Wrong type argument: integer-or-marker-p, "x"`, and
+  `(signal 'error '("custom msg"))` says `custom msg`.  The rendering is
+  Emacs' own rule, reachable from Lisp as
+  `(error-message-string ERROR)`, and every condition symbol carries the
+  `error-message` property Emacs gives it, so a package can `put` its
+  own message over one.
+- **kg can describe itself.**  `(require 'help-fns)` adds
+  `describe-function`, `describe-variable` and `apropos`, each writing
+  its report into `*Help*`.  They work on what you defined as well as on
+  what kg ships: a `defun` with a docstring and an
+  `(interactive ...)` declaration describes itself exactly as a built-in
+  command does.  Every public definition in kg's prelude now carries a
+  docstring, and `(documentation 'save-buffer)` answers with a built-in
+  command's own one-line summary.
+- **`(interactive-form COMMAND)`** returns the interactive declaration a
+  command was defined with — including a *form* specification, which
+  used to be stored only as the closure that evaluates it — and
+  `commandp` now answers for a function object as well as for a name.
+- A string containing a backslash **prints so that it reads back**:
+  `(format "%S" (regexp-quote "a.b"))` is `"a\\.b"`, where it used to
+  print an unescaped backslash that the reader then swallowed.
+
 - The embedded Lisp gained **symbols as first-class values**: `intern`,
   `intern-soft`, `symbol-name`, `make-symbol`, `gensym`, and the
   property list `put`/`get`/`symbol-plist`.  `intern-soft` is a probe

@@ -447,6 +447,26 @@ against full rebuilds.  Known follow-ups, none blocking:
       string containing a backslash.  `FE_LANGUAGE_VERSION` 12 -> 13
       with the rest of the phase.
 
+- [ ] **`defvaralias`, and the two variables that exist because it is
+      absent.**  Measured at Phase 19: `(defvaralias 'v2 'v1)` is
+      `void-function` here, and on Emacs 31.0.90 the alias is a SHARED
+      CELL -- `(setq v2 9)` leaves `v1` 9 as well.  kg's
+      `inhibit-startup-screen` and `inhibit-startup-message` are two
+      ordinary variables for exactly this reason, with `main.c` reading
+      both, so setting one does not read back through the other
+      (recorded in `lisp/prelude.el` beside them and in
+      `doc/lisp-api.md`).  Phase 19 looked at it and did NOT take it,
+      because it is not the small thing it looks like: sharing a cell
+      means an INDIRECTION at every variable reference, in
+      `GetBound`/`FeSet` -- fe's hottest path, which Phase 11's
+      shallow-binding work deliberately kept to one cell read -- or a
+      second, alias-aware lookup layer above it.  Neither is a prelude
+      macro's worth of work, and neither can be tested by the arithmetic
+      that makes the rest of this wave cheap: an alias interacts with
+      `let`'s shallow binding, with `makunbound`, and (since Phase 18)
+      with buffer-local cells, so its contract is a grid before it is
+      code.  A phase that takes it starts with that grid frozen as
+      `planned` manifest rows, the way Phase 18 started.
 - [ ] **`eval`'s LEXICAL argument.**  fe gained Emacs' one-argument
       `eval` at the Phase 12 pin, evaluating its form in the caller's own
       run.  A non-nil LEXICAL is rejected by name, as `macroexpand`'s

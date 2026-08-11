@@ -149,6 +149,10 @@ void editor_named_command(int fd);
     const char *name, const struct command_context *ctx);
 [[nodiscard]] const struct named_cmd *cmd_lookup(const char *name);
 [[nodiscard]] const struct named_cmd *cmd_descriptor_at(int index);
+/* Every command name by index -- the static table then the Lisp registry,
+ * NULL past the last.  The M-x picker walks it, and so does Lisp's
+ * `(internal--command-names)`. */
+[[nodiscard]] const char *cmd_name_at(int index);
 void cmd_eval_print_last_sexp(void);
 /* Evaluate the s-expression before point and report it in the status area
  * (or insert it, with a prefix argument). */

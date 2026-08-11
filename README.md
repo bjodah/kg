@@ -323,6 +323,23 @@ turns off the startup screen an empty buffer shows:
 (setq inhibit-startup-message t)
 ```
 
+kg installs a handful of Lisp packages beside itself; `(require 'NAME)`
+loads one. `help-fns` is the one to try first — it makes kg describe
+itself:
+
+```elisp
+(require 'help-fns)
+```
+
+Then `M-x describe-function` reports what a command or function is, how it
+is called interactively and what its documentation says; `M-x
+describe-variable` reports a variable's value, whether that value is this
+buffer's own or the global one, and whether `let` binds it dynamically;
+and `M-x apropos` lists every name containing a substring. They work on
+your own definitions as well as on kg's — a `defun` with a docstring and
+an `(interactive ...)` declaration describes itself exactly as a built-in
+does.
+
 ## Tree-sitter (optional, off by default)
 
 Syntax highlighting has two interchangeable backends, chosen at build time.

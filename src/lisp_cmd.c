@@ -356,6 +356,75 @@ static struct lisp_command *resolve_command_argument(
 	return find_lisp_command(name);
 }
 
+/* (internal--command-names): every command name M-x can reach, as a list
+ * of symbols -- the built-in table first, then the Lisp registry.
+ *
+ * The one enumeration Lisp cannot do for itself.  fe's `env` lists every
+ * INTERNED symbol, which covers the primitives, kg's natives and every
+ * prelude and user definition, and misses exactly this: a built-in
+ * command's name lives in cmdtable, a C array, and is not a symbol
+ * anywhere until something writes it.  `apropos` (lisp/help-fns.el) is
+ * the caller, and the two lists together are what let it claim to see
+ * the whole surface.
+ *
+ * The list is built back to front so the result is in table order, and
+ * each cons is pushed as it is made, since the next `FeMakeSymbol` can
+ * collect.  `cmd_name_at` is the M-x picker's own walk (src/cmd.c). */
+FeObject *native_command_names(FeContext *context, FeObject *arguments)
+{
+	FeObject *names = FeNil(context);
+	size_t gc = FeSaveGC(context);
+	int i;
+
+	FeRequireNoArguments(context, arguments);
+	for (i = 0; cmd_name_at(i) != nullptr; i++) {
+		/* Counting pass: the list is built backwards below so that
+		 * it comes out in the table's own order. */
+	}
+	while (i-- > 0) {
+		names = FeCons(
+		    context, FeMakeSymbol(context, cmd_name_at(i)), names);
+		/* One slot, not two per name: every allocation pushes its
+		 * own result, so the checkpoint is restored each pass and
+		 * the chain's head re-pushed -- it roots everything built
+		 * so far.  The same idiom fe's own list builders use. */
+		FeRestoreGC(context, gc);
+		FePushGC(context, names);
+	}
+	return names;
+}
+
+/* (internal--command-documentation NAME): the one-line summary a BUILT-IN
+ * command carries in cmdtable, or the docstring a `define-command` was
+ * given, or nil.
+ *
+ * The prelude's `documentation` falls back to this, which is what makes
+ * `(documentation 'save-buffer)` answer at all: a built-in has no Lisp
+ * definition to have recorded one, and its summary -- the same text M-x
+ * and the help screen show -- is the honest answer. */
+FeObject *native_command_documentation(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	const struct named_cmd *builtin;
+	struct lisp_command *cmd;
+	char name[LISP_COMMAND_NAME_MAX];
+
+	FeRequireNoArguments(context, arguments);
+	if (FeGetType(object) != FeTSymbol && FeGetType(object) != FeTString) {
+		return FeNil(context);
+	}
+	copy_command_name(context, object, name, sizeof(name));
+	builtin = cmd_lookup(name);
+	if (builtin != nullptr) {
+		return FeMakeString(context, builtin->summary);
+	}
+	cmd = find_lisp_command(name);
+	if (cmd == nullptr || cmd->documentation_root == nullptr) {
+		return FeNil(context);
+	}
+	return FeGetRoot(cmd->documentation_root);
+}
+
 /* (commandp OBJECT): t when OBJECT is something M-x can run.
  *
  * Two questions since Phase 19, not one.  A symbol or a string is still
@@ -466,6 +535,15 @@ static struct lisp_command *find_command_slot(const char *name)
 	return nullptr;
 }
 
+/* The next argument if there is one, nil otherwise: `define-command`'s
+ * three optional arguments read the same way, and spelling that as three
+ * `if`s made the arity the branchiest thing in the function. */
+static FeObject *next_optional_argument(FeContext *context, FeObject **arguments)
+{
+	return FeIsNil(*arguments) ? FeNil(context)
+				   : FeGetNextArgument(context, arguments);
+}
+
 /* (define-command NAME FN &optional SPEC DOC): the explicit kg extension
  * behind defun's interactive declaration.  All replacement roots are made
  * before the old descriptor is changed, so a bounded-table failure is atomic.
@@ -474,9 +552,7 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *name_object = FeGetNextArgument(context, &arguments);
 	FeObject *fn = FeGetNextArgument(context, &arguments);
-	FeObject *spec = FeNil(context);
-	FeObject *doc = FeNil(context);
-	FeObject *raw = FeNil(context);
+	FeObject *spec, *doc, *raw;
 	struct lisp_command *cmd;
 	char name[LISP_COMMAND_NAME_MAX];
 	FeRoot *function_root, *interactive_root, *documentation_root;
@@ -484,20 +560,14 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	enum lisp_interactive_kind kind = LISP_INTERACTIVE_NONE;
 	command_id id;
 
-	if (!FeIsNil(arguments)) {
-		spec = FeGetNextArgument(context, &arguments);
-	}
-	if (!FeIsNil(arguments)) {
-		doc = FeGetNextArgument(context, &arguments);
-	}
+	spec = next_optional_argument(context, &arguments);
+	doc = next_optional_argument(context, &arguments);
 	/* RAW-SPEC (Phase 19): the specification as it was WRITTEN, which is
 	 * the same object as SPEC for a string one and the descriptor form
 	 * itself where SPEC is the closure built over it.  Optional, and
 	 * unvalidated on purpose -- it is reflection data, and
 	 * `interactive-form` shows whatever a definition claimed. */
-	if (!FeIsNil(arguments)) {
-		raw = FeGetNextArgument(context, &arguments);
-	}
+	raw = next_optional_argument(context, &arguments);
 	FeRequireNoArguments(context, arguments);
 	validate_command_definition(context, fn, spec, doc);
 	copy_command_name(context, name_object, name, sizeof(name));

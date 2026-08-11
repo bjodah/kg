@@ -1,0 +1,8 @@
+{
+ "id": "phase19-help-fns-surface",
+ "setup": [
+  "(defun kg19-help-cmd () \"Shout.\" (interactive) 1)"
+ ],
+ "expr": "(list (documentation 'kg19-help-cmd) (documentation 'mapcar) (documentation 'internal--let) (memq 'kg19-help-cmd (internal--defined-names)) (if (memq 'save-buffer (internal--command-names)) 'builtin-listed 'builtin-missing) (internal--command-documentation 'save-buffer))",
+ "note": "Phase 19, kg policy: the three surfaces lisp/help-fns.el is built on. A definition registers its name whether or not it has a docstring; a public prelude definition answers `documentation'; an `internal--' one deliberately does not; a BUILT-IN command is enumerable and its one-line cmdtable summary is its documentation. Not oracle-compared: Emacs' `documentation' returns its own texts, and the command table is kg's."
+}

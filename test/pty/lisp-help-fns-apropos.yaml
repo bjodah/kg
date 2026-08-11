@@ -1,0 +1,233 @@
+# Phase 19's `apropos', over the two enumerations kg can offer: fe's
+# `(env)' -- every interned symbol, so the primitives, kg's natives, the
+# prelude and whatever your init file defined -- and
+# `(internal--command-names)', which is the only way to see a BUILT-IN
+# command, whose name lives in a C table and is not a symbol until
+# something writes one.
+#
+# The pattern below is chosen to show both halves in one report: a
+# command the init file defined, and a built-in that shares the prefix.
+name: lisp-help-fns-apropos
+filename: lisp-help-fns-apropos.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 100]
+config_files:
+  .config/kg/init.el: |
+    (require 'help-fns)
+    (defun occur-loudly ()
+      "Shout about the current line."
+      (interactive)
+      (message "LOUD"))
+  .config/kg/lisp/help-fns.el: |
+    ;;; help-fns.el --- describe a function, a variable, or the whole surface  -*- lexical-binding: t -*-
+    ;;;
+    ;;; `describe-function' and `describe-variable' report what kg knows about
+    ;;; a name into `help-fns-buffer-name'; `apropos' lists every name that
+    ;;; matches a substring, saying what each one is.  All three are commands,
+    ;;; so `M-x describe-function' works once this file is loaded.
+    ;;;
+    ;;; Load it from your init file, and bind keys for it if you want them:
+    ;;;
+    ;;;   (require 'help-fns)
+    ;;;   (global-set-key "C-c f" "describe-function")
+    ;;;   (global-set-key "C-c v" "describe-variable")
+    ;;;   (global-set-key "C-c a" "apropos")
+    ;;;
+    ;;; WHAT `apropos' CAN SEE, which is worth knowing before you trust a
+    ;;; result.  Two enumerations, joined: fe's `(env)' lists every INTERNED
+    ;;; symbol -- so every core primitive, every kg native, every prelude
+    ;;; definition, and everything your own files defined -- and
+    ;;; `(internal--command-names)' lists the editor's built-in commands,
+    ;;; whose names live in a C table and are not symbols until something
+    ;;; writes one.  What it cannot see is a name nothing has ever mentioned:
+    ;;; there is no separate index of "everything kg could define", so a
+    ;;; feature you have not loaded is invisible until you load it.
+
+    (provide 'help-fns)
+
+    (defvar help-fns-buffer-name "*Help*"
+      "Buffer the reports are written to.")
+
+    (defvar apropos-max-results 40
+      "How many matches `apropos' reports before it stops collecting.
+
+    Forty is measured, not chosen: every evaluation in kg runs under a step
+    budget, and the broadest pattern in a stock session (the single letter
+    `e', 365 names)
+    fits at 55 and exhausts the budget at 60.  Forty leaves room for the
+    definitions your own init file adds.  Raise it if your patterns are
+    narrow; a report that raises is worth less than a capped one.")
+
+    ;; A report is built as a list of lines and written in one go, so a
+    ;; failure halfway through leaves the previous report intact rather than
+    ;; half of a new one.
+    (defun help-fns--show (lines)
+      "Write LINES into `help-fns-buffer-name' and show it."
+      (switch-to-buffer help-fns-buffer-name)
+      (erase-buffer)
+      (insert (string-join lines "\n"))
+      (goto-char (point-min)))
+
+    ;; What KIND of thing a name is, as a sentence fragment.  The order is
+    ;; the order the answers get more specific in: a command is the most
+    ;; specific thing a callable name can be here.
+    (defun help-fns--function-kind (name)
+      "Describe what sort of function NAME is, or nil when it is not one."
+      (cond ((commandp name)
+             (if (fboundp name) "a command, defined in Lisp" "a built-in command"))
+            ((not (fboundp name)) nil)
+            ((help-fns--macro-p (symbol-function name)) "a macro")
+            (t "a function")))
+
+    ;; kg has no `macrop' and this is deliberately not it: Emacs' takes a
+    ;; symbol as well as a function object and this takes the object, so
+    ;; claiming the name would claim the contract.  A macro object prints as
+    ;; `(macro (ARGS) ...)', and asking the printer is the cheapest test
+    ;; that needs no new native.
+    (defun help-fns--macro-p (object)
+      "Return t when the function object OBJECT is a macro."
+      (string-prefix-p "(macro" (format "%S" object)))
+
+    (defun help-fns--interactive-line (name)
+      "How NAME is called interactively, or nil when it is not a command."
+      (let ((form (interactive-form name)))
+        (if form
+            (let ((spec (car (cdr form))))
+              (if (null spec)
+                  "Interactive: takes no arguments"
+                ;; The specification as it was written, string or form:
+                ;; `interactive-form' returns the descriptor and not the
+                ;; closure built over it, which is the whole point of it.
+                (format "Interactive: %S" spec))))))
+
+    (defun describe-function (name)
+      "Report what is known about the function NAME."
+      (interactive "sDescribe function: ")
+      (let* ((symbol (if (stringp name) (intern name) name))
+             (kind (help-fns--function-kind symbol))
+             (doc (documentation symbol))
+             (interactive-line (help-fns--interactive-line symbol)))
+        (help-fns--show
+         (append
+          (list (format "%s is %s." symbol (or kind "not a known function")))
+          (if interactive-line (list interactive-line))
+          (list "")
+          (list (or doc "Not documented."))))))
+
+    (defun describe-variable (name)
+      "Report the value and scope of the variable NAME."
+      (interactive "sDescribe variable: ")
+      (let* ((symbol (if (stringp name) (intern name) name))
+             (doc (documentation symbol)))
+        (help-fns--show
+         (append
+          (if (boundp symbol)
+              (append
+               (list (format "%s is a variable." symbol))
+               ;; Phase 18's buffer-local surface is what makes this worth
+               ;; printing: the value you see depends on the buffer you are
+               ;; in, and the report says so rather than leaving you to
+               ;; wonder.
+               (if (local-variable-p symbol)
+                   (list (format "Local in this buffer; its value is %S."
+                                 (buffer-local-value symbol (current-buffer)))
+                         (format "Its global value is %S."
+                                 (default-value symbol)))
+                 (list (format "Its value is %S." (symbol-value symbol))
+                       "It has no buffer-local value here.")))
+            (list (format "%s is void as a variable." symbol)))
+          (if (special-variable-p symbol)
+              (list "Declared with defvar or defconst, so `let' binds it dynamically."))
+          (list "")
+          (list (or doc "Not documented."))))))
+
+    ;; Everything `apropos' can enumerate, as one list of symbols with the
+    ;; duplicates left in: a Lisp-defined command is in both halves, and
+    ;; sorting the matches puts its copies next to each other, which is where
+    ;; `apropos' drops them.  De-duplicating here would be a `memq' per
+    ;; candidate over a growing list -- 600 names is 180000 comparisons, and
+    ;; the evaluation step budget is not that patient.
+    (defun apropos--candidates ()
+      "Every name apropos can see."
+      (append (env) (internal--command-names)))
+
+    ;; NAMES sorted, with adjacent duplicates dropped.  The symbols are
+    ;; sorted and only then described, which is a measured choice and not a
+    ;; style one: `string<' is prelude Lisp that turns both arguments into
+    ;; lists of character codes, so one comparison costs a cons and a few
+    ;; steps per CHARACTER.  Sorting 35 finished report rows (~80 characters
+    ;; each) exhausts an evaluation's step budget; sorting the same 35
+    ;; symbols (~15 characters) does not.  A duplicate is a name in both
+    ;; halves of `apropos--candidates', which sorting puts side by side.
+    (defun apropos--unique-sorted (names)
+      "Sort the symbols NAMES by name and drop the repeats."
+      (let ((kept nil))
+        (dolist (name (sort names (lambda (a b)
+                                    (string< (symbol-name a) (symbol-name b)))))
+          (if (not (eq name (car kept)))
+              (push name kept)))
+        (nreverse kept)))
+
+    (defun apropos--describe (symbol)
+      "One report line for SYMBOL: its name, and what it is."
+      (let ((what (append
+                   (if (commandp symbol) (list "command"))
+                   (if (and (fboundp symbol) (not (commandp symbol)))
+                       (list "function"))
+                   (if (boundp symbol) (list "variable")))))
+        (format "%s  --  %s%s"
+                symbol
+                (if what (string-join what ", ") "symbol")
+                (let ((doc (documentation symbol)))
+                  (if doc (concat ": " doc) "")))))
+
+    (defun apropos (pattern)
+      "List the names containing PATTERN, with what each one is.
+
+    At most `apropos-max-results' of them; the report says so when there were
+    more.  The cap is not decoration: every evaluation in kg runs under a step
+    budget, and sorting and describing a few hundred rows is more work than one
+    budget holds -- `string<' is prelude Lisp that walks both arguments a
+    character at a time, so a sort is charged per character, not per
+    comparison."
+      (interactive "sApropos (substring): ")
+      (let ((quoted (regexp-quote pattern))
+            (found 0)
+            (hits nil))
+        (dolist (symbol (apropos--candidates))
+          (if (and (string-match quoted (symbol-name symbol))
+                   (or (fboundp symbol) (boundp symbol) (commandp symbol)))
+              (progn
+                (setq found (1+ found))
+                (if (<= found apropos-max-results)
+                    (push symbol hits)))))
+        (let ((rows (mapcar 'apropos--describe
+                            (apropos--unique-sorted hits))))
+          (help-fns--show
+           (append rows
+                   (list ""
+                         (format "%d name%s matching %S%s"
+                                 (length rows)
+                                 (if (= (length rows) 1) "" "s")
+                                 pattern
+                                 (if (> found (length rows))
+                                     (format " (of %d; raise apropos-max-results for the rest)"
+                                             found)
+                                   ""))))))))
+
+    ;;; help-fns.el ends here
+initial: "ok\n"
+keys:
+  - M-x
+  - apropos
+  - RET
+  - occur
+  - RET
+expected_saved: "ok\n"
+expected_screen_contains:
+  # The init file's own command, with its docstring ...
+  - "occur-loudly  --  command: Shout about the current line."
+  # ... and a built-in, whose "documentation" is the one-line summary
+  # cmd.c carries for it.
+  - "occur-prev  --  command: Move to the previous match in *Occur*"

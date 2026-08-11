@@ -1390,13 +1390,29 @@ primitive's function cell.
   at all — there is no file to name.
 - Docstrings are retained by `defun`, `defmacro`, `defvar` and
   `defconst`; the prelude's `(documentation 'NAME)` returns the captured
-  string. This is an alist-backed query, not a property-list or
-  `describe-function` UI. One divergence rides on that: because the store
-  is a single name-keyed alist, `(documentation 'VARIABLE)` answers a
-  variable's docstring here, where Emacs reserves `documentation` for
-  functions and answers a variable through
+  string, and every public prelude definition has one since Phase 19
+  (the `internal--` machinery deliberately does not). This is an
+  alist-backed query, not a property list. Two divergences ride on that.
+  Because the store is a single name-keyed alist, `(documentation
+  'VARIABLE)` answers a variable's docstring here, where Emacs reserves
+  `documentation` for functions and answers a variable through
   `(documentation-property 'VARIABLE 'variable-documentation)`, which kg
-  does not have.
+  does not have. And the alist is a *definition registry*: a `defun` with
+  no docstring still records its name, so that `apropos` can find it,
+  which means `documentation` distinguishes "defined, undocumented" from
+  "not defined" only by returning nil for both. A BUILT-IN command's
+  documentation is the one-line summary `cmdtable` carries for it, which
+  is the same text `M-x` and the help screen show.
+- The **describe surface is a package**, not a built-in: `(require
+  'help-fns)` adds `describe-function`, `describe-variable` and
+  `apropos`, each a command that writes into `*Help*`. What `apropos` can
+  enumerate is fe's `(env)` — every interned symbol, so the primitives,
+  kg's natives, the prelude and your own definitions — joined with
+  `(internal--command-names)`, which is the only way to see a built-in
+  command, whose name lives in a C table and is not a symbol until
+  something writes one. It is capped at `apropos-max-results` matches per
+  report, because kg bounds every evaluation and a broad pattern is more
+  sorting and formatting than one budget holds.
 
 ## What is not here, and why
 

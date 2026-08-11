@@ -68,6 +68,17 @@ const struct named_cmd *cmd_descriptor_at(int index)
 	return index >= 0 && stub_cmdtable[index].name ? &stub_cmdtable[index]
 						       : nullptr;
 }
+/* The walk `(internal--command-names)` uses.  Only the stub table: this
+ * file is linked into binaries that carry no Lisp objects at all, so it
+ * may not name the adapter's symbols (see the hook pointers below), and
+ * the Lisp half of the real walk is exercised where the adapter is --
+ * test/lisp-compat's phase19-help-fns-surface case, through kgbatch. */
+const char *cmd_name_at(int index)
+{
+	const struct named_cmd *cmd = cmd_descriptor_at(index);
+
+	return cmd != nullptr ? cmd->name : nullptr;
+}
 int cmd_invoke(const char *name, const struct command_context *ctx)
 {
 	const struct named_cmd *cmd = cmd_lookup(name);

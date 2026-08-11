@@ -267,6 +267,33 @@ which is C and integrates with
 .Ic M-g M-n ;
 it is Lisp a user can change.
 .Pp
+.Pa lisp/help-fns.el
+is the discovery surface.
+.Li (require 'help-fns)
+adds
+.Li describe-function ,
+.Li describe-variable
+and
+.Li apropos ,
+which report into
+.Pa *Help* .
+.Li describe-function
+names what a command or function is, how it is called interactively, and
+what its documentation says;
+.Li describe-variable
+reports a variable's value, whether the value you are seeing is this
+buffer's own or the global one, and whether
+.Li let
+binds it dynamically;
+.Li apropos
+lists every name containing a substring.
+What
+.Li apropos
+can see is every interned symbol plus the built-in command table, capped
+at
+.Li apropos-max-results
+matches per report.
+.Pp
 .Nm
 installs those packages to
 .Pa <prefix>/share/kg/lisp/

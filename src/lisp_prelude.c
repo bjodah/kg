@@ -95,6 +95,11 @@ static const struct native_binding native_bindings[] = {
 	{ "functionp", native_functionp },
 	{ "commandp", native_commandp },
 	{ "interactive-form", native_interactive_form },
+	/* The two halves of the command table Lisp cannot see for itself:
+	 * a built-in's name is not a symbol until something writes it, and
+	 * its documentation is the one-line summary cmd.c carries. */
+	{ "internal--command-names", native_command_names },
+	{ "internal--command-documentation", native_command_documentation },
 	{ "command-execute", native_command },
 	{ "prefix-numeric-value", native_prefix_numeric_value },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a

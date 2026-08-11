@@ -510,13 +510,36 @@
 (defalias 'internal--interactive-p (lambda (form)
   (if (atom form) nil (eq (car form) 'interactive))))
 (defalias 'internal--docstring-p (lambda (form) (stringp form)))
+;; The definition registry: one entry per name a definition form has
+;; introduced, whose cdr is the docstring or nil.  Two questions read it.
+;; `documentation' asks for the text, and answers nil either way -- for a
+;; name with no docstring and for a name nothing has defined.  `apropos'
+;; (lisp/help-fns.el) asks for the NAMES, which is why an undocumented
+;; `defun' registers as well: a function you can call and cannot find is
+;; not much better than one that does not exist.  The cost of that is two
+;; conses per definition.
 (setq internal--docs nil)
 (defalias 'internal--doc-put (lambda (name doc)
   (setq internal--docs (cons (cons name doc) internal--docs))
   doc))
+;; The registry first, then the command table: a BUILT-IN command has no
+;; Lisp definition to have recorded a docstring, and the one-line summary
+;; cmd.c carries -- the same text M-x and the help screen show -- is the
+;; honest answer for it.
 (defalias 'documentation (lambda (name)
   (internal--let entry (assq name internal--docs))
-  (if entry (cdr entry) nil)))
+  (if (and entry (cdr entry))
+      (cdr entry)
+    (internal--command-documentation name))))
+;; Every name the registry knows, newest first and with duplicates, which
+;; is the shape the alist has; `apropos' filters and de-duplicates.
+(defalias 'internal--defined-names (lambda ()
+  (internal--let names nil)
+  (internal--let tail internal--docs)
+  (while tail
+    (setq names (cons (car (car tail)) names))
+    (setq tail (cdr tail)))
+  names))
 (defalias 'internal--has-interactive (lambda (body)
   (if body (internal--interactive-p (car body)) nil)))
 ;; Only the declaration immediately after the optional docstring is metadata.
@@ -564,14 +587,14 @@
           (list 'define-command (list 'quote name)
             'internal--defun-fn spec doc (list 'quote raw))
           (list 'defalias (list 'quote name) 'internal--defun-fn)
-          (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+          (list 'internal--doc-put (list 'quote name) doc)
           (list 'quote name)))
     (progn
       (if (null body) (setq body (list nil)))
       (internal--let f (cons 'lambda (cons params body)))
       (list 'progn (list 'defalias (list 'quote name) f)
         (list 'internal--remove-command-if-present (list 'quote name))
-        (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+        (list 'internal--doc-put (list 'quote name) doc)
         (list 'quote name))))))
 ;; The same lone-string rule `defun' takes: a string is documentation
 ;; only when at least one further form follows it, because otherwise it
@@ -589,7 +612,7 @@
   (list 'progn
     (list 'defalias (list 'quote name)
       (cons 'macro (cons params body)))
-    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+    (list 'internal--doc-put (list 'quote name) doc)
     (list 'quote name))))
 ;; Fe distinguishes an unassigned symbol from one holding nil, so
 ;; defvar asks boundp rather than reading the variable -- which would
@@ -626,7 +649,7 @@
     (list 'if (list 'boundp (list 'quote name))
       nil
       (if value-present (list 'setq name (car rest)) nil))
-    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+    (list 'internal--doc-put (list 'quote name) doc)
     (list 'quote name))))
 ;; `defconst' marks full, as Emacs' does, and -- also as Emacs' does --
 ;; the constancy is a declaration and not enforcement: the name is still
@@ -638,7 +661,7 @@
   (list 'progn
     (list 'internal--mark-special (list 'quote name) t)
     (list 'setq name (car rest))
-    (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
+    (list 'internal--doc-put (list 'quote name) doc)
     (list 'quote name))))
 (defalias 'internal--custom-presentation-keyword-p (lambda (key)
   (or (eq key :type) (eq key :options) (eq key :group)
@@ -1180,3 +1203,138 @@
   (if (< count 0)
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
+
+;; --- documentation for the definitions above -------------------------
+;;
+;; One table rather than a docstring on each `defalias' above, for a
+;; mechanical reason: the definitions ARE `defalias' calls, which take no
+;; documentation -- only `defun', `defmacro', `defvar' and `defconst' feed
+;; `internal--doc-put', and the prelude cannot use `defun' before it
+;; defines it.  Rewriting the file around that would reorder the
+;; bootstrap; a table at the end does not, and it keeps the cost visible
+;; in one place.
+;;
+;; PUBLIC NAMES ONLY.  The `internal--' definitions are the prelude's own
+;; machinery and are deliberately undocumented: `documentation' answering
+;; for them would be a claim that they are surface.
+;;
+;; The cost is measured, not assumed (Phase 19, and the figures move with
+;; the table): 102 entries and 5527 bytes of text cost +1341 objects of
+;; the 56259-slot arena -- 9912 -> 11253 live after the prelude, 17.6% ->
+;; 20.0% -- and +0.22 ms of prelude load time, 2.57 -> 2.79 ms median of
+;; five interleaved runs on a counting build.  That is 8.6% of the
+;; prelude and 0.19% of kg's ~117 ms startup, which is why the mechanism
+;; stayed a Lisp alist instead of moving to a C table the way the plan
+;; allowed if it 'measures as a startup cost'.
+;;
+;; One line each, which is a deliberate cut: Emacs' own docstrings run to
+;; paragraphs and this arena is fixed.  Argument names are the ones the
+;; definitions above use.
+;;
+;; `nconc' rather than `append': the literal below is the prelude's own
+;; and nothing else holds it, so joining it onto whatever `defvar' put
+;; there costs no copy.
+(setq internal--docs (nconc '(
+  (1+ . "Return N plus one.")
+  (1- . "Return N minus one.")
+  (% . "Return the remainder of X divided by Y, with X's sign.")
+  (abs . "Return the absolute value of N.")
+  (add-to-list . "Add ELEMENT to the list in VARIABLE unless it is already a member.")
+  (alist-get . "Return the value of KEY in ALIST, or DEFAULT when it is absent.")
+  (append . "Return the concatenation of the argument lists; the last may be any object.")
+  (ash . "Return VALUE arithmetically shifted left by COUNT, or right when it is negative.")
+  (assoc . "Return the first pair of ALIST whose car `equal's KEY.")
+  (assq . "Return the first pair of ALIST whose car is `eq' to KEY.")
+  (assq-delete-all . "Return ALIST without the pairs whose car is `eq' to KEY.")
+  (beginning-of-buffer . "Move point to the start of the buffer.")
+  (butlast . "Return LIST without its last element, or without its last N.")
+  (caar . "Return the car of the car of X.")
+  (cadddr . "Return the fourth element of X.")
+  (caddr . "Return the third element of X.")
+  (cadr . "Return the second element of X.")
+  (cdar . "Return the cdr of the car of X.")
+  (cdddr . "Return X without its first three elements.")
+  (cddr . "Return X without its first two elements.")
+  (cond . "Evaluate the body of the first clause whose test is non-nil.")
+  (copy-sequence . "Return a fresh copy of the list SEQUENCE.")
+  (custom-set-variables . "Set each quoted (SYMBOL VALUE) pair, as a Custom file does.")
+  (defconst . "Define NAME as a constant with VALUE, and mark it special.")
+  (defcustom . "Define NAME as a user option with STANDARD value; a declaration over `defvar'.")
+  (defmacro . "Define NAME as a macro taking PARAMS.")
+  (defun . "Define NAME as a function taking PARAMS; an (interactive ...) body makes it a command.")
+  (defvar . "Declare NAME as a variable, giving it VALUE if it has none, and mark it special.")
+  (delete . "Return LIST without the elements `equal' to ELEMENT.")
+  (delq . "Return LIST without the elements `eq' to ELEMENT.")
+  (documentation . "Return the documentation string recorded for NAME, or nil.")
+  (dolist . "Bind the first element of SPEC to each element of its list and run the body.")
+  (dotimes . "Bind the first element of SPEC to each integer from 0 below its count.")
+  (elt . "Return the element of SEQUENCE at index N; SEQUENCE may be a list or a string.")
+  (end-of-buffer . "Move point to the end of the buffer.")
+  (equal . "Return t when A and B have the same structure and contents.")
+  (identity . "Return X.")
+  (ignore-errors . "Run the body, returning nil instead of raising an `error'.")
+  (interactive . "Declare a command's interactive specification; inert outside `defun'.")
+  (kbd . "Return KEYS unchanged: kg's key sequences are already strings.")
+  (last . "Return the last cons of LIST, or its last N conses.")
+  (length . "Return the number of elements in SEQUENCE, or the characters in a string.")
+  (let . "Bind each (NAME VALUE) of BINDINGS in parallel and run the body.")
+  (let* . "Bind each (NAME VALUE) of BINDINGS in sequence and run the body.")
+  (listp . "Return t when X is a cons or nil.")
+  (load . "Read and evaluate the Lisp file FILE, searching `load-path' for a bare name.")
+  (mapc . "Call FUNCTION on each element of LIST for effect, and return LIST.")
+  (mapcan . "Call FUNCTION on each element of LIST and `nconc' the results.")
+  (mapcar . "Return the list of FUNCTION's values over the elements of LIST.")
+  (mapconcat . "Join FUNCTION's values over LIST into one string, with SEPARATOR between them.")
+  (match-string . "Return the text matched by group N of the last search, or nil.")
+  (max . "Return the largest of the arguments.")
+  (member . "Return the tail of LIST starting at the first element `equal' to ELEMENT.")
+  (memq . "Return the tail of LIST starting at the first element `eq' to ELEMENT.")
+  (min . "Return the smallest of the arguments.")
+  (mod . "Return the modulus of X by Y, with Y's sign.")
+  (move-beginning-of-line . "Move point to the beginning of the current line.")
+  (move-end-of-line . "Move point to the end of the current line.")
+  (nconc . "Join the argument lists by rewriting their tails, and return the result.")
+  (nreverse . "Return LIST reversed, rewriting its tails.")
+  (nth . "Return the Nth element of LIST, counting from zero.")
+  (nthcdr . "Return LIST without its first N elements.")
+  (null . "Return t when X is nil.")
+  (number-sequence . "Return the list of numbers from FROM to TO, stepping by STEP.")
+  (number-to-string . "Return the printed representation of the number N.")
+  (plist-get . "Return the value of PROPERTY in the property list PLIST.")
+  (plist-put . "Store VALUE for PROPERTY in the property list PLIST and return it.")
+  (pop . "Remove and return the first element of the list in PLACE.")
+  (prog1 . "Run the body and return the value of its first form.")
+  (prog2 . "Run the body and return the value of its second form.")
+  (progn . "Run the body and return the value of its last form.")
+  (push . "Add ELEMENT to the front of the list in PLACE.")
+  (quasiquote . "The backquote reader macro: build FORM, evaluating its unquoted parts.")
+  (replace-regexp-in-string . "Return TEXT with each match of REGEXP replaced by REPLACEMENT.")
+  (require . "Load the feature FEATURE unless it has already been provided.")
+  (reverse . "Return a fresh list with the elements of LIST in the opposite order.")
+  (save-excursion . "Run the body and restore the buffer and point afterwards.")
+  (seq-filter . "Return the elements of SEQUENCE for which PREDICATE is non-nil.")
+  (seq-find . "Return the first element of SEQUENCE for which PREDICATE is non-nil.")
+  (seq-map . "Return the list of FUNCTION's values over the elements of SEQUENCE.")
+  (seq-remove . "Return the elements of SEQUENCE for which PREDICATE is nil.")
+  (seq-some . "Return the first non-nil value of PREDICATE over SEQUENCE.")
+  (seq-take . "Return the first N elements of SEQUENCE.")
+  (setq-default . "Set the global (default) value of each NAME, ignoring any buffer-local one.")
+  (setq-local . "Set the current buffer's own value of each NAME, creating it if needed.")
+  (sort . "Return LIST sorted by the two-argument PREDICATE.")
+  (split-string . "Return the list of substrings of TEXT separated by matches of SEPARATORS.")
+  (string< . "Return t when string A sorts before string B.")
+  (string-empty-p . "Return t when the string S has no characters.")
+  (string-join . "Return the strings of LIST concatenated, with SEPARATOR between them.")
+  (string-prefix-p . "Return t when STRING begins with PREFIX.")
+  (string-suffix-p . "Return t when STRING ends with SUFFIX.")
+  (string-to-list . "Return the list of character codes in STRING.")
+  (string-trim . "Return STRING without leading or trailing whitespace.")
+  (string-trim-left . "Return STRING without leading whitespace.")
+  (string-trim-right . "Return STRING without trailing whitespace.")
+  (thing-at-point . "Return the text of the THING at point, or nil; THING may be `word' or `symbol'.")
+  (unless . "Run the body when the condition is nil.")
+  (when . "Run the body when the condition is non-nil.")
+  (with-current-buffer . "Run the body with BUFFER current, and restore the previous one.")
+  (with-temp-buffer . "Run the body in a fresh temporary buffer, and kill it afterwards.")
+  (zerop . "Return t when the number N is zero.")
+  ) internal--docs))

@@ -215,8 +215,12 @@ lispdir = $(datadir)/kg/lisp
 # grep-buffer.el (Phase 17) is the milestone package: the first one that
 # could not have been written before the elisp wave.  It stands alone --
 # it requires nothing but the prelude.
-LISP_PACKAGES = lisp/auto-fill.el lisp/grep-buffer.el lisp/pipeline.el \
-                lisp/pipeline-text.el
+#
+# help-fns.el (Phase 19) is the discovery surface: describe-function,
+# describe-variable and apropos, written in Lisp over the reflection the
+# phase added.  It stands alone too.
+LISP_PACKAGES = lisp/auto-fill.el lisp/grep-buffer.el lisp/help-fns.el \
+                lisp/pipeline.el lisp/pipeline-text.el
 
 # Show a leading "~" on lines past end-of-buffer (vim/kilo style).
 # Off by default for an Emacs-like presentation.  Override on the make
@@ -528,7 +532,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7698
+SCC_COMPLEXITY_MAX ?= 7706
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

@@ -2182,15 +2182,31 @@ int cmd_execute_named(const char *name, int fd)
 	return cmd_invoke(name, &ctx) == CMD_UNKNOWN;
 }
 
-/* All command names visible to the M-x picker: the static table in its
- * alphabetical order, then Lisp-defined commands.  Shaped as a
- * picker_name_fn so editor_picker_filter() can walk it. */
+/* Every command name, by index: the static table in its alphabetical
+ * order, then the Lisp registry, and NULL past the last one.  Two callers
+ * want the same walk -- the M-x picker, through the wrapper below, and
+ * `(internal--command-names)`, which is how `apropos` sees the built-in
+ * commands at all: their names live in this C table and are not symbols
+ * anywhere until something writes one. */
+const char *cmd_name_at(int index)
+{
+	const struct named_cmd *cmd
+	    = index >= 0 ? cmd_descriptor_at(index) : nullptr;
+
+	if (cmd != nullptr) {
+		return cmd->name;
+	}
+	return index >= cmd_static_count()
+	    ? kg_lisp_command_name(index - cmd_static_count())
+	    : nullptr;
+}
+
+/* The same walk shaped as a picker_name_fn, so editor_picker_filter()
+ * can drive it. */
 static const char *command_name_at(int idx, void *data)
 {
-	const struct named_cmd *cmd = cmd_descriptor_at(idx);
-
 	(void)data;
-	return cmd ? cmd->name : kg_lisp_command_name(idx - cmd_static_count());
+	return cmd_name_at(idx);
 }
 
 /* Name of the last command run to completion via the M-x picker (typed or

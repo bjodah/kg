@@ -2392,6 +2392,32 @@
    "rationale": "DIVERGENT, Phase 18, and the one divergence this phase did NOT predict: the contract commit froze `setq-local' inside a `let' as a rule kg would match, and the implementation measured otherwise. Emacs tags each `let' binding with which storage it displaced, so a `let' that bound the default goes on binding the default when a `setq-local' inside it creates a local binding: the local survives the form and the default is restored into the default. kg's `let' is fe's, and fe has one value cell with no buffer to tag: the `setq-local' stashes what is in that cell -- the let value -- as the default, and the form's exit puts the real default into what is now the local binding, so the two end up swapped ((SL t) D t LET against the oracle's (SL t) SL t D). `make-local-variable' inside such a `let' is the same shape with the same answer. It is the same root cause as phase18-let-buffer-switched-out and would be closed by the same thing -- a `let' binding that knows which buffer it displaced, which means fe learning what a buffer is. Emacs prints \"Making X buffer-local while locally let-bound!\" for this shape, so it is dubious code on both sides; kg's answer is wrong rather than merely warned about, and that is the delta."
   },
   {
+   "id": "phase19-command-documentation",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase19-help-fns-surface"
+   ],
+   "kg_test": "test/test_lisp.c:test_help_fns_surface",
+   "rationale": "The documentation a COMMAND carries: a built-in's one-line cmdtable summary, or the docstring a `define-command` was given. The prelude's `documentation` falls back to it, which is what makes `(documentation 'save-buffer)` answer at all.",
+   "source_name": "internal--command-documentation"
+  },
+  {
+   "id": "phase19-command-names",
+   "category": "interactive-commands",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase19-help-fns-surface"
+   ],
+   "kg_test": "test/test_lisp.c:test_help_fns_surface",
+   "rationale": "The command table as a list of symbols: the static cmdtable in its own order, then the Lisp registry. The one enumeration Lisp cannot do for itself -- fe's `env` covers every INTERNED symbol, and a built-in command's name is not a symbol anywhere until something writes it, because it lives in a C array. `apropos` (lisp/help-fns.el) joins the two.",
+   "source_name": "internal--command-names"
+  },
+  {
    "id": "phase19-commandp-function-object",
    "category": "interactive-commands",
    "status": "supported",
@@ -2403,6 +2429,19 @@
    "kg_test": "test/test_lisp.c:test_interactive_form_reflection",
    "rationale": "Phase 19: `commandp` of a FUNCTION OBJECT, answered by identity against the command registry. `defun` binds its closure once and hands the same object to `define-command` and to the function cell (07D item 3), so `(commandp (symbol-function 'my-command))` has a real answer here and not a guess. This is the half of native-commandp's divergence Phase 19 closed; the other half, an anonymous lambda carrying an interactive form, stays divergent in that row.",
    "source_name": null
+  },
+  {
+   "id": "phase19-defined-names",
+   "category": "prelude",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase19-help-fns-surface"
+   ],
+   "kg_test": "test/test_lisp.c:test_help_fns_surface",
+   "rationale": "Every name the prelude's definition registry knows, newest first and with duplicates -- the shape the alist has. `apropos` does not use it (fe's `env` is a superset), but `documentation`'s registry is the only place a name defined with no docstring is recorded, and this is how Lisp reads that list.",
+   "source_name": "internal--defined-names"
   },
   {
    "id": "phase19-error-message-string",
@@ -2809,7 +2848,7 @@
     "phase8-library-documentation"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "Internal docstring storage helper used by defun, defvar and defconst.",
+   "rationale": "Internal docstring storage helper used by defun, defmacro, defvar and defconst -- since Phase 19 unconditionally, so an undocumented definition still registers its name.",
    "source_name": "internal--doc-put"
   },
   {
@@ -2822,7 +2861,7 @@
     "phase8-library-documentation"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "Docstrings are stored in a bounded prelude alist rather than Fe property lists.",
+   "rationale": "Docstrings are stored in a name-keyed prelude alist rather than in fe property lists, and since Phase 19 that alist is a DEFINITION REGISTRY: every `defun'/`defmacro'/`defvar'/`defconst' records its name whether or not it has a docstring, which is what lets `apropos' see a name you defined without documenting. `documentation' falls back to `internal--command-documentation' for a BUILT-IN command, whose one-line cmdtable summary -- the text M-x and the help screen show -- is the only documentation it has. Phase 19 also documented all 102 public prelude definitions; the `internal--' ones are deliberately left undocumented, since answering for them would claim they are surface.",
    "source_name": "documentation"
   },
   {

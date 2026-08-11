@@ -4577,6 +4577,77 @@ static void test_interactive_form_reflection(void)
 	teardown_editor();
 }
 
+/* Phase 19's discovery surface, the three things lisp/help-fns.el is
+ * built on: what a name's documentation is, which names are enumerable,
+ * and where a BUILT-IN command's documentation comes from.
+ *
+ * The registry is the prelude's `internal--docs' alist, and Phase 19
+ * widened what goes in it: every definition form records its name, with
+ * or without a docstring, because `apropos' asks for the names and a
+ * function you can call and cannot find is not much better than one that
+ * does not exist. */
+static void test_help_fns_surface(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* The prelude documents its own public surface. */
+	CHECK(eval_eq("(documentation 'mapcar)",
+	    "Return the list of FUNCTION's values over the elements of LIST."));
+	/* ... and deliberately not its machinery. */
+	CHECK(eval_eq("(documentation 'internal--let)", "nil"));
+	CHECK(eval_eq("(documentation 'no-such-name-at-all)", "nil"));
+
+	/* A definition registers its name whether or not it documents it. */
+	CHECK(eval_ok("(defun p19doc (x) \"Return X.\" x)"));
+	CHECK(eval_ok("(defun p19undoc (x) x)"));
+	CHECK(eval_ok("(defvar p19var 1)"));
+	CHECK(eval_eq("(documentation 'p19doc)", "Return X."));
+	CHECK(eval_eq("(documentation 'p19undoc)", "nil"));
+	CHECK(eval_eq("(if (memq 'p19undoc (internal--defined-names)) 'yes 'no)",
+	    "yes"));
+	CHECK(eval_eq("(if (memq 'p19var (internal--defined-names)) 'yes 'no)",
+	    "yes"));
+
+	/* Every symbol fe has interned is enumerable without a new
+	 * primitive: `env' is the obarray walk `apropos' needs, and it
+	 * reaches the natives and the prelude alike. */
+	CHECK(eval_eq("(if (memq 'buffer-substring (env)) 'yes 'no)", "yes"));
+	CHECK(eval_eq("(if (memq 'mapcar (env)) 'yes 'no)", "yes"));
+
+	/* The command table, which `env' cannot see: a built-in's name is
+	 * not a symbol until something writes it.  This binary links the
+	 * test stubs, so the table is theirs -- three rows -- and what is
+	 * pinned here is the shape, with the real table exercised through
+	 * kgbatch (test/lisp-compat's phase19-help-fns-surface) and on a
+	 * terminal (test/pty/lisp-help-fns-apropos.yaml). */
+	CHECK(eval_eq("(if (memq 'version (internal--command-names)) 'yes 'no)",
+	    "yes"));
+	CHECK(eval_ok("(define-command 'p19cmd (lambda () 1) nil \"Doc it.\")"));
+	/* The Lisp half of the list is deliberately absent HERE: the stub
+	 * `cmd_name_at' walks the stub table only, because this file is
+	 * linked into binaries that carry no Lisp objects and may not name
+	 * the adapter's symbols.  The real walk answers both halves, which
+	 * is what the kgbatch case and the PTY case above measure. */
+	/* A built-in's documentation is its one-line summary; a command
+	 * defined with a docstring answers that; and the two ways of not
+	 * being a command answer nil. */
+	CHECK(eval_eq("(internal--command-documentation 'version)", "stub"));
+	CHECK(eval_eq("(internal--command-documentation 'p19cmd)", "Doc it."));
+	CHECK(eval_eq("(internal--command-documentation 'p19undoc)", "nil"));
+	CHECK(eval_eq("(internal--command-documentation 5)", "nil"));
+	/* ... and a command defined with no docstring at all: the root is
+	 * there and holds nil. */
+	CHECK(eval_ok("(define-command 'p19bare (lambda () 1))"));
+	CHECK(eval_eq("(internal--command-documentation 'p19bare)", "nil"));
+	CHECK(eval_eq("(documentation 'p19bare)", "nil"));
+	CHECK(eval_ok("(remove-command 'p19cmd)"));
+	CHECK(eval_ok("(remove-command 'p19bare)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Phase 19: what a condition READS AS -- from Lisp through
  * `error-message-string`, and from the host through the diagnostic kg
  * puts in the echo area.
@@ -5478,8 +5549,9 @@ static void test_quit_uncaught(void)
  * internal--load-loop), +2 for the line-motion pair
  * (move-beginning-of-line, move-end-of-line), +40 for Phase 15's string
  * and list library, +3 for Phase 17's with-temp-buffer and the
- * beginning-of-buffer/end-of-buffer pair. */
-#define PRELUDE_DEFS 126
+ * beginning-of-buffer/end-of-buffer pair, +1 for Phase 19's
+ * internal--defined-names. */
+#define PRELUDE_DEFS 127
 
 static void test_prelude_source_file(void)
 {
@@ -5895,7 +5967,16 @@ static void test_phase8_library(void)
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
 	CHECK(after.free_slots * 2 > after.total_slots);
-	CHECK(after.peak_live_objects * 4 < after.total_slots);
+	/* A THIRD of the arena, not a quarter, since Phase 19: the prelude
+	 * now carries a docstring for each of its 102 public definitions,
+	 * which is 5527 bytes of text and +1341 objects, and the figure
+	 * this line bounds -- the high-water mark after the prelude AND
+	 * every form this function evaluated above -- measures 14579 of
+	 * 56259 (25.9%) where it measured 13238 of 56239 (23.5%).  The
+	 * claim being made is margin, and a third of a fixed arena for
+	 * everything kg ships plus this file's corpus is still margin;
+	 * what would not be is a bound nobody re-measured. */
+	CHECK(after.peak_live_objects * 3 < after.total_slots);
 	CHECK(after.free_slots <= before.free_slots);
 	CHECK(after.allocation_failures == 0);
 	kg_lisp_shutdown();
@@ -6841,6 +6922,7 @@ int main(void)
 	RUN(test_condition_case_kg_native_conditions);
 	RUN(test_error_message_rendering);
 	RUN(test_interactive_form_reflection);
+	RUN(test_help_fns_surface);
 	RUN(test_phase13_trap_battery);
 	RUN(test_phase14_symbols);
 	RUN(test_phase14_excursion_hygiene);

@@ -13,4 +13,5 @@ steps:
       CI_EXPENSIVE: "1"
     commands:
       - apt-get install pmccabe
+      - bash -lc "rustup component add rust-analyzer"
       - bash -l .ci/run-ci-steps.sh

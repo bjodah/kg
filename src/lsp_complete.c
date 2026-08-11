@@ -85,14 +85,14 @@ size_t lsp_complete_common_prefix(const char *const *texts, size_t n)
 #include "def.h"
 #include "edit.h"
 #include "event.h"
+#include "json.h"
 #include "lsp_edit.h"
-#include "lsp_json.h"
 #include "lsp_req.h"
 #include "lsp_sync.h"
 
 #include <stdio.h>
 
-struct lsp_json_value;
+struct kg_json_value;
 
 /* The name every message this prints spells. */
 #define COMPLETE_WHO "completion-at-point"
@@ -161,18 +161,18 @@ static void comp_reset(void)
  * plain TextEdit has a `range`, an InsertReplaceEdit has `insert` and
  * `replace` and kg takes the insert one -- replacing more than what was
  * typed is a completion that eats the text after point. */
-static const struct lsp_json_value *comp_edit_range(
-    const struct lsp_json_value *edit)
+static const struct kg_json_value *comp_edit_range(
+    const struct kg_json_value *edit)
 {
-	const struct lsp_json_value *range = lsp_json_get(edit, "range");
+	const struct kg_json_value *range = kg_json_get(edit, "range");
 
-	if (lsp_json_kind_of(range) == LSP_JSON_OBJECT) {
+	if (kg_json_kind_of(range) == KG_JSON_OBJECT) {
 		return range;
 	}
-	return lsp_json_get(edit, "insert");
+	return kg_json_get(edit, "insert");
 }
 
-static void comp_note_range(const struct lsp_json_value *edit)
+static void comp_note_range(const struct kg_json_value *edit)
 {
 	struct lsp_edit_range range;
 
@@ -187,20 +187,20 @@ static void comp_note_range(const struct lsp_json_value *edit)
 /* Copy the four strings a candidate is made of.  False -- with nothing
  * stored -- when the item has no label, when the store is full, or when
  * a copy could not be made. */
-static bool comp_add(const struct lsp_json_value *node)
+static bool comp_add(const struct kg_json_value *node)
 {
-	const struct lsp_json_value *edit = lsp_json_get(node, "textEdit");
-	const char *label = lsp_json_str(lsp_json_get(node, "label"), NULL);
-	const char *insert = lsp_json_str(lsp_json_get(edit, "newText"), NULL);
-	const char *sort = lsp_json_str(lsp_json_get(node, "sortText"), NULL);
-	const char *detail = lsp_json_str(lsp_json_get(node, "detail"), NULL);
+	const struct kg_json_value *edit = kg_json_get(node, "textEdit");
+	const char *label = kg_json_str(kg_json_get(node, "label"), NULL);
+	const char *insert = kg_json_str(kg_json_get(edit, "newText"), NULL);
+	const char *sort = kg_json_str(kg_json_get(node, "sortText"), NULL);
+	const char *detail = kg_json_str(kg_json_get(node, "detail"), NULL);
 	struct lsp_complete_item *item;
 
 	if (!label || !label[0] || g_comp.count == LSP_COMPLETE_MAX_ITEMS) {
 		return false;
 	}
 	if (!insert) {
-		insert = lsp_json_str(lsp_json_get(node, "insertText"), NULL);
+		insert = kg_json_str(kg_json_get(node, "insertText"), NULL);
 	}
 	item = &g_comp.items[g_comp.count];
 	*item = (struct lsp_complete_item) { 0 };
@@ -223,18 +223,18 @@ static bool comp_add(const struct lsp_json_value *node)
 /* Read the whole answer.  A server sends either a CompletionList, whose
  * items are under `items`, or the bare array; `null` is how it says it
  * has nothing. */
-static void comp_collect(const struct lsp_json_value *result)
+static void comp_collect(const struct kg_json_value *result)
 {
-	const struct lsp_json_value *items = result;
+	const struct kg_json_value *items = result;
 	size_t i;
 
 	comp_reset();
-	if (lsp_json_kind_of(result) == LSP_JSON_OBJECT) {
-		items = lsp_json_get(result, "items");
+	if (kg_json_kind_of(result) == KG_JSON_OBJECT) {
+		items = kg_json_get(result, "items");
 	}
-	g_comp.raw = lsp_json_len(items);
+	g_comp.raw = kg_json_len(items);
 	for (i = 0; i < g_comp.raw; i++) {
-		(void)comp_add(lsp_json_at(items, i));
+		(void)comp_add(kg_json_at(items, i));
 	}
 }
 

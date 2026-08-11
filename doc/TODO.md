@@ -131,7 +131,7 @@ This file remains the broader feature and technical-debt inventory.
 The `WITH_LSP=1` client is complete per
 [doc/plans/2026-08-08-lsp.md](plans/2026-08-08-lsp.md)'s definition of
 done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
-(`lsp_transport`, `lsp_json`, `lsp_client`, `lsp_server`, `lsp_sync`,
+(`lsp_transport`, `json`, `lsp_client`, `lsp_server`, `lsp_sync`,
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
@@ -191,7 +191,7 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       runs is `lsp_transport.c`'s own read-and-frame loop and not a model
       of it.  The seam is `lsp_transport_attach_fuzz_fd()`, compiled only
       under `KG_FUZZ`, because the shipped constructor forks a server per
-      input.  Every delivered frame goes on to `lsp_json_parse()`, which
+      input.  Every delivered frame goes on to `kg_json_parse()`, which
       is what the client does with it.  Ten tracked seeds under
       `test/fuzz-seeds/lsp_frames`; `make fuzz-lsp-frames-smoke` is in
       the aggregate `fuzz-smoke` that `.ci/ci-09` runs.

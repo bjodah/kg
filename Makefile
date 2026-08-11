@@ -278,7 +278,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -318,7 +318,7 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(TESTDIR)/test_lsp_diag \
           $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
-          $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
+          $(OBJDIR)/json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
           $(TESTDIR)/test_lsp_client \
@@ -1335,9 +1335,9 @@ EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and
 # TEST_SRCS_OBJS provide, exactly as the transport's suite does.
-# lsp_json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
+# json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
 # named again for readability.
-EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
+EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/json.o $(TEST_SRCS_OBJS)
 # The client and the registry above it: the protocol state machine, the
 # server specs and the workspace-root walk, plus the two modules below them.
 # Still no editor object -- lsp_server.c reaches syntax.h for `enum
@@ -1346,7 +1346,7 @@ EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
 # readability, as the two suites above do.
 EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
                     $(OBJDIR)/lsp_server.o $(OBJDIR)/lsp_transport.o \
-                    $(OBJDIR)/lsp_json.o $(OBJDIR)/lsp_uri.o \
+                    $(OBJDIR)/json.o $(OBJDIR)/lsp_uri.o \
                     $(TEST_SRCS_OBJS)
 # Document sync is the one LSP module that reads buffers, so its suite is
 # the first that cannot use the minimal baseline above: it builds real
@@ -1358,7 +1358,7 @@ EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
 # readability as the three suites above do.
 EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
                   $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
-                  $(OBJDIR)/lsp_transport.o $(OBJDIR)/lsp_json.o
+                  $(OBJDIR)/lsp_transport.o $(OBJDIR)/json.o
 # The log buffer is the other LSP module that writes to a buffer, so its
 # suite links what lsp_sync's does and for the same reason: real bufmgr.o,
 # so `*lsp-log*` is a buffer the editor made rather than a stand-in.  Its
@@ -1517,9 +1517,9 @@ $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_pars
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
 
-$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c $(HDRS)
+$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/json.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
-		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c -lm
+		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/json.c -lm
 
 $(FUZZBIN_WIDTH): $(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
@@ -1534,10 +1534,10 @@ $(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keym
 # editor, and the harness hands each frame it delivers to the JSON parser
 # the client would call: four translation units, no stubs, no def.h.
 $(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
-                       $(OBJDIR)/lsp_json.c $(OBJDIR)/process.c $(HDRS)
+                       $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
-		$(OBJDIR)/lsp_json.c $(OBJDIR)/process.c
+		$(OBJDIR)/json.c $(OBJDIR)/process.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@

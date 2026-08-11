@@ -1,6 +1,6 @@
 /* ======================= JSON for JSON-RPC ==============================
  *
- * See src/lsp_json.h for the contract.  This is Stage 2 of
+ * See src/json.h for the contract.  This is Stage 2 of
  * doc/plans/2026-08-08-lsp.md and it links against the C library alone.
  *
  * The parser is recursive descent with one deliberate trick.  Children are
@@ -17,7 +17,7 @@
  * one copy path instead of two of each.
  */
 
-#include "lsp_json.h"
+#include "json.h"
 
 #include <float.h>
 #include <stdint.h>
@@ -27,11 +27,11 @@
 
 /* Arena blocks.  4 KiB is a page and holds a couple of hundred nodes; a
  * child array bigger than that gets a block of its own. */
-#define LSP_JSON_ARENA_BLOCK 4096u
+#define KG_JSON_ARENA_BLOCK 4096u
 
 /* The scratch value stack and the string scratch buffer both start here
  * and double.  Small enough that a two-field response allocates once. */
-#define LSP_JSON_SCRATCH_INIT 32u
+#define KG_JSON_SCRATCH_INIT 32u
 
 struct arena_block {
 	struct arena_block *next;
@@ -42,11 +42,11 @@ struct arena_block {
 	max_align_t data[];
 };
 
-struct lsp_json_value {
-	enum lsp_json_kind kind;
+struct kg_json_value {
+	enum kg_json_kind kind;
 	/* The member name, when this node is an object member; NULL
 	 * otherwise.  Not part of the value's identity -- no accessor reads
-	 * it except lsp_json_get() and lsp_json_key_at(). */
+	 * it except kg_json_get() and kg_json_key_at(). */
 	const char *key;
 	size_t key_len;
 	union {
@@ -57,15 +57,15 @@ struct lsp_json_value {
 			size_t len;
 		} string;
 		struct {
-			struct lsp_json_value *items;
+			struct kg_json_value *items;
 			size_t count;
 		} list;
 	} u;
 };
 
-struct lsp_json {
+struct kg_json {
 	struct arena_block *blocks;
-	struct lsp_json_value root;
+	struct kg_json_value root;
 };
 
 /* Parser state.  `err` is the offset the first refusal happened at, which
@@ -74,8 +74,8 @@ struct parser {
 	const char *text;
 	size_t len;
 	size_t pos;
-	struct lsp_json *doc;
-	struct lsp_json_value *stack;
+	struct kg_json *doc;
+	struct kg_json_value *stack;
 	size_t stack_len;
 	size_t stack_cap;
 	char *sbuf;
@@ -87,7 +87,7 @@ struct parser {
 
 /* ------------------------------- arena -------------------------------- */
 
-static void *arena_alloc(struct lsp_json *doc, size_t size)
+static void *arena_alloc(struct kg_json *doc, size_t size)
 {
 	const size_t align = sizeof(max_align_t);
 	struct arena_block *b;
@@ -102,8 +102,7 @@ static void *arena_alloc(struct lsp_json *doc, size_t size)
 	}
 	b = doc->blocks;
 	if (!b || b->cap - b->used < size) {
-		cap = (size > LSP_JSON_ARENA_BLOCK) ? size
-						    : LSP_JSON_ARENA_BLOCK;
+		cap = (size > KG_JSON_ARENA_BLOCK) ? size : KG_JSON_ARENA_BLOCK;
 		b = malloc(sizeof(*b) + cap);
 		if (!b) {
 			return NULL;
@@ -117,7 +116,7 @@ static void *arena_alloc(struct lsp_json *doc, size_t size)
 	return (char *)b->data + b->used - size;
 }
 
-static void arena_release(struct lsp_json *doc)
+static void arena_release(struct kg_json *doc)
 {
 	struct arena_block *b = doc->blocks;
 	struct arena_block *next;
@@ -139,7 +138,7 @@ static void arena_release(struct lsp_json *doc)
  * way and that is what matters. */
 static bool grow(void **buf, size_t *cap, size_t need, size_t item)
 {
-	size_t next = *cap ? *cap : LSP_JSON_SCRATCH_INIT;
+	size_t next = *cap ? *cap : KG_JSON_SCRATCH_INIT;
 	void *data;
 
 	if (need <= *cap) {
@@ -166,7 +165,7 @@ static bool fail(struct parser *p)
 	return false;
 }
 
-static bool stack_push(struct parser *p, const struct lsp_json_value *v)
+static bool stack_push(struct parser *p, const struct kg_json_value *v)
 {
 	if (!grow((void **)&p->stack, &p->stack_cap, p->stack_len + 1,
 		sizeof(*p->stack))) {
@@ -442,9 +441,9 @@ static bool scan_number_tail(struct parser *p)
  * requires.  A magnitude a double cannot hold is refused rather than
  * becoming an infinity that would silently travel through the client as a
  * line number. */
-static bool parse_number(struct parser *p, struct lsp_json_value *out)
+static bool parse_number(struct parser *p, struct kg_json_value *out)
 {
-	char buf[LSP_JSON_MAX_NUMBER_CHARS];
+	char buf[KG_JSON_MAX_NUMBER_CHARS];
 	size_t start = p->pos;
 	size_t n;
 	double value;
@@ -464,18 +463,18 @@ static bool parse_number(struct parser *p, struct lsp_json_value *out)
 		p->pos = start;
 		return fail(p);
 	}
-	out->kind = LSP_JSON_NUMBER;
+	out->kind = KG_JSON_NUMBER;
 	out->u.number = value;
 	return true;
 }
 
 /* ---------------------------- containers ------------------------------ */
 
-static bool parse_value(struct parser *p, struct lsp_json_value *out);
+static bool parse_value(struct parser *p, struct kg_json_value *out);
 
 static bool enter(struct parser *p)
 {
-	if (p->depth >= LSP_JSON_MAX_DEPTH) {
+	if (p->depth >= KG_JSON_MAX_DEPTH) {
 		return fail(p);
 	}
 	p->depth++;
@@ -485,10 +484,10 @@ static bool enter(struct parser *p)
 /* Move the run of children this container pushed (everything above `base`)
  * into one contiguous arena block and pop the scratch stack back. */
 static bool take_children(
-    struct parser *p, size_t base, struct lsp_json_value **items, size_t *count)
+    struct parser *p, size_t base, struct kg_json_value **items, size_t *count)
 {
 	size_t n = p->stack_len - base;
-	struct lsp_json_value *dst = NULL;
+	struct kg_json_value *dst = NULL;
 
 	if (n > 0) {
 		dst = arena_alloc(p->doc, n * sizeof(*dst));
@@ -508,7 +507,7 @@ static bool take_children(
  * a trailing comma ends up at parse_value() on a `]`, which refuses it. */
 static int parse_element(struct parser *p, char close, bool keyed)
 {
-	struct lsp_json_value item = { 0 };
+	struct kg_json_value item = { 0 };
 
 	if (keyed) {
 		skip_ws(p);
@@ -547,7 +546,7 @@ static int parse_element(struct parser *p, char close, bool keyed)
  * depth accounting, the empty case, the scratch run, the copy -- is all of
  * it. */
 static bool parse_container(
-    struct parser *p, struct lsp_json_value *out, char close, bool keyed)
+    struct parser *p, struct kg_json_value *out, char close, bool keyed)
 {
 	size_t base = p->stack_len;
 	int rc = 1;
@@ -556,7 +555,7 @@ static bool parse_container(
 		return false;
 	}
 	p->pos++;
-	out->kind = keyed ? LSP_JSON_OBJECT : LSP_JSON_ARRAY;
+	out->kind = keyed ? KG_JSON_OBJECT : KG_JSON_ARRAY;
 	skip_ws(p);
 	if (peek(p) == close) {
 		p->pos++;
@@ -573,18 +572,18 @@ static bool parse_container(
 }
 
 static bool parse_literal(
-    struct parser *p, const char *word, size_t n, struct lsp_json_value *out)
+    struct parser *p, const char *word, size_t n, struct kg_json_value *out)
 {
 	if (p->len - p->pos < n || memcmp(p->text + p->pos, word, n) != 0) {
 		return fail(p);
 	}
 	p->pos += n;
-	out->kind = (word[0] == 'n') ? LSP_JSON_NULL : LSP_JSON_BOOL;
+	out->kind = (word[0] == 'n') ? KG_JSON_NULL : KG_JSON_BOOL;
 	out->u.boolean = (word[0] == 't');
 	return true;
 }
 
-static bool parse_value(struct parser *p, struct lsp_json_value *out)
+static bool parse_value(struct parser *p, struct kg_json_value *out)
 {
 	skip_ws(p);
 	switch (peek(p)) {
@@ -593,7 +592,7 @@ static bool parse_value(struct parser *p, struct lsp_json_value *out)
 	case '[':
 		return parse_container(p, out, ']', false);
 	case '"':
-		out->kind = LSP_JSON_STRING;
+		out->kind = KG_JSON_STRING;
 		return parse_string(p, &out->u.string.ptr, &out->u.string.len);
 	case 't':
 		return parse_literal(p, "true", 4, out);
@@ -608,17 +607,16 @@ static bool parse_value(struct parser *p, struct lsp_json_value *out)
 
 /* ---------------------------- public: read ---------------------------- */
 
-struct lsp_json *lsp_json_parse(
-    const char *text, size_t len, size_t *err_offset)
+struct kg_json *kg_json_parse(const char *text, size_t len, size_t *err_offset)
 {
 	struct parser p = { 0 };
-	struct lsp_json *doc;
+	struct kg_json *doc;
 	bool ok;
 
 	if (err_offset) {
 		*err_offset = 0;
 	}
-	if (!text || len > LSP_JSON_MAX_INPUT_BYTES) {
+	if (!text || len > KG_JSON_MAX_INPUT_BYTES) {
 		return NULL;
 	}
 	doc = calloc(1, sizeof(*doc));
@@ -644,11 +642,11 @@ struct lsp_json *lsp_json_parse(
 	if (err_offset) {
 		*err_offset = p.err;
 	}
-	lsp_json_free(doc);
+	kg_json_free(doc);
 	return NULL;
 }
 
-void lsp_json_free(struct lsp_json *doc)
+void kg_json_free(struct kg_json *doc)
 {
 	if (!doc) {
 		return;
@@ -657,24 +655,24 @@ void lsp_json_free(struct lsp_json *doc)
 	free(doc);
 }
 
-const struct lsp_json_value *lsp_json_root(const struct lsp_json *doc)
+const struct kg_json_value *kg_json_root(const struct kg_json *doc)
 {
 	return doc ? &doc->root : NULL;
 }
 
-enum lsp_json_kind lsp_json_kind_of(const struct lsp_json_value *v)
+enum kg_json_kind kg_json_kind_of(const struct kg_json_value *v)
 {
-	return v ? v->kind : LSP_JSON_NONE;
+	return v ? v->kind : KG_JSON_NONE;
 }
 
-const struct lsp_json_value *lsp_json_get(
-    const struct lsp_json_value *v, const char *key)
+const struct kg_json_value *kg_json_get(
+    const struct kg_json_value *v, const char *key)
 {
-	const struct lsp_json_value *m;
+	const struct kg_json_value *m;
 	size_t key_len;
 	size_t i;
 
-	if (!v || v->kind != LSP_JSON_OBJECT || !key) {
+	if (!v || v->kind != KG_JSON_OBJECT || !key) {
 		return NULL;
 	}
 	key_len = strlen(key);
@@ -688,18 +686,18 @@ const struct lsp_json_value *lsp_json_get(
 	return NULL;
 }
 
-static bool is_list(const struct lsp_json_value *v)
+static bool is_list(const struct kg_json_value *v)
 {
-	return v && (v->kind == LSP_JSON_ARRAY || v->kind == LSP_JSON_OBJECT);
+	return v && (v->kind == KG_JSON_ARRAY || v->kind == KG_JSON_OBJECT);
 }
 
-size_t lsp_json_len(const struct lsp_json_value *v)
+size_t kg_json_len(const struct kg_json_value *v)
 {
 	return is_list(v) ? v->u.list.count : 0;
 }
 
-const struct lsp_json_value *lsp_json_at(
-    const struct lsp_json_value *v, size_t index)
+const struct kg_json_value *kg_json_at(
+    const struct kg_json_value *v, size_t index)
 {
 	if (!is_list(v) || index >= v->u.list.count) {
 		return NULL;
@@ -707,10 +705,10 @@ const struct lsp_json_value *lsp_json_at(
 	return &v->u.list.items[index];
 }
 
-const char *lsp_json_key_at(
-    const struct lsp_json_value *v, size_t index, size_t *len)
+const char *kg_json_key_at(
+    const struct kg_json_value *v, size_t index, size_t *len)
 {
-	const struct lsp_json_value *m = lsp_json_at(v, index);
+	const struct kg_json_value *m = kg_json_at(v, index);
 
 	if (!m || !m->key) {
 		return NULL;
@@ -721,9 +719,9 @@ const char *lsp_json_key_at(
 	return m->key;
 }
 
-const char *lsp_json_str(const struct lsp_json_value *v, size_t *len)
+const char *kg_json_str(const struct kg_json_value *v, size_t *len)
 {
-	if (!v || v->kind != LSP_JSON_STRING) {
+	if (!v || v->kind != KG_JSON_STRING) {
 		return NULL;
 	}
 	if (len) {
@@ -732,12 +730,12 @@ const char *lsp_json_str(const struct lsp_json_value *v, size_t *len)
 	return v->u.string.ptr;
 }
 
-double lsp_json_num(const struct lsp_json_value *v, double dflt)
+double kg_json_num(const struct kg_json_value *v, double dflt)
 {
-	return (v && v->kind == LSP_JSON_NUMBER) ? v->u.number : dflt;
+	return (v && v->kind == KG_JSON_NUMBER) ? v->u.number : dflt;
 }
 
-long long lsp_json_int(const struct lsp_json_value *v, long long dflt)
+long long kg_json_int(const struct kg_json_value *v, long long dflt)
 {
 	/* 2^63 exactly, and its negation: both are representable as
 	 * doubles, and the half-open test they bracket is the one that
@@ -746,7 +744,7 @@ long long lsp_json_int(const struct lsp_json_value *v, long long dflt)
 	const double hi = 9223372036854775808.0;
 	double value;
 
-	if (!v || v->kind != LSP_JSON_NUMBER) {
+	if (!v || v->kind != KG_JSON_NUMBER) {
 		return dflt;
 	}
 	value = v->u.number;
@@ -756,16 +754,16 @@ long long lsp_json_int(const struct lsp_json_value *v, long long dflt)
 	return (long long)value;
 }
 
-bool lsp_json_bool(const struct lsp_json_value *v, bool dflt)
+bool kg_json_bool(const struct kg_json_value *v, bool dflt)
 {
-	return (v && v->kind == LSP_JSON_BOOL) ? v->u.boolean : dflt;
+	return (v && v->kind == KG_JSON_BOOL) ? v->u.boolean : dflt;
 }
 
 /* ---------------------------- public: write --------------------------- */
 
-void lsp_jsonw_init(struct lsp_jsonw *w) { memset(w, 0, sizeof(*w)); }
+void kg_jsonw_init(struct kg_jsonw *w) { memset(w, 0, sizeof(*w)); }
 
-void lsp_jsonw_free(struct lsp_jsonw *w)
+void kg_jsonw_free(struct kg_jsonw *w)
 {
 	free(w->data);
 	memset(w, 0, sizeof(*w));
@@ -773,10 +771,10 @@ void lsp_jsonw_free(struct lsp_jsonw *w)
 
 /* The one allocation point.  Failure is recorded and never reported here:
  * every appender above it returns void, so a builder that ran out of
- * memory keeps taking calls and refuses only at lsp_jsonw_finish().  One
+ * memory keeps taking calls and refuses only at kg_jsonw_finish().  One
  * spare byte is always kept so the terminator never needs a growth of its
  * own. */
-static void w_append(struct lsp_jsonw *w, const char *src, size_t len)
+static void w_append(struct kg_jsonw *w, const char *src, size_t len)
 {
 	if (w->failed) {
 		return;
@@ -789,12 +787,12 @@ static void w_append(struct lsp_jsonw *w, const char *src, size_t len)
 	w->len += len;
 }
 
-static void w_char(struct lsp_jsonw *w, char c) { w_append(w, &c, 1); }
+static void w_char(struct kg_jsonw *w, char c) { w_append(w, &c, 1); }
 
 /* Separators, in the one place that knows about them: a comma before any
  * value that is not the first in its container, and nothing at all after a
  * key, which is why a key clears the flag its own separator set. */
-static void w_before_value(struct lsp_jsonw *w)
+static void w_before_value(struct kg_jsonw *w)
 {
 	if (w->pending_comma) {
 		w_char(w, ',');
@@ -802,7 +800,7 @@ static void w_before_value(struct lsp_jsonw *w)
 	w->pending_comma = true;
 }
 
-static void w_escaped(struct lsp_jsonw *w, const char *s, size_t len)
+static void w_escaped(struct kg_jsonw *w, const char *s, size_t len)
 {
 	static const char named[] = "\"\\\b\f\n\r\t";
 	static const char *const escapes[]
@@ -827,7 +825,7 @@ static void w_escaped(struct lsp_jsonw *w, const char *s, size_t len)
 	w_char(w, '"');
 }
 
-void lsp_jsonw_begin_object(struct lsp_jsonw *w)
+void kg_jsonw_begin_object(struct kg_jsonw *w)
 {
 	w_before_value(w);
 	w_char(w, '{');
@@ -835,7 +833,7 @@ void lsp_jsonw_begin_object(struct lsp_jsonw *w)
 	w->depth++;
 }
 
-void lsp_jsonw_end_object(struct lsp_jsonw *w)
+void kg_jsonw_end_object(struct kg_jsonw *w)
 {
 	if (w->depth == 0) {
 		w->failed = true;
@@ -846,7 +844,7 @@ void lsp_jsonw_end_object(struct lsp_jsonw *w)
 	w->pending_comma = true;
 }
 
-void lsp_jsonw_begin_array(struct lsp_jsonw *w)
+void kg_jsonw_begin_array(struct kg_jsonw *w)
 {
 	w_before_value(w);
 	w_char(w, '[');
@@ -854,7 +852,7 @@ void lsp_jsonw_begin_array(struct lsp_jsonw *w)
 	w->depth++;
 }
 
-void lsp_jsonw_end_array(struct lsp_jsonw *w)
+void kg_jsonw_end_array(struct kg_jsonw *w)
 {
 	if (w->depth == 0) {
 		w->failed = true;
@@ -865,7 +863,7 @@ void lsp_jsonw_end_array(struct lsp_jsonw *w)
 	w->pending_comma = true;
 }
 
-void lsp_jsonw_key(struct lsp_jsonw *w, const char *key)
+void kg_jsonw_key(struct kg_jsonw *w, const char *key)
 {
 	w_before_value(w);
 	w_escaped(w, key, strlen(key));
@@ -873,18 +871,18 @@ void lsp_jsonw_key(struct lsp_jsonw *w, const char *key)
 	w->pending_comma = false;
 }
 
-void lsp_jsonw_stringn(struct lsp_jsonw *w, const char *s, size_t len)
+void kg_jsonw_stringn(struct kg_jsonw *w, const char *s, size_t len)
 {
 	w_before_value(w);
 	w_escaped(w, s, len);
 }
 
-void lsp_jsonw_string(struct lsp_jsonw *w, const char *s)
+void kg_jsonw_string(struct kg_jsonw *w, const char *s)
 {
-	lsp_jsonw_stringn(w, s, strlen(s));
+	kg_jsonw_stringn(w, s, strlen(s));
 }
 
-void lsp_jsonw_int(struct lsp_jsonw *w, long long value)
+void kg_jsonw_int(struct kg_jsonw *w, long long value)
 {
 	char buf[32];
 	int n = snprintf(buf, sizeof(buf), "%lld", value);
@@ -897,30 +895,30 @@ void lsp_jsonw_int(struct lsp_jsonw *w, long long value)
 	w_append(w, buf, (size_t)n);
 }
 
-void lsp_jsonw_bool(struct lsp_jsonw *w, bool value)
+void kg_jsonw_bool(struct kg_jsonw *w, bool value)
 {
 	w_before_value(w);
 	w_append(w, value ? "true" : "false", value ? 4 : 5);
 }
 
-void lsp_jsonw_null(struct lsp_jsonw *w)
+void kg_jsonw_null(struct kg_jsonw *w)
 {
 	w_before_value(w);
 	w_append(w, "null", 4);
 }
 
-void lsp_jsonw_raw(struct lsp_jsonw *w, const char *json, size_t len)
+void kg_jsonw_raw(struct kg_jsonw *w, const char *json, size_t len)
 {
 	w_before_value(w);
 	w_append(w, json, len);
 }
 
-int lsp_jsonw_finish(struct lsp_jsonw *w, char **out, size_t *len)
+int kg_jsonw_finish(struct kg_jsonw *w, char **out, size_t *len)
 {
 	*out = NULL;
 	*len = 0;
 	if (w->failed || w->depth != 0 || !w->data) {
-		lsp_jsonw_free(w);
+		kg_jsonw_free(w);
 		return -1;
 	}
 	w->data[w->len] = '\0';

@@ -19,10 +19,10 @@
 
 #include "../src/decor.h"
 #include "../src/def.h"
+#include "../src/json.h"
 #include "../src/lsp_client.h"
 #include "../src/lsp_diag.h"
 #include "../src/lsp_hover.h"
-#include "../src/lsp_json.h"
 #include "../src/marker.h"
 #include "test.h"
 
@@ -65,14 +65,14 @@ static void teardown(void)
  * borrows from it: every string a publish keeps is a copy. */
 static void publish(const char *json, enum lsp_position_encoding enc)
 {
-	struct lsp_json *doc = lsp_json_parse(json, strlen(json), NULL);
+	struct kg_json *doc = kg_json_parse(json, strlen(json), NULL);
 
 	CHECK(doc != NULL);
 	if (!doc) {
 		return;
 	}
-	lsp_diag_publish(lsp_json_root(doc), enc);
-	lsp_json_free(doc);
+	lsp_diag_publish(kg_json_root(doc), enc);
+	kg_json_free(doc);
 }
 
 /* Give the current buffer a file name and some text. */
@@ -352,7 +352,7 @@ static void test_an_empty_range_still_marks_one_byte(void)
  * buffer. */
 static size_t render(const char *json, char *out, size_t out_size)
 {
-	struct lsp_json *doc = lsp_json_parse(json, strlen(json), NULL);
+	struct kg_json *doc = kg_json_parse(json, strlen(json), NULL);
 	size_t len;
 
 	CHECK(doc != NULL);
@@ -360,8 +360,8 @@ static size_t render(const char *json, char *out, size_t out_size)
 		out[0] = '\0';
 		return 0;
 	}
-	len = lsp_hover_render(lsp_json_root(doc), out, out_size);
-	lsp_json_free(doc);
+	len = lsp_hover_render(kg_json_root(doc), out, out_size);
+	kg_json_free(doc);
 	return len;
 }
 

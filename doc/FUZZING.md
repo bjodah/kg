@@ -180,7 +180,7 @@ FUZZ_MAX_TOTAL_TIME=300 make fuzz-syntax-smoke
 
 ## LSP JSON fuzzer
 
-`make fuzz-lsp-json` targets `src/lsp_json.c` alone: the parser that eats a
+`make fuzz-lsp-json` targets `src/json.c` alone: the parser that eats a
 language server's stdout, which is the least trusted input kg reads.  The
 whole input is one candidate document.  A rejected document must report an
 error offset inside the input; an accepted one is walked with every

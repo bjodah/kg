@@ -55,7 +55,7 @@
  */
 
 struct editor_buffer;
-struct lsp_json_value;
+struct kg_json_value;
 
 /* Bounds.  A rename of a widely used symbol is a big answer, and a
  * listing nobody reads is not worth unbounded memory: sixteen files and
@@ -180,7 +180,7 @@ struct lsp_edit_report {
  * nothing, and an edit that cannot be read is one the whole answer is
  * refused for. */
 bool lsp_edit_range_read(
-    const struct lsp_json_value *range, struct lsp_edit_range *out);
+    const struct kg_json_value *range, struct lsp_edit_range *out);
 
 /* Read a WorkspaceEdit.  Both shapes are accepted -- `documentChanges`
  * (TextDocumentEdit objects, whose versioned identifier is kept in
@@ -198,7 +198,7 @@ bool lsp_edit_range_read(
  * and comes back with `item_count` zero.  Release it with
  * lsp_workspace_edit_free(). */
 struct lsp_workspace_edit *lsp_workspace_edit_read(
-    const struct lsp_json_value *edit);
+    const struct kg_json_value *edit);
 
 void lsp_workspace_edit_free(struct lsp_workspace_edit *edit);
 

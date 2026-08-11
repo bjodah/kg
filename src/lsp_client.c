@@ -22,7 +22,7 @@
 
 #include "lsp_client.h"
 
-#include "lsp_json.h"
+#include "json.h"
 #include "lsp_transport.h"
 #include "lsp_uri.h"
 
@@ -203,25 +203,25 @@ static long long timeout_from_env(void)
 static char *build_call(long long id, const char *method, const char *params,
     size_t params_len, size_t *out_len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *text = NULL;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "jsonrpc");
-	lsp_jsonw_string(&w, "2.0");
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "jsonrpc");
+	kg_jsonw_string(&w, "2.0");
 	if (id >= 0) {
-		lsp_jsonw_key(&w, "id");
-		lsp_jsonw_int(&w, id);
+		kg_jsonw_key(&w, "id");
+		kg_jsonw_int(&w, id);
 	}
-	lsp_jsonw_key(&w, "method");
-	lsp_jsonw_string(&w, method);
+	kg_jsonw_key(&w, "method");
+	kg_jsonw_string(&w, method);
 	if (params && params_len > 0) {
-		lsp_jsonw_key(&w, "params");
-		lsp_jsonw_raw(&w, params, params_len);
+		kg_jsonw_key(&w, "params");
+		kg_jsonw_raw(&w, params, params_len);
 	}
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &text, out_len) != 0) {
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &text, out_len) != 0) {
 		return NULL;
 	}
 	return text;
@@ -235,49 +235,49 @@ static char *build_call(long long id, const char *method, const char *params,
  * registry's model, and multi-root is recorded as out of scope. */
 static char *build_initialize(const char *root, size_t *out_len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char uri[PATH_MAX + 64];
 	char *text = NULL;
 	bool have_root
 	    = root && root[0] && lsp_uri_from_path(root, uri, sizeof(uri));
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "processId");
-	lsp_jsonw_int(&w, (long long)getpid());
-	lsp_jsonw_key(&w, "clientInfo");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "name");
-	lsp_jsonw_string(&w, "kg");
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "rootUri");
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "processId");
+	kg_jsonw_int(&w, (long long)getpid());
+	kg_jsonw_key(&w, "clientInfo");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "name");
+	kg_jsonw_string(&w, "kg");
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "rootUri");
 	if (have_root) {
-		lsp_jsonw_string(&w, uri);
+		kg_jsonw_string(&w, uri);
 	} else {
-		lsp_jsonw_null(&w);
+		kg_jsonw_null(&w);
 	}
 	/* rootPath is deprecated and still the only root some servers read. */
-	lsp_jsonw_key(&w, "rootPath");
+	kg_jsonw_key(&w, "rootPath");
 	if (have_root) {
-		lsp_jsonw_string(&w, root);
+		kg_jsonw_string(&w, root);
 	} else {
-		lsp_jsonw_null(&w);
+		kg_jsonw_null(&w);
 	}
-	lsp_jsonw_key(&w, "workspaceFolders");
-	lsp_jsonw_null(&w);
-	lsp_jsonw_key(&w, "capabilities");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "general");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "positionEncodings");
-	lsp_jsonw_begin_array(&w);
-	lsp_jsonw_string(&w, "utf-8");
-	lsp_jsonw_string(&w, "utf-16");
-	lsp_jsonw_end_array(&w);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &text, out_len) != 0) {
+	kg_jsonw_key(&w, "workspaceFolders");
+	kg_jsonw_null(&w);
+	kg_jsonw_key(&w, "capabilities");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "general");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "positionEncodings");
+	kg_jsonw_begin_array(&w);
+	kg_jsonw_string(&w, "utf-8");
+	kg_jsonw_string(&w, "utf-16");
+	kg_jsonw_end_array(&w);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &text, out_len) != 0) {
 		return NULL;
 	}
 	return text;
@@ -419,7 +419,7 @@ static struct lsp_pending *pending_alloc(struct lsp_client *c)
  * slot it is standing in.  `error` may be NULL; the contract says a
  * callback reads "no result" as the failure. */
 static void pending_fail_all(
-    struct lsp_client *c, const struct lsp_json_value *error)
+    struct lsp_client *c, const struct kg_json_value *error)
 {
 	struct lsp_pending slot;
 	size_t i;
@@ -467,24 +467,24 @@ static void pending_fail_one(struct lsp_client *c, long long id)
  * on the failure path and the happy one.  NULL is a legal answer: the
  * callback then sees neither result nor error, which still reads as "no
  * reply will ever arrive". */
-static struct lsp_json *error_doc(int code, const char *message)
+static struct kg_json *error_doc(int code, const char *message)
 {
-	struct lsp_jsonw w;
-	struct lsp_json *doc;
+	struct kg_jsonw w;
+	struct kg_json *doc;
 	char *text = NULL;
 	size_t len = 0;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "code");
-	lsp_jsonw_int(&w, code);
-	lsp_jsonw_key(&w, "message");
-	lsp_jsonw_string(&w, message);
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &text, &len) != 0) {
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "code");
+	kg_jsonw_int(&w, code);
+	kg_jsonw_key(&w, "message");
+	kg_jsonw_string(&w, message);
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &text, &len) != 0) {
 		return NULL;
 	}
-	doc = lsp_json_parse(text, len, NULL);
+	doc = kg_json_parse(text, len, NULL);
 	free(text);
 	return doc;
 }
@@ -538,13 +538,13 @@ static const char *transport_death_text(struct lsp_client *c)
 
 static void client_die(struct lsp_client *c, const char *why)
 {
-	struct lsp_json *doc = error_doc(LSP_JSONRPC_INTERNAL_DEAD, why);
+	struct kg_json *doc = error_doc(LSP_JSONRPC_INTERNAL_DEAD, why);
 
 	c->state = LSP_CLIENT_DEAD;
 	drop_queued(c);
 	client_log(c, why);
-	pending_fail_all(c, lsp_json_root(doc));
-	lsp_json_free(doc);
+	pending_fail_all(c, kg_json_root(doc));
+	kg_json_free(doc);
 }
 
 /* ------------------------------- deadlines ---------------------------- */
@@ -595,7 +595,7 @@ static void wait_text(long long ms, char *out, size_t size)
 static void pending_expire_one(struct lsp_client *c, struct lsp_pending *slot)
 {
 	struct lsp_pending taken = *slot;
-	struct lsp_json *doc;
+	struct kg_json *doc;
 	char text[LSP_CLIENT_METHOD_MAX + 64];
 	char waited[24];
 
@@ -606,9 +606,9 @@ static void pending_expire_one(struct lsp_client *c, struct lsp_pending *slot)
 	client_log(c, text);
 	doc = error_doc(LSP_JSONRPC_INTERNAL_TIMEOUT, text);
 	if (taken.cb) {
-		taken.cb(c, NULL, lsp_json_root(doc), taken.ctx);
+		taken.cb(c, NULL, kg_json_root(doc), taken.ctx);
 	}
-	lsp_json_free(doc);
+	kg_json_free(doc);
 }
 
 /* Every request that has run out of time, at most once each.  Returns
@@ -637,17 +637,17 @@ static int pending_expire(struct lsp_client *c)
  * server echoes; a string of digits is accepted too, because a server that
  * round-trips the id through a string type is broken in a way that costs
  * one strtoll to survive and a hung request to refuse. */
-static bool id_value(const struct lsp_json_value *v, long long *out)
+static bool id_value(const struct kg_json_value *v, long long *out)
 {
 	const char *s;
 	char *end;
 	long long n;
 
-	if (lsp_json_kind_of(v) == LSP_JSON_NUMBER) {
-		*out = lsp_json_int(v, 0);
+	if (kg_json_kind_of(v) == KG_JSON_NUMBER) {
+		*out = kg_json_int(v, 0);
 		return true;
 	}
-	s = lsp_json_str(v, NULL);
+	s = kg_json_str(v, NULL);
 	if (!s || !*s) {
 		return false;
 	}
@@ -663,27 +663,26 @@ static bool id_value(const struct lsp_json_value *v, long long *out)
 /* What a server said it can do, in the three fields kg keeps.  Absent
  * members leave the defaults, which are the protocol's own: UTF-16
  * positions and no synchronisation at all. */
-static void capture_caps(
-    struct lsp_client *c, const struct lsp_json_value *caps)
+static void capture_caps(struct lsp_client *c, const struct kg_json_value *caps)
 {
-	const struct lsp_json_value *sync
-	    = lsp_json_get(caps, "textDocumentSync");
+	const struct kg_json_value *sync
+	    = kg_json_get(caps, "textDocumentSync");
 	const char *enc
-	    = lsp_json_str(lsp_json_get(caps, "positionEncoding"), NULL);
+	    = kg_json_str(kg_json_get(caps, "positionEncoding"), NULL);
 
 	if (enc && strcmp(enc, "utf-8") == 0) {
 		c->caps.position_encoding = LSP_POSITION_UTF8;
 	}
-	if (lsp_json_kind_of(sync) == LSP_JSON_NUMBER) {
-		c->caps.sync = (enum lsp_sync_kind)lsp_json_int(sync, 0);
+	if (kg_json_kind_of(sync) == KG_JSON_NUMBER) {
+		c->caps.sync = (enum lsp_sync_kind)kg_json_int(sync, 0);
 		c->caps.open_close = c->caps.sync != LSP_SYNC_NONE;
 		return;
 	}
-	if (lsp_json_kind_of(sync) == LSP_JSON_OBJECT) {
-		c->caps.sync = (enum lsp_sync_kind)lsp_json_int(
-		    lsp_json_get(sync, "change"), LSP_SYNC_NONE);
+	if (kg_json_kind_of(sync) == KG_JSON_OBJECT) {
+		c->caps.sync = (enum lsp_sync_kind)kg_json_int(
+		    kg_json_get(sync, "change"), LSP_SYNC_NONE);
 		c->caps.open_close
-		    = lsp_json_bool(lsp_json_get(sync, "openClose"), false);
+		    = kg_json_bool(kg_json_get(sync, "openClose"), false);
 	}
 }
 
@@ -699,12 +698,12 @@ static int client_notify_now(struct lsp_client *c, const char *method)
  * that answers with an error, or with something that is not an object, is
  * one kg cannot use: there is no negotiating a second time. */
 static void on_initialize(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx)
 {
 	(void)error;
 	(void)ctx;
-	if (lsp_json_kind_of(result) != LSP_JSON_OBJECT) {
+	if (kg_json_kind_of(result) != KG_JSON_OBJECT) {
 		/* "initialize failed" is the verdict on an ANSWER that cannot
 		 * be used -- an error reply, a result that is not an object,
 		 * or the deadline passing with the server still alive.  A
@@ -719,7 +718,7 @@ static void on_initialize(struct lsp_client *c,
 		}
 		return;
 	}
-	capture_caps(c, lsp_json_get(result, "capabilities"));
+	capture_caps(c, kg_json_get(result, "capabilities"));
 	c->state = LSP_CLIENT_READY;
 	(void)client_notify_now(c, "initialized");
 	/* Between `initialized` and the held queue, which is the one moment a
@@ -736,7 +735,7 @@ static void on_initialize(struct lsp_client *c,
  * either: `exit` is what actually ends the server, and a server that
  * refused to shut down still gets told to. */
 static void on_shutdown(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx)
 {
 	(void)result;
@@ -752,32 +751,32 @@ static void on_shutdown(struct lsp_client *c,
  * error reply, not silence: a server waiting on a reply that never comes
  * eventually stops answering kg's own requests. */
 static void refuse_server_request(
-    struct lsp_client *c, const struct lsp_json_value *id)
+    struct lsp_client *c, const struct kg_json_value *id)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	long long n = 0;
 	char *text = NULL;
 	size_t len = 0;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "jsonrpc");
-	lsp_jsonw_string(&w, "2.0");
-	lsp_jsonw_key(&w, "id");
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "jsonrpc");
+	kg_jsonw_string(&w, "2.0");
+	kg_jsonw_key(&w, "id");
 	if (id_value(id, &n)) {
-		lsp_jsonw_int(&w, n);
+		kg_jsonw_int(&w, n);
 	} else {
-		lsp_jsonw_null(&w);
+		kg_jsonw_null(&w);
 	}
-	lsp_jsonw_key(&w, "error");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "code");
-	lsp_jsonw_int(&w, LSP_JSONRPC_METHOD_NOT_FOUND);
-	lsp_jsonw_key(&w, "message");
-	lsp_jsonw_string(&w, "kg implements no server-to-client requests");
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &text, &len) != 0) {
+	kg_jsonw_key(&w, "error");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "code");
+	kg_jsonw_int(&w, LSP_JSONRPC_METHOD_NOT_FOUND);
+	kg_jsonw_key(&w, "message");
+	kg_jsonw_string(&w, "kg implements no server-to-client requests");
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &text, &len) != 0) {
 		return;
 	}
 	(void)client_write(c, text, len, true);
@@ -790,12 +789,12 @@ static void refuse_server_request(
  * So it becomes an error object of kg's own, naming the method, which is
  * the one thing about it a user can act on. */
 static void response_deliver(struct lsp_client *c,
-    const struct lsp_pending *slot, const struct lsp_json_value *root)
+    const struct lsp_pending *slot, const struct kg_json_value *root)
 {
-	const struct lsp_json_value *result = lsp_json_get(root, "result");
-	const struct lsp_json_value *error = lsp_json_get(root, "error");
+	const struct kg_json_value *result = kg_json_get(root, "result");
+	const struct kg_json_value *error = kg_json_get(root, "error");
 	char text[LSP_CLIENT_METHOD_MAX + 64];
-	struct lsp_json *doc;
+	struct kg_json *doc;
 
 	if (result || error) {
 		slot->cb(c, result, error, slot->ctx);
@@ -804,15 +803,15 @@ static void response_deliver(struct lsp_client *c,
 	snprintf(text, sizeof(text),
 	    "no result and no error in the reply to %s", slot->method);
 	doc = error_doc(LSP_JSONRPC_INTERNAL_EMPTY, text);
-	slot->cb(c, NULL, lsp_json_root(doc), slot->ctx);
-	lsp_json_free(doc);
+	slot->cb(c, NULL, kg_json_root(doc), slot->ctx);
+	kg_json_free(doc);
 }
 
 /* Match a response to its request and run its callback.  A response with an
  * id nobody is waiting for is dropped: it is a duplicate, or the answer to
  * a request the client already failed, and neither is worth dying over. */
 static void handle_response(struct lsp_client *c,
-    const struct lsp_json_value *root, const struct lsp_json_value *id)
+    const struct kg_json_value *root, const struct kg_json_value *id)
 {
 	struct lsp_pending slot;
 	long long n = 0;
@@ -840,12 +839,12 @@ static void handle_response(struct lsp_client *c,
  * hook existed.  A `method` that is not a string is not a notification kg
  * can name, and is dropped without troubling the hook. */
 static void handle_notification(
-    struct lsp_client *c, const struct lsp_json_value *root)
+    struct lsp_client *c, const struct kg_json_value *root)
 {
-	const char *method = lsp_json_str(lsp_json_get(root, "method"), NULL);
+	const char *method = kg_json_str(kg_json_get(root, "method"), NULL);
 
 	if (notify_hook && method) {
-		notify_hook(c, method, lsp_json_get(root, "params"));
+		notify_hook(c, method, kg_json_get(root, "params"));
 	}
 }
 
@@ -856,17 +855,17 @@ static void handle_notification(
  * server's own. */
 static void dispatch_message(struct lsp_client *c, const char *body, size_t len)
 {
-	struct lsp_json *doc = lsp_json_parse(body, len, NULL);
-	const struct lsp_json_value *root;
-	const struct lsp_json_value *id;
+	struct kg_json *doc = kg_json_parse(body, len, NULL);
+	const struct kg_json_value *root;
+	const struct kg_json_value *id;
 
 	if (!doc) {
 		client_die(c, "server sent a message that is not JSON");
 		return;
 	}
-	root = lsp_json_root(doc);
-	id = lsp_json_get(root, "id");
-	if (lsp_json_get(root, "method")) {
+	root = kg_json_root(doc);
+	id = kg_json_get(root, "id");
+	if (kg_json_get(root, "method")) {
 		if (id) {
 			refuse_server_request(c, id);
 		} else {
@@ -875,7 +874,7 @@ static void dispatch_message(struct lsp_client *c, const char *body, size_t len)
 	} else if (id) {
 		handle_response(c, root, id);
 	}
-	lsp_json_free(doc);
+	kg_json_free(doc);
 }
 
 /* ------------------------------ public API ---------------------------- */

@@ -30,8 +30,8 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "json.h"
 #include "lsp_client.h"
-#include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_uri.h"
 #include "syntax.h"
@@ -269,13 +269,13 @@ static void doc_release(struct lsp_document *d)
  * either way.  Every notification below ends in this call, so no call site
  * spells the ownership out twice. */
 static int notify_built(
-    struct lsp_client *c, const char *method, struct lsp_jsonw *w)
+    struct lsp_client *c, const char *method, struct kg_jsonw *w)
 {
 	char *text = NULL;
 	size_t len = 0;
 	int rc;
 
-	if (lsp_jsonw_finish(w, &text, &len) != 0) {
+	if (kg_jsonw_finish(w, &text, &len) != 0) {
 		return -1;
 	}
 	rc = lsp_client_notify(c, method, text, len);
@@ -330,109 +330,109 @@ bool lsp_sync_abs_path(
 }
 
 static void w_document_id(
-    struct lsp_jsonw *w, const struct lsp_document *d, bool versioned)
+    struct kg_jsonw *w, const struct lsp_document *d, bool versioned)
 {
-	lsp_jsonw_key(w, "textDocument");
-	lsp_jsonw_begin_object(w);
-	lsp_jsonw_key(w, "uri");
-	lsp_jsonw_string(w, d->uri);
+	kg_jsonw_key(w, "textDocument");
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "uri");
+	kg_jsonw_string(w, d->uri);
 	if (versioned) {
-		lsp_jsonw_key(w, "version");
-		lsp_jsonw_int(w, d->version);
+		kg_jsonw_key(w, "version");
+		kg_jsonw_int(w, d->version);
 	}
-	lsp_jsonw_end_object(w);
+	kg_jsonw_end_object(w);
 }
 
-static void w_position(struct lsp_jsonw *w, struct sync_point p)
+static void w_position(struct kg_jsonw *w, struct sync_point p)
 {
-	lsp_jsonw_begin_object(w);
-	lsp_jsonw_key(w, "line");
-	lsp_jsonw_int(w, p.line);
-	lsp_jsonw_key(w, "character");
-	lsp_jsonw_int(w, p.character);
-	lsp_jsonw_end_object(w);
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "line");
+	kg_jsonw_int(w, p.line);
+	kg_jsonw_key(w, "character");
+	kg_jsonw_int(w, p.character);
+	kg_jsonw_end_object(w);
 }
 
 /* One TextDocumentContentChangeEvent describing the whole edit as a single
  * range replacement.  The range is measured in the shadow -- the document
  * the server still holds -- and the text is the middle of the new one. */
-static void w_change_ranged(struct lsp_jsonw *w, const struct lsp_document *d,
+static void w_change_ranged(struct kg_jsonw *w, const struct lsp_document *d,
     const char *text, size_t len, enum lsp_position_encoding enc)
 {
 	struct sync_diff diff = diff_of(d->shadow, d->shadow_len, text, len);
 
-	lsp_jsonw_begin_object(w);
-	lsp_jsonw_key(w, "range");
-	lsp_jsonw_begin_object(w);
-	lsp_jsonw_key(w, "start");
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "range");
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "start");
 	w_position(w, point_at(d->shadow, diff.prefix, enc));
-	lsp_jsonw_key(w, "end");
+	kg_jsonw_key(w, "end");
 	w_position(
 	    w, point_at(d->shadow, d->shadow_len - diff.old_suffix, enc));
-	lsp_jsonw_end_object(w);
-	lsp_jsonw_key(w, "text");
-	lsp_jsonw_stringn(
+	kg_jsonw_end_object(w);
+	kg_jsonw_key(w, "text");
+	kg_jsonw_stringn(
 	    w, text + diff.prefix, len - diff.old_suffix - diff.prefix);
-	lsp_jsonw_end_object(w);
+	kg_jsonw_end_object(w);
 }
 
-static void w_change_full(struct lsp_jsonw *w, const char *text, size_t len)
+static void w_change_full(struct kg_jsonw *w, const char *text, size_t len)
 {
-	lsp_jsonw_begin_object(w);
-	lsp_jsonw_key(w, "text");
-	lsp_jsonw_stringn(w, text, len);
-	lsp_jsonw_end_object(w);
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "text");
+	kg_jsonw_stringn(w, text, len);
+	kg_jsonw_end_object(w);
 }
 
 static int send_did_open(struct lsp_document *d, const char *text, size_t len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "textDocument");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "uri");
-	lsp_jsonw_string(&w, d->uri);
-	lsp_jsonw_key(&w, "languageId");
-	lsp_jsonw_string(&w, d->language_id);
-	lsp_jsonw_key(&w, "version");
-	lsp_jsonw_int(&w, d->version);
-	lsp_jsonw_key(&w, "text");
-	lsp_jsonw_stringn(&w, text, len);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "textDocument");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "uri");
+	kg_jsonw_string(&w, d->uri);
+	kg_jsonw_key(&w, "languageId");
+	kg_jsonw_string(&w, d->language_id);
+	kg_jsonw_key(&w, "version");
+	kg_jsonw_int(&w, d->version);
+	kg_jsonw_key(&w, "text");
+	kg_jsonw_stringn(&w, text, len);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
 	return notify_built(d->client, "textDocument/didOpen", &w);
 }
 
 static int send_did_change(struct lsp_document *d, const char *text, size_t len,
     const struct lsp_capabilities *caps)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
 	w_document_id(&w, d, true);
-	lsp_jsonw_key(&w, "contentChanges");
-	lsp_jsonw_begin_array(&w);
+	kg_jsonw_key(&w, "contentChanges");
+	kg_jsonw_begin_array(&w);
 	if (caps->sync == LSP_SYNC_INCREMENTAL) {
 		w_change_ranged(&w, d, text, len, caps->position_encoding);
 	} else {
 		w_change_full(&w, text, len);
 	}
-	lsp_jsonw_end_array(&w);
-	lsp_jsonw_end_object(&w);
+	kg_jsonw_end_array(&w);
+	kg_jsonw_end_object(&w);
 	return notify_built(d->client, "textDocument/didChange", &w);
 }
 
 static int send_did_close(struct lsp_document *d)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
 	w_document_id(&w, d, false);
-	lsp_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
 	return notify_built(d->client, "textDocument/didClose", &w);
 }
 

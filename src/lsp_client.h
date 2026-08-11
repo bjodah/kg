@@ -26,7 +26,7 @@
 
 struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_client;
-struct lsp_json_value;
+struct kg_json_value;
 
 /* An answer, or the failure that replaced it.  Exactly one of `result` and
  * `error` is non-NULL for a reply that arrived -- `result` even when it is
@@ -42,7 +42,7 @@ struct lsp_json_value;
  * belong to the parsed message, which is freed the moment the callback
  * returns.  Copy anything that outlives it. */
 typedef void (*lsp_response_fn)(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx);
 
 /* How long a request may go unanswered before the client stops waiting for
@@ -100,7 +100,7 @@ void lsp_client_set_log_hook(lsp_client_log_fn fn);
  * which is what this layer did with every one of them before there was a
  * hook, and what a test binary with no editor in it still wants. */
 typedef void (*lsp_client_notify_fn)(struct lsp_client *c, const char *method,
-    const struct lsp_json_value *params);
+    const struct kg_json_value *params);
 void lsp_client_set_notify_hook(lsp_client_notify_fn fn);
 
 /* Told that `c` has just reached READY, from inside the handshake itself:
@@ -242,7 +242,7 @@ void lsp_client_dispose(struct lsp_client *c, unsigned grace_ms);
 
 /* Ask the server something.  `method` is the JSON-RPC method name;
  * `params`/`params_len` are the pre-encoded JSON value to send as `params`,
- * which the caller built with a struct lsp_jsonw and still owns -- the bytes
+ * which the caller built with a struct kg_jsonw and still owns -- the bytes
  * are copied into the message here -- or NULL to send no params at all.
  *
  * Returns the request id (a positive number) or -1 when the client is DEAD,

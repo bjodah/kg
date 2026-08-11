@@ -24,8 +24,8 @@
  * waiting for.
  */
 
+#include "../src/json.h"
 #include "../src/lsp_client.h"
-#include "../src/lsp_json.h"
 #include "../src/lsp_server.h"
 #include "../src/process.h"
 #include "test.h"
@@ -127,8 +127,8 @@ struct answer {
 	bool method_not_found;
 };
 
-static void record(struct lsp_client *c, const struct lsp_json_value *result,
-    const struct lsp_json_value *error, void *ctx)
+static void record(struct lsp_client *c, const struct kg_json_value *result,
+    const struct kg_json_value *error, void *ctx)
 {
 	struct answer *a = ctx;
 	const char *tag;
@@ -137,16 +137,16 @@ static void record(struct lsp_client *c, const struct lsp_json_value *result,
 	a->calls++;
 	a->had_result = result != NULL;
 	a->had_error = error != NULL;
-	tag = lsp_json_str(lsp_json_get(result, "tag"), NULL);
+	tag = kg_json_str(kg_json_get(result, "tag"), NULL);
 	if (tag) {
 		snprintf(a->tag, sizeof(a->tag), "%s", tag);
 	}
-	tag = lsp_json_str(lsp_json_get(error, "message"), NULL);
+	tag = kg_json_str(kg_json_get(error, "message"), NULL);
 	if (tag) {
 		snprintf(a->message, sizeof(a->message), "%s", tag);
 	}
 	a->method_not_found
-	    = lsp_json_bool(lsp_json_get(result, "methodNotFound"), false);
+	    = kg_json_bool(kg_json_get(result, "methodNotFound"), false);
 }
 
 static long long echo_request(
@@ -456,12 +456,11 @@ static void test_dispose_releases_a_queued_builder(void)
 }
 
 /* What a Location-shaped answer named, for the ordering case below. */
-static void record_uri(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
-    void *ctx)
+static void record_uri(struct lsp_client *c, const struct kg_json_value *result,
+    const struct kg_json_value *error, void *ctx)
 {
 	struct answer *a = ctx;
-	const char *uri = lsp_json_str(lsp_json_get(result, "uri"), NULL);
+	const char *uri = kg_json_str(kg_json_get(result, "uri"), NULL);
 
 	(void)c;
 	(void)error;
@@ -624,23 +623,22 @@ struct notification {
 static struct notification g_notification;
 
 static void note_notification(struct lsp_client *c, const char *method,
-    const struct lsp_json_value *params)
+    const struct kg_json_value *params)
 {
-	const struct lsp_json_value *list = lsp_json_get(params, "diagnostics");
+	const struct kg_json_value *list = kg_json_get(params, "diagnostics");
 	const char *text;
 
 	(void)c;
 	g_notification.calls++;
 	snprintf(
 	    g_notification.method, sizeof(g_notification.method), "%s", method);
-	text = lsp_json_str(lsp_json_get(params, "uri"), NULL);
+	text = kg_json_str(kg_json_get(params, "uri"), NULL);
 	if (text) {
 		snprintf(
 		    g_notification.uri, sizeof(g_notification.uri), "%s", text);
 	}
-	g_notification.diagnostics = lsp_json_len(list);
-	text
-	    = lsp_json_str(lsp_json_get(lsp_json_at(list, 0), "message"), NULL);
+	g_notification.diagnostics = kg_json_len(list);
+	text = kg_json_str(kg_json_get(kg_json_at(list, 0), "message"), NULL);
 	if (text) {
 		snprintf(g_notification.message, sizeof(g_notification.message),
 		    "%s", text);

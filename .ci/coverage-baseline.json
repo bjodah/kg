@@ -499,7 +499,7 @@
    "branches_hit": 111,
    "branch_rate": 0.7208
   },
-  "src/lsp_json.c": {
+  "src/json.c": {
    "lines_found": 470,
    "lines_hit": 446,
    "line_rate": 0.9489,

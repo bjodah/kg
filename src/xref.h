@@ -22,7 +22,7 @@
  * documents.
  */
 
-struct lsp_json_value;
+struct kg_json_value;
 
 /* Where the server says something is.  `line` and `character` are the
  * protocol's own numbers: zero-based, and `character` counted in whatever
@@ -49,8 +49,7 @@ struct xref_location {
  * into a path (src/lsp_uri.h), and for a negative line.  Public, and pure,
  * because it is the part of this module worth a unit test: everything else
  * here needs an editor and a server. */
-bool xref_location_of(
-    const struct lsp_json_value *v, struct xref_location *out);
+bool xref_location_of(const struct kg_json_value *v, struct xref_location *out);
 
 /* The results buffer.  Named here rather than spelled again in kbd.c
  * because the mode map that gives it RET, n, p and q is keyed on the name:

@@ -16,7 +16,7 @@ The reviewed implementation plan lives at
 The exploratory ChatGPT draft that previously lived here was reviewed
 against the tree and against live traces of lldb-dap 21.1.8 and debugpy
 1.8.21 on 2026-08-11; its architecture survived (validated by a C
-prototype running the full choreography over kg's unmodified
-lsp_transport + lsp_json), its initialization choreography and several
+prototype running the full choreography over kg's transport and JSON
+modules), its initialization choreography and several
 repo claims did not. See the parent plan's "Measured protocol facts" for
 what replaced them.

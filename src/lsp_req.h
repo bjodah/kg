@@ -61,7 +61,7 @@ struct lsp_req_point {
  * params were never built, which is a request that was never sent. */
 struct lsp_req_answer {
 	struct lsp_client *client;
-	const struct lsp_json_value *result;
+	const struct kg_json_value *result;
 	enum lsp_position_encoding encoding;
 	struct lsp_req_point point;
 	uint64_t sent_generation;

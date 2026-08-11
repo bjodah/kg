@@ -12,9 +12,9 @@
 
 #include "bufhandle.h"
 #include "def.h"
+#include "json.h"
 #include "localvars.h"
 #include "lsp_client.h"
-#include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
 #include "marker.h"
@@ -72,7 +72,7 @@ static void hover_put(struct hover_out *o, const char *s, size_t len)
  * Anything else contributes nothing, which is what a server sending `null`
  * for "I have nothing to say" means. */
 static void hover_collect(
-    const struct lsp_json_value *v, struct hover_out *o, unsigned depth)
+    const struct kg_json_value *v, struct hover_out *o, unsigned depth)
 {
 	const char *text;
 	size_t len = 0;
@@ -81,17 +81,17 @@ static void hover_collect(
 	if (depth > HOVER_MAX_DEPTH) {
 		return;
 	}
-	if (lsp_json_kind_of(v) == LSP_JSON_ARRAY) {
-		n = lsp_json_len(v);
+	if (kg_json_kind_of(v) == KG_JSON_ARRAY) {
+		n = kg_json_len(v);
 		for (i = 0; i < n; i++) {
-			hover_collect(lsp_json_at(v, i), o, depth + 1);
+			hover_collect(kg_json_at(v, i), o, depth + 1);
 		}
 		return;
 	}
-	if (lsp_json_kind_of(v) == LSP_JSON_OBJECT) {
-		v = lsp_json_get(v, "value");
+	if (kg_json_kind_of(v) == KG_JSON_OBJECT) {
+		v = kg_json_get(v, "value");
 	}
-	text = lsp_json_str(v, &len);
+	text = kg_json_str(v, &len);
 	if (!text) {
 		return;
 	}
@@ -211,7 +211,7 @@ static size_t hover_clean(char *text, size_t len)
 }
 
 size_t lsp_hover_render(
-    const struct lsp_json_value *contents, char *out, size_t out_size)
+    const struct kg_json_value *contents, char *out, size_t out_size)
 {
 	struct hover_out o = { out, out_size, 0 };
 
@@ -311,25 +311,25 @@ static long long hover_encode_character(
 static char *hover_position_params(struct lsp_client *c, const char *uri,
     const struct editor_buffer *b, int row, int col, size_t *out_len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *out = NULL;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "textDocument");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "uri");
-	lsp_jsonw_string(&w, uri);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "position");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "line");
-	lsp_jsonw_int(&w, row < 0 ? 0 : row);
-	lsp_jsonw_key(&w, "character");
-	lsp_jsonw_int(&w, hover_encode_character(c, b, row, col));
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &out, out_len) != 0) {
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "textDocument");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "uri");
+	kg_jsonw_string(&w, uri);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "position");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "line");
+	kg_jsonw_int(&w, row < 0 ? 0 : row);
+	kg_jsonw_key(&w, "character");
+	kg_jsonw_int(&w, hover_encode_character(c, b, row, col));
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &out, out_len) != 0) {
 		return NULL;
 	}
 	return out;
@@ -357,10 +357,10 @@ static char *hover_build_params(
 	return hover_position_params(c, req->uri, b, row, col, out_len);
 }
 
-static void hover_report_error(const struct lsp_json_value *error)
+static void hover_report_error(const struct kg_json_value *error)
 {
-	const struct lsp_json_value *msg = lsp_json_get(error, "message");
-	const char *text = lsp_json_str(msg, NULL);
+	const struct kg_json_value *msg = kg_json_get(error, "message");
+	const char *text = kg_json_str(msg, NULL);
 
 	if (!text || !text[0]) {
 		editor_set_status_message(HOVER_WHO ": the server refused");
@@ -370,7 +370,7 @@ static void hover_report_error(const struct lsp_json_value *error)
 }
 
 static void hover_reply(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx)
 {
 	static char text[LSP_HOVER_MAX];
@@ -388,7 +388,7 @@ static void hover_reply(struct lsp_client *c,
 		return;
 	}
 	len = lsp_hover_render(
-	    lsp_json_get(result, "contents"), text, sizeof(text));
+	    kg_json_get(result, "contents"), text, sizeof(text));
 	if (len == 0) {
 		editor_set_status_message("No hover information");
 		return;
@@ -488,7 +488,7 @@ void editor_lsp_hover(int fd)
 #include "def.h"
 
 size_t lsp_hover_render(
-    const struct lsp_json_value *contents, char *out, size_t out_size)
+    const struct kg_json_value *contents, char *out, size_t out_size)
 {
 	(void)contents;
 	if (out && out_size > 0) {

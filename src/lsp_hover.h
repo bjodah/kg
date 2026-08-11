@@ -19,9 +19,9 @@
 
 #include <stddef.h>
 
-/* Declared, not included: src/lsp_json.h defines it, and a caller that has
+/* Declared, not included: src/json.h defines it, and a caller that has
  * one to pass has already included that. */
-struct lsp_json_value;
+struct kg_json_value;
 
 /* Where the full text of a multi-line answer goes.  Created lazily, never
  * selected and never given a window -- `C-x b` reaches it -- which is
@@ -55,7 +55,7 @@ struct lsp_json_value;
  * Pure, and public for that reason: the three shapes are where a hover
  * client is either right or shows a reader a JSON fragment. */
 size_t lsp_hover_render(
-    const struct lsp_json_value *contents, char *out, size_t out_size);
+    const struct kg_json_value *contents, char *out, size_t out_size);
 
 /* `M-x lsp-hover`.  Asks the server about point and reports the answer's
  * first line in the echo area; an answer with more lines in it also goes

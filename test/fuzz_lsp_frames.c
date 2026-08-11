@@ -27,7 +27,7 @@
  * what src/lsp_client.c's dispatch_message() does with a body and what
  * makes a sanitizer look at the bytes rather than only at the length.
  */
-#include "../src/lsp_json.h"
+#include "../src/json.h"
 #include "../src/lsp_transport.h"
 #include "../src/process.h"
 
@@ -89,25 +89,25 @@ static size_t push_bytes(int *fd, const char *data, size_t size, size_t off)
  * numbers.  The sum is what keeps it from being dead code, and it is
  * unsigned so that wrapping is arithmetic rather than undefined.  The
  * recursion needs no depth guard of its own: the tree cannot be deeper
- * than LSP_JSON_MAX_DEPTH, which the parser enforced before this ran. */
-static unsigned long walk_value(const struct lsp_json_value *v)
+ * than KG_JSON_MAX_DEPTH, which the parser enforced before this ran. */
+static unsigned long walk_value(const struct kg_json_value *v)
 {
-	unsigned long acc = (unsigned long)lsp_json_kind_of(v);
-	size_t count = lsp_json_len(v);
+	unsigned long acc = (unsigned long)kg_json_kind_of(v);
+	size_t count = kg_json_len(v);
 	size_t len = 0;
 	const char *text;
 	size_t i;
 
-	text = lsp_json_str(v, &len);
+	text = kg_json_str(v, &len);
 	for (i = 0; text && i < len; i++) {
 		acc += (unsigned char)text[i];
 	}
-	acc += (unsigned long)lsp_json_int(v, 0);
+	acc += (unsigned long)kg_json_int(v, 0);
 	for (i = 0; i < count; i++) {
-		if (lsp_json_key_at(v, i, &len)) {
+		if (kg_json_key_at(v, i, &len)) {
 			acc += len;
 		}
-		acc += walk_value(lsp_json_at(v, i));
+		acc += walk_value(kg_json_at(v, i));
 	}
 	return acc;
 }
@@ -120,13 +120,13 @@ static void consume_body(const char *body, size_t len)
 	 * dereferences, and a plain accumulator is one the compiler is
 	 * entitled to delete along with them. */
 	static volatile unsigned long sink;
-	struct lsp_json *doc = lsp_json_parse(body, len, NULL);
+	struct kg_json *doc = kg_json_parse(body, len, NULL);
 
 	if (!doc) {
 		return;
 	}
-	sink += walk_value(lsp_json_root(doc));
-	lsp_json_free(doc);
+	sink += walk_value(kg_json_root(doc));
+	kg_json_free(doc);
 }
 
 /* Every message the parser can already make out of what it holds, until it

@@ -9,7 +9,7 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "edit.h"
-#include "lsp_json.h"
+#include "json.h"
 #include "lsp_sync.h"
 #include "lsp_uri.h"
 
@@ -27,25 +27,25 @@
  * here, where an unreadable edit is still only an edit -- the caller
  * counts it as dropped, and a partial answer is applied nowhere. */
 static bool lsp_edit_read_end(
-    const struct lsp_json_value *pos, int *line, long long *character)
+    const struct kg_json_value *pos, int *line, long long *character)
 {
-	long long n = lsp_json_int(lsp_json_get(pos, "line"), -1);
+	long long n = kg_json_int(kg_json_get(pos, "line"), -1);
 
-	if (lsp_json_kind_of(pos) != LSP_JSON_OBJECT || n < 0 || n > INT_MAX) {
+	if (kg_json_kind_of(pos) != KG_JSON_OBJECT || n < 0 || n > INT_MAX) {
 		return false;
 	}
 	*line = (int)n;
-	*character = lsp_json_int(lsp_json_get(pos, "character"), 0);
+	*character = kg_json_int(kg_json_get(pos, "character"), 0);
 	return *character >= 0;
 }
 
 bool lsp_edit_range_read(
-    const struct lsp_json_value *range, struct lsp_edit_range *out)
+    const struct kg_json_value *range, struct lsp_edit_range *out)
 {
-	return lsp_edit_read_end(lsp_json_get(range, "start"), &out->start_line,
+	return lsp_edit_read_end(kg_json_get(range, "start"), &out->start_line,
 		   &out->start_char)
 	    && lsp_edit_read_end(
-		lsp_json_get(range, "end"), &out->end_line, &out->end_char);
+		kg_json_get(range, "end"), &out->end_line, &out->end_char);
 }
 
 /* The index `uri`'s file has in the edit, adding it when it is new.
@@ -84,15 +84,15 @@ static bool lsp_edit_file_index(struct lsp_workspace_edit *edit,
  * nowhere to show).  The text is copied because the document it came from
  * is freed the moment the reply callback returns. */
 static bool lsp_edit_add(struct lsp_workspace_edit *edit, size_t file,
-    const struct lsp_json_value *node)
+    const struct kg_json_value *node)
 {
 	struct lsp_edit_item *item;
 	struct lsp_edit_range range;
 	const char *text;
 	size_t len = 0;
 
-	text = lsp_json_str(lsp_json_get(node, "newText"), &len);
-	if (!text || !lsp_edit_range_read(lsp_json_get(node, "range"), &range)
+	text = kg_json_str(kg_json_get(node, "newText"), &len);
+	if (!text || !lsp_edit_range_read(kg_json_get(node, "range"), &range)
 	    || edit->item_count == LSP_EDIT_MAX_EDITS) {
 		return false;
 	}
@@ -114,13 +114,13 @@ static bool lsp_edit_add(struct lsp_workspace_edit *edit, size_t file,
  * document with nothing to do: it registers no file, so no buffer is
  * opened for it and no refusal is counted against it. */
 static void lsp_edit_read_array(struct lsp_workspace_edit *edit,
-    const char *uri, long long version, const struct lsp_json_value *edits)
+    const char *uri, long long version, const struct kg_json_value *edits)
 {
-	size_t n = lsp_json_len(edits);
+	size_t n = kg_json_len(edits);
 	size_t file = 0;
 	size_t i;
 
-	if (lsp_json_kind_of(edits) != LSP_JSON_ARRAY) {
+	if (kg_json_kind_of(edits) != KG_JSON_ARRAY) {
 		edit->dropped++;
 		return;
 	}
@@ -132,7 +132,7 @@ static void lsp_edit_read_array(struct lsp_workspace_edit *edit,
 		return;
 	}
 	for (i = 0; i < n; i++) {
-		if (!lsp_edit_add(edit, file, lsp_json_at(edits, i))) {
+		if (!lsp_edit_add(edit, file, kg_json_at(edits, i))) {
 			edit->dropped++;
 		}
 	}
@@ -142,15 +142,15 @@ static void lsp_edit_read_array(struct lsp_workspace_edit *edit,
  * versions at all, which is why -1 has to mean "the answer did not say"
  * rather than "the document is at version -1". */
 static void lsp_edit_read_changes(
-    struct lsp_workspace_edit *edit, const struct lsp_json_value *changes)
+    struct lsp_workspace_edit *edit, const struct kg_json_value *changes)
 {
-	size_t n = lsp_json_len(changes);
+	size_t n = kg_json_len(changes);
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		const char *uri = lsp_json_key_at(changes, i, NULL);
+		const char *uri = kg_json_key_at(changes, i, NULL);
 
-		lsp_edit_read_array(edit, uri, -1, lsp_json_at(changes, i));
+		lsp_edit_read_array(edit, uri, -1, kg_json_at(changes, i));
 	}
 }
 
@@ -170,15 +170,14 @@ static void lsp_edit_note_resource_op(
  * carries none: the member is optional, and `null` is how the protocol
  * spells "I am not tracking a version for this file".  Both mean the same
  * thing here -- there is nothing to compare -- and neither is an error. */
-static long long lsp_edit_read_version(const struct lsp_json_value *document)
+static long long lsp_edit_read_version(const struct kg_json_value *document)
 {
-	const struct lsp_json_value *version
-	    = lsp_json_get(document, "version");
+	const struct kg_json_value *version = kg_json_get(document, "version");
 
-	if (lsp_json_kind_of(version) != LSP_JSON_NUMBER) {
+	if (kg_json_kind_of(version) != KG_JSON_NUMBER) {
 		return -1;
 	}
-	return lsp_json_int(version, -1);
+	return kg_json_int(version, -1);
 }
 
 /* `documentChanges`: an array of TextDocumentEdit objects, possibly with
@@ -187,49 +186,49 @@ static long long lsp_edit_read_version(const struct lsp_json_value *document)
  * against, and applying ranges to a document that has moved past it is
  * the one thing this module must not do (see lsp_edit_file::version). */
 static void lsp_edit_read_document_changes(
-    struct lsp_workspace_edit *edit, const struct lsp_json_value *changes)
+    struct lsp_workspace_edit *edit, const struct kg_json_value *changes)
 {
-	size_t n = lsp_json_len(changes);
+	size_t n = kg_json_len(changes);
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		const struct lsp_json_value *item = lsp_json_at(changes, i);
-		const struct lsp_json_value *kind = lsp_json_get(item, "kind");
-		const struct lsp_json_value *document
-		    = lsp_json_get(item, "textDocument");
+		const struct kg_json_value *item = kg_json_at(changes, i);
+		const struct kg_json_value *kind = kg_json_get(item, "kind");
+		const struct kg_json_value *document
+		    = kg_json_get(item, "textDocument");
 
-		if (lsp_json_kind_of(kind) == LSP_JSON_STRING) {
+		if (kg_json_kind_of(kind) == KG_JSON_STRING) {
 			lsp_edit_note_resource_op(
-			    edit, lsp_json_str(kind, NULL));
+			    edit, kg_json_str(kind, NULL));
 			continue;
 		}
 		lsp_edit_read_array(edit,
-		    lsp_json_str(lsp_json_get(document, "uri"), NULL),
+		    kg_json_str(kg_json_get(document, "uri"), NULL),
 		    lsp_edit_read_version(document),
-		    lsp_json_get(item, "edits"));
+		    kg_json_get(item, "edits"));
 	}
 }
 
 struct lsp_workspace_edit *lsp_workspace_edit_read(
-    const struct lsp_json_value *edit)
+    const struct kg_json_value *edit)
 {
-	const struct lsp_json_value *changes;
+	const struct kg_json_value *changes;
 	struct lsp_workspace_edit *out;
 
-	if (lsp_json_kind_of(edit) != LSP_JSON_OBJECT) {
+	if (kg_json_kind_of(edit) != KG_JSON_OBJECT) {
 		return NULL;
 	}
 	out = calloc(1, sizeof(*out));
 	if (!out) {
 		return NULL;
 	}
-	changes = lsp_json_get(edit, "documentChanges");
-	if (lsp_json_kind_of(changes) == LSP_JSON_ARRAY) {
+	changes = kg_json_get(edit, "documentChanges");
+	if (kg_json_kind_of(changes) == KG_JSON_ARRAY) {
 		lsp_edit_read_document_changes(out, changes);
 		return out;
 	}
-	changes = lsp_json_get(edit, "changes");
-	if (lsp_json_kind_of(changes) == LSP_JSON_OBJECT) {
+	changes = kg_json_get(edit, "changes");
+	if (kg_json_kind_of(changes) == KG_JSON_OBJECT) {
 		lsp_edit_read_changes(out, changes);
 	}
 	return out;

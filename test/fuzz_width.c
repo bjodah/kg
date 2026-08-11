@@ -47,13 +47,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		if (g.bytes == g.esc) {
 			/* An escape spelling ("^X", "\xnn") or a covered
 			 * continuation byte drawing nothing. */
-			if (g.len > KG_DISPLAY_ESCAPE_MAX - 1 ||
-			    (g.len > 0 && g.width != g.len)) {
+			if (g.len > KG_DISPLAY_ESCAPE_MAX - 1
+			    || (g.len > 0 && g.width != g.len)) {
 				abort();
 			}
 		} else {
-			if (g.bytes != buf + i || g.len != g.span ||
-			    g.width > 2) {
+			if (g.bytes != buf + i || g.len != g.span
+			    || g.width > 2) {
 				abort();
 			}
 		}

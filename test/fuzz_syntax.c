@@ -182,11 +182,11 @@ static void fuzz_syntax_edit(const uint8_t *script, size_t script_size)
 	size_t pos = 0;
 	int edits = 0;
 
-	while (edits < FUZZ_SYNTAX_MAX_EDITS && running &&
-	    pos + 4 <= script_size) {
+	while (edits < FUZZ_SYNTAX_MAX_EDITS && running
+	    && pos + 4 <= script_size) {
 		size_t blen = buffer_byte_length(bcur());
-		size_t begin = ((size_t)script[pos] << 8 | script[pos + 1]) %
-		    (blen + 1);
+		size_t begin
+		    = ((size_t)script[pos] << 8 | script[pos + 1]) % (blen + 1);
 		size_t end = begin + script[pos + 2] % (blen - begin + 1);
 		size_t ins = script[pos + 3];
 		struct kg_edit e;
@@ -273,8 +273,8 @@ static void fuzz_syntax_check_rebuild_match(void)
 			    i, ocs[i], row->hl_oc);
 			abort();
 		}
-		if (row->rsize > 0 &&
-		    memcmp(saved[i], row->hl, row->rsize) != 0) {
+		if (row->rsize > 0
+		    && memcmp(saved[i], row->hl, row->rsize) != 0) {
 			int j;
 
 			for (j = 0; j < row->rsize; j++) {

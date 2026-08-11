@@ -132,7 +132,7 @@ static void test_bare_name(void)
 static void test_missing_file_in_unwritable_dir(void)
 {
 	char dir[PATH_MAX];
-	char path[PATH_MAX];
+	char path[PATH_MAX + 16];
 
 	snprintf(dir, sizeof(dir), "%s/locked-dir", workdir);
 	CHECK(mkdir(dir, 0555) == 0);

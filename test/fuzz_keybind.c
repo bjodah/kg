@@ -50,8 +50,8 @@ static void op_parse(const char *s)
 	if (keybind_parse(s, canon, sizeof(canon)) != 0) {
 		return;
 	}
-	if (keybind_parse(canon, again, sizeof(again)) != 0 ||
-	    strcmp(canon, again) != 0) {
+	if (keybind_parse(canon, again, sizeof(again)) != 0
+	    || strcmp(canon, again) != 0) {
 		abort();
 	}
 }
@@ -60,8 +60,9 @@ static void op_bind(const char *s)
 {
 	int rc = keybind_bind(s, "fuzz-command");
 
-	if (rc == 0 && (!keybind_lookup(s) ||
-	    strcmp(keybind_lookup(s), "fuzz-command") != 0)) {
+	if (rc == 0
+	    && (!keybind_lookup(s)
+		|| strcmp(keybind_lookup(s), "fuzz-command") != 0)) {
 		abort();
 	}
 }

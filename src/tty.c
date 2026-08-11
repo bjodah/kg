@@ -22,6 +22,7 @@
 #include "keyevent.h"
 #include "lsp.h"
 #include "mouse.h"
+#include "perf.h"
 #include "process_table.h"
 #include "tty.h"
 
@@ -831,6 +832,17 @@ static int wait_for_input(int fd, int idle)
 {
 	enum idle_next next = IDLE_NEXT_READ;
 
+#ifdef KG_FUZZ
+	/* The fuzz harness's input is a nonblocking pipe it holds both ends
+	 * of, which poll(2) calls neither readable nor hung up once it is
+	 * empty -- the wait would tick forever on input the harness has no
+	 * more of.  The readers' old contract already ends the session on
+	 * the EAGAIN that pipe returns, so the fuzz build goes straight to
+	 * the read, exactly as it did when the read's timeout was the wait. */
+	(void)fd;
+	(void)idle;
+	return 1;
+#endif
 	while (idle && !input_queued(fd)) {
 		next = idle_dispatch(idle_wait(fd));
 		if (next != IDLE_NEXT_WAIT) {

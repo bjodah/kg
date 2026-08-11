@@ -5007,8 +5007,8 @@ static void test_prelude_temporary_hygiene(void)
 	char loaded[] = "/tmp/kg-hygiene-load-XXXXXX";
 	char form[512];
 
-	CHECK(write_temp_lisp(loaded,
-	    "(setq h 'SET-BY-LOADED-FILE)\n(setq cell 'ALSO-SET)\n"));
+	CHECK(write_temp_lisp(
+	    loaded, "(setq h 'SET-BY-LOADED-FILE)\n(setq cell 'ALSO-SET)\n"));
 
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
@@ -5076,8 +5076,8 @@ static void test_prelude_temporary_hygiene(void)
 	 * counter was held across the `funcall` of the body.  Before, the
 	 * body and the loop shared one binding, each iteration incremented
 	 * it twice, and the user's counter answered 0. */
-	CHECK(eval_eq("(progn (defvar i 0) (dotimes (k 3) (setq i (+ i 1))) i)",
-	    "3"));
+	CHECK(eval_eq(
+	    "(progn (defvar i 0) (dotimes (k 3) (setq i (+ i 1))) i)", "3"));
 
 	/* Not a callback at all: `add-to-list` takes the NAME of a variable,
 	 * and its temporary had the shape of one.  Before: (9) -- the `set`

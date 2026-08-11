@@ -7,12 +7,12 @@
   "lines_found": 21768,
   "lines_hit": 19140,
   "line_rate": 0.8793,
-  "functions_found": 2053,
-  "functions_hit": 2014,
+  "functions_found": 2054,
+  "functions_hit": 2015,
   "function_rate": 0.981,
-  "branches_found": 13400,
-  "branches_hit": 10100,
-  "branch_rate": 0.7537
+  "branches_found": 13404,
+  "branches_hit": 10104,
+  "branch_rate": 0.7538
  },
  "files": {
   "src/autocomplete.c": {
@@ -269,15 +269,15 @@
    "branch_rate": 0.8614
   },
   "src/lisp_core.c": {
-   "lines_found": 622,
-   "lines_hit": 530,
-   "line_rate": 0.8521,
-   "functions_found": 64,
-   "functions_hit": 63,
-   "function_rate": 0.9844,
-   "branches_found": 260,
-   "branches_hit": 191,
-   "branch_rate": 0.7346
+   "lines_found": 624,
+   "lines_hit": 532,
+   "line_rate": 0.8526,
+   "functions_found": 65,
+   "functions_hit": 64,
+   "function_rate": 0.9846,
+   "branches_found": 262,
+   "branches_hit": 193,
+   "branch_rate": 0.7366
   },
   "src/lisp_hooks.c": {
    "lines_found": 226,
@@ -291,9 +291,9 @@
    "branch_rate": 0.6391
   },
   "src/lisp_io.c": {
-   "lines_found": 472,
-   "lines_hit": 433,
-   "line_rate": 0.9174,
+   "lines_found": 470,
+   "lines_hit": 431,
+   "line_rate": 0.917,
    "functions_found": 43,
    "functions_hit": 43,
    "function_rate": 1.0,
@@ -319,9 +319,9 @@
    "functions_found": 17,
    "functions_hit": 17,
    "function_rate": 1.0,
-   "branches_found": 68,
-   "branches_hit": 64,
-   "branch_rate": 0.9412
+   "branches_found": 70,
+   "branches_hit": 66,
+   "branch_rate": 0.9429
   },
   "src/lisp_obj.c": {
    "lines_found": 407,

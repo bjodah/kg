@@ -314,32 +314,124 @@ static void copy_command_name(
 	free(name);
 }
 
-/* (commandp OBJECT): t when OBJECT names something M-x can run.
+/* The registry entry whose function cell IS this object, or NULL.
  *
- * kg's answer is the command registry's, which is the only place the
- * question has an answer here: a built-in is a cmdtable row, and a
- * Lisp-defined command is a `defun` whose body carried an `(interactive
- * …)` declaration.  Emacs asks the *function* whether it has an
- * interactive form, and so also says t for a lambda or a keyboard macro
- * that is not bound to any name; kg has no interactive-form reflection
- * (07D leaves it to a later metadata decision), so only a *name* can be
- * a command here.  That is recorded as a divergence rather than guessed
- * at.  Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted.
- *
- * Anything that is not a symbol or a string is nil, as in Emacs. */
-FeObject *native_commandp(FeContext *context, FeObject *arguments)
+ * Identity, not naming: `(symbol-function 'my-command)` is the very
+ * object `define-command` rooted, because `defun`'s expansion binds the
+ * closure once and hands the same one to both (07D item 3).  So a
+ * function object can be asked the two reflective questions a name can,
+ * which is how `commandp` and `interactive-form` stop being purely
+ * name-shaped.  A lambda that was never registered is not eq to any of
+ * them and answers nil, as it should. */
+static struct lisp_command *find_command_by_function(const FeObject *object)
 {
-	FeObject *object = FeGetNextArgument(context, &arguments);
+	size_t i;
+
+	for (i = 0; i < LISP_MAX_COMMANDS; i++) {
+		struct lisp_command *cmd = &state.commands[i];
+
+		if (cmd->name[0] && cmd->function_root != nullptr
+		    && FeGetRoot(cmd->function_root) == object) {
+			return cmd;
+		}
+	}
+	return nullptr;
+}
+
+/* Resolve `commandp`/`interactive-form`'s argument to a Lisp command
+ * entry, and say whether a BUILT-IN of that name exists.  A symbol or a
+ * string is a name; anything else is asked by identity. */
+static struct lisp_command *resolve_command_argument(
+    FeContext *context, FeObject *object, bool *builtin)
+{
 	FeType type = FeGetType(object);
 	char name[512];
 
-	FeRequireNoArguments(context, arguments);
+	*builtin = false;
 	if (type != FeTSymbol && type != FeTString) {
-		return FeMakeBool(context, false);
+		return find_command_by_function(object);
 	}
 	copy_command_name(context, object, name, sizeof(name));
-	return FeMakeBool(context,
-	    cmd_lookup(name) != nullptr || kg_lisp_command_exists(name) != 0);
+	*builtin = cmd_lookup(name) != nullptr;
+	return find_lisp_command(name);
+}
+
+/* (commandp OBJECT): t when OBJECT is something M-x can run.
+ *
+ * Two questions since Phase 19, not one.  A symbol or a string is still
+ * asked of the command registry, which is where the answer lives for a
+ * name: a built-in is a cmdtable row, and a Lisp-defined command is a
+ * `defun` whose body carried an `(interactive …)` declaration.  Anything
+ * else is now asked by IDENTITY -- `(commandp (symbol-function
+ * 'my-command))` is t, because the object a command's registry entry
+ * roots is the very object the name's function cell holds.
+ *
+ * What still diverges, narrowed to what is left of it: Emacs asks a
+ * function whether it CARRIES an interactive form, so an anonymous
+ * `(lambda () (interactive) …)` is a command there and is not one here.
+ * kg's `interactive` is an inert macro and a lambda carries no metadata,
+ * so a function is a command here exactly when it was registered as one.
+ * Emacs' optional FOR-CALL-INTERACTIVELY argument is not accepted. */
+FeObject *native_commandp(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	bool builtin = false;
+	struct lisp_command *cmd;
+
+	FeRequireNoArguments(context, arguments);
+	cmd = resolve_command_argument(context, object, &builtin);
+	return FeMakeBool(context, builtin || cmd != nullptr);
+}
+
+/* (interactive-form COMMAND): the `(interactive …)` declaration COMMAND
+ * was defined with, or nil when it is not a command.
+ *
+ * doc/TODO.md's "interactive reflection" row, and the metadata decision
+ * it was waiting on: 07D stored the interactive SPEC as a thunk -- a
+ * closure over the descriptor, callable but with nothing to show a
+ * reader -- so honest reflection had nothing to return.  Phase 19 stores
+ * the raw specification beside it (`define-command`'s fifth argument,
+ * which `defun`'s expansion now passes), and this reads it back.
+ *
+ * Three answers, in the order they are decided:
+ *
+ *   * a Lisp command that recorded its raw specification answers
+ *     `(interactive SPEC)` with the specification as it was written --
+ *     the string for a string spec, the descriptor FORM (unevaluated,
+ *     not the closure) for a form one;
+ *   * a Lisp command with no recorded specification -- a direct
+ *     `(define-command 'name fn)`, or `(interactive)` with no code --
+ *     answers `(interactive nil)`.  Two elements and not one, because
+ *     that is Emacs' own normalization, measured on 31.0.90:
+ *     `(defun f () (interactive) 1)` has the interactive form
+ *     `(interactive nil)` there;
+ *   * a BUILT-IN command answers `(interactive nil)` too, and that is a
+ *     true statement about kg rather than a placeholder: a built-in
+ *     takes no interactive arguments, because the handlers that need
+ *     input read the terminal themselves (CMD_READS_TERMINAL) instead of
+ *     declaring a spec for the dispatcher to fill.  Emacs' answer for
+ *     one of its own primitives is that primitive's spec string, which
+ *     is the recorded divergence `phase19-interactive-form-builtin`.
+ *
+ * Anything that is not a command answers nil, as in Emacs. */
+FeObject *native_interactive_form(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeObject *parts[2];
+	bool builtin = false;
+	struct lisp_command *cmd;
+
+	FeRequireNoArguments(context, arguments);
+	cmd = resolve_command_argument(context, object, &builtin);
+	if (cmd == nullptr && !builtin) {
+		return FeNil(context);
+	}
+	parts[0] = FeMakeSymbol(context, "interactive");
+	FePushGC(context, parts[0]);
+	parts[1] = cmd != nullptr && cmd->interactive_form_root != nullptr
+	    ? FeGetRoot(cmd->interactive_form_root)
+	    : FeNil(context);
+	return FeMakeList(context, parts, 2);
 }
 
 static void validate_command_definition(
@@ -384,9 +476,11 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	FeObject *fn = FeGetNextArgument(context, &arguments);
 	FeObject *spec = FeNil(context);
 	FeObject *doc = FeNil(context);
+	FeObject *raw = FeNil(context);
 	struct lisp_command *cmd;
 	char name[LISP_COMMAND_NAME_MAX];
 	FeRoot *function_root, *interactive_root, *documentation_root;
+	FeRoot *interactive_form_root;
 	enum lisp_interactive_kind kind = LISP_INTERACTIVE_NONE;
 	command_id id;
 
@@ -395,6 +489,14 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	}
 	if (!FeIsNil(arguments)) {
 		doc = FeGetNextArgument(context, &arguments);
+	}
+	/* RAW-SPEC (Phase 19): the specification as it was WRITTEN, which is
+	 * the same object as SPEC for a string one and the descriptor form
+	 * itself where SPEC is the closure built over it.  Optional, and
+	 * unvalidated on purpose -- it is reflection data, and
+	 * `interactive-form` shows whatever a definition claimed. */
+	if (!FeIsNil(arguments)) {
+		raw = FeGetNextArgument(context, &arguments);
 	}
 	FeRequireNoArguments(context, arguments);
 	validate_command_definition(context, fn, spec, doc);
@@ -414,8 +516,10 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 	function_root = FeCreateRoot(context, fn);
 	interactive_root = FeCreateRoot(context, spec);
 	documentation_root = FeCreateRoot(context, doc);
+	interactive_form_root = FeCreateRoot(context, raw);
 	id = cmd_runtime_define(name);
 	if (id == CMD_ID_NONE) {
+		FeReleaseRoot(context, interactive_form_root);
 		FeReleaseRoot(context, function_root);
 		FeReleaseRoot(context, interactive_root);
 		FeReleaseRoot(context, documentation_root);
@@ -425,11 +529,13 @@ FeObject *native_define_command(FeContext *context, FeObject *arguments)
 		FeReleaseRoot(context, cmd->function_root);
 		FeReleaseRoot(context, cmd->interactive_root);
 		FeReleaseRoot(context, cmd->documentation_root);
+		FeReleaseRoot(context, cmd->interactive_form_root);
 	}
 	strcpy(cmd->name, name);
 	cmd->function_root = function_root;
 	cmd->interactive_root = interactive_root;
 	cmd->documentation_root = documentation_root;
+	cmd->interactive_form_root = interactive_form_root;
 	cmd->interactive_kind = kind;
 	/* The registry hands out the identity; redefining keeps it. */
 	return FeNil(context);
@@ -451,10 +557,12 @@ FeObject *native_remove_command(FeContext *context, FeObject *arguments)
 	FeReleaseRoot(context, cmd->function_root);
 	FeReleaseRoot(context, cmd->interactive_root);
 	FeReleaseRoot(context, cmd->documentation_root);
+	FeReleaseRoot(context, cmd->interactive_form_root);
 	cmd->name[0] = '\0';
 	cmd->function_root = nullptr;
 	cmd->interactive_root = nullptr;
 	cmd->documentation_root = nullptr;
+	cmd->interactive_form_root = nullptr;
 	cmd->interactive_kind = LISP_INTERACTIVE_NONE;
 	/* Frees the identity too: defining this name again is a different
 	 * command, and any state the old one owned is dropped. */
@@ -478,10 +586,12 @@ FeObject *native_remove_command_if_present(
 	FeReleaseRoot(context, cmd->function_root);
 	FeReleaseRoot(context, cmd->interactive_root);
 	FeReleaseRoot(context, cmd->documentation_root);
+	FeReleaseRoot(context, cmd->interactive_form_root);
 	cmd->name[0] = '\0';
 	cmd->function_root = nullptr;
 	cmd->interactive_root = nullptr;
 	cmd->documentation_root = nullptr;
+	cmd->interactive_form_root = nullptr;
 	cmd->interactive_kind = LISP_INTERACTIVE_NONE;
 	cmd_runtime_remove(name);
 	return FeNil(context);

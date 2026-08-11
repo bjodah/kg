@@ -1,0 +1,5 @@
+{
+ "id": "phase19-error-message-string-hierarchy",
+ "expr": "(list (error-message-string '(wrong-type-argument listp 6)) (error-message-string '(args-out-of-range \"abc\" 0 9)) (error-message-string '(error \"custom msg\")) (error-message-string '(arith-error)) (error-message-string '(quit)))",
+ "note": "Phase 19: the rendering reaches kg unchanged from fe -- the same primitive, exercised through kgbatch, so kg's pin is what is measured rather than fe's own binary."
+}

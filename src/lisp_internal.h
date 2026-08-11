@@ -55,6 +55,15 @@ struct lisp_command {
 	struct FeRoot *function_root;
 	struct FeRoot *interactive_root;
 	struct FeRoot *documentation_root;
+	/* The RAW `(interactive ...)` specification, beside the thunk-or-
+	 * string `interactive_root` holds.  07D stored only the latter, and
+	 * for a FORM spec that is a closure over the descriptor -- callable,
+	 * but with nothing to show a reader, which is why `interactive-form`
+	 * could not exist and `commandp` had to answer about a NAME.  Nil
+	 * for a command defined by a direct `define-command` that did not
+	 * pass one; `interactive-form` then rebuilds what it can from the
+	 * kind. */
+	struct FeRoot *interactive_form_root;
 	enum lisp_interactive_kind interactive_kind;
 };
 
@@ -462,6 +471,7 @@ FeObject *native_consp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_commandp(FeContext *context, FeObject *arguments);
+FeObject *native_interactive_form(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);

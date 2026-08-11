@@ -99,7 +99,7 @@ trusting it.
   Measured at the Phase 12 fix cycle, nested `save-excursion` runs to
   **218** and the 219th raises `evaluation frame limit exceeded`;
   nested `with-current-buffer` over `(current-buffer)` runs to **156**
-  and the 157th raises the same — both the 1093-frame arena
+  and the 157th raises the same — both the 1090-frame arena
   partition's verdict, not the pool's. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
@@ -223,7 +223,19 @@ Ordering rules that hold across every subscriber:
   explicit message; an ordinary error keeps today's format verbatim.
   `quit` is catchable by `(quit …)` and `(t)` handlers but not by
   `(error …)`; budget exhaustion is catchable by nothing — it always
-  reaches the host.  A condition an editor native raises reaches a
+  reaches the host.
+  **What an error READS as** is Emacs' own sentence, not the condition's
+  name: `(error-message-string ERROR)` renders the `(SYMBOL . DATA)`
+  object a handler is given, and kg's own diagnostic for an uncaught one
+  is that rendering spliced over the name fe's message ends in. So
+  `(goto-char "x")` reports `Wrong type argument: integer-or-marker-p,
+  "x"`, and `(signal 'error '("custom msg"))` reports `custom msg`. Every
+  condition symbol carries Emacs' `error-message` property — `(get
+  'wrong-type-argument 'error-message)` is `"Wrong type argument"` — and
+  a program may `put` its own over one. Three of those texts contain an
+  apostrophe, and Emacs *curls* it when rendering
+  (`text-quoting-style`); kg has no such variable and prints the property
+  as stored, which is a recorded divergence.  A condition an editor native raises reaches a
   handler written lexically around it, passing through any intervening
   handler that does not name it: until Phase 13.2 those raises went
   through a nested evaluation whose completion transferred straight to
@@ -243,9 +255,9 @@ Ordering rules that hold across every subscriber:
     frames one-for-one — an ordinary self-recursive function costs
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
-    1093-frame arena), so in practice it stops such recursion a few
+    1090-frame arena), so in practice it stops such recursion a few
     hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1093; exceeding it raises
+    `frame_capacity` 1090; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -340,7 +352,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56239 object slots and a 1093-frame evaluator stack.
+  current pin as 56259 object slots and a 1090-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -818,6 +830,7 @@ forms rather than kg natives:
 | `(put SYMBOL PROPERTY VALUE)` | Stores `VALUE` and returns it. A new property appends at the tail; an existing one is overwritten in place |
 | `(get SYMBOL PROPERTY)` | The stored value, or `nil` |
 | `(symbol-plist SYMBOL)` | The whole `(PROPERTY VALUE ...)` list |
+| `(error-message-string ERROR)` | Emacs' sentence for a condition object: `(error-message-string '(wrong-type-argument listp 6))` is `"Wrong type argument: listp, 6"` |
 
 `intern-soft` is a probe and never a constructor. That matters more than
 it looks: real code loops on it (`(while (setq x (intern-soft (format
@@ -960,11 +973,23 @@ optional docstring. That declaration is removed from the body and registers
 the closure as a command; a later form remains ordinary code. A docstring
 followed by an empty declaration body gets an implicit `nil` body — but a
 docstring that *is* the whole body is the body, and the function returns it,
-as in Emacs. `(commandp NAME)` answers whether a name is a command. It asks
-the command registry, which is the only place kg can answer from: 07D adds no
-interactive-form reflection, so unlike Emacs it says `nil` for an anonymous
-lambda that carries an interactive form, and it does not accept Emacs'
-optional FOR-CALL-INTERACTIVELY argument. Both are recorded divergences.
+as in Emacs. `(commandp OBJECT)` answers whether something is a command: a
+name is asked of the command registry (a built-in row, or a `defun` whose
+body carried an `(interactive ...)` declaration), and a function object is
+asked by identity, so `(commandp (symbol-function 'my-command))` is `t`.
+`(interactive-form COMMAND)` returns the declaration a command was defined
+with — `(interactive "p")`, `(interactive (list "x"))` with the descriptor
+form *unevaluated*, or `(interactive nil)` when there is no specification,
+which is Emacs' own normalization — and `nil` for anything that is not a
+command. Two recorded divergences are left. An anonymous
+`(lambda () (interactive) 1)` is a command in Emacs and is not one here:
+kg's `interactive` is an inert macro and a lambda carries no metadata, so a
+function is a command exactly when it was registered as one. And a
+**built-in** command answers `(interactive nil)` where Emacs answers that
+primitive's own spec string — true rather than a placeholder, since a kg
+built-in declares no interactive arguments and the handlers that need input
+read the terminal themselves. Emacs' optional FOR-CALL-INTERACTIVELY
+argument is not accepted.
 
 The declaration's nil/empty spec supplies no arguments; string specs split
 newline-delimited clauses and support `p`, `P`, `r`, `s`, `n`, `N`, `f`, `F`,
@@ -1269,9 +1294,9 @@ primitive's function cell.
   A native whose failure Emacs itself reports unstructured keeps a plain
   `error`: resource exhaustion, a dead buffer, a NaN position, and kg's
   own refusal of NUL and surrogate character codes, which Emacs accepts.
-  And an **uncaught** one still reports the bare condition name rather
-  than Emacs' `Wrong type argument: integer-or-marker-p, "x"`, because
-  neither tree has the per-symbol `error-message` property yet.
+  An **uncaught** one reports Emacs' own sentence —
+  `Wrong type argument: integer-or-marker-p, "x"` — since Phase 19 gave
+  fe the `error-message` property and `error-message-string`; see below.
 - **Dynamic binding is the Decision-2 subset, not `lexical-binding:
   nil`.** Variables are lexical by default and stay that way; a symbol
   becomes dynamic only by being *marked*, and only `defvar` and

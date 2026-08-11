@@ -198,13 +198,22 @@ against full rebuilds.  Known follow-ups, none blocking:
       interactive code, not invalid, and do not run the command body.
       Keyboard-macro strings and `CMD_REPEATS` for Lisp commands are
       deferred with them.
-- [ ] **Interactive reflection**: `interactive-form` and documentation
-      reflection need a metadata decision first — 07D stores the spec
-      thunk but not the raw form beside it, so honest reflection has
-      nothing to return. `commandp` therefore answers about a *name*
-      (the command registry) rather than about a function object, which
-      is a recorded divergence: Emacs also calls an anonymous lambda
-      carrying an interactive form a command.
+- [x] **Interactive reflection** (landed as Phase 19, 2026-08-11).  The
+      metadata decision is to store the RAW specification beside the
+      thunk: `define-command` takes it as a fifth argument, `defun`'s
+      expansion passes it, and it costs one root per command.
+      `(interactive-form COMMAND)` returns `(interactive SPEC)` with a
+      form spec UNEVALUATED — the descriptor, not the closure — and
+      `(interactive nil)` where there is no specification, which is
+      Emacs' own normalization.  `commandp` now asks a FUNCTION OBJECT
+      by identity, so `(commandp (symbol-function 'my-command))` is `t`.
+      Two narrower divergences survive and are recorded rows rather than
+      this box: an anonymous `(lambda () (interactive) 1)` is a command
+      in Emacs and not here (kg's `interactive` is inert and a lambda
+      carries no metadata), and a BUILT-IN answers `(interactive nil)`
+      where Emacs answers its spec string — true rather than a
+      placeholder, since a kg built-in declares no interactive arguments
+      and reads the terminal from its handler.
 - [ ] **Prompt interpolation and `interactive` MODES**: Emacs passes a
       prompt containing `%` through `format` with the earlier interactive
       arguments, and filters commands by mode; kg's prompts are literal
@@ -427,19 +436,16 @@ against full rebuilds.  Known follow-ups, none blocking:
       `src/lisp_io.c`; what it also needs is a way for the suite to
       measure it, since a test that drops privileges is a new kind of
       test here.
-- [ ] **The writer does not escape a backslash inside a printed string,
-      so a string containing one does not read back.**  Found by Phase
-      14, which made backslashes ordinary: measured, `(list "x\\y")`
-      prints `(x\y)` in kg where Emacs prints `("x\\y")`, and
-      `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` there.
-      `EmitStoredString` escapes only `"`.  Symbols round-trip since
-      Phase 14; strings still do not, and the two now differ visibly
-      because a symbol's printed name routinely carries backslashes.
-      Fixing it is one line in fe's writer and a re-measure of every
-      golden that prints a string containing a backslash — cheap in the
-      code, not in the goldens — plus a `FE_LANGUAGE_VERSION` move,
-      printed representation being language.  Its natural home is
-      whichever phase next touches the writer.
+- [x] **The writer does not escape a backslash inside a printed string,
+      so a string containing one does not read back.**  DONE, Phase 19,
+      at the home this row named: `error-message-string` prints its data
+      items with `prin1`, so the phase was in the writer anyway.  `prin1`
+      now escapes both bytes the reader would take for itself, and the
+      re-measure this row priced as "cheap in the code, not in the
+      goldens" cost NOTHING in the goldens: not one fe script golden and
+      not one compat snapshot moved, because no existing case printed a
+      string containing a backslash.  `FE_LANGUAGE_VERSION` 12 -> 13
+      with the rest of the phase.
 
 - [ ] **`eval`'s LEXICAL argument.**  fe gained Emacs' one-argument
       `eval` at the Phase 12 pin, evaluating its form in the caller's own
@@ -449,8 +455,8 @@ against full rebuilds.  Known follow-ups, none blocking:
       inherits — `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` on
       31.0.90 — so an implementation would need first-class lexical
       environments as values, which neither tree has.
-- [ ] **fe has no `error-message` property, so a `signal`'s message is
-      the bare condition name.**  Newly recorded by Phase 12; example
+- [x] **fe has no `error-message` property, so a `signal`'s message is
+      the bare condition name.**  DONE, Phase 19.  Newly recorded by Phase 12; example
       corrected by its review, which measured the original headline
       example rendering fine — `render_file_condition()` keys on the
       condition SYMBOL, not on who raised it, so a plain Lisp
@@ -463,10 +469,20 @@ against full rebuilds.  Known follow-ups, none blocking:
       `Wrong type argument: listp, 6`.  kg's renderer is the narrow
       version for the two file classes; the general one is a
       per-symbol message property in fe's hierarchy table and an
-      `error-message-string` to read it.  **UNBLOCKED by Phase 14**,
-      which was the prerequisite: `put`/`get` exist, so the property has
-      somewhere to live and something to read it with.  Scheduled for
-      Phase 19, which owns `error-message-string`.
+      `error-message-string` to read it.  That is what shipped: fe seeds
+      Emacs' `error-message` property onto every hierarchy symbol when
+      the context opens, `error-message-string` renders a condition
+      object by Emacs' own `print_error_message` rule, and kg's
+      `render_condition()` (src/lisp_core.c) splices that rendering over
+      the bare name fe's message ends in — so `(goto-char "x")` reports
+      `Wrong type argument: integer-or-marker-p, "x"` and
+      `(signal 'error '("custom msg"))` reports `custom msg`.  The
+      narrow `render_file_condition()` is gone: Emacs' rule renders the
+      file triple as the same sentence, so it was a special case of the
+      general one.  ONE divergence is left and is a manifest row rather
+      than this box: Emacs curls the apostrophe in the three messages
+      that have one (`text-quoting-style`), and kg prints the property
+      as stored.
 - [x] **`lisp_raise_wrong_type()`'s route does not reach an enclosing
       `condition-case`.**  DONE, Phase 13.2.  Converted to the
       protected-call + `FeResignal` shape `lisp_raise_file_condition()`

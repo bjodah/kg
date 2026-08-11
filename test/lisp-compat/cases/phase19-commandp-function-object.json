@@ -1,0 +1,9 @@
+{
+ "id": "phase19-commandp-function-object",
+ "setup": [
+  "(defun kg19-cmd () (interactive) 1)",
+  "(defun kg19-fn () 1)"
+ ],
+ "expr": "(list (commandp 'kg19-cmd) (commandp 'kg19-fn) (commandp (symbol-function 'kg19-cmd)) (commandp (symbol-function 'kg19-fn)) (commandp (lambda () 1)))",
+ "note": "Phase 19 narrows native-commandp's recorded divergence: a FUNCTION OBJECT is now asked by identity, so the object a command's name holds answers t where it answered nil. What is left of the divergence is the sibling commandp-anonymous-lambda case -- a lambda that carries an interactive form and was never registered -- because kg's `interactive` is an inert macro and a lambda carries no metadata."
+}

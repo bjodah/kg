@@ -1,0 +1,5 @@
+{
+ "id": "phase19-error-message-string-native-condition",
+ "expr": "(condition-case e (goto-char \"invalid\") (error (error-message-string e)))",
+ "note": "Phase 19: the sentence a handler gets for a kg native's own condition. Phase 13.3 gave the condition Emacs' data; this renders it, and the two sides agree byte for byte because the data does."
+}

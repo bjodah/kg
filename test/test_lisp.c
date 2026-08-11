@@ -520,7 +520,7 @@ static void test_message_arity(void)
 	CHECK(strstr(result, "too few arguments") != nullptr);
 	CHECK(kg_lisp_eval_string("(message 1)", 11, result, sizeof(result))
 	    != 0);
-	CHECK(strstr(result, "wrong-type-argument") != nullptr);
+	CHECK(strstr(result, "Wrong type argument") != nullptr);
 	CHECK(kg_lisp_eval_string(
 		  "(message \"ready\")", 17, result, sizeof(result))
 	    == 0);
@@ -1831,9 +1831,9 @@ static void test_math_natives(void)
 	/* Integer division by zero is an arith-error, as in Emacs; the
 	 * float spelling (/ 1.0 0) is what produces the nonfinite values
 	 * test_format_natives exercises. */
-	CHECK(eval_error_contains("(/ 1 0)", "arith-error"));
-	CHECK(eval_error_contains("(/ 0)", "arith-error"));
-	CHECK(eval_error_contains("(/ 5 0)", "arith-error"));
+	CHECK(eval_error_contains("(/ 1 0)", "Arithmetic error"));
+	CHECK(eval_error_contains("(/ 0)", "Arithmetic error"));
+	CHECK(eval_error_contains("(/ 5 0)", "Arithmetic error"));
 	CHECK(eval_eq("(/ 1.0 0)", "1.0e+INF"));
 
 	kg_lisp_shutdown();
@@ -2106,7 +2106,7 @@ static void test_buffer_objects(void)
 	    eval_eq("(eq (current-buffer) (get-buffer \"bridge.txt\"))", "t"));
 	CHECK(eval_eq("(get-buffer \"absent\")", "nil"));
 	CHECK(eval_eq("(buffer-live-p 42)", "nil"));
-	CHECK(eval_error_contains("(buffer-name 42)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(buffer-name 42)", "Wrong type argument"));
 	CHECK(eval_eq("(condition-case e (buffer-name 42) "
 		      "(wrong-type-argument (car (cdr e))))",
 	    "bufferp"));
@@ -2233,24 +2233,24 @@ static void test_numeric_argument_seam(void)
 	CHECK(kg_lisp_init() == 0);
 
 	/* Every native that reads a position or a count through the seam. */
-	CHECK(eval_error_contains("(goto-char \"x\")", "wrong-type-argument"));
-	CHECK(eval_error_contains("(goto-line \"x\")", "wrong-type-argument"));
+	CHECK(eval_error_contains("(goto-char \"x\")", "Wrong type argument"));
+	CHECK(eval_error_contains("(goto-line \"x\")", "Wrong type argument"));
 	CHECK(
-	    eval_error_contains("(forward-word \"x\")", "wrong-type-argument"));
+	    eval_error_contains("(forward-word \"x\")", "Wrong type argument"));
 	CHECK(eval_error_contains(
-	    "(char-to-string \"x\")", "wrong-type-argument"));
+	    "(char-to-string \"x\")", "Wrong type argument"));
 	CHECK(eval_error_contains(
-	    "(substring \"abcd\" \"1\" 2)", "wrong-type-argument"));
+	    "(substring \"abcd\" \"1\" 2)", "Wrong type argument"));
 	/* Not only strings: a symbol, a list, nil and an adapter object are
 	 * the same verdict, where each used to name a raw fe type tag. */
-	CHECK(eval_error_contains("(goto-char 'a)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(goto-char 'a)", "Wrong type argument"));
 	CHECK(
-	    eval_error_contains("(goto-char (list 1))", "wrong-type-argument"));
-	CHECK(eval_error_contains("(goto-char nil)", "wrong-type-argument"));
+	    eval_error_contains("(goto-char (list 1))", "Wrong type argument"));
+	CHECK(eval_error_contains("(goto-char nil)", "Wrong type argument"));
 	CHECK(eval_error_contains(
-	    "(goto-char (make-marker))", "wrong-type-argument"));
+	    "(goto-char (make-marker))", "Wrong type argument"));
 	/* The retired text is gone, not merely joined. */
-	CHECK(eval_error_contains("(goto-char \"x\")", "wrong-type-argument"));
+	CHECK(eval_error_contains("(goto-char \"x\")", "Wrong type argument"));
 	CHECK(!eval_error_contains("(goto-char \"x\")", "expected double"));
 
 	/* A NaN keeps its own message, and an infinity still clamps rather
@@ -2815,7 +2815,7 @@ static void test_string_length_and_substring(void)
 	CHECK(eval_eq("(string-length \"abc\")", "3"));
 	CHECK(eval_eq("(string-length \"h\xc3\xa9llo\")", "5"));
 	CHECK(eval_eq("(string-length \"\xe6\xbc\xa2\xe5\xad\x97\")", "2"));
-	CHECK(eval_error_contains("(string-length 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(string-length 1)", "Wrong type argument"));
 	/* Lengths and char codes are integers now, not doubles. */
 	CHECK(eval_eq("(type-of (string-length \"abc\"))", "integer"));
 	CHECK(eval_eq("(type-of (string-to-char \"abc\"))", "integer"));
@@ -2855,7 +2855,7 @@ static void test_string_concat_and_equal(void)
 	CHECK(eval_eq("(concat \"\xe6\xbc\xa2\" \"\xe5\xad\x97\")",
 	    "\xe6\xbc\xa2\xe5\xad\x97"));
 	CHECK(eval_eq("(string-length (concat \"h\xc3\xa9\" \"llo\"))", "5"));
-	CHECK(eval_error_contains("(concat \"a\" 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(concat \"a\" 1)", "Wrong type argument"));
 
 	CHECK(eval_eq("(string= \"\" \"\")", "t"));
 	CHECK(eval_eq("(string= \"abc\" \"abc\")", "t"));
@@ -2864,7 +2864,7 @@ static void test_string_concat_and_equal(void)
 	CHECK(eval_eq("(string= \"h\xc3\xa9llo\" \"h\xc3\xa9llo\")", "t"));
 	CHECK(eval_eq("(string= \"h\xc3\xa9llo\" \"hello\")", "nil"));
 	/* Recovery after a type error leaves the interpreter usable. */
-	CHECK(eval_error_contains("(string= \"a\" 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(string= \"a\" 1)", "Wrong type argument"));
 	CHECK(eval_eq("(concat \"ok\")", "ok"));
 
 	kg_lisp_shutdown();
@@ -2968,7 +2968,7 @@ static void test_format_natives(void)
 	CHECK(eval_error_contains(
 	    "(format \"%q\" 1)", "invalid format operation %q"));
 	CHECK(eval_error_contains("(format \"50%\")", "middle of format"));
-	CHECK(eval_error_contains("(format 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(format 1)", "Wrong type argument"));
 	/* The spellings Emacs accepts and kg refuses, recorded rather than
 	 * quietly misread (manifest row phase8-format-strictness): Emacs'
 	 * remaining flags and its N$ field numbers, and %c of 0, which
@@ -3028,12 +3028,12 @@ static void test_char_string_round_trip(void)
 	CHECK(eval_eq("(char-to-string 233)", "\xc3\xa9"));
 	CHECK(eval_eq("(char-to-string 28450)", "\xe6\xbc\xa2"));
 	CHECK(eval_eq("(char-to-string 128169)", "\xf0\x9f\x92\xa9"));
-	CHECK(eval_error_contains("(char-to-string 0)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(char-to-string 0)", "Wrong type argument"));
 	/* Emacs' own answer for a code point outside Unicode is
 	 * (wrong-type-argument characterp 1114112), measured; 0 is kg's
 	 * own rejection and keeps its own prose. */
 	CHECK(eval_error_contains(
-	    "(char-to-string 1114112)", "wrong-type-argument"));
+	    "(char-to-string 1114112)", "Wrong type argument"));
 	CHECK(eval_error_contains("(char-to-string 55296)", "surrogate"));
 
 	CHECK(eval_eq("(string-to-char \"abc\")", "97"));
@@ -3446,7 +3446,7 @@ static void test_type_predicates(void)
 	 * calling the name is still an error rather than a crash. */
 	CHECK(eval_eq("(+ 1 2)", "3"));
 	CHECK(eval_error_contains(
-	    "(funcall 'cyc)", "cyclic-function-indirection"));
+	    "(funcall 'cyc)", "Symbol's chain of function indirections contains a loop"));
 	/* fboundp reads the raw cell and follows nothing, so it answers for
 	 * the same name without raising -- the "never errors" doc/lisp-api.md
 	 * claims for it. */
@@ -3478,12 +3478,12 @@ static void test_numeric_core_error_rules(void)
 	 * form, are arith-error rather than a UB conversion or a silent
 	 * value.  The NaN is spelled (/ 0.0 0) because (/ 0 0) is integer
 	 * division and raises before the rounding native ever runs. */
-	CHECK(eval_error_contains("(floor (/ 0.0 0))", "arith-error"));
-	CHECK(eval_error_contains("(ceiling (/ 0.0 0))", "arith-error"));
-	CHECK(eval_error_contains("(round (/ 0.0 0))", "arith-error"));
-	CHECK(eval_error_contains("(truncate (/ 0.0 0))", "arith-error"));
-	CHECK(eval_error_contains("(floor 0 0)", "arith-error"));
-	CHECK(eval_error_contains("(round 0 0)", "arith-error"));
+	CHECK(eval_error_contains("(floor (/ 0.0 0))", "Arithmetic error"));
+	CHECK(eval_error_contains("(ceiling (/ 0.0 0))", "Arithmetic error"));
+	CHECK(eval_error_contains("(round (/ 0.0 0))", "Arithmetic error"));
+	CHECK(eval_error_contains("(truncate (/ 0.0 0))", "Arithmetic error"));
+	CHECK(eval_error_contains("(floor 0 0)", "Arithmetic error"));
+	CHECK(eval_error_contains("(round 0 0)", "Arithmetic error"));
 	/* Contained, not merely quiet: the ordinary answers are unchanged
 	 * and the interpreter is still usable afterwards. */
 	CHECK(eval_eq("(floor 3.7)", "3"));
@@ -3501,7 +3501,7 @@ static void test_numeric_core_error_rules(void)
 	 * is.  Both operand forms were evaluated before either arm ran, so
 	 * short-circuiting erases no side effect. */
 	CHECK(eval_eq("(< 2 1 \"a\")", "nil"));
-	CHECK(eval_error_contains("(< 1 2 \"a\")", "wrong-type-argument"));
+	CHECK(eval_error_contains("(< 1 2 \"a\")", "Wrong type argument"));
 	CHECK(eval_eq("(+ 1 2)", "3"));
 
 	/* `is` is fe's own broad comparator, not an Emacs form: it regained
@@ -3727,7 +3727,7 @@ static void test_phase11_dynamic_binding(void)
 		      " (special-variable-p 'p11-up))",
 	    "t"));
 	/* Constants cannot be marked at all. */
-	CHECK(eval_error_contains("(defvar t 1)", "setting-constant"));
+	CHECK(eval_error_contains("(defvar t 1)", "Attempt to set a constant symbol"));
 
 	/* Not grid probes: kg's own `let' shapes, which the switch onto
 	 * fe's core bindings-list form had to preserve exactly.  The
@@ -3742,10 +3742,10 @@ static void test_phase11_dynamic_binding(void)
 	 * behaviour, recorded rather than fixed by this phase. */
 	CHECK(eval_eq("(let ((a 1 2)) a)", "1"));
 	/* The constant refusals survive the switch, with one message. */
-	CHECK(eval_error_contains("(let ((t 1)) t)", "setting-constant"));
-	CHECK(eval_error_contains("(let ((nil 1)) 1)", "setting-constant"));
-	CHECK(eval_error_contains("(let ((:k 1)) 1)", "setting-constant"));
-	CHECK(eval_error_contains("(let* ((t 1)) t)", "setting-constant"));
+	CHECK(eval_error_contains("(let ((t 1)) t)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains("(let ((nil 1)) 1)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains("(let ((:k 1)) 1)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains("(let* ((t 1)) t)", "Attempt to set a constant symbol"));
 	/* Parallel evaluation of the initializers survives it too. */
 	CHECK(eval_eq("(progn (setq p11-par 100)"
 		      " (let ((p11-par 1) (z p11-par)) z))",
@@ -3761,7 +3761,7 @@ static void test_definition_forms(void)
 	CHECK(eval_eq("(prefix-numeric-value '(16))", "16"));
 	CHECK(eval_eq("(prefix-numeric-value '-)", "-1"));
 	CHECK(eval_error_contains(
-	    "(prefix-numeric-value '(1 2))", "wrong-type-argument"));
+	    "(prefix-numeric-value '(1 2))", "Wrong type argument"));
 
 	/* defun returns the symbol, as Emacs does. */
 	CHECK(eval_eq("(defun square (x) (* x x))", "square"));
@@ -4079,10 +4079,10 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1093, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
+ * 1090, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
  * frames per recursion level for this chain's shape (`if`, `+`, and the
  * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1093-frame arena, more than 2700x
+ * roughly 3 million frames against a 1090-frame arena, more than 2700x
  * over capacity -- demonstrably above it without depending on the private
  * Fe frame-size struct or reverse-engineering the arena layout, only on
  * the public frame_capacity/peak_frame_depth counters this file already
@@ -4268,7 +4268,7 @@ static void test_arena_exhaustion_conditions(void)
 	 * entry point instead.
 	 *
 	 * The route is the *reader*, not the evaluator: an evaluation deep
-	 * enough to fill the 4096-slot root stack hits the 1093-frame wall
+	 * enough to fill the 4096-slot root stack hits the 1090-frame wall
 	 * first and raises Budget, which is uncatchable by design (case 5
 	 * above).  Reading a datum nested `gc_stack_deep` levels pushes a
 	 * root per level with no frame at all, so `(load FILE)` -- whose
@@ -4512,6 +4512,138 @@ static void test_wrapping_native_transparency(void)
  * message, so an uncaught raise still reports `wrong-type-argument` and
  * not Emacs' "Wrong type argument: integer-or-marker-p, \"x\"" -- that
  * needs the error-message property, which is Phase 19. */
+/* Phase 19's interactive reflection: `interactive-form`, and the half of
+ * `commandp` that stopped being about a name.
+ *
+ * doc/TODO.md recorded this as blocked on a METADATA decision, not on an
+ * implementation: 07D stored a command's interactive specification as a
+ * thunk -- a closure over the descriptor, which the dispatcher can call
+ * and a reader can learn nothing from -- so there was nothing honest for
+ * `interactive-form` to return.  The decision is to store the raw
+ * specification beside the thunk (`define-command`'s fifth argument,
+ * which `defun`'s expansion passes), which costs one root per command
+ * and makes both questions answerable.
+ *
+ * `(interactive nil)` for a specification-less command is Emacs' own
+ * normalization, measured on 31.0.90, not a convenience. */
+static void test_interactive_form_reflection(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(defun p19s (n) \"Doc.\" (interactive \"p\") n)"));
+	CHECK(eval_ok("(defun p19f (s) (interactive (list \"x\")) s)"));
+	CHECK(eval_ok("(defun p19n () (interactive) 1)"));
+	CHECK(eval_ok("(defun p19plain (x) x)"));
+
+	/* A string spec comes back as it was written. */
+	CHECK(eval_eq("(interactive-form 'p19s)", "(interactive \"p\")"));
+	/* A FORM spec comes back UNEVALUATED -- the descriptor, not the
+	 * closure the dispatcher calls.  This is the case 07D could not
+	 * answer, and the reason the raw form is stored at all. */
+	CHECK(eval_eq("(interactive-form 'p19f)",
+	    "(interactive (list \"x\"))"));
+	CHECK(eval_eq("(interactive-form 'p19n)", "(interactive nil)"));
+	/* Not a command, and not anything at all. */
+	CHECK(eval_eq("(interactive-form 'p19plain)", "nil"));
+	CHECK(eval_eq("(interactive-form 'p19nosuch)", "nil"));
+	CHECK(eval_eq("(interactive-form 5)", "nil"));
+	/* A BUILT-IN answers `(interactive nil)` too -- kg policy, and true,
+	 * since its handler reads the terminal itself rather than declaring
+	 * arguments.  Asserted in test/lisp-compat's
+	 * `phase19-interactive-form-builtin` rather than here: this binary
+	 * links the editor stubs, whose command table is not cmd.c's. */
+
+	/* The function object answers the same questions the name does,
+	 * because it is the same object. */
+	CHECK(eval_eq("(interactive-form (symbol-function 'p19f))",
+	    "(interactive (list \"x\"))"));
+	CHECK(eval_eq("(commandp (symbol-function 'p19s))", "t"));
+	CHECK(eval_eq("(commandp (symbol-function 'p19plain))", "nil"));
+	CHECK(eval_eq("(commandp (lambda () 1))", "nil"));
+	CHECK(eval_eq("(commandp 'p19s)", "t"));
+
+	/* Redefinition replaces the recorded specification rather than
+	 * leaving the old one beside a new body. */
+	CHECK(eval_ok("(defun p19s (n) (interactive \"n Give a number: \") n)"));
+	CHECK(eval_eq("(interactive-form 'p19s)",
+	    "(interactive \"n Give a number: \")"));
+	/* ... and removing the command takes the form with it. */
+	CHECK(eval_ok("(remove-command 'p19s)"));
+	CHECK(eval_eq("(interactive-form 'p19s)", "nil"));
+	CHECK(eval_eq("(commandp 'p19s)", "nil"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Phase 19: what a condition READS AS -- from Lisp through
+ * `error-message-string`, and from the host through the diagnostic kg
+ * puts in the echo area.
+ *
+ * The second half is `render_condition()` in src/lisp_core.c, and what it
+ * is worth is the difference between `wrong-type-argument` and
+ * `Wrong type argument: integer-or-marker-p, "x"`: fe's `signal` uses the
+ * condition symbol as the completion's message, so every one of the
+ * natives Phase 13.3 gave structured conditions to reported nothing but
+ * its condition's name until this phase.
+ *
+ * The negative case matters as much: fe's own descriptive messages are
+ * NOT replaced, because the splice only fires when the message ENDS in
+ * the bare condition name.  `(car 1)` says "expected pair, got integer"
+ * on both sides of this phase. */
+static void test_error_message_rendering(void)
+{
+	char result[256] = "";
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* The rendering, from Lisp. */
+	CHECK(eval_eq("(error-message-string '(wrong-type-argument listp 6))",
+	    "Wrong type argument: listp, 6"));
+	CHECK(eval_eq("(error-message-string '(error \"custom msg\"))",
+	    "custom msg"));
+	CHECK(eval_eq("(condition-case e (goto-char \"x\") "
+		      "(error (error-message-string e)))",
+	    "Wrong type argument: integer-or-marker-p, \"x\""));
+	/* The property the rendering reads, and a program's right to
+	 * replace it. */
+	CHECK(eval_eq("(get 'args-out-of-range 'error-message)",
+	    "Args out of range"));
+	CHECK(eval_eq("(progn (put 'args-out-of-range 'error-message \"Nope\") "
+		      "(error-message-string '(args-out-of-range 1)))",
+	    "Nope: 1"));
+
+	/* The diagnostic a host sees for an UNCAUGHT one. */
+	CHECK(kg_lisp_eval_string("(goto-char \"x\")", 15, result,
+		  sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "Wrong type argument: integer-or-marker-p, \"x\"")
+	    != nullptr);
+	CHECK(kg_lisp_eval_string("(signal 'error (list \"custom msg\"))", 35,
+		  result, sizeof(result))
+	    != 0);
+	CHECK(strstr(result, "custom msg") != nullptr);
+	/* ... and fe's own descriptive message, which does not end in a
+	 * condition name and is therefore left alone. */
+	CHECK(kg_lisp_eval_string("(car 1)", 7, result, sizeof(result)) != 0);
+	CHECK(strstr(result, "expected pair, got integer") != nullptr);
+	/* The source label and position fe latched survive the splice: only
+	 * the trailing condition name is replaced. */
+	CHECK(strstr(result, "eval:1:") != nullptr);
+
+	/* Phase 19 took doc/TODO.md's writer row with the same pin: `prin1`
+	 * escapes the backslash as well as the quote, so a printed string
+	 * reads back.  `regexp-quote` is the kg surface that produces them. */
+	CHECK(eval_eq("(format \"%S\" \"x\\\\y\")", "\"x\\\\y\""));
+	CHECK(eval_eq("(format \"%S\" (regexp-quote \"a.b\"))",
+	    "\"a\\\\.b\""));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_condition_case_kg_native_conditions(void)
 {
 	setup_editor();
@@ -4831,9 +4963,9 @@ static void test_phase15_string_natives(void)
 		      "(string-to-number \"+7\") (string-to-number \"-.5\"))",
 	    "(-42 7 -0.5)"));
 	CHECK(eval_error_contains(
-	    "(string-to-number \"1\" 1)", "args-out-of-range"));
+	    "(string-to-number \"1\" 1)", "Args out of range"));
 	CHECK(eval_error_contains(
-	    "(string-to-number \"1\" 35)", "args-out-of-range"));
+	    "(string-to-number \"1\" 35)", "Args out of range"));
 	CHECK(eval_eq("(condition-case e (string-to-number 5) (error e))",
 	    "(wrong-type-argument stringp 5)"));
 
@@ -4869,7 +5001,7 @@ static void test_phase15_regex_seam(void)
 	CHECK(eval_eq("(string-match \"a\" \"xa\" -1)", "1"));
 	CHECK(eval_eq("(string-match \"x\" \"xa\" -9)", "0"));
 	CHECK(eval_error_contains(
-	    "(string-match \"a\" \"ab\" 5)", "args-out-of-range"));
+	    "(string-match \"a\" \"ab\" 5)", "Args out of range"));
 	CHECK(eval_eq("(condition-case e (string-match 1 \"a\") (error e))",
 	    "(wrong-type-argument stringp 1)"));
 	CHECK(eval_eq("(condition-case e (string-match \"a\" 1) (error e))",
@@ -4991,7 +5123,7 @@ static void test_phase15_list_library(void)
 	CHECK(eval_eq("(list (elt '(1 2 3) 1) (elt \"abc\" 1) "
 		      "(elt '(1 2) 5))",
 	    "(2 98 nil)"));
-	CHECK(eval_error_contains("(elt \"ab\" 5)", "args-out-of-range"));
+	CHECK(eval_error_contains("(elt \"ab\" 5)", "Args out of range"));
 
 	CHECK(eval_eq("(list (butlast '(1 2 3)) (butlast '(1 2 3) 2) "
 		      "(butlast '(1)) (butlast nil) (butlast '(1 2 3) -1))",
@@ -5123,7 +5255,7 @@ static void test_phase15_arithmetic(void)
 	CHECK(eval_eq("(mod 5.5 2)", "1.5"));
 	CHECK(eval_eq("(condition-case e (% 7.5 2) (error e))",
 	    "(wrong-type-argument integer-or-marker-p 7.5)"));
-	CHECK(eval_error_contains("(% 7 0)", "arith-error"));
+	CHECK(eval_error_contains("(% 7 0)", "Arithmetic error"));
 
 	CHECK(eval_eq("(list (ash 1 4) (ash 16 -2) (ash -16 -2) (ash 1 0) "
 		      "(ash 0 5))",
@@ -5570,7 +5702,7 @@ static void test_phase8_library(void)
 	CHECK(eval_eq("(number-to-string 1.5)", "1.5"));
 	CHECK(eval_eq("(number-to-string -0.0)", "-0.0"));
 	CHECK(eval_error_contains(
-	    "(number-to-string \"x\")", "wrong-type-argument"));
+	    "(number-to-string \"x\")", "Wrong type argument"));
 	/* string-to-list: codepoints, not bytes, and nil for "". */
 	CHECK(eval_eq("(string-to-list \"ab\xc3\xa9\")", "(97 98 233)"));
 	CHECK(eval_eq("(string-to-list \"\")", "nil"));
@@ -5624,10 +5756,10 @@ static void test_phase8_library(void)
 	/* Emacs answers (wrong-number-of-arguments max 0) for a bare call
 	 * and (wrong-type-argument ...) for a non-number operand; kg used
 	 * to answer a prose error for the first. */
-	CHECK(eval_error_contains("(max)", "wrong-number-of-arguments"));
-	CHECK(eval_error_contains("(min)", "wrong-number-of-arguments"));
-	CHECK(eval_error_contains("(max \"a\" 1)", "wrong-type-argument"));
-	CHECK(eval_error_contains("(min \"a\" 1)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(max)", "Wrong number of arguments"));
+	CHECK(eval_error_contains("(min)", "Wrong number of arguments"));
+	CHECK(eval_error_contains("(max \"a\" 1)", "Wrong type argument"));
+	CHECK(eval_error_contains("(min \"a\" 1)", "Wrong type argument"));
 	CHECK(eval_eq("(progn (makunbound 'no-value) (defvar no-value) "
 		      "(boundp 'no-value))",
 	    "nil"));
@@ -5710,19 +5842,28 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 14 pin:
-	 * 56239 object slots (56225 at the Phase 12 pin, 56226 at the Phase
+	 * build via kg_lisp_arena_stats() at the Phase 19 pin:
+	 * 56259 object slots (56239 at the Phase 14 pin, 56225 at the Phase 12 pin, 56226 at the Phase
 	 * 11 fix cycle's pin, 56224 at the Phase 10 pin, 56222 before that --
 	 * the frame record fe's dynamic-binding work grew costs one frame
 	 * slot, frame_capacity 1096 -> 1095, and returns two object slots;
 	 * Phase 12's fe additions take one object slot back and no frame
 	 * slot; Phase 14's grow FeMinimumArenaSize by 2264 bytes, which moves
 	 * two frame slots' worth of bytes to the object side, 1095 -> 1093
-	 * frames and +14 objects), peak_live 6205 after the prelude alone
-	 * (5301 at the Phase 12 pin, 5295 at the Phase 11 fix cycle's pin,
-	 * 5210 at the Phase 10 pin, 5188 at Phase 9's), and 9236 at this
-	 * point in this function, after every Phase 8 form above -- 16.4% of
-	 * the arena for everything kg ships plus this test's own corpus.
+	 * frames and +14 objects; Phase 19's seeded `error-message'
+	 * properties grow it by 3248 more, moving three more frame slots'
+	 * worth across, 1093 -> 1090 frames and +20 objects),
+	 * peak_live 9887 after the prelude alone
+	 * (6205 at the Phase 14 pin, 5301 at the Phase 12 pin, 5295 at the
+	 * Phase 11 fix cycle's pin, 5210 at the Phase 10 pin, 5188 at
+	 * Phase 9's), and 12984 at this point in this function, after every
+	 * Phase 8 form above -- 23.1% of the arena for everything kg ships
+	 * plus this test's own corpus.  Both figures were re-measured here
+	 * at the Phase 19 pin by instrumenting these two lines, and both had
+	 * gone stale: Phases 15-18 grew the prelude by the string and list
+	 * library, the seq shim and the buffer-local forms without
+	 * re-measuring them, which is most of the 6205 -> 9887.  Phase 19's
+	 * own share is +170, the `error-message' properties fe now seeds.
 	 * Phase 14 is the largest single move in the series and the reason is
 	 * structural rather than additive: every symbol object is one cons
 	 * bigger, so the +904 on the prelude figure is mostly the prelude's
@@ -5955,7 +6096,7 @@ static void test_phase17_line_motion(void)
 
 	/* A count that is not a number is Emacs' condition, not fe's prose. */
 	CHECK(
-	    eval_error_contains("(forward-line \"x\")", "wrong-type-argument"));
+	    eval_error_contains("(forward-line \"x\")", "Wrong type argument"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -6013,7 +6154,7 @@ static void test_phase17_looking_at(void)
 	CHECK(eval_eq(
 	    "(progn (goto-char 8) (looking-at \"bar\\nsecond\"))", "nil"));
 
-	CHECK(eval_error_contains("(looking-at 5)", "wrong-type-argument"));
+	CHECK(eval_error_contains("(looking-at 5)", "Wrong type argument"));
 	CHECK(eval_error_contains("(looking-at \"[\")", "invalid regexp"));
 
 	kg_lisp_shutdown();
@@ -6046,7 +6187,7 @@ static void test_phase17_skip_chars(void)
 	    "(progn (goto-char 3) (skip-chars-forward \"a-z\" 2))", "0"));
 
 	CHECK(eval_error_contains(
-	    "(skip-chars-forward 5)", "wrong-type-argument"));
+	    "(skip-chars-forward 5)", "Wrong type argument"));
 	/* The bound is a raise, not a silent truncation: 64 ranges fit. */
 	CHECK(eval_error_contains(
 	    "(skip-chars-forward (make-string 200 97))", "set is too large"));
@@ -6248,7 +6389,7 @@ static void test_phase17_switch_to_buffer(void)
 		      " (get-buffer \"*report*\")))",
 	    "*report*"));
 	CHECK(
-	    eval_error_contains("(switch-to-buffer 5)", "wrong-type-argument"));
+	    eval_error_contains("(switch-to-buffer 5)", "Wrong type argument"));
 
 	/* Leave the harness as it was found.  The stub bufmgr frees a killed
 	 * buffer's name and nothing else does, so a test that creates a
@@ -6455,7 +6596,7 @@ static void test_hooks(void)
 	 * rather than taking the editor down: only the *host*-side resolver
 	 * stopped raising. */
 	CHECK(eval_error_contains(
-	    "(funcall 'cyc-hook)", "cyclic-function-indirection"));
+	    "(funcall 'cyc-hook)", "Symbol's chain of function indirections contains a loop"));
 	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();
@@ -6698,6 +6839,8 @@ int main(void)
 	RUN(test_catch_throw_unwind);
 	RUN(test_wrapping_native_transparency);
 	RUN(test_condition_case_kg_native_conditions);
+	RUN(test_error_message_rendering);
+	RUN(test_interactive_form_reflection);
 	RUN(test_phase13_trap_battery);
 	RUN(test_phase14_symbols);
 	RUN(test_phase14_excursion_hygiene);

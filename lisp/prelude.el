@@ -543,6 +543,13 @@
         (if (null body) (setq body (list nil)))
         (internal--let f (cons 'lambda (cons params body)))
         (setq spec (car (cdr declaration)))
+        ;; The specification as WRITTEN, kept beside the thunk the line
+        ;; below wraps a form one in.  `define-command' takes it as a
+        ;; fifth argument and `interactive-form' reads it back; without
+        ;; it a form spec is only a closure, which is callable and shows
+        ;; a reader nothing (Phase 19, doc/TODO.md's interactive
+        ;; reflection row).
+        (internal--let raw spec)
         (if (and spec (not (stringp spec)))
             (setq spec (cons 'lambda (cons nil (list spec)))))
         ;; One evaluation, command root first, function cell last (07D
@@ -555,7 +562,7 @@
         ;; and puts the step that can fail before the step that cannot.
         (list 'let (list (list 'internal--defun-fn f))
           (list 'define-command (list 'quote name)
-            'internal--defun-fn spec doc)
+            'internal--defun-fn spec doc (list 'quote raw))
           (list 'defalias (list 'quote name) 'internal--defun-fn)
           (if doc (list 'internal--doc-put (list 'quote name) doc) nil)
           (list 'quote name)))

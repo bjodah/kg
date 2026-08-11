@@ -1,0 +1,5 @@
+{
+ "id": "phase19-error-message-property",
+ "expr": "(list (get 'wrong-type-argument 'error-message) (get 'args-out-of-range 'error-message) (get 'kg-not-a-condition 'error-message))",
+ "note": "Phase 19: the properties fe seeds at context open are visible from kg's Lisp, which is what makes `(put 'SYMBOL 'error-message ...)` a thing a package can do."
+}

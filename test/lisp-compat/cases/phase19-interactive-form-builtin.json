@@ -1,0 +1,5 @@
+{
+ "id": "phase19-interactive-form-builtin",
+ "expr": "(list (interactive-form 'save-buffer) (interactive-form 'nosuch-command-at-all))",
+ "note": "Phase 19, kg policy: a BUILT-IN command answers the bare `(interactive)`, which is a true statement about kg rather than a stub -- its handler reads the terminal itself instead of declaring arguments for a dispatcher to fill. A name nothing defines is nil on both sides."
+}

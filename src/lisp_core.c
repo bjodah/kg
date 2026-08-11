@@ -52,8 +52,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 9);
-static_assert(FE_LANGUAGE_VERSION == 12);
+static_assert(FE_API_VERSION == 10);
+static_assert(FE_LANGUAGE_VERSION == 13);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -133,43 +133,48 @@ void release_scratch(void)
 	state.scratch = nullptr;
 }
 
-/* Emacs' `error-message-string' of a file condition is the operation, the
- * strerror text and the path -- "Cannot open load file: No such file or
- * directory, /nope/x.el" -- while fe's `signal' uses the bare condition
- * NAME as the completion message (fe_eval.c's PSignal arm passes the
- * symbol as both).  Without this, every diagnostic for the two sites
- * sub-plan 12D moved onto `file-missing' would be the word `file-missing'
- * and nothing else: the file kg used to name would be reachable only from
- * a handler.  Rebuilt from the condition object rather than from a buffer
- * the raise arms, because a raise a Lisp handler catches never reaches
- * this function and would leave one stale.
+/* Emacs' `error-message-string' of the condition fe is reporting, spliced
+ * over the bare condition NAME fe's own message ends in.
  *
- * MESSAGE arrives as "LABEL:LINE: SYMBOL"; only the trailing symbol name
- * is replaced, so the position fe latched survives.  The match to Emacs is
- * for the (OPERATION STRERROR PATH) triple of strings -- the shape kg's own
- * raises always have -- including Emacs' rule that an empty OPERATION
- * drops its ": " separator.  Every other shape a user (signal
- * 'file-missing DATA) can build (wrong arity, a non-string field) answers
- * false and falls back to fe's own text BY DESIGN: those are
- * error-message-string corners this deliberately does not reproduce. */
-static bool render_file_condition(
+ * fe's `signal' uses the condition symbol as the completion's message
+ * (fe_eval.c's PSignal arm passes it as both), so an uncaught
+ * `(wrong-type-argument integer-or-marker-p "x")' -- which is what every
+ * kg native's type check raises since Phase 13.3 -- reported the words
+ * `wrong-type-argument' and nothing else: neither the predicate nor the
+ * offending value reached the echo area.  Phase 19 gave fe the rendering
+ * and `FeErrorMessageString' to reach it from C; this is the splice.
+ *
+ * MESSAGE arrives as "LABEL:LINE: SYMBOL", so only a trailing bare
+ * condition name is replaced and the position fe latched survives.  That
+ * suffix test is also what keeps fe's own descriptive messages: `(car 1)'
+ * arrives as "expected pair, got integer", which does not end in
+ * `wrong-type-argument', so nothing is spliced and fe's text stands.
+ *
+ * Rebuilt from the condition object rather than from a buffer the raise
+ * arms fill, because a raise a Lisp handler catches never reaches this
+ * function and would leave one stale.
+ *
+ * This replaces render_file_condition(), which did the same splice for the
+ * two file classes' (OPERATION STRERROR PATH) triple alone.  It needs no
+ * successor: Emacs' rule renders that triple as the same sentence -- a
+ * `file-error' subtype takes its message from the data and princs the rest
+ * -- so "Cannot open load file: No such file or directory, /nope/x.el" is
+ * now a special case of the general rendering rather than a private one,
+ * and the empty-OPERATION corner it handled ("d, p") is Emacs' own
+ * empty-message rule. */
+static bool render_condition(
     FeContext *context, char *out, size_t size, const char *message)
 {
-	static const char *const separator[3] = { "", ": ", ", " };
 	FeObject *condition = FeGetCondition(context);
-	FeObject *data, *field;
-	char name[32], text[512];
-	size_t used, length, i;
-	bool bare_operation = false;
+	char name[64];
+	size_t used, length;
 
 	if (FeGetType(condition) != FeTPair) {
 		return false;
 	}
 	length = FeToString(
 	    context, FeCar(context, condition), name, sizeof(name));
-	if (length >= sizeof(name)
-	    || (strcmp(name, "file-missing") != 0
-		&& strcmp(name, "file-error") != 0)) {
+	if (length >= sizeof(name)) {
 		return false;
 	}
 	used = strlen(message);
@@ -185,32 +190,8 @@ static bool render_file_condition(
 		return false;
 	}
 	memcpy(out, message, used);
-	data = FeCdr(context, condition);
-	for (i = 0; i < 3; i++) {
-		if (FeGetType(data) != FeTPair) {
-			return false;
-		}
-		field = FeCar(context, data);
-		length = FeGetType(field) == FeTString
-		    ? FeStringByteLength(context, field)
-		    : sizeof(text);
-		if (length >= sizeof(text)
-		    || !FeCopyStringBytes(context, field, text, length)) {
-			return false;
-		}
-		text[length] = '\0';
-		if (i == 0 && length == 0) {
-			/* Emacs: (file-missing "" "d" "p") renders "d, p" --
-			 * an empty OPERATION takes its ": " with it. */
-			bare_operation = true;
-		}
-		used += (size_t)snprintf(out + used, size - used, "%s%s",
-		    i == 1 && bare_operation ? "" : separator[i], text);
-		if (used >= size) {
-			return false;
-		}
-		data = FeCdr(context, data);
-	}
+	out[used] = '\0';
+	(void)FeErrorMessageString(context, condition, out + used, size - used);
 	return true;
 }
 
@@ -224,7 +205,7 @@ static bool render_file_condition(
 		abort();
 	}
 	lisp->error_kind = FeGetCompletion(context);
-	if (!render_file_condition(
+	if (!render_condition(
 		context, lisp->error, sizeof(lisp->error), message)) {
 		copy_result(lisp->error, sizeof(lisp->error), message);
 	}
@@ -376,11 +357,14 @@ static void release_lisp_commands(void)
 			    state.context, state.commands[i].interactive_root);
 			FeReleaseRoot(state.context,
 			    state.commands[i].documentation_root);
+			FeReleaseRoot(state.context,
+			    state.commands[i].interactive_form_root);
 			cmd_runtime_remove(state.commands[i].name);
 			state.commands[i].name[0] = '\0';
 			state.commands[i].function_root = nullptr;
 			state.commands[i].interactive_root = nullptr;
 			state.commands[i].documentation_root = nullptr;
+			state.commands[i].interactive_form_root = nullptr;
 		}
 	}
 }
@@ -857,11 +841,11 @@ void lisp_check_symbol_or_string(FeContext *context, FeObject *object)
  * bare condition name as the completion's message (fe_eval.c's PSignal
  * arm passes `symbol' as both the name and the message), so an UNCAUGHT
  * missing-file load would report `file-missing' and nothing else -- the
- * file name gone from every diagnostic.  render_file_condition() above
- * is the repair: it rebuilds Emacs' error-message-string text from the
- * condition's data for these two classes' string-triple shape, and only
- * for them -- it is not a general error-message-string, which neither
- * fe nor kg has.
+ * file name gone from every diagnostic.  render_condition() above is the
+ * repair, and since Phase 19 it is the general one: Emacs' rendering
+ * rule gives a `file-error' subtype its message from the data and princs
+ * the rest, so this triple's sentence falls out of the same code every
+ * other condition's does.
  *
  * Every allocation can collect, so each intermediate stays on the GC
  * stack until the list is built.  The checkpoint is not restored:

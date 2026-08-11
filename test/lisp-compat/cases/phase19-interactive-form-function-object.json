@@ -1,0 +1,8 @@
+{
+ "id": "phase19-interactive-form-function-object",
+ "setup": [
+  "(defun kg19-obj (s) (interactive (list \"x\")) s)"
+ ],
+ "expr": "(interactive-form (symbol-function 'kg19-obj))",
+ "note": "Phase 19: the same identity route commandp gained. The object a command's name holds is the object its registry entry rooted -- defun binds the closure once and hands the same one to both -- so the reflection works through either."
+}

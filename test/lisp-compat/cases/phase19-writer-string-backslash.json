@@ -1,0 +1,5 @@
+{
+ "id": "phase19-writer-string-backslash",
+ "expr": "(list (regexp-quote \"a.b\") (format \"%S\" \"x\\\\y\"))",
+ "note": "Phase 19 took doc/TODO.md's writer row: prin1 escapes the backslash as well as the quote. This is the case that was measurable from kg all along -- `regexp-quote` produces strings full of backslashes, and printing one did not read back."
+}

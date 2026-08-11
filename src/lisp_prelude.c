@@ -94,6 +94,7 @@ static const struct native_binding native_bindings[] = {
 	{ "consp", native_consp },
 	{ "functionp", native_functionp },
 	{ "commandp", native_commandp },
+	{ "interactive-form", native_interactive_form },
 	{ "command-execute", native_command },
 	{ "prefix-numeric-value", native_prefix_numeric_value },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a

@@ -1,0 +1,33 @@
+# Phase 19: an UNCAUGHT condition reads as Emacs' sentence in the echo
+# area, not as the bare condition symbol.
+#
+# `M-:` is the shortest route to the diagnostic path a user actually
+# meets: `(goto-char "x")` is a kg native whose type check has raised
+# `(wrong-type-argument integer-or-marker-p "x")` since Phase 13.3, and
+# until Phase 19 the echo area said `wrong-type-argument` and nothing
+# else -- neither the predicate nor the offending value survived, because
+# fe's `signal` uses the condition symbol as the completion's message.
+# `render_condition()` (src/lisp_core.c) splices `FeErrorMessageString`'s
+# rendering over that trailing name.
+#
+# kg policy, not an oracle comparison: Emacs' echo area is not a saved
+# file, and what is oracle-compared is the rendering itself
+# (`phase19-error-message-string-*` in test/lisp-compat).
+name: lisp-error-message-rendering
+filename: lisp-error-message.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 100]
+initial: "ok\n"
+keys:
+  - "M-:"
+  - '(goto-char "x")'
+  - RET
+expected_saved: "ok\n"
+expected_screen_contains:
+  # The predicate Emacs names for a buffer position, and the value that
+  # was not one -- printed with prin1, so the string keeps its quotes.
+  - 'Wrong type argument: integer-or-marker-p, "x"'
+expected_screen_not_contains:
+  # The bare symbol, which is the whole of what this used to say.
+  - "eval:1: wrong-type-argument"

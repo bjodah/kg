@@ -25,8 +25,8 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  # The counters, in the order the renderer writes them.  56239 slots and
-  # a 1093-frame capacity are this arena's measured partitioning at the
+  # The counters, in the order the renderer writes them.  56259 slots and
+  # a 1090-frame capacity are this arena's measured partitioning at the
   # Phase 14 pin (doc/fe-upstream.md's row) -- 56225/1095 at the Phase 12
   # pin, 56226/1095 at the Phase 11 pin and 56224/1096 at Phase 10's.
   # Phase 14's fe widened a symbol object by one cons and added eight
@@ -35,9 +35,9 @@ expected_screen_contains:
   # object side, so the object count RISES as the frame count falls.
   # `fails 0` is the claim that a session which has only booted has never
   # failed an allocation.
-  - "Arena: 56239 slots,"
+  - "Arena: 56259 slots,"
   - " free, peak "
   - "; GC 0; roots "
-  - "/1093; fails 0"
+  - "/1090; fails 0"
 expected_screen_not_contains:
   - "Lisp not available"

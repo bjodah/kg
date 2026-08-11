@@ -13,4 +13,9 @@ keys:
   - RET
 expected_saved: ""
 expected_screen_contains:
-  - wrong-number-of-arguments
+  # Emacs' rendering of the condition, not the bare symbol: Phase 19 gave
+  # fe `error-message-string' and kg's error handler splices it over the
+  # condition name fe's own message ends in.  What reaches the echo area
+  # is what Emacs would print for `(wrong-number-of-arguments bad 0)'.
+  - "Wrong number of arguments"
+

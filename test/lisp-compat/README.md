@@ -291,7 +291,7 @@ when fe's dynamic-binding frame record grew; by one object slot at the
 Phase 12 pin; and at the Phase 14 pin, where a symbol object one cons
 bigger plus eight primitives grew `FeMinimumArenaSize` enough to move two
 frame slots' worth of bytes to the object side.  The 1 MiB arena
-partitions to 56239 object slots and 1093 frames now, against the 56224
+partitions to 56259 object slots and 1090 frames now, against the 56224
 and 1096 the table names.
 
 | §15 measurement | Counter | Reading |

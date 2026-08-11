@@ -1,0 +1,11 @@
+{
+ "id": "phase19-interactive-form",
+ "setup": [
+  "(defun kg19-str (n) \"Doc.\" (interactive \"p\") n)",
+  "(defun kg19-none () (interactive) 1)",
+  "(defun kg19-form (s) (interactive (list \"x\")) s)",
+  "(defun kg19-plain (x) x)"
+ ],
+ "expr": "(list (interactive-form 'kg19-str) (interactive-form 'kg19-none) (interactive-form 'kg19-form) (interactive-form 'kg19-plain) (interactive-form 'kg19-nosuch))",
+ "note": "Phase 19, and doc/TODO.md's interactive-reflection row: the specification a command was DEFINED with, read back. The form spec is the interesting one -- 07D stored only the closure built over it, which is callable and shows a reader nothing, so `interactive-form` had nothing honest to return until the raw form was stored beside it. A defun with no declaration, and a name nothing defines, are both nil."
+}

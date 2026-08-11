@@ -21,19 +21,19 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/grep-buffer.el` | 102 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1618 | 126 |
+| `lisp/prelude.el` | 1620 | 126 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2181** | **190** |
+| **total** | **2183** | **190** |
 
 ## Implemented-name set
 
 | Source | Names |
 | --- | ---: |
-| kg-native | 124 |
+| kg-native | 125 |
 | kg-lisp | 160 |
-| fe-primitive | 70 |
+| fe-primitive | 71 |
 | fe-native | 14 |
 | reader | 6 |
 | corpus (defined by the corpus itself) | 190 |
@@ -57,7 +57,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 0 | -- |
 | records | 0 | -- |
 
-## COVERED (222 names, 2177 references)
+## COVERED (222 names, 2179 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -65,14 +65,14 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 148 | `cdr` | fe-primitive |
 | 136 | `car` | fe-primitive |
 | 133 | `if` | fe-primitive |
-| 128 | `list` | fe-primitive |
+| 129 | `list` | fe-primitive |
 | 126 | `defalias` | fe-primitive |
 | 112 | `lambda` | fe-primitive |
 | 73 | `cons` | fe-primitive |
 | 65 | `let` | kg-lisp |
 | 61 | `defun` | kg-lisp |
 | 61 | `while` | fe-primitive |
-| 51 | `internal--let` | kg-lisp |
+| 52 | `internal--let` | kg-lisp |
 | 49 | `and` | fe-primitive |
 | 32 | `eq` | fe-primitive |
 | 30 | `not` | fe-primitive |

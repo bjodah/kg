@@ -83,8 +83,8 @@ The tree-sitter backend loads grammars at run time by soname
 searched along
 .Ev KG_TS_GRAMMAR_PATH ;
 it highlights C, Python, YAML, Markdown, JavaScript, React/JSX, TypeScript,
-TSX, Java, Rust, HTML, Emacs Lisp and Makefile, and treats every other
-buffer as plain text.
+TSX, Java, Rust, HTML, Emacs Lisp, Makefile and Shell, and treats every
+other buffer as plain text.
 Markdown uses the block grammar only, so headings, code fences, block quotes
 and list markers are coloured while inline markup inside a paragraph is not.
 There is no language injection: the JavaScript inside an HTML
@@ -98,7 +98,6 @@ The TypeScript mode chooses its grammar from the file name, since
 and
 .Pa .ts
 are separate tree-sitter grammars that mis-parse each other's files.
-Shell mode has no grammar in this release.
 A mode whose grammar is missing is not an error and never falls back to the
 row scanners.
 The mode names, mode commands and file-name detection below are unaffected

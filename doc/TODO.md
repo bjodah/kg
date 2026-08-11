@@ -148,17 +148,31 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
 
 The `WITH_TREE_SITTER=1` backend is complete per
 [doc/plans/kg-tree-sitter-plan.md](plans/kg-tree-sitter-plan.md)'s
-definition of done: 13 registry rows over 11 grammars, incremental
+definition of done: 14 registry rows over 12 grammars, incremental
 TSInputEdit parsing with damage-limited repainting, differential-tested
 against full rebuilds.  Hosted CI runs the lane as of 2026-08-11:
 `.ci/ci-13-with-tree-sitter.sh` no longer skips off the developer box, it
 builds `utils/tree-sitter-pins` with `utils/build-tree-sitter.sh` into a
 cache keyed by that manifest's hash.  Known follow-ups, none blocking:
 
-- **Shell**: unblocked.  The grammar the loader used to refuse (a
-  tree-sitter-bash of grammar ABI 6) is gone; the installed
-  `libtree-sitter-bash.so` is ABI 15 and loads.  What is missing is
-  one registry row + one query + tests.
+- **`ts_tree_get_changed_ranges()` can under-report**, and kg trusts it.
+  Found while giving Shell a differential fixture, on a document of
+  overlapping unterminated heredocs: replaying the failing edit through
+  the C API, an edit on row 15 turns the token at byte 92 from an
+  anonymous `<<` [92,95] into a `(heredoc_start)` [92,102] on row 8,
+  while the reported changed ranges are `[15.23-15.38]` and
+  `[15.39-16.6]` and name nothing on row 8.  kg repaints the union of
+  the edit's rows and those ranges (`damage_repaint()`), which is the
+  documented contract, so that row keeps a stale colour until something
+  else repaints it — cosmetic, and it self-heals on the next edit that
+  touches the row.  bash's heredoc scanner is where it shows; nothing
+  says the other grammars cannot.  The fix is not a wider damage window
+  guessed at here but a repaint of the visible window on redisplay,
+  which is what Emacs' treesit does and what kg's row-at-a-time painter
+  already makes correct; it is a separate slice.  Until then the Shell
+  random alphabet omits the heredoc tokens
+  (`test/test_syntax_tree_sitter.c`, `shell_tokens[]`) so the loop keeps
+  asking about kg.
 - **TSX tag colouring**: TS and TSX share one query text restricted to
   the common node inventory, so `.tsx` tag names are unpainted; a
   second query literal for the tsx row fixes it if wanted.

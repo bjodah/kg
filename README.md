@@ -372,7 +372,8 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
 Highlighted today: **C**, **Python**, **YAML**, **Markdown**,
 **JavaScript**, **React/JSX**, **TypeScript**, **TSX**, **Java**, **Rust**,
-**HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
+**HTML**, **Emacs Lisp**, **Makefile** and **Shell** — comments, strings,
+numbers,
 keywords and types, from small kg-owned queries compiled into the binary,
 one per language. Every other mode is plain text under
 `WITH_TREE_SITTER=1`: a mode with no grammar is not an error, it simply has
@@ -385,9 +386,7 @@ JavaScript inside an HTML `<script>` and the shell inside a Makefile recipe
 are plain, though the surrounding tags and `$(...)` references are not.
 kg's TypeScript mode picks its grammar from the file name — `.tsx` gets the
 tsx grammar, everything else typescript — because the two are different
-grammars and each mis-parses the other's files. **Shell** has no grammar
-yet: tree-sitter-bash exists, but the build kg is tested against ships a
-release too old for this `libtree-sitter` to load.
+grammars and each mis-parses the other's files.
 
 An edit reparses incrementally, against the tree the last one left, and
 re-colours only the rows that changed, so an ordinary keystroke costs what

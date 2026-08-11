@@ -25,10 +25,10 @@
  * says the node names in a query are the grammar's real ones).  Each
  * language gets two or three byte-exact paints, chosen for the decision in
  * its query that would have gone the other way if it had been written from
- * memory.  Eight of the languages get a differential fixture, an edit table
- * and a share of the seeded random loop; the other five ride the same
+ * memory.  Nine of the languages get a differential fixture, an edit table
+ * and a share of the seeded random loop; the other five rows ride the same
  * runner with no fixture, because the runner is language-generic and what a
- * ninth fixture adds is runtime. */
+ * tenth fixture adds is runtime. */
 
 #include "../src/def.h"
 #include "../src/edit.h"
@@ -340,6 +340,7 @@ static void test_registry_queries_compile(void)
 		{ KG_MODE_HTML, "a.html", "html" },
 		{ KG_MODE_LISP, "init.el", "elisp" },
 		{ KG_MODE_MAKEFILE, "Makefile", "make" },
+		{ KG_MODE_SHELL, "a.sh", "bash" },
 	};
 	size_t i;
 
@@ -466,18 +467,14 @@ static void test_query_predicates_are_rejected(void)
  * Vue are the deliberate examples: the install has no grammar for either,
  * so they are plain-text modes by Refinement decision 4 and expected to
  * stay ones.  A slice that gives C# a grammar moves this anchor; that is
- * the intended cost of the anchor being real.
- *
- * Shell is here for a different reason.  The install DOES ship a
- * tree-sitter-bash the loader accepts now (it did not when batch 2 was
- * written -- see test_grammar_abi_is_rejected()), so Shell is grammarless
- * only because no row and no query have been written for it yet.  This
- * line is what the slice that writes them has to change. */
+ * the intended cost of the anchor being real -- Shell used to be asserted
+ * here for want of a row and a query, and the slice that wrote them took
+ * the line out and put `{ KG_MODE_SHELL, "a.sh", "bash" }` in
+ * test_registry_queries_compile() instead. */
 static void test_unregistered_mode_has_no_language(void)
 {
 	CHECK(kg_ts_language_for_mode(KG_MODE_CSHARP, "a.cs") == NULL);
 	CHECK(kg_ts_language_for_mode(KG_MODE_VUE, "a.vue") == NULL);
-	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL, "a.sh") == NULL);
 	CHECK(kg_ts_language_for_mode(KG_MODE_TEXT, NULL) == NULL);
 	/* The git modes stay grammarless by policy rather than by accident:
 	 * they bind C-c keys that quit the editor, so their behaviour must
@@ -1025,8 +1022,9 @@ static void test_make_assignment_and_target(void)
 }
 
 /* A recipe line is shell and stays plain -- injecting a shell grammar is
- * Refinement decision 4's other side, and this build has no usable bash
- * grammar anyway -- but the make-level references inside it are not: a
+ * Refinement decision 4's other side, and it stays plain now that a bash
+ * grammar IS loaded for kg's Shell mode -- but the make-level references
+ * inside it are not: a
  * `$(...)` reference and an automatic variable are the grammar's own nodes.
  *
  * The leading TAB is one byte of chars and eight of render, so this row is
@@ -1079,6 +1077,91 @@ static void test_java_annotation_over_string(void)
 
 	load_mode("Java", lines, 1);
 	check_hl(0, "555555555555555555666666665");
+	teardown();
+}
+
+/* ---- Shell ---- */
+
+/* The representative line: a command, a double-quoted string with an
+ * expansion inside it, and a trailing comment.  The string is painted
+ * through its pieces, so the `$USER` between them keeps its own face --
+ * the same shape Python's f-string and JavaScript's template literal have,
+ * and the reason the query does not capture (string) whole. */
+static void test_shell_expansion_inside_string(void)
+{
+	static const char *const lines[] = { "echo \"hi $USER\" # who" };
+
+	load_mode("Shell", lines, 1);
+	check_hl(0, "555506666555556022222");
+	teardown();
+}
+
+/* `-n` twice on two rows, meaning two different things, coloured two
+ * different ways.  In `[ -n "$V" ]` it is a (test_operator) and @keyword;
+ * in `echo -n "$V"` it is an argument word and plain.  Nothing about the
+ * two bytes differs -- the enclosing command does -- so this is a
+ * distinction only a parser can draw, and it is the reason the query
+ * carries a (test_operator) pattern at all. */
+static void test_shell_test_operator_versus_argument(void)
+{
+	static const char *const lines[]
+	    = { "[ -n \"$V\" ]", "echo -n \"$V\"" };
+
+	load_mode("Shell", lines, 2);
+	check_hl(0, "00440655600");
+	check_hl(1, "555500006556");
+	teardown();
+}
+
+/* A heredoc is the multi-row construct this language contributes, and both
+ * spellings of it are one @string block from the delimiter down.  The
+ * `$V` on row 1 comes out @string rather than @type even though it is a
+ * real expansion: (heredoc_body) is captured whole -- it has to be, since
+ * the quoted body on row 4 is a leaf token with no pieces to capture -- and
+ * @string outranks @type in the precedence table. */
+static void test_shell_heredocs_quoted_and_not(void)
+{
+	static const char *const lines[]
+	    = { "cat <<EOF", "a $V b", "EOF", "cat <<'RAW'", "a $V b", "RAW" };
+
+	load_mode("Shell", lines, 6);
+	check_hl(0, "555000666");
+	check_hl(1, "666666");
+	check_hl(2, "666");
+	check_hl(3, "55500066666");
+	check_hl(4, "666666");
+	check_hl(5, "666");
+	teardown();
+}
+
+/* A function name is @type, the rule Python's def and Rust's fn got, and a
+ * `local` declaration is an anonymous keyword token of its own node rather
+ * than a word in command position.  The leading TAB is one byte of chars
+ * and eight of render, so this row is the coordinate seam as well. */
+static void test_shell_function_and_declaration(void)
+{
+	static const char *const lines[] = { "greet() {", "\tlocal n=42", "}" };
+
+	load_mode("Shell", lines, 3);
+	check_hl(0, "555550000");
+	check_hl(1, "000000004444405077");
+	check_hl(2, "0");
+	teardown();
+}
+
+/* What the query deliberately does NOT capture, asserted rather than
+ * described: `$(...)` is not an expansion of a name, it is a command, so
+ * the sigil and parentheses stay plain and `basename` inside them is
+ * coloured for what it is -- a command in command position.  The shebang
+ * needs no pattern of its own; bash parses it as an ordinary comment. */
+static void test_shell_command_substitution_is_not_a_variable(void)
+{
+	static const char *const lines[]
+	    = { "#!/bin/sh", "x=$(basename \"$0\")" };
+
+	load_mode("Shell", lines, 2);
+	check_hl(0, "222222222");
+	check_hl(1, "500055555555065560");
 	teardown();
 }
 
@@ -1673,11 +1756,11 @@ static const struct diff_case markdown_cases[] = {
 	    "```c\nint x;\n```" },
 };
 
-/* ---- Batch 2: four languages, chosen for what they stress ------------
+/* ---- Batch 2 and after: five languages, chosen for what they stress ---
  *
- * Not all nine.  The runner below is language-generic and batch 1 proved it
- * on four grammars; what a fifth ordinary language would add is runtime,
- * not evidence.  These four were picked because each breaks the machinery
+ * Not all ten.  The runner below is language-generic and batch 1 proved it
+ * on four grammars; what an ordinary sixth language would add is runtime,
+ * not evidence.  These five were picked because each breaks the machinery
  * in a different place if it is going to break at all:
  *
  *   Rust        a large grammar with an external scanner, raw strings and
@@ -1690,13 +1773,16 @@ static const struct diff_case markdown_cases[] = {
  *   JavaScript  the external scanner that has to decide automatic
  *               semicolon insertion and regex-versus-division, which is
  *               the classic case of "the same bytes, a different tree,
- *               because of what came before them".
- *
- * JavaScript stands in for bash here.  bash was the intended
- * external-scanner-heavy pick, and the tree-sitter-bash on the box was too
- * old to load at all when these fixtures were written.  The install has
- * since moved on and bash loads, so this is now a fixture the Shell slice
- * may take over rather than a substitution it has to keep.
+ *               because of what came before them";
+ *   Shell       the external scanner batch 2 wanted and could not have,
+ *               because the tree-sitter-bash on the box was too old to
+ *               load.  A heredoc is a body whose extent is decided by a
+ *               delimiter word typed rows earlier, and `$(` opens a nested
+ *               parse inside a string; both are scanner state that no
+ *               edit's damage window contains, which is exactly what this
+ *               differential is for.  JavaScript stood in for it while it
+ *               was unavailable and keeps its own fixture, since the two
+ *               scanners fail differently.
  *
  * TypeScript/TSX, Java and Makefile ride the same machinery with no
  * fixture of their own, which is the arrangement batch 1 established: a
@@ -1873,6 +1959,73 @@ static const struct diff_case javascript_cases[] = {
 	{ "js: delete everything", 0, 0, 25, EOL, "" },
 	{ "js: replace everything with a class", 0, 0, 25, EOL,
 	    "class A { m() { return `x`; } }" },
+};
+
+/* Shell.  Two constructs here carry state no other fixture does: a heredoc,
+ * whose body ends at a delimiter word typed on an earlier row and whose
+ * extent an edit far above it can change; and `$(...)` inside a
+ * double-quoted string, which is a whole nested command parse begun in the
+ * middle of a literal.  Both are the bash external scanner's answer, and an
+ * incremental parse that hands it a stale span gets a different tree than a
+ * parse from nothing -- which is what this differential is for. */
+static const char *const shell_fixture[] = {
+	"#!/bin/bash",
+	"# a script",
+	"set -euo pipefail",
+	"",
+	"NAME=\"world\"",
+	"readonly n=42",
+	"",
+	"greet() {",
+	"\tlocal who=${1:-$NAME}",
+	"\techo \"hello $who\" >&2",
+	"\tprintf '%s\\n' 'single'",
+	"}",
+	"",
+	"if [ -n \"$NAME\" ]; then",
+	"\tgreet \"$NAME\"",
+	"elif test \"$#\" -gt 0; then",
+	"\tfor f in *.txt; do",
+	"\t\techo \"$(basename \"$f\") $((n + 1))\"",
+	"\tdone",
+	"else",
+	"\twhile read -r line; do",
+	"\t\tcase \"$line\" in",
+	"\t\ta*) echo a ;;",
+	"\t\t*) echo other ;;",
+	"\t\tesac",
+	"\tdone < input",
+	"fi",
+	"",
+	"cat <<EOF",
+	"heredoc $NAME body",
+	"EOF",
+	"",
+	"cat <<'QUOTED'",
+	"raw $NAME",
+	"QUOTED",
+};
+
+#define SHELL_FIXTURE_ROWS                                                     \
+	((int)(sizeof(shell_fixture) / sizeof(*shell_fixture)))
+
+static const struct diff_case shell_cases[] = {
+	{ "sh: open a heredoc at the top", 0, 0, 0, 0, "cat <<EOF\n" },
+	{ "sh: rename a heredoc's delimiter", 28, 6, 28, 9, "END" },
+	{ "sh: delete a heredoc's terminator", 30, 0, 30, EOL, "" },
+	{ "sh: unquote a heredoc's delimiter", 32, 6, 32, 7, "" },
+	{ "sh: join the rows a heredoc spans", 29, EOL, 30, 0, "" },
+	{ "sh: open a command substitution at the top", 0, 0, 0, 0, "$(" },
+	{ "sh: split a string across two rows", 9, 10, 9, 10, "\n" },
+	{ "sh: an unterminated quote at the top", 0, 0, 0, 0, "\"" },
+	{ "sh: an unterminated raw string at the top", 0, 0, 0, 0, "'" },
+	{ "sh: turn a test operator into an argument", 13, 3, 13, 4, "" },
+	{ "sh: comment out the function header", 7, 0, 7, 0, "# " },
+	{ "sh: unbalance the function braces", 11, 0, 11, 1, "" },
+	{ "sh: delete a case item's terminator", 22, 13, 22, EOL, "" },
+	{ "sh: delete everything", 0, 0, 34, EOL, "" },
+	{ "sh: replace everything with a function", 0, 0, 34, EOL,
+	    "f() { echo \"$1\"; }" },
 };
 
 /* One language's differential material: what to load, what to edit, and
@@ -2102,6 +2255,61 @@ static const char *const javascript_tokens[] = {
 	"\xc3\xa9",
 };
 
+/* Shell's alphabet, and the one omission in any of them that is a finding
+ * rather than a choice: `<<`, `<<EOF\n` and `EOF` are NOT here, so the
+ * random loop perturbs the fixture's heredocs without manufacturing new
+ * ones on top of them.  The five named heredoc edits in shell_cases[] hold
+ * both halves of the differential strictly and are what covers the
+ * construct.
+ *
+ * The reason is that with those tokens in, the random loop stops asking
+ * about kg.  A document of overlapping unterminated heredocs makes
+ * ts_tree_get_changed_ranges() incomplete: replaying seed 0x18c case 76 of
+ * such a run through the C API, an edit at row 15 turns the token at byte
+ * 92 from an anonymous `<<` [92,95] into a (heredoc_start) [92,102] -- a
+ * different type over a different extent, on row 8 -- while the reported
+ * changed ranges are [15.23-15.38] and [15.39-16.6] and name nothing on
+ * row 8.  kg repaints the union of the edit's rows and those ranges, which
+ * is the documented contract, so the row keeps a stale colour and inc ==
+ * wide fails on a property kg does not own.  That is recorded in
+ * doc/TODO.md; what does not belong here is a random alphabet whose
+ * failures are somebody else's. */
+static const char *const shell_tokens[] = {
+	"#",
+	"\"",
+	"'",
+	"$",
+	"${",
+	"}",
+	"$(",
+	")",
+	"$((",
+	"))",
+	"\n",
+	"\n\t",
+	";",
+	";;",
+	"if ",
+	"then",
+	"fi",
+	"for ",
+	"do",
+	"done",
+	"case ",
+	"esac",
+	"echo ",
+	"local ",
+	"function ",
+	"$NAME",
+	"-n",
+	"[",
+	"]",
+	"42",
+	" ",
+	"\t",
+	"\xc3\xa9",
+};
+
 #define NTOK(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
 #define NCASE(a) ((unsigned int)(sizeof(a) / sizeof(*(a))))
 
@@ -2123,6 +2331,8 @@ static const struct diff_lang diff_langs[] = {
 	{ "JavaScript", javascript_fixture, JAVASCRIPT_FIXTURE_ROWS,
 	    javascript_cases, NCASE(javascript_cases), javascript_tokens,
 	    NTOK(javascript_tokens) },
+	{ "Shell", shell_fixture, SHELL_FIXTURE_ROWS, shell_cases,
+	    NCASE(shell_cases), shell_tokens, NTOK(shell_tokens) },
 };
 
 #define DIFF_LANGS ((unsigned int)(sizeof(diff_langs) / sizeof(*diff_langs)))
@@ -2295,13 +2505,15 @@ static void random_edits_for(
 	 * to recover differently more often, so a bound relaxed per language
 	 * would stop measuring the thing it is for -- and measurement says
 	 * they are not: over seeds 100..399 at 200 edits each (~60 000 edits
-	 * per language), the divergences were C 38, JavaScript 26, Rust 11,
-	 * Python 2, YAML 2, and HTML, Emacs Lisp and Markdown 0 -- with the
-	 * worst single seed 2 of 200, and the strict inc == wide half never
-	 * once failing for any of the eight.  The default seed diverges
-	 * nowhere.  The two grammars whose external scanner has to guess
-	 * (JavaScript's regex-or-division, C's preprocessor) are the two that
-	 * recover differently most often, which is the expected shape. */
+	 * per language), the divergences were Shell 59, C 39, JavaScript 26,
+	 * Rust 10, Python 2, YAML 2, and HTML, Emacs Lisp and Markdown 0 --
+	 * with the worst single seed 6 of 200 (Shell) and 2 of 200 for
+	 * everything else, and the strict inc == wide half never once failing
+	 * for any of the nine.  At the default seed only Shell diverges, once
+	 * in 200.  The three grammars whose external scanner has to guess
+	 * (bash's heredoc delimiters, JavaScript's regex-or-division, C's
+	 * preprocessor) are the three that recover differently most often,
+	 * which is the expected shape. */
 	CHECKF(diverged * 10 <= applied,
 	    "%s seed 0x%x: %d of %d edits disagreed with a fresh parse, which "
 	    "is too many to be error recovery",
@@ -2310,14 +2522,14 @@ static void random_edits_for(
 }
 
 /* Random edits, checked after every one, for every language that has a
- * fixture -- batch 1's four and batch 2's four.  The
+ * fixture -- batch 1's four, batch 2's four and Shell.  The
  * seed is printed with every failure and fixed by default, so CI runs the
  * same edits each time and a hunt can run different ones: KG_TS_DIFF_SEED
  * and KG_TS_DIFF_CASES are the knobs, the same shape
  * make check-regex-differential uses.
  *
  * Every language runs from the SAME seed rather than from a stirred one,
- * so a quoted seed reproduces all eight runs and the alphabets stay the
+ * so a quoted seed reproduces all nine runs and the alphabets stay the
  * only difference between them.
  *
  * The damage window is checked strictly on every edit; the tree
@@ -2393,6 +2605,11 @@ int main(void)
 	RUN(test_make_conditional);
 	RUN(test_java_types_numbers_and_comment);
 	RUN(test_java_annotation_over_string);
+	RUN(test_shell_expansion_inside_string);
+	RUN(test_shell_test_operator_versus_argument);
+	RUN(test_shell_heredocs_quoted_and_not);
+	RUN(test_shell_function_and_declaration);
+	RUN(test_shell_command_substitution_is_not_a_variable);
 	RUN(test_prepare_rows_parses_and_paints);
 	RUN(test_edit_reparses_whole_buffer);
 	RUN(test_mode_change_acquires_and_releases_state);

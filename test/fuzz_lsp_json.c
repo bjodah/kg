@@ -49,8 +49,8 @@ static void rewrite(struct lsp_jsonw *w, const struct lsp_json_value *v)
 		int k;
 
 		if (isinf(x)) {
-			k = snprintf(num, sizeof(num), "%s1e999",
-			    x < 0 ? "-" : "");
+			k = snprintf(
+			    num, sizeof(num), "%s1e999", x < 0 ? "-" : "");
 		} else {
 			k = snprintf(num, sizeof(num), "%.17g", x);
 		}

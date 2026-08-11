@@ -212,7 +212,34 @@ static const char MARKDOWN_HIGHLIGHT_QUERY[]
  *
  * true/false/null/undefined/this/super are NAMED nodes here, so they are
  * listed apart from the anonymous keyword tokens, exactly as Python's
- * none/true/false are. */
+ * none/true/false are.
+ *
+ * The JSX tag patterns are a macro rather than lines of this literal
+ * because the tsx grammar has the same nodes and wants the same rule; the
+ * typescript grammar does not have them at all, which is the whole reason
+ * the two TypeScript rows below stopped sharing one query.  A tag NAME is
+ * three different node types depending on how it is written -- `<div>` is an
+ * (identifier), `<Widget.Inner>` a (member_expression), `<svg:rect>` a
+ * (jsx_namespace_name) -- so the alternation is what makes the rule "a tag
+ * name is @type" rather than "a one-word tag name is @type".
+ *
+ * An ATTRIBUTE name is deliberately not captured, and that is the one place
+ * this differs from the HTML query, where the attribute is @type and the
+ * tag @keyword.  Here the tag is already @type, so painting the attribute
+ * would paint both halves of `<div className=...>` the same colour and say
+ * nothing; HTML can afford the distinction because it has two faces to
+ * spend on markup and this query spends them on TypeScript. */
+#define JSX_TAG_HIGHLIGHT_QUERY                                                \
+	"(jsx_opening_element\n"                                               \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"                                                           \
+	"(jsx_closing_element\n"                                               \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"                                                           \
+	"(jsx_self_closing_element\n"                                          \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"
+
 static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
     = "(comment) @comment\n"
       "(hash_bang_line) @comment\n"
@@ -233,12 +260,10 @@ static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
       "(function_declaration name: (identifier) @type)\n"
       "(class_declaration name: (identifier) @type)\n"
       "(method_definition name: (property_identifier) @type)\n"
-      "(call_expression function: (identifier) @type)\n"
-      "(jsx_opening_element name: (identifier) @type)\n"
-      "(jsx_closing_element name: (identifier) @type)\n"
-      "(jsx_self_closing_element name: (identifier) @type)\n";
+      "(call_expression function: (identifier) "
+      "@type)\n" JSX_TAG_HIGHLIGHT_QUERY;
 
-/* TypeScript AND TSX, one query text against two grammars.
+/* TypeScript AND TSX: one shared body, two literals.
  *
  * kg has a single TypeScript mode matching .ts, .tsx and .d.ts, and
  * tree-sitter has two grammars: `typescript`, in which `<T>x` is a type
@@ -247,45 +272,50 @@ static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
  * ERROR with a stray regex in it -- so the registry carries two rows for
  * the mode and picks between them by file-name suffix.
  *
- * The two grammars have DIFFERENT node inventories, and this text is the
- * intersection: `(jsx_element)` and friends do not exist in typescript, and
- * a query naming one fails to compile there (TSQueryErrorNodeType), which
- * would make .ts files plain text.  So the JSX patterns of the JavaScript
- * query above are absent here, and a .tsx file's tag names are uncoloured
- * while its attribute strings, expressions and keywords are not.  Two
- * literals would buy those tag names; one literal, verified against both
- * grammars by test_registry_queries_compile(), buys the guarantee that a
- * change to it cannot silently break one of the two.
+ * The two grammars have DIFFERENT node inventories, and the macro below is
+ * the intersection.  `(jsx_opening_element)` and friends do not exist in
+ * typescript, and a query naming one fails to compile there
+ * (TSQueryErrorNodeType), which would make every .ts file plain text --
+ * which is why the JSX patterns are in the tsx literal and nowhere else.
+ * The shared body stays ONE piece of text rather than two copies, so a
+ * change to it still cannot silently apply to one grammar and not the
+ * other, and test_registry_queries_compile() still compiles both rows.
  *
  * A class name is (type_identifier) in TypeScript where JavaScript makes it
  * an (identifier), so the type patterns cover it without a rule of their
  * own; (predefined_type) is `string`, `number`, `boolean` and the rest.
  * (accessibility_modifier) is public/private/protected, which are one named
  * node rather than three tokens. */
-static const char TYPESCRIPT_HIGHLIGHT_QUERY[]
-    = "(comment) @comment\n"
-      "(hash_bang_line) @comment\n"
-      "(string) @string\n"
-      "(template_string \"`\" @string)\n"
-      "(template_string (string_fragment) @string)\n"
-      "(regex) @string\n"
-      "(number) @number\n"
-      "[\n"
-      "  \"abstract\" \"as\" \"async\" \"await\" \"break\" \"case\"\n"
-      "  \"catch\" \"class\" \"const\" \"continue\" \"declare\" \"default\"\n"
-      "  \"delete\" \"do\" \"else\" \"enum\" \"export\" \"extends\"\n"
-      "  \"finally\" \"for\" \"from\" \"function\" \"if\" \"implements\"\n"
-      "  \"import\" \"in\" \"instanceof\" \"interface\" \"is\" \"keyof\"\n"
-      "  \"let\" \"namespace\" \"new\" \"of\" \"readonly\" \"return\"\n"
-      "  \"satisfies\" \"static\" \"switch\" \"throw\" \"try\" \"type\"\n"
-      "  \"typeof\" \"var\" \"void\" \"while\" \"yield\"\n"
-      "] @keyword\n"
-      "[ (true) (false) (null) (undefined) (this) (super) ] @keyword\n"
-      "(accessibility_modifier) @keyword\n"
-      "[ (type_identifier) (predefined_type) ] @type\n"
-      "(function_declaration name: (identifier) @type)\n"
-      "(method_definition name: (property_identifier) @type)\n"
-      "(call_expression function: (identifier) @type)\n";
+#define TS_SHARED_HIGHLIGHT_QUERY                                              \
+	"(comment) @comment\n"                                                 \
+	"(hash_bang_line) @comment\n"                                          \
+	"(string) @string\n"                                                   \
+	"(template_string \"`\" @string)\n"                                    \
+	"(template_string (string_fragment) @string)\n"                        \
+	"(regex) @string\n"                                                    \
+	"(number) @number\n"                                                   \
+	"[\n"                                                                  \
+	"  \"abstract\" \"as\" \"async\" \"await\" \"break\" \"case\"\n"       \
+	"  \"catch\" \"class\" \"const\" \"continue\" \"declare\"\n"           \
+	"  \"default\" \"delete\" \"do\" \"else\" \"enum\" \"export\"\n"       \
+	"  \"extends\"\n"                                                      \
+	"  \"finally\" \"for\" \"from\" \"function\" \"if\" \"implements\"\n"  \
+	"  \"import\" \"in\" \"instanceof\" \"interface\" \"is\" \"keyof\"\n"  \
+	"  \"let\" \"namespace\" \"new\" \"of\" \"readonly\" \"return\"\n"     \
+	"  \"satisfies\" \"static\" \"switch\" \"throw\" \"try\" \"type\"\n"   \
+	"  \"typeof\" \"var\" \"void\" \"while\" \"yield\"\n"                  \
+	"] @keyword\n"                                                         \
+	"[ (true) (false) (null) (undefined) (this) (super) ] @keyword\n"      \
+	"(accessibility_modifier) @keyword\n"                                  \
+	"[ (type_identifier) (predefined_type) ] @type\n"                      \
+	"(function_declaration name: (identifier) @type)\n"                    \
+	"(method_definition name: (property_identifier) @type)\n"              \
+	"(call_expression function: (identifier) @type)\n"
+
+static const char TYPESCRIPT_HIGHLIGHT_QUERY[] = TS_SHARED_HIGHLIGHT_QUERY;
+
+static const char TSX_HIGHLIGHT_QUERY[]
+    = TS_SHARED_HIGHLIGHT_QUERY JSX_TAG_HIGHLIGHT_QUERY;
 
 /* Java.  The comment node is split in two here -- (line_comment) and
  * (block_comment), where C has one (comment) -- which is the sort of thing
@@ -616,7 +646,7 @@ static struct kg_ts_language ts_registry[] = {
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_REACT, NULL, "javascript", JAVASCRIPT_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
-	{ KG_MODE_TYPESCRIPT, ".tsx", "tsx", TYPESCRIPT_HIGHLIGHT_QUERY,
+	{ KG_MODE_TYPESCRIPT, ".tsx", "tsx", TSX_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_TYPESCRIPT, NULL, "typescript", TYPESCRIPT_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },

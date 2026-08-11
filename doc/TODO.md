@@ -173,9 +173,6 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
   random alphabet omits the heredoc tokens
   (`test/test_syntax_tree_sitter.c`, `shell_tokens[]`) so the loop keeps
   asking about kg.
-- **TSX tag colouring**: TS and TSX share one query text restricted to
-  the common node inventory, so `.tsx` tag names are unpainted; a
-  second query literal for the tsx row fixes it if wanted.
 - **Ship the prefix in the CI image**: the pinned build above is a
   per-run cost on an ephemeral workspace.  ci-13 resolves an environment
   variable before the cache and the cache before a build, so an image

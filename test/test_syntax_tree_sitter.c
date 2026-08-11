@@ -370,11 +370,12 @@ static void test_registry_queries_compile(void)
  * grammars then do to the same bytes.
  *
  * `<div className="c">hi</div>` is a JSX element in .tsx and, in .ts, a
- * type assertion applied to `div` -- so `div` is a (type_identifier) there
- * and @type, and in .tsx it is a JSX tag name the shared query does not
- * capture.  The colour of those three bytes is the whole difference, and it
- * is why the variant exists: with only the typescript grammar, every .tsx
- * file in the tree parses as an ERROR node. */
+ * type assertion applied to `div`.  Both spell the opening `div` @type and
+ * for opposite reasons -- a (type_identifier) there, a JSX tag name here --
+ * so what separates the two rows on this line is the CLOSING `</div>`,
+ * which is a tag name in .tsx and nothing at all in .ts.  That is why the
+ * variant exists: with only the typescript grammar, every .tsx file in the
+ * tree parses as an ERROR node. */
 static void test_typescript_variant_selection(void)
 {
 	static const char *const lines[]
@@ -410,8 +411,9 @@ static void test_typescript_variant_selection(void)
 	editor_insert_row(bcur(), 0, lines[0], strlen(lines[0]));
 	syntax_rebuild(bcur());
 	CHECK(bcur()->syntax_state != NULL);
-	/* ... and a JSX tag name under the .tsx grammar, uncaptured. */
-	check_hl(0, "44444000000000000000000006660000000000");
+	/* ... and a JSX tag name under the .tsx grammar, at both ends of
+	 * the element. */
+	check_hl(0, "44444000000555000000000006660000055500");
 	bcur()->filename = NULL;
 	teardown();
 }
@@ -878,6 +880,69 @@ static void test_react_mode_uses_javascript_grammar(void)
 	load_mode("React", lines, 1);
 	check_hl(0, "44444000000555000");
 	teardown();
+}
+
+/* ---- TSX ---- */
+
+/* Tag names in a .tsx buffer, in all three spellings the grammar gives
+ * them, because "the tag name is @type" is one rule over three node types:
+ * `<div>` is an (identifier), `<Wid.In>` a (member_expression) and
+ * `<svg:rect>` a (jsx_namespace_name).  A fragment (`<>...</>`) has no name
+ * field at all and paints nothing, which is the boundary of the rule rather
+ * than a gap in it.
+ *
+ * Attribute names stay plain -- see the query -- but an attribute's VALUE
+ * expression is ordinary TypeScript inside the tag, which is what the `1`
+ * coming out @number on row 1 says. */
+static void test_tsx_tag_names(void)
+{
+	static const char *const lines[]
+	    = { "const a = <div>x</div>;", "const b = <Wid.In p={1} />;",
+		      "const c = <svg:rect />;", "const d = <>frag</>;" };
+	int i;
+
+	setup(syntax_find_by_name("TypeScript"));
+	bcur()->filename = (char *)"app.tsx";
+	for (i = 0; i < 4; i++) {
+		editor_insert_row(bcur(), i, lines[i], strlen(lines[i]));
+	}
+	syntax_rebuild(bcur());
+	CHECK(bcur()->syntax_state != NULL);
+	check_hl(0, "44444000000555000055500");
+	check_hl(1, "444440000005555550000700000");
+	check_hl(2, "44444000000555555550000");
+	check_hl(3, "44444000000000000000");
+	bcur()->filename = NULL;
+	teardown();
+}
+
+/* The two TypeScript rows carry two query TEXTS now, and only one of them
+ * may name a JSX node: `(jsx_opening_element)` does not exist in the
+ * typescript grammar, so a .ts row that named it would fail to compile and
+ * make every .ts file plain text.  test_registry_queries_compile() is what
+ * catches that, and it catches it by compiling whatever each row names --
+ * this asserts the two rows do not name the same thing, which is the
+ * premise that makes the other test's coverage of the tsx literal real. */
+static void test_tsx_and_ts_queries_differ(void)
+{
+	struct kg_ts_language *ts
+	    = kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, "app.ts");
+	struct kg_ts_language *tsx
+	    = kg_ts_language_for_mode(KG_MODE_TYPESCRIPT, "app.tsx");
+
+	CHECK(ts != NULL && tsx != NULL);
+	if (!ts || !tsx) {
+		return;
+	}
+	CHECK(ts->query_text != tsx->query_text);
+	CHECK(strstr(ts->query_text, "jsx_opening_element") == NULL);
+	CHECK(strstr(tsx->query_text, "jsx_opening_element") != NULL);
+	/* The shared body really is shared: a pattern only the TypeScript
+	 * half has is in both. */
+	CHECK(strstr(ts->query_text, "(accessibility_modifier) @keyword")
+	    != NULL);
+	CHECK(strstr(tsx->query_text, "(accessibility_modifier) @keyword")
+	    != NULL);
 }
 
 /* ---- Rust ---- */
@@ -2591,6 +2656,8 @@ int main(void)
 	RUN(test_javascript_regex_versus_division);
 	RUN(test_javascript_jsx_element);
 	RUN(test_react_mode_uses_javascript_grammar);
+	RUN(test_tsx_tag_names);
+	RUN(test_tsx_and_ts_queries_differ);
 	RUN(test_rust_lifetime_is_not_a_char);
 	RUN(test_rust_attributes);
 	RUN(test_rust_raw_string);

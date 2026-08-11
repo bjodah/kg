@@ -523,44 +523,75 @@ against full rebuilds.  Known follow-ups, none blocking:
       `phase11-one-arg-defvar-file-scope` row carries what its own case
       actually pins, which is the oracle shim's per-form scoping and not
       the leak.
-- [ ] **The prelude's `internal--let` temporaries are dynamically
-      capturable — UNBLOCKED by Phase 14, mechanism proven, sweep not
-      done.**  A consequence of Phase 11, recorded rather than defended
-      (11A Decision 3): the ~53 generically named temporaries
-      `lisp/prelude.el` binds (`result`, `res`, `doc`, `name`, …) become
-      dynamic the moment a user `defvar`s such a name.  This is exactly
-      Emacs' own exposure for `lexical-binding` libraries, so "fixing" it
-      means gensyms or an obarray-style renaming pass over the prelude.
-      Phase 14 supplied the gensyms, so the remaining cost is the sweep
-      itself and the re-reading it needs, not a missing mechanism.
-      Phase 15's string and list library grew the surface rather than
-      shrinking it, and the number is now measured rather than estimated:
-      **58 distinct names** are bound by a `let`/`let*`/`internal--let`
-      anywhere in `lisp/prelude.el` (counted with the reader in
-      `utils/forecast_audit.py`), of which the short ones a user is most
-      likely to `defvar` -- `a`, `b`, `c`, `d`, `e`, `f`, `h`, `i`, `m`,
-      `n`, `r` -- are eleven.
-      Left here so a future report of a strange interaction has somewhere
-      to land.
-      `internal--excursion` was a 54th name and the one with the sharpest
-      consequence, found by the Phase 11 acceptance review: it is what
-      `save-excursion`/`with-current-buffer` hold their saved state in, so
-      a body that assigned it made the `unwind-protect` cleanup raise —
-      and a raising cleanup REPLACES the completion it is unwinding (fe's
-      06A Decision 4, which is Emacs' rule too:
+- [x] **The prelude's `internal--let` temporaries are dynamically
+      capturable.**  Swept.  A consequence of Phase 11, recorded rather
+      than defended (11A Decision 3): a temporary `lisp/prelude.el` binds
+      becomes dynamic the moment a user `defvar`s that name.  The census,
+      re-measured on the finished tree with the reader in
+      `utils/forecast_audit.py`: **60 distinct names** are bound by a
+      `let`/`let*`/`internal--let` anywhere in the file.  What this row
+      asked for was all of them; what the sweep did was the ones that
+      can be OBSERVED, which is a different and much smaller set, and
+      the classification is the finding.
+      A prelude temporary is capturable only while USER code runs inside
+      its extent, and then it is a capture in both directions at once —
+      the callback's assignment lands on the prelude's accumulator, and
+      the prelude's accumulator is what the user's variable reads back.
+      **22 binding sites across 14 definitions** qualify, in three
+      classes rather than the two the exposure was recorded as: the
+      higher-order functions (`mapcar`, `mapc`, `mapconcat`,
+      `replace-regexp-in-string` with a function REP, `sort` and the two
+      `internal--merge` helpers, `seq-filter`, `seq-find`, `seq-some`,
+      and `internal--dotimes`, which is what `dotimes` expands into);
+      the LOADER (`internal--load-loop` and `require`, which hold
+      temporaries across the `eval` of a loaded file's forms — a file
+      that so much as `setq`'d `h` used to make the next read raise);
+      and `add-to-list`, which is neither, because its VARIABLE argument
+      is a name the caller chose, so asking it to push onto a variable
+      named `current` bound a shadow, read the shadow and `set` the
+      shadow, silently.  The other 38 names bind and unbind with no
+      callback in between and are left alone, counted.
+      **The fix is not `gensym`, and the measurement is why.** A macro
+      substituting a fresh gensym through each body at load time was
+      implemented first and works — but kg's arena is fixed and collects
+      nothing during startup, so the substitution walk's own cost is
+      permanent high-water mark: peak live after the prelude went
+      11281 → 40153 objects of 56259 (20.0% → 71.4%) with a copying
+      walk, and 11281 → 20906 (37.2%) with a destructive one that
+      allocates nothing itself — both measured at `kgbatch -g`'s
+      post-prelude probe.  Carried into `test_lisp.c`'s Phase 8 census,
+      whose margin assertion is `peak_live * 3 < total_slots` and whose
+      measured figure is 14579, that +9625 alone puts the census past a
+      third of the arena.  The cost is fe's call overhead — about nine
+      object slots per call, one call per cons, measured at 590 slots to
+      substitute one name through a 45-cons lambda — not the copy.  The
+      swept temporaries are LAMBDA PARAMETERS instead, bound by an
+      immediately-applied lambda, which fe binds lexically
+      unconditionally (11A Decision 2: the special flag is consulted at
+      fe's binding-list paths and nowhere else — it is the
+      pre-Phase-11 lowering of `let`, used deliberately where hygiene is
+      the requirement).  Measured cost of that: **+4 objects** (11281 →
+      11285) and **no change in prelude load time** (2.811 → 2.810 ms,
+      median of nine runs of the counting build each way).
+      `test_prelude_temporary_hygiene` and the seven
+      `prelude-hygiene-*` oracle cases hold it there.
+      `internal--excursion` was the first name swept and the one with
+      the sharpest consequence, found by the Phase 11 acceptance review:
+      it is what `save-excursion`/`with-current-buffer` hold their saved
+      state in, so a body that assigned it made the `unwind-protect`
+      cleanup raise — and a raising cleanup REPLACES the completion it
+      is unwinding (fe's 06A Decision 4, which is Emacs' rule too:
       `(condition-case e (unwind-protect (error "MY") (error "CLEANUP"))
       (error e))` is `(error "CLEANUP")` on both), so the user's own
       error was lost.  Measured then:
       `(condition-case e (save-excursion (setq internal--excursion nil)
       (error "MY-ERROR")) (error (format "%S" e)))` answered
       `"(error \"internal--excursion-restore: expected a marker or a
-      buffer\")"`.  **DONE for that one name**, Phase 14: both macros bind
-      a `(gensym "internal--excursion-")` instead, the same form now
-      answers `"(error \"MY-ERROR\")"`, and
-      `test_phase14_excursion_hygiene` plus the
-      `phase14-excursion-gensym-hygiene` oracle case hold it there.  It is
-      also this wave's worked example of what the sweep would look like:
-      two lines per macro, one `gensym` call per expansion.
+      buffer\")"`.  Done for that one name by Phase 14: both macros
+      bind a `(gensym "internal--excursion-")` instead, because a MACRO
+      can mint a name at expansion time and pay for it once.  A function
+      body has no expansion to mint one in, which is the whole reason
+      the rest of the sweep took the other shape.
 - [x] **Buffer-local variables.**  Done by Phase 18.  Not with the
       per-buffer binding table this row asked for: kg took Emacs' own
       representation instead, one value cell per symbol holding whichever

@@ -236,8 +236,12 @@ on a path (a hook's execution-context restore) that must not raise at all.
 The kg side of that phase carries one change of its own that is not fe's:
 `save-excursion` and `with-current-buffer` bind their captured state to a
 `(gensym)` instead of to the ordinary symbol `internal--excursion`, which
-is Phase 14's hygiene demonstration and closes `doc/TODO.md`'s sharpest
-instance of the capturable-temporary row.
+is Phase 14's hygiene demonstration and closed `doc/TODO.md`'s sharpest
+instance of the capturable-temporary row.  The rest of that row was swept
+later and needed no fe change at all: a function body has no expansion to
+mint a `gensym` in, and paying for one at load time measured out against
+the arena, so those temporaries became lambda parameters — fe's existing
+unconditional-lexical binding kind — instead.
 
 The same pin carries fe's `FE_GC_STRESS` build knob, which moves neither
 macro on purpose: it is a compile-time define inside `fe.c`, defaulting to

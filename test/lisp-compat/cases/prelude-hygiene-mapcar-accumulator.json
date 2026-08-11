@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-mapcar-accumulator",
+ "setup": [
+  "(defvar res 0)"
+ ],
+ "expr": "(list (mapcar (lambda (x) (setq res x) x) (list 1 2 3)) res)",
+ "note": "The prelude's `mapcar' accumulates into a temporary named `res'.  Once a user has `defvar'd that name kg's `let' over it binds DYNAMICALLY (Phase 11, 11A Decision 2), so before the hygiene sweep the callback's `setq' overwrote mapcar's half-built list with an integer and the next `cons' raised: measured through test/kgbatch, this form answered (wrong-type-argument listp 3), and `res' was still 0.  The temporary is a lambda PARAMETER now -- fe binds those lexically unconditionally -- so both halves answer: the list is the callback's values and `res' is what the callback last wrote.  Emacs agrees for a different reason, as it did for `internal--excursion': its `mapcar' is C and has no Lisp temporary to capture."
+}

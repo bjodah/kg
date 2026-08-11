@@ -1357,10 +1357,15 @@ primitive's function cell.
   consulting the flag where the `let` runs — answers lexically there.
   The other is a widening: outside any input unit (hooks, command
   dispatch, process callbacks — host context), every mark is visible.
-  And the ~53 generically named temporaries kg's prelude binds
-  (`result`, `res`, `doc`, `name`, …) become dynamically capturable
-  the moment a user `defvar`s such a name, which is exactly Emacs' own
-  exposure for `lexical-binding` libraries.
+  A third residual, the generically named temporaries kg's prelude
+  binds becoming dynamically capturable the moment a user `defvar`s
+  such a name, is **closed**: of the 60 names the prelude `let`-binds,
+  the 22 sites that are still bound while user code runs — the
+  higher-order functions, the loader, and `add-to-list` — are bound by
+  an immediately-applied lambda instead, whose parameter fe binds
+  lexically unconditionally, and the rest cannot be observed.  The
+  `prelude-temporary-hygiene` row carries the classification and the
+  measurement that ruled `gensym` out for a function body.
   `test/lisp-compat/features.json`'s `prelude-defvar`,
   `phase11-one-arg-defvar-file-scope` and `prelude-let` rows carry the
   measurements, and fe's `one-arg-defvar-scope-carrier` row carries

@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-add-to-list-variable",
+ "setup": [
+  "(defvar current (list 9))"
+ ],
+ "expr": "(progn (add-to-list 'current 1) current)",
+ "note": "Not the callback exposure but the same cause: `add-to-list' takes the NAME of a variable, and its own temporary was called `current'.  Asked to push onto a variable of that name it bound a shadow, read the shadow, and `set' the shadow -- so the caller's list was left untouched and nothing said so: (9) before, (1 9) on both sides now."
+}

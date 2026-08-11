@@ -4987,6 +4987,125 @@ static void test_phase14_excursion_hygiene(void)
 	teardown_editor();
 }
 
+/* The rest of that sweep, over the prelude's FUNCTION temporaries.
+ *
+ * Since Phase 11 a `let` over a `defvar`'d name binds dynamically, so any
+ * prelude temporary still bound while USER code runs is a two-way
+ * capture: the callback's assignment lands on the prelude's accumulator
+ * and the prelude's accumulator is what the user's variable reads back.
+ * The measured `before` for each line is in the comment beside it; the
+ * fix is that these temporaries are lambda PARAMETERS now, which fe binds
+ * lexically unconditionally.  Seven of these are also compat cases
+ * (prelude-hygiene-*), pinned against the oracle; what is here is the
+ * whole battery plus the halves a compat case cannot ask -- the
+ * LOADER's, which needs a file on disk.
+ *
+ * Every `defvar` below is the trap: the case is only meaningful because
+ * the name it marks special is the one the prelude used to bind. */
+static void test_prelude_temporary_hygiene(void)
+{
+	char loaded[] = "/tmp/kg-hygiene-load-XXXXXX";
+	char form[512];
+
+	CHECK(write_temp_lisp(loaded,
+	    "(setq h 'SET-BY-LOADED-FILE)\n(setq cell 'ALSO-SET)\n"));
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Higher-order functions.  Before: (wrong-type-argument listp 3) --
+	 * the callback had replaced the half-built list with an integer. */
+	CHECK(eval_eq("(progn (defvar res 0) (list "
+		      "(mapcar (lambda (x) (setq res x) x) (list 1 2 3)) res))",
+	    "((1 2 3) 3)"));
+	/* Before: (3 0) -- `mapc` answered its own temporary, not the list. */
+	CHECK(eval_eq("(progn (defvar original 0) (list "
+		      "(mapc (lambda (x) (setq original x)) (list 1 2 3)) "
+		      "original))",
+	    "((1 2 3) 3)"));
+	/* Before: ("ab" 0) -- the first-iteration flag stayed truthy, so the
+	 * separator was never emitted. */
+	CHECK(eval_eq("(progn (defvar first 0) (list "
+		      "(mapconcat (lambda (x) (setq first x) x) "
+		      "(list \"a\" \"b\") \"-\") first))",
+	    "(\"a-b\" \"b\")"));
+	/* mapconcat holds two; the accumulator is the other.  Before:
+	 * ("a-b" 0) -- the string was right and the user's variable lost. */
+	CHECK(eval_eq("(progn (defvar result 0) (list "
+		      "(mapconcat (lambda (x) (setq result x) x) "
+		      "(list \"a\" \"b\") \"-\") result))",
+	    "(\"a-b\" \"b\")"));
+	/* A function REP holds five.  `limit` and `mb` raised
+	 * (wrong-type-argument number-or-marker-p "b"); `start` and `out`
+	 * answered ("aXc" 0), losing only the user's variable. */
+	CHECK(eval_eq("(progn (defvar limit 0) (list "
+		      "(replace-regexp-in-string \"b\" "
+		      "(lambda (m) (setq limit m) \"X\") \"abc\") limit))",
+	    "(\"aXc\" \"b\")"));
+	CHECK(eval_eq("(progn (defvar mb 0) (list "
+		      "(replace-regexp-in-string \"b\" "
+		      "(lambda (m) (setq mb m) \"X\") \"abc\") mb))",
+	    "(\"aXc\" \"b\")"));
+	/* kg's `sort` is a Lisp merge sort, so the predicate runs inside
+	 * `internal--merge`'s accumulator.  Before: (wrong-type-argument
+	 * listp 3) for `out`, and ((1 2 3) 0) for `sort`'s own `runs`. */
+	CHECK(eval_eq("(progn (defvar out 0) (list "
+		      "(sort (list 3 1 2) (lambda (a b) (setq out a) (< a b))) "
+		      "out))",
+	    "((1 2 3) 2)"));
+	CHECK(eval_eq("(progn (defvar runs 0) (list "
+		      "(sort (list 3 1 2) (lambda (a b) (setq runs a) (< a b)))"
+		      " runs))",
+	    "((1 2 3) 2)"));
+	/* The seq- shim is ordinary prelude Lisp, so all three of these ran
+	 * their predicate inside a capturable accumulator. */
+	CHECK(eval_eq("(progn (defvar out2 0) (list "
+		      "(seq-filter (lambda (x) (setq out2 x) t) (list 1 2 3)) "
+		      "out2))",
+	    "((1 2 3) 3)"));
+	CHECK(eval_eq("(progn (defvar found 0) (list "
+		      "(seq-find (lambda (x) (setq found x) (= x 2)) "
+		      "(list 1 2 3)) found))",
+	    "(2 2)"));
+	CHECK(eval_eq("(progn (defvar hit 0) (list "
+		      "(seq-some (lambda (x) (setq hit x) nil) (list 1 2 3)) "
+		      "hit))",
+	    "(nil 3)"));
+
+	/* The macro half: `dotimes` expands into `internal--dotimes`, whose
+	 * counter was held across the `funcall` of the body.  Before, the
+	 * body and the loop shared one binding, each iteration incremented
+	 * it twice, and the user's counter answered 0. */
+	CHECK(eval_eq("(progn (defvar i 0) (dotimes (k 3) (setq i (+ i 1))) i)",
+	    "3"));
+
+	/* Not a callback at all: `add-to-list` takes the NAME of a variable,
+	 * and its temporary had the shape of one.  Before: (9) -- the `set`
+	 * wrote the shadow the function's own binding had just made, and
+	 * nothing said so. */
+	CHECK(eval_eq("(progn (defvar current (list 9)) "
+		      "(add-to-list 'current 1) current)",
+	    "(1 9)"));
+
+	/* THE LOADER, which no compat case can ask: `internal--load-loop`
+	 * holds its stream handle and its form cell across the `eval` of
+	 * every form in the file it is reading.  Before, with `h` and `cell`
+	 * marked special, the loaded file's own `setq h` replaced the stream
+	 * handle and the next `internal--read-form` raised
+	 * wrong-type-argument -- so a file could not even define a variable
+	 * of that name.  Both names reach the user's binding now, and the
+	 * load completes. */
+	(void)snprintf(form, sizeof(form),
+	    "(progn (defvar h 'INIT) (defvar cell 'INIT) (load \"%s\") "
+	    "(list h cell))",
+	    loaded);
+	CHECK(eval_eq(form, "(SET-BY-LOADED-FILE ALSO-SET)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+	(void)unlink(loaded);
+}
+
 /* ---- Phase 15: the package-writer's string and list library ---------
  *
  * Every expectation below was measured against the pinned oracle Emacs
@@ -7048,6 +7167,7 @@ int main(void)
 	RUN(test_phase13_trap_battery);
 	RUN(test_phase14_symbols);
 	RUN(test_phase14_excursion_hygiene);
+	RUN(test_prelude_temporary_hygiene);
 	RUN(test_phase15_string_natives);
 	RUN(test_phase15_regex_seam);
 	RUN(test_phase15_string_library);

@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-seq-filter-predicate",
+ "setup": [
+  "(defvar out 0)"
+ ],
+ "expr": "(list (seq-filter (lambda (x) (setq out x) t) (list 1 2 3)) out)",
+ "note": "The seq- shim is ordinary prelude Lisp, so every one of its predicates ran inside a capturable accumulator; `seq-find' and `seq-some' have the same shape and the same fix.  This answered (wrong-type-argument listp 3) before and ((1 2 3) 3) now."
+}

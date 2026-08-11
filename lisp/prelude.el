@@ -77,6 +77,62 @@
 (defalias 'cadr (lambda (x) (car (cdr x))))
 (defalias 'cddr (lambda (x) (cdr (cdr x))))
 (defalias 'listp (lambda (x) (if (null x) t (consp x))))
+;; --- hygiene for the prelude's own temporaries -----------------------
+;;
+;; A `let' over a name the user has `defvar'd binds DYNAMICALLY (Phase
+;; 11, 11A Decision 2), and every definition in this file is written with
+;; ordinary readable temporary names.  So a prelude temporary that is
+;; still bound while USER code runs -- a `mapcar' function, a `sort'
+;; predicate, a form `load' is evaluating -- is a capture in both
+;; directions at once: the callback's assignment lands on the prelude's
+;; accumulator, and the prelude's accumulator is what the user's variable
+;; reads back.  Measured on the tree before the sweep below:
+;;
+;;   (defvar res 0)
+;;   (mapcar (lambda (x) (setq res x) x) (list 1 2 3))
+;;
+;; raised wrong-type-argument -- the callback had overwritten `mapcar's
+;; half-built list with an integer -- and `res' was still 0 afterwards.
+;; `(defvar first 0) (mapconcat (lambda (x) (setq first x) x) (list "a"
+;; "b") "-")' answered "ab", losing the separator, and `(defvar current
+;; (list 9)) (add-to-list 'current 1)' left `current' at (9), because the
+;; `set' wrote the shadow the function's own binding had just made.
+;;
+;; THE FIX IS THE SHAPE THE BINDING TAKES.  `save-excursion' fixed its one
+;; temporary in Phase 14 the way a MACRO can: it mints a `gensym' at
+;; expansion time, and an uninterned symbol is a name nothing the user
+;; writes can reach.  A function body has no expansion to mint one in, so
+;; these use the other unreachable binding kind fe has: a LAMBDA
+;; PARAMETER, which fe binds lexically unconditionally -- the special flag
+;; is consulted at fe's binding-list paths and nowhere else (11A Decision
+;; 2), which is exactly why `let' over a `defvar'd name was lexical here
+;; until Phase 11 routed it onto the core form.  So each capturable
+;; temporary below is bound by an immediately-applied lambda,
+;; `((lambda (NAME) BODY) INITIAL)' -- the pre-Phase-11 lowering of `let',
+;; used deliberately and locally where hygiene is the requirement.  The
+;; name stays the readable one, and no `defvar' of it can reach the
+;; binding.
+;;
+;; GENSYM WAS IMPLEMENTED FIRST AND MEASURED OUT.  A macro substituting a
+;; fresh gensym through each of these fourteen bodies at load time works
+;; and reads well, but kg's arena is fixed and collects nothing during
+;; startup, so the substitution walk's own cost is permanent high-water
+;; mark.  Measured, at kgbatch's post-prelude probe: 11281 -> 40153 live
+;; objects of 56259 (20.0% -> 71.4%) with a copying walk, and
+;; 11281 -> 20906 (37.2%) with a destructive one that allocates nothing
+;; itself.  That +9625 carries into test_lisp.c's Phase 8 census, whose
+;; margin assertion is peak_live * 3 < total_slots and whose measured
+;; figure is 14579, so the destructive walk alone puts it past a third of
+;; the arena.  The cost is fe's call overhead, not the copy: about nine
+;; object slots per call, one call per cons -- measured at 590 slots to
+;; substitute one name through a 45-cons lambda.  The lambda-parameter
+;; form gives the identical property for nothing.
+;;
+;; ONLY the temporaries that are live while user code runs are swept.  The
+;; rest -- `reverse's `res', `split-string's `parts', every
+;; macro-expansion temporary, which is most of them -- bind and unbind
+;; with no callback in between, so nothing can observe them.  doc/TODO.md
+;; carries the census and the classification.
 ;; --- list library, all iterative ---
 (defalias 'reverse (lambda (lst)
   (internal--let res nil)
@@ -141,11 +197,12 @@
         (eq a b))))))
 (defalias 'zerop (lambda (n) (= n 0)))
 (defalias 'mapcar (lambda (f lst)
-  (internal--let res nil)
-  (while lst
-    (setq res (cons (funcall f (car lst)) res))
-    (setq lst (cdr lst)))
-  (reverse res)))
+  ((lambda (res)
+     (while lst
+       (setq res (cons (funcall f (car lst)) res))
+       (setq lst (cdr lst)))
+     (reverse res))
+   nil)))
 (defalias 'member (lambda (elt lst)
   (while (and lst (not (equal elt (car lst))))
     (setq lst (cdr lst)))
@@ -167,23 +224,24 @@
     (setq alist (cdr alist)))
   hit))
 (defalias 'mapc (lambda (f lst)
-  (internal--let original lst)
-  (while lst
-    (funcall f (car lst))
-    (setq lst (cdr lst)))
-  original))
+  ((lambda (original)
+     (while lst
+       (funcall f (car lst))
+       (setq lst (cdr lst)))
+     original)
+   lst)))
 ;; SEPARATOR has been optional since Emacs 29, defaulting to "".
 (defalias 'mapconcat (lambda (f lst &optional separator)
   (if (null separator) (setq separator ""))
-  (internal--let result "")
-  (internal--let first t)
-  (while lst
-    (if first
-        (setq first nil)
-      (setq result (concat result separator)))
-    (setq result (concat result (funcall f (car lst))))
-    (setq lst (cdr lst)))
-  result))
+  ((lambda (result first)
+     (while lst
+       (if first
+           (setq first nil)
+         (setq result (concat result separator)))
+       (setq result (concat result (funcall f (car lst))))
+       (setq lst (cdr lst)))
+     result)
+   "" t)))
 (defalias 'nreverse (lambda (lst)
   (internal--let result nil)
   (while lst
@@ -220,14 +278,21 @@
 ;; assign to a variable spelled `s'.  `set'/`symbol-value' are the pair
 ;; that makes it a function here; the membership test is `equal', as in
 ;; Emacs, and the return value is the resulting list.
+;;
+;; CURRENT is a lambda parameter for a reason that is not the callback
+;; one: VARIABLE is a name the CALLER chose, so `(add-to-list 'current 1)'
+;; used to have the temporary shadow the very variable the `set' was
+;; supposed to write.  The write reached the shadow, the caller's list was
+;; left untouched, and nothing said so.
 (defalias 'add-to-list (lambda (variable item &optional appendp)
-  (internal--let current (symbol-value variable))
-  (if (member item current)
-      current
-    (set variable
-      (if appendp
-          (append current (list item))
-        (cons item current))))))
+  ((lambda (current)
+     (if (member item current)
+         current
+       (set variable
+         (if appendp
+             (append current (list item))
+           (cons item current)))))
+   (symbol-value variable))))
 (defalias 'identity (lambda (value) value))
 ;; Emacs' float syntax is exactly what fe's writer prints for a float
 ;; (shortest round-trip, always with a `.' or an exponent), and its
@@ -346,10 +411,11 @@
       (cons 'lambda (cons (list (car spec)) body)))
     (car (cdr (cdr spec))))))
 (defalias 'internal--dotimes (lambda (count body)
-  (internal--let i 0)
-  (while (< i count)
-    (funcall body i)
-    (setq i (+ i 1)))))
+  ((lambda (i)
+     (while (< i count)
+       (funcall body i)
+       (setq i (+ i 1))))
+   0)))
 (defalias 'dotimes (macro (spec . body)
   (list 'progn
     (list 'internal--dotimes (car (cdr spec))
@@ -388,8 +454,11 @@
 ;;   (condition-case e (save-excursion (setq internal--excursion nil)
 ;;     (error "MY-ERROR")) (error (format "%S" e)))
 ;; answered the cleanup's complaint about a value of the wrong type.  It
-;; answers ("MY-ERROR") now.  This is Phase 14's hygiene demonstration:
-;; the other prelude temporaries are still ordinary names (doc/TODO.md).
+;; answers ("MY-ERROR") now.  This was Phase 14's hygiene demonstration,
+;; and the first name of the sweep the header block above describes.  It
+;; is a `gensym' rather than a lambda parameter because it can be: these
+;; two are MACROS, so a name can be minted at expansion time and the
+;; temporary has to survive into an expansion the body is spliced inside.
 (defalias 'save-excursion (macro body
   (internal--let sym (gensym "internal--excursion-"))
   (list 'internal--let
@@ -779,16 +848,21 @@
 ;; input unit) on every completion kind via fe's cleanup drain.
 ;; internal--read-form answers (FORM) or nil, keeping end-of-file
 ;; distinguishable from a form that reads as nil.
+;; Both temporaries are lambda parameters: `eval' below runs the LOADED
+;; FILE's forms with them still bound, so a `let'-bound `h' or `cell'
+;; would be captured by any file that had `defvar'd either name.
 (defalias 'internal--load-loop (lambda (path)
-  (let ((h nil))
-    (unwind-protect
-        (progn
-          (setq h (internal--load-begin path))
-          (let ((cell (internal--read-form h)))
-            (while cell
-              (eval (car cell))
-              (setq cell (internal--read-form h)))))
-      (if h (internal--load-end h))))))
+  ((lambda (h)
+     (unwind-protect
+         (progn
+           (setq h (internal--load-begin path))
+           ((lambda (cell)
+              (while cell
+                (eval (car cell))
+                (setq cell (internal--read-form h))))
+            (internal--read-form h)))
+       (if h (internal--load-end h))))
+   nil)))
 (defalias 'load (lambda (name)
   (internal--load-loop (internal--resolve-load name))
   t))
@@ -802,15 +876,17 @@
 ;; (internal--require-check) runs only on the success path, before the
 ;; pop so the C side still sees this chain's depth.
 (defalias 'require (lambda (feature &optional filename)
-  (let ((path (internal--require-resolve feature filename)))
-    (if path
-        (let ((pushed nil))
-          (unwind-protect
-              (progn
-                (setq pushed (internal--require-push feature))
-                (internal--load-loop path)
-                (internal--require-check feature))
-            (if pushed (internal--require-pop))))))
+  ((lambda (path)
+     (if path
+         ((lambda (pushed)
+            (unwind-protect
+                (progn
+                  (setq pushed (internal--require-push feature))
+                  (internal--load-loop path)
+                  (internal--require-check feature))
+              (if pushed (internal--require-pop))))
+          nil)))
+   (internal--require-resolve feature filename))
   feature))
 
 ;; --- startup ---
@@ -1009,24 +1085,28 @@
 ;; final empty match at end of string is not replaced, which is why
 ;; (replace-regexp-in-string "x*" "-" "abc") is "-a-b-c" and not
 ;; "-a-b-c-".
+;; All five temporaries are live across the `funcall' of a function REP,
+;; so all five are lambda parameters rather than `let' bindings.
 (defalias 'replace-regexp-in-string (lambda
   (regexp rep string &optional fixedcase literal)
-  (let ((start 0) (out "") (limit (length string)))
-    (while (and (< start limit) (string-match regexp string start))
-      (let ((mb (match-beginning 0)) (me (match-end 0)))
-        (setq out (concat out (substring string start mb)))
-        (setq out (concat out
-                    (if (stringp rep)
-                        (if literal rep
-                          (internal--replace-expand rep string))
-                      (funcall rep (match-string 0 string)))))
-        (if (= me mb)
-            (progn
-              (if (< mb limit)
-                  (setq out (concat out (substring string mb (+ mb 1)))))
-              (setq start (+ mb 1)))
-          (setq start me))))
-    (concat out (substring string (if (< start limit) start limit))))))
+  ((lambda (start out limit)
+     (while (and (< start limit) (string-match regexp string start))
+       ((lambda (mb me)
+          (setq out (concat out (substring string start mb)))
+          (setq out (concat out
+                      (if (stringp rep)
+                          (if literal rep
+                            (internal--replace-expand rep string))
+                        (funcall rep (match-string 0 string)))))
+          (if (= me mb)
+              (progn
+                (if (< mb limit)
+                    (setq out (concat out (substring string mb (+ mb 1)))))
+                (setq start (+ mb 1)))
+            (setq start me)))
+        (match-beginning 0) (match-end 0)))
+     (concat out (substring string (if (< start limit) start limit))))
+   0 "" (length string))))
 
 ;; --- lists ---
 (defalias 'cdar (lambda (x) (cdr (car x))))
@@ -1128,65 +1208,75 @@
 ;; y `eq' to x and leaves c holding 3 -- the cells keep their identities
 ;; and their contents move.  Emacs' keyword calling convention
 ;; ((sort SEQ :lessp ...)) is not accepted.
+;; PREDICATE is user code, and all three of these accumulate across a
+;; call to it, so all three are lambda parameters.  `sort's `values' and
+;; `cell' stay an ordinary `let': it is entered after the last predicate
+;; call has returned, so nothing can observe them.
 (defalias 'internal--merge (lambda (a b predicate)
-  (let ((out nil))
-    (while (and a b)
-      (if (funcall predicate (car b) (car a))
-          (progn (setq out (cons (car b) out)) (setq b (cdr b)))
-        (setq out (cons (car a) out))
-        (setq a (cdr a))))
-    (while a (setq out (cons (car a) out)) (setq a (cdr a)))
-    (while b (setq out (cons (car b) out)) (setq b (cdr b)))
-    (nreverse out))))
+  ((lambda (out)
+     (while (and a b)
+       (if (funcall predicate (car b) (car a))
+           (progn (setq out (cons (car b) out)) (setq b (cdr b)))
+         (setq out (cons (car a) out))
+         (setq a (cdr a))))
+     (while a (setq out (cons (car a) out)) (setq a (cdr a)))
+     (while b (setq out (cons (car b) out)) (setq b (cdr b)))
+     (nreverse out))
+   nil)))
 (defalias 'internal--merge-pairs (lambda (runs predicate)
-  (let ((out nil))
-    (while runs
-      (if (cdr runs)
-          (progn
-            (setq out (cons (internal--merge (car runs) (car (cdr runs))
-                              predicate)
-                        out))
-            (setq runs (cdr (cdr runs))))
-        (setq out (cons (car runs) out))
-        (setq runs nil)))
-    (nreverse out))))
+  ((lambda (out)
+     (while runs
+       (if (cdr runs)
+           (progn
+             (setq out (cons (internal--merge (car runs) (car (cdr runs))
+                               predicate)
+                         out))
+             (setq runs (cdr (cdr runs))))
+         (setq out (cons (car runs) out))
+         (setq runs nil)))
+     (nreverse out))
+   nil)))
 (defalias 'sort (lambda (sequence predicate)
-  (let ((runs (mapcar 'list sequence)))
-    (while (cdr runs)
-      (setq runs (internal--merge-pairs runs predicate)))
-    (let ((values (car runs)) (cell sequence))
-      (while cell
-        (setcar cell (car values))
-        (setq values (cdr values))
-        (setq cell (cdr cell))))
-    sequence)))
+  ((lambda (runs)
+     (while (cdr runs)
+       (setq runs (internal--merge-pairs runs predicate)))
+     (let ((values (car runs)) (cell sequence))
+       (while cell
+         (setcar cell (car values))
+         (setq values (cdr values))
+         (setq cell (cdr cell))))
+     sequence)
+   (mapcar 'list sequence))))
 
 ;; --- the seq- shim ---
 ;; Lists only: Emacs' seq- functions are generic over every sequence type
 ;; through cl-generic, and kg has lists and strings and no dispatch.
 (defalias 'seq-map (lambda (function sequence) (mapcar function sequence)))
 (defalias 'seq-filter (lambda (predicate sequence)
-  (let ((out nil))
-    (while sequence
-      (if (funcall predicate (car sequence))
-          (setq out (cons (car sequence) out)))
-      (setq sequence (cdr sequence)))
-    (reverse out))))
+  ((lambda (out)
+     (while sequence
+       (if (funcall predicate (car sequence))
+           (setq out (cons (car sequence) out)))
+       (setq sequence (cdr sequence)))
+     (reverse out))
+   nil)))
 (defalias 'seq-remove (lambda (predicate sequence)
   (seq-filter (lambda (x) (not (funcall predicate x))) sequence)))
 (defalias 'seq-find (lambda (predicate sequence &optional default)
-  (let ((hit nil) (found nil))
-    (while (and sequence (not found))
-      (if (funcall predicate (car sequence))
-          (progn (setq hit (car sequence)) (setq found t)))
-      (setq sequence (cdr sequence)))
-    (if found hit default))))
+  ((lambda (hit found)
+     (while (and sequence (not found))
+       (if (funcall predicate (car sequence))
+           (progn (setq hit (car sequence)) (setq found t)))
+       (setq sequence (cdr sequence)))
+     (if found hit default))
+   nil nil)))
 (defalias 'seq-some (lambda (predicate sequence)
-  (let ((hit nil))
-    (while (and sequence (null hit))
-      (setq hit (funcall predicate (car sequence)))
-      (setq sequence (cdr sequence)))
-    hit)))
+  ((lambda (hit)
+     (while (and sequence (null hit))
+       (setq hit (funcall predicate (car sequence)))
+       (setq sequence (cdr sequence)))
+     hit)
+   nil)))
 (defalias 'seq-take (lambda (sequence n)
   (let ((out nil))
     (while (and sequence (< 0 n))

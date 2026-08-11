@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1613 | 128 |
+| `lisp/prelude.el` | 1612 | 128 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2336** | **202** |
+| **total** | **2335** | **202** |
 
 ## Implemented-name set
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 0 | -- |
 | records | 0 | -- |
 
-## COVERED (246 names, 2332 references)
+## COVERED (246 names, 2331 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -67,14 +67,14 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 148 | `list` | fe-primitive |
 | 146 | `if` | fe-primitive |
 | 136 | `car` | fe-primitive |
+| 132 | `lambda` | fe-primitive |
 | 128 | `defalias` | fe-primitive |
-| 115 | `lambda` | fe-primitive |
 | 74 | `cons` | fe-primitive |
 | 71 | `defun` | kg-lisp |
-| 71 | `let` | kg-lisp |
 | 61 | `while` | fe-primitive |
-| 55 | `internal--let` | kg-lisp |
+| 59 | `let` | kg-lisp |
 | 50 | `and` | fe-primitive |
+| 49 | `internal--let` | kg-lisp |
 | 33 | `eq` | fe-primitive |
 | 32 | `not` | fe-primitive |
 | 25 | `macro` | fe-primitive |

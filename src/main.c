@@ -43,6 +43,7 @@
 #include <unistd.h>
 #endif
 
+#include "async.h"
 #include "bufhandle.h"
 #include "compile.h"
 #include "compile_nav.h"
@@ -237,12 +238,12 @@ int main(int argc, char **argv)
 		compilation_start_pending_restart();
 		autorevert_poll();
 		kg_process_table_poll();
-		lsp_poll();
+		editor_async_poll();
 		/* Safe point: each of the non-command lifecycle actions
 		 * above (signal-driven resize, compilation polling,
-		 * autorevert, process-table and LSP polling) has either done
-		 * nothing or fully completed -- none of them holds an edit
-		 * transaction or the renderer open across this call.
+		 * autorevert, process-table and asynchronous polling) has
+		 * either done nothing or fully completed -- none of them holds
+		 * an edit transaction or the renderer open across this call.
 		 * kg_process_table_poll() itself never writes a buffer; its
 		 * drain subscriber runs from kg_event_drain_safe() below, not
 		 * from here. */

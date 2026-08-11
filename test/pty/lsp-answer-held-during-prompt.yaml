@@ -1,0 +1,47 @@
+# An LSP definition answer becomes readable while the M-x prompt is open.
+# The screen is captured before trailer_keys: it proves the prompt text and
+# source window survive unchanged.  trailer_keys then cancels the prompt;
+# the top-level async poll consumes the held answer and the X proves the
+# exact definition jump happened afterward, not under the prompt.
+requires_feature: lsp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.20
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --delay-ms 400 --delay-method textDocument/definition --definition-self 2:4"
+filename: asyncprompt.c
+initial: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "M-x"
+  # One token per character makes the open-prompt interval 1.4 s after
+  # M-x, well past the fake's 400 ms response delay even on a loaded lane.
+  - "v"
+  - "e"
+  - "r"
+  - "s"
+  - "i"
+  - "o"
+  - "n"
+expected_screen_contains:
+  - "M-x version"
+  - "int target(void) { return 1; }"
+  - "int use(void) { return target(); }"
+expected_screen_not_contains:
+  - "*xref*"
+  - "definitions in"
+trailer_keys:
+  - "C-g"
+  - "C-l"
+  - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  int target(void) { return 1; }
+  int other(void) { return 2; }
+  int Xuse(void) { return target(); }

@@ -328,7 +328,7 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
 # Source files
-SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
+SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
@@ -366,7 +366,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
            $(TESTDIR)/test_compile_parse $(TESTDIR)/test_compile_nav \
-           $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
+           $(TESTDIR)/test_tty $(TESTDIR)/test_async $(TESTDIR)/test_minibuf \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
@@ -436,7 +436,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
-	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
+	    $(OBJDIR)/tty.c $(OBJDIR)/async.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
@@ -584,7 +584,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8700
+SCC_COMPLEXITY_MAX ?= 8711
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1280,7 +1280,10 @@ EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST
 # both no-ops: what this suite observes is the store, the listing's text
 # and the next-error handover, never point moving.
 EXTRA_occur       := $(EXTRA_compile_nav) $(OBJDIR)/occur.o $(REGEX_OBJS)
-EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
+EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/async.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
+# The aggregate itself is editor-free: its enabled build drives the real LSP
+# registry and its disabled build reaches the facade's no-op half.
+EXTRA_async       := $(TESTDIR)/stubs.o          $(OBJDIR)/async.o $(TEST_SRCS_OBJS)
 EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # The command table is only reachable by linking cmd.o, which reaches

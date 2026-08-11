@@ -511,12 +511,12 @@ static int xref_render(struct lsp_client *c, const char *what)
 
 /* Show the listing.
  *
- * Not while a minibuffer prompt is up.  This runs from lsp_poll(), which
- * the key reader re-enters on every idle timeout, so the answer to a
- * command typed before C-x C-f can arrive while the user is halfway
- * through a filename -- and selecting a buffer under a prompt would leave
- * that prompt editing a different buffer than the one it was opened over.
- * The listing is still built, so C-x b reaches it; only the switch waits.
+ * Not while a minibuffer prompt is up.  The editor's ordinary prompt reader
+ * does not poll asynchronous protocols, so an answer normally remains on
+ * its fd until the prompt closes.  The guard belongs at the action anyway:
+ * a caller may service a client directly, and a future prompt-safe poll
+ * must not make selecting a buffer under a half-typed filename legal.  The
+ * listing is still built, so C-x b reaches it; only the switch waits.
  *
  * Point starts on the first result rather than the header, so RET, n and p
  * all mean something the moment the buffer appears. */

@@ -17,10 +17,10 @@
 #include <unistd.h>
 #endif
 
+#include "async.h"
 #include "compile.h"
 #include "def.h"
 #include "keyevent.h"
-#include "lsp.h"
 #include "mouse.h"
 #include "perf.h"
 #include "process_table.h"
@@ -660,7 +660,7 @@ static struct key_event parse_escape(int fd)
 enum kg_idle_wake kg_idle_wait(
     int fd, const int *extra, int count, int timeout_ms)
 {
-	struct pollfd pfd[1 + KG_LSP_WAIT_FDS_MAX];
+	struct pollfd pfd[1 + KG_ASYNC_WAIT_FDS_MAX];
 	int nfds = 1;
 	int rc;
 	int i;
@@ -715,8 +715,8 @@ static long long idle_now_ms(void)
 
 /* Everything the editor does between keystrokes, once per tick.  This is
  * the block that used to hang off the 100 ms read timeout, and it still
- * runs at exactly that cadence -- KG_IDLE_FD only ever gets the editor to
- * lsp_poll() sooner, never these. */
+ * runs at exactly that cadence -- KG_IDLE_FD only ever gets the editor's
+ * asynchronous subsystems polled sooner, never these. */
 static void idle_tick_work(void)
 {
 	int changed = 0;
@@ -729,23 +729,23 @@ static void idle_tick_work(void)
 	 * show -- the drain that would change the screen runs from a safe
 	 * point, never from this idle loop. */
 	kg_process_table_poll();
-	/* Part of `changed`, unlike the line above: an LSP response is
-	 * allowed to move point or the echo area from here, the way
-	 * compilation_poll() is, so the frame it changed has to be
-	 * repainted while the editor is still waiting for a key. */
-	changed |= lsp_poll();
+	/* Part of `changed`, unlike the line above: a protocol response may
+	 * move point or the echo area from here, the way compilation_poll()
+	 * may, so the frame it changed has to be repainted while the editor
+	 * is still waiting for a key. */
+	changed |= editor_async_poll();
 	if (changed) {
 		editor_refresh_screen();
 	}
 }
 
-/* The main loop's wait: the terminal, every live language server's
+/* The main loop's wait: the terminal, every asynchronous subsystem's
  * descriptors, and whatever is left of the current tick.
  *
  * The tick is a DEADLINE rather than a duration, and exactly one place
  * moves it.  That is what keeps the pollers in idle_tick_work() at 100 ms
- * however often a chatty server wakes the editor in between -- a wait a
- * descriptor ended early leaves the deadline where it was, so the tick
+ * however often a chatty subsystem wakes the editor in between -- a wait
+ * a descriptor ended early leaves the deadline where it was, so the tick
  * still lands when it would have landed. */
 static enum kg_idle_wake idle_wait(int fd)
 {
@@ -754,19 +754,19 @@ static enum kg_idle_wake idle_wait(int fd)
 	 * platform keeps the wait it always had: the read below blocks with
 	 * the console's own timeout, and a read that comes back empty is its
 	 * tick.  kg_idle_wait() is still here and still works -- on the
-	 * descriptors a language server hands over -- it is just not what
+	 * descriptors asynchronous subsystems hand over -- it is just not what
 	 * paces the loop here. */
 	(void)fd;
 	return KG_IDLE_KEY;
 #else
 	static long long next_tick;
-	int fds[KG_LSP_WAIT_FDS_MAX];
+	int fds[KG_ASYNC_WAIT_FDS_MAX];
 	enum kg_idle_wake wake;
 	long long now = idle_now_ms();
 	int count;
 
 	if (now < next_tick) {
-		count = lsp_wait_fds(fds, KG_LSP_WAIT_FDS_MAX);
+		count = editor_async_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX);
 		wake = kg_idle_wait(fd, fds, count, (int)(next_tick - now));
 		if (wake != KG_IDLE_TICK) {
 			return wake;
@@ -803,9 +803,9 @@ static enum idle_next idle_dispatch(enum kg_idle_wake wake)
 	case KG_IDLE_KEY:
 		return IDLE_NEXT_READ;
 	case KG_IDLE_FD:
-		/* A server, and only a server: the pollers in
-		 * idle_tick_work() keep their own cadence. */
-		if (lsp_poll()) {
+		/* An asynchronous subsystem, and only one of those: the pollers
+		 * in idle_tick_work() keep their own cadence. */
+		if (editor_async_poll()) {
 			editor_refresh_screen();
 		}
 		break;
@@ -854,7 +854,7 @@ static int wait_for_input(int fd, int idle)
 
 /* Block until one input byte arrives, servicing signals and the idle
  * polls meanwhile.  `idle` selects the main-loop wait (the tick's pollers,
- * plus every language server's descriptors) over the plain one used by
+ * plus every asynchronous descriptor) over the plain one used by
  * minibuffer prompts, which reads the terminal and nothing else.  Returns
  * the byte, or -1 once the input stream is gone and the editor is shutting
  * down. */

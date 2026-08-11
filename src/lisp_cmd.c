@@ -8,7 +8,6 @@
 #include "keybind.h"
 #include "keyevent.h"
 #include "keymap.h"
-#include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 
@@ -538,7 +537,8 @@ static struct lisp_command *find_command_slot(const char *name)
 /* The next argument if there is one, nil otherwise: `define-command`'s
  * three optional arguments read the same way, and spelling that as three
  * `if`s made the arity the branchiest thing in the function. */
-static FeObject *next_optional_argument(FeContext *context, FeObject **arguments)
+static FeObject *next_optional_argument(
+    FeContext *context, FeObject **arguments)
 {
 	return FeIsNil(*arguments) ? FeNil(context)
 				   : FeGetNextArgument(context, arguments);

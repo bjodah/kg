@@ -3445,8 +3445,8 @@ static void test_type_predicates(void)
 	/* Contained, not merely quiet: the interpreter is still usable, and
 	 * calling the name is still an error rather than a crash. */
 	CHECK(eval_eq("(+ 1 2)", "3"));
-	CHECK(eval_error_contains(
-	    "(funcall 'cyc)", "Symbol's chain of function indirections contains a loop"));
+	CHECK(eval_error_contains("(funcall 'cyc)",
+	    "Symbol's chain of function indirections contains a loop"));
 	/* fboundp reads the raw cell and follows nothing, so it answers for
 	 * the same name without raising -- the "never errors" doc/lisp-api.md
 	 * claims for it. */
@@ -3727,7 +3727,8 @@ static void test_phase11_dynamic_binding(void)
 		      " (special-variable-p 'p11-up))",
 	    "t"));
 	/* Constants cannot be marked at all. */
-	CHECK(eval_error_contains("(defvar t 1)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains(
+	    "(defvar t 1)", "Attempt to set a constant symbol"));
 
 	/* Not grid probes: kg's own `let' shapes, which the switch onto
 	 * fe's core bindings-list form had to preserve exactly.  The
@@ -3742,10 +3743,14 @@ static void test_phase11_dynamic_binding(void)
 	 * behaviour, recorded rather than fixed by this phase. */
 	CHECK(eval_eq("(let ((a 1 2)) a)", "1"));
 	/* The constant refusals survive the switch, with one message. */
-	CHECK(eval_error_contains("(let ((t 1)) t)", "Attempt to set a constant symbol"));
-	CHECK(eval_error_contains("(let ((nil 1)) 1)", "Attempt to set a constant symbol"));
-	CHECK(eval_error_contains("(let ((:k 1)) 1)", "Attempt to set a constant symbol"));
-	CHECK(eval_error_contains("(let* ((t 1)) t)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains(
+	    "(let ((t 1)) t)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains(
+	    "(let ((nil 1)) 1)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains(
+	    "(let ((:k 1)) 1)", "Attempt to set a constant symbol"));
+	CHECK(eval_error_contains(
+	    "(let* ((t 1)) t)", "Attempt to set a constant symbol"));
 	/* Parallel evaluation of the initializers survives it too. */
 	CHECK(eval_eq("(progn (setq p11-par 100)"
 		      " (let ((p11-par 1) (z p11-par)) z))",
@@ -4541,8 +4546,8 @@ static void test_interactive_form_reflection(void)
 	/* A FORM spec comes back UNEVALUATED -- the descriptor, not the
 	 * closure the dispatcher calls.  This is the case 07D could not
 	 * answer, and the reason the raw form is stored at all. */
-	CHECK(eval_eq("(interactive-form 'p19f)",
-	    "(interactive (list \"x\"))"));
+	CHECK(
+	    eval_eq("(interactive-form 'p19f)", "(interactive (list \"x\"))"));
 	CHECK(eval_eq("(interactive-form 'p19n)", "(interactive nil)"));
 	/* Not a command, and not anything at all. */
 	CHECK(eval_eq("(interactive-form 'p19plain)", "nil"));
@@ -4565,9 +4570,10 @@ static void test_interactive_form_reflection(void)
 
 	/* Redefinition replaces the recorded specification rather than
 	 * leaving the old one beside a new body. */
-	CHECK(eval_ok("(defun p19s (n) (interactive \"n Give a number: \") n)"));
-	CHECK(eval_eq("(interactive-form 'p19s)",
-	    "(interactive \"n Give a number: \")"));
+	CHECK(
+	    eval_ok("(defun p19s (n) (interactive \"n Give a number: \") n)"));
+	CHECK(eval_eq(
+	    "(interactive-form 'p19s)", "(interactive \"n Give a number: \")"));
 	/* ... and removing the command takes the form with it. */
 	CHECK(eval_ok("(remove-command 'p19s)"));
 	CHECK(eval_eq("(interactive-form 'p19s)", "nil"));
@@ -4604,10 +4610,10 @@ static void test_help_fns_surface(void)
 	CHECK(eval_ok("(defvar p19var 1)"));
 	CHECK(eval_eq("(documentation 'p19doc)", "Return X."));
 	CHECK(eval_eq("(documentation 'p19undoc)", "nil"));
-	CHECK(eval_eq("(if (memq 'p19undoc (internal--defined-names)) 'yes 'no)",
-	    "yes"));
-	CHECK(eval_eq("(if (memq 'p19var (internal--defined-names)) 'yes 'no)",
-	    "yes"));
+	CHECK(eval_eq(
+	    "(if (memq 'p19undoc (internal--defined-names)) 'yes 'no)", "yes"));
+	CHECK(eval_eq(
+	    "(if (memq 'p19var (internal--defined-names)) 'yes 'no)", "yes"));
 
 	/* Every symbol fe has interned is enumerable without a new
 	 * primitive: `env' is the obarray walk `apropos' needs, and it
@@ -4621,9 +4627,10 @@ static void test_help_fns_surface(void)
 	 * pinned here is the shape, with the real table exercised through
 	 * kgbatch (test/lisp-compat's phase19-help-fns-surface) and on a
 	 * terminal (test/pty/lisp-help-fns-apropos.yaml). */
-	CHECK(eval_eq("(if (memq 'version (internal--command-names)) 'yes 'no)",
-	    "yes"));
-	CHECK(eval_ok("(define-command 'p19cmd (lambda () 1) nil \"Doc it.\")"));
+	CHECK(eval_eq(
+	    "(if (memq 'version (internal--command-names)) 'yes 'no)", "yes"));
+	CHECK(
+	    eval_ok("(define-command 'p19cmd (lambda () 1) nil \"Doc it.\")"));
 	/* The Lisp half of the list is deliberately absent HERE: the stub
 	 * `cmd_name_at' walks the stub table only, because this file is
 	 * linked into binaries that carry no Lisp objects and may not name
@@ -4673,22 +4680,22 @@ static void test_error_message_rendering(void)
 	/* The rendering, from Lisp. */
 	CHECK(eval_eq("(error-message-string '(wrong-type-argument listp 6))",
 	    "Wrong type argument: listp, 6"));
-	CHECK(eval_eq("(error-message-string '(error \"custom msg\"))",
-	    "custom msg"));
+	CHECK(eval_eq(
+	    "(error-message-string '(error \"custom msg\"))", "custom msg"));
 	CHECK(eval_eq("(condition-case e (goto-char \"x\") "
 		      "(error (error-message-string e)))",
 	    "Wrong type argument: integer-or-marker-p, \"x\""));
 	/* The property the rendering reads, and a program's right to
 	 * replace it. */
-	CHECK(eval_eq("(get 'args-out-of-range 'error-message)",
-	    "Args out of range"));
+	CHECK(eval_eq(
+	    "(get 'args-out-of-range 'error-message)", "Args out of range"));
 	CHECK(eval_eq("(progn (put 'args-out-of-range 'error-message \"Nope\") "
 		      "(error-message-string '(args-out-of-range 1)))",
 	    "Nope: 1"));
 
 	/* The diagnostic a host sees for an UNCAUGHT one. */
-	CHECK(kg_lisp_eval_string("(goto-char \"x\")", 15, result,
-		  sizeof(result))
+	CHECK(
+	    kg_lisp_eval_string("(goto-char \"x\")", 15, result, sizeof(result))
 	    != 0);
 	CHECK(strstr(result, "Wrong type argument: integer-or-marker-p, \"x\"")
 	    != nullptr);
@@ -4708,8 +4715,7 @@ static void test_error_message_rendering(void)
 	 * escapes the backslash as well as the quote, so a printed string
 	 * reads back.  `regexp-quote` is the kg surface that produces them. */
 	CHECK(eval_eq("(format \"%S\" \"x\\\\y\")", "\"x\\\\y\""));
-	CHECK(eval_eq("(format \"%S\" (regexp-quote \"a.b\"))",
-	    "\"a\\\\.b\""));
+	CHECK(eval_eq("(format \"%S\" (regexp-quote \"a.b\"))", "\"a\\\\.b\""));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -5915,14 +5921,14 @@ static void test_phase8_library(void)
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
 	 * build via kg_lisp_arena_stats() at the Phase 19 pin:
-	 * 56259 object slots (56239 at the Phase 14 pin, 56225 at the Phase 12 pin, 56226 at the Phase
-	 * 11 fix cycle's pin, 56224 at the Phase 10 pin, 56222 before that --
-	 * the frame record fe's dynamic-binding work grew costs one frame
-	 * slot, frame_capacity 1096 -> 1095, and returns two object slots;
-	 * Phase 12's fe additions take one object slot back and no frame
-	 * slot; Phase 14's grow FeMinimumArenaSize by 2264 bytes, which moves
-	 * two frame slots' worth of bytes to the object side, 1095 -> 1093
-	 * frames and +14 objects; Phase 19's seeded `error-message'
+	 * 56259 object slots (56239 at the Phase 14 pin, 56225 at the Phase 12
+	 * pin, 56226 at the Phase 11 fix cycle's pin, 56224 at the Phase 10
+	 * pin, 56222 before that -- the frame record fe's dynamic-binding work
+	 * grew costs one frame slot, frame_capacity 1096 -> 1095, and returns
+	 * two object slots; Phase 12's fe additions take one object slot back
+	 * and no frame slot; Phase 14's grow FeMinimumArenaSize by 2264 bytes,
+	 * which moves two frame slots' worth of bytes to the object side, 1095
+	 * -> 1093 frames and +14 objects; Phase 19's seeded `error-message'
 	 * properties grow it by 3248 more, moving three more frame slots'
 	 * worth across, 1093 -> 1090 frames and +20 objects),
 	 * peak_live 9887 after the prelude alone
@@ -6676,8 +6682,8 @@ static void test_hooks(void)
 	/* Calling the same name still raises, and is caught as an error
 	 * rather than taking the editor down: only the *host*-side resolver
 	 * stopped raising. */
-	CHECK(eval_error_contains(
-	    "(funcall 'cyc-hook)", "Symbol's chain of function indirections contains a loop"));
+	CHECK(eval_error_contains("(funcall 'cyc-hook)",
+	    "Symbol's chain of function indirections contains a loop"));
 	CHECK(eval_ok("(+ 1 2)"));
 
 	kg_lisp_shutdown();

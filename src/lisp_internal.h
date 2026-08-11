@@ -473,8 +473,7 @@ FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_commandp(FeContext *context, FeObject *arguments);
 FeObject *native_interactive_form(FeContext *context, FeObject *arguments);
 FeObject *native_command_names(FeContext *context, FeObject *arguments);
-FeObject *native_command_documentation(
-    FeContext *context, FeObject *arguments);
+FeObject *native_command_documentation(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);

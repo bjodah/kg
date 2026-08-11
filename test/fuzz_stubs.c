@@ -704,6 +704,14 @@ const struct named_cmd *cmd_descriptor_at(int index)
 	return index >= 0 && fuzz_cmdtable[index].name ? &fuzz_cmdtable[index]
 						       : nullptr;
 }
+/* The walk `(internal--command-names)` uses; the stub table is all this
+ * harness has, exactly as in test/stubs.c. */
+const char *cmd_name_at(int index)
+{
+	const struct named_cmd *cmd = cmd_descriptor_at(index);
+
+	return cmd != nullptr ? cmd->name : nullptr;
+}
 const struct named_cmd *cmd_descriptor_by_id(command_id id)
 {
 	if (id < CMD_ID_STATIC_BASE || id >= CMD_ID_RUNTIME_BASE) {

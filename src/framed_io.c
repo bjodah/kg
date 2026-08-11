@@ -11,7 +11,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
+#endif
 
 /* Bigger than a pipe buffer on every supported system, so a ready
  * descriptor is normally drained in one call. */
@@ -34,6 +40,9 @@ struct framed_io {
 	bool error_outbound;
 	bool eof;
 	bool fds_adopted;
+	bool connecting;
+	bool output_close_requested;
+	bool output_closed;
 	enum framed_io_error stop_reason;
 };
 
@@ -42,7 +51,10 @@ struct framed_line {
 	struct framed_buf buf;
 	size_t delivered;
 	size_t held;
+	size_t scan_start;
+	size_t scan_len;
 	bool eof;
+	bool scan_valid;
 };
 
 static void close_fd(int *fd)
@@ -171,7 +183,9 @@ static int fail_inbound(struct framed_io *io, enum framed_io_error error)
 	return framed_io_fail(io, error, false);
 }
 
-struct framed_io *framed_io_new(int read_fd, int write_fd)
+static bool send_blocked(struct framed_io *io);
+
+struct framed_io *framed_io_attach_fds(int read_fd, int write_fd)
 {
 	struct framed_io *io = calloc(1, sizeof(*io));
 
@@ -186,9 +200,22 @@ struct framed_io *framed_io_new(int read_fd, int write_fd)
 	return io;
 }
 
+struct framed_io *framed_io_attach_socket(int fd)
+{
+	return framed_io_attach_fds(fd, fd);
+}
+
+struct framed_io *framed_io_new(int read_fd, int write_fd)
+{
+	return framed_io_attach_fds(read_fd, write_fd);
+}
+
 int framed_io_adopt_fds(struct framed_io *io, int read_fd, int write_fd)
 {
-	if (io->error != FRAMED_IO_OK || io->fds_adopted) {
+	if (send_blocked(io)) {
+		return -1;
+	}
+	if (io->fds_adopted) {
 		errno = EBUSY;
 		return -1;
 	}
@@ -200,6 +227,89 @@ int framed_io_adopt_fds(struct framed_io *io, int read_fd, int write_fd)
 	io->read_fd = read_fd;
 	io->write_fd = write_fd;
 	return 0;
+}
+
+static bool loopback_host(const char *host)
+{
+	return host && strcmp(host, "127.0.0.1") == 0;
+}
+
+static int connect_ready(int fd)
+{
+	struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+	socklen_t len = sizeof(int);
+	int error = 0;
+	int rc;
+
+	do {
+		rc = poll(&pfd, 1, 0);
+	} while (rc < 0 && errno == EINTR);
+	if (rc == 0) {
+		return 0;
+	}
+	if (rc < 0 || getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) != 0
+	    || error != 0) {
+		return -1;
+	}
+	return 1;
+}
+
+int framed_io_connect_start(
+    struct framed_io *io, const char *host, unsigned short port)
+{
+	struct sockaddr_in addr;
+	int fd;
+	int rc;
+
+	if (!io || !loopback_host(host) || port == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (send_blocked(io)) {
+		return -1;
+	}
+	if (io->fds_adopted) {
+		errno = EBUSY;
+		return -1;
+	}
+	fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0 || fd_prepare(fd) != 0) {
+		close_fd(&fd);
+		return framed_io_fail(io, FRAMED_IO_ERR_IO, false);
+	}
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	io->read_fd = fd;
+	io->write_fd = fd;
+	io->fds_adopted = true;
+	rc = connect(fd, (const struct sockaddr *)&addr, sizeof(addr));
+	if (rc != 0 && errno != EINPROGRESS && errno != EINTR) {
+		return framed_io_fail(io, FRAMED_IO_ERR_IO, false);
+	}
+	io->connecting = true;
+	return framed_io_connect_finish(io);
+}
+
+int framed_io_connect_finish(struct framed_io *io)
+{
+	int rc;
+
+	if (!io || io->error != FRAMED_IO_OK) {
+		return -1;
+	}
+	if (!io->connecting) {
+		return io->fds_adopted ? 1 : 0;
+	}
+	rc = connect_ready(io->read_fd);
+	if (rc < 0) {
+		return framed_io_fail(io, FRAMED_IO_ERR_IO, false);
+	}
+	if (rc > 0) {
+		io->connecting = false;
+	}
+	return rc;
 }
 
 void framed_io_close(struct framed_io *io)
@@ -391,16 +501,43 @@ static int outbox_write(struct framed_io *io)
 	return 0;
 }
 
-int framed_io_flush(struct framed_io *io)
+static int output_close_now(struct framed_io *io)
+{
+	int fd = io->write_fd;
+
+	if (io->output_closed) {
+		return 0;
+	}
+	if (fd >= 0 && fd == io->read_fd) {
+		if (shutdown(fd, SHUT_WR) != 0 && errno != ENOTCONN) {
+			return -1;
+		}
+		io->write_fd = -1;
+	} else {
+		close_fd(&io->write_fd);
+	}
+	io->output_closed = true;
+	return 0;
+}
+
+static int output_close_if_drained(struct framed_io *io)
+{
+	if (!io->output_close_requested || io->outbox.len > 0) {
+		return 0;
+	}
+	if (output_close_now(io) != 0) {
+		return framed_io_fail(io, FRAMED_IO_ERR_IO, true);
+	}
+	return 0;
+}
+
+static int flush_ready(struct framed_io *io)
 {
 	void (*old_sigpipe)(int);
 	int rc;
 
-	if (io->error != FRAMED_IO_OK) {
-		return -1;
-	}
 	if (io->write_fd < 0) {
-		return 0;
+		return output_close_if_drained(io);
 	}
 	if (io->outbox_sent < io->outbox.len) {
 		old_sigpipe = signal(SIGPIPE, SIG_IGN);
@@ -412,7 +549,33 @@ int framed_io_flush(struct framed_io *io)
 	}
 	buf_consume(&io->outbox, io->outbox_sent);
 	io->outbox_sent = 0;
-	return 0;
+	return output_close_if_drained(io);
+}
+
+int framed_io_flush(struct framed_io *io)
+{
+	int rc;
+
+	if (io->error != FRAMED_IO_OK) {
+		return -1;
+	}
+	if (!io->connecting) {
+		return flush_ready(io);
+	}
+	rc = framed_io_connect_finish(io);
+	return rc == 1 ? flush_ready(io) : rc;
+}
+
+static bool send_blocked(struct framed_io *io)
+{
+	if (io->error != FRAMED_IO_OK) {
+		return true;
+	}
+	if (!io->output_close_requested) {
+		return false;
+	}
+	errno = EPIPE;
+	return true;
 }
 
 int framed_io_send(struct framed_io *io, const char *body, size_t len)
@@ -420,7 +583,7 @@ int framed_io_send(struct framed_io *io, const char *body, size_t len)
 	char header[64];
 	int header_len;
 
-	if (io->error != FRAMED_IO_OK) {
+	if (send_blocked(io)) {
 		return -1;
 	}
 	header_len = snprintf(
@@ -440,9 +603,23 @@ int framed_io_send(struct framed_io *io, const char *body, size_t len)
 	return framed_io_flush(io);
 }
 
+int framed_io_half_close_output(struct framed_io *io)
+{
+	if (!io || io->error != FRAMED_IO_OK) {
+		return -1;
+	}
+	io->output_close_requested = true;
+	return framed_io_flush(io);
+}
+
+bool framed_io_output_closed(const struct framed_io *io)
+{
+	return io && io->output_closed;
+}
+
 int framed_io_prepend(struct framed_io *io, const char *data, size_t len)
 {
-	if (io->error != FRAMED_IO_OK) {
+	if (send_blocked(io)) {
 		return -1;
 	}
 	if (len > FRAMED_IO_MAX_OUTBOX_BYTES
@@ -453,6 +630,19 @@ int framed_io_prepend(struct framed_io *io, const char *data, size_t len)
 		return framed_io_fail(io, FRAMED_IO_ERR_NOMEM, true);
 	}
 	return 0;
+}
+
+static enum framed_io_error eof_reason(const struct framed_io *io)
+{
+	if (io->stop_reason == FRAMED_IO_ERR_EOF && io->inbox.len > 0) {
+		return FRAMED_IO_ERR_PROTOCOL;
+	}
+	return io->stop_reason;
+}
+
+static bool input_open(const struct framed_io *io)
+{
+	return io->read_fd >= 0 && !io->connecting;
 }
 
 int framed_io_next_message(struct framed_io *io, const char **body, size_t *len)
@@ -466,7 +656,7 @@ int framed_io_next_message(struct framed_io *io, const char **body, size_t *len)
 	}
 	buf_consume(&io->inbox, io->delivered);
 	io->delivered = 0;
-	if (io->read_fd < 0) {
+	if (!input_open(io)) {
 		return 0;
 	}
 	for (;;) {
@@ -475,7 +665,7 @@ int framed_io_next_message(struct framed_io *io, const char **body, size_t *len)
 			return rc;
 		}
 		if (io->eof) {
-			return fail_inbound(io, io->stop_reason);
+			return fail_inbound(io, eof_reason(io));
 		}
 		if (inbox_fill(io) == 0) {
 			return 0;
@@ -503,9 +693,14 @@ size_t framed_io_pending_bytes(const struct framed_io *io)
 	return io->outbox.len - io->outbox_sent;
 }
 
+static bool input_waitable(const struct framed_io *io)
+{
+	return io->error == FRAMED_IO_OK && !io->eof && input_open(io);
+}
+
 int framed_io_read_fd(const struct framed_io *io)
 {
-	return (io->error == FRAMED_IO_OK && !io->eof) ? io->read_fd : -1;
+	return input_waitable(io) ? io->read_fd : -1;
 }
 
 struct framed_line *framed_line_new(int fd, bool held)
@@ -536,6 +731,7 @@ int framed_line_fill(struct framed_line *line)
 {
 	ssize_t n;
 
+	line->scan_valid = false;
 	if (line->fd < 0 || line->eof) {
 		return -1;
 	}
@@ -562,6 +758,12 @@ static size_t line_limit(const struct framed_line *line)
 	return (line->held < line->buf.len) ? line->held : line->buf.len;
 }
 
+static bool line_cut_at_bound(const char *base, size_t limit, const char *nl)
+{
+	return limit >= FRAMED_IO_MAX_LINE_BYTES
+	    && (!nl || (size_t)(nl - base) > FRAMED_IO_MAX_LINE_BYTES);
+}
+
 static int line_take(
     struct framed_line *line, bool final, const char **text, size_t *len)
 {
@@ -569,12 +771,12 @@ static int line_take(
 	const char *nl = limit ? memchr(line->buf.data, '\n', limit) : NULL;
 	size_t take;
 
-	if (nl) {
-		take = (size_t)(nl - line->buf.data);
-		line->delivered = take + 1;
-	} else if (limit >= FRAMED_IO_MAX_LINE_BYTES) {
+	if (line_cut_at_bound(line->buf.data, limit, nl)) {
 		take = FRAMED_IO_MAX_LINE_BYTES;
 		line->delivered = take;
+	} else if (nl) {
+		take = (size_t)(nl - line->buf.data);
+		line->delivered = take + 1;
 	} else if (final && limit > 0) {
 		take = limit;
 		line->delivered = take;
@@ -591,6 +793,7 @@ static int line_take(
 
 static void line_release(struct framed_line *line)
 {
+	line->scan_valid = false;
 	buf_consume(&line->buf, line->delivered);
 	if (line->held != SIZE_MAX) {
 		line->held -= line->delivered;
@@ -627,13 +830,27 @@ int framed_line_next(struct framed_line *line, const char **text, size_t *len)
 	}
 }
 
+static bool scan_line_measure(struct framed_line *line, const char *base,
+    size_t avail, size_t *len, bool *newline)
+{
+	const char *nl = memchr(base, '\n', avail);
+
+	*newline = nl != NULL;
+	if (!*newline && !line->eof) {
+		return false;
+	}
+	*len = *newline ? (size_t)(nl - base) : avail;
+	return true;
+}
+
 bool framed_line_scan_next(
     struct framed_line *line, const char **text, size_t *len)
 {
 	size_t avail;
 	const char *base;
-	const char *nl;
+	bool newline;
 
+	line->scan_valid = false;
 	if (line->held == SIZE_MAX) {
 		return false;
 	}
@@ -642,22 +859,61 @@ bool framed_line_scan_next(
 		return false;
 	}
 	base = line->buf.data + line->held;
-	nl = memchr(base, '\n', avail);
-	if (nl) {
-		*len = (size_t)(nl - base);
-		line->held += *len + 1;
-	} else if (avail >= FRAMED_IO_MAX_LINE_BYTES) {
-		*len = FRAMED_IO_MAX_LINE_BYTES;
-		line->held += *len;
-	} else {
+	if (!scan_line_measure(line, base, avail, len, &newline)) {
 		return false;
 	}
+	line->scan_start = line->held;
+	line->held += *len + (newline ? 1 : 0);
+	if (*len > 0 && base[*len - 1] == '\r') {
+		(*len)--;
+	}
+	line->scan_len = *len;
+	line->scan_valid = true;
 	*text = base;
 	return true;
 }
 
+bool framed_line_replace_scanned_span(struct framed_line *line, size_t start,
+    size_t len, const char *replacement, size_t replacement_len)
+{
+	size_t absolute;
+	size_t tail;
+	size_t extra;
+
+	if (!line->scan_valid || start > line->scan_len
+	    || len > line->scan_len - start) {
+		return false;
+	}
+	absolute = line->scan_start + start;
+	if (replacement_len > len) {
+		extra = replacement_len - len;
+		if (!buf_reserve(&line->buf, extra)) {
+			return false;
+		}
+	}
+	tail = line->buf.len - absolute - len;
+	memmove(line->buf.data + absolute + replacement_len,
+	    line->buf.data + absolute + len, tail);
+	memcpy(line->buf.data + absolute, replacement, replacement_len);
+	line->buf.len = line->buf.len - len + replacement_len;
+	line->held = line->held - len + replacement_len;
+	line->scan_len = line->scan_len - len + replacement_len;
+	return true;
+}
+
+void framed_line_discard_buffer(struct framed_line *line)
+{
+	line->buf.len = 0;
+	line->delivered = 0;
+	line->held = 0;
+	line->scan_start = 0;
+	line->scan_len = 0;
+	line->scan_valid = false;
+}
+
 void framed_line_release_hold(struct framed_line *line)
 {
+	line->scan_valid = false;
 	line->held = SIZE_MAX;
 }
 

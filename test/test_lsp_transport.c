@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -649,8 +650,14 @@ static void test_listen_hash_round_trip(void)
 {
 	const char *args[] = { "--mode", "echo", "--announce-noise",
 		"INFO [org.netbeans.core.startup]: starting modules",
+		"--announce-noise",
+		"Java Debug Server Adapter listening at port 0 with hash bad",
+		"--announce-noise",
+		"Java Debug Server Adapter listening at port 4321 with hash "
+		"dsecret",
 		"--announce-log", "INFO [nbcode]: client connected", NULL };
 	struct lsp_transport *t = start_listen_fake(args);
+	struct kg_announced_endpoint endpoint;
 	char logged[4096] = { 0 };
 	const char *body = NULL;
 	size_t len = 0;
@@ -665,10 +672,18 @@ static void test_listen_hash_round_trip(void)
 	CHECK(body && memcmp(body, "{\"id\":7}", 8) == 0);
 	CHECK(!lsp_transport_failed(t));
 	CHECK(lsp_transport_pending_bytes(t) == 0);
+	CHECK(lsp_transport_announced_endpoint(
+	    t, LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG, &endpoint));
+	CHECK(endpoint.port == 4321 && endpoint.generation > 0);
+	CHECK(endpoint.secret_len == strlen("dsecret")
+	    && memcmp(endpoint.secret, "dsecret", endpoint.secret_len) == 0);
 
 	CHECK(pump_until_logged(t, "starting modules", logged, sizeof(logged)));
 	CHECK(
 	    strstr(logged, "Java Language Server listening at port ") != NULL);
+	CHECK(strstr(logged, "Java Debug Server Adapter listening") != NULL);
+	CHECK(strstr(logged, "with hash <redacted>") != NULL);
+	CHECK(strstr(logged, "dsecret") == NULL);
 	CHECK(pump_until_logged(t, "client connected", logged, sizeof(logged)));
 	lsp_transport_close(t);
 }
@@ -740,14 +755,13 @@ static void test_listen_hash_eof_before_any_frame(void)
 	lsp_transport_close(t);
 }
 
-/* A line at the bound before the announce.  4096 bytes with no newline in
- * them is exactly what the line channel calls a line, so the scan and the
- * log have to agree about where it ended -- disagree by one byte and the
- * announce on the next line is either missed or delivered twice. */
+/* One physical line longer than two bounded line-channel pieces before the
+ * announce.  The scan and log have to agree at both 4096-byte cuts --
+ * disagree by one byte and the announce is missed or delivered twice. */
 static void test_listen_hash_long_line_before_announce(void)
 {
 	const char *args[]
-	    = { "--mode", "echo", "--announce-pad", "4096", NULL };
+	    = { "--mode", "echo", "--announce-pad", "8193", NULL };
 	struct lsp_transport *t = start_listen_fake(args);
 	const char *body = NULL;
 	size_t len = 0;
@@ -759,6 +773,43 @@ static void test_listen_hash_long_line_before_announce(void)
 	CHECK(lsp_transport_send(t, "padded", 6) == 0);
 	CHECK(pump_until_message(t, &body, &len) == 1);
 	CHECK(len == 6 && body && memcmp(body, "padded", 6) == 0);
+	CHECK(!lsp_transport_failed(t));
+	lsp_transport_close(t);
+}
+
+/* One physical line whose logger prefix ends halfway through the language
+ * announce prefix at the 4096-byte log-delivery cut.  The scanner must see
+ * the physical line rather than two invented lines, while the log still
+ * comes out in bounded pieces.  The retained bytes are redacted before
+ * either piece is exposed, so the handshake secret cannot straddle its way
+ * into *lsp-log*. */
+static void test_listen_hash_announce_crosses_log_delivery_cut(void)
+{
+	const char *args[] = { "--mode", "echo", "--announce-inline-pad",
+		"4077", "--announce-hash", "cross-boundary-secret",
+		"--announce-log", "after-cross-cut", NULL };
+	struct lsp_transport *t = start_listen_fake(args);
+	struct kg_announced_endpoint endpoint;
+	char logged[16384] = { 0 };
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(lsp_transport_send(t, "crossed", 7) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	CHECK(len == 7 && body && memcmp(body, "crossed", 7) == 0);
+	CHECK(lsp_transport_announced_endpoint(
+	    t, LSP_TRANSPORT_ENDPOINT_LANGUAGE, &endpoint));
+	CHECK(endpoint.secret_len == strlen("cross-boundary-secret"));
+	CHECK(memcmp(
+		  endpoint.secret, "cross-boundary-secret", endpoint.secret_len)
+	    == 0);
+	CHECK(pump_until_logged(t, "after-cross-cut", logged, sizeof(logged)));
+	CHECK(strstr(logged, "with hash <redacted>") != NULL);
+	CHECK(strstr(logged, "cross-boundary-secret") == NULL);
 	CHECK(!lsp_transport_failed(t));
 	lsp_transport_close(t);
 }
@@ -921,7 +972,7 @@ static void test_listen_hash_debug_adapter_announce_is_skipped(void)
 	/* The child stays alive after the line, so "still waiting" is
 	 * observable as itself rather than as the end of the stream. */
 	snprintf(format, sizeof(format),
-	    "printf 'Debug Server Adapter listening at port %u with hash "
+	    "printf 'Java Debug Server Adapter listening at port %u with hash "
 	    "abc\\n'; sleep 3",
 	    (unsigned)port);
 	t = start_sh_wire(format, LSP_WIRE_LISTEN_HASH);
@@ -936,7 +987,47 @@ static void test_listen_hash_debug_adapter_announce_is_skipped(void)
 	CHECK(waited);
 	CHECK(!lsp_transport_failed(t));
 	collect_lines(t, logged, sizeof(logged));
-	CHECK(strstr(logged, "Debug Server Adapter listening") != NULL);
+	CHECK(strstr(logged, "Java Debug Server Adapter listening") != NULL);
+	CHECK(strstr(logged, "with hash <redacted>") != NULL);
+	CHECK(strstr(logged, "abc") == NULL);
+	lsp_transport_close(t);
+}
+
+/* Cached sibling endpoints are live-child capabilities, not historical
+ * log facts.  The copy-out query reaps for itself and refuses the cache as
+ * soon as the producer has exited, even if nobody called child_alive(). */
+static void test_cached_endpoint_is_invalidated_on_unobserved_child_death(void)
+{
+	const char *args[] = { "--mode", "echo", "--announce-noise",
+		"Java Debug Server Adapter listening at port 4322 with hash "
+		"cache",
+		NULL };
+	struct lsp_transport *t = start_listen_fake(args);
+	struct kg_announced_endpoint endpoint;
+	struct timespec nap = { 0, 1000000 };
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	const char *body = NULL;
+	bool invalidated = false;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(lsp_transport_send(t, "x", 1) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	CHECK(lsp_transport_announced_endpoint(
+	    t, LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG, &endpoint));
+	CHECK(kill(lsp_transport_pid(t), SIGKILL) == 0);
+	while (monotonic_seconds() < deadline) {
+		if (!lsp_transport_announced_endpoint(
+			t, LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG, &endpoint)) {
+			invalidated = true;
+			break;
+		}
+		nanosleep(&nap, NULL);
+	}
+	CHECK(invalidated);
 	lsp_transport_close(t);
 }
 
@@ -1014,8 +1105,72 @@ static void test_listen_hash_socket_eof_mid_frame(void)
 		return;
 	}
 	CHECK(pump_until_message(t, &body, &len) == -1);
-	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_EOF);
+	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_PROTOCOL);
 	CHECK(body == NULL && len == 0);
+	lsp_transport_close(t);
+}
+
+/* A failed protocol socket does not make the child stdout harmless.  The
+ * fake closes a truncated frame first, then emits a DSA announce whose
+ * prefix crosses the bounded log cut.  Log collection must continue to run
+ * the physical-line scanner before exposing bytes even though frames are
+ * already terminal. */
+static void test_late_debug_announce_after_frame_failure_is_redacted(void)
+{
+	const char *args[]
+	    = { "--mode", "truncated", "--late-debug-after-truncated",
+		      "--announce-inline-pad", "4077", NULL };
+	struct lsp_transport *t = start_listen_fake(args);
+	struct kg_announced_endpoint endpoint;
+	char logged[16384] = { 0 };
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_message(t, &body, &len) == -1);
+	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_PROTOCOL);
+	CHECK(pump_until_logged(t, "late-debug-done", logged, sizeof(logged)));
+	CHECK(strstr(logged, "with hash <redacted>") != NULL);
+	CHECK(strstr(logged, "late-frame-secret") == NULL);
+	CHECK(lsp_transport_announced_endpoint(
+	    t, LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG, &endpoint));
+	CHECK(endpoint.secret_len == strlen("late-frame-secret"));
+	CHECK(memcmp(endpoint.secret, "late-frame-secret", endpoint.secret_len)
+	    == 0);
+	lsp_transport_close(t);
+}
+
+/* A DSA endpoint belongs to the child that announced it, not to the
+ * independent language socket.  Cache the sibling first, have the same
+ * still-live child close a truncated language frame, and prove the original
+ * endpoint survives without a second announce to recreate it. */
+static void test_cached_debug_endpoint_survives_language_frame_failure(void)
+{
+	const char *args[] = { "--mode", "truncated", "--announce-noise",
+		"Java Debug Server Adapter listening at port 4324 with hash "
+		"cached-before-failure",
+		"--linger-after-truncated", NULL };
+	struct lsp_transport *t = start_listen_fake(args);
+	struct kg_announced_endpoint endpoint;
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_message(t, &body, &len) == -1);
+	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_PROTOCOL);
+	CHECK(lsp_transport_announced_endpoint(
+	    t, LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG, &endpoint));
+	CHECK(endpoint.port == 4324);
+	CHECK(endpoint.secret_len == strlen("cached-before-failure"));
+	CHECK(memcmp(
+		  endpoint.secret, "cached-before-failure", endpoint.secret_len)
+	    == 0);
 	lsp_transport_close(t);
 }
 
@@ -1236,15 +1391,19 @@ int main(int argc, char **argv)
 	RUN(test_listen_hash_bare_announce_is_not_acted_on);
 	RUN(test_listen_hash_eof_before_any_frame);
 	RUN(test_listen_hash_long_line_before_announce);
+	RUN(test_listen_hash_announce_crosses_log_delivery_cut);
 	RUN(test_listen_hash_connection_refused);
 	RUN(test_listen_hash_child_exits_before_announcing);
 	RUN(test_listen_hash_announce_without_port);
 	RUN(test_listen_hash_announce_hash_too_long);
 	RUN(test_listen_hash_announce_is_found_mid_line);
 	RUN(test_listen_hash_debug_adapter_announce_is_skipped);
+	RUN(test_cached_endpoint_is_invalidated_on_unobserved_child_death);
 	RUN(test_listen_hash_failed_announce_still_delivers_later_lines);
 	RUN(test_listen_hash_firehose_before_announce_is_refused);
 	RUN(test_listen_hash_socket_eof_mid_frame);
+	RUN(test_late_debug_announce_after_frame_failure_is_redacted);
+	RUN(test_cached_debug_endpoint_survives_language_frame_failure);
 	RUN(test_wait_fds_wake_on_pre_announce_output);
 	RUN(test_wait_fds_are_empty_once_the_transport_has_failed);
 	return test_summary();

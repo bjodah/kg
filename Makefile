@@ -278,7 +278,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += framed_io.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += framed_io.c announce.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -317,8 +317,8 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # the whole editor: the suite that does link it says so itself, below.
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(TESTDIR)/test_lsp_diag \
-          $(OBJDIR)/framed_io.o $(OBJDIR)/lsp_transport.o \
-          $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_transport \
+          $(OBJDIR)/framed_io.o $(OBJDIR)/announce.o $(OBJDIR)/lsp_transport.o \
+          $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
@@ -403,7 +403,7 @@ endif
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_transport \
+TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
             $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
@@ -584,7 +584,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8511
+SCC_COMPLEXITY_MAX ?= 8700
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1332,6 +1332,9 @@ EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table
 # suite uses the common harness baseline; framed_io.o also arrives through
 # TEST_SRCS_OBJS' LSP_OBJS and is named here for readability.
 EXTRA_framed_io := $(TESTDIR)/stubs.o $(OBJDIR)/framed_io.o $(TEST_SRCS_OBJS)
+# The endpoint announce scanner is a libc-only parser.  Its direct suite uses
+# the common harness baseline; announce.o also arrives through LSP_OBJS.
+EXTRA_announce := $(TESTDIR)/stubs.o $(OBJDIR)/announce.o $(TEST_SRCS_OBJS)
 # The transport depends on process.h and POSIX and on nothing else in the
 # editor, so this is the minimal link: its own object, plus the baseline
 # every test binary needs for test.o's harness globals.  process.o comes

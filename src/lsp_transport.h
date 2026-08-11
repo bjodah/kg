@@ -1,6 +1,7 @@
 #ifndef KG_LSP_TRANSPORT_H
 #define KG_LSP_TRANSPORT_H
 
+#include "announce.h"
 #include "framed_io.h"
 
 #include <stddef.h>
@@ -100,7 +101,7 @@
  * read): the hash is what makes a line the announce, and a client that
  * matched on the port alone would connect with no secret to send.  And the
  * leading words matter, because the same process announces a
- * `Debug Server Adapter listening at port ... with hash ...` too, and a
+ * `Java Debug Server Adapter listening at port ... with hash ...` too, and a
  * client that took that one would hand its initialize to a debugger. */
 enum lsp_wire {
 	LSP_WIRE_STDIO = 0,
@@ -109,6 +110,13 @@ enum lsp_wire {
 
 #define LSP_TRANSPORT_ANNOUNCE_PREFIX "Java Language Server listening at port "
 #define LSP_TRANSPORT_ANNOUNCE_HASH " with hash "
+#define LSP_TRANSPORT_DEBUG_ANNOUNCE_PREFIX                                    \
+	"Java Debug Server Adapter listening at port "
+
+enum lsp_transport_endpoint_tag {
+	LSP_TRANSPORT_ENDPOINT_LANGUAGE = 1,
+	LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG,
+};
 
 /* Bounds on the announce phase, in the spirit of every other one here: a
  * child that talks instead of announcing must not cost unbounded memory,
@@ -124,6 +132,11 @@ enum lsp_wire {
  * lsp_transport_next_stderr_line() and gone from the buffer, so the bound
  * sees a poll's worth at a time and nothing accumulates.
  *
+ * The same bounded scanner remains active after the language socket opens,
+ * because nbcode may announce its Java Debug Server Adapter later.  Its
+ * endpoint is cached for a late subscriber; the language endpoint alone
+ * drives this transport's connection.
+ *
  * And it is not a deadline either, because the transport keeps no clock:
  * nothing here sleeps, polls or measures time.  A child that stays silent
  * forever, or one that talks for longer than anybody will wait, is the
@@ -136,7 +149,7 @@ enum lsp_wire {
  * announce channel runs at the pipe's speed rather than the editor's idle
  * tick's. */
 #define LSP_TRANSPORT_MAX_ANNOUNCE_BYTES (256u * 1024u)
-#define LSP_TRANSPORT_MAX_HASH_BYTES 256u
+#define LSP_TRANSPORT_MAX_HASH_BYTES KG_ANNOUNCE_MAX_SECRET_BYTES
 
 /* Why a transport is dead.  Reported for the log and for tests; no caller
  * is expected to branch on the distinction between an I/O error and a
@@ -240,7 +253,9 @@ int lsp_transport_next_message(
  * On the listen-hash wire the child's standard OUTPUT is a log too -- the
  * frames go over the socket, so everything nbcode prints, announce line
  * included, is text somebody may want to read -- and its lines come out of
- * here as well, after whatever standard error has to say.  One accessor
+ * here as well, after whatever standard error has to say.  Announce secrets
+ * are replaced by `<redacted>` on this user-visible path; they exist in the
+ * copy-out endpoint only.  One accessor
  * rather than two because there is exactly one thing above this that reads
  * them (the client's log hook, which puts them in *lsp-log*), and a second
  * accessor would be a second thing for every caller to remember to drain.
@@ -282,6 +297,15 @@ bool lsp_transport_error_outbound(const struct lsp_transport *t);
  * layer's business. */
 pid_t lsp_transport_pid(const struct lsp_transport *t);
 bool lsp_transport_child_alive(struct lsp_transport *t);
+
+/* Copy a cached nbcode endpoint out only while the producing child is still
+ * alive.  The query performs a WNOHANG reap itself, so a caller cannot get a
+ * stale port merely because the ordinary child-alive poll has not run yet.
+ * The endpoint is tagged with the producing transport's child generation;
+ * replacement and reap invalidate every cached value. */
+bool lsp_transport_announced_endpoint(struct lsp_transport *t,
+    enum lsp_transport_endpoint_tag tag,
+    struct kg_announced_endpoint *endpoint);
 
 /* Bytes queued for the child and not yet written.  Zero means the send
  * queue is empty, which is the only reliable "the request is on its way". */

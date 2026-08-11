@@ -46,6 +46,12 @@ a test written against them stays written):
     Write a header block claiming ten bytes of body and three bytes of it,
     then exit: a frame cut in half by a server that stopped, which is what
     a socket closing mid-message looks like from the client's side.
+    ``--late-debug-after-truncated`` closes that socket first, then writes a
+    padded Debug Server Adapter announce on the still-open real stdout; it
+    proves log redaction remains active after the frame stream has failed.
+    ``--linger-after-truncated`` closes the socket but keeps that stdout and
+    child alive without writing a replacement announce, for cached-endpoint
+    lifetime tests.
 
 The socket wire (``--listen-hash``) is orthogonal to all of them: it moves
 whichever mode was chosen off stdin/stdout and onto a TCP connection,
@@ -282,6 +288,10 @@ The socket wire, available with every mode above:
     for the client's own line bound.  A malformed announce needs no option
     here -- a client that has to survive one is tested against a plain
     ``printf``, which never listens for the connection that will not come.
+``--announce-inline-pad N``
+    Put N logger bytes on the same physical line immediately before the
+    hashed announce.  This can place the prefix or hash across a client's
+    bounded log-delivery cut without changing the announce grammar.
 
 Two methods exist only for the tests, and are named with kg's own prefix so
 they cannot be confused with the protocol's:
@@ -315,6 +325,7 @@ GARBAGE = b"\x01\x02 this is not a header block\r\n\r\n"
 # words are part of the pattern rather than noise around it.
 ANNOUNCE_BARE = "Java Language Server listening at port %d"
 ANNOUNCE = "Java Language Server listening at port %d with hash %s"
+DEBUG_ANNOUNCE = "Java Debug Server Adapter listening at port %d with hash %s"
 
 # 128 lowercase hex characters, which is the shape nbcode's is.
 DEFAULT_HASH = ("6ff0b7a12c334d0e9a7f5b1e8c4d2a90" * 4)
@@ -413,8 +424,23 @@ def mode_die(_stdin, _stdout, _args):
     return
 
 
-def mode_truncated(_stdin, stdout, _args):
+def mode_truncated(stdin, stdout, args):
     write_all(stdout, b"Content-Length: 10\r\n\r\nabc")
+    if args.late_debug_after_truncated:
+        args.listen_socket.shutdown(socket.SHUT_RDWR)
+        args.listen_socket.close()
+        # Keep the child/log pipe alive after the socket EOF is observable.
+        time.sleep(0.1)
+        announce_lines([
+            "x" * args.announce_inline_pad
+            + DEBUG_ANNOUNCE % (4323, "late-frame-secret"),
+            "late-debug-done",
+        ])
+        time.sleep(0.5)
+    elif args.linger_after_truncated:
+        args.listen_socket.shutdown(socket.SHUT_RDWR)
+        args.listen_socket.close()
+        time.sleep(0.5)
 
 
 def parse_location(spec):
@@ -863,12 +889,14 @@ def listen_hash(args):
     # Both lines, in nbcode's order and in one write, so a client that acts
     # on the first one is caught here rather than against the real server.
     announce_lines([ANNOUNCE_BARE % port,
-                    ANNOUNCE % (port, args.announce_hash)])
+                    "x" * args.announce_inline_pad
+                    + ANNOUNCE % (port, args.announce_hash)])
 
     connection, _ = listener.accept()
     listener.close()
     read_hash(connection, args.announce_hash.encode("utf-8"))
     announce_lines(args.announce_log)
+    args.listen_socket = connection
     return connection.makefile("rb"), connection.makefile("wb")
 
 
@@ -1007,6 +1035,15 @@ def main(argv):
     parser.add_argument("--announce-pad", type=int, default=0,
                         help="bytes of one long line written before the "
                              "announce")
+    parser.add_argument("--announce-inline-pad", type=int, default=0,
+                        help="logger bytes on the same line before the "
+                             "hashed announce")
+    parser.add_argument("--late-debug-after-truncated", action="store_true",
+                        help="close a truncated protocol socket, then log a "
+                             "padded debug announce on real stdout")
+    parser.add_argument("--linger-after-truncated", action="store_true",
+                        help="close a truncated protocol socket but keep the "
+                             "child and real stdout alive briefly")
     args = parser.parse_args(argv[1:])
     if args.listen_hash:
         stdin, stdout = listen_hash(args)

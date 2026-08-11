@@ -5,18 +5,11 @@
 #include "process.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <unistd.h>
-#ifndef _WIN32
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <poll.h>
-#endif
 
 enum lsp_transport_phase {
 	LSP_PHASE_OPEN = 0,
@@ -30,20 +23,35 @@ struct lsp_transport {
 	enum lsp_transport_phase phase;
 	/* nbcode's child stdin stays separate from its socket protocol. */
 	int child_in_fd;
-	/* Owned here only while a non-blocking connection is in progress. */
-	int sock_fd;
 	struct framed_io *frames;
 	struct framed_line *err;
 	struct framed_line *log;
-	char hash[LSP_TRANSPORT_MAX_HASH_BYTES];
-	size_t hash_len;
+	struct kg_announce_scanner *announces;
+	char redacted[FRAMED_IO_MAX_LINE_BYTES + 16];
+	uint64_t generation;
+	bool log_scan_done;
 	bool reaped;
 };
+
+static uint64_t next_child_generation = 1;
 
 static void transport_release_lines(struct lsp_transport *t)
 {
 	framed_line_release_hold(t->err);
-	framed_line_release_hold(t->log);
+	/* A listen/hash stdout remains a secret-bearing announce channel even
+	 * after its protocol socket fails.  Keep its physical-line scan ahead
+	 * of bounded log delivery until stdout itself ends; otherwise a late
+	 * sibling announce could cross a delivery cut and evade redaction. */
+	if (t->wire != LSP_WIRE_LISTEN_HASH || t->log_scan_done) {
+		framed_line_release_hold(t->log);
+	}
+}
+
+static void transport_invalidate_announces(struct lsp_transport *t)
+{
+	if (t->announces) {
+		kg_announce_invalidate(t->announces);
+	}
 }
 
 static int transport_fail(
@@ -51,108 +59,54 @@ static int transport_fail(
 {
 	transport_release_lines(t);
 	kg_close_fd(&t->child_in_fd);
-	kg_close_fd(&t->sock_fd);
 	return framed_io_fail(t->frames, (enum framed_io_error)error, outbound);
 }
 
-/* A framing call has already recorded the sticky reason.  Lift the log
- * hold and close descriptors that live above framed_io just as an outer
- * transport failure would. */
+/* A framing call has already recorded the sticky reason.  Apply the outer
+ * descriptor policy too; listen/hash deliberately retains its log hold so
+ * physical-line secret scanning can continue while the child is alive. */
 static int transport_frame_failed(struct lsp_transport *t)
 {
 	transport_release_lines(t);
 	kg_close_fd(&t->child_in_fd);
-	kg_close_fd(&t->sock_fd);
 	return -1;
-}
-
-/* Make an in-progress socket non-blocking and close-on-exec.  Connecting
- * remains LSP's nbcode policy in this extraction; the later generic
- * connect stage moves this into framed_io's new connector. */
-static int fd_own(int fd)
-{
-	int fd_flags = fcntl(fd, F_GETFD, 0);
-	int status_flags = fcntl(fd, F_GETFL, 0);
-
-	if (fd_flags < 0 || status_flags < 0
-	    || fcntl(fd, F_SETFL, status_flags | O_NONBLOCK) != 0) {
-		return -1;
-	}
-	return fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC) < 0 ? -1 : 0;
-}
-
-static int connect_start(struct lsp_transport *t, unsigned short port)
-{
-	struct sockaddr_in addr;
-	int fd = socket(AF_INET, SOCK_STREAM, 0);
-
-	if (fd < 0) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_IO, false);
-	}
-	if (fd_own(fd) != 0) {
-		close(fd);
-		return transport_fail(t, LSP_TRANSPORT_ERR_IO, false);
-	}
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	t->sock_fd = fd;
-	t->phase = LSP_PHASE_CONNECTING;
-	if (connect(fd, (const struct sockaddr *)&addr, sizeof(addr)) == 0
-	    || errno == EINPROGRESS || errno == EINTR) {
-		return 1;
-	}
-	return transport_fail(t, LSP_TRANSPORT_ERR_IO, false);
-}
-
-static int connect_status(int fd)
-{
-	struct pollfd pfd = { .fd = fd, .events = POLLOUT };
-	socklen_t len = sizeof(int);
-	int err = 0;
-
-	if (poll(&pfd, 1, 0) <= 0) {
-		return 0;
-	}
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0 || err != 0) {
-		return -1;
-	}
-	return 1;
 }
 
 static int connect_finish(struct lsp_transport *t)
 {
-	int fd;
-	int rc = connect_status(t->sock_fd);
+	int rc = framed_io_connect_finish(t->frames);
 
 	if (rc <= 0) {
 		if (rc == 0) {
 			return 0;
 		}
-		return transport_fail(t, LSP_TRANSPORT_ERR_IO, false);
-	}
-	if (framed_io_prepend(t->frames, t->hash, t->hash_len) != 0) {
-		return transport_frame_failed(t);
-	}
-	fd = t->sock_fd;
-	t->sock_fd = -1; /* adopt owns fd from this point, including failure */
-	if (framed_io_adopt_fds(t->frames, fd, fd) != 0) {
 		return transport_frame_failed(t);
 	}
 	t->phase = LSP_PHASE_OPEN;
 	return 1;
 }
 
-static size_t announce_digits(
-    const char *line, size_t len, size_t pos, unsigned long *out)
+static int announce_connect_language(struct lsp_transport *t)
 {
-	for (; pos < len && line[pos] >= '0' && line[pos] <= '9'; pos++) {
-		if (*out <= 65535u) {
-			*out = *out * 10 + (unsigned long)(line[pos] - '0');
-		}
+	struct kg_announced_endpoint endpoint;
+	int rc;
+
+	if (t->phase != LSP_PHASE_ANNOUNCE
+	    || !kg_announce_endpoint(
+		t->announces, LSP_TRANSPORT_ENDPOINT_LANGUAGE, &endpoint)) {
+		return 0;
 	}
-	return pos;
+	if (framed_io_prepend(
+		t->frames, (const char *)endpoint.secret, endpoint.secret_len)
+	    != 0) {
+		return transport_frame_failed(t);
+	}
+	rc = framed_io_connect_start(t->frames, endpoint.host, endpoint.port);
+	if (rc < 0) {
+		return transport_frame_failed(t);
+	}
+	t->phase = rc == 1 ? LSP_PHASE_OPEN : LSP_PHASE_CONNECTING;
+	return 1;
 }
 
 static size_t line_find(
@@ -171,70 +125,145 @@ static size_t line_find(
 	return len;
 }
 
-/* The hash distinguishes nbcode's actionable announce from the earlier
- * bare-port line.  Prefix search (rather than anchoring) matches Oracle's
- * own client and accepts a logger prefix before the announce. */
-static int announce_take(struct lsp_transport *t, const char *line, size_t len)
+static size_t announce_candidate(const char *line, size_t len, unsigned *tag)
 {
-	static const char prefix[] = LSP_TRANSPORT_ANNOUNCE_PREFIX;
-	static const char middle[] = LSP_TRANSPORT_ANNOUNCE_HASH;
-	const size_t prefix_len = sizeof(prefix) - 1;
-	const size_t middle_len = sizeof(middle) - 1;
-	unsigned long port = 0;
-	size_t start;
-	size_t pos;
+	size_t language = line_find(line, len, LSP_TRANSPORT_ANNOUNCE_PREFIX,
+	    sizeof(LSP_TRANSPORT_ANNOUNCE_PREFIX) - 1);
+	size_t debug = line_find(line, len, LSP_TRANSPORT_DEBUG_ANNOUNCE_PREFIX,
+	    sizeof(LSP_TRANSPORT_DEBUG_ANNOUNCE_PREFIX) - 1);
 
-	start = line_find(line, len, prefix, prefix_len) + prefix_len;
-	if (start > len) {
-		return 0;
+	if (language <= debug && language < len) {
+		*tag = LSP_TRANSPORT_ENDPOINT_LANGUAGE;
+		return language;
 	}
-	pos = announce_digits(line, len, start, &port);
-	if (len - pos < middle_len
-	    || memcmp(line + pos, middle, middle_len) != 0) {
-		return 0;
+	if (debug < len) {
+		*tag = LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG;
+		return debug;
 	}
-	if (pos == start || port == 0 || port > 65535u) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL, false);
-	}
-	pos += middle_len;
-	if (len > pos && line[len - 1] == '\r') {
-		len--;
-	}
-	if (len <= pos || len - pos > sizeof(t->hash)) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL, false);
-	}
-	memcpy(t->hash, line + pos, len - pos);
-	t->hash_len = len - pos;
-	framed_line_release_hold(t->log);
-	return connect_start(t, (unsigned short)port);
+	return len;
 }
 
-static int announce_scan(struct lsp_transport *t)
+static int announce_redact_scanned(
+    struct lsp_transport *t, const char *line, size_t len)
+{
+	static const char replacement[] = "<redacted>";
+	size_t secret_at;
+	size_t secret_len;
+
+	if (!kg_announce_secret_span(
+		t->announces, line, len, NULL, &secret_at, &secret_len)) {
+		return 0;
+	}
+	if (!framed_line_replace_scanned_span(t->log, secret_at, secret_len,
+		replacement, sizeof(replacement) - 1)) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_NOMEM, false);
+	}
+	return 0;
+}
+
+static int announce_parse_line(
+    struct lsp_transport *t, const char *line, size_t len)
+{
+	const char *rendered = NULL;
+	enum kg_announce_line_status status;
+	size_t rendered_len = 0;
+	size_t candidate_at;
+	size_t used = 0;
+	unsigned candidate_tag = 0;
+	unsigned status_tag;
+	int rc;
+
+	candidate_at = announce_candidate(line, len, &candidate_tag);
+	if (candidate_at == len) {
+		return 0;
+	}
+	if (len - candidate_at > KG_ANNOUNCE_MAX_LINE_BYTES) {
+		rc = announce_redact_scanned(t, line, len);
+		if (rc < 0
+		    || candidate_tag == LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG) {
+			return rc;
+		}
+		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
+	}
+	rc = kg_announce_feed(t->announces, line + candidate_at,
+	    len - candidate_at, &used, &rendered, &rendered_len);
+	if (rc != 0 || used != len - candidate_at) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
+	}
+	rc = kg_announce_feed(
+	    t->announces, "\n", 1, &used, &rendered, &rendered_len);
+	if (rc != 1 || used != 1) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
+	}
+	status = kg_announce_last_status(t->announces);
+	status_tag = kg_announce_last_tag(t->announces);
+	if (announce_redact_scanned(t, line, len) < 0) {
+		return -1;
+	}
+	if (status == KG_ANNOUNCE_LINE_MALFORMED
+	    && status_tag == LSP_TRANSPORT_ENDPOINT_LANGUAGE) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_PROTOCOL, false);
+	}
+	return announce_connect_language(t);
+}
+
+static int announce_drain_lines(struct lsp_transport *t)
 {
 	const char *line = NULL;
 	size_t len = 0;
 	int rc;
 
+	while (framed_line_scan_next(t->log, &line, &len)) {
+		rc = announce_parse_line(t, line, len);
+		if (rc < 0) {
+			return rc;
+		}
+	}
+	return 0;
+}
+
+static int announce_eof(struct lsp_transport *t)
+{
+	if (t->phase == LSP_PHASE_ANNOUNCE) {
+		return transport_fail(t, LSP_TRANSPORT_ERR_EOF, false);
+	}
+	t->log_scan_done = true;
+	framed_line_release_hold(t->log);
+	return 0;
+}
+
+static int announce_scan(struct lsp_transport *t)
+{
+	int rc;
+
+	if (t->log_scan_done) {
+		return 0;
+	}
 	for (;;) {
-		while (framed_line_scan_next(t->log, &line, &len)) {
-			rc = announce_take(t, line, len);
-			if (rc != 0) {
-				return rc;
-			}
+		rc = announce_drain_lines(t);
+		if (rc < 0) {
+			return rc;
 		}
 		if (framed_line_buffered_bytes(t->log)
 		    > LSP_TRANSPORT_MAX_ANNOUNCE_BYTES) {
+			framed_line_discard_buffer(t->log);
 			return transport_fail(
 			    t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
 		}
 		rc = framed_line_fill(t->log);
-		if (rc == 0) {
-			return 0;
-		}
-		if (rc < 0) {
-			return transport_fail(t, LSP_TRANSPORT_ERR_EOF, false);
+		if (rc <= 0) {
+			if (rc == 0) {
+				return 0;
+			}
+			rc = announce_drain_lines(t);
+			return rc < 0 ? rc : announce_eof(t);
 		}
 	}
+}
+
+static int transport_scan_log(struct lsp_transport *t)
+{
+	return t->wire == LSP_WIRE_LISTEN_HASH ? announce_scan(t) : 0;
 }
 
 static int transport_advance(struct lsp_transport *t)
@@ -244,11 +273,12 @@ static int transport_advance(struct lsp_transport *t)
 	if (framed_io_failed(t->frames)) {
 		return -1;
 	}
+	rc = transport_scan_log(t);
+	if (rc < 0) {
+		return rc;
+	}
 	if (t->phase == LSP_PHASE_ANNOUNCE) {
-		rc = announce_scan(t);
-		if (rc <= 0) {
-			return rc;
-		}
+		return 0;
 	}
 	if (t->phase == LSP_PHASE_CONNECTING) {
 		return connect_finish(t);
@@ -264,8 +294,25 @@ static struct lsp_transport *transport_alloc(void)
 		return NULL;
 	}
 	t->child_in_fd = -1;
-	t->sock_fd = -1;
 	return t;
+}
+
+static const struct kg_announce_rule lsp_announce_rules[] = {
+	{ LSP_TRANSPORT_ENDPOINT_LANGUAGE, LSP_TRANSPORT_ANNOUNCE_PREFIX,
+	    KG_ANNOUNCE_PORT_ONLY, "127.0.0.1", KG_ANNOUNCE_SECRET_REQUIRED,
+	    LSP_TRANSPORT_ANNOUNCE_HASH },
+	{ LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG,
+	    LSP_TRANSPORT_DEBUG_ANNOUNCE_PREFIX, KG_ANNOUNCE_PORT_ONLY,
+	    "127.0.0.1", KG_ANNOUNCE_SECRET_REQUIRED,
+	    LSP_TRANSPORT_ANNOUNCE_HASH },
+};
+
+static int transport_create_parts(struct lsp_transport *t)
+{
+	t->frames = framed_io_new(-1, -1);
+	t->err = framed_line_new(-1, false);
+	t->log = framed_line_new(-1, false);
+	return t->frames && t->err && t->log ? 0 : -1;
 }
 
 static struct lsp_transport *transport_new(void)
@@ -275,17 +322,50 @@ static struct lsp_transport *transport_new(void)
 	if (!t) {
 		return NULL;
 	}
-	t->frames = framed_io_new(-1, -1);
-	t->err = framed_line_new(-1, false);
-	t->log = framed_line_new(-1, false);
-	if (!t->frames || !t->err || !t->log) {
+	if (transport_create_parts(t) != 0) {
 		framed_io_close(t->frames);
 		framed_line_close(t->err);
 		framed_line_close(t->log);
+		kg_announce_close(t->announces);
 		free(t);
 		return NULL;
 	}
 	return t;
+}
+
+static void transport_set_generation(struct lsp_transport *t)
+{
+	t->generation = next_child_generation++;
+	if (next_child_generation == 0) {
+		next_child_generation = 1;
+	}
+}
+
+static bool transport_create_announces(struct lsp_transport *t)
+{
+	t->announces = kg_announce_new(lsp_announce_rules,
+	    sizeof(lsp_announce_rules) / sizeof(lsp_announce_rules[0]),
+	    t->generation);
+	return t->announces != NULL;
+}
+
+static int transport_bind_listen_child(
+    struct lsp_transport *t, int in_fd, int out_fd)
+{
+	if (!transport_create_announces(t)) {
+		kg_close_fd(&in_fd);
+		kg_close_fd(&out_fd);
+		return -1;
+	}
+	framed_line_close(t->log);
+	t->log = framed_line_new(out_fd, true);
+	if (!t->log) {
+		kg_close_fd(&in_fd);
+		return -1;
+	}
+	t->child_in_fd = in_fd;
+	t->phase = LSP_PHASE_ANNOUNCE;
+	return 0;
 }
 
 /* Take over all three descriptors from a successful child spawn. */
@@ -300,15 +380,7 @@ static int transport_bind_child(struct lsp_transport *t, enum lsp_wire wire,
 		return -1;
 	}
 	if (wire == LSP_WIRE_LISTEN_HASH) {
-		framed_line_close(t->log);
-		t->log = framed_line_new(out_fd, true);
-		if (!t->log) {
-			kg_close_fd(&in_fd);
-			return -1;
-		}
-		t->child_in_fd = in_fd;
-		t->phase = LSP_PHASE_ANNOUNCE;
-		return 0;
+		return transport_bind_listen_child(t, in_fd, out_fd);
 	}
 	return framed_io_adopt_fds(t->frames, out_fd, in_fd);
 }
@@ -339,6 +411,7 @@ struct lsp_transport *lsp_transport_start_wire(
 	}
 	t->pid = pid;
 	t->wire = wire;
+	transport_set_generation(t);
 	if (transport_bind_child(t, wire, in_fd, out_fd, err_fd) != 0) {
 		saved_errno = errno;
 		lsp_transport_close(t);
@@ -380,8 +453,8 @@ void lsp_transport_close(struct lsp_transport *t)
 	framed_io_close(t->frames);
 	framed_line_close(t->err);
 	framed_line_close(t->log);
+	kg_announce_close(t->announces);
 	kg_close_fd(&t->child_in_fd);
-	kg_close_fd(&t->sock_fd);
 	if (!t->reaped && t->pid > 0) {
 		kg_process_signal_group(t->pid, SIGKILL);
 		kg_process_wait(t->pid, &status);
@@ -423,11 +496,34 @@ int lsp_transport_next_message(
 	return rc < 0 ? transport_frame_failed(t) : rc;
 }
 
+static int transport_next_log_line(
+    struct lsp_transport *t, const char **line, size_t *len)
+{
+	const char *raw = NULL;
+	size_t raw_len = 0;
+
+	if (!framed_line_next(t->log, &raw, &raw_len)) {
+		return 0;
+	}
+	if (kg_announce_redact_line(t->announces, raw, raw_len, t->redacted,
+		sizeof(t->redacted), len)
+	    < 0) {
+		return 0;
+	}
+	*line = t->redacted;
+	return 1;
+}
+
 int lsp_transport_next_stderr_line(
     struct lsp_transport *t, const char **line, size_t *len)
 {
 	*line = NULL;
 	*len = 0;
+	/* Log draining remains useful after a frame failure.  For listen/hash
+	 * it must also keep the physical-line scanner ahead of the bytes it
+	 * exposes, so later sibling secrets are redacted under the same rule.
+	 */
+	(void)transport_scan_log(t);
 	/* Either channel may have supplied the last borrow; invalidate both
 	 * before choosing which one supplies this call. */
 	framed_line_discard_borrow(t->err);
@@ -435,7 +531,7 @@ int lsp_transport_next_stderr_line(
 	if (framed_line_next(t->err, line, len)) {
 		return 1;
 	}
-	return framed_line_next(t->log, line, len);
+	return transport_next_log_line(t, line, len);
 }
 
 bool lsp_transport_failed(const struct lsp_transport *t)
@@ -464,9 +560,19 @@ bool lsp_transport_child_alive(struct lsp_transport *t)
 	}
 	if (kg_process_reap(t->pid, &status)) {
 		t->reaped = true;
+		transport_invalidate_announces(t);
 		return false;
 	}
 	return true;
+}
+
+bool lsp_transport_announced_endpoint(struct lsp_transport *t,
+    enum lsp_transport_endpoint_tag tag, struct kg_announced_endpoint *endpoint)
+{
+	if (!t || !endpoint || !t->announces || !lsp_transport_child_alive(t)) {
+		return false;
+	}
+	return kg_announce_endpoint(t->announces, (unsigned)tag, endpoint);
 }
 
 size_t lsp_transport_pending_bytes(const struct lsp_transport *t)

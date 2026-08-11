@@ -96,6 +96,7 @@ class Case:
 	filename: str
 	editor_args: list[str]
 	initial: str
+	file_mode: int | None
 	keys: list[str]
 	requires_feature: str | None
 	requires_tool: str | None
@@ -399,6 +400,27 @@ def relative_file_map(data: dict, path: Path, key: str) -> dict[str, str]:
 	return {k: v.replace("{REPO}", str(ROOT)) for k, v in value.items()}
 
 
+def parse_file_mode(data: dict, path: Path) -> int | None:
+	"""`file_mode:` -- the permission bits the file under test is created
+	with, written the way chmod(1) takes them ("0444").
+
+	It is the one property of the fixture that its *contents* cannot
+	express, and a case that needs it needs it before kg starts: a buffer
+	visiting a write-protected file comes up read-only, and there is no
+	key kg could be sent to arrange that from inside.  A string, not an
+	int, because YAML reads 0444 as decimal 444.
+	"""
+	value = data.get("file_mode")
+	if value is None:
+		return None
+	if not isinstance(value, str):
+		raise ValueError(f"{path}: file_mode must be an octal string, e.g. '0444'")
+	try:
+		return int(value, 8)
+	except ValueError:
+		raise ValueError(f"{path}: file_mode is not octal: {value!r}") from None
+
+
 def load_case(path: Path) -> Case:
 	data = yaml.safe_load(path.read_text())
 
@@ -428,6 +450,7 @@ def load_case(path: Path) -> Case:
 	# pyproject.toml, the second file of a two-file project.
 	config_files = relative_file_map(data, path, "config_files")
 	workspace_files = relative_file_map(data, path, "workspace_files")
+	file_mode = parse_file_mode(data, path)
 	# `env:` maps variable names to values merged into kg's environment for
 	# this case only.  It exists for the run-time hooks kg reads from the
 	# environment rather than from a file -- KG_LSP_SERVER_C, which is how
@@ -494,6 +517,7 @@ def load_case(path: Path) -> Case:
 		filename=data["filename"],
 		editor_args=editor_args,
 		initial=data["initial"],
+		file_mode=file_mode,
 		keys=data["keys"],
 		requires_feature=requires_feature,
 		requires_tool=requires_tool,
@@ -514,6 +538,20 @@ def load_case(path: Path) -> Case:
 		expected_screen_contains=screen_contains,
 		expected_screen_not_contains=screen_not_contains,
 	)
+
+
+def write_file_under_test(path: Path, initial: str, file_mode: int | None) -> None:
+	"""Create the file the case runs on, and give it its mode.
+
+	Written before the chmod for the obvious reason: a 0444 file cannot be
+	written into afterwards, not even by the process that made it.  The
+	temporary directory it sits in stays writable, so the run's own
+	cleanup can still unlink it.
+	"""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(initial)
+	if file_mode is not None:
+		os.chmod(path, file_mode)
 
 
 def write_config_files(home: Path, config_files: dict[str, str]) -> None:
@@ -574,11 +612,11 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		       key_delay: float, dimensions: tuple[int, int],
 		       timeout: float, config_files: dict[str, str],
 		       ready: bool, case_env: dict[str, str],
-		       workspace_files: dict[str, str] | None = None) -> RunResult:
+		       workspace_files: dict[str, str] | None = None,
+		       file_mode: int | None = None) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
-		file_path.parent.mkdir(parents=True, exist_ok=True)
-		file_path.write_text(initial)
+		write_file_under_test(file_path, initial, file_mode)
 		write_config_files(Path(td), config_files)
 		write_workspace_files(Path(td), workspace_files or {})
 
@@ -705,14 +743,14 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		    timeout: float, config_files: dict[str, str],
 		    ready: bool, case_env: dict[str, str],
 		    settle_floor: float = 0.0,
-		    workspace_files: dict[str, str] | None = None) -> RunResult:
+		    workspace_files: dict[str, str] | None = None,
+		    file_mode: int | None = None) -> RunResult:
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
 	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td:
 		file_path = Path(td) / filename
-		file_path.parent.mkdir(parents=True, exist_ok=True)
-		file_path.write_text(initial)
+		write_file_under_test(file_path, initial, file_mode)
 		write_workspace_files(Path(td), workspace_files or {})
 
 		home = Path(td) / "home"
@@ -790,17 +828,18 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       timeout: float, config_files: dict[str, str],
 	       ready: bool = True, settle_floor: float = 0.0,
 	       case_env: dict[str, str] | None = None,
-	       workspace_files: dict[str, str] | None = None) -> RunResult:
+	       workspace_files: dict[str, str] | None = None,
+	       file_mode: int | None = None) -> RunResult:
 	case_env = case_env or {}
 	if backend == "tmux":
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
 				       timeout, config_files, ready, case_env,
-				       settle_floor, workspace_files)
+				       settle_floor, workspace_files, file_mode)
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
 				  timeout, config_files, ready, case_env,
-				  workspace_files)
+				  workspace_files, file_mode)
 
 
 def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
@@ -835,7 +874,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			    key_delay, case.dimensions, timeout,
 			    case.config_files, settle_floor=settle_floor,
 			    case_env=case.env,
-			    workspace_files=case.workspace_files)
+			    workspace_files=case.workspace_files,
+			    file_mode=case.file_mode)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -854,7 +894,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 				       case.keys, case.trailer_keys, oracle_backend,
 				       startup_delay, key_delay, case.dimensions,
 				       timeout, {}, ready=False,
-				       workspace_files=case.workspace_files)
+				       workspace_files=case.workspace_files,
+				       file_mode=case.file_mode)
 		if emacs_run.error:
 			return ("ERROR", f"{case.name}: emacs run error: {emacs_run.error}")
 		passed = kg_run.saved == emacs_run.saved

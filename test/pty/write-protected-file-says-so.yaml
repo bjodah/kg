@@ -1,0 +1,27 @@
+# What the user is told when the file is write protected: the mode line
+# carries `RO`, and the first key that would have edited the buffer is
+# refused out loud rather than silently doing nothing.
+#
+# The companion to write-protected-file-visits-read-only, which asserts
+# the same verdict on the saved file.  This one asserts it on the screen,
+# because "the edit did not happen" and "the user knows why" are two
+# properties and only one of them shows up in a diff of the file.
+#
+# 0444 rather than a chmod the user lacks: see the sibling case for why
+# the mode bits and not access(W_OK) alone are what kg asks.
+name: write-protected-file-says-so
+filename: protected-msg.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.1
+file_mode: "0444"
+trailer_keys: []
+initial: |
+  alpha
+keys:
+  - "Z"
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "Buffer is read-only"
+  - "RO"

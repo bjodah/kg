@@ -359,7 +359,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
            $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
-           $(TESTDIR)/test_occur \
+           $(TESTDIR)/test_occur $(TESTDIR)/test_readonly \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -566,7 +566,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7927
+SCC_COMPLEXITY_MAX ?= 7938
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1259,6 +1259,12 @@ EXTRA_lsp_diag    := $(EXTRA_cmd)
 # EXTRA_buffer's set (bufmgr.o for buf_open_path(), fileio.o to load one)
 # plus the module itself.
 EXTRA_fileline    := $(EXTRA_buffer) $(OBJDIR)/fileline.o
+# The visit-time write-protection verdict is a def.h inline over a path
+# and the file system: no editor module is involved in deciding whether a
+# file may be written, so this links the same minimal baseline
+# EXTRA_localvars does -- stubs for the globals test.o itself reaches, and
+# nothing else.
+EXTRA_readonly    := $(TESTDIR)/stubs.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)

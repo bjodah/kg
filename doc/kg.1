@@ -3687,6 +3687,24 @@ initially opens it read-only;
 .Ic C-x C-q
 can subsequently make such a buffer writable.
 .Pp
+A buffer visiting a file you cannot write also comes up read-only, as in
+Emacs, so the edit is refused at the first keystroke rather than at the
+save that would have failed.
+A file carrying no write permission at all is treated that way even for
+a privileged user who could write it regardless.
+A name that does not exist yet inherits its directory's answer, so a new
+file in a directory you may write is an ordinary writable buffer.
+The verdict is taken when the file is visited and when it is reverted,
+and is not revisited afterwards: a file that becomes writable later
+leaves the buffer read-only until
+.Ic C-x C-q
+says otherwise, which is also how the state is overridden in the first
+place.
+A file-local
+.Va buffer-read-only
+setting is applied after the verdict and replaces it, in either
+direction.
+.Pp
 The mode line shows an
 .Do
 RO

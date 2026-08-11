@@ -1,0 +1,31 @@
+# The write-protection verdict is taken before the file's own local
+# variables are read, which is the order Emacs takes (after-find-file sets
+# buffer-read-only, then normal-mode runs the variables over it).  So a
+# file that says `buffer-read-only: nil' about itself is writable even
+# when its mode says nobody may write it -- the same statement the other
+# way round as 85-modeline-read-only.yaml, where a variable makes an
+# ordinary file's buffer read-only.
+#
+# `trailer_keys: []` for the reason the C-x C-q case gives: root may write
+# a 0444 file and an ordinary user may not, so the edit is asserted on the
+# screen and the untouched file on disk is the other half of it.
+name: write-protected-file-local-variable-wins
+filename: protected-localvar.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.1
+file_mode: "0444"
+trailer_keys: []
+initial: |
+  -*- buffer-read-only: nil -*-
+  alpha
+keys:
+  - "C-n"
+  - "Z"
+expected_saved: |
+  -*- buffer-read-only: nil -*-
+  alpha
+expected_screen_contains:
+  - "Zalpha"
+expected_screen_not_contains:
+  - "Buffer is read-only"

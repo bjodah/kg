@@ -221,7 +221,9 @@ standard VT100 escape sequences.
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
   `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`
 - `read-only-mode` (`C-x C-q`) with buffer-local state and an `RO`
-  mode-line indicator
+  mode-line indicator; a buffer visiting a file you cannot write comes up
+  read-only by itself, as in Emacs, so the refusal arrives at the first
+  keystroke rather than at the save
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
 - Tab stops every 8 columns, like Emacs' default `tab-width`

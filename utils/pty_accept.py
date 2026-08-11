@@ -66,6 +66,13 @@ DEFAULT_KEY_DELAY = 0.05
 # drain at all.
 SEND_DRAIN_TIMEOUT = 0.005
 DEFAULT_JOBS = 8
+# rustup installs a proxy for rust-analyzer even when the component itself is
+# absent.  A PATH lookup therefore says the tool exists while kg only gets an
+# immediate rustup error.  Probe that one wrapper before admitting its cases;
+# the other server names are ordinary executables and keep the cheap PATH
+# check.
+TOOL_PROBE_ARGS = {"rust-analyzer": ("--version",)}
+TOOL_PROBE_TIMEOUT = 2.0
 # kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).
 KG_READY_PATTERN = r"(?:----|-\*\*-)  "
 KG_READY = re.compile(KG_READY_PATTERN)
@@ -151,13 +158,39 @@ def case_missing_tool(case: "Case") -> str | None:
 
 	`requires_tool:` is the general form of the tmux and Emacs rules below:
 	a case that drives a real language server names the binary, and a box
-	without it skips with a reason rather than failing.  It is deliberately
-	a plain PATH lookup -- the case says `clangd`, kg spawns `clangd`, and
-	anything cleverer would let the two disagree about which one ran.
+	without a usable one skips with a reason rather than failing.  The normal
+	case is still a plain PATH lookup -- the case says `clangd`, kg spawns
+	`clangd`, and anything cleverer would let the two disagree about which one
+	ran.  A small probe is reserved for wrappers such as rustup's
+	`rust-analyzer` proxy, which can be present on PATH while its component is
+	missing.
 	"""
 	if case.requires_tool is None:
 		return None
-	return None if shutil.which(case.requires_tool) else case.requires_tool
+	return tool_unavailable(case.requires_tool)
+
+
+def tool_unavailable(tool: str) -> str | None:
+	"""Return a skip reason when a required executable cannot be used."""
+	if shutil.which(tool) is None:
+		return f"{tool} not found"
+	probe_args = TOOL_PROBE_ARGS.get(tool)
+	if probe_args is None:
+		return None
+	try:
+		probe = subprocess.run(
+			[tool, *probe_args],
+			stdin=subprocess.DEVNULL,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			timeout=TOOL_PROBE_TIMEOUT,
+			check=False,
+		)
+	except (OSError, subprocess.TimeoutExpired):
+		return f"{tool} not runnable"
+	if probe.returncode != 0:
+		return f"{tool} not runnable"
+	return None
 
 
 def case_needs_tmux(case: "Case") -> bool:
@@ -866,7 +899,7 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		return ("SKIP", f"{case.name}: skipped, emacs oracle not found")
 	missing_tool = case_missing_tool(case)
 	if missing_tool:
-		return ("SKIP", f"{case.name}: skipped, {missing_tool} not found")
+		return ("SKIP", f"{case.name}: skipped, {missing_tool}")
 	startup_delay = case.startup_delay + startup_delay_add
 	key_delay = case.key_delay + key_delay_add
 	kg_run = run_editor(kg_argv + case.editor_args, case.filename, case.initial, case.keys,
@@ -1017,8 +1050,9 @@ def main() -> int:
 		if case.requires_tool:
 			tool_cases[case.requires_tool] = tool_cases.get(case.requires_tool, 0) + 1
 	for tool in sorted(tool_cases):
-		if shutil.which(tool) is None:
-			missing.append(f"{tool} ({tool_cases[tool]} case(s) need it)")
+		unavailable = tool_unavailable(tool)
+		if unavailable:
+			missing.append(f"{unavailable} ({tool_cases[tool]} case(s) need it)")
 	for item in missing:
 		print(f"{'FAIL' if args.require_tools else 'warning'}: missing tool: {item}",
 		      file=sys.stderr)

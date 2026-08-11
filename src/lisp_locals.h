@@ -30,13 +30,11 @@
  * unit and Fe is reachable only from src/lisp_*.c implementation files.
  */
 
-#include <stdbool.h>
 #include <stddef.h>
 
 #include "bufhandle.h"
 
 struct FeContext;
-struct FeObject;
 
 /* How many distinct variable names may have a buffer-local binding at
  * once, and how many (name, buffer) bindings may be live at once.  Both
@@ -55,8 +53,8 @@ struct FeObject;
  * `cell' holds the DEFAULT value, and is authoritative exactly while the
  * currently swapped-in buffer has a binding for this variable -- otherwise
  * the default is in `symbol''s own value cell, where every reader already
- * looks.  `lisp_locals_default_cell()' is the one function that answers
- * which of the two it is. */
+ * looks.  src/lisp_locals.c's `default_cell()' is the one function that
+ * answers which of the two it is. */
 struct kg_lisp_local_var {
 	bool active;
 	struct FeObject *symbol; /* the user's variable; interned, so stable */

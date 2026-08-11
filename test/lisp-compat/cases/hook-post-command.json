@@ -1,0 +1,6 @@
+{
+ "id": "hook-post-command",
+ "setup": [],
+ "expr": "(progn (add-hook 'post-command-hook (lambda () nil)) t)",
+ "note": "kg-policy: `post-command-hook' fires once per keystroke the editor has finished processing rather than once per command, and what decided it was a measurement rather than a preference -- see the feature row. Pinned by test/test_perf.c:test_post_command_hook_empty_costs_nothing, which asserts the counter shape an empty hook list produces."
+}

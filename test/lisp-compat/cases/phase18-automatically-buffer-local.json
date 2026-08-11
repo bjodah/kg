@@ -1,0 +1,6 @@
+{
+ "id": "phase18-automatically-buffer-local",
+ "setup": [],
+ "expr": "(progn (defvar p18auto 1) (with-current-buffer (get-buffer-create \"p18-auto\")  (setq p18auto 2)  (list p18auto (default-value 'p18auto) (local-variable-p 'p18auto))))",
+ "note": "kg-policy, and deliberately NOT compared: kg and the oracle answer this the same way (2 2 nil) for a name that is not one of Emacs' automatically-buffer-local ones, which is exactly why an oracle case cannot show the gap. The gap is that Emacs HAS such names -- `fill-column' is one, measured -- and kg has none, because a plain `setq' writes fe's value cell with no seam kg could notice it through. `make-variable-buffer-local' and `defvar-local' are absent for that reason."
+}

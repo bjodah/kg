@@ -1,0 +1,6 @@
+{
+ "id": "hook-kill-buffer",
+ "setup": [],
+ "expr": "(progn (add-hook 'kill-buffer-hook (lambda () (message \"bye\"))) t)",
+ "note": "kg-policy: `kill-buffer-hook' runs in the dying buffer, while it is still live, and only once every refusal has been passed -- an ordering no Emacs snapshot can check, because it is about kg's own kill path. The expression here only shows the spelling; what pins the behaviour is test/pty/lisp-kill-buffer-hook.yaml, which reads the dying buffer's name, its text and its liveness from inside the hook, watches a refused kill run no hook at all, and watches a hook's attempt to kill the buffer it is being run for be refused."
+}

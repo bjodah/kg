@@ -4151,7 +4151,7 @@
     "phase18-setq-local-undeclared-name",
     "phase18-setq-local-value-is-returned"
    ],
-   "rationale": "Phase 18, implemented: the contract for a per-buffer variable binding, frozen against the oracle before any of it was implemented. `setq-local' creates a binding in the current buffer; a reference reads the current buffer's binding first and the default second; a plain `setq' writes whichever of the two is in force; and none of this marks the name special -- a buffer-local binding and a dynamic-binding mark are different things, which is why `setq-local' on a name no `defvar' declared is legal and leaves `special-variable-p' nil. Until this row is `supported', `setq-local' is the documented alias of `setq' the phase8-library-setq-local row describes.",
+   "rationale": "Phase 18, implemented: the contract for a per-buffer variable binding, frozen against the oracle before any of it was implemented. `setq-local' creates a binding in the current buffer; a reference reads the current buffer's binding first and the default second; a plain `setq' writes whichever of the two is in force; and none of this marks the name special -- a buffer-local binding and a dynamic-binding mark are different things, which is why `setq-local' on a name no `defvar' declared is legal and leaves `special-variable-p' nil. None of it needed a special case in the reader: the storage is Emacs' own, one value cell per symbol holding whichever binding is current, so a reference costs the same cell read it always did.",
    "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
@@ -4349,7 +4349,7 @@
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
-    "phase18-setq-local-basic"
+    "phase18-automatically-buffer-local"
    ],
    "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null,
@@ -4362,7 +4362,7 @@
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
-    "phase18-setq-local-basic"
+    "hook-kill-buffer"
    ],
    "kg_test": "test/pty/lisp-kill-buffer-hook.yaml",
    "source_name": null,
@@ -4375,7 +4375,7 @@
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
-    "phase18-setq-local-basic"
+    "hook-post-command"
    ],
    "kg_test": "test/test_perf.c:test_post_command_hook_empty_costs_nothing",
    "source_name": null,

@@ -1,10 +1,8 @@
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 
 #include "../fe/fe.h"
 #include "bufhandle.h"
-#include "def.h"
 #include "lisp_internal.h"
 #include "lisp_locals.h"
 #include "lisp_obj.h"
@@ -118,8 +116,8 @@ static void swap_one(FeContext *ctx, struct kg_lisp_local_var *v,
 		cell_write(ctx, from != nullptr ? from->cell : v->cell,
 		    cell_read(ctx, v->symbol));
 	}
-	cell_write(ctx, v->symbol,
-	    cell_read(ctx, to != nullptr ? to->cell : v->cell));
+	cell_write(
+	    ctx, v->symbol, cell_read(ctx, to != nullptr ? to->cell : v->cell));
 }
 
 /* Reclaim every binding whose buffer no longer resolves, and every
@@ -188,8 +186,7 @@ void lisp_locals_switch(FeContext *ctx, struct kg_buffer_handle to)
 	state.locals.swapped = to;
 }
 
-void lisp_locals_buffer_killed(
-    FeContext *ctx, struct kg_buffer_handle handle)
+void lisp_locals_buffer_killed(FeContext *ctx, struct kg_buffer_handle handle)
 {
 	if (handle_eq(handle, state.locals.swapped)) {
 		lisp_locals_switch(ctx, (struct kg_buffer_handle) { -1, 0, 0 });
@@ -229,8 +226,7 @@ static struct kg_lisp_local_var *var_intern(FeContext *ctx, FeObject *symbol)
 static struct kg_lisp_local_binding *binding_intern(
     FeContext *ctx, struct kg_lisp_local_var *v)
 {
-	struct kg_lisp_local_binding *b
-	    = binding_find(v, state.locals.swapped);
+	struct kg_lisp_local_binding *b = binding_find(v, state.locals.swapped);
 	size_t i;
 
 	if (b != nullptr) {
@@ -286,8 +282,7 @@ static FeObject *symbol_argument(FeContext *ctx, FeObject *object)
 /* The buffer a BUFFER-OR-NAME argument names, defaulting to the current
  * one when it is nil or absent.  A non-buffer is `(wrong-type-argument
  * bufferp X)`, which is what lisp_buffer_resolve() raises. */
-static struct kg_buffer_handle buffer_argument(
-    FeContext *ctx, FeObject *object)
+static struct kg_buffer_handle buffer_argument(FeContext *ctx, FeObject *object)
 {
 	if (object == nullptr || FeIsNil(object)) {
 		return buf_handle_of(lisp_exec_buffer(ctx));
@@ -302,7 +297,8 @@ static struct kg_buffer_handle buffer_argument(
  * the swapped-in one, so there is nothing else to write. */
 FeObject *native_internal_set_buffer_local(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *value = FeGetNextArgument(context, &args);
 
 	FeRequireNoArguments(context, args);
@@ -318,7 +314,8 @@ FeObject *native_internal_set_buffer_local(FeContext *context, FeObject *args)
  * having one is not an error. */
 FeObject *native_make_local_variable(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 
 	FeRequireNoArguments(context, args);
 	(void)lisp_exec_buffer(context);
@@ -332,7 +329,8 @@ FeObject *native_make_local_variable(FeContext *context, FeObject *args)
  * not an error -- there is simply nothing to drop. */
 FeObject *native_kill_local_variable(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	struct kg_lisp_local_var *v;
 	struct kg_lisp_local_binding *b;
 
@@ -359,7 +357,8 @@ FeObject *native_kill_local_variable(FeContext *context, FeObject *args)
 /* (local-variable-p SYMBOL &optional BUFFER) */
 FeObject *native_local_variable_p(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *buffer = nullptr;
 	struct kg_lisp_local_var *v;
 
@@ -371,7 +370,8 @@ FeObject *native_local_variable_p(FeContext *context, FeObject *args)
 	v = var_find(symbol);
 	return FeMakeBool(context,
 	    v != nullptr
-		&& binding_find(v, buffer_argument(context, buffer)) != nullptr);
+		&& binding_find(v, buffer_argument(context, buffer))
+		    != nullptr);
 }
 
 /* (default-value SYMBOL): the value a buffer with no binding of its own
@@ -379,7 +379,8 @@ FeObject *native_local_variable_p(FeContext *context, FeObject *args)
  * be -- not nil. */
 FeObject *native_default_value(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *value;
 
 	FeRequireNoArguments(context, args);
@@ -396,7 +397,8 @@ FeObject *native_default_value(FeContext *context, FeObject *args)
  * unless this buffer has a binding shadowing it. */
 FeObject *native_set_default(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *value = FeGetNextArgument(context, &args);
 
 	FeRequireNoArguments(context, args);
@@ -413,7 +415,8 @@ FeObject *native_set_default(FeContext *context, FeObject *args)
  * Emacs' does. */
 FeObject *native_buffer_local_value(FeContext *context, FeObject *args)
 {
-	FeObject *symbol = symbol_argument(context, FeGetNextArgument(context, &args));
+	FeObject *symbol
+	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *buffer = FeGetNextArgument(context, &args);
 	struct kg_buffer_handle handle;
 	struct kg_lisp_local_var *v;

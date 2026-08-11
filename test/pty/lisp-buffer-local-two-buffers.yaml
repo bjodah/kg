@@ -11,15 +11,17 @@
 # produce two different answers from one `fill-column' read inside one
 # `auto-fill--break'.
 #
-# CHECKED IN AS xfail BY PHASE 18'S CONTRACT COMMIT, before any of the
-# storage existed: `setq-local' was a documented alias of `setq' then, so
-# both buffers shared one value and neither line broke where this expects.
-# The XPASS rule is what turns the implementation landing into a forced
-# edit of this header.
+# Checked in as `xfail' by Phase 18's contract commit, one commit before
+# the storage existed, and un-xfailed by the commit that added it -- which
+# is the XPASS rule doing its job rather than a note about history.
+#
+# The `fill-column' 200 in `p18-collect' is not decoration: appending the
+# report to a buffer whose own margin is 12 makes auto-fill refill the
+# report, and the transcript then looks exactly like the buffer-local
+# binding having failed.  It is measured on the way in, before the raise.
 name: lisp-buffer-local-two-buffers
 filename: buffer-local-two.txt
 requires_feature: lisp
-xfail: true
 key_delay: 0.06
 config_files:
   .config/kg/lisp/auto-fill.el: |
@@ -40,7 +42,12 @@ config_files:
     (provide 'auto-fill)
 
     (defvar fill-column 70
-      "Column auto-fill-mode tries to keep lines at or under.")
+      "Default column auto-fill-mode tries to keep lines at or under.
+    Give one buffer a margin of its own with (setq-local fill-column N):
+    auto-fill-mode reads this name inside the buffer the change happened in,
+    so two buffers wrap at two different columns from the one variable.
+    (setq-default fill-column N) moves the value every buffer without a
+    binding of its own sees.")
 
     (defvar auto-fill--error nil
       "The error that turned auto-fill-mode off, or nil if it is healthy.")
@@ -136,6 +143,7 @@ config_files:
     (setq-default fill-column 70)
 
     (defvar p18-file-buffer nil)
+    (defvar p18-line nil)
 
     ;; The file buffer keeps a narrow margin; a second, hidden buffer keeps a
     ;; wide one.  Both run auto-fill-mode, and the only difference between
@@ -157,16 +165,24 @@ config_files:
       (interactive)
       (let ((text (buffer-substring (point-min) (point-max))))
         (switch-to-buffer p18-file-buffer)
+        ;; Read the same name in three places while it still means three
+        ;; things: the hidden buffer's binding, this buffer's, and the
+        ;; default no buffer here is using.
+        (setq p18-line
+              (format "%S" (list (with-current-buffer (get-buffer "p18-wide")
+                                   fill-column)
+                                 fill-column
+                                 (default-value 'fill-column))))
+        ;; ... and only then raise this buffer's margin, so appending the
+        ;; report does not make auto-fill refill the very text it reports
+        ;; on.  Without this the transcript looks like the buffer-local
+        ;; binding failed, when what actually happened is that it worked.
+        (setq-local fill-column 200)
         (goto-char (point-max))
         (insert "\n")
-        (insert text)))
-
-    (defun p18-report ()
-      (interactive)
-      (insert "\n")
-      (insert (format "%S" (list (with-current-buffer (get-buffer "p18-wide") fill-column)
-                                 fill-column
-                                 (default-value 'fill-column)))))
+        (insert text)
+        (insert "\n")
+        (insert p18-line)))
 initial: ""
 keys:
   - M-x
@@ -207,9 +223,6 @@ keys:
   - 'd'
   - M-x
   - 'p18-collect'
-  - RET
-  - M-x
-  - 'p18-report'
   - RET
   - C-x
   - C-s

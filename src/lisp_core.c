@@ -52,7 +52,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 8);
+static_assert(FE_API_VERSION == 9);
 static_assert(FE_LANGUAGE_VERSION == 12);
 
 #ifndef KG_LISP_ARENA_SIZE
@@ -777,6 +777,21 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	parts[1] = value;
 	raise_signal_form(
 	    context, "wrong-type-argument", FeMakeList(context, parts, 2));
+}
+
+/* Raise Emacs' `(void-variable SYMBOL)`: the one-element data shape a
+ * reference to an unbound name answers.  kg needs it because two readers
+ * -- `default-value` and `buffer-local-value` -- reach a value cell
+ * without going through the evaluator's own reference path, and answering
+ * nil where Emacs raises would be the lie this phase exists to remove. */
+[[noreturn]] void lisp_raise_void_variable(FeContext *context, FeObject *symbol)
+{
+	FeObject *parts[1];
+
+	FePushGC(context, symbol);
+	parts[0] = symbol;
+	raise_signal_form(
+	    context, "void-variable", FeMakeList(context, parts, 1));
 }
 
 /* Raise Emacs' `(args-out-of-range ...)`: the range failure that is not a
@@ -1515,6 +1530,13 @@ int kg_lisp_init(void)
 }
 
 void kg_lisp_shutdown(void) { }
+
+void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
+{
+	(void)handle;
+}
+
+void kg_lisp_run_post_command_hook(void) { }
 
 int kg_lisp_eval_string(
     const char *source, size_t length, char *result, size_t result_size)

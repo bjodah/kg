@@ -452,11 +452,48 @@ disturbs the form that was running.
 The hooks that exist are
 .Li after-change-functions ,
 .Li find-file-hook ,
-.Li before-save-hook
+.Li before-save-hook ,
+.Li after-save-hook ,
+.Li kill-buffer-hook
 and
-.Li after-save-hook .
-There is deliberately no
 .Li post-command-hook .
+Every hook runs in the buffer it is about.
+.Li kill-buffer-hook
+runs while the buffer is still live and after every refusal has been
+passed, so a hook body can still read what is about to be lost; it may
+not kill the buffer it is being run for.
+.Li post-command-hook
+runs once per keystroke the editor has finished processing rather than
+once per command, since
+.Nm
+has no
+.Li self-insert-command .
+.Pp
+Variables can be buffer-local.
+.Li (setq-local SYM VAL)
+gives the current buffer a binding of its own,
+.Li (setq-default SYM VAL)
+and
+.Li (set-default 'SYM VAL)
+write the value buffers without one see, and
+.Li (default-value 'SYM)
+reads it past whatever binding is in force.
+.Li (make-local-variable 'SYM)
+creates a binding seeded from the default,
+.Li (kill-local-variable 'SYM)
+drops it,
+.Li (local-variable-p 'SYM &optional BUFFER)
+asks whether one exists and
+.Li (buffer-local-value 'SYM BUFFER)
+reads another buffer's without selecting it.
+An ordinary reference reads the current buffer's binding when it has one
+and the default otherwise, a plain
+.Li setq
+writes whichever is in force, and a binding dies with its buffer.
+A
+.Li let
+over such a name binds the binding in force where it runs, and must be
+left in the buffer it was entered in.
 .Li FN
 may be a function value or a quoted symbol naming one, as in Emacs:
 .Li (add-hook 'my-hook 'my-fn) .
@@ -749,14 +786,10 @@ the small library
 and
 .Li kbd
 \(em
-.Li setq-default
-and
 .Li setq-local
-are documented aliases of
-.Li setq ,
-since
-.Nm
-has no buffer-local variable namespace, and
+gives the current buffer a binding of its own and
+.Li setq-default
+writes the value buffers without one see, and
 .Li kbd
 accepts only the
 .Li C-c
@@ -890,7 +923,16 @@ written after such a
 .Li defvar
 and called from another file, which Emacs keeps dynamic and kg answers
 lexically;
-what kg does not have is buffer-local variables or whole-file
+what kg does not have is automatically buffer-local variables
+\(em
+.Li make-variable-buffer-local
+and
+.Li defvar-local
+are absent, so a plain
+.Li setq
+never creates a buffer-local binding where Emacs' would
+\(em
+or whole-file
 .Li lexical-binding: nil
 semantics;
 the printer abbreviates

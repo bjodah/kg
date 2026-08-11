@@ -211,6 +211,17 @@ enum kg_perf_counter {
 	 *     the two together and call it startup cost. */
 	KG_PERF_LISP_USER_INIT_NS,
 	KG_PERF_LISP_PACKAGE_LOAD_NS,
+	/* Phase 18's post-command-hook question, as counts rather than as a
+	 * duration, because a duration is the one thing this file's header
+	 * says not to decide on.  CALLS is how many times the main loop
+	 * offered the hook a keystroke; RUNS is how many of those reached
+	 * fe at all -- i.e. how many found a non-empty hook list.  The
+	 * decision the plan asks for is whether an EMPTY list costs
+	 * anything, and "RUNS is 0 while the arena counters do not move" is
+	 * that answer in a form that reads the same under valgrind, in a
+	 * sanitizer lane and on a loaded box. */
+	KG_PERF_POST_COMMAND_HOOK_CALLS,
+	KG_PERF_POST_COMMAND_HOOK_RUNS,
 
 	KG_PERF_COUNTER_COUNT
 };

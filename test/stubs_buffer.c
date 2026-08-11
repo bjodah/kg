@@ -175,3 +175,10 @@ int editor_picker_filter(picker_name_fn name_at, void *data, const char *query,
 
 void __attribute__((weak)) editor_cleanup(void) { }
 void kg_lisp_shutdown(void) { }
+
+/* bufmgr's kill path calls this; the buffer binary has no evaluator to
+ * run a hook in, and nothing here is about Lisp. */
+void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
+{
+	(void)handle;
+}

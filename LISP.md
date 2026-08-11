@@ -114,7 +114,10 @@ already mid-load is a "cyclic require" error naming it, independent of
 `load`'s own nesting depth limit. `lisp/auto-fill.el` is a worked package
 using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
 at `fill-column` as they are typed past it, using `after-change-functions`
-and one `replace-region` call per break (one undo step). It also shows how a
+and one `replace-region` call per break (one undo step). `fill-column` is
+its default and `(setq-local fill-column N)` gives one buffer a margin of
+its own, which is what makes two buffers wrap at two different columns
+from the one variable. It also shows how a
 package handles its own errors: the hook entry point is a `condition-case`
 that stores the condition in `auto-fill--error`, removes itself from the hook
 and reports once, so a `fill-column` set to something that is not a number
@@ -268,10 +271,21 @@ running:
 | `(run-hooks 'HOOK)` | Run `HOOK`'s functions now |
 
 The hooks that exist are `after-change-functions` (called with buffer,
-start, end and the replaced length), `find-file-hook`, `before-save-hook`
-and `after-save-hook`. There is deliberately no `post-command-hook`: its
-per-keystroke cost has not been measured. A hook that is added twice runs
-twice, and a hook list holds at most 16 functions.
+start, end and the replaced length), `find-file-hook`, `before-save-hook`,
+`after-save-hook`, `kill-buffer-hook` and `post-command-hook`. A hook that
+is added twice runs twice, and a hook list holds at most 16 functions.
+
+Every hook runs **in the buffer it is about**, so one whose buffer is not
+on screen does not edit whatever is. `kill-buffer-hook` runs while the
+buffer is still live and after every refusal has been passed, which is
+Emacs' ordering — a hook body can read the text that is about to be lost,
+and a hook that ran never watches the kill be refused afterwards. It may
+not kill the buffer it is being run for; killing any other one works, so
+`with-temp-buffer` in a hook body is fine. `post-command-hook` runs once
+per keystroke the editor has finished processing rather than once per
+command, because kg has no `self-insert-command` and "after each command"
+would leave ordinary typing out; an empty one costs a keystroke nothing
+measurable.
 
 `FN` may be a function value or a quoted symbol naming one: `(add-hook
 'my-hook 'my-fn)` works, as it does in Emacs. A symbol is resolved when the
@@ -400,7 +414,8 @@ surface is available before any init file runs. It is what makes kg's
 | Numbers | `+` `-` `*` `/` and the comparators `(= N ...)` `<` `<=` `>` `>=` `/=` |
 | Quoting | `quasiquote`, written `` ` `` with `,` and `,@`; `#'f` is `(function f)` |
 | Editor | `(string-empty-p S)` and `(thing-at-point THING)` — the text of `(bounds-of-thing-at-point THING)`, or `nil` when there are no bounds |
-| Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `setq-default` `setq-local` `kbd` |
+| Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `kbd` |
+| Buffer-local | `(setq-local SYM VAL ...)` `(setq-default SYM VAL ...)` `(set-default 'SYM VAL)` `(default-value 'SYM)` `(make-local-variable 'SYM)` `(kill-local-variable 'SYM)` `(local-variable-p 'SYM &optional BUFFER)` `(buffer-local-value 'SYM BUFFER)` |
 
 Argument lists are strict: too few or too many arguments raise
 `wrong-number-of-arguments`. `&optional` parameters bind `nil` when omitted,
@@ -462,8 +477,19 @@ first surprise:
   `let` over the same name is lexical again. The one residual is a
   `defun` written after such a `defvar` and *called* from another file,
   which Emacs keeps dynamic and kg answers lexically. What kg does
-  *not* have is buffer-local variables or whole-file
-  `lexical-binding: nil` semantics.
+  *not* have is whole-file `lexical-binding: nil` semantics.
+- **Variables can be buffer-local.** `(setq-local x 1)` gives the current
+  buffer a binding of its own; `(setq-default x 1)` writes the value
+  buffers without one see; a reference reads the buffer's binding first
+  and the default second; a binding dies with its buffer. A `let` over
+  such a name binds whichever binding is in force where it runs, which is
+  Emacs' answer, and must be left in the buffer it was entered in —
+  `save-excursion`, `with-current-buffer` and `with-temp-buffer` all
+  restore it, so idiomatic code never meets that edge. What kg does not
+  have is *automatically* buffer-local variables: there is no
+  `make-variable-buffer-local` or `defvar-local`, and a plain `setq`
+  never creates a binding, so where Emacs lets `setq fill-column` do it,
+  kg needs `setq-local`.
 - The printer abbreviates `(quote X)` back to `'X`, as Emacs' does, so
   `M-:` and `%S` show `'x` and `(a 'b c)`. Backquote is the exception:
   kg's reader expands `` ` ``/`,`/`,@` to the ordinary symbols

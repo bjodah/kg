@@ -5347,7 +5347,7 @@ static void test_quit_uncaught(void)
  * (move-beginning-of-line, move-end-of-line), +40 for Phase 15's string
  * and list library, +3 for Phase 17's with-temp-buffer and the
  * beginning-of-buffer/end-of-buffer pair. */
-#define PRELUDE_DEFS 125
+#define PRELUDE_DEFS 126
 
 static void test_prelude_source_file(void)
 {
@@ -6119,6 +6119,77 @@ static void test_phase17_buffer_status(void)
  * raised would REPLACE the body's completion -- so what this pins is that
  * the body's value still arrives, and that ordinary use kills its buffer
  * rather than leaking one. */
+/* Phase 18: the buffer-local storage, from the C side where the table's
+ * own bounds and the kill path are reachable.  The oracle-compared
+ * semantics live in test/lisp-compat (the phase18-* rows); what is here is
+ * everything a snapshot cannot see -- that the table refuses rather than
+ * dropping, that a killed buffer's binding is reclaimed rather than
+ * leaked, and that the swap survives being asked for the same buffer
+ * repeatedly. */
+static void test_phase18_buffer_locals(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Two buffers, one name, two values -- and neither is the default. */
+	CHECK(eval_eq("(progn (defvar p18v 70)"
+		      " (with-current-buffer (get-buffer-create \"one\")"
+		      "  (setq-local p18v 12))"
+		      " (with-current-buffer (get-buffer-create \"two\")"
+		      "  (setq-local p18v 40))"
+		      " (list (with-current-buffer (get-buffer \"one\") p18v)"
+		      "  (with-current-buffer (get-buffer \"two\") p18v)"
+		      "  p18v (default-value 'p18v)))",
+	    "(12 40 70 70)"));
+
+	/* Selecting the same buffer twice is not a second swap: the second
+	 * one must not stash the first one's value on top of the default. */
+	CHECK(eval_eq("(with-current-buffer (get-buffer \"one\")"
+		      " (with-current-buffer (get-buffer \"one\")"
+		      "  (list p18v (default-value 'p18v))))",
+	    "(12 70)"));
+
+	/* The binding dies with its buffer, and the table reclaims the slot
+	 * rather than holding a stale handle: after both kills the name is an
+	 * ordinary global again, which `set-default' reaching the value cell
+	 * is what proves. */
+	CHECK(eval_eq("(progn (kill-buffer (get-buffer \"one\"))"
+		      " (kill-buffer (get-buffer \"two\"))"
+		      " (setq-default p18v 71)"
+		      " (list p18v (default-value 'p18v)))",
+	    "(71 71)"));
+
+	/* Killing the buffer whose bindings are in force puts the default
+	 * back for the rest of the frame, rather than leaving a dead
+	 * buffer's value readable -- and `default-value' answers it even
+	 * though the execution context is now a stale handle, which is the
+	 * one place a reader has to tolerate what a writer refuses. */
+	CHECK(eval_eq("(let ((b (get-buffer-create \"three\")))"
+		      " (set-buffer b) (setq-local p18v 5)"
+		      " (kill-buffer b)"
+		      " (default-value 'p18v))",
+	    "71"));
+	/* ... and a writer does refuse it. */
+	CHECK(eval_error_contains("(let ((b (get-buffer-create \"four\")))"
+				  " (set-buffer b) (kill-buffer b)"
+				  " (setq-local p18v 5))",
+	    "current buffer is dead"));
+
+	/* The ceilings refuse by name.  17 distinct names is one past
+	 * LISP_MAX_LOCAL_VARS; the message is the table's, not a generic
+	 * arena failure. */
+	CHECK(eval_error_contains(
+	    "(with-current-buffer (get-buffer-create \"many\")"
+	    " (let ((i 0))"
+	    "  (while (< i 20)"
+	    "   (internal--set-buffer-local (intern (format \"p18n%d\" i)) i)"
+	    "   (setq i (1+ i)))))",
+	    "too many buffer-local variables"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_phase17_with_temp_buffer(void)
 {
 	setup_editor();
@@ -6593,6 +6664,7 @@ int main(void)
 	RUN(test_phase17_skip_chars);
 	RUN(test_phase17_buffer_edits);
 	RUN(test_phase17_buffer_status);
+	RUN(test_phase18_buffer_locals);
 	RUN(test_phase17_with_temp_buffer);
 	RUN(test_phase17_switch_to_buffer);
 	RUN(test_with_current_buffer);

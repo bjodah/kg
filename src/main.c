@@ -265,6 +265,11 @@ int main(int argc, char **argv)
 		 * committed -- editor_process_keypress() never returns
 		 * mid-command. */
 		kg_event_drain_safe();
+		/* ... which is also the only point at which running
+		 * `post-command-hook' means what its name says: after the
+		 * command, and after everything the command queued has been
+		 * delivered. */
+		kg_lisp_run_post_command_hook();
 	}
 	/* Nothing in a default build: KG_PERF_COUNTERS is off, and
 	 * kg_lisp_perf_snapshot() is a no-op with it off or Lisp inactive.

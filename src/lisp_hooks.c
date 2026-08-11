@@ -13,6 +13,7 @@
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
+#include "perf.h"
 
 #define LISP_MAX_HOOKS 16
 #define LISP_MAX_HOOK_ENTRIES_PER_HOOK 16
@@ -109,7 +110,7 @@ static FeObject *resolve_hook_function(
  * The enclosing landing site is Fe's own barrier on the (run-hooks) path,
  * and run_hook_list_guarded()'s frame on the editor-event path. */
 static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
-    size_t arg_count, const char *hook_name)
+    size_t arg_count, const char *hook_name, struct editor_buffer *b)
 {
 	FeObject *fn = FeGetRoot(root);
 	FeObject *target;
@@ -132,24 +133,35 @@ static void run_one_hook_function(FeContext *ctx, FeRoot *root, FeObject **args,
 		FeRestoreGC(ctx, gc);
 		editor_set_status_message(
 		    "Hook error (%s): %s", hook_name, diagnostic);
-		state.exec = saved_exec;
+		lisp_exec_restore(ctx, saved_exec);
 		return;
 	}
 	lisp_exec_enter(ctx);
+	/* The hook runs in the buffer the hook is ABOUT, not in whichever one
+	 * the active window happens to show.  lisp_exec_enter() reads the
+	 * window, which is right for a command and wrong for a hook: an
+	 * after-change or kill-buffer hook whose buffer is hidden would
+	 * otherwise edit whatever was on screen.  Emacs runs every one of
+	 * these with the buffer current, and `kill-buffer-hook' -- which is
+	 * passed no arguments at all -- has no other way to say which buffer
+	 * it is being told about. */
+	if (b != NULL) {
+		lisp_exec_set_buffer(ctx, b);
+	}
 	cmd_prompt_block();
 	if (FeTryCallWithOptions(
 		ctx, target, args, arg_count, &eval_options, &value)) {
 		cmd_prompt_unblock();
 		FeRestoreGC(ctx, gc);
 		lisp_exec_leave(1);
-		state.exec = saved_exec;
+		lisp_exec_restore(ctx, saved_exec);
 		return;
 	}
 	kind = FeGetCompletion(ctx);
 	cmd_prompt_unblock();
 	FeRestoreGC(ctx, gc);
 	lisp_exec_leave(0);
-	state.exec = saved_exec;
+	lisp_exec_restore(ctx, saved_exec);
 	release_scratch();
 	if (kind == FeCompletionQuit || kind == FeCompletionBudget) {
 		FeResignal(ctx);
@@ -182,7 +194,8 @@ static void run_hook_list(FeContext *ctx, const char *hook_name,
 				continue;
 			}
 		}
-		run_one_hook_function(ctx, e->root, args, arg_count, hook_name);
+		run_one_hook_function(
+		    ctx, e->root, args, arg_count, hook_name, b);
 	}
 }
 
@@ -222,6 +235,78 @@ static void run_hook_list_guarded(FeContext *ctx, const char *hook_name,
 	run_hook_list(ctx, hook_name, b, args, arg_count);
 	FeRestoreGC(ctx, gc);
 	state.frame_active = false;
+}
+
+/* `kill-buffer-hook': the one hook kg runs SYNCHRONOUSLY rather than off
+ * the event queue, and the reason is the contract.  Emacs runs it in the
+ * dying buffer, after the user has said yes and before the buffer is gone,
+ * so a hook can still read what is about to be lost.  kg's lifecycle
+ * events are queued and drained at the main loop's safe point, by which
+ * time the buffer is already freed and its handle stale -- a hook run
+ * there could only be told that something died, which is a different
+ * (and much weaker) promise.  So bufmgr calls this directly, from the one
+ * point inside buf_kill_commit() where every refusal has been passed and
+ * the kill can no longer fail: a hook that runs and then watches the kill
+ * be refused would be exactly the lie this phase exists to remove.
+ *
+ * Two dispatches, because a kill reaches this from both worlds.  From
+ * `C-x k' there is no evaluator run and no host frame, so it needs the
+ * guarded frame every event-driven hook gets.  From `(kill-buffer ...)`
+ * there IS a live run -- the native's own -- and starting a second frame
+ * inside it is the mistake run_hook_list_guarded()'s comment describes,
+ * so it takes the same route `(run-hooks ...)` does. */
+void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
+{
+	FeContext *ctx = state.context;
+	struct editor_buffer *b = buf_resolve(handle);
+
+	if (ctx == NULL || !state.initialized || b == NULL) {
+		return;
+	}
+	if (find_hook("kill-buffer-hook") == NULL) {
+		return;
+	}
+	if (state.frame_active) {
+		run_hook_list(ctx, "kill-buffer-hook", b, NULL, 0);
+	} else {
+		run_hook_list_guarded(ctx, "kill-buffer-hook", b, NULL, 0);
+	}
+}
+
+/* `post-command-hook'.  Two things make this cheap enough to sit on the
+ * keystroke path: the counter increment (compiled out of a shipped build
+ * entirely) and find_hook(), a strcmp over the handful of hook names a
+ * session has ever named.  Nothing below the early return happens until an
+ * init file adds to the hook, so a session that does not use it pays a
+ * lookup per keystroke and reaches fe zero times -- which is the
+ * measurement Phase 18's plan asks for, and the reason this landed rather
+ * than staying out.
+ *
+ * kg's rule for WHEN, which is not Emacs' and is recorded as kg-policy:
+ * once per keystroke the main loop has finished processing, not once per
+ * command.  kg has no `self-insert-command' -- an ordinary character is
+ * inserted without going through cmd_invoke() -- so "after each command"
+ * is not a thing this editor can say without leaving typing out of it,
+ * and typing is the case a post-command hook is most often written for.
+ * A prefix keystroke that runs no command therefore also fires it. */
+void kg_lisp_run_post_command_hook(void)
+{
+	FeContext *ctx = state.context;
+	struct editor_buffer *b;
+
+	KG_PERF_INC(KG_PERF_POST_COMMAND_HOOK_CALLS);
+	if (ctx == NULL || !state.initialized || state.frame_active) {
+		return;
+	}
+	if (find_hook("post-command-hook") == NULL) {
+		return;
+	}
+	b = buf_resolve(state.exec.buffer);
+	if (b == NULL) {
+		b = bcur();
+	}
+	KG_PERF_INC(KG_PERF_POST_COMMAND_HOOK_RUNS);
+	run_hook_list_guarded(ctx, "post-command-hook", b, NULL, 0);
 }
 
 static enum kg_event_cb_status lisp_event_subscriber(

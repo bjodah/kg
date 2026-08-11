@@ -2,5 +2,6 @@
  "id": "phase8-library-setq-aliases",
  "setup": [],
  "expr": "(progn (setq-default phase8-alias-a 8) (setq-local phase8-alias-b 9) (list phase8-alias-a phase8-alias-b))",
- "note": "kg-policy: kg has no buffer-local variable namespace, so setq-default and setq-local are documented aliases of setq. Emacs would answer the same two values here but for different reasons, which is why this row is not compared."
+ "note": "Both spellings, at top level in the current buffer with no local binding anywhere: `setq-default' writes the default and `setq-local' creates a binding in this buffer, and reading each name back answers what was written. Emacs answers the same two values, and since Phase 18 it answers them for the same reasons -- which is what makes this case comparable at all. Its note used to say kg had no buffer-local variable namespace and that the agreement was a coincidence.",
+ "expect": "agree"
 }

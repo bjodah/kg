@@ -583,9 +583,29 @@ The hooks that exist: `after-change-functions` (called `(FN BUFFER START
 END OLD-LEN)` — `START`/`END` are 1-based positions of the *new* text,
 `OLD-LEN` is how many characters the edit replaced), `find-file-hook`
 (called `(FN)`, no arguments, once a buffer has finished opening),
-`before-save-hook` and `after-save-hook` (called `(FN)`). There is
-deliberately no `post-command-hook`; its per-keystroke cost has not been
-measured.
+`before-save-hook` and `after-save-hook` (called `(FN)`),
+`kill-buffer-hook` (called `(FN)`) and `post-command-hook` (called
+`(FN)`).
+
+Every hook runs **in the buffer it is about**: the buffer the change
+happened in, the one being opened or saved, the one being killed. A hook
+whose buffer is not on screen therefore does not edit whatever is.
+
+`kill-buffer-hook` runs while the buffer is still live and after every
+refusal has been passed, which is Emacs' ordering: a hook body can still
+read the text that is about to be lost, and a hook that ran never watches
+the kill be refused afterwards. kg refuses a modified buffer's kill
+outright rather than prompting, and that refusal comes *before* the hook.
+Two bounds are kg's: a hook body may not kill the buffer it is being run
+for (refused), and a kill it makes of some *other* buffer runs no hook of
+its own — so `with-temp-buffer` inside one works.
+
+`post-command-hook` runs once per keystroke the editor has finished
+processing, not once per command: kg has no `self-insert-command`, so
+"after each command" would leave ordinary typing out. A keystroke that
+runs no command (a prefix key) fires it too. An empty
+`post-command-hook` costs a keystroke nothing measurable — the seam does
+not reach the evaluator at all until something is added to it.
 
 **`FN` may be a function value or a quoted symbol naming one.**
 `(add-hook 'my-hook 'my-fn)` is the Emacs idiom and works here too. A
@@ -874,10 +894,65 @@ caller's, and `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` under
 the pinned Emacs 31.0.90 exactly as it is here. A non-nil LEXICAL is
 refused by name, the way `macroexpand`'s ENVIRONMENT is.
 
-`setq-default` and `setq-local` are aliases of `setq` because kg has no
-buffer-local variable namespace. `load-path` remains a bounded C search-path
+`load-path` remains a bounded C search-path
 array; use kg's `add-to-load-path` native rather than modifying it with
 `add-to-list`.
+
+## Buffer-local variables
+
+One name, one value per buffer, and a default for the buffers that have
+no value of their own.
+
+| Form | Result |
+| ---- | ------ |
+| `(setq-local SYM VAL ...)` | Give the current buffer a binding of its own and set it; answers the last VAL |
+| `(setq-default SYM VAL ...)` | Set the value buffers without a binding of their own see |
+| `(default-value 'SYM)` | Read that value, past whatever binding is in force |
+| `(set-default 'SYM VAL)` | `setq-default`'s function form |
+| `(make-local-variable 'SYM)` | Give this buffer a binding seeded from the default |
+| `(kill-local-variable 'SYM)` | Drop this buffer's binding; the default becomes visible again |
+| `(local-variable-p 'SYM &optional BUFFER)` | Whether BUFFER (default: the current one) has a binding |
+| `(buffer-local-value 'SYM BUFFER)` | Read BUFFER's binding without selecting it |
+
+An ordinary reference reads the current buffer's binding when it has one
+and the default otherwise, and a plain `setq` writes whichever of the two
+is in force. A binding dies with its buffer. None of this marks a name
+special: `(setq-local x 1)` on a name no `defvar` declared is legal, and
+`(special-variable-p 'x)` is still nil afterwards — a buffer-local
+binding and a dynamic-binding mark are different things.
+
+`let` over a name that is buffer-local in the current buffer binds
+**that buffer's** binding, and the default is untouched: `default-value`
+inside the form still reports it, and another buffer with a binding of
+its own does not see the `let` at all. `let` over a name the current
+buffer has no binding for binds the **default**, which is what
+`default-value` reports inside the form. Both are Emacs' answers,
+because kg's storage is Emacs' own: the symbol has one value cell
+holding whichever binding is current, and the displaced one is kept
+beside it until the buffer comes round again.
+
+Three things that follow from that representation are **divergences**,
+each recorded and tested:
+
+* A `let` over a buffer-local binding must be *left in the buffer it was
+  entered in*. Emacs tags each binding with the buffer whose value it
+  displaced; kg has nothing to tag it with, so a bare `set-buffer`
+  inside such a form makes the restore land in the wrong buffer.
+  `save-excursion`, `with-current-buffer` and `with-temp-buffer` all
+  restore the buffer, so idiomatic code never meets this.
+* `setq-local` or `make-local-variable` *inside* a `let` over the same
+  name puts the let value and the default the wrong way round. Emacs
+  warns about this shape (`Making X buffer-local while locally
+  let-bound!`) rather than recommending it.
+* kg has no automatically-buffer-local variables:
+  `make-variable-buffer-local` and `defvar-local` do not exist, and a
+  plain `setq` never creates a binding. In Emacs `fill-column` is one of
+  these, so where Emacs lets `setq` do it, kg needs `setq-local`.
+
+`lisp/auto-fill.el` is the shipped consumer: `fill-column` is its
+default, `(setq-local fill-column N)` gives one buffer a margin of its
+own, and auto-fill reads the name inside the buffer the change happened
+in.
 
 `defun` recognises only an `(interactive ...)` form immediately after its
 optional docstring. That declaration is removed from the body and registers
@@ -1258,12 +1333,14 @@ primitive's function cell.
   closing it means changing what the reader produces and breaking any
   Lisp that pattern-matches on `quasiquote`. Recorded as
   `phase8-reader-backquote-symbol-names`.
-- **No buffer-local variables.** `setq-local` and `setq-default` are
-  documented aliases of `setq`: both write the one global binding, so a
-  second buffer sees the write and nothing is restored when a buffer is
-  killed or switched. `add-hook`'s LOCAL argument is real and is a
-  separate mechanism. Both manifest rows are `divergent` for this
-  reason.
+- **Buffer-local variables have three named gaps**, not the wholesale
+  absence this list used to record: a `let` over one must be left in the
+  buffer it was entered in, making a name buffer-local inside a `let`
+  over it swaps the let value and the default, and there are no
+  automatically-buffer-local variables. See "Buffer-local variables"
+  above; the manifest rows are `phase18-let-buffer-switched-out`,
+  `phase18-make-local-while-let-bound` and
+  `phase18-automatically-buffer-local`.
 - **No vectors, no hash tables, no property lists.**
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints

@@ -9,7 +9,7 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 8`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 9`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
 `FE_LANGUAGE_VERSION 12`, which `src/lisp_core.c` also asserts at compile
@@ -138,6 +138,32 @@ in a context-side registry because an uninterned symbol is the first symbol
 fe has that the collector may reclaim, and a registry keyed by symbol would
 pin every symbol that ever carried a property. The assertion in
 `src/lisp_core.c` fired at this pin. `FeVersion` is `"13.0"`.
+Phase 18 moved `FE_API_VERSION` 8 → **9** alone, and
+`FE_LANGUAGE_VERSION` stayed at **12** — no name, no reader syntax and no
+evaluation rule changed, so nothing a Lisp program can observe moved, and
+`FeVersion` stays `"13.0"`. Two declarations are added to `fe.h`:
+`FeGetValue`, the read half of `FeSet`, and `FeMakeUnbound`, the C
+spelling of what `makunbound` does to a global binding. Both address the
+GLOBAL binding and never an environment entry, which is the rule
+`FeSet`/`FeIsBound` already live under. `FeGetValue` answers `nullptr`
+rather than `nil` for an unbound name, because the caller these exist for
+takes a value out of the cell and puts it back later and has to tell "no
+value" from "the value nil"; `&unbound` is private and no API returns it.
+`FeMakeUnbound` reuses `FeSet`'s constant check rather than inventing a
+second policy, so it raises `setting-constant` for `t`, `nil` and
+keywords and leaves the binding alone.
+
+The caller is kg's Phase 18 buffer-local storage, and the reason it needs
+fe at all is worth recording, because the plan's constraint was that fe
+grows *at most* a hook: kg keeps Emacs' representation, one value cell per
+symbol holding whichever buffer's binding is current with the displaced
+one stashed beside it, so a variable reference inside fe's evaluator stays
+exactly one cell read and fe learns nothing about buffers. What kg needs
+from fe is only the ability to read and unbind that cell from C. Before
+this the only way to read it was to evaluate `(symbol-value 'x)` — a
+nested run, a step budget and a catchable raise, for a two-word load, and
+on a path (a hook's execution-context restore) that must not raise at all.
+
 The kg side of that phase carries one change of its own that is not fe's:
 `save-excursion` and `with-current-buffer` bind their captured state to a
 `(gensym)` instead of to the ordinary symbol `internal--excursion`, which

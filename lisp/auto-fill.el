@@ -15,7 +15,12 @@
 (provide 'auto-fill)
 
 (defvar fill-column 70
-  "Column auto-fill-mode tries to keep lines at or under.")
+  "Default column auto-fill-mode tries to keep lines at or under.
+Give one buffer a margin of its own with (setq-local fill-column N):
+auto-fill-mode reads this name inside the buffer the change happened in,
+so two buffers wrap at two different columns from the one variable.
+(setq-default fill-column N) moves the value every buffer without a
+binding of its own sees.")
 
 (defvar auto-fill--error nil
   "The error that turned auto-fill-mode off, or nil if it is healthy.")

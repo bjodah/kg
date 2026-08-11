@@ -673,8 +673,29 @@
   (and (consp form) (eq (car form) 'declare))))
 (defalias 'ignore-errors (macro body
   (cons 'condition-case (cons nil (cons (cons 'progn body) '((error nil)))))))
-(defalias 'setq-default (symbol-function 'setq))
-(defalias 'setq-local (symbol-function 'setq))
+;; `setq-local' and `setq-default' were documented aliases of `setq' until
+;; Phase 18 -- they wrote the one global binding, and their manifest rows
+;; said `divergent' for exactly that reason.  Both are now macros over the
+;; two natives that address the right binding: `internal--set-buffer-local'
+;; creates this buffer's binding if it has none and writes it, and
+;; `set-default' writes the value buffers without a binding of their own
+;; see.  Both take SYMBOL VALUE pairs and answer the last value, as `setq'
+;; does, and both raise on a dangling final SYMBOL rather than assigning
+;; nil to it.
+(defalias 'internal--setq-local-forms (lambda (pairs setter)
+  (internal--let forms nil)
+  (while pairs
+    (if (null (cdr pairs))
+        (error "setq-local: odd number of arguments")
+      (setq forms (cons (list setter (list 'quote (car pairs))
+                              (car (cdr pairs)))
+                        forms))
+      (setq pairs (cdr (cdr pairs)))))
+  (cons 'progn (reverse forms))))
+(defalias 'setq-local (macro pairs
+  (internal--setq-local-forms pairs 'internal--set-buffer-local)))
+(defalias 'setq-default (macro pairs
+  (internal--setq-local-forms pairs 'set-default)))
 (defalias 'kbd (lambda (key)
   (if (and (stringp key)
            (= (string-length key) 5)

@@ -2364,6 +2364,18 @@ void buf_save_all(int fd)
  *
  * Returns 0 when the KILLING reservation was refused (nothing done), 1
  * once the buffer is gone. */
+/* The buffer a kill is committed to right now, or a handle naming nothing.
+ * It exists for `kill-buffer-hook': the hook runs with the dying buffer
+ * still live, so a hook body that kills THAT buffer would leave the commit
+ * below tearing down a slot that is already gone (and the count already
+ * decremented).  Killing any OTHER buffer from a kill-buffer-hook is
+ * allowed and needed -- `with-temp-buffer' in a hook body is an ordinary
+ * thing to write -- and it simply runs no hook of its own, since one is
+ * already running.  Both bounds are recorded in
+ * test/lisp-compat/features.json's kill-buffer-hook row. */
+static struct kg_buffer_handle kill_in_progress = { -1, 0, 0 };
+static bool kill_hook_running;
+
 static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 {
 	struct kg_event_reservation res = kg_event_reserve_lifecycle();
@@ -2373,6 +2385,17 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 		editor_set_status_message(
 		    "Too many pending events; buffer not killed.");
 		return 0;
+	}
+	/* Emacs' ordering: after the user has said yes and after every
+	 * refusal this function can make -- the reservation above is the last
+	 * one -- and before the buffer is torn down, so the hook sees the
+	 * buffer it is being told about. */
+	if (!kill_hook_running) {
+		kill_hook_running = true;
+		kill_in_progress = dying;
+		kg_lisp_run_kill_buffer_hook(dying);
+		kill_in_progress = (struct kg_buffer_handle) { -1, 0, 0 };
+		kill_hook_running = false;
 	}
 	kg_event_publish_lifecycle(&res, kg_event_make_buffer_killing(dying));
 
@@ -2497,6 +2520,14 @@ int buf_kill_buffer(struct kg_buffer_handle handle)
 		return 0;
 	}
 	if (buf_count <= 1) {
+		return 0;
+	}
+	/* A kill-buffer-hook that kills the buffer it is being run for is the
+	 * one nested kill that cannot work: the commit that called the hook
+	 * is still going to tear this slot down.  Refused, which reaches Lisp
+	 * as `kill-buffer: cannot kill buffer'. */
+	if (slot == kill_in_progress.slot && handle.id == kill_in_progress.id
+	    && handle.generation == kill_in_progress.generation) {
 		return 0;
 	}
 	if (!buf_kill_commit(slot, handle)) {

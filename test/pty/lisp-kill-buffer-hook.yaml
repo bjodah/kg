@@ -1,0 +1,63 @@
+# `kill-buffer-hook', both halves of its contract, through the real
+# bufmgr -- which is why this is a PTY case and not a unit test: the Lisp
+# unit binary stubs buf_kill_buffer(), and the ordering under test lives
+# in the real buf_kill_commit().
+#
+# The hook runs IN the dying buffer and BEFORE it dies: the body reads
+# (buffer-name), the buffer's own text and (buffer-live-p) and stashes
+# all three, and the report shows a live buffer with its contents intact.
+# It also runs only once the kill can no longer be refused: the second
+# half of the case asks kill-buffer to kill a modified buffer, which kg
+# refuses without prompting, and the stash still holds the FIRST kill's
+# answer -- a hook that had run for the refused kill would have
+# overwritten it with "dirty".
+#
+# The third line is the recursion bound: a kill-buffer-hook that kills
+# the buffer it is being run for is refused, because the commit that
+# called the hook is still going to tear that slot down.  Killing any
+# other buffer from a hook body is allowed and runs no hook of its own.
+name: lisp-kill-buffer-hook
+filename: kill-hook.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    (defvar p18-seen nil)
+    (defvar p18-refused nil)
+    (defvar p18-self nil)
+
+    (add-hook 'kill-buffer-hook
+      (lambda ()
+        (setq p18-seen (list (buffer-name (current-buffer))
+                             (buffer-substring (point-min) (point-max))
+                             (buffer-live-p (current-buffer))))
+        ;; Killing the buffer this hook is running for is refused; killing
+        ;; another one is not, and runs no hook of its own.
+        (setq p18-self
+              (condition-case e
+                  (progn (kill-buffer (current-buffer)) 'killed)
+                (error 'refused)))))
+
+    (defun p18-run ()
+      (interactive)
+      (with-current-buffer (get-buffer-create "doomed")
+        (insert "bye")
+        (set-buffer-modified-p nil))
+      (kill-buffer (get-buffer "doomed"))
+      (with-current-buffer (get-buffer-create "dirty")
+        (insert "x")
+        (set-buffer-modified-p t))
+      (setq p18-refused
+            (condition-case e (progn (kill-buffer (get-buffer "dirty")) 'killed)
+              (error 'refused)))
+      (insert (format "%S\n%S\n%S" p18-seen p18-refused p18-self)))
+initial: ""
+keys:
+  - M-x
+  - 'p18-run'
+  - RET
+  - C-x
+  - C-s
+expected_saved: |-
+  ("doomed" "bye" t)
+  refused
+  refused

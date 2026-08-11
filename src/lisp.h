@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#include "bufhandle.h"
+
 [[nodiscard]] int kg_lisp_init(void);
 void kg_lisp_shutdown(void);
 [[nodiscard]] int kg_lisp_eval_string(
@@ -51,6 +53,25 @@ void kg_lisp_set_interrupt_check(int (*check)(void));
  * plain variable spelling supplied by kg itself, not by anything it
  * reads. */
 [[nodiscard]] int kg_lisp_variable_non_nil(const char *name);
+
+/* Run `kill-buffer-hook' in the buffer `handle` names, which is about to
+ * be killed.  Called from bufmgr's one commit point, after every refusal
+ * has been passed and before anything is torn down, so the hook sees a
+ * live buffer and the kill it was told about really happens -- Emacs'
+ * ordering.  Does nothing when Lisp is not compiled in, not initialized,
+ * has no such hook, or the handle no longer resolves.  A hook error is
+ * contained and reported like any other; a hook cannot refuse the kill,
+ * and `(kill-buffer ...)` of the buffer being killed is refused while it
+ * runs (bufmgr's own guard). */
+void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle);
+
+/* Offer the keystroke just processed to `post-command-hook'.  Called from
+ * the main loop's safe point; returns immediately -- before touching fe at
+ * all -- when nothing has ever added to that hook, which is what makes an
+ * unused hook cost a string compare and nothing else (KG_PERF_POST_COMMAND
+ * _HOOK_CALLS/_RUNS are the evidence).  Does nothing in a WITH_LISP=0
+ * build or while a Lisp frame is already active. */
+void kg_lisp_run_post_command_hook(void);
 
 /* A Fe-free copy of fe/fe.h's FeArenaStats (see FeGetArenaStats()): total
  * and free object slots, and read-only high-water marks/counts kg's own

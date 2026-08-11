@@ -349,13 +349,21 @@ against full rebuilds.  Known follow-ups, none blocking:
       `phase14-excursion-gensym-hygiene` oracle case hold it there.  It is
       also this wave's worked example of what the sweep would look like:
       two lines per macro, one `gensym` call per expansion.
-- [ ] **Buffer-local variables.** `setq-local` and `setq-default` are
-      aliases of `setq` and write the one global binding; both manifest
-      rows are `divergent` for that reason since 10C.  A real
-      implementation needs a per-buffer binding table, a lookup that
-      consults it before the global cell, and a lifetime rule for buffer
-      kill and switch.  `add-hook`'s LOCAL argument is unaffected — it is
-      real already.
+- [x] **Buffer-local variables.**  Done by Phase 18.  Not with the
+      per-buffer binding table this row asked for: kg took Emacs' own
+      representation instead, one value cell per symbol holding whichever
+      binding is current with the displaced one stashed beside it, which
+      is what makes a reference cost the same cell read it always did and
+      makes `let` answer Emacs' way for free.  `setq-local`,
+      `setq-default`, `set-default`, `default-value`,
+      `make-local-variable`, `kill-local-variable`, `local-variable-p`
+      and `buffer-local-value` all exist; the lifetime rule is that a
+      binding dies with its buffer.  Three named gaps survive and are
+      recorded rather than hidden: `phase18-let-buffer-switched-out`,
+      `phase18-make-local-while-let-bound` and
+      `phase18-automatically-buffer-local` (no
+      `make-variable-buffer-local`/`defvar-local`).  `add-hook`'s LOCAL
+      argument was unaffected, as this row said.
 - [x] **The printer's `(quote X)` → `'X` abbreviation.**  Done by Phase 11
       (11A Decision 4) in fe's `WriteObject`, as the symmetric copy of the
       `(function f)` → `#'f` block that has been there since Phase 4, with

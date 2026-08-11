@@ -7,6 +7,7 @@
 #include "../fe/fe.h"
 #include "def.h"
 #include "lisp_internal.h"
+#include "lisp_locals.h"
 #include "lisp_obj.h"
 
 /* ---- Adapter-owned editor objects -------------------------------------
@@ -470,6 +471,7 @@ void lisp_exec_enter(FeContext *ctx)
 		b = bcur();
 	}
 	state.exec.buffer = buf_handle_of(b);
+	lisp_locals_switch(ctx, state.exec.buffer);
 	if (state.exec.buffer.slot < 0) {
 		/* No current buffer (test harness, or a detached window with
 		 * nothing behind it): leave the context empty.  The first
@@ -547,6 +549,19 @@ void lisp_exec_set_buffer(FeContext *ctx, struct editor_buffer *b)
 	}
 	lisp_point_ensure(ctx, b, handle);
 	state.exec.buffer = handle;
+	lisp_locals_switch(ctx, handle);
+}
+
+/* Put back an execution context a native saved by value -- today only a
+ * hook, around the function it calls.  A bare `state.exec = saved` used to
+ * be enough; it is not any more, because which buffer's variable bindings
+ * are in force is a second piece of state that has to move with it, and
+ * the hook path restores on the way out of an error as well as a success.
+ * lisp_locals_switch() is written so this cannot raise. */
+void lisp_exec_restore(FeContext *ctx, struct kg_lisp_exec_ctx saved)
+{
+	state.exec = saved;
+	lisp_locals_switch(ctx, saved.buffer);
 }
 
 /* ---- Buffer object natives ------------------------------------------- */
@@ -770,6 +785,7 @@ FeObject *native_kill_buffer(FeContext *context, FeObject *arguments)
 	if (!buf_kill_buffer(handle)) {
 		FeHandleError(context, "kill-buffer: cannot kill buffer");
 	}
+	lisp_locals_buffer_killed(context, handle);
 	return FeNil(context);
 }
 

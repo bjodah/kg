@@ -1224,6 +1224,55 @@ static void test_decor_query_examines_and_returns_by_row(void)
 	teardown();
 }
 
+/* Phase 18's post-command-hook measurement, as the shape assertion it was
+ * decided on.  The question the plan asks is whether an EMPTY
+ * `post-command-hook' costs a keystroke anything; the answer is that the
+ * seam does not reach fe at all -- RUNS stays 0 and not one arena slot
+ * moves over a thousand keystrokes -- so what a session that never uses
+ * the hook pays is one find_hook() string compare over a table that is
+ * empty.  With one small hook installed every call runs, which is the
+ * other half: the counter distinguishes the two cases rather than merely
+ * being zero because nothing is wired up.
+ *
+ * A count, not a duration, for src/perf.h's own reason: this reads the
+ * same under valgrind, in a sanitizer lane and on a loaded box. */
+static void test_post_command_hook_empty_costs_nothing(void)
+{
+	struct kg_lisp_arena_stats before, after;
+	char result[128] = "";
+	int i;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&before) == 0);
+	for (i = 0; i < 1000; i++) {
+		kg_lisp_run_post_command_hook();
+	}
+	CHECK(kg_perf_read(KG_PERF_POST_COMMAND_HOOK_CALLS) == 1000);
+	CHECK(kg_perf_read(KG_PERF_POST_COMMAND_HOOK_RUNS) == 0);
+	CHECK(kg_lisp_arena_stats(&after) == 0);
+	CHECK(after.free_slots == before.free_slots);
+	CHECK(after.collection_count == before.collection_count);
+
+	CHECK(kg_lisp_eval_string("(progn (defvar pch-n 0)"
+				  " (add-hook 'post-command-hook"
+				  "  (lambda () (setq pch-n (1+ pch-n)))))",
+		  sizeof("(progn (defvar pch-n 0)"
+			 " (add-hook 'post-command-hook"
+			 "  (lambda () (setq pch-n (1+ pch-n)))))")
+		      - 1,
+		  result, sizeof(result))
+	    == 0);
+	for (i = 0; i < 10; i++) {
+		kg_lisp_run_post_command_hook();
+	}
+	CHECK(kg_perf_read(KG_PERF_POST_COMMAND_HOOK_CALLS) == 1010);
+	CHECK(kg_perf_read(KG_PERF_POST_COMMAND_HOOK_RUNS) == 10);
+	kg_lisp_shutdown();
+}
+
 /* A handful of forms shaped like an ordinary user init -- defvar, two
  * defuns (one documented, one interactive), a hook, two key bindings and
  * a small bounded recursion.  utils/bench.py's REPRESENTATIVE_INIT is the
@@ -1551,6 +1600,7 @@ static void test_lisp_evaluator_shapes(void)
 
 int main(void)
 {
+	RUN(test_post_command_hook_empty_costs_nothing);
 	RUN(test_lisp_prelude_arena_margin);
 	RUN(test_lisp_load_time_counters);
 	RUN(test_lisp_evaluator_shapes);

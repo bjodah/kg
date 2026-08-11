@@ -247,7 +247,8 @@ LISP_SRCS = lisp_core.c
 ifeq ($(WITH_LISP),1)
 LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
              lisp_motion.c lisp_io.c lisp_cmd.c lisp_obj.c lisp_search.c \
-             lisp_hooks.c lisp_process.c lisp_require.c lisp_prompt.c
+             lisp_hooks.c lisp_process.c lisp_require.c lisp_prompt.c \
+             lisp_locals.c
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
@@ -517,7 +518,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # The whole-tree complexity ceiling.  `make complexity-check` sums scc's
 # per-file complexity over $(SCC_COMPLEXITY_PATHS) and fails above
 # SCC_COMPLEXITY_MAX; a single file above SCC_FILE_COMPLEXITY_MAX fails
-# it too (the worst today is src/bufmgr.c at 502).
+# it too (the worst today is src/bufmgr.c at 509).
 #
 # The ceiling equals the measured actual, with no slack: it is a ratchet,
 # not an allowance, so new complexity has to be paid for rather than
@@ -527,7 +528,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7593
+SCC_COMPLEXITY_MAX ?= 7698
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -636,6 +637,7 @@ $(OBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_obj.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
+$(OBJDIR)/lisp_locals.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_locals.h
 $(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDIR)/lisp_process.h $(OBJDIR)/process.h $(OBJDIR)/process_table.h
 $(OBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
@@ -1253,6 +1255,7 @@ $(PERFOBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_io.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_cmd.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_obj.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h
+$(PERFOBJDIR)/lisp_locals.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_locals.h
 $(PERFOBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDIR)/lisp_process.h $(OBJDIR)/process.h $(OBJDIR)/process_table.h
 $(PERFOBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h

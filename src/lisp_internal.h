@@ -13,6 +13,7 @@
 #include "../fe/fe.h"
 #include "def.h"
 #include "lisp.h"
+#include "lisp_locals.h"
 #include "lisp_obj.h"
 #include "marker.h"
 #include "perf.h"
@@ -174,6 +175,9 @@ struct lisp_state {
 	struct kg_lisp_match_data match;
 	/* The bounded pool of Fe-visible editor objects. */
 	struct lisp_object_pool object_pool;
+	/* Every buffer-local variable binding, and which buffer's are in
+	 * force right now (src/lisp_locals.h). */
+	struct lisp_locals_table locals;
 	/* provide/require/featurep's feature table: names registered by
 	 * (provide ...), checked by (featurep ...) and (require ...). */
 	char features[LISP_MAX_FEATURES][LISP_FEATURE_NAME_MAX];
@@ -248,6 +252,12 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * with no predicate in front (lisp_core.c). */
 [[noreturn]] void lisp_raise_args_out_of_range(
     FeContext *context, FeObject *first, FeObject *second);
+/* Raise Emacs' `(void-variable SYMBOL)' -- what a reference to a name with
+ * no value answers, and therefore what `default-value' and
+ * `buffer-local-value' must answer rather than inventing a nil
+ * (lisp_core.c). */
+[[noreturn]] void lisp_raise_void_variable(
+    FeContext *context, FeObject *symbol);
 /* The two type checks a native writes most, raising wrong-type-argument
  * with Emacs' predicate name rather than letting fe's own accessor produce
  * its "expected string, got integer" prose (lisp_core.c).  kg takes a
@@ -315,6 +325,9 @@ void lisp_exec_leave(int sync);
  * selected); creates one at buffer start otherwise.  Never touches a
  * window or buf_current.  May raise. */
 void lisp_exec_set_buffer(FeContext *ctx, struct editor_buffer *b);
+/* Restore a context saved by value, buffer-local bindings included.  Never
+ * raises: the hook path calls it while unwinding an error. */
+void lisp_exec_restore(FeContext *ctx, struct kg_lisp_exec_ctx saved);
 /* The runtime point marker for the exec buffer.  Valid once the exec
  * context has a buffer, which lisp_exec_enter()/lisp_exec_set_buffer()
  * both guarantee before returning; a handle naming nothing otherwise. */
@@ -495,6 +508,15 @@ FeObject *native_marker_position(FeContext *context, FeObject *arguments);
 FeObject *native_marker_buffer(FeContext *context, FeObject *arguments);
 FeObject *native_excursion_capture(FeContext *context, FeObject *arguments);
 FeObject *native_excursion_restore(FeContext *context, FeObject *arguments);
+/* Buffer-local variable bindings (lisp_locals.c), Phase 18. */
+FeObject *native_internal_set_buffer_local(
+    FeContext *context, FeObject *arguments);
+FeObject *native_make_local_variable(FeContext *context, FeObject *arguments);
+FeObject *native_kill_local_variable(FeContext *context, FeObject *arguments);
+FeObject *native_local_variable_p(FeContext *context, FeObject *arguments);
+FeObject *native_default_value(FeContext *context, FeObject *arguments);
+FeObject *native_set_default(FeContext *context, FeObject *arguments);
+FeObject *native_buffer_local_value(FeContext *context, FeObject *arguments);
 FeObject *native_add_hook(FeContext *context, FeObject *arguments);
 FeObject *native_remove_hook(FeContext *context, FeObject *arguments);
 FeObject *native_run_hooks(FeContext *context, FeObject *arguments);

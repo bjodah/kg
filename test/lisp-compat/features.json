@@ -3050,27 +3050,29 @@
   {
    "id": "phase8-library-setq-default",
    "category": "prelude",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
-   "comparison": "kg-policy",
+   "comparison": "emacs",
    "cases": [
-    "phase8-library-setq-aliases"
+    "phase8-library-setq-aliases",
+    "phase18-setq-default-visible-without-local"
    ],
-   "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "Re-classified from `supported` by sub-plan 10C (10A Decision 6), decided against the row's own text rather than by rule. The rationale was already truthful -- \"kg has no buffer-local variable namespace; both spellings are documented aliases of setq\" -- but the status word is what a gate counts and a reader skims, and `supported` beside the name `setq-default` says kg does the thing the name means. It does not: `(setq-default x 1)` writes the one global binding, so a second buffer sees the write and nothing is ever restored when a buffer is killed or switched. Emacs would answer the same two values as the cited case for entirely different reasons, which is why the row is `comparison: kg-policy` and has no snapshot. `add-hook`'s LOCAL argument is real and is a separate row; this one is the variable namespace, and Sec.14's Proof 2 bullet 'buffer-local-style configuration where supported' is satisfiable only as this recorded honesty. A real buffer-local namespace is language-runtime plus buffer-lifetime work; doc/TODO.md carries it beside `setq-local`.",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Phase 18 made this a real macro over `set-default' and this row `supported'. It was `divergent' from sub-plan 10C until then, and the rationale it carried is worth keeping the shape of: both spellings were documented aliases of `setq', so `setq-default' wrote the one global binding, a second buffer saw the write, and nothing was ever restored when a buffer was killed or switched. The status word was what a gate counts and a reader skims, and `supported' beside this name said kg did the thing the name means. It does now: the semantics are the phase18-buffer-local-* rows, and `setq-local' is the other half. The surviving deltas are two named `let' interactions (phase18-let-buffer-switched-out, phase18-make-local-while-let-bound) and the absence of automatically-buffer-local variables (phase18-automatically-buffer-local).",
    "source_name": "setq-default"
   },
   {
    "id": "phase8-library-setq-local",
    "category": "prelude",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
-   "comparison": "kg-policy",
+   "comparison": "emacs",
    "cases": [
-    "phase8-library-setq-aliases"
+    "phase8-library-setq-aliases",
+    "phase18-setq-local-basic"
    ],
-   "kg_test": "test/test_lisp.c:test_phase8_library",
-   "rationale": "Re-classified from `supported` by sub-plan 10C (10A Decision 6), decided against the row's own text rather than by rule. The rationale was already truthful -- \"kg has no buffer-local variable namespace; both spellings are documented aliases of setq\" -- but the status word is what a gate counts and a reader skims, and `supported` beside the name `setq-local` says kg does the thing the name means. It does not: `(setq-local x 1)` writes the one global binding, so a second buffer sees the write and nothing is ever restored when a buffer is killed or switched. Emacs would answer the same two values as the cited case for entirely different reasons, which is why the row is `comparison: kg-policy` and has no snapshot. `add-hook`'s LOCAL argument is real and is a separate row; this one is the variable namespace, and Sec.14's Proof 2 bullet 'buffer-local-style configuration where supported' is satisfiable only as this recorded honesty. A real buffer-local namespace is language-runtime plus buffer-lifetime work; doc/TODO.md carries it beside `setq-default`.",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Phase 18 made this a real macro over `internal--set-buffer-local' and this row `supported'. It was `divergent' from sub-plan 10C until then, and the rationale it carried is worth keeping the shape of: both spellings were documented aliases of `setq', so `setq-local' wrote the one global binding, a second buffer saw the write, and nothing was ever restored when a buffer was killed or switched. The status word was what a gate counts and a reader skims, and `supported' beside this name said kg did the thing the name means. It does now: the semantics are the phase18-buffer-local-* rows, and `setq-default' is the other half. The surviving deltas are two named `let' interactions (phase18-let-buffer-switched-out, phase18-make-local-while-let-bound) and the absence of automatically-buffer-local variables (phase18-automatically-buffer-local).",
    "source_name": "setq-local"
   },
   {
@@ -4149,11 +4151,11 @@
     "phase18-setq-local-undeclared-name",
     "phase18-setq-local-value-is-returned"
    ],
-   "rationale": "PLANNED, Phase 18: the contract for a per-buffer variable binding, frozen against the oracle before any of it was implemented. `setq-local' creates a binding in the current buffer; a reference reads the current buffer's binding first and the default second; a plain `setq' writes whichever of the two is in force; and none of this marks the name special -- a buffer-local binding and a dynamic-binding mark are different things, which is why `setq-local' on a name no `defvar' declared is legal and leaves `special-variable-p' nil. Until this row is `supported', `setq-local' is the documented alias of `setq' the phase8-library-setq-local row describes.",
-   "status": "planned",
+   "rationale": "Phase 18, implemented: the contract for a per-buffer variable binding, frozen against the oracle before any of it was implemented. `setq-local' creates a binding in the current buffer; a reference reads the current buffer's binding first and the default second; a plain `setq' writes whichever of the two is in force; and none of this marks the name special -- a buffer-local binding and a dynamic-binding mark are different things, which is why `setq-local' on a name no `defvar' declared is legal and leaves `special-variable-p' nil. Until this row is `supported', `setq-local' is the documented alias of `setq' the phase8-library-setq-local row describes.",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
-   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null
   },
   {
@@ -4165,11 +4167,11 @@
     "phase18-buffer-local-value-falls-through",
     "phase18-default-value-void"
    ],
-   "rationale": "PLANNED, Phase 18: the default half of the same contract. `setq-default'/`set-default' write the value every buffer without a local binding sees, `default-value' reads it past whatever local binding is in force, and `buffer-local-value' reads another buffer's binding without selecting that buffer, falling through to the default when it has none. A name with no default at all is `void-variable' on both readers, not nil.",
-   "status": "planned",
+   "rationale": "Phase 18, implemented: the default half of the same contract. `setq-default'/`set-default' write the value every buffer without a local binding sees, `default-value' reads it past whatever local binding is in force, and `buffer-local-value' reads another buffer's binding without selecting that buffer, falling through to the default when it has none. A name with no default at all is `void-variable' on both readers, not nil.",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
-   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null
   },
   {
@@ -4183,11 +4185,11 @@
     "phase18-local-variable-p-wrong-type",
     "phase18-buffer-local-value-wrong-type"
    ],
-   "rationale": "PLANNED, Phase 18: creating, asking about and destroying a local binding. `make-local-variable' seeds one from the default, `kill-local-variable' removes it so the default becomes visible again, `local-variable-p' answers for the current buffer or for a named one, and a binding dies with its buffer without disturbing the default. Both readers type-check with Emacs' own conditions (`symbolp' for the name, `bufferp' for the buffer).",
-   "status": "planned",
+   "rationale": "Phase 18, implemented: creating, asking about and destroying a local binding. `make-local-variable' seeds one from the default, `kill-local-variable' removes it so the default becomes visible again, `local-variable-p' answers for the current buffer or for a named one, and a binding dies with its buffer without disturbing the default. Both readers type-check with Emacs' own conditions (`symbolp' for the name, `bufferp' for the buffer).",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
-   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null
   },
   {
@@ -4198,14 +4200,13 @@
     "phase18-let-over-default",
     "phase18-let-over-local-visits-other-buffer",
     "phase18-let-over-local-restored-after",
-    "phase18-setq-local-inside-let",
     "phase18-setq-default-inside-let"
    ],
-   "rationale": "PLANNED, Phase 18, and the hard half of the design: what a dynamic `let' over a name that is buffer-local in the current buffer binds. Measured on the oracle and frozen here before the storage was designed: the `let' binds whichever binding is IN FORCE where it runs -- the current buffer's local one when there is one (the default is not touched and `default-value' inside the form still reports it), the default when there is not (and `default-value' inside the form reports the let value). Another buffer with its own local binding does not see the `let' at all, and everything is exactly as it was on exit. The two write-through-a-let shapes follow from that one rule and are pinned beside it: a `setq-local' inside a `let' that bound the default creates a real local binding that SURVIVES the form, and a `setq-default' inside a `let' that bound a local binding writes the default for good.",
-   "status": "planned",
+   "rationale": "Phase 18, implemented, and the hard half of the design: what a dynamic `let' over a name that is buffer-local in the current buffer binds. Measured on the oracle and frozen before the storage was designed: the `let' binds whichever binding is IN FORCE where it runs -- the current buffer's local one when there is one (the default is not touched and `default-value' inside the form still reports it), the default when there is not (and `default-value' inside the form reports the let value). Another buffer with its own local binding does not see the `let' at all, and everything is exactly as it was on exit. kg gets all of that for free rather than by implementing it, because the storage IS Emacs' -- one value cell holding whichever binding is current -- so a `let' over the cell binds whatever the swap put there. `setq-default' inside a `let' that bound a local binding writes the default for good, which follows from the same rule. The shape that does NOT follow from it is a `setq-local' inside a `let', and it has its own row: phase18-make-local-while-let-bound.",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
-   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null
   },
   {
@@ -4214,12 +4215,171 @@
    "cases": [
     "phase18-let-over-local-left-in-other-buffer"
    ],
-   "rationale": "PLANNED, Phase 18, and this phase's one deliberately-narrow divergence, named and frozen BEFORE the code that would produce it. Emacs records, per `let' binding, which buffer's binding it displaced, so a `let' over a buffer-local binding that is left with a different current buffer than it was entered in still restores the right buffer. kg's storage is Emacs' own swap representation -- the symbol's one value cell holds the current buffer's binding and the displaced one is stashed beside it -- but a `let' is fe's, and fe owns no buffer concept to tag a binding with (the layer boundary this wave's plan cites nelisp design doc 141 for). So kg's restore lands in whichever buffer is current when the form exits. Every kg form that changes the current buffer and RESTORES it -- `save-excursion', `with-current-buffer', `with-temp-buffer' -- is unaffected, which is the whole of idiomatic use; the shape that diverges is a bare `set-buffer' inside a `let' over that same name.",
-   "status": "planned",
+   "rationale": "DIVERGENT, Phase 18: named and frozen BEFORE the code that produced it, and measured afterwards to answer exactly as predicted -- kg reports (B LET A D) where the oracle reports (B A B D). Emacs records, per `let' binding, which buffer's binding it displaced, so a `let' over a buffer-local binding that is left with a different current buffer than it was entered in still restores the right buffer. kg's storage is Emacs' own swap representation -- the symbol's one value cell holds the current buffer's binding and the displaced one is stashed beside it -- but a `let' is fe's, and fe owns no buffer concept to tag a binding with (the layer boundary this wave's plan cites nelisp design doc 141 for). So kg's restore lands in whichever buffer is current when the form exits. Every kg form that changes the current buffer and RESTORES it -- `save-excursion', `with-current-buffer', `with-temp-buffer' -- is unaffected, which is the whole of idiomatic use; the shape that diverges is a bare `set-buffer' inside a `let' over that same name.",
+   "status": "divergent",
    "owner": "kg",
    "comparison": "emacs",
-   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml",
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null
+  },
+  {
+   "id": "phase18-make-local-while-let-bound",
+   "category": "bindings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-setq-local-inside-let"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "source_name": null,
+   "rationale": "DIVERGENT, Phase 18, and the one divergence this phase did NOT predict: the contract commit froze `setq-local' inside a `let' as a rule kg would match, and the implementation measured otherwise. Emacs tags each `let' binding with which storage it displaced, so a `let' that bound the default goes on binding the default when a `setq-local' inside it creates a local binding: the local survives the form and the default is restored into the default. kg's `let' is fe's, and fe has one value cell with no buffer to tag: the `setq-local' stashes what is in that cell -- the let value -- as the default, and the form's exit puts the real default into what is now the local binding, so the two end up swapped ((SL t) D t LET against the oracle's (SL t) SL t D). `make-local-variable' inside such a `let' is the same shape with the same answer. It is the same root cause as phase18-let-buffer-switched-out and would be closed by the same thing -- a `let' binding that knows which buffer it displaced, which means fe learning what a buffer is. Emacs prints \"Making X buffer-local while locally let-bound!\" for this shape, so it is dubious code on both sides; kg's answer is wrong rather than merely warned about, and that is the delta."
+  },
+  {
+   "id": "native-internal-set-buffer-local",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-setq-local-basic"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "`setq-local''s worker, one call per SYMBOL VALUE pair. Creates this buffer's binding if it has none -- which is the moment the default is stashed aside -- and then writes the value cell, because while this buffer is the one swapped in the value cell IS its binding. Not a name a user writes; `setq-local' is.",
+   "source_name": "internal--set-buffer-local"
+  },
+  {
+   "id": "native-make-local-variable",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-make-local-variable"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Gives the current buffer a binding of its own, seeded from the default, and answers SYMBOL as Emacs does. Already having one is not an error. Emacs' companion `make-variable-buffer-local' is deliberately absent -- see phase18-automatically-buffer-local.",
+   "source_name": "make-local-variable"
+  },
+  {
+   "id": "native-kill-local-variable",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-kill-local-variable"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Drops the current buffer's binding so the default becomes visible again, and answers SYMBOL. A buffer with no binding is not an error. The last binding to go takes the variable's table entry with it, so the name becomes an ordinary global again and the swap stops walking it.",
+   "source_name": "kill-local-variable"
+  },
+  {
+   "id": "native-local-variable-p",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-local-variable-p-buffer-argument",
+    "phase18-local-variable-p-wrong-type"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Whether SYMBOL has a binding in BUFFER, defaulting to the current one. Emacs' `local-variable-if-set-p' is not implemented, for phase18-automatically-buffer-local's reason.",
+   "source_name": "local-variable-p"
+  },
+  {
+   "id": "native-default-value",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-buffer-local-value-falls-through",
+    "phase18-default-value-void"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "The value a buffer with no binding of its own sees, read past whatever binding is in force. void-variable when there is none, exactly as a reference would be -- not nil.",
+   "source_name": "default-value"
+  },
+  {
+   "id": "native-set-default",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-setq-default-visible-without-local"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "`setq-default''s worker: writes the default wherever it currently lives, which is the variable's own value cell unless the current buffer has a binding shadowing it.",
+   "source_name": "set-default"
+  },
+  {
+   "id": "native-buffer-local-value",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-buffer-local-value",
+    "phase18-buffer-local-value-wrong-type"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "rationale": "Reads another buffer's binding without selecting it, falling through to the default when it has none. The current buffer is asked through the value cell rather than through its stash, because the cell is the live one -- which is also why a `let' in force over that buffer's binding is what this reports, as Emacs' does.",
+   "source_name": "buffer-local-value"
+  },
+  {
+   "id": "prelude-setq-local-forms",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase18-setq-local-value-is-returned"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "source_name": "internal--setq-local-forms",
+   "rationale": "The pair-walking half of `setq-local' and `setq-default', shared rather than written twice: it lowers SYMBOL VALUE pairs to a `progn' of setter calls, which is what makes both answer the LAST value as `setq' does, and raises on a dangling final SYMBOL rather than assigning nil to it."
+  },
+  {
+   "id": "phase18-automatically-buffer-local",
+   "category": "bindings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase18-setq-local-basic"
+   ],
+   "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
+   "source_name": null,
+   "rationale": "DIVERGENT, Phase 18: kg has no automatically-buffer-local variables, so `make-variable-buffer-local' and `defvar-local' are absent and `local-variable-if-set-p' would always answer `local-variable-p'. Measured on the oracle: `fill-column' is one of Emacs' -- `(local-variable-if-set-p 'fill-column)' is t -- which means a plain `setq' in a buffer creates a binding there rather than writing the default. kg cannot do that, and the reason is the storage: a plain `setq' writes fe's value cell directly, with no seam kg could notice it through, so there is nowhere to decide that this particular write should have created a binding. Making one would mean fe calling out on every assignment, which is the cost the whole representation was chosen to avoid. The consequence for a user is one word: say `setq-local' where Emacs lets `setq' do it, which is what test/pty/lisp-buffer-local-two-buffers.yaml and `lisp/auto-fill.el''s docstring both spell out."
+  },
+  {
+   "id": "hook-kill-buffer",
+   "category": "editor-primitives",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase18-setq-local-basic"
+   ],
+   "kg_test": "test/pty/lisp-kill-buffer-hook.yaml",
+   "source_name": null,
+   "rationale": "`kill-buffer-hook', Phase 18. Emacs' ordering, taken deliberately: the hook runs IN the dying buffer, while it is still live, and only once every refusal has been passed -- kg calls it from the one point inside buf_kill_commit() after the lifecycle reservation succeeds, from which the kill can no longer fail. It is the only hook kg runs synchronously rather than off the event queue, and it has to be: kg's lifecycle events drain at the main loop's safe point, by which time the buffer is freed and its handle stale, so a hook run there could only be told that something died. TWO BOUNDS, both kg's and both tested: a hook body may not kill the buffer it is being run for (refused, because the commit that called it is still going to tear that slot down), and a nested kill runs no hook of its own. Killing another buffer, and therefore `with-temp-buffer' in a hook body, works -- at the ordinary event-ring cost prelude-with-temp-buffer records. Hook errors are contained and reported like every other hook's, so a broken kill-buffer-hook cannot wedge `C-x k'; the hook-error-does-not-disarm divergence applies here too."
+  },
+  {
+   "id": "hook-post-command",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase18-setq-local-basic"
+   ],
+   "kg_test": "test/test_perf.c:test_post_command_hook_empty_costs_nothing",
+   "source_name": null,
+   "rationale": "`post-command-hook', Phase 18, landed on a measurement and divergent on its trigger. THE MEASUREMENT the plan demanded, from the counting build (test/perfobj/kg, $KG_PERF_OUT) over a 20-keystroke session: with an empty hook list post_command_hook_calls 24, post_command_hook_runs 0, arena free slots 46457, collections 0; with one small hook installed, calls 24, runs 24, free slots 46271 (186 slots for 24 invocations), collections 0. An unused hook therefore reaches fe zero times and allocates nothing -- what it costs a keystroke is one find_hook() string compare over a table that is empty -- which is the 'effectively zero' the plan made the condition for landing it. test_post_command_hook_empty_costs_nothing is the same shape as an assertion. THE DIVERGENCE is when it fires: Emacs runs it after each COMMAND, and kg runs it after each keystroke the main loop has finished processing. kg has no `self-insert-command' -- an ordinary character is inserted without going through cmd_invoke() -- so 'after each command' would leave typing out, and typing is the case a post-command hook is most often written for. The visible consequence is that a prefix keystroke that runs no command fires it too."
   }
  ]
 }

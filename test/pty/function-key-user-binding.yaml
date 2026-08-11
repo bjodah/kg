@@ -1,0 +1,17 @@
+# The terminal decoder, canonical <f5> spelling, Lisp map mutation and PTY
+# token table meet here.  If the harness types the literal letters "F5", or
+# the decoder falls back to bare ESC, the command never inserts its marker.
+name: function-key-user-binding
+filename: function-key.txt
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.el: |
+    (defun insert-function-key-marker ()
+      (interactive)
+      (insert "function-key"))
+    (define-key 'global-map "<f5>" 'insert-function-key-marker)
+initial: ""
+keys:
+  - F5
+expected_saved: function-key

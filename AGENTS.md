@@ -376,11 +376,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `C-?` for Backspace, `M-TAB` (also spelled `C-M-i`: the same two
   bytes, ESC and TAB) for completion-at-point, and `C-q` followed by
   the next token for quoted input. `Home`, `End`, `C-Home`, `C-End`,
-  `S-Home`, `S-End`, `Up`, and `Down` are named tokens (sent as xterm
-  tilde / modified tilde / cursor sequences).
-  PageUp/PageDown have no named tokens; emit their escape bytes via
-  `M-[` plus the letter/digit/`~` (e.g. `M-[`, `H` for Home on
-  terminals that send `ESC[H`).
+  `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
+  through `F12` are named tokens (sent as xterm SS3 / tilde / cursor
+  sequences). The debugger spellings `C-F5`, `C-F9`, `M-F10`, `M-F11`,
+  `M-Up`, and `M-Down` are named too. Named sequences use one exact byte
+  table for both backends, so do not reconstruct them from `M-[` pieces.
   `BYTE=e2` sends one raw byte named in hex. Every other token is UTF-8
   encoded on the way out, so this is the only way to send a byte that is
   not valid UTF-8; it needs `backend: pexpect`.

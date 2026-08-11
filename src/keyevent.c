@@ -92,8 +92,18 @@ static const struct {
 	{ "<next>", KEY_BASE_NEXT },
 	{ "<insert>", KEY_BASE_INSERT },
 	{ "<delete>", KEY_BASE_DELETE },
+	{ "<f1>", KEY_BASE_F1 },
+	{ "<f2>", KEY_BASE_F2 },
 	{ "<f3>", KEY_BASE_F3 },
 	{ "<f4>", KEY_BASE_F4 },
+	{ "<f5>", KEY_BASE_F5 },
+	{ "<f6>", KEY_BASE_F6 },
+	{ "<f7>", KEY_BASE_F7 },
+	{ "<f8>", KEY_BASE_F8 },
+	{ "<f9>", KEY_BASE_F9 },
+	{ "<f10>", KEY_BASE_F10 },
+	{ "<f11>", KEY_BASE_F11 },
+	{ "<f12>", KEY_BASE_F12 },
 };
 
 static const char *key_base_name(int32_t base)

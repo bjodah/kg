@@ -710,7 +710,7 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -958,6 +958,9 @@ lisp-include-check:
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
 		--json $(CHECK_RESULTS_DIR)/unit.json $(TESTBINS)
+
+check-pty-tokens:
+	@$(PYTHON) test/pty_tokens_test.py
 
 # The native layer's report has to survive the bytes a failing test
 # prints.  A test that fails on a fixture prints the fixture, fixtures
@@ -1596,7 +1599,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

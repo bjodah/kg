@@ -4,7 +4,9 @@
 #include "../src/keyevent.h"
 #include "test.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -325,11 +327,39 @@ static void test_malformed_utf8_keeps_the_following_key(void)
 	close(fds[1]);
 }
 
-/* Characterizes Plan 01 phase 2's second half (the decoder flag day):
- * tty.c's parse_escape() now builds these key_events directly, with no
- * legacy int or adapter in between.  The values checked against are
- * exactly what this test checked before the rewrite -- that is the
- * proof it is behavior-preserving, not just a representation change. */
+static struct key_event decode_escape(const char *bytes, size_t len)
+{
+	struct key_event got = { -1, 0 };
+	int fds[2];
+
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return got;
+	}
+	running = 1;
+	CHECK(write(fds[1], bytes, len) == (ssize_t)len);
+	close(fds[1]);
+	got = editor_read_key(fds[0]);
+	close(fds[0]);
+	return got;
+}
+
+static void check_escape(const char *label, const char *bytes, size_t len,
+    int32_t base, uint8_t mods)
+{
+	struct key_event got = decode_escape(bytes, len);
+
+	CHECKF(KEY_IS(got, base, mods),
+	    "%s: got base=%d mods=%u, want base=%d mods=%u", label, got.base,
+	    got.mods, base, mods);
+}
+
+#define CHECK_ESCAPE(bytes_, base_, mods_)                                     \
+	check_escape((bytes_), (bytes_), sizeof(bytes_) - 1, (base_), (mods_))
+
+/* Characterizes both the old spellings and the generic CSI decoder's new
+ * surface.  Every F-key form is explicit so gaps or a shifted table cannot
+ * accidentally pass via a representative sample. */
 static void test_escape_sequences_decode_to_key_events(void)
 {
 	static const struct {
@@ -354,25 +384,158 @@ static void test_escape_sequences_decode_to_key_events(void)
 	};
 	size_t i;
 
-	running = 1;
 	for (i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
-		int fds[2];
-		struct key_event got;
-
-		if (pipe(fds) != 0) {
-			CHECK(!"pipe failed");
-			return;
-		}
-		CHECK(write(fds[1], cases[i].bytes, cases[i].len)
-		    == (ssize_t)cases[i].len);
-		got = editor_read_key(fds[0]);
-		CHECKF(key_event_equal(got, cases[i].want),
-		    "%s: got base=%d mods=%u, want base=%d mods=%u",
-		    cases[i].bytes, got.base, got.mods, cases[i].want.base,
-		    cases[i].want.mods);
-		close(fds[0]);
-		close(fds[1]);
+		check_escape(cases[i].bytes, cases[i].bytes, cases[i].len,
+		    cases[i].want.base, cases[i].want.mods);
 	}
+
+	CHECK_ESCAPE("\x1b", KEY_BASE_ESC, 0); /* lone-ESC timeout/EOF */
+	CHECK_ESCAPE("\x1bOP", KEY_BASE_F1, 0);
+	CHECK_ESCAPE("\x1bOQ", KEY_BASE_F2, 0);
+	CHECK_ESCAPE("\x1bOR", KEY_BASE_F3, 0);
+	CHECK_ESCAPE("\x1bOS", KEY_BASE_F4, 0);
+	CHECK_ESCAPE("\x1b[11~", KEY_BASE_F1, 0);
+	CHECK_ESCAPE("\x1b[12~", KEY_BASE_F2, 0);
+	CHECK_ESCAPE("\x1b[13~", KEY_BASE_F3, 0);
+	CHECK_ESCAPE("\x1b[14~", KEY_BASE_F4, 0);
+	CHECK_ESCAPE("\x1b[15~", KEY_BASE_F5, 0);
+	CHECK_ESCAPE("\x1b[15;5~", KEY_BASE_F5, KEY_MOD_CTRL);
+	CHECK_ESCAPE("\x1b[17~", KEY_BASE_F6, 0);
+	CHECK_ESCAPE("\x1b[18~", KEY_BASE_F7, 0);
+	CHECK_ESCAPE("\x1b[19~", KEY_BASE_F8, 0);
+	CHECK_ESCAPE("\x1b[20~", KEY_BASE_F9, 0);
+	CHECK_ESCAPE("\x1b[21~", KEY_BASE_F10, 0);
+	CHECK_ESCAPE("\x1b[23~", KEY_BASE_F11, 0);
+	CHECK_ESCAPE("\x1b[24~", KEY_BASE_F12, 0);
+	CHECK_ESCAPE("\x1b[1;5P", KEY_BASE_F1, KEY_MOD_CTRL);
+}
+
+static void test_every_xterm_modifier_bit_combination(void)
+{
+	static const uint8_t expected[] = {
+		KEY_MOD_SHIFT,
+		KEY_MOD_META,
+		KEY_MOD_SHIFT | KEY_MOD_META,
+		KEY_MOD_CTRL,
+		KEY_MOD_SHIFT | KEY_MOD_CTRL,
+		KEY_MOD_META | KEY_MOD_CTRL,
+		KEY_MOD_SHIFT | KEY_MOD_META | KEY_MOD_CTRL,
+	};
+	unsigned value;
+
+	for (value = 2; value <= 8; value++) {
+		char f5[16], arrow[16], ss3[16], csi_f1[16];
+
+		snprintf(f5, sizeof(f5), "\x1b[15;%u~", value);
+		snprintf(arrow, sizeof(arrow), "\x1b[1;%uA", value);
+		snprintf(ss3, sizeof(ss3), "\x1bO1;%uP", value);
+		snprintf(csi_f1, sizeof(csi_f1), "\x1b[1;%uP", value);
+		check_escape(
+		    f5, f5, strlen(f5), KEY_BASE_F5, expected[value - 2]);
+		check_escape(arrow, arrow, strlen(arrow), KEY_BASE_UP,
+		    expected[value - 2]);
+		check_escape(
+		    ss3, ss3, strlen(ss3), KEY_BASE_F1, expected[value - 2]);
+		check_escape(csi_f1, csi_f1, strlen(csi_f1), KEY_BASE_F1,
+		    expected[value - 2]);
+	}
+
+	/* An omitted first field is the ECMA default of 1 in this form. */
+	CHECK_ESCAPE("\x1b[;3D", KEY_BASE_LEFT, KEY_MOD_META);
+	/* The old CUA spellings now travel through the same generic path. */
+	CHECK_ESCAPE("\x1b[2;2~", KEY_BASE_INSERT, KEY_MOD_SHIFT);
+	CHECK_ESCAPE("\x1b[2;5~", KEY_BASE_INSERT, KEY_MOD_CTRL);
+	CHECK_ESCAPE("\x1b[3;2~", KEY_BASE_DELETE, KEY_MOD_SHIFT);
+}
+
+static void check_invalid_then_key(
+    const char *label, const char *bytes, size_t len, int32_t next_base)
+{
+	struct key_event first, next;
+	int fds[2];
+
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
+	running = 1;
+	CHECK(write(fds[1], bytes, len) == (ssize_t)len);
+	close(fds[1]);
+	first = editor_read_key(fds[0]);
+	next = editor_read_key(fds[0]);
+	CHECKF(KEY_IS(first, KEY_BASE_ESC, 0),
+	    "%s: malformed sequence decoded as base=%d mods=%u", label,
+	    first.base, first.mods);
+	CHECKF(KEY_IS(next, next_base, 0), "%s: next key is base=%d mods=%u",
+	    label, next.base, next.mods);
+	close(fds[0]);
+}
+
+static void test_invalid_escape_sequences_are_bounded(void)
+{
+	static const char capped[] = "\x1b[00000000000000x";
+	static const char *const invalid[] = {
+		"\x1b[15;0~", /* explicit modifier values are 2..8 */
+		"\x1b[15;1~",
+		"\x1b[15;9~",
+		"\x1b[15;~", /* no empty modifier */
+		"\x1b[;5~", /* tilde form needs a keycode */
+		"\x1bO;5S", /* omitted defaults belong to CSI, not SS3 */
+		"\x1b[0;5A", /* cursor default is omitted or 1 */
+		"\x1b[1A", /* not a keyboard modifier form */
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) {
+		CHECKF(KEY_IS(decode_escape(invalid[i], strlen(invalid[i])),
+			   KEY_BASE_ESC, 0),
+		    "%s was accepted", invalid[i]);
+	}
+	/* 16 and 22 are holes in the xterm function-key numbering. */
+	check_invalid_then_key("F-key gap 16", "\x1b[16~x", 6, 'x');
+	check_invalid_then_key("F-key gap 22", "\x1b[22~x", 6, 'x');
+	/* An unknown final belongs to the unsupported sequence; only the byte
+	 * after it is an ordinary key. */
+	check_invalid_then_key("unknown final", "\x1b[1zx", 5, 'x');
+	/* CSI and SS3 share collection syntax, not key-code families. */
+	check_invalid_then_key("SS3 tilde", "\x1bO15~x", 6, 'x');
+	check_invalid_then_key("bare CSI P", "\x1b[Px", 4, 'x');
+	check_invalid_then_key("default CSI P", "\x1b[;5Px", 6, 'x');
+	/* Once parameter grammar is invalid, consume through its final byte;
+	 * only the ordinary key after that complete malformed CSI survives. */
+	check_invalid_then_key("colon subparameter", "\x1b[1:2Ax", 7, 'x');
+	check_invalid_then_key("private parameter", "\x1b[?1Ax", 6, 'x');
+	check_invalid_then_key("intermediate byte", "\x1b[1 Ax", 6, 'x');
+	check_invalid_then_key("excess parameter", "\x1b[1;2;3Ax", 9, 'x');
+	check_invalid_then_key(
+	    "numeric overflow", "\x1b[42949672960~x", 15, 'x');
+	/* ESC + '[' + fourteen zeroes exactly fills the fixed 16-byte cap;
+	 * the collector must not probe and consume byte 17. */
+	check_invalid_then_key(
+	    "fixed sequence cap", capped, sizeof(capped) - 1, 'x');
+}
+
+static void test_incomplete_escape_keeps_later_input(void)
+{
+	struct key_event first, next;
+	int fds[2], flags;
+
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
+	flags = fcntl(fds[0], F_GETFL);
+	CHECK(flags >= 0);
+	CHECK(fcntl(fds[0], F_SETFL, flags | O_NONBLOCK) == 0);
+	running = 1;
+	CHECK(write(fds[1], "\x1b[15", 4) == 4);
+	first = editor_read_key(fds[0]);
+	CHECK(KEY_IS(first, KEY_BASE_ESC, 0));
+	CHECK(write(fds[1], "x", 1) == 1);
+	next = editor_read_key(fds[0]);
+	CHECK(KEY_IS(next, 'x', 0));
+	close(fds[0]);
+	close(fds[1]);
 }
 
 int main(void)
@@ -385,5 +548,8 @@ int main(void)
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);
 	RUN(test_escape_sequences_decode_to_key_events);
+	RUN(test_every_xterm_modifier_bit_combination);
+	RUN(test_invalid_escape_sequences_are_bounded);
+	RUN(test_incomplete_escape_keeps_later_input);
 	return test_summary();
 }

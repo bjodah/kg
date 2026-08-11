@@ -212,6 +212,59 @@ def ctrl_byte(ch: str) -> bytes:
 	return bytes([ord(ch.upper()) & 0x1f])
 
 
+# Exact terminal bytes for named keys.  Both PTY backends consume this one
+# table: pexpect writes the bytes, while tmux receives each byte through
+# `send-keys -H`.  Keeping aliases here too prevents one backend from gaining
+# a spelling whose other backend silently types the token's literal letters.
+NAMED_KEY_BYTES = {
+	"ESC": b"\x1b",
+	"RET": b"\r",
+	"ENTER": b"\r",
+	"M-RET": b"\x1b\r",
+	"M-ENTER": b"\x1b\r",
+	"TAB": b"\t",
+	"M-TAB": b"\x1b\t",
+	"C-M-I": b"\x1b\t",
+	"M-DEL": b"\x1b\x7f",
+	"M-BACKSPACE": b"\x1b\x7f",
+	"SPC": b" ",
+	"SPACE": b" ",
+	"C-SPC": b"\x00",
+	"C-SPACE": b"\x00",
+	"C-@": b"\x00",
+	"INSERT": b"\x1b[2~",
+	"INS": b"\x1b[2~",
+	"HOME": b"\x1b[1~",
+	"END": b"\x1b[4~",
+	"UP": b"\x1b[A",
+	"DOWN": b"\x1b[B",
+	"PAGEUP": b"\x1b[5~",
+	"PAGEDOWN": b"\x1b[6~",
+	"C-HOME": b"\x1b[1;5H",
+	"C-END": b"\x1b[1;5F",
+	"S-HOME": b"\x1b[1;2H",
+	"S-END": b"\x1b[1;2F",
+	"M-UP": b"\x1b[1;3A",
+	"M-DOWN": b"\x1b[1;3B",
+	"F1": b"\x1bOP",
+	"F2": b"\x1bOQ",
+	"F3": b"\x1bOR",
+	"F4": b"\x1bOS",
+	"F5": b"\x1b[15~",
+	"F6": b"\x1b[17~",
+	"F7": b"\x1b[18~",
+	"F8": b"\x1b[19~",
+	"F9": b"\x1b[20~",
+	"F10": b"\x1b[21~",
+	"F11": b"\x1b[23~",
+	"F12": b"\x1b[24~",
+	"C-F5": b"\x1b[15;5~",
+	"C-F9": b"\x1b[20;5~",
+	"M-F10": b"\x1b[21;3~",
+	"M-F11": b"\x1b[23;3~",
+}
+
+
 def token_to_bytes(token: str) -> bytes:
 	if not isinstance(token, str) or not token:
 		raise ValueError(f"invalid key token: {token!r}")
@@ -228,45 +281,8 @@ def token_to_bytes(token: str) -> bytes:
 			raise ValueError(f"BYTE= takes exactly two hex digits: {token!r}")
 		return bytes([int(digits, 16)])
 
-	if upper in ("ESC",):
-		return b"\x1b"
-	if upper in ("RET", "ENTER"):
-		return b"\r"
-	# Sent as one token so the two bytes arrive together: kg gives an
-	# escape sequence 100 ms to complete, and a lone ESC cancels a prompt.
-	if upper in ("M-RET", "M-ENTER"):
-		return b"\x1b\r"
-	if upper == "TAB":
-		return b"\t"
-	# M-TAB is completion-at-point, and needs a token of its own for the
-	# reason M-RET does and one more: "M-" plus a NAMED key falls through
-	# to the generic Meta rule below, which would send the three letters
-	# T, A, B after the escape.
-	if upper in ("M-TAB", "C-M-I"):
-		return b"\x1b\t"
-	if upper in ("SPC", "SPACE"):
-		return b" "
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		return b"\x00"
-
-	if upper in ("INSERT", "INS"):
-		return b"\x1b[2~"
-	if upper == "HOME":
-		return b"\x1b[1~"
-	if upper == "END":
-		return b"\x1b[4~"
-	if upper == "UP":
-		return b"\x1b[A"
-	if upper == "DOWN":
-		return b"\x1b[B"
-	if upper == "C-HOME":
-		return b"\x1b[1;5H"
-	if upper == "C-END":
-		return b"\x1b[1;5F"
-	if upper == "S-HOME":
-		return b"\x1b[1;2H"
-	if upper == "S-END":
-		return b"\x1b[1;2F"
+	if upper in NAMED_KEY_BYTES:
+		return NAMED_KEY_BYTES[upper]
 
 	if len(token) >= 3 and token[1] == "-":
 		prefix = token[0].upper()
@@ -294,112 +310,31 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 		child.setwinsize(r, c)
 		return
 
-	upper = token.upper()
-
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		child.sendcontrol("@")
+	payload = token_to_bytes(token)
+	# Escape-prefixed and named sequences are one terminal key.  Keep their
+	# bytes in one write so a loaded runner cannot stretch ESC past kg's
+	# 100 ms completion window.  Ordinary multi-character YAML tokens keep
+	# the per-byte drain that prevents PTY output backpressure on FreeBSD.
+	if payload.startswith(b"\x1b") or token.upper() in NAMED_KEY_BYTES:
+		child.send(payload)
+		drain_pexpect(child)
 		return
-
-	if upper in ("M-TAB", "C-M-I"):
-		child.send("\x1b")
-		child.send("\t")
-		return
-	if upper in ("INSERT", "INS"):
-		child.send("\x1b[2~")
-		return
-	if upper == "HOME":
-		child.send("\x1b[1~")
-		return
-	if upper == "END":
-		child.send("\x1b[4~")
-		return
-	if upper == "UP":
-		child.send("\x1b[A")
-		return
-	if upper == "DOWN":
-		child.send("\x1b[B")
-		return
-	if upper == "C-HOME":
-		child.send("\x1b[1;5H")
-		return
-	if upper == "C-END":
-		child.send("\x1b[1;5F")
-		return
-	if upper == "S-HOME":
-		child.send("\x1b[1;2H")
-		return
-	if upper == "S-END":
-		child.send("\x1b[1;2F")
-		return
-
-	if len(token) >= 3 and token[1] == "-":
-		prefix = token[0].upper()
-		payload = token[2:]
-		if prefix == "C" and len(payload) == 1:
-			child.sendcontrol(payload)
-			return
-		if prefix == "M" and len(payload) == 1:
-			child.send("\x1b")
-			child.send(payload)
-			return
-
-	for b in token_to_bytes(token):
+	for b in payload:
 		child.send(bytes([b]))
 		drain_pexpect(child)
 
 
-def tmux_key_name(token: str) -> tuple[str, str]:
-	upper = token.upper()
-
-	# tmux send-keys has no raw-byte form this harness uses, and its -l
-	# payload is a string that gets UTF-8 encoded like any other.
-	if upper.startswith("BYTE="):
+def tmux_token_hex(token: str) -> tuple[str, ...]:
+	# Preserve the documented backend restriction even though -H could send
+	# arbitrary bytes: BYTE= fixtures intentionally exercise pexpect's raw
+	# path and tmux remains a UTF-8 terminal backend for ordinary tokens.
+	if token.upper().startswith("BYTE="):
 		raise ValueError(f"{token!r}: BYTE= needs backend: pexpect")
+	return tuple(f"{byte:02x}" for byte in token_to_bytes(token))
 
-	if upper == "ESC":
-		return ("key", "Escape")
-	if upper in ("RET", "ENTER"):
-		return ("key", "Enter")
-	if upper in ("M-RET", "M-ENTER"):
-		return ("key", "M-Enter")
-	if upper == "TAB":
-		return ("key", "Tab")
-	if upper in ("M-TAB", "C-M-I"):
-		return ("key", "M-Tab")
-	if upper in ("SPC", "SPACE"):
-		return ("key", "Space")
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		return ("key", "C-Space")
 
-	if upper in ("INSERT", "INS"):
-		return ("key", "IC")
-	if upper == "HOME":
-		return ("key", "Home")
-	if upper == "END":
-		return ("key", "End")
-	if upper == "UP":
-		return ("key", "Up")
-	if upper == "DOWN":
-		return ("key", "Down")
-	if upper == "C-HOME":
-		return ("key", "C-Home")
-	if upper == "C-END":
-		return ("key", "C-End")
-	if upper == "S-HOME":
-		return ("key", "S-Home")
-	if upper == "S-END":
-		return ("key", "S-End")
-
-	if len(token) >= 3 and token[1] == "-":
-		prefix = token[0].upper()
-		payload = token[2:]
-		if len(payload) == 1:
-			if prefix == "C":
-				return ("key", f"C-{payload}")
-			if prefix == "M":
-				return ("key", f"M-{payload}")
-
-	return ("literal", token)
+def send_token_tmux(sock: str, pane: str, token: str) -> None:
+	run_tmux_cmd(sock, "send-keys", "-t", pane, "-H", *tmux_token_hex(token))
 
 
 def decode_text(data: bytes) -> str:
@@ -810,11 +745,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
 					continue
-				mode, value = tmux_key_name(token)
-				if mode == "key":
-					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
-				else:
-					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
 			settle_tmux(sock, pane, startup_delay, settle_floor)
 			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50",
@@ -826,11 +757,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
 					continue
-				mode, value = tmux_key_name(token)
-				if mode == "key":
-					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
-				else:
-					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
 			if trailer_keys:
 				wait_exit_tmux(sock, session,

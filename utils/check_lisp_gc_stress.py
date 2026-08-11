@@ -59,6 +59,21 @@ SCRIPT = """
 (setq keeper (make-symbol "kept-name"))
 (setq shaped nil)
 (setq n 0)
+;; Phase 18: two buffer-local bindings, made once and read every
+;; iteration.  Their values are stashed in the value cells of hidden
+;; INTERNED symbols rather than behind roots of kg's own, which is the
+;; claim this lane exists to test -- a stash the collector could not see
+;; would come back as something else, or as garbage, long before the
+;; loop ends.  Made outside the loop on purpose: this lane's cost is
+;; per collection, and creating a binding once adds nothing per
+;; iteration.
+(defvar gcprobe-local 'the-default)
+(setq gcprobe-one (get-buffer-create "gc-stress-one"))
+(setq gcprobe-two (get-buffer-create "gc-stress-two"))
+(with-current-buffer gcprobe-one
+  (setq-local gcprobe-local (list 'one (concat "held" "-by-one"))))
+(with-current-buffer gcprobe-two
+  (setq-local gcprobe-local (list 'two (concat "held" "-by-two"))))
 (while (< n 40)
   (setq n (+ n 1))
   (list n n n)
@@ -80,11 +95,15 @@ SCRIPT = """
                          shaped)))
     nil))
 (list n kept (length kept) (symbol-name keeper)
-      (intern-soft "never-interned-here") (intern-soft keeper) shaped)
+      (intern-soft "never-interned-here") (intern-soft keeper) shaped
+      (with-current-buffer gcprobe-one gcprobe-local)
+      (with-current-buffer gcprobe-two gcprobe-local)
+      (default-value 'gcprobe-local))
 """
 
 EXPECTED = ('(40 (40 20) 2 "kept-name" nil nil '
-            '("one,two,three" "one,two,three"))')
+            '("one,two,three" "one,two,three") (one "held-by-one") '
+            '(two "held-by-two") the-default)')
 
 # The same script with enough iterations to fill kg's 1 MB arena at least
 # once, which the stress-affordable loop above does not: run through the
@@ -93,7 +112,8 @@ BIG_SCRIPT = SCRIPT.replace("< n 40", "< n 4000").replace(
     "(* 20 (/ n 20))", "(* 1000 (/ n 1000))")
 BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
                 '("one,two,three" "one,two,three" "one,two,three" '
-                '"one,two,three"))')
+                '"one,two,three") (one "held-by-one") (two "held-by-two") '
+                'the-default)')
 
 # The stress build collects per allocation, and the loop above allocates
 # far more than one object per iteration, so its count cannot be near the

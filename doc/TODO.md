@@ -159,10 +159,6 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
   tree-sitter-bash of grammar ABI 6) is gone; the installed
   `libtree-sitter-bash.so` is ABI 15 and loads.  What is missing is
   one registry row + one query + tests.
-- **Git-mode diagnostics under the TS backend**: the overlong-subject
-  and bad-rebase-action HL_WARNING spans are legacy-scanner output, so
-  a TS build shows git buffers plain.  The plan's Phase 9 answer is to
-  re-express them as decorations, which both backends display.
 - **TSX tag colouring**: TS and TSX share one query text restricted to
   the common node inventory, so `.tsx` tag names are unpainted; a
   second query literal for the tsx row fixes it if wanted.

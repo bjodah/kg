@@ -104,19 +104,12 @@ void syntax_update_row_only(struct editor_buffer *b, struct erow *row);
  * a backend that keeps no per-row carry (tree-sitter) never calls it. */
 void syntax_propagate_below(struct editor_buffer *b, int idx);
 
-/* Index of the first byte at or after `from` that is not a space or tab. */
-int syntax_git_rebase_skip_ws(const char *line, int len, int from);
-
-/* Index just past the word starting at `from`. */
-int syntax_git_rebase_skip_word(const char *line, int len, int from);
-
-/* The canonical name of the git-rebase-todo action spelled by
- * word[0..len) -- long or single-letter abbreviation -- or NULL when it
- * names none.  On a hit *takes_commit says whether a commit hash follows
- * the action word.  The action table itself is command semantics and
- * stays in the facade: the C-c action keys need it whether or not a
- * highlighting backend does. */
-const char *syntax_git_rebase_action_name(
-    const char *word, int len, int *takes_commit);
+/* The git-rebase-todo word vocabulary a backend paints keywords from --
+ * syntax_git_rebase_skip_ws(), syntax_git_rebase_skip_word() and
+ * syntax_git_rebase_action_name() -- is not declared here: the action
+ * table is command semantics the facade owns (the C-c action keys and
+ * src/gitdiag.h read it whether or not a highlighting backend does), so
+ * it lives with the rest of the git mode semantics in src/syntax.h,
+ * which a backend includes anyway. */
 
 #endif /* KG_SYNTAX_BACKEND_H */

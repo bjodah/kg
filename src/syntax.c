@@ -153,23 +153,27 @@ struct editor_syntax HLDB[] = {
 /* ======================== Git mode semantics ============================
  *
  * What a git-commit or git-rebase-todo line *means*, as opposed to what
- * colour it is: the C-c action keys read these, so they belong to the
- * facade and stay available whatever backend (if any) is highlighting. */
+ * colour it is: the C-c action keys and the diagnostics (src/gitdiag.c)
+ * read these, so they belong to the facade and stay available whatever
+ * backend (if any) is highlighting. */
 
-/* True when the current buffer is a git commit/merge/tag message. */
-int syntax_is_git_commit(void)
+/* True when `b` is a git commit/merge/tag message. */
+int syntax_buffer_is_git_commit(const struct editor_buffer *b)
 {
-	return bcur()->syntax && bcur()->syntax->id == KG_MODE_GIT_COMMIT;
+	return b && b->syntax && b->syntax->id == KG_MODE_GIT_COMMIT;
 }
 
-/* Row index of the commit subject: the first non-blank row that is not
+/* True when the current buffer is a git commit/merge/tag message. */
+int syntax_is_git_commit(void) { return syntax_buffer_is_git_commit(bcur()); }
+
+/* Row index of `b`'s commit subject: the first non-blank row that is not
  * a '#' comment.  Returns -1 when the buffer has no subject yet. */
-int syntax_git_commit_subject(void)
+int syntax_buffer_git_commit_subject(const struct editor_buffer *b)
 {
 	int j;
 
-	for (j = 0; j < bcur()->numrows; j++) {
-		erow *r = &bcur()->row[j];
+	for (j = 0; b && j < b->numrows; j++) {
+		erow *r = &b->row[j];
 
 		if (r->rsize == 0 || r->render[0] == '#') {
 			continue;
@@ -177,6 +181,12 @@ int syntax_git_commit_subject(void)
 		return j;
 	}
 	return -1;
+}
+
+/* Row index of the current buffer's commit subject, or -1. */
+int syntax_git_commit_subject(void)
+{
+	return syntax_buffer_git_commit_subject(bcur());
 }
 
 /* One entry per git-rebase-todo command: long name, single-letter
@@ -207,11 +217,14 @@ static const struct gitrebase_action gitrebase_actions[] = {
 #define GITREBASE_NACTIONS                                                     \
 	((int)(sizeof(gitrebase_actions) / sizeof(gitrebase_actions[0])))
 
-/* True when the current buffer is a git-rebase-todo. */
-int syntax_is_git_rebase(void)
+/* True when `b` is a git-rebase-todo. */
+int syntax_buffer_is_git_rebase(const struct editor_buffer *b)
 {
-	return bcur()->syntax && bcur()->syntax->id == KG_MODE_GIT_REBASE;
+	return b && b->syntax && b->syntax->id == KG_MODE_GIT_REBASE;
 }
+
+/* True when the current buffer is a git-rebase-todo. */
+int syntax_is_git_rebase(void) { return syntax_buffer_is_git_rebase(bcur()); }
 
 /* Index into gitrebase_actions for the word at p[0..len), or -1. */
 static int gitrebase_lookup(const char *p, int len)
@@ -233,9 +246,9 @@ static int gitrebase_lookup(const char *p, int len)
 }
 
 /* Index of the first byte at or after `i` that is not a space or tab.
- * Not static: the legacy backend's rebase scanner walks the same words
- * (src/syntax_backend.h), rather than keeping a second copy of the
- * vocabulary this file owns. */
+ * Not static: the legacy backend's rebase scanner and the git diagnostics
+ * (src/gitdiag.c) walk the same words, rather than keeping a second copy
+ * of the vocabulary this file owns. */
 int syntax_git_rebase_skip_ws(const char *p, int len, int i)
 {
 	while (i < len && (p[i] == ' ' || p[i] == '\t')) {
@@ -343,11 +356,11 @@ static int row_hl_reserve(erow *row)
  * in hl_oc, and an empty row can only inherit it from the row above, so
  * the facade settles that here rather than waking a backend for a row
  * with no bytes.  That is what the five legacy scanners each computed for
- * an empty row before this split -- Markdown's fence state, YAML's block
- * state and git-commit's subject flag all pass the previous row's value
- * straight through when rsize is 0, and Makefile's and git-rebase's
- * scanners return without touching hl_oc, which is 0 there and 0 in every
- * row above them. */
+ * an empty row before this split -- Markdown's fence state and YAML's
+ * block state pass the previous row's value straight through when rsize
+ * is 0, and Makefile's, git-commit's and git-rebase's scanners return
+ * without touching hl_oc, which is 0 there and 0 in every row above
+ * them. */
 void syntax_update_row_only(struct editor_buffer *b, struct erow *row)
 {
 	KG_PERF_INC(KG_PERF_SYNTAX_ROW);

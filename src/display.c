@@ -12,6 +12,7 @@
 #include "decor.h"
 #include "def.h"
 #include "event.h"
+#include "gitdiag.h"
 #include "marker.h"
 #include "perf.h"
 #include "showparen.h"
@@ -747,6 +748,23 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	ab_append(ab, "\x1b[0m", 4);
 }
 
+/* Every displayed buffer's git diagnostics, brought up to date before the
+ * frame that shows them (src/gitdiag.h).  Every window rather than just
+ * the selected one: a commit message in a split is on screen, and the
+ * warning it earns is a property of its text, not of where point is.
+ * gitdiag_update() itself is a comparison for a buffer whose text and
+ * mode have not moved, which is what makes this affordable per frame. */
+static void update_git_diagnostics(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		if (winlist[i].active) {
+			gitdiag_update(win_buffer(&winlist[i]));
+		}
+	}
+}
+
 /* This function writes the whole screen using VT100 escape characters. */
 void editor_refresh_screen(void)
 {
@@ -762,6 +780,11 @@ void editor_refresh_screen(void)
 	 * the render bracket below because it publishes decorations, which
 	 * is buffer state, not screen output. */
 	show_paren_update();
+	/* The same argument, for the same reason, one buffer wider: the git
+	 * diagnostics are recomputed here rather than at each of the places
+	 * that publish rows or set a mode.  Also outside the render bracket
+	 * below -- it publishes decorations, which are buffer state. */
+	update_git_diagnostics();
 	/* Debug-only bracket for kg_event_drain_safe()'s KG_DEBUG_STATE
 	 * assertion; see KG_EVENT_UNSAFE_EDIT's comment in kg_buffer_replace()
 	 * for what this is and is not.  The exit(1) below this point on an

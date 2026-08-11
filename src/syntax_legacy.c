@@ -924,33 +924,23 @@ static void makefile_syntax(struct editor_buffer *b, erow *row)
 	make_var_and_comment(row, i);
 }
 
-#define GITCOMMIT_SUBJECT_LIMIT 50
-
-/* True if `row` is the subject line: itself non-blank/non-comment, and
- * every already-existing earlier row (0..row->idx-1) is blank or a '#'
- * comment.  Deliberately does not consult b->numrows: buffer.c's
- * editor_insert_row() calls editor_update_row() (and thus this
- * highlighter) *before* incrementing numrows, so a numrows-bounded scan
- * could never match a row against itself on first insertion, and a
- * freshly opened commit file would never show the subject warning until
- * the user edited that line.  Walking only the rows that are already in
- * the array sidesteps that ordering entirely. */
+/* Git commit message highlighter.  Row-local and stateless: '#' comments
+ * dimmed, everything else left alone.
+ *
+ * The overlong-subject warning used to live here, which meant it needed
+ * hl_oc to carry "the subject is above me" downward -- and meant a
+ * WITH_TREE_SITTER=1 build, which does not compile this file, showed no
+ * warning at all.  It is a diagnostic about the text rather than a
+ * reading of it, so it is a decoration now (src/gitdiag.c), published by
+ * backend-independent code and painted by display.c over whatever the
+ * installed backend coloured.  Nothing here may paint HL_WARNING as
+ * well: one span, one source of truth. */
 static void gitcommit_syntax(struct editor_buffer *b, erow *row)
 {
-	int has_subject_above = (row->idx > 0 && b->row[row->idx - 1].hl_oc);
-	int oc = has_subject_above;
-
+	(void)b;
 	if (row->rsize > 0 && row->render[0] == '#') {
 		memset(row->hl, HL_COMMENT, row->rsize);
-	} else if (row->rsize > 0 && !has_subject_above) {
-		oc = 1;
-		if (row->rsize > GITCOMMIT_SUBJECT_LIMIT) {
-			memset(row->hl + GITCOMMIT_SUBJECT_LIMIT, HL_WARNING,
-			    row->rsize - GITCOMMIT_SUBJECT_LIMIT);
-		}
 	}
-
-	row->hl_oc = oc;
 }
 
 /* True if p[0..len) looks like an abbreviated commit hash. */
@@ -971,11 +961,18 @@ static int gitrebase_is_hash(const char *p, int len)
 
 /* Git rebase todo highlighter.  Row-local: '#' comments dimmed, known
  * action words as keywords, the hash after a commit-taking action (or
- * merge's -C) as KEYWORD2, an exec command body as string, and an
- * unknown first word or an option flag the action cannot take as a
- * warning (either typo would make git fail the whole rebase).  The action
- * vocabulary itself is the facade's (syntax_git_rebase_action_name): the
- * C-c action keys need it with any backend installed. */
+ * merge's -C) as KEYWORD2, and an exec command body as string.  The
+ * action vocabulary itself is the facade's
+ * (syntax_git_rebase_action_name): the C-c action keys need it with any
+ * backend installed.
+ *
+ * What is deliberately NOT here is the warning colour a typoed action
+ * word or an impossible option flag used to get -- those are diagnostics
+ * about the todo list rather than a reading of it, and they are
+ * decorations now (src/gitdiag.c), so a build without this file shows
+ * them too.  An unknown first word therefore leaves the rest of the line
+ * unscanned exactly as it did: the grammar below only describes lines
+ * that start with an action. */
 static void gitrebase_syntax(struct editor_buffer *b, erow *row)
 {
 	(void)b;
@@ -998,7 +995,6 @@ static void gitrebase_syntax(struct editor_buffer *b, erow *row)
 	}
 	action = syntax_git_rebase_action_name(p + i, w - i, &takes_commit);
 	if (!action) {
-		memset(row->hl + i, HL_WARNING, w - i);
 		return;
 	}
 	memset(row->hl + i, HL_KEYWORD1, w - i);
@@ -1014,13 +1010,10 @@ static void gitrebase_syntax(struct editor_buffer *b, erow *row)
 	if (!takes_commit && !flags_ok) {
 		return;
 	}
-	/* Option words before the hash: only fixup and merge take -C/-c,
-	 * so any other flag would make git reject the whole todo -- warn. */
+	/* Option words before the hash are skipped over, valid or not; the
+	 * hash is what this still has to find. */
 	while (i < len && p[i] == '-') {
 		w = syntax_git_rebase_skip_word(p, len, i);
-		if (!flags_ok || w - i != 2 || !strchr("Cc", p[i + 1])) {
-			memset(row->hl + i, HL_WARNING, w - i);
-		}
 		i = syntax_git_rebase_skip_ws(p, len, w);
 	}
 	w = syntax_git_rebase_skip_word(p, len, i);

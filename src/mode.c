@@ -23,6 +23,29 @@ int chars_to_render_col(erow *row, int chars_col)
 	return render_col;
 }
 
+/* The inverse walk, for a caller holding a render-byte offset -- a
+ * highlight span, a scanner's answer -- that has to become a chars offset
+ * before it can be a buffer position.  Kept beside chars_to_render_col()
+ * rather than copied into each such caller: the two walks have to agree
+ * about what a TAB expands to, and they cannot disagree from here. */
+int render_to_chars_col(erow *row, int render_col)
+{
+	int j, render = 0, visual_col = 0;
+
+	for (j = 0; j < row->size && render < render_col; j++) {
+		if (row->chars[j] == TAB) {
+			int spaces = tab_stop_advance(visual_col);
+
+			render += spaces;
+			visual_col += spaces;
+		} else {
+			render++;
+			visual_col += utf8_width_at(row->chars, row->size, j);
+		}
+	}
+	return j;
+}
+
 /* A window narrower than one cell cannot lay anything out.  Every
  * wrapping calculation below starts by taking its width through here, so
  * a zero or negative width is one line of arithmetic rather than eight

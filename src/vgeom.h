@@ -50,6 +50,13 @@ int win_cells(int win_w);
  * expanding tabs as it walks. */
 int chars_to_render_col(erow *row, int chars_col);
 
+/* The chars-space offset render byte `render_col` of `row` lands on:
+ * chars_to_render_col()'s walk in the other direction, and its inverse
+ * for any render offset that starts a chars byte.  An offset inside an
+ * expanded TAB names no chars byte at all, and answers the offset just
+ * past that TAB -- the first chars byte a caller could address. */
+int render_to_chars_col(erow *row, int render_col);
+
 /* Total display columns `row` occupies when wrapped every win_w cells,
  * including any blank cells a glyph bumped off a wrap boundary leaves
  * behind.  Cached per row at its last-seen window width (src/def.h's

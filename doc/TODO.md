@@ -99,16 +99,21 @@ This file remains the broader feature and technical-debt inventory.
       REJECTED (gameable by adding code; punishes headers whose comments
       earn their keep).  `utils/comment_ratio.py` ranks files by comment
       share for one-off verbosity hunts instead.
-- [ ] **`utils/run_unit_tests.py` decodes a test's output as strict UTF-8.**
+- [x] **`utils/run_unit_tests.py` decodes a test's output as strict UTF-8.**
       `subprocess.run(..., text=True)` with no `errors=`, so a failing test
       whose message quotes a raw byte from its own fixture ends the whole
       unit layer in a `UnicodeDecodeError` traceback instead of a FAIL
       line.  Found 2026-08-11 while forcing `.ci/ci-13` to run:
       `test/test_syntax_tree_sitter.c` prints the offending byte of a
       mismatched highlight row, and one such byte took 46 test binaries'
-      results with it.  `errors="replace"` is the fix; the reason it has
-      never fired in a green run is that only a FAILING test prints
-      fixture bytes.
+      results with it.  Fixed 2026-08-11 with
+      `errors="backslashreplace"` rather than the `"replace"` first
+      proposed: the escape keeps the offending byte readable and spells
+      it the way a `\xNN` in the test's own source is, where `"replace"`
+      would leave a U+FFFD that says only "something was here".  `make
+      check-unit-decoding` is the regression gate and rides in `make
+      check`.  The reason this never fired in a green run is that only a
+      FAILING test prints fixture bytes.
 - [ ] **The tree-sitter prefix `.ci/ci-13` pins does not exist on this
       box.**  `TREE_SITTER_PREFIX` defaults to
       `/opt-2/tree-sitter-v0.26.12-release` (Makefile and the step agree),

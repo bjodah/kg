@@ -699,7 +699,7 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -947,6 +947,27 @@ lisp-include-check:
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
 		--json $(CHECK_RESULTS_DIR)/unit.json $(TESTBINS)
+
+# The native layer's report has to survive the bytes a failing test
+# prints.  A test that fails on a fixture prints the fixture, fixtures
+# are often raw bytes, and one invalid UTF-8 sequence used to take the
+# results of all 46 binaries with it -- the whole report replaced by a
+# UnicodeDecodeError traceback.  This drives the real script over a
+# command that prints 0xC3 0x28 and exits 1, and requires one FAIL line
+# with the byte escaped.  `sh -c` as the runner is what lets a shell
+# command stand in for a test binary here.
+check-unit-decoding:
+	@out=$$($(PYTHON) utils/run_unit_tests.py --runner "sh -c" \
+		"printf 'raw: \303\050\n' >&2; exit 1" 2>&1 || true); \
+	case "$$out" in \
+	*Traceback*) echo "check-unit-decoding: the runner died on the byte" >&2; \
+		printf '%s\n' "$$out" >&2; exit 1;; \
+	esac; \
+	case "$$out" in \
+	*'raw: \xc3('*) echo "check-unit-decoding: one FAIL line, byte escaped";; \
+	*) echo "check-unit-decoding: the escaped byte is not in the report" >&2; \
+		printf '%s\n' "$$out" >&2; exit 1;; \
+	esac
 
 check-pty: $(TARGET) $(PTY_TESTS)
 	@$(PYTHON) utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
@@ -1543,7 +1564,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit-decoding check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

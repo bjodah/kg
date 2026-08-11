@@ -21,7 +21,15 @@ from pathlib import Path
 
 def run_one(argv, name):
 	started = time.monotonic()
-	proc = subprocess.run(argv, capture_output=True, text=True)
+	# `errors="backslashreplace"` and not the default `strict`: a failing
+	# test prints the fixture that failed it, and a fixture is often raw
+	# bytes -- one invalid UTF-8 sequence in one binary's output used to
+	# raise UnicodeDecodeError here and take the results of all 46 with
+	# it, replacing every line of the report with a traceback.  The
+	# backslash escape keeps the offending byte visible and spelled the
+	# way a `\xNN` in the test's own source is.
+	proc = subprocess.run(argv, capture_output=True, text=True,
+			      errors="backslashreplace")
 	elapsed = time.monotonic() - started
 	if proc.returncode == 0:
 		status = "PASS"

@@ -428,18 +428,35 @@ against full rebuilds.  Known follow-ups, none blocking:
       made the grep/occur helper writable; the four hash-table names are
       the watch item and stay off the roadmap.  The audit now reports a
       MISSING list of exactly those four.
-- [ ] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17).
-      Every kg motion native clamps at the ends of the buffer where Emacs
-      signals one of these two, and `delete-char` clamps its count where
-      Emacs signals and deletes nothing.  The cause is one table: fe gates
-      `signal` on `condition_parents[]` (`fe/fe_eval.c`) and neither name
-      is in it, so raising one is an fe language change -- an fe commit,
-      its own compat rows, an `FE_LANGUAGE_VERSION` bump and a pin move --
-      rather than a kg native.  Recorded as five `divergent` rows in
-      `test/lisp-compat/features.json`, each with the case that pins the
-      difference.  The `delete-char` one is the row that costs a user
-      text an Emacs user would still have, so it is the one that decides
-      whether this is worth an fe wave.
+- [x] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17,
+      closed by Phase 20).  Done exactly as this row priced it: two data
+      lines in fe's `condition_parents[]` (now `fe/fe_unwind.c`), an
+      `FE_LANGUAGE_VERSION` 13 -> 14 bump and a pin move, then one kg
+      helper -- `lisp_raise_buffer_edge()` in `src/lisp_core.c` -- that
+      `forward-char`, `backward-char` and `delete-char` call.  Emacs'
+      ordering came with it and is measured: a motion moves as far as it
+      can and *then* signals, and `delete-char` deletes nothing at all.
+      `native-forward-char`, `native-backward-char` and
+      `native-delete-char` flip from `divergent` to `supported`.  What is
+      NOT closed, and stays: `forward-word`, `backward-word` and
+      `forward-line` still clamp, which is what Emacs' do too, so there
+      was never anything to fix there.
+- [ ] **`string-lessp` and `string-greaterp`**, Emacs' other spellings of
+      the two Phase 20 made fe primitives.  Two prelude `defalias` lines
+      and nothing else -- fe owns the order and neither name needs a
+      second implementation -- and they are not here because nothing
+      measured asks for them: the forecast corpus reaches for `string<`
+      and never for either long name.  Whichever phase next has a reason
+      to touch that part of the prelude can take them for two conses.
+- [ ] **`apropos-max-results` is still a cap, and the next raise needs its
+      own measurement.**  Phase 20 moved it 40 -> 120 by making `string<`
+      a primitive, which moved the measured ceiling 54 -> 158 (157 with
+      kg's five shipped packages loaded); the remaining per-row cost is
+      `apropos--describe`'s `format` and its three predicate calls, not
+      the sort.  Raising it further means measuring THAT, not guessing:
+      the failure mode is an `evaluation step limit exceeded` that loses
+      the whole report, so the margin between the cap and the ceiling is
+      the thing being spent.
 - [ ] **`logand`, `logior`, `logxor`**, declined by Phase 15 with the
       measurement rather than the intuition: the forecast corpus contains
       **zero** references to any bitwise operation.  `ash` landed because

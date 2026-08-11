@@ -24,7 +24,7 @@ backend: tmux
 dimensions: [24, 120]
 # key_delay is 4x the default and case-local, for a measured reason: the
 # harness ends a tmux run by capturing the pane once it has been *quiet*
-# for 50 ms, and a kg that is busy filling 56259 object slots is quiet.
+# for 50 ms, and a kg that is busy filling 56263 object slots is quiet.
 # At the default 0.05 the capture can land mid-fill -- which is how this
 # case failed in the MSan lane of a six-lane parallel run while passing
 # on its own.
@@ -69,7 +69,7 @@ expected_screen_contains:
   # Exactly one allocation failed, and it was counted.
   - "; fails 1"
   # The arena is the same arena it was before the failure.
-  - "Arena: 56259 slots,"
+  - "Arena: 56263 slots,"
 expected_screen_not_contains:
   # The failure did not leave the arena pinned -- that rendering is what
   # lisp-exhaustion-mid-init-visible asserts instead.

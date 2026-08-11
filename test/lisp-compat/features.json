@@ -160,6 +160,20 @@
    "source_name": null
   },
   {
+   "id": "fe-string-order-through-kg",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase15-string-lessp",
+    "phase20-string-order"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_string_library",
+   "rationale": "Phase 15 shipped `string<' as prelude Lisp; Phase 20 replaced it with fe primitives `string<' and `string>' and the kg definition is gone, which is why this row names no source_name -- fe's manifest claims both (string-order-lessp, string-order-greaterp). The row stays because the cases ask through kg's whole stack rather than fe's standalone binary, and because the change is what raised `apropos-max-results' from 40 to 120: the old spelling compared two names a CHARACTER at a time and a one-letter apropos exhausted an evaluation's step budget at 55 rows, where it now fits 158. Emacs' third spelling `string-lessp' is still not provided.",
+   "source_name": null
+  },
+  {
    "id": "format-exceptional-float",
    "category": "sequences",
    "status": "divergent",
@@ -437,7 +451,7 @@
   {
    "id": "native-backward-char",
    "category": "editor-primitives",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -445,7 +459,7 @@
     "phase17-char-motion-past-the-buffer-ends"
    ],
    "kg_test": "test/test_lisp.c:test_phase17_char_motion",
-   "rationale": "`beginning-of-buffer' where native-forward-char's rationale says `end-of-buffer', and for the same reason: fe's condition table holds neither name, so the motion clamps and answers nil where Emacs signals.",
+   "rationale": "`beginning-of-buffer' where native-forward-char's rationale says `end-of-buffer', and for the same reason. The condition names the END that was reached and not the function that was called, so a negative count to `forward-char' raises `beginning-of-buffer' and a negative one to `backward-char' raises `end-of-buffer'.",
    "source_name": "backward-char"
   },
   {
@@ -793,7 +807,7 @@
   {
    "id": "native-delete-char",
    "category": "editor-primitives",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -801,7 +815,7 @@
     "phase17-delete-char-past-the-end"
    ],
    "kg_test": "test/test_lisp.c:test_phase17_buffer_edits",
-   "rationale": "One edit-gateway call, so one undo step, exactly as native-insert and native-delete-region are. The divergence is at the ends of the buffer: Emacs signals `end-of-buffer'/`beginning-of-buffer' and deletes nothing, where kg clamps the count and deletes what is there. Same cause as native-forward-char's -- fe's condition table holds neither name -- and the same doc/TODO.md row covers it, but the consequence is larger here, since a clamped delete loses text an Emacs user would still have.",
+   "rationale": "One edit-gateway call, so one undo step, exactly as native-insert and native-delete-region are. A count the buffer is too short for signals `end-of-buffer'/`beginning-of-buffer' and deletes NOTHING, leaving point where it was -- Emacs' answer, and kg's since Phase 20. It clamped and deleted what was there until then, which was the one divergence in this family that cost a user text and the one doc/TODO.md named as the decider for whether the fe-side condition rows were worth a pin move.",
    "source_name": "delete-char"
   },
   {
@@ -925,7 +939,7 @@
   {
    "id": "native-forward-char",
    "category": "editor-primitives",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -933,7 +947,7 @@
     "phase17-char-motion-past-the-buffer-ends"
    ],
    "kg_test": "test/test_lisp.c:test_phase17_char_motion",
-   "rationale": "Emacs signals `end-of-buffer' when the count runs past the end of the buffer, after moving as far as it can; kg clamps and answers nil. fe gates `signal' on its own condition table (fe_eval.c's condition_parents[]) and holds neither `end-of-buffer' nor `beginning-of-buffer', so raising one is an fe language change rather than a kg native -- recorded as a doc/TODO.md row rather than smuggled into this phase. kg's own `forward-word' has clamped since sub-plan 03, so the whole motion family answers the same way. Point lands in the same place on both sides.",
+   "rationale": "Emacs' answer since Phase 20, and kg's too: point moves as far as it can and then a count that could not be spent signals `end-of-buffer' -- so a `forward-char' that lands exactly ON point-max does not raise, and one that asks for a character past it does, after the move. Point ends in the same place either way, which is what phase17-forward-char pins. kg clamped silently until then, because fe gates `signal' on its own condition table and held neither name; the Phase 20 fe pin put both in it. `forward-word' and `forward-line' still clamp, and so do Emacs'.",
    "source_name": "forward-char"
   },
   {
@@ -1982,6 +1996,19 @@
    ],
    "kg_test": "test/test_lisp.c:test_binding_forms",
    "rationale": "The 04E cutover: kg now runs on the Lisp-2 fe, so defun writes the function cell and setq the value cell, and the parent plan's own headline example '(setq f 7) then (defun f () 9)' coexists -- (list f (f)) is (7 9), matching the pinned Emacs snapshot. Pre-cut kg shared one cell per symbol (fe.c: a symbol was (name . value)) and answered ((lambda nil 9) 9), which is what Phase 4 replaced.",
+   "source_name": null
+  },
+  {
+   "id": "oracle-non-ascii-records",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase20-oracle-non-ascii-record"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "Phase 20, and it is about the CORPUS rather than about a Lisp name. The oracle shim wrote Emacs' internal representation of every byte above 127 -- `json-serialize' returns a unibyte UTF-8 string and `princ' encoded it a second time -- so no case whose Emacs answer contained a non-ASCII character could have a snapshot checked in, and three Phase 15 cases (phase15-upcase/downcase/capitalize-non-ascii) report codepoint LISTS partly for that reason. The shim uses `send-string-to-terminal' now, which writes a unibyte string verbatim; regenerating the whole corpus with the fix rewrote nothing. This case is the pin: a record that carries a multibyte string, agreeing with the oracle byte for byte.",
    "source_name": null
   },
   {
@@ -3416,6 +3443,19 @@
    "source_name": "defvar"
   },
   {
+   "id": "prelude-documentation-property",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase20-documentation-property"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation",
+   "rationale": "Phase 20. `(documentation-property SYMBOL PROPERTY &optional RAW)' answers the property when it is a string and nil otherwise -- which is Emacs' own answer for an integer, that being an offset into a DOC file kg does not have and has no built-in variables to need. Emacs raises `(wrong-type-argument listp ...)' for a cons, reading it as a (FILE . POSITION) reference; kg answers nil, the one shape of property the two disagree about, and it is a shape nothing in kg writes. RAW is accepted and ignored: kg stores no `substitute-command-keys' markup to leave in.",
+   "source_name": "documentation-property"
+  },
+  {
    "id": "prelude-dolist",
    "category": "control-flow",
    "status": "supported",
@@ -4273,19 +4313,6 @@
    "source_name": "string-join"
   },
   {
-   "id": "prelude-string-lessp",
-   "category": "sequences",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "emacs",
-   "cases": [
-    "phase15-string-lessp"
-   ],
-   "kg_test": "test/test_lisp.c:test_phase15_string_library",
-   "rationale": "Phase 15. Codepoint order, which is what Emacs compares by, and symbols are accepted on either side through `symbol-name' as they are there. Emacs' third spelling `string-lessp' and its `string>' sibling are not provided.",
-   "source_name": "string<"
-  },
-  {
    "id": "prelude-string-prefix-p",
    "category": "sequences",
    "status": "supported",
@@ -4375,6 +4402,19 @@
    "kg_test": "test/test_lisp.c:test_prelude_forms",
    "rationale": null,
    "source_name": "unless"
+  },
+  {
+   "id": "prelude-variable-documentation-property",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase20-variable-documentation"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation",
+   "rationale": "Phase 20. A `defvar' or `defconst' with a docstring now also puts it on the symbol's `variable-documentation' property, which is where Emacs keeps one -- so `(get 'v 'variable-documentation)' answers, a program can `put' its own over it, and `describe-variable' reads it through `documentation-property' rather than through kg's own registry. Emacs' re-`defvar' rule comes with it and is measured: the value is not reassigned and the docstring IS replaced. `defcustom' inherits it by expanding to `defvar'. kg's registry (`internal--docs') still records the same string, because `apropos' asks `documentation' for a line about any name and the property is the only half Emacs has.",
+   "source_name": "internal--variable-doc-put"
   },
   {
    "id": "prelude-when",

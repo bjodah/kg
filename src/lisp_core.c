@@ -53,7 +53,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 static_assert(FE_API_VERSION == 10);
-static_assert(FE_LANGUAGE_VERSION == 13);
+static_assert(FE_LANGUAGE_VERSION == 14);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -64,11 +64,11 @@ static_assert(FE_LANGUAGE_VERSION == 13);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 58080
- * bytes (~56.7 KiB) at the pinned Fe, so an override much below ~64 KiB
- * fails to start; the default's 1 MiB still leaves roughly 95% of the
- * arena for objects and frame growth -- 56225 object slots and a
- * 1095-frame evaluator stack, as kg_lisp_arena_stats() reports them.
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 64200
+ * bytes (~62.7 KiB) at the pinned Fe, so an override much below ~72 KiB
+ * fails to start; the default's 1 MiB still leaves roughly 94% of the
+ * arena for objects and frame growth -- 56263 object slots and a
+ * 1089-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
@@ -796,6 +796,19 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	parts[1] = second;
 	raise_signal_form(
 	    context, "args-out-of-range", FeMakeList(context, parts, 2));
+}
+
+/* Raise Emacs' `(end-of-buffer)` or `(beginning-of-buffer)`: the two edges
+ * a motion or an edit runs into, both with NO data -- measured on the
+ * pinned 31.0.90, `(condition-case e (forward-char 20) (error e))` in a
+ * three-character buffer is `(end-of-buffer)` and nothing more.  Both
+ * names joined fe's condition table at the Phase 20 pin; before that
+ * `signal` refused them and every kg native that reached an edge clamped
+ * silently instead. */
+[[noreturn]] void lisp_raise_buffer_edge(FeContext *context, bool at_end)
+{
+	raise_signal_form(context,
+	    at_end ? "end-of-buffer" : "beginning-of-buffer", FeNil(context));
 }
 
 /* The two type checks a native writes most: `(wrong-type-argument stringp

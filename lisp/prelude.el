@@ -522,6 +522,30 @@
 (defalias 'internal--doc-put (lambda (name doc)
   (setq internal--docs (cons (cons name doc) internal--docs))
   doc))
+;; Emacs puts a variable's docstring on the symbol's plist, under
+;; `variable-documentation', where `documentation-property' reads it back
+;; -- so `(get 'fill-column 'variable-documentation)' answers there and
+;; a program can `put' one over it.  The registry above is kg's own and
+;; stays: `apropos' asks `documentation' for a line about ANY name, and
+;; the property is the only half Emacs has.  Nothing is stored twice --
+;; both hold the same string object -- and nothing is stored at all for
+;; an undocumented `defvar', which is why this is a call and not a bare
+;; `put'.
+(defalias 'internal--variable-doc-put (lambda (name doc)
+  (if doc (put name 'variable-documentation doc))
+  doc))
+;; (documentation-property SYMBOL PROPERTY &optional RAW): the property,
+;; when it is a string.  Emacs stores a built-in variable's documentation
+;; as an offset into its DOC file and resolves it here, which is why the
+;; function exists at all rather than callers writing `get'; kg has no
+;; DOC file and no built-in variables to need one, so a non-string
+;; property is nil -- Emacs' own answer for an integer that indexes
+;; nothing, and a recorded divergence for a cons, which Emacs reads as a
+;; (FILE . POSITION) reference and raises on.  RAW is accepted and
+;; ignored: kg stores no `substitute-command-keys' markup to leave in.
+(defalias 'documentation-property (lambda (symbol property &optional raw)
+  (internal--let text (get symbol property))
+  (if (stringp text) text nil)))
 ;; The registry first, then the command table: a BUILT-IN command has no
 ;; Lisp definition to have recorded a docstring, and the one-line summary
 ;; cmd.c carries -- the same text M-x and the help screen show -- is the
@@ -650,6 +674,7 @@
       nil
       (if value-present (list 'setq name (car rest)) nil))
     (list 'internal--doc-put (list 'quote name) doc)
+    (list 'internal--variable-doc-put (list 'quote name) doc)
     (list 'quote name))))
 ;; `defconst' marks full, as Emacs' does, and -- also as Emacs' does --
 ;; the constancy is a declaration and not enforcement: the name is still
@@ -662,6 +687,7 @@
     (list 'internal--mark-special (list 'quote name) t)
     (list 'setq name (car rest))
     (list 'internal--doc-put (list 'quote name) doc)
+    (list 'internal--variable-doc-put (list 'quote name) doc)
     (list 'quote name))))
 (defalias 'internal--custom-presentation-keyword-p (lambda (key)
   (or (eq key :type) (eq key :options) (eq key :group)
@@ -947,19 +973,13 @@
            (if ignore-case
                (string= (downcase suffix) (downcase tail))
              (string= suffix tail)))))))
-;; Codepoint order, which is what Emacs compares by.  A symbol operand is
-;; its name on both sides -- `symbol-name' has been reachable since
-;; Phase 14, so this costs one call rather than a recorded divergence.
-(defalias 'string< (lambda (s1 s2)
-  (let ((a (string-to-list (if (symbolp s1) (symbol-name s1) s1)))
-        (b (string-to-list (if (symbolp s2) (symbol-name s2) s2)))
-        (done nil)
-        (result nil))
-    (while (and (not done) a b)
-      (cond ((< (car a) (car b)) (setq result t) (setq done t))
-            ((< (car b) (car a)) (setq done t))
-            (t (setq a (cdr a)) (setq b (cdr b)))))
-    (if done result (and (null a) (consp b) t)))))
+;; `string<' and `string>' were HERE until Phase 20, as prelude Lisp that
+;; turned both operands into lists of character codes and compared them a
+;; cons at a time.  They are fe primitives now (`StringOperandLess', a
+;; string cell at a time), which is why nothing defines them below: the
+;; cost was charged per CHARACTER to every caller's step budget, and
+;; `apropos' -- kg's one heavy sorter -- was capped at 40 results because
+;; of it.
 ;; Emacs' \\& (the whole match), \\N (group N) and \\\\ in a replacement
 ;; string.  An escape Emacs rejects outright ("\\q") yields the escaped
 ;; character here; that is the one shape of replacement string the two
@@ -1218,6 +1238,12 @@
 ;; machinery and are deliberately undocumented: `documentation' answering
 ;; for them would be a claim that they are surface.
 ;;
+;; `string<' and `string>' are the two entries that document something
+;; this file does NOT define -- they became fe primitives in Phase 20 and
+;; their rows stayed, because they are the comparators every `sort' call
+;; in kg's own Lisp is written with and `C-h f' answering "Not
+;; documented." for them would be a worse answer than two conses.
+;;
 ;; The cost is measured, not assumed (Phase 19, and the figures move with
 ;; the table): 102 entries and 5527 bytes of text cost +1341 objects of
 ;; the 56259-slot arena -- 9912 -> 11253 live after the prelude, 17.6% ->
@@ -1323,6 +1349,7 @@
   (sort . "Return LIST sorted by the two-argument PREDICATE.")
   (split-string . "Return the list of substrings of TEXT separated by matches of SEPARATORS.")
   (string< . "Return t when string A sorts before string B.")
+  (string> . "Return t when string A sorts after string B.")
   (string-empty-p . "Return t when the string S has no characters.")
   (string-join . "Return the strings of LIST concatenated, with SEPARATOR between them.")
   (string-prefix-p . "Return t when STRING begins with PREFIX.")

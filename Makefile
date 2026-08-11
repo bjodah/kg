@@ -38,6 +38,9 @@ endif
 ifeq ($(wildcard fe/fe_run.c),)
 FE_SPLIT_MISSING = 1
 endif
+ifeq ($(wildcard fe/fe_unwind.c),)
+FE_SPLIT_MISSING = 1
+endif
 ifeq ($(FE_SPLIT_MISSING),1)
 ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
 ifneq ($(MAKECMDGOALS),)
@@ -45,20 +48,22 @@ SKIP_FE_CHECK = 1
 endif
 endif
 ifneq ($(SKIP_FE_CHECK),1)
-$(error one of fe/fe.c, fe/fe_eval.c, fe/fe_run.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
+$(error one of fe/fe.c, fe/fe_eval.c, fe/fe_run.c, fe/fe_unwind.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
 endif
 endif
 override CFLAGS += -DKG_USE_LISP=1
 override LDLIBS += -lm
 # The evaluator lives in its own translation unit since Fe sub-plan 03B
-# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h), and the run
+# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h), the run
 # driver plus the public FeEvaluate*/FeCall* surface in a third since Fe
-# sub-plan 11B (fe_eval.c -> fe_eval.c + fe_run.c, which is how fe kept its
-# 520 per-file cap binding while dynamic binding landed); a list so every
-# consumer below is a one-line change.
-FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o
+# sub-plan 11B, and the completion machinery -- the condition hierarchy, the
+# cleanup registry and every raise -- in a fourth since Fe's Phase 20; both
+# splits are how fe kept its 520 per-file cap binding on the evaluator. A
+# list so every consumer below is a one-line change.
+FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
+	 $(OBJDIR)/fe_unwind.o
 FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o \
-	      $(TESTDIR)/fe_run_fuzz.o
+	      $(TESTDIR)/fe_run_fuzz.o $(TESTDIR)/fe_unwind_fuzz.o
 endif
 
 ifeq ($(wildcard fe/tiny-regex-c/re.c),)
@@ -699,6 +704,9 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
+$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
+
 check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
@@ -836,8 +844,8 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 # count far above the ordinary one's.  Same shape as test/perfobj: the
 # instrumented fe object gets its own name under test/ and never mixes
 # with src/*.o, so turning the knob on leaves no stale object behind.
-# fe_eval.c and fe_run.c are NOT rebuilt: the macro lives inside fe.c and
-# nothing in fe.h moves with it.
+# fe_eval.c, fe_run.c and fe_unwind.c are NOT rebuilt: the macro lives
+# inside fe.c and nothing in fe.h moves with it.
 GC_STRESS_KGBATCH = $(TESTDIR)/kgbatch-gcstress
 GC_STRESS_FE_OBJ = $(TESTDIR)/fe_gcstress.o
 
@@ -847,11 +855,11 @@ $(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h
 $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
 	$(FEATURE_CONFIG) $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 	$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
-	$(REGEX_OBJS)
+	$(OBJDIR)/fe_unwind.o $(REGEX_OBJS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
-		$(REGEX_OBJS) $(LDLIBS)
+		$(OBJDIR)/fe_unwind.o $(REGEX_OBJS) $(LDLIBS)
 
 # Ordered after lisp-oracle-check rather than beside it: `check`'s
 # prerequisites run in parallel under -j, both targets build
@@ -1531,6 +1539,9 @@ $(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
+$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
+
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
@@ -1564,7 +1575,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit-decoding check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

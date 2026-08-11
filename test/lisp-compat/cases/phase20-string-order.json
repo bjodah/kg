@@ -1,0 +1,6 @@
+{
+ "id": "phase20-string-order",
+ "setup": [],
+ "expr": "(list (string> \"b\" \"a\") (string> \"a\" \"b\") (string> \"abc\" \"abc\") (string> (quote b) (quote a)) (string< \"n\" nil) (string< nil \"a\") (sort (list \"b\" \"a\" \"C\") 'string<) (sort (list \"b\" \"a\" \"C\") 'string>))",
+ "note": "Phase 20: `string>' through kg's stack, the nil-as-the-name-\"nil\" rule, and both of them driving kg's prelude `sort' -- which is the reason they became fe primitives, `apropos' being the caller whose step budget the old per-character prelude spelling spent."
+}

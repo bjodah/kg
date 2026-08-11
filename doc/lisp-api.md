@@ -99,7 +99,7 @@ trusting it.
   Measured at the Phase 12 fix cycle, nested `save-excursion` runs to
   **218** and the 219th raises `evaluation frame limit exceeded`;
   nested `with-current-buffer` over `(current-buffer)` runs to **156**
-  and the 157th raises the same — both the 1090-frame arena
+  and the 157th raises the same — both the 1089-frame arena
   partition's verdict, not the pool's. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
@@ -255,9 +255,9 @@ Ordering rules that hold across every subscriber:
     frames one-for-one — an ordinary self-recursive function costs
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
-    1090-frame arena), so in practice it stops such recursion a few
+    1089-frame arena), so in practice it stops such recursion a few
     hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1090; exceeding it raises
+    `frame_capacity` 1089; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -352,7 +352,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56259 object slots and a 1090-frame evaluator stack.
+  current pin as 56263 object slots and a 1089-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -422,7 +422,7 @@ Ordering rules that hold across every subscriber:
 | `(buffer-substring BEG END)` | Text between two positions, order-insensitive |
 | `(char-after &optional POS)` | Codepoint at `POS` (default point) as a number, `nil` at end of buffer |
 | `(forward-word &optional N)` / `(backward-word &optional N)` | Move point over `N` words (ASCII word constituents only) |
-| `(forward-char &optional N)` / `(backward-char &optional N)` | Move point `N` characters; a line break is one character. Answers `nil` |
+| `(forward-char &optional N)` / `(backward-char &optional N)` | Move point `N` characters; a line break is one character. Answers `nil`, or signals `end-of-buffer`/`beginning-of-buffer` for a count that runs off the end |
 | `(forward-line &optional N)` | `N` lines forward, to the beginning of a line. Answers the *shortfall*: how many of `N` were not travelled |
 | `(beginning-of-line &optional N)` / `(end-of-line &optional N)` | Start/end of the line `N - 1` lines on from this one, clamped. `N` defaults to 1, so 2 is the next line and 0 the previous |
 | `(beginning-of-buffer)` / `(end-of-buffer)` | `(goto-char (point-min))` / `(goto-char (point-max))`, and nothing else — see below |
@@ -433,11 +433,20 @@ Ordering rules that hold across every subscriber:
 | `(buffer-modified-p &optional BUF)` | Whether `BUF` has unsaved changes |
 | `(set-buffer-modified-p FLAG)` | Set that flag on the current buffer. Answers `nil`, which is what Emacs answers too |
 
-Every motion above **clamps** at the ends of the buffer. Emacs signals
-`beginning-of-buffer`/`end-of-buffer` there; kg cannot, because fe gates
-`signal` on its own condition table and holds neither name, so kg's whole
-motion family answers as `forward-word` always has. `doc/TODO.md` carries
-the fe-side row.
+`forward-char`, `backward-char` and `delete-char` **signal** at the ends
+of the buffer, as Emacs does: point moves as far as it can and a count
+that could not be spent raises `end-of-buffer` or `beginning-of-buffer`
+with no data, and `delete-char` deletes nothing at all in that case.
+Landing exactly *on* an end is not a signal. The condition names the end
+that was reached rather than the function that was called, so a negative
+count to `forward-char` can raise `beginning-of-buffer`. Both names are
+ordinary children of `error`, so a generic handler catches either.
+
+The rest of the motion family **clamps**: `forward-word`,
+`backward-word`, `forward-line`, `beginning-of-line`, `end-of-line`,
+`move-beginning-of-line` and `move-end-of-line` stop at the end and
+answer, which is what Emacs' do too. The three that signal did not until
+Phase 20, when fe's condition table gained the two names.
 
 `beginning-of-buffer` and `end-of-buffer` do not push the mark, where
 Emacs' — which are commands — do. kg's `set-mark` also lights the region
@@ -794,11 +803,20 @@ corpus of *target* Lisp reaches for against the names kg has, and
 | Group | Forms |
 | ---- | ---- |
 | Splitting and joining | `split-string` (Emacs' `OMIT-NULLS` asymmetry included), `string-join` |
-| Trimming and testing | `string-trim`, `string-trim-left`, `string-trim-right`, `string-prefix-p`, `string-suffix-p`, `string<`, `string-empty-p` |
+| Trimming and testing | `string-trim`, `string-trim-left`, `string-trim-right`, `string-prefix-p`, `string-suffix-p`, `string-empty-p` |
 | Alists and plists | `alist-get`, `assq-delete-all`, `plist-get`, `plist-put` |
 | List utilities | `elt`, `butlast`, `copy-sequence`, `number-sequence`, `nconc`, `mapcan`, `sort`, `cdar`, `caddr`, `cdddr`, `cadddr` |
 | The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — **lists only** |
 | Arithmetic | `abs`, `mod`, `%`, `ash` |
+
+`string<` and `string>` are **not** in this table any more: they were
+prelude Lisp until Phase 20 and are fe primitives now. Each takes a
+string or a symbol on either side (a symbol compares by its name, and
+`nil` compares as `"nil"`), and each is strictly binary. The move is
+measurable rather than tidy-minded: the prelude spelling compared two
+names a *character* at a time, and `apropos` -- kg's one heavy sorter --
+could report 54 rows before an evaluation's step budget ran out, where
+it now fits 158.
 
 Three notes a caller will want:
 
@@ -1275,6 +1293,7 @@ primitive's function cell.
   exist.** Conditions have a static hierarchy: `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
   `arith-error`, `args-out-of-range`, `file-error`, `setting-constant`,
+  `end-of-buffer`, `beginning-of-buffer`
   and `no-catch` are all under `error`, and `file-missing` is under
   `file-error` (Phase 12), the one three-deep chain; `quit` is a separate branch not under `error` and
   is not catchable by `(error …)` handlers. `(signal 'ARITH-ERROR DATA)`
@@ -1392,17 +1411,25 @@ primitive's function cell.
   `defconst`; the prelude's `(documentation 'NAME)` returns the captured
   string, and every public prelude definition has one since Phase 19
   (the `internal--` machinery deliberately does not). This is an
-  alist-backed query, not a property list. Two divergences ride on that.
-  Because the store is a single name-keyed alist, `(documentation
-  'VARIABLE)` answers a variable's docstring here, where Emacs reserves
-  `documentation` for functions and answers a variable through
-  `(documentation-property 'VARIABLE 'variable-documentation)`, which kg
-  does not have. And the alist is a *definition registry*: a `defun` with
-  no docstring still records its name, so that `apropos` can find it,
-  which means `documentation` distinguishes "defined, undocumented" from
-  "not defined" only by returning nil for both. A BUILT-IN command's
-  documentation is the one-line summary `cmdtable` carries for it, which
-  is the same text `M-x` and the help screen show.
+  alist-backed query, not a property list, and one divergence rides on
+  that: the alist is a *definition registry*, so a `defun` with no
+  docstring still records its name for `apropos` to find, which means
+  `documentation` distinguishes "defined, undocumented" from "not
+  defined" only by returning nil for both. `(documentation 'VARIABLE)`
+  also answers here, where Emacs reserves `documentation` for functions
+  and raises `void-function`. A BUILT-IN command's documentation is the
+  one-line summary `cmdtable` carries for it, which is the same text
+  `M-x` and the help screen show.
+- A **variable's** docstring additionally lives where Emacs puts one,
+  on the symbol's `variable-documentation` property, since Phase 20:
+  `(get 'my-var 'variable-documentation)` answers it, a program can
+  `put` its own over it, and `(documentation-property SYMBOL PROPERTY
+  &optional RAW)` reads it back. `documentation-property` answers the
+  property when it is a **string** and `nil` otherwise — Emacs' own
+  answer for an integer, which there indexes a `DOC` file kg has no
+  equivalent of. A re-`defvar` replaces the docstring and leaves the
+  value alone, which is Emacs' rule for both halves. `describe-variable`
+  reads through this rather than through the registry.
 - The **describe surface is a package**, not a built-in: `(require
   'help-fns)` adds `describe-function`, `describe-variable` and
   `apropos`, each a command that writes into `*Help*`. What `apropos` can
@@ -1411,8 +1438,11 @@ primitive's function cell.
   `(internal--command-names)`, which is the only way to see a built-in
   command, whose name lives in a C table and is not a symbol until
   something writes one. It is capped at `apropos-max-results` matches per
-  report, because kg bounds every evaluation and a broad pattern is more
-  sorting and formatting than one budget holds.
+  report (120 since Phase 20, 40 before it), because kg bounds every
+  evaluation and a broad pattern is more sorting and formatting than one
+  budget holds. The cap is measured against that budget rather than
+  chosen: the broadest pattern in a stock session fits 158 rows and
+  raises at 159.
 
 ## What is not here, and why
 

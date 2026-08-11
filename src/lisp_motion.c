@@ -89,7 +89,21 @@ FeObject *native_forward_line(FeContext *context, FeObject *arguments)
 }
 
 /* (forward-char &optional N) / (backward-char &optional N): N codepoints,
- * clamped, answering nil. */
+ * answering nil.
+ *
+ * A count that runs past an end moves as far as it can and THEN signals
+ * `end-of-buffer' or `beginning-of-buffer' -- Emacs' own order, measured
+ * on the pinned 31.0.90: `(list (condition-case e (forward-char 20)
+ * (error e)) (point))' in a three-character buffer is `((end-of-buffer)
+ * 4)', so the point move is not undone by the raise.  Landing exactly ON
+ * an end is not a signal; only a count that could not be spent is.  The
+ * condition names the end that was reached rather than the function that
+ * was called, which is why a negative count to `forward-char' can raise
+ * `beginning-of-buffer'.
+ *
+ * These clamped silently until the Phase 20 fe pin put both names in fe's
+ * condition table; `forward-word' and `forward-line' still clamp, and so
+ * does Emacs. */
 static FeObject *lisp_move_chars(
     FeContext *context, FeObject *arguments, long sign)
 {
@@ -98,16 +112,16 @@ static FeObject *lisp_move_chars(
 	long here = lisp_exec_point_char(context);
 	long max = lisp_buffer_char_length(b);
 	long target;
+	bool past_end;
 
 	FeRequireNoArguments(context, arguments);
 	/* The count is already bounded to +-INT_MAX by lisp_optional_count,
 	 * so the sum cannot overflow a long on any platform kg builds on. */
 	target = here + sign * count;
-	if (target < 0) {
-		target = 0;
-	}
-	if (target > max) {
-		target = max;
+	past_end = target > max;
+	if (target < 0 || past_end) {
+		lisp_exec_goto_char(b, past_end ? max : 0);
+		lisp_raise_buffer_edge(context, past_end);
 	}
 	lisp_exec_goto_char(b, target);
 	return FeNil(context);

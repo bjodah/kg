@@ -516,6 +516,49 @@ static void test_delete_window_paths(void)
 	free(names[1]);
 }
 
+/* win_undisplay_buffer() takes down somebody else's window and leaves the
+ * buffer alive: what a transient listing does when it has stopped being
+ * about where point is (src/lsp_complete.h).  The three cases it declines
+ * are the ones that would surprise -- a buffer nothing is showing, the
+ * only window there is, and the window the reader is standing in. */
+static void test_undisplay_buffer_drops_the_window_not_the_buffer(void)
+{
+	char *names[2];
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	write_text_file(tmppath("b.txt"), "one\ntwo\n");
+	names[1] = strdup(tmppath("b.txt"));
+
+	session(2, names);
+	/* Nothing shows buffer 1 yet, and buffer 0's window is the only
+	 * one: both are declines, and neither disturbs the session. */
+	win_undisplay_buffer(1);
+	win_undisplay_buffer(0);
+	invariants();
+	CHECK(win_count == 1);
+
+	win_display_buffer_other_window(1);
+	CHECK(win_count == 2);
+	/* The current window is not one this may close. */
+	win_undisplay_buffer(0);
+	CHECK(win_count == 2);
+
+	win_undisplay_buffer(1);
+	invariants();
+	CHECK(win_count == 1);
+	CHECK(win_buffer_slot(&winlist[win_current]) == 0);
+	CHECK(buf_current == 0);
+	CHECK(wcur()->h == winlist[win_current].h);
+	/* Closing a window is not killing a buffer: C-x b still reaches it. */
+	CHECK(bslot(1)->active);
+	CHECK(bslot(1)->numrows == 3);
+
+	session_teardown();
+	free(names[0]);
+	free(names[1]);
+}
+
 /* C-x 1 discards every other window.  A window's point is the only record
  * of where the buffer it shows was being read, so a discarded window banks
  * it the way C-x 0 does -- otherwise showing that buffer again resumes
@@ -1615,6 +1658,7 @@ int main(void)
 	RUN(test_vertical_split_geometry);
 	RUN(test_display_other_window_retargets_only_that_window);
 	RUN(test_delete_window_paths);
+	RUN(test_undisplay_buffer_drops_the_window_not_the_buffer);
 	RUN(test_delete_others_banks_the_views_it_discards);
 	RUN(test_autorevert_poll_reverts_only_the_current_buffer);
 	RUN(test_deferred_revert_clamps_point_past_new_eof);

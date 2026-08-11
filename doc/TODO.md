@@ -300,19 +300,23 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
         was thinking is refused, the same staleness check the rename
         makes, since kg's completion -- unlike Emacs', which computes and
         consumes its candidates inside one command -- arrives in a later
-        poll.  The listing is passive: a mode map for it
-        wants the mode registry the last bullet of this section asks for,
-        and Emacs' "close it as you type" wants a post-command hook kg
-        has no place for yet.
-        The second half of that stopped being true in the 2026-08-11
-        merge: Phase 18 landed `post-command-hook`
-        (`kg_lisp_run_post_command_hook()`, called from the main loop once
-        per processed keystroke), which is exactly the place "close
-        `*Completions*` as you type" belongs.  Neither wave could see it,
-        having been written in parallel.  kg's hook fires per KEYSTROKE
-        rather than per command, which is the right cadence for this one:
-        typing is what should close the listing, and typing is not a
-        command here.
+        poll.  The listing still binds no keys: a mode map for it
+        wants the mode registry the last bullet of this section asks for.
+        Its lifetime is settled, though.  The 2026-08-11 merge could see
+        that Phase 18 had landed a per-keystroke seam
+        (`kg_lisp_run_post_command_hook()`, from the main loop once per
+        processed keystroke), and `lsp_complete_post_command()` now runs
+        beside it: the listing closes once point leaves the field it is a
+        listing of.  It is C rather than shipped Lisp because a
+        `WITH_LISP=0` kg has no hook to hang it on and would otherwise
+        keep the listing up -- a difference between builds.  What the rule
+        is came from the oracle rather than from the phrase "close it as
+        you type", which measurement contradicted: in Emacs 31.0.90
+        typing more of the symbol leaves *Completions* up and unrefreshed,
+        and it is a delimiter, or point moving out of the region, that
+        takes it down.  Refreshing the listing as you type would mean a
+        request per keystroke, which is auto-completion and a separate
+        decision.
 - ~~**Lisp bindings for the xref commands.**~~  Done by Phase 17's
   `CMD_LISP_CALLABLE` audit, which is the settling this row was waiting
   for: all four are reachable from `(command-execute ...)` now.  They

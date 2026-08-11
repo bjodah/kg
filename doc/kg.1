@@ -3481,11 +3481,22 @@ staleness check a rename makes.
 .Pp
 The
 .Pa *Completions*
-listing is passive: unlike Emacs', it binds nothing, and it is not taken
-down or refreshed as typing continues.
+listing closes itself once point leaves the symbol it is a listing of,
+which is Emacs' rule and includes Emacs' surprising half: typing more of
+that symbol leaves the listing up, unrefreshed, while a space, a
+.Ic C-a
+back past where the completion began, or a move to another line takes it
+down.
+Stepping into it with
+.Ic C-x o
+keeps it, so it does not vanish as the reader arrives; repeating
+.Ic M-TAB
+keeps it and replaces it when the next answer lands.
+It is passive in the one way it was: unlike Emacs', it binds nothing.
 It is an ordinary read-only buffer \(em
 .Ic C-x 0
-closes its window, and the next completion rebuilds it in place.
+closes its window by hand, closing it does not kill it, and the next
+completion rebuilds it in place.
 .Pp
 The buffer is sent to the server before each request, not on every
 keystroke: an unsaved buffer is still the text the answer is about, and a

@@ -565,6 +565,34 @@ void win_delete_current(void)
 	buf_select(win_buffer_slot(wcur()));
 }
 
+/* Take down the window showing `buffer_index`, leaving the buffer itself
+ * alive: C-x 0 aimed at somebody else's window, for a transient listing
+ * that has stopped being about what point is doing.  The buffer stays --
+ * it is still in the buffer list, and C-x b reaches it -- which is what
+ * Emacs' minibuffer-hide-completions leaves behind too.
+ *
+ * Nothing happens when the buffer is not on screen, when the window
+ * showing it is the only one, or when it is the *current* window: a
+ * listing the reader has stepped into is not one to pull out from under
+ * them, and that is exactly the guard completion-in-region-mode makes
+ * ("unless the selected window is showing *Completions*") before it
+ * hides the listing. */
+void win_undisplay_buffer(int buffer_index)
+{
+	int w = win_showing(buf_handle(buffer_index));
+
+	if (w < 0 || w == win_current || win_count <= 1) {
+		return;
+	}
+	buf_detach_view(&winlist[w]);
+	winlist[w].active = 0;
+	/* Same double coverage win_delete_current() spells out: a handle
+	 * taken on this window stops resolving here. */
+	winlist[w].generation++;
+	win_count--;
+	win_reflow();
+}
+
 /* Delete all other windows, leaving only the current one (C-x 1).  Each
  * discarded view banks its point first, the way C-x 0 does: a window's
  * point is the only record of where the buffer it showed was being read,

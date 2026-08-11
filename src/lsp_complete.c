@@ -129,6 +129,19 @@ struct comp_target {
 	int end;
 };
 
+/* What the listing now on screen is a listing of -- Emacs'
+ * completion-in-region--data, spelled for one buffer and one line.  This
+ * outlives an answer (g_comp above is freed at the end of the callback
+ * that read it); it is what lsp_complete_post_command() consults to
+ * decide the listing has stopped being about where point is. */
+static struct {
+	bool showing;
+	struct kg_buffer_handle listing; /* the *Completions* buffer */
+	struct kg_buffer_handle source; /* the buffer completed in */
+	int line;
+	int start;
+} g_listing;
+
 static void comp_reset(void)
 {
 	size_t i;
@@ -323,10 +336,12 @@ static bool comp_append_row(int slot, const struct lsp_complete_item *item)
 /* Build the listing and show it beside the buffer being completed in,
  * leaving point where it was.  The listing is passive: it has no mode
  * map of its own, so there is nothing to press in it -- Emacs' RET on a
- * completion is a keymap kg has not given this buffer, and Emacs also
- * takes the listing down as you keep typing, which kg does not.  It is a
- * buffer like any other and C-x 0 closes its window. */
-static void comp_show(const size_t *index, size_t n)
+ * completion is a keymap kg has not given this buffer.  It is a buffer
+ * like any other and C-x 0 closes its window; what it also does now is
+ * close itself once point leaves the field it is a listing of, which is
+ * lsp_complete_post_command() below. */
+static void comp_show(
+    const struct comp_target *target, const size_t *index, size_t n)
 {
 	int slot = buf_prepare_special_text(
 	    LSP_COMPLETE_BUFFER_NAME, &text_syntax, 1);
@@ -350,8 +365,81 @@ static void comp_show(const size_t *index, size_t n)
 		}
 	}
 	win_display_buffer_other_window(slot);
+	g_listing.showing = true;
+	g_listing.listing = buf_handle(slot);
+	g_listing.source = buf_handle(buf_current);
+	g_listing.line = target->line;
+	g_listing.start = target->start;
 	editor_set_status_message(
 	    "%zu completions — see " LSP_COMPLETE_BUFFER_NAME, n);
+}
+
+/* ------------------------------ the lifetime -------------------------- */
+
+/* Where the field point is in begins, in chars space: the word before
+ * point, or point itself when there is no word there.  A completion
+ * offered for an empty prefix -- after a `.`, where the server's own
+ * range starts and ends at point -- has a field too, and it begins where
+ * it was asked for; without this second answer such a listing would close
+ * on the very next key, which is the one case a bare word scan gets
+ * wrong. */
+static int comp_field_start(struct editor_buffer *b, int line, int col)
+{
+	struct dabbrev_pos at = { .row = line, .col = col };
+	struct dabbrev_pos start;
+
+	if (dabbrev_abbrev_before(b->row, b->numrows, at, &start) > 0) {
+		return start.col;
+	}
+	return col;
+}
+
+/* Whether the listing is still about where point is: the three clauses
+ * completion-in-region--postch has, in its order. */
+static bool comp_listing_current(void)
+{
+	struct editor_buffer *b;
+	int line;
+	int col;
+
+	/* Standing in the listing keeps it, the way Emacs declines to hide
+	 * *Completions* when it is the selected window's buffer. */
+	if (buf_handle_slot(g_listing.listing) == buf_current) {
+		return true;
+	}
+	if (buf_handle_slot(g_listing.source) != buf_current) {
+		return false;
+	}
+	b = bcur();
+	line = editor_current_filerow();
+	if (line != g_listing.line || line >= b->numrows) {
+		return false;
+	}
+	col = editor_current_filecol_in_row(&b->row[line]);
+	if (col < g_listing.start) {
+		return false;
+	}
+	return comp_field_start(b, line, col) == g_listing.start;
+}
+
+void lsp_complete_post_command(void)
+{
+	int slot;
+
+	if (!g_listing.showing) {
+		return;
+	}
+	slot = buf_handle_slot(g_listing.listing);
+	if (slot < 0) {
+		/* Killed from under us; there is no window to take down. */
+		g_listing.showing = false;
+		return;
+	}
+	if (comp_listing_current()) {
+		return;
+	}
+	win_undisplay_buffer(slot);
+	g_listing.showing = false;
 }
 
 /* ------------------------------ the insertion ------------------------- */
@@ -400,7 +488,7 @@ static void comp_act(const struct comp_target *target, const size_t *index,
 		}
 		return;
 	}
-	comp_show(index, n);
+	comp_show(target, index, n);
 }
 
 /* ------------------------------ the reply ----------------------------- */
@@ -484,5 +572,8 @@ void editor_completion_at_point(int fd)
 	(void)fd;
 	editor_set_status_message("kg was built without LSP support");
 }
+
+/* No listing without a server to build one from. */
+void lsp_complete_post_command(void) { }
 
 #endif /* KG_USE_LSP */

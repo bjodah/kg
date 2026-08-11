@@ -1,0 +1,45 @@
+name: lsp-completion-listing-survives-other-window
+# The listing does not close itself out from under a reader who has
+# stepped into it.
+#
+# C-x o puts point in *Completions*, which by every other clause of the
+# rule means the listing has stopped being about where point is -- so the
+# guard has to be explicit.  It is Emacs' too: `completion-in-region-mode'
+# hides *Completions* "unless the selected window is showing it", and
+# without that clause the mode exiting on the first keystroke inside the
+# listing would take the window away as the reader arrived in it.
+#
+# So: in (C-x o), move about (C-n), out, in, and out again -- the third of
+# those is what asserts the window is still there, since C-x o with the
+# listing gone says "No other windows." instead.  The run ends in the
+# buffer under test because that is the one it saves.  The listing is
+# read-only, so none of these keys can change the saved file, and the file
+# being what it was is the rest of the assertion.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion alpha --completion avocado"
+filename: complother.c
+initial: |-
+  a
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - "C-x"
+  - "o"
+  - "C-n"
+  - "C-x"
+  - "o"
+  - "C-x"
+  - "o"
+  - "C-x"
+  - "o"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  a
+expected_screen_not_contains:
+  - "No other windows."

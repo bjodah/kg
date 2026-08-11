@@ -51,6 +51,7 @@
 #include "kbd.h"
 #include "lisp.h"
 #include "lsp.h"
+#include "lsp_complete.h"
 #include "lsp_diag.h"
 #include "lsp_log.h"
 #include "marker.h"
@@ -272,6 +273,13 @@ int main(int argc, char **argv)
 		 * command, and after everything the command queued has been
 		 * delivered. */
 		kg_lisp_run_post_command_hook();
+		/* The same seam, in C, for the one transient the editor owns
+		 * rather than an init file: a *Completions* listing point has
+		 * moved out of.  Not shipped Lisp, because a WITH_LISP=0 kg
+		 * has no hook to hang it on and would keep the listing up --
+		 * a difference between builds, which is worse than a
+		 * twenty-line C function. */
+		lsp_complete_post_command();
 	}
 	/* Nothing in a default build: KG_PERF_COUNTERS is off, and
 	 * kg_lisp_perf_snapshot() is a no-op with it off or Lisp inactive.

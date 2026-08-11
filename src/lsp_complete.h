@@ -63,4 +63,29 @@ size_t lsp_complete_common_prefix(const char *const *texts, size_t n);
 
 void editor_completion_at_point(int fd);
 
+/* Once per processed keystroke, from the main loop's post-command seam:
+ * take the listing down when point has left what the listing is a listing
+ * of.
+ *
+ * Emacs' rule, measured against 31.0.90 rather than assumed.  Its
+ * `completion-in-region-mode' survives a keystroke when point is still at
+ * or after the start of the region being completed, still on that
+ * region's line, and the completion function asked afresh still says the
+ * region begins where it began; otherwise the mode exits and takes
+ * *Completions* down with it.  So typing more of the same symbol leaves
+ * the listing up (stale -- Emacs does not recompute it either), and a
+ * space, a C-a, or a move to another line closes it.  Repeated M-TAB
+ * keeps it and replaces it when the next answer lands.
+ *
+ * kg's stand-in for "ask the completion function again" is the word scan
+ * M-/ uses (src/dabbrev.h), which is what the fallback target is measured
+ * with in the first place, and which costs no round trip to the server:
+ * a listing must not depend on one to know it is over.
+ *
+ * C in both configurations rather than in shipped Lisp: a WITH_LISP=0 kg
+ * has no post-command-hook to hang this on, and a listing that lingers in
+ * one build and not the other is a difference between builds nobody asked
+ * for.  A no-op with LSP compiled out, where there is no listing. */
+void lsp_complete_post_command(void);
+
 #endif /* KG_LSP_COMPLETE_H */

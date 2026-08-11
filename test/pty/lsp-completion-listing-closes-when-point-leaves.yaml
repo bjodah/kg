@@ -1,0 +1,36 @@
+name: lsp-completion-listing-closes-when-point-leaves
+# Moving point out of the field takes the listing down without editing
+# anything: `(>= (point) start)', the other clause of Emacs'
+# `completion-in-region--postch'.
+#
+# Measured against emacs -q -nw 31.0.90: with `(prin` and the listing up,
+# C-a moves point to column 0, before the region the completion was
+# offered for, and the *Completions* window goes.  Here the field is the
+# `a` at column 2, so C-a is that same move.  The file is saved unchanged,
+# which is the other half of the assertion -- a listing that closes itself
+# must not touch the buffer.
+#
+# See lsp-completion-listing-closes-on-delimiter.yaml for why the closing
+# is asserted with C-x o's one-window message.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion alpha --completion avocado"
+filename: complleave.c
+initial: |-
+  f(a
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - "C-a"
+  - "C-x"
+  - "o"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  f(a
+expected_screen_contains:
+  - "No other windows."

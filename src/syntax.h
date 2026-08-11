@@ -163,12 +163,42 @@ void editor_set_syntax(struct editor_buffer *b, struct editor_syntax *syntax);
 void editor_rehighlight_all(struct editor_buffer *b);
 int editor_syntax_to_color(int hl);
 void editor_select_syntax_highlight(struct editor_buffer *b, char *filename);
+
+/* ---- Git mode semantics -------------------------------------------------
+ *
+ * What a commit message or a rebase todo *means*, as opposed to what
+ * colour it is: the C-c action keys and the diagnostics (src/gitdiag.h)
+ * read these, so they belong to the facade and stay available whatever
+ * backend (if any) is highlighting.
+ *
+ * Each predicate comes in two spellings.  The zero-argument one asks
+ * about the current buffer, which is what a command handler wants; the
+ * `_buffer` one asks about a named buffer, which is what a module handed
+ * a `struct editor_buffer *` -- a repaint walking the windows, say --
+ * needs, since the buffer it was given is not always the selected one. */
 [[nodiscard]] int syntax_is_git_commit(void);
+[[nodiscard]] int syntax_buffer_is_git_commit(const struct editor_buffer *b);
 [[nodiscard]] int syntax_git_commit_subject(void);
+[[nodiscard]] int syntax_buffer_git_commit_subject(
+    const struct editor_buffer *b);
 [[nodiscard]] int syntax_is_git_rebase(void);
+[[nodiscard]] int syntax_buffer_is_git_rebase(const struct editor_buffer *b);
 int syntax_git_rebase_pick_span(
     const char *line, int len, int *start, int *wlen);
 int syntax_git_rebase_flags_end(const char *line, int len, int from);
+
+/* Index of the first byte at or after `from` that is not a space or tab. */
+int syntax_git_rebase_skip_ws(const char *line, int len, int from);
+
+/* Index just past the word starting at `from`. */
+int syntax_git_rebase_skip_word(const char *line, int len, int from);
+
+/* The canonical name of the git-rebase-todo action spelled by
+ * word[0..len) -- long or single-letter abbreviation -- or NULL when it
+ * names none.  On a hit *takes_commit says whether a commit hash follows
+ * the action word. */
+const char *syntax_git_rebase_action_name(
+    const char *word, int len, int *takes_commit);
 
 /* ---- Per-buffer backend state ------------------------------------------
  *

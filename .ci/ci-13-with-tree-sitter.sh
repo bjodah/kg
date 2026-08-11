@@ -7,10 +7,12 @@
 #
 # The tree-sitter core is a prebuilt prefix on the developer box, not a
 # submodule (Refinement decision 1), and hosted runners have no such prefix.
-# v1 keeps this lane developer-box-only: with no prefix it SKIPs with a
-# printed reason, the same culture as the Emacs oracle and tmux cases.
-# Promoting it to hosted CI means building the core from its pinned tag in a
-# cached step, and is a separate decision.
+# This lane used to SKIP there, which made the whole tree-sitter backend
+# developer-box-only; it now builds the prefix instead, so hosted CI
+# exercises it.  The cost of that promotion is one dependency this step did
+# not have: network access to the pins' hosts.  It is spent on purpose -- a
+# lane that quietly stops testing a backend is how the backend rots -- so a
+# build that cannot happen FAILS with the reason named rather than skipping.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,17 +21,32 @@ source .ci/ci-env.sh
 # Same default, and the same order, as the Makefile's TREE_SITTER_PREFIX:
 # an explicit value, else the box's $TREE_SITTER_ROOT, else the install this
 # development environment has.  It is resolved here as well as there
-# because the SKIP below has to know the prefix before make runs.
+# because what happens next has to know the prefix before make runs.
 TREE_SITTER_PREFIX=${TREE_SITTER_PREFIX:-${TREE_SITTER_ROOT:-/opt-2/tree-sitter-v0.26.12-release}}
 
+# Nothing found: build utils/tree-sitter-pins into a cache keyed by that
+# file's hash, and use that.  The order -- environment, then cache, then
+# build -- is what makes the end state a one-variable change: an image that
+# ships a prefix and sets TREE_SITTER_ROOT never reaches this branch, and
+# the CI image is built from a repository whose business that is.  Until
+# then a hosted runner's workspace is ephemeral, so the cache is a
+# within-run one and the build is paid per run (~20 s, against the two full
+# test suites below).
+#
+# TREE_SITTER_GRAMMAR_DIR is exported with it because the two are separate
+# knobs in the Makefile: the prefix is what the editor LINKS, the grammar
+# directory is the compiled-in path it dlopen's grammars from, and a built
+# prefix supplies both.  On the developer-box path neither is touched, so
+# whatever the box exports still decides.
 if [ ! -e "${TREE_SITTER_PREFIX}/include/tree_sitter/api.h" ]; then
-	echo "SKIP: no tree-sitter prefix at ${TREE_SITTER_PREFIX}" \
-	     "(set TREE_SITTER_PREFIX=... to a prefix containing" \
-	     "include/tree_sitter/api.h)"
-	exit 0
+	echo "no tree-sitter prefix at ${TREE_SITTER_PREFIX};" \
+	     "falling back to the pinned build (utils/tree-sitter-pins)"
+	TREE_SITTER_PREFIX=$(utils/build-tree-sitter.sh --jobs "${JOBS}")
+	export TREE_SITTER_GRAMMAR_DIR="${TREE_SITTER_PREFIX}/lib"
 fi
 
 export TREE_SITTER_PREFIX
+echo "tree-sitter prefix: ${TREE_SITTER_PREFIX}"
 
 # (WITH_LISP=1, WITH_TREE_SITTER=1): the full-feature build.
 make clean

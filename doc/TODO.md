@@ -313,29 +313,37 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
 
 The `WITH_TREE_SITTER=1` backend is complete per
 [doc/plans/kg-tree-sitter-plan.md](plans/kg-tree-sitter-plan.md)'s
-definition of done: 13 registry rows over 11 grammars, incremental
+definition of done: 14 registry rows over 12 grammars, incremental
 TSInputEdit parsing with damage-limited repainting, differential-tested
-against full rebuilds.  Known follow-ups, none blocking:
+against full rebuilds.  Hosted CI runs the lane as of 2026-08-11:
+`.ci/ci-13-with-tree-sitter.sh` no longer skips off the developer box, it
+builds `utils/tree-sitter-pins` with `utils/build-tree-sitter.sh` into a
+cache keyed by that manifest's hash.  Known follow-ups, none blocking:
 
-- **Shell**: unblocked.  The grammar the loader used to refuse (a
-  tree-sitter-bash of grammar ABI 6) is gone; the installed
-  `libtree-sitter-bash.so` is ABI 15 and loads.  What is missing is
-  one registry row + one query + tests.
-- **Git-mode diagnostics under the TS backend**: the overlong-subject
-  and bad-rebase-action HL_WARNING spans are legacy-scanner output, so
-  a TS build shows git buffers plain.  The plan's Phase 9 answer is to
-  re-express them as decorations, which both backends display.
-- **TSX tag colouring**: TS and TSX share one query text restricted to
-  the common node inventory, so `.tsx` tag names are unpainted; a
-  second query literal for the tsx row fixes it if wanted.
-- **Hosted CI promotion**: `.ci/ci-13-with-tree-sitter.sh` SKIPs off
-  the developer box; promoting it means building the pinned core (and
-  grammars) in a cached step (Refinement, "Hosted CI").
-- **Bench cases**: slice 7 measured edit latency ad hoc (1.3-5.6 ms
-  net per keystroke on 6.7k-38.8k-line files); `utils/bench.py` cases
-  for large-file open + edit under the TS build would make that a
-  tracked number.  Parse cancellation stays deferred until a
-  measurement says otherwise (Refinement, "Latency policy").
+- **`ts_tree_get_changed_ranges()` can under-report**, and kg trusts it.
+  Found while giving Shell a differential fixture, on a document of
+  overlapping unterminated heredocs: replaying the failing edit through
+  the C API, an edit on row 15 turns the token at byte 92 from an
+  anonymous `<<` [92,95] into a `(heredoc_start)` [92,102] on row 8,
+  while the reported changed ranges are `[15.23-15.38]` and
+  `[15.39-16.6]` and name nothing on row 8.  kg repaints the union of
+  the edit's rows and those ranges (`damage_repaint()`), which is the
+  documented contract, so that row keeps a stale colour until something
+  else repaints it — cosmetic, and it self-heals on the next edit that
+  touches the row.  bash's heredoc scanner is where it shows; nothing
+  says the other grammars cannot.  The fix is not a wider damage window
+  guessed at here but a repaint of the visible window on redisplay,
+  which is what Emacs' treesit does and what kg's row-at-a-time painter
+  already makes correct; it is a separate slice.  Until then the Shell
+  random alphabet omits the heredoc tokens
+  (`test/test_syntax_tree_sitter.c`, `shell_tokens[]`) so the loop keeps
+  asking about kg.
+- **Ship the prefix in the CI image**: the pinned build above is a
+  per-run cost on an ephemeral workspace.  ci-13 resolves an environment
+  variable before the cache and the cache before a build, so an image
+  carrying a prefix and exporting `TREE_SITTER_ROOT` retires the build
+  path with no repo change; that is the end state the resolution order
+  was written for.
 - **Query embedding generator** (`utils/embed_tree_sitter_queries.py`):
   deliberately declined twice; revisit only if queries outgrow
   string-literal form.

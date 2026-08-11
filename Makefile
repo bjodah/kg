@@ -329,7 +329,7 @@ SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c file
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
-       mouse.c showparen.c prompt.c
+       mouse.c showparen.c prompt.c gitdiag.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -369,7 +369,8 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
            $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
-           $(TESTDIR)/test_occur $(TESTDIR)/test_readonly \
+           $(TESTDIR)/test_occur $(TESTDIR)/test_gitdiag \
+           $(TESTDIR)/test_readonly \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -576,7 +577,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8382
+SCC_COMPLEXITY_MAX ?= 8433
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1214,9 +1215,10 @@ EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rec
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # test_basic.c #includes src/display.c to reach the drawing helpers, so it
-# needs everything display.c calls -- showparen.o among them, since the
-# repaint is where the paren highlight is recomputed.
-EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
+# needs everything display.c calls -- showparen.o and gitdiag.o among them,
+# since the repaint is where the paren highlight and the git diagnostics
+# are recomputed.
+EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(OBJDIR)/gitdiag.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # The geometry index's own unit tests need exactly what test_basic needs
 # to reach get_visual_row()/find_visual_row()/goto_visual_row_col(): real
 # basic.o (editor_cursor_goto(), editor_row_insert_char()), mode.o (the
@@ -1276,6 +1278,13 @@ EXTRA_dabbrev     := $(EXTRA_word) $(OBJDIR)/dabbrev.o
 # mode.o, which is where chars_to_render_col() lives.
 EXTRA_showparen   := $(EXTRA_buffer) $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o \
                      $(OBJDIR)/showparen.o
+# The git diagnostics link the same set and for the same reasons: the pure
+# half reads rows and mode.o's render_to_chars_col(), and the update seam
+# publishes decorations into a real buffer.  Not a backend suite -- nothing
+# here names a scanner or a parser -- so it builds and runs in both
+# WITH_TREE_SITTER configurations, which is the point of the module.
+EXTRA_gitdiag     := $(EXTRA_buffer) $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o \
+                     $(OBJDIR)/gitdiag.o
 EXTRA_marker      := $(EXTRA_buffer)
 EXTRA_decor       := $(EXTRA_buffer)
 EXTRA_event       := $(EXTRA_buffer) $(OBJDIR)/event.o

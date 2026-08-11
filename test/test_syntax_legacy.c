@@ -417,41 +417,24 @@ static void test_gitcommit_comment_line(void)
 	teardown();
 }
 
-/* A 60-char subject on row 0: bytes 0-49 HL_NORMAL, 50-59 HL_WARNING.
- * Deliberately a single insert with no re-trigger: this is a regression
- * test for a freshly opened file (editor_open() inserts each row once,
- * in order), which must show the warning without requiring an edit. */
-static void test_gitcommit_subject_overflow(void)
+/* The overlong-subject warning is a decoration now (src/gitdiag.c), and
+ * this scanner must not paint a second one: a 60-byte subject and a
+ * 60-byte body row are both left entirely HL_NORMAL here.  What the
+ * warning covers is asserted in test/test_gitdiag.c, which both backend
+ * configurations build. */
+static void test_gitcommit_subject_is_not_painted_here(void)
 {
-	char subject[61];
+	char line[61];
 	int i;
 
 	setup(syntax_find_by_name("Git commit"));
-	memset(subject, 'x', 60);
-	editor_insert_row(bcur(), 0, subject, 60);
-
-	for (i = 0; i < 50; i++) {
-		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
-	}
-	for (i = 50; i < 60; i++) {
-		CHECK(bcur()->row[0].hl[i] == HL_WARNING);
-	}
-	teardown();
-}
-
-/* Subject row 0, blank row 1, 60-char body row 2: body has no HL_WARNING. */
-static void test_gitcommit_body_not_warned(void)
-{
-	char body[61];
-	int i;
-
-	setup(syntax_find_by_name("Git commit"));
-	memset(body, 'y', 60);
-	editor_insert_row(bcur(), 0, "short subject", 13);
+	memset(line, 'x', 60);
+	editor_insert_row(bcur(), 0, line, 60);
 	editor_insert_row(bcur(), 1, "", 0);
-	editor_insert_row(bcur(), 2, body, 60);
+	editor_insert_row(bcur(), 2, line, 60);
 
 	for (i = 0; i < 60; i++) {
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 		CHECK(bcur()->row[2].hl[i] == HL_NORMAL);
 	}
 	teardown();
@@ -494,16 +477,17 @@ static void test_gitrebase_pick_line(void)
 	teardown();
 }
 
-/* A typoed action word gets HL_WARNING. */
-static void test_gitrebase_unknown_action_warns(void)
+/* A typoed action word is a diagnostic (src/gitdiag.c), not a colour:
+ * this scanner reads nothing on such a line, and paints nothing on it. */
+static void test_gitrebase_unknown_action_is_not_painted_here(void)
 {
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
 	editor_insert_row(bcur(), 0, "puck 1a2b3c4 oops", 17);
 
-	for (i = 0; i < 4; i++) {
-		CHECK(bcur()->row[0].hl[i] == HL_WARNING);
+	for (i = 0; i < 17; i++) {
+		CHECK(bcur()->row[0].hl[i] == HL_NORMAL);
 	}
 	teardown();
 }
@@ -542,31 +526,28 @@ static void test_gitrebase_abbrev_and_flag(void)
 	teardown();
 }
 
-/* A flag on an action that cannot take one is warned; the hash after
- * it is still recognized. */
-static void test_gitrebase_invalid_flag_warns(void)
+/* A flag the action cannot take is a diagnostic too, so the scanner
+ * leaves it alone -- and still finds the hash behind it, which is the
+ * part of these two lines that is a reading of the grammar. */
+static void test_gitrebase_impossible_flag_is_not_painted_here(void)
 {
 	int i;
 
 	setup(syntax_find_by_name("Git rebase"));
 	editor_insert_row(bcur(), 0, "pick -C 1a2b3c4 x", 17);
 
-	CHECK(bcur()->row[0].hl[5] == HL_WARNING);
-	CHECK(bcur()->row[0].hl[6] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[5] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL);
 	for (i = 8; i < 15; i++) {
 		CHECK(bcur()->row[0].hl[i] == HL_KEYWORD2);
 	}
 	teardown();
-}
 
-/* fixup takes only -C/-c: any other flag is warned. */
-static void test_gitrebase_fixup_bad_flag_warns(void)
-{
 	setup(syntax_find_by_name("Git rebase"));
 	editor_insert_row(bcur(), 0, "fixup -X 1a2b3c4", 16);
 
-	CHECK(bcur()->row[0].hl[6] == HL_WARNING);
-	CHECK(bcur()->row[0].hl[7] == HL_WARNING);
+	CHECK(bcur()->row[0].hl[6] == HL_NORMAL);
+	CHECK(bcur()->row[0].hl[7] == HL_NORMAL);
 	CHECK(bcur()->row[0].hl[9] == HL_KEYWORD2);
 	teardown();
 }
@@ -1447,15 +1428,13 @@ int main(void)
 	RUN(test_md_setext_underline);
 	RUN(test_md_unmatched_bold);
 	RUN(test_gitcommit_comment_line);
-	RUN(test_gitcommit_subject_overflow);
-	RUN(test_gitcommit_body_not_warned);
+	RUN(test_gitcommit_subject_is_not_painted_here);
 	RUN(test_gitrebase_comment_line);
 	RUN(test_gitrebase_pick_line);
-	RUN(test_gitrebase_unknown_action_warns);
+	RUN(test_gitrebase_unknown_action_is_not_painted_here);
 	RUN(test_gitrebase_exec_body_string);
 	RUN(test_gitrebase_abbrev_and_flag);
-	RUN(test_gitrebase_invalid_flag_warns);
-	RUN(test_gitrebase_fixup_bad_flag_warns);
+	RUN(test_gitrebase_impossible_flag_is_not_painted_here);
 	RUN(test_gitrebase_merge_hash);
 	RUN(test_md_blank_line_in_fence);
 	RUN(test_iterative_propagation);

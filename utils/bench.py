@@ -19,6 +19,22 @@ Each case opens a generated corpus in a real pty, waits for the first
 frame, sends a key script, and measures the whole process lifetime.  That
 includes startup, which is a constant of a few milliseconds and is
 reported separately as the `startup` case so it can be subtracted by eye.
+
+A case may name a build feature it needs (`kg -V`'s +words, the same
+names `requires_feature:` uses in a PTY case).  A run whose binary lacks
+it reports the case as skipped, with the reason, rather than measuring
+something else under the case's name: that is what keeps the tree-sitter
+cases below (`ts-*`) out of a plain `make bench` while leaving them in
+the file.  To measure them, build the counting kg with the backend:
+
+    make bench WITH_TREE_SITTER=1
+
+No other knob: the feature stamp in $(OBJDIR) rebuilds test/perfobj for
+the new configuration, so this and a plain `make bench` can alternate.
+That build also re-measures every other case against the tree-sitter
+backend -- open-comment-c-40k and open-comment-c-40k-edit under both
+configurations are the backend comparison, since a case name means the
+same workload either way.
 """
 
 import argparse
@@ -72,6 +88,42 @@ def corpus_comment_c(path, lines):
 			fp.write(f" * across several rows, number {i}\n")
 			fp.write(" */\n")
 			fp.write(f"static int fn_{i}(void) {{ return {i}; }}\n")
+
+
+def corpus_c_source(path, lines):
+	# Ordinary C, not the comment-heavy shape corpus_comment_c() writes:
+	# a parser's cost is in the code it has to build nodes for, and a file
+	# that is three-quarters comment measures the lexer skipping bytes.
+	# Each block declares a struct and defines a function over it, so the
+	# tree has real nesting (a loop with an if/else inside a function
+	# inside a translation unit) at a realistic density of about one node
+	# per token.
+	block = (
+		"struct node_%(i)d {\n"
+		"\tint id;\n"
+		"\tchar *name;\n"
+		"\tstruct node_%(i)d *next;\n"
+		"};\n"
+		"\n"
+		"static int visit_%(i)d(struct node_%(i)d *n, int depth)\n"
+		"{\n"
+		"\tint total = 0;\n"
+		"\n"
+		"\twhile (n != NULL) {\n"
+		"\t\tif (n->id %% 3 == 0)\n"
+		"\t\t\ttotal += n->id * depth;\n"
+		"\t\telse\n"
+		"\t\t\ttotal -= depth;\n"
+		"\t\tn = n->next;\n"
+		"\t}\n"
+		"\treturn total;\n"
+		"}\n"
+		"\n"
+	)
+	per_block = block.count("\n")
+	with open(path, "w", encoding="utf-8") as fp:
+		for i in range((lines + per_block - 1) // per_block):
+			fp.write(block % {"i": i})
 
 
 def corpus_tabs(path, lines):
@@ -147,15 +199,16 @@ CORPORA = {
 	"long-line-1mib": (lambda p: corpus_one_long_line(p, 1 << 20), "min.js"),
 	"unicode-20k": (lambda p: corpus_unicode(p, 20_000), "utf8.txt"),
 	"comment-c-40k": (lambda p: corpus_comment_c(p, 40_000), "big.c"),
+	"c-source-40k": (lambda p: corpus_c_source(p, 40_000), "src.c"),
 	"tabs-100k": (lambda p: corpus_tabs(p, 100_000), "tabs.txt"),
 	"invalid-bytes-20k": (lambda p: corpus_invalid_bytes(p, 20_000), "invalid.txt"),
 }
 
 # name -> (corpus or None, keys sent after the first frame).  A case may
-# extend the tuple with two optional trailing fields -- (corpus, keys,
-# home_files, assert_gt) -- see normalize_case() below; every plain
-# 2-tuple case above and below still means "isolated $HOME, no init file,
-# nothing to assert".
+# extend the tuple with three optional trailing fields -- (corpus, keys,
+# home_files, assert_gt, requires_feature) -- see normalize_case() below;
+# every plain 2-tuple case above and below still means "isolated $HOME, no
+# init file, nothing to assert, runs on any build".
 CASES = {
 	"startup": (None, ["\x18\x03"]),
 	# ---- Lisp / Fe evaluator (sub-plan 00D) ----
@@ -375,6 +428,67 @@ CASES = {
 	"visual-line-unicode-20k": ("unicode-20k",
 				    ["\x1bx", "visual-line-mode\r", "\x1b>",
 				     "\x10" * 5, "\x18\x03"]),
+
+	# ---- tree-sitter backend ----
+	# `requires_feature: tree-sitter` here means what it means in a PTY
+	# case: a binary that reports -tree-sitter reports these as skipped
+	# with the reason, so a plain `make bench` still runs clean.  Build
+	# the counting kg with `make bench WITH_TREE_SITTER=1` to measure
+	# them.
+	#
+	# Both cases exist because the tree-sitter plan's latency policy
+	# (doc/plans/kg-tree-sitter-plan.md, Refinement "Latency policy") is
+	# to parse synchronously with no timeout and no cancellation, and to
+	# defer a cancellation/budget mechanism until a measurement says one
+	# is needed.  These are that measurement, and the place to re-read
+	# before anyone reopens that question: the open case is the one full
+	# parse a load pays, the edit case is what an ordinary keystroke
+	# costs on top of it.
+	#
+	# Times: the harness paces keys at a flat 0.06 s (run_once()), which
+	# it must -- under 30 ms kg decides it is watching a paste and turns
+	# auto-indent and autocompletion off, so a faster script would stop
+	# measuring typing.  The edit case's wall time is therefore mostly
+	# that pacing, and its per-keystroke reading is (wall time - the same
+	# script without the typing) / keys, one subtraction further than the
+	# `startup` constant every other case is read against.  Measured that
+	# way on this box: 20 keystrokes cost 1231 ms against 1260 ms of
+	# pacing for the entries they occupy -- under a millisecond each, at
+	# or below what the pacing can resolve, and the low end of the
+	# 1.3-5.6 ms slice 7 measured ad hoc.  Which is exactly why the
+	# counters are the durable half of both cases: ts_parse minus
+	# ts_full_parse is the number of incremental reparses (measured 20
+	# here, one per keystroke, on top of the load's one full parse), and
+	# ts_rehighlight_row is the damage window they authorised (40, two
+	# rows per edit).  The open case's own reading is 319 ms against a
+	# 113 ms `startup`: about 205 ms to parse and paint 40k lines /
+	# 545 KB, paid once at load.
+	"ts-open-c-40k": ("c-source-40k", ["\x18\x03"], None,
+			  # Loading a file has no old tree to reuse, so its
+			  # parse is a full one.  Asserting that distinguishes
+			  # "measured a 40k-line parse" from "measured a build
+			  # whose grammar failed to load", which would still
+			  # open the file, still exit 0, and read zero here.
+			  {"ts_full_parse": 0}, "tree-sitter"),
+	# Type an identifier's worth of characters, one keystroke per entry,
+	# in the middle of the same file (M-g g, spelled in full because M-g
+	# is a prefix map -- see visual-line-pos-middle-100k).  ("settle",)
+	# after the jump for the same reason the resize cases use it: the
+	# repaint the jump provokes must have landed before the first
+	# keystroke, or the case measures it inside the first edit.  The
+	# trailing "y" answers the modified-buffer prompt.
+	"ts-edit-c-40k": ("c-source-40k",
+			  ["\x1bg", "g", "20000\r", ("settle",)]
+			  + list("int extra_field = 0;")
+			  + ["\x18\x03", "y"], None,
+			  # One incremental reparse per keystroke is the shape
+			  # this case pins: 20 keystrokes on top of the load's
+			  # single full parse.  A script that silently reached
+			  # nothing -- the trap bench_case()'s assert_gt
+			  # docstring describes -- would read ts_parse 1 and
+			  # ts_rehighlight_row 0.
+			  {"ts_parse": 10, "ts_rehighlight_row": 0},
+			  "tree-sitter"),
 }
 BIG_CASES = {
 	"open-lines-1m": ("lines-1m", ["\x18\x03"]),
@@ -599,12 +713,26 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 
 def normalize_case(value):
 	"""CASES/BIG_CASES entries are (corpus, keys) 2-tuples, optionally
-	extended to (corpus, keys, home_files, assert_gt) by the Lisp cases
-	above; this is the one place both shapes are unpacked."""
+	extended to (corpus, keys, home_files, assert_gt, requires_feature)
+	by the Lisp and tree-sitter cases above; this is the one place every
+	shape is unpacked."""
 	corpus, keys = value[0], value[1]
 	home_files = value[2] if len(value) > 2 else None
 	assert_gt = value[3] if len(value) > 3 else None
-	return corpus, keys, home_files, assert_gt
+	requires_feature = value[4] if len(value) > 4 else None
+	return corpus, keys, home_files, assert_gt, requires_feature
+
+
+def kg_features(kg):
+	"""The +words `kg -V` prints, as a set of feature names.
+
+	The same reading utils/pty_accept.py does, and deliberately from the
+	binary rather than from the build flags: what a case needs is a
+	property of the kg it is about to drive.
+	"""
+	out = subprocess.run([kg, "-V"], check=True, capture_output=True,
+			     text=True)
+	return {word[1:] for word in out.stdout.split() if word.startswith("+")}
 
 
 def toolchain(cc):
@@ -663,10 +791,19 @@ def main():
 			return 2
 		cases = {k: v for k, v in cases.items() if k in args.case}
 
+	# Decided before any corpus is generated, so a run that will skip
+	# every case needing a corpus does not write one first.
+	features = kg_features(args.kg)
+	skipped = {}
+	for name, value in cases.items():
+		needs = normalize_case(value)[4]
+		if needs is not None and needs not in features:
+			skipped[name] = needs
+
 	corpus_dir = Path(args.corpus_dir)
 	corpus_dir.mkdir(parents=True, exist_ok=True)
-	needed = {normalize_case(v)[0] for v in cases.values()
-		 if normalize_case(v)[0]}
+	needed = {normalize_case(v)[0] for name, v in cases.items()
+		 if normalize_case(v)[0] and name not in skipped}
 	paths = {}
 	for name in sorted(needed):
 		build, filename = CORPORA[name]
@@ -686,10 +823,21 @@ def main():
 		"host": {"platform": platform.platform(),
 			 "machine": platform.machine(),
 			 "cpus": os.cpu_count()},
+		"features": sorted(features),
 		"cases": [],
 	}
 	for name, value in cases.items():
-		corpus, keys, home_files, assert_gt = normalize_case(value)
+		corpus, keys, home_files, assert_gt, _ = normalize_case(value)
+		if name in skipped:
+			# In the report as well as on stderr: a case silently
+			# absent from the JSON looks the same as a case nobody
+			# thought to write, and the next reader of a trend needs
+			# to see that this run could not take the measurement.
+			reason = f"skipped, kg reports -{skipped[name]}"
+			print(f"bench {name}: {reason}", file=sys.stderr)
+			report["cases"].append({"name": name, "skipped": reason,
+						"requires_feature": skipped[name]})
+			continue
 		print(f"bench {name}", file=sys.stderr)
 		report["cases"].append(bench_case(
 			args.kg, name, paths.get(corpus), keys, args.runs,
@@ -726,6 +874,9 @@ def main():
 		Path(args.json).write_text(text + "\n", encoding="utf-8")
 		print(f"wrote {args.json}", file=sys.stderr)
 	for case in report["cases"]:
+		if "skipped" in case:
+			print(f"  {case['name']:<24} {case['skipped']}")
+			continue
 		print(f"  {case['name']:<24} {case['wall_ms']['median']:>9.2f} ms "
 		      f"median  {case['max_rss_kb'] // 1024:>5} MiB peak")
 	return 0

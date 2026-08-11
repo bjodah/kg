@@ -54,6 +54,7 @@ divergence that is correct but reads wrong.
 | 2 | `editor_display_col(rows, n, filerow, filecol)` (`buffer.c`) | vcol | `cmd.c:50` `C-x =`; `display.c:601` mode line | ok |
 | 3 | `editor_chars_col_at_visual(row, vcol)` (`buffer.c`) | chars | `basic.c:232` goal-column snap; `display.c:346,349` rect region; `rect.c:83,84` | ok — inverse of 1 at glyph starts |
 | 4 | `chars_to_render_col(row, chars_col)` (`mode.c`) | **render byte offset** | `display.c:357-365` `hi_lo`/`hi_hi`, compared against the render index `j`; `search.c:69` highlight span (`row->hl`) | ok — both consumers are render-indexed |
+| 4b | `render_to_chars_col(row, render_col)` (`mode.c`) | chars | `showparen.c:284` the partner paren's column; `gitdiag.c:31` the commit-subject limit, which the legacy scanner measured in render bytes | ok — row 4's inverse at chars-byte starts; an offset inside an expanded TAB answers the offset just past it |
 | 5 | `visual_col_to_chars(row, target_vcol, win_w)` (`mode.c`) | chars | `basic.c:60,77` visual-line Home/End; `mode.c:242` `goto_visual_row_col` | **div** — takes a *display column*, not a render offset; every caller feeds it one (`visual_line_cursor_col`, `segment * win_w`).  It is not the inverse of 4 and must never be paired with it.  Named `render_col_to_chars()` until this plan |
 | 6 | `visual_line_cursor_col(row, chars_col, win_w)` (`mode.c`) | vcol (wrapped) | `basic.c:57,68,85,96`; `display.c:707`; `mode.c:171` | ok |
 | 7 | `visual_line_width(row, win_w)` (`mode.c`) | vcol (wrapped) | `basic.c:70`; `mode.c:116,132,210,233` | ok |

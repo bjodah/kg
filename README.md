@@ -362,6 +362,15 @@ make WITH_TREE_SITTER=1 TREE_SITTER_PREFIX=/usr/local
 ./src/kg -V          # kg 1.1.0 +lisp +tree-sitter +lsp
 ```
 
+On a machine with no such install, `utils/build-tree-sitter.sh` builds one:
+it clones the core and the grammars kg's registry asks for at the revisions
+`utils/tree-sitter-pins` names, compiles each grammar from its checked-in
+`src/parser.c` (no tree-sitter CLI, no cargo, no npm), and prints the path of
+the prefix it cached under `$KG_TS_CACHE` (default `~/.cache/kg-tree-sitter`).
+It wants a C compiler, `git` and network access, and takes about twenty
+seconds. This is what `.ci/ci-13-with-tree-sitter.sh` falls back to when the
+box has no prefix of its own.
+
 `kg -V` names every optional feature as `+word` or `-word`, so it is the way
 to ask a binary which backend it has. The two flags are independent: all four
 combinations of `WITH_LISP` and `WITH_TREE_SITTER` build.
@@ -384,7 +393,8 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
 Highlighted today: **C**, **Python**, **YAML**, **Markdown**,
 **JavaScript**, **React/JSX**, **TypeScript**, **TSX**, **Java**, **Rust**,
-**Go**, **HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
+**Go**, **HTML**, **Emacs Lisp**, **Makefile** and **Shell** — comments,
+strings, numbers,
 keywords and types, from small kg-owned queries compiled into the binary,
 one per language. Every other mode is plain text under
 `WITH_TREE_SITTER=1`: a mode with no grammar is not an error, it simply has
@@ -397,9 +407,7 @@ JavaScript inside an HTML `<script>` and the shell inside a Makefile recipe
 are plain, though the surrounding tags and `$(...)` references are not.
 kg's TypeScript mode picks its grammar from the file name — `.tsx` gets the
 tsx grammar, everything else typescript — because the two are different
-grammars and each mis-parses the other's files. **Shell** has no grammar
-yet: tree-sitter-bash exists, but the build kg is tested against ships a
-release too old for this `libtree-sitter` to load.
+grammars and each mis-parses the other's files.
 
 An edit reparses incrementally, against the tree the last one left, and
 re-colours only the rows that changed, so an ordinary keystroke costs what

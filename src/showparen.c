@@ -187,28 +187,6 @@ static int paren_scan_dir(struct erow *rows, int numrows, int row, int off,
 	return 0;
 }
 
-/* The chars offset of render byte `render_col`, mirroring
- * chars_to_render_col()'s walk (src/mode.c) in the other direction.  Exact
- * for any render offset that starts a chars byte, which a paren always
- * does -- only a TAB expands, and a TAB is not a paren. */
-static int render_to_chars_col(const erow *row, int render_col)
-{
-	int j, rcol = 0, vcol = 0;
-
-	for (j = 0; j < row->size && rcol < render_col; j++) {
-		if (row->chars[j] == TAB) {
-			int spaces = tab_stop_advance(vcol);
-
-			rcol += spaces;
-			vcol += spaces;
-		} else {
-			rcol++;
-			vcol += utf8_width_at(row->chars, row->size, j);
-		}
-	}
-	return j;
-}
-
 /* Which paren, if any, point (`row`, `col`) is at, and which way to scan
  * from it.  Emacs prefers the closer before point over the opener after it
  * -- `)|(` highlights the `)` -- and with show-paren-when-point-inside-
@@ -299,6 +277,10 @@ void show_paren_compute(struct erow *rows, int numrows, int row, int col,
 	if (paren_scan_dir(rows, numrows, row, here_off, dir, cls, &budget,
 		&frow, &foff)) {
 		out->there_row = frow;
+		/* Back to chars space (src/mode.c, beside its inverse):
+		 * exact for any render offset that starts a chars byte,
+		 * which a paren always does -- only a TAB expands, and a
+		 * TAB is not a paren. */
 		out->there_col = render_to_chars_col(&rows[frow], foff);
 		out->status = paren_kinds_agree(r, here_off, &rows[frow], foff)
 		    ? SHOW_PAREN_MATCH

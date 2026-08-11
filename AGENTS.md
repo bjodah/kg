@@ -140,6 +140,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   another counting build -- never against a release `-Os` one. The
   `startup` case is the constant to subtract by eye. `--big` adds the
   1M-line corpus; corpora are cached in the gitignored `test/.bench/`.
+  A case may name a `kg -V` feature it needs, and is reported as skipped
+  with the reason on a build without it: the `ts-*` cases (large-file
+  open and mid-file typing, the tree-sitter latency policy's evidence)
+  need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
+  them.
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
   with the toolchain in it, `apt-get install pmccabe`, then
   `bash -l .ci/run-ci-steps.sh` -- the same runner, and the same steps
@@ -176,9 +181,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   - `cbmc` (`CBMC`): `fe/tiny-regex-c`'s `make verify` only.  Nothing kg
     runs needs it -- `make check` there runs `verify-syntax`, which asks
     an ordinary compiler whether the CPROVER harness still builds.
+  - `git` and a route to the pins' hosts: `ci-13` on a box with no
+    tree-sitter install builds the core and grammars
+    `utils/tree-sitter-pins` names (`utils/build-tree-sitter.sh`, ~20 s)
+    into `${KG_TS_CACHE:-~/.cache/kg-tree-sitter}` rather than skipping,
+    and FAILS if it cannot.  A box that has an install --
+    `$TREE_SITTER_PREFIX`, `$TREE_SITTER_ROOT`, or the `/opt-2` one this
+    development box carries -- fetches nothing.
   - Hosted CI needs nothing beyond these: the image carries the toolchain
     and `.woodpecker.yaml` installs only `pmccabe` on top of it.  The
-    runner discovers its steps with a shell glob, so no `jq`.
+    runner discovers its steps with a shell glob, so no `jq`.  The one
+    thing the image does not carry yet is a tree-sitter prefix, which is
+    why `ci-13` builds one per run there.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are overridable on the make command line, e.g.

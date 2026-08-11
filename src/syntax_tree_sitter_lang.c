@@ -212,7 +212,34 @@ static const char MARKDOWN_HIGHLIGHT_QUERY[]
  *
  * true/false/null/undefined/this/super are NAMED nodes here, so they are
  * listed apart from the anonymous keyword tokens, exactly as Python's
- * none/true/false are. */
+ * none/true/false are.
+ *
+ * The JSX tag patterns are a macro rather than lines of this literal
+ * because the tsx grammar has the same nodes and wants the same rule; the
+ * typescript grammar does not have them at all, which is the whole reason
+ * the two TypeScript rows below stopped sharing one query.  A tag NAME is
+ * three different node types depending on how it is written -- `<div>` is an
+ * (identifier), `<Widget.Inner>` a (member_expression), `<svg:rect>` a
+ * (jsx_namespace_name) -- so the alternation is what makes the rule "a tag
+ * name is @type" rather than "a one-word tag name is @type".
+ *
+ * An ATTRIBUTE name is deliberately not captured, and that is the one place
+ * this differs from the HTML query, where the attribute is @type and the
+ * tag @keyword.  Here the tag is already @type, so painting the attribute
+ * would paint both halves of `<div className=...>` the same colour and say
+ * nothing; HTML can afford the distinction because it has two faces to
+ * spend on markup and this query spends them on TypeScript. */
+#define JSX_TAG_HIGHLIGHT_QUERY                                                \
+	"(jsx_opening_element\n"                                               \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"                                                           \
+	"(jsx_closing_element\n"                                               \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"                                                           \
+	"(jsx_self_closing_element\n"                                          \
+	"  name: [ (identifier) (member_expression) (jsx_namespace_name) ]\n"  \
+	"  @type)\n"
+
 static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
     = "(comment) @comment\n"
       "(hash_bang_line) @comment\n"
@@ -233,12 +260,10 @@ static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
       "(function_declaration name: (identifier) @type)\n"
       "(class_declaration name: (identifier) @type)\n"
       "(method_definition name: (property_identifier) @type)\n"
-      "(call_expression function: (identifier) @type)\n"
-      "(jsx_opening_element name: (identifier) @type)\n"
-      "(jsx_closing_element name: (identifier) @type)\n"
-      "(jsx_self_closing_element name: (identifier) @type)\n";
+      "(call_expression function: (identifier) "
+      "@type)\n" JSX_TAG_HIGHLIGHT_QUERY;
 
-/* TypeScript AND TSX, one query text against two grammars.
+/* TypeScript AND TSX: one shared body, two literals.
  *
  * kg has a single TypeScript mode matching .ts, .tsx and .d.ts, and
  * tree-sitter has two grammars: `typescript`, in which `<T>x` is a type
@@ -247,45 +272,50 @@ static const char JAVASCRIPT_HIGHLIGHT_QUERY[]
  * ERROR with a stray regex in it -- so the registry carries two rows for
  * the mode and picks between them by file-name suffix.
  *
- * The two grammars have DIFFERENT node inventories, and this text is the
- * intersection: `(jsx_element)` and friends do not exist in typescript, and
- * a query naming one fails to compile there (TSQueryErrorNodeType), which
- * would make .ts files plain text.  So the JSX patterns of the JavaScript
- * query above are absent here, and a .tsx file's tag names are uncoloured
- * while its attribute strings, expressions and keywords are not.  Two
- * literals would buy those tag names; one literal, verified against both
- * grammars by test_registry_queries_compile(), buys the guarantee that a
- * change to it cannot silently break one of the two.
+ * The two grammars have DIFFERENT node inventories, and the macro below is
+ * the intersection.  `(jsx_opening_element)` and friends do not exist in
+ * typescript, and a query naming one fails to compile there
+ * (TSQueryErrorNodeType), which would make every .ts file plain text --
+ * which is why the JSX patterns are in the tsx literal and nowhere else.
+ * The shared body stays ONE piece of text rather than two copies, so a
+ * change to it still cannot silently apply to one grammar and not the
+ * other, and test_registry_queries_compile() still compiles both rows.
  *
  * A class name is (type_identifier) in TypeScript where JavaScript makes it
  * an (identifier), so the type patterns cover it without a rule of their
  * own; (predefined_type) is `string`, `number`, `boolean` and the rest.
  * (accessibility_modifier) is public/private/protected, which are one named
  * node rather than three tokens. */
-static const char TYPESCRIPT_HIGHLIGHT_QUERY[]
-    = "(comment) @comment\n"
-      "(hash_bang_line) @comment\n"
-      "(string) @string\n"
-      "(template_string \"`\" @string)\n"
-      "(template_string (string_fragment) @string)\n"
-      "(regex) @string\n"
-      "(number) @number\n"
-      "[\n"
-      "  \"abstract\" \"as\" \"async\" \"await\" \"break\" \"case\"\n"
-      "  \"catch\" \"class\" \"const\" \"continue\" \"declare\" \"default\"\n"
-      "  \"delete\" \"do\" \"else\" \"enum\" \"export\" \"extends\"\n"
-      "  \"finally\" \"for\" \"from\" \"function\" \"if\" \"implements\"\n"
-      "  \"import\" \"in\" \"instanceof\" \"interface\" \"is\" \"keyof\"\n"
-      "  \"let\" \"namespace\" \"new\" \"of\" \"readonly\" \"return\"\n"
-      "  \"satisfies\" \"static\" \"switch\" \"throw\" \"try\" \"type\"\n"
-      "  \"typeof\" \"var\" \"void\" \"while\" \"yield\"\n"
-      "] @keyword\n"
-      "[ (true) (false) (null) (undefined) (this) (super) ] @keyword\n"
-      "(accessibility_modifier) @keyword\n"
-      "[ (type_identifier) (predefined_type) ] @type\n"
-      "(function_declaration name: (identifier) @type)\n"
-      "(method_definition name: (property_identifier) @type)\n"
-      "(call_expression function: (identifier) @type)\n";
+#define TS_SHARED_HIGHLIGHT_QUERY                                              \
+	"(comment) @comment\n"                                                 \
+	"(hash_bang_line) @comment\n"                                          \
+	"(string) @string\n"                                                   \
+	"(template_string \"`\" @string)\n"                                    \
+	"(template_string (string_fragment) @string)\n"                        \
+	"(regex) @string\n"                                                    \
+	"(number) @number\n"                                                   \
+	"[\n"                                                                  \
+	"  \"abstract\" \"as\" \"async\" \"await\" \"break\" \"case\"\n"       \
+	"  \"catch\" \"class\" \"const\" \"continue\" \"declare\"\n"           \
+	"  \"default\" \"delete\" \"do\" \"else\" \"enum\" \"export\"\n"       \
+	"  \"extends\"\n"                                                      \
+	"  \"finally\" \"for\" \"from\" \"function\" \"if\" \"implements\"\n"  \
+	"  \"import\" \"in\" \"instanceof\" \"interface\" \"is\" \"keyof\"\n"  \
+	"  \"let\" \"namespace\" \"new\" \"of\" \"readonly\" \"return\"\n"     \
+	"  \"satisfies\" \"static\" \"switch\" \"throw\" \"try\" \"type\"\n"   \
+	"  \"typeof\" \"var\" \"void\" \"while\" \"yield\"\n"                  \
+	"] @keyword\n"                                                         \
+	"[ (true) (false) (null) (undefined) (this) (super) ] @keyword\n"      \
+	"(accessibility_modifier) @keyword\n"                                  \
+	"[ (type_identifier) (predefined_type) ] @type\n"                      \
+	"(function_declaration name: (identifier) @type)\n"                    \
+	"(method_definition name: (property_identifier) @type)\n"              \
+	"(call_expression function: (identifier) @type)\n"
+
+static const char TYPESCRIPT_HIGHLIGHT_QUERY[] = TS_SHARED_HIGHLIGHT_QUERY;
+
+static const char TSX_HIGHLIGHT_QUERY[]
+    = TS_SHARED_HIGHLIGHT_QUERY JSX_TAG_HIGHLIGHT_QUERY;
 
 /* Java.  The comment node is split in two here -- (line_comment) and
  * (block_comment), where C has one (comment) -- which is the sort of thing
@@ -476,8 +506,9 @@ static const char ELISP_HIGHLIGHT_QUERY[]
  * so `$(CC)` is one span; (automatic_variable) is `$@`, `$<`, `$^` and the
  * rest, which the grammar gives their own node type inside a recipe's
  * (shell_text).  Recipe bodies are otherwise plain: a recipe line is shell,
- * and colouring it as shell would be an injection (Refinement decision 4),
- * and this build has no bash grammar to inject anyway.
+ * and colouring it as shell would be an injection (Refinement decision 4) --
+ * a bash grammar is loaded for kg's Shell mode below, and pointing it at a
+ * sub-range of a Makefile is exactly the thing v1 does not do.
  *
  * The target and the assigned name are @type -- the structure of the file,
  * the same call YAML's mapping keys got. */
@@ -493,6 +524,69 @@ static const char MAKE_HIGHLIGHT_QUERY[]
       "] @keyword\n"
       "(variable_assignment name: (word) @type)\n"
       "(rule (targets (word) @type))\n";
+
+/* Shell, through tree-sitter-bash.  The legacy scanner's shell support is a
+ * list of keywords, a list of the commands somebody thought were common, and
+ * a list of the variables bash sets; this query keeps none of the three
+ * lists, because the grammar knows which word is in COMMAND position and no
+ * list has to be maintained to say so.  (command_name) @type is therefore
+ * every command a script runs, `ls` and `my_helper` alike.
+ *
+ * A string is captured through its PIECES -- the two quote tokens and
+ * (string_content) -- for the reason Python's f-string and JavaScript's
+ * template literal are: "$HOME/x" puts an (expansion) between them, and
+ * that is a name being looked up, not text.  (raw_string) is '...', in
+ * which nothing expands, and (ansi_c_string) is $'...\n'; both are captured
+ * whole because both are one literal all the way through.
+ *
+ * A HEREDOC breaks that rule, deliberately.  (heredoc_body) is captured
+ * whole even though an unquoted heredoc has (heredoc_content) children with
+ * expansions between them -- because a QUOTED one (<<'EOF') has no children
+ * at all, its body is a single leaf token, and capturing the pieces would
+ * colour the interpolating heredoc and leave the literal one plain.  Whole
+ * bodies colour both, and a heredoc reads as one block the way YAML's block
+ * scalar does.  The cost is that `$NAME` inside an unquoted heredoc comes
+ * out @string rather than @type: the precedence table below, doing its job.
+ * heredoc_start and heredoc_end go with it so the delimiters match the
+ * block, which is the rule the template literal's backticks got.
+ *
+ * An expansion is captured WHOLE, sigil and braces included, so `$NAME` and
+ * `${x:-y}` are one span each -- Make's (variable_reference) rule.
+ * (command_substitution) and (arithmetic_expansion) are deliberately NOT
+ * captured: `$(...)` and `$((...))` hold commands and arithmetic, and their
+ * insides are painted by the rest of this query instead.  `$(cmd)` nested
+ * inside a double-quoted string is where bash's external scanner is doing
+ * the work that makes any of this possible.
+ *
+ * (test_operator) is the one pattern a hand-written scanner cannot have.
+ * `-n` is an operator in `[ -n "$x" ]` and an argument in `echo -n`, the
+ * difference is the enclosing command, and the grammar is what knows it --
+ * the same argument Rust's lifetime-versus-char makes.
+ *
+ * The keyword list is exactly the anonymous tokens this grammar spells.
+ * `time` and `coproc` are absent from it on purpose: they parse as ordinary
+ * (command_name) here, so they are coloured, just not as keywords.  A
+ * shebang needs no pattern of its own -- bash parses `#!/bin/sh` as an
+ * ordinary (comment). */
+static const char SHELL_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string \"\\\"\" @string)\n"
+      "(string (string_content) @string)\n"
+      "(raw_string) @string\n"
+      "(ansi_c_string) @string\n"
+      "[ (heredoc_start) (heredoc_body) (heredoc_end) ] @string\n"
+      "(number) @number\n"
+      "[\n"
+      "  \"case\" \"declare\" \"do\" \"done\" \"elif\" \"else\" \"esac\"\n"
+      "  \"export\" \"fi\" \"for\" \"function\" \"if\" \"in\" \"local\"\n"
+      "  \"readonly\" \"select\" \"then\" \"typeset\" \"unset\"\n"
+      "  \"unsetenv\" \"until\" \"while\"\n"
+      "] @keyword\n"
+      "(test_operator) @keyword\n"
+      "[ (simple_expansion) (expansion) ] @type\n"
+      "[ (variable_name) (special_variable_name) ] @type\n"
+      "(command_name) @type\n"
+      "(function_definition name: (word) @type)\n";
 
 /* ---- capture -> face, and the precedence between them -------------------
  *
@@ -556,16 +650,17 @@ static const struct {
  * the answer to "should React be its own dependency": tree-sitter's
  * javascript grammar parses JSX, so it should not.
  *
- * Two kg modes that a reader will look for are deliberately absent.
- * SHELL has no row yet: the box's tree-sitter-bash was grammar ABI 6 when
- * batch 2 was written, below the 13-15 this tree-sitter reads, so a row
- * would have bought a status-line message instead of colours.  The install
- * has since moved to a bash the loader accepts, and what is missing now is
- * the row and its query (doc/TODO.md, "Tree-sitter follow-ups").  The
- * remaining modes (C#, PHP, Ruby, Swift, SQL, Dart, Vue, Angular, Svelte)
- * have no grammar installed and are plain text by Refinement decision 4;
- * Git commit and Git rebase stay grammarless by policy, because their C-c
- * keys quit the editor and must never depend on a third-party parser.
+ * Shell arrived after batch 2 rather than in it, and the reason is worth
+ * keeping: the box's tree-sitter-bash was grammar ABI 6 then, below the
+ * 13-15 this tree-sitter reads, so the row would have bought a status-line
+ * message instead of colours.  The install moved to a bash the loader
+ * accepts and the row follows it; nothing about the row is special.
+ *
+ * The modes a reader will look for and not find (C#, PHP, Ruby, Swift, SQL,
+ * Dart, Vue, Angular, Svelte) have no grammar installed and are plain text
+ * by Refinement decision 4; Git commit and Git rebase stay grammarless by
+ * policy, because their C-c keys quit the editor and must never depend on a
+ * third-party parser.
  *
  * The grammars these rows name are versioned by the install
  * TREE_SITTER_PREFIX points at, not by kg, so nothing here depends on
@@ -585,7 +680,7 @@ static struct kg_ts_language ts_registry[] = {
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_REACT, NULL, "javascript", JAVASCRIPT_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
-	{ KG_MODE_TYPESCRIPT, ".tsx", "tsx", TYPESCRIPT_HIGHLIGHT_QUERY,
+	{ KG_MODE_TYPESCRIPT, ".tsx", "tsx", TSX_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_TYPESCRIPT, NULL, "typescript", TYPESCRIPT_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
@@ -600,6 +695,8 @@ static struct kg_ts_language ts_registry[] = {
 	{ KG_MODE_LISP, NULL, "elisp", ELISP_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_MAKEFILE, NULL, "make", MAKE_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_SHELL, NULL, "bash", SHELL_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 };
 

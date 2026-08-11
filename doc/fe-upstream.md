@@ -9,7 +9,7 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 10`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 11`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
 `FE_LANGUAGE_VERSION 14`, which `src/lisp_core.c` also asserts at compile
@@ -242,6 +242,46 @@ later and needed no fe change at all: a function body has no expansion to
 mint a `gensym` in, and paying for one at load time measured out against
 the arena, so those temporaries became lambda parameters — fe's existing
 unconditional-lexical binding kind — instead.
+
+Phase 18's **follow-up** moved `FE_API_VERSION` 10 → **11** alone, with
+`FeVersion` "15.0" → "16.0"; `FE_LANGUAGE_VERSION` stays at **14**. The
+language macro not moving is a decision and not an oversight: no program
+that ran under 15.0 answers differently under 16.0 unless its host installs
+the new callbacks, fe's own `fe` binary installs neither, and fe's script
+suite and its 427-case compat corpus are byte-identical across the change.
+There is no new name for kg to reflect with either, which is what Phase
+10's precedent (bump for an addition-only *language* change) is about. What
+moved is a C contract, so the C macro moved.
+
+The contract is the **dynamic-binding location seam**: `FeSetBindingFns`
+installs two callbacks, one asked for an opaque tag as a shallow dynamic
+binding is pushed — before the value cell is read — and one asked at the
+matching restore for the symbol whose value cell receives the saved value,
+or `nullptr` to drop it. fe stores the tag in its `FeCleanupBinding` entry
+and never interprets it: not an `FeObject*`, not marked, never freed. This
+is the smallest thing that closes Phase 18's two recorded divergences, and
+it closes them without teaching fe what a buffer is — the constraint that
+phase worked under and the reason it left them open. kg's `let` over a
+buffer-local name now carries the same thing Emacs' specpdl carries (its
+`SPECPDL_LET_LOCAL` and the `where` field), and `src/lisp_locals.c` answers
+both callbacks out of the table it already keeps: zero for "the cell held
+the default", the binding's own identity otherwise, resolved back to a cell
+at the restore, or to nothing when that binding has died with its buffer or
+been killed. `phase18-let-buffer-switched-out` and
+`phase18-make-local-while-let-bound` are `supported` rows now, and
+`lettag-let-binding-buffer-tag` pins the five interactions around them.
+
+Two measured consequences, neither carried forward. `FeMinimumArenaSize()`
+rose 64200 → **66264 bytes** — the context lives in the arena and the
+cleanup stack is 256 entries, so one pointer each is 2 KiB — and kg's 1 MiB
+arena re-partitioned from 56263 objects / 1089 frames to **56147 / 1087**,
+the frame side paying for it this time rather than the object side. And
+fe's own fuzz-harness arena moved 68 → 70 KiB for Phase 19's reason, not as
+an enlargement: the FREE portion is what steers that lane, the growth cut it
+from ~339 slots to ~210, and `strict-arity-rest` stopped reaching
+`(x &rest y)` until the free portion was restored. `peak_live` after kg's
+prelude is **11339** here; the 11335 recorded at the Phase 20 pin above
+predates this branch's prelude hygiene sweep.
 
 The same pin carries fe's `FE_GC_STRESS` build knob, which moves neither
 macro on purpose: it is a compile-time define inside `fe.c`, defaulting to

@@ -6051,8 +6051,9 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 20 pin:
-	 * 56263 object slots (56259 at the Phase 19 pin, 56239 at the Phase 14
+	 * build via kg_lisp_arena_stats() at the let-binding-buffer-tag pin:
+	 * 56147 object slots (56263 at the Phase 20 pin, 56259 at the Phase
+	 * 19 pin, 56239 at the Phase 14
 	 * pin, 56225 at the Phase 12 pin, 56226 at the Phase 11 fix cycle's
 	 * pin, 56224 at the Phase 10 pin, 56222 before that -- the frame record
 	 * fe's dynamic-binding work grew costs one frame slot, frame_capacity
@@ -6064,8 +6065,11 @@ static void test_phase8_library(void)
 	 * properties grow it by 3248 more, moving three more frame slots'
 	 * worth across, 1093 -> 1090 frames and +20 objects; Phase 20's two
 	 * string primitives and two condition rows grow it by 608, one more
-	 * frame slot's worth, 1090 -> 1089 frames and +4 objects),
-	 * peak_live 11335 after the prelude alone
+	 * frame slot's worth, 1090 -> 1089 frames and +4 objects; and the
+	 * let-binding-buffer-tag pin's per-cleanup-entry host tag grows it by
+	 * 2064, which the FRAME side pays for this time, 1089 -> 1087 frames
+	 * and -116 objects),
+	 * peak_live 11339 after the prelude alone
 	 * (11281 at the merge that opened Phase 20, 6205 at the Phase 14
 	 * pin, 5301 at the Phase 12 pin, 5295 at the Phase 11 fix cycle's
 	 * pin, 5210 at the Phase 10 pin, 5188 at Phase 9's -- the 9887 this
@@ -6121,8 +6125,9 @@ static void test_phase8_library(void)
 	 * now carries a docstring for each of its 102 public definitions,
 	 * which is 5527 bytes of text and +1341 objects, and the figure
 	 * this line bounds -- the high-water mark after the prelude AND
-	 * every form this function evaluated above -- measures 14776 of
-	 * 56263 (26.3%) at the Phase 20 pin, where it measured 14579 of
+	 * every form this function evaluated above -- measures 14817 of
+	 * 56147 (26.4%) at the let-binding-buffer-tag pin, where it measured
+	 * 14776 of 56263 (26.3%) at Phase 20's, 14579 of
 	 * 56259 (25.9%) at Phase 19's and 13238 of 56239 (23.5%) before
 	 * that.  The
 	 * claim being made is margin, and a third of a fixed arena for
@@ -6226,10 +6231,13 @@ static void test_save_excursion_pool_bound(void)
 
 	/* 5. Nesting is what the pool USED to bound, and since sub-plan 12D
 	 * Part 3 it does not.  Re-measured on this tree at
-	 * LISP_MAX_OBJECTS 256: 218 nested excursions answer `deep' and the
-	 * 219th raises "evaluation frame limit exceeded" -- fe's frame
+	 * LISP_MAX_OBJECTS 256: 217 nested excursions answer `deep' and the
+	 * 218th raises "evaluation frame limit exceeded" -- fe's frame
 	 * limit, the same ceiling `with-current-buffer' has had all along
-	 * (155 deep, 156 raising, unchanged by this).  At 64 the pool was
+	 * (155 deep, 156 raising, unchanged by this).  It was 218/219 until
+	 * the arena's frame partition fell 1089 -> 1087 at the
+	 * let-binding-buffer-tag pin, which is what a ceiling measured
+	 * rather than chosen does.  At 64 the pool was
 	 * the binding constraint and the 65th nested form raised.  Five
 	 * deep in the assertion, because a 218-form C string literal tests
 	 * nothing this does not; the ceiling itself is the measurement, and
@@ -6647,6 +6655,86 @@ static void test_phase18_buffer_locals(void)
 	    "   (internal--set-buffer-local (intern (format \"p18n%d\" i)) i)"
 	    "   (setq i (1+ i)))))",
 	    "too many buffer-local variables"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* The buffer tag a `let' over a buffer-local name carries (Phase 18's
+ * follow-up, fe FE_API_VERSION 11).  The five *values* this produces are
+ * pinned against the oracle in test/lisp-compat -- the
+ * lettag-let-binding-buffer-tag row -- so what is here is the half a
+ * compat case cannot reach: the tag's own lifetime rules, and the two
+ * shapes that must NOT be tagged at all. */
+static void test_let_binding_buffer_tag(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* A `let' over a name with no buffer-local binding anywhere is
+	 * tagged with nothing and restores into the value cell, which is
+	 * the state every session that never says `setq-local' stays in.
+	 * Asserted first because it is the one this seam must not have
+	 * changed. */
+	CHECK(eval_eq("(progn (defvar plt1 'D) (let ((plt1 'L)) plt1))", "L"));
+	CHECK(eval_eq("plt1", "D"));
+
+	/* A lambda parameter named after a special is bound LEXICALLY and
+	 * pushes no dynamic binding, so it reaches no tag either: the
+	 * buffer-local binding underneath is untouched by the call. */
+	CHECK(eval_eq("(with-current-buffer (get-buffer-create \"tag-one\")"
+		      " (setq-local plt1 'A)"
+		      " (list ((lambda (plt1) plt1) 'ARG) plt1))",
+	    "(ARG A)"));
+
+	/* A stamp is not reused: the binding this `let' displaced is killed
+	 * inside the form and a DIFFERENT variable takes the table slot, so
+	 * a tag matched by index rather than by identity would restore the
+	 * old value into the new binding.  It must be dropped instead. */
+	CHECK(eval_eq("(with-current-buffer (get-buffer \"tag-one\")"
+		      " (let ((plt1 'L))"
+		      "  (kill-local-variable 'plt1)"
+		      "  (setq-local plt2 'FRESH))"
+		      " (list plt1 (local-variable-p 'plt1) plt2))",
+	    "(D nil FRESH)"));
+
+	/* The buffer a live binding named is killed while another buffer is
+	 * current: the restore has nowhere to land and drops the value
+	 * rather than writing it into whatever is in force.  Emacs' own
+	 * answer -- its unbind consults `local-variable-p SYM WHERE', and a
+	 * killed buffer has no local variables. */
+	CHECK(eval_eq("(progn (defvar plt3 'D)"
+		      " (with-current-buffer (get-buffer-create \"tag-two\")"
+		      "  (setq-local plt3 'A))"
+		      " (get-buffer-create \"tag-three\")"
+		      " (with-current-buffer (get-buffer \"tag-two\")"
+		      "  (let ((plt3 'L))"
+		      "   (set-buffer (get-buffer \"tag-three\"))"
+		      "   (kill-buffer (get-buffer \"tag-two\"))))"
+		      " (list (default-value 'plt3)"
+		      "  (with-current-buffer (get-buffer \"tag-three\")"
+		      "   plt3)))",
+	    "(D D)"));
+
+	/* And an error out of such a form restores the same way a normal
+	 * return does: the drain that runs the restore is the same one on
+	 * every completion kind. */
+	CHECK(eval_eq("(progn (defvar plt4 'D)"
+		      " (with-current-buffer (get-buffer-create \"tag-four\")"
+		      "  (setq-local plt4 'A))"
+		      " (with-current-buffer (get-buffer-create \"tag-five\")"
+		      "  (setq-local plt4 'B))"
+		      " (condition-case nil"
+		      "  (with-current-buffer (get-buffer \"tag-four\")"
+		      "   (let ((plt4 'L))"
+		      "    (set-buffer (get-buffer \"tag-five\"))"
+		      "    (car 5)))"
+		      "  (error nil))"
+		      " (list (buffer-local-value 'plt4"
+		      "   (get-buffer \"tag-four\"))"
+		      "  (buffer-local-value 'plt4 (get-buffer \"tag-five\"))"
+		      "  (default-value 'plt4)))",
+	    "(A B D)"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -7128,6 +7216,7 @@ int main(void)
 	RUN(test_phase17_buffer_status);
 	RUN(test_phase20_variable_documentation);
 	RUN(test_phase18_buffer_locals);
+	RUN(test_let_binding_buffer_tag);
 	RUN(test_phase17_with_temp_buffer);
 	RUN(test_phase17_switch_to_buffer);
 	RUN(test_with_current_buffer);

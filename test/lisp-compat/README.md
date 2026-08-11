@@ -146,7 +146,7 @@ merely that the file loaded.
 | macros and backquote | `lisp-init-phase8-library.yaml` (`` `(head . ,x) ``, a nested backquote, `dolist`, `add-to-list`, `declare`); `test_lisp.c:test_quasiquote` |
 | hooks | `lisp-init-phase8-library.yaml` (an `after-change-functions` lambda whose count is reported); `lisp-auto-fill-mode-break.yaml`, `test_lisp.c:test_hooks` |
 | key bindings | `lisp-init-phase8-library.yaml` (`global-set-key` + `kbd`, both bindings used); `lisp-bind-key.yaml` |
-| **buffer-local-style configuration where supported** | **Real since Phase 18**, and this row said "nominal only" until then. `setq-local` gives the current buffer a binding of its own and `setq-default` writes the default; both rows are `supported`. The fixture still uses `setq-local` and reports its value, and `test/pty/lisp-buffer-local-two-buffers.yaml` is the case that shows two buffers answering differently for one name. Three named gaps survive (`phase18-let-buffer-switched-out`, `phase18-make-local-while-let-bound`, `phase18-automatically-buffer-local`). `add-hook`'s LOCAL argument is still a different mechanism. |
+| **buffer-local-style configuration where supported** | **Real since Phase 18**, and this row said "nominal only" until then. `setq-local` gives the current buffer a binding of its own and `setq-default` writes the default; both rows are `supported`. The fixture still uses `setq-local` and reports its value, and `test/pty/lisp-buffer-local-two-buffers.yaml` is the case that shows two buffers answering differently for one name. One named gap survives (`phase18-automatically-buffer-local`); the two `let` interactions that were gaps closed with Phase 18's follow-up and are pinned, with their interactions, by `lettag-let-binding-buffer-tag`. `add-hook`'s LOCAL argument is still a different mechanism. |
 | loading helper files | `lisp-init-phase8-library.yaml` (`(require 'phase8-pkg)` from a package planted beside the init file); `lisp-init-load-pkg.yaml`, `lisp-require-filename-el-suffix.yaml`. **Honest row:** `load` does not search `load-path` — a bare name resolves to `<config>/kg/lisp/NAME.el` and nothing else, and `require` is the only form that searches. Recorded as the `load-path-search` divergence. |
 | error handling | `lisp-init-phase8-library.yaml`, added by 10D: a guarded `(require ...)` of a package that is not installed, a `condition-case` naming `wrong-type-argument` rather than catching wholesale, an `ignore-errors`, and a form after them all proving the init file kept going. All four values are in the asserted output. |
 
@@ -292,9 +292,10 @@ Phase 12 pin; at the Phase 14 pin, where a symbol object one cons bigger
 plus eight primitives grew `FeMinimumArenaSize` enough to move two frame
 slots' worth of bytes to the object side; at the Phase 19 pin, where the
 seeded `error-message` properties moved three more; and at the Phase 20
-pin, where two string primitives and two condition rows moved one.  The
-1 MiB arena partitions to 56263 object slots and 1089 frames now, against
-the 56224 and 1096 the table names.
+pin, where two string primitives and two condition rows moved one; and at
+the let-binding-buffer-tag pin, where a host tag on every cleanup entry
+moved two more.  The 1 MiB arena partitions to 56147 object slots and 1087
+frames now, against the 56224 and 1096 the table names.
 
 | §15 measurement | Counter | Reading |
 | --- | --- | --- |

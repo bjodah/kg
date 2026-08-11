@@ -1,0 +1,7 @@
+{
+ "id": "lettag-let-over-default-left-in-buffer-with-local",
+ "setup": [],
+ "expr": "(progn (defvar pltd 'D) (with-current-buffer (get-buffer-create \"plt-d2\") (setq-local pltd 'B)) (list (with-current-buffer (get-buffer-create \"plt-d1\")  (let ((pltd 'LET)) (set-buffer (get-buffer \"plt-d2\")) pltd))  (default-value 'pltd)  (buffer-local-value 'pltd (get-buffer \"plt-d2\"))  (with-current-buffer (get-buffer \"plt-d1\") pltd)))",
+ "expect": "agree",
+ "note": "The mirror of phase18-let-over-local-left-in-other-buffer: the `let' bound the DEFAULT, and the form is left in a buffer that has a local binding of its own. The restore has to reach the default past that binding, not overwrite it."
+}

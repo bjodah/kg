@@ -1,0 +1,7 @@
+{
+ "id": "lettag-nested-lets-over-local-across-switch",
+ "setup": [],
+ "expr": "(progn (defvar pltn 'D) (with-current-buffer (get-buffer-create \"plt-n1\") (setq-local pltn 'A)) (with-current-buffer (get-buffer-create \"plt-n2\") (setq-local pltn 'B)) (list (with-current-buffer (get-buffer \"plt-n1\")  (let ((pltn 'L1)) (let ((pltn 'L2)) (set-buffer (get-buffer \"plt-n2\")) (list pltn (buffer-local-value 'pltn (get-buffer \"plt-n1\"))))))  (buffer-local-value 'pltn (get-buffer \"plt-n1\"))  (buffer-local-value 'pltn (get-buffer \"plt-n2\"))  (default-value 'pltn)))",
+ "expect": "agree",
+ "note": "Two `let's over the same buffer-local binding, left in a different buffer than they were entered in. Both restores name the same displaced storage and are LIFO, so the inner one's value has to be overwritten by the outer one's rather than either landing in the buffer that happens to be current."
+}

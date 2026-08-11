@@ -96,11 +96,11 @@ trusting it.
   blocker, pinned now by `test_save_excursion_pool_bound` and two PTY
   cases. Since the pool went to 256 records (Phase 12), it no longer
   bounds nesting at all: fe's evaluation frame limit fires first.
-  Measured at the Phase 12 fix cycle, nested `save-excursion` runs to
-  **218** and the 219th raises `evaluation frame limit exceeded`;
-  nested `with-current-buffer` over `(current-buffer)` runs to **156**
-  and the 157th raises the same — both the 1089-frame arena
-  partition's verdict, not the pool's. `test/test_lisp.c`'s
+  Re-measured at the let-binding-buffer-tag pin, nested `save-excursion`
+  runs to **217** and the 218th raises `evaluation frame limit
+  exceeded`; nested `with-current-buffer` over `(current-buffer)` runs
+  to **155** and the 156th raises the same — both the arena partition's
+  verdict (1087 frames here), not the pool's. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle
@@ -255,9 +255,9 @@ Ordering rules that hold across every subscriber:
     frames one-for-one — an ordinary self-recursive function costs
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
-    1089-frame arena), so in practice it stops such recursion a few
-    hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1089; exceeding it raises
+    1095-frame arena of that pin), so in practice it stops such
+    recursion a few hundred levels in. kg's default 1 MiB arena measures
+    `frame_capacity` 1087; exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -352,7 +352,7 @@ Ordering rules that hold across every subscriber:
 - **The object arena is fixed and exhaustible, and exhaustion is an
   ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56263 object slots and a 1089-frame evaluator stack.
+  current pin as 56147 object slots and a 1087-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -963,19 +963,22 @@ because kg's storage is Emacs' own: the symbol has one value cell
 holding whichever binding is current, and the displaced one is kept
 beside it until the buffer comes round again.
 
-Three things that follow from that representation are **divergences**,
-each recorded and tested:
+A `let` remembers **which storage it displaced**, as Emacs' specpdl does,
+so the two shapes that get that wrong in a naive implementation get it
+right here. A bare `set-buffer` inside such a form restores the buffer
+the `let` was entered in rather than whichever one is current at exit;
+and `setq-local` or `make-local-variable` *inside* a `let` over the same
+name leaves the new local binding alone and restores the default into
+the default. (Emacs warns about the second shape — `Making X
+buffer-local while locally let-bound!` — rather than recommending it;
+kg does not print the warning, but the values agree.) When the displaced
+storage is gone by the time the form exits — its buffer killed, or its
+binding dropped with `kill-local-variable` — the saved value is dropped
+rather than written anywhere, which is Emacs' answer too.
 
-* A `let` over a buffer-local binding must be *left in the buffer it was
-  entered in*. Emacs tags each binding with the buffer whose value it
-  displaced; kg has nothing to tag it with, so a bare `set-buffer`
-  inside such a form makes the restore land in the wrong buffer.
-  `save-excursion`, `with-current-buffer` and `with-temp-buffer` all
-  restore the buffer, so idiomatic code never meets this.
-* `setq-local` or `make-local-variable` *inside* a `let` over the same
-  name puts the let value and the default the wrong way round. Emacs
-  warns about this shape (`Making X buffer-local while locally
-  let-bound!`) rather than recommending it.
+One thing that follows from the representation is still a **divergence**,
+recorded and tested:
+
 * kg has no automatically-buffer-local variables:
   `make-variable-buffer-local` and `defvar-local` do not exist, and a
   plain `setq` never creates a binding. In Emacs `fill-column` is one of
@@ -1383,14 +1386,16 @@ primitive's function cell.
   closing it means changing what the reader produces and breaking any
   Lisp that pattern-matches on `quasiquote`. Recorded as
   `phase8-reader-backquote-symbol-names`.
-- **Buffer-local variables have three named gaps**, not the wholesale
-  absence this list used to record: a `let` over one must be left in the
-  buffer it was entered in, making a name buffer-local inside a `let`
-  over it swaps the let value and the default, and there are no
-  automatically-buffer-local variables. See "Buffer-local variables"
-  above; the manifest rows are `phase18-let-buffer-switched-out`,
-  `phase18-make-local-while-let-bound` and
-  `phase18-automatically-buffer-local`.
+- **Buffer-local variables have one named gap**, not the three Phase 18
+  left and not the wholesale absence this list used to record: there are
+  no automatically-buffer-local variables, so where Emacs lets a plain
+  `setq` create a binding (`fill-column` is one of its), kg needs
+  `setq-local`. The two `let` interactions that were gaps are closed --
+  a `let` now remembers which storage it displaced. See "Buffer-local
+  variables" above; the manifest row is
+  `phase18-automatically-buffer-local`, and the closed pair are
+  `phase18-let-buffer-switched-out` and
+  `phase18-make-local-while-let-bound`.
 - **No vectors, no hash tables, no property lists.**
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints

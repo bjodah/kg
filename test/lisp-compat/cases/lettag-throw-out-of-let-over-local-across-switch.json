@@ -1,0 +1,7 @@
+{
+ "id": "lettag-throw-out-of-let-over-local-across-switch",
+ "setup": [],
+ "expr": "(progn (defvar pltt 'D) (with-current-buffer (get-buffer-create \"plt-t1\") (setq-local pltt 'A)) (with-current-buffer (get-buffer-create \"plt-t2\") (setq-local pltt 'B)) (list (catch 'pltt (with-current-buffer (get-buffer \"plt-t1\")  (let ((pltt 'LET)) (set-buffer (get-buffer \"plt-t2\")) (throw 'pltt 'thrown))))  (buffer-local-value 'pltt (get-buffer \"plt-t1\"))  (buffer-local-value 'pltt (get-buffer \"plt-t2\"))  (default-value 'pltt)))",
+ "expect": "agree",
+ "note": "The same shape unwound by a non-local exit rather than by falling off the end of the form: a `let' over a buffer-local binding, left in another buffer, thrown out of. The restore runs on the unwind path and has to name the same storage it would have on a normal return."
+}

@@ -605,11 +605,16 @@ against full rebuilds.  Known follow-ups, none blocking:
       `setq-default`, `set-default`, `default-value`,
       `make-local-variable`, `kill-local-variable`, `local-variable-p`
       and `buffer-local-value` all exist; the lifetime rule is that a
-      binding dies with its buffer.  Three named gaps survive and are
-      recorded rather than hidden: `phase18-let-buffer-switched-out`,
-      `phase18-make-local-while-let-bound` and
-      `phase18-automatically-buffer-local` (no
-      `make-variable-buffer-local`/`defvar-local`).  `add-hook`'s LOCAL
+      binding dies with its buffer.  Phase 18 left three named gaps and
+      its follow-up closed two of them: a `let` now carries the buffer
+      tag Emacs' specpdl carries, through fe's `FeSetBindingFns`
+      (FE_API_VERSION 11), so `phase18-let-buffer-switched-out` and
+      `phase18-make-local-while-let-bound` are `supported` and the
+      interactions around them are pinned by
+      `lettag-let-binding-buffer-tag`.  ONE gap survives and is recorded
+      rather than hidden: `phase18-automatically-buffer-local` (no
+      `make-variable-buffer-local`/`defvar-local`, so a plain `setq`
+      never creates a binding where Emacs would).  `add-hook`'s LOCAL
       argument was unaffected, as this row said.
 - [x] **The printer's `(quote X)` → `'X` abbreviation.**  Done by Phase 11
       (11A Decision 4) in fe's `WriteObject`, as the symmetric copy of the

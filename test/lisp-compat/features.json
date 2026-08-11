@@ -239,6 +239,23 @@
    "rationale": "`post-command-hook', Phase 18, landed on a measurement and divergent on its trigger. THE MEASUREMENT the plan demanded, from the counting build (test/perfobj/kg, $KG_PERF_OUT) over a 20-keystroke session: with an empty hook list post_command_hook_calls 24, post_command_hook_runs 0, arena free slots 46457, collections 0; with one small hook installed, calls 24, runs 24, free slots 46271 (186 slots for 24 invocations), collections 0. An unused hook therefore reaches fe zero times and allocates nothing -- what it costs a keystroke is one find_hook() string compare over a table that is empty -- which is the 'effectively zero' the plan made the condition for landing it. test_post_command_hook_empty_costs_nothing is the same shape as an assertion. THE DIVERGENCE is when it fires: Emacs runs it after each COMMAND, and kg runs it after each keystroke the main loop has finished processing. kg has no `self-insert-command' -- an ordinary character is inserted without going through cmd_invoke() -- so 'after each command' would leave typing out, and typing is the case a post-command hook is most often written for. The visible consequence is that a prefix keystroke that runs no command fires it too."
   },
   {
+   "id": "lettag-let-binding-buffer-tag",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "lettag-let-over-default-left-in-buffer-with-local",
+    "lettag-nested-lets-over-local-across-switch",
+    "lettag-throw-out-of-let-over-local-across-switch",
+    "lettag-let-over-local-buffer-killed-inside",
+    "lettag-kill-local-variable-inside-let"
+   ],
+   "kg_test": "test/test_lisp.c:test_let_binding_buffer_tag",
+   "source_name": null,
+   "rationale": "The Phase 18 follow-up: what a dynamic `let' over a buffer-local name restores INTO, once the answer is no longer 'whatever the value cell happens to be at exit'. Five shapes frozen against the oracle before the seam that closes them was written -- a `let' over the default left in a buffer that has a local binding, two `let's over one local left in another buffer, a throw out of such a form, the displaced buffer killed inside the form, and the displaced local killed inside the form. They are the interactions the two divergences (phase18-let-buffer-switched-out, phase18-make-local-while-let-bound) do not pin on their own, and the two ways a saved value has to be DROPPED rather than written anywhere are the pair a naive fix gets wrong. All five agree, on the seam FE_API_VERSION 11 opened: the `let' carries the binding's identity as its tag, and the restore resolves it to a cell or to nothing. The two drops are Emacs' own -- `local-variable-p SYM WHERE' is what its unbind consults, and a killed buffer has no local variables and a killed local binding is not one, so neither saved value is written anywhere."
+  },
+  {
    "id": "lisp2-functionp-special-form",
    "category": "values-and-equality",
    "status": "supported",
@@ -2400,8 +2417,8 @@
    "cases": [
     "phase18-let-over-local-left-in-other-buffer"
    ],
-   "rationale": "DIVERGENT, Phase 18: named and frozen BEFORE the code that produced it, and measured afterwards to answer exactly as predicted -- kg reports (B LET A D) where the oracle reports (B A B D). Emacs records, per `let' binding, which buffer's binding it displaced, so a `let' over a buffer-local binding that is left with a different current buffer than it was entered in still restores the right buffer. kg's storage is Emacs' own swap representation -- the symbol's one value cell holds the current buffer's binding and the displaced one is stashed beside it -- but a `let' is fe's, and fe owns no buffer concept to tag a binding with (the layer boundary this wave's plan cites nelisp design doc 141 for). So kg's restore lands in whichever buffer is current when the form exits. Every kg form that changes the current buffer and RESTORES it -- `save-excursion', `with-current-buffer', `with-temp-buffer' -- is unaffected, which is the whole of idiomatic use; the shape that diverges is a bare `set-buffer' inside a `let' over that same name.",
-   "status": "divergent",
+   "rationale": "Phase 18 recorded this as DIVERGENT and Phase 18's follow-up closed it: a `let' over a buffer-local binding that is left with a different current buffer than it was entered in now restores the buffer it displaced, and the case answers the oracle's (B A B D) where it answered (B LET A D). What Phase 18 was missing is the per-binding buffer tag Emacs keeps in its specpdl, and it was missing because a `let' is fe's and fe owns no buffer concept. fe now takes one from the host without learning what a buffer is: FE_API_VERSION 11's `FeSetBindingFns' asks kg for an opaque tag as the binding is pushed and asks it back, at the restore, which symbol's value cell the saved value goes into. kg answers with the binding's own identity and resolves it to a cell -- the symbol's own when that buffer is the swapped-in one, its stash otherwise -- which is the same question Emacs' `set_internal (sym, value, where, SET_INTERNAL_UNBIND)' answers. The interactions this opened are pinned separately as lettag-let-binding-buffer-tag.",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
@@ -2427,7 +2444,7 @@
   {
    "id": "phase18-make-local-while-let-bound",
    "category": "bindings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2435,7 +2452,7 @@
    ],
    "kg_test": "test/pty/lisp-buffer-local-two-buffers.yaml, test/test_lisp.c:test_phase18_buffer_locals",
    "source_name": null,
-   "rationale": "DIVERGENT, Phase 18, and the one divergence this phase did NOT predict: the contract commit froze `setq-local' inside a `let' as a rule kg would match, and the implementation measured otherwise. Emacs tags each `let' binding with which storage it displaced, so a `let' that bound the default goes on binding the default when a `setq-local' inside it creates a local binding: the local survives the form and the default is restored into the default. kg's `let' is fe's, and fe has one value cell with no buffer to tag: the `setq-local' stashes what is in that cell -- the let value -- as the default, and the form's exit puts the real default into what is now the local binding, so the two end up swapped ((SL t) D t LET against the oracle's (SL t) SL t D). `make-local-variable' inside such a `let' is the same shape with the same answer. It is the same root cause as phase18-let-buffer-switched-out and would be closed by the same thing -- a `let' binding that knows which buffer it displaced, which means fe learning what a buffer is. Emacs prints \"Making X buffer-local while locally let-bound!\" for this shape, so it is dubious code on both sides; kg's answer is wrong rather than merely warned about, and that is the delta."
+   "rationale": "Phase 18 recorded this as DIVERGENT and Phase 18's follow-up closed it, with no code of its own: the case answers the oracle's ((SL t) SL t D) where it answered ((SL t) D t LET). A `let' that bound the DEFAULT carries the tag that says so, and the restore asks kg where the default lives NOW -- which, once a `setq-local' inside the form has created a local binding, is the stash beside the symbol rather than the symbol's own cell. That is Emacs' `Fset_default' arm verbatim (eval.c unbind_to, SPECPDL_LET: \"we only ever come here if make_local_foo was used for the first time on this var within this let\"), and it falls out of the same seam the sibling row describes rather than needing a case of its own. Emacs prints \"Making X buffer-local while locally let-bound!\" for this shape and kg does not; the VALUES now agree, which is what this row claims. The old rationale, for the record: kg's `let' had one value cell with no buffer to tag, so the `setq-local' stashed the let value as the default and the form's exit put the real default into what was by then the local binding, swapping the two. the contract commit froze `setq-local' inside a `let' as a rule kg would match, and the implementation measured otherwise. Emacs tags each `let' binding with which storage it displaced, so a `let' that bound the default goes on binding the default when a `setq-local' inside it creates a local binding: the local survives the form and the default is restored into the default. kg's `let' is fe's, and fe has one value cell with no buffer to tag: the `setq-local' stashes what is in that cell -- the let value -- as the default, and the form's exit puts the real default into what is now the local binding, so the two end up swapped ((SL t) D t LET against the oracle's (SL t) SL t D). `make-local-variable' inside such a `let' is the same shape with the same answer. It is the same root cause as phase18-let-buffer-switched-out and would be closed by the same thing -- a `let' binding that knows which buffer it displaced, which means fe learning what a buffer is. Emacs prints \"Making X buffer-local while locally let-bound!\" for this shape, so it is dubious code on both sides; kg's answer is wrong rather than merely warned about, and that is the delta."
   },
   {
    "id": "phase19-command-documentation",

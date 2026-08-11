@@ -360,6 +360,40 @@ static const char JAVA_HIGHLIGHT_QUERY[]
       "(class_declaration name: (identifier) @type)\n"
       "(method_declaration name: (identifier) @type)\n";
 
+/* Go.  One comment node, not two: the grammar spells a line comment and a
+ * block one with the same (comment), so there is nothing to list twice.
+ *
+ * The predeclared constants are NAMED nodes ((true), (false), (nil),
+ * (iota)) rather than anonymous keyword tokens, which is the Rust lesson
+ * again -- they are identifiers as far as the language is concerned, and
+ * quoting them does not compile.  A predeclared TYPE is not a node at all:
+ * `int` and `string` are ordinary (type_identifier)s, so they are coloured
+ * by being types rather than by being listed, and a program that shadows
+ * one still reads correctly.
+ *
+ * The three string spellings are three nodes: (interpreted_string_literal)
+ * for "...", (raw_string_literal) for a backquoted one, and (rune_literal)
+ * for 'x' -- which is an integer in Go but is written and read as a
+ * character literal. */
+static const char GO_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(interpreted_string_literal) @string\n"
+      "(raw_string_literal) @string\n"
+      "(rune_literal) @string\n"
+      "[ (int_literal) (float_literal) (imaginary_literal) ] @number\n"
+      "[\n"
+      "  \"break\" \"case\" \"chan\" \"const\" \"continue\" \"default\"\n"
+      "  \"defer\" \"else\" \"fallthrough\" \"for\" \"func\" \"go\"\n"
+      "  \"goto\" \"if\" \"import\" \"interface\" \"map\" \"package\"\n"
+      "  \"range\" \"return\" \"select\" \"struct\" \"switch\" \"type\"\n"
+      "  \"var\"\n"
+      "] @keyword\n"
+      "[ (true) (false) (nil) (iota) ] @keyword\n"
+      "[ (type_identifier) (package_identifier) ] @type\n"
+      "(function_declaration name: (identifier) @type)\n"
+      "(method_declaration name: (field_identifier) @type)\n"
+      "(call_expression function: (identifier) @type)\n";
+
 /* Rust.  Two node names here are the ones worth having probed.
  *
  * A LIFETIME is not a character literal.  `'a` is (lifetime (identifier))
@@ -654,6 +688,8 @@ static struct kg_ts_language ts_registry[] = {
 	    NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_RUST, NULL, "rust", RUST_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
 	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_GO, NULL, "go", GO_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL,
+	    NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_HTML, NULL, "html", HTML_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
 	    NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_LISP, NULL, "elisp", ELISP_HIGHLIGHT_QUERY,

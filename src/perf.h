@@ -212,6 +212,42 @@ enum kg_perf_counter {
 	KG_PERF_LISP_USER_INIT_NS,
 	KG_PERF_LISP_PACKAGE_LOAD_NS,
 
+	/* read() calls into the LSP transport's inbox that returned bytes
+	 * (src/lsp_transport.c).  The property it exists to pin is that a
+	 * write() carrying several complete frames costs ONE of them: the
+	 * inbox is parsed a frame at a time out of whatever arrived, so a
+	 * server answering three requests in one go must not cost three
+	 * reads -- and nothing in the transport's own API can see the
+	 * difference, which is how test_several_messages_from_one_read()
+	 * came to pass with the read chunk set to a single byte. */
+	KG_PERF_LSP_INBOX_READ,
+
+	/* read() calls into a line channel that returned bytes: the child's
+	 * stderr, and on the socket wire its stdout while the announce is
+	 * still being looked for (src/lsp_transport.c).  One per pipe-load,
+	 * because that is what a pipe hands over at a time, so this is the
+	 * count of pipe-loads a server's log cost -- the numerator the idle
+	 * counters below are the denominator of. */
+	KG_PERF_LSP_LINES_READ,
+
+	/* The editor's idle input wait (src/tty.c).  WAIT counts every one
+	 * and is the divisor; TICK is the subset that ended on its 100 ms
+	 * deadline, FD_WAKE the subset a watched descriptor ended early.  A
+	 * wait a keystroke ended is neither: waiting for one is what the
+	 * read was always for.
+	 *
+	 * The property they exist to pin is the input-loop follow-up's:
+	 * a language server's output is drained when the child writes it,
+	 * so N pipe-loads of pre-announce log cost N FD_WAKEs.  Before, a
+	 * wait could only end on its tick, and the same N pipe-loads cost N
+	 * TICKs -- N * 100 ms of latency before the editor could connect,
+	 * which is the six seconds doc/plans/2026-08-08-lsp.md recorded for
+	 * a 512 KiB banner.  LINES_READ against TICK is that ratio, and it
+	 * is a ratio a loaded box cannot change. */
+	KG_PERF_IDLE_WAIT,
+	KG_PERF_IDLE_TICK,
+	KG_PERF_IDLE_FD_WAKE,
+
 	KG_PERF_COUNTER_COUNT
 };
 

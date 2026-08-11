@@ -1,0 +1,41 @@
+name: lsp-rust-definition-fake
+# The Rust half of the mode -> spec -> environment wiring, end to end and
+# without rust-analyzer: a .rs file selects Rust mode, Rust mode selects the
+# rust-analyzer spec, and the spec reads KG_LSP_SERVER_RUST -- which points
+# at test/fake_lsp_server.py here, so what is under test is kg's table
+# rather than a language server.  lsp-rust-analyzer-definition.yaml is the
+# same wiring against the real thing, and SKIPs where it is not installed.
+#
+# The Cargo.toml is planted by `workspace_files:` so the root walk has a
+# marker to find in the case's own temporary directory; that is the root kg
+# starts the server in.
+#
+# The assertion is the saved file: the fake answers --definition-self 2:3, a
+# Location in the document kg itself opened, and the "X" typed after the
+# jump says which byte point landed on -- line 2 character 3 in the
+# protocol's zero-based numbering is the "u" of the last line's "use_it".
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_RUST: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --definition-self 2:3"
+filename: x.rs
+workspace_files:
+  Cargo.toml: |
+    [package]
+    name = "fixture"
+    version = "0.1.0"
+    edition = "2021"
+initial: |
+  fn target() -> i32 { 1 }
+  fn other() -> i32 { 2 }
+  fn use_it() -> i32 { target() }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  fn target() -> i32 { 1 }
+  fn other() -> i32 { 2 }
+  fn Xuse_it() -> i32 { target() }

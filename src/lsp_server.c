@@ -18,7 +18,9 @@
 
 #include "lsp_server.h"
 
+#include "lsp.h"
 #include "lsp_client.h"
+#include "lsp_transport.h"
 #include "process.h"
 
 #include <limits.h>
@@ -34,14 +36,26 @@
 
 static bool dir_has_c_markers(const char *dir);
 static bool dir_has_python_markers(const char *dir);
+static bool dir_has_go_markers(const char *dir);
+static bool dir_has_rust_markers(const char *dir);
+static bool dir_has_java_markers(const char *dir);
 
 /* What kg knows how to start.  `env` is spelled out rather than derived
  * from `name` so the environment variable a user sets is greppable in this
  * file, and `argv` is a direct exec -- no shell -- so nothing in a built-in
  * spec can be word-split by a stray space in the environment.  The override
- * is the opposite by design: a command line for /bin/sh. */
+ * is the opposite by design: a command line for /bin/sh.
+ *
+ * `wire` is how the frames reach that command (src/lsp_transport.h).  Every
+ * built-in spec is LSP_WIRE_STDIO, which is the protocol's own arrangement
+ * and what every server kg names speaks; LSP_WIRE_LISTEN_HASH exists for
+ * the one an override can ask for, and no row selects it. */
 struct lsp_server_spec {
+	/* The two enums sit together so the pointers after them stay packed:
+	 * a 4-byte field anywhere among them costs this table a hole per
+	 * row, which is what clang-tidy's Padding check says out loud. */
 	enum kg_mode_id mode;
+	enum lsp_wire wire;
 	const char *name;
 	const char *env;
 	const char *const argv[4];
@@ -49,10 +63,17 @@ struct lsp_server_spec {
 };
 
 static const struct lsp_server_spec server_specs[] = {
-	{ KG_MODE_C, "clangd", LSP_SERVER_ENV_PREFIX "C", { "clangd", NULL },
-	    dir_has_c_markers },
-	{ KG_MODE_PYTHON, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
+	{ KG_MODE_C, LSP_WIRE_STDIO, "clangd", LSP_SERVER_ENV_PREFIX "C",
+	    { "clangd", NULL }, dir_has_c_markers },
+	{ KG_MODE_PYTHON, LSP_WIRE_STDIO, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
 	    { "ty", "server", NULL }, dir_has_python_markers },
+	{ KG_MODE_GO, LSP_WIRE_STDIO, "gopls", LSP_SERVER_ENV_PREFIX "GO",
+	    { "gopls", NULL }, dir_has_go_markers },
+	{ KG_MODE_RUST, LSP_WIRE_STDIO, "rust-analyzer",
+	    LSP_SERVER_ENV_PREFIX "RUST", { "rust-analyzer", NULL },
+	    dir_has_rust_markers },
+	{ KG_MODE_JAVA, LSP_WIRE_STDIO, "jdtls", LSP_SERVER_ENV_PREFIX "JAVA",
+	    { "jdtls", NULL }, dir_has_java_markers },
 };
 
 struct lsp_instance {
@@ -156,6 +177,58 @@ static bool dir_has_python_markers(const char *dir)
 	    || marker_contains(dir, "pyproject.toml", "[tool.ty");
 }
 
+/* Go.  Both spellings of "the top of something" are markers, and the walk
+ * takes the nearest, which is the module: a go.work always sits at or above
+ * the go.mod files it lists, so a file inside a module roots on its module
+ * even in a workspace -- and that is the root gopls loads, because the go
+ * command finds the go.work above it on its own (`go env GOWORK` walks up
+ * from the working directory).  go.work alone wins only for a file that is
+ * under a workspace but under no module, which is where the module answer
+ * does not exist. */
+static bool dir_has_go_markers(const char *dir)
+{
+	return marker_exists(dir, "go.mod") || marker_exists(dir, "go.work");
+}
+
+/* Rust.  A Cargo workspace has a Cargo.toml at its root and one per member
+ * crate, so the nearest is the member rather than the workspace.  That is
+ * still a root rust-analyzer agrees with: it runs `cargo metadata` from
+ * where it is started, and cargo resolves the workspace above the member
+ * itself.  Rooting at the member also keeps one server per crate on a tree
+ * with several unrelated ones. */
+static bool dir_has_rust_markers(const char *dir)
+{
+	return marker_exists(dir, "Cargo.toml");
+}
+
+/* Java.  The list is jdt.ls's own: its Maven importer looks for pom.xml and
+ * its Gradle importer for the four Gradle descriptors, so a directory
+ * holding one of these is a directory jdt.ls would import a project from.
+ *
+ * Nearest wins, as everywhere else.  For Maven that is the module, and a
+ * module pom carries the coordinates and the <parent> that lets it be read
+ * on its own.  For Gradle it is the compromise: a subproject's build.gradle
+ * is nearer than the settings.gradle at the top of the build it belongs to,
+ * so kg starts a server per subproject and a definition in a sibling
+ * subproject is not in that server's model.  The two settings descriptors
+ * are markers anyway, because a Gradle build root often has a settings file
+ * and no build file at all, and a source file directly under one would
+ * otherwise fall through to .git.
+ *
+ * Two near misses, deliberately absent.  `.project` is Eclipse's own
+ * per-project state rather than a build descriptor: an imported build has
+ * one in every subproject, so it roots deeper than the build files above
+ * it, which are the truth.  `mvnw` sits beside the root pom.xml by the
+ * wrapper's own contract, so it never names a root pom.xml misses. */
+static bool dir_has_java_markers(const char *dir)
+{
+	return marker_exists(dir, "pom.xml")
+	    || marker_exists(dir, "build.gradle")
+	    || marker_exists(dir, "build.gradle.kts")
+	    || marker_exists(dir, "settings.gradle")
+	    || marker_exists(dir, "settings.gradle.kts");
+}
+
 static bool dir_has_git(const char *dir) { return marker_exists(dir, ".git"); }
 
 /* Strip the last component in place.  False at the root, which is where
@@ -243,6 +316,41 @@ bool lsp_workspace_root(
 
 /* ------------------------------- registry ----------------------------- */
 
+/* The command line an override names, and the wire it asks for.
+ *
+ * A value beginning with the token `listen-hash:` and then whitespace is
+ * the socket wire (src/lsp_transport.h) and the rest of it is the command;
+ * anything else keeps the meaning every override has always had, which is
+ * a stdio command line and nothing more.  The token is spelled the way
+ * nbcode's own option is (`--start-java-language-server=listen-hash:0`),
+ * so the recipe reads as one thing twice rather than as two names for it.
+ *
+ * Returns the command, or NULL for "there is no override here" -- which is
+ * what an empty value, and a `listen-hash:` with nothing to run after it,
+ * both mean.  `*wire` is left alone unless the token asked for it. */
+static const char *override_command(const char *value, enum lsp_wire *wire)
+{
+	static const char token[] = "listen-hash:";
+	const size_t len = sizeof(token) - 1;
+
+	if (!value || !*value) {
+		return NULL;
+	}
+	if (strncmp(value, token, len) != 0
+	    || (value[len] != ' ' && value[len] != '\t')) {
+		return value;
+	}
+	value += len;
+	while (*value == ' ' || *value == '\t') {
+		value++;
+	}
+	if (!*value) {
+		return NULL;
+	}
+	*wire = LSP_WIRE_LISTEN_HASH;
+	return value;
+}
+
 /* Start one server for `spec` in `root`.  The override wins and is a shell
  * command line (src/lsp_server.h says so to the user); the built-in spec is
  * an argv exec'd directly.  The child's working directory is the workspace
@@ -251,19 +359,20 @@ bool lsp_workspace_root(
 static struct lsp_client *spec_start(
     const struct lsp_server_spec *spec, const char *root)
 {
-	const char *override = getenv(spec->env);
+	enum lsp_wire wire = spec->wire;
+	const char *command = override_command(getenv(spec->env), &wire);
 	struct kg_spawn_request req = {
 		.directory = root,
 		.stdin_fd = -1,
 	};
 	struct lsp_client *c;
 
-	if (override && *override) {
-		req.command = override;
+	if (command) {
+		req.command = command;
 	} else {
 		req.argv = spec->argv;
 	}
-	c = lsp_client_start(&req, root);
+	c = lsp_client_start_wire(&req, root, wire);
 	/* The spec's name, not the command line's: an override points kg at
 	 * a wrapper script or a fake, and what a message about "clangd"
 	 * should say is which server kg thinks it is talking to. */
@@ -368,17 +477,60 @@ const char *lsp_server_status_text(enum lsp_server_status status)
 	return "unknown language server error";
 }
 
+/* Poll every instance, and let go of the ones that have died.
+ *
+ * The reaping is not tidiness.  A dead client holds a slot, and the only
+ * other thing that ever emptied one was a lookup of the same (spec, root)
+ * key -- so four servers that died in four different workspaces filled the
+ * registry for the rest of the session, and every buffer in a fifth was
+ * told "too many language servers are already running" while nothing was
+ * running at all.  Reclaiming here is the same lazy-restart policy taken
+ * one step further: a corpse is dropped as soon as the editor notices it,
+ * and the next command in its workspace starts a fresh server exactly as
+ * instance_find() would have made it.
+ *
+ * Dropping is safe here and nowhere earlier: lsp_client_poll() has already
+ * run every callback the death produced, and instance_drop() tells the
+ * drop hook before freeing, so the document table lets go of the client in
+ * the same breath (src/lsp_sync.h).  It is not counted as a change: the
+ * poll that killed the client already returned nonzero, and reclaiming a
+ * slot repaints nothing. */
 int lsp_server_poll_all(void)
 {
 	int changed = 0;
 	size_t i;
 
 	for (i = 0; i < LSP_SERVER_MAX_INSTANCES; i++) {
-		if (instances[i].spec) {
-			changed |= lsp_client_poll(instances[i].client);
+		if (!instances[i].spec) {
+			continue;
+		}
+		changed |= lsp_client_poll(instances[i].client);
+		if (lsp_client_state(instances[i].client) == LSP_CLIENT_DEAD) {
+			instance_drop(&instances[i], 0);
 		}
 	}
 	return changed;
+}
+
+/* src/lsp.h spells the array size as a number so it can stay free-standing;
+ * this is where that number is held to the two it is the product of. */
+static_assert(KG_LSP_WAIT_FDS_MAX
+	>= LSP_SERVER_MAX_INSTANCES * LSP_TRANSPORT_WAIT_FDS_MAX,
+    "KG_LSP_WAIT_FDS_MAX must hold every instance's every descriptor");
+
+int lsp_server_wait_fds(int *fds, int max)
+{
+	int count = 0;
+	size_t i;
+
+	for (i = 0; i < LSP_SERVER_MAX_INSTANCES; i++) {
+		if (!instances[i].spec) {
+			continue;
+		}
+		count += lsp_client_wait_fds(
+		    instances[i].client, fds + count, max - count);
+	}
+	return count;
 }
 
 void lsp_server_shutdown_all(unsigned grace_ms)

@@ -63,6 +63,11 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_LISP_PRELUDE_NS] = "lisp_prelude_ns",
 	[KG_PERF_LISP_USER_INIT_NS] = "lisp_user_init_ns",
 	[KG_PERF_LISP_PACKAGE_LOAD_NS] = "lisp_package_load_ns",
+	[KG_PERF_LSP_INBOX_READ] = "lsp_inbox_read",
+	[KG_PERF_LSP_LINES_READ] = "lsp_lines_read",
+	[KG_PERF_IDLE_WAIT] = "idle_wait",
+	[KG_PERF_IDLE_TICK] = "idle_tick",
+	[KG_PERF_IDLE_FD_WAKE] = "idle_fd_wake",
 };
 
 void kg_perf_reset(void)

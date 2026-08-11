@@ -1,0 +1,45 @@
+name: lsp-hover-echo
+# `M-x lsp-hover` asks the server what the symbol at point is and reports
+# the answer in the echo area, eldoc-style.  The server is
+# test/fake_lsp_server.py in place of clangd (KG_LSP_SERVER_C), answering
+# a MarkupContent whose value is one line, which is the case where the
+# echo area is the whole of the answer and no *lsp-hover* buffer is
+# involved.
+#
+# The backticks in the fake's answer are there to be removed: hover
+# contents are Markdown, and kg neutralises its punctuation rather than
+# rendering it, so what reaches the screen is the answer without them.
+# The answer is deliberately not a phrase the buffer itself contains,
+# since a screen assertion that the file already satisfies asserts
+# nothing.  Nothing in a server's answer becomes terminal syntax on the way
+# -- display_glyph_at() decides what every byte kg did not write looks
+# like -- and this is the visible half of that.
+#
+# The C-l after the command are the wait: the request is asynchronous by
+# design, so the case has to leave time for a Python interpreter to start,
+# handshake and reply.
+#
+# Nothing on disk changes: the answer is a message, and the saved file is
+# the initial one.
+requires_feature: lsp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --hover 'the `target` function returns one'"
+filename: hov.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-x"
+  - "lsp-hover"
+  - "RET"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "the target function returns one"

@@ -31,4 +31,20 @@ void lsp_shutdown(void);
  * way by the idle loop. */
 int lsp_poll(void);
 
+/* How many descriptors lsp_wait_fds() may write: every instance the
+ * registry holds times every descriptor a transport waits on
+ * (LSP_SERVER_MAX_INSTANCES x LSP_TRANSPORT_WAIT_FDS_MAX, which
+ * src/lsp_server.c asserts against at compile time).  Spelled as a
+ * number here rather than as those two names because this header stays
+ * free-standing, and because it is what a caller sizes an array with. */
+#define KG_LSP_WAIT_FDS_MAX 12
+
+/* The descriptors the editor's idle wait should include, so that the next
+ * lsp_poll() happens when a server writes rather than when the idle tick
+ * comes round; at most `max` are written to `fds`, and the count is the
+ * return value.  Zero from the WITH_LSP=0 half, and zero whenever nothing
+ * is running, which is a wait with only the terminal in it -- exactly what
+ * the editor waited on before this existed. */
+int lsp_wait_fds(int *fds, int max);
+
 #endif /* KG_LSP_H */

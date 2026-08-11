@@ -1,0 +1,71 @@
+name: lsp-clangd-hover
+# `M-x lsp-hover` against the real clangd, not the fake server: no `env:`
+# here, so kg spawns the `clangd` on PATH exactly as a user would get it,
+# and `requires_tool: clangd` makes a box without one SKIP with a printed
+# reason instead of failing (`--require-tools` turns that into an upfront
+# FAIL, same as tmux and the Emacs oracle).
+#
+# The fixture is test/pty/lsp-clangd-definition.yaml's, minus the header:
+# `workspace_files:` plants a compile_commands.json beside the file under
+# test, so lsp_workspace_root() finds it in the case's own temporary
+# directory and clangd is started there with a command line for main.c
+# that it agrees with.  The database's "directory" is the one field clangd
+# will not take relative, and the directory is a fresh mkdtemp, so the
+# value is written `{CWD}` and expanded when the run stages it.
+#
+# What is asserted is the *rendering*, which is the half of hover that is
+# kg's rather than the server's: clangd answers Markdown, with the
+# symbol's kind and name as an `###` heading, a horizontal rule under it
+# and the signature in a fenced code block.  kg neutralises all three --
+# the heading marker, the rule and the fences go, the backticks go -- so
+# the first line of the answer is `function local_target`, which is a
+# phrase the file itself does not contain.  A kg that passed the Markdown
+# through would show `### function ...` instead.
+#
+# Point is walked to the reference rather than searched to it, for
+# lsp-clangd-definition.yaml's reason: four M-f and one C-f put it on the
+# "l" of local_target, and an identifier's first byte is a position clangd
+# resolves without argument.
+#
+# The C-l are the wait: clangd is a real compiler front end, and the first
+# request pays for process start, the handshake and one parse of the
+# translation unit.
+requires_feature: lsp
+requires_tool: clangd
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.3
+filename: main.c
+workspace_files:
+  compile_commands.json: |
+    [
+      {
+        "directory": "{CWD}",
+        "file": "{CWD}/main.c",
+        "arguments": ["cc", "-c", "{CWD}/main.c"]
+      }
+    ]
+initial: |
+  static int local_target(int v) { return v + 2; }
+  int use(void) { return local_target(1); }
+keys:
+  - "Down"
+  - "M-f"
+  - "M-f"
+  - "M-f"
+  - "M-f"
+  - "C-f"
+  - "M-x"
+  - "lsp-hover"
+  - "RET"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  static int local_target(int v) { return v + 2; }
+  int use(void) { return local_target(1); }
+expected_screen_contains:
+  - "function local_target"

@@ -1,0 +1,49 @@
+name: lsp-go-definition-fake
+# The Go half of the mode -> spec -> environment wiring, end to end and
+# without gopls: a .go file selects Go mode, Go mode selects the gopls spec,
+# and the spec reads KG_LSP_SERVER_GO -- which points at
+# test/fake_lsp_server.py here, so what is under test is kg's table rather
+# than a language server.  A wrong environment name would exec the built-in
+# `gopls` instead, and on a box without one that is a dead client and no
+# jump at all.
+#
+# The go.mod is planted by `workspace_files:` so the root walk has a marker
+# to find in the case's own temporary directory, which is the root kg then
+# starts the server in.  It is the marker that decides, not the .git the
+# temporary directory does not have.
+#
+# The assertion is the saved file, as in lsp-definition-basic.yaml: the fake
+# answers --definition-self 3:5, a Location in the document kg itself
+# opened, and the "X" typed after the jump says which byte point landed on.
+# Line 3 character 5 in the protocol's zero-based numbering is the "u" of
+# the last line's "use".
+#
+# The two C-l are the wait: M-. sends the question and returns, so the case
+# has to leave time for a Python interpreter to start, handshake and reply,
+# and C-l is the one key that repaints without moving point.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_GO: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --definition-self 3:5"
+filename: x.go
+workspace_files:
+  go.mod: |
+    module example.com/fixture
+
+    go 1.22
+initial: |
+  package main
+
+  func target() int { return 1 }
+  func use() int { return target() }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  package main
+
+  func target() int { return 1 }
+  func Xuse() int { return target() }

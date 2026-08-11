@@ -367,7 +367,11 @@ struct editor_buffer {
 	struct kg_decor_store *decorations; /* per-buffer decoration store */
 	int active; /* 1 if this slot is in use */
 	int readonly; /* 1 if buffer is read-only */
-	int readonly_local; /* 0/1, set by local variables */
+	/* 0/1: what the file itself says, re-derived on every visit and
+	 * every revert -- the disk's write protection first, then whatever
+	 * a local variable said instead, which is the order Emacs' visit
+	 * takes (after-find-file, then normal-mode). */
+	int readonly_local;
 	int readonly_override; /* -1 none, 0 explicit writable, 1 explicit
 				  read-only */
 	char compile_command[KG_COMPILE_COMMAND_MAX];
@@ -838,6 +842,44 @@ static inline int path_parent_dir(char *path)
 	}
 	slash[slash == path ? 1 : 0] = '\0';
 	return 0;
+}
+
+/* True when a buffer visiting `path` should come up read-only -- the
+ * question Emacs' after-find-file asks first of `file-writable-p', and
+ * then again of the mode bits, because "when a file is marked read-only,
+ * make the buffer read-only even if root is looking at it".  That second
+ * test is not redundant: access(W_OK) says yes to a mode-444 file for a
+ * privileged user, and a buffer that answered only access() would let
+ * root edit a file its owner marked unwritable without ever saying so.
+ *
+ * A path with nothing behind it yet inherits its parent directory's
+ * answer, which is what file-writable-p reports for a name that does not
+ * exist -- a new file in a directory nobody may write is read-only before
+ * it is typed into, not at the save that would have failed.
+ *
+ * Deliberately a snapshot: nothing re-asks it when the mode changes
+ * later, and C-x C-q is the user's override either way, as in Emacs. */
+static inline int path_write_protected(const char *path)
+{
+	struct stat st;
+	char dir[PATH_MAX];
+
+	if (!path || !*path) {
+		return 0;
+	}
+	if (stat(path, &st) != 0) {
+		if ((size_t)snprintf(dir, sizeof(dir), "%s", path)
+		    >= sizeof(dir)) {
+			return 0;
+		}
+		if (path_parent_dir(dir) != 0) {
+			dir[0] = '.';
+			dir[1] = '\0';
+		}
+		return access(dir, W_OK) != 0;
+	}
+	return (st.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0
+	    || access(path, W_OK) != 0;
 }
 
 /* help.c */

@@ -1,0 +1,190 @@
+name: lsp-nbcode-definition
+# M-. against the real nbcode -- Oracle's NetBeans-based Java server from
+# oracle/javavscode -- reached over the listen-hash socket wire rather than
+# stdio.  `requires_tool: nbcode` makes a box without one SKIP with a
+# printed reason (`--require-tools` turns that into an upfront FAIL), and
+# utils/install-nbcode.sh is what puts that `nbcode` on PATH.
+#
+# The `env:` line IS the case.  nbcode is not a row in server_specs[] --
+# jdtls is the built-in Java default -- so it is reached the way any other
+# server is: by naming it in KG_LSP_SERVER_JAVA.  The `listen-hash:` token
+# in front of the command line is what asks for the socket wire: kg spawns
+# the command, scrapes its stdout for
+#     Java Language Server listening at port <N> with hash <H>
+# connects to 127.0.0.1:<N>, writes <H> and speaks LSP over that socket.
+# Measured by hand against this very server (utils/ has no copy; the driver
+# lives with the campaign notes): the hash is 128 lowercase hex characters
+# and is written with no trailing newline and nothing after it.
+#
+# nbcode prints TWO lines, and only the second one is the announce:
+#     Java Language Server listening at port 33887
+#     Java Language Server listening at port 33887 with hash <128 hex>
+# A scraper that stops at "listening at port (\d+)" matches the first and
+# comes away with no hash, which is why the pattern demands the " with
+# hash " part -- the same reason the reference client in
+# vscode/src/lsp/initializer.ts spells its regex that way.
+#
+# The fixture is the jdtls case's, for the same reasons: `workspace_files:`
+# plants a pom.xml beside the file under test, which is the marker
+# lsp_workspace_root() looks for and the descriptor nbcode's own project
+# support looks for, so both ends agree on the directory, and
+# <sourceDirectory> points at the project root because the file under test
+# lives beside the pom rather than in the src/main/java layout Maven
+# assumes.  Nothing is fetched from the network, so no Maven settings.xml
+# is needed here: the definition asked about is in the file itself.
+#
+# nbcode gets its own userdir per run and needs one.  NetBeans' single
+# instance handler is keyed on the userdir: two nbcode processes pointed at
+# one do not both start -- the second hands its command line to the first
+# and exits without printing a port.  Measured, eight starting at once
+# against one shared userdir: 7/8, 2/8 and 8/8 usable over three rounds,
+# against 32/32 over four rounds with a userdir each.  The wrapper
+# utils/install-nbcode.sh writes is what makes that per-run userdir, so
+# this case inherits it and says nothing about it.
+#
+# There are TWO M-. and the second is insurance, not the mechanism.
+# Servers are started lazily, so the first M-. is what spawns nbcode.
+# nbcode holds a request it cannot answer yet rather than answering it
+# empty -- measured on this box, driving the protocol exactly as kg does
+# (kg's capabilities, -32601 MethodNotFound to every server request), the
+# first textDocument/definition against this fixture was held 1.4-2.3 s and
+# then answered with the real Location, in all 49 runs measured, cold
+# userdir in all but a handful.  But that hold is bounded by nbcode's parse
+# of this file, not by the whole workspace: the same driver against a
+# two-file Maven project got `[]` from the first request in all three runs
+# and the Location only from the second.  So a second M-. is cheap cover,
+# and it cannot do harm --
+# asking for the definition of the declaration point lands on returns `[]`
+# (measured), and kg leaves point alone on an empty result.  Either way
+# point ends on the "l" of the declaration.
+#
+# The waits are 40 repaints (12.0 s) for the load and 16 (4.8 s) for the
+# answer.  Measured spawn-to-Location on this box: 3.2-3.5 s idle, and
+# 8.0-10.8 s with eight nbcode instances started at once, which is worse
+# than this suite ever does to it -- there is one nbcode case.  So the load
+# wait alone covers the loaded worst case, and the total is ~4.8x the idle
+# measurement, which is the same margin the jdtls and rust-analyzer cases
+# carry: a CI box running five sanitizer lanes and starting a JVM is not
+# this box, and the failure mode of being too quick is a case that flakes
+# rather than one that fails.  C-l is the key because it repaints without
+# moving point, so it costs a key_delay and changes nothing whether the
+# answer has arrived yet or not.
+#
+# Point is walked to the reference rather than searched to it: four Down
+# and eight C-f put it on the "l" of the indented `localTarget(1);`, and an
+# identifier's first byte is a position nbcode resolves without argument
+# (measured at that exact byte, not one past it).
+requires_feature: lsp
+requires_tool: nbcode
+backend: pexpect
+key_delay: 0.3
+filename: Fixture.java
+env:
+  KG_LSP_SERVER_JAVA: "listen-hash: nbcode --start-java-language-server=listen-hash:0"
+workspace_files:
+  pom.xml: |
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <groupId>fixture</groupId>
+      <artifactId>fixture</artifactId>
+      <version>0.1.0</version>
+      <build>
+        <sourceDirectory>${project.basedir}</sourceDirectory>
+      </build>
+    </project>
+initial: |
+  class Fixture {
+      static int localTarget(int v) { return v + 2; }
+
+      static void useIt() {
+          localTarget(1);
+      }
+
+      public static void main(String[] args) {
+          useIt();
+      }
+  }
+keys:
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  class Fixture {
+      static int XlocalTarget(int v) { return v + 2; }
+
+      static void useIt() {
+          localTarget(1);
+      }
+
+      public static void main(String[] args) {
+          useIt();
+      }
+  }

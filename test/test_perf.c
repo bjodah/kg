@@ -23,7 +23,12 @@
 #include "../src/edit.h"
 #include "../src/event.h"
 #include "../src/lisp.h"
+#ifdef KG_USE_LSP
+#include "../src/lsp_transport.h"
+#include "../src/process.h"
+#endif
 #include "../src/syntax.h"
+#include "../src/tty.h"
 #include "../src/vgeom.h"
 #include "test.h"
 #include <fcntl.h>
@@ -505,6 +510,214 @@ static void test_compilation_mirror_updates_per_read(void)
 	}
 	free(bytes);
 	teardown();
+}
+
+/* ---- The LSP transport's inbox ---- */
+
+#ifdef KG_USE_LSP
+
+/* Several complete frames in one write() cost exactly one read().
+ *
+ * The property is the inbox's whole design -- reads append to it and
+ * frames are parsed out of it, so "four messages arrived in one read" and
+ * "a header split across three reads" are the same code path
+ * (src/lsp_transport.c's opening comment) -- and it is a cost rather than
+ * a behaviour: test_lsp_transport.c's test_several_messages_from_one_read()
+ * passes just as well with LSP_TRANSPORT_READ_CHUNK set to a single byte,
+ * because the parser cannot tell where the reads fell and the transport's
+ * API does not report them.  A counter can.
+ *
+ * The child writes its three frames with one printf, so the reader sees
+ * either nothing yet (EAGAIN, which is not a read that returned bytes) or
+ * all of them: the count is one, not "one or two on a fast box". */
+static void test_batched_frames_cost_one_read(void)
+{
+	const char *argv[4] = { "/bin/sh", "-c",
+		"printf 'Content-Length: 3\\r\\n\\r\\none"
+		"Content-Length: 3\\r\\n\\r\\ntwo"
+		"Content-Length: 5\\r\\n\\r\\nthree'; sleep 2",
+		NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct timespec nap = { 0, 1000000 }; /* 1 ms */
+	struct lsp_transport *t;
+	const char *body = NULL;
+	size_t len = 0;
+	int taken = 0;
+	int spins;
+
+	kg_perf_reset();
+	t = lsp_transport_start_wire(&req, LSP_WIRE_STDIO);
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	/* Bounded rather than timed: 5000 ms of 1 ms naps is a hang
+	 * reported as a failure, not a suite that waits forever. */
+	for (spins = 0; taken < 3 && spins < 5000; spins++) {
+		while (lsp_transport_next_message(t, &body, &len) == 1) {
+			taken++;
+		}
+		if (taken < 3) {
+			nanosleep(&nap, NULL);
+		}
+	}
+	CHECK(taken == 3);
+	CHECK(counter(KG_PERF_LSP_INBOX_READ) == 1);
+	lsp_transport_close(t);
+}
+
+#endif /* KG_USE_LSP */
+
+/* ---- The editor's idle wait ---- */
+
+/* The three cases below are the evidence for the input-loop follow-up
+ * (commit 706030d's last paragraph): a language server's output is drained
+ * when the child writes it, not once per idle tick.
+ *
+ * A pipe is the right stand-in for both descriptors here.  The editor's
+ * wait cannot tell a terminal from a pipe -- it asks poll(2), which
+ * answers the same for both -- and what the announce channel actually IS
+ * is a pipe, one pipe-load at a time.  So the numbers these assert are the
+ * numbers the editor gets: KG_PERF_IDLE_FD_WAKE per pipe-load, and a tick
+ * count that does not depend on how much the child wrote.  Measured end to
+ * end on a 512 KiB pre-announce banner, before and after: 76 ticks and
+ * 6.95 s became 7 ticks, 64 fd wakes and 0.041 s. */
+
+/* Two pipes: `tty` stands in for the terminal, `child` for a server. */
+struct idle_fixture {
+	int tty[2];
+	int child[2];
+};
+
+static int idle_fixture_open(struct idle_fixture *f)
+{
+	if (pipe(f->tty) != 0) {
+		return 0;
+	}
+	if (pipe(f->child) != 0) {
+		close(f->tty[0]);
+		close(f->tty[1]);
+		return 0;
+	}
+	return 1;
+}
+
+static void idle_fixture_close(struct idle_fixture *f)
+{
+	close(f->tty[0]);
+	close(f->tty[1]);
+	close(f->child[0]);
+	close(f->child[1]);
+}
+
+/* A descriptor with bytes on it ends the wait, and is counted as the
+ * thing that ended it.  This is the whole of the change: before it, the
+ * only thing that could end a wait was the tick, so a pipe-load of a
+ * server's log waited out 100 ms whether or not it had already arrived. */
+static void test_idle_wait_ends_on_a_ready_descriptor(void)
+{
+	struct idle_fixture f;
+	int extra;
+
+	if (!idle_fixture_open(&f)) {
+		CHECK(0);
+		return;
+	}
+	extra = f.child[0];
+	CHECK(write(f.child[1], "x", 1) == 1);
+	kg_perf_reset();
+	/* A tick of 5000 ms that is never reached: a wait this returns from
+	 * at once cannot be a timeout the test slept through. */
+	CHECK(kg_idle_wait(f.tty[0], &extra, 1, 5000) == KG_IDLE_FD);
+	CHECK(counter(KG_PERF_IDLE_WAIT) == 1);
+	CHECK(counter(KG_PERF_IDLE_FD_WAKE) == 1);
+	CHECK(counter(KG_PERF_IDLE_TICK) == 0);
+	idle_fixture_close(&f);
+}
+
+/* And with nothing ready it still ends on its tick, which is what keeps
+ * the auto-revert poll, a running compilation and the process table at the
+ * cadence they had before any of this: a descriptor only ever ends a wait
+ * EARLY. */
+static void test_idle_wait_ends_on_its_tick(void)
+{
+	struct idle_fixture f;
+	int extra;
+
+	if (!idle_fixture_open(&f)) {
+		CHECK(0);
+		return;
+	}
+	extra = f.child[0];
+	kg_perf_reset();
+	CHECK(kg_idle_wait(f.tty[0], &extra, 1, 0) == KG_IDLE_TICK);
+	CHECK(counter(KG_PERF_IDLE_WAIT) == 1);
+	CHECK(counter(KG_PERF_IDLE_TICK) == 1);
+	CHECK(counter(KG_PERF_IDLE_FD_WAKE) == 0);
+	idle_fixture_close(&f);
+}
+
+/* The shape the follow-up bought, stated as a ratio: N pipe-loads of a
+ * server's pre-announce log cost N wakes and NO ticks.  Before, the same N
+ * pipe-loads cost N ticks -- N * 100 ms of latency before the editor could
+ * connect, which is where six seconds for a 512 KiB banner came from.
+ *
+ * The tick here is 5000 ms and the loop must never reach it: any tick at
+ * all would mean a pipe-load the wait did not hear about. */
+#define IDLE_PIPE_LOADS 32
+#define IDLE_PIPE_LOAD_BYTES 512
+
+static void test_pre_announce_pipe_loads_cost_wakes_not_ticks(void)
+{
+	char chunk[IDLE_PIPE_LOAD_BYTES];
+	struct idle_fixture f;
+	int extra;
+	int i;
+
+	if (!idle_fixture_open(&f)) {
+		CHECK(0);
+		return;
+	}
+	extra = f.child[0];
+	memset(chunk, 'a', sizeof(chunk));
+	kg_perf_reset();
+	for (i = 0; i < IDLE_PIPE_LOADS; i++) {
+		CHECK(write(f.child[1], chunk, sizeof(chunk))
+		    == (ssize_t)sizeof(chunk));
+		if (kg_idle_wait(f.tty[0], &extra, 1, 5000) != KG_IDLE_FD) {
+			break;
+		}
+		CHECK(read(f.child[0], chunk, sizeof(chunk))
+		    == (ssize_t)sizeof(chunk));
+	}
+	CHECK(counter(KG_PERF_IDLE_FD_WAKE) == IDLE_PIPE_LOADS);
+	CHECK(counter(KG_PERF_IDLE_WAIT) == IDLE_PIPE_LOADS);
+	CHECK(counter(KG_PERF_IDLE_TICK) == 0);
+	idle_fixture_close(&f);
+}
+
+/* A keystroke beats a ready server, because a user waiting on their own
+ * key is the one thing an editor may not make wait.  Both are ready here
+ * and the verdict is the terminal's; the server's descriptor is still
+ * ready afterwards and the next wait says so. */
+static void test_idle_wait_prefers_the_terminal(void)
+{
+	struct idle_fixture f;
+	int extra;
+
+	if (!idle_fixture_open(&f)) {
+		CHECK(0);
+		return;
+	}
+	extra = f.child[0];
+	CHECK(write(f.tty[1], "k", 1) == 1);
+	CHECK(write(f.child[1], "x", 1) == 1);
+	kg_perf_reset();
+	CHECK(kg_idle_wait(f.tty[0], &extra, 1, 5000) == KG_IDLE_KEY);
+	CHECK(counter(KG_PERF_IDLE_WAIT) == 1);
+	CHECK(counter(KG_PERF_IDLE_FD_WAKE) == 0);
+	CHECK(counter(KG_PERF_IDLE_TICK) == 0);
+	idle_fixture_close(&f);
 }
 
 /* ---- Screen append buffer ---- */
@@ -1563,6 +1776,13 @@ int main(void)
 	RUN(test_insert_row_array_growth);
 	RUN(test_special_text_append_growth);
 	RUN(test_compilation_mirror_updates_per_read);
+#ifdef KG_USE_LSP
+	RUN(test_batched_frames_cost_one_read);
+#endif
+	RUN(test_idle_wait_ends_on_a_ready_descriptor);
+	RUN(test_idle_wait_ends_on_its_tick);
+	RUN(test_pre_announce_pipe_loads_cost_wakes_not_ticks);
+	RUN(test_idle_wait_prefers_the_terminal);
 	RUN(test_frame_append_growth);
 	RUN(test_long_row_update_allocations);
 	RUN(test_typing_into_long_row_reuses_storage);

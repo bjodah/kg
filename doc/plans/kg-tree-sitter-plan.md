@@ -921,6 +921,15 @@ is not its own dependency), TypeScript and TSX (one mode, two rows,
 chosen by file-name suffix, sharing one query text that is inside both
 grammars' node inventories), Java, Rust, HTML, Emacs Lisp and Makefile.
 
+*(2026-08-10: **fourteen rows over twelve grammars.**  Go joined — the
+first of the "candidates for new cheap modes" above to be taken up —
+because the LSP follow-up that added a `gopls` server spec needed a Go
+mode to hang it on, and /opt-9's `go` **v0.25.0** was already there.
+kg's Go query is the usual shape; the two node names worth knowing are
+that one `(comment)` covers both comment spellings, and that `true`,
+`false`, `nil` and `iota` are named nodes rather than keyword tokens,
+so quoting them does not compile.)*
+
 The three grammars added to /opt-9 after this document was first
 written resolve as follows.  `elisp` is **1.6.1** and `make` is
 **v1.1.1** (both read out of the installed `.so` — there is no `.pc`

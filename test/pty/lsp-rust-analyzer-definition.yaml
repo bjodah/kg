@@ -1,0 +1,124 @@
+name: lsp-rust-analyzer-definition
+# M-. against the real rust-analyzer, not the fake server: no `env:` here,
+# so kg spawns the `rust-analyzer` on PATH exactly as a user would get it,
+# and `requires_tool: rust-analyzer` makes a box without one SKIP with a
+# printed reason (`--require-tools` turns that into an upfront FAIL).
+#
+# The fixture is what makes the workspace root real rather than incidental:
+# `workspace_files:` plants a Cargo.toml beside the file under test, which
+# is the marker lsp_workspace_root() looks for, so rust-analyzer is started
+# in the case's own temporary directory and the `cargo metadata` it runs
+# there describes the file kg is asking about.  The manifest names the
+# target's path explicitly because the file under test lives beside
+# Cargo.toml rather than in the src/ layout cargo assumes, and a file
+# rust-analyzer cannot place in the crate graph is answered "no definition
+# found" at every position in it.
+#
+# The jump asserted here is within main.rs, because the assertion is the
+# saved file and kg saves the buffer it is in.
+#
+# Point is walked to the reference rather than searched to it: three Down
+# and four C-f put it on the "l" of the indented `local_target(1)`, and an
+# identifier's first byte is a position rust-analyzer resolves without
+# argument.
+#
+# There are TWO M-. and that is the case, not a wart.  Servers are started
+# lazily, so the first one is what spawns rust-analyzer -- and rust-analyzer
+# does not queue a request it cannot answer yet: it replies immediately,
+# with an empty result, until `cargo metadata` has run, the sysroot is
+# loaded and the crate graph exists.  Measured by hand on this box against a
+# warm cargo cache, a definition request at that position answered `[]` at
+# 0.02 s, `null` at 0.6 s and the real Location at 1.7 s.  So the first M-.
+# buys the server and says "No definition found", the twenty-four idle
+# repaints after it are the load, and the second M-. is the question this
+# case is about.  clangd needs none of this (lsp-clangd-definition.yaml asks
+# once, cold, deliberately) because parsing one translation unit is all the
+# answer depends on.
+#
+# The waits are ~7.2 s for the load and ~3.0 s for the answer, against 1.7 s
+# and ~0.02 s measured: four times the measurement in the part that varies,
+# because a CI box running five sanitizer lanes and a cold cargo cache is
+# not this box, and the failure mode of being too quick is a case that
+# flakes rather than one that fails.  C-l is the key because it repaints
+# without moving point, so it costs a key_delay and changes nothing whether
+# the answer has arrived yet or not.
+requires_feature: lsp
+requires_tool: rust-analyzer
+backend: pexpect
+key_delay: 0.3
+filename: main.rs
+workspace_files:
+  Cargo.toml: |
+    [package]
+    name = "fixture"
+    version = "0.1.0"
+    edition = "2021"
+
+    [[bin]]
+    name = "fixture"
+    path = "main.rs"
+initial: |
+  fn local_target(v: i32) -> i32 { v + 2 }
+
+  fn use_it() -> i32 {
+      local_target(1)
+  }
+
+  fn main() {
+      println!("{}", use_it());
+  }
+keys:
+  - "Down"
+  - "Down"
+  - "Down"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  fn Xlocal_target(v: i32) -> i32 { v + 2 }
+
+  fn use_it() -> i32 {
+      local_target(1)
+  }
+
+  fn main() {
+      println!("{}", use_it());
+  }

@@ -5,21 +5,29 @@ name: lsp-goback
 # --definition-self 2:4, a Location in the document the client opened, so
 # point lands on the "u" of "use" on the third line.  What this case adds is
 # the return: M-, pops the departure point M-. recorded before the request
-# went out -- the very start of the buffer, where point was when the key was
-# pressed -- and puts point back there.
+# went out -- wherever point was when the key was pressed -- and puts point
+# back there.
 #
-# The saved file is the whole assertion, and it distinguishes the three
-# outcomes a screen would not.  "X" typed after M-, lands at the start of
-# line 1 only if the go-back happened; it lands in front of "use" if M-,
-# did nothing (the jump's position), and the file is unchanged from the
-# initial text nowhere -- so a case that passes cannot be a case where
-# neither key did anything.
+# Two things make the saved file able to tell the outcomes apart, and both
+# are here because an earlier version of this case could not.
+#
+# The C-n first.  Point used to start at the buffer start, and M-, returns
+# it to the buffer start, so an M-. that never jumped left the X in exactly
+# the byte a working one did -- and the case passed against a server that
+# was /bin/false.  Departing from line 2 instead separates the departure
+# point from the arrival point.
+#
+# The J second.  It is typed where the jump landed, so the file records
+# that the jump happened at all: with no server the J and the X end up side
+# by side on line 2, and with a jump that worked they are two bytes on two
+# different lines.  Markers follow text, so typing it does not disturb the
+# departure point M-, is about to return to.
 #
 # The C-l pairs are the wait, for the reason lsp-definition-basic states:
 # the request is answered in a later lsp_poll(), so the case has to leave
-# time for a Python interpreter to start, handshake and reply before M-, is
-# pressed.  M-, itself is synchronous -- it reads a marker and moves point
-# -- so the single C-l after it is a repaint, not a wait.
+# time for a Python interpreter to start, handshake and reply before J is
+# typed.  M-, itself is synchronous -- it reads a marker and moves point --
+# so the single C-l after it is a repaint, not a wait.
 requires_feature: lsp
 backend: pexpect
 key_delay: 0.35
@@ -31,13 +39,15 @@ initial: |
   int other(void) { return 2; }
   int use(void) { return target(); }
 keys:
+  - "C-n"
   - "M-."
   - "C-l"
   - "C-l"
+  - "J"
   - "M-,"
   - "C-l"
   - "X"
 expected_saved: |
-  Xint target(void) { return 1; }
-  int other(void) { return 2; }
-  int use(void) { return target(); }
+  int target(void) { return 1; }
+  Xint other(void) { return 2; }
+  int Juse(void) { return target(); }

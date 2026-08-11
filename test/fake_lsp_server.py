@@ -42,6 +42,14 @@ a test written against them stays written):
     without a body.
 ``die``
     Exit immediately, having written nothing.
+``truncated``
+    Write a header block claiming ten bytes of body and three bytes of it,
+    then exit: a frame cut in half by a server that stopped, which is what
+    a socket closing mid-message looks like from the client's side.
+
+The socket wire (``--listen-hash``) is orthogonal to all of them: it moves
+whichever mode was chosen off stdin/stdout and onto a TCP connection,
+reproducing what Oracle's nbcode does.  See ``--listen-hash`` below.
 
 Protocol mode (Stage 3): ``protocol`` speaks just enough JSON-RPC to be a
 language server -- initialize/initialized, definition, references,
@@ -88,6 +96,26 @@ Options, all of them optional:
     reason: a PTY case whose file lives in a temporary directory nobody
     named can still assert exact targets.  Takes precedence over
     ``--reference``; if no document has been opened, the answer is ``[]``.
+``--publish-diagnostic LINE:CHAR:SEVERITY:MESSAGE`` (repeatable)
+    Publish these as ``textDocument/publishDiagnostics`` for a document as
+    soon as the client opens it (``textDocument/didOpen``), which is the
+    unsolicited traffic the protocol's diagnostics are.  The range is
+    LINE:CHAR to the end of that line as the server sees it -- CHAR + the
+    length of MESSAGE is not a range anybody could predict, so the end is
+    CHAR + ``--publish-width`` (default 1).  SEVERITY is the protocol's
+    number (1 error, 2 warning, 3 information, 4 hint).  The split is from
+    the left and stops after three, so MESSAGE may contain colons.
+    The publish names the document the client just opened, so a case whose
+    file lives in a temporary directory nobody named still gets
+    diagnostics about its own file -- ``--definition-self``'s reason.
+``--publish-version N``
+    Send ``version: N`` with the publish.  Absent, no version is sent at
+    all, which is what a server that does not track them does.
+``--publish-empty-after N``
+    Publish the diagnostics above on the first didOpen, then publish an
+    empty list on the Nth ``textDocument/did*`` notification after it: a
+    server taking back what it said, which is the only way a client's
+    "replace, do not merge" semantics is observable from outside.
 ``--references-sibling NAME:LINE:CHAR`` (repeatable)
     One more Location per option, in the file NAME *beside* the document
     the client last sent, appended after ``--references-self``'s.  Same
@@ -95,6 +123,58 @@ Options, all of them optional:
     runs in -- for the answers that must name a file the editor has not
     opened, which is the only way to ask for text it has to go to disk
     for.  Ignored before a document has been opened.
+``--hover TEXT``
+    What ``textDocument/hover`` answers, as a MarkupContent whose ``kind``
+    is ``--hover-kind`` (default ``markdown``).  A literal ``\n`` in TEXT
+    becomes a newline, which is how a case asks for the multi-line answer.
+``--hover-kind markdown|plaintext``
+    The MarkupContent kind sent with ``--hover``.
+``--hover-plain``
+    Answer with a bare string instead of a MarkupContent: the protocol's
+    oldest of the three shapes, and the one a client is likeliest to
+    render as its JSON.
+``--hover-marked``
+    Answer with an array of MarkedString -- ``{language, value}`` and a
+    bare string -- which is the third shape.
+``--hover-none``
+    Answer ``textDocument/hover`` with null.
+``--rename-self LINE:START:END`` (repeatable)
+    One TextEdit per option, in the document the client last sent,
+    replacing the bytes [START, END) of LINE with the ``newName`` the
+    request itself carried -- so a case asserts the name it typed made the
+    round trip, and, as with ``--definition-self``, never has to spell the
+    temporary directory it runs in.  Without any of these (and without
+    ``--rename-sibling``) a rename request is answered with ``null``,
+    which is how a server says it will not rename that position.
+``--rename-sibling NAME:LINE:START:END`` (repeatable)
+    The same, in the file NAME *beside* the last document: the multi-file
+    half of a rename, which is the only part that proves kg opens a file
+    nobody was editing and leaves it modified.
+``--rename-shape changes|documentChanges``
+    Which of the WorkspaceEdit's two shapes to answer with (default
+    ``changes``).  ``documentChanges`` sends TextDocumentEdit objects with
+    versioned identifiers, which is what a modern server does.
+``--rename-version N``
+    The ``version`` those identifiers carry (default 1, which is the
+    version kg's first ``didOpen`` announces).  Any other value is a
+    server answering about a document the client is not holding, which a
+    client must refuse -- so this is how a test asks for that refusal.
+``--rename-resource-op KIND``
+    Add a resource operation of that kind (``create``, ``rename``,
+    ``delete``) to the ``documentChanges`` array.  kg performs none of
+    them and says how many it skipped; this is how a test sees that.
+``--completion LABEL`` (repeatable)
+    A CompletionItem with nothing but a label: the plainest shape a
+    server can answer ``textDocument/completion`` with.
+``--completion-insert LABEL:TEXT`` (repeatable)
+    An item whose ``insertText`` differs from its label.
+``--completion-edit LABEL:LINE:START:END`` (repeatable)
+    An item carrying a ``textEdit`` that replaces [START, END) of LINE
+    with the label -- the shape that tells the client where the
+    completion begins instead of leaving it to guess.
+``--completion-list``
+    Answer with a CompletionList (``{isIncomplete, items}``) rather than
+    the bare array.  Both are legal and a client has to read both.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
     The client is required to answer it with a MethodNotFound error;
@@ -125,6 +205,27 @@ Options, all of them optional:
     Exit, without replying, the moment a request for METHOD arrives: a
     server crashing with a request outstanding, which is the one death a
     client cannot notice by an answer failing to make sense.
+``--error METHOD:CODE:MESSAGE`` (repeatable)
+    Answer a request for METHOD with a JSON-RPC ``error`` object instead of
+    a ``result``: ``{"code": CODE, "message": MESSAGE}``.  A real server
+    refuses this way all the time -- clangd declines to rename a keyword,
+    a server asked about a file it failed to parse says so -- and it is
+    the one answer shape nothing else here can produce, so every "the
+    server said no" path in kg was reachable by no test.  CODE is a
+    number; MESSAGE is the rest of the value and may contain colons.
+``--empty-reply METHOD``
+    Answer a request for METHOD with ``{"jsonrpc": "2.0", "id": N}`` and
+    nothing else: a response carrying neither ``result`` nor ``error``.
+    Out of spec, and a shape a client must not confuse with "no reply will
+    ever come" -- the server is alive and has answered.
+``--close-stdout-after N``
+    Close standard output once N replies have been sent, and go on reading
+    stdin: a server that is still running with its protocol channel gone.
+    Not the same as ``--exit-after`` -- the process is alive, so nothing
+    that watches the child can notice -- and the reason it exists is that
+    the client must treat the end of the frame stream as the end of the
+    server whatever the process is doing.  It exits when its own stdin
+    ends, which is the client closing the transport.
 ``--garbage-reply METHOD``
     Answer a request for METHOD with a correctly framed message whose body
     is not JSON, and send nothing else.  The framing modes above corrupt
@@ -149,6 +250,39 @@ Options, all of them optional:
     no line and never half of one.  This is how the document-sync tests
     (Stage 4) assert the exact payload kg sent rather than an effect of it.
 
+The socket wire, available with every mode above:
+
+``--listen-hash``
+    Behave as Oracle's nbcode does when it is started with
+    ``--start-java-language-server=listen-hash:0``.  Bind a listening
+    socket on 127.0.0.1 at a port the kernel picks, print
+    ``Java Language Server listening at port PORT`` and then
+    ``Java Language Server listening at port PORT with hash HASH`` on the
+    real standard output -- both lines, in that order and in one write,
+    because that is what the real server does and the first of them is a
+    decoy: it names the port and no secret.  Then accept one connection,
+    read exactly the hash's bytes off it, and run the chosen mode with that
+    socket as its input and output.  Standard output stays a log from then
+    on, which is what nbcode's is.  A client that sends the wrong bytes
+    gets a line on standard error and exit status 2 -- the real server
+    closes the socket without a word instead, which is harder to tell from
+    a crash, so this one says so.
+``--announce-hash TEXT``
+    The hash to announce and require.  The default is 128 lowercase hex
+    characters, which is the shape nbcode's is.
+``--announce-noise TEXT`` (repeatable)
+    A line written to standard output *before* the announce: the module
+    list and progress chatter nbcode prints around it.
+``--announce-log TEXT`` (repeatable)
+    A line written to standard output *after* the connection is accepted,
+    which is where a real server's logging goes on for the rest of the
+    session.
+``--announce-pad N``
+    Write N bytes and a newline before the announce: one very long line,
+    for the client's own line bound.  A malformed announce needs no option
+    here -- a client that has to survive one is tested against a plain
+    ``printf``, which never listens for the connection that will not come.
+
 Two methods exist only for the tests, and are named with kg's own prefix so
 they cannot be confused with the protocol's:
 
@@ -164,10 +298,26 @@ they cannot be confused with the protocol's:
 import argparse
 import json
 import os
+import socket
 import sys
 import time
 
 GARBAGE = b"\x01\x02 this is not a header block\r\n\r\n"
+
+# What nbcode prints on its standard output when it is ready, measured
+# against a real one (extension 26.0.1) rather than read off its client.
+#
+# It is TWO lines, and the first one carries no hash: a client that locks
+# onto "listening at port N" has a port and no secret, and the server closes
+# on it without a word.  The hash is what makes the second line the
+# announce.  The same process also prints a `Debug Server Adapter listening
+# at port ... with hash ...` for its debug adapter, which is why the leading
+# words are part of the pattern rather than noise around it.
+ANNOUNCE_BARE = "Java Language Server listening at port %d"
+ANNOUNCE = "Java Language Server listening at port %d with hash %s"
+
+# 128 lowercase hex characters, which is the shape nbcode's is.
+DEFAULT_HASH = ("6ff0b7a12c334d0e9a7f5b1e8c4d2a90" * 4)
 
 # A body that is framed correctly and is not JSON: --garbage-reply's whole
 # payload.  Deliberately not "almost JSON" -- the client's contract is that
@@ -263,6 +413,10 @@ def mode_die(_stdin, _stdout, _args):
     return
 
 
+def mode_truncated(_stdin, stdout, _args):
+    write_all(stdout, b"Content-Length: 10\r\n\r\nabc")
+
+
 def parse_location(spec):
     """``URI:LINE:CHAR`` into a Location, splitting from the right so a
     ``file://`` URI's own colon stays where it is."""
@@ -285,6 +439,10 @@ class Protocol:
         # The URI of the document the client last told this server about,
         # which is what --definition-self answers in.
         self.last_uri = None
+        # How many textDocument/did* notifications have arrived, which is
+        # what --publish-empty-after counts.
+        self.did_count = 0
+        self.published = False
 
     def send(self, message):
         write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
@@ -301,6 +459,24 @@ class Protocol:
             raise SystemExit(0)
         if self.args.exit_after and self.replies >= self.args.exit_after:
             raise SystemExit(0)
+        if (self.args.close_stdout_after
+                and self.replies >= self.args.close_stdout_after):
+            # Alive, reading, and unable to say anything ever again.
+            os.close(1)
+
+    def error_reply(self, method):
+        """The `{"code": ..., "message": ...}` --error asked for, or None."""
+        for spec in self.args.error_reply:
+            name, _, rest = spec.partition(":")
+            code, _, message = rest.partition(":")
+            if name == method:
+                return {"code": int(code), "message": message}
+        return None
+
+    def refuse(self, request_id, method):
+        self.send({"jsonrpc": "2.0", "id": request_id,
+                   "error": self.error_reply(method)})
+        self.replies += 1
 
     def greet(self):
         """The unsolicited traffic, sent once, before the first reply."""
@@ -324,6 +500,9 @@ class Protocol:
                 },
                 "definitionProvider": True,
                 "referencesProvider": True,
+                "hoverProvider": True,
+                "renameProvider": True,
+                "completionProvider": {"triggerCharacters": ["."]},
             },
             "serverInfo": {"name": "fake_lsp_server"},
         }
@@ -347,6 +526,12 @@ class Protocol:
                         + self.sibling_locations(
                             self.args.references_sibling))
             return [parse_location(r) for r in self.args.reference]
+        if method == "textDocument/hover":
+            return self.hover_result()
+        if method == "textDocument/rename":
+            return self.rename_result(params)
+        if method == "textDocument/completion":
+            return self.completion_result()
         if method == "kg/echo":
             return params
         if method == "kg/state":
@@ -355,6 +540,126 @@ class Protocol:
         if method == "shutdown":
             return None
         return None
+
+    def hover_result(self):
+        """Hover.contents in whichever of the three shapes was asked for."""
+        if self.args.hover_none:
+            return None
+        text = (self.args.hover or "").replace("\\n", "\n")
+        if self.args.hover_marked:
+            return {"contents": [{"language": "c", "value": text},
+                                 "and a bare string"]}
+        if self.args.hover_plain:
+            return {"contents": text}
+        return {"contents": {"kind": self.args.hover_kind, "value": text}}
+
+    def diagnostics(self):
+        """--publish-diagnostic as protocol Diagnostic objects."""
+        out = []
+        for spec in self.args.publish_diagnostic:
+            line, char, severity, message = spec.split(":", 3)
+            start = {"line": int(line), "character": int(char)}
+            end = {"line": int(line),
+                   "character": int(char) + self.args.publish_width}
+            out.append({"range": {"start": start, "end": end},
+                        "severity": int(severity),
+                        "source": "fake_lsp_server",
+                        "message": message})
+        return out
+
+    def publish(self, diagnostics):
+        """One textDocument/publishDiagnostics notification."""
+        params = {"uri": self.last_uri, "diagnostics": diagnostics}
+        if self.args.publish_version is not None:
+            params["version"] = self.args.publish_version
+        self.send({"jsonrpc": "2.0",
+                   "method": "textDocument/publishDiagnostics",
+                   "params": params})
+
+    def maybe_publish(self, method):
+        """The unsolicited diagnostics traffic, driven by the client's own
+        document notifications: the first didOpen publishes what argv
+        asked for, and --publish-empty-after takes it back later."""
+        if not self.args.publish_diagnostic or not self.last_uri:
+            return
+        if not method.startswith("textDocument/did"):
+            return
+        self.did_count += 1
+        if not self.published:
+            self.published = True
+            self.publish(self.diagnostics())
+            return
+        if (self.args.publish_empty_after
+                and self.did_count > self.args.publish_empty_after):
+            self.publish([])
+
+    def text_edits(self, specs, new_text):
+        """One TextEdit per LINE:START:END spec."""
+        out = []
+        for spec in specs:
+            line, start, end = (int(n) for n in spec.split(":"))
+            out.append({"range": {"start": {"line": line,
+                                            "character": start},
+                                  "end": {"line": line, "character": end}},
+                        "newText": new_text})
+        return out
+
+    def sibling_uri(self, name):
+        return self.last_uri.rsplit("/", 1)[0] + "/" + name
+
+    def rename_edits(self, new_text):
+        """(uri, edits) pairs for every --rename-* option, in order."""
+        pairs = []
+        if self.args.rename_self:
+            pairs.append((self.last_uri,
+                          self.text_edits(self.args.rename_self, new_text)))
+        grouped = {}
+        for spec in self.args.rename_sibling:
+            name, rest = spec.split(":", 1)
+            grouped.setdefault(name, []).append(rest)
+        for name, specs in grouped.items():
+            pairs.append((self.sibling_uri(name),
+                          self.text_edits(specs, new_text)))
+        return pairs
+
+    def rename_result(self, params):
+        """A WorkspaceEdit in whichever shape --rename-shape asked for."""
+        if not self.last_uri:
+            return None
+        new_text = (params or {}).get("newName", "renamed")
+        pairs = self.rename_edits(new_text)
+        if not pairs and not self.args.rename_resource_op:
+            return None
+        if self.args.rename_shape == "changes":
+            return {"changes": {uri: edits for uri, edits in pairs}}
+        changes = [{"textDocument": {"uri": uri,
+                                     "version": self.args.rename_version},
+                    "edits": edits} for uri, edits in pairs]
+        if self.args.rename_resource_op:
+            changes.append({"kind": self.args.rename_resource_op,
+                            "uri": self.sibling_uri("created.c")})
+        return {"documentChanges": changes}
+
+    def completion_result(self):
+        """The canned candidate set, as an array or a CompletionList."""
+        items = []
+        for spec in self.args.completion_edit:
+            label, line, start, end = spec.split(":")
+            position = {"line": int(line), "character": int(start)}
+            items.append({"label": label,
+                          "textEdit": {
+                              "range": {"start": position,
+                                        "end": {"line": int(line),
+                                                "character": int(end)}},
+                              "newText": label}})
+        for spec in self.args.completion_insert:
+            label, text = spec.split(":", 1)
+            items.append({"label": label, "insertText": text})
+        for label in self.args.completion:
+            items.append({"label": label})
+        if self.args.completion_list:
+            return {"isIncomplete": False, "items": items}
+        return items
 
     def echo_location(self, params):
         """A Location at exactly the position the request asked about.
@@ -453,6 +758,7 @@ class Protocol:
         if method.startswith("textDocument/"):
             self.note_document(message)
         self.record(message)
+        self.maybe_publish(method)
         self.greet()
         if self.args.die_on and method == self.args.die_on:
             raise SystemExit(1)
@@ -465,6 +771,13 @@ class Protocol:
             return
         if self.args.garbage_reply and method == self.args.garbage_reply:
             write_all(self.stdout, frame(GARBAGE_BODY))
+            return
+        if self.error_reply(method):
+            self.refuse(message["id"], method)
+            return
+        if self.args.empty_reply and method == self.args.empty_reply:
+            self.send({"jsonrpc": "2.0", "id": message["id"]})
+            self.replies += 1
             return
         result = self.canned(method, message.get("params"))
         if self.args.reverse_pairs and method == "kg/echo":
@@ -502,8 +815,61 @@ MODES = {
     "garbage": mode_garbage,
     "huge-header": mode_huge_header,
     "die": mode_die,
+    "truncated": mode_truncated,
     "protocol": mode_protocol,
 }
+
+
+def announce_lines(lines):
+    """Log noise on the real standard output, one line at a time."""
+    for line in lines:
+        sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+def read_hash(connection, expected):
+    """The handshake: exactly the announced hash's bytes, and nothing about
+    them is framed, so the count is the whole of what says where it ends."""
+    got = b""
+    while len(got) < len(expected):
+        chunk = connection.recv(len(expected) - len(got))
+        if not chunk:
+            break
+        got += chunk
+    if got != expected:
+        sys.stderr.write(
+            "fake_lsp_server: handshake was %r, expected %r\n"
+            % (got, expected))
+        sys.stderr.flush()
+        raise SystemExit(2)
+
+
+def listen_hash(args):
+    """nbcode's wire: announce a port and a hash, take one connection that
+    proves it read them, and hand back that socket as the frame stream.
+
+    Everything before the handshake is on the real standard output, which
+    is what makes this reproduce the shape rather than describe it: the
+    client has to read lines out of a channel that is not the protocol's,
+    find one among them, and connect."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    announce_lines(args.announce_noise)
+    if args.announce_pad:
+        announce_lines(["x" * args.announce_pad])
+    # Both lines, in nbcode's order and in one write, so a client that acts
+    # on the first one is caught here rather than against the real server.
+    announce_lines([ANNOUNCE_BARE % port,
+                    ANNOUNCE % (port, args.announce_hash)])
+
+    connection, _ = listener.accept()
+    listener.close()
+    read_hash(connection, args.announce_hash.encode("utf-8"))
+    announce_lines(args.announce_log)
+    return connection.makefile("rb"), connection.makefile("wb")
 
 
 def main(argv):
@@ -542,6 +908,54 @@ def main(argv):
     parser.add_argument("--references-sibling", action="append", default=[],
                         help="NAME:LINE:CHAR beside the last document, "
                              "appended to the references answer")
+    parser.add_argument("--publish-diagnostic", action="append", default=[],
+                        help="LINE:CHAR:SEVERITY:MESSAGE published for the "
+                             "document the client opens")
+    parser.add_argument("--publish-width", type=int, default=1,
+                        help="characters a published diagnostic's range "
+                             "covers")
+    parser.add_argument("--publish-version", type=int, default=None,
+                        help="version sent with the publish")
+    parser.add_argument("--publish-empty-after", type=int, default=0,
+                        help="publish an empty list after this many "
+                             "textDocument/did* notifications")
+    parser.add_argument("--hover", default=None,
+                        help="text answered to hover requests; \\n is a "
+                             "newline")
+    parser.add_argument("--hover-kind", default="markdown",
+                        choices=["markdown", "plaintext"],
+                        help="MarkupContent kind sent with --hover")
+    parser.add_argument("--hover-plain", action="store_true",
+                        help="answer hover with a bare string")
+    parser.add_argument("--hover-marked", action="store_true",
+                        help="answer hover with an array of MarkedString")
+    parser.add_argument("--hover-none", action="store_true",
+                        help="answer hover requests with null")
+    parser.add_argument("--rename-self", action="append", default=[],
+                        help="LINE:START:END replaced in the last document "
+                             "by a rename request's newName")
+    parser.add_argument("--rename-sibling", action="append", default=[],
+                        help="NAME:LINE:START:END replaced in a file beside "
+                             "the last document")
+    parser.add_argument("--rename-shape", default="changes",
+                        choices=["changes", "documentChanges"],
+                        help="which WorkspaceEdit shape to answer with")
+    # --- added with the WorkspaceEdit staleness fixes (lsp_edit) ---
+    parser.add_argument("--rename-version", type=int, default=1,
+                        help="version the documentChanges identifiers carry")
+    # --- end ---
+    parser.add_argument("--rename-resource-op", default=None,
+                        choices=["create", "rename", "delete"],
+                        help="add a resource operation to documentChanges")
+    parser.add_argument("--completion", action="append", default=[],
+                        help="label of a bare CompletionItem")
+    parser.add_argument("--completion-insert", action="append", default=[],
+                        help="LABEL:TEXT of an item with an insertText")
+    parser.add_argument("--completion-edit", action="append", default=[],
+                        help="LABEL:LINE:START:END of an item with a "
+                             "textEdit")
+    parser.add_argument("--completion-list", action="store_true",
+                        help="answer completion with a CompletionList")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
     parser.add_argument("--notify", default=None,
@@ -560,6 +974,16 @@ def main(argv):
                         help="exit once this many replies have been sent")
     parser.add_argument("--die-on", default=None,
                         help="exit without replying when this method arrives")
+    parser.add_argument("--error", dest="error_reply", action="append",
+                        default=[],
+                        help="METHOD:CODE:MESSAGE answered as a JSON-RPC "
+                             "error object")
+    parser.add_argument("--empty-reply", default=None,
+                        help="answer this method with neither a result nor "
+                             "an error")
+    parser.add_argument("--close-stdout-after", type=int, default=0,
+                        help="close stdout, without exiting, once this many "
+                             "replies have been sent")
     parser.add_argument("--garbage-reply", default=None,
                         help="answer this method with a framed non-JSON body")
     parser.add_argument("--huge-after", type=int, default=0,
@@ -570,8 +994,25 @@ def main(argv):
     parser.add_argument("--record", default=None,
                         help="file to append received didOpen/didChange/"
                              "didClose params to, one JSON object per line")
+    parser.add_argument("--listen-hash", action="store_true",
+                        help="speak the chosen mode over a TCP socket "
+                             "announced on stdout, as nbcode does")
+    parser.add_argument("--announce-hash", default=DEFAULT_HASH,
+                        help="hash to announce and require (--listen-hash)")
+    parser.add_argument("--announce-noise", action="append", default=[],
+                        help="line written to stdout before the announce")
+    parser.add_argument("--announce-log", action="append", default=[],
+                        help="line written to stdout after the connection "
+                             "is accepted")
+    parser.add_argument("--announce-pad", type=int, default=0,
+                        help="bytes of one long line written before the "
+                             "announce")
     args = parser.parse_args(argv[1:])
-    MODES[args.mode](sys.stdin.buffer, sys.stdout.buffer, args)
+    if args.listen_hash:
+        stdin, stdout = listen_hash(args)
+    else:
+        stdin, stdout = sys.stdin.buffer, sys.stdout.buffer
+    MODES[args.mode](stdin, stdout, args)
     return 0
 
 

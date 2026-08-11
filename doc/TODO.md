@@ -45,7 +45,8 @@ This file remains the broader feature and technical-debt inventory.
       Left undone on purpose: case-fold matching and case-pattern fitting,
       the major mode's syntax table as the word definition (kg uses its own
       ASCII one), and continuing into other buffers.
-- [ ] "M-/" should have an atomic undo operation.
+- [½] "M-/" should have an atomic undo operation [done], and after undo pointer
+      should be restored to where the "M-/" was invoked [left-to-do].
 - [ ] M-x has no exact-match-wins rule: RET runs the first prefix match
       in table order, and static commands sort ahead of Lisp ones, so
       the exact name of a user command can be shadowed by a longer
@@ -100,6 +101,18 @@ done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
+- ~~**A buffer visiting an unwritable file should be read-only**~~
+  Done: `buf_apply_local_settings()` derives `readonly_local` from
+  `path_write_protected()` before it reads the file's own variables --
+  the order Emacs' `after-find-file` then `normal-mode` takes -- so
+  every visit and every revert re-asks it, a local `buffer-read-only`
+  still overrides it and `C-x C-q` outranks both.  The predicate asks
+  the mode bits as well as `access(W_OK)`, which is Emacs' "even if root
+  is looking at it" clause and the reason the tests mean something in a
+  container running as uid 0.  Nothing was needed on the LSP side
+  (adversarial review 2026-08-10, finding 12): `obeys_readonly` and the
+  all-or-nothing WorkspaceEdit validation refuse a mode-444 target on
+  their own once the flag is set.
 - ~~**Result previews in `*xref*`.**~~  Done: the listing ships as
   `path:line:col: preview`, the preview coming from `src/fileline.h`'s
   `kg_file_line_preview()` -- an open buffer's own row when one visits the
@@ -119,17 +132,144 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       lines, the timeouts and the reason a client died are appended to
       `*lsp-log*` with the server's name in front.  Created lazily, never
       selected, last 64 KiB kept.
-- **A fuzz target for the frame parser.**  `lsp_transport.c`'s
-  Content-Length framing is the one place kg parses bytes from a process
-  it did not write; the five existing targets are the pattern
-  (`test/fuzz_*.c`, tracked seeds under `test/fuzz-seeds/`).
-- **More server specs.**  `gopls` and `rust-analyzer` are one row each in
-  `server_specs[]` plus a marker predicate (`go.mod`, `Cargo.toml`) and
-  the `KG_LSP_SERVER_<MODE>` name that follows from the mode.
-- **The rest of the protocol**, in the order it would be worth having:
-  diagnostics (which need a decoration channel and an error list, not
-  just a request), hover, rename, completion.  All were out of scope by
-  the plan, not by accident.
+- [x] **The editor's input loop should wait on a server, not on a clock.**
+      Done 2026-08-11, the follow-up commit 706030d left open once the
+      `*lsp-log*` trim stopped being the bottleneck.  `read_key_byte()`'s
+      idle path used to be a `read()` under `VMIN=0/VTIME=1` and nothing
+      else, so a language server's pipe was drained once per 100 ms
+      timeout -- one pipe-load a tick, and 512 KiB of pre-announce banner
+      cost 6.95 s before kg could connect.  The wait is now a `poll()`
+      over the terminal AND every live transport's descriptors
+      (`lsp_wait_fds()` -> `lsp_transport_wait_fds()`, `src/tty.h`), so a
+      pipe-load costs a wakeup instead of a tick: 200 KiB 2.78 s ->
+      0.014 s, 512 KiB 6.95 s -> 0.041 s, against the 0.03 s a
+      zero-latency-tick build measured as the floor.  The tick itself is
+      unchanged and so is everything hanging off it -- auto-revert, a
+      running compilation, the process table still run once per 100 ms,
+      and a descriptor only ever ends a wait EARLY -- which is what keeps
+      the escape-merge window and paste detection measuring what they
+      always measured.  Pinned by `KG_PERF_IDLE_*` and four cases in
+      `test/test_perf.c`: N pipe-loads cost N wakes and no ticks.
+- [x] **A fuzz target for the frame parser.**  Done 2026-08-10:
+      `test/fuzz_lsp_frames.c` is the sixth libFuzzer target, and its
+      input is the raw byte stream a server writes on its stdout --
+      written into a pipe whose read end is the real transport's, so what
+      runs is `lsp_transport.c`'s own read-and-frame loop and not a model
+      of it.  The seam is `lsp_transport_attach_fuzz_fd()`, compiled only
+      under `KG_FUZZ`, because the shipped constructor forks a server per
+      input.  Every delivered frame goes on to `lsp_json_parse()`, which
+      is what the client does with it.  Ten tracked seeds under
+      `test/fuzz-seeds/lsp_frames`; `make fuzz-lsp-frames-smoke` is in
+      the aggregate `fuzz-smoke` that `.ci/ci-09` runs.
+- [x] **More server specs.**  Done 2026-08-10: `gopls` and `rust-analyzer`
+      are a row each in `server_specs[]` with a marker predicate
+      (`go.mod` or `go.work`; `Cargo.toml`) and the environment override
+      the mode's name gives (`KG_LSP_SERVER_GO`, `KG_LSP_SERVER_RUST`).
+      Go needed a mode first -- `KG_MODE_GO`, `.go`, `//`, its own keyword
+      set for the legacy scanner and a row in the tree-sitter registry
+      against /opt-9's `go` v0.25.0, which was one of the grammars the
+      tree-sitter plan left as a candidate for a cheap new mode.  The
+      nearest marker wins, which is the root each language's own tooling
+      resolves from: a module inside a `go.work`, a member inside a Cargo
+      workspace.  Covered by root-walk cases in `test/test_lsp_client.c`,
+      a fake-server PTY case each for the mode -> spec -> environment
+      wiring, and a real-server case each behind `requires_tool:`.
+      Java followed on the same shape: `jdtls` against `KG_LSP_SERVER_JAVA`,
+      markers `pom.xml`, `build.gradle`, `build.gradle.kts`,
+      `settings.gradle` and `settings.gradle.kts` -- jdt.ls's own Maven and
+      Gradle importers' descriptors -- plus `utils/install-jdtls.sh`,
+      because jdt.ls ships as a tarball and nothing packages it.
+- [x] **A `KG_LSP_SERVER_JAVA` recipe for Oracle's nbcode.**  Done
+      2026-08-10, and it took both halves of one campaign.  The
+      NetBeans-based server in `oracle/javavscode` is the other real Java
+      server and it does not speak LSP on stdio: started with
+      `--start-java-language-server=listen-hash:0` it prints a port and a
+      hash on stdout and waits to be connected to, and the client opens a
+      TCP socket to `127.0.0.1:<port>` and writes the hash before the
+      first LSP byte.  So the client grew a second wire --
+      `LSP_WIRE_LISTEN_HASH` in `src/lsp_transport.c` scans the child's
+      stdout for the announce line, connects non-blocking, writes the hash
+      and then frames over the socket, with the child's stdout becoming a
+      `*lsp-log*` channel beside its standard error.  A
+      `KG_LSP_SERVER_<MODE>` value beginning with the token `listen-hash:`
+      means "the rest is the command line, and the socket handshake is how
+      to reach it", while any other value keeps its stdio meaning; and
+      `utils/install-nbcode.sh` grew beside `install-jdtls.sh` to put an
+      `nbcode` on PATH.  `jdtls` stays the built-in Java default: nbcode
+      is reached by naming it, not by a row in `server_specs[]`.
+      Building NetBeans from source turned out not to be the price of
+      entry, which is what made this cheap: the extension published on
+      open-vsx.org is a zip with a complete NetBeans runtime in
+      `extension/nbcode`, so the default route downloads and unpacks that
+      and `--from-source` is the slow alternative rather than the only
+      way.  The wrapper the installer writes gives each run its own
+      userdir because NetBeans' single-instance handler is keyed on it --
+      two nbcode processes sharing one do not both start, and the loser
+      exits without printing a port.  Covered by socket cases in
+      `test/test_lsp_transport.c` against `test/fake_lsp_server.py
+      --listen-hash`, two fake-server PTY cases (a definition through the
+      fake, and a server that never announces), and
+      `test/pty/lsp-nbcode-definition.yaml` behind `requires_tool:
+      nbcode`.
+- [x] **The rest of the protocol.**  Diagnostics, hover, rename and
+      completion were all out of scope by the plan, not by accident; all
+      four are done (2026-08-10):
+  - [x] **Diagnostics.**  Done 2026-08-10: the client layer grew one
+        module-level notification hook, in the shape of its log hook, and
+        `src/lsp_diag.c` is what listens.  A publish replaces that file's
+        diagnostics wholesale (the protocol's rule) unless its `version`
+        is older than the last one seen; the store is keyed on the path,
+        so a diagnostic outlives the buffer it is about.  Positions are
+        kept in the server's encoding and decoded against the target
+        row's bytes at paint time, which is `src/xref.c`'s conversion
+        mirrored.  Every diagnostic is a `KG_DECOR_FACE_WARNING`
+        decoration in whatever buffer visits the file -- severity picks
+        the priority, not the colour, since the renderer's colour channel
+        is one foreground number and that face is already the red an
+        error wants -- and `M-x lsp-diagnostics` lists them all in
+        `*Diagnostics*`, next-error keys included.
+  - [x] **Hover.**  Done 2026-08-10: `M-x lsp-hover`, through the same
+        deferred-request/send-time-encoding path `M-.` uses.  All three
+        `contents` shapes are rendered to plain text with Markdown
+        neutralised; the first line goes to the echo area and a
+        multi-line answer goes whole to `*lsp-hover*`, which is
+        `*lsp-log*`'s never-selected policy.  No key: kg has no eldoc and
+        Emacs has no binding either.
+  - [x] **`M-x lsp-rename`.**  `textDocument/rename`, and a WorkspaceEdit
+        applied in either shape (`changes`, `documentChanges`;
+        resource operations counted and skipped, an answer that cannot be
+        read in full applied not at all).  Every occurrence in one buffer
+        is one replacement of the span they lie in, which is what makes a
+        rename one undo record on a stack that has no group bracket --
+        and what makes markers strictly inside that span collapse to its
+        start, the cost the note in `src/lsp_edit.h` names.  A file no
+        buffer visits is opened, edited and left unsaved.
+        The promise above -- an answer that cannot be applied in full
+        applied not at all -- became true of the *application* too in the
+        2026-08-11 sweep: the whole edit is resolved and checked (every
+        file opens, every buffer is writable and still holds the text the
+        server was answering about, every range is inside it, no two
+        overlap) before one byte is written, a failure refuses all of it
+        and closes what it opened only to look at, and the one failure
+        that can still land midway is reported as one instead of being
+        overwritten by a success line.  Positions outside the document
+        are refused rather than clamped -- a clamp turned a stale range
+        into an append and called it a rename -- equal-position edits
+        keep the array order the protocol says decides, and a versioned
+        `documentChanges` whose version is not the one kg last sent is
+        refused, which is eglot's check.
+  - [x] **`M-TAB` (`completion-at-point`).**  `textDocument/completion`,
+        with the server's own `textEdit` range preferred over kg's word
+        scan for what is being completed, `sortText` ordering, and Emacs'
+        three outcomes (insert, extend by the common prefix, list in
+        `*Completions*`).  An answer whose buffer moved while the server
+        was thinking is refused, the same staleness check the rename
+        makes, since kg's completion -- unlike Emacs', which computes and
+        consumes its candidates inside one command -- arrives in a later
+        poll.  The listing is passive: a mode map for it
+        wants the mode registry the last bullet of this section asks for,
+        and Emacs' "close it as you type" wants a post-command hook kg
+        has no place for yet.
 - **Lisp bindings for the xref commands.**  They are deliberately not in
   the `CMD_LISP_CALLABLE` set while the command set settles.
 - **The mode-map overlap cleanup.**  `*compilation*` is read-only, so the
@@ -142,7 +282,15 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   added when `*Occur*` became the third such buffer.  That is the shape
   of the answer, not the answer: a real mode registry owning the table,
   with the predicates and the buffer names on the modes rather than in
-  kbd.c, is still what this wants.
+  kbd.c, is still what this wants.  Read-only-on-unwritable (2026-08-11)
+  made the overlap cheaper to reach: any ordinary file buffer visiting a
+  write-protected file is now read-only without the user typing
+  `C-x C-q`, so `MODE_MAP_BUFFER_LIST` is live there and its `q` closes
+  the window instead of saying "Buffer is read-only" (`RET` stays
+  harmless only because `ibuffer-visit-buffer` checks the buffer's
+  syntax first).  Keying that map on the `*Buffer List*` name is the
+  fix, and it belongs to this cleanup rather than to the read-only
+  change that exposed it.
 
 ## Tree-sitter follow-ups (v1 landed 2026-08-08)
 
